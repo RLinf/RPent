@@ -23,11 +23,7 @@ from typing import Any
 
 import numpy as np
 
-from robots.franka.runtime_config import (
-    DEFAULT_CALIBRATION_PATH,
-    load_runtime_config,
-    set_calibration_path,
-)
+from robots.franka.runtime_config import load_runtime_config
 from rpent.robots.components.env_facade_base import BaseEnvFacade
 from rpent.utils.logging import get_logger
 from rpent.utils.serialization import to_numpy_tree
@@ -84,7 +80,7 @@ class _RayBackend:
 
 def _create_worker_class():
     """Build the Worker subclass only inside the RLinf server environment."""
-    from rlinf.envs.realworld.realworld_env import RealWorldEnv
+    from rlinf.envs.real.env import RealWorldEnv
     from rlinf.scheduler import Worker
     from scipy.spatial.transform import Rotation as Rotation
 
@@ -159,6 +155,10 @@ def _create_worker_class():
                     output[key] = value[0]
             return output
 
+        def _raw_rlinf_env(self) -> Any:
+            """Return RPent's unwrapped RLinf environment compatibility layer."""
+            return self.env.env.envs[0].unwrapped
+
         def get_observation(self) -> dict[str, Any]:
             # Live camera read only; proprio state is supplied by the client cache.
             try:
@@ -173,8 +173,7 @@ def _create_worker_class():
             Frames pass through the observation wrappers unchanged, so re-reading
             them without a robot step yields the same format as a stepped obs.
             """
-            getter = self.env.env.call("get_wrapper_attr", "_get_camera_observation")[0]
-            frames, depths = getter()
+            frames, depths = self._raw_rlinf_env().get_live_camera_observation()
             main_key = self.cfg.env.eval.get("main_image_key")
             output: dict[str, Any] = {"main_images": np.asarray(frames[main_key])}
             extras = [
@@ -210,7 +209,7 @@ def _create_worker_class():
 
         def get_camera_meta(self) -> dict[str, Any] | None:
             try:
-                metadata = self.env.env.call("get_camera_metadata")[0]
+                metadata = self._raw_rlinf_env().get_camera_metadata()
             except Exception as exc:
                 return {"error": str(exc), "error_type": type(exc).__name__}
             metadata = to_numpy_tree(metadata)
@@ -236,7 +235,7 @@ def _create_worker_class():
             twist[:3] = delta_xyz / max(float(self.action_scale[0]), 1e-6)
             twist[3:6] = delta_rpy / max(float(self.action_scale[1]), 1e-6)
             if frame == "base" and self.use_relative_frame:
-                from rlinf.envs.realworld.franka.utils import construct_adjoint_matrix
+                from rlinf.envs.real.utils.pose import construct_adjoint_matrix
 
                 twist = (
                     np.linalg.inv(construct_adjoint_matrix(self._raw_tcp_pose()))
@@ -432,14 +431,6 @@ def main(
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--robot-config", default=None)
-    parser.add_argument(
-        "--calibration-path",
-        default=str(DEFAULT_CALIBRATION_PATH),
-        help=(
-            "Path to hand_eye_calibration.json. Dual-Franka uses this inside "
-            "the env server to expose agent-facing TCP poses in right_base."
-        ),
-    )
     parser.add_argument("--task-description", required=True)
     parser.add_argument("--parent-watch", action="store_true")
     parser.add_argument(
@@ -449,7 +440,6 @@ def main(
     )
     args = parser.parse_args()
 
-    set_calibration_path(args.calibration_path)
     runtime = load_runtime_config(
         args.robot_config,
         task_description=args.task_description,

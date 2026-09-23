@@ -59,8 +59,8 @@ _MOTION_TOOLS = {
 class DualFrankaToolkit(FrankaToolkit):
     """Dual-arm tools with operator-gated exploration.
 
-    Hardware observations keep their original format. Operator decisions and
-    attempt boundaries are additional artifacts, not simulator termination flags.
+    Operator decisions and attempt boundaries are recorded as artifacts rather
+    than simulator termination flags.
     """
 
     _tools_module = dual_franka_tools
@@ -420,7 +420,6 @@ class DualFrankaToolkit(FrankaToolkit):
             }
             self.state.save("exploration.json", status)
             output.data["exploration"] = status
-            # Propagate lifecycle errors to the planner.
             if result.get("error"):
                 output.error = result["error"]
             return output

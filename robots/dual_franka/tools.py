@@ -580,7 +580,7 @@ def view_env_state(
     *,
     state: EnvState,
 ) -> ToolResult:
-    """Read a dual-Franka state snapshot. The D455 image is returned inline; left_wrist, base, and right_wrist are returned as artifact paths for targeted read_image inspection."""
+    """Read a dual-Franka state snapshot. Configured inline camera views are returned directly; other available views are returned as artifact paths; use read_image to inspect these artifacts."""
     images: list[bytes] = []
     record = state.get(step)
     output = record.to_blob()

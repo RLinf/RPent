@@ -105,7 +105,7 @@ libero-plus = [
     "h5py",
 ]
 franka = [
-    "rlinf[franka] @ git+https://github.com/jx-qiu/RLinf.git@port/franka",
+    "rlinf[franka] @ git+https://github.com/RLinf/RLinf.git@bde6c918642abf9a4776cb1d5fabcc5087dfe195",
     "rpent-openpi @ git+https://github.com/RLinf/openpi.git@rpent",
     "franky-control @ https://github.com/Brunch-Life/franky/releases/download/wheels-libfranka-0.19.0/franky_control-1.1.3-cp310-cp310-manylinux_2_28_x86_64.whl ; python_version == '3.10' and sys_platform == 'linux' and platform_machine == 'x86_64'",
     "franky-control @ https://github.com/Brunch-Life/franky/releases/download/wheels-libfranka-0.19.0/franky_control-1.1.3-cp311-cp311-manylinux_2_28_x86_64.whl ; python_version == '3.11' and sys_platform == 'linux' and platform_machine == 'x86_64'",
