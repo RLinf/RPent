@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 
+import numpy as np
 import pytest
 
 from robots.libero.robot_spec import get_robot_spec
@@ -83,3 +84,17 @@ def test_cosmos_policy_chain(tmp_path) -> None:
     )
     assert result["status"] == "passed"
     assert list((tmp_path / "chain" / "agentview_high.png").glob("*.png"))
+
+
+def test_libero_horizon_excludes_reset_settling(tmp_path) -> None:
+    """Reset settling must not consume the configured policy action horizon."""
+    spec = get_robot_spec()
+    args = parse_runtime_args(spec, _argv())
+    with runtime_phase(spec, args, tmp_path / "horizon", {"env"}) as runtime:
+        env = runtime["env"]
+        action = np.zeros(7, dtype=np.float32)
+        action[-1] = -1
+        for step in range(32):
+            env.step(action)
+            assert not env.terminated
+            assert env.truncated == (step == 31)
