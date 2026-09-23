@@ -137,12 +137,18 @@ robodojo = [
     "rpent-openpi @ git+https://github.com/RLinf/openpi.git@rpent",
 ]
 robodojo-sim = [
+    # RoboDojo depends on its developer-maintained IsaacLab branch, a public
+    # fork of isaac-sim/IsaacLab. Commit afca7b09 changes headless camera
+    # rendering and Kit experience selection; do not replace it unvalidated.
     # Install RoboDojo's IsaacLab fork editable in the same environment: a
     # non-editable VCS-subdirectory install of `isaaclab` ships only
     # `__init__.py` and loses `config/extension.toml`, which
     # `isaaclab/__init__.py` loads through `ISAACLAB_EXT_DIR`.
     # Keep Isaac Sim and the Torch family pinned: Isaac Sim's version and
     # CuRobo's build/runtime ABI are tightly coupled.
+    # Isaac Sim / extscache are runtime binaries, not downloadable scene data.
+    # isaaclab_assets is Python configuration, not the USD asset payload.
+    # Download scene assets separately; see the RoboDojo usage guide.
     "isaacsim[all,extscache]==5.1.0",
     "isaaclab @ git+https://github.com/yuechen0614/IsaacLab.git@main#subdirectory=source/isaaclab",
     "isaaclab_assets @ git+https://github.com/yuechen0614/IsaacLab.git@main#subdirectory=source/isaaclab_assets",
@@ -163,7 +169,7 @@ robodojo-sim = [
     "ipython<9",
     # RoboDojo's own Python dependencies that its env server actually imports.
     "opencv-python-headless>=4.11.0.86",
-    "pillow",
+    # IsaacLab already requires pillow==11.3.0.
     "scipy>=1.15.3",
     "transforms3d",
     # `RoboDojo/env/scene_manager/layout_manager.py` imports these at module

@@ -49,6 +49,8 @@ logger = get_logger("vla_server")
 # NOTE: an embodiment added here must also be registered in the client's
 # ``_ENCODE_OBS`` (obs encoding); the two registries are kept in sync manually.
 PI05_EMBODIMENTS: dict[str, dict] = {
+    # End-to-end policy-chain smoke only (real weights, one prediction);
+    # simulation task success rates have not yet been established.
     "robodojo": {
         "num_action_chunks": 50,
         "action_dim": 14,

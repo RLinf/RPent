@@ -17,53 +17,96 @@ runtime pins that go with them. ``robodojo`` adds SAM3 perception, the RLinf
 version that provides ``pi05_robodojo_arx_x5``, and the openpi runtime. Each
 robot extra carries its own runtime pins, so install one per environment.
 
-The target is a one-command install with ``uv pip install -e ".[robodojo]"``.
-Three upstream Isaac Sim pins still conflict with RPent/RLinf dependencies:
-``uvicorn==0.29.0`` versus ``mcp``'s ``uvicorn>=0.31.1``,
-``wrapt==1.16.0`` versus RLinf's ``swanlab>=0.6.11`` requiring ``wrapt>=1.17.0``,
-and ``filelock==3.13.1`` versus ``rpent-openpi``'s ``filelock>=3.16.1``.
-In addition, ``rpent-openpi==0.2.2`` pins ``torch==2.7.1``, while the simulator
-requires ``torch==2.7.0``. These constraints need upstream fixes through
-``rlinf``-prefixed forks before the one-command install can work; they should
-not be bypassed by adding RPent overrides.
+From the RPent root, use uv so it reads ``pyproject.toml``'s existing
+``override-dependencies`` for the conflicting upstream runtime pins:
 
-Until then, set up the simulator environment in two steps: install the simulator
-stack declared by ``robodojo-sim``, then install RPent into that same environment
-with ``uv pip install --no-deps -e .``. This temporary setup does not install
-the full agent/policy stack. Run uv from the project root so it reads the
-existing ``override-dependencies`` in ``pyproject.toml``.
+.. code-block:: bash
+
+   uv pip install -e ".[robodojo]" --extra-index-url https://pypi.nvidia.com
+
+These overrides allow dependency resolution; they do not establish simulation
+task success. The RLinf policy path has had an end-to-end policy-chain smoke
+check with real weights and one prediction, but no simulation task success
+rate has been established. Its action chunk remains 50, matching the training
+configuration's ``Pi0Config.action_horizon``.
 
 IsaacLab must also be installed in editable mode: the non-editable VCS
 subdirectory installation ships only ``__init__.py`` and omits
 ``config/extension.toml``, which ``isaaclab/__init__.py`` loads through
 ``ISAACLAB_EXT_DIR``. Making RPent editable with the command above does not
-make its dependencies editable; the IsaacLab source packages need their own
-editable installation in the same environment for the configuration and
-source changes to take effect.
+make its dependencies editable. After preparing the source checkout below,
+install its source packages in the same environment:
 
-The Git references currently target the fork branches RoboDojo depends on.
-Switch them back to the official branches once the corresponding upstream
-pull requests are merged.
+.. code-block:: bash
+
+   uv pip install --no-deps \
+     -e /path/to/RoboDojo/third_party/IsaacLab/source/isaaclab \
+     -e /path/to/RoboDojo/third_party/IsaacLab/source/isaaclab_assets \
+     -e /path/to/RoboDojo/third_party/IsaacLab/source/isaaclab_tasks
+
+RoboDojo depends on its developer-maintained IsaacLab branch:
+``yuechen0614/IsaacLab`` is a public fork of ``isaac-sim/IsaacLab``, not the
+official repository. RoboDojo's submodule points to ``afca7b09``, also the fork's
+current main. Relative to the shared base ``f4aa17f8``, that commit changes
+headless camera handling and Kit experience selection in ``app_launcher.py``.
+Retain the fork until equivalent simulator behavior is verified upstream.
 
 Sources and assets
 ------------------
 
-Install Git LFS before cloning the official repository and its submodules:
+With Git LFS available, prepare the source independently of uv installation:
 
 .. code-block:: bash
 
-   git lfs install
-   git clone --recurse-submodules https://github.com/RoboDojo-Benchmark/RoboDojo.git
-   cd RoboDojo
-   git lfs pull
-   git submodule foreach --recursive 'git lfs pull'
-   git lfs fsck
+   GIT_LFS_SKIP_SMUDGE=1 git clone --recurse-submodules https://github.com/RoboDojo-Benchmark/RoboDojo.git
 
-Download the asset/checkpoint repositories linked by the official RoboDojo
-release with the same Git LFS workflow: clone, ``git lfs pull``, and
-``git lfs fsck``. Follow that release's placement instructions. Confirm that
-required files contain real data rather than LFS pointer text before starting
-the simulator. Resolve incomplete LFS attributes with the dataset publisher.
+As with RoboTwin, download scene data separately from Python dependencies:
+
+* **RoboDojo robot/object/material/layout assets:** download only ``Assets/**``
+  from `RoboDojo's dataset <https://huggingface.co/datasets/RoboDojo-Benchmark/RoboDojo>`_.
+  For example, with the Hugging Face CLI available:
+
+  .. code-block:: bash
+
+     hf download RoboDojo-Benchmark/RoboDojo --repo-type dataset \
+       --include 'Assets/**' --local-dir /data/robodojo
+     export ROBODOJO_ASSETS_PATH=/data/robodojo/Assets
+     ln -s "$ROBODOJO_ASSETS_PATH" /path/to/RoboDojo/Assets
+
+  ``ROBODOJO_ASSETS_PATH`` is a shell convenience for this link, not an
+  upstream runtime variable: RoboDojo reads ``SOURCE_ROOT/Assets``. Create the
+  link only when that destination is absent; preserve existing data.
+  Check that ``Robots``, ``Object``, ``Material`` and ``Eval_Layout`` contain real
+  files, not LFS pointers. The upstream alternative is ``bash scripts/init_assets.sh``
+  from the RoboDojo checkout, which downloads and links this dataset separately.
+* **NVIDIA USD/material assets referenced by IsaacLab:** these are separate
+  from ``isaaclab_assets``. Obtain the matching asset pack from
+  `NVIDIA's asset download instructions <https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/install_faq.html#isaac-sim-setup-assets-content-pack>`_.
+  RoboDojo's ``utils/ensure_usd_path.py`` specifically rewrites URLs under
+  ``Assets/Isaac/5.0``; for those references, download the **5.0** asset pack,
+  preserve ``/data/nvidia/Assets/Isaac/5.0`` and export:
+
+  .. code-block:: bash
+
+     export ROBODOJO_USD_ASSET_PREFIX=/data/nvidia
+
+  This existing upstream variable applies only to that URL prefix, not every
+  IsaacLab asset or a 5.1 asset tree. Other IsaacLab references use Kit's
+  ``/persistent/isaac/asset_root/cloud`` setting; configure that separately
+  for a matching local pack when offline. Do not relabel a 5.1 pack as 5.0.
+
+The two similarly named dependency entries are **not** two scene-data bundles:
+``isaacsim[all,extscache]`` supplies simulator binaries and extension caches
+(the Linux x86-64 / CPython 3.11 5.1.0 Kit and Kit-SDK cache wheels alone are
+3,021,340,845 and 1,345,115,764 bytes). Keep this runtime installation; a data
+environment variable cannot replace it. ``isaaclab_assets`` at ``afca7b09``
+contains 119,143 bytes of source/configuration and no USD files, so retain it
+too. Git tree sizes are about 53.6 MB for IsaacLab and 129.9 MB for cuRobo
+(including robot meshes); these are uncompressed tree totals, not measured
+clone sizes. cuRobo's packaged meshes remain part of its runtime.
+Thus uv still downloads a large simulator runtime, but not the separate scene
+datasets or policy checkpoints. Download checkpoints separately and use
+``PI05_CHECKPOINT_PATH`` and ``SAM3_CHECKPOINT_PATH`` as described below.
 
 RPent configuration
 -------------------

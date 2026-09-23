@@ -408,6 +408,8 @@ def _spawn_vla_server(
     host, port = "127.0.0.1", pick_free_port()
     overrides = _runtime_overrides(args)
     if args.policy_backend == "rlinf":
+        # End-to-end policy-chain smoke only (real weights, one prediction);
+        # simulation task success rates have not yet been established.
         policy_args = [
             "rpent.robots.components.pi05_vla_server",
             "--embodiment",

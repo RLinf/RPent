@@ -14,47 +14,88 @@ RoboDojo 使用的 IsaacLab fork、cuRobo 及配套的运行时版本约束；``
 之上增加 SAM3 感知、提供 ``pi05_robodojo_arx_x5`` 的 RLinf 版本，以及 openpi
 运行时。每个机器人 extra 都带自己那套运行时钉版，因此一个环境只装一个。
 
-最终希望通过 ``uv pip install -e ".[robodojo]"`` 一键安装。目前 Isaac Sim
-仍有三处上游钉版与 RPent/RLinf 依赖冲突：``uvicorn==0.29.0`` 与
-``mcp`` 要求的 ``uvicorn>=0.31.1``；``wrapt==1.16.0`` 与 RLinf 引入的
-``swanlab>=0.6.11`` 要求的 ``wrapt>=1.17.0``；以及 ``filelock==3.13.1`` 与
-``rpent-openpi`` 要求的 ``filelock>=3.16.1``。此外，``rpent-openpi==0.2.2``
-钉住了 ``torch==2.7.1``，而仿真运行时需要 ``torch==2.7.0``。
-这些约束需经 ``rlinf`` 前缀的 fork 在上游修正，才能打通一键安装；
-不应在 RPent 中继续添加 override 来绕过。
+在 RPent 根目录运行 uv，以读取 ``pyproject.toml`` 中针对上游运行时
+版本冲突已有的 ``override-dependencies``：
 
-在上游放宽之前，仿真环境按两步准备：先安装 ``robodojo-sim`` 声明的仿真栈，
-再用 ``uv pip install --no-deps -e .`` 将 RPent 安装到同一环境。
-这一临时方案不安装完整的 agent/策略依赖栈。请在项目根目录运行 uv，
-以读取 ``pyproject.toml`` 中已有的 ``override-dependencies``。
+.. code-block:: bash
+
+   uv pip install -e ".[robodojo]" --extra-index-url https://pypi.nvidia.com
+
+这些 override 使依赖可以解析，不代表仿真任务成功。RLinf 策略路径已做
+真实权重、单次预测的端到端策略链冒烟，但尚未在仿真中取得任务成功率。
+action chunk 保持 50，与训练配置的 ``Pi0Config.action_horizon`` 一致。
 
 IsaacLab 本身也需要可编辑安装：非 editable 的 VCS 子目录安装只包含
 ``__init__.py``，会丢失 ``config/extension.toml``，而 ``isaaclab/__init__.py``
 通过 ``ISAACLAB_EXT_DIR`` 加载该文件。上述命令只将 RPent 设为可编辑安装，
-不会让依赖也变为可编辑安装；还需在同一环境中以可编辑方式安装 IsaacLab 源码包，
-才能正确加载配置并使源码修改生效。
+不会让依赖也变为可编辑安装。按下节准备源码后，在同一环境中安装源码包：
 
-这些 Git 引用目前指向 RoboDojo 所依赖的 fork 分支；对应的上游 PR 合并后，
-应改回官方分支。
+.. code-block:: bash
+
+   uv pip install --no-deps \
+     -e /path/to/RoboDojo/third_party/IsaacLab/source/isaaclab \
+     -e /path/to/RoboDojo/third_party/IsaacLab/source/isaaclab_assets \
+     -e /path/to/RoboDojo/third_party/IsaacLab/source/isaaclab_tasks
+
+RoboDojo 依赖其开发者维护的 IsaacLab 分支：``yuechen0614/IsaacLab`` 是
+``isaac-sim/IsaacLab`` 的公开 fork，并非官方仓库。RoboDojo 子模块指向
+``afca7b09``，也是该 fork 当前 main。相对共同基点 ``f4aa17f8``，该提交修改了
+``app_launcher.py`` 中的 headless 相机处理和 Kit experience 选择。
+在官方版本的等效仿真行为得到验证前，保留 fork。
 
 源码与资产
 ----------
 
-克隆官方仓库及子模块前，先安装 Git LFS：
+准备好 Git LFS 后，将源码获取与 uv 安装分开：
 
 .. code-block:: bash
 
-   git lfs install
-   git clone --recurse-submodules https://github.com/RoboDojo-Benchmark/RoboDojo.git
-   cd RoboDojo
-   git lfs pull
-   git submodule foreach --recursive 'git lfs pull'
-   git lfs fsck
+   GIT_LFS_SKIP_SMUDGE=1 git clone --recurse-submodules https://github.com/RoboDojo-Benchmark/RoboDojo.git
 
-对于官方 RoboDojo release 链接的资产和 checkpoint 仓库，同样依次执行克隆、
-``git lfs pull`` 和 ``git lfs fsck``，并按该 release 的说明放置文件。
-启动仿真器前，确认所需文件是实际数据而非 LFS 指针文本。
-release 的 LFS 属性不完整时，请向数据集发布方核实。
+参考 RoboTwin，场景数据独立于 Python 依赖下载：
+
+* **RoboDojo 机器人、物体、材质和布局资产：** 只下载
+  `RoboDojo 数据集 <https://huggingface.co/datasets/RoboDojo-Benchmark/RoboDojo>`_
+  中的 ``Assets/**``。已有 Hugging Face CLI 时可执行：
+
+  .. code-block:: bash
+
+     hf download RoboDojo-Benchmark/RoboDojo --repo-type dataset \
+       --include 'Assets/**' --local-dir /data/robodojo
+     export ROBODOJO_ASSETS_PATH=/data/robodojo/Assets
+     ln -s "$ROBODOJO_ASSETS_PATH" /path/to/RoboDojo/Assets
+
+  ``ROBODOJO_ASSETS_PATH`` 仅供 shell 创建此链接，不是上游运行时读取的变量；
+  RoboDojo 实际读取 ``SOURCE_ROOT/Assets``。仅当目标不存在时创建链接，保留已有数据。
+  确认 ``Robots``、``Object``、``Material``、``Eval_Layout`` 下是实际文件，
+  而非 LFS 指针。也可在 RoboDojo 源码目录单独执行上游的
+  ``bash scripts/init_assets.sh``，由它下载并链接该数据集。
+* **IsaacLab 引用的 NVIDIA USD/材质资产：** 它们不在 ``isaaclab_assets`` 包内。
+  按 `NVIDIA 资产下载说明 <https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/install_faq.html#isaac-sim-setup-assets-content-pack>`_
+  获取对应版本。RoboDojo 的 ``utils/ensure_usd_path.py`` 仅改写
+  ``Assets/Isaac/5.0`` 前缀的 URL；这类引用应下载 **5.0** 资产包，
+  保留 ``/data/nvidia/Assets/Isaac/5.0`` 目录结构，并导出：
+
+  .. code-block:: bash
+
+     export ROBODOJO_USD_ASSET_PREFIX=/data/nvidia
+
+  这一上游已有变量只适用于上述 URL 前缀，并不能覆盖所有 IsaacLab 资产或
+  5.1 资产目录。其他 IsaacLab 引用使用 Kit 的
+  ``/persistent/isaac/asset_root/cloud`` 设置；离线运行时需另行配置匹配的本地资产包。
+  不要把 5.1 资产包改名充当 5.0。
+
+依赖中这两个名称相近的条目 **并不是两份场景数据包**：
+``isaacsim[all,extscache]`` 提供仿真器二进制和扩展缓存（Linux x86-64 /
+CPython 3.11 的 5.1.0 Kit 与 Kit-SDK 缓存 wheel 就分别有
+3,021,340,845 和 1,345,115,764 字节）。保留这部分运行时安装，不能用数据路径
+环境变量替代。``afca7b09`` 的 ``isaaclab_assets`` 仅含 119,143 字节源码和配置，
+没有 USD 文件，因此也保留。IsaacLab 和 cuRobo 的 Git 文件树分别约为
+53.6 MB、129.9 MB（后者包含机器人网格）；这是未压缩文件总量，不是实测克隆体积。
+cuRobo 随包提供的网格仍属于其运行时。
+因此 uv 仍会下载较大的仿真运行时，但不会下载上述独立场景数据集或策略 checkpoint。
+checkpoint 也需单独获取，按下节用 ``PI05_CHECKPOINT_PATH`` 和
+``SAM3_CHECKPOINT_PATH`` 指定。
 
 RPent 配置
 ----------
