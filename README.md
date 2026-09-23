@@ -173,6 +173,20 @@ rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
 See the [planner docs](https://rpent.readthedocs.io/en/latest/rst_source/usage/configure_planner.html) to configure other planners (`api`, `codex`) and model providers.
 For the exploration workflow and local-memory evaluation, see [LIBERO exploration mode](https://rpent.readthedocs.io/en/latest/rst_source/usage/libero.html#exploration-and-local-memory-evaluation).
 
+### Direct actions
+
+For LIBERO, RoboCasa, and RoboTwin, add `--enable-direct-action` at startup to
+expose the optional `execute_action(values=[...])` primitive alongside VLA and
+scripted tools. It executes one native environment action per call and records
+the resulting state. Without the flag, the tool is not registered.
+
+The tool reads action dimensions, per-coordinate bounds, and supported action
+modes from the connected environment. Supply values in that environment's native
+controller order; the tool description includes its current specification.
+RoboTwin advertises its native joint and end-effector waypoint modes.
+When attaching an external environment server, update it together with the client:
+this optional tool requires the `env.get_action_spec` RPC.
+
 ### Interactive CLI mode
 
 Add `--interactive` (`-i`) to steer the agent live from your terminal. At the `you>` prompt, the built-in task is pre-filled — press Enter to use it or replace it with your own — then type any message while it runs to steer the agent at the next turn (`/help` lists commands; `/quit` or Ctrl-D ends). Requires an interactive terminal (TTY).

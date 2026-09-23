@@ -173,6 +173,19 @@ rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
 其他规划器（`api`、`codex`）与模型提供商的配置见[规划器文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/configure_planner.html)。
 探索模式与本地 memory 评测详见 [LIBERO 文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/libero.html)。
 
+### 直接执行动作
+
+使用 LIBERO、RoboCasa 或 RoboTwin 时，在启动命令中添加
+`--enable-direct-action`，即可在现有 VLA 和脚本工具之外启用
+`execute_action(values=[...])` primitive。每次调用执行一个环境原生动作，
+并记录执行后的状态。不传此参数时，不注册该工具。
+
+工具从连接的执行环境读取动作维度、各维取值范围和支持的动作模式。
+按该环境原生控制器的顺序传入动作；工具说明中会列出当前环境的动作规格。
+RoboTwin 提供其原生关节和末端位姿 waypoint 模式。
+连接外部环境服务时，需要同步更新服务端与客户端：此可选工具依赖
+`env.get_action_spec` RPC。
+
 ### 交互模式
 
 加上 `--interactive`（`-i`）即可在终端里实时引导智能体。在 `you>` 提示符处，内置任务已预填——按 Enter 直接使用，或替换为你自己的任务；智能体运行时，随时输入消息即可在下一轮引导它（`/help` 查看命令，`/quit` 或 Ctrl-D 结束）。需要交互式终端（TTY）。
