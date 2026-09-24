@@ -31,6 +31,7 @@ if TYPE_CHECKING:
 
 ProviderName = Literal["openai", "anthropic"]
 OpenAIFormat = Literal["responses", "chat"]
+PromptCacheMode = Literal["implicit", "explicit"]
 
 logger = get_logger("llm.client")
 
@@ -49,6 +50,9 @@ class LLMConfig:
     api_key: str | None = None
     base_url: str | None = None
     openai_format: OpenAIFormat | None = None
+    prompt_cache_key: str | None = None
+    prompt_cache_mode: PromptCacheMode | None = None
+    image_history_groups: int | None = None
     retry: RetryPolicy = field(default_factory=RetryPolicy)
 
     def __post_init__(self) -> None:
@@ -60,6 +64,16 @@ class LLMConfig:
             raise ValueError(f"unsupported OpenAI API format: {self.openai_format}")
         if self.provider != "openai" and self.openai_format is not None:
             raise ValueError("openai_format applies only to the OpenAI provider")
+        if (
+            self.prompt_cache_key is not None or self.prompt_cache_mode is not None
+        ) and (self.provider != "openai" or self.openai_format == "chat"):
+            raise ValueError("prompt cache settings require OpenAI Responses")
+        if self.prompt_cache_key is not None and not self.prompt_cache_key.strip():
+            raise ValueError("prompt_cache_key must be non-empty")
+        if self.prompt_cache_mode not in (None, "implicit", "explicit"):
+            raise ValueError("unsupported prompt cache mode")
+        if self.image_history_groups is not None and self.image_history_groups < 1:
+            raise ValueError("image_history_groups must be positive")
 
     def build_model(self) -> Model:
         """Construct the selected Pydantic AI model without changing process env."""
@@ -74,13 +88,28 @@ class LLMConfig:
                 ),
             )
 
-        from pydantic_ai.models.openai import OpenAIChatModel, OpenAIResponsesModel
+        from pydantic_ai.models.openai import (
+            OpenAIChatModel,
+            OpenAIResponsesModel,
+            OpenAIResponsesModelSettings,
+        )
         from pydantic_ai.providers.openai import OpenAIProvider
 
         provider = OpenAIProvider(api_key=self.api_key, base_url=self.base_url)
         model_cls = (
             OpenAIChatModel if self.openai_format == "chat" else OpenAIResponsesModel
         )
+        if model_cls is OpenAIResponsesModel and (
+            self.prompt_cache_key is not None or self.prompt_cache_mode is not None
+        ):
+            settings = OpenAIResponsesModelSettings()
+            if self.prompt_cache_key is not None:
+                settings["openai_prompt_cache_key"] = self.prompt_cache_key
+            if self.prompt_cache_mode is not None:
+                settings["openai_prompt_cache_options"] = {
+                    "mode": self.prompt_cache_mode
+                }
+            return model_cls(self.model, provider=provider, settings=settings)
         return model_cls(self.model, provider=provider)
 
 
@@ -194,7 +223,7 @@ class LLMResponse:
 
 
 def build_model_settings(model: Model, max_tokens: int):
-    """Use RPent's Anthropic prompt-cache settings for direct and agent calls."""
+    """Carry provider cache settings into direct and agent calls."""
     from pydantic_ai import ModelSettings
 
     if max_tokens < 1:
@@ -209,7 +238,12 @@ def build_model_settings(model: Model, max_tokens: int):
             anthropic_cache_tool_definitions=True,
             anthropic_cache_messages=True,
         )
-    return ModelSettings(max_tokens=max_tokens)
+    cache_settings = {
+        key: value
+        for key in ("openai_prompt_cache_key", "openai_prompt_cache_options")
+        if (value := (underlying.settings or {}).get(key)) is not None
+    }
+    return ModelSettings(max_tokens=max_tokens, **cache_settings)
 
 
 class LLMClient:
@@ -244,6 +278,13 @@ class LLMClient:
                 usage if self._total_usage is None else self._total_usage + usage
             )
 
+    def _prompt_content(self, prompt: str):
+        if self.config.prompt_cache_mode != "explicit":
+            return prompt
+        from pydantic_ai.messages import CachePoint
+
+        return [prompt, CachePoint()]
+
     async def generate(
         self, prompt: str, *, system_prompt: str = "", max_tokens: int = 8192
     ) -> LLMResponse:
@@ -255,7 +296,7 @@ class LLMClient:
         call_usage = RunUsage()
         try:
             result = await self._agent(system_prompt, max_tokens).run(
-                prompt, usage=call_usage
+                self._prompt_content(prompt), usage=call_usage
             )
         except Exception as exc:
             logger.error(
@@ -282,7 +323,7 @@ class LLMClient:
         call_usage = RunUsage()
         try:
             result = self._agent(system_prompt, max_tokens).run_sync(
-                prompt, usage=call_usage
+                self._prompt_content(prompt), usage=call_usage
             )
         except Exception as exc:
             logger.error(

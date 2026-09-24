@@ -214,6 +214,12 @@ def build_planner(
             dashboard_events=dashboard_events,
             no_images=no_images,
             timeout_s=api_timeout_s,
+            cache_breakpoints=(
+                llm_config is not None and llm_config.prompt_cache_mode == "explicit"
+            ),
+            image_history_groups=(
+                llm_config.image_history_groups if llm_config is not None else None
+            ),
         )
     if planner_type == "claude_code":
         from rpent.planner.claude_code import ClaudeCodePlanner

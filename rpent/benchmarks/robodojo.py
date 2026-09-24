@@ -44,6 +44,7 @@ class RoboDojoEmbodiedClient:
         error_type: type[Exception],
         max_turns: int = 4,
         max_images: int = 24,
+        prompt_cache_key: str | None = None,
     ) -> None:
         self.model = model
         self.base_url = base_url
@@ -51,6 +52,7 @@ class RoboDojoEmbodiedClient:
         self.error_type = error_type
         self.max_turns = max_turns
         self.max_images = max_images
+        self.prompt_cache_key = prompt_cache_key or f"rpent-robodojo-v1:{model}"
         self._decision = 0
 
     def complete(
@@ -107,6 +109,9 @@ class RoboDojoEmbodiedClient:
                     model=self.model,
                     base_url=self.base_url,
                     openai_format="responses",
+                    prompt_cache_key=self.prompt_cache_key,
+                    prompt_cache_mode="explicit",
+                    image_history_groups=2,
                 ),
                 max_turns=self.max_turns,
                 max_tokens=max_tokens,
@@ -127,6 +132,7 @@ class RoboDojoEmbodiedClient:
                     f"EmbodiedAgent produced no RoboDojo action: {error}",
                     attempts=int(result.stats.get("requests") or 0),
                     latency_s=time.monotonic() - started,
+                    status_code=_provider_status_code(result.error),
                 )
             payload = json.loads(action.read_text(encoding="utf-8"))
             usage = result.stats.get("llm_usage") or {}
@@ -136,7 +142,8 @@ class RoboDojoEmbodiedClient:
                     "prompt_tokens": usage.get("input_tokens", 0),
                     "completion_tokens": usage.get("output_tokens", 0),
                     "prompt_tokens_details": {
-                        "cached_tokens": usage.get("cache_read_tokens", 0)
+                        "cached_tokens": usage.get("cache_read_tokens", 0),
+                        "cache_write_tokens": usage.get("cache_write_tokens", 0),
                     },
                 },
                 "finish_reason": "tool_call",
@@ -211,3 +218,9 @@ def _safe_error(error: str | None) -> str:
         return "no submit_action call"
     # Provider errors occasionally include an echoed URL or bearer header.
     return re.sub(r"(?i)bearer\s+\S+", "Bearer [redacted]", error)[:300]
+
+
+def _provider_status_code(error: str | None) -> int | None:
+    """Preserve HTTP status so RoboDawn can stop on permanent API errors."""
+    match = re.search(r"ModelHTTPError: status_code:\s*(\d{3})", error or "")
+    return int(match.group(1)) if match else None

@@ -65,3 +65,25 @@ Responses API because this endpoint rejects tool calls with
 attempt in the per-decision `llm_errors.jsonl` and exposes input, output, and
 cached tokens in the decision response. HTTP 400 errors are logged and
 returned; transient HTTP and connection errors follow RPent's retry policy.
+
+The adapter sets a stable `prompt_cache_key` for the model route and enables
+explicit Responses caching. RPent places breakpoints after the repeated task
+instruction and multimodal `snapshot` feedback, and retains at most two recent
+image observation groups in the planner history. The demo and current cameras
+within a single RoboDojo snapshot remain subject to `max_images=24`.
+Use the provider's reported cached input tokens to measure the weighted hit
+rate for one plan:
+
+```bash
+python RPent/examples/robodojo/cache_report.py \
+  --log-root /path/to/experiment/runtime/vlm_logs \
+  --run-prefix rp-once-your-plan-id-
+```
+
+`cache_hit_rate` is `cached_input_tokens / input_tokens` for decisions with
+usage data. Failed requests without provider usage are excluded; the report
+shows their count as `decisions - decisions_with_usage`. Older adapter runs did
+not forward cache write tokens, so `cache_write_tokens_reported=false` means
+that figure cannot be recovered from those logs. The official OpenAI
+[prompt caching guide](https://developers.openai.com/api/docs/guides/prompt-caching)
+describes explicit breakpoints and the response usage fields.
