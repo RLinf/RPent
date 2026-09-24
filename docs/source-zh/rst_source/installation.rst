@@ -42,7 +42,6 @@ RPent 可以通过一条 ``pip install`` 命令完成安装，并提供多种可
 
    pip install -e ".[robocasa]"    # RoboCasa
    pip install -e ".[robotwin]"    # RoboTwin
-   pip install -e ".[franka]"      # Franka / Dual Franka
 
 ``.[libero-pro]`` 是默认推荐的依赖组合。
 
@@ -63,9 +62,6 @@ RPent 可以通过一条 ``pip install`` 命令完成安装，并提供多种可
      - RoboCasa365 仿真器 + RLDX-1 VLA，详见 :doc:`usage/robocasa`
    * - ``.[robotwin]``
      - RoboTwin 仿真环境和 LingBot 推理所需依赖，详见 :doc:`usage/robotwin`
-   * - ``.[franka]``
-     - Franka 与 Dual Franka 真机 extra，详见 :doc:`usage/franka` 与
-       :doc:`usage/dual_franka`
    * - ``.[rlinf]``
      - 仅 RLinf 运行时
    * - ``.[sam3]``
@@ -96,9 +92,9 @@ RPent 可以通过一条 ``pip install`` 命令完成安装，并提供多种可
 3. (可选) 真实机器人依赖
 ------------------------
 
-Franka 单臂与双臂已通过 ``.[franka]`` extra 提供。硬件与运行配置见
-:doc:`usage/franka` 与 :doc:`usage/dual_franka`。SO-101 仍在接入中，
-当前进度参见 :doc:`usage/so101`。
+Franka 与 SO-101 的支持正在逐步接入; 每个机器人的 robot 包未来会以一个
+包的形式放在 ``robots/<name>/`` 下, 并附带 ``README.md`` 说明其 SDK /
+固件要求。当前进度参见 :doc:`usage/franka` 与 :doc:`usage/so101`。
 
 检查是否安装成功
 ----------------

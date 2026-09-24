@@ -40,11 +40,7 @@ RPent 内置两类原语：
    * - Franka (真机)
      - Pi0.5 或 RLDX-1 (依任务而定)
      - HTTP 或 socket RPC
-     - 通过 ``--vla-endpoint`` 接入（仓库内无 ``vla_server``）
-   * - Dual Franka (真机)
-     - Pi0.5
-     - HTTP 或 socket RPC
-     - ``rpent/robots/components/pi05_vla_server.py``
+     - ``robots/franka/vla_server.py`` *(规划中)*
    * - SO-101 (真机)
      - RLDX-1 (依任务而定)
      - HTTP 或 socket RPC

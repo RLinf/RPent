@@ -44,11 +44,7 @@ Which VLA runs where
    * - Franka (real)
      - Pi0.5 or RLDX-1 (task-dependent)
      - HTTP or socket RPC
-     - attach via ``--vla-endpoint`` (no in-tree ``vla_server``)
-   * - Dual Franka (real)
-     - Pi0.5
-     - HTTP or socket RPC
-     - ``rpent/robots/components/pi05_vla_server.py``
+     - ``robots/franka/vla_server.py`` *(planned)*
    * - SO-101 (real)
      - RLDX-1 (task-dependent)
      - HTTP or socket RPC
