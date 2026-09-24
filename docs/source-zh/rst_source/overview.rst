@@ -1,9 +1,16 @@
 概览
 ====
 
-**RPent（Recursive Physical Agent）** 是一个开源框架，用于构建能够在与物理世界的递归交互中持续演进的具身智能体。RPent 不限定基础模型的选择，而是提供一套递归的智能体框架，将感知（perception）、推理（reasoning）、记忆（memory）、执行（execution）和自我演进（self-evolution）等不同类型的智能能力整合到统一的物理智能体中。物理智能体在持续交互中不断反思和调整，从而获得新能力，逐步突破初始设计的能力边界。
+**RPent（Recursive Physical Agent）** 是一个开源框架，用于构建能够在与物理世界\
+的递归交互中持续演进的具身智能体。RPent 不限定基础模型的选择，而是提供一套递归\
+的智能体框架，将感知（perception）、推理（reasoning）、记忆（memory）、\
+执行（execution）和自我演进（self-evolution）等不同类型的智能能力整合到统一的物\
+理智能体中。物理智能体在持续交互中不断反思和调整，从而获得新能力，逐步突破初始\
+设计的能力边界。
 
-Pent 这个名字源自五芒星 (Pentagram), 其五个顶点象征多模态智能融合为一个统一的具身智能体。五芒星的中心是无穷符号 (∞), 代表感知、推理、执行、自我演进永无止境的递归循环, 让智能持续向物理世界扩展。
+Pent 这个名字源自五芒星 (Pentagram), 其五个顶点象征多模态智能融合为一个统一的具\
+身智能体。五芒星的中心是无穷符号 (∞), 代表感知、推理、执行、自我演进永无止境的\
+递归循环, 让智能持续向物理世界扩展。
 
 .. image:: https://github.com/RLinf/misc/raw/main/pic/rpent_framework.png
    :alt: RPent 框架图
@@ -11,13 +18,17 @@ Pent 这个名字源自五芒星 (Pentagram), 其五个顶点象征多模态智�
    :width: 90%
 
 RPent 建立在三条核心设计原则之上: **服务化、标准化、可组合
-(service-oriented, standardized, and composable)**。RPent 把各种能力以可复用服务的形式部署, 通过统一接口连接, 并灵活组合成多样的物理智能体。这三条原则让 RPent 超越了传统的机器人控制框架, 成为面向物理世界的智能体基础设施 (agentic infrastructure for the physical world) —— 在这里,
+(service-oriented, standardized, and composable)**。RPent 把各种能力以可复用服\
+务的形式部署, 通过统一接口连接, 并灵活组合成多样的物理智能体。这三条原则让 RPent
+超越了传统的机器人控制框架, 成为面向物理世界的智能体基础设施 (agentic
+infrastructure for the physical world) —— 在这里,
 智能不只是被部署, 而是被持续构建、扩展与演进。
 
 排行榜
 ------
 
-对比 LIBERO、LIBERO-PRO、RoboCasa365 Target50 和 RoboTwin C2R 上的成功率。排名仅限图中方法及评测范围；完整结果、模型配置和来源见 :doc:`leaderboard`。
+对比 LIBERO、LIBERO-PRO、RoboCasa365 Target50 和 RoboTwin C2R 上的成功率。\
+排名仅限图中方法及评测范围；完整结果、模型配置和来源见 :doc:`leaderboard`。
 
 .. image:: https://cdn.jsdelivr.net/gh/RLinf/misc@a6657fc43a6b3874a20ee1695a480090a4737c35/rpent/benchmarks/leaderboard-zh-light.png
    :alt: RPent 排行榜
