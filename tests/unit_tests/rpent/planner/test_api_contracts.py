@@ -39,6 +39,7 @@ from rpent.dashboard.events import TranscriptEvent, UsageEvent
 from rpent.llm.retry import RetryLoggingModel, RetryPolicy
 from rpent.planner.api_loop import (
     ApiAgentLoop,
+    _api_error_text,
     _build_tools,
     _content_blocks_to_pydantic,
     _make_tool_function,
@@ -278,6 +279,22 @@ def test_backend_failure_is_returned_without_escaping() -> None:
     assert result.finish_result is None
     assert result.error == "RuntimeError: provider failed"
     assert result.messages == [{"role": "user", "content": "complete the task"}]
+
+
+def test_image_policy_error_is_not_misdiagnosed_as_text_only_model() -> None:
+    error = ModelHTTPError(
+        400,
+        "Image processing blocked due to content policy violation. "
+        "code: content_policy_violation",
+    )
+    message = _api_error_text(error, no_images=False)
+    assert "content_policy_violation" in message
+    assert "text-only model" not in message
+
+
+def test_unsupported_image_type_gets_text_only_hint() -> None:
+    error = ModelHTTPError(400, "message type 'image_url' is not supported")
+    assert "text-only model" in _api_error_text(error, no_images=False)
 
 
 def test_timeout_cancels_active_toolkit_work() -> None:
