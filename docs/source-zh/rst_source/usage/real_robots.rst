@@ -9,4 +9,5 @@
 
    Franka <franka>
    Dual Franka <dual_franka>
+   YAM <yam>
    SO-101 <so101>

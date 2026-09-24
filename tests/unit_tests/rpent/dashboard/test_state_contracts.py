@@ -383,3 +383,131 @@ def test_dashboard_step_events_offset_new_traces_and_resolve_action_video(
     assert detail["timeline"][1]["terminated"] is True
     assert state.frame("camera") == second_env.load_bytes("camera.png")
     assert state.action_video_path(0) == first_env.artifact_path("action.mp4", step=0)
+
+
+@pytest.mark.parametrize("wrapped", [False, True])
+def test_manual_primitive_blocks_resume_and_hands_off_result(tmp_path, wrapped):
+    state = _ready_state(tmp_path)
+    _claim_started_task(state)
+    toolkit = MagicMock(spec=Toolkit)
+    toolkit.get_tools_spec.return_value = [
+        {
+            "name": "move_to",
+            "input_schema": {"type": "object"},
+        }
+    ]
+    state.bind_toolkit(toolkit)
+    state.set_planner_activity("idle", accepting_input=True)
+
+    def execute(name, args):
+        state.submit_input("continue")
+        assert state.claim_next_pending_message() is None
+        assert not state.snapshot()["primitives_available"]
+        result = {
+            "executed_steps": 150,
+            "success": False,
+            "stop_reason": "no_progress",
+            "recoverable": True,
+        }
+        if wrapped:
+            result = {"state": {}, "log": {"result": result}}
+        return ToolResult(name=name, result=result)
+
+    toolkit.execute_tool.side_effect = execute
+    state.execute_primitive("move_to", {})
+    message = state.claim_next_pending_message()
+    assert "150" in message.text and "do not replay" in message.text
+    assert '"stop_reason": "no_progress"' in message.text
+    assert '"success": false' in message.text
+    assert message.text.endswith("continue")
+    # A model submission is reserved even before activity becomes busy.
+    with pytest.raises(InteractionUnavailableError):
+        state.execute_primitive("move_to", {})
+
+
+def test_manual_result_does_not_resume_agent_without_user_message(tmp_path):
+    state = _ready_state(tmp_path)
+    _claim_started_task(state)
+    toolkit = MagicMock(spec=Toolkit)
+    toolkit.get_tools_spec.return_value = [
+        {"name": "move_to", "input_schema": {"type": "object"}}
+    ]
+    toolkit.execute_tool.return_value = ToolResult(
+        name="move_to", result={"error": "timeout"}
+    )
+    state.bind_toolkit(toolkit)
+    state.set_planner_activity("idle", accepting_input=True)
+    state.execute_primitive("move_to", {})
+    assert state.claim_next_pending_message() is None
+    state.submit_input("inspect state")
+    assert "timeout" in state.claim_next_pending_message().text
+
+
+def test_explore_continuation_queues_at_idle_and_interrupt_pauses(tmp_path):
+    state = _ready_state(tmp_path)
+    _claim_started_task(state)
+    state.begin_planner_session()
+    state.set_planner_activity("idle", accepting_input=True)
+    from types import SimpleNamespace
+
+    toolkit = SimpleNamespace(
+        exploration_continuation=lambda **kwargs: "read current state and continue"
+    )
+    state.bind_toolkit(toolkit)
+    state.continue_exploration()
+    message = state.claim_next_pending_message()
+    assert message.text == "read current state and continue"
+    state.mark_message_sent(message.message_id)
+    state.request_interrupt()  # idle Esc also suppresses automatic restart
+    state.continue_exploration()
+    assert state.claim_next_pending_message() is None
+    state.continue_exploration(explicit=True)
+    assert state.claim_next_pending_message() is not None
+
+
+def test_explore_continuation_does_not_queue_when_busy_or_rule_blocks(tmp_path):
+    state = _ready_state(tmp_path)
+    _claim_started_task(state)
+    state.begin_planner_session()
+    state.set_planner_activity("busy", accepting_input=True)
+    from types import SimpleNamespace
+
+    calls = []
+    state.bind_toolkit(
+        SimpleNamespace(exploration_continuation=lambda: calls.append(1))
+    )
+    state.continue_exploration()
+    assert calls == []
+    state.set_planner_activity("idle")
+    state.continue_exploration()
+    assert calls == [1]
+    assert state.claim_next_pending_message() is None
+
+
+def test_interrupt_during_rule_read_prevents_automatic_resubmit(tmp_path):
+    state = _ready_state(tmp_path)
+    _claim_started_task(state)
+    state.begin_planner_session()
+    state.set_planner_activity("idle", accepting_input=True)
+    from types import SimpleNamespace
+
+    def check():
+        state.request_interrupt()
+        return "continue"
+
+    state.bind_toolkit(SimpleNamespace(exploration_continuation=check))
+    state.continue_exploration()
+    assert state.claim_next_pending_message() is None
+
+
+def test_interrupt_withdraws_unsent_automatic_continuation(tmp_path):
+    state = _ready_state(tmp_path)
+    _claim_started_task(state)
+    state.begin_planner_session()
+    state.set_planner_activity("idle", accepting_input=True)
+    from types import SimpleNamespace
+
+    state.bind_toolkit(SimpleNamespace(exploration_continuation=lambda: "continue"))
+    state.continue_exploration()
+    state.request_interrupt()
+    assert state.claim_next_pending_message() is None

@@ -322,6 +322,13 @@ def _start_continuation_session(
         session_max,
         robot_name=args.robot_name,
     )
+    previous_session = (
+        Path(output_dir) / "sessions" / f"session_{session_number - 1:03d}"
+    )
+    session_message += (
+        f"\nRead the previous session's recorded steps in {previous_session}/ "
+        f"and working notes under {prompt_vars.get('memory_inbox', 'the memory inbox')}/wip/."
+    )
     if prompt_vars.get("initial_user_message"):
         session_message += "\n\nOriginal operator task instruction:\n" + str(
             prompt_vars["initial_user_message"]
@@ -356,12 +363,24 @@ def main() -> int:
     )
     args = parser.parse_args()
     args.robot_name = early.robot_name
+    if robot_spec.run_diagnostic is not None:
+        try:
+            result = robot_spec.run_diagnostic(args)
+        except ValueError as error:
+            parser.error(str(error))
+        if result is not None:
+            return result
     human_interactive_exploration = (
         args.explore and robot_spec.supports_human_interactive_exploration
     )
     if args.dashboard and args.interactive:
         parser.error("--dashboard and --interactive cannot be used together")
-    if robot_spec.is_real_robot and not human_interactive_exploration:
+    external_env_dashboard = (getattr(robot_spec, "dashboard", None) or {}).get(
+        "external_env", False
+    )
+    if robot_spec.is_real_robot and not (
+        human_interactive_exploration or external_env_dashboard
+    ):
         if args.dashboard or args.interactive:
             parser.error(
                 "This robot requires exclusive terminal input for operator confirmation; "
@@ -673,6 +692,7 @@ def main() -> int:
         "model": args.model,
         "elapsed_s": round(elapsed, 1),
         "finish": finish_result,
+        "environment_success": environment_success,
         "stats": stats,
         "messages": _serialize_messages(messages),
     }
@@ -719,7 +739,17 @@ def main() -> int:
     if (
         getattr(args, "explore", False)
         and (getattr(args, "auto_merge_memory", False) or direct_operator_success)
-        and not agent_error
+        # A non-HIL real-robot failure can still publish useful inbox lessons
+        # when auto-merge was explicitly enabled. Keep the error exit status
+        # and never publish a solved recipe on this path.
+        and (
+            not agent_error
+            or (
+                getattr(args, "auto_merge_memory", False)
+                and not solved
+                and not human_interactive_exploration
+            )
+        )
         and memory_manager is not None
         and (not human_interactive_exploration or solved)
     ):

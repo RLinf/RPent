@@ -479,6 +479,85 @@ def test_rejected_finish_item_is_not_promoted() -> None:
     assert "finish" in rendered
 
 
+def test_mcp_error_finish_result_is_not_promoted() -> None:
+    from rpent.planner.codex import _Recorder
+
+    recorder = _Recorder(max_turns=2, dashboard_events=RecordingSink())
+
+    recorder.observe(
+        {
+            "method": "item/completed",
+            "payload": {
+                "item": {
+                    "type": "mcpToolCall",
+                    "tool": "mcp__rpent__finish",
+                    "status": "completed",
+                    "arguments": {"status": "success", "summary": "too early"},
+                    "result": {
+                        "isError": True,
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": json.dumps(
+                                    {
+                                        "error": "finish refused: pending verdict",
+                                        "status": "pending",
+                                    }
+                                ),
+                            }
+                        ],
+                    },
+                }
+            },
+        }
+    )
+
+    assert recorder.finish_result is None
+    assert recorder.tool_calls == 1
+
+
+def test_finish_uses_mcp_tool_result_payload_over_arguments() -> None:
+    from rpent.planner.codex import _Recorder
+
+    recorder = _Recorder(max_turns=2, dashboard_events=RecordingSink())
+
+    recorder.observe(
+        {
+            "method": "item/completed",
+            "payload": {
+                "item": {
+                    "type": "mcpToolCall",
+                    "tool": "mcp__rpent__finish",
+                    "status": "completed",
+                    "arguments": {"status": "success", "summary": "requested"},
+                    "result": {
+                        "isError": False,
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": json.dumps(
+                                    {
+                                        "_finish": True,
+                                        "status": "failure",
+                                        "summary": "Operator aborted.",
+                                    }
+                                ),
+                            }
+                        ],
+                    },
+                }
+            },
+        }
+    )
+
+    assert recorder.finish_result == {
+        "_finish": True,
+        "status": "failure",
+        "summary": "Operator aborted.",
+    }
+    assert recorder.tool_calls == 1
+
+
 def test_fake_codex_backend_failure_stops_mcp_server(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -857,3 +936,47 @@ def test_probe_returns_empty_string_when_the_model_said_nothing(
     )
 
     assert reply == ""
+
+
+def test_retry_error_is_visible_without_poisoning_successful_turn():
+    from rpent.planner.codex import _Recorder
+
+    sink = RecordingSink()
+    recorder = _Recorder(max_turns=2, dashboard_events=sink)
+    recorder.observe(
+        {
+            "method": "error",
+            "payload": {
+                "will_retry": True,
+                "error": {
+                    "message": "Reconnecting 4/5",
+                    "additional_details": "Broken pipe",
+                },
+            },
+        }
+    )
+    assert recorder.error is None
+    assert "Broken pipe" in str(sink.events[-1])
+    recorder.observe(
+        {
+            "method": "error",
+            "payload": {
+                "will_retry": False,
+                "error": {"message": "Retries exhausted"},
+            },
+        }
+    )
+    assert "Retries exhausted" in recorder.error
+    assert "Model connection failed" in str(sink.events[-1])
+
+
+@pytest.mark.parametrize(
+    "result", [{"status": "pending"}, {"_finish": False}, {"error": "verdict pending"}]
+)
+def test_direct_finish_refusal_is_not_replaced_by_requested_success(result):
+    recorder = codex_module._Recorder(max_turns=2, dashboard_events=RecordingSink())
+    recorder._maybe_capture_finish(
+        "finish",
+        {"status": "completed", "arguments": {"status": "success"}, "result": result},
+    )
+    assert recorder.finish_result is None
