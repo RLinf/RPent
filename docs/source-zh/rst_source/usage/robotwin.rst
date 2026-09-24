@@ -1,8 +1,8 @@
 RoboTwin
 ========
 
-`RoboTwin <https://robotwin-platform.github.io/>`_ 是一个面向双臂机器人操作的
-仿真基准，包含多种桌面操作任务和随机化场景。RPent 通过 RLinf 运行 RoboTwin，
+`RoboTwin <https://robotwin-platform.github.io/>`_ 是一个面向双臂机器人操作的仿\
+真基准，包含多种桌面操作任务和随机化场景。RPent 通过 RLinf 运行 RoboTwin，\
 并使用 LingBot-VLA 生成机器人动作。
 
 .. note::
@@ -12,8 +12,8 @@ RoboTwin
 安装
 ----
 
-RoboTwin 要求 Python 3.11。宿主机需预先具备兼容的 CUDA toolkit/NVCC、编译
-工具链以及 SAPIEN 依赖的系统级 GL/EGL/Vulkan 库。创建虚拟环境并安装
+RoboTwin 要求 Python 3.11。宿主机需预先具备兼容的 CUDA toolkit/NVCC、\
+编译工具链以及 SAPIEN 依赖的系统级 GL/EGL/Vulkan 库。创建虚拟环境并安装
 RoboTwin 所需依赖：
 
 .. code-block:: bash
@@ -35,14 +35,14 @@ RoboTwin 所需依赖：
 
 .. note::
 
-   ``.[robotwin]`` 使用 SAPIEN 3.0.0b1。其他版本可能改变仿真观测，导致模型
-   效果下降。
+   ``.[robotwin]`` 使用 SAPIEN 3.0.0b1。其他版本可能改变仿真观测，导致模型效\
+   果下降。
 
 .. note::
 
    ``.[robotwin]`` 的 RoboTwin 与 LingBot 运行时已作为发布包安装到 PyPI；
-   cuRobo 仍从 GitHub 官方 tag 源码构建，因此即使配置了 PyPI 镜像，安装时
-   仍需能访问 GitHub。
+   cuRobo 仍从 GitHub 官方 tag 源码构建，因此即使配置了 PyPI 镜像，\
+   安装时仍需能访问 GitHub。
 
 下载仿真资源
 ------------
@@ -56,8 +56,8 @@ RoboTwin 所需依赖：
    # 国内用户可以使用下面的命令
    # HF_ENDPOINT=https://hf-mirror.com robotwin-download-assets --output ~/.robotwin/assets
 
-下载工具会先校验已有文件；如果目标目录中的 RoboTwin 资源已经完整，
-则不会重复下载。
+下载工具会先校验已有文件；如果目标目录中的 RoboTwin 资源已经完整，则不会重\
+复下载。
 
 下载模型
 --------
@@ -89,7 +89,7 @@ RoboTwin 所需依赖：
       --planner codex \
       --model gpt-5.5
 
-修改 ``--task-name`` 可以选择其他任务；标准随机化评测使用的 seed 说明见下方。
+修改 ``--task-name`` 可以选择其他任务；标准随机化评测使用的 seed 说明见下方。\
 完整参数请运行 ``rpent --robot robotwin --help`` 查看。
 
 .. note::
@@ -100,8 +100,8 @@ RoboTwin 所需依赖：
    <https://github.com/RLinf/RPent/blob/main/robots/robotwin/eval/demo_randomized.json>`_
    中选择当前任务对应的 5 个已验证 seed。
 
-   这些 seed 已通过 RoboTwin expert 执行筛选；无法稳定初始化或 expert 执行
-   未成功的候选 seed 已被跳过。自定义运行仍可显式指定表中没有的其他 seed。
+   这些 seed 已通过 RoboTwin expert 执行筛选；无法稳定初始化或 expert 执行未成\
+   功的候选 seed 已被跳过。自定义运行仍可显式指定表中没有的其他 seed。
 
 探索模式
 --------
@@ -118,25 +118,25 @@ memory。与 LIBERO 相同，默认每次运行包含 3 个 planner session，�
      --explore --explore-sessions 3 --explore-attempts-per-session 5 \
      --memory-dir /path/to/robotwin-memory
 
-``reset`` 沿用环境原有的 episode reset，因此每次 reset 后规划器都需要重新
-感知。runner 只导出最后一次 reset 后的获胜命令。探索产生的 memory 写入当前
+``reset`` 沿用环境原有的 episode reset，因此每次 reset 后规划器都需要重新\
+感知。runner 只导出最后一次 reset 后的获胜命令。探索产生的 memory 写入当前\
 本地 inbox；除非传入 ``--no-auto-merge-memory``，否则运行结束后会自动合并。
 
 查看运行结果
 ------------
 
 终端会显示服务启动信息、规划器输出和工具调用。默认情况下，运行结果保存在
-``logs/<timestamp>_robotwin_<task-name>_s<seed>/``。排查或复核运行结果时，
+``logs/<timestamp>_robotwin_<task-name>_s<seed>/``。排查或复核运行结果时，\
 可以先查看以下文件：
 
 - ``run.log``：RPent 主进程日志。
-- ``robotwin_env_server.log`` 和 ``lingbot_vla_server.log``：仿真环境与模型
-  服务的启动和报错信息。
+- ``robotwin_env_server.log`` 和 ``lingbot_vla_server.log``：仿真环境与模型服务\
+  的启动和报错信息。
 - ``transcript_*.json``：规划器对话和最终回复。
 
 任务是否成功以最新工具结果中的 RoboTwin 原生
-``TASK_ENV.eval_success`` 为准。``finish`` 只负责结束规划器循环，不会另外
-定义一套成功条件。
+``TASK_ENV.eval_success`` 为准。``finish`` 只负责结束规划器循环，不会另外定义一\
+套成功条件。
 
 添加 ``--dashboard`` 可以在浏览器中查看规划器输出以及头部和腕部相机画面。
 Dashboard 启动后，访问地址会显示在终端中。
@@ -144,8 +144,8 @@ Dashboard 启动后，访问地址会显示在终端中。
 常用参数
 --------
 
-RPent 默认使用 RoboTwin 的 ``demo_randomized`` 任务配置，该配置带环境
-扰动（随机背景、桌面杂物、光照、桌高）。如需简单、干净的场景，可使用
+RPent 默认使用 RoboTwin 的 ``demo_randomized`` 任务配置，该配置带环境扰动（随\
+机背景、桌面杂物、光照、桌高）。如需简单、干净的场景，可使用
 ``--task-config demo_clean``。
 
 - ``--robotwin-assets-path``：覆盖 ``ROBOTWIN_ASSETS_PATH`` 指定的资源目录。
@@ -158,9 +158,10 @@ RPent 默认使用 RoboTwin 的 ``demo_randomized`` 任务配置，该配置带�
 :doc:`advanced_deployment` 和 :doc:`../development/memory`。
 
 每次运行前，RPent 会自动从公开数据集 `RLinf/RPent-memory
-<https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/robotwin>`_ 同步可选的
-RoboTwin 经验和任务参考。这些内容包含经过验证的操作方法，可以帮助规划器提高任务表现；
-即使无法下载，任务仍可正常启动。
+<https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/robotwin>`_ 同步\
+可选的
+RoboTwin 经验和任务参考。这些内容包含经过验证的操作方法，可以帮助规划器提高任\
+务表现；即使无法下载，任务仍可正常启动。
 
 规划器 memory 与 recipe
 ------------------------
@@ -168,45 +169,51 @@ RoboTwin 经验和任务参考。这些内容包含经过验证的操作方法�
 规划器使用的只读 memory 位于数据集的 ``robotwin/`` 目录，并会同步到
 ``<RPent-clone-path>/memory/robotwin/``。
 
-``MEMORY.md`` 索引可跨任务复用的执行经验，包括感知线索、控制启发、恢复策略、
-参数选择建议和常见失败模式。规划器可以通过该索引，只读取与当前任务或已观察到的失败
-相关的 memory 条目。
+``MEMORY.md`` 索引可跨任务复用的执行经验，包括感知线索、控制启发、恢复策略、\
+参数选择建议和常见失败模式。规划器可以通过该索引，只读取与当前任务或已观察到的\
+失败相关的 memory 条目。
 
-对于每个评测任务，``task_only/<task>_s0.json`` 是从成功轨迹中提炼的语义 recipe，
-描述阶段目标、可观察的完成 gate、控制与 VLA 使用建议以及已知失败模式。配套的
-``task_only/<task>_s0_recipe.jsonl`` 记录该轨迹中的历史工具调用，用于提供动作顺序、
-工具选择和 action chunk 节奏方面的证据。
+对于每个评测任务，``task_only/<task>_s0.json`` 是从成功轨迹中提炼的语义
+recipe，描述阶段目标、可观察的完成 gate、控制与 VLA 使用建议以及已知失败模式。\
+配套的
+``task_only/<task>_s0_recipe.jsonl`` 记录该轨迹中的历史工具调用，用于提供动\
+作顺序、工具选择和 action chunk 节奏方面的证据。
 
-文件名中的 ``_s0`` 只是统一的 recipe slot 名称，便于 prompt 查找，并不表示 RoboTwin
+文件名中的 ``_s0`` 只是统一的 recipe slot 名称，便于 prompt 查找，并不表示
+RoboTwin
 seed 0。由于部分随机 seed 可能不可解，每份 recipe 的来源 seed 通过 RoboTwin 官方
 expert 程序选择；实际来源 seed 记录在 recipe 元数据中。
 
-这些 recipe 来源于成功的 ``demo_clean`` 轨迹，用作独立 ``demo_randomized`` 场景的
-策略先验。可迁移的是阶段结构、可观察 gate、控制方式和 VLA chunk 节奏；来源任务语言、
-机械臂选择、像素、坐标、姿态、净空与接触点均不是新 episode 的直接命令。当前环境原生
+这些 recipe 来源于成功的 ``demo_clean`` 轨迹，用作独立 ``demo_randomized`` 场景\
+的策略先验。可迁移的是阶段结构、可观察 gate、控制方式和 VLA chunk 节奏；\
+来源任务语言、机械臂选择、像素、坐标、姿态、净空与接触点均不是新 episode 的直\
+接命令。当前环境原生
 task language 与最新 observation 始终优先，所有几何信息都必须重新定位。
 
-``evidence_status=supported`` 表示 recipe 有成功 clean 轨迹支持；``experimental``
-仍然只是弱先验。使用时先阅读 ``MEMORY.md``，再只选与当前任务和失败模式相关的
-少量笔记。
+``evidence_status=supported`` 表示 recipe 有成功 clean 轨迹支持；\
+``experimental``
+仍然只是弱先验。使用时先阅读 ``MEMORY.md``，再只选与当前任务和失败模式相关的少\
+量笔记。
 
 结果复现
 --------
 
 以下结果是在 :doc:`Harness VLA <../awesome_works/harnessvla>` 的 RoboTwin C2R
 上的评测。实验使用 `reproduce/robotwin
-<https://github.com/RLinf/RPent/tree/reproduce/robotwin>`_ 分支、``gpt-5.5`` 模型和
+<https://github.com/RLinf/RPent/tree/reproduce/robotwin>`_ 分支、``gpt-5.5`` 模\
+型和
 ``xhigh`` 推理强度：
 
 - ``demo_randomized``：62.4%（156/250）
 
 本次运行得到 156 条成功、58 条任务失败和 36 条 episode 超时。
 
-评测覆盖 RoboTwin 的 50 个任务，每个任务运行 5 个 episode，共计 250 个 episode。
-每个任务使用的 5 个 seed 来自 ``robots/robotwin/eval/demo_randomized.json`` 中的
-官方 verified expert seeds。由于不同任务的可解 seed 可能不同，请根据该文件为每个
-任务选择对应 seed，不要对所有任务统一使用一组固定 seed。
-对于表中列出的 task/seed 组合，RPent 会在精确场景 reset 后绑定表内对应的
+评测覆盖 RoboTwin 的 50 个任务，每个任务运行 5 个 episode，共计 250 个
+episode。每个任务使用的 5 个 seed 来自
+``robots/robotwin/eval/demo_randomized.json`` 中的官方 verified expert seeds。\
+由于不同任务的可解 seed 可能不同，请根据该文件为每个任务选择对应 seed，\
+不要对所有任务统一使用一组固定 seed。对于表中列出的 task/seed 组合，\
+RPent 会在精确场景 reset 后绑定表内对应的
 ``task_language``；未列出的自定义 seed 仍使用 RoboTwin 原生环境生成的 language。
 
 单个 episode 的复现命令如下：
@@ -224,7 +231,8 @@ task language 与最新 observation 始终优先，所有几何信息都必须�
      --planner-timeout-s 4800 \
      --max-episode-steps 10000
 
-其中，``task`` 应替换为 ``demo_randomized.json`` 中的任务名，``seed`` 应替换为
-该任务对应的一个 verified expert seed。运行前还需按照本页前文配置 RoboTwin assets、
+其中，``task`` 应替换为 ``demo_randomized.json`` 中的任务名，``seed`` 应替换为\
+该任务对应的一个 verified expert seed。运行前还需按照本页前文配置 RoboTwin
+assets、
 LingBot-VLA checkpoint。每个 episode 仅在 ``TASK_ENV.eval_success`` 的最终值为
 ``true`` 时计为成功；规划器调用 ``finish`` 本身不代表成功。

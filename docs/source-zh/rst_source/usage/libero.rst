@@ -1,18 +1,19 @@
 LIBERO
 ======
 
-`LIBERO <https://libero-project.github.io/>`_ 是 RPent 主要使用的仿真基准，
-包含一系列基于 MuJoCo/robosuite 的桌面操作任务。RPent 主要使用四个核心基础
-任务族（``libero_object``、``libero_goal``、``libero_spatial``、
+`LIBERO <https://libero-project.github.io/>`_ 是 RPent 主要使用的仿真基准，\
+包含一系列基于 MuJoCo/robosuite 的桌面操作任务。RPent 主要使用四个核心基础任务\
+族（``libero_object``、``libero_goal``、``libero_spatial``、
 ``libero_10``）和三个变体（``standard``、``pro``、``plus``）。默认 VLA
-是 **Pi0.5**，由 ``rpent/robots/components/pi05_vla_server.py`` 通过 HTTP 提供服务。
+是 **Pi0.5**，由 ``rpent/robots/components/pi05_vla_server.py`` 通过 HTTP 提\
+供服务。
 
 VLA 配置
 --------
 
 下载推荐的 SFT checkpoint
 `RLinf-Pi05-LIBERO-130-fullshot-SFT
-<https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT>`_，
+<https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT>`_，\
 再将 ``PI05_CHECKPOINT_PATH`` 指向本地 checkpoint 目录：
 
 .. code-block:: bash
@@ -112,11 +113,11 @@ RPent 支持两种 LIBERO 运行模式：
   audit、recipe 和经验。HarnessVLA 的 success rate 在 evaluation mode 下复现。
 
 默认仍为原有单次评测模式。省略 ``--memory-profile`` 时，会继续同步并使用
-Hugging Face memory 和原有 prompt。两种 profile 都执行相同的单次评测流程；
-区别仅在于评测 memory 的来源及所使用的 memory prompt。本地 memory 已准备好后
-（例如先执行下文的 exploration 流程），即可使用 ``local``。该选项不会开启 exploration，也不会从 Hugging Face 下载
-memory；它只会针对 ``--memory-dir`` 执行普通的单次评测，并避免同步覆盖本地
-目录：
+Hugging Face memory 和原有 prompt。两种 profile 都执行相同的单次评测流程；\
+区别仅在于评测 memory 的来源及所使用的 memory prompt。本地 memory 已准备好后\
+（例如先执行下文的 exploration 流程），即可使用 ``local``。该选项不会开启
+exploration，也不会从 Hugging Face 下载
+memory；它只会针对 ``--memory-dir`` 执行普通的单次评测，并避免同步覆盖本地目录：
 
 .. code-block:: bash
 
@@ -125,8 +126,8 @@ memory；它只会针对 ``--memory-dir`` 执行普通的单次评测，并避�
      --memory-dir /path/to/libero-memory
 
 探索模式沿用同一个 Python/CLI 入口。它支持可重置的多次尝试和独立
-planner session，并在正常结束后校验、合并 memory，只有 LIBERO 确认成功时
-才发布 task audit/recipe。探索可以从空的 ``--memory-dir`` 开始，并始终使用
+planner session，并在正常结束后校验、合并 memory，只有 LIBERO 确认成功时才发布
+task audit/recipe。探索可以从空的 ``--memory-dir`` 开始，并始终使用
 local profile；真正开启该流程的是 ``--explore``：
 
 .. code-block:: bash
@@ -140,8 +141,8 @@ local profile；真正开启该流程的是 ``--explore``：
 ``<output-dir>/sessions/session_NNN/``，供最终 memory distillation 使用；同一
 session 内通过 reset 发起的多次 attempt 仍复用该 toolkit。
 
-在 exploration 命令中增加 ``--dashboard``，即可跨 planner session 查看完整
-推理过程、相机画面和连续动作时间线。
+在 exploration 命令中增加 ``--dashboard``，即可跨 planner session 查看完整推\
+理过程、相机画面和连续动作时间线。
 
 使用 ``--no-auto-merge-memory`` 可保留 inbox，稍后人工审核。也可直接使用
 memory 维护命令：
@@ -165,9 +166,9 @@ memory 维护命令：
   ``get_camera_meta`` 等接口。
 - **vla_server** （``rpent/robots/components/pi05_vla_server.py``）—— 持有 Pi0.5
   权重，通过同一套 RPC 传输（HTTP 或 socket）暴露 ``predict``。
-- **sam3_server** （``rpent/robots/components/sam3_server.py``）—— 持有 SAM 3.0，
-  通过同一套 RPC 传输（HTTP 或 socket）支持文本或单个正点分割，仅返回
-  排名第一的压缩 PNG mask。
+- **sam3_server** （``rpent/robots/components/sam3_server.py``）—— 持有 SAM
+  3.0，通过同一套 RPC 传输（HTTP 或 socket）支持文本或单个正点分割，\
+  仅返回排名第一的压缩 PNG mask。
 - **toolkit（工具集）** （``robots/libero/toolkit.py``）—— 定义 LLM
   能调用的工具：``pi0_pick`` （交给 Pi0.5）、``move_to``、``rotate_wrist``、
   ``back_project``、``view_env_state``、``finish``…
@@ -182,14 +183,14 @@ LIBERO 工具分为物理动作工具和只读工具。
 - ``pi0_pick(prompt, ...)`` —— 调用 Pi0.5 执行闭环抓取。
 - ``pi0_doubled(prompt, ...)`` —— 调用 Pi0.5 执行非抓取类接触动作。
 - ``move_to(xyz, ...)`` —— 将末端执行器移动到世界坐标系中的目标位置。
-- ``move_pose(xyz, target_pitch=..., target_yaw=..., ...)`` —— 同时调整
-  末端位置和姿态。
+- ``move_pose(xyz, target_pitch=..., target_yaw=..., ...)`` —— 同时调整末端位置\
+  和姿态。
 - ``rotate_wrist(target_yaw=... / delta_yaw=..., ...)`` —— 按绝对或相对
   yaw 旋转腕部。
-- ``rotate_pitch(target_pitch=... / delta_pitch=..., ...)`` —— 按绝对或
-  相对 pitch 倾斜夹爪。
-- ``set_gripper(gripper=..., steps=...)`` —— 保持末端姿态，并在指定步数内
-  控制夹爪。
+- ``rotate_pitch(target_pitch=... / delta_pitch=..., ...)`` —— 按绝对或相对
+  pitch 倾斜夹爪。
+- ``set_gripper(gripper=..., steps=...)`` —— 保持末端姿态，并在指定步数内控\
+  制夹爪。
 - ``release(...)`` —— 打开夹爪。
 
 物理动作工具执行后会推进环境，并记录新的状态和图像。
@@ -197,10 +198,10 @@ LIBERO 工具分为物理动作工具和只读工具。
 **只读工具：**
 
 - ``back_project(row, col, ...)`` —— 将图像像素反投影到世界坐标。
-- ``segment(prompt=... / point=..., ...)`` —— 通过 SAM3 对已有图像进行文本或
-  点提示分割。
-- ``view_env_state(step=-1)`` —— 读取已记录的状态和内嵌观测图像；第 0 步为
-  初始状态，``-1`` 表示最新状态。
+- ``segment(prompt=... / point=..., ...)`` —— 通过 SAM3 对已有图像进行文本或点\
+  提示分割。
+- ``view_env_state(step=-1)`` —— 读取已记录的状态和内嵌观测图像；第 0 步为初\
+  始状态，``-1`` 表示最新状态。
 - ``view_camera_meta(camera=..., step=-1)`` —— 读取指定步骤的相机元数据；
   ``-1`` 表示最新状态。
 - ``finish(status, summary)`` —— 结束当前运行。
@@ -210,23 +211,23 @@ LIBERO 工具分为物理动作工具和只读工具。
 Dashboard
 ---------
 
-加上 ``--dashboard`` 可启动长生命周期的本地 Dashboard Session。系统会自动
-选择一个空闲端口，并在终端输出访问 URL：
+加上 ``--dashboard`` 可启动长生命周期的本地 Dashboard Session。系统会自动选择一\
+个空闲端口，并在终端输出访问 URL：
 
 .. code-block:: bash
 
    rpent --robot libero --dashboard \
      --planner claude_code --model claude-opus-4-8
 
-Session 配置全部来自命令行，打开地址后会直接进入实时监控。共享服务就绪后，
+Session 配置全部来自命令行，打开地址后会直接进入实时监控。共享服务就绪后，\
 输入以下命令启动 TaskRun：
 
 .. code-block:: text
 
    /rpent-task libero_object_swap 2 0
 
-Dashboard 支持 ``api``、``claude_code`` 和 ``codex`` planner。
-在命令行传递 ``--planner`` 与 ``--model``，配置方式和普通运行一致，详见
+Dashboard 支持 ``api``、``claude_code`` 和 ``codex`` planner。在命令行传递
+``--planner`` 与 ``--model``，配置方式和普通运行一致，详见
 :doc:`configure_planner`。
 
 每个 TaskRun 使用独立环境，VLA 和 SAM3 服务由 Session 复用。可通过新的
@@ -240,13 +241,13 @@ Dashboard 支持 ``api``、``claude_code`` 和 ``codex`` planner。
 接入自定义 VLA
 ----------------
 
-如果你有一个与 LIBERO 兼容、但并非 Pi0.5 的 VLA，可以在不修改机器人实现的
-情况下替换 model client：
+如果你有一个与 LIBERO 兼容、但并非 Pi0.5 的 VLA，可以在不修改机器人实现的情况下\
+替换 model client：
 
-1. 写一个新的 ``vla_server.py``，暴露相同的 ``predict`` RPC 契约
-   （HTTP 或 socket 均可）。
+1. 写一个新的 ``vla_server.py``，暴露相同的 ``predict`` RPC 契约（HTTP 或 socket
+   均可）。
 2. 用 ``--vla-endpoint [protocol://]host:port`` 指向它。
-3. 如果可用工具需要调整（比如将 ``pi0_pick`` 改成 ``mymodel_pick``），
+3. 如果可用工具需要调整（比如将 ``pi0_pick`` 改成 ``mymodel_pick``），\
    相应更新 ``robots/libero/toolkit.py``。
 
 完整流程见 :doc:`../development/add_primitive`。
@@ -254,10 +255,11 @@ Dashboard 支持 ``api``、``claude_code`` 和 ``codex`` planner。
 结果复现
 --------
 
-RPent 在 LIBERO-PRO Task/Swap 上的统一模型对比及对应配置见 :doc:`../leaderboard`。
+RPent 在 LIBERO-PRO Task/Swap 上的统一模型对比及对应配置见
+:doc:`../leaderboard`。
 
 :doc:`GPT-6 Astra 套件汇总 <../leaderboard>`
-记录全部八个完整套件及 800 个已核验回合：741 成功、59 失败，Overall 92.63%，
+记录全部八个完整套件及 800 个已核验回合：741 成功、59 失败，Overall 92.63%，\
 配置为 Codex / GPT-6 Astra / low / reasoning。
 
 以下保留历史复现记录，实验使用
