@@ -49,6 +49,13 @@ RPent 不预设 ``move_eef`` 或 ``snapshot`` 的参数格式。
 Completions 的端点可设 ``openai_format="chat"``。原有 ``model`` 和
 ``base_url`` 参数仍可使用，参见 :doc:`configure_planner`。
 
+对支持显式 prompt 缓存的 Responses 端点，可在 ``LLMConfig`` 中设置稳定的
+``prompt_cache_key`` 和 ``prompt_cache_mode="explicit"``。RPent 会在初始任务
+及多模态工具反馈后设置缓存断点。设置 ``image_history_groups=2`` 时仅保留最近
+两组观测图像，较早图像改为文字占位。这些选项默认关闭，因为兼容端点不一定支持。
+提供商报告的缓存命中率按已完成请求的
+``cache_read_tokens / input_tokens`` 计算；输入 token 已包含缓存读取。
+
 ``result.stats["llm_usage"]`` 包含 ``input_tokens``、``output_tokens``、
 ``cache_read_tokens``、``cache_write_tokens``、``reasoning_output_tokens``、
 ``requests``、``cost_usd`` 和 ``total_tokens``。缓存输入已计入

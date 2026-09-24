@@ -57,6 +57,9 @@ def test_robodojo_client_snapshot_and_submit_action(
 ) -> None:
     def fake_planner(*args: Any, **kwargs: Any) -> Any:
         assert kwargs["llm_config"].openai_format == "responses"
+        assert kwargs["llm_config"].prompt_cache_mode == "explicit"
+        assert kwargs["llm_config"].prompt_cache_key == "rpent-robodojo-v1:gpt-test"
+        assert kwargs["llm_config"].image_history_groups == 2
 
         class Planner:
             def solve(self, **parameters: Any) -> PlannerResult:
@@ -80,6 +83,7 @@ def test_robodojo_client_snapshot_and_submit_action(
                         "total_input_tokens": 100,
                         "total_output_tokens": 20,
                         "cache_read_tokens": 30,
+                        "cache_write_tokens": 5,
                         "requests": 2,
                     }
                 )
@@ -96,6 +100,7 @@ def test_robodojo_client_snapshot_and_submit_action(
     result = client.complete(_messages())
     assert json.loads(result["text"])["commands"] == ["left move x 5"]
     assert result["usage"]["prompt_tokens_details"]["cached_tokens"] == 30
+    assert result["usage"]["prompt_tokens_details"]["cache_write_tokens"] == 5
     assert result["attempts"] == 2
     assert not list(tmp_path.rglob("snapshot.json"))
 
@@ -120,6 +125,30 @@ def test_robodojo_missing_action_is_error(
     )
     with pytest.raises(_VLMError, match="produced no RoboDojo action"):
         client.complete(_messages())
+
+
+def test_robodojo_preserves_permanent_provider_status(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Planner:
+        def solve(self, **kwargs: Any) -> PlannerResult:
+            return PlannerResult(
+                error="ModelHTTPError: status_code: 403, model_name: test",
+                stats={"requests": 1},
+            )
+
+    monkeypatch.setattr(
+        "rpent.embodied_agent.build_planner", lambda *args, **kwargs: Planner()
+    )
+    client = RoboDojoEmbodiedClient(
+        model="gpt-test",
+        base_url="https://example.invalid/v1",
+        output_dir=tmp_path,
+        error_type=_VLMError,
+    )
+    with pytest.raises(_VLMError) as caught:
+        client.complete(_messages())
+    assert caught.value.details["status_code"] == 403
 
 
 def test_snapshot_keeps_current_images_when_demo_is_large() -> None:

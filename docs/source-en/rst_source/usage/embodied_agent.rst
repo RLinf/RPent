@@ -55,6 +55,16 @@ uses the Responses API by default; set ``openai_format="chat"`` for a Chat
 Completions-compatible endpoint. The previous ``model`` and ``base_url``
 arguments remain available as described in :doc:`configure_planner`.
 
+For a Responses endpoint that supports explicit prompt caching, set
+``prompt_cache_key`` to a stable value and ``prompt_cache_mode="explicit"`` in
+``LLMConfig``. RPent marks the initial task and multimodal tool feedback as
+cache breakpoints. Set ``image_history_groups=2`` to retain the last two
+observation groups; older camera images become text placeholders. These
+options are opt-in because compatible endpoints may not support them.
+Calculate the provider-reported cache hit rate as
+``cache_read_tokens / input_tokens`` over completed requests. The input count
+already includes cached tokens.
+
 ``result.stats["llm_usage"]`` contains ``input_tokens``, ``output_tokens``,
 ``cache_read_tokens``, ``cache_write_tokens``, ``reasoning_output_tokens``,
 ``requests``, ``cost_usd``, and ``total_tokens``. Cached input is included in

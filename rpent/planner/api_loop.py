@@ -30,6 +30,7 @@ import json
 import queue
 from collections import deque
 from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +38,7 @@ from pydantic_ai import Agent, BinaryContent, ModelSettings, Tool, ToolReturn
 from pydantic_ai.capabilities import ProcessHistory, Thinking
 from pydantic_ai.exceptions import ModelHTTPError, UsageLimitExceeded
 from pydantic_ai.messages import (
+    CachePoint,
     FunctionToolCallEvent,
     FunctionToolResultEvent,
     ModelMessage,
@@ -89,6 +91,8 @@ class ApiAgentLoop:
         *,
         dashboard_events: DashboardEventSink,
         timeout_s: int | None = None,
+        cache_breakpoints: bool = False,
+        image_history_groups: int | None = None,
     ):
         """Store the pydantic-ai model and the output-token cap."""
         self._model = model
@@ -96,6 +100,8 @@ class ApiAgentLoop:
         self._dashboard_events = dashboard_events
         self._no_images = no_images
         self._timeout_s = timeout_s
+        self._cache_breakpoints = cache_breakpoints
+        self._image_history_groups = image_history_groups
         if reasoning_effort not in REASONING_EFFORTS:
             raise ValueError(f"unsupported reasoning effort: {reasoning_effort}")
         self._reasoning_effort = reasoning_effort
@@ -205,7 +211,7 @@ class ApiAgentLoop:
                     logger.info("[user] %s", _clip(line, _ARGS_LOG_LIMIT))
                     return line
 
-        seed = user_message
+        seed = [user_message, CachePoint()] if self._cache_breakpoints else user_message
         history: list[ModelMessage] | None = None
         try:
             while True:
@@ -327,6 +333,7 @@ class ApiAgentLoop:
             observer=observer,
             max_turns=max_turns,
             no_images=self._no_images,
+            cache_breakpoints=self._cache_breakpoints,
         )
         error: str | None = None
         try:
@@ -371,11 +378,20 @@ class ApiAgentLoop:
         return Agent(
             self._model,
             instructions=system_prompt or None,
-            tools=_build_tools(toolkit, no_images=self._no_images),
+            tools=_build_tools(
+                toolkit,
+                no_images=self._no_images,
+                cache_breakpoints=self._cache_breakpoints,
+            ),
             model_settings=_build_model_settings(self._model, self._max_tokens),
             capabilities=[
                 Thinking(effort=thinking_effort),
-                ProcessHistory(processor=_prune_history_images),
+                ProcessHistory(
+                    processor=partial(
+                        _prune_history_images,
+                        max_groups=self._image_history_groups,
+                    )
+                ),
             ],
         )
 
@@ -478,11 +494,13 @@ class _ApiDashboardSession:
         observer: _ApiRunObserver,
         max_turns: int,
         no_images: bool,
+        cache_breakpoints: bool,
     ) -> None:
         self._agent = agent
         self._control = control
         self._max_turns = max_turns
         self._no_images = no_images
+        self._cache_breakpoints = cache_breakpoints
         self._observer = observer
         self._history: list[ModelMessage] = []
         self.usage = RunUsage()
@@ -568,7 +586,9 @@ class _ApiDashboardSession:
         node: Any | None = None
         try:
             async with self._agent.iter(
-                seed,
+                [seed, CachePoint()]
+                if self._cache_breakpoints and not self._history
+                else seed,
                 message_history=list(self._history),
                 usage=self.usage,
                 usage_limits=UsageLimits(request_limit=self._max_turns + 1),
@@ -634,8 +654,10 @@ def _build_model_settings(model: Model, max_tokens: int) -> ModelSettings:
     return build_model_settings(model, max_tokens)
 
 
-def _prune_history_images(messages: list[ModelMessage]) -> list[ModelMessage]:
-    """Drop old camera images so the resent request body stays bounded."""
+def _prune_history_images(
+    messages: list[ModelMessage], *, max_groups: int | None = None
+) -> list[ModelMessage]:
+    """Replace older image groups with text and bound recent image bytes."""
     # Every image in history, oldest -> newest: (msg_idx, part_idx, item_idx, nbytes).
     located: list[tuple[int, int, int, int]] = []
     for mi, message in enumerate(messages):
@@ -653,11 +675,16 @@ def _prune_history_images(messages: list[ModelMessage]) -> list[ModelMessage]:
     if not located:
         return messages
 
+    groups = list(dict.fromkeys((mi, pi) for mi, pi, _, _ in located))
+    recent_groups = set(groups[-max_groups:]) if max_groups is not None else set(groups)
+
     # Walk newest -> oldest, keeping images while under the byte budget.
     keep: set[tuple[int, int, int]] = set()
     total = 0
     for rank, (mi, pi, ii, nbytes) in enumerate(reversed(located)):
-        if rank < _MIN_RECENT_IMAGES or total + nbytes <= _MAX_HISTORY_IMAGE_BYTES:
+        if (mi, pi) in recent_groups and (
+            rank < _MIN_RECENT_IMAGES or total + nbytes <= _MAX_HISTORY_IMAGE_BYTES
+        ):
             keep.add((mi, pi, ii))
             total += nbytes
 
@@ -712,7 +739,12 @@ def _api_error_text(error: Exception, *, no_images: bool) -> str:
     return text
 
 
-def _build_tools(toolkit: Toolkit, *, no_images: bool = False) -> list[Tool]:
+def _build_tools(
+    toolkit: Toolkit,
+    *,
+    no_images: bool = False,
+    cache_breakpoints: bool = False,
+) -> list[Tool]:
     """Build the API-only image reader plus pydantic-ai toolkit wrappers."""
     image_reader = _make_image_reader(toolkit.state, no_images=no_images)
     # sequential=True serializes a turn's tool calls so the toolkit's
@@ -722,7 +754,12 @@ def _build_tools(toolkit: Toolkit, *, no_images: bool = False) -> list[Tool]:
         name = spec["name"]
         tools.append(
             Tool.from_schema(
-                function=_make_tool_function(toolkit, name, no_images=no_images),
+                function=_make_tool_function(
+                    toolkit,
+                    name,
+                    no_images=no_images,
+                    cache_breakpoints=cache_breakpoints,
+                ),
                 name=name,
                 description=spec.get("description", ""),
                 json_schema=spec.get("input_schema")
@@ -813,14 +850,21 @@ def _image_media_type(path: Path) -> str:
     return "image/jpeg" if path.suffix.lower() in {".jpg", ".jpeg"} else "image/png"
 
 
-def _make_tool_function(toolkit: Toolkit, name: str, *, no_images: bool = False):
+def _make_tool_function(
+    toolkit: Toolkit,
+    name: str,
+    *,
+    no_images: bool = False,
+    cache_breakpoints: bool = False,
+):
     """Return a callable that dispatches one tool call to the toolkit."""
 
     def _call(**kwargs: Any) -> Any:
         result = toolkit.execute_tool(name, kwargs)
         text, images = _content_blocks_to_pydantic(result.content_blocks)
         if images and not no_images:
-            return ToolReturn(return_value=text, content=images)
+            content = [*images, CachePoint()] if cache_breakpoints else images
+            return ToolReturn(return_value=text, content=content)
         return text
 
     _call.__name__ = name

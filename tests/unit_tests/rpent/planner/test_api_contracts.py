@@ -24,10 +24,13 @@ import pytest
 from pydantic_ai import BinaryContent, ToolReturn
 from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.messages import (
+    CachePoint,
+    ModelRequest,
     ModelResponse,
     TextPart,
     ToolCallPart,
     ToolReturnPart,
+    UserPromptPart,
 )
 from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.usage import RequestUsage
@@ -39,6 +42,7 @@ from rpent.planner.api_loop import (
     _build_tools,
     _content_blocks_to_pydantic,
     _make_tool_function,
+    _prune_history_images,
 )
 from rpent.tools.toolkit import ToolResult
 
@@ -342,3 +346,30 @@ def test_no_images_mode_suppresses_binary_tool_content() -> None:
     assert isinstance(multimodal.content[0], BinaryContent)
     assert text_only == '{\n  "value": "visible"\n}'
     assert "secret" not in text_only
+
+
+def test_explicit_cache_marks_multimodal_tool_feedback() -> None:
+    toolkit = FakeToolkit({"value": "visible", "_image_bytes": b"pixels"})
+    result = _make_tool_function(toolkit, "snapshot", cache_breakpoints=True)()
+    assert isinstance(result, ToolReturn)
+    assert isinstance(result.content[0], BinaryContent)
+    assert isinstance(result.content[-1], CachePoint)
+
+
+def test_image_history_keeps_only_two_recent_observation_groups() -> None:
+    messages = [
+        ModelRequest(
+            parts=[
+                UserPromptPart(
+                    content=[BinaryContent(data=bytes([index]), media_type="image/png")]
+                )
+            ]
+        )
+        for index in range(3)
+    ]
+    pruned = _prune_history_images(messages, max_groups=2)
+    assert isinstance(pruned[0].parts[0].content[0], str)
+    assert all(
+        isinstance(message.parts[0].content[0], BinaryContent) for message in pruned[1:]
+    )
+    assert isinstance(messages[0].parts[0].content[0], BinaryContent)

@@ -112,9 +112,28 @@ def configure(
             raise RuntimeError("unknown RoboProbe validation contract")
         manager = (
             manager[:before]
-            + """def validate(exp):
+            + """def permanent_model_error(exp, run_id):
+    root = exp / "runtime/vlm_logs" / run_id
+    summaries = root.glob("episode_*/episode_summary.json")
+    stopped_for_model_error = any(
+        json.loads(path.read_text()).get("policy_stop_reason")
+        in {"permanent_api_error", "consecutive_model_errors"}
+        for path in summaries
+    )
+    if not stopped_for_model_error:
+        return None
+    for path in root.glob("rpent/decision_*/llm_errors.jsonl"):
+        for line in path.read_text().splitlines():
+            status = json.loads(line).get("status_code")
+            if isinstance(status, int) and 400 <= status < 500 and status not in (408, 409, 425, 429):
+                return status
+    return None
+
+
+def validate(exp):
     status = report(exp, write=True)
     evidence = {}
+    permanent_errors = {}
     for task in load_manifest(exp)["tasks"]:
         scored = next((row for row in status["results"] if row["task"] == task), None)
         if scored is None:
@@ -122,10 +141,15 @@ def configure(
             continue
         root = exp / "runtime/vlm_logs" / scored["run_id"]
         evidence[task] = any(root.glob("**/decision_*.json"))
+        error = permanent_model_error(exp, scored["run_id"])
+        if error is not None:
+            permanent_errors[task] = error
     complete = (status["scored"] == 42 and not status["conflicts"]
-                and not status["invalid_files"] and all(evidence.values()))
+                and not status["invalid_files"] and all(evidence.values())
+                and not permanent_errors)
     payload = {"complete": bool(complete), "status": status,
-               "decision_logs_found": evidence}
+               "decision_logs_found": evidence,
+               "permanent_model_errors": permanent_errors}
     path = exp / "results" / ("once-validation.json" if complete else "once-validation-incomplete.json")
     tmp = path.with_suffix(".json.pending")
     tmp.write_text(json.dumps(payload, indent=2) + "\\n")
@@ -133,6 +157,21 @@ def configure(
     return bool(complete)
 """
             + manager[after:]
+        )
+        anchor = "            if scored:\n                break\n"
+        if manager.count(anchor) != 1:
+            raise RuntimeError("unknown RoboProbe worker completion contract")
+        manager = manager.replace(
+            anchor,
+            """            run_id = "rp-once-{}-s{:02d}-{}-a{}".format(
+                shard["plan_id"], shard["index"], task, attempt)
+            permanent_status = permanent_model_error(exp, run_id)
+            if permanent_status is not None:
+                raise RuntimeError("permanent model HTTP {} in {}".format(
+                    permanent_status, run_id))
+            if scored:
+                break
+""",
         )
         launcher.write_text(manager, encoding="utf-8")
         manifest["protocol"] = (

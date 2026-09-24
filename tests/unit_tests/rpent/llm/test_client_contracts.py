@@ -23,8 +23,9 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from pydantic_ai import BinaryContent
 from pydantic_ai.exceptions import ModelAPIError, ModelHTTPError
-from pydantic_ai.messages import ModelResponse, TextPart
+from pydantic_ai.messages import CachePoint, ModelResponse, TextPart, UserPromptPart
 from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.usage import RequestUsage, RunUsage
 
@@ -68,6 +69,43 @@ def test_openai_settings_do_not_import_anthropic_sdk(
 
     monkeypatch.setattr(builtins, "__import__", import_without_anthropic)
     assert build_model_settings(model, 100)["max_tokens"] == 100
+
+
+def test_responses_explicit_cache_settings_and_breakpoint_wire_format() -> None:
+    config = LLMConfig(
+        "openai",
+        "gpt-6-astra/azure_L/qwb",
+        api_key="test",
+        prompt_cache_key="robodojo-stable-v1",
+        prompt_cache_mode="explicit",
+        image_history_groups=2,
+    )
+    model = config.build_model()
+    settings = build_model_settings(model, 128)
+    assert settings["openai_prompt_cache_key"] == "robodojo-stable-v1"
+    assert settings["openai_prompt_cache_options"] == {"mode": "explicit"}
+    mapped = asyncio.run(
+        model._map_user_prompt(UserPromptPart(content=["stable goal", CachePoint()]))
+    )
+    assert mapped["content"][0]["prompt_cache_breakpoint"] == {"mode": "explicit"}
+    image = asyncio.run(
+        model._map_user_prompt(
+            UserPromptPart(
+                content=[
+                    BinaryContent(data=b"jpeg", media_type="image/jpeg"),
+                    CachePoint(),
+                ]
+            )
+        )
+    )
+    assert image["content"][0]["prompt_cache_breakpoint"] == {"mode": "explicit"}
+
+
+def test_prompt_cache_configuration_rejects_incompatible_endpoints() -> None:
+    with pytest.raises(ValueError, match="OpenAI Responses"):
+        LLMConfig("anthropic", "claude-test", prompt_cache_mode="explicit")
+    with pytest.raises(ValueError, match="OpenAI Responses"):
+        LLMConfig("openai", "gpt-test", openai_format="chat", prompt_cache_key="stable")
 
 
 def test_direct_calls_report_per_call_and_cumulative_usage(
