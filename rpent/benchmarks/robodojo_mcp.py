@@ -23,7 +23,7 @@ def create_server(snapshot_path: Path, action_path: Path) -> FastMCP:
 
     @server.tool()
     def snapshot() -> CallToolResult:
-        """View the latest RoboDojo cameras, robot state, feedback, and task demonstration."""
+        """View the latest RoboDojo cameras, robot state, and action feedback."""
         data = json.loads(snapshot_path.read_text(encoding="utf-8"))
         content = []
         for item in data["content"]:

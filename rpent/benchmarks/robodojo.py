@@ -14,6 +14,7 @@ with RoboDojo and RoboDawn. This module replaces only RoboDawn's VLM client.
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
@@ -23,6 +24,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from pydantic_ai import BinaryContent
+
 from rpent.embodied_agent import EmbodiedAgent, McpServer
 from rpent.llm import LLMConfig
 
@@ -30,7 +33,8 @@ from rpent.llm import LLMConfig
 class RoboDojoEmbodiedClient:
     """Supply each RoboDawn decision through two user-owned MCP tools.
 
-    ``snapshot`` exposes the current cameras, state, and optional demonstration;
+    Stable demonstrations enter the first model request; ``snapshot`` exposes
+    the current cameras and robot feedback.
     ``submit_action`` returns a short discrete command sequence. The caller
     executes and scores the commands. Each decision has isolated files and logs.
     """
@@ -86,7 +90,7 @@ class RoboDojoEmbodiedClient:
             snapshot = Path(temp) / "snapshot.json"
             action = Path(temp) / "action.json"
             snapshot.write_text(
-                json.dumps(_snapshot_messages(messages[1:], self.max_images)),
+                json.dumps(_snapshot_messages(messages[-1:], self.max_images)),
                 encoding="utf-8",
             )
             agent = EmbodiedAgent(
@@ -121,10 +125,12 @@ class RoboDojoEmbodiedClient:
                 reasoning_effort=reasoning_effort or "none",
             )
             result = agent.run(
-                "Call dojo__snapshot to inspect the cameras and state. Then call "
+                "Review the task demonstration. Call dojo__snapshot to inspect "
+                "the current cameras and state. Then call "
                 "dojo__submit_action once with your next discrete command sequence. "
                 "After submitting, call finish. The simulator executes the submitted commands.",
                 system_prompt=_tool_system_prompt(str(messages[0]["content"])),
+                initial_context=_demo_context(messages[1:-1], self.max_images - 3),
             )
             if not action.is_file():
                 error = _safe_error(result.error)
@@ -153,10 +159,38 @@ class RoboDojoEmbodiedClient:
             }
 
 
+def _demo_context(
+    messages: list[dict[str, Any]], max_images: int
+) -> list[str | BinaryContent]:
+    """Place a bounded, repeatable demonstration before dynamic tool output."""
+    content: list[str | BinaryContent] = []
+    for message in messages:
+        role = str(message.get("role", "user"))
+        parts = message.get("content", "")
+        if isinstance(parts, str):
+            content.append(f"Demonstration {role}: {parts}")
+            continue
+        for part in parts:
+            if part.get("type") == "text":
+                content.append(f"Demonstration {role}: {part['text']}")
+            elif part.get("type") == "image_url" and max_images > 0:
+                url = part.get("image_url", {}).get("url", "")
+                if not url.startswith("data:image/jpeg;base64,"):
+                    raise ValueError("RoboDojo demonstration requires JPEG data URLs")
+                content.append(
+                    BinaryContent(
+                        data=base64.b64decode(url.split(",", 1)[1]),
+                        media_type="image/jpeg",
+                    )
+                )
+                max_images -= 1
+    return content
+
+
 def _snapshot_messages(
     messages: list[dict[str, Any]], max_images: int
 ) -> dict[str, Any]:
-    """Bound demo images while always retaining the current three cameras."""
+    """Bound images while always retaining the current three cameras."""
     if max_images < 3:
         raise ValueError("max_images must be at least 3")
     output: list[dict[str, str]] = []
@@ -203,9 +237,9 @@ def _tool_system_prompt(prompt: str) -> str:
     """Retain RoboDawn's robot rules while replacing its text-only output format."""
     prefix = prompt.split("\nRESPONSE FORMAT:", 1)[0]
     return (
-        prefix
-        + "\nTOOL WORKFLOW: Call dojo__snapshot first to view the current cameras, "
-        "state, feedback, and demonstration. Then call dojo__submit_action with "
+        prefix + "\nTOOL WORKFLOW: Review the task demonstration, then call "
+        "dojo__snapshot to view the current cameras, state, and feedback. "
+        "Then call dojo__submit_action with "
         "scene, progress, memory, plan, and 1-4 discrete commands. The tool "
         "schema replaces the JSON response format. Call finish only after "
         "submit_action. The benchmark ends the episode when its checker records "

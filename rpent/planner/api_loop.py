@@ -79,6 +79,13 @@ _MAX_HISTORY_IMAGE_BYTES = 4 * 1024 * 1024
 _MIN_RECENT_IMAGES = 2
 
 
+def _user_message_log(message: str | list[str | BinaryContent]) -> str:
+    """Keep camera bytes out of the lightweight planner transcript."""
+    if isinstance(message, str):
+        return message
+    return "\n".join(part if isinstance(part, str) else "[image]" for part in message)
+
+
 class ApiAgentLoop:
     """Planner that runs the tool-calling loop via a pydantic-ai ``Agent``."""
 
@@ -110,7 +117,7 @@ class ApiAgentLoop:
         self,
         *,
         system_prompt: str,
-        user_message: str,
+        user_message: str | list[str | BinaryContent],
         toolkit: Toolkit,
         max_turns: int,
         input_queue: queue.Queue[str | None] | None = None,
@@ -121,6 +128,10 @@ class ApiAgentLoop:
             raise ValueError(
                 "input_queue and dashboard_interaction cannot be used together"
             )
+        if not isinstance(user_message, str) and (
+            input_queue is not None or dashboard_interaction is not None
+        ):
+            raise ValueError("multimodal initial context requires a noninteractive run")
         if dashboard_interaction is not None:
             return asyncio.run(
                 self._solve_dashboard(
@@ -147,7 +158,7 @@ class ApiAgentLoop:
             logger.error("API planner timed out after %ss", self._timeout_s)
             return PlannerResult(
                 finish_result=None,
-                messages=[{"role": "user", "content": user_message}],
+                messages=[{"role": "user", "content": _user_message_log(user_message)}],
                 stats={},
                 error=f"API planner timed out after {self._timeout_s}s",
             )
@@ -156,7 +167,7 @@ class ApiAgentLoop:
         self,
         *,
         system_prompt: str,
-        user_message: str,
+        user_message: str | list[str | BinaryContent],
         toolkit: Toolkit,
         max_turns: int,
         input_queue: queue.Queue[str | None] | None = None,
@@ -164,7 +175,9 @@ class ApiAgentLoop:
         agent = self._build_agent(system_prompt, toolkit)
 
         interactive = input_queue is not None
-        messages: list[dict[str, Any]] = [{"role": "user", "content": user_message}]
+        messages: list[dict[str, Any]] = [
+            {"role": "user", "content": _user_message_log(user_message)}
+        ]
         observer = _ApiRunObserver(
             dashboard_events=self._dashboard_events,
             messages=messages,
@@ -211,7 +224,18 @@ class ApiAgentLoop:
                     logger.info("[user] %s", _clip(line, _ARGS_LOG_LIMIT))
                     return line
 
-        seed = [user_message, CachePoint()] if self._cache_breakpoints else user_message
+        if isinstance(user_message, str):
+            seed = (
+                [user_message, CachePoint()]
+                if self._cache_breakpoints
+                else user_message
+            )
+        else:
+            seed = (
+                [*user_message, CachePoint()]
+                if self._cache_breakpoints
+                else user_message
+            )
         history: list[ModelMessage] | None = None
         try:
             while True:
