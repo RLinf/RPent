@@ -72,6 +72,7 @@ EXPECTED_TOOL_NAMES = {
         "place_in_bin",
     },
     "robotwin": {
+        "reset",
         "view_env_state",
         "render",
         "sample_world_xyz",

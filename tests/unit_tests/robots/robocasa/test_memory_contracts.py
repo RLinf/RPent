@@ -33,6 +33,7 @@ def _args(
     tmp_path: Path,
     *,
     memory_dir: Path | None,
+    memory_profile: str | None = None,
 ) -> argparse.Namespace:
     return argparse.Namespace(
         task_name="OpenDrawer",
@@ -40,6 +41,7 @@ def _args(
         seed=1,
         output_dir=tmp_path / "run",
         memory_dir=memory_dir,
+        memory_profile=memory_profile,
     )
 
 
@@ -103,26 +105,54 @@ def test_parse_config_resolves_local_memory_dir(tmp_path):
     memory_dir = tmp_path / "local-memory"
 
     config = _parse_config(
-        _args(tmp_path, memory_dir=memory_dir),
+        _args(tmp_path, memory_dir=memory_dir, memory_profile="local"),
     )
 
     assert config.prompt_vars["memory_dir"] == str(memory_dir.resolve())
+    assert config.prompt_vars["memory_profile"] == "local"
+    assert config.prompt_vars["reference_tag"] == "OpenDrawer_target_s0"
 
 
-def test_prompt_names_only_current_task_memory(tmp_path):
+def test_local_prompt_uses_layered_memory(tmp_path):
     memory_dir = tmp_path / "memory"
+    variables = {
+        "task_name": "OpenDrawer",
+        "reference_tag": "OpenDrawer_target_s0",
+        "memory_profile": "local",
+        "memory_dir": str(memory_dir),
+    }
     rendered = format_prompt(
-        system_prompt(),
-        variables={
-            "task_name": "OpenDrawer",
-            "memory_dir": str(memory_dir),
-        },
+        system_prompt(variables),
+        variables=variables,
+    )
+
+    assert str(memory_dir / "task_only" / "OpenDrawer_target_s0.json") in rendered
+    assert (
+        str(memory_dir / "task_only" / "OpenDrawer_target_s0_recipe.jsonl") in rendered
+    )
+    assert str(memory_dir / "suite") in rendered
+    assert str(memory_dir / "MEMORY.md") in rendered
+    assert str(memory_dir / "global") in rendered
+    assert str(memory_dir / "_internal") in rendered
+    assert "Never read" in rendered
+    assert "{{" not in rendered
+
+
+def test_hf_prompt_preserves_target50_results_paths(tmp_path):
+    memory_dir = tmp_path / "memory"
+    variables = {
+        "task_name": "OpenDrawer",
+        "memory_profile": "hf",
+        "memory_dir": str(memory_dir),
+    }
+    rendered = format_prompt(
+        system_prompt(variables),
+        variables=variables,
     )
 
     assert str(memory_dir / "results" / "OpenDrawer_s0.json") in rendered
     assert str(memory_dir / "results" / "recipe_OpenDrawer_s0.jsonl") in rendered
     assert str(memory_dir / "results" / "OpenDrawer.md") in rendered
-    assert "read every existing file" in rendered
-    assert "ArrangeTea_s0" not in rendered
-    assert "GLOBAL_MEMORY" not in rendered
+    assert "do not use global memory" in rendered
+    assert str(memory_dir / "task_only") not in rendered
     assert "{{" not in rendered

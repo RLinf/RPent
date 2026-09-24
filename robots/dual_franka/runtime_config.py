@@ -30,7 +30,6 @@ from robots.franka.runtime_config import (
     FrankaRuntimeConfig,
     _require_mapping,
     flatten_control,
-    get_calibration_path,
     load_mapping,
     strict_mapping,
 )
@@ -44,12 +43,6 @@ RIGHT_CONTROLLER_NODE = 1
 
 # Primitive-control knobs consumed by the RPent dual-Franka env server. RLinf
 # has no equivalent fields; ``max_step_*`` bound each interpolation step.
-#
-# PhysicalAgent alignment note: the live Frankas often need several 10 Hz
-# closed-loop corrections before the reported TCP reaches the requested target.
-# The high iteration guard and longer gripper settle time keep RPent from
-# declaring failure before the real robot has physically settled.  These are
-# deployment-tuned controller-side tolerances, not RPent-wide defaults.
 CONTROL = {
     "move": {"timeout_s": 20.0, "tolerance_m": 0.006, "max_step_m": 0.02},
     "rotate": {"timeout_s": 20.0, "tolerance_rad": 0.04, "max_step_rad": 0.1},
@@ -99,7 +92,6 @@ def _perception_cameras(cameras: dict[str, Any]) -> dict[str, Any]:
     for name, value in perception.items():
         camera = _require_mapping(value, f"cameras.perception.{name}")
         output[str(name)] = {
-            "enabled": True,
             "serial_number": str(camera["serial"]),
             "camera_type": str(camera.get("type", "realsense")),
             "enable_depth": True,
@@ -109,10 +101,6 @@ def _perception_cameras(cameras: dict[str, Any]) -> dict[str, Any]:
 
 def _agent_observation(cameras: dict[str, Any]) -> dict[str, list[str]]:
     """Load planner-facing camera display policy from robot config."""
-    # PhysicalAgent alignment note: the old clean-desk logs treated the fixed
-    # D455 view as the main semantic/localization view, while wrist/base images
-    # were mainly auxiliary checks.  Keep that as the default for this deployed
-    # config, but allow the YAML to register different inline/auxiliary views.
     default = {
         "inline_cameras": ["d455"],
         "auxiliary_cameras": ["left_wrist", "base", "right_wrist"],
@@ -133,10 +121,6 @@ def _agent_observation(cameras: dict[str, Any]) -> dict[str, list[str]]:
 
 
 def _projection_views(raw: dict[str, Any]) -> dict[str, Any]:
-    # PhysicalAgent alignment note: D455 is not part of RLinf's original
-    # three-camera dual-Franka observation contract, so RPent keeps an explicit
-    # projection registry for extra RGBD views that can localize pixels in the
-    # shared right_base frame.
     perception = _require_mapping(raw.get("perception"), "perception")
     views = _require_mapping(
         perception.get("projection_views"), "perception.projection_views"
@@ -151,11 +135,6 @@ def _projection_views(raw: dict[str, Any]) -> dict[str, Any]:
 
 def _joint_health_thresholds(raw: dict[str, Any]) -> dict[str, dict[str, float]]:
     """Load per-arm joint-health thresholds from the user robot config."""
-    # PhysicalAgent alignment note: long multi-stage VLA runs can drift into
-    # awkward Franka joint postures even when TCP-space task progress still
-    # looks fine.  These thresholds reproduce the operator guard rails used
-    # during live debugging; they should be tuned per mounting/task, or replaced
-    # by native Franka green/yellow/red health signals when available.
     joint_health = _require_mapping(raw.get("joint_health"), "joint_health")
     thresholds = _require_mapping(
         joint_health.get("thresholds"), "joint_health.thresholds"
@@ -175,10 +154,10 @@ def load_runtime_config(
     """Load the user YAML, apply developer defaults, and build the adapter."""
     # Lazy RLinf imports: keys are validated against these dataclasses (drift
     # guard), deferred so importing this module stays RLinf-free.
-    from rlinf.envs.realworld.franka.tasks.dual_franka_tcp_env import (
-        DualFrankaTCPRobotConfig,
+    from rlinf.envs.real.franka.dual_franka_tcp import (
+        DualFrankaTCPEnvConfig,
     )
-    from rlinf.scheduler.hardware.robots.dual_franka import DualFrankaConfig
+    from rlinf.robotics.robots.dual_franka import DualFrankaConfig
 
     raw = load_mapping(path or DEFAULT_CONFIG)
     robot = _require_mapping(raw.get("robot"), "robot")
@@ -218,7 +197,7 @@ def load_runtime_config(
         where="cluster.node_groups[].hardware.configs[]",
     )
     override_cfg = strict_mapping(
-        DualFrankaTCPRobotConfig,
+        DualFrankaTCPEnvConfig,
         {
             "max_num_steps": EPISODE_STEPS,
             "task_description": task_description,
@@ -271,7 +250,6 @@ def load_runtime_config(
     controller["robot_config_path"] = str(
         Path(path or DEFAULT_CONFIG).expanduser().resolve()
     )
-    controller["calibration_path"] = str(get_calibration_path())
     controller["perception"] = _perception_cameras(cameras)
     controller["agent_observation"] = _agent_observation(cameras)
     controller["projection_views"] = _projection_views(raw)

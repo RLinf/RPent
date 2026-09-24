@@ -57,6 +57,14 @@ Welcome to RPent
       Drive the LIBERO / RoboCasa simulators or a Franka / SO-101 arm,
       switch planners, and pick action primitives.
 
+   .. grid-item-card:: Real-World Demos
+      :link: rst_source/usage/real_world_demos_franka
+      :link-type: doc
+      :text-align: center
+
+      Watch RPent operate on real robots, from a dual-arm Franka to YAM,
+      with more platforms to come.
+
    .. grid-item-card:: Development Tutorial
       :link: rst_source/development/architecture
       :link-type: doc
@@ -90,6 +98,16 @@ Welcome to RPent
    Simulation <rst_source/usage/simulation>
    Real Robots <rst_source/usage/real_robots>
    Advanced Deployment <rst_source/usage/advanced_deployment>
+
+.. toctree::
+   :maxdepth: 2
+   :includehidden:
+   :titlesonly:
+   :hidden:
+   :caption: Real-World Demos
+
+   Dual-arm Franka <rst_source/usage/real_world_demos_franka>
+   YAM <rst_source/usage/real_world_demos_yam>
 
 .. toctree::
    :maxdepth: 2

@@ -68,6 +68,8 @@ def test_prompt_requires_live_task_language_and_fresh_geometry(tmp_path: Path) -
         system_prompt(),
         variables={
             "task_name": "OpenDrawer",
+            "reference_tag": "OpenDrawer_s0",
+            "memory_profile": "hf",
             "memory_dir": str(tmp_path / "results"),
         },
     )

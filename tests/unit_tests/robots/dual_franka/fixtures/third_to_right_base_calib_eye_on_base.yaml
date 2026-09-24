@@ -1,0 +1,12 @@
+parameters:
+  eye_on_hand: false
+  robot_base_frame: right_base
+  tracking_base_frame: third_camera_color_optical_frame
+transformation:
+  qw: 0.39683199797658536
+  qx: -0.5953705982581375
+  qy: 0.5978248726823736
+  qz: -0.36147425594911003
+  x: 0.21805217194241686
+  y: 0.3410047286324316
+  z: 0.789199431837733
