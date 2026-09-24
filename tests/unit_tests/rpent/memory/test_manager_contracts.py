@@ -109,6 +109,7 @@ def test_rebuild_index_regenerates_from_valid_leaves_skipping_plain_ones(
     # A hand-curated published note without frontmatter is skipped, not
     # indexed, and does not block regeneration from valid leaves.
     (memory_dir / "global" / "hand_note.md").write_text("# Hand-curated note\n")
+    (memory_dir / "global" / "malformed.md").write_text("---\nscope: [\n---\n")
     hand_index = memory_dir / "MEMORY.md"
     hand_index.write_text("# Hand-maintained index\n\n- [note](global/hand_note.md)\n")
 
@@ -121,6 +122,7 @@ def test_rebuild_index_regenerates_from_valid_leaves_skipping_plain_ones(
     assert text.startswith("# Layered memory index")
     assert "[Reliable strategy](global/global_strategy.md)" in text
     assert "hand_note.md" not in text
+    assert "malformed.md" not in text
 
 
 def test_rebuild_index_noops_when_no_frontmatter_leaves_exist(
@@ -156,10 +158,12 @@ def test_memory_manager_validation_reports_schema_filename_and_duplicate_errors(
         cells=["10_task_t2_s1"],
     )
     (memory_dir / "global" / "broken.md").write_text("---\nscope: global\n")
+    (memory_dir / "global" / "malformed.md").write_text("---\nscope: [\n---\n")
 
     problems = MemoryManager(memory_dir).validate()
 
     assert any("broken.md: unterminated YAML frontmatter" in item for item in problems)
+    assert any("malformed.md: invalid YAML frontmatter" in item for item in problems)
     assert any("id 'shared_id' does not match filename" in item for item in problems)
     assert any("duplicate id also in global/shared_id.md" in item for item in problems)
 
@@ -175,6 +179,9 @@ def test_memory_manager_publishes_draft_and_solved_task_pair(tmp_path: Path) -> 
         cells=[cell],
     )
     _write_task_pair(output_dir, cell, solved=True)
+    (memory_dir / "_internal" / "inbox" / cell / "malformed.md").write_text(
+        "---\nscope: [\n---\n"
+    )
 
     result = MemoryManager(memory_dir).merge_memory(
         cell_tag=cell,
@@ -184,7 +191,8 @@ def test_memory_manager_publishes_draft_and_solved_task_pair(tmp_path: Path) -> 
 
     assert result["suite"] == 1
     assert result["task"] == 1
-    assert result["skipped"] == []
+    assert len(result["skipped"]) == 1
+    assert result["skipped"][0].startswith("malformed.md: invalid YAML frontmatter")
     assert (memory_dir / "suite" / "suite_libero10_task_t2.md").is_file()
     assert (memory_dir / "task_only" / f"{cell}.json").is_file()
     assert (memory_dir / "task_only" / f"{cell}_recipe.jsonl").is_file()
