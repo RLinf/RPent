@@ -44,7 +44,10 @@ def _split_frontmatter(path: Path) -> tuple[dict[str, Any], str]:
     end = text.find("\n---", 3)
     if end < 0:
         raise ValueError("unterminated YAML frontmatter")
-    metadata = yaml.safe_load(text[3:end])
+    try:
+        metadata = yaml.safe_load(text[3:end])
+    except yaml.YAMLError as exc:
+        raise ValueError(f"invalid YAML frontmatter: {exc}") from exc
     if not isinstance(metadata, dict):
         raise ValueError("frontmatter must be a mapping")
     return metadata, text[end + 4 :]
