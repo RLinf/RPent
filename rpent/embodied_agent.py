@@ -29,6 +29,7 @@ from typing import Any
 
 from pydantic_ai import BinaryContent
 
+from rpent.context import ContextDocument, assemble_context, load_skill
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.llm import LLMConfig, LLMUsage
 from rpent.planner.base import PlannerResult, build_planner
@@ -311,6 +312,7 @@ class EmbodiedAgent:
         *,
         system_prompt: str,
         skills: Sequence[str | Path] = (),
+        memory: Sequence[ContextDocument] = (),
         initial_context: Sequence[str | BinaryContent] = (),
         output_dir: str | Path | None = None,
     ) -> PlannerResult:
@@ -321,6 +323,9 @@ class EmbodiedAgent:
             system_prompt: Benchmark and robot-specific rules.
             skills: Paths to skill Markdown files. Each file is read fresh for
                 this episode, so task-specific files can change between runs.
+            memory: Selected, authorized memory excerpts with optional source
+                identifiers. Appended to the task as reference context, not
+                system instructions. No memory files are read automatically.
             initial_context: Text and images placed after the task in the first
                 user message. A stable prefix can be reused by prompt caching.
             output_dir: Optional per-episode artifact directory. Defaults to
@@ -347,16 +352,15 @@ class EmbodiedAgent:
             raise ValueError("MCP server names must be unique")
         if not task.strip() or not system_prompt.strip():
             raise ValueError("task and system_prompt must be non-empty")
-        if any(not isinstance(part, (str, BinaryContent)) for part in initial_context):
-            raise TypeError("initial_context parts must be text or BinaryContent")
         if self.max_turns < 1:
             raise ValueError("max_turns must be positive")
-        sections = [system_prompt]
-        for path in skills:
-            skill = Path(path)
-            title = skill.parent.name if skill.name == "SKILL.md" else skill.stem
-            sections.append(f"## Skill: {title}\n\n{skill.read_text(encoding='utf-8')}")
-        prompt = "\n\n".join(sections)
+        context = assemble_context(
+            prompt=system_prompt,
+            query=task,
+            memory=memory,
+            skills=[load_skill(path) for path in skills],
+            initial_context=initial_context,
+        )
         output = Path(output_dir if output_dir is not None else self.output_dir)
         output.mkdir(parents=True, exist_ok=True)
         if not self._run_lock.acquire(blocking=False):
@@ -378,8 +382,8 @@ class EmbodiedAgent:
                 dashboard_events=NullDashboardEventSink(),
             )
             result = planner.solve(
-                system_prompt=prompt,
-                user_message=[task, *initial_context] if initial_context else task,
+                system_prompt=context.system_prompt,
+                user_message=context.user_message,
                 toolkit=toolkit,
                 max_turns=self.max_turns,
             )

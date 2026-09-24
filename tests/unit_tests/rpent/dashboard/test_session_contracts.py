@@ -185,6 +185,7 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
 
     merge_calls: list[dict[str, Any]] = []
     solved_calls = []
+    planner_calls: list[dict[str, Any]] = []
 
     class FakeMemoryManager:
         def merge_memory(self, **kwargs: Any) -> dict[str, int]:
@@ -232,7 +233,7 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
 
     class FakePlanner:
         def solve(self, **kwargs: Any) -> PlannerResult:
-            del kwargs
+            planner_calls.append(kwargs)
             return PlannerResult(
                 finish_result={"status": "success"},
                 messages=[],
@@ -253,7 +254,9 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
         parse_config=lambda args: run_config,
         init_runtime=lambda *args: ([], {}),
         prompts=PromptBundle(
-            system=lambda variables: "system",
+            system=lambda variables: (
+                f"system for session {variables['session_number']}"
+            ),
             user=lambda variables: "user",
         ),
     )
@@ -297,6 +300,12 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
     )
 
     assert error is None
+    assert planner_calls[0]["user_message"] == "user\n"
+    assert [call["system_prompt"] for call in planner_calls] == [
+        f"system for session {number}\n" for number in range(1, sessions + 1)
+    ]
+    if sessions == 2:
+        assert planner_calls[1]["user_message"].startswith("You are agent 2 of up to 2")
     assert state.toolkit_lifecycle == ["bound", "unbound"] * sessions
     assert merge_calls == [
         {

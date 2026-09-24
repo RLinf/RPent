@@ -31,6 +31,7 @@ from rpent.cli.main import (
     _handoff_message,
     _serialize_messages,
 )
+from rpent.context import assemble_context
 from rpent.dashboard.events import RunStartedEvent
 from rpent.memory import MemoryManager
 from rpent.planner.base import build_planner
@@ -278,9 +279,12 @@ def _run_dashboard_task(
                         dashboard_events=state,
                         no_images=args.no_images,
                     )
+                    context = assemble_context(
+                        prompt=system_prompt, query=session_message
+                    )
                     result = planner.solve(
-                        system_prompt=system_prompt,
-                        user_message=session_message,
+                        system_prompt=context.system_prompt,
+                        user_message=context.user_message,
                         toolkit=toolkit,
                         max_turns=args.max_turns,
                         dashboard_interaction=state,

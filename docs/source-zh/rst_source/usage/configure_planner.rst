@@ -283,6 +283,51 @@ agent SDK，可以实现 ``rpent.planner.base.Planner`` 协议，并在
 :doc:`../development/architecture`；想给
 自定义 planner 暴露新工具，见 :doc:`../development/add_primitive`。
 
+.. _planner-context:
+
+组装 planner 上下文
+-------------------
+
+``rpent.context`` 提供 CLI、Dashboard 和 ``EmbodiedAgent`` 共用的初始上下文
+组装入口。它分别保留已渲染的 prompt、当前 query、选定的 memory、已解析的
+skill 和初始观测，最后适配为现有 planner 参数：
+
+.. code-block:: python
+
+   from rpent.context import ContextDocument, assemble_context, load_skill
+
+   context = assemble_context(
+       prompt="Use the registered robot tools.",
+       query="Place the block in the bowl.",
+       memory=[ContextDocument("Grasp", "Recheck the object pose.", "memory/grasp.md")],
+       skills=[load_skill("benchmark/SKILL.md")],
+   )
+   result = planner.solve(
+       system_prompt=context.system_prompt,
+       user_message=context.user_message,
+       toolkit=toolkit,
+       max_turns=100,
+   )
+
+``assemble_context`` 不负责读取来源。机器人的 prompt 工厂仍通过
+``PromptBundle`` 渲染模板。``load_skill`` 显式读取一个 UTF-8 文件，不自动
+发现 skill，也不解析 frontmatter；文件读取和解码错误会直接抛出。文件名为
+``SKILL.md`` 时使用父目录名作为标题，其他文件使用不含扩展名的文件名。
+
+``ContextBundle`` 保留 ``prompt``、``query``、``memory``、``skills`` 和
+``initial_context``；memory 和 skill 文档保留各自的 ``source``。输入集合
+会复制为元组，便于跨次运行复用。System 参数由 prompt 和 skill 段落组成；
+user 参数由 query、memory 参考文本和初始观测依次组成。图像对象原样传递。
+没有初始观测时，``user_message`` 仍为字符串；有初始观测时，每次生成新的
+内容列表。
+
+组装过程保留原始文本、顺序和现有 SDK 适配行为。``api`` planner 将
+``system_prompt`` 用作 agent instructions；Codex 和 Claude Code 当前会把
+它与首条 user message 合并。组装函数不改变这一角色映射，也不授予工具权限。
+对话历史、图像裁剪、缓存和上下文窗口处理仍由 planner 负责；工具 schema
+和执行由 toolkit 负责。Memory 检索由调用方或现有 memory 工具完成，
+组装函数不会自动检索或截断内容。
+
 设置 planner 的运行限制
 -----------------------
 

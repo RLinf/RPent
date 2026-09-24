@@ -94,6 +94,40 @@ agent's own conclusion in ``PlannerResult.finish_result``. That conclusion is
 not a benchmark success signal; always use the environment's score or success
 predicate for evaluation.
 
+Selected memory and initial observations
+----------------------------------------------------
+
+Pass already selected memory excerpts with ``memory``. Each ``ContextDocument``
+retains a title, text, and optional source identifier:
+
+.. code-block:: python
+
+   from rpent.context import ContextDocument
+
+   result = agent.run(
+       "Place the red block in the bowl.",
+       system_prompt="Use the registered robot tools and inspect each result.",
+       skills=["benchmark/SKILL.md"],
+       memory=[ContextDocument(
+           title="Top grasp",
+           text="Approach this object from above; recheck its current pose.",
+           source="memory/grasp.md",
+       )],
+   )
+
+Memory is appended to the task as labeled reference text, including its source
+when provided. It is not added to ``system_prompt``. The caller owns selection
+and authorization of these excerpts; ``source`` is provenance and is never
+opened by the assembler. Existing robot memory access and merge policies are
+unchanged.
+
+``initial_context`` accepts a sequence of text and PydanticAI ``BinaryContent``
+objects for the ``api`` planner. These parts follow the task and selected memory
+in their supplied order, preserving image bytes and metadata. Other planners do
+not accept this argument. Skills, memory, and observations use the same
+``rpent.context.assemble_context`` function as CLI and Dashboard runs; see
+:ref:`planner-context` for direct use of the structured bundle.
+
 RoboDojo example
 ----------------
 

@@ -48,6 +48,7 @@ from rpent.cli.tui import (
     start_first_prompt_resolver,
     start_interactive_reader,
 )
+from rpent.context import assemble_context
 from rpent.dashboard.events import (
     NullDashboardEventSink,
     RunStartedEvent,
@@ -594,9 +595,10 @@ def main() -> int:
 
                 operator_input.bind_verdict(accept_verdict)
             try:
+                context = assemble_context(prompt=system_prompt, query=session_msg)
                 result = planner.solve(
-                    system_prompt=system_prompt,
-                    user_message=session_msg,
+                    system_prompt=context.system_prompt,
+                    user_message=context.user_message,
                     toolkit=toolkit,
                     max_turns=args.max_turns,
                     input_queue=input_queue,

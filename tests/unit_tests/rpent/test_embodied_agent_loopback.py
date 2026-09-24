@@ -22,7 +22,9 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from pydantic_ai import BinaryContent
 
+from rpent.context import ContextDocument
 from rpent.embodied_agent import EmbodiedAgent, McpServer
 from rpent.llm import LLMConfig
 from rpent.planner.base import PlannerResult
@@ -61,8 +63,9 @@ class _RobotTools:
         return ToolResult(name=name, result={"camera": "front", "_image_bytes": b"png"})
 
 
+@pytest.mark.parametrize("with_context", [False, True])
 def test_embodied_agent_discovers_calls_and_preserves_images(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, with_context: bool
 ) -> None:
     robot = _RobotTools()
     server = HttpMcpServer(robot)
@@ -116,9 +119,23 @@ def test_embodied_agent_discovers_calls_and_preserves_images(
         output_dir=tmp_path / "episode",
         llm=llm,
     )
+    image = BinaryContent(data=b"initial-png", media_type="image/png")
+    context_args = (
+        {
+            "memory": [
+                ContextDocument("grasp", "Use the top grasp.", "memory/grasp.md")
+            ],
+            "initial_context": ["Initial camera", image],
+        }
+        if with_context
+        else {}
+    )
     try:
         result = agent.run(
-            "Place the block.", system_prompt="Use safe poses.", skills=[skill]
+            "Place the block.",
+            system_prompt="Use safe poses.",
+            skills=[skill],
+            **context_args,
         )
     finally:
         server.stop()
@@ -127,14 +144,40 @@ def test_embodied_agent_discovers_calls_and_preserves_images(
     assert planner_kwargs["llm_config"] is llm
     assert result.stats["llm_usage"]["total_tokens"] == 15
     assert result.stats["llm_usage"]["cache_read_tokens"] == 3
-    assert seen["user_message"] == "Place the block."
-    assert "Use safe poses." in seen["system_prompt"]
-    assert "Use the front camera" in seen["system_prompt"]
+    if with_context:
+        assert seen["user_message"] == [
+            "Place the block.\n\n## Memory: grasp\nSource: memory/grasp.md\n\nUse the top grasp.",
+            "Initial camera",
+            image,
+        ]
+        assert seen["user_message"][2] is image
+    else:
+        assert seen["user_message"] == "Place the block."
+    assert seen["system_prompt"] == (
+        f"Use safe poses.\n\n## Skill: {tmp_path.name}\n\n"
+        "Use the front camera after each motion."
+    )
     assert robot.calls == [
         ("move_eef", {"pose": "target"}),
         ("move_eef", {"pose": "invalid"}),
         ("snapshot", {}),
     ]
+
+
+def test_missing_skill_fails_before_mcp_startup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def reject_start(*args: Any, **kwargs: Any) -> None:
+        raise AssertionError("MCP must not start before context is loaded")
+
+    monkeypatch.setattr("rpent.embodied_agent._McpToolkit.start", reject_start)
+    agent = EmbodiedAgent(
+        mcp_servers=[McpServer(name="robot", url="http://localhost/mcp")],
+        output_dir=tmp_path / "episode",
+    )
+    with pytest.raises(FileNotFoundError):
+        agent.run("task", system_prompt="rules", skills=[tmp_path / "missing.md"])
+    assert not (tmp_path / "episode").exists()
 
 
 def test_embodied_agent_rejects_invalid_server_config(tmp_path: Path) -> None:

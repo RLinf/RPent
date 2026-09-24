@@ -80,6 +80,38 @@ prompt、响应正文或 API key。独立调用可向 ``LLMClient`` 传入 ``log
 不会自动加载工作目录中的文件。本地 ``finish`` 工具把 agent 的结论写入
 ``PlannerResult.finish_result``；评测得分应以 benchmark 的成功条件为准。
 
+指定 memory 与初始观测
+----------------------
+
+通过 ``memory`` 传入已经筛选好的历史经验。每个 ``ContextDocument`` 保留
+标题、正文，以及可选的来源标识：
+
+.. code-block:: python
+
+   from rpent.context import ContextDocument
+
+   result = agent.run(
+       "Place the red block in the bowl.",
+       system_prompt="Use the registered robot tools and inspect each result.",
+       skills=["benchmark/SKILL.md"],
+       memory=[ContextDocument(
+           title="Top grasp",
+           text="Approach this object from above; recheck its current pose.",
+           source="memory/grasp.md",
+       )],
+   )
+
+Memory 以带标题的参考文本追加到任务后；提供 ``source`` 时也会显示来源。
+它不会加入 ``system_prompt``。调用方负责筛选这些内容并确认其访问权限；
+``source`` 仅用于记录来源，组装函数不会读取该位置。现有机器人流程的
+memory 访问与合并规则保持不变。
+
+``api`` planner 的 ``initial_context`` 支持文本和 PydanticAI
+``BinaryContent`` 对象组成的序列。这些内容按传入顺序放在任务和所选 memory
+之后，保留图像字节及其元数据。其他 planner 不支持此参数。Skill、memory
+和观测统一通过 ``rpent.context.assemble_context`` 组装，CLI 和 Dashboard
+也使用这个函数。直接使用结构化结果的方法见 :ref:`planner-context`。
+
 RoboDojo 示例
 -------------
 

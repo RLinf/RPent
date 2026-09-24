@@ -312,6 +312,55 @@ servers. See :doc:`../development/architecture` for the interface, and
 :doc:`../development/add_primitive` if you want to expose new tools to
 your custom planner.
 
+.. _planner-context:
+
+Assemble planner context
+------------------------
+
+``rpent.context`` provides the shared initial context assembly used by the CLI,
+Dashboard, and ``EmbodiedAgent``. It keeps the rendered prompt, current query,
+selected memory, resolved skills, and initial observations separate until they
+are projected onto the existing planner arguments:
+
+.. code-block:: python
+
+   from rpent.context import ContextDocument, assemble_context, load_skill
+
+   context = assemble_context(
+       prompt="Use the registered robot tools.",
+       query="Place the block in the bowl.",
+       memory=[ContextDocument("Grasp", "Recheck the object pose.", "memory/grasp.md")],
+       skills=[load_skill("benchmark/SKILL.md")],
+   )
+   result = planner.solve(
+       system_prompt=context.system_prompt,
+       user_message=context.user_message,
+       toolkit=toolkit,
+       max_turns=100,
+   )
+
+``assemble_context`` performs no source retrieval. Robot prompt factories still
+render their templates through ``PromptBundle``. ``load_skill`` explicitly reads
+one UTF-8 file; it does not discover skills or interpret frontmatter. File and
+decoding errors propagate. Skill titles use the parent directory for ``SKILL.md``
+and the filename stem for other files.
+
+``ContextBundle`` retains ``prompt``, ``query``, ``memory``, ``skills``, and
+``initial_context``. Memory and skill documents retain their ``source`` values.
+The input collections are copied to tuples so they can be reused across runs.
+The system projection appends skill sections to the prompt; the user projection
+appends memory references to the query, followed by any initial observations.
+Image objects are passed through without conversion. With no observations,
+``user_message`` remains a string; otherwise it is a fresh list of content parts.
+
+The assembler preserves text, ordering, and the existing SDK adapters. The
+``api`` planner supplies ``system_prompt`` as agent instructions; Codex and
+Claude Code currently combine it with the initial user message. Assembly does
+not change that role mapping or grant tool access. Planners continue to own
+conversation history, image pruning, caching, and context-window handling;
+toolkits own tool schemas and execution. Memory lookup remains with the caller
+or existing memory tools, and no automatic retrieval or truncation is performed.
+
 Configure planner limits
 ------------------------
 
