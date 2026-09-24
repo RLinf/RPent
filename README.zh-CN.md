@@ -85,6 +85,7 @@ RPent 面向以下四类用户：
           <li><b>WAM</b></li>
           <ul>
             <li>DreamZero</li>
+            <li>Cosmos Policy</li>
           </ul>
         </ul>
       </td>
