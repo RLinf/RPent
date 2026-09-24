@@ -16,9 +16,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from pydantic_ai import BinaryContent
 
 from rpent.benchmarks.robodojo import (
     RoboDojoEmbodiedClient,
+    _demo_context,
     _snapshot_messages,
     _tool_system_prompt,
 )
@@ -64,15 +66,20 @@ def test_robodojo_client_snapshot_and_submit_action(
         class Planner:
             def solve(self, **parameters: Any) -> PlannerResult:
                 toolkit = parameters["toolkit"]
+                initial = parameters["user_message"]
+                assert isinstance(initial, list)
+                assert any(isinstance(part, BinaryContent) for part in initial)
+                assert "Example: left move x 5" in str(initial)
                 snapshot = toolkit.execute_tool("dojo__snapshot", {})
                 images = [
                     block
                     for block in snapshot.content_blocks
                     if block["type"] == "image"
                 ]
-                assert len(images) == 2
+                assert len(images) == 1
                 assert base64.b64decode(images[0]["source"]["data"]) == b"jpeg-data"
                 assert "Pick up the cup" in str(snapshot.content_blocks)
+                assert "Example: left move x 5" not in str(snapshot.content_blocks)
                 submitted = toolkit.execute_tool(
                     "dojo__submit_action",
                     {"commands": ["left move x 5"], "plan": "approach"},
@@ -157,6 +164,12 @@ def test_snapshot_keeps_current_images_when_demo_is_large() -> None:
     output = _snapshot_messages(messages, max_images=3)
     assert len([item for item in output["content"] if item["type"] == "image"]) == 3
     assert output["content"][-1]["text"].endswith("Pick up the cup.")
+
+
+def test_demo_context_preserves_text_and_bounds_images() -> None:
+    parts = _demo_context(_messages()[1:-1], max_images=1)
+    assert len([part for part in parts if isinstance(part, BinaryContent)]) == 1
+    assert "Example: left move x 5" in str(parts)
 
 
 def test_robodawn_json_instruction_is_replaced_by_tool_workflow() -> None:

@@ -1,8 +1,9 @@
 # RoboDojo with EmbodiedAgent
 
 This adapter uses RPent's `EmbodiedAgent` for each model decision. Its MCP
-`snapshot` tool returns the three RoboDojo camera views, robot state, execution
-feedback, and a bounded RoboDawn demonstration. `submit_action` accepts one to
+`snapshot` tool returns the three RoboDojo camera views, robot state, and execution
+feedback. A bounded RoboDawn demonstration enters the initial model context so
+its images can be cached across decisions. `submit_action` accepts one to
 four discrete commands. RoboDawn's controller plans and executes the commands
 in Isaac Sim; RoboDojo owns reset and native success scoring. The agent's
 `finish` report is not used as a score.
@@ -68,9 +69,26 @@ returned; transient HTTP and connection errors follow RPent's retry policy.
 
 The adapter sets a stable `prompt_cache_key` for the model route and enables
 explicit Responses caching. RPent places breakpoints after the repeated task
-instruction and multimodal `snapshot` feedback, and retains at most two recent
-image observation groups in the planner history. The demo and current cameras
-within a single RoboDojo snapshot remain subject to `max_images=24`.
+and demonstration, and after multimodal `snapshot` feedback. It retains at most
+two recent image observation groups in the planner history. The demonstration
+and current cameras together remain subject to `max_images=24`.
+Before submitting a full evaluation, replay recorded real multimodal decisions
+and require a provider-reported token-weighted cache hit rate above 60%:
+
+```bash
+PYDANTIC_AI_NO_BANNER=1 python RPent/examples/robodojo/cache_gate.py \
+  --source-experiment /path/to/prior-experiment \
+  --run-prefix rp-once-prior-plan-id- \
+  --output-dir /path/to/new-cache-gate \
+  --key-file /private/path/to/tokenhub-key
+```
+
+The gate covers at least four decisions from each of three standard tasks and
+writes `cache-gate.json` with the overall and per-task rates. It exits zero
+only when every decision completes and the overall rate is strictly above
+60%. This replay makes model requests but does not execute actions or provide
+benchmark scores. Check account capacity for the full plan separately before
+submitting workers.
 Use the provider's reported cached input tokens to measure the weighted hit
 rate for one plan:
 

@@ -159,6 +159,41 @@ def test_successful_finish_waits_for_its_tool_result() -> None:
     assert any(isinstance(event, UsageEvent) for event in sink.events)
 
 
+def test_multimodal_initial_context_precedes_cache_breakpoint() -> None:
+    image = BinaryContent(data=b"jpeg-data", media_type="image/jpeg")
+
+    def model(messages: list[Any], info: Any) -> ModelResponse:
+        del info
+        user = next(
+            part
+            for message in messages
+            for part in message.parts
+            if isinstance(part, UserPromptPart)
+        )
+        assert user.content == ["task", "stable demo", image, CachePoint()]
+        return ModelResponse(
+            parts=[
+                ToolCallPart(
+                    "finish", {"status": "success", "summary": "done"}, "finish-call"
+                )
+            ]
+        )
+
+    planner = ApiAgentLoop(
+        FunctionModel(model),
+        dashboard_events=RecordingSink(),
+        cache_breakpoints=True,
+    )
+    result = planner.solve(
+        system_prompt="Use tools.",
+        user_message=["task", "stable demo", image],
+        toolkit=FakeToolkit(),
+        max_turns=2,
+    )
+    assert result.error is None
+    assert result.messages[0]["content"] == "task\nstable demo\n[image]"
+
+
 def test_transient_model_failure_does_not_repeat_robot_tool_call(
     tmp_path: Path,
 ) -> None:
