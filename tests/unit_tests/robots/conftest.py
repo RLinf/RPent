@@ -153,6 +153,7 @@ def fake_rlinf_realworld_modules(monkeypatch: pytest.MonkeyPatch) -> None:
     franka_hardware_fields = [
         "robot_ip",
         "backend",
+        "realtime_config",
         "camera_serials",
         "camera_type",
         "gripper_type",

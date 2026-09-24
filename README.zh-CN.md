@@ -119,6 +119,7 @@ pip install -e ".[libero-pro]"
 # 其他环境配置：
 pip install -e ".[robocasa]"    # RoboCasa
 pip install -e ".[robotwin]"    # RoboTwin
+pip install -e ".[franka]"      # Franka / 双臂 Franka
 ```
 
 `.[libero-pro]` 是默认推荐配置。其他环境见
