@@ -50,13 +50,7 @@ export RPENT_VLA_ENDPOINT="${RPENT_VLA_ENDPOINT:-http://127.0.0.1:6000}"
 export RPENT_SAM3_ENDPOINT="${RPENT_SAM3_ENDPOINT:-http://127.0.0.1:8114}"
 
 # Hardware/config defaults for the current dual-Franka setup.
-#
-# PhysicalAgent alignment note: the calibration path intentionally points at
-# the old deployed project because those hand-eye/base-frame numbers are the
-# reference used by previous clean-desk logs.  Override RPENT_CALIBRATION_PATH
-# for any other machine/table instead of treating this as a portable default.
 export RPENT_ROBOT_CONFIG="${RPENT_ROBOT_CONFIG:-${RPENT_REPO_ROOT}/robots/dual_franka/config/example.yaml}"
-export RPENT_CALIBRATION_PATH="${RPENT_CALIBRATION_PATH:-/home/raojiaji/nieyi/physicalagent/physical_agent/envs/dual_franka/calibration/hand_eye_calibration.json}"
 
 # Planner defaults for reproducible live runs. Per-run command line flags still
 # win inside RPent; these variables are used by the wrapper scripts below.

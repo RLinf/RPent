@@ -103,6 +103,25 @@ RoboTwin 所需依赖：
    这些 seed 已通过 RoboTwin expert 执行筛选；无法稳定初始化或 expert 执行
    未成功的候选 seed 已被跳过。自定义运行仍可显式指定表中没有的其他 seed。
 
+探索模式
+--------
+
+添加 ``--explore`` 后，规划器可以在新的 episode 中重新尝试任务，并写入本地
+memory。与 LIBERO 相同，默认每次运行包含 3 个 planner session，每个 session
+最多尝试 5 次：
+
+.. code-block:: bash
+
+   rpent --robot robotwin --task-name beat_block_hammer \
+     --task-config demo_randomized --seed 100000 \
+     --planner codex \
+     --explore --explore-sessions 3 --explore-attempts-per-session 5 \
+     --memory-dir /path/to/robotwin-memory
+
+``reset`` 沿用环境原有的 episode reset，因此每次 reset 后规划器都需要重新
+感知。runner 只导出最后一次 reset 后的获胜命令。探索产生的 memory 写入当前
+本地 inbox；除非传入 ``--no-auto-merge-memory``，否则运行结束后会自动合并。
+
 查看运行结果
 ------------
 

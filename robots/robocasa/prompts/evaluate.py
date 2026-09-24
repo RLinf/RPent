@@ -16,7 +16,10 @@
 
 from __future__ import annotations
 
-from rpent.prompt.utils import BulletList
+from collections.abc import Mapping
+
+from rpent.prompt import common as base_prompt
+from rpent.prompt.utils import BulletList, PromptNode
 
 PREAMBLE = """
 You are an LLM-in-the-loop robotic agent for the **RoboCasa365** kitchen
@@ -178,3 +181,48 @@ USER_MODE = """
 You are running in no-reset mode: solve the scene in one shot.
 The reset tool is disabled.
 """
+
+LOCAL_MEMORY = """
+Use the LOCAL exploration corpus for this evaluation. Read every available
+layer relevant to the current task:
+
+1. TASK: {{memory_dir}}/task_only/{{reference_tag}}.json and
+   {{memory_dir}}/task_only/{{reference_tag}}_recipe.jsonl.
+2. SUITE: the matching task and split entry under {{memory_dir}}/suite/.
+3. GLOBAL: {{memory_dir}}/MEMORY.md, followed by only the relevant leaves under
+   {{memory_dir}}/global/.
+
+Treat all memory as a strategy prior. Current RGB-D, task progress, and
+primitive results always take precedence. Recipes provide phase order and
+technique, never coordinates: re-ground all xyz, xy, pixels, base poses, and
+fixture geometry in the current episode. Historical entries may name vla_act,
+use_prompt, or atomic prompts; use the current rldx_skill / rldx_arm tools with
+the complete live task_language. Never read {{memory_dir}}/_internal/ during
+evaluation. If a layer is absent, continue with the available validated layers.
+"""
+
+
+def system_prompt(
+    variables: Mapping[str, object] | None = None,
+) -> dict[str, PromptNode]:
+    """Return the RoboCasa evaluation prompt for the selected memory profile."""
+    memory = (
+        LOCAL_MEMORY
+        if (variables or {}).get("memory_profile", "hf") == "local"
+        else MEMORY
+    )
+    return {
+        "Intro": PREAMBLE,
+        "Goal": GOAL,
+        "Rules": RULES,
+        "Memory": memory,
+        "Localization": LOCALIZATION,
+        "Navigation": NAVIGATION,
+        "Primitives": PRIMITIVES,
+        "VLA_Rules": VLA_RULES,
+        "Gripper_Rules": GRIPPER_RULES,
+        "Workflow": WORKFLOW,
+        "Environment": ENVIRONMENT,
+        "Output": base_prompt.OUTPUT,
+        "Next": NEXT,
+    }

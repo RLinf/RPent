@@ -29,8 +29,8 @@ from robots.dual_franka.prompt_bundle import system_prompt, user_prompt
 from robots.dual_franka.runtime_config import DEFAULT_CONFIG
 from robots.dual_franka.tasks import DUAL_FRANKA_TASKS, get_dual_franka_task
 from robots.franka.runtime_config import (
-    DEFAULT_CALIBRATION_PATH,
     set_robot_config_path,
+    validate_calibration_sources,
 )
 from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
 from rpent.dashboard.spec import DashboardSpec
@@ -155,12 +155,6 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     )
     parser.add_argument("--cuda-device", type=int, default=None)
     parser.add_argument(
-        "--calibration-path",
-        default=str(DEFAULT_CALIBRATION_PATH),
-        help="Path to hand_eye_calibration.json (defaults to easy_handeye's "
-        "~/.ros/easy_handeye directory).",
-    )
-    parser.add_argument(
         "--auto-merge-memory",
         action=argparse.BooleanOptionalAction,
         default=False,
@@ -185,6 +179,7 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
     set_robot_config_path(args.robot_config or DEFAULT_CONFIG)
+    validate_calibration_sources()
     if args.task_id is None:
         raise ValueError("--task-id is required")
     task = get_dual_franka_task(args.task_id)
@@ -251,8 +246,6 @@ def _env_server_command(
         str(port),
         "--task-description",
         task.instruction,
-        "--calibration-path",
-        args.calibration_path,
         "--parent-watch",
     ]
     if args.robot_config:
@@ -455,7 +448,5 @@ def _init_runtime(
     if "sam3" in selected and not needs_sam3:
         dashboard_events.emit(RuntimeStatusEvent("sam3", "ready"))
         runtime_kwargs["sam3_client"] = None
-
-    runtime_kwargs["calibration_path"] = args.calibration_path
 
     return list(owned_daemons.values()), runtime_kwargs

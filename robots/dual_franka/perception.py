@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
@@ -25,8 +24,10 @@ from PIL import Image, ImageDraw
 
 from robots.franka.perception import _resolve_step
 from robots.franka.runtime_config import (
-    get_calibration_path,
+    _calibration_mapping_from,
+    describe_calibration_source,
     get_robot_config_path,
+    load_easy_handeye_yaml,
     load_mapping,
 )
 from rpent.session import EnvState, StepRecord
@@ -40,17 +41,9 @@ from rpent.utils.transforms import (
 ROBOT_CONFIG_PATH = Path(__file__).resolve().parent / "config" / "example.yaml"
 
 
-class DualFrankaPerceptionError(ValueError):
-    """Raised when a dual-Franka perception artifact is missing or invalid."""
-
-
 @readonly
 def back_project(
     *,
-    # PhysicalAgent alignment note: D455 is the deployed clean-desk primary
-    # metric view.  The implementation accepts any camera registered in
-    # perception.projection_views; this default should become config-driven
-    # before treating dual_franka as a portable robot extension.
     camera: str = "d455",
     row: int,
     col: int,
@@ -74,9 +67,6 @@ def back_project(
 @readonly
 def segment(
     *,
-    # Same deployment default as back_project: SAM3 can run on any registered
-    # RGBD projection view, but D455 is the live clean-desk reference camera
-    # used for log alignment with PhysicalAgent.
     camera: str = "d455",
     prompt: str = "",
     point: list[int] | None = None,
@@ -125,9 +115,9 @@ def segment(
         image_name = f"{camera}.png"
         depth_name = f"{camera}_depth.npy"
         if not state.exists(image_name, step=step_idx):
-            raise DualFrankaPerceptionError(f"{camera} image artifact is missing")
+            raise ValueError(f"{camera} image artifact is missing")
         if not state.exists(depth_name, step=step_idx):
-            raise DualFrankaPerceptionError(f"{camera} depth artifact is missing")
+            raise ValueError(f"{camera} depth artifact is missing")
         image_bytes = state.load_bytes(image_name, step=step_idx)
         data = sam3_client.segment(
             image_bytes,
@@ -135,8 +125,6 @@ def segment(
             point=point,
             min_score=float(min_score),
         )
-    except DualFrankaPerceptionError as exc:
-        return {"ok": False, "found": False, "error": str(exc)}
     except ValueError as exc:
         return {"ok": False, "found": False, "error": str(exc)}
     except Exception as exc:
@@ -279,18 +267,18 @@ def _back_project_camera_pixel(
 ) -> dict[str, Any]:
     camera = _resolve_projection_camera_alias(camera)
     if state is None:
-        raise DualFrankaPerceptionError("state is required")
+        raise ValueError("state is required")
     step_idx, record_state = _resolve_step(state, step)
     projection_cameras = _projection_cameras_for_state(state, step_idx)
     camera_config = projection_cameras.get(camera)
     if camera_config is None:
         known = ", ".join(sorted(projection_cameras)) or "<none>"
-        raise DualFrankaPerceptionError(
+        raise ValueError(
             f"unsupported projection camera: {camera!r}; registered={known}"
         )
     depth_name = f"{camera}_depth.npy"
     if not state.exists(depth_name, step=step_idx):
-        raise DualFrankaPerceptionError(
+        raise ValueError(
             f"{camera_config['display_name']} depth artifact is missing. "
             "Restart the env server with the camera and depth enabled, then "
             "call view_driver_state/reset again."
@@ -298,13 +286,11 @@ def _back_project_camera_pixel(
     depth_path = state.artifact_path(depth_name, step=step_idx)
     depth = np.asarray(np.load(depth_path), dtype=np.float32).squeeze()
     if depth.ndim != 2:
-        raise DualFrankaPerceptionError(
-            f"expected 2D {camera} depth, got {depth.shape}"
-        )
+        raise ValueError(f"expected 2D {camera} depth, got {depth.shape}")
     r = int(row)
     c = int(col)
     if not (0 <= r < depth.shape[0] and 0 <= c < depth.shape[1]):
-        raise DualFrankaPerceptionError(
+        raise ValueError(
             f"pixel row/col {[r, c]} out of depth bounds {list(depth.shape)}"
         )
 
@@ -325,10 +311,8 @@ def _back_project_camera_pixel(
     calibration = load_calibration_bundle()
     calibration_key = str(camera_config["calibration_key"])
     camera_calibration = calibration.get(calibration_key)
-    if not isinstance(camera_calibration, dict):
-        raise DualFrankaPerceptionError(
-            f"calibration entry {calibration_key!r} is missing"
-        )
+    if camera_calibration is None:
+        raise ValueError(f"calibration entry {calibration_key!r} is missing")
     t_right_camera = _transform_to_matrix(camera_calibration["transformation"])
     point_right = transform_points(t_right_camera, point_camera)
     selection_valid, rejection_reasons, validity_contract = (
@@ -408,9 +392,7 @@ def _load_perception_config() -> dict[str, Any]:
     raw = load_mapping(get_robot_config_path(ROBOT_CONFIG_PATH))
     perception = raw.get("perception")
     if not isinstance(perception, dict):
-        raise DualFrankaPerceptionError(
-            "Robot configuration missing the 'perception' section"
-        )
+        raise ValueError("Robot configuration missing the 'perception' section")
     return perception
 
 
@@ -433,13 +415,11 @@ def _projection_cameras_for_state(
 
 def _coerce_projection_views(configured: Any) -> dict[str, dict[str, Any]]:
     if not isinstance(configured, dict):
-        raise DualFrankaPerceptionError("perception.projection_views must be a mapping")
+        raise ValueError("perception.projection_views must be a mapping")
     cameras: dict[str, dict[str, Any]] = {}
     for alias, raw_config in configured.items():
         if not isinstance(raw_config, dict):
-            raise DualFrankaPerceptionError(
-                f"perception.projection_views.{alias} must be a mapping"
-            )
+            raise ValueError(f"perception.projection_views.{alias} must be a mapping")
         alias_str = str(alias)
         cameras[alias_str] = {
             "raw_key": str(raw_config.get("raw_key", f"{alias_str}_rgb")),
@@ -454,33 +434,48 @@ def _coerce_projection_views(configured: Any) -> dict[str, dict[str, Any]]:
 def _resolve_projection_camera_alias(camera: str) -> str:
     alias = str(camera or "").strip()
     if not alias:
-        raise DualFrankaPerceptionError("camera must be a non-empty string")
+        raise ValueError("camera must be a non-empty string")
     return alias
 
 
-def load_calibration_bundle(path: str | Path | None = None) -> dict[str, Any]:
-    """Load the dual-Franka perception calibration.
+def load_calibration_bundle() -> dict[str, Any]:
+    """Load the dual-Franka perception calibration as one bundle.
 
-    Merges the ``easy_handeye`` hand-eye transforms (``hand_eye_calibration.json``)
-    with the RPent perception config (localization validity + base frames) from
-    ``example.yaml``, keeping the historical consumer shape:
-    ``<camera>.transformation``, ``<camera>.localization_validity``, and
-    ``base_frames``.
+    Combines the ``easy_handeye`` hand-eye transforms from the robot config's
+    ``perception.calibration`` YAML mapping with the rest of that config's
+    ``perception`` section (``base_frames``, ``localization_validity``).
     """
-    bundle_path = Path(path or get_calibration_path())
-    data = json.loads(bundle_path.read_text(errors="replace"))
-    if not isinstance(data, dict):
-        raise DualFrankaPerceptionError(f"invalid calibration bundle: {bundle_path}")
     perception = _load_perception_config()
+    data = _load_calibration_from_config(perception)
     bundle = dict(data)
     bundle["base_frames"] = perception.get("base_frames") or {}
     for camera_key, validity in (perception.get("localization_validity") or {}).items():
-        if camera_key in bundle and isinstance(bundle[camera_key], dict):
+        if camera_key in bundle:
             bundle[camera_key] = {
                 **bundle[camera_key],
                 "localization_validity": validity,
             }
     return bundle
+
+
+def _load_calibration_from_config(perception: dict[str, Any]) -> dict[str, Any]:
+    """Load hand-eye transforms from the config's easy_handeye YAML mapping."""
+    sources = _calibration_mapping_from(perception)
+    if not sources:
+        raise ValueError(
+            "no hand-eye calibration configured: list easy_handeye YAMLs "
+            "under perception.calibration in the robot config "
+            f"({get_robot_config_path()})"
+        )
+    data: dict[str, Any] = {}
+    for camera_key, source in sources.items():
+        try:
+            data[camera_key] = load_easy_handeye_yaml(source)
+        except ValueError as exc:
+            raise ValueError(
+                f"cannot load easy_handeye calibration for {camera_key!r}: {exc}"
+            ) from exc
+    return data
 
 
 def transform_point_between_base_frames(
@@ -511,7 +506,7 @@ def transform_pose_between_base_frames(
     """Transform an xyz+xyzw TCP pose between robot base frames."""
     pose_arr = np.asarray(pose, dtype=np.float64).reshape(-1)
     if pose_arr.size < 7:
-        raise DualFrankaPerceptionError(
+        raise ValueError(
             f"expected xyz+quat pose with at least 7 values, got {pose_arr.shape}"
         )
     pose_arr = pose_arr[:7].copy()
@@ -604,7 +599,7 @@ def _camera_meta(
     raw_key: str,
 ) -> dict[str, Any]:
     if not state.exists("camera_meta.json", step=step_idx):
-        raise DualFrankaPerceptionError(f"{camera_alias} camera metadata not found")
+        raise ValueError(f"{camera_alias} camera metadata not found")
     meta = state.load("camera_meta.json", step=step_idx)
     aliases = [raw_key, camera_alias]
     if camera_alias == "base":
@@ -613,9 +608,7 @@ def _camera_meta(
         value = meta.get(key)
         if isinstance(value, dict) and value.get("color_intrinsics"):
             return value
-    raise DualFrankaPerceptionError(
-        f"{camera_alias} RealSense color intrinsics not found"
-    )
+    raise ValueError(f"{camera_alias} RealSense color intrinsics not found")
 
 
 def _validate_localization_point(
@@ -685,12 +678,12 @@ def _save_back_project_diagnostic(
     )
     image_name = f"{camera_alias}.png"
     if not state.exists(image_name, step=step_idx):
-        raise DualFrankaPerceptionError(f"{camera_alias} image artifact is missing")
+        raise ValueError(f"{camera_alias} image artifact is missing")
     image_path = state.artifact_path(image_name, step=step_idx)
 
     pixel = projection.get("pixel") or []
     if len(pixel) != 2:
-        raise DualFrankaPerceptionError(f"invalid projection pixel: {pixel!r}")
+        raise ValueError(f"invalid projection pixel: {pixel!r}")
     row, col = int(pixel[0]), int(pixel[1])
     radius = int(projection.get("depth_window_radius") or 0)
 
@@ -717,7 +710,7 @@ def _save_back_project_diagnostic(
     )
     annotated_name = state.save(annotated_artifact, np.asarray(image), step=step_idx)
     if annotated_name is None:
-        raise DualFrankaPerceptionError("failed to save annotated image")
+        raise ValueError("failed to save annotated image")
     annotated_path = state.artifact_path(annotated_name, step=step_idx)
 
     report = {
@@ -727,7 +720,7 @@ def _save_back_project_diagnostic(
         "image_path": str(image_path),
         "depth_path": str(projection.get("source_artifact")),
         "annotated_image": str(annotated_path),
-        "calibration_path": str(get_calibration_path()),
+        "calibration_source": describe_calibration_source(),
         "coordinate_convention": (
             f"point_camera_xyz is in the {camera_alias} color optical frame; "
             "point_xyz is in the shared right_base world frame."
@@ -742,7 +735,7 @@ def _save_back_project_diagnostic(
     report_artifact = f"{camera_alias}_back_project_{artifact_index:02d}.json"
     report_name = state.save(report_artifact, report, step=step_idx)
     if report_name is None:
-        raise DualFrankaPerceptionError("failed to save back-project report")
+        raise ValueError("failed to save back-project report")
     return {
         "annotated_image": str(annotated_path),
         "report_json": str(state.artifact_path(report_name, step=step_idx)),
@@ -763,7 +756,7 @@ def _mask_to_camera_world(
     camera_config = projection_cameras.get(camera)
     if camera_config is None:
         known = ", ".join(sorted(projection_cameras)) or "<none>"
-        raise DualFrankaPerceptionError(
+        raise ValueError(
             f"unsupported projection camera: {camera!r}; registered={known}"
         )
     mask = np.asarray(mask, dtype=bool)
@@ -838,9 +831,7 @@ def _mask_to_camera_world(
     calibration_key = str(camera_config["calibration_key"])
     camera_calibration = calibration.get(calibration_key)
     if not isinstance(camera_calibration, dict):
-        raise DualFrankaPerceptionError(
-            f"calibration entry {calibration_key!r} is missing"
-        )
+        raise ValueError(f"calibration entry {calibration_key!r} is missing")
     t_right_camera = _transform_to_matrix(camera_calibration["transformation"])
     points_right = transform_points(t_right_camera, points_camera)
     valid_localization, validity_contract = _localization_validity_mask(
@@ -887,7 +878,7 @@ def _mask_to_camera_world(
             "point_xyz": _round(point_right) if selection_valid else None,
             "raw_median_point_xyz": _round(point_right),
             "camera_extrinsic_frame": "right_base",
-            "calibration_path": str(get_calibration_path()),
+            "calibration_source": describe_calibration_source(),
             "calibration_key": calibration_key,
         }
     )
@@ -1036,7 +1027,7 @@ def _median_depth(
     patch = depth[r0:r1, c0:c1]
     valid = patch[np.isfinite(patch) & (patch > 0.0)]
     if valid.size == 0:
-        raise DualFrankaPerceptionError(
+        raise ValueError(
             f"no valid depth near pixel row={row} col={col} radius={radius}"
         )
     return float(np.median(valid)), int(valid.size)
@@ -1046,9 +1037,7 @@ def _transform_to_matrix(transform: dict[str, Any]) -> np.ndarray:
     if "matrix" in transform:
         mat = np.asarray(transform["matrix"], dtype=np.float64)
         if mat.shape != (4, 4):
-            raise DualFrankaPerceptionError(
-                f"expected 4x4 transform matrix, got {mat.shape}"
-            )
+            raise ValueError(f"expected 4x4 transform matrix, got {mat.shape}")
         return mat
     qw = float(transform["qw"])
     qx = float(transform["qx"])
@@ -1096,7 +1085,7 @@ def _base_frame_transform(
     inverse_key = f"T_{source}_{target}"
     if isinstance(frames.get(inverse_key), dict):
         return invert_transform(_transform_to_matrix(frames[inverse_key]))
-    raise DualFrankaPerceptionError(f"missing base-frame transform {key}")
+    raise ValueError(f"missing base-frame transform {key}")
 
 
 def _tcp_xyz(pose: Any) -> np.ndarray | None:
