@@ -59,7 +59,7 @@ RPent 时的工作目录解析。
 
 * ``robots/dual_franka/config/example.yaml`` 包含机器人身份（两台机器人 IP、\
   相机序列号/类型、夹爪连接）、工作空间几何（目标位姿、安全边界）、easy_handeye
-	YAML 映射（见上方标定说明）和感知定位边界 + base-frame 变换。
+  YAML 映射（见上方标定说明）和感知定位边界 + base-frame 变换。
 
 RPent 会将该机器人配置转换成内部双节点 RLinf cluster 和环境对象。如需使用其\
 他文件，请传入 ``--robot-config /path/to/robot_config.yaml``。
