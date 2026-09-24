@@ -738,7 +738,7 @@ def _prune_history_images(
 
 
 def _is_image_rejection(e: Exception) -> bool:
-    """True when the provider returned a 4xx complaining about image input.
+    """True when the provider says its model lacks image input support.
 
     Matches errors like ``400 {'code': 10007, 'msg': "Bad Request: [message
     type 'image_url' is not supported]"}`` from OpenAI-compatible endpoints
@@ -748,7 +748,19 @@ def _is_image_rejection(e: Exception) -> bool:
         return False
     if not 400 <= e.status_code < 500:
         return False
-    return "image" in str(e).lower()
+    message = str(e).lower()
+    return any(
+        phrase in message
+        for phrase in (
+            "image_url' is not supported",
+            'image_url" is not supported',
+            "image input is not supported",
+            "image inputs are not supported",
+            "images are not supported",
+            "model does not support image",
+            "model does not support vision",
+        )
+    )
 
 
 def _api_error_text(error: Exception, *, no_images: bool) -> str:
