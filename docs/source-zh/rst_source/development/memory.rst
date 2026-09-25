@@ -164,21 +164,21 @@ Astra 发布版合并了 Long 与 Spatial/Object/Goal 两批探索 memory；三�
 global 文件分别加来源后缀并保留两份。79 对任务 audit/recipe 保持原始内容，Long Swap task 6
 没有专属经验，不补造。历史 **741/800** 成绩使用原先两份冻结快照按套件分别评测，
 **合并发布版尚未重新评测**。生成环境为运行提交 ``014a0fa``，属于场景 seed 修复前版本。
-原始快照保留在 Hub tag ``libero-astra-long-frozen-20260917`` 和
-``libero-astra-spatial-object-goal-frozen-20260917``。
+原始来源 revision 分别为 ``cf5d14ce9b3ec6c72de5477ec0fea806a3884efa`` （Long）和
+``984c57f7c6caf48b572f5926851dd9134ae041d8`` （Spatial/Object/Goal）。
 
 当前加载器要求 Hub 数据按模型分版本存放，不转换旧布局，也不回退到旧的无版本语料。
 代码与数据需要配套更新。当前目录名需搭配
 `RPent #190 <https://github.com/RLinf/RPent/pull/190>`_ 的共享 memory 命名更新，以及
 `对应数据更新 <https://huggingface.co/datasets/RLinf/RPent-memory/discussions/13>`_。
 数据集 ``main`` 持续更新，``reproduce/memory`` 保留历史内容和布局，供匹配的机器人历史
-复现分支使用。历史复现使用匹配的历史客户端与数据 revision；迁移前数据
-归档为 ``libero-gpt5.5-xhigh-before-versions-20260917``：
+复现分支使用。历史 GPT-5.5 复现使用匹配的历史客户端与原始数据 revision
+``21a62795fe3b7e500c8381ac47938f6d713ebe18``：
 
 .. code-block:: bash
 
    hf download RLinf/RPent-memory --repo-type dataset \
-     --revision libero-gpt5.5-xhigh-before-versions-20260917 \
+     --revision 21a62795fe3b7e500c8381ac47938f6d713ebe18 \
      --include 'libero/*' --local-dir /path/to/legacy-download
    # 旧 RPent 客户端使用：
    rpent --robot libero --suite libero_goal_swap --task 1 --seed 1 \

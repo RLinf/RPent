@@ -184,9 +184,9 @@ suffixes. Its 79 task-specific audit/recipe pairs retain their original
 content; Long Swap task 6 has no task-specific pair. The historical **741/800**
 result used the two original frozen snapshots separately by suite. **The merged
 release has not been reevaluated.** Memory was generated at runtime commit
-``014a0fa``, before the scene-seed fix. Original snapshots are retained as the
-Hub tags ``libero-astra-long-frozen-20260917`` and
-``libero-astra-spatial-object-goal-frozen-20260917``.
+``014a0fa``, before the scene-seed fix. The original source revisions are
+``cf5d14ce9b3ec6c72de5477ec0fea806a3884efa`` (Long) and
+``984c57f7c6caf48b572f5926851dd9134ae041d8`` (Spatial/Object/Goal).
 
 The current loader requires a versioned Hub layout and does not convert or
 fall back to the historical unversioned corpus. Update code and data together.
@@ -195,13 +195,13 @@ The current directory names require the shared memory naming update in
 `dataset update <https://huggingface.co/datasets/RLinf/RPent-memory/discussions/13>`_.
 Dataset ``main`` evolves; ``reproduce/memory`` keeps its historical contents
 and layout for the matching historical robot reproduction branches.
-Historical reproduction uses the matching historical client and dataset
-revision, archived at ``libero-gpt5.5-xhigh-before-versions-20260917``:
+Historical GPT-5.5 reproduction uses the matching historical client and the
+original dataset revision ``21a62795fe3b7e500c8381ac47938f6d713ebe18``:
 
 .. code-block:: bash
 
    hf download RLinf/RPent-memory --repo-type dataset \
-     --revision libero-gpt5.5-xhigh-before-versions-20260917 \
+     --revision 21a62795fe3b7e500c8381ac47938f6d713ebe18 \
      --include 'libero/*' --local-dir /path/to/legacy-download
    # With an older RPent client:
    rpent --robot libero --suite libero_goal_swap --task 1 --seed 1 \
