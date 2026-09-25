@@ -41,6 +41,52 @@ SDK。
        :doc:`flash`。
      - 想在新布局上低成本地重跑一个已知可行的方案，无需 LLM 在线规划；仍需要感知和 VLA 服务。
 
+设置 planner 的运行限制
+-----------------------
+
+``--max-turns`` 是 ``api``、``claude_code`` 和 ``codex`` 共用的 CLI 参数，默认
+``100``。各后端对一轮的定义和上限的执行方式不同，报告的 ``turns_used``
+与执行预算时使用的计数不一定相同：
+
+.. list-table:: 各后端的轮数统计与限制
+   :header-rows: 1
+   :widths: 15 40 45
+
+   * - Planner
+     - 报告的 ``turns_used``
+     - 预算限制方式
+   * - ``api``
+     - RPent 循环中收到的每次模型响应。
+     - RPent 处理完该响应的工具调用后，用这一计数检查预算。
+   * - ``claude_code``
+     - 按消息 ID 去重的顶层 assistant 响应，包括最后一次纯文本响应。
+       这一计数只用于报告，不触发中断。
+     - RPent 设置 ``ClaudeAgentOptions.max_turns``，SDK 将它作为
+       ``--max-turns`` 传给 Claude Code CLI。Claude 限制每次 query 的
+       工具调用往返次数，达到上限时返回 ``error_max_turns``。
+   * - ``codex``
+     - 根据 SDK 累计 usage 更新统计已完成的模型响应。只有推理或工具调用
+       的响应也计数；同一次响应的多个条目只计一次，重复 usage 通知不重复计数。
+     - CLI 和 Dashboard 使用这一计数，在达到上限时只请求一次中断，
+       并保留已记录的 ``finish``。
+
+在 Claude 交互会话中，每次 query 都会获得新的 SDK 轮数预算，而 RPent 的
+``turns_used`` 在多次 query 之间累计。最后一次纯文本响应会计入 RPent 的报告，
+但不计入 Claude 的工具调用预算。详见 `Claude 的轮数限制说明
+<https://code.claude.com/docs/en/agent-sdk/agent-loop#turns-and-budget>`_。
+
+``flash`` 直接重放计划，不运行 LLM 循环，因此不使用这一预算，报告的
+``turns_used`` 为 ``0``。
+
+其他限制的作用范围不同：
+
+- ``--max-tokens`` 仅限制 ``api`` 每次回复的 token 数，默认 ``8192``。
+- ``--planner-timeout-s`` 限制 planner 的运行时间；各后端的默认值及交互模式行为见下文。
+
+模型调用 ``finish`` 后，planner 会记录结束状态。达到轮数上限时，当前循环停止；
+Claude 交互会话仍可接收下一次 query。运行结束时，主程序会保存 transcript。
+超时或 SDK 异常会写入 planner 结果，并输出到日志。
+
 ``api`` planner（直接调用模型 API）
 -------------------------------------
 
@@ -71,7 +117,6 @@ SDK。
 ``api`` planner 的相关调节参数：
 
 - ``--max-tokens`` —— 单次 LLM 回复的 token 上限（默认 ``8192``）。
-- ``--max-turns`` —— 工具调用轮数上限（默认 ``100``）。
 - ``--no-images`` —— 不向模型发送图片字节；纯文本模型必须加此参数。此时
   智能体只依赖文本状态推理，任务表现可能不够理想。
 
@@ -96,7 +141,6 @@ RPent 为 Claude 规划会话关闭文件系统配置来源，因此不会自动
 注意事项：
 
 - ``--model`` **不要** 加模型提供商前缀；省略时默认使用 ``sonnet``。
-- ``--max-turns`` 会传给 Claude Agent SDK，默认 ``100``。
 - 非交互运行受 ``--planner-timeout-s`` 限制；默认读取
   ``CELL_TIMEOUT_S``，未设置时为 ``1200`` 秒。``--interactive`` 模式
   不应用这一时限。
@@ -282,19 +326,3 @@ agent SDK，可以实现 ``rpent.planner.base.Planner`` 协议，并在
 工具或环境服务。接口参见
 :doc:`../development/architecture`；想给
 自定义 planner 暴露新工具，见 :doc:`../development/add_primitive`。
-
-设置 planner 的运行限制
------------------------
-
-以下参数的作用范围并不相同：
-
-- ``--max-tokens`` 只限制 ``api`` planner *每次回复* 的 token 数。
-  LIBERO 类任务通常 ``8192`` 就够；更长时序的 RoboCasa episode
-  如果模型支持可以调大。
-- ``--max-turns`` 限制工具调用的总轮数。单个 LIBERO 任务通常
-  不会超过 30 轮；RoboCasa 的长时序任务可能接近默认的 ``100``。
-- ``--planner-timeout-s`` 限制 planner 的运行时间。
-
-模型调用 ``finish`` 工具后，planner 会记录相应的结束状态。达到轮数上限或
-超时时，运行结束，主程序仍会保存 transcript。超时或 SDK 异常会写入
-planner 结果，并输出到日志。

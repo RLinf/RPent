@@ -47,6 +47,59 @@ loop is orchestrated, and which model SDK is used.
      - You want to re-run a known-good plan on new layouts, without online
        LLM planning. Perception and VLA services are still required.
 
+Configure planner limits
+------------------------
+
+``--max-turns`` is a shared CLI option for ``api``, ``claude_code`` and
+``codex``, with a default of ``100``. The unit of a turn and the enforcement
+of that limit depend on the backend. The reported ``turns_used`` and the
+budget are not always the same counter:
+
+.. list-table:: Turn accounting by backend
+   :header-rows: 1
+   :widths: 15 40 45
+
+   * - Planner
+     - Reported ``turns_used``
+     - Budget enforcement
+   * - ``api``
+     - Each model response consumed by RPent's loop.
+     - RPent checks this counter after handling the response's tool calls.
+   * - ``claude_code``
+     - Top-level assistant responses, deduplicated by message ID, including
+       the final text-only response. This counter is for reporting; it does
+       not trigger an interrupt.
+     - RPent sets ``ClaudeAgentOptions.max_turns``; the SDK passes it to the
+       Claude Code CLI as ``--max-turns``. Claude limits tool-use round trips
+       per query and returns ``error_max_turns`` when the limit is reached.
+   * - ``codex``
+     - Completed model responses from cumulative SDK usage updates.
+       Reasoning/tool-only responses count; multiple items in one response
+       count once, and duplicate usage updates are ignored.
+     - CLI and Dashboard use this counter to request one interrupt at the
+       limit and preserve an already recorded ``finish``.
+
+In an interactive Claude session, each query gets a new SDK turn budget,
+while RPent's ``turns_used`` accumulates across queries. A final text-only
+response contributes to RPent's report but not to Claude's tool-use budget.
+See `Claude's turn-limit documentation
+<https://code.claude.com/docs/en/agent-sdk/agent-loop#turns-and-budget>`_.
+
+``flash`` replays a plan without an LLM loop, so this budget does not apply;
+it reports ``turns_used=0``.
+
+Other limits have different scopes:
+
+- ``--max-tokens`` caps each reply's tokens for ``api`` only (default ``8192``).
+- ``--planner-timeout-s`` limits elapsed planner time, with backend-specific
+  defaults and interactive-mode behavior described below.
+
+When the model calls ``finish``, the planner records the finish state.
+Reaching a turn limit stops the current loop; an interactive Claude session
+can still accept another query. The main program saves the transcript when
+the run ends. Timeouts or SDK exceptions are stored in the planner result
+and written to the log.
+
 The ``api`` planner (direct model API)
 ---------------------------------------
 
@@ -79,8 +132,6 @@ needed):
 Relevant ``api`` planner knobs:
 
 - ``--max-tokens`` — cap each LLM reply (default ``8192``).
-- ``--max-turns`` — cap the number of tool-calling turns (default
-  ``100``).
 - ``--no-images`` — never send image bytes; this is required for
   text-only models. The agent then reasons from textual state alone,
   so task performance may not be satisfactory.
@@ -108,8 +159,6 @@ Notes:
 
 - Do **not** add a provider prefix to ``--model``. If it is omitted,
   RPent uses ``sonnet``.
-- ``--max-turns`` is passed to the Claude Agent SDK and defaults to
-  ``100``.
 - ``--planner-timeout-s`` limits non-interactive runs. It defaults to
   ``CELL_TIMEOUT_S``, or ``1200`` seconds when that variable is unset.
   The limit is not applied in ``--interactive`` mode.
@@ -311,22 +360,3 @@ adding a planner does not require changes to tools or environment
 servers. See :doc:`../development/architecture` for the interface, and
 :doc:`../development/add_primitive` if you want to expose new tools to
 your custom planner.
-
-Configure planner limits
-------------------------
-
-The limiting options apply to different planners:
-
-- ``--max-tokens`` caps *per-reply* tokens only for the ``api``
-  planner. LIBERO-style tasks usually
-  finish comfortably under ``8192``; longer-horizon RoboCasa episodes
-  benefit from raising it if your model supports it.
-- ``--max-turns`` caps the *total number of tool-calling turns*. A
-  single LIBERO task rarely needs more than ~30 turns; RoboCasa
-  long-horizon tasks can approach the default ``100``.
-- ``--planner-timeout-s`` limits the planner's running time.
-
-When the model calls the ``finish`` tool, the planner records the
-corresponding finish state. Reaching a turn limit or timeout ends the
-run, and the main program still saves the transcript. Timeouts or SDK
-exceptions are stored in the planner result and written to the log.
