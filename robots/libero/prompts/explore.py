@@ -36,10 +36,10 @@ from robots.libero.prompts import evaluate as base
 from rpent.prompt.utils import Numbered, PromptNode
 
 (
-    _,
     BASE_STEP_READ_GUIDES,
-    BASE_STEP_READ_SEED0_REFS,
     BASE_STEP_INSPECT_INITIAL,
+    _,
+    BASE_STEP_READ_SEED0_REFS,
     BASE_STEP_PERCEPTION_PASS,
     BASE_STEP_EXECUTE,
     _,
@@ -178,9 +178,9 @@ def _rules() -> str:
 # Workflow steps that differ from evaluation
 # ---------------------------------------------------------------------------
 
-STEP_READ_MEMORY = """READ MEMORY FIRST. Memory is layered by how widely a lesson holds; read it in
-order of specificity, because the most specific layer is also the cheapest to
-retrieve.
+STEP_READ_MEMORY = """READ MEMORY for the observed `task_language` and scene. Memory is layered by
+how widely a lesson holds; read it in order of specificity, because the most
+specific layer is also the cheapest to retrieve.
 
 a. **THIS TASK** — `read_text_file` the `suite` write-up for this cell if one
    exists (look for `suite_*` under `{{memory_dir}}/suite/`). It is the single
@@ -412,10 +412,10 @@ e. REPORT in your final message: how many lessons you considered, how they split
 #: arithmetic, and adding a step to either prompt cannot silently shift the
 #: other.
 WORKFLOW_STEPS = (
-    STEP_READ_MEMORY,
     BASE_STEP_READ_GUIDES,
-    BASE_STEP_READ_SEED0_REFS,
     BASE_STEP_INSPECT_INITIAL,
+    STEP_READ_MEMORY,
+    BASE_STEP_READ_SEED0_REFS,
     BASE_STEP_PERCEPTION_PASS,
     BASE_STEP_EXECUTE,
     STEP_PRIMITIVES,

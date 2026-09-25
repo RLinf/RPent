@@ -120,6 +120,46 @@ def test_robot_prompts_render_from_public_spec(robot_name: str) -> None:
     assert "{{" not in user
 
 
+@pytest.mark.parametrize(
+    ("mode", "memory_profile"),
+    [("eval", "hf"), ("eval", "local"), ("explore", "local")],
+)
+def test_libero_prompts_observe_task_before_reading_memory(
+    mode: str, memory_profile: str
+) -> None:
+    variables = {
+        **PROMPT_VARIABLES["libero"],
+        "mode": mode,
+        "memory_profile": memory_profile,
+    }
+    prompts = get_robot_spec("libero").prompts
+    system = prompts.render("system", variables=variables)
+    user = prompts.render("user", variables=variables)
+    workflow = system.split("\nWORKFLOW\n", 1)[1]
+    memory_step = (
+        "READ EACH AVAILABLE LOCAL MEMORY LAYER"
+        if mode == "eval" and memory_profile == "local"
+        else "READ MEMORY"
+    )
+
+    assert (
+        workflow.index("READ THE GUIDES")
+        < workflow.index("INSPECT INITIAL STATE")
+        < workflow.index(memory_step)
+    )
+    if mode != "eval" or memory_profile != "local":
+        assert workflow.index("INSPECT INITIAL STATE") < workflow.index(
+            "READ SEED-0 STRATEGY REFERENCES"
+        )
+    assert "READ MEMORY FIRST" not in system
+    begin = user.split("\nBEGIN\n", 1)[1]
+    assert (
+        begin.index("view_env_state")
+        < begin.index("task_language")
+        < begin.index("memory")
+    )
+
+
 @pytest.mark.parametrize("robot_name", EXPECTED_ROBOTS)
 def test_dashboard_metadata_has_consistent_fields_and_runtime_components(
     robot_name: str,
