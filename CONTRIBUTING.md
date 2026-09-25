@@ -9,7 +9,7 @@ documentation improvements, performance work, and new planner, robot, or tool
 integrations all help the project grow.
 
 For integration work, start with the existing guides for
-[custom planners](docs/source-en/rst_source/usage/configure_planner.rst),
+[custom planners](docs/source-en/rst_source/development/add_planner.rst),
 [new robots](docs/source-en/rst_source/development/add_robot.rst), and
 [new primitives](docs/source-en/rst_source/development/add_primitive.rst).
 
@@ -59,7 +59,7 @@ pre-commit install
 
 The commands above are alternatives: install only the robot extra relevant to
 the change. See the
-[installation guide](docs/source-en/rst_source/installation.rst) for
+[installation guide](docs/source-en/rst_source/quickstart.rst) for
 environment-specific setup.
 
 ### Step 3. Develop
@@ -102,6 +102,7 @@ If a check fails or modifies files, review the changes and run it again.
 
 Update documentation alongside user-visible changes:
 
+- follow the [documentation style guide](docs/STYLE_GUIDE.md);
 - keep `docs/source-en/` and `docs/source-zh/` aligned when both cover the
   feature;
 - update docstrings and examples for public APIs;

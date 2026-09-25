@@ -1,13 +1,13 @@
-Agentic Planner
-===============
+Planners and Model Services
+===========================
 
 Select the Agentic Planner backend with one CLI flag:
 
-.. code-block:: bash
+.. code-block:: text
 
-   --planner {api, claude_code, codex}
+   --planner {api,claude_code,codex,flash}
 
-All three planners receive the same rendered system and user prompts
+All three online planners receive the same rendered system and user prompts
 and use the RPent tool schemas from the same toolkit. They differ in
 how those schemas are connected to the model, how the tool-calling
 loop is orchestrated, and which model SDK is used.
@@ -25,20 +25,17 @@ loop is orchestrated, and which model SDK is used.
        the Anthropic Messages API, the OpenAI Responses API, and
        OpenAI-compatible Chat Completions APIs. It handles prompt caching
        and history-image pruning.
-     - You want the tightest control over model calls, the widest
-       provider coverage, or the cheapest per-turn spend.
+     - Call Anthropic, OpenAI, or a compatible model service directly.
    * - ``claude_code``
      - The `Claude Agent SDK
        <https://code.claude.com/docs/en/agent-sdk/overview>`_. Exposes
        RPent's toolkit as an in-process MCP server; the Claude Agent
        SDK drives the loop.
-     - You want the agent capabilities built into Claude Code (memory,
-       thinking-mode budgets, robust tool retries).
+     - Run the tool-calling loop through the Claude Agent SDK.
    * - ``codex``
      - The OpenAI **Codex Python SDK**. RPent starts an in-process
        Streamable HTTP MCP server that connects the toolkit to Codex.
-     - You want the agent capabilities built into Codex or already have
-       OpenAI or Codex quota available.
+     - Run tasks through the Codex SDK, using existing authentication or a configured API.
    * - ``flash``
      - **Flash Mode**, for evaluation only. Replays a plan from memory,
        recorded from an earlier
@@ -47,7 +44,7 @@ loop is orchestrated, and which model SDK is used.
      - You want to re-run a known-good plan on new layouts, without online
        LLM planning. Perception and VLA services are still required.
 
-The ``api`` planner (direct model API)
+The ``api`` Planner (direct Model API)
 ---------------------------------------
 
 ``--planner api`` is the default. It uses Pydantic AI to implement the
@@ -87,7 +84,7 @@ Relevant ``api`` planner knobs:
 
 .. _planner-claude-code:
 
-The ``claude_code`` planner
+The ``claude_code`` Planner
 ----------------------------
 
 ``--planner claude_code`` delegates the loop to the Claude Agent SDK.
@@ -121,7 +118,7 @@ Notes:
   `Claude Agent SDK docs
   <https://code.claude.com/docs/en/agent-sdk/overview>`_.
 
-Local models with Claude Code
+Local Models with Claude Code
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Claude Code can use a local model server that implements the Anthropic
@@ -144,7 +141,7 @@ auto-compaction settings.
 
 .. _planner-codex:
 
-The ``codex`` planner
+The ``codex`` Planner
 ----------------------
 
 ``--planner codex`` uses the OpenAI Codex Python SDK. For each run,
@@ -177,7 +174,7 @@ Notes:
   ``CODEX_API_KEY``. This backend does not read ``OPENAI_BASE_URL`` or
   ``OPENAI_API_KEY``.
 
-Local models with Codex
+Local Models with Codex
 ~~~~~~~~~~~~~~~~~~~~~~~
 
 Codex can use a local model server that implements the OpenAI Responses API.
@@ -225,14 +222,13 @@ settings.
 
 .. _planner-check:
 
-Verify your configuration
+Verify Your Configuration
 -------------------------
 
-A full run boots the env server, the VLA server, and the memory corpus
-before it ever reaches the model, so a wrong API key can cost minutes of
-startup before it surfaces. ``rpent-check-llm`` sends the smallest real
-request the selected backend supports — no tools, no images, no robot
-runtime — and reports the outcome:
+Before starting a full task, use ``rpent-check-llm`` to check the model
+service's connection and authentication settings. It sends the smallest
+real request the selected backend supports, without tools, images, or a
+robot runtime:
 
 .. code-block:: bash
 
@@ -248,71 +244,25 @@ CI. ``--base-url`` overrides the backend's endpoint, and ``--timeout-s``
 overrides the diagnostic timeout (30 s for ``api``, 90 s for the two SDK
 backends; the ``1200`` s run default is never reused).
 
-The Dashboard exposes the same check: the launcher's **Test connection**
-button runs it against the planner and model currently selected in the
-form, so what you test is exactly what **Start Session** will use. Both
-front ends call one implementation in ``rpent.planner.check``.
+Before using the Dashboard, run the same check in a terminal with the
+planner and model settings you intend to use for the task. The Dashboard
+receives its configuration from the command line and opens directly to the
+live monitor. See :doc:`dashboard` for startup instructions.
 
 A passing check proves authentication and reachability only. It does not
 prove the model will accept image blocks (see ``--no-images``), your tool
 schemas, or your context length.
 
+.. _add-a-custom-planner:
+
 .. _planner-custom:
 
-Add a custom planner
---------------------
+Add a Planner
+-------------
 
-If none of the three planners fit — say you want to plug in an
-in-house planner, a research prototype, or a different agent SDK —
-implement the ``rpent.planner.base.Planner`` protocol and add a
-construction branch to ``rpent.planner.base.build_planner``:
+See :doc:`../development/add_planner` for the interface, integration steps, and validation requirements.
 
-.. code-block:: python
-
-   # rpent/planner/my_planner.py
-   from rpent.planner.base import PlannerResult
-
-   class MyPlanner:
-       def solve(
-           self,
-           *,
-           system_prompt,
-           user_message,
-           toolkit,
-           max_turns,
-           input_queue=None,
-       ):
-           tool_specs = toolkit.get_tools_spec()
-           # Call the model with system_prompt, user_message, and tool_specs.
-           # Execute each tool call through this interface:
-           tool_result = toolkit.execute_tool(tool_name, arguments)
-           ...
-           return PlannerResult(
-               finish_result=finish_result,
-               messages=messages,
-               stats=stats,
-               error=error,
-           )
-
-Any planner must:
-
-1. Accept the rendered ``system_prompt`` and ``user_message``.
-2. Read the tool schemas from ``toolkit.get_tools_spec()`` and execute
-   tools with ``toolkit.execute_tool(name, arguments)``.
-3. Convert the text and images in ``ToolResult.content_blocks`` to the
-   format expected by the model SDK.
-4. Detect ``ToolResult.is_finish`` and stop according to
-   ``max_turns`` and any other limits.
-5. Return a ``PlannerResult`` containing the finish state, messages,
-   statistics, and an optional error.
-
-Because the RPent tool schemas and prompt-rendering path stay the same,
-adding a planner does not require changes to tools or environment
-servers. See :doc:`../development/architecture` for the interface, and
-:doc:`../development/add_primitive` if you want to expose new tools to
-your custom planner.
-
-Configure planner limits
+Configure Planner Limits
 ------------------------
 
 The limiting options apply to different planners:

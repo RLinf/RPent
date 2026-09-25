@@ -10,14 +10,14 @@ conversion to a training format is a separate step.
 Installation
 ------------
 
-Follow :doc:`../installation` for environment setup and simulator assets. From
+Follow :doc:`../quickstart` for environment setup and simulator assets. From
 the RPent repository root, install LIBERO-PRO with Flywheel export support:
 
 .. code-block:: bash
 
-   pip install -e ".[libero-pro,flywheel]"
+   uv pip install -e ".[libero-pro,flywheel]"
 
-Collect an episode
+Collect an Episode
 ------------------
 
 Enable collection on a normal LIBERO evaluation run and choose a data root:
@@ -36,7 +36,7 @@ contains the policy observations, executed actions, rewards, terminal flags,
 primitive IDs, and VLA proposals. Collection is opt-in and is supported only
 for evaluation mode.
 
-Validate and export successful episodes
+Validate and Export Successful Episodes
 ---------------------------------------
 
 Validate one raw episode before using it:

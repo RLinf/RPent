@@ -1,190 +1,111 @@
 快速开始
-========
+============
 
-开始前，请先按照 :doc:`installation` 安装 RPent，并下载
-LIBERO-PRO 仿真资源。下面以 LIBERO-PRO 和 ``claude_code`` planner
-为例，演示如何完成一次运行。
+本页从安装开始，带你运行一个 LIBERO-PRO 任务，并检查执行结果。示例使用 Claude Code 规划器、Pi0.5 动作模型和 SAM3 视觉分割。
 
-1. 配置 API key 与 checkpoint
-------------------------------
+若要使用其他平台，直接进入 :doc:`usage/robocasa`、:doc:`usage/robotwin` 或 :doc:`真机部署 <usage/real_robots>`，按该平台的要求安装。
 
-导出 Anthropic API key，然后下载并配置 VLA 和 SAM 3.0 checkpoint：
+准备工作
+------------
+
+- Linux、NVIDIA GPU，以及兼容 CUDA 12 的驱动。
+- ``git``、``bash`` 和 C/C++ 编译工具。
+- `uv <https://docs.astral.sh/uv/getting-started/installation/>`_，用于创建独立的 Python 环境。以下命令使用 Python 3.11。
+- 可访问示例模型的 Anthropic API Key，以及下载仿真资源和模型权重的网络。模型调用会产生 API 费用。
+
+1. 安装 RPent
+---------------
+
+创建独立的 Python 环境，并安装 LIBERO-PRO 所需依赖。
 
 .. code-block:: bash
 
-   # Anthropic 密钥；使用 Anthropic 官方 API 时无需设置 base URL。
-   export ANTHROPIC_BASE_URL=https://xxx
-   export ANTHROPIC_API_KEY=sk-xxx
+   git clone https://github.com/RLinf/RPent.git
+   cd RPent
+   uv venv --python 3.11
+   source .venv/bin/activate
+   uv pip install -e ".[libero-pro]"
 
-   # VLA checkpoint —— 从下面地址下载
-   # https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT
-   pip install "huggingface_hub>=0.34,<1.0"
+后续命令都在这个终端和 RPent 仓库目录中执行。重新打开终端时，先激活 ``.venv``，再设置下文的模型路径与 API Key。
 
+2. 下载仿真资源和模型
+------------------------------
+
+先下载 LIBERO-PRO 场景资源；``--skip-existing`` 可复用已下载的文件：
+
+.. code-block:: bash
+
+   liberopro-download-assets --skip-existing
+
+再下载 Pi0.5 和 SAM3，设置模型路径：
+
+.. code-block:: bash
+
+   uv pip install "huggingface_hub>=0.34,<1.0" modelscope
    hf download RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT \
      --exclude optimizer.pt \
      --local-dir ./checkpoints/RLinf-Pi05-LIBERO-130-fullshot-SFT
+   modelscope download --model facebook/sam3 sam3.pt \
+     --local_dir ./checkpoints/sam3
 
-   export PI05_CHECKPOINT_PATH=$PWD/checkpoints/RLinf-Pi05-LIBERO-130-fullshot-SFT
+   export PI05_CHECKPOINT_PATH="$PWD/checkpoints/RLinf-Pi05-LIBERO-130-fullshot-SFT"
+   export SAM3_CHECKPOINT_PATH="$PWD/checkpoints/sam3/sam3.pt"
 
-   # SAM 3.0 checkpoint —— 从以下地址下载
-   # https://modelscope.cn/models/facebook/sam3
-   pip install -U modelscope
+Pi0.5 用于执行机器人动作，SAM3 用于定位图像中的物体。SAM3 也可从 Hugging Face 下载，授权和替代下载方法见 :doc:`usage/libero`。
 
-   modelscope download facebook/sam3 \
-     --local-dir ./checkpoints/sam3
+3. 配置规划器并检查连接
+---------------------------------
 
-   export SAM3_CHECKPOINT_PATH=$PWD/checkpoints/sam3/sam3.pt
-
-2. 跑一个 LIBERO 任务
----------------------
-
-使用 ``claude_code`` planner 跑单个 LIBERO PRO 任务
-（``libero_object_swap``，任务 ``2``，种子 ``0``）：
+把 ``YOUR_API_KEY`` 替换为自己的 Key：
 
 .. code-block:: bash
 
-   rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
-     --planner claude_code --model claude-opus-4-8
+   export ANTHROPIC_API_KEY="YOUR_API_KEY"
+   rpent-check-llm --planner claude_code --model claude-opus-4-8
 
-若要切换到其他 planner（如 ``codex`` 或 ``api``），请参阅
-:doc:`Agentic Planner <usage/configure_planner>`。
+使用 Anthropic 官方服务时无需设置 ``ANTHROPIC_BASE_URL``。自定义服务地址和其他规划器的配置见 :doc:`usage/configure_planner`。连接检查通过后再启动任务；它只验证模型服务的认证和连通性。
 
-3. 通过 Dashboard 查看运行过程
-------------------------------
+4. 运行第一个任务
+------------------------
 
-添加 ``--dashboard`` 后，RPent 会启动本地 Dashboard，并在终端输出访问地址：
+运行 ``libero_object_swap`` 任务集中的任务 ``2``，场景随机种子为 ``0``：
 
 .. code-block:: bash
 
-   rpent --robot libero --dashboard --dashboard-language zh-cn \
-     --planner claude_code --model claude-opus-4-8
+   rpent --robot libero --libero-type pro \
+     --suite libero_object_swap --task 2 --seed 0 \
+     --planner claude_code --model claude-opus-4-8 \
+     --output-dir ./logs/first-libero-pro
 
-Session 配置全部来自命令行，打开地址后直接进入实时监控；服务就绪后，在页面输入
-``/rpent-task libero_object_swap 2 0`` 启动任务。Dashboard 会实时显示智能体的
-推理过程、相机画面和动作时间线；任务结束后可以继续提交下一任务。使用
-``--dashboard-language zh-cn`` 可切换到中文界面。
+终端会依次显示环境、VLA 和 SAM3 服务的启动状态，随后输出规划器对话与工具调用。结束后查看 ``logs/first-libero-pro/``。再次运行时，请换一个输出目录以保留前一次记录。
 
-关键 CLI 选项
--------------
+5. 查看结果
+---------------
 
-下表列出主要的命令行选项。其他通用选项可运行 ``rpent --help`` 查看；
-有关 LIBERO 机器人的更多配置，请参阅
-:doc:`LIBERO 使用指南 <usage/libero>`。
+- ``episode.mp4``：回看机器人操作过程。
+- ``transcript_*.json``：查看规划器对话、工具调用和结束状态。
+- ``run.log``：查看运行日志和错误。
 
-**主参数**
+LIBERO 的任务成功以最终环境状态的顶层 ``terminated`` 为准，可通过 ``view_env_state(step=-1)`` 的工具结果查看。规划器在 ``finish`` 中声明成功，不等于环境判定成功。
 
-.. list-table::
-   :header-rows: 1
-   :widths: 22 15 63
+默认目录命名、动作序列与逐步观测文件的说明见 :ref:`run-output-files`。
 
-   * - 参数
-     - 默认值
-     - 说明
-   * - ``--robot``
-     - —（必填）
-     - 机器人后端。当前支持 ``libero``。
-   * - ``--suite``
-     - —（必填）
-     - 任务套件，如 ``libero_object_task``、``libero_spatial_swap``
-   * - ``--task``
-     - —（必填）
-     - 套件内的任务编号
-   * - ``--seed``
-     - ``0``
-     - 随机种子
-   * - ``--libero-type``
-     - ``LIBERO_TYPE`` 或 ``pro``
-     - LIBERO 类型：``standard`` | ``pro`` | ``plus``
+若要实时观看相机和动作记录，按 :doc:`usage/dashboard` 启动 Dashboard。更多任务、探索模式和实验复现见 :doc:`usage/libero`。
 
-**Planner**
+遇到问题时
+---------------
 
 .. list-table::
    :header-rows: 1
-   :widths: 22 15 63
+   :widths: 25 75
 
-   * - 参数
-     - 默认值
-     - 说明
-   * - ``--planner``
-     - ``api``
-     - ``api`` | ``claude_code`` | ``codex``
-   * - ``--model``
-     - —
-     - 模型 ID；``api`` 需带 provider 前缀（``anthropic:…``、
-       ``openai:…``、``openai-chat:…``）
-   * - ``--max-turns``
-     - ``100``
-     - 智能体最大轮数
-   * - ``--max-tokens``
-     - ``8192``
-     - 单次 LLM 回复最大 token
-   * - ``--reasoning-effort``
-     - ``none``
-     - ``api``、``claude_code`` 与 ``codex`` 的推理强度：``none`` |
-       ``low`` | ``medium`` | ``high`` | ``xhigh``。在我们的 LIBERO Pro
-       Long 评测中，关闭 reasoning 将平均运行时间从约 13.2 分钟缩短至
-       7.9 分钟（约 40%）。较高强度可能提升任务成功率；实际支持的档位
-       取决于所选模型。
-   * - ``--no-images``
-     - 关
-     - 纯文本模式：不向模型发送图片字节（用于不支持图片输入的模型）
-
-**环境**
-
-.. list-table::
-   :header-rows: 1
-   :widths: 22 15 63
-
-   * - 参数
-     - 默认值
-     - 说明
-   * - ``--max-episode-steps``
-     - ``10000``
-     - 环境最大步数
-   * - ``--cuda-device``
-     - 继承当前环境
-     - env_server、vla_server 和 sam3_server 可见的 GPU 设备
-   * - ``--env-endpoint``
-     - —（自动启动）
-     - 已在运行的 env_server 的 ``[protocol://]host:port``
-       （``protocol=http|socket``，默认 ``http``）。留空时自动启动本地
-       实例。
-   * - ``--vla-endpoint``
-     - —（自动启动）
-     - 已在运行的 vla_server 的 ``[protocol://]host:port``
-       （同上）。留空时自动启动本地实例。
-   * - ``--sam3-endpoint``
-     - —（自动启动）
-     - 已在运行的 sam3_server 的 ``[protocol://]host:port``
-       （同上）。留空时自动启动本地实例。
-
-**Dashboard**
-
-.. list-table::
-   :header-rows: 1
-   :widths: 22 15 63
-
-   * - 参数
-     - 默认值
-     - 说明
-   * - ``--dashboard``
-     - 关
-     - 启动本地 Dashboard
-   * - ``--dashboard-language``
-     - ``en``
-     - Dashboard 界面语言：``en`` | ``zh-cn``
-
-运行结果
---------
-
-一次成功的运行会：
-
-1. 终端会先显示 ``env_server``、``vla_server`` 和 ``sam3_server`` 的启动信息。
-2. 智能体的逐轮输出和工具调用会显示在终端中；运行结束时还会显示耗时、token 用量和运行记录的路径。
-3. 启用 Dashboard 后，智能体的输出、相机视图、动作时间线和片段回放也会实时显示在 Dashboard 中。
-4. 默认输出目录为 ``logs/<timestamp>_<suite>_t<task>_s<seed>/``，其中包含 ``transcript_*.json``\ （运行记录）、``states.json``\ （``EnvState`` 清单）、``*_recipe.jsonl``\ （动作序列）和 ``episode.mp4``\ （回合录像）。每种逐步工件使用一个与逻辑工件同名的目录，目录内按步骤保存零填充文件，例如 ``agentview_depth.npz/00.npz`` 和 ``agentview_depth.npz/01.npz``；运行级工件仍保存在输出目录根部。
-
-通过 Dashboard 或 ``view_env_state(step=-1)`` 查看最终状态；其顶层
-``terminated`` 即为基准任务结果。``states.json`` 是 ``EnvState`` 的内部
-存储，调用方不应直接解析。也可以打开 ``episode.mp4`` 复核运行过程。
-出问题时，参考 :doc:`installation` 页底部提到的四份日志文件。
+   * - 现象
+     - 处理方法
+   * - 模型服务连接失败
+     - 检查 Key、模型访问权限和服务地址，重新运行 ``rpent-check-llm``。
+   * - 资源下载失败
+     - 重新运行下载命令。访问 Hugging Face 较慢时，可为相应命令设置 ``HF_ENDPOINT=https://hf-mirror.com``。
+   * - 环境或模型启动失败
+     - 先检查两个 checkpoint 路径，再查看 ``env_server.log``、``vla_server.log`` 或 ``sam3_server.log``；显存不足时检查其他 GPU 进程。
+   * - 任务运行但未成功
+     - 回看视频和最后的环境状态，区分操作失败与服务错误。单次任务结果不代表完整基准成绩。

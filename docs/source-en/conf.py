@@ -36,7 +36,7 @@ redirects = {"rst_source/benchmarks": "leaderboard.html"}
 source_suffix = {".rst": "restructuredtext"}
 root_doc = "index"
 templates_path = ["_templates"]
-exclude_patterns = []
+exclude_patterns = ["**/_*.rst"]
 default_role = "code"
 
 language = "en"
@@ -49,7 +49,7 @@ html_baseurl = os.environ.get(
     "https://rpent.readthedocs.io/en/latest/",
 )
 sitemap_url_scheme = "{link}"
-html_static_path = ["_static"]
+html_static_path = ["../_static", "_static"]
 html_css_files = ["css/custom.css"]
 html_js_files = [
     "js/version-switcher.js",

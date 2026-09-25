@@ -7,7 +7,7 @@
 RPent 欢迎社区贡献。无论是提交 bug、修复问题、完善测试和文档、优化性能，还是新增
 planner、robot 或 tool 集成，都能帮助项目持续发展。
 
-集成新功能时，可以先阅读现有的[自定义 planner](docs/source-zh/rst_source/usage/configure_planner.rst)、
+集成新功能时，可以先阅读现有的[自定义 planner](docs/source-zh/rst_source/development/add_planner.rst)、
 [添加 robot](docs/source-zh/rst_source/development/add_robot.rst) 和
 [添加 primitive](docs/source-zh/rst_source/development/add_primitive.rst) 指南。
 
@@ -55,7 +55,7 @@ pre-commit install
 ```
 
 以上命令是不同选择；只安装当前改动涉及的 robot extra。各环境的具体配置见
-[安装指南](docs/source-zh/rst_source/installation.rst)。
+[安装指南](docs/source-zh/rst_source/quickstart.rst)。
 
 ### 第 3 步：开发
 
@@ -94,6 +94,7 @@ pytest tests/unit_tests/rpent/cli/test_main_contracts.py -k xxx -x
 
 用户可见行为发生变化时，请同步更新文档：
 
+- 遵循[文档风格指南](docs/STYLE_GUIDE.md)；
 - 中英文文档都覆盖该功能时，保持 `docs/source-en/` 和 `docs/source-zh/` 一致；
 - 公共 API 发生变化时，更新 docstring 和示例；
 - 安装、快速开始或对外展示的功能发生变化时，更新 README。

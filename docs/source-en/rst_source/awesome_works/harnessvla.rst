@@ -30,7 +30,7 @@ Harness VLA is RPent's first publication. Without updating the VLA or expanding
 the primitive library during deployment, it reaches **82.4%** success on
 LIBERO-PRO, **55.4%** on RoboCasa365, and **58.4%** on RoboTwin C2R.
 
-.. figure:: https://github.com/RLinf/misc/raw/main/pic/harnessvla_scheme.png
+.. figure:: https://raw.githubusercontent.com/RLinf/misc/main/pic/harnessvla_scheme.png
    :alt: Overview of the Harness VLA framework
    :align: center
    :width: 100%

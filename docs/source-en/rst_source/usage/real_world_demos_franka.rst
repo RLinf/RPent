@@ -1,31 +1,29 @@
-Dual-arm Franka
+Dual-Arm Franka
 ===============
 
-The videos below show a dual-arm Franka adapting to a changed goal and reusing existing skills.
+Watch task execution on dual-arm Franka. For installation, calibration, motion checks, and operation, see :doc:`Dual-Arm Franka Deployment <dual_franka>`.
 
 .. raw:: html
 
-   <div style="display: flex; flex-direction: column; gap: 2rem; margin: 1.5rem 0;">
-     <article style="border: 1px solid var(--color-foreground-border); border-radius: 0.6rem; overflow: hidden;">
-       <video controls playsinline preload="metadata" poster="https://raw.githubusercontent.com/RLinf/misc/c6f629129ac1a889d764dcd93defc213a4c31ae5/rpent/demo/real-world-demo01-poster.jpg" style="width: 100%; height: auto; display: block;">
+   <div class="rpent-demo-list">
+     <article class="rpent-demo">
+       <video controls playsinline preload="metadata" aria-label="Sorting Dishes After a Goal Change" poster="https://raw.githubusercontent.com/RLinf/misc/c6f629129ac1a889d764dcd93defc213a4c31ae5/rpent/demo/real-world-demo01-poster.jpg">
          <source src="https://raw.githubusercontent.com/RLinf/misc/c6f629129ac1a889d764dcd93defc213a4c31ae5/rpent/demo/real-world-demo01.mp4" type="video/mp4">
-         Your browser does not support embedded video. <a href="https://raw.githubusercontent.com/RLinf/misc/c6f629129ac1a889d764dcd93defc213a4c31ae5/rpent/demo/real-world-demo01.mp4">Download the video</a>.
+         <a href="https://raw.githubusercontent.com/RLinf/misc/c6f629129ac1a889d764dcd93defc213a4c31ae5/rpent/demo/real-world-demo01.mp4">Download the video</a>
        </video>
-       <div style="padding: 1rem 1.25rem;">
-         <h3 style="font-size: 1.15rem;">When the goal changes, the plate finds a new home</h3>
-         <p>When the task changes to putting clean dishes in the cardboard box, a frozen VLA may replay its learned route and place the same blue plate in the metal basket. RPent first observes the current scene, selects the new destination, checks the result, and re-localizes the plate when visual positioning drifts: when the task changes, the robot changes its action.</p>
+       <div class="rpent-demo-caption">
+         <h2>Sorting Dishes After a Goal Change</h2>
+         <p>The task asks the robot to put dishes in a cardboard box. RPent observes the scene, locates the plate and destination, and adjusts subsequent actions using the execution results.</p>
        </div>
      </article>
-     <article style="border: 1px solid var(--color-foreground-border); border-radius: 0.6rem; overflow: hidden;">
-       <video controls playsinline preload="metadata" poster="https://raw.githubusercontent.com/RLinf/misc/c6f629129ac1a889d764dcd93defc213a4c31ae5/rpent/demo/real-world-demo03-poster.jpg" style="width: 100%; height: auto; display: block;">
+     <article class="rpent-demo">
+       <video controls playsinline preload="metadata" aria-label="Pouring, Wiping, and Storage" poster="https://raw.githubusercontent.com/RLinf/misc/c6f629129ac1a889d764dcd93defc213a4c31ae5/rpent/demo/real-world-demo03-poster.jpg">
          <source src="https://raw.githubusercontent.com/RLinf/misc/c6f629129ac1a889d764dcd93defc213a4c31ae5/rpent/demo/real-world-demo03.mp4" type="video/mp4">
-         Your browser does not support embedded video. <a href="https://raw.githubusercontent.com/RLinf/misc/c6f629129ac1a889d764dcd93defc213a4c31ae5/rpent/demo/real-world-demo03.mp4">Download the video</a>.
+         <a href="https://raw.githubusercontent.com/RLinf/misc/c6f629129ac1a889d764dcd93defc213a4c31ae5/rpent/demo/real-world-demo03.mp4">Download the video</a>
        </video>
-       <div style="padding: 1rem 1.25rem;">
-         <h3 style="font-size: 1.15rem;">From placing to pouring: reuse the skill</h3>
-         <p>The tasks in this video further show how RPent reuses existing capabilities. A skill originally used to pick up and place a container can be recombined for pouring steel beads; grasping can also be combined with dual-arm coordination and sustained contact for plate wiping and storage.</p>
-         <p>After exploration succeeds, RPent stores the verified task logic as a Task Card. Flash Mode can replay the card on a later run, making only the visual adjustments that the current scene requires instead of calling the large model for every step, which reduces execution latency.</p>
-         <p>These videos are not about teaching a robot a few more motions. They ask whether a robot entering the open world can reorganize existing skills as new tasks, objects, and obstacles appear outside the training distribution. RPent moves the robot from executing a fixed instruction toward understanding the goal, calling the right capability, adapting to change, and turning one success into reusable experience.</p>
+       <div class="rpent-demo-caption">
+         <h2>Pouring, Wiping, and Storage</h2>
+         <p>RPent combines grasping, placing, and dual-arm coordination to pour steel beads, wipe a plate, and put objects away. The video shows tool composition and execution across these tasks.</p>
        </div>
      </article>
    </div>

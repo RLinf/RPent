@@ -1,12 +1,18 @@
-Simulation
-==========
+:orphan:
 
-Choose a simulation environment for setup and usage instructions.
+Simulators
+============
 
-.. toctree::
-   :maxdepth: 1
-   :titlesonly:
+Choose a platform for installation and usage instructions.
 
-   LIBERO <libero>
-   RoboCasa <robocasa>
-   RoboTwin <robotwin>
+.. list-table::
+   :header-rows: 1
+
+   * - Platform
+     - Contents
+   * - :doc:`libero`
+     - Tabletop manipulation with LIBERO, LIBERO-PRO, and LIBERO-plus.
+   * - :doc:`robocasa`
+     - Kitchen manipulation with RoboCasa365 and Target50 experiments.
+   * - :doc:`robotwin`
+     - Bimanual manipulation and RoboTwin C2R experiments.
