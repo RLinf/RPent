@@ -1,6 +1,14 @@
-# Codex Target50 Results
+# Historical Codex Target50 reproduction record
 
-This page reports the task-level aggregate results for the 340-cell RoboCasa
+This archive preserves the original task-level counts and their calculated
+57.00% overall result. The current public GPT-5.5 reference is **57.1% overall**,
+with **92.0% Atomic**, **61.0% Composite-Seen**, and **13.8% Composite-Unseen**;
+see the [RoboCasa guide](../../../docs/source-en/rst_source/usage/robocasa.rst)
+and [leaderboard](../../../docs/source-en/rst_source/leaderboard/performance.rst).
+The archived counts below do not establish those current leaderboard values
+or results under the v2 task-specific and global memory protocol.
+
+This page records the task-level aggregate results for the 340-cell RoboCasa
 Target50 evaluation defined by [`target50.json`](target50.json). The reference
 planner profile is Codex SDK with `gpt-5.5`, `xhigh` reasoning effort, and
 `max_turns=100`. Success is determined only by the environment's

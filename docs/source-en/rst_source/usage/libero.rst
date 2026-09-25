@@ -109,7 +109,7 @@ RPent supports two LIBERO run modes:
 
 - **Exploration** uses multiple resettable attempts and independent planner
   sessions to discover successful strategies and distil them into a local
-  global/suite/task_only memory corpus. It is a memory-generation workflow, not the
+  global/task-family/task-specific memory corpus. It is a memory-generation workflow, not the
   benchmark success-rate measurement.
 - **Evaluation** is the default, single-attempt mode. It does not reset the
   episode or update memory. Local-memory evaluation consumes the validated

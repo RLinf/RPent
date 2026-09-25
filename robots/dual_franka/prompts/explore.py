@@ -50,7 +50,7 @@ RULES = (
     "Use in-place recovery only when safe. Never force a restart after operator abort.",
 )
 
-MEMORY = """READ in order: the task's suite entry under {{memory_dir}}/suite/,
+MEMORY = """READ in order: the task's task-family entry under {{memory_dir}}/task-family/,
 then {{memory_dir}}/MEMORY.md and relevant {{memory_dir}}/global/ leaves.
 Read prior {{output_dir}}/attempts/ archives and {{memory_inbox}}/wip/ notes.
 Record which memories applied and which did not; no matching entry is acceptable.
@@ -68,20 +68,20 @@ what failed. Never overwrite a previous archive. Write working observations to
 {{memory_inbox}}/wip/notes.md with session/attempt headings. Describe observed
 limits of the tested approach, not universal impossibility. Keep unknown causes
 explicit. If unsolved or aborted, leave only working notes and an unsolved audit;
-do not create final suite/global drafts or claim a winning recipe.
+do not create final task-family/global drafts or claim a winning recipe.
 
 ONLY AFTER OPERATOR-CONFIRMED SUCCESS, re-read all working notes and distill:
 
-1. task_only: write {{output_dir}}/{{recipe_tag}}.json with the actual winning
+1. task-specific: write {{output_dir}}/{{recipe_tag}}.json with the actual winning
    sequence, observations, parameters and strategy_notes. The runner exports
    {{recipe_tag}}_recipe.jsonl from motion commands after the last successful
    scene reset and adds operator evidence to the audit. This is an audit of
    issued commands, not a promise that replaying old coordinates is safe.
-2. suite: one task-specific draft at
-   {{memory_inbox}}/suite_{{recipe_tag}}_draft.md. Use YAML frontmatter:
+2. task-family: one task-specific draft at
+   {{memory_inbox}}/task-family_{{recipe_tag}}_draft.md. Use YAML frontmatter:
    ---
-   id: suite_dual_franka_real_t{{task_id}}
-   scope: suite
+   id: task-family_dual_franka_real_t{{task_id}}
+   scope: task-family
    suite: dual_franka
    regime: real
    task_id: {{task_id}}
@@ -106,7 +106,7 @@ ONLY AFTER OPERATOR-CONFIRMED SUCCESS, re-read all working notes and distill:
    conflict_<id>.md draft, with the old claim and new evidence.
 
 WRITE memory only under {{memory_inbox}}/. Never directly edit the published
-suite/, global/, task_only/ or MEMORY.md. The existing memory merge/validation/
+task-family/, global/, task-specific/ or MEMORY.md. The existing memory merge/validation/
 index workflow publishes drafts; auto-merge is opt-in and only runs on success.
 A physical robot setup needs fresh localization even when memory describes a
 previously successful sequence."""

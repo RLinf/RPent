@@ -32,7 +32,7 @@ def test_memory_cli_merge_forwards_paths_and_prints_json(
     memory_dir = tmp_path / "memory"
     output_dir = tmp_path / "run"
     captured: dict[str, object] = {}
-    result = {"suite": 1, "skipped": [], "message": "已合并"}
+    result = {"task-family": 1, "skipped": [], "message": "已合并"}
 
     def fake_merge_memory(
         *, cell_tag: str, run_state_dir: Path, solved: bool
@@ -134,7 +134,7 @@ def test_memory_cli_validate_prints_problems_and_fails(
     memory_dir = tmp_path / "memory"
     problems = [
         "global/broken.md: unterminated YAML frontmatter",
-        "suite/wrong.md: id does not match filename",
+        "task-family/wrong.md: id does not match filename",
     ]
     monkeypatch.setattr(
         memory_cli,
