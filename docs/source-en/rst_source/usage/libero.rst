@@ -285,12 +285,17 @@ The :doc:`GPT-6 Astra suite results <../leaderboard>`
 cover all eight complete suites and 800 verified episodes: 741 successes,
 59 failures, and 92.63% Overall, with Codex / GPT-6 Astra / low / reasoning.
 
-The following historical reproduction records use the `reproduce/libero
+The Long results use the `reproduce/libero
 <https://github.com/RLinf/RPent/tree/reproduce/libero>`_ branch with
 ``gpt-5.5`` and ``xhigh`` reasoning effort:
 
 - ``libero_10_task``: 70% (70/100)
 - ``libero_10_swap``: 55% (55/100)
+
+Together with the six unchanged Spatial/Object/Goal scores (81%, 69%, 94%,
+91%, 75%, and 66%), these Long results give **75.13% Overall** across the eight
+suites. The :doc:`Leaderboard <../leaderboard/performance>` uses this updated
+aggregate, combining the six paper results with the two Long reproduction results.
 
 Reproduction command:
 
