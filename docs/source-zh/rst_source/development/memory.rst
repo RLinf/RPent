@@ -54,7 +54,8 @@ Exploration 和本地 memory Evaluation 的详细流程见
      - 仅供当前任务参考
 
 使用记忆时，其适用前提和证据范围应与当前任务匹配。``MEMORY.md`` 是可选的
-global 与 task-family 索引，不是额外的记忆层。RoboCasa 直接读取其单份 global 文件。
+global 与 task-family 索引，不是额外的记忆层。RoboCasa 的 HF 发布语料使用
+``global/GLOBAL_MEMORY.md``，本地语料则可提供多份 ``global/*.md`` 文件。
 
 评测时，规划器只能读取当前机器人的 memory。各机器人的具体要求仍然适用：
 RoboCasa 始终同时提供 task-specific 与 global memory，并要求 global 文件存在；

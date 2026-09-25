@@ -59,7 +59,8 @@ Each robot provides the memory layers it uses:
 
 Apply a note only when its prerequisites and evidence limits match the current
 task. ``MEMORY.md`` is an optional index for global and task-family notes;
-it is not another memory layer. RoboCasa reads its single global file directly.
+it is not another memory layer. RoboCasa's published HF corpus uses
+``global/GLOBAL_MEMORY.md``; a local corpus may provide multiple ``global/*.md`` files.
 
 During evaluation the planner may read only the current robot's memory.
 Robot-specific requirements still apply: RoboCasa always provides task-specific
