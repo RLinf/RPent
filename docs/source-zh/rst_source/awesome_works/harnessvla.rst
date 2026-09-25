@@ -23,15 +23,9 @@ Planner 将其与一组规模较小且固定的 Analytic Primitives 组合。Pla
 整个过程中，VLA 权重始终保持冻结。
 
 Harness VLA 是 RPent 的首篇论文。在部署阶段不更新 VLA、也不扩展 Action Primitive
-library 的条件下，它在 LIBERO-PRO、RoboCasa365 和 RoboTwin C2R 上分别取得 **82.4%**、
-**55.4%** 和 **58.4%** 的成功率。
-
-.. figure:: https://github.com/RLinf/misc/raw/main/pic/harnessvla_scheme.png
-   :alt: Harness VLA 框架概览
-   :align: center
-   :width: 100%
-
-   Harness VLA 框架概览
+library 的条件下，它使用 Opus-4.7 在 LIBERO-PRO 上取得 **82.4%**，
+使用 GPT-5.5 在 RoboCasa365 上取得 **57.1%**，使用 Opus-4.7 在 RoboTwin C2R
+上取得 **58.4%** 的成功率。
 
 框架
 ----
@@ -66,7 +60,8 @@ Global Memory 中。部署时，Agentic Planner 将这些记忆与实时观测�
 --------
 
 Harness VLA 的评估覆盖标准和扰动后的桌面操作、家庭厨房长时序任务，以及 RoboTwin
-C2R 双臂操作。代表性成功率如下。
+C2R 双臂操作。代表性论文结果如下；当前模型对比与更新的复现结果见
+:doc:`排行榜 <../leaderboard/performance>`。
 
 .. list-table:: Harness VLA 代表性实验结果
    :header-rows: 1
@@ -77,22 +72,23 @@ C2R 双臂操作。代表性成功率如下。
      - 报告的成功率
    * - LIBERO
      - 标准任务套件
-     - Harness VLA：**96.0%**；π\ :sub:`RLinf`：95.3%
+     - Harness VLA / Opus-4.7：**96.0%**；π\ :sub:`RLinf`：95.3%
    * - LIBERO-PRO
      - 扰动后的桌面操作
-     - Harness VLA：**82.4%**；π\ :sub:`RLinf`：50.0%；RATS：43.8%；Cap-X：18.2%
+     - Harness VLA / Opus-4.7：**82.4%**；π\ :sub:`RLinf`：50.0%
    * - RoboCasa365
      - 家庭厨房操作
-     - Harness VLA：**55.4%**；RLDX-1：30.0%
+     - Harness VLA / GPT-5.5：**57.1%**；RLDX-1：30.0%
    * - RoboTwin C2R
      - 双臂操作（Clean to Random）
-     - Harness VLA：**58.4%**；LingBot-VLA：50.4%
+     - Harness VLA / Opus-4.7：**58.4%**；LingBot-VLA：50.4%
 
-Harness VLA 在标准 LIBERO 上取得 96.0% 的成功率，与 π\ :sub:`RLinf` 的
-95.3% 相当；在更具挑战性的 LIBERO-PRO 上，Harness VLA 达到 82.4%，超过
-π\ :sub:`RLinf` 的 50.0%、RATS 的 43.8% 和 Cap-X 的 18.2%。在 RoboCasa365 上，
-Harness VLA 将任务加权总体成功率从 RLDX-1 的 30.0% 提升至 55.4%。在 RoboTwin
-C2R 上，Harness VLA 达到 58.4%，超过 LingBot-VLA 的 50.4%。这些提升来自三种相互配合的机制：
+Harness VLA / Opus-4.7 在标准 LIBERO 上取得 96.0% 的成功率，与 π\ :sub:`RLinf` 的
+95.3% 相当；在 LIBERO-PRO 上达到 82.4%，超过 π\ :sub:`RLinf` 的 50.0%。
+Cap-X 和 RATS 仅报告六项评测，其有效分项成绩在排行榜的完整结果表中单独列出。
+在 RoboCasa365 上，Harness VLA / GPT-5.5 将任务加权总体成功率从 RLDX-1 的
+30.0% 提升至 57.1%。在 RoboTwin C2R 上，Harness VLA / Opus-4.7 达到 58.4%，
+超过 LingBot-VLA 的 50.4%。这些提升来自三种相互配合的机制：
 Planner 完成语义重新定位，在重新预置位后对 VLA 进行稀疏且有针对性的重试，以及使用
 Analytic Primitives 隔离非接触执行。
 
