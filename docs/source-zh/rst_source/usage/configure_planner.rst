@@ -44,35 +44,21 @@ SDK。
 设置 planner 的运行限制
 -----------------------
 
-``--max-turns`` 是 ``api``、``claude_code`` 和 ``codex`` 共用的 CLI 参数，默认
-``100``。各后端对一轮的定义和上限的执行方式不同，报告的 ``turns_used``
-与执行预算时使用的计数不一定相同：
+``--max-turns N`` 设置规划轮数上限，默认 ``100``。
+一轮不是一次机器人动作：模型的一次回复可以要求调用多个工具。
 
-.. list-table:: 各后端的轮数统计与限制
-   :header-rows: 1
-   :widths: 15 40 45
+- **API / Codex：** 模型每回复一次算一轮。只有推理或工具调用、没有文字的
+  回复也计数；同一次回复中的多个工具调用不会分别计数。RPent 负责执行这个上限。
+- **Claude Code：** 一轮是“模型请求工具 → 工具执行 → 结果返回模型”。
+  最后不调用工具的文字答复不占用这一预算。RPent 把上限交给 Claude Code
+  执行，达到上限时返回 ``error_max_turns``。
 
-   * - Planner
-     - 报告的 ``turns_used``
-     - 预算限制方式
-   * - ``api``
-     - RPent 循环中收到的每次模型响应。
-     - RPent 处理完该响应的工具调用后，用这一计数检查预算。
-   * - ``claude_code``
-     - 按消息 ID 去重的顶层 assistant 响应，包括最后一次纯文本响应。
-       这一计数只用于报告，不触发中断。
-     - RPent 设置 ``ClaudeAgentOptions.max_turns``，SDK 将它作为
-       ``--max-turns`` 传给 Claude Code CLI。Claude 限制每次 query 的
-       工具调用往返次数，达到上限时返回 ``error_max_turns``。
-   * - ``codex``
-     - 根据 SDK 累计 usage 更新统计已完成的模型响应。只有推理或工具调用
-       的响应也计数；同一次响应的多个条目只计一次，重复 usage 通知不重复计数。
-     - CLI 和 Dashboard 使用这一计数，在达到上限时只请求一次中断，
-       并保留已记录的 ``finish``。
+例如，模型先在一次回复中要求读取两个文件，拿到结果后再给出文字总结：
+API/Codex 计两轮，Claude 的工具轮数为一轮。RPent 的 ``turns_used``
+记录模型回复数，因此这个例子即使用 Claude，也会报告两次回复。
 
-在 Claude 交互会话中，每次 query 都会获得新的 SDK 轮数预算，而 RPent 的
-``turns_used`` 在多次 query 之间累计。最后一次纯文本响应会计入 RPent 的报告，
-但不计入 Claude 的工具调用预算。详见 `Claude 的轮数限制说明
+Claude 交互模式下，每次新增用户输入都会获得新的轮数预算，``turns_used``
+则继续累计。详见 `Claude 的轮数限制说明
 <https://code.claude.com/docs/en/agent-sdk/agent-loop#turns-and-budget>`_。
 
 ``flash`` 直接重放计划，不运行 LLM 循环，因此不使用这一预算，报告的
