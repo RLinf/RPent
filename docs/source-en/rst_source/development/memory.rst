@@ -173,9 +173,9 @@ revisions and source hashes describe the original snapshots and remain separate
 from published hashes after directory, index and reference changes.
 
 Both version roots use ``MEMORY.md``, ``global/``, ``task-family/`` and
-``task-specific/``. GPT-5.5 additionally includes its ``task_card/`` replay
-assets. Flash reads generated ``flash/`` plans or published ``task_card/``
-assets within the selected corpus. Astra has no replay assets; selecting it
+``task-specific/``. GPT-5.5 additionally includes 78 plan/anchor pairs in
+``flash/``, copied unchanged from the merged Flash release. Flash reads that
+directory within the selected corpus. Astra has no replay assets; selecting it
 for Flash reports an error.
 
 The Astra release merges Long and Spatial/Object/Goal exploration memory,

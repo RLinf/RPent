@@ -156,8 +156,9 @@ CLI 和 Dashboard 都在每个任务开始前解析 memory 根目录。在 Dashb
 调整后，发布哈希另行更新，不改写原始来源哈希。
 
 两个版本根目录都使用 ``MEMORY.md``、``global/``、``task-family/`` 和 ``task-specific/``。
-GPT-5.5 还包含 ``task_card/`` 重放资产。Flash 在所选版本内读取生成的 ``flash/`` 计划或
-发布的 ``task_card/`` 资产。Astra 没有重放资产，显式选用它执行 Flash 时会报错。
+GPT-5.5 还在 ``flash/`` 中包含 78 对 plan/anchor 文件，正文与已合入的 Flash 发布版本
+一致。Flash 从所选版本的这个目录读取计划。Astra 没有重放资产，显式选用它执行
+Flash 时会报错。
 
 Astra 发布版合并了 Long 与 Spatial/Object/Goal 两批探索 memory；三个重名但内容不同的
 global 文件分别加来源后缀并保留两份。79 对任务 audit/recipe 保持原始内容，Long Swap task 6
