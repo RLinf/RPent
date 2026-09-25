@@ -250,17 +250,6 @@ class Toolkit:
             raise RuntimeError("toolkit has no environment state")
         return self._state
 
-    def prepend_task_language(self, user_message: str) -> str:
-        """Prepend the latest recorded task language when available."""
-        record = self._state.latest_record() if self._state is not None else None
-        task_language = record.extras.get("task_language") if record else None
-        if not task_language:
-            return user_message
-        return (
-            f"Current environment task (task_language):\n{task_language}\n\n"
-            f"{user_message}"
-        )
-
     def get_tools_spec(self) -> list[dict[str, Any]]:
         """Return the tool schemas the LLM sees."""
         return substitute([spec for spec, _ in self._tools.values()])

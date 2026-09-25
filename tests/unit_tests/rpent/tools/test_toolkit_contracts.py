@@ -88,28 +88,6 @@ class _ContractToolkit(Toolkit):
         return False
 
 
-def test_initial_message_uses_current_record_without_capturing_state(
-    tmp_path: Path,
-) -> None:
-    toolkit = _ContractToolkit(tmp_path)
-    message = "Complete the task and consult relevant memory."
-    assert toolkit.prepend_task_language(message) == message
-    with toolkit.state.record_step(state={}, extras={}):
-        pass
-    assert toolkit.prepend_task_language(message) == message
-    for language in ("Put the salad dressing in the basket.", "Open the drawer."):
-        with toolkit.state.record_step(state={}, extras={"task_language": language}):
-            pass
-        step = toolkit.state.latest_step
-        prepared = toolkit.prepend_task_language(message)
-        assert (
-            prepared
-            == f"Current environment task (task_language):\n{language}\n\n{message}"
-        )
-        assert toolkit.state.latest_step == step
-    assert toolkit.capture_calls == []
-
-
 def test_tool_result_builds_text_and_images_without_mutating_result() -> None:
     image_payloads = {
         "_image_bytes": b"main",

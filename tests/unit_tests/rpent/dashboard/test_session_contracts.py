@@ -24,8 +24,6 @@ from rpent.dashboard.session import DashboardSessionController
 from rpent.dashboard.state import ClaimedTask
 from rpent.planner.base import PlannerResult
 from rpent.robots import PromptBundle, RunConfig
-from rpent.session import EnvState
-from rpent.tools.toolkit import Toolkit
 
 
 class ScriptedState:
@@ -187,8 +185,6 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
 
     merge_calls: list[dict[str, Any]] = []
     solved_calls = []
-    messages = []
-    task_languages = []
 
     class FakeMemoryManager:
         def merge_memory(self, **kwargs: Any) -> dict[str, int]:
@@ -197,15 +193,8 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
                 raise RuntimeError("merge exploded")
             return {"suite": 1}
 
-    class FakeToolkit(Toolkit):
+    class FakeToolkit:
         memory = FakeMemoryManager()
-
-        def __init__(self) -> None:
-            language = f"Current task for session {len(task_languages) + 1}."
-            task_languages.append(language)
-            self._state = EnvState(tmp_path / f"state-{len(task_languages)}")
-            with self._state.record_step(state={}, extras={"task_language": language}):
-                pass
 
         def solved(self) -> bool:
             solved_calls.append(True)
@@ -243,7 +232,7 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
 
     class FakePlanner:
         def solve(self, **kwargs: Any) -> PlannerResult:
-            messages.append(kwargs["user_message"])
+            del kwargs
             return PlannerResult(
                 finish_result={"status": "success"},
                 messages=[],
@@ -308,17 +297,6 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
     )
 
     assert error is None
-    assert len(messages) == sessions
-    for message, language in zip(messages, task_languages):
-        assert message.startswith(
-            f"Current environment task (task_language):\n{language}\n\n"
-        )
-        assert all(
-            other not in message for other in task_languages if other != language
-        )
-    assert messages[0].endswith("user\n")
-    if sessions > 1:
-        assert "agent 2 of up to 2" in messages[1]
     assert state.toolkit_lifecycle == ["bound", "unbound"] * sessions
     assert merge_calls == [
         {

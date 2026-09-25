@@ -443,8 +443,8 @@ memory/libero/
 └── task_only/                 <- seed-0 reference recipes, all suites
 ```
 
-Before you start, **read the auto-memory**: `memory/libero/MEMORY.md`
-(one-line hooks, auto-injected via CLAUDE.md). For perception PRO cells always
+After inspecting the initial `task_language` and images, **read the auto-memory**:
+`memory/libero/MEMORY.md`. For perception PRO cells always
 open `memory/libero/global/feedback_no_teleport_rule.md` and — for any `_swap` cell —
 `memory/libero/global/feedback_swap_perturbs_fixtures.md` (what swaps, and why you re-find the
 relocated fixture visually). For bowl→plate spatial tasks also read
@@ -481,18 +481,18 @@ LIBERO_TYPE=pro python -c \
   "import liberopro.liberopro.benchmark as b; print(b.get_benchmark('libero_spatial_task')().get_task(0).language)"
 # -> must read 'Pick the akita black bowl not between ...' (the perturbed text)
 
-# 2. Read the auto-memory: memory/libero/MEMORY.md
-
-# 3. Launch a perception cell (runner owns env_server; single-attempt)
+# 2. Launch a perception cell (runner owns env_server; single-attempt)
 python rpent/cli/main.py --robot libero --suite libero_spatial_swap --task <N> --seed 0 \
     --libero-type pro --planner claude_code --model claude-opus-4-8
 ```
 
 Then, inside the run:
 
-4. `view_env_state({"step": 0})` → read `state.robot0_eef_pos[2]` to pick the
-  frame (§3.1). Inspect `agentview_high.png` and call
-   `view_camera_meta`. Localize the target (and, for `_swap`, the relocated
+3. `view_env_state({"step": 0})` → read `task_language` and
+   `state.robot0_eef_pos[2]` to pick the frame (§3.1). Inspect
+   `agentview_high.png` and call `view_camera_meta`.
+4. Read `memory/libero/MEMORY.md` and the memories and seed-0 references that
+   match the current task. Localize the target (and, for `_swap`, the relocated
    object/fixture) with `back_project` — run the mandatory pre-task perception pass
    (§3.6c). Plan, then execute one structured tool at a time.
 5. `write_text_file` the audit to `{output_dir}/{recipe_tag}.json`
