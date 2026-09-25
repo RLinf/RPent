@@ -12,7 +12,8 @@ RPent 的 memory 按机器人维护，用于复用已验证的任务经验和操
 两种运行模式对 memory 的使用方式不同：
 
 - **Evaluation** 读取已有 memory，但不会更新 memory。
-- **Exploration** 用于生成和更新本地 memory，目前仅 LIBERO 支持。
+- **Exploration** 用于生成和更新本地 memory，LIBERO、RoboCasa 和 RoboTwin 均支持；
+  具体探索流程见对应机器人指南。
 
 Exploration 和本地 memory Evaluation 的详细流程见
 :ref:`LIBERO 探索文档 <libero-exploration>`。
@@ -27,8 +28,8 @@ Exploration 和本地 memory Evaluation 的详细流程见
    <memory-root>/
    |-- MEMORY.md
    |-- global/
-   |-- suite/
-   `-- task_only/
+   |-- task-family/
+   `-- task-specific/
        |-- <cell>.json
        |-- <cell>_recipe.jsonl
        `-- <task_key>.md
@@ -36,15 +37,15 @@ Exploration 和本地 memory Evaluation 的详细流程见
 默认本地目录为 ``memory/<robot>/``。Hugging Face 中 LIBERO 按模型版本分目录，
 详见下文；其他机器人仍使用 ``<robot>/``。自定义 ``--memory-dir`` 可指向任意采用上述结构的目录。
 
-各目录均按需存在，机器人只需提供实际使用的目录：
+机器人提供实际使用的层级，必需文件由对应机器人的启动检查确定：
 
-- ``global/`` 保存从成功经验中提炼的跨任务通用经验。
-- ``suite/`` 保存探索过程中按 suite 组织的任务级经验，可汇总多次尝试，
-  并在同一任务的不同 seed 间复用。
-- ``task_only/`` 保存成功运行产生的 audit、recipe 等同一任务参考文件。
-- ``MEMORY.md`` 用于索引 ``global/`` 和 ``suite/``。
+- ``global/`` 保存跨任务通用规律与失败模式，可在所有任务间复用。
+- ``task-family/`` 保存特定任务族中验证过的策略与注意事项，供同类任务及其变体复用。
+- ``task-specific/`` 保存单次任务的执行记录和操作流程，包括 audit 与 recipe，仅供当前任务参考。
+- ``MEMORY.md`` 用于索引 ``global/`` 和 ``task-family/``。
 
-评测时，规划器只能读取当前机器人的 memory；缺少某一类 memory 不会阻止任务运行。
+评测时，规划器只能读取当前机器人的 memory。例如，RoboCasa 要求 global 层存在，
+但允许当前任务没有 task-specific 层。
 
 使用 memory
 -----------
@@ -87,18 +88,20 @@ CLI 和 Dashboard 都在每个任务开始前解析 memory 根目录。在 Dashb
 和 memory。显式指定的 memory 版本不会随模型切换而改变。
 
 仅下载所选版本。LIBERO 缓存位于 ``memory/libero/.versions/``，按仓库、提交和版本隔离，
-每次复用前校验所有文件。``HF_HUB_OFFLINE=1`` 要求所选版本及 revision 已有完整、未改动的缓存。
+每次复用前校验文件集合完全一致及每份文件的哈希。额外文件会使缓存失效，固定 revision
+时也不例外；联网同步会重建无效缓存。``HF_HUB_OFFLINE=1`` 要求所选版本及 revision
+已有完整、未改动的缓存。
 下载失败不会改用另一模型的 memory；缓存缺失或不完整会明确报错。
 旧缓存记录未标明版本来源时，需要联网成功刷新一次；不复用旧的无版本缓存。
-其他机器人保持原有的可选 memory 同步行为。
+其他机器人保持原有的 memory 同步行为。
 
 独立下载与本地评测
 ~~~~~~~~~~~~~~~~~~
 
 .. code-block:: bash
 
-   rpent-memory sync --robot libero --memory-version GPT_6_astra_low
-   rpent-memory sync --robot libero --model gpt-6-astra \
+   python -m robots.libero.memory sync --memory-version GPT_6_astra_low
+   python -m robots.libero.memory sync --model gpt-6-astra \
      --revision <release-commit> --output-dir /path/to/new-astra-memory
    rpent --robot libero --suite libero_goal_swap --task 1 --seed 1 \
      --planner codex --model gpt-6-astra --reasoning-effort low \
@@ -109,6 +112,9 @@ CLI 和 Dashboard 都在每个任务开始前解析 memory 根目录。在 Dashb
 ``CODEX_MODEL``，需指定 ``--planner codex``。
 ``--memory-profile local`` 不下载 memory；本地模式或 ``--explore`` 与显式远程
 ``--memory-version`` 同时使用会报参数冲突。探索使用本地 memory，每次独立探索应指定单独的空目录。
+
+分版本下载使用 LIBERO 专用命令；共享的 ``rpent-memory`` 继续提供 ``merge``、
+``validate`` 和 ``build-index`` 三个命令。
 
 发布来源与兼容性
 ~~~~~~~~~~~~~~~~
@@ -130,7 +136,11 @@ global 文件分别加来源后缀并保留两份。79 对任务 audit/recipe �
 ``libero-astra-spatial-object-goal-frozen-20260917``。
 
 当前加载器要求 Hub 数据按模型分版本存放，不转换旧布局，也不回退到旧的无版本语料。
-代码与数据需要配套更新。历史复现使用匹配的历史客户端与数据 revision；迁移前数据
+代码与数据需要配套更新。当前目录名需搭配
+`RPent #190 <https://github.com/RLinf/RPent/pull/190>`_ 的共享 memory 命名更新，以及
+`对应数据更新 <https://huggingface.co/datasets/RLinf/RPent-memory/discussions/13>`_。
+数据集 ``main`` 持续更新，``reproduce/memory`` 保留历史内容和布局，供匹配的机器人历史
+复现分支使用。历史复现使用匹配的历史客户端与数据 revision；迁移前数据
 归档为 ``libero-gpt5.5-xhigh-before-versions-20260917``：
 
 .. code-block:: bash

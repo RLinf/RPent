@@ -18,19 +18,22 @@ import hashlib
 import json
 import sys
 from argparse import Namespace
+from dataclasses import replace
 from types import SimpleNamespace
 
 import huggingface_hub
 import pytest
 
-from rpent.memory import loading
-from rpent.memory.versions import (
+from robots.libero import memory as memory_cli
+from robots.libero.memory import (
     ASTRA,
     GPT5,
     replay_directory,
     select_version,
     sync_version,
 )
+from robots.libero.robot_spec import get_robot_spec
+from rpent.memory import loading
 
 
 @pytest.mark.parametrize(
@@ -156,6 +159,57 @@ def test_pinned_revisions_and_repositories_never_share_fallback(hub, tmp_path):
         )
 
 
+def test_pinned_cache_extra_global_is_rejected_offline_and_rebuilt_online(
+    hub, tmp_path, monkeypatch
+):
+    options = {"version": ASTRA, "revision": hub.sha, "cache_dir": tmp_path / "cache"}
+    root = sync_version(**options)
+    extra = root / "global" / "unlisted.md"
+    extra.write_text("This is not part of the requested revision.")
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+    with pytest.raises(RuntimeError, match="no complete cache"):
+        sync_version(**options)
+    monkeypatch.delenv("HF_HUB_OFFLINE")
+    assert sync_version(**options) == root
+    assert not extra.exists()
+    assert len(hub.calls) == 2
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+    assert sync_version(**options) == root
+
+
+@pytest.mark.parametrize("dashboard", [False, True])
+def test_local_version_conflict_fails_before_services(dashboard, monkeypatch, capsys):
+    from rpent.cli import dashboard as dashboard_cli
+    from rpent.cli import main as run_cli
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("Invalid memory options must not start services")
+
+    monkeypatch.setattr(dashboard_cli, "run_dashboard_session", unexpected)
+    monkeypatch.setattr(run_cli, "build_planner", unexpected)
+    options = (
+        ["--dashboard"] if dashboard else ["--suite", "libero_object", "--task", "0"]
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "rpent",
+            "--robot",
+            "libero",
+            "--memory-profile",
+            "local",
+            "--memory-version",
+            ASTRA,
+            *options,
+        ],
+    )
+    with pytest.raises(SystemExit) as exc:
+        run_cli.main()
+    assert exc.value.code == 2
+    assert "--memory-version requires --memory-profile hf" in capsys.readouterr().err
+
+
 def test_download_failure_cannot_leave_a_complete_cache(hub, tmp_path):
     hub.download_fail = True
     with pytest.raises(ConnectionError):
@@ -207,7 +261,7 @@ def test_output_copy_and_versions_do_not_overwrite_each_other(hub, tmp_path):
 def test_local_explore_conflicts_and_replay(tmp_path, monkeypatch):
     for profile, explore in [("local", False), ("local", True), ("hf", True)]:
         with pytest.raises(ValueError, match="requires"):
-            loading.validate_memory_options(
+            memory_cli.validate_options(
                 Namespace(memory_version=ASTRA, memory_profile=profile, explore=explore)
             )
     with pytest.raises(ValueError, match="no Flash"):
@@ -225,7 +279,7 @@ def test_task_model_changes_resolve_root_again_without_changing_effort(
     from rpent.cli import main as run_cli
     from rpent.dashboard.events import NullDashboardEventSink
 
-    monkeypatch.setattr(loading, "get_memory_dir", lambda _: tmp_path / "cache")
+    monkeypatch.setattr(memory_cli, "get_memory_dir", lambda _: tmp_path / "cache")
     monkeypatch.setattr(toolkit, "LiberoToolkit", lambda **kw: SimpleNamespace(**kw))
     spec = robot_spec.get_robot_spec()
     parser = run_cli._build_argparser()
@@ -282,11 +336,106 @@ def test_task_model_changes_resolve_root_again_without_changing_effort(
     assert len(hub.calls) == downloaded
 
 
+def test_cli_selects_root_before_planner_or_services(hub, tmp_path, monkeypatch):
+    from rpent.cli import main as run_cli
+
+    monkeypatch.setattr(memory_cli, "get_memory_dir", lambda _: tmp_path / "cache")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "rpent",
+            "--robot",
+            "libero",
+            "--suite",
+            "libero_object_task",
+            "--task",
+            "0",
+            "--planner",
+            "codex",
+            "--model",
+            "gpt-6-astra",
+            "--output-dir",
+            str(tmp_path / "run"),
+        ],
+    )
+
+    def build_planner(*args, **kwargs):
+        root = kwargs["memory_dir"]
+        assert root.name == ASTRA
+        assert (root / "MEMORY.md").read_text() == ASTRA
+        raise RuntimeError("selected corpus reached planner before services")
+
+    monkeypatch.setattr(run_cli, "build_planner", build_planner)
+    with pytest.raises(RuntimeError, match="selected corpus reached planner"):
+        run_cli.main()
+    assert len(hub.calls) == 1
+
+
+def test_dashboard_selects_claimed_model_before_task_runtime(
+    hub, tmp_path, monkeypatch
+):
+    from rpent.cli import dashboard
+    from rpent.cli import main as run_cli
+    from rpent.dashboard.state import ClaimedTask
+
+    monkeypatch.setattr(memory_cli, "get_memory_dir", lambda _: tmp_path / "cache")
+    spec = get_robot_spec()
+    parser = run_cli._build_argparser()
+    spec.add_cli_args(parser, use_dashboard=True)
+    args = parser.parse_args(
+        [
+            "--robot",
+            "libero",
+            "--dashboard",
+            "--planner",
+            "codex",
+            "--model",
+            "gpt-5.5",
+        ]
+    )
+    configs = []
+
+    def parse_config(task_args):
+        config = spec.parse_config(task_args)
+        configs.append(config)
+        return config
+
+    def init_runtime(task_args, *unused):
+        root = configs[-1].prompt_vars["memory_dir"]
+        assert task_args.model == "gpt-6-astra"
+        assert root.name == ASTRA
+        assert (root / "MEMORY.md").read_text() == ASTRA
+        raise RuntimeError("stop after verifying selected root before task startup")
+
+    state = SimpleNamespace(task_replacement_requested=False)
+    error = dashboard._run_dashboard_task(
+        args=args,
+        robot_spec=replace(spec, parse_config=parse_config, init_runtime=init_runtime),
+        state=state,
+        claimed=ClaimedTask(
+            number=1,
+            request={
+                "model": "gpt-6-astra",
+                "suite": "libero_object_task",
+                "task": 0,
+            },
+            output_dir=tmp_path / "run",
+        ),
+        shared_runtime_kwargs={},
+        unique_components=set(),
+        session_root=tmp_path,
+    )
+    assert "stop after verifying selected root" in error
+    assert args.model == "gpt-5.5"
+    assert len(hub.calls) == 1
+
+
 def test_flash_prepares_the_version_with_published_replay_assets(
     hub, tmp_path, monkeypatch
 ):
-    monkeypatch.setattr(loading, "get_memory_dir", lambda _: tmp_path / "cache")
-    spec = SimpleNamespace(name="libero", memory_repo_id="test/repo")
+    monkeypatch.setattr(memory_cli, "get_memory_dir", lambda _: tmp_path / "cache")
+    spec = get_robot_spec()
     args = Namespace(planner="flash", model="gpt-6-astra", memory_version="auto")
     config = SimpleNamespace(prompt_vars={})
     loading.prepare_run_memory(args, spec, config)
@@ -315,7 +464,6 @@ def test_sync_and_run_use_same_model_selection(
     options, expected, monkeypatch, tmp_path
 ):
     from rpent.cli import main as run_cli
-    from rpent.cli import memory as memory_cli
 
     monkeypatch.setenv("CODEX_MODEL", "gpt-6-astra")
     selected = []
@@ -325,13 +473,13 @@ def test_sync_and_run_use_same_model_selection(
         return tmp_path / kwargs["version"]
 
     monkeypatch.setattr(memory_cli, "sync_version", sync)
-    monkeypatch.setattr(loading, "sync_version", sync)
-    monkeypatch.setattr(sys, "argv", ["rpent-memory", "sync", *options])
-    assert memory_cli.main() == 0
+    assert memory_cli.main(["sync", *options]) == 0
 
-    args = run_cli._build_argparser().parse_args(["--robot", "libero", *options])
+    parser = run_cli._build_argparser()
+    get_robot_spec().add_cli_args(parser, use_dashboard=True)
+    args = parser.parse_args(["--robot", "libero", *options])
     config = SimpleNamespace(prompt_vars={})
-    spec = SimpleNamespace(name="libero", memory_repo_id="test/repo")
+    spec = get_robot_spec()
     loading.prepare_run_memory(args, spec, config)
     assert selected == [expected, expected]
     assert config.prompt_vars["memory_dir"] == tmp_path / expected

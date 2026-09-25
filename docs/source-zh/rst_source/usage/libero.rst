@@ -105,7 +105,7 @@ LIBERO-PRO 核心套件一览
 RPent 支持两种 LIBERO 运行模式：
 
 - **Exploration** 使用可重置的多次尝试和相互独立的 planner session
-  探索成功策略，并将其提炼为本地 global/suite/task_only 三层 memory corpus。它是
+  探索成功策略，并将其提炼为本地 global/task-family/task-specific 三层 memory corpus。它是
   memory 生成流程，不用于统计 benchmark success rate。
 - **Evaluation** 是默认的单次评测模式，不会 reset episode，也不会更新
   memory。使用本地 memory 的 evaluation 会读取 exploration 生成并通过校验的

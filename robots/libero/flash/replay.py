@@ -38,7 +38,7 @@ import numpy as np
 
 from robots.libero import tools as libero_tools
 from robots.libero.flash.prompts import build as prompt_for
-from rpent.memory.versions import replay_directory
+from robots.libero.memory import replay_directory
 from rpent.robots.components.molmo_client import MolmoClient
 from rpent.session import EnvState
 
@@ -214,7 +214,7 @@ def plans(root: Path) -> Path:
     if not any(root.glob("*_plan.json")):
         raise FileNotFoundError(
             f"no Flash plans found under {root}; use "
-            "rpent-memory sync --robot libero --memory-version GPT_5.5_xhigh "
+            "python -m robots.libero.memory sync --memory-version GPT_5.5_xhigh "
             "and pass its output as --memory-profile local --memory-dir <root>"
         )
     return root

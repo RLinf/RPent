@@ -198,14 +198,6 @@ def _build_argparser() -> argparse.ArgumentParser:
         default=None,
         help="Local memory root (environment default when omitted).",
     )
-    from rpent.memory.versions import MEMORY_VERSIONS
-
-    ap.add_argument(
-        "--memory-version",
-        choices=MEMORY_VERSIONS,
-        default="auto",
-        help="LIBERO HF memory: auto selects by model; explicit versions override. Effort describes memory generation only.",
-    )
     ap.add_argument(
         "--explore",
         action="store_true",
@@ -415,10 +407,11 @@ def main() -> int:
     args.memory_profile = args.memory_profile or ("local" if args.explore else "hf")
     if args.memory_profile == "hf" and args.memory_dir is not None:
         parser.error("--memory-dir requires --memory-profile local or --explore")
-    from rpent.memory.loading import prepare_run_memory, validate_memory_options
+    from rpent.memory.loading import prepare_run_memory
 
     try:
-        validate_memory_options(args)
+        if robot_spec.validate_args is not None:
+            robot_spec.validate_args(args)
     except ValueError as exc:
         parser.error(str(exc))
     if args.dashboard:

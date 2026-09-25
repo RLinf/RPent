@@ -82,6 +82,7 @@ def _capture_validated_args(
             supports_exploration=name == "libero",
             supports_human_interactive_exploration=False,
             is_real_robot=False,
+            validate_args=None,
         )
 
     monkeypatch.setattr(

@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import argparse
 import fcntl
 import hashlib
 import json
@@ -24,6 +25,9 @@ import shutil
 import tempfile
 from pathlib import Path, PurePosixPath
 
+from rpent.planner.base import resolve_model
+from rpent.robots.robot_spec import RunConfig
+from rpent.utils.config import get_memory_dir
 from rpent.utils.logging import get_logger
 
 logger = get_logger("memory")
@@ -33,9 +37,40 @@ MEMORY_VERSIONS = ("auto", GPT5, ASTRA)
 DEFAULT_REPO = "RLinf/RPent-memory"
 
 
-def resolve_model(planner: str, model: str | None) -> str | None:
-    """Resolve the model using the planner's explicit/environment precedence."""
-    return model or (os.environ.get("CODEX_MODEL") if planner == "codex" else None)
+def validate_options(args: argparse.Namespace) -> None:
+    """Check memory options without starting services or downloading files."""
+    if getattr(args, "memory_version", "auto") != "auto" and (
+        getattr(args, "explore", False)
+        or getattr(args, "memory_profile", None) == "local"
+    ):
+        raise ValueError(
+            "--memory-version requires --memory-profile hf; local memory and exploration use --memory-dir"
+        )
+    if (
+        getattr(args, "planner", None) == "flash"
+        and getattr(args, "memory_version", "auto") == ASTRA
+    ):
+        raise ValueError(f"{ASTRA} has no Flash/Task Card replay assets; choose {GPT5}")
+
+
+def prepare_memory(args: argparse.Namespace, config: RunConfig) -> None:
+    """Bind the selected corpus to all consumers before task services start."""
+    validate_options(args)
+    profile = getattr(args, "memory_profile", None) or (
+        "local" if getattr(args, "explore", False) else "hf"
+    )
+    if profile == "local":
+        return
+    version = select_version(
+        getattr(args, "memory_version", "auto"), model=args.model, planner=args.planner
+    )
+    root = sync_version(
+        version=version, cache_dir=get_memory_dir("libero") / ".versions"
+    )
+    if args.planner == "flash":
+        replay_directory(root)
+    config.prompt_vars["memory_dir"] = root
+    config.prompt_vars["memory_version"] = version
 
 
 def select_version(
@@ -80,8 +115,15 @@ def _hash(path: Path) -> str:
 
 
 def _safe_relative(name: str) -> bool:
+    if not isinstance(name, str):
+        return False
     path = PurePosixPath(name)
-    return bool(name) and not path.is_absolute() and ".." not in path.parts
+    return (
+        bool(name)
+        and not path.is_absolute()
+        and ".." not in path.parts
+        and name == path.as_posix()
+    )
 
 
 def _verified(root: Path) -> bool:
@@ -90,11 +132,20 @@ def _verified(root: Path) -> bool:
         if receipt.get("prefix") != f"libero/{root.name}/":
             return False
         files = receipt["files"]
-        return bool(files) and all(
-            _safe_relative(name) and _hash(root / name) == digest
-            for name, digest in files.items()
+        actual = {
+            path.relative_to(root).as_posix()
+            for path in root.rglob("*")
+            if path.is_file() or path.is_symlink()
+        }
+        return (
+            bool(files)
+            and actual == set(files)
+            and all(
+                _safe_relative(name) and _hash(root / name) == digest
+                for name, digest in files.items()
+            )
         )
-    except (OSError, ValueError, AttributeError, KeyError):
+    except (OSError, ValueError, TypeError, AttributeError, KeyError):
         return False
 
 
@@ -230,3 +281,40 @@ def sync_version(
                 copy.replace(destination)
         root = destination
     return root
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Download a LIBERO corpus without starting robot services."""
+    parser = argparse.ArgumentParser(prog="python -m robots.libero.memory")
+    commands = parser.add_subparsers(dest="command", required=True)
+    sync = commands.add_parser(
+        "sync", help="Download one model-specific LIBERO corpus."
+    )
+    sync.add_argument("--memory-version", choices=MEMORY_VERSIONS, default="auto")
+    sync.add_argument("--model", default=None)
+    sync.add_argument(
+        "--planner",
+        choices=["api", "codex", "claude_code", "flash"],
+        default="api",
+        help="Planner backend (default: api); codex uses CODEX_MODEL when --model is omitted.",
+    )
+    sync.add_argument("--revision", default="main", help="Hub commit, tag or branch.")
+    sync.add_argument(
+        "--output-dir", type=Path, help="Copy into a new local corpus directory."
+    )
+    args = parser.parse_args(argv)
+    version = select_version(
+        args.memory_version, model=args.model, planner=args.planner
+    )
+    root = sync_version(
+        version=version,
+        revision=args.revision,
+        cache_dir=get_memory_dir("libero") / ".versions",
+        output_dir=args.output_dir,
+    )
+    print(root)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

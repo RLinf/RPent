@@ -13,8 +13,8 @@ Run modes
 Memory is used differently in the two run modes:
 
 - **Evaluation** reads existing memory but does not update it.
-- **Exploration** generates and updates local memory. It is currently
-  supported only by LIBERO.
+- **Exploration** generates and updates local memory. LIBERO, RoboCasa and
+  RoboTwin support it; see the robot guide for its exploration workflow.
 
 See the :ref:`LIBERO exploration guide <libero-exploration>` for the detailed
 Exploration and local-memory Evaluation workflow.
@@ -30,8 +30,8 @@ use the same directory structure:
    <memory-root>/
    |-- MEMORY.md
    |-- global/
-   |-- suite/
-   `-- task_only/
+   |-- task-family/
+   `-- task-specific/
        |-- <cell>.json
        |-- <cell>_recipe.jsonl
        `-- <task_key>.md
@@ -40,17 +40,19 @@ The default local root is ``memory/<robot>/``. On Hugging Face, LIBERO has
 model-specific roots, described below; other robots use ``<robot>/``. A custom
 ``--memory-dir`` may point at any directory laid out like the tree above.
 
-Every subtree is optional; a robot ships only the directories it uses:
+Robots provide the layers they use; their startup checks determine which
+files are required:
 
-- ``global/`` holds cross-task lessons distilled from successful experience.
-- ``suite/`` holds task-level experience accumulated during exploration,
-  organised by suite and reusable across seeds of the same task.
-- ``task_only/`` holds same-task references such as the audit and recipe
-  produced by successful runs.
-- ``MEMORY.md`` indexes ``global/`` and ``suite/``.
+- ``global/`` holds general rules and failure patterns reusable across tasks.
+- ``task-family/`` holds validated strategies and cautions for related tasks
+  and their variants.
+- ``task-specific/`` holds execution records and operating procedures for
+  reference in the current task, including its audit and recipe.
+- ``MEMORY.md`` indexes ``global/`` and ``task-family/``.
 
 During evaluation the planner may read only the current robot's memory.
-Missing a layer does not stop a task from running.
+For example, RoboCasa requires global memory, while a task-specific layer
+may be absent.
 
 Using memory
 ------------
@@ -96,21 +98,23 @@ the active task keeps its existing model and corpus. A manually selected
 memory version remains selected across model changes.
 
 Only the chosen version is downloaded. LIBERO caches are isolated by repository,
-commit and version under ``memory/libero/.versions/``. Every file is verified
-before cache reuse. ``HF_HUB_OFFLINE=1`` requires a complete, unchanged cache
+commit and version under ``memory/libero/.versions/``. Both the exact file set
+and every file hash are verified before cache reuse. Extra files invalidate
+the cache, including under a pinned revision. Online sync rebuilds an invalid
+cache; ``HF_HUB_OFFLINE=1`` requires a complete, unchanged cache
 for the selected version and revision; failed downloads never substitute
 another model's corpus. Missing or incomplete caches fail explicitly.
 Caches created before versioned-source receipts require one successful online
 refresh; old unversioned caches are not reused.
-Other robots retain their existing optional-memory sync behavior.
+Other robots retain their existing synchronization behavior.
 
 Standalone download and local evaluation
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: bash
 
-   rpent-memory sync --robot libero --memory-version GPT_6_astra_low
-   rpent-memory sync --robot libero --model gpt-6-astra \
+   python -m robots.libero.memory sync --memory-version GPT_6_astra_low
+   python -m robots.libero.memory sync --model gpt-6-astra \
      --revision <release-commit> --output-dir /path/to/new-astra-memory
    rpent --robot libero --suite libero_goal_swap --task 1 --seed 1 \
      --planner codex --model gpt-6-astra --reasoning-effort low \
@@ -122,6 +126,9 @@ exist. ``--planner`` defaults to ``api``, matching ``rpent``; pass
 ``--explore`` with an explicit remote ``--memory-version`` is an error.
 Exploration uses a local corpus; use a separate empty ``--memory-dir`` for
 each independent exploration.
+
+Versioned downloads are a LIBERO-specific command. The shared ``rpent-memory``
+command continues to provide ``merge``, ``validate`` and ``build-index``.
 
 Release provenance and compatibility
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -151,6 +158,11 @@ Hub tags ``libero-astra-long-frozen-20260917`` and
 
 The current loader requires a versioned Hub layout and does not convert or
 fall back to the historical unversioned corpus. Update code and data together.
+The current directory names require the shared memory naming update in
+`RPent #190 <https://github.com/RLinf/RPent/pull/190>`_ and the corresponding
+`dataset update <https://huggingface.co/datasets/RLinf/RPent-memory/discussions/13>`_.
+Dataset ``main`` evolves; ``reproduce/memory`` keeps its historical contents
+and layout for the matching historical robot reproduction branches.
 Historical reproduction uses the matching historical client and dataset
 revision, archived at ``libero-gpt5.5-xhigh-before-versions-20260917``:
 

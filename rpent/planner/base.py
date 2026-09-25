@@ -38,6 +38,11 @@ MCP_TOOL_PREFIX = "mcp__rpent__"
 REASONING_EFFORTS = ("none", "low", "medium", "high", "xhigh")
 
 
+def resolve_model(planner: str, model: str | None) -> str | None:
+    """Resolve the model using the planner's explicit/environment precedence."""
+    return model or (os.environ.get("CODEX_MODEL") if planner == "codex" else None)
+
+
 def add_mcp_prefix(name: str) -> str:
     """Return the namespaced MCP tool name for a bare tool name."""
     if name.startswith(MCP_TOOL_PREFIX):

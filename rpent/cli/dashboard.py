@@ -114,9 +114,9 @@ def run_dashboard_session(
     logger.info("Dashboard: %s", dashboard_url)
 
     # Shared robot services may validate memory before a task is claimed.
-    # LIBERO chooses its model-specific corpus at each task boundary instead.
+    # Robots with a preparation hook select memory at each task boundary instead.
     if (
-        robot_spec.name != "libero"
+        robot_spec.prepare_memory is None
         and not getattr(args, "explore", False)
         and getattr(args, "memory_profile", "hf") == "hf"
     ):

@@ -74,6 +74,7 @@ def test_shared_runtime_gets_memory_before_startup(
         name=robot,
         is_real_robot=False,
         memory_repo_id="test/memory",
+        prepare_memory=(lambda args, config: None) if robot == "libero" else None,
         dashboard={
             "task": {
                 "command": "/rpent-task",
