@@ -54,17 +54,20 @@ RPent 将实时锚点位置与计划保存的偏移组合成新的路点，再�
 计划不随 Git 仓库提交，而是通过 Hugging Face 上的 `GPT-5.5 memory 目录
 <https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/libero/GPT_5.5_xhigh>`_
 分发。Flash 默认选择 ``--memory-version GPT_5.5_xhigh``，使用该版本的独立缓存。
-发布语料在 ``task_card/`` 中包含 20 份 Object Task/Swap 计划；发布覆盖范围
-与上文历史完整矩阵评测使用的 78 份计划不同。
+发布目录 ``GPT_5.5_xhigh/flash/`` 包含 78 对 plan/anchor 文件：Spatial 20 对、
+Object 20 对、Goal 19 对、Long 19 对。``goal_swap_t0`` 和 ``10_swap_t9``
+没有成功源计划，仍然缺失。文件正文与已合入的 Hugging Face Flash 发布版本一致；
+将文件归入版本目录不代表重新进行了模拟器评测。
 
-使用 ``--memory-profile local --memory-dir /path/to/memory/libero`` 时，从该根目录下的
-``flash/`` 读取生成的计划，或从 ``task_card/`` 读取发布资产，不下载数据。
+使用 ``--memory-profile local --memory-dir /path/to/memory/libero/GPT_5.5_xhigh``
+时，从所选根目录下的 ``flash/`` 读取计划，不下载数据。本地生成的语料同样可以使用
+任意包含 ``flash/`` 的根目录。
 缺少计划或锚点文件时会报错。
 Astra memory 没有重放资产，不能用于 Flash。详见 :ref:`Memory 管理 <memory-management>`。
 
 .. code-block:: text
 
-   memory/libero/flash/
+   memory/libero/GPT_5.5_xhigh/flash/
      object_swap_t3_anchors.json   运行时需要定位的物体和位置
      object_swap_t3_plan.json      动作及其相对锚点的坐标
 
@@ -101,7 +104,7 @@ suite/task/seed 字段，必须指向同一个 episode。
 .. code-block:: bash
 
    hf download RLinf/RPent-memory --repo-type dataset \
-     --include "libero/GPT_5.5_xhigh/task_card/**" --local-dir /path/to/download
+     --include "libero/GPT_5.5_xhigh/flash/**" --local-dir /path/to/download
 
 下载后指定 ``--memory-profile local --memory-dir /path/to/download/libero/GPT_5.5_xhigh``。
 

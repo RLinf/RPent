@@ -65,18 +65,21 @@ Plans are distributed through the `GPT-5.5 memory directory
 <https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/libero/GPT_5.5_xhigh>`_
 on Hugging Face rather than tracked in Git. Flash defaults to
 ``--memory-version GPT_5.5_xhigh`` and uses that version's isolated cache.
-The published corpus includes 20 Object Task/Swap plans under ``task_card/``. This published coverage differs from the 78 plans used
-in the historical full-matrix evaluation above.
+The published ``GPT_5.5_xhigh/flash/`` directory contains 78 plan/anchor pairs:
+20 Spatial, 20 Object, 19 Goal and 19 Long tasks. ``goal_swap_t0`` and
+``10_swap_t9`` have no successful source plan and remain absent. These files
+come unchanged from the merged Hugging Face Flash release; publishing them in
+the versioned directory does not constitute a new simulator evaluation.
 
-With ``--memory-profile local --memory-dir /path/to/memory/libero``, replay
-reads generated ``flash/`` plans or published ``task_card/`` assets under that root
-without downloading.
+With ``--memory-profile local --memory-dir /path/to/memory/libero/GPT_5.5_xhigh``,
+replay reads ``flash/`` plans under that selected root without downloading.
+A locally generated corpus can likewise use any root containing ``flash/``.
 Missing plan or anchor files cause an error. Astra memory has no replay assets;
 it cannot be used for Flash. See :ref:`Memory Management <memory-management>`.
 
 .. code-block:: text
 
-   memory/libero/flash/
+   memory/libero/GPT_5.5_xhigh/flash/
      object_swap_t3_anchors.json   objects and locations to locate at run time
      object_swap_t3_plan.json      actions and their anchor-relative coordinates
 
@@ -118,7 +121,7 @@ To download only the Flash plans manually, run:
 .. code-block:: bash
 
    hf download RLinf/RPent-memory --repo-type dataset \
-     --include "libero/GPT_5.5_xhigh/task_card/**" --local-dir /path/to/download
+     --include "libero/GPT_5.5_xhigh/flash/**" --local-dir /path/to/download
 
 Use ``--memory-profile local --memory-dir /path/to/download/libero/GPT_5.5_xhigh``
 with the downloaded plans.
