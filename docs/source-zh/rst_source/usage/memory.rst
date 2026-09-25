@@ -8,7 +8,7 @@
 使用公开记忆
 ------------------
 
-评测默认使用 ``hf`` 模式，从 ``RLinf/RPent-memory`` 同步当前机器人的公开数据。下面显式写出该选项：
+评测默认使用 ``hf`` 模式，从 Hugging Face 上的 `RLinf/RPent-memory <https://huggingface.co/datasets/RLinf/RPent-memory>`_ 同步当前机器人的公开数据。下面显式写出该选项：
 
 .. code-block:: bash
 

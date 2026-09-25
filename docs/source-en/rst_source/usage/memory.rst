@@ -8,7 +8,7 @@ Evaluation reads memory without updating it. Exploration can reset and retry. Fo
 Use Published Memory
 --------------------
 
-Evaluation defaults to the ``hf`` profile, which synchronizes the current robot’s public data from ``RLinf/RPent-memory``. The command makes that default explicit:
+Evaluation defaults to the ``hf`` profile, which synchronizes the current robot’s public data from the Hugging Face dataset `RLinf/RPent-memory <https://huggingface.co/datasets/RLinf/RPent-memory>`_. The command makes that default explicit:
 
 .. code-block:: bash
 
