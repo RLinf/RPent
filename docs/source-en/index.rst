@@ -3,101 +3,70 @@
 Welcome to RPent
 ================
 
-.. raw:: html
+.. image:: https://raw.githubusercontent.com/RLinf/misc/main/pic/rpent_logo.png
+   :alt: RPent
+   :class: rpent-home-logo
 
-   <div class="rpent-hero">
-     <img class="rpent-hero-architecture"
-          src="https://github.com/RLinf/misc/raw/main/pic/rpent_logo.png"
-          alt="RPent logo" />
-     <p class="rpent-hero-subtitle">
-       RPent (Recursive Physical Agent) is an open framework for building
-       embodied agents that continuously evolve through recursive interaction
-       with the physical world. Rather than prescribing a single foundation
-       model, RPent provides a recursive agent framework that harnesses
-       heterogeneous intelligence, including perception, reasoning, memory,
-       execution, and self-evolution, into a unified physical agent. Through
-       continuous interaction, reflection, and adaptation, RPent enables
-       physical agents to acquire new capabilities and evolve beyond their
-       initial design.
-     </p>
-   </div>
+RPent (Recursive Physical Agent) is an open-source framework for building embodied agents that continually evolve through recursive interaction with the physical world. It supports different foundation models and integrates perception, reasoning, memory, execution, and self-evolution in a unified agent framework. Through ongoing interaction, agents reflect on and adjust their behavior, accumulate experience, and develop new capabilities beyond their initial design.
 
-.. grid:: 2
-   :gutter: 2
-
-   .. grid-item-card:: Overview
-      :link: rst_source/overview
-      :link-type: doc
-      :text-align: center
-
-      What RPent is, what the pentagram + ∞ logo means, and the
-      high-level architecture at a glance.
-
-   .. grid-item-card:: Installation
-      :link: rst_source/installation
-      :link-type: doc
-      :text-align: center
-
-      Clone RPent and install the whole stack with a single
-      ``pip install``.
+.. grid:: 1 1 2 2
+   :gutter: 3
 
    .. grid-item-card:: Quick Start
       :link: rst_source/quickstart
       :link-type: doc
-      :text-align: center
 
-      Configure an LLM API key and the VLA checkpoint, then run one LIBERO
-      task end-to-end.
+      Install RPent, run a LIBERO-PRO task, and inspect the result.
 
-   .. grid-item-card:: Usage Tutorial
-      :link: rst_source/usage/configure_planner
+   .. grid-item-card:: Introduction to RPent
+      :link: rst_source/overview
       :link-type: doc
-      :text-align: center
 
-      Drive the LIBERO / RoboCasa simulators or a Franka / SO-101 arm,
-      switch planners, and pick action primitives.
+      Learn how planning, perception, actions, and memory work together.
+
+   .. grid-item-card:: Memory and Exploration
+      :link: rst_source/usage/memory
+      :link-type: doc
+
+      Use published experience or build memory through exploration.
+
+   .. grid-item-card:: Leaderboard
+      :link: rst_source/leaderboard
+      :link-type: doc
+
+      Compare reported success rates, runtime, and token costs.
 
    .. grid-item-card:: Real-World Demos
       :link: rst_source/usage/real_world_demos_franka
       :link-type: doc
-      :text-align: center
 
-      Watch RPent operate on real robots, from a dual-arm Franka to YAM,
-      with more platforms to come.
+      Watch dual-arm Franka tasks and follow the deployment guide.
 
-   .. grid-item-card:: Development Tutorial
+   .. grid-item-card:: Extend RPent
       :link: rst_source/development/architecture
       :link-type: doc
-      :text-align: center
 
-      RPent's implementation-level architecture, plus how to add a new
-      robot, a new action primitive, or extend memory.
+      Understand the execution flow and add robots, tools, or planners.
+
+Choose an environment: :doc:`LIBERO <rst_source/usage/libero>`, :doc:`RoboCasa365 <rst_source/usage/robocasa>`, or :doc:`RoboTwin <rst_source/usage/robotwin>`. For robot deployment, see :doc:`Single-Arm Franka <rst_source/usage/franka>` and :doc:`Dual-Arm Franka <rst_source/usage/dual_franka>`; :doc:`YAM <rst_source/usage/real_world_demos_yam>` has a task demo.
 
 .. toctree::
    :maxdepth: 2
    :includehidden:
    :titlesonly:
    :hidden:
+   :caption: Get Started
 
-   Overview <rst_source/overview>
-   Installation <rst_source/installation>
+   Introduction to RPent <rst_source/overview>
    Quick Start <rst_source/quickstart>
-   Leaderboard <rst_source/leaderboard>
 
 .. toctree::
    :maxdepth: 2
    :includehidden:
    :titlesonly:
    :hidden:
-   :caption: Usage Tutorial
 
-   Agentic Planner <rst_source/usage/configure_planner>
-   Action Primitives <rst_source/usage/configure_primitives>
-   Data Flywheel <rst_source/usage/flywheel>
-   Flash Mode <rst_source/usage/flash>
-   Simulation <rst_source/usage/simulation>
-   Real Robots <rst_source/usage/real_robots>
-   Advanced Deployment <rst_source/usage/advanced_deployment>
+   Leaderboard <rst_source/leaderboard>
 
 .. toctree::
    :maxdepth: 2
@@ -106,7 +75,7 @@ Welcome to RPent
    :hidden:
    :caption: Real-World Demos
 
-   Dual-arm Franka <rst_source/usage/real_world_demos_franka>
+   Dual-Arm Franka <rst_source/usage/real_world_demos_franka>
    YAM <rst_source/usage/real_world_demos_yam>
 
 .. toctree::
@@ -114,19 +83,61 @@ Welcome to RPent
    :includehidden:
    :titlesonly:
    :hidden:
-   :caption: Development Tutorial
+   :caption: Guides
 
-   System Description <rst_source/development/architecture>
-   Core Interfaces <rst_source/development/interfaces>
-   Memory Management <rst_source/development/memory>
-   Add a New Robot <rst_source/development/add_robot>
-   Add an Action Primitive <rst_source/development/add_primitive>
+   Memory and Exploration <rst_source/usage/memory>
+   Action Primitives and Tools <rst_source/usage/configure_primitives>
+   Planners and Model Services <rst_source/usage/configure_planner>
+   CLI and Configuration <rst_source/usage/cli>
+   Dashboard <rst_source/usage/dashboard>
+   Flash Mode <rst_source/usage/flash>
+   Trajectory Collection and Data Flywheel <rst_source/usage/flywheel>
+   Remote Services and Parallel Runs <rst_source/usage/advanced_deployment>
 
 .. toctree::
    :maxdepth: 2
    :includehidden:
    :titlesonly:
    :hidden:
-   :caption: Publications
+   :caption: Simulators
+
+   LIBERO <rst_source/usage/libero>
+   RoboCasa365 <rst_source/usage/robocasa>
+   RoboTwin <rst_source/usage/robotwin>
+
+.. toctree::
+   :maxdepth: 2
+   :includehidden:
+   :titlesonly:
+   :hidden:
+   :caption: Real-World Robots
+
+   Single-Arm Franka <rst_source/usage/franka>
+   Dual-Arm Franka <rst_source/usage/dual_franka>
+   YAM <rst_source/usage/yam>
+   SO-101 <rst_source/usage/so101>
+
+.. toctree::
+   :maxdepth: 2
+   :includehidden:
+   :titlesonly:
+   :hidden:
+   :caption: Concepts & Development
+
+   Architecture and Execution <rst_source/development/architecture>
+   Core Interfaces <rst_source/development/interfaces>
+   Memory Design <rst_source/development/memory>
+   Add a Robot or Simulator <rst_source/development/add_robot>
+   Add an Action Primitive <rst_source/development/add_primitive>
+   Add a Planner <rst_source/development/add_planner>
+
+.. toctree::
+   :maxdepth: 2
+   :includehidden:
+   :titlesonly:
+   :hidden:
+   :caption: Resources
 
    Harness VLA <rst_source/awesome_works/harnessvla>
+   Contributing <rst_source/resources/contributing>
+   Release Notes <rst_source/resources/release_notes>

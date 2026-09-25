@@ -1,67 +1,42 @@
-Action Primitives
-=================
+Action Primitives and Tools
+===========================
 
-Where the planner chooses *what* to do, the **action primitive**
-chooses *how* it happens. A primitive turns a tool call
-(``pi0_pick``, ``move_to``, ``rotate_wrist``, …) into an executable
-action chunk for the environment.
+The planner operates through tool calls. Action primitives perform motions such as grasping, moving an end effector, or opening a gripper. Perception and state tools locate targets, read images, and inspect results.
 
-RPent supports two families of primitives out of the box:
+Choose Action Tools
+-------------------
 
-- **VLA policies** (Vision-Language-Action models). These run in the
-  dedicated ``vla_server`` process, keep GPU weights isolated from
-  the physics engine, and are called by the toolkit through a per-env
-  model client. Examples: Pi0.5 (LIBERO), RLDX-1 (RoboCasa).
-- **Scripted primitives**. Deterministic motions such as ``move_to``,
-  ``rotate_wrist``, ``release``, or ``back_project``. They live on the
-  agent side (no VLA weights needed) and are wired directly to
-  ``env_server`` RPCs.
+RPent provides two main types of action tools:
 
-For the concrete per-robot configuration (which VLA runs
-against which robot, checkpoint paths, tool surface), see the
-robot pages: :doc:`libero`, :doc:`robocasa`, :doc:`franka`,
-:doc:`dual_franka`, :doc:`so101`.
+- **VLA actions** use a vision-language-action model to generate action sequences, such as LIBERO’s ``pi0_pick``. The model usually runs in a separate service.
+- **Scripted actions** execute parameterized motions, such as ``move_to``, ``rotate_wrist``, and ``release``. Names and arguments depend on the environment.
 
-Which VLA runs where
---------------------
+``back_project``, ``segment``, and ``view_env_state`` are perception or state-reading tools; they do not themselves represent robot motion. ``finish`` ends the planner loop. Task success is determined by the environment or the real-robot operator.
+
+Models by Platform
+------------------
 
 .. list-table::
    :header-rows: 1
-   :widths: 25 25 25 25
 
    * - Environment / robot
-     - Default VLA
-     - Transport
-     - Server
-   * - LIBERO (sim)
+     - Action model and configuration
+   * - :doc:`libero`
      - Pi0.5
-     - HTTP or socket RPC
-     - ``rpent/robots/components/pi05_vla_server.py``
-   * - RoboCasa (sim)
+   * - :doc:`robocasa`
      - RLDX-1
-     - HTTP or socket RPC
-     - ``robots/robocasa/vla_server.py``
-   * - Franka (real)
-     - Pi0.5 or RLDX-1 (task-dependent)
-     - HTTP or socket RPC
-     - ``robots/franka/vla_server.py`` *(planned)*
-   * - SO-101 (real)
-     - RLDX-1 (task-dependent)
-     - HTTP or socket RPC
-     - ``robots/so101/vla_server.py`` *(planned)*
+   * - :doc:`robotwin`
+     - LingBot-VLA
+   * - :doc:`franka`
+     - Pi0.5 / openpi
+   * - :doc:`dual_franka`
+     - Pi0.5 / openpi
 
-The VLA server exposes the same ``predict`` / ``healthz`` methods over
-both HTTP (JSON) and socket (pickle-framed) transports. When starting
-the server directly, select the transport with the server's
-``--transport {http,socket}`` option (defaults to ``http``). See
-:doc:`../development/add_robot` for the design rationale.
+Each platform page provides checkpoint paths, available tools, and task requirements. YAM deployment instructions and SO-101 content are pending; see :doc:`yam` and :doc:`so101`.
 
-For standalone services, remote endpoints, and cross-run model reuse, see
-:doc:`advanced_deployment`.
+Services and Extensions
+-----------------------
 
-Adding a brand-new primitive family
------------------------------------
+VLA services expose action prediction through ``predict`` and health checks through ``healthz``. RPent RPC services support HTTP and socket transports; see :doc:`advanced_deployment` for deployment.
 
-If the primitive you want is neither a VLA nor a scripted motion —
-say a WAM (World Action Model), a diffusion planner, or a Model
-Predictive Control primitive — see :doc:`../development/add_primitive`.
+To add a tool, define its arguments, execution, and result handling as described in :doc:`../development/add_primitive`. Planners call these tools through the shared toolkit.

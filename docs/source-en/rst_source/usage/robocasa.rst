@@ -1,50 +1,97 @@
-RoboCasa
-========
+RoboCasa365
+============
 
-`RoboCasa <https://robocasa.ai>`_ is the kitchen-scale, long-horizon
-manipulation environment. In RPent it is driven by the **RLDX-1** VLA
-policy, served over HTTP RPC by default (matching LIBERO); a
-pickle-framed socket transport is also supported. See
-``robots/robocasa/vla_server.py`` and ``robots/robocasa/robot_spec.py``
-for the wire/transport selection.
+.. figure:: https://raw.githubusercontent.com/robocasa/robocasa/main/docs/images/readme.webp
+   :alt: RoboCasa365 environment overview
+   :width: 90%
+   :align: center
 
-.. note::
+   Kitchen scenes, objects, and tasks in RoboCasa365. Source: `RoboCasa365 project <https://github.com/robocasa/robocasa>`_.
 
-   The public Target50 protocol is frozen in
-   ``robots/robocasa/eval/target50.json``. RPent uses ordinary single-task
-   ``rpent --robot robocasa`` commands for its 340 cells.
+Run kitchen manipulation tasks with RPent in RoboCasa365, then reproduce Target50 experiments. This integration uses the PandaOmron mobile manipulator and the RLDX-1 action model; its CLI name is ``robocasa``.
 
-Runtime flow
+.. _robocasa-overview:
+
+Overview
 ------------
 
-RoboCasa365 uses a PandaOmron mobile manipulator and the frozen RLDX-1 policy.
-The integration is planner-agnostic: API planners, Claude Code and Codex use
-the same RoboCasa toolkit. See :doc:`configure_planner` for credentials and
-backend configuration; users supply credentials outside the repository.
+Check the model, task, and runtime requirements before following the installation and run steps.
 
-.. code-block:: text
+.. grid:: 2 4 4 4
+   :gutter: 2
 
-   rpent CLI -> task-memory sync -> environment and VLA servers
-             -> planner toolkit -> final environment state.success
+   .. grid-item-card:: Action Models
 
-Unless external endpoints are supplied, RPent starts an environment server
-and a VLA server for each run. The planner selects primitives using the live
-task language and observations; RLDX-1 executes manipulation skills. Only the
-environment's own ``_check_success()`` result, surfaced as ``state.success``,
-determines evaluation success. The public protocol uses ordinary single-cell
-commands, not an included batch launcher. See :doc:`../awesome_works/harnessvla`
-for the Harness VLA overview.
+      RLDX-1
 
-Installation
-------------
+   .. grid-item-card:: Planners
+
+      ``api``, ``claude_code``, ``codex``
+
+   .. grid-item-card:: Tasks
+
+      Target50 kitchen tasks
+
+   .. grid-item-card:: Hardware
+
+      Linux, NVIDIA GPU; Python 3.10; CUDA and EGL.
+
+Tasks
+~~~~~~~~~~~~
+
+Target50 covers the following categories. The reproduction section lists the complete task/seed matrix and run limits.
+
+.. list-table::
+   :header-rows: 1
+
+   * - Category
+     - Tasks
+     - Scope
+   * - Atomic
+     - 18
+     - Individual kitchen operations.
+   * - Composite-Seen
+     - 16
+     - Composite tasks in seen categories.
+   * - Composite-Unseen
+     - 16
+     - Composite tasks in unseen categories.
+
+.. _robocasa-observation-action:
+
+Observation and Action
+~~~~~~~~~~~~~~~~~~~~~~
+
+The table distinguishes planner tools, model inputs, and the environment’s success criterion.
+
+.. list-table::
+   :header-rows: 1
+
+   * - Item
+     - Description
+   * - Observation
+     - Camera views, depth/world coordinates, and mobile-base, end-effector, and gripper state. RLDX-1 receives three camera histories plus state and task text.
+   * - Action
+     - The planner calls ``rldx_skill`` and motion primitives. RLDX-1 predicts end-effector, gripper, base-motion, and control-mode commands.
+   * - Reward / success
+     - Evaluate success using the environment’s ``_check_success()`` result exposed as ``state.success``.
+   * - Task prompt
+     - Use the current environment’s complete ``task_language``; historical memory does not replace it.
+
+Installation and Resources
+--------------------------
+
+Use Linux, an NVIDIA GPU, a working CUDA/EGL setup, ``git``, and `uv <https://docs.astral.sh/uv/getting-started/installation/>`_. If you already have the repository, enter it and start at environment creation.
 
 RLDX-1 requires Python ``3.10``. Create a dedicated environment and install
 the complete RoboCasa365 stack with ``.[robocasa]``:
 
 .. code-block:: bash
 
-   uv venv --python 3.10
-   source .venv/bin/activate
+   git clone https://github.com/RLinf/RPent.git
+   cd RPent
+   uv venv --python 3.10 .venv-robocasa
+   source .venv-robocasa/bin/activate
 
 First install a matching CUDA-enabled PyTorch and torchvision pair using the
 `PyTorch installation selector <https://pytorch.org/get-started/locally/>`_
@@ -59,40 +106,16 @@ two independent versions. Then install RPent:
       --constraint robots/robocasa/eval/target50-constraints.txt
    uv pip check
 
-The RoboCasa-specific constraints file pins the compatibility-sensitive
-package versions validated for Target50 reproduction without narrowing
-RPent's shared LIBERO or RoboTwin dependencies. The ``robocasa`` extra tracks
-the maintained ``rpent`` branches of RoboCasa, RLDX and Robosuite for both
-ordinary runs and Target50. The manifest records these branches, not frozen
-source commits. RoboCasa's ``rpent`` branch declares the distribution name
-``rpent-robocasa365``; do not co-install
-the ``rlinf-robocasa365`` distribution, which provides the same import package.
-No second source-install step is required. Branches can advance, so record
-the resolved Git commits and installed versions with each evaluation:
+The constraints file pins compatibility-sensitive Target50 dependencies. The ``robocasa`` extra installs the ``rpent`` branches of RoboCasa, RLDX, and Robosuite. Do not also install ``rlinf-robocasa365``, which provides the same import package.
+
+Choose Torch, torchvision, and CUDA for your machine. The reference run used Torch 2.7.0, torchvision 0.22.0, and CUDA 12.6. Record resolved dependencies and Git revisions for every reproduction because branches can advance:
 
 .. code-block:: bash
 
    uv pip freeze > installed-requirements.txt
+   git rev-parse HEAD > rpent-revision.txt
 
-Keep this environment record with the experiment artifacts. Installing the
-same branch later is not a guarantee of identical source code. The checkpoint,
-backbone support resources and task-memory snapshots remain fixed below.
-The constraints do not pin Torch, torchvision or a CUDA backend. Installation
-retains a compatible installed pair; dependency conflicts must be
-resolved before running. The manifest's ``reference_accelerator`` records the
-previously used Torch 2.7.0 / torchvision 0.22.0 / CUDA 12.6 combination as
-provenance only, not an installation requirement. Record your actual versions
-with your results and run the component checks below; other combinations are
-not presumed to have identical numerical results. Package mirrors are optional
-user configuration, not part of the evaluation protocol.
-
-.. note::
-
-   flash-attn is optional; RLDX-1 uses PyTorch SDPA when it is absent.
-   If installing it, follow the `FlashAttention installation guidance
-   <https://github.com/Dao-AILab/flash-attention#installation-and-features>`_
-   and select a build compatible with your Python, Torch, CUDA and GPU.
-   This guide does not prescribe a machine-specific wheel.
+``flash-attn`` is optional; RLDX-1 uses PyTorch SDPA when it is absent. If needed, follow the `FlashAttention instructions <https://github.com/Dao-AILab/flash-attention#installation-and-features>`_ to select a compatible build.
 
 **Post-install setup**
 
@@ -111,41 +134,7 @@ that launches ``rpent``:
 
    export ROBOCASA_ASSETS_PATH=~/.robocasa/assets
 
-The external root requires the six downloaded collections and the bundled
-static scene, arena and fixture files. The corrected installer supplements
-the latter without replacing different existing content. Re-run with
-``--skip-existing`` to verify successful download inventories; a nonempty
-directory alone is not a complete installation. Keep official attribution
-files and finish interrupted downloads before starting experiments.
-
-Resource publication is atomic: interrupted copies do not leave half-written
-final files. To repair conflicting resources left by an earlier installer,
-rerun the same command with explicit overwrite permission:
-
-.. code-block:: bash
-
-   robocasa-download-assets --assets-path ~/.robocasa/assets --no-macros --overwrite -y
-
-``--overwrite`` takes precedence over ``--skip-existing`` and replaces only
-resource files in the installation scope, not unrelated files or whole
-directories. Without it, different existing content is preserved. Atomic
-no-overwrite publication requires hard-link support on the destination
-filesystem. Temporary files left by a killed process do not block retries.
-
-New collections require space for the ZIP and one unpacked copy: staging is
-published without copying the payload again. Existing installations need
-additional space during replacement. ``--skip-existing`` avoids downloading
-and comparing completed collections; bundled static files are checked separately.
-
-**Navigation camera**
-
-The ``robocasa`` extra installs the ``rpent`` branch of ``RLinf/robosuite``,
-which provides the Omron base's fixed ``navview`` camera. Its composed MuJoCo
-name is ``mobilebase0_navview``. Navigation RGB-D and world-map rendering
-validate the camera when they first request it, and report an error if it is
-missing. No manual ``site-packages`` XML patch is required.
-Target50 uses this same maintained branch; record the resolved revision with
-the environment information above.
+The installer supplies downloaded collections and bundled scene files. Add ``--skip-existing`` on subsequent runs to check existing downloads. See troubleshooting below for resource conflicts, disk space, and camera errors.
 
 **RLDX-1 checkpoint**
 
@@ -193,10 +182,37 @@ applies only to backbone metadata, not the weights selected by
 ``--vla-model-path``. Model and asset licenses apply separately from RPent's
 code license.
 
-**Task memory**
+Run a Task
+----------
 
-Select automatic synchronization with ``--memory-profile hf`` (the default).
-Before every such ordinary run, RPent's shared memory manager synchronizes the
+Configure your model service with :doc:`configure_planner` and check it using ``rpent-check-llm``. Run ``OpenDrawer`` with seed 1:
+
+.. code-block:: bash
+
+   rpent --robot robocasa \
+         --task-name OpenDrawer \
+         --split target \
+         --seed 1 \
+         --vla-model-path ./checkpoints/rldx-1-ft-rc365 \
+         --planner claude_code \
+         --model claude-opus-4-8
+
+RoboCasa does not select a planner implementation; the ``api``, ``claude_code``, and ``codex`` planners can run this robot. See :doc:`configure_planner` for configuration.
+
+.. _inspect-the-result:
+
+View Results
+------------
+
+Task success comes from the environment’s ``_check_success()`` result, exposed as ``state.success``. The planner’s ``finish`` status ends its conversation and is not an evaluation label. Inspect ``result.json``, ``transcript_*.json``, and ``run.log`` in the output directory; service startup errors are in ``env_server.log`` and ``vla_server.log``.
+
+Use ``--dashboard`` to watch cameras and planner output; see :doc:`dashboard` for the shared workflow.
+
+Task Memory
+-----------
+
+Select automatic synchronization with ``--memory-profile hf`` (the evaluation default).
+Before a run using this profile, RPent's shared memory manager synchronizes the
 ``robocasa/**`` subtree from the
 `RLinf/RPent-memory dataset
 <https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/robocasa/results>`_
@@ -219,7 +235,8 @@ requires the planner to read every current-task file that exists before acting.
 RPent makes those files available through ``read_text_file`` but does not inject
 their contents into the prompt.
 
-RoboCasa never asks the planner to use global memory or another task's memory.
+When using the published HF memory above, the planner uses neither global
+memory nor another task's memory.
 Seven Composite-Unseen tasks have no task memory and remain in the evaluation:
 ``HeatKebabSandwich``, ``PanTransfer``, ``PortionHotDogs``,
 ``SeparateFreezerRack``, ``WaffleReheat``, ``WashFruitColander``, and
@@ -227,36 +244,40 @@ Seven Composite-Unseen tasks have no task memory and remain in the evaluation:
 evidence; historical coordinates, poses, pixels, and subtask prompts must not
 replace current localization or the live task language.
 
-Ordinary runs synchronize Hugging Face ``main``. Formal Target50 runs use the
-immutable memory snapshot
-``551fc3157b3e56b40a3d3a3b4c7ff81721ebe89b``:
+.. _exploration:
+
+Exploration Mode
+----------------
+
+Add ``--explore`` to let the planner retry a task across fresh episodes and
+write local memory. As with LIBERO, one run allows up to three planner sessions
+with at most five attempts per session by default:
 
 .. code-block:: bash
 
-   hf download RLinf/RPent-memory \
-      --repo-type dataset \
-      --revision 551fc3157b3e56b40a3d3a3b4c7ff81721ebe89b \
-      --include "robocasa/**" \
-      --local-dir ./target50-memory
+   rpent --robot robocasa --task-name OpenDrawer --split target --seed 0 \
+     --vla-model-path /path/to/rldx \
+     --planner codex --reasoning-effort high --planner-timeout-s 7200 \
+     --explore --explore-sessions 3 --explore-attempts-per-session 5 \
+     --memory-dir /path/to/robocasa-memory
 
-Select the local profile and pass the directory containing the frozen results
-corpus:
+``reset`` uses the environment's ordinary episode reset. The runner exports
+only the winning commands after the final reset. Exploration memory is written
+to the current local inbox. Drafts are merged when the run completes normally
+without an agent execution error. Pass ``--no-auto-merge-memory`` to disable
+automatic merging. The exploration prompt is in
+``robots/robocasa/prompts/explore.py`` and covers mobile-base use,
+``task_progress``, RLDX continuity, and failed-attempt notes.
 
-.. code-block:: bash
+.. _reproduce-target50:
 
-   rpent --robot robocasa --task-name OpenDrawer --seed 1 \
-         --vla-model-path ./checkpoints/rldx-1-ft-rc365 \
-         --planner claude_code --model claude-opus-4-8 \
-         --memory-profile local \
-         --memory-dir ./target50-memory/robocasa
-
-Harness VLA Target50 reproduction protocol
--------------------------------------------
+Experiment Reproduction (Target50)
+----------------------------------
 
 ``robots/robocasa/eval/target50.json`` is the canonical manifest for reproducing
 Harness VLA on RoboCasa Target50. It freezes the ``target`` environment split,
 HF resource revisions, memory scope, task and seed matrix, cell time limits,
-success source, and retry policy. Its protocol ID is
+success source, and retry policy. Each cell is one task/seed combination. Its protocol ID is
 ``robocasa-harness-vla-v1``. Source dependencies follow the recorded ``rpent``
 branches and must be recorded at their resolved revisions for each run:
 
@@ -266,7 +287,7 @@ branches and must be recorded at their resolved revisions for each run:
 
    * - Split
      - Tasks
-     - Seeds per task
+     - Seed range per task
      - Cell timeout
      - Cells
    * - Atomic
@@ -320,36 +341,17 @@ The tasks split into three groups:
 Pass any of these to ``--task-name``. The full RoboCasa catalog is
 larger; see the `RoboCasa <https://robocasa.ai>`_ upstream.
 
-Running a task
---------------
-
-HTTP RPC endpoints whose hostname is ``127.0.0.1`` or ``localhost`` are reached
-directly, whether RPent starts the worker or the user supplies the endpoint.
-Every other hostname and IP uses the standard proxy environment. Codex applies
-the same two-host exception only to its child process for the local MCP
-connection. Leave ``HTTP_PROXY`` and ``HTTPS_PROXY`` unchanged when Hugging
-Face, a remote planner, or another remote service requires them; the default
-runtime does not require a shell-wide ``NO_PROXY`` setup.
-
-If a user-supplied local service uses another hostname or IP and should be
-reached directly, add that exact value to the user's existing ``NO_PROXY`` and
-``no_proxy`` configuration.
-
-The RoboCasa CLI flags are registered by ``robots/robocasa/__init__`` and
-are visible under ``rpent --robot robocasa --help``:
+Ordinary runs with the HF profile synchronize Hugging Face ``main``. Formal Target50 runs use the
+immutable memory snapshot
+``551fc3157b3e56b40a3d3a3b4c7ff81721ebe89b``:
 
 .. code-block:: bash
 
-   rpent --robot robocasa \
-         --task-name OpenDrawer \
-         --split target \
-         --seed 1 \
-         --vla-model-path /path/to/rldx \
-         --planner claude_code \
-         --model claude-opus-4-8
-
-RoboCasa does not select a planner implementation; any planner supported by
-RPent can run this robot. See :doc:`configure_planner` for configuration.
+   hf download RLinf/RPent-memory \
+      --repo-type dataset \
+      --revision 551fc3157b3e56b40a3d3a3b4c7ff81721ebe89b \
+      --include "robocasa/**" \
+      --local-dir ./target50-memory
 
 For Target50, first download the fixed resources above, then invoke one ordinary
 command for each manifest cell. The Codex reference profile is ``gpt-5.5``,
@@ -395,14 +397,8 @@ validate the fixed denominator and print the task-weighted score with:
 
    python -m robots.robocasa.eval.validate_target50 ./runs/target50
 
-.. note::
 
-   Use ``--env-endpoint`` / ``--vla-endpoint`` to point at already-running
-   servers (``[protocol://]host:port``); when omitted, RPent spawns the env
-   and VLA daemons in-process and writes their logs to
-   ``<output_dir>/env_server.log`` and ``<output_dir>/vla_server.log``.
-
-Published Target50 results
+Published Target50 Results
 --------------------------
 
 The published Codex reproduction contains all 340 cells and reports the
@@ -441,8 +437,8 @@ or failure classifications and therefore is not a per-cell audit artifact.
 
 .. _environment-smoke-tests:
 
-Environment smoke tests
------------------------
+Environment Checks
+------------------
 
 After installing RoboCasa and its assets, run the opt-in environment smoke suite
 to check simulator installation and interfaces. It requires no planner credentials
@@ -463,6 +459,14 @@ GPU/EGL setup and are separate from offline CPU CI; skipped tests are not passes
 
 Troubleshooting
 ---------------
+
+The asset root must contain downloaded collections and bundled scene, arena, and fixture files. Preserve attribution files. ``--skip-existing`` checks download inventories; for conflicting files, confirm that replacement is intended before using:
+
+.. code-block:: bash
+
+   robocasa-download-assets --assets-path ~/.robocasa/assets --no-macros --overwrite -y
+
+``--overwrite`` takes precedence over ``--skip-existing`` and replaces only files in the installation scope. By default, conflicting files are preserved and the destination must support hard links. Allow space for ZIP archives and unpacked data, plus existing data during replacement. Rerun the download after an interruption.
 
 Run the :ref:`environment smoke tests <environment-smoke-tests>` first. After
 downloading all four resources, use the existing RoboCasa E2E component test
@@ -513,8 +517,8 @@ The lightweight protocol tests still validate all 50 tasks and the fixed
   add the exact host to ``NO_PROXY`` and ``no_proxy`` only when it should be
   reached directly.
 
-Toolkit design vs. LIBERO
--------------------------
+Implementation Notes
+--------------------
 
 The RoboCasa toolkit exposes the same *shape* of tools as LIBERO (a
 primitive call, a state view, a ``finish``), with two RoboCasa-specific
@@ -537,25 +541,3 @@ aspects:
   code (``rldx_skill`` / ``vla_client``) never sees the session id
   directly; the server injects it into ``predict`` / ``reset_session``
   to isolate per-client RLDX memory/RTC policy state.
-
-Exploration mode
-----------------
-
-Add ``--explore`` to let the planner retry a task across fresh episodes and
-write local memory. As with LIBERO, one run uses three planner sessions with
-five attempts per session by default:
-
-.. code-block:: bash
-
-   rpent --robot robocasa --task-name OpenDrawer --split target --seed 0 \
-     --vla-model-path /path/to/rldx \
-     --planner codex --reasoning-effort high --planner-timeout-s 7200 \
-     --explore --explore-sessions 3 --explore-attempts-per-session 5 \
-     --memory-dir /path/to/robocasa-memory
-
-``reset`` uses the environment's ordinary episode reset. The runner exports
-only the winning commands after the final reset. Exploration memory is written
-to the current local inbox and merged after the run unless
-``--no-auto-merge-memory`` is passed. The exploration prompt is in
-``robots/robocasa/prompts/explore.py`` and covers mobile-base use,
-``task_progress``, RLDX continuity, and failed-attempt notes.

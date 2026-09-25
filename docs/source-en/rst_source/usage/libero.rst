@@ -1,64 +1,47 @@
 LIBERO
-======
+============
 
-`LIBERO <https://libero-project.github.io/>`_ is RPent's primary simulation
-benchmark for MuJoCo/robosuite-based tabletop manipulation.
-RPent focuses on four core base task families (``libero_object``,
-``libero_goal``, ``libero_spatial``, ``libero_10``) and three variants
-(``standard``, ``pro``, ``plus``).
-The default VLA is **Pi0.5**, served over HTTP by
-``rpent/robots/components/pi05_vla_server.py``.
+.. figure:: https://raw.githubusercontent.com/Lifelong-Robot-Learning/LIBERO/master/images/fig1.png
+   :alt: LIBERO environment overview
+   :width: 90%
+   :align: center
 
-VLA configuration
------------------
+   LIBERO benchmark overview. Source: `LIBERO project <https://libero-project.github.io/>`_.
 
-Download the recommended SFT checkpoint
-`RLinf-Pi05-LIBERO-130-fullshot-SFT
-<https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT>`_,
-then point at it via ``PI05_CHECKPOINT_PATH``:
+Run tabletop manipulation tasks with RPent in `LIBERO <https://libero-project.github.io/>`_, then reproduce LIBERO-PRO experiments. The simulator uses MuJoCo/robosuite. RPent supports the ``standard``, ``pro``, and ``plus`` variants and uses Pi0.5 as the default VLA.
 
-.. code-block:: bash
+.. _libero-overview:
 
-   hf download RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT \
-     --local-dir /path/to/rlinf-pi05-libero-130-fullshot-sft
+Overview
+------------
 
-   export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
+Check the model, task, and runtime requirements before following the installation and run steps.
 
-SAM3 configuration
-------------------
+.. grid:: 2 4 4 4
+   :gutter: 2
 
-SAM 3.0 segmentation is enabled for every LIBERO run. Download ``sam3.pt``
-from `Hugging Face: facebook/sam3 <https://huggingface.co/facebook/sam3>`_
-or `ModelScope: facebook/sam3 <https://modelscope.cn/models/facebook/sam3>`_,
-then point at it via ``SAM3_CHECKPOINT_PATH``:
+   .. grid-item-card:: Action Models
 
-.. code-block:: bash
+      Pi0.5
 
-   # Hugging Face (request access on the model page first)
-   hf auth login
-   hf download facebook/sam3 sam3.pt --local-dir /path/to/sam3
+   .. grid-item-card:: Planners
 
-   # ModelScope (use this instead of the Hugging Face commands above)
-   modelscope download --model facebook/sam3 sam3.pt --local_dir /path/to/sam3
+      ``api``, ``claude_code``, ``codex``; also see :doc:`flash`.
 
-   export SAM3_CHECKPOINT_PATH=/path/to/sam3/sam3.pt
+   .. grid-item-card:: Tasks
 
-Task selection
---------------
+      Object, Goal, Spatial, LIBERO-10
 
-A LIBERO run uses the following task settings:
+   .. grid-item-card:: Hardware
 
-- ``--suite`` — selects the task suite to run. See
-  :ref:`libero-pro-core-suites` for the complete core-suite list.
-- ``--task`` — the task index within the suite.
-- ``--seed`` — the environment seed.
-- ``--libero-type`` — the LIBERO variant: ``standard`` | ``pro`` |
-  ``plus``.
+      Linux, NVIDIA GPU; Python 3.11; CUDA and EGL.
+
+.. _core-libero-pro-suites:
 
 .. _libero-pro-core-suites:
 
-Core LIBERO-PRO suites
-~~~~~~~~~~~~~~~~~~~~~~
+Tasks
+~~~~~~~~~~~~
 
 This table covers RPent's four core LIBERO-PRO task families and all of
 their perturbation suites.
@@ -87,8 +70,113 @@ their perturbation suites.
      - ``libero_10_task``, ``libero_10_swap``, ``libero_10_lan``,
        ``libero_10_object``
 
-Minimal command
----------------
+.. _libero-observation-action:
+
+Observation and Action
+~~~~~~~~~~~~~~~~~~~~~~
+
+The table distinguishes planner tools, model inputs, and the environment’s success criterion.
+
+.. list-table::
+   :header-rows: 1
+
+   * - Item
+     - Description
+   * - Observation
+     - RGB/depth camera views and end-effector/gripper state. Pi0.5 uses the scene and wrist images with robot state.
+   * - Action
+     - The planner calls Pi0.5 tools or motion primitives such as ``move_to`` and ``set_gripper``; these execute environment actions.
+   * - Reward / success
+     - Evaluate success using the final state’s top-level ``terminated`` value. A step limit or planner ``finish`` is not a success label.
+   * - Task prompt
+     - The task language comes from the selected suite/task and the current environment.
+
+.. _installation-and-variants:
+
+Installation and Resources
+--------------------------
+
+For a first LIBERO-PRO run, complete the installation, asset downloads, and model setup in :doc:`../quickstart`. Continue here to select tasks and reproduce experiments.
+
+For another variant, install the matching extra in an isolated environment and download its assets. Install only one LIBERO variant per Python environment:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Variant
+     - Install
+     - Assets
+   * - ``standard``
+     - ``uv pip install -e ".[libero]"``
+     - ``libero-download-assets --skip-existing``
+   * - ``pro``
+     - ``uv pip install -e ".[libero-pro]"``
+     - ``liberopro-download-assets --skip-existing``
+   * - ``plus``
+     - ``uv pip install -e ".[libero-plus]"``
+     - ``liberoplus-download-assets --skip-existing``
+
+At runtime, set ``--libero-type`` to match the installed variant.
+
+VLA Configuration
+-----------------
+
+Download the recommended SFT checkpoint
+`RLinf-Pi05-LIBERO-130-fullshot-SFT
+<https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT>`_,
+then point at it via ``PI05_CHECKPOINT_PATH``:
+
+.. code-block:: bash
+
+   hf download RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT \
+     --local-dir /path/to/rlinf-pi05-libero-130-fullshot-sft
+
+   export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
+
+SAM3 Configuration
+------------------
+
+SAM 3.0 segmentation is enabled for every LIBERO run. Download ``sam3.pt``
+from `Hugging Face: facebook/sam3 <https://huggingface.co/facebook/sam3>`_
+or `ModelScope: facebook/sam3 <https://modelscope.cn/models/facebook/sam3>`_,
+then point at it via ``SAM3_CHECKPOINT_PATH``:
+
+.. code-block:: bash
+
+   # Hugging Face (request access on the model page first)
+   hf auth login
+   hf download facebook/sam3 sam3.pt --local-dir /path/to/sam3
+
+   # ModelScope (use this instead of the Hugging Face commands above)
+   modelscope download --model facebook/sam3 sam3.pt --local_dir /path/to/sam3
+
+   export SAM3_CHECKPOINT_PATH=/path/to/sam3/sam3.pt
+
+Task Selection
+--------------
+
+A LIBERO run uses the following task settings:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Option
+     - Meaning
+   * - ``--suite``
+     - Select a suite from :ref:`Core LIBERO-PRO suites <libero-pro-core-suites>`.
+   * - ``--task``
+     - Task index within the suite.
+   * - ``--seed``
+     - Environment seed; defaults to ``0``.
+   * - ``--libero-type``
+     - Installed LIBERO variant: ``standard`` | ``pro`` | ``plus``.
+
+.. _minimal-command:
+
+Run a Task
+----------
+
+Complete the model setup above and configure a planner with :doc:`configure_planner`. This command runs task 2 of ``libero_object_swap`` at seed 0.
 
 .. code-block:: bash
 
@@ -100,83 +188,65 @@ Minimal command
 
 To switch planners, see :doc:`configure_planner`.
 
+View Results
+------------
+
+The terminal shows server startup, planner conversation, and tool calls. After the run, inspect ``episode.mp4``, ``transcript_*.json``, and ``run.log`` in the output directory; see :ref:`run-output-files` for default paths and step artifacts.
+
+Inspect the final state with ``view_env_state(step=-1)``. Its top-level ``terminated`` value is the native success result; ``finish`` ends planning. See :doc:`dashboard` for live monitoring.
+
 .. _libero-exploration:
 
-Exploration and local-memory evaluation
----------------------------------------
+.. _exploration-and-memory:
 
-RPent supports two LIBERO run modes:
+Task Memory and Exploration Mode
+--------------------------------
 
-- **Exploration** uses multiple resettable attempts and independent planner
-  sessions to discover successful strategies and distil them into a local
-  global/suite/task_only memory corpus. It is a memory-generation workflow, not the
-  benchmark success-rate measurement.
-- **Evaluation** is the default, single-attempt mode. It does not reset the
-  episode or update memory. Local-memory evaluation consumes the validated
-  audit, recipe, and lessons produced by exploration. The HarnessVLA success
-  rate is reproduced in evaluation mode.
+Use ``--explore`` to build local memory or ``--memory-profile local`` to read a prepared corpus. See :doc:`memory` for the complete LIBERO workflow and commands. LIBERO’s native success result determines whether successful task records are published.
 
-Evaluation remains the default mode.  Omitting ``--memory-profile`` preserves
-the original Hugging Face resource sync and prompt:
+.. raw:: html
 
-Both profiles run the same single-attempt evaluation workflow; they differ only
-in where the evaluation memory comes from and which memory prompt is used.
+   <span id="reproducing-results"></span>
 
-.. code-block:: bash
+Experiment Reproduction
+-----------------------
 
-   rpent --robot libero --suite libero_10_task --task 0 --seed 1 \
-     --planner claude_code --memory-profile hf
+See :doc:`../leaderboard` for the unified RPent model comparison on LIBERO-PRO
+Task/Swap and the corresponding model configurations.
 
-Use ``local`` after a local memory corpus has been prepared, for example
-after running the exploration workflow below. This option does not enable
-exploration and does not download memory from Hugging Face; it runs the normal
-single-attempt evaluation against ``--memory-dir`` (default:
-``memory/libero``) without overwriting that directory. If you want to
-evaluate with the prebuilt Hugging Face corpus, keep ``--memory-profile hf``:
+The :doc:`GPT-6 Astra suite results <../leaderboard>`
+cover all eight complete suites and 800 verified episodes: 741 successes,
+59 failures, and 92.63% Overall, with Codex / GPT-6 Astra / low / reasoning.
 
-.. code-block:: bash
+The following historical reproduction records use the `reproduce/libero
+<https://github.com/RLinf/RPent/tree/reproduce/libero>`_ branch with
+``gpt-5.5`` and ``xhigh`` reasoning effort:
 
-   rpent --robot libero --suite libero_10_task --task 0 --seed 1 \
-     --planner codex --memory-profile local
+- ``libero_10_task``: 70% (70/100)
+- ``libero_10_swap``: 55% (55/100)
 
-Exploration uses the same CLI, runtime, tools, and planner implementations.  It
-adds resettable attempts and fresh planner sessions, then distils drafts into
-``<memory-dir>/_internal/inbox/<cell>/``.  On normal completion the Python runner
-validates and merges those drafts, publishes a task audit/recipe pair only when
-LIBERO reported success, and refreshes ``MEMORY.md``. Exploration can start with
-an empty ``--memory-dir`` and always uses the local profile; ``--explore`` is
-the flag that enables this workflow:
+Use the reproduction branch above and complete this page’s resource setup. The example selects task 0, seed 0; reproducing the reported score requires the full task and seed coverage. Start services at the example ports using :doc:`advanced_deployment` first.
+
+Reproduction command:
 
 .. code-block:: bash
 
-   rpent --robot libero --suite libero_10_task --task 0 --seed 0 \
-     --planner api --model anthropic:claude-opus-4-8 \
-     --explore --explore-sessions 3 --explore-attempts-per-session 5 \
-     --memory-dir /path/to/local/libero-memory
+   rpent --robot libero \
+     --suite libero_10_task --task 0 --seed 0 \
+     --planner codex \
+     --model gpt-5.5 --reasoning-effort xhigh \
+     --max-turns 100 \
+     --planner-timeout-s 5000 \
+     --max-episode-steps 10000 \
+     --libero-type pro \
+     --vla-endpoint http://127.0.0.1:8220 \
+     --sam3-endpoint http://127.0.0.1:8114
 
-Each planner session owns a fresh toolkit. Its state trace and observation
-artifacts are retained under ``<output-dir>/sessions/session_NNN/`` for final
-memory distillation, while reset-based attempts within that session reuse the
-same toolkit.
-
-Add ``--dashboard`` to the exploration command to watch its reasoning, camera
-frames, and continuous action timeline across planner sessions.
-
-Pass ``--no-auto-merge-memory`` to retain inbox drafts for manual review.
-Maintainers can validate the corpus, rebuild its index, or merge one reviewed
-inbox cell explicitly with ``rpent-memory``:
-
-.. code-block:: bash
-
-   rpent-memory --memory-dir /path/to/local/libero-memory validate
-   rpent-memory --memory-dir /path/to/local/libero-memory build-index
-   rpent-memory --memory-dir /path/to/local/libero-memory merge \
-     --cell 10_task_t0_s0 --output-dir logs/explore_10_task_t0_s0
-
-Generated memory is runtime data and is not committed to this repository.
-
-What runs where
+What Runs Where
 ---------------
+
+LIBERO separates simulation and model inference into services. The toolkit
+uses their clients to execute the planner's requests.
 
 - **env_server** (``robots/libero/env_server.py``) — owns the LIBERO
   MuJoCo env and EGL rendering. Exposes ``reset``, ``step``,
@@ -185,15 +255,17 @@ What runs where
 - **vla_server** (``rpent/robots/components/pi05_vla_server.py``) — owns the Pi0.5
   weights. Exposes ``predict`` over the same RPC transport (HTTP or
   socket).
-- **sam3_server** (``rpent/robots/components/sam3_server.py``) — owns SAM 3.0 and
-  exposes text or single-positive-point segmentation through the same RPC
-  transports (HTTP or socket). It returns only the top compressed PNG mask.
+- **sam3_server** (``rpent/robots/components/sam3_server.py``) — loads SAM 3.0 and
+  segments a target region from a text description or one pixel on the target
+  object. If the model produces multiple candidates, it selects the one with
+  the highest model score and returns its mask as a compressed PNG through the
+  same RPC transports (HTTP or socket).
 - **toolkit** (``robots/libero/toolkit.py``) — defines the tools the
   LLM can call: ``pi0_pick`` (fed to Pi0.5), ``move_to``,
   ``rotate_wrist``, ``back_project``, ``view_env_state``,
   ``finish``, …
 
-Tools the planner can call
+Tools the Planner Can Call
 --------------------------
 
 LIBERO tools fall into two groups: physical action tools and read-only tools.
@@ -229,39 +301,12 @@ Physical action tools advance the environment and record new state and images.
 
 These tools do not advance the environment.
 
-Live dashboard
---------------
+Dashboard
+---------
 
-Add ``--dashboard`` to start a long-lived local Dashboard Session. It
-selects an available port and prints the URL in the terminal:
+See :doc:`dashboard` to monitor runs, submit tasks, and stop a session.
 
-.. code-block:: bash
-
-   rpent --robot libero --dashboard \
-     --planner claude_code --model claude-opus-4-8
-
-Session configuration comes from the command line, and the URL opens directly
-in the live monitor. After the shared services are ready, start a TaskRun with:
-
-.. code-block:: text
-
-   /rpent-task libero_object_swap 2 0
-
-The Dashboard supports the ``api``, ``claude_code``, and ``codex`` planners.
-Configure ``--planner`` and ``--model`` on the command line as for a normal
-run; see :doc:`configure_planner`.
-
-Each TaskRun gets a fresh environment while the VLA and SAM3 services are
-reused by the Session. Submit a new ``/rpent-task`` to start or switch tasks;
-during a run, normal messages steer the agent and Esc requests an interruption.
-Press Ctrl+C in the terminal to stop the Session.
-
-``--dashboard`` cannot be combined with ``--interactive`` or
-``--env-endpoint``. External ``--vla-endpoint`` and ``--sam3-endpoint``
-services remain supported. Use ``--dashboard-language zh-cn`` for the
-Chinese UI.
-
-Bringing your own VLA
+Bringing Your Own VLA
 ---------------------
 
 If you have a LIBERO-compatible VLA that is not Pi0.5, swap the model
@@ -274,35 +319,3 @@ client without touching the robot by:
    surface (e.g. ``pi0_pick`` → ``mymodel_pick``) needs to change.
 
 See :doc:`../development/add_primitive` for the full walkthrough.
-
-Reproducing results
--------------------
-
-See :doc:`../leaderboard` for the unified RPent model comparison on LIBERO-PRO
-Task/Swap and the corresponding model configurations.
-
-The :doc:`GPT-6 Astra suite results <../leaderboard>`
-cover all eight complete suites and 800 verified episodes: 741 successes,
-59 failures, and 92.63% Overall, with Codex / GPT-6 Astra / low / reasoning.
-
-The following historical reproduction records use the `reproduce/libero
-<https://github.com/RLinf/RPent/tree/reproduce/libero>`_ branch with
-``gpt-5.5`` and ``xhigh`` reasoning effort:
-
-- ``libero_10_task``: 70% (70/100)
-- ``libero_10_swap``: 55% (55/100)
-
-Reproduction command:
-
-.. code-block:: bash
-
-   rpent --robot libero \
-     --suite libero_10_task --task "task" --seed "seed" \
-     --planner codex \
-     --model gpt-5.5 \
-     --max-turns 100 \
-     --planner-timeout-s 5000 \
-     --max-episode-steps 10000 \
-     --libero-type pro \
-     --vla-endpoint http://127.0.0.1:8220 \
-     --sam3-endpoint http://127.0.0.1:8114

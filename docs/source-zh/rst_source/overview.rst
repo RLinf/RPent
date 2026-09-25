@@ -1,23 +1,21 @@
-概览
-====
+RPent 简介
+============
 
-**RPent（Recursive Physical Agent）** 是一个开源框架，用于构建能够在与物理世界的递归交互中持续演进的具身智能体。RPent 不限定基础模型的选择，而是提供一套递归的智能体框架，将感知（perception）、推理（reasoning）、记忆（memory）、执行（execution）和自我演进（self-evolution）等不同类型的智能能力整合到统一的物理智能体中。物理智能体在持续交互中不断反思和调整，从而获得新能力，逐步突破初始设计的能力边界。
+RPent（Recursive Physical Agent）是一个具身智能体框架。它让语言模型根据任务和视觉观测选择工具，再通过动作模型或程序化动作控制机器人。每次执行的结果会返回给规划器，用于判断下一步操作。
 
-Pent 这个名字源自五芒星 (Pentagram), 其五个顶点象征多模态智能融合为一个
-统一的具身智能体。五芒星的中心是无穷符号 (∞), 代表感知、推理、执行、
-自我演进永无止境的递归循环, 让智能持续向物理世界扩展。
+.. image:: https://raw.githubusercontent.com/RLinf/misc/main/pic/rpent_framework.png
+   :alt: RPent 规划、感知、记忆和执行架构
+   :width: 100%
 
-.. image:: https://github.com/RLinf/misc/raw/main/pic/rpent_framework.png
-   :alt: RPent 框架图
-   :align: center
-   :width: 90%
+如何完成任务
+------------------
 
-RPent 建立在三条核心设计原则之上: **服务化、标准化、可组合
-(service-oriented, standardized, and composable)**。RPent 把各种能力以
-可复用服务的形式部署, 通过统一接口连接, 并灵活组合成多样的物理智能体。
-这三条原则让 RPent 超越了传统的机器人控制框架, 成为面向物理世界的
-智能体基础设施 (agentic infrastructure for the physical world) —— 在这里,
-智能不只是被部署, 而是被持续构建、扩展与演进。
+1. 规划器读取任务描述、当前观测和可用的任务经验。
+2. 通过视觉工具定位目标，选择 VLA 或程序化动作工具。
+3. 环境执行动作，返回状态和相机画面。
+4. 规划器根据结果继续、调整策略或结束任务。
+
+探索模式允许多次尝试并整理本地记忆。评测模式读取已有记忆，按环境规定判断任务结果。实现细节见 :doc:`development/architecture`。
 
 排行榜
 ------
@@ -37,41 +35,32 @@ RPent 建立在三条核心设计原则之上: **服务化、标准化、可组�
    :width: 100%
    :target: leaderboard.html
 
-
-功能矩阵
---------
+选择平台
+------------
 
 .. list-table::
    :header-rows: 1
-   :widths: 26 28 26 20
+   :widths: 30 70
 
-   * - Agentic Planner
-     - 动作原语
-     - 仿真环境
-     - 真实机器人
-   * - - :ref:`Claude Code <planner-claude-code>` ✅
-       - :ref:`Codex <planner-codex>` ✅
-       - :ref:`Custom Planner <planner-custom>` ✅
-     - - **VLA**
+   * - 平台
+     - 文档内容
+   * - :doc:`LIBERO <usage/libero>`
+     - Pi0.5、SAM3、LIBERO / LIBERO-PRO 运行与复现。
+   * - :doc:`RoboCasa365 <usage/robocasa>`
+     - RLDX-1、厨房任务和 Target50 复现。
+   * - :doc:`RoboTwin <usage/robotwin>`
+     - LingBot-VLA、双臂仿真任务和 C2R 复现。
+   * - :doc:`单臂 Franka <usage/franka>`
+     - 硬件准备、标定、自检和运行。
+   * - :doc:`双臂 Franka <usage/dual_franka>`
+     - 双节点部署、操作与人工参与的探索。
+   * - :doc:`YAM <usage/yam>`
+     - 已有任务演示；安装使用文档即将推出。
+   * - :doc:`SO-101 <usage/so101>`
+     - 内容即将推出。
 
-         - :doc:`Pi0.5 <usage/libero>` ✅
-         - :doc:`RLDX-1 <usage/robocasa>` ✅
-         - :doc:`LingBot-VLA <usage/robotwin>` ✅
+规划器可选择 ``api``、``claude_code`` 或 ``codex``；LIBERO 还提供用于执行已有计划的 :doc:`Flash Mode <usage/flash>`。模型服务配置见 :doc:`usage/configure_planner`。
 
-       - **WAM**
+从 :doc:`quickstart` 开始运行第一个任务。评测成绩和资源开销见 :doc:`leaderboard`，研究背景见 :doc:`awesome_works/harnessvla`。
 
-         - DreamZero
-     - - :doc:`LIBERO-PRO <usage/libero>` ✅
-       - :doc:`RoboCasa <usage/robocasa>` ✅
-       - :doc:`RoboTwin <usage/robotwin>` ✅
-     - - Franka
-       - SO-101
-
-接下来
-------
-
-- 初次使用 RPent？先完成 :doc:`installation`，再按照 :doc:`quickstart`
-  端到端运行一个 LIBERO 任务。
-- 想使用某个具体的机器人环境？查看对应的使用教程，例如 :doc:`usage/libero`。
-- 想切换 planner？查看 :doc:`usage/configure_planner`。
-- 打算基于 RPent 扩展？看 :doc:`development/architecture`。
+DreamZero、Cosmos Policy 和 RoboDojo 也列在项目的规划中，相关使用文档待补充。

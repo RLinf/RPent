@@ -1,201 +1,111 @@
 Quick Start
 ===========
 
-Before you begin, follow :doc:`installation` to install RPent and
-download the LIBERO-PRO simulator assets. The steps below use LIBERO-PRO
-with the ``claude_code`` planner to demonstrate a complete run.
+Install RPent, run one LIBERO-PRO task, and inspect its result. This example uses the Claude Code planner, Pi0.5 for robot actions, and SAM3 for visual segmentation.
 
-1. Configure keys and checkpoints
----------------------------------
+For another platform, follow :doc:`usage/robocasa`, :doc:`usage/robotwin`, or :doc:`real-world robot deployment <usage/real_robots>` and use that platform’s requirements.
 
-Export your Anthropic key, then download and configure the VLA and SAM3
-checkpoints:
+Requirements
+------------
+
+- Linux, an NVIDIA GPU, and a CUDA 12-compatible driver.
+- ``git``, ``bash``, and a C/C++ toolchain.
+- `uv <https://docs.astral.sh/uv/getting-started/installation/>`_ to create an isolated Python environment. These commands use Python 3.11.
+- An Anthropic API key with access to the example model, and network access to download assets and weights. Model calls incur API charges.
+
+1. Install RPent
+----------------
+
+Create an isolated Python environment and install the LIBERO-PRO dependencies.
 
 .. code-block:: bash
 
-   # Anthropic key; no need to export the base url if you use the
-   # official endpoint.
-   export ANTHROPIC_BASE_URL=https://xxx
-   export ANTHROPIC_API_KEY=sk-xxx
+   git clone https://github.com/RLinf/RPent.git
+   cd RPent
+   uv venv --python 3.11
+   source .venv/bin/activate
+   uv pip install -e ".[libero-pro]"
 
-   # VLA checkpoint — download from
-   # https://huggingface.co/RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT
-   pip install "huggingface_hub>=0.34,<1.0"
+Run the remaining commands in this terminal from the RPent repository root. In a new terminal, activate ``.venv`` and set the checkpoint paths and API key again.
 
+2. Download Assets and Models
+-----------------------------
+
+Download the LIBERO-PRO scene assets. ``--skip-existing`` reuses files already downloaded:
+
+.. code-block:: bash
+
+   liberopro-download-assets --skip-existing
+
+Download Pi0.5 and SAM3, then set their paths:
+
+.. code-block:: bash
+
+   uv pip install "huggingface_hub>=0.34,<1.0" modelscope
    hf download RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT \
      --exclude optimizer.pt \
      --local-dir ./checkpoints/RLinf-Pi05-LIBERO-130-fullshot-SFT
+   modelscope download --model facebook/sam3 sam3.pt \
+     --local_dir ./checkpoints/sam3
 
-   export PI05_CHECKPOINT_PATH=$PWD/checkpoints/RLinf-Pi05-LIBERO-130-fullshot-SFT
+   export PI05_CHECKPOINT_PATH="$PWD/checkpoints/RLinf-Pi05-LIBERO-130-fullshot-SFT"
+   export SAM3_CHECKPOINT_PATH="$PWD/checkpoints/sam3/sam3.pt"
 
-   # SAM 3.0 checkpoint — download from
-   # https://modelscope.cn/models/facebook/sam3
-   pip install -U modelscope
+Pi0.5 executes robot actions; SAM3 locates objects in images. SAM3 is also available on Hugging Face; see :doc:`usage/libero` for access and alternative download instructions.
 
-   modelscope download facebook/sam3 \
-     --local-dir ./checkpoints/sam3
+3. Configure and Check the Planner
+----------------------------------
 
-   export SAM3_CHECKPOINT_PATH=$PWD/checkpoints/sam3/sam3.pt
+Replace ``YOUR_API_KEY`` with your key:
 
-2. Run one LIBERO task
+.. code-block:: bash
+
+   export ANTHROPIC_API_KEY="YOUR_API_KEY"
+   rpent-check-llm --planner claude_code --model claude-opus-4-8
+
+The official Anthropic endpoint needs no ``ANTHROPIC_BASE_URL`` setting. See :doc:`usage/configure_planner` for custom endpoints and other planners. Proceed after the check passes; it verifies model-service authentication and connectivity.
+
+4. Run Your First Task
 ----------------------
 
-Run a single LIBERO PRO task (``libero_object_swap``, task ``2``, seed
-``0``) using the ``claude_code`` planner:
+Run task ``2`` in ``libero_object_swap`` with scene seed ``0``:
 
 .. code-block:: bash
 
-   rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
-     --planner claude_code --model claude-opus-4-8
+   rpent --robot libero --libero-type pro \
+     --suite libero_object_swap --task 2 --seed 0 \
+     --planner claude_code --model claude-opus-4-8 \
+     --output-dir ./logs/first-libero-pro
 
-To switch to another planner, such as ``codex`` or ``api``, see
-:doc:`Agentic Planner <usage/configure_planner>`.
+The terminal shows environment, VLA, and SAM3 service startup, followed by planner messages and tool calls. Inspect ``logs/first-libero-pro/`` when the run ends. Choose a new output directory for later runs to preserve this record.
 
-3. Monitor the run in the Dashboard
------------------------------------
+5. Inspect the Result
+---------------------
 
-Add ``--dashboard`` to start a local Dashboard and print its URL in the terminal:
+- ``episode.mp4``: replay the robot’s actions.
+- ``transcript_*.json``: inspect planner messages, tool calls, and the finish state.
+- ``run.log``: inspect runtime messages and errors.
 
-.. code-block:: bash
+For LIBERO, success is the top-level ``terminated`` value in the final environment state, available in the result of ``view_env_state(step=-1)``. The planner’s ``finish`` status alone does not establish environment success.
 
-   rpent --robot libero --dashboard --dashboard-language zh-cn \
-     --planner claude_code --model claude-opus-4-8
+See :ref:`run-output-files` for default directory names, exported action sequences, and step artifacts.
 
-Session configuration comes from the CLI and the URL opens directly in the
-live monitor. Once the services are ready, enter
-``/rpent-task libero_object_swap 2 0`` in the page to start a task. The Dashboard
-streams agent reasoning, camera views, and the action timeline; submit another
-task after the current one finishes. Use ``--dashboard-language zh-cn`` for the
-Chinese UI.
+See :doc:`usage/dashboard` to watch cameras and actions live. For more tasks, exploration, and experiment reproduction, continue with :doc:`usage/libero`.
 
-Key CLI options
+If a Step Fails
 ---------------
 
-The table lists the main CLI options. Run ``rpent --help`` for other
-general options. See the :doc:`LIBERO guide <usage/libero>` for detailed
-robot configuration.
-
-**Main**
-
 .. list-table::
    :header-rows: 1
-   :widths: 22 15 63
+   :widths: 25 75
 
-   * - Flag
-     - Default
-     - Description
-   * - ``--robot``
-     - — (required)
-     - Robot backend. Currently ``libero``.
-   * - ``--suite``
-     - — (required)
-     - Task suite, e.g. ``libero_object_task``, ``libero_spatial_swap``
-   * - ``--task``
-     - — (required)
-     - Task id within the suite
-   * - ``--seed``
-     - ``0``
-     - Random seed
-   * - ``--libero-type``
-     - ``LIBERO_TYPE`` or ``pro``
-     - LIBERO variant: ``standard`` | ``pro`` | ``plus``
-
-**Planner**
-
-.. list-table::
-   :header-rows: 1
-   :widths: 22 15 63
-
-   * - Flag
-     - Default
-     - Description
-   * - ``--planner``
-     - ``api``
-     - ``api`` | ``claude_code`` | ``codex``
-   * - ``--model``
-     - —
-     - Model id; for ``api``, prefix the provider (``anthropic:…``,
-       ``openai:…``, ``openai-chat:…``)
-   * - ``--max-turns``
-     - ``100``
-     - Max agent turns
-   * - ``--max-tokens``
-     - ``8192``
-     - Max tokens per LLM reply
-   * - ``--reasoning-effort``
-     - ``none``
-     - Reasoning effort for ``api``, ``claude_code``, and ``codex``:
-       ``none`` | ``low`` | ``medium`` | ``high`` | ``xhigh``. Disabling
-       reasoning reduced the average runtime from approximately 13.2 to
-       7.9 minutes (about 40%) in our LIBERO Pro Long evaluations.
-       Higher effort may improve task success rate. Supported levels
-       ultimately depend on the selected model.
-   * - ``--no-images``
-     - off
-     - Text-only mode: never send image bytes (for models that reject
-       image input)
-
-**Environment**
-
-.. list-table::
-   :header-rows: 1
-   :widths: 22 15 63
-
-   * - Flag
-     - Default
-     - Description
-   * - ``--max-episode-steps``
-     - ``10000``
-     - Max env steps
-   * - ``--cuda-device``
-     - inherited
-     - GPU device exposed to the env / VLA / SAM3 servers
-   * - ``--env-endpoint``
-     - — (spawn)
-     - ``[protocol://]host:port`` of an existing env_server
-       (``protocol=http|socket``, default ``http``). If unset, one is
-       spawned locally.
-   * - ``--vla-endpoint``
-     - — (spawn)
-     - ``[protocol://]host:port`` of an existing vla_server (same rules).
-       If unset, one is spawned locally.
-   * - ``--sam3-endpoint``
-     - — (spawn)
-     - ``[protocol://]host:port`` of an existing RPent SAM3 service
-       (same rules). If unset, one is spawned locally.
-
-**Dashboard**
-
-.. list-table::
-   :header-rows: 1
-   :widths: 22 15 63
-
-   * - Flag
-     - Default
-     - Description
-   * - ``--dashboard``
-     - off
-     - Start a local Dashboard
-   * - ``--dashboard-language``
-     - ``en``
-     - Dashboard UI language: ``en`` | ``zh-cn``
-
-What you should see
--------------------
-
-A successful run:
-
-1. Shows startup messages for ``env_server``, ``vla_server``, and
-   ``sam3_server`` in the terminal.
-2. Prints per-turn agent output and tool calls in the terminal, followed
-   by the elapsed time, token usage, and path to the run record.
-3. With the Dashboard enabled, also streams agent output, camera views,
-   the action timeline, and clip replays to the Dashboard.
-4. By default, artifacts are saved under ``logs/<timestamp>_<suite>_t<task>_s<seed>/``. They include ``transcript_*.json`` (run record), ``states.json`` (the ``EnvState`` manifest), ``*_recipe.jsonl`` (action sequence), and ``episode.mp4`` (episode video). Each step artifact has a directory named after its logical artifact name; zero-padded step files live inside it, for example ``agentview_depth.npz/00.npz`` and ``agentview_depth.npz/01.npz``. Run-level artifacts remain at the output root.
-
-Inspect the final state through the Dashboard or
-``view_env_state(step=-1)``. Its top-level ``terminated`` value is the
-benchmark outcome. ``states.json`` is internal ``EnvState`` storage and should
-not be parsed by callers. You can also open ``episode.mp4`` to review the run.
-If something goes wrong, inspect the four log files described at the
-bottom of :doc:`installation`.
+   * - Symptom
+     - Action
+   * - Model connection fails
+     - Check the key, model access, and endpoint; rerun ``rpent-check-llm``.
+   * - Asset download fails
+     - Rerun the download. If Hugging Face is slow, optionally set ``HF_ENDPOINT=https://hf-mirror.com`` for that command.
+   * - Environment or model fails to start
+     - Check both checkpoint paths, then inspect ``env_server.log``, ``vla_server.log``, or ``sam3_server.log``. For out-of-memory errors, check other GPU processes.
+   * - Task runs but does not succeed
+     - Review the video and final state to distinguish action failures from service errors. One task does not establish benchmark performance.

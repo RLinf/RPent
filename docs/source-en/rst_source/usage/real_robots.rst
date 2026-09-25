@@ -1,12 +1,20 @@
-Real Robots
-===========
+:orphan:
 
-Choose a real robot for its integration status, setup, and usage instructions.
+Real-World Robots
+=================
 
-.. toctree::
-   :maxdepth: 1
-   :titlesonly:
+Choose a platform for installation and usage instructions.
 
-   Franka <franka>
-   Dual Franka <dual_franka>
-   SO-101 <so101>
+.. list-table::
+   :header-rows: 1
+
+   * - Platform
+     - Contents
+   * - :doc:`franka`
+     - Single-arm Franka deployment and operation.
+   * - :doc:`dual_franka`
+     - Dual-arm Franka installation, calibration, and operation.
+   * - :doc:`yam`
+     - Task demo available; installation and usage instructions are coming soon.
+   * - :doc:`so101`
+     - Content coming soon.

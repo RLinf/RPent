@@ -72,7 +72,7 @@ RPent is built for four kinds of users:
         <ul style="margin-left: 0; padding-left: 16px;">
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/configure_planner.html#the-claude-code-planner">Claude Code</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/configure_planner.html#the-codex-planner">Codex</a> ✅</li>
-          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/configure_planner.html#add-a-custom-planner">Custom Planner</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/development/add_planner.html">Custom Planner</a> ✅</li>
         </ul>
       </td>
       <td>
@@ -123,7 +123,7 @@ pip install -e ".[robocasa]"    # RoboCasa
 pip install -e ".[robotwin]"    # RoboTwin
 ```
 
-`.[libero-pro]` is the recommended default. See the [installation docs](https://rpent.readthedocs.io/en/latest/rst_source/installation.html) for other environments.
+`.[libero-pro]` is the recommended default. See the [installation docs](https://rpent.readthedocs.io/en/latest/rst_source/quickstart.html) for other environments.
 
 For RoboCasa setup, task memory, and the Target50 protocol, see the
 [RoboCasa guide](https://rpent.readthedocs.io/en/latest/rst_source/usage/robocasa.html).
@@ -138,13 +138,12 @@ liberopro-download-assets --skip-existing
 
 > 💡 Slow connection to Hugging Face? Download through the mirror: `HF_ENDPOINT=https://hf-mirror.com liberopro-download-assets --skip-existing`.
 
-See the [installation docs](https://rpent.readthedocs.io/en/latest/rst_source/installation.html) for other simulators.
+See the [installation docs](https://rpent.readthedocs.io/en/latest/rst_source/quickstart.html) for other simulators.
 
 **3. Configure keys and checkpoints, then run.**
 
 ```bash
 # Anthropic key; no need to export the base url if you use the official endpoint.
-export ANTHROPIC_BASE_URL=https://xxx
 export ANTHROPIC_API_KEY=sk-xxx
 
 # VLA checkpoint — download from
@@ -192,7 +191,7 @@ rpent --robot libero --dashboard --dashboard-language zh-cn \
   --planner claude_code --model claude-opus-4-8
 ```
 
-For a complete list of CLI options, see the [Key CLI options](https://rpent.readthedocs.io/en/latest/rst_source/quickstart.html#key-cli-options) table in the Quick Start docs. RoboCasa and RoboTwin use their own entrypoints and CLI — see the [RoboCasa](https://rpent.readthedocs.io/en/latest/rst_source/usage/robocasa.html) and [RoboTwin](https://rpent.readthedocs.io/en/latest/rst_source/usage/robotwin.html) docs.
+For a complete list of CLI options, see the [CLI and Configuration](https://rpent.readthedocs.io/en/latest/rst_source/usage/cli.html) reference. RoboCasa and RoboTwin provide their own task parameters — see the [RoboCasa](https://rpent.readthedocs.io/en/latest/rst_source/usage/robocasa.html) and [RoboTwin](https://rpent.readthedocs.io/en/latest/rst_source/usage/robotwin.html) docs.
 
 For more detailed documentation, see the [RPent documentation](https://rpent.readthedocs.io/en/latest/).
 

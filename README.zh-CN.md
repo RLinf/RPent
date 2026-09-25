@@ -71,7 +71,7 @@ RPent 面向以下四类用户：
         <ul style="margin-left: 0; padding-left: 16px;">
           <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/configure_planner.html#claude-code-planner">Claude Code</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/configure_planner.html#codex-planner">Codex</a> ✅</li>
-          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/configure_planner.html#planner">Custom Planner</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/development/add_planner.html">Custom Planner</a> ✅</li>
         </ul>
       </td>
       <td>
@@ -123,7 +123,7 @@ pip install -e ".[robotwin]"    # RoboTwin
 ```
 
 `.[libero-pro]` 是默认推荐配置。其他环境见
-[安装文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/installation.html)。
+[安装文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/quickstart.html)。
 
 RoboCasa 安装、任务 memory 与 Target50 协议参见
 [RoboCasa 指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robocasa.html)。
@@ -138,13 +138,12 @@ liberopro-download-assets --skip-existing
 
 > 💡 访问 Hugging Face 较慢时，可走镜像加速：`HF_ENDPOINT=https://hf-mirror.com liberopro-download-assets --skip-existing`。
 
-其他仿真器见[安装文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/installation.html)。
+其他仿真器见[安装文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/quickstart.html)。
 
 **3. 配置密钥与 checkpoint，然后运行。**
 
 ```bash
 # Anthropic 密钥；使用官方端点时无需 export base url。
-export ANTHROPIC_BASE_URL=https://xxx
 export ANTHROPIC_API_KEY=sk-xxx
 
 # VLA checkpoint —— 从以下地址下载：
@@ -192,7 +191,7 @@ rpent --robot libero --dashboard --dashboard-language zh-cn \
   --planner claude_code --model claude-opus-4-8
 ```
 
-完整的命令行参数列表见 [快速开始](https://rpent.readthedocs.io/zh-cn/latest/rst_source/quickstart.html#cli) 文档中的「关键 CLI 选项」表格。RoboCasa 与 RoboTwin 使用独立的入口和命令行参数，参见 [RoboCasa](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robocasa.html) 与 [RoboTwin](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robotwin.html) 文档。
+完整的命令行参数列表见 [命令行与配置参考](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/cli.html)。RoboCasa 与 RoboTwin 提供各自的任务参数，参见 [RoboCasa](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robocasa.html) 与 [RoboTwin](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robotwin.html) 文档。
 
 更详细的文档请参见 [RPent 中文文档](https://rpent.readthedocs.io/zh-cn/latest/)。
 

@@ -1,5 +1,14 @@
-Franka
-======
+Single-Arm Franka
+=================
+
+.. Product image: https://store.clearpathrobotics.com/products/franka-research-3
+
+.. figure:: https://cdn.shopify.com/s/files/1/1750/5061/products/FR3_image3_x700.png?v=1663341441
+   :alt: Full view of a Franka Research 3 arm and gripper
+   :figclass: rpent-robot-figure
+   :align: center
+
+   Franka arm for real-world experiments.
 
 RPent can control one physical Franka arm through an RLinf ``RealWorldEnv``
 worker.
@@ -19,10 +28,13 @@ Install
 	See the `RLinf single-arm Franka guide
 	<https://rlinf.readthedocs.io/en/latest/rst_source/examples/embodied/franka.html>`_.
 
-From the RPent repository root:
+Clone RPent and install its Python dependencies. If you already have the
+checkout, enter it and run ``uv sync``:
 
 .. code-block:: bash
 
+   git clone https://github.com/RLinf/RPent.git
+   cd RPent
    uv sync --extra franka
 
 This installs the custom RLinf Franka branch and ``rlinf-openpi`` into
@@ -50,7 +62,7 @@ the robot config, mapping each camera to its easy_handeye YAML (the checked-in
 Paths may be absolute, ``~``-prefixed, or relative; relative paths resolve
 against the working directory RPent is launched from.
 
-Development configuration
+Development Configuration
 -------------------------
 
 The checked-in values are development defaults and must be reviewed before
@@ -76,8 +88,10 @@ startup:
    ray stop --force
    ray start --head
 
-Run a smoke test
+Run a Smoke Test
 ----------------
+
+Configure the planner and model service using :doc:`configure_planner` first.
 
 The smoke test verifies that basic analytic motion and gripper primitives work
 correctly. To run it, launch RPent with task ``0``:
@@ -94,7 +108,7 @@ loads the RPent robot config, generates the internal RLinf adapter config,
 connects to Ray, waits for ``healthz``, and records the initial state as step
 ``0``.
 
-VLA grasp demo
+VLA Grasp Demo
 --------------
 
 RPent provides a demo that uses a VLA to grasp objects. Task ``1`` exposes
@@ -113,7 +127,7 @@ The VLA server must be deployed separately for now. Without
 ``--vla-endpoint``, analytic motion and gripper tools remain available, but
 ``vla_grasp`` raises a runtime error.
 
-Tools and artifacts
+Tools and Artifacts
 -------------------
 
 The extension exposes ``view_env_state``, ``view_camera_meta``, ``move_delta``,
@@ -127,3 +141,8 @@ Safety
 Keep an operator at the emergency stop. Validate task ``0`` with very small
 motions before attempting a grasp. Stop when camera/state results disagree,
 when the requested motion is not reached, or when any calibration is uncertain.
+
+Stop the Run
+------------
+
+Press Ctrl+C in the terminal to request RPent shutdown; use the hardware emergency stop for an emergency. Check the arm and gripper before shutting down services through the controller’s shutdown procedure.

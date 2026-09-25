@@ -1,5 +1,5 @@
-Remote Services
-===============
+Remote Services and Parallel Runs
+=================================
 
 By default, RPent starts and stops the environment, VLA, and SAM3 services
 with each LIBERO run. Keep that default for single-machine use. Configure
@@ -15,7 +15,7 @@ Dashboard Sessions do not support ``--env-endpoint`` because every TaskRun
 uses a fresh environment service. ``--vla-endpoint`` and ``--sam3-endpoint``
 remain available in Dashboard mode.
 
-LIBERO environment service
+LIBERO Environment Service
 --------------------------
 
 One environment service is pinned to a suite, task, seed, and max episode
@@ -33,7 +33,7 @@ steps; those values must match the RPent client exactly. On the env host:
 The environment service is task-bound. To change any of those parameters,
 stop the old service and start a new one.
 
-Pi0.5 VLA service
+Pi0.5 VLA Service
 -----------------
 
 On the VLA host, set the checkpoint path and start the HTTP service:
@@ -48,7 +48,7 @@ On the VLA host, set the checkpoint path and start the HTTP service:
 
 The VLA service loads the model once and can be reused by multiple RPent runs.
 
-SAM3 service
+SAM3 Service
 ------------
 
 On the SAM3 host, set the local checkpoint path and start the HTTP service:
@@ -85,7 +85,7 @@ Any of the three endpoint flags can be omitted; when one is unset, RPent
 spawns that service locally on a free port. All three default to HTTP when
 the protocol is omitted, and all three accept ``socket://HOST:PORT``.
 
-Custom RLinf checkout
+Custom RLinf Checkout
 ---------------------
 
 The environment and VLA services import ``rlinf``. When starting them
@@ -104,7 +104,7 @@ so the servers import the installed ``rlinf`` package.
 
 .. _libero-parallel-eval:
 
-Parallel evaluation
+Parallel Evaluation
 -------------------
 
 The following example demonstrates parallel evaluation with LIBERO using
@@ -145,3 +145,21 @@ their services do not need to be started again for each run.
    For long-running evaluations over SSH, start the shared services with
    ``nohup`` or in a ``tmux`` / ``screen`` session; a bare ``&`` may stop them
    when the SSH shell exits.
+
+Access a Remote Dashboard
+-------------------------
+
+Start the Dashboard on the server with a fixed port:
+
+.. code-block:: bash
+
+   rpent --robot libero --dashboard --dashboard-port 8000 \
+     --planner claude_code --model claude-opus-4-8
+
+In a local terminal, forward the port, replacing ``USER@HOST`` with the server login:
+
+.. code-block:: bash
+
+   ssh -N -L 8000:127.0.0.1:8000 USER@HOST
+
+Open ``http://127.0.0.1:8000`` in your local browser. Keep the SSH connection and server-side RPent process running; see :doc:`dashboard` for task controls.

@@ -74,6 +74,9 @@ tracked by Git.
 
 ## Write documentation
 
+Follow [STYLE_GUIDE.md](STYLE_GUIDE.md) for page ownership, bilingual writing,
+terminology, formatting, and review requirements.
+
 Documentation pages use reStructuredText (RST). Keep English and Chinese pages
 at matching relative paths so the language switcher can open the same page in
 the other language.

@@ -1,63 +1,42 @@
-动作原语
-========
+动作原语与工具
+=====================
 
-planner 决定执行什么操作，而 **动作原语** 决定如何执行。每个原语
-都会将一次工具调用（如 ``pi0_pick``、``move_to`` 或
-``rotate_wrist``）转换成一段可由环境直接执行的动作。
+规划器通过工具调用执行操作。动作原语负责完成具体的运动，例如抓取、移动末端或打开夹爪；感知和状态工具用于定位目标、读取图像及检查结果。
 
-RPent 内置两类原语：
-
-- **VLA 策略**：VLA 模型运行在独立的 ``vla_server``
-  进程中，将 GPU 权重与物理引擎隔离。toolkit 通过各机器人对应的 model
-  client 调用模型，例如 Pi0.5（LIBERO）和 RLDX-1（RoboCasa）。
-- **脚本化原语**：用于执行 ``move_to``、``rotate_wrist``、
-  ``release`` 和 ``back_project`` 等确定性动作。这类原语位于
-  agent 侧，不需要加载 VLA 权重，并通过 RPC 调用 ``env_server``。
-
-各机器人的具体配置，例如使用哪个 VLA、checkpoint 路径以及对外提供的工具，
-请参考对应的机器人页面：:doc:`libero`、:doc:`robocasa`、
-:doc:`franka`、:doc:`dual_franka`、:doc:`so101`。
-
-各机器人使用的 VLA
+选择动作工具
 ------------------
+
+RPent 的动作工具主要分为两类：
+
+- **VLA 动作**：由视觉语言动作模型生成动作序列，例如 LIBERO 的 ``pi0_pick``。模型通常在独立服务中运行。
+- **程序化动作**：按参数执行运动，例如 ``move_to``、``rotate_wrist`` 和 ``release``。具体名称与参数由环境定义。
+
+``back_project``、``segment`` 和 ``view_env_state`` 属于感知或状态读取工具，本身不代表机器人运动。``finish`` 用于结束规划器循环，任务是否成功仍由环境或真机操作员判定。
+
+各平台使用的模型
+------------------------
 
 .. list-table::
    :header-rows: 1
-   :widths: 25 25 25 25
 
    * - 环境 / 机器人
-     - 默认 VLA
-     - 传输协议
-     - 服务实现
-   * - LIBERO (仿真)
+     - 动作模型与配置
+   * - :doc:`libero`
      - Pi0.5
-     - HTTP 或 socket RPC
-     - ``rpent/robots/components/pi05_vla_server.py``
-   * - RoboCasa (仿真)
+   * - :doc:`robocasa`
      - RLDX-1
-     - HTTP 或 socket RPC
-     - ``robots/robocasa/vla_server.py``
-   * - Franka (真机)
-     - Pi0.5 或 RLDX-1 (依任务而定)
-     - HTTP 或 socket RPC
-     - ``robots/franka/vla_server.py`` *(规划中)*
-   * - SO-101 (真机)
-     - RLDX-1 (依任务而定)
-     - HTTP 或 socket RPC
-     - ``robots/so101/vla_server.py`` *(规划中)*
+   * - :doc:`robotwin`
+     - LingBot-VLA
+   * - :doc:`franka`
+     - Pi0.5 / openpi
+   * - :doc:`dual_franka`
+     - Pi0.5 / openpi
 
-VLA server 通过统一的 ``predict`` 和 ``healthz`` 方法提供服务，并支持
-HTTP（JSON）和 socket（pickle-framed）两种传输方式。直接启动 VLA server
-时，可通过服务端的
-``--transport {http,socket}`` 选项选择传输方式，默认为 ``http``。
-设计理由参见 :doc:`../development/add_robot`。
+各平台页面给出模型路径、工具范围和任务要求。YAM 的部署说明和 SO-101 内容尚待补充，见 :doc:`yam` 和 :doc:`so101`。
 
-独立服务、远程 endpoint 和跨运行复用模型的方法参见
-:doc:`advanced_deployment`。
+服务与扩展
+---------------
 
-新增原语类别
-------------
+VLA 服务通过 ``predict`` 提供动作预测，通过 ``healthz`` 提供健康检查。RPent 的 RPC 服务支持 HTTP 和 socket 传输，具体部署方式见 :doc:`advanced_deployment`。
 
-如果要接入的既不是 VLA 也不是脚本化运动 —— 比如一个
-WAM (World Action Model)、Diffusion Policy 或 MPC 原语 ——
-参见 :doc:`../development/add_primitive`。
+添加工具时，需要同时定义参数、执行逻辑和返回结果，详见 :doc:`../development/add_primitive`。规划器使用同一个 toolkit 调用这些工具。

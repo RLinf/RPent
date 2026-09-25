@@ -1,8 +1,15 @@
-Dual Franka
-===========
+Dual-Arm Franka
+===============
+
+.. figure:: https://raw.githubusercontent.com/RLinf/misc/main/pic/dual-franka-deploy.jpg
+   :alt: Two Franka arms and a camera mounted around a shared workbench
+   :figclass: rpent-robot-figure
+   :align: center
+
+   Dual-Franka system for real-world experiments.
 
 RPent can control a two-node dual-Franka setup through an RLinf
-``RealWorldEnv`` worker.
+``RealWorldEnv`` worker. Watch the :doc:`task demos <real_world_demos_franka>`.
 
 Install
 -------
@@ -19,10 +26,13 @@ Install
 	guide
 	<https://rlinf.readthedocs.io/en/latest/rst_source/examples/embodied/dual_franka.html>`_.
 
-From the RPent repository root:
+Clone RPent and install its Python dependencies. If you already have the
+checkout, enter it and run ``uv sync``:
 
 .. code-block:: bash
 
+   git clone https://github.com/RLinf/RPent.git
+   cd RPent
    uv sync --extra franka --extra sam3
 
 This installs the custom RLinf Franka branch and ``rlinf-openpi`` into
@@ -33,8 +43,9 @@ Calibration
 
 Hand-eye calibration is performed with ROS
 `easy_handeye <https://github.com/IFL-CAMP/easy_handeye>`_. Calibrate both
-projection cameras against the right arm's base frame (two eye-on-base
-calibrations): ``base_camera`` (the third-person RealSense) and ``d455_camera``.
+cameras used for pixel-to-world back-projection against the right arm's base
+frame (two eye-on-base calibrations): ``base_camera`` (the third-person
+RealSense) and ``d455_camera``.
 The two wrist cameras (``left_wrist`` and ``right_wrist``) are observation
 only — they feed the VLA policy views and the close-up planner snapshots, and
 RPent never back-projects pixels through them — so they need no hand-eye
@@ -55,7 +66,7 @@ the robot config, mapping each camera to its easy_handeye YAML (the checked-in
 Paths may be absolute, ``~``-prefixed, or relative; relative paths resolve
 against the working directory RPent is launched from.
 
-Development configuration
+Development Configuration
 -------------------------
 
 Review and edit the checked-in development defaults before enabling motion:
@@ -69,7 +80,7 @@ RPent translates this robot-focused schema into the internal two-node RLinf
 cluster and environment objects. To use a different file, pass
 ``--robot-config /path/to/robot_config.yaml``.
 
-Start the two-node Ray cluster
+Start the Two-node Ray Cluster
 ------------------------------
 
 The two nodes have fixed, different roles (defined in
@@ -82,7 +93,9 @@ The two nodes have fixed, different roles (defined in
 * Node ``1`` is a Ray worker: it runs only the **right** arm's real-time
 	controller, with no cameras and no RPent process.
 
-Set ``RLINF_NODE_RANK`` before starting Ray on each controller node.
+.. warning::
+
+   Set ``RLINF_NODE_RANK`` before starting Ray on each controller node.
 
 Node ``0``:
 
@@ -100,10 +113,12 @@ Node ``1``:
    ray stop --force
    ray start --address=HEAD_IP:6379 --node-ip-address=WORKER_IP
 
-Run a smoke test
+Run a Smoke Test
 ----------------
 
-Task ``0`` tests conservative single-arm analytic motion and gripper primitives:
+Configure the planner and model service using :doc:`configure_planner` first.
+
+Task ``0`` tests small translations, rotations, and gripper actions, one arm at a time:
 
 .. code-block:: bash
 
@@ -116,7 +131,7 @@ loads the RPent robot config, generates the internal RLinf adapter config,
 connects to Ray, waits for ``healthz``, and records the initial state as step
 ``0``. Task ``0`` does not load the VLA.
 
-VLA grasp demo
+VLA Grasp Demo
 --------------
 
 RPent provides a demo that uses a VLA to grasp objects. Task ``1`` exposes
@@ -185,7 +200,7 @@ To run the VLA service separately:
 Then pass ``--vla-endpoint http://VLA_HOST:6000`` to ``rpent``. An external
 endpoint always takes precedence over local auto-start.
 
-External environment server
+External Environment Server
 ---------------------------
 
 To attach RPent to an already-running dual-Franka environment service:
@@ -197,7 +212,7 @@ To attach RPent to an already-running dual-Franka environment service:
      --planner claude_code --model claude-opus-4-8 \
      --robot-config robots/dual_franka/config/example.yaml
 
-Tools and artifacts
+Tools and Artifacts
 -------------------
 
 The extension exposes ``view_env_state``, ``view_camera_meta``, ``move_delta``,
@@ -214,8 +229,16 @@ single-arm motions before attempting a grasp. Stop when camera/state results
 disagree, when the requested motion is not reached, or when any calibration is
 uncertain.
 
-Manual skill testing
+Manual Skill Testing
 --------------------
+
+Evaluation requires an exclusive terminal (TTY) for operator confirmation,
+without ``--interactive`` or Dashboard. Exploration supports
+``--explore --interactive`` but still requires a terminal; operator feedback
+through the Dashboard is not supported. Unsupported option combinations are
+rejected before connecting to hardware. Evaluation also exposes
+``request_operator_verdict`` and requires a verdict before calling ``finish``.
+``request_scene_reset`` is registered only in exploration mode.
 
 The deployment scripts live in ``robots/dual_franka/``. From the repository root:
 
@@ -232,14 +255,8 @@ machine configuration; its ``perception.calibration`` mapping points at the
 easy_handeye hand-eye YAMLs. Local SAM3 requires the ``sam3`` extra; a remote
 SAM3 service can be attached with ``--sam3-endpoint``.
 
-Robot Codex profile isolation
+Robot Codex Profile Isolation
 ----------------------------------------
-
-Evaluation requires a plain TTY without ``--interactive`` or Dashboard.
-Exploration supports ``--explore --interactive`` through the operator input broker;
-Dashboard feedback remains unsupported. Evaluation
-also exposes ``request_operator_verdict`` and requires a verdict before finish.
-``request_scene_reset`` remains exploration-only.
 
 The deployment wrappers select ``RPENT_CODEX_HOME`` (default:
 ``.codex-rpent-live`` inside the checkout), not the coding shell's
@@ -265,7 +282,7 @@ The planner explicitly uses no interactive approvals and full filesystem access.
 Editing private configuration does not override the planner's
 explicit permissions. The connectivity probe remains read-only.
 
-Attended exploration
+Attended Exploration
 --------------------
 
 ``dual_franka --explore`` waits for operator scene confirmation before robot
@@ -304,7 +321,7 @@ in the terminal; other lines remain planner steering. Without it, answer the
 terminal prompt directly. A TTY is required. Dashboard operator feedback is not
 implemented, so Dashboard exploration is rejected before runtime startup.
 
-Each ``sessions/session_<NNN>/`` retains the existing artifacts plus per-step
+Each ``sessions/session_<NNN>/`` retains state and camera artifacts, per-step
 ``exploration.json`` and session-level ``operator_events.json``. Failed attempts
 remain in the trace. Memory reads use ``suite`` and ``global``; working notes go
 into the task inbox's ``wip/``. After success, draft suite/global lessons in the
@@ -318,16 +335,16 @@ Prompts are selected by ``robots/dual_franka/prompt_bundle.py``. Evaluation uses
 ``prompts/system.py`` and ``prompts/user.py``; exploration uses
 ``prompts/explore.py``. ``tasks.py`` owns task instructions, success criteria and
 constraints; ``robot_spec.py`` supplies the rendering variables. Continuation
-system prompts retain the task context. The original LIBERO exploration prompt
+system prompts retain the task context. The LIBERO exploration prompt
 lives in ``robots/libero/prompts/explore.py``; its simulator reset/termination
 assumptions are not inherited by the real robot.
 
-External ``--env-endpoint`` servers must also be updated and advertise
-``explicit_reset_only=True``; older servers are rejected before client reset.
-Offline tests use fake hardware. Physical reset convergence, camera freshness
-and task judgment still require validation on the deployed robot.
+External ``--env-endpoint`` servers must advertise ``explicit_reset_only=True``.
+Servers without this capability are rejected before client reset so motion
+starts only after operator confirmation. Validate physical reset convergence,
+camera freshness, and task judgment on the deployed robot.
 
-Direct interactive verdicts
+Direct Interactive Verdicts
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 With ``dual_franka --explore --interactive``, submit ``/success`` or ``/failure``
@@ -344,7 +361,7 @@ and no successful memory is published. Observation or persistence errors are rep
 Scene reset accepts ``/done`` or ``/operator <request-id> done``. Restart the running
 CLI after updating to enable this behavior.
 
-Other operator commands
+Other Operator Commands
 ~~~~~~~~~~~~~~~~~~~~~~~
 
 * ``/done`` confirms only the currently pending scene-reset request.
@@ -360,7 +377,7 @@ The request-ID form ``/operator <request-id> <answer>`` remains supported.
 Direct commands do not invoke a separate global/suite memory synthesis stage.
 Existing planner errors remain errors and prevent automatic memory publication.
 
-VLA diagnostic console
+VLA Diagnostic Console
 ~~~~~~~~~~~~~~~~~~~~~~
 
 Use the standalone console for prediction recording and explicit execution.
@@ -385,3 +402,8 @@ execution blocks further motion until restart. RPC success is not task success.
 Action validation expects 20 steps per prediction chunk. For a checkpoint with a
 different chunk length, set ``--expected-action-steps`` explicitly to match it.
 External model servers use the standard VLA prediction and health-check RPCs.
+
+Stop the Run
+------------
+
+Press Ctrl+C in the terminal to request RPent shutdown. Already-issued robot actions or an active RPC must return before cleanup completes; use the hardware emergency stop for an emergency. Check both arms and grippers before shutting down services through the controller’s shutdown procedure.
