@@ -400,6 +400,9 @@ Harness VLA 参考列采用 `论文表 4 <https://arxiv.org/html/2607.08448v4#S3
      - 48.6%
      - 57.1%
 
+早期逐任务结果保留在
+`历史报告 <https://github.com/RLinf/RPent/blob/57088f6df30b227f2229ead985aa75403c0ce291/robots/robocasa/eval/target50_codex_results.md>`_ 中。
+
 .. _environment-smoke-tests:
 
 环境冒烟测试

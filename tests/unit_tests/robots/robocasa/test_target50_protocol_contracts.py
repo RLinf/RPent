@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -31,7 +30,6 @@ MANIFEST_PATH = REPO_ROOT / "robots" / "robocasa" / "eval" / "target50.json"
 CONSTRAINTS_PATH = (
     REPO_ROOT / "robots" / "robocasa" / "eval" / "target50-constraints.txt"
 )
-RESULTS_PATH = REPO_ROOT / "robots" / "robocasa" / "eval" / "target50_codex_results.md"
 EXPECTED_SPLIT_SHAPES = {
     "atomic": {
         "task_count": 18,
@@ -431,56 +429,3 @@ def test_target50_validator_accepts_exactly_all_340_cells(tmp_path, monkeypatch)
         "tasks": 50,
         "success_rate": 1.0,
     }
-
-
-def test_published_results_cover_target50_and_match_split_totals():
-    manifest = _manifest()
-    result_rows = re.findall(
-        r"^\| \d+ \| (Atomic|Composite-Seen|Composite-Unseen) "
-        r"\| ([A-Za-z0-9]+) \| (\d+)/(\d+) \| (\d+)% \|$",
-        RESULTS_PATH.read_text(encoding="utf-8"),
-        flags=re.MULTILINE,
-    )
-
-    assert len(result_rows) == 50
-    by_task = {
-        task: {
-            "split": split,
-            "successes": int(successes),
-            "evaluated": int(evaluated),
-            "rate": int(rate),
-        }
-        for split, task, successes, evaluated, rate in result_rows
-    }
-    assert len(by_task) == 50
-
-    split_labels = {
-        "atomic": "Atomic",
-        "composite_seen": "Composite-Seen",
-        "composite_unseen": "Composite-Unseen",
-    }
-    expected_successes = {
-        "atomic": 163,
-        "composite_seen": 49,
-        "composite_unseen": 12,
-    }
-    for split_name, split in manifest["splits"].items():
-        rows = [by_task[task] for task in split["tasks"]]
-        assert {row["split"] for row in rows} == {split_labels[split_name]}
-        assert sum(row["successes"] for row in rows) == expected_successes[split_name]
-        assert sum(row["evaluated"] for row in rows) == split["cell_count"]
-        for row in rows:
-            assert row["evaluated"] == len(split["seeds"])
-            assert row["rate"] == 100 * row["successes"] // row["evaluated"]
-
-    manifest_tasks = {
-        task for split in manifest["splits"].values() for task in split["tasks"]
-    }
-    assert set(by_task) == manifest_tasks
-    task_weighted_rate = sum(
-        100 * row["successes"] / row["evaluated"] for row in by_task.values()
-    ) / len(by_task)
-    assert task_weighted_rate == 57.0
-    assert "**Overall (task-weighted)** | **50** | **N/A** | **57.00%**" in (
-        RESULTS_PATH.read_text(encoding="utf-8")
-    )

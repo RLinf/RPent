@@ -442,6 +442,9 @@ The Harness VLA reference column reports GPT-5.5 results from
      - 48.6%
      - 57.1%
 
+The earlier per-task results remain available in the
+`archived report <https://github.com/RLinf/RPent/blob/57088f6df30b227f2229ead985aa75403c0ce291/robots/robocasa/eval/target50_codex_results.md>`_.
+
 .. _environment-smoke-tests:
 
 Environment smoke tests
