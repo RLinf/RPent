@@ -37,15 +37,45 @@ Exploration 和本地 memory Evaluation 的详细流程见
 默认本地目录为 ``memory/<robot>/``。Hugging Face 中 LIBERO 按模型版本分目录，
 详见下文；其他机器人仍使用 ``<robot>/``。自定义 ``--memory-dir`` 可指向任意采用上述结构的目录。
 
-机器人提供实际使用的层级，必需文件由对应机器人的启动检查确定：
+各机器人按需提供实际使用的记忆层：
 
-- ``global/`` 保存跨任务通用规律与失败模式，可在所有任务间复用。
-- ``task-family/`` 保存特定任务族中验证过的策略与注意事项，供同类任务及其变体复用。
-- ``task-specific/`` 保存单次任务的执行记录和操作流程，包括 audit 与 recipe，仅供当前任务参考。
-- ``MEMORY.md`` 用于索引 ``global/`` 和 ``task-family/``。
+.. list-table:: 记忆层级
+   :header-rows: 1
+   :widths: 25 45 30
 
-评测时，规划器只能读取当前机器人的 memory。例如，RoboCasa 要求 global 层存在，
-但允许当前任务没有 task-specific 层。
+   * - 记忆层级
+     - 保存内容
+     - 复用范围
+   * - 通用记忆（Global Memory，``global/``）
+     - 跨任务通用规律与失败模式
+     - 所有任务
+   * - 任务族记忆（Task-family Memory，``task-family/``）
+     - 特定任务族中验证过的策略与注意事项
+     - 同类任务及其变体
+   * - 单任务记忆（Task-specific Memory，``task-specific/``）
+     - 单次任务的执行记录和操作流程
+     - 仅供当前任务参考
+
+使用记忆时，其适用前提和证据范围应与当前任务匹配。``MEMORY.md`` 是可选的
+global 与 task-family 索引，不是额外的记忆层。RoboCasa 直接读取其单份 global 文件。
+
+评测时，规划器只能读取当前机器人的 memory。各机器人的具体要求仍然适用：
+RoboCasa 始终同时提供 task-specific 与 global memory，并要求 global 文件存在；
+任务 JSON 和 recipe 必须同时存在或同时缺失。规划器按需查阅相关经验，机器人动作
+不要求先完整读取全部文件。
+
+更新旧语料
+----------
+
+当前目录名为 ``task-specific/`` 和 ``task-family/``。更新 RPent 时，请将配套的
+新版 HF 语料下载到新目录。任务族文档采用 ``scope: task-family``，文件名形如
+``task-family_libero10_task_t2.md``；其中表示 benchmark 身份的 ``suite`` 字段不变。
+迁移自有文档时也需更新索引和链接。程序会对未迁移目录报错，避免误判为缺少任务记忆；
+文件工具不会开放旧缓存路径。
+
+RoboCasa 同时使用 task-specific 与 global memory，不提供记忆层选择参数。
+历史结果应与生成结果时的代码及校验器一起保存。显式选择的历史 v1 清单继续保留，
+本次迁移不改写历史结果。
 
 使用 memory
 -----------
