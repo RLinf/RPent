@@ -58,6 +58,29 @@ def _client(server: DashboardServer) -> TestClient:
     return TestClient(server._app)
 
 
+def test_model_change_applies_at_next_task_boundary(state):
+    client = _client(_server(state, planner="codex", model="gpt-5.5"))
+    state.shared_services_ready()
+    state.request_task({"seed": 1})
+    first = state.wait_for_task(timeout=0)
+    response = client.post("/api/session/config", json={"model": "gpt-6-astra"})
+    assert response.status_code == 200
+    assert "model" not in first.request
+    state.request_task({"seed": 2})
+    second = state.wait_for_task(timeout=0)
+    assert second.request["model"] == "gpt-6-astra"
+    assert client.post("/api/session/config", json={"model": ""}).status_code == 422
+    assert (
+        client.post("/api/session/config", json={"planner": "api"}).status_code == 422
+    )
+    assert (
+        _client(_server(state, planner="flash"))
+        .post("/api/session/config", json={"model": "gpt-6-astra"})
+        .status_code
+        == 422
+    )
+
+
 def _stub_check(
     monkeypatch: pytest.MonkeyPatch, result: LlmCheckResult
 ) -> dict[str, Any]:

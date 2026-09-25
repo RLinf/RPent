@@ -299,14 +299,17 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     local_eval = not explore and memory_profile == "local"
     if local_eval:
         if planner == "flash":
+            from rpent.memory.versions import replay_directory
+
+            replay_root = replay_directory(memory_dir)
             plan_name = recipe_tag.rsplit("_s", 1)[0]
             has_local_memory = all(
-                (memory_dir / "flash" / f"{plan_name}_{suffix}.json").is_file()
+                (replay_root / f"{plan_name}_{suffix}.json").is_file()
                 for suffix in ("plan", "anchors")
             )
             if not has_local_memory:
                 raise ValueError(
-                    f"no complete Flash plan for {plan_name} under {memory_dir / 'flash'}; "
+                    f"no complete Flash plan for {plan_name} under {replay_root}; "
                     "both plan and anchors files are required"
                 )
         else:

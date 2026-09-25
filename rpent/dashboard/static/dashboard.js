@@ -19,6 +19,9 @@ const COPY = {
     liveMonitor: "Live Monitor",
     planner: "planner",
     model: "model",
+    nextModel: "Next task model",
+    applyModel: "Apply to next task",
+    modelSaved: "Saved; takes effect when the next task starts.",
     defaultModel: "configured default",
     runtimeStates: {
       pending: "waiting",
@@ -121,6 +124,9 @@ const COPY = {
     liveMonitor: "实时监控",
     planner: "planner",
     model: "model",
+    nextModel: "下一任务的模型",
+    applyModel: "应用于下一任务",
+    modelSaved: "已保存，将在下一任务开始时生效。",
     defaultModel: "默认配置",
     runtimeStates: {
       pending: "等待中",
@@ -291,7 +297,27 @@ function renderPlannerConfig(config) {
     ? "Flash Mode"
     : `${copy.planner} ${planner} · ${copy.model} ${model}`;
   element.title = element.textContent;
+  $("#modelSettings").hidden = planner === "flash";
+  $("#nextModelInput").value = config.model || "";
 }
+
+$("#modelForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const feedback = $("#modelFeedback");
+  try {
+    const response = await fetch("/api/session/config", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: $("#nextModelInput").value }),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error);
+    renderPlannerConfig(result);
+    feedback.textContent = copy.modelSaved;
+  } catch (error) {
+    feedback.textContent = error.message;
+  }
+});
 
 const runState = {
   eventSource: null,
