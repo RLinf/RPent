@@ -251,15 +251,7 @@ class Toolkit:
         return self._state
 
     def prepend_task_language(self, user_message: str) -> str:
-        """Include the recorded environment task without capturing another state.
-
-        Args:
-            user_message: Rendered instructions for the planner session.
-
-        Returns:
-            Instructions prefixed with the latest recorded task language, or
-            unchanged instructions when the environment has not recorded one.
-        """
+        """Prepend the latest recorded task language when available."""
         record = self._state.latest_record() if self._state is not None else None
         task_language = record.extras.get("task_language") if record else None
         if not task_language:
