@@ -395,7 +395,8 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     cli = _cli_module()
     from rpent.planner.base import PlannerResult
     from rpent.robots import PromptBundle, RobotSpec, RunConfig
-    from rpent.tools.toolkit import ToolResult
+    from rpent.session import EnvState
+    from rpent.tools.toolkit import Toolkit, ToolResult
 
     calls: dict[str, Any] = {}
 
@@ -410,11 +411,17 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
         def stop(self) -> None:
             self.stopped = True
 
-    class FakeToolkit:
+    class FakeToolkit(Toolkit):
         def __init__(self) -> None:
             self.calls: list[tuple[str, dict[str, Any]]] = []
             self.closed = False
-            self.memory = FakeMemoryManager()
+            self._memory = FakeMemoryManager()
+            self._state = EnvState(tmp_path / "state")
+            with self._state.record_step(
+                state={},
+                extras={"task_language": "Put the salad dressing in the basket."},
+            ):
+                pass
 
         def execute_tool(self, name: str, args: dict[str, Any]) -> ToolResult:
             self.calls.append((name, args))
@@ -545,7 +552,10 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
 
     assert calls["solve"] == {
         "system_prompt": "simulated system prompt\n",
-        "user_message": "simulated user task\n",
+        "user_message": (
+            "Current environment task (task_language):\n"
+            "Put the salad dressing in the basket.\n\nsimulated user task\n"
+        ),
         "max_turns": 4,
         "input_queue": None,
         "dashboard_interaction": None,
@@ -586,6 +596,7 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
     from rpent.evaluation import RunFinalizationContext, write_json_atomic
     from rpent.planner.base import PlannerResult
     from rpent.robots import PromptBundle, RobotSpec, RunConfig
+    from rpent.tools.toolkit import Toolkit
 
     captured: list[RunFinalizationContext] = []
 
@@ -595,9 +606,12 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
         def stop(self) -> None:
             self.stopped = True
 
-    class FakeToolkit:
+    class FakeToolkit(Toolkit):
         memory = SimpleNamespace()
         closed = False
+
+        def __init__(self) -> None:
+            self._state = None
 
         def solved(self) -> bool:
             return False

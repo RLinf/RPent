@@ -280,7 +280,7 @@ def _run_dashboard_task(
                     )
                     result = planner.solve(
                         system_prompt=system_prompt,
-                        user_message=session_message,
+                        user_message=toolkit.prepare_user_message(session_message),
                         toolkit=toolkit,
                         max_turns=args.max_turns,
                         dashboard_interaction=state,
