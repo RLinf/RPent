@@ -250,7 +250,7 @@ class Toolkit:
             raise RuntimeError("toolkit has no environment state")
         return self._state
 
-    def prepare_user_message(self, user_message: str) -> str:
+    def prepend_task_language(self, user_message: str) -> str:
         """Include the recorded environment task without capturing another state.
 
         Args:

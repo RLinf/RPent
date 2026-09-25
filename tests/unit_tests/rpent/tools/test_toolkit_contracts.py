@@ -93,15 +93,15 @@ def test_initial_message_uses_current_record_without_capturing_state(
 ) -> None:
     toolkit = _ContractToolkit(tmp_path)
     message = "Complete the task and consult relevant memory."
-    assert toolkit.prepare_user_message(message) == message
+    assert toolkit.prepend_task_language(message) == message
     with toolkit.state.record_step(state={}, extras={}):
         pass
-    assert toolkit.prepare_user_message(message) == message
+    assert toolkit.prepend_task_language(message) == message
     for language in ("Put the salad dressing in the basket.", "Open the drawer."):
         with toolkit.state.record_step(state={}, extras={"task_language": language}):
             pass
         step = toolkit.state.latest_step
-        prepared = toolkit.prepare_user_message(message)
+        prepared = toolkit.prepend_task_language(message)
         assert (
             prepared
             == f"Current environment task (task_language):\n{language}\n\n{message}"

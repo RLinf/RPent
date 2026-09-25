@@ -596,7 +596,7 @@ def main() -> int:
             try:
                 result = planner.solve(
                     system_prompt=system_prompt,
-                    user_message=toolkit.prepare_user_message(session_msg),
+                    user_message=toolkit.prepend_task_language(session_msg),
                     toolkit=toolkit,
                     max_turns=args.max_turns,
                     input_queue=input_queue,
