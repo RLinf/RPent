@@ -43,9 +43,8 @@ seed — object/fixture positions differ, so RE-LOCALIZE everything per scene
 transfer directly. After inspecting the initial `task_language`, read the solved
 seed-0 reference (if present): `{{memory_dir}}/task_only/{{reference_tag}}.json` (+
 `{{memory_dir}}/task_only/{{reference_tag}}_recipe.jsonl`)
-— it has the winning strategy_notes and command sequence from seed 0. Use it
-only when its task matches the current `task_language`. Reuse its approach;
-re-derive every coordinate from THIS scene.
+— it has the winning strategy_notes and command sequence from seed 0.
+Reuse its approach; re-derive every coordinate from THIS scene.
 The recipe is ONLY the command sequence. You must ALSO read the matching task
 memory — it carries the WHY, the parameter ranges, and the
 failure modes you need to adapt the recipe to this seed. A recipe read without
