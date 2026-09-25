@@ -405,39 +405,42 @@ validate the fixed denominator and print the task-weighted score with:
 Published Target50 results
 --------------------------
 
-The published Codex reproduction contains all 340 cells and reports the
-following task-level aggregates:
+RPent reproduction results on the 340-cell Target50 protocol are shown below,
+using the current :doc:`Leaderboard <../leaderboard/performance>` success rates.
+The configurations are Codex / GPT-5.5 / xhigh / reasoning,
+Codex / GPT-6 Astra / low / reasoning, and Claude Code / Opus-4.7 / max.reasoning.
+The Harness VLA reference column reports GPT-5.5 results from
+`paper Table 4 <https://arxiv.org/html/2607.08448v4#S3.T4>`_.
 
-.. list-table:: Codex Target50 reproduction
+.. list-table:: RPent Target50 success rates
    :header-rows: 1
-   :widths: 30 20 20 30
+   :widths: 24 18 18 18 22
 
    * - Split
-     - Successful cells
-     - Success rate
-     - Harness VLA reference
-   * - Atomic
-     - 163/180
-     - 90.56%
-     - 165/180 (91.67%)
+     - RPent / GPT-5.5
+     - RPent / GPT-6 Astra
+     - RPent / Opus-4.7
+     - Harness VLA / GPT-5.5 reference
+   * - Atomic-Seen
+     - 92.0%
+     - 87.78%
+     - 79.4%
+     - 92.0%
    * - Composite-Seen
-     - 49/80
-     - 61.25%
-     - 45/80 (56.25%)
+     - 61.0%
+     - 43.75%
+     - 47.5%
+     - 61.0%
    * - Composite-Unseen
-     - 12/80
-     - 15.00%
-     - 11/80 (13.75%)
+     - 13.8%
+     - 42.50%
+     - 15.0%
+     - 13.8%
    * - Overall (task-weighted)
-     - N/A
-     - 57.00%
-     - 55.40%
-
-The `complete per-task table
-<https://github.com/RLinf/RPent/blob/main/robots/robocasa/eval/target50_codex_results.md>`_
-contains the success count and accuracy for every task. The published record is
-task-level aggregate data; it does not include per-seed traces, raw trajectories,
-or failure classifications and therefore is not a per-cell audit artifact.
+     - 57.1%
+     - 59.20%
+     - 48.6%
+     - 57.1%
 
 .. _environment-smoke-tests:
 

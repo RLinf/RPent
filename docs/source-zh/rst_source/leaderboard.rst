@@ -14,7 +14,7 @@ RPent 排行榜
 
 .. raw:: html
 
-   <script defer src="https://cdn.jsdelivr.net/gh/RLinf/misc@a6657fc43a6b3874a20ee1695a480090a4737c35/rpent/benchmarks/embed.js"></script>
+   <script defer src="https://cdn.jsdelivr.net/gh/RLinf/misc@705bd44bfc8ad7586b76239de13167db35abcce7/rpent/benchmarks/embed.js"></script>
    <div id="rpent-interactive-leaderboard" data-section="index"
         data-performance-url="leaderboard/performance.html"
         data-costs-url="leaderboard/time-token-costs.html"></div>

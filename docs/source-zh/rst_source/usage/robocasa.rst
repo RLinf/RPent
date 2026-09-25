@@ -363,37 +363,42 @@ cell 按 ``<results-root>/<manifest-split>/<Task>_s<seed>/result.json`` 落盘�
 已发布的 Target50 结果
 -----------------------
 
-已发布 Codex 复现覆盖全部 340 cells，任务级汇总如下：
+以下展示 RPent 在 340-cell Target50 协议上的复现结果，成功率与当前
+:doc:`排行榜 <../leaderboard/performance>` 一致。三个配置分别为
+Codex / GPT-5.5 / xhigh / reasoning、Codex / GPT-6 Astra / low / reasoning，
+以及 Claude Code / Opus-4.7 / max.reasoning。
+Harness VLA 参考列采用 `论文表 4 <https://arxiv.org/html/2607.08448v4#S3.T4>`_
+中的 GPT-5.5 结果。
 
-.. list-table:: Codex Target50 复现结果
+.. list-table:: RPent Target50 成功率
    :header-rows: 1
-   :widths: 30 20 20 30
+   :widths: 24 18 18 18 22
 
    * - Split
-     - 成功 cells
-     - 成功率
-     - Harness VLA 参考值
-   * - Atomic
-     - 163/180
-     - 90.56%
-     - 165/180 (91.67%)
+     - RPent / GPT-5.5
+     - RPent / GPT-6 Astra
+     - RPent / Opus-4.7
+     - Harness VLA / GPT-5.5 参考值
+   * - Atomic-Seen
+     - 92.0%
+     - 87.78%
+     - 79.4%
+     - 92.0%
    * - Composite-Seen
-     - 49/80
-     - 61.25%
-     - 45/80 (56.25%)
+     - 61.0%
+     - 43.75%
+     - 47.5%
+     - 61.0%
    * - Composite-Unseen
-     - 12/80
-     - 15.00%
-     - 11/80 (13.75%)
+     - 13.8%
+     - 42.50%
+     - 15.0%
+     - 13.8%
    * - 总体（任务加权）
-     - 不适用
-     - 57.00%
-     - 55.40%
-
-`完整逐任务结果表
-<https://github.com/RLinf/RPent/blob/main/robots/robocasa/eval/target50_codex_results.md>`_
-给出每个任务的成功次数和准确率。当前发布内容是任务级聚合数据，不包含 seed 级
-trace、原始轨迹或失败分类，因此不属于逐 cell 审计产物。
+     - 57.1%
+     - 59.20%
+     - 48.6%
+     - 57.1%
 
 .. _environment-smoke-tests:
 
