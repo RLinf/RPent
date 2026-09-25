@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import queue
@@ -452,6 +453,185 @@ def test_successful_fake_codex_lifecycle_uses_fake_mcp_and_accounts_events(
     assert (tmp_path / "codex.out.last").read_text() == "working"
     assert any(isinstance(event, TranscriptEvent) for event in sink.events)
     assert any(isinstance(event, UsageEvent) for event in sink.events)
+
+
+def _model_response_events(index: int, *, text: bool = False, finish: bool = False):
+    yield {
+        "method": "item/completed",
+        "payload": {"item": {"type": "reasoning", "summary": []}},
+    }
+    for message in ("working", "still working") if text else ("",):
+        yield {
+            "method": "item/completed",
+            "payload": {"item": {"type": "agentMessage", "text": message}},
+        }
+    for tool in ("read_text_file", "finish" if finish else "list_dir"):
+        yield {
+            "method": "item/completed",
+            "payload": {
+                "item": {
+                    "type": "mcpToolCall",
+                    "tool": tool,
+                    "status": "completed",
+                    "arguments": {"status": "stuck", "summary": "done"}
+                    if tool == "finish"
+                    else {},
+                    "result": "accepted",
+                }
+            },
+        }
+    usage = {
+        "method": "thread/tokenUsage/updated",
+        "payload": {
+            "token_usage": {
+                "total": {"input_tokens": 10 * index, "output_tokens": 2 * index}
+            }
+        },
+    }
+    yield usage
+    yield usage  # A repeated SDK notification is not another model response.
+
+
+def test_cli_interrupts_once_at_tool_only_response_budget(tmp_path, monkeypatch):
+    install_fake_backend(monkeypatch)
+
+    def stream(self):
+        for index in range(1, 6):
+            if self.interrupt_calls:
+                break
+            yield from _model_response_events(index)
+        yield {
+            "method": "turn/completed",
+            "payload": {"turn": {"status": "interrupted"}},
+        }
+
+    monkeypatch.setattr(FakeTurn, "stream", stream)
+    result = make_planner(tmp_path, RecordingSink()).solve(
+        system_prompt="system",
+        user_message="task",
+        toolkit=FakeToolkit(),
+        max_turns=2,
+    )
+    assert result.stats["turns_used"] == 2
+    assert result.stats["tool_calls"] == 4
+    assert result.stats["total_input_tokens"] == 20
+    assert FakeCodex.instances[0].thread.fake_turn.interrupt_calls == 1
+    assert FakeCodex.instances[0].closed
+    assert FakeMcpServer.instances[0].stopped
+    assert result.error is None
+
+
+def test_cli_keeps_finish_at_the_response_budget(tmp_path, monkeypatch):
+    install_fake_backend(monkeypatch)
+    FakeCodex.events = [
+        *_model_response_events(1, finish=True),
+        {"method": "turn/completed", "payload": {"turn": {"status": "completed"}}},
+    ]
+    result = make_planner(tmp_path, RecordingSink()).solve(
+        system_prompt="system",
+        user_message="task",
+        toolkit=FakeToolkit(),
+        max_turns=1,
+    )
+    assert result.stats["turns_used"] == 1
+    assert result.finish_result["status"] == "stuck"
+    assert FakeCodex.instances[0].thread.fake_turn.interrupt_calls == 0
+    assert FakeCodex.instances[0].closed
+    assert FakeMcpServer.instances[0].stopped
+    assert result.error is None
+
+
+def test_dashboard_interrupts_at_response_budget_and_closes():
+    from rpent.planner.codex import _CodexDashboardSession, _Recorder
+
+    async def run():
+        class Turn:
+            interrupt_calls = 0
+
+            async def stream(self):
+                for index in range(1, 6):
+                    if self.interrupt_calls:
+                        break
+                    for event in _model_response_events(index):
+                        yield event
+                yield {
+                    "method": "turn/completed",
+                    "payload": {"turn": {"status": "interrupted"}},
+                }
+
+            async def interrupt(self):
+                self.interrupt_calls += 1
+
+        class Control:
+            ended = False
+            closed = False
+
+            async def tool_completed(self, session):
+                pass
+
+            async def complete(self, session):
+                raise AssertionError("a budget-limited session must end")
+
+            def end(self):
+                self.ended = True
+
+            async def close(self):
+                self.closed = True
+
+        recorder = _Recorder(max_turns=1, dashboard_events=RecordingSink())
+        control = Control()
+        session = _CodexDashboardSession(
+            config=None,
+            thread_options={},
+            turn_options={},
+            recorder=recorder,
+            emit_event=recorder.observe,
+            control=control,
+        )
+        turn = Turn()
+        done = asyncio.Event()
+        session._codex = control
+        session._turn = turn
+        session._turn_done = done
+        await session._consume_turn(turn, done)
+        await session.close()
+        assert done.is_set() and control.ended and control.closed
+        assert session.error is None
+        assert turn.interrupt_calls == 1
+        assert recorder.turns == 1
+        assert recorder.finish_result is None
+
+    asyncio.run(run())
+
+
+def test_response_count_ignores_items_and_duplicate_usage():
+    from rpent.planner.codex import _Recorder
+
+    recorder = _Recorder(max_turns=10, dashboard_events=RecordingSink())
+    usage_events = []
+    for index, text in [(1, False), (2, True)]:
+        events = list(_model_response_events(index, text=text))
+        # Reasoning, empty/text messages and multiple tools belong to one response.
+        for event in events[:-2]:
+            recorder.observe(event)
+        assert recorder.turns == index - 1
+        for event in events[-2:]:
+            recorder.observe(event)
+        assert recorder.turns == index
+        usage_events.append(events[-1])
+    assert recorder.tool_calls == 4
+    assert recorder.final_response == "still working"
+
+    for event in reversed(usage_events):
+        recorder.observe(event)
+    recorder.observe(
+        {
+            "method": "thread/tokenUsage/updated",
+            "payload": {"token_usage": {"total": {}}},
+        }
+    )
+    assert recorder.turns == 2
+    assert recorder.stats()["total_input_tokens"] == 20
 
 
 def test_rejected_finish_item_is_not_promoted() -> None:
