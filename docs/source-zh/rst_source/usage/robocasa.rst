@@ -220,10 +220,15 @@ CLI 在启动机器人服务前校验 memory。Dashboard 在启动共享 VLA 前
          --planner codex --model gpt-5.5 --reasoning-effort xhigh \
          --memory-profile local --memory-dir ./target50-memory/robocasa
 
-使用维护中的复现 memory 分支时，在下载命令中加上
-``--revision reproduce/memory``。它选择可更新的分支，不锁定数据版本。
-切换分支请使用新目录。两个分支的 RoboCasa 均采用上述 task/global 结构；
-后续更新对应的任务或 global 文件即可，无需修改代码。
+后续 memory 更新仅发布到 HF ``main``。
+`reproduce/memory 归档
+<https://huggingface.co/datasets/RLinf/RPent-memory/tree/reproduce/memory>`_
+保留 ``d8c25a7f`` 的 GPT-5.5 Harness-VLA 复现资源，正文和目录命名均保持原样。
+其中 RoboCasa 使用 ``task_only/``，当前加载器要求 ``task-specific/``，不会转换
+旧布局。因此，下载该归档后直接传给当前 ``--memory-profile local`` 加载器，
+不是受支持的复现命令。归档 README 描述的是历史行为，不是当前 CLI。
+本指南尚未确立与该归档配套的 RoboCasa 代码/数据快照；上面的命令使用当前 main
+语料。
 
 本地探索产物也可以直接用于评测，无需转换。对于
 ``--task-name <Task> --split <split>``，local 评测从 ``task-specific/`` 中
@@ -275,8 +280,9 @@ Harness VLA Target50 复现协议
 是否完整读取不决定环境结果的有效性或成功值。每次运行都会重新初始化读取审计，
 即使复用了输出目录也不继承旧记录。
 
-校验器不比较不同运行之间的 memory 正文。``main`` 和 ``reproduce/memory`` 都是
-维护中的分支。需要可重复的对照实验时，只下载一次 memory，所有 cell 均用
+校验器不比较不同运行之间的 memory 正文。HF ``main`` 接收后续更新，
+``reproduce/memory`` 保持为不再变更的历史归档。使用当前布局进行可重复的对照实验时，
+只下载一次 memory，所有 cell 均用
 ``--memory-profile local --memory-dir`` 指向同一份保持不变的目录。保留这些文件，
 并在本地实验记录中保存 HF commit 或哈希。RPent 不固定 memory，也不向结果元数据
 添加数据版本标识。

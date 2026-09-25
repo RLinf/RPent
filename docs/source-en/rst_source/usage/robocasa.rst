@@ -251,12 +251,17 @@ profile. This also avoids retaining deleted files in an older download directory
          --planner codex --model gpt-5.5 --reasoning-effort xhigh \
          --memory-profile local --memory-dir ./target50-memory/robocasa
 
-For the maintained reproduction memory branch, add
-``--revision reproduce/memory`` to the download command. This selects a mutable
-branch, not a fixed data version. Use a fresh directory when switching branches.
-Both branches use the same RoboCasa task/global layout. Future memory updates
-require only editing the appropriate task or global file; code changes are not
-needed.
+Future memory updates are published to HF ``main``. The
+`reproduce/memory archive
+<https://huggingface.co/datasets/RLinf/RPent-memory/tree/reproduce/memory>`_
+retains the GPT-5.5 Harness-VLA reproduction resources at ``d8c25a7f``, with
+its existing contents and directory names unchanged. Its RoboCasa files use
+``task_only/``; the current loader requires ``task-specific/`` and does not
+convert the old layout. Downloading that archive and passing it to the current
+``--memory-profile local`` loader is not a supported reproduction command.
+The archive's README describes its historical behavior, not the current CLI.
+No matching RoboCasa code/data snapshot is established by this guide; the
+commands above use the current main corpus.
 
 Local exploration output is also supported directly, without conversion. For
 ``--task-name <Task> --split <split>``, local evaluation selects either the
@@ -315,9 +320,10 @@ the audit structure. Missing or corrupt audit files are reported separately;
 read completeness does not determine the environment result's validity or
 success. Each run starts a fresh audit, even when reusing an output directory.
 
-Memory contents are not compared across runs. Both ``main`` and
-``reproduce/memory`` are maintained branches. For a repeatable comparison,
-download memory once and use the same unchanged directory with
+Memory contents are not compared across runs. HF ``main`` receives future
+updates, while ``reproduce/memory`` remains an unchanged historical archive.
+For a repeatable comparison using the current layout, download memory once
+and use the same unchanged directory with
 ``--memory-profile local --memory-dir`` for every cell. Retain the files and
 record the HF commit or hashes in local experiment notes. RPent does not pin
 memory or add data revision identifiers to result metadata.
