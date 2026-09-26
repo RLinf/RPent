@@ -40,8 +40,13 @@ def test_dual_vla_prediction_follows_shared_component_rpc_contract(monkeypatch):
     def get_model(cfg, torch_dtype):
         assert cfg.action_dim == 20 and cfg.openpi.num_images_in_input == 3
         assert cfg.openpi_data.repo_id == "test/dataset"
+        assert cfg.pi05 is True
+        assert cfg.openpi.task == "eval"
         assert cfg.openpi.config_name == "pi05_dualfranka_tcp_rot6d"
         assert cfg.num_action_chunks == cfg.openpi.action_chunk == 20
+        assert cfg.openpi.model_action_dim == 32
+        assert cfg.openpi.paligemma_variant == "gemma_2b"
+        assert cfg.openpi.action_expert_variant == "gemma_300m"
         assert cfg.openpi.train_expert_only is False
         assert cfg.openpi.detach_critic_input is True
         return Model()
@@ -98,7 +103,6 @@ def test_cli_forwards_model_configuration(monkeypatch, embodiment):
     assert received["embodiment"] == embodiment
     assert received["repo_id"] == "test/dataset"
     assert received["norm_stats_path"] == "/stats"
-    assert received["model_backend"] == "openpi_pytorch"
     assert received["port"] == 6000
 
 
@@ -109,10 +113,15 @@ def test_libero_preset_keeps_existing_defaults():
     )
 
     cfg = build_model_cfg("/checkpoint", PI05_EMBODIMENTS["libero"])
+    assert cfg.pi05 is True
+    assert cfg.openpi.task == "eval"
     assert cfg.openpi.config_name == "pi05_libero"
     assert cfg.action_dim == 7
     assert cfg.num_action_chunks == cfg.openpi.action_chunk == 5
     assert cfg.openpi.num_images_in_input == 2
+    assert cfg.openpi.model_action_dim == 32
+    assert cfg.openpi.paligemma_variant == "gemma_2b"
+    assert cfg.openpi.action_expert_variant == "gemma_300m"
     assert cfg.openpi.train_expert_only is True
     assert cfg.openpi.detach_critic_input is None
     assert "openpi_data" not in cfg

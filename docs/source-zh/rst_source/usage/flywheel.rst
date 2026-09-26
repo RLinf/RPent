@@ -70,7 +70,7 @@ LIBERO-PRO 及数据飞轮导出依赖：
 微调。RPent 负责采集和导出；模型训练、日志和权重保存由 RLinf 管理。
 
 环境安装和训练配置请参考
-`RLinf OpenPI_RLinf 监督微调指南 <https://rlinf.readthedocs.io/zh-cn/latest/rst_source/examples/embodied/sft_openpi_rlinf.html>`_。
+`RLinf OpenPI 监督微调指南 <https://rlinf.readthedocs.io/zh-cn/latest/rst_source/examples/embodied/sft_openpi.html>`_。
 训练数据路径应指向导出的 LeRobot 数据集目录，即包含 ``meta/info.json`` 的目录，
 而不是原始轨迹目录。
 

@@ -1,5 +1,6 @@
 # RPent example config for a dual-Franka setup.
 robot:
+  realtime_config: ignore
   arms:
     left:
       ip: "172.16.0.2"

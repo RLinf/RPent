@@ -7,17 +7,8 @@ worker.
 Install
 -------
 
-.. note::
-
-	The following guide installs only the Python side (the custom RLinf
-	Franka branch and ``rlinf-openpi``); it does **not** build the robot
-	controller stack the arm needs. Before installing RPent, follow the RLinf
-	single-arm Franka guide to set up the controller node: check Franka firmware
-	compatibility, install the real-time kernel, choose your gripper (Franka hand
-	or Robotiq 2F-85/2F-140) and camera, and build the ROS control packages (ROS
-	Noetic, the matching libfranka and franka_ros, and serl_franka_controllers).
-	See the `RLinf single-arm Franka guide
-	<https://rlinf.readthedocs.io/en/latest/rst_source/examples/embodied/franka.html>`_.
+Install libfranka 0.19.0 first by following the `official quick-install guide
+<https://docs.ros.org/en/humble/p/libfranka/__README.html#quick-install>`_.
 
 From the RPent repository root:
 
@@ -25,8 +16,8 @@ From the RPent repository root:
 
    uv sync --extra franka
 
-This installs the custom RLinf Franka branch and ``rlinf-openpi`` into
-``.venv``.
+This installs the pinned RLinf release, ``rlinf-openpi``, and RLinf's Franka
+runtime dependencies (including ``franky-control``) into ``.venv``.
 
 Calibration
 -----------
@@ -58,7 +49,10 @@ enabling motion:
 
 * ``robots/franka/config/example.yaml`` contains the machine identity (robot IP,
 	camera serials, gripper), workspace geometry (target/reset poses and safety
-	limits), and the easy_handeye YAML mapping (see Calibration).
+	limits), and the easy_handeye YAML mapping (see Calibration). It sets
+	``backend: franky`` and ``realtime_config: ignore``. On a PREEMPT_RT kernel,
+	change ``realtime_config`` to ``enforce`` to refuse startup when real-time
+	guarantees are unavailable.
 
 RPent translates this robot-focused schema into the internal RLinf cluster and
 environment objects. To use a different file, pass

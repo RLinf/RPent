@@ -76,7 +76,7 @@ supervised fine-tuning in a separate RLinf environment. RPent handles collection
 and export; RLinf handles model training, logging, and checkpoint saving.
 
 For environment setup and training configuration, see the
-`RLinf OpenPI_RLinf SFT guide <https://rlinf.readthedocs.io/en/latest/rst_source/examples/embodied/sft_openpi_rlinf.html>`_.
+`RLinf OpenPI SFT guide <https://rlinf.readthedocs.io/en/latest/rst_source/examples/embodied/sft_openpi.html>`_.
 Point the training data path to the exported LeRobot dataset directory containing
 ``meta/info.json``, not the raw episode directory.
 
