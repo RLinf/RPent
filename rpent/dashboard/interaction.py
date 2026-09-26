@@ -49,6 +49,31 @@ class DashboardMessage:
         }
 
 
+class PlannerSessionDriver(Protocol):
+    """Backend operations used by the Dashboard planner control.
+
+    The controller drains physical toolkit work before requesting an interrupt.
+    Drivers own their SDK resources, event consumers, and cleanup.
+    """
+
+    async def submit(self, message: DashboardMessage) -> int:
+        """Submit input and return the number of new completion events expected.
+
+        Steering an active turn may return zero. With deferred acknowledgement,
+        the driver reports when the message starts or is discarded through
+        ``DashboardPlannerControl``; returning only confirms acceptance.
+        """
+        ...
+
+    async def interrupt(self) -> int:
+        """Interrupt execution and return completions to remove from the count.
+
+        Count only work that will not report completion through the normal event
+        path, such as discarded queued input. Do not count those events twice.
+        """
+        ...
+
+
 class DashboardInteractionPort(Protocol):
     """Planner-facing access to one Dashboard interaction Session."""
 

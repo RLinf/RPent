@@ -244,6 +244,7 @@ def test_shared_cli_validation_stops_before_robot_runtime(
         ),
     )
     monkeypatch.setattr(sys, "argv", ["rpent", *argv])
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
 
     with pytest.raises(SystemExit) as exc_info:
         cli.main()
@@ -389,9 +390,11 @@ def test_handoff_message_lists_prior_attempts_deterministically(tmp_path: Path) 
     assert "memory inbox under wip/" in message
 
 
+@pytest.mark.parametrize("interactive", [False, True])
 def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    interactive: bool,
 ) -> None:
     cli = _cli_module()
     from rpent.planner.base import PlannerResult
@@ -521,6 +524,12 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     monkeypatch.setattr(cli, "get_robot_spec", lambda name: robot_spec)
     monkeypatch.setattr(cli, "build_planner", build_planner)
     monkeypatch.setattr(cli, "get_toolkit", get_toolkit)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(
+        cli,
+        "start_interactive_reader",
+        lambda *args, **kwargs: pytest.fail("API mode must use the native CLI"),
+    )
     monkeypatch.setattr("rpent.memory.MemoryManager.sync", reject_memory_sync)
     monkeypatch.setattr(
         sys,
@@ -539,10 +548,12 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
             str(tmp_path),
             "--max-turns",
             "4",
+            *(["--interactive"] if interactive else []),
         ],
     )
 
     assert cli.main() == 0
+    assert calls["build_planner"][1]["interactive"] is interactive
 
     assert calls["solve"] == {
         "system_prompt": "simulated system prompt\n",

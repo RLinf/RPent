@@ -23,8 +23,10 @@ loop is orchestrated, and which model SDK is used.
      - Provider-agnostic tool-calling loop built on
        `pydantic-ai <https://ai.pydantic.dev/>`_. It currently supports
        the Anthropic Messages API, the OpenAI Responses API, and
-       OpenAI-compatible Chat Completions APIs. It handles prompt caching
-       and history-image pruning.
+       OpenAI-compatible Chat Completions APIs. It trims older messages
+       from long conversations to limit context size. Prompt caching is
+       explicitly enabled for Anthropic to reuse repeated input;
+       other providers use their default caching behavior.
      - You want the tightest control over model calls, the widest
        provider coverage, or the cheapest per-turn spend.
    * - ``claude_code``
@@ -50,8 +52,8 @@ loop is orchestrated, and which model SDK is used.
 The ``api`` planner (direct model API)
 ---------------------------------------
 
-``--planner api`` is the default. It uses Pydantic AI to implement the
-tool-calling loop and requires a provider prefix in ``--model``. The
+``--planner api`` is the default. It uses the native Pydantic AI tool-calling
+runtime and requires a provider prefix in ``--model``. The
 project currently installs the Anthropic and OpenAI integrations, so it
 can directly use the Anthropic Messages API, the OpenAI Responses API,
 and OpenAI-compatible Chat Completions APIs.
@@ -79,11 +81,13 @@ needed):
 Relevant ``api`` planner knobs:
 
 - ``--max-tokens`` — cap each LLM reply (default ``8192``).
-- ``--max-turns`` — cap the number of tool-calling turns (default
-  ``100``).
+- ``--max-turns`` — cap model requests across the whole conversation,
+  including retries and follow-ups (default ``100``).
 - ``--no-images`` — never send image bytes; this is required for
   text-only models. The agent then reasons from textual state alone,
   so task performance may not be satisfactory.
+
+For ``--interactive`` usage, see :ref:`Terminal interaction <quickstart-interactive>`.
 
 .. _planner-claude-code:
 
@@ -262,17 +266,17 @@ schemas, or your context length.
 Add a custom planner
 --------------------
 
-If none of the three planners fit — say you want to plug in an
+If none of the built-in planners fit — say you want to plug in an
 in-house planner, a research prototype, or a different agent SDK —
-implement the ``rpent.planner.base.Planner`` protocol and add a
-construction branch to ``rpent.planner.base.build_planner``:
+subclass ``rpent.planner.base.Planner``, implement its abstract ``solve()``
+method, and update ``rpent.planner.base.build_planner`` to create the new backend:
 
 .. code-block:: python
 
    # rpent/planner/my_planner.py
-   from rpent.planner.base import PlannerResult
+   from rpent.planner.base import Planner, PlannerResult
 
-   class MyPlanner:
+   class MyPlanner(Planner):
        def solve(
            self,
            *,
@@ -281,6 +285,7 @@ construction branch to ``rpent.planner.base.build_planner``:
            toolkit,
            max_turns,
            input_queue=None,
+           dashboard_interaction=None,
        ):
            tool_specs = toolkit.get_tools_spec()
            # Call the model with system_prompt, user_message, and tool_specs.

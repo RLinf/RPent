@@ -21,7 +21,9 @@ SDK。
    * - ``api``
      - 基于 `Pydantic AI <https://pydantic.dev/docs/ai/>`_ 实现的工具调用循环，
        不绑定特定模型提供商。当前支持 Anthropic Messages API、OpenAI Responses
-       API 和 OpenAI 兼容的 Chat Completions API，内置 prompt 缓存和历史图片剪枝。
+       API 和 OpenAI 兼容的 Chat Completions API。对话较长时会裁剪较早的消息，
+       控制上下文大小。对 Anthropic 显式启用提示缓存，复用重复输入的计算结果；
+       其他提供商沿用其默认缓存行为。
      - 需要精细控制模型调用、支持更多模型提供商，或降低单轮调用成本。
    * - ``claude_code``
      - `Claude Agent SDK
@@ -44,7 +46,7 @@ SDK。
 ``api`` planner（直接调用模型 API）
 -------------------------------------
 
-``--planner api`` 是默认选项。它使用 Pydantic AI 实现工具调用循环，并要求
+``--planner api`` 是默认选项。它使用 Pydantic AI 原生工具调用运行时，并要求
 ``--model`` 带有模型提供商前缀。当前项目安装的依赖包含 Anthropic 和 OpenAI
 集成，因此可以直接使用 Anthropic Messages API、OpenAI Responses API，
 以及 OpenAI 兼容的 Chat Completions API。
@@ -71,9 +73,12 @@ SDK。
 ``api`` planner 的相关调节参数：
 
 - ``--max-tokens`` —— 单次 LLM 回复的 token 上限（默认 ``8192``）。
-- ``--max-turns`` —— 工具调用轮数上限（默认 ``100``）。
+- ``--max-turns`` —— 整段对话的模型请求次数上限，包含重试和后续输入
+  （默认 ``100``）。
 - ``--no-images`` —— 不向模型发送图片字节；纯文本模型必须加此参数。此时
   智能体只依赖文本状态推理，任务表现可能不够理想。
+
+``--interactive`` 的用法见 :ref:`终端交互 <quickstart-interactive>`。
 
 .. _planner-claude-code:
 
@@ -237,16 +242,16 @@ Dashboard 提供同一项检查：启动页的 **测试连接** 按钮会针对�
 接入自定义 planner
 ------------------
 
-如果三种内置 planner 都不合适，例如需要接入内部 planner、研究原型或其他
-agent SDK，可以实现 ``rpent.planner.base.Planner`` 协议，并在
-``rpent.planner.base.build_planner`` 中增加对应的构造分支：
+如果内置 planner 都不合适，例如需要接入内部 planner、研究原型或其他
+agent SDK，可以继承 ``rpent.planner.base.Planner``，实现抽象方法 ``solve()``，
+并修改 ``rpent.planner.base.build_planner``，使其能够创建新后端的实例：
 
 .. code-block:: python
 
    # rpent/planner/my_planner.py
-   from rpent.planner.base import PlannerResult
+   from rpent.planner.base import Planner, PlannerResult
 
-   class MyPlanner:
+   class MyPlanner(Planner):
        def solve(
            self,
            *,
@@ -255,6 +260,7 @@ agent SDK，可以实现 ``rpent.planner.base.Planner`` 协议，并在
            toolkit,
            max_turns,
            input_queue=None,
+           dashboard_interaction=None,
        ):
            tool_specs = toolkit.get_tools_spec()
            # 使用 system_prompt、user_message 和 tool_specs 调用模型。

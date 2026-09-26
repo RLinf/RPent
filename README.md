@@ -183,7 +183,7 @@ For the exploration workflow and local-memory evaluation, see [LIBERO exploratio
 
 ### Interactive CLI mode
 
-Add `--interactive` (`-i`) to steer the agent live from your terminal. At the `you>` prompt, the built-in task is pre-filled — press Enter to use it or replace it with your own — then type any message while it runs to steer the agent at the next turn (`/help` lists commands; `/quit` or Ctrl-D ends). Requires an interactive terminal (TTY).
+With `claude_code` or `codex`, add `--interactive` (`-i`) to steer the agent live from your terminal. At the `you>` prompt, the built-in task is pre-filled — press Enter to use it or replace it, then type while it runs (`/help` lists commands; `/quit` or Ctrl-D ends). Requires a TTY. The `api` planner uses a native CLI that runs the preset task first and accepts follow-ups between runs; use `/exit` to close it.
 
 ```bash
 rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
