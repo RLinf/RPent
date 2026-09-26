@@ -47,6 +47,45 @@ loop is orchestrated, and which model SDK is used.
      - You want to re-run a known-good plan on new layouts, without online
        LLM planning. Perception and VLA services are still required.
 
+Configure planner limits
+------------------------
+
+``--max-turns N`` sets the planner's turn limit; the default is ``100``.
+A turn is not a robot action: one model response can request several tools.
+
+- **API / Codex:** Each model response counts once, including responses with
+  only reasoning or tool calls. Several tools requested in the same response
+  still count as one turn. RPent enforces this limit.
+- **Claude Code:** A turn means the model requests tools, those tools run,
+  and their results return to the model. A final answer without tool calls
+  does not use this budget. RPent passes the limit to Claude Code, which
+  returns ``error_max_turns`` if the limit is reached.
+
+For example, the model requests two file reads in one response, then
+summarizes their results in another. API/Codex count two turns; Claude uses
+one tool-use turn. RPent records model responses in ``turns_used``, so it
+reports two in this example even when using Claude.
+
+In interactive Claude sessions, each new user input gets a fresh turn
+budget, while ``turns_used`` keeps accumulating. See
+`Claude's turn-limit documentation
+<https://code.claude.com/docs/en/agent-sdk/agent-loop#turns-and-budget>`_.
+
+``flash`` replays a plan without an LLM loop, so this budget does not apply;
+it reports ``turns_used=0``.
+
+Other limits have different scopes:
+
+- ``--max-tokens`` caps each reply's tokens for ``api`` only (default ``8192``).
+- ``--planner-timeout-s`` limits elapsed planner time, with backend-specific
+  defaults and interactive-mode behavior described below.
+
+When the model calls ``finish``, the planner records the finish state.
+Reaching a turn limit stops the current loop; an interactive Claude session
+can still accept another query. The main program saves the transcript when
+the run ends. Timeouts or SDK exceptions are stored in the planner result
+and written to the log.
+
 The ``api`` planner (direct model API)
 ---------------------------------------
 
@@ -79,8 +118,6 @@ needed):
 Relevant ``api`` planner knobs:
 
 - ``--max-tokens`` — cap each LLM reply (default ``8192``).
-- ``--max-turns`` — cap the number of tool-calling turns (default
-  ``100``).
 - ``--no-images`` — never send image bytes; this is required for
   text-only models. The agent then reasons from textual state alone,
   so task performance may not be satisfactory.
@@ -108,8 +145,6 @@ Notes:
 
 - Do **not** add a provider prefix to ``--model``. If it is omitted,
   RPent uses ``sonnet``.
-- ``--max-turns`` is passed to the Claude Agent SDK and defaults to
-  ``100``.
 - ``--planner-timeout-s`` limits non-interactive runs. It defaults to
   ``CELL_TIMEOUT_S``, or ``1200`` seconds when that variable is unset.
   The limit is not applied in ``--interactive`` mode.
@@ -311,22 +346,3 @@ adding a planner does not require changes to tools or environment
 servers. See :doc:`../development/architecture` for the interface, and
 :doc:`../development/add_primitive` if you want to expose new tools to
 your custom planner.
-
-Configure planner limits
-------------------------
-
-The limiting options apply to different planners:
-
-- ``--max-tokens`` caps *per-reply* tokens only for the ``api``
-  planner. LIBERO-style tasks usually
-  finish comfortably under ``8192``; longer-horizon RoboCasa episodes
-  benefit from raising it if your model supports it.
-- ``--max-turns`` caps the *total number of tool-calling turns*. A
-  single LIBERO task rarely needs more than ~30 turns; RoboCasa
-  long-horizon tasks can approach the default ``100``.
-- ``--planner-timeout-s`` limits the planner's running time.
-
-When the model calls the ``finish`` tool, the planner records the
-corresponding finish state. Reaching a turn limit or timeout ends the
-run, and the main program still saves the transcript. Timeouts or SDK
-exceptions are stored in the planner result and written to the log.

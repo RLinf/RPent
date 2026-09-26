@@ -326,6 +326,7 @@ class CodexPlanner:
                             daemon=True,
                         ).start()
 
+                    limit_reached = False
                     try:
                         for event in turn.stream():
                             _write_jsonl(raw_f, _message_to_json(event))
@@ -335,6 +336,14 @@ class CodexPlanner:
                                     out_f.write(rendered)
                                     out_f.flush()
                                 logger.info(rendered.strip())
+                            if (
+                                str(_get(event, "method", "")) != "turn/completed"
+                                and not limit_reached
+                                and recorder.finish_result is None
+                                and recorder.turns >= recorder.max_turns
+                            ):
+                                limit_reached = True
+                                turn.interrupt()
                     finally:
                         if stop_steer is not None:
                             stop_steer.set()
@@ -618,6 +627,7 @@ class _Recorder:
     max_turns: int
     dashboard_events: DashboardEventSink
     turns: int = 0
+    _seen_usage: set[tuple[int, ...]] = field(default_factory=set)
     tool_calls: int = 0
     usage: dict[str, int] = field(
         default_factory=lambda: {
@@ -643,7 +653,8 @@ class _Recorder:
         if method == "item/completed":
             return self._render_item(_get(payload, "item"))
         if method == "thread/tokenUsage/updated":
-            self._set_usage(_get(payload, "token_usage"))
+            if self._set_usage(_get(payload, "token_usage")):
+                return f"\n[agent] === turn {self.turns}/{self.max_turns} ===\n"
             return ""
         if method == "turn/completed":
             return self._render_turn_completed(_get(payload, "turn"))
@@ -672,12 +683,8 @@ class _Recorder:
             if not text:
                 return ""
             self.final_response = text
-            self.turns += 1
             self.dashboard_events.emit(TranscriptEvent({"type": "text", "text": text}))
-            return (
-                f"\n[agent] === turn {self.turns}/{self.max_turns} ===\n"
-                f"[codex] {text}\n"
-            )
+            return f"\n[codex] {text}\n"
 
         if item_type == "reasoning":
             text = _extract_text(_get(item, "summary") or _get(item, "content"))
@@ -731,11 +738,18 @@ class _Recorder:
 
     # -- helpers -----------------------------------------------------------
 
-    def _set_usage(self, usage: Any) -> None:
+    def _set_usage(self, usage: Any) -> bool:
+        """Count completed model responses, including reasoning/tool-only ones.
+
+        The SDK updates cumulative token usage after each model response. Text
+        and tool items within that response do not consume additional turns.
+        Repeated notifications (including context-window-only updates) do not
+        count again or overwrite newer usage totals.
+        """
         if usage is None:
-            return
+            return False
         total = _get(usage, "total", usage)
-        self.usage = {
+        updated = {
             "total_input_tokens": _int_attr(total, "input_tokens"),
             "total_cached_input_tokens": _int_attr(total, "cached_input_tokens"),
             "total_output_tokens": _int_attr(total, "output_tokens"),
@@ -743,6 +757,12 @@ class _Recorder:
                 total, "reasoning_output_tokens"
             ),
         }
+        key = tuple(updated.values())
+        if not any(key) or key in self._seen_usage:
+            return False
+        self._seen_usage.add(key)
+        self.usage = updated
+        self.turns += 1
         self.dashboard_events.emit(
             UsageEvent(
                 inp=self.usage["total_input_tokens"],
@@ -750,6 +770,7 @@ class _Recorder:
                 tool_calls=self.tool_calls,
             )
         )
+        return True
 
     def _maybe_capture_finish(self, name: str, item: Any) -> None:
         if self.finish_result is not None:

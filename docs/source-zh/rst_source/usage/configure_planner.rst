@@ -41,6 +41,38 @@ SDK。
        :doc:`flash`。
      - 想在新布局上低成本地重跑一个已知可行的方案，无需 LLM 在线规划；仍需要感知和 VLA 服务。
 
+设置 planner 的运行限制
+-----------------------
+
+``--max-turns N`` 设置规划轮数上限，默认 ``100``。
+一轮不是一次机器人动作：模型的一次回复可以要求调用多个工具。
+
+- **API / Codex：** 模型每回复一次算一轮。只有推理或工具调用、没有文字的
+  回复也计数；同一次回复中的多个工具调用不会分别计数。RPent 负责执行这个上限。
+- **Claude Code：** 一轮是“模型请求工具 → 工具执行 → 结果返回模型”。
+  最后不调用工具的文字答复不占用这一预算。RPent 把上限交给 Claude Code
+  执行，达到上限时返回 ``error_max_turns``。
+
+例如，模型先在一次回复中要求读取两个文件，拿到结果后再给出文字总结：
+API/Codex 计两轮，Claude 的工具轮数为一轮。RPent 的 ``turns_used``
+记录模型回复数，因此这个例子即使用 Claude，也会报告两次回复。
+
+Claude 交互模式下，每次新增用户输入都会获得新的轮数预算，``turns_used``
+则继续累计。详见 `Claude 的轮数限制说明
+<https://code.claude.com/docs/en/agent-sdk/agent-loop#turns-and-budget>`_。
+
+``flash`` 直接重放计划，不运行 LLM 循环，因此不使用这一预算，报告的
+``turns_used`` 为 ``0``。
+
+其他限制的作用范围不同：
+
+- ``--max-tokens`` 仅限制 ``api`` 每次回复的 token 数，默认 ``8192``。
+- ``--planner-timeout-s`` 限制 planner 的运行时间；各后端的默认值及交互模式行为见下文。
+
+模型调用 ``finish`` 后，planner 会记录结束状态。达到轮数上限时，当前循环停止；
+Claude 交互会话仍可接收下一次 query。运行结束时，主程序会保存 transcript。
+超时或 SDK 异常会写入 planner 结果，并输出到日志。
+
 ``api`` planner（直接调用模型 API）
 -------------------------------------
 
@@ -71,7 +103,6 @@ SDK。
 ``api`` planner 的相关调节参数：
 
 - ``--max-tokens`` —— 单次 LLM 回复的 token 上限（默认 ``8192``）。
-- ``--max-turns`` —— 工具调用轮数上限（默认 ``100``）。
 - ``--no-images`` —— 不向模型发送图片字节；纯文本模型必须加此参数。此时
   智能体只依赖文本状态推理，任务表现可能不够理想。
 
@@ -96,7 +127,6 @@ RPent 为 Claude 规划会话关闭文件系统配置来源，因此不会自动
 注意事项：
 
 - ``--model`` **不要** 加模型提供商前缀；省略时默认使用 ``sonnet``。
-- ``--max-turns`` 会传给 Claude Agent SDK，默认 ``100``。
 - 非交互运行受 ``--planner-timeout-s`` 限制；默认读取
   ``CELL_TIMEOUT_S``，未设置时为 ``1200`` 秒。``--interactive`` 模式
   不应用这一时限。
@@ -282,19 +312,3 @@ agent SDK，可以实现 ``rpent.planner.base.Planner`` 协议，并在
 工具或环境服务。接口参见
 :doc:`../development/architecture`；想给
 自定义 planner 暴露新工具，见 :doc:`../development/add_primitive`。
-
-设置 planner 的运行限制
------------------------
-
-以下参数的作用范围并不相同：
-
-- ``--max-tokens`` 只限制 ``api`` planner *每次回复* 的 token 数。
-  LIBERO 类任务通常 ``8192`` 就够；更长时序的 RoboCasa episode
-  如果模型支持可以调大。
-- ``--max-turns`` 限制工具调用的总轮数。单个 LIBERO 任务通常
-  不会超过 30 轮；RoboCasa 的长时序任务可能接近默认的 ``100``。
-- ``--planner-timeout-s`` 限制 planner 的运行时间。
-
-模型调用 ``finish`` 工具后，planner 会记录相应的结束状态。达到轮数上限或
-超时时，运行结束，主程序仍会保存 transcript。超时或 SDK 异常会写入
-planner 结果，并输出到日志。
