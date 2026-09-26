@@ -18,6 +18,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
 import yaml
 
 from rpent.memory import MemoryManager
@@ -44,7 +45,7 @@ def _write_memory_leaf(
         "confidence": "single-shot",
         "related": [],
     }
-    if scope == "suite":
+    if scope == "task-family":
         metadata.update(
             suite="libero10",
             regime="task",
@@ -81,9 +82,9 @@ def test_memory_manager_index_lists_valid_leaves_by_scope(tmp_path: Path) -> Non
         cells=["10_task_t2_s0"],
     )
     _write_memory_leaf(
-        memory_dir / "suite" / "suite_libero10_task_t2.md",
-        memory_id="suite_libero10_task_t2",
-        scope="suite",
+        memory_dir / "task-family" / "task-family_libero10_task_t2.md",
+        memory_id="task-family_libero10_task_t2",
+        scope="task-family",
         cells=["10_task_t2_s0"],
     )
 
@@ -91,9 +92,41 @@ def test_memory_manager_index_lists_valid_leaves_by_scope(tmp_path: Path) -> Non
     text = index.read_text()
 
     assert index == memory_dir / "MEMORY.md"
-    assert text.index("## Global") < text.index("## Suite")
+    assert text.index("## Global") < text.index("## Task-family")
     assert "[Reliable strategy](global/global_strategy.md) — the scene matches" in text
-    assert "[suite_libero10_task_t2](suite/suite_libero10_task_t2.md)" in text
+    assert (
+        "[task-family_libero10_task_t2](task-family/task-family_libero10_task_t2.md)"
+        in text
+    )
+
+
+@pytest.mark.parametrize("legacy", ["task_only", "suite"])
+def test_unmigrated_layers_fail_before_reading_or_publishing(tmp_path, legacy):
+    root = tmp_path / "memory"
+    (root / legacy).mkdir(parents=True)
+    (root / legacy / "note.md").write_text("legacy note")
+    manager = MemoryManager(root)
+    with pytest.raises(ValueError, match="legacy memory directory"):
+        manager.get_common_tool_bindings()
+    with pytest.raises(ValueError, match="legacy memory directory"):
+        manager.merge_memory(cell_tag="cell", run_state_dir=tmp_path, solved=True)
+    assert not (root / "_internal").exists()
+
+
+def test_renamed_layers_are_readable_and_stale_cache_paths_are_denied(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("RPENT_REPO_ROOT", str(tmp_path))
+    root = tmp_path / "memory" / "libero"
+    for name in ("task_only", "suite", "task-specific", "task-family", "global"):
+        (root / name).mkdir(parents=True)
+        (root / name / "note.md").write_text(name)
+    read = MemoryManager(root).get_common_tool_bindings()["read_text_file"][1]
+    for name in ("task-specific", "task-family", "global"):
+        assert read(path=str(root / name / "note.md"))["content"] == name
+    for name in ("task_only", "suite"):
+        with pytest.raises(PermissionError, match="reading this memory path is denied"):
+            read(path=str(root / name / "note.md"))
 
 
 def test_rebuild_index_regenerates_from_valid_leaves_skipping_plain_ones(
@@ -152,9 +185,9 @@ def test_memory_manager_validation_reports_schema_filename_and_duplicate_errors(
         cells=["10_task_t2_s0"],
     )
     _write_memory_leaf(
-        memory_dir / "suite" / "wrong_filename.md",
+        memory_dir / "task-family" / "wrong_filename.md",
         memory_id="shared_id",
-        scope="suite",
+        scope="task-family",
         cells=["10_task_t2_s1"],
     )
     (memory_dir / "global" / "broken.md").write_text("---\nscope: global\n")
@@ -173,9 +206,9 @@ def test_memory_manager_publishes_draft_and_solved_task_pair(tmp_path: Path) -> 
     output_dir = tmp_path / "run"
     cell = "10_task_t2_s0"
     _write_memory_leaf(
-        memory_dir / "_internal" / "inbox" / cell / "suite_draft.md",
+        memory_dir / "_internal" / "inbox" / cell / "task-family_draft.md",
         memory_id="draft_id_is_replaced",
-        scope="suite",
+        scope="task-family",
         cells=[cell],
     )
     _write_task_pair(output_dir, cell, solved=True)
@@ -189,15 +222,17 @@ def test_memory_manager_publishes_draft_and_solved_task_pair(tmp_path: Path) -> 
         solved=True,
     )
 
-    assert result["suite"] == 1
+    assert result["task-family"] == 1
     assert result["task"] == 1
     assert len(result["skipped"]) == 1
     assert result["skipped"][0].startswith("malformed.md: invalid YAML frontmatter")
-    assert (memory_dir / "suite" / "suite_libero10_task_t2.md").is_file()
-    assert (memory_dir / "task_only" / f"{cell}.json").is_file()
-    assert (memory_dir / "task_only" / f"{cell}_recipe.jsonl").is_file()
-    assert (memory_dir / "_internal" / "merged" / cell / "suite_draft.md").is_file()
-    assert "suite_libero10_task_t2.md" in (memory_dir / "MEMORY.md").read_text()
+    assert (memory_dir / "task-family" / "task-family_libero10_task_t2.md").is_file()
+    assert (memory_dir / "task-specific" / f"{cell}.json").is_file()
+    assert (memory_dir / "task-specific" / f"{cell}_recipe.jsonl").is_file()
+    assert (
+        memory_dir / "_internal" / "merged" / cell / "task-family_draft.md"
+    ).is_file()
+    assert "task-family_libero10_task_t2.md" in (memory_dir / "MEMORY.md").read_text()
 
 
 def test_memory_manager_does_not_publish_unsolved_task_artifacts(
@@ -215,8 +250,8 @@ def test_memory_manager_does_not_publish_unsolved_task_artifacts(
     )
 
     assert result["task"] == 0
-    assert not (memory_dir / "task_only" / f"{cell}.json").exists()
-    assert not (memory_dir / "task_only" / f"{cell}_recipe.jsonl").exists()
+    assert not (memory_dir / "task-specific" / f"{cell}.json").exists()
+    assert not (memory_dir / "task-specific" / f"{cell}_recipe.jsonl").exists()
 
 
 def test_memory_manager_skips_invalid_draft_without_archiving_its_inbox(
@@ -264,9 +299,9 @@ def test_memory_manager_accumulates_evidence_and_preserves_conflicting_prose(
     first_inbox = memory_dir / "_internal" / "inbox" / first_cell
     second_inbox = memory_dir / "_internal" / "inbox" / second_cell
     _write_memory_leaf(
-        first_inbox / "suite_draft.md",
+        first_inbox / "task-family_draft.md",
         memory_id="ignored",
-        scope="suite",
+        scope="task-family",
         cells=[first_cell],
         attempts=1,
         body="First published prose.\n",
@@ -278,9 +313,9 @@ def test_memory_manager_accumulates_evidence_and_preserves_conflicting_prose(
         solved=False,
     )
     _write_memory_leaf(
-        second_inbox / "suite_draft.md",
+        second_inbox / "task-family_draft.md",
         memory_id="ignored",
-        scope="suite",
+        scope="task-family",
         cells=[second_cell],
         attempts=2,
         body="Conflicting new prose.\n",
@@ -292,9 +327,9 @@ def test_memory_manager_accumulates_evidence_and_preserves_conflicting_prose(
         solved=False,
     )
 
-    published = memory_dir / "suite" / "suite_libero10_task_t2.md"
+    published = memory_dir / "task-family" / "task-family_libero10_task_t2.md"
     published_metadata = yaml.safe_load(published.read_text().split("---", 2)[1])
-    assert result["suite"] == 0
+    assert result["task-family"] == 0
     assert result["evidence"] == 1
     assert result["conflicts"] == 1
     assert published_metadata["evidence"]["cells"] == [first_cell, second_cell]
@@ -305,7 +340,7 @@ def test_memory_manager_accumulates_evidence_and_preserves_conflicting_prose(
         memory_dir
         / "_internal"
         / "conflicts"
-        / f"suite_libero10_task_t2__from_{second_cell}.md"
+        / f"task-family_libero10_task_t2__from_{second_cell}.md"
     )
     assert "Conflicting new prose." in conflict.read_text()
 
@@ -352,11 +387,11 @@ def test_memory_manager_is_idempotent_for_evidence_from_the_same_cell(
     output_dir = tmp_path / "run"
     output_dir.mkdir()
     cell = "10_task_t2_s0"
-    draft = memory_dir / "_internal" / "inbox" / cell / "suite_draft.md"
+    draft = memory_dir / "_internal" / "inbox" / cell / "task-family_draft.md"
     _write_memory_leaf(
         draft,
         memory_id="ignored",
-        scope="suite",
+        scope="task-family",
         cells=[cell],
     )
     manager = MemoryManager(memory_dir)
@@ -368,7 +403,7 @@ def test_memory_manager_is_idempotent_for_evidence_from_the_same_cell(
     _write_memory_leaf(
         draft,
         memory_id="ignored",
-        scope="suite",
+        scope="task-family",
         cells=[cell],
     )
 
@@ -378,8 +413,8 @@ def test_memory_manager_is_idempotent_for_evidence_from_the_same_cell(
         solved=False,
     )
 
-    assert first["suite"] == 1
-    assert second["suite"] == 0
+    assert first["task-family"] == 1
+    assert second["task-family"] == 0
     assert second["evidence"] == 0
     assert second["conflicts"] == 0
 
@@ -391,7 +426,7 @@ def test_memory_manager_refuses_to_complete_an_existing_partial_task_pair(
     output_dir = tmp_path / "run"
     cell = "10_task_t2_s0"
     _write_task_pair(output_dir, cell, solved=True)
-    task_dir = memory_dir / "task_only"
+    task_dir = memory_dir / "task-specific"
     task_dir.mkdir(parents=True)
     (task_dir / f"{cell}.json").write_text("{}")
 

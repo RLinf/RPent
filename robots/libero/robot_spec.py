@@ -327,7 +327,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         else:
             has_local_memory = (memory_dir / "MEMORY.md").is_file() or any(
                 path.is_file()
-                for scope in ("global", "suite", "task_only")
+                for scope in ("global", "task-family", "task-specific")
                 for path in (memory_dir / scope).rglob("*")
             )
         if not has_local_memory:

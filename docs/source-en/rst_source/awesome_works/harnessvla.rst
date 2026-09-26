@@ -115,14 +115,21 @@ non-contact execution.
 Quick Start
 -----------
 
-For paper-result reproduction, use the environment-specific branch listed
-below. See each tutorial for the exact setup and commands.
+The following links identify the documented code entry points. See each
+tutorial for setup and commands, and retain the code/data pairing of historical
+reproduction runs.
 
 * **LIBERO:** :doc:`Tutorial <../usage/libero>` —
   `reproduce/libero <https://github.com/RLinf/RPent/tree/reproduce/libero>`_
-* **RoboCasa:** :doc:`Tutorial <../usage/robocasa>` — use ``main``
+* **RoboCasa:** :doc:`Tutorial <../usage/robocasa>` — current workflow on ``main``
 * **RoboTwin:** :doc:`Tutorial <../usage/robotwin>` —
   `reproduce/robotwin <https://github.com/RLinf/RPent/tree/reproduce/robotwin>`_
+
+The HF ``reproduce/memory`` branch preserves its historical layout. The LIBERO
+and RoboTwin branches above retain their own resource-loading code; these
+links do not establish a newly verified run against the archived HF branch.
+The current RoboCasa tutorial uses the main corpus and does not provide a
+verified historical code/data pair for that archive.
 
 Citation
 --------

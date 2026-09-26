@@ -75,10 +75,10 @@ GOAL = """YOUR GOAL: produce `state.libero_terminated == true`, then distil what
 learned into memory.
 
 Memory has three layers, and you write to all of them:
-  `task_only`   the audit `{{output_dir}}/{{recipe_tag}}.json` plus the replayable
+  `task-specific`   the audit `{{output_dir}}/{{recipe_tag}}.json` plus the replayable
            `{{recipe_tag}}_recipe.jsonl` the runner exports — a matched pair
            describing the ONE sequence that worked. SOLVED CELLS ONLY.
-  `suite`  one curated md write-up FOR THIS TASK: technique, parameter ranges,
+  `task-family`  one curated md write-up FOR THIS TASK: technique, parameter ranges,
            per-entity recognition, failure table. Grown at every attempt.
   `global` cross-task lessons, one per md file.
 
@@ -89,7 +89,7 @@ Memory is produced in TWO STAGES, and the distinction matters:
   postpone are details you will summarise badly.
 
   AFTER the cell is SOLVED, you consolidate those notes plus the winning run
-  into the FINAL `suite` and `global` files. Only the consolidated version is
+  into the FINAL `task-family` and `global` files. Only the consolidated version is
   meant to be merged into the shared corpus.
 
 ⚠ WHY THE SECOND STAGE EXISTS. A lesson drawn only from failures is often
@@ -182,8 +182,8 @@ STEP_READ_MEMORY = """READ MEMORY FIRST. Memory is layered by how widely a lesso
 order of specificity, because the most specific layer is also the cheapest to
 retrieve.
 
-a. **THIS TASK** — `read_text_file` the `suite` write-up for this cell if one
-   exists (look for `suite_*` under `{{memory_dir}}/suite/`). It is the single
+a. **THIS TASK** — `read_text_file` the `task-family` write-up for this cell if one
+   exists (look for `task-family_*` under `{{memory_dir}}/task-family/`). It is the single
    highest-value file you will read: the technique, per-entity `segment`
    phrasings, the failure table with attempt numbers, and the fragility flags
    for exactly this task. Its numbers are RANGES and its coordinates are
@@ -227,7 +227,7 @@ a. ARCHIVE IT. Write `{{output_dir}}/attempts/attempt_<N>_failed.json` (N starts
    sequence you issued, `changed_lever_vs_attempt<N-1>` naming the one thing you
    varied (omit on attempt 1), and `strategy_notes` saying exactly what you tried
    and WHY it failed. Write it as if a stranger had to reconstruct your reasoning —
-   this is what the final suite write-up is mined from, and what the NEXT agent
+   this is what the final task-family write-up is mined from, and what the NEXT agent
    on this cell reads before acting.
 
 b. NOTE WHAT YOU LEARNED, NOW — as WORKING NOTES, not as corpus entries. Append
@@ -242,7 +242,7 @@ b. NOTE WHAT YOU LEARNED, NOW — as WORKING NOTES, not as corpus entries. Appen
    method the wall was measured under; you do not yet know which walls are
    properties of the task and which are properties of your approach.
 
-   ⚠ Nothing goes into the final `suite`/`global` files or the `task_only` layer at
+   ⚠ Nothing goes into the final `task-family`/`global` files or the `task-specific` layer at
    this point. Those are written once, after the cell is solved.
 
 Then `reset` and try again with a plan that differs in a NAMED lever.
@@ -268,7 +268,7 @@ shared corpus and other cells may be running against it. A human merges the
 inbox later.
 
 ⚠ NAMING for every md file: the `id` is the BARE slug — the filename with the
-`new_`/`suite_` prefix, the kind, and any `_draft` suffix stripped.
+`new_`/`task-family_` prefix, the kind, and any `_draft` suffix stripped.
   `new_global_strategy_diagonal-face-perpendicular-push.md`
     -> `id: diagonal-face-perpendicular-push`                      ✅
     -> `id: new-global-diagonal-face-perpendicular-push`           ❌
@@ -302,7 +302,7 @@ a. TASK LAYER — **ONLY IF SOLVED.** The audit JSON and the recipe JSONL must b
      - `strategy_notes` states the winning sequence step by step, in the same
        order as the successful state trace, with the parameters actually used. How you
        localized belongs in one opening sentence; the failure history belongs in
-       the suite write-up and the attempt archives, not here.
+       the task-family write-up and the attempt archives, not here.
      - `pick_result` keys name the RECIPE STEPS they came from (e.g.
        `bowl_pi0_pick_step3`), not bare object names.
      - Record suite, task_id, seed, regime:"strict_perception", final_state,
@@ -311,7 +311,7 @@ a. TASK LAYER — **ONLY IF SOLVED.** The audit JSON and the recipe JSONL must b
        side. Every manipulation command must be accounted for, and the notes
        must not invent a step absent from the trace.
 
-b. SUITE LAYER -> `{{memory_inbox}}/suite_{{recipe_tag}}_draft.md`. ONE file for
+b. TASK-FAMILY LAYER -> `{{memory_inbox}}/task-family_{{recipe_tag}}_draft.md`. ONE file for
    this task, updated at every close-out so the failure table grows across
    attempts. This is what a future run on this task at another seed reads first.
    Frontmatter EXACTLY in this shape — `regime` is the perturbation axis
@@ -319,8 +319,8 @@ b. SUITE LAYER -> `{{memory_inbox}}/suite_{{recipe_tag}}_draft.md`. ONE file for
    cell tags, not a count:
 
      ---
-     id: suite_<suite family>_<regime>_t<task_id>   # e.g. suite_libero10_swap_t3
-     scope: suite
+     id: task-family_<suite family>_<regime>_t<task_id>   # e.g. task-family_libero10_swap_t3
+     scope: task-family
      suite: <suite family, e.g. libero10>
      regime: <task|swap|lan|object>
      task_id: <n>
@@ -362,7 +362,7 @@ b. SUITE LAYER -> `{{memory_inbox}}/suite_{{recipe_tag}}_draft.md`. ONE file for
      ## Cross-refs                 <[[id]] links to global memories>
 
 c. GLOBAL LAYER -> `{{memory_inbox}}/new_global_<kind>_<slug>.md`, ONE lesson
-   per file. This is the deepest layer: the suite write-up says what worked for
+   per file. This is the deepest layer: the task-family write-up says what worked for
    THIS task, global says what it teaches about the ROBOT — a lesson still true
    on a task with different objects and a different fixture, backed by a
    mechanism you can state (kinematics, OSC/IK, Pi0's training distribution,

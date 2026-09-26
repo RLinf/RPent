@@ -99,13 +99,18 @@ Analytic Primitives 隔离非接触执行。
 快速开始
 --------
 
-复现论文结果时，请使用下列环境对应的分支；具体安装配置和运行命令见各环境教程。
+以下链接给出各环境已有文档中的代码入口。安装配置和运行命令见对应教程；
+历史复现应保留当时配套的代码与数据。
 
 * **LIBERO：** :doc:`教程 <../usage/libero>` —
   `reproduce/libero <https://github.com/RLinf/RPent/tree/reproduce/libero>`_
-* **RoboCasa：** :doc:`教程 <../usage/robocasa>` — 使用 ``main``
+* **RoboCasa：** :doc:`教程 <../usage/robocasa>` — ``main`` 上的当前流程
 * **RoboTwin：** :doc:`教程 <../usage/robotwin>` —
   `reproduce/robotwin <https://github.com/RLinf/RPent/tree/reproduce/robotwin>`_
+
+HF ``reproduce/memory`` 分支保留历史目录布局。上面的 LIBERO、RoboTwin 分支
+各自保留原有资源加载代码；这些链接不代表已经针对该 HF 归档重新完成运行验证。
+当前 RoboCasa 教程使用 main 语料，尚未提供与该归档配套并经过验证的历史代码/数据。
 
 引用
 ----

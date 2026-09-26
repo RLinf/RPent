@@ -168,9 +168,9 @@ def test_libero_local_evaluation_requires_an_existing_corpus(tmp_path: Path) -> 
     with pytest.raises(ValueError, match="local memory corpus not found"):
         get_robot_spec("libero").parse_config(args)
 
-    task_only = memory_dir / "task_only"
-    task_only.mkdir()
-    (task_only / "goal_t0_s0.json").write_text("{}")
+    task_specific = memory_dir / "task-specific"
+    task_specific.mkdir()
+    (task_specific / "goal_t0_s0.json").write_text("{}")
     config = get_robot_spec("libero").parse_config(args)
     assert config.prompt_vars["memory_profile"] == "local"
 

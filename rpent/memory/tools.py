@@ -27,8 +27,8 @@ from rpent.tools.toolkit import readonly
 from rpent.utils.config import get_repo_root
 
 # Published memory subtrees an eval run may read. ``results`` retains
-# compatibility with the immutable RoboCasa task-only corpus.
-_READABLE_SCOPES = {"global", "suite", "task_only", "results"}
+# compatibility with the immutable RoboCasa task-specific corpus.
+_READABLE_SCOPES = {"global", "task-family", "task-specific", "results"}
 
 # Suffix appended to shared file-tool descriptions when registered through
 # the memory access boundary.

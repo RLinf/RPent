@@ -347,7 +347,7 @@ arrive in your first message):
 {output_dir}/{recipe_tag}_recipe.jsonl   <- exported automatically by the runner
 ```
 
-Do NOT write into `memory/libero/task_only/` — that tree is a **read-only
+Do NOT write into `memory/libero/task-specific/` — that tree is a **read-only
 seed-0 reference corpus**, not a write target.
 
 ### 4.2. Environment server is runner-owned
@@ -439,8 +439,8 @@ scripts/
 memory/libero/
 ├── MEMORY.md                  <- corpus index
 ├── global/                    <- feedback_* / project_* notes
-├── suite/                     <- task-level strategy, reusable across seeds
-└── task_only/                 <- seed-0 reference recipes, all suites
+├── task-family/                     <- task-level strategy, reusable across seeds
+└── task-specific/                 <- seed-0 reference recipes, all suites
 ```
 
 Before you start, **read the auto-memory**: `memory/libero/MEMORY.md`
@@ -450,7 +450,7 @@ open `memory/libero/global/feedback_no_teleport_rule.md` and — for any `_swap`
 relocated fixture visually). For bowl→plate spatial tasks also read
 `memory/libero/global/feedback_bowl_eef_y_offset.md`; for cluttered picks, `memory/libero/global/feedback_pi0_pick_full_prompt.md`;
 after two failed retries, `memory/libero/global/feedback_failure_forensics.md`. The
-`memory/libero/task_only/` recipes are **inputs** (technique priors) —
+`memory/libero/task-specific/` recipes are **inputs** (technique priors) —
 consult them for prompt ladders, staging, and target zones, but never reuse their
 coordinates (re-derive every xyz from THIS scene) and never write there.
 
@@ -458,7 +458,7 @@ coordinates (re-derive every xyz from THIS scene) and never write there.
 
 1. **Extend spatial to all 10 tasks at seed 0**, four perception cells each
    (base / `_task` / `_swap` / `_lan`). For hybrid runs, use the seed-0 reference
-   recipes in `memory/libero/task_only/` as *technique* starting
+   recipes in `memory/libero/task-specific/` as *technique* starting
    points — the pick step is usually identical; the place target changes for
    `_swap`, the target object changes for `_task`. Never reuse their coordinates.
 2. **Scale to seeds beyond 0** (50 trials per task). Recipes must re-localize per

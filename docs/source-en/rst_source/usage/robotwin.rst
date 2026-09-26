@@ -183,10 +183,10 @@ perception cues, control heuristics, recovery strategies, parameter-selection
 guidance, and common failure modes. The planner can follow the index to read
 only the memory entries relevant to the current task or observed failure.
 
-For each evaluation task, ``task_only/<task>_s0.json`` is the semantic recipe
+For each evaluation task, ``task-specific/<task>_s0.json`` is the semantic recipe
 distilled from a successful trajectory. It describes the phase-level goals,
 observable completion gates, control and VLA guidance, and known failure modes.
-The companion ``task_only/<task>_s0_recipe.jsonl`` records the historical tool
+The companion ``task-specific/<task>_s0_recipe.jsonl`` records the historical tool
 calls from that trajectory, providing evidence about action order, tool choice,
 and action-chunk cadence.
 
