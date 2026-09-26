@@ -41,8 +41,8 @@ PROVEN_LEVERS = """These are battle-tested on seed 0 of THIS suite. You are now 
 seed — object/fixture positions differ, so RE-LOCALIZE everything per scene
 (never hard-code an xyz). But the TECHNIQUES and the per-task target zones
 transfer directly. For your task, FIRST read the solved seed-0 reference (if
-present): `{{memory_dir}}/task_only/{{reference_tag}}.json` (+
-`{{memory_dir}}/task_only/{{reference_tag}}_recipe.jsonl`)
+present): `{{memory_dir}}/task-specific/{{reference_tag}}.json` (+
+`{{memory_dir}}/task-specific/{{reference_tag}}_recipe.jsonl`)
 — it has the winning strategy_notes and command sequence for the SAME task at
 seed 0. Reuse its approach; re-derive every coordinate from THIS scene.
 The recipe is ONLY the command sequence. You must ALSO read the matching task
@@ -390,11 +390,11 @@ Scan the index, then `read_text_file` the few leaf memories most relevant to
 your cell. They are not all named `feedback_*`, and the index lines do not spell
 out every scene a memory covers — so SEARCH the library yourself rather than
 reading the index alone: `list_dir` `{{memory_dir}}/global/` and
-`{{memory_dir}}/suite/` to see every memory file, and pick candidates by the
+`{{memory_dir}}/task-family/` to see every memory file, and pick candidates by the
 objects, container, fixture or motion your scene involves (wording taken from
 your task description works as a search key too). If a shell / grep tool is
 available to you, `grep -rl "<keyword>" {{memory_dir}}/global/
-{{memory_dir}}/suite/` jumps straight to the files that mention your objects
+{{memory_dir}}/task-family/` jumps straight to the files that mention your objects
 — use it when you can; otherwise fall back to `list_dir` + `read_text_file`.
 A given theme often has several near-identical skill files (e.g. multiple
 stove / basket / mug patterns that differ only in WHICH objects or step
@@ -418,7 +418,7 @@ internals, which would tempt you to use GT coords) once each:
 """,
     """READ SEED-0 STRATEGY REFERENCES IF PRESENT, then solve from scratch.
 Strategy references live under:
-- `{{memory_dir}}/task_only/` (solved seed-0 audit + recipe pairs:
+- `{{memory_dir}}/task-specific/` (solved seed-0 audit + recipe pairs:
   `<tag>.json` + `<tag>_recipe.jsonl`)
 Use these for strategy_notes, prompt ladders, primitive ordering, gotchas, and
 qualitative target zones. They were built on different scenes and sometimes
@@ -534,21 +534,21 @@ LOCAL_MEMORY_PROFILE = """Use the LOCAL exploration corpus for this evaluation. 
 different jobs; use every layer that is available:
 
 1. GLOBAL: `{{memory_dir}}/global/` — reusable robot/perception/primitive lessons.
-2. SUITE: `{{memory_dir}}/suite/suite_libero10_<regime>_t{{task}}.md` — the
+2. TASK-FAMILY: `{{memory_dir}}/task-family/task-family_libero10_<regime>_t{{task}}.md` — the
    task/regime strategy, validated ranges, and failure table.
-3. TASK: `{{memory_dir}}/task_only/{{reference_tag}}.json` plus
-   `{{memory_dir}}/task_only/{{reference_tag}}_recipe.jsonl` — the matched successful
+3. TASK: `{{memory_dir}}/task-specific/{{reference_tag}}.json` plus
+   `{{memory_dir}}/task-specific/{{reference_tag}}_recipe.jsonl` — the matched successful
    audit and command order from seed 0.
 
-Read the task pair and the exact suite leaf when present, then select only the
+Read the task pair and the exact task-family leaf when present, then select only the
 relevant global leaves through `MEMORY.md`. Recipes are technique references,
 not coordinates: re-localize every entity in the current image. Never read
 `_internal/` during evaluation."""
 
 STEP_READ_LOCAL_MEMORY = """READ EACH AVAILABLE LOCAL MEMORY LAYER FIRST:
-- task audit: `{{memory_dir}}/task_only/{{reference_tag}}.json`
-- task recipe: `{{memory_dir}}/task_only/{{reference_tag}}_recipe.jsonl`
-- suite leaf: find the matching task/regime leaf under `{{memory_dir}}/suite/`
+- task audit: `{{memory_dir}}/task-specific/{{reference_tag}}.json`
+- task recipe: `{{memory_dir}}/task-specific/{{reference_tag}}_recipe.jsonl`
+- task-family leaf: find the matching task/regime leaf under `{{memory_dir}}/task-family/`
 - global index: `{{memory_dir}}/MEMORY.md`, then only relevant leaves under
   `{{memory_dir}}/global/`
 

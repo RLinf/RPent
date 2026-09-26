@@ -30,10 +30,10 @@ from rpent.utils.logging import get_logger
 
 logger = get_logger("memory")
 
-SCOPES = {"global", "suite"}
+SCOPES = {"global", "task-family"}
 KINDS = {"primitive", "perception", "strategy", "failure", "infra"}
 CONFIDENCE = {"single-shot", "probable", "verified"}
-_PREFIXES = ("new_global_", "new_suite_", "new_", "suite_")
+_PREFIXES = ("new_global_", "new_task-family_", "new_", "task-family_")
 _KINDS = tuple(f"{kind}_" for kind in sorted(KINDS))
 
 
@@ -57,10 +57,10 @@ def _validate(metadata: dict[str, Any]) -> None:
     scope = metadata.get("scope")
     if scope not in SCOPES:
         raise ValueError(f"scope must be one of {sorted(SCOPES)}, got {scope!r}")
-    if scope == "suite":
+    if scope == "task-family":
         for field in ("suite", "regime", "task_id", "task_language"):
             if metadata.get(field) in (None, ""):
-                raise ValueError(f"suite memory requires {field!r}")
+                raise ValueError(f"task-family memory requires {field!r}")
     else:
         if metadata.get("kind") not in KINDS:
             raise ValueError(f"kind must be one of {sorted(KINDS)}")
@@ -77,8 +77,8 @@ def _validate(metadata: dict[str, Any]) -> None:
 
 
 def _canonical_id(path: Path, metadata: dict[str, Any]) -> str:
-    if metadata["scope"] == "suite":
-        return f"suite_{metadata['suite']}_{metadata['regime']}_t{metadata['task_id']}"
+    if metadata["scope"] == "task-family":
+        return f"task-family_{metadata['suite']}_{metadata['regime']}_t{metadata['task_id']}"
     stem = re.sub(r"_draft$", "", path.stem)
     for prefix in (*_PREFIXES, *_KINDS):
         if stem.startswith(prefix):
@@ -149,6 +149,19 @@ class MemoryManager:
         """Resolved corpus root."""
         return self._root
 
+    def check_layout(self) -> None:
+        """Reject an unmigrated corpus instead of silently omitting its layers.
+
+        A sync may leave old cached directories beside their replacements.
+        Only the current directories are exposed by the memory file tools.
+        """
+        for old, current in (("task_only", "task-specific"), ("suite", "task-family")):
+            if (self._root / old).exists() and not (self._root / current).is_dir():
+                raise ValueError(
+                    f"legacy memory directory {self._root / old}: download the "
+                    f"updated corpus with {current}/ into a fresh directory"
+                )
+
     def get_common_tool_bindings(
         self,
     ) -> dict[str, tuple[dict[str, Any], Callable[..., Any]]]:
@@ -158,6 +171,7 @@ class MemoryManager:
         from rpent.memory import tools as memory_tools
         from rpent.tools import common
 
+        self.check_layout()
         handlers = {
             "read_text_file": partial(
                 memory_tools.read_text_file,
@@ -198,10 +212,11 @@ class MemoryManager:
     ) -> dict[str, Any]:
         """Publish one cell's inbox drafts and solved task artifacts.
 
-        Drafts merge into global/suite; conflicting prose is
+        Drafts merge into global/task-family; conflicting prose is
         archived under _internal/conflicts. Solved audit/recipe pairs are
-        copied to task_only/. MEMORY.md is refreshed at the end.
+        copied to task-specific/. MEMORY.md is refreshed at the end.
         """
+        self.check_layout()
         root = self._root
         run_dir = Path(run_state_dir).resolve()
         internal = root / "_internal"
@@ -210,8 +225,8 @@ class MemoryManager:
         merged = internal / "merged"
         tiers = {
             "global": root / "global",
-            "suite": root / "suite",
-            "task": root / "task_only",
+            "task-family": root / "task-family",
+            "task": root / "task-specific",
         }
         for directory in (*tiers.values(), conflicts, merged, inbox.parent):
             directory.mkdir(parents=True, exist_ok=True)
@@ -219,7 +234,7 @@ class MemoryManager:
         result: dict[str, Any] = {
             "cell": cell_tag,
             "global": 0,
-            "suite": 0,
+            "task-family": 0,
             "task": 0,
             "evidence": 0,
             "conflicts": 0,
@@ -294,16 +309,17 @@ class MemoryManager:
         return result
 
     def rebuild_index(self) -> Path | None:
-        """Regenerate MEMORY.md from global and suite leaves.
+        """Regenerate MEMORY.md from global and task-family leaves.
 
         Leaves without parseable frontmatter are skipped individually; the
         index is rebuilt from the rest. Returns None and writes nothing when
         there are no leaves with parseable frontmatter.
         """
+        self.check_layout()
         root = self._root
         groups: dict[str, list[tuple[str, dict[str, Any]]]] = {
             "global": [],
-            "suite": [],
+            "task-family": [],
         }
         for scope in groups:
             for path in sorted((root / scope).glob("*.md")):
@@ -323,7 +339,7 @@ class MemoryManager:
             "",
             "Generated from memory leaf frontmatter.",
         ]
-        for scope, title in (("global", "Global"), ("suite", "Suite")):
+        for scope, title in (("global", "Global"), ("task-family", "Task-family")):
             lines.extend(("", f"## {title}", ""))
             if not groups[scope]:
                 lines.append("_(none)_")
@@ -339,15 +355,19 @@ class MemoryManager:
         return index
 
     def validate(self) -> list[str]:
-        """Return validation problems for global and suite leaves.
+        """Return validation problems for global and task-family leaves.
 
         Only frontmatter-bearing leaves are schema-validated; plain Markdown
         is allowed silently.
         """
+        try:
+            self.check_layout()
+        except ValueError as exc:
+            return [str(exc)]
         root = self._root
         problems: list[str] = []
         ids: dict[str, Path] = {}
-        for scope in ("global", "suite"):
+        for scope in ("global", "task-family"):
             for path in sorted((root / scope).glob("*.md")):
                 text = path.read_text(errors="replace")
                 if not text.startswith("---"):
