@@ -63,7 +63,7 @@ def test_dual_vla_prediction_follows_shared_component_rpc_contract(monkeypatch):
         facade.close()
 
 
-@pytest.mark.parametrize("embodiment", ["libero", "dual_franka"])
+@pytest.mark.parametrize("embodiment", ["libero", "dual_franka", "robodojo"])
 def test_cli_forwards_model_configuration(monkeypatch, embodiment):
     import sys
     from types import SimpleNamespace
@@ -116,3 +116,44 @@ def test_libero_preset_keeps_existing_defaults():
     assert cfg.openpi.train_expert_only is True
     assert cfg.openpi.detach_critic_input is None
     assert "openpi_data" not in cfg
+
+
+def test_robodojo_preset_uses_full_horizon_and_joint_actions():
+    from rpent.robots.components.pi05_vla_server import (
+        PI05_EMBODIMENTS,
+        build_model_cfg,
+    )
+
+    cfg = build_model_cfg("/checkpoint", PI05_EMBODIMENTS["robodojo"])
+    assert cfg.openpi.config_name == "pi05_robodojo_arx_x5"
+    assert cfg.openpi.task == "eval"
+    assert cfg.openpi.model_action_dim == 32
+    assert cfg.openpi.paligemma_variant == "gemma_2b"
+    assert cfg.openpi.action_expert_variant == "gemma_300m"
+    assert cfg.openpi.discrete_state_input is True
+    assert cfg.openpi.torch_compile is False
+    assert cfg.action_dim == cfg.openpi.action_env_dim == 14
+    assert cfg.num_action_chunks == cfg.openpi.action_chunk == 50
+    assert cfg.num_steps == cfg.openpi.num_steps == 5
+    assert cfg.openpi.num_images_in_input == 3
+    assert cfg.use_proprio is True
+    assert cfg.add_value_head is cfg.openpi.add_value_head is False
+
+
+def test_robodojo_cli_resolves_checkpoint_from_environment(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    from rpent.robots.components import pi05_vla_server as server
+
+    received = {}
+    monkeypatch.setenv("PI05_CHECKPOINT_PATH", "/test/robodojo-checkpoint")
+    monkeypatch.setattr(sys, "argv", ["pi05_vla_server", "--embodiment", "robodojo"])
+
+    def facade(**kwargs):
+        received.update(kwargs)
+        return SimpleNamespace(serve=lambda **options: None)
+
+    monkeypatch.setattr(server, "Pi05VLAFacade", facade)
+    server.main()
+    assert received["model_path"] == "/test/robodojo-checkpoint"

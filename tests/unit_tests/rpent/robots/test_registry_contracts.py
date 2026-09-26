@@ -29,7 +29,14 @@ from robots.robotwin.robot_spec import (
 from rpent.robots import enumerate_robots, get_robot_spec
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 
-EXPECTED_ROBOTS = ("dual_franka", "franka", "libero", "robocasa", "robotwin")
+EXPECTED_ROBOTS = (
+    "dual_franka",
+    "franka",
+    "libero",
+    "robocasa",
+    "robodojo",
+    "robotwin",
+)
 
 PROMPT_VARIABLES = {
     "libero": {
@@ -54,6 +61,16 @@ PROMPT_VARIABLES = {
         "mode": "eval",
         "memory_profile": "hf",
         "reference_tag": "OpenDrawer_s0",
+        "memory_dir": "/memory",
+        "output_dir": Path("/output"),
+    },
+    "robodojo": {
+        "task": "put_bottles_into_dustbin",
+        "layout": 0,
+        "env_cfg_type": "arx_x5",
+        "action_type": "joint",
+        "recipe_tag": "put_bottles_into_dustbin_l0",
+        "task_summary": {"task": "put_bottles_into_dustbin", "rigid": ["bottle"]},
         "memory_dir": "/memory",
         "output_dir": Path("/output"),
     },

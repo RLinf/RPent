@@ -10,3 +10,4 @@
    LIBERO <libero>
    RoboCasa <robocasa>
    RoboTwin <robotwin>
+   RoboDojo <robodojo>
