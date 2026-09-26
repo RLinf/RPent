@@ -137,6 +137,9 @@ without a fixed data revision.
 
 The example below continues with LIBERO-PRO.
 
+For standalone RoboDojo recipes using CuRobo and an exclusive dev server, see
+the [scripted control guide](docs/source-en/rst_source/usage/robodojo_scripted.rst).
+
 **2. Download the LIBERO-PRO simulator assets.**
 
 ```bash

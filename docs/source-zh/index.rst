@@ -88,6 +88,7 @@
    数据飞轮 <rst_source/usage/flywheel>
    Flash Mode <rst_source/usage/flash>
    仿真环境 <rst_source/usage/simulation>
+   RoboDojo 脚本化规控 <rst_source/usage/robodojo_scripted>
    真实机器人 <rst_source/usage/real_robots>
    高级部署 <rst_source/usage/advanced_deployment>
 

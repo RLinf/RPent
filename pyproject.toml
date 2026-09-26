@@ -129,8 +129,30 @@ robotwin = [
     "nvidia-curobo @ git+https://github.com/NVlabs/curobo.git@v0.7.8",
 ]
 
+robodojo-sim = [
+    "rlinf @ git+https://github.com/littleZ05/RLinf.git@feat/robodojo-env",
+    "rlinf-robodojo-runtime @ git+https://github.com/littleZ05/RoboDojo.git@rpent",
+    # uv reads build overrides only from the root project.
+    "nvidia-curobo[cu12] @ git+https://github.com/yuechen0614/curobo.git@main",
+]
+
 [tool.uv]
 prerelease = "allow"
+override-dependencies = [
+    # Simulator metadata includes a Windows dependency without a platform marker.
+    "pywin32==306 ; sys_platform == 'win32'",
+    # Reconcile IsaacLab and Isaac Sim's FastAPI requirements.
+    "starlette==0.45.3",
+    # RPent and RLinf require newer versions than the simulator metadata allows.
+    "typing-extensions>=4.14",
+    "uvicorn>=0.31.1",
+    "wrapt>=1.17.0,<2",
+]
+# Keep FastAPI compatible with the overridden Starlette in base installs too.
+constraint-dependencies = [
+    "fastapi>=0.115.7,<0.116",
+    "sse-starlette>=1.6.1,<3",
+]
 
 # Each robot extra pulls a separately pinned VLA runtime whose Torch,
 # Transformers, Tokenizers, or Diffusers versions are mutually incompatible.
@@ -162,7 +184,7 @@ conflicts = [
 ]
 
 [tool.uv.extra-build-dependencies]
-nvidia-curobo = ["torch==2.7.1"]
+nvidia-curobo = [{ requirement = "torch", match-runtime = true }]
 
 [tool.setuptools]
 include-package-data = true
