@@ -24,6 +24,108 @@ then point at it via ``PI05_CHECKPOINT_PATH``:
 
    export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
 
+Cosmos Policy (experimental)
+----------------------------------------
+
+``--vla-backend cosmos-policy`` uses NVIDIA's
+`Cosmos Policy <https://github.com/NVlabs/cosmos-policy>`_ LIBERO checkpoint
+through an independently started RPC service. It supports single-attempt
+evaluation on standard ``libero_spatial``, ``libero_object``, ``libero_goal``
+and ``libero_10``.
+Exploration, Flash Mode, PRO/plus variants and best-of-N world-model planning
+are not supported by this adapter.
+
+Set up the official Cosmos Policy environment using its
+`setup guide <https://github.com/NVlabs/cosmos-policy/blob/main/SETUP.md>`_.
+The adapter follows upstream revision
+``18a2accadf4e7a3531e56754102af5a24d2316da``. Keep that environment separate:
+Cosmos pins its own Torch and CUDA extension versions, which differ from
+RPent's OpenPI stack.
+From the Cosmos Policy checkout, with RPent available at ``/path/to/RPent``,
+start the worker using the official CUDA 12.8 / Python 3.10 environment:
+
+.. code-block:: bash
+
+   cd /path/to/cosmos-policy
+   uv run --extra cu128 --group libero --python 3.10 \
+     --with-editable /path/to/RPent \
+     python /path/to/RPent/robots/libero/cosmos_policy_server.py \
+     --cuda-device 0 --host 127.0.0.1 --port 8116
+
+The defaults download ``nvidia/Cosmos-Policy-LIBERO-Predict2-2B``, its
+dataset statistics and T5 instruction embeddings. For local files, provide
+``--checkpoint``, ``--dataset-stats`` and ``--text-embeddings`` together.
+Run from the Cosmos checkout so its relative configuration and tokenizer
+paths resolve. Before starting, obtain Hugging Face access to
+``nvidia/Cosmos-Predict2-2B-Video2World`` and authenticate the worker environment;
+its video tokenizer is required even with a local policy checkpoint. The
+referenced upstream revision also downloads base Video2World and ALOHA policy
+weights when importing experiment configurations. Reserve disk space and network
+access for these additional files.
+
+In the RPent environment, install ``.[libero]``, download standard LIBERO
+assets with ``libero-download-assets --skip-existing``, and configure SAM3
+as below. A Pi0.5 checkpoint is not needed for Cosmos runs:
+
+.. code-block:: bash
+
+   rpent --robot libero --suite libero_spatial --task 0 --seed 0 \
+     --vla-backend cosmos-policy --vla-endpoint http://127.0.0.1:8116 \
+     --memory-profile local \
+     --cuda-device 1 --planner api --model anthropic:claude-opus-4-8
+
+The worker's GPU and RPent's ``--cuda-device`` are independent; choose GPUs
+with enough free memory for the policy, simulator and SAM3. They may share a
+GPU when memory permits. The external worker remains running after RPent exits.
+For a worker in a container or on another host, bind to a reachable interface
+and use its reachable address in ``--vla-endpoint``.
+
+``cosmos_act(max_chunks=1)`` replaces ``pi0_pick`` and ``pi0_doubled``. It
+uses the environment's full task language and executes 16 native LIBERO
+actions per prediction, re-reading observations between chunks. Raw camera
+images are vertically flipped once; proprioception preserves the upstream
+``[gripper_qpos, eef_pos, eef_quat_xyzw]`` layout. NVIDIA's code owns image
+preprocessing, normalization and action unnormalization. RPent records the
+executed state/images using the existing LIBERO toolkit. Future video/value
+prediction is disabled.
+
+Pass ``--memory-profile local`` for Cosmos. It uses its own prompt and local
+memory directory (``memory/libero_cosmos`` by default, allowed to be empty).
+``--memory-profile hf`` is rejected because that corpus describes Pi0.5 tools.
+The CLI and Dashboard both select the backend through ``--vla-backend``.
+
+To check a running real worker and the bounded policy chain with an offline
+planner, install ``.[test,libero]`` and run:
+
+.. code-block:: bash
+
+   RPENT_COSMOS_ENDPOINT=http://127.0.0.1:8116 CUDA_VISIBLE_DEVICES=1 \
+     pytest tests/e2e_tests/libero/test_cosmos_policy.py -v
+
+These checks require real LIBERO assets and, for the complete chain, SAM3.
+A passing chain verifies action execution and artifacts, not task success.
+
+To measure policy performance separately, run from the RPent checkout with
+a running worker and standard LIBERO assets:
+
+.. code-block:: bash
+
+   RPENT_COSMOS_ENDPOINT=http://127.0.0.1:8116 CUDA_VISIBLE_DEVICES=1 \
+     python -m tests.e2e_tests.libero.benchmark_cosmos_policy \
+     --output-dir /path/to/new-cosmos-results
+
+The runner measures 100 sequential RPC calls after five warm-up calls on a
+fixed real observation, then evaluates all ten Spatial tasks with initial
+states 0, 1 and 2, capped at 220 policy actions per episode. ``results.json``
+contains raw timings, percentiles and every episode outcome, including errors.
+RPC timing includes transport and inference, but excludes simulator steps;
+each prediction produces 16 actions. Success comes from native simulator
+termination. This evaluates the policy without an LLM planner or SAM3.
+These 30 episodes are a small integration evaluation, not a reproduction of
+the published benchmark. RPent uses RLinf's reset behavior and its installed
+LIBERO/robosuite versions; record those versions and the worker's checkpoint,
+denoising steps and seed alongside results.
+
 SAM3 configuration
 ------------------
 
@@ -116,7 +218,7 @@ RPent supports two LIBERO run modes:
   audit, recipe, and lessons produced by exploration. The HarnessVLA success
   rate is reproduced in evaluation mode.
 
-Evaluation remains the default mode.  Omitting ``--memory-profile`` preserves
+For Pi0.5, evaluation remains the default mode. Omitting ``--memory-profile`` preserves
 the original Hugging Face resource sync and prompt:
 
 Both profiles run the same single-attempt evaluation workflow; they differ only

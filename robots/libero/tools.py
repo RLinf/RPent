@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""LIBERO + OpenPI tool implementation."""
+"""LIBERO scripted and model-based tool implementation."""
 
 from __future__ import annotations
 
@@ -25,8 +25,8 @@ import numpy as np
 
 from robots.libero.env_client import LiberoEnvClient
 from rpent.robots.components.molmo_client import MolmoClient
-from rpent.robots.components.pi05_vla_client import Pi05VLAClient
 from rpent.robots.components.sam3_client import Sam3Client
+from rpent.robots.components.vla_client_base import BaseVLAClient
 from rpent.session import EnvState, StepRecord
 from rpent.tools.toolkit import readonly
 from rpent.utils.logging import get_logger
@@ -55,7 +55,7 @@ class LiberoPrimitives:
     def __init__(
         self,
         env: LiberoEnvClient,
-        model: Pi05VLAClient,
+        model: BaseVLAClient,
         sam3_client: Sam3Client,
         check_cancelled: Callable[[], None],
         molmo_client: MolmoClient | None = None,
@@ -148,49 +148,65 @@ class LiberoPrimitives:
             "libero_terminated": self.env.terminated or self.env.truncated,
         }
 
-    def _vlm_chunk(self, instruction: str):
-        """One model forward + ``chunk_size`` env steps. Overrides prompt."""
+    def _vlm_chunk(self, instruction: str, *, raw_obs: dict | None = None):
+        """Predict and execute one chunk with a request-local task instruction."""
         self._check_cancelled()
-        original_task = self._last_obs.get("task_descriptions")
-        try:
-            self._last_obs["task_descriptions"] = instruction
-            self._last_obs.setdefault("extra_view_images", None)
+        policy_obs = (self._last_obs if raw_obs is None else raw_obs).copy()
+        policy_obs["task_descriptions"] = instruction
+        actions = self.model.predict(policy_obs, options={"mode": "eval"})
+        self._check_cancelled()
 
-            actions = self.model.predict(self._last_obs, options={"mode": "eval"})
-            self._check_cancelled()
+        vla_id = (
+            self._flywheel.add_proposal(instruction, actions)
+            if self._flywheel is not None
+            else -1
+        )
 
-            vla_id = (
-                self._flywheel.add_proposal(instruction, actions)
-                if self._flywheel is not None
-                else -1
+        if not self._recording and self._flywheel is None:
+            chunk_obs, _r, _t, _tr, _i = self.env.chunk_step(actions)
+            obs = chunk_obs[-1] if self.env.return_all_frames else chunk_obs
+        else:
+            chunk_obs, rewards, terminated, truncated, _info = self.env.chunk_step(
+                actions, return_all_frames=True
             )
+            for index, obs in enumerate(chunk_obs):
+                if self._recording:
+                    self.record_frame(obs)
+                if self._flywheel is not None:
+                    self._flywheel.add_transition(
+                        actions[index],
+                        obs,
+                        rewards[index],
+                        terminated[index],
+                        truncated[index],
+                        vla_id=vla_id,
+                        proposal_index=index,
+                    )
+            obs = chunk_obs[-1]
+        self.set_obs(obs)
+        return self._last_obs
 
-            if not self._recording and self._flywheel is None:
-                chunk_obs, _r, _t, _tr, _i = self.env.chunk_step(actions)
-                obs = chunk_obs[-1] if self.env.return_all_frames else chunk_obs
-            else:
-                chunk_obs, rewards, terminated, truncated, _info = self.env.chunk_step(
-                    actions, return_all_frames=True
-                )
-                for index, obs in enumerate(chunk_obs):
-                    if self._recording:
-                        self.record_frame(obs)
-                    if self._flywheel is not None:
-                        self._flywheel.add_transition(
-                            actions[index],
-                            obs,
-                            rewards[index],
-                            terminated[index],
-                            truncated[index],
-                            vla_id=vla_id,
-                            proposal_index=index,
-                        )
-                obs = chunk_obs[-1]
-            self.set_obs(obs)
-            return self._last_obs
-        finally:
-            if original_task is not None:
-                self._last_obs["task_descriptions"] = original_task
+    def cosmos_act(self, *, max_chunks: int = 1) -> dict:
+        """Execute bounded Cosmos Policy chunks with the environment's full task."""
+        if (
+            isinstance(max_chunks, bool)
+            or not isinstance(max_chunks, int)
+            or not 1 <= max_chunks <= 32
+        ):
+            raise ValueError("max_chunks must be an integer between 1 and 32")
+        chunks = 0
+        while chunks < max_chunks and not (self.env.terminated or self.env.truncated):
+            self._check_cancelled()
+            self._vlm_chunk(
+                self._last_obs["task_descriptions"], raw_obs=self.env.raw_obs()
+            )
+            chunks += 1
+        return {
+            "model": "cosmos-policy",
+            "chunks": chunks,
+            "success": self.env.terminated,
+            "libero_terminated": self.env.terminated or self.env.truncated,
+        }
 
     def pi0_pick(
         self,
@@ -1272,6 +1288,26 @@ TOOLS_SPEC = [
                 },
             },
             "required": ["xyz"],
+        },
+    },
+    {
+        "name": "cosmos_act",
+        "description": (
+            "Execute Cosmos Policy on the current observations and full environment "
+            "task. Each chunk contains 16 actions. Inspect the resulting state "
+            "before continuing; success is the environment's task verdict."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "max_chunks": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 32,
+                    "description": "Action-chunk budget (default 1).",
+                },
+            },
+            "required": [],
         },
     },
     {

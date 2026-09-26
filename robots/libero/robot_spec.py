@@ -99,6 +99,7 @@ LIBERO_DASHBOARD_SPEC: DashboardSpec = {
         "move_to",
         "pi0_pick",
         "pi0_doubled",
+        "cosmos_act",
         "release",
         "set_gripper",
         "rotate_wrist",
@@ -161,6 +162,7 @@ def get_toolkit(
         mode=mode,
         attempts_per_session=attempts_per_session,
         state_output_dir=state_output_dir,
+        vla_backend=config.prompt_vars.get("vla_backend", "pi05"),
     )
 
 
@@ -174,6 +176,12 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     """
     required = not use_dashboard
     parser.add_argument("--max-episode-steps", type=int, default=10000)
+    parser.add_argument(
+        "--vla-backend",
+        choices=("pi05", "cosmos-policy"),
+        default="pi05",
+        help="Action model backend. Cosmos Policy requires --vla-endpoint.",
+    )
     parser.add_argument(
         "--libero-type",
         default=None,
@@ -264,6 +272,24 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     if args.task is None:
         raise ValueError("--task is required")
     planner = getattr(args, "planner", None)
+    cosmos = args.vla_backend == "cosmos-policy"
+    if cosmos:
+        if args.vla_endpoint is None:
+            raise ValueError("--vla-backend cosmos-policy requires --vla-endpoint")
+        if planner == "flash" or getattr(args, "explore", False):
+            raise ValueError(
+                "Cosmos Policy supports evaluation without Flash Mode only"
+            )
+        if args.libero_type not in (None, "standard") or args.suite not in {
+            "libero_spatial",
+            "libero_object",
+            "libero_goal",
+            "libero_10",
+        }:
+            raise ValueError(
+                "Cosmos Policy supports standard LIBERO spatial/object/goal/10 suites"
+            )
+        args.libero_type = "standard"
     if planner == "flash":
         if getattr(args, "explore", False):
             raise ValueError("Flash Mode is evaluation-only; remove --explore")
@@ -281,23 +307,28 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     recipe_tag = f"{args.suite.replace('libero_', '')}_t{args.task}_s{args.seed}"
     explore = bool(getattr(args, "explore", False))
     requested_profile = getattr(args, "memory_profile", None)
+    if cosmos and requested_profile == "hf":
+        raise ValueError(
+            "Cosmos Policy requires --memory-profile local; "
+            "use local memory because the HF corpus targets Pi0.5"
+        )
     if explore and requested_profile == "hf":
         raise ValueError("--explore cannot be used with --memory-profile hf")
     if explore and args.explore_sessions <= 0:
         raise ValueError("--explore-sessions must be greater than 0")
     if explore and args.collect_flywheel_data:
         raise ValueError("flywheel collection supports evaluation mode only")
-    memory_profile = requested_profile or ("local" if explore else "hf")
+    memory_profile = requested_profile or ("local" if explore or cosmos else "hf")
     if memory_profile == "hf" and args.memory_dir is not None:
         raise ValueError("--memory-dir requires --memory-profile local or --explore")
     args.memory_profile = memory_profile
     memory_dir = (
         Path(args.memory_dir).expanduser().resolve()
         if args.memory_dir
-        else get_memory_dir("libero")
+        else get_memory_dir("libero_cosmos" if cosmos else "libero")
     )
     local_eval = not explore and memory_profile == "local"
-    if local_eval:
+    if local_eval and not cosmos:
         if planner == "flash":
             plan_name = recipe_tag.rsplit("_s", 1)[0]
             has_local_memory = all(
@@ -321,6 +352,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
                 "run exploration first or use --memory-profile hf"
             )
     prompt_vars = {
+        "vla_backend": args.vla_backend,
         "suite": args.suite,
         "task": args.task,
         "seed": args.seed,
@@ -349,7 +381,12 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         recipe_tag=recipe_tag,
         output_dir=output_dir,
         prompt_vars=prompt_vars,
-        task_desc={"suite": args.suite, "task": args.task, "seed": args.seed},
+        task_desc={
+            "suite": args.suite,
+            "task": args.task,
+            "seed": args.seed,
+            **({"vla_backend": "cosmos-policy"} if cosmos else {}),
+        },
     )
 
 
@@ -408,6 +445,8 @@ def _spawn_vla_server(
 ) -> tuple[ProcessDaemon | None, RpcClient]:
     if args.vla_endpoint is not None:
         return None, make_rpc_client(args.vla_endpoint)
+    if args.vla_backend == "cosmos-policy":
+        raise ValueError("Cosmos Policy requires a separately started --vla-endpoint")
 
     host, port = "127.0.0.1", pick_free_port()
     daemon = ProcessDaemon(
@@ -486,6 +525,7 @@ def _init_runtime(
     components: set[str] | None,
 ) -> tuple[list[ProcessDaemon], dict[str, Any]]:
     """Initialize every LIBERO component, or only ``components`` when given."""
+    from robots.libero.cosmos_policy_client import CosmosPolicyClient
     from robots.libero.env_client import LiberoEnvClient
     from rpent.robots.components.molmo_client import MolmoClient
     from rpent.robots.components.pi05_vla_client import Pi05VLAClient
@@ -509,7 +549,11 @@ def _init_runtime(
                 },
             )
         },
-        "vla": lambda rpc: {"model": Pi05VLAClient(rpc, embodiment="libero")},
+        "vla": lambda rpc: {
+            "model": CosmosPolicyClient(rpc)
+            if args.vla_backend == "cosmos-policy"
+            else Pi05VLAClient(rpc, embodiment="libero")
+        },
         "sam3": lambda rpc: {"sam3_client": Sam3Client(rpc)},
         "molmo": lambda rpc: {"molmo_client": MolmoClient(rpc)},
     }

@@ -22,6 +22,96 @@ VLA 配置
 
    export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
 
+Cosmos Policy（实验性）
+----------------------------------------
+
+``--vla-backend cosmos-policy`` 通过独立启动的 RPC 服务使用 NVIDIA
+`Cosmos Policy <https://github.com/NVlabs/cosmos-policy>`_ 的 LIBERO checkpoint。
+当前支持标准 ``libero_spatial``、``libero_object``、``libero_goal`` 和
+``libero_10`` 的单次评测。
+此适配器暂不支持探索模式、Flash Mode、PRO/plus 变体以及基于世界模型的
+best-of-N 规划。
+
+按官方 `安装指南 <https://github.com/NVlabs/cosmos-policy/blob/main/SETUP.md>`_
+准备 Cosmos Policy 环境。适配器依据上游版本
+``18a2accadf4e7a3531e56754102af5a24d2316da`` 实现。请使用独立环境：Cosmos
+固定的 Torch 和 CUDA 扩展版本与 RPent 的 OpenPI 依赖不同。
+假设 RPent 位于 ``/path/to/RPent``，在 Cosmos Policy 仓库目录下，使用官方
+CUDA 12.8 / Python 3.10 环境启动服务：
+
+.. code-block:: bash
+
+   cd /path/to/cosmos-policy
+   uv run --extra cu128 --group libero --python 3.10 \
+     --with-editable /path/to/RPent \
+     python /path/to/RPent/robots/libero/cosmos_policy_server.py \
+     --cuda-device 0 --host 127.0.0.1 --port 8116
+
+默认下载 ``nvidia/Cosmos-Policy-LIBERO-Predict2-2B``、对应的数据集统计量和
+T5 指令嵌入。使用本地文件时，请同时设置 ``--checkpoint``、``--dataset-stats``
+和 ``--text-embeddings``。从 Cosmos 仓库目录运行，以便解析其配置和 tokenizer
+的相对路径。启动前，请在 Hugging Face 获得
+``nvidia/Cosmos-Predict2-2B-Video2World`` 的访问权限，并在服务环境中登录；
+即使使用本地策略 checkpoint，也需要该模型的视频 tokenizer。上述上游版本
+在导入实验配置时，还会下载基础 Video2World 和 ALOHA 策略权重，需为这些
+额外文件预留磁盘空间和网络访问条件。
+
+在 RPent 环境安装 ``.[libero]``，执行
+``libero-download-assets --skip-existing`` 下载标准 LIBERO 资源，并按下文配置
+SAM3。Cosmos 运行不需要 Pi0.5 checkpoint：
+
+.. code-block:: bash
+
+   rpent --robot libero --suite libero_spatial --task 0 --seed 0 \
+     --vla-backend cosmos-policy --vla-endpoint http://127.0.0.1:8116 \
+     --memory-profile local \
+     --cuda-device 1 --planner api --model anthropic:claude-opus-4-8
+
+服务的 GPU 与 RPent 的 ``--cuda-device`` 分别配置，需为策略、仿真和 SAM3
+预留足够显存；显存充足时也可共用一张 GPU。RPent 退出后，外部服务继续运行。
+如果服务位于容器或另一台机器，请绑定可访问的网络接口，并在
+``--vla-endpoint`` 中填写实际可访问的地址。
+
+``cosmos_act(max_chunks=1)`` 替代 ``pi0_pick`` 和 ``pi0_doubled``，自动使用
+环境的完整任务描述。每次预测执行 16 个原生 LIBERO 动作，各动作块之间重新
+读取观测。原始相机图像仅做一次上下翻转，本体状态保持上游的
+``[gripper_qpos, eef_pos, eef_quat_xyzw]`` 排列。图像预处理、归一化和动作
+反归一化由 NVIDIA 实现负责，执行后的状态和图像由现有 LIBERO toolkit 记录。
+未来视频及价值预测在此适配器中关闭。
+
+Cosmos 需显式指定 ``--memory-profile local``，使用独立提示词和本地 memory
+目录，默认为 ``memory/libero_cosmos``，允许目录为空。
+``--memory-profile hf`` 会被拒绝，因为该语料依赖 Pi0.5 工具。
+CLI 和 Dashboard 均通过 ``--vla-backend`` 选择模型。
+
+安装 ``.[test,libero]`` 后，可使用离线规划器验证真实服务及有界执行链路：
+
+.. code-block:: bash
+
+   RPENT_COSMOS_ENDPOINT=http://127.0.0.1:8116 CUDA_VISIBLE_DEVICES=1 \
+     pytest tests/e2e_tests/libero/test_cosmos_policy.py -v
+
+测试需要真实 LIBERO 资源，完整链路还需要 SAM3。链路通过说明动作执行和
+产物记录正常，不代表任务成功。
+
+如需单独测量策略性能，准备运行中的服务和标准 LIBERO 资源后，在 RPent
+仓库目录执行：
+
+.. code-block:: bash
+
+   RPENT_COSMOS_ENDPOINT=http://127.0.0.1:8116 CUDA_VISIBLE_DEVICES=1 \
+     python -m tests.e2e_tests.libero.benchmark_cosmos_policy \
+     --output-dir /path/to/new-cosmos-results
+
+脚本使用固定的真实观测预热 5 次，再测量 100 次串行 RPC；随后评测 Spatial
+全部 10 个任务，每任务使用初始状态 0、1、2，每回合最多执行 220 个策略动作。
+``results.json`` 保存原始耗时、延迟分位数和每个回合的结果，包括异常。
+RPC 耗时包含传输与推理，不含仿真步进；每次预测生成 16 个动作。
+成功与否由仿真器的原生终止信号判断，评测不使用 LLM 规划器或 SAM3。
+这 30 个回合属于小规模集成评测，并非论文基准复现。RPent 使用 RLinf 的
+重置逻辑和当前安装的 LIBERO/robosuite 版本；报告结果时，应一并记录这些
+版本以及服务的 checkpoint、去噪步数和随机种子。
+
 SAM3 配置
 ---------
 
@@ -111,7 +201,7 @@ RPent 支持两种 LIBERO 运行模式：
   memory。使用本地 memory 的 evaluation 会读取 exploration 生成并通过校验的
   audit、recipe 和经验。HarnessVLA 的 success rate 在 evaluation mode 下复现。
 
-默认仍为原有单次评测模式。省略 ``--memory-profile`` 时，会继续同步并使用
+Pi0.5 默认仍为原有单次评测模式。省略 ``--memory-profile`` 时，会继续同步并使用
 Hugging Face memory 和原有 prompt。两种 profile 都执行相同的单次评测流程；
 区别仅在于评测 memory 的来源及所使用的 memory prompt。本地 memory 已准备好后
 （例如先执行下文的 exploration 流程），即可使用 ``local``。该选项不会开启 exploration，也不会从 Hugging Face 下载

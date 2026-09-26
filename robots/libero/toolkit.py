@@ -48,6 +48,7 @@ class LiberoToolkit(Toolkit):
         mode: str = "evaluation",
         attempts_per_session: int = 0,
         state_output_dir: Path | str | None = None,
+        vla_backend: str = "pi05",
     ) -> None:
         if mode not in {"evaluation", "exploration"}:
             raise ValueError(f"unsupported LIBERO toolkit mode: {mode!r}")
@@ -65,12 +66,12 @@ class LiberoToolkit(Toolkit):
         self._attempts_per_session: int = max(0, int(attempts_per_session))
         self._session_attempt: int = 1
         self.init_primitives(runtime_kwargs=runtime_kwargs)
-        self._register_libero_tools()
+        self._register_libero_tools(vla_backend)
 
     # ------------------------------------------------------------------
     # Registration
     # ------------------------------------------------------------------
-    def _register_libero_tools(self) -> None:
+    def _register_libero_tools(self, vla_backend: str) -> None:
         # These read-only handlers need the run's EnvState bound in. Every
         # other spec binds to a primitive-driver method and captures state by
         # default unless that method is explicitly marked @readonly.
@@ -82,9 +83,16 @@ class LiberoToolkit(Toolkit):
             "back_project": partial(libero_tools.back_project, state=self._state),
             "segment": partial(self._primitives.segment, state=self._state),
         }
+        excluded_tools = (
+            {"pi0_pick", "pi0_doubled"}
+            if vla_backend == "cosmos-policy"
+            else {"cosmos_act"}
+        )
+        if self._mode != "exploration":
+            excluded_tools.add("reset")
         for spec in libero_tools.TOOLS_SPEC:
             name = spec["name"]
-            if name == "reset" and self._mode != "exploration":
+            if name in excluded_tools:
                 continue
             if name in state_handlers:
                 handler = state_handlers[name]

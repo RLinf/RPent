@@ -84,6 +84,7 @@ RPent 面向以下四类用户：
           </ul>
           <li><b>WAM</b></li>
           <ul>
+            <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/libero.html#cosmos-policy">Cosmos Policy</a>（实验性 LIBERO 接入）</li>
             <li>DreamZero</li>
             <li>Cosmos Policy</li>
           </ul>
