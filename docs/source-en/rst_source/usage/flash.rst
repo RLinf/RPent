@@ -61,18 +61,25 @@ objects appear at different positions.
 Flash plan files
 ----------------
 
-Flash plans are distributed through the `RLinf/RPent-memory Flash directory
-<https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/libero/flash>`_
-on Hugging Face rather than tracked in Git. RPent downloads them in HF memory
-mode and stores them locally under ``memory/libero/flash``. With
-``--memory-profile local --memory-dir /path/to/memory/libero``, it reads plans from
-``/path/to/memory/libero/flash`` without downloading data.
-There are 78 plans for 80 task identities; ``goal_swap_t0`` and ``10_swap_t9``
-have no plan. Missing plan or anchor files cause an error.
+Plans are distributed through the `GPT-5.5 memory directory
+<https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/libero/GPT_5.5_xhigh>`_
+on Hugging Face rather than tracked in Git. Flash defaults to
+``--memory-version GPT_5.5_xhigh`` and uses that version's isolated cache.
+The published ``GPT_5.5_xhigh/flash/`` directory contains 78 plan/anchor pairs:
+20 Spatial, 20 Object, 19 Goal and 19 Long tasks. ``goal_swap_t0`` and
+``10_swap_t9`` have no successful source plan and remain absent. These files
+come unchanged from the merged Hugging Face Flash release; publishing them in
+the versioned directory does not constitute a new simulator evaluation.
+
+With ``--memory-profile local --memory-dir /path/to/memory/libero/GPT_5.5_xhigh``,
+replay reads ``flash/`` plans under that selected root without downloading.
+A locally generated corpus can likewise use any root containing ``flash/``.
+Missing plan or anchor files cause an error. Astra memory has no replay assets;
+it cannot be used for Flash. See :ref:`Memory Management <memory-management>`.
 
 .. code-block:: text
 
-   memory/libero/flash/
+   memory/libero/GPT_5.5_xhigh/flash/
      object_swap_t3_anchors.json   objects and locations to locate at run time
      object_swap_t3_plan.json      actions and their anchor-relative coordinates
 
@@ -114,7 +121,10 @@ To download only the Flash plans manually, run:
 .. code-block:: bash
 
    hf download RLinf/RPent-memory --repo-type dataset \
-     --include "libero/flash/**" --local-dir memory
+     --include "libero/GPT_5.5_xhigh/flash/**" --local-dir /path/to/download
+
+Use ``--memory-profile local --memory-dir /path/to/download/libero/GPT_5.5_xhigh``
+with the downloaded plans.
 
 Run Flash Mode
 --------------

@@ -38,6 +38,7 @@ import numpy as np
 
 from robots.libero import tools as libero_tools
 from robots.libero.flash.prompts import build as prompt_for
+from robots.libero.memory import replay_directory
 from rpent.robots.components.molmo_client import MolmoClient
 from rpent.session import EnvState
 
@@ -212,9 +213,9 @@ def plans(root: Path) -> Path:
     """Require Flash plans in the selected memory; synchronization belongs to the CLI."""
     if not any(root.glob("*_plan.json")):
         raise FileNotFoundError(
-            f"no Flash plans found under {root}; download "
-            "'libero/flash/**' from the RLinf/RPent-memory "
-            "Hugging Face dataset into memory/"
+            f"no Flash plans found under {root}; use "
+            "python -m robots.libero.memory sync --memory-version GPT_5.5_xhigh "
+            "and pass its output as --memory-profile local --memory-dir <root>"
         )
     return root
 
@@ -466,7 +467,7 @@ def run_flash(
     # The seed selects the layout to solve, not the plan used to solve it.
     family, suite, task, _ = match.groups()
     key = f"{suite}_t{task}"
-    root = plans(toolkit.memory.root / "flash")
+    root = plans(replay_directory(toolkit.memory.root))
     plan_name = f"{family}_{key}"
     if not all(
         (root / f"{plan_name}_{suffix}.json").is_file()

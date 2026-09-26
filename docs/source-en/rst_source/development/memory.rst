@@ -1,6 +1,8 @@
 Memory Management
 =================
 
+.. _memory-management:
+
 RPent memory is maintained per robot and lets runs reuse already-validated
 task experience and operating strategy instead of rediscovering it from
 scratch each time.
@@ -11,8 +13,8 @@ Run modes
 Memory is used differently in the two run modes:
 
 - **Evaluation** reads existing memory but does not update it.
-- **Exploration** generates and updates local memory. It is currently
-  supported only by LIBERO.
+- **Exploration** generates and updates local memory. LIBERO, RoboCasa and
+  RoboTwin support it; see the robot guide for its exploration workflow.
 
 See the :ref:`LIBERO exploration guide <libero-exploration>` for the detailed
 Exploration and local-memory Evaluation workflow.
@@ -34,8 +36,8 @@ use the same directory structure:
        |-- <cell>_recipe.jsonl
        `-- <task_key>.md
 
-The default local root is ``memory/<robot>/``; on the Hugging Face dataset
-the same content lives under the ``<robot>/`` subdirectory. A custom
+The default local root is ``memory/<robot>/``. On Hugging Face, LIBERO has
+model-specific roots, described below; other robots use ``<robot>/``. A custom
 ``--memory-dir`` may point at any directory laid out like the tree above.
 
 Each robot provides the memory layers it uses:
@@ -87,12 +89,124 @@ does not change those records.
 Using memory
 ------------
 
-By default RPent syncs the current robot's memory from the Hugging Face
-dataset ``RLinf/RPent-memory`` into ``memory/<robot>/``. The dataset is
-public, so a fresh clone downloads it without a token. Set
-``HF_HUB_OFFLINE=1`` to skip the sync and use the local copy only. Memory is
-optional: if a robot has none on the dataset, or the sync fails, the run
-continues with whatever is on disk.
+RPent downloads memory from the public ``RLinf/RPent-memory`` dataset.
+LIBERO selects one version with ``--memory-version auto`` (the default):
+
+.. list-table:: LIBERO memory versions
+   :header-rows: 1
+   :widths: 25 35 40
+
+   * - Running model
+     - Memory directory under ``libero/``
+     - Exploration configuration
+   * - ``gpt-5.5``
+     - ``GPT_5.5_xhigh``
+     - Codex, reasoning on, xhigh
+   * - ``gpt-6-astra``
+     - ``GPT_6_astra_low``
+     - Codex, reasoning on, low
+
+Provider prefixes such as ``openai:`` are recognized. Codex uses ``--model``
+first, then ``CODEX_MODEL``. Unknown models, Claude, or an unknown backend
+default fall back to ``GPT_5.5_xhigh`` with a warning. Flash replay defaults
+to GPT-5.5. An explicit version overrides model selection; it does not change
+the running model or reasoning effort. The effort in a directory name records
+how that memory was generated.
+
+.. code-block:: bash
+
+   # Choose Astra memory automatically.
+   rpent --robot libero --suite libero_goal_swap --task 1 --seed 1 \
+     --planner codex --model gpt-6-astra --reasoning-effort low
+
+   # Use the same model with the GPT-5.5 corpus.
+   rpent --robot libero --suite libero_goal_swap --task 1 --seed 1 \
+     --planner codex --model gpt-6-astra --reasoning-effort low \
+     --memory-version GPT_5.5_xhigh
+
+CLI and Dashboard resolve the root before each task. In Dashboard, **Next task
+model** changes the model for the next task and reselects auto memory then;
+the active task keeps its existing model and corpus. A manually selected
+memory version remains selected across model changes.
+
+Only the chosen version is downloaded. LIBERO caches are isolated by repository,
+commit and version under ``memory/libero/.versions/``. Both the exact file set
+and every file hash are verified before cache reuse. Extra files invalidate
+the cache, including under a pinned revision. Online sync rebuilds an invalid
+cache; ``HF_HUB_OFFLINE=1`` requires a complete, unchanged cache
+for the selected version and revision; failed downloads never substitute
+another model's corpus. Missing or incomplete caches fail explicitly.
+Caches created before versioned-source receipts require one successful online
+refresh; old unversioned caches are not reused.
+Other robots retain their existing synchronization behavior.
+
+Standalone download and local evaluation
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: bash
+
+   python -m robots.libero.memory sync --memory-version GPT_6_astra_low
+   python -m robots.libero.memory sync --model gpt-6-astra \
+     --revision <release-commit> --output-dir /path/to/new-astra-memory
+   rpent --robot libero --suite libero_goal_swap --task 1 --seed 1 \
+     --planner codex --model gpt-6-astra --reasoning-effort low \
+     --memory-profile local --memory-dir /path/to/new-astra-memory
+
+``sync`` prints the actual corpus root. ``--output-dir`` must not already
+exist. ``--planner`` defaults to ``api``, matching ``rpent``; pass
+``--planner codex`` to use ``CODEX_MODEL`` when ``--model`` is omitted. ``--memory-profile local`` never downloads memory; combining it or
+``--explore`` with an explicit remote ``--memory-version`` is an error.
+Exploration uses a local corpus; use a separate empty ``--memory-dir`` for
+each independent exploration.
+
+Versioned downloads are a LIBERO-specific command. The shared ``rpent-memory``
+command continues to provide ``merge``, ``validate`` and ``build-index``.
+
+Release provenance and compatibility
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The dataset's ``libero/README.md`` and ``libero/manifest.json`` document the
+versions, original source snapshots and published files. Each version's
+``files`` mapping contains paths relative to that version's root and SHA-256
+hashes of the published bytes; the loader verifies this mapping. Source
+revisions and source hashes describe the original snapshots and remain separate
+from published hashes after directory, index and reference changes.
+
+Both version roots use ``MEMORY.md``, ``global/``, ``task-family/`` and
+``task-specific/``. GPT-5.5 additionally includes 78 plan/anchor pairs in
+``flash/``, copied unchanged from the merged Flash release. Flash reads that
+directory within the selected corpus. Astra has no replay assets; selecting it
+for Flash reports an error.
+
+The Astra release merges Long and Spatial/Object/Goal exploration memory,
+preserving both versions of three conflicting global notes with source
+suffixes. Its 79 task-specific audit/recipe pairs retain their original
+content; Long Swap task 6 has no task-specific pair. The historical **741/800**
+result used the two original frozen snapshots separately by suite. **The merged
+release has not been reevaluated.** Memory was generated at runtime commit
+``014a0fa``, before the scene-seed fix. The original source revisions are
+``cf5d14ce9b3ec6c72de5477ec0fea806a3884efa`` (Long) and
+``984c57f7c6caf48b572f5926851dd9134ae041d8`` (Spatial/Object/Goal).
+
+The current loader requires a versioned Hub layout and does not convert or
+fall back to the historical unversioned corpus. Update code and data together.
+The current directory names require the shared memory naming update in
+`RPent #190 <https://github.com/RLinf/RPent/pull/190>`_ and the corresponding
+`dataset update <https://huggingface.co/datasets/RLinf/RPent-memory/discussions/13>`_.
+Dataset ``main`` evolves; ``reproduce/memory`` keeps its historical contents
+and layout for the matching historical robot reproduction branches.
+Historical GPT-5.5 reproduction uses the matching historical client and the
+original dataset revision ``21a62795fe3b7e500c8381ac47938f6d713ebe18``:
+
+.. code-block:: bash
+
+   hf download RLinf/RPent-memory --repo-type dataset \
+     --revision 21a62795fe3b7e500c8381ac47938f6d713ebe18 \
+     --include 'libero/*' --local-dir /path/to/legacy-download
+   # With an older RPent client:
+   rpent --robot libero --suite libero_goal_swap --task 1 --seed 1 \
+     --planner codex --model gpt-5.5 --memory-profile local \
+     --memory-dir /path/to/legacy-download/libero
 
 You can also prepare local memory yourself with the same directory structure
 and point the run at it through the environment's ``--memory-dir`` option or

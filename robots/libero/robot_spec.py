@@ -121,6 +121,8 @@ def get_robot_spec() -> RobotSpec:
     Tool schemas, handlers, server lifecycle, and the MCP allowlist live on
     the LIBERO toolkit (see :func:`get_toolkit`).
     """
+    from robots.libero.memory import prepare_memory, validate_options
+
     return RobotSpec(
         name="libero",
         prompts=PromptBundle(
@@ -133,6 +135,8 @@ def get_robot_spec() -> RobotSpec:
         dashboard=LIBERO_DASHBOARD_SPEC,
         supports_exploration=True,
         run_flash=_run_flash,
+        validate_args=validate_options,
+        prepare_memory=prepare_memory,
     )
 
 
@@ -172,7 +176,15 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     Under CLI-only, they are required — argparse errors out early with the
     usual usage message.
     """
+    from robots.libero.memory import MEMORY_VERSIONS
+
     required = not use_dashboard
+    parser.add_argument(
+        "--memory-version",
+        choices=MEMORY_VERSIONS,
+        default="auto",
+        help="HF memory: auto selects by model; explicit versions override. Effort describes memory generation only.",
+    )
     parser.add_argument("--max-episode-steps", type=int, default=10000)
     parser.add_argument(
         "--libero-type",
@@ -299,14 +311,17 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     local_eval = not explore and memory_profile == "local"
     if local_eval:
         if planner == "flash":
+            from robots.libero.memory import replay_directory
+
+            replay_root = replay_directory(memory_dir)
             plan_name = recipe_tag.rsplit("_s", 1)[0]
             has_local_memory = all(
-                (memory_dir / "flash" / f"{plan_name}_{suffix}.json").is_file()
+                (replay_root / f"{plan_name}_{suffix}.json").is_file()
                 for suffix in ("plan", "anchors")
             )
             if not has_local_memory:
                 raise ValueError(
-                    f"no complete Flash plan for {plan_name} under {memory_dir / 'flash'}; "
+                    f"no complete Flash plan for {plan_name} under {replay_root}; "
                     "both plan and anchors files are required"
                 )
         else:

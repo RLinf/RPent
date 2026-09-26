@@ -193,6 +193,7 @@ class DashboardState:
 
         self._lock = threading.Lock()
         self._condition = threading.Condition(self._lock)
+        self._next_model: str | None = None
         self._task_state: str | None = None
         self._terminated = False
         self._truncated = False
@@ -402,6 +403,13 @@ class DashboardState:
                 self._session_state = "task_starting"
             self._interaction_changed_locked()
 
+    def set_next_model(self, model: str) -> None:
+        """Change the model for subsequently claimed tasks, never the active one."""
+        if not isinstance(model, str) or not model.strip():
+            raise ValueError("model must be a non-empty string")
+        with self._condition:
+            self._next_model = model.strip()
+
     def wait_for_task(self, timeout: float | None = None) -> ClaimedTask | None:
         """Block until the controller can claim the latest pending task."""
         with self._condition:
@@ -419,6 +427,8 @@ class DashboardState:
                 return None
 
             request = self._pending_task
+            if self._next_model is not None:
+                request = {**request, "model": self._next_model}
             self._pending_task = None
             self._task_generation += 1
             number = self._task_generation
