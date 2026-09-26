@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from datetime import datetime
 from functools import partial
@@ -88,6 +89,12 @@ LIBERO_DASHBOARD_SPEC: DashboardSpec = {
         {"name": "env", "label": "ENV", "scope": "unique"},
         {"name": "vla", "label": "VLA", "scope": "shared"},
         {"name": "sam3", "label": "SAM3", "scope": "shared"},
+        {
+            "name": "wam",
+            "label": "WAM",
+            "scope": "shared",
+            "enabled_if_args": ("wam_backend",),
+        },
         {
             "name": "molmo",
             "label": "Molmo",
@@ -245,6 +252,22 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         "If unset, a local SAM3 server is spawned.",
     )
     parser.add_argument(
+        "--wam-backend",
+        choices=("cosmos", "dreamzero"),
+        default=None,
+        help="Action-model backend exposed by --wam-endpoint.",
+    )
+    parser.add_argument(
+        "--wam-endpoint",
+        default=None,
+        help="[protocol://]host:port of an existing action-model bridge.",
+    )
+    parser.add_argument(
+        "--wam-checkpoint",
+        default=None,
+        help="Local Cosmos Policy checkpoint directory; RPent starts its isolated bridge.",
+    )
+    parser.add_argument(
         "--cuda-device",
         type=int,
         default=None,
@@ -263,6 +286,19 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         raise ValueError("--suite is required")
     if args.task is None:
         raise ValueError("--task is required")
+    wam_backend = getattr(args, "wam_backend", None)
+    wam_endpoint = getattr(args, "wam_endpoint", None)
+    wam_checkpoint = getattr(args, "wam_checkpoint", None) or os.environ.get(
+        "COSMOS_POLICY_CHECKPOINT"
+    )
+    if wam_endpoint and wam_checkpoint:
+        raise ValueError("--wam-endpoint and --wam-checkpoint are mutually exclusive")
+    if bool(wam_backend) != bool(wam_endpoint or wam_checkpoint):
+        raise ValueError(
+            "--wam-backend and --wam-endpoint/--wam-checkpoint must be provided together"
+        )
+    if wam_checkpoint and wam_backend != "cosmos":
+        raise ValueError("--wam-checkpoint is only supported with --wam-backend cosmos")
     planner = getattr(args, "planner", None)
     if planner == "flash":
         if getattr(args, "explore", False):
@@ -333,6 +369,8 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         "memory_inbox": str(memory_dir / "_internal" / "inbox" / recipe_tag),
         "session_number": 1,
         "session_max": max(1, args.explore_sessions) if explore else 1,
+        "wam_enabled": bool(wam_backend),
+        "wam_backend": wam_backend,
     }
 
     output_dir = args.output_dir
@@ -479,6 +517,97 @@ def _connect_molmo_server(
     return None, make_rpc_client(args.molmo_endpoint)
 
 
+def _cosmos_bridge_env(
+    python_path: Path,
+) -> dict[str, str]:
+    """Build environment variables for the isolated Cosmos bridge."""
+    repo_root = get_repo_root()
+    nvidia_root = (
+        python_path.parents[1] / "lib" / "python3.10" / "site-packages" / "nvidia"
+    )
+    nvidia_libs = sorted(
+        str(path) for path in nvidia_root.glob("*/lib") if path.is_dir()
+    )
+    existing_ld = os.environ.get("LD_LIBRARY_PATH")
+    if existing_ld:
+        nvidia_libs.append(existing_ld)
+    return {
+        "COSMOS_INTERNAL": "1",
+        "HF_HOME": os.environ.get(
+            "COSMOS_HF_HOME", str(repo_root.parent / "checkpoints" / "huggingface")
+        ),
+        "HF_HUB_CACHE": os.environ.get(
+            "COSMOS_HF_HUB_CACHE",
+            str(repo_root.parent / "checkpoints" / "huggingface-http"),
+        ),
+        "CUDA_HOME": os.environ.get(
+            "COSMOS_CUDA_HOME", str(nvidia_root / "cuda_nvrtc")
+        ),
+        "LD_LIBRARY_PATH": os.pathsep.join(nvidia_libs),
+        "PYTHONPATH": str(repo_root),
+    }
+
+
+def _connect_wam_server(
+    args: argparse.Namespace,
+) -> tuple[ProcessDaemon | None, RpcClient]:
+    """Connect to an externally managed action-model bridge."""
+    endpoint = getattr(args, "wam_endpoint", None)
+    if endpoint is None:
+        raise ValueError("--wam-endpoint is required for an external WAM bridge")
+    return None, make_rpc_client(endpoint)
+
+
+def _spawn_wam_server(
+    args: argparse.Namespace,
+    output_dir: Path,
+) -> tuple[ProcessDaemon | None, RpcClient]:
+    """Use an external endpoint or own an isolated local Cosmos bridge."""
+    if getattr(args, "wam_endpoint", None):
+        return _connect_wam_server(args)
+    checkpoint = getattr(args, "wam_checkpoint", None) or os.environ.get(
+        "COSMOS_POLICY_CHECKPOINT"
+    )
+    if not checkpoint:
+        raise ValueError("Cosmos WAM requires --wam-endpoint or --wam-checkpoint")
+    if getattr(args, "wam_backend", None) != "cosmos":
+        raise ValueError("--wam-checkpoint is only supported with Cosmos")
+
+    repo_root = get_repo_root()
+    cosmos_root = (
+        Path(
+            os.environ.get(
+                "COSMOS_POLICY_ROOT", str(repo_root.parent / "cosmos-policy")
+            )
+        )
+        .expanduser()
+        .resolve()
+    )
+    python_path = Path(
+        os.environ.get("COSMOS_POLICY_PYTHON", str(cosmos_root / ".venv/bin/python"))
+    ).expanduser()
+    host = "127.0.0.1"
+    port = pick_free_port(host)
+    daemon = ProcessDaemon(
+        name="wam",
+        cmd=[
+            str(python_path),
+            str(repo_root / "scripts" / "wam" / "cosmos_policy_rpc_bridge.py"),
+            "--checkpoint",
+            str(Path(checkpoint).expanduser().resolve()),
+            "--host",
+            host,
+            "--port",
+            str(port),
+        ],
+        env_overrides=_cosmos_bridge_env(python_path),
+        log_path=str(output_dir / "wam_server.log"),
+        cwd=str(cosmos_root),
+    )
+    daemon.start()
+    return daemon, HttpRpcClient(f"http://{host}:{port}")
+
+
 def _init_runtime(
     args: argparse.Namespace,
     output_dir: Path,
@@ -487,15 +616,49 @@ def _init_runtime(
 ) -> tuple[list[ProcessDaemon], dict[str, Any]]:
     """Initialize every LIBERO component, or only ``components`` when given."""
     from robots.libero.env_client import LiberoEnvClient
+    from rpent.robots.components.action_model_protocol import (
+        ActionModelCompatibilityError,
+    )
+    from rpent.robots.components.cosmos_policy_client import CosmosPolicyClient
+    from rpent.robots.components.dreamzero_client import DreamZeroClient
     from rpent.robots.components.molmo_client import MolmoClient
     from rpent.robots.components.pi05_vla_client import Pi05VLAClient
     from rpent.robots.components.sam3_client import Sam3Client
+
+    libero_action_schema = (
+        "delta_x",
+        "delta_y",
+        "delta_z",
+        "delta_axis_angle_x",
+        "delta_axis_angle_y",
+        "delta_axis_angle_z",
+        "gripper",
+    )
+
+    def connect_wam(rpc: RpcClient) -> dict[str, Any]:
+        backend = getattr(args, "wam_backend", None)
+        if backend == "cosmos":
+            client = CosmosPolicyClient(rpc)
+        elif backend == "dreamzero":
+            client = DreamZeroClient(rpc)
+        else:
+            raise ValueError(f"unsupported WAM backend: {backend!r}")
+        capabilities = client.get_capabilities()
+        try:
+            capabilities.require_embodiment(
+                "libero_7d", action_dim=7, action_schema=libero_action_schema
+            )
+        except ActionModelCompatibilityError:
+            client.close()
+            raise
+        return {"wam_model": client}
 
     starters = {
         "env": lambda: _spawn_env_server(args, output_dir),
         "vla": lambda: _spawn_vla_server(args, output_dir),
         "sam3": lambda: _spawn_sam3_server(args, output_dir),
         "molmo": lambda: _connect_molmo_server(args),
+        "wam": lambda: _spawn_wam_server(args, output_dir),
     }
     connectors = {
         "env": lambda rpc: {
@@ -512,10 +675,20 @@ def _init_runtime(
         "vla": lambda rpc: {"model": Pi05VLAClient(rpc, embodiment="libero")},
         "sam3": lambda rpc: {"sam3_client": Sam3Client(rpc)},
         "molmo": lambda rpc: {"molmo_client": MolmoClient(rpc)},
+        "wam": connect_wam,
     }
     selected = set(starters) if components is None else set(components)
     if getattr(args, "planner", None) != "flash":
         selected.discard("molmo")
+    if not (
+        getattr(args, "wam_backend", None)
+        and (
+            getattr(args, "wam_endpoint", None)
+            or getattr(args, "wam_checkpoint", None)
+            or os.environ.get("COSMOS_POLICY_CHECKPOINT")
+        )
+    ):
+        selected.discard("wam")
     unknown = selected.difference(starters)
     if unknown:
         raise ValueError(f"unknown LIBERO runtime components: {sorted(unknown)}")
@@ -532,7 +705,7 @@ def _init_runtime(
             )
 
     runtime_kwargs: dict[str, Any] = {}
-    wait_order = ("env", "sam3", "molmo", "vla")
+    wait_order = ("env", "sam3", "molmo", "vla", "wam")
     for component in (name for name in wait_order if name in pending):
         daemon, rpc = pending[component]
         component_kwargs = try_wait_server(

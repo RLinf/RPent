@@ -199,3 +199,49 @@ def test_toolkit_modes_construct_with_fake_primitives(
         "finish", {"status": "failure", "summary": "budget spent"}
     )
     assert allowed.is_finish is True
+
+
+def test_wam_tool_is_registered_only_when_runtime_supplies_model(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    fake_single_arm_primitives: type[Any],
+) -> None:
+    monkeypatch.setattr(
+        templates, "default_variables", lambda: {"output_dir": "/offline/output"}
+    )
+    monkeypatch.setattr(
+        toolkit.libero_tools, "LiberoPrimitives", fake_single_arm_primitives
+    )
+    monkeypatch.setattr(
+        toolkit.libero_tools,
+        "dump_state",
+        lambda primitives, state, log: _record(),
+    )
+    monkeypatch.setattr(
+        fake_single_arm_primitives,
+        "wam_model",
+        property(lambda self: self.kwargs.get("wam_model")),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        fake_single_arm_primitives,
+        "wam_act",
+        lambda self, **kwargs: kwargs,
+        raising=False,
+    )
+
+    without_wam = toolkit.LiberoToolkit(
+        runtime_kwargs={"env_client": object()},
+        dashboard_events=NullDashboardEventSink(),
+        memory=MemoryManager(tmp_path / "without-memory"),
+        state_output_dir=tmp_path / "without",
+    )
+    with_wam = toolkit.LiberoToolkit(
+        runtime_kwargs={"env_client": object(), "wam_model": object()},
+        dashboard_events=NullDashboardEventSink(),
+        memory=MemoryManager(tmp_path / "with-memory"),
+        state_output_dir=tmp_path / "with",
+    )
+
+    assert "wam_act" not in _tool_names(without_wam)
+    assert "wam_act" in _tool_names(with_wam)

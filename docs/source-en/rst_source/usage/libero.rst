@@ -43,6 +43,146 @@ then point at it via ``SAM3_CHECKPOINT_PATH``:
 
    export SAM3_CHECKPOINT_PATH=/path/to/sam3/sam3.pt
 
+Optional world action model
+---------------------------
+
+LIBERO can attach one optional world action model (WAM) without changing the
+default Pi0.5 path. The model and its CUDA dependencies run in a separate
+upstream environment; RPent connects to a lightweight bridge through
+``action_model.capabilities`` and ``action_model.predict`` RPCs. Omitting the
+WAM flags preserves the existing runtime, prompt, and tool set.
+
+The executable integration currently targets the official
+`Cosmos Policy Predict2 2B LIBERO checkpoint
+<https://huggingface.co/nvidia/Cosmos-Policy-LIBERO-Predict2-2B>`_. In an
+official ``cosmos-policy`` LIBERO environment, put this RPent checkout on
+``PYTHONPATH`` and start the bridge:
+
+.. code-block:: bash
+
+   cd /home/gao/worldmodel/harnessvla/cosmos-policy
+   export HF_HOME=/home/gao/worldmodel/harnessvla/checkpoints/huggingface
+   export HF_HUB_CACHE=/home/gao/worldmodel/harnessvla/checkpoints/huggingface-http
+   export HF_HUB_DISABLE_XET=1 HF_HUB_OFFLINE=1 COSMOS_INTERNAL=1
+   export CUDA_HOME=$PWD/.venv/lib/python3.10/site-packages/nvidia/cuda_nvrtc
+   export PYTHONPATH=/home/gao/worldmodel/harnessvla/rpent
+   .venv/bin/python \
+     /home/gao/worldmodel/harnessvla/rpent/scripts/wam/cosmos_policy_rpc_bridge.py \
+       --checkpoint /home/gao/worldmodel/harnessvla/checkpoints/cosmos-policy \
+       --host 127.0.0.1 --port 8120
+
+Then add the endpoint to a normal RPent command:
+
+.. code-block:: bash
+
+   rpent --robot libero \
+     --suite libero_10 --task 0 --seed 0 \
+     --wam-backend cosmos --wam-endpoint http://127.0.0.1:8120 \
+     --planner codex
+
+The bridge uses the upstream image/proprio preprocessing, dataset statistics,
+action unnormalization, future-state decoding, and value decoding. RPent
+requires the bridge to advertise the exact ``libero_7d`` schema before it
+registers ``wam_act``. The tool executes a bounded chunk, records the real
+post-action observation, and re-predicts from that observation when more than
+one chunk is requested. Predicted future images are not returned in Agent tool
+text. The request uses raw LIBERO camera frames and the checkpoint's native
+9-field proprio order (two gripper positions, EEF position, then EEF
+quaternion); the bridge applies the upstream vertical image flip. Motion
+components outside LIBERO's ``[-1, 1]`` control bounds are rejected. The
+binary gripper component alone is clipped to that range to tolerate small
+Cosmos denoising overshoots at ``-1`` / ``+1``. ``wam_act`` uses the
+environment's exact task language and the
+official precomputed T5 embedding cache; it does not accept an Agent-authored
+instruction or load T5-11B when an instruction is absent from that cache.
+Use a standard LIBERO task whose exact language is included in the downloaded
+cache. Custom LIBERO-Pro instructions are unsupported unless their official
+T5-11B embeddings have been added to that cache ahead of time.
+
+WAM operation flow
+~~~~~~~~~~~~~~~~~~
+
+Keep the bridge terminal running for the whole Dashboard/RPent session. In a
+second terminal, check it with:
+
+.. code-block:: bash
+
+   curl -sS http://127.0.0.1:8120/call \
+     -H 'content-type: application/json' \
+     -d '{"method":"healthz","args":[],"kwargs":{},"session_id":null}'
+
+Start RPent with the local Pi0.5 and SAM3 checkpoints:
+
+.. code-block:: bash
+
+   export PI05_CHECKPOINT_PATH=/home/gao/worldmodel/harnessvla/rpent/checkpoints/RLinf-Pi05-LIBERO-130-fullshot-SFT
+   export SAM3_CHECKPOINT_PATH=/home/gao/worldmodel/harnessvla/rpent/checkpoints/sam3/sam3.pt
+   export LIBERO_TYPE=standard
+   rpent --robot libero --dashboard --dashboard-language zh-cn \
+     --planner codex --model gpt-6-astra --reasoning-effort low \
+     --wam-backend cosmos --wam-endpoint http://127.0.0.1:8120 \
+     --memory-profile local --memory-dir /path/to/RPent/memory/libero \
+     --cuda-device 0
+
+After WAM is ``ready``, submit ``/rpent-task <suite> <task> <seed>``. The
+planner may choose Pi0.5 because ``wam_act`` is optional; explicitly request
+``Call wam_act now; do not use Pi0.5; use max_chunks=1 and
+max_actions_per_chunk=8.`` To bypass planner choice after a task is active:
+
+.. code-block:: bash
+
+   curl -sS -X POST http://127.0.0.1:59307/api/session/primitive \
+     -H 'content-type: application/json' \
+     -d '{"name":"wam_act","arguments":{"max_chunks":1,"max_actions_per_chunk":8}}'
+
+Stop Dashboard/RPent first, then stop the bridge with ``Ctrl+C``.
+
+For local Cosmos lifecycle ownership, replace ``--wam-endpoint`` with the
+checkpoint flag below. RPent then starts the isolated bridge, waits for its
+capabilities, and stops it during Dashboard cleanup:
+
+.. code-block:: bash
+
+   --wam-backend cosmos \
+   --wam-checkpoint /home/gao/worldmodel/harnessvla/checkpoints/cosmos-policy
+
+The isolated Python environment defaults to
+``../cosmos-policy/.venv/bin/python`` relative to the RPent checkout. Override
+it with ``COSMOS_POLICY_PYTHON`` when needed. ``--wam-endpoint`` and
+``--wam-checkpoint`` are mutually exclusive.
+
+DreamZero-DROID uses the official DreamZero WebSocket server. Start that server
+in its own environment, then start RPent's proxy bridge:
+
+.. code-block:: bash
+
+   # In the official DreamZero checkout/environment:
+   torchrun --standalone --nproc_per_node=2 socket_test_optimized_AR.py \
+     --port 8000 --enable-dit-cache --model-path /path/to/DreamZero-DROID
+
+   PYTHONPATH=/path/to/RPent \
+     python /path/to/RPent/scripts/wam/dreamzero_rpc_bridge.py \
+       --dreamzero-host 127.0.0.1 --dreamzero-port 8000 \
+       --checkpoint /path/to/DreamZero-DROID \
+       --host 127.0.0.1 --port 8121
+
+DreamZero-DROID requires two external cameras, one wrist camera, and its native
+14-field proprio layout; it returns seven joint positions plus one gripper
+command. This is not LIBERO's 7-D OSC action schema, so RPent deliberately
+rejects ``--wam-backend dreamzero`` for LIBERO execution with this checkpoint.
+Use the bridge to validate native DreamZero connectivity/prediction only. Do
+not truncate, pad, or reinterpret its actions. LIBERO execution requires a
+separately validated LIBERO checkpoint or embodiment adapter. Native prediction
+requests must provide a non-empty ``metadata.episode_id`` so the DreamZero
+server resets its temporal state when the episode changes.
+
+For Cosmos, pair ``--wam-backend cosmos`` with either ``--wam-endpoint`` for an
+externally managed bridge or ``--wam-checkpoint`` for RPent-owned lifecycle.
+The two flags are mutually exclusive. DreamZero remains externally managed and
+continues to be rejected for LIBERO execution. Capabilities and one real
+prediction have been validated; record bounded ``wam_act`` artifacts and
+cleanup evidence separately from task success.
+
 Task selection
 --------------
 

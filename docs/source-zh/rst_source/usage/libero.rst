@@ -41,6 +41,134 @@ SAM3 配置
 
    export SAM3_CHECKPOINT_PATH=/path/to/sam3/sam3.pt
 
+可选 World Action Model
+-----------------------
+
+LIBERO 可以在不改变默认 Pi0.5 路径的前提下连接一个可选 WAM。模型及其 CUDA
+依赖运行在独立的上游环境中，RPent 仅通过轻量 bridge 调用
+``action_model.capabilities`` 和 ``action_model.predict`` RPC。不传 WAM 参数时，
+现有 runtime、prompt 和工具集合保持不变。
+
+当前可执行接入以官方
+`Cosmos Policy Predict2 2B LIBERO checkpoint
+<https://huggingface.co/nvidia/Cosmos-Policy-LIBERO-Predict2-2B>`_ 为目标。
+在官方 ``cosmos-policy`` LIBERO 环境中，将 RPent checkout 加入
+``PYTHONPATH``，然后启动 bridge：
+
+.. code-block:: bash
+
+   cd /home/gao/worldmodel/harnessvla/cosmos-policy
+   export HF_HOME=/home/gao/worldmodel/harnessvla/checkpoints/huggingface
+   export HF_HUB_CACHE=/home/gao/worldmodel/harnessvla/checkpoints/huggingface-http
+   export HF_HUB_DISABLE_XET=1 HF_HUB_OFFLINE=1 COSMOS_INTERNAL=1
+   export CUDA_HOME=$PWD/.venv/lib/python3.10/site-packages/nvidia/cuda_nvrtc
+   export PYTHONPATH=/home/gao/worldmodel/harnessvla/rpent
+   .venv/bin/python \
+     /home/gao/worldmodel/harnessvla/rpent/scripts/wam/cosmos_policy_rpc_bridge.py \
+       --checkpoint /home/gao/worldmodel/harnessvla/checkpoints/cosmos-policy \
+       --host 127.0.0.1 --port 8120
+
+然后在普通 RPent 命令中增加 endpoint：
+
+.. code-block:: bash
+
+   rpent --robot libero \
+     --suite libero_10 --task 0 --seed 0 \
+     --wam-backend cosmos --wam-endpoint http://127.0.0.1:8120 \
+     --planner codex
+
+bridge 继续使用上游提供的图像/proprio 预处理、数据集统计、动作反归一化、未来
+状态解码和值函数解码。只有服务明确声明完整的 ``libero_7d`` schema 后，RPent
+才会注册 ``wam_act``。该工具只执行有界动作块；需要多个 chunk 时，每轮都会从
+真实环境的新观测重新预测。预测的未来图像不会进入 Agent 工具文本。请求使用
+LIBERO 原始相机帧，以及 checkpoint 原生的 9 字段 proprio 顺序（两个夹爪位置、
+EEF 位置、EEF 四元数）；bridge 再执行上游要求的垂直翻转。任何超出 LIBERO
+``[-1, 1]`` 控制范围的位移/旋转动作都会被拒绝。仅二值夹爪维会裁剪到该范围，
+以容忍 Cosmos 去噪输出在 ``-1`` / ``+1`` 边界的微小越界。``wam_act`` 自动使用
+环境返回的原始任务语言和官方预计算 T5 embedding 缓存；它不接受 Agent 改写的
+instruction，缓存未包含该任务时也不会在线加载 T5-11B。请使用下载缓存已覆盖
+其准确任务语言的标准 LIBERO 任务；自定义 LIBERO-Pro 指令只有在事先加入官方
+T5-11B embedding 后才受支持。
+
+WAM 操作流程
+~~~~~~~~~~~~~
+
+bridge 所在终端必须在整个 Dashboard/RPent 会话期间保持运行。另开一个终端
+检查 bridge：
+
+.. code-block:: bash
+
+   curl -sS http://127.0.0.1:8120/call \
+     -H 'content-type: application/json' \
+     -d '{"method":"healthz","args":[],"kwargs":{},"session_id":null}'
+
+使用本地 Pi0.5/SAM3 checkpoint 启动 RPent：
+
+.. code-block:: bash
+
+   export PI05_CHECKPOINT_PATH=/home/gao/worldmodel/harnessvla/rpent/checkpoints/RLinf-Pi05-LIBERO-130-fullshot-SFT
+   export SAM3_CHECKPOINT_PATH=/home/gao/worldmodel/harnessvla/rpent/checkpoints/sam3/sam3.pt
+   export LIBERO_TYPE=standard
+   rpent --robot libero --dashboard --dashboard-language zh-cn \
+     --planner codex --model gpt-6-astra --reasoning-effort low \
+     --wam-backend cosmos --wam-endpoint http://127.0.0.1:8120 \
+     --memory-profile local --memory-dir /path/to/RPent/memory/libero \
+     --cuda-device 0
+
+WAM 显示 ``ready`` 后，提交 ``/rpent-task <suite> <task> <seed>``。由于
+``wam_act`` 是可选工具，Planner 可能选择 Pi0.5；可以明确发送：
+``现在立即调用 wam_act；不要使用 Pi0.5；max_chunks=1，max_actions_per_chunk=8。``
+任务启动后也可以绕过 Planner，直接调用 Dashboard primitive 接口：
+
+.. code-block:: bash
+
+   curl -sS -X POST http://127.0.0.1:59307/api/session/primitive \
+     -H 'content-type: application/json' \
+     -d '{"name":"wam_act","arguments":{"max_chunks":1,"max_actions_per_chunk":8}}'
+
+结束时先关闭 Dashboard/RPent，再在 bridge 终端按 ``Ctrl+C``。
+
+如果希望由 RPent 管理本地 Cosmos bridge，可将 ``--wam-endpoint`` 替换为：
+
+.. code-block:: bash
+
+   --wam-backend cosmos \
+   --wam-checkpoint /home/gao/worldmodel/harnessvla/checkpoints/cosmos-policy
+
+RPent 会启动隔离的 Cosmos 环境、等待 capabilities，并在 Dashboard 清理时停止
+bridge。隔离 Python 默认使用 RPent checkout 同级的
+``../cosmos-policy/.venv/bin/python``；需要时可通过 ``COSMOS_POLICY_PYTHON`` 覆盖。
+``--wam-endpoint`` 和 ``--wam-checkpoint`` 不能同时使用。
+
+DreamZero-DROID 使用官方 DreamZero WebSocket 服务。先在独立环境中启动原生
+服务，再启动 RPent proxy bridge：
+
+.. code-block:: bash
+
+   # 在官方 DreamZero checkout/环境中：
+   torchrun --standalone --nproc_per_node=2 socket_test_optimized_AR.py \
+     --port 8000 --enable-dit-cache --model-path /path/to/DreamZero-DROID
+
+   PYTHONPATH=/path/to/RPent \
+     python /path/to/RPent/scripts/wam/dreamzero_rpc_bridge.py \
+       --dreamzero-host 127.0.0.1 --dreamzero-port 8000 \
+       --checkpoint /path/to/DreamZero-DROID \
+       --host 127.0.0.1 --port 8121
+
+DreamZero-DROID 需要两个外部相机、一个腕部相机和原生 14 字段 proprio，返回
+7 个关节位置加 1 个夹爪命令。这并不是 LIBERO 的 7 维 OSC 动作 schema，因此
+RPent 会主动拒绝使用该 checkpoint 在 LIBERO 中执行
+``--wam-backend dreamzero``。该 bridge 当前只用于验证 DreamZero 原生连接和推理；
+不得通过截断、补零或重新解释动作来绕过限制。只有另行验证的 LIBERO checkpoint
+或 embodiment adapter 才能启用执行。原生预测请求必须提供非空的
+``metadata.episode_id``，以便 DreamZero 服务在 episode 切换时重置时序状态。
+
+Cosmos 需要将 ``--wam-backend cosmos`` 与以下二者之一配对：外部 bridge 使用
+``--wam-endpoint``，RPent 托管生命周期使用 ``--wam-checkpoint``；两者不能同时
+使用。DreamZero 仍由外部服务管理，并继续被 LIBERO 拒绝。Capabilities 和一次
+真实 prediction 已验证；bounded ``wam_act`` 的 artifact、清理证据和任务成功应
+分别记录。
+
 任务选择
 --------
 
