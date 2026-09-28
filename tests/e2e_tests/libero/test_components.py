@@ -38,3 +38,7 @@ def test_sam3_component(libero_scenario: LiberoScenario) -> None:
     if libero_scenario.variant != "pro":
         pytest.skip("shared SAM3 component is covered by LIBERO-PRO")
     publish_check("sam3_component", libero_scenario.sam3)
+
+
+def test_move_to_yaw_component(libero_scenario: LiberoScenario) -> None:
+    publish_check("libero_move_to_yaw", libero_scenario.move_to_yaw)

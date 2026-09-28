@@ -97,6 +97,14 @@ LIBERO-PRO 核心套件一览
 
 如需切换 planner，请参阅 :doc:`configure_planner`。
 
+脚本控制的位置与 yaw 目标
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``move_to`` 默认保持当前朝向。指定 ``target_yaw`` 后，必须同时满足位置容差和
+``yaw_tol``（默认 ``0.02`` 弧度）才算收敛，即使 XYZ 已经位于目标处也会继续调整 yaw。
+执行仍受步数预算和环境终止条件限制。此模式的返回值包含 ``final_yaw_error_rad``，
+表示归一化到正负 π 区间的剩余有符号 yaw 误差。需要同时指定 pitch 时使用 ``move_pose``。
+
 .. _libero-exploration:
 
 探索模式与本地 Memory 评测

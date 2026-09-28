@@ -100,6 +100,16 @@ Minimal command
 
 To switch planners, see :doc:`configure_planner`.
 
+Scripted position and yaw targets
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``move_to`` preserves orientation by default. When ``target_yaw`` is supplied,
+completion requires both the position tolerance and ``yaw_tol`` (default
+``0.02`` radians), including when XYZ is already at the target. The step budget
+and environment termination still bound execution. The result includes
+``final_yaw_error_rad``, the remaining signed, wrapped yaw error, for this mode.
+Use ``move_pose`` when a pitch target is also needed.
+
 .. _libero-exploration:
 
 Exploration and local-memory evaluation

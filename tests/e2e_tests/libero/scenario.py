@@ -136,6 +136,44 @@ def _environment_action(output_dir: Path, args: Namespace) -> dict[str, Any]:
     }
 
 
+def _move_to_yaw_check(output_dir: Path, args: Namespace) -> dict[str, Any]:
+    from scipy.spatial.transform import Rotation
+
+    from robots.libero.tools import LiberoPrimitives
+
+    def yaw(quaternion):
+        matrix = Rotation.from_quat(quaternion).as_matrix()
+        return float(np.arctan2(matrix[1, 0], matrix[0, 0]))
+
+    spec = get_robot_spec()
+    with runtime_phase(spec, args, output_dir / "move-to-yaw", {"env"}) as runtime:
+        env = runtime["env"]
+        primitives = LiberoPrimitives(
+            env=env, model=None, sam3_client=None, check_cancelled=lambda: None
+        )
+        observation, _ = primitives.reset()
+        target_xyz = np.asarray(observation["states"][:3], dtype=np.float32)
+        initial_yaw = yaw(env.raw_obs()["robot0_eef_quat"])
+        target_yaw = (initial_yaw + 0.6 + np.pi) % (2 * np.pi) - np.pi
+        result = primitives.move_to(
+            target_xyz.tolist(), target_yaw=target_yaw, gripper=1
+        )
+        final_yaw = yaw(env.raw_obs()["robot0_eef_quat"])
+        error = (target_yaw - final_yaw + np.pi) % (2 * np.pi) - np.pi
+        if abs(error) >= 0.02 or result["final_dist_m"] >= 0.012:
+            raise RuntimeError(
+                f"move_to did not reach its position/yaw target: {result}"
+            )
+    return {
+        "status": "passed",
+        "initial_yaw": initial_yaw,
+        "target_yaw": target_yaw,
+        "final_yaw": final_yaw,
+        "yaw_error_rad": error,
+        "position_error_m": result["final_dist_m"],
+    }
+
+
 def _predict_pi05(
     output_dir: Path,
     args: Namespace,
@@ -265,6 +303,10 @@ class LiberoScenario:
     @cached_property
     def environment_action(self) -> dict[str, Any]:
         return _environment_action(self.output_dir, self.args)
+
+    @cached_property
+    def move_to_yaw(self) -> dict[str, Any]:
+        return _move_to_yaw_check(self.output_dir, self.args)
 
     @cached_property
     def pi05(self) -> tuple[np.ndarray, dict[str, Any]]:

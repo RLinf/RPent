@@ -326,6 +326,7 @@ class LiberoPrimitives:
         action_scale: float = 0.05,
         target_yaw: float | None = None,
         yaw_step_clip: float = 0.10,
+        yaw_tol: float = 0.02,
     ) -> dict:
         """Scripted EEF servo to a world-frame target xyz.
 
@@ -333,7 +334,21 @@ class LiberoPrimitives:
         interprets ``action[:3] ∈ [-1, 1]`` as a per-step desired delta scaled
         by ``action_scale`` (so ``action=1.0`` -> ~5 cm per env step).
         ``gripper``: +1.0 keeps it closed (holding object), -1.0 opens.
+        When ``target_yaw`` is supplied, both position and yaw must converge;
+        ``yaw_tol`` is the angular tolerance in radians.
         """
+        if not np.isfinite(yaw_tol) or yaw_tol <= 0:
+            raise ValueError("yaw_tol must be finite and greater than zero")
+
+        def yaw_error():
+            from scipy.spatial.transform import Rotation as _R
+
+            q = self.env.raw_obs()["robot0_eef_quat"]
+            matrix = _R.from_quat(q).as_matrix()
+            # World yaw; Euler zyx reverses its sign for gripper-down poses.
+            yaw = float(np.arctan2(matrix[1, 0], matrix[0, 0]))
+            return (float(target_yaw) - yaw + np.pi) % (2 * np.pi) - np.pi
+
         target = np.asarray(_normalize_xyz(xyz), dtype=np.float32)
         traj = []
         for step in range(max_steps):
@@ -347,24 +362,14 @@ class LiberoPrimitives:
                     "dist_to_target_m": round(dist, 4),
                 }
             )
-            if dist < tol:
+            err = yaw_error() if target_yaw is not None else 0.0
+            if dist < tol and abs(err) < yaw_tol:
                 break
             step_dxyz = np.clip(diff, -step_clip, step_clip)
             action = np.zeros(7, dtype=np.float32)
             action[:3] = step_dxyz / action_scale  # -> roughly [-0.5, 0.5]
             action[:3] = np.clip(action[:3], -1.0, 1.0)
             if target_yaw is not None:
-                # add wrist yaw control via action[5] (z-axis axis-angle).
-                # NOTE: extract world yaw via atan2(R[1,0], R[0,0]), NOT
-                # as_euler('zyx')[0] — the latter returns -world_yaw for
-                # gripper-down configs (R[2,2]≈-1) and silently flips the
-                # commanded rotation direction. See feedback_rotate_wrist_yaw_sign.
-                from scipy.spatial.transform import Rotation as _R
-
-                q = self.env.raw_obs()["robot0_eef_quat"]
-                _R_mat = _R.from_quat([q[0], q[1], q[2], q[3]]).as_matrix()
-                cur_yaw = float(np.arctan2(_R_mat[1, 0], _R_mat[0, 0]))
-                err = (float(target_yaw) - cur_yaw + np.pi) % (2 * np.pi) - np.pi
                 step_dyaw = float(np.clip(err, -yaw_step_clip, yaw_step_clip))
                 action[5] = float(np.clip(step_dyaw / 0.10, -1.0, 1.0))
             action[6] = gripper
@@ -372,7 +377,7 @@ class LiberoPrimitives:
             if self.env.terminated or self.env.truncated:
                 break
         final = self._last_obs_eef_pos
-        return {
+        result = {
             "name": "move_to",
             "target_xyz": [float(x) for x in target],
             "final_eef_pos": [round(float(x), 4) for x in final],
@@ -382,6 +387,9 @@ class LiberoPrimitives:
             "terminated": self.env.terminated,
             "truncated": self.env.truncated,
         }
+        if target_yaw is not None:
+            result["final_yaw_error_rad"] = round(float(yaw_error()), 4)
+        return result
 
     def rotate_wrist(
         self,
@@ -1226,8 +1234,9 @@ TOOLS_SPEC = [
         "name": "move_to",
         "description": (
             "Scripted EEF servo to a world-frame XYZ target via the OSC "
-            "controller. Holds orientation (use rotate_wrist / rotate_pitch "
-            "/ move_pose to reorient). gripper: -1 = open, +1 = close. NEVER "
+            "controller. Holds orientation unless target_yaw is supplied; "
+            "then both position and yaw must converge. Use rotate_pitch "
+            "/ move_pose for pitch changes. gripper: -1 = open, +1 = close. NEVER "
             "command a single move_to with |Δxy| > 0.30 — OSC flips IK and "
             "the run corrupts; split long traversal into 2-3 mid waypoints "
             "at carry z."
@@ -1265,6 +1274,11 @@ TOOLS_SPEC = [
                 "target_yaw": {
                     "type": ["number", "null"],
                     "description": "Optional world-frame yaw target in radians",
+                },
+                "yaw_tol": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "description": "Yaw tolerance in radians (default 0.02)",
                 },
                 "yaw_step_clip": {
                     "type": "number",
