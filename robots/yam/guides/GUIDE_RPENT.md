@@ -13,8 +13,8 @@ left-base frame.
 
 Without a VLA endpoint, both evaluation and Explore use primitives only;
 `pi05_act` is absent from the available tools. Once a trained endpoint is supplied,
-`pi05_act(chunks=1, use_length=30, prompt=None)` runs that policy. The server
-returns 30 absolute joint targets; execution alone chooses 1–30 steps. Omitting
+`pi05_act(chunks=1, use_length=5, prompt=None)` runs that policy. The server
+returns 30 absolute joint targets; each prediction executes exactly five. Omitting
 `prompt` uses the full task language. Arbitrary subtask prompts are unvalidated.
 `move_to` delegates reachability,
 IK, table protection, and waypoint generation to the env server, then executes
@@ -122,7 +122,7 @@ call a hidden API, or substitute an Agent judgement for an operator verdict.
 Archive failed attempts; export only the current successful attempt's recipe.
 
 During exploration, use `reset` to consume ready for both the initial attempt and
-retries. Waiting for ready or a verdict lasts at most 20 seconds per tool call;
+retries. Missing ready or verdict returns `pending` immediately;
 `pending` leaves the session and attempt count unchanged. An operator failure
 allows another prepared attempt within budget; abort means finish failure now.
 The operator's separate `reset_pose` command moves to the recorded start pose.

@@ -70,6 +70,14 @@ def test_defaults_and_explicit_overrides(tmp_path):
     ) == ("other", "medium", 3)
 
 
+def test_dashboard_rejects_legacy_json_site_config(tmp_path):
+    legacy = tmp_path / "site.json"
+    legacy.write_text("{}")
+    args = args_for(tmp_path, "--robot-config", str(legacy))
+    with pytest.raises(ValueError, match="must be a YAML file"):
+        yam.get_robot_spec().parse_config(args)
+
+
 @pytest.mark.parametrize("endpoint", [False, True])
 def test_external_dashboard_checks_endpoint_without_operator_tty(
     tmp_path, monkeypatch, capsys, endpoint
@@ -123,6 +131,58 @@ def test_dashboard_tasks_keep_language_separate(tmp_path):
     args.task_language = "stale A instruction"
     with pytest.raises(ValueError, match="omit --task-language"):
         yam.get_robot_spec().parse_config(args)
+
+
+def test_human_text_is_accepted_during_operator_hold_without_synthetic_continue(
+    tmp_path,
+):
+    state = DashboardState(output_dir=tmp_path, dashboard_spec=yam.YAM_DASHBOARD_SPEC)
+    state.shared_services_ready()
+    state.request_task({"task_name": "tabletop_cleanup_a", "seed": 0})
+    assert state.wait_for_task(timeout=0)
+    calls = []
+    toolkit = SimpleNamespace(
+        exploration_continuation=lambda **kwargs: calls.append(kwargs) or None
+    )
+    state.bind_toolkit(toolkit)
+    state.set_planner_activity("idle", accepting_input=True)
+    state.continue_exploration()
+    assert calls == [{}]
+    accepted = state.submit_input("Please wait for my onsite check")
+    assert accepted.text == "Please wait for my onsite check"
+    assert calls == [{}]
+
+
+@pytest.mark.parametrize("verdict", ["success", "failure", "abort", "ready"])
+def test_dashboard_continue_delivers_terminal_operator_verdict(
+    toolkit_factory, ready_client, receipt, tmp_path, verdict
+):
+    state = DashboardState(output_dir=tmp_path, dashboard_spec=yam.YAM_DASHBOARD_SPEC)
+    state.shared_services_ready()
+    state.request_task({"task_name": "tabletop_cleanup_a", "seed": 0})
+    assert state.wait_for_task(timeout=0)
+    toolkit = toolkit_factory()
+    state.bind_toolkit(toolkit)
+    state.set_planner_activity("idle", accepting_input=True)
+    if verdict == "ready":
+        ready_client.request_stop()
+    receipt(verdict)
+    state.continue_exploration()
+    assert state.claim_next_pending_message() is None
+    assert state.submit_input("/continue") == {"command": "/continue"}
+    message = state.claim_next_pending_message()
+    assert message is not None
+    if verdict == "success":
+        assert "terminal verdict" in message.text
+        assert "finish(status='success')" in message.text
+    else:
+        if verdict == "failure":
+            assert "matching ready receipt" in message.text
+            assert "finish(status='failure')" not in message.text
+        elif verdict == "abort":
+            assert "finish(status='failure')" in message.text
+        else:
+            assert "Call reset" in message.text
 
 
 @pytest.mark.parametrize("started,language", [(False, None), (True, "wrong task")])
@@ -315,10 +375,10 @@ def test_diagnostic_task_routed_before_planner(monkeypatch, task_id):
 def test_infer_is_no_motion_and_execution_single_use(primitives, env, tmp_path):
     test = VLATest(primitives, tmp_path)
     assert test.infer()["inference_only"] and not env._runtime.commands
-    assert test.execute(20)["executed_actions"] == 20
+    assert test.execute()["executed_actions"] == 5
     with pytest.raises(RuntimeError):
         test.execute()
-    assert len(env._runtime.commands) == 20
+    assert len(env._runtime.commands) == 5
     assert len(list(tmp_path.glob("*.npz"))) == 1
 
 

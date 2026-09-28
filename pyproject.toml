@@ -126,6 +126,7 @@ yam = [
     # The station's RLinf YAM fork and i2rt SDK are installed separately.
     # i2rt 1.1.2 requires click<8.2; huggingface-hub 2.x requires click>=8.4.
     "huggingface_hub>=0.24,<1",
+    "omegaconf>=2.3,<3",
     "mujoco>=3.2,<4",
     "pyrealsense2>=2.55,<3",
     "imageio-ffmpeg",
@@ -182,7 +183,7 @@ exclude = ["tests*", "docs*", "examples*", "docker*", "toolkits*"]
 
 [tool.setuptools.package-data]
 "rpent.dashboard" = ["*.html", "static/*.css", "static/*.js"]
-"robots.yam" = ["config.example.json", "guides/*.md"]
+"robots.yam" = ["config/*.yaml", "guides/*.md"]
 
 [tool.pytest.ini_options]
 addopts = ["--import-mode=importlib"]

@@ -47,7 +47,7 @@ must also be supplied. No trained YAM checkpoint ships with this extension.
 Site configuration
 --------------------
 
-Copy ``robots/yam/config.example.json`` outside versioned source and fill the
+Copy ``robots/yam/config/example.yaml`` outside versioned source and fill the
 camera serials, calibration file, table model, confirmed reset/home poses and
 station control settings. The example cannot start until ``park_on_close`` is
 enabled with measured home joints. Do not copy another station's joint poses.
@@ -60,9 +60,10 @@ Calibration supplies a shared ``left_base`` frame and the right-base transform.
 must refer to the same capture. All three streams use 640x480 at 30 Hz on the
 validated station. Camera pipelines warm up before arm connection.
 
-Task instructions are registered in ``robots/yam/tasks.py``. For the tabletop
-example, set both ``task_name`` and the exact matching ``task_language`` from
-``TASK_INSTRUCTIONS`` in separate site files:
+Task instructions are registered in ``robots/yam/tasks.py``. Keep the A/B site
+YAMLs separate, but pass ``task_name``, ``task_language``, ``seed`` and
+``max_episode_steps`` as CLI arguments. The language must match the full
+``TASK_INSTRUCTIONS`` entry for the selected task:
 
 * ``tabletop_cleanup_a``: Pepsi in the left bag, Coca-Cola in the right bag.
 * ``tabletop_cleanup_b``: Coca-Cola in the left bag, Pepsi in the right bag.
@@ -80,7 +81,10 @@ Start ENV from the control machine's prepared environment:
 
 .. code-block:: bash
 
-   python -m robots.yam.env_server --config /path/to/task_a.json \
+   TASK_LANGUAGE="$(python -c 'from robots.yam.tasks import TASK_INSTRUCTIONS; print(TASK_INSTRUCTIONS["tabletop_cleanup_a"])')"
+   python -m robots.yam.env_server --robot-config /path/to/task_a.yaml \
+     --task-name tabletop_cleanup_a --task-language "$TASK_LANGUAGE" \
+     --seed 0 --max-episode-steps 20000 \
      --transport socket --host 127.0.0.1 --port 8110
 
 The process initially serves without connecting motors. The operator's first
@@ -90,12 +94,12 @@ Use ``env.is_started`` for a passive programmatic startup check.
 
 .. code-block:: bash
 
-   python -m robots.yam.operator_control --config /path/to/task_a.json \
+   python -m robots.yam.operator_control --robot-config /path/to/task_a.yaml \
      --endpoint socket://127.0.0.1:8110 --event status
-   python -m robots.yam.operator_control --config /path/to/task_a.json \
+   python -m robots.yam.operator_control --robot-config /path/to/task_a.yaml \
      --endpoint socket://127.0.0.1:8110 --event reset_pose
    # Copy the CURRENT episode_id printed by status; scene ready is an operator fact.
-   python -m robots.yam.operator_control --config /path/to/task_a.json \
+   python -m robots.yam.operator_control --robot-config /path/to/task_a.yaml \
      --endpoint socket://127.0.0.1:8110 --episode-id CURRENT_ID \
      --event ready --note 'Scene restored; ready for this attempt'
 
@@ -104,15 +108,17 @@ RPent there, and set its own ``RPENT_RLINF_ROOT`` before starting:
 
 .. code-block:: bash
 
-   python -m robots.yam.vla_server --model-path /path/to/yam-checkpoint \
+   python -m rpent.robots.components.pi05_vla_server \
+     --embodiment yam --model-backend openpi_rlinf \
+     --model-path /path/to/yam-checkpoint \
      --norm-stats-path /path/to/norm_stats.json \
      --transport socket --host 127.0.0.1 --port 8220
 
 Omit ``--norm-stats-path`` only if the checkpoint supplies the expected stats.
 Forward the GPU service to the Agent/control machine over SSH, or bind it to a
 trusted private interface and supply that endpoint. Pickle RPC must not be
-exposed to untrusted clients. Policy output is 30 absolute qpos14 targets; only
-the execution caller truncates it. Grippers use 0=closed, 1=open. State layout
+exposed to untrusted clients. Policy output is 30 absolute qpos14 targets; each
+call executes exactly the first five. Grippers use 0=closed, 1=open. State layout
 is left six joints, left gripper, right six joints, right gripper. RGB order is
 ``top/left/right``. Metadata and action validation reject incompatible services.
 
@@ -128,10 +134,11 @@ and paths on the launching machine. ``low`` is used rather than an unsupported
 
    rpent --robot yam --dashboard --explore --planner codex \
      --model gpt-6-astra --reasoning-effort low \
+     --robot-config /path/to/task_a.yaml \
      --env-endpoint socket://127.0.0.1:8110 \
      --vla-endpoint socket://127.0.0.1:8220 \
      --memory-profile local --memory-dir /path/to/memory/yam \
-     --max-episode-steps 1800 --explore-attempts-per-session 50 \
+     --max-episode-steps 20000 --explore-attempts-per-session 50 \
      --explore-sessions 1 --max-turns 300 --planner-timeout-s 14400 \
      --dashboard-host 127.0.0.1 --dashboard-port 8090
 
@@ -142,20 +149,22 @@ and paths on the launching machine. ``low`` is used rather than an unsupported
    ssh -N -L 8090:127.0.0.1:8090 USER@CONTROL_HOST
 
 Open ``http://127.0.0.1:8090`` and submit ``/rpent-task tabletop_cleanup_a 0``.
-For B, prepare the B service/config and submit ``/rpent-task tabletop_cleanup_b 0``.
+For B, prepare the B service/config with its own seed and step budget, then
+submit ``/rpent-task tabletop_cleanup_b 1``.
 Browsing does not start hardware. ENV is checked for every task; VLA is shared.
 Dashboard owns neither service. Manual primitives and Agent calls are serialized;
 after manual action, its result accompanies the next Agent message. ``/continue``
-resumes only a ready nonterminal episode without a stop. Automatic continuation
-has the same checks and a bounded no-action loop. It cannot bypass an explicit
-finish, operator interruption, or an outstanding manual action.
+lets the Agent read a new operator ready or verdict receipt, or resume a ready
+nonterminal episode without a stop. A ready or verdict receipt is never motion
+permission by itself. While the Agent is waiting for the operator, program
+generated continuation stays paused until an explicit ``/continue`` or a new
+episode. It cannot bypass an explicit finish or an outstanding manual action.
 
 For the terminal, omit Dashboard flags and add ``--task-name tabletop_cleanup_a``
 to the same command. Use ``--without-vla`` instead of ``--vla-endpoint`` for
 geometric tools only. To reproduce the station's policy preference, send the
-Agent: ``Use chunks=2, use_length=30 when the scene supports it; inspect after
-each call.`` This is two predictions / 60 requested steps, not two action steps.
-A longer unreviewed prediction horizon may include an early release.
+Agent: ``Use chunks=2 when the scene supports it; inspect after each call.``
+Each prediction executes five actions, so this example requests ten actions.
 
 Verdicts, memory and shutdown
 -------------------------------
@@ -166,8 +175,8 @@ current episode ID plus evidence note. ``--command /done`` aliases ``ready``;
 ``/success``, ``/failure`` and ``/abort`` alias the corresponding events.
 Dashboard directs these verdict commands to the operator terminal, not the LLM.
 ``reset`` consumes readiness and starts an episode; it does not move to home or
-restore the physical scene. Waiting returns nonterminal ``pending`` after at
-most 20 seconds; only an established new episode increments the attempt count.
+restore the physical scene. Missing readiness or verdict returns nonterminal
+``pending`` immediately; only an established new episode increments the attempt count.
 
 Explore uses the shared ``_internal/inbox``, ``task-specific``, ``task-family`` and ``global``
 memory. Valid failure notes can merge after an unsuccessful run; success
@@ -181,7 +190,7 @@ and checking the home path, shut down ENV from the operator terminal:
 
 .. code-block:: bash
 
-   python -m robots.yam.operator_control --config /path/to/task_a.json \
+   python -m robots.yam.operator_control --robot-config /path/to/task_a.yaml \
      --endpoint socket://127.0.0.1:8110 --event shutdown
 
 ENV moves to configured home, verifies convergence, then disables output.
@@ -198,15 +207,15 @@ before explicit moves; diagnostics never create readiness themselves.
 .. code-block:: bash
 
    rpent --robot yam --task-name tabletop_cleanup_a --task-id 103 \
-     --env-endpoint socket://127.0.0.1:8110 --max-episode-steps 1800
+     --env-endpoint socket://127.0.0.1:8110 --max-episode-steps 20000
    rpent --robot yam --task-name tabletop_cleanup_a --task-id 104 \
-     --env-endpoint socket://127.0.0.1:8110 --max-episode-steps 1800 \
+     --env-endpoint socket://127.0.0.1:8110 --max-episode-steps 20000 \
      --vla-endpoint socket://127.0.0.1:8220 --output-dir /path/to/diagnostics
 
 Enter JSON lines: ``{"tool":"status"}``; task 103 allows ``move_to``,
 ``rotate_wrist``, ``set_gripper``, ``release`` with ``arguments``. Task 104 uses
 ``{"tool":"infer"}`` (saves prediction without moving), then
-``{"tool":"execute","arguments":{"use_length":30}}`` at most once.
+``{"tool":"execute","arguments":{"use_length":5}}`` at most once.
 Changed episode, action count, joint pose or a prediction older than 30 seconds
 is rejected. An uncertain RPC outcome cannot be replayed. ``quit`` holds;
 it does not release, home or create success memory.
@@ -220,8 +229,9 @@ required path samples. ``rotate_wrist`` accepts ``gripper``; use
 ``set_gripper(arm, val, steps)`` and ``release(arm, val=1, steps)`` instead of
 open/close aliases. All xyz are metres in left_base; quaternions are wxyz.
 
-During upgrade preserve site JSON, calibration, weights, datasets and memory;
-replace code only in a maintenance window. Update launch flags explicitly and
+During upgrade convert active site configuration to YAML and back up the old
+JSON; preserve receipts, calibration, weights, datasets and memory. Replace code
+only in a maintenance window. Update launch flags explicitly and
 reinstall the package. Keep the old Git bundle/patches for rollback. Source and
 wheel installs include robot modules; set ``RPENT_REPO_ROOT`` to the intended
 checkout to give logs, guides and memory a stable workspace location. No new

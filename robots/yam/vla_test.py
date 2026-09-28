@@ -7,6 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
+from robots.yam.contracts import MODEL_SPEC
 from robots.yam.tasks import classify_episode
 
 
@@ -41,20 +42,20 @@ class VLATest:
             actions,
             status["episode_id"],
             status["take_action_cnt"],
-            np.asarray(obs["states"])[0].copy(),
+            np.asarray(obs["states"]).copy(),
             sampled_at,
         )
         return {
             "inference_only": True,
-            "shape": [1, *actions.shape],
+            "shape": list(actions.shape),
             "evidence": str(path),
         }
 
-    def execute(self, use_length=30):
+    def execute(self, use_length=MODEL_SPEC.use_length):
         if self.uncertain or self.pending is None:
             raise RuntimeError("Fresh infer required; no executable prediction")
-        if type(use_length) is not int or not 1 <= use_length <= 30:
-            raise ValueError("use_length must be an integer in [1,30]")
+        if type(use_length) is not int or use_length != MODEL_SPEC.use_length:
+            raise ValueError(f"use_length must be {MODEL_SPEC.use_length}")
         actions, episode, count, qpos, stamp = self.pending
         self.pending = None  # consume before RPC; never replay on timeout
         obs, info = self.primitives.env.read_control_state()

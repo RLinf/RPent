@@ -30,7 +30,7 @@ class YamModelSpec:
     state_layout: str = "qpos14"
     action_layout: str = "qpos14"
     action_horizon: int = 30
-    use_length: int = 30
+    use_length: int = 5
     control_hz: int = 30
 
 

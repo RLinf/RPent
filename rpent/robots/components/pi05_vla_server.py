@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 import time
 from typing import Any
 
@@ -37,7 +38,7 @@ import torch
 from omegaconf import OmegaConf
 
 from rpent.robots.components.vla_facade_base import BaseVLAFacade
-from rpent.utils.config import get_pi05_checkpoint_path
+from rpent.utils.config import get_pi05_checkpoint_path, get_rlinf_repo_path
 from rpent.utils.logging import get_logger
 
 logger = get_logger("vla_server")
@@ -182,12 +183,20 @@ class Pi05VLAFacade(BaseVLAFacade):
                 f"unsupported pi05 model backend: {model_backend!r}; "
                 f"supported={list(PI05_MODEL_BACKENDS)}"
             )
+        if embodiment == "yam" and model_backend != "openpi_rlinf":
+            raise ValueError("YAM Pi0.5 requires model_backend='openpi_rlinf'")
         if embodiment == "dual_franka" and not (repo_id or norm_stats_path):
             raise ValueError("dual_franka requires repo_id or norm_stats_path")
         self._embodiment = embodiment
         super().__init__()
 
         if model_backend == "openpi_rlinf":
+            # The onsite YAM model lives in a sibling RLinf checkout when RPent
+            # is installed as a separate package rather than run from source.
+            if embodiment == "yam":
+                rlinf_root = get_rlinf_repo_path()
+                if rlinf_root.is_dir() and str(rlinf_root) not in sys.path:
+                    sys.path.insert(0, str(rlinf_root))
             from rlinf.models.embodiment.openpi_rlinf import get_model
         else:
             from rlinf.models.embodiment.openpi import get_model
@@ -213,6 +222,52 @@ class Pi05VLAFacade(BaseVLAFacade):
         self._model = get_model(cfg, torch_dtype=None).cuda().eval()
         logger.info("model ready in %.1fs", time.time() - t0)
 
+    def _builtin_dispatch(self, method: str, args: tuple, kwargs: dict) -> Any:
+        if method == "healthz" and self._embodiment == "yam":
+            from robots.yam.contracts import vla_runtime_contract
+
+            return vla_runtime_contract()
+        return super()._builtin_dispatch(method, args, kwargs)
+
+    @staticmethod
+    def _validate_yam_observation(obs: dict) -> dict:
+        if not isinstance(obs, dict):
+            raise TypeError("YAM observation must be a mapping")
+        top = np.asarray(obs.get("main_images"))
+        side = np.asarray(obs.get("extra_view_images"))
+        states = np.asarray(obs.get("states"), dtype=np.float32)
+        if (
+            top.ndim != 4
+            or top.shape[0] != 1
+            or top.shape[-1] != 3
+            or top.dtype != np.uint8
+        ):
+            raise ValueError("YAM main_images must be uint8 RGB [1,H,W,3]")
+        if side.shape != (1, 2, *top.shape[1:]) or side.dtype != np.uint8:
+            raise ValueError(
+                "YAM extra_view_images must be uint8 RGB [1,2,H,W,3], "
+                "ordered left/right"
+            )
+        if obs.get("wrist_images") is not None:
+            raise ValueError("YAM wrist_images must be None")
+        if states.shape != (1, 14) or not np.isfinite(states).all():
+            raise ValueError("YAM states must be finite [1,14]")
+        descriptions = obs.get("task_descriptions")
+        if (
+            not isinstance(descriptions, list)
+            or len(descriptions) != 1
+            or not isinstance(descriptions[0], str)
+            or not descriptions[0].strip()
+        ):
+            raise ValueError("YAM task_descriptions must have one nonempty instruction")
+        return {
+            "main_images": top,
+            "extra_view_images": side,
+            "wrist_images": None,
+            "states": states,
+            "task_descriptions": descriptions,
+        }
+
     # ---- inference ----
 
     def predict(self, obs: dict, options: dict | None = None) -> np.ndarray:
@@ -221,10 +276,20 @@ class Pi05VLAFacade(BaseVLAFacade):
         The caller (client) is responsible for encoding env-native obs into
         the openpi wire format (see ``Pi05VLAClient.encode_obs``).
         """
-        mode = (options or {}).get("mode", "eval")
+        if self._embodiment == "yam":
+            if options is not None and (
+                not isinstance(options, dict) or set(options) - {"mode"}
+            ):
+                raise ValueError("YAM supports only VLA option mode='eval'")
+            mode = (options or {}).get("mode", "eval")
+            if mode != "eval":
+                raise ValueError("YAM deployment accepts only eval inference")
+            obs = self._validate_yam_observation(obs)
+        else:
+            mode = (options or {}).get("mode", "eval")
         with torch.no_grad():
             actions, _ = self._model.predict_action_batch(obs, mode=mode)
-        return (
+        result = (
             actions.detach().cpu().numpy()
             if (
                 hasattr(actions, "detach")
@@ -233,6 +298,27 @@ class Pi05VLAFacade(BaseVLAFacade):
             )
             else np.asarray(actions)
         ).astype(np.float32)
+        if self._embodiment == "yam":
+            from robots.yam.contracts import MODEL_SPEC, validate_actions
+
+            expected_shape = (1, MODEL_SPEC.action_horizon, 14)
+            if result.shape != expected_shape:
+                raise ValueError(
+                    f"YAM policy output must be {expected_shape}; got {result.shape}"
+                )
+            if not np.isfinite(result).all():
+                raise ValueError("YAM policy output must be finite")
+            grippers = result[..., [6, 13]]
+            if np.any((grippers < 0) | (grippers > 1)):
+                logger.info(
+                    "Saturating YAM policy grippers to [0,1]: min=%.6f max=%.6f",
+                    float(grippers.min()),
+                    float(grippers.max()),
+                )
+                result = result.copy()
+                result[..., [6, 13]] = np.clip(grippers, 0.0, 1.0)
+            validate_actions(result[0])
+        return result
 
 
 # ---------------------------------------------------------------------------

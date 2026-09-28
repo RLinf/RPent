@@ -8,7 +8,23 @@ from types import SimpleNamespace
 import pytest
 
 from robots.yam.tasks import classify_episode
-from robots.yam.toolkit import YamToolkit
+from robots.yam.toolkit import YamToolkit, tracking_hold_operator_supervised
+
+
+@pytest.mark.parametrize(
+    "mode,setting,expected",
+    [
+        ("evaluation", True, False),
+        ("exploration", True, True),
+        ("exploration", False, False),
+        ("exploration", "false", True),
+    ],
+)
+def test_tracking_hold_reads_site_yaml(mode, setting, expected, tmp_path):
+    site = tmp_path / "site.yaml"
+    value = f"'{setting}'" if isinstance(setting, str) else str(setting).lower()
+    site.write_text(f"tracking_hold_operator_input: {value}\n")
+    assert tracking_hold_operator_supervised(mode, site) is expected
 
 
 def ready():
@@ -48,6 +64,7 @@ def test_continuation_bound_and_episode_isolation():
     t._state = SimpleNamespace(latest_record=lambda: None)
     t._continuation_key = None
     t._continuation_count = 0
+    t._operator_waiting_episode = None
     s = ready()
     t.status = lambda: classify_episode(s)
     assert all(t.exploration_continuation() for _ in range(3))
@@ -63,6 +80,109 @@ def test_continuation_bound_and_episode_isolation():
     assert t.exploration_continuation() is None
 
 
+def test_operator_hold_requires_explicit_continue_for_synthetic_continuation(
+    toolkit_factory, ready_client
+):
+    toolkit = toolkit_factory()
+    toolkit.get_env_state(
+        command={"action": "move_to"},
+        result={"status": "pending", "awaiting_operator": True},
+        elapsed_s=0.0,
+    )
+    assert toolkit.exploration_continuation() is None
+    assert toolkit.exploration_continuation() is None
+    assert toolkit.exploration_continuation(explicit=True)
+    toolkit.get_env_state(
+        command={"action": "move_to"},
+        result={"operator_input_required": True},
+        elapsed_s=0.0,
+    )
+    assert toolkit.exploration_continuation() is None
+    assert toolkit.exploration_continuation(explicit=True)
+
+
+@pytest.mark.parametrize(
+    "verdict,exhausted",
+    [("success", False), ("failure", False), ("failure", True), ("abort", False)],
+)
+def test_explicit_continue_after_operator_verdict_only_prompts_finalization(
+    toolkit_factory, ready_client, receipt, env, verdict, exhausted
+):
+    toolkit = toolkit_factory()
+    pending = toolkit.execute_tool(
+        "finish", {"status": "success", "summary": "unverified claim"}
+    )
+    assert pending.result["awaiting_operator"] is True
+    if exhausted:
+        toolkit._session_attempt = toolkit._attempts_per_session
+    receipt(verdict)
+    assert toolkit.exploration_continuation() is None
+    message = toolkit.exploration_continuation(explicit=True)
+    assert message is not None
+    assert not env._runtime.commands
+    if verdict == "failure" and not exhausted:
+        assert "matching ready receipt" in message
+        assert "finish(status='failure')" not in message
+        pending_reset = toolkit.execute_tool("reset", {})
+        assert pending_reset.result["awaiting_operator"] is True
+        receipt("ready")
+        reset = toolkit.execute_tool("reset", {})
+        assert reset.result["log"]["result"]["success"] is True
+        return
+    assert "terminal verdict" in message
+    finish_status = "success" if verdict == "success" else "failure"
+    assert f"finish(status='{finish_status}')" in message
+    finished = toolkit.execute_tool(
+        "finish", {"status": finish_status, "summary": "operator verdict"}
+    )
+    assert finished.is_finish
+    assert toolkit.exploration_continuation(explicit=True) is None
+
+
+def test_explicit_continue_after_ready_receipt_guides_bookkeeping_reset(
+    toolkit_factory, receipt, env
+):
+    toolkit = toolkit_factory()
+    receipt("ready")
+    assert toolkit.status()["ready_to_reset"] is True
+    assert toolkit.exploration_continuation() is None
+    message = toolkit.exploration_continuation(explicit=True)
+    assert message is not None and "Call reset" in message
+    assert "not permission to command motion" in message
+    assert not env._runtime.commands
+    reset = toolkit.execute_tool("reset", {})
+    assert reset.result["log"]["result"]["success"] is True
+
+
+def test_ready_receipt_cannot_override_exhausted_failure_budget(
+    toolkit_factory, ready_client, receipt
+):
+    toolkit = toolkit_factory()
+    toolkit._session_attempt = toolkit._attempts_per_session
+    receipt("failure")
+    assert toolkit.status()["reason"] == "failure"
+    receipt("ready")
+    status = toolkit.status()
+    assert status["ready_to_reset"] is True
+    message = toolkit.exploration_continuation(explicit=True)
+    assert message is not None and "finish(status='failure')" in message
+    assert "Call reset" not in message
+
+
+def test_ready_receipt_cannot_override_exhausted_session_budget(
+    toolkit_factory, receipt
+):
+    toolkit = toolkit_factory()
+    toolkit._session_attempt = toolkit._attempts_per_session
+    receipt("ready")
+    assert toolkit.status()["ready_to_reset"] is True
+    message = toolkit.exploration_continuation(explicit=True)
+    assert message is not None and "attempt budget is spent" in message
+    assert "Call reset" not in message
+    reset = toolkit.execute_tool("reset", {})
+    assert reset.result["error"] == "reset refused"
+
+
 @pytest.mark.parametrize("requested_status", ["success", "SUCCESS", " success "])
 def test_pending_reset_and_finish_do_not_end_or_spend_attempt(
     toolkit_factory, receipt, clock, requested_status
@@ -71,7 +191,8 @@ def test_pending_reset_and_finish_do_not_end_or_spend_attempt(
     before = clock.now
     pending = toolkit.execute_tool("reset", {})
     assert pending.result["status"] == "pending" and not pending.is_finish
-    assert toolkit._session_attempt == 0 and clock.now - before == pytest.approx(20)
+    assert toolkit._session_attempt == 0 and clock.now == before
+    assert pending.result["awaiting_operator"] is True
     receipt("ready")
     reset = toolkit.execute_tool("reset", {})
     assert reset.result["log"]["result"]["attempt"] == 1
@@ -81,7 +202,9 @@ def test_pending_reset_and_finish_do_not_end_or_spend_attempt(
     )
     assert pending.result["status"] == "pending" and not pending.is_finish
     assert not toolkit.solved() and toolkit._session_attempt == 1
-    assert clock.now - before == pytest.approx(20)
+    assert clock.now == before
+    assert pending.result["awaiting_operator"] is True
+    assert toolkit.status()["stop_requested"] is False
 
 
 @pytest.mark.parametrize("stopped", [False, True])

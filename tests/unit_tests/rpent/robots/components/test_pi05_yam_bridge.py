@@ -11,6 +11,7 @@ import pytest
 from rpent.robots.components.pi05_vla_client import Pi05VLAClient
 from rpent.robots.components.pi05_vla_server import (
     PI05_EMBODIMENTS,
+    Pi05VLAFacade,
     build_model_cfg,
 )
 
@@ -52,6 +53,16 @@ def test_shared_yam_client_sends_three_views_and_qpos14_to_pi05():
     assert actions.shape == (30, 14)
 
 
+@pytest.mark.parametrize("shape", [(1, 5, 14), (30, 14), (1, 30, 13)])
+def test_shared_yam_client_rejects_wrong_policy_output_shape(shape):
+    class FakeRpc:
+        def call(self, method, *, args, timeout_s):
+            return np.zeros(shape, dtype=np.float32)
+
+    with pytest.raises(ValueError, match="policy output"):
+        Pi05VLAClient(FakeRpc(), embodiment="yam").predict(_yam_observation())
+
+
 @pytest.mark.parametrize(
     "change, message",
     [
@@ -77,3 +88,8 @@ def test_shared_yam_server_preset_matches_joint_policy():
     assert (cfg.action_dim, cfg.num_action_chunks) == (14, 30)
     assert cfg.openpi.config_name == "pi05_yam_joint"
     assert cfg.openpi.discrete_state_input is True
+
+
+def test_yam_server_requires_rlinf_backend():
+    with pytest.raises(ValueError, match="openpi_rlinf"):
+        Pi05VLAFacade(model_path="/unused", embodiment="yam")

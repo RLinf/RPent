@@ -167,7 +167,7 @@ def model():
 
     def predict(obs):
         value.calls.append(obs)
-        return np.repeat(obs["states"][:, None, :], 30, axis=1)
+        return np.repeat(obs["states"][None, :], 30, axis=0)
 
     value.predict = predict
     return value
@@ -205,7 +205,7 @@ def toolkit_factory(client, tmp_path):
             inbox_cell_tag="yam_place_cube_s12" if mode == "exploration" else None,
         )
         toolkit = YamToolkit(
-            primitives_kwargs={"env": client, "model": model},
+            runtime_kwargs={"env": client, "model": model},
             dashboard_events=NullDashboardEventSink(),
             memory=memory,
             mode=mode,

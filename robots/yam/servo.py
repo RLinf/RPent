@@ -31,6 +31,8 @@ class JointServoConfig:
     stable_samples: int = 3
     progress_timeout_s: float = 1.0
     progress_epsilon_rad: float = 0.0002
+    recoverable_position_error_m: float = 0.015
+    recoverable_joint_error_rad: float = 0.025
 
     @classmethod
     def from_config(cls, value: Any) -> JointServoConfig:
@@ -52,6 +54,8 @@ class JointServoConfig:
             "rotation_tolerance_rad": (0, 0.05),
             "progress_timeout_s": (0.3, 5),
             "progress_epsilon_rad": (0, 0.001),
+            "recoverable_position_error_m": (0, 0.1),
+            "recoverable_joint_error_rad": (0, 0.1),
         }
         for name, (lower, upper) in bounds.items():
             number = getattr(config, name)
@@ -199,6 +203,7 @@ def run_joint_servo(
     target_pose: np.ndarray,
     episode_id: str,
     config: JointServoConfig,
+    operator_supervised: bool = False,
 ) -> dict[str, Any]:
     """Settle around a fixed nominal solution; never replace it with corrected q.
 
@@ -364,16 +369,11 @@ def run_joint_servo(
             time.sleep(max(0.0, config.period_s - (time.monotonic() - now)))
     except Exception as error:
         trace.append({"failure": f"{type(error).__name__}: {error}", "stage": reason})
-    # A bounded stationary residual is not convergence or evidence of free
-    # space. Preserve the accepted command so the planner can observe before
-    # choosing a new approach; all faults still latch the normal stop.
-    recoverable = (
-        reason in {"no_progress", "timeout"}
-        and position_error is not None
-        and position_error <= 0.015
-        and rotation_error <= config.rotation_tolerance_rad
-        and joint_error <= config.max_bias_rad
-        and len(trace) >= config.stable_samples
+    # Accuracy residuals and execution/feedback faults have different outcomes.
+    # In attended exploration, hold a stationary arm at its measured joints
+    # before asking the operator. The normal guarded command path still applies.
+    stationary = (
+        len(trace) >= config.stable_samples
         and all("joint_error_rad" in row for row in trace[-config.stable_samples :])
         and np.max(
             np.ptp(
@@ -383,7 +383,56 @@ def run_joint_servo(
         )
         <= 0.001
     )
-    if not recoverable:
+    recoverable = (
+        reason in {"no_progress", "timeout"}
+        and position_error is not None
+        and position_error <= config.recoverable_position_error_m
+        and rotation_error <= config.rotation_tolerance_rad
+        and joint_error <= config.recoverable_joint_error_rad
+        and stationary
+    )
+    operator_input_required = bool(
+        operator_supervised and reason in {"no_progress", "timeout"} and stationary
+    )
+    operator_hold = None
+    if operator_input_required:
+        try:
+            check_cancelled()
+            requested += 1
+            held = apply_updates(
+                [{"arm": arm, "arm_qpos": measured[offset : offset + 6].copy()}],
+                expected_episode_id=episode_id,
+                **({"compact_control": True} if compact else {}),
+            )
+            executed += int(held.get("executed_actions", 0))
+            info = env.last_control_info if compact else env.last_info
+            held_status = info["episode_status"]
+            if (
+                held.get("executed_actions") != 1
+                or held_status["episode_id"] != episode_id
+                or held_status.get("stop_requested")
+                or held_status.get("terminal_event") is not None
+                or held_status.get("eval_success")
+                or held_status["take_action_cnt"] >= held_status["step_lim"]
+            ):
+                raise RuntimeError(
+                    "operator hold did not complete in an active episode"
+                )
+            final_pose, position_error, rotation_error = _pose_errors(
+                info["robot_state"][f"{arm}_eef_pose"], target_pose
+            )
+            operator_hold = {
+                "executed_steps": 1,
+                "commanded_qpos": np.asarray(info["commanded_qpos"]).tolist(),
+            }
+        except Exception as error:
+            operator_input_required = False
+            recoverable = False
+            reason = "operator_hold_failed"
+            trace.append(
+                {"failure": f"{type(error).__name__}: {error}", "stage": reason}
+            )
+    if not recoverable and not operator_input_required:
         try:
             stop_receipt = env.request_stop()
         except Exception as error:
@@ -392,6 +441,8 @@ def run_joint_servo(
         "enabled": True,
         "success": False,
         "recoverable": bool(recoverable),
+        "operator_input_required": operator_input_required,
+        "operator_hold": operator_hold,
         "stop_reason": reason,
         "executed_steps": executed,
         "requested_steps": requested,

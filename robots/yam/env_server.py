@@ -12,10 +12,10 @@
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import threading
 
+from robots.yam import runtime_config
 from robots.yam.contracts import env_runtime_contract
 from rpent.robots.components.env_facade_base import BaseEnvFacade
 
@@ -147,7 +147,15 @@ class YamEnvFacade(BaseEnvFacade):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--config", required=True, help="Local JSON hardware configuration"
+        "--robot-config",
+        default=None,
+        help="YAM robot YAML (defaults to robots/yam/config/example.yaml)",
+    )
+    parser.add_argument("--task-name", required=True)
+    parser.add_argument("--task-language", default=None)
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--max-episode-steps", type=int, default=runtime_config.EPISODE_STEPS
     )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8110)
@@ -156,17 +164,22 @@ def main():
     args = parser.parse_args()
     from robots.yam.rlinf_env import YamAgentEnv
 
-    with open(args.config) as stream:
-        config = json.load(stream)
-    if not config.get("park_on_close", {}).get("enabled"):
-        parser.error(
-            "site config must enable park_on_close with the confirmed home pose"
+    try:
+        config = runtime_config.load_config(
+            args.robot_config,
+            task_name=args.task_name,
+            task_language=args.task_language,
+            seed=args.seed,
+            max_episode_steps=args.max_episode_steps,
         )
+        runtime_config.validate_site_poses(config)
+    except ValueError as error:
+        parser.error(str(error))
     env = YamAgentEnv(config)
     metadata = env_runtime_contract(
-        task_name=config["task_name"],
-        seed=config.get("seed", 0),
-        max_episode_steps=config.get("max_episode_steps", 1000),
+        task_name=args.task_name,
+        seed=args.seed,
+        max_episode_steps=args.max_episode_steps,
         joint_servo=config.get("joint_servo"),
     )
     metadata["execution"]["joint_limit_min"] = env.lower.tolist()

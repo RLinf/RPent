@@ -42,7 +42,7 @@ RPent 不自动安装或发布这些现场修改。还需提供标定、i2rt 模
 配置现场与任务
 --------------
 
-复制 ``robots/yam/config.example.json`` 到版本控制之外，填写相机序列号、
+复制 ``robots/yam/config/example.yaml`` 到版本控制之外，填写相机序列号、
 外参、桌面模型、已确认的 reset/home 和现场控制参数。示例中的泊车未启用，
 必须填写实测位置并启用 ``park_on_close`` 才能启动服务。两种姿态均需填写
 ``left_qpos/right_qpos`` 各七维，以及 ``duration_s``、``max_joint_delta``、
@@ -53,8 +53,9 @@ RPent 不自动安装或发布这些现场修改。还需提供标定、i2rt 模
 ``left/right`` 是腕部相机。RGBD 与腕部 FK 使用同次采集；已验证现场的三路
 相机均为 640x480、30 Hz，在连接机械臂之前启动并预热。
 
-任务集中注册在 ``robots/yam/tasks.py``。分别准备 A/B 的现场 JSON，将
-``task_name`` 与 ``TASK_INSTRUCTIONS`` 中对应的完整 ``task_language`` 写入：
+任务集中注册在 ``robots/yam/tasks.py``。分别准备 A/B 的现场 YAML；
+``task_name``、``task_language``、``seed`` 和 ``max_episode_steps`` 改由
+命令行传入，其中任务语言须与 ``TASK_INSTRUCTIONS`` 的完整内容一致：
 
 * ``tabletop_cleanup_a``：左袋百事，右袋可口。
 * ``tabletop_cleanup_b``：左袋可口，右袋百事。
@@ -71,7 +72,10 @@ RPent 不自动安装或发布这些现场修改。还需提供标定、i2rt 模
 
 .. code-block:: bash
 
-   python -m robots.yam.env_server --config /path/to/task_a.json \
+   TASK_LANGUAGE="$(python -c 'from robots.yam.tasks import TASK_INSTRUCTIONS; print(TASK_INSTRUCTIONS["tabletop_cleanup_a"])')"
+   python -m robots.yam.env_server --robot-config /path/to/task_a.yaml \
+     --task-name tabletop_cleanup_a --task-language "$TASK_LANGUAGE" \
+     --seed 0 --max-episode-steps 20000 \
      --transport socket --host 127.0.0.1 --port 8110
 
 服务进程刚启动时不连接电机。下面首次人工 ``status`` 会初始化相机及机械臂，
@@ -80,12 +84,12 @@ RPent 不自动安装或发布这些现场修改。还需提供标定、i2rt 模
 
 .. code-block:: bash
 
-   python -m robots.yam.operator_control --config /path/to/task_a.json \
+   python -m robots.yam.operator_control --robot-config /path/to/task_a.yaml \
      --endpoint socket://127.0.0.1:8110 --event status
-   python -m robots.yam.operator_control --config /path/to/task_a.json \
+   python -m robots.yam.operator_control --robot-config /path/to/task_a.yaml \
      --endpoint socket://127.0.0.1:8110 --event reset_pose
    # 从 status 复制当前 episode_id；摆场就绪必须是当前现场事实。
-   python -m robots.yam.operator_control --config /path/to/task_a.json \
+   python -m robots.yam.operator_control --robot-config /path/to/task_a.yaml \
      --endpoint socket://127.0.0.1:8110 --episode-id CURRENT_ID \
      --event ready --note '本回合场景已恢复，可以执行'
 
@@ -94,14 +98,16 @@ RPent 不自动安装或发布这些现场修改。还需提供标定、i2rt 模
 
 .. code-block:: bash
 
-   python -m robots.yam.vla_server --model-path /path/to/yam-checkpoint \
+   python -m rpent.robots.components.pi05_vla_server \
+     --embodiment yam --model-backend openpi_rlinf \
+     --model-path /path/to/yam-checkpoint \
      --norm-stats-path /path/to/norm_stats.json \
      --transport socket --host 127.0.0.1 --port 8220
 
 仅在 checkpoint 自带预期统计量时省略 ``--norm-stats-path``。
 通过 SSH 把 VLA 转发到 Agent/控制机，或显式绑定可信内网接口并填写对应地址。
-不要向不可信客户端暴露 pickle RPC。服务返回完整 30 步绝对 qpos14，仅执行端
-裁剪长度；布局为左六关节、左夹爪、右六关节、右夹爪。夹爪 0 闭、1 开，
+不要向不可信客户端暴露 pickle RPC。服务返回完整 30 步绝对 qpos14，每次只执行
+前 5 步；布局为左六关节、左夹爪、右六关节、右夹爪。夹爪 0 闭、1 开，
 RGB 顺序固定为 ``top/left/right``。契约检查会拒绝不兼容服务。
 
 Dashboard 与终端探索
@@ -115,10 +121,11 @@ planner 和账号；地址与路径按启动机器填写。该模型显式使用
 
    rpent --robot yam --dashboard --explore --planner codex \
      --model gpt-6-astra --reasoning-effort low \
+     --robot-config /path/to/task_a.yaml \
      --env-endpoint socket://127.0.0.1:8110 \
      --vla-endpoint socket://127.0.0.1:8220 \
      --memory-profile local --memory-dir /path/to/memory/yam \
-     --max-episode-steps 1800 --explore-attempts-per-session 50 \
+     --max-episode-steps 20000 --explore-attempts-per-session 50 \
      --explore-sessions 1 --max-turns 300 --planner-timeout-s 14400 \
      --dashboard-host 127.0.0.1 --dashboard-port 8090
 
@@ -129,16 +136,19 @@ planner 和账号；地址与路径按启动机器填写。该模型显式使用
    ssh -N -L 8090:127.0.0.1:8090 USER@CONTROL_HOST
 
 打开 ``http://127.0.0.1:8090``，发送 ``/rpent-task tabletop_cleanup_a 0``。
-B 组准备对应服务后发送 ``/rpent-task tabletop_cleanup_b 0``。浏览页面不会上电；
+B 组按独立的 seed 和步数准备服务后发送 ``/rpent-task tabletop_cleanup_b 1``。
+浏览页面不会上电；
 每次任务检查 ENV，VLA 会话内共享，两者均不由 Dashboard 关闭。
 手动原语与 Agent 调用互斥；手动结果随下一条 Agent 消息交接。
-``/continue`` 仅继续当前就绪、未终止、无停止锁的 episode。自动续跑遵循同样
-规则，并限制没有动作进展的循环；不会越过明确 finish、人工中断或未完成手动动作。
+``/continue`` 可让 Agent 读取新的人工作业就绪或裁决回执，也可继续就绪、
+未终止且无停止锁的 episode。就绪或裁决回执本身不授权运动。Agent 等待人工时，
+程序自动续跑保持暂停，直到显式 ``/continue`` 或新 episode；不会越过已完成的
+finish 或未完成的手动动作。
 
 终端运行时去掉 Dashboard 参数，增加 ``--task-name tabletop_cleanup_a``。
 纯原语模式用 ``--without-vla`` 替代 VLA 地址。要复现现场策略偏好，可发送：
-“场景支持时使用 chunks=2、use_length=30，每次调用后观察。”这表示两次预测、
-共请求 60 步，不是两步动作；更长的无语义复核时段可能包含提前松爪。
+“场景支持时使用 chunks=2，每次调用后观察。”每次预测固定执行 5 步，
+这个示例共请求 10 步动作。
 
 结果、记忆与退出
 ----------------
@@ -148,7 +158,7 @@ B 组准备对应服务后发送 ``/rpent-task tabletop_cleanup_b 0``。浏览�
 ``--command /done`` 等价于 ready；``/success``、``/failure``、``/abort``
 分别等价于对应事件。网页会提示在人工终端登记这些回执，不把它们交给 LLM。
 ``reset`` 消费 ready 并建立新回合，不代表回 home 或已恢复实物场景。
-等待每次最多 20 秒，返回非终止 ``pending``；新 episode 真正建立才计一次尝试。
+缺少就绪或裁决时立即返回非终止 ``pending``；新 episode 真正建立才计一次尝试。
 
 探索使用共用的 ``_internal/inbox``、``task-specific``、``task-family``、``global`` 记忆结构。
 失败运行的有效笔记也可以合并；成功 recipe 仅包含当前已核实成功回合的动作。
@@ -160,7 +170,7 @@ recipe/audit 与更新后的 ``MEMORY.md`` 区分证据；Agent 正常结束、�
 
 .. code-block:: bash
 
-   python -m robots.yam.operator_control --config /path/to/task_a.json \
+   python -m robots.yam.operator_control --robot-config /path/to/task_a.yaml \
      --endpoint socket://127.0.0.1:8110 --event shutdown
 
 服务先回已配置 home、验证到位，再关闭输出；失败时保留运行时供人工恢复。
@@ -175,15 +185,15 @@ recipe/audit 与更新后的 ``MEMORY.md`` 区分证据；Agent 正常结束、�
 .. code-block:: bash
 
    rpent --robot yam --task-name tabletop_cleanup_a --task-id 103 \
-     --env-endpoint socket://127.0.0.1:8110 --max-episode-steps 1800
+     --env-endpoint socket://127.0.0.1:8110 --max-episode-steps 20000
    rpent --robot yam --task-name tabletop_cleanup_a --task-id 104 \
-     --env-endpoint socket://127.0.0.1:8110 --max-episode-steps 1800 \
+     --env-endpoint socket://127.0.0.1:8110 --max-episode-steps 20000 \
      --vla-endpoint socket://127.0.0.1:8220 --output-dir /path/to/diagnostics
 
 每行一个 JSON：``{"tool":"status"}`` 查询状态。103 支持 move_to、rotate_wrist、
 set_gripper、release，通过 ``arguments`` 传参。104 先输入
 ``{"tool":"infer"}`` 保存不驱动机械臂的预测，再显式输入
-``{"tool":"execute","arguments":{"use_length":30}}``，最多执行一次。
+``{"tool":"execute","arguments":{"use_length":5}}``，最多执行一次。
 跨 episode、动作计数变化、关节位置改变或预测超过 30 秒均拒绝；超时导致执行
 结果不确定时禁止重放。``quit`` 只保持，不松爪、回 home 或生成成功记忆。
 
@@ -195,7 +205,8 @@ set_gripper、release，通过 ``arguments`` 传参。104 先输入
 ``set_gripper(arm, val, steps)``、``release(arm, val=1, steps)``，不增加
 open/close 别名。xyz 单位米，坐标系 left_base，四元数顺序 wxyz。
 
-在维护窗口替换明确代码文件，保留现场 JSON、标定、权重、数据和 memory；
+在维护窗口替换明确代码文件，将活动现场配置转为 YAML 并备份旧 JSON；
+保留收据、标定、权重、数据和 memory；
 更新启动参数并重新安装包，保存旧 bundle/patch 供回滚。源码和 wheel 均包含
 机器人模块；设置 ``RPENT_REPO_ROOT`` 指向工作区，稳定日志、GUIDE 与记忆位置。
 安装过程不会训练 VLA、上传 HF 或启动实机探索。

@@ -42,7 +42,7 @@ YAM_DASHBOARD_SPEC: DashboardSpec = {
     "operator_commands": {
         **{
             command: "Use the operator terminal: python -m robots.yam.operator_control "
-            f"--config <site.json> --endpoint <env> --command {command} "
+            f"--robot-config <site.yaml> --endpoint <env> --command {command} "
             "--episode-id <current-id> --note <evidence>"
             for command in ("/done", "/success", "/failure", "/abort")
         },
@@ -90,7 +90,7 @@ def get_robot_spec() -> RobotSpec:
 
 def get_toolkit(
     *,
-    primitives_kwargs: dict[str, Any],
+    runtime_kwargs: dict[str, Any],
     dashboard_events: DashboardEventSink,
     config: RunConfig,
     mode: str = "evaluation",
@@ -106,18 +106,24 @@ def get_toolkit(
         inbox_cell_tag=config.recipe_tag if explore else None,
     )
     return YamToolkit(
-        primitives_kwargs=primitives_kwargs,
+        runtime_kwargs=runtime_kwargs,
         dashboard_events=dashboard_events,
         memory=memory,
         mode=mode,
         attempts_per_session=attempts_per_session,
         state_output_dir=state_output_dir,
         run_output_dir=config.output_dir,
+        operator_config_path=config.prompt_vars.get("operator_config_path"),
+        dashboard_language=config.prompt_vars.get("dashboard_language", "en"),
     )
 
 
 def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     parser.set_defaults(memory_profile="local")
+    parser.add_argument(
+        "--robot-config",
+        help="Local YAM site YAML for Dashboard operator receipts",
+    )
     required = not use_dashboard
     parser.add_argument(
         "--task-name",
@@ -171,6 +177,11 @@ def _run_diagnostic(args: argparse.Namespace) -> int | None:
 def _parse_config(args: argparse.Namespace) -> RunConfig:
     if not args.task_name:
         raise ValueError("--task-name is required")
+    robot_config = getattr(args, "robot_config", None)
+    if robot_config is not None:
+        from robots.yam.runtime_config import load_mapping
+
+        load_mapping(robot_config)
     explore = bool(getattr(args, "explore", False))
     memory_profile = getattr(args, "memory_profile", None) or "local"
     args.memory_profile = memory_profile
@@ -198,6 +209,8 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         recipe_tag=recipe_tag,
         output_dir=Path(output_dir),
         prompt_vars={
+            "operator_config_path": robot_config,
+            "dashboard_language": getattr(args, "dashboard_language", "en"),
             "recipe_tag": recipe_tag,
             "task_name": args.task_name,
             "seed": args.seed,
@@ -309,7 +322,7 @@ def _build_env_runtime_kwargs(args: argparse.Namespace, env_rpc: Any) -> dict[st
 
 
 def _build_vla_runtime_kwargs(vla_rpc: Any) -> dict[str, Any]:
-    from rpent.robots.components.vla_client_base import BaseVLAClient
+    from rpent.robots.components.pi05_vla_client import Pi05VLAClient
 
     expected_meta = vla_runtime_contract()
     actual_meta = vla_rpc.call("healthz", timeout_s=30.0)
@@ -319,4 +332,4 @@ def _build_vla_runtime_kwargs(vla_rpc: Any) -> dict[str, Any]:
             f"expected={expected_meta!r} actual={actual_meta!r}. "
             "Connect to the Pi0.5 YAM qpos14 VLA server."
         )
-    return {"model": BaseVLAClient(vla_rpc)}
+    return {"model": Pi05VLAClient(vla_rpc, embodiment="yam")}

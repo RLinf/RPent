@@ -21,7 +21,7 @@ def test_wheel_contains_robot_and_agent_guide():
     assert installed.with_name("guides").joinpath("GUIDE_RPENT.md").is_file()
     files = {str(p) for p in importlib.metadata.files("rpent")}
     assert "robots/yam/robot_spec.py" in files
-    assert "robots/yam/config.example.json" in files
+    assert "robots/yam/config/example.yaml" in files
     assert all(
         p == "robots/__init__.py" or p.startswith("robots/yam/")
         for p in files
@@ -43,6 +43,7 @@ def test_help_without_a_checkout_or_hardware_imports(tmp_path):
     )
     assert result.returncode == 0, result.stderr
     assert "--task-id {103,104}" in result.stdout
+    assert "--robot-config" in result.stdout
     assert "--explore-attempts-per-session" in result.stdout
     probe = subprocess.run(
         [

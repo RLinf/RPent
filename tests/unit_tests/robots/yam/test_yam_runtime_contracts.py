@@ -377,6 +377,65 @@ def test_servo_fault_stops_without_correction(
     assert env._stop_requested.is_set() and not env._runtime.commands
 
 
+@pytest.mark.parametrize(
+    "operator_supervised,hold_rejected", [(True, False), (False, False), (True, True)]
+)
+def test_stationary_tracking_hold_requires_operator_and_preserves_other_arm(
+    primitives, env, clock, monkeypatch, operator_supervised, hold_rejected
+):
+    from robots.yam.servo import JointServoConfig, run_joint_servo
+
+    episode = env._episode_id
+    measured = env._runtime.qpos.copy()
+    nominal = measured[:6] + 0.03
+    env._previous_command[:6] = nominal
+    other_arm = env._previous_command[6:].copy()
+    target = np.array(primitives.env.last_info["robot_state"]["left_eef_pose"])
+    target[0] += 0.02
+    command = env._runtime.command
+
+    def stalled_feedback(q):
+        result = command(q)
+        env._runtime.qpos = measured.copy()
+        return result
+
+    monkeypatch.setattr(env._runtime, "command", stalled_feedback)
+
+    def apply(updates, **kwargs):
+        if hold_rejected and np.array_equal(updates[0]["arm_qpos"], measured[:6]):
+            raise RuntimeError("measured hold rejected by guard")
+        return primitives.apply_qpos_updates(updates, **kwargs)
+
+    result = run_joint_servo(
+        env=primitives.env,
+        apply_updates=apply,
+        check_cancelled=lambda: None,
+        arm="left",
+        nominal=nominal,
+        target_pose=target,
+        episode_id=episode,
+        config=JointServoConfig.from_config(
+            {"enabled": True, "progress_timeout_s": 0.3}
+        ),
+        operator_supervised=operator_supervised,
+    )
+    assert not result["success"]
+    if not operator_supervised or hold_rejected:
+        assert not result["operator_input_required"]
+        assert env._stop_requested.is_set()
+        if hold_rejected:
+            assert result["stop_reason"] == "operator_hold_failed"
+        return
+    assert result["stop_reason"] == "no_progress"
+    assert result["operator_input_required"] is True
+    assert not result["recoverable"]
+    assert not env._stop_requested.is_set()
+    assert result["operator_hold"]["executed_steps"] == 1
+    np.testing.assert_array_equal(env._previous_command[:6], measured[:6])
+    np.testing.assert_array_equal(env._previous_command[6:], other_arm)
+    assert env._episode_id == episode
+
+
 @pytest.mark.parametrize("substeps", [1, 7])
 def test_move_to_never_drops_safety_waypoints(primitives, env, monkeypatch, substeps):
     start = env._previous_command.copy()

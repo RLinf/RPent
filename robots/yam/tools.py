@@ -435,9 +435,8 @@ TOOLS_SPEC = [
                 "chunks": {"type": "integer", "minimum": 1, "default": 1},
                 "use_length": {
                     "type": "integer",
-                    "minimum": 1,
-                    "maximum": 30,
-                    "default": 30,
+                    "const": 5,
+                    "default": 5,
                 },
                 "prompt": {"type": ["string", "null"]},
             },

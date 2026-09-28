@@ -73,14 +73,14 @@ Cartesian motion is not exposed. Never claim primitive success as task success."
 VLA = """A trained YAM qpos14 VLA is connected and pi05_act is available.
 Treat VLA as a primitive alongside geometric tools. Use its learned approach and
 pick behavior where suitable, then use observed geometric moves for task-specific
-placement when destination choice is unreliable. Choose chunks and use_length
+placement when destination choice is unreliable. Choose the number of chunks
 from the task, current clearance and any explicit operator preference. Each chunk
 predicts from a fresh observation, but there is no Agent semantic review between
 chunks. Assess both arms and the possible release region before dispatch.
-Reobserve and measure progress after each call. Each prediction has 30 steps;
-use_length may be 1..30. Do not preassign a fixed number of chunks to every grasp
+Reobserve and measure progress after each call. Each prediction has 30 steps,
+but only the first five execute. Do not preassign a fixed number of chunks to every grasp
 or let the policy continue into an unverified release. Record the observed switching point
-and chunk lengths as evidence, not a universal rule. Omit prompt to use the full
+and chunk count as evidence, not a universal rule. Omit prompt to use the full
 trained task instruction; arbitrary subgoal prompts have not been validated.
 pi05_act can command both arms together."""
 
@@ -91,7 +91,7 @@ instead of requesting an untrained policy."""
 
 SUCCESS = """Only fresh env eval_success=true confirms success. On the real YAM
 rig this may be an operator-confirmed flag until a perception success checker is
-installed. finish(success) waits for an operator verdict when needed. A pending or
+installed. finish(success) returns pending when an operator verdict is needed. A pending or
 finish-refused response does not end the session. In exploration, re-observe and
 write the technique after confirmed success before finishing. Evaluation memory
 is read-only. Never invent an operator verdict."""
@@ -143,7 +143,7 @@ selected objects and arm roles, observed outcome, failed hypothesis, and the one
 parameter or approach to change next. Existing step records keep raw evidence;
 do not invent a second action log. Re-localize targets on every restored scene.
 Archive the failed attempt and explain the requested scene restoration. reset
-waits up to 20 seconds for operator ready; a pending response means wait and retry
+returns pending immediately without operator ready; wait for the operator, then retry
 reset, not a new attempt or proof of failure. Use the remaining attempt budget
 for a changed approach; stop immediately if the operator aborts.
 

@@ -10,7 +10,6 @@
 
 from __future__ import annotations
 
-import time
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -40,8 +39,22 @@ _RECIPE_ACTIONS = {
 }
 
 
+def tracking_hold_operator_supervised(
+    mode: str, operator_config_path: Path | str | None
+) -> bool:
+    """Use a human for attended tracking holds unless site YAML opts out."""
+    if mode != "exploration":
+        return False
+    if operator_config_path is None:
+        return True
+    from robots.yam.runtime_config import load_mapping
+
+    site = load_mapping(operator_config_path)
+    enabled = site.get("tracking_hold_operator_input", True)
+    return enabled if type(enabled) is bool else True
+
+
 class YamToolkit(Toolkit):
-    _OPERATOR_WAIT_S = 20.0
     _SPECS = {spec["name"]: spec for spec in tools.TOOLS_SPEC}
     _FRAME_ARTIFACTS = {
         "top": "top_rgb.png",
@@ -52,13 +65,15 @@ class YamToolkit(Toolkit):
     def __init__(
         self,
         *,
-        primitives_kwargs: dict[str, Any],
+        runtime_kwargs: dict[str, Any],
         dashboard_events: DashboardEventSink,
         memory: MemoryManager,
         mode: str = "evaluation",
         attempts_per_session: int = 0,
         state_output_dir: Path | str | None = None,
         run_output_dir: Path | str | None = None,
+        operator_config_path: Path | str | None = None,
+        dashboard_language: str = "en",
     ) -> None:
         if mode not in {"evaluation", "exploration"}:
             raise ValueError(f"unsupported YAM toolkit mode: {mode!r}")
@@ -66,6 +81,7 @@ class YamToolkit(Toolkit):
         state = EnvState(self._state_output_dir)
         super().__init__(dashboard_events=dashboard_events, state=state, memory=memory)
         self._mode = mode
+        self._dashboard_language = dashboard_language
         self._attempt = 1
         self._attempts_per_session = max(0, int(attempts_per_session))
         self._session_attempt = 0
@@ -74,10 +90,14 @@ class YamToolkit(Toolkit):
         )
         self._continuation_key = None
         self._continuation_count = 0
+        self._operator_waiting_episode: str | None = None
         self._latest_status: dict[str, Any] = {}
         self._primitives = YamPrimitives(
             check_cancelled=self.raise_if_cancelled,
-            **primitives_kwargs,
+            operator_supervised=tracking_hold_operator_supervised(
+                mode, operator_config_path
+            ),
+            **runtime_kwargs,
         )
         self._register_yam_tools()
         self.get_env_state(
@@ -139,13 +159,70 @@ class YamToolkit(Toolkit):
             return None
         record = self._state.latest_record()
         if record is not None and record.command.get("action") == "finish":
-            return None
+            result = getattr(record, "result", None)
+            finished = isinstance(result, dict) and result.get("_finish")
+            if finished or not explicit:
+                return None
         status = self.status()
+        if explicit and status["reason"] == "success":
+            return (
+                "The onsite operator confirmed success for this episode. This is "
+                "a terminal verdict, not permission to move. Do not command the "
+                "robot or reset the episode. Review the recorded evidence, write "
+                "the supported lesson to the memory inbox, then call "
+                "finish(status='success') with an accurate summary."
+            )
+        if explicit and status["reason"] == "abort":
+            return (
+                "The onsite operator aborted this episode. This is a terminal "
+                "verdict, not permission to move or reset. Record the abort "
+                "evidence and call finish(status='failure') with an accurate summary."
+            )
+        if (
+            explicit
+            and status["reason"] == "failure"
+            and self._attempts_per_session
+            and self._session_attempt >= self._attempts_per_session
+        ):
+            return (
+                "The onsite operator confirmed failure for this episode, "
+                "and the session attempt budget is spent. This is a terminal "
+                "verdict, not permission to move. Record the failure evidence "
+                "and call finish(status='failure') with an accurate summary."
+            )
+        if (
+            explicit
+            and self._attempts_per_session
+            and self._session_attempt >= self._attempts_per_session
+        ):
+            return (
+                "The session attempt budget is spent. Do not call reset or command "
+                "motion. Ask the onsite operator for a formal verdict if one is "
+                "still missing, then finish with the verified outcome."
+            )
+        if explicit and status.get("ready_to_reset") is True:
+            return (
+                "The onsite operator supplied a ready receipt for this episode. "
+                "This is permission to call reset for episode bookkeeping, not "
+                "permission to command motion. Call reset, then inspect fresh "
+                "views and measured state before planning any action."
+            )
+        if explicit and status["reason"] == "failure":
+            return (
+                "The onsite operator marked this attempt as failed. This is "
+                "not permission to move or clear the stop. Record the concrete "
+                "failure lesson, ask the operator to prepare the next scene, "
+                "then wait for a matching ready receipt and call reset."
+            )
         if not status["can_continue"]:
+            return None
+        if not explicit and self._operator_waiting_episode == status["episode_id"]:
             return None
         key = (status["episode_id"], status["take_action_cnt"])
         if explicit or key != self._continuation_key:
             self._continuation_key, self._continuation_count = key, 0
+        if explicit:
+            self._operator_waiting_episode = None
         # Bound text/perception-only loops without spending another episode.
         if self._continuation_count >= 3:
             return None
@@ -156,47 +233,30 @@ class YamToolkit(Toolkit):
             "refresh views and read official memory. Choose a supported recovery "
             "or task action; a rejected plan or recoverable residual alone is not "
             "an episode verdict. Use meaningful measured-pose geometry or VLA "
-            "with a suitable horizon. Readiness does not establish "
+            "in fixed five-step chunks. Readiness does not establish "
             "payload clearance: never force uncertain contact or auto-release. "
             "If no supported action exists, record the concrete missing evidence. "
             "Do not reset, fabricate success, or clear a stop."
         )
 
-    def _wait_for_operator(self, event: str) -> dict[str, Any]:
-        deadline = time.monotonic() + self._OPERATOR_WAIT_S
-        while True:
-            self.raise_if_cancelled()
-            status = self.status()
-            if status.get("terminal_event") == "abort":
-                return status
-            if event == "ready" and status.get("ready_to_reset"):
-                return status
-            if event == "verdict" and (
-                status.get("eval_success") is True
-                or status.get("terminal_event") == "failure"
-            ):
-                return status
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                return status
-            time.sleep(min(0.2, remaining))
-
     def _finish(self, *, status: str, summary: str) -> dict[str, Any]:
         status = status.strip().lower()
+        verdict = self.status()
         if status != "success":
+            if (
+                self._mode == "exploration"
+                and verdict.get("terminal_event") not in {"failure", "abort"}
+                and not verdict.get("eval_success")
+            ):
+                return {
+                    "status": "pending",
+                    "awaiting_operator": True,
+                    "operator_question": "The agent is blocked. Continue after onsite handling, or formally end this attempt?",
+                    "notice": "Ask about the current blocker and wait. A planner claim is not an operator verdict.",
+                }
             return {"_finish": True, "status": status, "summary": summary}
-        if self.status().get("eval_success") is True:
-            return {"_finish": True, "status": "success", "summary": summary}
-        self._primitives.env.request_stop()
-        verdict = self._wait_for_operator("verdict")
         if verdict.get("eval_success") is True:
-            if self._mode != "exploration":
-                return {"_finish": True, "status": "success", "summary": summary}
-            return {
-                "error": "finish refused: review newly confirmed success",
-                "status": "retry",
-                "notice": "Operator confirmed success. Read the current evidence, distil the technique to memory inbox, then call finish again.",
-            }
+            return {"_finish": True, "status": "success", "summary": summary}
         if verdict.get("terminal_event") == "abort":
             return {
                 "_finish": True,
@@ -217,7 +277,9 @@ class YamToolkit(Toolkit):
         return {
             "error": "finish refused: pending operator verdict",
             "status": "pending",
-            "notice": "Call finish again; this has not ended the session.",
+            "awaiting_operator": True,
+            "operator_question": "Is the current task complete? Confirm success or explain what remains.",
+            "notice": "Ask the operator and wait. Do not poll finish; a current-episode verdict is required.",
         }
 
     def _reset_episode(self) -> dict[str, Any]:
@@ -227,7 +289,7 @@ class YamToolkit(Toolkit):
                 "error": "reset refused",
                 "reason": f"This session's attempt budget is spent ({budget} attempts).",
             }
-        ready = self._wait_for_operator("ready")
+        ready = self.status()
         if ready.get("terminal_event") == "abort":
             return {
                 "error": "Operator aborted; call finish(status='failure') now.",
@@ -236,7 +298,9 @@ class YamToolkit(Toolkit):
         if not ready.get("ready_to_reset"):
             return {
                 "status": "pending",
-                "notice": "Waiting for operator ready. Call reset again; the attempt count is unchanged.",
+                "awaiting_operator": True,
+                "operator_question": "Is the scene ready and the held object handled for the next attempt?",
+                "notice": "Wait for a matching ready receipt. Do not poll reset; no attempt was spent.",
             }
         self._save_episode_video()
         result = self._primitives.reset()
@@ -299,6 +363,8 @@ class YamToolkit(Toolkit):
     ) -> dict[str, Any]:
         observation, status = self._capture_full_observation()
         self._latest_status = status
+        if result.get("awaiting_operator") or result.get("operator_input_required"):
+            self._operator_waiting_episode = status.get("episode_id")
         record = tools.dump_observation(
             observation,
             env_state=self._state,
@@ -308,6 +374,17 @@ class YamToolkit(Toolkit):
         captured = tools.view_env_state(record.step_idx, state=self._state)
         if result.get("error") or result.get("status") in {"pending", "retry"}:
             captured.update(result)
+        if result.get("operator_input_required"):
+            captured.update(
+                {
+                    "awaiting_operator": True,
+                    "operator_question": (
+                        "The arm is holding at its measured pose. Give the next direction "
+                        "and distance, or say whether a named gripper may open."
+                    ),
+                    "notice": "Ask the onsite operator and wait. This tracking residual is not an episode verdict.",
+                }
+            )
         if result.get("_finish"):
             # Toolkit.execute_tool replaces stateful handler output with this
             # capture. Keep the planner termination signal at the top level.

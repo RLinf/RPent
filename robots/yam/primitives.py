@@ -38,10 +38,12 @@ class YamPrimitives:
         env: YamEnvClient,
         model: BaseVLAClient | None = None,
         check_cancelled: Callable[[], None],
+        operator_supervised: bool = False,
     ) -> None:
         self.env = env
         self.model = model
         self._check_cancelled = check_cancelled
+        self._operator_supervised = bool(operator_supervised)
         self._frames: list[np.ndarray] = []
 
     def _record_frame(self, rgb: Any) -> None:
@@ -100,13 +102,13 @@ class YamPrimitives:
             prompt if prompt is not None and prompt.strip() else instruction
         )
         return {
-            "main_images": np.asarray(frames["top"])[None],
+            "main_images": np.asarray(frames["top"]),
             "wrist_images": None,
-            "extra_view_images": np.stack([frames["left"], frames["right"]])[None],
+            "extra_view_images": np.stack([frames["left"], frames["right"]]),
             "states": np.asarray(
                 self.env.last_obs["state"]["joint_position"], dtype=np.float32
-            )[None],
-            "task_descriptions": [policy_instruction],
+            ),
+            "task_descriptions": policy_instruction,
         }
 
     def predict_actions(
@@ -118,9 +120,12 @@ class YamPrimitives:
         observation = self._build_policy_observation(prompt=prompt)
         status = dict(self.env.last_info["episode_status"])
         prediction = np.asarray(self.model.predict(observation))
-        if prediction.shape != (1, MODEL_SPEC.action_horizon, 14):
-            raise ValueError(f"expected VLA shape (1,30,14), got {prediction.shape}")
-        return observation, validate_actions(prediction[0]), status
+        expected_shape = (MODEL_SPEC.action_horizon, 14)
+        if prediction.shape != expected_shape:
+            raise ValueError(
+                f"expected VLA shape {expected_shape}, got {prediction.shape}"
+            )
+        return observation, validate_actions(prediction), status
 
     def _record_chunk_payload(self, payload: Any) -> None:
         observations: list[Any]
@@ -147,21 +152,14 @@ class YamPrimitives:
             raise RuntimeError(
                 "YAM VLA is not connected; pi05_act requires a trained --vla-endpoint"
             )
-        if isinstance(chunks, bool) or int(chunks) != chunks or int(chunks) < 1:
+        if type(chunks) is not int or chunks < 1:
             raise ValueError("chunks must be a positive integer")
-        if (
-            isinstance(use_length, bool)
-            or int(use_length) != use_length
-            or not (1 <= int(use_length) <= MODEL_SPEC.action_horizon)
-        ):
-            raise ValueError(
-                f"use_length must be an integer in [1,{MODEL_SPEC.action_horizon}]"
-            )
-        use_length = int(use_length)
+        if type(use_length) is not int or use_length != MODEL_SPEC.use_length:
+            raise ValueError(f"YAM Pi0.5 requires use_length={MODEL_SPEC.use_length}")
         executed = 0
-        requested = int(chunks) * use_length
+        requested = chunks * use_length
         native_prompt = None
-        for _ in range(int(chunks)):
+        for _ in range(chunks):
             self._check_cancelled()
             status = self.env.last_info["episode_status"]
             if status.get("eval_success") is True or int(
@@ -171,7 +169,7 @@ class YamPrimitives:
             observation, actions, prediction_status = self.predict_actions(
                 prompt=prompt
             )
-            native_prompt = observation["task_descriptions"][0]
+            native_prompt = observation["task_descriptions"]
             episode_id = prediction_status["episode_id"]
             if len(actions) < use_length:
                 raise ValueError(
@@ -406,6 +404,7 @@ class YamPrimitives:
                     target_pose=target,
                     episode_id=episode_id,
                     config=servo_config,
+                    operator_supervised=self._operator_supervised,
                 )
             else:
                 self.env.request_stop()
@@ -425,6 +424,7 @@ class YamPrimitives:
                 "completed": servo["success"],
                 "success": servo["success"],
                 "recoverable": servo.get("recoverable", False),
+                "operator_input_required": servo.get("operator_input_required", False),
                 "requested_steps": len(updates) + servo_requested,
                 "requested_actions": len(updates) + servo_requested,
                 "executed_steps": executed + servo_steps,

@@ -24,6 +24,8 @@ import time
 import uuid
 from pathlib import Path
 
+from robots.yam.runtime_config import load_mapping
+
 
 def write_receipt(path: str | Path, *, episode_id: str, event: str, note: str) -> dict:
     if event not in {
@@ -90,7 +92,11 @@ def read_receipt(path: str | Path | None) -> dict | None:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", required=True)
+    parser.add_argument(
+        "--robot-config",
+        default=None,
+        help="YAM robot YAML (defaults to robots/yam/config/example.yaml)",
+    )
     parser.add_argument("--endpoint", default="http://127.0.0.1:8110")
     parser.add_argument(
         "--episode-id", help="Current ID from status; required for mutations"
@@ -144,10 +150,9 @@ def main():
         return
     if not args.episode_id or not args.note.strip():
         parser.error("--episode-id and --note are required for operator events")
-    config = json.loads(Path(args.config).read_text())
-    path = config.get("operator_receipt_path")
+    path = load_mapping(args.robot_config).get("operator_receipt_path")
     if not path:
-        parser.error("config.operator_receipt_path is required")
+        parser.error("robot config must set operator_receipt_path")
     if args.event in {"recover_up", "release_gripper"} and args.arm is None:
         parser.error("recovery requires --arm")
     receipt_event = "ready" if args.event in {"start", "recover_up"} else args.event
