@@ -244,6 +244,26 @@ def test_cosmos_requires_external_endpoint() -> None:
         robot_spec._parse_config(args)
 
 
+def test_cosmos_toolkit_factory_does_not_construct_memory(
+    tmp_path, monkeypatch
+) -> None:
+    factory = Mock()
+    monkeypatch.setattr(toolkit, "LiberoToolkit", factory)
+    memory_factory = Mock(side_effect=AssertionError("unexpected memory creation"))
+    monkeypatch.setattr(robot_spec, "MemoryManager", memory_factory)
+    config = robot_spec._parse_config(_args())
+
+    robot_spec.get_toolkit(
+        runtime_kwargs={},
+        dashboard_events=NullDashboardEventSink(),
+        config=config,
+        state_output_dir=tmp_path,
+    )
+
+    assert factory.call_args.kwargs["memory"] is None
+    memory_factory.assert_not_called()
+
+
 @pytest.mark.parametrize("suite", robot_spec.COSMOS_PRO_SUITES)
 def test_cosmos_pro_suites_select_pro_runtime(suite) -> None:
     args = _args("--suite", suite)
@@ -410,7 +430,9 @@ def test_toolkit_exposes_selected_backend_tools(
     instance = toolkit.LiberoToolkit(
         runtime_kwargs={},
         dashboard_events=NullDashboardEventSink(),
-        memory=MemoryManager(tmp_path / "memory"),
+        memory=None
+        if backend == "cosmos-policy"
+        else MemoryManager(tmp_path / "memory"),
         state_output_dir=tmp_path / "output",
         vla_backend=backend,
         mode=mode,
@@ -450,7 +472,7 @@ def test_cosmos_finish_rejects_false_success_without_ending_loop(
     instance = toolkit.LiberoToolkit(
         runtime_kwargs={},
         dashboard_events=NullDashboardEventSink(),
-        memory=MemoryManager(tmp_path / "memory"),
+        memory=None,
         state_output_dir=tmp_path / "output",
         vla_backend="cosmos-policy",
     )
