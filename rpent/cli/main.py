@@ -57,7 +57,6 @@ from rpent.memory import MemoryManager
 from rpent.planner.base import REASONING_EFFORTS, build_planner
 from rpent.planner.check import BASE_URL_ENV_BY_PLANNER
 from rpent.robots import enumerate_robots, get_robot_spec, get_toolkit
-from rpent.utils.config import get_memory_dir
 from rpent.utils.logging import get_logger, init_output_dir
 
 logger = get_logger("agent")
@@ -408,6 +407,13 @@ def main() -> int:
     args.memory_profile = args.memory_profile or ("local" if args.explore else "hf")
     if args.memory_profile == "hf" and args.memory_dir is not None:
         parser.error("--memory-dir requires --memory-profile local or --explore")
+    from rpent.memory.loading import prepare_run_memory
+
+    try:
+        if robot_spec.validate_args is not None:
+            robot_spec.validate_args(args)
+    except ValueError as exc:
+        parser.error(str(exc))
     if args.dashboard:
         from rpent.cli.dashboard import run_dashboard_session
 
@@ -428,18 +434,7 @@ def main() -> int:
     output_dir = init_output_dir(output_dir, verbose=args.verbose)
     logger.info("physical agent cmd: %s", shlex.join([sys.executable, *sys.argv]))
 
-    memory_profile = getattr(args, "memory_profile", "hf")
-    if not getattr(args, "explore", False) and memory_profile == "hf":
-        MemoryManager(get_memory_dir(robot_name)).sync(
-            remote_repo=robot_spec.memory_repo_id,
-            **(
-                {"allow_patterns": (f"{robot_name}/flash/**",)}
-                if args.planner == "flash"
-                else {}
-            ),
-        )
-    else:
-        logger.info("memory: using local %s profile", memory_profile)
+    prepare_run_memory(args, robot_spec, run_config)
 
     dashboard_events = NullDashboardEventSink()
 
@@ -448,6 +443,7 @@ def main() -> int:
         output_dir=output_dir,
         recipe_tag=recipe_tag,
         robot_name=robot_name,
+        memory_dir=prompt_vars.get("memory_dir"),
         base_url=args.base_url,
         model=args.model,
         max_tokens=args.max_tokens,

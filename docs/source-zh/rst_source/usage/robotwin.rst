@@ -192,7 +192,7 @@ RPent 默认使用 RoboTwin 的 ``demo_randomized`` 任务配置，该配置带�
 
 ``MEMORY.md`` 索引可跨任务复用的经验，例如感知线索、控制参数和失败恢复方法。规划器按当前任务与遇到的问题选择相关条目。
 
-每个评测任务的 ``task_only/<task>_s0.json`` 描述阶段目标、可观察的完成条件、控制方式及已知失败模式。配套的 ``task_only/<task>_s0_recipe.jsonl`` 保存历史工具调用，供规划器参考动作顺序和 VLA 动作块的执行节奏。
+每个评测任务的 ``task-specific/<task>_s0.json`` 描述阶段目标、可观察的完成条件、控制方式及已知失败模式。配套的 ``task-specific/<task>_s0_recipe.jsonl`` 保存历史工具调用，供规划器参考动作顺序和 VLA 动作块的执行节奏。
 
 文件名中的 ``_s0`` 是任务参考文件的统一命名，不代表场景 seed 0。实际来源 seed 经 RoboTwin 官方 expert 程序筛选，并保存在元数据中。
 

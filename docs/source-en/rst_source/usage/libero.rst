@@ -202,6 +202,10 @@ Inspect the final state with ``view_env_state(step=-1)``. Its top-level ``termin
 Task Memory and Exploration Mode
 --------------------------------
 
+Evaluation is single-attempt and reads memory without updating it. The default
+``hf`` profile uses ``--memory-version auto`` to select memory by model. See
+:doc:`memory` for explicit versions, offline preparation, and release provenance.
+
 Use ``--explore`` to build local memory or ``--memory-profile local`` to read a prepared corpus. See :doc:`memory` for the complete LIBERO workflow and commands. LIBERO’s native success result determines whether successful task records are published.
 
 .. raw:: html

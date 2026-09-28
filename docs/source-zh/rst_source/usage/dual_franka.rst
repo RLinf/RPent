@@ -226,10 +226,10 @@ API 部署需显式设置 ``RPENT_CODEX_API_KEY`` 和可选的 ``RPENT_CODEX_BAS
 
 探索沿用 RPent 的 memory 管理器：
 
-* 读取任务的 ``suite`` 经验和 ``MEMORY.md`` / ``global`` 通用经验。
+* 读取任务的 ``task-family`` 经验和 ``MEMORY.md`` / ``global`` 通用经验。
 * 失败证据写到运行目录的 ``attempts/``，工作笔记写到 ``<memory-dir>/_internal/inbox/<recipe_tag>/wip/``。
-* 人工确认成功后，整理 inbox 中的 ``suite`` / ``global`` 草稿。 runner 从最后一次成功复位后的执行记录导出 recipe，并为任务 audit 补入人工判定及状态证据。recipe 保存实际调用序列，不自动执行旧坐标。
-* 默认不自动合并。加 ``--auto-merge-memory`` 后，只在本次运行成功且无 agent 错误时，使用现有 merge/validate/index 流程发布草稿和 ``task_only`` audit/recipe 对。失败或中止的运行不自动发布草稿；原始日志与工作笔记继续保留。
+* 人工确认成功后，整理 inbox 中的 ``task-family`` / ``global`` 草稿。 runner 从最后一次成功复位后的执行记录导出 recipe，并为任务 audit 补入人工判定及状态证据。recipe 保存实际调用序列，不自动执行旧坐标。
+* 默认不自动合并。加 ``--auto-merge-memory`` 后，只在本次运行成功且无 agent 错误时，使用现有 merge/validate/index 流程发布草稿和 ``task-specific`` audit/recipe 对。失败或中止的运行不自动发布草稿；原始日志与工作笔记继续保留。
 
 提示词维护
 ~~~~~~~~~~
@@ -247,7 +247,7 @@ API 部署需显式设置 ``RPENT_CODEX_API_KEY`` 和可选的 ``RPENT_CODEX_BAS
 
 在双臂 ``--explore --interactive`` 模式中，单独输入 ``/success`` 或 ``/failure`` 并回车，由程序直接结束当前探索，不作为聊天消息交给规划器。不带斜杠的 ``success``、``failure`` 和其他自然语言照常交给 Agent 理解。 ``/success`` 仅在场景确认并成功复位之后接受；``/failure`` 也可在等待首次复位时结束。两者都不需要等待 Agent 请求结果判定。首次接受的结束判定不会被后续相反判定覆盖。
 
-程序立即禁止新工具调用，并请求取消执行中的工具。VLA 在现有动作边界检查取消；已经发送的机器人动作、正在执行的 RPC 或推理需要返回后才能收尾。随后采集新观测并记录人工判定。``/success`` 导出本次成功尝试的动作序列和审计证据，调用现有 memory 合并接口保存到 ``task_only``，然后关闭服务并退出。 ``/failure`` 保留运行日志和失败判定并退出，不发布成功经验。 ``/success`` 自动执行 memory 合并，无需额外指定 ``--auto-merge-memory``。观测或保存失败时不会报告完整成功，会返回错误；运行目录保留诊断记录。
+程序立即禁止新工具调用，并请求取消执行中的工具。VLA 在现有动作边界检查取消；已经发送的机器人动作、正在执行的 RPC 或推理需要返回后才能收尾。随后采集新观测并记录人工判定。``/success`` 导出本次成功尝试的动作序列和审计证据，调用现有 memory 合并接口保存到 ``task-specific``，然后关闭服务并退出。 ``/failure`` 保留运行日志和失败判定并退出，不发布成功经验。 ``/success`` 自动执行 memory 合并，无需额外指定 ``--auto-merge-memory``。观测或保存失败时不会报告完整成功，会返回错误；运行目录保留诊断记录。
 
 包含其他文字的消息（例如“抓取 success，但整个任务还没完成”）仍是普通聊天消息。场景重置可直接回复 ``/done``，也兼容 ``/operator <request-id> done``。代码更新需要重启当前任务进程后生效。
 
@@ -260,7 +260,7 @@ API 部署需显式设置 ``RPENT_CODEX_API_KEY`` 和可选的 ``RPENT_CODEX_BAS
 
 五个指令都需要单独输入并回车。不带 ``/`` 的 ``done``、``success``、 ``failure``、``continue``、``abort`` 均属于普通聊天，不控制程序。
 
-直接指令不会额外调用 global/suite 经验提炼。已有规划器错误仍会保留并阻止自动发布 memory。
+直接指令不会额外调用 global/task-family 经验提炼。已有规划器错误仍会保留并阻止自动发布 memory。
 
 独立 VLA 诊断控制台
 ~~~~~~~~~~~~~~~~~~~

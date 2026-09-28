@@ -103,6 +103,9 @@ The following defaults apply to LIBERO; check each other environment’s ``--hel
    * - ``--seed``
      - ``0``
      - Environment random seed.
+   * - ``--memory-version``
+     - ``auto``
+     - HF corpus: ``auto``, ``GPT_5.5_xhigh``, or ``GPT_6_astra_low``. See :doc:`memory`; explicit versions cannot be combined with local memory or exploration.
    * - ``--max-episode-steps``
      - ``10000``
      - Environment step limit, separate from planner turns (``--max-turns``).

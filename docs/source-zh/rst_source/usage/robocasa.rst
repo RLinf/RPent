@@ -187,22 +187,64 @@ RoboCasa 不绑定具体 planner；可使用 ``api``、``claude_code`` 或 ``cod
 任务记忆
 ------------
 
-使用 ``--memory-profile hf`` （评测默认值）时，RPent 会在运行前通过记忆管理器，从 `RLinf/RPent-memory 数据集 <https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/robocasa/results>`_ 将 ``robocasa/**`` 同步到 ``memory/robocasa``。在此模式下，当前任务只能读取 ``results/`` 中与该任务对应的记忆文件：
+``--memory-profile hf`` （默认值）下，CLI 与 Dashboard 均从 `RLinf/RPent-memory 数据集 <https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/robocasa>`_ 当前的 ``main`` 分支同步 ``robocasa/**``，不锁定数据 commit。目录结构为：
 
 .. code-block:: text
 
-   memory/robocasa/results/<Task>_s0.json
-   memory/robocasa/results/recipe_<Task>_s0.jsonl
-   memory/robocasa/results/<Task>.md  # 可选
+   memory/robocasa/
+   ├── task-specific/
+   │   ├── <Task>_s0.json
+   │   ├── <Task>_s0_recipe.jsonl
+   │   └── <Task>.md              # 可选
+   └── global/
+       └── GLOBAL_MEMORY.md
 
-已发布的记忆数据包含 43 个任务运行记录（audit JSON）、43 个动作序列（recipe JSONL）和 25 个任务经验文件（Markdown），共 111 个文件，不包含通用记忆。每对 JSON/JSONL 文件保存经过审核的 seed-0 运行证据。可选的 Markdown 文件记录同一任务的探索经验，可能汇总多次尝试；全部 16 个 Composite-Seen 任务和 9 个 Composite-Unseen 任务都提供该文件。提示词要求规划器在执行动作前，通过 ``read_text_file`` 读取当前任务已有的全部记忆文件；RPent 不会把这些文件的内容自动写入提示词。
+HF 评测时，RoboCasa 同时提供当前任务已有的 JSON、recipe、Markdown 和 ``global/GLOBAL_MEMORY.md``。规划器通过 ``read_text_file`` 按需查阅与当前任务相关的 task-specific 和 global 经验，自主决定读取时机和内容量；动作与任务结束不要求先读完全部文件。不提供关闭 global 层的选项。
 
-使用上述公开记忆时，规划器不读取通用记忆，也不使用其他任务的记忆作为替代。7 个 Composite-Unseen 任务没有任务记忆，但仍计入评测：``HeatKebabSandwich``、``PanTransfer``、``PortionHotDogs``、``SeparateFreezerRack``、``WaffleReheat``、``WashFruitColander`` 和 ``WeighIngredients``。这些任务依靠实时观测继续执行。记忆只提供执行方法的参考；历史坐标、位姿、像素和子任务提示词不能替代当前场景定位与本次任务的完整指令。
+提示词与文件工具使用相同的文件选择。RPent 文件工具拒绝读取其他任务的 memory；这是工具层限制，不是操作系统级隔离。JSON/JSONL 均缺失时，继续使用实时观测和 global；只有其中一个存在则报错。缺少可选 Markdown 会记录日志，global 文件必须存在。文件按任务名和目录直接发现，无需额外索引。CLI 在启动机器人服务前校验 memory。Dashboard 在启动共享 VLA 前检查 memory 目录和 global 层；选定任务后，先检查该任务的文件，再启动其环境。任务 memory 校验失败时，已有的共享 VLA 仍可供其他任务使用。
+
+实时 ``task_language``、RGB-D、任务进展和工具返回优先于 memory。只有可见前提成立时才应用 global 策略。有接触、持有物体、fixture 进展或计数器上升时保持 VLA 连续调用；连续两次无接触且无可见进展后，重新定位并有限调整姿态。每次 VLA 调用都使用完整、逐字的实时任务语言。历史 ``vla_act`` 仅描述策略，执行使用当前工具，不回放历史坐标。评测时仍然不允许 reset。
+
+使用本地 memory 时，下载到新目录后选择 local profile。使用新目录也可避免旧下载目录残留已从远端删除的文件：
+
+.. code-block:: bash
+
+   hf download RLinf/RPent-memory --repo-type dataset \
+      --include 'robocasa/**' --local-dir ./target50-memory
+
+   rpent --robot robocasa \
+         --task-name OpenDrawer --split target --seed 1 \
+         --vla-model-path /path/to/rldx \
+         --planner codex --model gpt-5.5 --reasoning-effort xhigh \
+         --memory-profile local --memory-dir ./target50-memory/robocasa
+
+后续 memory 更新仅发布到 HF ``main``。 `reproduce/memory 归档 <https://huggingface.co/datasets/RLinf/RPent-memory/tree/reproduce/memory>`_ 保留 ``d8c25a7f`` 的 GPT-5.5 Harness-VLA 复现资源，正文和目录命名均保持原样。其中 RoboCasa 使用 ``task_only/``，当前加载器要求 ``task-specific/``，不会转换旧布局。因此，下载该归档后直接传给当前 ``--memory-profile local`` 加载器，不是受支持的复现命令。归档 README 描述的是历史行为，不是当前 CLI。本指南尚未确立与该归档配套的 RoboCasa 代码/数据快照；上面的命令使用当前 main 语料。
+
+本地探索产物也可以直接用于评测，无需转换。对于 ``--task-name <Task> --split <split>``，local 评测从 ``task-specific/`` 中选择发布版 ``<Task>_s0.json`` / ``<Task>_s0_recipe.jsonl`` 文件对，或者原生 ``<Task>_<split>_s0.json`` / ``<Task>_<split>_s0_recipe.jsonl`` 文件对。任一候选只存在半对都会报错；两对同时存在时，必须用不同的 ``--memory-dir`` 目录分开，RPent 不会自动选择。两对都缺失时，可以仅使用 global 指导。
+
+local 评测还提供 ``global/*.md``，以及 YAML frontmatter 中 ``suite: robocasa``、``regime: <split>``、``task_id: <Task>`` 均精确匹配的 ``task-family/*.md``。其他任务和 split 不会被提供；可选的 ``task-specific/<Task>.md`` 仍可读取。评测无需也不开放全语料的 ``MEMORY.md`` 索引和 ``_internal/``，而是直接列出已选择文件。包括 local profile 在内，缺少 global 都会阻止评测启动。提示词、文件权限和读取审计共用相同选择；结果记录实际 profile 和匹配的任务族身份，供校验器检查。
+
+自定义记忆来源
+~~~~~~~~~~~~~~
+
+使用相同 ``robocasa/`` 结构的其他 HF 数据集时，启动 RPent 前设置 ``RPENT_MEMORY_HF_REPO=<owner>/<dataset>``，并使用 ``--memory-profile hf``。这里接受数据集仓库 ID，不是浏览器页面 URL。
+
+使用自定义子目录或维护分支时，下载对应子树到新目录后选择 local profile：
+
+.. code-block:: bash
+
+   hf download <owner>/<dataset> --repo-type dataset \
+      --include '<subpath>/**' --local-dir ./custom-memory
+
+   # 在 RPent 运行命令中加上：
+   # --memory-profile local --memory-dir ./custom-memory/<subpath>
+
+所选目录使用 ``task-specific/``，并且必须提供至少一个可读的 ``global/*.md`` 文件。选择分支时，在 HF 下载命令中加上 ``--revision <branch>``。
 
 探索模式
 ------------
 
-添加 ``--explore`` 后，规划器可以复位环境并重新尝试任务，将经验写入本地记忆。与 LIBERO 相同，每次运行默认最多包含 3 个规划会话，每个会话最多尝试 5 次：
+添加 ``--explore`` 后，规划器可以复位环境并重新尝试任务，将经验写入本地记忆。探索可从空目录开始，并可读取索引、写入当前任务的草稿目录。与 LIBERO 相同，每次运行默认最多包含 3 个规划会话，每个会话最多尝试 5 次：
 
 .. code-block:: bash
 
@@ -214,10 +256,24 @@ RoboCasa 不绑定具体 planner；可使用 ``api``、``claude_code`` 或 ``cod
 
 ``reset`` 使用环境原有的复位流程。运行器只导出最后一次复位后成功尝试的动作序列。探索经验先写入当前任务的本地草稿目录（inbox）；运行正常结束、未发生智能体执行错误时，会自动合并草稿。传入 ``--no-auto-merge-memory`` 可关闭自动合并。探索提示词位于 ``robots/robocasa/prompts/explore.py``，规定了移动底盘的使用、``task_progress`` 检查、RLDX 连续执行以及失败尝试的记录方式。
 
+共享记忆合并流程 将通过校验的提案发布到 ``task-family/`` 和 ``global/``，将成功的 audit/recipe 文件对复制到 ``task-specific/``，并刷新 ``MEMORY.md``。评测这些原生产物时，使用 seed-0 探索输出，以 ``--memory-profile local`` 指向同一目录。必须先有已发布的 global，评测才可启动；评测使用独立的任务/split 访问边界，探索则保留重试和 inbox 工作流程。
+
 实验复现（Target50）
 ----------------------
 
-``robots/robocasa/eval/target50.json`` 定义 Harness VLA 在 RoboCasa Target50 上的复现要求，包括 ``target`` 环境划分、Hugging Face 资源版本、记忆使用范围、任务与 seed 的组合、运行时限、成功判定和重试规则。每个任务与 seed 的组合称为一个评测单元（cell），协议 ID 为 ``robocasa-harness-vla-v1``。源码依赖使用清单中指定的 ``rpent`` 分支；每次复现都需记录实际安装的提交版本：
+当前 ``robots/robocasa/eval/target50_v2.json`` 协议（``robocasa-harness-vla-v2``）使用 task/global memory，不锁定数据版本。它保留 target 的 task/seed 矩阵、cell 时限、no-reset 规则、环境成功判据和 40/999/8 的 RLDX 参数。协议 ID 标识结果格式和评测规则，供校验器区分 v1 与 v2，不是 memory 数据版本选择参数。
+
+结果记录固定的任务/global 文件选择、缺失文件和实际读取情况。校验器允许零读取和部分读取，仍检查任务访问边界和审计结构。审计文件缺失或损坏会单独报告；是否完整读取不决定环境结果的有效性或成功值。每次运行都会重新初始化读取审计，即使复用了输出目录也不继承旧记录。
+
+校验器不比较不同运行之间的 memory 正文。HF ``main`` 接收后续更新， ``reproduce/memory`` 保持为不再变更的历史归档。使用当前布局进行可重复的对照实验时，只下载一次 memory，所有 cell 均用 ``--memory-profile local --memory-dir`` 指向同一份保持不变的目录。保留这些文件，并在本地实验记录中保存 HF commit 或哈希。RPent 不固定 memory，也不向结果元数据添加数据版本标识。
+
+清单定义评测矩阵和校验规则，:doc:`排行榜 <../leaderboard/performance>` 展示独立报告的成绩。340 个回合本身不能证明运行使用了哪份 memory、模型或代码配置。当前 v2 清单包含 GPT-5.5 参考配置，不能直接用于校验榜单上的所有模型。
+
+- ``target50.json`` 保留历史 v1 task-specific 协议。校验相匹配的旧记录时传入 ``--manifest robots/robocasa/eval/target50.json``。
+- ``target50_v2.json`` 描述当前 task-specific 与 global 一起使用的运行，是新结果 和校验器的默认清单。
+- 榜单成绩保留各自报告的来源；没有匹配的运行证据时，不将其重新标为 v2 结果。
+
+每个任务与 seed 的组合称为一个评测单元（cell）。源码依赖使用清单中指定的 ``rpent`` 分支；每次运行都需记录实际安装的提交版本。
 
 .. list-table:: RoboCasa Target50 矩阵
    :header-rows: 1
@@ -249,25 +305,17 @@ RoboCasa 不绑定具体 planner；可使用 ``api``、``claude_code`` 或 ``cod
      -
      - **340**
 
-50 个任务分三组：
+Seen/Unseen 指任务是否出现在预训练数据中；target 厨房场景是独立的保留场景划分，详见 `RoboCasa 数据定义 <https://robocasa.ai/docs/build/html/datasets/datasets_overview.html>`_。50 个任务分三组：
 
 - **Atomic (18)** —— 单步原语的开合与搬运任务: ``CloseBlenderLid``、 ``CloseFridge``、``CloseToasterOvenDoor``、``CoffeeSetupMug``、 ``NavigateKitchen``、``OpenCabinet``、``OpenDrawer``、 ``OpenStandMixerHead``、``PickPlaceCounterToCabinet``、 ``PickPlaceCounterToStove``、``PickPlaceDrawerToCounter``、 ``PickPlaceSinkToCounter``、``PickPlaceToasterToCounter``、 ``SlideDishwasherRack``、``TurnOffStove``、``TurnOnElectricKettle``、 ``TurnOnMicrowave``、``TurnOnSinkFaucet``。
-- **Composite seen (16)** —— 训练时见过的厨房布局上的多步任务: ``ScrubCuttingBoard``、``StackBowlsCabinet``、``WashLettuce``、 ``RinseSinkBasin``、``PreSoakPan``、``StirVegetables``、 ``LoadDishwasher``、``SteamInMicrowave``、``SetUpCuttingStation``、 ``GetToastedBread``、``DeliverStraw``、``KettleBoiling``、 ``PrepareCoffee``、``StoreLeftoversInBowl``、``SearingMeat``、 ``PackIdenticalLunches``。
-- **Composite unseen (16)** —— 训练时 **没** 见过的布局上的多步任务（泛化测试）： ``ArrangeBreadBasket``、``ArrangeTea``、 ``BreadSelection``、``CategorizeCondiments``、 ``CuttingToolSelection``、``GarnishPancake``、``GatherTableware``、 ``HeatKebabSandwich``、``MakeIceLemonade``、``PanTransfer``、 ``PortionHotDogs``、``RecycleBottlesByType``、 ``SeparateFreezerRack``、``WaffleReheat``、``WashFruitColander``、 ``WeighIngredients``。
+- **Composite seen (16)** —— 预训练数据中出现过的组合任务： ``ScrubCuttingBoard``、``StackBowlsCabinet``、``WashLettuce``、 ``RinseSinkBasin``、``PreSoakPan``、``StirVegetables``、 ``LoadDishwasher``、``SteamInMicrowave``、``SetUpCuttingStation``、 ``GetToastedBread``、``DeliverStraw``、``KettleBoiling``、 ``PrepareCoffee``、``StoreLeftoversInBowl``、``SearingMeat``、 ``PackIdenticalLunches``。
+- **Composite unseen (16)** —— 预训练数据中未出现过的组合任务： ``ArrangeBreadBasket``、``ArrangeTea``、 ``BreadSelection``、``CategorizeCondiments``、 ``CuttingToolSelection``、``GarnishPancake``、``GatherTableware``、 ``HeatKebabSandwich``、``MakeIceLemonade``、``PanTransfer``、 ``PortionHotDogs``、``RecycleBottlesByType``、 ``SeparateFreezerRack``、``WaffleReheat``、``WashFruitColander``、 ``WeighIngredients``。
 
 任选一个传给 ``--task-name`` 即可。RoboCasa 完整目录更大，参见 `RoboCasa <https://robocasa.ai>`_ 上游。
 
-HF 模式下的普通运行同步 Hugging Face ``main`` 分支；正式 Target50 评测使用固定的记忆快照 ``551fc3157b3e56b40a3d3a3b4c7ff81721ebe89b``：
+进行可重复的 Target50 对照实验时，先按“任务记忆”中的下载命令准备当前语料。所有评测单元使用同一份保持不变的本地目录，并随结果保留来源 revision 或文件哈希。
 
-.. code-block:: bash
-
-   hf download RLinf/RPent-memory \
-      --repo-type dataset \
-      --revision 551fc3157b3e56b40a3d3a3b4c7ff81721ebe89b \
-      --include "robocasa/**" \
-      --local-dir ./target50-memory
-
-复现 Target50 时，先下载上文指定版本的资源，再为清单中的每个任务与 seed 组合运行一次命令。参考实验使用 Codex，配置为 ``gpt-5.5``、``xhigh``、``max_turns=100``；RoboCasa 本身也支持其他规划器。场景由 ``--seed`` 指定，不要设置 ``RLDX_RESET_SEED``。普通 RoboCasa 使用 ``max_chunks=70``，Target50 将其设为 40。运行前设置 Target50 评测使用的 RLDX 参数：
+运行 Target50 时，先准备上文的资源和本地记忆，再为清单中的每个任务与 seed 组合运行一次命令。参考实验使用 Codex，配置为 ``gpt-5.5``、``xhigh``、``max_turns=100``；RoboCasa 本身也支持其他规划器。场景由 ``--seed`` 指定，不要设置 ``RLDX_RESET_SEED``。普通 RoboCasa 使用 ``max_chunks=70``，Target50 将其设为 40。运行前设置 Target50 评测使用的 RLDX 参数：
 
 .. code-block:: bash
 
@@ -298,10 +346,17 @@ Composite-Seen 与 Composite-Unseen 使用 ``--planner-timeout-s 3600``。按 At
    python -m robots.robocasa.eval.validate_target50 ./runs/target50
 
 
-已发布的 Target50 结果
+Target50 报告成绩与历史结果
 ----------------------------
 
-已发布的 Codex 复现覆盖全部 340 个评测单元，按任务汇总的结果如下：
+当前 GPT-5.5 公开成绩以 :doc:`排行榜 <../leaderboard/performance>` 为准： **Overall 57.1%**、**Atomic-Seen 92.0%**、**Composite-Seen 61.0%**、 **Composite-Unseen 13.8%**。Overall 对 50 个任务等权计算，不是 340 回合中的成功回合占比。
+
+Astra 的报告值为 **Overall 59.20%**，三个分项分别为 **87.78% / 43.75% / 42.50%**。回合数已根据 `实验贡献者确认的更正 <https://github.com/RLinf/RPent/pull/205#issuecomment-5749514622>`_ 同步为 **340（180/80/80）**；此前的 250 回合信息属于尚未同步的历史记录。此次更正保留已报告成功率，不由四舍五入后的比率推算成功次数，也不代表重新核验了全部 340 份原始结果。
+
+历史 Codex 复现
+~~~~~~~~~~~~~~~~
+
+归档中的复现覆盖全部 340 个评测单元，按任务汇总的结果如下。这些历史数值不代表使用 v2 协议重新评测的结果：
 
 .. list-table:: Codex Target50 复现结果
    :header-rows: 1
@@ -328,7 +383,7 @@ Composite-Seen 与 Composite-Unseen 使用 ``--planner-timeout-s 3600``。按 At
      - 57.00%
      - 55.40%
 
-`完整逐任务结果表 <https://github.com/RLinf/RPent/blob/main/robots/robocasa/eval/target50_codex_results.md>`_ 给出每个任务的成功次数和成功率。当前发布的是任务级汇总数据，不包含各 seed 的执行记录、原始轨迹或失败分类，因此不能用于逐次复核运行过程。
+`历史逐任务结果表 <https://github.com/RLinf/RPent/blob/57088f6df30b227f2229ead985aa75403c0ce291/robots/robocasa/eval/target50_codex_results.md>`_ 给出每个任务的成功次数和成功率。这份历史记录仅提供任务级汇总数据，不包含各 seed 的执行记录、原始轨迹或失败分类，因此不能用于逐次复核运行过程。
 
 .. _environment-smoke-tests:
 
@@ -376,7 +431,7 @@ Composite-Seen 与 Composite-Unseen 使用 ``--planner-timeout-s 3600``。按 At
 - 共享只读环境应将 ``NUMBA_CACHE_DIR`` 设置到当前用户可写目录，不要修改包的代码权限。
 
 - 导航 RGB-D 或 world map 渲染报告缺少 ``mobilebase0_navview`` 时，应重新安装 ``.[robocasa]`` 以刷新 ``RLinf/robosuite`` 的 ``rpent`` 分支；不要手工修改已安装的 XML。
-- ``read_text_file`` 报告缺少当前任务结果时，请检查 ``memory/robocasa/results/`` 目录或所选本地目录。RPent 不会读取其他任务的 memory 作为替代。 Markdown 为可选文件；Atomic 任务没有发布 ``<Task>.md``。
+- ``read_text_file`` 报告缺少当前任务结果时，请检查 ``memory/robocasa/task-specific/`` 目录或所选本地目录。RPent 不会读取其他任务的 memory 作为替代。 Markdown 为可选文件；Atomic 任务没有发布 ``<Task>.md``。
 - 环境与 VLA 启动错误会分别记录在 ``<output_dir>/env_server.log`` 和 ``<output_dir>/vla_server.log``；运行级错误也可检查 ``<output_dir>/run.log``。
 - 只有准确的 ``127.0.0.1`` 与 ``localhost`` 主机名会自动绕过 HTTP 代理。其他主机名与 IP 均遵循标准代理环境；只有该服务应当直连时，才需要把准确主机名加入 ``NO_PROXY`` 与 ``no_proxy`` 配置。
 

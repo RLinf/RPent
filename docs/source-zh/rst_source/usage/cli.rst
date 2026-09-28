@@ -98,6 +98,9 @@ LIBERO 使用 ``--suite``、``--task``、``--seed`` 和 ``--libero-type`` 选择
    * - ``--seed``
      - ``0``
      - 环境随机种子。
+   * - ``--memory-version``
+     - ``auto``
+     - HF 记忆版本：``auto``、``GPT_5.5_xhigh`` 或 ``GPT_6_astra_low``。详见 :doc:`memory`；显式版本不能与本地记忆或探索模式同时使用。
    * - ``--max-episode-steps``
      - ``10000``
      - 环境步数上限，与规划器的 ``--max-turns`` 分开计算。
