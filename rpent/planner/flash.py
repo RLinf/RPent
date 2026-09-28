@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import time
 
-from rpent.planner.base import PlannerResult
+from rpent.planner.base import Planner, PlannerResult
 from rpent.robots.base import get_robot_spec
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger
@@ -37,7 +37,7 @@ from rpent.utils.logging import get_logger
 logger = get_logger("flash")
 
 
-class FlashPlanner:
+class FlashPlanner(Planner):
     """Replay one recorded program against the toolkit the runtime handed over."""
 
     def __init__(
@@ -64,7 +64,7 @@ class FlashPlanner:
 
         A program decides the actions before the episode begins, so there is no
         conversation to hold and no turn to spend. The arguments are accepted to
-        satisfy the planner protocol.
+        satisfy the planner interface.
         """
         run_flash = get_robot_spec(self._robot_name).run_flash
         if run_flash is None:

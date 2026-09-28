@@ -18,9 +18,8 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from typing import Any
 
-from rpent.dashboard.interaction import DashboardInteractionPort
+from rpent.dashboard.interaction import DashboardInteractionPort, PlannerSessionDriver
 
 
 class DashboardPlannerControl:
@@ -34,12 +33,14 @@ class DashboardPlannerControl:
         emit_user: Callable[[str], None],
         emit_initial_user: Callable[[], None],
         defer_message_ack: bool = False,
+        submit_while_busy: bool = False,
     ) -> None:
         self._interaction = interaction
         self._cancel_active_and_wait = cancel_active_and_wait
         self._emit_user = emit_user
         self._emit_initial_user = emit_initial_user
         self._defer_message_ack = defer_message_ack
+        self._submit_while_busy = submit_while_busy
         self._lock = asyncio.Lock()
         self._outstanding_completions = 0
 
@@ -52,7 +53,7 @@ class DashboardPlannerControl:
         )
         self._emit_initial_user()
 
-    async def run(self, driver: Any) -> None:
+    async def run(self, driver: PlannerSessionDriver) -> None:
         """Forward Dashboard commands until the interaction ends."""
         version = self._interaction.interaction_version
         while self._interaction.planner_activity != "ended":
@@ -62,7 +63,7 @@ class DashboardPlannerControl:
                 version,
             )
 
-    async def complete(self, driver: Any) -> None:
+    async def complete(self, driver: PlannerSessionDriver) -> None:
         """Record one completed backend request and flush queued input."""
         async with self._lock:
             if self._interaction.planner_activity == "ended":
@@ -73,7 +74,7 @@ class DashboardPlannerControl:
             )
             await self._flush(driver)
 
-    async def tool_completed(self, driver: Any) -> None:
+    async def tool_completed(self, driver: PlannerSessionDriver) -> None:
         """Flush input queued while the backend was running a tool."""
         async with self._lock:
             await self._flush(driver)
@@ -96,7 +97,7 @@ class DashboardPlannerControl:
         """Cancel and drain the active toolkit operation off the event loop."""
         await asyncio.to_thread(self._cancel_active_and_wait)
 
-    async def _process(self, driver: Any) -> None:
+    async def _process(self, driver: PlannerSessionDriver) -> None:
         async with self._lock:
             if self._interaction.planner_activity == "ended":
                 return
@@ -127,17 +128,14 @@ class DashboardPlannerControl:
                     )
                     await self._flush(driver)
                 return
-            if self._interaction.planner_activity == "idle":
+            if self._interaction.planner_activity == "idle" or self._submit_while_busy:
                 await self._flush(driver)
 
-    async def _flush(self, driver: Any) -> None:
+    async def _flush(self, driver: PlannerSessionDriver) -> None:
         message = self._interaction.claim_next_pending_message()
         while message is not None and not self._interaction.task_replacement_requested:
             try:
-                if self._defer_message_ack:
-                    added_completions = await driver.submit_dashboard_message(message)
-                else:
-                    added_completions = await driver.submit(message.text)
+                added_completions = await driver.submit(message)
             except Exception as exc:
                 self._interaction.mark_message_failed(
                     message.message_id,
