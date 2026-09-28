@@ -18,6 +18,10 @@ from rpent.robots.components.env_client_base import BaseEnvClient
 
 
 class MetaWorldEnvClient(BaseEnvClient):
+    def get_runtime_info(self) -> dict:
+        """Read versions and recording paths from the simulator process."""
+        return self._client.call("env.get_runtime_info")
+
     def get_obs(self) -> dict:
         return self._client.call("env.get_obs", timeout_s=30)
 

@@ -95,7 +95,7 @@ RPent is built for four kinds of users:
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/libero.html">LIBERO-PRO</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/robocasa.html">RoboCasa</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/robotwin.html">RoboTwin</a> ✅</li>
-          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/metaworld.html">MetaWorld (3 tasks)</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/metaworld.html">MetaWorld (10 tasks)</a> ✅</li>
           <li>RoboDojo</li>
         </ul>
       </td>

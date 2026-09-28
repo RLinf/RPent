@@ -81,6 +81,7 @@ def facade():
     env = MetaWorldEnvFacade.__new__(MetaWorldEnvFacade)
     env._terminated = env._truncated = env._success = False
     env._steps = 0
+    env._video_writer = None
     env._meta = {"max_episode_steps": 2}
     env._env = Mock()
     env._env.step.return_value = ({}, 0.0, False, False, {"success": False})

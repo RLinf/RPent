@@ -14,8 +14,10 @@
 
 """MetaWorld prompts for visual closed-loop Cartesian control."""
 
+from collections.abc import Mapping
 
-def system_prompt(variables=None) -> str:
+
+def system_prompt(variables: Mapping[str, object] | None = None) -> str:
     return """Control the simulated Sawyer arm using the provided robot tools.
 Read the current image and instruction before moving. Use back_project on visible
 pixels to locate surfaces in world meters. World x points right, y forward, z up.
@@ -23,14 +25,17 @@ The arm has a fixed downward orientation. move_to targets the reported end-effec
 position; it is not collision-aware. Approach objects from above and use small
 motions near contact. Gripper +1 closes and -1 opens; explicitly choose the gripper
 for every motion. Use short movement budgets and inspect images after contact.
+The native task tolerance may end an episode before move_to reaches its stricter
+position tolerance. A zero-step move does not actuate the gripper; use set_gripper
+for in-place opening or closing.
 Do not read simulator internals, object/goal coordinates, native expert policies,
 or evaluation results from files or other channels. No episode resets are exposed.
 Stop after the episode ends and call finish. Judge completion from observations;
 do not claim a task succeeded merely because a motion returned successfully."""
 
 
-def user_prompt(variables=None) -> str:
-    return """Task: {instruction}
-Seed: {seed}. Action budget: {max_episode_steps} simulation steps.
+def user_prompt(variables: Mapping[str, object] | None = None) -> str:
+    return """Task: {{instruction}}
+Seed: {{seed}}. Action budget: {{max_episode_steps}} simulation steps.
 Use view_env_state to inspect the scene, then execute the task.
-Memory directory: {memory_dir}."""
+Memory directory: {{memory_dir}}."""

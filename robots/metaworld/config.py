@@ -18,6 +18,13 @@ TASKS = {
     "reach-v3": "Move the gripper to the visible red goal marker.",
     "push-v3": "Push the puck to the visible goal marker on the table.",
     "pick-place-v3": "Pick up the puck and place it at the visible goal marker.",
+    "door-open-v3": "Pull the handle to open the door.",
+    "drawer-open-v3": "Pull the drawer open using its handle.",
+    "drawer-close-v3": "Push the drawer closed.",
+    "button-press-topdown-v3": "Press the button down from above.",
+    "peg-insert-side-v3": "Insert the peg into the side-facing hole.",
+    "window-open-v3": "Slide the window open using its handle.",
+    "window-close-v3": "Slide the window closed using its handle.",
 }
 CAMERAS = ("corner", "corner2", "corner3", "topview", "behindGripper", "gripperPOV")
 

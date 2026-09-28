@@ -45,6 +45,8 @@ def back_project_pixel(obs: dict, row: int, col: int) -> list[float]:
     if not np.isfinite(z) or z <= 0:
         raise ValueError("pixel has no finite positive depth")
     meta = obs["camera"]
+    if "clip_range" in meta and z >= meta["clip_range"][1] * (1 - 1e-5):
+        raise ValueError("pixel is at the far clipping plane, not a visible surface")
     k = np.asarray(meta["intrinsics"])
     camera_point = np.array(
         [(col - k[0, 2]) * z / k[0, 0], -(row - k[1, 2]) * z / k[1, 1], -z]
@@ -68,7 +70,6 @@ class MetaWorldToolkit(Toolkit):
     ) -> None:
         self.env = runtime_kwargs["env_client"]
         self.obs = self.env.last_obs
-        self._frames = []
         super().__init__(
             dashboard_events=dashboard_events,
             state=EnvState(state_output_dir),
@@ -144,6 +145,8 @@ class MetaWorldToolkit(Toolkit):
         return {
             **record.state,
             "episode_ended": bool(record.terminated or record.truncated),
+            "terminated": record.terminated,
+            "truncated": record.truncated,
             "_image_bytes": self._state.load_bytes("camera.png", step=-1),
         }
 
@@ -151,7 +154,14 @@ class MetaWorldToolkit(Toolkit):
     def back_project(self, row: int, col: int) -> dict:
         """Locate a visible surface from the latest snapshot's depth."""
         return {
-            "world_xyz": back_project_pixel(self.obs, row, col),
+            "world_xyz": back_project_pixel(
+                {
+                    "depth": self._state.load("depth.npy", step=-1),
+                    "camera": self._state.latest_record().state["camera"],
+                },
+                row,
+                col,
+            ),
             "pixel": [row, col],
         }
 
@@ -235,15 +245,8 @@ class MetaWorldToolkit(Toolkit):
         ):
             self._state.save("camera.png", self.obs["rgb"])
             self._state.save("depth.npy", self.obs["depth"])
-        self._frames.append(self.obs["rgb"])
         return {**self._view(), "motion_result": result}
 
     def solved(self) -> bool:
         """Read the native success accumulator only for run finalization."""
         return self.env.is_success()
-
-    def close(self) -> None:
-        """Save diagnostic tool-boundary frames."""
-        # Snapshots are at tool boundaries; this is not a frame-by-frame trajectory.
-        if self._frames:
-            self._state.save("tool_snapshots.mp4", self._frames, step=None, fps=2)

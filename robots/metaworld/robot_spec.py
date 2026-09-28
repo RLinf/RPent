@@ -65,7 +65,14 @@ def _parse_config(args) -> RunConfig:
             "max_episode_steps": args.max_episode_steps,
             "memory_dir": str(memory),
         },
-        task_desc={"task": args.task, "seed": args.seed, "camera": args.camera},
+        task_desc={
+            "task": args.task,
+            "seed": args.seed,
+            "camera": args.camera,
+            "max_episode_steps": args.max_episode_steps,
+            "benchmark": "MT1",
+            "num_tasks": 1,
+        },
     )
 
 
@@ -100,6 +107,8 @@ def _spawn(args, output_dir):
             "--port",
             str(port),
             "--parent-watch",
+            "--video-dir",
+            str(output_dir / "videos"),
         ],
         env_overrides={"MUJOCO_GL": "egl"},
         cwd=str(get_repo_root()),
@@ -126,6 +135,12 @@ def _init_runtime(args, output_dir, dashboard_events, components=None):
         "max_episode_steps": args.max_episode_steps,
         "camera": args.camera,
     }
+
+    def connect() -> MetaWorldEnvClient:
+        client = MetaWorldEnvClient(rpc, expected_meta=expected)
+        write_json_atomic(output_dir / "environment.json", client.get_runtime_info())
+        return client
+
     client = try_wait_server(
         daemons,
         dashboard_events,
@@ -133,7 +148,7 @@ def _init_runtime(args, output_dir, dashboard_events, components=None):
         rpc,
         daemon,
         120,
-        post_fn=lambda: MetaWorldEnvClient(rpc, expected_meta=expected),
+        post_fn=connect,
     )
     return list(daemons.values()), {"env_client": client}
 
@@ -149,6 +164,10 @@ def _finalize(context) -> Path:
             "elapsed_s": round(context.elapsed_s, 2),
             "planner": context.planner,
             "model": context.model,
+            "reasoning_effort": context.reasoning_effort,
+            "max_turns": context.max_turns,
+            "planner_timeout_s": context.planner_timeout_s,
+            "planner_finish": context.finish_result,
         },
     )
 
