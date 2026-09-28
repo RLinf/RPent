@@ -22,7 +22,7 @@ import os
 import numpy as np
 import pytest
 
-from robots.libero.robot_spec import get_robot_spec
+from robots.libero.robot_spec import COSMOS_PRO_SUITES, get_robot_spec
 from tests.e2e_tests.common import (
     ScriptedToolCall,
     parse_runtime_args,
@@ -34,22 +34,23 @@ from tests.e2e_tests.common import (
 pytestmark = [
     pytest.mark.skipif(
         not os.environ.get("RPENT_COSMOS_ENDPOINT"),
-        reason="requires RPENT_COSMOS_ENDPOINT and standard LIBERO assets",
+        reason="requires RPENT_COSMOS_ENDPOINT and the selected LIBERO assets",
     ),
     pytest.mark.timeout(1200),
 ]
 
 
 def _argv() -> list[str]:
+    suite = os.getenv("RPENT_COSMOS_SUITE", "libero_spatial")
     return [
         "--suite",
-        "libero_spatial",
+        suite,
         "--task",
         "0",
         "--seed",
         "0",
         "--libero-type",
-        "standard",
+        "pro" if suite in COSMOS_PRO_SUITES else "standard",
         "--max-episode-steps",
         "32",
         "--vla-backend",
@@ -87,6 +88,7 @@ def test_cosmos_policy_chain(tmp_path, prompt, max_chunks) -> None:
             "cosmos_act", {"prompt": prompt, "max_chunks": max_chunks}
         ),
         action_count_field="chunks",
+        use_memory=False,
     )
     assert result["status"] == "passed"
     assert list((tmp_path / "chain" / "agentview_high.png").glob("*.png"))

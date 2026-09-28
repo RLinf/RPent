@@ -222,8 +222,12 @@ def test_public_cli_cosmos_requires_skipping_hf_sync(
     [
         (["--explore"], "evaluation"),
         (["--planner", "flash"], "evaluation"),
-        (["--libero-type", "pro"], "standard LIBERO"),
-        (["--suite", "libero_object_swap"], "standard LIBERO"),
+        (["--libero-type", "pro"], "requires --libero-type standard"),
+        (["--suite", "libero_object_lan"], "PRO task/swap"),
+        (
+            ["--suite", "libero_object_swap", "--libero-type", "standard"],
+            "requires --libero-type pro",
+        ),
         (["--memory-profile", "hf"], "memory is not supported"),
         (["--memory-dir", "/some/corpus"], "does not support --memory-dir"),
     ],
@@ -238,6 +242,14 @@ def test_cosmos_requires_external_endpoint() -> None:
     args.vla_endpoint = None
     with pytest.raises(ValueError, match="--vla-endpoint"):
         robot_spec._parse_config(args)
+
+
+@pytest.mark.parametrize("suite", robot_spec.COSMOS_PRO_SUITES)
+def test_cosmos_pro_suites_select_pro_runtime(suite) -> None:
+    args = _args("--suite", suite)
+    config = robot_spec._parse_config(args)
+    assert args.libero_type == "pro"
+    assert config.task_desc["suite"] == suite
 
 
 def test_runtime_borrows_cosmos_service_without_spawning_pi05(

@@ -28,8 +28,8 @@ Cosmos Policy（实验性）
 ``--vla-backend cosmos-policy`` 通过独立启动的 RPC 服务使用 NVIDIA
 `Cosmos Policy <https://github.com/NVlabs/cosmos-policy>`_ 的 LIBERO checkpoint。
 当前支持标准 ``libero_spatial``、``libero_object``、``libero_goal`` 和
-``libero_10`` 的单次评测。
-此适配器暂不支持探索模式、Flash Mode、PRO/plus 变体以及基于世界模型的
+``libero_10``，以及它们对应的 LIBERO-Pro ``_task`` 和 ``_swap`` 任务集的单次评测。
+此适配器暂不支持探索模式、Flash Mode、其他 PRO 扰动、plus 变体以及基于世界模型的
 best-of-N 规划。
 
 按官方 `安装指南 <https://github.com/NVlabs/cosmos-policy/blob/main/SETUP.md>`_
@@ -111,6 +111,15 @@ checkpoint 仍仅支持 LIBERO；环境接线及 ``cosmos_act`` 保留在
 ``robots/libero/cosmos_policy_server.py`` 入口已移除。
 CLI 和 Dashboard 均通过 ``--vla-backend`` 选择模型。
 
+运行 Pro 需安装 ``.[libero-pro]``，并使用
+``liberopro-download-assets --skip-existing`` 准备资源。选择完整任务集名称，
+例如 ``--suite libero_spatial_task`` 或 ``--suite libero_goal_swap``，Cosmos
+会自动选择 ``pro``；显式指定的 ``--libero-type`` 必须与任务集一致。
+若标准版配置指向不同的包，请为 Pro 使用独立的 ``LIBERO_CONFIG_PATH``。
+运行前确认每个任务的初始状态非空，指令及成功条件均来自 Pro BDDL。
+部分源码发行版本包含空初始状态文件，需从官方 HF 数据集
+``zhouxueyang/LIBERO-Pro`` 获取对应文件，不能用标准任务的初始状态替代。
+
 安装 ``.[test,libero]`` 后，可使用离线规划器验证真实服务及有界执行链路：
 
 .. code-block:: bash
@@ -120,6 +129,8 @@ CLI 和 Dashboard 均通过 ``--vla-backend`` 选择模型。
 
 测试需要真实 LIBERO 资源；完整链路还需要 SAM3，子任务指令用例需要上述 T5
 编码器权重。链路通过说明动作执行和产物记录正常，不代表任务成功。
+设置 ``RPENT_COSMOS_SUITE=libero_spatial_task`` 或支持的 swap 任务集，
+并配置 Pro 资源路径，即可在 Pro 上执行相同检查。
 
 如需单独测量策略性能，准备运行中的服务和标准 LIBERO 资源后，在 RPent
 仓库目录执行：
@@ -138,6 +149,13 @@ RPC 耗时包含传输与推理，不含仿真步进；每次预测生成 16 个
 这 30 个回合属于小规模集成评测，并非论文基准复现。RPent 使用 RLinf 的
 重置逻辑和当前安装的 LIBERO/robosuite 版本；报告结果时，应一并记录这些
 版本以及服务的 checkpoint、去噪步数和随机种子。
+
+评测脚本还支持 ``--suite``、``--tasks`` 和 ``--horizon``。默认动作预算为
+Spatial 220、Object 280、Goal 300、Long 520，Pro 对应变体沿用相同预算。
+例如 ``--suite libero_spatial_task --seeds 0 --warmup 0 --samples 0``
+会测试该任务集全部十个任务的初始状态 0，并跳过独立延迟测量。
+脚本保存首尾相机画面、每次 RPC 耗时、不含启动时间的控制循环耗时，以及
+包含启动时间的回合总耗时。纯策略评测没有 LLM 输出，``total_output_tokens`` 为零。
 
 SAM3 配置
 ---------

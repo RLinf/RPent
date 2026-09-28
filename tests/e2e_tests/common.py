@@ -47,14 +47,16 @@ def run_scripted_policy_chain(
     output_dir: Path,
     action: ScriptedToolCall,
     action_count_field: str,
+    use_memory: bool = True,
 ) -> dict[str, Any]:
     """Run the public CLI against a deterministic loopback planner."""
     memory_dir = output_dir.parent / "offline-memory"
-    memory_dir.mkdir(parents=True, exist_ok=True)
-    (memory_dir / "MEMORY.md").write_text(
-        "# Offline GPU E2E memory\n",
-        encoding="utf-8",
-    )
+    if use_memory:
+        memory_dir.mkdir(parents=True, exist_ok=True)
+        (memory_dir / "MEMORY.md").write_text(
+            "# Offline GPU E2E memory\n",
+            encoding="utf-8",
+        )
     script = (
         action,
         ScriptedToolCall(
@@ -82,8 +84,7 @@ def run_scripted_policy_chain(
         "--no-images",
         "--memory-profile",
         "local",
-        "--memory-dir",
-        str(memory_dir),
+        *(["--memory-dir", str(memory_dir)] if use_memory else []),
         "--output-dir",
         str(output_dir),
         *robot_argv,

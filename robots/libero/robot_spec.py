@@ -59,6 +59,13 @@ LIBERO_SUITE_NAMES = (
     "libero_10_lan",
 )
 
+COSMOS_STANDARD_SUITES = ("libero_spatial", "libero_object", "libero_goal", "libero_10")
+COSMOS_PRO_SUITES = tuple(
+    f"{suite}_{perturbation}"
+    for suite in COSMOS_STANDARD_SUITES
+    for perturbation in ("task", "swap")
+)
+
 FLASH_SUITES = frozenset(
     {
         "libero_10_swap",
@@ -280,16 +287,20 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             raise ValueError(
                 "Cosmos Policy supports evaluation without Flash Mode only"
             )
-        if args.libero_type not in (None, "standard") or args.suite not in {
-            "libero_spatial",
-            "libero_object",
-            "libero_goal",
-            "libero_10",
-        }:
+        if args.suite in COSMOS_STANDARD_SUITES:
+            libero_type = "standard"
+        elif args.suite in COSMOS_PRO_SUITES:
+            libero_type = "pro"
+        else:
             raise ValueError(
-                "Cosmos Policy supports standard LIBERO spatial/object/goal/10 suites"
+                "Cosmos Policy supports standard LIBERO spatial/object/goal/10 "
+                "and their PRO task/swap suites"
             )
-        args.libero_type = "standard"
+        if args.libero_type not in (None, libero_type):
+            raise ValueError(
+                f"Cosmos suite {args.suite} requires --libero-type {libero_type}"
+            )
+        args.libero_type = libero_type
     if planner == "flash":
         if getattr(args, "explore", False):
             raise ValueError("Flash Mode is evaluation-only; remove --explore")

@@ -31,8 +31,8 @@ Cosmos Policy (experimental)
 `Cosmos Policy <https://github.com/NVlabs/cosmos-policy>`_ LIBERO checkpoint
 through an independently started RPC service. It supports single-attempt
 evaluation on standard ``libero_spatial``, ``libero_object``, ``libero_goal``
-and ``libero_10``.
-Exploration, Flash Mode, PRO/plus variants and best-of-N world-model planning
+and ``libero_10``, and their LIBERO-Pro ``_task`` and ``_swap`` suites.
+Exploration, Flash Mode, other PRO perturbations, plus variants and best-of-N world-model planning
 are not supported by this adapter.
 
 Set up the official Cosmos Policy environment using its
@@ -130,6 +130,17 @@ wiring and ``cosmos_act`` remain in ``robots/libero/``. Start the worker with
 ``robots/libero/cosmos_policy_server.py`` entry point has been removed.
 The CLI and Dashboard both select the backend through ``--vla-backend``.
 
+For Pro, install ``.[libero-pro]`` and prepare its assets with
+``liberopro-download-assets --skip-existing``. Select a full suite name such as
+``--suite libero_spatial_task`` or ``--suite libero_goal_swap``; Cosmos routes
+these to ``pro`` automatically. An explicit ``--libero-type`` must agree with
+the suite. Use a separate ``LIBERO_CONFIG_PATH`` for Pro if the standard
+configuration points to a different package. Check that every selected task has
+nonempty initial states and that its instruction and goal come from the Pro
+BDDL. Some source distributions contain empty initial-state files; obtain the
+corresponding official ``zhouxueyang/LIBERO-Pro`` HF dataset files before running.
+Do not substitute standard-task initial states for missing Pro states.
+
 To check a running real worker and the bounded policy chain with an offline
 planner, install ``.[test,libero]`` and run:
 
@@ -141,6 +152,8 @@ planner, install ``.[test,libero]`` and run:
 These checks require real LIBERO assets and, for the complete chain, SAM3 and
 the T5 encoder weights for the subtask instruction case.
 A passing chain verifies action execution and artifacts, not task success.
+Set ``RPENT_COSMOS_SUITE=libero_spatial_task`` (or a supported swap suite) and
+the Pro resource configuration to run the same checks on Pro.
 
 To measure policy performance separately, run from the RPent checkout with
 a running worker and standard LIBERO assets:
@@ -162,6 +175,14 @@ These 30 episodes are a small integration evaluation, not a reproduction of
 the published benchmark. RPent uses RLinf's reset behavior and its installed
 LIBERO/robosuite versions; record those versions and the worker's checkpoint,
 denoising steps and seed alongside results.
+
+The runner also accepts ``--suite``, ``--tasks`` and ``--horizon``. Default
+action budgets are Spatial 220, Object 280, Goal 300 and Long 520, including
+their Pro variants. For example, ``--suite libero_spatial_task --seeds 0
+--warmup 0 --samples 0`` evaluates its ten tasks from initial state 0 without
+a separate latency probe. It saves initial/final camera images, per-call RPC
+times, control-loop time excluding startup, and total episode time including
+startup. There is no LLM output, so ``total_output_tokens`` is zero.
 
 SAM3 configuration
 ------------------

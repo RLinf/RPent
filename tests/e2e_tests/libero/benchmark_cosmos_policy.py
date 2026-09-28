@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Measure warm Cosmos RPC latency and all ten standard LIBERO Spatial tasks."""
+"""Measure Cosmos RPC latency and native success on a selected LIBERO suite."""
 
 from __future__ import annotations
 
@@ -28,32 +28,54 @@ from typing import Any
 
 import numpy as np
 
-from robots.libero.robot_spec import get_robot_spec
+from robots.libero.robot_spec import (
+    COSMOS_PRO_SUITES,
+    COSMOS_STANDARD_SUITES,
+    get_robot_spec,
+)
 from rpent.utils.logging import get_logger, init_output_dir
 from tests.e2e_tests.common import parse_runtime_args, runtime_phase
 
 logger = get_logger("benchmark_cosmos_policy")
-HORIZON = 220
+HORIZONS = {
+    "libero_spatial": 220,
+    "libero_object": 280,
+    "libero_goal": 300,
+    "libero_10": 520,
+}
 
 
-def runtime_args(endpoint: str, task: int, seed: int) -> list[str]:
-    """Select the standard simulator and an operator-owned Cosmos service."""
+def runtime_args(
+    endpoint: str, suite: str, task: int, seed: int, horizon: int
+) -> list[str]:
+    """Select the matching simulator and an operator-owned Cosmos service."""
     return [
         "--suite",
-        "libero_spatial",
+        suite,
         "--task",
         str(task),
         "--seed",
         str(seed),
         "--libero-type",
-        "standard",
+        "pro" if suite in COSMOS_PRO_SUITES else "standard",
         "--max-episode-steps",
-        str(HORIZON),
+        str(horizon),
         "--vla-backend",
         "cosmos-policy",
         "--vla-endpoint",
         endpoint,
     ]
+
+
+def save_scene(runtime: dict[str, Any], path: Path) -> None:
+    """Save the policy's external and wrist views in their upright orientation."""
+    from PIL import Image
+
+    raw = runtime["env"].raw_obs()
+    views = [
+        np.flipud(raw[key]) for key in ("agentview_image", "robot0_eye_in_hand_image")
+    ]
+    Image.fromarray(np.concatenate(views, axis=1)).save(path)
 
 
 def predict(runtime: dict[str, Any]) -> tuple[np.ndarray, float]:
@@ -83,15 +105,32 @@ def main() -> None:
     parser.add_argument("--endpoint", default=os.getenv("RPENT_COSMOS_ENDPOINT"))
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--seeds", nargs="+", type=int, default=[0, 1, 2])
+    parser.add_argument(
+        "--suite",
+        choices=(*COSMOS_STANDARD_SUITES, *COSMOS_PRO_SUITES),
+        default="libero_spatial",
+    )
+    parser.add_argument("--tasks", nargs="+", type=int, default=list(range(10)))
+    parser.add_argument("--horizon", type=int, default=None)
     parser.add_argument("--warmup", type=int, default=5)
     parser.add_argument("--samples", type=int, default=100)
     args = parser.parse_args()
     if not args.endpoint:
         parser.error("--endpoint or RPENT_COSMOS_ENDPOINT is required")
-    if args.warmup < 0 or args.samples < 1:
-        parser.error("warmup must be nonnegative and samples must be positive")
+    if args.warmup < 0 or args.samples < 0:
+        parser.error("warmup and samples must be nonnegative; zero skips latency calls")
     if len(set(args.seeds)) != len(args.seeds) or any(s < 0 for s in args.seeds):
         parser.error("seeds must be unique nonnegative initial-state indices")
+    if len(set(args.tasks)) != len(args.tasks) or any(
+        t not in range(10) for t in args.tasks
+    ):
+        parser.error("tasks must be unique indices between 0 and 9")
+    base_suite = (
+        args.suite.rsplit("_", 1)[0] if args.suite in COSMOS_PRO_SUITES else args.suite
+    )
+    horizon = args.horizon if args.horizon is not None else HORIZONS[base_suite]
+    if horizon <= 0:
+        parser.error("horizon must be positive")
     args.output_dir.mkdir(parents=True, exist_ok=False)
     init_output_dir(args.output_dir)
     spec = get_robot_spec()
@@ -101,10 +140,12 @@ def main() -> None:
         ).strip(),
         "python": platform.python_version(),
         "versions": {name: version(name) for name in ("torch", "robosuite", "mujoco")},
-        "suite": "libero_spatial",
-        "tasks": list(range(10)),
+        "suite": args.suite,
+        "libero_type": "pro" if args.suite in COSMOS_PRO_SUITES else "standard",
+        "tasks": args.tasks,
         "seeds": args.seeds,
-        "horizon": HORIZON,
+        "horizon": horizon,
+        "total_output_tokens": 0,
         "endpoint": args.endpoint,
         "warmup_calls": args.warmup,
         "measured_calls": args.samples,
@@ -118,19 +159,26 @@ def main() -> None:
         )
 
     save()
-    config = parse_runtime_args(spec, runtime_args(args.endpoint, 0, args.seeds[0]))
-    with runtime_phase(
-        spec, config, args.output_dir / "latency", {"env", "vla"}
-    ) as runtime:
-        for _ in range(args.warmup):
-            predict(runtime)
-        seconds = [predict(runtime)[1] for _ in range(args.samples)]
-    report["latency_seconds"] = seconds
-    report["latency"] = latency_summary(seconds)
-    save()
-    logger.info("Warm RPC latency: %s", report["latency"])
+    if args.warmup or args.samples:
+        config = parse_runtime_args(
+            spec,
+            runtime_args(
+                args.endpoint, args.suite, args.tasks[0], args.seeds[0], horizon
+            ),
+        )
+        with runtime_phase(
+            spec, config, args.output_dir / "latency", {"env", "vla"}
+        ) as runtime:
+            for _ in range(args.warmup):
+                predict(runtime)
+            seconds = [predict(runtime)[1] for _ in range(args.samples)]
+        report["latency_seconds"] = seconds
+        if seconds:
+            report["latency"] = latency_summary(seconds)
+            logger.info("Warm RPC latency: %s", report["latency"])
+        save()
 
-    for task in range(10):
+    for task in args.tasks:
         for seed in args.seeds:
             episode: dict[str, Any] = {
                 "task": task,
@@ -140,29 +188,36 @@ def main() -> None:
                 "rpc_seconds": [],
             }
             started = time.perf_counter()
-            config = parse_runtime_args(spec, runtime_args(args.endpoint, task, seed))
+            config = parse_runtime_args(
+                spec, runtime_args(args.endpoint, args.suite, task, seed, horizon)
+            )
+            episode_dir = args.output_dir / f"task-{task}-seed-{seed}"
             try:
                 with runtime_phase(
                     spec,
                     config,
-                    args.output_dir / f"task-{task}-seed-{seed}",
+                    episode_dir,
                     {"env", "vla"},
                 ) as runtime:
                     env = runtime["env"]
                     episode["instruction"] = env.get_task_language()
-                    while episode["steps"] < HORIZON and not (
+                    save_scene(runtime, episode_dir / "initial.png")
+                    active_started = time.perf_counter()
+                    while episode["steps"] < horizon and not (
                         env.terminated or env.truncated
                     ):
                         actions, elapsed = predict(runtime)
                         episode["rpc_seconds"].append(elapsed)
                         # Stop on the exact native success step, even within a chunk.
-                        for action in actions[: HORIZON - episode["steps"]]:
+                        for action in actions[: horizon - episode["steps"]]:
                             env.step(action)
                             episode["steps"] += 1
                             if env.terminated or env.truncated:
                                 break
                     episode["success"] = env.terminated
                     episode["truncated"] = env.truncated
+                    episode["control_seconds"] = time.perf_counter() - active_started
+                    save_scene(runtime, episode_dir / "final.png")
             except Exception as exc:
                 episode["success"] = False
                 episode["error"] = f"{type(exc).__name__}: {exc}"
