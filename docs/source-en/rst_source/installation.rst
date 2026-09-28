@@ -35,6 +35,7 @@ Other environment configurations are available when needed:
 
    pip install -e ".[robocasa]"    # RoboCasa
    pip install -e ".[robotwin]"    # RoboTwin
+   pip install -e ".[metaworld]"   # MetaWorld
 
 ``.[libero-pro]`` is the recommended default.
 

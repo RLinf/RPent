@@ -99,7 +99,7 @@ export MUJOCO_GL=egl
 export PYOPENGL_PLATFORM=egl
 
 bash tests/e2e_tests/run_gpu_suite.sh \
-  <libero-pro|robocasa|robotwin> \
+  <libero-pro|robocasa|robotwin|metaworld> \
   /path/to/new-output-dir \
   /path/to/new-venv-root
 ```

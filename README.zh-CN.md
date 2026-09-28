@@ -95,6 +95,7 @@ RPent 面向以下四类用户：
           <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/libero.html">LIBERO-PRO</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robocasa.html">RoboCasa</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robotwin.html">RoboTwin</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/metaworld.html">MetaWorld（3 个任务）</a> ✅</li>
           <li>RoboDojo</li>
         </ul>
       </td>
@@ -122,6 +123,7 @@ pip install -e ".[libero-pro]"
 # 其他环境配置：
 pip install -e ".[robocasa]"    # RoboCasa
 pip install -e ".[robotwin]"    # RoboTwin
+pip install -e ".[metaworld]"   # MetaWorld
 ```
 
 `.[libero-pro]` 是默认推荐配置。其他环境见

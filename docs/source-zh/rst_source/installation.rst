@@ -42,6 +42,7 @@ RPent 可以通过一条 ``pip install`` 命令完成安装，并提供多种可
 
    pip install -e ".[robocasa]"    # RoboCasa
    pip install -e ".[robotwin]"    # RoboTwin
+   pip install -e ".[metaworld]"   # MetaWorld
 
 ``.[libero-pro]`` 是默认推荐的依赖组合。
 

@@ -95,6 +95,7 @@ RPent is built for four kinds of users:
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/libero.html">LIBERO-PRO</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/robocasa.html">RoboCasa</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/robotwin.html">RoboTwin</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/metaworld.html">MetaWorld (3 tasks)</a> ✅</li>
           <li>RoboDojo</li>
         </ul>
       </td>
@@ -121,6 +122,7 @@ pip install -e ".[libero-pro]"  # Recommended default (LIBERO-PRO)
 # Other environment configurations:
 pip install -e ".[robocasa]"    # RoboCasa
 pip install -e ".[robotwin]"    # RoboTwin
+pip install -e ".[metaworld]"   # MetaWorld
 ```
 
 `.[libero-pro]` is the recommended default. See the [installation docs](https://rpent.readthedocs.io/en/latest/rst_source/installation.html) for other environments.

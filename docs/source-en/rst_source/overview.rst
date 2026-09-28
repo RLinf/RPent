@@ -72,6 +72,7 @@ Feature Matrix
      - - :doc:`LIBERO-PRO <usage/libero>` ✅
        - :doc:`RoboCasa <usage/robocasa>` ✅
        - :doc:`RoboTwin <usage/robotwin>` ✅
+       - :doc:`MetaWorld (3 tasks) <usage/metaworld>` ✅
      - - Franka
        - SO-101
 
