@@ -1,11 +1,15 @@
 # Copyright 2026 The RPent Authors.
 # Licensed under the Apache License, Version 2.0.
 
+import threading
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
 from robots.yam.cameras import YamRgbdCameraRig, YamRgbdFrame
 from robots.yam.contracts import YAM_CAMERA_NAMES
+from robots.yam.diagnostics import read_active_follower_targets
 from robots.yam.env_server import YamEnvFacade
 from robots.yam.geometry import YamCalibration, _link3_convex_parts
 
@@ -18,6 +22,255 @@ def test_connect_observes_without_reset_or_motion(client, env):
     with pytest.raises(RuntimeError, match="ready receipt"):
         client.reset()
     assert env._episode_id == status["episode_id"]
+
+
+def test_sdk_target_reader_uses_queued_commands_for_both_arms():
+    class Mapper:
+        def to_command_joint_pos_space(self, value):
+            return value
+
+        def to_command_joint_vel_space(self, value):
+            return value
+
+    def backend(qpos):
+        robot = SimpleNamespace(
+            _command_lock=threading.Lock(),
+            _commands=SimpleNamespace(
+                indices=None,
+                pos=np.asarray(qpos),
+                vel=np.zeros(7),
+                kp=np.zeros(7),
+                kd=np.zeros(7),
+                torques=np.zeros(7),
+            ),
+            remapper=Mapper(),
+        )
+        return SimpleNamespace(_robot=robot)
+
+    runtime = SimpleNamespace(
+        _followers=(
+            backend([0, 1, 2, 3, 4, 5, 0.1]),
+            backend([6, 7, 8, 9, 10, 11, 0.9]),
+        )
+    )
+    np.testing.assert_array_equal(
+        read_active_follower_targets(runtime),
+        [0, 1, 2, 3, 4, 5, 0.1, 6, 7, 8, 9, 10, 11, 0.9],
+    )
+
+
+def test_resume_rejects_arm_drift_before_consuming_ready_receipt(client, env, receipt):
+    env.request_stop()
+    held = env._previous_command.copy()
+    episode_id = env._episode_id
+    # Reproduce the measured 0.019 -> 0.117 rad gap from the live gripper test.
+    env._runtime.qpos[10] += 0.098
+    ready = receipt("ready")
+    holds_before = env._runtime.events.count("hold")
+
+    with pytest.raises(RuntimeError, match="right J4.*held follower target"):
+        client.reset()
+
+    assert env._episode_id == episode_id
+    assert env._stop_requested.is_set()
+    assert env._pending_ready_receipt() == ready
+    np.testing.assert_array_equal(env._previous_command, held)
+    assert not env._runtime.commands
+    assert env._runtime.events.count("hold") == holds_before
+
+
+def test_hold_tracks_sdk_target_instead_of_returned_measurement(
+    client, env, receipt, monkeypatch
+):
+    measured = env._runtime.qpos.copy()
+
+    def clipped_hold():
+        env._runtime.events.append("hold")
+        env._runtime.target = measured.copy()
+        env._runtime.target[10] -= 0.098
+        return measured.copy()
+
+    monkeypatch.setattr(env._runtime, "hold", clipped_hold)
+    env.request_stop()
+    assert env._previous_command[10] == pytest.approx(measured[10] - 0.098)
+    receipt("ready")
+
+    with pytest.raises(RuntimeError, match="right J4.*held follower target"):
+        client.reset()
+
+    assert env._stop_requested.is_set() and not env._runtime.commands
+
+
+def test_unavailable_sdk_target_blocks_resume(client, env, receipt, monkeypatch):
+    env.request_stop()
+    receipt("ready")
+
+    def unavailable():
+        raise RuntimeError("SDK command lock unavailable")
+
+    monkeypatch.setattr(env._runtime, "read_active_follower_targets", unavailable)
+    with pytest.raises(RuntimeError, match="queued SDK target is unavailable"):
+        client.reset()
+
+    assert env._stop_requested.is_set() and env._preserve_follower_target
+    assert env._previous_command is None and not env._runtime.commands
+
+
+def test_first_command_rechecks_hold_target_after_ready(client, env, receipt):
+    env.request_stop()
+    receipt("ready")
+    client.reset()
+    env._runtime.qpos[10] += 0.098
+    target = env._runtime.qpos.copy()
+    target[13] += 0.02
+    holds_before = env._runtime.events.count("hold")
+
+    with pytest.raises(RuntimeError, match="right J4.*held follower target"):
+        client.control_step(target, expected_episode_id=env._episode_id)
+
+    assert env._stop_requested.is_set()
+    assert not env._runtime.commands
+    assert env._runtime.events.count("hold") == holds_before
+
+
+def test_failed_reset_snapshot_keeps_episode_stopped(client, env, receipt, monkeypatch):
+    env.request_stop()
+    receipt("ready")
+
+    def offline():
+        raise RuntimeError("camera offline")
+
+    monkeypatch.setattr(env, "_observe_locked", offline)
+
+    with pytest.raises(RuntimeError, match="camera offline"):
+        client.reset()
+
+    status = client.read_control_state()[1]["episode_status"]
+    assert status["stop_requested"] and not status["ready_for_motion"]
+    assert not env._runtime.commands
+    holds_before = env._runtime.events.count("hold")
+    client.request_stop()
+    assert env._runtime.events.count("hold") == holds_before + 1
+    assert not env._preserve_follower_target
+
+
+def test_unknown_target_never_falls_back_to_measured(ready_client, env):
+    env._previous_command = None
+    holds_before = env._runtime.events.count("hold")
+
+    with pytest.raises(RuntimeError, match="target is unknown"):
+        ready_client.control_step(
+            env._runtime.qpos.copy(), expected_episode_id=env._episode_id
+        )
+
+    assert env._stop_requested.is_set()
+    assert env._runtime.events.count("hold") == holds_before
+    assert not env._runtime.commands
+
+
+def test_failed_hold_cannot_be_rebased_from_measured(client, env, monkeypatch):
+    def failed_hold():
+        raise RuntimeError("hold failed")
+
+    monkeypatch.setattr(env._runtime, "hold", failed_hold)
+    with pytest.raises(RuntimeError, match="hold failed"):
+        env.request_stop()
+
+    assert env._stop_requested.is_set()
+    assert env._preserve_follower_target
+    assert env._previous_command is None
+    with pytest.raises(RuntimeError, match="target is uncertain"):
+        client.reset()
+    assert client.read_control_state()[1]["commanded_qpos"] is None
+    assert not env._runtime.commands
+
+
+def test_release_rejects_drift_before_new_hold_or_command(client, env, receipt):
+    env.request_stop()
+    env._runtime.qpos[10] += 0.098
+    release = receipt("release_right")
+    holds_before = env._runtime.events.count("hold")
+
+    with pytest.raises(RuntimeError, match="right J4.*held follower target"):
+        env.release_gripper("right", expected_episode_id=env._episode_id)
+
+    assert env._stop_requested.is_set()
+    assert f"release_right:{release['request_id']}" not in env._consumed_receipt_ids
+    assert env._runtime.events.count("hold") == holds_before
+    assert not env._runtime.commands
+
+
+def test_release_preserves_held_arm_target(client, env, receipt, monkeypatch):
+    env.request_stop()
+    held = env._previous_command.copy()
+    env._runtime.qpos[10] += 0.005
+    receipt("release_right")
+
+    def hold():
+        env._runtime.events.append("hold")
+        return held.copy()
+
+    monkeypatch.setattr(env._runtime, "hold", hold)
+    result = env.release_gripper("right", expected_episode_id=env._episode_id)
+
+    assert result["executed_actions"] > 0
+    assert env._runtime.commands[0][10] == held[10]
+
+
+def test_release_command_failure_does_not_send_second_hold(
+    client, env, receipt, monkeypatch
+):
+    env.request_stop()
+    receipt("release_right")
+
+    def partial_failure(target):
+        env._runtime.events.append("internal_hold_attempt")
+        raise RuntimeError("right follower failed after left dispatch")
+
+    monkeypatch.setattr(env._runtime, "command", partial_failure)
+    holds_before = env._runtime.events.count("hold")
+
+    with pytest.raises(RuntimeError, match="right follower failed"):
+        env.release_gripper("right", expected_episode_id=env._episode_id)
+
+    assert env._runtime.events.count("hold") == holds_before + 1
+    assert env._runtime.events[-1] == "internal_hold_attempt"
+    assert env._stop_requested.is_set() and env._preserve_follower_target
+    assert env._previous_command is None
+
+
+def test_stable_resume_keeps_arm_targets_for_gripper_step(client, env, receipt):
+    env.request_stop()
+    held = env._previous_command.copy()
+    env._runtime.qpos[10] += 0.005
+    receipt("ready")
+    client.reset()
+    target = held.copy()
+    target[13] += 0.02
+
+    result = client.control_step(target, expected_episode_id=env._episode_id)
+
+    assert result[4]["executed_actions"] == 1
+    np.testing.assert_array_equal(env._runtime.commands[0][0:6], held[0:6])
+    np.testing.assert_array_equal(env._runtime.commands[0][7:13], held[7:13])
+
+
+def test_pre_dispatch_rejection_sends_one_hold(ready_client, env, monkeypatch):
+    monkeypatch.setattr(
+        env.geometry,
+        "check_qpos_transition",
+        lambda *args: {"ok": False, "reason": "collision_guard"},
+    )
+    holds_before = env._runtime.events.count("hold")
+
+    with pytest.raises(RuntimeError, match="collision_guard"):
+        ready_client.control_step(
+            env._runtime.qpos.copy(), expected_episode_id=env._episode_id
+        )
+
+    assert env._stop_requested.is_set()
+    assert env._runtime.events.count("hold") == holds_before + 1
+    assert not env._runtime.commands
 
 
 @pytest.mark.parametrize(
@@ -150,7 +403,12 @@ def test_chunk_fault_never_dispatches_next_step(ready_client, env, monkeypatch, 
         with pytest.raises(RuntimeError):
             ready_client.chunk_step(actions)
     assert env._stop_requested.is_set() and len(env._runtime.commands) == 1
-    assert env._runtime.events[-1] == "hold"
+    if fault == "runtime":
+        assert env._runtime.events.count("hold") == 1
+        assert env._previous_command is None
+        assert env._preserve_follower_target
+    else:
+        assert env._runtime.events[-1] == "hold"
 
 
 def test_stop_is_idempotent_and_does_not_recapture_sag(ready_client, env):
@@ -162,6 +420,21 @@ def test_stop_is_idempotent_and_does_not_recapture_sag(ready_client, env):
     ready_client.chunk_step(env._runtime.qpos[None])
     assert env._runtime.events.count("hold") == holds
     assert not env._runtime.commands
+
+
+def test_stop_holds_measured_pose_even_while_tracking_a_distant_target(
+    ready_client, env
+):
+    env._runtime.target[10] += 0.03
+    measured = env._runtime.qpos.copy()
+    holds_before = env._runtime.events.count("hold")
+
+    ready_client.request_stop()
+
+    assert env._stop_requested.is_set()
+    assert env._runtime.events.count("hold") == holds_before + 1
+    np.testing.assert_array_equal(env._runtime.target, measured)
+    np.testing.assert_array_equal(env._previous_command, measured)
 
 
 @pytest.mark.parametrize("new_stop", [False, True])
@@ -258,7 +531,7 @@ def test_measured_guard_rejection_keeps_geometry_evidence(
     assert env._stop_requested.is_set() and not env._runtime.commands
 
 
-def test_shutdown_waits_for_home_and_allows_retry(client, env, monkeypatch):
+def test_failed_home_motion_blocks_retry_and_release(client, env, monkeypatch):
     env.config["park_on_close"] = {
         "enabled": True,
         "left_qpos": env._runtime.qpos[:7].tolist(),
@@ -278,12 +551,112 @@ def test_shutdown_waits_for_home_and_allows_retry(client, env, monkeypatch):
         facade._dispatch("shutdown", (), {})
     assert env.is_started() and "close" not in env._runtime.events
     assert not facade._shutdown_event.is_set()
+    assert env._stop_requested.is_set() and env._preserve_follower_target
+    assert env._previous_command is None
     monkeypatch.setattr(
-        env._runtime, "move_to", lambda *a, **k: env._runtime.events.append("home")
+        env._runtime,
+        "move_to",
+        lambda *a, **k: env._runtime.events.append("home") or env._runtime.qpos.copy(),
     )
-    facade._dispatch("shutdown", (), {})
-    assert env._runtime.events[-2:] == ["home", "close"]
-    assert facade._shutdown_event.is_set()
+    with pytest.raises(RuntimeError, match="target is uncertain"):
+        facade._dispatch("shutdown", (), {})
+    assert "home" not in env._runtime.events and "close" not in env._runtime.events
+    assert not facade._shutdown_event.is_set()
+
+
+def test_shutdown_refuses_park_after_held_arm_drift(client, env, monkeypatch):
+    env.config["park_on_close"] = {
+        "enabled": True,
+        "left_qpos": env._runtime.qpos[:7].tolist(),
+        "right_qpos": env._runtime.qpos[7:].tolist(),
+    }
+    env.request_stop()
+    env._runtime.qpos[10] += 0.098
+    moved = []
+    monkeypatch.setattr(
+        env._runtime, "move_to", lambda *a, **k: moved.append(True), raising=False
+    )
+
+    with pytest.raises(RuntimeError, match="right J4.*held follower target"):
+        YamEnvFacade(env)._dispatch("shutdown", (), {})
+
+    assert env.is_started() and env._stop_requested.is_set()
+    assert not moved and "close" not in env._runtime.events
+
+
+def test_reset_pose_refuses_motion_after_arm_drift(client, env, monkeypatch):
+    env.config["reset"] = {
+        "enabled": True,
+        "left_qpos": env._runtime.qpos[:7].tolist(),
+        "right_qpos": env._runtime.qpos[7:].tolist(),
+    }
+    env.request_stop()
+    env._runtime.qpos[10] += 0.098
+    moved = []
+    monkeypatch.setattr(
+        env._runtime, "move_to", lambda *a, **k: moved.append(True), raising=False
+    )
+
+    with pytest.raises(RuntimeError, match="right J4.*held follower target"):
+        env.reset_to_configured_qpos()
+
+    assert env._stop_requested.is_set()
+    assert not moved and not env._runtime.commands
+
+
+def test_rejected_park_path_latches_stop_before_any_motion(
+    client, env, receipt, monkeypatch
+):
+    env.config["park_on_close"] = {
+        "enabled": True,
+        "left_qpos": env._runtime.qpos[:7].tolist(),
+        "right_qpos": env._runtime.qpos[7:].tolist(),
+    }
+    receipt("ready")
+    client.reset()
+    monkeypatch.setattr(
+        env.geometry,
+        "check_qpos_transition",
+        lambda *a: {"ok": False, "reason": "blocked path"},
+    )
+    moved = []
+    monkeypatch.setattr(
+        env._runtime, "move_to", lambda *a, **k: moved.append(True), raising=False
+    )
+
+    with pytest.raises(RuntimeError, match="park_on_close path rejected"):
+        YamEnvFacade(env)._dispatch("shutdown", (), {})
+
+    assert env._stop_requested.is_set() and env._operator_ready_receipt is None
+    assert not moved and not env._runtime.commands
+    client.control_step(env._runtime.qpos.copy(), expected_episode_id=env._episode_id)
+    assert not env._runtime.commands
+
+
+def test_partial_command_failure_cannot_resume_or_park(
+    ready_client, env, receipt, monkeypatch
+):
+    def partial_failure(target):
+        env._runtime.events.append("internal_hold_attempt")
+        raise RuntimeError("right follower failed after left dispatch")
+
+    monkeypatch.setattr(env._runtime, "command", partial_failure)
+    holds_before = env._runtime.events.count("hold")
+    with pytest.raises(RuntimeError, match="right follower failed"):
+        ready_client.control_step(
+            env._runtime.qpos.copy(), expected_episode_id=env._episode_id
+        )
+
+    assert env._runtime.events.count("hold") == holds_before
+    assert env._runtime.events[-1] == "internal_hold_attempt"
+    assert env._stop_requested.is_set() and env._previous_command is None
+    assert ready_client.read_control_state()[1]["commanded_qpos"] is None
+    receipt("ready")
+    with pytest.raises(RuntimeError, match="target is uncertain"):
+        ready_client.reset()
+    env.config["park_on_close"] = {"enabled": True}
+    with pytest.raises(RuntimeError, match="target is uncertain"):
+        YamEnvFacade(env)._dispatch("shutdown", (), {})
 
 
 @pytest.mark.parametrize("fault", [None, "thread", "stale", "missing", "old"])
@@ -389,6 +762,8 @@ def test_stationary_tracking_hold_requires_operator_and_preserves_other_arm(
     measured = env._runtime.qpos.copy()
     nominal = measured[:6] + 0.03
     env._previous_command[:6] = nominal
+    # This simulates an already running servo, beyond its first resume command.
+    env._resume_guard_pending = False
     other_arm = env._previous_command[6:].copy()
     target = np.array(primitives.env.last_info["robot_state"]["left_eef_pose"])
     target[0] += 0.02

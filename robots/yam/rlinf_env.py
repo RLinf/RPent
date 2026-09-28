@@ -41,6 +41,10 @@ from robots.yam.operator_control import read_receipt
 from rpent.utils.config import get_rlinf_repo_path
 
 
+class YamResumeTargetDrift(RuntimeError):
+    """A held follower target no longer matches the arm's measured pose."""
+
+
 class YamAgentEnv:
     """Gym-style YAM facade for RPent.
 
@@ -108,6 +112,11 @@ class YamAgentEnv:
         self._pending_stop_episode: str | None = None
         self._next_tick_s: float | None = None
         self._previous_command: np.ndarray | None = None
+        # A resumed episode must not replace a held SDK target with a distant
+        # measured pose through an otherwise gripper-only 14-D command.
+        self._resume_target_tolerance_rad = 0.02
+        self._resume_guard_pending = False
+        self._preserve_follower_target = False
         self._take_action_cnt = 0
         self._actual_seed = int(self.config.get("seed", 0))
         self._episode_id = str(self.config.get("episode_id", uuid.uuid4().hex))
@@ -140,9 +149,12 @@ class YamAgentEnv:
                 raise ValueError("reset options must not carry operator receipts")
             if "episode_id" in options:
                 raise ValueError("reset options must not override YAM episode_id")
+            # Keep the stop latch and the ready receipt intact when the arm has
+            # drifted away from the target last sent to the follower SDK.
+            self._check_resume_target_locked(self._read_qpos())
             ready = self._consume_ready_receipt_locked()
             if ready is None:
-                self._runtime.hold()
+                self._hold_runtime_locked()
                 self._last_stop_hold_s = time.time()
                 raise RuntimeError(
                     "YAM reset requires a local operator ready receipt matching "
@@ -160,9 +172,15 @@ class YamAgentEnv:
                 ready["ready_for_episode_id"] = self._episode_id
                 self._operator_ready_receipt = ready
                 self._stop_requested.clear()
-            qpos = self._read_qpos()
-            self._previous_command = qpos.copy()
-            obs, info = self._observe_locked()
+            self._resume_guard_pending = True
+            try:
+                obs, info = self._observe_locked()
+            except Exception:
+                # A failed snapshot must not leave the new episode able to move.
+                self._stop_requested.set()
+                self._operator_ready_receipt = None
+                self._resume_guard_pending = False
+                raise
             return obs, info
 
     def observe(self) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -195,7 +213,11 @@ class YamAgentEnv:
             info = {
                 "robot_state": self.geometry.robot_state(qpos),
                 "episode_status": self._episode_status(),
-                "commanded_qpos": self._previous_command.copy(),
+                "commanded_qpos": (
+                    None
+                    if self._previous_command is None
+                    else self._previous_command.copy()
+                ),
             }
             info["episode_status"]["ready_to_reset"] = (
                 self._pending_ready_receipt() is not None
@@ -257,7 +279,7 @@ class YamAgentEnv:
                     self._poll_operator_receipt_locked()
                     self._require_expected_episode_locked(expected_episode_id)
                     if self._terminal_event is not None:
-                        self._runtime.hold()
+                        self._hold_runtime_locked()
                         self._last_stop_hold_s = time.time()
                         break
                     if self._stop_requested.is_set():
@@ -265,7 +287,7 @@ class YamAgentEnv:
                         break
                     self._require_ready_for_motion()
                     if self._take_action_cnt >= self.step_lim:
-                        self._runtime.hold()
+                        self._hold_runtime_locked()
                         self._last_stop_hold_s = time.time()
                         break
                     accepted, clipped = self._prepare_action(requested)
@@ -275,17 +297,10 @@ class YamAgentEnv:
                         self._hold_stop_once_locked(self._episode_id)
                         break
                     self._check_measured_transition(accepted)
-                    result = self._runtime.command(accepted)
+                    result = self._command_runtime_locked(accepted, label="YAM command")
                     last_result = result
-                    if getattr(result, "rejection_reason", None):
-                        self._runtime.hold()
-                        self._stop_requested.set()
-                        raise RuntimeError(
-                            "YAM command rejected: "
-                            + str(getattr(result, "rejection_reason"))
-                        )
                     accepted_qpos = np.asarray(result.accepted, dtype=np.float64)
-                    self._previous_command = accepted_qpos.copy()
+                    self._resume_guard_pending = False
                     self._take_action_cnt += 1
                     executed += 1
                     if self._stop_requested.is_set():
@@ -305,17 +320,22 @@ class YamAgentEnv:
                     if return_all_frames:
                         frames.append(obs)
                     if self._terminal_event is not None:
-                        self._runtime.hold()
+                        self._hold_runtime_locked()
                         self._last_stop_hold_s = time.time()
                         break
                     if self._take_action_cnt >= self.step_lim:
-                        self._runtime.hold()
+                        self._hold_runtime_locked()
                         self._last_stop_hold_s = time.time()
                         break
                 obs, info = read_feedback()
+            except YamResumeTargetDrift:
+                # A new measured-pose hold would itself jump the SDK setpoint.
+                # Preserve the existing target and require on-site inspection.
+                raise
             except Exception:
                 self._stop_requested.set()
-                self._hold_after_failure()
+                if not self._preserve_follower_target:
+                    self._hold_after_failure()
                 raise
         terminated = bool(self._terminal_event == "success")
         truncated = bool(
@@ -405,9 +425,11 @@ class YamAgentEnv:
         ):
             return
         self._stop_requested.set()
+        if self._preserve_follower_target:
+            return
         if self._stop_hold_episode_id == episode_id:
             return
-        self._runtime.hold()
+        self._hold_runtime_locked()
         # Do not mark a failed/partial hold successful: a later stop may retry.
         self._stop_hold_episode_id = episode_id
         self._last_stop_hold_s = time.time()
@@ -442,6 +464,7 @@ class YamAgentEnv:
         self._operator_success_receipt = None
         self._operator_ready_receipt = None
         self._terminal_event = None
+        self._preserve_follower_target = False
 
     def is_started(self) -> bool:
         """Passive startup check; never initialize cameras or motor outputs."""
@@ -453,8 +476,12 @@ class YamAgentEnv:
             if self._closed:
                 return
             if self._started and self.config.get("park_on_close", {}).get("enabled"):
-                logging.getLogger(__name__).info("[结束泊车] 返回已确认的 home。")
-                self._move_to_configured_qpos("park_on_close")
+                try:
+                    self._move_to_configured_qpos("park_on_close")
+                except Exception:
+                    self._stop_requested.set()
+                    self._operator_ready_receipt = None
+                    raise
                 logging.getLogger(__name__).info("[home 已到位] 现在关闭机械臂输出。")
             # On a partial release retry, do not move disconnected arms again.
             self._started = False
@@ -481,6 +508,11 @@ class YamAgentEnv:
             self._closed = True
 
     def _move_to_configured_qpos(self, name: str) -> None:
+        if self._preserve_follower_target:
+            raise YamResumeTargetDrift(
+                "YAM follower target is uncertain after a control fault; "
+                "keep output stopped and inspect the arm before restarting"
+            )
         pose = self.config.get(name, {})
         if not pose.get("enabled"):
             raise ValueError(f"site config has no enabled {name} pose")
@@ -488,14 +520,24 @@ class YamAgentEnv:
         joints = target.reshape(2, 7)[:, :6]
         if np.any(joints < self.lower) or np.any(joints > self.upper):
             raise ValueError(f"{name} pose exceeds joint limits")
-        self._runtime.move_to(
-            target,
-            duration_s=float(pose["duration_s"]),
-            max_joint_delta=float(pose["max_joint_delta"]),
-            tolerance=float(pose["tolerance"]),
-            timeout_s=float(pose["timeout_s"]),
-        )
-        self._previous_command = self._read_qpos().copy()
+        current = self._read_qpos()
+        self._check_resume_target_locked(current)
+        guard = self.geometry.check_qpos_transition(current, target)
+        if not guard["ok"]:
+            raise RuntimeError(f"YAM {name} path rejected: {guard.get('reason')}")
+        try:
+            held = self._runtime.move_to(
+                target,
+                duration_s=float(pose["duration_s"]),
+                max_joint_delta=float(pose["max_joint_delta"]),
+                tolerance=float(pose["tolerance"]),
+                timeout_s=float(pose["timeout_s"]),
+            )
+            validate_actions(held)
+        except Exception:
+            self._mark_follower_target_unknown_locked()
+            raise
+        self._previous_command = self._read_active_target_locked()
 
     def release_gripper(self, arm, *, expected_episode_id):
         """Operator-only opening while stopped; never clear the stop latch."""
@@ -515,13 +557,15 @@ class YamAgentEnv:
                 )
             self._poll_operator_receipt_locked()
             receipt = read_receipt(self.operator_receipt_path)
+            self._check_resume_target_locked(self._read_qpos())
             self._validate_operator_receipt(receipt, event=f"release_{arm}")
             generation = getattr(self, "_stop_generation", 0)
             index = 6 if arm == "left" else 13
-            self._runtime.hold()
+            self._hold_runtime_locked()
             start = self._read_qpos()
+            self._check_resume_target_locked(start)
             fixed = np.arange(14) != index
-            target = start.copy()
+            target = self._previous_command.copy()
             executed = 0
             try:
                 # Only the supported object's gripper may open. No arm path or
@@ -539,28 +583,26 @@ class YamAgentEnv:
                         not np.isfinite(measured).all()
                         or np.max(np.abs(measured[fixed] - start[fixed])) > 0.015
                     ):
+                        self._stop_requested.set()
+                        self._preserve_follower_target = True
                         raise RuntimeError(
                             "operator release stopped: fixed joints drifted"
                         )
                     target[index] = val
-                    result = self._runtime.command(target.copy())
-                    if getattr(result, "rejection_reason", None):
-                        raise RuntimeError(
-                            f"release command rejected: {result.rejection_reason}"
-                        )
-                    accepted = np.asarray(result.accepted, dtype=np.float64)
+                    self._command_runtime_locked(target.copy(), label="release command")
+                    accepted = self._previous_command.copy()
                     if (
                         accepted.shape != (14,)
                         or not np.isfinite(accepted).all()
                         or not np.allclose(
-                            accepted[fixed], start[fixed], atol=1e-8, rtol=0
+                            accepted[fixed], target[fixed], atol=1e-8, rtol=0
                         )
                         or accepted[index] < start[index] - 1e-8
                     ):
+                        self._mark_follower_target_unknown_locked()
                         raise RuntimeError(
                             "release changed a fixed command or closed gripper"
                         )
-                    self._previous_command = accepted.copy()
                     self._take_action_cnt += 1
                     executed += 1
                 measured = self._read_qpos()
@@ -575,8 +617,8 @@ class YamAgentEnv:
                 }
             finally:
                 self._stop_requested.set()
-                self._runtime.hold()
-                self._previous_command = self._read_qpos().copy()
+                if not self._preserve_follower_target:
+                    self._hold_runtime_locked()
                 self._last_stop_hold_s = time.time()
 
     def recover_up(self, arm, distance_m=0.04, *, expected_episode_id):
@@ -588,7 +630,9 @@ class YamAgentEnv:
             if not self._stop_requested.is_set() or self._terminal_event is not None:
                 raise ValueError("retreat requires a stopped, nonterminal episode")
             stop_generation = getattr(self, "_stop_generation", 0)
-            retreat = UpwardRetreat(self.geometry, self._read_qpos(), arm, distance_m)
+            start = self._read_qpos()
+            self._check_resume_target_locked(start)
+            retreat = UpwardRetreat(self.geometry, start, arm, distance_m)
             path = retreat.plan()
             if self._consume_ready_receipt_locked() is None:
                 raise ValueError(
@@ -600,9 +644,10 @@ class YamAgentEnv:
                 or self._terminal_event is not None
             ):
                 raise RuntimeError("retreat cancelled while planning")
-            self._previous_command = self._read_qpos().copy()
             self._upward_retreat = retreat
             self._stop_requested.clear()
+            self._resume_guard_pending = True
+            skip_hold_after_drift = False
             try:
                 if getattr(self, "_stop_generation", 0) != stop_generation:
                     raise RuntimeError("retreat cancelled before dispatch")
@@ -617,16 +662,21 @@ class YamAgentEnv:
                     ),
                     "measured_pose": self.geometry.eef_pose(arm, measured).tolist(),
                 }
+            except YamResumeTargetDrift:
+                skip_hold_after_drift = True
+                raise
             finally:
                 self._upward_retreat = None
                 self._stop_requested.set()
-                self._runtime.hold()
-                self._previous_command = self._read_qpos().copy()
+                if not skip_hold_after_drift and not self._preserve_follower_target:
+                    self._hold_runtime_locked()
 
     def reset_to_configured_qpos(self) -> dict[str, Any]:
         """Explicit operator motion, separate from episode bookkeeping reset."""
         with self._lock:
             self._ensure_started()
+            self._stop_requested.set()
+            self._operator_ready_receipt = None
             self._move_to_configured_qpos("reset")
             return {"reset_pose_reached": True}
 
@@ -662,9 +712,8 @@ class YamAgentEnv:
             if self._runtime is None:
                 self._runtime = self._build_runtime()
             self._runtime.connect_followers()
-            self._runtime.hold()
-            qpos = self._read_qpos()
-            self._previous_command = qpos.copy()
+            self._hold_runtime_locked()
+            self._read_qpos()
             self._started = True
         except Exception:
             self._startup_failed = True
@@ -739,11 +788,13 @@ class YamAgentEnv:
 
     def _prepare_action(self, action: Any) -> tuple[np.ndarray, bool]:
         target = enforce_hard_limits(action, self.lower, self.upper, name="action")
-        previous = (
-            self._previous_command
-            if self._previous_command is not None
-            else self._read_qpos()
-        )
+        previous = self._previous_command
+        if previous is None:
+            self._stop_requested.set()
+            self._preserve_follower_target = True
+            raise YamResumeTargetDrift(
+                "YAM follower target is unknown; refusing a new command"
+            )
         accepted, clipped = apply_previous_command_slew(
             target, previous, self.max_joint_delta_per_step
         )
@@ -757,7 +808,6 @@ class YamAgentEnv:
             else self.geometry.check_qpos_transition(previous, accepted)
         )
         if not table_guard["ok"]:
-            self._runtime.hold()
             raise RuntimeError(
                 "YAM qpos motion rejected by table guard: "
                 + str(table_guard.get("reason"))
@@ -769,6 +819,8 @@ class YamAgentEnv:
         started = time.monotonic()
         while True:
             measured = enforce_hard_limits(self._read_qpos(), self.lower, self.upper)
+            if self._resume_guard_pending:
+                self._check_resume_target_locked(measured)
             if self._stop_requested.is_set() or self._terminal_event is not None:
                 raise RuntimeError("YAM tracking wait interrupted by operator stop")
             if self.max_tracking_error_rad is None:
@@ -823,6 +875,95 @@ class YamAgentEnv:
     def _read_qpos(self) -> np.ndarray:
         state = self._runtime.read_state()
         return np.asarray(state.as_vector(), dtype=np.float64).reshape(14)
+
+    def _hold_runtime_locked(self) -> None:
+        """Stop at the measured pose and track the queued SDK target afterward."""
+        if self._preserve_follower_target:
+            raise YamResumeTargetDrift(
+                "YAM follower target is preserved after a failed resume; "
+                "do not issue a new measured-pose hold"
+            )
+        self._previous_command = None
+        try:
+            self._runtime.hold()
+            self._previous_command = self._read_active_target_locked()
+        except Exception:
+            self._mark_follower_target_unknown_locked()
+            raise
+
+    def _command_runtime_locked(self, target: np.ndarray, *, label: str) -> Any:
+        try:
+            result = self._runtime.command(target)
+        except Exception:
+            # RLinf may have sent one arm before the other failed and already
+            # attempted its own hold. Its target is no longer known to RPent.
+            self._mark_follower_target_unknown_locked()
+            raise
+        if getattr(result, "rejection_reason", None):
+            self._mark_follower_target_unknown_locked()
+            raise RuntimeError(f"{label} rejected: {result.rejection_reason}")
+        self._previous_command = self._read_active_target_locked()
+        return result
+
+    def _read_active_target_locked(self) -> np.ndarray:
+        from robots.yam.diagnostics import read_active_follower_targets
+
+        try:
+            return validate_actions(read_active_follower_targets(self._runtime))[0]
+        except Exception as error:
+            self._mark_follower_target_unknown_locked()
+            raise YamResumeTargetDrift(
+                "YAM queued SDK target is unavailable; keep output stopped "
+                "and inspect the arm before restarting"
+            ) from error
+
+    def _mark_follower_target_unknown_locked(self) -> None:
+        self._stop_requested.set()
+        self._operator_ready_receipt = None
+        self._resume_guard_pending = False
+        self._previous_command = None
+        self._preserve_follower_target = True
+
+    def _check_resume_target_locked(self, measured: np.ndarray) -> None:
+        """Reject motion if the measured arm differs from the queued SDK target."""
+        if self._preserve_follower_target:
+            raise YamResumeTargetDrift(
+                "YAM follower target is uncertain after a control fault; "
+                "keep output stopped and inspect the arm before restarting"
+            )
+        if self._previous_command is None:
+            self._mark_follower_target_unknown_locked()
+            raise YamResumeTargetDrift(
+                "YAM follower hold target is unknown; cannot resume"
+            )
+        active = self._read_active_target_locked()
+        if not np.allclose(active, self._previous_command, atol=1e-6, rtol=0):
+            self._stop_requested.set()
+            self._preserve_follower_target = True
+            raise YamResumeTargetDrift(
+                "YAM queued SDK target changed outside RPent; keep output stopped "
+                "and inspect the arm before restarting"
+            )
+        try:
+            current = enforce_hard_limits(
+                measured, self.lower, self.upper, name="resume_measured_qpos"
+            )
+        except ValueError as error:
+            self._stop_requested.set()
+            self._preserve_follower_target = True
+            raise YamResumeTargetDrift(str(error)) from error
+        differences = np.abs(current[ARM_JOINT_INDICES] - active[ARM_JOINT_INDICES])
+        index = int(np.argmax(differences))
+        error = float(differences[index])
+        if error > self._resume_target_tolerance_rad:
+            arm = "left" if index < 6 else "right"
+            self._stop_requested.set()
+            self._preserve_follower_target = True
+            raise YamResumeTargetDrift(
+                f"YAM cannot resume: {arm} J{index % 6 + 1} is {error:.6f} rad "
+                "away from the held follower target; keep output stopped "
+                "and inspect the arm before starting a new episode"
+            )
 
     def _observe_locked(
         self, *, require_valid_wrist_projection: bool = False
@@ -957,7 +1098,11 @@ class YamAgentEnv:
         info = {
             "episode_status": self._episode_status(),
             "robot_state": robot_state,
-            "commanded_qpos": self._previous_command.copy(),
+            "commanded_qpos": (
+                None
+                if self._previous_command is None
+                else self._previous_command.copy()
+            ),
         }
         if self.control_diagnostics:
             from robots.yam.diagnostics import read_control_diagnostics
@@ -1007,13 +1152,14 @@ class YamAgentEnv:
             if self._stop_requested.is_set():
                 self._hold_stop_once_locked(self._episode_id)
             else:
-                self._runtime.hold()
+                self._hold_runtime_locked()
                 self._last_stop_hold_s = time.time()
         except Exception:
-            try:
-                self._runtime.emergency_hold()
-            except Exception:
-                pass
+            if not self._preserve_follower_target:
+                try:
+                    self._runtime.emergency_hold()
+                except Exception:
+                    pass
 
     def _read_qpos_with_timestamps(self) -> tuple[np.ndarray, dict[str, float]]:
         host_before_time_s = time.time()
@@ -1055,7 +1201,7 @@ class YamAgentEnv:
             return
         if str(expected_episode_id) == self._episode_id:
             return
-        self._runtime.hold()
+        self._hold_runtime_locked()
         self._last_stop_hold_s = time.time()
         raise RuntimeError(
             "YAM expected_episode_id mismatch: expected "
@@ -1070,7 +1216,7 @@ class YamAgentEnv:
                 "YAM motion requires verified table geometry in the site config"
             )
         if self._operator_ready_receipt is None:
-            self._runtime.hold()
+            self._hold_runtime_locked()
             self._last_stop_hold_s = time.time()
             raise RuntimeError(
                 "YAM motion requires an operator ready receipt matching "
@@ -1136,7 +1282,7 @@ class YamAgentEnv:
             return None
         if event in {"success", "failure", "abort"}:
             self._consume_terminal_receipt(receipt)
-            self._runtime.hold()
+            self._hold_runtime_locked()
             self._last_stop_hold_s = time.time()
             return receipt
         return None

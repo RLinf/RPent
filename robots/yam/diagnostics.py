@@ -64,6 +64,23 @@ def _active_command(robot: Any) -> dict[str, Any]:
     }
 
 
+def read_active_follower_targets(runtime: Any) -> np.ndarray:
+    """Read the queued 14-D i2rt targets, failing if either arm is unavailable."""
+    reader = getattr(runtime, "read_active_follower_targets", None)
+    if callable(reader):
+        return np.asarray(_vector(reader(), 14), dtype=np.float64)
+    followers = getattr(runtime, "_followers", None)
+    if not isinstance(followers, (list, tuple)) or len(followers) != 2:
+        raise RuntimeError("YAM runtime has no connected follower pair")
+    targets = []
+    for backend in followers:
+        robot = getattr(backend, "_robot", None)
+        if robot is None:
+            raise RuntimeError("YAM follower exposes no connected i2rt robot")
+        targets.extend(_active_command(robot)["target_qpos"])
+    return np.asarray(_vector(targets, 14), dtype=np.float64)
+
+
 def _observations(robot: Any) -> dict[str, Any]:
     # The public method takes the SDK's non-reentrant state lock itself. Do
     # not wrap it in _state_lock, which would deadlock MotorChainRobot.

@@ -19,6 +19,7 @@ from robots.yam.rlinf_env import YamAgentEnv
 class Runtime:
     def __init__(self):
         self.qpos = np.tile([0.1, 0.2, 0.3, 0.0, 0.0, 0.0, 0.5], 2)
+        self.target = self.qpos.copy()
         self.commands = []
         self.events = []
 
@@ -27,6 +28,11 @@ class Runtime:
 
     def hold(self):
         self.events.append("hold")
+        self.target = self.qpos.copy()
+        return self.qpos.copy()
+
+    def read_active_follower_targets(self):
+        return self.target.copy()
 
     def read_state(self):
         return SimpleNamespace(
@@ -37,6 +43,7 @@ class Runtime:
 
     def command(self, target):
         self.commands.append(target.copy())
+        self.target = target.copy()
         self.qpos = target.copy()
         return SimpleNamespace(
             accepted=target.copy(), clipped=False, rejection_reason=None

@@ -137,9 +137,13 @@ class YamEnvClient(BaseEnvClient):
         self._require_episode_status(info)
         if not isinstance(info.get("robot_state"), dict):
             raise ValueError("YAM compact feedback requires robot_state")
-        commanded = np.asarray(info.get("commanded_qpos"), dtype=np.float64)
-        if commanded.shape != (14,) or not np.isfinite(commanded).all():
-            raise ValueError("YAM compact feedback requires finite commanded_qpos")
+        if info.get("commanded_qpos") is None:
+            if not info["episode_status"].get("stop_requested"):
+                raise ValueError("YAM active feedback requires commanded_qpos")
+        else:
+            commanded = np.asarray(info["commanded_qpos"], dtype=np.float64)
+            if commanded.shape != (14,) or not np.isfinite(commanded).all():
+                raise ValueError("YAM compact feedback requires finite commanded_qpos")
         self.last_control_obs = observation
         self.last_control_info = info
 
