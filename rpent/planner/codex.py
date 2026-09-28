@@ -822,41 +822,31 @@ def build_codex_config(
     return openai_codex.CodexConfig(**kwargs)
 
 
-def run_probe_turn(
+def run_codex_turn(
     config: Any,
     *,
-    prompt: str,
+    input: openai_codex.RunInput,
     model: str | None,
-    timeout_s: int,
-) -> str:
-    """Run one tool-free Codex turn and return its final assistant text.
-
-    Used by the connectivity check. Unlike the planner, which consumes
-    ``turn.stream()`` so it can render a transcript and steer or interrupt
-    mid-turn, a probe only needs the final answer — so it uses the SDK's
-    ``TurnHandle.run()``, which blocks and returns a ``TurnResult``. Note that
-    a ``TurnHandle`` is not itself iterable: the only two ways to consume one
-    are ``.stream()`` and ``.run()``.
-
-    ``run()`` takes no timeout, so the budget is enforced the same way the
-    planner enforces its own: a worker thread joined with a deadline, then
-    :func:`_interrupt` to stop the turn and close the session.
-
-    Any exception the SDK raised is re-raised unchanged, so the caller can
-    classify it rather than seeing it wrapped.
+    timeout_s: float | None = None,
+    thread_options: dict[str, Any] | None = None,
+    turn_options: dict[str, Any] | None = None,
+) -> Any:
+    """Run a single Codex turn with optional deadline and process cleanup.
 
     Args:
-        config: Config from :func:`build_probe_config`.
-        prompt: The probe prompt to send.
-        model: Model id, or ``None`` to use the Codex-configured default.
-        timeout_s: Wall-clock cap for the turn.
+        config: SDK process configuration, including authentication environment.
+        input: Text or multimodal input accepted by the SDK.
+        model: Model override, or ``None`` for the configured default.
+        timeout_s: Optional deadline covering startup, submission, and generation.
+        thread_options: Additional SDK thread settings.
+        turn_options: Additional SDK turn settings, such as output schema.
 
     Returns:
-        The turn's final response text, empty if the model produced none.
+        The SDK turn result; callers interpret its status and final response.
 
     Raises:
-        TimeoutError: If the turn does not finish within ``timeout_s``.
-        RuntimeError: If the turn reported ``failed`` or produced no result.
+        TimeoutError: If execution exceeds the deadline, before cleanup.
+        RuntimeError: If the SDK returns no result. SDK errors propagate unchanged.
     """
     options: dict[str, Any] = {
         "approval_mode": openai_codex.ApprovalMode.deny_all,
@@ -864,38 +854,61 @@ def run_probe_turn(
     }
     if model:
         options["model"] = model
-    if service_tier := os.environ.get("CODEX_SERVICE_TIER", None):
-        options["service_tier"] = service_tier
 
-    state: dict[str, Any] = {}
+    async def _request() -> Any:
+        codex = openai_codex.AsyncCodex(config=config)
+        turn = None
 
-    def _worker() -> None:
+        async def _run() -> Any:
+            nonlocal turn
+            thread = await codex.thread_start(**{**options, **(thread_options or {})})
+            turn = await thread.turn(input, **{**options, **(turn_options or {})})
+            return await turn.run()
+
         try:
-            with openai_codex.Codex(config=config) as codex:
-                state["codex"] = codex
-                thread = codex.thread_start(**options)
-                turn = thread.turn(prompt, **options)
-                state["turn"] = turn
-                state["result"] = turn.run()
-        except Exception as exc:  # surfaced to the caller below
-            state["error"] = exc
+            return await asyncio.wait_for(_run(), timeout=timeout_s)
+        except asyncio.TimeoutError:
+            if turn is not None:
+                with contextlib.suppress(Exception):
+                    await asyncio.wait_for(turn.interrupt(), timeout=15)
+            raise
+        finally:
+            await codex.close()
 
-    worker = threading.Thread(target=_worker, name="codex-probe", daemon=True)
-    worker.start()
-    worker.join(timeout=timeout_s)
-
-    if worker.is_alive():
-        _interrupt(state)
-        worker.join(timeout=15)
-        raise TimeoutError(f"the Codex SDK did not finish within {timeout_s}s.")
-
-    if (exc := state.get("error")) is not None:
-        raise exc
-
-    result = state.get("result")
+    try:
+        result = asyncio.run(_request())
+    except asyncio.TimeoutError as exc:
+        raise TimeoutError(
+            f"the Codex SDK did not finish within {timeout_s}s."
+        ) from exc
     if result is None:
         raise RuntimeError("the Codex SDK returned no turn result")
+    return result
 
+
+def run_probe_turn(
+    config: Any,
+    *,
+    prompt: str,
+    model: str | None,
+    timeout_s: int,
+) -> str:
+    """Run the connectivity probe, preserving SDK errors for classification.
+
+    Returns the final assistant text, or an empty string if the model said
+    nothing. The shared runner owns the deadline, interruption, and cleanup.
+    """
+    options = {}
+    if service_tier := os.environ.get("CODEX_SERVICE_TIER", None):
+        options["service_tier"] = service_tier
+    result = run_codex_turn(
+        config,
+        input=prompt,
+        model=model,
+        timeout_s=timeout_s,
+        thread_options=options,
+        turn_options=options,
+    )
     status = str(_get(result, "status", "") or "")
     if status == "failed":
         error = _get(result, "error")

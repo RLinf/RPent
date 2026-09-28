@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import queue
@@ -672,17 +673,18 @@ class FakeProbeTurn:
         self.raises = raises
         self.interrupt_calls = 0
 
-    def run(self) -> Any:
+    async def run(self) -> Any:
         if self.raises is not None:
             raise self.raises
         if self.blocks is not None:
-            self.blocks.wait(timeout=10)
+            while not self.blocks.is_set():
+                await asyncio.sleep(0.01)
         return self.result
 
     def stream(self):
         raise AssertionError("the probe must use run(), not stream()")
 
-    def interrupt(self) -> None:
+    async def interrupt(self) -> None:
         self.interrupt_calls += 1
 
 
@@ -700,20 +702,14 @@ class FakeProbeCodex:
         self.fake_turn = type(self).turn_factory()
         FakeProbeCodex.instances.append(self)
 
-    def __enter__(self) -> FakeProbeCodex:
-        return self
-
-    def __exit__(self, *exc: Any) -> None:
+    async def close(self) -> None:
         self.closed = True
 
-    def close(self) -> None:
-        self.closed = True
-
-    def thread_start(self, **options: Any) -> FakeProbeCodex:
+    async def thread_start(self, **options: Any) -> FakeProbeCodex:
         self.thread_options = options
         return self
 
-    def turn(self, prompt: str, **options: Any) -> FakeProbeTurn:
+    async def turn(self, prompt: str, **options: Any) -> FakeProbeTurn:
         self.turn_prompts.append((prompt, options))
         return self.fake_turn
 
@@ -725,7 +721,7 @@ def probe_codex(monkeypatch: pytest.MonkeyPatch):
 
     def _install(turn_factory: Any) -> list[FakeProbeCodex]:
         FakeProbeCodex.turn_factory = turn_factory
-        monkeypatch.setattr(codex_module.openai_codex, "Codex", FakeProbeCodex)
+        monkeypatch.setattr(codex_module.openai_codex, "AsyncCodex", FakeProbeCodex)
         return FakeProbeCodex.instances
 
     return _install
@@ -857,3 +853,16 @@ def test_probe_returns_empty_string_when_the_model_said_nothing(
     )
 
     assert reply == ""
+
+
+def test_single_turn_startup_timeout_closes_process(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    async def start(**_):
+        await asyncio.sleep(30)
+
+    codex = SimpleNamespace(thread_start=start, close=AsyncMock())
+    monkeypatch.setattr(codex_module.openai_codex, "AsyncCodex", lambda **_: codex)
+    with pytest.raises(TimeoutError, match="0.02s"):
+        codex_module.run_codex_turn(object(), input="ping", model=None, timeout_s=0.02)
+    codex.close.assert_awaited_once()

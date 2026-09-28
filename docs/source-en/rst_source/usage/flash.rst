@@ -9,11 +9,11 @@ executes the recorded actions in order.
 This keeps planning and perception separate:
 
 1. The Flash plan decides **what to do**.
-2. SAM3 or Molmo finds **where to do it** in the current scene.
+2. SAM3 or the point locator finds **where to do it** in the current scene.
 3. The LIBERO toolkit executes the actions at the updated coordinates.
 
 ``--planner flash`` therefore does not call an LLM to make planning
-decisions. Molmo is used only for visual localization: it points to a requested
+decisions. The locator is used only for visual localization: it points to a requested
 object or location in a camera image so RPent can recover its current
 coordinates.
 
@@ -21,7 +21,7 @@ LIBERO-PRO performance and execution time
 -----------------------------------------
 
 Across the complete 800-case LIBERO-PRO matrix (Spatial, Object, Goal, and Long;
-task/swap; 10 seeds per task), Flash Mode solved 581 episodes (72.63%). Codex
+task/swap; 10 seeds per task), Flash Mode with Molmo2-8B solved 581 episodes (72.63%). Codex
 without reasoning solved 500 (62.50%), while Codex with high reasoning solved
 628 (78.50%). The two tasks without a successful source trace and therefore no
 Flash plan are conservatively counted as 0/10.
@@ -51,7 +51,7 @@ one with the interface recorded for it:
 
 * **SAM3** locates segmentation anchors and returns an object mask and its
   position.
-* **Molmo** locates point anchors by pointing to the requested object or
+* **The locator service** locates point anchors by pointing to the requested object or
   location in the camera image.
 
 RPent then combines each live anchor position with the offset stored in the
@@ -99,7 +99,7 @@ recipe filenames, plus the audit suite/task/seed fields when present, must
 identify the same episode.
 
 If ``segment_*.json`` readings were saved for the episode, pass their directory
-with ``--segments``. Otherwise the generator derives semantic Molmo anchors from
+with ``--segments``. Otherwise the generator derives semantic point anchors from
 the instruction and the recipe's ordered pick/release or articulation
 transactions. Nearby ``move_to`` and ``move_pose`` coordinates are stored as XY
 offsets from those anchors, in the format consumed by Flash replay.
@@ -120,14 +120,14 @@ Run Flash Mode
 --------------
 
 Flash Mode is for evaluation only and cannot be combined with ``--explore``.
-It replays a prepared plan from memory. Start Molmo first, then pass its
+It replays a prepared plan from memory. Start a locator service first, then pass its
 endpoint to RPent:
 
 .. code-block:: bash
 
    rpent --robot libero --planner flash \
      --suite libero_object_swap --task 3 --seed 0 \
-     --molmo-endpoint http://127.0.0.1:20703
+     --locator-endpoint http://127.0.0.1:20703
 
 Flash replay supports the task and swap suites for LIBERO-PRO Spatial,
 Object, Goal, and Long (``10``), for 80 task identities in total.
@@ -136,8 +136,24 @@ The VLA and SAM3 services use the normal LIBERO runtime configuration. You can
 also connect to services that are already running with ``--vla-endpoint`` and
 ``--sam3-endpoint``.
 
-Molmo setup
------------
+Locator setup
+-------------
+
+The locator service accepts one RGB image and a query, and returns one pixel
+``(x, y)`` in the input image, or ``None`` if the target cannot be located.
+Choose its backend when starting the server; Flash uses the same endpoint for
+all backends. The opening survey, wrist refinement, depth projection, and held
+object correction use the same replay logic for every backend.
+
+The manipulation prompt is shared with Molmo. API and Codex requests add a JSON
+format instruction: ``{"point": [x, y]}`` with coordinates normalized to 0–1000,
+or ``{"point": null}``. The server converts coordinates to original-image
+pixels. Malformed JSON, invalid coordinates, and provider failures are errors.
+Molmo retains its native point-markup parser, which returns a miss when no
+valid point can be parsed.
+
+Molmo
+~~~~~
 
 Molmo requires a newer ``transformers`` version than the LIBERO policy
 environment, so run it in a separate Python environment:
@@ -145,7 +161,7 @@ environment, so run it in a separate Python environment:
 .. code-block:: bash
 
    uv venv --python 3.11 /path/to/molmo-venv
-   /path/to/molmo-venv/bin/pip install -e ".[molmo]"
+   uv pip install --python /path/to/molmo-venv/bin/python -e ".[molmo]"
 
 Download ``allenai/Molmo2-8B`` from `Hugging Face
 <https://huggingface.co/allenai/Molmo2-8B>`_ or `ModelScope
@@ -155,14 +171,85 @@ Download ``allenai/Molmo2-8B`` from `Hugging Face
 
    export MOLMO_CHECKPOINT_PATH=/path/to/Molmo2-8B
    PYTHONPATH=/path/to/RPent /path/to/molmo-venv/bin/python \
-     rpent/robots/components/molmo_server.py \
+     -m rpent.robots.components.locator_server --backend molmo \
      --transport http --host 127.0.0.1 --port 20703
+
+Cloud API
+~~~~~~~~~
+
+The API backend uses RPent's existing provider-prefixed model names and provider
+credential environment variables. Install RPent in the server environment and
+select a vision-capable model; the Molmo extra and CUDA are not required:
+
+.. code-block:: bash
+
+   python -m rpent.robots.components.locator_server \
+     --backend api --model "<provider:model>" \
+     --host 127.0.0.1 --port 20703
+
+Use ``--base-url`` to override the provider endpoint. Credentials are read on the
+server, just as for the API planner; see :doc:`configure_planner` for provider
+configuration. Each localization sends one image with no conversation history.
+
+For Claude, set ``ANTHROPIC_API_KEY`` in the locator server's environment and
+use an ``anthropic:`` model name. Replace ``<claude-model-id>`` with a
+vision-capable Claude model available to your API account:
+
+.. code-block:: bash
+
+   python -m rpent.robots.components.locator_server \
+     --backend api --model "anthropic:<claude-model-id>" \
+     --host 127.0.0.1 --port 20703
+
+The provider reads ``ANTHROPIC_BASE_URL`` when set; ``--base-url`` takes
+precedence. This uses Claude API credentials, not a Claude Code login.
+
+Codex login
+~~~~~~~~~~~
+
+Use the Codex installation and login on the locator server's machine. Configure
+``CODEX_BIN`` if needed, then start:
+
+.. code-block:: bash
+
+   codex login
+   python -m rpent.robots.components.locator_server \
+     --backend codex --model "<model>" --reasoning-effort low \
+     --host 127.0.0.1 --port 20703
+
+Omitting ``--model`` uses Codex's configured default. Each localization uses a
+fresh ephemeral thread in a temporary working directory and closes its Codex
+process afterward. The image is attached directly;
+the request asks for JSON coordinates and does not attach RPent tools. This
+backend uses the server's Codex authentication, including an existing ChatGPT
+login, rather than the RPent client's credentials. Set ``TMPDIR`` when temporary
+files must stay under a particular working directory.
+
+Timeouts, logs, and migration
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Flash retains the original 180-second client RPC timeout. The locator server
+adds no request deadline; provider SDK defaults still apply.
+The server logs its selected backend/model at startup, and the query prompt,
+raw answer, image dimensions, pixel result, and elapsed time for each successful
+request. A target miss is also logged. API/Codex append the JSON instruction
+described above to the logged manipulation prompt.
+
+Start the service through ``rpent.robots.components.locator_server``; it replaces
+``molmo_server``. Python callers use ``LocatorClient.locate(image, query)`` from
+``locator_client`` in place of ``MolmoClient.ground``. The RPC method is now
+``locator.locate``, so upgrade client and server together and use
+``--locator-endpoint``. Plans use ``locator: "point"`` for the selected point
+backend and ``segment`` for SAM3. Existing plans using ``locator: "molmo"`` are
+loaded as ``point`` and use the selected backend without editing the plan files.
+The old endpoint flag is unsupported. Report model-specific results separately: the benchmark above used
+Molmo2-8B and does not establish API or Codex localization performance.
 
 Replay multiple layouts
 -----------------------
 
 Run the same Flash plan with different seeds to evaluate it on different
-layouts. Reusing existing VLA, SAM3, and Molmo services avoids loading the
+layouts. Reusing existing VLA, SAM3, and locator services avoids loading the
 models again for every run:
 
 .. code-block:: bash
@@ -173,5 +260,5 @@ models again for every run:
        --output-dir logs/sweep/swap_t3_s$seed \
        --vla-endpoint http://127.0.0.1:20701 \
        --sam3-endpoint http://127.0.0.1:20702 \
-       --molmo-endpoint http://127.0.0.1:20703
+       --locator-endpoint http://127.0.0.1:20703
    done
