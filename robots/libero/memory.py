@@ -39,6 +39,15 @@ DEFAULT_REPO = "RLinf/RPent-memory"
 
 def validate_options(args: argparse.Namespace) -> None:
     """Check memory options without starting services or downloading files."""
+    revision = getattr(args, "memory_revision", None)
+    if revision is not None:
+        if not revision.strip():
+            raise ValueError("--memory-revision cannot be empty")
+        if (
+            getattr(args, "explore", False)
+            or getattr(args, "memory_profile", None) == "local"
+        ):
+            raise ValueError("--memory-revision requires --memory-profile hf")
     if getattr(args, "memory_version", "auto") != "auto" and (
         getattr(args, "explore", False)
         or getattr(args, "memory_profile", None) == "local"
@@ -65,7 +74,9 @@ def prepare_memory(args: argparse.Namespace, config: RunConfig) -> None:
         getattr(args, "memory_version", "auto"), model=args.model, planner=args.planner
     )
     root = sync_version(
-        version=version, cache_dir=get_memory_dir("libero") / ".versions"
+        version=version,
+        revision=getattr(args, "memory_revision", None) or "main",
+        cache_dir=get_memory_dir("libero") / ".versions",
     )
     if args.planner == "flash":
         replay_directory(root)

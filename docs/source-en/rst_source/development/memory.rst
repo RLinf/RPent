@@ -129,6 +129,22 @@ model** changes the model for the next task and reselects auto memory then;
 the active task keeps its existing model and corpus. A manually selected
 memory version remains selected across model changes.
 
+For a reproducible LIBERO evaluation, pin the Hub commit without switching
+to the local-memory profile:
+
+.. code-block:: bash
+
+   rpent --robot libero --suite libero_goal_swap --task 1 --seed 1 \
+     --planner codex --model gpt-6-astra --reasoning-effort low \
+     --memory-revision <commit-sha>
+
+``--memory-revision`` accepts a commit, tag or branch. Omitting it follows
+``main`` as before; use a full commit SHA to keep the source fixed across
+runs. It applies to the selected model-specific corpus and to subsequent
+Dashboard tasks, including tasks that select another model. The run log
+records the resolved commit. Local-memory evaluation and exploration reject
+this remote-only option.
+
 Only the chosen version is downloaded. LIBERO caches are isolated by repository,
 commit and version under ``memory/libero/.versions/``. Both the exact file set
 and every file hash are verified before cache reuse. Extra files invalidate

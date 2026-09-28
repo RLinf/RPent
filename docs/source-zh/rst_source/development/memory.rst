@@ -118,6 +118,19 @@ CLI 和 Dashboard 都在每个任务开始前解析 memory 根目录。在 Dashb
 **下一任务的模型** 中修改模型后，下一任务会重新进行自动选择；正在运行的任务保留原模型
 和 memory。显式指定的 memory 版本不会随模型切换而改变。
 
+需要可复现的 LIBERO 评测时，可以直接固定 Hub 提交，无需切换到本地 memory 模式：
+
+.. code-block:: bash
+
+   rpent --robot libero --suite libero_goal_swap --task 1 --seed 1 \
+     --planner codex --model gpt-6-astra --reasoning-effort low \
+     --memory-revision <commit-sha>
+
+``--memory-revision`` 接受提交、标签或分支；省略时仍跟随 ``main``。
+跨多次运行固定来源时应使用完整提交 SHA。该选项应用于所选模型对应的 memory，
+也会沿用到后续 Dashboard 任务，包括切换模型后的任务。运行日志记录实际解析的提交。
+本地 memory 评测和探索模式不接受这一远程来源选项。
+
 仅下载所选版本。LIBERO 缓存位于 ``memory/libero/.versions/``，按仓库、提交和版本隔离，
 每次复用前校验文件集合完全一致及每份文件的哈希。额外文件会使缓存失效，固定 revision
 时也不例外；联网同步会重建无效缓存。``HF_HUB_OFFLINE=1`` 要求所选版本及 revision
