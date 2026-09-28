@@ -81,6 +81,20 @@ PI05_EMBODIMENTS: dict[str, dict] = {
             "add_value_head": False,
         },
     },
+    "yam": {
+        "num_action_chunks": 30,
+        "action_dim": 14,
+        "num_steps": 5,
+        "precision": "bf16",
+        "openpi": {
+            "task": "eval",
+            "config_name": "pi05_yam_joint",
+            "model_action_dim": 32,
+            "paligemma_variant": "gemma_2b",
+            "action_expert_variant": "gemma_300m",
+            "discrete_state_input": True,
+        },
+    },
 }
 
 PI05_ROBOT_PLATFORMS: dict[str, str] = {

@@ -26,7 +26,7 @@ def _rays(height: int, width: int, k: tuple, model: str, coeffs: tuple) -> np.nd
         raise ValueError(
             "active camera intrinsic_K must be finite with positive focal lengths"
         )
-    model = model.rsplit(".", 1)[-1].lower()
+    model = model.rsplit(".", 1)[-1].strip().lower().replace(" ", "_")
     if model in {"none", "0"} and not any(coeffs):
         rows, cols = np.mgrid[:height, :width]
         rays = np.stack(
