@@ -14,7 +14,7 @@ and leave grounded memory for later evaluation runs. You are agent
 READ_ORDER = """Before the first robot mutation:
 1. Read robots/robotwin/guides/GUIDE_RPENT.md completely.
 2. Inspect view_env_state(step=0) and its head image.
-3. Read relevant published task, suite, and global memory.
+3. Read relevant published task, task-family, and global memory.
 4. Read {{memory_inbox}}/wip/ for notes from earlier attempts or sessions.
 
 Fresh observations and the current task_language override historical memory.
@@ -26,16 +26,16 @@ MEMORY = """During exploration, write working notes only below
 approach, commands and parameters tried, observed progress, bounded failure
 mechanism, and one meaningful change for the next attempt. Also append a
 concise handoff note to {{memory_inbox}}/wip/notes.md. After success, write
-concise suite or global proposals directly under {{memory_inbox}}/. Never
+concise task-family or global proposals directly under {{memory_inbox}}/. Never
 write directly into published memory directories.
 
 Every proposed file must begin with parseable YAML frontmatter.
 
-Suite proposal template:
+Task-family proposal template:
 
     ---
-    id: suite_robotwin_<task-name>
-    scope: suite
+    id: task-family_robotwin_<task-name>
+    scope: task-family
     suite: robotwin
     regime: {{task_config}}
     task_id: {{task_name}}
