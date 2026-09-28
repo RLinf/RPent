@@ -19,19 +19,16 @@ Flash Mode
 
 在完整的 800-case LIBERO-PRO 矩阵（Spatial、Object、Goal 和 Long；
 task/swap；每个任务 10 个 seed）上，Flash Mode 成功 581 次（72.63%）。
-不使用 reasoning 的 Codex 成功 500 次（62.50%），high reasoning Codex
-成功 628 次（78.50%）。两个没有成功源轨迹、因而没有计划的任务
-按 0/10 保守计入。
+两个没有成功源轨迹、因而没有计划的任务按 0/10 保守计入。
+八项分项成绩见 :doc:`评测成绩 <../leaderboard/performance>`。
 
-.. image:: https://github.com/RLinf/misc/raw/main/rpent/flash/flash_libero_pro_performance_time.png
-   :alt: Flash Mode 与 Codex 在 LIBERO-PRO 全系列上的逐任务成功率和执行时间对比
-   :width: 100%
-   :align: center
+:doc:`耗时与 Token 开销 <../leaderboard/time-token-costs>` 中，Flash Mode 的
+平均每回合耗时为 60.19 秒，输出 token 为 0。平均耗时覆盖成功、失败和超时的评测回合；
+token 仅统计测试阶段输出。
 
-时间统计不包含模型及服务启动时间。Codex 时间是每个任务可用 planner 耗时记录的
-均值。Flash Mode 耗时采用每份最终计划对应成功 episode 的
-工具执行时间（每份计划一个耗时样本）。所有方法的成功率都使用完整 800-case 矩阵。
-两组 Codex baseline 均有完整的 800/800 planner 耗时记录。
+\* RPent Flash Mode 使用直接下载的、官方公开的 GPT-5.5 explore memory；
+Molmo2-8B 用于视觉定位。
+该测试结果使用了 s0-s9 中表现最好的 seed。
 
 重放流程
 --------
