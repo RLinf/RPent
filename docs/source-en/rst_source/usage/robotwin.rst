@@ -108,6 +108,27 @@ the complete option list.
    be initialized stably or did not pass the expert rollout were skipped.
    Other seeds can still be passed explicitly for custom runs.
 
+Exploration mode
+----------------
+
+Add ``--explore`` to let the planner retry a task across fresh episodes and
+write local memory. As with LIBERO, one run uses three planner sessions with
+five attempts per session by default:
+
+.. code-block:: bash
+
+   rpent --robot robotwin --task-name beat_block_hammer \
+     --task-config demo_randomized --seed 100000 \
+     --planner codex \
+     --explore --explore-sessions 3 --explore-attempts-per-session 5 \
+     --memory-dir /path/to/robotwin-memory
+
+``reset`` uses the environment's ordinary episode reset, so the planner
+re-runs perception after every reset. The runner exports only the winning
+commands after the final reset. Exploration memory is written to the current
+local inbox and merged after the run unless ``--no-auto-merge-memory`` is
+passed.
+
 View the result
 ---------------
 
@@ -162,10 +183,10 @@ perception cues, control heuristics, recovery strategies, parameter-selection
 guidance, and common failure modes. The planner can follow the index to read
 only the memory entries relevant to the current task or observed failure.
 
-For each evaluation task, ``task_only/<task>_s0.json`` is the semantic recipe
+For each evaluation task, ``task-specific/<task>_s0.json`` is the semantic recipe
 distilled from a successful trajectory. It describes the phase-level goals,
 observable completion gates, control and VLA guidance, and known failure modes.
-The companion ``task_only/<task>_s0_recipe.jsonl`` records the historical tool
+The companion ``task-specific/<task>_s0_recipe.jsonl`` records the historical tool
 calls from that trajectory, providing evidence about action order, tool choice,
 and action-chunk cadence.
 

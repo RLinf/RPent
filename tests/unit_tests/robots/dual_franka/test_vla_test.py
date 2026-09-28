@@ -225,11 +225,20 @@ def test_primitive_profile_is_rejected_before_runtime(tmp_path, monkeypatch):
         vla_test.run_session(args)
 
 
-def test_diagnostic_parser_provides_shared_config_defaults(tmp_path):
+def test_diagnostic_parser_provides_shared_config_defaults(
+    tmp_path, dual_franka_robot_config
+):
     from robots.dual_franka.robot_spec import get_robot_spec
     from tests.e2e_tests.dual_franka.dual_franka_vla import build_parser
 
-    args = build_parser().parse_args(["--output-dir", str(tmp_path)])
+    args = build_parser().parse_args(
+        [
+            "--output-dir",
+            str(tmp_path),
+            "--robot-config",
+            str(dual_franka_robot_config),
+        ]
+    )
     assert args.explore is False
     assert args.memory_dir is None and args.memory_profile is None
     config = get_robot_spec().parse_config(args)

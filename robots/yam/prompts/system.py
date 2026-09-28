@@ -12,9 +12,9 @@ gripper], with gripper 0=closed and 1=open."""
 READ_ORDER = """Before the first robot mutation:
 1. Read robots/yam/guides/GUIDE_RPENT.md completely.
 2. Inspect view_env_state(step=0) and all three current RGB views.
-3. Read {{memory_dir}}/MEMORY.md and matching task/suite/global memory when present.
-   List {{memory_dir}}/task_only/ for prior recipe/audit pairs for this task; the index
-   covers suite/global leaves. Missing memory on a first run is normal: continue
+3. Read {{memory_dir}}/MEMORY.md and matching task-specific/task-family/global memory when present.
+   List {{memory_dir}}/task-specific/ for prior recipe/audit pairs for this task; the index
+   covers task-family/global leaves. Missing memory on a first run is normal: continue
    from current observations and create evidence through this run.
 
 The current camera frames and task language override historical notes."""
@@ -148,7 +148,7 @@ reset, not a new attempt or proof of failure. Use the remaining attempt budget
 for a changed approach; stop immediately if the operator aborts.
 
 After actual env success, distil a task technique to {{memory_inbox}}/technique.md.
-Use YAML frontmatter: scope: suite, suite: yam, regime: real,
+Use YAML frontmatter: scope: task-family, suite: yam, regime: real,
 task_id: {{task_name}}, task_language: the actual env language,
 confidence: single-shot, evidence: {cells: [{{recipe_tag}}]}.
 Write mechanisms, object recognition, measured parameters, failed alternatives,

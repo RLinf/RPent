@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 from functools import partial
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -94,24 +95,35 @@ class RoboTwinToolkit(Toolkit):
         runtime_kwargs: dict[str, Any],
         dashboard_events: DashboardEventSink,
         memory: MemoryManager,
+        mode: str = "evaluation",
+        attempts_per_session: int = 0,
+        state_output_dir: Path | str | None = None,
     ):
-        state = EnvState(get_output_dir())
+        if mode not in {"evaluation", "exploration"}:
+            raise ValueError(f"unsupported RoboTwin toolkit mode: {mode!r}")
+        state = EnvState(Path(state_output_dir or get_output_dir()))
         super().__init__(
             dashboard_events=dashboard_events,
             state=state,
             memory=memory,
         )
+        self._mode = mode
+        self._attempt = 1
+        self._attempts_per_session = max(0, int(attempts_per_session))
         self._latest_status: dict[str, Any] = {}
         self._primitives = RoboTwinPrimitives(
             check_cancelled=self.raise_if_cancelled,
             **runtime_kwargs,
         )
+        if self._mode == "exploration":
+            reset_result = self._primitives.reset()
+        else:
+            reset_result = {
+                **self._primitives.env.last_reset_info,
+                "success": True,
+            }
         self._primitives.start_recording()
         self._action_frame_cursor = self._primitives.recorded_frame_count()
-        reset_result = {
-            **self._primitives.env.last_reset_info,
-            "success": True,
-        }
         self._register_robotwin_tools()
         initial = self.get_env_state(
             command={"action": "reset"},
@@ -153,11 +165,54 @@ class RoboTwinToolkit(Toolkit):
             "release",
         ):
             self.add_tool(name, self._SPECS[name], partial(self._step, name))
-        self.add_tool("finish", self._SPECS["finish"], self._finish)
+        finish_handler = (
+            self._guarded_finish if self._mode == "exploration" else self._finish
+        )
+        self.add_tool("finish", self._SPECS["finish"], finish_handler)
+        if self._mode == "exploration":
+            self.add_tool("reset", self._SPECS["reset"], self._reset_episode)
 
     @readonly
     def _finish(self, *, status: str, summary: str) -> dict[str, Any]:
         return self._primitives.finish(status=status, summary=summary)
+
+    @readonly
+    def _guarded_finish(self, *, status: str, summary: str) -> dict[str, Any]:
+        budget = self._attempts_per_session
+        if budget and not self.solved() and self._attempt < budget:
+            return {
+                "error": "finish refused",
+                "reason": (
+                    f"This session has {budget - self._attempt} of its {budget} "
+                    "attempts left. Archive the attempt, reset, and change the plan."
+                ),
+            }
+        return self._finish(status=status, summary=summary)
+
+    def _reset_episode(self) -> dict[str, Any]:
+        if self.solved():
+            return {
+                "error": "reset refused",
+                "reason": "The task is already solved; save artifacts and finish.",
+            }
+        budget = self._attempts_per_session
+        if budget and self._attempt >= budget:
+            return {
+                "error": "reset refused",
+                "reason": (
+                    f"This session's attempt budget is spent ({budget} attempts). "
+                    "Update the handoff notes and finish this session."
+                ),
+            }
+        result = self._primitives.reset()
+        if result.get("error") or result.get("success") is False:
+            return result
+        self._attempt += 1
+        return {
+            **result,
+            "attempt": self._attempt,
+            "notice": "Fresh episode started. Re-run perception before acting.",
+        }
 
     def _capture_full_observation(self) -> dict[str, Any]:
         """Assemble the full observation (rgb + depth + camera_meta + world_xyz).
@@ -232,6 +287,10 @@ class RoboTwinToolkit(Toolkit):
         if frames:
             self._state.save("episode.mp4", frames, step=None, fps=20)
 
+    def solved(self) -> bool:
+        """Return the native RoboTwin task success flag."""
+        return self._primitives.status().get("eval_success") is True
+
     def _step(self, name: str, **kwargs) -> dict[str, Any]:
         self.raise_if_cancelled()
         if name == "render":
@@ -241,9 +300,28 @@ class RoboTwinToolkit(Toolkit):
     def write_recipe(self, recipe_tag: str) -> str:
         """Export state-advancing RoboTwin primitives with no error and no
         explicit ``success=False`` from ``EnvState.records()``."""
+        records = self._state.records()
+        if self._mode == "exploration":
+            if not self.solved():
+                return ""
+            last_reset = max(
+                (
+                    record.step_idx
+                    for record in records
+                    if isinstance(record.command, dict)
+                    and record.command.get("action") == "reset"
+                    and not (
+                        isinstance(record.result, dict) and record.result.get("error")
+                    )
+                ),
+                default=-1,
+            )
+            records = [record for record in records if record.step_idx > last_reset]
+            if not any(record.terminated for record in records):
+                return ""
         recipe = [
             record.command
-            for record in self._state.records()
+            for record in records
             if isinstance(record.command, dict)
             and record.command.get("action") in _RECIPE_ACTIONS
             and not (
@@ -254,7 +332,12 @@ class RoboTwinToolkit(Toolkit):
             )
         ]
         name = f"{recipe_tag}_recipe.jsonl"
-        saved = self._state.save(name, recipe, step=None)
+        destination = (
+            EnvState(Path(get_output_dir()))
+            if self._mode == "exploration"
+            else self._state
+        )
+        saved = destination.save(name, recipe, step=None)
         if saved is None:
             raise RuntimeError(f"failed to save RoboTwin recipe artifact: {name}")
-        return str(self._state.artifact_path(name, step=None))
+        return str(destination.artifact_path(name, step=None))

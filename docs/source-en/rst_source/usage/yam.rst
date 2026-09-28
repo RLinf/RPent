@@ -158,7 +158,7 @@ Dashboard directs these verdict commands to the operator terminal, not the LLM.
 restore the physical scene. Waiting returns nonterminal ``pending`` after at
 most 20 seconds; only an established new episode increments the attempt count.
 
-Explore uses official ``_internal/inbox``, ``task_only``, ``suite`` and ``global``
+Explore uses the shared ``_internal/inbox``, ``task-specific``, ``task-family`` and ``global``
 memory. Valid failure notes can merge after an unsuccessful run; success
 recipes contain only actions from the verified successful episode. A/B bag rules
 remain task-specific. See ``result.json``, transcripts, session step records,

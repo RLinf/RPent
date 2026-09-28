@@ -77,6 +77,13 @@ class RobotSpec:
     #: Operator success gates automatic memory publication for this capability.
     supports_human_interactive_exploration: bool = False
     memory_repo_id: str = "RLinf/RPent-memory"
+    #: Validate robot arguments without I/O before CLI or Dashboard services start.
+    validate_args: Callable[[argparse.Namespace], None] | None = None
+    #: Prepare per-task memory before prompts, planner, toolkit or task services.
+    #: The hook owns synchronization and sets prompt_vars['memory_dir']; robots
+    #: without a hook use the shared HF sync. Dashboard defers hooked sync until
+    #: the task's model and configuration are known.
+    prepare_memory: Callable[[argparse.Namespace, RunConfig], None] | None = None
     finalize_run: RunFinalizer | None = None
     #: Optional operator diagnostic dispatch; None result means a normal task.
     run_diagnostic: Callable[[argparse.Namespace], int | None] | None = None

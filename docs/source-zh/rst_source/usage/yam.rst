@@ -139,7 +139,7 @@ B 组准备对应服务后发送 ``/rpent-task tabletop_cleanup_b 0``。浏览�
 ``reset`` 消费 ready 并建立新回合，不代表回 home 或已恢复实物场景。
 等待每次最多 20 秒，返回非终止 ``pending``；新 episode 真正建立才计一次尝试。
 
-使用官方 ``_internal/inbox``、``task_only``、``suite``、``global`` 记忆结构。
+探索使用共用的 ``_internal/inbox``、``task-specific``、``task-family``、``global`` 记忆结构。
 失败运行的有效笔记也可以合并；成功 recipe 仅包含当前已核实成功回合的动作。
 A/B 入袋规则分别绑定任务。通过 ``result.json``、transcript、session 记录、
 recipe/audit 与更新后的 ``MEMORY.md`` 区分证据；Agent 正常结束、接口测试通过

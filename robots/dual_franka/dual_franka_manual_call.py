@@ -16,10 +16,8 @@
 # ruff: noqa: E402
 """Run one Dual-Franka primitive manually against live RPent services.
 
-This is the RPent-side replacement for the old PhysicalAgent
-``cli.dual_franka_manual`` helper.  It intentionally bypasses the planner: use it
-for live robot bring-up, single-skill VLA checks, perception checks, and reset
-or gripper sanity tests.
+This command bypasses the planner for robot bring-up, single-skill VLA checks,
+perception checks, and reset or gripper sanity tests.
 """
 
 from __future__ import annotations
@@ -48,7 +46,7 @@ from robots.dual_franka.tools import (
     dump_state,
     view_env_state,
 )
-from robots.franka.runtime_config import set_calibration_path, set_robot_config_path
+from robots.franka.runtime_config import set_robot_config_path
 from robots.franka.tools import view_camera_meta
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory.manager import MemoryManager
@@ -268,14 +266,6 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--vla-endpoint", default=None)
     parser.add_argument("--sam3-endpoint", default=None)
     parser.add_argument(
-        "--calibration-path",
-        default=os.environ.get("RPENT_CALIBRATION_PATH"),
-        help=(
-            "Hand-eye calibration JSON used by manual perception tools; "
-            "defaults to RPENT_CALIBRATION_PATH when set."
-        ),
-    )
-    parser.add_argument(
         "--robot-config",
         default=os.environ.get("RPENT_ROBOT_CONFIG", str(DEFAULT_CONFIG)),
     )
@@ -493,8 +483,6 @@ def main() -> int:
     payload = _load_payload(args)
     primitive = payload["primitive"]
     params = payload["params"]
-    if args.calibration_path:
-        set_calibration_path(args.calibration_path)
     output_dir = (
         Path(args.output_dir) if args.output_dir else _default_output_dir(primitive)
     )
@@ -596,7 +584,7 @@ def main() -> int:
                 result=result,
                 elapsed_s=elapsed_s,
             )
-        except Exception as exc:  # keep manual action result visible
+        except Exception as exc:  # Preserve the primitive result on capture failure.
             result = {
                 "ok": bool(result.get("ok")) if isinstance(result, dict) else None,
                 "primitive_result": result,

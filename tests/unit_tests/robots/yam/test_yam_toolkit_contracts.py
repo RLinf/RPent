@@ -160,7 +160,7 @@ def test_current_episode_recipe_memory_merge_and_next_read(
     toolkit.execute_tool("render", {})
     tag = "yam_place_cube_s12"
     note = """---
-scope: suite
+scope: task-family
 suite: yam
 regime: real
 task_id: place_cube
@@ -171,7 +171,9 @@ evidence:
 ---
 Use the left gripper to stabilize the object before opening the right gripper.
 """
-    inbox = tmp_path / "memory" / "_internal" / "inbox" / tag / "suite_technique.md"
+    inbox = (
+        tmp_path / "memory" / "_internal" / "inbox" / tag / "task-family_technique.md"
+    )
     written = toolkit.execute_tool(
         "write_text_file", {"path": str(inbox), "content": note}
     )
@@ -185,15 +187,17 @@ Use the left gripper to stabilize the object before opening the right gripper.
     merged = toolkit.memory.merge_memory(
         cell_tag=tag, run_state_dir=tmp_path / "run", solved=True
     )
-    assert merged["suite"] == 1 and merged["task"] == 1
+    assert merged["task-family"] == 1 and merged["task"] == 1
     assert (tmp_path / "memory" / "MEMORY.md").exists()
     reader = toolkit_factory(mode="evaluation")
-    published = tmp_path / "memory" / "suite" / "suite_yam_real_tplace_cube.md"
+    published = (
+        tmp_path / "memory" / "task-family" / "task-family_yam_real_tplace_cube.md"
+    )
     recalled = reader.execute_tool("read_text_file", {"path": str(published)})
     assert "stabilize the object" in recalled.result["content"]
     recipe_read = reader.execute_tool(
         "read_text_file",
-        {"path": str(tmp_path / "memory" / "task_only" / f"{tag}_recipe.jsonl")},
+        {"path": str(tmp_path / "memory" / "task-specific" / f"{tag}_recipe.jsonl")},
     )
     assert '"action": "release"' in recipe_read.result["content"]
     assert (

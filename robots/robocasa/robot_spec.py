@@ -24,6 +24,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from robots.robocasa.eval.result import finalize_cell_result
+from robots.robocasa.memory import (
+    RoboCasaMemoryManager,
+    TaskMemory,
+    memory_from_variables,
+)
 from robots.robocasa.prompt_bundle import (
     system_prompt,
     user_prompt,
@@ -149,7 +154,7 @@ def get_robot_spec() -> RobotSpec:
         parse_config=_parse_config,
         init_runtime=_init_runtime,
         dashboard=ROBOCASA_DASHBOARD_SPEC,
-        supports_exploration=False,
+        supports_exploration=True,
         finalize_run=finalize_cell_result,
     )
 
@@ -159,17 +164,35 @@ def get_toolkit(
     runtime_kwargs: dict[str, Any],
     dashboard_events: DashboardEventSink,
     config: RunConfig,
+    mode: str = "evaluation",
+    attempts_per_session: int = 0,
+    state_output_dir: Path | str | None = None,
 ):
     """Return the RoboCasa toolkit for the current session."""
     from robots.robocasa.toolkit import RoboCasaToolkit
 
-    memory = MemoryManager(
-        root=config.prompt_vars.get("memory_dir") or get_memory_dir("robocasa"),
-    )
+    if mode == "exploration":
+        memory = MemoryManager(
+            root=config.prompt_vars.get("memory_dir") or get_memory_dir("robocasa"),
+            memory_access="inbox_write",
+            inbox_cell_tag=config.recipe_tag,
+        )
+    else:
+        selection = memory_from_variables(
+            {
+                "memory_dir": str(get_memory_dir("robocasa")),
+                **config.task_desc,
+                **config.prompt_vars,
+            }
+        )
+        memory = RoboCasaMemoryManager(selection, output_dir=config.output_dir)
     return RoboCasaToolkit(
         runtime_kwargs=runtime_kwargs,
         dashboard_events=dashboard_events,
         memory=memory,
+        mode=mode,
+        attempts_per_session=attempts_per_session,
+        state_output_dir=state_output_dir,
     )
 
 
@@ -189,6 +212,24 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         help="RoboCasa data split (default: target)",
     )
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--auto-merge-memory",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Merge exploration output into layered memory (default: enabled).",
+    )
+    parser.add_argument(
+        "--explore-attempts-per-session",
+        type=int,
+        default=5,
+        help="Attempts per exploration session (default: 5; 0 disables limit).",
+    )
+    parser.add_argument(
+        "--explore-sessions",
+        type=int,
+        default=3,
+        help="Independent planner sessions per exploration run (default: 3).",
+    )
     parser.add_argument(
         "--hi-res", type=int, default=0, help="Hi-res agentview resolution (0=off)"
     )
@@ -228,13 +269,34 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     )
 
     recipe_tag = f"{args.task_name}_{args.split}_s{args.seed}"
+    explore = bool(getattr(args, "explore", False))
+    memory_profile = getattr(args, "memory_profile", None) or (
+        "local" if explore else "hf"
+    )
+    reference_tag = (
+        f"{args.task_name}_{args.split}_s0"
+        if memory_profile == "local"
+        else f"{args.task_name}_s0"
+    )
     prompt_vars = {
         "task_name": args.task_name,
         "split": args.split,
         "seed": args.seed,
         "recipe_tag": recipe_tag,
+        "mode": "explore" if explore else "eval",
+        "memory_profile": memory_profile,
+        "reference_tag": reference_tag,
         "memory_dir": str(memory_dir),
     }
+    if explore:
+        prompt_vars.update(
+            {
+                "memory_inbox": str(memory_dir / "_internal" / "inbox" / recipe_tag),
+                "session_number": 1,
+                "session_max": max(1, args.explore_sessions),
+                "explore_attempts_per_session": args.explore_attempts_per_session,
+            }
+        )
 
     output_dir = args.output_dir
     if output_dir is None:
@@ -385,6 +447,18 @@ def _init_runtime(
     unknown = selected.difference(starters)
     if unknown:
         raise ValueError(f"unknown RoboCasa runtime components: {sorted(unknown)}")
+
+    # CLI/Dashboard supply a memory profile; standalone component diagnostics
+    # only parse robot arguments and do not use planner memory. Dashboard starts
+    # shared services before a task is selected, so validate the global layer
+    # then and the current task before starting its environment.
+    if hasattr(args, "memory_profile") and not getattr(args, "explore", False):
+        TaskMemory.load(
+            getattr(args, "memory_dir", None) or get_memory_dir("robocasa"),
+            args.task_name,
+            profile=getattr(args, "memory_profile", None) or "hf",
+            split=getattr(args, "split", "target"),
+        )
 
     pending: dict[str, tuple[ProcessDaemon | None, RpcClient]] = {}
     owned_daemons: dict[str, ProcessDaemon] = {}
