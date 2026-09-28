@@ -34,10 +34,10 @@ from robots.franka import runtime_config
 def worker_classes(monkeypatch):
     modules = {
         "rlinf.scheduler": {"Worker": object},
-        "rlinf.envs.realworld.realworld_env": {"RealWorldEnv": object},
-        "rlinf.envs.realworld.common.camera": {
+        "rlinf.envs.real.env": {"RealWorldEnv": object},
+        "rlinf.robotics.parts.cameras": {
+            "Camera": object,
             "CameraInfo": object,
-            "create_camera": lambda **kwargs: None,
         },
     }
     for name, attrs in modules.items():

@@ -154,10 +154,10 @@ def load_runtime_config(
     """Load the user YAML, apply developer defaults, and build the adapter."""
     # Lazy RLinf imports: keys are validated against these dataclasses (drift
     # guard), deferred so importing this module stays RLinf-free.
-    from rlinf.envs.realworld.franka.tasks.dual_franka_tcp_env import (
-        DualFrankaTCPRobotConfig,
+    from rlinf.envs.real.franka.dual_franka_tcp import (
+        DualFrankaTCPEnvConfig,
     )
-    from rlinf.scheduler.hardware.robots.dual_franka import DualFrankaConfig
+    from rlinf.robotics.robots.dual_franka import DualFrankaConfig
 
     raw = load_mapping(path or DEFAULT_CONFIG)
     robot = _require_mapping(raw.get("robot"), "robot")
@@ -197,7 +197,7 @@ def load_runtime_config(
         where="cluster.node_groups[].hardware.configs[]",
     )
     override_cfg = strict_mapping(
-        DualFrankaTCPRobotConfig,
+        DualFrankaTCPEnvConfig,
         {
             "max_num_steps": EPISODE_STEPS,
             "task_description": task_description,

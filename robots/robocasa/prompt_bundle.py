@@ -18,36 +18,29 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from robots.robocasa import prompts as robocasa_prompt
-from rpent.prompt import common as base_prompt
+from robots.robocasa.prompts import evaluate as evaluate_parts
+from robots.robocasa.prompts import explore as explore_parts
 from rpent.prompt.utils import PromptNode
 
 
 def system_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> dict[str, PromptNode]:
-    """Return the system prompt tree."""
-    return {
-        "Intro": robocasa_prompt.PREAMBLE,
-        "Goal": robocasa_prompt.GOAL,
-        "Rules": robocasa_prompt.RULES,
-        "Memory": robocasa_prompt.MEMORY,
-        "Localization": robocasa_prompt.LOCALIZATION,
-        "Navigation": robocasa_prompt.NAVIGATION,
-        "Primitives": robocasa_prompt.PRIMITIVES,
-        "VLA_Rules": robocasa_prompt.VLA_RULES,
-        "Gripper_Rules": robocasa_prompt.GRIPPER_RULES,
-        "Workflow": robocasa_prompt.WORKFLOW,
-        "Environment": robocasa_prompt.ENVIRONMENT,
-        "Output": base_prompt.OUTPUT,
-        "Next": robocasa_prompt.NEXT,
-    }
+    """Return the RoboCasa system prompt tree."""
+    if (variables or {}).get("mode", "eval") == "explore":
+        return explore_parts.system_prompt()
+    return evaluate_parts.system_prompt(variables)
 
 
 def user_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> dict[str, PromptNode]:
     """Return the first user message tree."""
+    mode = (
+        explore_parts.USER_MODE
+        if (variables or {}).get("mode", "eval") == "explore"
+        else evaluate_parts.USER_MODE
+    )
     return {
         "Task": """
         - task:    {{task_name}} / {{split}}
@@ -56,5 +49,5 @@ def user_prompt(
         - output:  {{output_dir}}/
           - audit filename:  {{recipe_tag}}.json
         """,
-        "Mode": robocasa_prompt.USER_MODE,
+        "Mode": mode,
     }

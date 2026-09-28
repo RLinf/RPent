@@ -14,4 +14,4 @@
 
 """RoboCasa prompt sections."""
 
-from robots.robocasa.prompts.system import *  # noqa: F403
+from robots.robocasa.prompts.evaluate import *  # noqa: F403

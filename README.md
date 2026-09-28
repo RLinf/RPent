@@ -86,6 +86,7 @@ RPent is built for four kinds of users:
           <li><b>WAM</b></li>
           <ul>
             <li>DreamZero</li>
+            <li>Cosmos Policy</li>
           </ul>
         </ul>
       </td>
@@ -126,6 +127,13 @@ pip install -e ".[robotwin]"    # RoboTwin
 
 For RoboCasa setup, task memory, and the Target50 protocol, see the
 [RoboCasa guide](https://rpent.readthedocs.io/en/latest/rst_source/usage/robocasa.html).
+
+RoboCasa uses current-task files in `robocasa/task-specific/` together with
+`robocasa/global/GLOBAL_MEMORY.md` from
+[RPent-memory](https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/robocasa).
+The CLI and Dashboard provide both layers for on-demand reading, with no
+full-read requirement before actions. HF memory follows the current branch
+without a fixed data revision.
 
 The example below continues with LIBERO-PRO.
 
