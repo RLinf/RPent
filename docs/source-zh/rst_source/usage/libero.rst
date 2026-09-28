@@ -44,7 +44,7 @@ CUDA 12.8 / Python 3.10 环境启动服务：
    cd /path/to/cosmos-policy
    uv run --extra cu128 --group libero --python 3.10 \
      --with-editable /path/to/RPent \
-     python /path/to/RPent/robots/libero/cosmos_policy_server.py \
+     python -m rpent.robots.components.cosmos_policy_server \
      --cuda-device 0 --host 127.0.0.1 --port 8116
 
 默认下载 ``nvidia/Cosmos-Policy-LIBERO-Predict2-2B``、对应的数据集统计量和
@@ -79,9 +79,36 @@ SAM3。Cosmos 运行不需要 Pi0.5 checkpoint：
 反归一化由 NVIDIA 实现负责，执行后的状态和图像由现有 LIBERO toolkit 记录。
 未来视频及价值预测在此适配器中关闭。
 
-Cosmos 需显式指定 ``--memory-profile local``，使用独立提示词和本地 memory
-目录，默认为 ``memory/libero_cosmos``，允许目录为空。
-``--memory-profile hf`` 会被拒绝，因为该语料依赖 Pi0.5 工具。
+可通过 ``cosmos_act(prompt="pick up the black bowl", max_chunks=1)`` 执行规划器
+选择的具体子任务。指令仅对本次调用生效；省略 ``prompt`` 或传入 ``null`` 时，
+恢复使用环境的原始任务描述。该参数不改变环境任务及成功判据，子任务是否完成需
+观察执行后的图像，返回的 ``success`` 仍表示完整任务是否成功。子任务执行效果
+取决于 checkpoint，需另行评测。
+
+每次调用允许 1–4 个动作块，默认 1 个，因此最多执行 64 个动作就会返回给规划器。
+先使用完整任务指令，在观察到进展时保持指令不变；遇到明确失败时再使用子任务。
+与 ``pi0_pick`` 不同，此工具不会在检测到抓取完成时停止。
+``terminated`` 和 ``success`` 表示原生任务成功，``truncated`` 表示动作预算耗尽。
+``cosmos_act`` 不再返回含义模糊的 ``libero_terminated`` 字段。
+未记录到原生成功时，``finish(status="success", ...)`` 会被拒绝。
+回合结束后，后续动作工具调用会被拒绝，工具返回值会提示规划器按原生结果结束。
+
+对于向量缓存中没有的指令，官方服务会按需加载 ``google-t5/t5-11b``，并缓存
+计算得到的文本向量。离线运行前需在服务的 Hugging Face 缓存中准备其 tokenizer
+和权重，并为文本编码预留额外显存及首次请求时间。``--text-embeddings`` 应指向
+可写的本地副本，因为上游会在编码新指令后更新该文件。
+
+Cosmos 运行根据当前观测进行决策，暂不接入 Memory。仍需指定全局选项
+``--memory-profile local``，用于跳过 CLI 和 Dashboard 的 HF 自动同步，
+不表示启用本地 Cosmos 经验库。``--memory-dir`` 和 ``--memory-profile hf``
+均会被拒绝。Cosmos toolkit 不提供 ``read_text_file``、``write_text_file``
+和 ``list_dir``；观测及运行产物仍由 RPent 自动记录。
+
+模型客户端和服务端位于 ``rpent/robots/components/``，当前观测格式和
+checkpoint 仍仅支持 LIBERO；环境接线及 ``cosmos_act`` 保留在
+``robots/libero/``。服务启动命令为
+``python -m rpent.robots.components.cosmos_policy_server``，原有的
+``robots/libero/cosmos_policy_server.py`` 入口已移除。
 CLI 和 Dashboard 均通过 ``--vla-backend`` 选择模型。
 
 安装 ``.[test,libero]`` 后，可使用离线规划器验证真实服务及有界执行链路：
@@ -91,8 +118,8 @@ CLI 和 Dashboard 均通过 ``--vla-backend`` 选择模型。
    RPENT_COSMOS_ENDPOINT=http://127.0.0.1:8116 CUDA_VISIBLE_DEVICES=1 \
      pytest tests/e2e_tests/libero/test_cosmos_policy.py -v
 
-测试需要真实 LIBERO 资源，完整链路还需要 SAM3。链路通过说明动作执行和
-产物记录正常，不代表任务成功。
+测试需要真实 LIBERO 资源；完整链路还需要 SAM3，子任务指令用例需要上述 T5
+编码器权重。链路通过说明动作执行和产物记录正常，不代表任务成功。
 
 如需单独测量策略性能，准备运行中的服务和标准 LIBERO 资源后，在 RPent
 仓库目录执行：

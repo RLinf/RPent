@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Serve NVIDIA Cosmos Policy from its own Python environment over RPent RPC."""
+"""Serve NVIDIA's LIBERO Cosmos Policy in its own environment over RPent RPC."""
 
 from __future__ import annotations
 

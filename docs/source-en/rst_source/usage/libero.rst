@@ -49,7 +49,7 @@ start the worker using the official CUDA 12.8 / Python 3.10 environment:
    cd /path/to/cosmos-policy
    uv run --extra cu128 --group libero --python 3.10 \
      --with-editable /path/to/RPent \
-     python /path/to/RPent/robots/libero/cosmos_policy_server.py \
+     python -m rpent.robots.components.cosmos_policy_server \
      --cuda-device 0 --host 127.0.0.1 --port 8116
 
 The defaults download ``nvidia/Cosmos-Policy-LIBERO-Predict2-2B``, its
@@ -89,9 +89,45 @@ preprocessing, normalization and action unnormalization. RPent records the
 executed state/images using the existing LIBERO toolkit. Future video/value
 prediction is disabled.
 
-Pass ``--memory-profile local`` for Cosmos. It uses its own prompt and local
-memory directory (``memory/libero_cosmos`` by default, allowed to be empty).
-``--memory-profile hf`` is rejected because that corpus describes Pi0.5 tools.
+Pass a concrete instruction such as
+``cosmos_act(prompt="pick up the black bowl", max_chunks=1)`` to execute a
+planner-selected subtask. The override applies only to that call; omitting
+``prompt`` or passing ``null`` restores the native task instruction. It does not
+change the environment task or its success predicate. Inspect the resulting
+images for subtask completion; the returned ``success`` still describes the
+full task. Subtask effectiveness depends on the checkpoint and requires separate
+evaluation.
+
+Each call accepts 1-4 chunks (default 1), so the planner gets feedback after at
+most 64 actions. Start with the full task and preserve that instruction while
+progress is visible; use a subtask to address an observed failure. Unlike
+``pi0_pick``, this tool has no grasp-completion stopping rule. ``terminated``
+and ``success`` indicate native task success; ``truncated`` indicates an expired
+action budget. The ambiguous ``libero_terminated`` result field is no longer
+returned by ``cosmos_act``. Calls to ``finish(status="success", ...)`` are
+refused unless native success has been recorded.
+Once the episode ends, further motion tools are refused and the tool result
+directs the planner to finish with the native outcome.
+
+For instructions absent from the supplied embeddings cache, the official worker
+loads ``google-t5/t5-11b`` on demand and caches the computed embeddings. Provision
+its tokenizer and weights in the worker's Hugging Face cache before offline use,
+and allow additional GPU memory and first-request latency for text encoding.
+Use a writable local copy of ``--text-embeddings`` because upstream updates it
+when new instructions are encoded.
+
+Cosmos runs use current observations without Memory. Pass the global
+``--memory-profile local`` option to skip automatic HF synchronization in the
+CLI and Dashboard; it does not enable a local Cosmos corpus. ``--memory-dir``
+and ``--memory-profile hf`` are rejected. The Cosmos toolkit does not expose
+``read_text_file``, ``write_text_file`` or ``list_dir``; observations and run
+artifacts are still recorded by RPent.
+
+The model client and worker live in ``rpent/robots/components/``. Their
+observation format and checkpoint currently support LIBERO only; environment
+wiring and ``cosmos_act`` remain in ``robots/libero/``. Start the worker with
+``python -m rpent.robots.components.cosmos_policy_server``; the former
+``robots/libero/cosmos_policy_server.py`` entry point has been removed.
 The CLI and Dashboard both select the backend through ``--vla-backend``.
 
 To check a running real worker and the bounded policy chain with an offline
@@ -102,7 +138,8 @@ planner, install ``.[test,libero]`` and run:
    RPENT_COSMOS_ENDPOINT=http://127.0.0.1:8116 CUDA_VISIBLE_DEVICES=1 \
      pytest tests/e2e_tests/libero/test_cosmos_policy.py -v
 
-These checks require real LIBERO assets and, for the complete chain, SAM3.
+These checks require real LIBERO assets and, for the complete chain, SAM3 and
+the T5 encoder weights for the subtask instruction case.
 A passing chain verifies action execution and artifacts, not task success.
 
 To measure policy performance separately, run from the RPent checkout with

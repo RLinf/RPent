@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 
 import numpy as np
@@ -74,16 +75,30 @@ def test_cosmos_predicts_from_real_libero_observation(tmp_path) -> None:
         require_array(obs["main_images"], "next image", ndim=3, last_dim=3)
 
 
-def test_cosmos_policy_chain(tmp_path) -> None:
+@pytest.mark.parametrize(
+    "prompt,max_chunks", [(None, 1), ("pick up the black bowl", 1), (None, 4)]
+)
+def test_cosmos_policy_chain(tmp_path, prompt, max_chunks) -> None:
     result = run_scripted_policy_chain(
         robot="libero",
         robot_argv=_argv(),
         output_dir=tmp_path / "chain",
-        action=ScriptedToolCall("cosmos_act", {"max_chunks": 1}),
+        action=ScriptedToolCall(
+            "cosmos_act", {"prompt": prompt, "max_chunks": max_chunks}
+        ),
         action_count_field="chunks",
     )
     assert result["status"] == "passed"
     assert list((tmp_path / "chain" / "agentview_high.png").glob("*.png"))
+    states = json.loads((tmp_path / "chain" / "states.json").read_text())["steps"]
+    final = states[-1]
+    verdict = final["result"]
+    assert verdict["success"] == verdict["terminated"] == final["terminated"]
+    assert verdict["truncated"] == final["truncated"]
+    assert "libero_terminated" not in verdict
+    if max_chunks == 4:
+        assert verdict["terminated"] or verdict["truncated"]
+        assert verdict["chunks"] <= 2  # The test horizon is 32 policy actions.
 
 
 def test_libero_horizon_excludes_reset_settling(tmp_path) -> None:

@@ -186,26 +186,38 @@ class LiberoPrimitives:
         self.set_obs(obs)
         return self._last_obs
 
-    def cosmos_act(self, *, max_chunks: int = 1) -> dict:
-        """Execute bounded Cosmos Policy chunks with the environment's full task."""
+    def cosmos_act(self, prompt: str | None = None, *, max_chunks: int = 1) -> dict:
+        """Execute bounded Cosmos chunks with a request-local instruction.
+
+        Args:
+            prompt: Subtask instruction, or None for the native environment task.
+            max_chunks: One to four 16-action predictions before planner feedback.
+
+        Returns:
+            Chunk count and native episode verdict, not subtask completion.
+        """
+        if prompt is not None and (not isinstance(prompt, str) or not prompt.strip()):
+            raise ValueError("prompt must be a non-empty instruction or null")
         if (
             isinstance(max_chunks, bool)
             or not isinstance(max_chunks, int)
-            or not 1 <= max_chunks <= 32
+            or not 1 <= max_chunks <= 4
         ):
-            raise ValueError("max_chunks must be an integer between 1 and 32")
+            raise ValueError("max_chunks must be an integer between 1 and 4")
         chunks = 0
         while chunks < max_chunks and not (self.env.terminated or self.env.truncated):
             self._check_cancelled()
             self._vlm_chunk(
-                self._last_obs["task_descriptions"], raw_obs=self.env.raw_obs()
+                prompt if prompt is not None else self._last_obs["task_descriptions"],
+                raw_obs=self.env.raw_obs(),
             )
             chunks += 1
         return {
             "model": "cosmos-policy",
             "chunks": chunks,
             "success": self.env.terminated,
-            "libero_terminated": self.env.terminated or self.env.truncated,
+            "terminated": self.env.terminated,
+            "truncated": self.env.truncated,
         }
 
     def pi0_pick(
@@ -1293,18 +1305,28 @@ TOOLS_SPEC = [
     {
         "name": "cosmos_act",
         "description": (
-            "Execute Cosmos Policy on the current observations and full environment "
-            "task. Each chunk contains 16 actions. Inspect the resulting state "
-            "before continuing; success is the environment's task verdict."
+            "Execute Cosmos Policy on current observations with an optional subtask "
+            "prompt; omit it to use the full environment task. Each chunk contains "
+            "16 actions. Inspect the resulting state to assess subtask completion; "
+            "success and terminated are the full-task verdict; truncated means "
+            "the action budget expired. This tool does not stop on grasp completion."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
+                "prompt": {
+                    "type": ["string", "null"],
+                    "minLength": 1,
+                    "description": "Concrete manipulation instruction for this call "
+                    "only (e.g. 'pick up the black bowl'). Omit or null for the "
+                    "native full task.",
+                },
                 "max_chunks": {
                     "type": "integer",
                     "minimum": 1,
-                    "maximum": 32,
-                    "description": "Action-chunk budget (default 1).",
+                    "maximum": 4,
+                    "description": "Action-chunk budget, 1-4 (default 1). Observe "
+                    "the result before requesting more chunks.",
                 },
             },
             "required": [],

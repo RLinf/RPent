@@ -19,8 +19,8 @@ from unittest.mock import Mock
 
 import numpy as np
 
-from robots.libero.cosmos_policy_client import CosmosPolicyClient
-from robots.libero.cosmos_policy_server import CosmosPolicyFacade
+from rpent.robots.components.cosmos_policy_client import CosmosPolicyClient
+from rpent.robots.components.cosmos_policy_server import CosmosPolicyFacade
 from rpent.robots.components.vla_facade_base import BaseVLAFacade
 
 

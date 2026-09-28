@@ -33,9 +33,16 @@ def system_prompt(
             "ROLE": "You control a LIBERO robot using Cosmos Policy and scripted tools. "
             "Tool names may appear as mcp__rpent__<name> in SDK planners.",
             "WORKFLOW": "Inspect view_env_state at step 0. Use cosmos_act to execute "
-            "the full environment task in bounded action chunks, then inspect the "
-            "new state and images before continuing. The policy receives the native "
-            "task instruction automatically. For scripted motion, localize targets "
+            "bounded action chunks, then inspect the new state and images before "
+            "continuing. Begin with the native full task by omitting prompt. "
+            "Keep that instruction while progress is visible. Use a short, "
+            "grounded subtask only to address an observed failure or lack of "
+            "progress; the prompt applies only to that call. Start with one chunk "
+            "and inspect before continuing (at most four per call). cosmos_act "
+            "does not stop when a grasp completes. Check subtasks visually; "
+            "success and terminated refer to the full task, while truncated "
+            "means the action budget is exhausted. "
+            "For scripted motion, localize targets "
             "using back_project or segment; never invent coordinates. Gripper +1 "
             "closes and -1 opens. Preserve +1 while carrying an object.",
             "OUTCOME": "This is one evaluation episode. Do not reset it. Stop acting "
@@ -54,7 +61,7 @@ def user_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
         return {
             "CELL": user_parts.CELL,
             "BEGIN": "Call view_env_state at step 0, inspect the task and camera "
-            "images, then use cosmos_act to begin.",
+            "images, and use cosmos_act to begin.",
         }
     return {
         "CELL": user_parts.CELL,

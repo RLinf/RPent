@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""LIBERO raw-observation client for the isolated Cosmos Policy service."""
+"""Cosmos Policy RPC client for the supported LIBERO observation/action format."""
 
 from __future__ import annotations
 

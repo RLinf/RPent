@@ -310,8 +310,10 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     if cosmos and requested_profile == "hf":
         raise ValueError(
             "Cosmos Policy requires --memory-profile local; "
-            "use local memory because the HF corpus targets Pi0.5"
+            "this skips HF synchronization; Cosmos memory is not supported"
         )
+    if cosmos and args.memory_dir is not None:
+        raise ValueError("Cosmos Policy does not support --memory-dir")
     if explore and requested_profile == "hf":
         raise ValueError("--explore cannot be used with --memory-profile hf")
     if explore and args.explore_sessions <= 0:
@@ -325,7 +327,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     memory_dir = (
         Path(args.memory_dir).expanduser().resolve()
         if args.memory_dir
-        else get_memory_dir("libero_cosmos" if cosmos else "libero")
+        else get_memory_dir("libero")
     )
     local_eval = not explore and memory_profile == "local"
     if local_eval and not cosmos:
@@ -359,13 +361,16 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         "recipe_tag": recipe_tag,
         "mode": "explore" if explore else "eval",
         "memory_profile": memory_profile,
-        "memory_dir": str(memory_dir),
         "reference_tag": f"{args.suite.replace('libero_', '')}_t{args.task}_s0",
-        # Per-cell inbox: parallel explore runs must not append to a shared file.
-        "memory_inbox": str(memory_dir / "_internal" / "inbox" / recipe_tag),
         "session_number": 1,
         "session_max": max(1, args.explore_sessions) if explore else 1,
     }
+    if not cosmos:
+        prompt_vars["memory_dir"] = str(memory_dir)
+        # Per-cell inbox: parallel explore runs must not append to a shared file.
+        prompt_vars["memory_inbox"] = str(
+            memory_dir / "_internal" / "inbox" / recipe_tag
+        )
 
     output_dir = args.output_dir
     if output_dir is None:
@@ -525,8 +530,8 @@ def _init_runtime(
     components: set[str] | None,
 ) -> tuple[list[ProcessDaemon], dict[str, Any]]:
     """Initialize every LIBERO component, or only ``components`` when given."""
-    from robots.libero.cosmos_policy_client import CosmosPolicyClient
     from robots.libero.env_client import LiberoEnvClient
+    from rpent.robots.components.cosmos_policy_client import CosmosPolicyClient
     from rpent.robots.components.molmo_client import MolmoClient
     from rpent.robots.components.pi05_vla_client import Pi05VLAClient
     from rpent.robots.components.sam3_client import Sam3Client
