@@ -39,7 +39,7 @@ import numpy as np
 from robots.libero import tools as libero_tools
 from robots.libero.flash.prompts import build as prompt_for
 from robots.libero.memory import replay_directory
-from rpent.robots.components.molmo_client import MolmoClient
+from rpent.robots.components.locator_client import LocatorClient
 from rpent.session import EnvState
 
 #: ``<family>_<suite>_t<task>_s<seed>``, the tag the CLI builds per cell.
@@ -120,26 +120,26 @@ def profile(
     }
 
 
-def locate(molmo: MolmoClient, state: EnvState, step: int, camera: str, query: str):
+def locate(locator: LocatorClient, state: EnvState, step: int, camera: str, query: str):
     image = _image_bytes(state, step, camera)
     if image is None:
         return None
-    found = molmo.ground(image, query)
-    if not found.found:
+    point = locator.locate(image, query)
+    if point is None:
         return None
-    col, row = found.point_xy
+    col, row = point
     return profile(state, step, camera, col, row)
 
 
-def held_body(molmo: MolmoClient, state: EnvState, step: int, query: str):
+def held_body(locator: LocatorClient, state: EnvState, step: int, query: str):
     """What is in the gripper, sampled on a grid because a line may miss it."""
     image = _image_bytes(state, step, "wrist")
     if image is None:
         return None
-    found = molmo.ground(image, query)
-    if not found.found:
+    point = locator.locate(image, query)
+    if point is None:
         return None
-    col, row = found.point_xy
+    col, row = point
     points = []
     for dc in (-40, 0, 40):
         for dr in (-40, 0, 40):
@@ -224,6 +224,11 @@ def load(root: Path, plan_name: str) -> dict:
     """Read one program: its plan, and the anchors its coordinates were written against."""
     plan = json.loads((root / f"{plan_name}_plan.json").read_text())["plan"]
     anchors = json.loads((root / f"{plan_name}_anchors.json").read_text())["anchors"]
+    for anchor in anchors:
+        if anchor["locator"] == "molmo":
+            anchor["locator"] = "point"
+        if anchor["locator"] not in {"segment", "point"}:
+            raise ValueError(f"unsupported Flash locator: {anchor['locator']!r}")
     return {
         "plan": plan,
         "reference": {a["phrase"]: np.array(a["median_xy"]) for a in anchors},
@@ -233,7 +238,7 @@ def load(root: Path, plan_name: str) -> dict:
 
 def replay(
     toolkit: Any,
-    molmo: MolmoClient,
+    locator: LocatorClient,
     program: dict,
     note: Callable[[str], None] = lambda _: None,
 ) -> dict:
@@ -295,7 +300,7 @@ def replay(
             )
         else:
             got = locate(
-                molmo, state, opening, "agentview", prompt_for("survey", phrase)
+                locator, state, opening, "agentview", prompt_for("survey", phrase)
             )
             xy = got["xy"] if got else None
         if xy is None or max(abs(xy[0]), abs(xy[1])) > REACH:
@@ -341,7 +346,7 @@ def replay(
             )
         except Exception:
             continue
-        close = locate(molmo, state, look(), "wrist", prompt_for("refine", phrase))
+        close = locate(locator, state, look(), "wrist", prompt_for("refine", phrase))
         if close is None:
             continue
         gap = float(np.linalg.norm(close["xy"] - coarse))
@@ -425,7 +430,7 @@ def replay(
         elif name == "set_gripper":
             execute(toolkit, name, arguments)
             held_step = look()
-            body = held_body(molmo, state, held_step, prompt_for("held", held_phrase))
+            body = held_body(locator, state, held_step, prompt_for("held", held_phrase))
             eef = np.asarray(state.get(held_step).state["robot0_eef_pos"][:2])
             candidate = body["xy"] - eef if body is not None else None
             if candidate is not None and np.linalg.norm(candidate) <= MAX_HELD:
@@ -478,13 +483,13 @@ def run_flash(
             "both plan and anchors files are required"
         )
 
-    molmo = toolkit.primitives.molmo_client
-    if molmo is None:
+    locator = toolkit.primitives.locator_client
+    if locator is None:
         raise RuntimeError(
-            "no grounder: Flash plans need a Molmo server named by --molmo-endpoint"
+            "no grounder: Flash plans need a locator server named by --locator-endpoint"
         )
     note(f"replaying the {family}/{key} program")
     return {
-        **replay(toolkit, molmo, load(root, plan_name), note),
+        **replay(toolkit, locator, load(root, plan_name), note),
         "program": f"{family}/{key}",
     }

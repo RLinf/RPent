@@ -24,7 +24,7 @@ from typing import Any
 import numpy as np
 
 from robots.libero.env_client import LiberoEnvClient
-from rpent.robots.components.molmo_client import MolmoClient
+from rpent.robots.components.locator_client import LocatorClient
 from rpent.robots.components.pi05_vla_client import Pi05VLAClient
 from rpent.robots.components.sam3_client import Sam3Client
 from rpent.session import EnvState, StepRecord
@@ -58,14 +58,14 @@ class LiberoPrimitives:
         model: Pi05VLAClient,
         sam3_client: Sam3Client,
         check_cancelled: Callable[[], None],
-        molmo_client: MolmoClient | None = None,
+        locator_client: LocatorClient | None = None,
         flywheel_config: dict[str, Any] | None = None,
     ):
         self.env = env
         self.model = model
         self._sam3_client = sam3_client
-        #: Only a Flash Mode replay reads this; other runs never start Molmo.
-        self.molmo_client = molmo_client
+        #: Only a Flash Mode replay reads this; other runs do not connect a locator.
+        self.locator_client = locator_client
         self._check_cancelled = check_cancelled
         self._last_obs = None
         self._last_obs_eef_pos = None

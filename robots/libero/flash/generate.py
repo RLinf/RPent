@@ -143,7 +143,7 @@ def _segment_anchors(segments: Path | None) -> list[dict[str, Any]]:
         anchors.append(
             {
                 "phrase": phrase,
-                "locator": "segment" if data.get("mode") == "text" else "molmo",
+                "locator": "segment" if data.get("mode") == "text" else "point",
                 "camera": data.get("camera", "agentview"),
                 "score": data.get("score"),
                 "readings": [point],
@@ -290,7 +290,7 @@ def _fallback_anchors(
             anchors.append(
                 {
                     "phrase": phrase,
-                    "locator": "molmo",
+                    "locator": "point",
                     "camera": "agentview",
                     "score": None,
                     "readings": [[xy[0], xy[1], 0.0]],

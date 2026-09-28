@@ -89,8 +89,8 @@ LIBERO_DASHBOARD_SPEC: DashboardSpec = {
         {"name": "vla", "label": "VLA", "scope": "shared"},
         {"name": "sam3", "label": "SAM3", "scope": "shared"},
         {
-            "name": "molmo",
-            "label": "Molmo",
+            "name": "locator",
+            "label": "Locator",
             "scope": "shared",
             "planners": ("flash",),
         },
@@ -243,9 +243,9 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         "If unset, a local vla_server is spawned.",
     )
     parser.add_argument(
-        "--molmo-endpoint",
+        "--locator-endpoint",
         default=None,
-        help="[protocol://]host:port of an existing Molmo server "
+        help="[protocol://]host:port of an existing locator server "
         "(protocol=http|socket, defaults to http). "
         "Required by --planner flash.",
     )
@@ -285,10 +285,10 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
                 f"--planner flash does not support --suite {args.suite!r}; "
                 f"supported suites: {supported}"
             )
-        if args.molmo_endpoint is None:
-            raise ValueError("--planner flash requires --molmo-endpoint")
-    elif args.molmo_endpoint is not None:
-        raise ValueError("--molmo-endpoint requires --planner flash")
+        if args.locator_endpoint is None:
+            raise ValueError("--planner flash requires --locator-endpoint")
+    elif args.locator_endpoint is not None:
+        raise ValueError("--locator-endpoint requires --planner flash")
 
     recipe_tag = f"{args.suite.replace('libero_', '')}_t{args.task}_s{args.seed}"
     explore = bool(getattr(args, "explore", False))
@@ -481,17 +481,13 @@ def _spawn_sam3_server(
     return daemon, HttpRpcClient(f"http://{host}:{port}")
 
 
-def _connect_molmo_server(
+def _connect_locator_server(
     args: argparse.Namespace,
 ) -> tuple[ProcessDaemon | None, RpcClient]:
-    """Connect to Molmo running in its dependency-isolated environment."""
-    if args.molmo_endpoint is None:
-        raise ValueError(
-            "--planner flash requires --molmo-endpoint; Molmo uses a "
-            "separate environment because its transformers requirement "
-            "conflicts with LIBERO's policy environment"
-        )
-    return None, make_rpc_client(args.molmo_endpoint)
+    """Connect to the independently configured point locator service."""
+    if args.locator_endpoint is None:
+        raise ValueError("--planner flash requires --locator-endpoint")
+    return None, make_rpc_client(args.locator_endpoint)
 
 
 def _init_runtime(
@@ -502,7 +498,7 @@ def _init_runtime(
 ) -> tuple[list[ProcessDaemon], dict[str, Any]]:
     """Initialize every LIBERO component, or only ``components`` when given."""
     from robots.libero.env_client import LiberoEnvClient
-    from rpent.robots.components.molmo_client import MolmoClient
+    from rpent.robots.components.locator_client import LocatorClient
     from rpent.robots.components.pi05_vla_client import Pi05VLAClient
     from rpent.robots.components.sam3_client import Sam3Client
 
@@ -510,7 +506,7 @@ def _init_runtime(
         "env": lambda: _spawn_env_server(args, output_dir),
         "vla": lambda: _spawn_vla_server(args, output_dir),
         "sam3": lambda: _spawn_sam3_server(args, output_dir),
-        "molmo": lambda: _connect_molmo_server(args),
+        "locator": lambda: _connect_locator_server(args),
     }
     connectors = {
         "env": lambda rpc: {
@@ -526,11 +522,11 @@ def _init_runtime(
         },
         "vla": lambda rpc: {"model": Pi05VLAClient(rpc, embodiment="libero")},
         "sam3": lambda rpc: {"sam3_client": Sam3Client(rpc)},
-        "molmo": lambda rpc: {"molmo_client": MolmoClient(rpc)},
+        "locator": lambda rpc: {"locator_client": LocatorClient(rpc)},
     }
     selected = set(starters) if components is None else set(components)
     if getattr(args, "planner", None) != "flash":
-        selected.discard("molmo")
+        selected.discard("locator")
     unknown = selected.difference(starters)
     if unknown:
         raise ValueError(f"unknown LIBERO runtime components: {sorted(unknown)}")
@@ -547,7 +543,7 @@ def _init_runtime(
             )
 
     runtime_kwargs: dict[str, Any] = {}
-    wait_order = ("env", "sam3", "molmo", "vla")
+    wait_order = ("env", "sam3", "locator", "vla")
     for component in (name for name in wait_order if name in pending):
         daemon, rpc = pending[component]
         component_kwargs = try_wait_server(

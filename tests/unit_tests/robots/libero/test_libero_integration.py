@@ -65,21 +65,21 @@ class _Model:
         return np.ones((2, 7), np.float32)
 
 
-def _primitives(env, config=None, molmo_client=None):
+def _primitives(env, config=None, locator_client=None):
     return LiberoPrimitives(
         env=env,
         model=_Model(),
         sam3_client=SimpleNamespace(),
         check_cancelled=lambda: None,
         flywheel_config=config,
-        molmo_client=molmo_client,
+        locator_client=locator_client,
     )
 
 
-@pytest.mark.parametrize("with_molmo", [False, True])
-def test_collection_records_scripted_and_vla_actions(tmp_path, with_molmo):
+@pytest.mark.parametrize("with_locator", [False, True])
+def test_collection_records_scripted_and_vla_actions(tmp_path, with_locator):
     env = _Env()
-    molmo = SimpleNamespace() if with_molmo else None
+    locator = SimpleNamespace() if with_locator else None
     primitives = _primitives(
         env,
         {
@@ -88,9 +88,9 @@ def test_collection_records_scripted_and_vla_actions(tmp_path, with_molmo):
             "task_id": 2,
             "seed": 3,
         },
-        molmo_client=molmo,
+        locator_client=locator,
     )
-    assert primitives.molmo_client is molmo
+    assert primitives.locator_client is locator
     primitives.reset()
     primitives.begin_primitive("move_to")
     primitives._step_env(np.zeros(7))
@@ -109,13 +109,13 @@ def test_collection_records_scripted_and_vla_actions(tmp_path, with_molmo):
         np.testing.assert_array_equal(data["primitive_id"], [0, 1, 1])
 
 
-def test_molmo_positional_argument_keeps_collection_disabled():
-    molmo = SimpleNamespace()
+def test_locator_positional_argument_keeps_collection_disabled():
+    locator = SimpleNamespace()
     primitives = LiberoPrimitives(
-        _Env(), _Model(), SimpleNamespace(), lambda: None, molmo
+        _Env(), _Model(), SimpleNamespace(), lambda: None, locator
     )
     primitives.reset()
-    assert primitives.molmo_client is molmo
+    assert primitives.locator_client is locator
     assert primitives.finalize_flywheel() is None
 
 
