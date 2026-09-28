@@ -15,7 +15,9 @@
 from __future__ import annotations
 
 import os
+import signal
 import socket
+import sys
 import threading
 import time
 import urllib.request
@@ -23,12 +25,15 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Literal
+from typing import Any, Literal
 
 import numpy as np
 import pytest
 
-from rpent.utils.daemon import pick_free_port
+from robots.behavior.dino_v2.encoder import DINOV2_DIMENSION
+from robots.behavior.dino_v2.server import BehaviorDinoFacade
+from robots.behavior.env_server import BehaviorEnvFacade
+from rpent.utils.daemon import ProcessDaemon, pick_free_port
 from rpent.utils.rpc import (
     RpcClient,
     RpcError,
@@ -305,3 +310,180 @@ def test_transport_timeout_does_not_wedge_the_server(transport: Transport) -> No
 
         assert running.client.call("healthz", timeout_s=1.0) == {"status": "ok"}
         assert running.facade.delay_finished.wait(timeout=1.0)
+
+
+class _ThreadRecordingBehaviorEnvFacade(BehaviorEnvFacade):
+    def __init__(self) -> None:
+        super().__init__(backend=object(), meta={"task_language": "test"})
+        self.serve_thread_id: int | None = None
+        self.business_thread_id: int | None = None
+
+    def serve(self, **kwargs: Any) -> None:
+        self.serve_thread_id = threading.get_ident()
+        super().serve(**kwargs)
+
+    def get_env_meta(self) -> dict[str, Any]:
+        self.business_thread_id = threading.get_ident()
+        return super().get_env_meta()
+
+
+def test_behavior_facades_use_default_healthz_and_registered_metadata() -> None:
+    facade = BehaviorEnvFacade(backend=object(), meta={"task_language": "test"})
+    dino = BehaviorDinoFacade(
+        encoder=object(),
+        meta={"runtime": "behavior_dino", "dimension": DINOV2_DIMENSION},
+    )
+
+    assert facade._dispatch("healthz", (), {}) == {"status": "ok"}
+    assert facade._dispatch("env.get_env_meta", (), {}) == {"task_language": "test"}
+    assert "env.close_gripper" in facade._rpc
+    assert "env.open_gripper" in facade._rpc
+    assert "env.close" not in facade._rpc
+    assert "env.open" not in facade._rpc
+    with pytest.raises(ValueError, match="requires primitive arguments"):
+        facade.close_gripper()
+    assert dino._dispatch("healthz", (), {}) == {"status": "ok"}
+    dino_meta = dino._dispatch("dino.get_meta", (), {})
+    assert dino_meta["runtime"] == "behavior_dino"
+    assert dino_meta["dimension"] == DINOV2_DIMENSION
+    assert isinstance(dino_meta["pid"], int)
+
+
+def test_behavior_env_facade_serve_dispatches_business_calls_on_serving_thread() -> (
+    None
+):
+    facade = _ThreadRecordingBehaviorEnvFacade()
+    port = pick_free_port()
+    thread = threading.Thread(
+        target=facade.serve,
+        kwargs={
+            "transport": "http",
+            "host": "127.0.0.1",
+            "port": port,
+        },
+        daemon=True,
+    )
+    thread.start()
+    client = HttpRpcClient(f"http://127.0.0.1:{port}")
+
+    try:
+        deadline = time.monotonic() + 3.0
+        while True:
+            try:
+                assert client.call("healthz", timeout_s=0.5) == {"status": "ok"}
+                break
+            except Exception:
+                if time.monotonic() >= deadline:
+                    raise
+                time.sleep(0.01)
+
+        assert client.call("env.get_env_meta", timeout_s=1.0) == {
+            "task_language": "test"
+        }
+        assert facade.business_thread_id == facade.serve_thread_id
+        assert facade.business_thread_id != threading.get_ident()
+        assert client.call("shutdown", timeout_s=1.0) == {"ok": True}
+    finally:
+        client.close()
+        facade._shutdown_event.set()
+        thread.join(timeout=3.0)
+
+    assert not thread.is_alive()
+    assert facade._closed
+    assert not _port_accepts_connections(port)
+
+
+def test_env_main_sigterm_uses_owning_thread_cleanup(monkeypatch, tmp_path):
+    from robots.behavior import env_server, rlinf_env
+
+    closed_on = []
+
+    class Backend:
+        def __init__(self, **kwargs):
+            pass
+
+        def close(self):
+            closed_on.append(threading.get_ident())
+
+    def serve(facade, **kwargs):
+        try:
+            signal.raise_signal(signal.SIGTERM)
+            assert facade._shutdown_event.is_set()
+        finally:
+            facade.close()
+
+    previous = signal.getsignal(signal.SIGTERM)
+    monkeypatch.setattr(rlinf_env, "OfficialBehaviorBackend", Backend)
+    monkeypatch.setattr(env_server.BehaviorEnvFacade, "serve", serve)
+    monkeypatch.setattr(env_server, "_build_meta", lambda args: {})
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "env_server",
+            "--task-name",
+            "turning_on_radio",
+            "--public-seed",
+            "0",
+            "--task-index",
+            "0",
+            "--activity-definition-id",
+            "0",
+            "--activity-instance-id",
+            "242",
+            "--scene-model",
+            "test",
+            "--max-episode-steps",
+            "32",
+            "--output-dir",
+            str(tmp_path),
+            "--behavior-repo",
+            str(tmp_path),
+            "--port",
+            "0",
+        ],
+    )
+    env_server.main()
+    assert closed_on == [threading.get_ident()]
+    assert signal.getsignal(signal.SIGTERM) == previous
+
+    port = pick_free_port()
+    child_args = [*sys.argv[1:-1], str(port), "--parent-watch"]
+    child_code = """
+import signal
+import threading
+from robots.behavior import env_server, rlinf_env
+
+closed_on = []
+class Backend:
+    def __init__(self, **kwargs):
+        pass
+    def close(self):
+        closed_on.append(threading.get_ident())
+
+rlinf_env.OfficialBehaviorBackend = Backend
+env_server._build_meta = lambda args: {}
+previous = signal.getsignal(signal.SIGTERM)
+env_server.main()
+assert closed_on == [threading.get_ident()]
+assert signal.getsignal(signal.SIGTERM) == previous
+print("OWNING_THREAD_CLEANUP_OK", flush=True)
+"""
+    log_path = tmp_path / "parent_watch.log"
+    daemon = ProcessDaemon(
+        name="behavior_parent_watch",
+        cmd=[sys.executable, "-c", child_code, *child_args],
+        log_path=str(log_path),
+    )
+    client = HttpRpcClient(f"http://127.0.0.1:{port}")
+    try:
+        daemon.start()
+        wait_for_ready(client, timeout_s=10.0, poll_interval_s=0.01, daemon=daemon)
+        daemon.stop()
+        log = log_path.read_text()
+        assert daemon.poll() == 0, log
+        assert "OWNING_THREAD_CLEANUP_OK" in log
+        assert "Fatal Python error" not in log
+    finally:
+        client.close()
+        daemon.stop()
