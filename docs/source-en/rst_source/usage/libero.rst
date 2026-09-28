@@ -98,16 +98,26 @@ images for subtask completion; the returned ``success`` still describes the
 full task. Subtask effectiveness depends on the checkpoint and requires separate
 evaluation.
 
-Each call accepts 1-4 chunks (default 1), so the planner gets feedback after at
-most 64 actions. Start with the full task and preserve that instruction while
-progress is visible; use a subtask to address an observed failure. Unlike
-``pi0_pick``, this tool has no grasp-completion stopping rule. ``terminated``
-and ``success`` indicate native task success; ``truncated`` indicates an expired
-action budget. The ambiguous ``libero_terminated`` result field is no longer
-returned by ``cosmos_act``. Calls to ``finish(status="success", ...)`` are
-refused unless native success has been recorded.
-Once the episode ends, further motion tools are refused and the tool result
-directs the planner to finish with the native outcome.
+``max_chunks`` limits complete action chunks, not individual actions. It accepts
+1-4 (default 1): one chunk contains 16 actions, so a call executes at most
+16-64 actions. Each started chunk runs in full. The tool checks termination and
+truncation between chunks and starts no further chunk after either is reported;
+it does not stop at a particular action within a chunk. For example, with five
+actions left in the episode budget, a started chunk still executes all 16 actions.
+The budget can therefore be exceeded by up to 15 actions.
+
+Start with the full task and preserve that instruction while progress is visible;
+use a subtask to address an observed failure. Unlike ``pi0_pick``, this tool has
+no grasp-completion stopping rule. ``terminated`` and ``success`` record whether
+native task success occurred during execution; they do not guarantee that the
+final pose still satisfies the goal after the remaining actions in that chunk.
+``truncated`` records whether the episode budget was reached. These flags are
+accumulated across the executed actions, so both may be true. The tool result
+does not establish whether success preceded the budget limit; use the benchmark
+runner below for success measurement with an exact action budget.
+Calls to ``finish(status="success", ...)`` are refused unless native success
+has been recorded. Once an ended episode is reported, further motion tool calls
+are refused and the tool result directs the planner to finish with that outcome.
 
 For instructions absent from the supplied embeddings cache, the official worker
 loads ``google-t5/t5-11b`` on demand and caches the computed embeddings. Provision
@@ -183,6 +193,10 @@ their Pro variants. For example, ``--suite libero_spatial_task --seeds 0
 a separate latency probe. It saves initial/final camera images, per-call RPC
 times, control-loop time excluding startup, and total episode time including
 startup. There is no LLM output, so ``total_output_tokens`` is zero.
+Unlike ``cosmos_act``, this runner executes predictions one action at a time,
+stopping immediately on native success or the action limit, including within a
+16-action prediction. Its success rates and action counts use that stricter
+evaluation protocol.
 
 SAM3 configuration
 ------------------

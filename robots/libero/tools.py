@@ -189,12 +189,16 @@ class LiberoPrimitives:
     def cosmos_act(self, prompt: str | None = None, *, max_chunks: int = 1) -> dict:
         """Execute bounded Cosmos chunks with a request-local instruction.
 
+        Each started chunk executes all 16 actions. Termination and truncation
+        prevent the next chunk, not the remaining actions within the current one.
+
         Args:
             prompt: Subtask instruction, or None for the native environment task.
             max_chunks: One to four 16-action predictions before planner feedback.
 
         Returns:
-            Chunk count and native episode verdict, not subtask completion.
+            Chunk count and accumulated native episode flags, not subtask
+            completion or success within an exact action budget.
         """
         if prompt is not None and (not isinstance(prompt, str) or not prompt.strip()):
             raise ValueError("prompt must be a non-empty instruction or null")
@@ -1307,9 +1311,11 @@ TOOLS_SPEC = [
         "description": (
             "Execute Cosmos Policy on current observations with an optional subtask "
             "prompt; omit it to use the full environment task. Each chunk contains "
-            "16 actions. Inspect the resulting state to assess subtask completion; "
-            "success and terminated are the full-task verdict; truncated means "
-            "the action budget expired. This tool does not stop on grasp completion."
+            "16 actions executed in full; termination or truncation prevents the "
+            "next chunk, not remaining actions in the current chunk. Inspect the "
+            "resulting state to assess subtask completion. success and terminated "
+            "record native full-task success during execution; truncated records "
+            "reaching the episode budget. This tool does not stop on grasp completion."
         ),
         "input_schema": {
             "type": "object",
