@@ -23,6 +23,17 @@ compatible OpenPI/Torch environment.
    export RPENT_REPO_ROOT="$PWD"
    export RPENT_RLINF_ROOT=/path/to/station-RLinf
 
+The ``yam`` extra keeps ``huggingface-hub<1`` because i2rt 1.1.2 requires
+``click<8.2``. When installing the station's i2rt requirements, constrain
+``ruckig==0.15.3`` to its compatible build backend:
+
+.. code-block:: bash
+
+   printf 'scikit-build-core<0.10\n' > /tmp/yam-build-constraints.txt
+   uv pip install --build-constraints /tmp/yam-build-constraints.txt \
+     -r /path/to/station-RLinf/requirements/embodied/envs/yam.txt
+   uv pip check
+
 This adapter was developed against an RLinf YAM fork at ``3554fd2c`` **plus
 station changes**. Unmodified official RLinf is not a sufficient dependency.
 Before deployment retain the fork commit, working patch, untracked runtime

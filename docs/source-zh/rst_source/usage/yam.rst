@@ -20,6 +20,17 @@ MuJoCo 和现场 RLinf/i2rt 环境；推理机需要兼容的 RLinf YAM 策略�
    export RPENT_REPO_ROOT="$PWD"
    export RPENT_RLINF_ROOT=/path/to/station-RLinf
 
+``yam`` 安装项限定 ``huggingface-hub<1``，因为 i2rt 1.1.2 要求
+``click<8.2``。安装现场 i2rt 依赖时，还需给 ``ruckig==0.15.3`` 指定兼容的
+构建后端版本：
+
+.. code-block:: bash
+
+   printf 'scikit-build-core<0.10\n' > /tmp/yam-build-constraints.txt
+   uv pip install --build-constraints /tmp/yam-build-constraints.txt \
+     -r /path/to/station-RLinf/requirements/embodied/envs/yam.txt
+   uv pip check
+
 本适配依赖 RLinf YAM fork 的 ``3554fd2c`` **加现场修改**，不能用未修改的
 官方 RLinf 直接复现。部署应保留 fork 提交、工作区补丁、未跟踪运行时源码、
 环境版本清单和现场配置。实际需要 ``YamControlRuntime`` 的 command/hold/move_to/
