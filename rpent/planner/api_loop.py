@@ -56,7 +56,7 @@ from pydantic_ai import (
 from pydantic_ai.agent import WrapperAgent
 from pydantic_ai.capabilities import AbstractCapability, Thinking, on_event
 from pydantic_ai.capabilities.abstract import AgentNode, NodeResult, WrapRunHandler
-from pydantic_ai.exceptions import UserError
+from pydantic_ai.exceptions import UsageLimitExceeded, UserError
 from pydantic_ai.messages import ModelMessage, UserContent
 from pydantic_ai.models import Model, ModelRequestContext
 from pydantic_ai.run import AgentRun, AgentRunResult
@@ -70,6 +70,10 @@ from rpent.tools.toolkit import Toolkit, ToolResult
 from rpent.utils.logging import get_logger
 
 logger = get_logger("api")
+
+
+class _RequestBudgetExhausted(Exception):
+    """The conversation has used its configured model-request budget."""
 
 
 class ApiAgentLoop(Planner):
@@ -177,6 +181,9 @@ class ApiAgentLoop(Planner):
             )
         except asyncio.TimeoutError:
             session.error = f"planner timed out after {self.timeout_s:g}s"
+        except _RequestBudgetExhausted as exc:
+            session.error = None
+            logger.info("%s", exc)
         except Exception as exc:
             session.error = f"{type(exc).__name__}: {exc}"
             logger.exception("Harness planner failed")
@@ -465,6 +472,10 @@ class _Session(AbstractCapability):
             result = await handler()
             self.error = None
             return result
+        except _RequestBudgetExhausted:
+            # The native CLI catches run exceptions before _solve can see them.
+            self.error = None
+            raise
         except Exception as exc:
             self.error = f"{type(exc).__name__}: {exc}"
             raise
@@ -477,7 +488,14 @@ class _Session(AbstractCapability):
     async def before_model_request(
         self, ctx: RunContext, request_context: ModelRequestContext
     ) -> ModelRequestContext:
-        self.limits.check_before_request(self.usage + ctx.usage)
+        try:
+            self.limits.check_before_request(self.usage + ctx.usage)
+        except UsageLimitExceeded:
+            # This limit only caps requests. Preserve other SDK/provider failures.
+            message = f"Request budget of {self.limits.request_limit} reached."
+            if self.interactive:
+                message += " Use /exit to close the session."
+            raise _RequestBudgetExhausted(message) from None
         return request_context
 
     async def before_node_run(self, ctx: RunContext, *, node: AgentNode) -> AgentNode:

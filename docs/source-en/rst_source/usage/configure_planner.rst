@@ -78,7 +78,9 @@ Relevant ``api`` planner knobs:
 
 - ``--max-tokens`` — cap each LLM reply (default ``8192``).
 - ``--max-turns`` — cap model requests across the whole conversation,
-  including retries and follow-ups (default ``100``).
+  including retries and follow-ups (default ``100``). Reaching the cap is
+  a normal stop, not a planner error or a claim of task success. Exploration
+  can continue with the next session and merge memory when otherwise eligible.
 - ``--no-images`` — never send image bytes; this is required for
   text-only models. The agent then reasons from textual state alone,
   so task performance may not be satisfactory.

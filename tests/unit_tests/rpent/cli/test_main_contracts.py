@@ -391,14 +391,17 @@ def test_handoff_message_lists_prior_attempts_deterministically(tmp_path: Path) 
 
 
 @pytest.mark.parametrize("interactive", [False, True])
+@pytest.mark.parametrize("budget_exhausted", [False, True])
 def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     interactive: bool,
+    budget_exhausted: bool,
 ) -> None:
     cli = _cli_module()
     from rpent.planner.base import PlannerResult
     from rpent.robots import PromptBundle, RobotSpec, RunConfig
+    from rpent.tools import common
     from rpent.tools.toolkit import ToolResult
 
     calls: dict[str, Any] = {}
@@ -422,6 +425,8 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
 
         def execute_tool(self, name: str, args: dict[str, Any]) -> ToolResult:
             self.calls.append((name, args))
+            if budget_exhausted:
+                return ToolResult(name, {"error": "finish refused"})
             return ToolResult(
                 name,
                 {
@@ -434,8 +439,14 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
         def close(self) -> None:
             self.closed = True
 
+        def get_tools_spec(self) -> list[dict[str, Any]]:
+            return [common.TOOLS_SPEC[-1]]
+
+        def cancel_active_and_wait(self) -> None:
+            pass
+
         def solved(self) -> bool:
-            return True
+            return not budget_exhausted
 
         def write_recipe(self, recipe_tag: str) -> str:
             calls["write_recipe"] = recipe_tag
@@ -508,8 +519,27 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
         supports_exploration=True,
     )
 
-    def build_planner(*args: Any, **kwargs: Any) -> ScriptedPlanner:
+    def build_planner(*args: Any, **kwargs: Any):
         calls["build_planner"] = (args, kwargs)
+        calls["planner_count"] = calls.get("planner_count", 0) + 1
+        if budget_exhausted:
+            from pydantic_ai.models.function import DeltaToolCall, FunctionModel
+
+            from rpent.planner.api_loop import ApiAgentLoop
+
+            async def stream(messages, info):
+                yield {
+                    0: DeltaToolCall(
+                        name="finish",
+                        json_args=json.dumps({"status": "success", "summary": "done"}),
+                    )
+                }
+
+            return ApiAgentLoop(
+                model=FunctionModel(stream_function=stream),
+                dashboard_events=kwargs["dashboard_events"],
+                interactive=interactive,
+            )
         return planner
 
     def get_toolkit(*args: Any, **kwargs: Any) -> FakeToolkit:
@@ -548,12 +578,30 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
             str(tmp_path),
             "--max-turns",
             "4",
+            "--explore-sessions",
+            "2",
             *(["--interactive"] if interactive else []),
         ],
     )
 
     assert cli.main() == 0
     assert calls["build_planner"][1]["interactive"] is interactive
+    assert toolkit.closed is True
+    assert daemon.stopped is True
+    if budget_exhausted:
+        assert calls["planner_count"] == 2
+        assert len(toolkit.calls) == 8
+        assert "write_recipe" not in calls
+        assert calls["merge_memory"] == {
+            "cell_tag": "libero_s0",
+            "run_state_dir": tmp_path,
+            "solved": False,
+        }
+        transcript = json.loads((tmp_path / "transcript_libero_s0.json").read_text())
+        assert transcript["finish"] is None
+        assert transcript["stats"]["turns_used"] == 4
+        assert len([m for m in transcript["messages"] if m["role"] == "tool"]) == 8
+        return
 
     assert calls["solve"] == {
         "system_prompt": "simulated system prompt\n",
@@ -565,8 +613,6 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     assert toolkit.calls == [
         ("finish", {"status": "success", "summary": "simulated task complete"})
     ]
-    assert toolkit.closed is True
-    assert daemon.stopped is True
     assert calls["get_toolkit"][1]["runtime_kwargs"] == {"runtime": "simulated"}
     assert calls["get_toolkit"][1]["mode"] == "exploration"
     assert calls["get_toolkit"][1]["attempts_per_session"] == 2

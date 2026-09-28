@@ -33,6 +33,7 @@ from pydantic_ai import (
     ToolReturnPart,
     UserPromptPart,
 )
+from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.models.function import DeltaThinkingPart, DeltaToolCall, FunctionModel
 from pydantic_ai.models.test import TestModel
 
@@ -225,7 +226,7 @@ def test_persistent_finish_refusal_stops_at_request_budget(tmp_path):
         tmp_path, FunctionModel(stream_function=stream), toolkit, events, max_turns=3
     )
     assert result.finish_result is None
-    assert "UsageLimitExceeded" in result.error
+    assert result.error is None
     assert result.stats["turns_used"] == 3
     assert len(toolkit.calls) == 3
 
@@ -492,17 +493,35 @@ def test_finish_skips_sibling_actions_using_native_end_strategy(tmp_path):
     assert [m["name"] for m in result.messages if m["role"] == "tool"] == ["finish"]
 
 
-def test_request_budget_is_enforced_by_sdk(tmp_path):
+@pytest.mark.parametrize("mode", ["normal", "terminal", "dashboard"])
+def test_request_budget_stops_normally_without_claiming_success(tmp_path, mode):
     async def stream(messages, info):
         yield tool("observe")
 
+    state = dashboard(tmp_path) if mode == "dashboard" else None
     result, toolkit, _ = solve(
-        tmp_path, FunctionModel(stream_function=stream), max_turns=2
+        tmp_path,
+        FunctionModel(stream_function=stream),
+        events=state,
+        max_turns=2,
+        interactive=mode == "terminal",
+        dashboard_interaction=state,
     )
-    assert "UsageLimitExceeded" in result.error
+    assert result.error is None
+    assert result.finish_result is None
     assert result.stats["turns_used"] == 2
     assert len(toolkit.calls) == 2
     assert len([m for m in result.messages if m["role"] == "tool"]) == 2
+
+
+def test_other_usage_limit_failures_remain_errors(tmp_path):
+    async def stream(messages, info):
+        raise UsageLimitExceeded("provider-specific limit")
+        yield  # pragma: no cover
+
+    result, _, _ = solve(tmp_path, FunctionModel(stream_function=stream), max_turns=1)
+    assert result.error.startswith("UsageLimitExceeded: provider-specific limit")
+    assert result.finish_result is None
 
 
 def test_harness_compacts_long_history(tmp_path):
@@ -801,6 +820,42 @@ def test_native_terminal_preserves_completed_actions_after_model_failure(
     assert [m["content"] for m in result.messages if m["role"] == "user"] == user_texts(
         requests[-1]
     )
+
+
+def test_native_terminal_followups_share_budget_and_clear_recovered_error(
+    tmp_path, monkeypatch, capsys
+):
+    import pydantic_ai._cli as cli
+
+    requests = []
+    replies = iter(["Inspect.", "Retry.", "Try after the budget.", "/exit"])
+
+    async def read_prompt(*args, **kwargs):
+        return next(replies)
+
+    async def stream(messages, info):
+        requests.append(copy.deepcopy(messages))
+        if len(requests) == 1:
+            yield "Ready."
+        elif len(requests) == 2:
+            raise RuntimeError("temporary provider failure")
+        else:
+            yield tool("observe")
+
+    monkeypatch.setattr(cli, "PYDANTIC_AI_HOME", tmp_path / "cli")
+    monkeypatch.setattr(
+        cli, "PromptSession", lambda **kwargs: SimpleNamespace(prompt_async=read_prompt)
+    )
+    result, toolkit, _ = solve(
+        tmp_path, FunctionModel(stream_function=stream), interactive=True, max_turns=3
+    )
+    assert len(requests) == result.stats["turns_used"] == 3
+    assert toolkit.calls == [("observe", {})]
+    assert result.error is None
+    assert result.finish_result is None
+    assert any(m.get("name") == "observe" for m in result.messages)
+    output = " ".join(capsys.readouterr().out.split())
+    assert "Use /exit to close the session." in output
 
 
 def test_legacy_terminal_queue_is_rejected(tmp_path):
