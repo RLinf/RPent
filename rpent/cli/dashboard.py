@@ -113,17 +113,15 @@ def run_dashboard_session(
     print(f"Dashboard: {dashboard_url}", flush=True)
     logger.info("Dashboard: %s", dashboard_url)
 
+    # Shared robot services may validate memory before a task is claimed.
+    # Robots with a preparation hook select memory at each task boundary instead.
     if (
-        not getattr(args, "explore", False)
+        robot_spec.prepare_memory is None
+        and not getattr(args, "explore", False)
         and getattr(args, "memory_profile", "hf") == "hf"
     ):
         MemoryManager(get_memory_dir(robot_spec.name)).sync(
             remote_repo=robot_spec.memory_repo_id,
-            **(
-                {"allow_patterns": (f"{robot_spec.name}/flash/**",)}
-                if args.planner == "flash"
-                else {}
-            ),
         )
 
     controller = DashboardSessionController(
@@ -176,6 +174,9 @@ def _run_dashboard_task(
         raise ValueError(f"--explore is not supported for robot {robot_spec.name!r}")
     task_args.output_dir = str(claimed.output_dir)
     run_config = robot_spec.parse_config(task_args)
+    from rpent.memory.loading import prepare_run_memory
+
+    prepare_run_memory(task_args, robot_spec, run_config)
     output_dir = init_output_dir(run_config.output_dir, verbose=args.verbose)
 
     recipe_tag = run_config.recipe_tag
@@ -265,12 +266,13 @@ def _run_dashboard_task(
                 memory_manager = toolkit.memory
                 try:
                     planner = build_planner(
-                        args.planner,
+                        task_args.planner,
                         output_dir=output_dir,
                         recipe_tag=recipe_tag,
                         robot_name=args.robot_name,
                         base_url=args.base_url,
-                        model=args.model,
+                        model=task_args.model,
+                        memory_dir=run_config.prompt_vars.get("memory_dir"),
                         max_tokens=args.max_tokens,
                         planner_timeout_s=args.planner_timeout_s,
                         reasoning_effort=args.reasoning_effort,
@@ -333,7 +335,7 @@ def _run_dashboard_task(
         transcript_path = output_dir / f"transcript_{run_config.recipe_tag}.json"
         record = {
             **run_config.task_desc,
-            "model": args.model,
+            "model": task_args.model,
             "elapsed_s": round(time.time() - started, 1),
             "finish": finish_result,
             "stats": stats,

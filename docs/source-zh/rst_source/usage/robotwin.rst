@@ -172,9 +172,9 @@ RoboTwin 经验和任务参考。这些内容包含经过验证的操作方法�
 参数选择建议和常见失败模式。规划器可以通过该索引，只读取与当前任务或已观察到的失败
 相关的 memory 条目。
 
-对于每个评测任务，``task_only/<task>_s0.json`` 是从成功轨迹中提炼的语义 recipe，
+对于每个评测任务，``task-specific/<task>_s0.json`` 是从成功轨迹中提炼的语义 recipe，
 描述阶段目标、可观察的完成 gate、控制与 VLA 使用建议以及已知失败模式。配套的
-``task_only/<task>_s0_recipe.jsonl`` 记录该轨迹中的历史工具调用，用于提供动作顺序、
+``task-specific/<task>_s0_recipe.jsonl`` 记录该轨迹中的历史工具调用，用于提供动作顺序、
 工具选择和 action chunk 节奏方面的证据。
 
 文件名中的 ``_s0`` 只是统一的 recipe slot 名称，便于 prompt 查找，并不表示 RoboTwin
