@@ -78,10 +78,9 @@ fi
 if [[ ! -x "${RPENT_VENV}/bin/python" ]]; then
     "${UV_BIN}" venv --python "${PYTHON_VERSION}" "${RPENT_VENV}"
 fi
-# RPent's ordinary package contains only rpent*.  The BEHAVIOR robot stays a
-# source-checkout sibling plugin under robots/behavior, so both venvs install
-# the checkout editable and commands are run from RPENT_ROOT when they need the
-# sibling plugin modules.
+# RPent's ordinary package contains only rpent*. Keep the planner venv editable
+# so it can discover the sibling BEHAVIOR source plugin; simulator sidecars run
+# from the same checkout without installing RPent into their separate venv.
 "${UV_BIN}" pip install --python "${RPENT_VENV}/bin/python" -e "${RPENT_ROOT}"
 # Episode video writer backend; mirrors the .[behavior] extra pin.
 # Do NOT switch the rpent venv to .[behavior] (keeps the CLI venv light).
@@ -105,13 +104,12 @@ if [[ ! -x "${BEHAVIOR_PYTHON}" ]]; then
     exit 1
 fi
 
-# Install RPent and all HTTP sidecar dependencies before the final compatibility pins.
-# Planner packages in this environment are metadata-only for the sidecars; the
-# separate RPent venv remains the canonical planner and Dashboard environment.
-"${UV_BIN}" pip install --python "${BEHAVIOR_PYTHON}" -e "${RPENT_ROOT}"
+# ENV, VLA, and DINO run from this source checkout. Installing RPent here would
+# pull planner dependencies into the simulator environment and conflict with its pins.
 
 # The official BEHAVIOR runtime is validated against CUDA 12.4 and torch 2.5.1.
 "${UV_BIN}" pip install --python "${BEHAVIOR_PYTHON}" --reinstall \
+    --no-deps \
     --index-url https://download.pytorch.org/whl/cu124 \
     'torch==2.5.1+cu124' \
     'torchvision==0.20.1+cu124' \
@@ -120,7 +118,10 @@ fi
 # Shared constraints protect the simulation stack during motion-planner installation.
 FINAL_PINS=(
     'numpy==1.26.4'
-    'protobuf==6.33.0'
+    'protobuf==6.33.6'
+    'anyio==4.14.2'
+    'pillow==11.0.0'
+    'fsspec==2025.3.0'
     'ml-dtypes==0.5.3'
     'click==8.2.1'
     'llvmlite==0.48.0'
@@ -227,6 +228,12 @@ tensor = torch.ones(1, device="cuda")
 print("CUDA smoke:", tensor, torch.cuda.get_device_name(0))
 print("Critical imports and transformer replacement: OK")
 PY
+
+(
+    cd "${RPENT_ROOT}"
+    "${BEHAVIOR_PYTHON}" -c \
+        'import robots.behavior.env_server, robots.behavior.vla_server, robots.behavior.dino_v2.server'
+)
 
 MANIFEST_DIR="${REPRO_ROOT}/manifests"
 mkdir -p "${MANIFEST_DIR}"

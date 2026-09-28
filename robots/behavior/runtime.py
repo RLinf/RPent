@@ -450,7 +450,8 @@ def _spawn_env_server(
         raise RuntimeError(f"BEHAVIOR Python executable is missing: {behavior_python}")
     cmd = [
         str(behavior_python),
-        str(get_repo_root() / "robots" / "behavior" / "env_server.py"),
+        "-m",
+        "robots.behavior.env_server",
         "--task-name",
         str(args.task_name),
         "--public-seed",
@@ -538,7 +539,8 @@ def _spawn_vla_server(
     )
     cmd = [
         str(behavior_python),
-        str(get_repo_root() / "robots" / "behavior" / "vla_server.py"),
+        "-m",
+        "robots.behavior.vla_server",
         "--host",
         host,
         "--port",
@@ -573,7 +575,8 @@ def _spawn_dino_server(
         raise RuntimeError(f"BEHAVIOR Python executable is missing: {behavior_python}")
     cmd = [
         str(behavior_python),
-        str(get_repo_root() / "robots" / "behavior" / "dino_v2" / "server.py"),
+        "-m",
+        "robots.behavior.dino_v2.server",
         "--host",
         host,
         "--port",

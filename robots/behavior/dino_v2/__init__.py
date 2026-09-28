@@ -22,12 +22,10 @@ from robots.behavior.dino_v2.encoder import (
     Dinov2Engine,
     Dinov2RevisionIdentity,
 )
-from robots.behavior.dino_v2.server import BehaviorDinoFacade
 
 __all__ = [
     "DINOV2_DIMENSION",
     "DISTANCE_METRIC",
-    "BehaviorDinoFacade",
     "BehaviorDinoClient",
     "Dinov2DeploymentPaths",
     "Dinov2Engine",

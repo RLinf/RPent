@@ -32,8 +32,9 @@ assets, or checkpoint. Run the BEHAVIOR setup from an RPent source checkout:
    export UV_CACHE_DIR="$RPENT_REPRO_ROOT/uv-cache"
    python -m robots.behavior.install_runtime
 
-The installer keeps the RPent source checkout editable in both venvs, clones
-the reviewed RLinf revision, invokes the official RLinf BEHAVIOR installer,
+The installer keeps RPent editable only in the RPent venv; ENV, VLA, and DINO
+load the same source checkout without installing RPent in the simulator venv.
+It clones the reviewed RLinf revision, invokes the official RLinf BEHAVIOR installer,
 applies the reviewed CUDA/OpenPI/LeRobot compatibility pins inside the
 BEHAVIOR runtime venv, verifies critical imports and CUDA, and writes freezes
 plus source identities under ``$RPENT_REPRO_ROOT/manifests``. Use a new

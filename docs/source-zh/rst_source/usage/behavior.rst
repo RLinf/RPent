@@ -30,9 +30,10 @@ checkpoint。请在 RPent 源码目录中执行：
    export UV_CACHE_DIR="$RPENT_REPRO_ROOT/uv-cache"
    python -m robots.behavior.install_runtime
 
-安装器会在两个 venv 中以源码方式安装 RPent，克隆已审查的 RLinf revision，
-调用官方 RLinf BEHAVIOR 安装器，在 BEHAVIOR runtime venv 内应用已审查的
-CUDA/OpenPI/LeRobot 兼容性 pin，验证关键 import 和 CUDA，并在
+安装器仅在 RPent venv 中以 editable 方式安装 RPent；ENV、VLA 和 DINO 在
+BEHAVIOR venv 中直接加载同一份源码，不会额外安装 RPent。安装器还会克隆已审查的
+RLinf revision，调用官方 RLinf BEHAVIOR 安装器，并在 BEHAVIOR runtime venv 内应用
+已审查的 CUDA/OpenPI/LeRobot 兼容性 pin，验证关键 import 和 CUDA，并在
 ``$RPENT_REPRO_ROOT/manifests`` 写入 freeze 与源码身份。全新安装应使用新的
 ``RPENT_REPRO_ROOT``；脚本不会覆盖 revision 错误或 dirty 的 RLinf checkout。
 
