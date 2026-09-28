@@ -907,3 +907,66 @@ def test_factory_passes_interactive_mode(tmp_path, monkeypatch):
     assert isinstance(planner, ApiAgentLoop)
     assert isinstance(planner, Planner)
     assert planner.interactive is True
+
+
+def test_offline_http_planner_executes_action_and_finish(tmp_path):
+    from pydantic_ai.models.openai import OpenAIChatModel
+    from pydantic_ai.providers.openai import OpenAIProvider
+
+    from tests.e2e_tests.offline_planner_server import (
+        OFFLINE_MODEL_NAME,
+        OfflinePlannerServer,
+        ScriptedToolCall,
+    )
+
+    events = Events()
+    toolkit = RobotToolkit(events)
+    toolkit.register("move", lambda: {"steps": 1})
+    script = (
+        ScriptedToolCall("move", {}),
+        ScriptedToolCall("finish", FINISH_ARGS),
+    )
+    with OfflinePlannerServer(script) as server:
+        model = OpenAIChatModel(
+            OFFLINE_MODEL_NAME,
+            provider=OpenAIProvider(base_url=server.base_url, api_key="offline-test"),
+        )
+        result, _, _ = solve(
+            tmp_path, model, toolkit=toolkit, events=events, max_turns=2
+        )
+        assert result.error is None
+        assert toolkit.calls == [("move", {}), ("finish", FINISH_ARGS)]
+        assert result.finish_result == {"_finish": True, **FINISH_ARGS}
+        server.assert_complete()
+
+
+def test_offline_http_planner_preserves_non_streaming_responses():
+    from openai import OpenAI
+
+    from tests.e2e_tests.offline_planner_server import (
+        OFFLINE_MODEL_NAME,
+        OfflinePlannerServer,
+        ScriptedToolCall,
+    )
+
+    call = ScriptedToolCall("finish", FINISH_ARGS)
+    with OfflinePlannerServer((call,)) as server:
+        with OpenAI(base_url=server.base_url, api_key="offline-test") as client:
+            response = client.chat.completions.create(
+                model=OFFLINE_MODEL_NAME,
+                messages=[{"role": "user", "content": "Finish the task."}],
+                tools=[
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "finish",
+                            "parameters": common.TOOLS_SPEC[-1]["input_schema"],
+                        },
+                    }
+                ],
+                stream=False,
+            )
+        returned = response.choices[0].message.tool_calls[0]
+        assert returned.function.name == "finish"
+        assert json.loads(returned.function.arguments) == FINISH_ARGS
+        server.assert_complete()
