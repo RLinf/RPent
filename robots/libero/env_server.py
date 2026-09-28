@@ -111,8 +111,14 @@ def make_env(
     from rlinf.envs.libero.utils import benchmark as _bench_mod
 
     suite = _bench_mod.get_benchmark(suite_name)()
-    first_id = sum(len(suite.get_task_init_states(t)) for t in range(task_id))
+    if not 0 <= task_id < suite.n_tasks:
+        raise ValueError(
+            f"task_id must be in [0, {suite.n_tasks}) for suite {suite_name!r}; got {task_id}"
+        )
     trials = len(suite.get_task_init_states(task_id))
+    if trials == 0:
+        raise ValueError(f"Suite {suite_name!r}, task {task_id} has no initial states")
+    first_id = sum(len(suite.get_task_init_states(t)) for t in range(task_id))
     rid = first_id + (seed % trials)
     cfg = build_env_cfg(
         task_suite_name=suite_name,

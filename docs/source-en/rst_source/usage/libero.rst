@@ -50,7 +50,9 @@ A LIBERO run uses the following task settings:
 
 - ``--suite`` — selects the task suite to run. See
   :ref:`libero-pro-core-suites` for the complete core-suite list.
-- ``--task`` — the task index within the suite.
+- ``--task`` — the zero-based task index within the suite. The environment
+  rejects indices outside the suite's range and tasks with no stored initial
+  states; it never substitutes a different task for an invalid selection.
 - ``--seed`` — the environment seed.
 - ``--libero-type`` — the LIBERO variant: ``standard`` | ``pro`` |
   ``plus``.

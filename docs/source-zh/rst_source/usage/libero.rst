@@ -48,7 +48,8 @@ SAM3 配置
 
 - ``--suite`` —— 选择要运行的任务套件。完整核心套件列表见
   :ref:`libero-pro-core-suites`。
-- ``--task`` —— 套件内的任务索引。
+- ``--task`` — suite 内从 0 开始的任务索引。环境会拒绝越界索引和没有初始状态的任务，
+  不会将无效选择替换成另一项任务。
 - ``--seed`` —— 环境种子。
 - ``--libero-type`` —— LIBERO 变体：``standard`` | ``pro`` |
   ``plus``。
