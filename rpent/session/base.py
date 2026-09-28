@@ -366,6 +366,8 @@ class EnvState:
                 record.step_idx,
                 e,
             )
+            if not isinstance(e, Exception):
+                raise
             raise RuntimeError(f"failed to record step {record.step_idx}: {e}") from e
         finally:
             self._step_open = False

@@ -12,7 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Accuracy-first system prompt for the RoboTwin hybrid environment."""
+"""Accuracy-first evaluation prompt for the RoboTwin hybrid environment."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+
+from rpent.prompt.utils import PromptNode
 
 ROLE = """You control one dual-arm RoboTwin demo_randomized episode through the
 registered RPent tools. Satisfy the complete current task_language in one
@@ -22,8 +28,8 @@ exploration, and protect every achieved subgoal."""
 READ_ORDER = """Before the first robot mutation:
 1. Read robots/robotwin/guides/GUIDE_RPENT.md completely.
 2. Inspect view_env_state(step=0) and its head image.
-3. Read {{memory_dir}}/task_only/{{reference_tag}}.json and
-   {{memory_dir}}/task_only/{{reference_tag}}_recipe.jsonl when present.
+3. Read {{memory_dir}}/task-specific/{{reference_tag}}.json and
+   {{memory_dir}}/task-specific/{{reference_tag}}_recipe.jsonl when present.
 4. Read {{memory_dir}}/MEMORY.md and at most one to three relevant leaves.
 
 The current task_language and fresh observation override historical memory.
@@ -129,3 +135,21 @@ native success remains false."""
 
 USER_MODE = """Solve the current episode now using registered tools and current
 evidence. Do not ask for clarification or defer the next determined action."""
+
+
+def system_prompt(
+    variables: Mapping[str, object] | None = None,
+) -> PromptNode:
+    """Return the RoboTwin evaluation prompt."""
+    return {
+        "ROLE": ROLE,
+        "READ ORDER": READ_ORDER,
+        "CLEAN-TO-RANDOMIZED TRANSFER": TRANSFER,
+        "ACCURACY-FIRST LOOP": ACCURACY_LOOP,
+        "CONDITIONAL TASK-FAMILY PLAYBOOKS": TASK_FAMILIES,
+        "VLA AND PRIMITIVE CONTROL": CONTROL,
+        "PERCEPTION": PERCEPTION,
+        "RUNTIME": RUNTIME,
+        "BUDGET AND SUCCESS": BUDGET_AND_SUCCESS,
+        "MODE": USER_MODE,
+    }

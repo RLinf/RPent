@@ -25,7 +25,15 @@ OSC_ROT_SCALE = 0.5  # action 1.0 -> 0.5 rad
 
 
 class RoboCasaPrimitives:
-    def __init__(self, env_client, workdir, hi_res, vla_client, check_cancelled=None):
+    def __init__(
+        self,
+        env_client,
+        workdir,
+        hi_res,
+        vla_client,
+        check_cancelled=None,
+        allow_reset: bool | None = None,
+    ):
         self.env = env_client
         self.workdir = workdir
         self.hi_res = hi_res
@@ -41,7 +49,11 @@ class RoboCasaPrimitives:
         # reset (restart the episode) is ONLY legitimate in EXPLORE mode (reset-based recipe
         # search). It is FORBIDDEN in multi-seed / matched-scene evaluation (a give-up-and-
         # restart). Gated by RLDX_ALLOW_RESET (default 0 = off); explore runs opt in.
-        self._allow_reset = bool(int(os.environ.get("RLDX_ALLOW_RESET", "0")))
+        self._allow_reset = (
+            bool(int(os.environ.get("RLDX_ALLOW_RESET", "0")))
+            if allow_reset is None
+            else bool(allow_reset)
+        )
         os.makedirs(workdir, exist_ok=True)
         self.env.reset()
         self._pos_jac = None  # 3x3 action(arm xyz) -> world dpos

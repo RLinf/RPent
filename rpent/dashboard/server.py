@@ -133,6 +133,29 @@ class DashboardServer:
         def api_session_config() -> JSONResponse:
             return JSONResponse(self._planner_config)
 
+        @app.post("/api/session/config")
+        def api_update_session_config(
+            payload: dict[str, Any] = Body(default={}),
+        ) -> JSONResponse:
+            if self._planner_config.get("planner") == "flash":
+                return JSONResponse(
+                    {"error": "Flash replay has no language model"}, status_code=422
+                )
+            if set(payload) != {"model"}:
+                return JSONResponse(
+                    {"error": "Only model can be changed for the next task"},
+                    status_code=422,
+                )
+            try:
+                self._state.set_next_model(payload["model"])
+            except ValueError as exc:
+                return JSONResponse({"error": str(exc)}, status_code=422)
+            self._planner_config = {
+                **self._planner_config,
+                "model": payload["model"].strip(),
+            }
+            return JSONResponse(self._planner_config)
+
         @app.post("/api/llm/check")
         def api_llm_check(payload: dict[str, Any] = Body(default={})) -> JSONResponse:
             # Single-flight: the button is a diagnostic, not a load generator.

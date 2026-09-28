@@ -103,6 +103,25 @@ RoboTwin 所需依赖：
    这些 seed 已通过 RoboTwin expert 执行筛选；无法稳定初始化或 expert 执行
    未成功的候选 seed 已被跳过。自定义运行仍可显式指定表中没有的其他 seed。
 
+探索模式
+--------
+
+添加 ``--explore`` 后，规划器可以在新的 episode 中重新尝试任务，并写入本地
+memory。与 LIBERO 相同，默认每次运行包含 3 个 planner session，每个 session
+最多尝试 5 次：
+
+.. code-block:: bash
+
+   rpent --robot robotwin --task-name beat_block_hammer \
+     --task-config demo_randomized --seed 100000 \
+     --planner codex \
+     --explore --explore-sessions 3 --explore-attempts-per-session 5 \
+     --memory-dir /path/to/robotwin-memory
+
+``reset`` 沿用环境原有的 episode reset，因此每次 reset 后规划器都需要重新
+感知。runner 只导出最后一次 reset 后的获胜命令。探索产生的 memory 写入当前
+本地 inbox；除非传入 ``--no-auto-merge-memory``，否则运行结束后会自动合并。
+
 查看运行结果
 ------------
 
@@ -153,9 +172,9 @@ RoboTwin 经验和任务参考。这些内容包含经过验证的操作方法�
 参数选择建议和常见失败模式。规划器可以通过该索引，只读取与当前任务或已观察到的失败
 相关的 memory 条目。
 
-对于每个评测任务，``task_only/<task>_s0.json`` 是从成功轨迹中提炼的语义 recipe，
+对于每个评测任务，``task-specific/<task>_s0.json`` 是从成功轨迹中提炼的语义 recipe，
 描述阶段目标、可观察的完成 gate、控制与 VLA 使用建议以及已知失败模式。配套的
-``task_only/<task>_s0_recipe.jsonl`` 记录该轨迹中的历史工具调用，用于提供动作顺序、
+``task-specific/<task>_s0_recipe.jsonl`` 记录该轨迹中的历史工具调用，用于提供动作顺序、
 工具选择和 action chunk 节奏方面的证据。
 
 文件名中的 ``_s0`` 只是统一的 recipe slot 名称，便于 prompt 查找，并不表示 RoboTwin

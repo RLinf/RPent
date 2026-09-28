@@ -102,8 +102,8 @@ def _pack_dual_action(
 
 def _create_worker_class():
     """Build the Worker subclass only inside the RLinf server environment."""
-    from rlinf.envs.realworld.common.camera import CameraInfo, create_camera
-    from rlinf.envs.realworld.realworld_env import RealWorldEnv
+    from rlinf.envs.real.env import RealWorldEnv
+    from rlinf.robotics.parts.cameras import Camera, CameraInfo
     from rlinf.scheduler import Worker
     from scipy.spatial.transform import Rotation as Rotation
 
@@ -120,9 +120,13 @@ def _create_worker_class():
             self.cfg = cfg
             self.controller = dict(controller_config)
             self._dual_franka_calibration_bundle: dict[str, Any] | None = None
-            from robots.franka.runtime_config import set_robot_config_path
+            from robots.franka.runtime_config import (
+                set_robot_config_path,
+                validate_calibration_sources,
+            )
 
             set_robot_config_path(self.controller.get("robot_config_path"))
+            validate_calibration_sources()
             self.env = RealWorldEnv(
                 cfg.env.eval,
                 num_envs=1,
@@ -172,7 +176,7 @@ def _create_worker_class():
         def close_env(self) -> None:
             for camera in self._perception_cameras.values():
                 try:
-                    camera.close()
+                    camera.disconnect()
                 except Exception:
                     pass
             self._perception_cameras.clear()
@@ -246,20 +250,12 @@ def _create_worker_class():
             return self.env.env.envs[0]
 
         def _raw_rlinf_env(self) -> Any:
-            # PhysicalAgent alignment note: RPent needs a few real-robot
-            # operations that RLinf's public vector-env surface does not expose
-            # yet, most importantly gripper-preserving joint recovery and a
-            # fresh raw observation after direct controller commands.  These
-            # helpers deliberately reach into RLinf internals as a compatibility
-            # bridge for the deployed dual-Franka setup; the cleaner long-term
-            # shape is to upstream public RLinf methods for these operations.
+            # Joint recovery and state refresh require methods below the
+            # vector-environment wrapper.
             return self._raw_env.unwrapped
 
         def _refresh_robot_state(self) -> None:
-            # See _raw_rlinf_env(): direct controller state refresh keeps RPent
-            # snapshots/logs aligned with what the physical arms actually did
-            # after reset_joint/open_gripper/close_gripper calls made outside
-            # the normal vector-env step path.
+            # Direct controller calls bypass the vector-env observation cache.
             raw = self._raw_rlinf_env()
             if raw.config.is_dummy:
                 return
@@ -267,10 +263,7 @@ def _create_worker_class():
             raw._right_state = raw._right_ctrl.get_state().wait()[0]
 
         def _reset_both_joints_no_gripper(self, reset_qpos: Any) -> dict[str, Any]:
-            # RLinf's normal env reset may change gripper state and home both
-            # arms as one episode-boundary operation.  PhysicalAgent recovery
-            # instead reset joints while preserving an object already held in a
-            # gripper, so RPent commands the two arm controllers directly here.
+            # Reset joints directly so the episode reset does not change grippers.
             raw = self._raw_rlinf_env()
             results: dict[str, Any] = {}
             errors: dict[str, BaseException] = {}
@@ -312,9 +305,7 @@ def _create_worker_class():
         def _calibration_bundle(self) -> dict[str, Any]:
             bundle = self._dual_franka_calibration_bundle
             if bundle is None:
-                bundle = load_calibration_bundle(
-                    self.controller.get("calibration_path")
-                )
+                bundle = load_calibration_bundle()
                 self._dual_franka_calibration_bundle = bundle
             return bundle
 
@@ -510,10 +501,7 @@ def _create_worker_class():
                 critical_reasons.append("franka_has_errors")
             for name in active_flags(state.get("current_errors")):
                 critical_reasons.append(f"current_error:{name}")
-            # PhysicalAgent alignment note: these non-current native signals are
-            # surfaced as warnings so the planner/operator can notice deteriorating
-            # Franka health during long runs.  They are intentionally conservative
-            # and may need demotion to summary-only for contact-rich deployments.
+            # Previous motion errors are warnings; active errors are critical.
             for name in active_flags(state.get("last_motion_errors")):
                 warning_reasons.append(f"last_motion_error:{name}")
             if mode_lower and any(token in mode_lower for token in ("error", "reflex")):
@@ -612,14 +600,7 @@ def _create_worker_class():
             }
 
         def _open_perception_cameras(self) -> None:
-            cameras = self.controller["perception"].get("cameras")
-            if not isinstance(cameras, dict):
-                return
-            for alias, raw_config in cameras.items():
-                if not isinstance(raw_config, dict) or not bool(
-                    raw_config.get("enabled", True)
-                ):
-                    continue
+            for alias, raw_config in self.controller["perception"]["cameras"].items():
                 resolution = tuple(
                     int(value) for value in raw_config.get("resolution", [640, 480])
                 )
@@ -635,12 +616,12 @@ def _create_worker_class():
                     fps=int(raw_config.get("fps", 15)),
                     enable_depth=bool(raw_config.get("enable_depth", True)),
                 )
-                camera = create_camera(info)
-                camera.open()
+                camera = Camera.of(info)
+                camera.connect()
                 try:
                     first_frame = camera.get_frame(timeout=8)
                 except Exception:
-                    camera.close()
+                    camera.disconnect()
                     raise
                 self._perception_cameras[str(alias)] = camera
                 self._perception_camera_last_frames[str(alias)] = np.asarray(
@@ -648,6 +629,9 @@ def _create_worker_class():
                 )
 
         def _capture_perception_camera_snapshot(self) -> dict[str, dict[str, Any]]:
+            # Deferred: the helper imports RLinf camera types with the single-arm env.
+            from robots.franka.rpent_env import realsense_color_intrinsics
+
             output: dict[str, dict[str, Any]] = {
                 "raw_frames": {},
                 "raw_depths": {},
@@ -672,8 +656,8 @@ def _create_worker_class():
                     depth_scale = float(camera.depth_scale)
                     depth = frame[..., 3].astype(np.float32) * depth_scale
                     output["raw_depths"][raw_key] = depth
-                intrinsics = camera.get_color_intrinsics()
-                info = camera._camera_info
+                intrinsics = realsense_color_intrinsics(camera)
+                info = camera.camera_info
                 meta = {
                     "name": raw_key,
                     "camera_alias": alias,
@@ -850,16 +834,7 @@ def _create_worker_class():
             reason: str = "",
             return_to_start: bool = True,
         ) -> dict[str, Any]:
-            # PhysicalAgent alignment note: this reproduces the live operator
-            # recovery sequence used when one arm's joints drift toward a poor
-            # posture during multi-stage VLA execution:
-            #   1. record both TCP poses in the shared right_base frame;
-            #   2. record and re-command gripper open/closed state so held
-            #      objects remain clamped;
-            #   3. reset both joint postures to the configured healthy qpos;
-            #   4. optionally move/rotate both TCPs back near their pre-recovery
-            #      world poses.
-            # This is deliberately more specialized than RLinf's episode reset.
+            # Preserve gripper state while resetting both arms' joint posture.
             before_state = self.get_robot_state()
             start_left, start_right = self._arm_poses()
             start_raw = {"left": start_left, "right": start_right}
@@ -1022,11 +997,7 @@ def _create_worker_class():
                         arm,
                         delta_rot.as_euler("xyz").astype(np.float32),
                     )
-                    # PhysicalAgent alignment note: on the real Franka
-                    # Cartesian controller, pure orientation correction can
-                    # still move the TCP by several centimetres.  Add one final
-                    # translation correction so joint-health recovery does not
-                    # pull a staged object away from the VLA target.
+                    # Orientation correction can shift the TCP position.
                     current_raw = self._arm_poses()[self._arm_index(arm)]
                     current = self._pose_to_world(arm, current_raw)
                     return_results[f"{arm}_final_move"] = self.move_delta(

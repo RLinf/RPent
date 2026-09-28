@@ -51,6 +51,9 @@ PROMPT_VARIABLES = {
         "split": "target",
         "seed": 3,
         "recipe_tag": "OpenDrawer_target_s3",
+        "mode": "eval",
+        "memory_profile": "hf",
+        "reference_tag": "OpenDrawer_s0",
         "memory_dir": "/memory",
         "output_dir": Path("/output"),
     },
@@ -60,6 +63,8 @@ PROMPT_VARIABLES = {
         "task_config": "demo_randomized",
         "instruction": "pick up the hammer",
         "memory_dir": "/memory",
+        "mode": "eval",
+        "memory_profile": "hf",
         "reference_tag": "block_hammer_beat_s0",
         "output_dir": Path("/output"),
     },
@@ -103,10 +108,16 @@ def test_registry_discovers_exactly_the_source_checkout_robots() -> None:
 
 
 @pytest.mark.parametrize("robot_name", EXPECTED_ROBOTS)
-def test_robot_prompts_render_from_public_spec(robot_name: str) -> None:
+def test_robot_prompts_render_from_public_spec(robot_name: str, tmp_path) -> None:
     spec = get_robot_spec(robot_name)
 
-    system = spec.prompts.render("system", variables=PROMPT_VARIABLES[robot_name])
+    variables = dict(PROMPT_VARIABLES[robot_name])
+    if robot_name == "robocasa":
+        memory_dir = tmp_path / "robocasa"
+        (memory_dir / "global").mkdir(parents=True)
+        (memory_dir / "global/GLOBAL_MEMORY.md").write_text("# Global memory\n")
+        variables["memory_dir"] = str(memory_dir)
+    system = spec.prompts.render("system", variables=variables)
     user = spec.prompts.render("user", variables=PROMPT_VARIABLES[robot_name])
 
     assert system.strip()

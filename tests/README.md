@@ -108,11 +108,12 @@ bash tests/e2e_tests/run_gpu_suite.sh \
 
 Run the real-robot diagnostic explicitly from a source checkout after installing
 its robot dependencies and configuring the checkpoint, dataset normalization
-statistics, cameras, calibration, and reachable robot environment:
+statistics, cameras, reachable robot environment, and easy_handeye YAML paths under
+`perception.calibration` in the robot config:
 
 ```bash
 python -m tests.e2e_tests.dual_franka.dual_franka_vla --task-id 1 \
-  --robot-config /path/to/robot.yaml --calibration-path /path/to/calibration.json \
+  --robot-config /path/to/robot.yaml \
   --vla-model-path /path/to/checkpoint --vla-repo-id org/dataset
 ```
 

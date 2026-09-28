@@ -49,6 +49,14 @@
       使用 LIBERO / RoboCasa 仿真环境或 Franka / SO-101 机械臂，
       切换 planner 并选择动作原语。
 
+   .. grid-item-card:: 真实世界演示
+      :link: rst_source/usage/real_world_demos_franka
+      :link-type: doc
+      :text-align: center
+
+      查看 RPent 在双臂 Franka、YAM 等真实机器人上的演示，
+      后续将继续补充更多平台。
+
    .. grid-item-card:: 开发教程
       :link: rst_source/development/architecture
       :link-type: doc
@@ -66,7 +74,7 @@
    概览 <rst_source/overview>
    安装 <rst_source/installation>
    快速开始 <rst_source/quickstart>
-   Leaderboard <rst_source/leaderboard>
+   排行榜 <rst_source/leaderboard>
 
 .. toctree::
    :maxdepth: 2
@@ -82,6 +90,16 @@
    仿真环境 <rst_source/usage/simulation>
    真实机器人 <rst_source/usage/real_robots>
    高级部署 <rst_source/usage/advanced_deployment>
+
+.. toctree::
+   :maxdepth: 2
+   :includehidden:
+   :titlesonly:
+   :hidden:
+   :caption: 真实世界演示
+
+   双臂 Franka <rst_source/usage/real_world_demos_franka>
+   YAM <rst_source/usage/real_world_demos_yam>
 
 .. toctree::
    :maxdepth: 2

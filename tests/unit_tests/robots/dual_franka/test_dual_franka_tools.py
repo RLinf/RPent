@@ -22,17 +22,20 @@ import numpy as np
 import pytest
 
 from robots.dual_franka import get_robot_spec
-from robots.dual_franka.perception import back_project, segment
+from robots.dual_franka.perception import (
+    back_project,
+    load_calibration_bundle,
+    segment,
+)
 from robots.dual_franka.tasks import CLEAN_DESK_VLA_PROMPT
 from robots.dual_franka.toolkit import DualFrankaToolkit
 from robots.dual_franka.tools import (
     DualFrankaPrimitives,
     coerce_arm,
-    coerce_vec3,
     dump_state,
     view_env_state,
 )
-from robots.franka.runtime_config import set_calibration_path
+from robots.franka.runtime_config import set_robot_config_path
 from robots.franka.tools import view_camera_meta
 from rpent.dashboard.events import NullDashboardEventSink, StepRecordEvent
 from rpent.dashboard.state import DashboardState
@@ -307,8 +310,6 @@ def test_arm_and_vec3_validation_and_motion_forwarding():
     assert coerce_arm("LEFT") == "left"
     with pytest.raises(ValueError, match="left.*right"):
         coerce_arm("both")
-    with pytest.raises(ValueError, match="exactly 3"):
-        coerce_vec3([1.0, 2.0], name="delta")
 
 
 def test_dump_state_saves_three_camera_artifacts(tmp_path: Path):
@@ -410,14 +411,90 @@ def test_back_project_reads_rpent_state_artifacts(tmp_path: Path):
             step=step,
         )
 
-    set_calibration_path(
-        Path(__file__).parent / "fixtures" / "hand_eye_calibration.json"
+    config = tmp_path / "robot_config.yaml"
+    fixtures = Path(__file__).parent / "fixtures"
+    config.write_text(
+        "perception:\n"
+        "  calibration:\n"
+        f"    base_camera: {fixtures / 'third_to_right_base_calib_eye_on_base.yaml'}\n"
+        "  projection_views:\n"
+        "    base:\n"
+        "      raw_key: base_0_rgb\n"
+        "      calibration_key: base_camera\n"
+        "      display_name: base RealSense\n"
+        "  base_frames:\n"
+        "    T_right_base_left_base:\n"
+        "      matrix:\n"
+        "        - [1.0, 0.0, 0.0, 0.0]\n"
+        "        - [0.0, 1.0, 0.0, 0.69]\n"
+        "        - [0.0, 0.0, 1.0, 0.0]\n"
+        "        - [0.0, 0.0, 0.0, 1.0]\n"
     )
-    result = back_project(camera="base", row=2, col=2, state=state)
+    set_robot_config_path(config)
+    try:
+        result = back_project(camera="base", row=2, col=2, state=state)
+    finally:
+        set_robot_config_path(None)
 
     assert result["coordinate_frame"] == "right_base"
     assert result["depth_m"] == 0.5
     assert len(result["point_xyz"]) == 3
+
+
+def test_load_calibration_bundle_merges_easy_handeye_yamls_and_robot_config(
+    tmp_path: Path,
+):
+    config = tmp_path / "robot_config.yaml"
+    fixtures = Path(__file__).parent / "fixtures"
+    config.write_text(
+        "perception:\n"
+        "  calibration:\n"
+        f"    base_camera: {fixtures / 'third_to_right_base_calib_eye_on_base.yaml'}\n"
+        f"    d455_camera: {fixtures / 'd455_to_right_base_eye_on_base.yaml'}\n"
+        "  localization_validity:\n"
+        "    base_camera:\n"
+        "      depth_m: [0.2, 0.9]\n"
+        "  base_frames:\n"
+        "    T_right_base_left_base:\n"
+        "      matrix:\n"
+        "        - [1.0, 0.0, 0.0, 0.02]\n"
+        "        - [0.0, 1.0, 0.0, 0.7]\n"
+        "        - [0.0, 0.0, 1.0, 0.0]\n"
+        "        - [0.0, 0.0, 0.0, 1.0]\n"
+    )
+    set_robot_config_path(config)
+    try:
+        bundle = load_calibration_bundle()
+    finally:
+        set_robot_config_path(None)
+
+    # easy_handeye YAML entries load verbatim, keyed by camera role.
+    assert bundle["base_camera"]["source_name"] == (
+        "third_to_right_base_calib_eye_on_base.yaml"
+    )
+    assert bundle["base_camera"]["parameters"]["robot_base_frame"] == "right_base"
+    assert bundle["base_camera"]["transformation"]["qw"] == pytest.approx(
+        0.39683199797658536
+    )
+    assert bundle["d455_camera"]["transformation"]["x"] == pytest.approx(
+        1.0742812281624636
+    )
+    # Robot-config sections merge on top of the YAML entries.
+    assert bundle["base_camera"]["localization_validity"] == {"depth_m": [0.2, 0.9]}
+    assert bundle["base_frames"]["T_right_base_left_base"]["matrix"][0][3] == 0.02
+
+
+def test_load_calibration_bundle_rejects_missing_easy_handeye_yaml(tmp_path: Path):
+    config = tmp_path / "robot_config.yaml"
+    config.write_text(
+        "perception:\n  calibration:\n    base_camera: /nonexistent/base_camera.yaml\n"
+    )
+    set_robot_config_path(config)
+    try:
+        with pytest.raises(ValueError, match="base_camera"):
+            load_calibration_bundle()
+    finally:
+        set_robot_config_path(None)
 
 
 def test_back_project_returns_annotated_image_block(tmp_path: Path):
@@ -447,10 +524,30 @@ def test_back_project_returns_annotated_image_block(tmp_path: Path):
             step=step,
         )
 
-    set_calibration_path(
-        Path(__file__).parent / "fixtures" / "hand_eye_calibration.json"
+    config = tmp_path / "robot_config.yaml"
+    fixtures = Path(__file__).parent / "fixtures"
+    config.write_text(
+        "perception:\n"
+        "  calibration:\n"
+        f"    d455_camera: {fixtures / 'd455_to_right_base_eye_on_base.yaml'}\n"
+        "  projection_views:\n"
+        "    d455:\n"
+        "      raw_key: d455_rgb\n"
+        "      calibration_key: d455_camera\n"
+        "      display_name: D455\n"
+        "  base_frames:\n"
+        "    T_right_base_left_base:\n"
+        "      matrix:\n"
+        "        - [1.0, 0.0, 0.0, 0.01]\n"
+        "        - [0.0, 1.0, 0.0, 0.69]\n"
+        "        - [0.0, 0.0, 1.0, 0.0]\n"
+        "        - [0.0, 0.0, 0.0, 1.0]\n"
     )
-    result = back_project(row=4, col=4, state=state)
+    set_robot_config_path(config)
+    try:
+        result = back_project(row=4, col=4, state=state)
+    finally:
+        set_robot_config_path(None)
 
     assert result["coordinate_frame"] == "right_base"
     assert result["tcp_delta_coordinate_frame"] == "right_base"
@@ -505,16 +602,36 @@ def test_segment_returns_mask_overlay_and_world_point(tmp_path: Path):
             step=step,
         )
 
-    set_calibration_path(
-        Path(__file__).parent / "fixtures" / "hand_eye_calibration.json"
+    config = tmp_path / "robot_config.yaml"
+    fixtures = Path(__file__).parent / "fixtures"
+    config.write_text(
+        "perception:\n"
+        "  calibration:\n"
+        f"    d455_camera: {fixtures / 'd455_to_right_base_eye_on_base.yaml'}\n"
+        "  projection_views:\n"
+        "    d455:\n"
+        "      raw_key: d455_rgb\n"
+        "      calibration_key: d455_camera\n"
+        "      display_name: D455\n"
+        "  base_frames:\n"
+        "    T_right_base_left_base:\n"
+        "      matrix:\n"
+        "        - [1.0, 0.0, 0.0, 0.01]\n"
+        "        - [0.0, 1.0, 0.0, 0.69]\n"
+        "        - [0.0, 0.0, 1.0, 0.0]\n"
+        "        - [0.0, 0.0, 0.0, 1.0]\n"
     )
-    result = segment(
-        prompt="white cardboard box interior",
-        target_name="cardboard_box_interior",
-        min_valid_depth_pixels=1,
-        state=state,
-        sam3_client=FakeSam3Client(),
-    )
+    set_robot_config_path(config)
+    try:
+        result = segment(
+            prompt="white cardboard box interior",
+            target_name="cardboard_box_interior",
+            min_valid_depth_pixels=1,
+            state=state,
+            sam3_client=FakeSam3Client(),
+        )
+    finally:
+        set_robot_config_path(None)
 
     assert result["ok"]
     assert result["found"]

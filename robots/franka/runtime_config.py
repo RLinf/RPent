@@ -31,29 +31,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import yaml
 from omegaconf import DictConfig, OmegaConf
 
 DEFAULT_CONFIG = Path(__file__).with_name("config") / "example.yaml"
 
-# easy_handeye's default save directory is ``~/.ros/easy_handeye``; RPent reads
-# its ``hand_eye_calibration.json`` bundle from there by default.
-DEFAULT_CALIBRATION_PATH = Path(
-    "~/.ros/easy_handeye/hand_eye_calibration.json"
-).expanduser()
-
-_calibration_path: Path | None = None
 _robot_config_path: Path | None = None
-
-
-def set_calibration_path(path: str | Path | None) -> None:
-    """Configure the hand-eye calibration bundle path (once, at runtime init)."""
-    global _calibration_path
-    _calibration_path = Path(path).expanduser() if path else None
-
-
-def get_calibration_path() -> Path:
-    """Return the configured calibration bundle path, or the easy_handeye default."""
-    return Path(_calibration_path or DEFAULT_CALIBRATION_PATH)
 
 
 def set_robot_config_path(path: str | Path | None) -> None:
@@ -69,6 +52,114 @@ def set_robot_config_path(path: str | Path | None) -> None:
 def get_robot_config_path(default: str | Path = DEFAULT_CONFIG) -> Path:
     """Return the ``--robot-config`` override, or the robot's packaged default."""
     return Path(_robot_config_path or default)
+
+
+def _calibration_mapping_from(perception: Any) -> dict[str, str]:
+    """Return the validated ``perception.calibration`` source mapping.
+
+    Shared by the single- and dual-Franka loaders. Returns an empty mapping
+    when the section is absent.
+
+    Raises:
+        ValueError: when a mapping value is not a path-like string.
+    """
+    if not isinstance(perception, dict):
+        return {}
+    mapping = perception.get("calibration")
+    if not isinstance(mapping, dict):
+        return {}
+    invalid = sorted(
+        key for key, value in mapping.items() if not isinstance(value, (str, Path))
+    )
+    if invalid:
+        raise ValueError(
+            "perception.calibration values must be easy_handeye YAML paths; "
+            f"got non-path value(s) for {invalid}"
+        )
+    return {str(key): str(value) for key, value in mapping.items()}
+
+
+def get_perception_calibration_mapping() -> dict[str, str]:
+    """Return the robot-config ``perception.calibration`` YAML-source mapping.
+
+    Maps RPent camera keys (``base_camera``/``d455_camera`` for dual Franka,
+    ``external``/``wrist`` for single Franka) to easy_handeye YAML paths.
+    Returns an empty mapping when the robot config has no such section.
+    """
+    raw = load_mapping(get_robot_config_path())
+    return _calibration_mapping_from(raw.get("perception"))
+
+
+def load_easy_handeye_yaml(path: str | Path) -> dict[str, Any]:
+    """Load one easy_handeye calibration YAML as a bundle entry.
+
+    easy_handeye saves each calibration as ``~/.ros/easy_handeye/<name>.yaml``
+    with a ``parameters`` section (frame names, ``eye_on_hand``, ...) and a
+    ``transformation`` section (``x/y/z`` plus ``qx/qy/qz/qw``). The returned
+    entry carries the YAML's file name as ``source_name`` plus its verbatim
+    ``parameters`` and ``transformation`` sections.
+
+    Raises:
+        ValueError: when the file is missing or not an easy_handeye YAML.
+    """
+    yaml_path = Path(path).expanduser()
+    if not yaml_path.exists():
+        raise ValueError(f"easy_handeye calibration YAML not found: {yaml_path}")
+    try:
+        data = yaml.safe_load(yaml_path.read_text(errors="replace"))
+    except yaml.YAMLError as exc:
+        raise ValueError(
+            f"invalid easy_handeye calibration YAML {yaml_path}: {exc}"
+        ) from exc
+    if (
+        not isinstance(data, dict)
+        or not isinstance(data.get("parameters"), dict)
+        or not isinstance(data.get("transformation"), dict)
+    ):
+        raise ValueError(
+            f"{yaml_path} must be an easy_handeye calibration YAML (a mapping "
+            "with 'parameters' and 'transformation' sections)"
+        )
+    transformation = data["transformation"]
+    missing = {"x", "y", "z", "qx", "qy", "qz", "qw"} - set(transformation)
+    if missing:
+        raise ValueError(f"{yaml_path} missing transform fields: {sorted(missing)}")
+    return {
+        "source_name": yaml_path.name,
+        "parameters": data["parameters"],
+        "transformation": dict(transformation),
+    }
+
+
+def describe_calibration_source() -> str:
+    """Describe the robot-config easy_handeye YAML calibration mapping."""
+    mapping = get_perception_calibration_mapping()
+    if not mapping:
+        return (
+            "no perception.calibration easy_handeye YAML mapping configured in "
+            f"{get_robot_config_path()}"
+        )
+    listed = ", ".join(
+        f"{key}={Path(value).expanduser()}" for key, value in sorted(mapping.items())
+    )
+    return f"easy_handeye YAMLs (robot-config perception.calibration): {listed}"
+
+
+def validate_calibration_sources() -> None:
+    """Fail fast when a configured easy_handeye YAML is missing on disk."""
+    mapping = get_perception_calibration_mapping()
+    missing = [
+        f"{key}: {Path(value).expanduser()}"
+        for key, value in sorted(mapping.items())
+        if not Path(value).expanduser().exists()
+    ]
+    if missing:
+        raise ValueError(
+            f"hand-eye calibration YAML(s) not found: {'; '.join(missing)}. "
+            "Run the easy_handeye calibration first (it saves YAMLs under "
+            "~/.ros/easy_handeye/ by default) or fix perception.calibration in "
+            f"{get_robot_config_path()}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -105,29 +196,8 @@ _COMPLIANCE_PARAM = {
     "rotational_Ki": 0,
 }
 
-_PRECISION_PARAM = {
-    "translational_stiffness": 3000,
-    "translational_damping": 89,
-    "rotational_stiffness": 300,
-    "rotational_damping": 9,
-    "translational_Ki": 0.1,
-    "translational_clip_x": 0.01,
-    "translational_clip_y": 0.01,
-    "translational_clip_z": 0.01,
-    "translational_clip_neg_x": 0.01,
-    "translational_clip_neg_y": 0.01,
-    "translational_clip_neg_z": 0.01,
-    "rotational_clip_x": 0.05,
-    "rotational_clip_y": 0.05,
-    "rotational_clip_z": 0.05,
-    "rotational_clip_neg_x": 0.05,
-    "rotational_clip_neg_y": 0.05,
-    "rotational_clip_neg_z": 0.05,
-    "rotational_Ki": 0.1,
-}
-
 # ``env.eval.override_cfg`` values RPent sets away from RLinf's
-# ``FrankaRobotConfig`` defaults. Keys are RLinf field names; anything omitted
+# ``FrankaEnvConfig`` defaults. Keys are RLinf field names; anything omitted
 # here keeps RLinf's default.
 ENV_DEFAULTS = {
     # RPent drives the cameras through its own env server; it does not run the
@@ -135,8 +205,6 @@ ENV_DEFAULTS = {
     "enable_camera_player": False,
     # The back-projection primitives need per-pixel depth.
     "enable_camera_depth": True,
-    # Native resolution keeps pixel back-projection aligned with calibration.
-    "camera_resize": False,
     # Episodes are bounded by the planner, not a step budget.
     "max_num_steps": 200_000_000,
     # Success is decided by the planner; these thresholds are nominal.
@@ -146,7 +214,6 @@ ENV_DEFAULTS = {
     # Grasp timing is planner-controlled; no fixed per-step gripper penalty.
     "enable_gripper_penalty": False,
     "compliance_param": _COMPLIANCE_PARAM,
-    "precision_param": _PRECISION_PARAM,
 }
 
 
@@ -234,8 +301,8 @@ def load_runtime_config(
     """Load the user YAML, apply developer defaults, and build the adapter."""
     # Lazy RLinf imports: keys are validated against these dataclasses (drift
     # guard), deferred so importing this module stays RLinf-free.
-    from rlinf.envs.realworld.franka.franka_env import FrankaRobotConfig
-    from rlinf.scheduler.hardware.robots.franka import FrankaConfig
+    from rlinf.envs.real.franka.base import FrankaEnvConfig
+    from rlinf.robotics.robots.franka import FrankaConfig
 
     raw = load_mapping(path or get_robot_config_path())
     robot = _require_mapping(raw.get("robot"), "robot")
@@ -274,7 +341,7 @@ def load_runtime_config(
         where="cluster.node_groups[].hardware.configs[]",
     )
     override_cfg = strict_mapping(
-        FrankaRobotConfig,
+        FrankaEnvConfig,
         {
             **ENV_DEFAULTS,
             "task_description": task_description,

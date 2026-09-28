@@ -62,7 +62,10 @@ def test_invalid_flash_locator_configuration(extra):
 
 
 @pytest.mark.parametrize("point_locator", ["point", "molmo"])
-def test_point_plan_localization_and_motion(monkeypatch, tmp_path, point_locator):
+@pytest.mark.parametrize("plan_directory", ["flash", "task_card"])
+def test_point_plan_localization_and_motion(
+    monkeypatch, tmp_path, point_locator, plan_directory
+):
     plan = [
         {
             "action": "move_to",
@@ -81,8 +84,10 @@ def test_point_plan_localization_and_motion(monkeypatch, tmp_path, point_locator
         },
         {"action": "release", "arguments": {}},
     ]
-    (tmp_path / "object_swap_t3_plan.json").write_text(json.dumps({"plan": plan}))
-    (tmp_path / "object_swap_t3_anchors.json").write_text(
+    plan_root = tmp_path / plan_directory
+    plan_root.mkdir()
+    (plan_root / "object_swap_t3_plan.json").write_text(json.dumps({"plan": plan}))
+    (plan_root / "object_swap_t3_anchors.json").write_text(
         json.dumps(
             {
                 "anchors": [
@@ -91,7 +96,7 @@ def test_point_plan_localization_and_motion(monkeypatch, tmp_path, point_locator
             }
         )
     )
-    program = replay.load(tmp_path, "object_swap_t3")
+    program = replay.load(plan_root, "object_swap_t3")
     assert program["locator_of"] == {"cup": "point"}
     state = SimpleNamespace(latest_step=0)
     state.load_bytes = lambda name, step: name.encode()
@@ -115,8 +120,15 @@ def test_point_plan_localization_and_motion(monkeypatch, tmp_path, point_locator
         return {"world_xyz": xyz}
 
     monkeypatch.setattr(replay.libero_tools, "back_project", back_project)
-    toolkit = SimpleNamespace(state=state, execute_tool=execute, solved=lambda: False)
-    result = replay.replay(toolkit, locator, program)
+    toolkit = SimpleNamespace(
+        state=state,
+        execute_tool=execute,
+        solved=lambda: False,
+        memory=SimpleNamespace(root=tmp_path),
+        primitives=SimpleNamespace(locator_client=locator),
+    )
+    result = replay.run_flash(toolkit, "object_swap_t3_s0")
+    assert result["program"] == "object/swap_t3"
     assert result["anchors"] == 1
     queries = [call.args for call in locator.locate.call_args_list]
     assert queries == [
