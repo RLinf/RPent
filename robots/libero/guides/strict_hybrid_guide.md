@@ -587,7 +587,7 @@ which step failed. Then call `finish` (NO reset, NO second attempt).
 ## Reference cases
 
 The curated seed-0 references for the 10, object, spatial, and goal suites
-live under `memory/libero/task_only/` (PRO swap+task, t0-t9). Each solved
+live under `memory/libero/task-specific/` (PRO swap+task, t0-t9). Each solved
 cell has an audit JSON + a `{tag}_recipe.jsonl` command sequence. The
 consistent winning pattern:
 localize → pre-pos → `pi0_pick` → `set_gripper` → move → `release` in 6–12

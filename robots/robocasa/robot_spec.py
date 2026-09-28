@@ -24,6 +24,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from robots.robocasa.eval.result import finalize_cell_result
+from robots.robocasa.memory import (
+    RoboCasaMemoryManager,
+    TaskMemory,
+    memory_from_variables,
+)
 from robots.robocasa.prompt_bundle import (
     system_prompt,
     user_prompt,
@@ -166,11 +171,21 @@ def get_toolkit(
     """Return the RoboCasa toolkit for the current session."""
     from robots.robocasa.toolkit import RoboCasaToolkit
 
-    memory = MemoryManager(
-        root=config.prompt_vars.get("memory_dir") or get_memory_dir("robocasa"),
-        memory_access="inbox_write" if mode == "exploration" else "read_only",
-        inbox_cell_tag=config.recipe_tag if mode == "exploration" else None,
-    )
+    if mode == "exploration":
+        memory = MemoryManager(
+            root=config.prompt_vars.get("memory_dir") or get_memory_dir("robocasa"),
+            memory_access="inbox_write",
+            inbox_cell_tag=config.recipe_tag,
+        )
+    else:
+        selection = memory_from_variables(
+            {
+                "memory_dir": str(get_memory_dir("robocasa")),
+                **config.task_desc,
+                **config.prompt_vars,
+            }
+        )
+        memory = RoboCasaMemoryManager(selection, output_dir=config.output_dir)
     return RoboCasaToolkit(
         runtime_kwargs=runtime_kwargs,
         dashboard_events=dashboard_events,
@@ -432,6 +447,18 @@ def _init_runtime(
     unknown = selected.difference(starters)
     if unknown:
         raise ValueError(f"unknown RoboCasa runtime components: {sorted(unknown)}")
+
+    # CLI/Dashboard supply a memory profile; standalone component diagnostics
+    # only parse robot arguments and do not use planner memory. Dashboard starts
+    # shared services before a task is selected, so validate the global layer
+    # then and the current task before starting its environment.
+    if hasattr(args, "memory_profile") and not getattr(args, "explore", False):
+        TaskMemory.load(
+            getattr(args, "memory_dir", None) or get_memory_dir("robocasa"),
+            args.task_name,
+            profile=getattr(args, "memory_profile", None) or "hf",
+            split=getattr(args, "split", "target"),
+        )
 
     pending: dict[str, tuple[ProcessDaemon | None, RpcClient]] = {}
     owned_daemons: dict[str, ProcessDaemon] = {}
