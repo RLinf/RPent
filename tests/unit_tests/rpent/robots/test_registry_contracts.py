@@ -55,7 +55,7 @@ PROMPT_VARIABLES = {
         "public_capabilities": ["observe", "pi0_nav_pick", "finish"],
         "memory_dir": "/memory",
         "memory_profile": "local",
-        "memory_inbox": "/memory/_inbox/turning_on_radio_s1",
+        "memory_inbox": "/memory/_internal/inbox/turning_on_radio_s1",
     },
     "libero": {
         "suite": "libero_object_task",

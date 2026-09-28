@@ -251,13 +251,7 @@ def test_libero_rejects_invalid_mode_and_memory_combinations(
     message: str,
 ) -> None:
     args = _parser("libero").parse_args(
-        [
-            "--suite",
-            "libero_goal",
-            "--task",
-            "0",
-            *extra_args,
-        ]
+        ["--suite", "libero_goal", "--task", "0", *extra_args]
     )
     with pytest.raises(ValueError, match=message):
         get_robot_spec("libero").parse_config(args)
@@ -388,12 +382,7 @@ def test_robotwin_cli_defaults_can_come_from_environment(
     monkeypatch.setenv("LINGBOT_ROBOT_CONFIG", "/offline/robot.yaml")
 
     args = _parser("robotwin").parse_args(
-        [
-            "--task-name",
-            "block_hammer_beat",
-            "--seed",
-            "1",
-        ]
+        ["--task-name", "block_hammer_beat", "--seed", "1"]
     )
 
     assert args.robotwin_assets_path == "/offline/assets"
