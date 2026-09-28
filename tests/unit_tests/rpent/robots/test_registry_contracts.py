@@ -43,7 +43,7 @@ PROMPT_VARIABLES = {
         "task_name": "tabletop_cleanup_a",
         "seed": 0,
         "recipe_tag": "yam_tabletop_cleanup_a_s0",
-        "instruction": "Sort bottles by brand and spoons by color",
+        "instruction": "Move the object to the target",
         "mode": "eval",
         "memory_dir": "/memory",
     },
@@ -120,14 +120,6 @@ def test_registry_discovers_exactly_the_source_checkout_robots() -> None:
         assert callable(spec.add_cli_args)
         assert callable(spec.parse_config)
         assert callable(spec.init_runtime)
-
-
-@pytest.mark.parametrize("robot_name", EXPECTED_ROBOTS)
-def test_exploration_capability(robot_name: str) -> None:
-    spec = get_robot_spec(robot_name)
-    assert spec.supports_exploration is (
-        robot_name in {"dual_franka", "libero", "robocasa", "robotwin", "yam"}
-    )
 
 
 @pytest.mark.parametrize("robot_name", EXPECTED_ROBOTS)

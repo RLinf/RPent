@@ -85,8 +85,6 @@ class RobotSpec:
     #: the task's model and configuration are known.
     prepare_memory: Callable[[argparse.Namespace, RunConfig], None] | None = None
     finalize_run: RunFinalizer | None = None
-    #: Optional operator diagnostic dispatch; None result means a normal task.
-    run_diagnostic: Callable[[argparse.Namespace], int | None] | None = None
     #: Replay this robot's recorded plan for one cell, in place of a planner.
     #: Takes the toolkit, the cell tag, and a note sink; returns at least
     #: ``{"done": bool}``. Left unset by robots without Flash Mode.

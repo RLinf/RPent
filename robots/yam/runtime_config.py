@@ -18,6 +18,8 @@ from typing import Any
 import numpy as np
 from omegaconf import OmegaConf
 
+from robots.yam.tasks import resolve_task_language
+
 DEFAULT_CONFIG = Path(__file__).with_name("config") / "example.yaml"
 EPISODE_STEPS = 1000
 
@@ -71,14 +73,11 @@ def load_config(
         raise ValueError(
             f"control fields duplicate top-level robot fields: {collisions}"
         )
-    language = str(task_language).strip() if task_language else ""
-    if not language:
-        language = str(task_name).replace("_", " ")
     return {
         **raw,
         **control,
         "task_name": str(task_name),
-        "task_language": language,
+        "task_language": resolve_task_language(str(task_name), task_language),
         "seed": int(seed),
         "max_episode_steps": int(max_episode_steps),
     }

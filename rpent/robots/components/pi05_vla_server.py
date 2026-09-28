@@ -29,7 +29,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import sys
 import time
 from typing import Any
 
@@ -38,7 +37,7 @@ import torch
 from omegaconf import OmegaConf
 
 from rpent.robots.components.vla_facade_base import BaseVLAFacade
-from rpent.utils.config import get_pi05_checkpoint_path, get_rlinf_repo_path
+from rpent.utils.config import get_pi05_checkpoint_path
 from rpent.utils.logging import get_logger
 
 logger = get_logger("vla_server")
@@ -191,12 +190,6 @@ class Pi05VLAFacade(BaseVLAFacade):
         super().__init__()
 
         if model_backend == "openpi_rlinf":
-            # The onsite YAM model lives in a sibling RLinf checkout when RPent
-            # is installed as a separate package rather than run from source.
-            if embodiment == "yam":
-                rlinf_root = get_rlinf_repo_path()
-                if rlinf_root.is_dir() and str(rlinf_root) not in sys.path:
-                    sys.path.insert(0, str(rlinf_root))
             from rlinf.models.embodiment.openpi_rlinf import get_model
         else:
             from rlinf.models.embodiment.openpi import get_model
@@ -222,12 +215,17 @@ class Pi05VLAFacade(BaseVLAFacade):
         self._model = get_model(cfg, torch_dtype=None).cuda().eval()
         logger.info("model ready in %.1fs", time.time() - t0)
 
-    def _builtin_dispatch(self, method: str, args: tuple, kwargs: dict) -> Any:
-        if method == "healthz" and self._embodiment == "yam":
-            from robots.yam.contracts import vla_runtime_contract
+    def _register_rpc(self):
+        super()._register_rpc()
+        if self._embodiment == "yam":
+            self._rpc["vla.get_model_meta"] = self.get_model_meta
+            self._readonly_methods.add("vla.get_model_meta")
 
-            return vla_runtime_contract()
-        return super()._builtin_dispatch(method, args, kwargs)
+    def get_model_meta(self) -> dict:
+        """Return YAM policy identity separately from framework readiness."""
+        from robots.yam.contracts import vla_runtime_contract
+
+        return vla_runtime_contract()
 
     @staticmethod
     def _validate_yam_observation(obs: dict) -> dict:

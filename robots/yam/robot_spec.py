@@ -23,7 +23,7 @@ from robots.yam.contracts import (
 )
 from robots.yam.evaluation import finalize_run
 from robots.yam.prompt_bundle import system_prompt, user_prompt
-from robots.yam.tasks import DIAGNOSTIC_TASKS, TASK_INSTRUCTIONS
+from robots.yam.tasks import TASK_INSTRUCTIONS, resolve_task_language
 from rpent.dashboard.events import DashboardEventSink
 from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
@@ -80,7 +80,6 @@ def get_robot_spec() -> RobotSpec:
         supports_exploration=True,
         is_real_robot=True,
         finalize_run=finalize_run,
-        run_diagnostic=_run_diagnostic,
         prompts=PromptBundle(system=system_prompt, user=user_prompt),
         add_cli_args=_add_cli_args,
         parse_config=_parse_config,
@@ -120,25 +119,7 @@ def get_toolkit(
 
 def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     parser.set_defaults(memory_profile="local")
-    parser.add_argument(
-        "--robot-config",
-        help="Local YAM site YAML for Dashboard operator receipts",
-    )
-    required = not use_dashboard
-    parser.add_argument(
-        "--task-name",
-        required=required,
-        default=None,
-    )
-    parser.add_argument(
-        "--task-id",
-        type=int,
-        choices=tuple(DIAGNOSTIC_TASKS),
-        help="103 manual_primitive_test; 104 vla_deployment_test (no planner)",
-    )
-    parser.add_argument("--task-language", default=None)
-    parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--max-episode-steps", type=int, default=1000)
+    _add_runtime_args(parser, required=not use_dashboard)
     parser.add_argument("--explore-attempts-per-session", type=int, default=5)
     parser.add_argument("--explore-sessions", type=int, default=1)
     parser.add_argument(
@@ -146,6 +127,21 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         action=argparse.BooleanOptionalAction,
         default=True,
     )
+
+
+def _add_runtime_args(parser: argparse.ArgumentParser, *, required: bool) -> None:
+    parser.add_argument(
+        "--robot-config",
+        help="Local YAM site YAML for Dashboard operator receipts",
+    )
+    parser.add_argument(
+        "--task-name",
+        required=required,
+        default=None,
+    )
+    parser.add_argument("--task-language", default=None)
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--max-episode-steps", type=int, default=1000)
     parser.add_argument(
         "--env-endpoint",
         required=required,
@@ -160,18 +156,6 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         action="store_true",
         help="Run primitives-only wiring without starting or connecting a VLA server.",
     )
-
-
-def _run_diagnostic(args: argparse.Namespace) -> int | None:
-    if args.task_id not in DIAGNOSTIC_TASKS:
-        return None
-    if args.dashboard or args.explore:
-        raise ValueError(
-            "YAM diagnostic tasks are operator consoles; omit --dashboard and --explore"
-        )
-    from robots.yam.manual import run_session
-
-    return run_session(args)
 
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
@@ -202,9 +186,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         raise ValueError(
             "Dashboard A/B instructions are selected by task_name; omit --task-language"
         )
-    instruction = args.task_language or TASK_INSTRUCTIONS.get(
-        args.task_name, args.task_name.replace("_", " ")
-    )
+    instruction = resolve_task_language(args.task_name, args.task_language)
     return RunConfig(
         recipe_tag=recipe_tag,
         output_dir=Path(output_dir),
@@ -325,7 +307,7 @@ def _build_vla_runtime_kwargs(vla_rpc: Any) -> dict[str, Any]:
     from rpent.robots.components.pi05_vla_client import Pi05VLAClient
 
     expected_meta = vla_runtime_contract()
-    actual_meta = vla_rpc.call("healthz", timeout_s=30.0)
+    actual_meta = vla_rpc.call("vla.get_model_meta", timeout_s=30.0)
     if actual_meta != expected_meta:
         raise RuntimeError(
             "YAM VLA metadata mismatch: "

@@ -12,7 +12,6 @@ from robots.yam.contracts import env_runtime_contract
 from robots.yam.env_client import YamEnvClient
 from robots.yam.env_server import YamEnvFacade
 from robots.yam.operator_control import write_receipt
-from robots.yam.primitives import YamPrimitives
 from robots.yam.rlinf_env import YamAgentEnv
 
 
@@ -166,35 +165,6 @@ def ready_client(client, receipt):
     receipt("ready")
     client.reset()
     return client
-
-
-@pytest.fixture
-def model():
-    value = SimpleNamespace(calls=[])
-
-    def predict(obs):
-        value.calls.append(obs)
-        return np.repeat(obs["states"][None, :], 30, axis=0)
-
-    value.predict = predict
-    return value
-
-
-@pytest.fixture
-def primitives(ready_client, model):
-    return YamPrimitives(env=ready_client, model=model, check_cancelled=lambda: None)
-
-
-@pytest.fixture
-def clock(monkeypatch):
-    value = SimpleNamespace(now=100.0)
-
-    def sleep(duration):
-        value.now += duration
-
-    monkeypatch.setattr(time, "monotonic", lambda: value.now)
-    monkeypatch.setattr(time, "sleep", sleep)
-    return value
 
 
 @pytest.fixture

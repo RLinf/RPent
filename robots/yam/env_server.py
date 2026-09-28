@@ -59,7 +59,7 @@ class YamEnvFacade(BaseEnvFacade):
             }
         )
 
-    def _dispatch(self, method, args, kwargs):
+    def _dispatch(self, method, args, kwargs, *, session_id=None):
         # Never wait behind a motion chunk just to signal cancellation. This
         # path sets an Event; all CAN writes, including hold(), stay on writer.
         if method == "env.request_stop":
@@ -71,7 +71,7 @@ class YamEnvFacade(BaseEnvFacade):
                 self.close()
                 self._shutdown_event.set()
             return {"ok": True}
-        return super()._dispatch(method, args, kwargs)
+        return super()._dispatch(method, args, kwargs, session_id=session_id)
 
     def get_env_meta(self):
         return dict(self._metadata)

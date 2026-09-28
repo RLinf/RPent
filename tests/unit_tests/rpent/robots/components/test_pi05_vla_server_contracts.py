@@ -15,6 +15,14 @@
 import numpy as np
 import pytest
 
+from rpent.robots.components.pi05_vla_client import Pi05VLAClient
+from rpent.robots.components.pi05_vla_server import (
+    PI05_EMBODIMENTS,
+    Pi05VLAFacade,
+    build_model_cfg,
+)
+from rpent.robots.components.vla_facade_base import BaseVLAFacade
+
 
 def test_dual_vla_prediction_follows_shared_component_rpc_contract(monkeypatch):
     import sys
@@ -116,3 +124,98 @@ def test_libero_preset_keeps_existing_defaults():
     assert cfg.openpi.train_expert_only is True
     assert cfg.openpi.detach_critic_input is None
     assert "openpi_data" not in cfg
+
+
+def _yam_observation():
+    return {
+        "main_images": np.full((4, 5, 3), 1, dtype=np.uint8),
+        "extra_view_images": np.stack(
+            [
+                np.full((4, 5, 3), 2, dtype=np.uint8),
+                np.full((4, 5, 3), 3, dtype=np.uint8),
+            ]
+        ),
+        "states": np.arange(14, dtype=np.float32),
+        "task_descriptions": "put the cube away",
+    }
+
+
+def test_shared_yam_client_sends_three_views_and_qpos14_to_pi05():
+    class FakeRpc:
+        def call(self, method, *, args, timeout_s):
+            assert method == "vla.predict" and timeout_s > 0
+            observation, options = args
+            assert options is None
+            assert observation["main_images"].shape == (1, 4, 5, 3)
+            assert observation["extra_view_images"].shape == (1, 2, 4, 5, 3)
+            assert observation["wrist_images"] is None
+            assert observation["states"].shape == (1, 14)
+            assert observation["task_descriptions"] == ["put the cube away"]
+            assert [
+                int(view.min()) for view in observation["extra_view_images"][0]
+            ] == [
+                2,
+                3,
+            ]
+            return np.zeros((1, 30, 14), dtype=np.float32)
+
+    actions = Pi05VLAClient(FakeRpc(), embodiment="yam").predict(_yam_observation())
+    assert actions.shape == (30, 14)
+
+
+@pytest.mark.parametrize("shape", [(1, 5, 14), (30, 14), (1, 30, 13)])
+def test_shared_yam_client_rejects_wrong_policy_output_shape(shape):
+    class FakeRpc:
+        def call(self, method, *, args, timeout_s):
+            return np.zeros(shape, dtype=np.float32)
+
+    with pytest.raises(ValueError, match="policy output"):
+        Pi05VLAClient(FakeRpc(), embodiment="yam").predict(_yam_observation())
+
+
+@pytest.mark.parametrize(
+    "change, message",
+    [
+        ({"main_images": np.zeros((1, 4, 5, 3), dtype=np.uint8)}, "main_images"),
+        (
+            {"extra_view_images": np.zeros((1, 4, 5, 3), dtype=np.uint8)},
+            "extra_view_images",
+        ),
+        ({"states": np.zeros(13, dtype=np.float32)}, "states"),
+        ({"states": np.full(14, np.nan, dtype=np.float32)}, "states"),
+        ({"task_descriptions": ""}, "task_descriptions"),
+    ],
+)
+def test_shared_yam_client_rejects_invalid_robot_observation(change, message):
+    observation = _yam_observation() | change
+    with pytest.raises(ValueError, match=message):
+        Pi05VLAClient(None, embodiment="yam").encode_obs(observation)
+
+
+def test_shared_yam_server_preset_matches_joint_policy():
+    cfg = build_model_cfg("/checkpoint", PI05_EMBODIMENTS["yam"])
+    assert cfg.model_path == "/checkpoint"
+    assert (cfg.action_dim, cfg.num_action_chunks) == (14, 30)
+    assert cfg.openpi.config_name == "pi05_yam_joint"
+    assert cfg.openpi.discrete_state_input is True
+
+
+def test_yam_server_requires_rlinf_backend():
+    with pytest.raises(ValueError, match="openpi_rlinf"):
+        Pi05VLAFacade(model_path="/unused", embodiment="yam")
+
+
+@pytest.mark.parametrize("embodiment", ["yam", "libero", "franka", "dual_franka"])
+def test_shared_pi05_health_and_model_metadata_are_separate(embodiment):
+    facade = Pi05VLAFacade.__new__(Pi05VLAFacade)
+    facade._embodiment = embodiment
+    BaseVLAFacade.__init__(facade)
+    assert facade._dispatch("healthz", (), {}) == {"status": "ok"}
+    if embodiment == "yam":
+        from robots.yam.contracts import vla_runtime_contract
+
+        assert facade._dispatch("vla.get_model_meta", (), {}) == vla_runtime_contract()
+        assert "vla.get_model_meta" in facade._readonly_methods
+    else:
+        with pytest.raises(ValueError, match="unknown RPC method"):
+            facade._dispatch("vla.get_model_meta", (), {})

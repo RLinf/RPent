@@ -242,19 +242,6 @@ class YamToolkit(Toolkit):
     def _finish(self, *, status: str, summary: str) -> dict[str, Any]:
         status = status.strip().lower()
         verdict = self.status()
-        if status != "success":
-            if (
-                self._mode == "exploration"
-                and verdict.get("terminal_event") not in {"failure", "abort"}
-                and not verdict.get("eval_success")
-            ):
-                return {
-                    "status": "pending",
-                    "awaiting_operator": True,
-                    "operator_question": "The agent is blocked. Continue after onsite handling, or formally end this attempt?",
-                    "notice": "Ask about the current blocker and wait. A planner claim is not an operator verdict.",
-                }
-            return {"_finish": True, "status": status, "summary": summary}
         if verdict.get("eval_success") is True:
             return {"_finish": True, "status": "success", "summary": summary}
         if verdict.get("terminal_event") == "abort":
@@ -265,15 +252,25 @@ class YamToolkit(Toolkit):
             }
         if verdict.get("terminal_event") == "failure":
             if (
-                self._attempts_per_session
-                and self._session_attempt >= self._attempts_per_session
+                self._mode == "exploration"
+                and self._attempts_per_session
+                and self._session_attempt < self._attempts_per_session
             ):
-                return {"_finish": True, "status": "failure", "summary": summary}
-            return {
-                "error": "finish refused: operator marked failure",
-                "status": "retry",
-                "notice": "Record the lesson, then reset after the scene is ready.",
-            }
+                return {
+                    "error": "finish refused: operator marked failure",
+                    "status": "retry",
+                    "notice": "Record the lesson, then reset after the scene is ready.",
+                }
+            return {"_finish": True, "status": "failure", "summary": summary}
+        if status != "success":
+            if self._mode == "exploration":
+                return {
+                    "status": "pending",
+                    "awaiting_operator": True,
+                    "operator_question": "The agent is blocked. Continue after onsite handling, or formally end this attempt?",
+                    "notice": "Ask about the current blocker and wait. A planner claim is not an operator verdict.",
+                }
+            return {"_finish": True, "status": status, "summary": summary}
         return {
             "error": "finish refused: pending operator verdict",
             "status": "pending",
@@ -408,8 +405,10 @@ class YamToolkit(Toolkit):
             if operation is None:
                 return
             operation.cancel_event.set()
-        self._primitives.env.request_stop()
-        operation.done_event.wait()
+        try:
+            self._primitives.env.request_stop()
+        finally:
+            operation.done_event.wait()
 
     def _step(self, name: str, **kwargs) -> dict[str, Any]:
         self.raise_if_cancelled()
@@ -462,18 +461,12 @@ class YamToolkit(Toolkit):
                 or command.get("action") not in _RECIPE_ACTIONS
             ):
                 continue
-            if isinstance(result, dict) and (
-                result.get("error")
-                or (
-                    result.get("success") is False
-                    and not (
-                        command.get("action") == "move_to"
-                        and result.get("recoverable") is True
-                        and result.get("executed_steps", 0) > 0
-                    )
-                )
-            ):
-                continue
+            if isinstance(result, dict):
+                executed = result.get("executed_steps", result.get("executed_actions"))
+                if result.get("motion_refused") or executed == 0:
+                    continue
+            # Keep partial and uncertain execution in the winning attempt's
+            # trace. A failed call does not establish that no motion occurred.
             recipe.append(command)
         artifacts = EnvState(self._run_output_dir)
         name = f"{recipe_tag}_recipe.jsonl"

@@ -133,11 +133,11 @@ or Ctrl+C moves to configured `park_on_close` home, verifies convergence, then
 closes motor output. A failed home keeps the service/runtime alive for an operator
 retry. Abrupt process termination or power loss cannot run this sequence.
 
-Use one official MemoryManager corpus. A/B bag rules belong to their distinct
-task IDs; shared perception and motion lessons must not imply a universal bag
-mapping. A successful run contributes one independent piece of evidence. The
-runner filters recipes to that successful episode, merges the inbox with the
-official conflict archive rules, and rebuilds the index for the next run.
+Use one official MemoryManager corpus. Keep task-specific instructions scoped
+to their task IDs; share only transferable perception and motion lessons. A
+successful run contributes one independent piece of evidence. The runner filters
+recipes to that successful episode, merges the inbox with the official conflict
+archive rules, and rebuilds the index for the next run.
 
 ### Local exploration recovery
 

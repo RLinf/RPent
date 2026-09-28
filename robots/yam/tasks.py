@@ -10,6 +10,12 @@ TASK_INSTRUCTIONS = {
 DIAGNOSTIC_TASKS = {103: "manual_primitive_test", 104: "vla_deployment_test"}
 
 
+def resolve_task_language(task_name: str, task_language: str | None = None) -> str:
+    """Resolve the same task instruction for the Agent and ENV server."""
+    language = str(task_language).strip() if task_language else ""
+    return language or TASK_INSTRUCTIONS.get(task_name, task_name.replace("_", " "))
+
+
 def classify_episode(status: dict) -> dict:
     """Use fresh server facts; never infer success or clear a stop."""
     if status.get("eval_success") is True:

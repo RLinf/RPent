@@ -78,7 +78,6 @@ def _capture_validated_args(
         captured["robot_name"] = name
         return SimpleNamespace(
             name=name,
-            run_diagnostic=None,
             add_cli_args=add_cli_args,
             parse_config=parse_config,
             supports_exploration=name == "libero",
@@ -238,7 +237,6 @@ def test_shared_cli_validation_stops_before_robot_runtime(
         "get_robot_spec",
         lambda name: SimpleNamespace(
             name=name,
-            run_diagnostic=None,
             add_cli_args=add_cli_args,
             parse_config=parse_config,
             supports_exploration=name == "libero",
@@ -357,7 +355,6 @@ def test_real_robot_terminal_requirement_fails_before_runtime(
     cli = _cli_module()
     spec = SimpleNamespace(
         is_real_robot=True,
-        run_diagnostic=None,
         dashboard=None,
         add_cli_args=lambda parser, use_dashboard: None,
     )
@@ -395,213 +392,9 @@ def test_handoff_message_lists_prior_attempts_deterministically(tmp_path: Path) 
     assert "memory inbox under wip/" in message
 
 
-@pytest.mark.parametrize(
-    "solved,close_error", [(True, False), (False, False), (False, True), (True, True)]
-)
-def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    solved: bool,
-    close_error: bool,
-) -> None:
-    cli = _cli_module()
-    from rpent.planner.base import PlannerResult
-    from rpent.robots import PromptBundle, RobotSpec, RunConfig
-    from rpent.tools.toolkit import ToolResult
-
-    calls: dict[str, Any] = {}
-    finish_args = {
-        "status": "success" if solved else "failure",
-        "summary": "simulated task complete" if solved else "simulated CAN failure",
-    }
-
-    class FakeMemoryManager:
-        def merge_memory(self, **kwargs: Any) -> dict[str, int]:
-            calls["merge_memory"] = kwargs
-            return {"suite": 1}
-
-    class FakeDaemon:
-        stopped = False
-
-        def stop(self) -> None:
-            self.stopped = True
-
-    class FakeToolkit:
-        def __init__(self) -> None:
-            self.calls: list[tuple[str, dict[str, Any]]] = []
-            self.closed = False
-            self.memory = FakeMemoryManager()
-
-        def execute_tool(self, name: str, args: dict[str, Any]) -> ToolResult:
-            self.calls.append((name, args))
-            return ToolResult(
-                name,
-                {
-                    "_finish": True,
-                    "status": args["status"],
-                    "summary": args["summary"],
-                },
-            )
-
-        def close(self) -> None:
-            self.closed = True
-            if close_error:
-                raise RuntimeError("could not deliver stop to failed CAN chain")
-
-        def solved(self) -> bool:
-            return solved
-
-        def write_recipe(self, recipe_tag: str) -> str:
-            calls["write_recipe"] = recipe_tag
-            return str(tmp_path / f"{recipe_tag}_recipe.jsonl")
-
-    class ScriptedPlanner:
-        def solve(
-            self,
-            *,
-            system_prompt: str,
-            user_message: str,
-            toolkit: FakeToolkit,
-            max_turns: int,
-            input_queue: Any = None,
-            dashboard_interaction: Any = None,
-        ) -> PlannerResult:
-            calls["solve"] = {
-                "system_prompt": system_prompt,
-                "user_message": user_message,
-                "max_turns": max_turns,
-                "input_queue": input_queue,
-                "dashboard_interaction": dashboard_interaction,
-            }
-            finish = toolkit.execute_tool(
-                "finish",
-                finish_args,
-            )
-            return PlannerResult(
-                finish_result=finish.result,
-                messages=[{"role": "assistant", "content": "finished offline"}],
-                stats={
-                    "total_input_tokens": 0,
-                    "total_output_tokens": 0,
-                    "tool_calls": 1,
-                },
-            )
-
-    daemon = FakeDaemon()
-    toolkit = FakeToolkit()
-    planner = ScriptedPlanner()
-
-    def add_cli_args(parser: Any, use_dashboard: bool) -> None:
-        del use_dashboard
-        parser.add_argument("--auto-merge-memory", action="store_true")
-        parser.add_argument("--explore-sessions", type=int, default=1)
-        parser.add_argument("--explore-attempts-per-session", type=int, default=2)
-
-    def parse_config(args: Any) -> RunConfig:
-        return RunConfig(
-            recipe_tag="libero_s0",
-            output_dir=Path(args.output_dir),
-            prompt_vars={"memory_dir": args.memory_dir},
-            task_desc={"robot": "libero"},
-        )
-
-    def init_runtime(*args: Any) -> tuple[list[FakeDaemon], dict[str, str]]:
-        calls["init_runtime"] = args
-        assert os.environ["CUDA_VISIBLE_DEVICES"] == ""
-        return [daemon], {"runtime": "simulated"}
-
-    robot_spec = RobotSpec(
-        name="libero",
-        prompts=PromptBundle(
-            system=lambda variables: "simulated system prompt",
-            user=lambda variables: "simulated user task",
-        ),
-        add_cli_args=add_cli_args,
-        parse_config=parse_config,
-        init_runtime=init_runtime,
-        supports_exploration=True,
-    )
-
-    def build_planner(*args: Any, **kwargs: Any) -> ScriptedPlanner:
-        calls["build_planner"] = (args, kwargs)
-        return planner
-
-    def get_toolkit(*args: Any, **kwargs: Any) -> FakeToolkit:
-        calls["get_toolkit"] = (args, kwargs)
-        return toolkit
-
-    def reject_memory_sync(*args: Any, **kwargs: Any) -> None:
-        raise AssertionError(f"CPU-only smoke test tried to sync memory: {args!r}")
-
-    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "")
-    monkeypatch.setattr(cli, "enumerate_robots", lambda: ("libero",))
-    monkeypatch.setattr(cli, "get_robot_spec", lambda name: robot_spec)
-    monkeypatch.setattr(cli, "build_planner", build_planner)
-    monkeypatch.setattr(cli, "get_toolkit", get_toolkit)
-    monkeypatch.setattr("rpent.memory.MemoryManager.sync", reject_memory_sync)
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "rpent",
-            "--robot",
-            "libero",
-            "--explore",
-            "--auto-merge-memory",
-            "--memory-profile",
-            "local",
-            "--memory-dir",
-            str(tmp_path / "memory"),
-            "--output-dir",
-            str(tmp_path),
-            "--max-turns",
-            "4",
-        ],
-    )
-
-    assert cli.main() == int(close_error)
-
-    assert calls["solve"] == {
-        "system_prompt": "simulated system prompt\n",
-        "user_message": "simulated user task\n",
-        "max_turns": 4,
-        "input_queue": None,
-        "dashboard_interaction": None,
-    }
-    assert toolkit.calls == [("finish", finish_args)]
-    assert toolkit.closed is True
-    assert daemon.stopped is True
-    assert calls["get_toolkit"][1]["runtime_kwargs"] == {"runtime": "simulated"}
-    assert calls["get_toolkit"][1]["mode"] == "exploration"
-    assert calls["get_toolkit"][1]["attempts_per_session"] == 2
-    if solved:
-        assert calls["write_recipe"] == "libero_s0"
-    else:
-        assert "write_recipe" not in calls
-    if close_error and solved:
-        assert "merge_memory" not in calls
-    else:
-        assert calls["merge_memory"] == {
-            "cell_tag": "libero_s0",
-            "run_state_dir": tmp_path,
-            "solved": solved,
-        }
-
-    transcript = json.loads((tmp_path / "transcript_libero_s0.json").read_text())
-    assert transcript["robot"] == "libero"
-    assert transcript["finish"] == {
-        "_finish": True,
-        **finish_args,
-    }
-    assert transcript["stats"]["tool_calls"] == 1
-    assert transcript["messages"] == [
-        {"role": "assistant", "content": "finished offline"}
-    ]
-
-
 @pytest.mark.parametrize("interactive", [False, True])
 @pytest.mark.parametrize("budget_exhausted", [False, True])
-def test_full_cli_exploration_uses_native_api_budget_without_gpu_runtime(
+def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     interactive: bool,

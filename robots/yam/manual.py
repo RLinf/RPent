@@ -2,28 +2,58 @@
 # Licensed under the Apache License, Version 2.0.
 """Operator-only diagnostic tasks; no planner, implicit reset or home."""
 
+import argparse
 import json
 from pathlib import Path
 
-from robots.yam.primitives import YamPrimitives
 from robots.yam.tasks import DIAGNOSTIC_TASKS
-from robots.yam.vla_test import VLATest
-from rpent.dashboard.events import NullDashboardEventSink
 
 
-def run_session(args):
+def _build_parser() -> argparse.ArgumentParser:
+    from robots.yam.robot_spec import _add_runtime_args
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    _add_runtime_args(parser, required=True)
+    parser.add_argument(
+        "--task-id",
+        type=int,
+        required=True,
+        choices=tuple(DIAGNOSTIC_TASKS),
+        help="103 manual primitive checks; 104 VLA inference and execution checks",
+    )
+    parser.add_argument("--output-dir", type=Path, default=None)
+    parser.add_argument("--memory-dir", type=Path, default=None)
+    parser.set_defaults(dashboard=False, explore=False)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run an attended YAM diagnostic console without starting a planner."""
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+    try:
+        return run_session(args)
+    except ValueError as error:
+        parser.error(str(error))
+
+
+def run_session(args: argparse.Namespace) -> int:
+    """Attach to running services and execute explicit operator commands."""
+    from robots.yam.primitives import YamPrimitives
     from robots.yam.robot_spec import _init_runtime, _parse_config
+    from robots.yam.vla_test import VLATest
+    from rpent.dashboard.events import NullDashboardEventSink
     from rpent.utils.rpc import make_rpc_client
 
     if not args.env_endpoint:
         raise ValueError("--env-endpoint is required")
+    if args.task_id == 104 and (not args.vla_endpoint or args.without_vla):
+        raise ValueError("task 104 requires --vla-endpoint")
     rpc = make_rpc_client(args.env_endpoint)
     if rpc.call("env.is_started", timeout_s=5) is not True:
         raise RuntimeError(
             "Start hardware in the operator terminal first; diagnostics never power on"
         )
-    if args.task_id == 104 and (not args.vla_endpoint or args.without_vla):
-        raise ValueError("task 104 requires --vla-endpoint")
     config = _parse_config(args)
     selected = {"env", "vla"} if args.task_id == 104 else {"env"}
     _, kwargs = _init_runtime(
@@ -97,3 +127,7 @@ def run_session(args):
             flush=True,
         )
     return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

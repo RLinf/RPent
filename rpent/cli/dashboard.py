@@ -374,7 +374,8 @@ def _run_dashboard_task(
     if (
         getattr(task_args, "explore", False)
         and getattr(task_args, "auto_merge_memory", False)
-        and (not agent_error or not solved)
+        and not agent_error
+        and not state.task_replacement_requested
         and memory_manager is not None
     ):
         try:
@@ -419,7 +420,4 @@ def _run_dashboard_task(
                 logger.warning("%s", finalization_error)
             else:
                 agent_error = finalization_error
-    # A normally exited planner is not evidence of an environment success.
-    if not agent_error and robot_spec.supports_exploration and not solved:
-        return "Task ended without confirmed environment success."
     return agent_error

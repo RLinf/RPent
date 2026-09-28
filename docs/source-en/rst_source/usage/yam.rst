@@ -10,7 +10,7 @@ Dependencies and installation
 -------------------------------
 
 Use Linux and Python 3.11 on the control machine. The Agent needs only RPent;
-RealSense, MuJoCo and the station's RLinf/i2rt installation belong on the control
+RealSense, MuJoCo and a compatible RLinf/i2rt installation belong on the control
 machine. The GPU machine needs the same RLinf YAM policy implementation and its
 compatible OpenPI/Torch environment.
 
@@ -21,35 +21,34 @@ compatible OpenPI/Torch environment.
    source .venv/bin/activate
    uv pip install -e '.[yam]'
    export RPENT_REPO_ROOT="$PWD"
-   export RPENT_RLINF_ROOT=/path/to/station-RLinf
+   export RPENT_RLINF_ROOT=/path/to/RLinf
 
 The ``yam`` extra keeps ``huggingface-hub<1`` because i2rt 1.1.2 requires
-``click<8.2``. When installing the station's i2rt requirements, constrain
+``click<8.2``. When installing the i2rt requirements, constrain
 ``ruckig==0.15.3`` to its compatible build backend:
 
 .. code-block:: bash
 
    printf 'scikit-build-core<0.10\n' > /tmp/yam-build-constraints.txt
    uv pip install --build-constraints /tmp/yam-build-constraints.txt \
-     -r /path/to/station-RLinf/requirements/embodied/envs/yam.txt
+     -r /path/to/RLinf/requirements/embodied/envs/yam.txt
    uv pip check
 
-This adapter was developed against an RLinf YAM fork at ``3554fd2c`` **plus
-station changes**. Unmodified official RLinf is not a sufficient dependency.
-Before deployment retain the fork commit, working patch, untracked runtime
-sources and environment lock with the station configuration. Required APIs are
-``YamControlRuntime`` (command, hold, move_to, feedback), ``I2RTYamBackendFactory``,
-``YamKinematicsAdapter``, and the ``openpi_rlinf`` model loader with
-``pi05_yam_joint`` data/policy transforms. RPent does not install or publish
-those local changes. Calibration, i2rt model meshes, checkpoint and norm stats
-must also be supplied. No trained YAM checkpoint ships with this extension.
+A compatible RLinf YAM implementation must be installed separately; the
+unmodified official RLinf installation does not provide all required APIs.
+The adapter requires ``YamControlRuntime`` (command, hold, move_to, feedback),
+``I2RTYamBackendFactory``, ``YamKinematicsAdapter``, and the ``openpi_rlinf``
+model loader with ``pi05_yam_joint`` data/policy transforms. Pin the compatible
+RLinf revision and its dependencies for deployment. Calibration, i2rt model
+meshes, checkpoint and norm stats must also be supplied; RPent does not include
+these assets or a trained YAM checkpoint.
 
-Site configuration
---------------------
+Robot and task configuration
+----------------------------
 
 Copy ``robots/yam/config/example.yaml`` outside versioned source and fill the
 camera serials, calibration file, table model, confirmed reset/home poses and
-station control settings. The example cannot start until ``park_on_close`` is
+robot control settings. The example cannot start until ``park_on_close`` is
 enabled with measured home joints. Do not copy another station's joint poses.
 Each pose needs ``left_qpos`` and ``right_qpos`` (seven values each),
 ``duration_s``, ``max_joint_delta``, ``tolerance`` and ``timeout_s``.
@@ -57,22 +56,20 @@ Preserve validated servo and collision settings when upgrading this adapter.
 
 Calibration supplies a shared ``left_base`` frame and the right-base transform.
 ``top`` is fixed; ``left`` and ``right`` are wrist cameras. RGBD and wrist FK
-must refer to the same capture. All three streams use 640x480 at 30 Hz on the
-validated station. Camera pipelines warm up before arm connection.
+must refer to the same capture. The example uses 640x480 at 30 Hz for all three
+streams. Camera pipelines warm up before arm connection.
 
-Task instructions are registered in ``robots/yam/tasks.py``. Keep the A/B site
-YAMLs separate, but pass ``task_name``, ``task_language``, ``seed`` and
-``max_episode_steps`` as CLI arguments. The language must match the full
-``TASK_INSTRUCTIONS`` entry for the selected task:
+Task instructions are registered in ``robots/yam/tasks.py``. Pass ``task_name``,
+``seed`` and ``max_episode_steps`` as CLI arguments. ENV and Agent both default
+to the registered ``TASK_INSTRUCTIONS`` entry. ``--task-language`` can override
+it for a terminal run; Dashboard requires the registered instruction for the
+selected task. Stop the existing ENV safely before starting a different task.
 
-* ``tabletop_cleanup_a``: Pepsi in the left bag, Coca-Cola in the right bag.
-* ``tabletop_cleanup_b``: Coca-Cola in the left bag, Pepsi in the right bag.
+In each shell used below, set ``TASK_NAME`` to the selected registered task:
 
-Both use top-view left/right, sort all three bottles, uncover the spoons, put
-white spoon in left white bowl and pink spoon in right pink bowl, and return
-bowls to their marked positions. Initial spoon positions may vary. Task names
-stay stable across runs; evidence IDs are unique. Dashboard refuses an A/B
-language mismatch; switch ENV configuration explicitly after safe shutdown.
+.. code-block:: bash
+
+   export TASK_NAME='your-registered-task'
 
 Independent services
 ----------------------
@@ -81,10 +78,9 @@ Start ENV from the control machine's prepared environment:
 
 .. code-block:: bash
 
-   TASK_LANGUAGE="$(python -c 'from robots.yam.tasks import TASK_INSTRUCTIONS; print(TASK_INSTRUCTIONS["tabletop_cleanup_a"])')"
-   python -m robots.yam.env_server --robot-config /path/to/task_a.yaml \
-     --task-name tabletop_cleanup_a --task-language "$TASK_LANGUAGE" \
-     --seed 0 --max-episode-steps 20000 \
+   python -m robots.yam.env_server --robot-config /path/to/robot.yaml \
+     --task-name "$TASK_NAME" \
+     --seed 0 --max-episode-steps 1000 \
      --transport socket --host 127.0.0.1 --port 8110
 
 The process initially serves without connecting motors. The operator's first
@@ -94,20 +90,23 @@ Use ``env.is_started`` for a passive programmatic startup check.
 
 .. code-block:: bash
 
-   python -m robots.yam.operator_control --robot-config /path/to/task_a.yaml \
+   python -m robots.yam.operator_control --robot-config /path/to/robot.yaml \
      --endpoint socket://127.0.0.1:8110 --event status
-   python -m robots.yam.operator_control --robot-config /path/to/task_a.yaml \
+   python -m robots.yam.operator_control --robot-config /path/to/robot.yaml \
      --endpoint socket://127.0.0.1:8110 --event reset_pose
    # Copy the CURRENT episode_id printed by status; scene ready is an operator fact.
-   python -m robots.yam.operator_control --robot-config /path/to/task_a.yaml \
+   python -m robots.yam.operator_control --robot-config /path/to/robot.yaml \
      --endpoint socket://127.0.0.1:8110 --episode-id CURRENT_ID \
      --event ready --note 'Scene restored; ready for this attempt'
 
 On the GPU machine, activate its prepared RLinf policy environment, install
-RPent there, and set its own ``RPENT_RLINF_ROOT`` before starting:
+RPent there, and make that machine's RLinf fork importable before starting.
+The shared model server imports the selected backend from this environment:
 
 .. code-block:: bash
 
+   export RPENT_RLINF_ROOT=/path/to/RLinf
+   export PYTHONPATH="$RPENT_RLINF_ROOT${PYTHONPATH:+:$PYTHONPATH}"
    python -m rpent.robots.components.pi05_vla_server \
      --embodiment yam --model-backend openpi_rlinf \
      --model-path /path/to/yam-checkpoint \
@@ -125,21 +124,19 @@ is left six joints, left gripper, right six joints, right gripper. RGB order is
 Dashboard and terminal exploration
 ------------------------------------
 
-The following is an **explicit station launch profile**, not library defaults.
-Model availability depends on the installed planner/account. Adjust endpoints
-and paths on the launching machine. ``low`` is used rather than an unsupported
-``none`` reasoning setting for this model.
+Choose an available planner model and adjust the endpoints and paths. Replace
+``MODEL_ID`` below with a model supported by your configured Codex backend; use
+a reasoning setting supported by that model.
 
 .. code-block:: bash
 
    rpent --robot yam --dashboard --explore --planner codex \
-     --model gpt-6-astra --reasoning-effort low \
-     --robot-config /path/to/task_a.yaml \
+     --model MODEL_ID --reasoning-effort low \
+     --robot-config /path/to/robot.yaml \
      --env-endpoint socket://127.0.0.1:8110 \
      --vla-endpoint socket://127.0.0.1:8220 \
      --memory-profile local --memory-dir /path/to/memory/yam \
-     --max-episode-steps 20000 --explore-attempts-per-session 50 \
-     --explore-sessions 1 --max-turns 300 --planner-timeout-s 14400 \
+     --max-episode-steps 1000 \
      --dashboard-host 127.0.0.1 --dashboard-port 8090
 
 ``max-episode-steps`` must match ENV. On the browser computer:
@@ -148,9 +145,8 @@ and paths on the launching machine. ``low`` is used rather than an unsupported
 
    ssh -N -L 8090:127.0.0.1:8090 USER@CONTROL_HOST
 
-Open ``http://127.0.0.1:8090`` and submit ``/rpent-task tabletop_cleanup_a 0``.
-For B, prepare the B service/config with its own seed and step budget, then
-submit ``/rpent-task tabletop_cleanup_b 1``.
+Open ``http://127.0.0.1:8090`` and submit ``/rpent-task <task-name> 0``, replacing
+``<task-name>`` with the same registered task used by ENV.
 Browsing does not start hardware. ENV is checked for every task; VLA is shared.
 Dashboard owns neither service. Manual primitives and Agent calls are serialized;
 after manual action, its result accompanies the next Agent message. ``/continue``
@@ -160,11 +156,9 @@ permission by itself. While the Agent is waiting for the operator, program
 generated continuation stays paused until an explicit ``/continue`` or a new
 episode. It cannot bypass an explicit finish or an outstanding manual action.
 
-For the terminal, omit Dashboard flags and add ``--task-name tabletop_cleanup_a``
+For the terminal, omit Dashboard flags and add ``--task-name "$TASK_NAME"``
 to the same command. Use ``--without-vla`` instead of ``--vla-endpoint`` for
-geometric tools only. To reproduce the station's policy preference, send the
-Agent: ``Use chunks=2 when the scene supports it; inspect after each call.``
-Each prediction executes five actions, so this example requests ten actions.
+geometric tools only.
 
 Verdicts, memory and shutdown
 -------------------------------
@@ -179,10 +173,12 @@ restore the physical scene. Missing readiness or verdict returns nonterminal
 ``pending`` immediately; only an established new episode increments the attempt count.
 
 Explore uses the shared ``_internal/inbox``, ``task-specific``, ``task-family`` and ``global``
-memory. Valid failure notes can merge after an unsuccessful run; success
-recipes contain only actions from the verified successful episode. A/B bag rules
-remain task-specific. See ``result.json``, transcripts, session step records,
-recipe/audit and the updated ``MEMORY.md`` for distinct evidence. A planner exit,
+memory. Normally completed unsuccessful runs may contribute failure notes.
+Runtime errors and Dashboard task replacement leave the inbox unpublished.
+Success recipes retain issued actions from the verified successful episode,
+including partial execution; execution details remain in the step records. See
+``result.json``, transcripts, session step records, recipe/audit and the updated
+``MEMORY.md`` for distinct evidence. A planner exit,
 an interface test or a successful primitive does not prove full task success.
 
 Stopping/closing Dashboard requests hold only. After handling any held object
@@ -190,7 +186,7 @@ and checking the home path, shut down ENV from the operator terminal:
 
 .. code-block:: bash
 
-   python -m robots.yam.operator_control --robot-config /path/to/task_a.yaml \
+   python -m robots.yam.operator_control --robot-config /path/to/robot.yaml \
      --endpoint socket://127.0.0.1:8110 --event shutdown
 
 ENV moves to configured home, verifies convergence, then disables output.
@@ -206,10 +202,10 @@ before explicit moves; diagnostics never create readiness themselves.
 
 .. code-block:: bash
 
-   rpent --robot yam --task-name tabletop_cleanup_a --task-id 103 \
-     --env-endpoint socket://127.0.0.1:8110 --max-episode-steps 20000
-   rpent --robot yam --task-name tabletop_cleanup_a --task-id 104 \
-     --env-endpoint socket://127.0.0.1:8110 --max-episode-steps 20000 \
+   python -m robots.yam.manual --task-name "$TASK_NAME" --task-id 103 \
+     --env-endpoint socket://127.0.0.1:8110 --max-episode-steps 1000
+   python -m robots.yam.manual --task-name "$TASK_NAME" --task-id 104 \
+     --env-endpoint socket://127.0.0.1:8110 --max-episode-steps 1000 \
      --vla-endpoint socket://127.0.0.1:8220 --output-dir /path/to/diagnostics
 
 Enter JSON lines: ``{"tool":"status"}``; task 103 allows ``move_to``,
@@ -229,10 +225,6 @@ required path samples. ``rotate_wrist`` accepts ``gripper``; use
 ``set_gripper(arm, val, steps)`` and ``release(arm, val=1, steps)`` instead of
 open/close aliases. All xyz are metres in left_base; quaternions are wxyz.
 
-During upgrade convert active site configuration to YAML and back up the old
-JSON; preserve receipts, calibration, weights, datasets and memory. Replace code
-only in a maintenance window. Update launch flags explicitly and
-reinstall the package. Keep the old Git bundle/patches for rollback. Source and
-wheel installs include robot modules; set ``RPENT_REPO_ROOT`` to the intended
-checkout to give logs, guides and memory a stable workspace location. No new
-VLA training, HF upload or live exploration is performed by installation.
+The ``--robot-config`` entry point accepts YAML. Convert older JSON configuration
+before upgrading. Source and wheel installs include robot modules; set
+``RPENT_REPO_ROOT`` to the intended workspace for logs, guides and memory.
