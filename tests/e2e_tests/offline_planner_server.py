@@ -89,7 +89,9 @@ class OfflinePlannerServer:
 
     def _handle_request(self, handler: BaseHTTPRequestHandler) -> None:
         if not handler.path.rstrip("/").endswith("/chat/completions"):
-            self._send_json(handler, 404, {"error": {"message": "unknown endpoint"}})
+            self._send_response(
+                handler, 404, {"error": {"message": "unknown endpoint"}}
+            )
             return
 
         try:
@@ -111,7 +113,7 @@ class OfflinePlannerServer:
                     )
                 self._request_count += 1
         except Exception as exc:  # noqa: BLE001 - returned as a local API error
-            self._send_json(handler, 400, {"error": {"message": str(exc)}})
+            self._send_response(handler, 400, {"error": {"message": str(exc)}})
             return
 
         response = {
@@ -145,15 +147,28 @@ class OfflinePlannerServer:
                 "total_tokens": 2,
             },
         }
-        self._send_json(handler, 200, response)
+        stream = bool(request.get("stream"))
+        if stream:
+            response["object"] = "chat.completion.chunk"
+            choice = response["choices"][0]
+            choice["delta"] = choice.pop("message")
+            choice["delta"]["tool_calls"][0]["index"] = 0
+        self._send_response(handler, 200, response, stream=stream)
 
     @staticmethod
-    def _send_json(
-        handler: BaseHTTPRequestHandler, status: int, payload: dict[str, Any]
+    def _send_response(
+        handler: BaseHTTPRequestHandler,
+        status: int,
+        payload: dict[str, Any],
+        *,
+        stream: bool = False,
     ) -> None:
-        body = json.dumps(payload).encode("utf-8")
+        data = json.dumps(payload)
+        body = (f"data: {data}\n\ndata: [DONE]\n\n" if stream else data).encode("utf-8")
         handler.send_response(status)
-        handler.send_header("Content-Type", "application/json")
+        handler.send_header(
+            "Content-Type", "text/event-stream" if stream else "application/json"
+        )
         handler.send_header("Content-Length", str(len(body)))
         handler.send_header("Connection", "close")
         handler.end_headers()

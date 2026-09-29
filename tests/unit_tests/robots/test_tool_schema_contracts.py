@@ -33,6 +33,7 @@ EXPECTED_TOOL_NAMES = {
         "move_to",
         "pi0_pick",
         "pi0_doubled",
+        "cosmos_act",
         "release",
         "set_gripper",
         "rotate_wrist",

@@ -12,24 +12,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""LIBERO + OpenPI tool implementation."""
+"""LIBERO scripted and model-based tool implementation."""
 
 from __future__ import annotations
 
 import json
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 from robots.libero.env_client import LiberoEnvClient
 from rpent.robots.components.molmo_client import MolmoClient
-from rpent.robots.components.pi05_vla_client import Pi05VLAClient
 from rpent.robots.components.sam3_client import Sam3Client
 from rpent.session import EnvState, StepRecord
 from rpent.tools.toolkit import readonly
 from rpent.utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from rpent.robots.components.cosmos_policy_client import CosmosPolicyClient
+    from rpent.robots.components.vla_client_base import BaseVLAClient
 
 logger = get_logger("libero")
 
@@ -44,7 +47,7 @@ def _normalize_xyz(xyz):
 
 
 class LiberoPrimitives:
-    """Wraps a single-env LIBERO-shaped env + VLA policy with primitive-
+    """Wraps a single-env LIBERO-shaped env + action model with primitive-
     level methods.
 
     ``pi0_pick`` and ``pi0_doubled`` override ``obs['task_descriptions']``
@@ -55,7 +58,7 @@ class LiberoPrimitives:
     def __init__(
         self,
         env: LiberoEnvClient,
-        model: Pi05VLAClient,
+        model: BaseVLAClient | CosmosPolicyClient,
         sam3_client: Sam3Client,
         check_cancelled: Callable[[], None],
         molmo_client: MolmoClient | None = None,
@@ -148,49 +151,81 @@ class LiberoPrimitives:
             "libero_terminated": self.env.terminated or self.env.truncated,
         }
 
-    def _vlm_chunk(self, instruction: str):
-        """One model forward + ``chunk_size`` env steps. Overrides prompt."""
+    def _vlm_chunk(self, instruction: str, *, raw_obs: dict | None = None):
+        """Predict and execute one chunk with a request-local task instruction."""
         self._check_cancelled()
-        original_task = self._last_obs.get("task_descriptions")
-        try:
-            self._last_obs["task_descriptions"] = instruction
-            self._last_obs.setdefault("extra_view_images", None)
+        policy_obs = (self._last_obs if raw_obs is None else raw_obs).copy()
+        policy_obs["task_descriptions"] = instruction
+        actions = self.model.predict(policy_obs, options={"mode": "eval"})
+        self._check_cancelled()
 
-            actions = self.model.predict(self._last_obs, options={"mode": "eval"})
-            self._check_cancelled()
+        vla_id = (
+            self._flywheel.add_proposal(instruction, actions)
+            if self._flywheel is not None
+            else -1
+        )
 
-            vla_id = (
-                self._flywheel.add_proposal(instruction, actions)
-                if self._flywheel is not None
-                else -1
+        if not self._recording and self._flywheel is None:
+            chunk_obs, _r, _t, _tr, _i = self.env.chunk_step(actions)
+            obs = chunk_obs[-1] if self.env.return_all_frames else chunk_obs
+        else:
+            chunk_obs, rewards, terminated, truncated, _info = self.env.chunk_step(
+                actions, return_all_frames=True
             )
+            for index, obs in enumerate(chunk_obs):
+                if self._recording:
+                    self.record_frame(obs)
+                if self._flywheel is not None:
+                    self._flywheel.add_transition(
+                        actions[index],
+                        obs,
+                        rewards[index],
+                        terminated[index],
+                        truncated[index],
+                        vla_id=vla_id,
+                        proposal_index=index,
+                    )
+            obs = chunk_obs[-1]
+        self.set_obs(obs)
+        return self._last_obs
 
-            if not self._recording and self._flywheel is None:
-                chunk_obs, _r, _t, _tr, _i = self.env.chunk_step(actions)
-                obs = chunk_obs[-1] if self.env.return_all_frames else chunk_obs
-            else:
-                chunk_obs, rewards, terminated, truncated, _info = self.env.chunk_step(
-                    actions, return_all_frames=True
-                )
-                for index, obs in enumerate(chunk_obs):
-                    if self._recording:
-                        self.record_frame(obs)
-                    if self._flywheel is not None:
-                        self._flywheel.add_transition(
-                            actions[index],
-                            obs,
-                            rewards[index],
-                            terminated[index],
-                            truncated[index],
-                            vla_id=vla_id,
-                            proposal_index=index,
-                        )
-                obs = chunk_obs[-1]
-            self.set_obs(obs)
-            return self._last_obs
-        finally:
-            if original_task is not None:
-                self._last_obs["task_descriptions"] = original_task
+    def cosmos_act(self, prompt: str | None = None, *, max_chunks: int = 1) -> dict:
+        """Execute bounded Cosmos chunks with a request-local instruction.
+
+        Each started chunk executes all 16 actions. Termination and truncation
+        prevent the next chunk, not the remaining actions within the current one.
+
+        Args:
+            prompt: Subtask instruction, or None for the native environment task.
+            max_chunks: One to four 16-action predictions before planner feedback.
+
+        Returns:
+            Chunk count and accumulated native episode flags, not subtask
+            completion or success within an exact action budget.
+        """
+        if prompt is not None and (not isinstance(prompt, str) or not prompt.strip()):
+            raise ValueError("prompt must be a non-empty instruction or null")
+        if (
+            isinstance(max_chunks, bool)
+            or not isinstance(max_chunks, int)
+            or not 1 <= max_chunks <= 4
+        ):
+            raise ValueError("max_chunks must be an integer between 1 and 4")
+        chunks = 0
+        while chunks < max_chunks and not (self.env.terminated or self.env.truncated):
+            self._check_cancelled()
+            self._vlm_chunk(
+                prompt if prompt is not None else self._last_obs["task_descriptions"],
+                raw_obs=self.env.raw_obs(),
+            )
+            chunks += 1
+        return {
+            "model": "cosmos-policy",
+            "chunks": chunks,
+            "success": self.env.terminated,
+            "terminated": self.env.terminated,
+            "truncated": self.env.truncated,
+        }
 
     def pi0_pick(
         self,
@@ -1272,6 +1307,38 @@ TOOLS_SPEC = [
                 },
             },
             "required": ["xyz"],
+        },
+    },
+    {
+        "name": "cosmos_act",
+        "description": (
+            "Execute Cosmos Policy on current observations with an optional subtask "
+            "prompt; omit it to use the full environment task. Each chunk contains "
+            "16 actions executed in full; termination or truncation prevents the "
+            "next chunk, not remaining actions in the current chunk. Inspect the "
+            "resulting state to assess subtask completion. success and terminated "
+            "record native full-task success during execution; truncated records "
+            "reaching the episode budget. This tool does not stop on grasp completion."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "prompt": {
+                    "type": ["string", "null"],
+                    "minLength": 1,
+                    "description": "Concrete manipulation instruction for this call "
+                    "only (e.g. 'pick up the black bowl'). Omit or null for the "
+                    "native full task.",
+                },
+                "max_chunks": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 4,
+                    "description": "Action-chunk budget, 1-4 (default 1). Observe "
+                    "the result before requesting more chunks.",
+                },
+            },
+            "required": [],
         },
     },
     {

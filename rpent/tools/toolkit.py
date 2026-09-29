@@ -186,7 +186,7 @@ class Toolkit:
         *,
         dashboard_events: DashboardEventSink,
         state: Any = None,
-        memory: "MemoryManager",
+        memory: "MemoryManager | None" = None,
     ) -> None:
         self._tools: dict[
             str,
@@ -222,12 +222,16 @@ class Toolkit:
         self._tools[name] = (spec, handler)
 
     def _register_common_tools(self) -> None:
-        """Register the file/IO tools shared by every run."""
+        """Register independent tools and optional memory-bound file tools."""
         from rpent.tools import common
 
-        memory_bindings = self._memory.get_common_tool_bindings()
+        memory_bindings = (
+            self._memory.get_common_tool_bindings() if self._memory is not None else {}
+        )
         for spec in common.TOOLS_SPEC:
             name = spec["name"]
+            if self._memory is None and name in common.MEMORY_TOOL_NAMES:
+                continue
             binding = memory_bindings.get(name)
             if binding is None:
                 binding = (spec, common.TOOL_HANDLERS[name])
@@ -239,8 +243,8 @@ class Toolkit:
     # ------------------------------------------------------------------
 
     @property
-    def memory(self) -> "MemoryManager":
-        """Return the toolkit's memory manager."""
+    def memory(self) -> "MemoryManager | None":
+        """Return the memory manager, or None when memory tools are disabled."""
         return self._memory
 
     @property

@@ -177,6 +177,21 @@ def test_tool_result_text_limit_counts_utf8_bytes(
         assert text == expected_plain_text
 
 
+def test_toolkit_without_memory_keeps_finish_and_omits_file_tools(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("rpent.utils.templates.get_output_dir", lambda: tmp_path)
+    toolkit = Toolkit(dashboard_events=_RecordingEventSink())
+
+    assert toolkit.memory is None
+    assert {spec["name"] for spec in toolkit.get_tools_spec()} == {"finish"}
+    for name in ("read_text_file", "write_text_file", "list_dir"):
+        assert "error" in toolkit.execute_tool(name, {}).result
+    result = toolkit.execute_tool("finish", {"status": "failure", "summary": "done"})
+    assert result.is_finish
+
+
 def test_toolkit_registers_common_specs_with_fresh_placeholder_substitution(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

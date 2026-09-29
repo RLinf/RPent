@@ -34,8 +34,11 @@
      - ``PromptBundle``：``system`` 与 ``user`` 两套 prompt 工厂（见
        ``robots/<robot>/prompt_bundle.py``）。
    * - ``dashboard``
-     - 可选的 Dashboard 描述。设为 ``None`` 时，该机器人不支持 Dashboard 控制；\
-       否则由该 spec 定义任务命令与字段、runtime components 和 frame channels。
+     - 可选的静态 Dashboard 描述，包括任务命令与字段、runtime components
+       和原语白名单。
+   * - ``resolve_dashboard(args)``
+     - 可选的机器人钩子，根据 Session 参数返回 Dashboard 描述，优先于
+       ``dashboard``。两者均未提供时，不支持 Dashboard 控制。
    * - ``add_cli_args``
      - 注册本机器人的 CLI 参数（如 ``--suite``、``--env-endpoint``）。
    * - ``parse_config``
@@ -49,11 +52,13 @@
        时状态。
 
 ``get_toolkit`` 一般只需把 ``runtime_kwargs`` 传给机器人子类；
-``dashboard_events`` 和 ``config`` 由当前 runner 传入。它需要构造一个
+``dashboard_events`` 和 ``config`` 由当前 runner 传入。启用 Memory 时，构造一个
 :class:`~rpent.memory.MemoryManager`（root 取自
 ``config.prompt_vars["memory_dir"]``，未设置时回退到
 ``get_memory_dir(robot_name)``）并传给 toolkit。Memory 访问权限在
-``MemoryManager`` 上配置。如果某个机器人还需要额外参数，可以继续声明
+``MemoryManager`` 上配置。传入 ``memory=None`` 时跳过公共文件工具，保留
+``finish``；此时 ``Toolkit.memory`` 也返回 ``None``，状态记录不依赖管理器。
+如果某个机器人还需要额外参数，可以继续声明
 keyword-only 参数；例如 LIBERO 还使用 ``mode``、``attempts_per_session`` 和
 ``state_output_dir``。
 
@@ -123,10 +128,10 @@ runtime 钩子中解析）：
 
    [protocol://]host:port    # 未写协议时默认为 http
 
-常见：``--env-endpoint``、``--vla-endpoint``。``http`` 为默认，走 ``POST /call``
-传 JSON，其中 NumPy 数组编码为
-``{"__ndarray__": <base64>, "dtype": ..., "shape": ...}``；
-NumPy 标量编码为 ``{"__npscalar__": <value>, "dtype": ...}`` 以保留精确 dtype；\
+常见参数为 ``--env-endpoint``、``--vla-endpoint``；LIBERO 还提供
+``--wam-endpoint``。``http`` 为默认，走 ``POST /call``
+传 JSON，其中 NumPy 数组编码为 ``{"__ndarray__": <base64>, "dtype": ..., "shape": ...}``；
+NumPy 标量编码为 ``{"__npscalar__": <value>, "dtype": ...}`` 以保留精确 dtype；
 观测数据很大、或是多帧堆叠的嵌套 NumPy 字典时可改 ``socket``，用带长度前缀的
 pickle 数据帧传输，省掉反复的 JSON 编解码。pickle 不适合不可信输入，\
 socket 只应连接可信端点。
@@ -135,5 +140,12 @@ socket 只应连接可信端点。
 服务端分别继承 ``BaseEnvFacade``、``BaseVLAFacade``，并通过 ``_register_rpc``
 注册扩展路由。这些基类在 ``RpcFacade`` 之上提供公共路由和锁。只有尚无专用基类的\
 服务类型才直接继承 ``RpcFacade``。业务子类不必实现 ``healthz`` / ``shutdown``。
+
+``BaseVLAClient`` 和 ``BaseVLAFacade`` 保留 ``vla.predict(obs, options)``
+返回动作数组的接口。Cosmos 使用 ``BaseActionModelClient`` 和
+``BaseActionModelFacade`` 维护另一套协议：``action_model.capabilities`` 声明
+执行格式，``action_model.predict(request)`` 返回包含动作、元数据及可选的未来
+观测与价值的结构化结果。两组基类都使用现有 RPC 传输与生命周期机制，彼此没有
+继承关系。这些输出不等于模型专用规划能力。
 
 细节见 :doc:`add_robot` 中的 env_server 与 vla_server 章节。

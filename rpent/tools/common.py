@@ -23,6 +23,8 @@ from rpent.tools.toolkit import readonly
 from rpent.utils.config import get_repo_root
 from rpent.utils.logging import get_output_dir
 
+MEMORY_TOOL_NAMES = frozenset({"read_text_file", "write_text_file", "list_dir"})
+
 TOOLS_SPEC: list[dict] = [
     {
         "name": "read_text_file",

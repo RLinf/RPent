@@ -113,6 +113,8 @@ def test_libero_default_evaluation_config(tmp_path: Path) -> None:
         "suite": "libero_object_task",
         "task": 2,
         "seed": 7,
+        "policy_kind": "vla",
+        "policy_backend": "pi05",
     }
 
 

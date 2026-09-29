@@ -98,7 +98,7 @@ Session 配置全部来自命令行，打开地址后直接进入实时监控；
      - ``0``
      - 随机种子
    * - ``--libero-type``
-     - ``LIBERO_TYPE`` 或 ``pro``
+     - ``LIBERO_TYPE`` 或根据任务集自动选择
      - LIBERO 类型：``standard`` | ``pro`` | ``plus``
 
 **Planner**

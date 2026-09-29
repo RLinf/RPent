@@ -34,9 +34,12 @@ functions implemented in ``robot_spec.py`` for ``main.py`` to call:
      - A ``PromptBundle`` with ``system`` and ``user`` prompt factories (see
        ``robots/<robot>/prompt_bundle.py``).
    * - ``dashboard``
-     - Optional Dashboard description. ``None`` disables Dashboard control for
-       the robot. Otherwise, the spec defines its task command and
-       fields, runtime components, and frame channels.
+     - Optional static Dashboard description: task command and fields,
+       runtime components and primitive allowlist.
+   * - ``resolve_dashboard(args)``
+     - Optional robot-owned hook returning a Dashboard description from
+       Session options. Takes precedence over ``dashboard``; if neither is
+       provided, Dashboard control is unavailable.
    * - ``add_cli_args``
      - Register this robot's CLI flags (e.g. ``--suite``, ``--env-endpoint``).
    * - ``parse_config``
@@ -50,12 +53,16 @@ functions implemented in ``robot_spec.py`` for ``main.py`` to call:
        reports status.
 
 ``get_toolkit`` usually passes ``runtime_kwargs`` into your robot subclass;
-``dashboard_events`` and ``config`` are supplied by the active runner. It must
-construct a :class:`~rpent.memory.MemoryManager` (rooted at the configured
+``dashboard_events`` and ``config`` are supplied by the active runner. When
+Memory is enabled, construct a :class:`~rpent.memory.MemoryManager` (rooted at
+the configured
 ``config.prompt_vars["memory_dir"]``, falling back to
 ``get_memory_dir(robot_name)`` when unset) and pass it to the toolkit.
-Memory access permissions are configured on the manager. Robots that need
-extra toolkit arguments may declare them as keyword-only parameters; LIBERO
+Memory access permissions are configured on the manager. Pass ``memory=None``
+to omit the common file tools while retaining ``finish``; ``Toolkit.memory``
+then also returns ``None``. State recording does not require a memory manager.
+Robots that need extra toolkit arguments may declare them as keyword-only
+parameters; LIBERO
 additionally uses ``mode``, ``attempts_per_session``, and ``state_output_dir``.
 
 Reference: ``robots/libero/robot_spec.py``.
@@ -125,7 +132,8 @@ normal-CLI or Dashboard runtime hook:
 
    [protocol://]host:port    # defaults to http when protocol is omitted
 
-Common flags: ``--env-endpoint``, ``--vla-endpoint``. The default ``http`` sends
+Common flags: ``--env-endpoint``, ``--vla-endpoint``; LIBERO also provides
+``--wam-endpoint``. The default ``http`` sends
 JSON over ``POST /call``, encoding NumPy arrays as
 ``{"__ndarray__": <base64>, "dtype": ..., "shape": ...}`` and NumPy scalars as
 ``{"__npscalar__": <value>, "dtype": ...}`` so dtypes survive the round trip;
@@ -140,5 +148,13 @@ Environment and VLA clients should normally subclass ``BaseEnvClient`` and
 bases provide common routing and locking on top of ``RpcFacade``. Subclass
 ``RpcFacade`` directly only for a service type without a specialized base. Do
 not implement ``healthz`` or ``shutdown`` in application subclasses.
+
+``BaseVLAClient`` and ``BaseVLAFacade`` preserve ``vla.predict(obs, options)``
+returning action arrays. Cosmos uses ``BaseActionModelClient`` and
+``BaseActionModelFacade`` for a separate protocol: ``action_model.capabilities``
+advertises the execution schema, and ``action_model.predict(request)`` returns
+structured actions, metadata and optional future observations/value. Both pairs
+use the existing RPC transport and lifecycle; neither inherits from the other.
+These outputs do not implement model-specific planning.
 
 Details are in the env_server / vla_server sections of :doc:`add_robot`.

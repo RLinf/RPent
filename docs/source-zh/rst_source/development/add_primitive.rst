@@ -17,9 +17,9 @@ VLA、WAM 或 Diffusion Policy，也可以是 ``move_to``、
      - 例子
    * - **基于模型的**
        （VLA / WAM / Diffusion Policy / …）
-     - 在独立进程（``vla_server``）中运行，通过 toolkit 持有的
+     - 在独立的模型服务进程中运行，通过 toolkit 持有的
        *model client* 调用。
-     - Pi0.5（LIBERO）、RLDX-1（RoboCasa）
+     - Pi0.5 和 Cosmos Policy（LIBERO）、RLDX-1（RoboCasa）
    * - **脚本化**
        （运动学 / 启发式）
      - 在 agent 进程内运行；需要进行运动学计算时，可能通过一次
@@ -83,9 +83,15 @@ primitives 方法，以及调用完成后的状态快照。区别仅在于方法
 
 由于模型运行在独立进程中，添加基于模型的原语还需要以下组件：
 
-1. **编写 ``vla_server.py``。** 该进程只持有模型权重和 CUDA 上下文。\
-   继承 :class:`rpent.robots.components.vla_facade_base.BaseVLAFacade`，实现
-   ``predict``，并通过扩展 ``_register_rpc`` 注册其他模型 RPC：
+1. **编写模型服务。** 该进程负责模型权重、预处理和 CUDA 上下文。
+   VLA 继承 :class:`rpent.robots.components.vla_facade_base.BaseVLAFacade`，实现
+   ``predict``，并通过扩展 ``_register_rpc`` 注册其他模型 RPC。
+   使用 Cosmos 所采用的结构化动作模型协议时，继承
+   :class:`rpent.robots.components.action_model_facade_base.BaseActionModelFacade`，
+   提供能力声明并实现 ``predict_native``。该基类注册 ``action_model.predict``
+   和 ``action_model.capabilities``，负责请求与预测结果的校验。
+   可复用的模型适配器放在 ``rpent/robots/components/``，机器人专用环境及动作语义
+   保留在 ``robots/<robot>/``。
 
    - 默认传输方式为 **HTTP**，通过 ``POST /call`` 传输 JSON，适合
      LIBERO/Pi0.5 使用的扁平 ``image + state`` 数据。
@@ -102,6 +108,11 @@ primitives 方法，以及调用完成后的状态快照。区别仅在于方法
    出适配。
    LIBERO 的实现可参考
    ``rpent.robots.components.pi05_vla_client.Pi05VLAClient``。
+   使用结构化协议时，继承
+   :class:`rpent.robots.components.action_model_client_base.BaseActionModelClient`，
+   由它协商能力并返回 ``ActionModelPrediction``。``CosmosPolicyClient``
+   适配 LIBERO 观测，通过 ``predict`` 返回动作块，通过 ``predict_result``
+   返回结构化结果。
 
 3. **在 primitives 中添加方法。** 在当前机器人的 primitives
    类中调用 model client，将其返回的动作块交给环境执行，并返回日志字典。
@@ -137,6 +148,10 @@ primitives 方法，以及调用完成后的状态快照。区别仅在于方法
    ``{"env": MyRobotEnvClient(...), "model": MyModelClient(...)}``，再由
    toolkit 构造器将其转发给 primitives。
 
+   后端选择和连接细节由机器人包管理。LIBERO 的 ``policy.py`` 提供
+   ``PolicyConfig``，``robot_spec.py`` 将选中的组件与环境、感知服务装配起来。
+   完整职责划分见 :ref:`action-model-layers`。
+
 在多次运行之间复用 vla_server
 -----------------------------
 
@@ -147,8 +162,12 @@ primitives 方法，以及调用完成后的状态快照。区别仅在于方法
 
    rpent --robot libero --vla-endpoint http://vla-host:8000 ...
 
-如果模型会保存每个回合的内部状态，应提供 ``vla_reset`` RPC，并在任务之间调用它\
-完成重置。这样，同一个服务进程就能安全地复用于多次连续运行。
+Cosmos 使用 LIBERO 提供的 ``--wam-backend cosmos-policy --wam-endpoint
+http://wam-host:8116 --memory-profile local``。VLA 与 WAM 参数互斥，
+两类模型共用就绪检查和自有进程清理机制；外部启动的模型服务仍由部署者管理。
+
+如果模型会保存每个回合的内部状态，应提供 ``vla_reset`` RPC，并在任务之间
+调用它完成重置。这样，同一个服务进程就能安全地复用于多次连续运行。
 
 带会话状态的 VLA 后端（按客户端隔离策略状态）
 ------------------------------------------------
@@ -224,8 +243,9 @@ mixin 覆盖的 ``serve`` 与 :class:`~rpent.utils.rpc.RpcFacade` 的
 
 同样的架构也适用于非 VLA 的模型原语：
 
-- **World Action Model (WAM)** —— 根据模型预测生成 rollout 和执行计划，\
-  再交给环境执行。其接入方式与 VLA 相同：使用独立进程和独立 client。
+- **World Action Model (WAM)** 可以通过相同的 client/worker 方式提供动作生成。
+  Cosmos 默认只生成动作，可通过显式服务选项启用未来状态与价值输出。
+  预测式规划仍需模型专用的编排逻辑，继承预测基类不会自动启用这些能力。
 - **Diffusion Policy / MPC** —— 接口形式相同，但工具返回的动作可能是一段
   trajectory，而非单个 chunk，并由 ``env_server`` 按顺序执行。
 - **多个原语共享一个 server** —— 一个 ``vla_server`` 可以承载多个模型，\

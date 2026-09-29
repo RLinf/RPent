@@ -64,6 +64,8 @@ class RobotSpec:
         tuple[list["ProcessDaemon"], dict[str, Any]],
     ]
     dashboard: DashboardSpec | None = None
+    #: Optional robot-owned selection of Dashboard components from session options.
+    resolve_dashboard: Callable[[argparse.Namespace], DashboardSpec] | None = None
     #: Physical scene restoration requires operator involvement, not simulator reset.
     #: Real-robot runs require an exclusive operator terminal.
     is_real_robot: bool = False

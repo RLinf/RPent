@@ -44,10 +44,11 @@ class LiberoToolkit(Toolkit):
         *,
         runtime_kwargs: dict[str, Any],
         dashboard_events: DashboardEventSink,
-        memory: MemoryManager,
+        memory: MemoryManager | None = None,
         mode: str = "evaluation",
         attempts_per_session: int = 0,
         state_output_dir: Path | str | None = None,
+        policy_backend: str = "pi05",
     ) -> None:
         if mode not in {"evaluation", "exploration"}:
             raise ValueError(f"unsupported LIBERO toolkit mode: {mode!r}")
@@ -59,18 +60,30 @@ class LiberoToolkit(Toolkit):
             memory=memory,
         )
         self._mode = mode
+        self._policy_backend = policy_backend
         self._solved: bool = False
         self._attempt: int = 1
         # Bound the resettable attempts owned by this planner session.
         self._attempts_per_session: int = max(0, int(attempts_per_session))
         self._session_attempt: int = 1
         self.init_primitives(runtime_kwargs=runtime_kwargs)
-        self._register_libero_tools()
+        self._register_libero_tools(policy_backend)
+        if policy_backend == "cosmos-policy":
+            finish_spec, finish_handler = self._tools["finish"]
+            self.add_tool(
+                "finish",
+                {
+                    **finish_spec,
+                    "description": "End the episode with its observed outcome. "
+                    "Success requires native environment success.",
+                },
+                partial(self._cosmos_finish, finish_handler),
+            )
 
     # ------------------------------------------------------------------
     # Registration
     # ------------------------------------------------------------------
-    def _register_libero_tools(self) -> None:
+    def _register_libero_tools(self, policy_backend: str) -> None:
         # These read-only handlers need the run's EnvState bound in. Every
         # other spec binds to a primitive-driver method and captures state by
         # default unless that method is explicitly marked @readonly.
@@ -82,9 +95,16 @@ class LiberoToolkit(Toolkit):
             "back_project": partial(libero_tools.back_project, state=self._state),
             "segment": partial(self._primitives.segment, state=self._state),
         }
+        excluded_tools = (
+            {"pi0_pick", "pi0_doubled"}
+            if policy_backend == "cosmos-policy"
+            else {"cosmos_act"}
+        )
+        if self._mode != "exploration":
+            excluded_tools.add("reset")
         for spec in libero_tools.TOOLS_SPEC:
             name = spec["name"]
-            if name == "reset" and self._mode != "exploration":
+            if name in excluded_tools:
                 continue
             if name in state_handlers:
                 handler = state_handlers[name]
@@ -105,11 +125,33 @@ class LiberoToolkit(Toolkit):
             )
 
     def _execute_primitive(self, name: str, handler: Any, **kwargs: Any) -> Any:
+        env = self._primitives.env
+        if self._policy_backend == "cosmos-policy" and (
+            env.terminated or env.truncated
+        ):
+            status = "success" if env.terminated else "failure"
+            raise ValueError(
+                f"Episode already ended; no further motion is allowed. "
+                f"Call finish with status={status!r}."
+            )
         self._primitives.begin_primitive(name)
         try:
             return handler(**kwargs)
         finally:
             self._primitives.end_primitive()
+
+    @readonly
+    def _cosmos_finish(self, inner: Any, **kwargs: Any) -> dict[str, Any]:
+        """Require native task success before accepting a success claim."""
+        if kwargs.get("status") == "success" and not self.solved():
+            return {
+                "error": "finish refused: success requires native terminated=true",
+                "terminated": self._primitives.env.terminated,
+                "truncated": self._primitives.env.truncated,
+                "reason": "Inspect the current state. Continue if the episode is "
+                "active; report failure if it was truncated.",
+            }
+        return inner(**kwargs)
 
     @readonly
     def _guarded_finish(self, inner: Any, **kwargs: Any) -> dict[str, Any]:
@@ -183,6 +225,14 @@ class LiberoToolkit(Toolkit):
                 )
         out = libero_tools.view_env_state(record.step_idx, state=self._state)
         out["agent_elapsed_s"] = elapsed_s
+        if self._policy_backend == "cosmos-policy" and (
+            record.terminated or record.truncated
+        ):
+            status = "success" if record.terminated else "failure"
+            out["next_action"] = (
+                f"Episode ended. Call finish with status={status!r}; "
+                "further motion is invalid."
+            )
         if result.get("interrupted"):
             out.update(result)
         return out

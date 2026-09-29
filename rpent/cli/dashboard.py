@@ -60,7 +60,14 @@ def run_dashboard_session(
     from rpent.dashboard.state import DashboardState
     from rpent.utils.config import get_repo_root
 
-    dashboard_spec = robot_spec.dashboard
+    try:
+        dashboard_spec = (
+            robot_spec.resolve_dashboard(args)
+            if robot_spec.resolve_dashboard is not None
+            else robot_spec.dashboard
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
     if dashboard_spec is None:
         parser.error(f"robot {robot_spec.name!r} does not support Dashboard control")
     runtime_components = tuple(

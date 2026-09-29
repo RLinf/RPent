@@ -126,8 +126,9 @@ these two functions:
        """
        ...
 
-``dashboard`` is optional. Leave it as ``None`` if the environment does not
-support Dashboard control. Otherwise, define the spec in the robot
+``dashboard`` is an optional static descriptor. If neither it nor
+``resolve_dashboard`` is provided, Dashboard control is unavailable.
+Define the spec in the robot
 package: its ``task`` section describes the command, validated fields, display
 template, and output slug; robot-specific Session settings remain normal CLI
 arguments; ``runtime_components`` describes service rows;
@@ -136,6 +137,13 @@ executable as Dashboard controls. Camera tabs are discovered from the PNG
 artifacts in each recorded step. Keep task suggestions in the spec so
 importing the robot does not require simulator packages. See
 ``robots/libero/robot_spec.py`` for the reference shape.
+
+For configuration-dependent components, set ``resolve_dashboard(args)`` on
+``RobotSpec``. The Dashboard uses its returned descriptor instead of the static
+``dashboard`` value. LIBERO uses this hook to select a ``vla`` or ``wam`` row;
+the shared CLI does not need to know the selected model. See
+:ref:`action-model-layers` for the division between model, robot and evaluation
+code.
 
 That's the entire registration step — ``_resolve_robot(name)`` does an
 ``importlib.import_module(f"robots.{name}")``, so dropping the package under
@@ -309,10 +317,11 @@ filenames rather than maintaining a parallel observation index.
 
 **Toolkit class** — subclass ``rpent.tools.toolkit.Toolkit``:
 
-- forward ``memory`` (a :class:`~rpent.memory.MemoryManager`) and ``state`` to
-  ``super().__init__(...)``. Configure ``memory_access`` and
-  ``inbox_cell_tag`` on the ``MemoryManager``; eval uses read-only access by
-  default.
+- forward ``memory`` (a :class:`~rpent.memory.MemoryManager` or ``None``) and
+  ``state`` to ``super().__init__(...)``. A manager enables the common file
+  tools; ``None`` skips them while retaining ``finish``. Configure
+  ``memory_access`` and ``inbox_cell_tag`` on the manager when present;
+  eval uses read-only access by default.
 - build the primitives in ``__init__`` through a custom initialization
   helper (named ``init_primitives`` in LIBERO; it calls
   ``EnvState.reset()``, constructs the primitives, and dumps step 0),
@@ -415,7 +424,8 @@ component declares either ``scope: "shared"`` or ``scope: "unique"`` explicitly.
 The Dashboard initializes shared components once, then initializes unique
 components for every fresh environment instance. It calls this same hook for
 both subsets and merges the returned ``runtime_kwargs`` dictionaries. For
-LIBERO, the subsets are ``{"vla", "sam3"}`` and ``{"env"}``.
+LIBERO, the subsets are ``{"vla", "sam3"}`` (Pi0.5) or ``{"wam", "sam3"}``
+(Cosmos), and ``{"env"}``. Flash Mode additionally selects shared ``molmo``.
 
 An implementation should reject unknown component names before starting
 anything. When several selected local services are expensive to initialize,
@@ -423,8 +433,8 @@ start them all before waiting for readiness so their initialization can
 overlap. See ``robots/libero/robot_spec.py`` for the ordered component registry
 used by the reference implementation.
 
-Endpoint parsing (``--env-endpoint``, ``--vla-endpoint``, and LIBERO's
-``--sam3-endpoint``) and robot-specific server commands belong in the
+Endpoint parsing (``--env-endpoint``, ``--vla-endpoint``, ``--wam-endpoint``, and
+LIBERO's ``--sam3-endpoint``) and robot-specific server commands belong in the
 hook that owns the corresponding service. Wrap those spawners with
 ``rpent.robots.runtime.try_spawn_server`` and ``try_wait_server`` so status
 events, readiness failures, and owned-daemon cleanup stay consistent across

@@ -116,13 +116,19 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统说明 
        """
        ...
 
-``dashboard`` 是可选项；环境不支持 Dashboard 控制时保持为 ``None``。支持时，\
+``dashboard`` 是可选的静态描述；它与 ``resolve_dashboard`` 均未提供时，
+不支持 Dashboard 控制。支持时，
 在机器人包中定义该 spec：其中 ``task`` 描述命令、校验字段、展示模板和输出目录
 slug；机器人专用的 Session 设置继续使用普通命令行参数；
 ``runtime_components`` 描述服务行；``primitives`` 按顺序列出 Dashboard
 展示并允许直接执行的 Toolkit 动作。相机标签从每步记录的 PNG 工件中自动发现。\
 任务候选项应直接保存在 spec 中，避免导入机器人包时依赖仿真器包。完整结构参考
 ``robots/libero/robot_spec.py``。
+
+如果组件取决于 Session 配置，在 ``RobotSpec`` 上设置
+``resolve_dashboard(args)``。Dashboard 优先使用其返回的描述，未提供钩子时使用静态
+``dashboard``。LIBERO 用此钩子选择 ``vla`` 或 ``wam`` 服务行，公共 CLI
+无需识别具体模型。模型、机器人及评测代码的职责划分见 :ref:`action-model-layers`。
 
 ``_resolve_robot(name)`` 通过 ``importlib.import_module(f"robots.{name}")``
 动态加载机器人包。因此，只需将机器人包放在 ``robots/`` 下，无需维护中央注\
@@ -288,9 +294,11 @@ step index；该 ``StepRecord`` 会被立即追加并提交。大型观测通过
 
 **Toolkit 类** 继承 ``rpent.tools.toolkit.Toolkit``：
 
-- 在 ``super().__init__(...)`` 中传入 ``memory`` （一个
-  :class:`~rpent.memory.MemoryManager`）和 ``state``。``memory_access`` 和
-  ``inbox_cell_tag`` 在构造 ``MemoryManager`` 时配置；eval 默认只读。
+- 在 ``super().__init__(...)`` 中传入 ``memory``（一个
+  :class:`~rpent.memory.MemoryManager` 或 ``None``）和 ``state``。
+  提供管理器时启用公共文件工具，``None`` 则跳过这些工具并保留 ``finish``。
+  使用管理器时，在构造阶段配置 ``memory_access`` 和 ``inbox_cell_tag``；
+  eval 默认只读。
 - 在 ``__init__`` 中通过自定义的初始化辅助方法构建 primitives（LIBERO
   中的方法名为 ``init_primitives``；它会调用 ``EnvState.reset()``、\
   构造原语并 dump 第 0 步）,
@@ -386,14 +394,15 @@ CLI 会传入这个值。Dashboard 根据 ``dashboard.runtime_components`` 得�
 ``scope: "unique"``。Dashboard
 先初始化一次 shared components，再为每个新的环境实例初始化 unique
 components。两次都调用同一个钩子，最后合并返回的 ``runtime_kwargs``。在
-LIBERO 中，这两个子集分别是 ``{"vla", "sam3"}`` 和 ``{"env"}``。
+LIBERO 中，共享子集为 ``{"vla", "sam3"}``（Pi0.5）或 ``{"wam", "sam3"}``
+（Cosmos），独立子集为 ``{"env"}``；Flash Mode 还会选择共享的 ``molmo``。
 
 实现应在启动任何服务前拒绝未知 component 名称。如果多个选中的本地服务初始\
 化较慢，应先全部启动，再依次等待 ready，让初始化过程可以重叠。参考实现见
 ``robots/libero/robot_spec.py`` 中的有序 component registry。
 
-endpoint（``--env-endpoint``、``--vla-endpoint``，以及 LIBERO 的
-``--sam3-endpoint``）解析和环境专用服务命令，应放在拥有对应服务的钩子中。\
+endpoint（``--env-endpoint``、``--vla-endpoint``、``--wam-endpoint``，以及 LIBERO 的
+``--sam3-endpoint``）解析和环境专用服务命令，应放在拥有对应服务的钩子中。
 这些 spawner 应通过 ``rpent.robots.runtime.try_spawn_server`` 和
 ``try_wait_server`` 组合，使各环境的状态事件、就绪失败和 owned daemon 清理保\
 持一致；runner 不处理这些环境细节。参考模式见 ``robots/libero/robot_spec.py`` 和

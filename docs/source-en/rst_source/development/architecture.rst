@@ -78,20 +78,85 @@ The framework code is organized by responsibility:
    rpent/
      planner/        # Planner backends: api_loop, claude_code, codex, base.
      cli/            # main.py entrypoint and interactive terminal support.
-     context/        # Prompt utilities and shared prompt sections.
+     prompt/         # Prompt utilities and shared prompt sections.
      dashboard/      # FastAPI monitor + SSE streams (optional).
      robots/         # RobotSpec, PromptBundle, and on-demand robot loading.
+       components/   # Shared Env/policy RPC bases and model adapters.
      tools/          # Toolkit base class and shared tool helpers.
-     utils/          # Config, logging, RPC, and VLA client helpers.
+     utils/          # Config, logging, and RPC transports.
    robots/
-     libero/         # LIBERO env_client / env_server / vla_server /
-                     # toolkit / prompt_bundle. The reference robot.
+     libero/         # Environment, policy selection, suites, tools, and prompts.
      robocasa/       # RoboCasa robot (RLDX-1 VLA, kitchen tasks).
      (franka/)       # Franka robot — in progress.
      (so101/)        # SO-101 robot — in progress.
    scripts/
      codex_proxy/    # LiteLLM proxy for the codex planner.
      robocasa/       # RoboCasa run / setup / sweep scripts.
+
+.. _action-model-layers:
+
+Action model layers
+-------------------
+
+VLA and WAM identify model families at the configuration boundary. LIBERO's
+primitives use the same adapter interface: a client accepts observations and
+returns an action chunk. The underlying RPC protocols differ. This does not
+make their observation encoders, checkpoints, or planning capabilities
+interchangeable.
+
+.. list-table:: LIBERO reference implementation
+   :header-rows: 1
+   :widths: 35 65
+
+   * - Owner
+     - Responsibility
+   * - ``rpent/robots/components/vla_*_base.py`` and ``action_model_*_base.py``
+     - Separate protocol contracts: VLA observations/options to actions, and
+       normalized action-model requests to structured predictions with capability
+       negotiation. Both reuse ``RpcClient`` and ``RpcFacade`` for transport,
+       locking, sessions, health checks, and shutdown.
+   * - ``rpent/robots/components/pi05_vla_*`` and ``cosmos_policy_*``
+     - Model-specific observation/action adaptation and inference.
+       Pi0.5 uses the VLA subclasses and ``vla.predict``. Cosmos uses
+       ``action_model_*`` subclasses for capability negotiation and structured
+       ``action_model.predict`` results.
+   * - ``robots/libero/policy.py`` and ``suites.py``
+     - ``PolicyConfig`` selects the backend, capabilities, client and service
+       connection. The shared suite catalog and environment routing are
+       independent of the model and the chosen evaluation subset.
+   * - ``robots/libero/robot_spec.py``
+     - Assemble configuration, Dashboard descriptors and runtime components.
+       Both model categories enter primitives as ``runtime_kwargs["model"]``.
+   * - ``robots/libero/tools.py``, ``toolkit.py`` and ``prompt_bundle.py``
+     - Own action semantics, tool exposure, task prompts and state artifacts.
+       ``policy_backend`` selects the matching tools and prompts.
+   * - ``tests/e2e_tests/libero/benchmark_cosmos_policy.py``
+     - Own the evaluation protocol, horizons, selected tasks and result
+       aggregation. These settings do not belong in the model adapter.
+
+The protocol bases reuse the existing RPC machinery; they do not add
+a second transport stack. Model implementations stay separate: Cosmos uses
+the official NVIDIA action API in a separately provisioned worker, while
+Pi0.5 retains its OpenPI encoding and service. The current Cosmos observation
+format and checkpoint target LIBERO. Location under ``components/`` does not
+imply support for other benchmarks. Future-state/value generation is optional
+and disabled by default; best-of-N planning is not implemented. ``PolicyConfig``
+can borrow an endpoint or own a worker in a separately provisioned environment.
+
+Memory is an optional toolkit dependency. A supplied ``MemoryManager`` binds
+the common file tools; ``memory=None`` skips ``read_text_file``,
+``write_text_file`` and ``list_dir`` during registration while retaining
+``finish`` and robot tools. LIBERO's policy configuration currently enables
+Memory for Pi0.5 only. Cosmos does not create a manager or reuse Pi0.5
+experience; observations and videos remain owned by ``EnvState``. Global
+HF synchronization is separate: Cosmos CLI/Dashboard runs still require
+``--memory-profile local`` to skip it.
+
+The planner-facing ``cosmos_act`` and the standalone benchmark have different
+stopping protocols. The tool executes complete 16-action chunks and checks
+episode-end flags between chunks. The benchmark steps predictions one action
+at a time and stops on native success or the exact action limit. See
+:doc:`../usage/libero` for deployment, constraints and reproduction commands.
 
 The runner (``rpent/cli/main.py``)
 ----------------------------------
@@ -189,7 +254,9 @@ frontend. With ``--dashboard``, ``rpent/cli/main.py`` hands control to
 ``--dashboard-host`` and ``--dashboard-port``. Session configuration comes from
 the CLI before it calls ``robot_spec.init_runtime`` once with the shared
 component names.
-The environment must provide ``robot_spec.dashboard``; it defines the task
+The robot provides a static ``robot_spec.dashboard`` or a
+``resolve_dashboard(args)`` hook; the hook takes precedence when present.
+The resolved descriptor defines the task
 command and fields, runtime components, and frame channels exposed by the
 frontend. The Session controller waits for that robot-defined command
 (``/rpent-task`` for LIBERO). For every claimed TaskRun, the Dashboard calls
@@ -197,9 +264,15 @@ frontend. The Session controller waits for that robot-defined command
 component names, merges the shared and unique
 primitive inputs, and creates a fresh toolkit and planner conversation. Both
 subsets come from explicit ``shared`` / ``unique`` scope values in the
-environment's Dashboard spec. In LIBERO, VLA and SAM3 are reused while the
-Dashboard is running, while every TaskRun gets a separate environment runtime
+environment's Dashboard spec. In LIBERO, the selected VLA or WAM and SAM3 are
+reused while the Dashboard is running; every TaskRun gets a separate environment runtime
 and executes sequentially.
+
+LIBERO resolves the model component to ``vla`` / ``VLA`` for Pi0.5 or
+``wam`` / ``WAM`` for Cosmos. The common Dashboard runner consumes that
+descriptor without model-specific branches. Both categories use the same
+startup, readiness and cleanup helpers; external model workers are borrowed
+and are not stopped by RPent.
 
 During a TaskRun, the Dashboard shows:
 
