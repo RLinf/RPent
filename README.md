@@ -29,11 +29,11 @@
 
 ## Leaderboard
 
-Compare RPent with reference methods on LIBERO, LIBERO-PRO, RoboCasa365 Target50, and RoboTwin C2R. Rankings apply to the methods and evaluation coverage shown; see the [Leaderboard](https://rpent.readthedocs.io/en/latest/rst_source/leaderboard.html) for suite results and model configurations.
+Compare RPent with reference methods on LIBERO, LIBERO-PRO, RoboCasa365 Target50, and RoboTwin C2R. Rankings apply to the methods and evaluation coverage shown; see the [Leaderboard](https://rpent.readthedocs.io/en/latest/rst_source/leaderboard/index.html) for suite results and model configurations.
 
-Codex / GPT-6 Astra / low / reasoning: **92.63% Overall (741/800)** across all eight LIBERO-PRO suites. See the [suite results and memory-batch explanation](https://rpent.readthedocs.io/en/latest/rst_source/leaderboard.html#libero-pro-astra-memory), including the separately frozen Long and Spatial/Object/Goal memory batches.
+Codex / GPT-6 Astra / low / reasoning: **92.63% Overall (741/800)** across all eight LIBERO-PRO suites. See the [suite results and memory-batch explanation](https://rpent.readthedocs.io/en/latest/rst_source/leaderboard/index.html#libero-pro-astra-memory), including the separately frozen Long and Spatial/Object/Goal memory batches.
 
-[![RPent Leaderboard](https://cdn.jsdelivr.net/gh/RLinf/misc@705bd44bfc8ad7586b76239de13167db35abcce7/rpent/benchmarks/leaderboard-en-light.png)](https://rpent.readthedocs.io/en/latest/rst_source/leaderboard.html)
+[![RPent Leaderboard](https://cdn.jsdelivr.net/gh/RLinf/misc@705bd44bfc8ad7586b76239de13167db35abcce7/rpent/benchmarks/leaderboard-en-light.png)](https://rpent.readthedocs.io/en/latest/rst_source/leaderboard/index.html)
 
 
 ## Who Should Consider Using RPent?
@@ -47,12 +47,12 @@ RPent is built for four kinds of users:
 
 ## What's NEW!
 
-- [2026/09] 🔥 Added the interactive RPent Leaderboard for LIBERO, LIBERO-PRO, RoboCasa365, and RoboTwin, with model comparisons and suite-level results. Explore the [Leaderboard](https://rpent.readthedocs.io/en/latest/rst_source/leaderboard.html).
-- [2026/09] 🔥 RPent supports Franka single-arm and dual-arm real-robot extensions. Doc: [Franka](https://rpent.readthedocs.io/en/latest/rst_source/usage/franka.html) · [Dual Franka](https://rpent.readthedocs.io/en/latest/rst_source/usage/dual_franka.html).
-- [2026/08] 🔥 RPent supports RoboCasa with RLDX-1 as manipulation model. See the [RoboCasa setup and Target50 guide](https://rpent.readthedocs.io/en/latest/rst_source/usage/robocasa.html).
+- [2026/09] 🔥 Added the interactive RPent Leaderboard for LIBERO, LIBERO-PRO, RoboCasa365, and RoboTwin, with model comparisons and suite-level results. Explore the [Leaderboard](https://rpent.readthedocs.io/en/latest/rst_source/leaderboard/index.html).
+- [2026/09] 🔥 RPent supports Franka single-arm and dual-arm real-robot extensions. Doc: [Franka](https://rpent.readthedocs.io/en/latest/rst_source/real_world_robots/franka.html) · [Dual Franka](https://rpent.readthedocs.io/en/latest/rst_source/real_world_robots/dual_franka.html).
+- [2026/08] 🔥 RPent supports RoboCasa with RLDX-1 as manipulation model. See the [RoboCasa setup and Target50 guide](https://rpent.readthedocs.io/en/latest/rst_source/simulators/robocasa.html).
 - [2026/08] 🔥 RPent supports the non-reasoning mode, which reduces average execution time by ~40%.
-- [2026/08] 🔥 RPent supports exploration mode for LIBERO. Doc: [LIBERO exploration mode](https://rpent.readthedocs.io/en/latest/rst_source/usage/libero.html#exploration-and-local-memory-evaluation).
-- [2026/08] 🔥 RPent supports RoboTwin with LingBot-VLA for dual-arm manipulation tasks. Doc: [RoboTwin](https://rpent.readthedocs.io/en/latest/rst_source/usage/robotwin.html).
+- [2026/08] 🔥 RPent supports exploration mode for LIBERO. Doc: [LIBERO exploration mode](https://rpent.readthedocs.io/en/latest/rst_source/simulators/libero.html#exploration-and-local-memory-evaluation).
+- [2026/08] 🔥 RPent supports RoboTwin with LingBot-VLA for dual-arm manipulation tasks. Doc: [RoboTwin](https://rpent.readthedocs.io/en/latest/rst_source/simulators/robotwin.html).
 - [2026/07] 🔥 Our first RPent publication, [Harness VLA: Steering Frozen VLAs into Reliable Manipulation Primitives via Memory-Guided Agents](https://arxiv.org/abs/2607.08448), is released.
 
 ## Feature Matrix
@@ -70,18 +70,18 @@ RPent is built for four kinds of users:
     <tr>
       <td>
         <ul style="margin-left: 0; padding-left: 16px;">
-          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/configure_planner.html#the-claude-code-planner">Claude Code</a> ✅</li>
-          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/configure_planner.html#the-codex-planner">Codex</a> ✅</li>
-          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/configure_planner.html#add-a-custom-planner">Custom Planner</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/guides/configure_planner.html#the-claude-code-planner">Claude Code</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/guides/configure_planner.html#the-codex-planner">Codex</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/development/add_planner.html">Custom Planner</a> ✅</li>
         </ul>
       </td>
       <td>
         <ul style="margin-left: 0; padding-left: 16px;">
           <li><b>VLA</b></li>
           <ul>
-            <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/libero.html">Pi0.5</a> ✅</li>
-            <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/robocasa.html">RLDX-1</a> ✅</li>
-            <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/robotwin.html">LingBot-VLA</a> ✅</li>
+            <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/simulators/libero.html">Pi0.5</a> ✅</li>
+            <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/simulators/robocasa.html">RLDX-1</a> ✅</li>
+            <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/simulators/robotwin.html">LingBot-VLA</a> ✅</li>
           </ul>
           <li><b>WAM</b></li>
           <ul>
@@ -92,16 +92,16 @@ RPent is built for four kinds of users:
       </td>
       <td style="text-align: left; padding-left: 8px;">
         <ul style="margin-left: 0; padding-left: 16px;">
-          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/libero.html">LIBERO-PRO</a> ✅</li>
-          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/robocasa.html">RoboCasa</a> ✅</li>
-          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/robotwin.html">RoboTwin</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/simulators/libero.html">LIBERO-PRO</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/simulators/robocasa.html">RoboCasa</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/simulators/robotwin.html">RoboTwin</a> ✅</li>
           <li>RoboDojo</li>
         </ul>
       </td>
       <td>
         <ul style="margin-left: 0; padding-left: 16px;">
-          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/franka.html">Franka</a> ✅</li>
-          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/dual_franka.html">Dual Franka</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/real_world_robots/franka.html">Franka</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/real_world_robots/dual_franka.html">Dual Franka</a> ✅</li>
           <li>SO-101</li>
           <li>YAM</li>
         </ul>
@@ -123,10 +123,10 @@ pip install -e ".[robocasa]"    # RoboCasa
 pip install -e ".[robotwin]"    # RoboTwin
 ```
 
-`.[libero-pro]` is the recommended default. See the [installation docs](https://rpent.readthedocs.io/en/latest/rst_source/installation.html) for other environments.
+`.[libero-pro]` is the recommended default. See the [installation docs](https://rpent.readthedocs.io/en/latest/rst_source/get_started/quickstart.html) for other environments.
 
 For RoboCasa setup, task memory, and the Target50 protocol, see the
-[RoboCasa guide](https://rpent.readthedocs.io/en/latest/rst_source/usage/robocasa.html).
+[RoboCasa guide](https://rpent.readthedocs.io/en/latest/rst_source/simulators/robocasa.html).
 
 RoboCasa uses current-task files in `robocasa/task-specific/` together with
 `robocasa/global/GLOBAL_MEMORY.md` from
@@ -145,13 +145,12 @@ liberopro-download-assets --skip-existing
 
 > 💡 Slow connection to Hugging Face? Download through the mirror: `HF_ENDPOINT=https://hf-mirror.com liberopro-download-assets --skip-existing`.
 
-See the [installation docs](https://rpent.readthedocs.io/en/latest/rst_source/installation.html) for other simulators.
+See the [installation docs](https://rpent.readthedocs.io/en/latest/rst_source/get_started/quickstart.html) for other simulators.
 
 **3. Configure keys and checkpoints, then run.**
 
 ```bash
 # Anthropic key; no need to export the base url if you use the official endpoint.
-export ANTHROPIC_BASE_URL=https://xxx
 export ANTHROPIC_API_KEY=sk-xxx
 
 # VLA checkpoint — download from
@@ -178,8 +177,8 @@ rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
   --cuda-device 0 --planner claude_code --model claude-opus-4-8
 ```
 
-See the [planner docs](https://rpent.readthedocs.io/en/latest/rst_source/usage/configure_planner.html) to configure other planners (`api`, `codex`) and model providers.
-For the exploration workflow and local-memory evaluation, see [LIBERO exploration mode](https://rpent.readthedocs.io/en/latest/rst_source/usage/libero.html#exploration-and-local-memory-evaluation).
+See the [planner docs](https://rpent.readthedocs.io/en/latest/rst_source/guides/configure_planner.html) to configure other planners (`api`, `codex`) and model providers.
+For the exploration workflow and local-memory evaluation, see [LIBERO exploration mode](https://rpent.readthedocs.io/en/latest/rst_source/simulators/libero.html#exploration-and-local-memory-evaluation).
 
 ### Interactive CLI mode
 
@@ -199,7 +198,7 @@ rpent --robot libero --dashboard --dashboard-language zh-cn \
   --planner claude_code --model claude-opus-4-8
 ```
 
-For a complete list of CLI options, see the [Key CLI options](https://rpent.readthedocs.io/en/latest/rst_source/quickstart.html#key-cli-options) table in the Quick Start docs. RoboCasa and RoboTwin use their own entrypoints and CLI — see the [RoboCasa](https://rpent.readthedocs.io/en/latest/rst_source/usage/robocasa.html) and [RoboTwin](https://rpent.readthedocs.io/en/latest/rst_source/usage/robotwin.html) docs.
+For a complete list of CLI options, see the [Command-Line Reference](https://rpent.readthedocs.io/en/latest/rst_source/guides/cli.html). RoboCasa and RoboTwin provide their own task parameters — see the [RoboCasa](https://rpent.readthedocs.io/en/latest/rst_source/simulators/robocasa.html) and [RoboTwin](https://rpent.readthedocs.io/en/latest/rst_source/simulators/robotwin.html) docs.
 
 For more detailed documentation, see the [RPent documentation](https://rpent.readthedocs.io/en/latest/).
 
