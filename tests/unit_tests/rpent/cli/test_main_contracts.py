@@ -756,10 +756,6 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
     assert cli.main() == (1 if planner_error else 0)
     transcript = json.loads((tmp_path / "transcript_OpenDrawer_s1.json").read_text())
     assert transcript["error"] == planner_error
-    assert json.loads((tmp_path / "run_diagnostics.json").read_text()) == {
-        "planner": planner_name,
-        "error": planner_error,
-    }
 
     assert len(captured) == 1
     context = captured[0]

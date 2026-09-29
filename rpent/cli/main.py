@@ -52,7 +52,7 @@ from rpent.dashboard.events import (
     NullDashboardEventSink,
     RunStartedEvent,
 )
-from rpent.evaluation import RunFinalizationContext, write_json_atomic
+from rpent.evaluation import RunFinalizationContext
 from rpent.memory import MemoryManager
 from rpent.planner.base import REASONING_EFFORTS, build_planner
 from rpent.planner.check import BASE_URL_ENV_BY_PLANNER
@@ -738,12 +738,6 @@ def main() -> int:
             agent_error = f"memory finalization failed: {type(exc).__name__}: {exc}"
             logger.error("%s", agent_error)
 
-    # Keep finalization failures as well as planner failures in a common
-    # diagnostic artifact, independent of optional robot result finalizers.
-    write_json_atomic(
-        Path(output_dir) / "run_diagnostics.json",
-        {"planner": args.planner, "error": agent_error},
-    )
     return 1 if agent_error else 0
 
 

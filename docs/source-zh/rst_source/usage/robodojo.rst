@@ -329,8 +329,9 @@ RoboDojo 提供双臂运动与夹爪原语、三相机 RGB-D、SAM3 感知、RLi
 框为启动和清理留出时间，并将单次运行限制在 30 分钟内。超时或门禁失败后停止，先\
 检查最后完成的工具调用与模型服务延迟，再安排下一次尝试。
 
-CLI 将 planner 错误写入 ``transcript_<cell>.json`` 的 ``error`` 字段，并\
-将包含收尾失败的最终错误写入 ``run_diagnostics.json``。
+CLI 将 planner 错误写入 ``transcript_<cell>.json`` 的 ``error`` 字段；运行结果\
+由各 sim 自己的收尾过程写出（RoboDojo 在运行输出目录写 ``result.json``），\
+收尾过程抛错会记录到日志并反映在进程退出码上。
 dev 与 Flash 都应检查这些工件；退出码为零不代表官方任务成功。
 
 完整解码三路视频，并检查每个自有服务的退出码。从

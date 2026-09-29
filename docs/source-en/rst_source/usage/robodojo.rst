@@ -385,10 +385,11 @@ not regular defaults. The outer limit leaves time for startup and cleanup and
 keeps the run below 30 minutes. Stop after a timeout or failed gate; inspect the
 last completed tools and provider latency before scheduling another attempt.
 
-The CLI records planner errors in ``transcript_<cell>.json`` (``error``) and
-final errors, including finalization failures, in ``run_diagnostics.json``.
-Read these in both dev and Flash runs; a zero process status is not proof of
-official task success.
+The CLI records planner errors in ``transcript_<cell>.json`` (``error``). The
+run result is written by the robot's own finalizer — RoboDojo writes
+``result.json`` into the run output directory — and a finalizer that raises is
+logged and reflected in the process exit code. Read both in dev and Flash runs;
+a zero process status is not proof of official task success.
 
 Verify all three videos by full decoding and check every owned server's exit
 status. Between ``[robodojo-env] shutdown begin`` and process exit, require no
