@@ -12,18 +12,21 @@ Python 环境
 在 Python 3.11 环境中，从 RPent 根目录安装运行时与 agent 依赖。
 ``robodojo-sim`` extra 安装 ``rlinf-robodojo-runtime`` 和 RLinf 环境适配器，
 Isaac Sim / IsaacLab 的版本约束由运行时包维护。``robodojo`` 还会安装 SAM3
-与 openpi 策略运行时。每个环境只安装一个机器人 extra。在\
-此目录运行 uv，以读取根项目的打包兼容 override 和 cuRobo 构建依赖：
+与 openpi 策略运行时。每个环境只安装一个机器人 extra。在此目录运行 uv，以读取\
+根项目的 cuRobo 构建依赖，并显式传入本仓库的仿真 override：
 
 .. code-block:: bash
 
-   uv pip install -e ".[robodojo]" --extra-index-url https://pypi.nvidia.com
+   uv pip install -e ".[robodojo]" --extra-index-url https://pypi.nvidia.com \
+     --override requirements/robodojo-override.txt
 
 Blackwell GPU 需在命令末尾添加 ``--torch-backend=cu128``，选择支持
 ``sm_120`` 的 PyTorch 构建。PyTorch 2.7.0 默认的 CUDA 12.6 构建不支持这\
 类 GPU。重新安装该 extra 时也需保留此选项。
 
-这些 override 使依赖可以解析，不代表仿真任务成功。RLinf 集成分支同时提供\
+``requirements/robodojo-override.txt`` 汇总了仿真栈与 agent 栈、rpent-openpi 冲突的六条钉\
+版本；用 ``--override`` 传入后，其它机器人仍按各自验证过的版本解析。这些 override 使依\
+赖可以解析，不代表仿真任务成功。RLinf 集成分支同时提供\
 环境适配器和 ``pi05_robodojo_arx_x5``。RoboDojo 预设选择 OpenPI 的 ``eval`` loader，\
 预测长度为 50，模型动作补齐到 32 维，环境动作保持 14 维。\
 真实权重的 RPC 推理已返回形状为 ``(1, 50, 14)`` 且全部有限的动作；这不保证任务成功。
@@ -95,6 +98,34 @@ cuRobo 随包提供的网格仍属于其运行时。因\
 此 uv 仍会下载较大的仿真运行时，但不会下载上述独立场景数据集或策略 checkpoint。
 checkpoint 也需单独获取，按下节用 ``PI05_CHECKPOINT_PATH`` 和
 ``SAM3_CHECKPOINT_PATH`` 指定。
+
+策略与感知 checkpoint
+------------------------------
+
+RoboDojo 发布的 Pi_05 权重是 orbax/JAX checkpoint，而 RLinf 的 openpi loader 读的是\
+PyTorch 版本，因此下载后需要转换一次。感知使用 SAM 3，需要单独的 checkpoint。
+
+.. code-block:: bash
+
+   # 1. 下载发布版 Pi_05 checkpoint（约 7 GB）。
+   hf download RoboDojo-Benchmark/RoboDojo --repo-type dataset \
+     --include 'ckpt/RoboDojo/Pi_05/**' --local-dir /data/robodojo/ckpt
+
+   # 2. 转换。转换器靠路径中是否含小写 "pi05" 选择分支，而发布目录名为 Pi_05，
+   #    所以先建一个含该字符串的链接再转换。
+   ln -s /data/robodojo/ckpt/RoboDojo/Pi_05/RoboDojo-sim-arx_x5-joint-0 \
+     /data/robodojo/pi05_robodojo_arx_x5
+   python rlinf/utils/ckpt_convertor/convert_openpi_jax_to_python.py \
+     --checkpoint_dir /data/robodojo/pi05_robodojo_arx_x5 \
+     --config_name pi05_base_aloha_full_sim_arx-x5_seed_0 \
+     --output_path /data/robodojo/pi05_robodojo_arx_x5_torch
+
+   # 3. 指向转换后的 checkpoint 与 SAM 3。
+   export PI05_CHECKPOINT_PATH=/data/robodojo/pi05_robodojo_arx_x5_torch
+   export SAM3_CHECKPOINT_PATH=/data/sam3/sam3.pt
+
+发布版随包携带的归一化统计量要与转换后的权重放在一起，客户端会一并加载。\
+``--inspect_only`` 只打印 orbax 参数键、不做转换，是检查下载结果最快的方式。
 
 RPent 配置
 ----------

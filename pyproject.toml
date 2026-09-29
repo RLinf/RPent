@@ -146,34 +146,11 @@ robodojo-sim = [
 [tool.uv]
 prerelease = "allow"
 
-# Packaging defects in dependencies of rlinf-robodojo-runtime.
-# They live here instead of an external `--override` file so that a clean
-# install resolves with no extra flags. uv reads `override-dependencies` from
-# the pyproject.toml discovered in the current directory, so run e.g.
-# `cd rpent && uv pip install -e ".[robodojo-sim]"`.
-override-dependencies = [
-    # isaaclab==0.54.3 pins starlette==0.49.1, while isaacsim-kernel==5.1.0.0
-    # -> fastapi==0.115.7 needs starlette>=0.40,<0.46. RoboDojo's own
-    # `pin_runtime_deps` installs starlette==0.45.3.
-    "starlette==0.45.3",
-    # isaacsim-kernel pins 4.12.2, but tyro imports TypeForm (>=4.13)
-    # and the resolved pydantic/anyio versions require >=4.16. Keeping
-    # the simulator pin resolves but fails on policy startup.
-    "typing-extensions>=4.16.0",
-    # Simulator pins conflict with mcp, swanlab and openpi, respectively.
-    "uvicorn>=0.31.1",
-    "wrapt>=1.17.0",
-    "filelock>=3.16.1",
-    "torch==2.7.0",
-]
-
-# Additional conflicts in the single-environment robodojo extra:
-# - isaacsim-kernel==5.1.0.0 pins uvicorn==0.29.0; mcp>=1.23.0 needs >=0.31.1.
-# - isaacsim-kernel==5.1.0.0 pins wrapt==1.16.0; rlinf's swanlab>=0.6.11
-#   needs wrapt>=1.17.0.
-# - isaacsim-core==5.1.0.0 pins filelock==3.13.1; rpent-openpi needs >=3.16.1.
-# - rpent-openpi==0.2.2 pins torch==2.7.1; the simulator requires torch==2.7.0.
-# Resolving these conflicts does not establish runtime compatibility.
+# `robodojo-sim` needs six overrides for its simulator stack; they live in
+# requirements/robodojo-override.txt so every other robot keeps resolving the
+# versions it was validated against. Pass them explicitly:
+#
+#   uv pip install -e ".[robodojo]" --override requirements/robodojo-override.txt
 
 # Each robot extra pulls a separately pinned VLA runtime whose Torch,
 # Transformers, Tokenizers, or Diffusers versions are mutually incompatible.

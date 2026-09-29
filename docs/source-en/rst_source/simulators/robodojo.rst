@@ -15,19 +15,24 @@ Install the runtime and agent dependencies from the RPent root in Python 3.11.
 The ``robodojo-sim`` extra installs ``rlinf-robodojo-runtime`` and the
 RLinf environment adapter; the runtime owns the Isaac Sim / IsaacLab pins.
 ``robodojo`` also installs SAM3 and the openpi policy runtime.
-Use one robot extra per environment. Run uv from this directory so it reads
-the root project's packaging overrides and cuRobo build dependencies:
+Use one robot extra per environment. Run uv from this directory so it reads the
+root project's cuRobo build dependencies, and pass this repository's simulator
+overrides explicitly:
 
 .. code-block:: bash
 
-   uv pip install -e ".[robodojo]" --extra-index-url https://pypi.nvidia.com
+   uv pip install -e ".[robodojo]" --extra-index-url https://pypi.nvidia.com \
+     --override requirements/robodojo-override.txt
 
 On Blackwell GPUs, append ``--torch-backend=cu128`` to select a PyTorch
 build with ``sm_120`` support. The default CUDA 12.6 build of PyTorch 2.7.0
 does not support these GPUs. Use the same option when reinstalling this extra.
 
-These overrides allow dependency resolution; they do not establish simulation
-task success. The RLinf integration branch supplies both the environment
+``requirements/robodojo-override.txt`` carries the six pins where the simulator
+stack disagrees with the agent stack or with rpent-openpi; passing them with
+``--override`` keeps every other robot resolving the versions it was validated
+against. They allow dependency resolution; they do not establish simulation task
+success. The RLinf integration branch supplies both the environment
 adapter and ``pi05_robodojo_arx_x5``. The RoboDojo preset selects the OpenPI
 ``eval`` loader with a 50-step horizon, a padded 32-dimensional model action,
 and 14-dimensional environment actions. Real-weight RPC inference has returned
@@ -111,6 +116,38 @@ clone sizes. cuRobo's packaged meshes remain part of its runtime.
 Thus uv still downloads a large simulator runtime, but not the separate scene
 datasets or policy checkpoints. Download checkpoints separately and use
 ``PI05_CHECKPOINT_PATH`` and ``SAM3_CHECKPOINT_PATH`` as described below.
+
+Policy and perception checkpoints
+----------------------------------------
+
+RoboDojo releases its Pi_05 weights as an orbax/JAX checkpoint, while the RLinf
+openpi loader reads the PyTorch build, so convert them once after downloading.
+Perception uses SAM 3, which needs its own checkpoint.
+
+.. code-block:: bash
+
+   # 1. Download the released Pi_05 checkpoint (about 7 GB).
+   hf download RoboDojo-Benchmark/RoboDojo --repo-type dataset \
+     --include 'ckpt/RoboDojo/Pi_05/**' --local-dir /data/robodojo/ckpt
+
+   # 2. Convert it. The converter picks the pi05 branch by looking for the
+   #    lowercase string "pi05" in the checkpoint path, and the release
+   #    directory is named Pi_05, so convert through a link that contains it.
+   ln -s /data/robodojo/ckpt/RoboDojo/Pi_05/RoboDojo-sim-arx_x5-joint-0 \
+     /data/robodojo/pi05_robodojo_arx_x5
+   python rlinf/utils/ckpt_convertor/convert_openpi_jax_to_python.py \
+     --checkpoint_dir /data/robodojo/pi05_robodojo_arx_x5 \
+     --config_name pi05_base_aloha_full_sim_arx-x5_seed_0 \
+     --output_path /data/robodojo/pi05_robodojo_arx_x5_torch
+
+   # 3. Point the run at the converted checkpoint and at SAM 3.
+   export PI05_CHECKPOINT_PATH=/data/robodojo/pi05_robodojo_arx_x5_torch
+   export SAM3_CHECKPOINT_PATH=/data/sam3/sam3.pt
+
+Keep the normalization statistics that ship with the release next to the
+converted weights; the client loads them together. ``--inspect_only`` prints the
+orbax parameter keys without converting, which is the quickest way to check a
+download before converting it.
 
 RPent configuration
 -------------------
