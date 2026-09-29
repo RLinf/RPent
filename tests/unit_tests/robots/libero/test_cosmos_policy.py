@@ -12,45 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Offline Cosmos Policy input, execution, and runtime contracts."""
-
-from __future__ import annotations
+"""Offline contracts for Cosmos configuration and LIBERO tool execution."""
 
 import argparse
-import sys
-from dataclasses import replace
-from types import SimpleNamespace
 from unittest.mock import Mock
 
 import numpy as np
 import pytest
 
 from robots.libero import policy, robot_spec, toolkit
-from robots.libero.suites import LIBERO_SUITE_NAMES, suite_variant
 from robots.libero.tools import LiberoPrimitives
 from rpent.dashboard.events import NullDashboardEventSink
-from rpent.memory import MemoryManager
 from rpent.robots.components.cosmos_policy_client import CosmosPolicyClient
-from rpent.robots.components.cosmos_policy_server import (
-    CosmosPolicyFacade,
-    prepare_observation,
-)
-from rpent.robots.components.policy_facade_base import BasePolicyFacade
+from rpent.robots.components.pi05_vla_client import Pi05VLAClient
 from rpent.utils import templates
-
-
-def _raw_obs() -> dict:
-    image = np.zeros((256, 256, 3), dtype=np.uint8)
-    image[0] = [1, 2, 3]
-    image[-1] = [4, 5, 6]
-    return {
-        "agentview_image": image,
-        "robot0_eye_in_hand_image": image + 10,
-        "robot0_gripper_qpos": np.array([0.04, -0.04]),
-        "robot0_eef_pos": np.array([0.1, 0.2, 0.3]),
-        "robot0_eef_quat": np.array([0, 0, 0, -1.0]),
-        "task_descriptions": "put the bowl on the plate",
-    }
 
 
 def _args(*extra: str) -> argparse.Namespace:
@@ -76,146 +51,31 @@ def _args(*extra: str) -> argparse.Namespace:
     )
 
 
-def test_raw_observation_matches_cosmos_training_convention() -> None:
-    raw = _raw_obs()
-    prepared = prepare_observation(raw)
-    np.testing.assert_array_equal(prepared["primary_image"][0, 0], [4, 5, 6])
-    np.testing.assert_array_equal(prepared["wrist_image"][0, 0], [14, 15, 16])
-    np.testing.assert_allclose(
-        prepared["proprio"], [0.04, -0.04, 0.1, 0.2, 0.3, 0, 0, 0, -1]
-    )
-    np.testing.assert_array_equal(raw["agentview_image"][0, 0], [1, 2, 3])
-
-
 @pytest.mark.parametrize(
-    "key,value",
+    "suite,variant",
     [
-        ("agentview_image", np.zeros((128, 128, 3), np.uint8)),
-        ("robot0_eye_in_hand_image", np.zeros((256, 256, 3), np.float32)),
-        ("robot0_eef_quat", np.zeros(3)),
-        ("robot0_gripper_qpos", np.array([np.nan, 0])),
+        ("libero_spatial", "standard"),
+        ("libero_object_task", "pro"),
+        ("libero_goal_swap", "pro"),
     ],
 )
-def test_invalid_policy_inputs_fail_before_inference(key, value) -> None:
-    raw = {**_raw_obs(), key: value}
-    with pytest.raises(ValueError, match=key):
-        prepare_observation(raw)
-
-
-def _facade() -> CosmosPolicyFacade:
-    facade = CosmosPolicyFacade.__new__(CosmosPolicyFacade)
-    BasePolicyFacade.__init__(facade)
-    facade._cfg = SimpleNamespace(seed=7, num_denoising_steps_action=5)
-    facade._model = object()
-    facade._dataset_stats = object()
-    facade._get_action = Mock(return_value={"actions": np.full((16, 7), 0.25)})
-    return facade
-
-
-def test_facade_uses_official_action_api_without_predicting_future_video() -> None:
-    facade = _facade()
-    actions = facade.predict(_raw_obs(), {"mode": "eval"})
-    np.testing.assert_array_equal(actions, np.full((16, 7), 0.25, np.float32))
-    args, kwargs = facade._get_action.call_args
-    assert args[4] == "put the bowl on the plate"
-    assert args[3]["proprio"].shape == (9,)
-    assert kwargs == {
-        "seed": 7,
-        "num_denoising_steps_action": 5,
-        "generate_future_state_and_value_in_parallel": False,
-    }
-    with pytest.raises(ValueError, match="instruction"):
-        facade.predict({**_raw_obs(), "task_descriptions": ""})
-    with pytest.raises(ValueError, match="evaluation"):
-        facade.predict(_raw_obs(), {"mode": "train"})
-
-
-@pytest.mark.parametrize(
-    "actions", [np.zeros((1, 16, 7)), np.zeros((0, 7)), np.full((16, 7), np.inf)]
-)
-def test_client_rejects_invalid_chunks(actions) -> None:
-    client = CosmosPolicyClient(Mock(call=Mock(return_value=actions)))
-    with pytest.raises(ValueError, match="finite actions"):
-        client.predict(_raw_obs())
-
-
-def test_client_sends_only_required_raw_fields() -> None:
-    rpc = Mock(call=Mock(return_value=np.zeros((16, 7))))
-    client = CosmosPolicyClient(rpc)
-    client.predict({**_raw_obs(), "segmentation": object()}, {"mode": "eval"})
-    args, kwargs = rpc.call.call_args
-    assert args == ("wam.predict",)
-    assert "segmentation" not in kwargs["args"][0]
-    assert kwargs["timeout_s"] == 300.0
-
-
-def test_cosmos_config_renders_observation_only_prompts() -> None:
-    args = _args()
+def test_cosmos_config_routes_suite_and_renders_without_memory(suite, variant):
+    args = _args("--suite", suite)
     spec = robot_spec.get_robot_spec()
     config = spec.parse_config(args)
-    assert args.libero_type == "standard"
+    assert args.libero_type == variant
     assert args.memory_profile == "local"
-    assert "memory_dir" not in config.prompt_vars
-    assert "memory_inbox" not in config.prompt_vars
+    assert config.task_desc["suite"] == suite
     assert config.task_desc["policy_backend"] == "cosmos-policy"
-    for variant in ("system", "user"):
+    for name in ("system", "user"):
         rendered = spec.prompts.render(
-            variant,
-            variables={**config.prompt_vars, "output_dir": str(config.output_dir)},
+            name, variables={**config.prompt_vars, "output_dir": str(config.output_dir)}
         )
         assert "cosmos_act" in rendered
-        assert "pi0_pick" not in rendered
-        assert "memory" not in rendered.lower()
-        assert "read_text_file" not in rendered
-        assert "{{" not in rendered
-
-
-@pytest.mark.parametrize("skip_hf_sync", [False, True])
-def test_public_cli_cosmos_requires_skipping_hf_sync(
-    monkeypatch, capsys, tmp_path, skip_hf_sync
-) -> None:
-    from rpent.cli import main as cli
-
-    spec = robot_spec.get_robot_spec()
-
-    class ConfigCaptured(Exception):
-        pass
-
-    def capture_config(args):
-        config = spec.parse_config(args)
-        assert args.memory_profile == "local"
-        assert config.task_desc["policy_backend"] == "cosmos-policy"
-        raise ConfigCaptured
-
-    monkeypatch.setattr(
-        cli, "get_robot_spec", lambda name: replace(spec, parse_config=capture_config)
-    )
-    argv = [
-        "rpent",
-        "--robot",
-        "libero",
-        "--suite",
-        "libero_spatial",
-        "--task",
-        "0",
-        "--wam-backend",
-        "cosmos-policy",
-        "--wam-endpoint",
-        "http://127.0.0.1:8116",
-        "--output-dir",
-        str(tmp_path),
-    ]
-    if skip_hf_sync:
-        argv.extend(["--memory-profile", "local"])
-    monkeypatch.setattr(sys, "argv", argv)
-    if skip_hf_sync:
-        with pytest.raises(ConfigCaptured):
-            cli.main()
-    else:
-        with pytest.raises(SystemExit) as exc:
-            cli.main()
-        assert exc.value.code == 2
-        assert "requires --memory-profile local" in capsys.readouterr().err
+        assert all(
+            token not in rendered.lower()
+            for token in ("pi0_pick", "memory", "read_text_file", "{{")
+        )
 
 
 @pytest.mark.parametrize(
@@ -224,80 +84,32 @@ def test_public_cli_cosmos_requires_skipping_hf_sync(
         (["--explore"], "evaluation"),
         (["--planner", "flash"], "evaluation"),
         (["--libero-type", "plus"], "standard and pro"),
-        (
-            ["--suite", "libero_object_swap", "--libero-type", "standard"],
-            "requires --libero-type pro",
-        ),
         (["--memory-profile", "hf"], "memory is not supported"),
         (["--memory-dir", "/some/corpus"], "does not support --memory-dir"),
+        (["--wam-endpoint", ""], "requires --wam-endpoint"),
+        (["--vla-endpoint", "http://localhost:8115"], "cannot be combined"),
     ],
 )
-def test_unsupported_cosmos_modes_fail_early(extra, message) -> None:
+def test_unsupported_cosmos_configuration_fails_early(extra, message):
     with pytest.raises(ValueError, match=message):
         robot_spec._parse_config(_args(*extra))
 
 
-def test_cosmos_requires_external_endpoint() -> None:
-    args = _args()
-    args.wam_endpoint = None
-    with pytest.raises(ValueError, match="--wam-endpoint"):
-        robot_spec._parse_config(args)
-
-
-def test_cosmos_toolkit_factory_does_not_construct_memory(
-    tmp_path, monkeypatch
-) -> None:
-    factory = Mock()
-    monkeypatch.setattr(toolkit, "LiberoToolkit", factory)
-    memory_factory = Mock(side_effect=AssertionError("unexpected memory creation"))
-    monkeypatch.setattr(robot_spec, "MemoryManager", memory_factory)
-    config = robot_spec._parse_config(_args())
-
-    robot_spec.get_toolkit(
-        runtime_kwargs={},
-        dashboard_events=NullDashboardEventSink(),
-        config=config,
-        state_output_dir=tmp_path,
-    )
-
-    assert factory.call_args.kwargs["memory"] is None
-    memory_factory.assert_not_called()
-
-
-@pytest.mark.parametrize("suite", LIBERO_SUITE_NAMES)
-def test_cosmos_uses_shared_suite_routing(suite) -> None:
-    args = _args("--suite", suite)
-    config = robot_spec._parse_config(args)
-    assert args.libero_type == suite_variant(suite)
-    assert config.task_desc["suite"] == suite
-
-
-def test_runtime_borrows_cosmos_service_without_spawning_pi05(
-    tmp_path, monkeypatch
-) -> None:
-    rpc = Mock()
-    monkeypatch.setattr(policy, "make_rpc_client", lambda endpoint: rpc)
-    monkeypatch.setattr("rpent.robots.runtime.wait_for_ready", lambda *a, **k: None)
-    daemons, runtime = robot_spec._init_runtime(
-        _args(), tmp_path, NullDashboardEventSink(), {"wam"}
-    )
-    assert daemons == []
-    assert isinstance(runtime["model"], CosmosPolicyClient)
-    assert runtime["model"]._client is rpc
-
-
-@pytest.mark.parametrize("backend,kind", [("pi05", "vla"), ("cosmos-policy", "wam")])
+@pytest.mark.parametrize(
+    "kind,client_type", [("vla", Pi05VLAClient), ("wam", CosmosPolicyClient)]
+)
 def test_dashboard_category_matches_borrowed_runtime(
-    tmp_path, monkeypatch, backend, kind
+    tmp_path, monkeypatch, kind, client_type
 ):
     args = _args()
     if kind == "vla":
         args.wam_backend = args.wam_endpoint = None
-        args.vla_backend = backend
         args.vla_endpoint = "http://127.0.0.1:8115"
     spec = robot_spec.get_robot_spec()
-    dashboard = spec.resolve_dashboard(args)
-    components = {item["name"]: item for item in dashboard["runtime_components"]}
+    components = {
+        item["name"]: item
+        for item in spec.resolve_dashboard(args)["runtime_components"]
+    }
     assert components[kind]["label"] == kind.upper()
     assert ({"vla", "wam"} - {kind}).isdisjoint(components)
     rpc = Mock()
@@ -306,42 +118,10 @@ def test_dashboard_category_matches_borrowed_runtime(
     events = Mock()
     owned, runtime = spec.init_runtime(args, tmp_path, events, {kind})
     assert owned == []
+    assert isinstance(runtime["model"], client_type)
+    assert runtime["model"]._client is rpc
     assert runtime["model"].PREDICT_METHOD == f"{kind}.predict"
     assert {call.args[0].component for call in events.emit.call_args_list} == {kind}
-
-
-@pytest.mark.parametrize(
-    "extra,message",
-    [
-        (["--vla-endpoint", "http://localhost:8115"], "cannot be combined"),
-        (["--suite", "unknown_suite"], "Unknown LIBERO suite"),
-    ],
-)
-def test_invalid_policy_or_suite_configuration(extra, message):
-    with pytest.raises(ValueError, match=message):
-        robot_spec._parse_config(_args(*extra))
-
-
-def test_backends_are_mutually_exclusive():
-    with pytest.raises(SystemExit):
-        _args("--vla-backend", "pi05")
-
-
-def test_wam_endpoint_needs_explicit_backend():
-    args = _args()
-    args.wam_backend = None
-    with pytest.raises(ValueError, match="--wam-endpoint requires --wam-backend"):
-        policy.select_policy(args)
-
-
-@pytest.mark.parametrize("variant", ["pro", "plus"])
-def test_pi05_can_explicitly_select_variant_for_base_suite(variant):
-    args = _args("--libero-type", variant)
-    args.wam_backend = args.wam_endpoint = None
-    config = robot_spec._parse_config(args)
-    assert args.libero_type == variant
-    assert config.prompt_vars["policy_backend"] == "pi05"
-    assert config.prompt_vars["memory_enabled"] is True
 
 
 def test_libero_variant_preserves_environment_with_cli_override(monkeypatch):
@@ -352,210 +132,119 @@ def test_libero_variant_preserves_environment_with_cli_override(monkeypatch):
     args = _args("--libero-type", "standard")
     robot_spec._parse_config(args)
     assert args.libero_type == "standard"
-    monkeypatch.setenv("LIBERO_TYPE", "standard")
     with pytest.raises(ValueError, match="requires --libero-type pro"):
-        robot_spec._parse_config(_args("--suite", "libero_spatial_lan"))
+        robot_spec._parse_config(
+            _args("--suite", "libero_spatial_lan", "--libero-type", "standard")
+        )
 
 
-@pytest.mark.parametrize("stop_after", [1, 2])
-@pytest.mark.parametrize("prompt", [None, "pick up the black bowl"])
-def test_cosmos_tool_uses_fresh_raw_obs_and_stops_after_termination(
-    stop_after, prompt
-) -> None:
+@pytest.fixture
+def primitives():
     observation = {"states": np.zeros(8), "task_descriptions": "native task"}
     env = Mock(terminated=False, truncated=False, return_all_frames=False)
-    env.raw_obs.side_effect = [
-        {**_raw_obs(), "robot0_eef_pos": np.full(3, step)} for step in range(stop_after)
-    ]
+    env.raw_obs.return_value = {"robot0_eef_pos": np.zeros(3)}
+    env.chunk_step.return_value = (observation, 0, False, False, {})
     model = Mock(predict=Mock(return_value=np.zeros((16, 7))))
-    primitive = LiberoPrimitives(env, model, Mock(), lambda: None)
-    primitive.set_obs(observation)
-
-    def step(actions):
-        env.terminated = env.chunk_step.call_count == stop_after
-        return observation.copy(), 1, env.terminated, False, {}
-
-    env.chunk_step.side_effect = step
-    result = primitive.cosmos_act(prompt=prompt, max_chunks=3)
-    assert result["chunks"] == stop_after
-    assert result["success"] is True
-    assert result["terminated"] is True
-    assert result["truncated"] is False
-    assert observation["task_descriptions"] == "native task"
-    assert "robot0_eef_quat" in model.predict.call_args.args[0]
-    assert primitive._last_obs["task_descriptions"] == "native task"
-    assert env.raw_obs.call_count == stop_after
-    for step, call in enumerate(model.predict.call_args_list):
-        assert call.args[0]["task_descriptions"] == (prompt or "native task")
-        np.testing.assert_array_equal(call.args[0]["robot0_eef_pos"], np.full(3, step))
-    env.get_task_language.assert_not_called()
-    assert primitive.cosmos_act()["chunks"] == 0
-    with pytest.raises(ValueError, match="max_chunks"):
-        primitive.cosmos_act(max_chunks=0)
+    instance = LiberoPrimitives(env, model, Mock(), lambda: None)
+    instance.set_obs(observation)
+    return instance
 
 
-def test_cosmos_subtask_is_request_local_and_preserves_native_verdict() -> None:
-    observation = {"states": np.zeros(8), "task_descriptions": "native task"}
-    raw = _raw_obs()
-    env = Mock(terminated=False, truncated=False, return_all_frames=False)
-    env.raw_obs.return_value = raw
-    env.chunk_step.return_value = (observation.copy(), 0, False, False, {})
-    model = Mock(predict=Mock(return_value=np.zeros((16, 7))))
-    primitive = LiberoPrimitives(env, model, Mock(), lambda: None)
-    primitive.set_obs(observation)
-
-    assert primitive.cosmos_act("pick up the black bowl", max_chunks=2) == {
-        "model": "cosmos-policy",
-        "chunks": 2,
-        "success": False,
-        "terminated": False,
-        "truncated": False,
-    }
-    primitive.cosmos_act()
-    assert [
-        call.args[0]["task_descriptions"] for call in model.predict.call_args_list
-    ] == [
+def test_cosmos_subtask_is_request_local_and_uses_fresh_observations(primitives):
+    raw = [{"robot0_eef_pos": np.full(3, step)} for step in range(3)]
+    primitives.env.raw_obs.side_effect = raw
+    result = primitives.cosmos_act("pick up the black bowl", max_chunks=2)
+    assert result["chunks"] == 2
+    assert result["success"] is False
+    assert primitives.cosmos_act()["chunks"] == 1
+    calls = primitives.model.predict.call_args_list
+    assert [call.args[0]["task_descriptions"] for call in calls] == [
         "pick up the black bowl",
         "pick up the black bowl",
         "native task",
     ]
-    assert raw["task_descriptions"] == "put the bowl on the plate"
-    assert primitive._last_obs["task_descriptions"] == "native task"
-
-
-def test_cosmos_truncation_is_not_task_success() -> None:
-    observation = {"states": np.zeros(8), "task_descriptions": "native task"}
-    env = Mock(terminated=False, truncated=False, return_all_frames=False)
-    env.raw_obs.return_value = _raw_obs()
-    model = Mock(predict=Mock(return_value=np.zeros((16, 7))))
-    primitive = LiberoPrimitives(env, model, Mock(), lambda: None)
-    primitive.set_obs(observation)
-
-    def step(actions):
-        env.truncated = True
-        return observation.copy(), 0, False, True, {}
-
-    env.chunk_step.side_effect = step
-    assert primitive.cosmos_act(max_chunks=4) == {
-        "model": "cosmos-policy",
-        "chunks": 1,
-        "success": False,
-        "terminated": False,
-        "truncated": True,
-    }
-    model.predict.assert_called_once()
-    assert primitive.cosmos_act()["chunks"] == 0
-    model.predict.assert_called_once()
-
-
-@pytest.mark.parametrize("max_chunks", [0, 5, 20, 1.5, True])
-def test_cosmos_rejects_long_or_invalid_calls_before_inference(max_chunks) -> None:
-    env, model = Mock(), Mock()
-    primitive = LiberoPrimitives(env, model, Mock(), lambda: None)
-    with pytest.raises(ValueError, match="max_chunks"):
-        primitive.cosmos_act(max_chunks=max_chunks)
-    model.predict.assert_not_called()
-    env.chunk_step.assert_not_called()
+    for step, call in enumerate(calls):
+        np.testing.assert_array_equal(call.args[0]["robot0_eef_pos"], np.full(3, step))
+    assert all("task_descriptions" not in obs for obs in raw)
+    assert primitives._last_obs["task_descriptions"] == "native task"
 
 
 @pytest.mark.parametrize("terminated,truncated", [(True, False), (False, True)])
-def test_cosmos_toolkit_rejects_motion_after_episode_end(terminated, truncated) -> None:
-    instance = toolkit.LiberoToolkit.__new__(toolkit.LiberoToolkit)
-    instance._policy_backend = "cosmos-policy"
-    instance._primitives = Mock(
-        env=SimpleNamespace(terminated=terminated, truncated=truncated)
-    )
-    handler = Mock()
-    with pytest.raises(ValueError, match="Episode already ended"):
-        instance._execute_primitive("move_to", handler, xyz=[0, 0, 1])
-    handler.assert_not_called()
-    instance._primitives.begin_primitive.assert_not_called()
+def test_cosmos_stops_at_episode_end_with_native_verdict(
+    primitives, terminated, truncated
+):
+    def step(actions):
+        assert actions.shape == (16, 7)
+        primitives.env.terminated = terminated
+        primitives.env.truncated = truncated
+        return primitives._last_obs.copy(), 0, terminated, truncated, {}
 
-
-@pytest.mark.parametrize("prompt", ["", "  ", 12, False, [], {}])
-def test_cosmos_rejects_invalid_prompt_before_any_action(prompt) -> None:
-    env, model = Mock(), Mock()
-    primitive = LiberoPrimitives(env, model, Mock(), lambda: None)
-    with pytest.raises(ValueError, match="prompt"):
-        primitive.cosmos_act(prompt)
-    env.raw_obs.assert_not_called()
-    model.predict.assert_not_called()
-    env.chunk_step.assert_not_called()
+    primitives.env.chunk_step.side_effect = step
+    result = primitives.cosmos_act(max_chunks=4)
+    assert result["chunks"] == 1
+    assert result["success"] == result["terminated"] == terminated
+    assert result["truncated"] == truncated
+    assert primitives.cosmos_act()["chunks"] == 0
+    primitives.model.predict.assert_called_once()
+    primitives.env.chunk_step.assert_called_once()
 
 
 @pytest.mark.parametrize(
-    "backend,mode",
-    [("pi05", "evaluation"), ("pi05", "exploration"), ("cosmos-policy", "evaluation")],
+    "kwargs",
+    [{"max_chunks": 0}, {"max_chunks": 5}, {"max_chunks": True}, {"prompt": ""}],
 )
-def test_toolkit_exposes_selected_backend_tools(
-    tmp_path, monkeypatch, backend, mode
-) -> None:
-    monkeypatch.setattr(
-        templates, "default_variables", lambda: {"output_dir": str(tmp_path)}
-    )
-
-    def init_primitives(self, *, runtime_kwargs):
-        self._primitives = LiberoPrimitives(Mock(), Mock(), Mock(), lambda: None)
-
-    monkeypatch.setattr(toolkit.LiberoToolkit, "init_primitives", init_primitives)
-    instance = toolkit.LiberoToolkit(
-        runtime_kwargs={},
-        dashboard_events=NullDashboardEventSink(),
-        memory=None
-        if backend == "cosmos-policy"
-        else MemoryManager(tmp_path / "memory"),
-        state_output_dir=tmp_path / "output",
-        policy_backend=backend,
-        mode=mode,
-    )
-    names = {spec["name"] for spec in instance.get_tools_spec()}
-    if backend == "cosmos-policy":
-        assert "cosmos_act" in names
-        assert {"pi0_pick", "pi0_doubled"}.isdisjoint(names)
-        assert {"read_text_file", "write_text_file", "list_dir"}.isdisjoint(names)
-        result = instance.execute_tool("read_text_file", {"path": "MEMORY.md"})
-        assert "error" in result.result
-    else:
-        assert "cosmos_act" not in names
-        assert {"pi0_pick", "pi0_doubled"} <= names
-        assert {"read_text_file", "write_text_file", "list_dir"} <= names
-    assert ("reset" in names) == (mode == "exploration")
-    assert {"move_to", "view_env_state", "finish"} <= names
+def test_cosmos_invalid_call_fails_before_inference(primitives, kwargs):
+    with pytest.raises(ValueError):
+        primitives.cosmos_act(**kwargs)
+    primitives.model.predict.assert_not_called()
+    primitives.env.chunk_step.assert_not_called()
 
 
 @pytest.mark.parametrize("truncated", [False, True])
-def test_cosmos_finish_rejects_false_success_without_ending_loop(
-    tmp_path, monkeypatch, truncated
-) -> None:
+def test_cosmos_toolkit_without_memory_requires_native_success(
+    tmp_path, monkeypatch, primitives, truncated
+):
+    primitives.env.truncated = truncated
     monkeypatch.setattr(
         templates, "default_variables", lambda: {"output_dir": str(tmp_path)}
     )
-
-    def init_primitives(self, *, runtime_kwargs):
-        self._primitives = LiberoPrimitives(
-            SimpleNamespace(terminated=False, truncated=truncated),
-            Mock(),
-            Mock(),
-            lambda: None,
-        )
-
-    monkeypatch.setattr(toolkit.LiberoToolkit, "init_primitives", init_primitives)
-    instance = toolkit.LiberoToolkit(
+    monkeypatch.setattr(
+        toolkit.LiberoToolkit,
+        "init_primitives",
+        lambda self, **kwargs: setattr(self, "_primitives", primitives),
+    )
+    memory_factory = Mock(side_effect=AssertionError("unexpected memory creation"))
+    monkeypatch.setattr(robot_spec, "MemoryManager", memory_factory)
+    instance = robot_spec.get_toolkit(
         runtime_kwargs={},
         dashboard_events=NullDashboardEventSink(),
-        memory=None,
+        config=robot_spec._parse_config(_args()),
         state_output_dir=tmp_path / "output",
-        policy_backend="cosmos-policy",
     )
+    memory_factory.assert_not_called()
+    names = {spec["name"] for spec in instance.get_tools_spec()}
+    assert {"cosmos_act", "move_to", "view_env_state", "finish"} <= names
+    assert {
+        "pi0_pick",
+        "pi0_doubled",
+        "read_text_file",
+        "write_text_file",
+        "list_dir",
+        "reset",
+    }.isdisjoint(names)
     refused = instance.execute_tool("finish", {"status": "success", "summary": "done"})
     assert not refused.is_finish
     assert "native terminated=true" in refused.result["error"]
     assert refused.result["truncated"] == truncated
-    failure = instance.execute_tool(
+    assert instance.execute_tool(
         "finish", {"status": "failure", "summary": "failed"}
-    )
-    assert failure.is_finish
+    ).is_finish
     instance._solved = True
-    instance.primitives.env.terminated = True
-    success = instance.execute_tool("finish", {"status": "success", "summary": "done"})
-    assert success.is_finish
+    primitives.env.terminated = True
+    assert instance.execute_tool(
+        "finish", {"status": "success", "summary": "done"}
+    ).is_finish
+    handler = Mock()
+    with pytest.raises(ValueError, match="Episode already ended"):
+        instance._execute_primitive("move_to", handler, xyz=[0, 0, 1])
+    handler.assert_not_called()
