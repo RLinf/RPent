@@ -1,9 +1,9 @@
 Flash Mode
 ==========
 
-**Flash 计划** 保存一个 LIBERO 任务的动作序列，并标出这些动作依赖的
-关键物体或位置。重放时，RPent 从相机画面中找到它们在当前场景里的坐标，更新动作
-坐标，然后按顺序执行计划中的动作。
+**Flash 计划** 保存一个 LIBERO 任务的动作序列，并标出这些动作依赖的关键物体\
+或位置。重放时，RPent 从相机画面中找到它们在当前场景里的坐标，更新动作坐标，\
+然后按顺序执行计划中的动作。
 
 整个过程可以概括为：
 
@@ -11,41 +11,38 @@ Flash Mode
 2. SAM3 或 Molmo 判断在当前场景中 **在哪里做**。
 3. LIBERO toolkit 在更新后的坐标上执行动作。
 
-因此，``--planner flash`` 不会调用 LLM 重新规划动作。Molmo 在这里只负责视觉
-定位：它在相机画面中指出指定的物体或位置，RPent 再将该像素转换成当前场景坐标。
+因此，``--planner flash`` 不会调用 LLM 重新规划动作。Molmo 在这里只负责视\
+觉定位：它在相机画面中指出指定的物体或位置，RPent 再将该像素转换成当前场景坐标。
 
 全系列 LIBERO-PRO 性能与执行时间
 --------------------------------
 
 在完整的 800-case LIBERO-PRO 矩阵（Spatial、Object、Goal 和 Long；
-task/swap；每个任务 10 个 seed）上，Flash Mode 成功 581 次（72.63%）。
-不使用 reasoning 的 Codex 成功 500 次（62.50%），high reasoning Codex
-成功 628 次（78.50%）。两个没有成功源轨迹、因而没有计划的任务
-按 0/10 保守计入。
+task/swap；每个任务 10 个 seed）上，Flash Mode 成功 581 次（72.63%）。\
+两个没有成功源轨迹、因而没有计划的任务按 0/10 保守计入。\
+八项分项成绩见 :doc:`评测成绩 <../leaderboard/performance>`。
 
-.. image:: https://github.com/RLinf/misc/raw/main/rpent/flash/flash_libero_pro_performance_time.png
-   :alt: Flash Mode 与 Codex 在 LIBERO-PRO 全系列上的逐任务成功率和执行时间对比
-   :width: 100%
-   :align: center
+:doc:`耗时与 Token 开销 <../leaderboard/time-token-costs>` 中，Flash Mode 的\
+平均每回合耗时为 60.19 秒，输出 token 为 0。平均耗时覆盖成功、失败和超时的评测回合；
+token 仅统计测试阶段输出。
 
-时间统计不包含模型及服务启动时间。Codex 时间是每个任务可用 planner 耗时记录的
-均值。Flash Mode 耗时采用每份最终计划对应成功 episode 的
-工具执行时间（每份计划一个耗时样本）。所有方法的成功率都使用完整 800-case 矩阵。
-两组 Codex baseline 均有完整的 800/800 planner 耗时记录。
+\* RPent Flash Mode 使用直接下载的、官方公开的 GPT-5.5 explore memory；
+Molmo2-8B 用于视觉定位。\
+该测试结果使用了 s0-s9 中表现最好的 seed。
 
 重放流程
 --------
 
-每份计划包含一组动作和一组锚点（anchor）。锚点表示与任务有关的物体或位置，
-例如需要抓取的物体、放置目标等。依赖锚点的动作记录的是相对锚点的偏移，而不只是
-某次场景中的绝对坐标。
+每份计划包含一组动作和一组锚点（anchor）。锚点表示与任务有关的物体或位置，\
+例如需要抓取的物体、放置目标等。依赖锚点的动作记录的是相对锚点的偏移，\
+而不只是某次场景中的绝对坐标。
 
 运行时，RPent 从计划中提取当前计划需要的锚点，并按照计划中记录的方式逐一定位：
 
 * **SAM3** 处理分割类型的锚点，返回物体掩膜及其位置。
 * **Molmo** 处理点定位类型的锚点，在相机画面中指出目标物体或位置。
 
-RPent 将实时锚点位置与计划保存的偏移组合成新的路点，再执行对应动作。因此，
+RPent 将实时锚点位置与计划保存的偏移组合成新的路点，再执行对应动作。因此，\
 即使物体在新布局中换了位置，同一份计划仍能使用当前场景的坐标执行。
 
 计划文件
@@ -53,15 +50,15 @@ RPent 将实时锚点位置与计划保存的偏移组合成新的路点，再�
 
 计划不随 Git 仓库提交，而是通过 Hugging Face 上的 `GPT-5.5 memory 目录
 <https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/libero/GPT_5.5_xhigh>`_
-分发。Flash 默认选择 ``--memory-version GPT_5.5_xhigh``，使用该版本的独立缓存。
+分发。Flash 默认选择 ``--memory-version GPT_5.5_xhigh``，使用该版本的独立缓存。\
 发布目录 ``GPT_5.5_xhigh/flash/`` 包含 78 对 plan/anchor 文件：Spatial 20 对、
 Object 20 对、Goal 19 对、Long 19 对。``goal_swap_t0`` 和 ``10_swap_t9``
-没有成功源计划，仍然缺失。文件正文与已合入的 Hugging Face Flash 发布版本一致；
+没有成功源计划，仍然缺失。文件正文与已合入的 Hugging Face Flash 发布版本一致；\
 将文件归入版本目录不代表重新进行了模拟器评测。
 
 使用 ``--memory-profile local --memory-dir /path/to/memory/libero/GPT_5.5_xhigh``
-时，从所选根目录下的 ``flash/`` 读取计划，不下载数据。本地生成的语料同样可以使用
-任意包含 ``flash/`` 的根目录。
+时，从所选根目录下的 ``flash/`` 读取计划，不下载数据。本地生成的语料同样可以使用\
+任意包含 ``flash/`` 的根目录。\
 缺少计划或锚点文件时会报错。
 Astra memory 没有重放资产，不能用于 Flash。详见 :ref:`Memory 管理 <memory-management>`。
 
@@ -90,14 +87,14 @@ audit 必须包含非空的 ``task_language``（或 ``perturbed_task_language``�
 ``libero_terminated: true``。audit 和 recipe 的文件名，以及 audit 中存在的
 suite/task/seed 字段，必须指向同一个 episode。
 
-如果 episode 保存了 ``segment_*.json`` 读数，可通过 ``--segments`` 指定目录；
-否则生成器会根据任务指令以及 recipe 中有序的抓取/释放或关节交互 transaction，
-生成供 Molmo 使用的语义锚点。附近的 ``move_to`` 和 ``move_pose`` 坐标会被保存成
+如果 episode 保存了 ``segment_*.json`` 读数，可通过 ``--segments`` 指定目录；\
+否则生成器会根据任务指令以及 recipe 中有序的抓取/释放或关节交互 transaction，\
+生成供 Molmo 使用的语义锚点。附近的 ``move_to`` 和 ``move_pose`` 坐标会被保存成\
 相对锚点的 XY offset，供 Flash replay 直接使用。
 
-关系解析覆盖 LIBERO-PRO 全部 80 个任务：Spatial、Object、Goal、Long（``10``）
-各自的 task 和 swap suite。Long 的 transaction 顺序会被保留，例如先打开炉灶再
-放置物体，或者先把物体放进设备再关闭设备。
+关系解析覆盖 LIBERO-PRO 全部 80 个任务：Spatial、Object、Goal、Long（``10``）各\
+自的 task 和 swap suite。Long 的 transaction 顺序会被保留，例如先打开炉灶再放\
+置物体，或者先把物体放进设备再关闭设备。
 
 如果只想手动下载计划，可以运行：
 
@@ -106,12 +103,13 @@ suite/task/seed 字段，必须指向同一个 episode。
    hf download RLinf/RPent-memory --repo-type dataset \
      --include "libero/GPT_5.5_xhigh/flash/**" --local-dir /path/to/download
 
-下载后指定 ``--memory-profile local --memory-dir /path/to/download/libero/GPT_5.5_xhigh``。
+下载后指定
+``--memory-profile local --memory-dir /path/to/download/libero/GPT_5.5_xhigh``。
 
 运行计划
 --------
 
-Flash Mode 仅用于评测，不能与 ``--explore`` 同用，执行 memory 中准备好的计划。
+Flash Mode 仅用于评测，不能与 ``--explore`` 同用，执行 memory 中准备好的计划。\
 先启动 Molmo 服务，再把服务地址传给 RPent：
 
 .. code-block:: bash

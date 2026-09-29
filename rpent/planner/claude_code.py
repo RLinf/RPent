@@ -41,10 +41,11 @@ from rpent.dashboard.events import (
     TranscriptEvent,
     UsageEvent,
 )
-from rpent.dashboard.interaction import DashboardInteractionPort
+from rpent.dashboard.interaction import DashboardInteractionPort, DashboardMessage
 from rpent.dashboard.planner_control import DashboardPlannerControl
 from rpent.planner.base import (
     REASONING_EFFORTS,
+    Planner,
     PlannerResult,
     add_mcp_prefix,
     strip_mcp_prefix,
@@ -62,7 +63,7 @@ _MAX_STREAM_BUFFER_BYTES = 8 * 1024 * 1024
 # ---------------------------------------------------------------------------
 
 
-class ClaudeCodePlanner:
+class ClaudeCodePlanner(Planner):
     """Planner backed by the Claude Agent SDK."""
 
     def __init__(
@@ -433,9 +434,9 @@ class _ClaudeSessionDriver:
             raise RuntimeError("Claude session is not connected")
         await self._client.query(text)
 
-    async def submit(self, text: str) -> int:
+    async def submit(self, message: DashboardMessage) -> int:
         """Submit Dashboard input as a new Claude query."""
-        await self.query(text)
+        await self.query(message.text)
         return 1
 
     async def interrupt(self) -> int:

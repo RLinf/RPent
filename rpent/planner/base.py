@@ -12,14 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Shared protocol for high-level reasoning backends."""
+"""Shared abstract base class for high-level reasoning backends."""
 
 from __future__ import annotations
 
 import os
 import queue
+from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING
 
 from rpent.dashboard.events import DashboardEventSink
 from rpent.dashboard.interaction import DashboardInteractionPort
@@ -79,7 +80,7 @@ class PlannerResult:
         self.error = error  # str | None  — set when the planner raises
 
 
-class Planner(Protocol):
+class Planner(ABC):
     """A planner selects or supplies the actions used to solve a task.
 
     It is given one system prompt, one initial user message, and a set of
@@ -87,6 +88,7 @@ class Planner(Protocol):
     finished or the turn budget is exhausted.
     """
 
+    @abstractmethod
     def solve(
         self,
         *,
@@ -114,7 +116,7 @@ class Planner(Protocol):
             ``PlannerResult`` with finish status, conversation transcript,
             token-usage stats, and optional error string.
         """
-        ...
+        raise NotImplementedError
 
 
 # ---------------------------------------------------------------------------
@@ -123,7 +125,7 @@ class Planner(Protocol):
 
 
 def build_api_model(model: str | None, base_url: str | None = None) -> "Model":
-    """Resolve the pydantic-ai model used by the ``api`` planner.
+    """Resolve the pydantic-ai model used by the API planner.
 
     This is the single provider-resolution path: both :func:`build_planner`
     and the connectivity check in :mod:`rpent.planner.check` call it, so a
@@ -185,7 +187,8 @@ def build_planner(
     claude_code_max_budget_usd: float | None = None,
     dashboard_events: DashboardEventSink,
     no_images: bool = False,
-):
+    interactive: bool = False,
+) -> Planner:
     """Build a planner for the given backend, resolving credentials from env vars."""
     # Imports are deferred to avoid a circular import: api_loop / claude_code /
     # codex all import from this module (PlannerResult).
@@ -204,6 +207,7 @@ def build_planner(
             dashboard_events=dashboard_events,
             no_images=no_images,
             timeout_s=api_timeout_s,
+            interactive=interactive,
         )
     if planner_type == "claude_code":
         from rpent.planner.claude_code import ClaudeCodePlanner

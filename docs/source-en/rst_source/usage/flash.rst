@@ -21,22 +21,19 @@ LIBERO-PRO performance and execution time
 -----------------------------------------
 
 Across the complete 800-case LIBERO-PRO matrix (Spatial, Object, Goal, and Long;
-task/swap; 10 seeds per task), Flash Mode solved 581 episodes (72.63%). Codex
-without reasoning solved 500 (62.50%), while Codex with high reasoning solved
-628 (78.50%). The two tasks without a successful source trace and therefore no
-Flash plan are conservatively counted as 0/10.
+task/swap; 10 seeds per task), Flash Mode solved 581 episodes (72.63%).
+The two tasks without a successful source trace and therefore no Flash plan
+are conservatively counted as 0/10. The eight suite scores are listed in
+:doc:`Performance <../leaderboard/performance>`.
 
-.. image:: https://github.com/RLinf/misc/raw/main/rpent/flash/flash_libero_pro_performance_time.png
-   :alt: Per-task success rate and execution-time comparison between Flash Mode and Codex on all LIBERO-PRO suites
-   :width: 100%
-   :align: center
+The :doc:`Time & Token Costs <../leaderboard/time-token-costs>` table reports
+60.19 seconds per evaluation episode and 0 output tokens for Flash Mode.
+The mean covers successful, failed, and timed-out evaluation episodes; tokens
+refer to evaluation-stage output only.
 
-The timing excludes model and service startup. Codex time is the mean planner
-execution time over available records for each task. Flash Mode timing uses the
-tool-execution time from the successful episode underlying each final plan
-(one timing sample per plan). Success rates use the complete 800-case matrix for
-every method. Both Codex baselines have planner duration records for all 800
-cases.
+\* RPent Flash Mode uses directly downloaded, officially released GPT-5.5
+exploration memory; Molmo2-8B is used for visual localization.
+These results use the best-performing seed from s0-s9.
 
 How replay works
 ----------------
