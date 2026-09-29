@@ -23,6 +23,8 @@ VLA 配置
 
    export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
 
+.. _cosmos-policy:
+
 Cosmos Policy（实验性）
 ----------------------------------------
 
@@ -52,6 +54,9 @@ CUDA 12.8 / Python 3.10 环境启动服务：
 默认下载 ``nvidia/Cosmos-Policy-LIBERO-Predict2-2B``、对应的数据集统计量和
 T5 指令嵌入。指定本地 ``--checkpoint`` 后，默认读取权重旁的数据集统计量和
 文本嵌入；可用 ``--dataset-stats`` 和 ``--text-embeddings`` 覆盖路径。
+``--checkpoint`` 可指向本地权重文件，或包含
+``Cosmos-Policy-LIBERO-Predict2-2B.pt`` 的目录。两个配套文件的默认名称为
+``libero_dataset_statistics.json`` 和 ``libero_t5_embeddings.pkl``。
 从 Cosmos 仓库目录运行，以便解析其配置和 tokenizer
 的相对路径。启动前，请在 Hugging Face 获得
 ``nvidia/Cosmos-Predict2-2B-Video2World`` 的访问权限，并在服务环境中登录；
@@ -89,6 +94,10 @@ SAM3。Cosmos 运行不需要 Pi0.5 checkpoint：
 指定 ``--cuda-device`` 时也使用该 GPU；RPent 不负责安装依赖，也不假设 CUDA
 目录。启动失败或会话退出时会清理托管进程，外部进程仍由操作者管理。
 ``--wam-backend cosmos`` 是 ``cosmos-policy`` 的别名。
+``--wam-checkpoint`` 必须是本地文件或目录，不能使用 Hugging Face 仓库 ID。
+``--wam-predict-future``、``--wam-cached-instructions-only`` 和
+``--wam-text-embeddings`` 只适用于此托管模式；外部服务应在启动时配置对应的\
+服务端选项。
 
 ``cosmos_act(max_chunks=1)`` 替代 ``pi0_pick`` 和 ``pi0_doubled``，自动使用
 环境的完整任务描述。每次预测执行 16 个原生 LIBERO 动作，各动作块之间重新
@@ -142,10 +151,12 @@ checkpoint 仍仅支持 LIBERO；环境接线及 ``cosmos_act`` 保留在
 ``python -m rpent.robots.components.cosmos_policy_server``，原有的
 ``robots/libero/cosmos_policy_server.py`` 入口已移除。
 CLI 和 Dashboard 区分 ``--vla-backend pi05`` 与 ``--wam-backend cosmos-policy``，
-Dashboard 中对应显示 VLA 或 WAM。两者复用公共策略预测和运行时生命周期代码。
+Dashboard 中对应显示 VLA 或 WAM。两者复用 LIBERO 动作执行及 RPC/运行时\
+生命周期辅助函数，预测协议分别由 ``vla_*_base.py`` 和
+``action_model_*_base.py`` 维护。
 模型选择位于 ``robots/libero/policy.py``；任务集名称及环境自动选择逻辑位于
 ``robots/libero/suites.py``。
-公共策略机制、机器人工具和 benchmark 代码的职责划分见 :ref:`action-model-layers`。
+模型协议、机器人工具和 benchmark 代码的职责划分见 :ref:`action-model-layers`。
 
 更新已有 Cosmos 部署时，将 ``--vla-backend``、``--vla-endpoint`` 分别改为
 ``--wam-backend``、``--wam-endpoint``，并用与客户端相同版本的代码重启服务：
@@ -173,10 +184,11 @@ Cosmos 使用 ``action_model.capabilities`` 和 ``action_model.predict``，与�
    RPENT_COSMOS_ENDPOINT=http://127.0.0.1:8116 CUDA_VISIBLE_DEVICES=1 \
      pytest tests/e2e_tests/libero/test_cosmos_policy.py -v
 
-测试需要真实 LIBERO 资源；完整链路还需要 SAM3，子任务指令用例需要上述 T5
-编码器权重。链路通过说明动作执行和产物记录正常，不代表任务成功。
-设置 ``RPENT_COSMOS_SUITE=libero_spatial_task`` 或支持的 swap 任务集，
-并配置 Pro 资源路径，即可在 Pro 上执行相同检查。
+测试需要真实 LIBERO 资源；完整链路还需要 SAM3。子任务指令需有已缓存的文本\
+向量，或准备上述 T5 编码器权重。链路通过说明动作执行和产物记录正常，不代表\
+任务成功。在 Pro 上需安装 ``.[test,libero-pro]``，设置
+``RPENT_COSMOS_SUITE=libero_spatial_task``（或公共目录中的其他 Pro 任务集），\
+并配置 Pro 资源路径，即可执行相同检查。
 
 如需单独测量策略性能，准备运行中的服务和标准 LIBERO 资源后，在 RPent
 仓库目录执行：
@@ -190,7 +202,8 @@ Cosmos 使用 ``action_model.capabilities`` 和 ``action_model.predict``，与�
 脚本使用固定的真实观测预热 5 次，再测量 100 次串行 RPC；随后评测 Spatial
 全部 10 个任务，每任务使用初始状态 0、1、2，每回合最多执行 220 个策略动作。
 ``results.json`` 保存原始耗时、延迟分位数和每个回合的结果，包括异常。
-RPC 耗时包含传输与推理，不含仿真步进；每次预测生成 16 个动作。
+RPC 耗时包含客户端数据适配、传输与推理，不含观测获取和仿真步进；每次预测\
+生成 16 个动作。
 成功与否由仿真器的原生终止信号判断，评测不使用 LLM 规划器或 SAM3。
 这 30 个回合属于小规模集成评测，并非论文基准复现。RPent 使用 RLinf 的
 重置逻辑和当前安装的 LIBERO/robosuite 版本；报告结果时，应一并记录这些
@@ -201,8 +214,10 @@ RPC 耗时包含传输与推理，不含仿真步进；每次预测生成 16 个
 Spatial 220、Object 280、Goal 300、Long 520，Pro 对应变体沿用相同预算。
 例如 ``--suite libero_spatial_task --seeds 0 --warmup 0 --samples 0``
 会测试该任务集全部十个任务的初始状态 0，并跳过独立延迟测量。
-脚本保存首尾相机画面、每次 RPC 耗时、不含启动时间的控制循环耗时，以及
-包含启动时间的回合总耗时。纯策略评测没有 LLM 输出，``total_output_tokens`` 为零。
+脚本保存首尾相机画面和每次 RPC 耗时。``control_seconds`` 记录动作循环耗时；
+``wall_seconds_including_startup`` 包含运行时初始化、场景截图、动作循环和清理。\
+模型服务在评测前已启动，因此两项指标都不包含模型服务启动及权重加载时间。\
+纯策略评测没有 LLM 输出，``total_output_tokens`` 为零。
 与 ``cosmos_act`` 不同，此 runner 将预测动作逐个执行，在原生成功或达到动作上限时
 立即停止，包括在 16 个动作的预测块内部停止。其成功率和动作数采用这一更严格的
 评测协议。

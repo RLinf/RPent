@@ -45,6 +45,12 @@
      - 校验参数并返回 ``RunConfig``；``recipe_tag``、``output_dir``、\
        ``prompt_vars``
        三项需由你正确填写（供 prompt 模板插值）。
+   * - ``validate_args``
+     - 可选参数校验钩子，在 CLI 或 Dashboard 启动服务前调用。
+   * - ``prepare_memory``
+     - 可选的任务级 Memory 准备钩子，在构建提示词及启动任务服务前调用。\
+       按需同步并设置 ``config.prompt_vars["memory_dir"]``；未提供钩子的机器人\
+       使用共享的 HF/local 准备逻辑。
    * - ``init_runtime``
      - 启动或连接全部 runtime components，或只处理指定名称的子集，并构造对应的
        ``runtime_kwargs``。普通 CLI 传 ``None``；Dashboard 从 spec 得到显式声明\

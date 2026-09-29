@@ -57,8 +57,8 @@ A single run is an LLM-in-the-loop cycle:
 
 1. The LLM reasons about the task and calls a tool
    (e.g. ``pi0_pick``).
-2. The tool's primitives requests an action from the ``vla_server``
-   (``predict``).
+2. A model-based primitive requests an action chunk from the selected VLA or
+   WAM service; a scripted primitive computes actions directly.
 3. The ``env_server`` executes the action.
 4. The environment returns updated observations and camera frames.
 5. The results are assembled into text and image context and returned
@@ -81,13 +81,14 @@ The framework code is organized by responsibility:
      prompt/         # Prompt utilities and shared prompt sections.
      dashboard/      # FastAPI monitor + SSE streams (optional).
      robots/         # RobotSpec, PromptBundle, and on-demand robot loading.
-       components/   # Shared Env/policy RPC bases and model adapters.
+       components/   # Env, VLA and ActionModel protocol bases and model adapters.
      tools/          # Toolkit base class and shared tool helpers.
      utils/          # Config, logging, and RPC transports.
    robots/
      libero/         # Environment, policy selection, suites, tools, and prompts.
      robocasa/       # RoboCasa robot (RLDX-1 VLA, kitchen tasks).
-     (franka/)       # Franka robot — in progress.
+     franka/         # Single-arm Franka integration.
+     dual_franka/    # Dual-arm Franka integration.
      (so101/)        # SO-101 robot — in progress.
    scripts/
      codex_proxy/    # LiteLLM proxy for the codex planner.
@@ -184,7 +185,9 @@ components required for a run. On startup, it:
    ``output_dir`` / ``prompt_vars`` / ``task_desc``).
 6. Calls ``init_output_dir`` to create the run's output directory and
    configure ``run.log``.
-7. Builds the **planner** through ``rpent.planner.base.build_planner`` based
+7. Prepares per-task Memory through ``prepare_run_memory`` and the robot's
+   optional ``prepare_memory`` hook, then builds the **planner** through
+   ``rpent.planner.base.build_planner`` based
    on ``--planner``, then renders the system and user prompts from the robot's
    prompt bundle.
 8. Calls ``robot_spec.init_runtime(args, output_dir, dashboard_events, None)``. The
@@ -192,7 +195,7 @@ components required for a run. On startup, it:
    required by that environment, such as ``env_server``, ``vla_server``, and
    optional supporting services (for example, LIBERO's ``sam3_server`` for
    segmentation), and returns ``(daemons, runtime_kwargs)``.
-9. Passes ``runtime_kwargs`` and a ``dashboard_events`` sink to the robot's
+9. Passes ``runtime_kwargs``, ``config`` and a ``dashboard_events`` sink to the robot's
    ``get_toolkit`` factory to construct the **toolkit**. The one-shot path
    uses a no-op event sink.
 10. Runs the tool-calling loop, then writes
@@ -217,28 +220,27 @@ two factories exposed by that package:
    # robots/myrobot/__init__.py
    def get_robot_spec() -> RobotSpec: ...  # identity, prompt bundle, and runner hooks
    def get_toolkit(
-       *, runtime_kwargs, dashboard_events
+       *, runtime_kwargs, dashboard_events, config
    ): ...
 
 ``RobotSpec`` gathers the robot's identity, prompt templates, optional
-Dashboard description, and three runner hooks (``add_cli_args`` /
-``parse_config`` / ``init_runtime``). See :doc:`interfaces` for what each
-field must provide.
+Dashboard description, and runner hooks such as ``add_cli_args``,
+``parse_config``, ``init_runtime`` and ``prepare_memory``. See :doc:`interfaces`
+for what each field must provide.
 
-The loader itself does not maintain a list of robot names. The
-current CLI restricts ``--robot`` to ``libero`` and ``robocasa``; adding a
-new name therefore also requires updating the CLI choices. See
-:doc:`add_robot` for the complete procedure.
+The CLI obtains ``--robot`` choices from package discovery; adding a robot
+package does not require editing a central list. See :doc:`add_robot` for the
+complete procedure.
 
 Planner, Toolkit, and RPC transports
 -------------------------------------
 
 These three layers stay decoupled, each owning one segment of the path. The
 planner only pulls the tool list via ``get_tools_spec`` and invokes tools with
-``execute_tool``, indifferent to whether a tool is scripted or a VLA. The
+``execute_tool``, indifferent to whether a tool is scripted or model-based. The
 toolkit translates each tool call into a primitive call, and the primitives
-issues ``reset`` / ``step`` / ``predict`` requests to ``env_server`` /
-``vla_server`` over RPC. The RPC transport (HTTP or socket) only ferries those
+issue environment and model requests over RPC. The selected model client owns
+the VLA or ActionModel protocol. The RPC transport (HTTP or socket) only ferries those
 calls and their NumPy observations across processes, transparent to the layers
 above. That is why swapping the planner leaves the tools untouched, and
 swapping the transport leaves the planner untouched. The concrete interface
@@ -257,8 +259,9 @@ component names.
 The robot provides a static ``robot_spec.dashboard`` or a
 ``resolve_dashboard(args)`` hook; the hook takes precedence when present.
 The resolved descriptor defines the task
-command and fields, runtime components, and frame channels exposed by the
-frontend. The Session controller waits for that robot-defined command
+command and fields, runtime components, and primitive allowlist.
+Camera images come from recorded step artifacts.
+The Session controller waits for that robot-defined command
 (``/rpent-task`` for LIBERO). For every claimed TaskRun, the Dashboard calls
 ``parse_config`` and the same ``robot_spec.init_runtime`` hook with the unique
 component names, merges the shared and unique

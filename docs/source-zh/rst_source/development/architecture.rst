@@ -46,7 +46,7 @@ LLM-in-the-loop 运行流程
 一次运行就是一段 LLM-in-the-loop 循环：
 
 1. LLM 分析任务、调一个工具 (如 ``pi0_pick``)。
-2. 工具的底层 primitives 向 ``vla_server`` 请求动作 (``predict``)。
+2. 模型原语向所选 VLA 或 WAM 服务请求动作块；脚本原语直接计算动作。
 3. ``env_server`` 执行动作。
 4. 环境返回更新后的观测数据和相机画面。
 5. 执行结果会整理成由文本和图像组成的上下文，返回给 LLM 进行下一轮推理。
@@ -67,13 +67,14 @@ LLM-in-the-loop 运行流程
      prompt/         # 提示词工具和共享提示词片段。
      dashboard/      # FastAPI 监控页面和 SSE 事件流（可选）。
      robots/         # RobotSpec、PromptBundle 和按需加载机器人的逻辑。
-       components/   # 公共 Env/policy RPC 基类和模型适配器。
+       components/   # Env、VLA、ActionModel 协议基类和模型适配器。
      tools/          # Toolkit 基类和共享 tool 辅助函数。
      utils/          # 配置、日志和 RPC 传输。
    robots/
      libero/         # 环境、策略选择、任务集、工具与提示词。
      robocasa/       # RoboCasa 机器人 (RLDX-1 VLA，厨房任务)。
-     (franka/)       # Franka 机器人——研发中。
+     franka/         # 单臂 Franka 接入。
+     dual_franka/    # 双臂 Franka 接入。
      (so101/)        # SO-101 机器人——研发中。
    scripts/
      codex_proxy/    # Codex planner 用的 LiteLLM 代理。
@@ -155,7 +156,8 @@ Runner (``rpent/cli/main.py``)
    :class:`~rpent.robots.RunConfig`，其中包含 ``recipe_tag``、``output_dir``、
    ``prompt_vars`` 和 ``task_desc``。
 6. 调用 ``init_output_dir`` 创建本次运行的输出目录，并配置 ``run.log``。
-7. 根据 ``--planner`` 调用 ``rpent.planner.base.build_planner`` 构造
+7. 通过 ``prepare_run_memory`` 及机器人的可选 ``prepare_memory`` 钩子准备\
+   当前任务的 Memory，再根据 ``--planner`` 调用 ``rpent.planner.base.build_planner`` 构造
    **planner**，并使用机器人提供的 prompt bundle 生成 system prompt 和
    user prompt。
 8. 调用 ``robot_spec.init_runtime(args, output_dir, dashboard_events, None)``。\
@@ -163,9 +165,9 @@ Runner (``rpent/cli/main.py``)
    ``vla_server``，以及可选的辅助服务（如 LIBERO 用于分割的 ``sam3_server``），\
    并返回
    ``(daemons, runtime_kwargs)``。
-9. 将 ``runtime_kwargs`` 和 ``dashboard_events`` 事件接收器传给机器人的
-   ``get_toolkit`` 工厂，构造 **toolkit**。一次性运行链路使用不执行任何操作的事\
-   件接收器。
+9. 将 ``runtime_kwargs``、``config`` 和 ``dashboard_events`` 事件接收器传给机器人的
+   ``get_toolkit`` 工厂，构造 **toolkit**。一次性运行链路使用不执行任何操作的\
+   事件接收器。
 10. 执行工具调用循环。循环结束后保存
     ``<output_dir>/transcript_*.json``，并在清理 toolkit 时完成回合录像等收\
     尾工作。
@@ -186,27 +188,26 @@ planner 后端集中在 ``rpent/planner/``，因此 ``main.py`` 不直接导入�
    # robots/myrobot/__init__.py
    def get_robot_spec() -> RobotSpec: ...  # 机器人标识、提示词模板与 Runner 钩子
    def get_toolkit(
-       *, runtime_kwargs, dashboard_events
+       *, runtime_kwargs, dashboard_events, config
    ): ...
 
-``RobotSpec`` 汇集了机器人标识、prompt 模板、可选的 Dashboard 描述与三个 Runner
-钩子（``add_cli_args`` / ``parse_config`` / ``init_runtime``）。各字段要填什么见
-:doc:`interfaces`。
+``RobotSpec`` 汇集了机器人标识、prompt 模板、可选的 Dashboard 描述与 Runner
+钩子，如 ``add_cli_args``、``parse_config``、``init_runtime`` 和
+``prepare_memory``。各字段要填什么见 :doc:`interfaces`。
 
-加载器本身不维护机器人名称列表。当前 CLI 将 ``--robot`` 限定为 ``libero``
-和 ``robocasa``；接入新的机器人名称时，还需要同步更新 CLI 的可选值。完整步骤见
-:doc:`add_robot`。
+CLI 通过包发现机制生成 ``--robot`` 的可选值；新增机器人包无需修改集中维护的\
+名称列表。完整步骤见 :doc:`add_robot`。
 
 Planner、Toolkit 与 RPC 传输层
 ------------------------------
 
 这三层各管一段、层层解耦。planner 只通过 ``get_tools_spec`` 拿到工具清单、\
-用 ``execute_tool`` 逐个调用，并不关心工具背后是脚本还是 VLA；
+用 ``execute_tool`` 逐个调用，并不关心工具背后是脚本还是模型；
 toolkit 把每次工具调用翻译成对 primitive 的调用，再由 primitives
-经 RPC 向 ``env_server`` / ``vla_server`` 发起 ``reset`` / ``step`` /
-``predict`` 请求；RPC 传输层（HTTP 或 socket）只负责把这些调用和 NumPy
-观测在进程间搬运，对上层透明。正因如此，换 planner 不影响工具，换传输协议也不影\
-响 planner。三者的具体接口契约（``Planner.solve``、
+经 RPC 发起环境和模型请求，所选模型客户端负责 VLA 或 ActionModel 协议；
+RPC 传输层（HTTP 或 socket）只负责把这些调用和 NumPy
+观测在进程间搬运，对上层透明。正因如此，换 planner 不影响工具，\
+换传输协议也不影响 planner。三者的具体接口契约（``Planner.solve``、
 ``Toolkit.add_tool``、``RpcFacade._dispatch``）集中在 :doc:`interfaces`。
 
 Dashboard（可选）
@@ -218,7 +219,8 @@ Dashboard（可选）
 命令行，然后用共享 component 名称调用一次 ``robot_spec.init_runtime``。
 机器人提供静态的 ``robot_spec.dashboard`` 或 ``resolve_dashboard(args)`` 钩子；
 提供钩子时优先使用其返回结果。解析后的描述定义
-前端使用的任务命令与字段、runtime components 和 frame channels。Session
+前端使用的任务命令与字段、runtime components 和原语白名单。相机图像来自\
+已记录步骤的产物。Session
 controller 随后等待该环境定义的命令（LIBERO 使用 ``/rpent-task``）；每次取得一个
 TaskRun 后，Dashboard 会调用 ``parse_config``，再用 unique component 名称调用同\
 一个 ``robot_spec.init_runtime``，合并 shared 与 unique primitive 参数，\

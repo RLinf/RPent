@@ -68,6 +68,7 @@ Feature Matrix
 
        - **WAM**
 
+         - :ref:`Cosmos Policy <cosmos-policy>` (experimental LIBERO adapter)
          - DreamZero
      - - :doc:`LIBERO-PRO <usage/libero>` ✅
        - :doc:`RoboCasa <usage/robocasa>` ✅

@@ -24,6 +24,8 @@ then point at it via ``PI05_CHECKPOINT_PATH``:
 
    export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
 
+.. _cosmos-policy:
+
 Cosmos Policy (experimental)
 ----------------------------------------
 
@@ -58,6 +60,9 @@ The defaults download ``nvidia/Cosmos-Policy-LIBERO-Predict2-2B``, its
 dataset statistics and T5 instruction embeddings. For local files, provide
 ``--checkpoint``; statistics and embeddings default to files beside the weights.
 Use ``--dataset-stats`` and ``--text-embeddings`` to override those paths.
+``--checkpoint`` accepts a local weights file or a directory containing
+``Cosmos-Policy-LIBERO-Predict2-2B.pt``. The default companion filenames are
+``libero_dataset_statistics.json`` and ``libero_t5_embeddings.pkl``.
 Run from the Cosmos checkout so its relative configuration and tokenizer
 paths resolve. Before starting, obtain Hugging Face access to
 ``nvidia/Cosmos-Predict2-2B-Video2World`` and authenticate the worker environment;
@@ -98,6 +103,10 @@ inherits CUDA/cache/library settings and uses RPent's ``--cuda-device`` when
 specified; RPent does not install its dependencies or assume a CUDA directory.
 Startup failures and session shutdown stop owned workers; external endpoints
 remain operator-owned. ``--wam-backend cosmos`` is an alias for ``cosmos-policy``.
+``--wam-checkpoint`` must be a local file or directory, not a Hugging Face repo
+ID. ``--wam-predict-future``, ``--wam-cached-instructions-only`` and
+``--wam-text-embeddings`` require this owned-worker mode; configure external
+workers with the corresponding server options when starting them.
 
 ``cosmos_act(max_chunks=1)`` replaces ``pi0_pick`` and ``pi0_doubled``. It
 uses the environment's full task language and executes 16 native LIBERO
@@ -167,11 +176,13 @@ wiring and ``cosmos_act`` remain in ``robots/libero/``. Start the worker with
 ``robots/libero/cosmos_policy_server.py`` entry point has been removed.
 The CLI and Dashboard distinguish ``--vla-backend pi05`` from
 ``--wam-backend cosmos-policy``; the Dashboard labels the component VLA or WAM.
-Both reuse shared policy prediction and runtime lifecycle code. Model selection
+They share LIBERO action execution and RPC/runtime lifecycle helpers, while
+``vla_*_base.py`` and ``action_model_*_base.py`` own distinct prediction protocols.
+Model selection
 lives in ``robots/libero/policy.py``; task names and automatic environment
 routing live in ``robots/libero/suites.py``.
 See :ref:`action-model-layers` for the ownership map and the distinction between
-shared policy infrastructure, robot tools and benchmark code.
+model protocols, robot tools and benchmark code.
 
 When updating an earlier Cosmos deployment, replace ``--vla-backend`` and
 ``--vla-endpoint`` with ``--wam-backend`` and ``--wam-endpoint``. Restart the
@@ -205,11 +216,12 @@ planner, install ``.[test,libero]`` and run:
    RPENT_COSMOS_ENDPOINT=http://127.0.0.1:8116 CUDA_VISIBLE_DEVICES=1 \
      pytest tests/e2e_tests/libero/test_cosmos_policy.py -v
 
-These checks require real LIBERO assets and, for the complete chain, SAM3 and
-the T5 encoder weights for the subtask instruction case.
+These checks require real LIBERO assets and, for the complete chain, SAM3.
+The subtask instruction needs either a cached embedding or the T5 encoder weights.
 A passing chain verifies action execution and artifacts, not task success.
-Set ``RPENT_COSMOS_SUITE=libero_spatial_task`` (or a supported swap suite) and
-the Pro resource configuration to run the same checks on Pro.
+For Pro, install ``.[test,libero-pro]``, set
+``RPENT_COSMOS_SUITE=libero_spatial_task`` (or another Pro suite from the shared
+catalog), and configure the Pro resources to run the same checks.
 
 To measure policy performance separately, run from the RPent checkout with
 a running worker and standard LIBERO assets:
@@ -224,7 +236,8 @@ The runner measures 100 sequential RPC calls after five warm-up calls on a
 fixed real observation, then evaluates all ten Spatial tasks with initial
 states 0, 1 and 2, capped at 220 policy actions per episode. ``results.json``
 contains raw timings, percentiles and every episode outcome, including errors.
-RPC timing includes transport and inference, but excludes simulator steps;
+RPC timing includes client adaptation, transport and inference, but excludes
+observation acquisition and simulator steps;
 each prediction produces 16 actions. Success comes from native simulator
 termination. This evaluates the policy without an LLM planner or SAM3.
 These 30 episodes are a small integration evaluation, not a reproduction of
@@ -239,8 +252,11 @@ action budgets are Spatial 220, Object 280, Goal 300 and Long 520, including
 their Pro variants. For example, ``--suite libero_spatial_task --seeds 0
 --warmup 0 --samples 0`` evaluates its ten tasks from initial state 0 without
 a separate latency probe. It saves initial/final camera images, per-call RPC
-times, control-loop time excluding startup, and total episode time including
-startup. There is no LLM output, so ``total_output_tokens`` is zero.
+times, ``control_seconds`` for the action loop, and
+``wall_seconds_including_startup`` for runtime setup, scene capture, the loop
+and cleanup. The model worker is already running, so its startup/model-loading
+time is excluded from both measurements. There is no LLM output, so
+``total_output_tokens`` is zero.
 Unlike ``cosmos_act``, this runner executes predictions one action at a time,
 stopping immediately on native success or the action limit, including within a
 16-action prediction. Its success rates and action counts use that stricter

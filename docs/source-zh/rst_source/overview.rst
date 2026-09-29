@@ -65,6 +65,7 @@ infrastructure for the physical world) —— 在这里,
 
        - **WAM**
 
+         - :ref:`Cosmos Policy <cosmos-policy>`（实验性 LIBERO 接入）
          - DreamZero
      - - :doc:`LIBERO-PRO <usage/libero>` ✅
        - :doc:`RoboCasa <usage/robocasa>` ✅

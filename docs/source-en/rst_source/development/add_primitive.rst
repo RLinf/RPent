@@ -151,7 +151,7 @@ primitive requires a few additional components:
 
    .. code-block:: python
 
-      def get_toolkit(*, runtime_kwargs, dashboard_events):
+      def get_toolkit(*, runtime_kwargs, dashboard_events, config):
           from robots.myrobot.toolkit import MyRobotToolkit
           return MyRobotToolkit(
               runtime_kwargs=runtime_kwargs,
@@ -183,9 +183,9 @@ http://wam-host:8116 --memory-profile local``. VLA and WAM options are mutually
 exclusive. Both categories reuse the same readiness and owned-process cleanup
 helpers; an externally started model worker remains owned by its operator.
 
-If the model keeps per-episode state, expose a ``vla_reset`` RPC and
-call it between tasks. The same server process can then be reused safely
-across sequential runs.
+If the model keeps per-episode state, expose a reset RPC and call it between
+tasks. RoboCasa uses ``vla.reset_session`` for this purpose. The same server
+process can then be reused safely across sequential runs.
 
 Session-aware VLA backends (per-client policy state)
 ----------------------------------------------------

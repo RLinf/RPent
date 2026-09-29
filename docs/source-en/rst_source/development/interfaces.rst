@@ -45,6 +45,12 @@ functions implemented in ``robot_spec.py`` for ``main.py`` to call:
    * - ``parse_config``
      - Validate args and return ``RunConfig``; set at least ``recipe_tag``,
        ``output_dir``, and ``prompt_vars`` for prompt templating.
+   * - ``validate_args``
+     - Optional argument validation before CLI or Dashboard services start.
+   * - ``prepare_memory``
+     - Optional per-task Memory preparation, before prompts and task services.
+       Own synchronization and set ``config.prompt_vars["memory_dir"]`` when
+       needed. Robots without this hook use the shared HF/local preparation.
    * - ``init_runtime``
      - Start or attach to all runtime components, or to the component names in
        the optional selection, and build ``runtime_kwargs`` for them. The

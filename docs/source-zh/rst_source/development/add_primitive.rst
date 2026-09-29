@@ -137,7 +137,7 @@ primitives 方法，以及调用完成后的状态快照。区别仅在于方法
 
    .. code-block:: python
 
-      def get_toolkit(*, runtime_kwargs, dashboard_events):
+      def get_toolkit(*, runtime_kwargs, dashboard_events, config):
           from robots.myrobot.toolkit import MyRobotToolkit
           return MyRobotToolkit(
               runtime_kwargs=runtime_kwargs,
@@ -166,8 +166,9 @@ Cosmos 使用 LIBERO 提供的 ``--wam-backend cosmos-policy --wam-endpoint
 http://wam-host:8116 --memory-profile local``。VLA 与 WAM 参数互斥，
 两类模型共用就绪检查和自有进程清理机制；外部启动的模型服务仍由部署者管理。
 
-如果模型会保存每个回合的内部状态，应提供 ``vla_reset`` RPC，并在任务之间
-调用它完成重置。这样，同一个服务进程就能安全地复用于多次连续运行。
+如果模型会保存每个回合的内部状态，应提供重置 RPC，并在任务之间调用它。
+RoboCasa 为此使用 ``vla.reset_session``。这样，同一个服务进程就能安全地\
+复用于多次连续运行。
 
 带会话状态的 VLA 后端（按客户端隔离策略状态）
 ------------------------------------------------
