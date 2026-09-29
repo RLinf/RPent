@@ -21,12 +21,12 @@ import numpy as np
 
 from rpent.robots.components.cosmos_policy_client import CosmosPolicyClient
 from rpent.robots.components.cosmos_policy_server import CosmosPolicyFacade
-from rpent.robots.components.vla_facade_base import BaseVLAFacade
+from rpent.robots.components.policy_facade_base import BasePolicyFacade
 
 
 def test_cosmos_policy_roundtrip(transport, make_server_and_client) -> None:
     facade = CosmosPolicyFacade.__new__(CosmosPolicyFacade)
-    BaseVLAFacade.__init__(facade)
+    BasePolicyFacade.__init__(facade)
     facade._cfg = SimpleNamespace(seed=1, num_denoising_steps_action=5)
     facade._model = facade._dataset_stats = None
     facade._get_action = Mock(return_value={"actions": np.zeros((16, 7))})

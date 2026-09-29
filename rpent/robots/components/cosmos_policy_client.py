@@ -18,13 +18,14 @@ from __future__ import annotations
 
 import numpy as np
 
-from rpent.robots.components.vla_client_base import BaseVLAClient
+from rpent.robots.components.policy_client_base import BasePolicyClient
 
 
-class CosmosPolicyClient(BaseVLAClient):
+class CosmosPolicyClient(BasePolicyClient):
     """Send raw robosuite observations and receive native LIBERO actions."""
 
-    _TIMEOUT_S = {**BaseVLAClient._TIMEOUT_S, "predict": 300.0}
+    PREDICT_METHOD = "wam.predict"
+    _TIMEOUT_S = {**BasePolicyClient._TIMEOUT_S, "predict": 300.0}
 
     def predict(self, env_obs: dict, options: dict | None = None) -> np.ndarray:
         """Send only policy inputs; reject malformed actions before execution."""

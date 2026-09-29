@@ -25,7 +25,8 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 
-from robots.libero import robot_spec, toolkit
+from robots.libero import policy, robot_spec, toolkit
+from robots.libero.suites import LIBERO_SUITE_NAMES, suite_variant
 from robots.libero.tools import LiberoPrimitives
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory import MemoryManager
@@ -34,7 +35,7 @@ from rpent.robots.components.cosmos_policy_server import (
     CosmosPolicyFacade,
     prepare_observation,
 )
-from rpent.robots.components.vla_facade_base import BaseVLAFacade
+from rpent.robots.components.policy_facade_base import BasePolicyFacade
 from rpent.utils import templates
 
 
@@ -66,9 +67,9 @@ def _args(*extra: str) -> argparse.Namespace:
             "libero_spatial",
             "--task",
             "0",
-            "--vla-backend",
+            "--wam-backend",
             "cosmos-policy",
-            "--vla-endpoint",
+            "--wam-endpoint",
             "http://127.0.0.1:8116",
             *extra,
         ]
@@ -103,7 +104,7 @@ def test_invalid_policy_inputs_fail_before_inference(key, value) -> None:
 
 def _facade() -> CosmosPolicyFacade:
     facade = CosmosPolicyFacade.__new__(CosmosPolicyFacade)
-    BaseVLAFacade.__init__(facade)
+    BasePolicyFacade.__init__(facade)
     facade._cfg = SimpleNamespace(seed=7, num_denoising_steps_action=5)
     facade._model = object()
     facade._dataset_stats = object()
@@ -143,7 +144,7 @@ def test_client_sends_only_required_raw_fields() -> None:
     client = CosmosPolicyClient(rpc)
     client.predict({**_raw_obs(), "segmentation": object()}, {"mode": "eval"})
     args, kwargs = rpc.call.call_args
-    assert args == ("vla.predict",)
+    assert args == ("wam.predict",)
     assert "segmentation" not in kwargs["args"][0]
     assert kwargs["timeout_s"] == 300.0
 
@@ -156,7 +157,7 @@ def test_cosmos_config_renders_observation_only_prompts() -> None:
     assert args.memory_profile == "local"
     assert "memory_dir" not in config.prompt_vars
     assert "memory_inbox" not in config.prompt_vars
-    assert config.task_desc["vla_backend"] == "cosmos-policy"
+    assert config.task_desc["policy_backend"] == "cosmos-policy"
     for variant in ("system", "user"):
         rendered = spec.prompts.render(
             variant,
@@ -183,7 +184,7 @@ def test_public_cli_cosmos_requires_skipping_hf_sync(
     def capture_config(args):
         config = spec.parse_config(args)
         assert args.memory_profile == "local"
-        assert config.task_desc["vla_backend"] == "cosmos-policy"
+        assert config.task_desc["policy_backend"] == "cosmos-policy"
         raise ConfigCaptured
 
     monkeypatch.setattr(
@@ -197,9 +198,9 @@ def test_public_cli_cosmos_requires_skipping_hf_sync(
         "libero_spatial",
         "--task",
         "0",
-        "--vla-backend",
+        "--wam-backend",
         "cosmos-policy",
-        "--vla-endpoint",
+        "--wam-endpoint",
         "http://127.0.0.1:8116",
         "--output-dir",
         str(tmp_path),
@@ -222,8 +223,7 @@ def test_public_cli_cosmos_requires_skipping_hf_sync(
     [
         (["--explore"], "evaluation"),
         (["--planner", "flash"], "evaluation"),
-        (["--libero-type", "pro"], "requires --libero-type standard"),
-        (["--suite", "libero_object_lan"], "PRO task/swap"),
+        (["--libero-type", "plus"], "standard and pro"),
         (
             ["--suite", "libero_object_swap", "--libero-type", "standard"],
             "requires --libero-type pro",
@@ -239,8 +239,8 @@ def test_unsupported_cosmos_modes_fail_early(extra, message) -> None:
 
 def test_cosmos_requires_external_endpoint() -> None:
     args = _args()
-    args.vla_endpoint = None
-    with pytest.raises(ValueError, match="--vla-endpoint"):
+    args.wam_endpoint = None
+    with pytest.raises(ValueError, match="--wam-endpoint"):
         robot_spec._parse_config(args)
 
 
@@ -264,11 +264,11 @@ def test_cosmos_toolkit_factory_does_not_construct_memory(
     memory_factory.assert_not_called()
 
 
-@pytest.mark.parametrize("suite", robot_spec.COSMOS_PRO_SUITES)
-def test_cosmos_pro_suites_select_pro_runtime(suite) -> None:
+@pytest.mark.parametrize("suite", LIBERO_SUITE_NAMES)
+def test_cosmos_uses_shared_suite_routing(suite) -> None:
     args = _args("--suite", suite)
     config = robot_spec._parse_config(args)
-    assert args.libero_type == "pro"
+    assert args.libero_type == suite_variant(suite)
     assert config.task_desc["suite"] == suite
 
 
@@ -276,14 +276,85 @@ def test_runtime_borrows_cosmos_service_without_spawning_pi05(
     tmp_path, monkeypatch
 ) -> None:
     rpc = Mock()
-    monkeypatch.setattr(robot_spec, "make_rpc_client", lambda endpoint: rpc)
+    monkeypatch.setattr(policy, "make_rpc_client", lambda endpoint: rpc)
     monkeypatch.setattr("rpent.robots.runtime.wait_for_ready", lambda *a, **k: None)
     daemons, runtime = robot_spec._init_runtime(
-        _args(), tmp_path, NullDashboardEventSink(), {"vla"}
+        _args(), tmp_path, NullDashboardEventSink(), {"wam"}
     )
     assert daemons == []
     assert isinstance(runtime["model"], CosmosPolicyClient)
     assert runtime["model"]._client is rpc
+
+
+@pytest.mark.parametrize("backend,kind", [("pi05", "vla"), ("cosmos-policy", "wam")])
+def test_dashboard_category_matches_borrowed_runtime(
+    tmp_path, monkeypatch, backend, kind
+):
+    args = _args()
+    if kind == "vla":
+        args.wam_backend = args.wam_endpoint = None
+        args.vla_backend = backend
+        args.vla_endpoint = "http://127.0.0.1:8115"
+    spec = robot_spec.get_robot_spec()
+    dashboard = spec.resolve_dashboard(args)
+    components = {item["name"]: item for item in dashboard["runtime_components"]}
+    assert components[kind]["label"] == kind.upper()
+    assert ({"vla", "wam"} - {kind}).isdisjoint(components)
+    rpc = Mock()
+    monkeypatch.setattr(policy, "make_rpc_client", lambda endpoint: rpc)
+    monkeypatch.setattr("rpent.robots.runtime.wait_for_ready", lambda *a, **k: None)
+    events = Mock()
+    owned, runtime = spec.init_runtime(args, tmp_path, events, {kind})
+    assert owned == []
+    assert runtime["model"].PREDICT_METHOD == f"{kind}.predict"
+    assert {call.args[0].component for call in events.emit.call_args_list} == {kind}
+
+
+@pytest.mark.parametrize(
+    "extra,message",
+    [
+        (["--vla-endpoint", "http://localhost:8115"], "cannot be combined"),
+        (["--suite", "unknown_suite"], "Unknown LIBERO suite"),
+    ],
+)
+def test_invalid_policy_or_suite_configuration(extra, message):
+    with pytest.raises(ValueError, match=message):
+        robot_spec._parse_config(_args(*extra))
+
+
+def test_backends_are_mutually_exclusive():
+    with pytest.raises(SystemExit):
+        _args("--vla-backend", "pi05")
+
+
+def test_wam_endpoint_needs_explicit_backend():
+    args = _args()
+    args.wam_backend = None
+    with pytest.raises(ValueError, match="--wam-endpoint requires --wam-backend"):
+        policy.select_policy(args)
+
+
+@pytest.mark.parametrize("variant", ["pro", "plus"])
+def test_pi05_can_explicitly_select_variant_for_base_suite(variant):
+    args = _args("--libero-type", variant)
+    args.wam_backend = args.wam_endpoint = None
+    config = robot_spec._parse_config(args)
+    assert args.libero_type == variant
+    assert config.prompt_vars["policy_backend"] == "pi05"
+    assert config.prompt_vars["memory_enabled"] is True
+
+
+def test_libero_variant_preserves_environment_with_cli_override(monkeypatch):
+    monkeypatch.setenv("LIBERO_TYPE", "pro")
+    args = _args()
+    robot_spec._parse_config(args)
+    assert args.libero_type == "pro"
+    args = _args("--libero-type", "standard")
+    robot_spec._parse_config(args)
+    assert args.libero_type == "standard"
+    monkeypatch.setenv("LIBERO_TYPE", "standard")
+    with pytest.raises(ValueError, match="requires --libero-type pro"):
+        robot_spec._parse_config(_args("--suite", "libero_spatial_lan"))
 
 
 @pytest.mark.parametrize("stop_after", [1, 2])
@@ -390,7 +461,7 @@ def test_cosmos_rejects_long_or_invalid_calls_before_inference(max_chunks) -> No
 @pytest.mark.parametrize("terminated,truncated", [(True, False), (False, True)])
 def test_cosmos_toolkit_rejects_motion_after_episode_end(terminated, truncated) -> None:
     instance = toolkit.LiberoToolkit.__new__(toolkit.LiberoToolkit)
-    instance._vla_backend = "cosmos-policy"
+    instance._policy_backend = "cosmos-policy"
     instance._primitives = Mock(
         env=SimpleNamespace(terminated=terminated, truncated=truncated)
     )
@@ -434,7 +505,7 @@ def test_toolkit_exposes_selected_backend_tools(
         if backend == "cosmos-policy"
         else MemoryManager(tmp_path / "memory"),
         state_output_dir=tmp_path / "output",
-        vla_backend=backend,
+        policy_backend=backend,
         mode=mode,
     )
     names = {spec["name"] for spec in instance.get_tools_spec()}
@@ -474,7 +545,7 @@ def test_cosmos_finish_rejects_false_success_without_ending_loop(
         dashboard_events=NullDashboardEventSink(),
         memory=None,
         state_output_dir=tmp_path / "output",
-        vla_backend="cosmos-policy",
+        policy_backend="cosmos-policy",
     )
     refused = instance.execute_tool("finish", {"status": "success", "summary": "done"})
     assert not refused.is_finish

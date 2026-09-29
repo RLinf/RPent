@@ -22,7 +22,7 @@ from typing import Any
 
 import numpy as np
 
-from rpent.robots.components.vla_facade_base import BaseVLAFacade
+from rpent.robots.components.policy_facade_base import BasePolicyFacade
 from rpent.utils.logging import get_logger
 
 logger = get_logger("cosmos_policy_server")
@@ -54,8 +54,10 @@ def prepare_observation(raw_obs: dict[str, Any]) -> dict[str, np.ndarray]:
     return observation
 
 
-class CosmosPolicyFacade(BaseVLAFacade):
+class CosmosPolicyFacade(BasePolicyFacade):
     """Own the official LIBERO policy; serialize inference through the RPC lock."""
+
+    PREDICT_METHOD = "wam.predict"
 
     def __init__(
         self,

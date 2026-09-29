@@ -27,12 +27,14 @@ then point at it via ``PI05_CHECKPOINT_PATH``:
 Cosmos Policy (experimental)
 ----------------------------------------
 
-``--vla-backend cosmos-policy`` uses NVIDIA's
+``--wam-backend cosmos-policy`` uses NVIDIA's
 `Cosmos Policy <https://github.com/NVlabs/cosmos-policy>`_ LIBERO checkpoint
-through an independently started RPC service. It supports single-attempt
-evaluation on standard ``libero_spatial``, ``libero_object``, ``libero_goal``
-and ``libero_10``, and their LIBERO-Pro ``_task`` and ``_swap`` suites.
-Exploration, Flash Mode, other PRO perturbations, plus variants and best-of-N world-model planning
+through an independently started RPC service. Suite selection uses the shared
+LIBERO catalog, including standard suites and Pro ``_task``, ``_swap``, ``_lan``
+and ``_object`` variants. The first 120-episode evaluation covered the four
+core base families and their ``_task`` / ``_swap`` variants only; catalog
+availability does not establish performance on the remaining suites.
+Exploration, Flash Mode, plus variants and best-of-N world-model planning
 are not supported by this adapter.
 
 Set up the official Cosmos Policy environment using its
@@ -70,7 +72,7 @@ as below. A Pi0.5 checkpoint is not needed for Cosmos runs:
 .. code-block:: bash
 
    rpent --robot libero --suite libero_spatial --task 0 --seed 0 \
-     --vla-backend cosmos-policy --vla-endpoint http://127.0.0.1:8116 \
+     --wam-backend cosmos-policy --wam-endpoint http://127.0.0.1:8116 \
      --memory-profile local \
      --cuda-device 1 --planner api --model anthropic:claude-opus-4-8
 
@@ -78,7 +80,7 @@ The worker's GPU and RPent's ``--cuda-device`` are independent; choose GPUs
 with enough free memory for the policy, simulator and SAM3. They may share a
 GPU when memory permits. The external worker remains running after RPent exits.
 For a worker in a container or on another host, bind to a reachable interface
-and use its reachable address in ``--vla-endpoint``.
+and use its reachable address in ``--wam-endpoint``.
 
 ``cosmos_act(max_chunks=1)`` replaces ``pi0_pick`` and ``pi0_doubled``. It
 uses the environment's full task language and executes 16 native LIBERO
@@ -138,13 +140,25 @@ observation format and checkpoint currently support LIBERO only; environment
 wiring and ``cosmos_act`` remain in ``robots/libero/``. Start the worker with
 ``python -m rpent.robots.components.cosmos_policy_server``; the former
 ``robots/libero/cosmos_policy_server.py`` entry point has been removed.
-The CLI and Dashboard both select the backend through ``--vla-backend``.
+The CLI and Dashboard distinguish ``--vla-backend pi05`` from
+``--wam-backend cosmos-policy``; the Dashboard labels the component VLA or WAM.
+Both reuse shared policy prediction and runtime lifecycle code. Model selection
+lives in ``robots/libero/policy.py``; task names and automatic environment
+routing live in ``robots/libero/suites.py``.
+
+When updating an earlier Cosmos deployment, replace ``--vla-backend`` and
+``--vla-endpoint`` with ``--wam-backend`` and ``--wam-endpoint``. Restart the
+worker from the same revision as the client: Cosmos now uses ``wam.predict``.
+Pi0.5 continues to use ``vla.predict`` and its existing flags.
 
 For Pro, install ``.[libero-pro]`` and prepare its assets with
 ``liberopro-download-assets --skip-existing``. Select a full suite name such as
-``--suite libero_spatial_task`` or ``--suite libero_goal_swap``; Cosmos routes
-these to ``pro`` automatically. An explicit ``--libero-type`` must agree with
-the suite. Use a separate ``LIBERO_CONFIG_PATH`` for Pro if the standard
+``--suite libero_spatial_task`` or ``--suite libero_goal_swap``. Shared LIBERO
+routing selects ``pro`` for perturbation suites and ``standard`` for base suites
+when neither ``--libero-type`` nor ``LIBERO_TYPE`` is set. The CLI flag overrides
+the environment variable. Perturbation suites require ``pro``; base suites
+may explicitly select another installed variant (Cosmos supports standard/pro).
+Use a separate ``LIBERO_CONFIG_PATH`` for Pro if the standard
 configuration points to a different package. Check that every selected task has
 nonempty initial states and that its instruction and goal come from the Pro
 BDDL. Some source distributions contain empty initial-state files; obtain the
@@ -186,7 +200,9 @@ the published benchmark. RPent uses RLinf's reset behavior and its installed
 LIBERO/robosuite versions; record those versions and the worker's checkpoint,
 denoising steps and seed alongside results.
 
-The runner also accepts ``--suite``, ``--tasks`` and ``--horizon``. Default
+The runner also accepts ``--suite``, ``--tasks`` and ``--horizon``. It uses the
+shared suite catalog except ``libero_90``: this runner covers ten-task suites.
+Default
 action budgets are Spatial 220, Object 280, Goal 300 and Long 520, including
 their Pro variants. For example, ``--suite libero_spatial_task --seeds 0
 --warmup 0 --samples 0`` evaluates its ten tasks from initial state 0 without

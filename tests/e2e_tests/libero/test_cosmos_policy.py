@@ -22,7 +22,8 @@ import os
 import numpy as np
 import pytest
 
-from robots.libero.robot_spec import COSMOS_PRO_SUITES, get_robot_spec
+from robots.libero.robot_spec import get_robot_spec
+from robots.libero.suites import suite_variant
 from tests.e2e_tests.common import (
     ScriptedToolCall,
     parse_runtime_args,
@@ -50,12 +51,12 @@ def _argv() -> list[str]:
         "--seed",
         "0",
         "--libero-type",
-        "pro" if suite in COSMOS_PRO_SUITES else "standard",
+        suite_variant(suite),
         "--max-episode-steps",
         "32",
-        "--vla-backend",
+        "--wam-backend",
         "cosmos-policy",
-        "--vla-endpoint",
+        "--wam-endpoint",
         os.environ["RPENT_COSMOS_ENDPOINT"],
     ]
 
@@ -63,7 +64,7 @@ def _argv() -> list[str]:
 def test_cosmos_predicts_from_real_libero_observation(tmp_path) -> None:
     spec = get_robot_spec()
     args = parse_runtime_args(spec, _argv())
-    with runtime_phase(spec, args, tmp_path / "component", {"env", "vla"}) as runtime:
+    with runtime_phase(spec, args, tmp_path / "component", {"env", "wam"}) as runtime:
         env = runtime["env"]
         env.reset()
         raw = {**env.raw_obs(), "task_descriptions": env.get_task_language()}

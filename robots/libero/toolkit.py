@@ -48,7 +48,7 @@ class LiberoToolkit(Toolkit):
         mode: str = "evaluation",
         attempts_per_session: int = 0,
         state_output_dir: Path | str | None = None,
-        vla_backend: str = "pi05",
+        policy_backend: str = "pi05",
     ) -> None:
         if mode not in {"evaluation", "exploration"}:
             raise ValueError(f"unsupported LIBERO toolkit mode: {mode!r}")
@@ -60,15 +60,15 @@ class LiberoToolkit(Toolkit):
             memory=memory,
         )
         self._mode = mode
-        self._vla_backend = vla_backend
+        self._policy_backend = policy_backend
         self._solved: bool = False
         self._attempt: int = 1
         # Bound the resettable attempts owned by this planner session.
         self._attempts_per_session: int = max(0, int(attempts_per_session))
         self._session_attempt: int = 1
         self.init_primitives(runtime_kwargs=runtime_kwargs)
-        self._register_libero_tools(vla_backend)
-        if vla_backend == "cosmos-policy":
+        self._register_libero_tools(policy_backend)
+        if policy_backend == "cosmos-policy":
             finish_spec, finish_handler = self._tools["finish"]
             self.add_tool(
                 "finish",
@@ -83,7 +83,7 @@ class LiberoToolkit(Toolkit):
     # ------------------------------------------------------------------
     # Registration
     # ------------------------------------------------------------------
-    def _register_libero_tools(self, vla_backend: str) -> None:
+    def _register_libero_tools(self, policy_backend: str) -> None:
         # These read-only handlers need the run's EnvState bound in. Every
         # other spec binds to a primitive-driver method and captures state by
         # default unless that method is explicitly marked @readonly.
@@ -97,7 +97,7 @@ class LiberoToolkit(Toolkit):
         }
         excluded_tools = (
             {"pi0_pick", "pi0_doubled"}
-            if vla_backend == "cosmos-policy"
+            if policy_backend == "cosmos-policy"
             else {"cosmos_act"}
         )
         if self._mode != "exploration":
@@ -126,7 +126,9 @@ class LiberoToolkit(Toolkit):
 
     def _execute_primitive(self, name: str, handler: Any, **kwargs: Any) -> Any:
         env = self._primitives.env
-        if self._vla_backend == "cosmos-policy" and (env.terminated or env.truncated):
+        if self._policy_backend == "cosmos-policy" and (
+            env.terminated or env.truncated
+        ):
             status = "success" if env.terminated else "failure"
             raise ValueError(
                 f"Episode already ended; no further motion is allowed. "
@@ -223,7 +225,7 @@ class LiberoToolkit(Toolkit):
                 )
         out = libero_tools.view_env_state(record.step_idx, state=self._state)
         out["agent_elapsed_s"] = elapsed_s
-        if self._vla_backend == "cosmos-policy" and (
+        if self._policy_backend == "cosmos-policy" and (
             record.terminated or record.truncated
         ):
             status = "success" if record.terminated else "failure"

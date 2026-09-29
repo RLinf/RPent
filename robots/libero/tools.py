@@ -25,8 +25,8 @@ import numpy as np
 
 from robots.libero.env_client import LiberoEnvClient
 from rpent.robots.components.molmo_client import MolmoClient
+from rpent.robots.components.policy_client_base import BasePolicyClient
 from rpent.robots.components.sam3_client import Sam3Client
-from rpent.robots.components.vla_client_base import BaseVLAClient
 from rpent.session import EnvState, StepRecord
 from rpent.tools.toolkit import readonly
 from rpent.utils.logging import get_logger
@@ -55,7 +55,7 @@ class LiberoPrimitives:
     def __init__(
         self,
         env: LiberoEnvClient,
-        model: BaseVLAClient,
+        model: BasePolicyClient,
         sam3_client: Sam3Client,
         check_cancelled: Callable[[], None],
         molmo_client: MolmoClient | None = None,

@@ -97,7 +97,7 @@ robot configuration.
      - ``0``
      - Random seed
    * - ``--libero-type``
-     - ``LIBERO_TYPE`` or ``pro``
+     - ``LIBERO_TYPE`` or inferred from suite
      - LIBERO variant: ``standard`` | ``pro`` | ``plus``
 
 **Planner**

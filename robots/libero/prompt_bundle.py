@@ -28,7 +28,7 @@ def system_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> PromptNode:
     """Assemble the LIBERO system prompt for the selected run mode."""
-    if (variables or {}).get("vla_backend") == "cosmos-policy":
+    if (variables or {}).get("policy_backend") == "cosmos-policy":
         return {
             "ROLE": "You control a LIBERO robot using Cosmos Policy and scripted tools. "
             "Tool names may appear as mcp__rpent__<name> in SDK planners.",
@@ -58,7 +58,7 @@ def system_prompt(
 
 def user_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
     """Assemble the LIBERO user prompt tree."""
-    if (variables or {}).get("vla_backend") == "cosmos-policy":
+    if (variables or {}).get("policy_backend") == "cosmos-policy":
         return {
             "CELL": user_parts.CELL,
             "BEGIN": "Call view_env_state at step 0, inspect the task and camera "

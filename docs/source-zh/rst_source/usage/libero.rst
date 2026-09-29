@@ -25,11 +25,12 @@ VLA 配置
 Cosmos Policy（实验性）
 ----------------------------------------
 
-``--vla-backend cosmos-policy`` 通过独立启动的 RPC 服务使用 NVIDIA
+``--wam-backend cosmos-policy`` 通过独立启动的 RPC 服务使用 NVIDIA
 `Cosmos Policy <https://github.com/NVlabs/cosmos-policy>`_ 的 LIBERO checkpoint。
-当前支持标准 ``libero_spatial``、``libero_object``、``libero_goal`` 和
-``libero_10``，以及它们对应的 LIBERO-Pro ``_task`` 和 ``_swap`` 任务集的单次评测。
-此适配器暂不支持探索模式、Flash Mode、其他 PRO 扰动、plus 变体以及基于世界模型的
+任务集选择复用公共 LIBERO 目录，包括标准任务集及 Pro 的 ``_task``、``_swap``、
+``_lan`` 和 ``_object`` 变体。首轮 120 回合评测仅覆盖四个核心基础任务族及其
+``_task``、``_swap`` 变体；目录可选不代表其他任务集已有性能评测结果。
+此适配器暂不支持探索模式、Flash Mode、plus 变体以及基于世界模型的
 best-of-N 规划。
 
 按官方 `安装指南 <https://github.com/NVlabs/cosmos-policy/blob/main/SETUP.md>`_
@@ -63,14 +64,14 @@ SAM3。Cosmos 运行不需要 Pi0.5 checkpoint：
 .. code-block:: bash
 
    rpent --robot libero --suite libero_spatial --task 0 --seed 0 \
-     --vla-backend cosmos-policy --vla-endpoint http://127.0.0.1:8116 \
+     --wam-backend cosmos-policy --wam-endpoint http://127.0.0.1:8116 \
      --memory-profile local \
      --cuda-device 1 --planner api --model anthropic:claude-opus-4-8
 
 服务的 GPU 与 RPent 的 ``--cuda-device`` 分别配置，需为策略、仿真和 SAM3
 预留足够显存；显存充足时也可共用一张 GPU。RPent 退出后，外部服务继续运行。
 如果服务位于容器或另一台机器，请绑定可访问的网络接口，并在
-``--vla-endpoint`` 中填写实际可访问的地址。
+``--wam-endpoint`` 中填写实际可访问的地址。
 
 ``cosmos_act(max_chunks=1)`` 替代 ``pi0_pick`` 和 ``pi0_doubled``，自动使用
 环境的完整任务描述。每次预测执行 16 个原生 LIBERO 动作，各动作块之间重新
@@ -116,12 +117,22 @@ checkpoint 仍仅支持 LIBERO；环境接线及 ``cosmos_act`` 保留在
 ``robots/libero/``。服务启动命令为
 ``python -m rpent.robots.components.cosmos_policy_server``，原有的
 ``robots/libero/cosmos_policy_server.py`` 入口已移除。
-CLI 和 Dashboard 均通过 ``--vla-backend`` 选择模型。
+CLI 和 Dashboard 区分 ``--vla-backend pi05`` 与 ``--wam-backend cosmos-policy``，
+Dashboard 中对应显示 VLA 或 WAM。两者复用公共策略预测和运行时生命周期代码。
+模型选择位于 ``robots/libero/policy.py``；任务集名称及环境自动选择逻辑位于
+``robots/libero/suites.py``。
+
+更新已有 Cosmos 部署时，将 ``--vla-backend``、``--vla-endpoint`` 分别改为
+``--wam-backend``、``--wam-endpoint``，并用与客户端相同版本的代码重启服务：
+Cosmos 现在使用 ``wam.predict``。Pi0.5 仍使用 ``vla.predict`` 及原有参数。
 
 运行 Pro 需安装 ``.[libero-pro]``，并使用
 ``liberopro-download-assets --skip-existing`` 准备资源。选择完整任务集名称，
-例如 ``--suite libero_spatial_task`` 或 ``--suite libero_goal_swap``，Cosmos
-会自动选择 ``pro``；显式指定的 ``--libero-type`` 必须与任务集一致。
+例如 ``--suite libero_spatial_task`` 或 ``--suite libero_goal_swap``。
+未指定 ``--libero-type`` 和 ``LIBERO_TYPE`` 时，公共 LIBERO 逻辑为扰动任务集
+选择 ``pro``，为基础任务集选择 ``standard``；命令行参数优先于环境变量。
+扰动任务集必须使用 ``pro``；基础任务集
+允许显式选择已安装的其他变体（Cosmos 支持 standard/pro）。
 若标准版配置指向不同的包，请为 Pro 使用独立的 ``LIBERO_CONFIG_PATH``。
 运行前确认每个任务的初始状态非空，指令及成功条件均来自 Pro BDDL。
 部分源码发行版本包含空初始状态文件，需从官方 HF 数据集
@@ -157,7 +168,8 @@ RPC 耗时包含传输与推理，不含仿真步进；每次预测生成 16 个
 重置逻辑和当前安装的 LIBERO/robosuite 版本；报告结果时，应一并记录这些
 版本以及服务的 checkpoint、去噪步数和随机种子。
 
-评测脚本还支持 ``--suite``、``--tasks`` 和 ``--horizon``。默认动作预算为
+评测脚本还支持 ``--suite``、``--tasks`` 和 ``--horizon``，复用公共目录，
+但排除 ``libero_90``：此脚本面向每套十个任务的评测。默认动作预算为
 Spatial 220、Object 280、Goal 300、Long 520，Pro 对应变体沿用相同预算。
 例如 ``--suite libero_spatial_task --seeds 0 --warmup 0 --samples 0``
 会测试该任务集全部十个任务的初始状态 0，并跳过独立延迟测量。

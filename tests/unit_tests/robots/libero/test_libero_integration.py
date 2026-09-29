@@ -159,6 +159,10 @@ def test_policy_subinstruction_does_not_mutate_environment_observations(failure)
 def test_dashboard_flywheel_config_belongs_to_unique_env(tmp_path, monkeypatch):
     args = SimpleNamespace(
         collect_flywheel_data=True,
+        vla_backend=None,
+        wam_backend=None,
+        vla_endpoint=None,
+        wam_endpoint=None,
         flywheel_root=str(tmp_path),
         suite="libero_object",
         task=2,

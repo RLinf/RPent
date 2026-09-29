@@ -28,11 +28,8 @@ from typing import Any
 
 import numpy as np
 
-from robots.libero.robot_spec import (
-    COSMOS_PRO_SUITES,
-    COSMOS_STANDARD_SUITES,
-    get_robot_spec,
-)
+from robots.libero.robot_spec import get_robot_spec
+from robots.libero.suites import LIBERO_SUITE_NAMES, suite_variant
 from rpent.utils.logging import get_logger, init_output_dir
 from tests.e2e_tests.common import parse_runtime_args, runtime_phase
 
@@ -57,12 +54,12 @@ def runtime_args(
         "--seed",
         str(seed),
         "--libero-type",
-        "pro" if suite in COSMOS_PRO_SUITES else "standard",
+        suite_variant(suite),
         "--max-episode-steps",
         str(horizon),
-        "--vla-backend",
+        "--wam-backend",
         "cosmos-policy",
-        "--vla-endpoint",
+        "--wam-endpoint",
         endpoint,
     ]
 
@@ -107,7 +104,7 @@ def main() -> None:
     parser.add_argument("--seeds", nargs="+", type=int, default=[0, 1, 2])
     parser.add_argument(
         "--suite",
-        choices=(*COSMOS_STANDARD_SUITES, *COSMOS_PRO_SUITES),
+        choices=tuple(suite for suite in LIBERO_SUITE_NAMES if suite != "libero_90"),
         default="libero_spatial",
     )
     parser.add_argument("--tasks", nargs="+", type=int, default=list(range(10)))
@@ -126,7 +123,9 @@ def main() -> None:
     ):
         parser.error("tasks must be unique indices between 0 and 9")
     base_suite = (
-        args.suite.rsplit("_", 1)[0] if args.suite in COSMOS_PRO_SUITES else args.suite
+        args.suite.rsplit("_", 1)[0]
+        if suite_variant(args.suite) == "pro"
+        else args.suite
     )
     horizon = args.horizon if args.horizon is not None else HORIZONS[base_suite]
     if horizon <= 0:
@@ -141,7 +140,7 @@ def main() -> None:
         "python": platform.python_version(),
         "versions": {name: version(name) for name in ("torch", "robosuite", "mujoco")},
         "suite": args.suite,
-        "libero_type": "pro" if args.suite in COSMOS_PRO_SUITES else "standard",
+        "libero_type": suite_variant(args.suite),
         "tasks": args.tasks,
         "seeds": args.seeds,
         "horizon": horizon,
@@ -167,7 +166,7 @@ def main() -> None:
             ),
         )
         with runtime_phase(
-            spec, config, args.output_dir / "latency", {"env", "vla"}
+            spec, config, args.output_dir / "latency", {"env", "wam"}
         ) as runtime:
             for _ in range(args.warmup):
                 predict(runtime)
@@ -197,7 +196,7 @@ def main() -> None:
                     spec,
                     config,
                     episode_dir,
-                    {"env", "vla"},
+                    {"env", "wam"},
                 ) as runtime:
                     env = runtime["env"]
                     episode["instruction"] = env.get_task_language()

@@ -46,7 +46,7 @@ def test_pro_benchmark_records_native_verdict_and_exact_budget(
     def runtime(spec, args, output_dir, components):
         assert args.suite == "libero_spatial_task"
         assert args.libero_type == "pro"
-        assert components == {"env", "vla"}
+        assert components == {"env", "wam"}
         yield {"env": env, "model": model}
 
     monkeypatch.setattr(benchmark, "runtime_phase", runtime)
