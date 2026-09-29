@@ -15,12 +15,13 @@
         "torchvision": "0.22.0",
         "enforced": false
       },
-      "constraints_file": "robots/robocasa/eval/target50-constraints.txt",
+      "constraints_file": "robots/robocasa/eval/target50-v2-constraints.txt",
       "packages": {
         "mujoco": "3.3.1",
         "numpy": "1.26.4",
         "pydantic": "2.13.5",
-        "pydantic-ai-slim": "2.1.0",
+        "pydantic-ai-slim": "2.51.0",
+        "pydantic-ai-harness": "0.36.0",
         "rlinf-rldx": "1.0.1.post10",
         "rpent-robocasa365": "1.0.1",
         "transformers": "4.57.6"

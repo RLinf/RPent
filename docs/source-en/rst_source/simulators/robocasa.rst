@@ -103,10 +103,20 @@ two independent versions. Then install RPent:
 .. code-block:: bash
 
    uv pip install -e ".[robocasa]" \
-      --constraint robots/robocasa/eval/target50-constraints.txt
+      --constraint robots/robocasa/eval/target50-v2-constraints.txt
    uv pip check
 
-The constraints file pins compatibility-sensitive Target50 dependencies. The ``robocasa`` extra installs the ``rpent`` branches of RoboCasa, RLDX, and Robosuite. Do not also install ``rlinf-robocasa365``, which provides the same import package.
+The v2 constraints file pins compatibility-sensitive dependencies for the current
+Target50 runtime. ``target50.json`` and ``target50-constraints.txt`` retain the
+historical v1 environment and require its matching historical RPent code.
+The ``robocasa`` extra installs the ``rpent`` branches of RoboCasa, RLDX, and
+Robosuite. Do not also install ``rlinf-robocasa365``, which provides the same
+import package.
+
+RLDX must come from the extra's ``rpent`` source branch. Older PyPI wheels can
+have the same package version but lack interfaces required by this runtime.
+When reusing an environment with an older RLDX wheel, add
+``--reinstall-package rlinf-rldx`` to the installation command above.
 
 Choose Torch, torchvision, and CUDA for your machine. The reference run used Torch 2.7.0, torchvision 0.22.0, and CUDA 12.6. Record resolved dependencies and Git revisions for every reproduction because branches can advance:
 
