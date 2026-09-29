@@ -109,15 +109,17 @@ RPent supports two LIBERO run modes:
 
 - **Exploration** uses multiple resettable attempts and independent planner
   sessions to discover successful strategies and distil them into a local
-  global/suite/task_only memory corpus. It is a memory-generation workflow, not the
+  global/task-family/task-specific memory corpus. It is a memory-generation workflow, not the
   benchmark success-rate measurement.
 - **Evaluation** is the default, single-attempt mode. It does not reset the
   episode or update memory. Local-memory evaluation consumes the validated
   audit, recipe, and lessons produced by exploration. The HarnessVLA success
   rate is reproduced in evaluation mode.
 
-Evaluation remains the default mode.  Omitting ``--memory-profile`` preserves
-the original Hugging Face resource sync and prompt:
+Evaluation remains the default mode. Omitting ``--memory-profile`` selects
+Hugging Face memory; ``--memory-version auto`` chooses its model-specific
+version. See :ref:`Memory Management <memory-management>` for overrides,
+offline downloads and release provenance.
 
 Both profiles run the same single-attempt evaluation workflow; they differ only
 in where the evaluation memory comes from and which memory prompt is used.
@@ -285,12 +287,17 @@ The :doc:`GPT-6 Astra suite results <../leaderboard>`
 cover all eight complete suites and 800 verified episodes: 741 successes,
 59 failures, and 92.63% Overall, with Codex / GPT-6 Astra / low / reasoning.
 
-The following historical reproduction records use the `reproduce/libero
+The Long results use the `reproduce/libero
 <https://github.com/RLinf/RPent/tree/reproduce/libero>`_ branch with
 ``gpt-5.5`` and ``xhigh`` reasoning effort:
 
 - ``libero_10_task``: 70% (70/100)
 - ``libero_10_swap``: 55% (55/100)
+
+Together with the six unchanged Spatial/Object/Goal scores (81%, 69%, 94%,
+91%, 75%, and 66%), these Long results give **75.13% Overall** across the eight
+suites. The :doc:`Leaderboard <../leaderboard/performance>` uses this updated
+aggregate, combining the six paper results with the two Long reproduction results.
 
 Reproduction command:
 

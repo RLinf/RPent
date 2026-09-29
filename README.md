@@ -33,7 +33,7 @@ Compare RPent with reference methods on LIBERO, LIBERO-PRO, RoboCasa365 Target50
 
 Codex / GPT-6 Astra / low / reasoning: **92.63% Overall (741/800)** across all eight LIBERO-PRO suites. See the [suite results and memory-batch explanation](https://rpent.readthedocs.io/en/latest/rst_source/leaderboard.html#libero-pro-astra-memory), including the separately frozen Long and Spatial/Object/Goal memory batches.
 
-[![RPent Leaderboard](https://cdn.jsdelivr.net/gh/RLinf/misc@a6657fc43a6b3874a20ee1695a480090a4737c35/rpent/benchmarks/leaderboard-en-light.png)](https://rpent.readthedocs.io/en/latest/rst_source/leaderboard.html)
+[![RPent Leaderboard](https://cdn.jsdelivr.net/gh/RLinf/misc@705bd44bfc8ad7586b76239de13167db35abcce7/rpent/benchmarks/leaderboard-en-light.png)](https://rpent.readthedocs.io/en/latest/rst_source/leaderboard.html)
 
 
 ## Who Should Consider Using RPent?
@@ -86,6 +86,7 @@ RPent is built for four kinds of users:
           <li><b>WAM</b></li>
           <ul>
             <li>DreamZero</li>
+            <li>Cosmos Policy</li>
           </ul>
         </ul>
       </td>
@@ -126,6 +127,13 @@ pip install -e ".[robotwin]"    # RoboTwin
 
 For RoboCasa setup, task memory, and the Target50 protocol, see the
 [RoboCasa guide](https://rpent.readthedocs.io/en/latest/rst_source/usage/robocasa.html).
+
+RoboCasa uses current-task files in `robocasa/task-specific/` together with
+`robocasa/global/GLOBAL_MEMORY.md` from
+[RPent-memory](https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/robocasa).
+The CLI and Dashboard provide both layers for on-demand reading, with no
+full-read requirement before actions. HF memory follows the current branch
+without a fixed data revision.
 
 The example below continues with LIBERO-PRO.
 
@@ -175,7 +183,7 @@ For the exploration workflow and local-memory evaluation, see [LIBERO exploratio
 
 ### Interactive CLI mode
 
-Add `--interactive` (`-i`) to steer the agent live from your terminal. At the `you>` prompt, the built-in task is pre-filled — press Enter to use it or replace it with your own — then type any message while it runs to steer the agent at the next turn (`/help` lists commands; `/quit` or Ctrl-D ends). Requires an interactive terminal (TTY).
+With `claude_code` or `codex`, add `--interactive` (`-i`) to steer the agent live from your terminal. The built-in task is pre-filled at the `you>` prompt. Press Enter to submit it as-is. To change or replace the task, edit the input before pressing Enter. While the agent runs, type follow-up messages to steer it (`/help` lists commands; `/quit` or Ctrl-D ends). Requires a TTY. The `api` planner uses a native CLI that runs the preset task first and accepts follow-ups between runs; use `/exit` to close it.
 
 ```bash
 rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \

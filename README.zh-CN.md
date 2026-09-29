@@ -33,7 +33,7 @@
 
 Codex / GPT-6 Astra / low / reasoning 已完成全部八套 LIBERO-PRO，**Overall 92.63%（741/800）**。详见 [套件汇总与 memory 批次说明](https://rpent.readthedocs.io/zh-cn/latest/rst_source/leaderboard.html#libero-pro-astra-memory)，其中 Long 与 Spatial/Object/Goal 分别使用各自冻结的 memory 批次。
 
-[![RPent 排行榜](https://cdn.jsdelivr.net/gh/RLinf/misc@a6657fc43a6b3874a20ee1695a480090a4737c35/rpent/benchmarks/leaderboard-zh-light.png)](https://rpent.readthedocs.io/zh-cn/latest/rst_source/leaderboard.html)
+[![RPent 排行榜](https://cdn.jsdelivr.net/gh/RLinf/misc@705bd44bfc8ad7586b76239de13167db35abcce7/rpent/benchmarks/leaderboard-zh-light.png)](https://rpent.readthedocs.io/zh-cn/latest/rst_source/leaderboard.html)
 
 
 ## 适用用户
@@ -48,6 +48,7 @@ RPent 面向以下四类用户：
 ## 最新动态
 
 - [2026/09] 🔥 新增交互式 RPent 排行榜，覆盖 LIBERO、LIBERO-PRO、RoboCasa365 与 RoboTwin，提供模型对比及套件汇总。查看 [排行榜](https://rpent.readthedocs.io/zh-cn/latest/rst_source/leaderboard.html)。
+- [2026/09] 🔥 RPent 支持 Franka 单臂与双臂真机扩展。文档：[Franka](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/franka.html) · [Dual Franka](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/dual_franka.html)。
 - [2026/08] 🔥 支持 RoboCasa，使用 RLDX-1 作为操作模型。参见 [RoboCasa 安装与 Target50 指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robocasa.html)。
 - [2026/08] 🔥 新增非推理（non-reasoning）模式，平均执行时间降低约 40%。
 - [2026/08] 🔥 支持 LIBERO 探索模式。文档：[LIBERO 探索模式](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/libero.html#memory)。
@@ -85,6 +86,7 @@ RPent 面向以下四类用户：
           <li><b>WAM</b></li>
           <ul>
             <li>DreamZero</li>
+            <li>Cosmos Policy</li>
           </ul>
         </ul>
       </td>
@@ -98,7 +100,8 @@ RPent 面向以下四类用户：
       </td>
       <td>
         <ul style="margin-left: 0; padding-left: 16px;">
-          <li>Franka</li>
+          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/franka.html">Franka</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/dual_franka.html">Dual Franka</a> ✅</li>
           <li>SO-101</li>
           <li>YAM</li>
         </ul>
@@ -126,6 +129,12 @@ pip install -e ".[robotwin]"    # RoboTwin
 
 RoboCasa 安装、任务 memory 与 Target50 协议参见
 [RoboCasa 指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robocasa.html)。
+
+RoboCasa 同时使用
+[RPent-memory](https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/robocasa)
+中 `robocasa/task-specific/` 下的当前任务文件和 `robocasa/global/GLOBAL_MEMORY.md`。
+CLI 与 Dashboard 均提供这两层记忆供规划器按需读取，不要求动作前完整读取全部文件。
+HF memory 跟随当前分支，不锁定数据版本。
 
 下面的示例继续使用 LIBERO-PRO。
 
@@ -175,7 +184,7 @@ rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
 
 ### 交互模式
 
-加上 `--interactive`（`-i`）即可在终端里实时引导智能体。在 `you>` 提示符处，内置任务已预填——按 Enter 直接使用，或替换为你自己的任务；智能体运行时，随时输入消息即可在下一轮引导它（`/help` 查看命令，`/quit` 或 Ctrl-D 结束）。需要交互式终端（TTY）。
+使用 `claude_code` 或 `codex` 时，加上 `--interactive`（`-i`）即可在终端里实时引导智能体。内置任务会预填在 `you>` 提示符处。直接按 Enter 即可提交该任务；如需修改或替换任务，请先编辑输入内容，再按 Enter 提交。任务运行期间，可以继续输入消息引导智能体（`/help` 查看命令，`/quit` 或 Ctrl-D 结束）。需要真实终端（TTY）。`api` planner 使用原生 CLI，先运行预设任务，再在每轮运行完成后接收输入，使用 `/exit` 退出。
 
 ```bash
 rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
