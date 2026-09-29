@@ -46,9 +46,14 @@ from rpent.dashboard.events import (
     TranscriptEvent,
     UsageEvent,
 )
-from rpent.dashboard.interaction import DashboardInteractionPort
+from rpent.dashboard.interaction import DashboardInteractionPort, DashboardMessage
 from rpent.dashboard.planner_control import DashboardPlannerControl
-from rpent.planner.base import REASONING_EFFORTS, PlannerResult, strip_mcp_prefix
+from rpent.planner.base import (
+    REASONING_EFFORTS,
+    Planner,
+    PlannerResult,
+    strip_mcp_prefix,
+)
 from rpent.planner.utils.http_mcp_server import HttpMcpServer
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.config import get_repo_root
@@ -81,7 +86,7 @@ def _codex_environment() -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 
-class CodexPlanner:
+class CodexPlanner(Planner):
     """Planner backed by the OpenAI Codex Python SDK."""
 
     def __init__(
@@ -494,11 +499,15 @@ class _CodexDashboardSession:
     async def run(self, prompt: str) -> None:
         self._codex = openai_codex.AsyncCodex(self._config)
         self._thread = await self._codex.thread_start(**self._thread_options)
-        await self.submit(prompt)
+        await self._submit_text(prompt)
         await self._control.start()
         await self._control.run(self)
 
-    async def submit(self, text: str) -> int:
+    async def submit(self, message: DashboardMessage) -> int:
+        """Steer the active turn or start a turn in the same conversation."""
+        return await self._submit_text(message.text)
+
+    async def _submit_text(self, text: str) -> int:
         if self._closing or self._thread is None:
             raise RuntimeError("Codex conversation is closed")
         if self._turn is not None:

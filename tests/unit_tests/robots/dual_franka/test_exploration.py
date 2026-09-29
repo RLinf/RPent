@@ -213,7 +213,9 @@ def test_explore_prompt_and_factory_use_local_layered_memory(
     )
     assert "request_scene_reset" in prompt and "request_operator_verdict" in prompt
     assert (
-        "scope: global" in prompt and "scope: suite" in prompt and "task_only" in prompt
+        "scope: global" in prompt
+        and "scope: task-family" in prompt
+        and "task-specific" in prompt
     )
     assert "{{" not in prompt and "libero_terminated" not in prompt
     t = robot_spec.get_toolkit(
@@ -257,9 +259,9 @@ evidence:
 ---
 Observed once; see attempt 1.
 """)
-    (inbox / "suite_dual_franka_t0_draft.md").write_text("""---
-id: suite_dual_franka_real_t0
-scope: suite
+    (inbox / "task-family_dual_franka_t0_draft.md").write_text("""---
+id: task-family_dual_franka_real_t0
+scope: task-family
 suite: dual_franka
 regime: real
 task_id: 0
@@ -273,14 +275,15 @@ Winning technique and failure evidence.
     result = t.memory.merge_memory(
         cell_tag="dual_franka_t0", run_state_dir=tmp_path, solved=t.solved()
     )
-    assert result["global"] == result["suite"] == result["task"] == 1
+    assert result["global"] == result["task-family"] == result["task"] == 1
     assert not t.memory.validate()
     assert (t.memory.root / "MEMORY.md").exists()
-    assert (t.memory.root / "task_only/dual_franka_t0_recipe.jsonl").exists()
+    assert (t.memory.root / "task-specific/dual_franka_t0_recipe.jsonl").exists()
 
 
+@pytest.mark.parametrize("interactive", [False, True])
 def test_cli_two_sessions_operator_feedback_and_memory_pipeline(
-    tmp_path, monkeypatch, dual_franka_robot_config
+    tmp_path, monkeypatch, interactive, dual_franka_robot_config
 ):
     import sys
     from dataclasses import replace
@@ -295,7 +298,7 @@ def test_cli_two_sessions_operator_feedback_and_memory_pipeline(
 
     class Operator:
         def __init__(self, **kwargs):
-            pass
+            assert kwargs["interactive"] is False
 
         def __call__(self, prompt, cancelled):
             cancelled()
@@ -382,6 +385,7 @@ Observed success in session 2.
             "--robot-config",
             str(dual_franka_robot_config),
             "--auto-merge-memory",
+            *(["--interactive"] if interactive else []),
         ],
     )
     assert cli.main() == 0
@@ -396,7 +400,9 @@ Observed success in session 2.
         )
     recipe = (tmp_path / "run/dual_franka_t0_recipe.jsonl").read_text()
     assert "0.02" in recipe and "0.01" not in recipe
-    audit = json.loads((tmp_path / "memory/task_only/dual_franka_t0.json").read_text())
+    audit = json.loads(
+        (tmp_path / "memory/task-specific/dual_franka_t0.json").read_text()
+    )
     assert (
         "session_002" in audit["state_trace"] and audit["success_source"] == "operator"
     )
@@ -533,7 +539,9 @@ def test_direct_success_stops_active_tool_and_records_memory(setup, tmp_path):
         cell_tag="dual_franka_t0", run_state_dir=tmp_path, solved=True
     )
     assert merged["task"] == 1
-    audit = json.loads((tmp_path / "memory/task_only/dual_franka_t0.json").read_text())
+    audit = json.loads(
+        (tmp_path / "memory/task-specific/dual_franka_t0.json").read_text()
+    )
     assert audit["success_source"] == "operator"
     assert len(audit["command_sequence"]) == 1
 
@@ -613,6 +621,8 @@ def test_cli_direct_verdict_finalizes_and_merges_only_without_errors(
             "rpent",
             "--robot",
             robot_name,
+            "--planner",
+            "codex",
             "--explore",
             "--interactive",
             "--output-dir",
@@ -624,12 +634,12 @@ def test_cli_direct_verdict_finalizes_and_merges_only_without_errors(
         ],
     )
     assert cli.main() == (1 if planner_error else 0)
-    assert (tmp_path / "memory/task_only/dual_franka_t0.json").is_file() == (
+    assert (tmp_path / "memory/task-specific/dual_franka_t0.json").is_file() == (
         verdict == "success" and planner_error is None
     )
-    assert (tmp_path / "memory/task_only/dual_franka_t0_recipe.jsonl").is_file() == (
-        verdict == "success" and planner_error is None
-    )
+    assert (
+        tmp_path / "memory/task-specific/dual_franka_t0_recipe.jsonl"
+    ).is_file() == (verdict == "success" and planner_error is None)
     events = json.loads(
         (tmp_path / "run/sessions/session_001/operator_events.json").read_text()
     )

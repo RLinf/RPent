@@ -28,10 +28,10 @@
 
 **可替换的 planner。** planner 就是驱动工具调用循环的 LLM agent 运行时。\
 一个 ``--planner`` 参数就能切换它，而工具和提示词保持不变。内置三种：
-``api`` 是 RPent 自研的工具调用循环（基于 pydantic-ai，为默认值，不绑定具体模型\
-提供商）；``claude_code`` 复用 Claude Agent SDK 运行时；
-``codex`` 复用 Codex SDK 运行时。由于三者面对完全相同的工具，可以在同一套物理基\
-准上正面对比。配置方法见 :doc:`../usage/configure_planner`。
+``api`` 使用 Pydantic AI 原生运行时与 Harness 滑动窗口历史裁剪（为默认值，\
+不绑定具体模型提供商）；``claude_code`` 复用 Claude Agent SDK 运行时；
+``codex`` 复用 Codex SDK 运行时。由于三者面对完全相同的工具，\
+可以在同一套物理基准上正面对比。配置方法见 :doc:`../usage/configure_planner`。
 
 **隔离的仿真环境。** 仿真器作为独立的 env_server 运行，通过轻量 RPC 与 agent
 通信；agent 一侧不导入任何仿真器，也不与具体环境绑定。更换环境只需实现同一套

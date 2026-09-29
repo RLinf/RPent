@@ -22,7 +22,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
-DEFAULT_MANIFEST = Path(__file__).with_name("target50.json")
+from robots.robocasa.memory import selection_errors
+
+DEFAULT_MANIFEST = Path(__file__).with_name("target50_v2.json")
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -47,6 +49,7 @@ def validate_results(
 
     reference = manifest["planner_reference"]
     runtime_protocol = manifest["runtime_protocol"]
+    is_v2 = manifest["protocol_id"] == "robocasa-harness-vla-v2"
     for split_name, split in manifest["splits"].items():
         split_successes = 0
         split_valid = 0
@@ -65,7 +68,7 @@ def validate_results(
                     continue
 
                 expected = {
-                    "schema_version": "1.0",
+                    "schema_version": runtime_protocol["result_schema_version"],
                     "protocol_id": manifest["protocol_id"],
                     "evaluation_split": split_name,
                     "task_name": task_name,
@@ -73,6 +76,7 @@ def validate_results(
                     "seed": seed,
                     "success_source": manifest["success_source"],
                 }
+                errors_before_cell = len(errors)
                 for key, expected_value in expected.items():
                     if result.get(key) != expected_value:
                         errors.append(
@@ -130,7 +134,42 @@ def validate_results(
                         f"{relative}: RLDX action steps do not match the manifest"
                     )
 
-                if result.get("valid") is True and isinstance(success, bool):
+                if is_v2:
+                    memory = result.get("memory", {})
+                    if not isinstance(memory, dict):
+                        memory = {}
+                    if memory.get("policy") != "task-global":
+                        errors.append(
+                            f"{relative}: memory policy does not match the evaluation"
+                        )
+                    errors.extend(
+                        f"{relative}: {message}"
+                        for message in selection_errors(
+                            memory, task_name, manifest["environment_split"]
+                        )
+                    )
+                    selected = memory.get("selected_files")
+                    if memory.get("audit_status") != "ok":
+                        errors.append(
+                            f"{relative}: memory read audit is missing or invalid"
+                        )
+                    reads = memory.get("read_files")
+                    if (
+                        not isinstance(selected, list)
+                        or not isinstance(reads, list)
+                        or not all(isinstance(name, str) for name in reads)
+                        or reads != sorted(set(reads))
+                        or any(name not in selected for name in reads)
+                    ):
+                        errors.append(
+                            f"{relative}: memory read_files must be a sorted subset of selected files"
+                        )
+
+                if (
+                    len(errors) == errors_before_cell
+                    and result.get("valid") is True
+                    and isinstance(success, bool)
+                ):
                     valid_cells += 1
                     split_valid += 1
                     task_successes += int(success)
