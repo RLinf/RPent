@@ -348,7 +348,12 @@ class CodexPlanner(Planner):
                                 and recorder.turns >= recorder.max_turns
                             ):
                                 limit_reached = True
-                                turn.interrupt()
+                                try:
+                                    turn.interrupt()
+                                except openai_codex.JsonRpcError as exc:
+                                    if exc.message != "no active turn to interrupt":
+                                        raise
+                                    # The terminal notification may still be queued.
                     finally:
                         if stop_steer is not None:
                             stop_steer.set()
@@ -593,7 +598,12 @@ class _CodexDashboardSession:
                     and self._recorder.turns >= self._recorder.max_turns
                 ):
                     limit_reached = True
-                    await turn.interrupt()
+                    try:
+                        await turn.interrupt()
+                    except openai_codex.JsonRpcError as exc:
+                        if exc.message != "no active turn to interrupt":
+                            raise
+                        # Keep consuming the stream to get the actual turn status.
 
                 if method != "turn/completed":
                     continue

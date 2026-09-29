@@ -24,6 +24,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from openai_codex import JsonRpcError, TransportClosedError
 
 import rpent.planner.codex as codex_module
 from rpent.dashboard.events import TranscriptEvent, UsageEvent
@@ -541,7 +542,99 @@ def test_cli_keeps_finish_at_the_response_budget(tmp_path, monkeypatch):
     assert result.error is None
 
 
-def test_dashboard_interrupts_at_response_budget_and_closes():
+@pytest.mark.parametrize(
+    ("interrupt_error", "completed_status", "expected_error"),
+    [
+        pytest.param(
+            JsonRpcError(-32600, "no active turn to interrupt"),
+            "completed",
+            None,
+            id="already-completed",
+        ),
+        pytest.param(
+            JsonRpcError(-32600, "no active turn to interrupt"),
+            "failed",
+            "provider failed",
+            id="failed-terminal-status",
+        ),
+        pytest.param(
+            JsonRpcError(-32600, "thread not found"),
+            None,
+            "JsonRpcError: JSON-RPC error -32600: thread not found",
+            id="other-rpc-error",
+        ),
+        pytest.param(
+            RuntimeError("no active turn to interrupt"),
+            None,
+            "RuntimeError: no active turn to interrupt",
+            id="non-sdk-error",
+        ),
+    ],
+)
+def test_cli_budget_interrupt_preserves_terminal_status(
+    tmp_path, monkeypatch, interrupt_error, completed_status, expected_error
+):
+    install_fake_backend(monkeypatch)
+    terminal = {
+        "method": "turn/completed",
+        "payload": {"turn": {"status": completed_status or "completed"}},
+    }
+    if completed_status == "failed":
+        terminal["payload"]["turn"]["error"] = {"message": "provider failed"}
+    FakeCodex.events = [*_model_response_events(1, text=True), terminal]
+
+    def interrupt(self):
+        self.interrupt_calls += 1
+        raise interrupt_error
+
+    monkeypatch.setattr(FakeTurn, "interrupt", interrupt)
+    result = make_planner(tmp_path, RecordingSink()).solve(
+        system_prompt="system",
+        user_message="task",
+        toolkit=FakeToolkit(),
+        max_turns=1,
+    )
+    assert result.error == expected_error
+    assert result.stats["turns_used"] == 1
+    assert FakeCodex.instances[0].thread.fake_turn.interrupt_calls == 1
+    assert FakeCodex.instances[0].closed
+    assert FakeMcpServer.instances[0].stopped
+    events = [
+        json.loads(line)
+        for line in (tmp_path / "codex.out.stream.jsonl").read_text().splitlines()
+    ]
+    assert (terminal in events) is (completed_status is not None)
+    if completed_status is not None:
+        assert (tmp_path / "codex.out.last").read_text() == "still working"
+
+
+@pytest.mark.parametrize(
+    ("interrupt_error", "completed_status", "expected_error"),
+    [
+        pytest.param(None, "interrupted", None, id="active-turn"),
+        pytest.param(
+            JsonRpcError(-32600, "no active turn to interrupt"),
+            "completed",
+            None,
+            id="already-completed",
+        ),
+        pytest.param(
+            JsonRpcError(-32600, "no active turn to interrupt"),
+            "failed",
+            "provider failed",
+            id="failed-terminal-status",
+        ),
+        pytest.param(
+            TransportClosedError("transport closed"),
+            None,
+            "TransportClosedError: transport closed",
+            id="transport-error",
+        ),
+    ],
+)
+def test_dashboard_interrupts_at_response_budget_and_closes(
+    interrupt_error, completed_status, expected_error
+):
     from rpent.planner.codex import _CodexDashboardSession, _Recorder
 
     async def run():
@@ -552,15 +645,22 @@ def test_dashboard_interrupts_at_response_budget_and_closes():
                 for index in range(1, 6):
                     if self.interrupt_calls:
                         break
-                    for event in _model_response_events(index):
+                    for event in _model_response_events(index, text=True):
                         yield event
-                yield {
+                terminal = {
                     "method": "turn/completed",
-                    "payload": {"turn": {"status": "interrupted"}},
+                    "payload": {"turn": {"status": completed_status or "completed"}},
                 }
+                if completed_status == "failed":
+                    terminal["payload"]["turn"]["error"] = {
+                        "message": "provider failed"
+                    }
+                yield terminal
 
             async def interrupt(self):
                 self.interrupt_calls += 1
+                if interrupt_error is not None:
+                    raise interrupt_error
 
         class Control:
             ended = False
@@ -580,12 +680,18 @@ def test_dashboard_interrupts_at_response_budget_and_closes():
 
         recorder = _Recorder(max_turns=1, dashboard_events=RecordingSink())
         control = Control()
+        events = []
+
+        def emit_event(event):
+            events.append(event)
+            recorder.observe(event)
+
         session = _CodexDashboardSession(
             config=None,
             thread_options={},
             turn_options={},
             recorder=recorder,
-            emit_event=recorder.observe,
+            emit_event=emit_event,
             control=control,
         )
         turn = Turn()
@@ -596,10 +702,14 @@ def test_dashboard_interrupts_at_response_budget_and_closes():
         await session._consume_turn(turn, done)
         await session.close()
         assert done.is_set() and control.ended and control.closed
-        assert session.error is None
+        assert session.error == expected_error
         assert turn.interrupt_calls == 1
         assert recorder.turns == 1
         assert recorder.finish_result is None
+        assert recorder.final_response == "still working"
+        assert any(event["method"] == "turn/completed" for event in events) is (
+            completed_status is not None
+        )
 
     asyncio.run(run())
 
