@@ -29,7 +29,7 @@ Cosmos Policy (experimental)
 
 ``--wam-backend cosmos-policy`` uses NVIDIA's
 `Cosmos Policy <https://github.com/NVlabs/cosmos-policy>`_ LIBERO checkpoint
-through an independently started RPC service. Suite selection uses the shared
+through an external or RPent-owned RPC service. Suite selection uses the shared
 LIBERO catalog, including standard suites and Pro ``_task``, ``_swap``, ``_lan``
 and ``_object`` variants. The first 120-episode evaluation covered the four
 core base families and their ``_task`` / ``_swap`` variants only; catalog
@@ -56,7 +56,8 @@ start the worker using the official CUDA 12.8 / Python 3.10 environment:
 
 The defaults download ``nvidia/Cosmos-Policy-LIBERO-Predict2-2B``, its
 dataset statistics and T5 instruction embeddings. For local files, provide
-``--checkpoint``, ``--dataset-stats`` and ``--text-embeddings`` together.
+``--checkpoint``; statistics and embeddings default to files beside the weights.
+Use ``--dataset-stats`` and ``--text-embeddings`` to override those paths.
 Run from the Cosmos checkout so its relative configuration and tokenizer
 paths resolve. Before starting, obtain Hugging Face access to
 ``nvidia/Cosmos-Predict2-2B-Video2World`` and authenticate the worker environment;
@@ -82,6 +83,22 @@ GPU when memory permits. The external worker remains running after RPent exits.
 For a worker in a container or on another host, bind to a reachable interface
 and use its reachable address in ``--wam-endpoint``.
 
+Alternatively, let RPent start and stop the worker in an already provisioned
+Cosmos environment. Replace ``--wam-endpoint`` with:
+
+.. code-block:: bash
+
+   --wam-checkpoint /path/to/cosmos-checkpoint \
+   --wam-python /path/to/cosmos-policy/.venv/bin/python \
+   --wam-root /path/to/cosmos-policy
+
+The two connection modes are mutually exclusive. ``COSMOS_POLICY_PYTHON`` and
+``COSMOS_POLICY_ROOT`` may supply the latter two defaults. The owned worker
+inherits CUDA/cache/library settings and uses RPent's ``--cuda-device`` when
+specified; RPent does not install its dependencies or assume a CUDA directory.
+Startup failures and session shutdown stop owned workers; external endpoints
+remain operator-owned. ``--wam-backend cosmos`` is an alias for ``cosmos-policy``.
+
 ``cosmos_act(max_chunks=1)`` replaces ``pi0_pick`` and ``pi0_doubled``. It
 uses the environment's full task language and executes 16 native LIBERO
 actions per prediction, re-reading observations between chunks. Raw camera
@@ -89,7 +106,11 @@ images are vertically flipped once; proprioception preserves the upstream
 ``[gripper_qpos, eef_pos, eef_quat_xyzw]`` layout. NVIDIA's code owns image
 preprocessing, normalization and action unnormalization. RPent records the
 executed state/images using the existing LIBERO toolkit. Future video/value
-prediction is disabled.
+prediction is disabled by default. An owned worker accepts
+``--wam-predict-future``; an external worker accepts ``--predict-future``.
+``CosmosPolicyClient.predict_result()`` returns those optional outputs, while
+``predict()`` supplies actions to the existing control loop. Predicted images
+are not environment observations, and these outputs do not enable planning.
 
 Pass a concrete instruction such as
 ``cosmos_act(prompt="pick up the black bowl", max_chunks=1)`` to execute a
@@ -127,6 +148,14 @@ its tokenizer and weights in the worker's Hugging Face cache before offline use,
 and allow additional GPU memory and first-request latency for text encoding.
 Use a writable local copy of ``--text-embeddings`` because upstream updates it
 when new instructions are encoded.
+For an owned worker, select that copy with ``--wam-text-embeddings``.
+To forbid online T5 loading, use ``--cached-instructions-only`` on an external
+worker or ``--wam-cached-instructions-only`` for an owned worker. Cache misses
+then fail before inference; this can exclude Pro instructions and subtasks.
+
+The standalone DreamZero-DROID bridge retains its native 8D joint-position
+contract. It is not a LIBERO backend; no conversion to LIBERO's 7D OSC actions
+is provided.
 
 Cosmos runs use current observations without Memory. Pass the global
 ``--memory-profile local`` option to skip automatic HF synchronization in the
@@ -150,7 +179,12 @@ shared policy infrastructure, robot tools and benchmark code.
 
 When updating an earlier Cosmos deployment, replace ``--vla-backend`` and
 ``--vla-endpoint`` with ``--wam-backend`` and ``--wam-endpoint``. Restart the
-worker from the same revision as the client: Cosmos now uses ``wam.predict``.
+worker from the same revision as the client: Cosmos uses
+``action_model.capabilities`` and ``action_model.predict``. The earlier
+``wam.predict`` service is not wire-compatible. The script
+``scripts/wam/cosmos_policy_rpc_bridge.py`` delegates to the same component
+server; there is only one Cosmos implementation. ``cosmos_act`` is the
+planner-facing tool; ``wam_act`` and simultaneous Pi0.5/WAM tools are not exposed.
 Pi0.5 continues to use ``vla.predict`` and its existing flags.
 
 For Pro, install ``.[libero-pro]`` and prepare its assets with

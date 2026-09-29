@@ -138,7 +138,8 @@ pickle 数据帧传输，省掉反复的 JSON 编解码。pickle 不适合不可
 ``BaseVLAClient`` 和 ``BaseVLAFacade`` 分别继承 ``BasePolicyClient`` 和
 ``BasePolicyFacade``，将 ``PREDICT_METHOD`` 固定为 ``vla.predict``。
 非 VLA 动作模型可以直接继承 policy 基类，并在客户端与服务端设置相同的方法名，
-例如 Cosmos 使用 ``wam.predict``。公共接口只覆盖动作预测，不包含未来状态预测
-或模型专用规划能力。
+Cosmos 使用 ``BaseActionModelClient`` 和 ``BaseActionModelFacade`` 子类，
+通过 ``action_model.capabilities`` 声明执行协议，``action_model.predict`` 返回
+动作及可选的未来观测与价值。这些输出不等于模型专用规划能力。
 
 细节见 :doc:`add_robot` 中的 env_server 与 vla_server 章节。

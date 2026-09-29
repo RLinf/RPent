@@ -25,7 +25,7 @@ VLA 配置
 Cosmos Policy（实验性）
 ----------------------------------------
 
-``--wam-backend cosmos-policy`` 通过独立启动的 RPC 服务使用 NVIDIA
+``--wam-backend cosmos-policy`` 通过外部或 RPent 托管的 RPC 服务使用 NVIDIA
 `Cosmos Policy <https://github.com/NVlabs/cosmos-policy>`_ 的 LIBERO checkpoint。
 任务集选择复用公共 LIBERO 目录，包括标准任务集及 Pro 的 ``_task``、``_swap``、
 ``_lan`` 和 ``_object`` 变体。首轮 120 回合评测仅覆盖四个核心基础任务族及其
@@ -49,8 +49,9 @@ CUDA 12.8 / Python 3.10 环境启动服务：
      --cuda-device 0 --host 127.0.0.1 --port 8116
 
 默认下载 ``nvidia/Cosmos-Policy-LIBERO-Predict2-2B``、对应的数据集统计量和
-T5 指令嵌入。使用本地文件时，请同时设置 ``--checkpoint``、``--dataset-stats``
-和 ``--text-embeddings``。从 Cosmos 仓库目录运行，以便解析其配置和 tokenizer
+T5 指令嵌入。指定本地 ``--checkpoint`` 后，默认读取权重旁的数据集统计量和
+文本嵌入；可用 ``--dataset-stats`` 和 ``--text-embeddings`` 覆盖路径。
+从 Cosmos 仓库目录运行，以便解析其配置和 tokenizer
 的相对路径。启动前，请在 Hugging Face 获得
 ``nvidia/Cosmos-Predict2-2B-Video2World`` 的访问权限，并在服务环境中登录；
 即使使用本地策略 checkpoint，也需要该模型的视频 tokenizer。上述上游版本
@@ -73,12 +74,30 @@ SAM3。Cosmos 运行不需要 Pi0.5 checkpoint：
 如果服务位于容器或另一台机器，请绑定可访问的网络接口，并在
 ``--wam-endpoint`` 中填写实际可访问的地址。
 
+也可让 RPent 在已准备好的独立 Cosmos 环境中启动并管理服务。
+将 ``--wam-endpoint`` 替换为：
+
+.. code-block:: bash
+
+   --wam-checkpoint /path/to/cosmos-checkpoint \
+   --wam-python /path/to/cosmos-policy/.venv/bin/python \
+   --wam-root /path/to/cosmos-policy
+
+两种连接方式互斥。后两个参数也可通过 ``COSMOS_POLICY_PYTHON`` 和
+``COSMOS_POLICY_ROOT`` 设置默认值。托管进程继承 CUDA、缓存及动态库环境，
+指定 ``--cuda-device`` 时也使用该 GPU；RPent 不负责安装依赖，也不假设 CUDA
+目录。启动失败或会话退出时会清理托管进程，外部进程仍由操作者管理。
+``--wam-backend cosmos`` 是 ``cosmos-policy`` 的别名。
+
 ``cosmos_act(max_chunks=1)`` 替代 ``pi0_pick`` 和 ``pi0_doubled``，自动使用
 环境的完整任务描述。每次预测执行 16 个原生 LIBERO 动作，各动作块之间重新
 读取观测。原始相机图像仅做一次上下翻转，本体状态保持上游的
 ``[gripper_qpos, eef_pos, eef_quat_xyzw]`` 排列。图像预处理、归一化和动作
 反归一化由 NVIDIA 实现负责，执行后的状态和图像由现有 LIBERO toolkit 记录。
-未来视频及价值预测在此适配器中关闭。
+未来视频及价值预测默认关闭。托管服务可加 ``--wam-predict-future``，外部服务
+启动时可加 ``--predict-future``。``CosmosPolicyClient.predict_result()`` 返回
+这些可选结果；``predict()`` 继续为现有控制循环提供动作。预测图像不会替代
+真实环境观测，返回预测结果也不意味着已经实现规划。
 
 可通过 ``cosmos_act(prompt="pick up the black bowl", max_chunks=1)`` 执行规划器
 选择的具体子任务。指令仅对本次调用生效；省略 ``prompt`` 或传入 ``null`` 时，
@@ -105,6 +124,13 @@ SAM3。Cosmos 运行不需要 Pi0.5 checkpoint：
 计算得到的文本向量。离线运行前需在服务的 Hugging Face 缓存中准备其 tokenizer
 和权重，并为文本编码预留额外显存及首次请求时间。``--text-embeddings`` 应指向
 可写的本地副本，因为上游会在编码新指令后更新该文件。
+托管服务可通过 ``--wam-text-embeddings`` 指定该副本。
+若禁止在线加载 T5，外部服务可加 ``--cached-instructions-only``，托管服务可加
+``--wam-cached-instructions-only``。此时未命中缓存的指令在推理前报错，部分 Pro
+指令和子任务可能因此无法执行。
+
+独立的 DreamZero-DROID bridge 保留原生 8D 关节位置协议，不作为 LIBERO 后端，
+也不提供到 LIBERO 7D OSC 动作的转换。
 
 Cosmos 运行根据当前观测进行决策，暂不接入 Memory。仍需指定全局选项
 ``--memory-profile local``，用于跳过 CLI 和 Dashboard 的 HF 自动同步，
@@ -125,7 +151,10 @@ Dashboard 中对应显示 VLA 或 WAM。两者复用公共策略预测和运行�
 
 更新已有 Cosmos 部署时，将 ``--vla-backend``、``--vla-endpoint`` 分别改为
 ``--wam-backend``、``--wam-endpoint``，并用与客户端相同版本的代码重启服务：
-Cosmos 现在使用 ``wam.predict``。Pi0.5 仍使用 ``vla.predict`` 及原有参数。
+Cosmos 使用 ``action_model.capabilities`` 和 ``action_model.predict``，与旧的
+``wam.predict`` 服务不兼容。``scripts/wam/cosmos_policy_rpc_bridge.py`` 转调同一个
+组件服务端，不另维护 Cosmos 实现。规划器继续使用 ``cosmos_act``，不暴露
+``wam_act`` 或同时提供 Pi0.5/WAM 两套工具。Pi0.5 保留 ``vla.predict`` 及原有参数。
 
 运行 Pro 需安装 ``.[libero-pro]``，并使用
 ``liberopro-download-assets --skip-existing`` 准备资源。选择完整任务集名称，

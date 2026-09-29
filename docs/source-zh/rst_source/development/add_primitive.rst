@@ -88,7 +88,8 @@ primitives 方法，以及调用完成后的状态快照。区别仅在于方法
    ``predict``，并通过扩展 ``_register_rpc`` 注册其他模型 RPC。
    非 VLA 动作模型使用
    :class:`rpent.robots.components.policy_facade_base.BasePolicyFacade`，
-   通过 ``PREDICT_METHOD`` 指定 RPC 方法名，例如 Cosmos 使用 ``wam.predict``。
+   通过 ``PREDICT_METHOD`` 指定 RPC 方法名。Cosmos 使用 ``BaseActionModelFacade``
+   子类，提供 ``action_model.predict`` 和 ``action_model.capabilities``。
    可复用的模型适配器放在 ``rpent/robots/components/``，机器人专用环境及动作语义
    保留在 ``robots/<robot>/``。
 
@@ -241,8 +242,8 @@ mixin 覆盖的 ``serve`` 与 :class:`~rpent.utils.rpc.RpcFacade` 的
 同样的架构也适用于非 VLA 的模型原语：
 
 - **World Action Model (WAM)** 可以通过相同的 client/worker 方式提供动作生成。
-  当前 Cosmos 接入只使用动作生成功能，关闭未来状态与价值生成。预测 rollout
-  或规划需要增加模型专用方法，继承预测基类不会自动启用这些能力。
+  Cosmos 默认只生成动作，可通过显式服务选项启用未来状态与价值输出。
+  预测式规划仍需模型专用的编排逻辑，继承预测基类不会自动启用这些能力。
 - **Diffusion Policy / MPC** —— 接口形式相同，但工具返回的动作可能是一段
   trajectory，而非单个 chunk，并由 ``env_server`` 按顺序执行。
 - **多个原语共享一个 server** —— 一个 ``vla_server`` 可以承载

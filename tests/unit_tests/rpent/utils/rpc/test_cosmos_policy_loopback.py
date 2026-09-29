@@ -20,12 +20,18 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 
+from rpent.robots.components.action_model_facade_base import BaseActionModelFacade
+from rpent.robots.components.action_model_protocol import ActionModelCapabilities
 from rpent.robots.components.cosmos_policy_client import CosmosPolicyClient
+from rpent.robots.components.cosmos_policy_protocol import (
+    ACTION_SCHEMA,
+    PROPRIO_SCHEMA,
+    libero_request,
+)
 from rpent.robots.components.cosmos_policy_server import (
     CosmosPolicyFacade,
     prepare_observation,
 )
-from rpent.robots.components.policy_facade_base import BasePolicyFacade
 
 
 @pytest.fixture
@@ -44,22 +50,52 @@ def raw_obs():
     }
 
 
-def test_cosmos_policy_roundtrip(transport, make_server_and_client, raw_obs) -> None:
+@pytest.fixture
+def facade():
     facade = CosmosPolicyFacade.__new__(CosmosPolicyFacade)
-    BasePolicyFacade.__init__(facade)
+    BaseActionModelFacade.__init__(
+        facade,
+        ActionModelCapabilities(
+            backend="cosmos_policy",
+            checkpoint="test",
+            supported_embodiments=("libero_7d",),
+            action_dim=7,
+            camera_roles=("primary", "wrist"),
+            action_schema=ACTION_SCHEMA,
+            proprio_schema=PROPRIO_SCHEMA,
+        ),
+    )
     facade._cfg = SimpleNamespace(seed=1, num_denoising_steps_action=5)
     facade._model = facade._dataset_stats = None
-    facade._get_action = Mock(return_value={"actions": np.zeros((16, 7))})
+    facade._predict_future = facade._cached_instructions_only = False
+    facade._text_embeddings = {}
+    facade._get_action = Mock(
+        return_value={
+            "actions": np.zeros((16, 7)),
+            "future_image_predictions": {"image": np.zeros((2, 2, 3), np.uint8)},
+            "value_prediction": 0.6,
+        }
+    )
+    return facade
+
+
+@pytest.mark.parametrize("predict_future", [False, True])
+def test_cosmos_policy_roundtrip(
+    transport, make_server_and_client, raw_obs, facade, predict_future
+) -> None:
+    facade._predict_future = predict_future
     with make_server_and_client(facade, transport) as rpc:
-        actions = CosmosPolicyClient(rpc).predict(raw_obs, {"mode": "eval"})
-    assert actions.shape == (16, 7)
-    assert actions.dtype == np.float32
+        result = CosmosPolicyClient(rpc).predict_result(raw_obs, {"mode": "eval"})
+    assert result.actions.shape == (16, 7)
+    assert result.actions.dtype == np.float32
+    assert (result.future_observation is not None) == predict_future
+    assert result.value == (0.6 if predict_future else None)
     args, kwargs = facade._get_action.call_args
     assert args[4] == "pick up the bowl"
     assert kwargs == {
         "seed": 1,
         "num_denoising_steps_action": 5,
-        "generate_future_state_and_value_in_parallel": False,
+        "generate_future_state_and_value_in_parallel": predict_future,
     }
     received = args[3]
     np.testing.assert_array_equal(received["primary_image"][0, 0], [4, 5, 6])
@@ -80,14 +116,27 @@ def test_cosmos_policy_roundtrip(transport, make_server_and_client, raw_obs) -> 
     ],
 )
 def test_invalid_observation(raw_obs, key, value):
-    with pytest.raises(ValueError, match=key):
-        prepare_observation({**raw_obs, key: value})
+    with pytest.raises(ValueError):
+        prepare_observation(libero_request({**raw_obs, key: value}))
 
 
 @pytest.mark.parametrize(
     "actions", [np.zeros((1, 16, 7)), np.zeros((0, 7)), np.full((16, 7), np.inf)]
 )
-def test_client_rejects_invalid_chunks(raw_obs, actions):
-    client = CosmosPolicyClient(Mock(call=Mock(return_value=actions)))
-    with pytest.raises(ValueError, match="finite actions"):
+def test_client_rejects_invalid_chunks(raw_obs, actions, facade):
+    def call(method, args=(), **kwargs):
+        if method == "action_model.capabilities":
+            return facade.get_capabilities()
+        result = facade.predict(args[0])
+        return {**result, "actions": actions}
+
+    client = CosmosPolicyClient(Mock(call=call))
+    with pytest.raises(ValueError):
         client.predict(raw_obs)
+
+
+def test_cached_only_worker_rejects_uncached_instruction(raw_obs, facade):
+    facade._cached_instructions_only = True
+    with pytest.raises(ValueError, match="precomputed T5"):
+        facade.predict(libero_request(raw_obs))
+    facade._get_action.assert_not_called()

@@ -36,8 +36,12 @@ class BasePolicyClient:
         Returns:
             actions.
         """
+        return self._request_prediction(obs, options)
+
+    def _request_prediction(self, *args):
+        """Share transport and timeout handling across prediction contracts."""
         return self._client.call(
             self.PREDICT_METHOD,
-            args=(obs, options),
+            args=args,
             timeout_s=self._TIMEOUT_S["predict"],
         )

@@ -113,6 +113,7 @@ def test_dashboard_category_matches_borrowed_runtime(
     assert components[kind]["label"] == kind.upper()
     assert ({"vla", "wam"} - {kind}).isdisjoint(components)
     rpc = Mock()
+    monkeypatch.setattr(CosmosPolicyClient, "validate_libero", lambda self: None)
     monkeypatch.setattr(policy, "make_rpc_client", lambda endpoint: rpc)
     monkeypatch.setattr("rpent.robots.runtime.wait_for_ready", lambda *a, **k: None)
     events = Mock()
@@ -120,7 +121,9 @@ def test_dashboard_category_matches_borrowed_runtime(
     assert owned == []
     assert isinstance(runtime["model"], client_type)
     assert runtime["model"]._client is rpc
-    assert runtime["model"].PREDICT_METHOD == f"{kind}.predict"
+    assert runtime["model"].PREDICT_METHOD == (
+        "vla.predict" if kind == "vla" else "action_model.predict"
+    )
     assert {call.args[0].component for call in events.emit.call_args_list} == {kind}
 
 
@@ -136,6 +139,46 @@ def test_libero_variant_preserves_environment_with_cli_override(monkeypatch):
         robot_spec._parse_config(
             _args("--suite", "libero_spatial_lan", "--libero-type", "standard")
         )
+
+
+def test_owned_cosmos_uses_isolated_environment_and_component_entrypoint(
+    tmp_path, monkeypatch
+):
+    checkpoint = tmp_path / "checkpoint"
+    checkpoint.mkdir()
+    python = tmp_path / "python"
+    interpreter = tmp_path / "base-python"
+    interpreter.touch()
+    python.symlink_to(interpreter)
+    args = _args(
+        "--wam-endpoint",
+        "",
+        "--wam-checkpoint",
+        str(checkpoint),
+        "--wam-python",
+        str(python),
+        "--wam-root",
+        str(tmp_path),
+        "--wam-predict-future",
+    )
+    daemon = Mock()
+    factory = Mock(return_value=daemon)
+    monkeypatch.setattr(policy, "ProcessDaemon", factory)
+    monkeypatch.setattr(policy, "pick_free_port", lambda: 8117)
+    owned, rpc = policy.select_policy(args).start_service(args, tmp_path)
+    assert owned is daemon
+    daemon.start.assert_called_once()
+    command = factory.call_args.kwargs["cmd"]
+    assert command[:3] == [
+        str(python),
+        "-m",
+        "rpent.robots.components.cosmos_policy_server",
+    ]
+    assert "--parent-watch" in command and "--predict-future" in command
+    assert factory.call_args.kwargs["cwd"] == str(tmp_path)
+    args.wam_endpoint = "http://localhost:8116"
+    with pytest.raises(ValueError, match="mutually exclusive"):
+        policy.select_policy(args)
 
 
 @pytest.fixture

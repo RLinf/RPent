@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -43,9 +44,9 @@ def add_policy_args(parser: argparse.ArgumentParser) -> None:
     )
     backends.add_argument(
         "--wam-backend",
-        choices=("cosmos-policy",),
+        choices=("cosmos-policy", "cosmos"),
         default=None,
-        help="WAM action backend; requires --wam-endpoint.",
+        help="WAM action backend; cosmos is an alias for cosmos-policy.",
     )
     parser.add_argument(
         "--vla-endpoint",
@@ -57,6 +58,36 @@ def add_policy_args(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="[http|socket://]host:port of a separately started WAM service.",
     )
+    parser.add_argument(
+        "--wam-checkpoint",
+        default=None,
+        help="Local Cosmos checkpoint file or directory; starts an owned worker.",
+    )
+    parser.add_argument(
+        "--wam-python",
+        default=os.getenv("COSMOS_POLICY_PYTHON"),
+        help="Python executable in the isolated Cosmos environment.",
+    )
+    parser.add_argument(
+        "--wam-root",
+        default=os.getenv("COSMOS_POLICY_ROOT"),
+        help="Official Cosmos source checkout used as the worker directory.",
+    )
+    parser.add_argument(
+        "--wam-text-embeddings",
+        default=None,
+        help="Writable T5 embeddings cache for an owned worker.",
+    )
+    parser.add_argument(
+        "--wam-predict-future",
+        action="store_true",
+        help="Enable optional future-state/value generation in an owned worker.",
+    )
+    parser.add_argument(
+        "--wam-cached-instructions-only",
+        action="store_true",
+        help="Reject uncached instructions instead of loading T5 in an owned worker.",
+    )
 
 
 @dataclass(frozen=True)
@@ -66,6 +97,7 @@ class PolicyConfig:
     kind: str
     backend: str
     endpoint: str | None
+    checkpoint: str | None = None
 
     @property
     def memory_enabled(self) -> bool:
@@ -97,7 +129,13 @@ class PolicyConfig:
         if self.backend == "cosmos-policy":
             from rpent.robots.components.cosmos_policy_client import CosmosPolicyClient
 
-            return CosmosPolicyClient(rpc)
+            client = CosmosPolicyClient(rpc)
+            try:
+                client.validate_libero()
+            except Exception:
+                client.close()
+                raise
+            return client
         from rpent.robots.components.pi05_vla_client import Pi05VLAClient
 
         return Pi05VLAClient(rpc, embodiment="libero")
@@ -107,9 +145,11 @@ class PolicyConfig:
         args: argparse.Namespace,
         output_dir: Path,
     ) -> tuple[ProcessDaemon | None, RpcClient]:
-        """Borrow an external model service or start the local Pi0.5 worker."""
+        """Borrow a model endpoint or own the selected backend's worker."""
         if self.endpoint is not None:
             return None, make_rpc_client(self.endpoint)
+        if self.kind == "wam":
+            return self._start_cosmos(args, output_dir)
         host, port = "127.0.0.1", pick_free_port()
         cuda_args = (
             ["--cuda-device", str(args.cuda_device)]
@@ -137,15 +177,91 @@ class PolicyConfig:
         daemon.start()
         return daemon, HttpRpcClient(f"http://{host}:{port}")
 
+    def _start_cosmos(
+        self, args: argparse.Namespace, output_dir: Path
+    ) -> tuple[ProcessDaemon, RpcClient]:
+        """Start the canonical model server using an explicitly provisioned environment."""
+        host, port = "127.0.0.1", pick_free_port()
+        cmd = [
+            str(Path(args.wam_python).expanduser().absolute()),
+            "-m",
+            "rpent.robots.components.cosmos_policy_server",
+            "--checkpoint",
+            str(Path(self.checkpoint).expanduser().resolve()),
+            "--host",
+            host,
+            "--port",
+            str(port),
+            "--parent-watch",
+        ]
+        for enabled, option in (
+            (args.wam_predict_future, "--predict-future"),
+            (args.wam_cached_instructions_only, "--cached-instructions-only"),
+        ):
+            if enabled:
+                cmd.append(option)
+        if args.cuda_device is not None:
+            cmd.extend(["--cuda-device", str(args.cuda_device)])
+        if args.wam_text_embeddings:
+            cmd.extend(
+                [
+                    "--text-embeddings",
+                    str(Path(args.wam_text_embeddings).expanduser().absolute()),
+                ]
+            )
+        pythonpath = os.pathsep.join(
+            filter(None, (str(get_repo_root()), os.environ.get("PYTHONPATH")))
+        )
+        daemon = ProcessDaemon(
+            name="wam",
+            cmd=cmd,
+            cwd=str(Path(args.wam_root).expanduser().resolve()),
+            env_overrides={"PYTHONPATH": pythonpath},
+            log_path=str(output_dir / "wam_server.log"),
+        )
+        daemon.start()
+        return daemon, HttpRpcClient(f"http://{host}:{port}")
+
 
 def select_policy(args: argparse.Namespace) -> PolicyConfig:
     """Resolve category and reject mixed VLA/WAM endpoint configuration."""
+    checkpoint = getattr(args, "wam_checkpoint", None)
+    worker_options = any(
+        getattr(args, name, None)
+        for name in (
+            "wam_predict_future",
+            "wam_cached_instructions_only",
+            "wam_text_embeddings",
+        )
+    )
+    if worker_options and not checkpoint:
+        raise ValueError(
+            "WAM worker options require --wam-checkpoint; configure external workers at their launch"
+        )
     if args.wam_backend is not None:
+        if args.wam_backend not in ("cosmos-policy", "cosmos"):
+            raise ValueError(f"Unsupported LIBERO WAM backend: {args.wam_backend!r}")
         if args.vla_backend is not None or args.vla_endpoint is not None:
             raise ValueError("--wam-backend cannot be combined with VLA options")
-        if not args.wam_endpoint:
-            raise ValueError("--wam-backend requires --wam-endpoint")
-        return PolicyConfig("wam", args.wam_backend, args.wam_endpoint)
-    if args.wam_endpoint is not None:
-        raise ValueError("--wam-endpoint requires --wam-backend")
+        if bool(args.wam_endpoint) == bool(checkpoint):
+            raise ValueError(
+                "--wam-backend requires --wam-endpoint or --wam-checkpoint, mutually exclusive"
+            )
+        if checkpoint:
+            if not Path(checkpoint).expanduser().exists():
+                raise ValueError("--wam-checkpoint must reference a local checkpoint")
+            for name, is_directory in (("wam_python", False), ("wam_root", True)):
+                value = getattr(args, name, None)
+                path = Path(value).expanduser() if value else None
+                if path is None or not (
+                    path.is_dir() if is_directory else path.is_file()
+                ):
+                    raise ValueError(
+                        f"--{name.replace('_', '-')} must reference the provisioned Cosmos environment"
+                    )
+        return PolicyConfig(
+            "wam", "cosmos-policy", args.wam_endpoint or None, checkpoint
+        )
+    if args.wam_endpoint is not None or checkpoint is not None:
+        raise ValueError("--wam-endpoint/--wam-checkpoint requires --wam-backend")
     return PolicyConfig("vla", args.vla_backend or "pi05", args.vla_endpoint)

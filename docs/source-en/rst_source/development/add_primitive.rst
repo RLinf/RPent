@@ -95,7 +95,9 @@ primitive requires a few additional components:
    class, implement ``predict``, and register any additional model RPCs by
    extending ``_register_rpc``. For a non-VLA action model, use
    :class:`rpent.robots.components.policy_facade_base.BasePolicyFacade` and
-   select its RPC name through ``PREDICT_METHOD``. Cosmos uses ``wam.predict``.
+   select its RPC name through ``PREDICT_METHOD``. Cosmos uses the
+   ``BaseActionModelFacade`` specialization with ``action_model.predict`` and
+   ``action_model.capabilities``.
    Reusable model adapters live under ``rpent/robots/components/``; robot-specific
    environment and action semantics stay under ``robots/<robot>/``.
 
@@ -270,10 +272,9 @@ Beyond VLAs
 The same pattern extends to non-VLA model primitives:
 
 - **World Action Models (WAM)** can expose action generation through the same
-  client/worker pattern. The Cosmos integration currently uses action generation
-  only, with future-state/value generation disabled. Adding predictive rollouts
-  or planning requires explicit model-specific methods; inheriting a prediction
-  base does not enable those capabilities.
+  client/worker pattern. Cosmos defaults to action generation; an explicit worker
+  option enables future-state/value outputs. Predictive planning still requires
+  model-specific orchestration and is not enabled by inheriting a prediction base.
 - **Diffusion planners / MPC** — same shape; the "action" the tool
   returns may be a trajectory rather than a single chunk, and the
   ``env_server`` steps it out.

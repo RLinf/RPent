@@ -114,8 +114,9 @@ checkpoints, or planning capabilities interchangeable.
        locking, transports, sessions, health checks, and shutdown.
    * - ``rpent/robots/components/pi05_vla_*`` and ``cosmos_policy_*``
      - Model-specific observation/action adaptation and inference.
-       Pi0.5 uses the VLA subclasses and ``vla.predict``; Cosmos directly uses
-       the policy bases with ``PREDICT_METHOD = "wam.predict"`` on both ends.
+       Pi0.5 uses the VLA subclasses and ``vla.predict``. Cosmos uses
+       ``action_model_*`` subclasses for capability negotiation and structured
+       ``action_model.predict`` results; both reuse the policy/RPC bases.
    * - ``robots/libero/policy.py`` and ``suites.py``
      - ``PolicyConfig`` selects the backend, capabilities, client and service
        connection. The shared suite catalog and environment routing are
@@ -135,8 +136,9 @@ a second transport stack. Model implementations stay separate: Cosmos uses
 the official NVIDIA action API in a separately provisioned worker, while
 Pi0.5 retains its OpenPI encoding and service. The current Cosmos observation
 format and checkpoint target LIBERO. Location under ``components/`` does not
-imply support for other benchmarks. Future-state/value generation and
-best-of-N planning are disabled in this integration.
+imply support for other benchmarks. Future-state/value generation is optional
+and disabled by default; best-of-N planning is not implemented. ``PolicyConfig``
+can borrow an endpoint or own a worker in a separately provisioned environment.
 
 Memory is an optional toolkit dependency. A supplied ``MemoryManager`` binds
 the common file tools; ``memory=None`` skips ``read_text_file``,

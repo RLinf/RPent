@@ -98,7 +98,8 @@ VLA 和 WAM 在配置入口区分模型类别，内部共享动作预测接口�
        由现有 ``RpcFacade`` 提供。
    * - ``rpent/robots/components/pi05_vla_*`` 和 ``cosmos_policy_*``
      - 各模型的观测与动作适配及推理。Pi0.5 使用 VLA 子类和 ``vla.predict``；
-       Cosmos 直接继承 policy 基类，两端均设置 ``PREDICT_METHOD = "wam.predict"``。
+       Cosmos 通过 ``action_model_*`` 子类协商能力，使用 ``action_model.predict``
+       返回结构化结果；两者均复用 policy/RPC 基类。
    * - ``robots/libero/policy.py`` 和 ``suites.py``
      - ``PolicyConfig`` 选择后端、能力、客户端和服务连接方式。
        公共任务集目录与环境选择独立于模型，也独立于某次实验选择的评测范围。
@@ -114,8 +115,9 @@ VLA 和 WAM 在配置入口区分模型类别，内部共享动作预测接口�
 公共预测基类复用现有 RPC 机制，不另建一套传输实现。模型专用逻辑仍分别维护：
 Cosmos 在独立部署的服务中使用 NVIDIA 官方动作推理接口，Pi0.5 保留 OpenPI
 编码和服务。当前 Cosmos 观测格式和 checkpoint 面向 LIBERO，代码位于
-``components/`` 并不代表已经支持其他 benchmark。此接入关闭了未来状态与价值
-生成，以及 best-of-N 规划。
+``components/`` 并不代表已经支持其他 benchmark。未来状态与价值生成可选，
+默认关闭；尚未实现 best-of-N 规划。``PolicyConfig`` 可连接外部端点，
+也可在已准备好的独立环境中托管模型服务。
 
 Memory 是 toolkit 的可选依赖。传入 ``MemoryManager`` 时绑定公共文件工具；
 传入 ``memory=None`` 时，在注册阶段跳过 ``read_text_file``、``write_text_file``
