@@ -38,6 +38,7 @@ if TYPE_CHECKING:
 # records only commands that actually move the robot.
 _RECIPE_ACTIONS = {
     "lingbot_act",
+    "execute_action",
     "move_to",
     "rotate_wrist",
     "set_gripper",
@@ -95,6 +96,7 @@ class RoboTwinToolkit(Toolkit):
         runtime_kwargs: dict[str, Any],
         dashboard_events: DashboardEventSink,
         memory: MemoryManager,
+        enable_direct_action: bool = False,
         mode: str = "evaluation",
         attempts_per_session: int = 0,
         state_output_dir: Path | str | None = None,
@@ -125,6 +127,12 @@ class RoboTwinToolkit(Toolkit):
         self._primitives.start_recording()
         self._action_frame_cursor = self._primitives.recorded_frame_count()
         self._register_robotwin_tools()
+        if enable_direct_action:
+            self.add_tool(
+                "execute_action",
+                self._primitives.env.get_direct_action_tool_spec(),
+                partial(self._step, "execute_action"),
+            )
         initial = self.get_env_state(
             command={"action": "reset"},
             result=reset_result,

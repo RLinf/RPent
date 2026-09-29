@@ -45,6 +45,7 @@ class RoboCasaToolkit(Toolkit):
         runtime_kwargs: dict[str, Any],
         dashboard_events: DashboardEventSink,
         memory: MemoryManager,
+        enable_direct_action: bool = False,
         mode: str = "evaluation",
         attempts_per_session: int = 0,
         state_output_dir: Path | str | None = None,
@@ -68,6 +69,12 @@ class RoboCasaToolkit(Toolkit):
             }
         )
         self._register_robocasa_tools()
+        if enable_direct_action:
+            self.add_tool(
+                "execute_action",
+                self._primitives.env.get_direct_action_tool_spec(),
+                self._primitives.execute_action,
+            )
 
     # ---- registration: one explicit add_tool per RoboCasa tool ----
     def _register_robocasa_tools(self) -> None:

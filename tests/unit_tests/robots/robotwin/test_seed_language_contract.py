@@ -161,3 +161,22 @@ def test_rebound_language_updates_all_native_instruction_stores():
     assert sub_env.instruction == "published evaluation language"
     assert sub_env.args["instruction"] == "published evaluation language"
     assert task.instruction == "published evaluation language"
+
+
+@pytest.mark.parametrize("left_joints,right_joints", [(6, 6), (7, 4)])
+def test_action_spec_uses_native_robot_layout(left_joints, right_joints):
+    robot = SimpleNamespace(
+        get_left_arm_jointState=lambda: [0.0] * left_joints + [1.0],
+        get_right_arm_jointState=lambda: [0.0] * right_joints + [1.0],
+        get_left_ee_pose=lambda: [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
+        get_right_ee_pose=lambda: [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
+    )
+    env = RoboTwinAgentEnv.__new__(RoboTwinAgentEnv)
+    env.venv = SimpleNamespace(
+        envs=[SimpleNamespace(lock=Lock(), task=SimpleNamespace(robot=robot))]
+    )
+    specs = RoboTwinEnvFacade(env, metadata={}).get_action_spec()
+    assert len(specs["qpos"]["low"]) == left_joints + right_joints + 2
+    assert specs["qpos"]["low"][left_joints] == 0.0
+    assert specs["qpos"]["high"][-1] == 1.0
+    assert len(specs["ee"]["low"]) == 16

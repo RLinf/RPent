@@ -16,6 +16,13 @@
 
 from __future__ import annotations
 
+from functools import cached_property
+from typing import Any
+
+import numpy as np
+
+from rpent.robots.components.action_spec import direct_action_tool_spec, validate_action
+
 
 class BaseEnvClient:
     """Unified env client base class."""
@@ -41,6 +48,27 @@ class BaseEnvClient:
         )
         if reset_on_connect:
             self.reset()
+
+    @cached_property
+    def action_specs(self) -> dict[str, dict[str, Any]]:
+        """Fetch native action layouts only when direct actions are enabled or used."""
+        return self._client.call(
+            "env.get_action_spec", timeout_s=self._TIMEOUT_S["default"]
+        )
+
+    def get_direct_action_tool_spec(self) -> dict[str, Any]:
+        """Describe direct actions using the connected environment's specification."""
+        return direct_action_tool_spec(self.action_specs)
+
+    def validate_action(
+        self, values: list[float], action_type: str | None = None
+    ) -> np.ndarray:
+        """Validate a direct action before issuing a state-changing RPC."""
+        if action_type is None:
+            action_type = next(iter(self.action_specs))
+        if action_type not in self.action_specs:
+            raise ValueError(f"unsupported environment action type: {action_type!r}")
+        return validate_action(values, self.action_specs[action_type])
 
     def reset(self):
         """Reset the env and return the initial obs. Also updates the

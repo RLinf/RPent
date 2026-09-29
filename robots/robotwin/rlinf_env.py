@@ -23,6 +23,7 @@ import torch
 from rlinf.envs.robotwin.robotwin_env import RoboTwinEnv
 
 from robots.robotwin.robot_spec import RoboTwinActionType
+from rpent.robots.components.action_spec import box_action_spec
 
 __all__ = ["RoboTwinAgentEnv"]
 
@@ -310,6 +311,38 @@ class RoboTwinAgentEnv(RoboTwinEnv):
             sub_env.instruction = instruction
             sub_env.args["instruction"] = instruction
             sub_env.task.set_instruction(instruction)
+
+    def get_action_spec(self, env_id: int = 0) -> dict[str, Any]:
+        """Describe native waypoints from the configured robot's live layout."""
+        sub_env = self._sub_env(env_id)
+        with sub_env.lock:
+            robot = sub_env.task.robot
+            joint_targets = [
+                robot.get_left_arm_jointState(),
+                robot.get_right_arm_jointState(),
+            ]
+            poses = [robot.get_left_ee_pose(), robot.get_right_ee_pose()]
+        qpos_low, qpos_high, ee_low, ee_high = [], [], [], []
+        for targets, pose in zip(joint_targets, poses):
+            qpos_low.extend([-np.inf] * (len(targets) - 1) + [0.0])
+            qpos_high.extend([np.inf] * (len(targets) - 1) + [1.0])
+            ee_low.extend([-np.inf] * len(pose) + [0.0])
+            ee_high.extend([np.inf] * len(pose) + [1.0])
+        return {
+            "qpos": box_action_spec(
+                qpos_low,
+                qpos_high,
+                "Native waypoint: left joint targets (radians), left gripper, "
+                "right joint targets (radians), right gripper. Grippers: 0 closed, 1 open. "
+                f"Joint counts: {[len(target) - 1 for target in joint_targets]}.",
+            ),
+            "ee": box_action_spec(
+                ee_low,
+                ee_high,
+                "Native waypoint: left absolute world xyz (metres), quaternion wxyz, gripper, "
+                "then the same for right. Grippers: 0 closed, 1 open.",
+            ),
+        }
 
     def _robot_state(self, sub_env: Any) -> dict[str, Any]:
         """Read the native robot state; the caller must hold ``sub_env.lock``."""
