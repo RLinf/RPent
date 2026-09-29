@@ -69,7 +69,7 @@ class RoboDojoAgentEnv(RoboDojoEnv):
         self.meta = meta
         self.eval_fair = meta.get("mode", "dev") == "eval-fair"
         self.recorder = _VideoRecorder(video_dir)
-        self.bottle_mon = _SafetyMonitor()
+        self.bottle_mon = _SafetyMonitor(self.meta.get("task", ""))
         super().__init__(cfg, 1, 0, 1, None, record_metrics=False)
         try:
             self.venv.reset(env_seeds=[meta["layout"]])
@@ -98,7 +98,7 @@ class RoboDojoAgentEnv(RoboDojoEnv):
     def reset(self, env_idx=None, env_seeds=None):
         """Reset through RLinf and reinitialize agent episode diagnostics."""
         result = super().reset(env_idx=env_idx, env_seeds=env_seeds)
-        self.bottle_mon = _SafetyMonitor()
+        self.bottle_mon = _SafetyMonitor(self.meta.get("task", ""))
         return result
 
     def _observation(self) -> dict:
@@ -162,7 +162,7 @@ class RoboDojoAgentEnv(RoboDojoEnv):
         if self.eval_fair:
             raise RuntimeError("eval-fair does not allow episode reset")
         self.venv.reset(env_seeds=[self.meta["layout"]])
-        self.bottle_mon = _SafetyMonitor()
+        self.bottle_mon = _SafetyMonitor(self.meta.get("task", ""))
         return self.get_native_obs()
 
     def step_native(self, flat_action):
