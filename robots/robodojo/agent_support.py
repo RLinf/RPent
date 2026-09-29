@@ -109,6 +109,11 @@ def _record_obs_frame(recorder, obs: dict) -> None:
 # an eval without them.
 # ---------------------------------------------------------------------------
 
+# Table-top extents and the dustbin box for the put_bottles layout, in the
+# environment frame (env 0 sits at the origin). The simulation bridge does not
+# expose the table geometry, so these stay constants taken from the arx_x5 scene
+# configuration the task ships with, and only the training-only alarm below
+# reads them. A task with a different table needs its own values.
 _TABLE_X_RANGE = (-0.40, 0.50)
 _TABLE_Y_RANGE = (-0.30, 0.06)
 _TABLE_TOP_Z = 0.77
@@ -222,7 +227,7 @@ class _SafetyMonitor:
 
 
 def _obs_dict(env, recorder) -> dict[str, Any]:
-    from robots.robodojo.language import resolve_instruction
+    from robots.robodojo.tasks import resolve_instruction
 
     obs = env.get_obs(env_idx=0)
     obs["instruction"] = resolve_instruction(env)
