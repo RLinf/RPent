@@ -31,11 +31,10 @@ if TYPE_CHECKING:
 class RoboDojoToolkit(Toolkit):
     """Toolkit for the RoboDojo (Isaac Sim) environment.
 
-    ``allowed_tool_groups`` optionally filters robot tool registration, not
-    common file tools or automatic state capture. None preserves all tools in
-    dev. ``eval_fair`` additionally requires a mode-validated environment,
-    removes file tools and task-specific helpers, and disables development
-    perception recording. Scoring and safety diagnostics are never planner tools.
+    Every robot tool is registered for every task. ``eval_fair`` additionally
+    requires a mode-validated environment, removes file tools, and disables
+    development perception recording. Scoring and safety diagnostics are never
+    planner tools.
     """
 
     def __init__(
@@ -44,25 +43,12 @@ class RoboDojoToolkit(Toolkit):
         primitives_kwargs: dict[str, Any],
         dashboard_events: DashboardEventSink,
         memory: MemoryManager,
-        allowed_tool_groups: frozenset[str] | None = None,
         eval_fair: bool = False,
     ) -> None:
-        from robots.robodojo.tools import TOOL_GROUPS
-
-        if allowed_tool_groups is not None:
-            unknown = allowed_tool_groups - TOOL_GROUPS.keys()
-            if unknown:
-                raise ValueError(f"Unknown RoboDojo tool groups: {sorted(unknown)}")
         self.eval_fair = eval_fair
+        self._task_name = primitives_kwargs.get("task", "")
         if eval_fair and not getattr(primitives_kwargs.get("env"), "eval_fair", False):
             raise ValueError("eval-fair requires a mode-validated environment client")
-        if eval_fair:
-            allowed_tool_groups = frozenset({"general", "mixed"}) & (
-                allowed_tool_groups
-                if allowed_tool_groups is not None
-                else frozenset({"general", "mixed"})
-            )
-        self._allowed_tool_groups = allowed_tool_groups
         state = EnvState(get_output_dir())
         super().__init__(
             dashboard_events=dashboard_events,
@@ -134,7 +120,6 @@ class RoboDojoToolkit(Toolkit):
             action_type=primitives_kwargs.get("action_type", "joint"),
             check_cancelled=self.raise_if_cancelled,
         )
-        self._task_name = primitives_kwargs.get("task", "")
         self._publish_step(
             robodojo_tools.dump_state(self._primitives, self._state, log=None)
         )
@@ -188,21 +173,16 @@ class RoboDojoToolkit(Toolkit):
                 state=self._state,
             ),
         }
-        # place_in_bin is a put_bottles-specific primitive (bin-mouth pose);
-        # hide it for other tasks so the agent does not misuse it.
-        if self._task_name == "put_bottles_into_dustbin":
-            state_handlers["place_in_bin"] = partial(
-                robodojo_tools.place_in_bin,
-                primitives=self._primitives,
-                state=self._state,
-            )
+        # Registered for every task: the tool plans to the dustbin mouth, so it
+        # is only useful where the scene has a bin, and it reports that instead of
+        # being hidden by task name.
+        state_handlers["place_in_bin"] = partial(
+            robodojo_tools.place_in_bin,
+            primitives=self._primitives,
+            state=self._state,
+        )
         for spec in robodojo_tools.TOOLS_SPEC:
             name = spec["name"]
-            if self._allowed_tool_groups is not None and not any(
-                name in robodojo_tools.TOOL_GROUPS[group]
-                for group in self._allowed_tool_groups
-            ):
-                continue
             handler = state_handlers.get(name)
             if handler is None:
                 handler = getattr(self._primitives, name, None)

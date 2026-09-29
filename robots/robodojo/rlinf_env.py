@@ -115,7 +115,7 @@ class RoboDojoAgentEnv(RoboDojoEnv):
         return dict(self.meta)
 
     def get_task_language(self) -> str:
-        from robots.robodojo.language import resolve_instruction
+        from robots.robodojo.tasks import resolve_instruction
 
         return resolve_instruction(self.env)
 

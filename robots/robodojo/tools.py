@@ -28,15 +28,6 @@ CAMERA_ARTIFACTS: tuple[tuple[str, str], ...] = (
     ("cam_right_wrist", "cam_right_wrist.png"),
 )
 
-# Direct tool outputs only; automatic state capture and file tools need a
-# separate output policy before these groups can enforce evaluation isolation.
-TOOL_GROUPS: dict[str, frozenset[str]] = {
-    "general": frozenset(
-        {"back_project", "segment", "move_to", "pi0_pick", "stabilize"}
-    ),
-    "mixed": frozenset({"view_env_state", "set_gripper", "place_in_bin"}),
-}
-
 TOOLS_SPEC: list[dict] = [
     {
         "name": "view_env_state",
@@ -509,7 +500,7 @@ def pi0_pick(
     """Closed-loop Pi_05 pick driven by the policy's own action chunks."""
     import numpy as np
 
-    from robots.robodojo.language import validate_instruction
+    from robots.robodojo.tasks import validate_instruction
 
     prompt = validate_instruction(
         primitives.env.get_task_language() if prompt is None else prompt

@@ -350,10 +350,7 @@ def test_readers_are_readonly_and_do_not_act():
 
 
 @pytest.mark.parametrize("task", ["put_bottles_into_dustbin", "stack_bowls_random"])
-@pytest.mark.parametrize("groups", [None, frozenset({"general"}), frozenset()])
-def test_tool_group_hook_filters_schemas_and_dispatch(
-    monkeypatch, tmp_path, task, groups
-):
+def test_toolkit_exposes_every_robot_tool(monkeypatch, tmp_path, task):
     from robots.robodojo import toolkit as module
     from rpent.dashboard.events import NullDashboardEventSink
     from rpent.memory import MemoryManager
@@ -379,25 +376,16 @@ def test_tool_group_hook_filters_schemas_and_dispatch(
             prompt_vars={"memory_dir": str(tmp_path / "memory")},
             task_desc={"task": task},
         ),
-        allowed_tool_groups=groups,
     )
     assert isinstance(toolkit, module.RoboDojoToolkit)
     assert isinstance(toolkit.memory, MemoryManager)
     assert toolkit.memory.root == tmp_path / "memory"
     names = {spec["name"] for spec in toolkit.get_tools_spec()}
     robot_names = {spec["name"] for spec in tools.TOOLS_SPEC}
-    assert sum(map(len, tools.TOOL_GROUPS.values())) == len(robot_names)
-    assert set().union(*tools.TOOL_GROUPS.values()) == robot_names
-    expected = (
-        robot_names
-        if groups is None
-        else set().union(*(tools.TOOL_GROUPS[group] for group in groups))
-    )
-    if task != "put_bottles_into_dustbin":
-        expected = expected - {"place_in_bin"}
-    assert names & robot_names == expected
+    # Every backend tool is exposed for every task: the toolkit no longer
+    # filters schemas by group or by task name.
+    assert names & robot_names == robot_names
     assert "finish" in names
-    assert "privileged" not in tools.TOOL_GROUPS
     for name in ("get_reward_details", "get_safety_status"):
         assert name not in names
         assert toolkit.execute_tool(name, {}).result == {
@@ -427,18 +415,6 @@ def test_registry_toolkit_factory_rejects_unknown_arguments():
             dashboard_events=None,
             config=None,
             primitives_kwargs={},
-        )
-
-
-def test_tool_group_hook_rejects_unknown_group():
-    from robots.robodojo.toolkit import RoboDojoToolkit
-
-    with pytest.raises(ValueError, match="Unknown RoboDojo tool groups"):
-        RoboDojoToolkit(
-            primitives_kwargs={},
-            dashboard_events=None,
-            memory=None,
-            allowed_tool_groups=frozenset({"typo"}),
         )
 
 

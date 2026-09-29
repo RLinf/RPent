@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""RoboDojo task inventory (read-only view of the workspace task registry)."""
+"""RoboDojo task inventory and the task language helpers that go with it."""
 
 from __future__ import annotations
 
@@ -72,3 +72,17 @@ def validate_task(task_name: str, source_root: str | Path | None = None) -> str 
             list_tasks(source_root)
         )
     return None
+
+
+def validate_instruction(value: str) -> str:
+    """Reject empty language and unresolved template markers at the boundary."""
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("RoboDojo instruction must be a nonempty string")
+    if "<" in value or ">" in value:
+        raise ValueError("RoboDojo instruction contains unresolved template markers")
+    return value
+
+
+def resolve_instruction(env) -> str:
+    """Read environment 0's language from the initialized description manager."""
+    return validate_instruction(env.obs_manager.desc_manager.get_one_description()[0])
