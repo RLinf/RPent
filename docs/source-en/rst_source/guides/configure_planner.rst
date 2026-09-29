@@ -1,5 +1,7 @@
-Planners and Model Services
-===========================
+.. _planners-and-model-services:
+
+Planner Configuration
+=====================
 
 Select the Agentic Planner backend with one CLI flag:
 

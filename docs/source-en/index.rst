@@ -89,7 +89,7 @@ Choose an environment: :doc:`LIBERO <rst_source/simulators/libero>`, :doc:`RoboC
 
    Memory and Exploration <rst_source/guides/memory>
    Action Primitives and Tools <rst_source/guides/configure_primitives>
-   Planners and Model Services <rst_source/guides/configure_planner>
+   Planner Configuration <rst_source/guides/configure_planner>
    Command-Line Reference <rst_source/guides/cli>
    Interactive Usage <rst_source/guides/dashboard>
    Flash Mode <rst_source/guides/flash>

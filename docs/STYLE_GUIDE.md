@@ -48,7 +48,7 @@ Keep the same sections and ordering in both languages:
 3. **Real-World Demos / 真实世界演示**: direct robot demo pages, each linking to
    the corresponding installation and usage guide.
 4. **Guides / 使用指南**: memory and exploration; action primitives and tools;
-   planners and model services; command-line reference; interactive usage
+   planner configuration; command-line reference; interactive usage
    (terminal and Dashboard); Flash Mode;
    trajectory collection and data flywheel; remote services and parallel runs.
 5. **Simulators / 仿真环境**: LIBERO, RoboCasa365, and RoboTwin. Each page owns

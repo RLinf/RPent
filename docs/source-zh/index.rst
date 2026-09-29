@@ -89,7 +89,7 @@ RPent（Recursive Physical Agent）是一个开源框架，用于构建在与物
 
    使用记忆与探索模式 <rst_source/guides/memory>
    动作原语与工具 <rst_source/guides/configure_primitives>
-   配置规划器与模型服务 <rst_source/guides/configure_planner>
+   规划器配置 <rst_source/guides/configure_planner>
    命令行参考 <rst_source/guides/cli>
    交互使用 <rst_source/guides/dashboard>
    使用 Flash Mode <rst_source/guides/flash>
