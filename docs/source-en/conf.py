@@ -31,12 +31,38 @@ extensions = [
 ]
 
 # Relative targets keep old links within the same language and build version.
-redirects = {"rst_source/benchmarks": "leaderboard.html"}
+redirects = {
+    "rst_source/benchmarks": "leaderboard/index.html",
+    "rst_source/installation": "get_started/quickstart.html",
+    "rst_source/overview": "get_started/overview.html",
+    "rst_source/quickstart": "get_started/quickstart.html",
+    "rst_source/leaderboard": "leaderboard/index.html",
+    "rst_source/awesome_works/harnessvla": "../resources/harnessvla.html",
+    "rst_source/usage/simulation": "../simulators/index.html",
+    "rst_source/usage/real_robots": "../real_world_robots/index.html",
+    "rst_source/usage/memory": "../guides/memory.html",
+    "rst_source/usage/configure_primitives": "../guides/configure_primitives.html",
+    "rst_source/usage/configure_planner": "../guides/configure_planner.html",
+    "rst_source/usage/cli": "../guides/cli.html",
+    "rst_source/usage/dashboard": "../guides/dashboard.html",
+    "rst_source/usage/flash": "../guides/flash.html",
+    "rst_source/usage/flywheel": "../guides/flywheel.html",
+    "rst_source/usage/advanced_deployment": "../guides/advanced_deployment.html",
+    "rst_source/usage/libero": "../simulators/libero.html",
+    "rst_source/usage/robocasa": "../simulators/robocasa.html",
+    "rst_source/usage/robotwin": "../simulators/robotwin.html",
+    "rst_source/usage/franka": "../real_world_robots/franka.html",
+    "rst_source/usage/dual_franka": "../real_world_robots/dual_franka.html",
+    "rst_source/usage/yam": "../real_world_robots/yam.html",
+    "rst_source/usage/so101": "../real_world_robots/so101.html",
+    "rst_source/usage/real_world_demos_franka": "../real_world_demos/franka.html",
+    "rst_source/usage/real_world_demos_yam": "../real_world_demos/yam.html",
+}
 
 source_suffix = {".rst": "restructuredtext"}
 root_doc = "index"
 templates_path = ["_templates"]
-exclude_patterns = []
+exclude_patterns = ["**/_*.rst"]
 default_role = "code"
 
 language = "en"
@@ -49,7 +75,7 @@ html_baseurl = os.environ.get(
     "https://rpent.readthedocs.io/en/latest/",
 )
 sitemap_url_scheme = "{link}"
-html_static_path = ["_static"]
+html_static_path = ["../_static", "_static"]
 html_css_files = ["css/custom.css"]
 html_js_files = [
     "js/version-switcher.js",
@@ -90,3 +116,12 @@ html_theme_options = {
         "version_match": version,
     },
 }
+
+
+def show_simulator_subsections(app, pagename, templatename, context, doctree):
+    if pagename.startswith("rst_source/simulators/"):
+        context["theme_show_toc_level"] = 2
+
+
+def setup(app):
+    app.connect("html-page-context", show_simulator_subsections, priority=400)

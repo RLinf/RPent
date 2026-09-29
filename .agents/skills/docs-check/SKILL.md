@@ -8,6 +8,16 @@ description: Check RPent documentation, comments, translations, prompts, and vis
 Follow [AGENTS.md](../../../AGENTS.md) and the documentation requirements in
 [CONTRIBUTING.md](../../../CONTRIBUTING.md). Establish the changed files and
 intended audience, then read their owning implementation and nearby examples.
+For documentation structure, terminology, and layout, follow
+[docs/STYLE_GUIDE.md](../../../docs/STYLE_GUIDE.md).
+
+For restructuring, record the pre-edit revision and content destinations.
+Compare commands, dependency options, defaults, output descriptions, numeric
+tables and their conditions, and media references after the final edit. Keep
+the leaderboard and incomplete integration entries unless a requested change
+explicitly covers them. Check simulator overview fields and shared section
+order against the style guide, and inspect Chinese inline markup in generated
+HTML; a warning-free build does not establish correct rendering.
 
 ## Check meaning and coverage
 
