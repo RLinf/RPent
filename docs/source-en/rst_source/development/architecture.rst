@@ -51,7 +51,7 @@ different robots.
    * - MemoryManager
      - Control memory reads and exploration writes, and manage merging and indexing.
 
-In LIBERO, the environment, Pi0.5, and SAM3 run in separate service processes. Action tools advance the environment; read tools such as ``view_env_state`` inspect recorded state. RPC supports HTTP and socket transports. See :doc:`interfaces` for contracts and :doc:`../usage/advanced_deployment` for standalone deployment.
+In LIBERO, the environment, Pi0.5, and SAM3 run in separate service processes. Action tools advance the environment; read tools such as ``view_env_state`` inspect recorded state. RPC supports HTTP and socket transports. See :doc:`interfaces` for contracts and :doc:`../guides/advanced_deployment` for standalone deployment.
 
 Repository Layout
 -----------------
@@ -103,7 +103,7 @@ The browser receives session updates through server-sent events (SSE) at
 It uses those updates to refresh the conversation, camera views, and action
 timeline. Direct primitive controls use the schemas declared by the robot;
 the backend validates their arguments before dispatching the tool call. See
-:doc:`../usage/dashboard` for usage and :doc:`add_robot` for Dashboard integration.
+:doc:`../guides/dashboard` for usage and :doc:`add_robot` for Dashboard integration.
 
 Extension Guides
 ----------------

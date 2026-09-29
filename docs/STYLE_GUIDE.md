@@ -5,7 +5,7 @@ user-facing messages. Verify behavior against the code being documented. Build
 instructions are in [README.md](README.md).
 
 This guide adapts the writing and presentation principles in
-[RLinf's documentation guide](https://github.com/RLinf/RLinf/blob/010990e5c81ae17d141d3eab584a3bd1791df950/docs/STYLE_GUIDE.md)
+[RLinf's documentation guide](https://github.com/RLinf/RLinf/blob/main/docs/STYLE_GUIDE.md)
 to RPent's task execution, memory, and robot workflows. RPent's navigation and
 page boundaries are defined below.
 
@@ -58,6 +58,23 @@ Keep the same sections and ordering in both languages:
 7. **Concepts & Development / 原理与开发**: architecture, interfaces, memory
    design, and extension guides for environments, tools, and planners.
 8. **Resources / 项目资源**: Harness VLA, contributing, and release notes.
+
+Match source directories to the sidebar groups in both language trees:
+
+| Sidebar group | Directory under `rst_source/` |
+| --- | --- |
+| Get Started | `get_started/` |
+| Leaderboard | `leaderboard/` |
+| Real-World Demos | `real_world_demos/` |
+| Guides | `guides/` |
+| Simulators | `simulators/` |
+| Real-World Robots | `real_world_robots/` |
+| Concepts & Development | `development/` |
+| Resources | `resources/` |
+
+Use non-clickable group captions with consistent spacing in the sidebar.
+When moving a page, update internal links and add an old-to-new URL mapping
+in both `conf.py` files. Keep the same relative page paths in both languages.
 
 The home page is a short introduction with task-oriented links. Installation
 and the first LIBERO-PRO task form one Quick Start. Keep reproduction inside
@@ -123,7 +140,8 @@ RPent coordinates task execution, so these cards describe planners rather
 than RL training algorithms.
 
 Under Overview, add **Tasks / 任务** and **Observation and Action / 观测与动作**
-as H3 sections. Use tables for both. The task table identifies suites or task
+as H3 sections. Show these subsections in the right-hand table of contents.
+Use tables for both. The task table identifies suites or task
 categories and their scope; keep detailed task/seed matrices with reproduction.
 The interface table uses the same rows: **Observation / 观测**, **Action / 动作**,
 **Reward / success / 奖励与成功判定**, and **Task prompt / 任务指令**. Distinguish
@@ -141,19 +159,24 @@ After Overview, cover:
    settings, limits, retry policy, and aggregation method where available.
 6. Common failures and relevant diagnostics.
 
-Use the same headings for sections with the same purpose:
+Use the same headings and levels for sections with the same purpose.
+Required sections apply to each supported simulator; include conditional
+sections when the stated feature is supported or results are published.
 
-| English | Chinese |
-| --- | --- |
-| Overview | 概览 |
-| Tasks | 任务 |
-| Observation and Action | 观测与动作 |
-| Installation and Resources | 安装与资源准备 |
-| Run a Task | 运行一个任务 |
-| View Results | 查看结果 |
-| Task Memory | 任务记忆 |
-| Exploration Mode | 探索模式 |
-| Experiment Reproduction | 实验复现 |
+| English | Chinese | Level | Requirement |
+| --- | --- | --- | --- |
+| Overview | 概览 | H2 | Required |
+| Tasks | 任务 | H3 under Overview | Required |
+| Observation and Action | 观测与动作 | H3 under Overview | Required |
+| Installation and Resources | 安装与资源准备 | H2 | Required |
+| Run a Task | 运行一个任务 | H2 | Required |
+| View Results | 查看结果 | H2 | Required |
+| Task Memory | 任务记忆 | H2 | Conditional: memory is supported |
+| Exploration Mode | 探索模式 | H2 | Conditional: exploration is supported |
+| Experiment Reproduction | 实验复现 | H2 | Conditional: benchmark results are published |
+
+An introductory figure is optional. Configuration and diagnostic sections
+depend on the environment's setup; include instructions needed to run it.
 
 Keep installation and downloads before Run a Task, followed immediately by
 View Results. Put memory, exploration, reproduction, diagnostics, and developer
@@ -163,8 +186,10 @@ preserve environment-specific steps and their prerequisites.
 Keep headings accurate to their contents. A section covering only package
 installation can remain **Installation / 安装** when downloads have separate
 sections. A combined memory and exploration section can use **Task Memory and
-Exploration Mode / 任务记忆与探索模式**. Add a benchmark qualifier when useful, such as **Experiment Reproduction
-(Target50) / 实验复现（Target50）**. Keep published results and
+Exploration Mode / 任务记忆与探索模式**. Use **Experiment Reproduction /
+实验复现** as the shared heading. A benchmark qualifier is optional and must
+belong to that environment: **Experiment Reproduction (Target50) /
+实验复现（Target50）** applies only to RoboCasa365. Keep published results and
 environment-specific diagnostics where they help the reader; do not add
 empty sections to match another page. Preserve existing named anchors when
 renaming headings.
@@ -182,35 +207,18 @@ project's accelerator claims.
 
 ### Real-world robots and demos
 
-An introductory photo should clearly show the robot's body, gripper, or
-workbench layout. Choose a view where the robot occupies enough of the image
-to be recognizable; avoid video posters dominated by subtitles or task objects.
-Prefer photos from RPent demonstrations or the linked upstream deployment
-guide, or clear product photos from the robot manufacturer. Place the figure
-below the title with alt text and a short descriptive caption. Keep source URLs
-in the RST source; visible source credits are not required unless the asset's
-terms require attribution. Describe product photos as hardware illustrations,
-without implying they show an RPent deployment.
-
-Use `:figclass: rpent-robot-figure` for introductory robot figures. The shared
-stylesheet provides a centered 600 px maximum width, a 4:3 image area, and
-consistent caption spacing; figures shrink to fit narrow screens. Choose
-images with comparable framing and a clearly visible robot, rather than
-mixing full robot views with close-ups of individual parts. Use images at
-least as wide as the display area, preserve their proportions, and keep the
-base and gripper visible. Adjust framing only to remove empty background;
-do not crop out hardware to fill the frame. Verify the result on desktop
-and narrow screens. Keep pending documentation clearly marked even when
-a photo is available.
+Use a clear introductory robot photo with alt text, a short caption, and
+`:figclass: rpent-robot-figure` for shared sizing. Preserve the image's
+proportions and check desktop and narrow-screen layouts. Keep the source URL
+in the RST; add a visible credit when the asset's terms require it.
 
 Deployment pages cover hardware and controller requirements, calibration,
 configuration, motion checks, task execution, result inspection, and stopping.
 Keep operator responsibilities and physical safety constraints explicit.
 
-Demo pages explain the visible task, embed the video with a useful caption,
-and link to that robot's deployment page. If deployment instructions are
-pending, say so at the link. A video is not an installation guide or evidence
-that every published workflow is reproducible.
+Demo pages describe the task, embed the video, and link to the corresponding
+installation and usage guide. Clearly mark pending instructions and coming-soon
+integrations so readers know which workflows they can reproduce.
 
 ### Guides and developer pages
 
@@ -247,10 +255,20 @@ structure. Preserve code identifiers, model names, flags, and filenames.
 | Simulators | 仿真环境 |
 
 Use Chinese punctuation in Chinese prose and spaces between Chinese text and
-Latin identifiers. Keep each Chinese prose paragraph or list-item paragraph
-on one source line so line wrapping does not insert spaces between Chinese
-characters. Preserve indentation and line structure in directives, tables,
-code, and raw HTML. English prose may wrap at normal source line lengths.
+Latin identifiers. Chinese prose paragraphs and list items may stay on one
+source line or wrap with a trailing backslash (`\`) to escape the newline.
+Keep list and directive indentation. Escaped line breaks remove whitespace,
+so use them between Chinese characters, not where a word separator is needed.
+For example, this renders as one sentence without a space at the line break:
+
+```rst
+评测模式读取已有记忆，\
+按环境规定判断任务结果。
+```
+
+Preserve line structure in tables, code blocks, and raw HTML; this prose rule
+does not apply inside literal blocks. English prose may wrap at normal source
+line lengths.
 
 RST inline markup needs boundaries around Chinese text. Write
 `使用 ``base_camera`` 相机` rather than gluing backticks to adjacent Chinese

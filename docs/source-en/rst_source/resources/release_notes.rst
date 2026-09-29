@@ -9,10 +9,10 @@ See `GitHub Releases <https://github.com/RLinf/RPent/releases>`_ for published v
    * - Experiment
      - Versions and reproduction
    * - LIBERO / LIBERO-PRO
-     - :doc:`../usage/libero`
+     - :doc:`../simulators/libero`
    * - RoboCasa365 Target50
-     - :doc:`../usage/robocasa`
+     - :doc:`../simulators/robocasa`
    * - RoboTwin C2R
-     - :doc:`../usage/robotwin`
+     - :doc:`../simulators/robotwin`
 
 When reporting an issue, include ``git rev-parse HEAD``, installed versions, the command, and relevant logs. Remove API keys and other credentials.

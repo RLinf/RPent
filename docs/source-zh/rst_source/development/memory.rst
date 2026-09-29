@@ -1,7 +1,7 @@
 记忆机制
 ============
 
-RPent 通过 ``MemoryManager`` 管理每个机器人的经验文件、读取权限和探索草稿。日常操作见 :doc:`../usage/memory`；本页说明目录和发布过程。
+RPent 通过 ``MemoryManager`` 管理每个机器人的经验文件、读取权限和探索草稿。日常操作见 :doc:`../guides/memory`；本页说明目录和发布过程。
 
 目录与访问范围
 ---------------------
@@ -20,7 +20,7 @@ RPent 通过 ``MemoryManager`` 管理每个机器人的经验文件、读取权�
    │   └── <task_key>.md
    └── _internal/inbox/<cell>/
 
-默认本地目录为 ``memory/<robot>/``。Hugging Face 中 LIBERO 按模型版本分目录，详见 :doc:`../usage/memory`；其他机器人仍使用 ``<robot>/``。自定义 ``--memory-dir`` 可指向任意采用上述结构的目录。
+默认本地目录为 ``memory/<robot>/``。Hugging Face 中 LIBERO 按模型版本分目录，详见 :doc:`../guides/memory`；其他机器人仍使用 ``<robot>/``。自定义 ``--memory-dir`` 可指向任意采用上述结构的目录。
 
 各机器人按需提供实际使用的记忆层：
 
@@ -66,6 +66,6 @@ RoboCasa 同时使用 task-specific 与 global memory，不提供记忆层选择
 同步与贡献
 ---------------
 
-HF 模式从公开数据集 ``RLinf/RPent-memory`` 同步记忆。LIBERO 会选择并校验对应模型的记忆版本；离线使用需要该版本及 revision 的完整缓存。下载、缓存要求及历史代码与数据的配套关系见 :doc:`../usage/memory`。
+HF 模式从公开数据集 ``RLinf/RPent-memory`` 同步记忆。LIBERO 会选择并校验对应模型的记忆版本；离线使用需要该版本及 revision 的完整缓存。下载、缓存要求及历史代码与数据的配套关系见 :doc:`../guides/memory`。
 
 公开记忆由维护者审核发布。贡献经验时，在 RPent issue 中附上记忆文件、代码与模型版本、任务参数及成功证据；仓库没有自动上传记忆的入口。

@@ -9,10 +9,10 @@
    * - 实验
      - 版本与复现说明
    * - LIBERO / LIBERO-PRO
-     - :doc:`../usage/libero`
+     - :doc:`../simulators/libero`
    * - RoboCasa365 Target50
-     - :doc:`../usage/robocasa`
+     - :doc:`../simulators/robocasa`
    * - RoboTwin C2R
-     - :doc:`../usage/robotwin`
+     - :doc:`../simulators/robotwin`
 
 报告问题时，请附上 ``git rev-parse HEAD``、安装版本、运行命令和相关日志，并移除 API Key 等凭据。

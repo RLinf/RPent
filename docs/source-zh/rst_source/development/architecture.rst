@@ -46,7 +46,7 @@ RPent 将任务规划、工具执行和环境运行分开：规划器选择工�
    * - MemoryManager
      - 控制记忆读取与探索草稿写入，管理经验合并和索引。
 
-以 LIBERO 为例，环境、Pi0.5 和 SAM3 各自运行在服务进程中。动作工具会推进环境；``view_env_state`` 等读取工具查看已记录状态。RPC 支持 HTTP 和 socket，接口详见 :doc:`interfaces`，独立部署方法见 :doc:`../usage/advanced_deployment`。
+以 LIBERO 为例，环境、Pi0.5 和 SAM3 各自运行在服务进程中。动作工具会推进环境；``view_env_state`` 等读取工具查看已记录状态。RPC 支持 HTTP 和 socket，接口详见 :doc:`interfaces`，独立部署方法见 :doc:`../guides/advanced_deployment`。
 
 代码目录
 ------------
@@ -92,7 +92,7 @@ Dashboard 使用长期运行的 Session 管理服务，每次任务创建新的 
 
 LIBERO 会话复用 Pi0.5 和 SAM3，每个任务拥有独立环境并按顺序执行。任务创建新的工具集和规划器对话；组件由创建它的会话或任务清理。
 
-浏览器通过 ``/api/session/stream`` 接收服务器发送的事件（SSE），并在新的对话事件产生后读取内容，更新对话、相机画面和动作时间线。直接操作动作原语的控件使用机器人声明的参数定义，后端会在调用工具前校验参数。使用方法见 :doc:`../usage/dashboard`，Dashboard 接入方式见 :doc:`add_robot`。
+浏览器通过 ``/api/session/stream`` 接收服务器发送的事件（SSE），并在新的对话事件产生后读取内容，更新对话、相机画面和动作时间线。直接操作动作原语的控件使用机器人声明的参数定义，后端会在调用工具前校验参数。使用方法见 :doc:`../guides/dashboard`，Dashboard 接入方式见 :doc:`add_robot`。
 
 扩展入口
 ------------

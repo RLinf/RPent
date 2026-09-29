@@ -59,7 +59,7 @@ pre-commit install
 
 The commands above are alternatives: install only the robot extra relevant to
 the change. See the
-[installation guide](docs/source-en/rst_source/quickstart.rst) for
+[installation guide](docs/source-en/rst_source/get_started/quickstart.rst) for
 environment-specific setup.
 
 ### Step 3. Develop

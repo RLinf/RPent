@@ -1,7 +1,7 @@
 Memory Design
 =============
 
-RPent uses ``MemoryManager`` to manage each robot’s experience files, access permissions, and exploration drafts. See :doc:`../usage/memory` for commands; this page describes storage and publication.
+RPent uses ``MemoryManager`` to manage each robot’s experience files, access permissions, and exploration drafts. See :doc:`../guides/memory` for commands; this page describes storage and publication.
 
 Layout and Access Scope
 -----------------------
@@ -22,7 +22,7 @@ use the same directory structure:
    └── _internal/inbox/<cell>/
 
 The default local root is ``memory/<robot>/``. On Hugging Face, LIBERO has
-model-specific roots, described in :doc:`../usage/memory`; other robots use ``<robot>/``. A custom
+model-specific roots, described in :doc:`../guides/memory`; other robots use ``<robot>/``. A custom
 ``--memory-dir`` may point at any directory laid out like the tree above.
 
 Each robot provides the memory layers it uses:
@@ -84,6 +84,6 @@ Simulation environments merge automatically by default; ``--no-auto-merge-memory
 Synchronization and Contributions
 ---------------------------------
 
-The HF profile synchronizes memory from the public ``RLinf/RPent-memory`` dataset. LIBERO selects and verifies a model-specific corpus; offline use requires a complete cache for that version and revision. See :doc:`../usage/memory` for downloads, cache requirements, and historical code/data compatibility.
+The HF profile synchronizes memory from the public ``RLinf/RPent-memory`` dataset. LIBERO selects and verifies a model-specific corpus; offline use requires a complete cache for that version and revision. See :doc:`../guides/memory` for downloads, cache requirements, and historical code/data compatibility.
 
 Maintainers review and publish public memory. To contribute, open an RPent issue with the memory files, code and model versions, task arguments, and success evidence. The repository has no automatic memory-upload entry point.

@@ -55,7 +55,7 @@ pre-commit install
 ```
 
 以上命令是不同选择；只安装当前改动涉及的 robot extra。各环境的具体配置见
-[安装指南](docs/source-zh/rst_source/quickstart.rst)。
+[安装指南](docs/source-zh/rst_source/get_started/quickstart.rst)。
 
 ### 第 3 步：开发
 

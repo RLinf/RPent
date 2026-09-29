@@ -13,31 +13,31 @@ RPent (Recursive Physical Agent) is an open-source framework for building embodi
    :gutter: 3
 
    .. grid-item-card:: Quick Start
-      :link: rst_source/quickstart
+      :link: rst_source/get_started/quickstart
       :link-type: doc
 
       Install RPent, run a LIBERO-PRO task, and inspect the result.
 
    .. grid-item-card:: Introduction to RPent
-      :link: rst_source/overview
+      :link: rst_source/get_started/overview
       :link-type: doc
 
       Learn how planning, perception, actions, and memory work together.
 
    .. grid-item-card:: Memory and Exploration
-      :link: rst_source/usage/memory
+      :link: rst_source/guides/memory
       :link-type: doc
 
       Use published experience or build memory through exploration.
 
    .. grid-item-card:: Leaderboard
-      :link: rst_source/leaderboard
+      :link: rst_source/leaderboard/index
       :link-type: doc
 
       Compare reported success rates, runtime, and token costs.
 
    .. grid-item-card:: Real-World Demos
-      :link: rst_source/usage/real_world_demos_franka
+      :link: rst_source/real_world_demos/franka
       :link-type: doc
 
       Watch dual-arm Franka tasks and follow the deployment guide.
@@ -48,7 +48,7 @@ RPent (Recursive Physical Agent) is an open-source framework for building embodi
 
       Understand the execution flow and add robots, tools, or planners.
 
-Choose an environment: :doc:`LIBERO <rst_source/usage/libero>`, :doc:`RoboCasa365 <rst_source/usage/robocasa>`, or :doc:`RoboTwin <rst_source/usage/robotwin>`. For robot deployment, see :doc:`Single-Arm Franka <rst_source/usage/franka>` and :doc:`Dual-Arm Franka <rst_source/usage/dual_franka>`; :doc:`YAM <rst_source/usage/real_world_demos_yam>` has a task demo.
+Choose an environment: :doc:`LIBERO <rst_source/simulators/libero>`, :doc:`RoboCasa365 <rst_source/simulators/robocasa>`, or :doc:`RoboTwin <rst_source/simulators/robotwin>`. For robot deployment, see :doc:`Single-Arm Franka <rst_source/real_world_robots/franka>` and :doc:`Dual-Arm Franka <rst_source/real_world_robots/dual_franka>`; :doc:`YAM <rst_source/real_world_demos/yam>` has a task demo.
 
 .. toctree::
    :maxdepth: 2
@@ -57,16 +57,18 @@ Choose an environment: :doc:`LIBERO <rst_source/usage/libero>`, :doc:`RoboCasa36
    :hidden:
    :caption: Get Started
 
-   Introduction to RPent <rst_source/overview>
-   Quick Start <rst_source/quickstart>
+   Introduction to RPent <rst_source/get_started/overview>
+   Quick Start <rst_source/get_started/quickstart>
 
 .. toctree::
    :maxdepth: 2
    :includehidden:
    :titlesonly:
    :hidden:
+   :caption: Leaderboard
 
-   Leaderboard <rst_source/leaderboard>
+   Performance <rst_source/leaderboard/performance>
+   Time & Token Costs <rst_source/leaderboard/time-token-costs>
 
 .. toctree::
    :maxdepth: 2
@@ -75,8 +77,8 @@ Choose an environment: :doc:`LIBERO <rst_source/usage/libero>`, :doc:`RoboCasa36
    :hidden:
    :caption: Real-World Demos
 
-   Dual-Arm Franka <rst_source/usage/real_world_demos_franka>
-   YAM <rst_source/usage/real_world_demos_yam>
+   Dual-Arm Franka <rst_source/real_world_demos/franka>
+   YAM <rst_source/real_world_demos/yam>
 
 .. toctree::
    :maxdepth: 2
@@ -85,14 +87,14 @@ Choose an environment: :doc:`LIBERO <rst_source/usage/libero>`, :doc:`RoboCasa36
    :hidden:
    :caption: Guides
 
-   Memory and Exploration <rst_source/usage/memory>
-   Action Primitives and Tools <rst_source/usage/configure_primitives>
-   Planners and Model Services <rst_source/usage/configure_planner>
-   Command-Line Reference <rst_source/usage/cli>
-   Interactive Usage <rst_source/usage/dashboard>
-   Flash Mode <rst_source/usage/flash>
-   Trajectory Collection and Data Flywheel <rst_source/usage/flywheel>
-   Remote Services and Parallel Runs <rst_source/usage/advanced_deployment>
+   Memory and Exploration <rst_source/guides/memory>
+   Action Primitives and Tools <rst_source/guides/configure_primitives>
+   Planners and Model Services <rst_source/guides/configure_planner>
+   Command-Line Reference <rst_source/guides/cli>
+   Interactive Usage <rst_source/guides/dashboard>
+   Flash Mode <rst_source/guides/flash>
+   Trajectory Collection and Data Flywheel <rst_source/guides/flywheel>
+   Remote Services and Parallel Runs <rst_source/guides/advanced_deployment>
 
 .. toctree::
    :maxdepth: 2
@@ -101,9 +103,9 @@ Choose an environment: :doc:`LIBERO <rst_source/usage/libero>`, :doc:`RoboCasa36
    :hidden:
    :caption: Simulators
 
-   LIBERO <rst_source/usage/libero>
-   RoboCasa365 <rst_source/usage/robocasa>
-   RoboTwin <rst_source/usage/robotwin>
+   LIBERO <rst_source/simulators/libero>
+   RoboCasa365 <rst_source/simulators/robocasa>
+   RoboTwin <rst_source/simulators/robotwin>
 
 .. toctree::
    :maxdepth: 2
@@ -112,10 +114,10 @@ Choose an environment: :doc:`LIBERO <rst_source/usage/libero>`, :doc:`RoboCasa36
    :hidden:
    :caption: Real-World Robots
 
-   Single-Arm Franka <rst_source/usage/franka>
-   Dual-Arm Franka <rst_source/usage/dual_franka>
-   YAM <rst_source/usage/yam>
-   SO-101 <rst_source/usage/so101>
+   Single-Arm Franka <rst_source/real_world_robots/franka>
+   Dual-Arm Franka <rst_source/real_world_robots/dual_franka>
+   YAM <rst_source/real_world_robots/yam>
+   SO-101 <rst_source/real_world_robots/so101>
 
 .. toctree::
    :maxdepth: 2
@@ -138,6 +140,6 @@ Choose an environment: :doc:`LIBERO <rst_source/usage/libero>`, :doc:`RoboCasa36
    :hidden:
    :caption: Resources
 
-   Harness VLA <rst_source/awesome_works/harnessvla>
+   Harness VLA <rst_source/resources/harnessvla>
    Contributing <rst_source/resources/contributing>
    Release Notes <rst_source/resources/release_notes>

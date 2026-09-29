@@ -64,7 +64,7 @@ Planner
 -------
 
 Most users pick a built-in ``api``, ``claude_code``, or ``codex`` planner — see
-:doc:`../usage/configure_planner`. Only **custom planners** need
+:doc:`../guides/configure_planner`. Only **custom planners** need
 ``rpent.planner.base.Planner``:
 
 .. code-block:: python
