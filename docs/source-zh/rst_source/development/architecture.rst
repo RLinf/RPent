@@ -84,8 +84,9 @@ LLM-in-the-loop 运行流程
 动作模型的分层
 --------------
 
-VLA 和 WAM 在配置入口区分模型类别，内部共享动作预测接口：客户端接收观测，
-返回动作块。共享接口不意味着两者的观测编码、checkpoint 或规划能力可以互换。
+VLA 和 WAM 在配置入口区分模型类别。LIBERO 原语使用相同的适配器接口：客户端
+接收观测并返回动作块，但底层 RPC 协议不同。共享接口不意味着两者的观测编码、
+checkpoint 或规划能力可以互换。
 
 .. list-table:: LIBERO 参考实现
    :header-rows: 1
@@ -93,13 +94,14 @@ VLA 和 WAM 在配置入口区分模型类别，内部共享动作预测接口�
 
    * - 所属模块
      - 职责
-   * - ``rpent/robots/components/policy_*_base.py``
-     - 公共预测请求及 facade 路由注册。锁、传输、会话、健康检查和关闭逻辑
-       由现有 ``RpcFacade`` 提供。
+   * - ``rpent/robots/components/vla_*_base.py`` 和 ``action_model_*_base.py``
+     - 分别维护两套协议：VLA 从观测与选项生成动作，action-model 从标准化请求
+       生成结构化结果并提供能力协商。两者复用 ``RpcClient`` 和 ``RpcFacade``
+       的传输、锁、会话、健康检查和关闭逻辑。
    * - ``rpent/robots/components/pi05_vla_*`` 和 ``cosmos_policy_*``
      - 各模型的观测与动作适配及推理。Pi0.5 使用 VLA 子类和 ``vla.predict``；
        Cosmos 通过 ``action_model_*`` 子类协商能力，使用 ``action_model.predict``
-       返回结构化结果；两者均复用 policy/RPC 基类。
+       返回结构化结果。
    * - ``robots/libero/policy.py`` 和 ``suites.py``
      - ``PolicyConfig`` 选择后端、能力、客户端和服务连接方式。
        公共任务集目录与环境选择独立于模型，也独立于某次实验选择的评测范围。
@@ -112,7 +114,7 @@ VLA 和 WAM 在配置入口区分模型类别，内部共享动作预测接口�
    * - ``tests/e2e_tests/libero/benchmark_cosmos_policy.py``
      - 管理评测协议、动作预算、任务选择和结果汇总，这些配置不属于模型适配器。
 
-公共预测基类复用现有 RPC 机制，不另建一套传输实现。模型专用逻辑仍分别维护：
+协议基类复用现有 RPC 机制，不另建一套传输实现。模型专用逻辑仍分别维护：
 Cosmos 在独立部署的服务中使用 NVIDIA 官方动作推理接口，Pi0.5 保留 OpenPI
 编码和服务。当前 Cosmos 观测格式和 checkpoint 面向 LIBERO，代码位于
 ``components/`` 并不代表已经支持其他 benchmark。未来状态与价值生成可选，

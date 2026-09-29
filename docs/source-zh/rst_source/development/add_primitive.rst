@@ -86,10 +86,10 @@ primitives 方法，以及调用完成后的状态快照。区别仅在于方法
 1. **编写模型服务。** 该进程负责模型权重、预处理和 CUDA 上下文。
    VLA 继承 :class:`rpent.robots.components.vla_facade_base.BaseVLAFacade`，实现
    ``predict``，并通过扩展 ``_register_rpc`` 注册其他模型 RPC。
-   非 VLA 动作模型使用
-   :class:`rpent.robots.components.policy_facade_base.BasePolicyFacade`，
-   通过 ``PREDICT_METHOD`` 指定 RPC 方法名。Cosmos 使用 ``BaseActionModelFacade``
-   子类，提供 ``action_model.predict`` 和 ``action_model.capabilities``。
+   使用 Cosmos 所采用的结构化动作模型协议时，继承
+   :class:`rpent.robots.components.action_model_facade_base.BaseActionModelFacade`，
+   提供能力声明并实现 ``predict_native``。该基类注册 ``action_model.predict``
+   和 ``action_model.capabilities``，负责请求与预测结果的校验。
    可复用的模型适配器放在 ``rpent/robots/components/``，机器人专用环境及动作语义
    保留在 ``robots/<robot>/``。
 
@@ -107,10 +107,11 @@ primitives 方法，以及调用完成后的状态快照。区别仅在于方法
    公共的 ``vla.predict`` 调用，子类只需增加环境专用的输入 / 输出适配。
    LIBERO 的实现可参考
    ``rpent.robots.components.pi05_vla_client.Pi05VLAClient``。
-   非 VLA 模型继承
-   :class:`rpent.robots.components.policy_client_base.BasePolicyClient`，
-   并设置与 facade 一致的 ``PREDICT_METHOD``。``CosmosPolicyClient`` 和
-   ``CosmosPolicyFacade`` 复用这一预测机制，同时保留各自的观测与动作校验。
+   使用结构化协议时，继承
+   :class:`rpent.robots.components.action_model_client_base.BaseActionModelClient`，
+   由它协商能力并返回 ``ActionModelPrediction``。``CosmosPolicyClient``
+   适配 LIBERO 观测，通过 ``predict`` 返回动作块，通过 ``predict_result``
+   返回结构化结果。
 
 3. **在 primitives 中添加方法。** 在当前机器人的 primitives
    类中调用 model client，将其返回的动作块交给环境执行，并返回日志字典。

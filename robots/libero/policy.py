@@ -29,7 +29,8 @@ from rpent.utils.rpc import make_rpc_client
 from rpent.utils.rpc.http_rpc import HttpRpcClient
 
 if TYPE_CHECKING:
-    from rpent.robots.components.policy_client_base import BasePolicyClient
+    from rpent.robots.components.cosmos_policy_client import CosmosPolicyClient
+    from rpent.robots.components.vla_client_base import BaseVLAClient
     from rpent.utils.rpc import RpcClient
 
 
@@ -124,7 +125,7 @@ class PolicyConfig:
         if args.memory_dir is not None:
             raise ValueError("Cosmos Policy does not support --memory-dir")
 
-    def make_client(self, rpc: RpcClient) -> BasePolicyClient:
+    def make_client(self, rpc: RpcClient) -> BaseVLAClient | CosmosPolicyClient:
         """Create the backend's observation/action adapter with lazy imports."""
         if self.backend == "cosmos-policy":
             from rpent.robots.components.cosmos_policy_client import CosmosPolicyClient

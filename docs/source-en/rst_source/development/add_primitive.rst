@@ -93,11 +93,12 @@ primitive requires a few additional components:
    preprocessing and CUDA context. For a VLA, use
    :class:`rpent.robots.components.vla_facade_base.BaseVLAFacade` as the base
    class, implement ``predict``, and register any additional model RPCs by
-   extending ``_register_rpc``. For a non-VLA action model, use
-   :class:`rpent.robots.components.policy_facade_base.BasePolicyFacade` and
-   select its RPC name through ``PREDICT_METHOD``. Cosmos uses the
-   ``BaseActionModelFacade`` specialization with ``action_model.predict`` and
-   ``action_model.capabilities``.
+   extending ``_register_rpc``. For the structured action-model protocol used
+   by Cosmos, inherit
+   :class:`rpent.robots.components.action_model_facade_base.BaseActionModelFacade`,
+   supply capabilities and implement ``predict_native``. This base registers
+   ``action_model.predict`` and ``action_model.capabilities`` and validates
+   requests and predictions.
    Reusable model adapters live under ``rpent/robots/components/``; robot-specific
    environment and action semantics stay under ``robots/<robot>/``.
 
@@ -117,11 +118,11 @@ primitive requires a few additional components:
    provides the common ``vla.predict`` call, and add only the
    environment-specific input / output adaptation. See
    ``rpent.robots.components.pi05_vla_client.Pi05VLAClient`` for the LIBERO
-   implementation. For non-VLA models, inherit
-   :class:`rpent.robots.components.policy_client_base.BasePolicyClient` and
-   set the same ``PREDICT_METHOD`` as the facade. ``CosmosPolicyClient`` and
-   ``CosmosPolicyFacade`` share this prediction infrastructure while retaining
-   their own observation and action validation.
+   implementation. For the structured protocol, inherit
+   :class:`rpent.robots.components.action_model_client_base.BaseActionModelClient`,
+   which negotiates capabilities and returns an ``ActionModelPrediction``.
+   ``CosmosPolicyClient`` adapts LIBERO observations and exposes ``predict``
+   for action chunks and ``predict_result`` for the structured result.
 
 3. **Add a method to the primitives.** In the current
    robot's primitives class, call the model client, pass

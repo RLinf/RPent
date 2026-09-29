@@ -98,10 +98,11 @@ The framework code is organized by responsibility:
 Action model layers
 -------------------
 
-VLA and WAM identify model families at the configuration boundary. They share
-the action-prediction interface internally: a client accepts observations and
-returns an action chunk. This does not make their observation encoders,
-checkpoints, or planning capabilities interchangeable.
+VLA and WAM identify model families at the configuration boundary. LIBERO's
+primitives use the same adapter interface: a client accepts observations and
+returns an action chunk. The underlying RPC protocols differ. This does not
+make their observation encoders, checkpoints, or planning capabilities
+interchangeable.
 
 .. list-table:: LIBERO reference implementation
    :header-rows: 1
@@ -109,14 +110,16 @@ checkpoints, or planning capabilities interchangeable.
 
    * - Owner
      - Responsibility
-   * - ``rpent/robots/components/policy_*_base.py``
-     - Common prediction request and facade registration. ``RpcFacade`` owns
-       locking, transports, sessions, health checks, and shutdown.
+   * - ``rpent/robots/components/vla_*_base.py`` and ``action_model_*_base.py``
+     - Separate protocol contracts: VLA observations/options to actions, and
+       normalized action-model requests to structured predictions with capability
+       negotiation. Both reuse ``RpcClient`` and ``RpcFacade`` for transport,
+       locking, sessions, health checks, and shutdown.
    * - ``rpent/robots/components/pi05_vla_*`` and ``cosmos_policy_*``
      - Model-specific observation/action adaptation and inference.
        Pi0.5 uses the VLA subclasses and ``vla.predict``. Cosmos uses
        ``action_model_*`` subclasses for capability negotiation and structured
-       ``action_model.predict`` results; both reuse the policy/RPC bases.
+       ``action_model.predict`` results.
    * - ``robots/libero/policy.py`` and ``suites.py``
      - ``PolicyConfig`` selects the backend, capabilities, client and service
        connection. The shared suite catalog and environment routing are
@@ -131,7 +134,7 @@ checkpoints, or planning capabilities interchangeable.
      - Own the evaluation protocol, horizons, selected tasks and result
        aggregation. These settings do not belong in the model adapter.
 
-The shared prediction bases reuse the existing RPC machinery; they do not add
+The protocol bases reuse the existing RPC machinery; they do not add
 a second transport stack. Model implementations stay separate: Cosmos uses
 the official NVIDIA action API in a separately provisioned worker, while
 Pi0.5 retains its OpenPI encoding and service. The current Cosmos observation

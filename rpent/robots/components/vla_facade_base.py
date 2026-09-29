@@ -12,12 +12,36 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""VLA action prediction using the shared policy service lifecycle."""
+"""Server base for the legacy VLA action-chunk RPC contract."""
 
-from rpent.robots.components.policy_facade_base import BasePolicyFacade
+from rpent.utils.rpc import RpcFacade
+from rpent.utils.rpc.rpc_facade import DEFAULT_SESSION_TIMEOUT_S
 
 
-class BaseVLAFacade(BasePolicyFacade):
-    """Preserve the VLA RPC contract for existing model services."""
+class BaseVLAFacade(RpcFacade):
+    """Register VLA prediction while reusing RPC lifecycle and sessions.
+
+    Subclasses implement ``predict`` and may extend ``_register_rpc`` for
+    additional model methods. Session-aware services can implement
+    ``_on_session_drop`` and ``reset_session``; see RoboCasa's VLA service.
+    """
 
     PREDICT_METHOD = "vla.predict"
+
+    def __init__(
+        self,
+        *,
+        enable_sessions: bool = False,
+        session_timeout_s: float = DEFAULT_SESSION_TIMEOUT_S,
+    ):
+        super().__init__(
+            enable_sessions=enable_sessions, session_timeout_s=session_timeout_s
+        )
+        self._register_rpc()
+
+    def _register_rpc(self):
+        self._rpc[self.PREDICT_METHOD] = self.predict
+
+    def predict(self, *args, **kwargs):
+        """Run model inference. Subclasses must implement this method."""
+        raise NotImplementedError

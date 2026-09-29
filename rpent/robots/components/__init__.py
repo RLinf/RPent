@@ -16,16 +16,12 @@
 
 from rpent.robots.components.env_client_base import BaseEnvClient
 from rpent.robots.components.env_facade_base import BaseEnvFacade
-from rpent.robots.components.policy_client_base import BasePolicyClient
-from rpent.robots.components.policy_facade_base import BasePolicyFacade
 from rpent.robots.components.vla_client_base import BaseVLAClient
 from rpent.robots.components.vla_facade_base import BaseVLAFacade
 
 __all__ = [
     "BaseEnvClient",
     "BaseEnvFacade",
-    "BasePolicyClient",
-    "BasePolicyFacade",
     "BaseVLAClient",
     "BaseVLAFacade",
 ]

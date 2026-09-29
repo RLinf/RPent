@@ -12,12 +12,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""VLA action prediction using the shared policy client."""
+"""Client for the legacy VLA action-chunk RPC contract."""
 
-from rpent.robots.components.policy_client_base import BasePolicyClient
+from __future__ import annotations
 
 
-class BaseVLAClient(BasePolicyClient):
+class BaseVLAClient:
     """Preserve the VLA RPC contract for existing model clients."""
 
     PREDICT_METHOD = "vla.predict"
+    _TIMEOUT_S: dict[str, float] = {"default": 30.0, "predict": 120.0}
+
+    def __init__(self, client):
+        self._client = client
+
+    def predict(self, obs, options=None):
+        """Request a single VLA action chunk from observations and options."""
+        return self._client.call(
+            self.PREDICT_METHOD,
+            args=(obs, options),
+            timeout_s=self._TIMEOUT_S["predict"],
+        )

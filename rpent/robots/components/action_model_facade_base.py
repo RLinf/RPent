@@ -13,10 +13,10 @@ from rpent.robots.components.action_model_protocol import (
     ActionModelProtocolError,
     normalize_action_model_request,
 )
-from rpent.robots.components.policy_facade_base import BasePolicyFacade
+from rpent.utils.rpc import RpcFacade
 
 
-class BaseActionModelFacade(BasePolicyFacade):
+class BaseActionModelFacade(RpcFacade):
     """Register and validate the common ``action_model.*`` RPC methods."""
 
     PREDICT_METHOD = "action_model.predict"
@@ -24,6 +24,7 @@ class BaseActionModelFacade(BasePolicyFacade):
     def __init__(self, capabilities: ActionModelCapabilities) -> None:
         super().__init__()
         self._capabilities = capabilities
+        self._rpc[self.PREDICT_METHOD] = self.predict
         self._rpc["action_model.capabilities"] = self.get_capabilities
         self._readonly_methods.add("action_model.capabilities")
 

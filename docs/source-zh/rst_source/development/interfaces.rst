@@ -135,11 +135,11 @@ pickle 数据帧传输，省掉反复的 JSON 编解码。pickle 不适合不可
 扩展路由。这些基类在 ``RpcFacade`` 之上提供公共路由和锁。只有尚无专用基类的
 服务类型才直接继承 ``RpcFacade``。业务子类不必实现 ``healthz`` / ``shutdown``。
 
-``BaseVLAClient`` 和 ``BaseVLAFacade`` 分别继承 ``BasePolicyClient`` 和
-``BasePolicyFacade``，将 ``PREDICT_METHOD`` 固定为 ``vla.predict``。
-非 VLA 动作模型可以直接继承 policy 基类，并在客户端与服务端设置相同的方法名，
-Cosmos 使用 ``BaseActionModelClient`` 和 ``BaseActionModelFacade`` 子类，
-通过 ``action_model.capabilities`` 声明执行协议，``action_model.predict`` 返回
-动作及可选的未来观测与价值。这些输出不等于模型专用规划能力。
+``BaseVLAClient`` 和 ``BaseVLAFacade`` 保留 ``vla.predict(obs, options)``
+返回动作数组的接口。Cosmos 使用 ``BaseActionModelClient`` 和
+``BaseActionModelFacade`` 维护另一套协议：``action_model.capabilities`` 声明
+执行格式，``action_model.predict(request)`` 返回包含动作、元数据及可选的未来
+观测与价值的结构化结果。两组基类都使用现有 RPC 传输与生命周期机制，彼此没有
+继承关系。这些输出不等于模型专用规划能力。
 
 细节见 :doc:`add_robot` 中的 env_server 与 vla_server 章节。

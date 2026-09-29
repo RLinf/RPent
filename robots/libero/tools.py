@@ -19,17 +19,20 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 from robots.libero.env_client import LiberoEnvClient
 from rpent.robots.components.molmo_client import MolmoClient
-from rpent.robots.components.policy_client_base import BasePolicyClient
 from rpent.robots.components.sam3_client import Sam3Client
 from rpent.session import EnvState, StepRecord
 from rpent.tools.toolkit import readonly
 from rpent.utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from rpent.robots.components.cosmos_policy_client import CosmosPolicyClient
+    from rpent.robots.components.vla_client_base import BaseVLAClient
 
 logger = get_logger("libero")
 
@@ -44,7 +47,7 @@ def _normalize_xyz(xyz):
 
 
 class LiberoPrimitives:
-    """Wraps a single-env LIBERO-shaped env + VLA policy with primitive-
+    """Wraps a single-env LIBERO-shaped env + action model with primitive-
     level methods.
 
     ``pi0_pick`` and ``pi0_doubled`` override ``obs['task_descriptions']``
@@ -55,7 +58,7 @@ class LiberoPrimitives:
     def __init__(
         self,
         env: LiberoEnvClient,
-        model: BasePolicyClient,
+        model: BaseVLAClient | CosmosPolicyClient,
         sam3_client: Sam3Client,
         check_cancelled: Callable[[], None],
         molmo_client: MolmoClient | None = None,

@@ -13,11 +13,10 @@ from rpent.robots.components.action_model_protocol import (
     ActionModelProtocolError,
     normalize_action_model_request,
 )
-from rpent.robots.components.policy_client_base import BasePolicyClient
 from rpent.utils.rpc import RpcClient
 
 
-class BaseActionModelClient(BasePolicyClient):
+class BaseActionModelClient:
     """Client for the unified ``action_model.*`` RPC contract."""
 
     PREDICT_METHOD = "action_model.predict"
@@ -29,9 +28,9 @@ class BaseActionModelClient(BasePolicyClient):
         expected_backend: str | None = None,
         timeout_s: float = 300.0,
     ) -> None:
-        super().__init__(client)
+        self._client = client
         self._expected_backend = expected_backend
-        self._TIMEOUT_S = {**self._TIMEOUT_S, "predict": float(timeout_s)}
+        self._timeout_s = float(timeout_s)
         self._capabilities: ActionModelCapabilities | None = None
 
     def get_capabilities(self, *, refresh: bool = False) -> ActionModelCapabilities:
@@ -55,7 +54,9 @@ class BaseActionModelClient(BasePolicyClient):
         normalized = normalize_action_model_request(request)
         capabilities = self.get_capabilities()
         capabilities.require_embodiment(normalized["embodiment"])
-        payload = self._request_prediction(normalized)
+        payload = self._client.call(
+            self.PREDICT_METHOD, args=(normalized,), timeout_s=self._timeout_s
+        )
         prediction = ActionModelPrediction.from_wire(payload)
         if prediction.actions.shape[1] != capabilities.action_dim:
             raise ActionModelProtocolError(

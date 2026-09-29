@@ -149,12 +149,12 @@ bases provide common routing and locking on top of ``RpcFacade``. Subclass
 ``RpcFacade`` directly only for a service type without a specialized base. Do
 not implement ``healthz`` or ``shutdown`` in application subclasses.
 
-``BaseVLAClient`` and ``BaseVLAFacade`` specialize ``BasePolicyClient`` and
-``BasePolicyFacade`` with ``PREDICT_METHOD = "vla.predict"``. A non-VLA action
-model can inherit the policy bases directly and set a matching method on
-client and server. Cosmos uses the ``BaseActionModelClient`` and
-``BaseActionModelFacade`` subclasses: ``action_model.capabilities`` advertises
-the execution schema, and ``action_model.predict`` returns actions plus optional
-future observations/value. These outputs do not implement model-specific planning.
+``BaseVLAClient`` and ``BaseVLAFacade`` preserve ``vla.predict(obs, options)``
+returning action arrays. Cosmos uses ``BaseActionModelClient`` and
+``BaseActionModelFacade`` for a separate protocol: ``action_model.capabilities``
+advertises the execution schema, and ``action_model.predict(request)`` returns
+structured actions, metadata and optional future observations/value. Both pairs
+use the existing RPC transport and lifecycle; neither inherits from the other.
+These outputs do not implement model-specific planning.
 
 Details are in the env_server / vla_server sections of :doc:`add_robot`.
