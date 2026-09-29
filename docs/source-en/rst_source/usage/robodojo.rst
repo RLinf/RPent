@@ -42,8 +42,10 @@ If that defect affects the installed revision, use a separately prepared
 editable IsaacLab installation; the runtime wheel does not repair IsaacLab.
 The pinned ``afca7b09`` revision fails with a missing
 ``config/extension.toml`` after a wheel install. Check out the IsaacLab fork
-and revision named by the runtime dependency into a separate writable directory,
-then, from the RPent root and in the same environment, run:
+and revision named by the runtime dependency
+(`yuechen0614/IsaacLab <https://github.com/yuechen0614/IsaacLab.git>`_) into a
+separate writable directory, then, from the RPent root and in the same
+environment, run:
 
 .. code-block:: bash
 
@@ -52,8 +54,8 @@ then, from the RPent root and in the same environment, run:
      -e /path/to/IsaacLab/source/isaaclab_assets \
      -e /path/to/IsaacLab/source/isaaclab_tasks
 
-This is an additional manual packaging workaround, not a zero-step clean
-runtime installation. Retain that checkout while using the environment.
+Run this step once after installation; retain the checkout while using the
+environment.
 
 Sources and assets
 ------------------
@@ -80,9 +82,12 @@ Set ``ROBODOJO_ASSETS_ROOT`` to the directory containing ``Assets/``:
 * **NVIDIA USD/material assets referenced by IsaacLab:** these are separate
   from ``isaaclab_assets``. Obtain the matching asset pack from
   `NVIDIA's asset download instructions <https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/install_faq.html#isaac-sim-setup-assets-content-pack>`_.
-  RoboDojo's ``utils/ensure_usd_path.py`` specifically rewrites URLs under
-  ``Assets/Isaac/5.0``; for those references, download the **5.0** asset pack,
-  preserve ``/data/nvidia/Assets/Isaac/5.0`` and export:
+  RoboDojo's ``utils/ensure_usd_path.py`` rewrites URLs under
+  ``Assets/Isaac/5.0``: Isaac Sim 5.1 keeps referencing that 5.0 tree, so those
+  references need the **5.0** asset pack, while scenes or extensions that name
+  5.1 paths need the 5.1 asset pack. The two packs contain different trees and
+  are not interchangeable. For the 5.0 references, preserve
+  ``/data/nvidia/Assets/Isaac/5.0`` and export:
 
   .. code-block:: bash
 
@@ -91,7 +96,8 @@ Set ``ROBODOJO_ASSETS_ROOT`` to the directory containing ``Assets/``:
   This existing upstream variable applies only to that URL prefix, not every
   IsaacLab asset or a 5.1 asset tree. Other IsaacLab references use Kit's
   ``/persistent/isaac/asset_root/cloud`` setting; configure that separately
-  for a matching local pack when offline. Do not relabel a 5.1 pack as 5.0.
+  for a matching local pack when offline. A 5.1 pack does not cover the 5.0
+  paths.
 
 The two similarly named dependency entries are **not** two scene-data bundles:
 ``isaacsim[all,extscache]`` supplies simulator binaries and extension caches
