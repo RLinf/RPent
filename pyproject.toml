@@ -62,6 +62,7 @@ test = [
     "coverage",
     "pytest",
     "pytest-timeout",
+    "imageio-ffmpeg>=0.5",
     "omegaconf",
     "gymnasium",
 ]
@@ -75,6 +76,10 @@ sam3 = [
     "torch",
     "torchvision",
     "pillow>=10",
+]
+behavior = [
+    "scipy>=1.10,<2",
+    "imageio-ffmpeg>=0.5",
 ]
 molmo = [
     # Molmo's remote code uses transformers' video-processing API, which the

@@ -14,10 +14,12 @@
 
 from __future__ import annotations
 
+import argparse
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 from string import Formatter
 
+import numpy as np
 import pytest
 
 from robots.robotwin.robot_spec import (
@@ -29,9 +31,32 @@ from robots.robotwin.robot_spec import (
 from rpent.robots import enumerate_robots, get_robot_spec
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 
-EXPECTED_ROBOTS = ("dual_franka", "franka", "libero", "robocasa", "robotwin")
+EXPECTED_ROBOTS = (
+    "behavior",
+    "dual_franka",
+    "franka",
+    "libero",
+    "robocasa",
+    "robotwin",
+)
 
 PROMPT_VARIABLES = {
+    "behavior": {
+        "mode": "eval",
+        "task_name": "turning_on_radio",
+        "task": 0,
+        "task_language": "Turn on the radio.",
+        "task_instruction": "Turn on the radio.",
+        "public_seed": 1,
+        "recipe_tag": "turning_on_radio_s1",
+        "output_dir": Path("/output"),
+        "max_episode_steps": 43200,
+        "wall_clock_seconds": 7200,
+        "public_capabilities": ["observe", "pi0_nav_pick", "finish"],
+        "memory_dir": "/memory",
+        "memory_profile": "local",
+        "memory_inbox": "/memory/_internal/inbox/turning_on_radio_s1",
+    },
     "libero": {
         "suite": "libero_object_task",
         "task": 2,
@@ -105,6 +130,8 @@ def test_registry_discovers_exactly_the_source_checkout_robots() -> None:
         assert callable(spec.add_cli_args)
         assert callable(spec.parse_config)
         assert callable(spec.init_runtime)
+        if name == "behavior":
+            assert spec.supports_exploration
 
 
 @pytest.mark.parametrize("robot_name", EXPECTED_ROBOTS)
@@ -147,6 +174,12 @@ def test_dashboard_metadata_has_consistent_fields_and_runtime_components(
         "unique",
         "shared",
     }
+
+    primitives = dashboard["primitives"]
+    assert isinstance(primitives, tuple)
+    assert len(primitives) == len(set(primitives))
+    if robot_name == "behavior":
+        assert primitives == ()
 
 
 def test_run_config_and_robot_spec_are_frozen_contract_values() -> None:
@@ -201,3 +234,173 @@ def test_robotwin_runtime_contracts_contain_execution_critical_metadata() -> Non
         )["action_layouts"]
     )
     assert "mutated" not in vla_runtime_contract()["camera_order"]
+
+
+def test_behavior_uses_the_shared_pi05_registry_and_wire_contract() -> None:
+    from robots.behavior.vla_client import BehaviorPi05VLAClient
+
+    class FakeRpcClient:
+        def call(self, method, *, args, timeout_s):
+            assert method == "vla.predict"
+            observation, options = args
+            assert observation["main_images"].shape == (1, 720, 720, 3)
+            assert observation["wrist_images"].shape == (1, 2, 480, 480, 3)
+            assert observation["states"].shape == (1, 256)
+            assert observation["task_descriptions"] == ["turn on the radio"]
+            assert options == {"mode": "eval"}
+            assert timeout_s == 600.0
+            return np.zeros((1, 32, 23), dtype=np.float32)
+
+    model = BehaviorPi05VLAClient(FakeRpcClient(), embodiment="behavior")
+    action = model.predict(
+        {
+            "main_images": np.zeros((720, 720, 3), dtype=np.uint8),
+            "wrist_images": np.zeros((2, 480, 480, 3), dtype=np.uint8),
+            "states": np.zeros(256, dtype=np.float32),
+            "task_descriptions": "turn on the radio",
+        },
+        options={"mode": "eval"},
+    )
+    assert action.shape == (32, 23)
+    assert action.dtype == np.float32
+
+
+def test_behavior_resolves_the_official_challenge_instance_layout(
+    tmp_path: Path,
+) -> None:
+    from robots.behavior.rlinf_env import (
+        _bootstrap_template_path,
+        _resolve_activity_instance_dir,
+    )
+
+    dataset_root = tmp_path / "2025-challenge-task-instances"
+    json_dir = dataset_root / "scenes" / "house" / "json"
+    instance_dir = json_dir / "house_task_demo_instances"
+    instance_dir.mkdir(parents=True)
+    bootstrap = json_dir / "house_task_demo_0_0_template.json"
+    bootstrap.write_text("{}")
+    selected = instance_dir / "house_task_demo_0_242_template-tro_state.json"
+    selected.write_text("{}")
+
+    resolved = _resolve_activity_instance_dir(
+        dataset_root,
+        scene_model="house",
+        task_name="demo",
+        activity_definition_id=0,
+        activity_instance_id=242,
+    )
+
+    assert resolved == instance_dir
+    assert (
+        _bootstrap_template_path(
+            resolved,
+            scene_model="house",
+            task_name="demo",
+            activity_definition_id=0,
+        )
+        == bootstrap
+    )
+
+
+@pytest.mark.parametrize(
+    ("mode", "task_name", "public_seed"),
+    [
+        ("eval", "turning_on_radio", 1),
+        ("explore", "picking_up_trash", 0),
+    ],
+)
+def test_behavior_prompts_render_real_run_config_semantics(
+    tmp_path: Path,
+    mode: str,
+    task_name: str,
+    public_seed: int,
+) -> None:
+    spec = get_robot_spec("behavior")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--explore", action="store_true")
+    parser.add_argument("--output-dir")
+    parser.add_argument("--memory-profile", choices=["hf", "local"], default=None)
+    parser.add_argument("--memory-dir")
+    spec.add_cli_args(parser, use_dashboard=False)
+    cli_args = [
+        "--task-name",
+        task_name,
+        "--public-seed",
+        str(public_seed),
+        "--output-dir",
+        str(tmp_path / "output"),
+        "--memory-dir",
+        str(tmp_path / "memory"),
+    ]
+    if mode == "explore":
+        cli_args.insert(0, "--explore")
+    args = parser.parse_args(cli_args)
+    variables = spec.parse_config(args).prompt_vars
+
+    system = spec.prompts.render("system", variables=variables)
+    user = spec.prompts.render("user", variables=variables)
+
+    assert "{{" not in system
+    assert "{{" not in user
+    for value in (
+        task_name,
+        variables["task_instruction"],
+        str(public_seed),
+        mode,
+        variables["recipe_tag"],
+        variables["output_dir"],
+        str(variables["max_episode_steps"]),
+        str(variables["wall_clock_seconds"]),
+        str(variables["public_capabilities"]),
+        variables["memory_profile"],
+        variables["memory_dir"],
+        variables["memory_inbox"],
+    ):
+        assert value in system or value in user
+
+    if mode == "explore":
+        assert f"{variables['output_dir']}/{variables['recipe_tag']}.json" in system
+        assert f"{variables['memory_inbox']}/wip/" in system
+        assert "official success" in system.lower()
+        assert "merge" in system.lower()
+    for tool in (
+        "pi0_nav_pick",
+        "observe",
+        "pixel_to_world",
+        "navigate_to",
+        "move_to",
+        "rotate_wrist",
+        "close",
+        "open",
+        "press",
+    ):
+        assert f"`{tool}`" in system
+    assert variables["task_instruction"] in user
+    assert variables["recipe_tag"] in user
+
+    required = {
+        "mode",
+        "task_name",
+        "task_instruction",
+        "public_seed",
+        "recipe_tag",
+        "output_dir",
+        "max_episode_steps",
+        "wall_clock_seconds",
+        "public_capabilities",
+        "memory_profile",
+        "memory_dir",
+        "memory_inbox",
+    }
+    for key in required:
+        incomplete = {name: value for name, value in variables.items() if name != key}
+        with pytest.raises(KeyError, match=key):
+            spec.prompts.render("system", variables=incomplete)
+
+    literal = {**variables, "task_instruction": "literal {{do_not_expand}}"}
+    assert "literal {{do_not_expand}}" in spec.prompts.render(
+        "system", variables=literal
+    )
+
+    with pytest.raises(ValueError, match="unsupported BEHAVIOR prompt mode"):
+        spec.prompts.render("system", variables={**variables, "mode": "unknown"})

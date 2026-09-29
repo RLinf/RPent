@@ -35,6 +35,7 @@ Other environment configurations are available when needed:
 
    pip install -e ".[robocasa]"    # RoboCasa
    pip install -e ".[robotwin]"    # RoboTwin
+   pip install -e ".[behavior]"    # BEHAVIOR RPent-side helpers
 
 ``.[libero-pro]`` is the recommended default.
 
@@ -51,6 +52,11 @@ Available extras:
      - LIBERO-PRO + openpi Pi0.5 VLA + SAM 3.0 + RLinf runtime
    * - ``.[libero-plus]``
      - LIBERO-plus + openpi Pi0.5 VLA + SAM 3.0 + RLinf runtime
+   * - ``.[behavior]``
+     - Lightweight RPent-side BEHAVIOR helpers. ``robots/behavior`` remains a
+       source-checkout robot package, and the full OmniGibson/Isaac Sim stack
+       uses the dual-venv workflow and licensed assets documented in
+       :doc:`usage/behavior`
    * - ``.[robocasa]``
      - RoboCasa365 simulator + the RLDX-1 VLA; see :doc:`usage/robocasa`
    * - ``.[robotwin]``
@@ -85,6 +91,18 @@ These resources usually need to be downloaded only once;
    .. code-block:: bash
 
       HF_ENDPOINT=https://hf-mirror.com liberopro-download-assets --skip-existing
+
+BEHAVIOR uses a separate source-checkout runtime installer and licensed
+OmniGibson assets. From the RPent source checkout, use module entry points
+instead of ordinary package console scripts:
+
+.. code-block:: bash
+
+   python -m robots.behavior.install_runtime
+   python -m robots.behavior.assets_cli --verify
+
+See :doc:`usage/behavior` for the required environment variables, checkpoint,
+and DINO cache setup.
 
 3. (Optional) Real-world robot dependencies
 -------------------------------------------

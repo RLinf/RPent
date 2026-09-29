@@ -16,7 +16,10 @@ import numpy as np
 import pytest
 
 
-def test_dual_vla_prediction_follows_shared_component_rpc_contract(monkeypatch):
+@pytest.mark.parametrize("embodiment", ["dual_franka", "behavior"])
+def test_dual_vla_prediction_follows_shared_component_rpc_contract(
+    monkeypatch, embodiment
+):
     import sys
     from types import ModuleType
 
@@ -33,11 +36,25 @@ def test_dual_vla_prediction_follows_shared_component_rpc_contract(monkeypatch):
         def eval(self):
             return self
 
-        def predict_action_batch(self, obs, mode):
+        def predict_action_batch(self, obs, mode, compute_values=None):
             calls.append(mode)
+            if embodiment == "behavior":
+                assert compute_values is False
+                return torch.ones((1, 32, 23)), None
             return torch.ones((20, 20)), None
 
     def get_model(cfg, torch_dtype):
+        if embodiment == "behavior":
+            assert cfg.action_dim == 32 and cfg.openpi.action_env_dim == 23
+            assert cfg.num_action_chunks == cfg.openpi.action_chunk == 32
+            assert cfg.openpi.num_images_in_input == 3
+            assert cfg.openpi_data.extract_state_from_proprio is True
+            assert cfg.openpi_data.use_all_wrist_images is True
+            assert (
+                cfg.openpi_data.norm_stats_path
+                == "/unused/checkpoint/assets/behavior-1k/2025-challenge-demos/norm_stats.json"
+            )
+            return Model()
         assert cfg.action_dim == 20 and cfg.openpi.num_images_in_input == 3
         assert cfg.openpi_data.repo_id == "test/dataset"
         assert cfg.openpi.config_name == "pi05_dualfranka_tcp_rot6d"
@@ -49,15 +66,22 @@ def test_dual_vla_prediction_follows_shared_component_rpc_contract(monkeypatch):
     loader = ModuleType("rlinf.models.embodiment.openpi")
     loader.get_model = get_model
     monkeypatch.setitem(sys.modules, loader.__name__, loader)
-    facade = Pi05VLAFacade(
+    if embodiment == "behavior":
+        from robots.behavior.vla_server import BehaviorPi05VLAFacade
+
+        facade_class = BehaviorPi05VLAFacade
+    else:
+        facade_class = Pi05VLAFacade
+    facade = facade_class(
         model_path="/unused/checkpoint",
-        embodiment="dual_franka",
-        repo_id="test/dataset",
+        embodiment=embodiment,
+        repo_id="test/dataset" if embodiment == "dual_franka" else None,
     )
     try:
         assert calls == []
         actions = facade._dispatch("vla.predict", ({},), {"options": {"mode": "eval"}})
-        assert actions.shape == (20, 20) and actions.dtype == np.float32
+        assert actions.shape == ((1, 32, 23) if embodiment == "behavior" else (20, 20))
+        assert actions.dtype == np.float32
         assert calls == ["eval"]
     finally:
         facade.close()

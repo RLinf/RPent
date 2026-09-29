@@ -54,8 +54,8 @@ Welcome to RPent
       :link-type: doc
       :text-align: center
 
-      Drive the LIBERO / RoboCasa simulators or a Franka / SO-101 arm,
-      switch planners, and pick action primitives.
+      Drive the LIBERO / BEHAVIOR / RoboCasa simulators or a Franka /
+      SO-101 arm, switch planners, and pick action primitives.
 
    .. grid-item-card:: Real-World Demos
       :link: rst_source/usage/real_world_demos_franka

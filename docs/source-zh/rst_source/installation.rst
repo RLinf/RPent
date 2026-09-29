@@ -42,6 +42,7 @@ RPent 可以通过一条 ``pip install`` 命令完成安装，并提供多种可
 
    pip install -e ".[robocasa]"    # RoboCasa
    pip install -e ".[robotwin]"    # RoboTwin
+   pip install -e ".[behavior]"    # BEHAVIOR 的 RPent 侧辅助依赖
 
 ``.[libero-pro]`` 是默认推荐的依赖组合。
 
@@ -58,6 +59,10 @@ RPent 可以通过一条 ``pip install`` 命令完成安装，并提供多种可
      - LIBERO-PRO + openpi Pi0.5 VLA + SAM 3.0 + RLinf 运行时
    * - ``.[libero-plus]``
      - LIBERO-plus + openpi Pi0.5 VLA + SAM 3.0 + RLinf 运行时
+   * - ``.[behavior]``
+     - BEHAVIOR 的轻量 RPent 侧辅助依赖。``robots/behavior`` 仍是源码目录中的
+       robot 包；完整 OmniGibson/Isaac Sim 运行环境需使用双 venv 流程及受许可
+       约束的仿真资产，详见 :doc:`usage/behavior`
    * - ``.[robocasa]``
      - RoboCasa365 仿真器 + RLDX-1 VLA，详见 :doc:`usage/robocasa`
    * - ``.[robotwin]``
@@ -88,6 +93,16 @@ RPent 可以通过一条 ``pip install`` 命令完成安装，并提供多种可
    .. code-block:: bash
 
       HF_ENDPOINT=https://hf-mirror.com liberopro-download-assets --skip-existing
+
+BEHAVIOR 使用单独的源码 runtime 安装器和受许可约束的 OmniGibson 资产。请在
+RPent 源码目录中使用 module 入口，而不是普通 package console script：
+
+.. code-block:: bash
+
+   python -m robots.behavior.install_runtime
+   python -m robots.behavior.assets_cli --verify
+
+所需环境变量、checkpoint 和 DINO cache 配置见 :doc:`usage/behavior`。
 
 3. (可选) 真实机器人依赖
 ------------------------

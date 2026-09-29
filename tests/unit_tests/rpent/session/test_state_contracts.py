@@ -16,11 +16,16 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
 import pytest
 
+from robots.behavior.toolkit import BehaviorToolkit
+from rpent.dashboard.events import NullDashboardEventSink
+from rpent.memory import MemoryManager
+from rpent.robots import RunConfig
 from rpent.session import EnvState, StepRecord
 
 
@@ -418,3 +423,318 @@ def test_env_state_rejects_nested_step_records(tmp_path: Path) -> None:
                 pass
 
     assert env_state.records() == []
+
+
+class _FakeModel:
+    def predict(self, observation: dict[str, Any], *, options: dict[str, Any]) -> Any:
+        assert observation["task_descriptions"] == "turn on the radio"
+        assert options == {"mode": "eval"}
+        return np.zeros((32, 23), dtype=np.float32)
+
+
+class _FakeChunkEnv:
+    total_env_steps = 0
+    official_success_latched = False
+    official_success_receipt = None
+
+    def __init__(self) -> None:
+        self.return_all_frames: list[bool] = []
+
+    def chunk_step(
+        self,
+        actions: Any,
+        *,
+        return_all_frames: bool = False,
+    ) -> tuple[Any, float, bool, bool, dict[str, Any]]:
+        array = np.asarray(actions)
+        self.return_all_frames.append(bool(return_all_frames))
+        self.total_env_steps += int(array.shape[0])
+        frames = [
+            {
+                "main_images": np.full((16, 16, 3), idx, dtype=np.uint8),
+                "task_descriptions": "turn on the radio",
+            }
+            for idx in range(int(array.shape[0]))
+        ]
+        obs: Any = frames if return_all_frames else frames[-1]
+        return (
+            obs,
+            0.0,
+            False,
+            False,
+            {
+                "executed_steps": int(array.shape[0]),
+                "_rpent": {"total_env_steps": self.total_env_steps},
+            },
+        )
+
+
+def test_finish_writes_terminal_receipt(tmp_path: Path) -> None:
+    output_dir = tmp_path / "run"
+    toolkit = BehaviorToolkit(
+        runtime_kwargs={
+            "task_name": "turning_on_radio",
+            "output_dir": output_dir,
+        },
+        dashboard_events=NullDashboardEventSink(),
+        memory=MemoryManager(tmp_path / "memory"),
+    )
+
+    result = toolkit.execute_tool(
+        "finish", {"status": "incomplete", "summary": "bounded test"}
+    )
+    receipt = json.loads((output_dir / "terminal_receipt.json").read_text())
+
+    assert result.is_finish is True
+    assert receipt["_finish"] is True
+    assert receipt["kind"] == "behavior_finish_terminal_receipt"
+    assert receipt["planner_status"] == "incomplete"
+    assert receipt["summary"] == "bounded test"
+
+
+def test_receipt_is_session_artifact_and_recipe_is_run_artifact(
+    tmp_path: Path,
+) -> None:
+    run_dir = tmp_path / "run"
+    session_dir = run_dir / "sessions" / "session_001"
+    toolkit = BehaviorToolkit(
+        runtime_kwargs={
+            "task_name": "turning_on_radio",
+            "output_dir": run_dir,
+        },
+        dashboard_events=NullDashboardEventSink(),
+        memory=MemoryManager(tmp_path / "memory"),
+        config=RunConfig(
+            recipe_tag="turning_on_radio_s0",
+            output_dir=run_dir,
+            prompt_vars={
+                "task_name": "turning_on_radio",
+                "public_seed": 0,
+                "memory_dir": str(tmp_path / "memory"),
+            },
+            task_desc={},
+        ),
+        state_output_dir=session_dir,
+    )
+    run_audit = run_dir / "turning_on_radio_s0.json"
+    run_audit.parent.mkdir(parents=True, exist_ok=True)
+    run_audit.write_text('{"audit": true}\n')
+
+    toolkit.execute_tool("finish", {"status": "incomplete", "summary": "done"})
+    assert (session_dir / "terminal_receipt.json").is_file()
+    assert json.loads((session_dir / "states.json").read_text())["run_artifacts"] == [
+        "terminal_receipt.json"
+    ]
+    assert run_audit.read_text() == '{"audit": true}\n'
+
+    toolkit.primitives._official_success_latched = True
+    with toolkit.state.record_step(
+        state={"task_success": True},
+        terminated=True,
+        command={"action": "future_stateful_command", "arg": 1},
+        result={"ok": True},
+        elapsed_s=0.1,
+    ):
+        pass
+    with toolkit.state.record_step(
+        state={"task_success": True},
+        terminated=True,
+        command={"action": "bad_command"},
+        result={"error": "failed"},
+        elapsed_s=0.1,
+    ):
+        pass
+
+    recipe_path = Path(toolkit.write_recipe("turning_on_radio_s0") or "")
+    assert recipe_path == run_dir / "turning_on_radio_s0_recipe.jsonl"
+    assert not (session_dir / "turning_on_radio_s0_recipe.jsonl").exists()
+    commands = [
+        json.loads(line)
+        for line in recipe_path.read_text().splitlines()
+        if line.strip()
+    ]
+    assert commands == [{"action": "future_stateful_command", "arg": 1}]
+    assert "command" not in commands[0]
+
+
+def test_solved_behavior_session_without_terminal_receipt_refuses_recipe(
+    tmp_path: Path,
+) -> None:
+    run_dir = tmp_path / "run"
+    toolkit = BehaviorToolkit(
+        runtime_kwargs={"task_name": "turning_on_radio", "output_dir": run_dir},
+        memory=MemoryManager(tmp_path / "memory"),
+        state_output_dir=run_dir / "sessions" / "session_001",
+    )
+    toolkit.primitives._official_success_latched = True
+    with toolkit.state.record_step(
+        state={"task_success": True},
+        command={"action": "pi0_nav_pick", "instruction": "turn on radio", "chunks": 1},
+        result={"ok": True},
+    ):
+        pass
+    with pytest.raises(RuntimeError, match="missing terminal_receipt.json"):
+        toolkit.write_recipe("turning_on_radio_s0")
+    assert not (run_dir / "turning_on_radio_s0_recipe.jsonl").exists()
+
+
+def test_unsolved_behavior_session_does_not_write_recipe(tmp_path: Path) -> None:
+    toolkit = BehaviorToolkit(
+        runtime_kwargs={
+            "task_name": "turning_on_radio",
+            "output_dir": tmp_path / "run",
+        },
+        dashboard_events=NullDashboardEventSink(),
+        memory=MemoryManager(tmp_path / "memory"),
+    )
+    with toolkit.state.record_step(
+        state={"task_success": False},
+        command={"action": "pi0_nav_pick", "instruction": "turn on the radio"},
+        result={"ok": True},
+        elapsed_s=0.1,
+    ):
+        pass
+
+    assert toolkit.write_recipe("turning_on_radio_s0") is None
+    assert not (tmp_path / "run" / "turning_on_radio_s0_recipe.jsonl").exists()
+
+
+@pytest.mark.parametrize("name", ["observe", "open"])
+def test_behavior_images_stay_out_of_step_json(tmp_path: Path, name: str) -> None:
+    from robots.behavior.tools import _PUBLIC_IMAGE_BYTE_FIELDS
+
+    env = SimpleNamespace(
+        total_env_steps=0, official_success_latched=False, official_success_receipt=None
+    )
+    toolkit = BehaviorToolkit(
+        runtime_kwargs={
+            "env": env,
+            "task_name": "turning_on_radio",
+            "output_dir": tmp_path / "run",
+            "initial_observation": {
+                "main_images": np.zeros((16, 16, 3), dtype=np.uint8),
+            },
+        },
+        memory=MemoryManager(tmp_path / "memory"),
+    )
+    image = toolkit.state.load_bytes("head_rgb.png", step=0)
+    payload = {"status": "ok", **dict.fromkeys(_PUBLIC_IMAGE_BYTE_FIELDS, image)}
+    env.observe = lambda **kwargs: payload
+    env.open_gripper = lambda **kwargs: payload
+    try:
+        result = toolkit.execute_tool(
+            name, {"camera": "head"} if name == "observe" else {"hand": "left"}
+        )
+        assert "error" not in result.result
+        assert "state_capture_error" not in result.result
+        blocks = result.content_blocks
+        assert sum(block["type"] == "image" for block in blocks) == 6
+        text = next(block["text"] for block in blocks if block["type"] == "text")
+        assert not any(field in text for field in _PUBLIC_IMAGE_BYTE_FIELDS)
+        saved = json.loads((tmp_path / "run" / "states.json").read_text())
+        record = saved["steps"][-1]
+        assert not any(field in record["result"] for field in _PUBLIC_IMAGE_BYTE_FIELDS)
+        assert record.get("command") == (
+            None if name == "observe" else {"action": "open", "hand": "left"}
+        )
+    finally:
+        toolkit.close()
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        ({"truncated": True}, True),
+        ({"stop_reason": "truncated"}, True),
+        ({"terminated": True, "truncated": False}, False),
+    ],
+)
+def test_behavior_truncation_reaches_state_and_dashboard(
+    tmp_path: Path, payload: dict, expected: bool
+) -> None:
+    from robots.behavior.robot_spec import BEHAVIOR_DASHBOARD_SPEC
+    from rpent.dashboard.state import DashboardState
+
+    toolkit = BehaviorToolkit(
+        runtime_kwargs={
+            "task_name": "turning_on_radio",
+            "output_dir": tmp_path / "run",
+        },
+        memory=MemoryManager(tmp_path / "memory"),
+    )
+    try:
+        toolkit.get_env_state(
+            command={
+                "action": "pi0_nav_pick",
+                "instruction": "turn on the radio",
+                "chunks": 1,
+            },
+            result=payload,
+            elapsed_s=0.1,
+        )
+        record = toolkit.state.latest_record()
+        assert record.truncated is expected
+        assert record.terminated is False
+        assert toolkit.solved() is False
+        stored = json.loads((tmp_path / "run" / "states.json").read_text())["steps"][-1]
+        assert stored["truncated"] is expected
+        dashboard = DashboardState(
+            output_dir=tmp_path / "dashboard", dashboard_spec=BEHAVIOR_DASHBOARD_SPEC
+        )
+        dashboard.on_step(record)
+        snapshot = dashboard.session_detail()
+        assert snapshot["truncated"] is expected
+        assert snapshot["terminated"] is False
+        assert snapshot["timeline"][-1]["result"]["official_success"] is False
+        assert snapshot["timeline"][-1]["truncated"] is expected
+    finally:
+        toolkit.close()
+
+
+def test_behavior_pi0_chunk_records_streaming_episode_video(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    session_dir = run_dir / "sessions" / "session_001"
+    toolkit = BehaviorToolkit(
+        runtime_kwargs={
+            "env": _FakeChunkEnv(),
+            "model": _FakeModel(),
+            "task_name": "turning_on_radio",
+            "public_seed": 0,
+            "max_episode_steps": 64,
+            "initial_observation": {
+                "main_images": np.zeros((16, 16, 3), dtype=np.uint8),
+                "task_descriptions": "turn on the radio",
+            },
+        },
+        dashboard_events=NullDashboardEventSink(),
+        memory=MemoryManager(tmp_path / "memory"),
+        config=RunConfig(
+            recipe_tag="turning_on_radio_s0",
+            output_dir=run_dir,
+            prompt_vars={
+                "mode": "explore",
+                "task_name": "turning_on_radio",
+                "public_seed": 0,
+                "memory_dir": str(tmp_path / "memory"),
+            },
+            task_desc={},
+        ),
+        state_output_dir=session_dir,
+    )
+
+    result = toolkit.primitives.pi0_nav_pick(
+        instruction="turn on the radio",
+        chunks=1,
+    )
+    toolkit.execute_tool("finish", {"status": "incomplete", "summary": "done"})
+
+    assert result["chunks_used"] == 1
+    assert result["env_steps_used"] == 32
+    assert toolkit.primitives.env.return_all_frames == [True]
+    video_path = session_dir / "episode.mp4"
+    assert video_path.is_file()
+    assert video_path.stat().st_size > 0
+    assert (
+        "episode.mp4"
+        in json.loads((session_dir / "states.json").read_text())["run_artifacts"]
+    )
