@@ -25,16 +25,6 @@ Together, these principles allow RPent to move beyond traditional robot control 
 and establish an agentic infrastructure for the physical world, where intelligence
 is not only deployed, but continuously built, expanded, and evolved.
 
-How a Task Runs
----------------
-
-1. The planner reads the task, observations, and available task experience.
-2. It locates targets with visual tools and selects a VLA or scripted action.
-3. The environment executes the action and returns state and camera views.
-4. The planner continues, adjusts its strategy, or finishes.
-
-Exploration supports repeated attempts and local memory generation. Evaluation reads existing memory and uses the environment’s success criterion. See :doc:`development/architecture` for implementation details.
-
 Leaderboard
 -----------
 
