@@ -183,21 +183,13 @@ class FakeDriver:
         self.submit_error = submit_error
         self.interrupt_error = interrupt_error
         self.interrupt_completions = interrupt_completions
-        self.submissions: list[str] = []
-        self.dashboard_submissions: list[DashboardMessage] = []
+        self.submissions: list[DashboardMessage] = []
 
-    async def submit(self, text: str) -> int:
-        self.events.append(f"submit:{text}")
+    async def submit(self, message: DashboardMessage) -> int:
+        self.events.append(f"submit:{message.text}")
         if self.submit_error is not None:
             raise self.submit_error
-        self.submissions.append(text)
-        return 1
-
-    async def submit_dashboard_message(self, message: DashboardMessage) -> int:
-        self.events.append(f"queue:{message.text}")
-        if self.submit_error is not None:
-            raise self.submit_error
-        self.dashboard_submissions.append(message)
+        self.submissions.append(message)
         return 1
 
     async def interrupt(self) -> int:
@@ -260,7 +252,10 @@ def test_completion_flushes_pending_messages_and_acknowledges_each() -> None:
 
     asyncio.run(scenario())
 
-    assert driver.submissions == ["first", "second"]
+    assert [(m.message_id, m.text) for m in driver.submissions] == [
+        ("one", "first"),
+        ("two", "second"),
+    ]
     assert [message.status for message in interaction.messages] == ["sent", "sent"]
     assert interaction.activity == "busy"
     assert events == [
@@ -302,6 +297,7 @@ def test_deferred_ack_restores_a_message_that_never_started() -> None:
         await control.start()
         await control.complete(driver)
         assert interaction.messages[0].status == "sending"
+        assert driver.submissions[0].message_id == "later"
         control.message_discarded("later")
 
     asyncio.run(scenario())
@@ -325,7 +321,7 @@ def test_deferred_ack_emits_only_when_backend_execution_starts() -> None:
     asyncio.run(scenario())
 
     assert interaction.messages[0].status == "sent"
-    assert events == ["initial-user", "queue:queued for API", "user:queued for API"]
+    assert events == ["initial-user", "submit:queued for API", "user:queued for API"]
 
 
 def test_interrupt_cancels_toolkit_before_backend_and_then_flushes() -> None:

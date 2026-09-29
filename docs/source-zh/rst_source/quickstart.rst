@@ -64,6 +64,11 @@ Session 配置全部来自命令行，打开地址后直接进入实时监控；
 推理过程、相机画面和动作时间线；任务结束后可以继续提交下一任务。使用
 ``--dashboard-language zh-cn`` 可切换到中文界面。
 
+.. _quickstart-interactive:
+
+也可以添加 ``--interactive``（``-i``），在终端输入后续指令。
+该选项不能与 ``--dashboard`` 同时使用。
+
 关键 CLI 选项
 -------------
 

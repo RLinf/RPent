@@ -306,13 +306,13 @@ implemented, so Dashboard exploration is rejected before runtime startup.
 
 Each ``sessions/session_<NNN>/`` retains the existing artifacts plus per-step
 ``exploration.json`` and session-level ``operator_events.json``. Failed attempts
-remain in the trace. Memory reads use ``suite`` and ``global``; working notes go
-into the task inbox's ``wip/``. After success, draft suite/global lessons in the
+remain in the trace. Memory reads use ``task-family`` and ``global``; working notes go
+into the task inbox's ``wip/``. After success, draft task-family/global lessons in the
 inbox; the runner exports the winning attempt's command sequence and adds
 operator evidence to its task audit. Recorded coordinates are not automatically
 replayed. ``--auto-merge-memory`` is opt-in and invokes the existing memory
 merge/index workflow only on successful, error-free exploration runs, including
-the ``task_only`` audit/recipe pair.
+the ``task-specific`` audit/recipe pair.
 
 Prompts are selected by ``robots/dual_franka/prompt_bundle.py``. Evaluation uses
 ``prompts/system.py`` and ``prompts/user.py``; exploration uses
@@ -338,7 +338,7 @@ The command never reaches the planner as chat. New tool calls are refused and
 active work is cancelled at its next supported boundary; an outstanding robot
 RPC or inference must return before finalization. A fresh observation backs the
 operator verdict. With ``/success``, the successful recipe/audit pair is published through the
-existing memory merger to ``task_only`` before exit, even without
+existing memory merger to ``task-specific`` before exit, even without
 ``--auto-merge-memory``. With ``/failure``, failure evidence stays in the run directory
 and no successful memory is published. Observation or persistence errors are reported as failures.
 Scene reset accepts ``/done`` or ``/operator <request-id> done``. Restart the running
@@ -357,7 +357,7 @@ Shortcuts without a matching pending request are refused, never buffered for a
 future request. All five bare words without ``/`` remain ordinary agent messages.
 The request-ID form ``/operator <request-id> <answer>`` remains supported.
 
-Direct commands do not invoke a separate global/suite memory synthesis stage.
+Direct commands do not invoke a separate global/task-family memory synthesis stage.
 Existing planner errors remain errors and prevent automatic memory publication.
 
 VLA diagnostic console

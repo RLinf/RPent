@@ -19,19 +19,16 @@ Flash Mode
 
 在完整的 800-case LIBERO-PRO 矩阵（Spatial、Object、Goal 和 Long；
 task/swap；每个任务 10 个 seed）上，Flash Mode 成功 581 次（72.63%）。
-不使用 reasoning 的 Codex 成功 500 次（62.50%），high reasoning Codex
-成功 628 次（78.50%）。两个没有成功源轨迹、因而没有计划的任务
-按 0/10 保守计入。
+两个没有成功源轨迹、因而没有计划的任务按 0/10 保守计入。
+八项分项成绩见 :doc:`评测成绩 <../leaderboard/performance>`。
 
-.. image:: https://github.com/RLinf/misc/raw/main/rpent/flash/flash_libero_pro_performance_time.png
-   :alt: Flash Mode 与 Codex 在 LIBERO-PRO 全系列上的逐任务成功率和执行时间对比
-   :width: 100%
-   :align: center
+:doc:`耗时与 Token 开销 <../leaderboard/time-token-costs>` 中，Flash Mode 的
+平均每回合耗时为 60.19 秒，输出 token 为 0。平均耗时覆盖成功、失败和超时的评测回合；
+token 仅统计测试阶段输出。
 
-时间统计不包含模型及服务启动时间。Codex 时间是每个任务可用 planner 耗时记录的
-均值。Flash Mode 耗时采用每份最终计划对应成功 episode 的
-工具执行时间（每份计划一个耗时样本）。所有方法的成功率都使用完整 800-case 矩阵。
-两组 Codex baseline 均有完整的 800/800 planner 耗时记录。
+\* RPent Flash Mode 使用直接下载的、官方公开的 GPT-5.5 explore memory；
+Molmo2-8B 用于视觉定位。
+该测试结果使用了 s0-s9 中表现最好的 seed。
 
 重放流程
 --------
@@ -51,17 +48,23 @@ RPent 将实时锚点位置与计划保存的偏移组合成新的路点，再�
 计划文件
 --------
 
-计划不随 Git 仓库提交，而是通过 Hugging Face 上的 `RLinf/RPent-memory 计划目录
-<https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/libero/flash>`_
-分发。RPent 在 HF memory 模式下自动下载计划，默认保存到
-``memory/libero/flash``。使用 ``--memory-profile local --memory-dir /path/to/memory/libero``
-时，从 ``/path/to/memory/libero/flash`` 读取，不下载数据。
-80 个任务中有 78 份计划；``goal_swap_t0`` 和 ``10_swap_t9`` 暂无计划。
+计划不随 Git 仓库提交，而是通过 Hugging Face 上的 `GPT-5.5 memory 目录
+<https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/libero/GPT_5.5_xhigh>`_
+分发。Flash 默认选择 ``--memory-version GPT_5.5_xhigh``，使用该版本的独立缓存。
+发布目录 ``GPT_5.5_xhigh/flash/`` 包含 78 对 plan/anchor 文件：Spatial 20 对、
+Object 20 对、Goal 19 对、Long 19 对。``goal_swap_t0`` 和 ``10_swap_t9``
+没有成功源计划，仍然缺失。文件正文与已合入的 Hugging Face Flash 发布版本一致；
+将文件归入版本目录不代表重新进行了模拟器评测。
+
+使用 ``--memory-profile local --memory-dir /path/to/memory/libero/GPT_5.5_xhigh``
+时，从所选根目录下的 ``flash/`` 读取计划，不下载数据。本地生成的语料同样可以使用
+任意包含 ``flash/`` 的根目录。
 缺少计划或锚点文件时会报错。
+Astra memory 没有重放资产，不能用于 Flash。详见 :ref:`Memory 管理 <memory-management>`。
 
 .. code-block:: text
 
-   memory/libero/flash/
+   memory/libero/GPT_5.5_xhigh/flash/
      object_swap_t3_anchors.json   运行时需要定位的物体和位置
      object_swap_t3_plan.json      动作及其相对锚点的坐标
 
@@ -98,7 +101,9 @@ suite/task/seed 字段，必须指向同一个 episode。
 .. code-block:: bash
 
    hf download RLinf/RPent-memory --repo-type dataset \
-     --include "libero/flash/**" --local-dir memory
+     --include "libero/GPT_5.5_xhigh/flash/**" --local-dir /path/to/download
+
+下载后指定 ``--memory-profile local --memory-dir /path/to/download/libero/GPT_5.5_xhigh``。
 
 运行计划
 --------

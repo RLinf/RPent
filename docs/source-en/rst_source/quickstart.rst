@@ -68,6 +68,11 @@ streams agent reasoning, camera views, and the action timeline; submit another
 task after the current one finishes. Use ``--dashboard-language zh-cn`` for the
 Chinese UI.
 
+.. _quickstart-interactive:
+
+For terminal interaction, add ``--interactive`` (``-i``) to enter follow-up
+instructions. It cannot be combined with ``--dashboard``.
+
 Key CLI options
 ---------------
 
