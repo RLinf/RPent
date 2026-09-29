@@ -29,9 +29,22 @@ from robots.robotwin.robot_spec import (
 from rpent.robots import enumerate_robots, get_robot_spec
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 
-EXPECTED_ROBOTS = ("dual_franka", "franka", "libero", "robocasa", "robotwin")
+EXPECTED_ROBOTS = (
+    "dual_franka",
+    "franka",
+    "libero",
+    "metaworld",
+    "robocasa",
+    "robotwin",
+)
 
 PROMPT_VARIABLES = {
+    "metaworld": {
+        "instruction": "Reach the visible goal",
+        "seed": 0,
+        "max_episode_steps": 500,
+        "memory_dir": "/memory",
+    },
     "libero": {
         "suite": "libero_object_task",
         "task": 2,

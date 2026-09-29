@@ -16,3 +16,6 @@ Choose a platform for installation and usage instructions.
      - Kitchen manipulation with RoboCasa365 and Target50 experiments.
    * - :doc:`robotwin`
      - Bimanual manipulation and RoboTwin C2R experiments.
+
+   * - :doc:`metaworld`
+     - Ten task types with RGB-D and bounded Cartesian control.

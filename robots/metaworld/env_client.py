@@ -1,0 +1,29 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Common Env client with read-only RGB-D snapshots."""
+
+from rpent.robots.components.env_client_base import BaseEnvClient
+
+
+class MetaWorldEnvClient(BaseEnvClient):
+    def get_runtime_info(self) -> dict:
+        """Read versions and recording paths from the simulator process."""
+        return self._client.call("env.get_runtime_info")
+
+    def get_obs(self) -> dict:
+        return self._client.call("env.get_obs", timeout_s=30)
+
+    def is_success(self) -> bool:
+        return bool(self._client.call("env.is_success"))

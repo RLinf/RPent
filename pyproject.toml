@@ -58,6 +58,11 @@ Documentation = "https://rpent.readthedocs.io/en/latest/"
 "Bug Report" = "https://github.com/RLinf/RPent/issues"
 
 [project.optional-dependencies]
+metaworld = [
+    "metaworld==3.0.0",
+    "packaging",
+    "imageio-ffmpeg",
+]
 test = [
     "coverage",
     "pytest",

@@ -16,3 +16,6 @@
      - 厨房操作；RoboCasa365 与 Target50 实验。
    * - :doc:`robotwin`
      - 双臂操作；RoboTwin C2R 实验。
+
+   * - :doc:`metaworld`
+     - 十种任务类型，支持 RGB-D 与有步数上限的笛卡尔控制。
