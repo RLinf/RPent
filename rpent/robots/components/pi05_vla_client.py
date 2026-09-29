@@ -35,6 +35,18 @@ from rpent.robots.components.vla_client_base import BaseVLAClient
 # ---------------------------------------------------------------------------
 
 
+def _batch_views(views: Any, *, allow_multiple: bool = False) -> np.ndarray | None:
+    """Cast optional camera views to uint8 and add the batch dimension."""
+    if views is None:
+        return None
+    arr = np.asarray(views)
+    valid_ndims = (3, 4) if allow_multiple else (3,)
+    if arr.ndim not in valid_ndims:
+        expected = "[H,W,3] or [N,H,W,3]" if allow_multiple else "[H,W,3]"
+        raise ValueError(f"expected {expected} image, got shape {arr.shape}")
+    return arr.astype(np.uint8)[None]
+
+
 def _encode_obs_libero(env_obs: dict) -> dict:
     """LIBERO single-env obs → openpi batched wire obs.
 
@@ -45,38 +57,16 @@ def _encode_obs_libero(env_obs: dict) -> dict:
     uint8 input) and validated to be single ``[H,W,3]`` views.
     """
 
-    def _batch_view(v):
-        if v is None:
-            return None
-        arr = np.asarray(v)
-        if arr.ndim != 3:
-            raise ValueError(f"expected [H,W,3] image, got shape {arr.shape}")
-        return arr.astype(np.uint8)[None]
-
     main = np.asarray(env_obs["main_images"])
     if main.ndim != 3:
         raise ValueError(f"expected [H,W,3] image, got shape {main.shape}")
     return {
         "main_images": main.astype(np.uint8)[None],
-        "wrist_images": _batch_view(env_obs.get("wrist_images")),
-        "extra_view_images": _batch_view(env_obs.get("extra_view_images")),
+        "wrist_images": _batch_views(env_obs.get("wrist_images")),
+        "extra_view_images": _batch_views(env_obs.get("extra_view_images")),
         "states": np.asarray(env_obs["states"], dtype=np.float32)[None],
         "task_descriptions": [str(env_obs.get("task_descriptions") or "")],
     }
-
-
-def _batch_views(v):
-    """``[H,W,3]`` → ``[1,H,W,3]`` or ``[N,H,W,3]`` → ``[1,N,H,W,3]``.
-    Used by the dual-Franka encoder to batch the two extra views (base + right-wrist).
-    """
-    if v is None:
-        return None
-    arr = np.asarray(v)
-    if arr.ndim == 3:
-        return arr.astype(np.uint8)[None]
-    if arr.ndim == 4:
-        return arr.astype(np.uint8)[None]
-    raise ValueError(f"expected [H,W,3] or [N,H,W,3] image, got shape {arr.shape}")
 
 
 def _encode_obs_franka(env_obs: dict) -> dict:
@@ -97,7 +87,9 @@ def _encode_obs_franka(env_obs: dict) -> dict:
     return {
         "main_images": main.astype(np.uint8)[None],
         "wrist_images": None,
-        "extra_view_images": _batch_views(env_obs.get("extra_view_images")),
+        "extra_view_images": _batch_views(
+            env_obs.get("extra_view_images"), allow_multiple=True
+        ),
         "states": states[None],
         "task_descriptions": [str(env_obs.get("task_descriptions") or "")],
     }
