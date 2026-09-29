@@ -518,6 +518,16 @@ OUTPUT_DISCIPLINE = """- Brief reasoning before each tool call (1-2 sentences): 
 - Save the audit BEFORE calling `finish`.
 - Stop immediately after writing the audit and calling `finish`. Do not chat further."""
 
+WAM_RUNTIME = """`wam_act` runs the configured action model from the current
+LIBERO observation and executes a bounded action chunk. It automatically uses the
+environment's exact `task_language`; do not paraphrase or supply a sub-instruction.
+After every call, inspect the returned real environment state before deciding
+whether to call it again. Predicted future observations are diagnostic model
+outputs, not evidence that the real environment changed. If the backend reports
+an incompatibility, missing precomputed instruction, or inference error, continue
+with the existing Pi0.5 or scripted primitives instead of repeating the same
+invalid call."""
+
 (
     _,
     STEP_READ_GUIDES,
@@ -572,8 +582,9 @@ def system_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> PromptNode:
     """Assemble the LIBERO evaluation prompt for the selected memory profile."""
-    if (variables or {}).get("memory_profile", "hf") == "local":
-        return {
+    variables = variables or {}
+    if variables.get("memory_profile", "hf") == "local":
+        sections = {
             "ROLE AND EVALUATION": ROLE_AND_EVALUATION,
             "MEMORY PROFILE — LOCAL SUITE + TASK + GLOBAL": (LOCAL_MEMORY_PROFILE),
             "PROVEN LEVERS": PROVEN_LEVERS,
@@ -586,8 +597,11 @@ def system_prompt(
             "KEY HYPERPARAMETERS": KEY_HYPERPARAMETERS,
             "OUTPUT DISCIPLINE": OUTPUT_DISCIPLINE,
         }
+        if variables.get("wam_enabled"):
+            sections["OPTIONAL ACTION MODEL"] = WAM_RUNTIME
+        return sections
 
-    return {
+    sections = {
         "ROLE AND EVALUATION": ROLE_AND_EVALUATION,
         "PROVEN LEVERS & LESSONS — libero_10_task seed-0 sweep solved 9/10 (READ THIS)": (
             PROVEN_LEVERS
@@ -605,3 +619,6 @@ def system_prompt(
         "KEY HYPERPARAMETERS": KEY_HYPERPARAMETERS,
         "OUTPUT DISCIPLINE": OUTPUT_DISCIPLINE,
     }
+    if variables.get("wam_enabled"):
+        sections["OPTIONAL ACTION MODEL"] = WAM_RUNTIME
+    return sections

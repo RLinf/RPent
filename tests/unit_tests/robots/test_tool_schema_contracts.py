@@ -31,6 +31,7 @@ EXPECTED_TOOL_NAMES = {
         "reset",
         "view_env_state",
         "move_to",
+        "wam_act",
         "pi0_pick",
         "pi0_doubled",
         "release",

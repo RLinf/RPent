@@ -109,11 +109,65 @@ def test_libero_default_evaluation_config(tmp_path: Path) -> None:
     assert config.prompt_vars["mode"] == "eval"
     assert config.prompt_vars["memory_profile"] == "hf"
     assert config.prompt_vars["reference_tag"] == "object_task_t2_s0"
+    assert config.prompt_vars["wam_enabled"] is False
     assert config.task_desc == {
         "suite": "libero_object_task",
         "task": 2,
         "seed": 7,
     }
+
+
+@pytest.mark.parametrize(
+    "extra_args",
+    [
+        ["--wam-backend", "cosmos"],
+        ["--wam-endpoint", "http://127.0.0.1:8120"],
+    ],
+)
+def test_libero_requires_complete_wam_configuration(extra_args: list[str]) -> None:
+    args = _parser("libero").parse_args(
+        ["--suite", "libero_10", "--task", "0", *extra_args]
+    )
+    with pytest.raises(ValueError, match="must be provided together"):
+        get_robot_spec("libero").parse_config(args)
+
+
+def test_libero_wam_configuration_reaches_prompt_variables() -> None:
+    args = _parser("libero").parse_args(
+        [
+            "--suite",
+            "libero_10",
+            "--task",
+            "0",
+            "--wam-backend",
+            "cosmos",
+            "--wam-endpoint",
+            "http://127.0.0.1:8120",
+        ]
+    )
+    config = get_robot_spec("libero").parse_config(args)
+    assert config.prompt_vars["wam_enabled"] is True
+    assert config.prompt_vars["wam_backend"] == "cosmos"
+
+
+def test_libero_owned_wam_checkpoint_reaches_prompt_variables(tmp_path: Path) -> None:
+    args = _parser("libero").parse_args(
+        [
+            "--suite",
+            "libero_10",
+            "--task",
+            "0",
+            "--wam-backend",
+            "cosmos",
+            "--wam-checkpoint",
+            str(tmp_path / "cosmos-policy"),
+        ]
+    )
+
+    config = get_robot_spec("libero").parse_config(args)
+
+    assert config.prompt_vars["wam_enabled"] is True
+    assert args.wam_checkpoint.endswith("cosmos-policy")
 
 
 def test_libero_exploration_uses_local_memory_and_session_metadata(

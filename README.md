@@ -85,6 +85,7 @@ RPent is built for four kinds of users:
           </ul>
           <li><b>WAM</b></li>
           <ul>
+            <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/libero.html#optional-world-action-model">Cosmos Policy</a> ✅</li>
             <li>DreamZero</li>
             <li>Cosmos Policy</li>
           </ul>
@@ -180,6 +181,32 @@ rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
 
 See the [planner docs](https://rpent.readthedocs.io/en/latest/rst_source/usage/configure_planner.html) to configure other planners (`api`, `codex`) and model providers.
 For the exploration workflow and local-memory evaluation, see [LIBERO exploration mode](https://rpent.readthedocs.io/en/latest/rst_source/usage/libero.html#exploration-and-local-memory-evaluation).
+
+### Cosmos Policy WAM (LIBERO)
+
+Cosmos Policy is an optional WAM backend for standard LIBERO. It runs in its
+isolated `cosmos-policy` environment while RPent owns the bridge lifecycle.
+After installing the Cosmos Policy environment and downloading the LIBERO
+checkpoint, set the Pi0.5/SAM3 paths and run:
+
+```bash
+export PI05_CHECKPOINT_PATH=/path/to/RLinf-Pi05-LIBERO-130-fullshot-SFT
+export SAM3_CHECKPOINT_PATH=/path/to/sam3/sam3.pt
+export LIBERO_CONFIG_PATH=/path/to/libero-config-standard
+
+rpent --robot libero --dashboard --dashboard-language zh-cn \
+  --planner codex --model gpt-5.6-sol --reasoning-effort low \
+  --libero-type standard --memory-profile local \
+  --memory-dir /path/to/RPent/memory/libero \
+  --wam-backend cosmos \
+  --wam-checkpoint /path/to/checkpoints/cosmos-policy \
+  --cuda-device 0
+```
+
+Use `--wam-endpoint` instead of `--wam-checkpoint` when connecting to an
+externally started bridge; the two options are mutually exclusive. See the
+[LIBERO WAM guide](https://rpent.readthedocs.io/en/latest/rst_source/usage/libero.html#optional-world-action-model)
+for bridge setup, cache requirements, and the DreamZero compatibility boundary.
 
 ### Interactive CLI mode
 

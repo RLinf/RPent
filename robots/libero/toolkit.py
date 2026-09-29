@@ -86,6 +86,11 @@ class LiberoToolkit(Toolkit):
             name = spec["name"]
             if name == "reset" and self._mode != "exploration":
                 continue
+            if (
+                name == "wam_act"
+                and getattr(self._primitives, "wam_model", None) is None
+            ):
+                continue
             if name in state_handlers:
                 handler = state_handlers[name]
             else:

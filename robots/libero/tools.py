@@ -24,6 +24,8 @@ from typing import Any
 import numpy as np
 
 from robots.libero.env_client import LiberoEnvClient
+from rpent.robots.components.action_model_client_base import BaseActionModelClient
+from rpent.robots.components.action_model_protocol import ActionModelProtocolError
 from rpent.robots.components.molmo_client import MolmoClient
 from rpent.robots.components.pi05_vla_client import Pi05VLAClient
 from rpent.robots.components.sam3_client import Sam3Client
@@ -32,6 +34,27 @@ from rpent.tools.toolkit import readonly
 from rpent.utils.logging import get_logger
 
 logger = get_logger("libero")
+
+LIBERO_ACTION_SCHEMA = (
+    "delta_x",
+    "delta_y",
+    "delta_z",
+    "delta_axis_angle_x",
+    "delta_axis_angle_y",
+    "delta_axis_angle_z",
+    "gripper",
+)
+LIBERO_PROPRIO_SCHEMA = (
+    "gripper_qpos_0",
+    "gripper_qpos_1",
+    "eef_x",
+    "eef_y",
+    "eef_z",
+    "eef_quat_x",
+    "eef_quat_y",
+    "eef_quat_z",
+    "eef_quat_w",
+)
 
 
 def _normalize_xyz(xyz):
@@ -60,12 +83,14 @@ class LiberoPrimitives:
         check_cancelled: Callable[[], None],
         molmo_client: MolmoClient | None = None,
         flywheel_config: dict[str, Any] | None = None,
+        wam_model: BaseActionModelClient | None = None,
     ):
         self.env = env
         self.model = model
         self._sam3_client = sam3_client
         #: Only a Flash Mode replay reads this; other runs never start Molmo.
         self.molmo_client = molmo_client
+        self.wam_model = wam_model
         self._check_cancelled = check_cancelled
         self._last_obs = None
         self._last_obs_eef_pos = None
@@ -191,6 +216,146 @@ class LiberoPrimitives:
         finally:
             if original_task is not None:
                 self._last_obs["task_descriptions"] = original_task
+
+    def _build_wam_observation(self) -> dict[str, Any]:
+        """Build the backend-neutral LIBERO action-model request."""
+        if self._last_obs is None:
+            raise RuntimeError("LIBERO observation is unavailable; reset first")
+        instruction = self._last_obs.get("task_descriptions")
+        if not isinstance(instruction, str) or not instruction.strip():
+            raise ValueError("LIBERO observation has no task description")
+        raw = self.env.raw_obs()
+        try:
+            primary = np.asarray(raw["agentview_image"])
+            wrist = np.asarray(raw["robot0_eye_in_hand_image"])
+            gripper_qpos = np.asarray(raw["robot0_gripper_qpos"], dtype=np.float32)
+            eef_pos = np.asarray(raw["robot0_eef_pos"], dtype=np.float32)
+            eef_quat = np.asarray(raw["robot0_eef_quat"], dtype=np.float32)
+        except KeyError as exc:
+            raise RuntimeError(
+                f"raw LIBERO observation omitted {exc.args[0]!r}"
+            ) from exc
+        expected_shapes = (
+            ("robot0_gripper_qpos", gripper_qpos, (2,)),
+            ("robot0_eef_pos", eef_pos, (3,)),
+            ("robot0_eef_quat", eef_quat, (4,)),
+        )
+        for name, value, expected_shape in expected_shapes:
+            if value.shape != expected_shape:
+                raise RuntimeError(
+                    f"raw LIBERO {name} must have shape {expected_shape}, "
+                    f"got {value.shape}"
+                )
+        proprio = np.concatenate((gripper_qpos, eef_pos, eef_quat))
+        extra = self._last_obs.get("extra_view_images")
+        extra_images: list[np.ndarray] = []
+        if extra is not None:
+            extra_array = np.asarray(extra)
+            extra_images = (
+                [extra_array]
+                if extra_array.ndim == 3
+                else [extra_array[index] for index in range(len(extra_array))]
+            )
+        return {
+            "images": {
+                "primary": primary,
+                "wrist": wrist,
+                "extra": extra_images,
+            },
+            "proprio": proprio,
+            "instruction": instruction.strip(),
+            "embodiment": "libero_7d",
+            "metadata": {
+                "proprio_schema": list(LIBERO_PROPRIO_SCHEMA),
+                "action_schema": list(LIBERO_ACTION_SCHEMA),
+            },
+        }
+
+    def wam_act(
+        self,
+        max_chunks: int = 1,
+        max_actions_per_chunk: int = 16,
+    ) -> dict[str, Any]:
+        """Execute WAM chunks conditioned on the current LIBERO task language."""
+        if self.wam_model is None:
+            raise RuntimeError("wam_act requires --wam-backend and --wam-endpoint")
+        if not 1 <= int(max_chunks) <= 8:
+            raise ValueError("max_chunks must be between 1 and 8")
+        if not 1 <= int(max_actions_per_chunk) <= 64:
+            raise ValueError("max_actions_per_chunk must be between 1 and 64")
+
+        capabilities = self.wam_model.get_capabilities()
+        capabilities.require_embodiment(
+            "libero_7d", action_dim=7, action_schema=LIBERO_ACTION_SCHEMA
+        )
+        executed_steps = 0
+        prediction = None
+        for _ in range(int(max_chunks)):
+            self._check_cancelled()
+            request = self._build_wam_observation()
+            prediction = self.wam_model.predict(request)
+            self._check_cancelled()
+            actions = np.asarray(prediction.actions, dtype=np.float32).copy()
+            if actions.ndim != 2 or actions.shape[1] != 7:
+                raise ActionModelProtocolError(
+                    f"LIBERO WAM actions must have [T, 7] shape, got {actions.shape}"
+                )
+            if not np.isfinite(actions).all():
+                raise ActionModelProtocolError("LIBERO WAM actions contain NaN or Inf")
+            if np.any(np.abs(actions[:, :6]) > 1.0):
+                raise ActionModelProtocolError(
+                    "LIBERO WAM motion actions are outside LIBERO bounds [-1, 1]"
+                )
+            actions[:, 6] = np.clip(actions[:, 6], -1.0, 1.0)
+            actions = actions[: int(max_actions_per_chunk)]
+            if actions.shape[0] == 0:
+                raise ActionModelProtocolError(
+                    "LIBERO WAM returned an empty action chunk"
+                )
+
+            proposal_id = (
+                self._flywheel.add_proposal(request["instruction"], actions)
+                if self._flywheel is not None
+                else -1
+            )
+            record_frames = self._recording or self._flywheel is not None
+            chunk_obs, rewards, terminated, truncated, _info = self.env.chunk_step(
+                actions, return_all_frames=True if record_frames else None
+            )
+            if record_frames:
+                for index, obs in enumerate(chunk_obs):
+                    if self._recording:
+                        self.record_frame(obs)
+                    if self._flywheel is not None:
+                        self._flywheel.add_transition(
+                            actions[index],
+                            obs,
+                            rewards[index],
+                            terminated[index],
+                            truncated[index],
+                            vla_id=proposal_id,
+                            proposal_index=index,
+                        )
+                final_obs = chunk_obs[-1]
+            else:
+                final_obs = chunk_obs[-1] if self.env.return_all_frames else chunk_obs
+            self.set_obs(final_obs)
+            executed_steps += len(actions)
+            if self.env.terminated or self.env.truncated:
+                break
+
+        assert prediction is not None
+        value = prediction.value
+        compact_value = (
+            float(value) if value is not None and np.ndim(value) == 0 else None
+        )
+        return {
+            "executed_steps": executed_steps,
+            "backend": capabilities.backend,
+            "checkpoint": capabilities.checkpoint,
+            "value": compact_value,
+            "done": bool(self.env.terminated or self.env.truncated),
+        }
 
     def pi0_pick(
         self,
@@ -1272,6 +1437,33 @@ TOOLS_SPEC = [
                 },
             },
             "required": ["xyz"],
+        },
+    },
+    {
+        "name": "wam_act",
+        "description": (
+            "Execute a short closed-loop action-model rollout from the current "
+            "real observation, conditioned on the environment's exact task language. "
+            "Re-observe after each call. Do not treat predicted future observations "
+            "as environment state."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "max_chunks": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 8,
+                    "description": "Closed-loop prediction count (default 1).",
+                },
+                "max_actions_per_chunk": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 64,
+                    "description": "Maximum executed actions per prediction (default 16).",
+                },
+            },
+            "required": [],
         },
     },
     {

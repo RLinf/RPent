@@ -67,6 +67,10 @@ def run_dashboard_session(
         component
         for component in dashboard_spec["runtime_components"]
         if not component.get("planners") or args.planner in component["planners"]
+        if all(
+            getattr(args, name, None) is not None
+            for name in component.get("enabled_if_args", ())
+        )
     )
     dashboard_spec = {**dashboard_spec, "runtime_components": runtime_components}
     shared_components = {

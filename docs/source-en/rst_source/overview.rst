@@ -68,6 +68,7 @@ Feature Matrix
 
        - **WAM**
 
+         - :doc:`Cosmos Policy <usage/libero>` ✅
          - DreamZero
      - - :doc:`LIBERO-PRO <usage/libero>` ✅
        - :doc:`RoboCasa <usage/robocasa>` ✅
