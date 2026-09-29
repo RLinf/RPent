@@ -64,20 +64,70 @@ LLM-in-the-loop 运行流程
    rpent/
      planner/        # planner 实现：api_loop、claude_code、codex、base。
      cli/            # main.py 入口和交互式终端。
-     context/        # 提示词工具和共享提示词片段。
+     prompt/         # 提示词工具和共享提示词片段。
      dashboard/      # FastAPI 监控页面和 SSE 事件流（可选）。
      robots/         # RobotSpec、PromptBundle 和按需加载机器人的逻辑。
+       components/   # 公共 Env/policy RPC 基类和模型适配器。
      tools/          # Toolkit 基类和共享 tool 辅助函数。
-     utils/          # 配置、日志、RPC 客户端/服务端和 VLA 客户端。
+     utils/          # 配置、日志和 RPC 传输。
    robots/
-     libero/         # LIBERO 的 env_client / env_server / vla_server /
-                     # toolkit / prompt_bundle。参考实现。
+     libero/         # 环境、策略选择、任务集、工具与提示词。
      robocasa/       # RoboCasa 机器人 (RLDX-1 VLA，厨房任务)。
      (franka/)       # Franka 机器人——研发中。
      (so101/)        # SO-101 机器人——研发中。
    scripts/
      codex_proxy/    # Codex planner 用的 LiteLLM 代理。
      robocasa/       # RoboCasa 运行 / 安装 / 扫描脚本。
+
+.. _action-model-layers:
+
+动作模型的分层
+--------------
+
+VLA 和 WAM 在配置入口区分模型类别，内部共享动作预测接口：客户端接收观测，
+返回动作块。共享接口不意味着两者的观测编码、checkpoint 或规划能力可以互换。
+
+.. list-table:: LIBERO 参考实现
+   :header-rows: 1
+   :widths: 35 65
+
+   * - 所属模块
+     - 职责
+   * - ``rpent/robots/components/policy_*_base.py``
+     - 公共预测请求及 facade 路由注册。锁、传输、会话、健康检查和关闭逻辑
+       由现有 ``RpcFacade`` 提供。
+   * - ``rpent/robots/components/pi05_vla_*`` 和 ``cosmos_policy_*``
+     - 各模型的观测与动作适配及推理。Pi0.5 使用 VLA 子类和 ``vla.predict``；
+       Cosmos 直接继承 policy 基类，两端均设置 ``PREDICT_METHOD = "wam.predict"``。
+   * - ``robots/libero/policy.py`` 和 ``suites.py``
+     - ``PolicyConfig`` 选择后端、能力、客户端和服务连接方式。
+       公共任务集目录与环境选择独立于模型，也独立于某次实验选择的评测范围。
+   * - ``robots/libero/robot_spec.py``
+     - 装配运行配置、Dashboard 描述和运行时组件。两类模型均通过
+       ``runtime_kwargs["model"]`` 传给原语。
+   * - ``robots/libero/tools.py``、``toolkit.py`` 和 ``prompt_bundle.py``
+     - 管理动作语义、工具注册、任务提示词及状态产物。
+       ``policy_backend`` 用于选择对应的工具和提示词。
+   * - ``tests/e2e_tests/libero/benchmark_cosmos_policy.py``
+     - 管理评测协议、动作预算、任务选择和结果汇总，这些配置不属于模型适配器。
+
+公共预测基类复用现有 RPC 机制，不另建一套传输实现。模型专用逻辑仍分别维护：
+Cosmos 在独立部署的服务中使用 NVIDIA 官方动作推理接口，Pi0.5 保留 OpenPI
+编码和服务。当前 Cosmos 观测格式和 checkpoint 面向 LIBERO，代码位于
+``components/`` 并不代表已经支持其他 benchmark。此接入关闭了未来状态与价值
+生成，以及 best-of-N 规划。
+
+Memory 是 toolkit 的可选依赖。传入 ``MemoryManager`` 时绑定公共文件工具；
+传入 ``memory=None`` 时，在注册阶段跳过 ``read_text_file``、``write_text_file``
+和 ``list_dir``，保留 ``finish`` 与机器人工具。LIBERO 的策略配置目前只为
+Pi0.5 启用 Memory；Cosmos 不创建管理器，也不复用 Pi0.5 经验。
+观测和视频仍由 ``EnvState`` 管理。全局 HF 同步是独立机制，Cosmos 的
+CLI/Dashboard 运行仍需指定 ``--memory-profile local`` 来跳过同步。
+
+面向 planner 的 ``cosmos_act`` 与独立 benchmark 采用不同的停止协议：
+前者执行完整的 16 动作块，在块之间检查回合结束标志；后者逐个执行预测动作，
+在原生成功或达到精确动作上限时停止。部署、约束和复现命令见
+:doc:`../usage/libero`。
 
 Runner (``rpent/cli/main.py``)
 ------------------------------
@@ -160,15 +210,20 @@ Dashboard（可选）
 ``rpent/dashboard/`` 由 FastAPI 应用和静态前端组成。启用 ``--dashboard`` 后，
 ``rpent/cli/main.py`` 会将控制权交给 ``rpent/cli/dashboard.py``，由后者根据
 ``--dashboard-host`` 和 ``--dashboard-port`` 启动 Dashboard。Session 配置全部来自
-命令行，然后用共享 component 名称调用一次 ``robot_spec.init_runtime``。环境必须
-提供 ``robot_spec.dashboard``，由它定义
+命令行，然后用共享 component 名称调用一次 ``robot_spec.init_runtime``。
+机器人提供静态的 ``robot_spec.dashboard`` 或 ``resolve_dashboard(args)`` 钩子；
+提供钩子时优先使用其返回结果。解析后的描述定义
 前端使用的任务命令与字段、runtime components 和 frame channels。Session
 controller 随后等待该环境定义的命令（LIBERO 使用 ``/rpent-task``）；每次取得一个
 TaskRun 后，Dashboard 会调用 ``parse_config``，再用 unique component 名称调用
 同一个 ``robot_spec.init_runtime``，合并 shared 与 unique primitive 参数，并新建 toolkit
 和 planner conversation。两个子集都来自环境 Dashboard spec 中显式声明的
-``shared`` / ``unique`` scope。在 LIBERO 中，VLA 和 SAM3 会在 Dashboard 运行期间
+``shared`` / ``unique`` scope。在 LIBERO 中，选中的 VLA 或 WAM 以及 SAM3 会在 Dashboard 运行期间
 复用，每个 TaskRun 使用独立环境并按顺序执行。
+
+LIBERO 将模型组件解析为 Pi0.5 的 ``vla`` / ``VLA`` 或 Cosmos 的 ``wam`` / ``WAM``。
+公共 Dashboard runner 只消费这一描述，不包含模型专用分支。两类模型共用启动、
+就绪检查和清理辅助函数；连接外部模型服务时，RPent 不负责关闭该服务。
 
 TaskRun 运行期间，Dashboard 页面提供：
 

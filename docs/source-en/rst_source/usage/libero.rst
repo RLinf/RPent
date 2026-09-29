@@ -145,6 +145,8 @@ The CLI and Dashboard distinguish ``--vla-backend pi05`` from
 Both reuse shared policy prediction and runtime lifecycle code. Model selection
 lives in ``robots/libero/policy.py``; task names and automatic environment
 routing live in ``robots/libero/suites.py``.
+See :ref:`action-model-layers` for the ownership map and the distinction between
+shared policy infrastructure, robot tools and benchmark code.
 
 When updating an earlier Cosmos deployment, replace ``--vla-backend`` and
 ``--vla-endpoint`` with ``--wam-backend`` and ``--wam-endpoint``. Restart the

@@ -121,6 +121,7 @@ CLI 和 Dashboard 区分 ``--vla-backend pi05`` 与 ``--wam-backend cosmos-polic
 Dashboard 中对应显示 VLA 或 WAM。两者复用公共策略预测和运行时生命周期代码。
 模型选择位于 ``robots/libero/policy.py``；任务集名称及环境自动选择逻辑位于
 ``robots/libero/suites.py``。
+公共策略机制、机器人工具和 benchmark 代码的职责划分见 :ref:`action-model-layers`。
 
 更新已有 Cosmos 部署时，将 ``--vla-backend``、``--vla-endpoint`` 分别改为
 ``--wam-backend``、``--wam-endpoint``，并用与客户端相同版本的代码重启服务：

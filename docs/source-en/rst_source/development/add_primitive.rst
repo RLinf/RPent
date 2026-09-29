@@ -18,9 +18,9 @@ Two types of primitives
      - Examples
    * - **Model-based**
        (VLA / WAM / diffusion / …)
-     - Runs in its own process (``vla_server``) and is called through
+     - Runs in its own model-service process and is called through
        a *model client* held by the toolkit.
-     - Pi0.5 (LIBERO), RLDX-1 (RoboCasa)
+     - Pi0.5 and Cosmos Policy (LIBERO), RLDX-1 (RoboCasa)
    * - **Scripted**
        (kinematic / heuristic)
      - Runs in the agent process, with an optional server-side RPC for
@@ -89,11 +89,15 @@ Add a VLA (or other model-based primitive)
 Because the model runs in its own process, adding a model-based
 primitive requires a few additional components:
 
-1. **Write ``vla_server.py``.** This process owns only the model weights
-   and CUDA context. Use
+1. **Write the model service.** This process owns the model weights,
+   preprocessing and CUDA context. For a VLA, use
    :class:`rpent.robots.components.vla_facade_base.BaseVLAFacade` as the base
    class, implement ``predict``, and register any additional model RPCs by
-   extending ``_register_rpc``:
+   extending ``_register_rpc``. For a non-VLA action model, use
+   :class:`rpent.robots.components.policy_facade_base.BasePolicyFacade` and
+   select its RPC name through ``PREDICT_METHOD``. Cosmos uses ``wam.predict``.
+   Reusable model adapters live under ``rpent/robots/components/``; robot-specific
+   environment and action semantics stay under ``robots/<robot>/``.
 
    - The default transport is **HTTP** (JSON over ``POST /call``),
      which works well for flat ``image + state`` payloads such as the
@@ -111,7 +115,11 @@ primitive requires a few additional components:
    provides the common ``vla.predict`` call, and add only the
    environment-specific input / output adaptation. See
    ``rpent.robots.components.pi05_vla_client.Pi05VLAClient`` for the LIBERO
-   implementation.
+   implementation. For non-VLA models, inherit
+   :class:`rpent.robots.components.policy_client_base.BasePolicyClient` and
+   set the same ``PREDICT_METHOD`` as the facade. ``CosmosPolicyClient`` and
+   ``CosmosPolicyFacade`` share this prediction infrastructure while retaining
+   their own observation and action validation.
 
 3. **Add a method to the primitives.** In the current
    robot's primitives class, call the model client, pass
@@ -152,6 +160,11 @@ primitive requires a few additional components:
    ``{"env": MyRobotEnvClient(...), "model": MyModelClient(...)}``.
    The toolkit constructor then forwards it to the primitives.
 
+   Keep backend selection and connection details in the robot package. LIBERO's
+   ``policy.py`` provides ``PolicyConfig`` while ``robot_spec.py`` composes the
+   selected component with the environment and perception services. See
+   :ref:`action-model-layers` for the complete ownership map.
+
 Reuse an existing vla_server across runs
 ----------------------------------------
 
@@ -161,6 +174,11 @@ connect to an instance that is already running:
 .. code-block:: bash
 
    rpent --robot libero --vla-endpoint http://vla-host:8000 ...
+
+For Cosmos, LIBERO provides ``--wam-backend cosmos-policy --wam-endpoint
+http://wam-host:8116 --memory-profile local``. VLA and WAM options are mutually
+exclusive. Both categories reuse the same readiness and owned-process cleanup
+helpers; an externally started model worker remains owned by its operator.
 
 If the model keeps per-episode state, expose a ``vla_reset`` RPC and
 call it between tasks. The same server process can then be reused safely
@@ -251,9 +269,11 @@ Beyond VLAs
 
 The same pattern extends to non-VLA model primitives:
 
-- **World Action Models (WAM)** — imagination-based rollouts that
-  produce a plan the env then executes. Wire them exactly like a
-  VLA: their own process, their own client.
+- **World Action Models (WAM)** can expose action generation through the same
+  client/worker pattern. The Cosmos integration currently uses action generation
+  only, with future-state/value generation disabled. Adding predictive rollouts
+  or planning requires explicit model-specific methods; inheriting a prediction
+  base does not enable those capabilities.
 - **Diffusion planners / MPC** — same shape; the "action" the tool
   returns may be a trajectory rather than a single chunk, and the
   ``env_server`` steps it out.
