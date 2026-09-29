@@ -383,8 +383,7 @@ directly comparable. Do NOT blindly average them — accept wrist coords only wh
 consistent with the agentview anchor, or for basket/cavity geometry.)"""
 
 WORKFLOW_STEPS = (
-    """READ THE GUIDES (the PERCEPTION-compatible guides — NOT hidden benchmark
-internals, which would tempt you to use GT coords) once each:
+    """READ THE GUIDES once each:
 - `robots/libero/guides/strict_hybrid_guide.md`
 - `robots/libero/guides/pro_hybrid_guide.md`
 - `robots/libero/guides/env_calibration.md`
