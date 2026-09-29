@@ -1,16 +1,16 @@
 Add a Planner
 =============
 
-A planner receives prompts, chooses tools, and consumes their results. To add one, implement ``Planner.solve`` and expose it through the construction path and CLI choices.
+A planner receives prompts, chooses tools, and consumes their results. To add one, subclass ``Planner``, implement ``solve``, and expose it through the construction path and CLI choices.
 
 The following interface sketch omits model requests and the tool loop; it is not a runnable implementation. See ``rpent/planner/api_loop.py`` for a complete backend.
 
 .. code-block:: python
 
    # rpent/planner/my_planner.py
-   from rpent.planner.base import PlannerResult
+   from rpent.planner.base import Planner, PlannerResult
 
-   class MyPlanner:
+   class MyPlanner(Planner):
        def solve(
            self,
            *,

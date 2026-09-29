@@ -349,7 +349,37 @@ Composite-Seen 与 Composite-Unseen 使用 ``--planner-timeout-s 3600``。按 At
 Target50 报告成绩与历史结果
 ----------------------------
 
-当前 GPT-5.5 公开成绩以 :doc:`排行榜 <../leaderboard/performance>` 为准： **Overall 57.1%**、**Atomic-Seen 92.0%**、**Composite-Seen 61.0%**、 **Composite-Unseen 13.8%**。Overall 对 50 个任务等权计算，不是 340 回合中的成功回合占比。
+下表成功率以 :doc:`排行榜 <../leaderboard/performance>` 为准。RPent 的三个配置分别为 Codex / GPT-5.5 / xhigh / reasoning、Codex / GPT-6 Astra / low / reasoning，以及 Claude Code / Opus-4.7 / max.reasoning。Harness VLA 参考列采用 `论文表 4 <https://arxiv.org/html/2607.08448v4#S3.T4>`_ 中的 GPT-5.5 结果。Overall 对 50 个任务等权计算，不是 340 回合中的成功回合占比。
+
+.. list-table:: 已报告的 Target50 成功率
+   :header-rows: 1
+   :widths: 24 18 18 18 22
+
+   * - Split
+     - RPent / GPT-5.5
+     - RPent / GPT-6 Astra
+     - RPent / Opus-4.7
+     - Harness VLA / GPT-5.5 参考值
+   * - Atomic-Seen
+     - 92.0%
+     - 87.78%
+     - 79.4%
+     - 92.0%
+   * - Composite-Seen
+     - 61.0%
+     - 43.75%
+     - 47.5%
+     - 61.0%
+   * - Composite-Unseen
+     - 13.8%
+     - 42.50%
+     - 15.0%
+     - 13.8%
+   * - 总体（任务加权）
+     - 57.1%
+     - 59.20%
+     - 48.6%
+     - 57.1%
 
 Astra 的报告值为 **Overall 59.20%**，三个分项分别为 **87.78% / 43.75% / 42.50%**。回合数已根据 `实验贡献者确认的更正 <https://github.com/RLinf/RPent/pull/205#issuecomment-5749514622>`_ 同步为 **340（180/80/80）**；此前的 250 回合信息属于尚未同步的历史记录。此次更正保留已报告成功率，不由四舍五入后的比率推算成功次数，也不代表重新核验了全部 340 份原始结果。
 

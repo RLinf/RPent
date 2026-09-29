@@ -120,6 +120,17 @@ audit 必须包含非空的 ``task_language`` （或 ``perturbed_task_language``
 LIBERO-PRO 评测结果
 -----------------------
 
+在 LIBERO-PRO 完整的 800 次运行中（Spatial、Object、Goal 和 Long；task/swap；每个任务 10 个 seed），Flash Mode 成功 581 次（72.63%）。两个没有成功源轨迹、因而没有计划的任务按 0/10 保守计入。八项评测成绩见 :doc:`评测成绩 <../leaderboard/performance>`。
+
+:doc:`耗时与 Token 开销 <../leaderboard/time-token-costs>` 报告 Flash Mode 每个评测回合平均耗时 60.19 秒，输出 token 为 0。均值包含成功、失败和超时的评测回合；token 仅统计评测阶段的输出。
+
+RPent Flash Mode 直接使用官方发布的 GPT-5.5 探索记忆，视觉定位模型为 Molmo2-8B。这些结果使用 s0-s9 中表现最佳的 seed。
+
+历史对比
+~~~~~~~~
+
+下图保留早期 Flash/Codex 对比。图中的 Flash 耗时取每个计划对应的成功源回合，与上方统计全部评测回合的平均耗时口径不同。
+
 在 LIBERO-PRO 完整的 800 次运行中（Spatial、Object、Goal 和 Long；task/swap；每个任务 10 个 seed），Flash Mode 成功 581 次（72.63%）。不使用 reasoning 的 Codex 成功 500 次（62.50%），high reasoning Codex 成功 628 次（78.50%）。两个没有成功源轨迹、因而没有计划的任务按 0/10 保守计入。
 
 .. image:: https://raw.githubusercontent.com/RLinf/misc/main/rpent/flash/flash_libero_pro_performance_time.png

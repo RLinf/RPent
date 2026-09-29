@@ -171,6 +171,28 @@ LIBERO-PRO Results
 ------------------
 
 Across the complete 800-case LIBERO-PRO matrix (Spatial, Object, Goal, and Long;
+task/swap; 10 seeds per task), Flash Mode solved 581 episodes (72.63%).
+The two tasks without a successful source trace and therefore no Flash plan
+are conservatively counted as 0/10. The eight suite scores are listed in
+:doc:`Performance <../leaderboard/performance>`.
+
+The :doc:`Time & Token Costs <../leaderboard/time-token-costs>` table reports
+60.19 seconds per evaluation episode and 0 output tokens for Flash Mode.
+The mean covers successful, failed, and timed-out evaluation episodes; tokens
+refer to evaluation-stage output only.
+
+RPent Flash Mode uses directly downloaded, officially released GPT-5.5
+exploration memory; Molmo2-8B is used for visual localization.
+These results use the best-performing seed from s0-s9.
+
+Historical Comparison
+~~~~~~~~~~~~~~~~~~~~~
+
+The following chart records the earlier Flash/Codex comparison. Its timing
+uses the successful source episode for each Flash plan, so it has a different
+measurement scope from the evaluation-episode mean above.
+
+Across the complete 800-case LIBERO-PRO matrix (Spatial, Object, Goal, and Long;
 task/swap; 10 seeds per task), Flash Mode solved 581 episodes (72.63%). Codex
 without reasoning solved 500 (62.50%), while Codex with high reasoning solved
 628 (78.50%). The two tasks without a successful source trace and therefore no

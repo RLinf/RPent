@@ -41,7 +41,7 @@ different robots.
    * - Component
      - Responsibility
    * - Planner
-     - Select tools, manage model interaction, and return ``PlannerResult``. Online backends are ``api``, ``claude_code``, and ``codex``; LIBERO Flash executes stored plans.
+     - Select tools, manage model interaction, and return ``PlannerResult``. The ``api`` backend uses the native Pydantic AI loop and Harness sliding-window history trimming; ``claude_code`` and ``codex`` use their respective SDKs. LIBERO Flash executes stored plans.
    * - Toolkit
      - Define schemas, dispatch calls, record state, and expose results as ``ToolResult`` for the planner.
    * - Environment service
@@ -63,7 +63,7 @@ Shared execution and interfaces live under ``rpent/``. Each package under
 
    rpent/
      cli/          # CLI, Dashboard launcher, memory commands
-     planner/      # Model backends and Planner protocol
+     planner/      # Model backends and Planner base class
      prompt/       # Shared prompt construction
      session/      # Session and task lifecycle
      dashboard/    # Web UI and event delivery

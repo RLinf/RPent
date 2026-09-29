@@ -201,10 +201,12 @@ RPent 在 LIBERO-PRO Task/Swap 上的统一模型对比及对应配置见 :doc:`
 :doc:`GPT-6 Astra 套件汇总 <../leaderboard>`
 记录全部八个完整套件及 800 个已核验回合：741 成功、59 失败，Overall 92.63%，配置为 Codex / GPT-6 Astra / low / reasoning。
 
-以下保留历史复现记录，实验使用 `reproduce/libero <https://github.com/RLinf/RPent/tree/reproduce/libero>`_ 分支和 ``gpt-5.5`` 模型：
+Long 结果使用 `reproduce/libero <https://github.com/RLinf/RPent/tree/reproduce/libero>`_ 分支、``gpt-5.5`` 模型和 ``xhigh`` 推理强度：
 
 - ``libero_10_task``：70%（70/100）
 - ``libero_10_swap``：55%（55/100）
+
+结合 Spatial/Object/Goal 六项论文成绩（81%、69%、94%、91%、75%、66%）和这两项 Long 复现结果，八项评测的 **Overall 为 75.13%**。:doc:`排行榜 <../leaderboard/performance>` 使用这一汇总口径。
 
 先使用上述复现分支，并完成本页资源配置。下面以任务 0、seed 0 为例；完整成绩需要覆盖该任务集中的全部任务和约定的 seed。示例服务端口需按 :doc:`advanced_deployment` 预先启动。
 

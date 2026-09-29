@@ -510,9 +510,42 @@ Reported and Historical Target50 Results
 ----------------------------------------
 
 The :doc:`leaderboard <../leaderboard/performance>` is the source for the
-currently reported GPT-5.5 scores: **57.1% Overall**, **92.0% Atomic-Seen**,
-**61.0% Composite-Seen** and **13.8% Composite-Unseen**. Overall weights all
-50 tasks equally; it is not the fraction of successful cells among 340.
+reported rates below. The RPent configurations are Codex / GPT-5.5 / xhigh /
+reasoning, Codex / GPT-6 Astra / low / reasoning, and Claude Code /
+Opus-4.7 / max.reasoning. The Harness VLA reference column reports GPT-5.5
+results from `paper Table 4 <https://arxiv.org/html/2607.08448v4#S3.T4>`_.
+Overall weights all 50 tasks equally; it is not the fraction of successful
+cells among 340.
+
+.. list-table:: Reported Target50 success rates
+   :header-rows: 1
+   :widths: 24 18 18 18 22
+
+   * - Split
+     - RPent / GPT-5.5
+     - RPent / GPT-6 Astra
+     - RPent / Opus-4.7
+     - Harness VLA / GPT-5.5 reference
+   * - Atomic-Seen
+     - 92.0%
+     - 87.78%
+     - 79.4%
+     - 92.0%
+   * - Composite-Seen
+     - 61.0%
+     - 43.75%
+     - 47.5%
+     - 61.0%
+   * - Composite-Unseen
+     - 13.8%
+     - 42.50%
+     - 15.0%
+     - 13.8%
+   * - Overall (task-weighted)
+     - 57.1%
+     - 59.20%
+     - 48.6%
+     - 57.1%
 
 The Astra entry reports **59.20% Overall**, with **87.78% / 43.75% / 42.50%**
 for the three splits. Its episode count is **340 (180/80/80)** following the

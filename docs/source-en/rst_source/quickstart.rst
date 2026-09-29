@@ -92,6 +92,11 @@ See :ref:`run-output-files` for default directory names, exported action sequenc
 
 See :doc:`usage/dashboard` to watch cameras and actions live. For more tasks, exploration, and experiment reproduction, continue with :doc:`usage/libero`.
 
+.. _quickstart-interactive:
+
+For terminal interaction, add ``--interactive`` (``-i``) to enter follow-up
+instructions. It cannot be combined with ``--dashboard``.
+
 If a Step Fails
 ---------------
 

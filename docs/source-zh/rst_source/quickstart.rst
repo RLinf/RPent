@@ -92,6 +92,10 @@ LIBERO 的任务成功以最终环境状态的顶层 ``terminated`` 为准，可
 
 若要实时观看相机和动作记录，按 :doc:`usage/dashboard` 启动 Dashboard。更多任务、探索模式和实验复现见 :doc:`usage/libero`。
 
+.. _quickstart-interactive:
+
+若要在终端中交互，添加 ``--interactive``（``-i``）即可输入后续指令。该选项不能与 ``--dashboard`` 同时使用。
+
 遇到问题时
 ---------------
 

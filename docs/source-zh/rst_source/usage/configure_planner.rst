@@ -17,8 +17,7 @@ RPent 通过一个 CLI 参数选择 Agentic Planner 的后端：
      - 它是什么
      - 什么时候选它
    * - ``api``
-     - 基于 `Pydantic AI <https://ai.pydantic.dev/>`_ 实现的工具调用循环，
-       不绑定特定模型提供商。当前支持 Anthropic Messages API、OpenAI Responses API 和 OpenAI 兼容的 Chat Completions API，内置 prompt 缓存和历史图片剪枝。
+     - 基于 `Pydantic AI <https://ai.pydantic.dev/>`_ 的工具调用循环，支持多种模型 API。对话较长时，会减少发送给模型的早期消息。
      - 直接调用 Anthropic、OpenAI 或兼容的模型服务。
    * - ``claude_code``
      - `Claude Agent SDK
@@ -37,7 +36,7 @@ RPent 通过一个 CLI 参数选择 Agentic Planner 的后端：
 ``api`` 规划器（直接调用模型 API）
 -------------------------------------
 
-``--planner api`` 是默认选项。它使用 Pydantic AI 实现工具调用循环，并要求 ``--model`` 带有模型提供商前缀。当前项目安装的依赖包含 Anthropic 和 OpenAI 集成，因此可以直接使用 Anthropic Messages API、OpenAI Responses API，以及 OpenAI 兼容的 Chat Completions API。
+``--planner api`` 是默认选项。它使用 Pydantic AI 原生工具调用循环，并要求 ``--model`` 带有模型提供商前缀。当前项目安装的依赖包含 Anthropic 和 OpenAI 集成，因此可以直接使用 Anthropic Messages API、OpenAI Responses API，以及 OpenAI 兼容的 Chat Completions API。
 
 通过 ``--model`` 前缀选择模型提供商：
 
@@ -61,8 +60,10 @@ RPent 通过一个 CLI 参数选择 Agentic Planner 的后端：
 ``api`` 规划器的相关参数：
 
 - ``--max-tokens`` —— 单次 LLM 回复的 token 上限（默认 ``8192``）。
-- ``--max-turns`` —— 工具调用轮数上限（默认 ``100``）。
+- ``--max-turns`` —— 整段对话的模型请求次数上限，包括重试和后续输入（默认 ``100``）。达到上限属于正常停止，不表示规划器报错或任务成功；探索模式在满足其他条件时仍可进入下一会话并合并记忆。
 - ``--no-images`` —— 不向模型发送图片字节；纯文本模型必须加此参数。此时智能体只依赖文本状态推理，任务表现可能不够理想。
+
+终端交互方式见 :ref:`终端交互 <quickstart-interactive>`。
 
 .. _planner-claude-code:
 
@@ -190,7 +191,7 @@ RPent 的 ``--model`` 必须与 vLLM 的 ``--served-model-name`` 保持一致。
 以下参数的作用范围并不相同：
 
 - ``--max-tokens`` 只限制 ``api`` 规划器每次回复的 token 数。LIBERO 类任务通常使用 ``8192`` 即可；RoboCasa 的长时序任务可以在模型支持的范围内调大。
-- ``--max-turns`` 限制工具调用的总轮数。单个 LIBERO 任务通常不会超过 30 轮；RoboCasa 的长时序任务可能接近默认的 ``100``。
+- ``--max-turns`` 默认为 ``100``。``api`` 按整段对话的模型请求次数计算，包括重试和后续输入；SDK 规划器使用各自的轮数限制。
 - ``--planner-timeout-s`` 限制规划器的运行时间。
 
 模型调用 ``finish`` 工具后，规划器会记录相应的结束状态。达到轮数上限或超时时，运行结束，主程序仍会保存对话记录。超时或 SDK 异常会写入规划器结果，并输出到日志。

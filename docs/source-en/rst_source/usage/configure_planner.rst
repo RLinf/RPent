@@ -20,11 +20,9 @@ loop is orchestrated, and which model SDK is used.
      - What it is
      - When to pick it
    * - ``api``
-     - Provider-agnostic tool-calling loop built on
-       `pydantic-ai <https://ai.pydantic.dev/>`_. It currently supports
-       the Anthropic Messages API, the OpenAI Responses API, and
-       OpenAI-compatible Chat Completions APIs. It handles prompt caching
-       and history-image pruning.
+     - A tool-calling loop built on `Pydantic AI <https://ai.pydantic.dev/>`_
+       that supports multiple model APIs. For long conversations, it sends
+       fewer older messages to the model.
      - Call Anthropic, OpenAI, or a compatible model service directly.
    * - ``claude_code``
      - The `Claude Agent SDK
@@ -47,8 +45,8 @@ loop is orchestrated, and which model SDK is used.
 The ``api`` Planner (direct Model API)
 ---------------------------------------
 
-``--planner api`` is the default. It uses Pydantic AI to implement the
-tool-calling loop and requires a provider prefix in ``--model``. The
+``--planner api`` is the default. It uses the native Pydantic AI tool-calling
+runtime and requires a provider prefix in ``--model``. The
 project currently installs the Anthropic and OpenAI integrations, so it
 can directly use the Anthropic Messages API, the OpenAI Responses API,
 and OpenAI-compatible Chat Completions APIs.
@@ -76,11 +74,15 @@ needed):
 Relevant ``api`` planner knobs:
 
 - ``--max-tokens`` — cap each LLM reply (default ``8192``).
-- ``--max-turns`` — cap the number of tool-calling turns (default
-  ``100``).
+- ``--max-turns`` — cap model requests across the whole conversation,
+  including retries and follow-ups (default ``100``). Reaching the cap is
+  a normal stop, not a planner error or a claim of task success. Exploration
+  can continue with the next session and merge memory when otherwise eligible.
 - ``--no-images`` — never send image bytes; this is required for
   text-only models. The agent then reasons from textual state alone,
   so task performance may not be satisfactory.
+
+For ``--interactive`` usage, see :ref:`Terminal interaction <quickstart-interactive>`.
 
 .. _planner-claude-code:
 
@@ -271,9 +273,9 @@ The limiting options apply to different planners:
   planner. LIBERO-style tasks usually
   finish comfortably under ``8192``; longer-horizon RoboCasa episodes
   benefit from raising it if your model supports it.
-- ``--max-turns`` caps the *total number of tool-calling turns*. A
-  single LIBERO task rarely needs more than ~30 turns; RoboCasa
-  long-horizon tasks can approach the default ``100``.
+- ``--max-turns`` defaults to ``100``. For ``api``, it caps model requests
+  across the conversation, including retries and follow-ups. SDK planners
+  apply their own turn limits.
 - ``--planner-timeout-s`` limits the planner's running time.
 
 When the model calls the ``finish`` tool, the planner records the

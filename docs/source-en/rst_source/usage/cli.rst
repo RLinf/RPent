@@ -33,7 +33,7 @@ These options control the planner, memory, output directory, and Dashboard.
      - ``api`` requires a provider prefix; SDK planners use their backend defaults.
    * - ``--max-turns``
      - ``100``
-     - Planner turn limit.
+     - Planner turn limit. For ``api``, counts model requests across the conversation, including retries and follow-ups.
    * - ``--max-tokens``
      - ``8192``
      - ``api`` only: token limit per model response.
