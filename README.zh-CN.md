@@ -199,7 +199,7 @@ rpent --robot libero --dashboard --dashboard-language zh-cn \
   --planner claude_code --model claude-opus-4-8
 ```
 
-完整的命令行参数列表见 [命令行与配置参考](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/cli.html)。RoboCasa 与 RoboTwin 提供各自的任务参数，参见 [RoboCasa](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robocasa.html) 与 [RoboTwin](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robotwin.html) 文档。
+完整的命令行参数列表见 [命令行参考](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/cli.html)。RoboCasa 与 RoboTwin 提供各自的任务参数，参见 [RoboCasa](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robocasa.html) 与 [RoboTwin](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robotwin.html) 文档。
 
 更详细的文档请参见 [RPent 中文文档](https://rpent.readthedocs.io/zh-cn/latest/)。
 

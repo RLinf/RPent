@@ -1,5 +1,5 @@
-CLI and Configuration
-=====================
+Command-Line Reference
+======================
 
 Run ``rpent --robot <name> --help`` for the full options of an environment. RPent supplies shared options; each environment adds task selection, resource paths, and service settings.
 

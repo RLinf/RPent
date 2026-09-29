@@ -198,7 +198,7 @@ rpent --robot libero --dashboard --dashboard-language zh-cn \
   --planner claude_code --model claude-opus-4-8
 ```
 
-For a complete list of CLI options, see the [CLI and Configuration](https://rpent.readthedocs.io/en/latest/rst_source/usage/cli.html) reference. RoboCasa and RoboTwin provide their own task parameters — see the [RoboCasa](https://rpent.readthedocs.io/en/latest/rst_source/usage/robocasa.html) and [RoboTwin](https://rpent.readthedocs.io/en/latest/rst_source/usage/robotwin.html) docs.
+For a complete list of CLI options, see the [Command-Line Reference](https://rpent.readthedocs.io/en/latest/rst_source/usage/cli.html). RoboCasa and RoboTwin provide their own task parameters — see the [RoboCasa](https://rpent.readthedocs.io/en/latest/rst_source/usage/robocasa.html) and [RoboTwin](https://rpent.readthedocs.io/en/latest/rst_source/usage/robotwin.html) docs.
 
 For more detailed documentation, see the [RPent documentation](https://rpent.readthedocs.io/en/latest/).
 

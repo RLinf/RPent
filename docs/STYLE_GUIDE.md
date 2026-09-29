@@ -48,7 +48,7 @@ Keep the same sections and ordering in both languages:
 3. **Real-World Demos / 真实世界演示**: direct robot demo pages, each linking to
    the corresponding installation and usage guide.
 4. **Guides / 使用指南**: memory and exploration; action primitives and tools;
-   planners and model services; CLI and configuration; interactive usage
+   planners and model services; command-line reference; interactive usage
    (terminal and Dashboard); Flash Mode;
    trajectory collection and data flywheel; remote services and parallel runs.
 5. **Simulators / 仿真环境**: LIBERO, RoboCasa365, and RoboTwin. Each page owns
@@ -97,7 +97,7 @@ are separate from documentation content requirements.
 
 Use this sequence: requirements, installation, assets and checkpoints, planner
 connection check, one task, expected artifacts and success criterion, common
-failures. Keep runtime option tables in CLI and Configuration. Put installation
+failures. Keep runtime option tables in Command-Line Reference. Put installation
 commands and optional dependency groups in the environment or feature guide
 that uses them; do not maintain a separate installation-extras summary table.
 
@@ -219,7 +219,7 @@ explain ownership, interfaces, call flow, and extension points. Verify
 signatures, argument types, defaults, lifecycle, and actual callers. Keep
 illustrative code clearly distinct from executable examples.
 
-Use CLI and Configuration as the shared reference for parameter defaults,
+Use Command-Line Reference as the shared reference for parameter defaults,
 environment variables, and output files. Link to it from
 tutorials. Specify which environment or mode owns a default. Keep internal
 storage formats separate from supported inspection tools and public APIs.
