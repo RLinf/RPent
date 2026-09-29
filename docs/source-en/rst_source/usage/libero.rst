@@ -116,6 +116,9 @@ For another variant, install the matching extra in an isolated environment and d
      - ``uv pip install -e ".[libero-plus]"``
      - ``liberoplus-download-assets --skip-existing``
 
+Each extra includes Pi0.5 (``rpent-openpi``), SAM3, and the RLinf runtime
+(``rpent-rlinf``). Download model weights separately as described below.
+
 At runtime, set ``--libero-type`` to match the installed variant.
 
 VLA Configuration

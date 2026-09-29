@@ -16,8 +16,8 @@ Install
 
 .. note::
 
-	The following guide installs only the Python side (the custom RLinf
-	Franka branch and ``rlinf-openpi``); it does **not** build the robot-node
+	The following guide installs only the Python side (the pinned RLinf
+	Franka integration and ``rpent-openpi``); it does **not** build the robot-node
 	control stack the two arms need. Before installing RPent, follow the RLinf
 	dual-Franka guide to set up both robot nodes: choose a compatible
 	``LIBFRANKA_VERSION``, build the ``franka-franky`` (franky/libfranka) control
@@ -35,8 +35,8 @@ checkout, enter it and run ``uv sync``:
    cd RPent
    uv sync --extra franka --extra sam3
 
-This installs the custom RLinf Franka branch and ``rlinf-openpi`` into
-``.venv``.
+This installs the pinned RLinf Franka integration, ``rpent-openpi``, Franka
+control dependencies, and SAM3 into ``.venv``.
 
 Calibration
 -----------

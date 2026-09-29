@@ -17,7 +17,7 @@ RPent 可以通过 RLinf 的 ``RealWorldEnv`` worker 控制单台 Franka 机械�
 
 .. note::
 
-	以下的步骤只会安装 Python 侧依赖（自定义的 RLinf Franka 分支和 ``rlinf-openpi``），并 **不会** 构建机械臂真正需要的机器人控制栈。在安装 RPent 之前，请先按照 RLinf 单臂 Franka 指南配置控制节点：检查 Franka 固件兼容性、安装实时内核、选择夹爪（Franka hand 或 Robotiq 2F-85/2F-140）与相机，并构建 ROS 控制相关软件包（ROS Noetic、与固件匹配的 libfranka 和 franka_ros，以及 serl_franka_controllers）。参见 `RLinf 单臂 Franka 指南 <https://rlinf.readthedocs.io/zh-cn/latest/rst_source/examples/embodied/franka.html>`_。
+	以下的步骤只会安装 Python 侧依赖（固定版本的 RLinf Franka 集成和 ``rpent-openpi``），并 **不会** 构建机械臂真正需要的机器人控制栈。在安装 RPent 之前，请先按照 RLinf 单臂 Franka 指南配置控制节点：检查 Franka 固件兼容性、安装实时内核、选择夹爪（Franka hand 或 Robotiq 2F-85/2F-140）与相机，并构建 ROS 控制相关软件包（ROS Noetic、与固件匹配的 libfranka 和 franka_ros，以及 serl_franka_controllers）。参见 `RLinf 单臂 Franka 指南 <https://rlinf.readthedocs.io/zh-cn/latest/rst_source/examples/embodied/franka.html>`_。
 
 克隆 RPent 并安装 Python 依赖。若已有仓库，进入仓库后执行 ``uv sync``：
 
@@ -27,7 +27,7 @@ RPent 可以通过 RLinf 的 ``RealWorldEnv`` worker 控制单台 Franka 机械�
    cd RPent
    uv sync --extra franka
 
-该命令会把自定义的 RLinf Franka 分支和 ``rlinf-openpi`` 安装到 ``.venv``。
+该命令将固定版本的 RLinf Franka 集成、``rpent-openpi`` 和 Franka 控制依赖安装到 ``.venv``。
 
 标定（Calibration）
 ----------------------

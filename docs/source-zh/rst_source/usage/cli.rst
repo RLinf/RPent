@@ -64,6 +64,9 @@
    * - ``--explore``
      - ``false``
      - 在支持的环境中启用探索。
+   * - ``--interactive``、``-i``
+     - ``false``
+     - 在终端输入指令，见 :ref:`terminal-interaction`。
    * - ``--dashboard``
      - ``false``
      - 启动 Dashboard 会话。
@@ -129,53 +132,6 @@ LIBERO 使用 ``--suite``、``--task``、``--seed`` 和 ``--libero-type`` 选择
 Codex 也可复用已有的 Codex 认证。模型选择、地址优先级和本地服务示例见 :doc:`configure_planner`。连接检查使用 ``rpent-check-llm``；记忆管理使用 ``rpent-memory``，操作方法见 :doc:`memory`。
 
 模型与资源路径由各环境读取，例如 LIBERO 的 ``PI05_CHECKPOINT_PATH``、``SAM3_CHECKPOINT_PATH``，RoboCasa365 的 ``ROBOCASA_ASSETS_PATH``，以及 RoboTwin 的 ``ROBOTWIN_ASSETS_PATH``、``LINGBOT_MODEL_PATH``。
-
-安装依赖选项
-------------
-
-在仓库根目录使用 ``uv pip install -e ".[<extra>]"`` 安装所需的可选依赖组。通常选择对应环境的依赖组即可；该组会包含下表中列出的模型或运行依赖。资源与模型权重仍需按环境页下载。
-
-.. list-table::
-   :header-rows: 1
-
-   * - Extra
-     - 安装内容
-     - 说明
-   * - ``.[libero]``
-     - 标准 LIBERO、Pi0.5、SAM3 和 RLinf 运行依赖。
-     - :doc:`libero`
-   * - ``.[libero-pro]``
-     - LIBERO-PRO 及 LIBERO 所需的模型和运行依赖。
-     - :doc:`libero`
-   * - ``.[libero-plus]``
-     - LIBERO-plus、Pi0.5、SAM3 和 RLinf 运行依赖。
-     - :doc:`libero`
-   * - ``.[robocasa]``
-     - RoboCasa365、RLDX-1、Robosuite 和 RLinf 运行依赖。
-     - :doc:`robocasa`
-   * - ``.[robotwin]``
-     - RoboTwin 运行依赖、LingBot-VLA、cuRobo 和 RLinf 运行依赖。
-     - :doc:`robotwin`
-   * - ``.[franka]``
-     - RLinf Franka 集成、OpenPI 和 Franka 控制依赖。
-     - :doc:`dual_franka`
-   * - ``.[rlinf]``
-     - RLinf 运行依赖（``rpent-rlinf``）。
-     - :doc:`../development/add_robot`
-   * - ``.[sam3]``
-     - SAM3 分割依赖；模型权重需要另行下载。
-     - :doc:`libero`
-   * - ``.[molmo]``
-     - Molmo 视觉定位依赖；需使用独立环境。
-     - :doc:`flash`
-   * - ``.[flywheel]``
-     - 轨迹导出所需的 LeRobot 依赖。
-     - :doc:`flywheel`
-   * - ``.[test]``
-     - 轻量测试依赖。
-     - :doc:`../resources/contributing`
-
-每个虚拟环境只安装一种 LIBERO 版本。RoboCasa 使用 Python 3.10，快速开始和 RoboTwin 示例使用 Python 3.11；请按对应页面创建环境。
 
 .. _run-output-files:
 

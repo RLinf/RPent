@@ -31,7 +31,10 @@ extensions = [
 ]
 
 # Relative targets keep old links within the same language and build version.
-redirects = {"rst_source/benchmarks": "leaderboard.html"}
+redirects = {
+    "rst_source/benchmarks": "leaderboard.html",
+    "rst_source/installation": "quickstart.html",
+}
 
 source_suffix = {".rst": "restructuredtext"}
 root_doc = "index"

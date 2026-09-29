@@ -89,7 +89,7 @@ Choose an environment: :doc:`LIBERO <rst_source/usage/libero>`, :doc:`RoboCasa36
    Action Primitives and Tools <rst_source/usage/configure_primitives>
    Planners and Model Services <rst_source/usage/configure_planner>
    CLI and Configuration <rst_source/usage/cli>
-   Dashboard <rst_source/usage/dashboard>
+   Interactive Usage <rst_source/usage/dashboard>
    Flash Mode <rst_source/usage/flash>
    Trajectory Collection and Data Flywheel <rst_source/usage/flywheel>
    Remote Services and Parallel Runs <rst_source/usage/advanced_deployment>

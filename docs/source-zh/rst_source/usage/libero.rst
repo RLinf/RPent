@@ -113,6 +113,8 @@ LIBERO
      - ``uv pip install -e ".[libero-plus]"``
      - ``liberoplus-download-assets --skip-existing``
 
+以上各组依赖均包含 Pi0.5（``rpent-openpi``）、SAM3 和 RLinf 运行时（``rpent-rlinf``）。模型权重需按下文单独下载。
+
 运行时通过 ``--libero-type`` 选择与安装包一致的版本。
 
 VLA 配置

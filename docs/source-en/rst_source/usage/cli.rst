@@ -69,6 +69,9 @@ These options control the planner, memory, output directory, and Dashboard.
    * - ``--explore``
      - ``false``
      - Enable exploration on supported environments.
+   * - ``--interactive``, ``-i``
+     - ``false``
+     - Enter instructions in the terminal; see :ref:`terminal-interaction`.
    * - ``--dashboard``
      - ``false``
      - Start a Dashboard session.
@@ -134,53 +137,6 @@ Set the credentials and endpoint for your chosen planner in the launch shell.
 Codex can also reuse existing Codex authentication. See :doc:`configure_planner` for model selection, endpoint precedence, and local server examples. Use ``rpent-check-llm`` for connectivity checks and ``rpent-memory`` for the operations in :doc:`memory`.
 
 Each environment reads its own resource variables, including LIBERO’s ``PI05_CHECKPOINT_PATH`` and ``SAM3_CHECKPOINT_PATH``, RoboCasa365’s ``ROBOCASA_ASSETS_PATH``, and RoboTwin’s ``ROBOTWIN_ASSETS_PATH`` and ``LINGBOT_MODEL_PATH``.
-
-Installation Extras
--------------------
-
-From the repository root, use ``uv pip install -e ".[<extra>]"`` to install an optional dependency group. Usually, the environment extra supplies the model and runtime dependencies listed below. Download assets and weights as described in the environment guide.
-
-.. list-table::
-   :header-rows: 1
-
-   * - Extra
-     - Dependencies
-     - Guide
-   * - ``.[libero]``
-     - Standard LIBERO, Pi0.5, SAM3, and RLinf runtime.
-     - :doc:`libero`
-   * - ``.[libero-pro]``
-     - LIBERO-PRO and the LIBERO model/runtime dependencies.
-     - :doc:`libero`
-   * - ``.[libero-plus]``
-     - LIBERO-plus, Pi0.5, SAM3, and RLinf runtime.
-     - :doc:`libero`
-   * - ``.[robocasa]``
-     - RoboCasa365, RLDX-1, Robosuite, and RLinf runtime.
-     - :doc:`robocasa`
-   * - ``.[robotwin]``
-     - RoboTwin runtime, LingBot-VLA, cuRobo, and RLinf runtime.
-     - :doc:`robotwin`
-   * - ``.[franka]``
-     - RLinf Franka integration, OpenPI, and Franka control dependencies.
-     - :doc:`dual_franka`
-   * - ``.[rlinf]``
-     - RLinf runtime (``rpent-rlinf``).
-     - :doc:`../development/add_robot`
-   * - ``.[sam3]``
-     - SAM3 segmentation dependencies; download weights separately.
-     - :doc:`libero`
-   * - ``.[molmo]``
-     - Molmo grounding dependencies; use a separate environment.
-     - :doc:`flash`
-   * - ``.[flywheel]``
-     - LeRobot dependencies for trajectory export.
-     - :doc:`flywheel`
-   * - ``.[test]``
-     - Lightweight test dependencies.
-     - :doc:`../resources/contributing`
-
-Install only one LIBERO variant per virtual environment. RoboCasa uses Python 3.10; Quick Start and the RoboTwin examples use Python 3.11. Follow the corresponding setup page.
 
 .. _run-output-files:
 

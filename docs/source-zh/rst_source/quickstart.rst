@@ -90,11 +90,11 @@ LIBERO 的任务成功以最终环境状态的顶层 ``terminated`` 为准，可
 
 默认目录命名、动作序列与逐步观测文件的说明见 :ref:`run-output-files`。
 
-若要实时观看相机和动作记录，按 :doc:`usage/dashboard` 启动 Dashboard。更多任务、探索模式和实验复现见 :doc:`usage/libero`。
+若要实时观看相机和动作记录，按 :ref:`dashboard-usage` 启动 Dashboard。更多任务、探索模式和实验复现见 :doc:`usage/libero`。
 
 .. _quickstart-interactive:
 
-若要在终端中交互，添加 ``--interactive``（``-i``）即可输入后续指令。该选项不能与 ``--dashboard`` 同时使用。
+若要在终端中交互，添加 ``--interactive`` 或 ``-i`` 即可输入后续指令。该选项不能与 ``--dashboard`` 同时使用；各规划器的操作方式见 :ref:`terminal-interaction`。
 
 遇到问题时
 ---------------

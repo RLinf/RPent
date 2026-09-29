@@ -48,7 +48,8 @@ Keep the same sections and ordering in both languages:
 3. **Real-World Demos / 真实世界演示**: direct robot demo pages, each linking to
    the corresponding installation and usage guide.
 4. **Guides / 使用指南**: memory and exploration; action primitives and tools;
-   planners and model services; CLI and configuration; Dashboard; Flash Mode;
+   planners and model services; CLI and configuration; interactive usage
+   (terminal and Dashboard); Flash Mode;
    trajectory collection and data flywheel; remote services and parallel runs.
 5. **Simulators / 仿真环境**: LIBERO, RoboCasa365, and RoboTwin. Each page owns
    its installation, first run, reproduction protocol, and troubleshooting.
@@ -96,7 +97,9 @@ are separate from documentation content requirements.
 
 Use this sequence: requirements, installation, assets and checkpoints, planner
 connection check, one task, expected artifacts and success criterion, common
-failures. Keep exhaustive option tables in CLI and Configuration.
+failures. Keep runtime option tables in CLI and Configuration. Put installation
+commands and optional dependency groups in the environment or feature guide
+that uses them; do not maintain a separate installation-extras summary table.
 
 ### Simulator guides
 
@@ -216,10 +219,14 @@ explain ownership, interfaces, call flow, and extension points. Verify
 signatures, argument types, defaults, lifecycle, and actual callers. Keep
 illustrative code clearly distinct from executable examples.
 
-Use CLI and Configuration as the shared reference for optional dependencies,
-parameter defaults, environment variables, and output files. Link to it from
+Use CLI and Configuration as the shared reference for parameter defaults,
+environment variables, and output files. Link to it from
 tutorials. Specify which environment or mode owns a default. Keep internal
 storage formats separate from supported inspection tools and public APIs.
+
+Cover terminal interaction and Dashboard operation together in Interactive
+Usage. Explain how to start, submit instructions, and end a session, including
+planner-specific differences and environment restrictions.
 
 ## English and Chinese
 

@@ -90,12 +90,13 @@ For LIBERO, success is the top-level ``terminated`` value in the final environme
 
 See :ref:`run-output-files` for default directory names, exported action sequences, and step artifacts.
 
-See :doc:`usage/dashboard` to watch cameras and actions live. For more tasks, exploration, and experiment reproduction, continue with :doc:`usage/libero`.
+See :ref:`dashboard-usage` to watch cameras and actions live. For more tasks, exploration, and experiment reproduction, continue with :doc:`usage/libero`.
 
 .. _quickstart-interactive:
 
 For terminal interaction, add ``--interactive`` (``-i``) to enter follow-up
-instructions. It cannot be combined with ``--dashboard``.
+instructions. It cannot be combined with ``--dashboard``. See
+:ref:`terminal-interaction` for planner-specific controls.
 
 If a Step Fails
 ---------------
