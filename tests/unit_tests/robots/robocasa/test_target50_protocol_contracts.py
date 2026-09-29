@@ -17,10 +17,18 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib
 
 from robots.robocasa import robot_spec
 from robots.robocasa.eval.result import build_cell_result, finalize_cell_result
@@ -111,6 +119,50 @@ def test_target50_constraints_match_manifest_packages():
 
     assert constraints == {f"{name}=={version}" for name, version in packages.items()}
     assert not {"torch", "torchvision"} & packages.keys()
+
+
+def test_current_target50_constraints_satisfy_project_dependencies():
+    manifest = json.loads(
+        (MANIFEST_PATH.parent / "target50_v2.json").read_text(encoding="utf-8")
+    )
+    runtime = manifest["dependencies"]["runtime"]
+    constraints_path = REPO_ROOT / runtime["constraints_file"]
+    constraints = {
+        line.strip()
+        for line in constraints_path.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.startswith("#")
+    }
+    packages = runtime["packages"]
+    assert constraints == {f"{name}=={version}" for name, version in packages.items()}
+    pinned = {canonicalize_name(name): version for name, version in packages.items()}
+    project = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
+        "project"
+    ]
+    requirements = (
+        project["dependencies"] + project["optional-dependencies"]["robocasa"]
+    )
+    for text in requirements:
+        requirement = Requirement(text)
+        name = canonicalize_name(requirement.name)
+        if name in pinned and requirement.specifier:
+            assert requirement.specifier.contains(pinned[name]), (
+                f"{runtime['constraints_file']}: {name}=={pinned[name]} "
+                f"conflicts with {text}"
+            )
+    assert {"pydantic-ai-slim", "pydantic-ai-harness"} <= pinned.keys()
+    assert constraints_path != CONSTRAINTS_PATH
+    for language in ("en", "zh"):
+        guide = (
+            REPO_ROOT
+            / "docs"
+            / f"source-{language}"
+            / "rst_source/simulators/robocasa.rst"
+        ).read_text(encoding="utf-8")
+        assert f"--constraint {runtime['constraints_file']}" in guide
+        assert (
+            f"--constraint {CONSTRAINTS_PATH.relative_to(REPO_ROOT).as_posix()}"
+            not in guide
+        )
 
 
 def test_target50_source_branches_match_extra_and_documentation():

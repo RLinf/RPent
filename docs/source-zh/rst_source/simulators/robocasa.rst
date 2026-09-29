@@ -97,10 +97,12 @@ RLDX-1 要求 Python ``3.10``。请创建独立环境，并通过 ``.[robocasa]`
 .. code-block:: bash
 
    uv pip install -e ".[robocasa]" \
-      --constraint robots/robocasa/eval/target50-constraints.txt
+      --constraint robots/robocasa/eval/target50-v2-constraints.txt
    uv pip check
 
-约束文件固定 Target50 所需的兼容性敏感依赖。``robocasa`` extra 从 RoboCasa、RLDX 和 Robosuite 的 ``rpent`` 分支安装；不要同时安装提供同一导入包的 ``rlinf-robocasa365``。
+v2 约束文件固定当前 Target50 运行时所需的兼容性敏感依赖。``target50.json`` 与 ``target50-constraints.txt`` 保留历史 v1 环境，需要配套的历史 RPent 代码。``robocasa`` extra 从 RoboCasa、RLDX 和 Robosuite 的 ``rpent`` 分支安装；不要同时安装提供同一导入包的 ``rlinf-robocasa365``。
+
+RLDX 必须使用 extra 指定的 ``rpent`` 分支源码。旧 PyPI wheel 即使具有相同的包版本号，也可能缺少当前运行时所需的接口。若复用装有旧 RLDX wheel 的环境，请在上述安装命令中加入 ``--reinstall-package rlinf-rldx``。
 
 Torch、torchvision 与 CUDA 需要按本机配置选择。参考实验使用 Torch 2.7.0、torchvision 0.22.0 和 CUDA 12.6。每次复现都应保存实际依赖与 Git 版本，因为分支内容可能更新：
 
