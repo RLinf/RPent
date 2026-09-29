@@ -25,6 +25,7 @@ import shutil
 import tempfile
 from pathlib import Path, PurePosixPath
 
+from rpent.evaluation import write_json_atomic
 from rpent.planner.base import resolve_model
 from rpent.robots.robot_spec import RunConfig
 from rpent.utils.config import get_memory_dir
@@ -69,6 +70,19 @@ def prepare_memory(args: argparse.Namespace, config: RunConfig) -> None:
         "local" if getattr(args, "explore", False) else "hf"
     )
     if profile == "local":
+        destination = Path(config.output_dir) / "memory_source.json"
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        write_json_atomic(
+            destination,
+            {
+                "schema_version": 1,
+                "profile": "local",
+                "local_dir": str(
+                    Path(config.prompt_vars["memory_dir"]).expanduser().resolve()
+                ),
+                "resolved_commit": None,
+            },
+        )
         return
     version = select_version(
         getattr(args, "memory_version", "auto"), model=args.model, planner=args.planner
@@ -77,6 +91,7 @@ def prepare_memory(args: argparse.Namespace, config: RunConfig) -> None:
         version=version,
         revision=getattr(args, "memory_revision", None) or "main",
         cache_dir=get_memory_dir("libero") / ".versions",
+        source_record=Path(config.output_dir) / "memory_source.json",
     )
     if args.planner == "flash":
         replay_directory(root)
@@ -137,12 +152,8 @@ def _safe_relative(name: str) -> bool:
     )
 
 
-def _verified(root: Path) -> bool:
+def _matches_files(root: Path, files: dict[str, str]) -> bool:
     try:
-        receipt = json.loads((root.parent / f"{root.name}.receipt.json").read_text())
-        if receipt.get("prefix") != f"libero/{root.name}/":
-            return False
-        files = receipt["files"]
         actual = {
             path.relative_to(root).as_posix()
             for path in root.rglob("*")
@@ -160,10 +171,28 @@ def _verified(root: Path) -> bool:
         return False
 
 
+def _verified(root: Path) -> bool:
+    try:
+        receipt = json.loads((root.parent / f"{root.name}.receipt.json").read_text())
+        return receipt.get("prefix") == f"libero/{root.name}/" and _matches_files(
+            root, receipt["files"]
+        )
+    except (OSError, ValueError, TypeError, AttributeError, KeyError):
+        return False
+
+
 def _write_json(path: Path, value: object) -> None:
     temporary = path.with_suffix(".tmp")
     temporary.write_text(json.dumps(value, indent=2) + "\n")
     temporary.replace(path)
+
+
+def _is_commit(value: str) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 40
+        and all(character in "0123456789abcdefABCDEF" for character in value)
+    )
 
 
 def sync_version(
@@ -173,6 +202,7 @@ def sync_version(
     repo_id: str = DEFAULT_REPO,
     revision: str = "main",
     output_dir: Path | None = None,
+    source_record: Path | None = None,
 ) -> Path:
     """Download one complete corpus; reuse only its verified cache on outage.
 
@@ -185,9 +215,21 @@ def sync_version(
 
     if version not in (GPT5, ASTRA):
         raise ValueError("sync_version requires a resolved memory version")
+    if not isinstance(revision, str) or not revision.strip():
+        raise ValueError("memory revision cannot be empty")
+    pinned_commit = revision.lower() if _is_commit(revision) else None
     repo_id = os.environ.get("RPENT_MEMORY_HF_REPO", repo_id)
     key = hashlib.sha256(repo_id.encode()).hexdigest()[:20]
     base = Path(cache_dir).resolve() / key
+    if source_record is not None:
+        source_record = Path(source_record).expanduser().resolve()
+        protected = [Path(cache_dir).resolve()]
+        if output_dir is not None:
+            protected.append(Path(output_dir).resolve())
+        if any(source_record.is_relative_to(directory) for directory in protected):
+            raise ValueError(
+                "source record must be outside the memory cache and output corpus"
+            )
     base.mkdir(parents=True, exist_ok=True)
     ref_key = hashlib.sha256(f"{revision}:{version}".encode()).hexdigest()
     ref = base / f"{ref_key}.json"
@@ -201,20 +243,44 @@ def sync_version(
             "TRUE",
             "ON",
         )
+        resolution = "online"
         try:
             if offline:
                 raise ConnectionError("HF_HUB_OFFLINE")
-            info = HfApi().repo_info(repo_id, repo_type="dataset", revision=revision)
+            info = HfApi().repo_info(
+                repo_id, repo_type="dataset", revision=pinned_commit or revision
+            )
         except Exception as exc:
             try:
-                sha = json.loads(ref.read_text())["commit"]
+                if pinned_commit is not None:
+                    # An immutable request addresses its snapshot directly,
+                    # including when it was originally fetched through a branch.
+                    sha = pinned_commit
+                else:
+                    pointer = json.loads(ref.read_text())
+                    if (
+                        pointer.get("repo") != repo_id
+                        or pointer.get("version") != version
+                    ):
+                        raise ValueError("cache pointer identity mismatch")
+                    sha = pointer["commit"]
+                if not _is_commit(sha):
+                    raise ValueError("invalid cached commit")
+                sha = sha.lower()
                 root = base / "snapshots" / sha / version
                 if not _verified(root):
                     raise ValueError("incomplete or modified cache")
-            except (OSError, ValueError, KeyError) as cache_exc:
+            except (
+                OSError,
+                ValueError,
+                KeyError,
+                TypeError,
+                AttributeError,
+            ) as cache_exc:
                 raise RuntimeError(
                     f"Cannot resolve {repo_id}@{revision}: no complete cache for {version}"
                 ) from cache_exc
+            resolution = "verified_cache"
             logger.warning(
                 "Memory Hub unavailable (%s); using verified %s",
                 type(exc).__name__,
@@ -222,6 +288,13 @@ def sync_version(
             )
         else:
             sha = info.sha
+            if not _is_commit(sha) or (
+                pinned_commit is not None and sha.lower() != pinned_commit
+            ):
+                raise ValueError(
+                    "Hub response does not match the requested memory commit"
+                )
+            sha = sha.lower()
             root = base / "snapshots" / sha / version
             if not _verified(root):
                 names = [entry.rfilename for entry in info.siblings]
@@ -277,6 +350,24 @@ def sync_version(
                         {"prefix": prefix, "files": hashes},
                     )
             _write_json(ref, {"commit": sha, "version": version, "repo": repo_id})
+        if source_record is not None or output_dir is not None:
+            receipt_path = root.parent / f"{version}.receipt.json"
+            receipt_bytes = receipt_path.read_bytes()
+            receipt = json.loads(receipt_bytes)
+        if source_record is not None:
+            provenance = {
+                "schema_version": 1,
+                "profile": "hf",
+                "repository": repo_id,
+                "requested_revision": revision,
+                "resolved_commit": sha,
+                "memory_version": version,
+                "resolution": resolution,
+                "prefix": receipt["prefix"],
+                "file_count": len(receipt["files"]),
+                "files_sha256": receipt["files"],
+                "receipt_sha256": hashlib.sha256(receipt_bytes).hexdigest(),
+            }
     logger.info("memory: %s @ %s, root=%s", version, sha, root)
     if output_dir is not None:
         destination = Path(output_dir).resolve()
@@ -289,8 +380,15 @@ def sync_version(
             with tempfile.TemporaryDirectory(dir=destination.parent) as staging:
                 copy = Path(staging) / "corpus"
                 shutil.copytree(root, copy)
+                if not _matches_files(copy, receipt["files"]):
+                    raise ValueError("Memory contents changed during export")
                 copy.replace(destination)
         root = destination
+    if source_record is not None:
+        source_record.parent.mkdir(parents=True, exist_ok=True)
+        write_json_atomic(
+            source_record, {**provenance, "local_dir": str(root.resolve())}
+        )
     return root
 
 
@@ -311,6 +409,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     sync.add_argument("--revision", default="main", help="Hub commit, tag or branch.")
     sync.add_argument(
+        "--source-record",
+        type=Path,
+        default=None,
+        help="Write resolved source and file hashes outside the cache and output corpus.",
+    )
+    sync.add_argument(
         "--output-dir", type=Path, help="Copy into a new local corpus directory."
     )
     args = parser.parse_args(argv)
@@ -322,6 +426,7 @@ def main(argv: list[str] | None = None) -> int:
         revision=args.revision,
         cache_dir=get_memory_dir("libero") / ".versions",
         output_dir=args.output_dir,
+        source_record=args.source_record,
     )
     print(root)
     return 0
