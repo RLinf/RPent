@@ -129,9 +129,6 @@ SAM3。Cosmos 运行不需要 Pi0.5 checkpoint：
 ``--wam-cached-instructions-only``。此时未命中缓存的指令在推理前报错，部分 Pro
 指令和子任务可能因此无法执行。
 
-独立的 DreamZero-DROID bridge 保留原生 8D 关节位置协议，不作为 LIBERO 后端，
-也不提供到 LIBERO 7D OSC 动作的转换。
-
 Cosmos 运行根据当前观测进行决策，暂不接入 Memory。仍需指定全局选项
 ``--memory-profile local``，用于跳过 CLI 和 Dashboard 的 HF 自动同步，
 不表示启用本地 Cosmos 经验库。``--memory-dir`` 和 ``--memory-profile hf``

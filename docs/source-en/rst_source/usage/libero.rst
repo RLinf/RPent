@@ -153,10 +153,6 @@ To forbid online T5 loading, use ``--cached-instructions-only`` on an external
 worker or ``--wam-cached-instructions-only`` for an owned worker. Cache misses
 then fail before inference; this can exclude Pro instructions and subtasks.
 
-The standalone DreamZero-DROID bridge retains its native 8D joint-position
-contract. It is not a LIBERO backend; no conversion to LIBERO's 7D OSC actions
-is provided.
-
 Cosmos runs use current observations without Memory. Pass the global
 ``--memory-profile local`` option to skip automatic HF synchronization in the
 CLI and Dashboard; it does not enable a local Cosmos corpus. ``--memory-dir``
