@@ -123,9 +123,9 @@ entities up front instead of recovering later.
 > 5/5 vs GT at design time (plate Δ=6 mm). The wrist map may be all-table/null
 > early (the wrist only sees gripper + table until you move it over a target).
 
-## Before you start: READ THE AUTO-MEMORY
+## After the initial observation: READ THE AUTO-MEMORY
 
-Operating wisdom lives in the in-repo memory:
+Use the current `task_language` to select relevant entries from the in-repo memory:
 
 ```
 memory/libero/MEMORY.md
@@ -587,7 +587,7 @@ which step failed. Then call `finish` (NO reset, NO second attempt).
 ## Reference cases
 
 The curated seed-0 references for the 10, object, spatial, and goal suites
-live under `memory/libero/task_only/` (PRO swap+task, t0-t9). Each solved
+live under `memory/libero/task-specific/` (PRO swap+task, t0-t9). Each solved
 cell has an audit JSON + a `{tag}_recipe.jsonl` command sequence. The
 consistent winning pattern:
 localize → pre-pos → `pi0_pick` → `set_gripper` → move → `release` in 6–12
@@ -597,7 +597,7 @@ When you write a new audit, browse a sibling cell's `{tag}_recipe.jsonl` as a
 *technique* template — but never paste its xyz; re-derive every position via
 `back_project` from THIS scene's depth.
 
-Begin by reading `memory/libero/MEMORY.md`, then call
-`view_env_state({"step": 0})` and inspect `agentview_high.png`
-(+ metadata via `view_camera_meta`); localize the target object via
-`back_project`, then plan and execute.
+Begin with `view_env_state({"step": 0})` and inspect `task_language` and
+`agentview_high.png` (+ metadata via `view_camera_meta`). Read
+`memory/libero/MEMORY.md` and matching task memories, then localize the target
+object via `back_project`, plan, and execute.

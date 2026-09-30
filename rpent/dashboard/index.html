@@ -13,6 +13,14 @@
     <span id="resultBadge" class="badge b-fail" style="display:none"></span>
     <div id="runtimeStatus" class="runtime-status" aria-live="polite"></div>
     <span class="meta planner-meta" id="plannerMeta"></span>
+    <details id="modelSettings" class="meta">
+      <summary data-i18n="nextModel">Next task model</summary>
+      <form id="modelForm">
+        <label><span data-i18n="model">model</span> <input id="nextModelInput" required size="22" /></label>
+        <button type="submit" data-i18n="applyModel">Apply to next task</button>
+        <span id="modelFeedback" role="status"></span>
+      </form>
+    </details>
     <span class="meta" id="taskMeta"></span>
     <span class="grow"></span>
     <span class="meta" id="usageMeta"></span>

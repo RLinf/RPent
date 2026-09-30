@@ -1,64 +1,71 @@
-Memory 管理
-===========
+记忆机制
+============
 
-RPent 的 memory 按机器人维护，用于复用已验证的任务经验和操作策略，避免每次运行
-都从头试错。
+RPent 通过 ``MemoryManager`` 管理每个机器人的经验文件、读取权限和探索草稿。日常操作见 :doc:`../guides/memory`；本页说明目录和发布过程。
 
-运行模式
---------
-
-两种运行模式对 memory 的使用方式不同：
-
-- **Evaluation** 读取已有 memory，但不会更新 memory。
-- **Exploration** 用于生成和更新本地 memory，目前仅 LIBERO 支持。
-
-Exploration 和本地 memory Evaluation 的详细流程见
-:ref:`LIBERO 探索文档 <libero-exploration>`。
-
-目录结构
---------
+目录与访问范围
+---------------------
 
 发布到 Hugging Face 的 memory 与本地准备用于评测的 memory 使用相同的目录结构：
 
 .. code-block:: text
 
    <memory-root>/
-   |-- MEMORY.md
-   |-- global/
-   |-- suite/
-   `-- task_only/
-       |-- <cell>.json
-       |-- <cell>_recipe.jsonl
-       `-- <task_key>.md
+   ├── MEMORY.md
+   ├── global/
+   ├── task-family/
+   ├── task-specific/
+   │   ├── <cell>.json
+   │   ├── <cell>_recipe.jsonl
+   │   └── <task_key>.md
+   └── _internal/inbox/<cell>/
 
-默认本地目录为 ``memory/<robot>/``；Hugging Face 数据集中相同内容位于
-``<robot>/`` 子目录下。自定义 ``--memory-dir`` 可指向任意采用上述结构的目录。
+默认本地目录为 ``memory/<robot>/``。Hugging Face 中 LIBERO 按模型版本分目录，详见 :doc:`../guides/memory`；其他机器人仍使用 ``<robot>/``。自定义 ``--memory-dir`` 可指向任意采用上述结构的目录。
 
-各目录均按需存在，机器人只需提供实际使用的目录：
+各机器人按需提供实际使用的记忆层：
 
-- ``global/`` 保存从成功经验中提炼的跨任务通用经验。
-- ``suite/`` 保存探索过程中按 suite 组织的任务级经验，可汇总多次尝试，
-  并在同一任务的不同 seed 间复用。
-- ``task_only/`` 保存成功运行产生的 audit、recipe 等同一任务参考文件。
-- ``MEMORY.md`` 用于索引 ``global/`` 和 ``suite/``。
+.. list-table:: 记忆层级
+   :header-rows: 1
+   :widths: 25 45 30
 
-评测时，规划器只能读取当前机器人的 memory；缺少某一类 memory 不会阻止任务运行。
+   * - 记忆层级
+     - 保存内容
+     - 复用范围
+   * - 通用记忆（Global Memory，``global/``）
+     - 跨任务通用规律与失败模式
+     - 所有任务
+   * - 任务族记忆（Task-family Memory，``task-family/``）
+     - 特定任务族中验证过的策略与注意事项
+     - 同类任务及其变体
+   * - 单任务记忆（Task-specific Memory，``task-specific/``）
+     - 单次任务的执行记录和操作流程
+     - 仅供当前任务参考
 
-使用 memory
------------
+使用记忆时，其适用前提和证据范围应与当前任务匹配。``MEMORY.md`` 是可选的 global 与 task-family 索引，不是额外的记忆层。RoboCasa 的 HF 发布语料使用 ``global/GLOBAL_MEMORY.md``，本地语料则可提供多份 ``global/*.md`` 文件。
 
-默认情况下，RPent 从 Hugging Face 数据集 ``RLinf/RPent-memory`` 把当前机器人的
-memory 同步到 ``memory/<robot>/``。数据集是公开的，无需 token 即可下载。设
-``HF_HUB_OFFLINE=1`` 可跳过同步，只用本地副本。memory 是可选的：如果某机器人在
-数据集上没有 memory，或同步失败，运行也会用本地已有的内容继续。
+评测时，规划器只能读取当前机器人的 memory。各机器人的具体要求仍然适用：RoboCasa 始终同时提供 task-specific 与 global memory，并要求 global 文件存在；任务 JSON 和 recipe 必须同时存在或同时缺失。规划器按需查阅相关经验，机器人动作不要求先完整读取全部文件。
 
-也可以按相同的目录结构自行准备本地 memory，通过对应环境的 ``--memory-dir`` 选项或
-本地 memory 配置使用。Hugging Face memory 和本地 memory 使用相同的目录规范，区别只
-在于来源。
+每个工具集（toolkit）根据运行配置构造 ``MemoryManager``：评测时只读，探索时允许写入当前任务的草稿目录（inbox）。实际可读范围还受各环境的工具与任务规则约束。LIBERO 本地评测会检查记忆数据是否存在。
 
-贡献 memory
------------
+更新旧语料
+~~~~~~~~~~
 
-Hugging Face 上的 memory 由 RPent 维护者审核和发布，仓库本身不提供自助上传入口。
-如果希望新增或更新 memory，可以在 RPent 仓库提交 issue，附上对应的 memory 文件和
-来源信息，由维护者审核后加入 ``RLinf/RPent-memory``。
+当前目录名为 ``task-specific/`` 和 ``task-family/``。更新 RPent 时，请将配套的新版 HF 语料下载到新目录。任务族文档采用 ``scope: task-family``，文件名形如 ``task-family_libero10_task_t2.md``；其中表示 benchmark 身份的 ``suite`` 字段不变。迁移自有文档时也需更新索引和链接。程序会对未迁移目录报错，避免误判为缺少任务记忆；文件工具不会开放旧缓存路径。
+
+RoboCasa 同时使用 task-specific 与 global memory，不提供记忆层选择参数。历史结果应与生成结果时的代码及校验器一起保存。历史 v1 清单可用于校验与之匹配的结果。
+
+探索与合并
+---------------
+
+探索会保留各次尝试的状态和工具调用记录，并生成注明来源的经验草稿。运行器根据环境结果决定任务是否成功，再调用 ``MemoryManager.merge_memory`` 合并草稿、更新索引；成功任务的运行记录（audit）和动作序列有单独的发布条件。
+
+仿真环境默认自动合并，可用 ``--no-auto-merge-memory`` 保留草稿供人工检查。双臂 Franka 默认不自动合并，并通过人工评价确认成功。人工运行 ``rpent-memory merge`` 时，``--solved`` 是调用方提供的成功标记，只有核实环境或操作员结果后才能使用。
+
+``rpent-memory validate`` 检查记忆文件结构，不能验证任务是否真实成功。工具权限和合并实现见 ``rpent/memory/manager.py``，运行模式与结果处理见各机器人的 ``robot_spec.py`` 和 ``rpent/cli/main.py``。
+
+同步与贡献
+---------------
+
+HF 模式从公开数据集 ``RLinf/RPent-memory`` 同步记忆。LIBERO 会选择并校验对应模型的记忆版本；离线使用需要该版本及 revision 的完整缓存。下载、缓存要求及历史代码与数据的配套关系见 :doc:`../guides/memory`。
+
+公开记忆由维护者审核发布。贡献经验时，在 RPent issue 中附上记忆文件、代码与模型版本、任务参数及成功证据；仓库没有自动上传记忆的入口。

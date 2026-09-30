@@ -34,11 +34,11 @@ def test_prompts_render_with_memory_relative_paths():
 
     assert "robots/robotwin/guides/GUIDE_RPENT.md" in system
     assert (
-        "memory/robotwin/task_only/robotwin_beat_block_hammer_demo_randomized_s0.json"
+        "memory/robotwin/task-specific/robotwin_beat_block_hammer_demo_randomized_s0.json"
         in system
     )
     assert (
-        "memory/robotwin/task_only/robotwin_beat_block_hammer_demo_randomized_s0_recipe.jsonl"
+        "memory/robotwin/task-specific/robotwin_beat_block_hammer_demo_randomized_s0_recipe.jsonl"
         in system
     )
     assert "memory/robotwin/MEMORY.md" in system
