@@ -1,10 +1,10 @@
-Core interfaces
+Core Interfaces
 ===============
 
 When you wire a new robot or primitive into RPent, you implement the interfaces below.
 Walkthroughs: :doc:`add_robot`, :doc:`add_primitive`. Repo layout: :doc:`architecture`.
 
-Robot entry
+Robot Entry
 -----------
 
 After you add ``robots/<robot>/``, the package ``__init__.py`` re-exports two
@@ -64,7 +64,7 @@ Planner
 -------
 
 Most users pick a built-in ``api``, ``claude_code``, or ``codex`` planner — see
-:doc:`../usage/configure_planner`. Only **custom planners** need
+:doc:`../guides/configure_planner`. Only **custom planners** need
 ``rpent.planner.base.Planner``:
 
 .. code-block:: python
@@ -113,7 +113,7 @@ The base class already registers common file tools; call ``super().__init__()`` 
 ``add_tool`` for robot tools. Per-step state and ``view_env_state`` are in
 :doc:`add_primitive`.
 
-Inter-process communication
+Inter-process Communication
 ---------------------------
 
 Relevant when attaching to existing servers or writing ``env_server`` / ``vla_server``.

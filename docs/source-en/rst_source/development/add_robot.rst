@@ -1,11 +1,11 @@
-Add a New Robot
-===============
+Add a Robot or Simulator
+========================
 
 This guide walks through what you need to write to plug a new physical /
 simulated robot into RPent's LLM-in-the-loop runner. Use
 ``robots/libero/`` as the worked reference.
 
-Integration guidelines
+Integration Guidelines
 ----------------------
 
 - **Reuse RPent abstractions.** Prefer existing Env, VLA, runtime, and memory
@@ -20,7 +20,7 @@ Integration guidelines
   Env / VLA cannot be reused, explain why in the PR description or open an
   issue so the existing abstraction can be improved.
 
-Integration steps
+Integration Steps
 -----------------
 
 For the overall process layout, service responsibilities, and communication
@@ -45,7 +45,7 @@ order:
 
 .. _add-robot-entry:
 
-Entry point
+Entry Point
 -----------
 
 For a new robot named ``myrobot``, use the following directory layout:
@@ -153,7 +153,7 @@ in §5. The Dashboard spec is consumed only by the Dashboard runner.
 These files connect the agent process to ``env_server``. The client converts
 method calls into RPC requests, and ``env_server`` handles those requests.
 
-1.1 Env client (agent side)
+1.1 Env Client (agent Side)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Subclass :class:`rpent.robots.components.env_client_base.BaseEnvClient`. It already
@@ -183,7 +183,7 @@ facade registers each name explicitly.
 
    env = MyEnvClient(rpc_client, expected_meta=expected_meta)
 
-1.2 Env server (server side)
+1.2 Env Server (server Side)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Mirror the client's API in a facade class on the server side (e.g.
@@ -279,10 +279,10 @@ render time.
 3. ``toolkit.py``
 ------------------
 
-This module owns everything the LLM can call: the tool schemas, the primitives,
-the per-step state dump, and the MCP allowlist. (In the LIBERO robot these
-are split between ``tools.py`` and ``toolkit.py`` for historical reasons; for a
-new robot it is fine to keep them all in ``toolkit.py``.)
+This module owns the tool schemas, primitives, per-step state records, and
+the list of tools available through MCP. LIBERO splits these between
+``tools.py`` and ``toolkit.py``; a new robot may keep them in one
+``toolkit.py`` module.
 
 A toolkit module typically contains four pieces:
 
@@ -327,7 +327,7 @@ filenames rather than maintaining a parallel observation index.
 the toolkit passes verbatim to your primitives' ``__init__`` — typically
 ``{"env": MyEnvClient(...), "model": VLAClient(...), ...}``.
 
-Conventions worth keeping
+Conventions Worth Keeping
 -------------------------
 
 - ``output_dir`` is the working directory that the runner creates for each
@@ -345,7 +345,7 @@ Conventions worth keeping
 
 .. _add-robot-config:
 
-4. ``_add_cli_args`` + ``_parse_config`` (runner hooks)
+4. ``_add_cli_args`` + ``_parse_config`` (runner Hooks)
 -------------------------------------------------------
 
 Robot-specific CLI arguments enter ``rpent/cli/main.py`` through two
@@ -395,7 +395,7 @@ validates those fields and returns a
 
 .. _add-robot-runtime:
 
-5. Runtime initialization hook
+5. Runtime Initialization Hook
 ------------------------------
 
 ``init_runtime`` returns ``(owned_daemons, runtime_kwargs)``:
@@ -432,7 +432,7 @@ robots. The runners do not handle these environment details. See
 ``robots/libero/robot_spec.py`` and ``robots/robocasa/robot_spec.py`` for the
 reference pattern.
 
-Optional run-result finalizer
+Optional Run-result Finalizer
 -----------------------------
 
 ``RobotSpec.finalize_run`` is a universal, robot-agnostic end-of-run hook.
@@ -469,7 +469,7 @@ logic in the robot package rather than the shared CLI.
 
 .. _add-robot-testing:
 
-6. Tests to add
+6. Tests to Add
 ---------------
 
 When adding a robot, test each runtime component it uses separately, then run
@@ -478,7 +478,7 @@ needs an Env test, a Pi0.5 inference test, a SAM3 segmentation test, and a
 policy-chain test. Each component test must make a real request and check the
 result, beyond importing the module or checking server health.
 
-Test locations
+Test Locations
 ~~~~~~~~~~~~~~
 
 Use ``myrobot`` below for the new robot's package name:
@@ -495,7 +495,7 @@ Use ``myrobot`` below for the new robot's package name:
   setup/calls in ``scenario.py``. Reuse lifecycle and assertion helpers from
   ``tests/e2e_tests/common.py``. See ``tests/e2e_tests/libero/`` for an example.
 
-What each component test should check
+What Each Component Test Should Check
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 - **Env:** start the real environment, reset a fixed task/seed, and read an
@@ -514,7 +514,7 @@ Start each component through the supported runtime interface, and verify that
 its owned daemons exit after the test. Existing tests may cover a reused
 component; identify that coverage and test any new input/output adaptation.
 
-Complete policy-chain test
+Complete Policy-chain Test
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 After component tests pass, use ``run_scripted_policy_chain`` from

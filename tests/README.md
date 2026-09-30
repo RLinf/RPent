@@ -84,8 +84,8 @@ map, the success predicate, and clean close. The camera check verifies pose and
 image changes after eight base steps.
 
 See the RoboCasa usage guide in
-[English](../docs/source-en/rst_source/usage/robocasa.rst#environment-smoke-tests)
-or [Chinese](../docs/source-zh/rst_source/usage/robocasa.rst#environment-smoke-tests)
+[English](../docs/source-en/rst_source/simulators/robocasa.rst#environment-smoke-tests)
+or [Chinese](../docs/source-zh/rst_source/simulators/robocasa.rst#environment-smoke-tests)
 for setup and test prerequisites.
 
 ## Embodied GPU E2E tests
@@ -125,5 +125,5 @@ length. The console starts only env and VLA components, with no SAM3 dependency.
 Offline regression tests remain in `unit_tests/robots/dual_franka/`.
 
 See the deployment prerequisites in the
-[English](../docs/source-en/rst_source/usage/dual_franka.rst) or
-[Chinese](../docs/source-zh/rst_source/usage/dual_franka.rst) guide.
+[English](../docs/source-en/rst_source/real_world_robots/dual_franka.rst) or
+[Chinese](../docs/source-zh/rst_source/real_world_robots/dual_franka.rst) guide.

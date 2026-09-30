@@ -6,7 +6,7 @@ the environment can execute. It can be a learned policy (a VLA, a WAM,
 a diffusion planner) or a scripted routine (``move_to``,
 ``open_gripper``). This page explains how to add either type.
 
-Two types of primitives
+Two Types of Primitives
 -----------------------
 
 .. list-table::
@@ -32,7 +32,7 @@ From the LLM's perspective, both types expose the same interface: a
 tool schema, a primitives method, and a state dump after the
 call. They differ only in how the method is implemented.
 
-Add a scripted primitive
+Add a Scripted Primitive
 ------------------------
 
 Adding a scripted primitive usually involves two steps:
@@ -83,7 +83,7 @@ can all call the primitive without any other code changes.
 
 .. _add-primitive-model-based:
 
-Add a VLA (or other model-based primitive)
+Add a VLA (or Other Model-based Primitive)
 ------------------------------------------
 
 Because the model runs in its own process, adding a model-based
@@ -152,7 +152,7 @@ primitive requires a few additional components:
    ``{"env": MyRobotEnvClient(...), "model": MyModelClient(...)}``.
    The toolkit constructor then forwards it to the primitives.
 
-Reuse an existing vla_server across runs
+Reuse an Existing vla_server Across Runs
 ----------------------------------------
 
 Model servers often take a long time to start, so the runner can
@@ -166,7 +166,7 @@ If the model keeps per-episode state, expose a ``vla_reset`` RPC and
 call it between tasks. The same server process can then be reused safely
 across sequential runs.
 
-Session-aware VLA backends (per-client policy state)
+Session-aware VLA Backends (per-client Policy State)
 ----------------------------------------------------
 
 Most VLA backends are stateless: ``predict`` only runs inference and keeps
@@ -194,7 +194,7 @@ parts:
   policy state left over from the previous episode, so consecutive runs do
   not leak state into each other.
 
-Single-threaded serve (EGL-rendering backends)
+Single-threaded Serve (EGL-rendering Backends)
 ----------------------------------------------
 
 Most backends use the ``serve`` inherited from their base class, which
@@ -229,7 +229,7 @@ it (see ``RoboCasaEnvFacade`` in ``robots/robocasa/env_server.py``).
 Backends that do not need EGL single-threading keep the plain inherited
 ``serve``.
 
-Design principles for a new primitive
+Design Principles for a New Primitive
 -------------------------------------
 
 - **Tools describe intent, not motion.** A good tool name is

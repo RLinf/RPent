@@ -123,7 +123,7 @@ PROBE_MAX_TOKENS = 16
 #: Advisory only: names the env var in an error before pydantic-ai is asked to
 #: resolve it. An unmapped prefix skips the pre-flight and falls through to
 #: ``UserError`` classification, so this table can never reject a provider it
-#: does not know about. Mirrors docs/source-en/.../usage/configure_planner.rst.
+#: does not know about. Mirrors docs/source-en/.../guides/configure_planner.rst.
 _API_KEY_ENV = {
     "anthropic": "ANTHROPIC_API_KEY",
     "openai": "OPENAI_API_KEY",
