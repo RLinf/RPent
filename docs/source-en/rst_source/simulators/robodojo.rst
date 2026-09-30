@@ -28,7 +28,7 @@ On Blackwell GPUs, append ``--torch-backend=cu128`` to select a PyTorch
 build with ``sm_120`` support. The default CUDA 12.6 build of PyTorch 2.7.0
 does not support these GPUs. Use the same option when reinstalling this extra.
 
-``requirements/robodojo-override.txt`` carries the six pins where the simulator
+``requirements/robodojo-override.txt`` carries the eight pins where the simulator
 stack disagrees with the agent stack or with rpent-openpi; passing them with
 ``--override`` keeps every other robot resolving the versions it was validated
 against. They allow dependency resolution; they do not establish simulation task

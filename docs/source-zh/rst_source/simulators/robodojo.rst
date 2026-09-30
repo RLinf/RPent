@@ -24,7 +24,7 @@ Blackwell GPU 需在命令末尾添加 ``--torch-backend=cu128``，选择支持
 ``sm_120`` 的 PyTorch 构建。PyTorch 2.7.0 默认的 CUDA 12.6 构建不支持这\
 类 GPU。重新安装该 extra 时也需保留此选项。
 
-``requirements/robodojo-override.txt`` 汇总了仿真栈与 agent 栈、rpent-openpi 冲突的六条钉\
+``requirements/robodojo-override.txt`` 汇总了仿真栈与 agent 栈、rpent-openpi 冲突的八条钉\
 版本；用 ``--override`` 传入后，其它机器人仍按各自验证过的版本解析。这些 override 使依\
 赖可以解析，不代表仿真任务成功。RLinf 集成分支同时提供\
 环境适配器和 ``pi05_robodojo_arx_x5``。RoboDojo 预设选择 OpenPI 的 ``eval`` loader，\

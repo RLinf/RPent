@@ -164,7 +164,7 @@ robodojo-sim = [
 [tool.uv]
 prerelease = "allow"
 
-# `robodojo-sim` needs six overrides for its simulator stack; they live in
+# `robodojo-sim` needs eight overrides for its simulator stack; they live in
 # requirements/robodojo-override.txt so every other robot keeps resolving the
 # versions it was validated against. Pass them explicitly:
 #
@@ -200,11 +200,13 @@ conflicts = [
 ]
 
 [tool.uv.extra-build-dependencies]
-# cuRobo compiles CUDA extensions against the Torch it later imports, so build
-# it against whichever Torch the selected extra resolves instead of pinning one
-# robot's version for every robot: RoboTwin's runtime keeps its 2.7.1, and
-# requirements/robodojo-override.txt pins RoboDojo's simulator stack to 2.7.0.
-nvidia-curobo = [{ requirement = "torch", match-runtime = true }]
+# This key is a package name, so the pin is global to every extra. RoboTwin's
+# cuRobo v0.7.8 needs a statically known build Torch, and `match-runtime`
+# cannot supply one. RoboDojo's fork does not compile Torch extensions at all
+# (CUROBO_USE_PYBIND defaults to 0), so its runtime Torch does not have to
+# match a build-time one: it stays on 2.7.0 through
+# requirements/robodojo-override.txt while this build dependency stays 2.7.1.
+nvidia-curobo = ["torch==2.7.1"]
 
 [tool.setuptools]
 include-package-data = true
