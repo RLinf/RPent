@@ -295,6 +295,41 @@ def test_pi0_pick_monitors_both_arms_and_preserves_policy_input(lifting_arm):
     np.testing.assert_array_equal(executed, actions)
 
 
+def test_pi0_pick_stops_the_chunk_when_the_grasp_is_held():
+    """The actions after a held grasp would reopen the gripper."""
+
+    def observation(z):
+        state = {}
+        for arm in ("left", "right"):
+            state[f"{arm}_ee_pose"] = [0, 0, z]
+            state[f"{arm}_ee_joint_state"] = [0.2]
+        return {
+            "state": state,
+            "vision": {
+                name: {"color": np.zeros((2, 2, 3))}
+                for name in ("cam_head", "cam_left_wrist", "cam_right_wrist")
+            },
+        }
+
+    obs = observation(1.0)
+    frames = iter([observation(0.94), observation(0.99), observation(0.99)])
+    executed = []
+
+    def step(action):
+        executed.append(action)
+        return next(frames), 0, False, {"status": {"step": 1, "step_limit": 99}}
+
+    primitives = SimpleNamespace(
+        env=SimpleNamespace(get_obs=lambda: obs, step=step),
+        vla_client=SimpleNamespace(predict=lambda _: np.zeros((3, 14))),
+        _check_cancelled=lambda: None,
+    )
+    result = tools.pi0_pick(primitives, None, "pick bottle", arm="right")
+    assert result["success"] is True
+    # Three actions were predicted and the grasp is held after the second.
+    assert len(executed) == 2
+
+
 def test_gripper_result_does_not_expose_environment_feedback():
     primitives = SimpleNamespace(
         env=SimpleNamespace(
@@ -347,6 +382,26 @@ def test_readers_are_readonly_and_do_not_act():
     assert not _is_readonly(tools.move_to)
     assert tools.back_project(primitives, None, 0, 0)["world_xyz"] == [0, 0, -1]
     assert tools.segment(primitives, None, "object")["found"] is False
+
+
+def test_back_project_row_axis_follows_the_usd_camera_frame():
+    """Image rows grow downward, the camera frame's +Y grows upward."""
+    obs = {
+        "vision": {
+            "cam_head": {
+                "depth": np.full((3, 3), 2.0),
+                "intrinsic_matrix": np.array(
+                    [[1.0, 0.0, 1.0], [0.0, 1.0, 1.0], [0.0, 0.0, 1.0]]
+                ),
+                "extrinsic_matrix": np.eye(4),
+            }
+        }
+    }
+    primitives = SimpleNamespace(_last_obs=obs)
+    above = tools.back_project(primitives, None, 0, 1)["world_xyz"]
+    below = tools.back_project(primitives, None, 2, 1)["world_xyz"]
+    assert above == [0.0, 2.0, -2.0]
+    assert below == [0.0, -2.0, -2.0]
 
 
 @pytest.mark.parametrize("task", ["put_bottles_into_dustbin", "stack_bowls_random"])

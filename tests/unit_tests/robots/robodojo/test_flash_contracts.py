@@ -98,6 +98,56 @@ def test_generate_and_replay_translates_waypoints_without_feedback():
     np.testing.assert_allclose(toolkit.calls[-1][1]["xyz"], [0.22, 0.33, 0.9])
 
 
+def test_replay_relocalizes_the_anchor_before_every_move():
+    """Export measures each waypoint from its own observation, so replay must too."""
+    trace = []
+    for target in ([0.12, 0.23, 0.8], [0.18, 0.23, 0.8]):
+        trace.extend(
+            [
+                {
+                    "action": "segment",
+                    "arguments": {"text_prompt": "bottle"},
+                    "result": {
+                        "found": True,
+                        "box_px": [0, 0, 2, 2],
+                        **mask_geometry([[0, 0], [0, 1]]),
+                    },
+                },
+                {
+                    "action": "back_project",
+                    "arguments": {"row": 1, "col": 1},
+                    "result": {"world_xyz": [0.1, 0.2, 0.7]},
+                },
+                {
+                    "action": "move_to",
+                    "arguments": {"xyz": target, "arm": "left"},
+                    "result": {"reached": True},
+                },
+            ]
+        )
+    plan = generate_plan(trace, "pick")
+
+    class DriftingToolkit(FakeToolkit):
+        """The head anchor drifts, as it does after a preceding action."""
+
+        def __init__(self):
+            super().__init__()
+            self.head = iter([[0.2, 0.3, 0.8], [0.25, 0.3, 0.8], [0.3, 0.3, 0.8]])
+
+        def execute_tool(self, name, args):
+            if name == "back_project" and args["camera"] == "cam_head":
+                self.calls.append((name, args))
+                return SimpleNamespace(result={"world_xyz": next(self.head)})
+            return super().execute_tool(name, args)
+
+    toolkit = DriftingToolkit()
+    replay(toolkit, plan, lambda _: None)
+    moves = [args["xyz"] for name, args in toolkit.calls if name == "move_to"]
+    # Reusing the start-of-run anchor would leave both moves at 0.22.
+    assert moves[0][0] == pytest.approx(0.27)
+    assert moves[1][0] == pytest.approx(0.38)
+
+
 def test_mask_centroid_not_box_center_and_tampering_is_rejected():
     recorded = trace()
     recorded[0]["result"].update(mask_geometry([[1, 1, 0], [1, 0, 0], [0, 0, 1]]))
@@ -402,7 +452,9 @@ def test_dev_recording_exports_actual_tool_results(monkeypatch, tmp_path):
     assert "cam_head.png" in state["artifacts"]
     assert state["_image_bytes"]
     plan = generate_plan(recorded, "pick")
-    assert plan["actions"][0]["offset"] == [0, 0, 0]
+    # Identity intrinsics put the principal point at (0, 0), so row 1 sits below
+    # it and projects to -Y; the recorded target therefore measures 2 m above.
+    assert plan["actions"][0]["offset"] == [0, 2, 0]
     manifest["steps"].append(
         {"command": {"action": "finish"}, "result": {"done": True}}
     )

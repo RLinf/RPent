@@ -308,9 +308,10 @@ def back_project(primitives, state, row, col, camera="cam_head") -> dict:
     cx, cy = float(K[0, 2]), float(K[1, 2])
     # Isaac/Omniverse cameras look along -Z; the distance_to_image_plane
     # annotator returns distance along the optical axis, so the camera-frame
-    # z coordinate is NEGATIVE d.
+    # z coordinate is NEGATIVE d. Image rows grow downward while the USD
+    # camera frame has +Y up, so the row offset enters negated.
     p_cam = np.array(
-        [(int(col) - cx) / fx * d, (int(row) - cy) / fy * d, -d, 1.0],
+        [(int(col) - cx) / fx * d, -(int(row) - cy) / fy * d, -d, 1.0],
         dtype=np.float64,
     )
     p_world = T @ p_cam
@@ -560,6 +561,11 @@ def pi0_pick(
                     if ascended and closed:
                         success = True
                         break
+            if success:
+                # Stop the chunk at once: the remaining actions were predicted
+                # for an ungrasped state and would reopen the gripper, dropping
+                # the object while ``success`` stays true.
+                break
             if info["status"]["step"] >= info["status"]["step_limit"]:
                 terminated = True
                 break

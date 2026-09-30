@@ -99,6 +99,8 @@ def replay(toolkit, plan: dict, note: Callable[[str], None]) -> dict:
         ):
             raise ValueError("Waypoint offset exceeds Flash safety bound")
     toolkit.flash_observation()
+    # Pre-flight: every anchor must be visible before the first motion, and the
+    # resolved set is reported back to the caller.
     coarse = {
         key: locate(toolkit, anchor["query"], "cam_head", anchor["min_score"])
         for key, anchor in plan["anchors"].items()
@@ -106,12 +108,14 @@ def replay(toolkit, plan: dict, note: Callable[[str], None]) -> dict:
     count = 0
     previous_move = None
 
-    def move(entry, *, refresh=False):
+    def move(entry):
         anchor = plan["anchors"][entry["anchor"]]
-        point = coarse[entry["anchor"]]
-        if refresh:
-            toolkit.flash_observation()
-            point = locate(toolkit, anchor["query"], "cam_head", anchor["min_score"])
+        # Re-localize before every move. Export derives each waypoint from the
+        # observation that precedes that move, so reusing a single
+        # start-of-run anchor would drift as soon as an earlier action moved
+        # the object.
+        toolkit.flash_observation()
+        point = locate(toolkit, anchor["query"], "cam_head", anchor["min_score"])
         if camera := anchor["refine_camera"]:
             toolkit.flash_observation()
             fine = locate(toolkit, anchor["query"], camera, anchor["min_score"])
@@ -142,7 +146,7 @@ def replay(toolkit, plan: dict, note: Callable[[str], None]) -> dict:
                     or previous_move["anchor"] != entry["anchor"]
                 ):
                     raise RuntimeError("Grasp not held; replay stopped")
-                move(previous_move, refresh=True)
+                move(previous_move)
             previous_move = None
         else:
             execute(toolkit, name, entry["arguments"])
