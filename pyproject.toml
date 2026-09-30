@@ -182,9 +182,11 @@ conflicts = [
 ]
 
 [tool.uv.extra-build-dependencies]
-# Match robodojo-sim's runtime Torch: differing build-time and runtime
-# versions can cause ABI drift.
-nvidia-curobo = ["torch==2.7.0"]
+# cuRobo compiles CUDA extensions against the Torch it later imports, so build
+# it against whichever Torch the selected extra resolves instead of pinning one
+# robot's version for every robot: RoboTwin's runtime keeps its 2.7.1, and
+# requirements/robodojo-override.txt pins RoboDojo's simulator stack to 2.7.0.
+nvidia-curobo = [{ requirement = "torch", match-runtime = true }]
 
 [tool.setuptools]
 include-package-data = true
