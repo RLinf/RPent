@@ -13,9 +13,7 @@ RPent 可以通过 RLinf ``RealWorldEnv`` worker 控制双节点双臂 Franka �
 安装
 ----
 
-.. note::
-
-	以下的步骤只会安装 Python 侧依赖（固定版本的 RLinf Franka 集成和 ``rpent-openpi``），并 **不会** 构建双臂真正需要的机器人节点控制栈。在安装 RPent 之前，请先按照 RLinf 双臂 Franka 指南配置两个机器人节点：选择兼容的 ``LIBFRANKA_VERSION``，构建 ``franka-franky`` （franky/libfranka）控制栈，配置 PREEMPT_RT 实时内核与相关权限，并安装 GELLO 遥操作与夹爪依赖。参见 `RLinf 双臂 Franka 指南 <https://rlinf.readthedocs.io/zh-cn/latest/rst_source/examples/embodied/dual_franka.html>`_。
+请先按照 `libfranka 官方快速安装指南 <https://docs.ros.org/en/humble/p/libfranka/__README.html#quick-install>`_ 安装 libfranka 0.19.0。
 
 克隆 RPent 并安装 Python 依赖。若已有仓库，进入仓库后执行 ``uv sync``：
 
@@ -25,7 +23,7 @@ RPent 可以通过 RLinf ``RealWorldEnv`` worker 控制双节点双臂 Franka �
    cd RPent
    uv sync --extra franka --extra sam3
 
-该命令将固定版本的 RLinf Franka 集成、``rpent-openpi``、Franka 控制依赖和 SAM3 安装到 ``.venv``。
+该命令将 RLinf ``release/v0.4``、``rpent-openpi``、SAM3 以及 Franka 的相机、夹爪和遥操作依赖安装到 ``.venv``。其中的 ``franky-control`` wheel 已包含 libfranka 0.19.0。
 
 标定（Calibration）
 ----------------------
@@ -48,7 +46,7 @@ easy_handeye 默认在 ``~/.ros/easy_handeye/`` 下为每台相机保存一个 Y
 
 启用机械臂运动前，请检查并修改仓库中的开发默认值：
 
-* ``robots/dual_franka/config/example.yaml`` 包含机器人身份（两台机器人 IP、相机序列号/类型、夹爪连接）、工作空间几何（目标位姿、安全边界）、easy_handeye YAML 映射（见上方标定说明）和感知定位边界 + base-frame 变换。
+* ``robots/dual_franka/config/example.yaml`` 包含机器人身份（两台机器人 IP、相机序列号/类型、夹爪连接）、工作空间几何（目标位姿、安全边界）、easy_handeye YAML 映射（见上方标定说明）和感知定位边界 + base-frame 变换。示例设置 ``realtime_config: ignore``；在 PREEMPT_RT 内核上可改为 ``enforce``。
 
 RPent 会将该机器人配置转换成内部双节点 RLinf cluster 和环境对象。如需使用其他文件，请传入 ``--robot-config /path/to/robot_config.yaml``。
 

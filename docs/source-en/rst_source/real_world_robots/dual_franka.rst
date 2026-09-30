@@ -14,17 +14,8 @@ RPent can control a two-node dual-Franka setup through an RLinf
 Install
 -------
 
-.. note::
-
-	The following guide installs only the Python side (the pinned RLinf
-	Franka integration and ``rpent-openpi``); it does **not** build the robot-node
-	control stack the two arms need. Before installing RPent, follow the RLinf
-	dual-Franka guide to set up both robot nodes: choose a compatible
-	``LIBFRANKA_VERSION``, build the ``franka-franky`` (franky/libfranka) control
-	stack, configure the PREEMPT_RT real-time kernel and permissions, and install
-	the GELLO teleoperation and gripper dependencies. See the `RLinf dual-Franka
-	guide
-	<https://rlinf.readthedocs.io/en/latest/rst_source/examples/embodied/dual_franka.html>`_.
+Install libfranka 0.19.0 first by following the `official quick-install guide
+<https://docs.ros.org/en/humble/p/libfranka/__README.html#quick-install>`_.
 
 Clone RPent and install its Python dependencies. If you already have the
 checkout, enter it and run ``uv sync``:
@@ -35,8 +26,9 @@ checkout, enter it and run ``uv sync``:
    cd RPent
    uv sync --extra franka --extra sam3
 
-This installs the pinned RLinf Franka integration, ``rpent-openpi``, Franka
-control dependencies, and SAM3 into ``.venv``.
+This installs RLinf ``release/v0.4``, ``rpent-openpi``, SAM3, and Franka
+camera, gripper, and teleoperation dependencies into ``.venv``. The included
+``franky-control`` wheel bundles libfranka 0.19.0.
 
 Calibration
 -----------
@@ -74,7 +66,9 @@ Review and edit the checked-in development defaults before enabling motion:
 * ``robots/dual_franka/config/example.yaml`` contains the machine identity (both
 	robot IPs, camera serials/types, gripper connections), workspace geometry
 	(target poses and safety limits), the easy_handeye YAML mapping (see
-	Calibration), and perception localization bounds + base-frame transform.
+	Calibration), and perception localization bounds + base-frame transform. It
+	sets ``realtime_config: ignore``; use ``enforce`` on a PREEMPT_RT kernel to
+	refuse non-real-time operation.
 
 RPent translates this robot-focused schema into the internal two-node RLinf
 cluster and environment objects. To use a different file, pass

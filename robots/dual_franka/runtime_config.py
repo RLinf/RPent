@@ -190,6 +190,7 @@ def load_runtime_config(
             "right_gripper_type": str(right_gripper["type"]),
             "left_gripper_connection": left_gripper.get("connection"),
             "right_gripper_connection": right_gripper.get("connection"),
+            "realtime_config": robot.get("realtime_config"),
             "left_controller_node_rank": LEFT_CONTROLLER_NODE,
             "right_controller_node_rank": RIGHT_CONTROLLER_NODE,
             "node_rank": HARDWARE_NODE,
