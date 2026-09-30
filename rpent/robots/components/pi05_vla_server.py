@@ -18,11 +18,10 @@ Embodiment-specific settings (openpi config name, action dim, …) are
 selected by the ``--embodiment`` CLI flag and looked up in
 ``PI05_EMBODIMENTS``.
 
-The ``--model-backend`` flag picks the RLinf loader an embodiment uses
-(``openpi_pytorch``, the default, or ``openpi_rlinf``). Presets whose loader
-resolves normalisation statistics from a directory take ``--norm-stats-path``
-(or the ``PI05_NORM_STATS_PATH`` environment variable). Use ``--repo-id``
-to select dataset normalization statistics within a checkpoint.
+Presets whose loader resolves normalisation statistics from a
+directory take ``--norm-stats-path`` (or the ``PI05_NORM_STATS_PATH``
+environment variable). Use ``--repo-id`` to select dataset normalization
+statistics within a checkpoint.
 """
 
 from __future__ import annotations
@@ -56,6 +55,7 @@ PI05_EMBODIMENTS: dict[str, dict] = {
         "num_steps": 5,
         "add_value_head": False,
         "openpi": {
+            "task": "eval",
             "config_name": "pi05_dualfranka_tcp_rot6d",
             "num_images_in_input": 3,
             "action_chunk": 20,
@@ -73,6 +73,7 @@ PI05_EMBODIMENTS: dict[str, dict] = {
         "num_steps": 5,
         "add_value_head": False,
         "openpi": {
+            "task": "eval",
             "config_name": "pi05_libero",
             "num_images_in_input": 2,
             "action_chunk": 5,
@@ -89,6 +90,7 @@ PI05_EMBODIMENTS: dict[str, dict] = {
         "openpi": {
             "task": "eval",
             "config_name": "pi05_yam_joint",
+            "num_images_in_input": 3,
             "model_action_dim": 32,
             "paligemma_variant": "gemma_2b",
             "action_expert_variant": "gemma_300m",
@@ -101,38 +103,39 @@ PI05_ROBOT_PLATFORMS: dict[str, str] = {
     "libero": "LIBERO",
 }
 
-# RLinf model loaders an embodiment preset may select via ``model_backend``.
-PI05_MODEL_BACKENDS: tuple[str, ...] = ("openpi_rlinf", "openpi_pytorch")
-
-
 # ---------------------------------------------------------------------------
 # Config builder
 # ---------------------------------------------------------------------------
 
 
 def build_model_cfg(model_path: str, emb_cfg: dict) -> Any:
-    """OmegaConf for the RLinf ``openpi`` / ``openpi_rlinf`` ``get_model``.
+    """Build OmegaConf for RLinf's ``openpi.get_model`` loader.
 
-    Two-level merge ``emb_cfg`` into a default config template.  ``emb_cfg``
+    Two-level merge ``emb_cfg`` into a default config template. ``emb_cfg``
     mirrors the OmegaConf structure (top-level keys + ``openpi`` sub-dict),
     so adding a new key to an embodiment preset automatically flows into
-    the model config.  ``model_path`` is set at runtime, not from the
+    the model config. ``model_path`` is set at runtime, not from the
     embodiment preset.
     """
     cfg = {
         "model_type": "openpi",
         "model_path": model_path,
         "precision": None,
+        "pi05": True,
         "is_lora": False,
         "lora_rank": 32,
         "openpi": {
+            "task": "eval",
+            "model_action_dim": 32,
+            "paligemma_variant": "gemma_2b",
+            "action_expert_variant": "gemma_300m",
+            "max_token_len": 200,
             "noise_level": 0.5,
             "train_expert_only": True,
             "noise_method": "flow_sde",
             "value_after_vlm": False,
             "value_vlm_mode": "mean_token",
             "detach_critic_input": None,
-            "use_dsrl": False,
         },
     }
     # Deep merge: top-level keys override, openpi sub-dict merges into cfg.openpi
@@ -155,9 +158,7 @@ class Pi05VLAFacade(BaseVLAFacade):
 
     Wires ``vla.predict`` to :meth:`predict` (registered by the base class).
     Embodiment-specific behavior (model config, loader, obs decode) is driven
-    by the ``embodiment`` name passed at construction. ``model_backend``
-    selects the RLinf loader — ``openpi_pytorch`` (default) or ``openpi_rlinf``
-    for the real-robot YAM joint policy.
+    by the ``embodiment`` name passed at construction.
 
     Session-isolation is not supported (``reset_session`` is not registered).
     """
@@ -167,7 +168,6 @@ class Pi05VLAFacade(BaseVLAFacade):
         *,
         model_path: str,
         embodiment: str,
-        model_backend: str = "openpi_pytorch",
         norm_stats_path: str | None = None,
         repo_id: str | None = None,
     ):
@@ -177,22 +177,12 @@ class Pi05VLAFacade(BaseVLAFacade):
                 f"registered={list(PI05_EMBODIMENTS)}"
             )
         emb_cfg = PI05_EMBODIMENTS[embodiment]
-        if model_backend not in PI05_MODEL_BACKENDS:
-            raise ValueError(
-                f"unsupported pi05 model backend: {model_backend!r}; "
-                f"supported={list(PI05_MODEL_BACKENDS)}"
-            )
-        if embodiment == "yam" and model_backend != "openpi_rlinf":
-            raise ValueError("YAM Pi0.5 requires model_backend='openpi_rlinf'")
         if embodiment == "dual_franka" and not (repo_id or norm_stats_path):
             raise ValueError("dual_franka requires repo_id or norm_stats_path")
         self._embodiment = embodiment
         super().__init__()
 
-        if model_backend == "openpi_rlinf":
-            from rlinf.models.embodiment.openpi_rlinf import get_model
-        else:
-            from rlinf.models.embodiment.openpi import get_model
+        from rlinf.models.embodiment.openpi import get_model
 
         platform = PI05_ROBOT_PLATFORMS.get(embodiment)
         if platform is not None:
@@ -207,9 +197,8 @@ class Pi05VLAFacade(BaseVLAFacade):
                 cfg.openpi_data.norm_stats_path = norm_stats_path
         t0 = time.time()
         logger.info(
-            "loading Pi0.5 (embodiment=%s, model_backend=%s, model_path=%s) ...",
+            "loading Pi0.5 (embodiment=%s, model_path=%s) ...",
             embodiment,
-            model_backend,
             cfg["model_path"],
         )
         self._model = get_model(cfg, torch_dtype=None).cuda().eval()
@@ -227,45 +216,6 @@ class Pi05VLAFacade(BaseVLAFacade):
 
         return vla_runtime_contract()
 
-    @staticmethod
-    def _validate_yam_observation(obs: dict) -> dict:
-        if not isinstance(obs, dict):
-            raise TypeError("YAM observation must be a mapping")
-        top = np.asarray(obs.get("main_images"))
-        side = np.asarray(obs.get("extra_view_images"))
-        states = np.asarray(obs.get("states"), dtype=np.float32)
-        if (
-            top.ndim != 4
-            or top.shape[0] != 1
-            or top.shape[-1] != 3
-            or top.dtype != np.uint8
-        ):
-            raise ValueError("YAM main_images must be uint8 RGB [1,H,W,3]")
-        if side.shape != (1, 2, *top.shape[1:]) or side.dtype != np.uint8:
-            raise ValueError(
-                "YAM extra_view_images must be uint8 RGB [1,2,H,W,3], "
-                "ordered left/right"
-            )
-        if obs.get("wrist_images") is not None:
-            raise ValueError("YAM wrist_images must be None")
-        if states.shape != (1, 14) or not np.isfinite(states).all():
-            raise ValueError("YAM states must be finite [1,14]")
-        descriptions = obs.get("task_descriptions")
-        if (
-            not isinstance(descriptions, list)
-            or len(descriptions) != 1
-            or not isinstance(descriptions[0], str)
-            or not descriptions[0].strip()
-        ):
-            raise ValueError("YAM task_descriptions must have one nonempty instruction")
-        return {
-            "main_images": top,
-            "extra_view_images": side,
-            "wrist_images": None,
-            "states": states,
-            "task_descriptions": descriptions,
-        }
-
     # ---- inference ----
 
     def predict(self, obs: dict, options: dict | None = None) -> np.ndarray:
@@ -274,20 +224,10 @@ class Pi05VLAFacade(BaseVLAFacade):
         The caller (client) is responsible for encoding env-native obs into
         the openpi wire format (see ``Pi05VLAClient.encode_obs``).
         """
-        if self._embodiment == "yam":
-            if options is not None and (
-                not isinstance(options, dict) or set(options) - {"mode"}
-            ):
-                raise ValueError("YAM supports only VLA option mode='eval'")
-            mode = (options or {}).get("mode", "eval")
-            if mode != "eval":
-                raise ValueError("YAM deployment accepts only eval inference")
-            obs = self._validate_yam_observation(obs)
-        else:
-            mode = (options or {}).get("mode", "eval")
+        mode = (options or {}).get("mode", "eval")
         with torch.no_grad():
             actions, _ = self._model.predict_action_batch(obs, mode=mode)
-        result = (
+        return (
             actions.detach().cpu().numpy()
             if (
                 hasattr(actions, "detach")
@@ -296,27 +236,6 @@ class Pi05VLAFacade(BaseVLAFacade):
             )
             else np.asarray(actions)
         ).astype(np.float32)
-        if self._embodiment == "yam":
-            from robots.yam.contracts import MODEL_SPEC, validate_actions
-
-            expected_shape = (1, MODEL_SPEC.action_horizon, 14)
-            if result.shape != expected_shape:
-                raise ValueError(
-                    f"YAM policy output must be {expected_shape}; got {result.shape}"
-                )
-            if not np.isfinite(result).all():
-                raise ValueError("YAM policy output must be finite")
-            grippers = result[..., [6, 13]]
-            if np.any((grippers < 0) | (grippers > 1)):
-                logger.info(
-                    "Saturating YAM policy grippers to [0,1]: min=%.6f max=%.6f",
-                    float(grippers.min()),
-                    float(grippers.max()),
-                )
-                result = result.copy()
-                result[..., [6, 13]] = np.clip(grippers, 0.0, 1.0)
-            validate_actions(result[0])
-        return result
 
 
 # ---------------------------------------------------------------------------
@@ -349,12 +268,6 @@ def main() -> None:
         "--model-path",
         default=None,
         help="Pi0.5 checkpoint (defaults to PI05_CHECKPOINT_PATH env)",
-    )
-    p.add_argument(
-        "--model-backend",
-        choices=list(PI05_MODEL_BACKENDS),
-        default="openpi_pytorch",
-        help="RLinf model loader (default: openpi_pytorch)",
     )
     p.add_argument(
         "--norm-stats-path",
@@ -390,7 +303,6 @@ def main() -> None:
     facade = Pi05VLAFacade(
         model_path=model_path,
         embodiment=args.embodiment,
-        model_backend=args.model_backend,
         norm_stats_path=args.norm_stats_path,
         repo_id=args.repo_id,
     )

@@ -84,6 +84,43 @@ def test_pi05_executes_five_steps_per_chunk(ready_client, env):
     assert len(calls) == 2 and len(env._runtime.commands) == 10
 
 
+@pytest.mark.parametrize(
+    "prediction, message",
+    [
+        (np.zeros((5, 14)), "VLA shape"),
+        (np.zeros((30, 13)), "VLA shape"),
+        (np.zeros((1, 30, 14)), "VLA shape"),
+        (np.full((30, 14), np.nan), "finite"),
+        (np.full((30, 14), np.inf), "finite"),
+    ],
+)
+def test_pi05_rejects_invalid_prediction_before_motion(
+    ready_client, env, prediction, message
+):
+    primitives = YamPrimitives(
+        env=ready_client,
+        model=SimpleNamespace(predict=lambda observation: prediction),
+        check_cancelled=lambda: None,
+    )
+    with pytest.raises(ValueError, match=message):
+        primitives.pi05_act()
+    assert not env._runtime.commands
+
+
+def test_pi05_saturates_grippers_without_changing_model_output(ready_client, env):
+    prediction = np.repeat(env._runtime.qpos[None, :], 30, axis=0)
+    prediction[:, [6, 13]] = [-0.5, 1.5]
+    primitives = YamPrimitives(
+        env=ready_client,
+        model=SimpleNamespace(predict=lambda observation: prediction),
+        check_cancelled=lambda: None,
+    )
+    result = primitives.pi05_act()
+    assert result["executed_steps"] == 5 and len(env._runtime.commands) == 5
+    assert np.array_equal(np.asarray(env._runtime.commands)[:, [6, 13]], [[0, 1]] * 5)
+    assert np.array_equal(prediction[:, [6, 13]], [[-0.5, 1.5]] * 30)
+
+
 def test_stop_rpc_error_waits_for_active_tool_before_propagating(
     toolkit_factory, ready_client, monkeypatch
 ):
@@ -136,6 +173,86 @@ def test_stale_receipt_not_reused_after_reset(ready_client, env, receipt):
     assert current["episode_id"] != old and not current["eval_success"]
     receipt("abort")
     assert ready_client.read_control_state()[1]["episode_status"]["stop_requested"]
+
+
+@pytest.mark.parametrize("pose_name", ["reset", "park_on_close"])
+@pytest.mark.parametrize("new_stop", [False, True])
+def test_configured_motion_checks_new_stop_before_next_command(
+    env, monkeypatch, pose_name, new_stop
+):
+    env.observe()
+    env._stop_requested.set()  # An existing latch permits operator reset/park.
+    target = env._runtime.qpos.copy()
+    target[0] += 0.01
+    env.config[pose_name] = {
+        "enabled": True,
+        "left_qpos": target[:7].tolist(),
+        "right_qpos": target[7:].tolist(),
+        "duration_s": 1.0,
+        "max_joint_delta": 0.01,
+        "tolerance": 0.01,
+        "timeout_s": 2.0,
+    }
+
+    def move_to(target, *, cancelled, **kwargs):
+        for step in range(3):
+            if cancelled():
+                env._runtime.hold()
+                raise RuntimeError("YAM move cancelled")
+            env._runtime.command(target)
+            if step == 0 and new_stop:
+                env.request_stop()
+        return env._runtime.hold()
+
+    monkeypatch.setattr(env._runtime, "move_to", move_to, raising=False)
+    operation = env.reset_to_configured_qpos if pose_name == "reset" else env.close
+    if new_stop:
+        with pytest.raises(RuntimeError, match="cancelled"):
+            operation()
+        assert len(env._runtime.commands) == 1
+        assert "hold" in env._runtime.events and "close" not in env._runtime.events
+        assert env.is_started() and env._stop_requested.is_set()
+    else:
+        operation()
+        assert len(env._runtime.commands) == 3
+
+
+@pytest.mark.parametrize("stop_stage", ["read_target", "after_park"])
+def test_shutdown_keeps_output_after_late_stop(env, monkeypatch, stop_stage):
+    env.observe()
+    env.config["park_on_close"] = {"enabled": True}
+
+    if stop_stage == "read_target":
+        target = env._runtime.qpos
+        env.config["park_on_close"].update(
+            left_qpos=target[:7].tolist(),
+            right_qpos=target[7:].tolist(),
+            duration_s=1.0,
+            max_joint_delta=0.01,
+            tolerance=0.01,
+            timeout_s=2.0,
+        )
+        reader = env._read_active_target_locked
+
+        def read_target():
+            result = reader()
+            env._stop_generation = getattr(env, "_stop_generation", 0) + 1
+            return result
+
+        monkeypatch.setattr(env, "_read_active_target_locked", read_target)
+        monkeypatch.setattr(
+            env._runtime,
+            "move_to",
+            lambda target, **kwargs: env._runtime.hold(),
+            raising=False,
+        )
+    else:
+        monkeypatch.setattr(
+            env, "_move_to_configured_qpos", lambda name, **kwargs: env.request_stop()
+        )
+    with pytest.raises(RuntimeError, match="cancelled"):
+        env.close()
+    assert env.is_started() and "close" not in env._runtime.events
 
 
 @pytest.mark.parametrize(

@@ -824,7 +824,7 @@ class YamGeometry:
         if rlinf_root is not None and str(rlinf_root) not in sys.path:
             sys.path.insert(0, str(rlinf_root))
         try:
-            from rlinf.envs.realworld.yam.kinematics import YamKinematicsAdapter
+            from rlinf.envs.real.yam.kinematics import YamKinematicsAdapter
         except ModuleNotFoundError as error:
             raise RuntimeError(
                 "missing dependency while importing RLinf YAM kinematics. "

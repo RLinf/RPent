@@ -119,12 +119,16 @@ class YamPrimitives:
             raise RuntimeError("YAM VLA is not connected")
         observation = self._build_policy_observation(prompt=prompt)
         status = dict(self.env.last_info["episode_status"])
-        prediction = np.asarray(self.model.predict(observation))
+        prediction = np.asarray(self.model.predict(observation), dtype=np.float64)
         expected_shape = (MODEL_SPEC.action_horizon, 14)
         if prediction.shape != expected_shape:
             raise ValueError(
                 f"expected VLA shape {expected_shape}, got {prediction.shape}"
             )
+        if not np.isfinite(prediction).all():
+            raise ValueError("YAM policy output must be finite")
+        prediction = prediction.copy()
+        prediction[:, [6, 13]] = np.clip(prediction[:, [6, 13]], 0.0, 1.0)
         return observation, validate_actions(prediction), status
 
     def _record_chunk_payload(self, payload: Any) -> None:

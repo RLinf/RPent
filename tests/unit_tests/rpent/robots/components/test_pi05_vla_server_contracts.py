@@ -24,7 +24,8 @@ from rpent.robots.components.pi05_vla_server import (
 from rpent.robots.components.vla_facade_base import BaseVLAFacade
 
 
-def test_dual_vla_prediction_follows_shared_component_rpc_contract(monkeypatch):
+@pytest.mark.parametrize("embodiment", ["dual_franka", "yam"])
+def test_vla_prediction_follows_shared_component_rpc_contract(monkeypatch, embodiment):
     import sys
     from types import ModuleType
 
@@ -43,15 +44,26 @@ def test_dual_vla_prediction_follows_shared_component_rpc_contract(monkeypatch):
 
         def predict_action_batch(self, obs, mode):
             calls.append(mode)
-            return torch.ones((20, 20)), None
+            shape = (20, 20) if embodiment == "dual_franka" else (1, 30, 14)
+            return torch.ones(shape), None
 
     def get_model(cfg, torch_dtype):
-        assert cfg.action_dim == 20 and cfg.openpi.num_images_in_input == 3
         assert cfg.openpi_data.repo_id == "test/dataset"
-        assert cfg.openpi.config_name == "pi05_dualfranka_tcp_rot6d"
-        assert cfg.num_action_chunks == cfg.openpi.action_chunk == 20
-        assert cfg.openpi.train_expert_only is False
-        assert cfg.openpi.detach_critic_input is True
+        assert cfg.pi05 is True
+        assert cfg.openpi.task == "eval"
+        assert cfg.openpi.model_action_dim == 32
+        assert cfg.openpi.paligemma_variant == "gemma_2b"
+        assert cfg.openpi.action_expert_variant == "gemma_300m"
+        if embodiment == "dual_franka":
+            assert cfg.action_dim == 20 and cfg.openpi.num_images_in_input == 3
+            assert cfg.openpi.config_name == "pi05_dualfranka_tcp_rot6d"
+            assert cfg.num_action_chunks == cfg.openpi.action_chunk == 20
+            assert cfg.openpi.train_expert_only is False
+            assert cfg.openpi.detach_critic_input is True
+        else:
+            assert cfg.action_dim == 14 and cfg.num_action_chunks == 30
+            assert cfg.openpi.config_name == "pi05_yam_joint"
+            assert cfg.openpi.num_images_in_input == 3
         return Model()
 
     loader = ModuleType("rlinf.models.embodiment.openpi")
@@ -59,19 +71,20 @@ def test_dual_vla_prediction_follows_shared_component_rpc_contract(monkeypatch):
     monkeypatch.setitem(sys.modules, loader.__name__, loader)
     facade = Pi05VLAFacade(
         model_path="/unused/checkpoint",
-        embodiment="dual_franka",
+        embodiment=embodiment,
         repo_id="test/dataset",
     )
     try:
         assert calls == []
         actions = facade._dispatch("vla.predict", ({},), {"options": {"mode": "eval"}})
-        assert actions.shape == (20, 20) and actions.dtype == np.float32
+        expected_shape = (20, 20) if embodiment == "dual_franka" else (1, 30, 14)
+        assert actions.shape == expected_shape and actions.dtype == np.float32
         assert calls == ["eval"]
     finally:
         facade.close()
 
 
-@pytest.mark.parametrize("embodiment", ["libero", "dual_franka"])
+@pytest.mark.parametrize("embodiment", ["libero", "dual_franka", "yam"])
 def test_cli_forwards_model_configuration(monkeypatch, embodiment):
     import sys
     from types import SimpleNamespace
@@ -106,7 +119,6 @@ def test_cli_forwards_model_configuration(monkeypatch, embodiment):
     assert received["embodiment"] == embodiment
     assert received["repo_id"] == "test/dataset"
     assert received["norm_stats_path"] == "/stats"
-    assert received["model_backend"] == "openpi_pytorch"
     assert received["port"] == 6000
 
 
@@ -117,10 +129,15 @@ def test_libero_preset_keeps_existing_defaults():
     )
 
     cfg = build_model_cfg("/checkpoint", PI05_EMBODIMENTS["libero"])
+    assert cfg.pi05 is True
+    assert cfg.openpi.task == "eval"
     assert cfg.openpi.config_name == "pi05_libero"
     assert cfg.action_dim == 7
     assert cfg.num_action_chunks == cfg.openpi.action_chunk == 5
     assert cfg.openpi.num_images_in_input == 2
+    assert cfg.openpi.model_action_dim == 32
+    assert cfg.openpi.paligemma_variant == "gemma_2b"
+    assert cfg.openpi.action_expert_variant == "gemma_300m"
     assert cfg.openpi.train_expert_only is True
     assert cfg.openpi.detach_critic_input is None
     assert "openpi_data" not in cfg
@@ -163,16 +180,6 @@ def test_shared_yam_client_sends_three_views_and_qpos14_to_pi05():
     assert actions.shape == (30, 14)
 
 
-@pytest.mark.parametrize("shape", [(1, 5, 14), (30, 14), (1, 30, 13)])
-def test_shared_yam_client_rejects_wrong_policy_output_shape(shape):
-    class FakeRpc:
-        def call(self, method, *, args, timeout_s):
-            return np.zeros(shape, dtype=np.float32)
-
-    with pytest.raises(ValueError, match="policy output"):
-        Pi05VLAClient(FakeRpc(), embodiment="yam").predict(_yam_observation())
-
-
 @pytest.mark.parametrize(
     "change, message",
     [
@@ -197,12 +204,8 @@ def test_shared_yam_server_preset_matches_joint_policy():
     assert cfg.model_path == "/checkpoint"
     assert (cfg.action_dim, cfg.num_action_chunks) == (14, 30)
     assert cfg.openpi.config_name == "pi05_yam_joint"
+    assert cfg.openpi.num_images_in_input == 3
     assert cfg.openpi.discrete_state_input is True
-
-
-def test_yam_server_requires_rlinf_backend():
-    with pytest.raises(ValueError, match="openpi_rlinf"):
-        Pi05VLAFacade(model_path="/unused", embodiment="yam")
 
 
 @pytest.mark.parametrize("embodiment", ["yam", "libero", "franka", "dual_franka"])

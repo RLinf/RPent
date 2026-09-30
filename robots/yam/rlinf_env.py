@@ -475,16 +475,25 @@ class YamAgentEnv:
         with self._lock:
             if self._closed:
                 return
+            with self._stop_worker_lock:
+                stop_generation = getattr(self, "_stop_generation", 0)
             if self._started and self.config.get("park_on_close", {}).get("enabled"):
                 try:
-                    self._move_to_configured_qpos("park_on_close")
+                    self._move_to_configured_qpos(
+                        "park_on_close", stop_generation=stop_generation
+                    )
                 except Exception:
                     self._stop_requested.set()
                     self._operator_ready_receipt = None
                     raise
                 logging.getLogger(__name__).info("[home 已到位] 现在关闭机械臂输出。")
             # On a partial release retry, do not move disconnected arms again.
-            self._started = False
+            with self._stop_worker_lock:
+                if getattr(self, "_stop_generation", 0) != stop_generation:
+                    raise RuntimeError(
+                        "YAM shutdown cancelled; followers remain connected"
+                    )
+                self._started = False
             errors: list[Exception] = []
             if self._runtime is not None:
                 try:
@@ -507,7 +516,12 @@ class YamAgentEnv:
                 self._hardware_lease = None
             self._closed = True
 
-    def _move_to_configured_qpos(self, name: str) -> None:
+    def _move_to_configured_qpos(
+        self, name: str, *, stop_generation: int | None = None
+    ) -> None:
+        if stop_generation is None:
+            with self._stop_worker_lock:
+                stop_generation = getattr(self, "_stop_generation", 0)
         if self._preserve_follower_target:
             raise YamResumeTargetDrift(
                 "YAM follower target is uncertain after a control fault; "
@@ -532,12 +546,17 @@ class YamAgentEnv:
                 max_joint_delta=float(pose["max_joint_delta"]),
                 tolerance=float(pose["tolerance"]),
                 timeout_s=float(pose["timeout_s"]),
+                cancelled=lambda: (
+                    getattr(self, "_stop_generation", 0) != stop_generation
+                ),
             )
             validate_actions(held)
+            self._previous_command = self._read_active_target_locked()
+            if getattr(self, "_stop_generation", 0) != stop_generation:
+                raise RuntimeError("YAM move cancelled; followers remain connected")
         except Exception:
             self._mark_follower_target_unknown_locked()
             raise
-        self._previous_command = self._read_active_target_locked()
 
     def release_gripper(self, arm, *, expected_episode_id):
         """Operator-only opening while stopped; never clear the stop latch."""
@@ -739,9 +758,9 @@ class YamAgentEnv:
         if rlinf_root is not None and str(rlinf_root) not in sys.path:
             sys.path.insert(0, str(rlinf_root))
         try:
-            from rlinf.envs.realworld.yam.config import DualYamJointEnvConfig
-            from rlinf.envs.realworld.yam.control_runtime import YamControlRuntime
-            from rlinf.envs.realworld.yam.i2rt_backend import I2RTYamBackendFactory
+            from rlinf.envs.real.yam.config import DualYamJointEnvConfig
+            from rlinf.envs.real.yam.control_runtime import YamControlRuntime
+            from rlinf.envs.real.yam.i2rt_backend import I2RTYamBackendFactory
         except ModuleNotFoundError as error:
             raise RuntimeError(
                 "missing dependency while importing RLinf YAM runtime. "

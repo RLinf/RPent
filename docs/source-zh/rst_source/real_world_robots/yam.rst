@@ -17,35 +17,46 @@ YAM 使用公共 RobotSpec、Toolkit、RPC、探索生命周期和 MemoryManager
 安装与真实依赖
 --------------
 
-控制机使用 Linux、Python 3.11。Agent 机只需要 RPent；控制机需要 RealSense、
-MuJoCo 和兼容的 RLinf/i2rt 环境；推理机需要兼容的 RLinf YAM 策略与 OpenPI/Torch。
+使用 Linux、Python 3.11。Agent 机也需要 ``RPent[yam]``：投影代码使用
+OmegaConf 和 RealSense SDK 的计算函数，不连接相机。控制机和推理机使用下面
+固定的 RLinf YAM 提交；它提供可取消的移动接口、运动学以及官方
+``openpi.get_model`` 加载器需要的 ``pi05_yam_joint`` 数据与策略变换。
 
 .. code-block:: bash
 
+   git clone https://github.com/scilwb/RLinf.git /path/to/RLinf
+   git -C /path/to/RLinf checkout --detach 4c65548e7ade32b13ae101211f588a34a9f98305
    cd /path/to/RPent
    uv venv --python 3.11
    source .venv/bin/activate
-   uv pip install -e '.[yam]'
    export RPENT_REPO_ROOT="$PWD"
    export RPENT_RLINF_ROOT=/path/to/RLinf
 
-``yam`` 安装项限定 ``huggingface-hub<1``，因为 i2rt 1.1.2 要求
-``click<8.2``。安装 i2rt 依赖时，还需给 ``ruckig==0.15.3`` 指定兼容的
-构建后端版本：
+控制机同时安装 RPent、RLinf、固定的 i2rt SDK，以及与 ``ruckig`` 兼容的构建后端：
 
 .. code-block:: bash
 
-   printf 'scikit-build-core<0.10\n' > /tmp/yam-build-constraints.txt
-   uv pip install --build-constraints /tmp/yam-build-constraints.txt \
-     -r /path/to/RLinf/requirements/embodied/envs/yam.txt
+   uv pip install --torch-backend cpu \
+     --build-constraints "$RPENT_RLINF_ROOT/requirements/embodied/envs/yam-build-constraints.txt" \
+     -e '.[yam]' -e "$RPENT_RLINF_ROOT" \
+     -r "$RPENT_RLINF_ROOT/requirements/embodied/envs/yam.txt"
    uv pip check
 
-需要单独安装兼容的 RLinf YAM 实现；未经修改的官方 RLinf 安装并不提供全部
-所需接口。本适配器依赖 ``YamControlRuntime`` 的 command/hold/move_to/反馈接口、
-``I2RTYamBackendFactory``、``YamKinematicsAdapter``，以及 ``openpi_rlinf``
-模型加载器和 ``pi05_yam_joint`` 数据、策略变换。部署时应固定兼容的 RLinf
-提交及依赖版本。标定、i2rt 模型网格、checkpoint 和 norm stats 需自行提供；
-RPent 不包含这些资源或训练好的 YAM 权重。
+推理机使用独立环境，安装固定的 OpenPI 提交和 CUDA 12.8 Torch：
+
+.. code-block:: bash
+
+   uv pip install --torch-backend cu128 \
+     -e '.[yam]' -e "$RPENT_RLINF_ROOT[embodied]" \
+     'rpent-openpi @ git+https://github.com/RLinf/openpi.git@a560f4dd8205b8423ecd4c8a0fabb5f54140b8a0' \
+     -r "$RPENT_RLINF_ROOT/requirements/embodied/models/openpi.txt" \
+     'torch==2.7.1' 'torchvision==0.22.1' 'torchcodec==0.5' \
+     'tokenizers==0.22.2' 'numpy==1.26.4' 'opencv-python==4.11.0.86'
+   uv pip check
+
+``yam`` extra 将 ``huggingface-hub`` 限制为小于 1，因为 i2rt 1.1.2 要求
+``click<8.2``。仅运行 Agent 时可使用 ``uv pip install -e '.[yam]'``。
+标定、i2rt 模型网格、训练好的权重和统计文件需要另行提供；RPent 不包含这些资源。
 
 机器人与任务配置
 ----------------
@@ -99,15 +110,14 @@ RPent 不包含这些资源或训练好的 YAM 权重。
      --endpoint socket://127.0.0.1:8110 --episode-id CURRENT_ID \
      --event ready --note '本回合场景已恢复，可以执行'
 
-在推理机激活已准备的 RLinf 策略环境，安装 RPent，并让该机的 RLinf fork
-可被 Python 导入。公共模型服务从启动环境导入选定的后端：
+在推理机激活上面安装好的环境。共享模型服务使用官方统一的 RLinf OpenPI
+加载接口：
 
 .. code-block:: bash
 
    export RPENT_RLINF_ROOT=/path/to/RLinf
-   export PYTHONPATH="$RPENT_RLINF_ROOT${PYTHONPATH:+:$PYTHONPATH}"
    python -m rpent.robots.components.pi05_vla_server \
-     --embodiment yam --model-backend openpi_rlinf \
+     --embodiment yam \
      --model-path /path/to/yam-checkpoint \
      --norm-stats-path /path/to/norm_stats.json \
      --transport socket --host 127.0.0.1 --port 8220

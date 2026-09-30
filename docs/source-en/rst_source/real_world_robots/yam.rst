@@ -18,39 +18,50 @@ primitive console; task 104 separates policy prediction from execution.
 Dependencies and installation
 -------------------------------
 
-Use Linux and Python 3.11 on the control machine. The Agent needs only RPent;
-RealSense, MuJoCo and a compatible RLinf/i2rt installation belong on the control
-machine. The GPU machine needs the same RLinf YAM policy implementation and its
-compatible OpenPI/Torch environment.
+Use Linux and Python 3.11. The Agent also needs ``RPent[yam]``: projection
+uses OmegaConf and RealSense SDK calculations without connecting cameras.
+The control and GPU machines use the following fixed RLinf YAM revision,
+which supplies the cancellable runtime, kinematics and ``pi05_yam_joint``
+transforms for the official ``openpi.get_model`` loader.
 
 .. code-block:: bash
 
+   git clone https://github.com/scilwb/RLinf.git /path/to/RLinf
+   git -C /path/to/RLinf checkout --detach 4c65548e7ade32b13ae101211f588a34a9f98305
    cd /path/to/RPent
    uv venv --python 3.11
    source .venv/bin/activate
-   uv pip install -e '.[yam]'
    export RPENT_REPO_ROOT="$PWD"
    export RPENT_RLINF_ROOT=/path/to/RLinf
 
-The ``yam`` extra keeps ``huggingface-hub<1`` because i2rt 1.1.2 requires
-``click<8.2``. When installing the i2rt requirements, constrain
-``ruckig==0.15.3`` to its compatible build backend:
+On the control machine, install the pinned i2rt SDK and its compatible
+``ruckig`` build backend together with RPent and RLinf:
 
 .. code-block:: bash
 
-   printf 'scikit-build-core<0.10\n' > /tmp/yam-build-constraints.txt
-   uv pip install --build-constraints /tmp/yam-build-constraints.txt \
-     -r /path/to/RLinf/requirements/embodied/envs/yam.txt
+   uv pip install --torch-backend cpu \
+     --build-constraints "$RPENT_RLINF_ROOT/requirements/embodied/envs/yam-build-constraints.txt" \
+     -e '.[yam]' -e "$RPENT_RLINF_ROOT" \
+     -r "$RPENT_RLINF_ROOT/requirements/embodied/envs/yam.txt"
    uv pip check
 
-A compatible RLinf YAM implementation must be installed separately; the
-unmodified official RLinf installation does not provide all required APIs.
-The adapter requires ``YamControlRuntime`` (command, hold, move_to, feedback),
-``I2RTYamBackendFactory``, ``YamKinematicsAdapter``, and the ``openpi_rlinf``
-model loader with ``pi05_yam_joint`` data/policy transforms. Pin the compatible
-RLinf revision and its dependencies for deployment. Calibration, i2rt model
-meshes, checkpoint and norm stats must also be supplied; RPent does not include
-these assets or a trained YAM checkpoint.
+On the GPU machine, use a separate environment and install the fixed OpenPI
+revision with CUDA 12.8 Torch:
+
+.. code-block:: bash
+
+   uv pip install --torch-backend cu128 \
+     -e '.[yam]' -e "$RPENT_RLINF_ROOT[embodied]" \
+     'rpent-openpi @ git+https://github.com/RLinf/openpi.git@a560f4dd8205b8423ecd4c8a0fabb5f54140b8a0' \
+     -r "$RPENT_RLINF_ROOT/requirements/embodied/models/openpi.txt" \
+     'torch==2.7.1' 'torchvision==0.22.1' 'torchcodec==0.5' \
+     'tokenizers==0.22.2' 'numpy==1.26.4' 'opencv-python==4.11.0.86'
+   uv pip check
+
+The ``yam`` extra keeps ``huggingface-hub<1`` because i2rt 1.1.2 requires
+``click<8.2``. Agent-only installations can use ``uv pip install -e '.[yam]'``.
+Calibration, i2rt model meshes, a trained checkpoint and norm stats must be
+provided separately; RPent does not include these assets.
 
 Robot and task configuration
 ----------------------------
@@ -108,16 +119,14 @@ Use ``env.is_started`` for a passive programmatic startup check.
      --endpoint socket://127.0.0.1:8110 --episode-id CURRENT_ID \
      --event ready --note 'Scene restored; ready for this attempt'
 
-On the GPU machine, activate its prepared RLinf policy environment, install
-RPent there, and make that machine's RLinf fork importable before starting.
-The shared model server imports the selected backend from this environment:
+On the GPU machine, activate the environment installed above. The shared model
+server uses the official unified RLinf OpenPI loader:
 
 .. code-block:: bash
 
    export RPENT_RLINF_ROOT=/path/to/RLinf
-   export PYTHONPATH="$RPENT_RLINF_ROOT${PYTHONPATH:+:$PYTHONPATH}"
    python -m rpent.robots.components.pi05_vla_server \
-     --embodiment yam --model-backend openpi_rlinf \
+     --embodiment yam \
      --model-path /path/to/yam-checkpoint \
      --norm-stats-path /path/to/norm_stats.json \
      --transport socket --host 127.0.0.1 --port 8220

@@ -120,7 +120,7 @@ def main():
     parser.add_argument(
         "--command",
         choices=("/done", "/success", "/failure", "/abort"),
-        help="PR182 operator command aliases; /done means scene ready, not motion",
+        help="Operator command aliases; /done marks the scene ready without starting motion",
     )
     parser.add_argument("--note", default="")
     parser.add_argument("--arm", choices=("left", "right"))

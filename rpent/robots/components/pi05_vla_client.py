@@ -201,13 +201,4 @@ class Pi05VLAClient(BaseVLAClient):
         """Encode obs, request ``vla.predict``, strip batch dim, return ``[chunk, action_dim]``."""
         openpi_obs = self.encode_obs(env_obs)
         actions = np.asarray(super().predict(openpi_obs, options))
-        if self._embodiment == "yam":
-            from robots.yam.contracts import MODEL_SPEC
-
-            expected_shape = (1, MODEL_SPEC.action_horizon, 14)
-            if actions.shape != expected_shape or not np.isfinite(actions).all():
-                raise ValueError(
-                    "YAM policy output must be finite with shape "
-                    f"{expected_shape}; got {actions.shape}"
-                )
         return actions[0]
