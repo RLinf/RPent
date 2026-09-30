@@ -133,7 +133,7 @@ def test_target50_source_branches_match_extra_and_documentation():
                 / "docs"
                 / f"source-{language}"
                 / "rst_source"
-                / "usage"
+                / "simulators"
                 / "robocasa.rst"
             ).read_text(encoding="utf-8")
             assert '".[robocasa]"' in guide
