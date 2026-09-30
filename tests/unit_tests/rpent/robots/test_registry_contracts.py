@@ -108,16 +108,62 @@ def test_registry_discovers_exactly_the_source_checkout_robots() -> None:
 
 
 @pytest.mark.parametrize("robot_name", EXPECTED_ROBOTS)
-def test_robot_prompts_render_from_public_spec(robot_name: str) -> None:
+def test_robot_prompts_render_from_public_spec(robot_name: str, tmp_path) -> None:
     spec = get_robot_spec(robot_name)
 
-    system = spec.prompts.render("system", variables=PROMPT_VARIABLES[robot_name])
+    variables = dict(PROMPT_VARIABLES[robot_name])
+    if robot_name == "robocasa":
+        memory_dir = tmp_path / "robocasa"
+        (memory_dir / "global").mkdir(parents=True)
+        (memory_dir / "global/GLOBAL_MEMORY.md").write_text("# Global memory\n")
+        variables["memory_dir"] = str(memory_dir)
+    system = spec.prompts.render("system", variables=variables)
     user = spec.prompts.render("user", variables=PROMPT_VARIABLES[robot_name])
 
     assert system.strip()
     assert user.strip()
     assert "{{" not in system
     assert "{{" not in user
+
+
+@pytest.mark.parametrize(
+    ("mode", "memory_profile"),
+    [("eval", "hf"), ("eval", "local"), ("explore", "local")],
+)
+def test_libero_prompts_observe_task_before_reading_memory(
+    mode: str, memory_profile: str
+) -> None:
+    variables = {
+        **PROMPT_VARIABLES["libero"],
+        "mode": mode,
+        "memory_profile": memory_profile,
+    }
+    prompts = get_robot_spec("libero").prompts
+    system = prompts.render("system", variables=variables)
+    user = prompts.render("user", variables=variables)
+    workflow = system.split("\nWORKFLOW\n", 1)[1]
+    memory_step = (
+        "READ EACH AVAILABLE LOCAL MEMORY LAYER"
+        if mode == "eval" and memory_profile == "local"
+        else "READ MEMORY"
+    )
+
+    assert (
+        workflow.index("READ THE GUIDES")
+        < workflow.index("INSPECT INITIAL STATE")
+        < workflow.index(memory_step)
+    )
+    if mode != "eval" or memory_profile != "local":
+        assert workflow.index("INSPECT INITIAL STATE") < workflow.index(
+            "READ SEED-0 STRATEGY REFERENCES"
+        )
+    assert "READ MEMORY FIRST" not in system
+    begin = user.split("\nBEGIN\n", 1)[1]
+    assert (
+        begin.index("view_env_state")
+        < begin.index("task_language")
+        < begin.index("memory")
+    )
 
 
 @pytest.mark.parametrize("robot_name", EXPECTED_ROBOTS)

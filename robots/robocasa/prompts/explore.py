@@ -28,9 +28,9 @@ Drive `robocasa_terminated` / `success` to true. After success, preserve the
 winning trajectory and distil grounded lessons into layered memory.
 
 During exploration write working notes only below
-`{{memory_inbox}}/wip/`. After solving, consolidate them into proposed suite
+`{{memory_inbox}}/wip/`. After solving, consolidate them into proposed task-family
 and global Markdown files directly under `{{memory_inbox}}/`, with valid YAML
-frontmatter declaring `scope: suite` or `scope: global`. The runner exports the
+frontmatter declaring `scope: task-family` or `scope: global`. The runner exports the
 task recipe and audit and merges validated inbox material. Never write directly
 into the published memory corpus.
 """
@@ -52,7 +52,7 @@ RULES = BulletList(
 MEMORY = """
 Before acting, inspect the layered memory visible through `list_dir` and
 `read_text_file`. Read the most task-specific RoboCasa entry first, then only
-suite/global entries whose applicability matches this task. Also inspect
+task-family/global entries whose applicability matches this task. Also inspect
 `{{memory_inbox}}/wip/` for handoff notes from earlier sessions. Treat memory
 as a strategy prior: current RGB-D, task_progress, and primitive results take
 precedence. Coordinates never transfer between scenes.
@@ -65,16 +65,16 @@ mechanism, and the next named lever. Then append the same concise evidence to
 push stalled”) rather than declaring a fixture unreachable.
 
 After success, produce concise proposed memory:
-- suite: task technique, object/fixture recognition, ordering, robust parameter
+- task-family: task technique, object/fixture recognition, ordering, robust parameter
   ranges, task_progress milestones, and a failure table;
 - global: only genuinely cross-task lessons, each with applicability and
   evidence. State “cause unknown” instead of inventing an explanation.
 
 Every proposed file must be directly under `{{memory_inbox}}/` and begin with
-parseable YAML frontmatter. Use this suite shape:
+parseable YAML frontmatter. Use this task-family shape:
 ```
 ---
-scope: suite
+scope: task-family
 suite: robocasa
 regime: {{split}}
 task_id: {{task_name}}

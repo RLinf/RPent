@@ -1,24 +1,10 @@
-Memory Management
-=================
+Memory Design
+=============
 
-RPent memory is maintained per robot and lets runs reuse already-validated
-task experience and operating strategy instead of rediscovering it from
-scratch each time.
+RPent uses ``MemoryManager`` to manage each robot’s experience files, access permissions, and exploration drafts. See :doc:`../guides/memory` for commands; this page describes storage and publication.
 
-Run modes
----------
-
-Memory is used differently in the two run modes:
-
-- **Evaluation** reads existing memory but does not update it.
-- **Exploration** generates and updates local memory. It is currently
-  supported only by LIBERO.
-
-See the :ref:`LIBERO exploration guide <libero-exploration>` for the detailed
-Exploration and local-memory Evaluation workflow.
-
-Directory layout
-----------------
+Layout and Access Scope
+-----------------------
 
 Memory published to Hugging Face and memory prepared locally for evaluation
 use the same directory structure:
@@ -26,50 +12,78 @@ use the same directory structure:
 .. code-block:: text
 
    <memory-root>/
-   |-- MEMORY.md
-   |-- global/
-   |-- suite/
-   `-- task_only/
-       |-- <cell>.json
-       |-- <cell>_recipe.jsonl
-       `-- <task_key>.md
+   ├── MEMORY.md
+   ├── global/
+   ├── task-family/
+   ├── task-specific/
+   │   ├── <cell>.json
+   │   ├── <cell>_recipe.jsonl
+   │   └── <task_key>.md
+   └── _internal/inbox/<cell>/
 
-The default local root is ``memory/<robot>/``; on the Hugging Face dataset
-the same content lives under the ``<robot>/`` subdirectory. A custom
+The default local root is ``memory/<robot>/``. On Hugging Face, LIBERO has
+model-specific roots, described in :doc:`../guides/memory`; other robots use ``<robot>/``. A custom
 ``--memory-dir`` may point at any directory laid out like the tree above.
 
-Every subtree is optional; a robot ships only the directories it uses:
+Each robot provides the memory layers it uses:
 
-- ``global/`` holds cross-task lessons distilled from successful experience.
-- ``suite/`` holds task-level experience accumulated during exploration,
-  organised by suite and reusable across seeds of the same task.
-- ``task_only/`` holds same-task references such as the audit and recipe
-  produced by successful runs.
-- ``MEMORY.md`` indexes ``global/`` and ``suite/``.
+.. list-table:: Memory layers
+   :header-rows: 1
+   :widths: 25 45 30
+
+   * - Layer
+     - Stored content
+     - Reuse scope
+   * - Global Memory (``global/``)
+     - Cross-task general rules and failure patterns
+     - All tasks
+   * - Task-family Memory (``task-family/``)
+     - Strategies and precautions validated within a specific task family
+     - Similar tasks and their variants
+   * - Task-specific Memory (``task-specific/``)
+     - Execution records and procedures from a single task run
+     - Reference for the current task only
+
+Apply a note only when its prerequisites and evidence limits match the current
+task. ``MEMORY.md`` is an optional index for global and task-family notes;
+it is not another memory layer. RoboCasa's published HF corpus uses
+``global/GLOBAL_MEMORY.md``; a local corpus may provide multiple ``global/*.md`` files.
 
 During evaluation the planner may read only the current robot's memory.
-Missing a layer does not stop a task from running.
+Robot-specific requirements still apply: RoboCasa always provides task-specific
+and global memory and requires its global file. Task JSON/recipe files must be
+present together or both absent. The planner consults relevant guidance on demand;
+robot actions do not require complete reads.
 
-Using memory
-------------
+Each toolkit constructs a ``MemoryManager`` from the run configuration: evaluation uses read-only access, while exploration allows writes to the current cell’s inbox. Environment tool permissions and task rules further constrain reads. LIBERO local evaluation checks that a corpus exists.
 
-By default RPent syncs the current robot's memory from the Hugging Face
-dataset ``RLinf/RPent-memory`` into ``memory/<robot>/``. The dataset is
-public, so a fresh clone downloads it without a token. Set
-``HF_HUB_OFFLINE=1`` to skip the sync and use the local copy only. Memory is
-optional: if a robot has none on the dataset, or the sync fails, the run
-continues with whatever is on disk.
+Updating an Older Corpus
+~~~~~~~~~~~~~~~~~~~~~~~~
 
-You can also prepare local memory yourself with the same directory structure
-and point the run at it through the environment's ``--memory-dir`` option or
-local memory configuration. Hugging Face memory and local memory use the
-same directory layout, differing only in where they come from.
+The current paths are ``task-specific/`` and ``task-family/``. Download the
+matching updated HF corpus into a fresh directory when updating RPent. Family
+notes use ``scope: task-family`` and filenames such as
+``task-family_libero10_task_t2.md``; their benchmark ``suite`` field is unchanged.
+Update local indexes and links when migrating your own notes. An unmigrated
+directory is reported as an error rather than treated as missing task memory;
+obsolete cached paths are not exposed by the memory tools.
 
-Contributing memory
--------------------
+RoboCasa uses task-specific and global memory together, with no layer-selection
+option. Keep historical results with the code and validator used to produce
+them. The historical v1 manifest remains available for validating compatible records.
 
-Memory on Hugging Face is reviewed and published by RPent maintainers; the
-repository ships no self-serve upload path. To contribute a new or updated
-memory note, open an RPent issue with the proposed memory file and its
-provenance, and a maintainer will review and publish accepted files to
-``RLinf/RPent-memory``.
+Exploration and Merging
+-----------------------
+
+Exploration preserves state and tool records for its attempts and produces experience drafts with provenance. The runner determines success from the environment and calls ``MemoryManager.merge_memory`` to merge drafts and update the index; successful task audits and action sequences have separate publication conditions.
+
+Simulation environments merge automatically by default; ``--no-auto-merge-memory`` retains drafts for review. Dual-arm Franka disables automatic merging by default and relies on operator judgments. In a manual ``rpent-memory merge``, ``--solved`` is a caller-supplied success flag; use it only after verifying the environment or operator result.
+
+``rpent-memory validate`` checks file structure, not real task success. See ``rpent/memory/manager.py`` for permissions and merging, and each robot’s ``robot_spec.py`` plus ``rpent/cli/main.py`` for run modes and result handling.
+
+Synchronization and Contributions
+---------------------------------
+
+The HF profile synchronizes memory from the public ``RLinf/RPent-memory`` dataset. LIBERO selects and verifies a model-specific corpus; offline use requires a complete cache for that version and revision. See :doc:`../guides/memory` for downloads, cache requirements, and historical code/data compatibility.
+
+Maintainers review and publish public memory. To contribute, open an RPent issue with the memory files, code and model versions, task arguments, and success evidence. The repository has no automatic memory-upload entry point.

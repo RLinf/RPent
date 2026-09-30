@@ -28,8 +28,8 @@ exploration, and protect every achieved subgoal."""
 READ_ORDER = """Before the first robot mutation:
 1. Read robots/robotwin/guides/GUIDE_RPENT.md completely.
 2. Inspect view_env_state(step=0) and its head image.
-3. Read {{memory_dir}}/task_only/{{reference_tag}}.json and
-   {{memory_dir}}/task_only/{{reference_tag}}_recipe.jsonl when present.
+3. Read {{memory_dir}}/task-specific/{{reference_tag}}.json and
+   {{memory_dir}}/task-specific/{{reference_tag}}_recipe.jsonl when present.
 4. Read {{memory_dir}}/MEMORY.md and at most one to three relevant leaves.
 
 The current task_language and fresh observation override historical memory.
