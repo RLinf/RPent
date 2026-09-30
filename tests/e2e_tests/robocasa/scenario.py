@@ -167,12 +167,6 @@ def _rldx_checks(output_dir: Path, args: Namespace) -> dict[str, Any]:
 
 
 def _policy_chain(output_dir: Path, args: Namespace) -> dict[str, Any]:
-    global_dir = output_dir / "offline-memory" / "global"
-    global_dir.mkdir(parents=True, exist_ok=True)
-    (global_dir / "GLOBAL_MEMORY.md").write_text(
-        "# GPU E2E memory\n\nUse the live task and observations for this smoke test.\n",
-        encoding="utf-8",
-    )
     return run_scripted_policy_chain(
         robot="robocasa",
         robot_argv=[
