@@ -107,22 +107,30 @@ PyTorch 版本，因此下载后需要转换一次。感知使用 SAM 3，需要
 
 .. code-block:: bash
 
-   # 1. 下载发布版 Pi_05 checkpoint（约 7 GB）。
+   # 1. 下载发布版 Pi_05 checkpoint（约 7 GB）。下载根目录与资产保持一致：
+   #    hf download 会保留仓库内的路径，写成 /data/robodojo/ckpt 会多套一层 ckpt/。
    hf download RoboDojo-Benchmark/RoboDojo --repo-type dataset \
-     --include 'ckpt/RoboDojo/Pi_05/**' --local-dir /data/robodojo/ckpt
+     --include 'ckpt/RoboDojo/Pi_05/**' --local-dir /data/robodojo
 
-   # 2. 转换。转换器靠路径中是否含小写 "pi05" 选择分支，而发布目录名为 Pi_05，
+   # 2. 转换。发布目录名为 Pi_05，而转换器靠路径中是否含小写 "pi05" 选择分支，
    #    所以先建一个含该字符串的链接再转换。
    ln -s /data/robodojo/ckpt/RoboDojo/Pi_05/RoboDojo-sim-arx_x5-joint-0 \
      /data/robodojo/pi05_robodojo_arx_x5
-   python rlinf/utils/ckpt_convertor/convert_openpi_jax_to_python.py \
-     --checkpoint_dir /data/robodojo/pi05_robodojo_arx_x5 \
-     --config_name pi05_base_aloha_full_sim_arx-x5_seed_0 \
-     --output_path /data/robodojo/pi05_robodojo_arx_x5_torch
+   python -m rlinf.utils.ckpt_convertor.convert_openpi_jax_to_python \
+     --checkpoint-dir /data/robodojo/pi05_robodojo_arx_x5/59999 \
+     --config-name pi05_aloha \
+     --output-path /data/robodojo/pi05_robodojo_arx_x5_torch
 
    # 3. 指向转换后的 checkpoint 与 SAM 3。
    export PI05_CHECKPOINT_PATH=/data/robodojo/pi05_robodojo_arx_x5_torch
    export SAM3_CHECKPOINT_PATH=/data/sam3/sam3.pt
+
+转换器属于 RLinf，随 ``robodojo-sim`` 安装的 ``rlinf`` 包一起落地，因此用模块方式调\
+用；RPent 检出里没有 ``rlinf/utils/`` 目录。``--checkpoint-dir`` 要指向 ``59999`` 这一\
+步目录，因为转换器读取 ``<checkpoint-dir>/params``。发布权重是 Pi_05 aloha 结构（32 \
+维动作、预测长度 50），正是随 extra 一同安装的 openpi 注册表里 ``pi05_aloha`` 所描述的\
+结构；XPolicyLab 自带的 openpi 里那个 ``..._arx-x5_seed_0`` 名字对应同一结构，但转\
+换器导入的不是那份注册表。
 
 发布版随包携带的归一化统计量要与转换后的权重放在一起，客户端会一并加载。\
 ``--inspect_only`` 只打印 orbax 参数键、不做转换，是检查下载结果最快的方式。
@@ -254,18 +262,16 @@ Isaac 的负光轴 Z 约定，分割使用共享 SAM3 client。``view_env_state`
 ``back_project`` 和 ``segment``
 均为只读调用，不推进环境，也不触发动作后的状态采集。
 
-``robots.robodojo.tools.TOOL_GROUPS`` 将工具的直接输出分为 ``general``
-（深度、分割与运动）与 ``mixed``（``view_env_state``、``set_gripper``、
-``place_in_bin``）。两组均不暴露 reward 明细或基于真值的安全告警，planner 只根据观测判\
-断进展。底层 ``env.get_reward_details`` 和 ``env.get_safety_status`` RPC
-仍在 dev 服务中保留，供外部评测与诊断使用，不注册为 planner 工具。
-reward 与官方 success 仅由评测路径在 planner 动作通道关闭后读取。
+``robots.robodojo.tools.TOOLS_SPEC`` 中的每个后端工具都针对所有任务注册，工具集不再分\
+组，也不按任务名过滤。任何 planner 工具都不暴露 reward 明细或基于真值的安全告警，\
+planner 只根据观测判断进展。底层 ``env.get_reward_details`` 和
+``env.get_safety_status`` RPC 仍在 dev 服务中保留，供外部评测与诊断使用，不注册为 \
+planner 工具。reward 与官方 success 仅由评测路径在 planner 动作通道关闭后读取。
 ``finalize_run`` 写入 runner 提供的结果，本身不调用这些 RPC。
 
-Python toolkit 工厂接受 ``allowed_tool_groups``，例如传入
-``frozenset({"general"})`` 只注册 general 组的机器人工具。默认 ``None``
-保留已有工具集合。该挂钩同时过滤工具 schema 和处理函数，但不处理动作后的自动状态、原\
-始观测字段、日志、memory 或通用文件工具，因此不是评估隔离模式。
+工具可见性不是隔离机制：共享 toolkit 暴露的 schema、处理函数、动作后的自动状态、原始\
+观测字段、日志、memory 与通用文件工具都保持不变；只有 ``--planner flash`` 选择的 \
+eval-fair 模式会把机器人工具收窄到重放所需的一组。
 
 开发与冻结重放
 --------------

@@ -126,23 +126,34 @@ Perception uses SAM 3, which needs its own checkpoint.
 
 .. code-block:: bash
 
-   # 1. Download the released Pi_05 checkpoint (about 7 GB).
+   # 1. Download the released Pi_05 checkpoint (about 7 GB). Use the same
+   #    --local-dir root as the assets: hf download keeps the repository path,
+   #    so /data/robodojo/ckpt would nest a second ckpt/ level.
    hf download RoboDojo-Benchmark/RoboDojo --repo-type dataset \
-     --include 'ckpt/RoboDojo/Pi_05/**' --local-dir /data/robodojo/ckpt
+     --include 'ckpt/RoboDojo/Pi_05/**' --local-dir /data/robodojo
 
-   # 2. Convert it. The converter picks the pi05 branch by looking for the
-   #    lowercase string "pi05" in the checkpoint path, and the release
-   #    directory is named Pi_05, so convert through a link that contains it.
+   # 2. Convert it. The release directory is named Pi_05 and the converter picks
+   #    the pi05 branch by looking for the lowercase string "pi05" in the path,
+   #    so convert through a link that contains it.
    ln -s /data/robodojo/ckpt/RoboDojo/Pi_05/RoboDojo-sim-arx_x5-joint-0 \
      /data/robodojo/pi05_robodojo_arx_x5
-   python rlinf/utils/ckpt_convertor/convert_openpi_jax_to_python.py \
-     --checkpoint_dir /data/robodojo/pi05_robodojo_arx_x5 \
-     --config_name pi05_base_aloha_full_sim_arx-x5_seed_0 \
-     --output_path /data/robodojo/pi05_robodojo_arx_x5_torch
+   python -m rlinf.utils.ckpt_convertor.convert_openpi_jax_to_python \
+     --checkpoint-dir /data/robodojo/pi05_robodojo_arx_x5/59999 \
+     --config-name pi05_aloha \
+     --output-path /data/robodojo/pi05_robodojo_arx_x5_torch
 
    # 3. Point the run at the converted checkpoint and at SAM 3.
    export PI05_CHECKPOINT_PATH=/data/robodojo/pi05_robodojo_arx_x5_torch
    export SAM3_CHECKPOINT_PATH=/data/sam3/sam3.pt
+
+The converter belongs to RLinf and ships inside the ``rlinf`` package that the
+``robodojo-sim`` extra installs, so call it as a module: an RPent checkout has
+no ``rlinf/utils/`` tree. Pass the ``59999`` step directory, because the
+converter restores ``<checkpoint-dir>/params``. The released weights are a
+Pi_05 aloha model (32-D actions, horizon 50), which is what the stock
+``pi05_aloha`` config describes in the openpi registry installed with the
+extra. XPolicyLab's bundled openpi carries an ``..._arx-x5_seed_0`` name for the
+same architecture, but that registry is not the one the converter imports.
 
 Keep the normalization statistics that ship with the release next to the
 converted weights; the client loads them together. ``--inspect_only`` prints the
@@ -291,21 +302,20 @@ segmentation uses the shared SAM3 client. ``view_env_state``, ``back_project`` a
 ``segment`` are read-only:
 they do not advance the environment or trigger post-action state capture.
 
-``robots.robodojo.tools.TOOL_GROUPS`` marks direct outputs as ``general``
-(depth/segmentation and motion) or ``mixed`` (``view_env_state``,
-``set_gripper``, ``place_in_bin``). Neither group exposes reward details or
-ground-truth safety alarms. Planners judge progress from observations only.
-The underlying ``env.get_reward_details`` and ``env.get_safety_status`` RPCs
-remain available on dev servers for external evaluation and diagnostics, not
-as planner tools. Reward and official success belong to the evaluation path
-after the planner's action channel is closed. ``finalize_run`` records the
-runner-provided result; it does not call these RPCs itself.
+Every backend tool in ``robots.robodojo.tools.TOOLS_SPEC`` is registered for
+every task: the toolkit no longer groups tools or filters them by task name.
+No planner tool exposes reward details or ground-truth safety alarms, so
+planners judge progress from observations only. The underlying
+``env.get_reward_details`` and ``env.get_safety_status`` RPCs remain available
+on dev servers for external evaluation and diagnostics, not as planner tools.
+Reward and official success belong to the evaluation path after the planner's
+action channel is closed. ``finalize_run`` records the runner-provided result;
+it does not call these RPCs itself.
 
-The Python toolkit factory accepts ``allowed_tool_groups``; for example,
-``frozenset({"general"})`` registers only general robot tools. The default
-``None`` preserves the existing tool set. This hook filters schemas and
-handlers, not automatic post-action state, raw observation fields, logs,
-memory, or common file tools. It is not an evaluation isolation mode.
+Tool visibility is not an isolation mechanism: the schemas, handlers,
+automatic post-action state, raw observation fields, logs, memory, and common
+file tools that the shared toolkit exposes are unchanged. Only
+``--planner flash`` (eval-fair) narrows the robot tools down to the replay set.
 
 Development and frozen replay
 -----------------------------
