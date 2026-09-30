@@ -39,6 +39,23 @@ DEFAULT_REPO = "RLinf/RPent-memory"
 
 def validate_options(args: argparse.Namespace) -> None:
     """Check memory options without starting services or downloading files."""
+    if getattr(args, "planner", None) == "onejev":
+        if getattr(args, "memory_profile", None) != "local":
+            raise ValueError(
+                "OneJev uses run-local artifacts; --memory-profile hf is unsupported"
+            )
+        if getattr(args, "memory_version", "auto") != "auto" or getattr(
+            args, "memory_dir", None
+        ):
+            raise ValueError(
+                "OneJev does not load external memory; remove --memory-version/--memory-dir"
+            )
+        if getattr(args, "sam3_endpoint", None) or getattr(
+            args, "molmo_endpoint", None
+        ):
+            raise ValueError(
+                "OneJev uses only Env and Pi0.5; remove SAM3/Molmo endpoints"
+            )
     if getattr(args, "memory_version", "auto") != "auto" and (
         getattr(args, "explore", False)
         or getattr(args, "memory_profile", None) == "local"
@@ -56,6 +73,8 @@ def validate_options(args: argparse.Namespace) -> None:
 def prepare_memory(args: argparse.Namespace, config: RunConfig) -> None:
     """Bind the selected corpus to all consumers before task services start."""
     validate_options(args)
+    if args.planner == "onejev":
+        return
     profile = getattr(args, "memory_profile", None) or (
         "local" if getattr(args, "explore", False) else "hf"
     )

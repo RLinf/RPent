@@ -115,6 +115,13 @@ def _run_flash(toolkit, cell_tag: str, note) -> dict:
     return run_flash(toolkit, cell_tag, note)
 
 
+def _create_onejev_adapter(toolkit):
+    """Create the public-observation adapter after the toolkit is initialized."""
+    from robots.libero.onjev.adapter import LiberoOneJevAdapter
+
+    return LiberoOneJevAdapter(toolkit)
+
+
 def get_robot_spec() -> RobotSpec:
     """Return the LIBERO robot identity, prompt bundle, and runner hooks.
 
@@ -135,6 +142,7 @@ def get_robot_spec() -> RobotSpec:
         dashboard=LIBERO_DASHBOARD_SPEC,
         supports_exploration=True,
         run_flash=_run_flash,
+        create_onejev_adapter=_create_onejev_adapter,
         validate_args=validate_options,
         prepare_memory=prepare_memory,
     )
@@ -152,6 +160,11 @@ def get_toolkit(
     """Return the LIBERO toolkit for the current session."""
     from robots.libero.toolkit import LiberoToolkit
 
+    onejev_config = None
+    if config.prompt_vars.get("planner") == "onejev":
+        from robots.libero.onjev.config import OneJevConfig
+
+        onejev_config = OneJevConfig.load(config.prompt_vars.get("onejev_config_path"))
     explore = mode == "exploration"
     memory = MemoryManager(
         root=config.prompt_vars.get("memory_dir") or get_memory_dir("libero"),
@@ -165,6 +178,7 @@ def get_toolkit(
         mode=mode,
         attempts_per_session=attempts_per_session,
         state_output_dir=state_output_dir,
+        onejev_config=onejev_config,
     )
 
 
@@ -200,6 +214,11 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     )
     parser.add_argument("--task", type=int, default=None, required=required)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--onejev-config",
+        default=None,
+        help="Optional JSON for OneJev public RGB-D heuristics and control budgets",
+    )
     parser.add_argument(
         "--collect-flywheel-data",
         action="store_true",
@@ -254,7 +273,7 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         default=None,
         help="[protocol://]host:port of an existing SAM3 server "
         "(protocol=http|socket, defaults to http). "
-        "If unset, a local SAM3 server is spawned.",
+        "If unset, a local SAM3 server is spawned, except in OneJev mode which disables SAM3.",
     )
     parser.add_argument(
         "--cuda-device",
@@ -276,6 +295,10 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     if args.task is None:
         raise ValueError("--task is required")
     planner = getattr(args, "planner", None)
+    if planner == "onejev":
+        from robots.libero.onjev.config import OneJevConfig
+
+        OneJevConfig.load(getattr(args, "onejev_config", None))
     if planner == "flash":
         if getattr(args, "explore", False):
             raise ValueError("Flash Mode is evaluation-only; remove --explore")
@@ -308,7 +331,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         if args.memory_dir
         else get_memory_dir("libero")
     )
-    local_eval = not explore and memory_profile == "local"
+    local_eval = not explore and memory_profile == "local" and planner != "onejev"
     if local_eval:
         if planner == "flash":
             from robots.libero.memory import replay_directory
@@ -336,6 +359,8 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
                 "run exploration first or use --memory-profile hf"
             )
     prompt_vars = {
+        "planner": planner,
+        "onejev_config_path": getattr(args, "onejev_config", None),
         "suite": args.suite,
         "task": args.task,
         "seed": args.seed,
@@ -359,6 +384,8 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             / f"{timestamp}_{args.suite}_t{args.task}_s{args.seed}"
         )
     output_dir = Path(output_dir)
+    if planner == "onejev":
+        prompt_vars["memory_dir"] = str(output_dir / "onejev_memory")
 
     return RunConfig(
         recipe_tag=recipe_tag,
@@ -404,6 +431,11 @@ def _spawn_env_server(
             "--port",
             str(port),
             "--parent-watch",
+            *(
+                ["--public-observations-only"]
+                if getattr(args, "planner", None) == "onejev"
+                else []
+            ),
             *_cuda_args(args),
         ],
         env_overrides={
@@ -420,11 +452,14 @@ def _spawn_env_server(
 def _spawn_vla_server(
     args: argparse.Namespace,
     output_dir: Path,
+    *,
+    port: int | None = None,
 ) -> tuple[ProcessDaemon | None, RpcClient]:
     if args.vla_endpoint is not None:
         return None, make_rpc_client(args.vla_endpoint)
 
-    host, port = "127.0.0.1", pick_free_port()
+    host = "127.0.0.1"
+    port = pick_free_port() if port is None else port
     daemon = ProcessDaemon(
         name="vla_server",
         cmd=[
@@ -521,7 +556,13 @@ def _init_runtime(
                     "task": args.task,
                     "seed": args.seed,
                     "max_episode_steps": args.max_episode_steps,
+                    **(
+                        {"observation_mode": "public"}
+                        if getattr(args, "planner", None) == "onejev"
+                        else {}
+                    ),
                 },
+                public_observations_only=getattr(args, "planner", None) == "onejev",
             )
         },
         "vla": lambda rpc: {"model": Pi05VLAClient(rpc, embodiment="libero")},
@@ -531,6 +572,8 @@ def _init_runtime(
     selected = set(starters) if components is None else set(components)
     if getattr(args, "planner", None) != "flash":
         selected.discard("molmo")
+    if getattr(args, "planner", None) == "onejev":
+        selected.discard("sam3")
     unknown = selected.difference(starters)
     if unknown:
         raise ValueError(f"unknown LIBERO runtime components: {sorted(unknown)}")
@@ -547,6 +590,8 @@ def _init_runtime(
             )
 
     runtime_kwargs: dict[str, Any] = {}
+    if getattr(args, "planner", None) == "onejev":
+        runtime_kwargs["sam3_client"] = None
     wait_order = ("env", "sam3", "molmo", "vla")
     for component in (name for name in wait_order if name in pending):
         daemon, rpc = pending[component]

@@ -56,7 +56,7 @@ def _parser() -> argparse.ArgumentParser:
         "--planner",
         default="api",
         choices=list(CHECK_PLANNERS),
-        help="LLM backend to check: api | claude_code | codex.",
+        help="Decision backend to check: api | claude_code | codex | onejev.",
     )
     parser.add_argument(
         "--model",
@@ -64,13 +64,13 @@ def _parser() -> argparse.ArgumentParser:
         help="Model id. For the 'api' planner, prefix the provider "
         "(e.g. anthropic:claude-opus-4-8, openai:gpt-5.5, "
         "openai-chat:glm-5.2). For claude_code/codex this "
-        "overrides the backend default model.",
+        "overrides the backend default model. OneJev uses its served name (default OneJev-9B).",
     )
     parser.add_argument(
         "--base-url",
         default=None,
         help=(
-            "API base URL, for the 'api' planner only. claude_code and codex take their endpoint from ANTHROPIC_BASE_URL / CODEX_BASE_URL instead; passing this flag with either is an error rather than a silent no-op."
+            "Base URL for api; server root URL for onejev. claude_code/codex use ANTHROPIC_BASE_URL/CODEX_BASE_URL instead."
         ),
     )
     parser.add_argument(
@@ -100,6 +100,13 @@ def _remediation(result: LlmCheckResult) -> str:
         A one-line hint, or an empty string when none applies.
     """
     credential = result.credential_env or "the backend's API key"
+    if result.planner == "onejev":
+        return (
+            "Start the external OneJev service and pass its root URL with --base-url; "
+            "--model must match the server's --name."
+            if not result.ok
+            else ""
+        )
     base_url_env = result.base_url_env or "the backend's base URL variable"
     hints = {
         STATUS_MISSING_CONFIG: (

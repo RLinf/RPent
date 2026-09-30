@@ -38,6 +38,8 @@ from rpent.evaluation import RunFinalizer
 from rpent.robots.prompt_bundle import PromptBundle
 
 if TYPE_CHECKING:
+    from rpent.planner.onejev_types import DecisionAdapter
+    from rpent.tools.toolkit import Toolkit
     from rpent.utils.daemon import ProcessDaemon
 
 
@@ -89,3 +91,5 @@ class RobotSpec:
     #: Takes the toolkit, the cell tag, and a note sink; returns at least
     #: ``{"done": bool}``. Left unset by robots without Flash Mode.
     run_flash: Callable[[Any, str, Callable[[str], None]], dict[str, Any]] | None = None
+    #: Construct a robot-owned adapter for computed OneJev action candidates.
+    create_onejev_adapter: Callable[["Toolkit"], "DecisionAdapter"] | None = None

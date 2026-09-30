@@ -198,6 +198,8 @@ class EnvState:
         made inside (or right after) a :meth:`record_step` block attach to that
         step without an explicit index. Pass an ``int`` to target a specific
         step, or ``None`` for a session-level artifact such as an episode video.
+        JSON artifacts accept ``indent`` and ``ensure_ascii`` options; their
+        defaults remain 2 and True.
         """
         step = self._resolve_read_step(step)
         destination = self._artifact_file(name, step)
@@ -216,8 +218,14 @@ class EnvState:
             elif suffix == ".npz":
                 np.savez_compressed(temporary, array=np.asarray(value))
             elif suffix == ".json":
-                with temporary.open("w") as file:
-                    json.dump(value, file, indent=2, default=_json_default)
+                with temporary.open("w", encoding="utf-8") as file:
+                    json.dump(
+                        value,
+                        file,
+                        indent=options.get("indent", 2),
+                        ensure_ascii=options.get("ensure_ascii", True),
+                        default=_json_default,
+                    )
             elif suffix == ".jsonl":
                 with temporary.open("w") as file:
                     if isinstance(value, str):

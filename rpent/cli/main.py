@@ -130,10 +130,10 @@ def _build_argparser() -> argparse.ArgumentParser:
     ap.add_argument(
         "--planner",
         default="api",
-        choices=["api", "claude_code", "codex", "flash"],
+        choices=["api", "claude_code", "codex", "flash", "onejev"],
         help="Planner backend: api | claude_code | codex are LLMs in the "
         "loop; flash is evaluation-only and replays a plan from memory, re-localizing "
-        "each waypoint's anchor.",
+        "each waypoint's anchor; onejev scores robot-computed action candidates.",
     )
     ap.add_argument(
         "--model",
@@ -141,13 +141,13 @@ def _build_argparser() -> argparse.ArgumentParser:
         help="Model id. For the 'api' planner, prefix the provider "
         "(e.g. anthropic:claude-opus-4-8, openai:gpt-5.5, "
         "openai-chat:glm-5.2). For claude_code/codex this "
-        "overrides the backend default model.",
+        "overrides the backend default model. OneJev uses a served model name (default OneJev-9B).",
     )
     ap.add_argument(
         "--base-url",
         default=None,
         help=(
-            "API base URL, for the 'api' planner only. claude_code and codex take their endpoint from ANTHROPIC_BASE_URL / CODEX_BASE_URL instead; passing this flag with either is an error rather than a silent no-op."
+            "Base URL for api; server root URL for onejev's external System One service. claude_code/codex use ANTHROPIC_BASE_URL/CODEX_BASE_URL instead."
         ),
     )
     ap.add_argument("--max-turns", type=int, default=100)
@@ -172,10 +172,10 @@ def _build_argparser() -> argparse.ArgumentParser:
         "--planner-timeout-s",
         type=int,
         default=None,
-        help="Wall-clock cap for api/claude_code/codex planner runs. "
+        help="Wall-clock cap for api/claude_code/codex/onejev planner runs. "
         "Terminal interactive API/Claude sessions are exempt. "
-        "Defaults to CODEX_TIMEOUT_S (codex only), "
-        "CELL_TIMEOUT_S, or 1200.",
+        "OneJev defaults to 1200s; other backends use CODEX_TIMEOUT_S "
+        "(codex only), CELL_TIMEOUT_S, or 1200.",
     )
     ap.add_argument(
         "--claude-code-max-budget-usd",
@@ -191,7 +191,7 @@ def _build_argparser() -> argparse.ArgumentParser:
         "--memory-profile",
         choices=["hf", "local"],
         default=None,
-        help="Memory profile (default: hf for evaluation, local for exploration).",
+        help="Memory profile (default: hf for evaluation, local for exploration or OneJev).",
     )
     ap.add_argument(
         "--memory-dir",
@@ -370,9 +370,25 @@ def main() -> int:
         if sys.stdin is None or not sys.stdin.isatty():
             parser.error("This robot requires a TTY for operator confirmation.")
     native_cli = args.interactive and args.planner == "api"
+    if args.planner == "onejev":
+        if robot_spec.create_onejev_adapter is None:
+            parser.error(f"OneJev is not supported for robot {args.robot_name!r}")
+        if args.explore or args.interactive or args.dashboard:
+            parser.error("OneJev currently supports non-interactive evaluation only")
+        if args.no_images:
+            parser.error("OneJev requires RGB observations; remove --no-images")
+        if not args.base_url:
+            parser.error(
+                "OneJev requires --base-url, for example http://127.0.0.1:8008"
+            )
+        if args.max_turns <= 0 or (
+            args.planner_timeout_s is not None and args.planner_timeout_s <= 0
+        ):
+            parser.error("OneJev decision and time budgets must be positive")
+        args.model = args.model or "OneJev-9B"
     if args.base_url and args.planner in BASE_URL_ENV_BY_PLANNER:
         parser.error(
-            "--base-url applies to the 'api' planner only; "
+            "--base-url applies to the 'api' and 'onejev' planners; "
             f"{args.planner} reads its endpoint from "
             f"{BASE_URL_ENV_BY_PLANNER[args.planner]} instead"
         )
@@ -406,7 +422,9 @@ def main() -> int:
         parser.error("--explore cannot be used with --memory-profile hf")
     if args.explore and getattr(args, "explore_sessions", 1) <= 0:
         parser.error("--explore-sessions must be greater than 0")
-    args.memory_profile = args.memory_profile or ("local" if args.explore else "hf")
+    args.memory_profile = args.memory_profile or (
+        "local" if args.explore or args.planner == "onejev" else "hf"
+    )
     if args.memory_profile == "hf" and args.memory_dir is not None:
         parser.error("--memory-dir requires --memory-profile local or --explore")
     from rpent.memory.loading import prepare_run_memory

@@ -193,6 +193,27 @@ def build_planner(
     # Imports are deferred to avoid a circular import: api_loop / claude_code /
     # codex all import from this module (PlannerResult).
 
+    if planner_type == "onejev":
+        from rpent.planner.onejev import OneJevPlanner
+        from rpent.planner.onejev_client import DEFAULT_ONEJEV_MODEL
+        from rpent.robots.base import get_robot_spec
+
+        factory = get_robot_spec(robot_name).create_onejev_adapter
+        if factory is None:
+            raise ValueError(f"OneJev is not supported for robot {robot_name!r}")
+        if not base_url:
+            raise ValueError(
+                "OneJev requires --base-url pointing to its external service"
+            )
+        if no_images or interactive:
+            raise ValueError("OneJev requires images and non-interactive evaluation")
+        return OneJevPlanner(
+            base_url=base_url,
+            model=model or DEFAULT_ONEJEV_MODEL,
+            adapter_factory=factory,
+            timeout_s=planner_timeout_s if planner_timeout_s is not None else 1200,
+            dashboard_events=dashboard_events,
+        )
     if planner_type == "api":
         from rpent.planner.api_loop import ApiAgentLoop
 
