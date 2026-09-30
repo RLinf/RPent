@@ -27,6 +27,10 @@ overrides explicitly:
 On Blackwell GPUs, append ``--torch-backend=cu128`` to select a PyTorch
 build with ``sm_120`` support. The default CUDA 12.6 build of PyTorch 2.7.0
 does not support these GPUs. Use the same option when reinstalling this extra.
+Note that uv treats an already-installed ``2.7.0+cu126`` as satisfying the
+pinned ``torch==2.7.0`` and keeps it, so switching an existing environment also
+needs ``--reinstall-package torch --reinstall-package torchvision``; rebuilding
+the environment is the simpler alternative.
 
 ``requirements/robodojo-override.txt`` carries the eight pins where the simulator
 stack disagrees with the agent stack or with rpent-openpi; passing them with
@@ -223,11 +227,15 @@ planner takes over:
 .. code-block:: bash
 
    export ROBODOJO_PLACEMENT_SETTLE_STEPS=1000
+   export OMNI_KIT_ACCEPT_EULA=YES
    rpent --robot robodojo --task put_bottles_into_dustbin --layout 0 \
      --planner codex --model <planner-model> --max-turns 1 \
      --sim-python /path/to/sim-env/bin/python \
      --pi05-python /path/to/pi05-env/bin/python \
      --output-dir /path/to/run-output
+
+``OMNI_KIT_ACCEPT_EULA=YES`` answers Kit's license prompt; without it a
+non-interactive start stops at that prompt and exits.
 
 Expected behaviour:
 

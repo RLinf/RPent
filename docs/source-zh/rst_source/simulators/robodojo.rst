@@ -23,6 +23,9 @@ Isaac Sim / IsaacLab 的版本约束由运行时包维护。``robodojo`` 还会�
 Blackwell GPU 需在命令末尾添加 ``--torch-backend=cu128``，选择支持
 ``sm_120`` 的 PyTorch 构建。PyTorch 2.7.0 默认的 CUDA 12.6 构建不支持这\
 类 GPU。重新安装该 extra 时也需保留此选项。
+uv 会把已装的 ``2.7.0+cu126`` 视作满足钉住的 ``torch==2.7.0`` 而不替换，\
+因此在已有环境上换后端还需补 ``--reinstall-package``，对 torch 与 torchvision \
+各传一次；或直接重建环境。
 
 ``requirements/robodojo-override.txt`` 汇总了仿真栈与 agent 栈、rpent-openpi 冲突的八条钉\
 版本；用 ``--override`` 传入后，其它机器人仍按各自验证过的版本解析。这些 override 使依\
@@ -190,11 +193,15 @@ RLinf 客户端会将原生观测编码为 openpi wire 格式。
 .. code-block:: bash
 
    export ROBODOJO_PLACEMENT_SETTLE_STEPS=1000
+   export OMNI_KIT_ACCEPT_EULA=YES
    rpent --robot robodojo --task put_bottles_into_dustbin --layout 0 \
      --planner codex --model <planner-model> --max-turns 1 \
      --sim-python /path/to/sim-env/bin/python \
      --pi05-python /path/to/pi05-env/bin/python \
      --output-dir /path/to/run-output
+
+``OMNI_KIT_ACCEPT_EULA=YES`` 用于回应 Kit 的许可询问；非交互启动时不设置它会停在询问\
+处并直接退出。
 
 预期现象：
 
