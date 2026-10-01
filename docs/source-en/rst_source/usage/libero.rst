@@ -323,61 +323,37 @@ the highest-scoring candidate through its existing toolkit. Pi0.5 performs
 grasps and drawer contact; scripted primitives perform transport, lowering
 and release.
 
-Start the two processes in separate terminals from the source checkout:
+Install OneJev in a working directory separate from RPent. All paths in the
+following commands are relative to that directory:
 
 .. code-block:: bash
 
-   # Terminal 1: uses the already installed .venv-onejev environment.
-   bash script/setup-one-jev.sh
+   git clone https://github.com/OmniJev/OneJev.git
+   uv venv .venv-onejev --python 3.11
+   uv pip install --python .venv-onejev/bin/python --torch-backend auto \
+     ./OneJev \
+     'transformers>=5.17.0,<6' pillow torchvision
+   hf download OmniJev/OneJev-9B --local-dir ./OneJev-9B
 
-   # Terminal 2: uses the existing RPent .venv environment.
-   bash script/run-one-jev.sh
-
-The default service URL is ``http://127.0.0.1:8008`` and its served model name
-is ``OneJev-9B``. The run script defaults to ``libero_spatial``, task 0, seed 0,
-using LIBERO-PRO. Override ``ONEJEV_SUITE``, ``ONEJEV_TASK``, ``ONEJEV_SEED``
-and ``ONEJEV_BASE_URL`` in the environment as needed. The run script checks
-service readiness and executes a small Choice request before starting Env/VLA.
-
-Set ``ONEJEV_ROUNDS`` to run multiple independent rollouts (default 10).
-Seeds start at ``ONEJEV_SEED`` and increase by ``ONEJEV_SEED_STEP`` per
-round (default 1). Set the step to 0 to repeat the same environment seed:
+Start the OneJev service from the same directory and keep it running:
 
 .. code-block:: bash
 
-   ONEJEV_ROUNDS=3 ONEJEV_SEED=0 bash script/run-one-jev.sh
+   ./.venv-onejev/bin/qev serve \
+     --model ./OneJev-9B --name OneJev-9B \
+     --host 127.0.0.1 --port 8008 \
+     --device cuda:0 --dtype bfloat16 --multimodal \
+     --no-cuda-graphs --no-gpu-preprocess
 
-Pi0.5 is started once and shared across rounds. Each round launches the normal
-RPent CLI with a fresh public-only Env. Logs default to
-``logs/libero_pro_one_jev/<suite>-<task>/<YYYYMMDD-HHMMSS>/``:
+Once the service is ready, activate the RPent environment in another terminal.
+From the RPent repository root, run:
 
-.. code-block:: text
+.. code-block:: bash
 
-   libero_spatial-0/20260929-180000/
-     round_001_seed_0/
-     round_002_seed_1/
-     round_003_seed_2/
-     summary.json
-     vla_server.log
-     run.log
-     round_001_seed_0.console.log
-     ...
-
-``ONEJEV_OUTPUT_DIR`` overrides the log root; the suite/task and timestamp
-directories are still added. A timestamp collision adds microseconds to the
-directory name. Each round directory contains its Env log, RPent log,
-transcript, state/image artifacts and episode video. The top-level console
-logs also capture failures before CLI logging is ready; their paths are in
-``summary.json``. With a borrowed ``--vla-endpoint``, that server retains its
-own log rather than creating a local ``vla_server.log``.
-
-``summary.json`` is updated atomically as rounds start and finish. It records
-the task instruction from public observations, each round's seed, native
-success, status, error, exit code, finish state, usage and artifact paths.
-No observed episode means ``success: null``. Ordinary round failures allow
-the next round to run; interruption ends the batch and preserves completed
-results. An incomplete batch has no aggregate success rate. The batch stops
-the Pi0.5 service it owns; the external OneJev service stays running.
+   export PI05_CHECKPOINT_PATH="data/checkpoints/RLinf-Pi05-LIBERO-130-fullshot-SFT/"
+   export LIBERO_TYPE=pro
+   rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
+     --planner onejev --model OneJev-9B --base-url http://127.0.0.1:8008
 
 This mode starts only Env and Pi0.5. It uses run-local artifacts without
 loading a memory corpus, and does not start SAM3 or Molmo. OneJev dependencies
@@ -398,8 +374,7 @@ compares the marked RGB regions against the task. Missing geometry stops a
 placement run before a grasp. Native LIBERO termination alone establishes
 task success.
 
-Optionally provide ``--onejev-config /path/to/config.json`` or set
-``ONEJEV_CONFIG`` for the run script. ``target_roi`` is an operator-supplied
+Optionally provide ``--onejev-config /path/to/config.json``. ``target_roi`` is an operator-supplied
 RGB region in normalized ``[row_min, col_min, row_max, col_max]`` coordinates.
 Other settings include workspace bounds, grasp and drawer-contact budgets,
 carry clearance and
@@ -415,7 +390,7 @@ object geometry. For example, a configuration may contain:
    }
 
 The ROI above is an illustrative image region, not a calibrated task preset.
-Inspect the saved public RGB before choosing one. Each round stores three
+Inspect the saved public RGB before choosing one. Each run stores three
 decision trace files as JSON arrays with 4-space indentation:
 
 - ``onejev_state.json``: the exact state supplied on each OneJev call.
