@@ -96,11 +96,10 @@ RLDX-1 要求 Python ``3.10``。请创建独立环境，并通过 ``.[robocasa]`
 
 .. code-block:: bash
 
-   uv pip install -e ".[robocasa]" \
-      --constraint robots/robocasa/eval/target50-v2-constraints.txt
+   uv pip install -e ".[robocasa]"
    uv pip check
 
-v2 约束文件固定当前 Target50 运行时所需的兼容性敏感依赖。``target50.json`` 与 ``target50-constraints.txt`` 保留历史 v1 环境，需要配套的历史 RPent 代码。``robocasa`` extra 从 RoboCasa、RLDX 和 Robosuite 的 ``rpent`` 分支安装；不要同时安装提供同一导入包的 ``rlinf-robocasa365``。
+当前安装依赖以 ``pyproject.toml`` 为准。``robocasa`` extra 从 RoboCasa、RLDX 和 Robosuite 的 ``rpent`` 分支安装；不要同时安装提供同一导入包的 ``rlinf-robocasa365``。
 
 RLDX 必须使用 extra 指定的 ``rpent`` 分支源码。旧 PyPI wheel 即使具有相同的包版本号，也可能缺少当前运行时所需的接口。若复用装有旧 RLDX wheel 的环境，请在上述安装命令中加入 ``--reinstall-package rlinf-rldx``。
 
@@ -263,17 +262,15 @@ local 评测还提供 ``global/*.md``，以及 YAML frontmatter 中 ``suite: rob
 实验复现（Target50）
 ----------------------
 
-当前 ``robots/robocasa/eval/target50_v2.json`` 协议（``robocasa-harness-vla-v2``）使用 task/global memory，不锁定数据版本。它保留 target 的 task/seed 矩阵、cell 时限、no-reset 规则、环境成功判据和 40/999/8 的 RLDX 参数。协议 ID 标识结果格式和评测规则，供校验器区分 v1 与 v2，不是 memory 数据版本选择参数。
+当前 ``robots/robocasa/eval/target50.json`` 清单描述 task-specific 与 global memory 一起使用的运行，定义 Target50 的 task/seed 矩阵、cell 时限、no-reset 规则、环境成功判据和 40/999/8 的 RLDX 参数。协议 ID 为 ``robocasa-harness-vla-v2``，结果 schema 版本为 ``1.1``。软件依赖以 ``pyproject.toml`` 为准；清单不锁定安装环境或 memory 数据版本。
 
 结果记录固定的任务/global 文件选择、缺失文件和实际读取情况。校验器允许零读取和部分读取，仍检查任务访问边界和审计结构。审计文件缺失或损坏会单独报告；是否完整读取不决定环境结果的有效性或成功值。每次运行都会重新初始化读取审计，即使复用了输出目录也不继承旧记录。
 
 校验器不比较不同运行之间的 memory 正文。HF ``main`` 接收后续更新， ``reproduce/memory`` 保持为不再变更的历史归档。使用当前布局进行可重复的对照实验时，只下载一次 memory，所有 cell 均用 ``--memory-profile local --memory-dir`` 指向同一份保持不变的目录。保留这些文件，并在本地实验记录中保存 HF commit 或哈希。RPent 不固定 memory，也不向结果元数据添加数据版本标识。
 
-清单定义评测矩阵和校验规则，:doc:`排行榜 <../leaderboard/performance>` 展示独立报告的成绩。340 个回合本身不能证明运行使用了哪份 memory、模型或代码配置。当前 v2 清单包含 GPT-5.5 参考配置，不能直接用于校验榜单上的所有模型。
+清单定义评测矩阵和校验规则，:doc:`排行榜 <../leaderboard/performance>` 展示独立报告的成绩，不由清单自动生成。340 个回合本身不能证明运行使用了哪份 memory、模型或代码配置。当前 v2 清单包含 GPT-5.5 参考配置，不能直接用于校验榜单上的所有模型。
 
-- ``target50.json`` 保留历史 v1 task-specific 协议。校验相匹配的旧记录时传入 ``--manifest robots/robocasa/eval/target50.json``。
-- ``target50_v2.json`` 描述当前 task-specific 与 global 一起使用的运行，是新结果 和校验器的默认清单。
-- 榜单成绩保留各自报告的来源；没有匹配的运行证据时，不将其重新标为 v2 结果。
+历史 v1 记录仅使用 task-specific memory，需配合 `历史代码 <https://github.com/RLinf/RPent/tree/ec4e18fc2f6a73a00c6a5c035a8a3fdb17950b61>`_ 及其中的 `v1 清单 <https://github.com/RLinf/RPent/blob/ec4e18fc2f6a73a00c6a5c035a8a3fdb17950b61/robots/robocasa/eval/target50.json>`_ 校验。在该历史 checkout 中，向校验器传入 ``--manifest robots/robocasa/eval/target50.json``。榜单成绩保留各自报告的来源；没有匹配的运行证据时，不将其重新标为 v2 结果。
 
 每个任务与 seed 的组合称为一个评测单元（cell）。源码依赖使用清单中指定的 ``rpent`` 分支；每次运行都需记录实际安装的提交版本。
 
@@ -346,6 +343,8 @@ Composite-Seen 与 Composite-Unseen 使用 ``--planner-timeout-s 3600``。按 At
 .. code-block:: bash
 
    python -m robots.robocasa.eval.validate_target50 ./runs/target50
+
+可通过 ``--manifest /path/to/manifest.json`` 指定当前 v2 协议下的自定义 task/seed 矩阵或规划器参考配置。校验器仅接受 ``robocasa-harness-vla-v2`` 清单和 schema 为 ``1.1`` 的结果；历史 v1 记录需使用上文链接的历史代码。
 
 
 Target50 报告成绩与历史结果

@@ -69,8 +69,11 @@ directory is reported as an error rather than treated as missing task memory;
 obsolete cached paths are not exposed by the memory tools.
 
 RoboCasa uses task-specific and global memory together, with no layer-selection
-option. Keep historical results with the code and validator used to produce
-them. The historical v1 manifest remains available for validating compatible records.
+option. Its current ``target50.json`` manifest uses protocol
+``robocasa-harness-vla-v2`` and result schema ``1.1``. The validator's
+``--manifest`` option accepts only this protocol. Validate historical v1 records
+with the `historical code and manifests <https://github.com/RLinf/RPent/tree/ec4e18fc2f6a73a00c6a5c035a8a3fdb17950b61/robots/robocasa/eval>`_;
+see :doc:`../simulators/robocasa` for the matching command.
 
 Exploration and Merging
 -----------------------
