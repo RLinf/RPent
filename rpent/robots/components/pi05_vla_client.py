@@ -132,6 +132,31 @@ def _encode_obs_dual_franka(env_obs: dict) -> dict:
     }
 
 
+def _encode_obs_yam(env_obs: dict) -> dict:
+    """Batch one YAM top view, two wrist views, and a qpos14 state."""
+    main = np.asarray(env_obs["main_images"])
+    extras = np.asarray(env_obs["extra_view_images"])
+    states = np.asarray(env_obs["states"], dtype=np.float32)
+    description = env_obs.get("task_descriptions")
+    if main.ndim != 3 or main.shape[-1] != 3 or main.dtype != np.uint8:
+        raise ValueError("YAM main_images must be uint8 RGB [H,W,3]")
+    if extras.shape != (2, *main.shape) or extras.dtype != np.uint8:
+        raise ValueError(
+            "YAM extra_view_images must be uint8 RGB [2,H,W,3], ordered left/right"
+        )
+    if states.shape != (14,) or not np.isfinite(states).all():
+        raise ValueError("YAM states must be finite [14]")
+    if not isinstance(description, str) or not description.strip():
+        raise ValueError("YAM task_descriptions must be a nonempty instruction")
+    return {
+        "main_images": main[None],
+        "wrist_images": None,
+        "extra_view_images": extras[None],
+        "states": states[None],
+        "task_descriptions": [description],
+    }
+
+
 # NOTE: an embodiment registered here must also exist in the server's
 # ``PI05_EMBODIMENTS`` (and ``PI05_ROBOT_PLATFORMS`` if it sets ROBOT_PLATFORM);
 # the two registries are kept in sync manually.
@@ -139,6 +164,7 @@ _ENCODE_OBS: dict[str, Any] = {
     "libero": _encode_obs_libero,
     "franka": _encode_obs_franka,
     "dual_franka": _encode_obs_dual_franka,
+    "yam": _encode_obs_yam,
 }
 
 
@@ -174,5 +200,5 @@ class Pi05VLAClient(BaseVLAClient):
     def predict(self, env_obs: dict, options: dict | None = None) -> np.ndarray:
         """Encode obs, request ``vla.predict``, strip batch dim, return ``[chunk, action_dim]``."""
         openpi_obs = self.encode_obs(env_obs)
-        actions = super().predict(openpi_obs, options)
-        return np.asarray(actions)[0]
+        actions = np.asarray(super().predict(openpi_obs, options))
+        return actions[0]

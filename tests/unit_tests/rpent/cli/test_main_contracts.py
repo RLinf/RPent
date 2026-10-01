@@ -77,6 +77,7 @@ def _capture_validated_args(
     def get_robot_spec(name: str):
         captured["robot_name"] = name
         return SimpleNamespace(
+            name=name,
             add_cli_args=add_cli_args,
             parse_config=parse_config,
             supports_exploration=name == "libero",
@@ -354,6 +355,7 @@ def test_real_robot_terminal_requirement_fails_before_runtime(
     cli = _cli_module()
     spec = SimpleNamespace(
         is_real_robot=True,
+        dashboard=None,
         add_cli_args=lambda parser, use_dashboard: None,
     )
     monkeypatch.setattr(cli, "get_robot_spec", lambda name: spec)
