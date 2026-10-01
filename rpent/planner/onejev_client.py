@@ -30,13 +30,10 @@ DEFAULT_ONEJEV_MODEL = "OneJev-9B"
 
 @dataclass(frozen=True)
 class ChoiceScores:
-    """Validated scores and diagnostic metadata for a candidate choice."""
+    """Validated scores and token usage for a candidate choice."""
 
     probabilities: dict[str, float]
-    confidence: float
     usage: dict[str, int]
-    request_id: str | None
-    metadata: dict[str, Any]
 
 
 class OneJevClient:
@@ -177,16 +174,6 @@ class OneJevClient:
             probabilities[candidate_id] = probability
         if not math.isclose(sum(probabilities.values()), 1.0, abs_tol=0.001):
             raise ValueError("OneJev probabilities do not sum to one")
-        choice = answer.get("choice")
-        if not isinstance(choice, str) or choice not in probabilities:
-            raise ValueError("OneJev returned an unknown choice")
-        if probabilities[choice] + 0.000001 < max(probabilities.values()):
-            raise ValueError("OneJev choice disagrees with its probabilities")
-        confidence = answer.get("confidence")
-        if isinstance(confidence, bool) or not isinstance(confidence, (int, float)):
-            raise ValueError("OneJev confidence must be a number")
-        if not math.isfinite(confidence) or not 0 <= confidence <= 1:
-            raise ValueError("OneJev confidence must be finite and in [0, 1]")
         usage = body.get("usage", {})
         if not isinstance(usage, dict):
             raise ValueError("OneJev usage must be an object")
@@ -196,13 +183,7 @@ class OneJevClient:
             if isinstance(value, bool) or not isinstance(value, int) or value < 0:
                 raise ValueError("OneJev token usage must be nonnegative integers")
             counts[key] = value
-        metadata = body.get("qev", {})
-        if not isinstance(metadata, dict):
-            raise ValueError("OneJev metadata must be an object")
         return ChoiceScores(
             probabilities=probabilities,
-            confidence=float(confidence),
             usage=counts,
-            request_id=response.headers.get("x-typesafe-request-id"),
-            metadata=metadata,
         )

@@ -27,7 +27,7 @@ then point at it via ``PI05_CHECKPOINT_PATH``:
 SAM3 configuration
 ------------------
 
-SAM 3.0 segmentation is enabled for every LIBERO run. Download ``sam3.pt``
+SAM 3.0 segmentation is enabled for LIBERO runs except ``--planner onejev``. Download ``sam3.pt``
 from `Hugging Face: facebook/sam3 <https://huggingface.co/facebook/sam3>`_
 or `ModelScope: facebook/sam3 <https://modelscope.cn/models/facebook/sam3>`_,
 then point at it via ``SAM3_CHECKPOINT_PATH``:
@@ -313,3 +313,130 @@ Reproduction command:
      --libero-type pro \
      --vla-endpoint http://127.0.0.1:8220 \
      --sam3-endpoint http://127.0.0.1:8114
+
+OneJev decision backend
+-----------------------
+
+``--planner onejev`` uses an external OneJev-9B System One service to score
+fully parameterized actions computed by the LIBERO adapter. RPent executes
+the highest-scoring candidate through its existing toolkit. Pi0.5 performs
+grasps and drawer contact; scripted primitives perform transport, lowering
+and release.
+
+Start the two processes in separate terminals from the source checkout:
+
+.. code-block:: bash
+
+   # Terminal 1: uses the already installed .venv-onejev environment.
+   bash script/setup-one-jev.sh
+
+   # Terminal 2: uses the existing RPent .venv environment.
+   bash script/run-one-jev.sh
+
+The default service URL is ``http://127.0.0.1:8008`` and its served model name
+is ``OneJev-9B``. The run script defaults to ``libero_spatial``, task 0, seed 0,
+using LIBERO-PRO. Override ``ONEJEV_SUITE``, ``ONEJEV_TASK``, ``ONEJEV_SEED``
+and ``ONEJEV_BASE_URL`` in the environment as needed. The run script checks
+service readiness and executes a small Choice request before starting Env/VLA.
+
+Set ``ONEJEV_ROUNDS`` to run multiple independent rollouts (default 10).
+Seeds start at ``ONEJEV_SEED`` and increase by ``ONEJEV_SEED_STEP`` per
+round (default 1). Set the step to 0 to repeat the same environment seed:
+
+.. code-block:: bash
+
+   ONEJEV_ROUNDS=3 ONEJEV_SEED=0 bash script/run-one-jev.sh
+
+Pi0.5 is started once and shared across rounds. Each round launches the normal
+RPent CLI with a fresh public-only Env. Logs default to
+``logs/libero_pro_one_jev/<suite>-<task>/<YYYYMMDD-HHMMSS>/``:
+
+.. code-block:: text
+
+   libero_spatial-0/20260929-180000/
+     round_001_seed_0/
+     round_002_seed_1/
+     round_003_seed_2/
+     summary.json
+     vla_server.log
+     run.log
+     round_001_seed_0.console.log
+     ...
+
+``ONEJEV_OUTPUT_DIR`` overrides the log root; the suite/task and timestamp
+directories are still added. A timestamp collision adds microseconds to the
+directory name. Each round directory contains its Env log, RPent log,
+transcript, state/image artifacts and episode video. The top-level console
+logs also capture failures before CLI logging is ready; their paths are in
+``summary.json``. With a borrowed ``--vla-endpoint``, that server retains its
+own log rather than creating a local ``vla_server.log``.
+
+``summary.json`` is updated atomically as rounds start and finish. It records
+the task instruction from public observations, each round's seed, native
+success, status, error, exit code, finish state, usage and artifact paths.
+No observed episode means ``success: null``. Ordinary round failures allow
+the next round to run; interruption ends the batch and preserves completed
+results. An incomplete batch has no aggregate success rate. The batch stops
+the Pi0.5 service it owns; the external OneJev service stays running.
+
+This mode starts only Env and Pi0.5. It uses run-local artifacts without
+loading a memory corpus, and does not start SAM3 or Molmo. OneJev dependencies
+remain in their separate environment; the RPent client uses HTTP only.
+The Env server is started with ``--public-observations-only``. It exposes
+RGB-D, robot state, camera calibration and public episode termination flags;
+it omits private object state, segmentation, contact data and reward/info
+payloads. A borrowed ``--env-endpoint`` must have the same public mode and
+suite/task/seed settings. It does not expose the full ``env.raw_obs`` route.
+
+The adapter in ``robots/libero/onejev/`` supports opening or closing a named
+drawer and placing one or more named objects in the same basket, bowl, plate
+or tray. It preserves spatial descriptions such as ``between ... and ...``
+as one object, and rejects unsupported verbs and separate task stages.
+Drawer tasks use bounded Pi0.5 contact actions. Placement tasks use RGB-D
+rules to propose destinations; those rules do not identify objects. OneJev
+compares the marked RGB regions against the task. Missing geometry stops a
+placement run before a grasp. Native LIBERO termination alone establishes
+task success.
+
+Optionally provide ``--onejev-config /path/to/config.json`` or set
+``ONEJEV_CONFIG`` for the run script. ``target_roi`` is an operator-supplied
+RGB region in normalized ``[row_min, col_min, row_max, col_max]`` coordinates.
+Other settings include workspace bounds, grasp and drawer-contact budgets,
+carry clearance and
+EEF/object offset. These are explicit control priors, not simulator-derived
+object geometry. For example, a configuration may contain:
+
+.. code-block:: json
+
+   {
+     "target_roi": [0.2, 0.2, 0.8, 0.8],
+     "pick_max_chunks": 24,
+     "eef_object_offset": 0.09
+   }
+
+The ROI above is an illustrative image region, not a calibrated task preset.
+Inspect the saved public RGB before choosing one. Each round stores three
+decision trace files as JSON arrays with 4-space indentation:
+
+- ``onejev_state.json``: the exact state supplied on each OneJev call.
+- ``onejev_question.json``: the question, instructions and fully parameterized
+  options supplied on that call.
+- ``onejev_decision.json``: the original service output, HTTP status, latency,
+  selected candidate ID, ``selected_tool_name``, execution result and any error.
+
+The ``turn`` field joins these records within a rollout. Requests are saved
+before HTTP; responses are saved before validation and motion, including
+invalid responses. PNG images remain in the step artifacts; base64 data is
+not duplicated in the traces. These files are standard JSON arrays, so
+``json.load`` can read them and ``grep`` can find fields on their own lines.
+Older ``onejev_decisions.jsonl`` logs remain untouched. Placement steps save
+``onejev_geometry.json`` and ``onejev_regions.png`` for the measurements and
+marked regions; drawer steps use the unmarked public RGB views.
+``onejev_outcome.json`` records termination and usage.
+Native environment completion determines success. Clean process exit and a
+grasp heuristic are separate from task success.
+
+The first version supports non-interactive CLI evaluation. Exploration,
+Dashboard control, interactive task changes and ``--no-images`` are rejected.
+A planner deadline requests toolkit cancellation at existing safe boundaries;
+an in-flight simulator or VLA RPC may finish before cancellation takes effect.

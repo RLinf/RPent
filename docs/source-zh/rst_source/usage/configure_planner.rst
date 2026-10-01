@@ -5,9 +5,10 @@ RPent 通过一个 CLI 参数选择 Agentic Planner 的后端：
 
 .. code-block:: bash
 
-   --planner {api, claude_code, codex}
+   --planner {api, claude_code, codex, flash, onejev}
 
-三种 planner 接收相同的系统提示词和用户提示词，也使用同一套 RPent 工具定义。\
+``api``、``claude_code`` 和 ``codex`` 接收相同的系统提示词和用户提示词，\
+也使用同一套 RPent 工具定义。\
 它们的区别在于如何将这些工具接入模型、如何组织工具调用循环，以及使用哪个模型
 SDK。
 
@@ -40,6 +41,11 @@ SDK。
        :doc:`flash`。
      - 想在新布局上低成本地重跑一个已知可行的方案，无需 LLM 在线规划；\
        仍需要感知和 VLA 服务。
+   * - ``onejev``
+     - 通过外部 OneJev System One 服务为机器人代码生成的动作评分。\
+       当前适配器支持 LIBERO 的 CLI 评测。
+     - 希望 OneJev-9B 在参数已确定的动作中作选择，\
+       动作参数由代码根据任务文字和公开观测计算。
 
 ``api`` planner（直接调用模型 API）
 -------------------------------------
@@ -302,3 +308,14 @@ agent SDK，可以继承 ``rpent.planner.base.Planner``，实现抽象方法 ``s
 模型调用 ``finish`` 工具后，planner 会记录相应的结束状态。达到轮数上限或\
 超时时，运行结束，主程序仍会保存 transcript。超时或 SDK 异常会写入
 planner 结果，并输出到日志。
+
+``onejev`` planner：有限动作决策
+---------------------------------
+
+``--planner onejev --model OneJev-9B --base-url http://127.0.0.1:8008``
+使用外部 System One API。机器人适配器计算所有候选动作的完整参数，OneJev 返回概率，RPent 通过 Toolkit 执行 argmax 对应动作。
+``rpent-check-llm --planner onejev --base-url http://127.0.0.1:8008``
+检查服务状态、模型名，并实际取得一条 Choice 响应。RPent 环境无需安装模型包或配置模型 API key。
+
+当前提供 LIBERO 适配器，支持非交互 evaluation。两个终端的启动脚本、公开观测边界、支持的任务及配置见 :doc:`libero`。机器人通过
+``RobotSpec.create_onejev_adapter`` 注册适配器；LIBERO 的感知和候选规则放在 ``robots/libero/onejev/`` 中，通用 planner 只负责决策循环。

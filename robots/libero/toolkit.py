@@ -31,7 +31,7 @@ from rpent.tools.toolkit import Toolkit, readonly
 from rpent.utils.logging import get_logger, get_output_dir
 
 if TYPE_CHECKING:
-    from robots.libero.onjev.config import OneJevConfig
+    from robots.libero.onejev.config import OneJevConfig
     from rpent.memory.manager import MemoryManager
 
 logger = get_logger("libero_toolkit")

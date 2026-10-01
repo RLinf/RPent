@@ -19,9 +19,9 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from robots.libero.onjev.config import OneJevConfig
-from robots.libero.onjev.geometry import Region, in_workspace
-from robots.libero.onjev.task_parser import DrawerTask, PickPlaceTask
+from robots.libero.onejev.config import OneJevConfig
+from robots.libero.onejev.geometry import Region, in_workspace
+from robots.libero.onejev.task_parser import DrawerTask, PickPlaceTask
 from rpent.planner.onejev_types import ActionCandidate
 
 
@@ -30,8 +30,6 @@ class Progress:
     """Episode-local hypotheses derived from primitive and observation evidence."""
 
     held: bool = False
-    pick_attempts: int = 0
-    placement_attempts: int = 0
     no_progress: int = 0
     destination_xyz: tuple[float, float, float] | None = None
     active_object: str | None = None
@@ -147,15 +145,15 @@ def generate_candidates(
         eligible = [
             phrase
             for phrase in task.object_phrases
-            if progress.pick_attempts_by_object.get(phrase, 0) < config.max_pick_attempts
-            and progress.placement_attempts_by_object.get(phrase, 0)
+            if progress.pick_attempts_by_object[phrase] < config.max_pick_attempts
+            and progress.placement_attempts_by_object[phrase]
             < config.max_placement_attempts
         ]
         if not eligible:
             return CandidateSet((), {}, {})
         # Give each requested object a placement attempt before offering retries.
         fewest_placements = min(
-            progress.placement_attempts_by_object.get(phrase, 0) for phrase in eligible
+            progress.placement_attempts_by_object[phrase] for phrase in eligible
         )
         retreat_z = (
             max(region.rim_z for region in regions)
@@ -164,7 +162,10 @@ def generate_candidates(
             if regions
             else eef[2]
         )
-        if progress.placement_attempts and eef[2] < retreat_z - config.move_tolerance:
+        if (
+            any(progress.placement_attempts_by_object.values())
+            and eef[2] < retreat_z - config.move_tolerance
+        ):
             move(
                 np.array([eef[0], eef[1], retreat_z]),
                 "Lift the open gripper vertically clear of the observed receptacle before grasping another object.",
@@ -179,7 +180,7 @@ def generate_candidates(
         else:
             for object_phrase in eligible:
                 if (
-                    progress.placement_attempts_by_object.get(object_phrase, 0)
+                    progress.placement_attempts_by_object[object_phrase]
                     != fewest_placements
                 ):
                     continue

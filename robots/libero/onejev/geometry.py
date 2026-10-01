@@ -20,7 +20,7 @@ from dataclasses import asdict, dataclass
 import numpy as np
 from scipy import ndimage
 
-from robots.libero.onjev.config import OneJevConfig
+from robots.libero.onejev.config import OneJevConfig
 
 
 @dataclass(frozen=True)

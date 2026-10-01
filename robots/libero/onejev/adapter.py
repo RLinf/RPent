@@ -21,15 +21,15 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from robots.libero.onjev.candidates import (
+from robots.libero.onejev.candidates import (
     Progress,
     generate_candidates,
     generate_contact_candidates,
 )
-from robots.libero.onjev.config import OneJevConfig
-from robots.libero.onjev.geometry import mark_regions, propose_regions
-from robots.libero.onjev.prompts import CONTACT_INSTRUCTIONS, INSTRUCTIONS
-from robots.libero.onjev.task_parser import DrawerTask, PickPlaceTask, parse_task
+from robots.libero.onejev.config import OneJevConfig
+from robots.libero.onejev.geometry import mark_regions, propose_regions
+from robots.libero.onejev.prompts import CONTACT_INSTRUCTIONS, INSTRUCTIONS
+from robots.libero.onejev.task_parser import DrawerTask, PickPlaceTask, parse_task
 from rpent.planner.onejev_types import ActionCandidate, DecisionContext
 from rpent.tools.toolkit import ToolResult
 
@@ -54,13 +54,11 @@ class LiberoOneJevAdapter:
             raise ValueError("LIBERO did not provide a public task instruction")
         self._task = parse_task(instruction)
         objects = (
-            self._task.object_phrases
-            if isinstance(self._task, PickPlaceTask)
-            else ()
+            self._task.object_phrases if isinstance(self._task, PickPlaceTask) else ()
         )
         self._progress = Progress(
-            pick_attempts_by_object={phrase: 0 for phrase in objects},
-            placement_attempts_by_object={phrase: 0 for phrase in objects},
+            pick_attempts_by_object=dict.fromkeys(objects, 0),
+            placement_attempts_by_object=dict.fromkeys(objects, 0),
         )
         self._destinations = {}
         self._pick_objects: dict[str, str] = {}
@@ -75,7 +73,9 @@ class LiberoOneJevAdapter:
             raise RuntimeError("LIBERO lost its public observation record")
         summary = {
             "task": self._task.instruction,
-            "task_type": "drawer" if isinstance(self._task, DrawerTask) else "placement",
+            "task_type": "drawer"
+            if isinstance(self._task, DrawerTask)
+            else "placement",
             "step_idx": record.step_idx,
         }
         if isinstance(self._task, PickPlaceTask):
@@ -297,13 +297,11 @@ class LiberoOneJevAdapter:
         )
         if action.tool_name == "pi0_pick":
             pick_object = self._pick_objects[action.id]
-            self._progress.pick_attempts += 1
             self._progress.pick_attempts_by_object[pick_object] += 1
         elif action.tool_name == "release":
             release_object = self._progress.active_object
             if release_object is None:
                 raise RuntimeError("Release has no active object hypothesis")
-            self._progress.placement_attempts += 1
             self._progress.placement_attempts_by_object[release_object] += 1
         elif action.tool_name == "pi0_doubled":
             self._progress.contact_attempts += 1
@@ -324,9 +322,7 @@ class LiberoOneJevAdapter:
                 <= opening
                 <= self._config.max_gripper_opening
             )
-            self._progress.active_object = (
-                pick_object if self._progress.held else None
-            )
+            self._progress.active_object = pick_object if self._progress.held else None
             self._progress.destination_xyz = None
             self._progress.no_progress = (
                 0 if self._progress.held else self._progress.no_progress + 1
@@ -337,7 +333,6 @@ class LiberoOneJevAdapter:
                 self._progress.held = False
                 self._progress.active_object = None
                 self._progress.destination_xyz = None
-                self._progress.pick_attempts = 0
                 self._progress.pick_attempts_by_object[release_object] = 0
                 self._progress.no_progress = 0
             else:

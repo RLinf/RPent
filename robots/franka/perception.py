@@ -346,6 +346,79 @@ def _normalize_camera_alias(camera: str) -> str:
     raise ValueError("unsupported camera; use 'wrist' or 'third_person'")
 
 
+def project_depth_pixels_to_base(
+    *,
+    depth: np.ndarray,
+    rows: np.ndarray,
+    cols: np.ndarray,
+    meta: dict[str, Any],
+    camera: str,
+    tcp_pose: list[float] | tuple[float, ...] | np.ndarray,
+    calibration: dict[str, Any],
+) -> tuple[np.ndarray, np.ndarray]:
+    """Project a batch of depth pixels with the same Franka camera transforms.
+
+    Invalid depth or out-of-bounds pixels retain their position in the output
+    as NaN points with a false validity flag.
+    """
+    depth_array = np.asarray(depth, dtype=np.float64)
+    row_array = np.asarray(rows)
+    col_array = np.asarray(cols)
+    if depth_array.ndim != 2:
+        raise ValueError("depth must be a 2D array")
+    if row_array.ndim != 1 or row_array.shape != col_array.shape:
+        raise ValueError("rows and cols must be matching 1D arrays")
+    if not np.issubdtype(row_array.dtype, np.integer) or not np.issubdtype(
+        col_array.dtype, np.integer
+    ):
+        raise ValueError("rows and cols must contain integers")
+
+    alias = _normalize_camera_alias(camera)
+    camera_key, camera_name = _resolve_camera_alias(meta, alias)
+    camera_meta = _camera_meta_for_key(meta, camera_key, camera_name)
+    intrinsic = np.asarray(camera_meta.get("intrinsic_K"), dtype=np.float64)
+    if intrinsic.shape != (3, 3) or not np.isfinite(intrinsic).all():
+        raise ValueError(f"intrinsic_K missing for camera {camera_name}")
+    intrinsic_inverse = np.linalg.inv(intrinsic)
+    calibration_key = "wrist" if alias == "wrist" else "external"
+    camera_to_target = np.asarray(
+        calibration[calibration_key]["matrix"], dtype=np.float64
+    )
+    if camera_to_target.shape != (4, 4) or not np.isfinite(camera_to_target).all():
+        raise ValueError(f"invalid {calibration_key} camera calibration")
+    camera_to_base = (
+        pose7_to_matrix(tcp_pose) @ camera_to_target
+        if alias == "wrist"
+        else camera_to_target
+    )
+
+    points = np.full((len(row_array), 3), np.nan, dtype=np.float64)
+    valid = (
+        (row_array >= 0)
+        & (row_array < depth_array.shape[0])
+        & (col_array >= 0)
+        & (col_array < depth_array.shape[1])
+    )
+    indices = np.flatnonzero(valid)
+    if not len(indices):
+        return points, valid
+    depths = depth_array[row_array[indices], col_array[indices]]
+    depth_valid = np.isfinite(depths) & (depths > 0) & (depths <= 10)
+    valid[indices] = depth_valid
+    indices = indices[depth_valid]
+    if len(indices):
+        pixels = np.column_stack(
+            (col_array[indices], row_array[indices], np.ones(len(indices)))
+        )
+        camera_points = (pixels @ intrinsic_inverse.T) * depths[depth_valid, None]
+        points[indices] = (
+            camera_points @ camera_to_base[:3, :3].T + camera_to_base[:3, 3]
+        )
+        valid[indices] = np.isfinite(points[indices]).all(axis=1)
+        points[~valid] = np.nan
+    return points, valid
+
+
 def _back_project_one_correspondence(
     *,
     meta: dict[str, Any],

@@ -24,21 +24,10 @@ class PickPlaceTask:
     """Object phrases sharing the destination relation in the public task."""
 
     instruction: str
-    object_phrase: str
+    object_phrases: tuple[str, ...]
     destination_phrase: str
     relation: str
     receptacle: str
-    additional_objects: tuple[str, ...] = ()
-
-    @property
-    def object_phrases(self) -> tuple[str, ...]:
-        """Return the individual objects to grasp and place separately."""
-        return (self.object_phrase, *self.additional_objects)
-
-    @property
-    def pick_prompt(self) -> str:
-        """Return a grasp-only instruction for the existing Pi0.5 primitive."""
-        return f"pick up {self.object_phrase}"
 
 
 @dataclass(frozen=True)
@@ -57,9 +46,7 @@ def parse_task(instruction: str) -> PickPlaceTask | DrawerTask:
     separate task stages and ambiguous destination types fail before motion.
     """
     text = " ".join(instruction.strip().split())
-    drawer = re.fullmatch(
-        r"(open|close)\s+(.+?)[.!]?", text, flags=re.IGNORECASE
-    )
+    drawer = re.fullmatch(r"(open|close)\s+(.+?)[.!]?", text, flags=re.IGNORECASE)
     if drawer is not None:
         verb, target = drawer.groups()
         if re.search(r"\bdrawer\b", target, flags=re.IGNORECASE) and not re.search(
@@ -120,9 +107,8 @@ def parse_task(instruction: str) -> PickPlaceTask | DrawerTask:
         raise ValueError("OneJev requires one explicit supported destination type")
     return PickPlaceTask(
         instruction=text,
-        object_phrase=objects[0],
+        object_phrases=tuple(objects),
         destination_phrase=destination,
         relation=relation.lower(),
         receptacle=found[0].lower(),
-        additional_objects=tuple(objects[1:]),
     )

@@ -29,7 +29,7 @@ def system_prompt(
 ) -> PromptNode:
     """Assemble the LIBERO system prompt for the selected run mode."""
     if (variables or {}).get("planner") == "onejev":
-        from robots.libero.onjev.prompts import INSTRUCTIONS
+        from robots.libero.onejev.prompts import INSTRUCTIONS
 
         return {"DECISION": INSTRUCTIONS}
     if (variables or {}).get("mode", "eval") == "explore":

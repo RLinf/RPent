@@ -117,7 +117,7 @@ def _run_flash(toolkit, cell_tag: str, note) -> dict:
 
 def _create_onejev_adapter(toolkit):
     """Create the public-observation adapter after the toolkit is initialized."""
-    from robots.libero.onjev.adapter import LiberoOneJevAdapter
+    from robots.libero.onejev.adapter import LiberoOneJevAdapter
 
     return LiberoOneJevAdapter(toolkit)
 
@@ -162,7 +162,7 @@ def get_toolkit(
 
     onejev_config = None
     if config.prompt_vars.get("planner") == "onejev":
-        from robots.libero.onjev.config import OneJevConfig
+        from robots.libero.onejev.config import OneJevConfig
 
         onejev_config = OneJevConfig.load(config.prompt_vars.get("onejev_config_path"))
     explore = mode == "exploration"
@@ -296,7 +296,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         raise ValueError("--task is required")
     planner = getattr(args, "planner", None)
     if planner == "onejev":
-        from robots.libero.onjev.config import OneJevConfig
+        from robots.libero.onejev.config import OneJevConfig
 
         OneJevConfig.load(getattr(args, "onejev_config", None))
     if planner == "flash":

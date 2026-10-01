@@ -26,7 +26,7 @@ VLA 配置
 SAM3 配置
 ---------
 
-每次 LIBERO 运行都默认启用 SAM 3.0 分割。从
+除 ``--planner onejev`` 外，每次 LIBERO 运行都默认启用 SAM 3.0 分割。从
 `Hugging Face: facebook/sam3 <https://huggingface.co/facebook/sam3>`_ 或
 `ModelScope: facebook/sam3 <https://modelscope.cn/models/facebook/sam3>`_
 下载 ``sam3.pt``，再通过 ``SAM3_CHECKPOINT_PATH`` 指定本地 checkpoint：
@@ -290,3 +290,92 @@ Long 复现结果使用
      --libero-type pro \
      --vla-endpoint http://127.0.0.1:8220 \
      --sam3-endpoint http://127.0.0.1:8114
+
+OneJev 决策后端
+-----------------
+
+``--planner onejev`` 调用外部 OneJev-9B System One 服务，对 LIBERO 适配器已确定参数的动作评分。RPent 通过现有 Toolkit 执行最高分候选。Pi0.5 负责抓取和抽屉接触操作，scripted primitive 负责搬运、下降和松爪。
+
+从源码仓库根目录，在两个独立终端启动：
+
+.. code-block:: bash
+
+   # 终端 1：使用已经安装好的 .venv-onejev。
+   bash script/setup-one-jev.sh
+
+   # 终端 2：使用已有的 RPent .venv。
+   bash script/run-one-jev.sh
+
+默认服务地址为 ``http://127.0.0.1:8008``，服务模型名为 ``OneJev-9B``。运行脚本默认运行 LIBERO-PRO 的 ``libero_spatial`` task 0、seed 0。可通过环境变量
+``ONEJEV_SUITE``、``ONEJEV_TASK``、``ONEJEV_SEED`` 和 ``ONEJEV_BASE_URL``
+覆盖这些设置。运行脚本在启动 Env/VLA 前检查服务状态，并实际发送一条小型 Choice 请求。
+
+通过 ``ONEJEV_ROUNDS`` 设置独立 rollout 的次数，默认 10 次。seed 从
+``ONEJEV_SEED`` 开始，每轮增加 ``ONEJEV_SEED_STEP``，默认步长为 1；
+设为 0 可重复同一个环境 seed。例如：
+
+.. code-block:: bash
+
+   ONEJEV_ROUNDS=3 ONEJEV_SEED=0 bash script/run-one-jev.sh
+
+Pi0.5 只启动一次，供所有 round 复用；每轮通过原有 RPent CLI 启动新的公开观测
+Env。日志默认保存在
+``logs/libero_pro_one_jev/<suite>-<task>/<YYYYMMDD-HHMMSS>/``：
+
+.. code-block:: text
+
+   libero_spatial-0/20260929-180000/
+     round_001_seed_0/
+     round_002_seed_1/
+     round_003_seed_2/
+     summary.json
+     vla_server.log
+     run.log
+     round_001_seed_0.console.log
+     ...
+
+``ONEJEV_OUTPUT_DIR`` 覆盖日志根目录，仍会添加 suite/task 和时间子目录；
+同秒目录冲突时增加微秒后缀。每轮目录包含 Env 日志、RPent 日志、transcript、
+状态与图像产物以及 episode 视频。顶层 console 日志还保留 CLI 日志初始化前的错误，
+路径记录在 ``summary.json`` 中。借用 ``--vla-endpoint`` 时沿用外部服务自己的日志，
+不创建本地 ``vla_server.log``。
+
+``summary.json`` 在每轮开始和结束时原子更新，记录公开观测中的 task instruction、
+每轮 seed、native success、状态、错误、退出码、finish、用量和产物路径。
+未取得 episode 观测时 ``success`` 为 ``null``。普通 round 失败后继续下一轮；
+中断则结束批次并保留已完成结果，未完成批次不计算总体成功率。
+批次退出时清理自己启动的 Pi0.5 服务，外部 OneJev 服务保持运行。
+
+该模式只启动 Env 和 Pi0.5，使用本次运行的产物，不加载 memory 语料，也不启动 SAM3 或 Molmo。OneJev 的依赖保留在独立环境，RPent Client 仅使用 HTTP。Env 服务以 ``--public-observations-only`` 启动，只返回 RGB-D、机器人状态、相机标定和公开 episode 终止标志，不返回对象私有状态、分割、接触真值或
+reward/info 内容。借用 ``--env-endpoint`` 时，服务必须具有相同的公开观测模式及
+suite/task/seed 设置；此模式不暴露完整的 ``env.raw_obs`` 路由。
+
+``robots/libero/onejev/`` 中的适配器支持打开或关闭指定抽屉，也支持将一个或多个对象放进同一个 basket、bowl、plate 或 tray。它把 ``between ... and ...`` 等空间描述保留为单个对象，拒绝未支持的动词和独立的多阶段任务。抽屉任务使用有次数上限的 Pi0.5 接触动作；放置任务从 RGB-D 生成目标区域候选，不能据此确认物体身份。OneJev 根据带标记的 RGB 和任务选择动作。放置任务缺少几何候选时，会在抓取前停止；任务成功仅以 LIBERO 原生终止信号为准。
+
+可使用 ``--onejev-config /path/to/config.json``，或为运行脚本设置
+``ONEJEV_CONFIG``。其中 ``target_roi`` 是操作者从 RGB 指定的区域，采用归一化的 ``[row_min, col_min, row_max, col_max]`` 坐标。其他配置包括工作空间、抓取与抽屉接触预算、携带余量及 EEF/物体偏移。这些都是明确的控制先验，不来自模拟器对象几何。配置示例：
+
+.. code-block:: json
+
+   {
+     "target_roi": [0.2, 0.2, 0.8, 0.8],
+     "pick_max_chunks": 24,
+     "eef_object_offset": 0.09
+   }
+
+示例 ROI 仅用于说明格式，并非某个任务的已标定区域；应先查看保存的公开 RGB 再指定。
+每个 round 的 decision trace 拆为三个正常 JSON 数组文件，每条记录使用 4 空格缩进：
+
+- ``onejev_state.json``：每次调用实际提供给 OneJev 的 state。
+- ``onejev_question.json``：实际 question、instructions 和参数已完整确定的选项。
+- ``onejev_decision.json``：服务原始输出、HTTP 状态、延迟、选中的候选 ID、``selected_tool_name``、执行结果及错误。
+
+同一 rollout 内通过 ``turn`` 字段对应记录。请求在 HTTP 调用前保存，响应在校验和动作前保存，
+异常响应也会保留。PNG 图像仍存放在各步产物中，trace 不重复存放 base64。
+这三个文件可直接用 ``json.load`` 读取，也可用 ``grep`` 查找独立行中的字段；
+历史 ``onejev_decisions.jsonl`` 日志不会被改写。放置步骤生成的
+``onejev_geometry.json`` 和 ``onejev_regions.png`` 记录测量来源与区域标记；
+抽屉步骤使用未标记的公开 RGB 图像。``onejev_outcome.json`` 记录终止状态和用量。成功以环境的 native completion 为准，进程正常退出和抓取启发式不代表任务成功。
+
+首版支持非交互 CLI evaluation，拒绝 exploration、Dashboard、交互任务修改及
+``--no-images``。planner 超时通过现有 Toolkit 在安全边界请求取消；已经发出的模拟器或 VLA RPC 可能在取消生效前完成。

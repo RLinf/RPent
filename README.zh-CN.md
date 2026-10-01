@@ -72,6 +72,7 @@ RPent 面向以下四类用户：
         <ul style="margin-left: 0; padding-left: 16px;">
           <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/configure_planner.html#claude-code-planner">Claude Code</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/configure_planner.html#codex-planner">Codex</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/libero.html#onejev">OneJev（LIBERO-PRO）</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/configure_planner.html#planner">Custom Planner</a> ✅</li>
         </ul>
       </td>
@@ -179,7 +180,7 @@ rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
   --cuda-device 0 --planner claude_code --model claude-opus-4-8
 ```
 
-其他规划器（`api`、`codex`）与模型提供商的配置见[规划器文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/configure_planner.html)。
+其他规划器（`api`、`codex`）与模型提供商的配置见[规划器文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/configure_planner.html)。[LIBERO OneJev 指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/libero.html#onejev)说明了独立模型服务的启动方式和支持的任务范围。
 探索模式与本地 memory 评测详见 [LIBERO 文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/libero.html)。
 
 ### 交互模式

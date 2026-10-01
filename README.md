@@ -72,6 +72,7 @@ RPent is built for four kinds of users:
         <ul style="margin-left: 0; padding-left: 16px;">
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/configure_planner.html#the-claude-code-planner">Claude Code</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/configure_planner.html#the-codex-planner">Codex</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/libero.html#onejev-decision-backend">OneJev (LIBERO-PRO)</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/usage/configure_planner.html#add-a-custom-planner">Custom Planner</a> ✅</li>
         </ul>
       </td>
@@ -178,7 +179,7 @@ rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
   --cuda-device 0 --planner claude_code --model claude-opus-4-8
 ```
 
-See the [planner docs](https://rpent.readthedocs.io/en/latest/rst_source/usage/configure_planner.html) to configure other planners (`api`, `codex`) and model providers.
+See the [planner docs](https://rpent.readthedocs.io/en/latest/rst_source/usage/configure_planner.html) to configure other planners (`api`, `codex`) and model providers. The [LIBERO OneJev guide](https://rpent.readthedocs.io/en/latest/rst_source/usage/libero.html#onejev-decision-backend) covers its separate model service and supported task scope.
 For the exploration workflow and local-memory evaluation, see [LIBERO exploration mode](https://rpent.readthedocs.io/en/latest/rst_source/usage/libero.html#exploration-and-local-memory-evaluation).
 
 ### Interactive CLI mode
