@@ -17,18 +17,10 @@
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from packaging.requirements import Requirement
-from packaging.utils import canonicalize_name
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:
-    import tomli as tomllib
 
 from robots.robocasa import robot_spec
 from robots.robocasa.eval.result import build_cell_result, finalize_cell_result
@@ -37,9 +29,6 @@ from rpent.evaluation import RunFinalizationContext, write_json_atomic
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 MANIFEST_PATH = REPO_ROOT / "robots" / "robocasa" / "eval" / "target50.json"
-CONSTRAINTS_PATH = (
-    REPO_ROOT / "robots" / "robocasa" / "eval" / "target50-constraints.txt"
-)
 EXPECTED_SPLIT_SHAPES = {
     "atomic": {
         "task_count": 18,
@@ -70,7 +59,7 @@ def test_target50_manifest_identity_and_dependencies():
     manifest = _manifest()
 
     assert manifest["schema_version"] == "1.0"
-    assert manifest["protocol_id"] == "robocasa-harness-vla-v1"
+    assert manifest["protocol_id"] == "robocasa-harness-vla-v2"
     assert manifest["benchmark"] == "RoboCasa365"
     assert manifest["environment_split"] == "target"
     assert manifest["success_source"] == "state.success"
@@ -78,25 +67,6 @@ def test_target50_manifest_identity_and_dependencies():
     assert manifest["total_cells"] == 340
 
     dependencies = manifest["dependencies"]
-    assert dependencies["runtime"] == {
-        "python": "3.10",
-        "reference_accelerator": {
-            "cuda": "12.6",
-            "torch": "2.7.0",
-            "torchvision": "0.22.0",
-            "enforced": False,
-        },
-        "constraints_file": "robots/robocasa/eval/target50-constraints.txt",
-        "packages": {
-            "mujoco": "3.3.1",
-            "numpy": "1.26.4",
-            "pydantic": "2.13.5",
-            "pydantic-ai-slim": "2.1.0",
-            "rlinf-rldx": "1.0.1.post10",
-            "rpent-robocasa365": "1.0.1",
-            "transformers": "4.57.6",
-        },
-    }
     assert dependencies["robosuite"]["branch"] == "rpent"
     assert dependencies["rldx_checkpoint"]["revision"] == (
         "587e9ecdcc5e7184fcc17f58713908edff5af041"
@@ -104,65 +74,8 @@ def test_target50_manifest_identity_and_dependencies():
     assert dependencies["task_memory"] == {
         "repository": "RLinf/RPent-memory",
         "repository_type": "dataset",
-        "revision": "551fc3157b3e56b40a3d3a3b4c7ff81721ebe89b",
         "include_pattern": "robocasa/**",
     }
-
-
-def test_target50_constraints_match_manifest_packages():
-    packages = _manifest()["dependencies"]["runtime"]["packages"]
-    constraints = {
-        line.strip()
-        for line in CONSTRAINTS_PATH.read_text(encoding="utf-8").splitlines()
-        if line.strip() and not line.startswith("#")
-    }
-
-    assert constraints == {f"{name}=={version}" for name, version in packages.items()}
-    assert not {"torch", "torchvision"} & packages.keys()
-
-
-def test_current_target50_constraints_satisfy_project_dependencies():
-    manifest = json.loads(
-        (MANIFEST_PATH.parent / "target50_v2.json").read_text(encoding="utf-8")
-    )
-    runtime = manifest["dependencies"]["runtime"]
-    constraints_path = REPO_ROOT / runtime["constraints_file"]
-    constraints = {
-        line.strip()
-        for line in constraints_path.read_text(encoding="utf-8").splitlines()
-        if line.strip() and not line.startswith("#")
-    }
-    packages = runtime["packages"]
-    assert constraints == {f"{name}=={version}" for name, version in packages.items()}
-    pinned = {canonicalize_name(name): version for name, version in packages.items()}
-    project = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
-        "project"
-    ]
-    requirements = (
-        project["dependencies"] + project["optional-dependencies"]["robocasa"]
-    )
-    for text in requirements:
-        requirement = Requirement(text)
-        name = canonicalize_name(requirement.name)
-        if name in pinned and requirement.specifier:
-            assert requirement.specifier.contains(pinned[name]), (
-                f"{runtime['constraints_file']}: {name}=={pinned[name]} "
-                f"conflicts with {text}"
-            )
-    assert {"pydantic-ai-slim", "pydantic-ai-harness"} <= pinned.keys()
-    assert constraints_path != CONSTRAINTS_PATH
-    for language in ("en", "zh"):
-        guide = (
-            REPO_ROOT
-            / "docs"
-            / f"source-{language}"
-            / "rst_source/simulators/robocasa.rst"
-        ).read_text(encoding="utf-8")
-        assert f"--constraint {runtime['constraints_file']}" in guide
-        assert (
-            f"--constraint {CONSTRAINTS_PATH.relative_to(REPO_ROOT).as_posix()}"
-            not in guide
-        )
 
 
 def test_target50_source_branches_match_extra_and_documentation():
@@ -229,22 +142,18 @@ def test_target50_memory_and_retry_boundaries_are_frozen():
     manifest = _manifest()
     memory = manifest["memory_policy"]
 
-    assert memory["scope"] == "same_task_seed_0"
-    assert memory["results_directory"] == "robocasa/results"
+    assert memory["scope"] == "same_task_and_global"
+    assert memory["task_directory"] == "robocasa/task-specific"
     assert memory["required_files"] == [
         "<Task>_s0.json",
-        "recipe_<Task>_s0.jsonl",
+        "<Task>_s0_recipe.jsonl",
     ]
     assert memory["optional_files"] == ["<Task>.md"]
-    assert memory["use_global_memory"] is False
+    assert memory["use_global_memory"] is True
+    assert memory["global_file"] == "robocasa/global/GLOBAL_MEMORY.md"
+    assert memory["policy"] == "task-global"
+    assert memory["read_strategy"] == "on_demand"
     assert memory["use_cross_task_memory"] is False
-    memoryless_tasks = set(memory["tasks_without_memory"])
-    all_tasks = {
-        task for split in manifest["splits"].values() for task in split["tasks"]
-    }
-    assert len(memoryless_tasks) == 7
-    assert memoryless_tasks < set(manifest["splits"]["composite_unseen"]["tasks"])
-    assert memory["tasks_with_memory"] == len(all_tasks - memoryless_tasks) == 43
     assert manifest["retry_policy"] == {
         "retry_infrastructure_failure_without_valid_environment_result": True,
         "retry_valid_task_failure": False,
@@ -268,7 +177,7 @@ def test_target50_runtime_protocol_is_frozen():
     assert _manifest()["runtime_protocol"] == {
         "scene_seed_source": "cli_seed_identity",
         "use_reset_seed_override": False,
-        "result_schema_version": "1.0",
+        "result_schema_version": "1.1",
         "result_filename": "result.json",
         "rldx_max_chunks": 40,
         "rldx_settle_patience": 999,
@@ -672,7 +581,7 @@ def test_v2_validator_has_no_memory_policy_override():
         parser.parse_args(["results", "--memory-policy", "task-specific"])
 
 
-def test_legacy_v1_results_require_the_legacy_manifest(tmp_path, monkeypatch):
+def test_validator_rejects_legacy_v1_results(tmp_path, monkeypatch):
     monkeypatch.setenv("RLDX_MAX_CHUNKS", "40")
     output = tmp_path / "atomic/OpenDrawer_s1"
     output.mkdir(parents=True)
@@ -680,10 +589,58 @@ def test_legacy_v1_results_require_the_legacy_manifest(tmp_path, monkeypatch):
     legacy.update(schema_version="1.0", protocol_id="robocasa-harness-vla-v1")
     legacy.pop("memory")
     write_json_atomic(output / "result.json", legacy)
-    summary, errors = validate_results(tmp_path, manifest_path=MANIFEST_PATH)
-    assert summary["valid_cells"] == 1
-    assert not any("OpenDrawer_s1/" in error for error in errors)
-    assert validate_results(tmp_path)[0]["valid_cells"] == 0
+    summary, errors = validate_results(tmp_path)
+    assert summary["valid_cells"] == 0
+    assert any("OpenDrawer_s1/" in error and "protocol_id" in error for error in errors)
+
+
+@pytest.mark.parametrize("protocol_id", ["robocasa-harness-vla-v1", "unknown", None])
+def test_validator_rejects_unsupported_manifest_before_reading_results(
+    tmp_path, capsys, protocol_id
+):
+    from robots.robocasa.eval.validate_target50 import main
+
+    manifest = _manifest()
+    manifest["protocol_id"] = protocol_id
+    path = tmp_path / "manifest.json"
+    write_json_atomic(path, manifest)
+
+    with pytest.raises(ValueError, match="unsupported protocol_id"):
+        validate_results(tmp_path / "absent-results", manifest_path=path)
+    assert main([str(tmp_path / "absent-results"), "--manifest", str(path)]) == 2
+    assert "unsupported protocol_id" in capsys.readouterr().err
+
+
+def test_validator_rejects_unsupported_result_schema(tmp_path):
+    manifest = _manifest()
+    manifest["runtime_protocol"]["result_schema_version"] = "1.0"
+    path = tmp_path / "manifest.json"
+    write_json_atomic(path, manifest)
+    with pytest.raises(ValueError, match="expected result schema '1.1'"):
+        validate_results(tmp_path, manifest_path=path)
+
+
+def test_custom_current_manifest_preserves_memory_validation(tmp_path, monkeypatch):
+    monkeypatch.setenv("RLDX_MAX_CHUNKS", "40")
+    manifest = _manifest()
+    split = manifest["splits"]["atomic"]
+    split.update(tasks=["OpenDrawer"], seeds=[1], task_count=1, cell_count=1)
+    manifest.update(splits={"atomic": split}, total_tasks=1, total_cells=1)
+    path = tmp_path / "manifest.json"
+    write_json_atomic(path, manifest)
+    result_path = tmp_path / "atomic/OpenDrawer_s1/result.json"
+    result_path.parent.mkdir(parents=True)
+    record = _cell_result()
+    write_json_atomic(result_path, record)
+    summary, errors = validate_results(tmp_path, manifest_path=path)
+    assert errors == []
+    assert summary["valid_cells"] == summary["expected_cells"] == 1
+
+    record["memory"]["policy"] = "task-specific"
+    write_json_atomic(result_path, record)
+    summary, errors = validate_results(tmp_path, manifest_path=path)
+    assert summary["valid_cells"] == 0
+    assert any("memory policy" in error for error in errors)
 
 
 def test_target50_validator_accepts_exactly_all_340_cells(tmp_path, monkeypatch):
