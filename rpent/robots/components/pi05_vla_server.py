@@ -105,6 +105,21 @@ PI05_EMBODIMENTS: dict[str, dict] = {
             "add_value_head": False,
         },
     },
+    "yam": {
+        "num_action_chunks": 30,
+        "action_dim": 14,
+        "num_steps": 5,
+        "precision": "bf16",
+        "openpi": {
+            "task": "eval",
+            "config_name": "pi05_yam_joint",
+            "num_images_in_input": 3,
+            "model_action_dim": 32,
+            "paligemma_variant": "gemma_2b",
+            "action_expert_variant": "gemma_300m",
+            "discrete_state_input": True,
+        },
+    },
 }
 
 PI05_ROBOT_PLATFORMS: dict[str, str] = {
@@ -211,6 +226,18 @@ class Pi05VLAFacade(BaseVLAFacade):
         )
         self._model = get_model(cfg, torch_dtype=None).cuda().eval()
         logger.info("model ready in %.1fs", time.time() - t0)
+
+    def _register_rpc(self):
+        super()._register_rpc()
+        if self._embodiment == "yam":
+            self._rpc["vla.get_model_meta"] = self.get_model_meta
+            self._readonly_methods.add("vla.get_model_meta")
+
+    def get_model_meta(self) -> dict:
+        """Return YAM policy identity separately from framework readiness."""
+        from robots.yam.contracts import vla_runtime_contract
+
+        return vla_runtime_contract()
 
     # ---- inference ----
 

@@ -36,9 +36,18 @@ EXPECTED_ROBOTS = (
     "robocasa",
     "robodojo",
     "robotwin",
+    "yam",
 )
 
 PROMPT_VARIABLES = {
+    "yam": {
+        "task_name": "tabletop_cleanup_a",
+        "seed": 0,
+        "recipe_tag": "yam_tabletop_cleanup_a_s0",
+        "instruction": "Move the object to the target",
+        "mode": "eval",
+        "memory_dir": "/memory",
+    },
     "libero": {
         "suite": "libero_object_task",
         "task": 2,

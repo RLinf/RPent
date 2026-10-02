@@ -141,6 +141,15 @@ robocasa = [
 flywheel = [
     "lerobot>=0.3.3,<0.4",
 ]
+yam = [
+    # Install the fixed RLinf YAM revision and i2rt SDK from the YAM guide.
+    # i2rt 1.1.2 requires click<8.2; huggingface-hub 2.x requires click>=8.4.
+    "huggingface_hub>=0.24,<1",
+    "omegaconf>=2.3,<3",
+    "mujoco>=3.2,<4",
+    "pyrealsense2>=2.55,<3",
+    "imageio-ffmpeg",
+]
 robotwin = [
     "rpent[rlinf]",
     "rlinf-robotwin-runtime==0.1.1",
@@ -214,12 +223,14 @@ include-package-data = true
 [tool.setuptools.packages.find]
 where = ["."]
 # robots is a top-level package; without it, non-editable installations
-# leave the CLI unable to import any backend.
-include = ["rpent*", "robots*"]
+# leave the CLI unable to import any backend. The globs also cover every
+# per-robot subpackage (robots.yam.*, robots.robodojo.*, ...).
+include = ["rpent*", "robots", "robots.*"]
 exclude = ["tests*", "docs*", "examples*", "docker*", "toolkits*"]
 
 [tool.setuptools.package-data]
 "rpent.dashboard" = ["*.html", "static/*.css", "static/*.js"]
+"robots.yam" = ["config/*.yaml", "guides/*.md"]
 
 [tool.pytest.ini_options]
 addopts = ["--import-mode=importlib"]

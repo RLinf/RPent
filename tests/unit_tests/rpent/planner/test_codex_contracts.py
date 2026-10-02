@@ -769,6 +769,47 @@ def test_rejected_finish_item_is_not_promoted() -> None:
     assert "finish" in rendered
 
 
+@pytest.mark.parametrize("wrapped", [False, True])
+@pytest.mark.parametrize(
+    "payload, is_error, accepted",
+    [
+        ({"_finish": True, "status": "failure"}, False, True),
+        ({"_finish": True, "status": "failure"}, True, False),
+        ({"status": "pending"}, False, False),
+        ({"_finish": False}, False, False),
+        ({"error": "verdict pending"}, False, False),
+    ],
+)
+def test_finish_uses_accepted_tool_result_over_requested_success(
+    wrapped, payload, is_error, accepted
+):
+    recorder = codex_module._Recorder(max_turns=2, dashboard_events=RecordingSink())
+    result = (
+        {
+            "isError": is_error,
+            "content": [{"type": "text", "text": json.dumps(payload)}],
+        }
+        if wrapped
+        else payload
+    )
+    recorder.observe(
+        {
+            "method": "item/completed",
+            "payload": {
+                "item": {
+                    "type": "mcpToolCall",
+                    "tool": "mcp__rpent__finish",
+                    "status": "failed" if is_error and not wrapped else "completed",
+                    "arguments": {"status": "success"},
+                    "result": result,
+                }
+            },
+        }
+    )
+    assert recorder.finish_result == (payload if accepted else None)
+    assert recorder.tool_calls == 1
+
+
 def test_fake_codex_backend_failure_stops_mcp_server(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1147,3 +1188,35 @@ def test_probe_returns_empty_string_when_the_model_said_nothing(
     )
 
     assert reply == ""
+
+
+def test_retry_error_is_visible_without_poisoning_successful_turn():
+    from rpent.planner.codex import _Recorder
+
+    sink = RecordingSink()
+    recorder = _Recorder(max_turns=2, dashboard_events=sink)
+    recorder.observe(
+        {
+            "method": "error",
+            "payload": {
+                "will_retry": True,
+                "error": {
+                    "message": "Reconnecting 4/5",
+                    "additional_details": "Broken pipe",
+                },
+            },
+        }
+    )
+    assert recorder.error is None
+    assert "Broken pipe" in str(sink.events[-1])
+    recorder.observe(
+        {
+            "method": "error",
+            "payload": {
+                "will_retry": False,
+                "error": {"message": "Retries exhausted"},
+            },
+        }
+    )
+    assert "Retries exhausted" in recorder.error
+    assert "Model connection failed" in str(sink.events[-1])
