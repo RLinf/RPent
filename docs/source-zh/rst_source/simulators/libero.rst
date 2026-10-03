@@ -26,7 +26,7 @@ LIBERO
 
    .. grid-item-card:: 规划器
 
-      ``api``、``claude_code``、``codex``；另见 :doc:`../guides/flash`。
+      ``api``、``claude_code``、``codex``、``onejev``；另见 :doc:`../guides/flash`。
 
    .. grid-item-card:: 任务
 
@@ -132,7 +132,7 @@ VLA 配置
 SAM3 配置
 ---------
 
-每次 LIBERO 运行都默认启用 SAM 3.0 分割。从 `Hugging Face: facebook/sam3 <https://huggingface.co/facebook/sam3>`_ 或 `ModelScope: facebook/sam3 <https://modelscope.cn/models/facebook/sam3>`_ 下载 ``sam3.pt``，再通过 ``SAM3_CHECKPOINT_PATH`` 指定本地 checkpoint：
+除 ``--planner onejev`` 外，LIBERO 运行默认启用 SAM 3.0 分割。从 `Hugging Face: facebook/sam3 <https://huggingface.co/facebook/sam3>`_ 或 `ModelScope: facebook/sam3 <https://modelscope.cn/models/facebook/sam3>`_ 下载 ``sam3.pt``，再通过 ``SAM3_CHECKPOINT_PATH`` 指定本地 checkpoint：
 
 .. code-block:: bash
 
@@ -280,3 +280,71 @@ Dashboard
 3. 如果可用工具需要调整（比如将 ``pi0_pick`` 改成 ``mymodel_pick``），相应更新 ``robots/libero/toolkit.py``。
 
 完整流程见 :doc:`../development/add_primitive`。
+
+OneJev 决策后端
+-----------------
+
+``--planner onejev`` 调用外部 OneJev-9B System One 服务，对 LIBERO 适配器已确定参数的动作评分。RPent 通过现有 Toolkit 执行最高分候选。Pi0.5 负责抓取和抽屉接触操作，scripted primitive 负责搬运、下降和松爪。
+
+在独立于 RPent 的工作目录安装 OneJev。以下路径均相对于该目录：
+
+.. code-block:: bash
+
+   git clone https://github.com/OmniJev/OneJev.git
+   uv venv .venv-onejev --python 3.11
+   uv pip install --python .venv-onejev/bin/python --torch-backend auto \
+     ./OneJev \
+     'transformers>=5.17.0,<6' pillow torchvision
+   hf download OmniJev/OneJev-9B --local-dir ./OneJev-9B
+
+先在这个目录启动 OneJev 服务，并保持终端运行：
+
+.. code-block:: bash
+
+   ./.venv-onejev/bin/qev serve \
+     --model ./OneJev-9B --name OneJev-9B \
+     --host 127.0.0.1 --port 8008 \
+     --device cuda:0 --dtype bfloat16 --multimodal \
+     --no-cuda-graphs --no-gpu-preprocess
+
+服务就绪后，在另一个终端激活 RPent 环境，进入 RPent 仓库根目录，运行：
+
+.. code-block:: bash
+
+   export PI05_CHECKPOINT_PATH="data/checkpoints/RLinf-Pi05-LIBERO-130-fullshot-SFT/"
+   export LIBERO_TYPE=pro
+   rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
+     --planner onejev --model OneJev-9B --base-url http://127.0.0.1:8008
+
+该模式只启动 Env 和 Pi0.5，使用本次运行的产物，不加载 memory 语料，也不启动 SAM3 或 Molmo。OneJev 的依赖保留在独立环境，RPent Client 仅使用 HTTP。Env 服务以 ``--public-observations-only`` 启动，只返回 RGB-D、机器人状态、相机标定和公开 episode 终止标志，不返回对象私有状态、分割、接触真值或
+reward/info 内容。借用 ``--env-endpoint`` 时，服务必须具有相同的公开观测模式及
+suite/task/seed 设置；此模式不暴露完整的 ``env.raw_obs`` 路由。
+
+``robots/libero/onejev/`` 中的适配器支持打开或关闭指定抽屉，也支持将一个或多个对象放进同一个 basket、bowl、plate 或 tray。它把 ``between ... and ...`` 等空间描述保留为单个对象，拒绝未支持的动词和独立的多阶段任务。抽屉任务使用有次数上限的 Pi0.5 接触动作；放置任务从 RGB-D 生成目标区域候选，不能据此确认物体身份。OneJev 根据带标记的 RGB 和任务选择动作。放置任务缺少几何候选时，会在抓取前停止；任务成功仅以 LIBERO 原生终止信号为准。
+
+可使用 ``--onejev-config /path/to/config.json``。其中 ``target_roi`` 是操作者从 RGB 指定的区域，采用归一化的 ``[row_min, col_min, row_max, col_max]`` 坐标。其他配置包括工作空间、抓取与抽屉接触预算、携带余量及 EEF/物体偏移。这些都是明确的控制先验，不来自模拟器对象几何。配置示例：
+
+.. code-block:: json
+
+   {
+     "target_roi": [0.2, 0.2, 0.8, 0.8],
+     "pick_max_chunks": 24,
+     "eef_object_offset": 0.09
+   }
+
+示例 ROI 仅用于说明格式，并非某个任务的已标定区域；应先查看保存的公开 RGB 再指定。
+每次运行的 decision trace 拆为三个正常 JSON 数组文件，每条记录使用 4 空格缩进：
+
+- ``onejev_state.json``：每次调用实际提供给 OneJev 的 state。
+- ``onejev_question.json``：实际 question、instructions 和参数已完整确定的选项。
+- ``onejev_decision.json``：服务原始输出、HTTP 状态、延迟、选中的候选 ID、``selected_tool_name``、执行结果及错误。
+
+同一次运行通过 ``turn`` 字段对应记录。请求在 HTTP 调用前保存，响应在校验和动作前保存，
+异常响应也会保留。PNG 图像仍存放在各步产物中，trace 不重复存放 base64。
+这三个文件可直接用 ``json.load`` 读取，也可用 ``grep`` 查找独立行中的字段；
+历史 ``onejev_decisions.jsonl`` 日志不会被改写。放置步骤生成的
+``onejev_geometry.json`` 和 ``onejev_regions.png`` 记录测量来源与区域标记；
+抽屉步骤使用未标记的公开 RGB 图像。``onejev_outcome.json`` 记录终止状态和用量。成功以环境的 native completion 为准，进程正常退出和抓取启发式不代表任务成功。
+
+首版支持非交互 CLI evaluation，拒绝 exploration、Dashboard、交互任务修改及
+``--no-images``。planner 超时通过现有 Toolkit 在安全边界请求取消；已经发出的模拟器或 VLA RPC 可能在取消生效前完成。

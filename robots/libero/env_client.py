@@ -44,11 +44,29 @@ class LiberoEnvClient(BaseEnvClient):
         *,
         expected_meta: dict,
         return_all_frames: bool = False,
+        public_observations_only: bool = False,
     ):
         self.return_all_frames = return_all_frames
+        self.public_observations_only = public_observations_only
         self.terminated = False
         self.truncated = False
-        super().__init__(client, expected_meta=expected_meta)
+        if public_observations_only:
+            # Enforce the public boundary before reset, including under python -O.
+            self._client = client
+            metadata = client.call(
+                "env.get_env_meta", timeout_s=self._TIMEOUT_S["default"]
+            )
+            if (
+                expected_meta.get("observation_mode") != "public"
+                or metadata != expected_meta
+            ):
+                raise ValueError(
+                    "OneJev requires a matching LIBERO server started with "
+                    "--public-observations-only"
+                )
+            self.reset()
+        else:
+            super().__init__(client, expected_meta=expected_meta)
 
     def check_done(self, term, trunc) -> None:
         self.terminated |= bool(np.asarray(term).any())
@@ -94,7 +112,8 @@ class LiberoEnvClient(BaseEnvClient):
         return ret
 
     def raw_obs(self) -> dict:
-        return self._client.call("env.raw_obs", timeout_s=self._TIMEOUT_S["default"])
+        route = "env.public_obs" if self.public_observations_only else "env.raw_obs"
+        return self._client.call(route, timeout_s=self._TIMEOUT_S["default"])
 
     def render_camera(
         self,
