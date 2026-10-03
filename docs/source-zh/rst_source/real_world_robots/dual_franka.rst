@@ -28,9 +28,11 @@ RPent 可以通过 RLinf ``RealWorldEnv`` worker 控制双节点双臂 Franka �
 标定（Calibration）
 ----------------------------------------
 
-``base_camera`` 和 ``d455_camera`` 都需要标定到 **右臂基座**；腕部相机仅用于
-观测，不需要参与这一步。可使用 ``calibration_tools/``，也可继续使用
-ROS `easy_handeye <https://github.com/IFL-CAMP/easy_handeye>`_，最终加载格式均为 YAML。
+``base_camera`` 和 ``d455_camera`` 都需要标定到 **右臂基座**。可使用
+``calibration_tools/``，也可继续使用 ROS
+`easy_handeye <https://github.com/IFL-CAMP/easy_handeye>`_，最终加载格式均为 YAML。
+腕部相机在默认配置中仅用于观测；若使用腕部 RGBD 相机进行投影，需要按下文
+配置手眼标定和投影视图。
 
 本工具支持 D435，已在 D435 配置下验证；其他型号和流配置尚未验证，不能保证
 仅修改参数即可使用。零畸变系数可直接使用；非零系数仅支持
@@ -133,6 +135,17 @@ D455 使用同样步骤，将会话目录和输出文件改为 ``d455-to-right``
 
 通过下文的 ``--robot-config`` 加载配置。启动 RPent 前停止标定相机服务。
 保留并核对 ``perception.base_frames`` 和定位边界；本工具不会自动标定左右基座关系。
+
+腕部投影为可选功能。在示例配置中取消 ``perception.calibration`` 和
+``perception.projection_views`` 下腕部条目的注释，并配置具有对齐深度和 RGB
+内参的 RGBD 相机。每份腕部标定 YAML 顶层需包含 ``arm: left`` 或 ``arm: right``，
+设置 ``parameters.eye_on_hand: true``，并将
+``parameters.robot_effector_frame`` 设置为 ``left_ee_O_T_EE`` 或
+``right_ee_O_T_EE``。``transformation`` 将相机坐标转换到对应末端坐标系。
+RPent 将其与所选快照中的末端位姿组合；若位姿使用 ``left_base``，还会应用
+配置的基座变换，最终输出 ``right_base`` 坐标。快照 TCP 位姿必须对应 O_T_EE，
+并声明基座坐标系。默认的 Lumos 观测相机不会自动启用 RGBD 投影；选择腕部锚点前
+必须完成这些配置。
 
 开发配置
 --------
@@ -365,6 +378,16 @@ API 部署需显式设置 ``RPENT_CODEX_API_KEY`` 和可选的 ``RPENT_CODEX_BAS
      --vla-model-path /path/to/checkpoint --vla-repo-id org/dataset
 
 支持 ``prompt <指令>``、``infer`` （不执行）、``step`` （重新推理并执行）、 ``run N`` （1–20 块）、``reset``、``quit``。初始化可能复位。执行前将输入与预测保存为 JSON/NPZ，拒绝无效观测或动作；执行结果不确定时禁止继续运动，需重启会话。 RPC 成功不代表任务成功。动作校验默认要求每块预测包含 20 步；如果 checkpoint 使用不同块长度，请通过 ``--expected-action-steps`` 显式指定匹配的值。外部模型服务使用标准 VLA 推理和健康检查 RPC。
+
+Flash 回放
+----------
+
+双臂使用共享的 :ref:`Franka Flash 流程 <franka-flash>`。生成任务卡时使用
+``--robot dual_franka --task dual_franka_t0``，回放时使用
+``--robot dual_franka --planner flash --task-id 0``，并提供双臂任务卡及配置。
+平移标注使用具有深度和有效标定的 ``base``、``d455``、``left_wrist`` 或
+``right_wrist`` 相机。移动原语通过 ``arm: left`` 或 ``arm: right`` 指定机械臂；
+左臂工作空间检查会把共享的右基座目标坐标转换到左基座坐标系。
 
 停止运行
 ------------

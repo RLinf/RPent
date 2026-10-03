@@ -137,6 +137,77 @@ Keep an operator at the emergency stop. Validate task ``0`` with very small
 motions before attempting a grasp. Stop when camera/state results disagree,
 when the requested motion is not reached, or when any calibration is uncertain.
 
+.. _franka-flash:
+
+Franka Flash plans (task cards)
+--------------------------------
+
+Single and dual Franka support ``--planner flash`` using a reviewed version-1
+JSON plan. A plan records primitive order and motion intent; Molmo selects a
+pixel in a fresh camera image for each translation. Existing calibrated depth
+projection converts it into robot coordinates. No planning model is called.
+
+The stored translation offset is the demonstrated **actual TCP endpoint**
+minus the demonstrated anchor position. Replay adds this offset to the newly
+localized anchor and subtracts the current TCP position to obtain the move.
+Action order is fixed; interpolation remains the existing controller's responsibility.
+
+First configure the robot and ``perception.calibration`` using the setup above,
+start a Molmo service, and record a successful run. Review ``states.json`` and
+write ``annotations.json`` keyed by the source step number::
+
+   {
+     "1": {"intent": "approach the cup rim", "phrase": "visible cup rim", "camera": "third_person"},
+     "2": {"intent": "align the gripper", "rotation_mode": "relative"}
+   }
+
+Every translation needs a semantic anchor; every rotation needs an intent and
+``relative`` or ``fixed`` rotation mode. Single Franka uses ``third_person`` or
+``wrist``; dual Franka uses ``base``, ``d455``, ``left_wrist`` or ``right_wrist``.
+The selected view must have depth and valid calibration. Keep each recorded
+translation within 0.20 m and each rotation within 0.35 rad.
+
+Generate a plan offline from the reviewed recording (Molmo must be reachable)::
+
+   python -m robots.franka.flash.generate \
+     --robot franka --task franka_t0 \
+     --robot-config /path/to/robot.yaml \
+     --run-dir /path/to/successful-run --annotations annotations.json \
+     --molmo-endpoint http://localhost:9000 --destination plan.json
+
+Confirm the source success when prompted. The generator rejects unsupported
+commands and does not overwrite an existing destination. It stores hashes of
+the robot configuration and calibration files. New recordings save
+``recording_fingerprint.json``; generation rejects missing fingerprints or
+configuration/calibration changes since recording before localizing anchors.
+Re-record after such changes; older recordings without provenance cannot be used.
+Replay also checks the plan against the current files. Known observation/verdict
+records and an initial confirmed scene reset are excluded from the plan; resets
+after task actions are rejected to prevent combining attempts. Dual Franka uses ``--robot dual_franka --task dual_franka_t0``.
+
+Replay from a dedicated operator terminal::
+
+   rpent --robot franka --planner flash --task-id 0 \
+     --robot-config /path/to/robot.yaml --flash-plan plan.json \
+     --molmo-endpoint http://localhost:9000
+
+For dual Franka, use ``--robot dual_franka`` and the corresponding plan/config.
+Configure Env/VLA endpoints as in the robot setup guide; single-arm plans with
+``vla_grasp`` require ``--vla-endpoint``. Replay asks before driver initialization
+(which may reset the robot), before execution, and for the final task verdict.
+Do not use ``--interactive``, ``--dashboard`` or ``--explore`` with this mode.
+
+Invalid pixels/depth, workspace violations, excessive motions, and primitive
+errors stop replay. Left-arm workspace bounds are checked in the left-base
+frame. A successful RPC does not certify task success: the final operator
+verdict determines the result. ``flash_outcome.json`` and
+``flash_recipe.jsonl`` record the outcome and issued actions.
+
+Only reviewed v1 plans are supported. Experimental supervised v2 plans,
+stage splicing, reference-image selection and historical-point reuse are not
+part of this interface. These commands require robot-specific installation and
+operator validation; offline unit tests do not establish real-robot success.
+
 Stop the Run
 ------------
 

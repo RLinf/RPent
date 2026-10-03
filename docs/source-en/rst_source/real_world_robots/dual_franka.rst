@@ -34,9 +34,11 @@ Calibration
 -----------
 
 Both ``base_camera`` and ``d455_camera`` must be calibrated against the
-**right-arm base**. Wrist cameras are observation-only in this setup and do not
-participate in this step. Use ``calibration_tools/`` or ROS
+**right-arm base**. Use ``calibration_tools/`` or ROS
 `easy_handeye <https://github.com/IFL-CAMP/easy_handeye>`_; both export YAML.
+Wrist cameras are observation-only in the default configuration. To use a
+wrist RGBD camera for projection, configure its calibration and projection view
+as described below.
 
 The tools support D435 and have been validated with a D435 setup. Other models
 and stream configurations are unverified and may require more than parameter
@@ -150,6 +152,19 @@ Load this configuration with ``--robot-config`` below. Stop the calibration
 camera service before starting RPent. Preserve and verify
 ``perception.base_frames`` and localization bounds; these tools do not calibrate
 the relationship between the two arm bases.
+
+Wrist projection is optional. Uncomment the wrist entries under
+``perception.calibration`` and ``perception.projection_views`` in the example
+configuration, and configure RGBD cameras with aligned depth and color intrinsics.
+Each wrist calibration YAML needs ``arm: left`` or ``arm: right`` at the top
+level, ``parameters.eye_on_hand: true``, and
+``parameters.robot_effector_frame: left_ee_O_T_EE`` or ``right_ee_O_T_EE``.
+Its ``transformation`` maps camera coordinates into that end-effector frame.
+RPent combines it with the selected snapshot's end-effector pose and, for poses
+in ``left_base``, the configured base-frame transform, to produce ``right_base``
+points. Snapshot TCP poses must represent O_T_EE and declare their base frame.
+The default Lumos observation cameras are not automatically enabled for RGBD
+projection; selecting a wrist anchor requires this configuration.
 
 Development Configuration
 -------------------------
@@ -489,6 +504,17 @@ execution blocks further motion until restart. RPC success is not task success.
 Action validation expects 20 steps per prediction chunk. For a checkpoint with a
 different chunk length, set ``--expected-action-steps`` explicitly to match it.
 External model servers use the standard VLA prediction and health-check RPCs.
+
+Flash replay
+------------
+
+Dual Franka uses the shared :ref:`Franka Flash workflow <franka-flash>`.
+Generate with ``--robot dual_franka --task dual_franka_t0`` and replay with
+``--robot dual_franka --planner flash --task-id 0``. Use a dual-arm plan and
+robot configuration. Translation annotations name ``base``, ``d455``,
+``left_wrist`` or ``right_wrist`` with depth and valid calibration.
+Primitive moves specify ``arm: left`` or ``arm: right``; left-arm workspace
+checks convert the shared right-base target into the left-base frame.
 
 Stop the Run
 ------------

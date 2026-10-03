@@ -103,6 +103,67 @@ Franka 扩展提供 ``view_env_state``、``view_camera_meta``、``move_delta``�
 
 操作员必须守在急停按钮旁。在尝试抓取之前，先用极小幅度动作验证任务 ``0``。一旦相机与状态结果不一致、目标运动没有到位，或任何标定存在疑问，应立即停止。
 
+.. _franka-flash:
+
+Franka Flash 任务卡
+------------------------
+
+单臂和双臂 Franka 可通过 ``--planner flash`` 回放经过人工审阅的 v1 JSON
+任务卡。任务卡固定动作顺序和运动意图；每次平移前，Molmo 在最新相机图像中
+选点，再通过已有的深度反投影和标定转换为机器人坐标。回放不调用规划模型。
+
+平移偏移取自示范中 **实际到达的 TCP 终点** 与示范锚点位置之差。回放时，
+用当前定位的锚点加上该偏移得到新目标，再减去当前 TCP 位置得到移动量。
+动作顺序保持不变，连续运动的插值仍由现有控制器负责。
+
+先按本页配置机器人及 ``perception.calibration``，启动 Molmo 服务，并记录一次
+成功操作。检查 ``states.json``，按原始步骤编号填写 ``annotations.json``::
+
+   {
+     "1": {"intent": "approach the cup rim", "phrase": "visible cup rim", "camera": "third_person"},
+     "2": {"intent": "align the gripper", "rotation_mode": "relative"}
+   }
+
+每次平移都需要语义锚点；每次旋转都需要意图及 ``relative`` 或 ``fixed`` 模式。
+单臂可使用 ``third_person``、``wrist``；双臂可使用 ``base``、``d455``、
+``left_wrist``、``right_wrist``。所选视角必须具有深度和有效标定。
+单步平移限制为 0.20 m，单步旋转限制为 0.35 rad。
+
+从审阅后的记录生成任务卡；此操作不连接机器人，但需要可访问的 Molmo 服务::
+
+   python -m robots.franka.flash.generate \
+     --robot franka --task franka_t0 \
+     --robot-config /path/to/robot.yaml \
+     --run-dir /path/to/successful-run --annotations annotations.json \
+     --molmo-endpoint http://localhost:9000 --destination plan.json
+
+按提示确认原始操作成功。生成器拒绝不支持的命令，且不会覆盖已有目标文件。
+新记录保存 ``recording_fingerprint.json``，包含机器人配置及标定文件的哈希。
+生成器在定位锚点前拒绝缺少指纹或录制后配置、标定发生变化的记录；此时需重新录制，
+没有来源指纹的旧记录不能使用。回放仍检查任务卡与当前文件是否一致。
+已知观察、确认记录及初始确认的场景重置不进入任务卡；任务动作之后的重置会被拒绝，
+避免拼接不同尝试。
+双臂改用 ``--robot dual_franka --task dual_franka_t0``。
+
+在独立操作员终端中回放::
+
+   rpent --robot franka --planner flash --task-id 0 \
+     --robot-config /path/to/robot.yaml --flash-plan plan.json \
+     --molmo-endpoint http://localhost:9000
+
+双臂使用 ``--robot dual_franka`` 及相应任务卡和配置。按机器人部署文档配置 Env/VLA
+端点；含 ``vla_grasp`` 的单臂任务卡需要 ``--vla-endpoint``。回放在驱动初始化
+（可能复位机器人）前、执行前请求确认，结束后由操作员判定任务是否成功。
+本模式不能与 ``--interactive``、``--dashboard``、``--explore`` 同用。
+
+像素或深度无效、目标超出工作空间、运动过大、原语执行失败都会停止回放。
+左臂工作空间检查使用左臂基座坐标系。RPC 成功不代表任务成功，最终结果由操作员
+确认。``flash_outcome.json`` 和 ``flash_recipe.jsonl`` 保存结果和已下发动作。
+
+仅支持审阅后的 v1 任务卡；实验版 v2 的分阶段监督回放、阶段拼接、参考图选点及
+历史点复用不属于本接口。运行需要对应机器人环境及操作员验证；离线单测不能证明
+真机任务成功。
+
 停止运行
 ------------
 
