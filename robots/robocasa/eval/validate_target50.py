@@ -22,9 +22,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from robots.robocasa.eval.result import RESULT_SCHEMA_VERSION
 from robots.robocasa.memory import selection_errors
 
-DEFAULT_MANIFEST = Path(__file__).with_name("target50_v2.json")
+DEFAULT_MANIFEST = Path(__file__).with_name("target50.json")
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -42,6 +43,14 @@ def validate_results(
     """Validate expected result files and return ``(summary, errors)``."""
     root = Path(results_root)
     manifest = _load_json(Path(manifest_path))
+    if manifest.get("protocol_id") != "robocasa-harness-vla-v2":
+        raise ValueError(
+            f"unsupported protocol_id {manifest.get('protocol_id')!r}; "
+            "expected 'robocasa-harness-vla-v2'. "
+            "Historical results require their matching historical RPent code."
+        )
+    if manifest["runtime_protocol"]["result_schema_version"] != RESULT_SCHEMA_VERSION:
+        raise ValueError(f"expected result schema {RESULT_SCHEMA_VERSION!r}")
     errors: list[str] = []
     task_rates: list[float] = []
     valid_cells = 0
@@ -49,7 +58,6 @@ def validate_results(
 
     reference = manifest["planner_reference"]
     runtime_protocol = manifest["runtime_protocol"]
-    is_v2 = manifest["protocol_id"] == "robocasa-harness-vla-v2"
     for split_name, split in manifest["splits"].items():
         split_successes = 0
         split_valid = 0
@@ -134,36 +142,35 @@ def validate_results(
                         f"{relative}: RLDX action steps do not match the manifest"
                     )
 
-                if is_v2:
-                    memory = result.get("memory", {})
-                    if not isinstance(memory, dict):
-                        memory = {}
-                    if memory.get("policy") != "task-global":
-                        errors.append(
-                            f"{relative}: memory policy does not match the evaluation"
-                        )
-                    errors.extend(
-                        f"{relative}: {message}"
-                        for message in selection_errors(
-                            memory, task_name, manifest["environment_split"]
-                        )
+                memory = result.get("memory", {})
+                if not isinstance(memory, dict):
+                    memory = {}
+                if memory.get("policy") != "task-global":
+                    errors.append(
+                        f"{relative}: memory policy does not match the evaluation"
                     )
-                    selected = memory.get("selected_files")
-                    if memory.get("audit_status") != "ok":
-                        errors.append(
-                            f"{relative}: memory read audit is missing or invalid"
-                        )
-                    reads = memory.get("read_files")
-                    if (
-                        not isinstance(selected, list)
-                        or not isinstance(reads, list)
-                        or not all(isinstance(name, str) for name in reads)
-                        or reads != sorted(set(reads))
-                        or any(name not in selected for name in reads)
-                    ):
-                        errors.append(
-                            f"{relative}: memory read_files must be a sorted subset of selected files"
-                        )
+                errors.extend(
+                    f"{relative}: {message}"
+                    for message in selection_errors(
+                        memory, task_name, manifest["environment_split"]
+                    )
+                )
+                selected = memory.get("selected_files")
+                if memory.get("audit_status") != "ok":
+                    errors.append(
+                        f"{relative}: memory read audit is missing or invalid"
+                    )
+                reads = memory.get("read_files")
+                if (
+                    not isinstance(selected, list)
+                    or not isinstance(reads, list)
+                    or not all(isinstance(name, str) for name in reads)
+                    or reads != sorted(set(reads))
+                    or any(name not in selected for name in reads)
+                ):
+                    errors.append(
+                        f"{relative}: memory read_files must be a sorted subset of selected files"
+                    )
 
                 if (
                     len(errors) == errors_before_cell
@@ -205,7 +212,12 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Directory containing <split>/<Task>_s<seed>/result.json files.",
     )
-    parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
+    parser.add_argument(
+        "--manifest",
+        type=Path,
+        default=DEFAULT_MANIFEST,
+        help="Evaluation manifest using the current task/global v2 protocol.",
+    )
     return parser
 
 

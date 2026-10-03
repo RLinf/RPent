@@ -139,9 +139,7 @@ def test_all_50_tasks_share_prompt_and_tool_selection(tmp_path, make_corpus):
     from robots.robocasa.robot_spec import get_robot_spec
 
     manifest = json.loads(
-        (
-            Path(__file__).parents[4] / "robots/robocasa/eval/target50_v2.json"
-        ).read_text()
+        (Path(__file__).parents[4] / "robots/robocasa/eval/target50.json").read_text()
     )
     tasks = [task for split in manifest["splits"].values() for task in split["tasks"]]
     provided = tasks[::2]

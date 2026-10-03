@@ -102,11 +102,18 @@ two independent versions. Then install RPent:
 
 .. code-block:: bash
 
-   uv pip install -e ".[robocasa]" \
-      --constraint robots/robocasa/eval/target50-constraints.txt
+   uv pip install -e ".[robocasa]"
    uv pip check
 
-The constraints file pins compatibility-sensitive Target50 dependencies. The ``robocasa`` extra installs the ``rpent`` branches of RoboCasa, RLDX, and Robosuite. Do not also install ``rlinf-robocasa365``, which provides the same import package.
+Current installation requirements come from ``pyproject.toml``.
+The ``robocasa`` extra installs the ``rpent`` branches of RoboCasa, RLDX, and
+Robosuite. Do not also install ``rlinf-robocasa365``, which provides the same
+import package.
+
+RLDX must come from the extra's ``rpent`` source branch. Older PyPI wheels can
+have the same package version but lack interfaces required by this runtime.
+When reusing an environment with an older RLDX wheel, add
+``--reinstall-package rlinf-rldx`` to the installation command above.
 
 Choose Torch, torchvision, and CUDA for your machine. The reference run used Torch 2.7.0, torchvision 0.22.0, and CUDA 12.6. Record resolved dependencies and Git revisions for every reproduction because branches can advance:
 
@@ -358,12 +365,13 @@ own task/split access boundary; exploration keeps its retry and inbox workflow.
 Experiment Reproduction (Target50)
 ----------------------------------
 
-The current ``robots/robocasa/eval/target50_v2.json`` protocol
-(``robocasa-harness-vla-v2``) uses task/global memory without pinning its
-data version. It preserves the target task/seed matrix, cell time limits,
-no-reset rule, environment success predicate, and 40/999/8 RLDX settings.
-The protocol ID identifies the result format and evaluation rules; it lets the
-validator distinguish v1 from v2 and does not select a memory data version.
+The current ``robots/robocasa/eval/target50.json`` manifest describes runs with
+task-specific and global memory. It defines the Target50 task/seed matrix,
+cell time limits, no-reset rule, environment success predicate, and 40/999/8
+RLDX settings. The protocol ID is ``robocasa-harness-vla-v2`` and the result
+schema version is ``1.1``.
+Software dependencies come from ``pyproject.toml``; the manifest does not lock
+the installation environment or the memory data version.
 
 Results record the fixed task/global selection, missing files and actual reads.
 The validator accepts zero or partial reads, while checking task boundaries and
@@ -379,19 +387,20 @@ and use the same unchanged directory with
 record the HF commit or hashes in local experiment notes. RPent does not pin
 memory or add data revision identifiers to result metadata.
 
-The manifests describe the evaluation matrix and validation rules; the
+The manifest describes the evaluation matrix and validation rules; the
 :doc:`leaderboard <../leaderboard/performance>` displays independently reported
-scores. A 340-cell result alone does not establish which memory, model or code
+scores and is not generated from the manifest. A 340-cell result alone does not
+establish which memory, model or code
 configuration produced it. The current v2 manifest includes a GPT-5.5 reference
 profile; it is not a universal validator for every model on the leaderboard.
 
-- ``target50.json`` retains the historical v1 task-specific protocol. Validate
-  compatible historical records with
-  ``--manifest robots/robocasa/eval/target50.json``.
-- ``target50_v2.json`` describes current runs with task-specific and global
-  memory. It is the default for new results and validation.
-- Published leaderboard scores retain their original reported sources; they
-  are not reclassified as v2 results without matching run evidence.
+Historical v1 records used only task-specific memory. Validate them with the
+`historical code <https://github.com/RLinf/RPent/tree/ec4e18fc2f6a73a00c6a5c035a8a3fdb17950b61>`_
+and its `v1 manifest <https://github.com/RLinf/RPent/blob/ec4e18fc2f6a73a00c6a5c035a8a3fdb17950b61/robots/robocasa/eval/target50.json>`_.
+In that historical checkout, pass
+``--manifest robots/robocasa/eval/target50.json`` to the validator. Published
+leaderboard scores retain their original sources and are not reclassified as
+v2 results without matching run evidence.
 
 Each cell is one task/seed combination. Source dependencies follow the recorded
 ``rpent`` branches; retain their resolved commits with the experiment artifacts.
@@ -504,6 +513,11 @@ validate the fixed denominator and print the task-weighted score with:
 .. code-block:: bash
 
    python -m robots.robocasa.eval.validate_target50 ./runs/target50
+
+Use ``--manifest /path/to/manifest.json`` for a custom task/seed matrix or
+reference planner profile within the current v2 protocol. The validator
+accepts only ``robocasa-harness-vla-v2`` manifests and result schema ``1.1``;
+historical v1 records require the historical code linked above.
 
 
 Reported and Historical Target50 Results
