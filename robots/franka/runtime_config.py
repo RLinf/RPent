@@ -126,6 +126,7 @@ def load_easy_handeye_yaml(path: str | Path) -> dict[str, Any]:
         raise ValueError(f"{yaml_path} missing transform fields: {sorted(missing)}")
     return {
         "source_name": yaml_path.name,
+        "arm": data.get("arm"),
         "parameters": data["parameters"],
         "transformation": dict(transformation),
     }

@@ -137,6 +137,103 @@ Keep an operator at the emergency stop. Validate task ``0`` with very small
 motions before attempting a grasp. Stop when camera/state results disagree,
 when the requested motion is not reached, or when any calibration is uncertain.
 
+.. _franka-flash:
+
+Franka Flash plans (task cards)
+--------------------------------
+
+Single and dual Franka support ``--planner flash`` using a reviewed version-1
+JSON plan. A plan records primitive order and motion intent; Molmo selects a
+pixel in a fresh camera image for each translation. Existing calibrated depth
+projection converts it into robot coordinates. No planning model is called.
+
+The stored translation offset is the demonstrated **actual TCP endpoint**
+minus the demonstrated anchor position. Replay adds this offset to the newly
+localized anchor and subtracts the current TCP position to obtain the move.
+Action order is fixed; interpolation remains the existing controller's responsibility.
+
+First configure the robot and ``perception.calibration`` using the setup above,
+start a Molmo service, and record a successful run. Review ``states.json`` and
+write ``annotations.json`` keyed by the source step number::
+
+   {
+     "1": {"intent": "approach the cup rim", "phrase": "visible cup rim", "camera": "third_person"},
+     "2": {"intent": "align the gripper", "rotation_mode": "relative"}
+   }
+
+Every translation needs a semantic anchor; every rotation needs an intent and
+``relative`` or ``fixed`` rotation mode. Single Franka uses ``third_person`` or
+``wrist``; dual Franka uses ``base``, ``d455``, ``left_wrist`` or ``right_wrist``.
+The selected view must have depth and valid calibration. Keep each recorded
+translation within 0.20 m and each rotation within 0.35 rad.
+
+Generate a plan offline from the reviewed recording (Molmo must be reachable)::
+
+   python -m robots.franka.flash.generate \
+     --robot franka --task franka_t0 \
+     --robot-config /path/to/robot.yaml \
+     --run-dir /path/to/successful-run --annotations annotations.json \
+     --molmo-endpoint http://localhost:9000 --destination plan.json
+
+Confirm the source success when prompted. The generator rejects unsupported
+commands and does not overwrite an existing destination. It stores hashes of
+the robot configuration and calibration files. New recordings save
+``recording_fingerprint.json``; generation rejects missing fingerprints or
+configuration/calibration changes since recording before localizing anchors.
+Re-record after such changes; older recordings without provenance cannot be used.
+Replay also checks the plan against the current files. Known observation/verdict
+records and an initial confirmed scene reset are excluded from the plan; resets
+after task actions are rejected to prevent combining attempts. Dual Franka uses ``--robot dual_franka --task dual_franka_t0``.
+
+Replay from a dedicated operator terminal::
+
+   rpent --robot franka --planner flash --task-id 0 \
+     --robot-config /path/to/robot.yaml --flash-plan plan.json \
+     --molmo-endpoint http://localhost:9000
+
+For dual Franka, use ``--robot dual_franka`` and the corresponding plan/config.
+Configure Env/VLA endpoints as in the robot setup guide; single-arm plans with
+``vla_grasp`` require ``--vla-endpoint``. Replay asks before driver initialization
+(which may reset the robot), before execution, and for the final task verdict.
+Do not use ``--interactive``, ``--dashboard`` or ``--explore`` with this mode.
+
+Invalid pixels/depth, workspace violations, excessive motions, and primitive
+errors stop replay. Left-arm workspace bounds are checked in the left-base
+frame. A successful RPC does not certify task success: the final operator
+verdict determines the result. ``flash_outcome.json`` and
+``flash_recipe.jsonl`` record the outcome and issued actions.
+
+Only reviewed v1 plans are supported. Experimental supervised v2 plans,
+stage splicing, reference-image selection and historical-point reuse are not
+part of this interface. These commands require robot-specific installation and
+operator validation; offline unit tests do not establish real-robot success.
+
+Optional agent grounding fallback
+------------------------------------------
+
+Add ``--grounding-agent-model provider:model`` to the replay command to enable
+one fallback attempt after Molmo fails. ``codex:model`` uses the existing Codex
+CLI file login and model/provider settings in an isolated temporary configuration
+directory; user MCP servers and plugins are not copied. Enabled MCP servers in
+the effective configuration cause the request to stop before image submission.
+Keyring-only login requires file-based login or ``CODEX_API_KEY`` instead.
+API models use the existing API model factory.
+``--grounding-agent-base-url`` optionally overrides the model endpoint.
+Use a model that accepts images and returns structured output.
+
+For both single and dual Franka, a missing target, invalid pixel/depth or Molmo
+request failure triggers a fresh observation and one agent selection on the
+same named object part. The agent only selects pixels and receives no robot
+tools. Its point must pass the same depth projection and workspace/motion checks.
+If it fails, replay stops without executing that motion. The next translation
+starts with Molmo again. Cancellation does not trigger fallback. Configuration
+errors and workspace/motion-limit failures stop directly.
+
+The fallback is disabled by default and applies to live replay, not offline
+plan generation. Each attempt is recorded in per-step ``flash_grounding.json``
+artifacts. Agent calls can incur model costs and have a 90-second request timeout;
+Flash planner token counters do not include these perception requests.
+
 Stop the Run
 ------------
 
