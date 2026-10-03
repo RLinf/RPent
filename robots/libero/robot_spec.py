@@ -185,6 +185,11 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         default="auto",
         help="HF memory: auto selects by model; explicit versions override. Effort describes memory generation only.",
     )
+    parser.add_argument(
+        "--memory-revision",
+        default=None,
+        help="HF memory commit, tag or branch (default: main). Use a commit SHA to freeze evaluation memory.",
+    )
     parser.add_argument("--max-episode-steps", type=int, default=10000)
     parser.add_argument(
         "--libero-type",

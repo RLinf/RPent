@@ -51,6 +51,30 @@ model** changes the model for the next task and reselects auto memory then;
 the active task keeps its existing model and corpus. A manually selected
 memory version remains selected across model changes.
 
+For a reproducible LIBERO evaluation, pin the Hub commit without switching
+to the local-memory profile:
+
+.. code-block:: bash
+
+   rpent --robot libero --suite libero_goal_swap --task 1 --seed 1 \
+     --planner codex --model gpt-6-astra --reasoning-effort low \
+     --memory-revision <commit-sha>
+
+``--memory-revision`` accepts a commit, tag or branch. Omitting it follows
+``main`` as before; use a full commit SHA to keep the source fixed across
+runs. It applies to the selected model-specific corpus and to subsequent
+Dashboard tasks, including tasks that select another model. Local-memory evaluation and exploration reject
+this remote-only option.
+
+Every LIBERO run writes ``memory_source.json`` in its output directory before
+planner or robot services start. HF records include the requested revision,
+resolved commit, repository, selected corpus version, local root, file count,
+per-file SHA-256 hashes and receipt checksum. ``resolution`` distinguishes
+online resolution from verified-cache fallback. A local-memory run records
+``profile: local`` and its directory without claiming a verified Hub commit.
+The record describes the verified startup source, not an attestation that files
+cannot change during execution. Use a fresh output directory for each run.
+
 Only the chosen version is downloaded. LIBERO caches are isolated by repository,
 commit and version under ``memory/libero/.versions/``. Both the exact file set
 and every file hash are verified before cache reuse. Extra files invalidate
@@ -62,6 +86,13 @@ Caches created before versioned-source receipts require one successful online
 refresh; old unversioned caches are not reused.
 Other robots retain their existing synchronization behavior.
 
+An explicit full commit addresses its own verified snapshot directly, even if
+that snapshot was originally downloaded via a branch. A stale or modified ref
+pointer cannot redirect it to a different commit. Offline branch/tag fallback
+requires a valid pointer with matching repository and corpus identity; the
+record retains the requested ref and the cached commit actually used. A branch
+or tag name alone does not freeze future runs.
+
 Standalone Download and Local Evaluation
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -69,13 +100,18 @@ Standalone Download and Local Evaluation
 
    python -m robots.libero.memory sync --memory-version GPT_6_astra_low
    python -m robots.libero.memory sync --model gpt-6-astra \
-     --revision <release-commit> --output-dir /path/to/new-astra-memory
+     --revision <release-commit> --output-dir /path/to/new-astra-memory \
+     --source-record /path/to/astra-source.json
    rpent --robot libero --suite libero_goal_swap --task 1 --seed 1 \
      --planner codex --model gpt-6-astra --reasoning-effort low \
      --memory-profile local --memory-dir /path/to/new-astra-memory
 
 ``sync`` prints the actual corpus root. ``--output-dir`` must not already
-exist. ``--planner`` defaults to ``api``, matching ``rpent``; pass
+exist. Exported bytes are checked against the verified receipt before the new
+directory is published. Optional ``--source-record`` writes the same HF source
+record, identifying the copied directory when exporting. It must be outside
+both the cache and the output corpus so it cannot invalidate the file manifest.
+``--planner`` defaults to ``api``, matching ``rpent``; pass
 ``--planner codex`` to use ``CODEX_MODEL`` when ``--model`` is omitted. ``--memory-profile local`` never downloads memory; combining it or
 ``--explore`` with an explicit remote ``--memory-version`` is an error.
 Exploration uses a local corpus; use a separate empty ``--memory-dir`` for

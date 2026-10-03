@@ -41,7 +41,28 @@
 
 CLI 和 Dashboard 都在每个任务开始前解析 memory 根目录。在 Dashboard 的 **下一任务的模型** 中修改模型后，下一任务会重新进行自动选择；正在运行的任务保留原模型和 memory。显式指定的 memory 版本不会随模型切换而改变。
 
+.. code-block:: bash
+
+   rpent --robot libero --suite libero_goal_swap --task 1 --seed 1 \
+     --memory-revision <commit-sha>
+
+``--memory-revision`` 接受提交、标签或分支；省略时仍跟随 ``main``。
+跨多次运行固定来源时应使用完整提交 SHA。该选项应用于所选模型对应的 memory，
+也会沿用到后续 Dashboard 任务，包括切换模型后的任务。
+本地 memory 评测和探索模式不接受这一远程来源选项。
+
+每次 LIBERO 运行都会在 planner 和机器人服务启动前，将 ``memory_source.json`` 写入输出目录。
+HF 记录包含请求的 revision、实际解析的提交、仓库、所选语料版本、本地路径、文件数量、
+逐文件 SHA-256 和校验收据的哈希。``resolution`` 区分在线解析与已验证缓存回退。
+本地 memory 运行只记录 ``profile: local`` 和目录，不声称拥有经过校验的 Hub 提交。
+该文件描述启动时校验的来源，不保证运行期间文件无法被修改。每次独立运行应使用新的输出目录。
+
 仅下载所选版本。LIBERO 缓存位于 ``memory/libero/.versions/``，按仓库、提交和版本隔离，每次复用前校验文件集合完全一致及每份文件的哈希。额外文件会使缓存失效，固定 revision 时也不例外；联网同步会重建无效缓存。``HF_HUB_OFFLINE=1`` 要求所选版本及 revision 已有完整、未改动的缓存。下载失败不会改用另一模型的 memory；缓存缺失或不完整会明确报错。旧缓存记录未标明版本来源时，需要联网成功刷新一次；不复用旧的无版本缓存。其他机器人保持原有的 memory 同步行为。
+
+显式完整提交 SHA 直接定位其对应的已验证快照，即使该快照最初是通过分支下载的。
+过期或被错误修改的引用指针不能将它导向另一个提交。
+分支、标签的离线回退要求缓存指针格式有效，且仓库和语料版本一致；来源记录同时保留请求名称
+与实际使用的缓存提交。仅指定分支或标签名称不能固定未来运行的来源。
 
 独立下载与本地评测
 ~~~~~~~~~~~~~~~~~~
@@ -50,12 +71,16 @@ CLI 和 Dashboard 都在每个任务开始前解析 memory 根目录。在 Dashb
 
    python -m robots.libero.memory sync --memory-version GPT_6_astra_low
    python -m robots.libero.memory sync --model gpt-6-astra \
-     --revision <release-commit> --output-dir /path/to/new-astra-memory
+     --revision <release-commit> --output-dir /path/to/new-astra-memory \
+     --source-record /path/to/astra-source.json
    rpent --robot libero --suite libero_goal_swap --task 1 --seed 1 \
      --planner codex --model gpt-6-astra --reasoning-effort low \
      --memory-profile local --memory-dir /path/to/new-astra-memory
 
-``sync`` 输出实际 memory 根目录，``--output-dir`` 必须是尚不存在的目录。 ``--planner`` 默认是 ``api``，与 ``rpent`` 一致；希望在省略 ``--model`` 时读取 ``CODEX_MODEL``，需指定 ``--planner codex``。 ``--memory-profile local`` 不下载 memory；本地模式或 ``--explore`` 与显式远程 ``--memory-version`` 同时使用会报参数冲突。探索使用本地 memory，每次独立探索应指定单独的空目录。
+``sync`` 输出实际 memory 根目录，``--output-dir`` 必须是尚不存在的目录。
+导出的文件会在新目录正式发布前与已验证收据再次核对。
+可选 ``--source-record`` 写入同样的 HF 来源记录；导出时记录复制后的目录。
+该文件必须位于缓存和输出语料目录之外，避免改变被校验的文件集合。 ``--planner`` 默认是 ``api``，与 ``rpent`` 一致；希望在省略 ``--model`` 时读取 ``CODEX_MODEL``，需指定 ``--planner codex``。 ``--memory-profile local`` 不下载 memory；本地模式或 ``--explore`` 与显式远程 ``--memory-version`` 同时使用会报参数冲突。探索使用本地 memory，每次独立探索应指定单独的空目录。
 
 分版本下载使用 LIBERO 专用命令；共享的 ``rpent-memory`` 继续提供 ``merge``、 ``validate`` 和 ``build-index`` 三个命令。
 
