@@ -27,8 +27,9 @@ classifiers = [
 ]
 
 dependencies = [
-    "pydantic-ai-slim[anthropic,openai,cli]>=2.43",
-    "pydantic-ai-harness>=0.31",
+    # Upgrade together after validating request budgets and failed-request accounting.
+    "pydantic-ai-slim[anthropic,openai,cli]==2.53.0",
+    "pydantic-ai-harness==0.53.0",
     "pydantic>=2",
     "fastapi>=0.110",
     "uvicorn>=0.27",
