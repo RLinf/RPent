@@ -33,30 +33,123 @@ camera, gripper, and teleoperation dependencies into ``.venv``. The included
 Calibration
 -----------
 
-Hand-eye calibration is performed with ROS
-`easy_handeye <https://github.com/IFL-CAMP/easy_handeye>`_. Calibrate both
-cameras used for pixel-to-world back-projection against the right arm's base
-frame (two eye-on-base calibrations): ``base_camera`` (the third-person
-RealSense) and ``d455_camera``.
-The two wrist cameras (``left_wrist`` and ``right_wrist``) are observation
-only — they feed the VLA policy views and the close-up planner snapshots, and
-RPent never back-projects pixels through them — so they need no hand-eye
-calibration.
+Both ``base_camera`` and ``d455_camera`` must be calibrated against the
+**right-arm base**. Wrist cameras are observation-only in this setup and do not
+participate in this step. Use ``calibration_tools/`` or ROS
+`easy_handeye <https://github.com/IFL-CAMP/easy_handeye>`_; both export YAML.
 
-Easy_handeye saves one YAML per camera under ``~/.ros/easy_handeye/`` by default.
-RPent loads those YAMLs directly: list them under ``perception.calibration`` in
-the robot config, mapping each camera to its easy_handeye YAML (the checked-in
-``robots/dual_franka/config/example.yaml`` already does this):
+The tools support D435 and have been validated with a D435 setup. Other models
+and stream configurations are unverified and may require more than parameter
+changes. Zero distortion coefficients are accepted; nonzero coefficients are
+supported only for ``distortion.brown_conrady``. Other nonzero models are
+rejected with their model and coefficients, without automatic conversion or
+ignoring distortion.
+
+**1. Prepare the environment**
+
+On the camera node, activate the existing RLinf Franka environment and check
+the required interfaces from the RPent repository root:
+
+.. code-block:: bash
+
+   source /absolute/path/to/franka-env/bin/activate
+   cd /absolute/path/to/RPent
+   PYTHONPATH=calibration_tools python -c "import numpy, scipy, yaml, pyrealsense2; from common import check_opencv; check_opencv()"
+
+This checks ChArUco, PnP, ``calibrateHandEye``, and the required method constants.
+If dependencies are missing, create a separate calibration environment:
+
+.. code-block:: bash
+
+   python3 -m venv .venv-calibration
+   source .venv-calibration/bin/activate
+   pip install -r calibration_tools/requirements.txt pyrealsense2
+
+On the right-arm control node, compile the reader against the libfranka
+development library matching the robot firmware:
+
+.. code-block:: bash
+
+   cmake -S calibration_tools -B calibration_tools/build \
+     -DCMAKE_PREFIX_PATH=/absolute/path/to/libfranka/install
+   cmake --build calibration_tools/build --parallel
+
+The executable ``calibration_tools/build/read_franka_state`` uses ``readOnce()``
+to output end-effector poses, joint velocities, and robot status as JSON. It
+sends no motion commands. Installing Python control packages does not guarantee
+the headers and CMake configuration needed to build this reader.
+Replace the camera serials, SSH alias, absolute reader path, and robot IP below.
+Omit ``--ssh-host`` for a local reader; add ``--library-dir /path/to/lib`` when
+its shared libraries need an explicit search path.
+
+**2. Start the camera and collect samples**
+
+Close programs using the cameras, then start the service:
+
+.. code-block:: bash
+
+   python calibration_tools/raw_camera_service.py \
+     --base-serial BASE_SERIAL --d455-serial D455_SERIAL
+
+Attach the ChArUco board rigidly to the right end effector and keep the camera
+stationary. Defaults are 6×8 squares, 25 mm square length, 18 mm marker length,
+DICT_4X4_100, and a non-legacy layout. Configure other boards with
+``--squares-x``, ``--squares-y``, ``--square-m``, ``--marker-m``, and
+``--dictionary``; lengths are in meters.
+
+In another terminal on the same camera node, activate the chosen environment:
+
+.. code-block:: bash
+
+   python calibration_tools/base_handeye_collect.py \
+     --arm right --camera-serial BASE_SERIAL \
+     --camera-url http://127.0.0.1:8765/raw/base \
+     --ssh-host robot-right \
+     --reader /absolute/path/to/read_franka_state --robot-ip ROBOT_IP \
+     --output calibration_tools/sessions/base-to-right
+
+Open ``http://127.0.0.1:8767``. Move the right arm manually, release the guidance
+button, wait until stationary, and click ``Capture pose``. Collect 20–30 distinct
+poses with rotations about multiple axes; fitting requires at least ten.
+The tool only reads state. Without ``--output``, sessions are saved under the
+script directory's ``calibration_tools/sessions/``, regardless of the working
+directory.
+
+Stop the collector with ``Ctrl+C``. For D455, repeat with ``D455_SERIAL``,
+``/raw/d455``, and ``calibration_tools/sessions/d455-to-right``. Use a new
+directory for each session; D455 stream compatibility must be checked against
+the supported distortion models above.
+
+**3. Fit and export**
+
+.. code-block:: bash
+
+   python calibration_tools/solve_base_handeye.py \
+     calibration_tools/sessions/base-to-right --arm right
+   python calibration_tools/export_dual_franka.py \
+     calibration_tools/sessions/base-to-right/base_camera_extrinsic_candidate.json \
+     --output calibration_tools/exports/base_to_right.yaml
+
+For D455, use ``d455-to-right`` and ``d455_to_right.yaml`` instead. Inspect
+``quality_report.json`` and validate the candidate against independent physical
+measurements. Successful fitting or YAML export does not establish accuracy.
+Export does not overwrite existing files.
+
+**4. Configure RPent**
+
+List the independently validated YAMLs in your robot configuration:
 
 .. code-block:: yaml
 
    perception:
      calibration:
-       base_camera: ~/.ros/easy_handeye/third_to_right_base_calib_eye_on_base.yaml
-       d455_camera: ~/.ros/easy_handeye/d455_to_right_base_eye_on_base.yaml
+       base_camera: /absolute/path/to/base_to_right.yaml
+       d455_camera: /absolute/path/to/d455_to_right.yaml
 
-Paths may be absolute, ``~``-prefixed, or relative; relative paths resolve
-against the working directory RPent is launched from.
+Load this configuration with ``--robot-config`` below. Stop the calibration
+camera service before starting RPent. Preserve and verify
+``perception.base_frames`` and localization bounds; these tools do not calibrate
+the relationship between the two arm bases.
 
 Development Configuration
 -------------------------

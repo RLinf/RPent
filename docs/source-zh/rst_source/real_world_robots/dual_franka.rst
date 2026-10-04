@@ -26,20 +26,113 @@ RPent 可以通过 RLinf ``RealWorldEnv`` worker 控制双节点双臂 Franka �
 该命令将 RLinf ``release/v0.4``、``rpent-openpi``、SAM3 以及 Franka 的相机、夹爪和遥操作依赖安装到 ``.venv``。其中的 ``franky-control`` wheel 已包含 libfranka 0.19.0。
 
 标定（Calibration）
-----------------------
+----------------------------------------
 
-手眼标定使用 ROS 的 `easy_handeye <https://github.com/IFL-CAMP/easy_handeye>`_ 完成。用于像素反投影定位的两台相机都需要相对右臂基座坐标系进行标定（两次 eye-on-base 标定）：``base_camera`` （第三人称 RealSense）和 ``d455_camera``。两台腕部相机（``left_wrist`` 和 ``right_wrist``）只用于观测：它们为 VLA 策略提供图像输入，为规划器提供近距离图像。RPent 不使用腕部相机进行像素反投影，因此它们不需要手眼标定。
+``base_camera`` 和 ``d455_camera`` 都需要标定到 **右臂基座**；腕部相机仅用于
+观测，不需要参与这一步。可使用 ``calibration_tools/``，也可继续使用
+ROS `easy_handeye <https://github.com/IFL-CAMP/easy_handeye>`_，最终加载格式均为 YAML。
 
-easy_handeye 默认在 ``~/.ros/easy_handeye/`` 下为每台相机保存一个 YAML 文件。RPent 会直接加载这些文件：在机器人配置的 ``perception.calibration`` 下，将每台相机映射到对应的 easy_handeye YAML 即可（仓库中的 ``robots/dual_franka/config/example.yaml`` 已经包含该映射）：
+本工具支持 D435，已在 D435 配置下验证；其他型号和流配置尚未验证，不能保证
+仅修改参数即可使用。零畸变系数可直接使用；非零系数仅支持
+``distortion.brown_conrady``。不支持的非零畸变模型会拒绝采样，并显示模型和
+系数，不会自动转换或忽略畸变。
+
+**1. 准备环境**
+
+在相机节点激活已有的 RLinf Franka 运行环境，然后进入 RPent 仓库根目录，
+检查所需接口：
+
+.. code-block:: bash
+
+   source /absolute/path/to/franka-env/bin/activate
+   cd /absolute/path/to/RPent
+   PYTHONPATH=calibration_tools python -c "import numpy, scipy, yaml, pyrealsense2; from common import check_opencv; check_opencv()"
+
+检查包含 ChArUco、PnP、``calibrateHandEye`` 及所需方法常量。
+若现有环境不满足依赖，可另建标定环境，避免改动策略运行环境：
+
+.. code-block:: bash
+
+   python3 -m venv .venv-calibration
+   source .venv-calibration/bin/activate
+   pip install -r calibration_tools/requirements.txt pyrealsense2
+
+在右臂控制节点使用匹配机器人固件的 libfranka 开发库编译状态读取程序：
+
+.. code-block:: bash
+
+   cmake -S calibration_tools -B calibration_tools/build \
+     -DCMAKE_PREFIX_PATH=/absolute/path/to/libfranka/install
+   cmake --build calibration_tools/build --parallel
+
+产物为 ``calibration_tools/build/read_franka_state``，通过 ``readOnce()`` 读取末端
+位姿、关节速度和机器人状态并输出 JSON，不发送运动指令。Python 控制包的安装
+不保证包含此编译步骤所需的头文件和 CMake 配置。
+下文替换相机序列号、SSH 别名、读取程序绝对路径和机器人 IP；读取程序在本机时
+省略 ``--ssh-host``，需要指定共享库目录时追加 ``--library-dir /path/to/lib``。
+
+**2. 启动相机并采集**
+
+退出占用设备的程序，启动相机服务：
+
+.. code-block:: bash
+
+   python calibration_tools/raw_camera_service.py \
+     --base-serial BASE_SERIAL --d455-serial D455_SERIAL
+
+将 ChArUco 板固定在右臂末端，相机保持不动。默认板为 6×8 格、格边长 25 mm、
+标记边长 18 mm、DICT_4X4_100、非 legacy 布局。其他板可通过
+``--squares-x``、``--squares-y``、``--square-m``、``--marker-m`` 和
+``--dictionary`` 配置，长度单位为米。
+
+在同一相机节点另开终端，激活上一步选用的环境后运行：
+
+.. code-block:: bash
+
+   python calibration_tools/base_handeye_collect.py \
+     --arm right --camera-serial BASE_SERIAL \
+     --camera-url http://127.0.0.1:8765/raw/base \
+     --ssh-host robot-right \
+     --reader /absolute/path/to/read_franka_state --robot-ip ROBOT_IP \
+     --output calibration_tools/sessions/base-to-right
+
+打开 ``http://127.0.0.1:8767``，人工调整右臂，释放引导按钮并停稳后点击
+``Capture pose``。建议采集 20–30 个不同姿态，覆盖多个旋转轴；求解至少需要十组。
+工具只读取状态，不会移动机械臂。不传 ``--output`` 时，默认写入脚本所在目录下的
+``calibration_tools/sessions/``，与启动时的工作目录无关。
+
+完成后按 ``Ctrl+C`` 停止采集器。标定 D455 时重复上述命令，将序列号换成
+``D455_SERIAL``、URL 换成 ``/raw/d455``、输出目录换成
+``calibration_tools/sessions/d455-to-right``。每次采集使用新目录；D455 流配置
+需先确认符合上面的畸变模型支持范围。
+
+**3. 求解并导出**
+
+.. code-block:: bash
+
+   python calibration_tools/solve_base_handeye.py \
+     calibration_tools/sessions/base-to-right --arm right
+   python calibration_tools/export_dual_franka.py \
+     calibration_tools/sessions/base-to-right/base_camera_extrinsic_candidate.json \
+     --output calibration_tools/exports/base_to_right.yaml
+
+D455 使用同样步骤，将会话目录和输出文件改为 ``d455-to-right`` 和
+``d455_to_right.yaml``。检查会话中的 ``quality_report.json``，并通过独立实物
+测量验证候选外参；求解成功或导出 YAML 不代表精度已验证。导出不会覆盖已有文件。
+
+**4. 配置 RPent**
+
+在自己的 robot config 中填写经过验证的 YAML 路径：
 
 .. code-block:: yaml
 
    perception:
      calibration:
-       base_camera: ~/.ros/easy_handeye/third_to_right_base_calib_eye_on_base.yaml
-       d455_camera: ~/.ros/easy_handeye/d455_to_right_base_eye_on_base.yaml
+       base_camera: /absolute/path/to/base_to_right.yaml
+       d455_camera: /absolute/path/to/d455_to_right.yaml
 
-路径可以是绝对路径、以 ``~`` 开头的路径或相对路径；相对路径会相对启动 RPent 时的工作目录解析。
+通过下文的 ``--robot-config`` 加载配置。启动 RPent 前停止标定相机服务。
+保留并核对 ``perception.base_frames`` 和定位边界；本工具不会自动标定左右基座关系。
 
 开发配置
 --------
