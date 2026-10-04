@@ -680,6 +680,7 @@ def main() -> int:
         "model": args.model,
         "elapsed_s": round(elapsed, 1),
         "finish": finish_result,
+        "error": agent_error,
         "environment_success": environment_success,
         "stats": stats,
         "messages": _serialize_messages(messages),

@@ -95,7 +95,7 @@ RPent 面向以下四类用户：
           <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/libero.html">LIBERO-PRO</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robocasa.html">RoboCasa</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robotwin.html">RoboTwin</a> ✅</li>
-          <li>RoboDojo</li>
+          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robodojo.html">RoboDojo</a> ✅</li>
         </ul>
       </td>
       <td>

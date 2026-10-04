@@ -18,11 +18,13 @@ import pytest
 
 from robots.libero import tools as libero_tools
 from robots.robocasa import tools as robocasa_tools
+from robots.robodojo import tools as robodojo_tools
 from robots.robotwin import tools as robotwin_tools
 
 ROBOT_SCHEMAS = {
     "libero": libero_tools.TOOLS_SPEC,
     "robocasa": robocasa_tools.TOOLS_SPEC,
+    "robodojo": robodojo_tools.TOOLS_SPEC,
     "robotwin": robotwin_tools.TOOLS_SPEC,
 }
 
@@ -58,6 +60,16 @@ EXPECTED_TOOL_NAMES = {
         "back_project_batch",
         "query_world_map",
         "finish",
+    },
+    "robodojo": {
+        "view_env_state",
+        "back_project",
+        "segment",
+        "move_to",
+        "set_gripper",
+        "pi0_pick",
+        "stabilize",
+        "place_in_bin",
     },
     "robotwin": {
         "reset",

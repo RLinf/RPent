@@ -16,3 +16,5 @@
      - 厨房操作；RoboCasa365 与 Target50 实验。
    * - :doc:`robotwin`
      - 双臂操作；RoboTwin C2R 实验。
+   * - :doc:`robodojo`
+     - Isaac Sim 双臂 ARX-X5 操作与 RLinf Pi0.5 策略。

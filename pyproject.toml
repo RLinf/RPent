@@ -27,8 +27,9 @@ classifiers = [
 ]
 
 dependencies = [
-    "pydantic-ai-slim[anthropic,openai,cli]>=2.43",
-    "pydantic-ai-harness>=0.31",
+    # Upgrade together after validating request budgets and failed-request accounting.
+    "pydantic-ai-slim[anthropic,openai,cli]==2.53.0",
+    "pydantic-ai-harness==0.53.0",
     "pydantic>=2",
     "fastapi>=0.110",
     "uvicorn>=0.27",
@@ -157,8 +158,27 @@ robotwin = [
     "nvidia-curobo @ git+https://github.com/NVlabs/curobo.git@v0.7.8",
 ]
 
+robodojo = [
+    "rpent[robodojo-sim,sam3]",
+    "rpent-openpi @ git+https://github.com/RLinf/openpi.git@rpent",
+]
+robodojo-sim = [
+    # Supplies both the simulator adapter and the OpenPI policy configuration.
+    "rlinf @ git+https://github.com/littleZ05/RLinf.git@rpent/robodojo",
+    # RLinf organization fork; use a versioned release once it is published.
+    "rlinf-robodojo-runtime @ git+https://github.com/RLinf/RoboDojo.git@rpent",
+    # uv reads build overrides only from the root project.
+    "nvidia-curobo[cu12] @ git+https://github.com/yuechen0614/curobo.git@main",
+]
+
 [tool.uv]
 prerelease = "allow"
+
+# `robodojo-sim` needs eight overrides for its simulator stack; they live in
+# requirements/robodojo-override.txt so every other robot keeps resolving the
+# versions it was validated against. Pass them explicitly:
+#
+#   uv pip install -e ".[robodojo]" --override requirements/robodojo-override.txt
 
 # Each robot extra pulls a separately pinned VLA runtime whose Torch,
 # Transformers, Tokenizers, or Diffusers versions are mutually incompatible.
@@ -190,6 +210,12 @@ conflicts = [
 ]
 
 [tool.uv.extra-build-dependencies]
+# This key is a package name, so the pin is global to every extra. RoboTwin's
+# cuRobo v0.7.8 needs a statically known build Torch, and `match-runtime`
+# cannot supply one. RoboDojo's fork does not compile Torch extensions at all
+# (CUROBO_USE_PYBIND defaults to 0), so its runtime Torch does not have to
+# match a build-time one: it stays on 2.7.0 through
+# requirements/robodojo-override.txt while this build dependency stays 2.7.1.
 nvidia-curobo = ["torch==2.7.1"]
 
 [tool.setuptools]
@@ -197,7 +223,10 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["rpent*", "robots", "robots.yam*"]
+# robots is a top-level package; without it, non-editable installations
+# leave the CLI unable to import any backend. The globs also cover every
+# per-robot subpackage (robots.yam.*, robots.robodojo.*, ...).
+include = ["rpent*", "robots", "robots.*"]
 exclude = ["tests*", "docs*", "examples*", "docker*", "toolkits*"]
 
 [tool.setuptools.package-data]
