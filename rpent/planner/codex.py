@@ -893,6 +893,8 @@ def run_probe_turn(
     prompt: str,
     model: str | None,
     timeout_s: int,
+    image_bytes: bytes | None = None,
+    output_schema: dict[str, Any] | None = None,
 ) -> str:
     """Run one tool-free Codex turn and return its final assistant text.
 
@@ -911,6 +913,8 @@ def run_probe_turn(
     classify it rather than seeing it wrapped.
 
     Args:
+        image_bytes: Optional PNG image supplied to a visual point selector.
+        output_schema: Optional structured-output schema for the final response.
         config: Config from :func:`build_probe_config`.
         prompt: The probe prompt to send.
         model: Model id, or ``None`` to use the Codex-configured default.
@@ -939,7 +943,21 @@ def run_probe_turn(
             with openai_codex.Codex(config=config) as codex:
                 state["codex"] = codex
                 thread = codex.thread_start(**options)
-                turn = thread.turn(prompt, **options)
+                turn_input = prompt
+                turn_options = dict(options)
+                if image_bytes is not None:
+                    import base64
+
+                    turn_input = [
+                        openai_codex.TextInput(prompt),
+                        openai_codex.ImageInput(
+                            "data:image/png;base64,"
+                            + base64.b64encode(image_bytes).decode("ascii")
+                        ),
+                    ]
+                if output_schema is not None:
+                    turn_options["output_schema"] = output_schema
+                turn = thread.turn(turn_input, **turn_options)
                 state["turn"] = turn
                 state["result"] = turn.run()
         except Exception as exc:  # surfaced to the caller below

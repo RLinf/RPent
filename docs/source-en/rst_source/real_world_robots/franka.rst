@@ -208,6 +208,32 @@ stage splicing, reference-image selection and historical-point reuse are not
 part of this interface. These commands require robot-specific installation and
 operator validation; offline unit tests do not establish real-robot success.
 
+Optional agent grounding fallback
+------------------------------------------
+
+Add ``--grounding-agent-model provider:model`` to the replay command to enable
+one fallback attempt after Molmo fails. ``codex:model`` uses the existing Codex
+CLI file login and model/provider settings in an isolated temporary configuration
+directory; user MCP servers and plugins are not copied. Enabled MCP servers in
+the effective configuration cause the request to stop before image submission.
+Keyring-only login requires file-based login or ``CODEX_API_KEY`` instead.
+API models use the existing API model factory.
+``--grounding-agent-base-url`` optionally overrides the model endpoint.
+Use a model that accepts images and returns structured output.
+
+For both single and dual Franka, a missing target, invalid pixel/depth or Molmo
+request failure triggers a fresh observation and one agent selection on the
+same named object part. The agent only selects pixels and receives no robot
+tools. Its point must pass the same depth projection and workspace/motion checks.
+If it fails, replay stops without executing that motion. The next translation
+starts with Molmo again. Cancellation does not trigger fallback. Configuration
+errors and workspace/motion-limit failures stop directly.
+
+The fallback is disabled by default and applies to live replay, not offline
+plan generation. Each attempt is recorded in per-step ``flash_grounding.json``
+artifacts. Agent calls can incur model costs and have a 90-second request timeout;
+Flash planner token counters do not include these perception requests.
+
 Stop the Run
 ------------
 
