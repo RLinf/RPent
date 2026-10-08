@@ -9,18 +9,10 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "path": {
-              "type": "string",
-              "description": "Absolute or repo-relative path"
-            },
-            "max_chars": {
-              "type": "integer",
-              "description": "Max chars (default 40000)"
-            }
+            "path": {"type": "string", "description": "Absolute or repo-relative path"},
+            "max_chars": {"type": "integer", "description": "Max chars (default 40000)"}
           },
-          "required": [
-            "path"
-          ]
+          "required": ["path"]
         }
       },
       {
@@ -29,17 +21,10 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "path": {
-              "type": "string"
-            },
-            "content": {
-              "type": "string"
-            }
+            "path": {"type": "string"},
+            "content": {"type": "string"}
           },
-          "required": [
-            "path",
-            "content"
-          ]
+          "required": ["path", "content"]
         }
       },
       {
@@ -48,10 +33,7 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "path": {
-              "type": "string",
-              "description": "Default: {{output_dir}}"
-            }
+            "path": {"type": "string", "description": "Default: {{output_dir}}"}
           }
         }
       },
@@ -61,19 +43,10 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "status": {
-              "type": "string",
-              "description": "Outcome, e.g. 'success', 'failure', or 'stuck'."
-            },
-            "summary": {
-              "type": "string",
-              "description": "Short natural-language summary of the run."
-            }
+            "status": {"type": "string", "description": "Outcome, e.g. 'success', 'failure', or 'stuck'."},
+            "summary": {"type": "string", "description": "Short natural-language summary of the run."}
           },
-          "required": [
-            "status",
-            "summary"
-          ]
+          "required": ["status", "summary"]
         }
       }
     ],
@@ -84,10 +57,7 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "step": {
-              "type": "integer",
-              "default": -1
-            }
+            "step": {"type": "integer", "default": -1}
           }
         }
       },
@@ -97,10 +67,7 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "step": {
-              "type": "integer",
-              "default": -1
-            }
+            "step": {"type": "integer", "default": -1}
           }
         }
       },
@@ -110,10 +77,7 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "step": {
-              "type": "integer",
-              "default": -1
-            }
+            "step": {"type": "integer", "default": -1}
           }
         }
       },
@@ -123,33 +87,13 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "row": {
-              "type": "integer",
-              "minimum": 0
-            },
-            "col": {
-              "type": "integer",
-              "minimum": 0
-            },
-            "step": {
-              "type": "integer"
-            },
-            "camera": {
-              "type": "string",
-              "enum": [
-                "wrist",
-                "third_person"
-              ]
-            },
-            "debug": {
-              "type": "boolean",
-              "default": false
-            }
+            "row": {"type": "integer", "minimum": 0},
+            "col": {"type": "integer", "minimum": 0},
+            "step": {"type": "integer"},
+            "camera": {"type": "string", "enum": ["wrist", "third_person"]},
+            "debug": {"type": "boolean", "default": false}
           },
-          "required": [
-            "row",
-            "col"
-          ]
+          "required": ["row", "col"]
         }
       },
       {
@@ -158,35 +102,13 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "third_person_row": {
-              "type": "integer",
-              "minimum": 0
-            },
-            "third_person_col": {
-              "type": "integer",
-              "minimum": 0
-            },
-            "wrist_row": {
-              "type": "integer",
-              "minimum": 0
-            },
-            "wrist_col": {
-              "type": "integer",
-              "minimum": 0
-            },
-            "pixels": {
-              "type": "array",
-              "items": {
-                "type": "object"
-              }
-            },
-            "step": {
-              "type": "integer"
-            },
-            "debug": {
-              "type": "boolean",
-              "default": false
-            }
+            "third_person_row": {"type": "integer", "minimum": 0},
+            "third_person_col": {"type": "integer", "minimum": 0},
+            "wrist_row": {"type": "integer", "minimum": 0},
+            "wrist_col": {"type": "integer", "minimum": 0},
+            "pixels": {"type": "array", "items": {"type": "object"}},
+            "step": {"type": "integer"},
+            "debug": {"type": "boolean", "default": false}
           }
         }
       },
@@ -196,18 +118,9 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "delta_xyz": {
-              "type": "array",
-              "items": {
-                "type": "number"
-              },
-              "minItems": 3,
-              "maxItems": 3
-            }
+            "delta_xyz": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3}
           },
-          "required": [
-            "delta_xyz"
-          ]
+          "required": ["delta_xyz"]
         }
       },
       {
@@ -216,18 +129,9 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "delta_rpy": {
-              "type": "array",
-              "items": {
-                "type": "number"
-              },
-              "minItems": 3,
-              "maxItems": 3
-            }
+            "delta_rpy": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3}
           },
-          "required": [
-            "delta_rpy"
-          ]
+          "required": ["delta_rpy"]
         }
       },
       {
@@ -252,18 +156,10 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "prompt": {
-              "type": "string"
-            },
-            "max_chunks": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 20
-            }
+            "prompt": {"type": "string"},
+            "max_chunks": {"type": "integer", "minimum": 1, "maximum": 20}
           },
-          "required": [
-            "prompt"
-          ]
+          "required": ["prompt"]
         }
       }
     ],
@@ -274,14 +170,9 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "reason": {
-              "type": "string",
-              "description": "Why this episode is unrecoverable and what will change."
-            }
+            "reason": {"type": "string", "description": "Why this episode is unrecoverable and what will change."}
           },
-          "required": [
-            "reason"
-          ]
+          "required": ["reason"]
         }
       },
       {
@@ -290,11 +181,7 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "step": {
-              "type": "integer",
-              "default": -1,
-              "description": "Step number; 0 = initial, -1 = latest."
-            }
+            "step": {"type": "integer", "default": -1, "description": "Step number; 0 = initial, -1 = latest."}
           }
         }
       },
@@ -304,50 +191,16 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "xyz": {
-              "type": "array",
-              "description": "World-frame target [x, y, z] in meters",
-              "items": {
-                "type": "number"
-              },
-              "minItems": 3,
-              "maxItems": 3
-            },
-            "gripper": {
-              "type": "number",
-              "description": "Gripper command: -1 open, +1 close (default -1)"
-            },
-            "tol": {
-              "type": "number",
-              "description": "Position tolerance, m (default 0.012)"
-            },
-            "step_clip": {
-              "type": "number",
-              "description": "Per-step Δxyz cap before action_scale, m (default 0.025)"
-            },
-            "max_steps": {
-              "type": "integer",
-              "description": "Step budget (default 80)"
-            },
-            "action_scale": {
-              "type": "number",
-              "description": "OSC action scale (default 0.05)"
-            },
-            "target_yaw": {
-              "type": [
-                "number",
-                "null"
-              ],
-              "description": "Optional world-frame yaw target in radians"
-            },
-            "yaw_step_clip": {
-              "type": "number",
-              "description": "Per-step yaw clip, rad (default 0.10)"
-            }
+            "xyz": {"type": "array", "description": "World-frame target [x, y, z] in meters", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
+            "gripper": {"type": "number", "description": "Gripper command: -1 open, +1 close (default -1)"},
+            "tol": {"type": "number", "description": "Position tolerance, m (default 0.012)"},
+            "step_clip": {"type": "number", "description": "Per-step Δxyz cap before action_scale, m (default 0.025)"},
+            "max_steps": {"type": "integer", "description": "Step budget (default 80)"},
+            "action_scale": {"type": "number", "description": "OSC action scale (default 0.05)"},
+            "target_yaw": {"type": ["number", "null"], "description": "Optional world-frame yaw target in radians"},
+            "yaw_step_clip": {"type": "number", "description": "Per-step yaw clip, rad (default 0.10)"}
           },
-          "required": [
-            "xyz"
-          ]
+          "required": ["xyz"]
         }
       },
       {
@@ -356,34 +209,14 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "prompt": {
-              "type": "string",
-              "description": "Pi0 prompt (e.g. 'pick up the akita black bowl')."
-            },
-            "max_chunks": {
-              "type": "integer",
-              "description": "Action-chunk budget (default 24)"
-            },
-            "lift_thresh": {
-              "type": "number",
-              "description": "EEF post-descent ascent threshold for success, m (default 0.05)"
-            },
-            "gripper_closed_thresh": {
-              "type": "number",
-              "description": "Finger-separation closed threshold (default 0.06)"
-            },
-            "gripper_open_thresh": {
-              "type": "number",
-              "description": "Minimum finger separation accepted as a held object (default 0.0)"
-            },
-            "descent_thresh": {
-              "type": "number",
-              "description": "Required descent before lift detection, m (default 0.10)"
-            }
+            "prompt": {"type": "string", "description": "Pi0 prompt (e.g. 'pick up the akita black bowl')."},
+            "max_chunks": {"type": "integer", "description": "Action-chunk budget (default 24)"},
+            "lift_thresh": {"type": "number", "description": "EEF post-descent ascent threshold for success, m (default 0.05)"},
+            "gripper_closed_thresh": {"type": "number", "description": "Finger-separation closed threshold (default 0.06)"},
+            "gripper_open_thresh": {"type": "number", "description": "Minimum finger separation accepted as a held object (default 0.0)"},
+            "descent_thresh": {"type": "number", "description": "Required descent before lift detection, m (default 0.10)"}
           },
-          "required": [
-            "prompt"
-          ]
+          "required": ["prompt"]
         }
       },
       {
@@ -392,18 +225,10 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "prompt": {
-              "type": "string",
-              "description": "Contact-skill prompt, e.g. 'turn on the stove'."
-            },
-            "max_chunks": {
-              "type": "integer",
-              "description": "Action-chunk budget (default 20)"
-            }
+            "prompt": {"type": "string", "description": "Contact-skill prompt, e.g. 'turn on the stove'."},
+            "max_chunks": {"type": "integer", "description": "Action-chunk budget (default 20)"}
           },
-          "required": [
-            "prompt"
-          ]
+          "required": ["prompt"]
         }
       },
       {
@@ -412,10 +237,7 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "max_steps": {
-              "type": "integer",
-              "description": "Step budget (default 20)"
-            }
+            "max_steps": {"type": "integer", "description": "Step budget (default 20)"}
           }
         }
       },
@@ -425,14 +247,8 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "gripper": {
-              "type": "number",
-              "description": "Gripper command: -1 open, +1 close (default -1)"
-            },
-            "steps": {
-              "type": "integer",
-              "description": "Number of env steps (default 5)"
-            }
+            "gripper": {"type": "number", "description": "Gripper command: -1 open, +1 close (default -1)"},
+            "steps": {"type": "integer", "description": "Number of env steps (default 5)"}
           }
         }
       },
@@ -442,36 +258,12 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "target_yaw": {
-              "type": [
-                "number",
-                "null"
-              ],
-              "description": "Absolute world-frame yaw target, rad"
-            },
-            "delta_yaw": {
-              "type": [
-                "number",
-                "null"
-              ],
-              "description": "Relative yaw delta, rad"
-            },
-            "gripper": {
-              "type": "number",
-              "description": "Gripper command held during rotation (default +1)"
-            },
-            "max_steps": {
-              "type": "integer",
-              "description": "Step budget (default 40)"
-            },
-            "tol": {
-              "type": "number",
-              "description": "Yaw tolerance, rad (default 0.02)"
-            },
-            "step_clip": {
-              "type": "number",
-              "description": "Per-step yaw clip, rad (default 0.10)"
-            }
+            "target_yaw": {"type": ["number", "null"], "description": "Absolute world-frame yaw target, rad"},
+            "delta_yaw": {"type": ["number", "null"], "description": "Relative yaw delta, rad"},
+            "gripper": {"type": "number", "description": "Gripper command held during rotation (default +1)"},
+            "max_steps": {"type": "integer", "description": "Step budget (default 40)"},
+            "tol": {"type": "number", "description": "Yaw tolerance, rad (default 0.02)"},
+            "step_clip": {"type": "number", "description": "Per-step yaw clip, rad (default 0.10)"}
           }
         }
       },
@@ -481,36 +273,12 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "target_pitch": {
-              "type": [
-                "number",
-                "null"
-              ],
-              "description": "Absolute world-frame pitch target, rad"
-            },
-            "delta_pitch": {
-              "type": [
-                "number",
-                "null"
-              ],
-              "description": "Relative pitch delta, rad"
-            },
-            "gripper": {
-              "type": "number",
-              "description": "Gripper command held during rotation (default +1)"
-            },
-            "max_steps": {
-              "type": "integer",
-              "description": "Step budget (default 40)"
-            },
-            "tol": {
-              "type": "number",
-              "description": "Pitch tolerance, rad (default 0.02)"
-            },
-            "step_clip": {
-              "type": "number",
-              "description": "Per-step pitch clip, rad (default 0.10)"
-            }
+            "target_pitch": {"type": ["number", "null"], "description": "Absolute world-frame pitch target, rad"},
+            "delta_pitch": {"type": ["number", "null"], "description": "Relative pitch delta, rad"},
+            "gripper": {"type": "number", "description": "Gripper command held during rotation (default +1)"},
+            "max_steps": {"type": "integer", "description": "Step budget (default 40)"},
+            "tol": {"type": "number", "description": "Pitch tolerance, rad (default 0.02)"},
+            "step_clip": {"type": "number", "description": "Per-step pitch clip, rad (default 0.10)"}
           }
         }
       },
@@ -520,65 +288,19 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "xyz": {
-              "type": "array",
-              "description": "World-frame target [x, y, z] in meters",
-              "items": {
-                "type": "number"
-              },
-              "minItems": 3,
-              "maxItems": 3
-            },
-            "target_pitch": {
-              "type": [
-                "number",
-                "null"
-              ],
-              "description": "Absolute pitch target, rad"
-            },
-            "target_yaw": {
-              "type": [
-                "number",
-                "null"
-              ],
-              "description": "Absolute yaw target, rad"
-            },
-            "gripper": {
-              "type": "number",
-              "description": "Gripper command held during the move (default -1)"
-            },
-            "step_clip": {
-              "type": "number",
-              "description": "Per-step Δxyz cap, m (default 0.02)"
-            },
-            "pitch_step": {
-              "type": "number",
-              "description": "Per-step pitch clip, rad (default 0.08)"
-            },
-            "yaw_step": {
-              "type": "number",
-              "description": "Per-step yaw clip, rad (default 0.08)"
-            },
-            "tol": {
-              "type": "number",
-              "description": "Position tolerance, m (default 0.012)"
-            },
-            "ori_tol": {
-              "type": "number",
-              "description": "Orientation tolerance, rad (default 0.05)"
-            },
-            "action_scale": {
-              "type": "number",
-              "description": "OSC action scale (default 0.05)"
-            },
-            "max_steps": {
-              "type": "integer",
-              "description": "Step budget (default 150)"
-            }
+            "xyz": {"type": "array", "description": "World-frame target [x, y, z] in meters", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
+            "target_pitch": {"type": ["number", "null"], "description": "Absolute pitch target, rad"},
+            "target_yaw": {"type": ["number", "null"], "description": "Absolute yaw target, rad"},
+            "gripper": {"type": "number", "description": "Gripper command held during the move (default -1)"},
+            "step_clip": {"type": "number", "description": "Per-step Δxyz cap, m (default 0.02)"},
+            "pitch_step": {"type": "number", "description": "Per-step pitch clip, rad (default 0.08)"},
+            "yaw_step": {"type": "number", "description": "Per-step yaw clip, rad (default 0.08)"},
+            "tol": {"type": "number", "description": "Position tolerance, m (default 0.012)"},
+            "ori_tol": {"type": "number", "description": "Orientation tolerance, rad (default 0.05)"},
+            "action_scale": {"type": "number", "description": "OSC action scale (default 0.05)"},
+            "max_steps": {"type": "integer", "description": "Step budget (default 150)"}
           },
-          "required": [
-            "xyz"
-          ]
+          "required": ["xyz"]
         }
       },
       {
@@ -587,19 +309,8 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "camera": {
-              "type": "string",
-              "enum": [
-                "agentview",
-                "wrist"
-              ],
-              "description": "Camera metadata to read (default agentview)."
-            },
-            "step": {
-              "type": "integer",
-              "default": -1,
-              "description": "Metadata step to use; -1 = latest."
-            }
+            "camera": {"type": "string", "enum": ["agentview", "wrist"], "description": "Camera metadata to read (default agentview)."},
+            "step": {"type": "integer", "default": -1, "description": "Metadata step to use; -1 = latest."}
           }
         }
       },
@@ -609,39 +320,11 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "prompt": {
-              "type": "string",
-              "description": "Object/text prompt to segment."
-            },
-            "camera": {
-              "type": "string",
-              "enum": [
-                "agentview",
-                "wrist"
-              ],
-              "description": "Artifact camera to use (default agentview)."
-            },
-            "step": {
-              "type": "integer",
-              "default": -1,
-              "description": "Step to segment; -1 = latest."
-            },
-            "point": {
-              "type": [
-                "array",
-                "null"
-              ],
-              "description": "Optional single positive point as [row, col]. Mutually exclusive with prompt.",
-              "items": {
-                "type": "integer"
-              },
-              "minItems": 2,
-              "maxItems": 2
-            },
-            "min_score": {
-              "type": "number",
-              "description": "Minimum accepted mask score (default 0.2)."
-            }
+            "prompt": {"type": "string", "description": "Object/text prompt to segment."},
+            "camera": {"type": "string", "enum": ["agentview", "wrist"], "description": "Artifact camera to use (default agentview)."},
+            "step": {"type": "integer", "default": -1, "description": "Step to segment; -1 = latest."},
+            "point": {"type": ["array", "null"], "description": "Optional single positive point as [row, col]. Mutually exclusive with prompt.", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2},
+            "min_score": {"type": "number", "description": "Minimum accepted mask score (default 0.2)."}
           }
         }
       },
@@ -651,75 +334,15 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "row": {
-              "type": [
-                "integer",
-                "null"
-              ],
-              "description": "Pixel row (0=top) in the selected resolution image."
-            },
-            "col": {
-              "type": [
-                "integer",
-                "null"
-              ],
-              "description": "Pixel column (0=left) in the selected resolution image."
-            },
-            "step": {
-              "type": "integer",
-              "default": -1,
-              "description": "Depth/world-map step; 0 = initial, -1 = latest."
-            },
-            "camera": {
-              "type": "string",
-              "enum": [
-                "agentview",
-                "wrist"
-              ],
-              "description": "Camera to back-project from (default agentview)."
-            },
-            "resolution": {
-              "type": "string",
-              "enum": [
-                "high",
-                "low"
-              ],
-              "description": "Coordinate system for row/col (default high). Use low only when row/col came from the embedded/standard 256 image."
-            },
-            "row_range": {
-              "type": [
-                "array",
-                "null"
-              ],
-              "items": {
-                "type": "integer"
-              },
-              "description": "Region mode: [r0, r1] pixel row window. Requires col_range."
-            },
-            "col_range": {
-              "type": [
-                "array",
-                "null"
-              ],
-              "items": {
-                "type": "integer"
-              },
-              "description": "Region mode: [c0, c1] pixel col window. Requires row_range."
-            },
-            "z_min": {
-              "type": [
-                "number",
-                "null"
-              ],
-              "description": "Region mode: keep only pixels with world z >= z_min."
-            },
-            "z_max": {
-              "type": [
-                "number",
-                "null"
-              ],
-              "description": "Region mode: keep only pixels with world z <= z_max."
-            }
+            "row": {"type": ["integer", "null"], "description": "Pixel row (0=top) in the selected resolution image."},
+            "col": {"type": ["integer", "null"], "description": "Pixel column (0=left) in the selected resolution image."},
+            "step": {"type": "integer", "default": -1, "description": "Depth/world-map step; 0 = initial, -1 = latest."},
+            "camera": {"type": "string", "enum": ["agentview", "wrist"], "description": "Camera to back-project from (default agentview)."},
+            "resolution": {"type": "string", "enum": ["high", "low"], "description": "Coordinate system for row/col (default high). Use low only when row/col came from the embedded/standard 256 image."},
+            "row_range": {"type": ["array", "null"], "items": {"type": "integer"}, "description": "Region mode: [r0, r1] pixel row window. Requires col_range."},
+            "col_range": {"type": ["array", "null"], "items": {"type": "integer"}, "description": "Region mode: [c0, c1] pixel col window. Requires row_range."},
+            "z_min": {"type": ["number", "null"], "description": "Region mode: keep only pixels with world z >= z_min."},
+            "z_max": {"type": ["number", "null"], "description": "Region mode: keep only pixels with world z <= z_max."}
           }
         }
       }
@@ -731,38 +354,13 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "xyz": {
-              "type": "array",
-              "description": "World-frame target [x, y, z] in meters",
-              "items": {
-                "type": "number"
-              },
-              "minItems": 3,
-              "maxItems": 3
-            },
-            "gripper": {
-              "type": [
-                "number",
-                "string"
-              ],
-              "description": "Gripper: +1 close, -1 open, or 'hold' to maintain current finger width (default 'hold')"
-            },
-            "step_clip": {
-              "type": "number",
-              "description": "Per-step dxyz cap, m (default 0.02)"
-            },
-            "max_steps": {
-              "type": "integer",
-              "description": "Step budget (default 200)"
-            },
-            "tol": {
-              "type": "number",
-              "description": "Position tolerance, m (default 0.012)"
-            }
+            "xyz": {"type": "array", "description": "World-frame target [x, y, z] in meters", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
+            "gripper": {"type": ["number", "string"], "description": "Gripper: +1 close, -1 open, or 'hold' to maintain current finger width (default 'hold')"},
+            "step_clip": {"type": "number", "description": "Per-step dxyz cap, m (default 0.02)"},
+            "max_steps": {"type": "integer", "description": "Step budget (default 200)"},
+            "tol": {"type": "number", "description": "Position tolerance, m (default 0.012)"}
           },
-          "required": [
-            "xyz"
-          ]
+          "required": ["xyz"]
         }
       },
       {
@@ -771,34 +369,12 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "dxyz": {
-              "type": "array",
-              "description": "Relative displacement [dx, dy, dz] in meters",
-              "items": {
-                "type": "number"
-              },
-              "minItems": 3,
-              "maxItems": 3
-            },
-            "gripper": {
-              "type": [
-                "number",
-                "string"
-              ],
-              "description": "Gripper: +1 close, -1 open, or 'hold' (default 'hold')"
-            },
-            "step_clip": {
-              "type": "number",
-              "description": "Per-step dxyz cap, m (default 0.02)"
-            },
-            "max_steps": {
-              "type": "integer",
-              "description": "Step budget (default 80)"
-            }
+            "dxyz": {"type": "array", "description": "Relative displacement [dx, dy, dz] in meters", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
+            "gripper": {"type": ["number", "string"], "description": "Gripper: +1 close, -1 open, or 'hold' (default 'hold')"},
+            "step_clip": {"type": "number", "description": "Per-step dxyz cap, m (default 0.02)"},
+            "max_steps": {"type": "integer", "description": "Step budget (default 80)"}
           },
-          "required": [
-            "dxyz"
-          ]
+          "required": ["dxyz"]
         }
       },
       {
@@ -807,18 +383,9 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "target_pitch": {
-              "type": "number",
-              "description": "Absolute pitch target, radians (clamped +/-1.5; default 0.6)"
-            },
-            "gripper": {
-              "type": "number",
-              "description": "Gripper command held during rotation (default +1)"
-            },
-            "n": {
-              "type": "integer",
-              "description": "Number of env steps for the rotation (default 12)"
-            }
+            "target_pitch": {"type": "number", "description": "Absolute pitch target, radians (clamped +/-1.5; default 0.6)"},
+            "gripper": {"type": "number", "description": "Gripper command held during rotation (default +1)"},
+            "n": {"type": "integer", "description": "Number of env steps for the rotation (default 12)"}
           }
         }
       },
@@ -828,14 +395,8 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "gripper": {
-              "type": "number",
-              "description": "Gripper command: +1 close, -1 open (default +1)"
-            },
-            "steps": {
-              "type": "integer",
-              "description": "Number of env steps to hold (default 10)"
-            }
+            "gripper": {"type": "number", "description": "Gripper command: +1 close, -1 open (default +1)"},
+            "steps": {"type": "integer", "description": "Number of env steps to hold (default 10)"}
           }
         }
       },
@@ -845,10 +406,7 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "steps": {
-              "type": "integer",
-              "description": "Number of env steps (default 10)"
-            }
+            "steps": {"type": "integer", "description": "Number of env steps (default 10)"}
           }
         }
       },
@@ -858,31 +416,12 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "xyz": {
-              "type": "array",
-              "description": "World-frame grasp target [x, y, z] in meters",
-              "items": {
-                "type": "number"
-              },
-              "minItems": 3,
-              "maxItems": 3
-            },
-            "approach_z": {
-              "type": "number",
-              "description": "Z offset above target before descent, m (default 0.10)"
-            },
-            "grasp_z_offset": {
-              "type": "number",
-              "description": "Z offset at grasp point (default 0.0; negative = below target)"
-            },
-            "step_clip": {
-              "type": "number",
-              "description": "Per-step dxyz cap during descent, m (default 0.02)"
-            }
+            "xyz": {"type": "array", "description": "World-frame grasp target [x, y, z] in meters", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
+            "approach_z": {"type": "number", "description": "Z offset above target before descent, m (default 0.10)"},
+            "grasp_z_offset": {"type": "number", "description": "Z offset at grasp point (default 0.0; negative = below target)"},
+            "step_clip": {"type": "number", "description": "Per-step dxyz cap during descent, m (default 0.02)"}
           },
-          "required": [
-            "xyz"
-          ]
+          "required": ["xyz"]
         }
       },
       {
@@ -891,41 +430,15 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "prompt": {
-              "type": "string",
-              "description": "Complete live task_language, copied verbatim"
-            },
-            "base_clip": {
-              "type": [
-                "number",
-                "null"
-              ],
-              "description": "Base motion magnitude cap (default null = no clamp)"
-            },
-            "max_chunks": {
-              "type": "integer",
-              "description": "Action-chunk budget (default 70)"
-            },
-            "force_reset": {
-              "type": "boolean",
-              "description": "Force VLA frame history reset (default False)"
-            },
-            "n_action_steps": {
-              "type": "integer",
-              "description": "Actions per VLA chunk (default 8)"
-            },
-            "settle_patience": {
-              "type": "integer",
-              "description": "Settle step budget before declaring done (default 999; do NOT set small)"
-            },
-            "settle_eps": {
-              "type": "number",
-              "description": "Settle position tolerance, m (default 0.012)"
-            }
+            "prompt": {"type": "string", "description": "Complete live task_language, copied verbatim"},
+            "base_clip": {"type": ["number", "null"], "description": "Base motion magnitude cap (default null = no clamp)"},
+            "max_chunks": {"type": "integer", "description": "Action-chunk budget (default 70)"},
+            "force_reset": {"type": "boolean", "description": "Force VLA frame history reset (default False)"},
+            "n_action_steps": {"type": "integer", "description": "Actions per VLA chunk (default 8)"},
+            "settle_patience": {"type": "integer", "description": "Settle step budget before declaring done (default 999; do NOT set small)"},
+            "settle_eps": {"type": "number", "description": "Settle position tolerance, m (default 0.012)"}
           },
-          "required": [
-            "prompt"
-          ]
+          "required": ["prompt"]
         }
       },
       {
@@ -934,41 +447,15 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "prompt": {
-              "type": "string",
-              "description": "Complete live task_language, copied verbatim"
-            },
-            "base_clip": {
-              "type": [
-                "number",
-                "null"
-              ],
-              "description": "Base motion magnitude cap (default 0.1 = small)"
-            },
-            "max_chunks": {
-              "type": "integer",
-              "description": "Action-chunk budget (default 70)"
-            },
-            "force_reset": {
-              "type": "boolean",
-              "description": "Force VLA frame history reset (default False)"
-            },
-            "n_action_steps": {
-              "type": "integer",
-              "description": "Actions per VLA chunk (default 8)"
-            },
-            "settle_patience": {
-              "type": "integer",
-              "description": "Settle step budget before declaring done (default 999; do NOT set small)"
-            },
-            "settle_eps": {
-              "type": "number",
-              "description": "Settle position tolerance, m (default 0.012)"
-            }
+            "prompt": {"type": "string", "description": "Complete live task_language, copied verbatim"},
+            "base_clip": {"type": ["number", "null"], "description": "Base motion magnitude cap (default 0.1 = small)"},
+            "max_chunks": {"type": "integer", "description": "Action-chunk budget (default 70)"},
+            "force_reset": {"type": "boolean", "description": "Force VLA frame history reset (default False)"},
+            "n_action_steps": {"type": "integer", "description": "Actions per VLA chunk (default 8)"},
+            "settle_patience": {"type": "integer", "description": "Settle step budget before declaring done (default 999; do NOT set small)"},
+            "settle_eps": {"type": "number", "description": "Settle position tolerance, m (default 0.012)"}
           },
-          "required": [
-            "prompt"
-          ]
+          "required": ["prompt"]
         }
       },
       {
@@ -977,34 +464,12 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "xy": {
-              "type": "array",
-              "description": "World-frame target [x, y] in meters (z ignored if provided)",
-              "items": {
-                "type": "number"
-              },
-              "minItems": 2,
-              "maxItems": 2
-            },
-            "tol": {
-              "type": "number",
-              "description": "Distance threshold to stop, m (default 0.20)"
-            },
-            "max_steps": {
-              "type": "integer",
-              "description": "Step budget (default 300)"
-            },
-            "gripper": {
-              "type": [
-                "number",
-                "string"
-              ],
-              "description": "Gripper while driving: +1 close, -1 open, or 'hold' (default 'hold')"
-            }
+            "xy": {"type": "array", "description": "World-frame target [x, y] in meters (z ignored if provided)", "items": {"type": "number"}, "minItems": 2, "maxItems": 2},
+            "tol": {"type": "number", "description": "Distance threshold to stop, m (default 0.20)"},
+            "max_steps": {"type": "integer", "description": "Step budget (default 300)"},
+            "gripper": {"type": ["number", "string"], "description": "Gripper while driving: +1 close, -1 open, or 'hold' (default 'hold')"}
           },
-          "required": [
-            "xy"
-          ]
+          "required": ["xy"]
         }
       },
       {
@@ -1013,29 +478,11 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "forward": {
-              "type": "number",
-              "description": "Forward velocity, [-1, 1] (default 0)"
-            },
-            "lateral": {
-              "type": "number",
-              "description": "Lateral / strafe velocity, [-1, 1] (default 0)"
-            },
-            "turn": {
-              "type": "number",
-              "description": "Yaw rotation velocity, [-1, 1] (default 0)"
-            },
-            "steps": {
-              "type": "integer",
-              "description": "Number of env steps (default 10)"
-            },
-            "gripper": {
-              "type": [
-                "number",
-                "string"
-              ],
-              "description": "Gripper while driving: +1 close, -1 open, or 'hold' (default 'hold')"
-            }
+            "forward": {"type": "number", "description": "Forward velocity, [-1, 1] (default 0)"},
+            "lateral": {"type": "number", "description": "Lateral / strafe velocity, [-1, 1] (default 0)"},
+            "turn": {"type": "number", "description": "Yaw rotation velocity, [-1, 1] (default 0)"},
+            "steps": {"type": "integer", "description": "Number of env steps (default 10)"},
+            "gripper": {"type": ["number", "string"], "description": "Gripper while driving: +1 close, -1 open, or 'hold' (default 'hold')"}
           }
         }
       },
@@ -1053,13 +500,7 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "step": {
-              "type": [
-                "integer",
-                "null"
-              ],
-              "description": "Step number; 0 = initial. Null = latest."
-            }
+            "step": {"type": ["integer", "null"], "description": "Step number; 0 = initial. Null = latest."}
           }
         }
       },
@@ -1069,48 +510,12 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "pixels": {
-              "type": "array",
-              "description": "List of [row, col] pixel coordinates (max 50)",
-              "items": {
-                "type": "array",
-                "items": {
-                  "type": "integer"
-                },
-                "minItems": 2,
-                "maxItems": 2
-              },
-              "minItems": 1,
-              "maxItems": 50
-            },
-            "step": {
-              "type": [
-                "integer",
-                "null"
-              ],
-              "description": "Depth / world-map step to use (default latest)."
-            },
-            "camera": {
-              "type": "string",
-              "enum": [
-                "agentview",
-                "navview",
-                "wrist"
-              ],
-              "description": "Camera to back-project from (default agentview)."
-            },
-            "resolution": {
-              "type": "string",
-              "enum": [
-                "high",
-                "low"
-              ],
-              "description": "Coordinate system for pixels (default low). Use 'low' for the standard 256x256 world map."
-            }
+            "pixels": {"type": "array", "description": "List of [row, col] pixel coordinates (max 50)", "items": {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2}, "minItems": 1, "maxItems": 50},
+            "step": {"type": ["integer", "null"], "description": "Depth / world-map step to use (default latest)."},
+            "camera": {"type": "string", "enum": ["agentview", "navview", "wrist"], "description": "Camera to back-project from (default agentview)."},
+            "resolution": {"type": "string", "enum": ["high", "low"], "description": "Coordinate system for pixels (default low). Use 'low' for the standard 256x256 world map."}
           },
-          "required": [
-            "pixels"
-          ]
+          "required": ["pixels"]
         }
       },
       {
@@ -1119,59 +524,13 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "z_min": {
-              "type": "number",
-              "description": "Minimum Z in meters (default 0.85 for counter height)."
-            },
-            "z_max": {
-              "type": "number",
-              "description": "Maximum Z in meters (default 0.95 for counter height)."
-            },
-            "x_range": {
-              "type": [
-                "array",
-                "null"
-              ],
-              "description": "Optional X range [min, max] in meters; null = no filter.",
-              "items": {
-                "type": "number"
-              },
-              "minItems": 2,
-              "maxItems": 2
-            },
-            "y_range": {
-              "type": [
-                "array",
-                "null"
-              ],
-              "description": "Optional Y range [min, max] in meters; null = no filter.",
-              "items": {
-                "type": "number"
-              },
-              "minItems": 2,
-              "maxItems": 2
-            },
-            "camera": {
-              "type": "string",
-              "enum": [
-                "agentview",
-                "navview",
-                "wrist"
-              ],
-              "description": "Camera world map to query (default agentview)."
-            },
-            "resolution": {
-              "type": "string",
-              "enum": [
-                "high",
-                "low"
-              ],
-              "description": "World map resolution (default low)."
-            },
-            "min_cluster_size": {
-              "type": "integer",
-              "description": "Minimum pixels per cluster to report (default 10)."
-            }
+            "z_min": {"type": "number", "description": "Minimum Z in meters (default 0.85 for counter height)."},
+            "z_max": {"type": "number", "description": "Maximum Z in meters (default 0.95 for counter height)."},
+            "x_range": {"type": ["array", "null"], "description": "Optional X range [min, max] in meters; null = no filter.", "items": {"type": "number"}, "minItems": 2, "maxItems": 2},
+            "y_range": {"type": ["array", "null"], "description": "Optional Y range [min, max] in meters; null = no filter.", "items": {"type": "number"}, "minItems": 2, "maxItems": 2},
+            "camera": {"type": "string", "enum": ["agentview", "navview", "wrist"], "description": "Camera world map to query (default agentview)."},
+            "resolution": {"type": "string", "enum": ["high", "low"], "description": "World map resolution (default low)."},
+            "min_cluster_size": {"type": "integer", "description": "Minimum pixels per cluster to report (default 10)."}
           }
         }
       },
@@ -1181,24 +540,10 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "status": {
-              "type": "string",
-              "enum": [
-                "success",
-                "failure",
-                "stuck"
-              ],
-              "description": "Task outcome classification."
-            },
-            "summary": {
-              "type": "string",
-              "description": "1-3 sentence summary of what worked / what failed."
-            }
+            "status": {"type": "string", "enum": ["success", "failure", "stuck"], "description": "Task outcome classification."},
+            "summary": {"type": "string", "description": "1-3 sentence summary of what worked / what failed."}
           },
-          "required": [
-            "status",
-            "summary"
-          ]
+          "required": ["status", "summary"]
         }
       }
     ],
@@ -1209,11 +554,7 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "step": {
-              "type": "integer",
-              "default": -1,
-              "description": "Step number; 0 = initial, -1 = latest."
-            }
+            "step": {"type": "integer", "default": -1, "description": "Step number; 0 = initial, -1 = latest."}
           }
         }
       },
@@ -1231,40 +572,12 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "view": {
-              "type": "string",
-              "description": "Artifact view and pixel coordinate space. It must match the RGB image used to choose pixels."
-            },
-            "pixels": {
-              "type": "array",
-              "minItems": 1,
-              "maxItems": 256,
-              "items": {
-                "type": "array",
-                "items": {
-                  "type": "integer"
-                },
-                "minItems": 2,
-                "maxItems": 2
-              }
-            },
-            "step": {
-              "type": [
-                "integer",
-                "null"
-              ]
-            },
-            "neighborhood": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 32,
-              "default": 1
-            }
+            "view": {"type": "string", "description": "Artifact view and pixel coordinate space. It must match the RGB image used to choose pixels."},
+            "pixels": {"type": "array", "minItems": 1, "maxItems": 256, "items": {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2}},
+            "step": {"type": ["integer", "null"]},
+            "neighborhood": {"type": "integer", "minimum": 0, "maximum": 32, "default": 1}
           },
-          "required": [
-            "view",
-            "pixels"
-          ]
+          "required": ["view", "pixels"]
         }
       },
       {
@@ -1273,35 +586,12 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "view": {
-              "type": "string",
-              "description": "Artifact view and bbox coordinate space. It must match the RGB image used to choose the bbox."
-            },
-            "bbox": {
-              "type": "array",
-              "items": {
-                "type": "integer"
-              },
-              "minItems": 4,
-              "maxItems": 4
-            },
-            "step": {
-              "type": [
-                "integer",
-                "null"
-              ]
-            },
-            "max_points": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 4096,
-              "default": 256
-            }
+            "view": {"type": "string", "description": "Artifact view and bbox coordinate space. It must match the RGB image used to choose the bbox."},
+            "bbox": {"type": "array", "items": {"type": "integer"}, "minItems": 4, "maxItems": 4},
+            "step": {"type": ["integer", "null"]},
+            "max_points": {"type": "integer", "minimum": 1, "maximum": 4096, "default": 256}
           },
-          "required": [
-            "view",
-            "bbox"
-          ]
+          "required": ["view", "bbox"]
         }
       },
       {
@@ -1310,22 +600,9 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "chunks": {
-              "type": "integer",
-              "minimum": 1,
-              "default": 4
-            },
-            "use_length": {
-              "type": "integer",
-              "const": 50,
-              "default": 50
-            },
-            "prompt": {
-              "type": [
-                "string",
-                "null"
-              ]
-            }
+            "chunks": {"type": "integer", "minimum": 1, "default": 4},
+            "use_length": {"type": "integer", "const": 50, "default": 50},
+            "prompt": {"type": ["string", "null"]}
           }
         }
       },
@@ -1335,48 +612,13 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "arm": {
-              "type": "string",
-              "enum": [
-                "left",
-                "right"
-              ]
-            },
-            "xyz": {
-              "type": "array",
-              "items": {
-                "type": "number"
-              },
-              "minItems": 3,
-              "maxItems": 3
-            },
-            "quat": {
-              "type": [
-                "array",
-                "null"
-              ],
-              "items": {
-                "type": "number"
-              },
-              "minItems": 4,
-              "maxItems": 4
-            },
-            "gripper": {
-              "type": [
-                "number",
-                "null"
-              ]
-            },
-            "substeps": {
-              "type": "integer",
-              "minimum": 0,
-              "default": 25
-            }
+            "arm": {"type": "string", "enum": ["left", "right"]},
+            "xyz": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
+            "quat": {"type": ["array", "null"], "items": {"type": "number"}, "minItems": 4, "maxItems": 4},
+            "gripper": {"type": ["number", "null"]},
+            "substeps": {"type": "integer", "minimum": 0, "default": 25}
           },
-          "required": [
-            "arm",
-            "xyz"
-          ]
+          "required": ["arm", "xyz"]
         }
       },
       {
@@ -1385,32 +627,12 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "arm": {
-              "type": "string",
-              "enum": [
-                "left",
-                "right"
-              ]
-            },
-            "delta_yaw_deg": {
-              "type": "number"
-            },
-            "gripper": {
-              "type": [
-                "number",
-                "null"
-              ]
-            },
-            "substeps": {
-              "type": "integer",
-              "minimum": 0,
-              "default": 25
-            }
+            "arm": {"type": "string", "enum": ["left", "right"]},
+            "delta_yaw_deg": {"type": "number"},
+            "gripper": {"type": ["number", "null"]},
+            "substeps": {"type": "integer", "minimum": 0, "default": 25}
           },
-          "required": [
-            "arm",
-            "delta_yaw_deg"
-          ]
+          "required": ["arm", "delta_yaw_deg"]
         }
       },
       {
@@ -1419,28 +641,11 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "arm": {
-              "type": "string",
-              "enum": [
-                "left",
-                "right"
-              ]
-            },
-            "val": {
-              "type": "number",
-              "minimum": 0,
-              "maximum": 1
-            },
-            "steps": {
-              "type": "integer",
-              "minimum": 1,
-              "default": 10
-            }
+            "arm": {"type": "string", "enum": ["left", "right"]},
+            "val": {"type": "number", "minimum": 0, "maximum": 1},
+            "steps": {"type": "integer", "minimum": 1, "default": 10}
           },
-          "required": [
-            "arm",
-            "val"
-          ]
+          "required": ["arm", "val"]
         }
       },
       {
@@ -1449,26 +654,11 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "arm": {
-              "type": "string",
-              "enum": [
-                "left",
-                "right"
-              ]
-            },
-            "val": {
-              "type": "number",
-              "default": 1.0
-            },
-            "steps": {
-              "type": "integer",
-              "minimum": 1,
-              "default": 10
-            }
+            "arm": {"type": "string", "enum": ["left", "right"]},
+            "val": {"type": "number", "default": 1.0},
+            "steps": {"type": "integer", "minimum": 1, "default": 10}
           },
-          "required": [
-            "arm"
-          ]
+          "required": ["arm"]
         }
       },
       {
@@ -1485,17 +675,10 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "status": {
-              "type": "string"
-            },
-            "summary": {
-              "type": "string"
-            }
+            "status": {"type": "string"},
+            "summary": {"type": "string"}
           },
-          "required": [
-            "status",
-            "summary"
-          ]
+          "required": ["status", "summary"]
         }
       }
     ],
@@ -1506,10 +689,7 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "step": {
-              "type": "integer",
-              "description": "Recorded step to read (-1 = latest)"
-            }
+            "step": {"type": "integer", "description": "Recorded step to read (-1 = latest)"}
           }
         }
       },
@@ -1519,28 +699,11 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "row": {
-              "type": "integer",
-              "description": "Pixel row (0=top)"
-            },
-            "col": {
-              "type": "integer",
-              "description": "Pixel col (0=left)"
-            },
-            "camera": {
-              "type": "string",
-              "enum": [
-                "cam_head",
-                "cam_left_wrist",
-                "cam_right_wrist"
-              ],
-              "description": "Camera to project from"
-            }
+            "row": {"type": "integer", "description": "Pixel row (0=top)"},
+            "col": {"type": "integer", "description": "Pixel col (0=left)"},
+            "camera": {"type": "string", "enum": ["cam_head", "cam_left_wrist", "cam_right_wrist"], "description": "Camera to project from"}
           },
-          "required": [
-            "row",
-            "col"
-          ]
+          "required": ["row", "col"]
         }
       },
       {
@@ -1549,27 +712,11 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "text_prompt": {
-              "type": "string",
-              "description": "e.g. 'the bottle'"
-            },
-            "camera": {
-              "type": "string",
-              "enum": [
-                "cam_head",
-                "cam_left_wrist",
-                "cam_right_wrist"
-              ],
-              "description": "Camera to segment (default cam_head)"
-            },
-            "min_score": {
-              "type": "number",
-              "description": "Min score (default 0.2)"
-            }
+            "text_prompt": {"type": "string", "description": "e.g. 'the bottle'"},
+            "camera": {"type": "string", "enum": ["cam_head", "cam_left_wrist", "cam_right_wrist"], "description": "Camera to segment (default cam_head)"},
+            "min_score": {"type": "number", "description": "Min score (default 0.2)"}
           },
-          "required": [
-            "text_prompt"
-          ]
+          "required": ["text_prompt"]
         }
       },
       {
@@ -1578,31 +725,11 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "xyz": {
-              "type": "array",
-              "items": {
-                "type": "number"
-              },
-              "minItems": 3,
-              "maxItems": 3,
-              "description": "World xyz target for the end-effector"
-            },
-            "arm": {
-              "type": "string",
-              "enum": [
-                "left",
-                "right"
-              ],
-              "description": "Arm to move"
-            },
-            "gripper": {
-              "type": "number",
-              "description": "1=close, -1=open, 0=keep current"
-            }
+            "xyz": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3, "description": "World xyz target for the end-effector"},
+            "arm": {"type": "string", "enum": ["left", "right"], "description": "Arm to move"},
+            "gripper": {"type": "number", "description": "1=close, -1=open, 0=keep current"}
           },
-          "required": [
-            "xyz"
-          ]
+          "required": ["xyz"]
         }
       },
       {
@@ -1611,22 +738,10 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "arm": {
-              "type": "string",
-              "enum": [
-                "left",
-                "right"
-              ]
-            },
-            "gripper": {
-              "type": "number",
-              "description": "1=close, -1=open"
-            }
+            "arm": {"type": "string", "enum": ["left", "right"]},
+            "gripper": {"type": "number", "description": "1=close, -1=open"}
           },
-          "required": [
-            "arm",
-            "gripper"
-          ]
+          "required": ["arm", "gripper"]
         }
       },
       {
@@ -1635,21 +750,9 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "prompt": {
-              "type": "string",
-              "description": "Optional specific target instruction; omit to use resolved official task language"
-            },
-            "arm": {
-              "type": "string",
-              "enum": [
-                "left",
-                "right"
-              ]
-            },
-            "max_chunks": {
-              "type": "integer",
-              "description": "Max policy chunks"
-            }
+            "prompt": {"type": "string", "description": "Optional specific target instruction; omit to use resolved official task language"},
+            "arm": {"type": "string", "enum": ["left", "right"]},
+            "max_chunks": {"type": "integer", "description": "Max policy chunks"}
           },
           "required": []
         }
@@ -1660,26 +763,10 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "xyz": {
-              "type": "array",
-              "items": {
-                "type": "number"
-              },
-              "minItems": 3,
-              "maxItems": 3,
-              "description": "World xyz to block (bottle position)"
-            },
-            "arm": {
-              "type": "string",
-              "enum": [
-                "left",
-                "right"
-              ]
-            }
+            "xyz": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3, "description": "World xyz to block (bottle position)"},
+            "arm": {"type": "string", "enum": ["left", "right"]}
           },
-          "required": [
-            "xyz"
-          ]
+          "required": ["xyz"]
         }
       },
       {
@@ -1688,35 +775,12 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "arm": {
-              "type": "string",
-              "enum": [
-                "left",
-                "right"
-              ]
-            },
-            "bin_center_xyz": {
-              "type": "array",
-              "items": {
-                "type": "number"
-              },
-              "minItems": 3,
-              "maxItems": 3,
-              "description": "Bin mouth center at approach height"
-            },
-            "approach_z": {
-              "type": "number",
-              "description": "Safe carry height above the bin (default 0.95)"
-            },
-            "drop_z": {
-              "type": "number",
-              "description": "EE z to descend to before release, BELOW the rim (default 0.78)"
-            }
+            "arm": {"type": "string", "enum": ["left", "right"]},
+            "bin_center_xyz": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3, "description": "Bin mouth center at approach height"},
+            "approach_z": {"type": "number", "description": "Safe carry height above the bin (default 0.95)"},
+            "drop_z": {"type": "number", "description": "EE z to descend to before release, BELOW the rim (default 0.78)"}
           },
-          "required": [
-            "arm",
-            "bin_center_xyz"
-          ]
+          "required": ["arm", "bin_center_xyz"]
         }
       }
     ],
@@ -1736,10 +800,7 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "step": {
-              "type": "integer",
-              "default": -1
-            }
+            "step": {"type": "integer", "default": -1}
           }
         }
       },
@@ -1765,44 +826,12 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "view": {
-              "type": "string",
-              "enum": [
-                "top",
-                "left",
-                "right"
-              ]
-            },
-            "pixels": {
-              "type": "array",
-              "minItems": 1,
-              "maxItems": 256,
-              "items": {
-                "type": "array",
-                "items": {
-                  "type": "integer"
-                },
-                "minItems": 2,
-                "maxItems": 2
-              }
-            },
-            "step": {
-              "type": [
-                "integer",
-                "null"
-              ]
-            },
-            "neighborhood": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 32,
-              "default": 1
-            }
+            "view": {"type": "string", "enum": ["top", "left", "right"]},
+            "pixels": {"type": "array", "minItems": 1, "maxItems": 256, "items": {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2}},
+            "step": {"type": ["integer", "null"]},
+            "neighborhood": {"type": "integer", "minimum": 0, "maximum": 32, "default": 1}
           },
-          "required": [
-            "view",
-            "pixels"
-          ]
+          "required": ["view", "pixels"]
         }
       },
       {
@@ -1811,39 +840,12 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "view": {
-              "type": "string",
-              "enum": [
-                "top",
-                "left",
-                "right"
-              ]
-            },
-            "bbox": {
-              "type": "array",
-              "items": {
-                "type": "integer"
-              },
-              "minItems": 4,
-              "maxItems": 4
-            },
-            "step": {
-              "type": [
-                "integer",
-                "null"
-              ]
-            },
-            "max_points": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 4096,
-              "default": 256
-            }
+            "view": {"type": "string", "enum": ["top", "left", "right"]},
+            "bbox": {"type": "array", "items": {"type": "integer"}, "minItems": 4, "maxItems": 4},
+            "step": {"type": ["integer", "null"]},
+            "max_points": {"type": "integer", "minimum": 1, "maximum": 4096, "default": 256}
           },
-          "required": [
-            "view",
-            "bbox"
-          ]
+          "required": ["view", "bbox"]
         }
       },
       {
@@ -1852,22 +854,9 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "chunks": {
-              "type": "integer",
-              "minimum": 1,
-              "default": 1
-            },
-            "use_length": {
-              "type": "integer",
-              "const": 5,
-              "default": 5
-            },
-            "prompt": {
-              "type": [
-                "string",
-                "null"
-              ]
-            }
+            "chunks": {"type": "integer", "minimum": 1, "default": 1},
+            "use_length": {"type": "integer", "const": 5, "default": 5},
+            "prompt": {"type": ["string", "null"]}
           }
         }
       },
@@ -1877,65 +866,14 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "arm": {
-              "type": "string",
-              "enum": [
-                "left",
-                "right"
-              ]
-            },
-            "xyz": {
-              "type": "array",
-              "items": {
-                "type": "number"
-              },
-              "minItems": 3,
-              "maxItems": 3
-            },
-            "xyz_bounds": {
-              "type": [
-                "array",
-                "null"
-              ],
-              "minItems": 2,
-              "maxItems": 2,
-              "items": {
-                "type": "array",
-                "items": {
-                  "type": "number"
-                },
-                "minItems": 3,
-                "maxItems": 3
-              },
-              "description": "Optional task-valid [lower_xyz, upper_xyz] containing xyz. Try at most three plans within it; execute only one. Reobserve after recoverable motion failure before choosing another point. Does not relax arrival tolerance or collision checks."
-            },
-            "quat": {
-              "type": [
-                "array",
-                "null"
-              ],
-              "items": {
-                "type": "number"
-              },
-              "minItems": 4,
-              "maxItems": 4
-            },
-            "gripper": {
-              "type": [
-                "number",
-                "null"
-              ]
-            },
-            "substeps": {
-              "type": "integer",
-              "minimum": 0,
-              "default": 25
-            }
+            "arm": {"type": "string", "enum": ["left", "right"]},
+            "xyz": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
+            "xyz_bounds": {"type": ["array", "null"], "minItems": 2, "maxItems": 2, "items": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3}, "description": "Optional task-valid [lower_xyz, upper_xyz] containing xyz. Try at most three plans within it; execute only one. Reobserve after recoverable motion failure before choosing another point. Does not relax arrival tolerance or collision checks."},
+            "quat": {"type": ["array", "null"], "items": {"type": "number"}, "minItems": 4, "maxItems": 4},
+            "gripper": {"type": ["number", "null"]},
+            "substeps": {"type": "integer", "minimum": 0, "default": 25}
           },
-          "required": [
-            "arm",
-            "xyz"
-          ]
+          "required": ["arm", "xyz"]
         }
       },
       {
@@ -1944,32 +882,12 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "arm": {
-              "type": "string",
-              "enum": [
-                "left",
-                "right"
-              ]
-            },
-            "delta_yaw_deg": {
-              "type": "number"
-            },
-            "gripper": {
-              "type": [
-                "number",
-                "null"
-              ]
-            },
-            "substeps": {
-              "type": "integer",
-              "minimum": 0,
-              "default": 25
-            }
+            "arm": {"type": "string", "enum": ["left", "right"]},
+            "delta_yaw_deg": {"type": "number"},
+            "gripper": {"type": ["number", "null"]},
+            "substeps": {"type": "integer", "minimum": 0, "default": 25}
           },
-          "required": [
-            "arm",
-            "delta_yaw_deg"
-          ]
+          "required": ["arm", "delta_yaw_deg"]
         }
       },
       {
@@ -1978,28 +896,11 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "arm": {
-              "type": "string",
-              "enum": [
-                "left",
-                "right"
-              ]
-            },
-            "val": {
-              "type": "number",
-              "minimum": 0,
-              "maximum": 1
-            },
-            "steps": {
-              "type": "integer",
-              "minimum": 1,
-              "default": 10
-            }
+            "arm": {"type": "string", "enum": ["left", "right"]},
+            "val": {"type": "number", "minimum": 0, "maximum": 1},
+            "steps": {"type": "integer", "minimum": 1, "default": 10}
           },
-          "required": [
-            "arm",
-            "val"
-          ]
+          "required": ["arm", "val"]
         }
       },
       {
@@ -2008,26 +909,11 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "arm": {
-              "type": "string",
-              "enum": [
-                "left",
-                "right"
-              ]
-            },
-            "val": {
-              "type": "number",
-              "default": 1.0
-            },
-            "steps": {
-              "type": "integer",
-              "minimum": 1,
-              "default": 10
-            }
+            "arm": {"type": "string", "enum": ["left", "right"]},
+            "val": {"type": "number", "default": 1.0},
+            "steps": {"type": "integer", "minimum": 1, "default": 10}
           },
-          "required": [
-            "arm"
-          ]
+          "required": ["arm"]
         }
       },
       {
@@ -2036,17 +922,10 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "status": {
-              "type": "string"
-            },
-            "summary": {
-              "type": "string"
-            }
+            "status": {"type": "string"},
+            "summary": {"type": "string"}
           },
-          "required": [
-            "status",
-            "summary"
-          ]
+          "required": ["status", "summary"]
         }
       }
     ],
@@ -2065,10 +944,7 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "step": {
-              "type": "integer",
-              "default": -1
-            }
+            "step": {"type": "integer", "default": -1}
           }
         }
       },
@@ -2078,10 +954,7 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "step": {
-              "type": "integer",
-              "default": -1
-            }
+            "step": {"type": "integer", "default": -1}
           }
         }
       },
@@ -2091,36 +964,14 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "camera": {
-              "type": "string",
-              "default": "d455",
-              "description": "Registered projection view name, e.g. d455 or base. Valid names come from perception.projection_views and the current state's saved artifacts."
-            },
-            "row": {
-              "type": "integer",
-              "minimum": 0
-            },
-            "col": {
-              "type": "integer",
-              "minimum": 0
-            },
-            "target_name": {
-              "type": "string",
-              "default": "target"
-            },
-            "step": {
-              "type": "integer"
-            },
-            "window_radius": {
-              "type": "integer",
-              "minimum": 0,
-              "default": 2
-            }
+            "camera": {"type": "string", "default": "d455", "description": "Registered projection view name, e.g. d455 or base. Valid names come from perception.projection_views and the current state's saved artifacts."},
+            "row": {"type": "integer", "minimum": 0},
+            "col": {"type": "integer", "minimum": 0},
+            "target_name": {"type": "string", "default": "target"},
+            "step": {"type": "integer"},
+            "window_radius": {"type": "integer", "minimum": 0, "default": 2}
           },
-          "required": [
-            "row",
-            "col"
-          ]
+          "required": ["row", "col"]
         }
       },
       {
@@ -2129,43 +980,13 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "camera": {
-              "type": "string",
-              "default": "d455",
-              "description": "Registered projection view name, e.g. d455 or base. Valid names come from perception.projection_views and the current state's saved artifacts."
-            },
-            "prompt": {
-              "type": "string",
-              "default": "",
-              "description": "Text prompt for SAM3. Prefer short object/relation phrases; for the clean-desk box use 'white interior of the black cardboard box' or 'cardboard box'. Avoid over-specific surface words such as 'floor' when grounding is weak. Provide exactly one of prompt or point."
-            },
-            "point": {
-              "type": "array",
-              "items": {
-                "type": "integer"
-              },
-              "minItems": 2,
-              "maxItems": 2,
-              "description": "Positive SAM3 point in camera image coordinates [row, col]. Provide exactly one of prompt or point."
-            },
-            "target_name": {
-              "type": "string",
-              "default": "target"
-            },
-            "step": {
-              "type": "integer"
-            },
-            "min_score": {
-              "type": "number",
-              "minimum": 0.0,
-              "maximum": 1.0,
-              "default": 0.2
-            },
-            "min_valid_depth_pixels": {
-              "type": "integer",
-              "minimum": 1,
-              "default": 25
-            }
+            "camera": {"type": "string", "default": "d455", "description": "Registered projection view name, e.g. d455 or base. Valid names come from perception.projection_views and the current state's saved artifacts."},
+            "prompt": {"type": "string", "default": "", "description": "Text prompt for SAM3. Prefer short object/relation phrases; for the clean-desk box use 'white interior of the black cardboard box' or 'cardboard box'. Avoid over-specific surface words such as 'floor' when grounding is weak. Provide exactly one of prompt or point."},
+            "point": {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2, "description": "Positive SAM3 point in camera image coordinates [row, col]. Provide exactly one of prompt or point."},
+            "target_name": {"type": "string", "default": "target"},
+            "step": {"type": "integer"},
+            "min_score": {"type": "number", "minimum": 0.0, "maximum": 1.0, "default": 0.2},
+            "min_valid_depth_pixels": {"type": "integer", "minimum": 1, "default": 25}
           }
         }
       },
@@ -2175,27 +996,10 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "arm": {
-              "type": "string",
-              "enum": [
-                "left",
-                "right"
-              ],
-              "description": "Which arm to command; the other arm is left uncommanded."
-            },
-            "delta_xyz": {
-              "type": "array",
-              "items": {
-                "type": "number"
-              },
-              "minItems": 3,
-              "maxItems": 3
-            }
+            "arm": {"type": "string", "enum": ["left", "right"], "description": "Which arm to command; the other arm is left uncommanded."},
+            "delta_xyz": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3}
           },
-          "required": [
-            "arm",
-            "delta_xyz"
-          ]
+          "required": ["arm", "delta_xyz"]
         }
       },
       {
@@ -2204,27 +1008,10 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "arm": {
-              "type": "string",
-              "enum": [
-                "left",
-                "right"
-              ],
-              "description": "Which arm to command; the other arm is left uncommanded."
-            },
-            "delta_rpy": {
-              "type": "array",
-              "items": {
-                "type": "number"
-              },
-              "minItems": 3,
-              "maxItems": 3
-            }
+            "arm": {"type": "string", "enum": ["left", "right"], "description": "Which arm to command; the other arm is left uncommanded."},
+            "delta_rpy": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3}
           },
-          "required": [
-            "arm",
-            "delta_rpy"
-          ]
+          "required": ["arm", "delta_rpy"]
         }
       },
       {
@@ -2233,18 +1020,9 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "arm": {
-              "type": "string",
-              "enum": [
-                "left",
-                "right"
-              ],
-              "description": "Which arm to command; the other arm is left uncommanded."
-            }
+            "arm": {"type": "string", "enum": ["left", "right"], "description": "Which arm to command; the other arm is left uncommanded."}
           },
-          "required": [
-            "arm"
-          ]
+          "required": ["arm"]
         }
       },
       {
@@ -2253,18 +1031,9 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "arm": {
-              "type": "string",
-              "enum": [
-                "left",
-                "right"
-              ],
-              "description": "Which arm to command; the other arm is left uncommanded."
-            }
+            "arm": {"type": "string", "enum": ["left", "right"], "description": "Which arm to command; the other arm is left uncommanded."}
           },
-          "required": [
-            "arm"
-          ]
+          "required": ["arm"]
         }
       },
       {
@@ -2273,14 +1042,8 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "reason": {
-              "type": "string",
-              "default": ""
-            },
-            "return_to_start": {
-              "type": "boolean",
-              "default": true
-            }
+            "reason": {"type": "string", "default": ""},
+            "return_to_start": {"type": "boolean", "default": true}
           }
         }
       },
@@ -2290,19 +1053,10 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "reason": {
-              "type": "string",
-              "description": "Why the scene needs to be restored."
-            },
-            "expected_scene_state": {
-              "type": "string",
-              "default": "",
-              "description": "Short instruction for the operator describing the desired restored layout."
-            }
+            "reason": {"type": "string", "description": "Why the scene needs to be restored."},
+            "expected_scene_state": {"type": "string", "default": "", "description": "Short instruction for the operator describing the desired restored layout."}
           },
-          "required": [
-            "reason"
-          ]
+          "required": ["reason"]
         }
       },
       {
@@ -2311,10 +1065,7 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "question": {
-              "type": "string",
-              "default": "Does the current real-robot scene satisfy the task?"
-            }
+            "question": {"type": "string", "default": "Does the current real-robot scene satisfy the task?"}
           }
         }
       },
@@ -2324,20 +1075,10 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "prompt": {
-              "type": "string",
-              "description": "Planner-facing segment intent. This is recorded in the tool result; the current live clean-desk checkpoint still receives its fixed training instruction during policy inference."
-            },
-            "max_chunks": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 20,
-              "default": 20
-            }
+            "prompt": {"type": "string", "description": "Planner-facing segment intent. This is recorded in the tool result; the current live clean-desk checkpoint still receives its fixed training instruction during policy inference."},
+            "max_chunks": {"type": "integer", "minimum": 1, "maximum": 20, "default": 20}
           },
-          "required": [
-            "prompt"
-          ]
+          "required": ["prompt"]
         }
       },
       {
@@ -2346,20 +1087,10 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "prompt": {
-              "type": "string",
-              "description": "Planner-facing segment intent. This is recorded in the tool result; the current live clean-desk checkpoint still receives its fixed training instruction during policy inference."
-            },
-            "max_chunks": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 20,
-              "default": 20
-            }
+            "prompt": {"type": "string", "description": "Planner-facing segment intent. This is recorded in the tool result; the current live clean-desk checkpoint still receives its fixed training instruction during policy inference."},
+            "max_chunks": {"type": "integer", "minimum": 1, "maximum": 20, "default": 20}
           },
-          "required": [
-            "prompt"
-          ]
+          "required": ["prompt"]
         }
       },
       {
@@ -2368,20 +1099,10 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "prompt": {
-              "type": "string",
-              "description": "Planner-facing segment intent. This is recorded in the tool result; the current live clean-desk checkpoint still receives its fixed training instruction during policy inference."
-            },
-            "max_chunks": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 20,
-              "default": 20
-            }
+            "prompt": {"type": "string", "description": "Planner-facing segment intent. This is recorded in the tool result; the current live clean-desk checkpoint still receives its fixed training instruction during policy inference."},
+            "max_chunks": {"type": "integer", "minimum": 1, "maximum": 20, "default": 20}
           },
-          "required": [
-            "prompt"
-          ]
+          "required": ["prompt"]
         }
       }
     ]
