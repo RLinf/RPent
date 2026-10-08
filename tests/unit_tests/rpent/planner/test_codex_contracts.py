@@ -67,6 +67,9 @@ class FakeToolkit:
     def cancel_active_and_wait(self) -> None:
         self.cancel_calls += 1
 
+    def resume_calls(self) -> None:
+        pass
+
 
 class FakeMcpServer:
     instances: list[FakeMcpServer] = []
@@ -898,7 +901,7 @@ def test_terminal_timeout_cancels_active_toolkit_work(
 
     assert result.error == "Codex SDK timed out after 0.01s"
     assert FakeMcpServer.instances[0].stopped is True
-    assert toolkit.cancel_calls == 1
+    assert toolkit.cancel_calls == 2
 
 
 def test_queue_and_dashboard_are_rejected_before_mcp_construction(

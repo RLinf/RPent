@@ -96,13 +96,25 @@ Subclass ``Toolkit`` in ``robots/<robot>/toolkit.py`` and register robot tools w
 
 Declare functions or methods with ``@tool``. Type annotations and Google-style
 docstrings provide parameter schemas and descriptions; ``@tool(readonly=True)``
-skips post-action state capture. Handlers return ``ToolResult(data=..., images=...)``:
+allows concurrent readonly calls and skips post-action state capture. Handlers return ``ToolResult(data=..., images=...)``:
 ``data`` holds the JSON payload, including ``error`` or ``_finish`` when needed,
 and ``images`` holds PNG bytes.
 
 The base class already registers common file tools; call ``super().__init__()`` then
 ``add_tool`` for robot tools. Per-step state and ``view_env_state`` are in
 :doc:`add_primitive`.
+
+Tools without ``readonly=True`` run exclusively, in admission order. Waiting
+exclusive calls take priority over new readonly calls. Exclusive execution
+includes observation capture and Dashboard publication. A readonly handler that
+updates shared caches must synchronize those updates itself. ``EnvState.save``
+serializes artifact writes.
+
+``cancel_active_and_wait()`` pauses new calls, signals queued and active calls,
+and waits for their cleanup. Long-running handlers check ``raise_if_cancelled()``
+at safe boundaries. After the planner has also drained its old requests,
+``resume_calls()`` accepts new calls. ``close()`` permanently closes admission;
+subclasses call ``super().close()`` before saving recordings or releasing resources.
 
 Inter-process Communication
 ---------------------------

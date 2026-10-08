@@ -162,7 +162,6 @@ def test_toolkit_modes_construct_with_fake_primitives(
     assert _readonly_names(evaluation) == COMMON_TOOLS | {
         "view_env_state",
         "view_camera_meta",
-        "segment",
         "back_project",
     }
     assert _readonly_names(exploration) == _readonly_names(evaluation)

@@ -164,6 +164,12 @@ def test_close_handles_collection_and_video_independently(
     tmp_path, monkeypatch, failure
 ):
     toolkit = libero_toolkit.LiberoToolkit.__new__(libero_toolkit.LiberoToolkit)
+    from rpent.memory import MemoryManager
+    from rpent.tools import Toolkit
+
+    Toolkit.__init__(
+        toolkit, dashboard_events=None, memory=MemoryManager(tmp_path / "memory")
+    )
     frames = [_obs(0)["main_images"]]
     finalize = Mock(return_value=tmp_path / "episode")
     stop = Mock(return_value=frames)

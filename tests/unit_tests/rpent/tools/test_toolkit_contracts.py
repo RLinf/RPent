@@ -465,7 +465,7 @@ def test_handler_error_is_retained_when_state_capture_also_fails(
 
 
 @pytest.mark.timeout(5)
-def test_toolkit_rejects_overlapping_operations_and_cleans_up_after_success(
+def test_toolkit_overlaps_readonly_operations_and_cleans_up_after_success(
     tmp_path: Path,
 ) -> None:
     toolkit = _ContractToolkit(tmp_path)
@@ -493,7 +493,7 @@ def test_toolkit_rejects_overlapping_operations_and_cleans_up_after_success(
     try:
         assert started.wait(2), "blocking handler did not start"
         overlap = toolkit.execute_tool("finish", {"status": "failure", "summary": "x"})
-        assert overlap.data == {"error": "another tool operation is still active"}
+        assert overlap.data == {"_finish": True, "status": "failure", "summary": "x"}
     finally:
         release.set()
         worker.join(2)
@@ -560,6 +560,10 @@ def test_toolkit_cooperatively_cancels_and_cleans_up_active_operation(
     assert results[0].data["error"] == "tool operation interrupted"
     assert toolkit.capture_calls[0]["result"]["code"] == "tool_cancelled"
     assert len(toolkit.events.events) == 1
+    assert toolkit.execute_tool(
+        "finish", {"status": "failure", "summary": "paused"}
+    ).is_error
+    toolkit.resume_calls()
     assert toolkit.execute_tool(
         "finish", {"status": "failure", "summary": "cancelled"}
     ).data.get("_finish", False)

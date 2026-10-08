@@ -409,15 +409,14 @@ class YamToolkit(Toolkit):
         return captured
 
     def cancel_active_and_wait(self) -> None:
-        with self._operation_lock:
-            operation = self._active_operation
-            if operation is None:
-                return
-            operation.cancel_event.set()
+        with self._scheduler.condition:
+            calls = self._scheduler.cancel()
+            active = bool(self._scheduler.active)
         try:
-            self._primitives.env.request_stop()
+            if active:
+                self._primitives.env.request_stop()
         finally:
-            operation.done_event.wait()
+            self._scheduler.wait(calls)
 
     @tool
     def render(self) -> ToolResult:
@@ -515,6 +514,7 @@ class YamToolkit(Toolkit):
         return ToolResult(data=payload)
 
     def close(self) -> None:
+        super().close()
         stop_error = None
         try:
             self._primitives.env.request_stop()

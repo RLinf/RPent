@@ -698,7 +698,7 @@ class LiberoPrimitives:
 
     # ---- introspection helpers (for LLM-in-the-loop) ----
 
-    @tool(readonly=True, exclude=("state",))
+    @tool(exclude=("state",))
     def segment(
         self,
         prompt: str = "",
