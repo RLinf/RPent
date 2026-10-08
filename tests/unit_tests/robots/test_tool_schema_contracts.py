@@ -17,15 +17,22 @@ from __future__ import annotations
 import pytest
 
 from robots.libero import tools as libero_tools
+from robots.libero.toolkit import LiberoToolkit
 from robots.robocasa import tools as robocasa_tools
+from robots.robocasa.primitives import RoboCasaPrimitives
 from robots.robodojo import tools as robodojo_tools
 from robots.robotwin import tools as robotwin_tools
+from robots.robotwin.primitives import RoboTwinPrimitives
+from robots.robotwin.toolkit import RoboTwinToolkit
+from rpent.tools import iter_tools
 
 ROBOT_SCHEMAS = {
-    "libero": libero_tools.TOOLS_SPEC,
-    "robocasa": robocasa_tools.TOOLS_SPEC,
-    "robodojo": robodojo_tools.TOOLS_SPEC,
-    "robotwin": robotwin_tools.TOOLS_SPEC,
+    "libero": list(
+        iter_tools(libero_tools, libero_tools.LiberoPrimitives, LiberoToolkit)
+    ),
+    "robocasa": list(iter_tools(robocasa_tools, RoboCasaPrimitives)),
+    "robodojo": list(iter_tools(robodojo_tools)),
+    "robotwin": list(iter_tools(robotwin_tools, RoboTwinPrimitives, RoboTwinToolkit)),
 }
 
 EXPECTED_TOOL_NAMES = {
@@ -90,7 +97,7 @@ EXPECTED_TOOL_NAMES = {
 @pytest.mark.parametrize("robot_name", sorted(ROBOT_SCHEMAS))
 def test_robot_tool_names_are_an_explicit_unique_contract(robot_name: str) -> None:
     specs = ROBOT_SCHEMAS[robot_name]
-    names = [spec["name"] for spec in specs]
+    names = [spec.name for spec in specs]
 
     assert set(names) == EXPECTED_TOOL_NAMES[robot_name]
     assert len(names) == len(set(names))
@@ -99,10 +106,9 @@ def test_robot_tool_names_are_an_explicit_unique_contract(robot_name: str) -> No
 @pytest.mark.parametrize("robot_name", sorted(ROBOT_SCHEMAS))
 def test_robot_tool_schemas_have_valid_object_inputs(robot_name: str) -> None:
     for spec in ROBOT_SCHEMAS[robot_name]:
-        assert set(spec) >= {"name", "description", "input_schema"}
-        assert isinstance(spec["description"], str) and spec["description"].strip()
+        assert isinstance(spec.description, str) and spec.description.strip()
 
-        input_schema = spec["input_schema"]
+        input_schema = spec.input_schema
         assert input_schema["type"] == "object"
         properties = input_schema.get("properties", {})
         required = input_schema.get("required", [])
@@ -113,10 +119,20 @@ def test_robot_tool_schemas_have_valid_object_inputs(robot_name: str) -> None:
 
 def test_robot_action_schemas_keep_bounded_vector_shapes() -> None:
     schema_sets = [
-        {spec["name"]: spec for spec in libero_tools.TOOLS_SPEC}["move_to"],
-        {spec["name"]: spec for spec in robotwin_tools.TOOLS_SPEC}["move_to"],
+        {
+            spec.name: spec
+            for spec in list(
+                iter_tools(libero_tools, libero_tools.LiberoPrimitives, LiberoToolkit)
+            )
+        }["move_to"],
+        {
+            spec.name: spec
+            for spec in list(
+                iter_tools(robotwin_tools, RoboTwinPrimitives, RoboTwinToolkit)
+            )
+        }["move_to"],
     ]
     for spec in schema_sets:
-        xyz = spec["input_schema"]["properties"]["xyz"]
+        xyz = spec.input_schema["properties"]["xyz"]
         assert xyz["type"] == "array"
         assert xyz["minItems"] == xyz["maxItems"] == 3

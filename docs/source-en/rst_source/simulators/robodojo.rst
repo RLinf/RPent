@@ -310,8 +310,8 @@ segmentation uses the shared SAM3 client. ``view_env_state``, ``back_project`` a
 ``segment`` are read-only:
 they do not advance the environment or trigger post-action state capture.
 
-Every backend tool in ``robots.robodojo.tools.TOOLS_SPEC`` is registered for
-every task: the toolkit no longer groups tools or filters them by task name.
+Every tool declared in ``robots.robodojo.tools`` is registered for every task;
+the toolkit does not filter tools by task name.
 No planner tool exposes reward details or ground-truth safety alarms, so
 planners judge progress from observations only. The underlying
 ``env.get_reward_details`` and ``env.get_safety_status`` RPCs remain available

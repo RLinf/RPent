@@ -47,7 +47,7 @@ from rpent.utils.logging import get_logger
 from rpent.utils.rpc.rpc_client import RpcError
 from rpent.utils.rwlock import RWLock
 
-logger = get_logger("rpc")
+logger = get_logger("rpc_facade")
 
 DEFAULT_SESSION_TIMEOUT_S = 3600.0
 

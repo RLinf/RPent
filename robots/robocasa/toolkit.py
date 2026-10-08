@@ -27,7 +27,8 @@ from typing import TYPE_CHECKING, Any
 from robots.robocasa import tools as robocasa_tools
 from rpent.dashboard.events import DashboardEventSink
 from rpent.session import EnvState
-from rpent.tools.toolkit import Toolkit, readonly
+from rpent.tools import ToolResult, iter_tools
+from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger, get_output_dir
 
 if TYPE_CHECKING:
@@ -69,76 +70,70 @@ class RoboCasaToolkit(Toolkit):
         )
         self._register_robocasa_tools()
 
-    # ---- registration: one explicit add_tool per RoboCasa tool ----
     def _register_robocasa_tools(self) -> None:
-        # Stateless perception tools: bind a state= kwarg via partial.
-        state_handlers = {
-            "view_env_state": partial(robocasa_tools.view_env_state, state=self._state),
-            "back_project_batch": partial(
-                robocasa_tools.back_project_batch, state=self._state
-            ),
-            "query_world_map": partial(
-                robocasa_tools.query_world_map, state=self._state
-            ),
-        }
-        for spec in robocasa_tools.TOOLS_SPEC:
-            name = spec["name"]
-            if name in state_handlers:
-                handler = state_handlers[name]
-            elif name == "finish":
-                handler = robocasa_tools.finish
-            else:
-                handler = getattr(self._primitives, name, None)
-                if handler is None:
-                    continue  # spec without a backing primitive method
-            self.add_tool(name, spec, handler)
-        if self._mode == "exploration":
-            reset_spec = next(
-                spec for spec in robocasa_tools.TOOLS_SPEC if spec["name"] == "reset"
+        self.add_tools(iter_tools(self._primitives))
+        for definition in iter_tools(robocasa_tools):
+            handler = (
+                definition
+                if definition.name == "finish"
+                else partial(definition, state=self._state)
             )
-            self.add_tool("reset", reset_spec, self._reset_episode)
-            finish_spec, finish_handler = self._tools["finish"]
             self.add_tool(
-                "finish", finish_spec, partial(self._guarded_finish, finish_handler)
+                definition.with_handler(handler), replace=definition.name == "finish"
             )
 
-    @readonly
-    def _guarded_finish(self, inner: Any, **kwargs: Any) -> dict[str, Any]:
+        if self._mode == "exploration":
+            self.add_tool(
+                self._primitives.reset.with_handler(self._reset_episode), replace=True
+            )
+            self.add_tool(
+                robocasa_tools.finish.with_handler(
+                    partial(self._guarded_finish, robocasa_tools.finish)
+                ),
+                replace=True,
+            )
+
+    def _guarded_finish(self, inner: Any, **kwargs: Any) -> ToolResult:
         budget = self._attempts_per_session
         if budget and not self.solved() and self._attempt < budget:
-            return {
+            payload = {
                 "error": "finish refused",
                 "reason": (
                     f"This session has {budget - self._attempt} of its {budget} "
                     "attempts left. Archive the attempt, reset, and change the plan."
                 ),
             }
+            return ToolResult(data=payload)
         return inner(**kwargs)
 
-    def _reset_episode(self) -> dict[str, Any]:
+    def _reset_episode(self) -> ToolResult:
         if self.solved():
-            return {
+            payload = {
                 "error": "reset refused",
                 "reason": "The task is already solved; save artifacts and finish.",
             }
+            return ToolResult(data=payload)
         budget = self._attempts_per_session
         if budget and self._attempt >= budget:
-            return {
+            payload = {
                 "error": "reset refused",
                 "reason": (
                     f"This session's attempt budget is spent ({budget} attempts). "
                     "Update the handoff notes and finish this session."
                 ),
             }
-        result = self._primitives.reset()
+            return ToolResult(data=payload)
+        result = self._primitives.reset().to_dict()
         if result.get("error"):
-            return result
+            payload = result
+            return ToolResult(data=payload)
         self._attempt += 1
-        return {
+        payload = {
             **result,
             "attempt": self._attempt,
             "notice": "Fresh episode started. Re-run perception before acting.",
         }
+        return ToolResult(data=payload)
 
     def get_env_state(
         self,
@@ -146,7 +141,7 @@ class RoboCasaToolkit(Toolkit):
         command: dict[str, Any],
         result: dict[str, Any],
         elapsed_s: float,
-    ) -> dict[str, Any]:
+    ) -> ToolResult:
         frame_start = self._action_frame_cursor
         self._action_frame_cursor = self._primitives.recorded_frame_count()
         record = robocasa_tools.dump_state(
@@ -172,9 +167,9 @@ class RoboCasaToolkit(Toolkit):
                     e,
                 )
         out = robocasa_tools.view_env_state(record.step_idx, state=self._state)
-        out["agent_elapsed_s"] = elapsed_s
+        out.data["agent_elapsed_s"] = elapsed_s
         if result.get("interrupted"):
-            out.update(result)
+            out.data.update(result)
         return out
 
     def init_primitives(

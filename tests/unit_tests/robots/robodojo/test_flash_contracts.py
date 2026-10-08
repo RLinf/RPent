@@ -30,6 +30,7 @@ from robots.robodojo.toolkit import RoboDojoToolkit
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory import MemoryManager
 from rpent.planner.flash import FlashPlanner
+from rpent.tools import ToolResult
 
 
 def trace():
@@ -85,7 +86,7 @@ class FakeToolkit:
             result = {"log": {"result": {"success": next(self.pick_results)}}}
         else:
             raise AssertionError(name)
-        return SimpleNamespace(result=result)
+        return ToolResult(data=result)
 
 
 def test_generate_and_replay_translates_waypoints_without_feedback():
@@ -137,7 +138,7 @@ def test_replay_relocalizes_the_anchor_before_every_move():
         def execute_tool(self, name, args):
             if name == "back_project" and args["camera"] == "cam_head":
                 self.calls.append((name, args))
-                return SimpleNamespace(result={"world_xyz": next(self.head)})
+                return ToolResult(data={"world_xyz": next(self.head)})
             return super().execute_tool(name, args)
 
     toolkit = DriftingToolkit()
@@ -361,14 +362,14 @@ def test_mode_tools_state_and_prompt_gate(monkeypatch, tmp_path, eval_fair):
         memory=MemoryManager(tmp_path / "memory"),
         eval_fair=eval_fair,
     )
-    names = {s["name"] for s in toolkit.get_tools_spec()}
-    state = toolkit.execute_tool("view_env_state", {}).result
+    names = {s.name for s in toolkit.list_tools()}
+    state = toolkit.execute_tool("view_env_state", {}).data
     assert "terminated" not in state
     assert "object_world_xyz" not in state["state"]["state"]
     assert not toolkit._state.latest_record().terminated
     for name in ("get_reward_details", "get_safety_status"):
         assert name not in names
-        assert "unknown tool" in toolkit.execute_tool(name, {}).result["error"]
+        assert "unknown tool" in toolkit.execute_tool(name, {}).data["error"]
     bundle = robot_spec.get_robot_spec().prompts
     variables = {
         "mode": "eval-fair" if eval_fair else "dev",
@@ -389,7 +390,7 @@ def test_mode_tools_state_and_prompt_gate(monkeypatch, tmp_path, eval_fair):
         assert "get_safety_status" not in names
         assert (
             "unknown tool"
-            in toolkit.execute_tool("get_reward_details", {}).result["error"]
+            in toolkit.execute_tool("get_reward_details", {}).data["error"]
         )
         bundle = robot_spec.get_robot_spec().prompts
         variables = {"mode": "eval-fair", "task": "pick", "layout": 0}
@@ -441,7 +442,8 @@ def test_dev_recording_exports_actual_tool_results(monkeypatch, tmp_path):
     recorded = trace_from_states(manifest)
     assert not (tmp_path / "flash_trace.json").exists()
     assert len(manifest["steps"]) == 2  # Initial observation and one motion.
-    state = toolkit.execute_tool("view_env_state", {}).result
+    observed = toolkit.execute_tool("view_env_state", {})
+    state = observed.data
     assert state["log"]["command"] == {
         "action": "move_to",
         "xyz": [1, 1, -1],
@@ -450,7 +452,7 @@ def test_dev_recording_exports_actual_tool_results(monkeypatch, tmp_path):
     assert state["task_language"] == "pick"
     assert state["state"]["eef"]["left"] == [1, 1, -1]
     assert "cam_head.png" in state["artifacts"]
-    assert state["_image_bytes"]
+    assert observed.images == [toolkit.state.load_bytes("cam_head.png")]
     plan = generate_plan(recorded, "pick")
     # Identity intrinsics put the principal point at (0, 0), so row 1 sits below
     # it and projects to -Y; the recorded target therefore measures 2 m above.

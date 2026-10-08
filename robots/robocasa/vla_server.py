@@ -23,7 +23,7 @@ from rpent.robots.components.vla_facade_base import BaseVLAFacade
 from rpent.utils.logging import get_logger
 from rpent.utils.rpc.rpc_facade import DEFAULT_SESSION_TIMEOUT_S
 
-logger = get_logger("vla_server")
+logger = get_logger("robocasa_vla_server")
 
 # Match the support snapshot in the RoboCasa setup guide and Target50 manifest.
 RLDX_BACKBONE_REVISION = "4b9f870d1287e0d38d7eb1445e6d8c60afe66dd7"

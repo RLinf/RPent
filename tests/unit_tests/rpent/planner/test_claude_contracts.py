@@ -31,7 +31,8 @@ from rpent.planner.claude_code import (
     _Recorder,
     _tool_result_to_mcp,
 )
-from rpent.tools.toolkit import ToolResult
+from rpent.tools import ToolResult, tool
+from rpent.tools.common import CommonTools
 
 
 class RecordingSink:
@@ -47,38 +48,27 @@ class RecordingSink:
 
 
 class FakeToolkit:
-    def __init__(self, result: dict[str, Any] | None = None) -> None:
+    def __init__(self, result: dict[str, Any] | None = None, *, images=None) -> None:
         self.result = result or {"value": "ok"}
+        self.images = images or []
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self.cancel_calls = 0
+        self._tools = (
+            self.inspect_scene,
+            CommonTools.finish.with_handler(lambda **kwargs: ToolResult(data=kwargs)),
+        )
 
-    def get_tools_spec(self) -> list[dict[str, Any]]:
-        return [
-            {
-                "name": "inspect_scene",
-                "description": "Inspect the current scene.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {"detail": {"type": "string"}},
-                },
-            },
-            {
-                "name": "finish",
-                "description": "Finish the task.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "status": {"type": "string"},
-                        "summary": {"type": "string"},
-                    },
-                    "required": ["status", "summary"],
-                },
-            },
-        ]
+    @tool(readonly=True)
+    def inspect_scene(self, detail: str = "") -> ToolResult:
+        """Inspect the current scene."""
+        return ToolResult(data=dict(self.result), images=list(self.images))
+
+    def list_tools(self):
+        return self._tools
 
     def execute_tool(self, name: str, args: dict[str, Any]) -> ToolResult:
         self.calls.append((name, args))
-        return ToolResult(name, dict(self.result))
+        return ToolResult(data=dict(self.result), images=list(self.images))
 
     def cancel_active_and_wait(self) -> None:
         self.cancel_calls += 1
@@ -144,7 +134,7 @@ def test_options_translate_builtin_and_rpent_tools_without_mutating_specs(
     sink = RecordingSink()
     planner = make_planner(tmp_path, sink)
     toolkit = FakeToolkit()
-    original_specs = toolkit.get_tools_spec()
+    original_specs = toolkit.list_tools()
     fake_sdk = FakeSdkTools()
 
     options = planner._build_options(fake_sdk, toolkit=toolkit, max_turns=4)
@@ -164,7 +154,7 @@ def test_options_translate_builtin_and_rpent_tools_without_mutating_specs(
     ]
     assert options["add_dirs"] == [str(tmp_path), str(tmp_path / "memory")]
     assert options["setting_sources"] == []
-    assert toolkit.get_tools_spec() == original_specs
+    assert toolkit.list_tools() == original_specs
 
 
 def test_options_construct_with_the_installed_claude_sdk(tmp_path: Path) -> None:
@@ -187,7 +177,7 @@ def test_options_construct_with_the_installed_claude_sdk(tmp_path: Path) -> None
 
 
 def test_in_process_mcp_bridge_maps_schema_dispatch_and_errors() -> None:
-    toolkit = FakeToolkit({"error": "rejected", "_image_bytes": b"contract-image"})
+    toolkit = FakeToolkit({"error": "rejected"}, images=[b"contract-image"])
     fake_sdk = FakeSdkTools()
 
     server = _build_rpent_server(fake_sdk, toolkit=toolkit)
@@ -196,9 +186,7 @@ def test_in_process_mcp_bridge_maps_schema_dispatch_and_errors() -> None:
     assert server["version"] == "0.1.0"
     tools = {tool.sdk_name: tool for tool in server["tools"]}
     assert tools["inspect_scene"].sdk_description == "Inspect the current scene."
-    assert (
-        tools["inspect_scene"].sdk_schema == toolkit.get_tools_spec()[0]["input_schema"]
-    )
+    assert tools["inspect_scene"].sdk_schema == toolkit.list_tools()[0].input_schema
 
     response = asyncio.run(tools["inspect_scene"]({"detail": "high"}))
 
@@ -208,14 +196,13 @@ def test_in_process_mcp_bridge_maps_schema_dispatch_and_errors() -> None:
     assert response["content"][1]["mimeType"] == "image/png"
 
 
-def test_tool_result_conversion_supports_plain_values_and_content_blocks() -> None:
-    assert _tool_result_to_mcp("plain") == {
-        "content": [{"type": "text", "text": "plain"}]
-    }
+def test_tool_result_conversion_preserves_data_and_images() -> None:
+    plain = _tool_result_to_mcp(ToolResult(data={"value": "plain"}))
+    assert json.loads(plain["content"][0]["text"]) == {"value": "plain"}
 
     result = ToolResult(
-        "inspect_scene",
-        {"value": "visible", "_image_bytes": b"pixels"},
+        data={"value": "visible"},
+        images=[b"pixels"],
     )
     converted = _tool_result_to_mcp(result)
 

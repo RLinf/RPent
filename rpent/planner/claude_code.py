@@ -50,9 +50,11 @@ from rpent.planner.base import (
     add_mcp_prefix,
     strip_mcp_prefix,
 )
-from rpent.tools.toolkit import Toolkit
+from rpent.planner.utils.http_mcp_server import mcp_result
+from rpent.tools import Toolkit, ToolResult
 from rpent.utils.config import get_repo_root
 from rpent.utils.logging import get_logger, init_output_dir
+from rpent.utils.templates import substitute
 
 logger = get_logger("claude")
 
@@ -345,7 +347,7 @@ class ClaudeCodePlanner(Planner):
         ]
         builtins = [name for name in allowed if "__" not in name]
         allowed.extend(
-            add_mcp_prefix(str(spec["name"])) for spec in toolkit.get_tools_spec()
+            add_mcp_prefix(declaration.name) for declaration in toolkit.list_tools()
         )
 
         thinking = {"type": "disabled"} if self._reasoning_effort == "none" else None
@@ -792,10 +794,10 @@ class _Recorder:
 def _build_rpent_server(sdk: Any, *, toolkit: Toolkit) -> Any:
     sdk_tools = []
     tool_execution_lock = asyncio.Lock()
-    for spec in toolkit.get_tools_spec():
-        name = str(spec["name"])
-        description = str(spec.get("description", ""))
-        input_schema = spec.get("input_schema", {"type": "object"})
+    for declaration in toolkit.list_tools():
+        name = declaration.name
+        description = declaration.description
+        input_schema = substitute(declaration.input_schema)
 
         async def run_tool(
             args: dict[str, Any],
@@ -816,34 +818,10 @@ def _build_rpent_server(sdk: Any, *, toolkit: Toolkit) -> Any:
     return sdk.create_sdk_mcp_server(name="rpent", version="0.1.0", tools=sdk_tools)
 
 
-def _tool_result_to_mcp(tr: Any) -> dict[str, Any]:
-    # The toolkit already formatted the result into Anthropic content blocks;
-    # translate those into the MCP content shape (text + image).
-    blocks = getattr(tr, "content_blocks", None)
-    if blocks is None:
-        return {"content": [{"type": "text", "text": str(tr)}]}
-
-    content: list[dict[str, Any]] = []
-    for block in blocks:
-        block_type = _get(block, "type")
-        if block_type == "text":
-            content.append({"type": "text", "text": _get(block, "text", "")})
-        elif block_type == "image":
-            src = _get(block, "source", {})
-            content.append(
-                {
-                    "type": "image",
-                    "data": _get(src, "data", ""),
-                    "mimeType": _get(src, "media_type", "image/png"),
-                }
-            )
-
-    response: dict[str, Any] = {"content": content}
-    # Surface toolkit-level failures as MCP errors. Without this every result
-    # looks successful to the SDK, and `_Recorder` promotes a `finish` call to
-    # the run's finish_result even when the handler rejected it.
-    result_dict = getattr(tr, "result", None)
-    if isinstance(result_dict, dict) and result_dict.get("error"):
+def _tool_result_to_mcp(result: ToolResult) -> dict[str, Any]:
+    """Render native tool data and images using the Claude SDK result shape."""
+    response: dict[str, Any] = {"content": mcp_result(result)["content"]}
+    if result.is_error:
         response["is_error"] = True
     return response
 

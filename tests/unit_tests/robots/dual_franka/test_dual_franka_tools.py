@@ -40,8 +40,8 @@ from robots.franka.tools import view_camera_meta
 from rpent.dashboard.events import NullDashboardEventSink, StepRecordEvent
 from rpent.dashboard.state import DashboardState
 from rpent.memory import MemoryManager
+from rpent.planner.utils.http_mcp_server import mcp_result
 from rpent.session import EnvState
-from rpent.tools.toolkit import ToolResult
 
 
 class FakeEnv:
@@ -233,14 +233,14 @@ def test_toolkit_exploration_tools_are_opt_in(
     refused_eval = evaluation.execute_tool(
         "finish", {"status": "success", "summary": "not confirmed"}
     )
-    assert refused_eval.result["error"] == "finish refused"
-    assert refused_eval.is_finish is False
+    assert refused_eval.data["error"] == "finish refused"
+    assert refused_eval.data.get("_finish", False) is False
     evaluation._read_operator_line = lambda prompt: "success checked by operator"
     evaluation.execute_tool("request_operator_verdict", {})
     accepted_eval = evaluation.execute_tool(
         "finish", {"status": "success", "summary": "confirmed"}
     )
-    assert accepted_eval.is_finish is True
+    assert accepted_eval.data.get("_finish", False) is True
     assert evaluation.solved()
     assert "request_scene_reset" in _tool_names(exploration)
     assert "request_operator_verdict" in _tool_names(exploration)
@@ -249,8 +249,8 @@ def test_toolkit_exploration_tools_are_opt_in(
         "finish",
         {"status": "success", "summary": "agent thinks done"},
     )
-    assert refused.result["error"].startswith("finish refused")
-    assert refused.is_finish is False
+    assert refused.data["error"].startswith("finish refused")
+    assert refused.data.get("_finish", False) is False
 
     exploration._read_operator_line = lambda prompt: "done"
     exploration.execute_tool("request_scene_reset", {"reason": "prepare"})
@@ -260,8 +260,8 @@ def test_toolkit_exploration_tools_are_opt_in(
         "finish",
         {"status": "success", "summary": "operator accepted"},
     )
-    assert accepted.is_finish is True
-    assert accepted.result["operator_verdict"] == "success"
+    assert accepted.data.get("_finish", False) is True
+    assert accepted.data["operator_verdict"] == "success"
 
 
 def test_scene_reset_waits_for_operator_then_resets_robot(
@@ -293,7 +293,7 @@ def test_scene_reset_waits_for_operator_then_resets_robot(
             "reason": "retry with restored layout",
             "expected_scene_state": "objects back at the starting positions",
         },
-    ).result
+    ).data
 
     assert env.resets == 1
     assert result["result"]["robot_reset"] == {"ok": True}
@@ -345,16 +345,14 @@ def test_dump_state_saves_three_camera_artifacts(tmp_path: Path):
         "d455_depth.npy",
         "camera_meta.json",
     }
-    output = view_env_state(state=state)
-    assert output["_image_bytes"]
-    assert "_image_nav_bytes" not in output
-    assert "_image_cam_bytes" not in output
-    assert "_image_wrist_bytes" not in output
+    output_native = view_env_state(state=state)
+    output = output_native.data
+    assert output_native.images == [state.load_bytes("d455.png")]
     assert output["artifact_images"] == ["base", "d455", "left_wrist", "right_wrist"]
     assert output["image_block_order"] == ["d455"]
     np.testing.assert_array_equal(state.load("base.png"), 7)
     np.testing.assert_array_equal(state.load("base_depth.npy"), 9)
-    camera_meta = view_camera_meta(state=state)["camera_meta"]
+    camera_meta = view_camera_meta(state=state).data["camera_meta"]
     assert camera_meta["observation_camera_map"]["main"] == "left_wrist_0_rgb"
 
 
@@ -379,17 +377,18 @@ def test_view_env_state_emits_multimodal_image_blocks(tmp_path: Path):
     state = EnvState(tmp_path)
 
     dump_state(primitives, state, command=None, result=None, elapsed_s=None)
-    output = view_env_state(state=state)
+    output_native = view_env_state(state=state)
+    output = output_native.data
     # Routine planner snapshots inline only D455, while auxiliary camera
     # artifacts stay available through returned paths/read_image.
     assert output["images"] == ["d455"]
     assert output["image_block_order"] == output["images"]
     assert output["artifact_images"] == ["base", "d455", "left_wrist", "right_wrist"]
 
-    result = ToolResult(name="view_env_state", result=output)
-    image_blocks = [b for b in result.content_blocks if b.get("type") == "image"]
+    blocks = mcp_result(output_native)["content"]
+    image_blocks = [b for b in blocks if b.get("type") == "image"]
     assert len(image_blocks) == 1
-    text_block = next(b for b in result.content_blocks if b.get("type") == "text")
+    text_block = next(b for b in blocks if b.get("type") == "text")
     # Image bytes must be lifted out of the text block, not serialized into it.
     assert "_image_" not in text_block["text"]
 
@@ -441,7 +440,8 @@ def test_back_project_reads_rpent_state_artifacts(tmp_path: Path):
     )
     set_robot_config_path(config)
     try:
-        result = back_project(camera="base", row=2, col=2, state=state)
+        result_native = back_project(camera="base", row=2, col=2, state=state)
+        result = result_native.data
     finally:
         set_robot_config_path(None)
 
@@ -554,7 +554,8 @@ def test_back_project_returns_annotated_image_block(tmp_path: Path):
     )
     set_robot_config_path(config)
     try:
-        result = back_project(row=4, col=4, state=state)
+        result_native = back_project(row=4, col=4, state=state)
+        result = result_native.data
     finally:
         set_robot_config_path(None)
 
@@ -574,13 +575,13 @@ def test_back_project_returns_annotated_image_block(tmp_path: Path):
         atol=1e-5,
     )
     assert result["diagnostic_artifacts"]["annotated_image"].endswith(".png")
-    assert result["_image_cam_bytes"]
+    assert result_native.images and all(result_native.images)
     assert result["image_block_order"] == ["d455_selection_diagnostic"]
 
-    tool_result = ToolResult(name="back_project", result=result)
-    image_blocks = [b for b in tool_result.content_blocks if b.get("type") == "image"]
+    blocks = mcp_result(result_native)["content"]
+    image_blocks = [b for b in blocks if b.get("type") == "image"]
     assert len(image_blocks) == 1
-    text_block = next(b for b in tool_result.content_blocks if b.get("type") == "text")
+    text_block = next(b for b in blocks if b.get("type") == "text")
     assert "_image_" not in text_block["text"]
 
 
@@ -632,13 +633,14 @@ def test_segment_returns_mask_overlay_and_world_point(tmp_path: Path):
     )
     set_robot_config_path(config)
     try:
-        result = segment(
+        result_native = segment(
             prompt="white cardboard box interior",
             target_name="cardboard_box_interior",
             min_valid_depth_pixels=1,
             state=state,
             sam3_client=FakeSam3Client(),
         )
+        result = result_native.data
     finally:
         set_robot_config_path(None)
 
@@ -652,11 +654,11 @@ def test_segment_returns_mask_overlay_and_world_point(tmp_path: Path):
     assert result["centroid_pixel"] == [4, 4]
     assert result["segment_artifact"].startswith("d455_segment_")
     assert result["overlay_artifact"].startswith("d455_segment_overlay_")
-    assert result["_image_cam_bytes"]
+    assert result_native.images and all(result_native.images)
     assert result["image_block_order"] == ["d455_segment_overlay"]
 
-    tool_result = ToolResult(name="segment", result=result)
-    image_blocks = [b for b in tool_result.content_blocks if b.get("type") == "image"]
+    blocks = mcp_result(result_native)["content"]
+    image_blocks = [b for b in blocks if b.get("type") == "image"]
     assert len(image_blocks) == 1
 
 
@@ -665,7 +667,8 @@ def test_segment_without_sam3_client_falls_back(tmp_path: Path):
     with state.record_step(state={}):
         pass
 
-    result = segment(prompt="cup", state=state, sam3_client=None)
+    result_native = segment(prompt="cup", state=state, sam3_client=None)
+    result = result_native.data
 
     assert not result["ok"]
     assert "SAM3 client is not configured" in result["error"]
@@ -676,7 +679,8 @@ def test_vla_grasp_runs_bounded_chunks():
     env = FakeEnv()
     primitives = _primitives(env, model=FakeModel())
 
-    result = primitives.vla_grasp("hand over the cube", max_chunks=3)
+    result_native = primitives.vla_grasp("hand over the cube", max_chunks=3)
+    result = result_native.data
 
     assert result["chunks_executed"] == 3
     assert len(env.chunks) == 3
@@ -686,7 +690,8 @@ def test_recover_joint_posture_forwards_to_env():
     env = FakeEnv()
     primitives = _primitives(env)
 
-    result = primitives.recover_joint_posture(reason="joint drift")
+    result_native = primitives.recover_joint_posture(reason="joint drift")
+    result = result_native.data
 
     assert result["ok"]
     assert result["reason"] == "joint drift"
@@ -699,9 +704,10 @@ def test_named_clean_desk_vla_uses_fixed_prompt_and_semantic_boundary():
         model=FakeModel(expected_prompt=CLEAN_DESK_VLA_PROMPT),
     )
 
-    result = primitives.vla_right_grasp(
+    result_native = primitives.vla_right_grasp(
         prompt="grasp the next task-allowed object", max_chunks=2
     )
+    result = result_native.data
 
     assert result["ok"]
     assert result["skill_name"] == "vla_right_grasp"
@@ -720,6 +726,9 @@ def test_named_vla_uses_task_configured_policy_instruction():
         vla_instruction=instruction,
         check_cancelled=lambda: None,
     )
-    result = primitives.vla_right_grasp(prompt="planner segment intent", max_chunks=2)
+    result_native = primitives.vla_right_grasp(
+        prompt="planner segment intent", max_chunks=2
+    )
+    result = result_native.data
     assert result["effective_policy_prompt"] == instruction
     assert result["prompt_overridden"]
