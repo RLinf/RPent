@@ -424,6 +424,8 @@ class DualFrankaToolkit(FrankaToolkit):
             raise RuntimeError("incomplete post-action robot/camera observation")
 
     def solved(self) -> bool:
+        if self.flash_options is not None:
+            return self._flash_solved
         if self._mode != "exploration":
             return self._operator_verdict == "success"
         return (

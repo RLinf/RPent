@@ -32,6 +32,7 @@ from rpent.cli.main import (
     _serialize_messages,
 )
 from rpent.dashboard.events import RunStartedEvent
+from rpent.evaluation import RunFinalizationContext
 from rpent.memory import MemoryManager
 from rpent.planner.base import build_planner
 from rpent.robots import get_toolkit
@@ -53,7 +54,9 @@ def run_dashboard_session(
     parser: argparse.ArgumentParser,
 ) -> int:
     """Run one long-lived Dashboard Session with sequential fresh TaskRuns."""
-    if robot_spec.is_real_robot:
+    if robot_spec.is_real_robot and not (robot_spec.dashboard or {}).get(
+        "external_env", False
+    ):
         parser.error("This robot requires operator confirmation in a plain terminal.")
     from rpent.dashboard.server import DashboardServer
     from rpent.dashboard.session import DashboardSessionController
@@ -80,10 +83,18 @@ def run_dashboard_session(
         if component["scope"] == "unique"
     }
 
-    if getattr(args, "env_endpoint", None) is not None:
+    if getattr(args, "env_endpoint", None) is not None and not dashboard_spec.get(
+        "external_env", False
+    ):
         parser.error(
             "Dashboard task control cannot use --env-endpoint because each "
             "TaskRun requires a fresh owned env_server"
+        )
+    if dashboard_spec.get("external_env", False) and not getattr(
+        args, "env_endpoint", None
+    ):
+        parser.error(
+            "--env-endpoint is required for this external-environment Dashboard"
         )
     if args.planner == "api" and not args.model:
         parser.error("--model is required when --planner=api")
@@ -189,6 +200,7 @@ def _run_dashboard_task(
     started = time.time()
     solved = False
     memory_manager = None
+    environment_success = None
     try:
         task_daemons, task_runtime_kwargs = robot_spec.init_runtime(
             task_args,
@@ -298,8 +310,13 @@ def _run_dashboard_task(
                                 toolkit.write_recipe(recipe_tag) or recipe_path
                             )
                 finally:
-                    state.unbind_toolkit(toolkit)
-                    toolkit.close()
+                    try:
+                        state.unbind_toolkit(toolkit)
+                        if robot_spec.finalize_run is not None:
+                            environment_success = bool(toolkit.solved())
+                            solved = environment_success
+                    finally:
+                        toolkit.close()
                 if solved or state.task_replacement_requested:
                     break
                 if agent_error:
@@ -311,6 +328,9 @@ def _run_dashboard_task(
                         )
                         continue
                     break
+    except KeyboardInterrupt:
+        state.request_shutdown()
+        agent_error = "Dashboard interrupted by operator."
     except Exception as exc:
         logger.error("EXCEPTION in Dashboard TaskRun %04d: %s", claimed.number, exc)
         agent_error = str(exc)
@@ -338,6 +358,7 @@ def _run_dashboard_task(
             "model": task_args.model,
             "elapsed_s": round(time.time() - started, 1),
             "finish": finish_result,
+            "environment_success": environment_success,
             "stats": stats,
             "messages": _serialize_messages(messages),
         }
@@ -368,6 +389,35 @@ def _run_dashboard_task(
         except Exception as exc:
             warning = f"memory finalization failed: {type(exc).__name__}: {exc}"
             logger.warning("%s", warning)
-            state.report_task_warning(f"Task succeeded, but {warning}")
+            state.report_task_warning(warning)
 
+    if robot_spec.finalize_run is not None:
+        try:
+            robot_spec.finalize_run(
+                RunFinalizationContext(
+                    output_dir=Path(output_dir),
+                    robot_name=robot_spec.name,
+                    task_desc=dict(run_config.task_desc),
+                    environment_success=environment_success,
+                    agent_error=agent_error,
+                    elapsed_s=time.time() - started,
+                    planner=args.planner,
+                    model=args.model,
+                    reasoning_effort=args.reasoning_effort,
+                    max_turns=args.max_turns,
+                    planner_timeout_s=args.planner_timeout_s,
+                    finish_result=dict(finish_result)
+                    if finish_result is not None
+                    else None,
+                    stats=dict(stats),
+                )
+            )
+        except Exception as exc:
+            finalization_error = (
+                f"result finalization failed: {type(exc).__name__}: {exc}"
+            )
+            if agent_error:
+                logger.warning("%s", finalization_error)
+            else:
+                agent_error = finalization_error
     return agent_error

@@ -367,6 +367,10 @@ class Toolkit:
     def close(self) -> None:
         """Release the robot-side primitives / servers at end of run. Default: no-op."""
 
+    def exploration_continuation(self, *, explicit: bool = False) -> str | None:
+        """Return a rule-checked continuation at an idle planner boundary."""
+        return None
+
     def solved(self) -> bool:
         """Whether the env has reported the task complete.
 

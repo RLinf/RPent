@@ -196,7 +196,10 @@ def _tool_names(toolkit: DualFrankaToolkit) -> set[str]:
     return set(toolkit._tools)
 
 
-def test_toolkit_exploration_tools_are_opt_in(tmp_path: Path):
+def test_toolkit_exploration_tools_are_opt_in(
+    tmp_path: Path, dual_franka_robot_config: Path
+):
+    set_robot_config_path(dual_franka_robot_config)
     base_kwargs = {
         "env": FakeEnv(),
         "model": None,
@@ -222,6 +225,9 @@ def test_toolkit_exploration_tools_are_opt_in(tmp_path: Path):
         state_output_dir=tmp_path / "explore-state",
     )
 
+    assert evaluation.state.load("recording_fingerprint.json", step=None)[
+        "robot_config"
+    ]
     assert "request_scene_reset" not in _tool_names(evaluation)
     assert "request_operator_verdict" in _tool_names(evaluation)
     refused_eval = evaluation.execute_tool(
@@ -258,7 +264,10 @@ def test_toolkit_exploration_tools_are_opt_in(tmp_path: Path):
     assert accepted.result["operator_verdict"] == "success"
 
 
-def test_scene_reset_waits_for_operator_then_resets_robot(tmp_path: Path):
+def test_scene_reset_waits_for_operator_then_resets_robot(
+    tmp_path: Path, dual_franka_robot_config: Path
+):
+    set_robot_config_path(dual_franka_robot_config)
     env = FakeEnv()
     exploration = DualFrankaToolkit(
         runtime_kwargs={

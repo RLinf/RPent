@@ -305,8 +305,7 @@ class RpcFacade:
                 "are enabled; idle timeout is only enforced by the "
                 f"sweep thread, got {session_sweep_s!r}"
             )
-        if parent_watch:
-            watch_parent_death(self._shutdown_event.set)
+        watcher = watch_parent_death(self._shutdown_event.set) if parent_watch else None
         if self._enable_sessions:
             threading.Thread(
                 target=self._sweep_sessions,
@@ -318,6 +317,8 @@ class RpcFacade:
             threading.Thread(target=server.serve_forever, daemon=True).start()
             self._shutdown_event.wait()
         finally:
+            if watcher is not None:
+                watcher.close()
             server.shutdown()
             server.server_close()
             self.close()

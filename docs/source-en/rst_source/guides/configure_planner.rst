@@ -76,10 +76,6 @@ needed):
 Relevant ``api`` planner knobs:
 
 - ``--max-tokens`` — cap each LLM reply (default ``8192``).
-- ``--max-turns`` — cap model requests across the whole conversation,
-  including retries and follow-ups (default ``100``). Reaching the cap is
-  a normal stop, not a planner error or a claim of task success. Exploration
-  can continue with the next session and merge memory when otherwise eligible.
 - ``--no-images`` — never send image bytes; this is required for
   text-only models. The agent then reasons from textual state alone,
   so task performance may not be satisfactory.
@@ -109,8 +105,6 @@ Notes:
 
 - Do **not** add a provider prefix to ``--model``. If it is omitted,
   RPent uses ``sonnet``.
-- ``--max-turns`` is passed to the Claude Agent SDK and defaults to
-  ``100``.
 - ``--planner-timeout-s`` limits non-interactive runs. It defaults to
   ``CELL_TIMEOUT_S``, or ``1200`` seconds when that variable is unset.
   The limit is not applied in ``--interactive`` mode.
@@ -269,18 +263,48 @@ See :doc:`../development/add_planner` for the interface, integration steps, and 
 Configure Planner Limits
 ------------------------
 
-The limiting options apply to different planners:
+``--max-turns N`` sets the planner's turn limit; the default is ``100``.
+A turn is not a robot action: one model response can request several tools.
+The counting rule depends on the backend:
 
-- ``--max-tokens`` caps *per-reply* tokens only for the ``api``
-  planner. LIBERO-style tasks usually
-  finish comfortably under ``8192``; longer-horizon RoboCasa episodes
-  benefit from raising it if your model supports it.
-- ``--max-turns`` defaults to ``100``. For ``api``, it caps model requests
-  across the conversation, including retries and follow-ups. SDK planners
-  apply their own turn limits.
-- ``--planner-timeout-s`` limits the planner's running time.
+- **API:** Each model request counts once across the whole conversation,
+  including retries and follow-up user inputs. Pydantic AI enforces the limit;
+  RPent reports the request count as ``turns_used``. Reaching the limit is a
+  normal stop, not a planner error or a claim of task success. Exploration can
+  continue with the next session and merge memory when otherwise eligible.
+- **Codex:** Each model response counts once, including responses with
+  only reasoning or tool calls. Several tools requested in the same response
+  still count as one turn. RPent enforces this limit.
+- **Claude Code:** A turn means the model requests tools, those tools run,
+  and their results return to the model. A final answer without tool calls
+  does not use this budget. RPent passes the limit to Claude Code, which
+  returns ``error_max_turns`` if the limit is reached.
 
-When the model calls the ``finish`` tool, the planner records the
-corresponding finish state. Reaching a turn limit or timeout ends the
-run, and the main program still saves the transcript. Timeouts or SDK
-exceptions are stored in the planner result and written to the log.
+For example, with no retries, the model requests two file reads in one
+response, then summarizes their results in another. API sends two requests,
+Codex counts two responses, and Claude uses one tool-use turn. All three
+report ``turns_used=2``; Claude's reported response count differs from its
+tool-use budget.
+
+In interactive Claude sessions, each new user input gets a fresh turn
+budget, while ``turns_used`` keeps accumulating. See
+`Claude's turn-limit documentation
+<https://code.claude.com/docs/en/agent-sdk/agent-loop#turns-and-budget>`_.
+
+``flash`` replays a plan without an LLM loop, so this budget does not apply;
+it reports ``turns_used=0``.
+
+Other limits have different scopes:
+
+- ``--max-tokens`` caps each reply's tokens for ``api`` only (default ``8192``).
+  LIBERO-style tasks usually finish comfortably under this default;
+  longer-horizon RoboCasa episodes benefit from raising it if your model
+  supports it.
+- ``--planner-timeout-s`` limits elapsed planner time, with backend-specific
+  defaults and interactive-mode behavior described above.
+
+When the model calls ``finish``, the planner records the finish state.
+Reaching a turn limit stops the current loop; an interactive Claude session
+can still accept another query. The main program saves the transcript when
+the run ends. Timeouts or SDK exceptions are stored in the planner result
+and written to the log.
