@@ -56,8 +56,8 @@ COPY = {
 def load_data(path: Path = ASSETS / "results.json") -> dict:
     """Read results and reject broken references before publishing a build."""
     data = json.loads(path.read_text(encoding="utf-8"))
-    if data["schema_version"] != 3:
-        raise ExtensionError("Leaderboard: expected schema_version 3")
+    if data["schema_version"] != 4:
+        raise ExtensionError("Leaderboard: expected schema_version 4")
 
     def index(items: list[dict], kind: str) -> dict:
         result = {item["id"]: item for item in items}
@@ -72,7 +72,7 @@ def load_data(path: Path = ASSETS / "results.json") -> dict:
         "views",
     )
     results = index(data["results"], "results")
-    index(data["cost_results"], "cost_results")
+    index(data["cost_results"]["rows"], "cost_results")
     sources = index(data["sources"], "sources")
     notes = [
         note for benchmark in benchmarks.values() for note in benchmark.get("notes", [])
@@ -86,9 +86,14 @@ def load_data(path: Path = ASSETS / "results.json") -> dict:
     for note in notes:
         if any(key not in configs for key in note["configuration_ids"]):
             raise ExtensionError(f"Leaderboard: unknown configuration in {note['id']}")
-    for collection, group_key, groups in (
-        (data["results"], "view_id", views),
-        (data["cost_results"], "benchmark_id", benchmarks),
+    for collection, group_key, groups, source_ids in (
+        (data["results"], "view_id", views, []),
+        (
+            data["cost_results"]["rows"],
+            "benchmark_id",
+            benchmarks,
+            data["cost_results"]["source_ids"],
+        ),
     ):
         pairs = set()
         for record in collection:
@@ -104,9 +109,8 @@ def load_data(path: Path = ASSETS / "results.json") -> dict:
             if pair in pairs:
                 raise ExtensionError(f"Leaderboard: duplicate result for {pair}")
             pairs.add(pair)
-            if not record["source_ids"] or any(
-                key not in sources for key in record["source_ids"]
-            ):
+            record_sources = record.get("source_ids", source_ids)
+            if not record_sources or any(key not in sources for key in record_sources):
                 raise ExtensionError(
                     f"Leaderboard: unknown or missing source in {record_id}"
                 )
@@ -158,7 +162,7 @@ def context(data: dict, language: str) -> dict:
             return config["display_name"]
         if config["kind"] == "external":
             return config["model"]
-        return "RPent / " + (config["model"] or config["backend"] or "—")
+        return "RPent / " + (config.get("model") or config.get("backend") or "—")
 
     def detail(config):
         if config.get("perception_model"):
@@ -253,7 +257,7 @@ def context(data: dict, language: str) -> dict:
         rows = sorted(
             (
                 record
-                for record in data["cost_results"]
+                for record in data["cost_results"]["rows"]
                 if record["benchmark_id"] == section["id"]
             ),
             key=lambda record: (

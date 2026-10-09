@@ -24,7 +24,7 @@
   d.results.forEach(r=>rowsByView.get(r.view_id).push(r));
   const configs = new Map(d.configurations.map(c => [c.id, c]));
   const selection = new Map(d.benchmarks.map(s => [s.id, s.default_view]));
-  const costGroups=d.benchmarks.filter(b=>d.cost_results.some(r=>r.benchmark_id===b.id)).map(b=>[b.id,b.name]);
+  const costGroups=d.benchmarks.filter(b=>d.cost_results.rows.some(r=>r.benchmark_id===b.id)).map(b=>[b.id,b.name]);
   const collapsedModules = new Set([...d.benchmarks.map(s=>s.id),...costGroups.map(([id])=>'costs-'+id)]);
   const normalizeAnchor=hash=>hash.replace(/^#/, '').replace(/^native-/, '');
   const sectionForAnchor=id=>id==='time-token-costs'||id.startsWith('costs-')?'time-token-costs':id&&id!=='top'?'performance':null;
@@ -109,7 +109,7 @@
   }
   const allRows = view => [...rowsByView.get(view.id)].sort((a,b)=>
     a.rate===null?b.rate===null?a.id.localeCompare(b.id):1:b.rate===null?-1:Number(b.rate)-Number(a.rate)||a.id.localeCompare(b.id));
-  const count = r => r.successes!==null?`${r.successes}/${r.episodes}`:r.episodes!==null?`${t('countsOnly')}: ${r.episodes}`:'—';
+  const count = r => r.successes!=null?`${r.successes}/${r.episodes}`:r.episodes!=null?`${t('countsOnly')}: ${r.episodes}`:'—';
   function headline(id) {
     const view=views.get(id);
     const benchmark=d.benchmarks.find(b=>b.id===view.benchmark_id);
@@ -161,7 +161,7 @@
     const groups=costGroups;
     const methodOrder=new Map(d.configurations.map((c,i)=>[c.id,i]));
     element.innerHTML=`<div class="section-layout"><details class="module-directory" open><summary>${t('environments')}</summary><nav class="module-nav" aria-label="${h(t('costs'))}">${groups.map(([id,name])=>`<a href="#costs-${id}">${name}</a>`).join('')}</nav></details><div class="section-results">${groups.map(([id,name])=>{
-      const rows=d.cost_results.filter(r=>r.benchmark_id===id).sort((a,b)=>(methodOrder.get(a.configuration_id)??Infinity)-(methodOrder.get(b.configuration_id)??Infinity)||a.id.localeCompare(b.id));
+      const rows=d.cost_results.rows.filter(r=>r.benchmark_id===id).sort((a,b)=>(methodOrder.get(a.configuration_id)??Infinity)-(methodOrder.get(b.configuration_id)??Infinity)||a.id.localeCompare(b.id));
       const tokenMetrics=['total_output_tokens','mean_total_tokens'].filter(key=>rows.some(r=>r[key]!=null));
       return `<section id="costs-${id}" class="cost-group" data-cost-group="${id}"><div class="section-inner"><details data-module="costs-${id}"${collapsedModules.has('costs-'+id)?'':' open'}><summary class="module-header"><h3>${name}</h3></summary><div class="module-content"><div class="table-wrap" tabindex="0" role="region" aria-label="${name} ${h(t('costs'))}"><table data-sort-key="costs-${id}" data-sortable="false" data-highlight-best="false"><thead><tr><th>${t('method')}</th><th class="rate">${t('meanTime')}</th>${tokenMetrics.map(key=>`<th class="rate">${t(key)}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>{
         return `<tr data-cost-record="${r.id}" data-method="${r.configuration_id}"><td><div class="matrix-label"><span>${h(label(r))}<small> ${h(detailLabel(r))}</small></span></div></td><td class="rate" data-value="${r.mean_elapsed_seconds??''}">${r.mean_elapsed_seconds===null?'—':r.mean_elapsed_seconds.toLocaleString('en-US')}</td>${tokenMetrics.map(key=>`<td class="rate" data-value="${r[key]??''}">${r[key]==null?'—':r[key].toLocaleString('en-US',{maximumFractionDigits:0})}</td>`).join('')}</tr>`;
@@ -186,7 +186,7 @@
     const quote=x=>'"'+String(x??'').replaceAll('"','""')+'"';
     const body=[keys.join(','),...rows.map(r=>{
       const c=configs.get(r.configuration_id),v=views.get(r.view_id);
-      return [r.id,v.benchmark_id,r.view_id,label(r),c.model,c.backend,c.perception_model,c.reasoning,c.effort,r.rate,r.successes,r.episodes,r.status,tr(r.evaluation_note)].map(quote).join(',');
+      return [r.id,v.benchmark_id,r.view_id,label(r),c.model,c.backend,c.perception_model,c.reasoning,c.effort,r.rate,r.successes,r.episodes,r.status??'reported',tr(r.evaluation_note)].map(quote).join(',');
     })].join('\r\n');
     const url=URL.createObjectURL(new Blob(['\uFEFF'+body],{type:'text/csv;charset=utf-8'}));
     const a=globalThis.document.createElement('a');a.href=url;a.download=name+'.csv';(document.body??document).append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000);
