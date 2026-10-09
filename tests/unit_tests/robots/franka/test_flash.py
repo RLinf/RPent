@@ -31,6 +31,7 @@ from robots.franka.flash.replay import (
     replay,
 )
 from rpent.robots.components.molmo_client import MolmoResult
+from rpent.tools import ToolResult
 
 
 @pytest.fixture(params=["franka", "dual_franka"])
@@ -85,7 +86,7 @@ def scene(request, tmp_path):
         raise_if_cancelled=lambda: None,
         refresh_flash_state=lambda: None,
         execute_tool=lambda name, args: (
-            actions.append((name, args)) or SimpleNamespace(result={"ok": True})
+            actions.append((name, args)) or ToolResult(data={"ok": True})
         ),
     )
     grounder = SimpleNamespace(ground=lambda *a: MolmoResult(True, (10, 10), (20, 20)))
@@ -106,7 +107,7 @@ def projection(monkeypatch, scene, point=None, error=None):
     if error:
         result["error"] = error
     module = importlib.import_module(f"robots.{scene.robot}.perception")
-    monkeypatch.setattr(module, "back_project", lambda **kw: result)
+    monkeypatch.setattr(module, "back_project", lambda **kw: ToolResult(data=result))
 
 
 def test_live_point_changes_motion_and_operator_confirms_success(scene, monkeypatch):
@@ -167,8 +168,8 @@ def test_operator_abort_does_not_execute(scene):
 
 def test_failed_primitive_stops_before_next_action(scene, monkeypatch):
     projection(monkeypatch, scene, [0.45, 0, 0.3])
-    scene.toolkit.execute_tool = lambda *a: SimpleNamespace(
-        result={"error": "controller fault"}
+    scene.toolkit.execute_tool = lambda *a: ToolResult(
+        data={"error": "controller fault"}
     )
     with pytest.raises(RuntimeError, match="controller fault"):
         replay(
@@ -295,14 +296,16 @@ def test_agent_fallback_is_shared_by_both_robots(scene, monkeypatch, failure_kin
     monkeypatch.setattr(
         module,
         "back_project",
-        lambda **kw: (
-            {"error": "no valid depth near pixel"}
-            if kw["col"] == 1
-            else {
-                "point_base": [0.45, 0, 0.3],
-                "point_xyz": [0.45, 0, 0.3],
-                "selection_valid": True,
-            }
+        lambda **kw: ToolResult(
+            data=(
+                {"error": "no valid depth near pixel"}
+                if kw["col"] == 1
+                else {
+                    "point_base": [0.45, 0, 0.3],
+                    "point_xyz": [0.45, 0, 0.3],
+                    "selection_valid": True,
+                }
+            )
         ),
     )
 
@@ -411,7 +414,7 @@ def test_dual_projection_exception_fallback(scene, monkeypatch, failure):
             raise ValueError("missing calibration")
         if failure == "always" or calls.count("project") == 1:
             perception._median_depth(np.zeros((20, 20)), 10, 10, radius=2)
-        return {"point_xyz": [0.45, 0, 0.3], "selection_valid": True}
+        return ToolResult(data={"point_xyz": [0.45, 0, 0.3], "selection_valid": True})
 
     monkeypatch.setattr(perception, "back_project", project)
     fallback = SimpleNamespace(

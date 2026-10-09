@@ -428,10 +428,9 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
         def execute_tool(self, name: str, args: dict[str, Any]) -> ToolResult:
             self.calls.append((name, args))
             if budget_exhausted:
-                return ToolResult(name, {"error": "finish refused"})
+                return ToolResult(data={"error": "finish refused"})
             return ToolResult(
-                name,
-                {
+                data={
                     "_finish": True,
                     "status": args["status"],
                     "summary": args["summary"],
@@ -441,8 +440,12 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
         def close(self) -> None:
             self.closed = True
 
-        def get_tools_spec(self) -> list[dict[str, Any]]:
-            return [common.TOOLS_SPEC[-1]]
+        def list_tools(self):
+            return (
+                common.CommonTools.finish.with_handler(
+                    lambda **args: ToolResult(data=args)
+                ),
+            )
 
         def cancel_active_and_wait(self) -> None:
             pass
@@ -477,7 +480,7 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
                 {"status": "success", "summary": "simulated task complete"},
             )
             return PlannerResult(
-                finish_result=finish.result,
+                finish_result=finish.data,
                 messages=[{"role": "assistant", "content": "finished offline"}],
                 stats={
                     "total_input_tokens": 0,

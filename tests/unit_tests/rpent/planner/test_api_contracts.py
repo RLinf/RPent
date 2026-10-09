@@ -41,8 +41,8 @@ from rpent.dashboard.events import RunStartedEvent, TranscriptEvent, UsageEvent
 from rpent.dashboard.state import DashboardState
 from rpent.planner.api_loop import ApiAgentLoop
 from rpent.session import EnvState
-from rpent.tools import common
-from rpent.tools.toolkit import Toolkit, readonly
+from rpent.tools import Toolkit, ToolResult, common
+from rpent.tools import tool as declare_tool
 
 FINISH_ARGS = {"status": "success", "summary": "done"}
 
@@ -63,23 +63,22 @@ class RobotToolkit(Toolkit):
         super().__init__(dashboard_events=events, memory=SimpleNamespace(), state=state)
 
     def _register_common_tools(self):
-        self.add_tool("finish", common.TOOLS_SPEC[-1], self.finish)
-        self.register("observe", lambda: {"position": 1, "_image_bytes": b"image"})
-
-    def register(self, name, handler, schema=None):
-        self.add_tool(
-            name,
-            {
-                "name": name,
-                "description": name,
-                "input_schema": schema or {"type": "object", "properties": {}},
-            },
-            readonly(handler),
+        self.add_tool(common.CommonTools.finish.with_handler(self.finish))
+        self.register(
+            "observe", lambda: ToolResult(data={"position": 1}, images=[b"image"])
         )
 
-    @readonly
+    def register(self, name, handler, declaration=None):
+        declaration = declaration or declare_tool(name=name, readonly=True)(handler)
+
+        def run(**kwargs):
+            result = handler(**kwargs)
+            return result if isinstance(result, ToolResult) else ToolResult(data=result)
+
+        self.add_tool(declaration.with_handler(run), replace=name in self._tools)
+
     def finish(self, status, summary):
-        return {"_finish": True, "status": status, "summary": summary}
+        return ToolResult(data={"_finish": True, "status": status, "summary": summary})
 
     def execute_tool(self, name, input_dict):
         self.calls.append((name, input_dict))
@@ -89,6 +88,7 @@ class RobotToolkit(Toolkit):
 @pytest.fixture(autouse=True)
 def local_tools(monkeypatch):
     monkeypatch.setattr("rpent.tools.toolkit.substitute", lambda value: value)
+    monkeypatch.setattr("rpent.planner.api_loop.substitute", lambda value: value)
     monkeypatch.setenv("PYDANTIC_AI_NO_BANNER", "1")
 
 
@@ -192,7 +192,7 @@ def test_refused_finish_retries_without_claiming_success(tmp_path):
             return {"error": "finish refused; verify the environment"}
         return {"_finish": True, **args}
 
-    toolkit.register("finish", guarded_finish, common.TOOLS_SPEC[-1]["input_schema"])
+    toolkit.register("finish", guarded_finish, common.CommonTools.finish)
     histories = []
 
     async def stream(messages, info):
@@ -216,7 +216,7 @@ def test_persistent_finish_refusal_stops_at_request_budget(tmp_path):
     toolkit.register(
         "finish",
         lambda **args: {"error": "finish refused"},
-        common.TOOLS_SPEC[-1]["input_schema"],
+        common.CommonTools.finish,
     )
 
     async def stream(messages, info):
@@ -449,15 +449,13 @@ def test_schema_validation_and_sequential_physical_tools(tmp_path):
     events = Events()
     toolkit = RobotToolkit(events)
     positions = []
-    toolkit.register(
-        "move",
-        lambda position: positions.append(position) or {"position": position},
-        {
-            "type": "object",
-            "properties": {"position": {"type": "integer"}},
-            "required": ["position"],
-        },
-    )
+
+    @declare_tool(readonly=True)
+    def move(position: int) -> ToolResult:
+        positions.append(position)
+        return ToolResult(data={"position": position})
+
+    toolkit.add_tool(move)
     calls = 0
 
     async def stream(messages, info):
@@ -579,7 +577,7 @@ def test_dashboard_message_during_finish_is_unsent(tmp_path):
         time.sleep(0.05)
         return {"_finish": True, **args}
 
-    toolkit.register("finish", finish_and_submit, common.TOOLS_SPEC[-1]["input_schema"])
+    toolkit.register("finish", finish_and_submit, common.CommonTools.finish)
     result, _, _ = solve(
         tmp_path,
         TestModel(call_tools=[], custom_output_args=FINISH_ARGS),
@@ -960,7 +958,7 @@ def test_offline_http_planner_preserves_non_streaming_responses():
                         "type": "function",
                         "function": {
                             "name": "finish",
-                            "parameters": common.TOOLS_SPEC[-1]["input_schema"],
+                            "parameters": common.CommonTools.finish.input_schema,
                         },
                     }
                 ],

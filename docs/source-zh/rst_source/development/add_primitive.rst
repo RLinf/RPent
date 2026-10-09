@@ -30,41 +30,27 @@
 添加一个脚本化原语
 ------------------
 
-添加脚本化原语通常需要以下两个步骤：
+在机器人的 primitives 类中声明方法，并注册绑定到实例的工具：
 
-1. **在 primitives 中添加方法。** 在当前机器人的 primitives 类（如 ``LiberoPrimitives``、``MyRobotPrimitives``）中添加一个方法。该方法接收工具调用的参数，执行一次或多次 ``self._env.step(...)``，并返回一个简短的日志字典。
+.. code-block:: python
 
-     primitive 方法执行后默认会自动捕获并重新渲染状态（``get_env_state``）：
+   from rpent.tools import ToolResult, iter_tools, tool
 
-   .. code-block:: python
+   class MyRobotPrimitives:
+       @tool
+       def open_drawer(self, dx: float = 0.15) -> ToolResult:
+           """Pull the grasped drawer handle backwards.
 
-      def open_drawer(self, dx: float = 0.15) -> dict:
-          # 保持夹爪闭合，沿 -x 方向后拉 dx 米。
-          for _ in range(N):
-              self._env.step(build_open_drawer_chunk(dx))
-          return {"ok": True, "dx": dx}
+           Args:
+               dx: Pull distance in meters.
+           """
+           self._env.step(build_open_drawer_chunk(dx))
+           return ToolResult(data={"ok": True, "dx": dx})
 
-   只读工具（``view_env_state``、``back_project``、``segment`` 等）
-     可以使用 :func:`~rpent.tools.toolkit.readonly` 标记，toolkit 会跳过它们的状态捕获，提升性能。
+   # 在 toolkit 中构造 self._primitives 后注册：
+   self.add_tools(iter_tools(self._primitives))
 
-2. **添加工具定义。** 在 ``robots/<robot>/tools.py`` 的 ``TOOLS_SPEC`` 中新增一项：
-
-   .. code-block:: python
-
-      {
-          "name": "open_drawer",
-          "description": "Pull the currently-grasped drawer handle "
-                         "backwards by ``dx`` meters.",
-          "input_schema": {
-              "type": "object",
-              "properties": {"dx": {"type": "number"}},
-              "required": [],
-          },
-      }
-
-两者就位后，toolkit 会自动注册该工具：它遍历 ``TOOLS_SPEC``，把每个定义绑定到对应的 primitive 方法（如 ``getattr(self._primitives, name)``）。
-
-完成以上步骤后，``api``、``claude_code`` 和 ``codex`` 三种 planner 都可以调用该工具，无需修改其他代码。
+参数类型注解和 docstring 生成模型可见的 schema。Toolkit 校验参数，并在执行后通过 ``get_env_state`` 采集状态。``view_env_state``、``back_project`` 等读取工具使用 ``@tool(readonly=True)``。模块级工具可用 ``@tool(exclude=("state",))`` 排除内部资源参数，再通过 ``Tool.with_handler`` 绑定。三种 planner 共用注册后的工具声明。
 
 .. _add-primitive-model-based:
 
@@ -86,20 +72,22 @@
    :class:`rpent.robots.components.vla_client_base.BaseVLAClient`；它已经提供
    公共的 ``vla.predict`` 调用，子类只需增加环境专用的输入 / 输出适配。 LIBERO 的实现可参考 ``rpent.robots.components.pi05_vla_client.Pi05VLAClient``。
 
-3. **在 primitives 中添加方法。** 在当前机器人的 primitives 类中调用 model client，将其返回的动作块交给环境执行，并返回日志字典。 model client 的接口是
+3. **在 primitives 中添加方法。** 在当前机器人的 primitives 类中调用 model client，将其返回的动作块交给环境执行，并返回 ``ToolResult``。 model client 的接口是
    :meth:`rpent.robots.components.pi05_vla_client.Pi05VLAClient.predict`，
    指令从 ``env_obs["task_descriptions"]`` 中读取；返回形状为 ``[chunk, action_dim]`` 的 NumPy 动作块（已移除 batch 维度）：
 
    .. code-block:: python
 
-      def mymodel_pick(self, target: str) -> dict:
+      @tool
+      def mymodel_pick(self, target: str) -> ToolResult:
+          """使用模型抓取指定目标。"""
           env_obs = self._env.get_obs()
           env_obs["task_descriptions"] = f"pick {target}"
           chunk = self._model.predict(env_obs)
           self._env.chunk_step(chunk)
-          return {"model": "mymodel", "target": target}
+          return ToolResult(data={"model": "mymodel", "target": target})
 
-4. **添加工具定义并在 toolkit 中注册。** 具体做法与脚本化原语相同。
+4. **在 toolkit 中注册声明的工具。** 具体做法与脚本化原语相同。
 
 5. **在 ``robot_spec.py`` 中连接各组件。** 机器人的 ``get_toolkit`` 使用 ``runtime_kwargs`` 构造 toolkit：
 
@@ -159,8 +147,8 @@ mixin 覆盖的 ``serve`` 与 :class:`~rpent.utils.rpc.RpcFacade` 的 ``serve`` 
 ----------------
 
 - **工具名称应描述意图，而非底层动作序列。** 例如使用 ``pi0_pick``，而不是 ``execute_action_chunk_of_length_20``。
-- **每个工具执行结束后都要保存新的状态快照。** 下一轮需要读取动作执行后的环境状态，因此原语不能在渲染完成前返回。
-- **工具只返回简短的字典。** 返回值会以文本形式提供给 LLM；图像、深度数据和其他大型观测应通过 ``EnvState.save`` 保存；``EnvState`` 会把每个逻辑基础文件名自动加入其持有的 ``StepRecord.artifacts`` 集合。图像通过 ``view_env_state`` 提供，几何数据通过环境工具访问，不返回原始路径。
+- **改变状态的工具在返回规划器前采集状态。** Toolkit 在处理函数执行后调用 ``get_env_state``，``readonly`` 工具跳过这一步。
+- **保持结果数据简短。** 返回值会以文本形式提供给 LLM；图像、深度数据和其他大型观测应通过 ``EnvState.save`` 保存；``EnvState`` 会把每个逻辑基础文件名自动加入其持有的 ``StepRecord.artifacts`` 集合。图像通过 ``view_env_state`` 提供，几何数据通过环境工具访问，不返回原始路径。
 - **安全限制由 ``env_server`` 强制执行。** LLM 可能使用任意参数调用工具，因此工作空间边界和安全限制不能只依赖 toolkit。
 
 其他基于模型的原语

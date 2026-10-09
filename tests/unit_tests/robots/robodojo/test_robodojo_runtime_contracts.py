@@ -18,14 +18,13 @@ import argparse
 import json
 import os
 import sys
-from functools import partial
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
 from robots.robodojo import robot_spec, tools
-from rpent.tools.toolkit import _is_readonly
+from rpent.tools import Tool, ToolResult, iter_tools
 
 
 def _args(*flags):
@@ -287,7 +286,7 @@ def test_pi0_pick_monitors_both_arms_and_preserves_policy_input(lifting_arm):
         vla_client=SimpleNamespace(predict=predict),
         _check_cancelled=lambda: None,
     )
-    result = tools.pi0_pick(primitives, None, "pick bottle", arm="right")
+    result = tools.pi0_pick(primitives, None, "pick bottle", arm="right").data
     assert result["success"] is True
     assert result["chunks_used"] == 1
     assert set(result["arms"]) == {"left", "right"}
@@ -324,7 +323,7 @@ def test_pi0_pick_stops_the_chunk_when_the_grasp_is_held():
         vla_client=SimpleNamespace(predict=lambda _: np.zeros((3, 14))),
         _check_cancelled=lambda: None,
     )
-    result = tools.pi0_pick(primitives, None, "pick bottle", arm="right")
+    result = tools.pi0_pick(primitives, None, "pick bottle", arm="right").data
     assert result["success"] is True
     # Three actions were predicted and the grasp is held after the second.
     assert len(executed) == 2
@@ -350,7 +349,7 @@ def test_gripper_result_does_not_expose_environment_feedback():
             ),
         ),
     )
-    result = tools.set_gripper(primitives, None, "left", 1)
+    result = tools.set_gripper(primitives, None, "left", 1).data
     assert result["status"] == {"step": 1, "step_limit": 10}
 
 
@@ -375,13 +374,13 @@ def test_readers_are_readonly_and_do_not_act():
         "back_project",
         "segment",
         "view_env_state",
-        "get_reward_details",
-        "get_safety_status",
     ]:
-        assert _is_readonly(partial(getattr(tools, name)))
-    assert not _is_readonly(tools.move_to)
-    assert tools.back_project(primitives, None, 0, 0)["world_xyz"] == [0, 0, -1]
-    assert tools.segment(primitives, None, "object")["found"] is False
+        assert getattr(tools, name).readonly
+    assert not isinstance(tools.get_reward_details, Tool)
+    assert not isinstance(tools.get_safety_status, Tool)
+    assert not tools.move_to.readonly
+    assert tools.back_project(primitives, None, 0, 0).data["world_xyz"] == [0, 0, -1]
+    assert tools.segment(primitives, None, "object").data["found"] is False
 
 
 def test_back_project_row_axis_follows_the_usd_camera_frame():
@@ -398,8 +397,8 @@ def test_back_project_row_axis_follows_the_usd_camera_frame():
         }
     }
     primitives = SimpleNamespace(_last_obs=obs)
-    above = tools.back_project(primitives, None, 0, 1)["world_xyz"]
-    below = tools.back_project(primitives, None, 2, 1)["world_xyz"]
+    above = tools.back_project(primitives, None, 0, 1).data["world_xyz"]
+    below = tools.back_project(primitives, None, 2, 1).data["world_xyz"]
     assert above == [0.0, 2.0, -2.0]
     assert below == [0.0, -2.0, -2.0]
 
@@ -435,17 +434,15 @@ def test_toolkit_exposes_every_robot_tool(monkeypatch, tmp_path, task):
     assert isinstance(toolkit, module.RoboDojoToolkit)
     assert isinstance(toolkit.memory, MemoryManager)
     assert toolkit.memory.root == tmp_path / "memory"
-    names = {spec["name"] for spec in toolkit.get_tools_spec()}
-    robot_names = {spec["name"] for spec in tools.TOOLS_SPEC}
+    names = {spec.name for spec in toolkit.list_tools()}
+    robot_names = {spec.name for spec in iter_tools(tools)}
     # Every backend tool is exposed for every task: the toolkit no longer
     # filters schemas by group or by task name.
     assert names & robot_names == robot_names
     assert "finish" in names
     for name in ("get_reward_details", "get_safety_status"):
         assert name not in names
-        assert toolkit.execute_tool(name, {}).result == {
-            "error": f"unknown tool: {name}"
-        }
+        assert toolkit.execute_tool(name, {}).data == {"error": f"unknown tool: {name}"}
 
 
 @pytest.mark.parametrize("missing", ["runtime_kwargs", "dashboard_events", "config"])
@@ -500,13 +497,15 @@ def test_place_in_bin_keeps_backend_phase_sequence(monkeypatch):
 
     def move(primitives, state, xyz, **kwargs):
         calls.append((xyz, kwargs["gripper"]))
-        return {"reached": True}
+        return ToolResult(data={"reached": True})
 
     monkeypatch.setattr(tools, "move_to", move)
     monkeypatch.setattr(
-        tools, "set_gripper", lambda *args: {"status": {"success": True}}
+        tools,
+        "set_gripper",
+        lambda *args: ToolResult(data={"status": {"success": True}}),
     )
-    result = tools.place_in_bin(None, None, "left", [0.2, 0.3, 0.4])
+    result = tools.place_in_bin(None, None, "left", [0.2, 0.3, 0.4]).data
     assert calls == [
         ([0.2, 0.3, 0.95], 1),
         ([0.2, 0.3, 0.78], 1),

@@ -68,7 +68,7 @@ Planner
        dashboard_interaction=None,
    ) -> PlannerResult: ...
 
-规划器通过 ``toolkit.get_tools_spec()`` 获取工具定义并传给模型，通过 ``toolkit.execute_tool(name, input_dict)`` 执行模型发出的工具调用，再将工具返回结果传给模型。调用 ``finish`` 或达到轮数上限时，返回 ``PlannerResult``。
+规划器通过 ``toolkit.list_tools()`` 获取工具定义并传给模型，通过 ``toolkit.execute_tool(name, input_dict)`` 执行模型发出的工具调用，再将工具返回结果传给模型。调用 ``finish`` 或达到轮数上限时，返回 ``PlannerResult``。
 
 工具集
 ------
@@ -77,21 +77,9 @@ Planner
 
 .. code-block:: python
 
-   def add_tool(self, name: str, spec: dict, handler) -> None: ...
+   def add_tool(self, tool: Tool, *, replace: bool = False) -> None: ...
 
-.. list-table::
-   :header-rows: 1
-   :widths: 22 78
-
-   * - 参数
-     - 含义
-   * - ``name``
-     - LLM 看到的工具名。
-   * - ``spec``
-     - 工具说明与参数 schema（``name``、``description``、``input_schema``）。
-   * - ``handler``
-     - 执行逻辑，须返回 ``dict``。任务结束时在该 ``dict`` 里设 ``_finish``；
-       需要回传相机图时可设 ``_image_bytes`` 等字段。
+用 ``@tool`` 声明函数或方法，参数类型注解和 Google 风格 docstring 提供 schema 与说明；``@tool(readonly=True)`` 跳过动作后的状态采集。处理函数返回 ``ToolResult(data=..., images=...)``：``data`` 保存 JSON 数据，按需包含 ``error`` 或 ``_finish``；``images`` 保存 PNG 字节。
 
 基类已注册公共文件工具；子类 ``super().__init__()`` 后追加本机器人工具即可。逐步状态与 ``view_env_state`` 见 :doc:`add_primitive`。
 

@@ -19,8 +19,9 @@ import re
 
 from jsonschema import validate
 
+from robots.robodojo import tools
 from robots.robodojo.flash.grounding import ANCHOR_METHOD
-from robots.robodojo.tools import TOOLS_SPEC
+from rpent.tools import iter_tools
 
 ACTIONS = {"move_to", "set_gripper", "pi0_pick"}
 
@@ -71,7 +72,7 @@ def validate_plan(plan: dict) -> dict:
             raise ValueError("Invalid refinement camera")
     if not isinstance(plan["actions"], list) or not 1 <= len(plan["actions"]) <= 200:
         raise ValueError("Plan must contain 1..200 actions")
-    specs = {s["name"]: s["input_schema"] for s in TOOLS_SPEC}
+    specs = {tool.name: tool.input_schema for tool in iter_tools(tools)}
     for entry in plan["actions"]:
         if (
             set(entry) != {"action", "arguments", "anchor", "offset"}

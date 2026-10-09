@@ -12,9 +12,10 @@ from __future__ import annotations
 
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 import numpy as np
+from pydantic import Field
 
 from robots.yam import tools
 from robots.yam.contracts import MODEL_SPEC, YAM_CAMERA_NAMES
@@ -23,7 +24,7 @@ from robots.yam.projection import world_from_depth as _world_from_depth_cv
 from robots.yam.tasks import classify_episode
 from rpent.dashboard.events import DashboardEventSink
 from rpent.session import EnvState
-from rpent.tools.toolkit import Toolkit, readonly
+from rpent.tools import Toolkit, ToolResult, tool
 from rpent.utils.logging import get_output_dir
 
 if TYPE_CHECKING:
@@ -55,7 +56,6 @@ def tracking_hold_operator_supervised(
 
 
 class YamToolkit(Toolkit):
-    _SPECS = {spec["name"]: spec for spec in tools.TOOLS_SPEC}
     _FRAME_ARTIFACTS = {
         "top": "top_rgb.png",
         "left": "left_rgb.png",
@@ -115,44 +115,38 @@ class YamToolkit(Toolkit):
         )
 
     def _register_yam_tools(self) -> None:
-        self.add_tool("status", self._SPECS["status"], self.status)
-        self._tools.pop("finish", None)
-        self.add_tool(
-            "view_env_state",
-            self._SPECS["view_env_state"],
-            partial(tools.view_env_state, state=self._state),
-        )
-        self.add_tool(
-            "sample_world_xyz",
-            self._SPECS["sample_world_xyz"],
-            partial(tools.sample_world_xyz, self._state),
-        )
-        self.add_tool(
-            "query_world_map",
-            self._SPECS["query_world_map"],
-            partial(tools.query_world_map, self._state),
-        )
-        for name in (
-            "render",
-            "move_to",
-            "rotate_wrist",
-            "set_gripper",
-            "release",
+        self.add_tool(self.status)
+        for definition in (
+            tools.view_env_state,
+            tools.sample_world_xyz,
+            tools.query_world_map,
         ):
-            self.add_tool(name, self._SPECS[name], partial(self._step, name))
-        if self._primitives.model is not None:
-            self.add_tool(
-                "pi05_act", self._SPECS["pi05_act"], partial(self._step, "pi05_act")
+            handler = (
+                partial(definition, state=self._state)
+                if definition.name == "view_env_state"
+                else partial(definition, self._state)
             )
+            self.add_tool(definition.with_handler(handler))
+        for definition in (
+            self.render,
+            self.move_to,
+            self.rotate_wrist,
+            self.set_gripper,
+            self.release,
+        ):
+            self.add_tool(definition)
+        if self._primitives.model is not None:
+            self.add_tool(self.pi05_act)
         if self._mode == "exploration":
-            self.add_tool("reset", self._SPECS["reset"], self._reset_episode)
-        self.add_tool("finish", self._SPECS["finish"], self._finish)
+            self.add_tool(self._reset_episode)
+        self.add_tool(self._finish, replace=True)
 
-    @readonly
-    def status(self) -> dict[str, Any]:
-        """Read current episode authority; readiness is not visual clearance."""
+    @tool(readonly=True, json_schema_extra={"additionalProperties": False})
+    def status(self) -> ToolResult:
+        """Read fresh episode rules: ready, awaiting ready, terminal, stop or budget. Does not establish visual clearance or drive hardware."""
         self._latest_status = self._primitives.status()
-        return self._latest_status
+        payload = self._latest_status
+        return ToolResult(data=payload)
 
     def exploration_continuation(self, *, explicit: bool = False) -> str | None:
         if self._mode != "exploration":
@@ -163,7 +157,7 @@ class YamToolkit(Toolkit):
             finished = isinstance(result, dict) and result.get("_finish")
             if finished or not explicit:
                 return None
-        status = self.status()
+        status = self.status().data
         if explicit and status["reason"] == "success":
             return (
                 "The onsite operator confirmed success for this episode. This is "
@@ -239,66 +233,80 @@ class YamToolkit(Toolkit):
             "Do not reset, fabricate success, or clear a stop."
         )
 
-    def _finish(self, *, status: str, summary: str) -> dict[str, Any]:
+    @tool(name="finish")
+    def _finish(self, *, status: str, summary: str) -> ToolResult:
+        """Stop the run. Fresh env eval_success is authoritative."""
         status = status.strip().lower()
-        verdict = self.status()
+        verdict = self.status().data
         if verdict.get("eval_success") is True:
-            return {"_finish": True, "status": "success", "summary": summary}
+            payload = {"_finish": True, "status": "success", "summary": summary}
+            return ToolResult(data=payload)
         if verdict.get("terminal_event") == "abort":
-            return {
+            payload = {
                 "_finish": True,
                 "status": "failure",
                 "summary": "Operator aborted.",
             }
+            return ToolResult(data=payload)
         if verdict.get("terminal_event") == "failure":
             if (
                 self._mode == "exploration"
                 and self._attempts_per_session
                 and self._session_attempt < self._attempts_per_session
             ):
-                return {
+                payload = {
                     "error": "finish refused: operator marked failure",
                     "status": "retry",
                     "notice": "Record the lesson, then reset after the scene is ready.",
                 }
-            return {"_finish": True, "status": "failure", "summary": summary}
+                return ToolResult(data=payload)
+            payload = {"_finish": True, "status": "failure", "summary": summary}
+            return ToolResult(data=payload)
         if status != "success":
             if self._mode == "exploration":
-                return {
+                payload = {
                     "status": "pending",
                     "awaiting_operator": True,
                     "operator_question": "The agent is blocked. Continue after onsite handling, or formally end this attempt?",
                     "notice": "Ask about the current blocker and wait. A planner claim is not an operator verdict.",
                 }
-            return {"_finish": True, "status": status, "summary": summary}
-        return {
+                return ToolResult(data=payload)
+            payload = {"_finish": True, "status": status, "summary": summary}
+            return ToolResult(data=payload)
+        payload = {
             "error": "finish refused: pending operator verdict",
             "status": "pending",
             "awaiting_operator": True,
             "operator_question": "Is the current task complete? Confirm success or explain what remains.",
             "notice": "Ask the operator and wait. Do not poll finish; a current-episode verdict is required.",
         }
+        return ToolResult(data=payload)
 
-    def _reset_episode(self) -> dict[str, Any]:
+    @tool(name="reset")
+    def _reset_episode(self) -> ToolResult:
+        """Operator-approved reset for exploration or a fresh task attempt."""
         budget = self._attempts_per_session
         if budget and self._session_attempt >= budget:
-            return {
+            payload = {
                 "error": "reset refused",
                 "reason": f"This session's attempt budget is spent ({budget} attempts).",
             }
-        ready = self.status()
+            return ToolResult(data=payload)
+        ready = self.status().data
         if ready.get("terminal_event") == "abort":
-            return {
+            payload = {
                 "error": "Operator aborted; call finish(status='failure') now.",
                 "status": "failure",
             }
+            return ToolResult(data=payload)
         if not ready.get("ready_to_reset"):
-            return {
+            payload = {
                 "status": "pending",
                 "awaiting_operator": True,
                 "operator_question": "Is the scene ready and the held object handled for the next attempt?",
                 "notice": "Wait for a matching ready receipt. Do not poll reset; no attempt was spent.",
             }
+            return ToolResult(data=payload)
         self._save_episode_video()
         result = self._primitives.reset()
         # The initial ready/reset opens attempt 1, rather than spending it.
@@ -310,7 +318,8 @@ class YamToolkit(Toolkit):
         result["notice"] = (
             "YAM episode reset completed; re-run perception before acting."
         )
-        return result
+        payload = result
+        return ToolResult(data=payload)
 
     def _capture_full_observation(self) -> tuple[dict[str, Any], dict[str, Any]]:
         env = self._primitives.env
@@ -357,7 +366,7 @@ class YamToolkit(Toolkit):
         command: dict[str, Any],
         result: dict[str, Any],
         elapsed_s: float,
-    ) -> dict[str, Any]:
+    ) -> ToolResult:
         observation, status = self._capture_full_observation()
         self._latest_status = status
         if result.get("awaiting_operator") or result.get("operator_input_required"):
@@ -370,9 +379,9 @@ class YamToolkit(Toolkit):
         )
         captured = tools.view_env_state(record.step_idx, state=self._state)
         if result.get("error") or result.get("status") in {"pending", "retry"}:
-            captured.update(result)
+            captured.data.update(result)
         if result.get("operator_input_required"):
-            captured.update(
+            captured.data.update(
                 {
                     "awaiting_operator": True,
                     "operator_question": (
@@ -387,7 +396,7 @@ class YamToolkit(Toolkit):
             # capture. Keep the planner termination signal at the top level.
             verified = status.get("eval_success") is True
             requested_status = str(result.get("status", "failure"))
-            captured.update(
+            captured.data.update(
                 {
                     **result,
                     "requested_status": requested_status,
@@ -410,11 +419,100 @@ class YamToolkit(Toolkit):
         finally:
             operation.done_event.wait()
 
-    def _step(self, name: str, **kwargs) -> dict[str, Any]:
+    @tool
+    def render(self) -> ToolResult:
+        """Capture a fresh synchronized YAM observation."""
+        return self._step("render")
+
+    @tool
+    def move_to(
+        self,
+        *,
+        arm: Literal["left", "right"],
+        xyz: Annotated[list[float], Field(min_length=3, max_length=3)],
+        xyz_bounds: Annotated[
+            list[Annotated[list[float], Field(min_length=3, max_length=3)]],
+            Field(min_length=2, max_length=2),
+        ]
+        | None = None,
+        quat: Annotated[list[float], Field(min_length=4, max_length=4)] | None = None,
+        gripper: float | None = None,
+        substeps: Annotated[int, Field(ge=0, json_schema_extra={"default": 25})] = 25,
+    ) -> ToolResult:
+        """Plan and move one YAM arm to a left-base xyz and wxyz orientation.
+
+        Args:
+            xyz_bounds: Optional task-valid [lower_xyz, upper_xyz] containing xyz. Try at most three plans within it; execute only one. Reobserve after recoverable motion failure before choosing another point. Does not relax arrival tolerance or collision checks."""
+        return self._step(
+            "move_to",
+            arm=arm,
+            xyz=xyz,
+            xyz_bounds=xyz_bounds,
+            quat=quat,
+            gripper=gripper,
+            substeps=substeps,
+        )
+
+    @tool
+    def rotate_wrist(
+        self,
+        *,
+        arm: Literal["left", "right"],
+        delta_yaw_deg: float,
+        gripper: float | None = None,
+        substeps: Annotated[int, Field(ge=0, json_schema_extra={"default": 25})] = 25,
+    ) -> ToolResult:
+        """Rotate one wrist about world Z by a relative angle in degrees."""
+        return self._step(
+            "rotate_wrist",
+            arm=arm,
+            delta_yaw_deg=delta_yaw_deg,
+            gripper=gripper,
+            substeps=substeps,
+        )
+
+    @tool
+    def set_gripper(
+        self,
+        *,
+        arm: Literal["left", "right"],
+        val: Annotated[float, Field(ge=0, le=1)],
+        steps: Annotated[int, Field(ge=1, json_schema_extra={"default": 10})] = 10,
+    ) -> ToolResult:
+        """Linearly move one normalized YAM gripper, where 0=closed and 1=open."""
+        return self._step("set_gripper", arm=arm, val=val, steps=steps)
+
+    @tool
+    def release(
+        self,
+        *,
+        arm: Literal["left", "right"],
+        val: Annotated[float, Field(json_schema_extra={"default": 1.0})] = 1.0,
+        steps: Annotated[int, Field(ge=1, json_schema_extra={"default": 10})] = 10,
+    ) -> ToolResult:
+        """Open one YAM gripper to 1.0."""
+        return self._step("release", arm=arm, val=val, steps=steps)
+
+    @tool
+    def pi05_act(
+        self,
+        *,
+        chunks: Annotated[int, Field(ge=1, json_schema_extra={"default": 1})] = 1,
+        use_length: Annotated[Literal[5], Field(json_schema_extra={"default": 5})] = 5,
+        prompt: str | None = None,
+    ) -> ToolResult:
+        """Run the YAM Pi0.5 qpos14 policy for one or more short chunks."""
+        return self._step(
+            "pi05_act", chunks=chunks, use_length=use_length, prompt=prompt
+        )
+
+    def _step(self, name: str, **kwargs) -> ToolResult:
         self.raise_if_cancelled()
         if name == "render":
-            return {"success": True}
-        return getattr(self._primitives, name)(**kwargs)
+            payload = {"success": True}
+            return ToolResult(data=payload)
+        payload = getattr(self._primitives, name)(**kwargs)
+        return ToolResult(data=payload)
 
     def close(self) -> None:
         stop_error = None
@@ -439,7 +537,7 @@ class YamToolkit(Toolkit):
             )
 
     def solved(self) -> bool:
-        return self.status().get("eval_success") is True
+        return self.status().data.get("eval_success") is True
 
     def write_recipe(self, recipe_tag: str) -> str:
         if not self.solved():
