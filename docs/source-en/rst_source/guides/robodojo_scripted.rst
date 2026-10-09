@@ -131,8 +131,10 @@ Recipes
 
 ``robots/robodojo/recipes/README.md`` records evidence locations and hashes for
 two historical successful JSON plans: ``general_pickup`` layout 1 (94/200
-actions) and ``pour_by_language`` layout 1 (690/800). The plans are preserved
-under ``recipes/historical/``. Their old controller required pose IK and a
+actions) and ``pour_by_language`` layout 1 (690/800). The plans themselves are
+archived in the memory dataset, under ``robodojo/recipes/historical/`` in
+`RLinf/RPent-memory <https://huggingface.co/datasets/RLinf/RPent-memory>`_,
+rather than in this repository. Their old controller required pose IK and a
 different action interface, so these JSON files cannot be passed to this
 runner. No Python recipe with demonstrated success on the current interface
 is bundled. No simulator rollout was performed to validate this extraction.

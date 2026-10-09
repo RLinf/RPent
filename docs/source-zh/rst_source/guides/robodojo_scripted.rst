@@ -118,7 +118,8 @@ worker 只能获得公开的 RGB-D、标定、本体状态、任务指令及步�
 
 ``robots/robodojo/recipes/README.md`` 记录了两份历史成功 JSON 配方的证据位置和
 哈希：``general_pickup`` layout 1（94/200 步）与 ``pour_by_language`` layout 1
-（690/800 步）。配方保存在 ``recipes/historical/``。
+（690/800 步）。配方本身存放在记忆数据集 ``RLinf/RPent-memory`` 的
+``robodojo/recipes/historical/`` 下，不在本仓库中。
 它们使用的旧控制器依赖姿态 IK 和不同的动作接口，不能将这些 JSON 文件直接传给
 当前 runner。仓库未附带在当前接口上取得可靠成功证据的 Python 配方，
 本次提取也未运行仿真 rollout 来验证成功。

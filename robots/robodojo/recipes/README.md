@@ -1,15 +1,23 @@
 # Scripted recipes
 
+This directory holds example recipes and notes for the standalone scripted
+runner. It is not the RPent memory dataset and does not accumulate explored
+execution steps: learned or explored artifacts belong in
+`huggingface.co/datasets/RLinf/RPent-memory`, where this robot's historical
+plans are archived as well.
+
 The runner takes a reviewed Python file defining `main(env, output)`. It does
 not install or select a task recipe automatically. See the
-[English guide](../../../docs/source-en/rst_source/usage/robodojo_scripted.rst)
-and [中文指南](../../../docs/source-zh/rst_source/usage/robodojo_scripted.rst)
+[English guide](../../../docs/source-en/rst_source/guides/robodojo_scripted.rst)
+and [中文指南](../../../docs/source-zh/rst_source/guides/robodojo_scripted.rst)
 for the interface and freeze/verify/run workflow.
 
 ## Historical successful plans
 
-`historical/` preserves the `recipe` objects from two frozen releases, without
-changing their targets or motion parameters. These are JSON plans from an older
+The `recipe` objects from two frozen releases are archived in the memory
+dataset under `robodojo/recipes/historical/`
+(`huggingface.co/datasets/RLinf/RPent-memory`), not in this repository. They
+keep their original targets and motion parameters. These are JSON plans from an older
 controller, **not executable inputs to this runner**. That controller used
 `solve_ik_pose`, `apply_action`, orientation-controlled motion and joint
 interpolation. The current bridge exposes position IK and `step` only.
@@ -18,8 +26,8 @@ position-only motion would not preserve the demonstrated behavior.
 
 | Plan | Task / layout | Recorded official predicate | Actions / horizon |
 | --- | --- | --- | --- |
-| `historical/general_pickup_layout1.json` | `general_pickup` / 1 | true | 94 / 200 |
-| `historical/pour_by_language_layout1.json` | `pour_by_language` / 1 | true | 690 / 800 |
+| `robodojo/recipes/historical/general_pickup_layout1.json` | `general_pickup` / 1 | true | 94 / 200 |
+| `robodojo/recipes/historical/pour_by_language_layout1.json` | `pour_by_language` / 1 | true | 690 / 800 |
 
 Both runs used `ROBODOJO_PLACEMENT_SETTLE_STEPS=1000`, fixed layouts previously
 used during development, and a separate evaluator after worker exit. Their
