@@ -211,28 +211,42 @@ operator validation; offline unit tests do not establish real-robot success.
 Optional agent grounding fallback
 ------------------------------------------
 
-Add ``--grounding-agent-model provider:model`` to the replay command to enable
-one fallback attempt after Molmo fails. ``codex:model`` uses the existing Codex
-CLI file login and model/provider settings in an isolated temporary configuration
-directory; user MCP servers and plugins are not copied. Enabled MCP servers in
-the effective configuration cause the request to stop before image submission.
-Keyring-only login requires file-based login or ``CODEX_API_KEY`` instead.
-API models use the existing API model factory.
-``--grounding-agent-base-url`` optionally overrides the model endpoint.
-Use a model that accepts images and returns structured output.
+This feature lets you choose a large model to improve point selection when the
+small Molmo model encounters invalid depth, cannot identify the target, or its
+request fails in Flash mode. You can use Astra or another large model already
+supported by RPent to improve the point-selection success rate. When Molmo
+localization fails, RPent first captures a fresh observation, then asks the
+configured agent to retry once on the same object part. If the agent also
+fails, replay stops without executing that motion. After the agent's selection
+attempt, the next translation starts with Molmo again.
+This feature is disabled by default and only applies to Flash mode, not offline
+plan generation.
 
-For both single and dual Franka, a missing target, invalid pixel/depth or Molmo
-request failure triggers a fresh observation and one agent selection on the
-same named object part. The agent only selects pixels and receives no robot
-tools. Its point must pass the same depth projection and workspace/motion checks.
-If it fails, replay stops without executing that motion. The next translation
-starts with Molmo again. Cancellation does not trigger fallback. Configuration
-errors and workspace/motion-limit failures stop directly.
+To enable it, add ``--grounding-agent-model`` to the replay command:
 
-The fallback is disabled by default and applies to live replay, not offline
-plan generation. Each attempt is recorded in per-step ``flash_grounding.json``
-artifacts. Agent calls can incur model costs and have a 90-second request timeout;
-Flash planner token counters do not include these perception requests.
+.. code-block:: bash
+
+   rpent --robot franka --planner flash --task-id 0 \
+     --robot-config /path/to/robot.yaml --flash-plan plan.json \
+     --molmo-endpoint http://localhost:9000 \
+     --grounding-agent-model codex:YOUR_MODEL
+
+Replace ``YOUR_MODEL`` with a configured model that supports images and
+structured output. For dual Franka, use ``--robot dual_franka`` with its plan
+and robot configuration.
+
+See :doc:`../guides/configure_planner` for model login and API setup.
+Use ``codex:model`` for Codex CLI or ``provider:model`` for an API model.
+Add ``--grounding-agent-base-url`` if you need to override the model endpoint.
+
+Codex reuses your model/provider settings and file-based login to run the
+fallback agent. It does not load your MCP servers or plugins. If an enabled MCP
+server is detected, the request stops before sending the image. If your login
+is stored only in the OS keyring, use file-based login or set ``CODEX_API_KEY``.
+
+Each attempt is saved in the step's ``flash_grounding.json``. Agent requests
+may incur model costs. The current request timeout is 90 seconds; tokens from
+agent point-selection requests are not included in the Flash planner's counts.
 
 Stop the Run
 ------------
