@@ -88,6 +88,7 @@ class RobotToolkit(Toolkit):
 @pytest.fixture(autouse=True)
 def local_tools(monkeypatch):
     monkeypatch.setattr("rpent.tools.toolkit.substitute", lambda value: value)
+    monkeypatch.setattr("rpent.planner.api_loop.substitute", lambda value: value)
     monkeypatch.setenv("PYDANTIC_AI_NO_BANNER", "1")
 
 
@@ -957,7 +958,7 @@ def test_offline_http_planner_preserves_non_streaming_responses():
                         "type": "function",
                         "function": {
                             "name": "finish",
-                            "parameters": common.TOOLS_SPEC[-1]["input_schema"],
+                            "parameters": common.CommonTools.finish.input_schema,
                         },
                     }
                 ],
