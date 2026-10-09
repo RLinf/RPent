@@ -20,7 +20,7 @@ the next decision. The sequence below follows one run from CLI setup to cleanup.
 2. ``parse_config`` creates a ``RunConfig`` with the task, output directory, and prompt variables.
 3. The runner synchronizes or uses local memory according to the profile, constructs the planner, and renders prompts.
 4. ``init_runtime`` starts or connects to services and returns runtime inputs and owned processes; ``get_toolkit`` creates tools and their memory manager.
-5. The planner obtains schemas through ``get_tools_spec``, dispatches calls through ``execute_tool``, and consumes text and image results.
+5. The planner obtains schemas through ``list_tools``, dispatches calls through ``execute_tool``, and consumes text and image results.
 6. Action tools call a VLA or scripted motion. The environment records updated state and observations for the next planning turn.
 7. ``finish``, a run limit, or an error ends planning. The runner saves the transcript, finalizes recordings, and cleans up. Environments that publish evaluation artifacts use their finalization hook.
 

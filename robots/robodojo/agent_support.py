@@ -101,21 +101,36 @@ def _record_obs_frame(recorder, obs: dict) -> None:
 # ---------------------------------------------------------------------------
 # Safety monitor: rolling / off-table bottle alarm (env-internal, GT-based)
 #
-# Dev diagnostics read ground-truth bottle poses through layout_manager.
-# The scripted bridge strips these alarms before returning status to a recipe;
-# they must not become inputs to reward-isolated action selection.
+# TRAINING / EXPLORATION ONLY — must stay off in evaluation runs. Detection
+# reads the simulator's ground-truth bottle poses (layout_manager.get_instance_pose)
+# and the alarms reach the agent through every tool result, so the policy is
+# fed privileged state it cannot obtain from perception. Scores from a run that
+# consumed these alarms are not perception-isolated and are not comparable to
+# an eval without them.
 # ---------------------------------------------------------------------------
 
-_TABLE_X_RANGE = (-0.40, 0.50)
-_TABLE_Y_RANGE = (-0.30, 0.06)
-_TABLE_TOP_Z = 0.77
-_OFF_TABLE_Z = _TABLE_TOP_Z - 0.15
-_ROLL_SPEED_MPS = 0.20
-# Dustbin region (put_bottles task): bottles inside the bin are scored, not
-# lost — exclude from the off-table check.
-_BIN_X_RANGE = (-0.90, -0.45)
-_BIN_Y_RANGE = (-0.25, 0.05)
-_BIN_Z_RANGE = (0.20, 0.70)
+# Per-task boxes for the training-only alarm below, in the environment frame
+# (env 0 sits at the origin). The table box is narrower than the table in the
+# scene configuration (env_cfg/scene/default.yml: 1.4 x 1.1 at z = 0.74): it
+# marks the usable working area rather than the physical edge, and
+# off_table_z / roll_speed_mps are the thresholds the alarm was validated
+# with. Only put_bottles_into_dustbin has an entry — the alarm looks for
+# bottle0..bottle3 and stays disabled for every other task.
+#
+# When a second task needs the alarm, move this mapping next to the scripted
+# recipes (robots/robodojo/recipes/<task>.yaml) so the planner path and the
+# scripted runner read one copy.
+_TASK_BOUNDS: dict[str, dict] = {
+    "put_bottles_into_dustbin": {
+        "table_x": (-0.40, 0.50),
+        "table_y": (-0.30, 0.06),
+        "off_table_z": 0.62,
+        "roll_speed_mps": 0.20,
+        "bin_x": (-0.90, -0.45),
+        "bin_y": (-0.25, 0.05),
+        "bin_z": (0.20, 0.70),
+    },
+}
 
 
 def _bottle_labels(env) -> list[str]:
@@ -146,18 +161,31 @@ def _bottle_world_pos(env, label: str):
 class _SafetyMonitor:
     """Detect rolling / off-table bottles across steps (env-internal, GT-based).
 
-    The alarm is derived from simulator ground truth. Dev RPC diagnostics
-    include it, but the scripted bridge removes it from worker observations
-    and status before action selection.
+    TRAINING / EXPLORATION ONLY. The alarm is derived from the simulator's
+    ground-truth object poses, and it is surfaced to the agent on every tool
+    result — i.e. it hands the policy perception it did not earn. Any run
+    scored with these alarms on is therefore not an evaluation.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, task: str = "") -> None:
+        # Tasks without bounds (everything except put_bottles_into_dustbin
+        # today) keep the monitor disabled: check() reports no alarms.
+        self.bounds = _TASK_BOUNDS.get(task)
         self.last_poses: dict[str, np.ndarray] = {}
         self.last_t: float = 0.0
         self.alarms: dict[str, dict] = {}
 
     def check(self, env) -> dict:
         """Detect rolling / off-table bottles after a motion step."""
+        if self.bounds is None:
+            return {}
+        table_x = self.bounds["table_x"]
+        table_y = self.bounds["table_y"]
+        off_table_z = self.bounds["off_table_z"]
+        roll_speed = self.bounds["roll_speed_mps"]
+        bin_x = self.bounds["bin_x"]
+        bin_y = self.bounds["bin_y"]
+        bin_z = self.bounds["bin_z"]
         now = time.time()
         dt = now - self.last_t if self.last_t > 0 else 0.0
         for label in _bottle_labels(env):
@@ -168,16 +196,16 @@ class _SafetyMonitor:
             alarm: dict | None = None
             # off-table: outside the table footprint or fell below it
             outside = (
-                x < _TABLE_X_RANGE[0]
-                or x > _TABLE_X_RANGE[1]
-                or y < _TABLE_Y_RANGE[0]
-                or y > _TABLE_Y_RANGE[1]
-                or z < _OFF_TABLE_Z
+                x < table_x[0]
+                or x > table_x[1]
+                or y < table_y[0]
+                or y > table_y[1]
+                or z < off_table_z
             )
             in_bin = (
-                _BIN_X_RANGE[0] <= x <= _BIN_X_RANGE[1]
-                and _BIN_Y_RANGE[0] <= y <= _BIN_Y_RANGE[1]
-                and _BIN_Z_RANGE[0] <= z <= _BIN_Z_RANGE[1]
+                bin_x[0] <= x <= bin_x[1]
+                and bin_y[0] <= y <= bin_y[1]
+                and bin_z[0] <= z <= bin_z[1]
             )
             if outside and in_bin:
                 outside = False
@@ -190,7 +218,7 @@ class _SafetyMonitor:
             elif label in self.last_poses:
                 prev = self.last_poses[label]
                 speed = float(np.linalg.norm(np.asarray(pos) - prev)) / max(dt, 1e-3)
-                if speed > _ROLL_SPEED_MPS:
+                if speed > roll_speed:
                     alarm = {
                         "state": "rolling",
                         "world_xyz": [round(x, 3), round(y, 3), round(z, 3)],
@@ -203,7 +231,7 @@ class _SafetyMonitor:
                 # clear rolling alarms once the bottle settles
                 if (
                     self.alarms[label].get("state") == "rolling"
-                    and speed < _ROLL_SPEED_MPS * 0.5
+                    and speed < roll_speed * 0.5
                 ):
                     del self.alarms[label]
             self.last_poses[label] = np.asarray(pos, dtype=np.float64)
@@ -218,7 +246,7 @@ class _SafetyMonitor:
 
 
 def _obs_dict(env, recorder) -> dict[str, Any]:
-    from robots.robodojo.language import resolve_instruction
+    from robots.robodojo.tasks import resolve_instruction
 
     obs = env.get_obs(env_idx=0)
     obs["instruction"] = resolve_instruction(env)

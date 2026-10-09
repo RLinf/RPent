@@ -26,6 +26,7 @@ from robots.robocasa import robot_spec
 from robots.robocasa.eval.result import build_cell_result, finalize_cell_result
 from robots.robocasa.eval.validate_target50 import validate_results
 from rpent.evaluation import RunFinalizationContext, write_json_atomic
+from rpent.tools.common import CommonTools
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 MANIFEST_PATH = REPO_ROOT / "robots" / "robocasa" / "eval" / "target50.json"
@@ -457,7 +458,7 @@ def test_reused_output_directory_credits_only_current_run_reads(tmp_path, make_c
         )
 
     def read_all(manager):
-        read = manager.get_common_tool_bindings()["read_text_file"][1]
+        read = CommonTools(memory=manager).read_text_file
         for name in manager.selection.selected:
             read(path=str(root / name))
 
@@ -470,7 +471,7 @@ def test_reused_output_directory_credits_only_current_run_reads(tmp_path, make_c
     assert unread["memory"]["audit_status"] == "ok"
     assert unread["memory"]["read_files"] == []
     assert second.unread_files == second.selection.selected
-    read = second.get_common_tool_bindings()["read_text_file"][1]
+    read = CommonTools(memory=second).read_text_file
     read(path=str(root / second.selection.selected[0]), max_chars=1)
     assert _finalize_memory_run(output)["valid"] is True
     assert _finalize_memory_run(output)["memory"]["read_files"] == []
@@ -504,7 +505,7 @@ def test_missing_or_corrupt_read_audit_is_separate_from_environment_outcome(
     manager = RoboCasaMemoryManager(
         TaskMemory.load(root, "OpenDrawer"), output_dir=output
     )
-    read = manager.get_common_tool_bindings()["read_text_file"][1]
+    read = CommonTools(memory=manager).read_text_file
     for name in manager.selection.selected:
         read(path=str(root / name))
     assert _finalize_memory_run(output)["valid"] is True

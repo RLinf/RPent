@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Public observation allowlist for scripted workers."""
+"""Positive observation allowlist for frozen-plan replay."""
 
 CAMERAS = ("cam_head", "cam_left_wrist", "cam_right_wrist")
 STATE_KEYS = tuple(

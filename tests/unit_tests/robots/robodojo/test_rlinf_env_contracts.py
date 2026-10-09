@@ -20,7 +20,6 @@ import numpy as np
 import pytest
 
 from robots.robodojo import env_server
-from robots.robodojo.scripted.eval import bridge_call
 
 
 def test_server_arguments_reach_runtime_config():

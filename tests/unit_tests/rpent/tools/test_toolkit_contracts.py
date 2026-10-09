@@ -20,16 +20,18 @@ import json
 import threading
 from functools import partial
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 import pytest
+from pydantic import Field
 
 from rpent.dashboard.events import StepRecordEvent
 from rpent.memory import MemoryManager
-from rpent.memory import tools as memory_tools
+from rpent.memory import manager as memory_module
+from rpent.planner.utils.http_mcp_server import mcp_result
 from rpent.session import EnvState
-from rpent.tools import common
-from rpent.tools.toolkit import Toolkit, ToolResult, readonly
+from rpent.tools import Toolkit, ToolResult, common, iter_tools, tool
+from rpent.tools import base as tool_base
 
 
 class _RecordingEventSink:
@@ -66,7 +68,7 @@ class _ContractToolkit(Toolkit):
         command: dict[str, Any],
         result: dict[str, Any],
         elapsed_s: float,
-    ) -> dict[str, Any]:
+    ) -> ToolResult:
         if self.capture_error is not None:
             raise self.capture_error
         call = {
@@ -82,99 +84,47 @@ class _ContractToolkit(Toolkit):
             elapsed_s=elapsed_s,
         ):
             pass
-        return {"observation": len(self.capture_calls)}
+        return ToolResult(data={"observation": len(self.capture_calls)})
 
     def solved(self) -> bool:
         return False
 
 
 def test_tool_result_builds_text_and_images_without_mutating_result() -> None:
-    image_payloads = {
-        "_image_bytes": b"main",
-        "_image_cam_bytes": b"camera",
-        "_image_nav_bytes": b"navigation",
-        "_image_wrist_bytes": b"wrist",
-    }
-    result = {"status": "ok", "count": 2, **image_payloads}
-    original = copy.deepcopy(result)
+    payload = {"status": "ok", "count": 2}
+    images = [b"main", b"camera", b"navigation", b"wrist"]
+    result = ToolResult(data=payload, images=images)
+    blocks = mcp_result(result)["content"]
 
-    tool_result = ToolResult(name="observe", result=result, call_id="call-1")
-
-    assert result == original
-    assert tool_result.call_id == "call-1"
-    assert tool_result.is_finish is False
-    assert json.loads(tool_result.content_blocks[0]["text"]) == {
-        "status": "ok",
-        "count": 2,
-    }
-    assert [block["type"] for block in tool_result.content_blocks] == [
-        "text",
-        "image",
-        "image",
-        "image",
-        "image",
-    ]
-    assert [
-        base64.b64decode(block["source"]["data"])
-        for block in tool_result.content_blocks[1:]
-    ] == list(image_payloads.values())
-    assert all(
-        block["source"]["media_type"] == "image/png"
-        for block in tool_result.content_blocks[1:]
-    )
+    assert payload == {"status": "ok", "count": 2}
+    assert images == [b"main", b"camera", b"navigation", b"wrist"]
+    assert json.loads(blocks[0]["text"]) == payload
+    assert [block["type"] for block in blocks] == ["text"] + ["image"] * 4
+    assert [base64.b64decode(block["data"]) for block in blocks[1:]] == images
+    assert all(block["mimeType"] == "image/png" for block in blocks[1:])
 
 
-@pytest.mark.parametrize(
-    ("raw_result", "expected_text"),
-    [
-        ("plain text", "plain text"),
-        (17, "17"),
-        (["one", "two"], "['one', 'two']"),
-    ],
-)
-def test_tool_result_converts_ordinary_results_to_text(
-    raw_result: Any,
-    expected_text: str,
-) -> None:
-    tool_result = ToolResult(name="ordinary", result=raw_result)
-
-    assert tool_result.content_blocks == [{"type": "text", "text": expected_text}]
+@pytest.mark.parametrize("value", ["plain text", 17, ["one", "two"]])
+def test_tool_result_encodes_payload_values(value: Any) -> None:
+    result = ToolResult(data={"value": value})
+    assert json.loads(result.to_text()) == {"value": value}
 
 
-def test_tool_result_recognizes_finish_only_from_truthy_dict_sentinel() -> None:
-    assert ToolResult("finish", {"_finish": True}).is_finish is True
-    assert ToolResult("finish", {"_finish": False}).is_finish is False
-    assert ToolResult("finish", "finished").is_finish is False
+@pytest.mark.parametrize("finished", [True, False])
+def test_tool_result_preserves_finish_signal(finished: bool) -> None:
+    result = ToolResult(data={"_finish": finished})
+    assert result.to_dict()["_finish"] is finished
+    assert json.loads(result.to_text())["_finish"] is finished
 
 
-@pytest.mark.parametrize(
-    ("raw_result", "expected_plain_text"),
-    [
-        pytest.param(
-            "界" * 10,
-            "界" * 6,
-            id="ordinary-unicode-text",
-        ),
-        pytest.param(
-            {"value": "界" * 10},
-            None,
-            id="unicode-json-dict",
-        ),
-    ],
-)
-def test_tool_result_text_limit_counts_utf8_bytes(
-    monkeypatch: pytest.MonkeyPatch,
-    raw_result: Any,
-    expected_plain_text: str | None,
-) -> None:
-    monkeypatch.setattr(ToolResult, "MAX_TEXT_BYTES_IN_RESULT", 20)
-
-    text = ToolResult(name="unicode", result=raw_result).content_blocks[0]["text"]
-
-    assert len(text.encode("utf-8")) <= 20
-    assert text.encode("utf-8").decode("utf-8") == text
-    if expected_plain_text is not None:
-        assert text == expected_plain_text
+def test_tool_result_text_limit_preserves_internal_payload(monkeypatch) -> None:
+    monkeypatch.setattr(tool_base, "MAX_TOOL_TEXT_BYTES", 30)
+    payload = {"value": "界" * 10}
+    result = ToolResult(data=payload)
+    text = result.to_text()
+    assert len(text.encode("utf-8")) <= 30
+    assert text.endswith("\n[truncated]")
+    assert result.data == payload
 
 
 def test_toolkit_registers_common_specs_with_fresh_placeholder_substitution(
@@ -182,30 +132,28 @@ def test_toolkit_registers_common_specs_with_fresh_placeholder_substitution(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     output_dir = tmp_path / "run-output"
-    original_specs = copy.deepcopy(common.TOOLS_SPEC)
+    original = common.CommonTools.list_dir
+    original_schema = original.input_schema
     monkeypatch.setattr("rpent.utils.templates.get_output_dir", lambda: output_dir)
     toolkit = _ContractToolkit(tmp_path / "state")
 
-    first = toolkit.get_tools_spec()
-    second = toolkit.get_tools_spec()
+    first = toolkit.list_tools()
+    second = toolkit.list_tools()
 
-    assert [spec["name"] for spec in first] == [
+    assert [definition.name for definition in first] == [
         "read_text_file",
         "write_text_file",
         "list_dir",
         "finish",
     ]
-    list_dir_spec = next(spec for spec in first if spec["name"] == "list_dir")
-    assert str(output_dir) in list_dir_spec["description"]
-    assert memory_tools.MEMORY_BOUNDARY_NOTE in list_dir_spec["description"]
-    assert (
-        str(output_dir)
-        in list_dir_spec["input_schema"]["properties"]["path"]["description"]
-    )
-    assert common.TOOLS_SPEC == original_specs
+    list_dir = next(definition for definition in first if definition.name == "list_dir")
+    assert str(output_dir) in list_dir.description
+    assert common.CommonTools.list_dir is original
+    assert original.input_schema == original_schema
     assert first == second
     assert first is not second
-    assert first[0] is not common.TOOLS_SPEC[0]
+    list_dir.input_schema["properties"].clear()
+    assert list_dir.input_schema == original_schema
 
 
 def test_common_file_tools_dispatch_offline_without_capturing_robot_state(
@@ -228,25 +176,25 @@ def test_common_file_tools_dispatch_offline_without_capturing_robot_state(
         {"status": "success", "summary": "done"},
     )
 
-    assert written.result == {
+    assert written.data == {
         "path": str(text_file),
         "bytes_written": len("hello 世界".encode()),
     }
-    assert read.result["path"] == str(text_file)
-    assert read.result["size"] == len("hello 世界")
-    assert read.result["content"].startswith("hello 世")
-    assert "[TRUNCATED" in read.result["content"]
-    assert listed.result == {
+    assert read.data["path"] == str(text_file)
+    assert read.data["size"] == len("hello 世界")
+    assert read.data["content"].startswith("hello 世")
+    assert "[TRUNCATED" in read.data["content"]
+    assert listed.data == {
         "path": str(text_file.parent),
         "count": 1,
         "files": ["note.txt"],
     }
-    assert finished.result == {
+    assert finished.data == {
         "_finish": True,
         "status": "success",
         "summary": "done",
     }
-    assert finished.is_finish is True
+    assert finished.data.get("_finish", False) is True
     assert toolkit.capture_calls == []
     assert toolkit.events.events == []
 
@@ -269,8 +217,7 @@ def test_common_file_tools_enforce_memory_manager_boundaries(
     foreign = repo_root / "memory" / "robotwin" / "global" / "x.md"
     foreign.parent.mkdir(parents=True)
     foreign.write_text("foreign")
-    monkeypatch.setattr(memory_tools, "get_repo_root", lambda: repo_root)
-    monkeypatch.setattr(common, "get_repo_root", lambda: repo_root)
+    monkeypatch.setattr(memory_module, "get_repo_root", lambda: repo_root)
 
     read_only_memory = MemoryManager(memory_root)
     evaluation = _ContractToolkit(
@@ -303,12 +250,12 @@ def test_common_file_tools_enforce_memory_manager_boundaries(
     )
 
     assert evaluation.memory is read_only_memory
-    assert read_published.result["content"] == "published"
-    assert read_root_leaf.result["content"] == "root-level note"
-    assert list_published.result["files"] == ["strategy.md"]
-    assert "writing to memory is denied" in write_published.result["error"]
-    assert "another robot's memory is denied" in read_foreign.result["error"]
-    assert "reading this memory path is denied" in read_evaluation_inbox.result["error"]
+    assert read_published.data["content"] == "published"
+    assert read_root_leaf.data["content"] == "root-level note"
+    assert list_published.data["files"] == ["strategy.md"]
+    assert "writing to memory is denied" in write_published.data["error"]
+    assert "another robot's memory is denied" in read_foreign.data["error"]
+    assert "reading this memory path is denied" in read_evaluation_inbox.data["error"]
 
     exploration = _ContractToolkit(
         tmp_path / "exploration-state",
@@ -339,10 +286,10 @@ def test_common_file_tools_enforce_memory_manager_boundaries(
         {"path": str(inbox_escape), "content": "escaped"},
     )
 
-    assert write_own.result["bytes_written"] == 5
-    assert read_own.result["content"] == "draft"
-    assert "reading this memory path is denied" in read_other.result["error"]
-    assert "writing to memory is denied" in write_through_symlink.result["error"]
+    assert write_own.data["bytes_written"] == 5
+    assert read_own.data["content"] == "draft"
+    assert "reading this memory path is denied" in read_other.data["error"]
+    assert "writing to memory is denied" in write_through_symlink.data["error"]
     assert published.read_text() == "published"
     assert evaluation.capture_calls == []
     assert exploration.capture_calls == []
@@ -354,44 +301,104 @@ def test_toolkit_reports_unknown_tools_and_invalid_arguments(tmp_path: Path) -> 
     unknown = toolkit.execute_tool("missing", {"value": 1})
     invalid = toolkit.execute_tool("read_text_file", {"unexpected": True})
 
-    assert unknown.result == {"error": "unknown tool: missing"}
-    assert "bad arguments for read_text_file" in invalid.result["error"]
-    assert invalid.result["got"] == {"unexpected": True}
+    assert unknown.data == {"error": "unknown tool: missing"}
+    assert "bad arguments for read_text_file" in invalid.data["error"]
+    assert {error["type"] for error in invalid.data["errors"]} == {
+        "missing",
+        "extra_forbidden",
+    }
     assert toolkit.capture_calls == []
 
 
-def test_readonly_marker_handles_functions_bound_methods_and_nested_partials(
+def test_readonly_declarations_bind_methods_and_execution_guards(
     tmp_path: Path,
 ) -> None:
     toolkit = _ContractToolkit(tmp_path)
 
-    @readonly
-    def readonly_function(value: str) -> dict[str, str]:
-        return {"value": value}
+    @tool(name="function", readonly=True)
+    def readonly_function(value: str) -> ToolResult:
+        return ToolResult(data={"value": value})
 
     class Handler:
-        @readonly
-        def readonly_method(self, *, prefix: str, value: str) -> dict[str, str]:
-            return {"value": prefix + value}
+        @tool(name="method", readonly=True)
+        def readonly_method(self, *, prefix: str, value: str) -> ToolResult:
+            return ToolResult(data={"value": prefix + value})
 
     handler = Handler()
-    toolkit.add_tool("function", {"name": "function"}, readonly_function)
-    toolkit.add_tool("method", {"name": "method"}, handler.readonly_method)
-    toolkit.add_tool(
-        "partial",
-        {"name": "partial"},
-        partial(partial(handler.readonly_method, prefix="pre-"), value="bound"),
-    )
+    toolkit.add_tool(readonly_function)
+    toolkit.add_tools(iter_tools(handler))
+    calls = []
 
-    assert toolkit.execute_tool("function", {"value": "plain"}).result == {
+    def guarded(**kwargs):
+        calls.append(kwargs)
+        return handler.readonly_method(**kwargs)
+
+    toolkit.add_tool(handler.readonly_method.with_handler(guarded), replace=True)
+    assert toolkit.execute_tool("function", {"value": "plain"}).data == {
         "value": "plain"
     }
     assert toolkit.execute_tool(
         "method", {"prefix": "pre-", "value": "bound"}
-    ).result == {"value": "pre-bound"}
-    assert toolkit.execute_tool("partial", {}).result == {"value": "pre-bound"}
+    ).data == {"value": "pre-bound"}
+    assert calls == [{"prefix": "pre-", "value": "bound"}]
     assert toolkit.capture_calls == []
     assert toolkit.events.events == []
+
+
+def test_internal_resource_binding_is_not_a_model_argument(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("rpent.utils.templates.get_output_dir", lambda: tmp_path)
+    resource = {"position": 3}
+
+    @tool(readonly=True, exclude=("resource",))
+    def observe(label: str, *, resource: dict[str, int]) -> ToolResult:
+        """Read a named resource.
+
+        Args:
+            label: Label to attach to the observation.
+        """
+        return ToolResult(data={"label": label, "position": resource["position"]})
+
+    toolkit = _ContractToolkit(tmp_path)
+    toolkit.add_tool(observe.with_handler(partial(observe, resource=resource)))
+    schema = toolkit.list_tools()[-1].input_schema
+    assert set(schema["properties"]) == {"label"}
+    assert schema["properties"]["label"]["description"] == (
+        "Label to attach to the observation."
+    )
+    assert toolkit.execute_tool("observe", {"label": "current"}).data == {
+        "label": "current",
+        "position": 3,
+    }
+    rejected = toolkit.execute_tool(
+        "observe", {"label": "forged", "resource": {"position": 99}}
+    )
+    assert rejected.is_error
+    assert rejected.data["errors"][0]["type"] == "extra_forbidden"
+    assert resource == {"position": 3}
+
+
+@pytest.mark.parametrize(
+    "value", [[1.0, 2.0], [1.0, 2.0, "3"], [1.0, 2.0, float("nan")]]
+)
+def test_invalid_vectors_never_execute_or_capture_state(tmp_path: Path, value) -> None:
+    calls = []
+
+    @tool
+    def move(
+        xyz: Annotated[list[float], Field(min_length=3, max_length=3)],
+    ) -> ToolResult:
+        """Move to the requested point."""
+        calls.append(xyz)
+        return ToolResult(data={"moved": True})
+
+    toolkit = _ContractToolkit(tmp_path)
+    toolkit.add_tool(move)
+    result = toolkit.execute_tool("move", {"xyz": value})
+    assert result.is_error
+    assert calls == []
+    assert toolkit.capture_calls == []
 
 
 def test_stateful_dispatch_captures_state_and_emits_the_record(
@@ -406,15 +413,16 @@ def test_stateful_dispatch_captures_state_and_emits_the_record(
     toolkit = _ContractToolkit(tmp_path)
     handler_result = {"moved": True}
 
-    def move(*, distance: int) -> dict[str, bool]:
+    @tool
+    def move(*, distance: int) -> ToolResult:
         assert distance == 3
-        return handler_result
+        return ToolResult(data=handler_result)
 
-    toolkit.add_tool("move", {"name": "move"}, move)
+    toolkit.add_tool(move)
 
     result = toolkit.execute_tool("move", {"distance": 3})
 
-    assert result.result == {"observation": 1}
+    assert result.data == {"observation": 1}
     assert handler_result == {"moved": True}
     assert toolkit.capture_calls[0]["command"] == {
         "action": "move",
@@ -436,23 +444,24 @@ def test_handler_error_is_retained_when_state_capture_also_fails(
     toolkit = _ContractToolkit(tmp_path)
     toolkit.capture_error = RuntimeError("capture exploded")
 
-    def fail() -> dict[str, Any]:
+    @tool
+    def fail() -> ToolResult:
         raise ValueError("handler exploded")
 
-    @readonly
-    def probe() -> dict[str, bool]:
-        return {"ready": True}
+    @tool(readonly=True)
+    def probe() -> ToolResult:
+        return ToolResult(data={"ready": True})
 
-    toolkit.add_tool("fail", {"name": "fail"}, fail)
-    toolkit.add_tool("probe", {"name": "probe"}, probe)
+    toolkit.add_tool(fail)
+    toolkit.add_tool(probe)
 
     failed = toolkit.execute_tool("fail", {})
 
-    assert failed.result["error"] == "handler exploded"
-    assert failed.result["state_capture_error"] == "capture exploded"
-    assert "ValueError: handler exploded" in failed.result["traceback"]
+    assert failed.data["error"] == "handler exploded"
+    assert failed.data["state_capture_error"] == "capture exploded"
+    assert "ValueError: handler exploded" in failed.data["traceback"]
     assert toolkit.events.events == []
-    assert toolkit.execute_tool("probe", {}).result == {"ready": True}
+    assert toolkit.execute_tool("probe", {}).data == {"ready": True}
 
 
 @pytest.mark.timeout(5)
@@ -465,13 +474,13 @@ def test_toolkit_rejects_overlapping_operations_and_cleans_up_after_success(
     results: list[ToolResult] = []
     worker_errors: list[BaseException] = []
 
-    @readonly
-    def blocking() -> dict[str, bool]:
+    @tool(readonly=True)
+    def blocking() -> ToolResult:
         started.set()
         assert release.wait(2), "test did not release the blocking handler"
-        return {"released": True}
+        return ToolResult(data={"released": True})
 
-    toolkit.add_tool("blocking", {"name": "blocking"}, blocking)
+    toolkit.add_tool(blocking)
 
     def run_blocking() -> None:
         try:
@@ -484,7 +493,7 @@ def test_toolkit_rejects_overlapping_operations_and_cleans_up_after_success(
     try:
         assert started.wait(2), "blocking handler did not start"
         overlap = toolkit.execute_tool("finish", {"status": "failure", "summary": "x"})
-        assert overlap.result == {"error": "another tool operation is still active"}
+        assert overlap.data == {"error": "another tool operation is still active"}
     finally:
         release.set()
         worker.join(2)
@@ -492,28 +501,28 @@ def test_toolkit_rejects_overlapping_operations_and_cleans_up_after_success(
     assert not worker.is_alive()
     assert worker_errors == []
     assert len(results) == 1
-    assert results[0].result == {"released": True}
+    assert results[0].data == {"released": True}
     assert toolkit.execute_tool(
         "finish", {"status": "success", "summary": "clean"}
-    ).is_finish
+    ).data.get("_finish", False)
 
 
 def test_toolkit_cleans_up_operation_after_handler_failure(tmp_path: Path) -> None:
     toolkit = _ContractToolkit(tmp_path)
 
-    @readonly
-    def fail() -> dict[str, Any]:
+    @tool(readonly=True)
+    def fail() -> ToolResult:
         raise RuntimeError("tool failed")
 
-    toolkit.add_tool("fail", {"name": "fail"}, fail)
+    toolkit.add_tool(fail)
 
     failed = toolkit.execute_tool("fail", {})
 
-    assert failed.result["error"] == "tool failed"
-    assert "RuntimeError: tool failed" in failed.result["traceback"]
+    assert failed.data["error"] == "tool failed"
+    assert "RuntimeError: tool failed" in failed.data["traceback"]
     assert toolkit.execute_tool(
         "finish", {"status": "failure", "summary": "recovered"}
-    ).is_finish
+    ).data.get("_finish", False)
 
 
 @pytest.mark.timeout(5)
@@ -525,13 +534,14 @@ def test_toolkit_cooperatively_cancels_and_cleans_up_active_operation(
     stop_polling = threading.Event()
     results: list[ToolResult] = []
 
-    def cancellable() -> dict[str, bool]:
+    @tool
+    def cancellable() -> ToolResult:
         started.set()
         while not stop_polling.wait(0.01):
             toolkit.raise_if_cancelled()
-        return {"unexpected": True}
+        return ToolResult(data={"unexpected": True})
 
-    toolkit.add_tool("cancellable", {"name": "cancellable"}, cancellable)
+    toolkit.add_tool(cancellable)
     worker = threading.Thread(
         target=lambda: results.append(toolkit.execute_tool("cancellable", {})),
         daemon=True,
@@ -545,11 +555,11 @@ def test_toolkit_cooperatively_cancels_and_cleans_up_active_operation(
         worker.join(2)
 
     assert not worker.is_alive()
-    assert results[0].result["code"] == "tool_cancelled"
-    assert results[0].result["interrupted"] is True
-    assert results[0].result["error"] == "tool operation interrupted"
+    assert results[0].data["code"] == "tool_cancelled"
+    assert results[0].data["interrupted"] is True
+    assert results[0].data["error"] == "tool operation interrupted"
     assert toolkit.capture_calls[0]["result"]["code"] == "tool_cancelled"
     assert len(toolkit.events.events) == 1
     assert toolkit.execute_tool(
         "finish", {"status": "failure", "summary": "cancelled"}
-    ).is_finish
+    ).data.get("_finish", False)

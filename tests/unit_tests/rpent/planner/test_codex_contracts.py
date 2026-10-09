@@ -35,11 +35,9 @@ from rpent.planner.codex import (
     _codex_mcp_config_overrides,
     _interrupt,
 )
-from rpent.planner.utils.http_mcp_server import (
-    HttpMcpServer,
-    _toolkit_to_mcp_content,
-)
-from rpent.tools.toolkit import ToolResult
+from rpent.planner.utils.http_mcp_server import HttpMcpServer, mcp_result
+from rpent.tools import ToolResult
+from rpent.tools.common import CommonTools
 
 
 class RecordingSink:
@@ -58,23 +56,13 @@ class FakeToolkit:
     def __init__(self) -> None:
         self.cancel_calls = 0
 
-    def get_tools_spec(self) -> list[dict[str, Any]]:
-        return [
-            {
-                "name": "finish",
-                "description": "Finish the task.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "status": {"type": "string"},
-                        "summary": {"type": "string"},
-                    },
-                },
-            }
-        ]
+    def list_tools(self):
+        return (
+            CommonTools.finish.with_handler(lambda **kwargs: ToolResult(data=kwargs)),
+        )
 
     def execute_tool(self, name: str, args: dict[str, Any]) -> ToolResult:
-        return ToolResult(name, {"name": name, "args": args})
+        return ToolResult(data={"name": name, "args": args})
 
     def cancel_active_and_wait(self) -> None:
         self.cancel_calls += 1
@@ -176,21 +164,15 @@ def install_fake_backend(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]
 
 
 def test_mcp_content_conversion_preserves_text_images_and_error_status() -> None:
-    plain, plain_error = _toolkit_to_mcp_content("plain")
-    assert plain_error is False
-    assert plain[0].type == "text"
-    assert plain[0].text == "plain"
-
-    result = ToolResult(
-        "finish",
-        {"error": "finish refused", "_image_bytes": b"image bytes"},
-    )
-    content, is_error = _toolkit_to_mcp_content(result)
-
-    assert [block.type for block in content] == ["text", "image"]
-    assert json.loads(content[0].text) == {"error": "finish refused"}
-    assert content[1].mimeType == "image/png"
-    assert is_error is True
+    plain = mcp_result(ToolResult(data={"value": "plain"}))
+    assert plain["isError"] is False
+    assert json.loads(plain["content"][0]["text"]) == {"value": "plain"}
+    result = ToolResult(data={"error": "finish refused"}, images=[b"image bytes"])
+    response = mcp_result(result)
+    assert [block["type"] for block in response["content"]] == ["text", "image"]
+    assert json.loads(response["content"][0]["text"]) == {"error": "finish refused"}
+    assert response["content"][1]["mimeType"] == "image/png"
+    assert response["isError"] is True
 
 
 def test_http_mcp_readiness_ignores_environment_proxy(
@@ -769,6 +751,47 @@ def test_rejected_finish_item_is_not_promoted() -> None:
     assert "finish" in rendered
 
 
+@pytest.mark.parametrize("wrapped", [False, True])
+@pytest.mark.parametrize(
+    "payload, is_error, accepted",
+    [
+        ({"_finish": True, "status": "failure"}, False, True),
+        ({"_finish": True, "status": "failure"}, True, False),
+        ({"status": "pending"}, False, False),
+        ({"_finish": False}, False, False),
+        ({"error": "verdict pending"}, False, False),
+    ],
+)
+def test_finish_uses_accepted_tool_result_over_requested_success(
+    wrapped, payload, is_error, accepted
+):
+    recorder = codex_module._Recorder(max_turns=2, dashboard_events=RecordingSink())
+    result = (
+        {
+            "isError": is_error,
+            "content": [{"type": "text", "text": json.dumps(payload)}],
+        }
+        if wrapped
+        else payload
+    )
+    recorder.observe(
+        {
+            "method": "item/completed",
+            "payload": {
+                "item": {
+                    "type": "mcpToolCall",
+                    "tool": "mcp__rpent__finish",
+                    "status": "failed" if is_error and not wrapped else "completed",
+                    "arguments": {"status": "success"},
+                    "result": result,
+                }
+            },
+        }
+    )
+    assert recorder.finish_result == (payload if accepted else None)
+    assert recorder.tool_calls == 1
+
+
 def test_fake_codex_backend_failure_stops_mcp_server(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1147,3 +1170,35 @@ def test_probe_returns_empty_string_when_the_model_said_nothing(
     )
 
     assert reply == ""
+
+
+def test_retry_error_is_visible_without_poisoning_successful_turn():
+    from rpent.planner.codex import _Recorder
+
+    sink = RecordingSink()
+    recorder = _Recorder(max_turns=2, dashboard_events=sink)
+    recorder.observe(
+        {
+            "method": "error",
+            "payload": {
+                "will_retry": True,
+                "error": {
+                    "message": "Reconnecting 4/5",
+                    "additional_details": "Broken pipe",
+                },
+            },
+        }
+    )
+    assert recorder.error is None
+    assert "Broken pipe" in str(sink.events[-1])
+    recorder.observe(
+        {
+            "method": "error",
+            "payload": {
+                "will_retry": False,
+                "error": {"message": "Retries exhausted"},
+            },
+        }
+    )
+    assert "Retries exhausted" in recorder.error
+    assert "Model connection failed" in str(sink.events[-1])

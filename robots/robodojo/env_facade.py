@@ -57,7 +57,8 @@ class RoboDojoEnvFacade(MainThreadServeMixin, BaseEnvFacade):
             ]
         )
         if self.eval_fair:
-            # Keep diagnostics unavailable to clients in eval-fair mode.
+            # Restrict RPC visibility for replay clients, independently of
+            # planner tool registration (which never exposes diagnostics).
             for method in (
                 "env.get_reward_details",
                 "env.get_safety_status",

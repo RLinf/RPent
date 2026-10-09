@@ -1,0 +1,31 @@
+# Overrides for the single-environment RoboDojo simulator stack.
+#
+# rlinf-robodojo-runtime pins Isaac Sim 5.1, the IsaacLab fork RoboDojo tracks,
+# and the runtime minimums those two bring. Eight of those pins disagree with the
+# agent stack or with rpent-openpi, so a plain resolve either fails or installs a
+# combination that breaks at import time:
+#
+#   starlette==0.49.1 (isaaclab)      vs fastapi 0.115.7 needing <0.46
+#   typing-extensions==4.12.2         vs tyro needing >=4.13, pydantic >=4.16
+#   uvicorn==0.29.0 (isaacsim-kernel) vs mcp needing >=0.31.1
+#   wrapt==1.16.0 (isaacsim-kernel)   vs swanlab needing >=1.17.0
+#   filelock==3.13.1 (isaacsim-core)  vs rpent-openpi needing >=3.16.1
+#   torch==2.7.1 (rpent-openpi)       vs the simulator requiring 2.7.0
+#   pyperclip==1.8.0 (isaacsim-core)  vs pydantic-ai-slim[cli] needing >=1.9.0
+#   idna==3.10 (isaacsim-kernel)      vs pydantic-ai-slim needing >=3.18
+#
+# Pass them explicitly so the rest of the repository keeps resolving the
+# versions the other robots were validated against:
+#
+#   uv pip install -e ".[robodojo]" --extra-index-url https://pypi.nvidia.com \
+#     --override requirements/robodojo-override.txt
+#
+# Resolving these conflicts does not establish runtime compatibility.
+starlette==0.45.3
+typing-extensions>=4.16.0
+uvicorn>=0.31.1
+wrapt>=1.17.0
+filelock>=3.16.1
+torch==2.7.0
+pyperclip>=1.9.0
+idna>=3.18

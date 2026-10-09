@@ -65,7 +65,7 @@ class RobotSpec:
     ]
     dashboard: DashboardSpec | None = None
     #: Physical scene restoration requires operator involvement, not simulator reset.
-    #: Real-robot runs require an exclusive operator terminal.
+    #: Operator input requires an exclusive terminal unless an external ENV owns it.
     is_real_robot: bool = False
     #: Whether the robot implements the exploration-time toolkit contract.
     #: The CLI uses this instead of hard-coding robot names so real-robot

@@ -1,0 +1,1110 @@
+{
+  "revision": "068cd64f4f175179a13c67d429a4d00ca56fb196",
+  "source": "TOOLS_SPEC from the recorded revision; common file tools include MEMORY_BOUNDARY_NOTE appended by MemoryManager.get_common_tool_bindings().",
+  "tools": {
+    "rpent/tools/common.py": [
+      {
+        "name": "read_text_file",
+        "description": "Read a UTF-8 text file. Use for past recipe JSONLs, audit JSONs, and memory files. Large files are truncated. Published memory is read-only. During exploration, you may write only to your current memory inbox. Memory for other robots is unavailable.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string", "description": "Absolute or repo-relative path"},
+            "max_chars": {"type": "integer", "description": "Max chars (default 40000)"}
+          },
+          "required": ["path"]
+        }
+      },
+      {
+        "name": "write_text_file",
+        "description": "Write a UTF-8 text file (creates parent dirs). Use this to save the working recipe JSONL and the final audit JSON at the end of a successful run. Published memory is read-only. During exploration, you may write only to your current memory inbox. Memory for other robots is unavailable.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string"},
+            "content": {"type": "string"}
+          },
+          "required": ["path", "content"]
+        }
+      },
+      {
+        "name": "list_dir",
+        "description": "List files in a directory (non-recursive). Default = {{output_dir}}. Use to inspect the working directory or discover existing resource files. Published memory is read-only. During exploration, you may write only to your current memory inbox. Memory for other robots is unavailable.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "path": {"type": "string", "description": "Default: {{output_dir}}"}
+          }
+        }
+      },
+      {
+        "name": "finish",
+        "description": "Call when the task is complete or unrecoverable. Halts the agent loop. Save any artifacts (recipe, audit) BEFORE calling finish.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "status": {"type": "string", "description": "Outcome, e.g. 'success', 'failure', or 'stuck'."},
+            "summary": {"type": "string", "description": "Short natural-language summary of the run."}
+          },
+          "required": ["status", "summary"]
+        }
+      }
+    ],
+    "robots/franka/tools.py": [
+      {
+        "name": "view_env_state",
+        "description": "Read a Franka state snapshot and its synchronized RGB images.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "step": {"type": "integer", "default": -1}
+          }
+        }
+      },
+      {
+        "name": "view_camera_meta",
+        "description": "Read camera intrinsics, crop, depth, and calibration metadata.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "step": {"type": "integer", "default": -1}
+          }
+        }
+      },
+      {
+        "name": "view_perception_setup",
+        "description": "Read calibrated camera geometry and projection conventions.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "step": {"type": "integer", "default": -1}
+          }
+        }
+      },
+      {
+        "name": "back_project",
+        "description": "Back-project one wrist or external-camera pixel into Franka base coordinates.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "row": {"type": "integer", "minimum": 0},
+            "col": {"type": "integer", "minimum": 0},
+            "step": {"type": "integer"},
+            "camera": {"type": "string", "enum": ["wrist", "third_person"]},
+            "debug": {"type": "boolean", "default": false}
+          },
+          "required": ["row", "col"]
+        }
+      },
+      {
+        "name": "back_project_correspondence",
+        "description": "Fuse matched wrist and external-camera pixels into a Franka base point.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "third_person_row": {"type": "integer", "minimum": 0},
+            "third_person_col": {"type": "integer", "minimum": 0},
+            "wrist_row": {"type": "integer", "minimum": 0},
+            "wrist_col": {"type": "integer", "minimum": 0},
+            "pixels": {"type": "array", "items": {"type": "object"}},
+            "step": {"type": "integer"},
+            "debug": {"type": "boolean", "default": false}
+          }
+        }
+      },
+      {
+        "name": "move_delta",
+        "description": "Move the Franka TCP by a bounded base-frame xyz delta in meters.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "delta_xyz": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3}
+          },
+          "required": ["delta_xyz"]
+        }
+      },
+      {
+        "name": "rotate_delta",
+        "description": "Rotate the Franka TCP by a bounded base-frame rpy delta in radians.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "delta_rpy": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3}
+          },
+          "required": ["delta_rpy"]
+        }
+      },
+      {
+        "name": "open_gripper",
+        "description": "Open the Franka gripper and wait for the command to settle.",
+        "input_schema": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      {
+        "name": "close_gripper",
+        "description": "Close the Franka gripper and wait for the command to settle.",
+        "input_schema": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      {
+        "name": "vla_grasp",
+        "description": "Run bounded real-world VLA action chunks for a local grasp attempt.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "prompt": {"type": "string"},
+            "max_chunks": {"type": "integer", "minimum": 1, "maximum": 20}
+          },
+          "required": ["prompt"]
+        }
+      }
+    ],
+    "robots/libero/tools.py": [
+      {
+        "name": "reset",
+        "description": "EXPLORE MODE ONLY. Abandon the current episode and restore the same initial scene. Archive the failed attempt first and state which strategy lever will change in the next attempt.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "reason": {"type": "string", "description": "Why this episode is unrecoverable and what will change."}
+          },
+          "required": ["reason"]
+        }
+      },
+      {
+        "name": "view_env_state",
+        "description": "Read one recorded state and its observation artifacts. Step -1 selects the latest entry. Embeds policy, agentview, and wrist images when available. Use the calibration-frame images for pixel back-projection; JSON state alone is not enough. Use agentview for global tabletop layout and object locations; use wrist for close-range details near the gripper, occlusions, and container/cabinet interiors.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "step": {"type": "integer", "default": -1, "description": "Step number; 0 = initial, -1 = latest."}
+          }
+        }
+      },
+      {
+        "name": "move_to",
+        "description": "Scripted EEF servo to a world-frame XYZ target via the OSC controller. Holds orientation (use rotate_wrist / rotate_pitch / move_pose to reorient). gripper: -1 = open, +1 = close. NEVER command a single move_to with |Δxy| > 0.30 — OSC flips IK and the run corrupts; split long traversal into 2-3 mid waypoints at carry z.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "xyz": {"type": "array", "description": "World-frame target [x, y, z] in meters", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
+            "gripper": {"type": "number", "description": "Gripper command: -1 open, +1 close (default -1)"},
+            "tol": {"type": "number", "description": "Position tolerance, m (default 0.012)"},
+            "step_clip": {"type": "number", "description": "Per-step Δxyz cap before action_scale, m (default 0.025)"},
+            "max_steps": {"type": "integer", "description": "Step budget (default 80)"},
+            "action_scale": {"type": "number", "description": "OSC action scale (default 0.05)"},
+            "target_yaw": {"type": ["number", "null"], "description": "Optional world-frame yaw target in radians"},
+            "yaw_step_clip": {"type": "number", "description": "Per-step yaw clip, rad (default 0.10)"}
+          },
+          "required": ["xyz"]
+        }
+      },
+      {
+        "name": "pi0_pick",
+        "description": "Pi0.5 closed-loop pick. Use it for the grasp; YOU then do every move_to and release. Use modest max_chunks and verify the grasp from EEF lift, gripper closure, and available images.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "prompt": {"type": "string", "description": "Pi0 prompt (e.g. 'pick up the akita black bowl')."},
+            "max_chunks": {"type": "integer", "description": "Action-chunk budget (default 24)"},
+            "lift_thresh": {"type": "number", "description": "EEF post-descent ascent threshold for success, m (default 0.05)"},
+            "gripper_closed_thresh": {"type": "number", "description": "Finger-separation closed threshold (default 0.06)"},
+            "gripper_open_thresh": {"type": "number", "description": "Minimum finger separation accepted as a held object (default 0.0)"},
+            "descent_thresh": {"type": "number", "description": "Required descent before lift detection, m (default 0.10)"}
+          },
+          "required": ["prompt"]
+        }
+      },
+      {
+        "name": "pi0_doubled",
+        "description": "Pi0.5 closed-loop contact skill for non-pick interactions (e.g. stove/knob/button/short push). Returned success/task_success only mirrors official termination; for intermediate contact skills, success=false does not necessarily mean the contact interaction failed. Inspect image/state evidence. Do not use it as a general pick/place shortcut.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "prompt": {"type": "string", "description": "Contact-skill prompt, e.g. 'turn on the stove'."},
+            "max_chunks": {"type": "integer", "description": "Action-chunk budget (default 20)"}
+          },
+          "required": ["prompt"]
+        }
+      },
+      {
+        "name": "release",
+        "description": "Open the gripper for up to max_steps env steps while holding EEF in place. Triggers libero termination if the matching On/In predicate is met.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "max_steps": {"type": "integer", "description": "Step budget (default 20)"}
+          }
+        }
+      },
+      {
+        "name": "set_gripper",
+        "description": "Hold the current EEF pose and drive the gripper command for `steps` env steps. Use to firm up a grip mid-carry.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "gripper": {"type": "number", "description": "Gripper command: -1 open, +1 close (default -1)"},
+            "steps": {"type": "integer", "description": "Number of env steps (default 5)"}
+          }
+        }
+      },
+      {
+        "name": "rotate_wrist",
+        "description": "Rotate the wrist around the world Z-axis. Provide either target_yaw (absolute) or delta_yaw (relative). Holds xyz fixed.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "target_yaw": {"type": ["number", "null"], "description": "Absolute world-frame yaw target, rad"},
+            "delta_yaw": {"type": ["number", "null"], "description": "Relative yaw delta, rad"},
+            "gripper": {"type": "number", "description": "Gripper command held during rotation (default +1)"},
+            "max_steps": {"type": "integer", "description": "Step budget (default 40)"},
+            "tol": {"type": "number", "description": "Yaw tolerance, rad (default 0.02)"},
+            "step_clip": {"type": "number", "description": "Per-step yaw clip, rad (default 0.10)"}
+          }
+        }
+      },
+      {
+        "name": "rotate_pitch",
+        "description": "Tilt the gripper around the world X-axis. Provide either target_pitch (absolute) or delta_pitch (relative). Holds xyz and yaw fixed. Use before threading the gripper into a narrow opening whose front face normal is along world ±y (e.g. microwave cavity).",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "target_pitch": {"type": ["number", "null"], "description": "Absolute world-frame pitch target, rad"},
+            "delta_pitch": {"type": ["number", "null"], "description": "Relative pitch delta, rad"},
+            "gripper": {"type": "number", "description": "Gripper command held during rotation (default +1)"},
+            "max_steps": {"type": "integer", "description": "Step budget (default 40)"},
+            "tol": {"type": "number", "description": "Pitch tolerance, rad (default 0.02)"},
+            "step_clip": {"type": "number", "description": "Per-step pitch clip, rad (default 0.10)"}
+          }
+        }
+      },
+      {
+        "name": "move_pose",
+        "description": "Servo position AND orientation (pitch + yaw) SIMULTANEOUSLY. Unlike move_to (holds orientation) + rotate_pitch (holds xyz), this co-varies xyz and wrist tilt every env.step. Use to thread cabinet-front / low-shelf poses where a decoupled position servo drives the wrist into an IK singularity and stalls.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "xyz": {"type": "array", "description": "World-frame target [x, y, z] in meters", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
+            "target_pitch": {"type": ["number", "null"], "description": "Absolute pitch target, rad"},
+            "target_yaw": {"type": ["number", "null"], "description": "Absolute yaw target, rad"},
+            "gripper": {"type": "number", "description": "Gripper command held during the move (default -1)"},
+            "step_clip": {"type": "number", "description": "Per-step Δxyz cap, m (default 0.02)"},
+            "pitch_step": {"type": "number", "description": "Per-step pitch clip, rad (default 0.08)"},
+            "yaw_step": {"type": "number", "description": "Per-step yaw clip, rad (default 0.08)"},
+            "tol": {"type": "number", "description": "Position tolerance, m (default 0.012)"},
+            "ori_tol": {"type": "number", "description": "Orientation tolerance, rad (default 0.05)"},
+            "action_scale": {"type": "number", "description": "OSC action scale (default 0.05)"},
+            "max_steps": {"type": "integer", "description": "Step budget (default 150)"}
+          },
+          "required": ["xyz"]
+        }
+      },
+      {
+        "name": "view_camera_meta",
+        "description": "Read per-step camera calibration metadata from recorded artifacts.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "camera": {"type": "string", "enum": ["agentview", "wrist"], "description": "Camera metadata to read (default agentview)."},
+            "step": {"type": "integer", "default": -1, "description": "Metadata step to use; -1 = latest."}
+          }
+        }
+      },
+      {
+        "name": "segment",
+        "description": "SAM3 visual segmentation over an existing run artifact. It never renders a new camera view. Provide exactly one text prompt or single positive point. A successful top-ranked mask is projected through the matching world map to produce world_xyz.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "prompt": {"type": "string", "description": "Object/text prompt to segment."},
+            "camera": {"type": "string", "enum": ["agentview", "wrist"], "description": "Artifact camera to use (default agentview)."},
+            "step": {"type": "integer", "default": -1, "description": "Step to segment; -1 = latest."},
+            "point": {"type": ["array", "null"], "description": "Optional single positive point as [row, col]. Mutually exclusive with prompt.", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2},
+            "min_score": {"type": "number", "description": "Minimum accepted mask score (default 0.2)."}
+          }
+        }
+      },
+      {
+        "name": "back_project",
+        "description": "Back-project a pixel (row, col) to a world XYZ point using the selected camera's precomputed world map. Row 0 = top of image, col 0 = left. Returns world_xyz in meters.\n\nUSE THIS to find where an object is in the world — look at the embedded high-resolution image returned by view_env_state to pick a pixel on the target object, then call back_project. The default resolution is high (1024x1024). Pass resolution='low' only for pixels from the embedded/standard 256 image. The pixel coordinates must come from the same camera and resolution requested here. Use camera='agentview' for global tabletop layout and object locations; use camera='wrist' for close-range details near the gripper, occlusions, and container/cabinet interiors. Sample several pixels on the object and median their xy for robustness.\n\nREGION MODE: pass row_range=[r0,r1] and col_range=[c0,c1] instead of row/col to get the midpoint of world xy over that pixel window, with an optional world-z band (z_min, z_max). Use it for the center of a container cavity or flat region, where a single-pixel or mask-median estimate is biased toward an edge/rim.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "row": {"type": ["integer", "null"], "description": "Pixel row (0=top) in the selected resolution image."},
+            "col": {"type": ["integer", "null"], "description": "Pixel column (0=left) in the selected resolution image."},
+            "step": {"type": "integer", "default": -1, "description": "Depth/world-map step; 0 = initial, -1 = latest."},
+            "camera": {"type": "string", "enum": ["agentview", "wrist"], "description": "Camera to back-project from (default agentview)."},
+            "resolution": {"type": "string", "enum": ["high", "low"], "description": "Coordinate system for row/col (default high). Use low only when row/col came from the embedded/standard 256 image."},
+            "row_range": {"type": ["array", "null"], "items": {"type": "integer"}, "description": "Region mode: [r0, r1] pixel row window. Requires col_range."},
+            "col_range": {"type": ["array", "null"], "items": {"type": "integer"}, "description": "Region mode: [c0, c1] pixel col window. Requires row_range."},
+            "z_min": {"type": ["number", "null"], "description": "Region mode: keep only pixels with world z >= z_min."},
+            "z_max": {"type": ["number", "null"], "description": "Region mode: keep only pixels with world z <= z_max."}
+          }
+        }
+      }
+    ],
+    "robots/robocasa/tools.py": [
+      {
+        "name": "move_to",
+        "description": "Scripted EEF servo to a world-frame XYZ target via the OSC controller. Holds pitch/yaw orientation (use rotate_pitch to reorient). gripper='hold' (DEFAULT) maintains current finger width — carry-safe without crushing small objects. Pass +1 to close, -1 to open. NEVER command a single move_to with |dxyz| > 0.30 — OSC flips IK; split long traversal into 2-3 mid waypoints at carry z.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "xyz": {"type": "array", "description": "World-frame target [x, y, z] in meters", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
+            "gripper": {"type": ["number", "string"], "description": "Gripper: +1 close, -1 open, or 'hold' to maintain current finger width (default 'hold')"},
+            "step_clip": {"type": "number", "description": "Per-step dxyz cap, m (default 0.02)"},
+            "max_steps": {"type": "integer", "description": "Step budget (default 200)"},
+            "tol": {"type": "number", "description": "Position tolerance, m (default 0.012)"}
+          },
+          "required": ["xyz"]
+        }
+      },
+      {
+        "name": "move_delta",
+        "description": "Relative EEF displacement from the current position. Computes target = current_eef + dxyz and delegates to move_to. Use for small adjustments (micro-align for grasp, approach). gripper='hold' (DEFAULT) maintains current finger width.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "dxyz": {"type": "array", "description": "Relative displacement [dx, dy, dz] in meters", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
+            "gripper": {"type": ["number", "string"], "description": "Gripper: +1 close, -1 open, or 'hold' (default 'hold')"},
+            "step_clip": {"type": "number", "description": "Per-step dxyz cap, m (default 0.02)"},
+            "max_steps": {"type": "integer", "description": "Step budget (default 80)"}
+          },
+          "required": ["dxyz"]
+        }
+      },
+      {
+        "name": "rotate_pitch",
+        "description": "Tilt the wrist forward (axis-angle about the control X-axis). This pitches the gripper down/up. Holds xyz fixed. Use before threading the gripper into a narrow opening whose front face normal is along world +/-y.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "target_pitch": {"type": "number", "description": "Absolute pitch target, radians (clamped +/-1.5; default 0.6)"},
+            "gripper": {"type": "number", "description": "Gripper command held during rotation (default +1)"},
+            "n": {"type": "integer", "description": "Number of env steps for the rotation (default 12)"}
+          }
+        }
+      },
+      {
+        "name": "set_gripper",
+        "description": "Hold the current EEF pose and drive the gripper command for `steps` env steps. Use to firm up a grip mid-carry or to actively open/close the gripper.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "gripper": {"type": "number", "description": "Gripper command: +1 close, -1 open (default +1)"},
+            "steps": {"type": "integer", "description": "Number of env steps to hold (default 10)"}
+          }
+        }
+      },
+      {
+        "name": "release",
+        "description": "Open the gripper for `steps` env steps while holding EEF in place. Delegates to set_gripper(-1.0, steps=steps). Use to drop a grasped object.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "steps": {"type": "integer", "description": "Number of env steps (default 10)"}
+          }
+        }
+      },
+      {
+        "name": "scripted_grasp",
+        "description": "Coarse scripted grasp sequence: open -> hover above target -> descend -> close -> lift. A fallback when the VLA closed-loop grasp is unavailable. For hard objects prefer rldx_arm. approach_z and grasp_z_offset are RELATIVE offsets from the target xyz.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "xyz": {"type": "array", "description": "World-frame grasp target [x, y, z] in meters", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
+            "approach_z": {"type": "number", "description": "Z offset above target before descent, m (default 0.10)"},
+            "grasp_z_offset": {"type": "number", "description": "Z offset at grasp point (default 0.0; negative = below target)"},
+            "step_clip": {"type": "number", "description": "Per-step dxyz cap during descent, m (default 0.02)"}
+          },
+          "required": ["xyz"]
+        }
+      },
+      {
+        "name": "rldx_skill",
+        "description": "RLDX VLA closed-loop skill — FULL base motion allowed. The VLA drives both arm and mobile base. Use for full-body tasks where the base must reposition (e.g. navigating to a counter while reaching). Pass the complete live task_language verbatim; the runtime always uses that environment language for RLDX. Do NOT interrupt consecutive VLA calls with manual primitives — that breaks VLA frame history continuity (sets vla_desync=True).",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "prompt": {"type": "string", "description": "Complete live task_language, copied verbatim"},
+            "base_clip": {"type": ["number", "null"], "description": "Base motion magnitude cap (default null = no clamp)"},
+            "max_chunks": {"type": "integer", "description": "Action-chunk budget (default 70)"},
+            "force_reset": {"type": "boolean", "description": "Force VLA frame history reset (default False)"},
+            "n_action_steps": {"type": "integer", "description": "Actions per VLA chunk (default 8)"},
+            "settle_patience": {"type": "integer", "description": "Settle step budget before declaring done (default 999; do NOT set small)"},
+            "settle_eps": {"type": "number", "description": "Settle position tolerance, m (default 0.012)"}
+          },
+          "required": ["prompt"]
+        }
+      },
+      {
+        "name": "rldx_arm",
+        "description": "RLDX VLA closed-loop skill — base CLAMPED to small motions (base_clip=0.1 default). The VLA drives the arm for precise micro-alignment (e.g. fine-tuning a grasp approach) but cannot drive the base away. Pass the complete live task_language verbatim; the runtime always uses that environment language for RLDX. Do NOT interrupt consecutive VLA calls with manual primitives.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "prompt": {"type": "string", "description": "Complete live task_language, copied verbatim"},
+            "base_clip": {"type": ["number", "null"], "description": "Base motion magnitude cap (default 0.1 = small)"},
+            "max_chunks": {"type": "integer", "description": "Action-chunk budget (default 70)"},
+            "force_reset": {"type": "boolean", "description": "Force VLA frame history reset (default False)"},
+            "n_action_steps": {"type": "integer", "description": "Actions per VLA chunk (default 8)"},
+            "settle_patience": {"type": "integer", "description": "Settle step budget before declaring done (default 999; do NOT set small)"},
+            "settle_eps": {"type": "number", "description": "Settle position tolerance, m (default 0.012)"}
+          },
+          "required": ["prompt"]
+        }
+      },
+      {
+        "name": "navigate_to",
+        "description": "Drive the mobile base toward a WORLD (x, y) target. Online-calibrates the base forward-heading, then turns to face + drives forward closed-loop. Holds the arm in place. gripper='hold' (DEFAULT) maintains current finger width while driving (carry-safe). Use tol = expected approach distance + object radius.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "xy": {"type": "array", "description": "World-frame target [x, y] in meters (z ignored if provided)", "items": {"type": "number"}, "minItems": 2, "maxItems": 2},
+            "tol": {"type": "number", "description": "Distance threshold to stop, m (default 0.20)"},
+            "max_steps": {"type": "integer", "description": "Step budget (default 300)"},
+            "gripper": {"type": ["number", "string"], "description": "Gripper while driving: +1 close, -1 open, or 'hold' (default 'hold')"}
+          },
+          "required": ["xy"]
+        }
+      },
+      {
+        "name": "move_base",
+        "description": "Raw base velocity commands in the robot's LOCAL frame. +forward = drive forward, +lateral = strafe right, +turn = rotate CCW (yaw). All values clamped [-1, 1]. Use move_base for fine base adjustments near a target; use navigate_to for long-range navigation. gripper='hold' (DEFAULT) maintains finger width while driving.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "forward": {"type": "number", "description": "Forward velocity, [-1, 1] (default 0)"},
+            "lateral": {"type": "number", "description": "Lateral / strafe velocity, [-1, 1] (default 0)"},
+            "turn": {"type": "number", "description": "Yaw rotation velocity, [-1, 1] (default 0)"},
+            "steps": {"type": "integer", "description": "Number of env steps (default 10)"},
+            "gripper": {"type": ["number", "string"], "description": "Gripper while driving: +1 close, -1 open, or 'hold' (default 'hold')"}
+          }
+        }
+      },
+      {
+        "name": "reset",
+        "description": "Restart the episode (new layout / object placement sampled). Arm and base calibration are invalidated on reset. DISABLED in no-reset / matched evaluation — the policy must solve the scene in one shot. Only available in EXPLORE mode when RLDX_ALLOW_RESET is enabled.",
+        "input_schema": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      {
+        "name": "view_env_state",
+        "description": "Read step NN from states.json + the matching state images in the output dir. If step is null, returns the latest entry. Each entry contains the env state, robocasa_terminated flag, task_progress, vla_desync status, and log. Embeds available PNGs as multimodal image content blocks. Use calibration-frame agentview images for pixel back-projection; use navview for base navigation and floor walkability; use wrist for close-range details near the gripper.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "step": {"type": ["integer", "null"], "description": "Step number; 0 = initial. Null = latest."}
+          }
+        }
+      },
+      {
+        "name": "back_project_batch",
+        "description": "Back-project MULTIPLE pixels to world XYZ points in a single call. Loads the world map once and queries all pixels — replaces N separate back_project calls. Returns each pixel's world_xyz plus a summary with median_xyz across valid pixels.\n\nUSE THIS for robust object localization: sample 3-8 pixels on the target object and read summary.median_xyz. Maximum 50 pixels per call.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "pixels": {"type": "array", "description": "List of [row, col] pixel coordinates (max 50)", "items": {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2}, "minItems": 1, "maxItems": 50},
+            "step": {"type": ["integer", "null"], "description": "Depth / world-map step to use (default latest)."},
+            "camera": {"type": "string", "enum": ["agentview", "navview", "wrist"], "description": "Camera to back-project from (default agentview)."},
+            "resolution": {"type": "string", "enum": ["high", "low"], "description": "Coordinate system for pixels (default low). Use 'low' for the standard 256x256 world map."}
+          },
+          "required": ["pixels"]
+        }
+      },
+      {
+        "name": "query_world_map",
+        "description": "Query the world map by Z-range / XY region to find objects at specific heights. Loads the world map once, filters pixels by z_min <= z <= z_max, optionally restricts to x_range / y_range, then clusters contiguous pixels into objects.\n\nTYPICAL USES:\n- z_min=0.85, z_max=0.95 -> countertop-height objects\n- z_min=0.0, z_max=0.12, camera='navview' -> walkable floor\n- z_min=0.85, z_max=0.95, x_range=[0,2], y_range=[-3,-1] -> counter objects in a specific quadrant",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "z_min": {"type": "number", "description": "Minimum Z in meters (default 0.85 for counter height)."},
+            "z_max": {"type": "number", "description": "Maximum Z in meters (default 0.95 for counter height)."},
+            "x_range": {"type": ["array", "null"], "description": "Optional X range [min, max] in meters; null = no filter.", "items": {"type": "number"}, "minItems": 2, "maxItems": 2},
+            "y_range": {"type": ["array", "null"], "description": "Optional Y range [min, max] in meters; null = no filter.", "items": {"type": "number"}, "minItems": 2, "maxItems": 2},
+            "camera": {"type": "string", "enum": ["agentview", "navview", "wrist"], "description": "Camera world map to query (default agentview)."},
+            "resolution": {"type": "string", "enum": ["high", "low"], "description": "World map resolution (default low)."},
+            "min_cluster_size": {"type": "integer", "description": "Minimum pixels per cluster to report (default 10)."}
+          }
+        }
+      },
+      {
+        "name": "finish",
+        "description": "Declare the task finished. Call when robocasa_terminated becomes True (success detected), or when genuinely stuck after honest exploration. Provide a 1-3 sentence summary of what worked and what failed.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "status": {"type": "string", "enum": ["success", "failure", "stuck"], "description": "Task outcome classification."},
+            "summary": {"type": "string", "description": "1-3 sentence summary of what worked / what failed."}
+          },
+          "required": ["status", "summary"]
+        }
+      }
+    ],
+    "robots/robotwin/tools.py": [
+      {
+        "name": "view_env_state",
+        "description": "Read one EnvState step and its synchronized RoboTwin observation artifacts. Step -1 selects the latest entry. Embeds the head, left wrist, and right wrist RGB images when available.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "step": {"type": "integer", "default": -1, "description": "Step number; 0 = initial, -1 = latest."}
+          }
+        }
+      },
+      {
+        "name": "render",
+        "description": "Capture a fresh synchronized RoboTwin agent observation.",
+        "input_schema": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      {
+        "name": "sample_world_xyz",
+        "description": "Read persisted same-frame world xyz around [row,col] pixels. The view is also the pixel coordinate space: use the exact view whose RGB supplied the pixels. The current state's view_specs gives each view's [height,width]. This is read-only and does not render or move the robot.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "view": {"type": "string", "description": "Artifact view and pixel coordinate space. It must match the RGB image used to choose pixels."},
+            "pixels": {"type": "array", "minItems": 1, "maxItems": 256, "items": {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2}},
+            "step": {"type": ["integer", "null"]},
+            "neighborhood": {"type": "integer", "minimum": 0, "maximum": 32, "default": 1}
+          },
+          "required": ["view", "pixels"]
+        }
+      },
+      {
+        "name": "query_world_map",
+        "description": "Read deterministic world-xyz samples from a half-open [row_start,col_start,row_end,col_end] region. The view is also the bbox coordinate space and must match the source RGB artifact; view_specs gives [height,width]. This is read-only.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "view": {"type": "string", "description": "Artifact view and bbox coordinate space. It must match the RGB image used to choose the bbox."},
+            "bbox": {"type": "array", "items": {"type": "integer"}, "minItems": 4, "maxItems": 4},
+            "step": {"type": ["integer", "null"]},
+            "max_points": {"type": "integer", "minimum": 1, "maximum": 4096, "default": 256}
+          },
+          "required": ["view", "bbox"]
+        }
+      },
+      {
+        "name": "lingbot_act",
+        "description": "Run LingBot-VLA eef16 actions using the native task instruction. The optional prompt is recorded but never sent to the policy.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "chunks": {"type": "integer", "minimum": 1, "default": 4},
+            "use_length": {"type": "integer", "const": 50, "default": 50},
+            "prompt": {"type": ["string", "null"]}
+          }
+        }
+      },
+      {
+        "name": "move_to",
+        "description": "Plan and move one arm to a world-frame xyz and wxyz orientation. The native planner returns qpos waypoints executed with fresh state.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "arm": {"type": "string", "enum": ["left", "right"]},
+            "xyz": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
+            "quat": {"type": ["array", "null"], "items": {"type": "number"}, "minItems": 4, "maxItems": 4},
+            "gripper": {"type": ["number", "null"]},
+            "substeps": {"type": "integer", "minimum": 0, "default": 25}
+          },
+          "required": ["arm", "xyz"]
+        }
+      },
+      {
+        "name": "rotate_wrist",
+        "description": "Rotate one EEF about world Z by a relative angle in degrees.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "arm": {"type": "string", "enum": ["left", "right"]},
+            "delta_yaw_deg": {"type": "number"},
+            "gripper": {"type": ["number", "null"]},
+            "substeps": {"type": "integer", "minimum": 0, "default": 25}
+          },
+          "required": ["arm", "delta_yaw_deg"]
+        }
+      },
+      {
+        "name": "set_gripper",
+        "description": "Linearly move one normalized gripper to val over 10 actions.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "arm": {"type": "string", "enum": ["left", "right"]},
+            "val": {"type": "number", "minimum": 0, "maximum": 1},
+            "steps": {"type": "integer", "minimum": 1, "default": 10}
+          },
+          "required": ["arm", "val"]
+        }
+      },
+      {
+        "name": "release",
+        "description": "Open one gripper to 1.0 over 10 native actions.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "arm": {"type": "string", "enum": ["left", "right"]},
+            "val": {"type": "number", "default": 1.0},
+            "steps": {"type": "integer", "minimum": 1, "default": 10}
+          },
+          "required": ["arm"]
+        }
+      },
+      {
+        "name": "reset",
+        "description": "Restart the episode for a fresh exploration attempt. Available only in explore mode. Re-run perception after every reset.",
+        "input_schema": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      {
+        "name": "finish",
+        "description": "Stop the run. A fresh native status query is authoritative; requesting success cannot override TASK_ENV.eval_success.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "status": {"type": "string"},
+            "summary": {"type": "string"}
+          },
+          "required": ["status", "summary"]
+        }
+      }
+    ],
+    "robots/robodojo/tools.py": [
+      {
+        "name": "view_env_state",
+        "description": "Read one recorded RoboDojo state: robot joint/ee state, camera shapes and calibration, the task instruction, and the three camera RGB images (cam_head, cam_left_wrist, cam_right_wrist). Step -1 selects the latest record.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "step": {"type": "integer", "description": "Recorded step to read (-1 = latest)"}
+          }
+        }
+      },
+      {
+        "name": "back_project",
+        "description": "Project one pixel from a camera image to a world xyz coordinate using depth + intrinsics/extrinsics. Use to localize objects.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "row": {"type": "integer", "description": "Pixel row (0=top)"},
+            "col": {"type": "integer", "description": "Pixel col (0=left)"},
+            "camera": {"type": "string", "enum": ["cam_head", "cam_left_wrist", "cam_right_wrist"], "description": "Camera to project from"}
+          },
+          "required": ["row", "col"]
+        }
+      },
+      {
+        "name": "segment",
+        "description": "Segment an object in a camera image by text prompt (SAM 3.0). Returns mask bounding box and score.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "text_prompt": {"type": "string", "description": "e.g. 'the bottle'"},
+            "camera": {"type": "string", "enum": ["cam_head", "cam_left_wrist", "cam_right_wrist"], "description": "Camera to segment (default cam_head)"},
+            "min_score": {"type": "number", "description": "Min score (default 0.2)"}
+          },
+          "required": ["text_prompt"]
+        }
+      },
+      {
+        "name": "move_to",
+        "description": "Move an arm end-effector to a world xyz target (scripted motion, CuRobo IK). gripper: 1=close, -1=open, 0=keep.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "xyz": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3, "description": "World xyz target for the end-effector"},
+            "arm": {"type": "string", "enum": ["left", "right"], "description": "Arm to move"},
+            "gripper": {"type": "number", "description": "1=close, -1=open, 0=keep current"}
+          },
+          "required": ["xyz"]
+        }
+      },
+      {
+        "name": "set_gripper",
+        "description": "Open or close an arm gripper. 1=close, -1=open.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "arm": {"type": "string", "enum": ["left", "right"]},
+            "gripper": {"type": "number", "description": "1=close, -1=open"}
+          },
+          "required": ["arm", "gripper"]
+        }
+      },
+      {
+        "name": "pi0_pick",
+        "description": "Closed-loop Pi_05 pick: feed the observation to the Pi_05 policy, apply its action chunk, and detect grasp success by eef lift + gripper closure.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "prompt": {"type": "string", "description": "Optional specific target instruction; omit to use resolved official task language"},
+            "arm": {"type": "string", "enum": ["left", "right"]},
+            "max_chunks": {"type": "integer", "description": "Max policy chunks"}
+          },
+          "required": []
+        }
+      },
+      {
+        "name": "stabilize",
+        "description": "Emergency stabilization: move an arm's open gripper to a world xyz at table height to block/stop a bottle observed rolling in the camera images.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "xyz": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3, "description": "World xyz to block (bottle position)"},
+            "arm": {"type": "string", "enum": ["left", "right"]}
+          },
+          "required": ["xyz"]
+        }
+      },
+      {
+        "name": "place_in_bin",
+        "description": "Place a held object into the dustbin: carry above the bin mouth center, descend BELOW the rim, release, then retract. Use the bin mouth center you localized (not the near edge).",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "arm": {"type": "string", "enum": ["left", "right"]},
+            "bin_center_xyz": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3, "description": "Bin mouth center at approach height"},
+            "approach_z": {"type": "number", "description": "Safe carry height above the bin (default 0.95)"},
+            "drop_z": {"type": "number", "description": "EE z to descend to before release, BELOW the rim (default 0.78)"}
+          },
+          "required": ["arm", "bin_center_xyz"]
+        }
+      }
+    ],
+    "robots/yam/tools.py": [
+      {
+        "name": "status",
+        "description": "Read fresh episode rules: ready, awaiting ready, terminal, stop or budget. Does not establish visual clearance or drive hardware.",
+        "input_schema": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "view_env_state",
+        "description": "Read one synchronized YAM state and image artifacts.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "step": {"type": "integer", "default": -1}
+          }
+        }
+      },
+      {
+        "name": "render",
+        "description": "Capture a fresh synchronized YAM observation.",
+        "input_schema": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      {
+        "name": "reset",
+        "description": "Operator-approved reset for exploration or a fresh task attempt.",
+        "input_schema": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      {
+        "name": "sample_world_xyz",
+        "description": "Read persisted same-frame YAM world xyz around [row,col] pixels.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "view": {"type": "string", "enum": ["top", "left", "right"]},
+            "pixels": {"type": "array", "minItems": 1, "maxItems": 256, "items": {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2}},
+            "step": {"type": ["integer", "null"]},
+            "neighborhood": {"type": "integer", "minimum": 0, "maximum": 32, "default": 1}
+          },
+          "required": ["view", "pixels"]
+        }
+      },
+      {
+        "name": "query_world_map",
+        "description": "Read deterministic world-xyz samples from a half-open bbox.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "view": {"type": "string", "enum": ["top", "left", "right"]},
+            "bbox": {"type": "array", "items": {"type": "integer"}, "minItems": 4, "maxItems": 4},
+            "step": {"type": ["integer", "null"]},
+            "max_points": {"type": "integer", "minimum": 1, "maximum": 4096, "default": 256}
+          },
+          "required": ["view", "bbox"]
+        }
+      },
+      {
+        "name": "pi05_act",
+        "description": "Run the YAM Pi0.5 qpos14 policy for one or more short chunks.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "chunks": {"type": "integer", "minimum": 1, "default": 1},
+            "use_length": {"type": "integer", "const": 5, "default": 5},
+            "prompt": {"type": ["string", "null"]}
+          }
+        }
+      },
+      {
+        "name": "move_to",
+        "description": "Plan and move one YAM arm to a left-base xyz and wxyz orientation.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "arm": {"type": "string", "enum": ["left", "right"]},
+            "xyz": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
+            "xyz_bounds": {"type": ["array", "null"], "minItems": 2, "maxItems": 2, "items": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3}, "description": "Optional task-valid [lower_xyz, upper_xyz] containing xyz. Try at most three plans within it; execute only one. Reobserve after recoverable motion failure before choosing another point. Does not relax arrival tolerance or collision checks."},
+            "quat": {"type": ["array", "null"], "items": {"type": "number"}, "minItems": 4, "maxItems": 4},
+            "gripper": {"type": ["number", "null"]},
+            "substeps": {"type": "integer", "minimum": 0, "default": 25}
+          },
+          "required": ["arm", "xyz"]
+        }
+      },
+      {
+        "name": "rotate_wrist",
+        "description": "Rotate one wrist about world Z by a relative angle in degrees.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "arm": {"type": "string", "enum": ["left", "right"]},
+            "delta_yaw_deg": {"type": "number"},
+            "gripper": {"type": ["number", "null"]},
+            "substeps": {"type": "integer", "minimum": 0, "default": 25}
+          },
+          "required": ["arm", "delta_yaw_deg"]
+        }
+      },
+      {
+        "name": "set_gripper",
+        "description": "Linearly move one normalized YAM gripper, where 0=closed and 1=open.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "arm": {"type": "string", "enum": ["left", "right"]},
+            "val": {"type": "number", "minimum": 0, "maximum": 1},
+            "steps": {"type": "integer", "minimum": 1, "default": 10}
+          },
+          "required": ["arm", "val"]
+        }
+      },
+      {
+        "name": "release",
+        "description": "Open one YAM gripper to 1.0.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "arm": {"type": "string", "enum": ["left", "right"]},
+            "val": {"type": "number", "default": 1.0},
+            "steps": {"type": "integer", "minimum": 1, "default": 10}
+          },
+          "required": ["arm"]
+        }
+      },
+      {
+        "name": "finish",
+        "description": "Stop the run. Fresh env eval_success is authoritative.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "status": {"type": "string"},
+            "summary": {"type": "string"}
+          },
+          "required": ["status", "summary"]
+        }
+      }
+    ],
+    "robots/dual_franka/tools.py": [
+      {
+        "name": "describe_dual_franka_setup",
+        "description": "Read the dual-Franka runtime conventions, camera aliases, VLA policy conditioning text, semantic stop rules, and available primitive names before acting. This is read-only.",
+        "input_schema": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      {
+        "name": "view_env_state",
+        "description": "Read a dual-Franka state snapshot. Configured inline camera views are returned directly; other available views are returned as artifact paths; use read_image to inspect these artifacts.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "step": {"type": "integer", "default": -1}
+          }
+        }
+      },
+      {
+        "name": "view_camera_meta",
+        "description": "Read camera intrinsics, serials, and projection metadata for the dual-Franka rig.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "step": {"type": "integer", "default": -1}
+          }
+        }
+      },
+      {
+        "name": "back_project",
+        "description": "Back-project one pixel from a registered RGBD camera view into shared right-base coordinates. Use a camera listed by view_env_state/view_camera_meta; default is the configured primary metric localization camera.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "camera": {"type": "string", "default": "d455", "description": "Registered projection view name, e.g. d455 or base. Valid names come from perception.projection_views and the current state's saved artifacts."},
+            "row": {"type": "integer", "minimum": 0},
+            "col": {"type": "integer", "minimum": 0},
+            "target_name": {"type": "string", "default": "target"},
+            "step": {"type": "integer"},
+            "window_radius": {"type": "integer", "minimum": 0, "default": 2}
+          },
+          "required": ["row", "col"]
+        }
+      },
+      {
+        "name": "segment",
+        "description": "Use SAM3 on a registered RGB image with either a text prompt or one positive [row, col] point, return a mask overlay for verification, and estimate the mask median point in shared right-base coordinates.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "camera": {"type": "string", "default": "d455", "description": "Registered projection view name, e.g. d455 or base. Valid names come from perception.projection_views and the current state's saved artifacts."},
+            "prompt": {"type": "string", "default": "", "description": "Text prompt for SAM3. Prefer short object/relation phrases; for the clean-desk box use 'white interior of the black cardboard box' or 'cardboard box'. Avoid over-specific surface words such as 'floor' when grounding is weak. Provide exactly one of prompt or point."},
+            "point": {"type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2, "description": "Positive SAM3 point in camera image coordinates [row, col]. Provide exactly one of prompt or point."},
+            "target_name": {"type": "string", "default": "target"},
+            "step": {"type": "integer"},
+            "min_score": {"type": "number", "minimum": 0.0, "maximum": 1.0, "default": 0.2},
+            "min_valid_depth_pixels": {"type": "integer", "minimum": 1, "default": 25}
+          }
+        }
+      },
+      {
+        "name": "move_delta",
+        "description": "Move one Franka TCP by a bounded world-frame xyz delta in meters.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "arm": {"type": "string", "enum": ["left", "right"], "description": "Which arm to command; the other arm is left uncommanded."},
+            "delta_xyz": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3}
+          },
+          "required": ["arm", "delta_xyz"]
+        }
+      },
+      {
+        "name": "rotate_delta",
+        "description": "Rotate one Franka TCP by a bounded world-frame rpy delta in radians.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "arm": {"type": "string", "enum": ["left", "right"], "description": "Which arm to command; the other arm is left uncommanded."},
+            "delta_rpy": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3}
+          },
+          "required": ["arm", "delta_rpy"]
+        }
+      },
+      {
+        "name": "open_gripper",
+        "description": "Open one Franka gripper and wait for the command to settle.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "arm": {"type": "string", "enum": ["left", "right"], "description": "Which arm to command; the other arm is left uncommanded."}
+          },
+          "required": ["arm"]
+        }
+      },
+      {
+        "name": "close_gripper",
+        "description": "Close one Franka gripper and wait for the command to settle.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "arm": {"type": "string", "enum": ["left", "right"], "description": "Which arm to command; the other arm is left uncommanded."}
+          },
+          "required": ["arm"]
+        }
+      },
+      {
+        "name": "recover_joint_posture",
+        "description": "Reset both arms to their healthy configured joint posture while preserving each gripper's open/closed state. Closed grippers are re-commanded before/after the joint reset so held objects stay clamped, then both TCPs return near their prior poses.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "reason": {"type": "string", "default": ""},
+            "return_to_start": {"type": "boolean", "default": true}
+          }
+        }
+      },
+      {
+        "name": "request_scene_reset",
+        "description": "Exploration-only real-robot reset gate. Ask the human operator to remove/secure held objects and restore the tabletop scene for another attempt, wait for terminal confirmation, then reset the robot posture. This does not automatically restore physical objects like a simulator.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "reason": {"type": "string", "description": "Why the scene needs to be restored."},
+            "expected_scene_state": {"type": "string", "default": "", "description": "Short instruction for the operator describing the desired restored layout."}
+          },
+          "required": ["reason"]
+        }
+      },
+      {
+        "name": "request_operator_verdict",
+        "description": "Exploration-only human feedback gate. Ask the operator to mark the current physical task state as success, failure, or continue before the planner finishes or starts another attempt.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "question": {"type": "string", "default": "Does the current real-robot scene satisfy the task?"}
+          }
+        }
+      },
+      {
+        "name": "vla_right_grasp",
+        "description": "Run the learned right-grasp VLA segment. The active task prompt decides which object is currently allowed; this tool only defines the capability boundary: right gripper closes and the right TCP lifts.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "prompt": {"type": "string", "description": "Planner-facing segment intent. This is recorded in the tool result; the current live clean-desk checkpoint still receives its fixed training instruction during policy inference."},
+            "max_chunks": {"type": "integer", "minimum": 1, "maximum": 20, "default": 20}
+          },
+          "required": ["prompt"]
+        }
+      },
+      {
+        "name": "vla_handoff",
+        "description": "Run the learned bimanual handoff VLA segment. The capability boundary is right-gripper release followed by the configured settle delay; do not rule-base pre-position either arm for it.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "prompt": {"type": "string", "description": "Planner-facing segment intent. This is recorded in the tool result; the current live clean-desk checkpoint still receives its fixed training instruction during policy inference."},
+            "max_chunks": {"type": "integer", "minimum": 1, "maximum": 20, "default": 20}
+          },
+          "required": ["prompt"]
+        }
+      },
+      {
+        "name": "vla_left_place",
+        "description": "Run the learned left-placement VLA segment. The active task decides the destination; this tool only defines the capability boundary: left gripper opens and the left TCP lifts.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "prompt": {"type": "string", "description": "Planner-facing segment intent. This is recorded in the tool result; the current live clean-desk checkpoint still receives its fixed training instruction during policy inference."},
+            "max_chunks": {"type": "integer", "minimum": 1, "maximum": 20, "default": 20}
+          },
+          "required": ["prompt"]
+        }
+      }
+    ]
+  }
+}

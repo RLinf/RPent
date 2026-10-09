@@ -27,7 +27,8 @@ from robots.robotwin.primitives import RoboTwinPrimitives
 from robots.robotwin.robot_spec import ROBOTWIN_CAMERA_NAMES
 from rpent.dashboard.events import DashboardEventSink
 from rpent.session import EnvState
-from rpent.tools.toolkit import Toolkit, readonly
+from rpent.tools import ToolResult, iter_tools, tool
+from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_output_dir
 
 if TYPE_CHECKING:
@@ -87,8 +88,6 @@ def _world_from_depth(
 class RoboTwinToolkit(Toolkit):
     """Common RPent tools plus RoboTwin primitives."""
 
-    _SPECS = {spec["name"]: spec for spec in tools.TOOLS_SPEC}
-
     def __init__(
         self,
         *,
@@ -133,86 +132,84 @@ class RoboTwinToolkit(Toolkit):
         record = self._state.latest_record()
         if record is not None:
             self._publish_step(record)
-        initial_state = initial.get("state")
+        initial_state = initial.data.get("state")
         if isinstance(initial_state, dict):
             self._latest_status = initial_state.get(
                 "episode_status", self._latest_status
             )
 
     def _register_robotwin_tools(self) -> None:
-        self._tools.pop("finish", None)
-        self.add_tool(
-            "view_env_state",
-            self._SPECS["view_env_state"],
-            partial(tools.view_env_state, state=self._state),
-        )
-        self.add_tool(
-            "sample_world_xyz",
-            self._SPECS["sample_world_xyz"],
-            partial(tools.sample_world_xyz, self._state),
-        )
-        self.add_tool(
-            "query_world_map",
-            self._SPECS["query_world_map"],
-            partial(tools.query_world_map, self._state),
-        )
-        for name in (
-            "render",
-            "lingbot_act",
-            "move_to",
-            "rotate_wrist",
-            "set_gripper",
-            "release",
-        ):
-            self.add_tool(name, self._SPECS[name], partial(self._step, name))
-        finish_handler = (
-            self._guarded_finish if self._mode == "exploration" else self._finish
-        )
-        self.add_tool("finish", self._SPECS["finish"], finish_handler)
+        for definition in iter_tools(tools):
+            if definition.name == "view_env_state":
+                handler = partial(definition, state=self._state)
+            else:
+                handler = partial(definition, self._state)
+            self.add_tool(definition.with_handler(handler))
+        for definition in iter_tools(self._primitives):
+            handler = (
+                definition
+                if definition.name == "finish"
+                else partial(self._step, definition.name)
+            )
+            self.add_tool(
+                definition.with_handler(handler), replace=definition.name == "finish"
+            )
+        self.add_tool(self.render)
         if self._mode == "exploration":
-            self.add_tool("reset", self._SPECS["reset"], self._reset_episode)
+            self.add_tool(
+                self._primitives.finish.with_handler(self._guarded_finish), replace=True
+            )
+            self.add_tool(self._reset_episode)
 
-    @readonly
-    def _finish(self, *, status: str, summary: str) -> dict[str, Any]:
-        return self._primitives.finish(status=status, summary=summary)
+    @tool
+    def render(self) -> ToolResult:
+        """Capture a fresh synchronized RoboTwin agent observation."""
+        self.raise_if_cancelled()
+        return ToolResult(data={"success": True})
 
-    @readonly
-    def _guarded_finish(self, *, status: str, summary: str) -> dict[str, Any]:
+    def _guarded_finish(self, *, status: str, summary: str) -> ToolResult:
         budget = self._attempts_per_session
         if budget and not self.solved() and self._attempt < budget:
-            return {
+            payload = {
                 "error": "finish refused",
                 "reason": (
                     f"This session has {budget - self._attempt} of its {budget} "
                     "attempts left. Archive the attempt, reset, and change the plan."
                 ),
             }
-        return self._finish(status=status, summary=summary)
+            return ToolResult(data=payload)
+        return self._primitives.finish(status=status, summary=summary)
 
-    def _reset_episode(self) -> dict[str, Any]:
+    @tool(name="reset")
+    def _reset_episode(self) -> ToolResult:
+        """Restart the episode for a fresh exploration attempt. Available only in explore mode. Re-run perception after every reset."""
         if self.solved():
-            return {
+            payload = {
                 "error": "reset refused",
                 "reason": "The task is already solved; save artifacts and finish.",
             }
+            return ToolResult(data=payload)
         budget = self._attempts_per_session
         if budget and self._attempt >= budget:
-            return {
+            payload = {
                 "error": "reset refused",
                 "reason": (
                     f"This session's attempt budget is spent ({budget} attempts). "
                     "Update the handoff notes and finish this session."
                 ),
             }
+            return ToolResult(data=payload)
         result = self._primitives.reset()
         if result.get("error") or result.get("success") is False:
-            return result
+            payload = result
+            return ToolResult(data=payload)
         self._attempt += 1
-        return {
+        payload = {
             **result,
             "attempt": self._attempt,
             "notice": "Fresh episode started. Re-run perception before acting.",
         }
+        return ToolResult(data=payload)
 
     def _capture_full_observation(self) -> dict[str, Any]:
         """Assemble the full observation (rgb + depth + camera_meta + world_xyz).
@@ -254,7 +251,7 @@ class RoboTwinToolkit(Toolkit):
         command: dict[str, Any],
         result: dict[str, Any],
         elapsed_s: float,
-    ) -> dict[str, Any]:
+    ) -> ToolResult:
         frame_start = self._action_frame_cursor
         self._action_frame_cursor = self._primitives.recorded_frame_count()
         status = self._primitives.status()
@@ -291,10 +288,9 @@ class RoboTwinToolkit(Toolkit):
         """Return the native RoboTwin task success flag."""
         return self._primitives.status().get("eval_success") is True
 
-    def _step(self, name: str, **kwargs) -> dict[str, Any]:
+    def _step(self, name: str, **kwargs) -> ToolResult:
+
         self.raise_if_cancelled()
-        if name == "render":
-            return {"success": True}
         return getattr(self._primitives, name)(**kwargs)
 
     def write_recipe(self, recipe_tag: str) -> str:

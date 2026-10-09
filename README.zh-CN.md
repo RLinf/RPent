@@ -95,7 +95,7 @@ RPent 面向以下四类用户：
           <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/libero.html">LIBERO-PRO</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robocasa.html">RoboCasa</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robotwin.html">RoboTwin</a> ✅</li>
-          <li>RoboDojo</li>
+          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robodojo.html">RoboDojo</a> ✅</li>
         </ul>
       </td>
       <td>
@@ -122,6 +122,7 @@ pip install -e ".[libero-pro]"
 # 其他环境配置：
 pip install -e ".[robocasa]"    # RoboCasa
 pip install -e ".[robotwin]"    # RoboTwin
+pip install -e ".[franka]"      # Franka / 双臂 Franka
 ```
 
 `.[libero-pro]` 是默认推荐配置。其他环境见
