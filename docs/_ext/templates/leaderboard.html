@@ -6,6 +6,19 @@
 <div id="rpent-interactive-leaderboard" data-language="{{ language }}" data-section="{{ section }}"
      data-performance-url="performance.html" data-costs-url="time-token-costs.html"
      data-results-url="{{ asset_base }}results.json">
+  <p class="rpent-leaderboard-loading" role="status">{{ 'Loading leaderboard…' if language == 'en' else '正在加载排行榜…' }}</p>
+  <script>
+    (() => {
+      const host = document.currentScript.parentElement;
+      host.dataset.loading = 'true';
+      host.setAttribute('aria-busy', 'true');
+      // Restore the tables even when the external scripts never execute.
+      host.loadingTimeout = setTimeout(() => {
+        delete host.dataset.loading;
+        host.removeAttribute('aria-busy');
+      }, 15000);
+    })();
+  </script>
   <div class="rpent-static-leaderboard">
     {% if section == 'performance' %}
     {% for benchmark in sections %}

@@ -27,6 +27,7 @@
       if (!templateResponse.ok) throw new Error(`Template HTTP ${templateResponse.status}`);
       const markup = await templateResponse.text();
       const detached = document.createElement('div');
+      detached.style.display = 'none';
       const root = detached.attachShadow({mode: 'open'});
       root.innerHTML = markup;
       const style = document.createElement('link');
@@ -35,6 +36,7 @@
       root.prepend(style);
       host.append(detached);
       await loaded;
+      detached.style.removeProperty('display');
       window.RPentLeaderboard.mount(root, data, {language:host.dataset.language??'en',assetBase:scriptBase.href,section});
       host.querySelector('.rpent-static-leaderboard')?.remove();
       host.dataset.loaded = 'true';
@@ -43,6 +45,10 @@
       // The compact native summary stays readable when interactive assets fail.
       host.dataset.loadError = 'true';
       console.warn('RPent interactive results unavailable; showing the summary.', error);
+    } finally {
+      clearTimeout(host.loadingTimeout);
+      delete host.dataset.loading;
+      host.removeAttribute('aria-busy');
     }
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount, {once:true});
