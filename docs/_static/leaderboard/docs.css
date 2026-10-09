@@ -4,9 +4,8 @@
 .bd-article-container:has(#rpent-interactive-leaderboard){overflow:visible;min-width:0}
 .bd-article:has(#rpent-interactive-leaderboard) :is(h1,h2,h3,h4,table){font-family:"Times New Roman","Noto Serif CJK SC",serif;letter-spacing:0}
 #rpent-interactive-leaderboard{min-width:0;max-width:100%}
-.rpent-leaderboard-loading{display:none}
+#rpent-interactive-leaderboard[data-loading]{min-height:240px}
 #rpent-interactive-leaderboard[data-loading]>.rpent-static-leaderboard{display:none}
-#rpent-interactive-leaderboard[data-loading]>.rpent-leaderboard-loading{display:flex;align-items:center;justify-content:center;min-height:240px;margin:0;color:var(--pst-color-text-muted,inherit)}
 .rpent-static-leaderboard table{width:100%;margin:1rem 0}
 .rpent-static-leaderboard th,.rpent-static-leaderboard td{padding:.5rem;border-bottom:1px solid var(--rpent-fallback-border,#e5deef)}
 .rpent-static-leaderboard .table-wrap{max-width:100%;overflow-x:auto}
