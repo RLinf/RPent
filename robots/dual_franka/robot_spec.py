@@ -82,8 +82,11 @@ DUAL_FRANKA_DASHBOARD_SPEC: DashboardSpec = {
 
 def get_robot_spec() -> RobotSpec:
     """Return the dual-Franka identity, prompts, runtime hooks, and dashboard spec."""
+    from robots.franka.flash import replay_card
+
     return RobotSpec(
         name="dual_franka",
+        run_flash=replay_card,
         prompts=PromptBundle(system=system_prompt, user=user_prompt),
         add_cli_args=_add_cli_args,
         parse_config=_parse_config,
@@ -126,6 +129,9 @@ def get_toolkit(
 
 
 def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
+    from robots.franka.flash.replay import add_cli_args
+
+    add_cli_args(parser)
     parser.add_argument(
         "--task-id",
         type=int,
@@ -182,6 +188,9 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     validate_calibration_sources()
     if args.task_id is None:
         raise ValueError("--task-id is required")
+    from robots.franka.flash.replay import prepare
+
+    args._flash_options = prepare(args, "dual_franka")
     task = get_dual_franka_task(args.task_id)
     explore = args.explore
     timestamp = datetime.now().strftime("%Y%m%d-%H:%M:%S")
@@ -393,10 +402,20 @@ def _init_runtime(
         needs_vla = needs_vla or any(
             task.vla_instruction is not None for task in DUAL_FRANKA_TASKS.values()
         )
+    if options := getattr(args, "_flash_options", None):
+        from robots.franka.flash.common import VLA_ACTIONS
+
+        needs_vla = args.vla_endpoint is not None or any(
+            entry["action"] in VLA_ACTIONS for entry in options["card"]["plan"]
+        )
     needs_sam3 = args.sam3_endpoint is not None or bool(
         os.environ.get("SAM3_CHECKPOINT_PATH")
     )
 
+    from robots.franka.flash.replay import authorize_runtime
+
+    if "env" in selected:
+        authorize_runtime(args)
     starters = {
         "env": lambda: _spawn_env_server(args, output_dir),
         "vla": lambda: _spawn_vla_server(args, output_dir),
@@ -449,4 +468,6 @@ def _init_runtime(
         dashboard_events.emit(RuntimeStatusEvent("sam3", "ready"))
         runtime_kwargs["sam3_client"] = None
 
+    if getattr(args, "_flash_options", None) is not None:
+        runtime_kwargs["flash_options"] = args._flash_options
     return list(owned_daemons.values()), runtime_kwargs

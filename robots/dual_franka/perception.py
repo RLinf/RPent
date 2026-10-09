@@ -21,6 +21,7 @@ from typing import Any
 
 import numpy as np
 from PIL import Image, ImageDraw
+from scipy.spatial.transform import Rotation
 
 from robots.franka.perception import _resolve_step
 from robots.franka.runtime_config import (
@@ -313,7 +314,9 @@ def _back_project_camera_pixel(
     camera_calibration = calibration.get(calibration_key)
     if camera_calibration is None:
         raise ValueError(f"calibration entry {calibration_key!r} is missing")
-    t_right_camera = _transform_to_matrix(camera_calibration["transformation"])
+    t_right_camera = _camera_to_right_base(
+        camera_calibration, record_state, calibration
+    )
     point_right = transform_points(t_right_camera, point_camera)
     selection_valid, rejection_reasons, validity_contract = (
         _validate_localization_point(
@@ -751,6 +754,7 @@ def _mask_to_camera_world(
     step_idx: int,
     min_valid: int,
 ) -> dict[str, Any]:
+    _, record_state = _resolve_step(state, step_idx)
     camera = _resolve_projection_camera_alias(camera)
     projection_cameras = _projection_cameras_for_state(state, step_idx)
     camera_config = projection_cameras.get(camera)
@@ -832,7 +836,9 @@ def _mask_to_camera_world(
     camera_calibration = calibration.get(calibration_key)
     if not isinstance(camera_calibration, dict):
         raise ValueError(f"calibration entry {calibration_key!r} is missing")
-    t_right_camera = _transform_to_matrix(camera_calibration["transformation"])
+    t_right_camera = _camera_to_right_base(
+        camera_calibration, record_state, calibration
+    )
     points_right = transform_points(t_right_camera, points_camera)
     valid_localization, validity_contract = _localization_validity_mask(
         camera_calibration=camera_calibration,
@@ -1031,6 +1037,47 @@ def _median_depth(
             f"no valid depth near pixel row={row} col={col} radius={radius}"
         )
     return float(np.median(valid)), int(valid.size)
+
+
+def _camera_to_right_base(
+    camera_calibration: dict[str, Any],
+    record_state: dict[str, Any],
+    calibration: dict[str, Any],
+) -> np.ndarray:
+    """Compose eye-in-hand extrinsics with the stored observation's O_T_EE."""
+    handeye = _transform_to_matrix(camera_calibration["transformation"])
+    parameters = camera_calibration.get("parameters") or {}
+    if not parameters.get("eye_on_hand", False):
+        return handeye
+    arm = camera_calibration.get("arm")
+    if arm not in ("left", "right"):
+        raise ValueError("eye-in-hand calibration requires left/right arm")
+    if parameters.get("robot_effector_frame") != f"{arm}_ee_O_T_EE":
+        raise ValueError("eye-in-hand calibration must reference O_T_EE")
+    arm_state = _record_arm_state(record_state, arm)
+    pose = np.asarray(arm_state.get("tcp_pose", []), dtype=np.float64)
+    if (
+        pose.shape != (7,)
+        or not np.isfinite(pose).all()
+        or np.linalg.norm(pose[3:]) < 1e-8
+    ):
+        raise ValueError("missing or invalid snapshot end-effector pose")
+    frame = (
+        arm_state.get("tcp_pose_frame")
+        or arm_state.get("coordinate_frame")
+        or record_state.get("coordinate_frame")
+    )
+    if frame not in ("left_base", "right_base"):
+        raise ValueError("snapshot TCP pose must declare its base frame")
+    base_ee = np.eye(4)
+    base_ee[:3, :3] = Rotation.from_quat(pose[3:]).as_matrix()
+    base_ee[:3, 3] = pose[:3]
+    if frame != "right_base":
+        base_ee = (
+            _base_frame_transform(calibration, target="right_base", source=frame)
+            @ base_ee
+        )
+    return base_ee @ handeye
 
 
 def _transform_to_matrix(transform: dict[str, Any]) -> np.ndarray:

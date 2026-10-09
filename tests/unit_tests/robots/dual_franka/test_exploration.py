@@ -66,11 +66,14 @@ class FakeEnv:
 
 
 @pytest.fixture
-def setup(tmp_path, monkeypatch):
+def setup(tmp_path, monkeypatch, dual_franka_robot_config):
     from rpent.utils import logging
 
     monkeypatch.setattr(logging, "_output_dir", tmp_path)
     monkeypatch.setattr("robots.dual_franka.toolkit.get_output_dir", lambda: tmp_path)
+    from robots.franka.runtime_config import set_robot_config_path
+
+    set_robot_config_path(dual_franka_robot_config)
     env = FakeEnv()
     replies = []
     toolkit = DualFrankaToolkit(

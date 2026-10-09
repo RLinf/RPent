@@ -1,6 +1,8 @@
 # RPent example config for one physical Franka arm.
 robot:
   ip: "172.16.0.2"
+  backend: franky
+  realtime_config: ignore
   end_effector:
     type: franka
     connection: "/dev/serial/by-id/usb-FTDI_USB_TO_RS-485_DAAIR00N-if00-port0"

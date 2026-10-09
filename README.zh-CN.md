@@ -29,11 +29,11 @@
 
 ## 排行榜
 
-对比 RPent 与参考方法在 LIBERO、LIBERO-PRO、RoboCasa365 Target50 和 RoboTwin C2R 上的成功率。排名仅限图中方法及评测范围；套件成绩和模型配置见 [排行榜](https://rpent.readthedocs.io/zh-cn/latest/rst_source/leaderboard.html)。
+对比 RPent 与参考方法在 LIBERO、LIBERO-PRO、RoboCasa365 Target50 和 RoboTwin C2R 上的成功率。排名仅限图中方法及评测范围；套件成绩和模型配置见 [排行榜](https://rpent.readthedocs.io/zh-cn/latest/rst_source/leaderboard/index.html)。
 
-Codex / GPT-6 Astra / low / reasoning 已完成全部八套 LIBERO-PRO，**Overall 92.63%（741/800）**。详见 [套件汇总与 memory 批次说明](https://rpent.readthedocs.io/zh-cn/latest/rst_source/leaderboard.html#libero-pro-astra-memory)，其中 Long 与 Spatial/Object/Goal 分别使用各自冻结的 memory 批次。
+Codex / GPT-6 Astra / low / reasoning 已完成全部八套 LIBERO-PRO，**Overall 92.63%（741/800）**。详见 [套件汇总与 memory 批次说明](https://rpent.readthedocs.io/zh-cn/latest/rst_source/leaderboard/index.html#libero-pro-astra-memory)，其中 Long 与 Spatial/Object/Goal 分别使用各自冻结的 memory 批次。
 
-[![RPent 排行榜](https://cdn.jsdelivr.net/gh/RLinf/misc@705bd44bfc8ad7586b76239de13167db35abcce7/rpent/benchmarks/leaderboard-zh-light.png)](https://rpent.readthedocs.io/zh-cn/latest/rst_source/leaderboard.html)
+[![RPent 排行榜](https://cdn.jsdelivr.net/gh/RLinf/misc@705bd44bfc8ad7586b76239de13167db35abcce7/rpent/benchmarks/leaderboard-zh-light.png)](https://rpent.readthedocs.io/zh-cn/latest/rst_source/leaderboard/index.html)
 
 
 ## 适用用户
@@ -47,12 +47,12 @@ RPent 面向以下四类用户：
 
 ## 最新动态
 
-- [2026/09] 🔥 新增交互式 RPent 排行榜，覆盖 LIBERO、LIBERO-PRO、RoboCasa365 与 RoboTwin，提供模型对比及套件汇总。查看 [排行榜](https://rpent.readthedocs.io/zh-cn/latest/rst_source/leaderboard.html)。
-- [2026/09] 🔥 RPent 支持 Franka 单臂与双臂真机扩展。文档：[Franka](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/franka.html) · [Dual Franka](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/dual_franka.html)。
-- [2026/08] 🔥 支持 RoboCasa，使用 RLDX-1 作为操作模型。参见 [RoboCasa 安装与 Target50 指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robocasa.html)。
+- [2026/09] 🔥 新增交互式 RPent 排行榜，覆盖 LIBERO、LIBERO-PRO、RoboCasa365 与 RoboTwin，提供模型对比及套件汇总。查看 [排行榜](https://rpent.readthedocs.io/zh-cn/latest/rst_source/leaderboard/index.html)。
+- [2026/09] 🔥 RPent 支持 Franka 单臂与双臂真机扩展。文档：[Franka](https://rpent.readthedocs.io/zh-cn/latest/rst_source/real_world_robots/franka.html) · [Dual Franka](https://rpent.readthedocs.io/zh-cn/latest/rst_source/real_world_robots/dual_franka.html)。
+- [2026/08] 🔥 支持 RoboCasa，使用 RLDX-1 作为操作模型。参见 [RoboCasa 安装与 Target50 指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robocasa.html)。
 - [2026/08] 🔥 新增非推理（non-reasoning）模式，平均执行时间降低约 40%。
-- [2026/08] 🔥 支持 LIBERO 探索模式。文档：[LIBERO 探索模式](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/libero.html#memory)。
-- [2026/08] 🔥 支持 RoboTwin，使用 LingBot-VLA 处理双臂操作任务。文档：[RoboTwin](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robotwin.html)。
+- [2026/08] 🔥 支持 LIBERO 探索模式。文档：[LIBERO 探索模式](https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/libero.html#memory)。
+- [2026/08] 🔥 支持 RoboTwin，使用 LingBot-VLA 处理双臂操作任务。文档：[RoboTwin](https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robotwin.html)。
 - [2026/07] 🔥 RPent 首篇论文 [Harness VLA: Steering Frozen VLAs into Reliable Manipulation Primitives via Memory-Guided Agents](https://arxiv.org/abs/2607.08448) 发布。
 
 ## 功能矩阵
@@ -70,18 +70,18 @@ RPent 面向以下四类用户：
     <tr>
       <td>
         <ul style="margin-left: 0; padding-left: 16px;">
-          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/configure_planner.html#claude-code-planner">Claude Code</a> ✅</li>
-          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/configure_planner.html#codex-planner">Codex</a> ✅</li>
-          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/configure_planner.html#planner">Custom Planner</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/guides/configure_planner.html#claude-code-planner">Claude Code</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/guides/configure_planner.html#codex-planner">Codex</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/development/add_planner.html">Custom Planner</a> ✅</li>
         </ul>
       </td>
       <td>
         <ul style="margin-left: 0; padding-left: 16px;">
           <li><b>VLA</b></li>
           <ul>
-            <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/libero.html">Pi0.5</a> ✅</li>
-            <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robocasa.html">RLDX-1</a> ✅</li>
-            <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robotwin.html">LingBot-VLA</a> ✅</li>
+            <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/libero.html">Pi0.5</a> ✅</li>
+            <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robocasa.html">RLDX-1</a> ✅</li>
+            <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robotwin.html">LingBot-VLA</a> ✅</li>
           </ul>
           <li><b>WAM</b></li>
           <ul>
@@ -92,16 +92,16 @@ RPent 面向以下四类用户：
       </td>
       <td style="text-align: left; padding-left: 8px;">
         <ul style="margin-left: 0; padding-left: 16px;">
-          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/libero.html">LIBERO-PRO</a> ✅</li>
-          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robocasa.html">RoboCasa</a> ✅</li>
-          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robotwin.html">RoboTwin</a> ✅</li>
-          <li>RoboDojo</li>
+          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/libero.html">LIBERO-PRO</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robocasa.html">RoboCasa</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robotwin.html">RoboTwin</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robodojo.html">RoboDojo</a> ✅</li>
         </ul>
       </td>
       <td>
         <ul style="margin-left: 0; padding-left: 16px;">
-          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/franka.html">Franka</a> ✅</li>
-          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/dual_franka.html">Dual Franka</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/real_world_robots/franka.html">Franka</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/real_world_robots/dual_franka.html">Dual Franka</a> ✅</li>
           <li>SO-101</li>
           <li>YAM</li>
         </ul>
@@ -122,13 +122,14 @@ pip install -e ".[libero-pro]"
 # 其他环境配置：
 pip install -e ".[robocasa]"    # RoboCasa
 pip install -e ".[robotwin]"    # RoboTwin
+pip install -e ".[franka]"      # Franka / 双臂 Franka
 ```
 
 `.[libero-pro]` 是默认推荐配置。其他环境见
-[安装文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/installation.html)。
+[安装文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/get_started/quickstart.html)。
 
 RoboCasa 安装、任务 memory 与 Target50 协议参见
-[RoboCasa 指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robocasa.html)。
+[RoboCasa 指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robocasa.html)。
 
 RoboCasa 同时使用
 [RPent-memory](https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/robocasa)
@@ -146,13 +147,12 @@ liberopro-download-assets --skip-existing
 
 > 💡 访问 Hugging Face 较慢时，可走镜像加速：`HF_ENDPOINT=https://hf-mirror.com liberopro-download-assets --skip-existing`。
 
-其他仿真器见[安装文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/installation.html)。
+其他仿真器见[安装文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/get_started/quickstart.html)。
 
 **3. 配置密钥与 checkpoint，然后运行。**
 
 ```bash
 # Anthropic 密钥；使用官方端点时无需 export base url。
-export ANTHROPIC_BASE_URL=https://xxx
 export ANTHROPIC_API_KEY=sk-xxx
 
 # VLA checkpoint —— 从以下地址下载：
@@ -179,8 +179,8 @@ rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
   --cuda-device 0 --planner claude_code --model claude-opus-4-8
 ```
 
-其他规划器（`api`、`codex`）与模型提供商的配置见[规划器文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/configure_planner.html)。
-探索模式与本地 memory 评测详见 [LIBERO 文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/libero.html)。
+其他规划器（`api`、`codex`）与模型提供商的配置见[规划器文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/guides/configure_planner.html)。
+探索模式与本地 memory 评测详见 [LIBERO 文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/libero.html)。
 
 ### 交互模式
 
@@ -200,7 +200,7 @@ rpent --robot libero --dashboard --dashboard-language zh-cn \
   --planner claude_code --model claude-opus-4-8
 ```
 
-完整的命令行参数列表见 [快速开始](https://rpent.readthedocs.io/zh-cn/latest/rst_source/quickstart.html#cli) 文档中的「关键 CLI 选项」表格。RoboCasa 与 RoboTwin 使用独立的入口和命令行参数，参见 [RoboCasa](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robocasa.html) 与 [RoboTwin](https://rpent.readthedocs.io/zh-cn/latest/rst_source/usage/robotwin.html) 文档。
+完整的命令行参数列表见 [命令行参考](https://rpent.readthedocs.io/zh-cn/latest/rst_source/guides/cli.html)。RoboCasa 与 RoboTwin 提供各自的任务参数，参见 [RoboCasa](https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robocasa.html) 与 [RoboTwin](https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robotwin.html) 文档。
 
 更详细的文档请参见 [RPent 中文文档](https://rpent.readthedocs.io/zh-cn/latest/)。
 

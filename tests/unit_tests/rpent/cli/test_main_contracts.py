@@ -77,6 +77,7 @@ def _capture_validated_args(
     def get_robot_spec(name: str):
         captured["robot_name"] = name
         return SimpleNamespace(
+            name=name,
             add_cli_args=add_cli_args,
             parse_config=parse_config,
             supports_exploration=name == "libero",
@@ -354,6 +355,7 @@ def test_real_robot_terminal_requirement_fails_before_runtime(
     cli = _cli_module()
     spec = SimpleNamespace(
         is_real_robot=True,
+        dashboard=None,
         add_cli_args=lambda parser, use_dashboard: None,
     )
     monkeypatch.setattr(cli, "get_robot_spec", lambda name: spec)
@@ -631,14 +633,21 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
         "summary": "simulated task complete",
     }
     assert transcript["stats"]["tool_calls"] == 1
+    assert transcript["error"] is None
     assert transcript["messages"] == [
         {"role": "assistant", "content": "finished offline"}
     ]
 
 
+@pytest.mark.parametrize("planner_name", ["codex", "flash"])
+@pytest.mark.parametrize(
+    "planner_error", [None, "RuntimeError: Grasp not held; replay stopped"]
+)
 def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    planner_name: str,
+    planner_error: str | None,
 ) -> None:
     cli = _cli_module()
     from rpent.evaluation import RunFinalizationContext, write_json_atomic
@@ -670,6 +679,7 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
                 finish_result={"status": "success", "summary": "planner claim"},
                 messages=[],
                 stats={"tool_calls": 0},
+                error=planner_error,
             )
 
     def add_cli_args(parser: Any, use_dashboard: bool) -> None:
@@ -710,6 +720,7 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
         parse_config=parse_config,
         init_runtime=lambda *args: ([daemon], {"runtime": "simulated"}),
         finalize_run=finalize_run,
+        run_flash=lambda *args: {},
     )
 
     monkeypatch.setattr(cli, "enumerate_robots", lambda: ("testrobot",))
@@ -728,7 +739,7 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
             "--seed",
             "1",
             "--planner",
-            "codex",
+            planner_name,
             "--model",
             "gpt-5.5",
             "--reasoning-effort",
@@ -744,14 +755,16 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
         ],
     )
 
-    assert cli.main() == 0
+    assert cli.main() == (1 if planner_error else 0)
+    transcript = json.loads((tmp_path / "transcript_OpenDrawer_s1.json").read_text())
+    assert transcript["error"] == planner_error
 
     assert len(captured) == 1
     context = captured[0]
     assert context.robot_name == "testrobot"
     assert context.environment_success is False
-    assert context.agent_error is None
-    assert context.planner == "codex"
+    assert context.agent_error == planner_error
+    assert context.planner == planner_name
     assert context.model == "gpt-5.5"
     assert context.reasoning_effort == "xhigh"
     assert context.max_turns == 100
