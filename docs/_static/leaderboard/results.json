@@ -1,0 +1,3230 @@
+{
+  "schema_version": 3,
+  "configurations": [
+    {
+      "id": "gpt-6-astra-low",
+      "kind": "rpent",
+      "backend": "Codex",
+      "model": "GPT-6 Astra",
+      "reasoning": true,
+      "effort": "low"
+    },
+    {
+      "id": "gpt-5-6-xhigh",
+      "kind": "rpent",
+      "backend": "Codex",
+      "model": "GPT-5.6 Sol",
+      "reasoning": true,
+      "effort": "xhigh"
+    },
+    {
+      "id": "gpt-5-6-no-reasoning",
+      "kind": "rpent",
+      "backend": "Codex",
+      "model": "GPT-5.6 Sol",
+      "reasoning": false,
+      "effort": null
+    },
+    {
+      "id": "rpent-flash-mode",
+      "kind": "rpent",
+      "backend": null,
+      "model": null,
+      "reasoning": null,
+      "effort": null,
+      "display_name": "RPent Flash Mode",
+      "perception_model": "Molmo2-8B"
+    },
+    {
+      "id": "qwen3-6-27b-no-reasoning",
+      "kind": "rpent",
+      "backend": null,
+      "model": "Qwen3.6 27B",
+      "reasoning": false,
+      "effort": null
+    },
+    {
+      "id": "gpt-5-5-xhigh",
+      "kind": "rpent",
+      "backend": "Codex",
+      "model": "GPT-5.5",
+      "reasoning": true,
+      "effort": "xhigh"
+    },
+    {
+      "id": "opus-4-7-max",
+      "kind": "rpent",
+      "backend": "Claude Code",
+      "model": "Opus-4.7",
+      "reasoning": true,
+      "effort": "max"
+    },
+    {
+      "id": "gpt-6-astra-low-motor-only",
+      "kind": "rpent",
+      "backend": "Codex",
+      "model": "GPT-6 Astra",
+      "reasoning": true,
+      "effort": "low",
+      "display_name": "RPent / GPT-6 Motor Only"
+    },
+    {
+      "id": "openvla",
+      "kind": "external",
+      "backend": null,
+      "model": "OpenVLA",
+      "reasoning": null,
+      "effort": null,
+      "metadata_status": "not_applicable"
+    },
+    {
+      "id": "nora",
+      "kind": "external",
+      "backend": null,
+      "model": "NORA",
+      "reasoning": null,
+      "effort": null,
+      "metadata_status": "not_applicable"
+    },
+    {
+      "id": "pi0",
+      "kind": "external",
+      "backend": null,
+      "model": "π0",
+      "reasoning": null,
+      "effort": null,
+      "metadata_status": "not_applicable"
+    },
+    {
+      "id": "pi-rlinf",
+      "kind": "external",
+      "backend": null,
+      "model": "π_RLinf",
+      "reasoning": null,
+      "effort": null,
+      "metadata_status": "not_applicable"
+    },
+    {
+      "id": "atomvla",
+      "kind": "external",
+      "backend": null,
+      "model": "AtomVLA",
+      "reasoning": null,
+      "effort": null,
+      "metadata_status": "not_applicable"
+    },
+    {
+      "id": "pi0-5",
+      "kind": "external",
+      "backend": null,
+      "model": "π0.5",
+      "reasoning": null,
+      "effort": null,
+      "metadata_status": "not_applicable"
+    },
+    {
+      "id": "molmoact",
+      "kind": "external",
+      "backend": null,
+      "model": "MolmoAct",
+      "reasoning": null,
+      "effort": null,
+      "metadata_status": "not_applicable"
+    },
+    {
+      "id": "x-vla",
+      "kind": "external",
+      "backend": null,
+      "model": "X-VLA",
+      "reasoning": null,
+      "effort": null,
+      "metadata_status": "not_applicable"
+    },
+    {
+      "id": "cap-x",
+      "kind": "external",
+      "backend": null,
+      "model": "Cap-X",
+      "reasoning": null,
+      "effort": null,
+      "metadata_status": "not_reported"
+    },
+    {
+      "id": "rats",
+      "kind": "external",
+      "backend": null,
+      "model": "RATS",
+      "reasoning": null,
+      "effort": null,
+      "metadata_status": "not_reported"
+    },
+    {
+      "id": "rldx-1",
+      "kind": "external",
+      "backend": null,
+      "model": "RLDX-1",
+      "reasoning": null,
+      "effort": null,
+      "metadata_status": "not_applicable"
+    },
+    {
+      "id": "worlddreamer",
+      "kind": "external",
+      "backend": null,
+      "model": "WorldDreamer",
+      "reasoning": null,
+      "effort": null,
+      "metadata_status": "not_applicable"
+    },
+    {
+      "id": "gr00t-n1-7",
+      "kind": "external",
+      "backend": null,
+      "model": "GR00T-N1.7",
+      "reasoning": null,
+      "effort": null,
+      "metadata_status": "not_applicable"
+    },
+    {
+      "id": "starvla",
+      "kind": "external",
+      "backend": null,
+      "model": "StarVLA",
+      "reasoning": null,
+      "effort": null,
+      "metadata_status": "not_applicable"
+    },
+    {
+      "id": "lingbot-vla",
+      "kind": "external",
+      "backend": null,
+      "model": "LingBot-VLA",
+      "reasoning": null,
+      "effort": null,
+      "metadata_status": "not_applicable"
+    },
+    {
+      "id": "opus-4-7-reported",
+      "kind": "rpent",
+      "backend": "Claude Code",
+      "model": "Opus-4.7",
+      "reasoning": true,
+      "effort": "max"
+    },
+    {
+      "id": "xiaomi-robotics-1",
+      "kind": "external",
+      "backend": null,
+      "model": "Xiaomi-Robotics-1",
+      "reasoning": null,
+      "effort": null,
+      "metadata_status": "not_applicable"
+    },
+    {
+      "id": "aspire",
+      "kind": "external",
+      "backend": null,
+      "model": "ASPIRE",
+      "reasoning": null,
+      "effort": null
+    }
+  ],
+  "benchmarks": [
+    {
+      "id": "libero-pro",
+      "name": "LIBERO-PRO",
+      "heading": {
+        "en": "Eight-suite evaluation",
+        "zh": "八套件评测"
+      },
+      "default_view": "libero-pro",
+      "views": [
+        {
+          "id": "libero-pro",
+          "label": {
+            "en": "Overall",
+            "zh": "总体"
+          }
+        },
+        {
+          "id": "spatial-task",
+          "label": {
+            "en": "Spatial Task",
+            "zh": "Spatial Task"
+          }
+        },
+        {
+          "id": "spatial-swap",
+          "label": {
+            "en": "Spatial Swap",
+            "zh": "Spatial Swap"
+          }
+        },
+        {
+          "id": "object-task",
+          "label": {
+            "en": "Object Task",
+            "zh": "Object Task"
+          }
+        },
+        {
+          "id": "object-swap",
+          "label": {
+            "en": "Object Swap",
+            "zh": "Object Swap"
+          }
+        },
+        {
+          "id": "goal-task",
+          "label": {
+            "en": "Goal Task",
+            "zh": "Goal Task"
+          }
+        },
+        {
+          "id": "goal-swap",
+          "label": {
+            "en": "Goal Swap",
+            "zh": "Goal Swap"
+          }
+        },
+        {
+          "id": "long-task",
+          "label": {
+            "en": "Long Task",
+            "zh": "Long Task"
+          }
+        },
+        {
+          "id": "long-swap",
+          "label": {
+            "en": "Long Swap",
+            "zh": "Long Swap"
+          }
+        }
+      ],
+      "notes": [
+        {
+          "id": "libero-pro-note-1",
+          "configuration_ids": [
+            "aspire"
+          ],
+          "text": {
+            "en": "ASPIRE: Long Task and Long Swap use zero-shot transfer from the LIBERO-90 skill library.",
+            "zh": "ASPIRE：Long Task 和 Long Swap 使用 LIBERO-90 技能库进行 zero-shot 迁移。"
+          }
+        },
+        {
+          "id": "libero-pro-note-2",
+          "configuration_ids": [
+            "rpent-flash-mode"
+          ],
+          "text": {
+            "en": "RPent Flash Mode uses directly downloaded, officially released GPT-5.5 exploration memory; Molmo2-8B is used for visual localization. These results use the best-performing seed from s0-s9.",
+            "zh": "RPent Flash Mode 使用直接下载的、官方公开的 GPT-5.5 explore memory；Molmo2-8B 用于视觉定位。该测试结果使用了 s0-s9 中表现最好的 seed。"
+          }
+        },
+        {
+          "id": "libero-pro-note-3",
+          "configuration_ids": [
+            "gpt-6-astra-low-motor-only"
+          ],
+          "text": {
+            "en": "RPent / GPT-6 Motor Only uses motor-only control: it directly outputs end-effector pose increments and gripper commands through execute_action, without invoking VLA / primitives or loading memory.",
+            "zh": "RPent / GPT-6 Motor Only 为纯电机控制方法，通过 execute_action 直接输出末端位姿增量与夹爪指令，不调用 VLA / primitive，不加载 memory。"
+          }
+        },
+        {
+          "id": "libero-pro-astra-memory",
+          "configuration_ids": [
+            "gpt-6-astra-low"
+          ],
+          "text": {
+            "en": "GPT-6 Astra (memory-enabled configuration): Long Task/Swap and the other six suites use separate memory-file snapshots frozen after their respective exploration phases, with no updates during evaluation. Overall combines two non-overlapping batches: Long 157/200 plus the other suites 584/600, giving 741/800 (92.63%); the 800 episodes do not share a single memory snapshot.",
+            "zh": "GPT-6 Astra（使用 memory 的配置）：Long Task/Swap 与其余六套件使用各自探索后冻结的 memory 文件快照，评测期间不更新。Overall 合并两个不重叠批次：Long 157/200，加上其余套件 584/600，得到 741/800（92.63%）；并非全部回合共享同一份 memory 快照。"
+          }
+        }
+      ]
+    },
+    {
+      "id": "standard-libero",
+      "name": "LIBERO",
+      "heading": {
+        "en": "Four-suite evaluation",
+        "zh": "四套件评测"
+      },
+      "default_view": "standard-libero",
+      "views": [
+        {
+          "id": "standard-libero",
+          "label": {
+            "en": "Overall",
+            "zh": "总体"
+          }
+        },
+        {
+          "id": "standard-spatial",
+          "label": {
+            "en": "Spatial",
+            "zh": "Spatial"
+          }
+        },
+        {
+          "id": "standard-object",
+          "label": {
+            "en": "Object",
+            "zh": "Object"
+          }
+        },
+        {
+          "id": "standard-goal",
+          "label": {
+            "en": "Goal",
+            "zh": "Goal"
+          }
+        },
+        {
+          "id": "standard-long",
+          "label": {
+            "en": "Long",
+            "zh": "Long"
+          }
+        }
+      ]
+    },
+    {
+      "id": "robocasa",
+      "name": "RoboCasa365 · Target50",
+      "heading": {
+        "en": "50 tasks · task-weighted Overall",
+        "zh": "50 个任务 · Overall 按任务等权"
+      },
+      "default_view": "robocasa",
+      "views": [
+        {
+          "id": "robocasa",
+          "label": {
+            "en": "Overall",
+            "zh": "总体"
+          }
+        },
+        {
+          "id": "robocasa-atomic-seen",
+          "label": {
+            "en": "Atomic-Seen",
+            "zh": "Atomic-Seen"
+          }
+        },
+        {
+          "id": "robocasa-composite-seen",
+          "label": {
+            "en": "Composite-Seen",
+            "zh": "Composite-Seen"
+          }
+        },
+        {
+          "id": "robocasa-composite-unseen",
+          "label": {
+            "en": "Composite-Unseen",
+            "zh": "Composite-Unseen"
+          }
+        }
+      ]
+    },
+    {
+      "id": "robotwin",
+      "name": "RoboTwin",
+      "heading": {
+        "en": "Clean → Randomized",
+        "zh": "Clean → Randomized"
+      },
+      "summary": {
+        "en": "50 tasks · 250 episodes",
+        "zh": "50 个任务 · 250 回合"
+      },
+      "default_view": "robotwin",
+      "views": [
+        {
+          "id": "robotwin",
+          "label": {
+            "en": "C2R",
+            "zh": "C2R"
+          }
+        }
+      ]
+    }
+  ],
+  "results": [
+    {
+      "id": "standard-spatial--opus-4-7-max",
+      "view_id": "standard-spatial",
+      "configuration_id": "opus-4-7-max",
+      "status": "reported",
+      "rate": "97.0",
+      "successes": null,
+      "episodes": 100,
+      "source_ids": [
+        "paper-table-2",
+        "contributor-correction-20260916"
+      ],
+      "protocol_id": "rpent-standard"
+    },
+    {
+      "id": "standard-object--opus-4-7-max",
+      "view_id": "standard-object",
+      "configuration_id": "opus-4-7-max",
+      "status": "reported",
+      "rate": "100.0",
+      "successes": null,
+      "episodes": 100,
+      "source_ids": [
+        "paper-table-2",
+        "contributor-correction-20260916"
+      ],
+      "protocol_id": "rpent-standard"
+    },
+    {
+      "id": "standard-goal--opus-4-7-max",
+      "view_id": "standard-goal",
+      "configuration_id": "opus-4-7-max",
+      "status": "reported",
+      "rate": "94.0",
+      "successes": null,
+      "episodes": 100,
+      "source_ids": [
+        "paper-table-2",
+        "contributor-correction-20260916"
+      ],
+      "protocol_id": "rpent-standard"
+    },
+    {
+      "id": "standard-long--opus-4-7-max",
+      "view_id": "standard-long",
+      "configuration_id": "opus-4-7-max",
+      "status": "reported",
+      "rate": "93.0",
+      "successes": null,
+      "episodes": 100,
+      "source_ids": [
+        "paper-table-2",
+        "contributor-correction-20260916"
+      ],
+      "protocol_id": "rpent-standard"
+    },
+    {
+      "id": "standard-libero--opus-4-7-max",
+      "view_id": "standard-libero",
+      "configuration_id": "opus-4-7-max",
+      "status": "reported",
+      "rate": "96.0",
+      "successes": 384,
+      "episodes": 400,
+      "source_ids": [
+        "paper-table-2",
+        "contributor-correction-20260916"
+      ],
+      "protocol_id": "rpent-standard"
+    },
+    {
+      "id": "spatial-task--gpt-5-5-xhigh",
+      "view_id": "spatial-task",
+      "configuration_id": "gpt-5-5-xhigh",
+      "status": "reported",
+      "rate": "81.0",
+      "successes": null,
+      "episodes": 100,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "rpent-pro"
+    },
+    {
+      "id": "spatial-task--gpt-6-astra-low",
+      "view_id": "spatial-task",
+      "configuration_id": "gpt-6-astra-low",
+      "status": "reported",
+      "rate": "100",
+      "successes": 100,
+      "episodes": 100,
+      "source_ids": [
+        "astra-pro-remaining-20260913",
+        "contributor-settings-20260915"
+      ],
+      "protocol_id": "rpent-pro-astra-remaining"
+    },
+    {
+      "id": "spatial-swap--gpt-5-5-xhigh",
+      "view_id": "spatial-swap",
+      "configuration_id": "gpt-5-5-xhigh",
+      "status": "reported",
+      "rate": "69.0",
+      "successes": null,
+      "episodes": 100,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "rpent-pro"
+    },
+    {
+      "id": "spatial-swap--gpt-6-astra-low",
+      "view_id": "spatial-swap",
+      "configuration_id": "gpt-6-astra-low",
+      "status": "reported",
+      "rate": "98",
+      "successes": 98,
+      "episodes": 100,
+      "source_ids": [
+        "astra-pro-remaining-20260913",
+        "contributor-settings-20260915"
+      ],
+      "protocol_id": "rpent-pro-astra-remaining"
+    },
+    {
+      "id": "object-task--gpt-5-5-xhigh",
+      "view_id": "object-task",
+      "configuration_id": "gpt-5-5-xhigh",
+      "status": "reported",
+      "rate": "94.0",
+      "successes": null,
+      "episodes": 100,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "rpent-pro"
+    },
+    {
+      "id": "object-task--gpt-6-astra-low",
+      "view_id": "object-task",
+      "configuration_id": "gpt-6-astra-low",
+      "status": "reported",
+      "rate": "100",
+      "successes": 100,
+      "episodes": 100,
+      "source_ids": [
+        "astra-pro-remaining-20260913",
+        "contributor-settings-20260915"
+      ],
+      "protocol_id": "rpent-pro-astra-remaining"
+    },
+    {
+      "id": "object-swap--gpt-5-5-xhigh",
+      "view_id": "object-swap",
+      "configuration_id": "gpt-5-5-xhigh",
+      "status": "reported",
+      "rate": "91.0",
+      "successes": null,
+      "episodes": 100,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "rpent-pro"
+    },
+    {
+      "id": "object-swap--gpt-6-astra-low",
+      "view_id": "object-swap",
+      "configuration_id": "gpt-6-astra-low",
+      "status": "reported",
+      "rate": "99",
+      "successes": 99,
+      "episodes": 100,
+      "source_ids": [
+        "astra-pro-remaining-20260913",
+        "contributor-settings-20260915"
+      ],
+      "protocol_id": "rpent-pro-astra-remaining"
+    },
+    {
+      "id": "goal-task--gpt-5-5-xhigh",
+      "view_id": "goal-task",
+      "configuration_id": "gpt-5-5-xhigh",
+      "status": "reported",
+      "rate": "75.0",
+      "successes": null,
+      "episodes": 100,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "rpent-pro"
+    },
+    {
+      "id": "goal-task--gpt-6-astra-low",
+      "view_id": "goal-task",
+      "configuration_id": "gpt-6-astra-low",
+      "status": "reported",
+      "rate": "88",
+      "successes": 88,
+      "episodes": 100,
+      "source_ids": [
+        "astra-pro-remaining-20260913",
+        "contributor-settings-20260915"
+      ],
+      "protocol_id": "rpent-pro-astra-remaining"
+    },
+    {
+      "id": "goal-swap--gpt-5-5-xhigh",
+      "view_id": "goal-swap",
+      "configuration_id": "gpt-5-5-xhigh",
+      "status": "reported",
+      "rate": "66.0",
+      "successes": null,
+      "episodes": 100,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "rpent-pro"
+    },
+    {
+      "id": "goal-swap--gpt-6-astra-low",
+      "view_id": "goal-swap",
+      "configuration_id": "gpt-6-astra-low",
+      "status": "reported",
+      "rate": "99",
+      "successes": 99,
+      "episodes": 100,
+      "source_ids": [
+        "astra-pro-remaining-20260913",
+        "contributor-settings-20260915"
+      ],
+      "protocol_id": "rpent-pro-astra-remaining"
+    },
+    {
+      "id": "long-task--gpt-5-5-xhigh",
+      "view_id": "long-task",
+      "configuration_id": "gpt-5-5-xhigh",
+      "status": "reported",
+      "rate": "70.00",
+      "successes": 70,
+      "episodes": 100,
+      "source_ids": [
+        "repo-libero-long-reproduction-20260922"
+      ],
+      "protocol_id": "rpent-pro-long-reproduction"
+    },
+    {
+      "id": "long-task--gpt-6-astra-low",
+      "view_id": "long-task",
+      "configuration_id": "gpt-6-astra-low",
+      "status": "reported",
+      "rate": "85",
+      "successes": 85,
+      "episodes": 100,
+      "source_ids": [
+        "astra-long-20260907",
+        "contributor-settings-20260915"
+      ],
+      "protocol_id": "rpent-pro-astra-long"
+    },
+    {
+      "id": "long-swap--gpt-5-5-xhigh",
+      "view_id": "long-swap",
+      "configuration_id": "gpt-5-5-xhigh",
+      "status": "reported",
+      "rate": "55.00",
+      "successes": 55,
+      "episodes": 100,
+      "source_ids": [
+        "repo-libero-long-reproduction-20260922"
+      ],
+      "protocol_id": "rpent-pro-long-reproduction"
+    },
+    {
+      "id": "long-swap--gpt-6-astra-low",
+      "view_id": "long-swap",
+      "configuration_id": "gpt-6-astra-low",
+      "status": "reported",
+      "rate": "72",
+      "successes": 72,
+      "episodes": 100,
+      "source_ids": [
+        "astra-long-20260907",
+        "contributor-settings-20260915"
+      ],
+      "protocol_id": "rpent-pro-astra-long"
+    },
+    {
+      "id": "libero-pro--gpt-5-5-xhigh",
+      "view_id": "libero-pro",
+      "configuration_id": "gpt-5-5-xhigh",
+      "status": "derived",
+      "rate": "75.13",
+      "successes": null,
+      "episodes": 800,
+      "source_ids": [
+        "paper-table-3",
+        "repo-libero-long-reproduction-20260922"
+      ],
+      "protocol_id": "rpent-pro-updated-long",
+      "derived_from": [
+        "spatial-task--gpt-5-5-xhigh",
+        "spatial-swap--gpt-5-5-xhigh",
+        "object-task--gpt-5-5-xhigh",
+        "object-swap--gpt-5-5-xhigh",
+        "goal-task--gpt-5-5-xhigh",
+        "goal-swap--gpt-5-5-xhigh",
+        "long-task--gpt-5-5-xhigh",
+        "long-swap--gpt-5-5-xhigh"
+      ]
+    },
+    {
+      "id": "libero-pro--gpt-6-astra-low",
+      "view_id": "libero-pro",
+      "configuration_id": "gpt-6-astra-low",
+      "status": "reported",
+      "rate": "92.63",
+      "successes": 741,
+      "episodes": 800,
+      "source_ids": [
+        "astra-long-20260907",
+        "astra-pro-remaining-20260913",
+        "contributor-settings-20260915"
+      ],
+      "protocol_id": "rpent-pro-astra-mixed-batches"
+    },
+    {
+      "id": "robocasa-atomic-seen--gpt-5-5-xhigh",
+      "view_id": "robocasa-atomic-seen",
+      "configuration_id": "gpt-5-5-xhigh",
+      "status": "reported",
+      "rate": "92.0",
+      "successes": null,
+      "episodes": 180,
+      "source_ids": [
+        "paper-table-4"
+      ],
+      "protocol_id": "rpent-robocasa"
+    },
+    {
+      "id": "robocasa-atomic-seen--opus-4-7-max",
+      "view_id": "robocasa-atomic-seen",
+      "configuration_id": "opus-4-7-max",
+      "status": "reported",
+      "rate": "79.4",
+      "successes": null,
+      "episodes": 180,
+      "source_ids": [
+        "paper-table-4",
+        "contributor-correction-20260916"
+      ],
+      "protocol_id": "rpent-robocasa"
+    },
+    {
+      "id": "robocasa-composite-seen--gpt-5-5-xhigh",
+      "view_id": "robocasa-composite-seen",
+      "configuration_id": "gpt-5-5-xhigh",
+      "status": "reported",
+      "rate": "61.0",
+      "successes": null,
+      "episodes": 80,
+      "source_ids": [
+        "paper-table-4"
+      ],
+      "protocol_id": "rpent-robocasa"
+    },
+    {
+      "id": "robocasa-composite-seen--opus-4-7-max",
+      "view_id": "robocasa-composite-seen",
+      "configuration_id": "opus-4-7-max",
+      "status": "reported",
+      "rate": "47.5",
+      "successes": null,
+      "episodes": 80,
+      "source_ids": [
+        "paper-table-4",
+        "contributor-correction-20260916"
+      ],
+      "protocol_id": "rpent-robocasa"
+    },
+    {
+      "id": "robocasa-composite-unseen--gpt-5-5-xhigh",
+      "view_id": "robocasa-composite-unseen",
+      "configuration_id": "gpt-5-5-xhigh",
+      "status": "reported",
+      "rate": "13.8",
+      "successes": null,
+      "episodes": 80,
+      "source_ids": [
+        "paper-table-4"
+      ],
+      "protocol_id": "rpent-robocasa"
+    },
+    {
+      "id": "robocasa-composite-unseen--opus-4-7-max",
+      "view_id": "robocasa-composite-unseen",
+      "configuration_id": "opus-4-7-max",
+      "status": "reported",
+      "rate": "15.0",
+      "successes": null,
+      "episodes": 80,
+      "source_ids": [
+        "paper-table-4",
+        "contributor-correction-20260916"
+      ],
+      "protocol_id": "rpent-robocasa"
+    },
+    {
+      "id": "robocasa--gpt-5-5-xhigh",
+      "view_id": "robocasa",
+      "configuration_id": "gpt-5-5-xhigh",
+      "status": "reported",
+      "rate": "57.1",
+      "successes": null,
+      "episodes": 340,
+      "source_ids": [
+        "paper-table-4"
+      ],
+      "protocol_id": "rpent-robocasa"
+    },
+    {
+      "id": "robocasa--opus-4-7-max",
+      "view_id": "robocasa",
+      "configuration_id": "opus-4-7-max",
+      "status": "reported",
+      "rate": "48.6",
+      "successes": null,
+      "episodes": 340,
+      "source_ids": [
+        "paper-table-4",
+        "contributor-correction-20260916"
+      ],
+      "protocol_id": "rpent-robocasa"
+    },
+    {
+      "id": "robotwin--opus-4-7-max",
+      "view_id": "robotwin",
+      "configuration_id": "opus-4-7-max",
+      "status": "reported",
+      "rate": "58.4",
+      "successes": null,
+      "episodes": 250,
+      "source_ids": [
+        "paper-table-6",
+        "contributor-correction-20260916"
+      ],
+      "protocol_id": "rpent-robotwin"
+    },
+    {
+      "id": "standard-libero--openvla",
+      "view_id": "standard-libero",
+      "configuration_id": "openvla",
+      "status": "reported",
+      "rate": "76.5",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "external-standard"
+    },
+    {
+      "id": "standard-libero--nora",
+      "view_id": "standard-libero",
+      "configuration_id": "nora",
+      "status": "reported",
+      "rate": "79.5",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "external-standard"
+    },
+    {
+      "id": "standard-libero--pi0",
+      "view_id": "standard-libero",
+      "configuration_id": "pi0",
+      "status": "reported",
+      "rate": "94.2",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "external-standard"
+    },
+    {
+      "id": "standard-libero--pi-rlinf",
+      "view_id": "standard-libero",
+      "configuration_id": "pi-rlinf",
+      "status": "reported",
+      "rate": "95.3",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "external-standard"
+    },
+    {
+      "id": "standard-libero--atomvla",
+      "view_id": "standard-libero",
+      "configuration_id": "atomvla",
+      "status": "reported",
+      "rate": "97.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "external-standard"
+    },
+    {
+      "id": "libero-pro--pi0",
+      "view_id": "libero-pro",
+      "configuration_id": "pi0",
+      "status": "reported",
+      "rate": "0.3",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "libero-pro--pi0-5",
+      "view_id": "libero-pro",
+      "configuration_id": "pi0-5",
+      "status": "reported",
+      "rate": "11.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "libero-pro--molmoact",
+      "view_id": "libero-pro",
+      "configuration_id": "molmoact",
+      "status": "reported",
+      "rate": "1.5",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "libero-pro--x-vla",
+      "view_id": "libero-pro",
+      "configuration_id": "x-vla",
+      "status": "reported",
+      "rate": "3.8",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "libero-pro--atomvla",
+      "view_id": "libero-pro",
+      "configuration_id": "atomvla",
+      "status": "reported",
+      "rate": "6.3",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "libero-pro--pi-rlinf",
+      "view_id": "libero-pro",
+      "configuration_id": "pi-rlinf",
+      "status": "reported",
+      "rate": "50.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "robocasa--rldx-1",
+      "view_id": "robocasa",
+      "configuration_id": "rldx-1",
+      "status": "reported",
+      "rate": "30.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-4"
+      ],
+      "protocol_id": "external-robocasa"
+    },
+    {
+      "id": "robocasa--worlddreamer",
+      "view_id": "robocasa",
+      "configuration_id": "worlddreamer",
+      "status": "reported",
+      "rate": "35.3",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-4"
+      ],
+      "protocol_id": "external-robocasa"
+    },
+    {
+      "id": "robocasa--pi0-5",
+      "view_id": "robocasa",
+      "configuration_id": "pi0-5",
+      "status": "reported",
+      "rate": "16.9",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-4"
+      ],
+      "protocol_id": "external-robocasa"
+    },
+    {
+      "id": "robocasa--pi0",
+      "view_id": "robocasa",
+      "configuration_id": "pi0",
+      "status": "reported",
+      "rate": "14.8",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-4"
+      ],
+      "protocol_id": "external-robocasa"
+    },
+    {
+      "id": "robotwin--gr00t-n1-7",
+      "view_id": "robotwin",
+      "configuration_id": "gr00t-n1-7",
+      "status": "reported",
+      "rate": "20.7",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-6"
+      ],
+      "protocol_id": "external-robotwin"
+    },
+    {
+      "id": "robotwin--pi0-5",
+      "view_id": "robotwin",
+      "configuration_id": "pi0-5",
+      "status": "reported",
+      "rate": "47.9",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-6"
+      ],
+      "protocol_id": "external-robotwin"
+    },
+    {
+      "id": "robotwin--starvla",
+      "view_id": "robotwin",
+      "configuration_id": "starvla",
+      "status": "reported",
+      "rate": "10.6",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-6"
+      ],
+      "protocol_id": "external-robotwin"
+    },
+    {
+      "id": "robotwin--lingbot-vla",
+      "view_id": "robotwin",
+      "configuration_id": "lingbot-vla",
+      "status": "reported",
+      "rate": "50.4",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-6"
+      ],
+      "protocol_id": "external-robotwin"
+    },
+    {
+      "id": "standard-spatial--openvla",
+      "view_id": "standard-spatial",
+      "configuration_id": "openvla",
+      "status": "reported",
+      "rate": "84.7",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "external-standard"
+    },
+    {
+      "id": "standard-object--openvla",
+      "view_id": "standard-object",
+      "configuration_id": "openvla",
+      "status": "reported",
+      "rate": "88.4",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "external-standard"
+    },
+    {
+      "id": "standard-goal--openvla",
+      "view_id": "standard-goal",
+      "configuration_id": "openvla",
+      "status": "reported",
+      "rate": "79.2",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "external-standard"
+    },
+    {
+      "id": "standard-long--openvla",
+      "view_id": "standard-long",
+      "configuration_id": "openvla",
+      "status": "reported",
+      "rate": "53.7",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "external-standard"
+    },
+    {
+      "id": "standard-spatial--nora",
+      "view_id": "standard-spatial",
+      "configuration_id": "nora",
+      "status": "reported",
+      "rate": "85.6",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "external-standard"
+    },
+    {
+      "id": "standard-object--nora",
+      "view_id": "standard-object",
+      "configuration_id": "nora",
+      "status": "reported",
+      "rate": "89.4",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "external-standard"
+    },
+    {
+      "id": "standard-goal--nora",
+      "view_id": "standard-goal",
+      "configuration_id": "nora",
+      "status": "reported",
+      "rate": "80.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "external-standard"
+    },
+    {
+      "id": "standard-long--nora",
+      "view_id": "standard-long",
+      "configuration_id": "nora",
+      "status": "reported",
+      "rate": "63.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "external-standard"
+    },
+    {
+      "id": "standard-spatial--pi0",
+      "view_id": "standard-spatial",
+      "configuration_id": "pi0",
+      "status": "reported",
+      "rate": "96.8",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "external-standard"
+    },
+    {
+      "id": "standard-object--pi0",
+      "view_id": "standard-object",
+      "configuration_id": "pi0",
+      "status": "reported",
+      "rate": "98.8",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "external-standard"
+    },
+    {
+      "id": "standard-goal--pi0",
+      "view_id": "standard-goal",
+      "configuration_id": "pi0",
+      "status": "reported",
+      "rate": "95.8",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "external-standard"
+    },
+    {
+      "id": "standard-long--pi0",
+      "view_id": "standard-long",
+      "configuration_id": "pi0",
+      "status": "reported",
+      "rate": "85.2",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "external-standard"
+    },
+    {
+      "id": "standard-spatial--pi-rlinf",
+      "view_id": "standard-spatial",
+      "configuration_id": "pi-rlinf",
+      "status": "reported",
+      "rate": "99.0",
+      "successes": null,
+      "episodes": 100,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "external-standard"
+    },
+    {
+      "id": "standard-object--pi-rlinf",
+      "view_id": "standard-object",
+      "configuration_id": "pi-rlinf",
+      "status": "reported",
+      "rate": "96.0",
+      "successes": null,
+      "episodes": 100,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "external-standard"
+    },
+    {
+      "id": "standard-goal--pi-rlinf",
+      "view_id": "standard-goal",
+      "configuration_id": "pi-rlinf",
+      "status": "reported",
+      "rate": "97.0",
+      "successes": null,
+      "episodes": 100,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "external-standard"
+    },
+    {
+      "id": "standard-long--pi-rlinf",
+      "view_id": "standard-long",
+      "configuration_id": "pi-rlinf",
+      "status": "reported",
+      "rate": "89.0",
+      "successes": null,
+      "episodes": 100,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "external-standard"
+    },
+    {
+      "id": "standard-spatial--atomvla",
+      "view_id": "standard-spatial",
+      "configuration_id": "atomvla",
+      "status": "reported",
+      "rate": "96.4",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "external-standard"
+    },
+    {
+      "id": "standard-object--atomvla",
+      "view_id": "standard-object",
+      "configuration_id": "atomvla",
+      "status": "reported",
+      "rate": "99.6",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "external-standard"
+    },
+    {
+      "id": "standard-goal--atomvla",
+      "view_id": "standard-goal",
+      "configuration_id": "atomvla",
+      "status": "reported",
+      "rate": "97.6",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "external-standard"
+    },
+    {
+      "id": "standard-long--atomvla",
+      "view_id": "standard-long",
+      "configuration_id": "atomvla",
+      "status": "reported",
+      "rate": "94.4",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-2"
+      ],
+      "protocol_id": "external-standard"
+    },
+    {
+      "id": "spatial-task--pi0",
+      "view_id": "spatial-task",
+      "configuration_id": "pi0",
+      "status": "reported",
+      "rate": "0.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "spatial-swap--pi0",
+      "view_id": "spatial-swap",
+      "configuration_id": "pi0",
+      "status": "reported",
+      "rate": "0.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "object-task--pi0",
+      "view_id": "object-task",
+      "configuration_id": "pi0",
+      "status": "reported",
+      "rate": "0.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "object-swap--pi0",
+      "view_id": "object-swap",
+      "configuration_id": "pi0",
+      "status": "reported",
+      "rate": "2.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "goal-task--pi0",
+      "view_id": "goal-task",
+      "configuration_id": "pi0",
+      "status": "reported",
+      "rate": "0.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "goal-swap--pi0",
+      "view_id": "goal-swap",
+      "configuration_id": "pi0",
+      "status": "reported",
+      "rate": "0.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "long-task--pi0",
+      "view_id": "long-task",
+      "configuration_id": "pi0",
+      "status": "reported",
+      "rate": "0.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "long-swap--pi0",
+      "view_id": "long-swap",
+      "configuration_id": "pi0",
+      "status": "reported",
+      "rate": "0.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "spatial-task--pi0-5",
+      "view_id": "spatial-task",
+      "configuration_id": "pi0-5",
+      "status": "reported",
+      "rate": "1.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "spatial-swap--pi0-5",
+      "view_id": "spatial-swap",
+      "configuration_id": "pi0-5",
+      "status": "reported",
+      "rate": "20.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "object-task--pi0-5",
+      "view_id": "object-task",
+      "configuration_id": "pi0-5",
+      "status": "reported",
+      "rate": "1.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "object-swap--pi0-5",
+      "view_id": "object-swap",
+      "configuration_id": "pi0-5",
+      "status": "reported",
+      "rate": "17.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "goal-task--pi0-5",
+      "view_id": "goal-task",
+      "configuration_id": "pi0-5",
+      "status": "reported",
+      "rate": "2.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "goal-swap--pi0-5",
+      "view_id": "goal-swap",
+      "configuration_id": "pi0-5",
+      "status": "reported",
+      "rate": "38.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "long-task--pi0-5",
+      "view_id": "long-task",
+      "configuration_id": "pi0-5",
+      "status": "reported",
+      "rate": "1.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "long-swap--pi0-5",
+      "view_id": "long-swap",
+      "configuration_id": "pi0-5",
+      "status": "reported",
+      "rate": "8.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "spatial-task--molmoact",
+      "view_id": "spatial-task",
+      "configuration_id": "molmoact",
+      "status": "reported",
+      "rate": "0.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "spatial-swap--molmoact",
+      "view_id": "spatial-swap",
+      "configuration_id": "molmoact",
+      "status": "reported",
+      "rate": "0.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "object-task--molmoact",
+      "view_id": "object-task",
+      "configuration_id": "molmoact",
+      "status": "reported",
+      "rate": "0.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "object-swap--molmoact",
+      "view_id": "object-swap",
+      "configuration_id": "molmoact",
+      "status": "reported",
+      "rate": "6.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "goal-task--molmoact",
+      "view_id": "goal-task",
+      "configuration_id": "molmoact",
+      "status": "reported",
+      "rate": "0.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "goal-swap--molmoact",
+      "view_id": "goal-swap",
+      "configuration_id": "molmoact",
+      "status": "reported",
+      "rate": "0.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "long-task--molmoact",
+      "view_id": "long-task",
+      "configuration_id": "molmoact",
+      "status": "reported",
+      "rate": "6.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "long-swap--molmoact",
+      "view_id": "long-swap",
+      "configuration_id": "molmoact",
+      "status": "reported",
+      "rate": "0.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "spatial-task--x-vla",
+      "view_id": "spatial-task",
+      "configuration_id": "x-vla",
+      "status": "reported",
+      "rate": "0.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "spatial-swap--x-vla",
+      "view_id": "spatial-swap",
+      "configuration_id": "x-vla",
+      "status": "reported",
+      "rate": "0.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "object-task--x-vla",
+      "view_id": "object-task",
+      "configuration_id": "x-vla",
+      "status": "reported",
+      "rate": "8.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "object-swap--x-vla",
+      "view_id": "object-swap",
+      "configuration_id": "x-vla",
+      "status": "reported",
+      "rate": "2.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "goal-task--x-vla",
+      "view_id": "goal-task",
+      "configuration_id": "x-vla",
+      "status": "reported",
+      "rate": "9.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "goal-swap--x-vla",
+      "view_id": "goal-swap",
+      "configuration_id": "x-vla",
+      "status": "reported",
+      "rate": "1.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "long-task--x-vla",
+      "view_id": "long-task",
+      "configuration_id": "x-vla",
+      "status": "reported",
+      "rate": "10.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "long-swap--x-vla",
+      "view_id": "long-swap",
+      "configuration_id": "x-vla",
+      "status": "reported",
+      "rate": "0.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "spatial-task--atomvla",
+      "view_id": "spatial-task",
+      "configuration_id": "atomvla",
+      "status": "reported",
+      "rate": "1.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "spatial-swap--atomvla",
+      "view_id": "spatial-swap",
+      "configuration_id": "atomvla",
+      "status": "reported",
+      "rate": "16.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "object-task--atomvla",
+      "view_id": "object-task",
+      "configuration_id": "atomvla",
+      "status": "reported",
+      "rate": "0.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "object-swap--atomvla",
+      "view_id": "object-swap",
+      "configuration_id": "atomvla",
+      "status": "reported",
+      "rate": "10.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "goal-task--atomvla",
+      "view_id": "goal-task",
+      "configuration_id": "atomvla",
+      "status": "reported",
+      "rate": "11.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "goal-swap--atomvla",
+      "view_id": "goal-swap",
+      "configuration_id": "atomvla",
+      "status": "reported",
+      "rate": "2.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "long-task--atomvla",
+      "view_id": "long-task",
+      "configuration_id": "atomvla",
+      "status": "reported",
+      "rate": "9.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "long-swap--atomvla",
+      "view_id": "long-swap",
+      "configuration_id": "atomvla",
+      "status": "reported",
+      "rate": "1.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "spatial-task--cap-x",
+      "view_id": "spatial-task",
+      "configuration_id": "cap-x",
+      "status": "reported",
+      "rate": "14.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "spatial-swap--cap-x",
+      "view_id": "spatial-swap",
+      "configuration_id": "cap-x",
+      "status": "reported",
+      "rate": "12.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "object-task--cap-x",
+      "view_id": "object-task",
+      "configuration_id": "cap-x",
+      "status": "reported",
+      "rate": "18.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "object-swap--cap-x",
+      "view_id": "object-swap",
+      "configuration_id": "cap-x",
+      "status": "reported",
+      "rate": "22.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "goal-task--cap-x",
+      "view_id": "goal-task",
+      "configuration_id": "cap-x",
+      "status": "reported",
+      "rate": "17.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "goal-swap--cap-x",
+      "view_id": "goal-swap",
+      "configuration_id": "cap-x",
+      "status": "reported",
+      "rate": "26.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "spatial-task--rats",
+      "view_id": "spatial-task",
+      "configuration_id": "rats",
+      "status": "reported",
+      "rate": "31.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "spatial-swap--rats",
+      "view_id": "spatial-swap",
+      "configuration_id": "rats",
+      "status": "reported",
+      "rate": "29.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "object-task--rats",
+      "view_id": "object-task",
+      "configuration_id": "rats",
+      "status": "reported",
+      "rate": "63.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "object-swap--rats",
+      "view_id": "object-swap",
+      "configuration_id": "rats",
+      "status": "reported",
+      "rate": "61.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "goal-task--rats",
+      "view_id": "goal-task",
+      "configuration_id": "rats",
+      "status": "reported",
+      "rate": "36.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "goal-swap--rats",
+      "view_id": "goal-swap",
+      "configuration_id": "rats",
+      "status": "reported",
+      "rate": "43.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "spatial-task--pi-rlinf",
+      "view_id": "spatial-task",
+      "configuration_id": "pi-rlinf",
+      "status": "reported",
+      "rate": "42.0",
+      "successes": null,
+      "episodes": 100,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "spatial-swap--pi-rlinf",
+      "view_id": "spatial-swap",
+      "configuration_id": "pi-rlinf",
+      "status": "reported",
+      "rate": "59.0",
+      "successes": null,
+      "episodes": 100,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "object-task--pi-rlinf",
+      "view_id": "object-task",
+      "configuration_id": "pi-rlinf",
+      "status": "reported",
+      "rate": "71.0",
+      "successes": null,
+      "episodes": 100,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "object-swap--pi-rlinf",
+      "view_id": "object-swap",
+      "configuration_id": "pi-rlinf",
+      "status": "reported",
+      "rate": "78.0",
+      "successes": null,
+      "episodes": 100,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "goal-task--pi-rlinf",
+      "view_id": "goal-task",
+      "configuration_id": "pi-rlinf",
+      "status": "reported",
+      "rate": "45.0",
+      "successes": null,
+      "episodes": 100,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "goal-swap--pi-rlinf",
+      "view_id": "goal-swap",
+      "configuration_id": "pi-rlinf",
+      "status": "reported",
+      "rate": "42.0",
+      "successes": null,
+      "episodes": 100,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "long-task--pi-rlinf",
+      "view_id": "long-task",
+      "configuration_id": "pi-rlinf",
+      "status": "reported",
+      "rate": "49.0",
+      "successes": null,
+      "episodes": 100,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "long-swap--pi-rlinf",
+      "view_id": "long-swap",
+      "configuration_id": "pi-rlinf",
+      "status": "reported",
+      "rate": "14.0",
+      "successes": null,
+      "episodes": 100,
+      "source_ids": [
+        "paper-table-3"
+      ],
+      "protocol_id": "external-pro"
+    },
+    {
+      "id": "robocasa-atomic-seen--rldx-1",
+      "view_id": "robocasa-atomic-seen",
+      "configuration_id": "rldx-1",
+      "status": "reported",
+      "rate": "60.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-4"
+      ],
+      "protocol_id": "external-robocasa"
+    },
+    {
+      "id": "robocasa-composite-seen--rldx-1",
+      "view_id": "robocasa-composite-seen",
+      "configuration_id": "rldx-1",
+      "status": "reported",
+      "rate": "21.3",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-4"
+      ],
+      "protocol_id": "external-robocasa"
+    },
+    {
+      "id": "robocasa-composite-unseen--rldx-1",
+      "view_id": "robocasa-composite-unseen",
+      "configuration_id": "rldx-1",
+      "status": "reported",
+      "rate": "5.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-4"
+      ],
+      "protocol_id": "external-robocasa"
+    },
+    {
+      "id": "robocasa-atomic-seen--worlddreamer",
+      "view_id": "robocasa-atomic-seen",
+      "configuration_id": "worlddreamer",
+      "status": "reported",
+      "rate": "66.3",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-4"
+      ],
+      "protocol_id": "external-robocasa"
+    },
+    {
+      "id": "robocasa-composite-seen--worlddreamer",
+      "view_id": "robocasa-composite-seen",
+      "configuration_id": "worlddreamer",
+      "status": "reported",
+      "rate": "26.7",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-4"
+      ],
+      "protocol_id": "external-robocasa"
+    },
+    {
+      "id": "robocasa-composite-unseen--worlddreamer",
+      "view_id": "robocasa-composite-unseen",
+      "configuration_id": "worlddreamer",
+      "status": "reported",
+      "rate": "9.0",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-4"
+      ],
+      "protocol_id": "external-robocasa"
+    },
+    {
+      "id": "robocasa-atomic-seen--pi0-5",
+      "view_id": "robocasa-atomic-seen",
+      "configuration_id": "pi0-5",
+      "status": "reported",
+      "rate": "39.6",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-4"
+      ],
+      "protocol_id": "external-robocasa"
+    },
+    {
+      "id": "robocasa-composite-seen--pi0-5",
+      "view_id": "robocasa-composite-seen",
+      "configuration_id": "pi0-5",
+      "status": "reported",
+      "rate": "7.1",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-4"
+      ],
+      "protocol_id": "external-robocasa"
+    },
+    {
+      "id": "robocasa-composite-unseen--pi0-5",
+      "view_id": "robocasa-composite-unseen",
+      "configuration_id": "pi0-5",
+      "status": "reported",
+      "rate": "1.2",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-4"
+      ],
+      "protocol_id": "external-robocasa"
+    },
+    {
+      "id": "robocasa-atomic-seen--pi0",
+      "view_id": "robocasa-atomic-seen",
+      "configuration_id": "pi0",
+      "status": "reported",
+      "rate": "34.6",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-4"
+      ],
+      "protocol_id": "external-robocasa"
+    },
+    {
+      "id": "robocasa-composite-seen--pi0",
+      "view_id": "robocasa-composite-seen",
+      "configuration_id": "pi0",
+      "status": "reported",
+      "rate": "6.1",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-4"
+      ],
+      "protocol_id": "external-robocasa"
+    },
+    {
+      "id": "robocasa-composite-unseen--pi0",
+      "view_id": "robocasa-composite-unseen",
+      "configuration_id": "pi0",
+      "status": "reported",
+      "rate": "1.1",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "paper-table-4"
+      ],
+      "protocol_id": "external-robocasa"
+    },
+    {
+      "id": "libero-pro--opus-4-7-reported",
+      "view_id": "libero-pro",
+      "configuration_id": "opus-4-7-reported",
+      "status": "reported",
+      "rate": "82.4",
+      "successes": null,
+      "episodes": 800,
+      "source_ids": [
+        "contributor-correction-20260916"
+      ],
+      "protocol_id": "contributor-pro-eight"
+    },
+    {
+      "id": "libero-pro--rpent-flash-mode",
+      "view_id": "libero-pro",
+      "configuration_id": "rpent-flash-mode",
+      "status": "reported",
+      "rate": "72.63",
+      "successes": 581,
+      "episodes": 800,
+      "source_ids": [
+        "repo-flash-mode-800",
+        "flash-contributor-800-outcomes"
+      ],
+      "protocol_id": "rpent-pro-flash-mode"
+    },
+    {
+      "id": "robocasa--gpt-6-astra-reported",
+      "view_id": "robocasa",
+      "configuration_id": "gpt-6-astra-low",
+      "status": "reported",
+      "rate": "59.20",
+      "successes": null,
+      "episodes": 340,
+      "source_ids": [
+        "contributor-20260915",
+        "contributor-settings-20260915",
+        "robocasa-astra-contributor-correction-20260920"
+      ],
+      "protocol_id": "rpent-robocasa"
+    },
+    {
+      "id": "robotwin--gpt-5-5-xhigh",
+      "view_id": "robotwin",
+      "configuration_id": "gpt-5-5-xhigh",
+      "status": "reported",
+      "rate": "62.4",
+      "successes": 156,
+      "episodes": 250,
+      "source_ids": [
+        "repo-robotwin-20260915"
+      ],
+      "protocol_id": "repo-robotwin-20260915",
+      "task_failures": 58,
+      "episode_timeouts": 36
+    },
+    {
+      "id": "robocasa--xiaomi-robotics-1",
+      "view_id": "robocasa",
+      "configuration_id": "xiaomi-robotics-1",
+      "status": "reported",
+      "rate": "57.4",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "xiaomi-official-robocasa365",
+        "xiaomi-paper-v2-table-3"
+      ],
+      "protocol_id": "xiaomi-official-robocasa365"
+    },
+    {
+      "id": "robocasa-atomic-seen--xiaomi-robotics-1",
+      "view_id": "robocasa-atomic-seen",
+      "configuration_id": "xiaomi-robotics-1",
+      "status": "reported",
+      "rate": "80.2",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "xiaomi-official-robocasa365",
+        "xiaomi-paper-v2-table-3"
+      ],
+      "protocol_id": "xiaomi-official-robocasa365"
+    },
+    {
+      "id": "robocasa-composite-seen--xiaomi-robotics-1",
+      "view_id": "robocasa-composite-seen",
+      "configuration_id": "xiaomi-robotics-1",
+      "status": "reported",
+      "rate": "57.1",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "xiaomi-official-robocasa365",
+        "xiaomi-paper-v2-table-3"
+      ],
+      "protocol_id": "xiaomi-official-robocasa365"
+    },
+    {
+      "id": "robocasa-composite-unseen--xiaomi-robotics-1",
+      "view_id": "robocasa-composite-unseen",
+      "configuration_id": "xiaomi-robotics-1",
+      "status": "reported",
+      "rate": "32.1",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "xiaomi-official-robocasa365",
+        "xiaomi-paper-v2-table-3"
+      ],
+      "protocol_id": "xiaomi-official-robocasa365"
+    },
+    {
+      "id": "spatial-task--aspire",
+      "view_id": "spatial-task",
+      "configuration_id": "aspire",
+      "status": "reported",
+      "rate": "60.0",
+      "successes": null,
+      "episodes": 500,
+      "source_ids": [
+        "aspire-table-2"
+      ],
+      "protocol_id": "aspire-held-out-50-seeds"
+    },
+    {
+      "id": "spatial-swap--aspire",
+      "view_id": "spatial-swap",
+      "configuration_id": "aspire",
+      "status": "reported",
+      "rate": "51.0",
+      "successes": null,
+      "episodes": 500,
+      "source_ids": [
+        "aspire-table-2"
+      ],
+      "protocol_id": "aspire-held-out-50-seeds"
+    },
+    {
+      "id": "object-task--aspire",
+      "view_id": "object-task",
+      "configuration_id": "aspire",
+      "status": "reported",
+      "rate": "95.0",
+      "successes": null,
+      "episodes": 500,
+      "source_ids": [
+        "aspire-table-2"
+      ],
+      "protocol_id": "aspire-held-out-50-seeds"
+    },
+    {
+      "id": "object-swap--aspire",
+      "view_id": "object-swap",
+      "configuration_id": "aspire",
+      "status": "reported",
+      "rate": "98.0",
+      "successes": null,
+      "episodes": 500,
+      "source_ids": [
+        "aspire-table-2"
+      ],
+      "protocol_id": "aspire-held-out-50-seeds"
+    },
+    {
+      "id": "goal-task--aspire",
+      "view_id": "goal-task",
+      "configuration_id": "aspire",
+      "status": "reported",
+      "rate": "45.0",
+      "successes": null,
+      "episodes": 500,
+      "source_ids": [
+        "aspire-table-2"
+      ],
+      "protocol_id": "aspire-held-out-50-seeds"
+    },
+    {
+      "id": "goal-swap--aspire",
+      "view_id": "goal-swap",
+      "configuration_id": "aspire",
+      "status": "reported",
+      "rate": "81.0",
+      "successes": null,
+      "episodes": 500,
+      "source_ids": [
+        "aspire-table-2"
+      ],
+      "protocol_id": "aspire-held-out-50-seeds"
+    },
+    {
+      "id": "long-task--aspire",
+      "view_id": "long-task",
+      "configuration_id": "aspire",
+      "status": "reported",
+      "rate": "38.3",
+      "successes": null,
+      "episodes": 500,
+      "source_ids": [
+        "aspire-table-5"
+      ],
+      "protocol_id": "aspire-libero90-zero-shot",
+      "evaluation_note": {
+        "en": "Long zero-shot transfer (LIBERO-90 library)",
+        "zh": "Long 零样本迁移（LIBERO-90 技能库）"
+      }
+    },
+    {
+      "id": "long-swap--aspire",
+      "view_id": "long-swap",
+      "configuration_id": "aspire",
+      "status": "reported",
+      "rate": "22.6",
+      "successes": null,
+      "episodes": 500,
+      "source_ids": [
+        "aspire-table-5"
+      ],
+      "protocol_id": "aspire-libero90-zero-shot",
+      "evaluation_note": {
+        "en": "Long zero-shot transfer (LIBERO-90 library)",
+        "zh": "Long 零样本迁移（LIBERO-90 技能库）"
+      }
+    },
+    {
+      "id": "libero-pro--aspire",
+      "view_id": "libero-pro",
+      "configuration_id": "aspire",
+      "status": "derived",
+      "rate": "61.36",
+      "successes": null,
+      "episodes": null,
+      "source_ids": [
+        "aspire-table-2",
+        "aspire-table-5"
+      ],
+      "protocol_id": "aspire-eight-component-mean",
+      "derived_from": [
+        "spatial-task--aspire",
+        "spatial-swap--aspire",
+        "object-task--aspire",
+        "object-swap--aspire",
+        "goal-task--aspire",
+        "goal-swap--aspire",
+        "long-task--aspire",
+        "long-swap--aspire"
+      ],
+      "calculation": "Unweighted arithmetic mean of the eight displayed percentages; six main-suite and two Long zero-shot results.",
+      "evaluation_note": {
+        "en": "Eight-score arithmetic mean",
+        "zh": "八项算术平均"
+      }
+    },
+    {
+      "id": "spatial-task--rpent-flash-mode",
+      "view_id": "spatial-task",
+      "configuration_id": "rpent-flash-mode",
+      "status": "reported",
+      "rate": "79.00",
+      "successes": 79,
+      "episodes": 100,
+      "source_ids": [
+        "flash-contributor-800-outcomes"
+      ],
+      "protocol_id": "rpent-pro-flash-mode"
+    },
+    {
+      "id": "spatial-swap--rpent-flash-mode",
+      "view_id": "spatial-swap",
+      "configuration_id": "rpent-flash-mode",
+      "status": "reported",
+      "rate": "70.00",
+      "successes": 70,
+      "episodes": 100,
+      "source_ids": [
+        "flash-contributor-800-outcomes"
+      ],
+      "protocol_id": "rpent-pro-flash-mode"
+    },
+    {
+      "id": "object-task--rpent-flash-mode",
+      "view_id": "object-task",
+      "configuration_id": "rpent-flash-mode",
+      "status": "reported",
+      "rate": "86.00",
+      "successes": 86,
+      "episodes": 100,
+      "source_ids": [
+        "flash-contributor-800-outcomes"
+      ],
+      "protocol_id": "rpent-pro-flash-mode"
+    },
+    {
+      "id": "object-swap--rpent-flash-mode",
+      "view_id": "object-swap",
+      "configuration_id": "rpent-flash-mode",
+      "status": "reported",
+      "rate": "93.00",
+      "successes": 93,
+      "episodes": 100,
+      "source_ids": [
+        "flash-contributor-800-outcomes"
+      ],
+      "protocol_id": "rpent-pro-flash-mode"
+    },
+    {
+      "id": "goal-task--rpent-flash-mode",
+      "view_id": "goal-task",
+      "configuration_id": "rpent-flash-mode",
+      "status": "reported",
+      "rate": "74.00",
+      "successes": 74,
+      "episodes": 100,
+      "source_ids": [
+        "flash-contributor-800-outcomes"
+      ],
+      "protocol_id": "rpent-pro-flash-mode"
+    },
+    {
+      "id": "goal-swap--rpent-flash-mode",
+      "view_id": "goal-swap",
+      "configuration_id": "rpent-flash-mode",
+      "status": "reported",
+      "rate": "65.00",
+      "successes": 65,
+      "episodes": 100,
+      "source_ids": [
+        "flash-contributor-800-outcomes"
+      ],
+      "protocol_id": "rpent-pro-flash-mode"
+    },
+    {
+      "id": "long-task--rpent-flash-mode",
+      "view_id": "long-task",
+      "configuration_id": "rpent-flash-mode",
+      "status": "reported",
+      "rate": "60.00",
+      "successes": 60,
+      "episodes": 100,
+      "source_ids": [
+        "flash-contributor-800-outcomes"
+      ],
+      "protocol_id": "rpent-pro-flash-mode"
+    },
+    {
+      "id": "long-swap--rpent-flash-mode",
+      "view_id": "long-swap",
+      "configuration_id": "rpent-flash-mode",
+      "status": "reported",
+      "rate": "54.00",
+      "successes": 54,
+      "episodes": 100,
+      "source_ids": [
+        "flash-contributor-800-outcomes"
+      ],
+      "protocol_id": "rpent-pro-flash-mode"
+    },
+    {
+      "id": "robocasa-atomic-seen--gpt-6-astra-low",
+      "view_id": "robocasa-atomic-seen",
+      "configuration_id": "gpt-6-astra-low",
+      "status": "reported",
+      "rate": "87.78",
+      "successes": null,
+      "episodes": 180,
+      "source_ids": [
+        "robocasa-astra-contributor-correction-20260920",
+        "contributor-settings-20260915"
+      ],
+      "protocol_id": "rpent-robocasa"
+    },
+    {
+      "id": "robocasa-composite-seen--gpt-6-astra-low",
+      "view_id": "robocasa-composite-seen",
+      "configuration_id": "gpt-6-astra-low",
+      "status": "reported",
+      "rate": "43.75",
+      "successes": null,
+      "episodes": 80,
+      "source_ids": [
+        "robocasa-astra-contributor-correction-20260920",
+        "contributor-settings-20260915"
+      ],
+      "protocol_id": "rpent-robocasa"
+    },
+    {
+      "id": "robocasa-composite-unseen--gpt-6-astra-low",
+      "view_id": "robocasa-composite-unseen",
+      "configuration_id": "gpt-6-astra-low",
+      "status": "reported",
+      "rate": "42.50",
+      "successes": null,
+      "episodes": 80,
+      "source_ids": [
+        "robocasa-astra-contributor-correction-20260920",
+        "contributor-settings-20260915"
+      ],
+      "protocol_id": "rpent-robocasa"
+    },
+    {
+      "id": "libero-pro--qwen3-6-27b-no-reasoning",
+      "view_id": "libero-pro",
+      "configuration_id": "qwen3-6-27b-no-reasoning",
+      "status": "reported",
+      "rate": "70.63",
+      "successes": 565,
+      "episodes": 800,
+      "source_ids": [
+        "contributor-qwen-costs-20260918"
+      ],
+      "protocol_id": "rpent-pro-qwen-eight-suites"
+    },
+    {
+      "id": "spatial-task--qwen3-6-27b-no-reasoning",
+      "view_id": "spatial-task",
+      "configuration_id": "qwen3-6-27b-no-reasoning",
+      "status": "reported",
+      "rate": "82.00",
+      "successes": 82,
+      "episodes": 100,
+      "source_ids": [
+        "contributor-qwen-costs-20260918"
+      ],
+      "protocol_id": "rpent-pro-qwen-eight-suites"
+    },
+    {
+      "id": "spatial-swap--qwen3-6-27b-no-reasoning",
+      "view_id": "spatial-swap",
+      "configuration_id": "qwen3-6-27b-no-reasoning",
+      "status": "reported",
+      "rate": "78.00",
+      "successes": 78,
+      "episodes": 100,
+      "source_ids": [
+        "contributor-qwen-costs-20260918"
+      ],
+      "protocol_id": "rpent-pro-qwen-eight-suites"
+    },
+    {
+      "id": "object-task--qwen3-6-27b-no-reasoning",
+      "view_id": "object-task",
+      "configuration_id": "qwen3-6-27b-no-reasoning",
+      "status": "reported",
+      "rate": "83.00",
+      "successes": 83,
+      "episodes": 100,
+      "source_ids": [
+        "contributor-qwen-costs-20260918"
+      ],
+      "protocol_id": "rpent-pro-qwen-eight-suites"
+    },
+    {
+      "id": "object-swap--qwen3-6-27b-no-reasoning",
+      "view_id": "object-swap",
+      "configuration_id": "qwen3-6-27b-no-reasoning",
+      "status": "reported",
+      "rate": "84.00",
+      "successes": 84,
+      "episodes": 100,
+      "source_ids": [
+        "contributor-qwen-costs-20260918"
+      ],
+      "protocol_id": "rpent-pro-qwen-eight-suites"
+    },
+    {
+      "id": "goal-task--qwen3-6-27b-no-reasoning",
+      "view_id": "goal-task",
+      "configuration_id": "qwen3-6-27b-no-reasoning",
+      "status": "reported",
+      "rate": "68.00",
+      "successes": 68,
+      "episodes": 100,
+      "source_ids": [
+        "contributor-qwen-costs-20260918"
+      ],
+      "protocol_id": "rpent-pro-qwen-eight-suites"
+    },
+    {
+      "id": "goal-swap--qwen3-6-27b-no-reasoning",
+      "view_id": "goal-swap",
+      "configuration_id": "qwen3-6-27b-no-reasoning",
+      "status": "reported",
+      "rate": "68.00",
+      "successes": 68,
+      "episodes": 100,
+      "source_ids": [
+        "contributor-qwen-costs-20260918"
+      ],
+      "protocol_id": "rpent-pro-qwen-eight-suites"
+    },
+    {
+      "id": "long-task--qwen3-6-27b-no-reasoning",
+      "view_id": "long-task",
+      "configuration_id": "qwen3-6-27b-no-reasoning",
+      "status": "reported",
+      "rate": "61.00",
+      "successes": 61,
+      "episodes": 100,
+      "source_ids": [
+        "contributor-qwen-costs-20260918"
+      ],
+      "protocol_id": "rpent-pro-qwen-eight-suites"
+    },
+    {
+      "id": "long-swap--qwen3-6-27b-no-reasoning",
+      "view_id": "long-swap",
+      "configuration_id": "qwen3-6-27b-no-reasoning",
+      "status": "reported",
+      "rate": "41.00",
+      "successes": 41,
+      "episodes": 100,
+      "source_ids": [
+        "contributor-qwen-costs-20260918"
+      ],
+      "protocol_id": "rpent-pro-qwen-eight-suites"
+    },
+    {
+      "id": "long-task--gpt-6-astra-low-motor-only",
+      "view_id": "long-task",
+      "configuration_id": "gpt-6-astra-low-motor-only",
+      "status": "reported",
+      "rate": "38.0",
+      "successes": 38,
+      "episodes": 100,
+      "source_ids": [
+        "contributor-motor-only-long-task-20260920"
+      ],
+      "protocol_id": "rpent-pro-motor-only"
+    }
+  ],
+  "cost_results": [
+    {
+      "id": "libero-pro--gpt-5-6-xhigh",
+      "benchmark_id": "libero-pro",
+      "configuration_id": "gpt-5-6-xhigh",
+      "mean_elapsed_seconds": 529.23,
+      "total_output_tokens": 3635426,
+      "source_ids": [
+        "contributor-qwen-costs-20260918"
+      ]
+    },
+    {
+      "id": "libero-pro--gpt-5-6-no-reasoning",
+      "benchmark_id": "libero-pro",
+      "configuration_id": "gpt-5-6-no-reasoning",
+      "mean_elapsed_seconds": 344.17,
+      "total_output_tokens": 2569676,
+      "source_ids": [
+        "contributor-qwen-costs-20260918"
+      ]
+    },
+    {
+      "id": "libero-pro--gpt-6-astra-low",
+      "benchmark_id": "libero-pro",
+      "configuration_id": "gpt-6-astra-low",
+      "mean_elapsed_seconds": 412.14,
+      "total_output_tokens": 3364938,
+      "source_ids": [
+        "contributor-qwen-costs-20260918"
+      ]
+    },
+    {
+      "id": "libero-pro--qwen3-6-27b-no-reasoning",
+      "benchmark_id": "libero-pro",
+      "configuration_id": "qwen3-6-27b-no-reasoning",
+      "mean_elapsed_seconds": 626.3,
+      "total_output_tokens": 3270754,
+      "source_ids": [
+        "contributor-qwen-costs-20260918"
+      ]
+    },
+    {
+      "id": "libero-pro--rpent-flash-mode",
+      "benchmark_id": "libero-pro",
+      "configuration_id": "rpent-flash-mode",
+      "mean_elapsed_seconds": 60.19,
+      "total_output_tokens": 0,
+      "source_ids": [
+        "contributor-qwen-costs-20260918"
+      ]
+    },
+    {
+      "id": "robocasa--gpt-5-6-xhigh",
+      "benchmark_id": "robocasa",
+      "configuration_id": "gpt-5-6-xhigh",
+      "mean_elapsed_seconds": 1197.56,
+      "total_output_tokens": 5258391,
+      "source_ids": [
+        "contributor-qwen-costs-20260918"
+      ]
+    },
+    {
+      "id": "robocasa--gpt-5-6-no-reasoning",
+      "benchmark_id": "robocasa",
+      "configuration_id": "gpt-5-6-no-reasoning",
+      "mean_elapsed_seconds": 1013.21,
+      "total_output_tokens": 4792104,
+      "source_ids": [
+        "contributor-qwen-costs-20260918"
+      ]
+    },
+    {
+      "id": "robocasa--gpt-6-astra-low",
+      "benchmark_id": "robocasa",
+      "configuration_id": "gpt-6-astra-low",
+      "mean_elapsed_seconds": 1168.95,
+      "total_output_tokens": 5894436,
+      "source_ids": [
+        "contributor-qwen-costs-20260918"
+      ]
+    },
+    {
+      "id": "robotwin--gpt-5-6-xhigh",
+      "benchmark_id": "robotwin",
+      "configuration_id": "gpt-5-6-xhigh",
+      "mean_elapsed_seconds": 1828.7,
+      "total_output_tokens": 4763915,
+      "source_ids": [
+        "contributor-qwen-costs-20260918"
+      ]
+    },
+    {
+      "id": "robotwin--gpt-5-6-no-reasoning",
+      "benchmark_id": "robotwin",
+      "configuration_id": "gpt-5-6-no-reasoning",
+      "mean_elapsed_seconds": 957.4,
+      "total_output_tokens": 2456401,
+      "source_ids": [
+        "contributor-qwen-costs-20260918"
+      ]
+    },
+    {
+      "id": "robotwin--gpt-6-astra-low",
+      "benchmark_id": "robotwin",
+      "configuration_id": "gpt-6-astra-low",
+      "mean_elapsed_seconds": 1078.8,
+      "total_output_tokens": 2763641,
+      "source_ids": [
+        "contributor-qwen-costs-20260918"
+      ]
+    }
+  ],
+  "sources": [
+    {
+      "id": "paper-table-2",
+      "url": "https://arxiv.org/html/2607.08448v4#S3.T2"
+    },
+    {
+      "id": "paper-table-3",
+      "url": "https://arxiv.org/html/2607.08448v4#S3.T3"
+    },
+    {
+      "id": "paper-table-4",
+      "url": "https://arxiv.org/html/2607.08448v4#S3.T4"
+    },
+    {
+      "id": "paper-table-6",
+      "url": "https://arxiv.org/html/2607.08448v4#S3.T6"
+    },
+    {
+      "id": "astra-long-20260907",
+      "report_sha256": "627d6d8a95fb1e10357961694867cd0bf0a2aa9011c96c8a33504b904cb96c80",
+      "memory_batch": {
+        "campaign_id": "libero_long_gpt6_astra_20260907",
+        "suites": [
+          "long-task",
+          "long-swap"
+        ]
+      }
+    },
+    {
+      "id": "astra-pro-remaining-20260913",
+      "report_sha256": "627d6d8a95fb1e10357961694867cd0bf0a2aa9011c96c8a33504b904cb96c80",
+      "memory_batch": {
+        "campaign_id": "libero_pro_remaining_gpt6_astra_20260913",
+        "suites": [
+          "spatial-task",
+          "spatial-swap",
+          "object-task",
+          "object-swap",
+          "goal-task",
+          "goal-swap"
+        ],
+        "manifest_sha256": "f08702d7c13d9b40a3127b64765ad4d336d022be028396d5f873d7fc4c4c4928"
+      }
+    },
+    {
+      "id": "contributor-20260915",
+      "kind": "contributor-confirmed"
+    },
+    {
+      "id": "contributor-settings-20260915",
+      "kind": "contributor-confirmed"
+    },
+    {
+      "id": "contributor-correction-20260916",
+      "kind": "contributor-confirmed",
+      "note": "Corrected model labels and aggregate scores; removed requested configurations. No missing suite scores inferred."
+    },
+    {
+      "id": "repo-flash-mode-800",
+      "url": "https://github.com/RLinf/RPent/blob/c19727c7bbdd277cd86a985aae3f2741ba01df7a/docs/source-en/rst_source/usage/task_card.rst",
+      "note": "581 successes across all 800 LIBERO-PRO cases; missing source traces count as failures. Molmo is used for visual localization, not planning."
+    },
+    {
+      "id": "repo-robotwin-20260915",
+      "url": "https://github.com/RLinf/RPent/blob/849143bf740a562367345cec0de9ef4657dafd73/docs/source-en/rst_source/usage/robotwin.rst"
+    },
+    {
+      "id": "xiaomi-official-robocasa365",
+      "url": "https://robocasa.ai/leaderboard.html",
+      "submission_url": "https://github.com/robocasa-benchmark/leaderboard/blob/main/submissions_md/Xiaomi-Robotics_2026_07_08.md",
+      "checked_at": "2026-09-16",
+      "environment_split": "pretrain",
+      "note": "Published 50-task benchmark scores. Displayed alongside RPent by request; protocol equivalence has not been verified. Episode counts for this reported batch are unspecified here."
+    },
+    {
+      "id": "xiaomi-paper-v2-table-3",
+      "url": "https://arxiv.org/html/2607.15330v2#S3.T3"
+    },
+    {
+      "id": "aspire-table-2",
+      "url": "https://arxiv.org/html/2607.00272v1#A2.T2",
+      "note": "Table 2 main LIBERO-Pro results; Pos maps to Swap, Task maps to Task. Ten tasks and seeds 1-50 per suite. Published rounded rates are preserved, not converted to integer successes. Six-item Overall 72% is not an eight-suite Overall."
+    },
+    {
+      "id": "aspire-table-5",
+      "url": "https://arxiv.org/html/2607.00272v1#A3.T5",
+      "note": "Table 5, N=90 zero-shot library transfer: Task 0.383, Pos 0.226. A different evaluation regime from the six main suites; no combined Overall is inferred."
+    },
+    {
+      "id": "flash-published-family-counts",
+      "url": "https://github.com/RLinf/misc/blob/main/rpent/task_card/task_card_libero_pro_performance_time.png",
+      "note": "Exact printed titles: Spatial 149/200, Object 179/200, Goal 139/200, Long 114/200. Sum 581/800. Cross-check only; independent Task/Swap scores come from contributor outcome records, not digitized bar heights."
+    },
+    {
+      "id": "molmo2-model-card",
+      "url": "https://huggingface.co/allenai/Molmo2-8B",
+      "note": "Official model identity. RPent uses Molmo2-8B for visual localization only."
+    },
+    {
+      "id": "flash-contributor-800-outcomes",
+      "type": "contributor_archive",
+      "artifact": "task_card.zip",
+      "sha256": "a997e5a0f823abf2402e1374e22a068c43dfecc35a778a185d0274efd45e31e2",
+      "note": "Eight Task/Swap aggregates from 800 unique contributor result.json cases, checked against summary.json and published family totals. Each component includes all 100 expected cases (task IDs 0–9, seeds 0–9). The 20 no-card cases remain in the denominator and are not counted as successes.",
+      "aggregates": {
+        "spatial_task": {
+          "successes": 79,
+          "episodes": 100,
+          "outcomes": {
+            "success": 79,
+            "failure": 21
+          },
+          "rate": "79.00"
+        },
+        "spatial_swap": {
+          "successes": 70,
+          "episodes": 100,
+          "outcomes": {
+            "success": 70,
+            "failure": 30
+          },
+          "rate": "70.00"
+        },
+        "object_task": {
+          "successes": 86,
+          "episodes": 100,
+          "outcomes": {
+            "success": 86,
+            "failure": 14
+          },
+          "rate": "86.00"
+        },
+        "object_swap": {
+          "successes": 93,
+          "episodes": 100,
+          "outcomes": {
+            "success": 93,
+            "failure": 7
+          },
+          "rate": "93.00"
+        },
+        "goal_task": {
+          "successes": 74,
+          "episodes": 100,
+          "outcomes": {
+            "failure": 26,
+            "success": 74
+          },
+          "rate": "74.00"
+        },
+        "goal_swap": {
+          "successes": 65,
+          "episodes": 100,
+          "outcomes": {
+            "no_card": 10,
+            "failure": 25,
+            "success": 65
+          },
+          "rate": "65.00"
+        },
+        "long_task": {
+          "successes": 60,
+          "episodes": 100,
+          "outcomes": {
+            "success": 60,
+            "failure": 40
+          },
+          "rate": "60.00"
+        },
+        "long_swap": {
+          "successes": 54,
+          "episodes": 100,
+          "outcomes": {
+            "success": 54,
+            "failure": 36,
+            "no_card": 10
+          },
+          "rate": "54.00"
+        }
+      }
+    },
+    {
+      "id": "robocasa-astra-contributor-correction-20260920",
+      "kind": "contributor_correction",
+      "checked_at": "2026-09-20",
+      "protocol_url": "https://github.com/RLinf/RPent/blob/d14afccce78fb1bdbeba564fdd3ce7984c71bf2e/docs/source-en/rst_source/usage/robocasa.rst#harness-vla-target50-reproduction-protocol",
+      "environment_split": "target",
+      "tasks": 50,
+      "episodes": 340,
+      "groups": {
+        "atomic": {
+          "tasks": 18,
+          "episodes": 180
+        },
+        "composite_seen": {
+          "tasks": 16,
+          "episodes": 80
+        },
+        "composite_unseen": {
+          "tasks": 16,
+          "episodes": 80
+        }
+      },
+      "note": "The contributor corrected the full evaluation to 340 cells on 2026-09-20. Split denominators follow the existing RPent Target50 matrix (180/80/80). Reported success rates remain unchanged; full-run success counts are not inferred from rounded or task-weighted rates. The earlier archive is retained as historical local evidence, not as verification of the corrected full-run counts."
+    },
+    {
+      "id": "contributor-qwen-costs-20260918",
+      "type": "contributor_report",
+      "note": "Contributor-provided Qwen eight-suite counts and cost table. Mean elapsed time includes all evaluation episodes (success, failure, and timeout); tokens count evaluation-stage output only. No unreported planner, hardware, or token accounting details are inferred."
+    },
+    {
+      "id": "contributor-motor-only-long-task-20260920",
+      "type": "contributor_report",
+      "note": "Contributor-reported complete Long Task evaluation on another server: 38 successes in 100 episodes. Codex / GPT-6 Astra / low reasoning; execute_action motor-only control without VLA / primitives or memory. This aggregate is independent of the incomplete local motor-only campaign; no unreported suite, runtime, or token measurements are inferred."
+    },
+    {
+      "id": "repo-libero-long-reproduction-20260922",
+      "url": "https://github.com/RLinf/RPent/blob/15420b438e3adbf82e6640799a0668a2609e3bb7/docs/source-en/rst_source/usage/libero.rst#reproducing-results",
+      "note": "Codex / GPT-5.5 / xhigh reproduction on reproduce/libero reports Long Task 70/100 and Long Swap 55/100. The updated leaderboard combines these two results with the six unchanged Table 3 suites: (81+69+94+91+75+66+70+55)/8 = 75.125%, displayed as 75.13%. This derived Overall is not the paper's original aggregate."
+    },
+    {
+      "id": "flash-memory-confirmation-20260922",
+      "kind": "contributor-confirmed",
+      "url": "https://huggingface.co/datasets/RLinf/RPent-memory",
+      "note": "The contributor confirms that the displayed Flash Mode evaluation uses directly downloaded, officially released GPT-5.5 exploration memory and the best-performing seed from s0-s9. Molmo2-8B is used for visual localization. No memory snapshot revision is inferred."
+    }
+  ],
+  "palette": {
+    "light": {
+      "best": "#9464bf",
+      "rpent": "#3478f6",
+      "reference": "#b6aebf"
+    },
+    "dark": {
+      "best": "#be96e0",
+      "rpent": "#3478f6",
+      "reference": "#b6aebf"
+    }
+  }
+}

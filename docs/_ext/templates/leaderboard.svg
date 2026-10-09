@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1320" height="{{ height }}" viewBox="0 0 1320 {{ height }}" role="img" aria-labelledby="title description">
+  <title id="title">RPent Leaderboard</title>
+  <desc id="description">{{ copy.scope }} {% for section in sections %}{{ section.name }}: {% for row in section.bars %}{{ row.label }} {{ row.rate }}%; {% endfor %}{% endfor %}</desc>
+  <rect width="1320" height="{{ height }}" fill="{{ '#191620' if dark else '#faf8fd' }}"/>
+  <style>
+    text { font-family: "Times New Roman", "Noto Serif CJK SC", serif; fill: {{ '#f4f0fa' if dark else '#30283d' }}; }
+    .detail { fill: {{ '#bfb5cb' if dark else '#6a5e78' }}; font-size: 12px; }
+  </style>
+  <text x="30" y="48" font-size="32">RPent Leaderboard</text>
+  <text x="30" y="76" class="detail">{{ copy.scope }}</text>
+  {% for section in sections %}
+  <g transform="translate({{ section.x }},{{ section.y }})">
+    <rect width="620" height="{{ section.height }}" rx="10" fill="{{ '#25202e' if dark else '#ffffff' }}"/>
+    <rect width="620" height="4" fill="{{ palette.best }}"/>
+    <text x="16" y="36" font-size="24">{{ section.name }}</text>
+    {% for row in section.bars %}
+    <g transform="translate(16,{{ 65 + loop.index0 * 46 }})" data-record="{{ row.id }}">
+      <text y="0" font-size="15">{{ row.label }}</text>
+      <text y="17" class="detail">{{ row.detail }}</text>
+      <rect x="288" y="-13" width="235" height="23" rx="3" fill="{{ '#3a3345' if dark else '#f1edf6' }}"/>
+      <rect x="288" y="-13" width="{{ row.width }}" height="23" rx="3" fill="{{ palette[row.color_role] }}"/>
+      <text x="585" y="4" text-anchor="end" font-size="15">{{ row.rate }}%</text>
+    </g>
+    {% endfor %}
+  </g>
+  {% endfor %}
+</svg>
