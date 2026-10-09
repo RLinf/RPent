@@ -28,7 +28,7 @@ from rpent.dashboard.events import DashboardEventSink
 from rpent.memory.manager import MemoryManager
 from rpent.planner.utils.http_mcp_server import HttpMcpServer
 from rpent.session import EnvState
-from rpent.tools.toolkit import Toolkit, readonly
+from rpent.tools import Toolkit, ToolResult, tool
 from rpent.utils.logging import init_output_dir
 
 CONCURRENT_CALLS = [
@@ -65,62 +65,31 @@ class FakeToolkit(Toolkit):
         self._register_fake_tools()
 
     def _register_fake_tools(self) -> None:
-        @readonly
+        @tool(readonly=True)
         def read_text_file(path: str, max_chars: int = 40000) -> dict:
             time.sleep(0.05)
             p = Path(path)
-            return {"path": str(p), "size": 0, "content": "fake content"}
+            return ToolResult(
+                data={"path": str(p), "size": 0, "content": "fake content"}
+            )
 
-        @readonly
+        @tool(readonly=True)
         def list_dir(path: str = "") -> dict:
             time.sleep(0.05)
-            return {"path": path, "count": 0, "files": []}
+            return ToolResult(data={"path": path, "count": 0, "files": []})
 
+        @tool
         def view_env_state(step: int = -1) -> dict:
             time.sleep(0.3)
-            return {"step": step, "mode": "evaluation"}
+            return ToolResult(data={"step": step, "mode": "evaluation"})
 
-        self.add_tool(
-            "read_text_file",
-            {
-                "name": "read_text_file",
-                "description": "Read a UTF-8 text file.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {"path": {"type": "string"}},
-                    "required": ["path"],
-                },
-            },
-            read_text_file,
-        )
-        self.add_tool(
-            "list_dir",
-            {
-                "name": "list_dir",
-                "description": "List files in a directory.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {"path": {"type": "string"}},
-                },
-            },
-            list_dir,
-        )
-        self.add_tool(
-            "view_env_state",
-            {
-                "name": "view_env_state",
-                "description": "View the current environment state.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {"step": {"type": "integer"}},
-                },
-            },
-            view_env_state,
-        )
+        self.add_tool(read_text_file, replace=True)
+        self.add_tool(list_dir, replace=True)
+        self.add_tool(view_env_state)
 
     def execute_tool(self, name: str, input_dict: dict[str, Any]) -> Any:
         result = super().execute_tool(name, input_dict)
-        if result.result.get("error") == "another tool operation is still active":
+        if result.data.get("error") == "another tool operation is still active":
             self.overlap_errors.append((name, dict(input_dict)))
         return result
 
@@ -131,7 +100,7 @@ class FakeToolkit(Toolkit):
         result: dict[str, Any],
         elapsed_s: float,
     ) -> dict[str, Any]:
-        return {"observed": True}
+        return ToolResult(data={"observed": True})
 
     def solved(self) -> bool:
         return False

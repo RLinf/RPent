@@ -21,7 +21,7 @@ from typing import Any
 
 import pytest
 
-from rpent.tools.toolkit import readonly
+from rpent.tools import Tool, ToolResult
 
 
 class FakeSingleArmPrimitives:
@@ -58,55 +58,36 @@ class FakeSingleArmPrimitives:
     def dump_success_criteria(self) -> str:
         return "offline success criteria"
 
-    @readonly
     def segment(self, **kwargs: Any) -> dict[str, Any]:
         return {"segment": kwargs}
 
-    @staticmethod
-    def _operation(name: str, **kwargs: Any) -> dict[str, Any]:
-        return {"operation": name, "arguments": kwargs}
+    @classmethod
+    def for_robot(cls, primitives_type):
+        """Keep the real declarations while replacing physical operations."""
 
-    def move_to(self, **kwargs: Any) -> dict[str, Any]:
-        return self._operation("move_to", **kwargs)
+        def operation(name):
+            def handler(self, **kwargs):
+                if name == "reset":
+                    self.reset_calls += 1
+                    return ToolResult(data={"success": True})
+                return ToolResult(data={"operation": name, "arguments": kwargs})
 
-    def pi0_pick(self, **kwargs: Any) -> dict[str, Any]:
-        return self._operation("pi0_pick", **kwargs)
+            return handler
 
-    def pi0_doubled(self, **kwargs: Any) -> dict[str, Any]:
-        return self._operation("pi0_doubled", **kwargs)
+        declarations = {
+            name: definition.with_handler(operation(definition.name))
+            for name, definition in vars(primitives_type).items()
+            if isinstance(definition, Tool)
+        }
+        return type(
+            "Fake" + primitives_type.__name__, (cls,), {**declarations, "instances": []}
+        )
 
-    def release(self, **kwargs: Any) -> dict[str, Any]:
-        return self._operation("release", **kwargs)
+    def begin_primitive(self, name):
+        pass
 
-    def set_gripper(self, **kwargs: Any) -> dict[str, Any]:
-        return self._operation("set_gripper", **kwargs)
-
-    def rotate_wrist(self, **kwargs: Any) -> dict[str, Any]:
-        return self._operation("rotate_wrist", **kwargs)
-
-    def rotate_pitch(self, **kwargs: Any) -> dict[str, Any]:
-        return self._operation("rotate_pitch", **kwargs)
-
-    def move_pose(self, **kwargs: Any) -> dict[str, Any]:
-        return self._operation("move_pose", **kwargs)
-
-    def move_delta(self, **kwargs: Any) -> dict[str, Any]:
-        return self._operation("move_delta", **kwargs)
-
-    def scripted_grasp(self, **kwargs: Any) -> dict[str, Any]:
-        return self._operation("scripted_grasp", **kwargs)
-
-    def rldx_skill(self, **kwargs: Any) -> dict[str, Any]:
-        return self._operation("rldx_skill", **kwargs)
-
-    def rldx_arm(self, **kwargs: Any) -> dict[str, Any]:
-        return self._operation("rldx_arm", **kwargs)
-
-    def navigate_to(self, **kwargs: Any) -> dict[str, Any]:
-        return self._operation("navigate_to", **kwargs)
-
-    def move_base(self, **kwargs: Any) -> dict[str, Any]:
-        return self._operation("move_base", **kwargs)
+    def end_primitive(self):
+        pass
 
 
 class FakeRealSenseCamera:
