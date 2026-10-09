@@ -31,6 +31,7 @@ from rpent.tools.toolkit import Toolkit, readonly
 from rpent.utils.logging import get_logger, get_output_dir
 
 if TYPE_CHECKING:
+    from robots.libero.onejev.config import OneJevConfig
     from rpent.memory.manager import MemoryManager
 
 logger = get_logger("libero_toolkit")
@@ -48,6 +49,7 @@ class LiberoToolkit(Toolkit):
         mode: str = "evaluation",
         attempts_per_session: int = 0,
         state_output_dir: Path | str | None = None,
+        onejev_config: OneJevConfig | None = None,
     ) -> None:
         if mode not in {"evaluation", "exploration"}:
             raise ValueError(f"unsupported LIBERO toolkit mode: {mode!r}")
@@ -59,6 +61,7 @@ class LiberoToolkit(Toolkit):
             memory=memory,
         )
         self._mode = mode
+        self.onejev_config = onejev_config
         self._solved: bool = False
         self._attempt: int = 1
         # Bound the resettable attempts owned by this planner session.
@@ -84,6 +87,10 @@ class LiberoToolkit(Toolkit):
         }
         for spec in libero_tools.TOOLS_SPEC:
             name = spec["name"]
+            if name == "segment" and not getattr(
+                self._primitives, "supports_segmentation", True
+            ):
+                continue
             if name == "reset" and self._mode != "exploration":
                 continue
             if name in state_handlers:

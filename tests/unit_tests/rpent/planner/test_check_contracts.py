@@ -117,7 +117,12 @@ def test_every_status_is_declared_in_the_public_tuple() -> None:
 
 
 def test_diagnostic_timeouts_never_inherit_the_run_default() -> None:
-    assert DEFAULT_TIMEOUT_S == {"api": 30, "claude_code": 90, "codex": 90}
+    assert DEFAULT_TIMEOUT_S == {
+        "api": 30,
+        "claude_code": 90,
+        "codex": 90,
+        "onejev": 120,
+    }
     for planner, expected in DEFAULT_TIMEOUT_S.items():
         assert LlmCheckRequest(planner=planner).resolved_timeout_s() == expected
     assert LlmCheckRequest(planner="api", timeout_s=5).resolved_timeout_s() == 5

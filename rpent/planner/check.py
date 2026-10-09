@@ -77,7 +77,7 @@ CHECK_STATUSES = (
 )
 
 #: Planner backends this module can probe.
-CHECK_PLANNERS = ("api", "claude_code", "codex")
+CHECK_PLANNERS = ("api", "claude_code", "codex", "onejev")
 
 #: Backends whose endpoint comes from an env var, not from ``--base-url``.
 #: ``build_planner`` forwards ``base_url`` to the api model alone, so both
@@ -90,7 +90,7 @@ BASE_URL_ENV_BY_PLANNER = {
 }
 
 #: Diagnostic timeouts, deliberately independent of the 1200s run default.
-DEFAULT_TIMEOUT_S = {"api": 30, "claude_code": 90, "codex": 90}
+DEFAULT_TIMEOUT_S = {"api": 30, "claude_code": 90, "codex": 90, "onejev": 120}
 
 #: Budget for an SDK backend running on a CLI login rather than an env var.
 #: Shorter than the default because a diagnostic should not hold the terminal
@@ -286,6 +286,7 @@ def check_llm(request: LlmCheckRequest) -> LlmCheckResult:
         "api": _check_api,
         "claude_code": _check_claude_code,
         "codex": _check_codex,
+        "onejev": _check_onejev,
     }[planner]
 
     # The budget is logged where it is resolved: the SDK backends shorten it
@@ -314,6 +315,71 @@ def _running_loop() -> bool:
     except RuntimeError:
         return False
     return True
+
+
+def _check_onejev(request: LlmCheckRequest) -> LlmCheckResult:
+    """Verify the external service and execute a real minimal Choice request."""
+    import httpx
+
+    from rpent.planner.onejev_client import DEFAULT_ONEJEV_MODEL, OneJevClient
+    from rpent.planner.onejev_types import ActionCandidate, DecisionContext
+
+    model = request.model or DEFAULT_ONEJEV_MODEL
+    common = {"planner": "onejev", "model": model, "base_url": request.base_url}
+    if not request.base_url:
+        return LlmCheckResult(
+            ok=False,
+            status=STATUS_MISSING_CONFIG,
+            **common,
+            detail="OneJev requires --base-url pointing to its external service",
+        )
+    started = time.monotonic()
+    deadline = started + request.resolved_timeout_s()
+    client = None
+    try:
+        client = OneJevClient(request.base_url, model=model)
+        client.check_service(timeout_s=max(0.01, deadline - time.monotonic()))
+        scores = client.score(
+            DecisionContext(
+                state={
+                    "task": "Select the option describing the word ready",
+                    "word": "ready",
+                },
+                candidates=(
+                    ActionCandidate("ready", "probe", {}, "The word is ready"),
+                    ActionCandidate("other", "probe", {}, "The word is another word"),
+                ),
+            ),
+            timeout_s=max(0.01, deadline - time.monotonic()),
+        )
+        return LlmCheckResult(
+            ok=True,
+            status=STATUS_OK,
+            **common,
+            reply=str(scores.probabilities),
+            latency_s=time.monotonic() - started,
+            extra={"probabilities": scores.probabilities, "usage": scores.usage},
+        )
+    except httpx.RequestError as exc:
+        status, detail = STATUS_NETWORK_ERROR, str(exc)
+    except httpx.HTTPStatusError as exc:
+        status, detail = STATUS_PROVIDER_ERROR, str(exc)
+        if exc.response.status_code == 404 and "not served" in exc.response.text:
+            status = STATUS_INVALID_MODEL
+    except ValueError as exc:
+        status, detail = STATUS_PROVIDER_ERROR, str(exc)
+        if "not served" in detail:
+            status = STATUS_INVALID_MODEL
+    finally:
+        if client is not None:
+            client.close()
+    return LlmCheckResult(
+        ok=False,
+        status=status,
+        **common,
+        detail=detail,
+        latency_s=time.monotonic() - started,
+    )
 
 
 def redact_secrets(text: str) -> str:

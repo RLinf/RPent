@@ -7,9 +7,9 @@ Select the Agentic Planner backend with one CLI flag:
 
 .. code-block:: text
 
-   --planner {api,claude_code,codex,flash}
+   --planner {api,claude_code,codex,flash,onejev}
 
-All three online planners receive the same rendered system and user prompts
+The ``api``, ``claude_code`` and ``codex`` planners receive the same rendered system and user prompts
 and use the RPent tool schemas from the same toolkit. They differ in
 how those schemas are connected to the model, how the tool-calling
 loop is orchestrated, and which model SDK is used.
@@ -43,6 +43,11 @@ loop is orchestrated, and which model SDK is used.
        objects that moved. See :doc:`flash`.
      - You want to re-run a known-good plan on new layouts, without online
        LLM planning. Perception and VLA services are still required.
+   * - ``onejev``
+     - Scores robot-computed actions through an external OneJev System One
+       service. The current adapter supports LIBERO CLI evaluation.
+     - You want OneJev-9B to choose among fully parameterized actions, with
+       task text and public observations supplying their arguments.
 
 The ``api`` Planner (direct Model API)
 ---------------------------------------
@@ -308,3 +313,19 @@ Reaching a turn limit stops the current loop; an interactive Claude session
 can still accept another query. The main program saves the transcript when
 the run ends. Timeouts or SDK exceptions are stored in the planner result
 and written to the log.
+
+The ``onejev`` planner (finite-action decisions)
+--------------------------------------------------
+
+``--planner onejev --model OneJev-9B --base-url http://127.0.0.1:8008``
+uses an external System One API. A robot-owned adapter computes all candidate
+arguments; OneJev returns probabilities and RPent executes their argmax
+through the toolkit. ``rpent-check-llm --planner onejev --base-url
+http://127.0.0.1:8008`` checks readiness, the served model name and an actual
+Choice response. RPent does not need the OneJev model package or an API key.
+
+The current robot adapter is LIBERO, for non-interactive evaluation only.
+See :doc:`../simulators/libero` for setup, supported tasks and the public
+observation boundary. Robot extensions opt in through
+``RobotSpec.create_onejev_adapter``; LIBERO perception and candidate rules
+live in ``robots/libero/onejev/``, outside the generic planner loop.

@@ -56,7 +56,7 @@ class LiberoPrimitives:
         self,
         env: LiberoEnvClient,
         model: Pi05VLAClient,
-        sam3_client: Sam3Client,
+        sam3_client: Sam3Client | None,
         check_cancelled: Callable[[], None],
         molmo_client: MolmoClient | None = None,
         flywheel_config: dict[str, Any] | None = None,
@@ -77,6 +77,11 @@ class LiberoPrimitives:
         self._frames = []
         self._flywheel_config = flywheel_config
         self._flywheel = None
+
+    @property
+    def supports_segmentation(self) -> bool:
+        """Return whether this run has an explicitly connected SAM3 service."""
+        return self._sam3_client is not None
 
     def start_recording(self):
         self._recording = True
@@ -955,12 +960,13 @@ def dump_state(
         "robot0_eef_pos": [float(x) for x in raw["robot0_eef_pos"]],
         "robot0_eef_quat": [float(x) for x in raw["robot0_eef_quat"]],
         "robot0_gripper_qpos": [float(x) for x in raw["robot0_gripper_qpos"]],
-        "object_names": sorted(
+    }
+    if not getattr(primitives.env, "public_observations_only", False):
+        state["object_names"] = sorted(
             k[:-4]
             for k in raw
             if k.endswith("_pos") and "robot0" not in k and "to_robot" not in k
-        ),
-    }
+        )
     log = log or {}
     with env_state.record_step(
         state=state,

@@ -139,26 +139,33 @@ class LiberoEnvFacade(BaseEnvFacade):
     trip.
     """
 
-    def __init__(self, env: LiberoEnv, *, meta: dict):
+    def __init__(
+        self, env: LiberoEnv, *, meta: dict, public_observations_only: bool = False
+    ):
         self._env = env
         self._env_idx = 0
         self._closed = False
+        self._public_observations_only = public_observations_only
         # Identifies what task/seed this server was launched with — the
         # client compares against its own expected values at construction
         # and refuses to talk to a stale or mis-configured server.
         self._meta = dict(meta)
+        if public_observations_only:
+            self._meta["observation_mode"] = "public"
         super().__init__()
 
     def _register_rpc(self) -> None:
         super()._register_rpc()
         self._rpc.update(
             {
-                "env.raw_obs": self.raw_obs,
+                "env.public_obs": self.public_obs,
                 "env.render_camera": self.render_camera,
                 "env.get_camera_meta": self.get_camera_meta,
                 "env.get_task_language": self.get_task_language,
             }
         )
+        if not self._public_observations_only:
+            self._rpc["env.raw_obs"] = self.raw_obs
         self._readonly_methods.add("env.get_task_language")
 
     # ---- shape helpers ----
@@ -174,7 +181,17 @@ class LiberoEnvFacade(BaseEnvFacade):
 
     def _strip_obs(self, obs: dict) -> dict:
         """Strip the leading env dim from every value of a LIBERO obs dict."""
-        return {k: self._strip(v) for k, v in obs.items()}
+        if self._public_observations_only:
+            obs = {
+                key: obs[key]
+                for key in (
+                    "main_images",
+                    "wrist_images",
+                    "states",
+                    "task_descriptions",
+                )
+            }
+        return {k: self._strip(to_numpy_tree(v)) for k, v in obs.items()}
 
     def _expand_action(self, action) -> np.ndarray:
         """Inject the env dim onto a single-env action shaped ``[action_dim]``."""
@@ -189,20 +206,20 @@ class LiberoEnvFacade(BaseEnvFacade):
 
     def reset(self):
         obs, info = self._env.reset()
-        obs = self._strip_obs(to_numpy_tree(obs))
-        return obs, to_numpy_tree(info)
+        obs = self._strip_obs(obs)
+        return obs, {} if self._public_observations_only else to_numpy_tree(info)
 
     def step(self, action):
         obs, rew, term, trunc, info = self._env.step(self._expand_action(action))
-        obs = self._strip_obs(to_numpy_tree(obs))
+        obs = self._strip_obs(obs)
         term = self._strip(to_numpy_tree(term))
         trunc = self._strip(to_numpy_tree(trunc))
         return (
             obs,
-            self._strip(to_numpy_tree(rew)),
+            0.0 if self._public_observations_only else self._strip(to_numpy_tree(rew)),
             term,
             trunc,
-            to_numpy_tree(info),
+            {} if self._public_observations_only else to_numpy_tree(info),
         )
 
     def chunk_step(self, actions, *, return_all_frames: bool = False):
@@ -220,20 +237,38 @@ class LiberoEnvFacade(BaseEnvFacade):
         obs_list, rew, term, trunc, info = self._env.chunk_step(
             self._expand_chunk(actions)
         )
-        obs_list = [self._strip_obs(to_numpy_tree(o)) for o in obs_list]
+        obs_list = [self._strip_obs(o) for o in obs_list]
         term = self._strip(to_numpy_tree(term))
         trunc = self._strip(to_numpy_tree(trunc))
         obs_field = obs_list if return_all_frames else obs_list[-1]
         return (
             obs_field,
-            self._strip(to_numpy_tree(rew)),
+            np.zeros_like(term, dtype=float)
+            if self._public_observations_only
+            else self._strip(to_numpy_tree(rew)),
             term,
             trunc,
-            to_numpy_tree(info),
+            {} if self._public_observations_only else to_numpy_tree(info),
         )
 
     def raw_obs(self) -> dict:
         return to_numpy_tree(self._env.current_raw_obs[self._env_idx])
+
+    def public_obs(self) -> dict:
+        """Return only RGB-D and proprioception, before RPC serialization."""
+        observation = self._env.current_raw_obs[self._env_idx]
+        return {
+            key: to_numpy_tree(observation[key])
+            for key in (
+                "agentview_image",
+                "agentview_depth",
+                "robot0_eye_in_hand_image",
+                "robot0_eye_in_hand_depth",
+                "robot0_eef_pos",
+                "robot0_eef_quat",
+                "robot0_gripper_qpos",
+            )
+        }
 
     def get_env_meta(self) -> dict:
         """Return the meta info this server was launched with."""
@@ -253,6 +288,13 @@ class LiberoEnvFacade(BaseEnvFacade):
         width: int = 1024,
         depth: bool = False,
     ):
+        if self._public_observations_only and camera_name not in {
+            "agentview",
+            "robot0_eye_in_hand",
+        }:
+            raise ValueError(
+                "Public observations expose only agentview and wrist cameras"
+            )
         return to_numpy_tree(
             self._env.render_camera(
                 camera_name=camera_name,
@@ -268,11 +310,30 @@ class LiberoEnvFacade(BaseEnvFacade):
         height: int = 256,
         width: int = 256,
     ) -> dict | None:
-        return to_numpy_tree(
-            self._env.get_camera_meta(
-                camera_name=camera_name, height=height, width=width
+        if self._public_observations_only and camera_name not in {
+            "agentview",
+            "robot0_eye_in_hand",
+        }:
+            raise ValueError(
+                "Public observations expose only agentview and wrist calibration"
             )
+        metadata = self._env.get_camera_meta(
+            camera_name=camera_name, height=height, width=width
         )
+        if metadata is None:
+            return None
+        if self._public_observations_only:
+            metadata = {
+                key: metadata[key]
+                for key in (
+                    "intrinsic_K",
+                    "extrinsic_cam2world",
+                    "depth_near",
+                    "depth_far",
+                )
+                if key in metadata
+            }
+        return to_numpy_tree(metadata)
 
     def get_task_language(self) -> str | None:
         return self._env.task_descriptions[self._env_idx]
@@ -292,6 +353,11 @@ def main():
     p.add_argument("--task", type=int, default=9)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--max-episode-steps", type=int, default=10000)
+    p.add_argument(
+        "--public-observations-only",
+        action="store_true",
+        help="Expose only RGB-D, robot state, calibration and public episode flags",
+    )
     p.add_argument(
         "--parent-watch",
         action="store_true",
@@ -342,6 +408,7 @@ def main():
     )
     facade = LiberoEnvFacade(
         raw_env,
+        public_observations_only=args.public_observations_only,
         meta={
             "suite": args.suite,
             "task": args.task,
