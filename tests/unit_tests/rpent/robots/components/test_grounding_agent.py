@@ -14,8 +14,12 @@
 
 """Point-only agent adapters run offline with fake model output."""
 
+import base64
 import io
+import json
+import threading
 from dataclasses import dataclass
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -88,6 +92,8 @@ def test_codex_receives_image_and_no_robot_tools(monkeypatch, image, tmp_path):
         assert "mcp_servers={}" not in config.config_overrides
         assert any("model_providers" in value for value in config.config_overrides)
         assert "features.shell_tool=false" in config.config_overrides
+        assert "features.view_image=false" in config.config_overrides
+        assert "features.view_image_tool=false" in config.config_overrides
         assert kwargs["image_bytes"] == image
         assert kwargs["output_schema"]["required"] == ["point_xy"]
         return '{"point_xy": [5, 3]}'
@@ -151,6 +157,139 @@ def test_keyring_login_has_actionable_error(tmp_path):
     (source / "config.toml").write_text('cli_auth_credentials_store="keyring"')
     with pytest.raises(RuntimeError, match="CODEX_API_KEY"):
         _isolated_codex_environment({"CODEX_HOME": str(source)}, tmp_path / "isolated")
+
+
+@pytest.mark.parametrize("store", ["keyring", "auto"])
+@pytest.mark.parametrize("override_provider", [False, True])
+def test_custom_provider_does_not_require_keyring_login(
+    tmp_path, store, override_provider
+):
+    from rpent.robots.components.grounding_agent import _isolated_codex_environment
+
+    source = tmp_path / "user"
+    source.mkdir()
+    (source / "config.toml").write_text(
+        f'cli_auth_credentials_store="{store}"\n'
+        f'model_provider="{"openai" if override_provider else "custom"}"\n'
+        "[model_providers.custom]\n"
+        'base_url="https://example.test/v1"\nenv_key="CUSTOM_API_KEY"\n'
+    )
+    kwargs = (
+        {"config_overrides": ('model_provider="custom"',)} if override_provider else {}
+    )
+    env, _ = _isolated_codex_environment(
+        {"CODEX_HOME": str(source), "CUSTOM_API_KEY": "offline-test"},
+        tmp_path / "isolated",
+        **kwargs,
+    )
+    assert env["CUSTOM_API_KEY"] == "offline-test"
+
+
+def test_provider_override_can_require_file_login(tmp_path):
+    from rpent.robots.components.grounding_agent import _isolated_codex_environment
+
+    source = tmp_path / "user"
+    source.mkdir()
+    (source / "config.toml").write_text(
+        'cli_auth_credentials_store="keyring"\nmodel_provider="custom"\n'
+        '[model_providers.custom]\nenv_key="CUSTOM_API_KEY"\n'
+    )
+    with pytest.raises(RuntimeError, match="file-based Codex login"):
+        _isolated_codex_environment(
+            {"CODEX_HOME": str(source), "CUSTOM_API_KEY": "offline-test"},
+            tmp_path / "isolated",
+            ('model_provider="openai"',),
+        )
+
+
+def test_codex_cannot_attach_an_image_outside_grounding_directory(
+    monkeypatch, tmp_path, image
+):
+    """Exercise the real CLI with a local model that requests an unprovided image."""
+
+    outside = tmp_path / "outside.png"
+    Image.new("RGB", (31, 17), "red").save(outside)
+    outside_data = base64.b64encode(outside.read_bytes()).decode()
+    requests = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):  # noqa: N802
+            payload = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            requests.append(payload)
+            if len(requests) == 1:
+                item = {
+                    "id": "fc_outside",
+                    "type": "function_call",
+                    "call_id": "call_outside",
+                    "name": "view_image",
+                    "arguments": json.dumps({"path": str(outside)}),
+                }
+            else:
+                item = {
+                    "id": "msg_point",
+                    "type": "message",
+                    "role": "assistant",
+                    "status": "completed",
+                    "content": [
+                        {
+                            "type": "output_text",
+                            "text": '{"point_xy":[5,3]}',
+                            "annotations": [],
+                        }
+                    ],
+                }
+            events = [
+                {"type": "response.output_item.done", "output_index": 0, "item": item},
+                {
+                    "type": "response.completed",
+                    "response": {
+                        "id": f"resp_{len(requests)}",
+                        "status": "completed",
+                        "output": [item],
+                    },
+                },
+            ]
+            body = "".join(
+                f"event: {event['type']}\ndata: {json.dumps(event)}\n\n"
+                for event in events
+            ).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server.daemon_threads = True
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    source = tmp_path / "codex-home"
+    source.mkdir()
+    monkeypatch.setenv("CODEX_HOME", str(source))
+    monkeypatch.setenv("CODEX_API_KEY", "offline-test")
+    monkeypatch.delenv("CODEX_BIN", raising=False)
+    try:
+        result = GroundingAgent(
+            "codex:gpt-5.4", f"http://127.0.0.1:{server.server_port}/v1"
+        ).ground(image, "cup rim")
+        assert result.point_xy == (5, 3)
+        assert len(requests) == 2
+        assert outside_data not in json.dumps(requests)
+        assert not requests[0].get("tools")
+        tool_output = [
+            item
+            for item in requests[1]["input"]
+            if item.get("type") == "function_call_output"
+            and item.get("call_id") == "call_outside"
+        ]
+        assert tool_output and "view_image" in json.dumps(tool_output)
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
 
 
 def test_inherited_mcp_stops_before_model_request(monkeypatch, image, tmp_path):

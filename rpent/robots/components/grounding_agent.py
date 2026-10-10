@@ -103,7 +103,9 @@ class GroundingAgent:
             cwd.mkdir()
             home.mkdir()
             config = build_probe_config(self.base_url)
-            env, provider_overrides = _isolated_codex_environment(config.env, home)
+            env, provider_overrides = _isolated_codex_environment(
+                config.env, home, config.config_overrides
+            )
             config = replace(
                 config,
                 cwd=str(cwd),
@@ -113,6 +115,16 @@ class GroundingAgent:
                 + (
                     "features.shell_tool=false",
                     "features.unified_exec=false",
+                    "features.view_image=false",
+                    "features.view_image_tool=false",
+                    "features.js_repl=false",
+                    "features.code_mode=false",
+                    "features.multi_agent=false",
+                    "features.multi_agent_v2=false",
+                    "features.image_generation=false",
+                    "features.goals=false",
+                    "tools.update_plan.enabled=false",
+                    "tools.experimental_request_user_input.enabled=false",
                     'web_search="disabled"',
                     "apps._default.enabled=false",
                 ),
@@ -147,7 +159,7 @@ class GroundingAgent:
 
 
 def _isolated_codex_environment(
-    env: dict[str, str], home: Path
+    env: dict[str, str], home: Path, config_overrides: tuple[str, ...] = ()
 ) -> tuple[dict[str, str], tuple[str, ...]]:
     """Reuse only model/provider settings and file credentials in a fresh home."""
     source_home = Path(env.get("CODEX_HOME", str(Path.home() / ".codex")))
@@ -176,12 +188,26 @@ def _isolated_codex_environment(
                         f"model_providers.{json.dumps(name)}.{json.dumps(field)}="
                         + _toml_value(item)
                     )
+    # Resolve RPent's overrides before deciding whether Codex login is needed.
+    provider_name = settings.get("model_provider", "openai")
+    providers = dict(settings.get("model_providers", {}))
+    for override in config_overrides:
+        values = tomllib.loads(override)
+        provider_name = values.get("model_provider", provider_name)
+        for name, fields in values.get("model_providers", {}).items():
+            providers[name] = {**providers.get(name, {}), **fields}
+    provider = providers.get(provider_name, {})
+    requires_login = provider.get("requires_openai_auth", provider_name == "openai")
+
     auth = source_home / "auth.json"
     if auth.is_file():
         # Share normal token refresh without copying credentials into artifacts.
         (home / "auth.json").symlink_to(auth.resolve())
-    elif settings.get("cli_auth_credentials_store") in ("keyring", "auto"):
-        if not env.get("RPENT_CODEX_PROVIDER_KEY"):
+    elif requires_login and settings.get("cli_auth_credentials_store") in (
+        "keyring",
+        "auto",
+    ):
+        if not env.get("CODEX_API_KEY"):
             raise RuntimeError(
                 "isolated grounding requires file-based Codex login or CODEX_API_KEY; "
                 "OS keyring credentials cannot be reused under a temporary CODEX_HOME"
