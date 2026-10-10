@@ -35,14 +35,14 @@ def backend(monkeypatch):
 
     suite = SimpleNamespace(n_tasks=len(counts), get_task_init_states=initial_states)
     constructor = Mock(side_effect=lambda **kwargs: kwargs["cfg"])
-    for name in ("rlinf", "rlinf.envs", "rlinf.envs.libero"):
+    for name in ("rlinf", "rlinf.envs", "rlinf.envs.sim", "rlinf.envs.sim.libero"):
         module = types.ModuleType(name)
         module.__path__ = []
         monkeypatch.setitem(sys.modules, name, module)
-    module = types.ModuleType("rlinf.envs.libero.libero_env")
+    module = types.ModuleType("rlinf.envs.sim.libero.libero_env")
     module.LiberoEnv = constructor
     monkeypatch.setitem(sys.modules, module.__name__, module)
-    utils = types.ModuleType("rlinf.envs.libero.utils")
+    utils = types.ModuleType("rlinf.envs.sim.libero.utils")
     utils.benchmark = SimpleNamespace(get_benchmark=lambda _: lambda: suite)
     monkeypatch.setitem(sys.modules, utils.__name__, utils)
     return constructor, queried
