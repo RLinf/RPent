@@ -19,6 +19,7 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
 
@@ -63,6 +64,7 @@ class FakeRoboTwinPrimitives:
 
     def __init__(self, **kwargs: Any) -> None:
         self.kwargs = kwargs
+        self.model = kwargs["model"]
         self.status_calls = 0
         self.recording_started = False
         self.env = SimpleNamespace(last_reset_info={"actual_seed": 7})
@@ -99,6 +101,9 @@ class FakeRoboTwinPrimitives:
 
     def lingbot_act(self, **kwargs: Any) -> dict[str, Any]:
         return self._operation("lingbot_act", **kwargs)
+
+    def wam_act(self, **kwargs: Any) -> ToolResult:
+        return self._operation("wam_act", **kwargs)
 
     def move_to(self, **kwargs: Any) -> dict[str, Any]:
         return self._operation("move_to", **kwargs)
@@ -150,9 +155,11 @@ def test_fake_and_real_implement_toolkit_primitive_protocol() -> None:
         )
 
 
+@pytest.mark.parametrize("policy_kind", ["vla", "wam"])
 def test_toolkit_constructs_and_captures_an_initial_observation(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    policy_kind: str,
 ) -> None:
     FakeRoboTwinPrimitives.instances.clear()
     dumped: list[dict[str, Any]] = []
@@ -182,14 +189,30 @@ def test_toolkit_constructs_and_captures_an_initial_observation(
         ),
     )
 
+    model = Mock()
     robot_toolkit = toolkit.RoboTwinToolkit(
-        runtime_kwargs={"env": object(), "model": object(), "seed": 7},
+        runtime_kwargs={
+            "env": object(),
+            "model": model,
+            "seed": 7,
+            "policy_kind": policy_kind,
+        },
         dashboard_events=NullDashboardEventSink(),
-        memory=MemoryManager(tmp_path / "memory"),
+        memory=MemoryManager(tmp_path / "memory") if policy_kind == "vla" else None,
     )
 
-    assert _tool_names(robot_toolkit) == EXPECTED_TOOLS
-    assert _readonly_names(robot_toolkit) == COMMON_TOOLS | {
+    if policy_kind == "wam":
+        model.reset.assert_called_once()
+        expected = (EXPECTED_TOOLS - COMMON_TOOLS - {"lingbot_act"}) | {
+            "finish",
+            "wam_act",
+        }
+        common = {"finish"}
+    else:
+        model.reset.assert_not_called()
+        expected, common = EXPECTED_TOOLS, COMMON_TOOLS
+    assert _tool_names(robot_toolkit) == expected
+    assert _readonly_names(robot_toolkit) == common | {
         "view_env_state",
         "sample_world_xyz",
         "query_world_map",

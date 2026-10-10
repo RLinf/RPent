@@ -104,6 +104,45 @@ bash tests/e2e_tests/run_gpu_suite.sh \
   /path/to/new-venv-root
 ```
 
+## External WAM GPU services
+
+The opt-in backend tests use separately provisioned checkpoint services. They
+are not included in `run_gpu_suite.sh`, which provisions the standard robot
+stacks. Start the workers described in the
+[WAM backend guide](../docs/source-en/rst_source/development/wam_backends.rst),
+then run from a LIBERO-enabled test environment:
+
+```bash
+RPENT_FAST_WAM_ENDPOINT=http://127.0.0.1:8117 \
+  pytest tests/e2e_tests/libero/test_fast_wam.py -v --junitxml=fast-wam.xml
+```
+
+This test uses the existing LIBERO environment runtime, executes up to two
+action chunks and records inference latency and checkpoint identity. It does
+not require task success or a planner. Configure the simulator and its assets
+as for the other LIBERO tests, independently of the model environment.
+
+RoboTwin uses its own Fast-WAM checkpoint and three-camera configuration. From
+the RoboTwin simulator environment, with `ROBOTWIN_ASSETS_PATH` configured:
+
+```bash
+RPENT_FAST_WAM_ROBOTWIN_ENDPOINT=http://127.0.0.1:8117 \
+  pytest tests/e2e_tests/robotwin/test_fast_wam.py -v --junitxml=robotwin-fast-wam.xml
+```
+
+This test uses `RoboTwinWAMClient`, reads real camera and joint-target state,
+and executes up to two chunks through `env.chunk_step(action_type="qpos")`.
+The worker must advertise `robotwin.joint_action.qpos14.v1`. It records latency,
+executed action counts and episode status; no LingBot checkpoint is needed.
+The RoboTwin CLI selects this backend with `--wam-backend fast-wam`; its toolkit
+uses `wam_act`. Without a WAM backend, it retains LingBot's EEF16 interface.
+
+Both Fast-WAM tests also exercise the public CLI and `wam_act` toolkit path
+with a scripted planner, recording observations and `finish`. These are bounded
+integration checks, not task-success benchmarks. Component checks close their
+clients, and CLI checks stop their owned daemons. Externally started model
+services remain the operator's responsibility.
+
 ## Dual-Franka VLA diagnostic console
 
 Run the real-robot diagnostic explicitly from a source checkout after installing

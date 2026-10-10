@@ -69,7 +69,8 @@ def test_tool_declarations_match_pre_refactor_contracts(group: str) -> None:
         for item in declarations
     }
     assert len(actual) == len(declarations)
-    assert actual.keys() == expected.keys()
+    added = {"wam_act"} if group in {"libero", "robotwin"} else set()
+    assert actual.keys() == expected.keys() | added
     for name in expected:
         assert actual[name] == expected[name], f"{group}/{name}"
 

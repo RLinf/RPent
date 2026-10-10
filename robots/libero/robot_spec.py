@@ -24,9 +24,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from robots.libero.prompt_bundle import system_prompt, user_prompt
+from robots.libero.suites import LIBERO_SUITE_NAMES, resolve_libero_type
 from rpent.dashboard.events import DashboardEventSink
 from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
+from rpent.robots.components.wam_runtime import WAMConfig, add_wam_args, select_wam
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_spawn_server, try_wait_server
@@ -38,26 +40,6 @@ from rpent.utils.rpc.http_rpc import HttpRpcClient
 if TYPE_CHECKING:
     from rpent.utils.rpc import RpcClient
 
-
-LIBERO_SUITE_NAMES = (
-    "libero_spatial",
-    "libero_object",
-    "libero_goal",
-    "libero_90",
-    "libero_object_task",
-    "libero_object_swap",
-    "libero_object_lan",
-    "libero_goal_task",
-    "libero_goal_swap",
-    "libero_goal_lan",
-    "libero_spatial_task",
-    "libero_spatial_swap",
-    "libero_spatial_lan",
-    "libero_10",
-    "libero_10_task",
-    "libero_10_swap",
-    "libero_10_lan",
-)
 
 FLASH_SUITES = frozenset(
     {
@@ -99,6 +81,7 @@ LIBERO_DASHBOARD_SPEC: DashboardSpec = {
         "move_to",
         "pi0_pick",
         "pi0_doubled",
+        "wam_act",
         "release",
         "set_gripper",
         "rotate_wrist",
@@ -113,6 +96,20 @@ def _run_flash(toolkit, cell_tag: str, note) -> dict:
     from robots.libero.flash import run_flash
 
     return run_flash(toolkit, cell_tag, note)
+
+
+def _resolve_dashboard(args: argparse.Namespace) -> DashboardSpec:
+    """Label the selected action model using its public category."""
+    kind = "wam" if select_wam(args, "libero") else "vla"
+    return {
+        **LIBERO_DASHBOARD_SPEC,
+        "runtime_components": tuple(
+            {**component, "name": kind, "label": kind.upper()}
+            if component["name"] == "vla"
+            else component
+            for component in LIBERO_DASHBOARD_SPEC["runtime_components"]
+        ),
+    }
 
 
 def get_robot_spec() -> RobotSpec:
@@ -133,6 +130,7 @@ def get_robot_spec() -> RobotSpec:
         parse_config=_parse_config,
         init_runtime=_init_runtime,
         dashboard=LIBERO_DASHBOARD_SPEC,
+        resolve_dashboard=_resolve_dashboard,
         supports_exploration=True,
         run_flash=_run_flash,
         validate_args=validate_options,
@@ -153,11 +151,13 @@ def get_toolkit(
     from robots.libero.toolkit import LiberoToolkit
 
     explore = mode == "exploration"
-    memory = MemoryManager(
-        root=config.prompt_vars.get("memory_dir") or get_memory_dir("libero"),
-        memory_access="inbox_write" if explore else "read_only",
-        inbox_cell_tag=config.recipe_tag if explore else None,
-    )
+    memory = None
+    if config.prompt_vars.get("memory_enabled", True):
+        memory = MemoryManager(
+            root=config.prompt_vars.get("memory_dir") or get_memory_dir("libero"),
+            memory_access="inbox_write" if explore else "read_only",
+            inbox_cell_tag=config.recipe_tag if explore else None,
+        )
     return LiberoToolkit(
         runtime_kwargs=runtime_kwargs,
         dashboard_events=dashboard_events,
@@ -166,6 +166,7 @@ def get_toolkit(
         mode=mode,
         attempts_per_session=attempts_per_session,
         state_output_dir=state_output_dir,
+        policy_kind=config.task_desc.get("policy_kind", "vla"),
     )
 
 
@@ -192,6 +193,9 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         help="HF memory: auto selects by model; explicit versions override. Effort describes memory generation only.",
     )
     parser.add_argument("--max-episode-steps", type=int, default=10000)
+    parser.add_argument("--vla-backend", choices=("pi05",), default=None)
+    parser.add_argument("--vla-endpoint", default=None)
+    add_wam_args(parser)
     parser.add_argument(
         "--libero-type",
         default=None,
@@ -242,13 +246,6 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         "If unset, a local env_server is spawned.",
     )
     parser.add_argument(
-        "--vla-endpoint",
-        default=None,
-        help="[protocol://]host:port of an existing vla_server "
-        "(protocol=http|socket, defaults to http). "
-        "If unset, a local vla_server is spawned.",
-    )
-    parser.add_argument(
         "--molmo-endpoint",
         default=None,
         help="[protocol://]host:port of an existing Molmo server "
@@ -282,6 +279,22 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     if args.task is None:
         raise ValueError("--task is required")
     planner = getattr(args, "planner", None)
+    args.libero_type = resolve_libero_type(args.suite, args.libero_type)
+    wam = select_wam(args, "libero")
+    policy_kind = "wam" if wam else "vla"
+    policy_backend = wam.backend if wam else (args.vla_backend or "pi05")
+    memory_enabled = wam is None
+    if wam:
+        if planner == "flash" or getattr(args, "explore", False):
+            raise ValueError("WAM supports evaluation without Flash Mode only")
+        if args.libero_type not in ("standard", "pro"):
+            raise ValueError("WAM supports standard and pro environments only")
+        if getattr(args, "memory_profile", None) == "hf":
+            raise ValueError(
+                "WAM requires --memory-profile local; WAM memory is not supported"
+            )
+        if args.memory_dir is not None:
+            raise ValueError("WAM does not support --memory-dir")
     if planner == "flash":
         if getattr(args, "explore", False):
             raise ValueError("Flash Mode is evaluation-only; remove --explore")
@@ -305,7 +318,9 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         raise ValueError("--explore-sessions must be greater than 0")
     if explore and args.collect_flywheel_data:
         raise ValueError("flywheel collection supports evaluation mode only")
-    memory_profile = requested_profile or ("local" if explore else "hf")
+    memory_profile = requested_profile or (
+        "local" if explore or not memory_enabled else "hf"
+    )
     if memory_profile == "hf" and args.memory_dir is not None:
         raise ValueError("--memory-dir requires --memory-profile local or --explore")
     args.memory_profile = memory_profile
@@ -315,7 +330,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         else get_memory_dir("libero")
     )
     local_eval = not explore and memory_profile == "local"
-    if local_eval:
+    if local_eval and memory_enabled:
         if planner == "flash":
             from robots.libero.memory import replay_directory
 
@@ -342,6 +357,9 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
                 "run exploration first or use --memory-profile hf"
             )
     prompt_vars = {
+        "policy_backend": policy_backend,
+        "policy_kind": policy_kind,
+        "memory_enabled": memory_enabled,
         "suite": args.suite,
         "task": args.task,
         "seed": args.seed,
@@ -349,13 +367,16 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         "mode": "explore" if explore else "eval",
         "enable_direct_action": getattr(args, "enable_direct_action", False),
         "memory_profile": memory_profile,
-        "memory_dir": str(memory_dir),
         "reference_tag": f"{args.suite.replace('libero_', '')}_t{args.task}_s0",
-        # Per-cell inbox: parallel explore runs must not append to a shared file.
-        "memory_inbox": str(memory_dir / "_internal" / "inbox" / recipe_tag),
         "session_number": 1,
         "session_max": max(1, args.explore_sessions) if explore else 1,
     }
+    if memory_enabled:
+        prompt_vars["memory_dir"] = str(memory_dir)
+        # Per-cell inbox: parallel explore runs must not append to a shared file.
+        prompt_vars["memory_inbox"] = str(
+            memory_dir / "_internal" / "inbox" / recipe_tag
+        )
 
     output_dir = args.output_dir
     if output_dir is None:
@@ -372,7 +393,13 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         recipe_tag=recipe_tag,
         output_dir=output_dir,
         prompt_vars=prompt_vars,
-        task_desc={"suite": args.suite, "task": args.task, "seed": args.seed},
+        task_desc={
+            "suite": args.suite,
+            "task": args.task,
+            "seed": args.seed,
+            "policy_kind": policy_kind,
+            "policy_backend": policy_backend,
+        },
     )
 
 
@@ -382,14 +409,58 @@ def _cuda_args(args: argparse.Namespace) -> list[str]:
     )
 
 
+def _spawn_vla_server(
+    args: argparse.Namespace, output_dir: Path
+) -> tuple[ProcessDaemon | None, RpcClient]:
+    """Connect to Pi0.5 or launch its shared component server."""
+    if args.vla_endpoint:
+        return None, make_rpc_client(args.vla_endpoint)
+    host, port = "127.0.0.1", pick_free_port()
+    daemon = ProcessDaemon(
+        name="vla_server",
+        cmd=[
+            sys.executable,
+            str(get_repo_root() / "rpent/robots/components/pi05_vla_server.py"),
+            "--embodiment",
+            "libero",
+            "--transport",
+            "http",
+            "--host",
+            host,
+            "--port",
+            str(port),
+            "--parent-watch",
+            *_cuda_args(args),
+        ],
+        log_path=str(output_dir / "vla_server.log"),
+    )
+    daemon.start()
+    return daemon, make_rpc_client(f"http://{host}:{port}")
+
+
+def _make_model_client(rpc: RpcClient, wam: WAMConfig | None) -> Any:
+    """Bind the platform client and validate the worker before executing actions."""
+    if wam is not None:
+        from robots.libero.wam_client import LiberoWAMClient
+
+        client = LiberoWAMClient(rpc, expected_backend=wam.rpc_backend)
+        try:
+            client.validate_libero()
+        except Exception:
+            client.close()
+            raise
+        return client
+    from rpent.robots.components.pi05_vla_client import Pi05VLAClient
+
+    return Pi05VLAClient(rpc, embodiment="libero")
+
+
 def _spawn_env_server(
     args: argparse.Namespace,
     output_dir: Path,
 ) -> tuple[ProcessDaemon | None, RpcClient]:
     if args.env_endpoint is not None:
         return None, make_rpc_client(args.env_endpoint)
-
-    from rpent.utils.config import get_libero_type
 
     host, port = "127.0.0.1", pick_free_port()
     daemon = ProcessDaemon(
@@ -415,47 +486,11 @@ def _spawn_env_server(
             *_cuda_args(args),
         ],
         env_overrides={
-            "LIBERO_TYPE": args.libero_type or get_libero_type(),
+            "LIBERO_TYPE": resolve_libero_type(args.suite, args.libero_type),
             "MUJOCO_GL": "egl",
             "ROBOT_PLATFORM": "LIBERO",
         },
         log_path=str(output_dir / "env_server.log"),
-    )
-    daemon.start()
-    return daemon, HttpRpcClient(f"http://{host}:{port}")
-
-
-def _spawn_vla_server(
-    args: argparse.Namespace,
-    output_dir: Path,
-) -> tuple[ProcessDaemon | None, RpcClient]:
-    if args.vla_endpoint is not None:
-        return None, make_rpc_client(args.vla_endpoint)
-
-    host, port = "127.0.0.1", pick_free_port()
-    daemon = ProcessDaemon(
-        name="vla_server",
-        cmd=[
-            sys.executable,
-            str(
-                get_repo_root()
-                / "rpent"
-                / "robots"
-                / "components"
-                / "pi05_vla_server.py"
-            ),
-            "--embodiment",
-            "libero",
-            "--transport",
-            "http",
-            "--host",
-            host,
-            "--port",
-            str(port),
-            "--parent-watch",
-            *_cuda_args(args),
-        ],
-        log_path=str(output_dir / "vla_server.log"),
     )
     daemon.start()
     return daemon, HttpRpcClient(f"http://{host}:{port}")
@@ -511,12 +546,17 @@ def _init_runtime(
     """Initialize every LIBERO component, or only ``components`` when given."""
     from robots.libero.env_client import LiberoEnvClient
     from rpent.robots.components.molmo_client import MolmoClient
-    from rpent.robots.components.pi05_vla_client import Pi05VLAClient
     from rpent.robots.components.sam3_client import Sam3Client
 
+    wam = select_wam(args, "libero")
+    policy_kind = "wam" if wam else "vla"
     starters = {
         "env": lambda: _spawn_env_server(args, output_dir),
-        "vla": lambda: _spawn_vla_server(args, output_dir),
+        policy_kind: lambda: (
+            wam.start_service(args, output_dir)
+            if wam
+            else _spawn_vla_server(args, output_dir)
+        ),
         "sam3": lambda: _spawn_sam3_server(args, output_dir),
         "molmo": lambda: _connect_molmo_server(args),
     }
@@ -532,7 +572,7 @@ def _init_runtime(
                 },
             )
         },
-        "vla": lambda rpc: {"model": Pi05VLAClient(rpc, embodiment="libero")},
+        policy_kind: lambda rpc: {"model": _make_model_client(rpc, wam)},
         "sam3": lambda rpc: {"sam3_client": Sam3Client(rpc)},
         "molmo": lambda rpc: {"molmo_client": MolmoClient(rpc)},
     }
@@ -555,7 +595,7 @@ def _init_runtime(
             )
 
     runtime_kwargs: dict[str, Any] = {}
-    wait_order = ("env", "sam3", "molmo", "vla")
+    wait_order = ("env", "sam3", "molmo", policy_kind)
     for component in (name for name in wait_order if name in pending):
         daemon, rpc = pending[component]
         component_kwargs = try_wait_server(

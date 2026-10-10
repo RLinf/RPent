@@ -26,10 +26,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
+from robots.robotwin.observation import ROBOTWIN_CAMERAS
 from robots.robotwin.prompt_bundle import system_prompt, user_prompt
 from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
 from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
+from rpent.robots.components.wam_runtime import add_wam_args, select_wam
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import (
@@ -51,11 +53,7 @@ ROBOTWIN_TASK_CONFIGS = (
 
 #: Env-side camera names exposed by the RoboTwin EnvServer, in fixed order.
 #: Shared across the env client, primitives, and toolkit.
-ROBOTWIN_CAMERA_NAMES = (
-    "head",
-    "left_wrist",
-    "right_wrist",
-)
+ROBOTWIN_CAMERA_NAMES = ROBOTWIN_CAMERAS
 
 #: Supported native action representations for the RoboTwin agent runtime.
 RoboTwinActionType = Literal["qpos", "ee"]
@@ -182,6 +180,23 @@ def vla_runtime_contract() -> dict[str, object]:
     }
 
 
+def _resolve_dashboard(args: argparse.Namespace) -> DashboardSpec:
+    wam = select_wam(args, "robotwin")
+    if wam is None:
+        return ROBOTWIN_DASHBOARD_SPEC
+    return {
+        **ROBOTWIN_DASHBOARD_SPEC,
+        "runtime_components": tuple(
+            {**item, "name": "wam", "label": "WAM"} if item["name"] == "vla" else item
+            for item in ROBOTWIN_DASHBOARD_SPEC["runtime_components"]
+        ),
+        "primitives": tuple(
+            "wam_act" if name == "lingbot_act" else name
+            for name in ROBOTWIN_DASHBOARD_SPEC["primitives"]
+        ),
+    }
+
+
 def get_robot_spec() -> RobotSpec:
     return RobotSpec(
         name="robotwin",
@@ -190,6 +205,7 @@ def get_robot_spec() -> RobotSpec:
         parse_config=_parse_config,
         init_runtime=_init_runtime,
         dashboard=ROBOTWIN_DASHBOARD_SPEC,
+        resolve_dashboard=_resolve_dashboard,
         supports_exploration=True,
     )
 
@@ -206,10 +222,14 @@ def get_toolkit(
     """Return the RoboTwin toolkit for the current session."""
     from robots.robotwin.toolkit import RoboTwinToolkit
 
-    memory = MemoryManager(
-        root=config.prompt_vars.get("memory_dir") or get_memory_dir("robotwin"),
-        memory_access="inbox_write" if mode == "exploration" else "read_only",
-        inbox_cell_tag=config.recipe_tag if mode == "exploration" else None,
+    memory = (
+        MemoryManager(
+            root=config.prompt_vars.get("memory_dir") or get_memory_dir("robotwin"),
+            memory_access="inbox_write" if mode == "exploration" else "read_only",
+            inbox_cell_tag=config.recipe_tag if mode == "exploration" else None,
+        )
+        if config.prompt_vars.get("memory_enabled", True)
+        else None
     )
     return RoboTwinToolkit(
         runtime_kwargs=runtime_kwargs,
@@ -223,6 +243,8 @@ def get_toolkit(
 
 
 def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
+    add_wam_args(parser)
+    parser.add_argument("--wam-cuda-device", default=None)
     required = not use_dashboard
     parser.add_argument(
         "--enable-direct-action",
@@ -310,6 +332,15 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
 def _parse_config(args: argparse.Namespace) -> RunConfig:
     if not args.task_name:
         raise ValueError("--task-name is required")
+    wam = select_wam(args, "robotwin")
+    if wam is not None:
+        if getattr(args, "explore", False) or getattr(args, "planner", None) == "flash":
+            raise ValueError("WAM supports evaluation without Flash Mode only")
+        if args.memory_dir or getattr(args, "memory_profile", None) == "hf":
+            raise ValueError(
+                "WAM memory is not supported; use --memory-profile local without --memory-dir"
+            )
+        args.memory_profile = "local"
     env_cuda_device, vla_cuda_device = _resolve_cuda_devices(args)
     task_config = getattr(args, "task_config", "demo_randomized")
     recipe_tag = f"robotwin_{args.task_name}_{task_config}_s{args.seed}"
@@ -344,6 +375,10 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         "reference_tag": reference_tag,
         "recipe_tag": recipe_tag,
     }
+    if wam is not None:
+        prompt_vars.update(
+            policy_kind="wam", policy_backend=wam.backend, memory_enabled=False
+        )
     if explore:
         prompt_vars.update(
             {
@@ -368,8 +403,8 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             "seed_mode": "exact",
             "task_config": task_config,
             "instruction": None,
-            "policy_name": MODEL_SPEC.policy_name,
-            "action_layout": MODEL_SPEC.action_layout,
+            "policy_name": wam.backend if wam else MODEL_SPEC.policy_name,
+            "action_layout": "negotiated" if wam else MODEL_SPEC.action_layout,
             "env_cuda_device": env_cuda_device,
             "vla_cuda_device": vla_cuda_device,
         },
@@ -500,7 +535,8 @@ def _init_runtime(
     components: set[str] | None,
 ) -> tuple[list["ProcessDaemon"], dict[str, Any]]:
     """Initialize every RoboTwin component, or only ``components`` when given."""
-    available = {"env", "vla"}
+    wam = select_wam(args, "robotwin")
+    available = {"env", "wam" if wam else "vla"}
     selected = available if components is None else components
     unknown = selected.difference(available)
     if unknown:
@@ -509,6 +545,7 @@ def _init_runtime(
     owned_daemons: dict[str, ProcessDaemon] = {}
     env_pending: tuple[ProcessDaemon | None, Any] | None = None
     vla_pending: tuple[ProcessDaemon | None, tuple[str, int]] | None = None
+    wam_pending = None
 
     if "env" in selected:
         env_pending = try_spawn_server(
@@ -529,6 +566,14 @@ def _init_runtime(
             stop_owned_daemons(owned_daemons, dashboard_events)
             dashboard_events.emit(RuntimeStatusEvent("vla", "failed", error=exc))
             raise RuntimeError(f"[vla] spawn failed: {exc}") from exc
+
+    if "wam" in selected:
+        wam_pending = try_spawn_server(
+            owned_daemons,
+            dashboard_events,
+            "wam",
+            lambda: wam.start_service(args, output_dir),
+        )
 
     runtime_kwargs: dict[str, Any] = {}
 
@@ -562,6 +607,32 @@ def _init_runtime(
             raise RuntimeError(f"[vla] wait / client connect failed: {exc}") from exc
         dashboard_events.emit(RuntimeStatusEvent("vla", "ready"))
         runtime_kwargs.update(vla_kwargs)
+
+    if wam_pending is not None:
+        daemon, rpc = wam_pending
+
+        def connect_wam():
+            from robots.robotwin.wam_client import RoboTwinWAMClient
+
+            client = RoboTwinWAMClient(rpc, expected_backend=wam.rpc_backend)
+            try:
+                client.validate_robotwin()
+            except Exception:
+                client.close()
+                raise
+            return {"model": client, "policy_kind": "wam"}
+
+        runtime_kwargs.update(
+            try_wait_server(
+                owned_daemons,
+                dashboard_events,
+                "wam",
+                rpc,
+                daemon,
+                900.0 if daemon else 300.0,
+                post_fn=connect_wam,
+            )
+        )
 
     return list(owned_daemons.values()), runtime_kwargs
 

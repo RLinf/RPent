@@ -21,6 +21,7 @@ from typing import Any
 
 import numpy as np
 
+from robots.robotwin.observation import physical_observation
 from rpent.robots.components.vla_client_base import BaseVLAClient
 
 
@@ -97,8 +98,9 @@ class LingBotVLAClient(BaseVLAClient):
 
     def infer(self, observation: dict[str, Any]) -> np.ndarray:
         """Infer one eef16 action chunk."""
-        views = observation["views"]
-        state = observation["robot_state"]
+        physical = physical_observation(observation)
+        views = physical["images"]
+        state = physical["state"]
         left_pose = np.asarray(state["left_eef_pose"], dtype=np.float32)
         right_pose = np.asarray(state["right_eef_pose"], dtype=np.float32)
         if left_pose.shape != (7,) or right_pose.shape != (7,):
@@ -106,17 +108,17 @@ class LingBotVLAClient(BaseVLAClient):
         policy_state = np.concatenate(
             [
                 left_pose,
-                np.asarray([state["left_gripper"]], dtype=np.float32),
+                np.asarray(state["left_gripper"], dtype=np.float32),
                 right_pose,
-                np.asarray([state["right_gripper"]], dtype=np.float32),
+                np.asarray(state["right_gripper"], dtype=np.float32),
             ]
         )
         payload = {
-            "observation.images.cam_high": views["head"]["rgb"],
-            "observation.images.cam_left_wrist": views["left_wrist"]["rgb"],
-            "observation.images.cam_right_wrist": views["right_wrist"]["rgb"],
+            "observation.images.cam_high": views["head"],
+            "observation.images.cam_left_wrist": views["left_wrist"],
+            "observation.images.cam_right_wrist": views["right_wrist"],
             "observation.state": policy_state,
-            "task": observation["task_language"],
+            "task": physical["instruction"],
         }
         actions = np.asarray(super().predict(payload)["action"], dtype=np.float64)
         if actions.ndim != 2 or actions.shape[1] != 16:

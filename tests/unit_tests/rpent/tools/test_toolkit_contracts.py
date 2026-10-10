@@ -127,6 +127,21 @@ def test_tool_result_text_limit_preserves_internal_payload(monkeypatch) -> None:
     assert result.data == payload
 
 
+def test_toolkit_without_memory_keeps_finish_and_omits_file_tools(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("rpent.utils.templates.get_output_dir", lambda: tmp_path)
+    toolkit = Toolkit(dashboard_events=_RecordingEventSink())
+
+    assert toolkit.memory is None
+    assert {definition.name for definition in toolkit.list_tools()} == {"finish"}
+    for name in ("read_text_file", "write_text_file", "list_dir"):
+        assert "error" in toolkit.execute_tool(name, {}).data
+    result = toolkit.execute_tool("finish", {"status": "failure", "summary": "done"})
+    assert result.data["_finish"]
+
+
 def test_toolkit_registers_common_specs_with_fresh_placeholder_substitution(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

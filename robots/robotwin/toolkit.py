@@ -39,6 +39,7 @@ if TYPE_CHECKING:
 # ``render``, and read-only tools are intentionally excluded so the recipe
 # records only commands that actually move the robot.
 _RECIPE_ACTIONS = {
+    "wam_act",
     "lingbot_act",
     "execute_action",
     "move_to",
@@ -95,7 +96,7 @@ class RoboTwinToolkit(Toolkit):
         *,
         runtime_kwargs: dict[str, Any],
         dashboard_events: DashboardEventSink,
-        memory: MemoryManager,
+        memory: MemoryManager | None,
         enable_direct_action: bool = False,
         mode: str = "evaluation",
         attempts_per_session: int = 0,
@@ -110,6 +111,7 @@ class RoboTwinToolkit(Toolkit):
             memory=memory,
         )
         self._mode = mode
+        self._policy_kind = runtime_kwargs.get("policy_kind", "vla")
         self._attempt = 1
         self._attempts_per_session = max(0, int(attempts_per_session))
         self._latest_status: dict[str, Any] = {}
@@ -120,6 +122,9 @@ class RoboTwinToolkit(Toolkit):
         if self._mode == "exploration":
             reset_result = self._primitives.reset()
         else:
+            # The environment service has already initialized this episode.
+            if self._policy_kind == "wam":
+                self._primitives.model.reset()
             reset_result = {
                 **self._primitives.env.last_reset_info,
                 "success": True,
@@ -156,6 +161,9 @@ class RoboTwinToolkit(Toolkit):
                 handler = partial(definition, self._state)
             self.add_tool(definition.with_handler(handler))
         for definition in iter_tools(self._primitives):
+            excluded = "lingbot_act" if self._policy_kind == "wam" else "wam_act"
+            if definition.name == excluded:
+                continue
             handler = (
                 definition
                 if definition.name == "finish"
