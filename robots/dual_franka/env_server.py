@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import queue
-import sys
 import threading
 import time
 from typing import Any
@@ -26,14 +25,7 @@ import numpy as np
 
 from robots.dual_franka.runtime_config import load_runtime_config
 from robots.franka.env_server import FrankaEnvFacade, main
-from rpent.utils.config import get_repo_root, get_rlinf_repo_path
 from rpent.utils.serialization import to_numpy_tree
-
-# Resolve the RLinf checkout before the deferred ``import rlinf`` executes.
-RPENT_ROOT = get_repo_root()
-RLINF_REPO_PATH = get_rlinf_repo_path() or (RPENT_ROOT.parent / "rlinf").resolve()
-if str(RLINF_REPO_PATH) not in sys.path:
-    sys.path.insert(0, str(RLINF_REPO_PATH))
 
 _ARM_INDEX = {"left": 0, "right": 1}
 
@@ -117,6 +109,9 @@ def _create_worker_class():
 
         def __init__(self, cfg: Any, controller_config: dict[str, Any]):
             super().__init__()
+            from robots.dual_franka.rpent_env import register_rpent_dual_franka_env
+
+            register_rpent_dual_franka_env()
             self.cfg = cfg
             self.controller = dict(controller_config)
             self._dual_franka_calibration_bundle: dict[str, Any] | None = None
@@ -148,9 +143,15 @@ def _create_worker_class():
                     f"per_arm_dim={self.per_arm_dim}"
                 )
             env_config = self.env.env.call("get_wrapper_attr", "config")[0]
+            gripper_threshold = float(env_config.binary_gripper_threshold)
+            if not np.isfinite(gripper_threshold) or gripper_threshold <= 0:
+                self.env.close()
+                raise ValueError(
+                    "binary_gripper_threshold must be positive so zero holds "
+                    "the gripper without issuing an open/close command"
+                )
             self.action_scale = np.asarray(env_config.action_scale, dtype=np.float32)
             self._perception_cameras: dict[str, Any] = {}
-            self._perception_camera_last_frames: dict[str, np.ndarray] = {}
             self._perception_camera_meta: dict[str, dict[str, Any]] = {}
             try:
                 self._open_perception_cameras()
@@ -255,12 +256,26 @@ def _create_worker_class():
             return self._raw_env.unwrapped
 
         def _refresh_robot_state(self) -> None:
-            # Direct controller calls bypass the vector-env observation cache.
+            # The official accessor refreshes the arm states without moving them.
             raw = self._raw_rlinf_env()
             if raw.config.is_dummy:
                 return
-            raw._left_state = raw._left_ctrl.get_state().wait()[0]
-            raw._right_state = raw._right_ctrl.get_state().wait()[0]
+            raw.get_tcp_pose()
+
+        def _gripper_states(self) -> dict[str, dict[str, bool | float | None]]:
+            """Read each independent hand; arm snapshots do not contain its state."""
+            raw = self._raw_rlinf_env()
+            states: dict[str, dict[str, bool | float | None]] = {}
+            for arm in ("left", "right"):
+                if raw.config.is_dummy:
+                    states[arm] = {"gripper_open": None, "gripper_position": None}
+                    continue
+                hand = raw.robot.child(arm).child("end_effector")
+                states[arm] = {
+                    "gripper_open": bool(hand.is_open),
+                    "gripper_position": float(hand.position),
+                }
+            return states
 
         def _reset_both_joints_no_gripper(self, reset_qpos: Any) -> dict[str, Any]:
             # Reset joints directly so the episode reset does not change grippers.
@@ -270,19 +285,23 @@ def _create_worker_class():
 
             def run(arm: str, ctrl: Any, qpos: Any) -> None:
                 try:
-                    results[arm] = ctrl.reset_joint(qpos).wait()
+                    results[arm] = ctrl.reset_joint(qpos)
                 except BaseException as exc:
                     errors[arm] = exc
 
             threads = [
                 threading.Thread(
                     target=run,
-                    args=("left", raw._left_ctrl, reset_qpos[0]),
+                    args=("left", raw.robot.child("left").child("arm"), reset_qpos[0]),
                     daemon=True,
                 ),
                 threading.Thread(
                     target=run,
-                    args=("right", raw._right_ctrl, reset_qpos[1]),
+                    args=(
+                        "right",
+                        raw.robot.child("right").child("arm"),
+                        reset_qpos[1],
+                    ),
                     daemon=True,
                 ),
             ]
@@ -336,33 +355,15 @@ def _create_worker_class():
         def _arm_rot6d(self, pose: np.ndarray) -> np.ndarray:
             return _matrix_to_rot6d(Rotation.from_quat(pose[3:]).as_matrix())
 
-        @staticmethod
-        def _gripper_command_from_open(gripper_open: bool | None) -> float:
-            if gripper_open is None:
-                return 0.0
-            return 1.0 if bool(gripper_open) else -1.0
-
-        def _current_gripper_commands(self) -> tuple[float, float]:
-            left_state, right_state = self._arm_states()
-            return (
-                self._gripper_command_from_open(left_state.gripper_open),
-                self._gripper_command_from_open(right_state.gripper_open),
-            )
-
         def _hold_action(
             self,
             left: np.ndarray,
             right: np.ndarray,
             *,
-            left_grip: float | None = None,
-            right_grip: float | None = None,
+            left_grip: float = 0.0,
+            right_grip: float = 0.0,
         ) -> np.ndarray:
-            if left_grip is None or right_grip is None:
-                current_left_grip, current_right_grip = self._current_gripper_commands()
-                if left_grip is None:
-                    left_grip = current_left_grip
-                if right_grip is None:
-                    right_grip = current_right_grip
+            """Hold both poses without reissuing a gripper command by default."""
             return _pack_dual_action(
                 left[:3],
                 self._arm_rot6d(left),
@@ -536,8 +537,9 @@ def _create_worker_class():
             left, right = self._arm_states()
             left_raw = to_numpy_tree(left)
             right_raw = to_numpy_tree(right)
-            left_out = dict(left_raw)
-            right_out = dict(right_raw)
+            grippers = self._gripper_states()
+            left_out = {**left_raw, **grippers["left"]}
+            right_out = {**right_raw, **grippers["right"]}
             if "tcp_pose" in left_raw:
                 left_out["raw_tcp_pose"] = left_raw["tcp_pose"]
                 left_out["raw_tcp_pose_frame"] = "left_base"
@@ -619,14 +621,11 @@ def _create_worker_class():
                 camera = Camera.of(info)
                 camera.connect()
                 try:
-                    first_frame = camera.get_frame(timeout=8)
+                    camera.get_frame(timeout=8)
                 except Exception:
                     camera.disconnect()
                     raise
                 self._perception_cameras[str(alias)] = camera
-                self._perception_camera_last_frames[str(alias)] = np.asarray(
-                    first_frame
-                )
 
         def _capture_perception_camera_snapshot(self) -> dict[str, dict[str, Any]]:
             # Deferred: the helper imports RLinf camera types with the single-arm env.
@@ -639,22 +638,20 @@ def _create_worker_class():
             }
             for alias, camera in self._perception_cameras.items():
                 try:
-                    frame = camera.get_frame(timeout=2)
-                    self._perception_camera_last_frames[alias] = np.asarray(frame)
-                except queue.Empty:
-                    frame = self._perception_camera_last_frames.get(alias)
-                    if frame is None:
-                        continue
-                frame = np.asarray(frame)
+                    reading = camera.get_observation(timeout=2)
+                except queue.Empty as exc:
+                    raise RuntimeError(
+                        f"Camera {alias} did not return a fresh frame; refusing cached RGBD"
+                    ) from exc
+                frame = np.asarray(reading["frame"])
                 if frame.ndim != 3 or frame.shape[-1] < 3:
                     continue
                 rgb = frame[..., :3][..., ::-1].astype(np.uint8, copy=True)
                 raw_key = f"{alias}_rgb"
                 output["raw_frames"][raw_key] = rgb
                 depth = None
-                if frame.shape[-1] >= 4:
-                    depth_scale = float(camera.depth_scale)
-                    depth = frame[..., 3].astype(np.float32) * depth_scale
+                if "depth" in reading:
+                    depth = np.asarray(reading["depth"], dtype=np.float32).copy()
                     output["raw_depths"][raw_key] = depth
                 intrinsics = realsense_color_intrinsics(camera)
                 info = camera.camera_info
@@ -801,6 +798,7 @@ def _create_worker_class():
 
         def set_gripper(self, arm: str, *, open: bool) -> dict[str, Any]:
             arm_idx = self._arm_index(arm)
+            arm_name = ["left", "right"][arm_idx]
             self._refresh_robot_state()
             deadline = time.time() + self.controller["gripper_timeout_s"]
             command = 1.0 if open else -1.0
@@ -815,15 +813,14 @@ def _create_worker_class():
                 action[arm_idx * self.per_arm_dim + self.gripper_idx] = command
                 self.env.step(action[None, :], auto_reset=False)
                 time.sleep(self.controller["gripper_settle_s"])
-                left_state, right_state = self._arm_states()
-                state = left_state if arm_idx == 0 else right_state
-                reached = bool(state.gripper_open) == bool(open)
+                state = self._gripper_states()[arm_name]
+                reached = state["gripper_open"] == bool(open)
                 iterations += 1
                 if reached:
                     break
             return {
                 "ok": reached,
-                "arm": ["left", "right"][arm_idx],
+                "arm": arm_name,
                 "target_gripper_open": bool(open),
                 "steps_used": iterations,
                 "robot_state": self.get_robot_state(),
@@ -907,7 +904,10 @@ def _create_worker_class():
                         "reason": "dummy environment",
                     }
 
-                ctrls = {"left": raw._left_ctrl, "right": raw._right_ctrl}
+                hands = {
+                    arm: raw.robot.child(arm).child("end_effector")
+                    for arm in ("left", "right")
+                }
                 results: dict[str, Any] = {}
                 errors: dict[str, BaseException] = {}
 
@@ -921,11 +921,9 @@ def _create_worker_class():
                         }
                         return
                     try:
-                        ctrl = ctrls[arm]
-                        method = (
-                            ctrl.open_gripper if target_open else ctrl.close_gripper
-                        )
-                        results[arm] = method().wait()
+                        hand = hands[arm]
+                        method = hand.open if target_open else hand.close
+                        results[arm] = method()
                     except BaseException as exc:
                         errors[arm] = exc
 

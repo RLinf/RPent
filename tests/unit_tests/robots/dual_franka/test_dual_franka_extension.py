@@ -49,7 +49,7 @@ def test_dual_franka_uses_rpent_owned_robot_config(fake_rlinf_realworld_modules)
     cfg = runtime.rlinf
 
     assert config_path.is_file()
-    assert cfg.env.eval.init_params.id == "DualFrankaTCPEnv-v1"
+    assert cfg.env.eval.init_params.id == "RPentDualFrankaTCPEnv-v1"
     assert cfg.env.eval.override_cfg.task_description == "test task"
     assert runtime.controller["move_tolerance_m"] == 0.006
     assert runtime.controller["rotate_tolerance_rad"] == 0.04

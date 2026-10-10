@@ -241,7 +241,7 @@ def load_runtime_config(
                     "keyboard_reward_wrapper": None,
                     "use_relative_frame": False,
                     "video_cfg": {},
-                    "init_params": {"id": "DualFrankaTCPEnv-v1"},
+                    "init_params": {"id": "RPentDualFrankaTCPEnv-v1"},
                     "override_cfg": override_cfg,
                 }
             },

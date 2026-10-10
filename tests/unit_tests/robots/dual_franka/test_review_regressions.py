@@ -121,30 +121,66 @@ def test_joint_reset_waits_for_both_controller_results(worker_classes):
 
     def controller(arm):
         def reset_joint(qpos):
-            def wait():
-                waited.append((arm, qpos))
-                return [None]
-
-            return SimpleNamespace(wait=wait)
+            waited.append((arm, qpos))
+            return None
 
         return SimpleNamespace(reset_joint=reset_joint)
 
-    raw = SimpleNamespace(
-        _left_ctrl=controller("left"), _right_ctrl=controller("right")
-    )
+    parts = {arm: {"arm": controller(arm)} for arm in ("left", "right")}
+    raw = SimpleNamespace(robot=_robot_with_parts(parts))
     worker._raw_rlinf_env = lambda: raw
     assert worker._reset_both_joints_no_gripper([[1], [2]]) == {
-        "left": [None],
-        "right": [None],
+        "left": None,
+        "right": None,
     }
     assert sorted(waited) == [("left", [1]), ("right", [2])]
 
 
-def test_missing_gripper_state_is_not_silently_defaulted(worker_classes):
+def _robot_with_parts(parts):
+    return SimpleNamespace(
+        child=lambda side: SimpleNamespace(child=parts[side].__getitem__)
+    )
+
+
+def test_missing_hand_state_is_not_silently_defaulted(worker_classes):
     worker = worker_classes[1].__new__(worker_classes[1])
-    worker._arm_states = lambda: (SimpleNamespace(), SimpleNamespace())
-    with pytest.raises(AttributeError, match="gripper_open"):
-        worker._current_gripper_commands()
+    raw = SimpleNamespace(
+        config=SimpleNamespace(is_dummy=False),
+        robot=_robot_with_parts(
+            {arm: {"end_effector": SimpleNamespace()} for arm in ("left", "right")}
+        ),
+    )
+    worker._raw_rlinf_env = lambda: raw
+    with pytest.raises(AttributeError, match="is_open"):
+        worker._gripper_states()
+
+
+def test_refresh_uses_official_tcp_accessor(worker_classes):
+    worker = worker_classes[1].__new__(worker_classes[1])
+    calls = []
+    raw = SimpleNamespace(
+        config=SimpleNamespace(is_dummy=False),
+        get_tcp_pose=lambda: calls.append("read"),
+    )
+    worker._raw_rlinf_env = lambda: raw
+    worker._refresh_robot_state()
+    assert calls == ["read"]
+    raw.config.is_dummy = True
+    worker._refresh_robot_state()
+    assert calls == ["read"]
+
+
+def test_hold_action_never_reissues_gripper_state(worker_classes):
+    worker = worker_classes[1].__new__(worker_classes[1])
+    left = np.array([0.5, 0.2, 0.4, 0, 0, 0, 1.0])
+    right = np.array([0.4, -0.2, 0.3, 0, 0, 0, 1.0])
+    action = worker._hold_action(left, right)
+    assert action.shape == (20,)
+    np.testing.assert_array_equal(action[[9, 19]], [0, 0])
+    np.testing.assert_allclose(action[:3], left[:3])
+    np.testing.assert_allclose(action[10:13], right[:3])
+    explicit = worker._hold_action(left, right, left_grip=-1, right_grip=1)
+    np.testing.assert_array_equal(explicit[[9, 19]], [-1, 1])
 
 
 def test_exploration_candidate_keeps_policy_instruction():
