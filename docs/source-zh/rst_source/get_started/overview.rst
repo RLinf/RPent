@@ -17,13 +17,13 @@ RPent 的三条核心设计原则是服务化、标准化和可组合（service-
 对比 LIBERO、LIBERO-PRO、RoboCasa365 Target50 和 RoboTwin C2R 上的成功率。
 排名仅限图中方法及评测范围；完整结果、模型配置和来源见 :doc:`../leaderboard/index`。
 
-.. image:: https://cdn.jsdelivr.net/gh/RLinf/misc@705bd44bfc8ad7586b76239de13167db35abcce7/rpent/benchmarks/leaderboard-zh-light.png
+.. image:: https://cdn.jsdelivr.net/gh/RLinf/misc@756ab5ee0667f658332a34a72910df5e6448dfea/rpent/benchmarks/leaderboard-zh-light.png
    :alt: RPent 排行榜
    :class: only-light
    :width: 100%
    :target: ../leaderboard/index.html
 
-.. image:: https://cdn.jsdelivr.net/gh/RLinf/misc@705bd44bfc8ad7586b76239de13167db35abcce7/rpent/benchmarks/leaderboard-zh-dark.png
+.. image:: https://cdn.jsdelivr.net/gh/RLinf/misc@756ab5ee0667f658332a34a72910df5e6448dfea/rpent/benchmarks/leaderboard-zh-dark.png
    :alt: RPent 排行榜
    :class: only-dark
    :width: 100%
