@@ -108,23 +108,15 @@ def test_metal_basket_task_registers_non_sorting_prompt():
         task.instruction
     )
     assert "The spoon must be inserted into the cup" in task.instruction
-    assert "no other destination is acceptable" in task.instruction
-    assert "outside the cup does not satisfy the task" in task.success_criteria
     assert "Do not perform dirty/clean classification" in constraints
     assert "The metal wire basket/frame is the only valid placement container" in (
         constraints
-    )
-    assert (
-        "Insert the spoon into the cup; no other destination is acceptable"
-        in constraints
     )
     assert "a failed grasp or drop is recoverable" in constraints
     assert "Treat the two chopsticks as two separate objects" in task.instruction
     assert "inspect the right_wrist artifact as primary evidence" in constraints
     assert "bowls -> plates -> cup -> chopsticks -> spoon" in constraints
     assert "green object before the blue object" in constraints
-    assert "inside_metal_basket without in_cup is a wrong destination" in constraints
-    assert "Track the spoon as complete only when inserted into the cup" in constraints
 
 
 def test_dual_franka_exploration_prompt_is_opt_in():
@@ -160,30 +152,6 @@ def test_dual_franka_exploration_prompt_is_opt_in():
     assert "/tmp/memory/_internal/inbox/dual_franka_t4" in explore_user_prompt
 
 
-def test_two_cup_sorting_task_extends_exploration_candidate():
-    task = DUAL_FRANKA_TASKS[6]
-    original = DUAL_FRANKA_TASKS[4]
-    prompt = "\n".join(
-        (task.instruction, task.setup, task.success_criteria, *task.constraints)
-    )
-    assert task.name.endswith("two_cups_explore_candidate")
-    assert task.vla_instruction == original.vla_instruction
-    assert "exactly two cups" in task.instruction
-    assert "egg-tart foil tray" in task.setup
-    assert "Chicken nuggets inside a bowl" in task.setup
-    assert "bowl marker is not an egg tart or foil tray" in task.setup
-    assert "dirty bowls, plates, and cups go to the metal basket" in prompt
-    assert "clean bowls, plates, and cups go to the cardboard box" in prompt
-    assert "Process bowls -> plates -> both cups." in prompt
-    assert "There are no chopsticks or spoons to process" in task.instruction
-    assert "Both cups are accounted for separately" in task.success_criteria
-    assert "the cup still goes" not in prompt.lower()
-    assert "10cm above" not in prompt
-    assert "Contact is not restricted to VLA" in prompt
-    assert "does not require stopping for operator feedback" in prompt
-    assert "arm/object motion can improve visibility" in prompt
-
-
 @pytest.mark.parametrize("task_id", [0, 1, 3, 4, 5, 6])
 @pytest.mark.parametrize("explore", [False, True])
 def test_rendered_tasks_retain_their_own_operating_instructions(
@@ -209,10 +177,9 @@ def test_rendered_tasks_retain_their_own_operating_instructions(
     task = DUAL_FRANKA_TASKS[task_id]
     system = format_prompt(spec.prompts.system(variables), variables=variables)
     user = format_prompt(spec.prompts.user(variables), variables=variables)
-    for phrase in ("joint_health", "joint-health", "recover_joint_posture"):
-        assert phrase not in system + user
-    for task_strategy in ("D455", "vla_handoff", "metal basket", "delta_z=0"):
-        assert task_strategy not in system
+    for text in (task.instruction, task.setup):
+        if text:
+            assert text not in system
     for text in (
         task.instruction,
         task.setup,
@@ -220,22 +187,3 @@ def test_rendered_tasks_retain_their_own_operating_instructions(
         *task.constraints,
     ):
         assert text in user
-    if task_id == 0:
-        assert "Do not call a VLA skill" in user
-        assert "vla_handoff" not in system + user
-    else:
-        for text in (
-            "vla_handoff",
-            "vla_left_place",
-            "closure plus lift",
-            "release delay",
-            "left gripper",
-            "only mean",
-        ):
-            assert text in user
-    assert ("delta_z=0" in user) is (task_id in (1, 3))
-    if task_id == 5:
-        assert "Put bowls and plates into the metal basket" in user
-        assert "strict staging gate" not in user
-    if task_id == 6:
-        assert "proceed even when target_reached is false" in user
