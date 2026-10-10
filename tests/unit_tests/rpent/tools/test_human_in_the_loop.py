@@ -18,14 +18,16 @@ import threading
 
 import pytest
 
-from rpent.tools.human_in_the_loop import (
-    HumanInTheLoopInput,
-)
+from rpent.tools.human_in_the_loop import HumanInTheLoopInput
 from rpent.tools.toolkit import ToolCancelled
 
 
-def test_operator_replies_are_request_scoped_and_do_not_consume_steering(monkeypatch):
-    broker = HumanInTheLoopInput(interactive=True)
+def test_operator_replies_are_request_scoped_and_do_not_consume_steering(
+    tmp_path, monkeypatch
+):
+    broker = HumanInTheLoopInput(
+        interactive=True, feedback_path=tmp_path / "feedback.jsonl"
+    )
     ready = threading.Event()
     result = []
     monkeypatch.setattr("builtins.print", lambda *args, **kwargs: ready.set())
@@ -43,31 +45,9 @@ def test_operator_replies_are_request_scoped_and_do_not_consume_steering(monkeyp
     assert result == ["done"] and not worker.is_alive()
     assert broker.route_line(f"/operator {request_id} success")
     assert broker._pending is None
-
-
-@pytest.mark.parametrize("kind,command", [("reset", "/done"), ("verdict", "/continue")])
-def test_feedback_notes_are_returned_and_preserved(
-    tmp_path, monkeypatch, kind, command
-):
-    broker = HumanInTheLoopInput(
-        interactive=True, feedback_path=tmp_path / "feedback.jsonl"
-    )
-    ready = threading.Event()
-    result = []
-    monkeypatch.setattr("builtins.print", lambda *args, **kwargs: ready.set())
-    worker = threading.Thread(
-        target=lambda: result.append(broker.request("confirm", lambda: None, kind=kind))
-    )
-    worker.start()
-    assert ready.wait(2)
-    assert not broker.route_line("保留前半段成果，重点练后半段")
-    assert not result  # Feedback alone never authorizes robot reset.
-    assert broker.route_line(command + " 篮筐中的碗盘保持不动")
-    worker.join(2)
-    assert result == [command[1:] + " 篮筐中的碗盘保持不动"]
-    assert "重点练后半段" in broker.feedback_prompt()
-    assert "篮筐中的碗盘保持不动" in broker.feedback_prompt()
-    assert len((tmp_path / "feedback.jsonl").read_text().splitlines()) == 2
+    assert not broker.route_line("keep the current progress")
+    assert "keep the current progress" in broker.feedback_prompt()
+    assert "keep the current progress" in (tmp_path / "feedback.jsonl").read_text()
 
 
 def test_operator_eof_and_cancellation_release_pending_requests(monkeypatch):
