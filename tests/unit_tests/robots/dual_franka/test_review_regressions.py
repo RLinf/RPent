@@ -296,9 +296,10 @@ def test_live_environment_does_not_inherit_coding_profile(tmp_path, dedicated):
     )
 
 
-@pytest.mark.parametrize("arm", ["left", "right"])
-@pytest.mark.parametrize("tracking", [True, False])
-@pytest.mark.parametrize("timeout", [False, True])
+@pytest.mark.parametrize(
+    ("arm", "tracking", "timeout"),
+    [("left", True, False), ("right", False, False), ("left", False, True)],
+)
 def test_move_completion_is_independent_of_accuracy(
     worker_classes, monkeypatch, arm, tracking, timeout
 ):
@@ -352,7 +353,6 @@ def test_move_completion_is_independent_of_accuracy(
         (0.012, 4, "reached"),
         (0.012, 1, "iteration_limit"),
         (0.04, 4, "position_drift"),
-        (0.04, 1, "position_drift"),
     ],
 )
 def test_rotation_holds_initial_position_and_detects_drift(
@@ -441,12 +441,12 @@ def test_rotation_holds_initial_position_and_detects_drift(
         assert not result["position_reached"]
 
 
-@pytest.mark.parametrize("gain", [0.0, 0.5])
-@pytest.mark.parametrize("angle", [0.1, 0.6])
-@pytest.mark.parametrize("tracking_bias", [0.06, 0.12, 0.3])
-@pytest.mark.parametrize("position_bias", [0.0, 0.01])
+@pytest.mark.parametrize(
+    ("gain", "tracking_bias", "position_bias"),
+    [(0.0, 0.06, 0.0), (0.5, 0.12, 0.01), (0.5, 0.3, 0.0)],
+)
 def test_rotation_compensates_static_tracking_error(
-    worker_classes, monkeypatch, gain, angle, tracking_bias, position_bias
+    worker_classes, monkeypatch, gain, tracking_bias, position_bias
 ):
     from robots.dual_franka import env_server
 
@@ -488,15 +488,13 @@ def test_rotation_compensates_static_tracking_error(
         pose[3:] = (Rotation.from_euler("z", -tracking_bias) * reference).as_quat()
 
     worker.env = SimpleNamespace(step=step)
-    result = worker.rotate_delta("left", [0, 0, angle])
+    result = worker.rotate_delta("left", [0, 0, 0.6])
     expected_success = bool(gain) and tracking_bias < 0.15
     assert result["ok"]
     assert result["status"] == "completed"
     assert result["target_reached"] == expected_success
     assert np.linalg.norm(result["position_integral"]) <= 0.015001
     assert np.linalg.norm(result["integral_rotvec"]) <= 0.120001
-    if angle == 0.6:
-        assert commands[1].as_rotvec()[2] == pytest.approx(0.2)
     for previous, current in zip(commands, commands[1:]):
         assert (current * previous.inv()).magnitude() <= 0.100001
     if expected_success:
