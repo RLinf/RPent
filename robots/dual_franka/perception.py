@@ -35,7 +35,7 @@ from robots.franka.runtime_config import (
     load_easy_handeye_yaml,
     load_mapping,
 )
-from rpent.session import EnvState, StepRecord
+from rpent.session import EnvState
 from rpent.tools import ToolResult
 from rpent.tools.base import tool
 from rpent.utils.transforms import (
@@ -46,6 +46,8 @@ from rpent.utils.transforms import (
 
 _segment_index_lock = threading.Lock()
 _segment_indices = count()
+_back_project_index_lock = threading.Lock()
+_back_project_indices = count()
 
 ROBOT_CONFIG_PATH = Path(__file__).resolve().parent / "config" / "example.yaml"
 
@@ -717,9 +719,9 @@ def _save_back_project_diagnostic(
     calibration_key: str,
 ) -> dict[str, str]:
     """Persist a marked camera image and JSON report for one projection call."""
-    artifact_index = _next_named_artifact_index(
-        state.get(step_idx), prefix=f"{camera_alias}_back_project", suffix=".json"
-    )
+    # Reserve before either save; failed calls must not reuse an image's index.
+    with _back_project_index_lock:
+        artifact_index = next(_back_project_indices)
     image_name = f"{camera_alias}.png"
     if not state.exists(image_name, step=step_idx):
         raise ValueError(f"{camera_alias} image artifact is missing")
@@ -974,18 +976,6 @@ def _localization_validity_mask(
         "right_base_xyz_max": _round(xyz_max),
     }
     return valid, contract
-
-
-def _next_named_artifact_index(
-    record: StepRecord,
-    *,
-    prefix: str,
-    suffix: str,
-) -> int:
-    idx = 0
-    while f"{prefix}_{idx:02d}{suffix}" in record.artifacts:
-        idx += 1
-    return idx
 
 
 def _make_segment_overlay(
