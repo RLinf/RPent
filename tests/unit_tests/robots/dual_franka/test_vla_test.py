@@ -13,12 +13,14 @@
 # limitations under the License.
 
 import json
+import threading
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
 from tests.e2e_tests.dual_franka.dual_franka_vla import DeploymentTest, run_console
+from tests.manual.dual_franka_full_vla import run_full_vla
 
 
 def make_session(tmp_path, *, fail=False, terminate=False):
@@ -65,6 +67,32 @@ def make_session(tmp_path, *, fail=False, terminate=False):
         20,
     )
     return s, calls, actions
+
+
+def test_policy_continues_across_chunks_until_operator_stop(tmp_path):
+    session, calls, _ = make_session(tmp_path)
+    stopped = threading.Event()
+    actions = []
+
+    def step(action):
+        actions.append(action.copy())
+        if len(actions) == 21:
+            stopped.set()
+        return {"ok": True}
+
+    session.env.chunk_step = step
+    result = run_full_vla(
+        session.env,
+        session.model,
+        prompt=session.prompt,
+        workspace=session.workspace,
+        expected_steps=session.expected_steps,
+        stopped=stopped.is_set,
+        emit=lambda event: None,
+    )
+    assert len(actions) == result["steps"] == 21
+    assert calls.count("predict") == result["chunks"] == 2
+    assert result["reason"] == "operator_stop"
 
 
 def test_infer_records_without_execution(tmp_path):
