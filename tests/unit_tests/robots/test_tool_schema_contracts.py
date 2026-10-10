@@ -59,6 +59,18 @@ def test_tool_declarations_match_pre_refactor_contracts(group: str) -> None:
     )
     path = "rpent/tools/common.py" if group == "common" else f"robots/{group}/tools.py"
     expected = {item["name"]: item for item in baseline["tools"][path]}
+    if group == "libero":
+        # The yaw fix deliberately extends the native declaration while all
+        # other pre-refactor contracts remain unchanged.
+        move = expected["move_to"]
+        move["description"] = move["description"].replace(
+            "Holds orientation (use rotate_wrist / rotate_pitch / move_pose to reorient).",
+            "Holds orientation unless target_yaw is supplied; then both position and yaw must converge. Use rotate_pitch or move_pose for pitch changes.",
+        )
+        move["input_schema"]["properties"]["yaw_tol"] = {
+            "type": "number",
+            "description": "Positive finite yaw tolerance, rad (default 0.02)",
+        }
     declarations = TOOL_DECLARATIONS[group]
     actual = {
         item.name: {
