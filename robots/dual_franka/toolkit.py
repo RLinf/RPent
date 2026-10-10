@@ -224,15 +224,33 @@ class DualFrankaToolkit(FrankaToolkit):
         self._clear_verdict()
         return inner(**kwargs)
 
+    def _view_env_state(self, step: int = -1) -> ToolResult:
+        if step >= 0:
+            return dual_franka_tools.view_env_state(step, state=self._state)
+        return self._observe_current("observe_current")
+
+    def _observe_current(self, action: str) -> ToolResult:
+        output = self.get_env_state(
+            command={"action": action}, result={}, elapsed_s=0.0
+        )
+        self._validate_observation()
+        self._publish_step(self.state.latest_record())
+        return output
+
     def _current_perception(self, inner, **kwargs) -> ToolResult:
         step = kwargs.get("step")
-        if not self._scene_ready or (
-            step is not None and step != -1 and step < self._attempt_start_step
-        ):
+        if not self._scene_ready:
+            return ToolResult(
+                data={
+                    "error": "localization refused; use fresh observations after confirmed scene reset"
+                }
+            )
+        if step is not None and step != -1 and step < self.state.latest_step:
             return ToolResult(
                 data={
                     "error": (
-                        "localization refused; use fresh observations after confirmed scene reset"
+                        f"localization refused: step {step} is stale; use current step "
+                        f"{self.state.latest_step} and reselect the target on its image"
                     )
                 }
             )
@@ -558,6 +576,7 @@ class DualFrankaToolkit(FrankaToolkit):
         }
         state_handlers.update(
             {
+                "view_env_state": self._view_env_state,
                 "view_camera_meta": partial(
                     franka_tools.view_camera_meta, state=self._state
                 ),

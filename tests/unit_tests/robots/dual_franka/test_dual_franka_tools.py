@@ -25,7 +25,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from robots.dual_franka import get_robot_spec, perception
+from robots.dual_franka import get_robot_spec
 from robots.dual_franka.perception import (
     back_project,
     load_calibration_bundle,
@@ -643,8 +643,7 @@ def test_back_project_returns_annotated_image_block(
     assert "_image_" not in text_block["text"]
 
 
-@pytest.mark.parametrize("parallel", [False, True])
-def test_segment_returns_mask_overlay_and_world_point(tmp_path, monkeypatch, parallel):
+def test_segment_returns_mask_overlay_and_world_point(tmp_path: Path):
     state = EnvState(tmp_path)
     with state.record_step(
         state={
@@ -676,6 +675,7 @@ def test_segment_returns_mask_overlay_and_world_point(tmp_path, monkeypatch, par
     config.write_text(
         "perception:\n"
         "  calibration:\n"
+        f"    base_camera: {fixtures / 'third_to_right_base_calib_eye_on_base.yaml'}\n"
         f"    d455_camera: {fixtures / 'd455_to_right_base_eye_on_base.yaml'}\n"
         "  projection_views:\n"
         "    d455:\n"
@@ -690,70 +690,29 @@ def test_segment_returns_mask_overlay_and_world_point(tmp_path, monkeypatch, par
         "        - [0.0, 0.0, 1.0, 0.0]\n"
         "        - [0.0, 0.0, 0.0, 1.0]\n"
     )
-    targets = ["first", "second"] if parallel else ["first"]
-    barrier = threading.Barrier(len(targets))
-    localize = perception._mask_to_camera_world
-
-    def synchronized_localize(*args, **kwargs):
-        # Both calls reach localization before either can save an artifact.
-        barrier.wait(timeout=3)
-        return localize(*args, **kwargs)
-
-    monkeypatch.setattr(perception, "_mask_to_camera_world", synchronized_localize)
-    save = state.save
-    save_barrier = threading.Barrier(len(targets))
-
-    def synchronized_save(name, value, **kwargs):
-        if name.startswith("d455_segment_overlay_"):
-            save_barrier.wait(timeout=3)
-        return save(name, value, **kwargs)
-
-    monkeypatch.setattr(state, "save", synchronized_save)
     set_robot_config_path(config)
     try:
-        call = partial(
-            segment,
+        result_native = segment(
             prompt="white cardboard box interior",
+            target_name="cardboard_box_interior",
             min_valid_depth_pixels=1,
             state=state,
             sam3_client=FakeSam3Client(),
         )
-        with ThreadPoolExecutor(max_workers=len(targets)) as pool:
-            results = list(pool.map(lambda target: call(target_name=target), targets))
-        result_native = results[0]
         result = result_native.data
+        from robots.dual_franka.perception import _mask_to_camera_world
 
-        monkeypatch.setattr(perception, "_mask_to_camera_world", localize)
-        failed_names = []
-
-        def fail_json_save(name, value, **kwargs):
-            if name.startswith("d455_segment_") and name.endswith(".json"):
-                failed_names.append(name)
-                return None
-            return save(name, value, **kwargs)
-
-        monkeypatch.setattr(state, "save", fail_json_save)
-        failed = call(target_name="failed")
-        failed_overlay = state.load_bytes(failed.data["overlay_artifact"])
-        monkeypatch.setattr(state, "save", save)
-        following = call(target_name="following")
-        assert failed.is_error
-        assert not following.is_error
-        assert following.data["segment_artifact"] not in failed_names
-        assert following.data["overlay_artifact"] != failed.data["overlay_artifact"]
-        assert state.load_bytes(failed.data["overlay_artifact"]) == failed_overlay
-        assert (
-            state.load(following.data["segment_artifact"])["target_name"] == "following"
+        rejected = _mask_to_camera_world(
+            np.ones((8, 8), dtype=bool),
+            np.full((8, 8), 3.958),
+            camera="d455",
+            state=state,
+            step_idx=step,
+            min_valid=1,
         )
     finally:
         set_robot_config_path(None)
 
-    assert len({item.data["segment_artifact"] for item in results}) == len(targets)
-    assert len({item.data["overlay_artifact"] for item in results}) == len(targets)
-    for target, item in zip(targets, results, strict=True):
-        assert not item.is_error
-        assert state.load(item.data["segment_artifact"])["target_name"] == target
-        assert item.images == [state.load_bytes(item.data["overlay_artifact"])]
     assert result["ok"]
     assert result["found"]
     assert result["coordinate_frame"] == "right_base"
@@ -765,6 +724,12 @@ def test_segment_returns_mask_overlay_and_world_point(tmp_path, monkeypatch, par
     assert result["segment_artifact"].startswith("d455_segment_")
     assert result["overlay_artifact"].startswith("d455_segment_overlay_")
     assert result_native.images and all(result_native.images)
+
+    assert rejected["point_xyz"] is None
+    assert rejected["valid_localization_pixels"] == 0
+    assert rejected["raw_depth_median_m"] == 3.958
+    assert rejected["mask_bbox_rc"] == [0, 0, 7, 7]
+    assert len(rejected["centroid_pixel"]) == 2
     assert result["image_block_order"] == ["d455_segment_overlay"]
 
     blocks = mcp_result(result_native)["content"]

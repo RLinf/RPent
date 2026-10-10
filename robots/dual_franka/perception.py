@@ -843,12 +843,24 @@ def _mask_to_camera_world(
         result.update({"point_xyz": None, "world_error": "empty mask"})
         return result
 
+    # Keep the rejected mask visible too; a missing valid 3-D point must not
+    # hide where segmentation actually landed in the image.
+    result["centroid_pixel"] = [int(np.median(rows)), int(np.median(cols))]
+    result["mask_bbox_rc"] = [
+        int(rows.min()),
+        int(cols.min()),
+        int(rows.max()),
+        int(cols.max()),
+    ]
+
     depths = depth[rows, cols].astype(np.float64)
     valid_depth = np.isfinite(depths) & (depths > 0.0)
     rows = rows[valid_depth]
     cols = cols[valid_depth]
     depths = depths[valid_depth]
     result["valid_depth_pixels"] = int(depths.size)
+    if depths.size:
+        result["raw_depth_median_m"] = round(float(np.median(depths)), 5)
     if depths.size < min_valid:
         result.update(
             {
