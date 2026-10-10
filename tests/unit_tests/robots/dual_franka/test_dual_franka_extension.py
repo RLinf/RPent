@@ -159,3 +159,21 @@ def test_dual_franka_exploration_prompt_is_opt_in():
     assert "request_scene_reset" in explore_prompt
     assert "request_operator_verdict" in explore_prompt
     assert "/tmp/memory/_internal/inbox/dual_franka_t4" in explore_user_prompt
+
+
+def test_manual_schemas_preserve_native_tool_declarations():
+    from robots.dual_franka.dual_franka_manual_call import (
+        _registered_tool_names,
+        _schema_payload,
+    )
+    from robots.dual_franka.toolkit import DualFrankaToolkit
+
+    tools = DualFrankaToolkit.declared_tools()
+    assert _registered_tool_names() == {tool.name for tool in tools}
+    for tool in tools:
+        assert _schema_payload(tool.name) == {
+            "primitive": tool.name,
+            "description": tool.description,
+            "input_schema": tool.input_schema,
+        }
+    assert _schema_payload("reset")["description"].startswith("Manual-only")
