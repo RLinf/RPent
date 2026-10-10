@@ -13,6 +13,7 @@
 # limitations under the License.
 
 """Serve NVIDIA's LIBERO Cosmos Policy in its own environment over RPent RPC."""
+# As cosmos-policy has checkpoints only for LIBERO, this code is LIBERO-specific.
 
 from __future__ import annotations
 
