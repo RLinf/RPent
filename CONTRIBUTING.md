@@ -72,10 +72,14 @@ Follow these conventions while developing:
   implementations where possible. Robot-specific behavior belongs in its
   integration; shared execution, state, and lifecycle rules belong in common
   components.
-- **Check callers when changing shared interfaces.** Consider affected callers,
-  subclasses, and backends, including those that do not use the new feature.
-  A small feature may still need a shared change when it introduces a common
-  requirement.
+- **Check responsibilities and impact when changing shared modules, classes,
+  or methods.** Keep changes within their existing responsibilities and use
+  existing extension points where they fit. Keep robot-specific policy and
+  higher-layer dependencies out of lower-level common components. Check
+  affected callers, subclasses, and backends, including those that do not use
+  the new feature. Review behavior, state, and lifecycle changes even when
+  signatures stay the same. Base shared changes on common needs, not feature
+  size.
 - **Import optional dependencies only where they are used.** For example,
   import `robosuite` inside the RoboCasa code that needs it, not at module
   import time. This keeps `import rpent`, robot discovery, and CLI help usable
