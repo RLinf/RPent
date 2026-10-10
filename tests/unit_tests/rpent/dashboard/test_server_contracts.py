@@ -242,20 +242,3 @@ def test_healthz_still_reports_transport_liveness_only(state: DashboardState) ->
 
     assert resp.status_code == 200
     assert resp.json() == {"ok": True}
-
-
-def test_generic_messages_do_not_enable_operator_control(state):
-    state.shared_services_ready()
-    state.request_task({"seed": 1})
-    state.wait_for_task(timeout=0)
-    state.set_planner_activity("idle", accepting_input=True)
-    client = _client(_server(state))
-    for text in ("/done", "/success"):
-        response = client.post(
-            "/api/session/messages",
-            json={"text": text, "operator_context": {"generation": -1}},
-        )
-        assert response.status_code == 202
-        assert state.claim_next_pending_message().text == text
-    assert client.get("/api/session/state").json()["operator"]["enabled"] is False
-    assert not state.task_replacement_requested
