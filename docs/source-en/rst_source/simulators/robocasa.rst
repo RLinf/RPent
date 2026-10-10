@@ -211,15 +211,35 @@ Use ``--dashboard`` to watch cameras and planner output; see :doc:`../guides/das
 Task Memory
 -----------
 
-With ``--memory-profile hf`` (the default), the CLI and Dashboard synchronize
-``robocasa/**`` from the current ``main`` branch of the
+With ``--memory-profile hf`` (the default), CLI and Dashboard select a corpus
+from the ``release/v0.1`` branch of the
 `RLinf/RPent-memory dataset
-<https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/robocasa>`_.
-Memory is not pinned to a commit. The layout is:
+<https://huggingface.co/datasets/RLinf/RPent-memory/tree/release%2Fv0.1/robocasa>`_:
+
+- ``gpt-5.5`` selects ``robocasa/GPT_5.5_xhigh/``.
+- ``gpt-6-astra`` selects ``robocasa/GPT_6_astra_high/``.
+- Other models use GPT-5.5 memory with a warning.
+
+``--memory-version auto`` uses the resolved planner model, including
+``CODEX_MODEL`` when no explicit Codex model is supplied. Provider prefixes
+such as ``openai:gpt-6-astra`` are accepted. Use
+``--memory-version GPT_5.5_xhigh`` or ``--memory-version GPT_6_astra_high`` to
+override selection. Corpus selection does not change the evaluation model or
+its reasoning effort.
+
+The HF branch is fixed to ``release/v0.1`` by the implementation.
+Each preparation resolves that branch online and downloads
+only the selected subtree into a repository/commit-isolated cache. Resolution
+or download failures stop preparation; another corpus or revision is not used
+as a fallback. For offline runs, download once and use the local profile.
+``--memory-version`` applies only to HF evaluation; local memory and exploration
+continue to use ``--memory-dir``.
+
+The selected corpus root has this layout:
 
 .. code-block:: text
 
-   memory/robocasa/
+   <selected-corpus-root>/
    ├── task-specific/
    │   ├── <Task>_s0.json
    │   ├── <Task>_s0_recipe.jsonl
@@ -239,9 +259,10 @@ A missing JSON/JSONL pair is allowed: the planner continues with live
 observations and global guidance. A half-present pair is an error. Missing
 optional Markdown is logged, and the global file must exist. Files are
 discovered by task name and directory; no extra index is needed.
-The CLI validates memory before starting robot services. Dashboard validates
-the memory root and global layer before starting its shared VLA, then checks
-each selected task's files before starting that task's environment.
+The CLI validates memory before starting robot services. Dashboard selects
+HF memory after the task's model is known and validates it before starting
+that task's environment. Local memory also validates its global layer before
+shared VLA startup.
 A task memory error leaves the existing shared VLA available for other tasks.
 
 Live ``task_language``, RGB-D observations, task progress and tool results take
@@ -259,15 +280,15 @@ profile. This also avoids retaining deleted files in an older download directory
 .. code-block:: bash
 
    hf download RLinf/RPent-memory --repo-type dataset \
-      --include 'robocasa/**' --local-dir ./target50-memory
+      --revision release/v0.1 --include 'robocasa/GPT_5.5_xhigh/**' --local-dir ./target50-memory
 
    rpent --robot robocasa \
          --task-name OpenDrawer --split target --seed 1 \
          --vla-model-path /path/to/rldx \
          --planner codex --model gpt-5.5 --reasoning-effort xhigh \
-         --memory-profile local --memory-dir ./target50-memory/robocasa
+         --memory-profile local --memory-dir ./target50-memory/robocasa/GPT_5.5_xhigh
 
-Future memory updates are published to HF ``main``. The
+The model-specific corpora are published on HF ``release/v0.1``. The
 `reproduce/memory archive
 <https://huggingface.co/datasets/RLinf/RPent-memory/tree/reproduce/memory>`_
 retains the GPT-5.5 Harness-VLA reproduction resources at ``d8c25a7f``, with
@@ -277,7 +298,7 @@ convert the old layout. Downloading that archive and passing it to the current
 ``--memory-profile local`` loader is not a supported reproduction command.
 The archive's README describes its historical behavior, not the current CLI.
 No matching RoboCasa code/data snapshot is established by this guide; the
-commands above use the current main corpus.
+commands above select the GPT-5.5 release corpus.
 
 Local exploration output is also supported directly, without conversion. For
 ``--task-name <Task> --split <split>``, local evaluation selects either the
@@ -300,7 +321,7 @@ family identity for validation.
 Custom Memory Sources
 ~~~~~~~~~~~~~~~~~~~~~
 
-To use another HF dataset with the same ``robocasa/`` layout, set
+To use another HF dataset with the same ``robocasa/<memory-version>/`` layout, set
 ``RPENT_MEMORY_HF_REPO=<owner>/<dataset>`` when launching RPent with
 ``--memory-profile hf``. This accepts a dataset repository ID, not a browser URL.
 
@@ -371,13 +392,13 @@ the audit structure. Missing or corrupt audit files are reported separately;
 read completeness does not determine the environment result's validity or
 success. Each run starts a fresh audit, even when reusing an output directory.
 
-Memory contents are not compared across runs. HF ``main`` receives future
-updates, while ``reproduce/memory`` remains an unchanged historical archive.
+Memory contents are not compared across runs. HF ``release/v0.1`` receives
+updates to these corpora, while ``reproduce/memory`` remains an unchanged historical archive.
 For a repeatable comparison using the current layout, download memory once
 and use the same unchanged directory with
 ``--memory-profile local --memory-dir`` for every cell. Retain the files and
-record the HF commit or hashes in local experiment notes. RPent does not pin
-memory or add data revision identifiers to result metadata.
+record the HF commit or hashes in local experiment notes. For a fixed commit, use ``hf download --revision <commit>`` and the local profile.
+Result metadata does not include a data revision identifier.
 
 The manifests describe the evaluation matrix and validation rules; the
 :doc:`leaderboard <../leaderboard/performance>` displays independently reported
@@ -485,7 +506,7 @@ The first ``OpenDrawer`` Atomic cell is:
          --planner codex --model gpt-5.5 --reasoning-effort xhigh \
          --max-turns 100 --planner-timeout-s 1800 \
          --memory-profile local \
-         --memory-dir ./target50-memory/robocasa \
+         --memory-dir ./target50-memory/robocasa/GPT_5.5_xhigh \
          --output-dir ./runs/target50/atomic/OpenDrawer_s1
 
 Use ``--planner-timeout-s 3600`` for either composite split. Execute Atomic,
@@ -663,7 +684,7 @@ The lightweight protocol tests still validate all 50 tasks and the fixed
   ``RLinf/robosuite`` ``rpent`` branch. Do not patch installed XML files
   manually.
 - If ``read_text_file`` reports a missing current-task result, check the
-  ``memory/robocasa/task-specific/`` corpus or the selected local directory.
+  ``task-specific/`` under the selected corpus root corpus or the selected local directory.
   RPent does not fall back to another task's memory.
   Markdown is optional; Atomic tasks have no published ``<Task>.md``.
 - Environment and VLA startup failures are recorded in

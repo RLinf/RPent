@@ -187,11 +187,21 @@ RoboCasa 不绑定具体 planner；可使用 ``api``、``claude_code`` 或 ``cod
 任务记忆
 ------------
 
-``--memory-profile hf`` （默认值）下，CLI 与 Dashboard 均从 `RLinf/RPent-memory 数据集 <https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/robocasa>`_ 当前的 ``main`` 分支同步 ``robocasa/**``，不锁定数据 commit。目录结构为：
+使用 ``--memory-profile hf`` （默认值）时，CLI 与 Dashboard 从 `RLinf/RPent-memory 数据集 <https://huggingface.co/datasets/RLinf/RPent-memory/tree/release%2Fv0.1/robocasa>`_ 的 ``release/v0.1`` 分支按模型选择语料：
+
+- ``gpt-5.5`` 对应 ``robocasa/GPT_5.5_xhigh/``。
+- ``gpt-6-astra`` 对应 ``robocasa/GPT_6_astra_high/``。
+- 其他模型使用 GPT-5.5 memory，并记录警告。
+
+``--memory-version auto`` 根据实际解析出的 planner 模型选择语料；Codex 未显式指定模型时会使用 ``CODEX_MODEL``。支持 ``openai:gpt-6-astra`` 等 provider 前缀。可以通过 ``--memory-version GPT_5.5_xhigh`` 或 ``--memory-version GPT_6_astra_high`` 手动覆盖。选择语料不会改变评测模型或推理档位。
+
+HF 分支由实现固定为 ``release/v0.1``。每次准备时在线解析该分支，仅下载所选子树，缓存按仓库和 commit 隔离。解析或下载失败会停止准备，不会改用另一份语料或 revision。离线运行应先下载，再使用 local profile。``--memory-version`` 仅用于 HF 评测；本地 memory 和探索仍通过 ``--memory-dir`` 指定目录。
+
+所选语料根目录的结构为：
 
 .. code-block:: text
 
-   memory/robocasa/
+   <selected-corpus-root>/
    ├── task-specific/
    │   ├── <Task>_s0.json
    │   ├── <Task>_s0_recipe.jsonl
@@ -201,7 +211,7 @@ RoboCasa 不绑定具体 planner；可使用 ``api``、``claude_code`` 或 ``cod
 
 HF 评测时，RoboCasa 同时提供当前任务已有的 JSON、recipe、Markdown 和 ``global/GLOBAL_MEMORY.md``。规划器通过 ``read_text_file`` 按需查阅与当前任务相关的 task-specific 和 global 经验，自主决定读取时机和内容量；动作与任务结束不要求先读完全部文件。不提供关闭 global 层的选项。
 
-提示词与文件工具使用相同的文件选择。RPent 文件工具拒绝读取其他任务的 memory；这是工具层限制，不是操作系统级隔离。JSON/JSONL 均缺失时，继续使用实时观测和 global；只有其中一个存在则报错。缺少可选 Markdown 会记录日志，global 文件必须存在。文件按任务名和目录直接发现，无需额外索引。CLI 在启动机器人服务前校验 memory。Dashboard 在启动共享 VLA 前检查 memory 目录和 global 层；选定任务后，先检查该任务的文件，再启动其环境。任务 memory 校验失败时，已有的共享 VLA 仍可供其他任务使用。
+提示词与文件工具使用相同的文件选择。RPent 文件工具拒绝读取其他任务的 memory；这是工具层限制，不是操作系统级隔离。JSON/JSONL 均缺失时，继续使用实时观测和 global；只有其中一个存在则报错。缺少可选 Markdown 会记录日志，global 文件必须存在。文件按任务名和目录直接发现，无需额外索引。CLI 在启动机器人服务前校验 memory。Dashboard 在确定任务模型后选择 HF memory，并在启动该任务的环境前完成校验；local memory 还会在共享 VLA 启动前检查 global 层。任务 memory 校验失败时，已有的共享 VLA 仍可供其他任务使用。
 
 实时 ``task_language``、RGB-D、任务进展和工具返回优先于 memory。只有可见前提成立时才应用 global 策略。有接触、持有物体、fixture 进展或计数器上升时保持 VLA 连续调用；连续两次无接触且无可见进展后，重新定位并有限调整姿态。每次 VLA 调用都使用完整、逐字的实时任务语言。历史 ``vla_act`` 仅描述策略，执行使用当前工具，不回放历史坐标。评测时仍然不允许 reset。
 
@@ -210,15 +220,15 @@ HF 评测时，RoboCasa 同时提供当前任务已有的 JSON、recipe、Markdo
 .. code-block:: bash
 
    hf download RLinf/RPent-memory --repo-type dataset \
-      --include 'robocasa/**' --local-dir ./target50-memory
+      --revision release/v0.1 --include 'robocasa/GPT_5.5_xhigh/**' --local-dir ./target50-memory
 
    rpent --robot robocasa \
          --task-name OpenDrawer --split target --seed 1 \
          --vla-model-path /path/to/rldx \
          --planner codex --model gpt-5.5 --reasoning-effort xhigh \
-         --memory-profile local --memory-dir ./target50-memory/robocasa
+         --memory-profile local --memory-dir ./target50-memory/robocasa/GPT_5.5_xhigh
 
-后续 memory 更新仅发布到 HF ``main``。 `reproduce/memory 归档 <https://huggingface.co/datasets/RLinf/RPent-memory/tree/reproduce/memory>`_ 保留 ``d8c25a7f`` 的 GPT-5.5 Harness-VLA 复现资源，正文和目录命名均保持原样。其中 RoboCasa 使用 ``task_only/``，当前加载器要求 ``task-specific/``，不会转换旧布局。因此，下载该归档后直接传给当前 ``--memory-profile local`` 加载器，不是受支持的复现命令。归档 README 描述的是历史行为，不是当前 CLI。本指南尚未确立与该归档配套的 RoboCasa 代码/数据快照；上面的命令使用当前 main 语料。
+按模型划分的语料发布到 HF ``release/v0.1``。 `reproduce/memory 归档 <https://huggingface.co/datasets/RLinf/RPent-memory/tree/reproduce/memory>`_ 保留 ``d8c25a7f`` 的 GPT-5.5 Harness-VLA 复现资源，正文和目录命名均保持原样。其中 RoboCasa 使用 ``task_only/``，当前加载器要求 ``task-specific/``，不会转换旧布局。因此，下载该归档后直接传给当前 ``--memory-profile local`` 加载器，不是受支持的复现命令。归档 README 描述的是历史行为，不是当前 CLI。本指南尚未确立与该归档配套的 RoboCasa 代码/数据快照；上面的命令选择 GPT-5.5 发布语料。
 
 本地探索产物也可以直接用于评测，无需转换。对于 ``--task-name <Task> --split <split>``，local 评测从 ``task-specific/`` 中选择发布版 ``<Task>_s0.json`` / ``<Task>_s0_recipe.jsonl`` 文件对，或者原生 ``<Task>_<split>_s0.json`` / ``<Task>_<split>_s0_recipe.jsonl`` 文件对。任一候选只存在半对都会报错；两对同时存在时，必须用不同的 ``--memory-dir`` 目录分开，RPent 不会自动选择。两对都缺失时，可以仅使用 global 指导。
 
@@ -227,7 +237,7 @@ local 评测还提供 ``global/*.md``，以及 YAML frontmatter 中 ``suite: rob
 自定义记忆来源
 ~~~~~~~~~~~~~~
 
-使用相同 ``robocasa/`` 结构的其他 HF 数据集时，启动 RPent 前设置 ``RPENT_MEMORY_HF_REPO=<owner>/<dataset>``，并使用 ``--memory-profile hf``。这里接受数据集仓库 ID，不是浏览器页面 URL。
+使用相同 ``robocasa/<memory-version>/`` 结构的其他 HF 数据集时，启动 RPent 前设置 ``RPENT_MEMORY_HF_REPO=<owner>/<dataset>``，并使用 ``--memory-profile hf``。这里接受数据集仓库 ID，不是浏览器页面 URL。
 
 使用自定义子目录或维护分支时，下载对应子树到新目录后选择 local profile：
 
@@ -265,7 +275,7 @@ local 评测还提供 ``global/*.md``，以及 YAML frontmatter 中 ``suite: rob
 
 结果记录固定的任务/global 文件选择、缺失文件和实际读取情况。校验器允许零读取和部分读取，仍检查任务访问边界和审计结构。审计文件缺失或损坏会单独报告；是否完整读取不决定环境结果的有效性或成功值。每次运行都会重新初始化读取审计，即使复用了输出目录也不继承旧记录。
 
-校验器不比较不同运行之间的 memory 正文。HF ``main`` 接收后续更新， ``reproduce/memory`` 保持为不再变更的历史归档。使用当前布局进行可重复的对照实验时，只下载一次 memory，所有 cell 均用 ``--memory-profile local --memory-dir`` 指向同一份保持不变的目录。保留这些文件，并在本地实验记录中保存 HF commit 或哈希。RPent 不固定 memory，也不向结果元数据添加数据版本标识。
+校验器不比较不同运行之间的 memory 正文。HF ``release/v0.1`` 接收这些语料的更新， ``reproduce/memory`` 保持为不再变更的历史归档。使用当前布局进行可重复的对照实验时，只下载一次 memory，所有 cell 均用 ``--memory-profile local --memory-dir`` 指向同一份保持不变的目录。保留这些文件，并在本地实验记录中保存 HF commit 或哈希。需要固定 commit 时，使用 ``hf download --revision <commit>`` 下载后选择 local profile。结果元数据不包含数据版本标识。
 
 清单定义评测矩阵和校验规则，:doc:`排行榜 <../leaderboard/performance>` 展示独立报告的成绩。340 个回合本身不能证明运行使用了哪份 memory、模型或代码配置。当前 v2 清单包含 GPT-5.5 参考配置，不能直接用于校验榜单上的所有模型。
 
@@ -334,7 +344,7 @@ Seen/Unseen 指任务是否出现在预训练数据中；target 厨房场景是�
          --planner codex --model gpt-5.5 --reasoning-effort xhigh \
          --max-turns 100 --planner-timeout-s 1800 \
          --memory-profile local \
-         --memory-dir ./target50-memory/robocasa \
+         --memory-dir ./target50-memory/robocasa/GPT_5.5_xhigh \
          --output-dir ./runs/target50/atomic/OpenDrawer_s1
 
 Composite-Seen 与 Composite-Unseen 使用 ``--planner-timeout-s 3600``。按 Atomic、Composite-Seen、Composite-Unseen 的顺序执行。只有最终环境记录中的 ``state.success=true`` 才计为成功，规划器的 ``finish(status=...)`` 不作为评测结果。已产生有效结果的任务失败和规划器超时均不重试；仅在基础设施故障导致该评测单元未产生有效环境结果时，才允许重试。
@@ -461,7 +471,7 @@ Astra 的报告值为 **Overall 59.20%**，三个分项分别为 **87.78% / 43.7
 - 共享只读环境应将 ``NUMBA_CACHE_DIR`` 设置到当前用户可写目录，不要修改包的代码权限。
 
 - 导航 RGB-D 或 world map 渲染报告缺少 ``mobilebase0_navview`` 时，应重新安装 ``.[robocasa]`` 以刷新 ``RLinf/robosuite`` 的 ``rpent`` 分支；不要手工修改已安装的 XML。
-- ``read_text_file`` 报告缺少当前任务结果时，请检查 ``memory/robocasa/task-specific/`` 目录或所选本地目录。RPent 不会读取其他任务的 memory 作为替代。 Markdown 为可选文件；Atomic 任务没有发布 ``<Task>.md``。
+- ``read_text_file`` 报告缺少当前任务结果时，请检查 所选语料根目录下的 ``task-specific/`` 目录。RPent 不会读取其他任务的 memory 作为替代。 Markdown 为可选文件；Atomic 任务没有发布 ``<Task>.md``。
 - 环境与 VLA 启动错误会分别记录在 ``<output_dir>/env_server.log`` 和 ``<output_dir>/vla_server.log``；运行级错误也可检查 ``<output_dir>/run.log``。
 - 只有准确的 ``127.0.0.1`` 与 ``localhost`` 主机名会自动绕过 HTTP 代理。其他主机名与 IP 均遵循标准代理环境；只有该服务应当直连时，才需要把准确主机名加入 ``NO_PROXY`` 与 ``no_proxy`` 配置。
 
