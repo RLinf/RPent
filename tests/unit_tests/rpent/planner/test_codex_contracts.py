@@ -620,7 +620,7 @@ def test_cli_budget_interrupt_preserves_terminal_status(
 def test_dashboard_interrupts_at_response_budget_and_closes(
     interrupt_error, completed_status, expected_error
 ):
-    from rpent.planner.codex import _CodexDashboardSession, _Recorder
+    from rpent.planner.codex import _CodexSession, _Recorder
 
     async def run():
         class Turn:
@@ -671,7 +671,7 @@ def test_dashboard_interrupts_at_response_budget_and_closes(
             events.append(event)
             recorder.observe(event)
 
-        session = _CodexDashboardSession(
+        session = _CodexSession(
             config=None,
             thread_options={},
             turn_options={},
@@ -1227,31 +1227,3 @@ def test_retry_error_is_visible_without_poisoning_successful_turn():
     )
     assert "Retries exhausted" in recorder.error
     assert "Model connection failed" in str(sink.events[-1])
-
-
-def test_terminal_eof_interrupts_codex(tmp_path, monkeypatch):
-    install_fake_backend(monkeypatch)
-    interrupted = threading.Event()
-
-    def interrupt(turn):
-        turn.interrupt_calls += 1
-        interrupted.set()
-
-    def stream(turn):
-        assert interrupted.wait(2)
-        yield from turn.events
-
-    monkeypatch.setattr(FakeTurn, "interrupt", interrupt)
-    monkeypatch.setattr(FakeTurn, "stream", stream)
-    inputs = queue.Queue()
-    inputs.put(None)
-    result = make_planner(tmp_path, RecordingSink()).solve(
-        system_prompt="test",
-        user_message="task",
-        toolkit=FakeToolkit(),
-        max_turns=10,
-        input_queue=inputs,
-    )
-    assert result.error is None
-    assert FakeCodex.instances[-1].thread.fake_turn.interrupt_calls == 1
-    assert inputs.empty()

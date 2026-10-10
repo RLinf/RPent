@@ -25,7 +25,6 @@ from robots.dual_franka import robot_spec
 from robots.dual_franka.toolkit import DualFrankaToolkit
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory import MemoryManager
-from rpent.planner.base import PlannerResult
 
 
 class FakeEnv:
@@ -571,7 +570,7 @@ def test_direct_success_with_failed_observation_does_not_publish(setup):
 
 
 @pytest.mark.parametrize("robot_name", ["dual_franka", "libero"])
-@pytest.mark.parametrize("verdict", ["success", "failure", "abort"])
+@pytest.mark.parametrize("verdict", ["success", "failure", "abort", "eof"])
 @pytest.mark.parametrize("planner_error", [None, "planner transport failed"])
 def test_cli_direct_verdict_finalizes_and_merges_only_without_errors(
     tmp_path,
@@ -589,9 +588,12 @@ def test_cli_direct_verdict_finalizes_and_merges_only_without_errors(
 
     env = FakeEnv()
     handlers = {}
+    command = verdict
+    verdict = "abort" if command == "eof" else verdict
 
     def reader(input_queue, **kwargs):
         handlers["line"] = kwargs["line_handler"]
+        handlers["close"] = kwargs["on_close"]
         input_queue.put("test task")
 
     monkeypatch.setattr(cli, "start_interactive_reader", reader)
@@ -601,8 +603,12 @@ def test_cli_direct_verdict_finalizes_and_merges_only_without_errors(
             toolkit._operator_input = lambda *args: "done"
             call(toolkit, "request_scene_reset", reason="test")
             call(toolkit, "move_delta", arm="right", delta_xyz=[0.01, 0, 0])
-            assert handlers["line"]("/" + verdict)
-            assert input_queue.cancelled
+            if command == "eof":
+                handlers["close"]()
+                input_queue.put(None)
+            else:
+                assert handlers["line"]("/" + verdict)
+                assert input_queue.cancelled
             assert input_queue.get() is None
             return SimpleNamespace(
                 finish_result=None, messages=[], stats={}, error=planner_error
@@ -723,8 +729,9 @@ def test_current_view_refreshes_but_historical_view_does_not(setup):
     np.testing.assert_allclose(env.moves[0][1], [0.01, 0, 0])
 
 
+@pytest.mark.parametrize("ending", ["/success checked", None])
 def test_attended_confirmation_resumes_same_attempt_over_http(
-    setup, tmp_path, monkeypatch
+    setup, tmp_path, monkeypatch, ending
 ):
     import asyncio
     import queue
@@ -734,7 +741,8 @@ def test_attended_confirmation_resumes_same_attempt_over_http(
     from mcp import ClientSession
     from mcp.client.streamable_http import streamable_http_client
 
-    from rpent.cli.attended import _solve_attended
+    from rpent.planner.codex import CodexPlanner
+    from rpent.session.input import SessionInputQueue
     from rpent.tools.human_in_the_loop import HumanInTheLoopInput
 
     toolkit, env, replies = setup
@@ -743,52 +751,85 @@ def test_attended_confirmation_resumes_same_attempt_over_http(
     ready, prompted = threading.Event(), threading.Event()
     monkeypatch.setattr("builtins.print", lambda *a, **kw: prompted.set())
     monkeypatch.setattr(
-        "rpent.cli.attended.logger.info",
+        "rpent.planner.codex.logger.info",
         lambda message, *args: (
-            ready.set() if "current operator request" in message else None
+            ready.set() if "Waiting for feedback" in message else None
         ),
     )
-    inputs = queue.Queue()
-    calls, requests = [], []
+    inputs = SessionInputQueue(queue.Queue())
+    clients, prompts = [], []
+    endpoint = []
 
-    async def request(url):
-        async with httpx.AsyncClient(trust_env=False) as client:
-            async with streamable_http_client(url, http_client=client) as (
+    async def request(name, args):
+        async with (
+            httpx.AsyncClient(trust_env=False) as client,
+            streamable_http_client(endpoint[0], http_client=client) as (
                 read,
                 write,
                 _,
-            ):
-                async with ClientSession(read, write) as session:
-                    await session.initialize()
-                    name = "request_scene_reset"
-                    args = {"reason": "test"}
-                    result = await session.call_tool(name, args)
-                    assert not result.isError
+            ),
+            ClientSession(read, write) as session,
+        ):
+            await session.initialize()
+            result = await session.call_tool(name, args)
+            assert not result.isError
 
-    class Planner:
-        def solve(self, *, toolkit, user_message, mcp_server, **kwargs):
-            calls.append(mcp_server)
-            if len(calls) == 1:
-                worker = threading.Thread(
-                    target=lambda: asyncio.run(request(mcp_server.url))
-                )
-                requests.append(worker)
-                worker.start()
-                assert prompted.wait(2)
-                return PlannerResult()
-            assert "SAME attempt" in user_message
-            assert env.resets == 1
-            toolkit.request_direct_verdict("success", "checked")
-            return PlannerResult()
+    class Client:
+        closed = False
+
+        def __init__(self, config):
+            self.interrupted = asyncio.Event()
+            clients.append(self)
+
+        async def thread_start(self, **kwargs):
+            return self
+
+        async def turn(self, text, **kwargs):
+            prompts.append(text)
+            return self
+
+        async def stream(self):
+            if len(prompts) == 1:
+                await request("request_scene_reset", {"reason": "test"})
+            else:
+                assert env.resets == 1
+                await request("move_delta", {"arm": "right", "delta_xyz": [0, 0, 0.01]})
+                if ending is None:
+                    inputs.put(None)
+                else:
+                    assert broker.route_line(ending)
+                await self.interrupted.wait()
+            yield {
+                "method": "turn/completed",
+                "payload": {"turn": {"status": "completed"}},
+            }
+
+        async def interrupt(self):
+            self.interrupted.set()
+
+        async def close(self):
+            self.closed = True
+
+    def verdict(value, notes):
+        accepted = toolkit.request_direct_verdict(value, notes)
+        if accepted:
+            inputs.cancel()
+        return accepted
+
+    broker.bind_verdict(verdict)
+    monkeypatch.setattr("rpent.planner.codex.openai_codex.AsyncCodex", Client)
+    planner = CodexPlanner(
+        output_dir=str(tmp_path),
+        repo_root=tmp_path,
+        timeout_s=10,
+        dashboard_events=NullDashboardEventSink(),
+    )
+    monkeypatch.setattr(planner, "_build_config", lambda url: endpoint.append(url))
 
     results = []
     runner = threading.Thread(
         target=lambda: results.append(
-            _solve_attended(
-                Planner(),
-                operator_input=broker,
-                state_output_dir=tmp_path / "session",
-                keep_mcp_alive=True,
+            planner.solve(
                 toolkit=toolkit,
                 input_queue=inputs,
                 system_prompt="test",
@@ -799,17 +840,16 @@ def test_attended_confirmation_resumes_same_attempt_over_http(
     )
     runner.start()
     try:
-        assert ready.wait(2)
+        assert prompted.wait(3)
         assert env.resets == 0
         assert broker.route_line("/done")
+        assert ready.wait(3)
+        inputs.put("continue with this object")
         runner.join(5)
-        for worker in requests:
-            worker.join(2)
-            assert not worker.is_alive()
         assert not runner.is_alive() and results[0].error is None
-        assert len(calls) == 2 and calls[0] is calls[1]
-        assert calls[0]._thread is None
-        assert env.resets == 1 and not env.moves
+        assert len(clients) == 1 and clients[0].closed
+        assert prompts == ["test\n\ntest task", "continue with this object"]
+        assert env.resets == 1 and len(env.moves) == 1
     finally:
         inputs.put(None)
         broker.close()

@@ -337,11 +337,6 @@ class Toolkit:
         """Pause admission, cancel queued and active calls, and wait for cleanup."""
         self._scheduler.wait(self._scheduler.cancel())
 
-    def wait_active(self) -> None:
-        """Wait for admitted calls to complete without cancelling them."""
-        with self._scheduler.condition:
-            self._scheduler.condition.wait_for(lambda: not self._scheduler.active)
-
     def resume_calls(self) -> None:
         """Reopen admission after interrupted calls and their workers have drained."""
         self._scheduler.resume()

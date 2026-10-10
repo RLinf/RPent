@@ -26,3 +26,8 @@ view_env_state with step 0, inspect the configured inline visual evidence
 together with both arms' TCP/gripper/joint-health state, and execute the task
 conservatively with the exposed bounded tools. Auxiliary camera views are
 artifact views for targeted follow-up inspection only."""
+
+DASHBOARD_OPERATOR = """Before the first motion call request_scene_reset and wait
+for the operator's Dashboard confirmation. Final success/failure requires
+request_operator_verdict or an explicit operator verdict. There is no terminal
+input; use the Dashboard message input for operator replies."""

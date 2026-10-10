@@ -139,7 +139,6 @@ class CodexPlanner(Planner):
         max_turns: int,
         input_queue: InputQueue | None = None,
         dashboard_interaction: DashboardInteractionPort | None = None,
-        mcp_server: HttpMcpServer | None = None,
     ) -> PlannerResult:
         """Run one or more Codex SDK turns for the given prompt."""
         if input_queue is not None and dashboard_interaction is not None:
@@ -147,16 +146,15 @@ class CodexPlanner(Planner):
                 "input_queue and dashboard_interaction cannot be used together"
             )
         prompt = f"{system_prompt}\n\n{user_message}" if system_prompt else user_message
-        if dashboard_interaction is not None:
-            if mcp_server is not None:
-                raise ValueError("dashboard owns its MCP server")
+        if dashboard_interaction is not None or input_queue is not None:
             return asyncio.run(
-                self._solve_dashboard(
+                self._solve_interactive(
                     prompt=prompt,
                     initial_user_text=user_message,
                     toolkit=toolkit,
                     max_turns=max_turns,
                     interaction=dashboard_interaction,
+                    input_queue=input_queue,
                 )
             )
         output_path, raw_stream_path, last_message_path = self._output_paths()
@@ -168,9 +166,7 @@ class CodexPlanner(Planner):
 
         # Start the in-thread MCP HTTP server so Codex can reach the
         # shared toolkit without spawning a subprocess.
-        owns_mcp_server = mcp_server is None
-        if owns_mcp_server:
-            mcp_server = HttpMcpServer(toolkit)
+        mcp_server = HttpMcpServer(toolkit)
         mcp_url = mcp_server.start()
         logger.info("mcp http endpoint: %s", mcp_url)
 
@@ -194,8 +190,6 @@ class CodexPlanner(Planner):
                 recorder,
                 state,
                 mcp_url,
-                toolkit,
-                input_queue,
             ),
             name="codex-sdk",
             daemon=True,
@@ -232,14 +226,13 @@ class CodexPlanner(Planner):
                     _write_jsonl(raw_f, {"type": "error", "message": error})
                 logger.info(rendered.rstrip())
         finally:
-            if owns_mcp_server:
-                try:
-                    toolkit.cancel_active_and_wait()
-                except Exception as exc:
-                    logger.exception("Codex toolkit cleanup failed")
-                    error = error or f"Toolkit cleanup failed: {exc}"
-                finally:
-                    mcp_server.stop()
+            try:
+                toolkit.cancel_active_and_wait()
+            except Exception as exc:
+                logger.exception("Codex toolkit cleanup failed")
+                error = error or f"Toolkit cleanup failed: {exc}"
+            finally:
+                mcp_server.stop()
 
         elapsed = time.time() - started
         text = state.get("text", "") or output_path.read_text(errors="replace")
@@ -291,8 +284,6 @@ class CodexPlanner(Planner):
         recorder: "_Recorder",
         state: dict[str, Any],
         mcp_url: str,
-        toolkit: Toolkit,
-        input_queue: InputQueue | None = None,
     ) -> None:
         try:
             chunks: list[str] = []
@@ -305,85 +296,30 @@ class CodexPlanner(Planner):
                     open(output_path, "w") as out_f,
                     open(raw_stream_path, "w") as raw_f,
                 ):
-                    write_lock = threading.Lock()
-
                     turn = thread.turn(prompt, **self._turn_options)
                     state["turn"] = turn
 
-                    steering_input: SessionInputQueue | None = None
-                    steer_thread: threading.Thread | None = None
-                    if input_queue is not None:
-                        steering_input = SessionInputQueue(input_queue)
-
-                        def _steer() -> None:
-                            while True:
-                                nxt = next_user_line(steering_input)
-                                if nxt is None:
-                                    if not steering_input.cancelled:
-                                        toolkit.cancel_active_and_wait()
-                                        try:
-                                            turn.interrupt()
-                                        except Exception:
-                                            pass
-                                    return
-                                if steering_input.cancelled:
-                                    input_queue.put(nxt)
-                                    return
-                                rendered = f"\n[user] {nxt}\n"
-                                with write_lock:
-                                    chunks.append(rendered)
-                                    out_f.write(rendered)
-                                    out_f.flush()
-                                logger.info(rendered.strip())
-                                try:
-                                    turn.steer(nxt)
-                                    logger.info(
-                                        "[feedback] delivered to active Codex turn"
-                                    )
-                                except Exception as e:
-                                    rendered = f"\n[codex-planner] steer failed: {e}\n"
-                                    with write_lock:
-                                        chunks.append(rendered)
-                                        out_f.write(rendered)
-                                        out_f.flush()
-                                    logger.info(rendered.strip())
-                                    return
-
-                        steer_thread = threading.Thread(
-                            target=_steer,
-                            name="codex-steer",
-                            daemon=True,
-                        )
-                        steer_thread.start()
-
                     limit_reached = False
-                    try:
-                        for event in turn.stream():
-                            _write_jsonl(raw_f, _message_to_json(event))
-                            if rendered := recorder.observe(event):
-                                with write_lock:
-                                    chunks.append(rendered)
-                                    out_f.write(rendered)
-                                    out_f.flush()
-                                logger.info(rendered.strip())
-                            if (
-                                str(_get(event, "method", "")) != "turn/completed"
-                                and not limit_reached
-                                and recorder.finish_result is None
-                                and recorder.turns >= recorder.max_turns
-                            ):
-                                limit_reached = True
-                                try:
-                                    turn.interrupt()
-                                except openai_codex.JsonRpcError as exc:
-                                    if exc.message != "no active turn to interrupt":
-                                        raise
-                                    # The terminal notification may still be queued.
-                    finally:
-                        if steering_input is not None:
-                            steering_input.cancel()
-                            if steer_thread is not None:
-                                steer_thread.join(timeout=2)
+                    for event in turn.stream():
+                        _write_jsonl(raw_f, _message_to_json(event))
+                        if rendered := recorder.observe(event):
+                            chunks.append(rendered)
+                            out_f.write(rendered)
+                            out_f.flush()
+                            logger.info(rendered.strip())
+                        if (
+                            str(_get(event, "method", "")) != "turn/completed"
+                            and not limit_reached
+                            and recorder.finish_result is None
+                            and recorder.turns >= recorder.max_turns
+                        ):
+                            limit_reached = True
+                            try:
+                                turn.interrupt()
+                            except openai_codex.JsonRpcError as exc:
+                                if exc.message != "no active turn to interrupt":
+                                    raise
+                                # The terminal notification may still be queued.
 
             state["text"] = "".join(chunks)
             if recorder.final_response is not None:
@@ -391,14 +327,15 @@ class CodexPlanner(Planner):
         except Exception as e:
             state["error"] = e
 
-    async def _solve_dashboard(
+    async def _solve_interactive(
         self,
         *,
         prompt: str,
         initial_user_text: str,
         toolkit: Toolkit,
         max_turns: int,
-        interaction: DashboardInteractionPort,
+        interaction: DashboardInteractionPort | None,
+        input_queue: InputQueue | None,
     ) -> PlannerResult:
         """Run a controllable sequence of turns on one Codex thread."""
         output_path, raw_stream_path, last_message_path = self._output_paths()
@@ -421,6 +358,8 @@ class CodexPlanner(Planner):
                         chunks.append(rendered)
                         out_f.write(rendered)
                         out_f.flush()
+                        if input_queue is not None:
+                            logger.info(rendered.strip())
 
                 def emit_user(text: str, *, initial: bool = False) -> None:
                     display = (
@@ -430,6 +369,7 @@ class CodexPlanner(Planner):
                     chunks.append(rendered)
                     out_f.write(rendered)
                     out_f.flush()
+                    logger.info(rendered.strip())
                     self._dashboard_events.emit(
                         TranscriptEvent(
                             {"type": "initial_prompt"}
@@ -438,16 +378,19 @@ class CodexPlanner(Planner):
                         )
                     )
 
-                control = DashboardPlannerControl(
-                    interaction=interaction,
-                    cancel_active_and_wait=toolkit.cancel_active_and_wait,
-                    resume_calls=toolkit.resume_calls,
-                    emit_user=emit_user,
-                    emit_initial_user=lambda: emit_user(
-                        initial_user_text, initial=True
-                    ),
-                )
-                session = _CodexDashboardSession(
+                if interaction is not None:
+                    control = DashboardPlannerControl(
+                        interaction=interaction,
+                        cancel_active_and_wait=toolkit.cancel_active_and_wait,
+                        resume_calls=toolkit.resume_calls,
+                        emit_user=emit_user,
+                        emit_initial_user=lambda: emit_user(
+                            initial_user_text, initial=True
+                        ),
+                    )
+                else:
+                    control = _TerminalControl(input_queue, toolkit, emit_user)
+                session = _CodexSession(
                     config=self._build_config(mcp_url),
                     thread_options=self._thread_options,
                     turn_options=self._turn_options,
@@ -515,7 +458,45 @@ class CodexPlanner(Planner):
         )
 
 
-class _CodexDashboardSession:
+class _TerminalControl:
+    """Forward terminal input through the same persistent Codex session driver."""
+
+    def __init__(self, input_queue: InputQueue, toolkit: Toolkit, emit_user) -> None:
+        self._input = SessionInputQueue(input_queue)
+        self._toolkit = toolkit
+        self._emit_user = emit_user
+
+    async def start(self) -> None:
+        pass
+
+    async def run(self, driver: _CodexSession) -> None:
+        try:
+            while True:
+                text = await asyncio.to_thread(next_user_line, self._input)
+                if text is None:
+                    return
+                if self._input.cancelled:
+                    self._input.put(text)
+                    return
+                await driver._submit_text(text)
+                self._emit_user(text)
+        finally:
+            self.end()
+
+    async def complete(self, driver: _CodexSession) -> None:
+        logger.info("Waiting for feedback or /continue in the same Codex conversation.")
+
+    async def tool_completed(self, driver: _CodexSession) -> None:
+        pass
+
+    def end(self) -> None:
+        self._input.cancel()
+
+    async def cancel_active_toolkit(self) -> None:
+        await cancel_and_wait(self._toolkit.cancel_active_and_wait)
+
+
+class _CodexSession:
     """Own one Codex thread and its current interruptible turn."""
 
     def __init__(
@@ -526,7 +507,7 @@ class _CodexDashboardSession:
         turn_options: dict[str, Any],
         recorder: "_Recorder",
         emit_event,
-        control: DashboardPlannerControl,
+        control: DashboardPlannerControl | _TerminalControl,
     ) -> None:
         self._config = config
         self._thread_options = thread_options

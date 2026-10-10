@@ -228,15 +228,12 @@ def _run_dashboard_task(
                 **task_runtime_kwargs,
                 **shared_runtime_kwargs,
             }
-            prompt_vars = {**run_config.prompt_vars, "output_dir": output_dir}
+            prompt_vars = {
+                **run_config.prompt_vars,
+                "output_dir": output_dir,
+                "dashboard": True,
+            }
             session_message = robot_spec.prompts.render("user", variables=prompt_vars)
-            if human_interactive_run:
-                session_message += (
-                    "\nDASHBOARD OPERATOR: Before the first motion call request_scene_reset "
-                    "and wait for the human's web confirmation. Final success/failure "
-                    "requires request_operator_verdict or an explicit operator verdict. "
-                    "There is no terminal input; do not ask for shell/TTY replies."
-                )
             sessions = max(
                 1,
                 int(getattr(task_args, "explore_sessions", 1) or 1),
@@ -279,10 +276,10 @@ def _run_dashboard_task(
                 if robot_spec.supports_exploration:
                     operator_kwargs = {}
                     if human_interactive_run:
-                        from rpent.dashboard.operator import DashboardOperator
+                        from rpent.tools.human_in_the_loop import HumanInTheLoopInput
 
-                        state.operator = DashboardOperator(
-                            on_change=state.operator_changed
+                        state.operator = HumanInTheLoopInput(
+                            interactive=True, on_change=state.operator_changed
                         )
                         operator_kwargs["operator_input"] = state.operator
                     toolkit = get_toolkit(

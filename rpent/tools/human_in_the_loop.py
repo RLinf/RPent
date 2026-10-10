@@ -87,15 +87,22 @@ class HumanInTheLoopInput:
 
 """
 
-    def __init__(self, *, interactive: bool, feedback_path: Path | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        interactive: bool,
+        feedback_path: Path | None = None,
+        on_change: Callable[[], None] | None = None,
+    ) -> None:
         self.interactive = interactive
         self._feedback_path = feedback_path
         self._feedback: list[str] = []
         self._lock = threading.Lock()
         self._pending: tuple[str, queue.Queue[str | None]] | None = None
         self._pending_kind: str | None = None
+        self._pending_prompt = ""
+        self._on_change = on_change
         self._closed = False
-        self._continue_revision = 0
         self._verdict_handler: Callable[[str, str], bool] | None = None
 
     def bind_verdict(self, handler: Callable[[str, str], bool] | None) -> None:
@@ -124,19 +131,15 @@ class HumanInTheLoopInput:
                     if notes:
                         self._record_feedback(notes)
                     return False
-                if self._pending is None or self._pending_kind != expected:
-                    logger.warning(
-                        "%s refused: no pending %s request.", command, expected
-                    )
-                else:
-                    if command == "/continue":
-                        self._continue_revision += 1
-                    self._pending[1].put(command[1:] + (" " + notes if notes else ""))
-                    if notes:
-                        self._record_feedback(notes)
-                    self._pending = None
-                    self._pending_kind = None
-                    logger.info("%s accepted.", command)
+                request_id = (
+                    self._pending[0]
+                    if self._pending is not None and self._pending_kind == expected
+                    else ""
+                )
+            try:
+                self.reply(request_id, command[1:], notes)
+            except ValueError as exc:
+                logger.warning("%s refused: %s", command, exc)
             return True
         if command in {"/success", "/failure", "/abort"}:
             verdict = command[1:]
@@ -151,27 +154,51 @@ class HumanInTheLoopInput:
                 with self._lock:
                     self._record_feedback(notes)
             return True
-        with self._lock:
-            pending = self._pending
-            if pending is None or parsed.request_id != pending[0]:
-                logger.warning(
-                    "No matching operator request; use /operator <request-id> <answer>."
-                )
-            else:
-                if self._pending_kind == "verdict" and parsed.answer == "continue":
-                    self._continue_revision += 1
-                reply = parsed.answer + (" " + notes if notes else "")
-                pending[1].put(reply)
-                self._record_feedback(reply)
-                self._pending = None
-                self._pending_kind = None
+        try:
+            self.reply(parsed.request_id, parsed.answer, notes)
+        except ValueError as exc:
+            logger.warning("%s", exc)
         return True
 
-    @property
-    def continue_revision(self) -> int:
-        """Count accepted continue replies, including replies during a model turn."""
+    def snapshot(self) -> dict | None:
+        """Return the current request for the terminal or Dashboard transport."""
         with self._lock:
-            return self._continue_revision
+            if self._pending is None:
+                return None
+            return {
+                "id": self._pending[0],
+                "kind": self._pending_kind,
+                "prompt": self._pending_prompt,
+                "choices": self._choices(),
+            }
+
+    def _choices(self) -> list[str]:
+        return (
+            ["done", "abort"]
+            if self._pending_kind == "reset"
+            else ["success", "failure", "continue", "abort"]
+        )
+
+    def reply(self, request_id: str, answer: str, notes: str = "") -> None:
+        """Accept one matching confirmation; reject expired or invalid replies."""
+        with self._lock:
+            if self._closed or self._pending is None or request_id != self._pending[0]:
+                raise ValueError("expired or already answered operator request")
+            if (
+                self._pending_kind is not None and answer not in self._choices()
+            ) or not isinstance(notes, str):
+                raise ValueError("invalid operator response")
+            reply = answer + (" " + notes.strip() if notes.strip() else "")
+            self._pending[1].put(reply)
+            if notes:
+                self._record_feedback(notes.strip())
+            self._pending = None
+            self._pending_kind = None
+        self._notify_change()
+
+    def _notify_change(self) -> None:
+        if self._on_change is not None:
+            self._on_change()
 
     def _record_feedback(self, text: str) -> None:
         self._feedback.append(text)
@@ -201,6 +228,7 @@ class HumanInTheLoopInput:
             if self._pending is not None:
                 self._pending[1].put(None)
                 self._pending = None
+        self._notify_change()
 
     @property
     def pending_kind(self) -> str | None:
@@ -219,6 +247,7 @@ class HumanInTheLoopInput:
                 self._pending[1].put(None)
                 self._pending = None
             self._pending_kind = None
+        self._notify_change()
 
     def __call__(self, prompt: str, check_cancelled: Callable[[], None]) -> str | None:
         return self.request(prompt, check_cancelled)
@@ -252,6 +281,7 @@ class HumanInTheLoopInput:
                 raise RuntimeError("another operator request is pending")
             self._pending = (request_id, replies)
             self._pending_kind = kind
+            self._pending_prompt = prompt
         shortcut = (
             "/done" if kind == "reset" else "/continue" if kind == "verdict" else None
         )
@@ -262,9 +292,12 @@ class HumanInTheLoopInput:
             else ""
         )
         try:
-            print(
-                f"\n{prompt}\nReply: /operator {request_id} <answer>{hint}", flush=True
-            )
+            if self._on_change is None:
+                print(
+                    f"\n{prompt}\nReply: /operator {request_id} <answer>{hint}",
+                    flush=True,
+                )
+            self._notify_change()
             while True:
                 check_cancelled()
                 try:
@@ -276,3 +309,4 @@ class HumanInTheLoopInput:
                 if self._pending is not None and self._pending[0] == request_id:
                     self._pending = None
                     self._pending_kind = None
+            self._notify_change()

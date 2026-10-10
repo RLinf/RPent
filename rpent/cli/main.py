@@ -47,7 +47,6 @@ from pathlib import Path
 from rpent.cli.attended import (
     _finalize_operator_verdict,
     _publish_success_recipe,
-    _solve_attended,
 )
 from rpent.cli.tui import (
     start_first_prompt_resolver,
@@ -598,18 +597,7 @@ def main() -> int:
                 operator_input.bind_verdict(accept_verdict)
             pending_operator_request = None
             try:
-                solve = planner.solve
-                if human_interactive_run and input_queue is not None:
-                    from functools import partial
-
-                    solve = partial(
-                        _solve_attended,
-                        planner,
-                        keep_mcp_alive=args.planner == "codex",
-                        operator_input=operator_input,
-                        state_output_dir=state_output_dir,
-                    )
-                result = solve(
+                result = planner.solve(
                     system_prompt=system_prompt,
                     user_message=session_msg,
                     toolkit=toolkit,
@@ -622,6 +610,12 @@ def main() -> int:
                 agent_error = result.error
                 if operator_input is not None and args.interactive:
                     pending_operator_request = operator_input.pending_kind
+                    if operator_input.closed and not (
+                        finish_result or toolkit.direct_verdict_requested
+                    ):
+                        toolkit.request_direct_verdict(
+                            "abort", "Interactive input closed"
+                        )
                 if human_interactive_run and toolkit.direct_verdict_requested:
                     finish_result, agent_error, verdict_handoff = (
                         _finalize_operator_verdict(
@@ -772,6 +766,7 @@ def main() -> int:
     if (
         getattr(args, "explore", False)
         and getattr(args, "auto_merge_memory", False)
+        and not direct_operator_success
         and not agent_error
         and memory_manager is not None
         and (not human_interactive_exploration or solved)
