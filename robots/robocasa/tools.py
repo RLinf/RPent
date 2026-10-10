@@ -507,6 +507,7 @@ _PRIMITIVE_ACTIONS = frozenset(
         "set_gripper",
         "release",
         "scripted_grasp",
+        "execute_action",
         "rldx_skill",
         "rldx_arm",
         "navigate_to",

@@ -44,6 +44,20 @@ loop is orchestrated, and which model SDK is used.
      - You want to re-run a known-good plan on new layouts, without online
        LLM planning. Perception and VLA services are still required.
 
+.. _planner-direct-actions:
+
+Direct actions
+--------------------
+
+For LIBERO, RoboCasa, and RoboTwin, add ``--enable-direct-action`` to the launch
+command to let the planner call ``execute_action(values=[...])``. The planner
+supplies a list of control values, which the environment executes as one action.
+RPent then records the resulting state.
+
+The required values depend on the robot and controller. The tool description
+provided to the planner lists the expected number of values and their allowed
+ranges. VLA and scripted tools remain available when direct actions are enabled.
+
 The ``api`` Planner (direct Model API)
 ---------------------------------------
 
