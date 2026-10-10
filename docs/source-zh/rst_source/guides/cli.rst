@@ -90,6 +90,8 @@ LIBERO 使用 ``--suite``、``--task``、``--seed`` 和 ``--libero-type`` 选择
 
 ``--env-endpoint``、``--vla-endpoint`` 和 LIBERO 的 ``--sam3-endpoint`` 可连接已启动的环境、VLA 或 SAM3 服务器，地址格式为 ``[protocol://]host:port``，默认协议为 ``http``。GPU 分配和远程服务见 :doc:`advanced_deployment`。
 
+LIBERO 和 RoboTwin 还支持 ``--wam-backend``，配合 ``--wam-endpoint`` 或 ``--wam-checkpoint`` 加 ``--wam-python`` 使用。WAM 与 VLA 参数互斥。WAM 默认采用 ``local`` 记忆模式但不注册记忆工具，拒绝 HF 记忆、``--memory-dir``、Flash 和探索模式。模型启动参数及支持的组合见 :doc:`../development/wam_backends`。由 RPent 启动的 RoboTwin worker 可用 ``--wam-cuda-device`` 选择模型 GPU，``--env-cuda-device`` 选择仿真器 GPU。
+
 以下默认值适用于 LIBERO，其他环境以各自的 ``--help`` 为准。
 
 .. list-table::

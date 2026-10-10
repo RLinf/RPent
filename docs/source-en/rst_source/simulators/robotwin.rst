@@ -22,7 +22,7 @@ Check the model, task, and runtime requirements before following the installatio
 
    .. grid-item-card:: Action Models
 
-      LingBot-VLA
+      LingBot-VLA; Fast-WAM with a RoboTwin checkpoint.
 
    .. grid-item-card:: Planners
 
@@ -142,6 +142,26 @@ Download the LingBot checkpoint and set its location:
    export LINGBOT_MODEL_PATH=/path/to/LingBot-VLA-RoboTwin-EEF-ckpt1500
 
 The checkpoint includes the default RoboTwin robot configuration.
+
+Fast-WAM Configuration
+~~~~~~~~~~~~~~~~~~~~~~
+
+Prepare a RoboTwin Fast-WAM worker using :doc:`../development/wam_backends`.
+It uses head/left-wrist/right-wrist RGB, native joint targets, and qpos14 action
+chunks. LingBot weights are not required. Clear ``LINGBOT_MODEL_PATH`` when
+switching from a LingBot setup and omit VLA options. From the simulator environment:
+
+.. code-block:: bash
+
+   rpent --robot robotwin --task-name beat_block_hammer \
+     --task-config demo_randomized --seed 100000 \
+     --wam-backend fast-wam --wam-endpoint http://127.0.0.1:8117 \
+     --memory-profile local --planner api --model <planner-model>
+
+``wam_act(prompt=None, max_chunks=1)`` replaces ``lingbot_act``; each chunk
+executes the worker's configured ``execute_steps`` through ``action_type="qpos"``.
+Memory and exploration are disabled for WAM. Native ``eval_success`` determines
+task success. The LingBot and memory workflows below apply to the VLA path.
 
 Run a Task
 ----------

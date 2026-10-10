@@ -116,3 +116,54 @@ Offline checks cover adapters, control matching, malformed observations/actions
 and real local HTTP/socket session lifecycle. Opt-in GPU checks exercise model
 inference and bounded simulator/toolkit execution; see ``tests/README.md``.
 Passing those checks establishes integration behavior, not benchmark success.
+
+Worker Deployment
+-----------------
+
+Prepare the official model environment, checkpoint and auxiliary files first.
+Install the RPent runtime dependencies there as well; ``PYTHONPATH`` only makes
+the checkout importable and does not install dependencies. Keep the
+simulator in the RPent environment. From the provisioned Cosmos source directory:
+
+.. code-block:: bash
+
+   PYTHONPATH=/path/to/RPent /path/to/cosmos/.venv/bin/python \
+     -m rpent.robots.components.cosmos_policy.server \
+     --checkpoint /path/to/cosmos-libero --cuda-device 0 --port 8116
+
+The checkpoint directory contains ``Cosmos-Policy-LIBERO-Predict2-2B.pt``,
+``libero_dataset_statistics.json`` and ``libero_t5_embeddings.pkl``.
+``--dataset-stats`` and ``--text-embeddings`` override the auxiliary paths.
+Defaults are five action denoising steps, seed 1, 16 actions per prediction,
+and no future-state/value generation. ``--cached-instructions-only`` rejects
+uncached instructions; otherwise the official runtime handles uncached text.
+``--predict-future`` enables optional outputs, which RPent does not use for planning.
+
+For Fast-WAM, use its provisioned environment:
+
+.. code-block:: bash
+
+   CUDA_VISIBLE_DEVICES=0 PYTHONPATH=/path/to/RPent \
+     /path/to/fast-wam/venv/bin/python \
+     -m rpent.robots.components.fast_wam.server \
+     --platform libero --checkpoint /path/to/fast-wam-libero.pt \
+     --config /path/to/worker.yaml --dataset-stats /path/to/dataset_stats.json \
+     --port 8117
+
+RoboTwin needs ``--platform robotwin`` with its own checkpoint and configuration.
+The YAML supplies resolved Hydra ``model`` and ``processor`` mappings, with the
+processor taken from the official configuration's ``data.train.processor``, plus
+``action_horizon``, ``execute_steps``, ``video_size`` and ``concat``.
+Optional ``inference_options`` are forwarded to ``model.infer_action`` and cannot
+override encoded observations or ``action_horizon``. Enable the text encoder in
+the model configuration for uncached instructions. ``execute_steps`` is positive,
+no larger than ``action_horizon``, and advertised as executable ``chunk_size``.
+``binarize_gripper`` applies only to LIBERO. Future video generation, temporal
+action ensembling and automatic Hydra composition are not implemented.
+
+To let RPent own a worker, replace ``--wam-endpoint`` in the platform command
+with ``--wam-checkpoint`` and ``--wam-python``. Cosmos also needs ``--wam-root``;
+``COSMOS_POLICY_PYTHON`` and ``COSMOS_POLICY_ROOT`` provide fallbacks. Fast-WAM
+needs ``--wam-config`` and ``--wam-dataset-stats``. Endpoint and checkpoint modes
+are mutually exclusive. Configure borrowed workers at their own startup; use
+each worker's ``--help`` to inspect its launch options.

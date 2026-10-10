@@ -95,6 +95,14 @@ LIBERO selects tasks with ``--suite``, ``--task``, ``--seed``, and ``--libero-ty
 
 ``--env-endpoint``, ``--vla-endpoint``, and LIBERO’s ``--sam3-endpoint`` connect to existing services using ``[protocol://]host:port``; the default protocol is ``http``. See :doc:`advanced_deployment` for GPU assignment and remote services.
 
+LIBERO and RoboTwin also accept ``--wam-backend`` with either ``--wam-endpoint``
+or ``--wam-checkpoint`` plus ``--wam-python``. WAM and VLA options are mutually
+exclusive. WAM defaults to the ``local`` memory profile without memory tools;
+it rejects HF memory, ``--memory-dir``, Flash and exploration. See
+:doc:`../development/wam_backends` for model launch options and supported pairs.
+For an owned RoboTwin worker, ``--wam-cuda-device`` selects the model GPU;
+``--env-cuda-device`` selects the simulator GPU.
+
 The following defaults apply to LIBERO; check each other environment’s ``--help`` for its defaults.
 
 .. list-table::

@@ -86,7 +86,8 @@ RPent 面向以下四类用户：
           <li><b>WAM</b></li>
           <ul>
             <li>DreamZero</li>
-            <li>Cosmos Policy</li>
+            <li><a href="docs/source-zh/rst_source/development/wam_backends.rst">Cosmos Policy</a>（LIBERO / LIBERO-Pro）</li>
+            <li><a href="docs/source-zh/rst_source/development/wam_backends.rst">Fast-WAM</a>（LIBERO / LIBERO-Pro / RoboTwin）</li>
           </ul>
         </ul>
       </td>
