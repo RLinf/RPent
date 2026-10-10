@@ -85,10 +85,12 @@ Follow these conventions while developing:
   import time. This keeps `import rpent`, robot discovery, and CLI help usable
   without every simulator installed. Put integration-only dependencies in an
   optional extra.
-- **Preserve existing contracts.** If an API or user-visible behavior changes,
-  explain the change and how users should adapt. Changing a parameter or flag's
-  meaning also changes its contract, even if its name and type stay the same.
-  Check affected callers and update the relevant tests and documentation.
+- **Keep existing interfaces and behavior compatible.** When changing APIs,
+  CLI options, configuration, or stored data formats, check that existing
+  callers and data still work. Check changes to parameter meanings, defaults,
+  and execution behavior even when names and types stay the same. If existing
+  usage must change, explain the impact and how to adapt, and update affected
+  callers, tests, and documentation.
 - **Write tests with the change.** New behavior and bug fixes should include
   tests. Refactors should keep existing tests passing; if behavior changes,
   update the tests and explain why. Unit tests must run offline on an ordinary
