@@ -21,6 +21,34 @@ from pathlib import Path
 import pytest
 
 from rpent.evaluation import write_json_atomic
+from rpent.evaluation.result import record_operator_outcome
+
+
+@pytest.mark.parametrize("outcome", ["success", "failure"])
+def test_operator_outcome_preserves_evidence_and_refuses_overwrite(tmp_path, outcome):
+    verdict = {"operator_verdict": outcome, "notes": "operator evidence"}
+    messages = [{"role": "user", "content": "keep the completed part"}]
+    kwargs = {
+        "memory_root": tmp_path,
+        "recipe_tag": "dual_franka_t5",
+        "run_name": "run-1",
+        "session_number": 2,
+        "state_output_dir": tmp_path / "session_002",
+        "verdict": verdict,
+        "messages": messages,
+        "planner_error": "interrupted by verdict",
+    }
+    path = record_operator_outcome(**kwargs)
+    assert path.name == f"run-1-session-002-{outcome}.json"
+    record = json.loads(path.read_text())
+    assert record["verdict"] == verdict
+    assert record["messages"] == messages
+    assert record["session"] == 2
+    assert record["evidence_dir"] == str(tmp_path / "session_002")
+    assert record["planner_error"] == "interrupted by verdict"
+    with pytest.raises(FileExistsError):
+        record_operator_outcome(**kwargs)
+    assert json.loads(path.read_text()) == record
 
 
 def test_write_json_atomic_replaces_complete_record(tmp_path: Path) -> None:

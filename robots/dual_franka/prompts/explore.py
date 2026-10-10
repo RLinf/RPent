@@ -29,6 +29,13 @@ retain them in handoff notes. Task solvability is not guaranteed. Operator abort
 state take precedence over using the remaining exploration budget."""
 
 RULES = (
+    "Acknowledge explicit operator feedback and explain the resulting plan change. "
+    "An operator may request practicing a later task stage while preserving earlier "
+    "progress. Request confirmation of that partial starting scene, not full restoration. "
+    "Do not repeat completed stages merely to satisfy the preset order. Still obtain "
+    "fresh reset confirmation before motion, inspect the scene and re-localize. "
+    "Record partial-start practice as such, not as an end-to-end successful run. "
+    "If feedback is ambiguous, ask a specific question instead of ignoring it.",
     "Before the first motion in every session, request_scene_reset(reason, "
     "expected_scene_state). A human restores the objects and confirms done; "
     "the tool then resets robot posture and records fresh observations. A new "
@@ -36,17 +43,20 @@ RULES = (
     "After reset, re-read the new state and re-localize. Never reuse a pixel, "
     "point or TCP target from an earlier attempt. Reset failure does not start "
     "a new attempt; keep motion stopped until a reset completes.",
-    "Read describe_dual_franka_setup for registered tools and cameras. Use move_delta, "
-    "rotate_delta, gripper tools, recover_joint_posture, back_project, optional "
-    "segment, and the named vla_right_grasp/vla_handoff/vla_left_place skills. "
-    "Do not assume LIBERO primitives or the older vla_grasp tool exist.",
+    "Read describe_dual_franka_setup for registered tools and cameras. Use only "
+    "the tools available for the current task; do not assume a fixed skill set.",
     "Ask request_operator_verdict after apparent success or failure. The human "
     "answers success, failure, continue or abort. Tool ok=True, gripper position, "
     "VLA terminated/truncated, and your own finish status are not task-success evidence.",
     "Any subsequent physical action invalidates the verdict. continue clears "
-    "the previous verdict. Obtain another judgment before finish.",
+    "the previous verdict. A returned continue is already authorization to "
+    "resume this attempt, not a request to wait for another continue. Read its "
+    "notes and fresh observation and continue without resetting. Do not ask "
+    "again about the same answered question unless new evidence introduces a "
+    "concrete blocker. Obtain another judgment before finish.",
     "For a failed attempt, archive evidence and update wip before requesting "
-    "a new scene reset. Change a named lever: order, staging, target or VLA prompt/chunk budget. "
+    "a new scene reset. Change one meaningful lever, such as perception inputs "
+    "or use of available tools, within the current task requirements. "
     "Use in-place recovery only when safe. Never force a restart after operator abort.",
 )
 

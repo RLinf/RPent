@@ -18,8 +18,42 @@ import threading
 
 import pytest
 
-from rpent.tools.human_in_the_loop import HumanInTheLoopInput
+from rpent.tools.human_in_the_loop import (
+    HumanInTheLoopInput,
+    OperatorCommand,
+    parse_operator_command,
+)
 from rpent.tools.toolkit import ToolCancelled
+
+
+@pytest.mark.parametrize(
+    "line,expected",
+    [
+        ("please continue", None),
+        ("success", None),
+        ("/rpent-task --task-id 5", None),
+        (" /DONE  scene restored ", OperatorCommand("done", "scene restored")),
+        ("/continue keep the bowl", OperatorCommand("continue", "keep the bowl")),
+        ("/succes", OperatorCommand("success")),
+        ("/failure missed grasp", OperatorCommand("failure", "missed grasp")),
+        ("/abort", OperatorCommand("abort")),
+        (
+            "/operator request-1 continue keep the bowl",
+            OperatorCommand("operator", "keep the bowl", "request-1", "continue"),
+        ),
+    ],
+)
+def test_shared_operator_command_parser(line, expected):
+    assert parse_operator_command(line) == expected
+
+
+@pytest.mark.parametrize("line", ["/operator", "/operator request-1"])
+def test_incomplete_operator_command_never_becomes_chat(line):
+    with pytest.raises(ValueError, match="Usage: /operator"):
+        parse_operator_command(line)
+    broker = HumanInTheLoopInput(interactive=True)
+    assert broker.route_line(line)
+    assert broker.feedback_prompt() == ""
 
 
 def test_operator_replies_are_request_scoped_and_do_not_consume_steering(monkeypatch):
@@ -41,6 +75,31 @@ def test_operator_replies_are_request_scoped_and_do_not_consume_steering(monkeyp
     assert result == ["done"] and not worker.is_alive()
     assert broker.route_line(f"/operator {request_id} success")
     assert broker._pending is None
+
+
+@pytest.mark.parametrize("kind,command", [("reset", "/done"), ("verdict", "/continue")])
+def test_feedback_notes_are_returned_and_preserved(
+    tmp_path, monkeypatch, kind, command
+):
+    broker = HumanInTheLoopInput(
+        interactive=True, feedback_path=tmp_path / "feedback.jsonl"
+    )
+    ready = threading.Event()
+    result = []
+    monkeypatch.setattr("builtins.print", lambda *args, **kwargs: ready.set())
+    worker = threading.Thread(
+        target=lambda: result.append(broker.request("confirm", lambda: None, kind=kind))
+    )
+    worker.start()
+    assert ready.wait(2)
+    assert not broker.route_line("保留前半段成果，重点练后半段")
+    assert not result  # Feedback alone never authorizes robot reset.
+    assert broker.route_line(command + " 篮筐中的碗盘保持不动")
+    worker.join(2)
+    assert result == [command[1:] + " 篮筐中的碗盘保持不动"]
+    assert "重点练后半段" in broker.feedback_prompt()
+    assert "篮筐中的碗盘保持不动" in broker.feedback_prompt()
+    assert len((tmp_path / "feedback.jsonl").read_text().splitlines()) == 2
 
 
 def test_operator_eof_and_cancellation_release_pending_requests(monkeypatch):
@@ -123,7 +182,7 @@ def test_interactive_reader_routes_operator_input_without_stealing_steering(
 def test_success_is_control_and_never_steering():
     broker = HumanInTheLoopInput(interactive=True)
     calls = []
-    broker.bind_verdict(lambda verdict: calls.append(verdict) or True)
+    broker.bind_verdict(lambda verdict, notes: calls.append(verdict) or True)
     assert not broker.route_line(" success ")
     assert broker.route_line("/success")
     assert len(calls) == 1
@@ -133,16 +192,39 @@ def test_success_is_control_and_never_steering():
     assert len(calls) == 1
 
 
+@pytest.mark.parametrize("verdict", ["success", "failure", "abort"])
+def test_verdict_notes_are_control_not_steering(tmp_path, verdict):
+    broker = HumanInTheLoopInput(
+        interactive=True, feedback_path=tmp_path / "feedback.jsonl"
+    )
+    calls = []
+    broker.bind_verdict(lambda value, notes: calls.append((value, notes)) or True)
+    assert broker.route_line(f"/{verdict} 建议采用混合控制")
+    assert calls == [(verdict, "建议采用混合控制")]
+    assert "建议采用混合控制" in broker.feedback_prompt()
+
+
+def test_failed_prompt_display_does_not_leave_pending_request(monkeypatch):
+    broker = HumanInTheLoopInput(interactive=True)
+
+    def fail(*args, **kwargs):
+        raise OSError("terminal closed")
+
+    monkeypatch.setattr("builtins.print", fail)
+    with pytest.raises(OSError, match="terminal closed"):
+        broker.request("reset", lambda: None, kind="reset")
+    assert broker.pending_kind is None
+
+
 def test_only_slash_verdicts_are_control_commands():
     broker = HumanInTheLoopInput(interactive=True)
     verdicts = []
-    broker.bind_verdict(lambda verdict: verdicts.append(verdict) or True)
+    broker.bind_verdict(lambda verdict, notes: verdicts.append(verdict) or True)
     for text in (
         "success",
         "failure",
         "抓取成功了",
         "success 请继续",
-        "/success later",
     ):
         assert not broker.route_line(text)
     assert broker.route_line("/success")
@@ -164,7 +246,7 @@ def test_shortcuts_only_answer_matching_active_request(
     ready = threading.Event()
     values = []
     monkeypatch.setattr("builtins.print", lambda *a, **kw: ready.set())
-    assert broker.route_line(command)  # no buffering before a request
+    assert broker.route_line(command) is (command != "/continue")
     ready.clear()
     thread = threading.Thread(
         target=lambda: values.append(broker.request("test", lambda: None, kind=kind))
@@ -176,14 +258,14 @@ def test_shortcuts_only_answer_matching_active_request(
     assert broker.route_line(command)
     thread.join(2)
     assert not thread.is_alive() and values == [answer]
-    assert broker.route_line(command)  # duplicate cannot authorize another operation
+    assert broker.route_line(command) is (command != "/continue")
     assert not broker.route_line(answer)
 
 
 def test_abort_is_control_but_bare_words_are_chat():
     broker = HumanInTheLoopInput(interactive=True)
     calls = []
-    broker.bind_verdict(lambda verdict: calls.append(verdict) or True)
+    broker.bind_verdict(lambda verdict, notes: calls.append(verdict) or True)
     assert broker.route_line("/abort")
     assert calls == ["abort"]
     for word in ("done", "continue", "abort", "success", "failure"):
