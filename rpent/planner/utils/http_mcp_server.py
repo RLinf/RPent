@@ -34,10 +34,15 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import math
+import os
 import socket
 import threading
+from contextlib import suppress
+from functools import partial
 from typing import Any
 
+import anyio
 import httpx
 import uvicorn
 from mcp import types
@@ -72,6 +77,14 @@ def mcp_result(result: ToolResult) -> dict[str, Any]:
     }
 
 
+def mcp_tool_timeout_s() -> float:
+    """Return the server-owned deadline shared with the Codex client config."""
+    seconds = float(os.environ.get("CODEX_MCP_TOOL_TIMEOUT_S", "86400"))
+    if not math.isfinite(seconds) or seconds <= 0:
+        raise ValueError("CODEX_MCP_TOOL_TIMEOUT_S must be finite and positive")
+    return seconds
+
+
 def _strip_mcp_prefix(name: str) -> str:
     """``mcp__rpent__mcp_list_dir`` -> ``mcp_list_dir`` ; passthrough."""
     prefix = f"mcp__{SERVER_NAME}__"
@@ -84,6 +97,7 @@ def build_mcp_server(toolkit: Toolkit) -> Server:
     """Expose native declarations through MCP, with Toolkit owning validation."""
     mcp_app: Server = Server(SERVER_NAME, version="0.1.0")
     tool_execution_lock = asyncio.Lock()
+    tool_timeout_s = mcp_tool_timeout_s()
 
     @mcp_app.list_tools()
     async def _list_tools() -> list[types.Tool]:
@@ -101,10 +115,57 @@ def build_mcp_server(toolkit: Toolkit) -> Server:
     @mcp_app.call_tool(validate_input=False)
     async def _call_tool(name: str, arguments: dict[str, Any]) -> types.CallToolResult:
         lookup = _strip_mcp_prefix(name)
-        async with tool_execution_lock:
-            tr = await asyncio.get_running_loop().run_in_executor(
-                None, toolkit.execute_tool, lookup, arguments or {}
+        request = mcp_app.request_context.request
+        cancel_event = threading.Event()
+
+        def expire() -> None:
+            logger.warning(
+                "MCP tool %s exceeded %.3fs; cancelling", lookup, tool_timeout_s
             )
+            cancel_event.set()
+
+        # Some clients report a timeout without disconnecting or sending a
+        # cancellation notification. The server must retire its own operation.
+        deadline = asyncio.get_running_loop().call_later(tool_timeout_s, expire)
+
+        async def watch_disconnect() -> None:
+            # The transport has consumed the body. JSON responses do not watch
+            # for disconnects while awaiting a tool, unlike SSE responses.
+            while True:
+                message = await request.receive()
+                if message["type"] == "http.disconnect":
+                    cancel_event.set()
+                    return
+
+        watcher = asyncio.create_task(watch_disconnect())
+        try:
+            async with tool_execution_lock:
+                worker = asyncio.get_running_loop().run_in_executor(
+                    None,
+                    partial(
+                        toolkit.execute_tool,
+                        lookup,
+                        arguments or {},
+                        cancel_event=cancel_event,
+                    ),
+                )
+                try:
+                    tr = await asyncio.shield(worker)
+                except asyncio.CancelledError:
+                    cancel_event.set()
+                    # Cancelling an await cannot stop a synchronous robot call.
+                    # Keep ownership until it reaches a safe cancellation boundary.
+                    with anyio.CancelScope(shield=True):
+                        while not worker.done():
+                            with suppress(asyncio.CancelledError):
+                                await asyncio.shield(worker)
+                        worker.result()
+                    raise
+        finally:
+            deadline.cancel()
+            watcher.cancel()
+            with anyio.CancelScope(shield=True), suppress(asyncio.CancelledError):
+                await watcher
         return types.CallToolResult(**mcp_result(tr))
 
     return mcp_app
@@ -114,7 +175,9 @@ def _build_asgi_app(toolkit: Toolkit) -> Any:
     """Build a raw ASGI3 app wrapping an MCP ``Server`` + streamable HTTP."""
     session_manager = StreamableHTTPSessionManager(
         app=build_mcp_server(toolkit),
-        stateless=True,
+        # Cancellation arrives as a separate POST and must reach the session
+        # that owns the original call, even when its HTTP connection stays open.
+        stateless=False,
         json_response=True,
     )
 
@@ -132,7 +195,7 @@ def _build_asgi_app(toolkit: Toolkit) -> Any:
                         # protocol violation into a silent mis-handle.
                         if shutdown_event["type"] != "lifespan.shutdown":
                             break
-                        await send({"type": "lifespan.shutdown.complete"})
+                    await send({"type": "lifespan.shutdown.complete"})
                     break
                 elif event["type"] == "lifespan.shutdown":
                     await send({"type": "lifespan.shutdown.complete"})
@@ -174,6 +237,10 @@ def _wait_for_ready(url: str, *, timeout_s: float) -> None:
             raise RuntimeError(
                 f"HttpMcpServer not ready: code: {resp.status_code}; content: {body_preview}"
             )
+        c.delete(
+            url,
+            headers={"Mcp-Session-Id": resp.headers["Mcp-Session-Id"]},
+        ).raise_for_status()
 
 
 class HttpMcpServer:
@@ -240,5 +307,6 @@ class HttpMcpServer:
                     "leaving references intact",
                     timeout_s,
                 )
+                return
         self._server = None
         self._thread = None

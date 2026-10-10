@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -24,6 +25,75 @@ from rpent.dashboard.session import DashboardSessionController
 from rpent.dashboard.state import ClaimedTask
 from rpent.planner.base import PlannerResult
 from rpent.robots import PromptBundle, RunConfig
+
+
+@pytest.mark.parametrize("interrupt", [False, True])
+@pytest.mark.parametrize(
+    "external_env,planner,env_endpoint",
+    [
+        (False, "codex", None),
+        (False, "codex", "http://127.0.0.1:6002"),
+        (True, "codex", "http://127.0.0.1:6002"),
+        (True, "api", "http://127.0.0.1:6002"),
+    ],
+)
+def test_attended_dashboard_startup_and_shutdown_without_recording(
+    tmp_path, monkeypatch, interrupt, external_env, planner, env_endpoint
+):
+    from rpent.cli import dashboard as dashboard_cli
+    from rpent.dashboard.runtime_health import RuntimeHealthMonitor
+    from rpent.dashboard.server import DashboardServer
+    from tests.unit_tests.rpent.dashboard.test_server_contracts import DASHBOARD_SPEC
+
+    events = []
+
+    def serve(server):
+        events.append("server")
+        assert server._language == "en"
+        return "http://127.0.0.1:8086"
+
+    def run(controller):
+        events.append("controller")
+        if interrupt:
+            raise KeyboardInterrupt
+        controller._state.request_shutdown()
+
+    monkeypatch.setattr(DashboardServer, "start", serve)
+    monkeypatch.setattr(DashboardSessionController, "run", run)
+    monkeypatch.setattr(
+        RuntimeHealthMonitor, "start", lambda self: events.append("health_start")
+    )
+    monkeypatch.setattr(
+        RuntimeHealthMonitor, "close", lambda self: events.append("health_close")
+    )
+    monkeypatch.setattr(
+        dashboard_cli, "init_output_dir", lambda path, **_kwargs: Path(path)
+    )
+    args = argparse.Namespace(
+        planner=planner,
+        env_endpoint=env_endpoint,
+        model="test-model",
+        output_dir=str(tmp_path),
+        dashboard_host="127.0.0.1",
+        dashboard_port=8086,
+        dashboard_language="en",
+        base_url=None,
+        verbose=False,
+        explore=True,
+    )
+    spec = SimpleNamespace(
+        is_real_robot=True,
+        supports_human_interactive_exploration=not external_env,
+        dashboard={**DASHBOARD_SPEC, "external_env": external_env},
+        prepare_memory=None,
+    )
+    assert (
+        dashboard_cli.run_dashboard_session(
+            args, spec, parser=argparse.ArgumentParser()
+        )
+        == 0
+    )
+    assert events == ["server", "health_start", "controller", "health_close"]
 
 
 class ScriptedState:
@@ -175,11 +245,13 @@ def test_dashboard_session_stops_shared_daemons_in_reverse_after_cleanup_error(
 
 @pytest.mark.parametrize("merge_fails", [False, True])
 @pytest.mark.parametrize("sessions", [1, 2])
+@pytest.mark.parametrize("real_robot", [False, True])
 def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     merge_fails: bool,
     sessions: int,
+    real_robot: bool,
 ) -> None:
     from rpent.cli import dashboard as dashboard_cli
 
@@ -195,6 +267,7 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
 
     class FakeToolkit:
         memory = FakeMemoryManager()
+        direct_verdict_requested = False
 
         def cancel_active_and_wait(self) -> None:
             pass
@@ -233,6 +306,9 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
         def report_task_warning(self, warning: str) -> None:
             self.warnings.append(warning)
 
+        def operator_changed(self) -> None:
+            pass
+
     class FakePlanner:
         def solve(self, **kwargs: Any) -> PlannerResult:
             del kwargs
@@ -254,9 +330,13 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
         finalize_run=None,
         prepare_memory=None,
         supports_exploration=True,
-        is_real_robot=False,
+        is_real_robot=real_robot,
+        supports_human_interactive_exploration=real_robot,
         parse_config=lambda args: run_config,
-        init_runtime=lambda *args: ([], {}),
+        init_runtime=lambda *args: (
+            [],
+            {"options": "current-task", "task_description": "current-task"},
+        ),
         prompts=PromptBundle(
             system=lambda variables: "system",
             user=lambda variables: "user",
@@ -284,9 +364,16 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
     from rpent.cli import main as main_cli
 
     monkeypatch.setattr(main_cli, "get_robot_spec", lambda name: robot_spec)
-    monkeypatch.setattr(
-        dashboard_cli, "get_toolkit", lambda *args, **kwargs: FakeToolkit()
-    )
+
+    def get_toolkit(*args, **kwargs):
+        assert kwargs["runtime_kwargs"]["options"] == "shared-default"
+        assert kwargs["runtime_kwargs"]["task_description"] == "current-task"
+        assert kwargs["runtime_kwargs"]["shared_client"] == "client"
+        if real_robot:
+            assert kwargs["operator_input"] is state.operator
+        return FakeToolkit()
+
+    monkeypatch.setattr(dashboard_cli, "get_toolkit", get_toolkit)
     monkeypatch.setattr(
         dashboard_cli, "build_planner", lambda *args, **kwargs: FakePlanner()
     )
@@ -296,7 +383,7 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
         robot_spec=robot_spec,
         state=state,
         claimed=claimed,
-        shared_runtime_kwargs={},
+        shared_runtime_kwargs={"options": "shared-default", "shared_client": "client"},
         unique_components=set(),
         session_root=tmp_path / "session",
     )
@@ -318,3 +405,89 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
         )
     else:
         assert state.warnings == []
+
+
+@pytest.mark.parametrize("environment_success", [False, True])
+def test_external_robot_dashboard_keeps_its_own_operator_and_result_contract(
+    tmp_path, monkeypatch, environment_success
+):
+    from robots.yam.robot_spec import YAM_DASHBOARD_SPEC, get_robot_spec
+    from rpent.cli import dashboard as dashboard_cli
+    from rpent.dashboard.state import DashboardState
+
+    config = RunConfig(
+        recipe_tag="yam_t0",
+        output_dir=tmp_path / "task",
+        prompt_vars={},
+        task_desc={"robot": "yam"},
+    )
+    finalized = []
+    closed = []
+    toolkit = SimpleNamespace(
+        memory=None,
+        solved=lambda: environment_success,
+        write_recipe=lambda recipe_tag: "",
+        cancel_active_and_wait=lambda: None,
+        close=lambda: closed.append(True),
+    )
+
+    def get_toolkit(*args, **kwargs):
+        assert "operator_input" not in kwargs
+        assert kwargs["mode"] == "evaluation"
+        return toolkit
+
+    def solve(**kwargs):
+        assert "DASHBOARD OPERATOR" not in kwargs["user_message"]
+        return PlannerResult(finish_result={"success": True}, messages=[], stats={})
+
+    from dataclasses import replace
+
+    spec = replace(
+        get_robot_spec(),
+        parse_config=lambda args: config,
+        init_runtime=lambda *args: ([], {}),
+        prepare_memory=lambda args, run_config: None,
+        prompts=PromptBundle(
+            system=lambda variables: "system", user=lambda variables: "user"
+        ),
+        finalize_run=finalized.append,
+    )
+    args = SimpleNamespace(
+        verbose=False,
+        robot_name="yam",
+        explore=False,
+        auto_merge_memory=False,
+        planner="api",
+        base_url=None,
+        model="offline",
+        max_tokens=128,
+        planner_timeout_s=10,
+        reasoning_effort=None,
+        claude_code_max_budget_usd=None,
+        no_images=False,
+        max_turns=2,
+    )
+    state = DashboardState(output_dir=tmp_path, dashboard_spec=YAM_DASHBOARD_SPEC)
+    monkeypatch.setattr(dashboard_cli, "get_toolkit", get_toolkit)
+    monkeypatch.setattr(
+        dashboard_cli,
+        "build_planner",
+        lambda *args, **kwargs: SimpleNamespace(solve=solve),
+    )
+
+    error = dashboard_cli._run_dashboard_task(
+        args=args,
+        robot_spec=spec,
+        state=state,
+        claimed=ClaimedTask(number=1, request={}, output_dir=config.output_dir),
+        shared_runtime_kwargs={},
+        unique_components=set(),
+        session_root=tmp_path / "session",
+    )
+
+    assert error is None
+    assert state.operator is None
+    assert closed == [True]
+    assert len(finalized) == 1
+    assert finalized[0].environment_success is environment_success
+    assert finalized[0].agent_error is None

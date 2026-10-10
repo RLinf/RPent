@@ -22,8 +22,23 @@ from types import ModuleType, SimpleNamespace
 
 import gymnasium as gym
 import numpy as np
+import pytest
 
 from robots.franka.runtime_config import load_runtime_config
+
+
+def test_ray_backend_failure_is_not_a_none_subscript_error():
+    from robots.franka.env_server import _RayBackend
+
+    class Worker:
+        def get_observation(self):
+            return self
+
+        def wait(self):
+            return None
+
+    with pytest.raises(RuntimeError, match="RLinf worker failed"):
+        _RayBackend(Worker()).get_observation()
 
 
 def test_franka_uses_rpent_owned_robot_config(fake_rlinf_realworld_modules):

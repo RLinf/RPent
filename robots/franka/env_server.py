@@ -73,7 +73,13 @@ class _RayBackend:
         remote_method = getattr(self.worker, name)
 
         def invoke(*args, **kwargs):
-            return remote_method(*args, **kwargs).wait()[0]
+            results = remote_method(*args, **kwargs).wait()
+            if results is None or len(results) != 1:
+                raise RuntimeError(
+                    f"RLinf worker failed during {name}; inspect env/Ray logs. "
+                    "The operation's hardware outcome is unknown; do not retry motion automatically."
+                )
+            return results[0]
 
         return invoke
 

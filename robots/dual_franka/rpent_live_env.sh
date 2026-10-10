@@ -17,9 +17,6 @@ _RPENT_LIVE_ENV_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export RPENT_REPO_ROOT="${RPENT_REPO_ROOT:-$(cd "${_RPENT_LIVE_ENV_SCRIPT_DIR}/../.." && pwd)}"
 export RPENT_TEST_ROOT="${RPENT_TEST_ROOT:-$(cd "${RPENT_REPO_ROOT}/.." && pwd)}"
 
-# External checkout used by RPent/Ray workers.
-export RLINF_REPO_PATH="${RLINF_REPO_PATH:-${RPENT_TEST_ROOT}/RLinf}"
-
 # Isolate Codex records/config/cache/memory used by robot-control sessions from
 # the user's normal assistant-for-coding Codex state.
 export CODEX_HOME="${RPENT_CODEX_HOME:-${RPENT_REPO_ROOT}/.codex-rpent-live}"
@@ -37,10 +34,10 @@ if [[ -n "${RPENT_CODEX_BASE_URL:-}" ]]; then
   export CODEX_BASE_URL="${RPENT_CODEX_BASE_URL}"
 fi
 
-if [[ -n "${PYTHONPATH:-}" ]]; then
-  export PYTHONPATH="${RLINF_REPO_PATH}:${RPENT_REPO_ROOT}:${PYTHONPATH}"
-else
-  export PYTHONPATH="${RLINF_REPO_PATH}:${RPENT_REPO_ROOT}"
+# Use the installed RLinf package unless a developer explicitly selects a checkout.
+export PYTHONPATH="${RPENT_REPO_ROOT}${PYTHONPATH:+:${PYTHONPATH}}"
+if [[ -n "${RLINF_REPO_PATH:-}" ]]; then
+  export PYTHONPATH="${RLINF_REPO_PATH}:${PYTHONPATH}"
 fi
 
 # Shared live service endpoints. Override these before sourcing, or set them on

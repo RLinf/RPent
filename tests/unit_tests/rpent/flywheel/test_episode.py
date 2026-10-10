@@ -100,7 +100,9 @@ def test_failed_episode_has_no_training_prefix(tmp_path):
 
 
 def test_export_uses_only_success_prefix(tmp_path):
-    pytest.importorskip("lerobot")
+    pytest.importorskip(
+        "lerobot.datasets.lerobot_dataset", reason="requires the flywheel extra"
+    )
 
     success = create_episode_writer(
         {"root": tmp_path, "suite": "libero_object", "task_id": 2, "seed": 1},
@@ -136,7 +138,9 @@ def test_export_uses_only_success_prefix(tmp_path):
 
 
 def test_generic_rules_control_collection_validation_and_export(tmp_path):
-    pytest.importorskip("lerobot")
+    pytest.importorskip(
+        "lerobot.datasets.lerobot_dataset", reason="requires the flywheel extra"
+    )
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
     spec = {

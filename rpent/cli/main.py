@@ -45,6 +45,8 @@ from collections.abc import Callable
 from pathlib import Path
 
 from rpent.cli.tui import (
+    SessionInputQueue,
+    next_user_line,
     start_first_prompt_resolver,
     start_interactive_reader,
 )
@@ -54,12 +56,151 @@ from rpent.dashboard.events import (
 )
 from rpent.evaluation import RunFinalizationContext
 from rpent.memory import MemoryManager
-from rpent.planner.base import REASONING_EFFORTS, build_planner
+from rpent.planner.base import (
+    CODEX_REASONING_EFFORTS,
+    REASONING_EFFORTS,
+    PlannerResult,
+    build_planner,
+)
 from rpent.planner.check import BASE_URL_ENV_BY_PLANNER
 from rpent.robots import enumerate_robots, get_robot_spec, get_toolkit
+from rpent.tools.human_in_the_loop import record_operator_outcome
 from rpent.utils.logging import get_logger, init_output_dir
 
 logger = get_logger("agent")
+
+
+def _solve_attended(
+    planner, *, operator_input, state_output_dir, keep_mcp_alive=False, **kwargs
+):
+    """Own the transport for the whole attended attempt, including human waits."""
+    if not keep_mcp_alive:
+        return _solve_attended_turns(
+            planner,
+            operator_input=operator_input,
+            state_output_dir=state_output_dir,
+            **kwargs,
+        )
+    from rpent.planner.utils.http_mcp_server import HttpMcpServer
+
+    toolkit = kwargs["toolkit"]
+    server = HttpMcpServer(toolkit)
+    try:
+        server.start()
+        return _solve_attended_turns(
+            planner,
+            operator_input=operator_input,
+            state_output_dir=state_output_dir,
+            mcp_server=server,
+            **kwargs,
+        )
+    finally:
+        # Release pending tool handlers before asking HTTP to shut down.
+        toolkit.cancel_active_and_wait()
+        server.stop()
+
+
+def _solve_attended_turns(planner, *, operator_input, state_output_dir, **kwargs):
+    """Keep an unjudged attempt alive across planner replies and human pauses."""
+    toolkit = kwargs["toolkit"]
+    original_message = kwargs["user_message"]
+    messages = []
+    usage = {}
+    turn_number = 0
+    while True:
+        continue_revision = operator_input.continue_revision
+        result = planner.solve(**kwargs)
+        turn_number += 1
+        messages.extend(result.messages)
+        for key in (
+            "total_input_tokens",
+            "total_output_tokens",
+            "total_cached_input_tokens",
+            "tool_calls",
+        ):
+            usage[key] = usage.get(key, 0) + result.stats.get(key, 0)
+        # Preserve every reply before the planner reuses its output filenames.
+        archive = Path(state_output_dir) / f"dialogue_{turn_number:03d}.json"
+        archive.parent.mkdir(parents=True, exist_ok=True)
+        archive.write_text(
+            json.dumps(
+                {
+                    "messages": _serialize_messages(result.messages),
+                    "stats": result.stats,
+                    "finish": result.finish_result,
+                    "error": result.error,
+                },
+                indent=2,
+                default=str,
+            )
+        )
+        if result.error or result.finish_result or toolkit.direct_verdict_requested:
+            return PlannerResult(
+                finish_result=result.finish_result,
+                messages=messages,
+                stats={**result.stats, **usage},
+                error=result.error,
+            )
+        if operator_input.closed:
+            toolkit.request_direct_verdict("abort", "Interactive input closed")
+            return PlannerResult(messages=messages, stats=usage)
+        resumed_operator_request = operator_input.pending_kind is not None
+        if resumed_operator_request:
+            logger.info(
+                "Waiting for the current operator request; keeping this attempt alive."
+            )
+            while (
+                operator_input.pending_kind is not None
+                and not toolkit.direct_verdict_requested
+                and not operator_input.closed
+            ):
+                time.sleep(0.1)
+            toolkit.wait_active()
+            reply = "The pending operator request has returned. Read its recorded result and continue accordingly."
+        else:
+            toolkit.wait_active()
+            if operator_input.continue_revision != continue_revision:
+                resumed_operator_request = True
+                logger.info(
+                    "Operator already answered continue; resuming without another input wait."
+                )
+                reply = (
+                    "The operator has already answered continue during the preceding turn. "
+                    "Do not wait for that same reply again. Read the recorded operator result "
+                    "and continue this attempt; ask again only for a new concrete blocker "
+                    "or final evaluation."
+                )
+            else:
+                logger.info(
+                    "Waiting for your reply in this attempt. Type feedback or /continue; /success, /failure and /abort remain available. No automatic reset."
+                )
+                reply = next_user_line(kwargs["input_queue"])
+                if reply is None and not toolkit.direct_verdict_requested:
+                    toolkit.request_direct_verdict("abort", "Interactive input closed")
+        if toolkit.direct_verdict_requested:
+            return PlannerResult(messages=messages, stats=usage)
+        if operator_input.closed:
+            toolkit.request_direct_verdict("abort", "Interactive input closed")
+            return PlannerResult(messages=messages, stats=usage)
+        if not resumed_operator_request:
+            observation = toolkit.execute_tool("view_env_state", {}).data
+            if observation.get("error"):
+                return PlannerResult(
+                    messages=messages,
+                    stats=usage,
+                    error=f"Observation refresh failed after feedback: {observation['error']}",
+                )
+        messages.append({"role": "user", "content": reply})
+        kwargs["user_message"] = (
+            original_message
+            + "\nContinue the SAME attempt, not a new exploration session. Robot state and "
+            "scene confirmation are retained; do not reset merely because the conversation resumed. "
+            f"Current attempt state and operator results are recorded under {state_output_dir}. "
+            "If the operator changed the scene, obtain fresh observations and localization. "
+            "Previous conversation:\n"
+            + json.dumps(_serialize_messages(messages), ensure_ascii=False, default=str)
+            + operator_input.feedback_prompt()
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -154,11 +295,12 @@ def _build_argparser() -> argparse.ArgumentParser:
     ap.add_argument("--max-tokens", type=int, default=8192)
     ap.add_argument(
         "--reasoning-effort",
-        choices=REASONING_EFFORTS,
+        choices=CODEX_REASONING_EFFORTS,
         default="none",
         help="Planner reasoning effort for api, claude_code, and "
         "codex. Higher effort may improve task success rate "
-        "but increases runtime. Defaults to none.",
+        "but increases runtime. Ultra is Codex-only and requires a supporting "
+        "model and SDK. Defaults to none.",
     )
     ap.add_argument(
         "--no-images",
@@ -175,7 +317,7 @@ def _build_argparser() -> argparse.ArgumentParser:
         help="Wall-clock cap for api/claude_code/codex planner runs. "
         "Terminal interactive API/Claude sessions are exempt. "
         "Defaults to CODEX_TIMEOUT_S (codex only), "
-        "CELL_TIMEOUT_S, or 1200.",
+        "CELL_TIMEOUT_S, or 1200. For codex, 0 disables this deadline.",
     )
     ap.add_argument(
         "--claude-code-max-budget-usd",
@@ -356,8 +498,15 @@ def main() -> int:
     )
     args = parser.parse_args()
     args.robot_name = early.robot_name
+    if args.planner != "codex" and args.reasoning_effort not in REASONING_EFFORTS:
+        parser.error(
+            f"--reasoning-effort {args.reasoning_effort} requires --planner codex"
+        )
     human_interactive_exploration = (
         args.explore and robot_spec.supports_human_interactive_exploration
+    )
+    human_interactive_run = human_interactive_exploration or (
+        args.dashboard and robot_spec.supports_human_interactive_exploration
     )
     if args.dashboard and args.interactive:
         parser.error("--dashboard and --interactive cannot be used together")
@@ -365,7 +514,7 @@ def main() -> int:
         "external_env", False
     )
     if robot_spec.is_real_robot and not (
-        human_interactive_exploration or external_env_dashboard
+        human_interactive_run or external_env_dashboard
     ):
         if args.dashboard or args.interactive:
             parser.error(
@@ -398,11 +547,7 @@ def main() -> int:
         )
     if args.explore and getattr(args, "explore_attempts_per_session", 0) < 0:
         parser.error("--explore-attempts-per-session must be nonnegative")
-    if human_interactive_exploration:
-        if args.dashboard:
-            parser.error(
-                "Human-interactive exploration currently requires the CLI operator terminal; Dashboard feedback is not implemented"
-            )
+    if human_interactive_run and not args.dashboard:
         if sys.stdin is None or not sys.stdin.isatty():
             parser.error(
                 "Human-interactive exploration requires a TTY for operator reset/verdict feedback"
@@ -473,12 +618,12 @@ def main() -> int:
     )
 
     operator_input = None
-    if human_interactive_exploration:
+    if human_interactive_run:
         from rpent.tools.human_in_the_loop import HumanInTheLoopInput
 
-        # The native CLI reads between runs, leaving the TTY available to tools.
         operator_input = HumanInTheLoopInput(
-            interactive=args.interactive and not native_cli
+            interactive=args.interactive and not native_cli,
+            feedback_path=Path(output_dir) / "operator_feedback.jsonl",
         )
     input_queue: "queue.Queue[str | None] | None" = None
     await_first_prompt: "Callable[[], str | None] | None" = None
@@ -527,7 +672,7 @@ def main() -> int:
         first_user_msg = await_first_prompt()
         if first_user_msg is None:
             logger.info("no task entered; ending session before start.")
-    if human_interactive_exploration:
+    if human_interactive_run:
         prompt_vars = {**prompt_vars, "initial_user_message": first_user_msg}
     # Exploration may hand off between independent planner contexts.
     sessions = max(1, int(getattr(args, "explore_sessions", 1) or 1))
@@ -538,11 +683,15 @@ def main() -> int:
     environment_success: bool | None = None
     memory_manager: MemoryManager | None = None
     direct_operator_success = False
+    verdict_handoff = ""
     try:
         if first_user_msg is not None:
             dashboard_events.emit(RunStartedEvent())
         session_msg = first_user_msg
         for session_number in range(1, sessions + 1):
+            direct_operator_success = False
+            continue_after_verdict = False
+            solved = False
             if session_msg is None:
                 break
             if session_number > 1:
@@ -556,6 +705,9 @@ def main() -> int:
                     session_number=session_number,
                     session_max=sessions,
                 )
+                session_msg += verdict_handoff
+                if operator_input is not None and args.interactive:
+                    session_msg += operator_input.feedback_prompt()
             state_output_dir = output_dir
             if getattr(args, "explore", False):
                 state_output_dir = (
@@ -586,33 +738,53 @@ def main() -> int:
                     config=run_config,
                 )
             memory_manager = toolkit.memory
+            session_input = input_queue
             if operator_input is not None and input_queue is not None:
+                session_input = SessionInputQueue(input_queue)
 
-                def accept_verdict(verdict: str, active_toolkit=toolkit) -> bool:
-                    if not active_toolkit.request_direct_verdict(verdict):
+                def accept_verdict(
+                    verdict: str,
+                    notes: str,
+                    active_toolkit=toolkit,
+                    active_input=session_input,
+                ) -> bool:
+                    if not active_toolkit.request_direct_verdict(verdict, notes):
                         return False
                     logger.info(
-                        "/%s accepted: stopping actions, then recording the result and exiting.",
+                        "/%s accepted: stopping this attempt and recording its result.",
                         verdict,
                     )
-                    # EOF is a planner control signal, never a model message.
-                    input_queue.put(None)
+                    active_input.cancel()
                     return True
 
                 operator_input.bind_verdict(accept_verdict)
+            pending_operator_request = None
             try:
-                result = planner.solve(
+                solve = planner.solve
+                if human_interactive_run and input_queue is not None:
+                    from functools import partial
+
+                    solve = partial(
+                        _solve_attended,
+                        planner,
+                        keep_mcp_alive=args.planner == "codex",
+                        operator_input=operator_input,
+                        state_output_dir=state_output_dir,
+                    )
+                result = solve(
                     system_prompt=system_prompt,
                     user_message=session_msg,
                     toolkit=toolkit,
                     max_turns=args.max_turns,
-                    input_queue=input_queue,
+                    input_queue=session_input,
                 )
                 finish_result = result.finish_result
                 messages += result.messages
                 stats = result.stats
                 agent_error = result.error
-                if getattr(toolkit, "direct_verdict_requested", False):
+                if operator_input is not None and args.interactive:
+                    pending_operator_request = operator_input.pending_kind
+                if human_interactive_run and toolkit.direct_verdict_requested:
                     finish_result = toolkit.finalize_direct_verdict()
                     direct_operator_success = finish_result["status"] == "success"
                     if agent_error:
@@ -620,17 +792,66 @@ def main() -> int:
                             "Planner stopped after operator verdict: %s", agent_error
                         )
                         stats["planner_error_at_operator_verdict"] = agent_error
-                solved_fn = getattr(toolkit, "solved", None)
-                if getattr(robot_spec, "supports_exploration", False) and callable(
-                    solved_fn
-                ):
-                    solved = bool(solved_fn())
-                    write_recipe = getattr(toolkit, "write_recipe", None)
-                    if solved and callable(write_recipe):
-                        recipe_path = write_recipe(recipe_tag) or recipe_path
+                    verdict = finish_result["operator_verdict"]
+                    if (
+                        verdict in {"success", "failure"}
+                        and human_interactive_exploration
+                    ):
+                        evidence_path = record_operator_outcome(
+                            memory_root=memory_manager.root,
+                            recipe_tag=recipe_tag,
+                            run_name=Path(output_dir).name,
+                            session_number=session_number,
+                            state_output_dir=state_output_dir,
+                            verdict=finish_result,
+                            messages=_serialize_messages(result.messages),
+                            planner_error=agent_error,
+                        )
+                        verdict_handoff = (
+                            f"\nThe operator marked the preceding attempt as {verdict}. "
+                            f"Before requesting any reset or motion, read {evidence_path}, "
+                            "inspect its evidence and write a grounded outcome summary "
+                            "to your memory inbox wip notes. Distinguish observations "
+                            "from hypotheses; never label a failed attempt as successful. "
+                            "Then request_scene_reset and wait for a new operator "
+                            "confirmation before attempting the task again.\n"
+                        )
+                        # An operator verdict deliberately interrupts the planner.
+                        # Its cancellation is not a failed continuation session.
+                        if verdict == "failure":
+                            agent_error = None
+                        continue_after_verdict = not agent_error
+                if robot_spec.supports_exploration:
+                    solved = bool(toolkit.solved())
+                    if solved:
+                        recipe_path = toolkit.write_recipe(recipe_tag) or recipe_path
+                        if (
+                            human_interactive_exploration
+                            and direct_operator_success
+                            and not agent_error
+                        ):
+                            # Publish before the next session can overwrite the
+                            # run-level recipe; retain a per-session copy as evidence.
+                            import shutil
+
+                            for name in (
+                                f"{recipe_tag}.json",
+                                f"{recipe_tag}_recipe.jsonl",
+                            ):
+                                shutil.copy2(
+                                    Path(output_dir) / name,
+                                    Path(state_output_dir) / name,
+                                )
+                            memory_manager.merge_memory(
+                                cell_tag=recipe_tag,
+                                run_state_dir=state_output_dir,
+                                solved=True,
+                            )
             finally:
-                if operator_input is not None and input_queue is not None:
+                if operator_input is not None and args.interactive:
                     operator_input.bind_verdict(None)
+                    if session_input is not None:
+                        session_input.cancel()
                 try:
                     if robot_spec.finalize_run is not None:
                         solved_fn = getattr(toolkit, "solved", None)
@@ -640,8 +861,23 @@ def main() -> int:
                         solved = bool(environment_success)
                 finally:
                     toolkit.close()
+                    if operator_input is not None and args.interactive:
+                        operator_input.cancel_pending()
             if (
-                solved
+                human_interactive_run
+                and not continue_after_verdict
+                and not (finish_result or {}).get("_finish")
+                and not (finish_result or {}).get("operator_finished")
+            ):
+                agent_error = agent_error or (
+                    f"Planner returned without an attempt verdict; pending operator request: "
+                    f"{pending_operator_request or 'none'}. Old tools were cancelled. "
+                    "Stopping exploration instead of starting another empty session."
+                )
+                logger.error("%s", agent_error)
+                break
+            if (
+                (solved and not continue_after_verdict)
                 or (finish_result or {}).get("operator_aborted")
                 or (finish_result or {}).get("operator_finished")
             ):

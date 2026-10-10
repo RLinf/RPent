@@ -85,7 +85,7 @@ class DualFrankaPrimitives(FrankaPrimitives):
         arm: Annotated[Literal["left", "right"], BeforeValidator(coerce_arm)],
         delta_xyz: Annotated[list[float], Field(min_length=3, max_length=3)],
     ) -> ToolResult:
-        """Move one Franka TCP by a bounded world-frame xyz delta in meters.
+        """Move one Franka TCP by a bounded world-frame xyz delta in meters. Completion indicates execution ended; target_reached and final_error_m report accuracy, not a mandatory retry condition.
 
         Args:
             arm: Which arm to command; the other arm is left uncommanded.
@@ -102,7 +102,7 @@ class DualFrankaPrimitives(FrankaPrimitives):
         arm: Annotated[Literal["left", "right"], BeforeValidator(coerce_arm)],
         delta_rpy: Annotated[list[float], Field(min_length=3, max_length=3)],
     ) -> ToolResult:
-        """Rotate one Franka TCP by a bounded world-frame rpy delta in radians.
+        """Rotate one Franka TCP by a bounded world-frame rpy delta in radians. Completion indicates execution ended; target_reached and residual errors report accuracy, not a mandatory retry condition. Protective aborts remain failures.
 
         Args:
             arm: Which arm to command; the other arm is left uncommanded.
@@ -147,7 +147,7 @@ class DualFrankaPrimitives(FrankaPrimitives):
             bool, Field(json_schema_extra={"default": True})
         ] = True,
     ) -> ToolResult:
-        """Reset both arms to their healthy configured joint posture while preserving each gripper's open/closed state. Closed grippers are re-commanded before/after the joint reset so held objects stay clamped, then both TCPs return near their prior poses."""
+        """Reset both arms to their configured joint posture while preserving each gripper's open/closed state. Closed grippers are re-commanded before/after the joint reset so held objects stay clamped, then both TCPs return near their prior poses. This is an available recovery option, not a mandatory response to an advisory joint-health score."""
         self._check_cancelled()
         data = self.env.recover_joint_posture(
             reason=str(reason), return_to_start=bool(return_to_start)
@@ -196,7 +196,7 @@ class DualFrankaPrimitives(FrankaPrimitives):
                 "available_primitives": [
                     tool.name for tool in DualFrankaToolkit.declared_tools()
                 ],
-                "operator_guidance": "Named VLA semantic boundaries are segment boundaries, not proof of physical success. Verify images, gripper widths/open flags, joint_health, and projection evidence after every action. recover_joint_posture re-commands and preserves each gripper's open/closed state; inspect its gripper_preserved result before continuing.",
+                "operator_guidance": "Named VLA semantic boundaries are segment boundaries, not proof of physical success. Verify images, gripper widths/open flags, and projection evidence after every action.",
             }
         )
 
@@ -471,7 +471,7 @@ class DualFrankaPrimitives(FrankaPrimitives):
             int, Field(ge=1, le=20, json_schema_extra={"default": 20})
         ] = 20,
     ) -> ToolResult:
-        """Run the learned left-placement VLA segment. The active task decides the destination; this tool only defines the capability boundary: left gripper opens and the left TCP lifts.
+        """Run the learned left-placement VLA segment under the configured fixed policy instruction. The prompt argument records planner intent; it does NOT select a destination or change policy conditioning. Use only when the policy's actual placement capability matches the intended destination. Boundary: left gripper opens and the left TCP lifts; this does not prove correct placement.
 
         Args:
             prompt: Planner-facing segment intent. This is recorded in the tool result; the current live clean-desk checkpoint still receives its fixed training instruction during policy inference.
@@ -580,7 +580,7 @@ def view_env_state(
     *,
     state: EnvState,
 ) -> ToolResult:
-    """Read a dual-Franka state snapshot. Configured inline camera views are returned directly; other available views are returned as artifact paths; use read_image to inspect these artifacts."""
+    """Capture a fresh dual-Franka observation when step=-1 (default); a nonnegative step reads that historical snapshot without acquisition. Use the returned step for segmentation and back-projection; do not reuse pixels or masks from an older step after refreshing. Configured inline camera views are returned directly; other available views are returned as artifact paths for targeted read_image inspection."""
     images: list[bytes] = []
     record = state.get(step)
     output = record.to_blob()

@@ -138,7 +138,13 @@ class Toolkit:
             for tool in self._tools.values()
         )
 
-    def execute_tool(self, name: str, input_dict: dict[str, Any]) -> ToolResult:
+    def execute_tool(
+        self,
+        name: str,
+        input_dict: dict[str, Any],
+        *,
+        cancel_event: threading.Event | None = None,
+    ) -> ToolResult:
         """Validate one call, execute it, and capture state for advancing tools."""
         tool = self._tools.get(name)
         if tool is None:
@@ -165,12 +171,17 @@ class Toolkit:
                 return ToolResult(
                     data={"error": "another tool operation is still active"}
                 )
-            operation = _ToolOperation()
+            operation = _ToolOperation(
+                cancel_event=cancel_event
+                if cancel_event is not None
+                else threading.Event()
+            )
             self._active_operation = operation
 
         try:
             started = time.perf_counter()
             try:
+                self.raise_if_cancelled()
                 native = tool(**kwargs)
             except TypeError as exc:
                 native = ToolResult(
@@ -276,6 +287,13 @@ class Toolkit:
             operation = self._active_operation
         if operation is not None and operation.cancel_event.is_set():
             raise ToolCancelled("tool operation interrupted")
+
+    def wait_active(self) -> None:
+        """Wait for an already-authorized operation without cancelling it."""
+        with self._operation_lock:
+            operation = self._active_operation
+        if operation is not None:
+            operation.done_event.wait()
 
     def close(self) -> None:
         """Release the robot-side primitives / servers at end of run. Default: no-op."""

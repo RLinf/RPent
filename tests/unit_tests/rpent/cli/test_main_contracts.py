@@ -111,6 +111,9 @@ def test_public_cli_help_runs_from_source_checkout_without_a_robot_runtime() -> 
         "--interactive",
     ):
         assert option in result.stdout
+    assert "--dashboard-language" in result.stdout
+    assert "--dashboard-record" not in result.stdout
+    assert "--dashboard-camera-stream" not in result.stdout
 
 
 @pytest.mark.parametrize(
@@ -146,6 +149,27 @@ def test_shared_cli_defaults_reach_robot_config_parser(
     assert args.dashboard_port == 0
     assert args.dashboard_language == "en"
     assert args.memory_profile == "hf"
+
+
+def test_codex_ultra_effort_reaches_robot_config_parser(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, args = _capture_validated_args(
+        monkeypatch,
+        [
+            "--robot",
+            "libero",
+            "--planner",
+            "codex",
+            "--model",
+            "gpt-6-astra",
+            "--reasoning-effort",
+            "ultra",
+        ],
+    )
+
+    assert args.model == "gpt-6-astra"
+    assert args.reasoning_effort == "ultra"
 
 
 def test_deprecated_env_alias_routes_to_the_same_robot(
@@ -185,6 +209,21 @@ def test_robot_and_env_aliases_are_mutually_exclusive(
 @pytest.mark.parametrize(
     ("argv", "message"),
     [
+        (
+            ["--robot", "libero", "--planner", "api", "--reasoning-effort", "ultra"],
+            "requires --planner codex",
+        ),
+        (
+            [
+                "--robot",
+                "libero",
+                "--planner",
+                "claude_code",
+                "--reasoning-effort",
+                "ultra",
+            ],
+            "requires --planner codex",
+        ),
         (
             ["--robot", "libero", "--dashboard", "--interactive"],
             "cannot be used together",
@@ -356,6 +395,7 @@ def test_real_robot_terminal_requirement_fails_before_runtime(
     spec = SimpleNamespace(
         is_real_robot=True,
         dashboard=None,
+        supports_human_interactive_exploration=False,
         add_cli_args=lambda parser, use_dashboard: None,
     )
     monkeypatch.setattr(cli, "get_robot_spec", lambda name: spec)

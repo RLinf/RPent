@@ -29,7 +29,6 @@ import asyncio
 import contextlib
 import json
 import os
-import queue
 import tempfile
 import threading
 import time
@@ -40,7 +39,7 @@ from typing import Any
 import openai_codex
 from openai_codex.generated.v2_all import ReasoningEffort
 
-from rpent.cli.tui import next_user_line
+from rpent.cli.tui import InputQueue, SessionInputQueue, next_user_line
 from rpent.dashboard.events import (
     DashboardEventSink,
     TranscriptEvent,
@@ -49,12 +48,12 @@ from rpent.dashboard.events import (
 from rpent.dashboard.interaction import DashboardInteractionPort, DashboardMessage
 from rpent.dashboard.planner_control import DashboardPlannerControl
 from rpent.planner.base import (
-    REASONING_EFFORTS,
+    CODEX_REASONING_EFFORTS,
     Planner,
     PlannerResult,
     strip_mcp_prefix,
 )
-from rpent.planner.utils.http_mcp_server import HttpMcpServer
+from rpent.planner.utils.http_mcp_server import HttpMcpServer, mcp_tool_timeout_s
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.config import get_repo_root
 from rpent.utils.logging import get_logger
@@ -104,7 +103,9 @@ class CodexPlanner(Planner):
         """Initialize the Codex SDK backend."""
         self._output_dir = str(output_dir)
         self._repo_root = str(repo_root) if repo_root else str(get_repo_root())
-        self._timeout_s = timeout_s
+        if timeout_s < 0:
+            raise ValueError("timeout_s must be nonnegative (0 disables the deadline)")
+        self._timeout_s = None if timeout_s == 0 else timeout_s
         self._extra_dirs = extra_dirs or []
         self._output_path = Path(output_path) if output_path else None
         self._model = model or os.environ.get("CODEX_MODEL", None)
@@ -112,7 +113,7 @@ class CodexPlanner(Planner):
         self._api_key = os.environ.get("CODEX_API_KEY", None)
         self._service_tier = os.environ.get("CODEX_SERVICE_TIER", None)
         self._dashboard_events = dashboard_events
-        if reasoning_effort not in REASONING_EFFORTS:
+        if reasoning_effort not in CODEX_REASONING_EFFORTS:
             raise ValueError(f"unsupported reasoning effort: {reasoning_effort}")
         self._thread_options = {
             "approval_mode": openai_codex.ApprovalMode.deny_all,
@@ -134,8 +135,9 @@ class CodexPlanner(Planner):
         user_message: str,
         toolkit: Toolkit,
         max_turns: int,
-        input_queue: queue.Queue[str | None] | None = None,
+        input_queue: InputQueue | None = None,
         dashboard_interaction: DashboardInteractionPort | None = None,
+        mcp_server: HttpMcpServer | None = None,
     ) -> PlannerResult:
         """Run one or more Codex SDK turns for the given prompt."""
         if input_queue is not None and dashboard_interaction is not None:
@@ -144,6 +146,8 @@ class CodexPlanner(Planner):
             )
         prompt = f"{system_prompt}\n\n{user_message}" if system_prompt else user_message
         if dashboard_interaction is not None:
+            if mcp_server is not None:
+                raise ValueError("dashboard owns its MCP server")
             return asyncio.run(
                 self._solve_dashboard(
                     prompt=prompt,
@@ -162,7 +166,9 @@ class CodexPlanner(Planner):
 
         # Start the in-thread MCP HTTP server so Codex can reach the
         # shared toolkit without spawning a subprocess.
-        mcp_server = HttpMcpServer(toolkit)
+        owns_mcp_server = mcp_server is None
+        if owns_mcp_server:
+            mcp_server = HttpMcpServer(toolkit)
         mcp_url = mcp_server.start()
         logger.info("mcp http endpoint: %s", mcp_url)
 
@@ -170,9 +176,9 @@ class CodexPlanner(Planner):
         logger.info("prompt: %d chars", len(prompt))
         logger.info("output_dir: %s", self._output_dir)
         logger.info(
-            "invoking Codex SDK model %s (timeout=%ds)",
+            "invoking Codex SDK model %s (timeout=%s)",
             model_desc,
-            self._timeout_s,
+            "unlimited" if self._timeout_s is None else f"{self._timeout_s}s",
         )
 
         started = time.time()
@@ -223,7 +229,8 @@ class CodexPlanner(Planner):
                     _write_jsonl(raw_f, {"type": "error", "message": error})
                 logger.info(rendered.rstrip())
         finally:
-            mcp_server.stop()
+            if owns_mcp_server:
+                mcp_server.stop()
 
         elapsed = time.time() - started
         text = state.get("text", "") or output_path.read_text(errors="replace")
@@ -275,7 +282,7 @@ class CodexPlanner(Planner):
         recorder: "_Recorder",
         state: dict[str, Any],
         mcp_url: str,
-        input_queue: "queue.Queue[str | None] | None" = None,
+        input_queue: InputQueue | None = None,
     ) -> None:
         try:
             chunks: list[str] = []
@@ -293,20 +300,23 @@ class CodexPlanner(Planner):
                     turn = thread.turn(prompt, **self._turn_options)
                     state["turn"] = turn
 
-                    stop_steer: threading.Event | None = None
+                    steering_input: SessionInputQueue | None = None
+                    steer_thread: threading.Thread | None = None
                     if input_queue is not None:
-                        stop_steer = threading.Event()
+                        steering_input = SessionInputQueue(input_queue)
 
                         def _steer() -> None:
                             while True:
-                                nxt = next_user_line(input_queue)
-                                if stop_steer.is_set():
-                                    return
+                                nxt = next_user_line(steering_input)
                                 if nxt is None:
-                                    try:
-                                        turn.interrupt()
-                                    except Exception:
-                                        pass
+                                    if not steering_input.cancelled:
+                                        try:
+                                            turn.interrupt()
+                                        except Exception:
+                                            pass
+                                    return
+                                if steering_input.cancelled:
+                                    input_queue.put(nxt)
                                     return
                                 rendered = f"\n[user] {nxt}\n"
                                 with write_lock:
@@ -316,6 +326,9 @@ class CodexPlanner(Planner):
                                 logger.info(rendered.strip())
                                 try:
                                     turn.steer(nxt)
+                                    logger.info(
+                                        "[feedback] delivered to active Codex turn"
+                                    )
                                 except Exception as e:
                                     rendered = f"\n[codex-planner] steer failed: {e}\n"
                                     with write_lock:
@@ -325,11 +338,12 @@ class CodexPlanner(Planner):
                                     logger.info(rendered.strip())
                                     return
 
-                        threading.Thread(
+                        steer_thread = threading.Thread(
                             target=_steer,
                             name="codex-steer",
                             daemon=True,
-                        ).start()
+                        )
+                        steer_thread.start()
 
                     limit_reached = False
                     try:
@@ -355,10 +369,10 @@ class CodexPlanner(Planner):
                                         raise
                                     # The terminal notification may still be queued.
                     finally:
-                        if stop_steer is not None:
-                            stop_steer.set()
-                            if input_queue is not None:
-                                input_queue.put(None)
+                        if steering_input is not None:
+                            steering_input.cancel()
+                            if steer_thread is not None:
+                                steer_thread.join(timeout=2)
 
             state["text"] = "".join(chunks)
             if recorder.final_response is not None:
@@ -996,6 +1010,9 @@ def _codex_mcp_config_overrides(
     config: list[tuple[str, Any]] = []
     if mcp_url:
         config.append(("mcp_servers.rpent.url", mcp_url))
+        # Allow the server to cancel and return its result before the client's
+        # transport deadline. The outer planner deadline still applies.
+        config.append(("mcp_servers.rpent.tool_timeout_sec", mcp_tool_timeout_s() + 5))
     if base_url:
         normalized = base_url.rstrip("/")
         if not normalized.endswith("/v1"):

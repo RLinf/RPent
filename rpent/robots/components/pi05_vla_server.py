@@ -225,6 +225,17 @@ class Pi05VLAFacade(BaseVLAFacade):
             cfg["model_path"],
         )
         self._model = get_model(cfg, torch_dtype=None).cuda().eval()
+        parameters = list(self._model.parameters())
+        self._status = {
+            "model_path": model_path,
+            "repo_id": repo_id,
+            "embodiment": embodiment,
+            "dtypes": sorted({str(p.dtype) for p in parameters}),
+            "device": str(parameters[0].device) if parameters else None,
+            "load_seconds": time.time() - t0,
+            "config": OmegaConf.to_container(cfg, resolve=True),
+        }
+        self._rpc["vla.status"] = lambda: self._status
         logger.info("model ready in %.1fs", time.time() - t0)
 
     def _register_rpc(self):

@@ -12,17 +12,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""User prompt sections for one dual-Franka task run."""
-
-TASK = """- task_name: {{task_name}}
-- instruction: {{instruction}}
-- initial_setup: {{setup}}
-- success_criteria: {{success_criteria}}"""
-
-CONSTRAINTS = """{{constraints}}"""
-
-BEGIN = """Call describe_dual_franka_setup before acting. Then call
-view_env_state with step 0, inspect the configured inline visual evidence
-together with both arms' TCP/gripper state, and execute the task
-conservatively with the exposed bounded tools. Auxiliary camera views are
-artifact views for targeted follow-up inspection only."""
+"""Explicitly invoked manual diagnostics; never automatic hardware tests."""

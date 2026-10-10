@@ -376,8 +376,17 @@ def test_robot_config_flag_is_recorded_at_parse_time(
         # The packaged defaults reference on-robot easy_handeye YAMLs: parse
         # fails fast, but only after the default config path is recorded.
         args = _parser(robot_name).parse_args([])
-        with pytest.raises(ValueError, match="easy_handeye"):
-            get_robot_spec(robot_name).parse_config(args)
+        # Local deployments can have real absolute paths. Simulate missing
+        # calibration without depending on whether this host is calibrated.
+        exists = Path.exists
+        with monkeypatch.context() as missing_calibration:
+            missing_calibration.setattr(
+                Path,
+                "exists",
+                lambda path: False if path.suffix == ".yaml" else exists(path),
+            )
+            with pytest.raises(ValueError, match="easy_handeye"):
+                get_robot_spec(robot_name).parse_config(args)
         assert get_robot_config_path() == packaged_default
     finally:
         set_robot_config_path(None)

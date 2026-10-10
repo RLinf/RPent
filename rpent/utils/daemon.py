@@ -115,12 +115,15 @@ class ProcessDaemon:
         self.cmd = cmd
         self.subprocess_env = os.environ.copy()
         self.subprocess_env.update(env_overrides or {})
-        # Put the RLinf checkout first on the child's PYTHONPATH
-        rlinf_path = str(get_rlinf_repo_path())
-        pythonpath = self.subprocess_env.get("PYTHONPATH", "")
-        self.subprocess_env["PYTHONPATH"] = (
-            f"{rlinf_path}{os.pathsep}{pythonpath}" if pythonpath else rlinf_path
-        )
+        # Source checkouts are opt-in; normal deployments use installed RLinf.
+        rlinf_path = get_rlinf_repo_path()
+        if rlinf_path is not None:
+            pythonpath = self.subprocess_env.get("PYTHONPATH", "")
+            self.subprocess_env["PYTHONPATH"] = (
+                f"{rlinf_path}{os.pathsep}{pythonpath}"
+                if pythonpath
+                else str(rlinf_path)
+            )
         self.log_path = log_path
         self.cwd = cwd
         self._proc: subprocess.Popen | None = None

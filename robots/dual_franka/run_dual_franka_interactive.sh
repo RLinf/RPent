@@ -19,6 +19,7 @@ exec .venv/bin/python -m rpent.cli.main \
   --model "${RPENT_CODEX_MODEL:-gpt-5.5}" \
   --reasoning-effort "${RPENT_REASONING_EFFORT:-medium}" \
   --interactive \
+  --planner-timeout-s 0 \
   --memory-profile local \
   --memory-dir "${RPENT_LIVE_MEMORY_DIR}" \
   --env-endpoint "${RPENT_ENV_ENDPOINT}" \

@@ -41,15 +41,20 @@ RULES = (
     "specific historical step.",
     "Use purposeful corrections and use the configured inline view(s) as "
     "the primary visual evidence.",
+    "For move_delta and rotate_delta, status='completed' means execution "
+    "finished, not exact target attainment. target_reached and residual errors "
+    "are accuracy diagnostics; target_reached=false alone is not a controller "
+    "fault or a requirement to retry, stop, or request operator feedback. "
+    "Use the actual final pose and returned observation for the next action.",
     "Never use a VLA trained for another embodiment or action normalization.",
     "VLA segment tools accept a planner-facing prompt. A deployment may still "
     "override it with a checkpoint-specific training instruction during policy "
     "inference; inspect the tool result to see requested/effective prompts.",
     "Treat a VLA segment stop as the end of one manipulation segment, not as "
     "proof that its physical goal succeeded.",
-    "Inspect joint_health after every mutation and recover joint posture before "
-    "continuing when either arm reports warning or critical.",
-    "If state, cameras, or motion results are inconsistent, stop instead of guessing.",
+    "Stop for actual controller faults, protective motion aborts, or conflicting "
+    "state/camera evidence that prevents safe action. An ordinary residual "
+    "tracking error alone is not such a conflict.",
 )
 
 CAMERA_AND_PROJECTION = (
@@ -60,8 +65,9 @@ CAMERA_AND_PROJECTION = (
     "Choose a pixel well inside visible material of the named target object or "
     "target container, away from silhouettes, rims, walls, wires, occluders, and "
     "background. Never project image-space air above an object.",
-    "When SAM3 is available, use segment on a registered localization camera to "
-    "segment visible target objects or destination regions before manual pixel projection. "
+    "Choose perception tools according to the current task. When using SAM3, "
+    "call segment on a registered localization camera for the intended object "
+    "or destination region. "
     "Inspect the returned mask overlay yourself; trust the returned right_base "
     "point only when the mask and median marker cover the intended target.",
     "SAM3 text prompts are phrase-sensitive. Prefer short color/object/relation "
@@ -75,49 +81,11 @@ CAMERA_AND_PROJECTION = (
     "After a verified projection, trust the returned right_base xyz and TCP-to-"
     "point deltas as the primary metric evidence; do not override them with "
     "unaided 2D RGB distance guesses.",
-    "Do not move an arm or held object merely to improve camera visibility. If "
-    "visibility is insufficient, mark the state uncertain or stop for operator "
-    "feedback instead of performing active-vision motions.",
-)
-
-VLA_GATES = (
-    "Use VLA segment tools for contact-rich motion: vla_right_grasp, "
-    "vla_handoff, and vla_left_place.",
-    "vla_right_grasp ends after right gripper closure plus lift; vla_handoff "
-    "ends after right gripper opening plus a configured release delay; "
-    "vla_left_place ends after left gripper opening plus lift. These boundaries "
-    "only mean a segment ended; verify physical success from images, gripper "
-    "widths/open flags, and projection geometry before continuing.",
-    "After a grasp VLA, do not decide lifted/held status from 2D appearance "
-    "alone. Check right gripper state and the latest inline image. If held status "
-    "is unclear, project the best visible held-object surface when possible and "
-    "compare right_base z primarily with the source/table height or pre-grasp "
-    "source projection.",
-    "If a verified projection of the intended object or held-object surface is "
-    "higher than source/table height, treat the grasp as successful and proceed "
-    "to vla_handoff. Mark failure only when verified projection shows the same "
-    "object still at table height and gripper/image evidence shows the right "
-    "gripper is empty or not supporting it.",
-    "After a confirmed right-hand grasp, call vla_handoff directly. Do not use "
-    "move_delta, rotate_delta, open_gripper, close_gripper, or any other "
-    "rule-based primitive to prepare or reposition either arm for handoff; the VLA owns the bimanual "
-    "approach, relative pose adjustment, left-hand grasp, right-hand release, "
-    "and collision-aware transfer.",
-    "Before vla_left_place, first verify that vla_handoff has ended and the "
-    "left gripper holds the intended object. If the left hand is not clearly "
-    "holding the object, do not stage for placement.",
-    "For placement staging, project a clearly valid target pixel inside the "
-    "required destination, then use projected x/y only. Keep the current left "
-    "TCP z with delta_z=0 by default; do not move to the projected z coordinate "
-    "or add large vertical clearance. Let vla_left_place handle descent, "
-    "release, and post-release lift.",
 )
 
 WORKFLOW = (
     "Call describe_dual_franka_setup, then inspect the initial synchronized state.",
-    "Build a conservative localization table for the current category from the "
-    "latest inline image and keep it updated after each primitive.",
     "After each motion, inspect the returned result before choosing the next action.",
-    "Use the task's VLA segment tools for contact-rich motion.",
+    "Follow the task's policy for choosing VLA skills or direct control.",
     "Finish only when the success evidence is visible and consistent with state.",
 )

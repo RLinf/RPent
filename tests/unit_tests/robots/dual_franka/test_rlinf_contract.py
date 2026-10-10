@@ -17,6 +17,12 @@
 from __future__ import annotations
 
 import dataclasses
+import os
+import subprocess
+from pathlib import Path
+
+import pytest
+import yaml
 
 # Keys RPent builds into ``env.eval.override_cfg`` and the ``DualFranka``
 # hardware config. Kept here (not a runtime constant) so this test doubles as
@@ -47,6 +53,7 @@ _HARDWARE_KEYS = {
     "left_controller_node_rank",
     "right_controller_node_rank",
     "node_rank",
+    "compliance",
 }
 
 
@@ -68,12 +75,99 @@ def test_hardware_keys_are_valid_rlinf_fields(fake_rlinf_realworld_modules):
     assert not unknown, f"hardware keys not in DualFrankaConfig: {unknown}"
 
 
-def test_runtime_config_sets_realtime_mode(fake_rlinf_realworld_modules):
+@pytest.mark.parametrize("custom_config", [False, True])
+def test_runtime_config_preserves_explicit_overrides(
+    fake_rlinf_realworld_modules, tmp_path, custom_config
+):
+    from robots.dual_franka.runtime_config import (
+        DEFAULT_CONFIG,
+        load_mapping,
+        load_runtime_config,
+    )
+
+    config = load_mapping(DEFAULT_CONFIG)
+    path = None
+    if custom_config:
+        config["robot"]["compliance"] = {
+            "nullspace_stiffness": 1.5,
+            "translational_clip": 0.02,
+            "rotational_clip": 0.12,
+            "max_step_rad": 0.08,
+        }
+        config["joint_health"]["thresholds"] = {
+            "left": {"warning_min_joint_margin": 0.2, "critical_min_joint_margin": 0.1},
+            "right": {
+                "warning_min_joint_margin": 0.3,
+                "critical_min_joint_margin": 0.15,
+            },
+        }
+        path = tmp_path / "robot.yaml"
+        path.write_text(yaml.safe_dump(config))
+
+    runtime = load_runtime_config(path, task_description="test task")
+    hardware = runtime.rlinf.cluster.node_groups[0].hardware.configs[0]
+    assert hardware["realtime_config"] == "ignore"
+    assert set(hardware) == (
+        _HARDWARE_KEYS if custom_config else _HARDWARE_KEYS - {"compliance"}
+    )
+    assert hardware["left_controller_node_rank"] == 0
+    assert hardware["right_controller_node_rank"] == 1
+    if custom_config:
+        assert hardware["compliance"] == config["robot"]["compliance"]
+    assert (
+        runtime.controller["joint_health_thresholds"]
+        == config["joint_health"]["thresholds"]
+    )
+
+
+def test_runtime_uses_rpent_adapter_without_preview_extension(
+    fake_rlinf_realworld_modules,
+):
     from robots.dual_franka.runtime_config import load_runtime_config
 
     runtime = load_runtime_config(None, task_description="test task")
-    hardware = runtime.rlinf.cluster.node_groups[0].hardware.configs[0]
-    assert hardware["realtime_config"] == "ignore"
+
+    assert runtime.rlinf.env.eval.init_params.id == "RPentDualFrankaTCPEnv-v1"
+    assert runtime.rlinf.env.eval.auto_reset is False
+    assert "camera_preview_dir" not in runtime.controller
+
+
+@pytest.mark.parametrize("checkout", [None, "/tmp/explicit-rlinf-checkout"])
+def test_live_environment_only_uses_explicit_rlinf_checkout(tmp_path, checkout):
+    repo_root = Path(__file__).resolve().parents[4]
+    env = os.environ.copy()
+    env.pop("RLINF_REPO_PATH", None)
+    env.update(
+        RPENT_REPO_ROOT=str(repo_root),
+        RPENT_CODEX_HOME=str(tmp_path / "codex"),
+        RPENT_LIVE_MEMORY_DIR=str(tmp_path / "memory"),
+        PYTHONPATH="/tmp/existing-python-path",
+    )
+    if checkout is not None:
+        env["RLINF_REPO_PATH"] = checkout
+
+    result = subprocess.run(
+        [
+            "bash",
+            "--noprofile",
+            "--norc",
+            "-c",
+            'source "$1"; printf "%s\\n%s\\n" "${RLINF_REPO_PATH-unset}" "$PYTHONPATH"',
+            "--",
+            str(repo_root / "robots/dual_franka/rpent_live_env.sh"),
+        ],
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    rlinf_checkout, python_path = result.stdout.splitlines()
+    assert rlinf_checkout == (checkout or "unset")
+    expected_path = [str(repo_root), "/tmp/existing-python-path"]
+    if checkout is not None:
+        expected_path.insert(0, checkout)
+    assert python_path.split(":") == expected_path
 
 
 def test_controller_carries_calibration_mapping_for_ray_worker(

@@ -27,7 +27,6 @@ import asyncio
 import contextlib
 import dataclasses
 import json
-import queue
 import tempfile
 import time
 from collections.abc import Callable
@@ -35,7 +34,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from rpent.cli.tui import next_user_line
+from rpent.cli.tui import InputQueue, SessionInputQueue, next_user_line
 from rpent.dashboard.events import (
     DashboardEventSink,
     TranscriptEvent,
@@ -103,7 +102,7 @@ class ClaudeCodePlanner(Planner):
         user_message: str,
         toolkit: Toolkit,
         max_turns: int,
-        input_queue: queue.Queue[str | None] | None = None,
+        input_queue: InputQueue | None = None,
         dashboard_interaction: DashboardInteractionPort | None = None,
     ) -> PlannerResult:
         """Run a Claude Agent SDK session for the given prompt."""
@@ -132,7 +131,7 @@ class ClaudeCodePlanner(Planner):
         initial_user_text: str,
         toolkit: Toolkit,
         max_turns: int,
-        input_queue: queue.Queue[str | None] | None = None,
+        input_queue: InputQueue | None = None,
         dashboard_interaction: DashboardInteractionPort | None = None,
     ) -> PlannerResult:
         import claude_agent_sdk
@@ -472,8 +471,8 @@ class _ClaudeSessionDriver:
 class _TerminalSessionAdapter:
     """Preserve the terminal TUI's interrupt-then-query steering policy."""
 
-    def __init__(self, *, input_queue: Any, emit_user) -> None:
-        self._input_queue = input_queue
+    def __init__(self, *, input_queue: InputQueue, emit_user) -> None:
+        self._input_queue = SessionInputQueue(input_queue)
         self._emit_user = emit_user
 
     async def initial_query_succeeded(self, driver: _ClaudeSessionDriver) -> None:
@@ -502,8 +501,7 @@ class _TerminalSessionAdapter:
         return None
 
     async def close(self) -> None:
-        # Unblock next_user_line() if the consumer (for example finish) won.
-        self._input_queue.put(None)
+        self._input_queue.cancel()
 
 
 class _ClaudeDashboardAdapter:

@@ -17,22 +17,30 @@ from __future__ import annotations
 import asyncio
 import json
 import queue
+import threading
 from pathlib import Path
 from typing import Any
 
 import claude_agent_sdk
 import pytest
 
+from rpent.cli.tui import SessionInputQueue, next_user_line
 from rpent.dashboard.events import TranscriptEvent, UsageEvent
 from rpent.planner.claude_code import (
     ClaudeCodePlanner,
     _build_rpent_server,
     _ClaudeSessionDriver,
     _Recorder,
+    _TerminalSessionAdapter,
     _tool_result_to_mcp,
 )
 from rpent.tools import ToolResult, tool
 from rpent.tools.common import CommonTools
+
+
+@pytest.fixture(autouse=True)
+def tool_template_output_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("rpent.utils.templates.get_output_dir", lambda: tmp_path)
 
 
 class RecordingSink:
@@ -473,3 +481,81 @@ def test_queue_and_dashboard_are_mutually_exclusive_before_sdk_use(
             input_queue=queue.Queue(),
             dashboard_interaction=object(),
         )
+
+
+def test_terminal_adapter_close_does_not_stop_the_next_solve() -> None:
+    source = queue.Queue()
+    emitted = []
+    queries = []
+    interrupts = []
+
+    class Driver:
+        async def interrupt(self):
+            interrupts.append(True)
+
+        async def query(self, text):
+            queries.append(text)
+
+    async def run_two_solvers():
+        first = _TerminalSessionAdapter(input_queue=source, emit_user=emitted.append)
+        source.put(None)
+        await first.run(Driver())
+        await first.close()
+        assert source.empty()
+
+        second = _TerminalSessionAdapter(input_queue=source, emit_user=emitted.append)
+        source.put("inspect the next attempt")
+        source.put("/quit")
+        await second.run(Driver())
+        await second.close()
+
+    asyncio.run(run_two_solvers())
+
+    assert emitted == ["inspect the next attempt"]
+    assert queries == emitted
+    assert len(interrupts) == 3
+    assert source.empty()
+
+
+def test_terminal_adapter_cleanup_retires_delayed_reader(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = queue.Queue()
+    attempt = SessionInputQueue(source)
+    started = threading.Event()
+    release = threading.Event()
+    emitted = []
+    queries = []
+
+    def delayed_read(input_queue):
+        started.set()
+        assert release.wait(1)
+        return next_user_line(input_queue)
+
+    monkeypatch.setattr("rpent.planner.claude_code.next_user_line", delayed_read)
+
+    class Driver:
+        async def interrupt(self):
+            pass
+
+        async def query(self, text):
+            queries.append(text)
+
+    async def run():
+        adapter = _TerminalSessionAdapter(input_queue=attempt, emit_user=emitted.append)
+        pump = asyncio.create_task(adapter.run(Driver()))
+        try:
+            assert await asyncio.to_thread(started.wait, 1)
+            source.put("feedback for the next reply")
+            await adapter.close()
+        finally:
+            release.set()
+        await asyncio.wait_for(pump, timeout=1)
+
+    asyncio.run(run())
+
+    assert emitted == []
+    assert queries == []
+    assert not attempt.cancelled
+    assert attempt.get(block=False) == "feedback for the next reply"
+    assert source.empty()

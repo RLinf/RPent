@@ -150,7 +150,6 @@ DUAL_FRANKA_TASKS = {
             "Before calling vla_left_place, first confirm vla_handoff has ended and the left gripper is holding the object; then use the latest inline D455 image to localize the required placement target; prefer segment with camera='d455' for the target region when SAM3 is available, otherwise call back_project with camera='d455' on an interior pixel of that placement target; use only safe left-arm free-space move_delta commands to horizontally align the left-held object over the projected right_base target when staging is needed. Use the projected target x/y only; keep the current left TCP z with delta_z=0 by default, do not move to the projected z coordinate, and do not add a large vertical clearance. Only use a tiny safety lift if the current carried object is visibly below the rim or at collision risk. Call vla_left_place only if the latest staging move succeeded and reports a reached/effective target. If the staging move fails, is uncertain, or does not reach the target, do not call vla_left_place.",
             "Named VLA skills may end early through semantic boundary rules: grasp ends after right gripper closure plus lift, handoff ends after the right gripper opens and the configured release delay elapses, and place ends after the left gripper opens and then lifts about 10cm. This only means the current skill segment ended; inspect images and grippers before judging whether it succeeded.",
             "When calling a named grasp, handoff, or placement VLA skill, usually leave max_chunks unset so the server gives the skill enough budget and stops it at the semantic boundary. Override max_chunks only for a cautious diagnostic run.",
-            "After every VLA or rule-based action, inspect joint_health in the returned snapshot. If either arm is warning or critical, especially right-arm q1 positive / q3 negative accumulation, call recover_joint_posture before continuing more VLA chunks; it records each gripper's open/closed state, re-commands that state before and after joint reset so closed grippers stay clamped, resets both arms' joints, then returns both TCPs near their pre-recovery right_base poses.",
             OPERATOR_FINISH_CONSTRAINT,
             "If depth is missing, projection is uncertain, the intended object is occluded, or success is ambiguous, do not infer metric deltas from RGB alone; stop for operator feedback instead of opening a gripper or blindly retrying.",
         ),
@@ -240,9 +239,9 @@ DUAL_FRANKA_TASKS = {
             "The metal wire basket/frame is the target only for dirty bowls and dirty plates. The black-outside, white-inside cardboard box is the target only for clean bowls and clean plates. Do not count dirty objects in the cardboard box or clean objects in the metal basket as success.",
             "Advance to the next category only after the latest inline D455 image confirms that every object in the current category has reached its required destination, or that no such object remains available in the source workspace after a careful visual check.",
             "The D455 is a fixed external camera. Do not move either arm or held object merely to improve camera visibility. Arm motion is allowed only for task execution or safety: free-space approach/staging, VLA handoff/placement/grasp execution, or joint recovery.",
-            "After every VLA or rule-based action, inspect joint_health in the returned snapshot. If either arm is warning or critical, especially right-arm q1 positive / q3 negative accumulation, call recover_joint_posture before continuing more VLA chunks; it records each gripper's open/closed state, re-commands that state before and after joint reset so closed grippers stay clamped, resets both arms' joints, then returns both TCPs near their pre-recovery right_base poses.",
             OPERATOR_FINISH_CONSTRAINT,
             "If depth is missing, projection is uncertain, the intended object is occluded, dirty/clean status is uncertain, or success is ambiguous, do not infer metric deltas from RGB alone; stop for operator feedback instead of opening a gripper or blindly retrying.",
+            "vla_right_grasp ends after right gripper closure plus lift; vla_handoff ends after right gripper opening plus the configured release delay; vla_left_place ends after left gripper opening plus lift. These boundaries only mean a skill segment ended, not that the intended object was successfully grasped, transferred, or placed. Verify the intended object and physical outcome from the returned images and gripper state before continuing; use projection evidence when needed.",
         ),
     ),
 }
@@ -304,7 +303,7 @@ DUAL_FRANKA_TASKS[4] = replace(
         _DIRTY_CLEAN_CONSTRAINTS[20],
         _DIRTY_CLEAN_CONSTRAINTS[21],
         _DIRTY_CLEAN_CONSTRAINTS[22],
-        _DIRTY_CLEAN_CONSTRAINTS[23],
+        "vla_right_grasp ends after right gripper closure plus lift; vla_handoff ends after right gripper opening plus the configured release delay; vla_left_place ends after left gripper opening plus lift. These boundaries only mean a skill segment ended, not that the intended object was successfully grasped, transferred, or placed. Verify the intended object and physical outcome from the returned images and gripper state before continuing; use projection evidence when needed.",
     ),
 )
 
@@ -321,10 +320,10 @@ DUAL_FRANKA_TASKS[5] = FrankaTask(
         "basket/frame. Treat the two chopsticks as two separate objects to "
         "process one at a time; lifting one chopstick while another chopstick "
         "remains on the table is valid progress, not a failed pair grasp. The "
-        "two chopsticks and the spoon also go into the metal wire basket/frame, "
-        "not into the cup. The cup should be placed upright in the metal basket "
-        "when feasible, but the cup does not need to support later utensil "
-        "insertion. Every object must go through one right-to-"
+        "two chopsticks go into the metal wire basket/frame. The spoon must "
+        "be inserted into the cup; no other destination is acceptable. Place "
+        "the cup upright and stable inside the metal basket before inserting "
+        "the spoon. Every object must go through one right-to-"
         "left handoff: the right hand grasps the object, vla_handoff transfers "
         "it to the left hand, and the left hand places it with vla_left_place."
     ),
@@ -341,51 +340,125 @@ DUAL_FRANKA_TASKS[5] = FrankaTask(
         "depth can be back-projected into the right_base frame using the "
         "calibrated extrinsics. The D455 is a fixed external camera; moving "
         "either arm or a held object does not move the camera viewpoint and "
-        "must not be used as an active-vision strategy. right_base is the "
+        "is not itself a camera-viewpoint change. Object/arm adjustments may "
+        "change visibility or depth against a different background. right_base is the "
         "shared world coordinate frame exposed to the agent: camera points, "
         "left/right TCP positions, and rule-based base-frame deltas are all "
         "represented in right_base. The VLA checkpoint is the deployment-"
         "aligned dual-arm tcp-rot6d clean-desk policy; named VLA tools keep "
         "using its fixed training instruction, while the planner chooses the "
-        "metal basket as the placement target."
+        "metal basket as the placement target for bowls, plates, the cup and "
+        "chopsticks, and the cup interior as the only spoon placement target."
     ),
     success_criteria=(
         "All target objects have been processed. Every bowl, every plate, and the cup are clearly inside the "
         "open interior of the metal wire basket/frame. The cup is upright and "
-        "stable inside the metal basket when feasible. Each individual "
-        "chopstick and the spoon are also inside the metal wire basket/frame. No target "
+        "stable inside the metal basket. Each individual chopstick is inside "
+        "the metal wire basket/frame. The spoon is inserted into the cup. "
+        "A spoon lying in a bowl, on a plate, loose in the basket, or anywhere "
+        "outside the cup does not satisfy the task. No target "
         "object remains in the source workspace, in either gripper, on the "
-        "table near the containers, or in the cardboard box. Stop for "
-        "operator feedback if an object was placed in the wrong container or "
-        "if visual evidence does not support safe continuation."
+        "table near the containers, or in the cardboard box. A wrong placement "
+        "is unfinished: inspect it and recover autonomously when safely possible. "
+        "Ask for operator assistance only when a concrete blocker requires human "
+        "intervention or no evidence-supported safe continuation remains."
     ),
     constraints=(
         "Call describe_dual_franka_setup before acting.",
         "Call view_env_state before the first action only if no fresh primitive snapshot is already available. After any primitive that returns a snapshot, inspect that returned snapshot directly; never call view_env_state immediately afterward unless the primitive failed, returned no snapshot, an operator changed the scene, or a specific historical step is needed.",
         "Enforce the required object order without exception: bowls -> plates -> cup -> chopsticks -> spoon. Always act on the earliest unfinished category. While any object from that category remains in the source workspace, do not localize, approach, grasp, or call a VLA grasp skill for a later category. Within bowls, plates, and chopsticks, process the green object before the blue object; do not act on the blue object while the green object from the same category remains unfinished.",
         "Do not perform dirty/clean classification in this task. Egg tarts or foil trays, if visible, are irrelevant to the destination decision. Bowls, plates, and the cup all have the same destination: the open interior of the metal wire basket/frame.",
-        "Build a brief D455 localization table before choosing the next object. For each visible candidate, list object type, color if visible, required_destination, D455 evidence, projected point if used, and status: source_workspace, inside_metal_basket, cardboard_box_wrong_destination, or uncertain.",
+        "Build a brief D455 localization table before choosing the next object. For each visible candidate, list object type, color if visible, required_destination, D455 evidence, projected point if used, and status: source_workspace, held, inside_metal_basket, in_cup, wrong_destination, or uncertain. For the spoon, inside_metal_basket without in_cup is a wrong destination, not completion.",
         "The metal wire basket/frame is the only valid placement container for bowls, plates, and the cup. The black-outside, white-inside cardboard box is not a destination in this task. Never count objects in the cardboard box, on the table near the containers, touching the outside of the metal wires, or ambiguous between the two containers as success.",
-        "When SAM3 is available, use segment with camera='d455' on the D455 image to segment the current object or required placement target before falling back to a manual pixel. Use short phrases, inspect the returned mask overlay yourself, and retry with a point prompt, more specific text prompt, or manual D455 pixel whenever the mask or median marker is not visibly on the intended target.",
-        "Use back_project only on a pixel well inside the visible material of the intended object or the open metal basket interior. Do not select the table, background, rim edge, air above the object, another object, a container wall, metal wire, the cup as a utensil destination, or a shared container boundary. Inspect the returned annotated image; if the marker is not on the intended target, retry or stop.",
-        "When exact spatial relation is uncertain, use segment or back_project again instead of judging metric x/y/z offsets by 2D RGB appearance. After a segmentation/projection is verified, trust the returned right_base xyz and TCP-to-point deltas as the main metric evidence for rule-based correction moves.",
+        "Choose available camera views and perception tools as useful for the current object or required placement target. When using SAM3 on D455, use segment with camera='d455', use short phrases, and inspect the returned mask overlay. If the mask or median marker is not visibly on the intended target, revise the prompt, use a point prompt or manual pixel, or choose another useful observation.",
+        "When using back_project, select a pixel well inside visible material of the intended object or its required destination. For spoon placement, the cup interior is the required projection target; for bowls, plates, the cup, and chopsticks, use the open metal basket interior. Do not select the table, background, rim edge, air, another object, a container wall, metal wire, or a shared container boundary. Inspect the returned annotated image before using its coordinates; a misplaced marker is not valid target evidence.",
+        "Decide whether fresh segmentation or projection would help resolve an uncertain spatial relation. RGB-based visual control is allowed and does not require a successful depth projection first. Do not present RGB estimates or invalid depth as calibrated metric measurements. After a segmentation/projection is verified, use the returned right_base xyz and TCP-to-point deltas as metric evidence for rule-based correction moves.",
         "Treat right_base as the only world coordinate frame for agent reasoning. For both left and right arms, move_delta and rotate_delta use right_base/world deltas; do not convert left-arm coordinates yourself.",
         "For bowls, do not use rule-based move_delta to pre-align or move above the bowl before vla_right_grasp. This avoids pushing the learned VLA policy out of distribution. After D455 confirms the intended bowl identity, call vla_right_grasp directly from the current robot state.",
         "For plates, the cup, chopsticks, and the spoon, rule-based pre-grasp staging is allowed only when clearly needed: move the right TCP to a safe pre-grasp pose about 10cm above the projected target surface point in right_base/world coordinates, without touching the object.",
         "Call vla_right_grasp only after the intended object identity is confirmed. For non-bowl objects, call vla_right_grasp only after the latest right-arm move_delta reports a reached/effective target near the intended object, unless the object is already safely staged. Leave max_chunks unset unless running a cautious diagnostic.",
         "For plates specifically, a failed grasp or drop is recoverable: do not stop immediately just because the plate is still on the table. If the same plate remains visible, reachable, and safe, retry that plate after re-localizing and safe staging. Do not bypass the required category/color order by choosing a later object.",
         "For chopsticks specifically, process one visible chopstick at a time. Do not require grasping both chopsticks together. After a chopstick grasp VLA, inspect the right_wrist artifact as primary evidence for whether the current chopstick is held, because D455 may still show the other chopstick on the table or may miss a thin held chopstick. If right_wrist shows one chopstick clamped or supported by the right gripper and the gripper is closed, treat that individual chopstick grasp as successful and proceed to vla_handoff; treat the remaining table chopstick as a separate unfinished object that can be handled later.",
-        "Use VLA segment tools for contact-rich motion: vla_right_grasp for the right-arm grasp segment, vla_handoff for bimanual transfer, and vla_left_place for left-arm placement into the metal basket.",
-        "After a grasp VLA, inspect the returned snapshot. Continue only if the right gripper appears to hold the intended object. Do not judge lifted/held status from 2D image appearance alone. If it is unclear whether the object has lifted or remains on the table, call back_project with camera='d455' on the best visible held-object surface when possible. If only a source/table candidate is visible, treat that projection as a source-candidate check, not proof of failure. Compare returned right_base z primarily with the source/table height or pre-grasp source projection. For wide objects such as plates, projected center/rim x/y can be far from the right TCP while still held; do not mark failure from TCP x/y distance alone. If a verified projection of the intended object or held-object surface is higher than the source/table height or pre-grasp source projection, treat the grasp as successful and proceed to vla_handoff. Mark failure only when a verified projection shows the same intended object still at source/table height and gripper/image evidence shows the right gripper is empty or not supporting it. If a plate grasp fails or the plate drops back onto the table, keep the category gate on that same plate, verify from D455 that the plate is safely reachable and not entangled with other objects, reopen/recover the right gripper if needed, re-localize the same plate, and retry vla_right_grasp instead of stopping immediately. Stop for operator feedback only if the plate identity is uncertain, the plate is occluded, unsafe, unreachable, entangled, or repeated retry evidence shows the same unsafe failure mode. If the wrong object is grasped or identity is uncertain, stop for operator feedback.",
+        "Use VLA segment tools for contact-rich motion: vla_right_grasp for the right-arm grasp segment, vla_handoff for bimanual transfer, and vla_left_place for left-arm placement at the object's required destination: the cup interior for the spoon, the metal basket for other objects.",
+        "After a grasp VLA, inspect the returned snapshot. Continue only if the right gripper appears to hold the intended object. Do not judge lifted/held status from 2D image appearance alone. If projection would help determine whether the object has lifted or remains on the table, use back_project with camera='d455' on the best visible held-object surface. If only a source/table candidate is visible, treat that projection as a source-candidate check, not proof of failure. Compare returned right_base z primarily with the source/table height or pre-grasp source projection. For wide objects such as plates, projected center/rim x/y can be far from the right TCP while still held; do not mark failure from TCP x/y distance alone. If a verified projection of the intended object or held-object surface is higher than the source/table height or pre-grasp source projection, treat the grasp as successful and proceed to vla_handoff. Mark failure only when a verified projection shows the same intended object still at source/table height and gripper/image evidence shows the right gripper is empty or not supporting it. If a plate grasp fails or the plate drops back onto the table, keep the category gate on that same plate, verify from D455 that the plate is safely reachable and not entangled with other objects, reopen/recover the right gripper if needed, re-localize the same plate, and retry vla_right_grasp instead of stopping immediately. If identity or support is uncertain, first inspect current alternative camera views and use the perception-recovery options below. An incorrect grasp is unfinished, not automatically a failed attempt. Request operator help only if useful checks cannot resolve identity/support, the object is unsafe, unreachable or entangled, or retries show the same unsafe failure mode.",
         "After a confirmed right-hand grasp, call vla_handoff directly. Do not call move_delta, rotate_delta, open_gripper, close_gripper, or any other rule-based primitive to prepare or reposition either arm before handoff; vla_handoff owns the complete bimanual approach and transfer from the post-grasp state.",
-        "Before vla_left_place, confirm vla_handoff has ended and the left gripper holds the intended object. For bowls and plates, localize an interior placement point inside the open metal wire basket/frame and use the same placement method as before: stage the left-held object with safe left-arm horizontal x/y move_delta only when staging is needed, use the projected target x/y, keep the current left TCP z with delta_z=0 by default, do not move to the projected z coordinate, and do not add a large vertical clearance. Call vla_left_place only if the latest staging move succeeded and reports a reached/effective target. If the staging move fails, is uncertain, or does not reach the target, do not call vla_left_place.",
-        "For the cup, localize an interior placement point inside the open metal basket and use the same strict staging gate as bowls and plates. Prefer an upright stable placement when feasible, but do not require the cup to support later utensil insertion.",
-        "For each chopstick and for the spoon, localize an interior placement point inside the open metal basket, stage the left-held utensil above that basket point using safe free-space x/y alignment, and call vla_left_place only if the latest staging move succeeded and reports a reached/effective target. The utensil destination is the metal basket, not the cup or the cardboard box.",
-        "After each placement, use the latest inline D455 image and relevant wrist artifacts to update which objects are complete. Advance to the next category only after every object in the current category is confirmed inside the metal basket, and continue in the required category/color order until every bowl, plate, the cup, each chopstick, and the spoon are inside the metal basket.",
-        "The D455 is a fixed external camera. Do not move either arm or held object merely to improve camera visibility. Arm motion is allowed only for task execution or safety: free-space approach/staging, VLA handoff/placement/grasp execution, or joint recovery.",
-        "After every VLA or rule-based action, inspect joint_health in the returned snapshot. If either arm is warning or critical, especially right-arm q1 positive / q3 negative accumulation, call recover_joint_posture before continuing more VLA chunks; it records each gripper's open/closed state, re-commands that state before and after joint reset so closed grippers stay clamped, resets both arms' joints, then returns both TCPs near their pre-recovery right_base poses.",
+        "Put bowls and plates into the metal basket.",
+        "Put the cup into the metal basket, upright and stable for subsequent spoon insertion.",
+        "Put the chopsticks into the metal basket. Insert the spoon into the cup; no other destination is acceptable. A spoon in a bowl, on a plate, loose in the basket, or outside the cup is unfinished, not success.",
+        "After each placement, use the latest inline D455 image and relevant wrist artifacts to update which objects are complete. Advance to the next category only after every object in the current category is confirmed at its required destination. Continue in the required category/color order until every bowl, plate, the cup, and each chopstick are inside the metal basket and the spoon is inserted into the cup.",
+        "The D455 is fixed. Choose observation sources, motion direction, distance and strategy from the current scene; this task imposes no small-motion requirement or fixed adjustment sequence. Arm/object motion can change occlusion or background, but does not move D455 itself.",
         OPERATOR_FINISH_CONSTRAINT,
-        "If depth is missing, projection is uncertain, the intended object is occluded, placement success is ambiguous, or success is otherwise ambiguous, do not infer metric deltas from RGB alone; stop for operator feedback instead of opening a gripper or blindly retrying.",
+        "Missing depth or ambiguous placement alone is not a reason to request operator feedback. Decide how to perceive, adjust and continue using available images and robot state; RGB-based control is allowed. Invalid depth is not a valid metric measurement. Request operator input for a concrete blocker requiring human assistance or a safety issue, not routine uncertainty. Keep final success/failure evaluation and scene-reset confirmation mandatory.",
+        "vla_right_grasp ends after right gripper closure plus lift; vla_handoff ends after right gripper opening plus the configured release delay; vla_left_place ends after left gripper opening plus lift. These boundaries only mean a skill segment ended, not that the intended object was successfully grasped, transferred, or placed. Verify the intended object and physical outcome from the returned images and gripper state before continuing; use projection evidence when needed.",
+        "After vla_handoff ends, verify that the left gripper actually holds the intended object before calling vla_left_place. If the transfer failed or the held object is uncertain, resolve that state before attempting placement.",
+        "Keep the D455 localization table updated after each primitive result, including which objects remain in the source workspace, are held, or are confirmed at their required destination. Track the spoon as complete only when inserted into the cup, not merely inside the metal basket.",
+    ),
+)
+
+
+DUAL_FRANKA_TASKS[6] = replace(
+    DUAL_FRANKA_TASKS[4],
+    name="clean_desk_dirty_clean_sorting_two_cups_explore_candidate",
+    instruction=(
+        "Complete the dirty/clean tabletop sorting task with exactly two cups. "
+        "Process bowls, plates, then both cups; finish each "
+        "category before starting the next. Within a category, process green "
+        "before blue when applicable. Classify bowls using chicken nuggets "
+        "inside them, and plates and cups using an egg-tart foil tray marker: "
+        "marked objects are dirty and go into "
+        "the metal wire basket/frame; unmarked objects are clean and go into "
+        "the black-outside, white-inside cardboard box. Handle both cups "
+        "individually, not as one object. The right hand grasps each object, "
+        "transfers it to the left hand, and the left hand places "
+        "it at its classified destination. Only bowls, plates, and the two "
+        "cups are task objects. There are no chopsticks or spoons to process."
+    ),
+    setup=(
+        "This is the task 4 sorting scene with one additional cup, for exactly "
+        "two cups in total. Do not assume either cup's classification from its "
+        "color or from the other cup. Chicken nuggets inside a bowl mark "
+        "that bowl as dirty; the bowl marker is not an egg tart or foil tray. "
+        "An egg-tart foil tray visibly inside a cup or on a plate's concave "
+        "eating surface marks that specific cup or plate as dirty. Absence of the marker counts "
+        "as clean only when that object's interior is sufficiently visible. "
+        "The adjacent metal wire basket/frame receives dirty objects; the "
+        "black-outside, white-inside cardboard box receives clean objects. "
+        "The cardboard box is on the +y side of the metal basket in right_base. "
+        "Use D455 as the primary observation and calibrated metric localization "
+        "source. D455 is fixed; wrist cameras provide RGB evidence. All exposed "
+        "TCP positions, projected points, and base-frame motion deltas use "
+        "right_base/world. Named VLA skills retain the deployed clean-desk "
+        "policy instruction. Choosing a destination in planner text does not "
+        "retarget that policy: its demonstrated left-placement destination is "
+        "the metal basket. For a clean object's cardboard-box destination, "
+        "use a suitable recorded rule-based placement or plan direct-control "
+        "placement from current perception; changing the VLA prompt is not "
+        "a substitute for those actions."
+    ),
+    success_criteria=(
+        "All bowls, plates, and both cups have been individually classified "
+        "and placed: every dirty object is inside the metal wire basket/frame "
+        "and every clean object is inside the cardboard box's white interior. "
+        "Both cups are accounted for separately at their correct destinations. "
+        "No target object remains at source or in a gripper. "
+        "Uncertain classification, a missing cup, or a wrong destination does "
+        "not count as success. Final success requires operator confirmation."
+    ),
+    constraints=(
+        *DUAL_FRANKA_TASKS[4].constraints[:2],
+        "Process bowls -> plates -> both cups. Both cups must be completed. Within a category, green precedes blue when applicable; dirty/clean status must not reorder grasping.",
+        "Classify each bowl, plate, and cup from current evidence before choosing its placement destination. Chicken nuggets inside a bowl mark it dirty. An egg-tart foil tray inside a cup or on a plate's eating surface marks that cup or plate dirty. A marker nearby or in another object does not classify the chosen object. An occluded interior alone is not evidence of cleanliness.",
+        "Choose available perception tools and camera views as useful. Inspect segmentation overlays and projected markers before using their coordinates; invalid depth is not a valid metric measurement.",
+        DUAL_FRANKA_TASKS[4].constraints[9],
+        "Choose VLA skills, direct control, or a combination for grasping, handoff, placement, and contact-rich adjustments. Contact is not restricted to VLA, and direct-control actions are not restricted to free-space staging. Verify the actual grasp, transfer, and placement outcomes from returned images and state.",
+        "Judge motion accuracy by what the next manipulation needs, not by eliminating every residual error. If the actual pose and visual evidence support continuing, proceed even when target_reached is false. Do not repeatedly micro-adjust or request feedback solely to satisfy a numerical tolerance. Choose whether and how much to correct from the current object, destination, clearance, and observed outcome; no fixed correction size or mandatory alignment is imposed. This does not waive actual controller faults or protective aborts, and action completion is not proof of task success.",
+        "Before placement, verify that the left gripper holds the intended object. Choose its destination: dirty bowls, plates, and cups go to the metal basket; clean bowls, plates, and cups go to the cardboard box.",
+        "Do not count dirty objects in the cardboard box or clean objects in the metal basket as success. Track the two cups separately by current visual identity and classification; placing one does not complete the cup category.",
+        DUAL_FRANKA_TASKS[4].constraints[17],
+        "D455 is fixed, but arm/object motion can improve visibility or change the background. Choose observation motions, direction, distance, and strategy from the scene; no small-motion requirement or fixed adjustment sequence is imposed.",
+        OPERATOR_FINISH_CONSTRAINT,
+        "Missing depth or uncertain localization, classification, or placement alone does not require stopping for operator feedback. Use available perception, RGB evidence, motion, and retries to resolve uncertainty autonomously. Request assistance for a concrete blocker requiring human intervention; stop for actual unsafe motion or a control anomaly. Final operator evaluation and scene-reset confirmation remain required.",
+        DUAL_FRANKA_TASKS[4].constraints[21],
     ),
 )
 

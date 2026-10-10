@@ -22,7 +22,9 @@ import logging
 import queue
 import sys
 import threading
+import time
 from collections.abc import Callable
+from typing import Protocol
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import InMemoryHistory
@@ -43,6 +45,67 @@ At the first prompt, the built-in task is pre-filled — edit it and press Enter
 submit it as-is, or clear it to type your own task.
 While the agent runs, type to steer it at the next turn.
 """
+
+
+class InputQueue(Protocol):
+    """Input operations shared by the terminal reader and planner consumers."""
+
+    def get(self, block: bool = True, timeout: float | None = None) -> str | None:
+        """Read a submitted line or the terminal's EOF signal."""
+        ...
+
+    def put(self, item: str | None) -> None:
+        """Forward a line or the terminal's EOF signal."""
+        ...
+
+
+class SessionInputQueue:
+    """Cancel one input consumer without putting EOF in the shared queue.
+
+    A scope may wrap another scope, allowing a planner reply to end without
+    cancelling its attended attempt or consuming the next attempt's input.
+    """
+
+    def __init__(self, source: InputQueue) -> None:
+        self._source = source
+        self._cancelled = threading.Event()
+        self._lock = threading.Lock()
+
+    @property
+    def cancelled(self) -> bool:
+        """Return whether this scope has been cancelled."""
+        return self._cancelled.is_set()
+
+    def cancel(self) -> None:
+        """Wake this scope's readers without closing or changing its source."""
+        with self._lock:
+            self._cancelled.set()
+
+    def get(self, block: bool = True, timeout: float | None = None) -> str | None:
+        """Read input, returning None when this scope or its source closes."""
+        if block and timeout is not None and timeout < 0:
+            raise ValueError("timeout must be a non-negative number")
+        deadline = time.monotonic() + timeout if timeout is not None else None
+        while True:
+            with self._lock:
+                if self.cancelled:
+                    return None
+                try:
+                    return self._source.get(block=False)
+                except queue.Empty:
+                    if not block:
+                        raise
+            wait_time = 0.1
+            if deadline is not None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise queue.Empty
+                wait_time = min(wait_time, remaining)
+            self._cancelled.wait(wait_time)
+
+    def put(self, item: str | None) -> None:
+        """Forward real input to the source, including returned unread lines."""
+        self._source.put(item)
 
 
 def handle_local_command(line: str, *, extra_help: str = "") -> bool:
@@ -149,7 +212,7 @@ def _restore_tty_on_exit(fd: int) -> None:
 
 
 def start_interactive_reader(
-    input_queue: "queue.Queue[str | None]",
+    input_queue: InputQueue,
     *,
     first_prompt_default: str | None = None,
     line_handler: Callable[[str], bool] | None = None,
@@ -203,7 +266,7 @@ def start_interactive_reader(
     return thread
 
 
-def next_user_line(input_queue: "queue.Queue[str | None]") -> str | None:
+def next_user_line(input_queue: InputQueue) -> str | None:
     """Block for the next actionable user line from an interactive input queue.
 
     Returns the trimmed line, or ``None`` when the session should end (the queue
@@ -223,7 +286,7 @@ def next_user_line(input_queue: "queue.Queue[str | None]") -> str | None:
 
 
 def initial_user_message(
-    input_queue: "queue.Queue[str | None]",
+    input_queue: InputQueue,
 ) -> str | None:
     """Block for the first user turn of an interactive session.
 
@@ -243,7 +306,7 @@ def initial_user_message(
 
 
 def start_first_prompt_resolver(
-    input_queue: "queue.Queue[str | None]",
+    input_queue: InputQueue,
 ) -> Callable[[], str | None]:
     """Resolve the opening user turn on a background thread.
 

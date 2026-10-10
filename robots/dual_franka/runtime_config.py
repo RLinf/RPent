@@ -133,19 +133,6 @@ def _projection_views(raw: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _joint_health_thresholds(raw: dict[str, Any]) -> dict[str, dict[str, float]]:
-    """Load per-arm joint-health thresholds from the user robot config."""
-    joint_health = _require_mapping(raw.get("joint_health"), "joint_health")
-    thresholds = _require_mapping(
-        joint_health.get("thresholds"), "joint_health.thresholds"
-    )
-    out: dict[str, dict[str, float]] = {}
-    for arm in ("left", "right"):
-        values = _require_mapping(thresholds.get(arm), f"joint_health.thresholds.{arm}")
-        out[arm] = {str(key): float(value) for key, value in values.items()}
-    return out
-
-
 def load_runtime_config(
     path: str | Path | None,
     *,
@@ -169,7 +156,6 @@ def load_runtime_config(
     cameras = _require_mapping(raw.get("cameras"), "cameras")
     observation = _require_mapping(cameras.get("observation"), "cameras.observation")
     workspace = _require_mapping(raw.get("workspace"), "workspace")
-    joint_health_thresholds = _joint_health_thresholds(raw)
 
     base_serials, base_type = _camera_slot(observation, "base")
     left_serials, left_type = _camera_slot(observation, "left_wrist")
@@ -194,6 +180,15 @@ def load_runtime_config(
             "left_controller_node_rank": LEFT_CONTROLLER_NODE,
             "right_controller_node_rank": RIGHT_CONTROLLER_NODE,
             "node_rank": HARDWARE_NODE,
+            **(
+                {
+                    "compliance": _require_mapping(
+                        robot["compliance"], "robot.compliance"
+                    )
+                }
+                if "compliance" in robot
+                else {}
+            ),
         },
         where="cluster.node_groups[].hardware.configs[]",
     )
@@ -241,21 +236,71 @@ def load_runtime_config(
                     "keyboard_reward_wrapper": None,
                     "use_relative_frame": False,
                     "video_cfg": {},
-                    "init_params": {"id": "DualFrankaTCPEnv-v1"},
+                    "init_params": {"id": "RPentDualFrankaTCPEnv-v1"},
                     "override_cfg": override_cfg,
                 }
             },
         }
     )
     controller = flatten_control(CONTROL)
+    rotation_hold = _require_mapping(raw.get("rotation_hold", {}), "rotation_hold")
+    position_tolerance = float(
+        rotation_hold.get("tolerance_m", CONTROL["move"]["tolerance_m"])
+    )
+    max_drift = float(rotation_hold.get("max_drift_m", 0.03))
+    if not 0 < position_tolerance < max_drift < float("inf"):
+        raise ValueError(
+            "rotation_hold requires 0 < tolerance_m < max_drift_m < infinity"
+        )
+    controller["rotate_position_tolerance_m"] = position_tolerance
+    controller["rotate_max_drift_m"] = max_drift
+    integral_gain = float(rotation_hold.get("integral_gain_per_s", 0.5))
+    integral_limit = float(rotation_hold.get("integral_limit_rad", 0.12))
+    if not 0 <= integral_gain < float("inf") or not 0 <= integral_limit <= 0.3:
+        raise ValueError(
+            "rotation_hold integral gain must be finite/nonnegative and limit in [0, 0.3] rad"
+        )
+    controller["rotate_integral_gain_per_s"] = integral_gain
+    controller["rotate_integral_limit_rad"] = integral_limit
+    position_integral_gain = float(
+        rotation_hold.get("position_integral_gain_per_s", 0.5)
+    )
+    position_integral_limit = float(
+        rotation_hold.get("position_integral_limit_m", 0.015)
+    )
+    if (
+        not 0 <= position_integral_gain < float("inf")
+        or not 0 <= position_integral_limit < max_drift
+    ):
+        raise ValueError(
+            "rotation_hold position integral gain must be finite/nonnegative and limit below max_drift_m"
+        )
+    controller["rotate_position_integral_gain_per_s"] = position_integral_gain
+    controller["rotate_position_integral_limit_m"] = position_integral_limit
+    settle_s = float(rotation_hold.get("settle_s", 0.5))
+    if not 0 <= settle_s < controller["rotate_timeout_s"]:
+        raise ValueError(
+            "rotation_hold.settle_s must be nonnegative and below rotate timeout"
+        )
+    controller["rotate_settle_s"] = settle_s
     controller["robot_config_path"] = str(
         Path(path or DEFAULT_CONFIG).expanduser().resolve()
     )
     controller["perception"] = _perception_cameras(cameras)
     controller["agent_observation"] = _agent_observation(cameras)
     controller["projection_views"] = _projection_views(raw)
+    health = _require_mapping(raw.get("joint_health"), "joint_health")
+    thresholds = _require_mapping(health.get("thresholds"), "joint_health.thresholds")
+    controller["joint_health_thresholds"] = {
+        arm: {
+            str(key): float(value)
+            for key, value in _require_mapping(
+                thresholds.get(arm), f"joint_health.thresholds.{arm}"
+            ).items()
+        }
+        for arm in ("left", "right")
+    }
     controller["recovery_return_timeout_s"] = RECOVERY["return_timeout_s"]
     controller["recovery_return_tolerance_m"] = RECOVERY["return_tolerance_m"]
     controller["recovery_return_tolerance_rad"] = RECOVERY["return_tolerance_rad"]
-    controller["joint_health_thresholds"] = joint_health_thresholds
     return FrankaRuntimeConfig(rlinf=rlinf, controller=controller)

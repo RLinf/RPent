@@ -242,3 +242,85 @@ def test_healthz_still_reports_transport_liveness_only(state: DashboardState) ->
 
     assert resp.status_code == 200
     assert resp.json() == {"ok": True}
+
+
+@pytest.mark.parametrize(
+    "method,path",
+    [
+        ("GET", "/api/session/operator"),
+        ("POST", "/api/session/operator"),
+        ("POST", "/api/session/operator/finish"),
+    ],
+)
+def test_operator_control_has_no_separate_routes(state, method, path):
+    client = _client(_server(state))
+
+    assert client.request(method, path).status_code == 404
+    snapshot = client.get("/api/session/state")
+    assert snapshot.status_code == 200
+    assert snapshot.json()["operator"]["enabled"] is False
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "/done",
+        "/continue keep the completed half",
+        "/success",
+        "/failure missed grasp",
+        "/abort",
+        "/operator",
+        "/operator previous-request done",
+    ],
+)
+@pytest.mark.parametrize(
+    "operator_context",
+    [None, {"generation": -1, "request_id": "previous-request"}],
+)
+def test_generic_messages_do_not_enable_operator_control(state, text, operator_context):
+    state.shared_services_ready()
+    state.request_task({"seed": 1})
+    state.wait_for_task(timeout=0)
+    state.set_planner_activity("idle", accepting_input=True)
+    client = _client(_server(state))
+
+    response = client.post(
+        "/api/session/messages",
+        json={"text": text, "operator_context": operator_context},
+    )
+
+    assert response.status_code == 202
+    assert state.claim_next_pending_message().text == text
+    assert state.claim_next_pending_message() is None
+    snapshot = client.get("/api/session/state").json()
+    assert snapshot["operator"]["enabled"] is False
+    assert snapshot["operator"]["verdict"] is None
+    assert snapshot["task_generation"] == 1
+    assert not state.task_replacement_requested
+
+
+@pytest.mark.parametrize("language", ["en", "zh-cn"])
+def test_dashboard_page_uses_configured_language(state, language):
+    response = _client(_server(state, language=language)).get("/")
+
+    assert response.status_code == 200
+    assert f'<html lang="{language}">' in response.text
+
+
+def test_completed_episode_video_remains_available(state):
+    state.shared_services_ready()
+    state.request_task({"seed": 1})
+    claimed = state.wait_for_task(timeout=0)
+    claimed.output_dir.mkdir(parents=True)
+    video = claimed.output_dir / "episode.mp4"
+    video.write_bytes(b"episode-video")
+    client = _client(_server(state))
+
+    assert client.get("/api/session/video").status_code == 404
+    state.complete_task(state="succeeded")
+    response = client.get("/api/session/video")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "video/mp4"
+    assert response.content == video.read_bytes()
+    assert client.get("/api/session/state").json()["has_video"] is True

@@ -1,6 +1,6 @@
 {
   "revision": "068cd64f4f175179a13c67d429a4d00ca56fb196",
-  "source": "TOOLS_SPEC from the recorded revision; common file tools include MEMORY_BOUNDARY_NOTE appended by MemoryManager.get_common_tool_bindings().",
+  "source": "TOOLS_SPEC from the recorded revision; common file tools include MEMORY_BOUNDARY_NOTE appended by MemoryManager.get_common_tool_bindings(). Dual-Franka descriptions include the local observation, motion-completion and policy-capability contracts.",
   "tools": {
     "rpent/tools/common.py": [
       {
@@ -940,7 +940,7 @@
       },
       {
         "name": "view_env_state",
-        "description": "Read a dual-Franka state snapshot. Configured inline camera views are returned directly; other available views are returned as artifact paths; use read_image to inspect these artifacts.",
+        "description": "Capture a fresh dual-Franka observation when step=-1 (default); a nonnegative step reads that historical snapshot without acquisition. Use the returned step for segmentation and back-projection; do not reuse pixels or masks from an older step after refreshing. Configured inline camera views are returned directly; other available views are returned as artifact paths for targeted read_image inspection.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -992,7 +992,7 @@
       },
       {
         "name": "move_delta",
-        "description": "Move one Franka TCP by a bounded world-frame xyz delta in meters.",
+        "description": "Move one Franka TCP by a bounded world-frame xyz delta in meters. Completion indicates execution ended; target_reached and final_error_m report accuracy, not a mandatory retry condition.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -1004,7 +1004,7 @@
       },
       {
         "name": "rotate_delta",
-        "description": "Rotate one Franka TCP by a bounded world-frame rpy delta in radians.",
+        "description": "Rotate one Franka TCP by a bounded world-frame rpy delta in radians. Completion indicates execution ended; target_reached and residual errors report accuracy, not a mandatory retry condition. Protective aborts remain failures.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -1038,7 +1038,7 @@
       },
       {
         "name": "recover_joint_posture",
-        "description": "Reset both arms to their healthy configured joint posture while preserving each gripper's open/closed state. Closed grippers are re-commanded before/after the joint reset so held objects stay clamped, then both TCPs return near their prior poses.",
+        "description": "Reset both arms to their configured joint posture while preserving each gripper's open/closed state. Closed grippers are re-commanded before/after the joint reset so held objects stay clamped, then both TCPs return near their prior poses. This is an available recovery option, not a mandatory response to an advisory joint-health score.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -1095,7 +1095,7 @@
       },
       {
         "name": "vla_left_place",
-        "description": "Run the learned left-placement VLA segment. The active task decides the destination; this tool only defines the capability boundary: left gripper opens and the left TCP lifts.",
+        "description": "Run the learned left-placement VLA segment under the configured fixed policy instruction. The prompt argument records planner intent; it does NOT select a destination or change policy conditioning. Use only when the policy's actual placement capability matches the intended destination. Boundary: left gripper opens and the left TCP lifts; this does not prove correct placement.",
         "input_schema": {
           "type": "object",
           "properties": {

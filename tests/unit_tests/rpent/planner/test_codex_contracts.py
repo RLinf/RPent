@@ -163,6 +163,275 @@ def install_fake_backend(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]
     return configs
 
 
+def test_interactive_session_cleanup_does_not_poison_next_session(
+    tmp_path, monkeypatch
+):
+    import queue
+    import threading
+
+    install_fake_backend(monkeypatch)
+    inputs = queue.Queue()
+    for index in range(2):
+        delivered = threading.Event()
+
+        def steer(turn, text):
+            turn.steered.append(text)
+            delivered.set()
+
+        def stream(turn):
+            assert delivered.wait(2)
+            yield from turn.events
+
+        monkeypatch.setattr(FakeTurn, "steer", steer)
+        monkeypatch.setattr(FakeTurn, "stream", stream)
+        inputs.put(f"focus on later stages {index}")
+        planner = make_planner(tmp_path, RecordingSink(), timeout_s=5)
+        planner.solve(
+            system_prompt="test",
+            user_message="task",
+            toolkit=FakeToolkit(),
+            max_turns=10,
+            input_queue=inputs,
+        )
+        assert FakeCodex.instances[-1].thread.fake_turn.steered == [
+            f"focus on later stages {index}"
+        ]
+        assert inputs.empty()
+    assert not any(
+        t.name == "codex-steer" and t.is_alive() for t in threading.enumerate()
+    )
+
+
+def test_borrowed_mcp_server_survives_multiple_planner_replies(tmp_path, monkeypatch):
+    install_fake_backend(monkeypatch)
+    toolkit = FakeToolkit()
+    server = FakeMcpServer(toolkit)
+    planner = make_planner(tmp_path, RecordingSink())
+    for _ in range(2):
+        planner.solve(
+            system_prompt="test",
+            user_message="continue",
+            toolkit=toolkit,
+            max_turns=10,
+            mcp_server=server,
+        )
+        assert server.started and not server.stopped
+    assert len(FakeMcpServer.instances) == 1
+
+
+def test_reply_cleanup_returns_feedback_dequeued_before_cancellation(
+    tmp_path, monkeypatch
+):
+    from rpent.cli.tui import SessionInputQueue, next_user_line
+
+    install_fake_backend(monkeypatch)
+    dequeued = threading.Event()
+    cancelled = threading.Event()
+    cancel = SessionInputQueue.cancel
+
+    def read(scope):
+        line = next_user_line(scope)
+        dequeued.set()
+        assert cancelled.wait(2)
+        return line
+
+    def cancel_scope(scope):
+        cancel(scope)
+        cancelled.set()
+
+    def stream(turn):
+        assert dequeued.wait(2)
+        yield from turn.events
+
+    monkeypatch.setattr(codex_module, "next_user_line", read)
+    monkeypatch.setattr(SessionInputQueue, "cancel", cancel_scope)
+    monkeypatch.setattr(FakeTurn, "stream", stream)
+    inputs = queue.Queue()
+    inputs.put("Feedback entered as the reply ended")
+    result = make_planner(tmp_path, RecordingSink()).solve(
+        system_prompt="test",
+        user_message="task",
+        toolkit=FakeToolkit(),
+        max_turns=10,
+        input_queue=inputs,
+    )
+    assert result.error is None
+    turn = FakeCodex.instances[-1].thread.fake_turn
+    assert turn.steered == []
+    assert turn.interrupt_calls == 0
+    assert inputs.get_nowait() == "Feedback entered as the reply ended"
+    assert inputs.empty()
+
+
+@pytest.mark.parametrize("verdict", ["success", "failure", "abort"])
+@pytest.mark.parametrize("phase", ["active", "reply_returned", "operator_request"])
+def test_attended_verdict_does_not_cancel_next_codex_attempt(
+    tmp_path, monkeypatch, verdict, phase
+):
+    from rpent.cli import main as cli
+    from rpent.cli.tui import SessionInputQueue
+    from rpent.tools.human_in_the_loop import HumanInTheLoopInput
+
+    install_fake_backend(monkeypatch)
+    inputs = queue.Queue()
+    attempt_input = SessionInputQueue(inputs)
+    broker = HumanInTheLoopInput(interactive=True)
+    ready = threading.Event()
+    interrupted = threading.Event()
+    request_ready = threading.Event()
+
+    class AttendedToolkit(FakeToolkit):
+        direct_verdict_requested = False
+
+        def wait_active(self):
+            pass
+
+    toolkit = AttendedToolkit()
+
+    def accept_verdict(outcome, notes):
+        assert outcome == verdict
+        toolkit.direct_verdict_requested = True
+        attempt_input.cancel()
+        broker.cancel_pending()
+        return True
+
+    broker.bind_verdict(accept_verdict)
+    request = None
+    if phase == "operator_request":
+        monkeypatch.setattr("builtins.print", lambda *a, **kw: request_ready.set())
+        request = threading.Thread(
+            target=lambda: broker.request("Evaluate?", lambda: None, kind="verdict")
+        )
+        request.start()
+        assert request_ready.wait(2)
+
+    original_info = cli.logger.info
+
+    def info(message, *args, **kwargs):
+        if message.startswith("Waiting for"):
+            ready.set()
+        original_info(message, *args, **kwargs)
+
+    monkeypatch.setattr(cli.logger, "info", info)
+
+    def interrupt(turn):
+        turn.interrupt_calls += 1
+        interrupted.set()
+
+    def first_stream(turn):
+        if phase == "active":
+            ready.set()
+            assert interrupted.wait(2)
+        yield from turn.events
+
+    monkeypatch.setattr(FakeTurn, "interrupt", interrupt)
+    monkeypatch.setattr(FakeTurn, "stream", first_stream)
+    planner = make_planner(tmp_path, RecordingSink(), timeout_s=5)
+    results = []
+    runner = threading.Thread(
+        target=lambda: results.append(
+            cli._solve_attended_turns(
+                planner,
+                operator_input=broker,
+                state_output_dir=tmp_path / "attempt1",
+                toolkit=toolkit,
+                input_queue=attempt_input,
+                system_prompt="test",
+                user_message="task",
+                max_turns=10,
+            )
+        )
+    )
+    runner.start()
+    try:
+        assert ready.wait(2)
+        assert broker.route_line(f"/{verdict}")
+        # Feedback entered at the boundary must survive for the next attempt.
+        inputs.put("Focus on the later stages")
+        runner.join(3)
+        assert not runner.is_alive()
+        assert len(results) == 1 and results[0].error is None
+        assert FakeCodex.instances[0].thread.fake_turn.interrupt_calls == (
+            1 if phase == "active" else 0
+        )
+    finally:
+        attempt_input.cancel()
+        toolkit.direct_verdict_requested = True
+        broker.close()
+        interrupted.set()
+        runner.join(3)
+        if request is not None:
+            request.join(2)
+            assert not request.is_alive()
+
+    delivered = threading.Event()
+
+    def steer(turn, text):
+        turn.steered.append(text)
+        delivered.set()
+
+    def next_stream(turn):
+        assert delivered.wait(2)
+        yield from turn.events
+
+    monkeypatch.setattr(FakeTurn, "steer", steer)
+    monkeypatch.setattr(FakeTurn, "stream", next_stream)
+    result = planner.solve(
+        system_prompt="test",
+        user_message="next attempt",
+        toolkit=FakeToolkit(),
+        max_turns=10,
+        input_queue=SessionInputQueue(inputs),
+    )
+    assert result.error is None
+    next_turn = FakeCodex.instances[-1].thread.fake_turn
+    assert next_turn.steered == ["Focus on the later stages"]
+    assert next_turn.interrupt_calls == 0
+    assert inputs.empty()
+
+
+@pytest.mark.parametrize("end_input", [None, "/quit", "/exit"])
+def test_terminal_eof_and_quit_interrupt_codex(tmp_path, monkeypatch, end_input):
+    install_fake_backend(monkeypatch)
+    interrupted = threading.Event()
+
+    def interrupt(turn):
+        turn.interrupt_calls += 1
+        interrupted.set()
+
+    def stream(turn):
+        assert interrupted.wait(2)
+        yield from turn.events
+
+    monkeypatch.setattr(FakeTurn, "interrupt", interrupt)
+    monkeypatch.setattr(FakeTurn, "stream", stream)
+    inputs = queue.Queue()
+    inputs.put(end_input)
+    result = make_planner(tmp_path, RecordingSink()).solve(
+        system_prompt="test",
+        user_message="task",
+        toolkit=FakeToolkit(),
+        max_turns=10,
+        input_queue=inputs,
+    )
+    assert result.error is None
+    assert FakeCodex.instances[-1].thread.fake_turn.interrupt_calls == 1
+    assert inputs.empty()
+
+
+def test_zero_timeout_disables_deadline(tmp_path, monkeypatch):
+    install_fake_backend(monkeypatch)
+    planner = make_planner(tmp_path, RecordingSink(), timeout_s=0)
+    assert planner._timeout_s is None
+    result = planner.solve(
+        system_prompt="test", user_message="task", toolkit=FakeToolkit(), max_turns=10
+    )
+    assert result.error is None
+    assert FakeCodex.instances[-1].thread.fake_turn.interrupt_calls == 0
+    with pytest.raises(ValueError, match="nonnegative"):
+        make_planner(tmp_path, RecordingSink(), timeout_s=-1)
+
+
 def test_mcp_content_conversion_preserves_text_images_and_error_status() -> None:
     plain = mcp_result(ToolResult(data={"value": "plain"}))
     assert plain["isError"] is False
@@ -197,10 +466,14 @@ def test_config_overrides_normalize_provider_url(
 ) -> None:
     monkeypatch.delenv("CODEX_MODEL_CONTEXT_WINDOW", raising=False)
     monkeypatch.delenv("CODEX_AUTO_COMPACT_TOKEN_LIMIT", raising=False)
+    monkeypatch.delenv("CODEX_MCP_TOOL_TIMEOUT_S", raising=False)
     assert _codex_mcp_config_overrides(
         mcp_url="http://fake.invalid/mcp/",
         base_url=None,
-    ) == ['mcp_servers.rpent.url="http://fake.invalid/mcp/"']
+    ) == [
+        'mcp_servers.rpent.url="http://fake.invalid/mcp/"',
+        "mcp_servers.rpent.tool_timeout_sec=86405.0",
+    ]
 
     overrides = _codex_mcp_config_overrides(
         mcp_url="http://fake.invalid/mcp/",
@@ -209,12 +482,32 @@ def test_config_overrides_normalize_provider_url(
 
     assert overrides == [
         'mcp_servers.rpent.url="http://fake.invalid/mcp/"',
+        "mcp_servers.rpent.tool_timeout_sec=86405.0",
         f'model_provider="{PROVIDER_ID}"',
         f'model_providers.{PROVIDER_ID}.name="{PROVIDER_ID}"',
         f'model_providers.{PROVIDER_ID}.base_url="https://provider.invalid/root/v1"',
         f'model_providers.{PROVIDER_ID}.wire_api="responses"',
         f'model_providers.{PROVIDER_ID}.env_key="{PROVIDER_ENV_KEY}"',
     ]
+
+
+@pytest.mark.parametrize("timeout", ["0", "-1", "nan", "inf", "bad"])
+def test_invalid_mcp_tool_deadline_is_rejected(monkeypatch, timeout):
+    monkeypatch.setenv("CODEX_MCP_TOOL_TIMEOUT_S", timeout)
+    with pytest.raises(ValueError):
+        _codex_mcp_config_overrides(mcp_url="http://fake.invalid/mcp/", base_url=None)
+
+
+def test_mcp_tool_deadline_override_is_scoped_to_rpent(monkeypatch):
+    monkeypatch.setenv("CODEX_MCP_TOOL_TIMEOUT_S", "2.5")
+    overrides = _codex_mcp_config_overrides(
+        mcp_url="http://fake.invalid/mcp/", base_url=None
+    )
+    assert "mcp_servers.rpent.tool_timeout_sec=7.5" in overrides
+    assert not any(
+        "tool_timeout" in item
+        for item in _codex_mcp_config_overrides(mcp_url=None, base_url=None)
+    )
 
 
 def test_config_overrides_include_optional_context_limits(
@@ -335,9 +628,11 @@ def test_build_config_scopes_loopback_no_proxy_to_codex_child(
     assert os.environ["no_proxy"] == ".corp.invalid"
 
 
+@pytest.mark.parametrize("effort", ["none", "ultra"])
 def test_planner_forwards_configured_service_tier(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    effort: str,
 ) -> None:
     install_fake_backend(monkeypatch)
     monkeypatch.setenv("CODEX_SERVICE_TIER", "fast")
@@ -348,7 +643,14 @@ def test_planner_forwards_configured_service_tier(
         },
     ]
 
-    make_planner(tmp_path, RecordingSink()).solve(
+    CodexPlanner(
+        output_dir=str(tmp_path),
+        repo_root=tmp_path,
+        model="gpt-6-astra",
+        reasoning_effort=effort,
+        timeout_s=1,
+        dashboard_events=RecordingSink(),
+    ).solve(
         system_prompt="system rules",
         user_message="user task",
         toolkit=FakeToolkit(),
@@ -356,7 +658,9 @@ def test_planner_forwards_configured_service_tier(
     )
 
     fake_codex = FakeCodex.instances[0]
+    assert fake_codex.thread_options["model"] == "gpt-6-astra"
     assert fake_codex.thread_options["service_tier"] == "fast"
+    assert fake_codex.thread.turn_prompts[0][1]["effort"].value == effort
     assert fake_codex.thread.turn_prompts[0][1]["service_tier"] == "fast"
 
 

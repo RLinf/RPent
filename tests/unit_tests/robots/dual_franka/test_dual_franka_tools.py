@@ -655,6 +655,22 @@ def test_segment_returns_mask_overlay_and_world_point(tmp_path: Path):
     assert result["segment_artifact"].startswith("d455_segment_")
     assert result["overlay_artifact"].startswith("d455_segment_overlay_")
     assert result_native.images and all(result_native.images)
+
+    from robots.dual_franka.perception import _mask_to_camera_world
+
+    rejected = _mask_to_camera_world(
+        np.ones((8, 8), dtype=bool),
+        np.full((8, 8), 3.958),
+        camera="d455",
+        state=state,
+        step_idx=step,
+        min_valid=1,
+    )
+    assert rejected["point_xyz"] is None
+    assert rejected["valid_localization_pixels"] == 0
+    assert rejected["raw_depth_median_m"] == 3.958
+    assert rejected["mask_bbox_rc"] == [0, 0, 7, 7]
+    assert len(rejected["centroid_pixel"]) == 2
     assert result["image_block_order"] == ["d455_segment_overlay"]
 
     blocks = mcp_result(result_native)["content"]

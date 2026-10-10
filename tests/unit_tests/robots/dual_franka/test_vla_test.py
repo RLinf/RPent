@@ -156,8 +156,9 @@ def test_dual_client_uses_live_state_instead_of_cached_reset():
 
 
 @pytest.mark.parametrize("instruction", [None, "diagnostic prompt"])
+@pytest.mark.parametrize("expected_steps", [None, 20])
 def test_session_accepts_standard_config_without_local_deployment(
-    tmp_path, monkeypatch, instruction
+    tmp_path, monkeypatch, instruction, expected_steps
 ):
     import argparse
 
@@ -171,14 +172,22 @@ def test_session_accepts_standard_config_without_local_deployment(
     closed = []
     observed = []
     args = argparse.Namespace(
-        expected_action_steps=20,
+        expected_action_steps=expected_steps,
         robot_config=str(config_path),
         task_id=1,
         instruction=instruction,
         vla_model_path="checkpoint",
         vla_repo_id="dataset",
     )
-    model = SimpleNamespace()
+    metadata = {"model_path": "checkpoint", "config": {"openpi": {"action_chunk": 7}}}
+    status_calls = []
+
+    def status(**kwargs):
+        assert expected_steps is None, "explicit chunk length must support old servers"
+        status_calls.append(kwargs)
+        return metadata
+
+    model = SimpleNamespace(status=status)
 
     def init_runtime(args, output, events, components):
         assert components == {"env", "vla"}
@@ -193,10 +202,19 @@ def test_session_accepts_standard_config_without_local_deployment(
     )
     monkeypatch.setattr(vla_test, "get_robot_spec", lambda: spec)
     monkeypatch.setattr(
-        vla_test, "run_console", lambda session: observed.append(session.prompt)
+        vla_test, "run_console", lambda session: observed.append(session)
     )
     assert vla_test.run_session(args) == 0
-    assert observed == [instruction or get_dual_franka_task(1).vla_instruction]
+    assert observed[0].prompt == (
+        instruction or get_dual_franka_task(1).vla_instruction
+    )
+    assert observed[0].expected_steps == (
+        7 if expected_steps is None else expected_steps
+    )
+    deployment = json.loads((tmp_path / "run" / "deployment.json").read_text())
+    assert deployment["expected_action_steps"] == observed[0].expected_steps
+    assert deployment["server"] == (metadata if expected_steps is None else None)
+    assert status_calls == ([{"timeout_s": 10}] if expected_steps is None else [])
     assert closed == [True]
 
 
@@ -317,3 +335,119 @@ def test_dual_franka_spawns_shared_vla_server():
     assert command[command.index("--repo-id") + 1] == "test/data"
     assert command[command.index("--model-path") + 1] == "/checkpoint"
     assert command[command.index("--cuda-device") + 1] == "2"
+
+
+def test_vla_status_queries_metadata_without_inference():
+    from unittest.mock import Mock
+
+    from rpent.robots.components.pi05_vla_client import Pi05VLAClient
+
+    metadata = {"config": {"openpi": {"action_chunk": 20}}}
+    rpc = Mock()
+    rpc.call.return_value = metadata
+    client = Pi05VLAClient(rpc, embodiment="dual_franka")
+    assert client.status(timeout_s=5) == metadata
+    rpc.call.assert_called_once_with("vla.status", timeout_s=5)
+
+
+def test_status_command_keeps_explicit_validation_length(tmp_path):
+    session, calls, _ = make_session(tmp_path)
+    metadata = {"config": {"openpi": {"action_chunk": 7}}, "device": "cuda:0"}
+    session.model.status = lambda **kwargs: metadata
+    lines = iter(["status", "quit"])
+    output = []
+    run_console(session, read=lambda _: next(lines), emit=output.append)
+    result = json.loads(output[-1])
+    assert result["device"] == "cuda:0"
+    assert result["expected_action_steps"] == 20
+    assert result["prompt"] == "pick"
+    assert session.status == metadata
+    assert calls == []
+
+
+@pytest.mark.parametrize("reported_steps", [0, -1, None])
+def test_invalid_or_unavailable_status_does_not_fall_back(
+    tmp_path, monkeypatch, reported_steps
+):
+    from tests.e2e_tests.dual_franka import dual_franka_vla
+
+    config_path = tmp_path / "robot.yaml"
+    config_path.write_text("workspace: {}\n")
+    args = SimpleNamespace(
+        expected_action_steps=None,
+        robot_config=str(config_path),
+        task_id=1,
+        instruction="pick",
+    )
+    closed = []
+
+    def status(**kwargs):
+        if reported_steps is None:
+            raise RuntimeError("vla.status unavailable")
+        return {"config": {"openpi": {"action_chunk": reported_steps}}}
+
+    spec = SimpleNamespace(
+        parse_config=lambda args: SimpleNamespace(output_dir=tmp_path / "run"),
+        init_runtime=lambda *args: (
+            [SimpleNamespace(stop=lambda: closed.append(True))],
+            {"model": SimpleNamespace(status=status)},
+        ),
+    )
+    monkeypatch.setattr(dual_franka_vla, "get_robot_spec", lambda: spec)
+    monkeypatch.setattr(
+        dual_franka_vla,
+        "run_console",
+        lambda session: pytest.fail("invalid metadata must not reach the console"),
+    )
+    error = RuntimeError if reported_steps is None else ValueError
+    with pytest.raises(error, match="unavailable|must be positive"):
+        dual_franka_vla.run_session(args)
+    assert closed == [True]
+
+
+def test_dual_vla_status_and_prediction_follow_component_rpc_contract(monkeypatch):
+    import sys
+    from types import ModuleType
+
+    import torch
+
+    from rpent.robots.components.pi05_vla_server import Pi05VLAFacade
+
+    calls = []
+
+    class Model:
+        def cuda(self):
+            return self
+
+        def eval(self):
+            return self
+
+        def parameters(self):
+            return iter([torch.zeros(1)])
+
+        def predict_action_batch(self, obs, mode):
+            calls.append(mode)
+            return torch.ones((20, 20)), None
+
+    def get_model(cfg, torch_dtype):
+        assert cfg.action_dim == 20 and cfg.openpi.num_images_in_input == 3
+        assert cfg.openpi_data.repo_id == "test/dataset"
+        return Model()
+
+    loader = ModuleType("rlinf.models.embodiment.openpi")
+    loader.get_model = get_model
+    monkeypatch.setitem(sys.modules, loader.__name__, loader)
+    facade = Pi05VLAFacade(
+        model_path="/unused/checkpoint",
+        embodiment="dual_franka",
+        repo_id="test/dataset",
+    )
+    try:
+        status = facade._dispatch("vla.status", (), {})
+        assert status["config"]["openpi"]["action_chunk"] == 20
+        assert calls == []
+        actions = facade._dispatch("vla.predict", ({},), {"options": {"mode": "eval"}})
+        assert actions.shape == (20, 20) and actions.dtype == np.float32
+        assert calls == ["eval"]
+    finally:
+        facade.close()

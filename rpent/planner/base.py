@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import os
-import queue
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -33,10 +32,13 @@ from rpent.utils.config import (
 if TYPE_CHECKING:
     from pydantic_ai.models import Model
 
+    from rpent.cli.tui import InputQueue
+
 #: MCP namespace prefix for RPent tools (``mcp__<server>__<tool>``).
 #: Toolkits expose plain tool names; planners add/strip this prefix.
 MCP_TOOL_PREFIX = "mcp__rpent__"
 REASONING_EFFORTS = ("none", "low", "medium", "high", "xhigh")
+CODEX_REASONING_EFFORTS = (*REASONING_EFFORTS, "ultra")
 
 
 def resolve_model(planner: str, model: str | None) -> str | None:
@@ -96,7 +98,7 @@ class Planner(ABC):
         user_message: str,
         toolkit: Toolkit,
         max_turns: int,
-        input_queue: queue.Queue[str | None] | None = None,
+        input_queue: InputQueue | None = None,
         dashboard_interaction: DashboardInteractionPort | None = None,
     ) -> PlannerResult:
         """Run the multi-turn agent loop until completion or budget.

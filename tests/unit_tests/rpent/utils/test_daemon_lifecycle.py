@@ -219,6 +219,24 @@ def test_daemon_prepends_checkout_already_on_pythonpath(
     )
 
 
+@pytest.mark.parametrize("pythonpath", [None, "/other"])
+def test_daemon_does_not_inject_an_implicit_rlinf_checkout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    pythonpath: str | None,
+) -> None:
+    monkeypatch.delenv("RPENT_RLINF_ROOT", raising=False)
+    monkeypatch.delenv("RLINF_REPO_PATH", raising=False)
+    monkeypatch.setenv("RPENT_REPO_ROOT", str(tmp_path / "RPent"))
+    (tmp_path / "rlinf").mkdir()
+    if pythonpath is None:
+        monkeypatch.delenv("PYTHONPATH", raising=False)
+    else:
+        monkeypatch.setenv("PYTHONPATH", pythonpath)
+    daemon = ProcessDaemon("env-probe", [sys.executable, "-c", "pass"])
+    assert daemon.subprocess_env.get("PYTHONPATH") == pythonpath
+
+
 def test_daemon_sets_pythonpath_when_parent_has_none(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

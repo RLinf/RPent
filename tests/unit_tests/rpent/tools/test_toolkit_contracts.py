@@ -526,6 +526,71 @@ def test_toolkit_cleans_up_operation_after_handler_failure(tmp_path: Path) -> No
 
 
 @pytest.mark.timeout(5)
+def test_wait_active_preserves_authorized_tool_execution(tmp_path):
+    toolkit = _ContractToolkit(tmp_path)
+    started = threading.Event()
+    release = threading.Event()
+    waiting = threading.Event()
+    settled = threading.Event()
+    results = []
+
+    @tool(readonly=True)
+    def blocking() -> ToolResult:
+        started.set()
+        assert release.wait(2)
+        toolkit.raise_if_cancelled()
+        return ToolResult(data={"completed": True})
+
+    toolkit.add_tool(blocking)
+
+    def wait():
+        waiting.set()
+        toolkit.wait_active()
+        settled.set()
+
+    worker = threading.Thread(
+        target=lambda: results.append(toolkit.execute_tool("blocking", {}))
+    )
+    waiter = threading.Thread(target=wait)
+    worker.start()
+    try:
+        assert started.wait(2)
+        waiter.start()
+        assert waiting.wait(2)
+        assert not settled.wait(0.05)
+    finally:
+        release.set()
+        worker.join(2)
+        if waiter.ident is not None:
+            waiter.join(2)
+    assert not worker.is_alive() and not waiter.is_alive()
+    assert settled.is_set()
+    assert results[0].data == {"completed": True}
+    toolkit.wait_active()
+
+
+@pytest.mark.timeout(5)
+def test_transport_cancellation_before_dispatch_never_enters_handler(tmp_path):
+    toolkit = _ContractToolkit(tmp_path)
+    calls = []
+
+    @tool(readonly=True)
+    def act() -> ToolResult:
+        calls.append("acted")
+        return ToolResult(data={"ok": True})
+
+    toolkit.add_tool(act)
+    cancelled = threading.Event()
+    cancelled.set()
+    result = toolkit.execute_tool("act", {}, cancel_event=cancelled)
+
+    assert result.data["code"] == "tool_cancelled"
+    assert calls == []
+    assert toolkit.execute_tool("act", {}).data == {"ok": True}
+    assert calls == ["acted"]
+
+
+@pytest.mark.timeout(5)
 def test_toolkit_cooperatively_cancels_and_cleans_up_active_operation(
     tmp_path: Path,
 ) -> None:

@@ -1,6 +1,7 @@
 # RPent example config for a dual-Franka setup.
 robot:
   realtime_config: ignore
+  # Omit compliance to use RLinf defaults; tune overrides in your deployment YAML.
   arms:
     left:
       ip: "172.16.0.2"
@@ -14,6 +15,8 @@ robot:
         connection: "/dev/serial/by-id/usb-FTDI_USB_TO_RS-485_DAAIT8PU-if00-port0"
 
 cameras:
+  # Wrist cameras connect to their arm's controller node; the base and
+  # perception cameras connect to the environment node.
   main: left_wrist_0_rgb
   # Agent-facing view policy.  ``inline`` views are sent directly in planner
   # tool results; ``auxiliary`` views are saved as artifacts and can be inspected
@@ -52,7 +55,8 @@ workspace:
     - [0.8, 0.8, 0.7, 3.1416, 3.1416, 3.1416]
 
 joint_health:
-  # Tune these guard rails for the mounting, reset posture, tool, and task.
+  # Advisory heuristics, not hardware limits or an automatic reset trigger.
+  # Tune for the mounting, reset posture, tool, and task.
   thresholds:
     left:
       warning_drift_l2: 2.4
