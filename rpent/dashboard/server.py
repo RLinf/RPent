@@ -187,7 +187,10 @@ class DashboardServer:
             payload: dict[str, Any] = Body(default={}),
         ) -> JSONResponse:
             try:
-                self._state.submit_input(payload.get("text"))
+                self._state.submit_input(
+                    payload.get("text"),
+                    operator_context=payload.get("operator_context"),
+                )
             except ValueError as exc:
                 return JSONResponse({"error": str(exc)}, status_code=422)
             except InteractionUnavailableError as exc:

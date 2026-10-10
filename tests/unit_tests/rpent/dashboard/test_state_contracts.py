@@ -38,6 +38,12 @@ from rpent.dashboard.state import DashboardState
 from rpent.session import EnvState
 from rpent.tools import Toolkit, ToolResult, tool
 
+
+@pytest.fixture(autouse=True)
+def tool_template_output_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("rpent.utils.templates.get_output_dir", lambda: tmp_path)
+
+
 DASHBOARD_SPEC: DashboardSpec = {
     "task": {
         "command": "/rpent-task",
@@ -79,6 +85,71 @@ def _claim_started_task(
     assert claimed is not None
     state.emit(RunStartedEvent())
     return claimed
+
+
+@pytest.mark.parametrize("command", ["/done", "/success", "/failure", "/abort"])
+@pytest.mark.parametrize("web_operator", [False, True])
+def test_external_robot_operator_commands_keep_terminal_routing(
+    tmp_path, command, web_operator
+):
+    from robots.yam.robot_spec import YAM_DASHBOARD_SPEC
+
+    state = DashboardState(output_dir=tmp_path, dashboard_spec=YAM_DASHBOARD_SPEC)
+    if web_operator:
+        state.operator = MagicMock()
+    with pytest.raises(ValueError, match="Use the operator terminal"):
+        state.submit_input(command, operator_context={"generation": -1})
+    if web_operator:
+        state.operator.reply.assert_not_called()
+        state.operator.close.assert_not_called()
+    else:
+        assert state.operator is None
+
+
+def test_external_robot_continue_uses_toolkit_without_web_operator(tmp_path):
+    from robots.yam.robot_spec import YAM_DASHBOARD_SPEC
+
+    state = DashboardState(
+        output_dir=tmp_path,
+        dashboard_spec={
+            **DASHBOARD_SPEC,
+            "operator_commands": YAM_DASHBOARD_SPEC["operator_commands"],
+        },
+    )
+    state.shared_services_ready()
+    _claim_started_task(state)
+    state.set_planner_activity("idle", accepting_input=True)
+    toolkit = MagicMock(spec=Toolkit)
+    toolkit.exploration_continuation.return_value = "check episode and continue"
+    state.bind_toolkit(toolkit)
+
+    assert state.submit_input("/continue", operator_context={"generation": -1}) == {
+        "command": "/continue"
+    }
+
+    toolkit.exploration_continuation.assert_called_once_with(explicit=True)
+    assert state.claim_next_pending_message().text == "check episode and continue"
+    assert state.operator is None
+
+
+@pytest.mark.parametrize("web_operator", [False, True])
+def test_task_commands_ignore_operator_reply_context(tmp_path, web_operator):
+    state = _ready_state(tmp_path)
+    _claim_started_task(state)
+    if web_operator:
+        state.operator = MagicMock()
+        state.operator.snapshot.return_value = None
+
+    state.submit_input(
+        "/rpent-task place 2",
+        operator_context={"generation": -1, "request_id": "previous-request"},
+    )
+
+    assert state.task_replacement_requested
+    assert state.snapshot()["pending_task"] == {"label": "place / seed 2"}
+    if web_operator:
+        state.operator.reply.assert_not_called()
+        state.operator.close.assert_not_called()
 
 
 def test_dashboard_task_commands_validate_and_latest_unclaimed_request_wins(

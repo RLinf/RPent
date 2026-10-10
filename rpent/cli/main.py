@@ -343,13 +343,16 @@ def main() -> int:
     human_interactive_exploration = (
         args.explore and robot_spec.supports_human_interactive_exploration
     )
+    human_interactive_run = human_interactive_exploration or (
+        args.dashboard and robot_spec.supports_human_interactive_exploration
+    )
     if args.dashboard and args.interactive:
         parser.error("--dashboard and --interactive cannot be used together")
     external_env_dashboard = (getattr(robot_spec, "dashboard", None) or {}).get(
         "external_env", False
     )
     if robot_spec.is_real_robot and not (
-        human_interactive_exploration or external_env_dashboard
+        human_interactive_run or external_env_dashboard
     ):
         if args.dashboard or args.interactive:
             parser.error(
@@ -382,11 +385,7 @@ def main() -> int:
         )
     if args.explore and getattr(args, "explore_attempts_per_session", 0) < 0:
         parser.error("--explore-attempts-per-session must be nonnegative")
-    if human_interactive_exploration:
-        if args.dashboard:
-            parser.error(
-                "Human-interactive exploration currently requires the CLI operator terminal; Dashboard feedback is not implemented"
-            )
+    if human_interactive_run and not args.dashboard:
         if sys.stdin is None or not sys.stdin.isatty():
             parser.error(
                 "Human-interactive exploration requires a TTY for operator reset/verdict feedback"
@@ -457,7 +456,7 @@ def main() -> int:
     )
 
     operator_input = None
-    if human_interactive_exploration:
+    if human_interactive_run:
         from rpent.tools.human_in_the_loop import HumanInTheLoopInput
 
         operator_input = HumanInTheLoopInput(
@@ -511,7 +510,7 @@ def main() -> int:
         first_user_msg = await_first_prompt()
         if first_user_msg is None:
             logger.info("no task entered; ending session before start.")
-    if human_interactive_exploration:
+    if human_interactive_run:
         prompt_vars = {**prompt_vars, "initial_user_message": first_user_msg}
     # Exploration may hand off between independent planner contexts.
     sessions = max(1, int(getattr(args, "explore_sessions", 1) or 1))
@@ -600,7 +599,7 @@ def main() -> int:
             pending_operator_request = None
             try:
                 solve = planner.solve
-                if human_interactive_exploration and input_queue is not None:
+                if human_interactive_run and input_queue is not None:
                     from functools import partial
 
                     solve = partial(
@@ -623,7 +622,7 @@ def main() -> int:
                 agent_error = result.error
                 if operator_input is not None and args.interactive:
                     pending_operator_request = operator_input.pending_kind
-                if human_interactive_exploration and toolkit.direct_verdict_requested:
+                if human_interactive_run and toolkit.direct_verdict_requested:
                     finish_result, agent_error, verdict_handoff = (
                         _finalize_operator_verdict(
                             result,
@@ -673,7 +672,7 @@ def main() -> int:
                     if operator_input is not None and args.interactive:
                         operator_input.cancel_pending()
             if (
-                human_interactive_exploration
+                human_interactive_run
                 and not continue_after_verdict
                 and not (finish_result or {}).get("_finish")
                 and not (finish_result or {}).get("operator_finished")

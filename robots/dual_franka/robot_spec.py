@@ -56,7 +56,7 @@ DUAL_FRANKA_DASHBOARD_SPEC: DashboardSpec = {
                 "name": "task_id",
                 "kind": "integer",
                 "minimum": 0,
-                "suggestions": tuple(sorted(DUAL_FRANKA_TASKS)),
+                "suggestions": tuple(str(key) for key in sorted(DUAL_FRANKA_TASKS)),
             },
         ),
         "display": "Dual Franka task {task_id}",
@@ -424,7 +424,10 @@ def _init_runtime(
     connectors = {
         "env": lambda rpc: {
             "env": DualFrankaEnvClient(
-                rpc, reset_on_connect=not getattr(args, "explore", False)
+                rpc,
+                reset_on_connect=not (
+                    getattr(args, "explore", False) or getattr(args, "dashboard", False)
+                ),
             ),
             "task_description": get_dual_franka_task(args.task_id).instruction,
             "vla_instruction": get_dual_franka_task(args.task_id).vla_instruction,

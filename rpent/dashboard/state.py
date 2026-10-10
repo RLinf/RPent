@@ -45,6 +45,7 @@ from rpent.dashboard.interaction import (
     UnknownDashboardMessageError,
 )
 from rpent.dashboard.spec import DashboardSpec, TaskSpec
+from rpent.tools.human_in_the_loop import parse_operator_command
 from rpent.utils.logging import get_logger
 from rpent.utils.templates import substitute
 
@@ -193,7 +194,7 @@ class DashboardState:
         }
         self._primitive_allowlist = dashboard_spec["primitives"]
 
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._condition = threading.Condition(self._lock)
         self._next_model: str | None = None
         self._task_state: str | None = None
@@ -235,6 +236,54 @@ class DashboardState:
         self._manual_results: list[str] = []
         self._explore_paused = False
         self._exploration_message: DashboardMessage | None = None
+        self.operator = None
+        self.operator_verdict = None
+
+    def operator_changed(self):
+        with self._condition:
+            self._projection_changed_locked()
+
+    def operator_snapshot(self):
+        with self._condition:
+            return {
+                "enabled": self.operator is not None,
+                "active": self._toolkit is not None,
+                "generation": self._task_generation,
+                "pending": self.operator.snapshot() if self.operator else None,
+                "verdict": self.operator_verdict,
+            }
+
+    def operator_reply(self, generation, request_id, answer, notes=""):
+        with self._condition:
+            if (
+                generation != self._task_generation
+                or self.operator is None
+                or self._session_state == "switch_pending"
+            ):
+                raise ValueError("expired operator task")
+            self.operator.reply(request_id, answer, notes)
+
+    def operator_finish(self, generation, verdict, notes=""):
+        with self._condition:
+            if verdict not in {"success", "failure", "abort"} or not isinstance(
+                notes, str
+            ):
+                raise ValueError("invalid operator verdict")
+            if (
+                generation != self._task_generation
+                or self.operator is None
+                or self._toolkit is None
+                or self._session_state == "switch_pending"
+            ):
+                raise ValueError("no matching active operator task")
+            if not self._toolkit.request_direct_verdict(verdict, notes):
+                raise ValueError("operator verdict refused in current state")
+            self.operator_verdict = verdict
+            self._pending_task = None
+            self._session_state = "switch_pending"
+            self._accepting_input = False
+            self.operator.close()
+            self._interaction_changed_locked()
 
     def bind_toolkit(self, toolkit: Toolkit) -> None:
         """Expose a TaskRun Toolkit through the Dashboard primitive API."""
@@ -250,6 +299,8 @@ class DashboardState:
         with self._condition:
             if self._toolkit is toolkit:
                 self._toolkit = None
+                if self.operator is not None:
+                    self.operator.close()
                 self._projection_changed_locked()
         toolkit.cancel_active_and_wait()
         with self._condition:
@@ -394,6 +445,16 @@ class DashboardState:
         with self._lock:
             return self._session_state == "switch_pending"
 
+    @property
+    def operator_completed_task(self) -> bool:
+        """Whether operator completion is draining without a queued replacement."""
+        with self._lock:
+            return (
+                self._session_state == "switch_pending"
+                and self.operator_verdict is not None
+                and self._pending_task is None
+            )
+
     def shared_services_ready(self) -> None:
         """Open the command channel after shared services have started."""
         with self._condition:
@@ -475,7 +536,9 @@ class DashboardState:
                 self._active_primitive_calls.pop(key, None)
                 self._interaction_changed_locked()
 
-    def submit_input(self, text: str) -> DashboardMessage | TaskRequest:
+    def submit_input(
+        self, text: str, *, operator_context=None
+    ) -> DashboardMessage | TaskRequest | None:
         """Route a local task command or a normal conversation message."""
         if not isinstance(text, str) or not text.strip():
             return self._submit_message(text)
@@ -486,6 +549,38 @@ class DashboardState:
                 raise ValueError(guidance)
             self.continue_exploration(explicit=True)
             return {"command": command}
+        with self._condition:
+            parsed = parse_operator_command(text) if self.operator is not None else None
+            if parsed is not None:
+                command = f"/{parsed.name}"
+                notes = parsed.notes
+                current = self.operator_snapshot()
+                if operator_context is None:
+                    raise ValueError(
+                        "No active operator channel; refresh the Dashboard."
+                    )
+                if not isinstance(operator_context, dict):
+                    raise ValueError("operator_context must be an object.")
+                if operator_context.get("generation") != current["generation"]:
+                    raise ValueError("expired operator task")
+                pending = current["pending"]
+                if command == "/continue" and pending is None:
+                    return self._submit_message(text)
+                if command in {"/success", "/failure", "/abort"}:
+                    self.operator_finish(current["generation"], command[1:], notes)
+                else:
+                    request_id = operator_context.get("request_id")
+                    answer = command[1:]
+                    if command == "/operator":
+                        request_id, answer = parsed.request_id, parsed.answer
+                    if pending is None or request_id != pending["id"]:
+                        raise ValueError("No matching pending operator request.")
+                    self.operator_reply(
+                        current["generation"], request_id, answer, notes
+                    )
+                self._control_feedback = [f"{command} accepted"]
+                self._interaction_changed_locked()
+                return None
         try:
             request = _parse_task(self._task_spec, text)
         except ValueError as exc:
@@ -591,6 +686,12 @@ class DashboardState:
         if state not in TERMINAL_RUN_STATES:
             raise ValueError(f"invalid terminal run state: {state!r}")
         with self._condition:
+            if self.operator_verdict is not None and error is None:
+                state = {
+                    "success": "succeeded",
+                    "failure": "failed",
+                    "abort": "cancelled",
+                }[self.operator_verdict]
             self._task_state = state
             self._error = None if error is None else str(error)
             self._seal_interaction_locked()
@@ -609,6 +710,8 @@ class DashboardState:
         output_dir: Path,
     ) -> None:
         self._current_task = request
+        self.operator = None
+        self.operator_verdict = None
         self.video_path = output_dir / "episode.mp4"
         self._session_state = "task_starting"
         self._task_state = "starting"
@@ -1083,6 +1186,7 @@ class DashboardState:
             "pending_task": self._command_snapshot(self._pending_task),
             "control_feedback": list(self._control_feedback),
             "control_error": self._control_error,
+            "operator": self.operator_snapshot(),
         }
 
     def _visible_state_locked(self) -> str:
