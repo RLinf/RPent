@@ -13,12 +13,14 @@
 # limitations under the License.
 
 import json
+import threading
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
 from tests.e2e_tests.dual_franka.dual_franka_vla import DeploymentTest, run_console
+from tests.manual.dual_franka_full_vla import run_full_vla
 
 
 def make_session(tmp_path, *, fail=False, terminate=False):
@@ -65,6 +67,32 @@ def make_session(tmp_path, *, fail=False, terminate=False):
         20,
     )
     return s, calls, actions
+
+
+def test_policy_continues_across_chunks_until_operator_stop(tmp_path):
+    session, calls, _ = make_session(tmp_path)
+    stopped = threading.Event()
+    actions = []
+
+    def step(action):
+        actions.append(action.copy())
+        if len(actions) == 21:
+            stopped.set()
+        return {"ok": True}
+
+    session.env.chunk_step = step
+    result = run_full_vla(
+        session.env,
+        session.model,
+        prompt=session.prompt,
+        workspace=session.workspace,
+        expected_steps=session.expected_steps,
+        stopped=stopped.is_set,
+        emit=lambda event: None,
+    )
+    assert len(actions) == result["steps"] == 21
+    assert calls.count("predict") == result["chunks"] == 2
+    assert result["reason"] == "operator_stop"
 
 
 def test_infer_records_without_execution(tmp_path):
@@ -156,8 +184,9 @@ def test_dual_client_uses_live_state_instead_of_cached_reset():
 
 
 @pytest.mark.parametrize("instruction", [None, "diagnostic prompt"])
+@pytest.mark.parametrize("expected_steps", [None, 20])
 def test_session_accepts_standard_config_without_local_deployment(
-    tmp_path, monkeypatch, instruction
+    tmp_path, monkeypatch, instruction, expected_steps
 ):
     import argparse
 
@@ -171,14 +200,16 @@ def test_session_accepts_standard_config_without_local_deployment(
     closed = []
     observed = []
     args = argparse.Namespace(
-        expected_action_steps=20,
+        expected_action_steps=expected_steps,
         robot_config=str(config_path),
         task_id=1,
         instruction=instruction,
         vla_model_path="checkpoint",
         vla_repo_id="dataset",
     )
-    model = SimpleNamespace()
+    model = SimpleNamespace(
+        status=lambda **kwargs: {"config": {"openpi": {"action_chunk": 7}}}
+    )
 
     def init_runtime(args, output, events, components):
         assert components == {"env", "vla"}
@@ -193,10 +224,17 @@ def test_session_accepts_standard_config_without_local_deployment(
     )
     monkeypatch.setattr(vla_test, "get_robot_spec", lambda: spec)
     monkeypatch.setattr(
-        vla_test, "run_console", lambda session: observed.append(session.prompt)
+        vla_test, "run_console", lambda session: observed.append(session)
     )
     assert vla_test.run_session(args) == 0
-    assert observed == [instruction or get_dual_franka_task(1).vla_instruction]
+    assert observed[0].prompt == (
+        instruction or get_dual_franka_task(1).vla_instruction
+    )
+    assert observed[0].expected_steps == (
+        7 if expected_steps is None else expected_steps
+    )
+    deployment = json.loads((tmp_path / "run" / "deployment.json").read_text())
+    assert deployment["expected_action_steps"] == observed[0].expected_steps
     assert closed == [True]
 
 

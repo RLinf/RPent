@@ -67,7 +67,11 @@ _RESET_SPEC: dict[str, Any] = {
 
 def _tool_spec_map(*, include_manual: bool = False) -> dict[str, dict[str, Any]]:
     specs = {
-        tool.name: {"name": tool.name, "input_schema": tool.input_schema}
+        tool.name: {
+            "name": tool.name,
+            "description": tool.description,
+            "input_schema": tool.input_schema,
+        }
         for tool in DualFrankaToolkit.declared_tools()
     }
     if include_manual:

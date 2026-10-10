@@ -60,6 +60,13 @@ def test_last_rotation_step_recomputes_error(worker_classes, dual):
         "rotate_timeout_s": 10,
         "rotate_tolerance_rad": 0.001,
         "rotate_max_step_rad": 1,
+        "rotate_position_tolerance_m": 0.006,
+        "rotate_max_drift_m": 0.03,
+        "rotate_integral_gain_per_s": 0.0,
+        "rotate_integral_limit_rad": 0.12,
+        "rotate_position_integral_gain_per_s": 0.0,
+        "rotate_position_integral_limit_m": 0.015,
+        "rotate_settle_s": 0,
         "min_iterations": 1,
         "iteration_multiplier": 1,
     }
@@ -121,30 +128,38 @@ def test_joint_reset_waits_for_both_controller_results(worker_classes):
 
     def controller(arm):
         def reset_joint(qpos):
-            def wait():
-                waited.append((arm, qpos))
-                return [None]
-
-            return SimpleNamespace(wait=wait)
+            waited.append((arm, qpos))
+            return None
 
         return SimpleNamespace(reset_joint=reset_joint)
 
-    raw = SimpleNamespace(
-        _left_ctrl=controller("left"), _right_ctrl=controller("right")
-    )
+    parts = {arm: {"arm": controller(arm)} for arm in ("left", "right")}
+    raw = SimpleNamespace(robot=_robot_with_parts(parts))
     worker._raw_rlinf_env = lambda: raw
     assert worker._reset_both_joints_no_gripper([[1], [2]]) == {
-        "left": [None],
-        "right": [None],
+        "left": None,
+        "right": None,
     }
     assert sorted(waited) == [("left", [1]), ("right", [2])]
 
 
-def test_missing_gripper_state_is_not_silently_defaulted(worker_classes):
+def _robot_with_parts(parts):
+    return SimpleNamespace(
+        child=lambda side: SimpleNamespace(child=parts[side].__getitem__)
+    )
+
+
+def test_missing_hand_state_is_not_silently_defaulted(worker_classes):
     worker = worker_classes[1].__new__(worker_classes[1])
-    worker._arm_states = lambda: (SimpleNamespace(), SimpleNamespace())
-    with pytest.raises(AttributeError, match="gripper_open"):
-        worker._current_gripper_commands()
+    raw = SimpleNamespace(
+        config=SimpleNamespace(is_dummy=False),
+        robot=_robot_with_parts(
+            {arm: {"end_effector": SimpleNamespace()} for arm in ("left", "right")}
+        ),
+    )
+    worker._raw_rlinf_env = lambda: raw
+    with pytest.raises(AttributeError, match="is_open"):
+        worker._gripper_states()
 
 
 def test_exploration_candidate_keeps_policy_instruction():
@@ -251,3 +266,62 @@ def test_live_environment_does_not_inherit_coding_profile(tmp_path, dedicated):
     subprocess.run(
         ["bash", "-eu", "-c", command, "test", str(script)], env=env, check=True
     )
+
+
+@pytest.mark.parametrize("drift", [0.01, 0.04])
+def test_rotation_reaches_goal_without_translating_and_stops_on_large_drift(
+    worker_classes, monkeypatch, drift
+):
+    from robots.dual_franka import env_server
+
+    worker = worker_classes[1].__new__(worker_classes[1])
+    worker.per_arm_dim = 10
+    worker.controller = {
+        "rotate_timeout_s": 20,
+        "rotate_tolerance_rad": 0.04,
+        "rotate_max_step_rad": 0.1,
+        "rotate_position_tolerance_m": 0.006,
+        "rotate_max_drift_m": 0.03,
+        "rotate_integral_gain_per_s": 0.5,
+        "rotate_integral_limit_rad": 0.12,
+        "rotate_position_integral_gain_per_s": 0.5,
+        "rotate_position_integral_limit_m": 0.015,
+        "rotate_settle_s": 0.5,
+        "min_iterations": 200,
+        "iteration_multiplier": 1,
+    }
+    ticks = iter(np.arange(0, 100, 0.1))
+    monkeypatch.setattr(
+        env_server,
+        "time",
+        SimpleNamespace(time=lambda: 0.0, monotonic=lambda: next(ticks)),
+    )
+    left = np.array([0.5, 0, 0.4, 0, 0, 0, 1.0])
+    right = np.array([0.4, -0.2, 0.3, 0, 0, 0, 1.0])
+    initial = left.copy()
+    worker._refresh_robot_state = lambda: None
+    worker._arm_poses = lambda: (left.copy(), right.copy())
+    worker._pose_to_world = lambda arm, p: p.copy()
+    worker._pose_from_world = lambda arm, p: p.copy()
+    other_command = worker._hold_action(left, right)[10:]
+
+    def step(action, *, auto_reset):
+        assert not auto_reset
+        command = action[0]
+        np.testing.assert_array_equal(command[[9, 19]], [0, 0])
+        np.testing.assert_array_equal(command[10:], other_command)
+        r6 = command[3:9]
+        reference = Rotation.from_matrix(
+            np.column_stack([r6[:3], r6[3:], np.cross(r6[:3], r6[3:])])
+        )
+        left[:3] = command[:3] + [0, drift, 0]
+        left[3:] = (Rotation.from_euler("z", -0.12) * reference).as_quat()
+
+    worker.env = SimpleNamespace(step=step)
+    result = worker.rotate_delta("left", [0, 0, 0.6])
+    if drift < 0.03:
+        assert result["target_reached"]
+        assert result["final_error_rad"] <= 0.04
+        np.testing.assert_allclose(left[:3], initial[:3], atol=0.006)
+    else:
+        assert not result["ok"] and result["exit_reason"] == "position_drift"

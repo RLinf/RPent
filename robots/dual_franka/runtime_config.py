@@ -194,6 +194,15 @@ def load_runtime_config(
             "left_controller_node_rank": LEFT_CONTROLLER_NODE,
             "right_controller_node_rank": RIGHT_CONTROLLER_NODE,
             "node_rank": HARDWARE_NODE,
+            **(
+                {
+                    "compliance": _require_mapping(
+                        robot["compliance"], "robot.compliance"
+                    )
+                }
+                if "compliance" in robot
+                else {}
+            ),
         },
         where="cluster.node_groups[].hardware.configs[]",
     )
@@ -241,13 +250,53 @@ def load_runtime_config(
                     "keyboard_reward_wrapper": None,
                     "use_relative_frame": False,
                     "video_cfg": {},
-                    "init_params": {"id": "DualFrankaTCPEnv-v1"},
+                    "init_params": {"id": "RPentDualFrankaTCPEnv-v1"},
                     "override_cfg": override_cfg,
                 }
             },
         }
     )
     controller = flatten_control(CONTROL)
+    rotation_hold = _require_mapping(raw.get("rotation_hold", {}), "rotation_hold")
+    position_tolerance = float(
+        rotation_hold.get("tolerance_m", CONTROL["move"]["tolerance_m"])
+    )
+    max_drift = float(rotation_hold.get("max_drift_m", 0.03))
+    if not 0 < position_tolerance < max_drift < float("inf"):
+        raise ValueError(
+            "rotation_hold requires 0 < tolerance_m < max_drift_m < infinity"
+        )
+    controller["rotate_position_tolerance_m"] = position_tolerance
+    controller["rotate_max_drift_m"] = max_drift
+    integral_gain = float(rotation_hold.get("integral_gain_per_s", 0.5))
+    integral_limit = float(rotation_hold.get("integral_limit_rad", 0.12))
+    if not 0 <= integral_gain < float("inf") or not 0 <= integral_limit <= 0.3:
+        raise ValueError(
+            "rotation_hold integral gain must be finite/nonnegative and limit in [0, 0.3] rad"
+        )
+    controller["rotate_integral_gain_per_s"] = integral_gain
+    controller["rotate_integral_limit_rad"] = integral_limit
+    position_integral_gain = float(
+        rotation_hold.get("position_integral_gain_per_s", 0.5)
+    )
+    position_integral_limit = float(
+        rotation_hold.get("position_integral_limit_m", 0.015)
+    )
+    if (
+        not 0 <= position_integral_gain < float("inf")
+        or not 0 <= position_integral_limit < max_drift
+    ):
+        raise ValueError(
+            "rotation_hold position integral gain must be finite/nonnegative and limit below max_drift_m"
+        )
+    controller["rotate_position_integral_gain_per_s"] = position_integral_gain
+    controller["rotate_position_integral_limit_m"] = position_integral_limit
+    settle_s = float(rotation_hold.get("settle_s", 0.5))
+    if not 0 <= settle_s < controller["rotate_timeout_s"]:
+        raise ValueError(
+            "rotation_hold.settle_s must be nonnegative and below rotate timeout"
+        )
+    controller["rotate_settle_s"] = settle_s
     controller["robot_config_path"] = str(
         Path(path or DEFAULT_CONFIG).expanduser().resolve()
     )

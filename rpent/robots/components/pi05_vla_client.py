@@ -236,6 +236,10 @@ class Pi05VLAClient(BaseVLAClient):
         """Dispatch to the embodiment's encoder from ``_ENCODE_OBS``."""
         return _ENCODE_OBS[self._embodiment](env_obs)
 
+    def status(self, *, timeout_s: float = 10) -> dict[str, Any]:
+        """Query read-only metadata from a server supporting ``vla.status``."""
+        return self._client.call("vla.status", timeout_s=timeout_s)
+
     # ---- inference ----
 
     def predict(self, env_obs: dict, options: dict | None = None) -> np.ndarray:

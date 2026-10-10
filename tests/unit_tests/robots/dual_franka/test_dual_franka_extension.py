@@ -20,7 +20,7 @@ from pathlib import Path
 
 from robots.dual_franka import get_robot_spec
 from robots.dual_franka.prompt_bundle import system_prompt, user_prompt
-from robots.dual_franka.runtime_config import load_runtime_config
+from robots.dual_franka.runtime_config import load_mapping, load_runtime_config
 from robots.dual_franka.tasks import CLEAN_DESK_VLA_PROMPT, DUAL_FRANKA_TASKS
 from rpent.prompt.utils import format_prompt
 from rpent.robots.base import enumerate_robots
@@ -49,14 +49,22 @@ def test_dual_franka_uses_rpent_owned_robot_config(fake_rlinf_realworld_modules)
     cfg = runtime.rlinf
 
     assert config_path.is_file()
-    assert cfg.env.eval.init_params.id == "DualFrankaTCPEnv-v1"
+    assert cfg.env.eval.init_params.id == "RPentDualFrankaTCPEnv-v1"
     assert cfg.env.eval.override_cfg.task_description == "test task"
     assert runtime.controller["move_tolerance_m"] == 0.006
     assert runtime.controller["rotate_tolerance_rad"] == 0.04
+    assert runtime.controller["rotate_position_tolerance_m"] == 0.006
+    assert runtime.controller["rotate_max_drift_m"] == 0.03
+    assert runtime.controller["rotate_integral_gain_per_s"] == 0.5
+    assert runtime.controller["rotate_integral_limit_rad"] == 0.12
+    assert runtime.controller["rotate_position_integral_gain_per_s"] == 0.5
+    assert runtime.controller["rotate_position_integral_limit_m"] == 0.015
     assert runtime.controller["iteration_multiplier"] == 50
     assert runtime.controller["min_iterations"] == 200
     assert runtime.controller["gripper_settle_s"] == 1.5
-    assert runtime.controller["joint_health_thresholds"]["left"]["warning_q1"] == 1.7
+    thresholds = runtime.controller["joint_health_thresholds"]
+    assert thresholds["left"] == thresholds["right"]
+    assert thresholds == load_mapping(config_path)["joint_health"]["thresholds"]
 
 
 def test_clean_desk_task_registers_named_vla_skills_and_fixed_prompt():
@@ -151,3 +159,21 @@ def test_dual_franka_exploration_prompt_is_opt_in():
     assert "request_scene_reset" in explore_prompt
     assert "request_operator_verdict" in explore_prompt
     assert "/tmp/memory/_internal/inbox/dual_franka_t4" in explore_user_prompt
+
+
+def test_manual_schemas_preserve_native_tool_declarations():
+    from robots.dual_franka.dual_franka_manual_call import (
+        _registered_tool_names,
+        _schema_payload,
+    )
+    from robots.dual_franka.toolkit import DualFrankaToolkit
+
+    tools = DualFrankaToolkit.declared_tools()
+    assert _registered_tool_names() == {tool.name for tool in tools}
+    for tool in tools:
+        assert _schema_payload(tool.name) == {
+            "primitive": tool.name,
+            "description": tool.description,
+            "input_schema": tool.input_schema,
+        }
+    assert _schema_payload("reset")["description"].startswith("Manual-only")
