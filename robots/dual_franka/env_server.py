@@ -773,7 +773,6 @@ def _create_worker_class():
             commanded_rot = start_rot
             nominal_rot = start_rot
             previous_time = time.monotonic()
-            trace = []
             settle_s = self.controller["rotate_settle_s"]
             reached_since = None
             while iterations < max_iterations and time.time() < deadline:
@@ -790,15 +789,6 @@ def _create_worker_class():
                 now = time.monotonic()
                 dt = min(now - previous_time, 0.2)
                 previous_time = now
-                trace.append(
-                    {
-                        "iteration": iterations,
-                        "error_rotvec": error_rotvec.tolist(),
-                        "position_error_m": position_error,
-                        "integral_rotvec": integral.tolist(),
-                        "position_integral": position_integral.tolist(),
-                    }
-                )
                 if position_error > drift_limit:
                     exit_reason = "position_drift"
                     break
@@ -920,7 +910,6 @@ def _create_worker_class():
                 "settle_s": settle_s,
                 "integral_rotvec": integral.tolist(),
                 "position_integral": position_integral.tolist(),
-                "control_trace": trace,
                 "rotation_reached": rotation_ok,
                 "position_reached": position_ok,
                 "exit_reason": exit_reason,

@@ -102,13 +102,11 @@ def run_full_vla(env, model, *, prompt, workspace, expected_steps, stopped, emit
         emit({"kind": "finish", **summary})
 
 
-# Manual-only entry point; not registered among the agent's native tools.
-MANUAL_SKILLS = {"vla_full_rollout": run_full_vla}
-
-
 def build_parser():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--skill", choices=MANUAL_SKILLS, default="vla_full_rollout")
+    parser.add_argument(
+        "--skill", choices=["vla_full_rollout"], default="vla_full_rollout"
+    )
     parser.add_argument("--env-endpoint", default="http://127.0.0.1:6002")
     parser.add_argument("--vla-endpoint", default="http://127.0.0.1:6000")
     parser.add_argument("--task-id", type=int, default=6)
@@ -195,7 +193,7 @@ def main():
                     if record["kind"] in {"chunk_complete", "finish"}:
                         print(json.dumps(record, ensure_ascii=False), flush=True)
 
-                result = MANUAL_SKILLS[args.skill](
+                result = run_full_vla(
                     env,
                     model,
                     prompt=prompt,
@@ -203,9 +201,6 @@ def main():
                     expected_steps=int(status["config"]["openpi"]["action_chunk"]),
                     stopped=lambda: event.is_set() or stop_file.exists(),
                     emit=emit,
-                )
-                (output / "outcome.json").write_text(
-                    json.dumps({**result, "signals": signals}, indent=2)
                 )
                 return 0 if result["status"] == "stopped" else 1
     finally:
