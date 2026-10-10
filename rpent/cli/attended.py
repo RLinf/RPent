@@ -25,9 +25,17 @@ logger = get_logger("agent")
 
 
 def _finalize_operator_verdict(
-    result, *, toolkit, memory, recipe_tag, output_dir, state_output_dir, session_number
+    result,
+    *,
+    toolkit,
+    memory,
+    recipe_tag,
+    output_dir,
+    state_output_dir,
+    session_number,
+    archive=True,
 ):
-    """Archive the interrupted attempt and prepare its next-session handoff."""
+    """Finalize the interrupted attempt, optionally archiving exploration evidence."""
     finish = toolkit.finalize_direct_verdict()
     error = result.error
     if error:
@@ -35,7 +43,7 @@ def _finalize_operator_verdict(
         result.stats["planner_error_at_operator_verdict"] = error
     verdict = finish["operator_verdict"]
     handoff = ""
-    if verdict in {"success", "failure"}:
+    if archive and verdict in {"success", "failure"}:
         evidence = record_operator_outcome(
             memory_root=memory.root,
             recipe_tag=recipe_tag,

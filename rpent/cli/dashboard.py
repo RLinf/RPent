@@ -27,13 +27,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from rpent.cli.attended import _finalize_operator_verdict
 from rpent.cli.main import (
     _handoff_message,
     _serialize_messages,
 )
 from rpent.dashboard.events import RunStartedEvent
 from rpent.evaluation import RunFinalizationContext
-from rpent.evaluation.result import record_operator_outcome
 from rpent.memory import MemoryManager
 from rpent.planner.base import build_planner
 from rpent.robots import get_toolkit
@@ -332,21 +332,16 @@ def _run_dashboard_task(
                     stats = result.stats
                     agent_error = result.error
                     if human_interactive_run and toolkit.direct_verdict_requested:
-                        finish_result = toolkit.finalize_direct_verdict()
-                        if task_args.explore and finish_result["operator_verdict"] in {
-                            "success",
-                            "failure",
-                        }:
-                            record_operator_outcome(
-                                memory_root=memory_manager.root,
-                                recipe_tag=recipe_tag,
-                                run_name=output_dir.name,
-                                session_number=session_number,
-                                state_output_dir=state_output_dir,
-                                verdict=finish_result,
-                                messages=_serialize_messages(result.messages),
-                                planner_error=agent_error,
-                            )
+                        finish_result, _, _ = _finalize_operator_verdict(
+                            result,
+                            toolkit=toolkit,
+                            memory=memory_manager,
+                            recipe_tag=recipe_tag,
+                            output_dir=output_dir,
+                            state_output_dir=state_output_dir,
+                            session_number=session_number,
+                            archive=task_args.explore,
+                        )
                     if robot_spec.supports_exploration:
                         solved = bool(toolkit.solved())
                         if solved:
