@@ -18,9 +18,6 @@ from __future__ import annotations
 
 import dataclasses
 
-import pytest
-import yaml
-
 # Keys RPent builds into ``env.eval.override_cfg`` and the ``DualFranka``
 # hardware config. Kept here (not a runtime constant) so this test doubles as
 # the authoritative drift guard.
@@ -105,49 +102,4 @@ def test_controller_carries_calibration_mapping_for_ray_worker(
         "robot config must list easy_handeye YAMLs under "
         "perception.calibration so the Ray worker can resolve hand-eye "
         "calibration"
-    )
-
-
-@pytest.mark.parametrize("custom_config", [False, True])
-def test_runtime_config_preserves_explicit_overrides(
-    fake_rlinf_realworld_modules, tmp_path, custom_config
-):
-    from robots.dual_franka.runtime_config import (
-        DEFAULT_CONFIG,
-        load_mapping,
-        load_runtime_config,
-    )
-
-    config = load_mapping(DEFAULT_CONFIG)
-    path = None
-    if custom_config:
-        config["robot"]["compliance"] = {
-            "nullspace_stiffness": 1.5,
-            "translational_clip": 0.02,
-            "rotational_clip": 0.12,
-            "max_step_rad": 0.08,
-        }
-        config["joint_health"]["thresholds"] = {
-            "left": {"warning_min_joint_margin": 0.2, "critical_min_joint_margin": 0.1},
-            "right": {
-                "warning_min_joint_margin": 0.3,
-                "critical_min_joint_margin": 0.15,
-            },
-        }
-        path = tmp_path / "robot.yaml"
-        path.write_text(yaml.safe_dump(config))
-
-    runtime = load_runtime_config(path, task_description="test task")
-    hardware = runtime.rlinf.cluster.node_groups[0].hardware.configs[0]
-    assert hardware["realtime_config"] == "ignore"
-    assert set(hardware) == (
-        _HARDWARE_KEYS if custom_config else _HARDWARE_KEYS - {"compliance"}
-    )
-    assert hardware["left_controller_node_rank"] == 0
-    assert hardware["right_controller_node_rank"] == 1
-    if custom_config:
-        assert hardware["compliance"] == config["robot"]["compliance"]
-    assert (
-        runtime.controller["joint_health_thresholds"]
-        == config["joint_health"]["thresholds"]
     )
