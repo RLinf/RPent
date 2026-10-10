@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -71,6 +72,53 @@ def _run_config(memory_dir: Path, *, recipe_tag: str = "cell-s0") -> RunConfig:
         prompt_vars={"memory_dir": str(memory_dir)},
         task_desc={},
     )
+
+
+@pytest.mark.parametrize("backend", ["cosmos-policy", "fast-wam"])
+def test_wam_configuration_and_toolkit_exclude_memory(tmp_path, monkeypatch, backend):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--output-dir")
+    parser.add_argument("--memory-profile")
+    parser.add_argument("--memory-dir")
+    parser.add_argument("--planner", default="api")
+    parser.add_argument("--explore", action="store_true")
+    spec = robot_spec.get_robot_spec()
+    spec.add_cli_args(parser, False)
+    args = parser.parse_args(
+        [
+            "--suite",
+            "libero_spatial_task",
+            "--task",
+            "0",
+            "--wam-backend",
+            backend,
+            "--wam-endpoint",
+            "http://localhost:8116",
+        ]
+    )
+    config = spec.parse_config(args)
+    assert args.libero_type == "pro" and args.memory_profile == "local"
+    assert config.prompt_vars["memory_enabled"] is False
+    assert "wam" in {
+        item["name"] for item in spec.resolve_dashboard(args)["runtime_components"]
+    }
+    for name in ("system", "user"):
+        prompt = spec.prompts.render(
+            name, variables={**config.prompt_vars, "output_dir": str(tmp_path)}
+        )
+        assert "wam_act" in prompt and "pi0_pick" not in prompt
+    monkeypatch.setattr(
+        toolkit, "LiberoToolkit", lambda **kwargs: SimpleNamespace(**kwargs)
+    )
+    instance = robot_spec.get_toolkit(
+        runtime_kwargs={},
+        dashboard_events=NullDashboardEventSink(),
+        config=config,
+    )
+    assert instance.memory is None
+    args.memory_profile = "hf"
+    with pytest.raises(ValueError, match="memory is not supported"):
+        spec.parse_config(args)
 
 
 def test_toolkit_factory_configures_memory_access_by_mode(

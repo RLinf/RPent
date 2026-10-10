@@ -114,34 +114,50 @@ then run from a LIBERO-enabled test environment:
 
 ```bash
 RPENT_FAST_WAM_ENDPOINT=http://127.0.0.1:8117 \
-  pytest tests/e2e_tests/libero/test_fast_wam.py -v --junitxml=fast-wam.xml
+  pytest tests/e2e_tests/libero/test_components.py \
+    tests/e2e_tests/libero/test_policy_chain.py -k 'wam or horizon' -v \
+    --junitxml=fast-wam.xml
 ```
 
-This test uses the existing LIBERO environment runtime, executes up to two
-action chunks and records inference latency and checkpoint identity. It does
-not require task success or a planner. Configure the simulator and its assets
-as for the other LIBERO tests, independently of the model environment.
+The component test uses real LIBERO observations, predicts and executes one
+action chunk, and records inference latency and checkpoint identity. The CLI
+chain executes up to four chunks within a 32-action episode horizon. A separate
+environment check verifies that reset settling does not consume that horizon.
+These tests do not require native task success. Configure simulator assets
+independently of the model environment. Set `RPENT_COSMOS_ENDPOINT` instead to
+run the same cases against Cosmos Policy; missing endpoints skip their cases.
+Set `RPENT_WAM_SUITE=libero_spatial_task` and configure LIBERO-Pro assets to
+exercise Pro instead of the default `libero_spatial`, task 0, seed 0.
 
 RoboTwin uses its own Fast-WAM checkpoint and three-camera configuration. From
 the RoboTwin simulator environment, with `ROBOTWIN_ASSETS_PATH` configured:
 
 ```bash
 RPENT_FAST_WAM_ROBOTWIN_ENDPOINT=http://127.0.0.1:8117 \
-  pytest tests/e2e_tests/robotwin/test_fast_wam.py -v --junitxml=robotwin-fast-wam.xml
+  pytest tests/e2e_tests/robotwin/test_components.py \
+    tests/e2e_tests/robotwin/test_policy_chain.py -k wam -v \
+    --junitxml=robotwin-fast-wam.xml
 ```
 
 This test uses `RoboTwinWAMClient`, reads real camera and joint-target state,
-and executes up to two chunks through `env.chunk_step(action_type="qpos")`.
+and executes a component chunk through `env.chunk_step(action_type="qpos")`.
+The separate CLI chain executes up to two chunks within a 64-action horizon.
 The worker must advertise `robotwin.joint_action.qpos14.v1`. It records latency,
 executed action counts and episode status; no LingBot checkpoint is needed.
 The RoboTwin CLI selects this backend with `--wam-backend fast-wam`; its toolkit
 uses `wam_act`. Without a WAM backend, it retains LingBot's EEF16 interface.
 
-Both Fast-WAM tests also exercise the public CLI and `wam_act` toolkit path
+The policy-chain tests exercise the public CLI and `wam_act` toolkit path
 with a scripted planner, recording observations and `finish`. These are bounded
 integration checks, not task-success benchmarks. Component checks close their
 clients, and CLI checks stop their owned daemons. Externally started model
 services remain the operator's responsibility.
+
+Offline WAM checks follow the VLA/SAM layout: `test_wam.py` covers public
+boundaries and startup configuration, `test_wam_adapters.py` checks physical
+input and native output transforms, and `test_wam_loopback.py` exercises real
+local HTTP/socket sessions. Platform tool checks stay in platform unit tests.
+Full benchmark experiments are separate from these bounded integration checks.
 
 ## Dual-Franka VLA diagnostic console
 

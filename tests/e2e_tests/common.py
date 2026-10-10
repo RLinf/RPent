@@ -63,7 +63,7 @@ def run_scripted_policy_chain(
             "finish",
             {
                 "status": "stuck",
-                "summary": "bounded GPU E2E completed one VLA action call",
+                "summary": "bounded GPU E2E completed one action-model call",
             },
         ),
     )
@@ -151,7 +151,7 @@ def run_scripted_policy_chain(
     return {
         "status": "passed",
         "definition": (
-            "offline planner -> public CLI -> toolkit -> checkpoint-backed VLA "
+            "offline planner -> public CLI -> toolkit -> checkpoint-backed model "
             "-> simulator action -> finish"
         ),
         "planner": "offline-scripted",

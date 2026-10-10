@@ -76,6 +76,36 @@ def _primitives(env, config=None, molmo_client=None):
     )
 
 
+@pytest.mark.parametrize("terminated,truncated", [(True, False), (False, True)])
+def test_wam_refreshes_observations_and_stops_on_native_end(terminated, truncated):
+    env = Mock(terminated=False, truncated=False, return_all_frames=False)
+    env.raw_obs.side_effect = [{"position": 0}, {"position": 1}]
+    env.reset.return_value = (_obs(0), {})
+    model = Mock(predict=Mock(return_value=np.zeros((16, 7))))
+    model.wam.get_capabilities.return_value = {"backend": "test"}
+    primitives = LiberoPrimitives(env, model, Mock(), lambda: None, policy_kind="wam")
+    primitives.reset()
+    model.reset.assert_called_once()
+    env.chunk_step.return_value = (_obs(1), 0, False, False, {})
+    assert primitives.wam_act("subtask").data["chunks"] == 1
+
+    def end(actions):
+        env.terminated, env.truncated = terminated, truncated
+        return _obs(2), 0, terminated, truncated, {}
+
+    env.chunk_step.side_effect = end
+    result = primitives.wam_act(max_chunks=4).data
+    assert result["chunks"] == 1
+    assert result["success"] == terminated and result["truncated"] == truncated
+    assert primitives.wam_act().data["chunks"] == 0
+    calls = model.predict.call_args_list
+    assert [call.args[0]["position"] for call in calls] == [0, 1]
+    assert [call.args[0]["task_descriptions"] for call in calls] == [
+        "subtask",
+        "put the bowl on the plate",
+    ]
+
+
 @pytest.mark.parametrize("with_molmo", [False, True])
 def test_collection_records_scripted_and_vla_actions(tmp_path, with_molmo):
     env = _Env()

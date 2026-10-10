@@ -1,7 +1,7 @@
 # Copyright 2026 The RPent Authors.
 # Licensed under the Apache License, Version 2.0 (the "License");
 
-"""Check native Fast-WAM tensor contracts without downloading model weights."""
+"""Check physical-to-model transforms and native action restoration on CPU."""
 
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -11,19 +11,10 @@ import pytest
 
 from robots.libero.observation import physical_observation
 from robots.libero.wam_client import LiberoWAMClient, libero_request
-from robots.robotwin.control import ROBOTWIN_EEF
 from robots.robotwin.observation import physical_observation as robotwin_observation
-from robots.robotwin.vla_client import LingBotVLAClient
 from robots.robotwin.wam_client import RoboTwinWAMClient
 from rpent.robots.components.cosmos_policy.adapter import make_adapter as cosmos_adapter
-from rpent.robots.components.fast_wam import adapter as fast_adapter
-from rpent.robots.components.fast_wam.adapter.encode import encode_libero
 from rpent.robots.components.fast_wam.server import FastWAMFacade
-from rpent.robots.components.wam_facade_base import WAMAdapterSpec
-from rpent.robots.components.wam_rpc_protocol import (
-    WAMCapabilities,
-    WAMPrediction,
-)
 
 torch = pytest.importorskip("torch")
 
@@ -151,15 +142,6 @@ def test_robotwin_pair_keeps_joint_actions_and_three_camera_layout():
         physical["state"]["joint_positions"], np.arange(12) + 100
     )
     np.testing.assert_array_equal(physical["state"]["joint_targets"], np.arange(14))
-    vla = LingBotVLAClient("localhost", 9999)
-    native_vla = Mock(return_value={"action": np.zeros((3, 16))})
-    # Exercise the existing VLA transport boundary with the same physical input.
-    vla._client = Mock(call=native_vla)
-    vla.infer(observation)
-    payload = native_vla.call_args.kwargs["args"][0]
-    np.testing.assert_array_equal(
-        payload["observation.state"][:7], observation["robot_state"]["left_eef_pose"]
-    )
     rpc = Mock(call=lambda method, args=(), **kw: facade._dispatch(method, args, {}))
     client = RoboTwinWAMClient(rpc, expected_backend="fast_wam")
     result = client.predict(observation)
@@ -175,43 +157,6 @@ def test_robotwin_pair_keeps_joint_actions_and_three_camera_layout():
     client.reset()
     client.close()
     rpc.close.assert_called_once()
-
-
-def test_registered_pair_owns_capabilities_and_negotiates_another_robotwin_controller(
-    monkeypatch,
-):
-    def capabilities(*, processor, binarize_gripper, **common):
-        return WAMCapabilities(
-            control=ROBOTWIN_EEF,
-            camera_roles=("head",),
-            state_schema={"left_eef_pose": 7},
-            **common,
-        )
-
-    encode = Mock(
-        side_effect=lambda request, **kw: {"pose": request["state"]["left_eef_pose"]}
-    )
-    decode = Mock(
-        side_effect=lambda result, **kw: WAMPrediction(actions=np.zeros((3, 16)))
-    )
-    monkeypatch.setitem(
-        fast_adapter.ADAPTERS,
-        "robotwin_eef",
-        WAMAdapterSpec(encode, decode, capabilities),
-    )
-    facade = _facade("robotwin_eef")
-    client = RoboTwinWAMClient(
-        Mock(call=lambda method, args=(), **kw: facade._dispatch(method, args, {}))
-    )
-    observation = {
-        "views": {"head": {"rgb": np.zeros((8, 8, 3), np.uint8)}},
-        "robot_state": {"left_eef_pose": np.arange(7)},
-        "task_language": "move",
-    }
-    assert client.predict(observation).shape == (3, 16)
-    assert client.action_type == "ee"
-    encode.assert_called_once()
-    decode.assert_called_once()
 
 
 def test_robotwin_client_rejects_a_libero_controller_before_inference():
@@ -236,31 +181,3 @@ def test_fast_wam_rejects_invalid_native_output(bad_actions):
     facade._model.infer_action.return_value = {"action": bad_actions}
     with pytest.raises(ValueError):
         facade.predict(libero_request(_raw_obs()))
-
-
-def test_platform_and_camera_mismatch_fail_before_inference():
-    with pytest.raises(ValueError, match="unsupported"):
-        _facade("robocasa")
-    facade = _facade(video_size=(128, 128))
-    with pytest.raises(ValueError, match="video_size"):
-        facade.predict(libero_request(_raw_obs()))
-    facade._model.infer_action.assert_not_called()
-
-
-@pytest.mark.parametrize(
-    "cameras,concat,size", [(1, "horizontal", (256, 256)), (2, "vertical", (512, 256))]
-)
-def test_libero_camera_profiles_and_identity_orientation(cameras, concat, size):
-    raw = _raw_obs()
-    raw["robot0_eef_quat"] = np.array([0, 0, 0, 1])
-    encoded = encode_libero(
-        libero_request(raw),
-        processor=_processor(cameras),
-        device="cpu",
-        dtype=torch.float32,
-        prompt_template="{task}",
-        video_size=size,
-        concat=concat,
-    )
-    assert tuple(encoded["input_image"].shape) == (1, 3, *size)
-    np.testing.assert_array_equal(encoded["proprio"].numpy()[0, 3:6], [10, 10, 10])
