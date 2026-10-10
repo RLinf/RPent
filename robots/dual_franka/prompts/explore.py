@@ -36,10 +36,8 @@ RULES = (
     "After reset, re-read the new state and re-localize. Never reuse a pixel, "
     "point or TCP target from an earlier attempt. Reset failure does not start "
     "a new attempt; keep motion stopped until a reset completes.",
-    "Read describe_dual_franka_setup for registered tools and cameras. Use move_delta, "
-    "rotate_delta, gripper tools, recover_joint_posture, back_project, optional "
-    "segment, and the named vla_right_grasp/vla_handoff/vla_left_place skills. "
-    "Do not assume LIBERO primitives or the older vla_grasp tool exist.",
+    "Read describe_dual_franka_setup for registered tools and cameras. Use only "
+    "the tools available for the current task; do not assume a fixed skill set.",
     "Ask request_operator_verdict after apparent success or failure. The human "
     "answers success, failure, continue or abort. Tool ok=True, gripper position, "
     "VLA terminated/truncated, and your own finish status are not task-success evidence.",
@@ -119,7 +117,6 @@ def system_prompt():
         "RUNTIME": base.RUNTIME,
         "SAFETY RULES": Numbered(base.RULES),
         "CAMERA AND PROJECTION RULES": Numbered(base.CAMERA_AND_PROJECTION),
-        "VLA SEGMENT GATES": Numbered(base.VLA_GATES),
         "EXPLORATION WORKFLOW": Numbered(RULES),
         "LAYERED MEMORY": MEMORY,
     }

@@ -23,6 +23,6 @@ CONSTRAINTS = """{{constraints}}"""
 
 BEGIN = """Call describe_dual_franka_setup before acting. Then call
 view_env_state with step 0, inspect the configured inline visual evidence
-together with both arms' TCP/gripper/joint-health state, and execute the task
+together with both arms' TCP/gripper state, and execute the task
 conservatively with the exposed bounded tools. Auxiliary camera views are
 artifact views for targeted follow-up inspection only."""

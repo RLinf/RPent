@@ -66,7 +66,7 @@ def test_clean_desk_task_registers_named_vla_skills_and_fixed_prompt():
     assert "bowls, plates, cup, chopsticks, then spoon" in task.instruction
     assert "vla_right_grasp" in "\n".join(task.constraints)
     assert "segment" in "\n".join(task.constraints)
-    assert "recover_joint_posture" in "\n".join(task.constraints)
+    assert "joint_health" not in "\n".join(task.constraints)
     assert CLEAN_DESK_VLA_PROMPT.startswith(
         "I am currently performing a desk organizing task."
     )
@@ -105,14 +105,11 @@ def test_metal_basket_task_registers_non_sorting_prompt():
     assert "Every object must go through one right-to-left handoff" in (
         task.instruction
     )
-    assert "the cup does not need to support later utensil insertion" in (
-        task.instruction
-    )
+    assert "The spoon must be inserted into the cup" in task.instruction
     assert "Do not perform dirty/clean classification" in constraints
     assert "The metal wire basket/frame is the only valid placement container" in (
         constraints
     )
-    assert "The utensil destination is the metal basket" in constraints
     assert "a failed grasp or drop is recoverable" in constraints
     assert "Treat the two chopsticks as two separate objects" in task.instruction
     assert "inspect the right_wrist artifact as primary evidence" in constraints

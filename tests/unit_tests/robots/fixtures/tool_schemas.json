@@ -1038,7 +1038,7 @@
       },
       {
         "name": "recover_joint_posture",
-        "description": "Reset both arms to their healthy configured joint posture while preserving each gripper's open/closed state. Closed grippers are re-commanded before/after the joint reset so held objects stay clamped, then both TCPs return near their prior poses.",
+        "description": "Reset both arms to their configured joint posture while preserving each gripper's open/closed state. Closed grippers are re-commanded before/after the joint reset so held objects stay clamped, then both TCPs return near their prior poses. This is an available recovery option, not a mandatory response to an advisory joint-health score.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -1095,7 +1095,7 @@
       },
       {
         "name": "vla_left_place",
-        "description": "Run the learned left-placement VLA segment. The active task decides the destination; this tool only defines the capability boundary: left gripper opens and the left TCP lifts.",
+        "description": "Run the learned left-placement VLA segment under the configured fixed policy instruction. The prompt argument records planner intent; it does NOT select a destination or change policy conditioning. Use only when the policy's actual placement capability matches the intended destination. Boundary: left gripper opens and the left TCP lifts; this does not prove correct placement.",
         "input_schema": {
           "type": "object",
           "properties": {
