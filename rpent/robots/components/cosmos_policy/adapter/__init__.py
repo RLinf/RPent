@@ -12,11 +12,11 @@ from rpent.robots.components.cosmos_policy.adapter.encode import (
     STATE_SCHEMA,
     encode_libero,
 )
+from rpent.robots.components.wam_contracts import WAMCapabilities
 from rpent.robots.components.wam_facade_base import (
     WAMAdapter,
     WAMAdapterSpec,
 )
-from rpent.robots.components.wam_rpc_protocol import WAMCapabilities
 
 ACTION_SCHEMA = LIBERO_OSC["action_schema"]
 ADAPTERS = {

@@ -18,11 +18,11 @@ from rpent.robots.components.fast_wam.adapter.encode import (
     encode_libero,
     encode_robotwin,
 )
+from rpent.robots.components.wam_contracts import WAMCapabilities
 from rpent.robots.components.wam_facade_base import (
     WAMAdapter,
     WAMAdapterSpec,
 )
-from rpent.robots.components.wam_rpc_protocol import WAMCapabilities
 
 
 def _libero_capabilities(

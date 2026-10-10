@@ -7,9 +7,9 @@ from __future__ import annotations
 
 import numpy as np
 
-from rpent.robots.components.wam_control_spec import WAMControlSpec
-from rpent.robots.components.wam_rpc_protocol import (
+from rpent.robots.components.wam_contracts import (
     WAMCapabilities,
+    WAMControlSpec,
     WAMPrediction,
     WAMRequest,
 )

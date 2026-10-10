@@ -21,9 +21,9 @@ BACKENDS = {
 ALIASES = {"cosmos": "cosmos-policy", "fast_wam": "fast-wam"}
 
 
-def _runtime(backend: str) -> ModuleType:
+def _runtime_config(backend: str) -> ModuleType:
     return importlib.import_module(
-        f"rpent.robots.components.{BACKENDS[backend]}.runtime"
+        f"rpent.robots.components.{BACKENDS[backend]}.runtime_config"
     )
 
 
@@ -37,7 +37,7 @@ def add_wam_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--wam-root", help="Working directory for the model worker")
     for backend in BACKENDS:
-        _runtime(backend).add_arguments(parser)
+        _runtime_config(backend).add_arguments(parser)
 
 
 @dataclass(frozen=True)
@@ -56,17 +56,21 @@ class WAMConfig:
         self, args: argparse.Namespace, output_dir: Path
     ) -> tuple[ProcessDaemon | None, RpcClient]:
         """Borrow an endpoint or launch the registered model in its own environment."""
-        runtime = _runtime(self.backend)
+        runtime_config = _runtime_config(self.backend)
         if self.endpoint:
             return None, make_rpc_client(
-                self.endpoint, enable_sessions=runtime.USES_SESSIONS
+                self.endpoint, enable_sessions=runtime_config.USES_SESSIONS
             )
         port = pick_free_port()
         cmd = [
             str(Path(args.wam_python).expanduser().absolute()),
             "-m",
             f"rpent.robots.components.{self.rpc_backend}.server",
-            *runtime.worker_arguments(args, self.platform),
+            "--platform",
+            self.platform,
+            "--checkpoint",
+            str(Path(args.wam_checkpoint).expanduser().resolve()),
+            *runtime_config.worker_arguments(args),
             "--host",
             "127.0.0.1",
             "--port",
@@ -93,7 +97,7 @@ class WAMConfig:
             log_path=str(output_dir / "wam_server.log"),
         )
         rpc = make_rpc_client(
-            f"http://127.0.0.1:{port}", enable_sessions=runtime.USES_SESSIONS
+            f"http://127.0.0.1:{port}", enable_sessions=runtime_config.USES_SESSIONS
         )
         try:
             daemon.start()
@@ -112,7 +116,7 @@ def select_wam(args: argparse.Namespace, platform: str) -> WAMConfig | None:
     backend = ALIASES.get(backend, backend)
     for name in BACKENDS:
         if name != backend and any(
-            getattr(args, field, None) for field in _runtime(name).OPTION_FIELDS
+            getattr(args, field, None) for field in _runtime_config(name).OPTION_FIELDS
         ):
             raise ValueError(f"{name} worker options require --wam-backend {name}")
     if backend is None:
@@ -126,18 +130,23 @@ def select_wam(args: argparse.Namespace, platform: str) -> WAMConfig | None:
         for key in ("vla_backend", "vla_endpoint", "vla_model_path")
     ):
         raise ValueError("--wam-backend cannot be combined with VLA options")
-    runtime = _runtime(backend)
-    if platform not in runtime.ADAPTERS:
+    runtime_config = _runtime_config(backend)
+    if platform not in runtime_config.ADAPTERS:
         raise ValueError(
-            f"{backend} has no adapter for {platform}; supported: {tuple(runtime.ADAPTERS)}"
+            f"{backend} has no adapter for {platform}; supported: {tuple(runtime_config.ADAPTERS)}"
         )
     if bool(endpoint) == bool(checkpoint):
         raise ValueError(
             "--wam-backend requires --wam-endpoint or --wam-checkpoint, mutually exclusive"
         )
-    # Each model validates its own options; external services own their deployment.
-    runtime.validate_options(args, owned=bool(checkpoint))
+    if endpoint and any(
+        getattr(args, field, None) for field in runtime_config.OPTION_FIELDS
+    ):
+        raise ValueError(
+            "WAM worker options require --wam-checkpoint; configure external workers at their launch"
+        )
     if checkpoint:
+        runtime_config.validate_options(args)
         if not Path(checkpoint).expanduser().exists():
             raise ValueError("--wam-checkpoint must reference a local checkpoint")
         if not args.wam_python or not Path(args.wam_python).expanduser().is_file():

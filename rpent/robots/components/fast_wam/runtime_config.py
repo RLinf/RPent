@@ -1,7 +1,7 @@
 # Copyright 2026 The RPent Authors.
 # Licensed under the Apache License, Version 2.0 (the "License");
 
-"""Fast-WAM launch options for any registered platform pair."""
+"""Fast-WAM-specific runtime configuration for registered platform pairs."""
 
 import argparse
 from pathlib import Path
@@ -19,24 +19,17 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def validate_options(args: argparse.Namespace, *, owned: bool) -> None:
-    if owned:
-        for field in ("wam_config", "wam_dataset_stats"):
-            value = getattr(args, field, None)
-            if not value or not Path(value).expanduser().is_file():
-                raise ValueError(
-                    f"--{field.replace('_', '-')} must reference a local file"
-                )
-    elif args.wam_config or args.wam_dataset_stats:
-        raise ValueError("Fast-WAM worker options require --wam-checkpoint")
+def validate_options(args: argparse.Namespace) -> None:
+    """Require the model configuration and dataset statistics files."""
+    for field in OPTION_FIELDS:
+        value = getattr(args, field, None)
+        if not value or not Path(value).expanduser().is_file():
+            raise ValueError(f"--{field.replace('_', '-')} must reference a local file")
 
 
-def worker_arguments(args: argparse.Namespace, platform: str) -> list[str]:
+def worker_arguments(args: argparse.Namespace) -> list[str]:
+    """Return Fast-WAM-specific worker arguments."""
     return [
-        "--platform",
-        platform,
-        "--checkpoint",
-        str(Path(args.wam_checkpoint).expanduser().resolve()),
         "--config",
         str(Path(args.wam_config).expanduser().resolve()),
         "--dataset-stats",

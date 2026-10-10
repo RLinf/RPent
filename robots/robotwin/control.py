@@ -3,7 +3,7 @@
 
 """RoboTwin action layouts for native qpos and end-effector execution."""
 
-from rpent.robots.components.wam_control_spec import WAMControlSpec
+from rpent.robots.components.wam_contracts import WAMControlSpec
 
 # Native joint_action.vector order: left six joint targets and gripper,
 # then right six joint targets and gripper. Preserve native gripper values.

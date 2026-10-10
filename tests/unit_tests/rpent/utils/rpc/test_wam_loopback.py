@@ -9,8 +9,8 @@ import numpy as np
 import pytest
 
 from rpent.robots.components.wam_client_base import BaseWAMClient
+from rpent.robots.components.wam_contracts import WAMCapabilities, WAMPrediction
 from rpent.robots.components.wam_facade_base import BaseWAMFacade
-from rpent.robots.components.wam_rpc_protocol import WAMCapabilities, WAMPrediction
 from rpent.utils.rpc import RpcError, wait_for_ready
 
 

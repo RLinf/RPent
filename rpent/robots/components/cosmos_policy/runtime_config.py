@@ -1,7 +1,7 @@
 # Copyright 2026 The RPent Authors.
 # Licensed under the Apache License, Version 2.0 (the "License");
 
-"""Cosmos launch options without importing the official model dependencies."""
+"""Cosmos-specific runtime configuration without official model dependencies."""
 
 import argparse
 import os
@@ -31,33 +31,17 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def validate_options(args: argparse.Namespace, *, owned: bool) -> None:
-    if not owned:
-        if any(
-            getattr(args, key, None)
-            for key in (
-                "wam_text_embeddings",
-                "wam_predict_future",
-                "wam_cached_instructions_only",
-            )
-        ):
-            raise ValueError(
-                "WAM worker options require --wam-checkpoint; configure external workers at their launch"
-            )
-        return
+def validate_options(args: argparse.Namespace) -> None:
+    """Resolve Cosmos environment defaults and require its working directory."""
     args.wam_python = args.wam_python or os.getenv("COSMOS_POLICY_PYTHON")
     args.wam_root = args.wam_root or os.getenv("COSMOS_POLICY_ROOT")
     if not args.wam_root:
         raise ValueError("--wam-root must reference the provisioned Cosmos environment")
 
 
-def worker_arguments(args: argparse.Namespace, platform: str) -> list[str]:
-    result = [
-        "--platform",
-        platform,
-        "--checkpoint",
-        str(Path(args.wam_checkpoint).expanduser().resolve()),
-    ]
+def worker_arguments(args: argparse.Namespace) -> list[str]:
+    """Return Cosmos-specific worker arguments."""
+    result = []
     for field, option in (
         ("wam_predict_future", "--predict-future"),
         ("wam_cached_instructions_only", "--cached-instructions-only"),

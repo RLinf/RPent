@@ -14,8 +14,11 @@ from robots.robotwin.control import (
 )
 from robots.robotwin.observation import physical_observation
 from rpent.robots.components.wam_client_base import BaseWAMClient
-from rpent.robots.components.wam_control_spec import WAMControlSpec
-from rpent.robots.components.wam_rpc_protocol import WAMPrediction, WAMRequest
+from rpent.robots.components.wam_contracts import (
+    WAMControlSpec,
+    WAMPrediction,
+    WAMRequest,
+)
 from rpent.utils.rpc import RpcClient
 
 ACTION_SPACE = ROBOTWIN_QPOS["action_space"]

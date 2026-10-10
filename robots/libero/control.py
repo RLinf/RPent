@@ -3,7 +3,7 @@
 
 """LIBERO's native OSC action layout shared by clients and model adapters."""
 
-from rpent.robots.components.wam_control_spec import WAMControlSpec
+from rpent.robots.components.wam_contracts import WAMControlSpec
 
 # Values use LIBERO's native OSC scaling and gripper convention. Model
 # adapters restore this representation before handing actions to the env.

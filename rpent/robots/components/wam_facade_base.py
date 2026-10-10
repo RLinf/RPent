@@ -10,7 +10,7 @@ from typing import Any, Callable
 
 import numpy as np
 
-from rpent.robots.components.wam_rpc_protocol import (
+from rpent.robots.components.wam_contracts import (
     WAMCapabilities,
     WAMPrediction,
     WAMRequest,
