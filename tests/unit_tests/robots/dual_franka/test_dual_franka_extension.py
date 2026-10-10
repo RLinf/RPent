@@ -253,13 +253,22 @@ def test_shared_prompt_does_not_prescribe_task_strategy():
 
 @pytest.mark.parametrize("task_id", [0, 1, 3, 4, 5, 6])
 @pytest.mark.parametrize("explore", [False, True])
-def test_rendered_tasks_retain_their_own_operating_instructions(task_id, explore):
+def test_rendered_tasks_retain_their_own_operating_instructions(
+    task_id, explore, dual_franka_robot_config
+):
     from rpent.cli.main import _build_argparser
 
     spec = get_robot_spec()
     parser = _build_argparser()
     spec.add_cli_args(parser, use_dashboard=False)
-    argv = ["--robot", "dual_franka", "--task-id", str(task_id)]
+    argv = [
+        "--robot",
+        "dual_franka",
+        "--task-id",
+        str(task_id),
+        "--robot-config",
+        str(dual_franka_robot_config),
+    ]
     if explore:
         argv.append("--explore")
     config = spec.parse_config(parser.parse_args(argv))

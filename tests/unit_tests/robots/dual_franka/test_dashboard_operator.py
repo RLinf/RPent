@@ -285,7 +285,14 @@ def test_dashboard_cancel_releases_pending_operator_wait(build, tmp_path):
 )
 @pytest.mark.parametrize("explore", [False, True])
 def test_dashboard_task_orchestration_uses_web_operator(
-    tmp_path, monkeypatch, verdict, auto_merge, planner_error, replace_task, explore
+    tmp_path,
+    monkeypatch,
+    verdict,
+    auto_merge,
+    planner_error,
+    replace_task,
+    explore,
+    dual_franka_robot_config,
 ):
     import time
     from concurrent.futures import ThreadPoolExecutor
@@ -305,6 +312,8 @@ def test_dashboard_task_orchestration_uses_web_operator(
             "--dashboard",
             "--task-id",
             "3",
+            "--robot-config",
+            str(dual_franka_robot_config),
             "--planner",
             "codex",
             "--memory-profile",
