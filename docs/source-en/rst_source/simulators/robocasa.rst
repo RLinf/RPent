@@ -520,10 +520,6 @@ Expand the details below for task names, evaluation settings and published score
    ``rpent`` branches. Memory is not version-pinned; the validator does not compare
    its contents across runs.
 
-   Leaderboard scores come from independent experiment reports. Completing 340
-   runs with the current protocol does not establish reproduction of a leaderboard
-   entry; compare the model, memory and code configuration too.
-
 .. dropdown:: Published Target50 Scores
 
    .. _robocasa-reported-results:
@@ -565,14 +561,6 @@ Expand the details below for task names, evaluation settings and published score
         - 59.20%
         - 48.6%
         - 57.1%
-
-   The Astra entry reports **59.20% Overall**, with **87.78% / 43.75% / 42.50%**
-   for the three splits. Its episode count is **340 (180/80/80)** following the
-   `contributor-confirmed correction
-   <https://github.com/RLinf/RPent/pull/205#issuecomment-5749514622>`_. The earlier
-   250-cell information was an unsynchronized historical record. The correction
-   preserves reported rates; it does not infer success counts from rounded rates
-   or claim a new audit of all 340 original results.
 
 .. _environment-smoke-tests:
 
