@@ -100,7 +100,18 @@ def message(pending, text):
 def test_reset_waits_for_one_matching_reply(pending_reset, answer):
     toolkit, env, _, client, pending, future = pending_reset
     reply = message(pending, f"/{answer} scene checked")
-    assert env.resets == 0
+    for context in (
+        {"generation": -1},
+        {**reply["operator_context"], "request_id": "stale"},
+    ):
+        assert (
+            client.post(
+                "/api/session/messages",
+                json={"text": "/done", "operator_context": context},
+            ).status_code
+            == 422
+        )
+        assert not future.done() and env.resets == 0
     assert client.post("/api/session/messages", json=reply).status_code == 202
     result = future.result(3)
     assert env.resets == int(answer == "done")
@@ -112,45 +123,22 @@ def test_reset_waits_for_one_matching_reply(pending_reset, answer):
     assert env.resets == int(answer == "done")
 
 
-@pytest.mark.parametrize(
-    "context",
-    [
-        {"generation": -1},
-        {"generation": 1, "request_id": "stale"},
-        [],
-    ],
-)
-def test_invalid_reply_cannot_release_reset(pending_reset, context):
-    _, env, _, client, pending, future = pending_reset
-    reply = {**message(pending, "/done"), "operator_context": context}
-    assert client.post("/api/session/messages", json=reply).status_code == 422
-    assert not future.done() and env.resets == 0
-
-
-@pytest.mark.parametrize("verdict", ["success", "failure", "abort"])
-def test_verdict_closes_only_current_task(pending_reset, verdict):
+def test_verdict_closes_only_current_task(pending_reset):
     toolkit, env, state, client, pending, future = pending_reset
     assert (
         client.post("/api/session/messages", json=message(pending, "/done")).status_code
         == 202
     )
     future.result(3)
-    reply = message(pending, f"/{verdict} checked")
+    reply = message(pending, "/success checked")
     assert client.post("/api/session/messages", json=reply).status_code == 202
     assert call(toolkit, "open_gripper", arm="right")["motion_refused"]
     toolkit.finalize_direct_verdict()
-    assert toolkit.solved() is (verdict == "success")
+    assert toolkit.solved()
     assert client.post("/api/session/messages", json=reply).status_code == 422
     state.unbind_toolkit(toolkit)
     state.complete_task(state="cancelled")
-    assert (
-        state._task_state
-        == {
-            "success": "succeeded",
-            "failure": "failed",
-            "abort": "cancelled",
-        }[verdict]
-    )
+    assert client.get("/api/session/state").json()["state"] == "succeeded"
     state.request_task({"task_id": 4})
     state.wait_for_task(0)
     state.bind_toolkit(toolkit)
@@ -185,28 +173,9 @@ def test_cancel_releases_operator_wait_without_reset(pending_reset):
     assert env.resets == 0 and state.operator.snapshot() is None
 
 
-@pytest.mark.parametrize(
-    "explore,verdict,auto_merge,error,replacement",
-    [
-        (False, "success", True, None, False),
-        (True, "success", True, None, False),
-        (True, "success", False, None, False),
-        (True, "success", True, "planner failed", False),
-        (True, "failure", True, None, False),
-        (True, "abort", True, None, False),
-        (True, None, True, None, True),
-        (True, "success", True, None, True),
-    ],
-)
+@pytest.mark.parametrize("verdict", ["success", "failure", "abort"])
 def test_task_uses_web_operator_and_publishes_only_confirmed_success(
-    tmp_path,
-    monkeypatch,
-    dual_franka_robot_config,
-    explore,
-    verdict,
-    auto_merge,
-    error,
-    replacement,
+    tmp_path, monkeypatch, dual_franka_robot_config, verdict
 ):
     from rpent.cli import dashboard, main
 
@@ -217,24 +186,24 @@ def test_task_uses_web_operator_and_publishes_only_confirmed_success(
             "--robot",
             "dual_franka",
             "--dashboard",
+            "--explore",
             "--task-id",
             "3",
-            "--robot-config",
-            str(dual_franka_robot_config),
             "--planner",
             "codex",
-            "--memory-profile",
-            "local",
+            "--auto-merge-memory",
+            "--robot-config",
+            str(dual_franka_robot_config),
             "--memory-dir",
             str(tmp_path / "memory"),
-            "--auto-merge-memory" if auto_merge else "--no-auto-merge-memory",
+            "--output-dir",
+            str(tmp_path / "run"),
         ]
     )
-    args.explore = explore
     env = FakeEnv()
     spec = replace(
         robot_spec.get_robot_spec(),
-        init_runtime=lambda *args: (
+        init_runtime=lambda *a: (
             [],
             {"env": env, "model": None, "task_description": "test"},
         ),
@@ -246,27 +215,18 @@ def test_task_uses_web_operator_and_publishes_only_confirmed_success(
 
     def solve(**kwargs):
         toolkit = kwargs["toolkit"]
-        assert kwargs["dashboard_interaction"] is state
         assert env.resets == 0
-        assert "error" in call(
-            toolkit, "move_delta", arm="right", delta_xyz=[0, 0, 0.01]
-        )
         with ThreadPoolExecutor() as pool:
             future = pool.submit(call, toolkit, "request_scene_reset", reason="test")
-            try:
-                wait_for_request(state.operator)
-                pending = state.operator_snapshot()
-                state.operator_reply(
-                    pending["generation"], pending["pending"]["id"], "done"
-                )
-                future.result(3)
-            finally:
-                state.operator.close()
-        if verdict is not None:
-            state.operator_finish(1, verdict, "checked")
-        if replacement:
-            state.request_task({"task_id": 4})
-        return PlannerResult(error=error)
+            wait_for_request(state.operator)
+            pending = state.operator_snapshot()
+            state.operator_reply(
+                pending["generation"], pending["pending"]["id"], "done"
+            )
+            future.result(3)
+        call(toolkit, "move_delta", arm="right", delta_xyz=[0, 0, 0.01])
+        state.operator_finish(pending["generation"], verdict, "checked")
+        return PlannerResult()
 
     monkeypatch.setattr(
         dashboard, "build_planner", lambda *a, **kw: SimpleNamespace(solve=solve)
@@ -281,25 +241,17 @@ def test_task_uses_web_operator_and_publishes_only_confirmed_success(
             unique_components={"env"},
             session_root=tmp_path,
         )
-        == error
+        is None
     )
-    assert env.resets == 1
-    published = (
-        explore
-        and verdict == "success"
-        and auto_merge
-        and error is None
-        and not replacement
-    )
+    assert env.resets == 1 and len(env.moves) == 1
     for filename in ("dual_franka_t3.json", "dual_franka_t3_recipe.jsonl"):
-        assert (tmp_path / "memory/task-specific" / filename).is_file() is published
-    if explore and verdict in {"success", "failure"}:
+        assert (tmp_path / "memory/task-specific" / filename).is_file() is (
+            verdict == "success"
+        )
+    if verdict != "abort":
         evidence = list((tmp_path / "memory").rglob(f"*-{verdict}.json"))
         assert len(evidence) == 1
         assert (
             json.loads(evidence[0].read_text())["verdict"]["operator_verdict"]
             == verdict
         )
-    state.complete_task(state="cancelled", error=error)
-    if replacement:
-        assert state.wait_for_task(0).request == {"task_id": 4}

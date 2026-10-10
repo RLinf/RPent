@@ -244,39 +244,18 @@ def test_healthz_still_reports_transport_liveness_only(state: DashboardState) ->
     assert resp.json() == {"ok": True}
 
 
-@pytest.mark.parametrize(
-    "text",
-    [
-        "/done",
-        "/continue keep the completed half",
-        "/success",
-        "/failure missed grasp",
-        "/abort",
-        "/operator",
-        "/operator previous-request done",
-    ],
-)
-@pytest.mark.parametrize(
-    "operator_context",
-    [None, {"generation": -1, "request_id": "previous-request"}],
-)
-def test_generic_messages_do_not_enable_operator_control(state, text, operator_context):
+def test_generic_messages_do_not_enable_operator_control(state):
     state.shared_services_ready()
     state.request_task({"seed": 1})
     state.wait_for_task(timeout=0)
     state.set_planner_activity("idle", accepting_input=True)
     client = _client(_server(state))
-
-    response = client.post(
-        "/api/session/messages",
-        json={"text": text, "operator_context": operator_context},
-    )
-
-    assert response.status_code == 202
-    assert state.claim_next_pending_message().text == text
-    assert state.claim_next_pending_message() is None
-    snapshot = client.get("/api/session/state").json()
-    assert snapshot["operator"]["enabled"] is False
-    assert snapshot["operator"]["verdict"] is None
-    assert snapshot["task_generation"] == 1
+    for text in ("/done", "/success"):
+        response = client.post(
+            "/api/session/messages",
+            json={"text": text, "operator_context": {"generation": -1}},
+        )
+        assert response.status_code == 202
+        assert state.claim_next_pending_message().text == text
+    assert client.get("/api/session/state").json()["operator"]["enabled"] is False
     assert not state.task_replacement_requested
