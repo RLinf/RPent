@@ -14,8 +14,11 @@
 
 import os
 import sys
+from pathlib import Path
 
 sys.path.insert(0, os.path.abspath("../../"))
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "_ext"))
 
 project = "RPent"
 author = "RPent Contributors"
@@ -24,6 +27,7 @@ version = "latest"
 release = version
 
 extensions = [
+    "leaderboard",
     "sphinx_copybutton",
     "sphinx_design",
     "sphinx_reredirects",

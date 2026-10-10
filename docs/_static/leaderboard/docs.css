@@ -1,0 +1,41 @@
+/* Only the leaderboard page adopts these styles. */
+.bd-article:has(#rpent-interactive-leaderboard){font-family:"Times New Roman","Noto Serif CJK SC",serif;min-width:0}
+/* The theme's overflow container otherwise prevents viewport-sticky modules. */
+.bd-article-container:has(#rpent-interactive-leaderboard){overflow:visible;min-width:0}
+.bd-article:has(#rpent-interactive-leaderboard) :is(h1,h2,h3,h4,table){font-family:"Times New Roman","Noto Serif CJK SC",serif;letter-spacing:0}
+#rpent-interactive-leaderboard{min-width:0;max-width:100%}
+#rpent-interactive-leaderboard[data-loading]{min-height:240px}
+#rpent-interactive-leaderboard[data-loading]>.rpent-static-leaderboard{display:none}
+.rpent-static-leaderboard table{width:100%;margin:1rem 0}
+.rpent-static-leaderboard th,.rpent-static-leaderboard td{padding:.5rem;border-bottom:1px solid var(--rpent-fallback-border,#e5deef)}
+.rpent-static-leaderboard .table-wrap{max-width:100%;overflow-x:auto}
+.rpent-static-leaderboard .table-wrap table{min-width:900px}
+html[data-theme="dark"] .rpent-static-leaderboard{--rpent-fallback-border:#494052;color:var(--pst-color-text-base,#f4f0fa)}
+.rpent-static-leaderboard .cost-section .table-wrap table{min-width:340px}
+.rpent-static-leaderboard .cost-method small{display:block;font-size:12px;margin-top:4px}
+.rpent-static-leaderboard .benchmark-method small{display:block;font-size:12px;margin-top:4px}
+.rpent-static-leaderboard .module-header h3{display:inline;font-size:26px;font-weight:500;line-height:1.3}
+.rpent-static-leaderboard .module-header{cursor:pointer;padding:12px 0;list-style-position:outside}.rpent-static-leaderboard .module-header::marker{font-size:18px}
+@media(max-width:700px){.rpent-static-leaderboard .module-header h3{font-size:22px}}
+.rpent-static-leaderboard{--rpent-divider:#9464bf}
+.rpent-static-leaderboard [data-benchmark],.rpent-static-leaderboard .cost-group{border-top:4px solid var(--rpent-divider);padding:12px 0 24px}
+.rpent-static-leaderboard [data-benchmark]:last-child,.rpent-static-leaderboard .cost-group:last-child{border-bottom:4px solid var(--rpent-divider)}
+html[data-theme="dark"] .rpent-static-leaderboard{--rpent-divider:#be96e0}
+/* Align the native document title with the isolated renderer's content grid. */
+.bd-article:has(#rpent-interactive-leaderboard){--rpent-content-max:1440px;--rpent-content-gutter:48px}
+.bd-article:has(#rpent-interactive-leaderboard)>section>h1,.bd-article:has(#rpent-interactive-leaderboard)>h1{box-sizing:border-box;max-width:var(--rpent-content-max);margin-inline:auto;padding-inline:var(--rpent-content-gutter)}
+.bd-article:has(#rpent-interactive-leaderboard[data-section]:not([data-section="index"]))>section>h1{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.bd-article:has(#rpent-interactive-leaderboard[data-section])>section>h1 .headerlink{display:none}
+.bd-article .leaderboard-page-brand{box-sizing:border-box;max-width:var(--rpent-content-max);margin:20px auto 8px;padding-inline:var(--rpent-content-gutter);font-size:24px;line-height:1.3;font-weight:400}
+@media(max-width:700px){.bd-article .leaderboard-page-brand{font-size:20px}}
+.bd-article .rpent-static-leaderboard{box-sizing:border-box;max-width:var(--rpent-content-max);margin-inline:auto;padding-inline:var(--rpent-content-gutter)}
+@media(min-width:1600px){.bd-article:has(#rpent-interactive-leaderboard){--rpent-content-max:1540px;--rpent-content-gutter:60px}}
+@media(max-width:1000px){.bd-article:has(#rpent-interactive-leaderboard){--rpent-content-gutter:28px}}
+@media(max-width:700px){.bd-article:has(#rpent-interactive-leaderboard){--rpent-content-gutter:24px}}
+.rpent-static-leaderboard [data-benchmark],.rpent-static-leaderboard .cost-group{padding-inline:24px}
+@media(max-width:700px){.rpent-static-leaderboard [data-benchmark],.rpent-static-leaderboard .cost-group{padding-inline:0}}
+
+.rpent-static-leaderboard .scope-note{font-size:14px;line-height:1.6;color:var(--pst-color-text-muted,inherit);margin:14px 0;scroll-margin-top:5rem}
+.rpent-static-leaderboard .note-reference{font-size:.75em;margin-inline-start:.2em;white-space:nowrap}
+.rpent-static-leaderboard .note-reference a{text-decoration:underline;text-underline-offset:2px}
+.rpent-static-leaderboard .note-reference a:focus-visible,.rpent-static-leaderboard .scope-note:focus-visible{outline:2px solid var(--rpent-divider);outline-offset:3px}

@@ -1,0 +1,71 @@
+<p class="leaderboard-page-brand">RPent Leaderboard</p>
+<link rel="stylesheet" href="{{ asset_base }}docs.css">
+{% for script in ['table-sort.js', 'leaderboard.js', 'embed.js'] %}
+<script defer src="{{ asset_base }}{{ script }}"></script>
+{% endfor %}
+<div id="rpent-interactive-leaderboard" data-language="{{ language }}" data-section="{{ section }}"
+     data-performance-url="performance.html" data-costs-url="time-token-costs.html"
+     data-results-url="{{ asset_base }}results.json">
+  <script>
+    (() => {
+      const host = document.currentScript.parentElement;
+      host.dataset.loading = 'true';
+      host.setAttribute('aria-busy', 'true');
+      // Restore the tables even when the external scripts never execute.
+      host.loadingTimeout = setTimeout(() => {
+        delete host.dataset.loading;
+        host.removeAttribute('aria-busy');
+      }, 15000);
+    })();
+  </script>
+  <div class="rpent-static-leaderboard">
+    {% if section == 'performance' %}
+    {% for benchmark in sections %}
+    <section data-benchmark="{{ benchmark.id }}">
+      <details data-module="{{ benchmark.id }}" open>
+        <summary class="module-header"><h3>{{ benchmark.name }}</h3></summary>
+        <div id="native-{{ benchmark.id }}" class="module-content">
+          <div class="table-wrap" tabindex="0">
+            <table>
+              <thead><tr><th scope="col">{{ copy.method }}</th>{% for column in benchmark.columns %}<th scope="col">{{ column }}</th>{% endfor %}</tr></thead>
+              <tbody>
+                {% for row in benchmark.rows %}
+                <tr><th scope="row" class="benchmark-method">{{ row.label }}{% for note in row.notes %}<sup class="note-reference"><a href="#{{ note.id }}" role="doc-noteref">[{{ note.number }}]</a></sup>{% endfor %}<small>{{ row.detail }}</small></th>
+                  {% for cell in row.cells %}
+                  <td{% if cell %} data-record="{{ cell.id }}"{% endif %}>{% if cell and cell.rate is not none %}{{ cell.rate }}%{% else %}—{% endif %}</td>
+                  {% endfor %}
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% for note in benchmark.notes %}<p id="{{ note.id }}" class="scope-note" tabindex="-1" role="note"><span class="note-number">[{{ note.number }}]</span> {{ note.text }}</p>{% endfor %}
+        </div>
+      </details>
+    </section>
+    {% endfor %}
+    {% else %}
+    <section class="cost-section">
+      {% for benchmark in costs %}
+      <section class="cost-group">
+        <details data-module="costs-{{ benchmark.id }}" open>
+          <summary class="module-header"><h3>{{ benchmark.name }}</h3></summary>
+          <div id="native-costs-{{ benchmark.id }}" class="module-content">
+            <div class="table-wrap" tabindex="0">
+              <table>
+                <thead><tr><th scope="col">{{ copy.method }}</th><th scope="col">{{ copy.time }}</th>{% for metric in benchmark.token_metrics %}<th scope="col">{{ metric.label }}</th>{% endfor %}</tr></thead>
+                <tbody>
+                  {% for row in benchmark.rows %}
+                  <tr data-cost-record="{{ row.id }}"><th scope="row" class="cost-method">{{ row.label }}<small>{{ row.detail }}</small></th><td>{% if row.mean_elapsed_seconds is none %}—{% else %}{{ '{:,}'.format(row.mean_elapsed_seconds) }}{% endif %}</td>{% for metric in benchmark.token_metrics %}<td>{% if row.get(metric.key) is none %}—{% else %}{{ '{:,}'.format((row[metric.key] + 0.5) | int) }}{% endif %}</td>{% endfor %}</tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </details>
+      </section>
+      {% endfor %}
+    </section>
+    {% endif %}
+  </div>
+</div>
