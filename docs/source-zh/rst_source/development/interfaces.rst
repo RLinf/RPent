@@ -43,7 +43,7 @@
      - 启动或连接全部 runtime components，或只处理指定名称的子集，并构造对应的
        ``runtime_kwargs``。普通 CLI 传 ``None``；Dashboard 从 spec 得到显式声明的 shared 和 unique 子集后分别传入。``DashboardEventSink`` 用于上报运行时状态。
 
-``get_toolkit`` 一般只需把 ``runtime_kwargs`` 传给机器人子类； ``dashboard_events`` 和 ``config`` 由当前 runner 传入。它需要构造一个
+``get_toolkit`` 一般只需把 ``runtime_kwargs`` 传给机器人子类； ``dashboard_events`` 和 ``config`` 由当前 runner 传入。启用记忆时，需要构造一个
 :class:`~rpent.memory.MemoryManager`（root 取自
 ``config.prompt_vars["memory_dir"]``，未设置时回退到 ``get_memory_dir(robot_name)``）并传给 toolkit。Memory 访问权限在 ``MemoryManager`` 上配置。如果某个机器人还需要额外参数，可以继续声明 keyword-only 参数；例如 LIBERO 还使用 ``mode``、``attempts_per_session`` 和 ``state_output_dir``。
 
@@ -81,7 +81,7 @@ Planner
 
 用 ``@tool`` 声明函数或方法，参数类型注解和 Google 风格 docstring 提供 schema 与说明；``@tool(readonly=True)`` 跳过动作后的状态采集。处理函数返回 ``ToolResult(data=..., images=...)``：``data`` 保存 JSON 数据，按需包含 ``error`` 或 ``_finish``；``images`` 保存 PNG 字节。
 
-基类已注册公共文件工具；子类 ``super().__init__()`` 后追加本机器人工具即可。逐步状态与 ``view_env_state`` 见 :doc:`add_primitive`。
+提供记忆管理器时，基类注册公共文件工具；传入 ``memory=None`` 时跳过这些工具，仍保留 ``finish``。子类 ``super().__init__()`` 后追加本机器人工具即可。逐步状态与 ``view_env_state`` 见 :doc:`add_primitive`。
 
 进程间通信
 ----------
@@ -99,3 +99,5 @@ Planner
 环境和 VLA client 通常应分别继承 ``BaseEnvClient``、``BaseVLAClient``；服务端分别继承 ``BaseEnvFacade``、``BaseVLAFacade``，并通过 ``_register_rpc`` 注册扩展路由。这些基类在 ``RpcFacade`` 之上提供公共路由和锁。只有尚无专用基类的服务类型才直接继承 ``RpcFacade``。业务子类不必实现 ``healthz`` / ``shutdown``。
 
 细节见 :doc:`add_robot` 中的 env_server 与 vla_server 章节。
+
+WAM worker 使用 ``BaseWAMClient`` 和 ``BaseWAMFacade``，通过 ``--wam-endpoint`` 连接。模型 adapter、控制匹配和生命周期见 :doc:`wam_backends`。

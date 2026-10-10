@@ -51,9 +51,10 @@ functions implemented in ``robot_spec.py`` for ``main.py`` to call:
 
 ``get_toolkit`` usually passes ``runtime_kwargs`` into your robot subclass;
 ``dashboard_events`` and ``config`` are supplied by the active runner. It must
-construct a :class:`~rpent.memory.MemoryManager` (rooted at the configured
+construct a :class:`~rpent.memory.MemoryManager` when memory is enabled (rooted at the configured
 ``config.prompt_vars["memory_dir"]``, falling back to
 ``get_memory_dir(robot_name)`` when unset) and pass it to the toolkit.
+Pass ``memory=None`` to omit memory file tools while retaining ``finish``.
 Memory access permissions are configured on the manager. Robots that need
 extra toolkit arguments may declare them as keyword-only parameters; LIBERO
 additionally uses ``mode``, ``attempts_per_session``, and ``state_output_dir``.
@@ -100,7 +101,7 @@ skips post-action state capture. Handlers return ``ToolResult(data=..., images=.
 ``data`` holds the JSON payload, including ``error`` or ``_finish`` when needed,
 and ``images`` holds PNG bytes.
 
-The base class already registers common file tools; call ``super().__init__()`` then
+The base class registers common file tools when a memory manager is provided; call ``super().__init__()`` then
 ``add_tool`` for robot tools. Per-step state and ``view_env_state`` are in
 :doc:`add_primitive`.
 
@@ -133,3 +134,6 @@ bases provide common routing and locking on top of ``RpcFacade``. Subclass
 not implement ``healthz`` or ``shutdown`` in application subclasses.
 
 Details are in the env_server / vla_server sections of :doc:`add_robot`.
+
+WAM workers use ``BaseWAMClient`` and ``BaseWAMFacade`` with ``--wam-endpoint``.
+See :doc:`wam_backends` for model adapters, control matching and lifecycle.
