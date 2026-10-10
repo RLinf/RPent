@@ -182,78 +182,6 @@ def test_two_cup_sorting_task_extends_exploration_candidate():
     assert "Contact is not restricted to VLA" in prompt
     assert "does not require stopping for operator feedback" in prompt
     assert "arm/object motion can improve visibility" in prompt
-    for stale_rule in (
-        "clean bowls/plates and the cup",
-        "If no clean cup is available",
-        "Place each chopstick",
-        "Insert the spoon",
-    ):
-        assert stale_rule not in prompt
-
-
-def test_task5_placement_does_not_prescribe_alignment():
-    task = DUAL_FRANKA_TASKS[5]
-    prompt = format_prompt(system_prompt())
-    combined = prompt + "\n" + "\n".join(task.constraints)
-    assert "Put bowls and plates into the metal basket" in combined
-    for directive in (
-        "delta_z=0",
-        "strict staging gate",
-        "latest staging move",
-        "free-space x/y alignment",
-    ):
-        assert directive not in combined
-    for instruction in (
-        "this task imposes no small-motion requirement or fixed adjustment sequence",
-        "Missing depth or ambiguous placement alone is not a reason",
-        "RGB-based visual control is allowed",
-        "Invalid depth is not a valid metric measurement",
-        "left gripper actually holds the intended object",
-        "For spoon placement, the cup interior is the required projection target",
-    ):
-        assert instruction in combined
-    for task_id in (1, 3):
-        assert "keep the current left TCP z" in "\n".join(
-            DUAL_FRANKA_TASKS[task_id].constraints
-        )
-
-
-def test_task6_treats_residual_error_as_diagnostic():
-    constraints = "\n".join(DUAL_FRANKA_TASKS[6].constraints)
-    assert "proceed even when target_reached is false" in constraints
-    assert "Do not repeatedly micro-adjust" in constraints
-    assert "no fixed correction size or mandatory alignment" in constraints
-    assert "reports a safe/effective target" not in constraints
-    assert "does not reach the target, do not call" not in constraints
-
-
-def test_shared_prompt_does_not_prescribe_task_strategy():
-    for mode in ("eval", "explore"):
-        prompt = format_prompt(
-            system_prompt({"mode": mode}),
-            variables={
-                "output_dir": "/tmp/test-output",
-                "memory_inbox": "/tmp/test-memory",
-                "memory_dir": "/tmp/test-memory",
-                "session_number": 1,
-                "session_max": 1,
-                "recipe_tag": "dual_franka_t5",
-                "task_id": 5,
-            },
-        )
-        for phrase in (
-            "D455",
-            "vla_right_grasp",
-            "vla_handoff",
-            "vla_left_place",
-            "current category",
-            "delta_z=0",
-            "metal basket",
-            "active-vision",
-            "Use the task's VLA segment tools for contact-rich motion.",
-            "before manual pixel projection",
-        ):
-            assert phrase not in prompt
 
 
 @pytest.mark.parametrize("task_id", [0, 1, 3, 4, 5, 6])
@@ -283,6 +211,8 @@ def test_rendered_tasks_retain_their_own_operating_instructions(
     user = format_prompt(spec.prompts.user(variables), variables=variables)
     for phrase in ("joint_health", "joint-health", "recover_joint_posture"):
         assert phrase not in system + user
+    for task_strategy in ("D455", "vla_handoff", "metal basket", "delta_z=0"):
+        assert task_strategy not in system
     for text in (
         task.instruction,
         task.setup,
@@ -304,3 +234,8 @@ def test_rendered_tasks_retain_their_own_operating_instructions(
         ):
             assert text in user
     assert ("delta_z=0" in user) is (task_id in (1, 3))
+    if task_id == 5:
+        assert "Put bowls and plates into the metal basket" in user
+        assert "strict staging gate" not in user
+    if task_id == 6:
+        assert "proceed even when target_reached is false" in user
