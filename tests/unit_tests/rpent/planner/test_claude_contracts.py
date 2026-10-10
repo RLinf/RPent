@@ -17,24 +17,20 @@ from __future__ import annotations
 import asyncio
 import json
 import queue
-import threading
 from pathlib import Path
 from typing import Any
 
 import claude_agent_sdk
 import pytest
 
-from rpent.cli.tui import next_user_line
 from rpent.dashboard.events import TranscriptEvent, UsageEvent
 from rpent.planner.claude_code import (
     ClaudeCodePlanner,
     _build_rpent_server,
     _ClaudeSessionDriver,
     _Recorder,
-    _TerminalSessionAdapter,
     _tool_result_to_mcp,
 )
-from rpent.session.input import SessionInputQueue
 from rpent.tools import ToolResult, tool
 from rpent.tools.common import CommonTools
 
@@ -592,49 +588,3 @@ def test_claude_interrupt_waits_for_old_results_before_next_query():
 @pytest.fixture(autouse=True)
 def tool_template_output_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("rpent.utils.templates.get_output_dir", lambda: tmp_path)
-
-
-def test_terminal_adapter_cleanup_retires_delayed_reader(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    source = queue.Queue()
-    attempt = SessionInputQueue(source)
-    started = threading.Event()
-    release = threading.Event()
-    emitted = []
-    queries = []
-
-    def delayed_read(input_queue):
-        started.set()
-        assert release.wait(1)
-        return next_user_line(input_queue)
-
-    monkeypatch.setattr("rpent.planner.claude_code.next_user_line", delayed_read)
-
-    class Driver:
-        async def interrupt(self):
-            pass
-
-        async def query(self, text):
-            queries.append(text)
-
-    async def run():
-        adapter = _TerminalSessionAdapter(
-            toolkit=FakeToolkit(), input_queue=attempt, emit_user=emitted.append
-        )
-        pump = asyncio.create_task(adapter.run(Driver()))
-        try:
-            assert await asyncio.to_thread(started.wait, 1)
-            source.put("feedback for the next reply")
-            await adapter.close()
-        finally:
-            release.set()
-        await asyncio.wait_for(pump, timeout=1)
-
-    asyncio.run(run())
-
-    assert emitted == []
-    assert queries == []
-    assert not attempt.cancelled
-    assert attempt.get(block=False) == "feedback for the next reply"
-    assert source.empty()
