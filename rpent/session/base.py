@@ -19,6 +19,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import threading
 from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -97,6 +98,7 @@ class EnvState:
 
     def __init__(self, output_dir: Path | str):
         self._output_dir = Path(output_dir)
+        self._artifact_lock = threading.Lock()
         self.reset()
 
     # -- private file resolution -----------------------------------------
@@ -199,60 +201,65 @@ class EnvState:
         step without an explicit index. Pass an ``int`` to target a specific
         step, or ``None`` for a session-level artifact such as an episode video.
         """
-        step = self._resolve_read_step(step)
-        destination = self._artifact_file(name, step)
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        temporary = self._temporary_file(destination)
-        suffix = destination.suffix.lower()
-        record: StepRecord | None = self._record_for(step) if step is not None else None
-        try:
-            if suffix in _IMAGE_SUFFIXES:
-                array = np.asarray(value)
-                if array.dtype != np.uint8:
-                    array = array.astype(np.uint8)
-                imageio.imwrite(temporary, array)
-            elif suffix == ".npy":
-                np.save(temporary, np.asarray(value))
-            elif suffix == ".npz":
-                np.savez_compressed(temporary, array=np.asarray(value))
-            elif suffix == ".json":
-                with temporary.open("w") as file:
-                    json.dump(value, file, indent=2, default=_json_default)
-            elif suffix == ".jsonl":
-                with temporary.open("w") as file:
-                    if isinstance(value, str):
-                        file.write(value)
+        with self._artifact_lock:
+            step = self._resolve_read_step(step)
+            destination = self._artifact_file(name, step)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            temporary = self._temporary_file(destination)
+            suffix = destination.suffix.lower()
+            record: StepRecord | None = (
+                self._record_for(step) if step is not None else None
+            )
+            try:
+                if suffix in _IMAGE_SUFFIXES:
+                    array = np.asarray(value)
+                    if array.dtype != np.uint8:
+                        array = array.astype(np.uint8)
+                    imageio.imwrite(temporary, array)
+                elif suffix == ".npy":
+                    np.save(temporary, np.asarray(value))
+                elif suffix == ".npz":
+                    np.savez_compressed(temporary, array=np.asarray(value))
+                elif suffix == ".json":
+                    with temporary.open("w") as file:
+                        json.dump(value, file, indent=2, default=_json_default)
+                elif suffix == ".jsonl":
+                    with temporary.open("w") as file:
+                        if isinstance(value, str):
+                            file.write(value)
+                        else:
+                            for item in value:
+                                file.write(
+                                    json.dumps(item, default=_json_default) + "\n"
+                                )
+                elif suffix == ".mp4":
+                    if isinstance(value, (bytes, bytearray, memoryview)):
+                        temporary.write_bytes(bytes(value))
                     else:
-                        for item in value:
-                            file.write(json.dumps(item, default=_json_default) + "\n")
-            elif suffix == ".mp4":
-                if isinstance(value, (bytes, bytearray, memoryview)):
+                        imageio.mimwrite(
+                            temporary,
+                            list(value),
+                            fps=int(options.get("fps", 20)),
+                        )
+                elif suffix in _TEXT_SUFFIXES:
+                    temporary.write_text(str(value))
+                elif suffix == ".bin":
                     temporary.write_bytes(bytes(value))
                 else:
-                    imageio.mimwrite(
-                        temporary,
-                        list(value),
-                        fps=int(options.get("fps", 20)),
-                    )
-            elif suffix in _TEXT_SUFFIXES:
-                temporary.write_text(str(value))
-            elif suffix == ".bin":
-                temporary.write_bytes(bytes(value))
-            else:
-                raise ValueError(f"unsupported artifact suffix: {suffix}")
-            os.replace(temporary, destination)
-            if record is not None:
-                record.artifacts.add(name)
-            else:
-                self._run_artifacts.add(name)
-            if not self._step_open:
-                self._write_manifest()
-            return name
-        except Exception as exc:
-            logger.warning("failed to save artifact %s: %s", name, exc)
-            return None
-        finally:
-            temporary.unlink(missing_ok=True)
+                    raise ValueError(f"unsupported artifact suffix: {suffix}")
+                os.replace(temporary, destination)
+                if record is not None:
+                    record.artifacts.add(name)
+                else:
+                    self._run_artifacts.add(name)
+                if not self._step_open:
+                    self._write_manifest()
+                return name
+            except Exception as exc:
+                logger.warning("failed to save artifact %s: %s", name, exc)
+                return None
+            finally:
+                temporary.unlink(missing_ok=True)
 
     def load(self, name: str, *, step: int | None = -1) -> Any:
         """Load an artifact; ``step=-1`` selects the latest recorded step."""
@@ -377,7 +384,8 @@ class EnvState:
         resolved_step = self._resolve_read_step(step)
         if resolved_step is None:
             raise ValueError(f"step {step} must be -1 or nonnegative")
-        return copy.deepcopy(self._record_for(resolved_step))
+        with self._artifact_lock:
+            return copy.deepcopy(self._record_for(resolved_step))
 
     def records(self) -> list[StepRecord]:
         return copy.deepcopy(self._steps)

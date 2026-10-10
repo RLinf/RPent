@@ -16,14 +16,18 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import queue
 from abc import ABC, abstractmethod
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from rpent.dashboard.events import DashboardEventSink
 from rpent.dashboard.interaction import DashboardInteractionPort
+from rpent.tools.base import ToolResult
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.config import (
     get_memory_dir,
@@ -54,6 +58,41 @@ def add_mcp_prefix(name: str) -> str:
 def strip_mcp_prefix(name: str) -> str:
     """Return the bare tool name, dropping the MCP namespace if present."""
     return name.removeprefix(MCP_TOOL_PREFIX)
+
+
+async def _wait_for_cleanup(worker: asyncio.Future) -> None:
+    """Finish cleanup asynchronously even if the caller is cancelled again."""
+    cancelled = False
+    while not worker.done():
+        try:
+            await asyncio.shield(worker)
+        except asyncio.CancelledError:
+            cancelled = True
+    worker.result()
+    if cancelled:
+        raise asyncio.CancelledError
+
+
+async def cancel_and_wait(cancel: Callable[[], None]) -> None:
+    """Drain tools without competing for their potentially saturated worker pool."""
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="tool-control") as pool:
+        worker = asyncio.get_running_loop().run_in_executor(pool, cancel)
+        await _wait_for_cleanup(worker)
+
+
+async def execute_tool(toolkit: Toolkit, name: str, arguments: dict) -> ToolResult:
+    """Retain tool workers, including queued executor jobs, through cancellation."""
+    worker = asyncio.create_task(
+        asyncio.to_thread(toolkit.execute_tool, name, arguments)
+    )
+    try:
+        return await asyncio.shield(worker)
+    except asyncio.CancelledError:
+        try:
+            await cancel_and_wait(toolkit.cancel_active_and_wait)
+        finally:
+            await _wait_for_cleanup(worker)
+        raise
 
 
 class PlannerResult:

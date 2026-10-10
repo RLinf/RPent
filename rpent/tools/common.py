@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import threading
 from typing import TYPE_CHECKING
 
 from rpent.tools.base import ToolResult, tool
@@ -30,6 +31,7 @@ class CommonTools:
 
     def __init__(self, *, memory: MemoryManager) -> None:
         self._memory = memory
+        self._file_lock = threading.Lock()
 
     @tool(readonly=True)
     def read_text_file(self, path: str, max_chars: int = 40000) -> ToolResult:
@@ -44,7 +46,8 @@ class CommonTools:
             return ToolResult(data={"error": f"file not found: {resolved}"})
         if resolved.is_dir():
             return ToolResult(data={"error": f"is a directory: {resolved}"})
-        text = resolved.read_text(encoding="utf-8", errors="replace")
+        with self._file_lock:
+            text = resolved.read_text(encoding="utf-8", errors="replace")
         content = text
         if len(text) > max_chars:
             content = text[:max_chars] + (
@@ -60,7 +63,8 @@ class CommonTools:
         """Write a UTF-8 text file (creates parent dirs). Use this to save the working recipe JSONL and the final audit JSON at the end of a successful run. Published memory is read-only. During exploration, you may write only to your current memory inbox. Memory for other robots is unavailable."""
         resolved = self._memory.authorize_write(path)
         resolved.parent.mkdir(parents=True, exist_ok=True)
-        resolved.write_text(content, encoding="utf-8")
+        with self._file_lock:
+            resolved.write_text(content, encoding="utf-8")
         return ToolResult(
             data={"path": str(resolved), "bytes_written": len(content.encode("utf-8"))}
         )

@@ -53,6 +53,23 @@ they materially affect the review.
   actual consumers and supported data. Propose simplifications with concrete
   evidence while preserving required behavior. Explain any mismatch with a
   main refactor; being behind main or mergeable alone is not evidence of one.
+- **Module boundaries:** check new files and changes to existing classes,
+  methods, and helpers. Trace callers and imports to identify the module that
+  owns the behavior. A placement finding needs a project convention or a
+  comparable implementation, the coupling or maintenance cost, and a suggested
+  location.
+- **Shared classes and interfaces:** identify the shared behavior being added
+  and its callers. Check the effect on other subclasses and backends, including
+  those that do not use the feature. Look for backend-specific policy, imports
+  from higher layers, or unrelated state added to common components. Consider
+  existing extension points and direct calls before adding another abstraction.
+  A small feature can require a shared change. Recommend a split only when
+  it clarifies responsibility or reduces coupling.
+- **Contract changes:** check whether existing flags, parameters, or methods
+  gain new guarantees or restrictions. Trace their callers even when names,
+  types, and defaults are unchanged. If one flag controls multiple behaviors,
+  verify that each caller satisfies all of them, and check the matching tests
+  and documentation.
 - **Documentation and model inputs:** when public behavior or prose changes,
   use [docs-check](../docs-check/SKILL.md) to verify accuracy, useful explanation,
   and natural, consistent language. For prompt or tool changes, inspect the
@@ -80,6 +97,7 @@ Use the user's language. Explain the PR before listing findings:
    comment ready to paste into the review. Use P0 for critical immediate
    issues, P1 for high-impact defects, P2 for normal defects, and P3 for minor
    issues; distinguish blockers from optional suggestions.
+   Merge findings that share a root cause, including design and runtime effects.
 3. **Verification:** record the reviewed head/base/main refs or local snapshot,
    checks actually run, results, and unverified scope. Say when no actionable
    findings were found without implying every execution path was tested.
