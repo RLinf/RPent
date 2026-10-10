@@ -51,7 +51,12 @@ class _ToolOperation:
 
 
 class _Scheduler:
-    """Share readonly calls; run queued exclusive calls in arrival order."""
+    """Share readonly calls; run queued exclusive calls in arrival order.
+
+    A plain RWLock only provides mutual exclusion. Tool calls also need ordered
+    writers, cancellation of queued and active calls, and pause/close with drain.
+    One condition keeps admission and these lifecycle transitions synchronized.
+    """
 
     def __init__(self) -> None:
         self.condition = threading.Condition()

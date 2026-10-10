@@ -645,6 +645,15 @@ def test_segment_returns_mask_overlay_and_world_point(tmp_path, monkeypatch, par
         return localize(*args, **kwargs)
 
     monkeypatch.setattr(perception, "_mask_to_camera_world", synchronized_localize)
+    save = state.save
+    save_barrier = threading.Barrier(len(targets))
+
+    def synchronized_save(name, value, **kwargs):
+        if name.startswith("d455_segment_overlay_"):
+            save_barrier.wait(timeout=3)
+        return save(name, value, **kwargs)
+
+    monkeypatch.setattr(state, "save", synchronized_save)
     set_robot_config_path(config)
     try:
         call = partial(
@@ -658,6 +667,29 @@ def test_segment_returns_mask_overlay_and_world_point(tmp_path, monkeypatch, par
             results = list(pool.map(lambda target: call(target_name=target), targets))
         result_native = results[0]
         result = result_native.data
+
+        monkeypatch.setattr(perception, "_mask_to_camera_world", localize)
+        failed_names = []
+
+        def fail_json_save(name, value, **kwargs):
+            if name.startswith("d455_segment_") and name.endswith(".json"):
+                failed_names.append(name)
+                return None
+            return save(name, value, **kwargs)
+
+        monkeypatch.setattr(state, "save", fail_json_save)
+        failed = call(target_name="failed")
+        failed_overlay = state.load_bytes(failed.data["overlay_artifact"])
+        monkeypatch.setattr(state, "save", save)
+        following = call(target_name="following")
+        assert failed.is_error
+        assert not following.is_error
+        assert following.data["segment_artifact"] not in failed_names
+        assert following.data["overlay_artifact"] != failed.data["overlay_artifact"]
+        assert state.load_bytes(failed.data["overlay_artifact"]) == failed_overlay
+        assert (
+            state.load(following.data["segment_artifact"])["target_name"] == "following"
+        )
     finally:
         set_robot_config_path(None)
 
