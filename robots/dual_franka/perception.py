@@ -17,10 +17,13 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 import numpy as np
 from PIL import Image, ImageDraw
+from pydantic import Field
+from pydantic.json_schema import SkipJsonSchema
+from scipy.spatial.transform import Rotation
 
 from robots.franka.perception import _resolve_step
 from robots.franka.runtime_config import (
@@ -31,7 +34,8 @@ from robots.franka.runtime_config import (
     load_mapping,
 )
 from rpent.session import EnvState, StepRecord
-from rpent.tools.toolkit import readonly
+from rpent.tools import ToolResult
+from rpent.tools.base import tool
 from rpent.utils.transforms import (
     invert_transform,
     transform_points,
@@ -41,18 +45,28 @@ from rpent.utils.transforms import (
 ROBOT_CONFIG_PATH = Path(__file__).resolve().parent / "config" / "example.yaml"
 
 
-@readonly
+class InvalidDepthError(ValueError):
+    """The selected pixel patch has no usable depth; another point may work."""
+
+
+@tool(readonly=True, exclude=("state",))
 def back_project(
     *,
-    camera: str = "d455",
-    row: int,
-    col: int,
-    target_name: str = "target",
-    step: int | None = None,
-    window_radius: int = 2,
+    camera: Annotated[str, Field(json_schema_extra={"default": "d455"})] = "d455",
+    row: Annotated[int, Field(ge=0)],
+    col: Annotated[int, Field(ge=0)],
+    target_name: Annotated[
+        str, Field(json_schema_extra={"default": "target"})
+    ] = "target",
+    step: int | SkipJsonSchema[None] = None,
+    window_radius: Annotated[int, Field(ge=0, json_schema_extra={"default": 2})] = 2,
     state: EnvState | None = None,
-) -> dict[str, Any]:
-    """Back-project one registered camera pixel into the shared right_base frame."""
+) -> ToolResult:
+    """Back-project one pixel from a registered RGBD camera view into shared right-base coordinates. Use a camera listed by view_env_state/view_camera_meta; default is the configured primary metric localization camera.
+
+    Args:
+        camera: Registered projection view name, e.g. d455 or base. Valid names come from perception.projection_views and the current state's saved artifacts.
+    """
     return _back_project_camera_pixel(
         camera=camera,
         row=row,
@@ -64,50 +78,73 @@ def back_project(
     )
 
 
-@readonly
+@tool(readonly=True, exclude=("state", "sam3_client"))
 def segment(
     *,
-    camera: str = "d455",
-    prompt: str = "",
-    point: list[int] | None = None,
-    target_name: str = "target",
-    step: int | None = None,
-    min_score: float = 0.2,
-    min_valid_depth_pixels: int = 25,
+    camera: Annotated[str, Field(json_schema_extra={"default": "d455"})] = "d455",
+    prompt: Annotated[str, Field(json_schema_extra={"default": ""})] = "",
+    point: Annotated[list[int], Field(min_length=2, max_length=2)]
+    | SkipJsonSchema[None] = None,
+    target_name: Annotated[
+        str, Field(json_schema_extra={"default": "target"})
+    ] = "target",
+    step: int | SkipJsonSchema[None] = None,
+    min_score: Annotated[
+        Annotated[float, Field(ge=0.0, le=1.0)],
+        Field(json_schema_extra={"default": 0.2}),
+    ] = 0.2,
+    min_valid_depth_pixels: Annotated[
+        int, Field(ge=1, json_schema_extra={"default": 25})
+    ] = 25,
     state: EnvState | None = None,
     sam3_client: Any | None = None,
-) -> dict[str, Any]:
-    """Segment one registered RGBD camera with SAM3 and localize in right_base."""
+) -> ToolResult:
+    """Use SAM3 on a registered RGB image with either a text prompt or one positive [row, col] point, return a mask overlay for verification, and estimate the mask median point in shared right-base coordinates.
+
+    Args:
+        camera: Registered projection view name, e.g. d455 or base. Valid names come from perception.projection_views and the current state's saved artifacts.
+        prompt: Text prompt for SAM3. Prefer short object/relation phrases; for the clean-desk box use 'white interior of the black cardboard box' or 'cardboard box'. Avoid over-specific surface words such as 'floor' when grounding is weak. Provide exactly one of prompt or point.
+        point: Positive SAM3 point in camera image coordinates [row, col]. Provide exactly one of prompt or point.
+    """
+    images: list[bytes] = []
     camera = _resolve_projection_camera_alias(camera)
     if state is None:
-        return {"ok": False, "found": False, "error": "state is required"}
+        return ToolResult(
+            data={"error": "state is required", "ok": False, "found": False}
+        )
     if sam3_client is None:
-        return {
-            "ok": False,
-            "found": False,
-            "error": (
-                "SAM3 client is not configured. Start RPent with --sam3-endpoint "
-                "or set SAM3_CHECKPOINT_PATH for local SAM3 auto-start."
-            ),
-            "fallback": f"Use manual {camera} image inspection and back_project.",
-        }
+        return ToolResult(
+            data={
+                "error": (
+                    "SAM3 client is not configured. Start RPent with --sam3-endpoint "
+                    "or set SAM3_CHECKPOINT_PATH for local SAM3 auto-start."
+                ),
+                "ok": False,
+                "found": False,
+                "fallback": f"Use manual {camera} image inspection and back_project.",
+            }
+        )
 
     text_prompt = prompt.strip()
     has_prompt = bool(text_prompt)
     has_point = point is not None
     if has_prompt == has_point:
-        return {
-            "ok": False,
-            "found": False,
-            "error": "segment needs exactly one of prompt or point",
-        }
-    if has_point:
-        if not isinstance(point, list) or len(point) != 2:
-            return {
+        return ToolResult(
+            data={
+                "error": "segment needs exactly one of prompt or point",
                 "ok": False,
                 "found": False,
-                "error": "point must be [row, col]",
             }
+        )
+    if has_point:
+        if not isinstance(point, list) or len(point) != 2:
+            return ToolResult(
+                data={
+                    "error": "point must be [row, col]",
+                    "ok": False,
+                    "found": False,
+                }
+            )
         point = [int(point[0]), int(point[1])]
 
     try:
@@ -126,14 +163,16 @@ def segment(
             min_score=float(min_score),
         )
     except ValueError as exc:
-        return {"ok": False, "found": False, "error": str(exc)}
+        return ToolResult(data={"error": str(exc), "ok": False, "found": False})
     except Exception as exc:
-        return {
-            "ok": False,
-            "found": False,
-            "error": f"segmentation service call failed: {exc}",
-            "fallback": f"Use manual {camera} image inspection and back_project.",
-        }
+        return ToolResult(
+            data={
+                "error": f"segmentation service call failed: {exc}",
+                "ok": False,
+                "found": False,
+                "fallback": f"Use manual {camera} image inspection and back_project.",
+            }
+        )
 
     segment_index = _next_named_artifact_index(
         state.get(step_idx), prefix=f"{camera}_segment", suffix=".json"
@@ -244,7 +283,7 @@ def segment(
         result["segment_artifact"] = saved_segment
     if saved_overlay is not None:
         result["overlay_artifact"] = saved_overlay
-        result["_image_cam_bytes"] = state.load_bytes(saved_overlay, step=step_idx)
+        images.append(state.load_bytes(saved_overlay, step=step_idx))
         result["image_block_order"] = [f"{camera}_segment_overlay"]
         result["image_delivery"] = (
             f"sam3_{camera}_segment_overlay_returned_for_verification"
@@ -252,7 +291,7 @@ def segment(
     if segment_blob.get("error"):
         result["error"] = segment_blob["error"]
         result["fallback"] = f"Use manual {camera} image inspection and back_project."
-    return result
+    return ToolResult(data=result, images=images)
 
 
 def _back_project_camera_pixel(
@@ -264,7 +303,8 @@ def _back_project_camera_pixel(
     step: int | None,
     window_radius: int,
     state: EnvState | None = None,
-) -> dict[str, Any]:
+) -> ToolResult:
+    images: list[bytes] = []
     camera = _resolve_projection_camera_alias(camera)
     if state is None:
         raise ValueError("state is required")
@@ -313,7 +353,9 @@ def _back_project_camera_pixel(
     camera_calibration = calibration.get(calibration_key)
     if camera_calibration is None:
         raise ValueError(f"calibration entry {calibration_key!r} is missing")
-    t_right_camera = _transform_to_matrix(camera_calibration["transformation"])
+    t_right_camera = _camera_to_right_base(
+        camera_calibration, record_state, calibration
+    )
     point_right = transform_points(t_right_camera, point_camera)
     selection_valid, rejection_reasons, validity_contract = (
         _validate_localization_point(
@@ -373,14 +415,14 @@ def _back_project_camera_pixel(
         )
         annotated_path = out["diagnostic_artifacts"].get("annotated_image")
         if annotated_path:
-            out["_image_cam_bytes"] = Path(annotated_path).read_bytes()
+            images.append(Path(annotated_path).read_bytes())
             out["image_block_order"] = [f"{camera}_selection_diagnostic"]
             out["image_delivery"] = (
                 f"annotated_{camera}_selection_returned_for_verification"
             )
     except Exception as exc:
         out["diagnostic_error"] = f"{type(exc).__name__}: {exc}"
-    return out
+    return ToolResult(data=out, images=images)
 
 
 def _load_perception_config() -> dict[str, Any]:
@@ -751,6 +793,7 @@ def _mask_to_camera_world(
     step_idx: int,
     min_valid: int,
 ) -> dict[str, Any]:
+    _, record_state = _resolve_step(state, step_idx)
     camera = _resolve_projection_camera_alias(camera)
     projection_cameras = _projection_cameras_for_state(state, step_idx)
     camera_config = projection_cameras.get(camera)
@@ -832,7 +875,9 @@ def _mask_to_camera_world(
     camera_calibration = calibration.get(calibration_key)
     if not isinstance(camera_calibration, dict):
         raise ValueError(f"calibration entry {calibration_key!r} is missing")
-    t_right_camera = _transform_to_matrix(camera_calibration["transformation"])
+    t_right_camera = _camera_to_right_base(
+        camera_calibration, record_state, calibration
+    )
     points_right = transform_points(t_right_camera, points_camera)
     valid_localization, validity_contract = _localization_validity_mask(
         camera_calibration=camera_calibration,
@@ -1027,10 +1072,51 @@ def _median_depth(
     patch = depth[r0:r1, c0:c1]
     valid = patch[np.isfinite(patch) & (patch > 0.0)]
     if valid.size == 0:
-        raise ValueError(
+        raise InvalidDepthError(
             f"no valid depth near pixel row={row} col={col} radius={radius}"
         )
     return float(np.median(valid)), int(valid.size)
+
+
+def _camera_to_right_base(
+    camera_calibration: dict[str, Any],
+    record_state: dict[str, Any],
+    calibration: dict[str, Any],
+) -> np.ndarray:
+    """Compose eye-in-hand extrinsics with the stored observation's O_T_EE."""
+    handeye = _transform_to_matrix(camera_calibration["transformation"])
+    parameters = camera_calibration.get("parameters") or {}
+    if not parameters.get("eye_on_hand", False):
+        return handeye
+    arm = camera_calibration.get("arm")
+    if arm not in ("left", "right"):
+        raise ValueError("eye-in-hand calibration requires left/right arm")
+    if parameters.get("robot_effector_frame") != f"{arm}_ee_O_T_EE":
+        raise ValueError("eye-in-hand calibration must reference O_T_EE")
+    arm_state = _record_arm_state(record_state, arm)
+    pose = np.asarray(arm_state.get("tcp_pose", []), dtype=np.float64)
+    if (
+        pose.shape != (7,)
+        or not np.isfinite(pose).all()
+        or np.linalg.norm(pose[3:]) < 1e-8
+    ):
+        raise ValueError("missing or invalid snapshot end-effector pose")
+    frame = (
+        arm_state.get("tcp_pose_frame")
+        or arm_state.get("coordinate_frame")
+        or record_state.get("coordinate_frame")
+    )
+    if frame not in ("left_base", "right_base"):
+        raise ValueError("snapshot TCP pose must declare its base frame")
+    base_ee = np.eye(4)
+    base_ee[:3, :3] = Rotation.from_quat(pose[3:]).as_matrix()
+    base_ee[:3, 3] = pose[:3]
+    if frame != "right_base":
+        base_ee = (
+            _base_frame_transform(calibration, target="right_base", source=frame)
+            @ base_ee
+        )
+    return base_ee @ handeye
 
 
 def _transform_to_matrix(transform: dict[str, Any]) -> np.ndarray:

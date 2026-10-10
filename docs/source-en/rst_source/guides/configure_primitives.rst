@@ -32,7 +32,7 @@ Models by Platform
    * - :doc:`../real_world_robots/dual_franka`
      - Pi0.5 / openpi
 
-Each platform page provides checkpoint paths, available tools, and task requirements. YAM deployment instructions and SO-101 content are pending; see :doc:`../real_world_robots/yam` and :doc:`../real_world_robots/so101`.
+Each platform page provides checkpoint paths, available tools, and task requirements. SO-101 content is pending; see :doc:`../real_world_robots/yam` and :doc:`../real_world_robots/so101`.
 
 Services and Extensions
 -----------------------

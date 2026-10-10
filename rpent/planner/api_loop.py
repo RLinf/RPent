@@ -20,7 +20,6 @@ RPent's runner saves the returned transcript through its existing output flow.
 """
 
 import asyncio
-import base64
 import json
 import threading
 from collections.abc import AsyncIterator, Sequence
@@ -68,6 +67,7 @@ from rpent.dashboard.planner_control import DashboardPlannerControl
 from rpent.planner.base import REASONING_EFFORTS, Planner, PlannerResult
 from rpent.tools.toolkit import Toolkit, ToolResult
 from rpent.utils.logging import get_logger
+from rpent.utils.templates import substitute
 
 logger = get_logger("api")
 
@@ -273,8 +273,13 @@ class _HarnessToolkit(FunctionToolset):
         self.validators: dict[str, Draft202012Validator] = {}
         self.output_types: list[Any] = [str]
         self.add_tool(Tool(self.read_image, takes_ctx=True, sequential=True))
-        for spec in toolkit.get_tools_spec():
-            name = spec["name"]
+        for declaration in toolkit.list_tools():
+            spec = {
+                "name": declaration.name,
+                "description": declaration.description,
+                "input_schema": substitute(declaration.input_schema),
+            }
+            name = declaration.name
             self.validators[name] = Draft202012Validator(spec["input_schema"])
             if name == "finish":
                 # Eager annotations bind this toolkit's schema to the output
@@ -287,10 +292,10 @@ class _HarnessToolkit(FunctionToolset):
                     ctx: RunContext, arguments: FinishArguments
                 ) -> dict[str, Any]:
                     result = await self.execute("finish", arguments, ctx)
-                    if not result.is_finish:
+                    if not result.data.get("_finish"):
                         raise ModelRetry(self._text(result))
-                    self.finish_result = result.result
-                    return result.result
+                    self.finish_result = result.to_dict()
+                    return self.finish_result
 
                 self.output_types.append(
                     ToolOutput(
@@ -402,20 +407,13 @@ class _HarnessToolkit(FunctionToolset):
     async def call(self, name: str, ctx: RunContext, /, **arguments: Any) -> ToolReturn:
         """Return native multimodal content for an ordinary tool."""
         result = await self.execute(name, arguments, ctx)
-        content: list[str | BinaryContent] = []
-        for block in result.content_blocks:
-            if block["type"] == "text":
-                content.append(block["text"])
-            elif block["type"] == "image" and self.no_images:
-                content.append("[Image omitted: --no-images is enabled.]")
-            elif block["type"] == "image":
-                source = block["source"]
-                content.append(
-                    BinaryContent(
-                        data=base64.b64decode(source["data"]),
-                        media_type=source["media_type"],
-                    )
-                )
+        content: list[str | BinaryContent] = [result.to_text()]
+        for image in result.images:
+            content.append(
+                "[Image omitted: --no-images is enabled.]"
+                if self.no_images
+                else BinaryContent(data=image, media_type="image/png")
+            )
         return ToolReturn(return_value=content)
 
     def cancel_active_and_wait(self) -> None:
@@ -425,9 +423,7 @@ class _HarnessToolkit(FunctionToolset):
 
     @staticmethod
     def _text(result: ToolResult) -> str:
-        return "\n".join(
-            block["text"] for block in result.content_blocks if block["type"] == "text"
-        )
+        return result.to_text()
 
 
 class _Session(AbstractCapability):

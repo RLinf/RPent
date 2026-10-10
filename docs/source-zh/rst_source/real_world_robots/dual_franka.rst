@@ -13,9 +13,7 @@ RPent 可以通过 RLinf ``RealWorldEnv`` worker 控制双节点双臂 Franka �
 安装
 ----
 
-.. note::
-
-	以下的步骤只会安装 Python 侧依赖（固定版本的 RLinf Franka 集成和 ``rpent-openpi``），并 **不会** 构建双臂真正需要的机器人节点控制栈。在安装 RPent 之前，请先按照 RLinf 双臂 Franka 指南配置两个机器人节点：选择兼容的 ``LIBFRANKA_VERSION``，构建 ``franka-franky`` （franky/libfranka）控制栈，配置 PREEMPT_RT 实时内核与相关权限，并安装 GELLO 遥操作与夹爪依赖。参见 `RLinf 双臂 Franka 指南 <https://rlinf.readthedocs.io/zh-cn/latest/rst_source/examples/embodied/dual_franka.html>`_。
+请先按照 `libfranka 官方快速安装指南 <https://docs.ros.org/en/humble/p/libfranka/__README.html#quick-install>`_ 安装 libfranka 0.19.0。
 
 克隆 RPent 并安装 Python 依赖。若已有仓库，进入仓库后执行 ``uv sync``：
 
@@ -25,30 +23,136 @@ RPent 可以通过 RLinf ``RealWorldEnv`` worker 控制双节点双臂 Franka �
    cd RPent
    uv sync --extra franka --extra sam3
 
-该命令将固定版本的 RLinf Franka 集成、``rpent-openpi``、Franka 控制依赖和 SAM3 安装到 ``.venv``。
+该命令将 RLinf ``release/v0.4``、``rpent-openpi``、SAM3 以及 Franka 的相机、夹爪和遥操作依赖安装到 ``.venv``。其中的 ``franky-control`` wheel 已包含 libfranka 0.19.0。
 
 标定（Calibration）
-----------------------
+----------------------------------------
 
-手眼标定使用 ROS 的 `easy_handeye <https://github.com/IFL-CAMP/easy_handeye>`_ 完成。用于像素反投影定位的两台相机都需要相对右臂基座坐标系进行标定（两次 eye-on-base 标定）：``base_camera`` （第三人称 RealSense）和 ``d455_camera``。两台腕部相机（``left_wrist`` 和 ``right_wrist``）只用于观测：它们为 VLA 策略提供图像输入，为规划器提供近距离图像。RPent 不使用腕部相机进行像素反投影，因此它们不需要手眼标定。
+``base_camera`` 和 ``d455_camera`` 都需要标定到 **右臂基座**。可使用
+``calibration_tools/``，也可继续使用 ROS
+`easy_handeye <https://github.com/IFL-CAMP/easy_handeye>`_，最终加载格式均为 YAML。
+腕部相机在默认配置中仅用于观测；若使用腕部 RGBD 相机进行投影，需要按下文
+配置手眼标定和投影视图。
 
-easy_handeye 默认在 ``~/.ros/easy_handeye/`` 下为每台相机保存一个 YAML 文件。RPent 会直接加载这些文件：在机器人配置的 ``perception.calibration`` 下，将每台相机映射到对应的 easy_handeye YAML 即可（仓库中的 ``robots/dual_franka/config/example.yaml`` 已经包含该映射）：
+本工具支持 D435，已在 D435 配置下验证；其他型号和流配置尚未验证，不能保证
+仅修改参数即可使用。零畸变系数可直接使用；非零系数仅支持
+``distortion.brown_conrady``。不支持的非零畸变模型会拒绝采样，并显示模型和
+系数，不会自动转换或忽略畸变。
+
+**1. 准备环境**
+
+在相机节点激活已有的 RLinf Franka 运行环境，然后进入 RPent 仓库根目录，
+检查所需接口：
+
+.. code-block:: bash
+
+   source /absolute/path/to/franka-env/bin/activate
+   cd /absolute/path/to/RPent
+   PYTHONPATH=calibration_tools python -c "import numpy, scipy, yaml, pyrealsense2; from common import check_opencv; check_opencv()"
+
+检查包含 ChArUco、PnP、``calibrateHandEye`` 及所需方法常量。
+若现有环境不满足依赖，可另建标定环境，避免改动策略运行环境：
+
+.. code-block:: bash
+
+   python3 -m venv .venv-calibration
+   source .venv-calibration/bin/activate
+   pip install -r calibration_tools/requirements.txt pyrealsense2
+
+在右臂控制节点使用匹配机器人固件的 libfranka 开发库编译状态读取程序：
+
+.. code-block:: bash
+
+   cmake -S calibration_tools -B calibration_tools/build \
+     -DCMAKE_PREFIX_PATH=/absolute/path/to/libfranka/install
+   cmake --build calibration_tools/build --parallel
+
+产物为 ``calibration_tools/build/read_franka_state``，通过 ``readOnce()`` 读取末端
+位姿、关节速度和机器人状态并输出 JSON，不发送运动指令。Python 控制包的安装
+不保证包含此编译步骤所需的头文件和 CMake 配置。
+下文替换相机序列号、SSH 别名、读取程序绝对路径和机器人 IP；读取程序在本机时
+省略 ``--ssh-host``，需要指定共享库目录时追加 ``--library-dir /path/to/lib``。
+
+**2. 启动相机并采集**
+
+退出占用设备的程序，启动相机服务：
+
+.. code-block:: bash
+
+   python calibration_tools/raw_camera_service.py \
+     --base-serial BASE_SERIAL --d455-serial D455_SERIAL
+
+将 ChArUco 板固定在右臂末端，相机保持不动。默认板为 6×8 格、格边长 25 mm、
+标记边长 18 mm、DICT_4X4_100、非 legacy 布局。其他板可通过
+``--squares-x``、``--squares-y``、``--square-m``、``--marker-m`` 和
+``--dictionary`` 配置，长度单位为米。
+
+在同一相机节点另开终端，激活上一步选用的环境后运行：
+
+.. code-block:: bash
+
+   python calibration_tools/base_handeye_collect.py \
+     --arm right --camera-serial BASE_SERIAL \
+     --camera-url http://127.0.0.1:8765/raw/base \
+     --ssh-host robot-right \
+     --reader /absolute/path/to/read_franka_state --robot-ip ROBOT_IP \
+     --output calibration_tools/sessions/base-to-right
+
+打开 ``http://127.0.0.1:8767``，人工调整右臂，释放引导按钮并停稳后点击
+``Capture pose``。建议采集 20–30 个不同姿态，覆盖多个旋转轴；求解至少需要十组。
+工具只读取状态，不会移动机械臂。不传 ``--output`` 时，默认写入脚本所在目录下的
+``calibration_tools/sessions/``，与启动时的工作目录无关。
+
+完成后按 ``Ctrl+C`` 停止采集器。标定 D455 时重复上述命令，将序列号换成
+``D455_SERIAL``、URL 换成 ``/raw/d455``、输出目录换成
+``calibration_tools/sessions/d455-to-right``。每次采集使用新目录；D455 流配置
+需先确认符合上面的畸变模型支持范围。
+
+**3. 求解并导出**
+
+.. code-block:: bash
+
+   python calibration_tools/solve_base_handeye.py \
+     calibration_tools/sessions/base-to-right --arm right
+   python calibration_tools/export_dual_franka.py \
+     calibration_tools/sessions/base-to-right/base_camera_extrinsic_candidate.json \
+     --output calibration_tools/exports/base_to_right.yaml
+
+D455 使用同样步骤，将会话目录和输出文件改为 ``d455-to-right`` 和
+``d455_to_right.yaml``。检查会话中的 ``quality_report.json``，并通过独立实物
+测量验证候选外参；求解成功或导出 YAML 不代表精度已验证。导出不会覆盖已有文件。
+
+**4. 配置 RPent**
+
+在自己的 robot config 中填写经过验证的 YAML 路径：
 
 .. code-block:: yaml
 
    perception:
      calibration:
-       base_camera: ~/.ros/easy_handeye/third_to_right_base_calib_eye_on_base.yaml
-       d455_camera: ~/.ros/easy_handeye/d455_to_right_base_eye_on_base.yaml
+       base_camera: /absolute/path/to/base_to_right.yaml
+       d455_camera: /absolute/path/to/d455_to_right.yaml
 
-路径可以是绝对路径、以 ``~`` 开头的路径或相对路径；相对路径会相对启动 RPent 时的工作目录解析。
+通过下文的 ``--robot-config`` 加载配置。启动 RPent 前停止标定相机服务。
+保留并核对 ``perception.base_frames`` 和定位边界；本工具不会自动标定左右基座关系。
+
+腕部投影为可选功能。在示例配置中取消 ``perception.calibration`` 和
+``perception.projection_views`` 下腕部条目的注释，并配置具有对齐深度和 RGB
+内参的 RGBD 相机。每份腕部标定 YAML 顶层需包含 ``arm: left`` 或 ``arm: right``，
+设置 ``parameters.eye_on_hand: true``，并将
+``parameters.robot_effector_frame`` 设置为 ``left_ee_O_T_EE`` 或
+``right_ee_O_T_EE``。``transformation`` 将相机坐标转换到对应末端坐标系。
+RPent 将其与所选快照中的末端位姿组合；若位姿使用 ``left_base``，还会应用
+配置的基座变换，最终输出 ``right_base`` 坐标。快照 TCP 位姿必须对应 O_T_EE，
+并声明基座坐标系。默认的 Lumos 观测相机不会自动启用 RGBD 投影；选择腕部锚点前
+必须完成这些配置。
 
 开发配置
 --------
 
 启用机械臂运动前，请检查并修改仓库中的开发默认值：
 
-* ``robots/dual_franka/config/example.yaml`` 包含机器人身份（两台机器人 IP、相机序列号/类型、夹爪连接）、工作空间几何（目标位姿、安全边界）、easy_handeye YAML 映射（见上方标定说明）和感知定位边界 + base-frame 变换。
+* ``robots/dual_franka/config/example.yaml`` 包含机器人身份（两台机器人 IP、相机序列号/类型、夹爪连接）、工作空间几何（目标位姿、安全边界）、easy_handeye YAML 映射（见上方标定说明）和感知定位边界 + base-frame 变换。示例设置 ``realtime_config: ignore``；在 PREEMPT_RT 内核上可改为 ``enforce``。
 
 RPent 会将该机器人配置转换成内部双节点 RLinf cluster 和环境对象。如需使用其他文件，请传入 ``--robot-config /path/to/robot_config.yaml``。
 
@@ -274,6 +378,16 @@ API 部署需显式设置 ``RPENT_CODEX_API_KEY`` 和可选的 ``RPENT_CODEX_BAS
      --vla-model-path /path/to/checkpoint --vla-repo-id org/dataset
 
 支持 ``prompt <指令>``、``infer`` （不执行）、``step`` （重新推理并执行）、 ``run N`` （1–20 块）、``reset``、``quit``。初始化可能复位。执行前将输入与预测保存为 JSON/NPZ，拒绝无效观测或动作；执行结果不确定时禁止继续运动，需重启会话。 RPC 成功不代表任务成功。动作校验默认要求每块预测包含 20 步；如果 checkpoint 使用不同块长度，请通过 ``--expected-action-steps`` 显式指定匹配的值。外部模型服务使用标准 VLA 推理和健康检查 RPC。
+
+Flash 回放
+----------
+
+双臂使用共享的 :ref:`Franka Flash 流程 <franka-flash>`。生成任务卡时使用
+``--robot dual_franka --task dual_franka_t0``，回放时使用
+``--robot dual_franka --planner flash --task-id 0``，并提供双臂任务卡及配置。
+平移标注使用具有深度和有效标定的 ``base``、``d455``、``left_wrist`` 或
+``right_wrist`` 相机。移动原语通过 ``arm: left`` 或 ``arm: right`` 指定机械臂；
+左臂工作空间检查会把共享的右基座目标坐标转换到左基座坐标系。
 
 停止运行
 ------------
