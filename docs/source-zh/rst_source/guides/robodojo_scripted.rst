@@ -129,9 +129,9 @@ worker 只能获得公开的 RGB-D、标定、本体状态、任务指令及步�
 ``env.solve_ik_position(arm, xyz)`` 和 ``env.step(action)``。
 动作使用原生关节或末端执行器字段。worker 无法调用 ``solve_ik_pose``、reset
 或 evaluator RPC。stdout 专用于桥协议；请向 stderr 输出日志，或将产物写入
-``output``。允许导入的模块见 ``scripted/reward_audit.py``。
+``output``。配方可以按需导入模块；``scripted/reward_audit.py`` 只记录是否引用了reward 相关字段。
 
-``move_to`` 和 ``set_gripper`` 从 ``scripted/primitives.py`` 嵌入，配方无需也不应
+``move_to`` 和 ``set_gripper`` 嵌入的是 ``robots/robodojo/tools.py`` 为 planner 封装的同一份实现，配方无需也不应
 导入仓库模块。它们的第一个参数是具有 ``env``、``_last_obs`` 和
 ``_check_cancelled()`` 的对象；第二个参数未使用，可传 ``None``。
 以下示例只演示接口、打开右夹爪，不声称任务成功：

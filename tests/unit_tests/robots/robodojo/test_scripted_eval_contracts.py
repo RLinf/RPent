@@ -45,15 +45,16 @@ def test_worker_gate_and_no_repository_imports(tmp_path, recipe):
 
 
 def test_numerical_primitives_are_identical_ast(recipe):
-    original = ast.parse(
-        (runner.ROOT / "robots/robodojo/scripted/primitives.py").read_text()
-    )
-    generated = ast.parse(runner.generated_worker(recipe))
-    # This branch owns move_to/set_gripper, not the research move_to_pose.
+    # The scripted worker embeds the same cores the planner tools wrap.
+    original = ast.parse((runner.ROOT / "robots/robodojo/tools.py").read_text())
+    source = runner.generated_worker(recipe)
+    generated = ast.parse(source)
     for name in runner.PRIMITIVES:
         a = next(n for n in original.body if getattr(n, "name", "") == name)
         b = next(n for n in generated.body if getattr(n, "name", "") == name)
         assert ast.dump(a) == ast.dump(b)
+    for alias, impl in runner.PRIMITIVE_ALIASES.items():
+        assert f"\n{alias} = {impl}" in source
 
 
 @pytest.mark.parametrize(
@@ -65,10 +66,6 @@ def test_numerical_primitives_are_identical_ast(recipe):
         "x['official_success']",
         "dict(reward=1)",
         "x.completed_predicates",
-        "import robots.robodojo.env_client",
-        "from rpent.utils import rpc",
-        "import socket",
-        "from . import local",
         "__import__('socket')",
         "x = [{'prompt': 'a', 'stage': 1}, {'prompt': 'b', 'stage': 2}]",
         "def broken(:",

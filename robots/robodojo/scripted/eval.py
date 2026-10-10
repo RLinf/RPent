@@ -39,12 +39,19 @@ from rpent.utils.rpc.http_rpc import HttpRpcClient, _NumpyEncoder
 
 ROOT = Path(__file__).resolve().parents[3]
 logger = get_logger(__name__)
+# Numerical cores embedded into a frozen worker, and the recipe-facing
+# names they are bound to below. These are the same implementations the
+# planner tools wrap, so the two paths cannot drift apart.
 PRIMITIVES = {
     "_arm_ee_pose_key",
     "_arm_ee_joint_key",
     "_refresh_obs",
-    "move_to",
-    "set_gripper",
+    "_move_to_impl",
+    "_set_gripper_impl",
+}
+PRIMITIVE_ALIASES = {
+    "move_to": "_move_to_impl",
+    "set_gripper": "_set_gripper_impl",
 }
 SOURCE_DIRS = (
     "env",
@@ -98,11 +105,11 @@ def write(path: Path, obj: Any) -> None:
 
 
 def generated_worker(recipe: Path) -> str:
-    """Embed a recipe and unchanged current numerical primitives, without imports."""
+    """Embed a recipe and the shared numerical primitives, without imports."""
     tree = ast.parse(recipe.read_text())
     if not any(isinstance(n, ast.FunctionDef) and n.name == "main" for n in tree.body):
         raise ValueError("recipe must define main(env, output)")
-    primitives = ast.parse((Path(__file__).with_name("primitives.py")).read_text())
+    primitives = ast.parse((ROOT / "robots/robodojo/tools.py").read_text())
     extracted = [
         n
         for n in primitives.body
@@ -119,8 +126,12 @@ def generated_worker(recipe: Path) -> str:
     module = ast.Module(
         body=ast.parse(HEADER).body + extracted + tree.body, type_ignores=[]
     )
+    aliases = "".join(
+        f"\n{alias} = {impl}" for alias, impl in PRIMITIVE_ALIASES.items()
+    )
     return (
         ast.unparse(ast.fix_missing_locations(module))
+        + aliases
         + "\n\nif __name__ == '__main__':\n    main(Bridge(), Path(sys.argv[1]))\n"
     )
 

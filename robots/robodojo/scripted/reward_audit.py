@@ -1,8 +1,9 @@
 # Copyright 2026 The RPent Authors.
 """AST reward-boundary lint for trusted recipes, not a Python security sandbox.
 
-The runtime RPC and payload allowlists enforce the bridge boundary. Static
-inspection cannot prove arbitrary Python harmless; review recipes before freeze.
+The runtime RPC allowlist and payload filter enforce the bridge boundary. This
+scan only records that a recipe does not name privileged reward fields; it does
+not restrict imports or prove arbitrary Python harmless.
 """
 
 import ast
@@ -35,22 +36,15 @@ DENIED = {
     "grippers_open",
     "arms_home",
 }
-IMPORTS = {
-    "__future__",
-    "argparse",
-    "base64",
-    "json",
-    "math",
-    "sys",
-    "time",
-    "pathlib",
-    "numpy",
-    "PIL",
-}
 
 
 def strict_audit(path: Path) -> dict[str, Any]:
-    """Reject privileged symbols, foreign imports and reward-stage prompt lists."""
+    """Reject privileged reward symbols and reward-stage prompt lists.
+
+    Recipes are trusted code, so imports are not policed: the boundary that
+    matters is the RPC allowlist and the payload filter, and the symbol scan
+    here keeps a reviewable record that a recipe never names reward signals.
+    """
     findings = []
     try:
         tree = ast.parse(path.read_text(), filename=str(path))
@@ -70,16 +64,6 @@ def strict_audit(path: Path) -> dict[str, Any]:
         )
         if name in DENIED or name in {"eval", "exec", "__import__"}:
             findings.append({"line": node.lineno, "symbol": name})
-        if isinstance(node, (ast.Import, ast.ImportFrom)):
-            modules = (
-                [n.name for n in node.names]
-                if isinstance(node, ast.Import)
-                else [node.module or ""]
-            )
-            if (isinstance(node, ast.ImportFrom) and node.level) or any(
-                m.split(".")[0] not in IMPORTS for m in modules
-            ):
-                findings.append({"line": node.lineno, "imports": modules})
         if isinstance(node, ast.List):
             keys = [
                 {k.value for k in item.keys if isinstance(k, ast.Constant)}

@@ -144,9 +144,11 @@ It may call ``env.get_obs()``, ``env.get_status()``,
 ``env.solve_ik_position(arm, xyz)`` and ``env.step(action)``. Actions use native
 joint or end-effector keys. ``solve_ik_pose``, reset and evaluator RPCs are not
 available to the worker. Reserve stdout for the bridge; log to stderr or write
-under ``output``. The static import allowlist is in ``scripted/reward_audit.py``.
+under ``output``. Recipes may import what they need; ``scripted/reward_audit.py``
+only records references to privileged reward fields.
 
-``move_to`` and ``set_gripper`` are embedded from ``scripted/primitives.py``;
+``move_to`` and ``set_gripper`` embed the same cores that ``robots/robodojo/tools.py``
+wraps for the planner;
 do not import repository modules in a recipe. Their first argument is an object
 with ``env``, ``_last_obs`` and ``_check_cancelled()``; their second argument is
 unused and may be ``None``. For example, this interface-only recipe opens the
