@@ -26,6 +26,8 @@ import tempfile
 from pathlib import Path, PurePosixPath
 
 from rpent.evaluation import write_json_atomic
+from rpent.memory.source import selected_source
+from rpent.memory.source import source_record as build_source_record
 from rpent.planner.base import resolve_model
 from rpent.robots.robot_spec import RunConfig
 from rpent.utils.config import get_memory_dir
@@ -64,7 +66,7 @@ def validate_options(args: argparse.Namespace) -> None:
 
 
 def prepare_memory(args: argparse.Namespace, config: RunConfig) -> None:
-    """Bind the selected corpus to all consumers before task services start."""
+    """Bind the selected corpus and record its source before each task starts."""
     validate_options(args)
     profile = getattr(args, "memory_profile", None) or (
         "local" if getattr(args, "explore", False) else "hf"
@@ -84,12 +86,20 @@ def prepare_memory(args: argparse.Namespace, config: RunConfig) -> None:
             },
         )
         return
+    selection = selected_source(args, "libero")
     version = select_version(
         getattr(args, "memory_version", "auto"), model=args.model, planner=args.planner
     )
+    repo = None
+    revision = getattr(args, "memory_revision", None) or "main"
+    if selection is not None:
+        repo, revision, recorded_version = selection
+        if recorded_version is not None:
+            version = recorded_version
     root = sync_version(
         version=version,
-        revision=getattr(args, "memory_revision", None) or "main",
+        revision=revision,
+        repo_id=repo,
         cache_dir=get_memory_dir("libero") / ".versions",
         source_record=Path(config.output_dir) / "memory_source.json",
     )
@@ -199,7 +209,7 @@ def sync_version(
     *,
     version: str,
     cache_dir: Path,
-    repo_id: str = DEFAULT_REPO,
+    repo_id: str | None = None,
     revision: str = "main",
     output_dir: Path | None = None,
     source_record: Path | None = None,
@@ -218,7 +228,7 @@ def sync_version(
     if not isinstance(revision, str) or not revision.strip():
         raise ValueError("memory revision cannot be empty")
     pinned_commit = revision.lower() if _is_commit(revision) else None
-    repo_id = os.environ.get("RPENT_MEMORY_HF_REPO", repo_id)
+    repo_id = repo_id or os.environ.get("RPENT_MEMORY_HF_REPO", DEFAULT_REPO)
     key = hashlib.sha256(repo_id.encode()).hexdigest()[:20]
     base = Path(cache_dir).resolve() / key
     if source_record is not None:
@@ -243,7 +253,6 @@ def sync_version(
             "TRUE",
             "ON",
         )
-        resolution = "online"
         try:
             if offline:
                 raise ConnectionError("HF_HUB_OFFLINE")
@@ -280,7 +289,6 @@ def sync_version(
                 raise RuntimeError(
                     f"Cannot resolve {repo_id}@{revision}: no complete cache for {version}"
                 ) from cache_exc
-            resolution = "verified_cache"
             logger.warning(
                 "Memory Hub unavailable (%s); using verified %s",
                 type(exc).__name__,
@@ -355,19 +363,9 @@ def sync_version(
             receipt_bytes = receipt_path.read_bytes()
             receipt = json.loads(receipt_bytes)
         if source_record is not None:
-            provenance = {
-                "schema_version": 1,
-                "profile": "hf",
-                "repository": repo_id,
-                "requested_revision": revision,
-                "resolved_commit": sha,
-                "memory_version": version,
-                "resolution": resolution,
-                "prefix": receipt["prefix"],
-                "file_count": len(receipt["files"]),
-                "files_sha256": receipt["files"],
-                "receipt_sha256": hashlib.sha256(receipt_bytes).hexdigest(),
-            }
+            provenance = build_source_record(
+                repo_id, sha, "libero", memory_version=version
+            )
     logger.info("memory: %s @ %s, root=%s", version, sha, root)
     if output_dir is not None:
         destination = Path(output_dir).resolve()
@@ -386,9 +384,7 @@ def sync_version(
         root = destination
     if source_record is not None:
         source_record.parent.mkdir(parents=True, exist_ok=True)
-        write_json_atomic(
-            source_record, {**provenance, "local_dir": str(root.resolve())}
-        )
+        write_json_atomic(source_record, provenance)
     return root
 
 

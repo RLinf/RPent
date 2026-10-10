@@ -66,14 +66,13 @@ runs. It applies to the selected model-specific corpus and to subsequent
 Dashboard tasks, including tasks that select another model. Local-memory evaluation and exploration reject
 this remote-only option.
 
-Every LIBERO run writes ``memory_source.json`` in its output directory before
-planner or robot services start. HF records include the requested revision,
-resolved commit, repository, selected corpus version, local root, file count,
-per-file SHA-256 hashes and receipt checksum. ``resolution`` distinguishes
-online resolution from verified-cache fallback. A local-memory run records
-``profile: local`` and its directory without claiming a verified Hub commit.
-The record describes the verified startup source, not an attestation that files
-cannot change during execution. Use a fresh output directory for each run.
+Before each task starts, LIBERO writes a compact ``memory_source.json`` in the
+output directory. Dashboard shared services may already be running at that point.
+The record contains the robot, the HF dataset URL pinned to the resolved commit,
+and the selected corpus version. File hashes remain in the verified cache receipt;
+they are not duplicated in this portable record. Local runs record only a local
+directory and cannot be replayed as a verified HF source. Use a fresh output
+directory for each independent run.
 
 Only the chosen version is downloaded. LIBERO caches are isolated by repository,
 commit and version under ``memory/libero/.versions/``. Both the exact file set
@@ -90,8 +89,45 @@ When the Hub cannot be reached, a full commit SHA selects that exact cached
 commit, including one previously downloaded through a branch. A branch or tag
 selects the commit last successfully synchronized for that name, repository and
 corpus version on this machine; it may be older than the current Hub revision.
-Check ``memory_source.json`` for the commit actually used. To keep later runs on
-that same revision, pass its ``resolved_commit`` as ``--memory-revision``.
+Check ``memory_source.json`` for the commit actually used. To reuse that source in another run, pass the saved file with ``--memory-source``.
+
+Shared Source Selection and Replay
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+All robot CLI and Dashboard entry points accept ``--memory-repo`` and
+``--memory-source`` in HF evaluation mode. For example:
+
+.. code-block:: bash
+
+   rpent --robot libero --suite libero_goal_swap --task 1 --seed 1 \
+     --planner codex --model gpt-6-astra --reasoning-effort low \
+     --memory-repo https://huggingface.co/datasets/RLinf/RPent-memory@<commit-sha>
+
+   rpent --robot libero --suite libero_goal_swap --task 1 --seed 2 \
+     --planner codex --model gpt-6-astra --reasoning-effort low \
+     --memory-source /path/to/previous-run/memory_source.json
+
+``--memory-repo`` accepts a dataset ID or an HTTPS Hugging Face dataset URL,
+optionally followed by ``@revision`` (default ``main``). The repository must keep
+the selected robot's existing layout: LIBERO retains its versioned manifest and
+checksum verification; other robots load their ``<robot>/**`` subtree from the
+resolved Hub snapshot and retain their existing task/layout checks. Explicit
+sources fail if the requested corpus is unavailable, rather than using the
+robot's default memory directory. Arbitrary Git remotes are not supported.
+
+``--memory-source`` (also accepted as ``--memory_source``) reads schema version 2
+records. It pins the saved repository, commit and, for LIBERO, corpus version,
+independently of the next task's model. It rejects a different robot, local-only
+records, mutable revisions and conflicting source flags. Older schema version 1
+records are not replay inputs; use their recorded repository and resolved commit
+with ``--memory-repo``. Do not combine these flags with exploration, local memory,
+``--memory-revision``, or each other; replay also rejects an explicit
+``--memory-version``. An explicit source takes precedence over
+``RPENT_MEMORY_HF_REPO``. Downloads follow the host's existing HF authentication.
+
+The shared source parser and record format live in ``rpent/memory/source.py``.
+Robot-specific corpus verification remains with each robot. A pinned URL fixes
+source identity, not the rest of the execution environment.
 
 Standalone Download and Local Evaluation
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -109,7 +145,8 @@ Standalone Download and Local Evaluation
 ``sync`` prints the actual corpus root. ``--output-dir`` must not already
 exist. Exported bytes are checked against the verified receipt before the new
 directory is published. Optional ``--source-record`` writes the same HF source
-record, identifying the copied directory when exporting. It must be outside
+record. Its remote source can be replayed on another machine; the exported
+directory remains selectable separately with ``--memory-profile local --memory-dir``. It must be outside
 both the cache and the output corpus so it cannot invalidate the file manifest.
 ``--planner`` defaults to ``api``, matching ``rpent``; pass
 ``--planner codex`` to use ``CODEX_MODEL`` when ``--model`` is omitted. ``--memory-profile local`` never downloads memory; combining it or
@@ -127,8 +164,8 @@ The loader's ref pointers are scoped to repository, requested ref and corpus
 version. Offline branch/tag resolution validates the pointer's repository,
 version and commit format before verifying the snapshot. Full commit requests
 address the snapshot directly and do not use ref pointers, so a stale or modified
-pointer cannot redirect a pinned request. ``memory_source.json`` records both
-``requested_revision`` and ``resolved_commit`` to preserve that distinction.
+pointer cannot redirect a pinned request. The compact ``memory_source.json`` stores the resolved immutable source URL.
+The requested ref remains visible in the launch command and run log.
 
 The dataset's ``libero/README.md`` and ``libero/manifest.json`` document the
 versions, original source snapshots and published files. Each version's

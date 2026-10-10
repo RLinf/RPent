@@ -61,6 +61,12 @@
    * - ``--memory-dir``
      - ``—``
      - 本地记忆目录；与本地模式或探索一起使用。
+   * - ``--memory-repo``
+     - ``—``
+     - HF 数据集 ID 或 URL，可附加 @revision；仅用于评测。
+   * - ``--memory-source``
+     - ``—``
+     - 重用 schema version 2 的 memory_source.json 中固定的来源。
    * - ``--explore``
      - ``false``
      - 在支持的环境中启用探索。

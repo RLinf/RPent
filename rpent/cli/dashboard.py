@@ -131,9 +131,16 @@ def run_dashboard_session(
         and not getattr(args, "explore", False)
         and getattr(args, "memory_profile", "hf") == "hf"
     ):
-        MemoryManager(get_memory_dir(robot_spec.name)).sync(
-            remote_repo=robot_spec.memory_repo_id,
-        )
+        if getattr(args, "memory_repo", None) or getattr(args, "memory_source", None):
+            from rpent.memory.source import prepare_explicit_source
+
+            args.memory_dir = str(
+                prepare_explicit_source(args, robot_spec.name, session_root)
+            )
+        else:
+            MemoryManager(get_memory_dir(robot_spec.name)).sync(
+                remote_repo=robot_spec.memory_repo_id,
+            )
 
     controller = DashboardSessionController(
         state=state,

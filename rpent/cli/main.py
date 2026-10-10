@@ -199,6 +199,17 @@ def _build_argparser() -> argparse.ArgumentParser:
         help="Local memory root (environment default when omitted).",
     )
     ap.add_argument(
+        "--memory-repo",
+        default=None,
+        help="HF dataset owner/repo or https://huggingface.co/datasets/owner/repo@revision.",
+    )
+    ap.add_argument(
+        "--memory-source",
+        "--memory_source",
+        default=None,
+        help="Replay a memory_source.json from an earlier HF run.",
+    )
+    ap.add_argument(
         "--explore",
         action="store_true",
         help="Enable exploration and memory distillation.",
@@ -417,6 +428,9 @@ def main() -> int:
     from rpent.memory.loading import prepare_run_memory
 
     try:
+        from rpent.memory.source import validate_source_options
+
+        validate_source_options(args, robot_spec.name)
         if robot_spec.validate_args is not None:
             robot_spec.validate_args(args)
     except ValueError as exc:
