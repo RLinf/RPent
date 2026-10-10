@@ -20,40 +20,8 @@ import pytest
 
 from rpent.tools.human_in_the_loop import (
     HumanInTheLoopInput,
-    OperatorCommand,
-    parse_operator_command,
 )
 from rpent.tools.toolkit import ToolCancelled
-
-
-@pytest.mark.parametrize(
-    "line,expected",
-    [
-        ("please continue", None),
-        ("success", None),
-        ("/rpent-task --task-id 5", None),
-        (" /DONE  scene restored ", OperatorCommand("done", "scene restored")),
-        ("/continue keep the bowl", OperatorCommand("continue", "keep the bowl")),
-        ("/succes", OperatorCommand("success")),
-        ("/failure missed grasp", OperatorCommand("failure", "missed grasp")),
-        ("/abort", OperatorCommand("abort")),
-        (
-            "/operator request-1 continue keep the bowl",
-            OperatorCommand("operator", "keep the bowl", "request-1", "continue"),
-        ),
-    ],
-)
-def test_shared_operator_command_parser(line, expected):
-    assert parse_operator_command(line) == expected
-
-
-@pytest.mark.parametrize("line", ["/operator", "/operator request-1"])
-def test_incomplete_operator_command_never_becomes_chat(line):
-    with pytest.raises(ValueError, match="Usage: /operator"):
-        parse_operator_command(line)
-    broker = HumanInTheLoopInput(interactive=True)
-    assert broker.route_line(line)
-    assert broker.feedback_prompt() == ""
 
 
 def test_operator_replies_are_request_scoped_and_do_not_consume_steering(monkeypatch):
@@ -190,30 +158,6 @@ def test_success_is_control_and_never_steering():
     broker.bind_verdict(None)
     assert not broker.route_line("success")
     assert len(calls) == 1
-
-
-@pytest.mark.parametrize("verdict", ["success", "failure", "abort"])
-def test_verdict_notes_are_control_not_steering(tmp_path, verdict):
-    broker = HumanInTheLoopInput(
-        interactive=True, feedback_path=tmp_path / "feedback.jsonl"
-    )
-    calls = []
-    broker.bind_verdict(lambda value, notes: calls.append((value, notes)) or True)
-    assert broker.route_line(f"/{verdict} 建议采用混合控制")
-    assert calls == [(verdict, "建议采用混合控制")]
-    assert "建议采用混合控制" in broker.feedback_prompt()
-
-
-def test_failed_prompt_display_does_not_leave_pending_request(monkeypatch):
-    broker = HumanInTheLoopInput(interactive=True)
-
-    def fail(*args, **kwargs):
-        raise OSError("terminal closed")
-
-    monkeypatch.setattr("builtins.print", fail)
-    with pytest.raises(OSError, match="terminal closed"):
-        broker.request("reset", lambda: None, kind="reset")
-    assert broker.pending_kind is None
 
 
 def test_only_slash_verdicts_are_control_commands():

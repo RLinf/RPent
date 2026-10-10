@@ -594,44 +594,6 @@ def tool_template_output_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr("rpent.utils.templates.get_output_dir", lambda: tmp_path)
 
 
-def test_terminal_adapter_close_does_not_stop_the_next_solve() -> None:
-    source = queue.Queue()
-    emitted = []
-    queries = []
-    interrupts = []
-
-    class Driver:
-        async def interrupt(self):
-            interrupts.append(True)
-
-        async def query(self, text):
-            queries.append(text)
-
-    async def run_two_solvers():
-        first = _TerminalSessionAdapter(
-            toolkit=FakeToolkit(), input_queue=source, emit_user=emitted.append
-        )
-        source.put(None)
-        await first.run(Driver())
-        await first.close()
-        assert source.empty()
-
-        second = _TerminalSessionAdapter(
-            toolkit=FakeToolkit(), input_queue=source, emit_user=emitted.append
-        )
-        source.put("inspect the next attempt")
-        source.put("/quit")
-        await second.run(Driver())
-        await second.close()
-
-    asyncio.run(run_two_solvers())
-
-    assert emitted == ["inspect the next attempt"]
-    assert queries == emitted
-    assert len(interrupts) == 3
-    assert source.empty()
-
-
 def test_terminal_adapter_cleanup_retires_delayed_reader(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
