@@ -157,7 +157,7 @@ def _move_to_yaw_check(output_dir: Path, args: Namespace) -> dict[str, Any]:
         target_yaw = (initial_yaw + 0.6 + np.pi) % (2 * np.pi) - np.pi
         result = primitives.move_to(
             target_xyz.tolist(), target_yaw=target_yaw, gripper=1
-        )
+        ).data
         final_yaw = yaw(env.raw_obs()["robot0_eef_quat"])
         error = (target_yaw - final_yaw + np.pi) % (2 * np.pi) - np.pi
         if abs(error) >= 0.02 or result["final_dist_m"] >= 0.012:

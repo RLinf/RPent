@@ -14,17 +14,8 @@ RPent can control a two-node dual-Franka setup through an RLinf
 Install
 -------
 
-.. note::
-
-	The following guide installs only the Python side (the pinned RLinf
-	Franka integration and ``rpent-openpi``); it does **not** build the robot-node
-	control stack the two arms need. Before installing RPent, follow the RLinf
-	dual-Franka guide to set up both robot nodes: choose a compatible
-	``LIBFRANKA_VERSION``, build the ``franka-franky`` (franky/libfranka) control
-	stack, configure the PREEMPT_RT real-time kernel and permissions, and install
-	the GELLO teleoperation and gripper dependencies. See the `RLinf dual-Franka
-	guide
-	<https://rlinf.readthedocs.io/en/latest/rst_source/examples/embodied/dual_franka.html>`_.
+Install libfranka 0.19.0 first by following the `official quick-install guide
+<https://docs.ros.org/en/humble/p/libfranka/__README.html#quick-install>`_.
 
 Clone RPent and install its Python dependencies. If you already have the
 checkout, enter it and run ``uv sync``:
@@ -35,36 +26,145 @@ checkout, enter it and run ``uv sync``:
    cd RPent
    uv sync --extra franka --extra sam3
 
-This installs the pinned RLinf Franka integration, ``rpent-openpi``, Franka
-control dependencies, and SAM3 into ``.venv``.
+This installs RLinf ``release/v0.4``, ``rpent-openpi``, SAM3, and Franka
+camera, gripper, and teleoperation dependencies into ``.venv``. The included
+``franky-control`` wheel bundles libfranka 0.19.0.
 
 Calibration
 -----------
 
-Hand-eye calibration is performed with ROS
-`easy_handeye <https://github.com/IFL-CAMP/easy_handeye>`_. Calibrate both
-cameras used for pixel-to-world back-projection against the right arm's base
-frame (two eye-on-base calibrations): ``base_camera`` (the third-person
-RealSense) and ``d455_camera``.
-The two wrist cameras (``left_wrist`` and ``right_wrist``) are observation
-only — they feed the VLA policy views and the close-up planner snapshots, and
-RPent never back-projects pixels through them — so they need no hand-eye
-calibration.
+Both ``base_camera`` and ``d455_camera`` must be calibrated against the
+**right-arm base**. Use ``calibration_tools/`` or ROS
+`easy_handeye <https://github.com/IFL-CAMP/easy_handeye>`_; both export YAML.
+Wrist cameras are observation-only in the default configuration. To use a
+wrist RGBD camera for projection, configure its calibration and projection view
+as described below.
 
-Easy_handeye saves one YAML per camera under ``~/.ros/easy_handeye/`` by default.
-RPent loads those YAMLs directly: list them under ``perception.calibration`` in
-the robot config, mapping each camera to its easy_handeye YAML (the checked-in
-``robots/dual_franka/config/example.yaml`` already does this):
+The tools support D435 and have been validated with a D435 setup. Other models
+and stream configurations are unverified and may require more than parameter
+changes. Zero distortion coefficients are accepted; nonzero coefficients are
+supported only for ``distortion.brown_conrady``. Other nonzero models are
+rejected with their model and coefficients, without automatic conversion or
+ignoring distortion.
+
+**1. Prepare the environment**
+
+On the camera node, activate the existing RLinf Franka environment and check
+the required interfaces from the RPent repository root:
+
+.. code-block:: bash
+
+   source /absolute/path/to/franka-env/bin/activate
+   cd /absolute/path/to/RPent
+   PYTHONPATH=calibration_tools python -c "import numpy, scipy, yaml, pyrealsense2; from common import check_opencv; check_opencv()"
+
+This checks ChArUco, PnP, ``calibrateHandEye``, and the required method constants.
+If dependencies are missing, create a separate calibration environment:
+
+.. code-block:: bash
+
+   python3 -m venv .venv-calibration
+   source .venv-calibration/bin/activate
+   pip install -r calibration_tools/requirements.txt pyrealsense2
+
+On the right-arm control node, compile the reader against the libfranka
+development library matching the robot firmware:
+
+.. code-block:: bash
+
+   cmake -S calibration_tools -B calibration_tools/build \
+     -DCMAKE_PREFIX_PATH=/absolute/path/to/libfranka/install
+   cmake --build calibration_tools/build --parallel
+
+The executable ``calibration_tools/build/read_franka_state`` uses ``readOnce()``
+to output end-effector poses, joint velocities, and robot status as JSON. It
+sends no motion commands. Installing Python control packages does not guarantee
+the headers and CMake configuration needed to build this reader.
+Replace the camera serials, SSH alias, absolute reader path, and robot IP below.
+Omit ``--ssh-host`` for a local reader; add ``--library-dir /path/to/lib`` when
+its shared libraries need an explicit search path.
+
+**2. Start the camera and collect samples**
+
+Close programs using the cameras, then start the service:
+
+.. code-block:: bash
+
+   python calibration_tools/raw_camera_service.py \
+     --base-serial BASE_SERIAL --d455-serial D455_SERIAL
+
+Attach the ChArUco board rigidly to the right end effector and keep the camera
+stationary. Defaults are 6×8 squares, 25 mm square length, 18 mm marker length,
+DICT_4X4_100, and a non-legacy layout. Configure other boards with
+``--squares-x``, ``--squares-y``, ``--square-m``, ``--marker-m``, and
+``--dictionary``; lengths are in meters.
+
+In another terminal on the same camera node, activate the chosen environment:
+
+.. code-block:: bash
+
+   python calibration_tools/base_handeye_collect.py \
+     --arm right --camera-serial BASE_SERIAL \
+     --camera-url http://127.0.0.1:8765/raw/base \
+     --ssh-host robot-right \
+     --reader /absolute/path/to/read_franka_state --robot-ip ROBOT_IP \
+     --output calibration_tools/sessions/base-to-right
+
+Open ``http://127.0.0.1:8767``. Move the right arm manually, release the guidance
+button, wait until stationary, and click ``Capture pose``. Collect 20–30 distinct
+poses with rotations about multiple axes; fitting requires at least ten.
+The tool only reads state. Without ``--output``, sessions are saved under the
+script directory's ``calibration_tools/sessions/``, regardless of the working
+directory.
+
+Stop the collector with ``Ctrl+C``. For D455, repeat with ``D455_SERIAL``,
+``/raw/d455``, and ``calibration_tools/sessions/d455-to-right``. Use a new
+directory for each session; D455 stream compatibility must be checked against
+the supported distortion models above.
+
+**3. Fit and export**
+
+.. code-block:: bash
+
+   python calibration_tools/solve_base_handeye.py \
+     calibration_tools/sessions/base-to-right --arm right
+   python calibration_tools/export_dual_franka.py \
+     calibration_tools/sessions/base-to-right/base_camera_extrinsic_candidate.json \
+     --output calibration_tools/exports/base_to_right.yaml
+
+For D455, use ``d455-to-right`` and ``d455_to_right.yaml`` instead. Inspect
+``quality_report.json`` and validate the candidate against independent physical
+measurements. Successful fitting or YAML export does not establish accuracy.
+Export does not overwrite existing files.
+
+**4. Configure RPent**
+
+List the independently validated YAMLs in your robot configuration:
 
 .. code-block:: yaml
 
    perception:
      calibration:
-       base_camera: ~/.ros/easy_handeye/third_to_right_base_calib_eye_on_base.yaml
-       d455_camera: ~/.ros/easy_handeye/d455_to_right_base_eye_on_base.yaml
+       base_camera: /absolute/path/to/base_to_right.yaml
+       d455_camera: /absolute/path/to/d455_to_right.yaml
 
-Paths may be absolute, ``~``-prefixed, or relative; relative paths resolve
-against the working directory RPent is launched from.
+Load this configuration with ``--robot-config`` below. Stop the calibration
+camera service before starting RPent. Preserve and verify
+``perception.base_frames`` and localization bounds; these tools do not calibrate
+the relationship between the two arm bases.
+
+Wrist projection is optional. Uncomment the wrist entries under
+``perception.calibration`` and ``perception.projection_views`` in the example
+configuration, and configure RGBD cameras with aligned depth and color intrinsics.
+Each wrist calibration YAML needs ``arm: left`` or ``arm: right`` at the top
+level, ``parameters.eye_on_hand: true``, and
+``parameters.robot_effector_frame: left_ee_O_T_EE`` or ``right_ee_O_T_EE``.
+Its ``transformation`` maps camera coordinates into that end-effector frame.
+RPent combines it with the selected snapshot's end-effector pose and, for poses
+in ``left_base``, the configured base-frame transform, to produce ``right_base``
+points. Snapshot TCP poses must represent O_T_EE and declare their base frame.
+The default Lumos observation cameras are not automatically enabled for RGBD
+projection; selecting a wrist anchor requires this configuration.
 
 Development Configuration
 -------------------------
@@ -74,7 +174,9 @@ Review and edit the checked-in development defaults before enabling motion:
 * ``robots/dual_franka/config/example.yaml`` contains the machine identity (both
 	robot IPs, camera serials/types, gripper connections), workspace geometry
 	(target poses and safety limits), the easy_handeye YAML mapping (see
-	Calibration), and perception localization bounds + base-frame transform.
+	Calibration), and perception localization bounds + base-frame transform. It
+	sets ``realtime_config: ignore``; use ``enforce`` on a PREEMPT_RT kernel to
+	refuse non-real-time operation.
 
 RPent translates this robot-focused schema into the internal two-node RLinf
 cluster and environment objects. To use a different file, pass
@@ -402,6 +504,17 @@ execution blocks further motion until restart. RPC success is not task success.
 Action validation expects 20 steps per prediction chunk. For a checkpoint with a
 different chunk length, set ``--expected-action-steps`` explicitly to match it.
 External model servers use the standard VLA prediction and health-check RPCs.
+
+Flash replay
+------------
+
+Dual Franka uses the shared :ref:`Franka Flash workflow <franka-flash>`.
+Generate with ``--robot dual_franka --task dual_franka_t0`` and replay with
+``--robot dual_franka --planner flash --task-id 0``. Use a dual-arm plan and
+robot configuration. Translation annotations name ``base``, ``d455``,
+``left_wrist`` or ``right_wrist`` with depth and valid calibration.
+Primitive moves specify ``arm: left`` or ``arm: right``; left-arm workspace
+checks convert the shared right-base target into the left-base frame.
 
 Stop the Run
 ------------

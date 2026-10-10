@@ -1,0 +1,89 @@
+# RPent example config for a dual-arm YAM rig. Copy outside the repository and
+# replace machine-specific values. Task name, language, seed and step budget
+# are env_server CLI flags, not fields in this YAML.
+robot:
+  left_follower:
+    channel: can0
+    arm_type: yam
+    gripper_type: flexible_4310
+    ee_mass: null
+    gripper_limits: null
+    gravity_comp_factor: [1.0, 1.1, 1.1, 1.2, 1.0, 1.0]
+    grav_comp_kd: null
+    coulomb_friction: null
+    use_coulomb_friction: true
+    enable_auto_recovery: false
+  right_follower:
+    channel: can1
+    arm_type: yam
+    gripper_type: flexible_4310
+    ee_mass: null
+    gripper_limits: null
+    gravity_comp_factor: [1.0, 1.1, 1.1, 1.2, 1.0, 1.0]
+    grav_comp_kd: null
+    coulomb_friction: null
+    use_coulomb_friction: true
+    enable_auto_recovery: false
+
+cameras:
+  - name: top
+    serial: REPLACE_TOP_SERIAL
+    resolution: [640, 480]
+    fps: 30
+  - name: left
+    serial: REPLACE_LEFT_WRIST_SERIAL
+    resolution: [640, 480]
+    fps: 30
+  - name: right
+    serial: REPLACE_RIGHT_WRIST_SERIAL
+    resolution: [640, 480]
+    fps: 30
+
+# Site measurements. Configure a table guard and calibration before motion.
+extrinsics_path: null
+table_z: null
+require_table_guard: false
+operator_receipt_path: /tmp/rpent_yam_operator_receipt.json
+
+# This site may override the defaults from geometry.py with measured 2x6
+# joint limits, table_surface, and collision_guard settings.
+collision_guard:
+  enabled: false
+  clearance_m: 0.01
+
+# These poses are intentionally disabled until measured at the actual rig.
+# env_server refuses to start without an enabled, valid park_on_close pose.
+reset:
+  enabled: false
+  left_qpos: null
+  right_qpos: null
+  duration_s: 8.0
+  max_joint_delta: 0.02
+  tolerance: 0.04
+  timeout_s: 60.0
+park_on_close:
+  enabled: false
+  left_qpos: null
+  right_qpos: null
+  duration_s: 8.0
+  max_joint_delta: 0.02
+  tolerance: 0.04
+  timeout_s: 60.0
+
+# Optional bounded measured-position servo. Set enabled true only with site
+# tuning; the other fields are validated by JointServoConfig.
+joint_servo:
+  enabled: false
+
+# Primitive-control settings are flattened by runtime_config.load_config.
+control:
+  max_joint_delta_per_step: 0.05
+  feedback_timeout_s: 0.25
+  camera_frame_timeout_s: 1.0
+  camera_warmup_frames: 15
+  table_clearance_m: 0.03
+  path_joint_delta: 0.02
+  qpos_static_tolerance_rad: 0.001
+  max_tracking_error_rad: null
+  tracking_wait_s: 0.0
+  control_diagnostics: false

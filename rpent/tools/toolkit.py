@@ -15,159 +15,117 @@
 """Base class for agent tools.
 
 ``Toolkit`` is the agent-facing tool container. Subclasses can register tools
-during ``__init__`` via :meth:`Toolkit.add_tool`; the planner calls the tools through :meth:`Toolkit.get_tools_spec` and
-:meth:`Toolkit.execute_tool`.
+during ``__init__`` via :meth:`Toolkit.add_tool`; planners discover declarations
+through :meth:`Toolkit.list_tools` and dispatch through :meth:`Toolkit.execute_tool`.
 """
 
 from __future__ import annotations
 
-import base64
 import json
 import threading
 import time
 import traceback
-from collections.abc import Callable
-from dataclasses import dataclass, field
-from functools import partial
-from typing import TYPE_CHECKING, Any, ClassVar
+from collections.abc import Iterable
+from dataclasses import dataclass, field, replace
+from typing import TYPE_CHECKING, Any
+
+from pydantic import ValidationError
 
 from rpent.dashboard.events import DashboardEventSink, StepRecordEvent
+from rpent.tools.base import Tool, ToolResult, iter_tools
+from rpent.utils.logging import get_logger
 from rpent.utils.templates import substitute
+
+logger = get_logger("toolkit")
 
 if TYPE_CHECKING:
     from rpent.memory.manager import MemoryManager
     from rpent.session import EnvState, StepRecord
 
 
-@dataclass(slots=True)
+@dataclass(eq=False)
 class _ToolOperation:
+    readonly: bool
     cancel_event: threading.Event = field(default_factory=threading.Event)
-    done_event: threading.Event = field(default_factory=threading.Event)
+    done: bool = False
+
+
+class _Scheduler:
+    """Share readonly calls; run queued exclusive calls in arrival order.
+
+    A plain RWLock only provides mutual exclusion. Tool calls also need ordered
+    writers, cancellation of queued and active calls, and pause/close with drain.
+    One condition keeps admission and these lifecycle transitions synchronized.
+    """
+
+    def __init__(self) -> None:
+        self.condition = threading.Condition()
+        self.pending: list[_ToolOperation] = []
+        self.active: set[_ToolOperation] = set()
+        self.paused = False
+        self.closed = False
+
+    def acquire(self, *, readonly: bool) -> _ToolOperation:
+        with self.condition:
+            if self.closed:
+                raise ToolCancelled("Toolkit is closed.")
+            if self.paused:
+                raise ToolCancelled("Tool calls are paused.")
+            call = _ToolOperation(readonly=readonly)
+            self.pending.append(call)
+            self.condition.notify_all()
+            try:
+                while True:
+                    if call.cancel_event.is_set():
+                        raise ToolCancelled("tool operation interrupted")
+                    exclusive = next(
+                        (item for item in self.pending if not item.readonly), None
+                    )
+                    if (
+                        readonly
+                        and exclusive is None
+                        and all(item.readonly for item in self.active)
+                    ) or (not readonly and not self.active and call is exclusive):
+                        self.pending.remove(call)
+                        self.active.add(call)
+                        return call
+                    self.condition.wait()
+            except BaseException:
+                self.pending.remove(call)
+                call.done = True
+                self.condition.notify_all()
+                raise
+
+    def release(self, call: _ToolOperation) -> None:
+        with self.condition:
+            self.active.remove(call)
+            call.done = True
+            self.condition.notify_all()
+
+    def cancel(self, *, close: bool = False) -> list[_ToolOperation]:
+        with self.condition:
+            self.paused = True
+            self.closed |= close
+            calls = [*self.pending, *self.active]
+            for call in calls:
+                call.cancel_event.set()
+            self.condition.notify_all()
+            return calls
+
+    def wait(self, calls: list[_ToolOperation]) -> None:
+        with self.condition:
+            self.condition.wait_for(lambda: all(call.done for call in calls))
+
+    def resume(self) -> None:
+        with self.condition:
+            if self.active or self.pending:
+                raise RuntimeError("Wait for tool cleanup before resuming.")
+            if not self.closed:
+                self.paused = False
 
 
 class ToolCancelled(Exception):
     """Raised when an environment reaches a safe cancellation boundary."""
-
-
-def _truncate_utf8(text: str, max_bytes: int, *, marker: str = "") -> str:
-    """Truncate text to a valid UTF-8 byte budget, including its marker."""
-    encoded = text.encode("utf-8")
-    if len(encoded) <= max_bytes:
-        return text
-    if max_bytes <= 0:
-        return ""
-
-    marker_bytes = marker.encode("utf-8")
-    if len(marker_bytes) > max_bytes:
-        return marker_bytes[:max_bytes].decode("utf-8", errors="ignore")
-    body = encoded[: max_bytes - len(marker_bytes)].decode(
-        "utf-8",
-        errors="ignore",
-    )
-    return body + marker
-
-
-def readonly(func):
-    """Mark a tool handler as not advancing environment state.
-
-    Tool handlers capture a fresh observation (:meth:`Toolkit.get_env_state`)
-    by default. Apply this marker to observational and file/IO tools that do
-    not move the robot or otherwise change the environment.
-    """
-    func._readonly = True
-    return func
-
-
-def _is_readonly(handler: Callable[..., Any]) -> bool:
-    """Whether ``handler`` was marked with :func:`readonly`."""
-    target = handler
-    while isinstance(target, partial):
-        target = target.func
-    target = getattr(target, "__func__", target)
-    return bool(getattr(target, "_readonly", False))
-
-
-@dataclass
-class ToolResult:
-    """Result of executing one tool call.
-
-    Carries the raw result dict (for logging and finish-signal detection)
-    alongside the Anthropic-shaped content blocks the LLM consumes.
-    """
-
-    name: str
-    result: dict[str, Any]
-    call_id: str | None = None
-
-    content_blocks: list[dict[str, Any]] = field(
-        default_factory=list, init=False, repr=False
-    )
-    is_finish: bool = field(default=False, init=False)
-
-    #: Max bytes of the text block emitted in :attr:`content_blocks`.
-    MAX_TEXT_BYTES_IN_RESULT: ClassVar[int] = 60000
-
-    def __post_init__(self) -> None:
-        self.content_blocks = self._build_content_blocks()
-        self.is_finish = bool(
-            isinstance(self.result, dict) and self.result.get("_finish")
-        )
-
-    def _build_content_blocks(self) -> list[dict[str, Any]]:
-        """Build Anthropic-shaped content blocks (text + optional images).
-
-        Strips image byte payloads from the text block and emits them as
-        separate base64 image blocks so the LLM receives the state images as
-        multimodal content.
-        """
-        result = self.result
-        if not isinstance(result, dict):
-            return [
-                {
-                    "type": "text",
-                    "text": _truncate_utf8(
-                        str(result),
-                        self.MAX_TEXT_BYTES_IN_RESULT,
-                    ),
-                }
-            ]
-
-        result_for_text = dict(result)
-        image = result_for_text.pop("_image_bytes", None)
-        image_cam = result_for_text.pop("_image_cam_bytes", None)
-        image_nav = result_for_text.pop("_image_nav_bytes", None)
-        image_wrist = result_for_text.pop("_image_wrist_bytes", None)
-        text = json.dumps(result_for_text, indent=2, default=str)
-        text = _truncate_utf8(
-            text,
-            self.MAX_TEXT_BYTES_IN_RESULT,
-            marker="\n[truncated]",
-        )
-
-        blocks: list[dict[str, Any]] = [{"type": "text", "text": text}]
-
-        def _add_image_bytes(data_bytes: bytes) -> None:
-            data = base64.b64encode(data_bytes).decode("utf-8")
-            blocks.append(
-                {
-                    "type": "image",
-                    "source": {
-                        "type": "base64",
-                        "media_type": "image/png",
-                        "data": data,
-                    },
-                }
-            )
-
-        if image:
-            _add_image_bytes(image)
-        if image_cam:
-            _add_image_bytes(image_cam)
-        if image_nav:
-            _add_image_bytes(image_nav)
-        if image_wrist:
-            _add_image_bytes(image_wrist)
-        return blocks
 
 
 class Toolkit:
@@ -188,51 +146,48 @@ class Toolkit:
         state: Any = None,
         memory: "MemoryManager",
     ) -> None:
-        self._tools: dict[
-            str,
-            tuple[dict[str, Any], Callable[..., Any]],
-        ] = {}
+        self._tools: dict[str, Tool] = {}
         self._dashboard_events = dashboard_events
         self._state = state
         self._memory = memory
-        self._operation_lock = threading.Lock()
-        self._active_operation: _ToolOperation | None = None
+        self._scheduler = _Scheduler()
         self._register_common_tools()
 
     # ------------------------------------------------------------------
     # Registration
     # ------------------------------------------------------------------
 
-    def add_tool(
-        self,
-        name: str,
-        spec: dict[str, Any],
-        handler: Callable[..., Any],
-    ) -> None:
-        """Register one tool under ``name`` with its schema and handler.
+    def add_tool(self, tool: Tool, *, replace: bool = False) -> None:
+        """Register a bound declaration, explicitly opting into replacement.
 
         Args:
-            name: Tool name as the LLM sees it (e.g. ``"read_text_file"``).
-            spec: Anthropic-shaped tool schema dict (``name``,
-                ``description``, ``input_schema``).
-            handler: Callable invoked with the tool's input kwargs; returns
-                a result dict. Decorate read-only handlers with
-                :func:`readonly`; all other handlers capture state.
+            tool: A decorated function or bound instance method.
+            replace: Replace an existing declaration, for robot-specific tools
+                or execution guards such as an exploration finish check.
         """
-        self._tools[name] = (spec, handler)
+        if tool._unbound_method:
+            raise TypeError("Register an instance's tool method, not an unbound method")
+        if tool.name in self._tools and not replace:
+            raise ValueError(f"Tool already registered: {tool.name}")
+        self._tools[tool.name] = tool
+
+    def add_tools(self, tools: Iterable[Tool]) -> None:
+        """Register declarations collected from explicitly chosen tool owners."""
+        for tool in tools:
+            self.add_tool(tool)
 
     def _register_common_tools(self) -> None:
-        """Register the file/IO tools shared by every run."""
-        from rpent.tools import common
+        from rpent.tools.common import CommonTools
 
-        memory_bindings = self._memory.get_common_tool_bindings()
-        for spec in common.TOOLS_SPEC:
-            name = spec["name"]
-            binding = memory_bindings.get(name)
-            if binding is None:
-                binding = (spec, common.TOOL_HANDLERS[name])
-            tool_spec, handler = binding
-            self.add_tool(name, tool_spec, handler)
+        self._memory.check_layout()
+        for declaration in iter_tools(CommonTools(memory=self._memory)):
+            if declaration.name in {"read_text_file", "list_dir"}:
+                declaration = replace(
+                    declaration,
+                    description=declaration.description
+                    + self._memory.file_tool_description,
+                )
+            self.add_tool(declaration)
 
     # ------------------------------------------------------------------
     # Planner-facing API
@@ -250,80 +205,110 @@ class Toolkit:
             raise RuntimeError("toolkit has no environment state")
         return self._state
 
-    def get_tools_spec(self) -> list[dict[str, Any]]:
-        """Return the tool schemas the LLM sees."""
-        return substitute([spec for spec, _ in self._tools.values()])
+    def list_tools(self) -> tuple[Tool, ...]:
+        """Return the native declarations with run-specific descriptions resolved."""
+        return tuple(
+            replace(tool, description=substitute(tool.description))
+            for tool in self._tools.values()
+        )
 
     def execute_tool(self, name: str, input_dict: dict[str, Any]) -> ToolResult:
-        """Dispatch a tool call to its registered handler."""
-        entry = self._tools.get(name)
-        if entry is None:
-            return ToolResult(name=name, result={"error": f"unknown tool: {name}"})
-        _, handler = entry
+        """Validate one call, execute it, and capture state for advancing tools."""
+        tool = self._tools.get(name)
+        if tool is None:
+            return ToolResult(data={"error": f"unknown tool: {name}"})
+        try:
+            parameters = tool.args_schema.model_validate(input_dict, strict=True)
+        except ValidationError as exc:
+            return ToolResult(
+                data={
+                    "error": f"bad arguments for {name}",
+                    "errors": exc.errors(
+                        include_url=False,
+                        include_context=False,
+                        include_input=False,
+                    ),
+                }
+            )
+        kwargs = {
+            field: getattr(parameters, field) for field in type(parameters).model_fields
+        }
 
-        with self._operation_lock:
-            if self._active_operation is not None:
-                return ToolResult(
-                    name=name,
-                    result={"error": "another tool operation is still active"},
-                )
-            operation = _ToolOperation()
-            self._active_operation = operation
+        try:
+            operation = self._scheduler.acquire(readonly=tool.readonly)
+        except ToolCancelled as exc:
+            return ToolResult(
+                data={"error": str(exc), "code": "tool_cancelled", "interrupted": True}
+            )
 
         try:
             started = time.perf_counter()
-            failed = False
             try:
-                result = handler(**input_dict)
-            except TypeError as e:
-                result = {
-                    "error": f"bad arguments for {name}: {e}",
-                    "got": input_dict,
-                }
-                failed = True
-            except ToolCancelled as e:
-                result = {
-                    "error": str(e),
-                    "code": "tool_cancelled",
-                    "interrupted": True,
-                }
-                failed = True
-            except Exception as e:
-                result = {"error": str(e), "traceback": traceback.format_exc()}
-                failed = True
+                self.raise_if_cancelled()
+                native = tool(**kwargs)
+            except TypeError as exc:
+                native = ToolResult(
+                    data={
+                        "error": f"bad arguments for {name}: {exc}",
+                        "got": input_dict,
+                    }
+                )
+            except ToolCancelled as exc:
+                native = ToolResult(
+                    data={
+                        "error": str(exc),
+                        "code": "tool_cancelled",
+                        "interrupted": True,
+                    }
+                )
+            except Exception as exc:
+                logger.exception("Tool %s failed", name)
+                native = ToolResult(
+                    data={"error": str(exc), "traceback": traceback.format_exc()}
+                )
 
-            if not _is_readonly(handler):
+            if not tool.readonly:
                 elapsed_s = round(time.perf_counter() - started, 2)
-                result_dict = result if isinstance(result, dict) else {"value": result}
+                result_dict = native.to_dict()
                 command = {"action": name, **input_dict}
                 record: StepRecord | None = None
                 try:
-                    captured = self.get_env_state(
+                    observed = self.get_env_state(
                         command=command,
                         result=result_dict,
                         elapsed_s=elapsed_s,
                     )
-                except Exception as e:
-                    captured = result_dict
-                    captured["state_capture_error"] = str(e)
-                    captured.setdefault(
-                        "error", f"failed to capture state after {name}: {e}"
-                    )
-                    captured.setdefault("traceback", traceback.format_exc())
+                except Exception as exc:
+                    logger.exception("State capture failed after %s", name)
+                    native.data["state_capture_error"] = str(exc)
+                    if not native.is_error:
+                        native.data["error"] = (
+                            f"failed to capture state after {name}: {exc}"
+                        )
+                    native.data.setdefault("traceback", traceback.format_exc())
                 else:
                     record = self._state.latest_record()
-                result = captured
-                if failed:
-                    for key, value in result_dict.items():
-                        result.setdefault(key, value)
+                    if native.is_error:
+                        for key, value in native.data.items():
+                            observed.data.setdefault(key, value)
+                        observed.data["error"] = native.data["error"]
+                    native = ToolResult(
+                        data=observed.data,
+                        images=native.images + observed.images,
+                    )
                 if record is not None:
                     self._publish_step(record)
 
-            return ToolResult(name=name, result=result)
+            try:
+                json.dumps(native.to_dict(), allow_nan=False, default=str)
+            except (TypeError, ValueError) as exc:
+                native = ToolResult(
+                    data={"error": f"Tool result serialization failed: {exc}"},
+                    images=native.images,
+                )
+            return native
         finally:
-            with self._operation_lock:
-                self._active_operation = None
-                operation.done_event.set()
+            self._scheduler.release(operation)
 
     def _publish_step(self, record: StepRecord) -> None:
         """Publish one recorded environment step to the dashboard sink."""
@@ -340,7 +325,7 @@ class Toolkit:
         command: dict[str, Any],
         result: dict[str, Any],
         elapsed_s: float,
-    ) -> dict[str, Any]:
+    ) -> ToolResult:
         """Capture and return the observation produced by a stateful tool."""
         raise NotImplementedError
 
@@ -349,23 +334,27 @@ class Toolkit:
     # ------------------------------------------------------------------
 
     def cancel_active_and_wait(self) -> None:
-        """Request cancellation and wait for the active tool to return."""
-        with self._operation_lock:
-            operation = self._active_operation
-            if operation is None:
-                return
-            operation.cancel_event.set()
-        operation.done_event.wait()
+        """Pause admission, cancel queued and active calls, and wait for cleanup."""
+        self._scheduler.wait(self._scheduler.cancel())
+
+    def resume_calls(self) -> None:
+        """Reopen admission after interrupted calls and their workers have drained."""
+        self._scheduler.resume()
 
     def raise_if_cancelled(self) -> None:
         """Raise at an environment-defined safe cancellation boundary."""
-        with self._operation_lock:
-            operation = self._active_operation
-        if operation is not None and operation.cancel_event.is_set():
-            raise ToolCancelled("tool operation interrupted")
+        with self._scheduler.condition:
+            if any(call.cancel_event.is_set() for call in self._scheduler.active):
+                raise ToolCancelled("tool operation interrupted")
 
     def close(self) -> None:
-        """Release the robot-side primitives / servers at end of run. Default: no-op."""
+        """Close admission and drain calls before subclasses release resources."""
+        self._scheduler.cancel(close=True)
+        self.cancel_active_and_wait()
+
+    def exploration_continuation(self, *, explicit: bool = False) -> str | None:
+        """Return a rule-checked continuation at an idle planner boundary."""
+        return None
 
     def solved(self) -> bool:
         """Whether the env has reported the task complete.

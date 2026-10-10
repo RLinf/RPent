@@ -198,16 +198,6 @@ The terminal shows server startup, planner conversation, and tool calls. After t
 
 Inspect the final state with ``view_env_state(step=-1)``. Its top-level ``terminated`` value is the native success result; ``finish`` ends planning. See :doc:`../guides/dashboard` for live monitoring.
 
-Scripted position and yaw targets
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-``move_to`` preserves orientation by default. When ``target_yaw`` is supplied,
-completion requires both the position tolerance and ``yaw_tol`` (default
-``0.02`` radians), including when XYZ is already at the target. The step budget
-and environment termination still bound execution. The result includes
-``final_yaw_error_rad``, the remaining signed, wrapped yaw error, for this mode.
-Use ``move_pose`` when a pitch target is also needed.
-
 .. _libero-exploration:
 
 .. _exploration-and-memory:

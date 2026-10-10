@@ -57,7 +57,7 @@ def primitives(env):
 @pytest.mark.parametrize("target_xyz", [[0, 0, 0], [0.05, 0, 0]])
 def test_move_to_finishes_yaw_even_after_position_converges(target_xyz):
     env = MotionEnv()
-    result = primitives(env).move_to(target_xyz, target_yaw=0.8)
+    result = primitives(env).move_to(target_xyz, target_yaw=0.8).data
     assert len(env.actions) > 1
     assert abs(env.yaw - 0.8) < 0.02
     assert np.linalg.norm(env.xyz - np.asarray(target_xyz)) < 0.012
@@ -66,7 +66,7 @@ def test_move_to_finishes_yaw_even_after_position_converges(target_xyz):
 
 def test_move_to_takes_shortest_yaw_path_across_pi():
     env = MotionEnv(yaw=np.pi - 0.03)
-    result = primitives(env).move_to([0, 0, 0], target_yaw=-np.pi + 0.03)
+    result = primitives(env).move_to([0, 0, 0], target_yaw=-np.pi + 0.03).data
     assert len(env.actions) == 1
     assert env.actions[0][5] > 0
     assert abs(result["final_yaw_error_rad"]) < 0.02
@@ -79,7 +79,7 @@ def test_position_only_move_does_not_read_orientation():
         pytest.fail("Position-only control must not require quaternion observations")
 
     env.raw_obs = unexpected
-    result = primitives(env).move_to([0.05, 0, 0])
+    result = primitives(env).move_to([0.05, 0, 0]).data
     assert result["final_dist_m"] < 0.012
     assert all(action[5] == 0 for action in env.actions)
     assert "final_yaw_error_rad" not in result
@@ -88,17 +88,17 @@ def test_position_only_move_does_not_read_orientation():
 @pytest.mark.parametrize("terminal", ["terminated", "truncated"])
 def test_yaw_control_stops_at_native_terminal_flags(terminal):
     env = MotionEnv(terminal=terminal)
-    result = primitives(env).move_to([0, 0, 0], target_yaw=0.8)
+    result = primitives(env).move_to([0, 0, 0], target_yaw=0.8).data
     assert len(env.actions) == 1
     assert result[terminal] is True
 
 
 def test_yaw_control_respects_budget_and_requested_tolerance():
     env = MotionEnv()
-    result = primitives(env).move_to([0, 0, 0], target_yaw=0.8, max_steps=2)
+    result = primitives(env).move_to([0, 0, 0], target_yaw=0.8, max_steps=2).data
     assert len(env.actions) == 2
     assert result["final_yaw_error_rad"] > 0.5
-    result = primitives(env).move_to([0, 0, 0], target_yaw=0.21, yaw_tol=0.03)
+    result = primitives(env).move_to([0, 0, 0], target_yaw=0.21, yaw_tol=0.03).data
     assert len(env.actions) == 2
     assert abs(result["final_yaw_error_rad"]) < 0.03
 

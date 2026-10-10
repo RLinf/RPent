@@ -43,6 +43,7 @@ _HARDWARE_KEYS = {
     "right_gripper_type",
     "left_gripper_connection",
     "right_gripper_connection",
+    "realtime_config",
     "left_controller_node_rank",
     "right_controller_node_rank",
     "node_rank",
@@ -65,6 +66,14 @@ def test_hardware_keys_are_valid_rlinf_fields(fake_rlinf_realworld_modules):
     valid = {field.name for field in dataclasses.fields(DualFrankaConfig)}
     unknown = sorted(_HARDWARE_KEYS - valid)
     assert not unknown, f"hardware keys not in DualFrankaConfig: {unknown}"
+
+
+def test_runtime_config_sets_realtime_mode(fake_rlinf_realworld_modules):
+    from robots.dual_franka.runtime_config import load_runtime_config
+
+    runtime = load_runtime_config(None, task_description="test task")
+    hardware = runtime.rlinf.cluster.node_groups[0].hardware.configs[0]
+    assert hardware["realtime_config"] == "ignore"
 
 
 def test_controller_carries_calibration_mapping_for_ray_worker(

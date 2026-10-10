@@ -60,7 +60,7 @@
 
 将成功轨迹导出为 LeRobot 数据集后，可以在独立的 RLinf 环境中进行 Pi0.5 监督微调。RPent 负责采集和导出；模型训练、日志和权重保存由 RLinf 管理。
 
-环境安装和训练配置请参考 `RLinf OpenPI_RLinf 监督微调指南 <https://rlinf.readthedocs.io/zh-cn/latest/rst_source/examples/embodied/sft_openpi_rlinf.html>`_。训练数据路径应指向导出的 LeRobot 数据集目录，即包含 ``meta/info.json`` 的目录，而不是原始轨迹目录。
+环境安装和训练配置请参考 `RLinf OpenPI 监督微调指南 <https://rlinf.readthedocs.io/zh-cn/latest/rst_source/examples/embodied/sft_openpi.html>`_。训练数据路径应指向导出的 LeRobot 数据集目录，即包含 ``meta/info.json`` 的目录，而不是原始轨迹目录。
 
 先准备支持 LIBERO LeRobot 数据加载的 RLinf 环境，并将 Pi0.5 LIBERO SFT 配置保存为 ``/path/to/sft-config/libero_pi05_sft.yaml``，再运行：
 

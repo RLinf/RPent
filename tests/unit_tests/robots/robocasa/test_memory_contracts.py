@@ -29,6 +29,8 @@ from robots.robocasa.prompt_bundle import system_prompt
 from robots.robocasa.robot_spec import _parse_config
 from rpent.memory import MemoryManager
 from rpent.prompt.utils import format_prompt
+from rpent.tools import ToolResult
+from rpent.tools.common import CommonTools
 
 
 def _args(
@@ -95,11 +97,11 @@ def test_results_corpus_is_readable_through_memory_tool(monkeypatch, tmp_path):
     audit.write_text('{"success": true}\n')
 
     manager = MemoryManager(root=memory_root)
-    bindings = manager.get_common_tool_bindings()
-    read_text_file = bindings["read_text_file"][1]
-    write_text_file = bindings["write_text_file"][1]
+    file_tools = CommonTools(memory=manager)
+    read_text_file = file_tools.read_text_file
+    write_text_file = file_tools.write_text_file
 
-    assert read_text_file(path=str(audit))["content"] == '{"success": true}\n'
+    assert read_text_file(path=str(audit)).data["content"] == '{"success": true}\n'
     with pytest.raises(PermissionError, match="writing to memory is denied"):
         write_text_file(path=str(audit), content="{}\n")
 
@@ -164,9 +166,9 @@ def test_all_50_tasks_share_prompt_and_tool_selection(tmp_path, make_corpus):
         assert str(root / GLOBAL_FILE) in prompt
         assert "{{" not in prompt
         manager = RoboCasaMemoryManager(selection)
-        read = manager.get_common_tool_bindings()["read_text_file"][1]
+        read = CommonTools(memory=manager).read_text_file
         for name in selection.selected:
-            assert "content" in read(path=str(root / name))
+            assert "content" in read(path=str(root / name)).data
         assert not manager.unread_files
         other_task = "OpenDrawer" if task != "OpenDrawer" else "StirVegetables"
         with pytest.raises(PermissionError, match="current task/global selection"):
@@ -183,12 +185,12 @@ def test_optional_layers_and_stale_files_are_not_substituted(tmp_path, make_corp
     selection = TaskMemory.load(root, "ArrangeTea")
     assert selection.selected == ("global/GLOBAL_MEMORY.md",)
     manager = RoboCasaMemoryManager(selection)
-    bindings = manager.get_common_tool_bindings()
+    file_tools = CommonTools(memory=manager)
     with pytest.raises(PermissionError):
-        bindings["read_text_file"][1](path=str(stale))
-    assert bindings["list_dir"][1](path=str(root))["files"] == ["global"]
+        file_tools.read_text_file(path=str(stale))
+    assert file_tools.list_dir(path=str(root)).data["files"] == ["global"]
     with pytest.raises(PermissionError):
-        bindings["list_dir"][1](path=str(root / "task-specific"))
+        file_tools.list_dir(path=str(root / "task-specific"))
     empty = make_corpus(tmp_path / "empty", tasks=(), global_memory=False)
     with pytest.raises(ValueError, match="task-global requires"):
         TaskMemory.load(empty, "ArrangeTea")
@@ -230,27 +232,25 @@ def test_reads_are_optional_and_files_are_rechecked(tmp_path, make_corpus):
     manager = RoboCasaMemoryManager(TaskMemory.load(root, "OpenDrawer"))
     toolkit = RoboCasaToolkit.__new__(RoboCasaToolkit)
     Toolkit.__init__(toolkit, dashboard_events=NullDashboardEventSink(), memory=manager)
-    read = manager.get_common_tool_bindings()["read_text_file"][1]
+    read = CommonTools(memory=manager).read_text_file
     path = root / manager.selection.selected[0]
     read(path=str(path), max_chars=1)
     assert manager.unread_files
     assert toolkit.execute_tool(
         "finish", {"status": "stuck", "summary": "test"}
-    ).is_finish
+    ).data.get("_finish", False)
     for name in manager.selection.selected:
         read(path=str(root / name))
     assert toolkit.execute_tool(
         "finish", {"status": "stuck", "summary": "test"}
-    ).is_finish
+    ).data.get("_finish", False)
     path.write_text("changed after initial validation")
     with pytest.raises(ValueError, match="changed during this run"):
         read(path=str(path))
     # A subsequent run uses updated memory without editing a manifest or code.
     updated = RoboCasaMemoryManager(TaskMemory.load(root, "OpenDrawer"))
     assert (
-        updated.get_common_tool_bindings()["read_text_file"][1](path=str(path))[
-            "content"
-        ]
+        CommonTools(memory=updated).read_text_file(path=str(path)).data["content"]
         == "changed after initial validation"
     )
 
@@ -274,8 +274,10 @@ def test_on_demand_reads_do_not_block_actions_or_finish(
         memory=manager,
         state=EnvState(tmp_path / "run"),
     )
-    monkeypatch.setattr(toolkit, "get_env_state", lambda **kwargs: kwargs["result"])
-    read = manager.get_common_tool_bindings()["read_text_file"][1]
+    monkeypatch.setattr(
+        toolkit, "get_env_state", lambda **kwargs: ToolResult(data=kwargs["result"])
+    )
+    read = CommonTools(memory=manager).read_text_file
     if reading == "partial":
         read(path=str(root / manager.selection.selected[0]), max_chars=1)
     elif reading == "complete":
@@ -286,14 +288,27 @@ def test_on_demand_reads_do_not_block_actions_or_finish(
         ("move_to", {"xyz": [0.1, 0.2, 0.9]}),
         ("rldx_skill", {"prompt": "Open the drawer"}),
     ):
-        handler = Mock(return_value={"executed": name})
-        handler._readonly = False
-        toolkit.add_tool(name, {"name": name}, handler)
-        assert toolkit.execute_tool(name, arguments).result == {"executed": name}
-        handler.assert_called_once_with(**arguments)
+        from robots.robocasa.primitives import RoboCasaPrimitives
+
+        handler = Mock(return_value=ToolResult(data={"executed": name}))
+        toolkit.add_tool(getattr(RoboCasaPrimitives, name).with_handler(handler))
+        assert toolkit.execute_tool(name, arguments).data == {"executed": name}
+        defaults = (
+            {"gripper": "hold", "step_clip": 0.02, "max_steps": 200, "tol": 0.012}
+            if name == "move_to"
+            else {
+                "base_clip": None,
+                "max_chunks": 70,
+                "force_reset": False,
+                "n_action_steps": 8,
+                "settle_patience": 999,
+                "settle_eps": 0.012,
+            }
+        )
+        handler.assert_called_once_with(**arguments, **defaults)
     assert toolkit.execute_tool(
         "finish", {"status": "stuck", "summary": "test"}
-    ).is_finish
+    ).data.get("_finish", False)
 
 
 def test_memory_policy_flag_is_not_available(tmp_path):
@@ -536,10 +551,10 @@ def test_native_merge_output_shares_prompt_tool_and_audit_selection(
     assert "StirVegetables" not in prompt
     assert "OpenDrawer_pretrain" not in prompt
     manager = RoboCasaMemoryManager(selection, output_dir=tmp_path / "run")
-    bindings = manager.get_common_tool_bindings()
+    file_tools = CommonTools(memory=manager)
     for name in expected:
         assert (
-            bindings["read_text_file"][1](path=str(root / name))["content"]
+            file_tools.read_text_file(path=str(root / name)).data["content"]
             == (root / name).read_text()
         )
     assert not manager.unread_files
@@ -552,8 +567,8 @@ def test_native_merge_output_shares_prompt_tool_and_audit_selection(
         root / "task-family/task-family_robocasa_target_tStirVegetables.md",
     ):
         with pytest.raises(PermissionError):
-            bindings["read_text_file"][1](path=str(path))
-    assert set(bindings["list_dir"][1](path=str(root))["files"]) == {
+            file_tools.read_text_file(path=str(path))
+    assert set(file_tools.list_dir(path=str(root)).data["files"]) == {
         "global",
         "task-family",
         "task-specific",
@@ -647,14 +662,15 @@ def test_exploration_can_start_empty_and_keeps_inbox_access(tmp_path, monkeypatc
     assert instance.mode == "exploration"
     assert instance.attempts_per_session == 5
     assert instance.state_output_dir == tmp_path / "attempt"
-    bindings = instance.memory.get_common_tool_bindings()
+    file_tools = CommonTools(memory=instance.memory)
     inbox_file = root / "_internal/inbox/OpenDrawer_target_s1/wip/notes.md"
-    bindings["write_text_file"][1](path=str(inbox_file), content="Offline note")
+    file_tools.write_text_file(path=str(inbox_file), content="Offline note")
     assert (
-        bindings["read_text_file"][1](path=str(inbox_file))["content"] == "Offline note"
+        file_tools.read_text_file(path=str(inbox_file)).data["content"]
+        == "Offline note"
     )
     with pytest.raises(PermissionError):
-        bindings["write_text_file"][1](
+        file_tools.write_text_file(
             path=str(root / "global/direct.md"), content="Denied"
         )
     prompt = robot_spec.get_robot_spec().prompts.render(

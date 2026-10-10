@@ -22,6 +22,7 @@ import pytest
 import yaml
 
 from rpent.memory import MemoryManager
+from rpent.tools.common import CommonTools
 
 
 def _write_memory_leaf(
@@ -107,7 +108,7 @@ def test_unmigrated_layers_fail_before_reading_or_publishing(tmp_path, legacy):
     (root / legacy / "note.md").write_text("legacy note")
     manager = MemoryManager(root)
     with pytest.raises(ValueError, match="legacy memory directory"):
-        manager.get_common_tool_bindings()
+        manager.check_layout()
     with pytest.raises(ValueError, match="legacy memory directory"):
         manager.merge_memory(cell_tag="cell", run_state_dir=tmp_path, solved=True)
     assert not (root / "_internal").exists()
@@ -121,9 +122,9 @@ def test_renamed_layers_are_readable_and_stale_cache_paths_are_denied(
     for name in ("task_only", "suite", "task-specific", "task-family", "global"):
         (root / name).mkdir(parents=True)
         (root / name / "note.md").write_text(name)
-    read = MemoryManager(root).get_common_tool_bindings()["read_text_file"][1]
+    read = CommonTools(memory=MemoryManager(root)).read_text_file
     for name in ("task-specific", "task-family", "global"):
-        assert read(path=str(root / name / "note.md"))["content"] == name
+        assert read(path=str(root / name / "note.md")).data["content"] == name
     for name in ("task_only", "suite"):
         with pytest.raises(PermissionError, match="reading this memory path is denied"):
             read(path=str(root / name / "note.md"))

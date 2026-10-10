@@ -16,17 +16,24 @@
 
 from __future__ import annotations
 
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import numpy as np
 import pytest
 
 from robots.libero import robot_spec, toolkit
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory import MemoryManager
 from rpent.robots import RunConfig
-from rpent.tools.toolkit import Toolkit, _is_readonly
+from rpent.robots.components.sam3_client import Sam3Result
+from rpent.session import EnvState
+from rpent.tools import Toolkit, ToolResult
+from rpent.tools.common import CommonTools
 from rpent.utils import templates
 
 COMMON_TOOLS = {"read_text_file", "write_text_file", "list_dir", "finish"}
@@ -52,14 +59,14 @@ def _record(step_idx: int = 0) -> SimpleNamespace:
 
 
 def _tool_names(robot_toolkit: Toolkit) -> set[str]:
-    return {spec["name"] for spec in robot_toolkit.get_tools_spec()}
+    return {definition.name for definition in robot_toolkit.list_tools()}
 
 
 def _readonly_names(robot_toolkit: Toolkit) -> set[str]:
     return {
-        name
-        for name, (_, handler) in robot_toolkit._tools.items()
-        if _is_readonly(handler)
+        definition.name
+        for definition in robot_toolkit.list_tools()
+        if definition.readonly
     }
 
 
@@ -102,16 +109,12 @@ def test_toolkit_factory_configures_memory_access_by_mode(
 
     assert evaluation.memory.root == memory_dir.resolve()
     assert exploration.memory.root == memory_dir.resolve()
-    evaluation_write = evaluation.memory.get_common_tool_bindings()["write_text_file"][
-        1
-    ]
-    exploration_write = exploration.memory.get_common_tool_bindings()[
-        "write_text_file"
-    ][1]
+    evaluation_write = CommonTools(memory=evaluation.memory).write_text_file
+    exploration_write = CommonTools(memory=exploration.memory).write_text_file
     own_draft = memory_dir / "_internal" / "inbox" / config.recipe_tag / "draft.md"
     with pytest.raises(PermissionError, match="writing to memory is denied"):
         evaluation_write(str(own_draft), "draft")
-    assert exploration_write(str(own_draft), "draft")["bytes_written"] == 5
+    assert exploration_write(str(own_draft), "draft").data["bytes_written"] == 5
     assert captured[0]["mode"] == "evaluation"
     assert captured[1]["mode"] == "exploration"
     assert captured[1]["attempts_per_session"] == 2
@@ -122,6 +125,9 @@ def test_toolkit_modes_construct_with_fake_primitives(
     tmp_path: Path,
     fake_single_arm_primitives: type[Any],
 ) -> None:
+    fake_single_arm_primitives = fake_single_arm_primitives.for_robot(
+        toolkit.libero_tools.LiberoPrimitives
+    )
     dumped: list[Any] = []
     monkeypatch.setattr(
         templates, "default_variables", lambda: {"output_dir": "/offline/output"}
@@ -162,8 +168,8 @@ def test_toolkit_modes_construct_with_fake_primitives(
     assert _readonly_names(evaluation) == COMMON_TOOLS | {
         "view_env_state",
         "view_camera_meta",
-        "segment",
         "back_project",
+        "segment",
     }
     assert _readonly_names(exploration) == _readonly_names(evaluation)
     assert len(dumped) == 2
@@ -181,21 +187,109 @@ def test_toolkit_modes_construct_with_fake_primitives(
     refused = exploration.execute_tool(
         "finish", {"status": "failure", "summary": "first attempt"}
     )
-    assert refused.result["error"] == "finish refused"
-    assert refused.is_finish is False
+    assert refused.data["error"] == "finish refused"
+    assert refused.data.get("_finish", False) is False
 
-    exploration.get_env_state = lambda *, command, result, elapsed_s: dict(result)
+    exploration.get_env_state = lambda *, command, result, elapsed_s: ToolResult(
+        data=dict(result)
+    )
     assert (
-        exploration.execute_tool("reset", {"reason": "new approach"}).result["attempt"]
+        exploration.execute_tool("reset", {"reason": "new approach"}).data["attempt"]
         == 2
     )
     assert (
-        exploration.execute_tool("reset", {"reason": "third approach"}).result[
-            "attempt"
-        ]
+        exploration.execute_tool("reset", {"reason": "third approach"}).data["attempt"]
         == 3
     )
     allowed = exploration.execute_tool(
         "finish", {"status": "failure", "summary": "budget spent"}
     )
-    assert allowed.is_finish is True
+    assert allowed.data.get("_finish", False) is True
+
+
+def test_parallel_segments_preserve_artifacts_without_capturing_state(
+    tmp_path, monkeypatch
+):
+    state = EnvState(tmp_path / "state")
+    with state.record_step(state={}):
+        state.save("agentview.png", np.zeros((4, 4, 3), dtype=np.uint8))
+        state.save("agentview_world.npz", np.ones((4, 4, 3)))
+    calls = 4
+    inference_barrier = threading.Barrier(calls, timeout=5)
+    projection_barrier = threading.Barrier(calls, timeout=5)
+    project = toolkit.libero_tools._mask_to_world
+
+    def project_together(mask, world_map):
+        projection_barrier.wait()
+        return project(mask, world_map)
+
+    monkeypatch.setattr(toolkit.libero_tools, "_mask_to_world", project_together)
+
+    def segment(image, **kwargs):
+        # Every inference must enter before any returns: segment stays readonly.
+        inference_barrier.wait()
+        return Sam3Result(found=True, mask=np.ones((4, 4), dtype=bool), score=1.0)
+
+    primitives = toolkit.libero_tools.LiberoPrimitives(
+        env=object(),
+        model=object(),
+        sam3_client=SimpleNamespace(segment=segment),
+        check_cancelled=lambda: None,
+    )
+    robot_toolkit = Toolkit(
+        dashboard_events=NullDashboardEventSink(),
+        state=state,
+        memory=MemoryManager(tmp_path / "memory"),
+    )
+    definition = primitives.segment
+    robot_toolkit.add_tool(definition.with_handler(partial(definition, state=state)))
+    captured = []
+
+    def capture(**kwargs):
+        captured.append(kwargs)
+        return ToolResult(data={})
+
+    robot_toolkit.get_env_state = capture
+    prompts = [f"object {index}" for index in range(calls)]
+    with ThreadPoolExecutor(max_workers=calls) as pool:
+        results = list(
+            pool.map(
+                lambda prompt: robot_toolkit.execute_tool(
+                    "segment", {"prompt": prompt}
+                ),
+                prompts,
+            )
+        )
+
+    assert captured == []
+    assert len(state.records()) == 1
+    assert all(not result.is_error for result in results)
+    assert {result.data["segment_artifact"] for result in results} == {
+        f"segment_{index:02d}.json" for index in range(calls)
+    }
+    for prompt, result in zip(prompts, results):
+        artifact = state.load(result.data["segment_artifact"], step=0)
+        assert artifact["prompt"] == prompt
+        assert artifact["source_step"] == 0
+        assert result.images == [
+            state.load_bytes(result.data["overlay_artifact"], step=0)
+        ]
+
+    # A failed JSON write must not release an index for another call to reuse.
+    monkeypatch.setattr(toolkit.libero_tools, "_mask_to_world", project)
+    primitives._sam3_client.segment = lambda *args, **kwargs: Sam3Result(
+        found=True, mask=np.ones((4, 4), dtype=bool), score=1.0
+    )
+    save = state.save
+
+    def fail_segment_save(name, value, **kwargs):
+        if name == f"segment_{calls:02d}.json":
+            return None
+        return save(name, value, **kwargs)
+
+    monkeypatch.setattr(state, "save", fail_segment_save)
+    failed = robot_toolkit.execute_tool("segment", {"prompt": "failed"})
+    assert failed.data["code"] == "segment_artifact_save_failed"
+    result = robot_toolkit.execute_tool("segment", {"prompt": "next"})
+    assert result.data["segment_artifact"] == f"segment_{calls + 1:02d}.json"
+    assert state.load(result.data["segment_artifact"], step=0)["prompt"] == "next"
