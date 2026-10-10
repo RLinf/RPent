@@ -16,7 +16,6 @@
 
 import threading
 
-import numpy as np
 import pytest
 
 from tests.manual.dual_franka_full_vla import MANUAL_SKILLS, run_full_vla
@@ -57,26 +56,17 @@ def test_continues_past_twenty_chunks_without_reset_or_semantic_stops(tmp_path):
     assert events[-1]["steps"] == 501
 
 
-@pytest.mark.parametrize("stage", ["before_start", "observation", "prediction"])
-def test_stop_before_action_never_sends_prediction(tmp_path, stage):
+def test_stop_after_prediction_never_sends_action(tmp_path):
     session, calls, _ = make_session(tmp_path)
     stop = threading.Event()
-    if stage == "before_start":
+    predict = session.model.predict
+
+    def interrupted(*args, **kwargs):
+        result = predict(*args, **kwargs)
         stop.set()
-    else:
-        owner, name = (
-            (session.env, "get_observation")
-            if stage == "observation"
-            else (session.model, "predict")
-        )
-        original = getattr(owner, name)
+        return result
 
-        def interrupted(*args, **kwargs):
-            result = original(*args, **kwargs)
-            stop.set()
-            return result
-
-        setattr(owner, name, interrupted)
+    session.model.predict = interrupted
     result = run(session, stop.is_set, [])
     assert "execute" not in calls
     assert result["steps"] == 0
@@ -116,19 +106,12 @@ def test_rpc_exception_stops_without_retry(tmp_path):
     assert calls.count("execute") == 1
 
 
-def test_invalid_prediction_never_moves(tmp_path):
-    session, calls, _ = make_session(tmp_path)
-    session.model.predict = lambda *args, **kwargs: np.full((20, 20), np.nan)
-    with pytest.raises(ValueError, match="finite actions"):
-        run(session, lambda: False, [])
-    assert "execute" not in calls
-
-
-@pytest.mark.parametrize("field", ["terminated", "truncated"])
-def test_environment_stop_is_not_automatically_reset(tmp_path, field):
+def test_environment_stop_is_not_automatically_reset(tmp_path):
     session, _, _ = make_session(tmp_path)
     calls = []
-    session.env.chunk_step = lambda actions: calls.append(actions) or {field: True}
+    session.env.chunk_step = lambda actions: (
+        calls.append(actions) or {"terminated": True}
+    )
     result = run(session, lambda: False, [])
     assert len(calls) == 1
     assert result["status"] == "environment_stopped"

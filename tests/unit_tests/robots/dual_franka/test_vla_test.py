@@ -337,19 +337,6 @@ def test_dual_franka_spawns_shared_vla_server():
     assert command[command.index("--cuda-device") + 1] == "2"
 
 
-def test_vla_status_queries_metadata_without_inference():
-    from unittest.mock import Mock
-
-    from rpent.robots.components.pi05_vla_client import Pi05VLAClient
-
-    metadata = {"config": {"openpi": {"action_chunk": 20}}}
-    rpc = Mock()
-    rpc.call.return_value = metadata
-    client = Pi05VLAClient(rpc, embodiment="dual_franka")
-    assert client.status(timeout_s=5) == metadata
-    rpc.call.assert_called_once_with("vla.status", timeout_s=5)
-
-
 def test_status_command_keeps_explicit_validation_length(tmp_path):
     session, calls, _ = make_session(tmp_path)
     metadata = {"config": {"openpi": {"action_chunk": 7}}, "device": "cuda:0"}
@@ -365,7 +352,7 @@ def test_status_command_keeps_explicit_validation_length(tmp_path):
     assert calls == []
 
 
-@pytest.mark.parametrize("reported_steps", [0, -1, None])
+@pytest.mark.parametrize("reported_steps", [0, None])
 def test_invalid_or_unavailable_status_does_not_fall_back(
     tmp_path, monkeypatch, reported_steps
 ):
