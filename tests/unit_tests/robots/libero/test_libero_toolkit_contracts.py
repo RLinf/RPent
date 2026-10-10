@@ -16,16 +16,22 @@
 
 from __future__ import annotations
 
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import numpy as np
 import pytest
 
 from robots.libero import robot_spec, toolkit
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory import MemoryManager
 from rpent.robots import RunConfig
+from rpent.robots.components.sam3_client import Sam3Result
+from rpent.session import EnvState
 from rpent.tools import Toolkit, ToolResult
 from rpent.tools.common import CommonTools
 from rpent.utils import templates
@@ -162,8 +168,8 @@ def test_toolkit_modes_construct_with_fake_primitives(
     assert _readonly_names(evaluation) == COMMON_TOOLS | {
         "view_env_state",
         "view_camera_meta",
-        "segment",
         "back_project",
+        "segment",
     }
     assert _readonly_names(exploration) == _readonly_names(evaluation)
     assert len(dumped) == 2
@@ -199,3 +205,91 @@ def test_toolkit_modes_construct_with_fake_primitives(
         "finish", {"status": "failure", "summary": "budget spent"}
     )
     assert allowed.data.get("_finish", False) is True
+
+
+def test_parallel_segments_preserve_artifacts_without_capturing_state(
+    tmp_path, monkeypatch
+):
+    state = EnvState(tmp_path / "state")
+    with state.record_step(state={}):
+        state.save("agentview.png", np.zeros((4, 4, 3), dtype=np.uint8))
+        state.save("agentview_world.npz", np.ones((4, 4, 3)))
+    calls = 4
+    inference_barrier = threading.Barrier(calls, timeout=5)
+    projection_barrier = threading.Barrier(calls, timeout=5)
+    project = toolkit.libero_tools._mask_to_world
+
+    def project_together(mask, world_map):
+        projection_barrier.wait()
+        return project(mask, world_map)
+
+    monkeypatch.setattr(toolkit.libero_tools, "_mask_to_world", project_together)
+
+    def segment(image, **kwargs):
+        # Every inference must enter before any returns: segment stays readonly.
+        inference_barrier.wait()
+        return Sam3Result(found=True, mask=np.ones((4, 4), dtype=bool), score=1.0)
+
+    primitives = toolkit.libero_tools.LiberoPrimitives(
+        env=object(),
+        model=object(),
+        sam3_client=SimpleNamespace(segment=segment),
+        check_cancelled=lambda: None,
+    )
+    robot_toolkit = Toolkit(
+        dashboard_events=NullDashboardEventSink(),
+        state=state,
+        memory=MemoryManager(tmp_path / "memory"),
+    )
+    definition = primitives.segment
+    robot_toolkit.add_tool(definition.with_handler(partial(definition, state=state)))
+    captured = []
+
+    def capture(**kwargs):
+        captured.append(kwargs)
+        return ToolResult(data={})
+
+    robot_toolkit.get_env_state = capture
+    prompts = [f"object {index}" for index in range(calls)]
+    with ThreadPoolExecutor(max_workers=calls) as pool:
+        results = list(
+            pool.map(
+                lambda prompt: robot_toolkit.execute_tool(
+                    "segment", {"prompt": prompt}
+                ),
+                prompts,
+            )
+        )
+
+    assert captured == []
+    assert len(state.records()) == 1
+    assert all(not result.is_error for result in results)
+    assert {result.data["segment_artifact"] for result in results} == {
+        f"segment_{index:02d}.json" for index in range(calls)
+    }
+    for prompt, result in zip(prompts, results):
+        artifact = state.load(result.data["segment_artifact"], step=0)
+        assert artifact["prompt"] == prompt
+        assert artifact["source_step"] == 0
+        assert result.images == [
+            state.load_bytes(result.data["overlay_artifact"], step=0)
+        ]
+
+    # A failed JSON write must not release an index for another call to reuse.
+    monkeypatch.setattr(toolkit.libero_tools, "_mask_to_world", project)
+    primitives._sam3_client.segment = lambda *args, **kwargs: Sam3Result(
+        found=True, mask=np.ones((4, 4), dtype=bool), score=1.0
+    )
+    save = state.save
+
+    def fail_segment_save(name, value, **kwargs):
+        if name == f"segment_{calls:02d}.json":
+            return None
+        return save(name, value, **kwargs)
+
+    monkeypatch.setattr(state, "save", fail_segment_save)
+    failed = robot_toolkit.execute_tool("segment", {"prompt": "failed"})
+    assert failed.data["code"] == "segment_artifact_save_failed"
+    result = robot_toolkit.execute_tool("segment", {"prompt": "next"})
+    assert result.data["segment_artifact"] == f"segment_{calls + 1:02d}.json"
+    assert state.load(result.data["segment_artifact"], step=0)["prompt"] == "next"

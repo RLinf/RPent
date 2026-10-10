@@ -126,6 +126,7 @@ class RoboDojoToolkit(Toolkit):
 
     def close(self) -> None:
         """Flush the env server's episode videos before the daemon is stopped."""
+        super().close()
         self._primitives.env.close()
 
     def solved(self) -> bool:

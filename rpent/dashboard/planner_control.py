@@ -20,6 +20,7 @@ import asyncio
 from collections.abc import Callable
 
 from rpent.dashboard.interaction import DashboardInteractionPort, PlannerSessionDriver
+from rpent.planner.base import cancel_and_wait
 
 
 class DashboardPlannerControl:
@@ -30,6 +31,7 @@ class DashboardPlannerControl:
         *,
         interaction: DashboardInteractionPort,
         cancel_active_and_wait: Callable[[], None],
+        resume_calls: Callable[[], None],
         emit_user: Callable[[str], None],
         emit_initial_user: Callable[[], None],
         defer_message_ack: bool = False,
@@ -37,12 +39,14 @@ class DashboardPlannerControl:
     ) -> None:
         self._interaction = interaction
         self._cancel_active_and_wait = cancel_active_and_wait
+        self._resume_calls = resume_calls
         self._emit_user = emit_user
         self._emit_initial_user = emit_initial_user
         self._defer_message_ack = defer_message_ack
         self._submit_while_busy = submit_while_busy
         self._lock = asyncio.Lock()
         self._outstanding_completions = 0
+        self._interrupting = False
 
     async def start(self) -> None:
         """Open Dashboard input after the initial backend submission succeeds."""
@@ -63,8 +67,13 @@ class DashboardPlannerControl:
                 version,
             )
 
-    async def complete(self, driver: PlannerSessionDriver) -> None:
+    async def complete(
+        self, driver: PlannerSessionDriver, *, wait_for_interrupt: bool = False
+    ) -> None:
         """Record one completed backend request and flush queued input."""
+        if self._interrupting and not wait_for_interrupt:
+            self._outstanding_completions = max(0, self._outstanding_completions - 1)
+            return
         async with self._lock:
             if self._interaction.planner_activity == "ended":
                 return
@@ -81,6 +90,8 @@ class DashboardPlannerControl:
 
     async def tool_completed(self, driver: PlannerSessionDriver) -> None:
         """Flush input queued while the backend was running a tool."""
+        if self._interrupting:
+            return
         async with self._lock:
             await self._flush(driver)
 
@@ -100,7 +111,16 @@ class DashboardPlannerControl:
 
     async def cancel_active_toolkit(self) -> None:
         """Cancel and drain the active toolkit operation off the event loop."""
-        await asyncio.to_thread(self._cancel_active_and_wait)
+        await cancel_and_wait(self._cancel_active_and_wait)
+
+    async def _interrupt_driver(self, driver: PlannerSessionDriver) -> int:
+        # Completion callbacks must drain while _process owns the input lock.
+        self._interrupting = True
+        try:
+            await self.cancel_active_toolkit()
+            return await driver.interrupt()
+        finally:
+            self._interrupting = False
 
     async def _process(self, driver: PlannerSessionDriver) -> None:
         async with self._lock:
@@ -108,8 +128,7 @@ class DashboardPlannerControl:
                 return
             if self._interaction.task_replacement_requested:
                 try:
-                    await self.cancel_active_toolkit()
-                    await driver.interrupt()
+                    await self._interrupt_driver(driver)
                 except Exception as exc:
                     self._interaction.complete_task_replacement(
                         error=f"planner interrupt failed: {_exception_text(exc)}"
@@ -119,8 +138,10 @@ class DashboardPlannerControl:
                 return
             if self._interaction.claim_interrupt_request():
                 try:
-                    await self.cancel_active_toolkit()
-                    completed = await driver.interrupt()
+                    completed = await self._interrupt_driver(driver)
+                    if self._interaction.planner_activity == "ended":
+                        return
+                    self._resume_calls()
                     self._outstanding_completions = max(
                         0, self._outstanding_completions - completed
                     )

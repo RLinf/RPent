@@ -16,12 +16,16 @@
 
 from __future__ import annotations
 
+import json
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-from robots.dual_franka import get_robot_spec
+from robots.dual_franka import get_robot_spec, perception
 from robots.dual_franka.perception import (
     back_project,
     load_calibration_bundle,
@@ -506,7 +510,10 @@ def test_load_calibration_bundle_rejects_missing_easy_handeye_yaml(tmp_path: Pat
         set_robot_config_path(None)
 
 
-def test_back_project_returns_annotated_image_block(tmp_path: Path):
+@pytest.mark.parametrize("parallel", [False, True])
+def test_back_project_returns_annotated_image_block(
+    tmp_path: Path, monkeypatch, parallel
+):
     state = EnvState(tmp_path)
     with state.record_step(
         state={
@@ -552,12 +559,63 @@ def test_back_project_returns_annotated_image_block(tmp_path: Path):
         "        - [0.0, 0.0, 1.0, 0.0]\n"
         "        - [0.0, 0.0, 0.0, 1.0]\n"
     )
+    targets = ["first", "second"] if parallel else ["first"]
+    save = state.save
+    save_barrier = threading.Barrier(len(targets))
+
+    def synchronized_save(name, value, **kwargs):
+        if name.startswith("d455_back_project_") and name.endswith("_annotated.png"):
+            # Both calls have allocated names before either writes its report.
+            save_barrier.wait(timeout=3)
+        return save(name, value, **kwargs)
+
+    monkeypatch.setattr(state, "save", synchronized_save)
     set_robot_config_path(config)
     try:
-        result_native = back_project(row=4, col=4, state=state)
+        call = partial(back_project, row=4, col=4, state=state)
+        with ThreadPoolExecutor(max_workers=len(targets)) as pool:
+            results = list(pool.map(lambda target: call(target_name=target), targets))
+        result_native = results[0]
         result = result_native.data
+
+        failed_names = []
+        saved_images = []
+
+        def fail_json_save(name, value, **kwargs):
+            if name.startswith("d455_back_project_"):
+                if name.endswith(".json"):
+                    failed_names.append(name)
+                    return None
+                saved_images.append(name)
+            return save(name, value, **kwargs)
+
+        monkeypatch.setattr(state, "save", fail_json_save)
+        failed = call(target_name="failed")
+        assert "failed to save back-project report" in failed.data["diagnostic_error"]
+        failed_image = state.load_bytes(saved_images[0])
+        monkeypatch.setattr(state, "save", save)
+        following = call(target_name="following")
+        following_paths = following.data["diagnostic_artifacts"]
+        assert following_paths["report_json"] not in {
+            str(state.artifact_path(name)) for name in failed_names
+        }
+        assert following_paths["annotated_image"] not in {
+            str(state.artifact_path(name)) for name in saved_images
+        }
+        assert state.load_bytes(saved_images[0]) == failed_image
     finally:
         set_robot_config_path(None)
+
+    for key in ("report_json", "annotated_image"):
+        assert len({item.data["diagnostic_artifacts"][key] for item in results}) == len(
+            targets
+        )
+    for target, item in zip(targets, results, strict=True):
+        paths = item.data["diagnostic_artifacts"]
+        report = json.loads(Path(paths["report_json"]).read_text())
+        assert report["projection"]["target_name"] == target
+        assert report["annotated_image"] == paths["annotated_image"]
+        assert item.images == [Path(paths["annotated_image"]).read_bytes()]
 
     assert result["coordinate_frame"] == "right_base"
     assert result["tcp_delta_coordinate_frame"] == "right_base"
@@ -585,7 +643,8 @@ def test_back_project_returns_annotated_image_block(tmp_path: Path):
     assert "_image_" not in text_block["text"]
 
 
-def test_segment_returns_mask_overlay_and_world_point(tmp_path: Path):
+@pytest.mark.parametrize("parallel", [False, True])
+def test_segment_returns_mask_overlay_and_world_point(tmp_path, monkeypatch, parallel):
     state = EnvState(tmp_path)
     with state.record_step(
         state={
@@ -631,19 +690,70 @@ def test_segment_returns_mask_overlay_and_world_point(tmp_path: Path):
         "        - [0.0, 0.0, 1.0, 0.0]\n"
         "        - [0.0, 0.0, 0.0, 1.0]\n"
     )
+    targets = ["first", "second"] if parallel else ["first"]
+    barrier = threading.Barrier(len(targets))
+    localize = perception._mask_to_camera_world
+
+    def synchronized_localize(*args, **kwargs):
+        # Both calls reach localization before either can save an artifact.
+        barrier.wait(timeout=3)
+        return localize(*args, **kwargs)
+
+    monkeypatch.setattr(perception, "_mask_to_camera_world", synchronized_localize)
+    save = state.save
+    save_barrier = threading.Barrier(len(targets))
+
+    def synchronized_save(name, value, **kwargs):
+        if name.startswith("d455_segment_overlay_"):
+            save_barrier.wait(timeout=3)
+        return save(name, value, **kwargs)
+
+    monkeypatch.setattr(state, "save", synchronized_save)
     set_robot_config_path(config)
     try:
-        result_native = segment(
+        call = partial(
+            segment,
             prompt="white cardboard box interior",
-            target_name="cardboard_box_interior",
             min_valid_depth_pixels=1,
             state=state,
             sam3_client=FakeSam3Client(),
         )
+        with ThreadPoolExecutor(max_workers=len(targets)) as pool:
+            results = list(pool.map(lambda target: call(target_name=target), targets))
+        result_native = results[0]
         result = result_native.data
+
+        monkeypatch.setattr(perception, "_mask_to_camera_world", localize)
+        failed_names = []
+
+        def fail_json_save(name, value, **kwargs):
+            if name.startswith("d455_segment_") and name.endswith(".json"):
+                failed_names.append(name)
+                return None
+            return save(name, value, **kwargs)
+
+        monkeypatch.setattr(state, "save", fail_json_save)
+        failed = call(target_name="failed")
+        failed_overlay = state.load_bytes(failed.data["overlay_artifact"])
+        monkeypatch.setattr(state, "save", save)
+        following = call(target_name="following")
+        assert failed.is_error
+        assert not following.is_error
+        assert following.data["segment_artifact"] not in failed_names
+        assert following.data["overlay_artifact"] != failed.data["overlay_artifact"]
+        assert state.load_bytes(failed.data["overlay_artifact"]) == failed_overlay
+        assert (
+            state.load(following.data["segment_artifact"])["target_name"] == "following"
+        )
     finally:
         set_robot_config_path(None)
 
+    assert len({item.data["segment_artifact"] for item in results}) == len(targets)
+    assert len({item.data["overlay_artifact"] for item in results}) == len(targets)
+    for target, item in zip(targets, results, strict=True):
+        assert not item.is_error
+        assert state.load(item.data["segment_artifact"])["target_name"] == target
+        assert item.images == [state.load_bytes(item.data["overlay_artifact"])]
     assert result["ok"]
     assert result["found"]
     assert result["coordinate_frame"] == "right_base"

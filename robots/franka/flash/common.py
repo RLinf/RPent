@@ -114,6 +114,17 @@ def tcp_pose(state: dict, robot: str, arm: str | None = None) -> np.ndarray:
     return vector(pose, 7)
 
 
+class GroundingError(ValueError):
+    """A selector or depth projection could not produce a usable target."""
+
+
+def _grounded_vector(value: Any) -> np.ndarray:
+    try:
+        return vector(value)
+    except (TypeError, ValueError) as exc:
+        raise GroundingError("projection returned invalid robot coordinates") from exc
+
+
 def localize(
     state: Any,
     robot: str,
@@ -139,32 +150,48 @@ def localize(
         raise ValueError(f"unsupported projection camera {camera!r} for {robot}")
     path = state.artifact_path(f"{cameras[camera]}.png", step=step)
     query = anchor["phrase"]
-    found = molmo.ground(path.read_bytes(), query)
+    image = path.read_bytes()
+    from rpent.tools.toolkit import ToolCancelled
+
+    try:
+        found = molmo.ground(image, query)
+    except ToolCancelled:
+        raise
+    except Exception as exc:
+        raise GroundingError(f"point selector failed: {exc}") from exc
     if not found.found or found.point_xy is None:
-        raise ValueError(f"anchor not found: {anchor['phrase']}")
+        raise GroundingError(f"anchor not found: {anchor['phrase']}")
     from PIL import Image
 
-    col, row = vector(found.point_xy, 2)
+    try:
+        col, row = vector(found.point_xy, 2)
+    except (TypeError, ValueError) as exc:
+        raise GroundingError(
+            "point selector returned invalid pixel coordinates"
+        ) from exc
     with Image.open(path) as image:
         width, height = image.size
         if not (0 <= col < width and 0 <= row < height):
-            raise ValueError("grounding pixel outside source image")
+            raise GroundingError("grounding pixel outside source image")
     kwargs = {"row": int(row), "col": int(col), "state": state, "step": step}
     if robot == "franka":
         from robots.franka.perception import back_project
 
         result = back_project(camera=camera, **kwargs).to_dict()
         if result.get("error"):
-            raise ValueError(result["error"])
-        return vector(result["point_base"])
-    from robots.dual_franka.perception import back_project
+            raise GroundingError(result["error"])
+        return _grounded_vector(result.get("point_base"))
+    from robots.dual_franka.perception import InvalidDepthError, back_project
 
-    result = back_project(
-        camera=camera, target_name=anchor["phrase"], **kwargs
-    ).to_dict()
+    try:
+        result = back_project(
+            camera=camera, target_name=anchor["phrase"], **kwargs
+        ).to_dict()
+    except InvalidDepthError as exc:
+        raise GroundingError(str(exc)) from exc
     if result.get("error") or result.get("selection_valid") is not True:
-        raise ValueError(f"invalid projection: {result}")
-    point = vector(result["point_xyz"])
+        raise GroundingError(f"invalid projection: {result}")
+    point = _grounded_vector(result.get("point_xyz"))
     return vector(point)
 
 

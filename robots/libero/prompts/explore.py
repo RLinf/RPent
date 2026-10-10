@@ -32,6 +32,8 @@ whole exploration contract in one file.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from robots.libero.prompts import evaluate as base
 from rpent.prompt.utils import Numbered, PromptNode
 
@@ -202,9 +204,7 @@ memory gives the reasoning and failure modes needed to adapt them. In your
 audit, RECORD the memory files you read (or state that none matched), so memory
 consultation is auditable."""
 
-STEP_PRIMITIVES = """ALLOWED PRIMITIVES (physics-only; full schemas in the tool list/guides):
-`move_to`, `pi0_pick`, `pi0_doubled`, `release`, `set_gripper`,
-`rotate_wrist`, `rotate_pitch`, `move_pose`, AND `reset` (🔁 allowed here —
+STEP_PRIMITIVES = """Also allowed: `reset` (🔁 allowed here —
 close out the attempt first, see below).
 FORBIDDEN: `exit`, `set_object_pose`, `articulate_to`, `js_move_to`,
 `carry_object`.
@@ -426,8 +426,13 @@ WORKFLOW_STEPS = (
 )
 
 
-def system_prompt() -> PromptNode:
+def system_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
     """Assemble the LIBERO exploration system prompt."""
+    enabled = bool((variables or {}).get("enable_direct_action", False))
+    steps = tuple(
+        base.allowed_primitives(enabled) + step if step == STEP_PRIMITIVES else step
+        for step in WORKFLOW_STEPS
+    )
     return {
         "ROLE AND MODE": ROLE,
         "PROVEN LEVERS & LESSONS — libero_10_task seed-0 sweep solved 9/10 (READ THIS)": (
@@ -442,7 +447,7 @@ def system_prompt() -> PromptNode:
         "FIRST-STEP ALGORITHM — agentview = IDENTITY, wrist = GEOMETRY": (
             base.PERCEPTION_ALGORITHM
         ),
-        "WORKFLOW": Numbered(WORKFLOW_STEPS),
+        "WORKFLOW": Numbered(steps),
         "KEY HYPERPARAMETERS": base.KEY_HYPERPARAMETERS,
         "OUTPUT DISCIPLINE": base.OUTPUT_DISCIPLINE,
     }
