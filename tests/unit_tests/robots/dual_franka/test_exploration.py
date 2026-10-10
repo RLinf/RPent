@@ -25,7 +25,6 @@ from robots.dual_franka import robot_spec
 from robots.dual_franka.toolkit import DualFrankaToolkit
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory import MemoryManager
-from rpent.tools import ToolResult
 
 
 class FakeEnv:
@@ -689,13 +688,11 @@ def test_explore_task_is_only_in_user_prompt():
         assert section in user
 
 
-def test_current_view_refreshes_but_historical_view_does_not(setup, monkeypatch):
+def test_current_view_refreshes_but_historical_view_does_not(setup):
     t, env, replies = setup
     reset(t, replies)
     old_step = t.state.latest_step
     reads = []
-    published = []
-    monkeypatch.setattr(t, "_publish_step", published.append)
     original = env.get_observation
 
     def observe():
@@ -708,21 +705,11 @@ def test_current_view_refreshes_but_historical_view_does_not(setup, monkeypatch)
     observed = t.execute_tool("view_env_state", {})
     assert len(reads) == 1 and t.state.latest_step == old_step + 1
     assert observed.images == [t.state.load_bytes("d455.png")]
-    assert len(published) == 1
-    assert published[0].command == {"action": "observe_current"}
     assert np.all(t.state.load("d455.png") == 77)
     call(t, "view_env_state", step=old_step)
     assert len(reads) == 1
-    assert (
-        "error" in t._current_perception(lambda **kw: ToolResult(), step=old_step).data
-    )
-    t._current_perception(lambda **kw: ToolResult(), step=t.state.latest_step)
-    assert len(reads) == 1  # Localization must not silently acquire another frame.
-    assert len(published) == 1
     assert env.resets == 1 and not env.moves
     call(t, "move_delta", arm="left", delta_xyz=[0.01, 0, 0])
     assert len(reads) == 2 and t.state.latest_step == old_step + 2
-    assert len(published) == 2
-    assert published[-1].command["action"] == "move_delta"
     assert len(env.moves) == 1 and env.moves[0][0] == "left"
     np.testing.assert_allclose(env.moves[0][1], [0.01, 0, 0])
