@@ -86,12 +86,12 @@ Caches created before versioned-source receipts require one successful online
 refresh; old unversioned caches are not reused.
 Other robots retain their existing synchronization behavior.
 
-An explicit full commit addresses its own verified snapshot directly, even if
-that snapshot was originally downloaded via a branch. A stale or modified ref
-pointer cannot redirect it to a different commit. Offline branch/tag fallback
-requires a valid pointer with matching repository and corpus identity; the
-record retains the requested ref and the cached commit actually used. A branch
-or tag name alone does not freeze future runs.
+When the Hub cannot be reached, a full commit SHA selects that exact cached
+commit, including one previously downloaded through a branch. A branch or tag
+selects the commit last successfully synchronized for that name, repository and
+corpus version on this machine; it may be older than the current Hub revision.
+Check ``memory_source.json`` for the commit actually used. To keep later runs on
+that same revision, pass its ``resolved_commit`` as ``--memory-revision``.
 
 Standalone Download and Local Evaluation
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -122,6 +122,13 @@ command continues to provide ``merge``, ``validate`` and ``build-index``.
 
 Release Provenance and Compatibility
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The loader's ref pointers are scoped to repository, requested ref and corpus
+version. Offline branch/tag resolution validates the pointer's repository,
+version and commit format before verifying the snapshot. Full commit requests
+address the snapshot directly and do not use ref pointers, so a stale or modified
+pointer cannot redirect a pinned request. ``memory_source.json`` records both
+``requested_revision`` and ``resolved_commit`` to preserve that distinction.
 
 The dataset's ``libero/README.md`` and ``libero/manifest.json`` document the
 versions, original source snapshots and published files. Each version's
