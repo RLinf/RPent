@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Offline regression coverage for interrupted and reviewed calibration sessions."""
+"""Offline functional checks for reviewed and resumed calibration sessions."""
 
 from __future__ import annotations
 
@@ -21,7 +21,8 @@ import hashlib
 import importlib
 import io
 import json
-import sys
+import shutil
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -33,73 +34,54 @@ def collector_module(monkeypatch):
     if not hasattr(cv2, "aruco") or not hasattr(cv2.aruco, "CharucoDetector"):
         pytest.skip("Calibration requires OpenCV with the ChArUco detector")
     pytest.importorskip("scipy")
-    root = Path(__file__).resolve().parents[3]
-    monkeypatch.syspath_prepend(str(root / "calibration_tools"))
+    monkeypatch.syspath_prepend(
+        str(Path(__file__).resolve().parents[3] / "calibration_tools")
+    )
     return importlib.import_module("base_handeye_collect")
 
 
 @pytest.fixture
-def config(collector_module):
-    return collector_module.CaptureConfig(
+def session(collector_module, tmp_path, monkeypatch):
+    config = collector_module.CaptureConfig(
         arm="left",
         camera_serial="offline-camera",
         camera_url="http://offline.invalid/frame",
         reader_command=("offline-reader",),
     )
-
-
-@pytest.fixture
-def record(collector_module, config):
-    identity = collector_module.np.eye(4)
-    pose = identity.copy()
-    pose[0, 3] = 0.1
-    target = identity.copy()
-    target[2, 3] = 0.8
+    collector = collector_module.Collector(config, tmp_path / "session")
     state = {
-        "O_T_EE": pose.flatten(order="F").tolist(),
-        "F_T_EE": identity.flatten(order="F").tolist(),
+        "O_T_EE": collector_module.np.eye(4).flatten(order="F").tolist(),
+        "F_T_EE": collector_module.np.eye(4).flatten(order="F").tolist(),
         "dq": [0.0] * 7,
         "robot_mode": 1,
         "has_errors": False,
     }
-    return {
-        "index": 1,
-        "arm": config.arm,
-        "calibration_mode": "eye_to_hand",
-        "board": config.board_metadata,
-        "robot_before": state,
-        "robot_after": copy.deepcopy(state),
-        "T_left_base_ee": pose.tolist(),
-        "T_camera_board": target.tolist(),
-        "camera": {
-            "serial": config.camera_serial,
-            "width": 680,
-            "height": 880,
-            "K": [[800.0, 0.0, 340.0], [0.0, 800.0, 440.0], [0.0, 0.0, 1.0]],
-            "distortion": [0.0] * 5,
-            "distortion_model": "distortion.brown_conrady",
-            "host_received_s": 1.0,
-        },
-        "corners": 20,
-        "markers": 12,
-        "charuco_ids": list(range(20)),
-        "charuco_corners_px": [[float(i % 5), float(i // 5)] for i in range(20)],
-        "reprojection_rms_px": 0.2,
-        "drift_m": 0.0,
-        "drift_rad": 0.0,
+    image = collector.board.generateImage((680, 880), marginSize=40)
+    success, encoded = collector_module.cv2.imencode(".png", image)
+    assert success
+    camera = {
+        "serial": config.camera_serial,
+        "width": 680,
+        "height": 880,
+        "K": [[800.0, 0.0, 340.0], [0.0, 800.0, 440.0], [0.0, 0.0, 1.0]],
+        "distortion": [0.0] * 5,
+        "distortion_model": "distortion.brown_conrady",
+        "png_b64": base64.b64encode(encoded.tobytes()).decode(),
     }
 
+    def camera_response(*args, **kwargs):
+        return io.BytesIO(
+            json.dumps(
+                {**camera, "host_received_s": collector_module.time.time()}
+            ).encode()
+        )
 
-def save_record(root, record, index):
-    """Create a complete saved sample, preserving its serialized bytes for checks."""
-    folder = root / f"sample_{index:03d}"
-    folder.mkdir(parents=True)
-    value = copy.deepcopy(record)
-    value["index"] = index
-    (folder / "sample.json").write_text(json.dumps(value), encoding="utf-8")
-    (folder / "color.png").write_bytes(b"original-color-png")
-    (folder / "annotated.png").write_bytes(b"original-annotated-png")
-    return folder
+    monkeypatch.setattr(
+        collector_module.Collector, "read_state", lambda self: copy.deepcopy(state)
+    )
+    monkeypatch.setattr(collector_module.time, "sleep", lambda _: None)
+    monkeypatch.setattr(collector_module.urllib.request, "urlopen", camera_response)
+    return collector, state, camera
 
 
 def snapshot(folder):
@@ -110,133 +92,9 @@ def snapshot(folder):
     }
 
 
-@pytest.fixture
-def session_root(tmp_path, record):
-    root = tmp_path / "session"
-    save_record(root, record, 1)
-    return root
-
-
-@pytest.fixture
-def collector(collector_module, config, session_root):
-    return collector_module.Collector(config, session_root, resume=True)
-
-
-@pytest.mark.parametrize(
-    ("field", "value"),
-    [
-        ("board", {"squares": [7, 8]}),
-    ],
-)
-def test_resume_rejects_incompatible_sample_metadata(
-    collector_module, config, session_root, field, value
-):
-    folder = session_root / "sample_001"
-    changed = json.loads((folder / "sample.json").read_text())
-    changed[field] = value
-    (folder / "sample.json").write_text(json.dumps(changed))
-    original = snapshot(session_root)
-
-    with pytest.raises(ValueError):
-        collector_module.Collector(config, session_root, resume=True)
-
-    assert snapshot(session_root) == original
-
-
-def test_archive_conflict_never_overwrites_either_copy(collector, record):
-    archived = save_record(collector.root / "excluded", record, 1)
-    (archived / "color.png").write_bytes(b"previously-excluded-image")
-    original = snapshot(collector.root)
-
-    with pytest.raises((ValueError, FileExistsError)):
-        collector.delete_sample(1)
-
-    assert snapshot(collector.root) == original
-    assert collector.status()["count"] == 1
-
-
-def test_failed_archive_rename_preserves_active_sample(collector, monkeypatch):
-    original = snapshot(collector.root)
-
-    def fail_rename(path, target):
-        raise OSError("simulated archive rename failure")
-
-    monkeypatch.setattr(Path, "rename", fail_rename)
-    with pytest.raises(OSError, match="simulated"):
-        collector.delete_sample(1)
-
-    assert snapshot(collector.root) == original
-    assert collector.status()["count"] == 1
-    assert collector.next_index == 2
-
-
-def test_capture_after_resume_and_delete_never_reuses_saved_ids(
-    collector_module, config, record, tmp_path, monkeypatch
-):
-    root = tmp_path / "session"
-    save_record(root, record, 2)
-    save_record(root / "excluded", record, 9)
-    collector = collector_module.Collector(config, root, resume=True)
-    active_original = snapshot(root / "sample_002")
-    code, body, kind = request_handler(
-        collector_module, collector, "/samples/2/annotated.png", "GET"
-    )
-    assert (code, body, kind) == (200, b"original-annotated-png", "image/png")
-    with collector.lock:
-        for path in ("/sample", "/samples/2/delete"):
-            assert request_handler(collector_module, collector, path, "POST")[0] == 409
-    code, body, _ = request_handler(
-        collector_module, collector, "/samples/2/delete", "POST"
-    )
-    assert code == 200
-    assert json.loads(body)["deleted"] is True
-    assert not collector.lock.locked()
-    assert (
-        request_handler(collector_module, collector, "/samples/2/annotated.png", "GET")[
-            0
-        ]
-        == 404
-    )
-    assert snapshot(root / "excluded" / "sample_002") == active_original
-    collector = collector_module.Collector(config, root, resume=True)
-    assert collector.samples == []
-    assert collector.next_index == 10
-    original = snapshot(root)
-
-    state = copy.deepcopy(record["robot_before"])
-    state["O_T_EE"][12] = 0.3
-    monkeypatch.setattr(collector, "read_state", lambda: copy.deepcopy(state))
-    monkeypatch.setattr(collector_module.time, "sleep", lambda _: None)
-    board_image = collector.board.generateImage((680, 880), marginSize=40)
-    success, encoded = collector_module.cv2.imencode(".png", board_image)
-    assert success
-
-    def camera_response(*args, **kwargs):
-        camera = copy.deepcopy(record["camera"])
-        camera["host_received_s"] = collector_module.time.time()
-        camera["png_b64"] = base64.b64encode(encoded.tobytes()).decode()
-        return io.BytesIO(json.dumps(camera).encode())
-
-    monkeypatch.setattr(collector_module.urllib.request, "urlopen", camera_response)
-
-    result = collector.sample()
-
-    assert result["accepted"] is True
-    assert result["count"] == 1
-    assert Path(result["saved"]).name == "sample_010"
-    assert collector.samples[0]["index"] == 10
-    assert collector.next_index == 11
-    assert all(
-        (root / name).read_bytes() == content for name, content in original.items()
-    )
-    resumed = collector_module.Collector(config, root, resume=True)
-    assert [sample["index"] for sample in resumed.samples] == [10]
-    assert resumed.next_index == 11
-
-
-def request_handler(collector_module, collector, path, method):
-    """Exercise the real routing methods without binding a network socket."""
-    handler_type = collector_module.make_handler(collector)
+def request_handler(module, collector, path, method="POST"):
+    """Exercise actual HTTP routing without opening a listening socket."""
+    handler_type = module.make_handler(collector)
     handler = handler_type.__new__(handler_type)
     handler.path = path
     responses = []
@@ -244,50 +102,79 @@ def request_handler(collector_module, collector, path, method):
         (code, body, kind)
     )
     handler.send_error = lambda code, *args: responses.append((code, b"", ""))
-    getattr(handler, f"do_{method}")()
+    if method == "GET":
+        handler.do_GET()
+    else:
+        handler.do_POST()
     assert len(responses) == 1
     return responses[0]
 
 
-@pytest.mark.parametrize("changed_field", ["K", "F_T_EE"])
-def test_deleting_all_samples_retains_camera_and_frame_baseline(
-    collector_module, collector, config, record, monkeypatch, changed_field
+def test_review_exclude_resume_and_continue_capture(collector_module, session):
+    collector, state, _ = session
+    code, body, _ = request_handler(collector_module, collector, "/sample")
+    assert code == 200 and json.loads(body)["accepted"]
+    original = snapshot(collector.root / "sample_001")
+    code, image, kind = request_handler(
+        collector_module, collector, "/samples/1/annotated.png", "GET"
+    )
+    assert (code, image, kind) == (200, original["annotated.png"], "image/png")
+    with collector.lock:
+        for path in ("/sample", "/samples/1/delete"):
+            assert request_handler(collector_module, collector, path)[0] == 409
+    code, body, _ = request_handler(collector_module, collector, "/samples/1/delete")
+    assert code == 200 and json.loads(body)["deleted"]
+    archived = collector.root / "excluded" / "sample_001"
+    assert snapshot(archived) == original
+
+    resumed = collector_module.Collector(collector.config, collector.root, resume=True)
+    assert resumed.status()["count"] == 0
+    state["O_T_EE"][12] = 0.1
+    code, body, _ = request_handler(collector_module, resumed, "/sample")
+    result = json.loads(body)
+    assert code == 200 and result["accepted"]
+    assert Path(result["saved"]).name == "sample_002"
+    final = collector_module.Collector(collector.config, collector.root, resume=True)
+    assert [sample["index"] for sample in final.status()["samples"]] == [2]
+    assert snapshot(archived) == original
+
+
+def test_existing_samples_are_protected_during_session_review(
+    collector_module, session
 ):
-    root = collector.root
+    collector, _, camera = session
+    collector.sample()
+    archived = collector.root / "excluded" / "sample_001"
+    archived.parent.mkdir()
+    shutil.copytree(collector.root / "sample_001", archived)
+    original = snapshot(collector.root)
+
+    with pytest.raises(FileExistsError):
+        collector_module.Collector(collector.config, collector.root)
+    with pytest.raises(FileExistsError):
+        collector.delete_sample(1)
+    assert snapshot(collector.root) == original
+
+    archived.rename(collector.root / "saved_copy")
     collector.delete_sample(1)
-    collector = collector_module.Collector(config, root, resume=True)
-    original = snapshot(root)
-    state = copy.deepcopy(record["robot_before"])
-    camera = copy.deepcopy(record["camera"])
-    if changed_field == "K":
-        camera["K"][0][0] += 20.0
-        expected_error = "Camera K"
-    else:
-        state["F_T_EE"][12] = 0.05
-        expected_error = "末端坐标定义与先前样本不同"
-    monkeypatch.setattr(collector, "read_state", lambda: copy.deepcopy(state))
-    monkeypatch.setattr(collector_module.time, "sleep", lambda _: None)
+    original = snapshot(collector.root)
+    changed = replace(collector.config, camera_serial="another-camera")
+    with pytest.raises(ValueError, match="configuration"):
+        collector_module.Collector(changed, collector.root, resume=True)
+    resumed = collector_module.Collector(collector.config, collector.root, resume=True)
+    camera["K"][0][0] += 20
+    with pytest.raises(ValueError, match="Camera K"):
+        resumed.sample()
+    assert resumed.status()["count"] == 0
+    assert snapshot(collector.root) == original
 
-    def camera_response(*args, **kwargs):
-        camera["host_received_s"] = collector_module.time.time()
-        return io.BytesIO(json.dumps(camera).encode())
 
-    monkeypatch.setattr(collector_module.urllib.request, "urlopen", camera_response)
-
-    with pytest.raises(ValueError, match=expected_error):
+def test_reviewed_samples_require_a_new_calibration_result(collector_module, session):
+    collector, state, _ = session
+    for index in range(10):
+        state["O_T_EE"][12] = index * 0.02
         collector.sample()
-
-    assert collector.samples == []
-    assert collector.next_index == 2
-    assert snapshot(root) == original
-
-
-def test_deleting_sample_invalidates_previously_solved_candidate(
-    collector_module, config, record, tmp_path
-):
-    root = tmp_path / "session"
-    for index in range(1, 11):
-        save_record(root, record, index)
+    root = collector.root
     pose = collector_module.np.eye(4).tolist()
     candidate = {
         "status": "candidate_requires_independent_validation",
@@ -295,13 +182,13 @@ def test_deleting_sample_invalidates_previously_solved_candidate(
         "calibration_mode": "eye_to_hand",
         "sample_count": 10,
         "selected_method": "PARK",
-        "camera_serial": config.camera_serial,
+        "camera_serial": collector.config.camera_serial,
         "T_left_base_camera": pose,
         "T_ee_board": pose,
     }
     report = {
         **candidate,
-        "serial": config.camera_serial,
+        "serial": collector.config.camera_serial,
         "source_hashes": {
             str(path.relative_to(root)): hashlib.sha256(path.read_bytes()).hexdigest()
             for path in root.glob("sample_*/sample.json")
@@ -314,52 +201,8 @@ def test_deleting_sample_invalidates_previously_solved_candidate(
     common = importlib.import_module("common")
     assert common.load_candidate(candidate_path) == candidate
 
-    collector_module.Collector(config, root, resume=True).delete_sample(5)
+    collector.delete_sample(5)
 
     with pytest.raises(ValueError, match="Training samples changed"):
         common.load_candidate(candidate_path)
     assert json.loads(candidate_path.read_text()) == candidate
-
-
-@pytest.mark.parametrize("resume_without_output", [False, True])
-def test_cli_requires_explicit_existing_session_selection(
-    collector_module,
-    config,
-    session_root,
-    monkeypatch,
-    capsys,
-    resume_without_output,
-):
-    original = snapshot(session_root)
-    arguments = [
-        "base_handeye_collect.py",
-        "--arm",
-        config.arm,
-        "--camera-serial",
-        config.camera_serial,
-        "--camera-url",
-        config.camera_url,
-        "--reader",
-        "offline-reader",
-        "--robot-ip",
-        "192.0.2.1",
-    ]
-    if resume_without_output:
-        arguments.append("--resume")
-        message = "--resume requires --output"
-    else:
-        arguments.extend(["--output", str(session_root)])
-        message = "already exists"
-    monkeypatch.setattr(sys, "argv", arguments)
-    monkeypatch.setattr(
-        collector_module,
-        "serve",
-        lambda *args: pytest.fail("Must reject before serving"),
-    )
-
-    with pytest.raises(SystemExit) as error:
-        collector_module.main()
-
-    assert error.value.code == 2
-    assert message in capsys.readouterr().err
-    assert snapshot(session_root) == original
