@@ -69,10 +69,10 @@ Harness VLA / Opus-4.7 在标准 LIBERO 上取得 96.0% 的成功率，与 π\ :
 以下链接给出各环境已有文档中的代码入口。安装配置和运行命令见对应教程；历史复现应保留当时配套的代码与数据。
 
 * **LIBERO：** :doc:`教程 <../simulators/libero>` — `reproduce/libero <https://github.com/RLinf/RPent/tree/reproduce/libero>`_
-* **RoboCasa：** :doc:`教程 <../simulators/robocasa>` — ``main`` 上的当前流程
+* **RoboCasa：** :doc:`教程 <../simulators/robocasa>` — ``main`` 上的 task-specific + global memory 评测流程
 * **RoboTwin：** :doc:`教程 <../simulators/robotwin>` — `reproduce/robotwin <https://github.com/RLinf/RPent/tree/reproduce/robotwin>`_
 
-HF ``reproduce/memory`` 分支保留历史目录布局。上面的 LIBERO、RoboTwin 分支各自保留原有资源加载代码；这些链接不代表已经针对该 HF 归档重新完成运行验证。当前 RoboCasa 教程使用 main 语料，尚未提供与该归档配套并经过验证的历史代码/数据。
+HF ``reproduce/memory`` 分支保留历史目录布局。上面的 LIBERO、RoboTwin 分支各自保留原有资源加载代码；这些链接不代表已经针对该 HF 归档重新完成运行验证。
 
 引用
 ----

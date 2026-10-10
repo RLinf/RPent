@@ -126,15 +126,13 @@ reproduction runs.
 
 * **LIBERO:** :doc:`Tutorial <../simulators/libero>` —
   `reproduce/libero <https://github.com/RLinf/RPent/tree/reproduce/libero>`_
-* **RoboCasa:** :doc:`Tutorial <../simulators/robocasa>` — current workflow on ``main``
+* **RoboCasa:** :doc:`Tutorial <../simulators/robocasa>` — task-specific + global memory evaluation on ``main``
 * **RoboTwin:** :doc:`Tutorial <../simulators/robotwin>` —
   `reproduce/robotwin <https://github.com/RLinf/RPent/tree/reproduce/robotwin>`_
 
 The HF ``reproduce/memory`` branch preserves its historical layout. The LIBERO
 and RoboTwin branches above retain their own resource-loading code; these
 links do not establish a newly verified run against the archived HF branch.
-The current RoboCasa tutorial uses the main corpus and does not provide a
-verified historical code/data pair for that archive.
 
 Citation
 --------

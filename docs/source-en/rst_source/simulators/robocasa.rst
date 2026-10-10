@@ -451,7 +451,7 @@ equally.
 .. _historical-codex-reproduction:
 
 Published scores are on the :doc:`leaderboard <../leaderboard/performance>`.
-Expand the details below for task names, settings and historical results.
+Expand the details below for task names, evaluation settings and published scores.
 
 .. dropdown:: Full Task List
 
@@ -511,11 +511,13 @@ Expand the details below for task names, settings and historical results.
         - 8
         - Actions executed from each prediction chunk.
 
-.. dropdown:: Protocol and Historical Compatibility
+.. dropdown:: Evaluation Protocol
 
    .. _robocasa-protocol-history:
+   .. _robocasa-evaluation-protocol:
 
-   The current ``target50.json`` uses protocol ``robocasa-harness-vla-v2`` and
+   The current evaluation uses task-specific and global memory together.
+   ``target50.json`` uses protocol ``robocasa-harness-vla-v2`` and
    result schema ``1.1``, with GPT-5.5 as the reference configuration. Installation
    dependencies come from ``pyproject.toml``. For custom tasks, seeds or planner
    settings, pass a manifest using the current protocol:
@@ -530,28 +532,11 @@ Expand the details below for task names, settings and historical results.
    ``rpent`` branches. Memory is not version-pinned; the validator does not compare
    its contents across runs.
 
-   Historical v1 results used task-specific memory alone. Validate them in the
-   `historical code checkout <https://github.com/RLinf/RPent/tree/ec4e18fc2f6a73a00c6a5c035a8a3fdb17950b61>`_
-   with its matching `v1 manifest <https://github.com/RLinf/RPent/blob/ec4e18fc2f6a73a00c6a5c035a8a3fdb17950b61/robots/robocasa/eval/target50.json>`_:
-
-   .. code-block:: bash
-
-      python -m robots.robocasa.eval.validate_target50 /path/to/historical-results \
-         --manifest robots/robocasa/eval/target50.json
-
-   The HF `reproduce/memory archive <https://huggingface.co/datasets/RLinf/RPent-memory/tree/reproduce/memory>`_
-   retains GPT-5.5 Harness-VLA resources at ``d8c25a7f``; future updates go only to
-   main. Its RoboCasa ``task_only/`` layout is incompatible with the current
-   ``task-specific/`` layout, and its README describes historical usage. This
-   guide has not established a matching RoboCasa code/data snapshot for that
-   archive; current run commands use main memory.
-
    Leaderboard scores come from independent experiment reports. Completing 340
    runs with the current protocol does not establish reproduction of a leaderboard
-   entry; compare the model, memory and code configuration too. Historical scores
-   retain their original sources.
+   entry; compare the model, memory and code configuration too.
 
-.. dropdown:: Reported and Historical Target50 Results
+.. dropdown:: Published Target50 Scores
 
    .. _robocasa-reported-results:
 
@@ -600,42 +585,6 @@ Expand the details below for task names, settings and historical results.
    250-cell information was an unsynchronized historical record. The correction
    preserves reported rates; it does not infer success counts from rounded rates
    or claim a new audit of all 340 original results.
-
-   .. rubric:: Historical Codex Reproduction
-
-   The archived reproduction contains all 340 cells and reports the following
-   task-level aggregates. These historical values do not describe a new v2 run:
-
-   .. list-table:: Codex Target50 reproduction
-      :header-rows: 1
-      :widths: 30 20 20 30
-
-      * - Split
-        - Successful cells
-        - Success rate
-        - Harness VLA reference
-      * - Atomic
-        - 163/180
-        - 90.56%
-        - 165/180 (91.67%)
-      * - Composite-Seen
-        - 49/80
-        - 61.25%
-        - 45/80 (56.25%)
-      * - Composite-Unseen
-        - 12/80
-        - 15.00%
-        - 11/80 (13.75%)
-      * - Overall (task-weighted)
-        - N/A
-        - 57.00%
-        - 55.40%
-
-   The `archived per-task table
-   <https://github.com/RLinf/RPent/blob/57088f6df30b227f2229ead985aa75403c0ce291/robots/robocasa/eval/target50_codex_results.md>`_
-   contains the success count and accuracy for every task. This historical record is
-   task-level aggregate data; it does not include per-seed traces, raw trajectories,
-   or failure classifications and therefore is not a per-cell audit artifact.
 
 .. _environment-smoke-tests:
 

@@ -345,7 +345,7 @@ Target50 包含 50 个厨房任务，共运行 340 次。以下使用 Codex、GP
 
 .. _codex:
 
-公开成绩见 :doc:`排行榜 <../leaderboard/performance>`。任务列表、参数和历史结果可在下方展开查阅。
+公开成绩见 :doc:`排行榜 <../leaderboard/performance>`。任务列表、评测参数和公开成绩可在下方展开查阅。
 
 .. dropdown:: 完整任务列表
 
@@ -382,11 +382,12 @@ Target50 包含 50 个厨房任务，共运行 340 次。以下使用 Codex、GP
         - 8
         - 每个预测动作块中执行的动作数。
 
-.. dropdown:: 协议与历史兼容性
+.. dropdown:: 评测协议
 
    .. _robocasa-protocol-history:
+   .. _robocasa-evaluation-protocol:
 
-   当前 ``target50.json`` 使用 ``robocasa-harness-vla-v2`` 协议和 ``1.1`` 结果格式，参考配置为 GPT-5.5。软件依赖由 ``pyproject.toml`` 管理。自定义任务、seed 或规划器配置时，将当前协议的清单传给校验器：
+   当前评测同时使用 task-specific 与 global memory。``target50.json`` 使用 ``robocasa-harness-vla-v2`` 协议和 ``1.1`` 结果格式，参考配置为 GPT-5.5。软件依赖由 ``pyproject.toml`` 管理。自定义任务、seed 或规划器配置时，将当前协议的清单传给校验器：
 
    .. code-block:: bash
 
@@ -395,18 +396,9 @@ Target50 包含 50 个厨房任务，共运行 340 次。以下使用 Codex、GP
 
    比较实验时保留同一份记忆，并在本地记录 HF commit 或文件哈希，以及源码依赖 ``rpent`` 分支实际安装的提交。程序不锁定 memory 版本，校验器也不比较各次运行的记忆正文。
 
-   历史 v1 结果仅使用 task-specific memory，应在 `历史代码 <https://github.com/RLinf/RPent/tree/ec4e18fc2f6a73a00c6a5c035a8a3fdb17950b61>`_ 中使用对应的 `v1 清单 <https://github.com/RLinf/RPent/blob/ec4e18fc2f6a73a00c6a5c035a8a3fdb17950b61/robots/robocasa/eval/target50.json>`_ 校验：
+   榜单成绩来自独立实验报告。采用当前协议并完成 340 次运行，并不能证明复现了某条榜单成绩；还需核对模型、记忆和代码配置。
 
-   .. code-block:: bash
-
-      python -m robots.robocasa.eval.validate_target50 /path/to/historical-results \
-         --manifest robots/robocasa/eval/target50.json
-
-   HF 的 `reproduce/memory 归档 <https://huggingface.co/datasets/RLinf/RPent-memory/tree/reproduce/memory>`_ 保留 ``d8c25a7f`` 的 GPT-5.5 Harness-VLA 资源，后续更新只进入 main。归档中的 RoboCasa 使用 ``task_only/``，与当前要求的 ``task-specific/`` 不兼容；其 README 描述历史用法。本指南尚未确立与该归档配套的 RoboCasa 代码/数据快照，当前运行命令使用 main 语料。
-
-   榜单成绩来自独立实验报告。采用当前协议并完成 340 次运行，并不能证明复现了某条榜单成绩；还需核对模型、记忆和代码配置。历史成绩保留原始来源。
-
-.. dropdown:: Target50 报告成绩与历史结果
+.. dropdown:: Target50 公开成绩
 
    .. _robocasa-reported-results:
 
@@ -443,37 +435,6 @@ Target50 包含 50 个厨房任务，共运行 340 次。以下使用 Codex、GP
         - 57.1%
 
    Astra 的报告值为 **Overall 59.20%**，三个分项分别为 **87.78% / 43.75% / 42.50%**。回合数已根据 `实验贡献者确认的更正 <https://github.com/RLinf/RPent/pull/205#issuecomment-5749514622>`_ 同步为 **340（180/80/80）**；此前的 250 回合信息属于尚未同步的历史记录。此次更正保留已报告成功率，不由四舍五入后的比率推算成功次数，也不代表重新核验了全部 340 份原始结果。
-
-   .. rubric:: 历史 Codex 复现
-
-   归档中的复现覆盖全部 340 个评测单元，按任务汇总的结果如下。这些历史数值不代表使用 v2 协议重新评测的结果：
-
-   .. list-table:: Codex Target50 复现结果
-      :header-rows: 1
-      :widths: 30 20 20 30
-
-      * - 任务组
-        - 成功次数 / 运行数
-        - 成功率
-        - Harness VLA 参考值
-      * - Atomic
-        - 163/180
-        - 90.56%
-        - 165/180 (91.67%)
-      * - Composite-Seen
-        - 49/80
-        - 61.25%
-        - 45/80 (56.25%)
-      * - Composite-Unseen
-        - 12/80
-        - 15.00%
-        - 11/80 (13.75%)
-      * - 总体（任务加权）
-        - 不适用
-        - 57.00%
-        - 55.40%
-
-   `历史逐任务结果表 <https://github.com/RLinf/RPent/blob/57088f6df30b227f2229ead985aa75403c0ce291/robots/robocasa/eval/target50_codex_results.md>`_ 给出每个任务的成功次数和成功率。这份历史记录仅提供任务级汇总数据，不包含各 seed 的执行记录、原始轨迹或失败分类，因此不能用于逐次复核运行过程。
 
 .. _environment-smoke-tests:
 
