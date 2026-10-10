@@ -202,7 +202,10 @@ def test_close_handles_collection_and_video_independently(
     assert logger.warning.call_count == (failure is not None)
 
 
-def test_recipe_exports_each_segment_once_and_keeps_repeated_calls(tmp_path):
+@pytest.mark.parametrize("after_reset", [False, True])
+def test_recipe_exports_each_segment_once_and_keeps_repeated_calls(
+    tmp_path, after_reset
+):
     import json
 
     from robots.libero.tools import write_recipe_from_states
@@ -210,18 +213,21 @@ def test_recipe_exports_each_segment_once_and_keeps_repeated_calls(tmp_path):
 
     state = EnvState(tmp_path)
     command = {"action": "segment", "prompt": "cup", "camera": "agentview"}
-    with state.record_step(state={}):
+    artifact = {
+        "mode": "text",
+        "prompt": "cup",
+        "camera": "agentview",
+        "segment_index": 0,
+    }
+    if after_reset:
+        with state.record_step(state={}, command={"action": "move_to"}, result={}):
+            state.save("segment_00.json", artifact)
+    with state.record_step(
+        state={}, command={"action": "reset"} if after_reset else None, result={}
+    ):
         pass
     for index in range(2):
-        state.save(
-            "segment_00.json",
-            {
-                "mode": "text",
-                "prompt": "cup",
-                "camera": "agentview",
-                "segment_index": 0,
-            },
-        )
+        state.save("segment_00.json", artifact)
         with state.record_step(
             state={}, command=command, result={}, terminated=index == 1
         ):

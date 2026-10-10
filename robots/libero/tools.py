@@ -897,7 +897,7 @@ def write_recipe_from_states(
     )
     command_events = []
     for record in records:
-        if record.step_idx <= last_reset:
+        if record.step_idx < last_reset:
             continue
         command = record.command
         result = record.result
