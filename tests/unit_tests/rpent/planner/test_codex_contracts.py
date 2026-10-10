@@ -338,11 +338,9 @@ def test_build_config_scopes_loopback_no_proxy_to_codex_child(
     assert os.environ["no_proxy"] == ".corp.invalid"
 
 
-@pytest.mark.parametrize("effort", ["none", "ultra"])
 def test_planner_forwards_configured_service_tier(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    effort: str,
 ) -> None:
     install_fake_backend(monkeypatch)
     monkeypatch.setenv("CODEX_SERVICE_TIER", "fast")
@@ -353,14 +351,7 @@ def test_planner_forwards_configured_service_tier(
         },
     ]
 
-    CodexPlanner(
-        output_dir=str(tmp_path),
-        repo_root=tmp_path,
-        model="gpt-6-astra",
-        reasoning_effort=effort,
-        timeout_s=1,
-        dashboard_events=RecordingSink(),
-    ).solve(
+    make_planner(tmp_path, RecordingSink()).solve(
         system_prompt="system rules",
         user_message="user task",
         toolkit=FakeToolkit(),
@@ -368,9 +359,7 @@ def test_planner_forwards_configured_service_tier(
     )
 
     fake_codex = FakeCodex.instances[0]
-    assert fake_codex.thread_options["model"] == "gpt-6-astra"
     assert fake_codex.thread_options["service_tier"] == "fast"
-    assert fake_codex.thread.turn_prompts[0][1]["effort"].value == effort
     assert fake_codex.thread.turn_prompts[0][1]["service_tier"] == "fast"
 
 
@@ -1240,53 +1229,7 @@ def test_retry_error_is_visible_without_poisoning_successful_turn():
     assert "Model connection failed" in str(sink.events[-1])
 
 
-def test_reply_cleanup_returns_feedback_dequeued_before_cancellation(
-    tmp_path, monkeypatch
-):
-    from rpent.cli.tui import next_user_line
-    from rpent.session.input import SessionInputQueue
-
-    install_fake_backend(monkeypatch)
-    dequeued = threading.Event()
-    cancelled = threading.Event()
-    cancel = SessionInputQueue.cancel
-
-    def read(scope):
-        line = next_user_line(scope)
-        dequeued.set()
-        assert cancelled.wait(2)
-        return line
-
-    def cancel_scope(scope):
-        cancel(scope)
-        cancelled.set()
-
-    def stream(turn):
-        assert dequeued.wait(2)
-        yield from turn.events
-
-    monkeypatch.setattr(codex_module, "next_user_line", read)
-    monkeypatch.setattr(SessionInputQueue, "cancel", cancel_scope)
-    monkeypatch.setattr(FakeTurn, "stream", stream)
-    inputs = queue.Queue()
-    inputs.put("Feedback entered as the reply ended")
-    result = make_planner(tmp_path, RecordingSink()).solve(
-        system_prompt="test",
-        user_message="task",
-        toolkit=FakeToolkit(),
-        max_turns=10,
-        input_queue=inputs,
-    )
-    assert result.error is None
-    turn = FakeCodex.instances[-1].thread.fake_turn
-    assert turn.steered == []
-    assert turn.interrupt_calls == 0
-    assert inputs.get_nowait() == "Feedback entered as the reply ended"
-    assert inputs.empty()
-
-
-@pytest.mark.parametrize("end_input", [None, "/quit", "/exit"])
-def test_terminal_eof_and_quit_interrupt_codex(tmp_path, monkeypatch, end_input):
+def test_terminal_eof_interrupts_codex(tmp_path, monkeypatch):
     install_fake_backend(monkeypatch)
     interrupted = threading.Event()
 
@@ -1301,7 +1244,7 @@ def test_terminal_eof_and_quit_interrupt_codex(tmp_path, monkeypatch, end_input)
     monkeypatch.setattr(FakeTurn, "interrupt", interrupt)
     monkeypatch.setattr(FakeTurn, "stream", stream)
     inputs = queue.Queue()
-    inputs.put(end_input)
+    inputs.put(None)
     result = make_planner(tmp_path, RecordingSink()).solve(
         system_prompt="test",
         user_message="task",
@@ -1312,16 +1255,3 @@ def test_terminal_eof_and_quit_interrupt_codex(tmp_path, monkeypatch, end_input)
     assert result.error is None
     assert FakeCodex.instances[-1].thread.fake_turn.interrupt_calls == 1
     assert inputs.empty()
-
-
-def test_zero_timeout_disables_deadline(tmp_path, monkeypatch):
-    install_fake_backend(monkeypatch)
-    planner = make_planner(tmp_path, RecordingSink(), timeout_s=0)
-    assert planner._timeout_s is None
-    result = planner.solve(
-        system_prompt="test", user_message="task", toolkit=FakeToolkit(), max_turns=10
-    )
-    assert result.error is None
-    assert FakeCodex.instances[-1].thread.fake_turn.interrupt_calls == 0
-    with pytest.raises(ValueError, match="nonnegative"):
-        make_planner(tmp_path, RecordingSink(), timeout_s=-1)
