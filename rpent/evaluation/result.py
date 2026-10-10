@@ -23,6 +23,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from rpent.utils.logging import get_logger
+
 
 @dataclass(frozen=True)
 class RunFinalizationContext:
@@ -44,6 +46,54 @@ class RunFinalizationContext:
 
 
 RunFinalizer = Callable[[RunFinalizationContext], Path | str | None]
+
+
+def record_operator_outcome(
+    *,
+    memory_root: Path,
+    recipe_tag: str,
+    run_name: str,
+    session_number: int,
+    state_output_dir: str | Path,
+    verdict: dict[str, Any],
+    messages: list[dict[str, Any]],
+    planner_error: str | None,
+) -> Path:
+    """Archive an operator outcome without overwriting a previous attempt.
+
+    Args:
+        memory_root: Root of the run's memory store.
+        recipe_tag: Cell whose inbox receives the evidence.
+        run_name: Run identifier used to distinguish evidence files.
+        session_number: Attempt number within the run.
+        state_output_dir: Directory containing the attempt's observations.
+        verdict: Operator-confirmed result and notes.
+        messages: Serializable planner transcript.
+        planner_error: Error recorded before operator finalization, if any.
+
+    Returns:
+        Path to the archived evidence JSON.
+    """
+    outcome = verdict["operator_verdict"]
+    path = memory_root / "_internal" / "inbox" / recipe_tag / "wip"
+    path /= f"{run_name}-session-{session_number:03d}-{outcome}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("x") as file:
+        json.dump(
+            {
+                "verdict": verdict,
+                "session": session_number,
+                "evidence_dir": str(state_output_dir),
+                "messages": messages,
+                "planner_error": planner_error,
+                "note": "Operator-confirmed outcome; explanations still require evidence review.",
+            },
+            file,
+            indent=2,
+            default=str,
+        )
+    get_logger("evaluation").info("Attempt evidence saved: %s", path)
+    return path
 
 
 def write_json_atomic(

@@ -27,6 +27,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from rpent.cli.attended import _finalize_operator_verdict
 from rpent.cli.main import (
     _handoff_message,
     _serialize_messages,
@@ -54,10 +55,17 @@ def run_dashboard_session(
     parser: argparse.ArgumentParser,
 ) -> int:
     """Run one long-lived Dashboard Session with sequential fresh TaskRuns."""
-    if robot_spec.is_real_robot and not (robot_spec.dashboard or {}).get(
-        "external_env", False
+    if (
+        robot_spec.is_real_robot
+        and not (robot_spec.dashboard or {}).get("external_env", False)
+        and (
+            not robot_spec.supports_human_interactive_exploration
+            or args.planner != "codex"
+        )
     ):
-        parser.error("This robot requires operator confirmation in a plain terminal.")
+        parser.error(
+            "Physical Dashboard control requires an attended Codex robot runtime."
+        )
     from rpent.dashboard.server import DashboardServer
     from rpent.dashboard.session import DashboardSessionController
     from rpent.dashboard.state import DashboardState
@@ -83,8 +91,12 @@ def run_dashboard_session(
         if component["scope"] == "unique"
     }
 
-    if getattr(args, "env_endpoint", None) is not None and not dashboard_spec.get(
-        "external_env", False
+    if getattr(args, "env_endpoint", None) is not None and not (
+        dashboard_spec.get("external_env", False)
+        or (
+            robot_spec.is_real_robot
+            and robot_spec.supports_human_interactive_exploration
+        )
     ):
         parser.error(
             "Dashboard task control cannot use --env-endpoint because each "
@@ -178,6 +190,9 @@ def _run_dashboard_task(
     session_root: Path,
 ) -> str | None:
     """Execute one fresh Dashboard TaskRun against Session-owned services."""
+    human_interactive_run = (
+        robot_spec.is_real_robot and robot_spec.supports_human_interactive_exploration
+    )
     task_args = copy.copy(args)
     for name, value in claimed.request.items():
         setattr(task_args, name, value)
@@ -213,7 +228,11 @@ def _run_dashboard_task(
                 **task_runtime_kwargs,
                 **shared_runtime_kwargs,
             }
-            prompt_vars = {**run_config.prompt_vars, "output_dir": output_dir}
+            prompt_vars = {
+                **run_config.prompt_vars,
+                "output_dir": output_dir,
+                "dashboard": True,
+            }
             session_message = robot_spec.prompts.render("user", variables=prompt_vars)
             sessions = max(
                 1,
@@ -255,6 +274,14 @@ def _run_dashboard_task(
                         video_path=state_output_dir / "episode.mp4",
                     )
                 if robot_spec.supports_exploration:
+                    operator_kwargs = {}
+                    if human_interactive_run:
+                        from rpent.tools.human_in_the_loop import HumanInTheLoopInput
+
+                        state.operator = HumanInTheLoopInput(
+                            interactive=True, on_change=state.operator_changed
+                        )
+                        operator_kwargs["operator_input"] = state.operator
                     toolkit = get_toolkit(
                         args.robot_name,
                         runtime_kwargs=runtime_kwargs,
@@ -265,6 +292,7 @@ def _run_dashboard_task(
                             task_args, "explore_attempts_per_session", 0
                         ),
                         state_output_dir=state_output_dir,
+                        **operator_kwargs,
                     )
                 else:
                     toolkit = get_toolkit(
@@ -303,6 +331,17 @@ def _run_dashboard_task(
                     messages += result.messages
                     stats = result.stats
                     agent_error = result.error
+                    if human_interactive_run and toolkit.direct_verdict_requested:
+                        finish_result, _, _ = _finalize_operator_verdict(
+                            result,
+                            toolkit=toolkit,
+                            memory=memory_manager,
+                            recipe_tag=recipe_tag,
+                            output_dir=output_dir,
+                            state_output_dir=state_output_dir,
+                            session_number=session_number,
+                            archive=task_args.explore,
+                        )
                     if robot_spec.supports_exploration:
                         solved = bool(toolkit.solved())
                         if solved:
@@ -375,8 +414,12 @@ def _run_dashboard_task(
         getattr(task_args, "explore", False)
         and getattr(task_args, "auto_merge_memory", False)
         and not agent_error
-        and not state.task_replacement_requested
+        and (
+            not state.task_replacement_requested
+            or (human_interactive_run and state.operator_completed_task)
+        )
         and memory_manager is not None
+        and (not human_interactive_run or solved)
     ):
         try:
             merge_result = memory_manager.merge_memory(
@@ -420,4 +463,11 @@ def _run_dashboard_task(
                 logger.warning("%s", finalization_error)
             else:
                 agent_error = finalization_error
+    if (
+        human_interactive_run
+        and not solved
+        and not agent_error
+        and not state.task_replacement_requested
+    ):
+        return "Task ended without operator-confirmed success"
     return agent_error

@@ -293,22 +293,20 @@ def test_cli_two_sessions_operator_feedback_and_memory_pipeline(
     from types import SimpleNamespace
 
     from rpent.cli import main as cli
+    from rpent.tools.human_in_the_loop import HumanInTheLoopInput
 
     env = FakeEnv()
     runtimes = []
     planners = []
     replies = iter(["done", "failure dropped", "done", "success lifted"])
 
-    class Operator:
-        def __init__(self, **kwargs):
-            assert kwargs["interactive"] is False
-
-        def __call__(self, prompt, cancelled):
+    class Operator(HumanInTheLoopInput):
+        def request(self, prompt, cancelled, *, kind=None):
             cancelled()
             return next(replies)
 
-        def close(self):
-            pass
+        def __call__(self, prompt, cancelled):
+            return self.request(prompt, cancelled)
 
     class Planner:
         def __init__(self, *args, **kwargs):
@@ -367,6 +365,11 @@ Observed success in session 2.
     spec = replace(robot_spec.get_robot_spec(), init_runtime=init_runtime)
     monkeypatch.setattr(cli, "get_robot_spec", lambda name: spec)
     monkeypatch.setattr(cli, "build_planner", Planner)
+    monkeypatch.setattr(
+        cli,
+        "start_interactive_reader",
+        lambda inputs, **kwargs: inputs.put(kwargs["first_prompt_default"]),
+    )
     monkeypatch.setattr("rpent.tools.human_in_the_loop.HumanInTheLoopInput", Operator)
     monkeypatch.setattr(sys, "stdin", SimpleNamespace(isatty=lambda: True))
     monkeypatch.setattr(
@@ -376,6 +379,8 @@ Observed success in session 2.
             "rpent",
             "--robot",
             "dual_franka",
+            "--planner",
+            "codex",
             "--explore",
             "--explore-sessions",
             "2",
@@ -529,7 +534,7 @@ def test_direct_success_stops_active_tool_and_records_memory(setup, tmp_path):
     worker.start()
     assert entered.wait(2)
     assert t.request_direct_verdict("success")
-    assert t.request_direct_verdict("success")  # idempotent, never another attempt
+    assert not t.request_direct_verdict("success")  # no duplicate planner EOF
     assert call(t, "open_gripper", arm="left")["motion_refused"]
     release.set()
     worker.join(2)
@@ -565,7 +570,7 @@ def test_direct_success_with_failed_observation_does_not_publish(setup):
 
 
 @pytest.mark.parametrize("robot_name", ["dual_franka", "libero"])
-@pytest.mark.parametrize("verdict", ["success", "failure", "abort"])
+@pytest.mark.parametrize("verdict", ["success", "failure", "abort", "eof"])
 @pytest.mark.parametrize("planner_error", [None, "planner transport failed"])
 def test_cli_direct_verdict_finalizes_and_merges_only_without_errors(
     tmp_path,
@@ -583,9 +588,12 @@ def test_cli_direct_verdict_finalizes_and_merges_only_without_errors(
 
     env = FakeEnv()
     handlers = {}
+    command = verdict
+    verdict = "abort" if command == "eof" else verdict
 
     def reader(input_queue, **kwargs):
         handlers["line"] = kwargs["line_handler"]
+        handlers["close"] = kwargs["on_close"]
         input_queue.put("test task")
 
     monkeypatch.setattr(cli, "start_interactive_reader", reader)
@@ -595,8 +603,13 @@ def test_cli_direct_verdict_finalizes_and_merges_only_without_errors(
             toolkit._operator_input = lambda *args: "done"
             call(toolkit, "request_scene_reset", reason="test")
             call(toolkit, "move_delta", arm="right", delta_xyz=[0.01, 0, 0])
-            assert handlers["line"]("/" + verdict)
-            assert input_queue.get(timeout=1) is None
+            if command == "eof":
+                handlers["close"]()
+                input_queue.put(None)
+            else:
+                assert handlers["line"]("/" + verdict)
+                assert input_queue.cancelled
+            assert input_queue.get() is None
             return SimpleNamespace(
                 finish_result=None, messages=[], stats={}, error=planner_error
             )
@@ -632,6 +645,7 @@ def test_cli_direct_verdict_finalizes_and_merges_only_without_errors(
             "codex",
             "--explore",
             "--interactive",
+            "--auto-merge-memory",
             "--output-dir",
             str(tmp_path / "run"),
             "--memory-dir",
@@ -640,7 +654,7 @@ def test_cli_direct_verdict_finalizes_and_merges_only_without_errors(
             str(dual_franka_robot_config),
         ],
     )
-    assert cli.main() == (1 if planner_error else 0)
+    assert cli.main() == (1 if planner_error and verdict != "failure" else 0)
     assert (tmp_path / "memory/task-specific/dual_franka_t0.json").is_file() == (
         verdict == "success" and planner_error is None
     )
@@ -651,17 +665,17 @@ def test_cli_direct_verdict_finalizes_and_merges_only_without_errors(
         (tmp_path / "run/sessions/session_001/operator_events.json").read_text()
     )
     assert events[-1]["status"] == ("failure" if verdict == "abort" else verdict)
-    assert events[-1]["operator_finished"] is True
+    assert events[-1]["operator_finished"] is (verdict == "abort")
 
 
 def test_direct_failure_ends_without_success_memory_even_before_reset(setup):
     t, env, _ = setup
     assert t.request_direct_verdict("failure")
-    assert t.request_direct_verdict("failure")
+    assert not t.request_direct_verdict("failure")
     assert not t.request_direct_verdict("success")
     assert call(t, "request_scene_reset", reason="late reset")["motion_refused"]
     result = t.finalize_direct_verdict()
-    assert result["status"] == "failure" and result["operator_finished"]
+    assert result["status"] == "failure" and not result["operator_finished"]
     assert not t.solved() and env.resets == 0
     assert t.write_recipe("dual_franka_t0") is None
 
@@ -686,3 +700,157 @@ def test_explore_task_is_only_in_user_prompt():
     for section in ("TASK", "TASK CONSTRAINTS"):
         assert section not in system
         assert section in user
+
+
+def test_current_view_refreshes_but_historical_view_does_not(setup):
+    t, env, replies = setup
+    reset(t, replies)
+    old_step = t.state.latest_step
+    reads = []
+    original = env.get_observation
+
+    def observe():
+        reads.append(True)
+        obs = original()
+        obs["d455_images"][:] = 77
+        return obs
+
+    env.get_observation = observe
+    observed = t.execute_tool("view_env_state", {})
+    assert len(reads) == 1 and t.state.latest_step == old_step + 1
+    assert observed.images == [t.state.load_bytes("d455.png")]
+    assert np.all(t.state.load("d455.png") == 77)
+    call(t, "view_env_state", step=old_step)
+    assert len(reads) == 1
+    assert env.resets == 1 and not env.moves
+    call(t, "move_delta", arm="left", delta_xyz=[0.01, 0, 0])
+    assert len(reads) == 2 and t.state.latest_step == old_step + 2
+    assert len(env.moves) == 1 and env.moves[0][0] == "left"
+    np.testing.assert_allclose(env.moves[0][1], [0.01, 0, 0])
+
+
+@pytest.mark.parametrize("ending", ["/success checked", None])
+def test_attended_confirmation_resumes_same_attempt_over_http(
+    setup, tmp_path, monkeypatch, ending
+):
+    import asyncio
+    import queue
+    import threading
+
+    import httpx
+    from mcp import ClientSession
+    from mcp.client.streamable_http import streamable_http_client
+
+    from rpent.planner.codex import CodexPlanner
+    from rpent.session.input import SessionInputQueue
+    from rpent.tools.human_in_the_loop import HumanInTheLoopInput
+
+    toolkit, env, replies = setup
+    broker = HumanInTheLoopInput(interactive=True)
+    toolkit._operator_input = broker
+    ready, prompted = threading.Event(), threading.Event()
+    monkeypatch.setattr("builtins.print", lambda *a, **kw: prompted.set())
+    monkeypatch.setattr(
+        "rpent.planner.codex.logger.info",
+        lambda message, *args: (
+            ready.set() if "Waiting for feedback" in message else None
+        ),
+    )
+    inputs = SessionInputQueue(queue.Queue())
+    clients, prompts = [], []
+    endpoint = []
+
+    async def request(name, args):
+        async with (
+            httpx.AsyncClient(trust_env=False) as client,
+            streamable_http_client(endpoint[0], http_client=client) as (
+                read,
+                write,
+                _,
+            ),
+            ClientSession(read, write) as session,
+        ):
+            await session.initialize()
+            result = await session.call_tool(name, args)
+            assert not result.isError
+
+    class Client:
+        closed = False
+
+        def __init__(self, config):
+            self.interrupted = asyncio.Event()
+            clients.append(self)
+
+        async def thread_start(self, **kwargs):
+            return self
+
+        async def turn(self, text, **kwargs):
+            prompts.append(text)
+            return self
+
+        async def stream(self):
+            if len(prompts) == 1:
+                await request("request_scene_reset", {"reason": "test"})
+            else:
+                assert env.resets == 1
+                await request("move_delta", {"arm": "right", "delta_xyz": [0, 0, 0.01]})
+                if ending is None:
+                    inputs.put(None)
+                else:
+                    assert broker.route_line(ending)
+                await self.interrupted.wait()
+            yield {
+                "method": "turn/completed",
+                "payload": {"turn": {"status": "completed"}},
+            }
+
+        async def interrupt(self):
+            self.interrupted.set()
+
+        async def close(self):
+            self.closed = True
+
+    def verdict(value, notes):
+        accepted = toolkit.request_direct_verdict(value, notes)
+        if accepted:
+            inputs.cancel()
+        return accepted
+
+    broker.bind_verdict(verdict)
+    monkeypatch.setattr("rpent.planner.codex.openai_codex.AsyncCodex", Client)
+    planner = CodexPlanner(
+        output_dir=str(tmp_path),
+        repo_root=tmp_path,
+        timeout_s=10,
+        dashboard_events=NullDashboardEventSink(),
+    )
+    monkeypatch.setattr(planner, "_build_config", lambda url: endpoint.append(url))
+
+    results = []
+    runner = threading.Thread(
+        target=lambda: results.append(
+            planner.solve(
+                toolkit=toolkit,
+                input_queue=inputs,
+                system_prompt="test",
+                user_message="test task",
+                max_turns=10,
+            )
+        )
+    )
+    runner.start()
+    try:
+        assert prompted.wait(3)
+        assert env.resets == 0
+        assert broker.route_line("/done")
+        assert ready.wait(3)
+        inputs.put("continue with this object")
+        runner.join(5)
+        assert not runner.is_alive() and results[0].error is None
+        assert len(clients) == 1 and clients[0].closed
+        assert prompts == ["test\n\ntest task", "continue with this object"]
+        assert env.resets == 1 and len(env.moves) == 1
+    finally:
+        inputs.put(None)
+        broker.close()
+        runner.join(5)

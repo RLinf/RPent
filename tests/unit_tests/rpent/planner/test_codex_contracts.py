@@ -620,7 +620,7 @@ def test_cli_budget_interrupt_preserves_terminal_status(
 def test_dashboard_interrupts_at_response_budget_and_closes(
     interrupt_error, completed_status, expected_error
 ):
-    from rpent.planner.codex import _CodexDashboardSession, _Recorder
+    from rpent.planner.codex import _CodexSession, _Recorder
 
     async def run():
         class Turn:
@@ -671,7 +671,7 @@ def test_dashboard_interrupts_at_response_budget_and_closes(
             events.append(event)
             recorder.observe(event)
 
-        session = _CodexDashboardSession(
+        session = _CodexSession(
             config=None,
             thread_options={},
             turn_options={},

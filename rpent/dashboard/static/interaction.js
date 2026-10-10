@@ -249,6 +249,10 @@ export function createInteractionController({ copy, select }) {
     const backendError = errorText(interaction.last_error);
     const controlError = errorText(session.control_error);
     const feedback = session.control_feedback.map(errorText).filter(Boolean);
+    const operator = session.operator;
+    if (operator?.enabled) {
+      select("#chatHint").textContent += " · /done · /continue · /success · /failure · /abort";
+    }
     if (state.requestError) {
       status.textContent = state.requestError;
       status.classList.add("is-error");
@@ -267,6 +271,11 @@ export function createInteractionController({ copy, select }) {
     } else if (interaction.interrupt_requested || state.interruptInFlight) {
       status.textContent = copy.interruptRequested;
       status.classList.add("is-busy");
+    } else if (operator?.pending) {
+      status.textContent = operator.pending.prompt + (operator.pending.kind === "reset"
+        ? "\nEnter /done to confirm scene restoration and allow the robot to reset, or /abort to cancel."
+        : "\nEnter /continue, /success, /failure or /abort, optionally followed by notes.");
+      status.classList.add("is-ready");
     } else if (state.notice) {
       status.textContent = state.notice;
       status.classList.add("is-ready");
@@ -380,7 +389,13 @@ export function createInteractionController({ copy, select }) {
     try {
       await requestJSON(
         "/api/session/messages",
-        { method: "POST", body: { text } },
+        { method: "POST", body: {
+          text,
+          operator_context: {
+            generation: state.snapshot.task_generation,
+            request_id: state.snapshot.operator?.pending?.id ?? null,
+          },
+        } },
       );
       if (input.value === draft) input.value = "";
     } catch (error) {

@@ -22,8 +22,12 @@ from rpent.tools.human_in_the_loop import HumanInTheLoopInput
 from rpent.tools.toolkit import ToolCancelled
 
 
-def test_operator_replies_are_request_scoped_and_do_not_consume_steering(monkeypatch):
-    broker = HumanInTheLoopInput(interactive=True)
+def test_operator_replies_are_request_scoped_and_do_not_consume_steering(
+    tmp_path, monkeypatch
+):
+    broker = HumanInTheLoopInput(
+        interactive=True, feedback_path=tmp_path / "feedback.jsonl"
+    )
     ready = threading.Event()
     result = []
     monkeypatch.setattr("builtins.print", lambda *args, **kwargs: ready.set())
@@ -41,6 +45,9 @@ def test_operator_replies_are_request_scoped_and_do_not_consume_steering(monkeyp
     assert result == ["done"] and not worker.is_alive()
     assert broker.route_line(f"/operator {request_id} success")
     assert broker._pending is None
+    assert not broker.route_line("keep the current progress")
+    assert "keep the current progress" in broker.feedback_prompt()
+    assert "keep the current progress" in (tmp_path / "feedback.jsonl").read_text()
 
 
 def test_operator_eof_and_cancellation_release_pending_requests(monkeypatch):
@@ -123,7 +130,7 @@ def test_interactive_reader_routes_operator_input_without_stealing_steering(
 def test_success_is_control_and_never_steering():
     broker = HumanInTheLoopInput(interactive=True)
     calls = []
-    broker.bind_verdict(lambda verdict: calls.append(verdict) or True)
+    broker.bind_verdict(lambda verdict, notes: calls.append(verdict) or True)
     assert not broker.route_line(" success ")
     assert broker.route_line("/success")
     assert len(calls) == 1
@@ -136,13 +143,12 @@ def test_success_is_control_and_never_steering():
 def test_only_slash_verdicts_are_control_commands():
     broker = HumanInTheLoopInput(interactive=True)
     verdicts = []
-    broker.bind_verdict(lambda verdict: verdicts.append(verdict) or True)
+    broker.bind_verdict(lambda verdict, notes: verdicts.append(verdict) or True)
     for text in (
         "success",
         "failure",
         "抓取成功了",
         "success 请继续",
-        "/success later",
     ):
         assert not broker.route_line(text)
     assert broker.route_line("/success")
@@ -164,7 +170,7 @@ def test_shortcuts_only_answer_matching_active_request(
     ready = threading.Event()
     values = []
     monkeypatch.setattr("builtins.print", lambda *a, **kw: ready.set())
-    assert broker.route_line(command)  # no buffering before a request
+    assert broker.route_line(command) is (command != "/continue")
     ready.clear()
     thread = threading.Thread(
         target=lambda: values.append(broker.request("test", lambda: None, kind=kind))
@@ -176,14 +182,14 @@ def test_shortcuts_only_answer_matching_active_request(
     assert broker.route_line(command)
     thread.join(2)
     assert not thread.is_alive() and values == [answer]
-    assert broker.route_line(command)  # duplicate cannot authorize another operation
+    assert broker.route_line(command) is (command != "/continue")
     assert not broker.route_line(answer)
 
 
 def test_abort_is_control_but_bare_words_are_chat():
     broker = HumanInTheLoopInput(interactive=True)
     calls = []
-    broker.bind_verdict(lambda verdict: calls.append(verdict) or True)
+    broker.bind_verdict(lambda verdict, notes: calls.append(verdict) or True)
     assert broker.route_line("/abort")
     assert calls == ["abort"]
     for word in ("done", "continue", "abort", "success", "failure"):

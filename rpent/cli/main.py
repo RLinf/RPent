@@ -44,6 +44,10 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
+from rpent.cli.attended import (
+    _finalize_operator_verdict,
+    _publish_success_recipe,
+)
 from rpent.cli.tui import (
     start_first_prompt_resolver,
     start_interactive_reader,
@@ -54,45 +58,19 @@ from rpent.dashboard.events import (
 )
 from rpent.evaluation import RunFinalizationContext
 from rpent.memory import MemoryManager
-from rpent.planner.base import REASONING_EFFORTS, build_planner
+from rpent.planner.base import (
+    CODEX_REASONING_EFFORTS,
+    REASONING_EFFORTS,
+    build_planner,
+)
 from rpent.planner.check import BASE_URL_ENV_BY_PLANNER
 from rpent.robots import enumerate_robots, get_robot_spec, get_toolkit
+from rpent.session.input import SessionInputQueue
+from rpent.session.transcript import _serialize_messages
+from rpent.session.transcript import _strip_images as _strip_images
 from rpent.utils.logging import get_logger, init_output_dir
 
 logger = get_logger("agent")
-
-
-# ---------------------------------------------------------------------------
-# API agent transcript serialization
-# ---------------------------------------------------------------------------
-
-
-def _strip_images(value):
-    """Return a copy of ``value`` with inline image payloads omitted.
-
-    SDK objects are left untouched; ``json.dump(..., default=str)`` handles
-    them at write time. Only the bulky base64 image blocks are replaced.
-    """
-    if isinstance(value, list):
-        return [_strip_images(v) for v in value]
-    if isinstance(value, dict):
-        if value.get("type") == "image":
-            return {"type": "image", "source": {"_omitted_for_transcript": True}}
-        if value.get("type") == "image_url":
-            return {"type": "image_url", "image_url": {"_omitted_for_transcript": True}}
-        return {k: _strip_images(v) for k, v in value.items()}
-    return value
-
-
-def _serialize_messages(messages: list[dict]) -> list[dict]:
-    """Strip inline image payloads from messages before writing the transcript."""
-    return [
-        {
-            **{k: v for k, v in m.items() if k != "content"},
-            "content": _strip_images(m.get("content")),
-        }
-        for m in messages
-    ]
 
 
 # ---------------------------------------------------------------------------
@@ -154,11 +132,12 @@ def _build_argparser() -> argparse.ArgumentParser:
     ap.add_argument("--max-tokens", type=int, default=8192)
     ap.add_argument(
         "--reasoning-effort",
-        choices=REASONING_EFFORTS,
+        choices=CODEX_REASONING_EFFORTS,
         default="none",
         help="Planner reasoning effort for api, claude_code, and "
         "codex. Higher effort may improve task success rate "
-        "but increases runtime. Defaults to none.",
+        "but increases runtime. Ultra is Codex-only and requires a supporting "
+        "model and SDK. Defaults to none.",
     )
     ap.add_argument(
         "--no-images",
@@ -175,7 +154,7 @@ def _build_argparser() -> argparse.ArgumentParser:
         help="Wall-clock cap for api/claude_code/codex planner runs. "
         "Terminal interactive API/Claude sessions are exempt. "
         "Defaults to CODEX_TIMEOUT_S (codex only), "
-        "CELL_TIMEOUT_S, or 1200.",
+        "CELL_TIMEOUT_S, or 1200. For codex, 0 disables this deadline.",
     )
     ap.add_argument(
         "--claude-code-max-budget-usd",
@@ -356,8 +335,15 @@ def main() -> int:
     )
     args = parser.parse_args()
     args.robot_name = early.robot_name
+    if args.planner != "codex" and args.reasoning_effort not in REASONING_EFFORTS:
+        parser.error(
+            f"--reasoning-effort {args.reasoning_effort} requires --planner codex"
+        )
     human_interactive_exploration = (
         args.explore and robot_spec.supports_human_interactive_exploration
+    )
+    human_interactive_run = human_interactive_exploration or (
+        args.dashboard and robot_spec.supports_human_interactive_exploration
     )
     if args.dashboard and args.interactive:
         parser.error("--dashboard and --interactive cannot be used together")
@@ -365,7 +351,7 @@ def main() -> int:
         "external_env", False
     )
     if robot_spec.is_real_robot and not (
-        human_interactive_exploration or external_env_dashboard
+        human_interactive_run or external_env_dashboard
     ):
         if args.dashboard or args.interactive:
             parser.error(
@@ -398,11 +384,7 @@ def main() -> int:
         )
     if args.explore and getattr(args, "explore_attempts_per_session", 0) < 0:
         parser.error("--explore-attempts-per-session must be nonnegative")
-    if human_interactive_exploration:
-        if args.dashboard:
-            parser.error(
-                "Human-interactive exploration currently requires the CLI operator terminal; Dashboard feedback is not implemented"
-            )
+    if human_interactive_run and not args.dashboard:
         if sys.stdin is None or not sys.stdin.isatty():
             parser.error(
                 "Human-interactive exploration requires a TTY for operator reset/verdict feedback"
@@ -473,12 +455,12 @@ def main() -> int:
     )
 
     operator_input = None
-    if human_interactive_exploration:
+    if human_interactive_run:
         from rpent.tools.human_in_the_loop import HumanInTheLoopInput
 
-        # The native CLI reads between runs, leaving the TTY available to tools.
         operator_input = HumanInTheLoopInput(
-            interactive=args.interactive and not native_cli
+            interactive=args.interactive and not native_cli,
+            feedback_path=Path(output_dir) / "operator_feedback.jsonl",
         )
     input_queue: "queue.Queue[str | None] | None" = None
     await_first_prompt: "Callable[[], str | None] | None" = None
@@ -527,7 +509,7 @@ def main() -> int:
         first_user_msg = await_first_prompt()
         if first_user_msg is None:
             logger.info("no task entered; ending session before start.")
-    if human_interactive_exploration:
+    if human_interactive_run:
         prompt_vars = {**prompt_vars, "initial_user_message": first_user_msg}
     # Exploration may hand off between independent planner contexts.
     sessions = max(1, int(getattr(args, "explore_sessions", 1) or 1))
@@ -538,11 +520,15 @@ def main() -> int:
     environment_success: bool | None = None
     memory_manager: MemoryManager | None = None
     direct_operator_success = False
+    verdict_handoff = ""
     try:
         if first_user_msg is not None:
             dashboard_events.emit(RunStartedEvent())
         session_msg = first_user_msg
         for session_number in range(1, sessions + 1):
+            direct_operator_success = False
+            continue_after_verdict = False
+            solved = False
             if session_msg is None:
                 break
             if session_number > 1:
@@ -556,6 +542,9 @@ def main() -> int:
                     session_number=session_number,
                     session_max=sessions,
                 )
+                session_msg += verdict_handoff
+                if operator_input is not None and args.interactive:
+                    session_msg += operator_input.feedback_prompt()
             state_output_dir = output_dir
             if getattr(args, "explore", False):
                 state_output_dir = (
@@ -586,51 +575,85 @@ def main() -> int:
                     config=run_config,
                 )
             memory_manager = toolkit.memory
+            session_input = input_queue
             if operator_input is not None and input_queue is not None:
+                session_input = SessionInputQueue(input_queue)
 
-                def accept_verdict(verdict: str, active_toolkit=toolkit) -> bool:
-                    if not active_toolkit.request_direct_verdict(verdict):
+                def accept_verdict(
+                    verdict: str,
+                    notes: str,
+                    active_toolkit=toolkit,
+                    active_input=session_input,
+                ) -> bool:
+                    if not active_toolkit.request_direct_verdict(verdict, notes):
                         return False
                     logger.info(
-                        "/%s accepted: stopping actions, then recording the result and exiting.",
+                        "/%s accepted: stopping this attempt and recording its result.",
                         verdict,
                     )
-                    # EOF is a planner control signal, never a model message.
-                    input_queue.put(None)
+                    active_input.cancel()
                     return True
 
                 operator_input.bind_verdict(accept_verdict)
+            pending_operator_request = None
             try:
                 result = planner.solve(
                     system_prompt=system_prompt,
                     user_message=session_msg,
                     toolkit=toolkit,
                     max_turns=args.max_turns,
-                    input_queue=input_queue,
+                    input_queue=session_input,
                 )
                 finish_result = result.finish_result
                 messages += result.messages
                 stats = result.stats
                 agent_error = result.error
-                if getattr(toolkit, "direct_verdict_requested", False):
-                    finish_result = toolkit.finalize_direct_verdict()
-                    direct_operator_success = finish_result["status"] == "success"
-                    if agent_error:
-                        logger.info(
-                            "Planner stopped after operator verdict: %s", agent_error
+                if operator_input is not None and args.interactive:
+                    pending_operator_request = operator_input.pending_kind
+                    if operator_input.closed and not (
+                        finish_result or toolkit.direct_verdict_requested
+                    ):
+                        toolkit.request_direct_verdict(
+                            "abort", "Interactive input closed"
                         )
-                        stats["planner_error_at_operator_verdict"] = agent_error
-                solved_fn = getattr(toolkit, "solved", None)
-                if getattr(robot_spec, "supports_exploration", False) and callable(
-                    solved_fn
-                ):
-                    solved = bool(solved_fn())
-                    write_recipe = getattr(toolkit, "write_recipe", None)
-                    if solved and callable(write_recipe):
-                        recipe_path = write_recipe(recipe_tag) or recipe_path
+                if human_interactive_run and toolkit.direct_verdict_requested:
+                    finish_result, agent_error, verdict_handoff = (
+                        _finalize_operator_verdict(
+                            result,
+                            toolkit=toolkit,
+                            memory=memory_manager,
+                            recipe_tag=recipe_tag,
+                            output_dir=output_dir,
+                            state_output_dir=state_output_dir,
+                            session_number=session_number,
+                        )
+                    )
+                    direct_operator_success = finish_result["status"] == "success"
+                    continue_after_verdict = (
+                        finish_result["operator_verdict"] in {"success", "failure"}
+                        and not agent_error
+                    )
+                if robot_spec.supports_exploration:
+                    solved = bool(toolkit.solved())
+                    if solved:
+                        recipe_path = toolkit.write_recipe(recipe_tag) or recipe_path
+                        if (
+                            human_interactive_exploration
+                            and direct_operator_success
+                            and not agent_error
+                        ):
+                            _publish_success_recipe(
+                                memory_manager,
+                                recipe_tag=recipe_tag,
+                                output_dir=output_dir,
+                                state_output_dir=state_output_dir,
+                                auto_merge=args.auto_merge_memory,
+                            )
             finally:
-                if operator_input is not None and input_queue is not None:
+                if operator_input is not None and args.interactive:
                     operator_input.bind_verdict(None)
+                    if session_input is not None:
+                        session_input.cancel()
                 try:
                     if robot_spec.finalize_run is not None:
                         solved_fn = getattr(toolkit, "solved", None)
@@ -640,8 +663,23 @@ def main() -> int:
                         solved = bool(environment_success)
                 finally:
                     toolkit.close()
+                    if operator_input is not None and args.interactive:
+                        operator_input.cancel_pending()
             if (
-                solved
+                human_interactive_run
+                and not continue_after_verdict
+                and not (finish_result or {}).get("_finish")
+                and not (finish_result or {}).get("operator_finished")
+            ):
+                agent_error = agent_error or (
+                    f"Planner returned without an attempt verdict; pending operator request: "
+                    f"{pending_operator_request or 'none'}. Old tools were cancelled. "
+                    "Stopping exploration instead of starting another empty session."
+                )
+                logger.error("%s", agent_error)
+                break
+            if (
+                (solved and not continue_after_verdict)
                 or (finish_result or {}).get("operator_aborted")
                 or (finish_result or {}).get("operator_finished")
             ):
@@ -727,7 +765,8 @@ def main() -> int:
     # Publish exploration artifacts into the corpus after the session loop.
     if (
         getattr(args, "explore", False)
-        and (getattr(args, "auto_merge_memory", False) or direct_operator_success)
+        and getattr(args, "auto_merge_memory", False)
+        and not direct_operator_success
         and not agent_error
         and memory_manager is not None
         and (not human_interactive_exploration or solved)

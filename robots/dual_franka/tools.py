@@ -580,7 +580,7 @@ def view_env_state(
     *,
     state: EnvState,
 ) -> ToolResult:
-    """Read a dual-Franka state snapshot. Configured inline camera views are returned directly; other available views are returned as artifact paths; use read_image to inspect these artifacts."""
+    """Capture a fresh dual-Franka observation when step=-1 (default); a nonnegative step reads that historical snapshot without acquisition. Use the returned step for segmentation and back-projection; do not reuse pixels or masks from an older step after refreshing. Configured inline camera views are returned directly; other available views are returned as artifact paths for targeted read_image inspection."""
     images: list[bytes] = []
     record = state.get(step)
     output = record.to_blob()
