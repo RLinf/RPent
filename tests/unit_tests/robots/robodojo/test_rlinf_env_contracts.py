@@ -20,6 +20,7 @@ import numpy as np
 import pytest
 
 from robots.robodojo import env_server
+from robots.robodojo.scripted.eval import bridge_call
 
 
 def test_server_arguments_reach_runtime_config():
@@ -129,3 +130,49 @@ def test_camera_and_language_preserve_rpc_contract(make_agent):
         agent._sub_env(1)
     with pytest.raises(ValueError, match="unknown camera"):
         facade.get_camera_meta("missing")
+
+
+def test_scripted_bridge_uses_current_facade_and_filters_native_results(make_agent):
+    """Exercise the extracted service closure with only the native scene faked."""
+    actions = []
+    native = SimpleNamespace(
+        take_action_cnt=[0],
+        step_lim=200,
+        is_success=lambda env_idx: True,
+        get_obs=lambda env_idx: {
+            "state": {"right_arm_joint_state": np.zeros(6), "reward": 1},
+            "vision": {},
+        },
+        obs_manager=SimpleNamespace(
+            desc_manager=SimpleNamespace(get_one_description=lambda: ["Pick it up."])
+        ),
+        reward_manager=SimpleNamespace(
+            get_reward=lambda **kwargs: [1.0],
+            get_score=lambda: [100.0],
+            is_all_gripper_open=lambda **kwargs: True,
+            all_robot_back_to_origin=lambda: False,
+            check_once=lambda value, index: value,
+        ),
+    )
+
+    def apply_action(action, kind, *, eval_fair):
+        actions.append((action, kind, eval_fair))
+        native.take_action_cnt[0] += 1
+
+    agent = make_agent(
+        native, slot=SimpleNamespace(env=native, apply_action=apply_action)
+    )
+    facade = env_server.RoboDojoEnvFacade(agent)
+
+    class LocalRpc:
+        def call(self, method, args=(), kwargs=None, **options):
+            return facade._rpc[method](*args, **(kwargs or {}))
+
+    action = {"right_arm_joint_state": [0.1] * 6}
+    result = bridge_call(LocalRpc(), {"method": "step", "args": [action]})
+    assert actions == [(action, "joint", False)]
+    assert result["status"] == {"step": 1, "step_limit": 200}
+    assert set(result["obs"]["state"]) == {"right_arm_joint_state"}
+    assert result["obs"]["instruction"] == "Pick it up."
+    assert facade.is_success() is True
+    assert facade.get_reward_details()["reward"] == 1.0
