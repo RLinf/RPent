@@ -98,3 +98,46 @@ def test_cancellation_drains_capture_and_executor_queue_with_full_pool(
 
     loop = started = capturing = None
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("wait_in_cancel", [False, True])
+def test_repeated_cancellation_keeps_loop_responsive_until_worker_finishes(
+    wait_in_cancel,
+):
+    release = threading.Event()
+    started = threading.Event()
+    draining = threading.Event()
+
+    def execute(*args):
+        started.set()
+        assert release.wait(5)
+        return ToolResult(data={})
+
+    def cancel():
+        draining.set()
+        if wait_in_cancel:
+            assert release.wait(5)
+
+    async def scenario():
+        toolkit = SimpleNamespace(execute_tool=execute, cancel_active_and_wait=cancel)
+        task = asyncio.create_task(execute_tool(toolkit, "read", {}))
+        try:
+            while not started.is_set():
+                await asyncio.sleep(0.001)
+            task.cancel()
+            while not draining.is_set():
+                await asyncio.sleep(0.001)
+            for _ in range(3):
+                task.cancel()
+                await asyncio.sleep(0)
+                assert not task.done()
+            # Only a responsive event loop can release the blocked worker.
+            asyncio.get_running_loop().call_later(0.02, release.set)
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            assert release.is_set()
+        finally:
+            release.set()
+            await asyncio.gather(task, return_exceptions=True)
+
+    asyncio.run(scenario())

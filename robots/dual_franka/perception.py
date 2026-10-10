@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -41,6 +42,8 @@ from rpent.utils.transforms import (
     transform_points,
     transform_pose,
 )
+
+_segment_save_lock = threading.Lock()
 
 ROBOT_CONFIG_PATH = Path(__file__).resolve().parent / "config" / "example.yaml"
 
@@ -170,15 +173,11 @@ def segment(
             }
         )
 
-    segment_index = _next_named_artifact_index(
-        state.get(step_idx), prefix=f"{camera}_segment", suffix=".json"
-    )
-    segment_name = f"{camera}_segment_{segment_index:02d}.json"
-    overlay_name = f"{camera}_segment_overlay_{segment_index:02d}.png"
     mode = "text" if has_prompt else "point"
 
     localization: dict[str, Any]
     mask = data.mask
+    overlay = None
     saved_overlay = None
     if data.found and isinstance(mask, np.ndarray):
         try:
@@ -196,8 +195,6 @@ def segment(
                 mask,
                 localization=localization,
             )
-            if overlay is not None and state.save(overlay_name, overlay, step=step_idx):
-                saved_overlay = overlay_name
         except Exception as exc:
             localization = {
                 "point_xyz": None,
@@ -216,7 +213,6 @@ def segment(
         "target_name": str(target_name).strip() or "target",
         "camera": camera,
         "source_step": step_idx,
-        "segment_index": segment_index,
         "image_artifact": image_name,
         "depth_artifact": depth_name,
         "min_score": float(min_score),
@@ -243,7 +239,17 @@ def segment(
         segment_blob["error"] = data.reason or "SAM3 found no mask"
     segment_blob.update(localization)
 
-    saved_segment = state.save(segment_name, segment_blob, step=step_idx)
+    # Allocate names and publish the pair together so parallel calls cannot reuse them.
+    with _segment_save_lock:
+        segment_index = _next_named_artifact_index(
+            state.get(step_idx), prefix=f"{camera}_segment", suffix=".json"
+        )
+        segment_name = f"{camera}_segment_{segment_index:02d}.json"
+        overlay_name = f"{camera}_segment_overlay_{segment_index:02d}.png"
+        segment_blob["segment_index"] = segment_index
+        if overlay is not None and state.save(overlay_name, overlay, step=step_idx):
+            saved_overlay = overlay_name
+        saved_segment = state.save(segment_name, segment_blob, step=step_idx)
     result = {
         "ok": segment_blob["ok"],
         "found": segment_blob["found"],

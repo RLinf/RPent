@@ -903,6 +903,7 @@ def write_recipe_from_states(
         result = record.result
         if (
             command is not None
+            and command.get("action") != "segment"
             and _is_primitive_action(command.get("action"))
             and not (isinstance(result, dict) and result.get("error"))
         ):

@@ -16,12 +16,15 @@
 
 from __future__ import annotations
 
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-from robots.dual_franka import get_robot_spec
+from robots.dual_franka import get_robot_spec, perception
 from robots.dual_franka.perception import (
     back_project,
     load_calibration_bundle,
@@ -585,7 +588,8 @@ def test_back_project_returns_annotated_image_block(tmp_path: Path):
     assert "_image_" not in text_block["text"]
 
 
-def test_segment_returns_mask_overlay_and_world_point(tmp_path: Path):
+@pytest.mark.parametrize("parallel", [False, True])
+def test_segment_returns_mask_overlay_and_world_point(tmp_path, monkeypatch, parallel):
     state = EnvState(tmp_path)
     with state.record_step(
         state={
@@ -631,19 +635,38 @@ def test_segment_returns_mask_overlay_and_world_point(tmp_path: Path):
         "        - [0.0, 0.0, 1.0, 0.0]\n"
         "        - [0.0, 0.0, 0.0, 1.0]\n"
     )
+    targets = ["first", "second"] if parallel else ["first"]
+    barrier = threading.Barrier(len(targets))
+    localize = perception._mask_to_camera_world
+
+    def synchronized_localize(*args, **kwargs):
+        # Both calls reach localization before either can save an artifact.
+        barrier.wait(timeout=3)
+        return localize(*args, **kwargs)
+
+    monkeypatch.setattr(perception, "_mask_to_camera_world", synchronized_localize)
     set_robot_config_path(config)
     try:
-        result_native = segment(
+        call = partial(
+            segment,
             prompt="white cardboard box interior",
-            target_name="cardboard_box_interior",
             min_valid_depth_pixels=1,
             state=state,
             sam3_client=FakeSam3Client(),
         )
+        with ThreadPoolExecutor(max_workers=len(targets)) as pool:
+            results = list(pool.map(lambda target: call(target_name=target), targets))
+        result_native = results[0]
         result = result_native.data
     finally:
         set_robot_config_path(None)
 
+    assert len({item.data["segment_artifact"] for item in results}) == len(targets)
+    assert len({item.data["overlay_artifact"] for item in results}) == len(targets)
+    for target, item in zip(targets, results, strict=True):
+        assert not item.is_error
+        assert state.load(item.data["segment_artifact"])["target_name"] == target
+        assert item.images == [state.load_bytes(item.data["overlay_artifact"])]
     assert result["ok"]
     assert result["found"]
     assert result["coordinate_frame"] == "right_base"

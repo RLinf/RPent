@@ -60,10 +60,24 @@ def strip_mcp_prefix(name: str) -> str:
     return name.removeprefix(MCP_TOOL_PREFIX)
 
 
+async def _wait_for_cleanup(worker: asyncio.Future) -> None:
+    """Finish cleanup asynchronously even if the caller is cancelled again."""
+    cancelled = False
+    while not worker.done():
+        try:
+            await asyncio.shield(worker)
+        except asyncio.CancelledError:
+            cancelled = True
+    worker.result()
+    if cancelled:
+        raise asyncio.CancelledError
+
+
 async def cancel_and_wait(cancel: Callable[[], None]) -> None:
     """Drain tools without competing for their potentially saturated worker pool."""
     with ThreadPoolExecutor(max_workers=1, thread_name_prefix="tool-control") as pool:
-        await asyncio.get_running_loop().run_in_executor(pool, cancel)
+        worker = asyncio.get_running_loop().run_in_executor(pool, cancel)
+        await _wait_for_cleanup(worker)
 
 
 async def execute_tool(toolkit: Toolkit, name: str, arguments: dict) -> ToolResult:
@@ -74,8 +88,10 @@ async def execute_tool(toolkit: Toolkit, name: str, arguments: dict) -> ToolResu
     try:
         return await asyncio.shield(worker)
     except asyncio.CancelledError:
-        await cancel_and_wait(toolkit.cancel_active_and_wait)
-        await asyncio.shield(worker)
+        try:
+            await cancel_and_wait(toolkit.cancel_active_and_wait)
+        finally:
+            await _wait_for_cleanup(worker)
         raise
 
 

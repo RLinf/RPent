@@ -200,3 +200,32 @@ def test_close_handles_collection_and_video_independently(
             "flywheel episode finalized: %s", tmp_path / "episode"
         )
     assert logger.warning.call_count == (failure is not None)
+
+
+def test_recipe_exports_each_segment_once_and_keeps_repeated_calls(tmp_path):
+    import json
+
+    from robots.libero.tools import write_recipe_from_states
+    from rpent.session import EnvState
+
+    state = EnvState(tmp_path)
+    command = {"action": "segment", "prompt": "cup", "camera": "agentview"}
+    with state.record_step(state={}):
+        pass
+    for index in range(2):
+        state.save(
+            "segment_00.json",
+            {
+                "mode": "text",
+                "prompt": "cup",
+                "camera": "agentview",
+                "segment_index": 0,
+            },
+        )
+        with state.record_step(
+            state={}, command=command, result={}, terminated=index == 1
+        ):
+            pass
+    name = write_recipe_from_states(state, "test", output_dir=tmp_path)
+    commands = [json.loads(line) for line in (tmp_path / name).read_text().splitlines()]
+    assert commands == [command, command]
