@@ -164,15 +164,18 @@ Franka Flash 任务卡
 历史点复用不属于本接口。运行需要对应机器人环境及操作员验证；离线单测不能证明
 真机任务成功。
 
-可选的 Agent 定位回退
+.. _agent:
+
+Flash 模式加入大模型 Agent 介入选点
 ------------------------------------------
 
-该功能旨在改善基于Molmo小模型在Flash 模式下选取点位时，遇到深度无效点、目标无法识别或 Molmo 请求失败时，用户可以自己设定大模型来优化选点、介入选择，一般可以设置为Astra等RPent中已经支持的大模型
-，以此提高选点成功率。开启此功能后，Molmo小模型遇到
-定位失败时，RPent 会先刷新观测，再让设置的大模型 Agent 在同一目标部位重试一次。
-如果Agent再次失败则停止回放，不执行本次运动。Agent 选点回合结束后，
-下一次平移仍先用 Molmo。
-此功能默认关闭，只用于Flash 模式，不用于离线生成任务卡。
+在 Flash 模式下，Molmo 找不到目标、选点的像素或深度无效，或请求失败时，
+可以由 Agent 重新选点。
+
+开启后，RPent 会先刷新观测，再让 Agent 在同一目标部位重试一次。
+再次失败则停止回放，不执行本次运动。下一次平移仍先用 Molmo。
+
+此功能默认关闭，只用于 Flash 模式的实时回放，不用于离线生成任务卡。
 
 在回放命令中增加 ``--grounding-agent-model`` 即可开启：
 
@@ -183,7 +186,8 @@ Franka Flash 任务卡
      --molmo-endpoint http://localhost:9000 \
      --grounding-agent-model codex:YOUR_MODEL
 
-将 ``YOUR_MODEL`` 换成已配置、支持图像输入和结构化输出的模型。
+用户可以指定 Astra 等 RPent 已支持的大模型来介入选点，以此提高选点成功率。
+将 ``YOUR_MODEL`` 换成对应的模型名称，所选模型需要支持图像输入和结构化输出。
 双臂 Franka 使用 ``--robot dual_franka``，并换成对应的任务卡和机器人配置。
 
 模型登录和 API 配置参见 :doc:`../guides/configure_planner`。

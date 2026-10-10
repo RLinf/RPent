@@ -208,19 +208,20 @@ stage splicing, reference-image selection and historical-point reuse are not
 part of this interface. These commands require robot-specific installation and
 operator validation; offline unit tests do not establish real-robot success.
 
-Optional agent grounding fallback
-------------------------------------------
+.. _optional-agent-grounding-fallback:
 
-This feature lets you choose a large model to improve point selection when the
-small Molmo model encounters invalid depth, cannot identify the target, or its
-request fails in Flash mode. You can use Astra or another large model already
-supported by RPent to improve the point-selection success rate. When Molmo
-localization fails, RPent first captures a fresh observation, then asks the
-configured agent to retry once on the same object part. If the agent also
-fails, replay stops without executing that motion. After the agent's selection
-attempt, the next translation starts with Molmo again.
-This feature is disabled by default and only applies to Flash mode, not offline
-plan generation.
+Large model agent assistance for point selection in Flash mode
+--------------------------------------------------------------
+
+In Flash mode, an agent can retry point selection when Molmo cannot find the
+target, selects a pixel with invalid coordinates or depth, or its request fails.
+
+When enabled, RPent first captures a fresh observation, then asks the agent to
+retry once on the same object part. If that attempt also fails, replay stops
+without executing that motion. The next translation starts with Molmo again.
+
+This feature is disabled by default and only applies to live replay in Flash
+mode, not offline plan generation.
 
 To enable it, add ``--grounding-agent-model`` to the replay command:
 
@@ -231,9 +232,10 @@ To enable it, add ``--grounding-agent-model`` to the replay command:
      --molmo-endpoint http://localhost:9000 \
      --grounding-agent-model codex:YOUR_MODEL
 
-Replace ``YOUR_MODEL`` with a configured model that supports images and
-structured output. For dual Franka, use ``--robot dual_franka`` with its plan
-and robot configuration.
+You can use Astra or another large model already supported by RPent to improve
+the point-selection success rate. Replace ``YOUR_MODEL`` with the model name;
+the model must support images and structured output.
+For dual Franka, use ``--robot dual_franka`` with its plan and robot configuration.
 
 See :doc:`../guides/configure_planner` for model login and API setup.
 Use ``codex:model`` for Codex CLI or ``provider:model`` for an API model.
