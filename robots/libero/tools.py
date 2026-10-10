@@ -140,6 +140,12 @@ class LiberoPrimitives:
         if self._recording:
             self.record_frame(obs)
 
+    def execute_action(self, values: list[float]) -> ToolResult:
+        """Execute one native action and refresh observations and recording."""
+        action = self.env.validate_action(values)
+        self._step_env(action)
+        return ToolResult(data={"executed_steps": 1})
+
     def reset_episode(self, reason: str = "") -> dict:
         """Restart an episode and return an explore-tool-compatible result."""
         self.reset()

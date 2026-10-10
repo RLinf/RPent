@@ -28,6 +28,7 @@ from robots.robocasa import tools as robocasa_tools
 from rpent.dashboard.events import DashboardEventSink
 from rpent.session import EnvState
 from rpent.tools import ToolResult, iter_tools
+from rpent.tools.direct_action import direct_action_tool
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger, get_output_dir
 
@@ -46,6 +47,7 @@ class RoboCasaToolkit(Toolkit):
         runtime_kwargs: dict[str, Any],
         dashboard_events: DashboardEventSink,
         memory: MemoryManager,
+        enable_direct_action: bool = False,
         mode: str = "evaluation",
         attempts_per_session: int = 0,
         state_output_dir: Path | str | None = None,
@@ -69,6 +71,12 @@ class RoboCasaToolkit(Toolkit):
             }
         )
         self._register_robocasa_tools()
+        if enable_direct_action:
+            self.add_tool(
+                direct_action_tool(
+                    self._primitives.env.action_specs, self._primitives.execute_action
+                )
+            )
 
     def _register_robocasa_tools(self) -> None:
         self.add_tools(iter_tools(self._primitives))
