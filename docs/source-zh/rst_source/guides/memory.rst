@@ -41,7 +41,46 @@
 
 CLI 和 Dashboard 都在每个任务开始前解析 memory 根目录。在 Dashboard 的 **下一任务的模型** 中修改模型后，下一任务会重新进行自动选择；正在运行的任务保留原模型和 memory。显式指定的 memory 版本不会随模型切换而改变。
 
+.. code-block:: bash
+
+   rpent --robot libero --suite libero_goal_swap --task 1 --seed 1 \
+     --planner codex --model gpt-6-astra --reasoning-effort low \
+     --memory-revision <commit-sha>
+
+``--memory-revision`` 接受提交、标签或分支；省略时仍跟随 ``main``。\
+跨多次运行固定来源时应使用完整提交 SHA。该选项应用于所选模型对应的 memory，\
+也会沿用到后续 Dashboard 任务，包括切换模型后的任务。\
+本地 memory 评测和探索模式不接受这一远程来源选项。
+
+LIBERO 在每个任务开始前将精简的 ``memory_source.json`` 写入输出目录；Dashboard 的共享服务此时可能已启动。记录包含机器人名称、固定到实际提交的 HF 数据集 URL 和所选语料版本。逐文件哈希仍保存在已验证缓存的收据中，不在这个可移植记录中重复保存。本地模式只记录目录，不能作为已验证的 HF 来源回放。每次独立运行应使用新的输出目录。
+
 仅下载所选版本。LIBERO 缓存位于 ``memory/libero/.versions/``，按仓库、提交和版本隔离，每次复用前校验文件集合完全一致及每份文件的哈希。额外文件会使缓存失效，固定 revision 时也不例外；联网同步会重建无效缓存。``HF_HUB_OFFLINE=1`` 要求所选版本及 revision 已有完整、未改动的缓存。下载失败不会改用另一模型的 memory；缓存缺失或不完整会明确报错。旧缓存记录未标明版本来源时，需要联网成功刷新一次；不复用旧的无版本缓存。其他机器人保持原有的 memory 同步行为。
+
+无法连接 Hub 时，完整提交 SHA 会选择该提交的缓存，包括先前通过分支下载的同一提交。\
+指定分支或标签时，会使用本机最近一次成功同步该名称、仓库和语料版本时的提交，\
+它可能落后于 Hub 当前版本。可在 ``memory_source.json`` 中查看实际使用的提交；\
+若希望后续运行仍使用它，通过 ``--memory-source`` 传入该文件。
+
+共享来源选择与重用
+~~~~~~~~~~~~~~~~~~
+
+所有机器人的 CLI 和 Dashboard 均可在 HF 评测模式下使用 ``--memory-repo`` 与 ``--memory-source``。例如：
+
+.. code-block:: bash
+
+   rpent --robot libero --suite libero_goal_swap --task 1 --seed 1 \
+     --planner codex --model gpt-6-astra --reasoning-effort low \
+     --memory-repo https://huggingface.co/datasets/RLinf/RPent-memory@<commit-sha>
+
+   rpent --robot libero --suite libero_goal_swap --task 1 --seed 2 \
+     --planner codex --model gpt-6-astra --reasoning-effort low \
+     --memory-source /path/to/previous-run/memory_source.json
+
+``--memory-repo`` 接受数据集 ID 或 HTTPS Hugging Face 数据集 URL，可用 ``@revision`` 指定版本，默认是 ``main``。仓库需要保持对应机器人的既有目录布局：LIBERO 继续校验分版本清单和文件哈希；其他机器人使用已解析 Hub 快照中的 ``<robot>/**`` 子目录，并保留既有任务及目录检查。显式来源不可用时会报错，不会改用机器人的默认记忆目录。目前不支持任意 Git remote。
+
+``--memory-source`` 也接受 ``--memory_source`` 写法，读取 schema version 2 记录。它固定之前的仓库、提交及 LIBERO 语料版本，不随新任务的模型改变。机器人不匹配、本地记录、可变引用及冲突参数均会被拒绝。旧 schema version 1 记录不能直接作为输入；可将其中的仓库和实际提交组合成 ``--memory-repo`` 参数。这两个选项不能相互组合，也不能与探索、本地模式或 ``--memory-revision`` 同用；重用记录时也不能显式设置 ``--memory-version``。显式来源优先于 ``RPENT_MEMORY_HF_REPO``，下载使用当前机器已有的 HF 认证。
+
+来源解析和记录格式位于共享的 ``rpent/memory/source.py``，各机器人的语料校验仍由其自身模块负责。固定 URL 只固定来源身份，不代表整个执行环境不可变。
 
 独立下载与本地评测
 ~~~~~~~~~~~~~~~~~~
@@ -50,17 +89,26 @@ CLI 和 Dashboard 都在每个任务开始前解析 memory 根目录。在 Dashb
 
    python -m robots.libero.memory sync --memory-version GPT_6_astra_low
    python -m robots.libero.memory sync --model gpt-6-astra \
-     --revision <release-commit> --output-dir /path/to/new-astra-memory
+     --revision <release-commit> --output-dir /path/to/new-astra-memory \
+     --source-record /path/to/astra-source.json
    rpent --robot libero --suite libero_goal_swap --task 1 --seed 1 \
      --planner codex --model gpt-6-astra --reasoning-effort low \
      --memory-profile local --memory-dir /path/to/new-astra-memory
 
-``sync`` 输出实际 memory 根目录，``--output-dir`` 必须是尚不存在的目录。 ``--planner`` 默认是 ``api``，与 ``rpent`` 一致；希望在省略 ``--model`` 时读取 ``CODEX_MODEL``，需指定 ``--planner codex``。 ``--memory-profile local`` 不下载 memory；本地模式或 ``--explore`` 与显式远程 ``--memory-version`` 同时使用会报参数冲突。探索使用本地 memory，每次独立探索应指定单独的空目录。
+``sync`` 输出实际 memory 根目录，``--output-dir`` 必须是尚不存在的目录。\
+导出的文件会在新目录正式发布前与已验证收据再次核对。\
+可选 ``--source-record`` 写入同样的 HF 来源记录，可在其他机器上重用其远程来源；导出目录仍可通过 ``--memory-profile local --memory-dir`` 单独选择。\
+该文件必须位于缓存和输出语料目录之外，避免改变被校验的文件集合。 ``--planner`` 默认是 ``api``，与 ``rpent`` 一致；希望在省略 ``--model`` 时读取 ``CODEX_MODEL``，需指定 ``--planner codex``。 ``--memory-profile local`` 不下载 memory；本地模式或 ``--explore`` 与显式远程 ``--memory-version`` 同时使用会报参数冲突。探索使用本地 memory，每次独立探索应指定单独的空目录。
 
 分版本下载使用 LIBERO 专用命令；共享的 ``rpent-memory`` 继续提供 ``merge``、 ``validate`` 和 ``build-index`` 三个命令。
 
 发布来源与兼容性
 ~~~~~~~~~~~~~~~~
+
+加载器的引用指针按仓库、请求的引用名称和语料版本隔离。\
+离线解析分支或标签时，先检查指针中的仓库、语料版本和提交格式，再校验对应快照。\
+完整提交请求直接定位快照，不读取引用指针，因此过期或被错误修改的指针不能改变固定提交请求的目标。\
+精简的 ``memory_source.json`` 保存已解析的不可变来源 URL；请求的引用名称仍可在启动命令和运行日志中查看。
 
 数据集中的 ``libero/README.md`` 和 ``libero/manifest.json`` 记录版本、原始来源快照和发布文件。各版本的 ``files`` 保存相对于该版本根目录的路径与发布文件的 SHA-256，加载器据此校验实际内容。来源 revision 和来源哈希描述原始快照；目录、索引及正文引用调整后，发布哈希另行更新，不改写原始来源哈希。
 
