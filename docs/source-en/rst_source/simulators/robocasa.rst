@@ -365,45 +365,77 @@ own task/split access boundary; exploration keeps its retry and inbox workflow.
 Experiment Reproduction (Target50)
 ----------------------------------
 
-The current ``robots/robocasa/eval/target50.json`` manifest describes runs with
-task-specific and global memory. It defines the Target50 task/seed matrix,
-cell time limits, no-reset rule, environment success predicate, and 40/999/8
-RLDX settings. The protocol ID is ``robocasa-harness-vla-v2`` and the result
-schema version is ``1.1``.
-Software dependencies come from ``pyproject.toml``; the manifest does not lock
-the installation environment or the memory data version.
+Target50 evaluates kitchen manipulation across 50 tasks: individual operations,
+seen composite tasks, and unseen composite tasks. Each task runs with several
+seeds, for 340 runs in total. The current evaluation uses task-specific and
+global memory together. Follow the steps below to run the evaluation and check
+its results.
 
-Results record the fixed task/global selection, missing files and actual reads.
-The validator accepts zero or partial reads, while checking task boundaries and
-the audit structure. Missing or corrupt audit files are reported separately;
-read completeness does not determine the environment result's validity or
-success. Each run starts a fresh audit, even when reusing an output directory.
+Run and Check Results
+~~~~~~~~~~~~~~~~~~~~~
 
-Memory contents are not compared across runs. HF ``main`` receives future
-updates, while ``reproduce/memory`` remains an unchanged historical archive.
-For a repeatable comparison using the current layout, download memory once
-and use the same unchanged directory with
-``--memory-profile local --memory-dir`` for every cell. Retain the files and
-record the HF commit or hashes in local experiment notes. RPent does not pin
-memory or add data revision identifiers to result metadata.
+First complete the installation and resource setup above, including Codex
+login for the GPT-5.5 reference run. Download memory once into a fresh directory;
+use this same directory for every run and keep it unchanged:
 
-The manifest describes the evaluation matrix and validation rules; the
-:doc:`leaderboard <../leaderboard/performance>` displays independently reported
-scores and is not generated from the manifest. A 340-cell result alone does not
-establish which memory, model or code
-configuration produced it. The current v2 manifest includes a GPT-5.5 reference
-profile; it is not a universal validator for every model on the leaderboard.
+.. code-block:: bash
 
-Historical v1 records used only task-specific memory. Validate them with the
-`historical code <https://github.com/RLinf/RPent/tree/ec4e18fc2f6a73a00c6a5c035a8a3fdb17950b61>`_
-and its `v1 manifest <https://github.com/RLinf/RPent/blob/ec4e18fc2f6a73a00c6a5c035a8a3fdb17950b61/robots/robocasa/eval/target50.json>`_.
-In that historical checkout, pass
-``--manifest robots/robocasa/eval/target50.json`` to the validator. Published
-leaderboard scores retain their original sources and are not reclassified as
-v2 results without matching run evidence.
+   hf download RLinf/RPent-memory --repo-type dataset \
+      --include 'robocasa/**' --local-dir ./target50-memory
 
-Each cell is one task/seed combination. Source dependencies follow the recorded
-``rpent`` branches; retain their resolved commits with the experiment artifacts.
+Apply the Target50 action settings before running RPent. Their meanings are
+explained under Evaluation Protocol below. The scene seed comes from
+``--seed``, so clear any legacy reset-seed override:
+
+.. code-block:: bash
+
+   export RLDX_MAX_CHUNKS=40
+   export RLDX_SETTLE_PATIENCE=999
+   export RLDX_ACTION_STEPS_PER_CHUNK=8
+   unset RLDX_RESET_SEED
+
+Start with ``OpenDrawer`` in the Atomic group at seed 1. The reference profile
+uses Codex, ``gpt-5.5``, ``xhigh``, and at most 100 planner turns:
+
+.. code-block:: bash
+
+   rpent --robot robocasa \
+         --task-name OpenDrawer --split target --seed 1 \
+         --vla-model-path ./checkpoints/rldx-1-ft-rc365 --cuda-device 0 \
+         --planner codex --model gpt-5.5 --reasoning-effort xhigh \
+         --max-turns 100 --planner-timeout-s 1800 \
+         --memory-profile local \
+         --memory-dir ./target50-memory/robocasa \
+         --output-dir ./runs/target50/atomic/OpenDrawer_s1
+
+Repeat the command for every task and seed in the matrix below. Execute Atomic,
+Composite-Seen, then Composite-Unseen. Use ``--planner-timeout-s 3600`` for both
+composite groups, and save their outputs under ``composite_seen/`` or
+``composite_unseen/`` instead of ``atomic/``. Each output directory is named
+``<Task>_s<seed>``.
+
+Every completed command atomically writes ``<output-dir>/result.json``. Its
+success value comes from the final environment's ``state.success``. The record
+includes the effective evaluation settings and omits provider errors and
+credentials. After all 340 results are present under
+``<results-root>/<manifest-split>/<Task>_s<seed>/result.json``, run:
+
+.. code-block:: bash
+
+   python -m robots.robocasa.eval.validate_target50 ./runs/target50
+
+A complete, valid evaluation reports ``valid_cells=340`` and
+``expected_cells=340``, prints the task-weighted success rate, and exits with
+code 0. An incomplete evaluation reports missing results and exits with a
+nonzero code; this is expected when checking only the single example above.
+Review any other validation errors before using the reported score.
+
+Task Matrix
+~~~~~~~~~~~
+
+Each task/seed combination is one evaluation run, called a ``cell`` in the
+manifest and validator output. The full task list, seeds and time limits are
+in ``robots/robocasa/eval/target50.json``:
 
 .. list-table:: RoboCasa Target50 matrix
    :header-rows: 1
@@ -412,8 +444,8 @@ Each cell is one task/seed combination. Source dependencies follow the recorded
    * - Split
      - Tasks
      - Seed range per task
-     - Cell timeout
-     - Cells
+     - Run timeout
+     - Runs
    * - Atomic
      - 18
      - 1--10
@@ -466,58 +498,75 @@ The tasks split into three groups:
 Pass any of these to ``--task-name``. The full RoboCasa catalog is
 larger; see the `RoboCasa <https://robocasa.ai>`_ upstream.
 
-For a repeatable Target50 comparison, prepare the current corpus once using
-the Task Memory download command above. Keep that local directory unchanged
-for all cells and retain its source revision or hashes with the results.
+Evaluation Protocol
+~~~~~~~~~~~~~~~~~~~
 
-For Target50, first prepare the resources and local memory above, then invoke one ordinary
-command for each manifest cell. The Codex reference profile is ``gpt-5.5``,
-``xhigh``, and ``max_turns=100``; RoboCasa itself remains planner-agnostic. For
-the scene identity, use the ordinary ``--seed`` argument and do not set
-``RLDX_RESET_SEED``. Ordinary RoboCasa uses ``max_chunks=70``; Target50 alone
-overrides it to 40. Freeze the Target50 RLDX execution values first:
+The current manifest defines the task-specific + global evaluation protocol:
+``robocasa-harness-vla-v2``, with result schema ``1.1``. Software dependencies
+come from ``pyproject.toml``; the manifest does not lock the installation
+environment or memory data version. RoboCasa supports other planners, while
+the manifest's reference configuration is GPT-5.5.
 
-.. code-block:: bash
+The three action settings used above control each RLDX tool call:
 
-   export RLDX_MAX_CHUNKS=40
-   export RLDX_SETTLE_PATIENCE=999
-   export RLDX_ACTION_STEPS_PER_CHUNK=8
-   unset RLDX_RESET_SEED
+.. list-table:: Target50 RLDX settings
+   :header-rows: 1
+   :widths: 42 12 46
 
-The first ``OpenDrawer`` Atomic cell is:
+   * - Environment variable
+     - Value
+     - Meaning
+   * - ``RLDX_MAX_CHUNKS``
+     - 40
+     - Maximum prediction chunks per call; ordinary RoboCasa uses 70.
+   * - ``RLDX_SETTLE_PATIENCE``
+     - 999
+     - Consecutive chunks with little end-effector and gripper motion before stopping as settled. This exceeds the 40-chunk cap.
+   * - ``RLDX_ACTION_STEPS_PER_CHUNK``
+     - 8
+     - Actions executed from each prediction chunk.
 
-.. code-block:: bash
-
-   rpent --robot robocasa \
-         --task-name OpenDrawer --split target --seed 1 \
-         --vla-model-path ./checkpoints/rldx-1-ft-rc365 --cuda-device 0 \
-         --planner codex --model gpt-5.5 --reasoning-effort xhigh \
-         --max-turns 100 --planner-timeout-s 1800 \
-         --memory-profile local \
-         --memory-dir ./target50-memory/robocasa \
-         --output-dir ./runs/target50/atomic/OpenDrawer_s1
-
-Use ``--planner-timeout-s 3600`` for either composite split. Execute Atomic,
-Composite-Seen, and Composite-Unseen in that order. A cell succeeds only when
-the final recorded environment state has ``state.success=true``; the planner's
+Evaluation does not allow episode resets. A run succeeds only when the final
+recorded environment state has ``state.success=true``; the planner's
 ``finish(status=...)`` argument is not an evaluation label. Valid task failures
 and planner timeouts are not retried. Retry an infrastructure failure only when
-no valid environment result was produced for that cell.
+no valid environment result was produced for that run.
 
-Every completed command atomically writes ``<output-dir>/result.json`` using
-the final environment ``state.success``. The record includes the effective
-protocol values but omits provider errors and credentials. Once all cells are
-present under ``<results-root>/<manifest-split>/<Task>_s<seed>/result.json``,
-validate the fixed denominator and print the task-weighted score with:
+Results record the task/global file selection, missing files and actual reads.
+The validator accepts zero or partial reads, while checking task boundaries and
+the audit structure. Missing or corrupt audit files are reported separately;
+read completeness does not determine the environment result's validity or
+success. Each run starts a fresh audit, even when reusing an output directory.
 
-.. code-block:: bash
-
-   python -m robots.robocasa.eval.validate_target50 ./runs/target50
+The validator does not compare memory contents across runs. HF ``main``
+receives future updates, while ``reproduce/memory`` remains an unchanged
+historical archive. Retain the memory files used in the evaluation and record
+their HF commit or hashes in local experiment notes. RPent does not pin memory
+or add data revision identifiers to result metadata. Source dependencies follow
+the recorded ``rpent`` branches; retain their resolved commits with the
+experiment artifacts.
 
 Use ``--manifest /path/to/manifest.json`` for a custom task/seed matrix or
 reference planner profile within the current v2 protocol. The validator
-accepts only ``robocasa-harness-vla-v2`` manifests and result schema ``1.1``;
-historical v1 records require the historical code linked above.
+accepts only ``robocasa-harness-vla-v2`` manifests and result schema ``1.1``.
+
+Leaderboard and Historical Compatibility
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The manifest describes the evaluation matrix and validation rules; the
+:doc:`leaderboard <../leaderboard/performance>` displays independently reported
+scores and is not generated from the manifest. A complete 340-run result alone
+does not establish which memory, model or code configuration produced it.
+The GPT-5.5 reference manifest is not a universal validator for every model on
+the leaderboard.
+
+Historical v1 records used only task-specific memory. Validate them with the
+`historical code <https://github.com/RLinf/RPent/tree/ec4e18fc2f6a73a00c6a5c035a8a3fdb17950b61>`_
+and its `v1 manifest <https://github.com/RLinf/RPent/blob/ec4e18fc2f6a73a00c6a5c035a8a3fdb17950b61/robots/robocasa/eval/target50.json>`_.
+In that historical checkout, pass
+``--manifest robots/robocasa/eval/target50.json`` to the validator. Published
+leaderboard scores retain their original sources and are not reclassified as
+v2 results without matching run evidence.
 
 
 Reported and Historical Target50 Results

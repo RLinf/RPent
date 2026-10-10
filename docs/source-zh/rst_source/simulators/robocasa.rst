@@ -262,17 +262,54 @@ local 评测还提供 ``global/*.md``，以及 YAML frontmatter 中 ``suite: rob
 实验复现（Target50）
 ----------------------
 
-当前 ``robots/robocasa/eval/target50.json`` 清单描述 task-specific 与 global memory 一起使用的运行，定义 Target50 的 task/seed 矩阵、cell 时限、no-reset 规则、环境成功判据和 40/999/8 的 RLDX 参数。协议 ID 为 ``robocasa-harness-vla-v2``，结果 schema 版本为 ``1.1``。软件依赖以 ``pyproject.toml`` 为准；清单不锁定安装环境或 memory 数据版本。
+Target50 评测 50 个厨房操作任务，涵盖单项操作、预训练中出现过的组合任务和未出现过的组合任务。每个任务使用多个 seed，共运行 340 次。当前评测同时使用 task-specific 与 global memory。以下先介绍运行和检查结果的步骤，再说明任务矩阵与评测规则。
 
-结果记录固定的任务/global 文件选择、缺失文件和实际读取情况。校验器允许零读取和部分读取，仍检查任务访问边界和审计结构。审计文件缺失或损坏会单独报告；是否完整读取不决定环境结果的有效性或成功值。每次运行都会重新初始化读取审计，即使复用了输出目录也不继承旧记录。
+运行与检查结果
+~~~~~~~~~~~~~~
 
-校验器不比较不同运行之间的 memory 正文。HF ``main`` 接收后续更新， ``reproduce/memory`` 保持为不再变更的历史归档。使用当前布局进行可重复的对照实验时，只下载一次 memory，所有 cell 均用 ``--memory-profile local --memory-dir`` 指向同一份保持不变的目录。保留这些文件，并在本地实验记录中保存 HF commit 或哈希。RPent 不固定 memory，也不向结果元数据添加数据版本标识。
+先完成上文的环境安装和资源准备；使用 GPT-5.5 参考配置时，还需完成 Codex 登录。将记忆下载到一个新目录，所有运行都使用这一份目录，期间保持内容不变：
 
-清单定义评测矩阵和校验规则，:doc:`排行榜 <../leaderboard/performance>` 展示独立报告的成绩，不由清单自动生成。340 个回合本身不能证明运行使用了哪份 memory、模型或代码配置。当前 v2 清单包含 GPT-5.5 参考配置，不能直接用于校验榜单上的所有模型。
+.. code-block:: bash
 
-历史 v1 记录仅使用 task-specific memory，需配合 `历史代码 <https://github.com/RLinf/RPent/tree/ec4e18fc2f6a73a00c6a5c035a8a3fdb17950b61>`_ 及其中的 `v1 清单 <https://github.com/RLinf/RPent/blob/ec4e18fc2f6a73a00c6a5c035a8a3fdb17950b61/robots/robocasa/eval/target50.json>`_ 校验。在该历史 checkout 中，向校验器传入 ``--manifest robots/robocasa/eval/target50.json``。榜单成绩保留各自报告的来源；没有匹配的运行证据时，不将其重新标为 v2 结果。
+   hf download RLinf/RPent-memory --repo-type dataset \
+      --include 'robocasa/**' --local-dir ./target50-memory
 
-每个任务与 seed 的组合称为一个评测单元（cell）。源码依赖使用清单中指定的 ``rpent`` 分支；每次运行都需记录实际安装的提交版本。
+运行 RPent 前，设置 Target50 的动作参数。各参数的含义见下文“评测协议”。场景 seed 由 ``--seed`` 指定，因此需清除旧的 reset seed 覆盖设置：
+
+.. code-block:: bash
+
+   export RLDX_MAX_CHUNKS=40
+   export RLDX_SETTLE_PATIENCE=999
+   export RLDX_ACTION_STEPS_PER_CHUNK=8
+   unset RLDX_RESET_SEED
+
+先运行 Atomic 组的 ``OpenDrawer`` 任务，使用 seed 1。参考配置采用 Codex、``gpt-5.5``、``xhigh``，规划轮数最多为 100：
+
+.. code-block:: bash
+
+   rpent --robot robocasa \
+         --task-name OpenDrawer --split target --seed 1 \
+         --vla-model-path ./checkpoints/rldx-1-ft-rc365 --cuda-device 0 \
+         --planner codex --model gpt-5.5 --reasoning-effort xhigh \
+         --max-turns 100 --planner-timeout-s 1800 \
+         --memory-profile local \
+         --memory-dir ./target50-memory/robocasa \
+         --output-dir ./runs/target50/atomic/OpenDrawer_s1
+
+按下方任务矩阵，为每个任务与 seed 组合运行一次命令，顺序为 Atomic、Composite-Seen、Composite-Unseen。两组组合任务使用 ``--planner-timeout-s 3600``，输出分别保存到 ``composite_seen/`` 和 ``composite_unseen/``，替换示例中的 ``atomic/``。每个输出目录命名为 ``<Task>_s<seed>``。
+
+每条完成的命令都会原子写入 ``<output-dir>/result.json``，其中的成功标记取自最终环境状态的 ``state.success``。文件记录实际生效的评测参数，不保存模型服务的错误原文或凭据。全部 340 份结果按 ``<results-root>/<manifest-split>/<Task>_s<seed>/result.json`` 保存后，运行：
+
+.. code-block:: bash
+
+   python -m robots.robocasa.eval.validate_target50 ./runs/target50
+
+完整且有效的评测会显示 ``valid_cells=340`` 和 ``expected_cells=340``，输出按任务加权的成功率，并以退出码 0 结束。评测尚未完成时，校验器会报告缺失结果并返回非零退出码；只检查上面的单任务示例时，这是预期行为。使用报告的成绩前，还需检查是否存在其他校验错误。
+
+任务矩阵
+~~~~~~~~
+
+每个任务与 seed 的组合是一次评测运行，在清单和校验器输出中称为 ``cell``。完整任务列表、seed 和时限位于 ``robots/robocasa/eval/target50.json``：
 
 .. list-table:: RoboCasa Target50 矩阵
    :header-rows: 1
@@ -312,39 +349,44 @@ Seen/Unseen 指任务是否出现在预训练数据中；target 厨房场景是�
 
 任选一个传给 ``--task-name`` 即可。RoboCasa 完整目录更大，参见 `RoboCasa <https://robocasa.ai>`_ 上游。
 
-进行可重复的 Target50 对照实验时，先按“任务记忆”中的下载命令准备当前语料。所有评测单元使用同一份保持不变的本地目录，并随结果保留来源 revision 或文件哈希。
+评测协议
+~~~~~~~~
 
-运行 Target50 时，先准备上文的资源和本地记忆，再为清单中的每个任务与 seed 组合运行一次命令。参考实验使用 Codex，配置为 ``gpt-5.5``、``xhigh``、``max_turns=100``；RoboCasa 本身也支持其他规划器。场景由 ``--seed`` 指定，不要设置 ``RLDX_RESET_SEED``。普通 RoboCasa 使用 ``max_chunks=70``，Target50 将其设为 40。运行前设置 Target50 评测使用的 RLDX 参数：
+当前清单定义 task-specific + global 评测协议，协议 ID 为 ``robocasa-harness-vla-v2``，结果 schema 版本为 ``1.1``。软件依赖以 ``pyproject.toml`` 为准；清单不锁定安装环境或 memory 数据版本。RoboCasa 支持其他规划器，清单中的参考配置使用 GPT-5.5。
 
-.. code-block:: bash
+上文的三个动作参数作用于每次 RLDX 工具调用：
 
-   export RLDX_MAX_CHUNKS=40
-   export RLDX_SETTLE_PATIENCE=999
-   export RLDX_ACTION_STEPS_PER_CHUNK=8
-   unset RLDX_RESET_SEED
+.. list-table:: Target50 RLDX 参数
+   :header-rows: 1
+   :widths: 42 12 46
 
-以下运行 Atomic 组的 ``OpenDrawer`` 任务，使用第一个 seed：
+   * - 环境变量
+     - 值
+     - 含义
+   * - ``RLDX_MAX_CHUNKS``
+     - 40
+     - 每次调用最多预测的动作块数；普通 RoboCasa 使用 70。
+   * - ``RLDX_SETTLE_PATIENCE``
+     - 999
+     - 末端与夹爪连续多少个动作块几乎不动时，才按静止判定停止。该值超过 40 个动作块的上限。
+   * - ``RLDX_ACTION_STEPS_PER_CHUNK``
+     - 8
+     - 每个预测动作块中执行的动作数。
 
-.. code-block:: bash
+评测不允许复位环境。只有最终环境记录中的 ``state.success=true`` 才计为成功，规划器的 ``finish(status=...)`` 不作为评测结果。已产生有效结果的任务失败和规划器超时均不重试；仅在基础设施故障导致该次运行未产生有效环境结果时，才允许重试。
 
-   rpent --robot robocasa \
-         --task-name OpenDrawer --split target --seed 1 \
-         --vla-model-path ./checkpoints/rldx-1-ft-rc365 --cuda-device 0 \
-         --planner codex --model gpt-5.5 --reasoning-effort xhigh \
-         --max-turns 100 --planner-timeout-s 1800 \
-         --memory-profile local \
-         --memory-dir ./target50-memory/robocasa \
-         --output-dir ./runs/target50/atomic/OpenDrawer_s1
+结果记录任务/global 文件选择、缺失文件和实际读取情况。校验器允许零读取和部分读取，仍检查任务访问边界和审计结构。审计文件缺失或损坏会单独报告；是否完整读取不决定环境结果的有效性或成功值。每次运行都会重新初始化读取审计，即使复用了输出目录也不继承旧记录。
 
-Composite-Seen 与 Composite-Unseen 使用 ``--planner-timeout-s 3600``。按 Atomic、Composite-Seen、Composite-Unseen 的顺序执行。只有最终环境记录中的 ``state.success=true`` 才计为成功，规划器的 ``finish(status=...)`` 不作为评测结果。已产生有效结果的任务失败和规划器超时均不重试；仅在基础设施故障导致该评测单元未产生有效环境结果时，才允许重试。
+校验器不比较不同运行之间的 memory 正文。HF ``main`` 接收后续更新， ``reproduce/memory`` 保持为不再变更的历史归档。保留本次评测使用的记忆文件，并在本地实验记录中保存 HF commit 或哈希。RPent 不固定 memory，也不向结果元数据添加数据版本标识。源码依赖使用清单中指定的 ``rpent`` 分支，需随实验产物保留实际安装的提交版本。
 
-每条完成的命令都会原子写入 ``<output-dir>/result.json``，成功标记取自最终环境状态的 ``state.success``。文件记录实际生效的评测参数，但不保存模型服务的错误原文或凭据。全部结果按 ``<results-root>/<manifest-split>/<Task>_s<seed>/result.json`` 保存后，运行以下命令检查评测数量是否完整，并计算按任务加权的成功率：
+可通过 ``--manifest /path/to/manifest.json`` 指定当前 v2 协议下的自定义 task/seed 矩阵或规划器参考配置。校验器仅接受 ``robocasa-harness-vla-v2`` 清单和 schema 为 ``1.1`` 的结果。
 
-.. code-block:: bash
+榜单与历史兼容性
+~~~~~~~~~~~~~~~~
 
-   python -m robots.robocasa.eval.validate_target50 ./runs/target50
+清单定义评测矩阵和校验规则，:doc:`排行榜 <../leaderboard/performance>` 展示独立报告的成绩，不由清单自动生成。完整的 340 次运行本身不能证明使用了哪份 memory、模型或代码配置。GPT-5.5 参考清单不能直接用于校验榜单上的所有模型。
 
-可通过 ``--manifest /path/to/manifest.json`` 指定当前 v2 协议下的自定义 task/seed 矩阵或规划器参考配置。校验器仅接受 ``robocasa-harness-vla-v2`` 清单和 schema 为 ``1.1`` 的结果；历史 v1 记录需使用上文链接的历史代码。
+历史 v1 记录仅使用 task-specific memory，需配合 `历史代码 <https://github.com/RLinf/RPent/tree/ec4e18fc2f6a73a00c6a5c035a8a3fdb17950b61>`_ 及其中的 `v1 清单 <https://github.com/RLinf/RPent/blob/ec4e18fc2f6a73a00c6a5c035a8a3fdb17950b61/robots/robocasa/eval/target50.json>`_ 校验。在该历史 checkout 中，向校验器传入 ``--manifest robots/robocasa/eval/target50.json``。榜单成绩保留各自报告的来源；没有匹配的运行证据时，不将其重新标为 v2 结果。
 
 
 Target50 报告成绩与历史结果
