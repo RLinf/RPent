@@ -68,13 +68,23 @@ Follow these conventions while developing:
 
 - **Keep the change focused.** A feature, an unrelated refactor, and
   repository-wide cleanup should normally be separate pull requests.
+- **Keep code in the module that owns its behavior.** Reuse existing
+  implementations where possible. Robot-specific behavior belongs in its
+  integration; shared execution, state, and lifecycle rules belong in common
+  components.
+- **Check callers when changing shared interfaces.** Consider affected callers,
+  subclasses, and backends, including those that do not use the new feature.
+  A small feature may still need a shared change when it introduces a common
+  requirement.
 - **Import optional dependencies only where they are used.** For example,
   import `robosuite` inside the RoboCasa code that needs it, not at module
   import time. This keeps `import rpent`, robot discovery, and CLI help usable
   without every simulator installed. Put integration-only dependencies in an
   optional extra.
 - **Preserve existing contracts.** If an API or user-visible behavior changes,
-  explain the change and how users should adapt.
+  explain the change and how users should adapt. Changing a parameter or flag's
+  meaning also changes its contract, even if its name and type stay the same.
+  Check affected callers and update the relevant tests and documentation.
 - **Write tests with the change.** New behavior and bug fixes should include
   tests. Refactors should keep existing tests passing; if behavior changes,
   update the tests and explain why. Unit tests must run offline on an ordinary
