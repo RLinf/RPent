@@ -331,6 +331,7 @@ class CodexPlanner(Planner):
                             daemon=True,
                         ).start()
 
+                    limit_reached = False
                     try:
                         for event in turn.stream():
                             _write_jsonl(raw_f, _message_to_json(event))
@@ -340,6 +341,19 @@ class CodexPlanner(Planner):
                                     out_f.write(rendered)
                                     out_f.flush()
                                 logger.info(rendered.strip())
+                            if (
+                                str(_get(event, "method", "")) != "turn/completed"
+                                and not limit_reached
+                                and recorder.finish_result is None
+                                and recorder.turns >= recorder.max_turns
+                            ):
+                                limit_reached = True
+                                try:
+                                    turn.interrupt()
+                                except openai_codex.JsonRpcError as exc:
+                                    if exc.message != "no active turn to interrupt":
+                                        raise
+                                    # The terminal notification may still be queued.
                     finally:
                         if stop_steer is not None:
                             stop_steer.set()
@@ -584,7 +598,12 @@ class _CodexDashboardSession:
                     and self._recorder.turns >= self._recorder.max_turns
                 ):
                     limit_reached = True
-                    await turn.interrupt()
+                    try:
+                        await turn.interrupt()
+                    except openai_codex.JsonRpcError as exc:
+                        if exc.message != "no active turn to interrupt":
+                            raise
+                        # Keep consuming the stream to get the actual turn status.
 
                 if method != "turn/completed":
                     continue
@@ -627,6 +646,7 @@ class _Recorder:
     max_turns: int
     dashboard_events: DashboardEventSink
     turns: int = 0
+    _seen_usage: set[tuple[int, ...]] = field(default_factory=set)
     tool_calls: int = 0
     usage: dict[str, int] = field(
         default_factory=lambda: {
@@ -652,15 +672,25 @@ class _Recorder:
         if method == "item/completed":
             return self._render_item(_get(payload, "item"))
         if method == "thread/tokenUsage/updated":
-            self._set_usage(_get(payload, "token_usage"))
+            if self._set_usage(_get(payload, "token_usage")):
+                return f"\n[agent] === turn {self.turns}/{self.max_turns} ===\n"
             return ""
         if method == "turn/completed":
             return self._render_turn_completed(_get(payload, "turn"))
         if "requestApproval" in method:
             return f"[codex-approval] {method}\n"
         if method in {"error", "fatal"}:
-            self.error = _short_json(_jsonable(payload), limit=500)
-            return f"[codex-error] {self.error}\n"
+            detail = _short_json(_jsonable(payload), limit=500)
+            retrying = bool(_get(payload, "will_retry", False))
+            if not retrying:
+                self.error = detail
+            label = (
+                "Model connection retrying" if retrying else "Model connection failed"
+            )
+            self.dashboard_events.emit(
+                TranscriptEvent({"type": "text", "text": f"[{label}] {detail}"})
+            )
+            return f"[codex-error] {detail}\n"
         return ""
 
     # -- per-item handlers -------------------------------------------------
@@ -681,12 +711,8 @@ class _Recorder:
             if not text:
                 return ""
             self.final_response = text
-            self.turns += 1
             self.dashboard_events.emit(TranscriptEvent({"type": "text", "text": text}))
-            return (
-                f"\n[agent] === turn {self.turns}/{self.max_turns} ===\n"
-                f"[codex] {text}\n"
-            )
+            return f"\n[codex] {text}\n"
 
         if item_type == "reasoning":
             text = _extract_text(_get(item, "summary") or _get(item, "content"))
@@ -740,11 +766,18 @@ class _Recorder:
 
     # -- helpers -----------------------------------------------------------
 
-    def _set_usage(self, usage: Any) -> None:
+    def _set_usage(self, usage: Any) -> bool:
+        """Count completed model responses, including reasoning/tool-only ones.
+
+        The SDK updates cumulative token usage after each model response. Text
+        and tool items within that response do not consume additional turns.
+        Repeated notifications (including context-window-only updates) do not
+        count again or overwrite newer usage totals.
+        """
         if usage is None:
-            return
+            return False
         total = _get(usage, "total", usage)
-        self.usage = {
+        updated = {
             "total_input_tokens": _int_attr(total, "input_tokens"),
             "total_cached_input_tokens": _int_attr(total, "cached_input_tokens"),
             "total_output_tokens": _int_attr(total, "output_tokens"),
@@ -752,6 +785,12 @@ class _Recorder:
                 total, "reasoning_output_tokens"
             ),
         }
+        key = tuple(updated.values())
+        if not any(key) or key in self._seen_usage:
+            return False
+        self._seen_usage.add(key)
+        self.usage = updated
+        self.turns += 1
         self.dashboard_events.emit(
             UsageEvent(
                 inp=self.usage["total_input_tokens"],
@@ -759,6 +798,7 @@ class _Recorder:
                 tool_calls=self.tool_calls,
             )
         )
+        return True
 
     def _maybe_capture_finish(self, name: str, item: Any) -> None:
         if self.finish_result is not None:
@@ -771,12 +811,28 @@ class _Recorder:
         if _get(item, "error") not in (None, ""):
             return
         data = _jsonable(item)
-        args = data.get("arguments") if isinstance(data, dict) else None
-        if isinstance(args, str):
-            try:
-                args = json.loads(args)
-            except Exception:
-                args = None
+        if not isinstance(data, dict):
+            return
+        result = data.get("result")
+        if isinstance(result, dict) and ("isError" in result or "content" in result):
+            if result.get("isError") is True:
+                return
+            content = result.get("content")
+            if isinstance(content, list):
+                for block in content:
+                    if not isinstance(block, dict) or block.get("type") != "text":
+                        continue
+                    payload = _json_object(block.get("text"))
+                    if isinstance(payload, dict) and payload.get("_finish") is True:
+                        self.finish_result = dict(payload)
+                        return
+            return
+        payload = _json_object(result)
+        if isinstance(result, dict) or payload is not None:
+            if payload is not None and payload.get("_finish") is True:
+                self.finish_result = dict(payload)
+            return
+        args = _json_object(data.get("arguments"))
         if isinstance(args, dict):
             self.finish_result = {"_finish": True, **args}
 
@@ -1053,6 +1109,18 @@ def _summarise_item(item: Any) -> dict[str, Any]:
             key for key in data if key not in {"content", "text", "output"}
         )
     return summary
+
+
+def _json_object(value: Any) -> dict[str, Any] | None:
+    if isinstance(value, dict):
+        return value
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = json.loads(value)
+    except Exception:
+        return None
+    return parsed if isinstance(parsed, dict) else None
 
 
 def _extract_text(value: Any) -> str:

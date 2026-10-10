@@ -26,7 +26,8 @@ from robots.libero import robot_spec, toolkit
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory import MemoryManager
 from rpent.robots import RunConfig
-from rpent.tools.toolkit import Toolkit, _is_readonly
+from rpent.tools import Toolkit, ToolResult
+from rpent.tools.common import CommonTools
 from rpent.utils import templates
 
 COMMON_TOOLS = {"read_text_file", "write_text_file", "list_dir", "finish"}
@@ -52,14 +53,14 @@ def _record(step_idx: int = 0) -> SimpleNamespace:
 
 
 def _tool_names(robot_toolkit: Toolkit) -> set[str]:
-    return {spec["name"] for spec in robot_toolkit.get_tools_spec()}
+    return {definition.name for definition in robot_toolkit.list_tools()}
 
 
 def _readonly_names(robot_toolkit: Toolkit) -> set[str]:
     return {
-        name
-        for name, (_, handler) in robot_toolkit._tools.items()
-        if _is_readonly(handler)
+        definition.name
+        for definition in robot_toolkit.list_tools()
+        if definition.readonly
     }
 
 
@@ -102,16 +103,12 @@ def test_toolkit_factory_configures_memory_access_by_mode(
 
     assert evaluation.memory.root == memory_dir.resolve()
     assert exploration.memory.root == memory_dir.resolve()
-    evaluation_write = evaluation.memory.get_common_tool_bindings()["write_text_file"][
-        1
-    ]
-    exploration_write = exploration.memory.get_common_tool_bindings()[
-        "write_text_file"
-    ][1]
+    evaluation_write = CommonTools(memory=evaluation.memory).write_text_file
+    exploration_write = CommonTools(memory=exploration.memory).write_text_file
     own_draft = memory_dir / "_internal" / "inbox" / config.recipe_tag / "draft.md"
     with pytest.raises(PermissionError, match="writing to memory is denied"):
         evaluation_write(str(own_draft), "draft")
-    assert exploration_write(str(own_draft), "draft")["bytes_written"] == 5
+    assert exploration_write(str(own_draft), "draft").data["bytes_written"] == 5
     assert captured[0]["mode"] == "evaluation"
     assert captured[1]["mode"] == "exploration"
     assert captured[1]["attempts_per_session"] == 2
@@ -122,6 +119,9 @@ def test_toolkit_modes_construct_with_fake_primitives(
     tmp_path: Path,
     fake_single_arm_primitives: type[Any],
 ) -> None:
+    fake_single_arm_primitives = fake_single_arm_primitives.for_robot(
+        toolkit.libero_tools.LiberoPrimitives
+    )
     dumped: list[Any] = []
     monkeypatch.setattr(
         templates, "default_variables", lambda: {"output_dir": "/offline/output"}
@@ -181,21 +181,21 @@ def test_toolkit_modes_construct_with_fake_primitives(
     refused = exploration.execute_tool(
         "finish", {"status": "failure", "summary": "first attempt"}
     )
-    assert refused.result["error"] == "finish refused"
-    assert refused.is_finish is False
+    assert refused.data["error"] == "finish refused"
+    assert refused.data.get("_finish", False) is False
 
-    exploration.get_env_state = lambda *, command, result, elapsed_s: dict(result)
+    exploration.get_env_state = lambda *, command, result, elapsed_s: ToolResult(
+        data=dict(result)
+    )
     assert (
-        exploration.execute_tool("reset", {"reason": "new approach"}).result["attempt"]
+        exploration.execute_tool("reset", {"reason": "new approach"}).data["attempt"]
         == 2
     )
     assert (
-        exploration.execute_tool("reset", {"reason": "third approach"}).result[
-            "attempt"
-        ]
+        exploration.execute_tool("reset", {"reason": "third approach"}).data["attempt"]
         == 3
     )
     allowed = exploration.execute_tool(
         "finish", {"status": "failure", "summary": "budget spent"}
     )
-    assert allowed.is_finish is True
+    assert allowed.data.get("_finish", False) is True

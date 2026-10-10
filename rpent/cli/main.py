@@ -361,7 +361,12 @@ def main() -> int:
     )
     if args.dashboard and args.interactive:
         parser.error("--dashboard and --interactive cannot be used together")
-    if robot_spec.is_real_robot and not human_interactive_exploration:
+    external_env_dashboard = (getattr(robot_spec, "dashboard", None) or {}).get(
+        "external_env", False
+    )
+    if robot_spec.is_real_robot and not (
+        human_interactive_exploration or external_env_dashboard
+    ):
         if args.dashboard or args.interactive:
             parser.error(
                 "This robot requires exclusive terminal input for operator confirmation; "
@@ -675,6 +680,8 @@ def main() -> int:
         "model": args.model,
         "elapsed_s": round(elapsed, 1),
         "finish": finish_result,
+        "error": agent_error,
+        "environment_success": environment_success,
         "stats": stats,
         "messages": _serialize_messages(messages),
     }

@@ -35,51 +35,32 @@ call. They differ only in how the method is implemented.
 Add a Scripted Primitive
 ------------------------
 
-Adding a scripted primitive usually involves two steps:
+Declare the method on the robot's primitives class and register its bound tool:
 
-1. **Add a method to the primitives.** Add the method to the
-   current robot's primitives class, such as
-   ``LiberoPrimitives`` or ``MyRobotPrimitives``. The method accepts
-   the tool-call arguments, performs the work, usually through one or
-   more ``self._env.step(...)`` calls, and returns a small log ``dict``.
+.. code-block:: python
 
-  Primitive methods capture and re-render state (``get_env_state``)
-  automatically after they run:
+   from rpent.tools import ToolResult, iter_tools, tool
 
-   .. code-block:: python
+   class MyRobotPrimitives:
+       @tool
+       def open_drawer(self, dx: float = 0.15) -> ToolResult:
+           """Pull the grasped drawer handle backwards.
 
-      def open_drawer(self, dx: float = 0.15) -> dict:
-          # Move end-effector back by dx while gripper is closed.
-          for _ in range(N):
-              self._env.step(build_open_drawer_chunk(dx))
-          return {"ok": True, "dx": dx}
+           Args:
+               dx: Pull distance in meters.
+           """
+           self._env.step(build_open_drawer_chunk(dx))
+           return ToolResult(data={"ok": True, "dx": dx})
 
-  You can mark read-only tools (``view_env_state``, ``back_project``, ``segment``,
-  ...) with :func:`~rpent.tools.toolkit.readonly` so the toolkit skips state
-  capture for them, improving performance.
+   # In the toolkit, after constructing self._primitives:
+   self.add_tools(iter_tools(self._primitives))
 
-2. **Add the tool schema.** Add an entry to ``TOOLS_SPEC`` in
-   ``robots/<robot>/tools.py``:
-
-   .. code-block:: python
-
-      {
-          "name": "open_drawer",
-          "description": "Pull the currently-grasped drawer handle "
-                         "backwards by ``dx`` meters.",
-          "input_schema": {
-              "type": "object",
-              "properties": {"dx": {"type": "number"}},
-              "required": [],
-          },
-      }
-
-Once both exist, the toolkit registers the tool automatically: it iterates
-``TOOLS_SPEC`` and binds each spec to the matching primitive-driver method
-(e.g. ``getattr(self._primitives, name)``).
-
-After these steps, the ``api``, ``claude_code``, and ``codex`` planners
-can all call the primitive without any other code changes.
+Type annotations and the docstring define the model-facing schema. Toolkit
+validates arguments and captures state through ``get_env_state`` after execution.
+Use ``@tool(readonly=True)`` for readers such as ``view_env_state`` and
+``back_project``. For module-level tools, exclude internal resources with
+``@tool(exclude=("state",))`` and bind them with ``Tool.with_handler``.
+All three planners use the registered declarations.
 
 .. _add-primitive-model-based:
 
@@ -115,8 +96,8 @@ primitive requires a few additional components:
 
 3. **Add a method to the primitives.** In the current
    robot's primitives class, call the model client, pass
-   the returned action chunk to the environment, and return a log
-   ``dict``. The model client API is
+   the returned action chunk to the environment, and return a
+   ``ToolResult``. The model client API is
    :meth:`rpent.robots.components.pi05_vla_client.Pi05VLAClient.predict`,
    which reads the instruction from ``env_obs["task_descriptions"]`` and
    returns a ``[chunk, action_dim]`` numpy action chunk (batch dim already
@@ -124,14 +105,16 @@ primitive requires a few additional components:
 
    .. code-block:: python
 
-      def mymodel_pick(self, target: str) -> dict:
+      @tool
+      def mymodel_pick(self, target: str) -> ToolResult:
+          """Pick the requested target using the model."""
           env_obs = self._env.get_obs()
           env_obs["task_descriptions"] = f"pick {target}"
           chunk = self._model.predict(env_obs)
           self._env.chunk_step(chunk)
-          return {"model": "mymodel", "target": target}
+          return ToolResult(data={"model": "mymodel", "target": target})
 
-4. **Add the tool schema and register it in the toolkit.** Follow the
+4. **Register the declared tool in the toolkit.** Follow the
    same pattern as for a scripted primitive.
 
 5. **Wire the components together in ``robot_spec.py``.** The
@@ -234,10 +217,9 @@ Design Principles for a New Primitive
 
 - **Tools describe intent, not motion.** A good tool name is
   ``pi0_pick``, not ``execute_action_chunk_of_length_20``.
-- **Every tool ends with a state dump.** The next turn depends on
-  the state dump reflecting the post-action world. Don't let the
-  primitive return before the render finishes.
-- **Return small dicts.** Tool return values are fed back to the LLM
+- **Stateful tools capture state before returning to the planner.** Toolkit
+  calls ``get_env_state`` after the handler; ``readonly`` tools skip this capture.
+- **Keep result data small.** Tool return values are fed back to the LLM
   as text. Save larger observations through ``EnvState.save``; ``EnvState``
   automatically records each logical base name in its owned
   ``StepRecord.artifacts`` set. Expose images through ``view_env_state`` and

@@ -14,7 +14,9 @@
 
 from __future__ import annotations
 
+import io
 import os
+import pickle
 import socket
 import threading
 import time
@@ -23,6 +25,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from types import SimpleNamespace
 from typing import Literal
 
 import numpy as np
@@ -37,6 +40,7 @@ from rpent.utils.rpc import (
     wait_for_ready,
 )
 from rpent.utils.rpc.http_rpc import HttpRpcClient, _is_direct_url
+from rpent.utils.rpc.socket_rpc import _write_frame
 
 Transport = Literal["http", "socket"]
 PROXY_ENVIRONMENT_VARIABLES = (
@@ -49,6 +53,49 @@ PROXY_ENVIRONMENT_VARIABLES = (
     "all_proxy",
     "no_proxy",
 )
+
+
+def test_robodojo_camera_meta_roundtrip(transport, make_server_and_client):
+    from robots.robodojo.env_server import RoboDojoEnvFacade
+
+    camera = {
+        "intrinsic_matrix": np.eye(3, dtype=np.float32),
+        "extrinsic_matrix": np.eye(4, dtype=np.float64),
+        "color": np.zeros((2, 3, 3), dtype=np.uint8),
+    }
+    env = SimpleNamespace(
+        eval_fair=False,
+        get_camera_meta=lambda *args: {
+            "camera_name": "cam_head",
+            "height": 2,
+            "width": 3,
+            **{key: camera[key] for key in ("intrinsic_matrix", "extrinsic_matrix")},
+        },
+    )
+    facade = RoboDojoEnvFacade(env)
+    with make_server_and_client(facade, transport) as client:
+        result = client.call("env.get_camera_meta", kwargs={"camera_name": "cam_head"})
+    assert result["camera_name"] == "cam_head"
+    assert (result["height"], result["width"]) == (2, 3)
+    for key in ("intrinsic_matrix", "extrinsic_matrix"):
+        np.testing.assert_array_equal(result[key], camera[key])
+        assert result[key].dtype == camera[key].dtype
+
+
+def test_numpy_array_frame_loads_without_numpy2_numeric_module() -> None:
+    # NumPy 1.26.4 on the model host lacks numpy._core.numeric. A NumPy 2
+    # protocol-5 array request therefore closes the socket before dispatch.
+    class ModelHostUnpickler(pickle.Unpickler):
+        def find_class(self, module, name):
+            if module == "numpy._core.numeric":
+                raise ModuleNotFoundError("No module named 'numpy._core.numeric'")
+            return super().find_class(module, name)
+
+    frames = io.BytesIO()
+    values = np.arange(24, dtype=np.uint8).reshape(2, 4, 3)
+    _write_frame(frames, {"image": values})
+    decoded = ModelHostUnpickler(io.BytesIO(frames.getvalue()[4:])).load()
+    np.testing.assert_array_equal(decoded["image"], values)
 
 
 @pytest.fixture(autouse=True)
@@ -154,8 +201,11 @@ def _running_facade(
 
 
 @pytest.mark.parametrize("transport", ["http", "socket"])
-def test_transport_round_trips_nested_numpy_payloads(transport: Transport) -> None:
-    original = np.arange(6, dtype=np.float32).reshape(2, 3)
+@pytest.mark.parametrize("shape", [(2, 3), (480, 640, 3)])
+def test_transport_round_trips_nested_numpy_payloads(
+    transport: Transport, shape: tuple[int, ...]
+) -> None:
+    original = np.arange(np.prod(shape), dtype=np.float32).reshape(shape)
 
     with _running_facade(transport) as running:
         result = running.client.call(
@@ -164,7 +214,7 @@ def test_transport_round_trips_nested_numpy_payloads(transport: Transport) -> No
             kwargs={
                 "scale": 2.5,
                 "metadata": {
-                    "count": np.int64(6),
+                    "count": np.int64(original.size),
                     "valid": np.bool_(True),
                     "score": np.float32(1.5),
                     "labels": ["left", "right"],
@@ -178,14 +228,14 @@ def test_transport_round_trips_nested_numpy_payloads(transport: Transport) -> No
         # socket transport natively via pickle, the HTTP transport via
         # the ``__npscalar__`` tag.
         assert isinstance(metadata["count"], np.int64)
-        assert metadata["count"] == 6
+        assert metadata["count"] == original.size
         assert isinstance(metadata["valid"], np.bool_)
         assert metadata["valid"] == np.bool_(True)
         assert isinstance(metadata["score"], np.float32)
         assert metadata["score"] == np.float32(1.5)
         assert metadata["labels"] == ["left", "right"]
-        result["values"][0, 0] = -1
-        assert original[0, 0] == 0
+        result["values"].flat[0] = -1
+        assert original.flat[0] == 0
 
 
 def _configure_dead_proxy(monkeypatch: pytest.MonkeyPatch) -> None:
