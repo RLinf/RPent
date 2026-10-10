@@ -55,6 +55,12 @@ def run_scripted_policy_chain(
         "# Offline GPU E2E memory\n",
         encoding="utf-8",
     )
+    global_dir = memory_dir / "global"
+    global_dir.mkdir(exist_ok=True)
+    (global_dir / "GLOBAL_MEMORY.md").write_text(
+        "# Offline GPU E2E memory\n\nNo task-specific guidance is provided.\n",
+        encoding="utf-8",
+    )
     script = (
         action,
         ScriptedToolCall(
