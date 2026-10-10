@@ -80,7 +80,7 @@ Most users pick a built-in ``api``, ``claude_code``, or ``codex`` planner — se
        dashboard_interaction=None,
    ) -> PlannerResult: ...
 
-Contract: pass ``toolkit.get_tools_spec()`` to the model; dispatch each call via
+Contract: adapt the declarations from ``toolkit.list_tools()`` for the model; dispatch each call via
 ``toolkit.execute_tool(name, input_dict)``; feed results back to the model; return
 ``PlannerResult`` on the ``finish`` tool or when turns are exhausted.
 
@@ -92,22 +92,13 @@ Subclass ``Toolkit`` in ``robots/<robot>/toolkit.py`` and register robot tools w
 
 .. code-block:: python
 
-   def add_tool(self, name: str, spec: dict, handler) -> None: ...
+   def add_tool(self, tool: Tool, *, replace: bool = False) -> None: ...
 
-.. list-table::
-   :header-rows: 1
-   :widths: 22 78
-
-   * - Argument
-     - Meaning
-   * - ``name``
-     - Tool name the LLM sees.
-   * - ``spec``
-     - Tool description and parameter schema (``name``, ``description``,
-       ``input_schema``).
-   * - ``handler``
-     - Implementation; **must return a ``dict``**. Set ``_finish`` when the task
-       ends; optional ``_image_bytes`` (etc.) to return camera images.
+Declare functions or methods with ``@tool``. Type annotations and Google-style
+docstrings provide parameter schemas and descriptions; ``@tool(readonly=True)``
+skips post-action state capture. Handlers return ``ToolResult(data=..., images=...)``:
+``data`` holds the JSON payload, including ``error`` or ``_finish`` when needed,
+and ``images`` holds PNG bytes.
 
 The base class already registers common file tools; call ``super().__init__()`` then
 ``add_tool`` for robot tools. Per-step state and ``view_env_state`` are in

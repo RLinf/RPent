@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any
 
 from rpent.dashboard.events import DashboardEventSink
 from rpent.session import EnvState
-from rpent.tools.toolkit import Toolkit
+from rpent.tools import Toolkit, ToolResult, iter_tools
 from rpent.utils.logging import get_output_dir
 
 if TYPE_CHECKING:
@@ -78,7 +78,7 @@ class RoboDojoToolkit(Toolkit):
         }:
             import copy
 
-            if isinstance(result.result, dict):
+            if isinstance(result.to_dict(), dict):
                 # Read-only queries do not create EnvState steps. Attach them
                 # to the next action for Flash grounding; actions themselves
                 # are already recorded by the shared Toolkit/EnvState path.
@@ -87,7 +87,7 @@ class RoboDojoToolkit(Toolkit):
                         {
                             "action": name,
                             "arguments": input_dict,
-                            "result": result.result,
+                            "result": result.to_dict(),
                         }
                     )
                 )
@@ -137,58 +137,11 @@ class RoboDojoToolkit(Toolkit):
     def _register_robodojo_tools(self) -> None:
         from robots.robodojo import tools as robodojo_tools
 
-        state_handlers = {
-            "view_env_state": partial(
-                robodojo_tools.view_env_state,
-                state=self._state,
-            ),
-            "back_project": partial(
-                robodojo_tools.back_project,
-                primitives=self._primitives,
-                state=self._state,
-            ),
-            "segment": partial(
-                robodojo_tools.segment,
-                primitives=self._primitives,
-                state=self._state,
-            ),
-            "move_to": partial(
-                robodojo_tools.move_to,
-                primitives=self._primitives,
-                state=self._state,
-            ),
-            "set_gripper": partial(
-                robodojo_tools.set_gripper,
-                primitives=self._primitives,
-                state=self._state,
-            ),
-            "pi0_pick": partial(
-                robodojo_tools.pi0_pick,
-                primitives=self._primitives,
-                state=self._state,
-            ),
-            "stabilize": partial(
-                robodojo_tools.stabilize,
-                primitives=self._primitives,
-                state=self._state,
-            ),
-        }
-        # Registered for every task: the tool plans to the dustbin mouth, so it
-        # is only useful where the scene has a bin, and it reports that instead of
-        # being hidden by task name.
-        state_handlers["place_in_bin"] = partial(
-            robodojo_tools.place_in_bin,
-            primitives=self._primitives,
-            state=self._state,
-        )
-        for spec in robodojo_tools.TOOLS_SPEC:
-            name = spec["name"]
-            handler = state_handlers.get(name)
-            if handler is None:
-                handler = getattr(self._primitives, name, None)
-            if handler is None:
-                continue
-            self.add_tool(name, spec, handler)
+        for definition in iter_tools(robodojo_tools):
+            resources = {"state": self._state}
+            if definition.name != "view_env_state":
+                resources["primitives"] = self._primitives
+            self.add_tool(definition.with_handler(partial(definition, **resources)))
 
     def get_env_state(
         self,
@@ -196,7 +149,7 @@ class RoboDojoToolkit(Toolkit):
         command: dict[str, Any],
         result: dict[str, Any],
         elapsed_s: float,
-    ) -> dict[str, Any]:
+    ) -> ToolResult:
         from robots.robodojo import tools as robodojo_tools
 
         record = robodojo_tools.dump_state(

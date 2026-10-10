@@ -15,15 +15,16 @@
 """Robot-specific schema contracts for RoboTwin tools."""
 
 from robots.robotwin import tools
+from rpent.tools import iter_tools
 
 
 def test_perception_schemas_use_the_same_view_coordinate_space() -> None:
-    by_name = {spec["name"]: spec for spec in tools.TOOLS_SPEC}
+    by_name = {spec.name: spec for spec in iter_tools(tools)}
 
     for tool_name, coordinate_name in (
         ("sample_world_xyz", "pixels"),
         ("query_world_map", "bbox"),
     ):
-        schema = by_name[tool_name]["input_schema"]
+        schema = by_name[tool_name].input_schema
         assert schema["required"] == ["view", coordinate_name]
         assert schema["properties"]["view"]["type"] == "string"

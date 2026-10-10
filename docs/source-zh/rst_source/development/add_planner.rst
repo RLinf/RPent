@@ -21,8 +21,8 @@
            input_queue=None,
            dashboard_interaction=None,
        ):
-           tool_specs = toolkit.get_tools_spec()
-           # 使用 system_prompt、user_message 和 tool_specs 调用模型。
+           tools = toolkit.list_tools()
+           # 使用 system_prompt、user_message 和 tools 调用模型。
            # 每次工具调用都通过下面的接口执行：
            tool_result = toolkit.execute_tool(tool_name, arguments)
            ...
@@ -36,9 +36,9 @@
 任何 planner 必须：
 
 1. 接收已经渲染好的 ``system_prompt`` 和 ``user_message``。
-2. 从 ``toolkit.get_tools_spec()`` 取得工具定义，并通过 ``toolkit.execute_tool(name, arguments)`` 执行工具。
-3. 将 ``ToolResult.content_blocks`` 中的文本和图片转换成模型 SDK 所需的格式。
-4. 识别 ``ToolResult.is_finish``，并按 ``max_turns`` 等限制终止循环。
+2. 从 ``toolkit.list_tools()`` 取得工具的 ``name``、``description`` 和 ``input_schema``，并通过 ``toolkit.execute_tool(name, arguments)`` 执行工具。
+3. 将 ``ToolResult.to_text()`` 的文本和 ``ToolResult.images`` 中的 PNG 字节转换成模型 SDK 所需的格式。
+4. 识别 ``ToolResult.data.get("_finish")``，并按 ``max_turns`` 等限制终止循环。
 5. 返回包含结束状态、消息、统计信息和可选错误的 ``PlannerResult``。
 
 由于 RPent 工具定义和 prompt 渲染流程保持不变，新增 planner 不需要修改工具或环境服务。接口参见 :doc:`architecture`；想给

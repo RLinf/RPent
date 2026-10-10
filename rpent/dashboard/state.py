@@ -46,6 +46,7 @@ from rpent.dashboard.interaction import (
 )
 from rpent.dashboard.spec import DashboardSpec, TaskSpec
 from rpent.utils.logging import get_logger
+from rpent.utils.templates import substitute
 
 if TYPE_CHECKING:
     from rpent.session import EnvState, StepRecord
@@ -276,7 +277,16 @@ class DashboardState:
                     "TaskRun primitives are not available"
                 )
             assert toolkit is not None
-            by_name = {spec.get("name"): spec for spec in toolkit.get_tools_spec()}
+            by_name = {
+                spec.get("name"): spec
+                for spec in [
+                    {
+                        "name": declaration.name,
+                        "input_schema": substitute(declaration.input_schema),
+                    }
+                    for declaration in toolkit.list_tools()
+                ]
+            }
             primitives = []
             for name in allowlist:
                 spec = by_name.get(name)
@@ -306,7 +316,16 @@ class DashboardState:
             assert toolkit is not None
             if name not in self._primitive_allowlist:
                 raise ValueError(f"primitive is not allowed: {name}")
-            available = {spec.get("name"): spec for spec in toolkit.get_tools_spec()}
+            available = {
+                spec.get("name"): spec
+                for spec in [
+                    {
+                        "name": declaration.name,
+                        "input_schema": substitute(declaration.input_schema),
+                    }
+                    for declaration in toolkit.list_tools()
+                ]
+            }
             spec = available.get(name)
             if spec is None:
                 raise ValueError(f"primitive is not available: {name}")
@@ -327,7 +346,7 @@ class DashboardState:
         }
         try:
             result = toolkit.execute_tool(name, arguments)
-            raw = result.result if isinstance(result.result, dict) else {}
+            raw = result.to_dict()
             log = raw.get("log")
             if isinstance(log, dict) and isinstance(log.get("result"), dict):
                 # Stateful tools wrap the primitive result in the observation log.

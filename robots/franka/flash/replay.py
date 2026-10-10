@@ -213,7 +213,7 @@ def replay(
                 "arguments": args,
             }
             events.append(event)
-            result = toolkit.execute_tool(entry["action"], args).result
+            result = toolkit.execute_tool(entry["action"], args).to_dict()
             event["replay_step"] = toolkit.state.latest_step
             # Franka's tool output is a rendered state; inspect the raw result too.
             checked_result(result)

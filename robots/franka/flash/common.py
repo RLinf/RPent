@@ -153,13 +153,15 @@ def localize(
     if robot == "franka":
         from robots.franka.perception import back_project
 
-        result = back_project(camera=camera, **kwargs)
+        result = back_project(camera=camera, **kwargs).to_dict()
         if result.get("error"):
             raise ValueError(result["error"])
         return vector(result["point_base"])
     from robots.dual_franka.perception import back_project
 
-    result = back_project(camera=camera, target_name=anchor["phrase"], **kwargs)
+    result = back_project(
+        camera=camera, target_name=anchor["phrase"], **kwargs
+    ).to_dict()
     if result.get("error") or result.get("selection_valid") is not True:
         raise ValueError(f"invalid projection: {result}")
     point = vector(result["point_xyz"])
