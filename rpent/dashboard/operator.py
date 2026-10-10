@@ -16,39 +16,24 @@
 
 from __future__ import annotations
 
-import json
 import threading
 import uuid
 from collections.abc import Callable
-from pathlib import Path
 from typing import Any
 
 from rpent.tools.toolkit import ToolCancelled
 
 
 class DashboardOperator:
-    """Own one pending confirmation and archive its request and reply."""
+    """Own one pending confirmation for the active Dashboard task."""
 
-    def __init__(
-        self, output_dir: str | Path, on_change: Callable[[], None] = lambda: None
-    ) -> None:
-        """Initialize the confirmation channel.
-
-        Args:
-            output_dir: Directory for the operator event log.
-            on_change: Callback invoked when a request opens or closes.
-        """
+    def __init__(self, on_change: Callable[[], None] = lambda: None) -> None:
+        """Notify on_change when a confirmation opens or closes."""
         self._condition = threading.Condition()
         self._pending: dict[str, Any] | None = None
         self._answer: str | None = None
         self._closed = False
-        self._path = Path(output_dir) / "dashboard_operator.jsonl"
         self._on_change = on_change
-
-    def _record(self, event: dict[str, Any]) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        with self._path.open("a") as file:
-            file.write(json.dumps(event, ensure_ascii=False) + "\n")
 
     def snapshot(self) -> dict[str, Any] | None:
         """Return the pending request, or None when no confirmation is pending."""
@@ -93,7 +78,6 @@ class DashboardOperator:
                 "choices": choices,
             }
             self._answer = None
-            self._record({"event": "request", **self._pending})
         self._on_change()
         try:
             with self._condition:
@@ -132,9 +116,6 @@ class DashboardOperator:
             if answer not in self._pending["choices"] or not isinstance(notes, str):
                 raise ValueError("invalid operator response")
             self._answer = answer + (" " + notes.strip() if notes.strip() else "")
-            self._record(
-                {"event": "reply", "id": request_id, "answer": answer, "notes": notes}
-            )
             self._condition.notify_all()
 
     def close(self) -> None:

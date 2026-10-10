@@ -253,37 +253,17 @@ class DashboardState:
                 "verdict": self.operator_verdict,
             }
 
-    def operator_reply(self, generation, request_id, answer, notes=""):
-        with self._condition:
-            if (
-                generation != self._task_generation
-                or self.operator is None
-                or self._session_state == "switch_pending"
-            ):
-                raise ValueError("expired operator task")
-            self.operator.reply(request_id, answer, notes)
-
-    def operator_finish(self, generation, verdict, notes=""):
-        with self._condition:
-            if verdict not in {"success", "failure", "abort"} or not isinstance(
-                notes, str
-            ):
-                raise ValueError("invalid operator verdict")
-            if (
-                generation != self._task_generation
-                or self.operator is None
-                or self._toolkit is None
-                or self._session_state == "switch_pending"
-            ):
-                raise ValueError("no matching active operator task")
-            if not self._toolkit.request_direct_verdict(verdict, notes):
-                raise ValueError("operator verdict refused in current state")
-            self.operator_verdict = verdict
-            self._pending_task = None
-            self._session_state = "switch_pending"
-            self._accepting_input = False
-            self.operator.close()
-            self._interaction_changed_locked()
+    def _finish_operator_locked(self, verdict: str, notes: str) -> None:
+        if self._toolkit is None:
+            raise ValueError("no matching active operator task")
+        if not self._toolkit.request_direct_verdict(verdict, notes):
+            raise ValueError("operator verdict refused in current state")
+        self.operator_verdict = verdict
+        self._pending_task = None
+        self._session_state = "switch_pending"
+        self._accepting_input = False
+        self.operator.close()
+        self._interaction_changed_locked()
 
     def bind_toolkit(self, toolkit: Toolkit) -> None:
         """Expose a TaskRun Toolkit through the Dashboard primitive API."""
@@ -554,30 +534,24 @@ class DashboardState:
             if parsed is not None:
                 command = f"/{parsed.name}"
                 notes = parsed.notes
-                current = self.operator_snapshot()
-                if operator_context is None:
-                    raise ValueError(
-                        "No active operator channel; refresh the Dashboard."
-                    )
                 if not isinstance(operator_context, dict):
                     raise ValueError("operator_context must be an object.")
-                if operator_context.get("generation") != current["generation"]:
+                if (
+                    operator_context.get("generation") != self._task_generation
+                    or self._session_state == "switch_pending"
+                ):
                     raise ValueError("expired operator task")
-                pending = current["pending"]
+                pending = self.operator.snapshot()
                 if command == "/continue" and pending is None:
                     return self._submit_message(text)
                 if command in {"/success", "/failure", "/abort"}:
-                    self.operator_finish(current["generation"], command[1:], notes)
+                    self._finish_operator_locked(parsed.name, notes)
                 else:
                     request_id = operator_context.get("request_id")
                     answer = command[1:]
                     if command == "/operator":
                         request_id, answer = parsed.request_id, parsed.answer
-                    if pending is None or request_id != pending["id"]:
-                        raise ValueError("No matching pending operator request.")
-                    self.operator_reply(
-                        current["generation"], request_id, answer, notes
-                    )
+                    self.operator.reply(request_id, answer, notes)
                 self._control_feedback = [f"{command} accepted"]
                 self._interaction_changed_locked()
                 return None

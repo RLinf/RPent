@@ -282,7 +282,7 @@ def _run_dashboard_task(
                         from rpent.dashboard.operator import DashboardOperator
 
                         state.operator = DashboardOperator(
-                            state_output_dir, on_change=state.operator_changed
+                            on_change=state.operator_changed
                         )
                         operator_kwargs["operator_input"] = state.operator
                     toolkit = get_toolkit(

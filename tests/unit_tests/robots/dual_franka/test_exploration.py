@@ -602,7 +602,8 @@ def test_cli_direct_verdict_finalizes_and_merges_only_without_errors(
             call(toolkit, "request_scene_reset", reason="test")
             call(toolkit, "move_delta", arm="right", delta_xyz=[0.01, 0, 0])
             assert handlers["line"]("/" + verdict)
-            assert input_queue.get(timeout=1) is None
+            assert input_queue.cancelled
+            assert input_queue.get() is None
             return SimpleNamespace(
                 finish_result=None, messages=[], stats={}, error=planner_error
             )

@@ -18,20 +18,6 @@ from __future__ import annotations
 
 import queue
 import threading
-import time
-from typing import Protocol
-
-
-class InputQueue(Protocol):
-    """Input operations shared by readers and planner consumers."""
-
-    def get(self, block: bool = True, timeout: float | None = None) -> str | None:
-        """Read a submitted line or the source's EOF signal."""
-        ...
-
-    def put(self, item: str | None) -> None:
-        """Forward a line or the source's EOF signal."""
-        ...
 
 
 class SessionInputQueue:
@@ -57,11 +43,8 @@ class SessionInputQueue:
         with self._lock:
             self._cancelled.set()
 
-    def get(self, block: bool = True, timeout: float | None = None) -> str | None:
+    def get(self, block: bool = True) -> str | None:
         """Read input, returning None when this scope or its source closes."""
-        if block and timeout is not None and timeout < 0:
-            raise ValueError("timeout must be a non-negative number")
-        deadline = time.monotonic() + timeout if timeout is not None else None
         while True:
             with self._lock:
                 if self.cancelled:
@@ -71,14 +54,11 @@ class SessionInputQueue:
                 except queue.Empty:
                     if not block:
                         raise
-            wait_time = 0.1
-            if deadline is not None:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise queue.Empty
-                wait_time = min(wait_time, remaining)
-            self._cancelled.wait(wait_time)
+            self._cancelled.wait(0.1)
 
     def put(self, item: str | None) -> None:
         """Forward real input to the source, including returned unread lines."""
         self._source.put(item)
+
+
+InputQueue = queue.Queue[str | None] | SessionInputQueue

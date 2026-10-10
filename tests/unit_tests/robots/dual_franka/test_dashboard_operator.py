@@ -85,6 +85,15 @@ def test_web_operator_confirms_reset_and_completes_task(
                 "generation": operator["generation"],
                 "request_id": operator["pending"]["id"],
             }
+            for stale in (
+                {**context, "generation": context["generation"] - 1},
+                {**context, "request_id": "expired"},
+            ):
+                assert client.post(
+                    "/api/session/messages",
+                    json={"text": "/done", "operator_context": stale},
+                ).is_error
+            assert env.resets == 0
             assert (
                 client.post(
                     "/api/session/messages",

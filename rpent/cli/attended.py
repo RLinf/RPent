@@ -16,7 +16,7 @@
 
 import json
 import shutil
-import time
+from contextlib import ExitStack
 from pathlib import Path
 
 from rpent.cli.tui import next_user_line
@@ -79,14 +79,15 @@ def _solve_attended(
     planner, *, operator_input, state_output_dir, keep_mcp_alive=False, **kwargs
 ):
     """Own the transport for the whole attended attempt, including human waits."""
-    server = None
-    if keep_mcp_alive:
-        from rpent.planner.utils.http_mcp_server import HttpMcpServer
+    with ExitStack() as cleanup:
+        if keep_mcp_alive:
+            from rpent.planner.utils.http_mcp_server import HttpMcpServer
 
-        server = HttpMcpServer(kwargs["toolkit"])
-        kwargs["mcp_server"] = server
-    try:
-        if server is not None:
+            server = HttpMcpServer(kwargs["toolkit"])
+            kwargs["mcp_server"] = server
+            cleanup.callback(server.stop)
+            # Release pending tool handlers before shutting down HTTP.
+            cleanup.callback(kwargs["toolkit"].cancel_active_and_wait)
             server.start()
         return _solve_attended_turns(
             planner,
@@ -94,11 +95,6 @@ def _solve_attended(
             state_output_dir=state_output_dir,
             **kwargs,
         )
-    finally:
-        if server is not None:
-            # Release pending tool handlers before asking HTTP to shut down.
-            kwargs["toolkit"].cancel_active_and_wait()
-            server.stop()
 
 
 def _solve_attended_turns(planner, *, operator_input, state_output_dir, **kwargs):
@@ -147,12 +143,6 @@ def _solve_attended_turns(planner, *, operator_input, state_output_dir, **kwargs
             logger.info(
                 "Waiting for the current operator request; keeping this attempt alive."
             )
-            while (
-                operator_input.pending_kind is not None
-                and not toolkit.direct_verdict_requested
-                and not operator_input.closed
-            ):
-                time.sleep(0.1)
         toolkit.wait_active()
         if toolkit.direct_verdict_requested:
             break

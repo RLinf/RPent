@@ -99,7 +99,6 @@ class DualFrankaToolkit(FrankaToolkit):
         self._direct_verdict_event = threading.Event()
         self._direct_verdict: str | None = None
         self._direct_verdict_notes = ""
-        self._session_closed = threading.Event()
         super().__init__(
             runtime_kwargs=runtime_kwargs,
             dashboard_events=dashboard_events,
@@ -117,9 +116,7 @@ class DualFrankaToolkit(FrankaToolkit):
         if verdict not in {"success", "failure", "abort"}:
             raise ValueError("verdict must be success, failure or abort")
         with self._scheduler.condition:
-            if self._session_closed.is_set():
-                return False
-            if self._direct_verdict_event.is_set():
+            if self._scheduler.closed:
                 return False
             if not self._attended or (
                 verdict == "success"
@@ -133,20 +130,14 @@ class DualFrankaToolkit(FrankaToolkit):
         return True
 
     def raise_if_cancelled(self) -> None:
-        if self._session_closed.is_set():
-            raise ToolCancelled("exploration session closed")
         if self._direct_verdict_event.is_set():
             raise ToolCancelled(
                 "operator submitted a terminal verdict; stopping exploration"
             )
         super().raise_if_cancelled()
 
-    def execute_tool(
-        self,
-        name: str,
-        input_dict: dict[str, Any],
-    ) -> ToolResult:
-        if self._direct_verdict_event.is_set() or self._session_closed.is_set():
+    def execute_tool(self, name: str, input_dict: dict[str, Any]) -> ToolResult:
+        if self._direct_verdict_event.is_set():
             return ToolResult(
                 data={
                     "error": (
@@ -156,12 +147,6 @@ class DualFrankaToolkit(FrankaToolkit):
                 }
             )
         return super().execute_tool(name, input_dict)
-
-    def close(self) -> None:
-        """Stop and join old tools before their operator input can be reused."""
-        self._session_closed.set()
-        self.cancel_active_and_wait()
-        super().close()
 
     def finalize_direct_verdict(self) -> dict[str, Any]:
         """Record fresh operator evidence after all active work has stopped."""
