@@ -91,7 +91,7 @@ class CosmosPolicyFacade(BaseWAMFacade):
         if config.dataloader_train.dataset.chunk_size != self._cfg.chunk_size:
             raise ValueError("Cosmos Policy checkpoint must use 16-action chunks")
         self._get_action = cosmos_utils.get_action
-        capabilities.metadata["cached_instructions_only"] = cached_instructions_only
+        capabilities["metadata"]["cached_instructions_only"] = cached_instructions_only
         super().__init__(capabilities, adapter=adapter)
 
     def predict_native(

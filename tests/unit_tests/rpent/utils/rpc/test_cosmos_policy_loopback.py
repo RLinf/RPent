@@ -71,10 +71,10 @@ def test_cosmos_policy_roundtrip(
     facade._predict_future = predict_future
     with make_server_and_client(facade, transport) as rpc:
         result = LiberoWAMClient(rpc).predict_result(raw_obs, {"mode": "eval"})
-    assert result.actions.shape == (16, 7)
-    assert result.actions.dtype == np.float32
-    assert (result.future_observation is not None) == predict_future
-    assert result.value == (0.6 if predict_future else None)
+    assert result["actions"].shape == (16, 7)
+    assert result["actions"].dtype == np.float32
+    assert (result["future_observation"] is not None) == predict_future
+    assert result["value"] == (0.6 if predict_future else None)
     args, kwargs = facade._get_action.call_args
     assert args[4] == "pick up the bowl"
     assert kwargs == {

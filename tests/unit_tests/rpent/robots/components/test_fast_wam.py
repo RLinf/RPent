@@ -21,8 +21,8 @@ from rpent.robots.components.fast_wam.adapter.encode import encode_libero
 from rpent.robots.components.fast_wam.server import FastWAMFacade
 from rpent.robots.components.wam_facade_base import WAMAdapterSpec
 from rpent.robots.components.wam_rpc_protocol import (
+    WAMCapabilities,
     WAMPrediction,
-    normalize_wam_request,
 )
 
 torch = pytest.importorskip("torch")
@@ -91,8 +91,8 @@ def test_same_physical_observation_drives_cosmos_and_fast_wam():
     physical = physical_observation(raw)
     np.testing.assert_array_equal(physical["state"]["joint_positions"], np.arange(7))
     np.testing.assert_array_equal(physical["state"]["joint_velocities"], np.ones(7))
-    assert "protocol_version" not in physical and "action_space" not in physical
-    request = normalize_wam_request(libero_request(raw))
+    assert "action_space" not in physical
+    request = libero_request(raw)
     _, (encode, _) = cosmos_adapter("libero", "test")
     cosmos = encode(request)["observation"]
     np.testing.assert_allclose(
@@ -106,8 +106,8 @@ def test_same_physical_observation_drives_cosmos_and_fast_wam():
     facade = _facade()
     rpc = Mock(call=lambda method, args=(), **kw: facade._dispatch(method, args, {}))
     result = LiberoWAMClient(rpc, expected_backend="fast_wam").predict_result(raw)
-    assert result.actions.shape == (3, 7)
-    np.testing.assert_allclose(result.actions[:, -1], [1, 0, -1])
+    assert result["actions"].shape == (3, 7)
+    np.testing.assert_allclose(result["actions"][:, -1], [1, 0, -1])
     native = facade._model.infer_action.call_args.kwargs
     expected = np.concatenate(
         (
@@ -181,14 +181,19 @@ def test_registered_pair_owns_capabilities_and_negotiates_another_robotwin_contr
     monkeypatch,
 ):
     def capabilities(*, processor, binarize_gripper, **common):
-        return ROBOTWIN_EEF.capabilities(
-            camera_roles=("head",), state_schema={"left_eef_pose": 7}, **common
+        return WAMCapabilities(
+            control=ROBOTWIN_EEF,
+            camera_roles=("head",),
+            state_schema={"left_eef_pose": 7},
+            **common,
         )
 
     encode = Mock(
         side_effect=lambda request, **kw: {"pose": request["state"]["left_eef_pose"]}
     )
-    decode = Mock(side_effect=lambda result, **kw: WAMPrediction(np.zeros((3, 16))))
+    decode = Mock(
+        side_effect=lambda result, **kw: WAMPrediction(actions=np.zeros((3, 16)))
+    )
     monkeypatch.setitem(
         fast_adapter.ADAPTERS,
         "robotwin_eef",
@@ -249,7 +254,7 @@ def test_libero_camera_profiles_and_identity_orientation(cameras, concat, size):
     raw = _raw_obs()
     raw["robot0_eef_quat"] = np.array([0, 0, 0, 1])
     encoded = encode_libero(
-        normalize_wam_request(libero_request(raw)),
+        libero_request(raw),
         processor=_processor(cameras),
         device="cpu",
         dtype=torch.float32,

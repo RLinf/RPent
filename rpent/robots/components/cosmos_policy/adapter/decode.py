@@ -5,6 +5,8 @@
 
 from typing import Any
 
+import numpy as np
+
 from rpent.robots.components.wam_rpc_protocol import WAMPrediction
 
 
@@ -13,7 +15,7 @@ def decode_libero(
 ) -> WAMPrediction:
     """The official get_action already unnormalizes LIBERO actions."""
     return WAMPrediction(
-        actions=result["actions"],
+        actions=np.asarray(result["actions"], dtype=np.float32),
         future_observation=result.get("future_image_predictions")
         if predict_future
         else None,

@@ -193,6 +193,7 @@ def primitives():
     env.raw_obs.return_value = {"robot0_eef_pos": np.zeros(3)}
     env.chunk_step.return_value = (observation, 0, False, False, {})
     model = Mock(predict=Mock(return_value=np.zeros((16, 7))))
+    model.wam.get_capabilities.return_value = {"backend": "cosmos_policy"}
     instance = LiberoPrimitives(env, model, Mock(), lambda: None, policy_kind="wam")
     instance.set_obs(observation)
     return instance

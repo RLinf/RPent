@@ -10,7 +10,7 @@ from rpent.robots.components.wam_control_spec import WAMControlSpec
 ROBOTWIN_QPOS = WAMControlSpec(
     embodiment="robotwin_qpos14",
     action_space="robotwin.joint_action.qpos14.v1",
-    action_schema=tuple(f"joint_action_{i}" for i in range(14)),
+    action_schema=[f"joint_action_{i}" for i in range(14)],
     action_type="qpos",
 )
 
@@ -18,14 +18,14 @@ ROBOTWIN_QPOS = WAMControlSpec(
 ROBOTWIN_EEF = WAMControlSpec(
     embodiment="robotwin_eef16",
     action_space="robotwin.eef_pose.absolute.v1",
-    action_schema=tuple(
+    action_schema=[
         f"{arm}_{field}"
         for arm in ("left", "right")
         for field in ("x", "y", "z", "qw", "qx", "qy", "qz", "gripper")
-    ),
+    ],
     action_type="ee",
 )
 
 ROBOTWIN_CONTROLLERS = {
-    spec.action_space: spec for spec in (ROBOTWIN_QPOS, ROBOTWIN_EEF)
+    spec["action_space"]: spec for spec in (ROBOTWIN_QPOS, ROBOTWIN_EEF)
 }

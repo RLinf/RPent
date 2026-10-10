@@ -59,13 +59,11 @@ def test_fast_wam_runtime_and_prompts_use_platform_contract(
         entry["name"] for entry in spec.resolve_dashboard(args)["runtime_components"]
     }
     assert "wam" in components and "vla" not in components
-    caps = controller.capabilities(
-        backend="fast_wam", checkpoint="test", camera_roles=("head",), state_schema={}
-    )
+    caps = {"backend": "fast_wam", "control": controller}
     rpc = Mock(
         call=Mock(
             side_effect=lambda method, **kwargs: (
-                caps.to_wire() if method == "wam.capabilities" else {"ok": True}
+                caps if method == "wam.capabilities" else {"ok": True}
             )
         )
     )
@@ -75,9 +73,7 @@ def test_fast_wam_runtime_and_prompts_use_platform_contract(
         args, tmp_path, NullDashboardEventSink(), {"wam"}
     )
     assert owned == []
-    assert (
-        runtime["model"].wam.get_capabilities().action_space == controller.action_space
-    )
+    assert runtime["model"].wam.get_capabilities()["control"] == controller
     assert all(call.args[0] != "wam.reset" for call in rpc.call.call_args_list)
     runtime["model"].close()
     rpc.close.assert_called_once()

@@ -10,7 +10,7 @@ from rpent.robots.components.wam_control_spec import WAMControlSpec
 LIBERO_OSC = WAMControlSpec(
     embodiment="libero_7d",
     action_space="libero.osc_pose.delta.v1",
-    action_schema=(
+    action_schema=[
         "delta_x",
         "delta_y",
         "delta_z",
@@ -18,5 +18,6 @@ LIBERO_OSC = WAMControlSpec(
         "delta_axis_angle_y",
         "delta_axis_angle_z",
         "gripper",
-    ),
+    ],
+    action_type=None,
 )

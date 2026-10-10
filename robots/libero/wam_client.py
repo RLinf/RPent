@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from functools import cached_property
 from typing import Any
 
 import numpy as np
@@ -12,19 +13,19 @@ import numpy as np
 from robots.libero.control import LIBERO_OSC
 from robots.libero.observation import physical_observation
 from rpent.robots.components.wam_client_base import BaseWAMClient
-from rpent.robots.components.wam_rpc_protocol import WAM_PROTOCOL_VERSION, WAMPrediction
+from rpent.robots.components.wam_control_spec import WAMControlSpec
+from rpent.robots.components.wam_rpc_protocol import WAMPrediction, WAMRequest
 from rpent.utils.rpc import RpcClient
 
-ACTION_SPACE = LIBERO_OSC.action_space
-ACTION_SCHEMA = LIBERO_OSC.action_schema
+ACTION_SPACE = LIBERO_OSC["action_space"]
+ACTION_SCHEMA = LIBERO_OSC["action_schema"]
 
 
-def libero_request(raw_obs: dict[str, Any]) -> dict[str, Any]:
+def libero_request(raw_obs: dict[str, Any]) -> WAMRequest:
     """Attach the WAM execution contract to model-independent observations."""
     return {
         **physical_observation(raw_obs),
-        "protocol_version": WAM_PROTOCOL_VERSION,
-        "embodiment": LIBERO_OSC.embodiment,
+        "embodiment": LIBERO_OSC["embodiment"],
         "action_space": ACTION_SPACE,
     }
 
@@ -39,11 +40,17 @@ class LiberoWAMClient:
 
     def validate_libero(self) -> None:
         """Reject incompatible controllers before starting a control loop."""
-        LIBERO_OSC.require(self.wam.get_capabilities())
+        self.controller
+
+    @cached_property
+    def controller(self) -> WAMControlSpec:
+        """Connect once and retain the supported native control contract."""
+        self.wam.validate_contract(LIBERO_OSC)
+        return LIBERO_OSC
 
     def predict(self, env_obs: dict, options: dict | None = None) -> np.ndarray:
         """Return executable actions for the existing LIBERO chunk executor."""
-        return self.predict_result(env_obs, options).actions
+        return self.predict_result(env_obs, options)["actions"]
 
     def predict_result(
         self, env_obs: dict, options: dict | None = None

@@ -50,7 +50,7 @@ def test_fast_wam_robotwin_closed_loop(tmp_path, record_property) -> None:
     with runtime_phase(spec, args, tmp_path / "env", {"env", "wam"}) as runtime:
         client = runtime["model"]
         caps = client.wam.get_capabilities()
-        record_property("checkpoint", caps.checkpoint)
+        record_property("checkpoint", caps["checkpoint"])
         try:
             env = runtime["env"]
             env.reset()
@@ -71,7 +71,7 @@ def test_fast_wam_robotwin_closed_loop(tmp_path, record_property) -> None:
                 )
                 assert require_array(
                     actions, "Fast-WAM qpos actions", ndim=2, last_dim=14
-                ).shape == (caps.chunk_size, 14)
+                ).shape == (caps["chunk_size"], 14)
                 np.save(tmp_path / f"actions-{index}.npy", actions)
                 _, _, _, _, info = env.chunk_step(
                     actions, action_type=client.action_type

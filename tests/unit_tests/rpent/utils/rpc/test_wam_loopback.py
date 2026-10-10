@@ -21,12 +21,16 @@ class _JointWAM(BaseWAMFacade):
             WAMCapabilities(
                 backend="test_joint_wam",
                 checkpoint="test",
-                supported_embodiments=("test_arm",),
-                action_space="test.joint_position.v1",
-                action_schema=tuple(f"joint_{i}" for i in range(7)) + ("gripper",),
+                control={
+                    "embodiment": "test_arm",
+                    "action_space": "test.joint_position.v1",
+                    "action_schema": [f"joint_{i}" for i in range(7)] + ["gripper"],
+                    "action_type": None,
+                },
                 camera_roles=("exterior_left", "exterior_right", "wrist"),
                 state_schema={"joint_position": 7, "gripper_position": 1},
                 uses_sessions=True,
+                chunk_size=None,
             )
         )
 
@@ -43,13 +47,12 @@ class _JointWAM(BaseWAMFacade):
 def test_session_history_isolation_reset_and_cleanup(transport, make_server_and_client):
     facade = _JointWAM()
     request = {
-        "protocol_version": 1,
         "instruction": "move",
         "embodiment": "test_arm",
         "action_space": "test.joint_position.v1",
         "images": {
             role: np.zeros((2, 3, 3), np.uint8)
-            for role in facade._capabilities.camera_roles
+            for role in facade._capabilities["camera_roles"]
         },
         "state": {"joint_position": np.zeros(7), "gripper_position": np.zeros(1)},
     }
@@ -62,13 +65,13 @@ def test_session_history_isolation_reset_and_cleanup(transport, make_server_and_
             wait_for_ready(rpc, timeout_s=5)
             clients.append(BaseWAMClient(rpc))
         first, second = clients
-        assert first.get_capabilities().uses_sessions
-        assert first.predict(request).actions.shape == (1, 8)
-        assert first.predict(request).actions.shape == (2, 8)
-        assert second.predict(request).actions.shape == (1, 8)
+        assert first.get_capabilities()["uses_sessions"]
+        assert first.predict(request)["actions"].shape == (1, 8)
+        assert first.predict(request)["actions"].shape == (2, 8)
+        assert second.predict(request)["actions"].shape == (1, 8)
         first.reset()
-        assert first.predict(request).actions.shape == (1, 8)
-        assert second.predict(request).actions.shape == (2, 8)
+        assert first.predict(request)["actions"].shape == (1, 8)
+        assert second.predict(request)["actions"].shape == (2, 8)
         first.close()
         assert len(facade.history) == 1
         facade.close()

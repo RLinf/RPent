@@ -30,7 +30,8 @@ def _libero_capabilities(
 ) -> WAMCapabilities:
     if processor.num_output_cameras not in (1, 2):
         raise ValueError("Fast-WAM LIBERO supports one or two cameras")
-    return LIBERO_OSC.capabilities(
+    return WAMCapabilities(
+        control=LIBERO_OSC,
         camera_roles=("primary", "wrist")[: processor.num_output_cameras],
         state_schema={"eef_position": 3, "eef_quaternion_xyzw": 4, "gripper_qpos": 2},
         **common,
@@ -44,7 +45,8 @@ def _robotwin_capabilities(
         raise ValueError("Fast-WAM RoboTwin requires three cameras")
     if binarize_gripper:
         raise ValueError("RoboTwin qpos does not use LIBERO gripper binarization")
-    return ROBOTWIN_QPOS.capabilities(
+    return WAMCapabilities(
+        control=ROBOTWIN_QPOS,
         camera_roles=ROBOTWIN_CAMERAS,
         state_schema={"joint_targets": 14},
         **common,
@@ -92,6 +94,8 @@ def make_adapter(
         checkpoint=checkpoint,
         chunk_size=execute_steps,
         uses_sessions=USES_SESSIONS,
+        returns_future_observation=False,
+        returns_value=False,
         metadata={"prediction_horizon": action_horizon},
     )
     return capabilities, (

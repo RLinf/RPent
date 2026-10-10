@@ -18,13 +18,14 @@ from rpent.robots.components.wam_facade_base import (
 )
 from rpent.robots.components.wam_rpc_protocol import WAMCapabilities
 
-ACTION_SCHEMA = LIBERO_OSC.action_schema
+ACTION_SCHEMA = LIBERO_OSC["action_schema"]
 ADAPTERS = {
     "libero": WAMAdapterSpec(
         encode_libero,
         decode_libero,
         partial(
-            LIBERO_OSC.capabilities,
+            WAMCapabilities,
+            control=LIBERO_OSC,
             camera_roles=("primary", "wrist"),
             state_schema=STATE_SCHEMA,
         ),
@@ -46,6 +47,7 @@ def make_adapter(
         uses_sessions=USES_SESSIONS,
         returns_future_observation=predict_future,
         returns_value=predict_future,
+        metadata={},
     )
     return capabilities, (
         spec.encode,
