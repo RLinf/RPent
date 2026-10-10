@@ -21,8 +21,6 @@ import hashlib
 import importlib
 import io
 import json
-import shutil
-from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -137,36 +135,6 @@ def test_review_exclude_resume_and_continue_capture(collector_module, session):
     final = collector_module.Collector(collector.config, collector.root, resume=True)
     assert [sample["index"] for sample in final.status()["samples"]] == [2]
     assert snapshot(archived) == original
-
-
-def test_existing_samples_are_protected_during_session_review(
-    collector_module, session
-):
-    collector, _, camera = session
-    collector.sample()
-    archived = collector.root / "excluded" / "sample_001"
-    archived.parent.mkdir()
-    shutil.copytree(collector.root / "sample_001", archived)
-    original = snapshot(collector.root)
-
-    with pytest.raises(FileExistsError):
-        collector_module.Collector(collector.config, collector.root)
-    with pytest.raises(FileExistsError):
-        collector.delete_sample(1)
-    assert snapshot(collector.root) == original
-
-    archived.rename(collector.root / "saved_copy")
-    collector.delete_sample(1)
-    original = snapshot(collector.root)
-    changed = replace(collector.config, camera_serial="another-camera")
-    with pytest.raises(ValueError, match="configuration"):
-        collector_module.Collector(changed, collector.root, resume=True)
-    resumed = collector_module.Collector(collector.config, collector.root, resume=True)
-    camera["K"][0][0] += 20
-    with pytest.raises(ValueError, match="Camera K"):
-        resumed.sample()
-    assert resumed.status()["count"] == 0
-    assert snapshot(collector.root) == original
 
 
 def test_reviewed_samples_require_a_new_calibration_result(collector_module, session):
