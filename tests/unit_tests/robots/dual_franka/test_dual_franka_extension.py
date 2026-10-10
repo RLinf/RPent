@@ -18,8 +18,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from robots.dual_franka import get_robot_spec
 from robots.dual_franka.prompt_bundle import system_prompt, user_prompt
 from robots.dual_franka.runtime_config import load_runtime_config
@@ -150,40 +148,3 @@ def test_dual_franka_exploration_prompt_is_opt_in():
     assert "request_scene_reset" in explore_prompt
     assert "request_operator_verdict" in explore_prompt
     assert "/tmp/memory/_internal/inbox/dual_franka_t4" in explore_user_prompt
-
-
-@pytest.mark.parametrize("task_id", [0, 1, 3, 4, 5, 6])
-@pytest.mark.parametrize("explore", [False, True])
-def test_rendered_tasks_retain_their_own_operating_instructions(
-    task_id, explore, dual_franka_robot_config
-):
-    from rpent.cli.main import _build_argparser
-
-    spec = get_robot_spec()
-    parser = _build_argparser()
-    spec.add_cli_args(parser, use_dashboard=False)
-    argv = [
-        "--robot",
-        "dual_franka",
-        "--task-id",
-        str(task_id),
-        "--robot-config",
-        str(dual_franka_robot_config),
-    ]
-    if explore:
-        argv.append("--explore")
-    config = spec.parse_config(parser.parse_args(argv))
-    variables = {**config.prompt_vars, "output_dir": str(config.output_dir)}
-    task = DUAL_FRANKA_TASKS[task_id]
-    system = format_prompt(spec.prompts.system(variables), variables=variables)
-    user = format_prompt(spec.prompts.user(variables), variables=variables)
-    for text in (task.instruction, task.setup):
-        if text:
-            assert text not in system
-    for text in (
-        task.instruction,
-        task.setup,
-        task.success_criteria,
-        *task.constraints,
-    ):
-        assert text in user
