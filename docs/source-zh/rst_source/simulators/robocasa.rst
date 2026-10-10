@@ -81,9 +81,7 @@ Target50 包含以下任务类别，完整任务、seed 和运行限制见本页
 安装与资源准备
 ---------------------
 
-需要 Linux、NVIDIA GPU、可用的 CUDA/EGL 环境，以及 ``git`` 和 `uv <https://docs.astral.sh/uv/getting-started/installation/>`_。若已有 RPent 仓库，进入仓库后从创建虚拟环境开始。
-
-RLDX-1 要求 Python ``3.10``。请创建独立环境，并通过 ``.[robocasa]`` 安装完整的 RoboCasa365 运行栈：
+需要 Linux、NVIDIA GPU、可用的 CUDA/EGL，以及 ``git`` 和 `uv <https://docs.astral.sh/uv/getting-started/installation/>`_。使用独立的 Python 3.10 环境；已有仓库请先进入该目录，再从第三行开始：
 
 .. code-block:: bash
 
@@ -92,45 +90,52 @@ RLDX-1 要求 Python ``3.10``。请创建独立环境，并通过 ``.[robocasa]`
    uv venv --python 3.10 .venv-robocasa
    source .venv-robocasa/bin/activate
 
-先使用 `PyTorch 官方安装选择器 <https://pytorch.org/get-started/locally/>`_ 根据本机 GPU、驱动和 Python 版本选择匹配的 CUDA 版 PyTorch 与 torchvision。在此环境执行所选命令，可将 ``pip`` 换为 ``uv pip``。RLDX 依赖要求 Torch >= 2.7、 torchvision >= 0.22；两者必须互相兼容，不能分别任意选版本。然后安装 RPent：
+先按 `PyTorch 安装说明 <https://pytorch.org/get-started/locally/>`_ 安装与本机驱动兼容的 CUDA 版 Torch 和 torchvision，可将命令中的 ``pip`` 换为 ``uv pip``。RLDX 要求 Torch >= 2.7、torchvision >= 0.22，且两者版本匹配。再安装 RoboCasa：
+
+.. list-table::
+   :header-rows: 1
+
+   * - 环境
+     - 安装命令
+     - 资源下载
+   * - RoboCasa365
+     - ``uv pip install -e ".[robocasa]"``
+     - ``robocasa-download-assets`` （见下方命令）
+
+依赖以 ``pyproject.toml`` 为准，包含 RoboCasa、RLDX 和 Robosuite 的 ``rpent`` 分支源码。不要另装提供同一导入包的 ``rlinf-robocasa365``。
+
+检查依赖后，将约 10 GB 的厨房资源放到 Python 包目录之外，并在启动 RPent 的终端设置资源路径：
 
 .. code-block:: bash
 
-   uv pip install -e ".[robocasa]"
    uv pip check
-
-当前安装依赖以 ``pyproject.toml`` 为准。``robocasa`` extra 从 RoboCasa、RLDX 和 Robosuite 的 ``rpent`` 分支安装；不要同时安装提供同一导入包的 ``rlinf-robocasa365``。
-
-RLDX 必须使用 extra 指定的 ``rpent`` 分支源码。旧 PyPI wheel 即使具有相同的包版本号，也可能缺少当前运行时所需的接口。若复用装有旧 RLDX wheel 的环境，请在上述安装命令中加入 ``--reinstall-package rlinf-rldx``。
-
-Torch、torchvision 与 CUDA 需要按本机配置选择。参考实验使用 Torch 2.7.0、torchvision 0.22.0 和 CUDA 12.6。每次复现都应保存实际依赖与 Git 版本，因为分支内容可能更新：
-
-.. code-block:: bash
-
-   uv pip freeze > installed-requirements.txt
-   git rev-parse HEAD > rpent-revision.txt
-
-``flash-attn`` 为可选依赖，未安装时 RLDX-1 使用 PyTorch SDPA。如需安装，请按 `FlashAttention 官方说明 <https://github.com/Dao-AILab/flash-attention#installation-and-features>`_ 选择兼容版本。
-
-**安装后处理**
-
-将厨房仿真资源（约 10 GB）下载到 ``site-packages`` 之外，重新安装 Python 包时即可保留这些资源。Target50 不使用 RoboCasa 数据集或遥操作配置；以下命令通过 ``--no-macros`` 跳过可选的本机宏配置：
-
-.. code-block:: bash
-
    robocasa-download-assets --assets-path ~/.robocasa/assets --no-macros -y
-
-命令结束时会打印需要导出的环境变量，把它加到启动 ``rpent`` 的 shell 里：
-
-.. code-block:: bash
-
    export ROBOCASA_ASSETS_PATH=~/.robocasa/assets
 
-安装器会补齐下载资源及随包的场景文件。重复运行时可加 ``--skip-existing`` 检查已有下载。资源冲突、磁盘空间和相机问题见本页的常见问题。
+Target50 不需要数据集或遥操作配置，使用 ``--no-macros`` 即可。资源包含下载集合与随包场景文件；重复下载可加 ``--skip-existing`` 检查已有文件。模型文件按下一节准备。
 
-**RLDX-1 checkpoint**
+.. dropdown:: 可选依赖与版本记录
 
-下文的 ``--vla-model-path`` 需要指向本地 ``RLDX-1-FT-RC365`` 模型目录，即针对 RoboCasa365 微调的权重。先从 Hugging Face 下载：
+   ``flash-attn`` 可选，未安装时使用 PyTorch SDPA。如需安装，参见 `FlashAttention 官方说明 <https://github.com/Dao-AILab/flash-attention#installation-and-features>`_。
+
+   参考实验使用 Torch 2.7.0、torchvision 0.22.0、CUDA 12.6；实际安装应与本机兼容。源码分支可能更新，复现时保存依赖和代码版本：
+
+   .. code-block:: bash
+
+      uv pip freeze > installed-requirements.txt
+      git rev-parse HEAD > rpent-revision.txt
+
+.. _robocasa-vla-configuration:
+
+VLA 配置
+------------
+
+RLDX-1 需要微调权重和基础模型的支持文件，两项都要下载。模型和资源各自遵循其许可证。
+
+模型权重
+~~~~~~~~~~~~
+
+下载针对 RoboCasa365 微调的 ``RLDX-1-FT-RC365``，运行时将 ``--vla-model-path`` 指向该目录：
 
 .. code-block:: bash
 
@@ -138,17 +143,10 @@ Torch、torchvision 与 CUDA 需要按本机配置选择。参考实验使用 To
       --revision 587e9ecdcc5e7184fcc17f58713908edff5af041 \
       --local-dir ./checkpoints/rldx-1-ft-rc365
 
-下载较慢时，可使用 Hugging Face 镜像：
+基础模型支持文件
+~~~~~~~~~~~~~~~~~~~~
 
-.. code-block:: bash
-
-   HF_ENDPOINT=https://hf-mirror.com hf download RLWRLD/RLDX-1-FT-RC365 \
-      --revision 587e9ecdcc5e7184fcc17f58713908edff5af041 \
-      --local-dir ./checkpoints/rldx-1-ft-rc365
-
-**RLDX-1 backbone 支持文件**
-
-FT checkpoint 虽包含权重，仍引用 ``RLWRLD/RLDX-1-VLM`` 的架构、processor 和 tokenizer。Target50 将这些支持文件固定到 ``4b9f870d1287e0d38d7eb1445e6d8c60afe66dd7``，共 15 个不含权重的文件，约 16.4 MB（包括模型文档和图片）。下载到启动 RPent 时使用的同一缓存：
+微调权重还需要 ``RLWRLD/RLDX-1-VLM`` 的模型结构、图像处理和分词配置。以下命令只下载支持文件，无需基础模型权重：
 
 .. code-block:: bash
 
@@ -159,7 +157,7 @@ FT checkpoint 虽包含权重，仍引用 ``RLWRLD/RLDX-1-VLM`` 的架构、proc
       --include "*.json" "*.txt" "*.jinja" "*.md" "*.png" ".gitattributes" \
       --exclude "*.safetensors.index.json"
 
-无需额外下载基础模型权重。启动时保留上述缓存变量，不要通过 ``TRANSFORMERS_CACHE`` 指向空缓存。RoboCasa VLA worker 在普通运行和 Target50 中均自动使用上述支持文件 revision，单独启动的 RPent VLA 服务也相同；无需额外 revision 参数或手工修改缓存 ref。该固定值仅作用于 backbone 元数据，不改变 ``--vla-model-path`` 选择的微调权重。模型和 assets 的许可证独立于 RPent 代码许可证。
+启动时保留上述缓存变量，避免 ``TRANSFORMERS_CACHE`` 指向其他空目录。普通运行、Target50 和单独启动的 RPent VLA 服务都会自动使用此支持文件版本；微调权重仍由 ``--vla-model-path`` 指定。支持文件共约 16.4 MB，包含 15 个配置、文档和图片文件。
 
 运行一个任务
 ------------------
@@ -176,7 +174,7 @@ FT checkpoint 虽包含权重，仍引用 ``RLWRLD/RLDX-1-VLM`` 的架构、proc
          --planner claude_code \
          --model claude-opus-4-8
 
-RoboCasa 不绑定具体 planner；可使用 ``api``、``claude_code`` 或 ``codex`` 规划器。配置方式参见 :doc:`../guides/configure_planner`。
+也可使用 ``--planner api`` 或 ``--planner codex``，配置方式见上述规划器指南。
 
 查看结果
 ------------
@@ -240,7 +238,7 @@ global 文件必须存在。任务记录（JSON）与动作序列（recipe）必
 探索模式
 ------------
 
-添加 ``--explore`` 后，规划器可以复位环境并重新尝试任务，将经验写入本地记忆。探索可从空目录开始，并可读取索引、写入当前任务的草稿目录。与 LIBERO 相同，每次运行默认最多包含 3 个规划会话，每个会话最多尝试 5 次：
+添加 ``--explore`` 后，规划器可复位并重试任务，将经验保存到本地。记忆目录可为空；默认最多 3 个规划会话，每个会话最多尝试 5 次：
 
 .. code-block:: bash
 
@@ -250,9 +248,9 @@ global 文件必须存在。任务记录（JSON）与动作序列（recipe）必
      --explore --explore-sessions 3 --explore-attempts-per-session 5 \
      --memory-dir /path/to/robocasa-memory
 
-``reset`` 使用环境原有的复位流程。运行器只导出最后一次复位后成功尝试的动作序列。探索经验先写入当前任务的本地草稿目录（inbox）；运行正常结束、未发生智能体执行错误时，会自动合并草稿。传入 ``--no-auto-merge-memory`` 可关闭自动合并。探索提示词位于 ``robots/robocasa/prompts/explore.py``，规定了移动底盘的使用、``task_progress`` 检查、RLDX 连续执行以及失败尝试的记录方式。
-
-合并后，通过校验的经验写入 ``task-family/`` 和 ``global/``，成功尝试的运行记录与动作序列写入 ``task-specific/``，并刷新 ``MEMORY.md``。评测时，使用 seed 为 0 的探索结果，以 ``--memory-profile local`` 指向同一目录。确认目录中已有 global 文件，再开始评测。评测只允许读取当前任务和 split 的记忆。
+- **保存内容：** 探索笔记先写入当前任务的草稿目录（inbox）；探索时可读取根索引 ``MEMORY.md``。
+- **合并结果：** 正常结束且无智能体执行错误时，自动将通过校验的经验写入 ``task-family/`` 和 ``global/``，成功尝试的记录与动作序列写入 ``task-specific/``，并更新索引。加 ``--no-auto-merge-memory`` 可关闭自动合并。
+- **用于评测：** 使用 seed 为 0 的探索产物，通过 ``--memory-profile local`` 指向同一目录。先确认 global 已发布；评测仅开放当前任务和 split 的记忆。
 
 .. _reproduce-target50:
 
@@ -441,7 +439,12 @@ Target50 包含 50 个厨房任务，共运行 340 次。以下使用 Codex、GP
 环境自检
 ------------
 
-安装 RoboCasa 及其 assets 后，可显式启用环境冒烟测试，检查仿真器安装与接口。测试不需要 planner 凭据或 VLA checkpoint：
+先检查仿真器，再检查 VLA 推理。两项均需可用的 GPU/EGL；跳过的测试不算通过，自检也不产生榜单成绩。
+
+仿真器检查
+~~~~~~~~~~~~
+
+安装依赖和厨房资源后运行，无需规划器授权或模型权重：
 
 .. code-block:: bash
 
@@ -449,20 +452,16 @@ Target50 包含 50 个厨房任务，共运行 340 次。以下使用 Codex、GP
    RPENT_RUN_ROBOCASA_INTEGRATION=1 \
       pytest tests/integration_tests/robots/robocasa/test_target50_runtime_smoke.py -v
 
-共四项测试：``OpenDrawer``、``NavigateKitchen``、``PickPlaceCounterToCabinet`` 各使用 seed 1，另加一项移动相机测试。任务测试检查构造/reset、12D action、操作相机、导航 RGB-D/world map、成功判定及关闭流程；相机测试检查底盘执行八步动作后的相机位姿与画面变化。这些真实仿真测试需要可用的 GPU/EGL 环境，与离线 CPU CI 分开运行；跳过不能计作通过。
+预期四项通过：三个任务（``OpenDrawer``、``NavigateKitchen``、``PickPlaceCounterToCabinet``，seed 1）和移动相机检查。
 
-常见问题
-------------
+.. dropdown:: 仿真器检查覆盖范围
 
-资源目录必须包含下载集合和随包的 scene、arena、fixture 文件。请保留资源的署名文件。``--skip-existing`` 检查下载清单；若文件冲突，确认需要替换后再使用：
+   任务测试检查环境创建与复位、12D 动作、操作相机、导航 RGB-D/world map、成功判定和关闭流程。相机测试检查底盘执行八步后的相机位姿与画面变化。这些测试使用真实仿真器，与离线 CPU 单元测试分开执行。
 
-.. code-block:: bash
+VLA 推理检查
+~~~~~~~~~~~~
 
-   robocasa-download-assets --assets-path ~/.robocasa/assets --no-macros --overwrite -y
-
-``--overwrite`` 优先于 ``--skip-existing``，只替换安装范围内的资源文件。默认不覆盖内容不同的已有文件，并要求目标文件系统支持硬链接。磁盘应能容纳 ZIP 和解压数据；替换时还需保留原有数据所占空间。中断后可重新运行下载命令。
-
-先执行 :ref:`环境冒烟测试 <environment-smoke-tests>`。四类资源下载完成后，使用现有 RoboCasa E2E 组件测试检查 VLA worker 启动、HTTP RPC 和首次推理。按需安装 ``.[test]``，选择一张可用 GPU，并使用新的输出目录：
+完成 :ref:`VLA 配置 <robocasa-vla-configuration>` 后，选择空闲 GPU 和新的输出目录运行。需要测试依赖时安装 ``.[test]``：
 
 .. code-block:: bash
 
@@ -473,27 +472,64 @@ Target50 包含 50 个厨房任务，共运行 340 次。以下使用 Codex、GP
    MUJOCO_GL=egl python -m pytest -q \
       tests/e2e_tests/robocasa/test_components.py::test_rldx_component --timeout=300
 
-这些检查不会启动 planner 或生成 benchmark 成绩，默认 skip 不能当作通过。离线变量仅作用于该自检命令；普通 HF memory 同步仍需要网络。保持远程 planner 的代理配置不变。轻量协议测试仍检查全部 50 个任务和固定的 340-cell 分母，全量评测单独执行。
+此项检查 VLA 服务启动、RPC 通信和首次推理，不启动规划器。离线变量仅用于这条命令；正常运行时，HF 记忆同步仍需联网。
 
-- 下载慢时可使用 ``UV_HTTP_TIMEOUT=600``，并将缓存和临时目录放在空间足够的文件系统上。重新执行固定 revision 的 HF 下载命令；不能只看 shard 文件大小判断完整性，不要禁用 TLS 校验。
-- 只读资源目录报错时，检查是否使用 ``.[robocasa]`` 指定的依赖，不要开放资源目录写权限；转换后的 XML 应写入临时目录。
-- RLDX 离线缓存缺失时检查上述支持文件和缓存变量。 ``NO_ALBUMENTATIONS_UPDATE=1`` 只关闭导入时的更新检查，不改变图像处理；保持现有 image geometry fallback 参数。
-- 通过 GPU 运算和 EGL render 验证所选 Torch/CUDA 构建，不能只看驱动显示版本；应使用与本机兼容的构建。
-- 共享只读环境应将 ``NUMBA_CACHE_DIR`` 设置到当前用户可写目录，不要修改包的代码权限。
+.. _robocasa-troubleshooting:
 
-- 导航 RGB-D 或 world map 渲染报告缺少 ``mobilebase0_navview`` 时，应重新安装 ``.[robocasa]`` 以刷新 ``RLinf/robosuite`` 的 ``rpent`` 分支；不要手工修改已安装的 XML。
-- ``read_text_file`` 报告缺少当前任务结果时，请检查 ``memory/robocasa/task-specific/`` 目录或所选本地目录。RPent 不会读取其他任务的 memory 作为替代。 Markdown 为可选文件；Atomic 任务没有发布 ``<Task>.md``。
-- 环境与 VLA 启动错误会分别记录在 ``<output_dir>/env_server.log`` 和 ``<output_dir>/vla_server.log``；运行级错误也可检查 ``<output_dir>/run.log``。
-- 只有准确的 ``127.0.0.1`` 与 ``localhost`` 主机名会自动绕过 HTTP 代理。其他主机名与 IP 均遵循标准代理环境；只有该服务应当直连时，才需要把准确主机名加入 ``NO_PROXY`` 与 ``no_proxy`` 配置。
+常见问题
+------------
+
+先查看输出目录中的日志：环境启动看 ``env_server.log``，VLA 启动看 ``vla_server.log``，任务执行看 ``run.log``。
+
+下载与资源
+~~~~~~~~~~~~
+
+- **下载慢或中断：** 包下载可设置 ``UV_HTTP_TIMEOUT=600``；模型下载可重试或使用下方镜像。保持 TLS 校验开启，并核对下载完整性，不能只看文件大小。
+- **磁盘空间不足：** 缓存和临时目录需同时容纳 ZIP 与解压文件；覆盖安装还要容纳原有资源。资源目录应支持硬链接。
+- **资源缺失或冲突：** 先重跑资源下载命令，并加 ``--skip-existing`` 检查。确认要替换已有文件时，再使用下方 ``--overwrite`` 命令。
+
+.. dropdown:: 资源替换与模型下载镜像
+
+   资源目录需包含下载集合及随包的 scene、arena、fixture 文件，并保留署名文件。默认保留内容不同的已有文件；确认替换后运行：
+
+   .. code-block:: bash
+
+      robocasa-download-assets --assets-path ~/.robocasa/assets --no-macros --overwrite -y
+
+   ``--overwrite`` 优先于 ``--skip-existing``，只替换安装范围内的文件。下载中断后可重跑。
+
+   模型下载较慢时，可改用镜像，保持相同 revision：
+
+   .. code-block:: bash
+
+      HF_ENDPOINT=https://hf-mirror.com hf download RLWRLD/RLDX-1-FT-RC365 \
+         --revision 587e9ecdcc5e7184fcc17f58713908edff5af041 \
+         --local-dir ./checkpoints/rldx-1-ft-rc365
+
+启动与推理
+~~~~~~~~~~~~
+
+- **旧环境缺少 RLDX 接口：** 重新安装 ``.[robocasa]``，并加 ``--reinstall-package rlinf-rldx``。旧 PyPI wheel 即使版本号相同，也可能缺少所需接口。
+- **缺少导航相机：** 若报错包含 ``mobilebase0_navview``，重新安装 ``.[robocasa]`` 以更新 Robosuite，不要手改 XML。
+- **目录权限错误：** 使用 ``.[robocasa]`` 指定的源码依赖，XML 转换应写入临时目录。将 ``NUMBA_CACHE_DIR`` 指向可写目录，无需修改包权限。
+- **CUDA/EGL 不可用：** 按本机配置选择 Torch/torchvision，再运行 :ref:`环境自检 <environment-smoke-tests>` 验证 GPU 运算和渲染；仅查看驱动版本不足以确认可用。
+- **离线找不到模型文件：** 核对 :ref:`支持文件和缓存路径 <robocasa-vla-configuration>`。``NO_ALBUMENTATIONS_UPDATE=1`` 只关闭更新检查，无需因此修改图像处理或 geometry fallback 参数。
+- **RPC 连接受代理影响：** ``127.0.0.1`` 和 ``localhost`` 自动直连。其他服务若也需直连，将其准确主机名加入 ``NO_PROXY`` 和 ``no_proxy``，保留远程规划器的代理设置。
+
+记忆读取
+~~~~~~~~~~~~
+
+``read_text_file`` 找不到当前任务记忆时，检查 ``memory/robocasa/task-specific/`` 或所选本地目录，以及任务名是否正确。详见 :ref:`记忆文件选择规则 <robocasa-memory-selection>`。Atomic 任务没有发布可选的 ``<Task>.md``；系统不会用其他任务的记忆替代。
 
 实现说明
 ------------
 
-RoboCasa 通过 toolkit 提供动作、状态读取和 ``finish`` 工具。接入 RLDX-1 时需要注意两点：
+开发接入方式见 :doc:`../development/add_robot`。RoboCasa 专用的观测格式和会话处理见下方。
 
-- **环境服务中的辅助方法。** 抓取检测与动作组装需要访问运行中的仿真环境，因此由环境服务器通过 RPC 提供。动作组件通过环境客户端获取渲染结果、执行动作，并通过模型客户端调用 RLDX-1。接入方式见 :doc:`../development/add_robot`。
-- **模型观测。** RLDX-1 接收三路相机的视频张量，形状为 ``(1, T, H, W, 3)``，其中 ``T`` 表示堆叠的历史帧；输入还包括 ``state.*`` 与 ``annotation.*`` 字段。
+.. dropdown:: 观测、会话与探索细节
 
-RPC 框架负责管理模型会话，观测中不包含会话 ID。``RpcClient`` 生成以 ``rpc_`` 开头、后接 UUID 十六进制字符串的私有 ID，并在 ``wait_for_ready`` 连接过程中向服务器注册。服务器将 ID 传给 ``predict`` 和 ``reset_session``，按客户端隔离 RLDX 的记忆与 RTC 策略状态；``rldx_skill`` 和 ``vla_client`` 不需要直接处理 ID。
-
-服务器记录每个会话的空闲时间，并定期清理超时会话，默认超时为 3600 秒。客户端在进程退出时通过 ``atexit`` 发送 ``session.close``。
+   - **环境工具：** toolkit 提供动作、状态读取和 ``finish``。抓取检测与动作组装在环境服务中执行；动作组件通过环境客户端渲染和执行动作，通过模型客户端调用 RLDX-1。
+   - **模型输入：** 三路相机的视频张量为 ``(1, T, H, W, 3)``，``T`` 是历史帧数；另有 ``state.*`` 和 ``annotation.*`` 字段。
+   - **会话隔离：** ``RpcClient`` 在 ``wait_for_ready`` 时注册私有的 ``rpc_`` + UUID 十六进制 ID。服务器将其传给 ``predict`` / ``reset_session``，隔离各客户端的 RLDX 记忆和 RTC 状态。ID 不放入观测，``rldx_skill`` / ``vla_client`` 无需处理。
+   - **会话清理：** 服务器定期清理空闲会话，默认超时 3600 秒；客户端退出时通过 ``atexit`` 发送 ``session.close``。
+   - **探索提示词：** ``robots/robocasa/prompts/explore.py`` 规定移动底盘、``task_progress``、RLDX 连续执行及失败记录规则。``reset`` 使用环境原有复位流程，只导出最后一次复位后成功尝试的动作序列。

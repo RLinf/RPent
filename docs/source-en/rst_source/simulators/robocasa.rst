@@ -81,10 +81,10 @@ The table distinguishes planner tools, model inputs, and the environment’s suc
 Installation and Resources
 --------------------------
 
-Use Linux, an NVIDIA GPU, a working CUDA/EGL setup, ``git``, and `uv <https://docs.astral.sh/uv/getting-started/installation/>`_. If you already have the repository, enter it and start at environment creation.
-
-RLDX-1 requires Python ``3.10``. Create a dedicated environment and install
-the complete RoboCasa365 stack with ``.[robocasa]``:
+Use Linux, an NVIDIA GPU, working CUDA/EGL, ``git``, and
+`uv <https://docs.astral.sh/uv/getting-started/installation/>`_. Create a separate
+Python 3.10 environment. If you already have the repository, enter it and start
+at the third line:
 
 .. code-block:: bash
 
@@ -93,61 +93,67 @@ the complete RoboCasa365 stack with ``.[robocasa]``:
    uv venv --python 3.10 .venv-robocasa
    source .venv-robocasa/bin/activate
 
-First install a matching CUDA-enabled PyTorch and torchvision pair using the
-`PyTorch installation selector <https://pytorch.org/get-started/locally/>`_
-for your GPU, driver and Python version. Run the selected command in this
-environment (use ``uv pip`` in place of ``pip``). The RLDX dependency requires
-Torch >= 2.7 and torchvision >= 0.22; choose a mutually compatible pair, not
-two independent versions. Then install RPent:
+First install a matching CUDA-enabled Torch and torchvision pair for your driver
+using the `PyTorch instructions <https://pytorch.org/get-started/locally/>`_
+(replace ``pip`` with ``uv pip``). RLDX requires Torch >= 2.7 and
+torchvision >= 0.22, with mutually compatible versions. Then install RoboCasa:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Environment
+     - Install
+     - Assets
+   * - RoboCasa365
+     - ``uv pip install -e ".[robocasa]"``
+     - ``robocasa-download-assets`` (command below)
+
+Dependencies come from ``pyproject.toml``, including the ``rpent`` source branches
+of RoboCasa, RLDX and Robosuite. Do not also install ``rlinf-robocasa365``, which
+provides the same import package.
+
+Check dependencies, download the kitchen assets (~10 GB) outside the Python
+package directory, and set their path in the shell used to launch RPent:
 
 .. code-block:: bash
 
-   uv pip install -e ".[robocasa]"
    uv pip check
-
-Current installation requirements come from ``pyproject.toml``.
-The ``robocasa`` extra installs the ``rpent`` branches of RoboCasa, RLDX, and
-Robosuite. Do not also install ``rlinf-robocasa365``, which provides the same
-import package.
-
-RLDX must come from the extra's ``rpent`` source branch. Older PyPI wheels can
-have the same package version but lack interfaces required by this runtime.
-When reusing an environment with an older RLDX wheel, add
-``--reinstall-package rlinf-rldx`` to the installation command above.
-
-Choose Torch, torchvision, and CUDA for your machine. The reference run used Torch 2.7.0, torchvision 0.22.0, and CUDA 12.6. Record resolved dependencies and Git revisions for every reproduction because branches can advance:
-
-.. code-block:: bash
-
-   uv pip freeze > installed-requirements.txt
-   git rev-parse HEAD > rpent-revision.txt
-
-``flash-attn`` is optional; RLDX-1 uses PyTorch SDPA when it is absent. If needed, follow the `FlashAttention instructions <https://github.com/Dao-AILab/flash-attention#installation-and-features>`_ to select a compatible build.
-
-**Post-install setup**
-
-Download the kitchen assets (~10 GB) outside ``site-packages`` so they survive
-reinstalls. Target50 does not use RoboCasa dataset or teleop macros, so skip
-the optional private-macros setup:
-
-.. code-block:: bash
-
    robocasa-download-assets --assets-path ~/.robocasa/assets --no-macros -y
-
-It prints the environment variable to export afterwards; add it to the shell
-that launches ``rpent``:
-
-.. code-block:: bash
-
    export ROBOCASA_ASSETS_PATH=~/.robocasa/assets
 
-The installer supplies downloaded collections and bundled scene files. Add ``--skip-existing`` on subsequent runs to check existing downloads. See troubleshooting below for resource conflicts, disk space, and camera errors.
+Target50 does not need dataset or teleoperation setup, so use ``--no-macros``.
+Assets include downloaded collections and bundled scene files. Add
+``--skip-existing`` when rerunning to check existing downloads. Prepare model
+files in the next section.
 
-**RLDX-1 checkpoint**
+.. dropdown:: Optional Dependencies and Version Records
 
-The ``--vla-model-path`` flag on the run commands below expects a
-local path to the ``RLDX-1-FT-RC365`` checkpoint (the RoboCasa365
-fine-tune). Download it from HuggingFace:
+   ``flash-attn`` is optional; RLDX uses PyTorch SDPA when it is absent. See the
+   `FlashAttention instructions <https://github.com/Dao-AILab/flash-attention#installation-and-features>`_
+   if you need it.
+
+   The reference run used Torch 2.7.0, torchvision 0.22.0 and CUDA 12.6; choose
+   versions compatible with your machine. Source branches can change, so record
+   dependencies and code versions for reproduction:
+
+   .. code-block:: bash
+
+      uv pip freeze > installed-requirements.txt
+      git rev-parse HEAD > rpent-revision.txt
+
+.. _robocasa-vla-configuration:
+
+VLA Configuration
+-----------------
+
+RLDX-1 needs both fine-tuned weights and base-model support files. Download both
+below. Model and asset licenses apply separately.
+
+Model Weights
+~~~~~~~~~~~~~
+
+Download ``RLDX-1-FT-RC365``, the RoboCasa365 fine-tune, and set
+``--vla-model-path`` to this directory when running a task:
 
 .. code-block:: bash
 
@@ -155,21 +161,12 @@ fine-tune). Download it from HuggingFace:
       --revision 587e9ecdcc5e7184fcc17f58713908edff5af041 \
       --local-dir ./checkpoints/rldx-1-ft-rc365
 
-If the download is slow, use the HF mirror:
+Base-Model Support Files
+~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. code-block:: bash
-
-   HF_ENDPOINT=https://hf-mirror.com hf download RLWRLD/RLDX-1-FT-RC365 \
-      --revision 587e9ecdcc5e7184fcc17f58713908edff5af041 \
-      --local-dir ./checkpoints/rldx-1-ft-rc365
-
-**RLDX-1 backbone support files**
-
-The FT checkpoint contains the weights but also references
-``RLWRLD/RLDX-1-VLM`` for architecture, processor and tokenizer metadata.
-Target50 freezes revision ``4b9f870d1287e0d38d7eb1445e6d8c60afe66dd7``:
-15 non-weight files, about 16.4 MB including documentation and images.
-Download these into the same cache used when launching RPent:
+The fine-tuned weights also need architecture, image-processing and tokenizer
+configuration from ``RLWRLD/RLDX-1-VLM``. This command downloads support files
+only; base-model weights are not required:
 
 .. code-block:: bash
 
@@ -180,14 +177,11 @@ Download these into the same cache used when launching RPent:
       --include "*.json" "*.txt" "*.jinja" "*.md" "*.png" ".gitattributes" \
       --exclude "*.safetensors.index.json"
 
-No additional base weights are required. Keep these cache variables in the
-launch shell; do not shadow them with an empty ``TRANSFORMERS_CACHE``.
-The RoboCasa VLA worker automatically uses this same support revision for
-both ordinary and Target50 runs, including separately started RPent VLA
-servers. There is no extra revision flag or manual cache-ref edit. The pin
-applies only to backbone metadata, not the weights selected by
-``--vla-model-path``. Model and asset licenses apply separately from RPent's
-code license.
+Keep these cache variables in the launch shell and avoid pointing
+``TRANSFORMERS_CACHE`` at another empty directory. Ordinary runs, Target50 and
+separately started RPent VLA servers automatically use this support revision;
+``--vla-model-path`` still selects the fine-tuned weights. The support download
+contains 15 configuration, documentation and image files, about 16.4 MB.
 
 Run a Task
 ----------
@@ -204,7 +198,7 @@ Configure your model service with :doc:`../guides/configure_planner` and check i
          --planner claude_code \
          --model claude-opus-4-8
 
-RoboCasa does not select a planner implementation; the ``api``, ``claude_code``, and ``codex`` planners can run this robot. See :doc:`../guides/configure_planner` for configuration.
+You can also use ``--planner api`` or ``--planner codex``; see the planner guide above.
 
 .. _inspect-the-result:
 
@@ -309,10 +303,9 @@ local exploration output and custom sources.
 Exploration Mode
 ----------------
 
-Add ``--explore`` to let the planner retry a task across fresh episodes and
-write local memory. The directory may start empty; exploration can read its
-index and write to its own inbox. As with LIBERO, one run allows up to three planner sessions
-with at most five attempts per session by default:
+Add ``--explore`` to let the planner reset, retry and save local memory. The
+directory may start empty. Each run allows up to three planner sessions, with
+at most five attempts per session by default:
 
 .. code-block:: bash
 
@@ -322,20 +315,15 @@ with at most five attempts per session by default:
      --explore --explore-sessions 3 --explore-attempts-per-session 5 \
      --memory-dir /path/to/robocasa-memory
 
-``reset`` uses the environment's ordinary episode reset. The runner exports
-only the winning commands after the final reset. Exploration memory is written
-to the current local inbox. Drafts are merged when the run completes normally
-without an agent execution error. Pass ``--no-auto-merge-memory`` to disable
-automatic merging. The exploration prompt is in
-``robots/robocasa/prompts/explore.py`` and covers mobile-base use,
-``task_progress``, RLDX continuity, and failed-attempt notes.
-
-Shared memory merge publishes accepted proposals under ``task-family/`` and
-``global/``, copies the successful audit/recipe pair into ``task-specific/``,
-and refreshes ``MEMORY.md``. To evaluate these native files, use seed-0
-exploration output and ``--memory-profile local`` with the same directory.
-Evaluation requires global memory to have been published first and uses its
-own task/split access boundary; exploration keeps its retry and inbox workflow.
+- **Drafts:** notes go to the current task's inbox; exploration can read the root
+  ``MEMORY.md`` index.
+- **Merging:** when the run ends normally without an agent execution error,
+  accepted proposals are merged into ``task-family/`` and ``global/``, the successful
+  audit/recipe pair goes into ``task-specific/``, and the index is updated. Use
+  ``--no-auto-merge-memory`` to disable automatic merging.
+- **Evaluation:** use seed-0 exploration output with ``--memory-profile local``
+  pointing to the same directory. Global memory must be published first;
+  evaluation exposes only memory for the current task and split.
 
 .. _reproduce-target50:
 
@@ -591,9 +579,14 @@ Expand the details below for task names, evaluation settings and published score
 Environment Checks
 ------------------
 
-After installing RoboCasa and its assets, run the opt-in environment smoke suite
-to check simulator installation and interfaces. It requires no planner credentials
-or VLA checkpoint:
+Check the simulator first, then VLA inference. Both need working GPU/EGL.
+Skipped tests are not passes, and these checks do not produce leaderboard scores.
+
+Simulator Check
+~~~~~~~~~~~~~~~
+
+Run after installing dependencies and kitchen assets. No planner credentials or
+model weights are needed:
 
 .. code-block:: bash
 
@@ -601,28 +594,22 @@ or VLA checkpoint:
    RPENT_RUN_ROBOCASA_INTEGRATION=1 \
       pytest tests/integration_tests/robots/robocasa/test_target50_runtime_smoke.py -v
 
-The four cases cover ``OpenDrawer``, ``NavigateKitchen``, and
-``PickPlaceCounterToCabinet`` at seed 1, plus mobile-camera movement. Task checks
-verify construction/reset, 12D actions, operation cameras, navigation RGB-D/world
-map, the success predicate, and clean close. The camera check verifies pose and
-image changes after eight base steps. These real-simulator tests require a working
-GPU/EGL setup and are separate from offline CPU CI; skipped tests are not passes.
+Expect four passes: three tasks (``OpenDrawer``, ``NavigateKitchen`` and
+``PickPlaceCounterToCabinet`` at seed 1) plus a mobile-camera check.
 
-Troubleshooting
----------------
+.. dropdown:: Simulator Check Coverage
 
-The asset root must contain downloaded collections and bundled scene, arena, and fixture files. Preserve attribution files. ``--skip-existing`` checks download inventories; for conflicting files, confirm that replacement is intended before using:
+   Task checks cover environment creation/reset, 12D actions, operation cameras,
+   navigation RGB-D/world map, the success predicate and clean shutdown. The
+   camera check verifies pose and image changes after eight base steps. These
+   use the real simulator and run separately from offline CPU unit tests.
 
-.. code-block:: bash
+VLA Inference Check
+~~~~~~~~~~~~~~~~~~~
 
-   robocasa-download-assets --assets-path ~/.robocasa/assets --no-macros --overwrite -y
-
-``--overwrite`` takes precedence over ``--skip-existing`` and replaces only files in the installation scope. By default, conflicting files are preserved and the destination must support hard links. Allow space for ZIP archives and unpacked data, plus existing data during replacement. Rerun the download after an interruption.
-
-Run the :ref:`environment smoke tests <environment-smoke-tests>` first. After
-downloading all four resources, use the existing RoboCasa E2E component test
-to verify VLA worker startup, HTTP RPC and first inference. Install ``.[test]``
-if needed, select one available GPU and use a fresh output directory:
+Complete :ref:`VLA configuration <robocasa-vla-configuration>`, then select an
+available GPU and a fresh output directory. Install ``.[test]`` if you need the
+test dependencies:
 
 .. code-block:: bash
 
@@ -633,62 +620,103 @@ if needed, select one available GPU and use a fresh output directory:
    MUJOCO_GL=egl python -m pytest -q \
       tests/e2e_tests/robocasa/test_components.py::test_rldx_component --timeout=300
 
-These checks do not run a planner or create benchmark results. Skipped tests
-are not passes. Offline variables apply only to the check; ordinary HF memory
-sync needs network access. Keep remote planner proxies unchanged.
-The lightweight protocol tests still validate all 50 tasks and the fixed
-340-cell denominator; full benchmark execution is a separate procedure.
+This checks VLA startup, RPC communication and first inference without a planner.
+Offline variables apply only to this command; normal HF memory sync still needs
+network access.
 
-- For slow package downloads, use ``UV_HTTP_TIMEOUT=600`` and put caches and
-  temporary files on a sufficiently large filesystem. Retry the pinned HF
-  download; apparent shard size is not a completeness check. Do not disable TLS.
-- A read-only asset failure needs the corrected RoboCasa dependency, not
-  writable canonical assets. Transformed XML uses the temporary directory.
-- For an RLDX offline cache miss, check the support snapshot and cache variables
-  above. ``NO_ALBUMENTATIONS_UPDATE=1`` disables only an import-time version
-  check, not image processing. Keep the existing image-geometry fallback.
-- Test the selected Torch/CUDA build with a GPU operation and EGL render,
-  not just the driver's version display. Use a build compatible with the host.
-- For shared read-only installations, set ``NUMBA_CACHE_DIR`` to a writable
-  per-user directory instead of making package code writable.
+.. _robocasa-troubleshooting:
 
-- If navigation RGB-D or world-map rendering reports a missing
-  ``mobilebase0_navview``, reinstall ``.[robocasa]`` to refresh the
-  ``RLinf/robosuite`` ``rpent`` branch. Do not patch installed XML files
-  manually.
-- If ``read_text_file`` reports a missing current-task result, check the
-  ``memory/robocasa/task-specific/`` corpus or the selected local directory.
-  RPent does not fall back to another task's memory.
-  Markdown is optional; Atomic tasks have no published ``<Task>.md``.
-- Environment and VLA startup failures are recorded in
-  ``<output_dir>/env_server.log`` and ``<output_dir>/vla_server.log``; also
-  inspect ``<output_dir>/run.log`` for the run-level error.
-- Only the exact ``127.0.0.1`` and ``localhost`` hostnames bypass HTTP proxies
-  automatically. Other hostnames and IPs use the standard proxy environment;
-  add the exact host to ``NO_PROXY`` and ``no_proxy`` only when it should be
-  reached directly.
+Troubleshooting
+---------------
+
+Start with the output directory's logs: ``env_server.log`` for environment
+startup, ``vla_server.log`` for VLA startup, and ``run.log`` for task execution.
+
+Downloads and Assets
+~~~~~~~~~~~~~~~~~~~~
+
+- **Slow or interrupted downloads:** set ``UV_HTTP_TIMEOUT=600`` for packages;
+  retry model downloads or use the mirror below. Keep TLS verification enabled
+  and check completeness rather than file size alone.
+- **Insufficient disk space:** caches and temporary directories need room for
+  ZIP archives and unpacked files, plus existing assets during replacement.
+  The asset filesystem must support hard links.
+- **Missing or conflicting assets:** rerun the asset download with
+  ``--skip-existing`` to check files. Use ``--overwrite`` below only when you
+  intend to replace existing files.
+
+.. dropdown:: Asset Replacement and Model Download Mirror
+
+   The asset root needs downloaded collections and bundled scene, arena and
+   fixture files, including attribution files. Conflicting files are preserved
+   by default; to replace them intentionally, run:
+
+   .. code-block:: bash
+
+      robocasa-download-assets --assets-path ~/.robocasa/assets --no-macros --overwrite -y
+
+   ``--overwrite`` takes precedence over ``--skip-existing`` and replaces only
+   files in the installation scope. Rerun interrupted downloads.
+
+   For slow model downloads, use the mirror with the same revision:
+
+   .. code-block:: bash
+
+      HF_ENDPOINT=https://hf-mirror.com hf download RLWRLD/RLDX-1-FT-RC365 \
+         --revision 587e9ecdcc5e7184fcc17f58713908edff5af041 \
+         --local-dir ./checkpoints/rldx-1-ft-rc365
+
+Startup and Inference
+~~~~~~~~~~~~~~~~~~~~~
+
+- **Missing RLDX interfaces in an old environment:** reinstall ``.[robocasa]``
+  with ``--reinstall-package rlinf-rldx``. Older PyPI wheels can lack required
+  interfaces even with the same version number.
+- **Missing navigation camera:** if the error names ``mobilebase0_navview``,
+  reinstall ``.[robocasa]`` to update Robosuite rather than patching XML.
+- **Directory permission errors:** use the source dependencies from
+  ``.[robocasa]``; XML conversion should write temporary files. Set
+  ``NUMBA_CACHE_DIR`` to a writable directory without changing package permissions.
+- **CUDA/EGL unavailable:** select Torch/torchvision for your machine, then run
+  the :ref:`environment checks <environment-smoke-tests>` to verify GPU operations
+  and rendering. The driver version alone does not confirm a working setup.
+- **Missing offline model files:** check the :ref:`support files and cache paths
+  <robocasa-vla-configuration>`. ``NO_ALBUMENTATIONS_UPDATE=1`` only disables an
+  update check; keep image processing and geometry fallback settings unchanged.
+- **Proxies interfere with RPC:** ``127.0.0.1`` and ``localhost`` bypass proxies
+  automatically. For other services that need a direct connection, add their
+  exact hostname to ``NO_PROXY`` and ``no_proxy``. Keep remote planner proxies.
+
+Memory Reads
+~~~~~~~~~~~~
+
+If ``read_text_file`` cannot find current-task memory, check
+``memory/robocasa/task-specific/`` or your local directory and the task name.
+See :ref:`memory file selection <robocasa-memory-selection>` for naming rules.
+Atomic tasks have no published optional ``<Task>.md``; another task's memory
+is never used as a substitute.
 
 Implementation Notes
 --------------------
 
-The RoboCasa toolkit exposes the same *shape* of tools as LIBERO (a
-primitive call, a state view, a ``finish``), with two RoboCasa-specific
-aspects:
+See :doc:`../development/add_robot` for integration guidance. RoboCasa-specific
+observation and session details are below.
 
-- **Env-side helpers.** Grasp checks and action assembly need the live
-  simulator env, so they live in ``env_server`` as RPCs. The agent-side
-  skill holds **both** clients: the env client for render/step, the
-  model client for RLDX-1 inference. See
-  :doc:`../development/add_robot` for the rationale.
-- **Observation shape.** RLDX-1 sees 3 camera video tensors
-  ``(1, T, H, W, 3)`` stacked over history ``T``, plus ``state.*``
-  and ``annotation.*`` fields. The session id is **not** part of the
-  observation — it is managed automatically by the RPC framework:
-  ``RpcClient`` generates a private ``rpc_`` + uuid hex session id,
-  ``wait_for_ready`` registers it with the server on connect; the
-  server tracks each session's idle time and a background sweep thread
-  reaps sessions idle longer than the timeout (default 3600s), and the
-  client sends ``session.close`` via atexit on process exit. Business
-  code (``rldx_skill`` / ``vla_client``) never sees the session id
-  directly; the server injects it into ``predict`` / ``reset_session``
-  to isolate per-client RLDX memory/RTC policy state.
+.. dropdown:: Observations, Sessions and Exploration Details
+
+   - **Environment tools:** the toolkit provides actions, state reads and
+     ``finish``. Grasp checks and action assembly run in the environment service.
+     The skill uses the environment client for rendering/actions and the model
+     client for RLDX-1 inference.
+   - **Model inputs:** three camera video tensors have shape ``(1, T, H, W, 3)``,
+     where ``T`` is the history length, alongside ``state.*`` and ``annotation.*``.
+   - **Session isolation:** ``RpcClient`` registers a private ``rpc_`` + UUID hex
+     ID during ``wait_for_ready``. The server passes it to ``predict`` /
+     ``reset_session`` to isolate each client's RLDX memory and RTC state. The ID
+     is outside observations; ``rldx_skill`` / ``vla_client`` do not handle it.
+   - **Session cleanup:** the server periodically removes idle sessions, with a
+     default timeout of 3600 seconds. Clients send ``session.close`` via ``atexit``.
+   - **Exploration prompts:** ``robots/robocasa/prompts/explore.py`` covers mobile
+     base use, ``task_progress``, RLDX continuity and failure notes. ``reset`` uses
+     the native episode reset; only the winning commands after the final reset
+     are exported.
