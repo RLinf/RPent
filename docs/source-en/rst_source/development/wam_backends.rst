@@ -36,16 +36,16 @@ toolkit owns registration, cancellation, state capture and recording.
      - Define native action order, semantics and execution mode.
    * - ``robots/<platform>/wam_client.py``
      - Select a compatible controller and attach execution identity to observations.
-   * - ``rpent/robots/components/wam_rpc_protocol.py``
-     - Declare request, capabilities and prediction dictionaries with ``TypedDict``.
-   * - ``wam_control_spec.py``
-     - Declare the control dictionary shared by platform clients and model adapters.
+   * - ``rpent/robots/components/wam_contracts.py``
+     - Declare control, capabilities, request and result dictionaries in separate sections.
    * - ``wam_client_base.py`` / ``wam_facade_base.py``
      - Reuse RPent RPC, check boundary data, and manage reset/session hooks.
    * - ``wam_runtime.py``
      - Register backends; borrow an endpoint or launch an owned model process.
-   * - ``<model>/runtime.py`` / ``server.py``
-     - Own launch options, model loading and native inference.
+   * - ``<model>/runtime_config.py``
+     - Supply model-specific arguments, defaults and configuration requirements.
+   * - ``<model>/server.py``
+     - Load the model and implement native inference.
    * - ``<model>/adapter/{__init__,encode,decode}.py``
      - Register paired transforms, build model input and restore native actions.
 
@@ -54,6 +54,27 @@ remain distinct: Cosmos uses LIBERO's xyzw quaternion in a 9D state, whereas
 Fast-WAM converts orientation to axis-angle for an 8D state. RoboTwin exposes
 controller joint targets separately from measured joint positions; Fast-WAM
 uses the targets from native ``joint_action.vector``.
+
+The platform ``robot_spec.py`` connects the startup layers through callbacks:
+
+.. code-block:: text
+
+   robot_spec._init_runtime()
+     -> robots.runtime.try_spawn_server(spawn_fn)
+          -> WAMConfig.start_service()
+               -> <model>.runtime_config.worker_arguments()
+               -> start worker and return daemon + RPC client
+          -> register owned daemon
+     -> robots.runtime.try_wait_server(post_fn)
+          -> wait for readiness
+          -> create platform WAM client and check control compatibility
+          -> report ready to Dashboard
+
+``wam_runtime.py`` owns common launch arguments such as ``--platform`` and
+``--checkpoint``, Python/GPU selection and deployment-mode checks. Model
+configuration modules supply only their additional arguments. The shared
+``robots/runtime.py`` owns readiness, component status and group cleanup;
+``start_service()`` cleans up resources if launch fails before returning them.
 
 .. _wam-protocol:
 
@@ -93,7 +114,7 @@ running when RPent stops its owned services.
 Extension Points
 ----------------
 
-For another model, add a package with ``runtime.py``, ``server.py`` and paired
+For another model, add a package with ``runtime_config.py``, ``server.py`` and paired
 ``adapter/encode.py`` and ``adapter/decode.py`` implementations. Register the
 package in ``wam_runtime.BACKENDS`` and each supported platform in its
 ``ADAPTERS`` mapping. ``WAMAdapterSpec`` lives in ``wam_facade_base.py`` and
@@ -116,6 +137,42 @@ Offline checks cover adapters, control matching, malformed observations/actions
 and real local HTTP/socket session lifecycle. Opt-in GPU checks exercise model
 inference and bounded simulator/toolkit execution; see ``tests/README.md``.
 Passing those checks establishes integration behavior, not benchmark success.
+
+Tests
+-----
+
+WAM follows the existing VLA/SAM test layout. ``test_wam.py`` covers shared
+boundaries and worker configuration; ``test_wam_adapters.py`` checks camera/state
+encoding and native action restoration on CPU. Platform tool behavior stays
+with each platform's unit tests. ``test_wam_loopback.py`` uses the existing
+HTTP/socket fixtures for session isolation, reset and cleanup.
+
+Real-model checks live in each platform's ``test_components.py`` and
+``test_policy_chain.py``. LIBERO parametrizes the same tests over Cosmos Policy
+and Fast-WAM; RoboTwin uses its Fast-WAM checkpoint. After starting a worker,
+run in the matching simulator environment:
+
+.. code-block:: bash
+
+   RPENT_COSMOS_ENDPOINT=http://127.0.0.1:8116 \
+     pytest tests/e2e_tests/libero/test_components.py \
+       tests/e2e_tests/libero/test_policy_chain.py -k 'wam or horizon' -v
+
+   RPENT_FAST_WAM_ENDPOINT=http://127.0.0.1:8117 \
+     pytest tests/e2e_tests/libero/test_components.py \
+       tests/e2e_tests/libero/test_policy_chain.py -k 'wam or horizon' -v
+
+   RPENT_FAST_WAM_ROBOTWIN_ENDPOINT=http://127.0.0.1:8117 \
+     pytest tests/e2e_tests/robotwin/test_components.py \
+       tests/e2e_tests/robotwin/test_policy_chain.py -k wam -v
+
+Missing endpoint variables skip the corresponding WAM cases. LIBERO defaults
+to ``libero_spatial``, task 0, seed 0; set ``RPENT_WAM_SUITE=libero_spatial_task``
+and use Pro assets for LIBERO-Pro. Component tests record checkpoint identity,
+one inference time and native success. CLI tests use a scripted planner,
+execute bounded ``wam_act`` calls and check state artifacts and ``finish``.
+They use neither Qwen nor Memory and do not estimate benchmark success rates.
+These opt-in tests are separate from the standard GPU provisioning runner.
 
 Worker Deployment
 -----------------

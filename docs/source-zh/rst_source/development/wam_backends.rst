@@ -30,20 +30,37 @@ RPent 将平台观测和动作执行与模型推理解耦。Cosmos Policy 支持
      - 定义原生动作的字段顺序、含义和执行模式。
    * - ``robots/<platform>/wam_client.py``
      - 选择兼容控制方式，给物理观测附加执行身份。
-   * - ``rpent/robots/components/wam_rpc_protocol.py``
-     - 用 ``TypedDict`` 声明请求、能力和预测结果的字典字段。
-   * - ``wam_control_spec.py``
-     - 声明平台 client 与模型 adapter 共用的控制字典。
+   * - ``rpent/robots/components/wam_contracts.py``
+     - 分节声明控制、能力、请求和结果字典。
    * - ``wam_client_base.py`` / ``wam_facade_base.py``
      - 复用 RPent RPC，检查边界数据，管理 reset 与会话钩子。
    * - ``wam_runtime.py``
      - 注册后端，连接外部服务或启动自己管理的模型进程。
-   * - ``<model>/runtime.py`` / ``server.py``
-     - 管理启动参数、模型加载和原生推理。
+   * - ``<model>/runtime_config.py``
+     - 补充模型专属参数、默认值和配置要求。
+   * - ``<model>/server.py``
+     - 加载模型，实现原生推理。
    * - ``<model>/adapter/{__init__,encode,decode}.py``
      - 注册成对转换，构造模型输入并还原平台动作。
 
 物理观测可由 VLA 和 WAM 复用，模型编码仍由各自 adapter 实现。例如 Cosmos 将 LIBERO 的 xyzw 四元数拼入 9 维状态，Fast-WAM 则转换成轴角后组成 8 维状态。RoboTwin 分开提供控制器关节目标与实测关节位置；Fast-WAM 使用对应原生 ``joint_action.vector`` 的目标值。
+
+平台 ``robot_spec.py`` 通过回调连接各层启动逻辑：
+
+.. code-block:: text
+
+   robot_spec._init_runtime()
+     -> robots.runtime.try_spawn_server(spawn_fn)
+          -> WAMConfig.start_service()
+               -> <model>.runtime_config.worker_arguments()
+               -> start worker and return daemon + RPC client
+          -> register owned daemon
+     -> robots.runtime.try_wait_server(post_fn)
+          -> wait for readiness
+          -> create platform WAM client and check control compatibility
+          -> report ready to Dashboard
+
+``wam_runtime.py`` 负责 ``--platform``、``--checkpoint`` 等公共启动参数、Python/GPU 选择和部署模式检查。模型配置模块只补充自己的额外参数。公共 ``robots/runtime.py`` 负责等待就绪、组件状态和进程组清理；如果启动在资源返回前失败，``start_service()`` 负责清理刚创建的资源。
 
 .. _wam-protocol:
 
@@ -61,13 +78,36 @@ RPC 路由为 ``wam.capabilities``、``wam.predict`` 和 ``wam.reset``。请求�
 扩展方式
 --------
 
-增加模型时，新建包含 ``runtime.py``、``server.py`` 及配对 ``adapter/encode.py``、``adapter/decode.py`` 的包。在 ``wam_runtime.BACKENDS`` 注册后端，在模型的 ``ADAPTERS`` 中注册支持的平台。``WAMAdapterSpec`` 位于 ``wam_facade_base.py``，组合 encode、decode 和能力构造函数。已有平台的物理观测与控制定义满足要求时，可直接复用平台 client。
+增加模型时，新建包含 ``runtime_config.py``、``server.py`` 及配对 ``adapter/encode.py``、``adapter/decode.py`` 的包。在 ``wam_runtime.BACKENDS`` 注册后端，在模型的 ``ADAPTERS`` 中注册支持的平台。``WAMAdapterSpec`` 位于 ``wam_facade_base.py``，组合 encode、decode 和能力构造函数。已有平台的物理观测与控制定义满足要求时，可直接复用平台 client。
 
 增加平台时，提供物理观测、原生控制定义、平台 client 及工具和运行时接线。每个模型仍需匹配的 checkpoint 和配对转换；注册本身不能证明权重兼容。RoboTwin 已定义 EEF16 控制方式，但当前 Fast-WAM adapter 使用 qpos14。Cosmos Policy 尚无 RoboTwin adapter。
 
 ``future_observation`` 和 ``value`` 为模型预测预留字段。独立的预测与规划 RPC、规划器使用预测结果、WAM 记忆接入尚未实现。当前 WAM 评测不支持 Flash 和探索模式。传入 ``memory=None`` 时不注册记忆文件工具，仍保留 ``finish`` 和平台工具。
 
 离线测试覆盖 adapter、控制匹配、无效观测与动作，以及真实本机 HTTP/socket 会话生命周期。显式启用的 GPU 测试覆盖实模推理和有限步数的仿真器、toolkit 执行，命令见 ``tests/README.md``。这些测试通过说明接入链路可用，不代表 benchmark 成功率。
+
+测试
+----
+
+WAM 沿用 VLA/SAM 的测试组织。``test_wam.py`` 覆盖公共边界和启动配置；``test_wam_adapters.py`` 在 CPU 上检查相机与状态编码、原生动作还原。平台工具行为保留在各平台的单测中。``test_wam_loopback.py`` 复用已有 HTTP/socket fixture，检查会话隔离、复位和清理。
+
+真实模型测试放在各平台的 ``test_components.py`` 和 ``test_policy_chain.py``。LIBERO 对 Cosmos Policy 和 Fast-WAM 参数化复用同一组测试；RoboTwin 使用自己的 Fast-WAM checkpoint。启动 worker 后，在对应仿真器环境运行：
+
+.. code-block:: bash
+
+   RPENT_COSMOS_ENDPOINT=http://127.0.0.1:8116 \
+     pytest tests/e2e_tests/libero/test_components.py \
+       tests/e2e_tests/libero/test_policy_chain.py -k 'wam or horizon' -v
+
+   RPENT_FAST_WAM_ENDPOINT=http://127.0.0.1:8117 \
+     pytest tests/e2e_tests/libero/test_components.py \
+       tests/e2e_tests/libero/test_policy_chain.py -k 'wam or horizon' -v
+
+   RPENT_FAST_WAM_ROBOTWIN_ENDPOINT=http://127.0.0.1:8117 \
+     pytest tests/e2e_tests/robotwin/test_components.py \
+       tests/e2e_tests/robotwin/test_policy_chain.py -k wam -v
+
+没有设置 endpoint 的模型用例会跳过。LIBERO 默认使用 ``libero_spatial``、task 0、seed 0；测试 LIBERO-Pro 时设置 ``RPENT_WAM_SUITE=libero_spatial_task`` 并使用 Pro 资产。组件测试记录 checkpoint、单次推理耗时和原生成功标志。CLI 测试用脚本化 planner 执行有限次数的 ``wam_act``，检查状态产物和 ``finish``。测试不使用 Qwen 或 Memory，也不估计 benchmark 成功率。这些显式启用的测试独立于标准 GPU 环境准备脚本。
 
 部署模型服务
 ------------
