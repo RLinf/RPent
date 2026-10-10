@@ -68,9 +68,10 @@ Update local indexes and links when migrating your own notes. An unmigrated
 directory is reported as an error rather than treated as missing task memory;
 obsolete cached paths are not exposed by the memory tools.
 
-RoboCasa uses task-specific and global memory together, with no layer-selection
-option. Keep historical results with the code and validator used to produce
-them. The historical v1 manifest remains available for validating compatible records.
+RoboCasa evaluation uses task-specific and global memory together. Its
+``target50.json`` uses protocol ``robocasa-harness-vla-v2`` and result schema
+``1.1``. See :ref:`Evaluation Protocol <robocasa-evaluation-protocol>` for
+validation commands.
 
 Exploration and Merging
 -----------------------
