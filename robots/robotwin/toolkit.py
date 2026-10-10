@@ -28,6 +28,7 @@ from robots.robotwin.robot_spec import ROBOTWIN_CAMERA_NAMES
 from rpent.dashboard.events import DashboardEventSink
 from rpent.session import EnvState
 from rpent.tools import ToolResult, iter_tools, tool
+from rpent.tools.direct_action import direct_action_tool
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_output_dir
 
@@ -39,6 +40,7 @@ if TYPE_CHECKING:
 # records only commands that actually move the robot.
 _RECIPE_ACTIONS = {
     "lingbot_act",
+    "execute_action",
     "move_to",
     "rotate_wrist",
     "set_gripper",
@@ -94,6 +96,7 @@ class RoboTwinToolkit(Toolkit):
         runtime_kwargs: dict[str, Any],
         dashboard_events: DashboardEventSink,
         memory: MemoryManager,
+        enable_direct_action: bool = False,
         mode: str = "evaluation",
         attempts_per_session: int = 0,
         state_output_dir: Path | str | None = None,
@@ -124,6 +127,13 @@ class RoboTwinToolkit(Toolkit):
         self._primitives.start_recording()
         self._action_frame_cursor = self._primitives.recorded_frame_count()
         self._register_robotwin_tools()
+        if enable_direct_action:
+            self.add_tool(
+                direct_action_tool(
+                    self._primitives.env.action_specs,
+                    partial(self._step, "execute_action"),
+                )
+            )
         initial = self.get_env_state(
             command={"action": "reset"},
             result=reset_result,

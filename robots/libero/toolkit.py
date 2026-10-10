@@ -30,6 +30,7 @@ from rpent.dashboard.events import DashboardEventSink
 from rpent.session import EnvState
 from rpent.tools import ToolResult, iter_tools
 from rpent.tools.base import tool
+from rpent.tools.direct_action import direct_action_tool
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger, get_output_dir
 
@@ -48,6 +49,7 @@ class LiberoToolkit(Toolkit):
         runtime_kwargs: dict[str, Any],
         dashboard_events: DashboardEventSink,
         memory: MemoryManager,
+        enable_direct_action: bool = False,
         mode: str = "evaluation",
         attempts_per_session: int = 0,
         state_output_dir: Path | str | None = None,
@@ -69,6 +71,17 @@ class LiberoToolkit(Toolkit):
         self._session_attempt: int = 1
         self.init_primitives(runtime_kwargs=runtime_kwargs)
         self._register_libero_tools()
+        if enable_direct_action:
+            self.add_tool(
+                direct_action_tool(
+                    self._primitives.env.action_specs,
+                    partial(
+                        self._execute_primitive,
+                        "execute_action",
+                        self._primitives.execute_action,
+                    ),
+                )
+            )
 
     # ------------------------------------------------------------------
     # Registration
