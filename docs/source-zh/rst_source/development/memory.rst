@@ -52,7 +52,7 @@ RPent 通过 ``MemoryManager`` 管理每个机器人的经验文件、读取权�
 
 当前目录名为 ``task-specific/`` 和 ``task-family/``。更新 RPent 时，请将配套的新版 HF 语料下载到新目录。任务族文档采用 ``scope: task-family``，文件名形如 ``task-family_libero10_task_t2.md``；其中表示 benchmark 身份的 ``suite`` 字段不变。迁移自有文档时也需更新索引和链接。程序会对未迁移目录报错，避免误判为缺少任务记忆；文件工具不会开放旧缓存路径。
 
-RoboCasa 同时使用 task-specific 与 global memory，不提供记忆层选择参数。当前 ``target50.json`` 清单使用 ``robocasa-harness-vla-v2`` 协议和 ``1.1`` 结果 schema，校验器的 ``--manifest`` 参数仅接受此协议。历史 v1 记录需使用 `历史代码与清单 <https://github.com/RLinf/RPent/tree/ec4e18fc2f6a73a00c6a5c035a8a3fdb17950b61/robots/robocasa/eval>`_ 校验，配套命令见 :doc:`../simulators/robocasa_reference`。
+RoboCasa 同时使用 task-specific 与 global memory，不提供记忆层选择参数。当前 ``target50.json`` 清单使用 ``robocasa-harness-vla-v2`` 协议和 ``1.1`` 结果 schema，校验器的 ``--manifest`` 参数仅接受此协议。历史 v1 记录需使用 `历史代码与清单 <https://github.com/RLinf/RPent/tree/ec4e18fc2f6a73a00c6a5c035a8a3fdb17950b61/robots/robocasa/eval>`_ 校验，配套命令见 :ref:`协议与历史兼容性 <robocasa-protocol-history>`。
 
 探索与合并
 ---------------

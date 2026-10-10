@@ -73,7 +73,7 @@ option. Its current ``target50.json`` manifest uses protocol
 ``robocasa-harness-vla-v2`` and result schema ``1.1``. The validator's
 ``--manifest`` option accepts only this protocol. Validate historical v1 records
 with the `historical code and manifests <https://github.com/RLinf/RPent/tree/ec4e18fc2f6a73a00c6a5c035a8a3fdb17950b61/robots/robocasa/eval>`_;
-see :doc:`../simulators/robocasa_reference` for the matching command.
+see :ref:`Protocol and Historical Compatibility <robocasa-protocol-history>` for the matching command.
 
 Exploration and Merging
 -----------------------
