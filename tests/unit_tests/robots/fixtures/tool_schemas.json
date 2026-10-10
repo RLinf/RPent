@@ -992,7 +992,7 @@
       },
       {
         "name": "move_delta",
-        "description": "Move one Franka TCP by a bounded world-frame xyz delta in meters.",
+        "description": "Move one Franka TCP by a bounded world-frame xyz delta in meters. Completion indicates execution ended; target_reached and final_error_m report accuracy, not a mandatory retry condition.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -1004,7 +1004,7 @@
       },
       {
         "name": "rotate_delta",
-        "description": "Rotate one Franka TCP by a bounded world-frame rpy delta in radians.",
+        "description": "Rotate one Franka TCP by a bounded world-frame rpy delta in radians. Completion indicates execution ended; target_reached and residual errors report accuracy, not a mandatory retry condition. Protective aborts remain failures.",
         "input_schema": {
           "type": "object",
           "properties": {

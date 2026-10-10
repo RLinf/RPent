@@ -85,7 +85,7 @@ class DualFrankaPrimitives(FrankaPrimitives):
         arm: Annotated[Literal["left", "right"], BeforeValidator(coerce_arm)],
         delta_xyz: Annotated[list[float], Field(min_length=3, max_length=3)],
     ) -> ToolResult:
-        """Move one Franka TCP by a bounded world-frame xyz delta in meters.
+        """Move one Franka TCP by a bounded world-frame xyz delta in meters. Completion indicates execution ended; target_reached and final_error_m report accuracy, not a mandatory retry condition.
 
         Args:
             arm: Which arm to command; the other arm is left uncommanded.
@@ -102,7 +102,7 @@ class DualFrankaPrimitives(FrankaPrimitives):
         arm: Annotated[Literal["left", "right"], BeforeValidator(coerce_arm)],
         delta_rpy: Annotated[list[float], Field(min_length=3, max_length=3)],
     ) -> ToolResult:
-        """Rotate one Franka TCP by a bounded world-frame rpy delta in radians.
+        """Rotate one Franka TCP by a bounded world-frame rpy delta in radians. Completion indicates execution ended; target_reached and residual errors report accuracy, not a mandatory retry condition. Protective aborts remain failures.
 
         Args:
             arm: Which arm to command; the other arm is left uncommanded.

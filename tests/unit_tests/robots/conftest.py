@@ -150,6 +150,7 @@ def fake_rlinf_realworld_modules(monkeypatch: pytest.MonkeyPatch) -> None:
         "ee_pose_limit_max",
     ]
     dual_hardware_fields = [
+        "compliance",
         "left_robot_ip",
         "right_robot_ip",
         "base_camera_serials",
