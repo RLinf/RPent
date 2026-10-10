@@ -52,6 +52,10 @@ _back_project_indices = count()
 ROBOT_CONFIG_PATH = Path(__file__).resolve().parent / "config" / "example.yaml"
 
 
+class InvalidDepthError(ValueError):
+    """The selected pixel patch has no usable depth; another point may work."""
+
+
 @tool(readonly=True, exclude=("state",))
 def back_project(
     *,
@@ -1064,7 +1068,7 @@ def _median_depth(
     patch = depth[r0:r1, c0:c1]
     valid = patch[np.isfinite(patch) & (patch > 0.0)]
     if valid.size == 0:
-        raise ValueError(
+        raise InvalidDepthError(
             f"no valid depth near pixel row={row} col={col} radius={radius}"
         )
     return float(np.median(valid)), int(valid.size)
