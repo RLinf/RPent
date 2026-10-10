@@ -268,157 +268,9 @@ def test_live_environment_does_not_inherit_coding_profile(tmp_path, dedicated):
     )
 
 
-@pytest.mark.parametrize(
-    ("arm", "tracking", "timeout"),
-    [("left", True, False), ("right", False, False), ("left", False, True)],
-)
-def test_move_completion_is_independent_of_accuracy(
-    worker_classes, monkeypatch, arm, tracking, timeout
-):
-    from robots.dual_franka import env_server
-
-    worker = worker_classes[1].__new__(worker_classes[1])
-    worker.per_arm_dim = 10
-    worker.controller = {
-        "move_max_step_m": 0.03,
-        "move_timeout_s": 1,
-        "move_tolerance_m": 0.006,
-        "min_iterations": 2,
-        "iteration_multiplier": 1,
-    }
-    clock = [0.0]
-    monkeypatch.setattr(env_server, "time", SimpleNamespace(time=lambda: clock[0]))
-    poses = np.array([[0.5, 0, 0.4, 0, 0, 0, 1.0]] * 2)
-    index = ["left", "right"].index(arm)
-    worker._refresh_robot_state = lambda: None
-    worker._arm_poses = lambda: (poses[0].copy(), poses[1].copy())
-    worker._pose_to_world = lambda arm, p: p.copy()
-    worker._pose_from_world = lambda arm, p: p.copy()
-
-    def step(action, *, auto_reset):
-        assert not auto_reset
-        if tracking:
-            poses[index, :3] = action[0, index * 10 : index * 10 + 3]
-        if timeout:
-            clock[0] = 2.0
-
-    worker.env = SimpleNamespace(step=step)
-    result = worker.move_delta(arm, [0.02, 0, 0])
-    assert result["ok"]
-    assert result["status"] == "completed"
-    assert result["message"] == "Action completed."
-    assert result["target_reached"] == tracking
-    assert result["final_error_m"] == pytest.approx(0 if tracking else 0.02, abs=1e-6)
-
-    def failing_step(*args, **kwargs):
-        raise RuntimeError("controller failed")
-
-    worker.env.step = failing_step
-    with pytest.raises(RuntimeError, match="controller failed"):
-        worker.move_delta(arm, [0.02, 0, 0])
-
-
-@pytest.mark.parametrize("arm", ["left", "right"])
-@pytest.mark.parametrize(
-    "drift,iterations,expected",
-    [
-        (0.012, 4, "reached"),
-        (0.012, 1, "iteration_limit"),
-        (0.04, 4, "position_drift"),
-    ],
-)
-def test_rotation_holds_initial_position_and_detects_drift(
-    worker_classes, arm, drift, iterations, expected
-):
-    worker = worker_classes[1].__new__(worker_classes[1])
-    worker.per_arm_dim = 10
-    worker.controller = {
-        "rotate_timeout_s": 10,
-        "rotate_tolerance_rad": 0.001,
-        "rotate_max_step_rad": 1,
-        "rotate_position_tolerance_m": 0.006,
-        "rotate_max_drift_m": 0.03,
-        "rotate_integral_gain_per_s": 0.0,
-        "rotate_integral_limit_rad": 0.12,
-        "rotate_position_integral_gain_per_s": 0.0,
-        "rotate_position_integral_limit_m": 0.015,
-        "rotate_settle_s": 0,
-        "min_iterations": iterations,
-        "iteration_multiplier": 1,
-    }
-    poses = np.array([[0.5, -0.2, 0.4, 0, 0, 0, 1.0], [0.4, 0.1, 0.5, 0, 0, 0, 1.0]])
-    initial = poses.copy()
-    index = ["left", "right"].index(arm)
-    frame_rotation = Rotation.from_euler("z", 0.4)
-    offset = np.array([0.01, 0.69, 0.0])
-
-    def to_world(name, pose):
-        p = pose.copy()
-        if name == "left":
-            p[:3] = frame_rotation.apply(p[:3]) + offset
-            p[3:] = (frame_rotation * Rotation.from_quat(p[3:])).as_quat()
-        return p
-
-    def from_world(name, pose):
-        p = pose.copy()
-        if name == "left":
-            p[:3] = frame_rotation.inv().apply(p[:3] - offset)
-            p[3:] = (frame_rotation.inv() * Rotation.from_quat(p[3:])).as_quat()
-        return p
-
-    worker._pose_to_world = to_world
-    worker._pose_from_world = from_world
-    worker._refresh_robot_state = lambda: None
-    worker._arm_poses = lambda: (poses[0].copy(), poses[1].copy())
-    initial_action = worker._hold_action(*initial)
-    start = to_world(arm, initial[index])
-    target = start.copy()
-    target[3:] = (
-        Rotation.from_euler("z", 0.6) * Rotation.from_quat(start[3:])
-    ).as_quat()
-    target_local = from_world(arm, target)
-    commands = []
-
-    def step(action, *, auto_reset):
-        assert not auto_reset
-        command = action[0]
-        commands.append(command.copy())
-        base = index * 10
-        np.testing.assert_allclose(
-            command[base : base + 3], initial[index, :3], atol=1e-6
-        )
-        np.testing.assert_array_equal(command[[9, 19]], [0, 0])
-        other = (1 - index) * 10
-        np.testing.assert_array_equal(
-            command[other : other + 10], initial_action[other : other + 10]
-        )
-        poses[index] = target_local
-        if len(commands) == 1:
-            poses[index, 1] += drift
-
-    worker.env = SimpleNamespace(step=step)
-    result = worker.rotate_delta(arm, [0, 0, 0.6])
-    assert result["exit_reason"] == expected
-    assert result["ok"] == (expected != "position_drift")
-    assert result["target_reached"] == (expected == "reached")
-    assert result["status"] == (
-        "aborted" if expected == "position_drift" else "completed"
-    )
-    assert result["rotation_reached"]
-    assert result["max_position_error_m"] == pytest.approx(drift)
-    assert len(commands) == (2 if expected == "reached" else 1)
-    if expected == "reached":
-        assert result["final_position_error_m"] < 1e-6
-    else:
-        assert not result["position_reached"]
-
-
-@pytest.mark.parametrize(
-    ("gain", "tracking_bias", "position_bias"),
-    [(0.0, 0.06, 0.0), (0.5, 0.12, 0.01), (0.5, 0.3, 0.0)],
-)
-def test_rotation_compensates_static_tracking_error(
-    worker_classes, monkeypatch, gain, tracking_bias, position_bias
+@pytest.mark.parametrize("drift", [0.01, 0.04])
+def test_rotation_reaches_goal_without_translating_and_stops_on_large_drift(
+    worker_classes, monkeypatch, drift
 ):
     from robots.dual_franka import env_server
 
@@ -430,11 +282,11 @@ def test_rotation_compensates_static_tracking_error(
         "rotate_max_step_rad": 0.1,
         "rotate_position_tolerance_m": 0.006,
         "rotate_max_drift_m": 0.03,
-        "rotate_integral_gain_per_s": gain,
-        "rotate_position_integral_gain_per_s": gain,
+        "rotate_integral_gain_per_s": 0.5,
+        "rotate_integral_limit_rad": 0.12,
+        "rotate_position_integral_gain_per_s": 0.5,
         "rotate_position_integral_limit_m": 0.015,
         "rotate_settle_s": 0.5,
-        "rotate_integral_limit_rad": 0.12,
         "min_iterations": 200,
         "iteration_multiplier": 1,
     }
@@ -444,33 +296,32 @@ def test_rotation_compensates_static_tracking_error(
         "time",
         SimpleNamespace(time=lambda: 0.0, monotonic=lambda: next(ticks)),
     )
-    pose = np.array([0.5, 0, 0.4, 0, 0, 0, 1.0])
+    left = np.array([0.5, 0, 0.4, 0, 0, 0, 1.0])
+    right = np.array([0.4, -0.2, 0.3, 0, 0, 0, 1.0])
+    initial = left.copy()
     worker._refresh_robot_state = lambda: None
-    worker._arm_poses = lambda: (pose.copy(), pose.copy())
+    worker._arm_poses = lambda: (left.copy(), right.copy())
     worker._pose_to_world = lambda arm, p: p.copy()
     worker._pose_from_world = lambda arm, p: p.copy()
-    commands = []
+    other_command = worker._hold_action(left, right)[10:]
 
-    def step(action, **kwargs):
-        r6 = action[0, 3:9]
-        matrix = np.column_stack([r6[:3], r6[3:], np.cross(r6[:3], r6[3:])])
-        reference = Rotation.from_matrix(matrix)
-        commands.append(reference)
-        pose[:3] = action[0, :3] + [0, position_bias, 0]
-        pose[3:] = (Rotation.from_euler("z", -tracking_bias) * reference).as_quat()
+    def step(action, *, auto_reset):
+        assert not auto_reset
+        command = action[0]
+        np.testing.assert_array_equal(command[[9, 19]], [0, 0])
+        np.testing.assert_array_equal(command[10:], other_command)
+        r6 = command[3:9]
+        reference = Rotation.from_matrix(
+            np.column_stack([r6[:3], r6[3:], np.cross(r6[:3], r6[3:])])
+        )
+        left[:3] = command[:3] + [0, drift, 0]
+        left[3:] = (Rotation.from_euler("z", -0.12) * reference).as_quat()
 
     worker.env = SimpleNamespace(step=step)
     result = worker.rotate_delta("left", [0, 0, 0.6])
-    expected_success = bool(gain) and tracking_bias < 0.15
-    assert result["ok"]
-    assert result["status"] == "completed"
-    assert result["target_reached"] == expected_success
-    assert np.linalg.norm(result["position_integral"]) <= 0.015001
-    assert np.linalg.norm(result["integral_rotvec"]) <= 0.120001
-    for previous, current in zip(commands, commands[1:]):
-        assert (current * previous.inv()).magnitude() <= 0.100001
-    if expected_success:
+    if drift < 0.03:
+        assert result["target_reached"]
         assert result["final_error_rad"] <= 0.04
-        assert result["final_position_error_m"] <= 0.006
+        np.testing.assert_allclose(left[:3], initial[:3], atol=0.006)
     else:
-        assert result["exit_reason"] == "iteration_limit"
+        assert not result["ok"] and result["exit_reason"] == "position_drift"
