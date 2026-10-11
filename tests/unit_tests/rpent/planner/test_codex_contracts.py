@@ -863,49 +863,6 @@ def test_timeout_interrupts_without_starting_a_worker_or_socket(
     assert FakeMcpServer.instances[0].stopped is True
 
 
-@pytest.mark.parametrize(
-    "error",
-    [
-        JsonRpcError(-32600, "authentication required"),
-        JsonRpcError(-32600, "unsupported model"),
-        TransportClosedError("transport closed"),
-    ],
-)
-def test_terminal_rejected_input_preserves_error_and_fifo(error):
-    from rpent.planner.codex import _CodexSession, _Recorder, _TerminalControl
-
-    async def run():
-        source = queue.Queue()
-        for text in ("next object", "later feedback", None):
-            source.put(text)
-        control = _TerminalControl(source, FakeToolkit(), lambda text: None)
-
-        async def reject(text):
-            raise error
-
-        session = _CodexSession(
-            config=None,
-            thread_options={},
-            turn_options={},
-            recorder=_Recorder(max_turns=10, dashboard_events=RecordingSink()),
-            emit_event=lambda event: None,
-            control=control,
-        )
-        session._thread = SimpleNamespace()  # No new turn may start on this error.
-        session._turn = SimpleNamespace(steer=reject)
-        session._turn_done = asyncio.Event()
-        with pytest.raises(type(error)) as caught:
-            await asyncio.wait_for(control.run(session), 2)
-        assert caught.value is error
-        assert [source.get_nowait() for _ in range(3)] == [
-            "next object",
-            "later feedback",
-            None,
-        ]
-
-    asyncio.run(run())
-
-
 def test_terminal_timeout_cancels_active_toolkit_work(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -43,7 +43,6 @@ def test_terminal_handoff_preserves_claimed_input_in_fifo(
     monkeypatch, backend, cancel_task
 ):
     import asyncio
-    import contextlib
     import importlib
     import queue
     import threading
@@ -89,31 +88,35 @@ def test_terminal_handoff_preserves_claimed_input_in_fifo(
             assert await asyncio.to_thread(popped.wait, 2)
             if cancel_task:
                 task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await task
+                await asyncio.gather(task, return_exceptions=True)
             elif backend == "claude_code":
                 await old.close()
             else:
                 old.end()
             # The next owner can read before the old thread returns, still in FIFO order.
             current = SessionInputQueue(source)
-            assert next_user_line(current) == "first steering"
-            assert next_user_line(current) == "second steering"
-            assert next_user_line(current) is None
+            assert [next_user_line(current) for _ in range(3)] == [
+                "first steering",
+                "second steering",
+                None,
+            ]
             release.set()
-            with contextlib.suppress(asyncio.CancelledError):
-                await asyncio.wait_for(task, 2)
+            result = await asyncio.wait_for(
+                asyncio.gather(task, return_exceptions=True), 2
+            )
+            assert result == [None] or (
+                cancel_task and isinstance(result[0], asyncio.CancelledError)
+            )
             assert deliveries == [] and source.empty()
             monkeypatch.setattr(module, "next_user_line", next_user_line)
-            source.put("accepted steering")
-            source.put(None)
+            for line in ("accepted steering", None):
+                source.put(line)
             await asyncio.wait_for(adapter().run(driver), 2)
             assert deliveries == ["accepted steering"] and source.empty()
         finally:
             release.set()
             task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
+            await asyncio.gather(task, return_exceptions=True)
 
     asyncio.run(scenario())
 
