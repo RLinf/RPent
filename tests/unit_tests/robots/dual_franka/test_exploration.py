@@ -698,9 +698,18 @@ def test_operator_evidence_remains_readable_after_success_memory_merge(setup, tm
     assert next_memory.authorize_read(evidence).read_bytes() == original
 
 
-@pytest.mark.parametrize("ending", ["/success checked", None])
+@pytest.mark.parametrize(
+    ("completion", "ending"),
+    [
+        ("normal", "/success checked"),
+        ("normal", None),
+        ("late", "/success checked"),
+        ("late", None),
+        ("failed", None),
+    ],
+)
 def test_attended_confirmation_resumes_same_attempt_over_http(
-    setup, tmp_path, monkeypatch, ending
+    setup, tmp_path, monkeypatch, ending, completion
 ):
     import asyncio
     import queue
@@ -748,18 +757,31 @@ def test_attended_confirmation_resumes_same_attempt_over_http(
 
         def __init__(self, config):
             self.interrupted = asyncio.Event()
+            self.steering_rejected = asyncio.Event()
             clients.append(self)
 
         async def thread_start(self, **kwargs):
             return self
 
         async def turn(self, text, **kwargs):
+            if len(prompts) == 1:
+                assert ready.is_set()
             prompts.append(text)
             return self
+
+        async def steer(self, text):
+            from openai_codex import JsonRpcError
+
+            assert completion != "normal" and text == "continue with this object"
+            self.steering_rejected.set()
+            raise JsonRpcError(-32600, "no active turn to steer")
 
         async def stream(self):
             if len(prompts) == 1:
                 await request("request_scene_reset", {"reason": "test"})
+                if completion != "normal":
+                    inputs.put("continue with this object")
+                    await self.steering_rejected.wait()
             else:
                 assert env.resets == 1
                 await request("move_delta", {"arm": "right", "delta_xyz": [0, 0, 0.01]})
@@ -770,7 +792,11 @@ def test_attended_confirmation_resumes_same_attempt_over_http(
                 await self.interrupted.wait()
             yield {
                 "method": "turn/completed",
-                "payload": {"turn": {"status": "completed"}},
+                "payload": {
+                    "turn": {
+                        "status": "failed" if completion == "failed" else "completed"
+                    }
+                },
             }
 
         async def interrupt(self):
@@ -812,11 +838,19 @@ def test_attended_confirmation_resumes_same_attempt_over_http(
         assert prompted.wait(3)
         assert env.resets == 0
         assert broker.route_line("/done")
-        assert ready.wait(3)
-        inputs.put("continue with this object")
+        if completion != "failed":
+            assert ready.wait(3)
+            if completion == "normal":
+                inputs.put("continue with this object")
         runner.join(5)
-        assert not runner.is_alive() and results[0].error is None
+        assert not runner.is_alive()
         assert len(clients) == 1 and clients[0].closed
+        if completion == "failed":
+            assert "Codex turn failed" in results[0].error
+            assert prompts == ["test\n\ntest task"] and not env.moves
+            assert inputs.get(block=False) == "continue with this object"
+            return
+        assert results[0].error is None
         assert prompts == ["test\n\ntest task", "continue with this object"]
         assert env.resets == 1 and len(env.moves) == 1
     finally:

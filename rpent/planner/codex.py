@@ -539,8 +539,24 @@ class _CodexSession:
         if self._closing or self._thread is None:
             raise RuntimeError("Codex conversation is closed")
         if self._turn is not None:
-            await self._turn.steer(text)
-            return 0
+            done = self._turn_done
+            assert done is not None
+            try:
+                await self._turn.steer(text)
+                return 0
+            except openai_codex.JsonRpcError as exc:
+                if exc.code != -32600 or exc.message != "no active turn to steer":
+                    raise
+                # The server can finish before its completion reaches the stream.
+                await done.wait()
+                if self.error is not None:
+                    raise RuntimeError(self.error) from exc
+                if (
+                    self._closing
+                    or self._recorder.finish_result is not None
+                    or self._recorder.turns >= self._recorder.max_turns
+                ):
+                    raise RuntimeError("Codex conversation is closed") from exc
         self._turn = await self._thread.turn(text, **self._turn_options)
         self._turn_done = asyncio.Event()
         self._turn_task = asyncio.create_task(
