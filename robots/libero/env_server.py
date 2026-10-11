@@ -101,6 +101,26 @@ def build_env_cfg(
     return cfg
 
 
+def _empty_init_state_tasks(suite) -> list[int]:
+    """Best-effort scan for tasks shipping an empty init-state set.
+
+    Only used to build a diagnostic message: a task whose init-state file
+    cannot be read is skipped here — it fails on its own once requested.
+    """
+    try:
+        num_tasks = suite.get_num_tasks()
+    except Exception:
+        return []
+    empty = []
+    for task_id in range(num_tasks):
+        try:
+            if len(suite.get_task_init_states(task_id)) == 0:
+                empty.append(task_id)
+        except Exception:
+            continue
+    return empty
+
+
 def make_env(
     task_id: int,
     seed: int,
@@ -118,7 +138,20 @@ def make_env(
         )
     trials = len(suite.get_task_init_states(task_id))
     if trials == 0:
-        raise ValueError(f"Suite {suite_name!r}, task {task_id} has no initial states")
+        # Some shipped perturbation suites contain tasks whose pruned_init
+        # file holds zero states (RLinf/RPent#246). Such a task cannot be
+        # reset; continuing would die on a modulo by zero or — worse, in
+        # aggregation paths — silently shrink the evaluation denominator
+        # (e.g. 100 -> 90), making results incomparable. Fail loudly with
+        # every affected task so the run can be fixed up front.
+        empty = _empty_init_state_tasks(suite)
+        raise RuntimeError(
+            f"LIBERO suite '{suite_name}' task {task_id} has 0 init states "
+            "and cannot be reset or evaluated. Tasks with empty init-state "
+            f"sets in this suite: {empty if empty else 'unknown'}. Restore "
+            "the init files (see robots/libero/guides/pro_hybrid_guide.md "
+            "section 2.3) or exclude these tasks from the run."
+        )
     first_id = sum(len(suite.get_task_init_states(t)) for t in range(task_id))
     rid = first_id + (seed % trials)
     cfg = build_env_cfg(
