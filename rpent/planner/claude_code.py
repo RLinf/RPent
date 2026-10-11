@@ -503,24 +503,31 @@ class _TerminalSessionAdapter:
 
     def __init__(self, *, toolkit: Toolkit, input_queue: InputQueue, emit_user) -> None:
         self._toolkit = toolkit
-        self._input_queue = SessionInputQueue(input_queue)
+        self._input_queue = SessionInputQueue(input_queue, retain_until_ack=True)
         self._emit_user = emit_user
 
     async def initial_query_succeeded(self, driver: _ClaudeSessionDriver) -> None:
         return None
 
     async def run(self, driver: _ClaudeSessionDriver) -> None:
-        while True:
-            nxt = await asyncio.to_thread(next_user_line, self._input_queue)
-            if self._input_queue.cancelled:
-                return
-            await cancel_and_wait(self._toolkit.cancel_active_and_wait)
-            await driver.interrupt()
-            if nxt is None:
-                return
-            self._toolkit.resume_calls()
-            self._emit_user(nxt)
-            await driver.query(nxt)
+        try:
+            while True:
+                nxt = await asyncio.to_thread(next_user_line, self._input_queue)
+                if self._input_queue.cancelled:
+                    return
+                await cancel_and_wait(self._toolkit.cancel_active_and_wait)
+                await driver.interrupt()
+                if self._input_queue.cancelled:
+                    return
+                if nxt is None:
+                    self._input_queue.acknowledge()
+                    return
+                self._toolkit.resume_calls()
+                await driver.query(nxt)
+                self._input_queue.acknowledge()
+                self._emit_user(nxt)
+        finally:
+            await self.close()
 
     async def on_message(
         self,

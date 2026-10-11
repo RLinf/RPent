@@ -462,7 +462,7 @@ class _TerminalControl:
     """Forward terminal input through the same persistent Codex session driver."""
 
     def __init__(self, input_queue: InputQueue, toolkit: Toolkit, emit_user) -> None:
-        self._input = SessionInputQueue(input_queue)
+        self._input = SessionInputQueue(input_queue, retain_until_ack=True)
         self._toolkit = toolkit
         self._emit_user = emit_user
 
@@ -473,12 +473,13 @@ class _TerminalControl:
         try:
             while True:
                 text = await asyncio.to_thread(next_user_line, self._input)
-                if text is None:
-                    return
                 if self._input.cancelled:
-                    self._input.put(text)
+                    return
+                if text is None:
+                    self._input.acknowledge()
                     return
                 await driver._submit_text(text)
+                self._input.acknowledge()
                 self._emit_user(text)
         finally:
             self.end()

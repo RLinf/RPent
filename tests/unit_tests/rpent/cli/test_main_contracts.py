@@ -37,6 +37,87 @@ class ConfigCaptured(Exception):
     """Stop the CLI immediately after argument validation in routing tests."""
 
 
+@pytest.mark.parametrize("backend", ["claude_code", "codex"])
+@pytest.mark.parametrize("cancel_task", [False, True])
+def test_terminal_handoff_preserves_claimed_input_in_fifo(
+    monkeypatch, backend, cancel_task
+):
+    import asyncio
+    import contextlib
+    import importlib
+    import queue
+    import threading
+
+    from rpent.cli.tui import next_user_line
+    from rpent.session.input import SessionInputQueue
+
+    module = importlib.import_module(f"rpent.planner.{backend}")
+    source = queue.Queue()
+    for line in (" ", " first steering ", "second steering", None):
+        source.put(line)
+    popped, release = threading.Event(), threading.Event()
+    deliveries = []
+
+    def held_read(scope):
+        value = next_user_line(scope)
+        popped.set()
+        assert release.wait(3)
+        return value
+
+    async def submit(text):
+        deliveries.append(text)
+
+    driver = SimpleNamespace(
+        interrupt=lambda: asyncio.sleep(0), query=submit, _submit_text=submit
+    )
+    toolkit = SimpleNamespace(
+        cancel_active_and_wait=lambda: None, resume_calls=lambda: None
+    )
+
+    def adapter():
+        if backend == "claude_code":
+            return module._TerminalSessionAdapter(
+                toolkit=toolkit, input_queue=source, emit_user=lambda text: None
+            )
+        return module._TerminalControl(source, toolkit, lambda text: None)
+
+    async def scenario():
+        old = adapter()
+        monkeypatch.setattr(module, "next_user_line", held_read)
+        task = asyncio.create_task(old.run(driver))
+        try:
+            assert await asyncio.to_thread(popped.wait, 2)
+            if cancel_task:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+            elif backend == "claude_code":
+                await old.close()
+            else:
+                old.end()
+            # The next owner can read before the old thread returns, still in FIFO order.
+            current = SessionInputQueue(source)
+            assert next_user_line(current) == "first steering"
+            assert next_user_line(current) == "second steering"
+            assert next_user_line(current) is None
+            release.set()
+            with contextlib.suppress(asyncio.CancelledError):
+                await asyncio.wait_for(task, 2)
+            assert deliveries == [] and source.empty()
+            monkeypatch.setattr(module, "next_user_line", next_user_line)
+            source.put("accepted steering")
+            source.put(None)
+            await asyncio.wait_for(adapter().run(driver), 2)
+            assert deliveries == ["accepted steering"] and source.empty()
+        finally:
+            release.set()
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+    asyncio.run(scenario())
+
+
 def _cli_module():
     from rpent.cli import main as cli
 
