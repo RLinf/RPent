@@ -729,6 +729,86 @@ def test_current_view_refreshes_but_historical_view_does_not(setup):
     np.testing.assert_allclose(env.moves[0][1], [0.01, 0, 0])
 
 
+@pytest.mark.parametrize("second_tool", ["view_env_state", "request_operator_verdict"])
+def test_fresh_observation_and_verdict_serialize_state_writes(
+    setup, monkeypatch, second_tool
+):
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    t, env, replies = setup
+    reset(t, replies)
+    initial_step = t.state.latest_step
+    entered, release = threading.Event(), threading.Event()
+    save = t.state.save
+
+    def hold_first_image(name, value, **kwargs):
+        if name.endswith(".png") and not entered.is_set():
+            entered.set()
+            assert release.wait(5)
+        return save(name, value, **kwargs)
+
+    monkeypatch.setattr(t.state, "save", hold_first_image)
+    replies.append("success")
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(t.execute_tool, "view_env_state", {})
+        try:
+            assert entered.wait(5)
+            second = pool.submit(t.execute_tool, second_tool, {})
+            with t._scheduler.condition:
+                assert t._scheduler.condition.wait_for(lambda: t._scheduler.pending, 5)
+        finally:
+            release.set()
+        assert not first.result(5).is_error
+        assert not second.result(5).is_error
+    assert t.state.latest_step == initial_step + 2 and t._scene_ready
+    assert not call(t, "move_delta", arm="left", delta_xyz=[0.01, 0, 0]).get("error")
+    assert len(env.moves) == 1 and env.resets == 1
+
+
+def test_operator_evidence_remains_readable_after_success_memory_merge(setup, tmp_path):
+    from rpent.cli.attended import _finalize_operator_verdict, _publish_success_recipe
+    from rpent.planner.base import PlannerResult
+
+    t, _, replies = setup
+    reset(t, replies)
+    call(t, "move_delta", arm="left", delta_xyz=[0.01, 0, 0])
+    tag = "dual_franka_t0"
+    note = t.memory.authorize_write(
+        t.memory.root / "_internal" / "inbox" / tag / "strategy.md"
+    )
+    note.parent.mkdir(parents=True, exist_ok=True)
+    note.write_text(
+        "---\nscope: global\nkind: strategy\ntitle: example\napplies_when: example\n"
+        "confidence: single-shot\nevidence:\n  cells: [dual_franka_t0]\n---\nObserved example.\n"
+    )
+    assert t.request_direct_verdict("success")
+    state_dir = tmp_path / "sessions" / "session_001"
+    finish, error, handoff = _finalize_operator_verdict(
+        PlannerResult(),
+        finalize_verdict=t.finalize_direct_verdict,
+        state_output_dir=state_dir,
+        session_number=1,
+    )
+    evidence = state_dir / "operator_outcome.json"
+    assert finish["status"] == "success" and error is None
+    assert str(evidence) in handoff
+    original = evidence.read_bytes()
+    t.write_recipe(tag)
+    _publish_success_recipe(
+        t.memory,
+        recipe_tag=tag,
+        output_dir=tmp_path,
+        state_output_dir=state_dir,
+        auto_merge=True,
+    )
+    assert (t.memory.root / "global" / "strategy.md").is_file()
+    next_memory = MemoryManager(
+        t.memory.root, memory_access="inbox_write", inbox_cell_tag=tag
+    )
+    assert next_memory.authorize_read(evidence).read_bytes() == original
+
+
 @pytest.mark.parametrize("ending", ["/success checked", None])
 def test_attended_confirmation_resumes_same_attempt_over_http(
     setup, tmp_path, monkeypatch, ending

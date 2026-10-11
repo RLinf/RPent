@@ -620,10 +620,7 @@ def main() -> int:
                     finish_result, agent_error, verdict_handoff = (
                         _finalize_operator_verdict(
                             result,
-                            toolkit=toolkit,
-                            memory=memory_manager,
-                            recipe_tag=recipe_tag,
-                            output_dir=output_dir,
+                            finalize_verdict=toolkit.finalize_direct_verdict,
                             state_output_dir=state_output_dir,
                             session_number=session_number,
                         )

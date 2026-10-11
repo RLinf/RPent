@@ -227,6 +227,11 @@ class DualFrankaToolkit(FrankaToolkit):
         self._clear_verdict()
         return inner(**kwargs)
 
+    def _is_readonly_call(self, tool: Tool, kwargs: dict[str, Any]) -> bool:
+        if tool.name == "view_env_state":
+            return kwargs["step"] >= 0
+        return tool.readonly and tool.name != "request_operator_verdict"
+
     def _view_env_state(self, step: int = -1) -> ToolResult:
         if step >= 0:
             return dual_franka_tools.view_env_state(step, state=self._state)

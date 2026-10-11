@@ -14,8 +14,12 @@
 
 """CLI orchestration for one operator-attended attempt."""
 
+from __future__ import annotations
+
 import shutil
+from collections.abc import Callable
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from rpent.evaluation.result import record_operator_outcome
 from rpent.session.transcript import _serialize_messages
@@ -23,20 +27,21 @@ from rpent.utils.logging import get_logger
 
 logger = get_logger("agent")
 
+if TYPE_CHECKING:
+    from rpent.memory import MemoryManager
+    from rpent.planner.base import PlannerResult
+
 
 def _finalize_operator_verdict(
-    result,
+    result: PlannerResult,
     *,
-    toolkit,
-    memory,
-    recipe_tag,
-    output_dir,
-    state_output_dir,
-    session_number,
-    archive=True,
-):
-    """Finalize the interrupted attempt, optionally archiving exploration evidence."""
-    finish = toolkit.finalize_direct_verdict()
+    finalize_verdict: Callable[[], dict[str, Any]],
+    state_output_dir: Path,
+    session_number: int,
+    archive: bool = True,
+) -> tuple[dict[str, Any], str | None, str]:
+    """Return the finalized outcome, remaining planner error, and next-session handoff."""
+    finish = finalize_verdict()
     error = result.error
     if error:
         logger.info("Planner stopped after operator verdict: %s", error)
@@ -45,9 +50,6 @@ def _finalize_operator_verdict(
     handoff = ""
     if archive and verdict in {"success", "failure"}:
         evidence = record_operator_outcome(
-            memory_root=memory.root,
-            recipe_tag=recipe_tag,
-            run_name=Path(output_dir).name,
             session_number=session_number,
             state_output_dir=state_output_dir,
             verdict=finish,
@@ -68,8 +70,13 @@ def _finalize_operator_verdict(
 
 
 def _publish_success_recipe(
-    memory, *, recipe_tag, output_dir, state_output_dir, auto_merge
-):
+    memory: MemoryManager,
+    *,
+    recipe_tag: str,
+    output_dir: Path,
+    state_output_dir: Path,
+    auto_merge: bool,
+) -> None:
     """Preserve successful-session artifacts before another session overwrites them."""
     for name in (f"{recipe_tag}.json", f"{recipe_tag}_recipe.jsonl"):
         shutil.copy2(Path(output_dir) / name, Path(state_output_dir) / name)

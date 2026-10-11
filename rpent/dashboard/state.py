@@ -51,6 +51,7 @@ from rpent.utils.templates import substitute
 
 if TYPE_CHECKING:
     from rpent.session import EnvState, StepRecord
+    from rpent.tools.human_in_the_loop import HumanInTheLoopInput
     from rpent.tools.toolkit import Toolkit, ToolResult
 
 RUNTIME_STATUSES = {"pending", "starting", "ready", "failed"}
@@ -236,8 +237,8 @@ class DashboardState:
         self._manual_results: list[str] = []
         self._explore_paused = False
         self._exploration_message: DashboardMessage | None = None
-        self.operator = None
-        self.operator_verdict = None
+        self.operator: HumanInTheLoopInput | None = None
+        self.operator_verdict: str | None = None
 
     def operator_changed(self):
         with self._condition:

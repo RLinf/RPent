@@ -50,9 +50,6 @@ RunFinalizer = Callable[[RunFinalizationContext], Path | str | None]
 
 def record_operator_outcome(
     *,
-    memory_root: Path,
-    recipe_tag: str,
-    run_name: str,
     session_number: int,
     state_output_dir: str | Path,
     verdict: dict[str, Any],
@@ -62,11 +59,9 @@ def record_operator_outcome(
     """Archive an operator outcome without overwriting a previous attempt.
 
     Args:
-        memory_root: Root of the run's memory store.
-        recipe_tag: Cell whose inbox receives the evidence.
-        run_name: Run identifier used to distinguish evidence files.
         session_number: Attempt number within the run.
-        state_output_dir: Directory containing the attempt's observations.
+        state_output_dir: Unique attempt directory containing its observations.
+            Evidence stays here when memory drafts are merged.
         verdict: Operator-confirmed result and notes.
         messages: Serializable planner transcript.
         planner_error: Error recorded before operator finalization, if any.
@@ -74,9 +69,7 @@ def record_operator_outcome(
     Returns:
         Path to the archived evidence JSON.
     """
-    outcome = verdict["operator_verdict"]
-    path = memory_root / "_internal" / "inbox" / recipe_tag / "wip"
-    path /= f"{run_name}-session-{session_number:03d}-{outcome}.json"
+    path = Path(state_output_dir).resolve() / "operator_outcome.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("x") as file:
         json.dump(

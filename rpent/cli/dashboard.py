@@ -334,10 +334,7 @@ def _run_dashboard_task(
                     if human_interactive_run and toolkit.direct_verdict_requested:
                         finish_result, _, _ = _finalize_operator_verdict(
                             result,
-                            toolkit=toolkit,
-                            memory=memory_manager,
-                            recipe_tag=recipe_tag,
-                            output_dir=output_dir,
+                            finalize_verdict=toolkit.finalize_direct_verdict,
                             state_output_dir=state_output_dir,
                             session_number=session_number,
                             archive=task_args.explore,
