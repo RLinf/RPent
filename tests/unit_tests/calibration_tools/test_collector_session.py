@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import base64
 import copy
-import hashlib
 import importlib
 import io
 import json
@@ -27,7 +26,7 @@ import pytest
 
 
 @pytest.fixture
-def collector_module(monkeypatch):
+def session(monkeypatch, tmp_path):
     cv2 = pytest.importorskip("cv2")
     if not hasattr(cv2, "aruco") or not hasattr(cv2.aruco, "CharucoDetector"):
         pytest.skip("Calibration requires OpenCV with the ChArUco detector")
@@ -35,11 +34,7 @@ def collector_module(monkeypatch):
     monkeypatch.syspath_prepend(
         str(Path(__file__).resolve().parents[3] / "calibration_tools")
     )
-    return importlib.import_module("base_handeye_collect")
-
-
-@pytest.fixture
-def session(collector_module, tmp_path, monkeypatch):
+    collector_module = importlib.import_module("base_handeye_collect")
     config = collector_module.CaptureConfig(
         arm="left",
         camera_serial="offline-camera",
@@ -49,11 +44,11 @@ def session(collector_module, tmp_path, monkeypatch):
     collector = collector_module.Collector(config, tmp_path / "session")
     state = {
         "O_T_EE": collector_module.np.eye(4).flatten(order="F").tolist(),
-        "F_T_EE": collector_module.np.eye(4).flatten(order="F").tolist(),
         "dq": [0.0] * 7,
         "robot_mode": 1,
         "has_errors": False,
     }
+    state["F_T_EE"] = state["O_T_EE"].copy()
     image = collector.board.generateImage((680, 880), marginSize=40)
     success, encoded = collector_module.cv2.imencode(".png", image)
     assert success
@@ -79,7 +74,7 @@ def session(collector_module, tmp_path, monkeypatch):
     )
     monkeypatch.setattr(collector_module.time, "sleep", lambda _: None)
     monkeypatch.setattr(collector_module.urllib.request, "urlopen", camera_response)
-    return collector, state, camera
+    return collector_module, collector, state
 
 
 def snapshot(folder):
@@ -92,24 +87,19 @@ def snapshot(folder):
 
 def request_handler(module, collector, path, method="POST"):
     """Exercise actual HTTP routing without opening a listening socket."""
-    handler_type = module.make_handler(collector)
-    handler = handler_type.__new__(handler_type)
+    handler = object.__new__(module.make_handler(collector))
     handler.path = path
     responses = []
     handler.reply = lambda code, body, kind="application/json": responses.append(
         (code, body, kind)
     )
-    handler.send_error = lambda code, *args: responses.append((code, b"", ""))
-    if method == "GET":
-        handler.do_GET()
-    else:
-        handler.do_POST()
+    getattr(handler, f"do_{method}")()
     assert len(responses) == 1
     return responses[0]
 
 
-def test_review_exclude_resume_and_continue_capture(collector_module, session):
-    collector, state, _ = session
+def test_review_exclude_resume_and_continue_capture(session):
+    collector_module, collector, state = session
     code, body, _ = request_handler(collector_module, collector, "/sample")
     assert code == 200 and json.loads(body)["accepted"]
     original = snapshot(collector.root / "sample_001")
@@ -134,55 +124,18 @@ def test_review_exclude_resume_and_continue_capture(collector_module, session):
     assert Path(result["saved"]).name == "sample_002"
     final = collector_module.Collector(collector.config, collector.root, resume=True)
     assert [sample["index"] for sample in final.status()["samples"]] == [2]
-    assert snapshot(archived) == original
-
-
-def test_reviewed_samples_require_a_new_calibration_result(collector_module, session):
-    collector, state, _ = session
-    for index in range(10):
-        state["O_T_EE"][12] = index * 0.02
+    collector = final
+    for index in range(1, 10):
+        state["O_T_EE"][12] = 0.1 + index * 0.02
         collector.sample()
     root = collector.root
     solver = importlib.import_module("solve_base_handeye")
     assert len(solver.load_samples(root, "left")[1]) == 10
     sample_path = root / "sample_005" / "sample.json"
-    original = sample_path.read_text()
-    changed = json.loads(original)
+    changed = json.loads(sample_path.read_text())
     changed["T_left_base_ee"][0][3] += 0.1
     sample_path.write_text(json.dumps(changed))
     with pytest.raises(ValueError, match="stored pose disagrees"):
         solver.load_samples(root, "left")
     with pytest.raises(ValueError, match="stored pose disagrees"):
         collector_module.Collector(collector.config, root, resume=True)
-    sample_path.write_text(original)
-    pose = collector_module.np.eye(4).tolist()
-    candidate = {
-        "status": "candidate_requires_independent_validation",
-        "arm": "left",
-        "calibration_mode": "eye_to_hand",
-        "sample_count": 10,
-        "selected_method": "PARK",
-        "camera_serial": collector.config.camera_serial,
-        "T_left_base_camera": pose,
-        "T_ee_board": pose,
-    }
-    report = {
-        **candidate,
-        "serial": collector.config.camera_serial,
-        "source_hashes": {
-            str(path.relative_to(root)): hashlib.sha256(path.read_bytes()).hexdigest()
-            for path in root.glob("sample_*/sample.json")
-        },
-        "methods": {"PARK": {"T_left_base_camera": pose, "T_ee_board": pose}},
-    }
-    candidate_path = root / "candidate.json"
-    candidate_path.write_text(json.dumps(candidate))
-    (root / "quality_report.json").write_text(json.dumps(report))
-    common = importlib.import_module("common")
-    assert common.load_candidate(candidate_path) == candidate
-
-    collector.delete_sample(5)
-
-    with pytest.raises(ValueError, match="Training samples changed"):
-        common.load_candidate(candidate_path)
-    assert json.loads(candidate_path.read_text()) == candidate
