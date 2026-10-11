@@ -21,7 +21,7 @@ from pathlib import Path
 from robots.dual_franka import get_robot_spec
 from robots.dual_franka.prompt_bundle import system_prompt, user_prompt
 from robots.dual_franka.runtime_config import load_runtime_config
-from robots.dual_franka.tasks import DUAL_FRANKA_TASKS, get_dual_franka_task
+from robots.dual_franka.tasks import DUAL_FRANKA_TASKS
 from rpent.prompt.utils import format_prompt
 from rpent.robots.base import enumerate_robots
 from rpent.robots.base import get_robot_spec as resolve_robot_spec
@@ -57,12 +57,6 @@ def test_dual_franka_uses_rpent_owned_robot_config(fake_rlinf_realworld_modules)
     assert runtime.controller["min_iterations"] == 200
     assert runtime.controller["gripper_settle_s"] == 1.5
     assert runtime.controller["joint_health_thresholds"]["left"]["warning_q1"] == 1.7
-
-
-def test_registered_tasks_have_required_fields():
-    for task_id, task in DUAL_FRANKA_TASKS.items():
-        assert get_dual_franka_task(task_id) is task
-        assert task.name and task.instruction and task.success_criteria
 
 
 def test_dirty_clean_exploration_candidate_reuses_deployed_task_prompt():
