@@ -19,8 +19,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from robots.dual_franka import get_robot_spec
+from robots.dual_franka.prompt_bundle import system_prompt, user_prompt
 from robots.dual_franka.runtime_config import load_runtime_config
 from robots.dual_franka.tasks import CLEAN_DESK_VLA_PROMPT, DUAL_FRANKA_TASKS
+from rpent.prompt.utils import format_prompt
 from rpent.robots.base import enumerate_robots
 from rpent.robots.base import get_robot_spec as resolve_robot_spec
 
@@ -123,9 +125,10 @@ def test_dual_franka_exploration_prompt_is_opt_in(dual_franka_run):
     dual_franka_run.args.task_id = 4
     config = spec.parse_config(dual_franka_run.args)
     variables = {**config.prompt_vars, "output_dir": config.output_dir}
-    eval_prompt = spec.prompts.render("system", variables={**variables, "mode": "eval"})
-    explore_prompt = spec.prompts.render("system", variables=variables)
-    explore_user_prompt = spec.prompts.render("user", variables=variables)
+    eval_vars = {**variables, "mode": "eval"}
+    eval_prompt = format_prompt(system_prompt(eval_vars), variables=eval_vars)
+    explore_prompt = format_prompt(system_prompt(variables), variables=variables)
+    explore_user_prompt = format_prompt(user_prompt(variables), variables=variables)
 
     assert "request_scene_reset" not in eval_prompt
     assert "request_scene_reset" in explore_prompt
