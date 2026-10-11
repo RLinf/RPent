@@ -149,6 +149,55 @@ def _robot_with_parts(parts):
     )
 
 
+@pytest.mark.parametrize("aborted", [False, True])
+def test_recovery_stops_on_rotation_abort_but_not_tracking_error(
+    worker_classes, aborted
+):
+    cls = worker_classes[1]
+    worker = cls.__new__(cls)
+    calls = []
+    worker.controller = {"move_tolerance_m": 0.006, "rotate_tolerance_rad": 0.04}
+    worker._raw_rlinf_env = lambda: SimpleNamespace(
+        config=SimpleNamespace(is_dummy=True, joint_reset_qpos=[[0] * 7] * 2)
+    )
+    pose = np.array([0.5, 0, 0.4, 0, 0, 0, 1.0])
+    worker._arm_poses = lambda: (pose.copy(), pose.copy())
+    worker._pose_to_world = lambda arm, pose: pose.copy()
+    worker.get_robot_state = lambda: {
+        f"{arm}_arm": {"gripper_open": True} for arm in ("left", "right")
+    }
+
+    def move(arm, delta):
+        calls.append(f"{arm}_move")
+        return {"ok": True, "target_reached": False}
+
+    def rotate(arm, delta):
+        calls.append(f"{arm}_rotate")
+        return {
+            "ok": not aborted,
+            "status": "aborted" if aborted else "completed",
+            "target_reached": False,
+        }
+
+    worker.move_delta, worker.rotate_delta = move, rotate
+    result = worker.recover_joint_posture()
+    assert result["ok"] is not aborted
+    assert result["return_evaluation"]["rotation_return_ok"] is not aborted
+    assert calls == (
+        ["left_move", "left_rotate"]
+        if aborted
+        else [
+            "left_move",
+            "left_rotate",
+            "left_move",
+            "right_move",
+            "right_rotate",
+            "right_move",
+        ]
+    )
+    assert result["final"]["gripper_preserved"]
+
+
 def test_missing_hand_state_is_not_silently_defaulted(worker_classes):
     worker = worker_classes[1].__new__(worker_classes[1])
     raw = SimpleNamespace(

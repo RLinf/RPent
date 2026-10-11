@@ -1115,6 +1115,8 @@ def _create_worker_class():
                         arm,
                         delta_rot.as_euler("xyz").astype(np.float32),
                     )
+                    if not return_results[f"{arm}_rotate"]["ok"]:
+                        break
                     # Orientation correction can shift the TCP position.
                     current_raw = self._arm_poses()[self._arm_index(arm)]
                     current = self._pose_to_world(arm, current_raw)
@@ -1179,7 +1181,7 @@ def _create_worker_class():
                 )
             )
             return_ok = (not return_to_start) or (
-                translation_return_ok and non_rotation_return_ok
+                translation_return_ok and non_rotation_return_ok and rotation_return_ok
             )
             gripper_restore_ok = all(
                 bool(value.get("ok"))
@@ -1232,7 +1234,7 @@ def _create_worker_class():
                     "translation_return_ok": translation_return_ok,
                     "non_rotation_return_ok": non_rotation_return_ok,
                     "rotation_return_ok": rotation_return_ok,
-                    "rotation_is_diagnostic_only": True,
+                    "rotation_accuracy_is_diagnostic_only": True,
                     "final_joint_health_ok": final_joint_health_ok,
                     "move_tolerance_m": self.controller["move_tolerance_m"],
                     "rotate_tolerance_rad": self.controller["rotate_tolerance_rad"],
