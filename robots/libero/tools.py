@@ -213,14 +213,14 @@ class LiberoPrimitives:
         gripper_open_thresh: float = 0.0,
         descent_thresh: float = 0.1,
     ) -> ToolResult:
-        """Pi0.5 closed-loop pick. Use it for the grasp; YOU then do every move_to and release. Use modest max_chunks and verify the grasp from EEF lift, gripper closure, and available images.
+        """Pi0.5 closed-loop pick. Use it for the grasp; YOU then do every move_to and release. Use modest max_chunks. `success` is a MOTION HEURISTIC ONLY (descent + post-descent ascent + gripper closure) and is a HINT, not proof: closing the fingers on air also reports success. `grasp_status` is "unknown" because pi0_pick has no contact or held-object evidence — judge the grasp yourself from EEF lift, gripper closure, and available images before carrying.
 
         Args:
             prompt: Pi0 prompt (e.g. 'pick up the akita black bowl').
             max_chunks: Action-chunk budget (default 24)
-            lift_thresh: EEF post-descent ascent threshold for success, m (default 0.05)
-            gripper_closed_thresh: Finger-separation closed threshold (default 0.06)
-            gripper_open_thresh: Minimum finger separation accepted as a held object (default 0.0)
+            lift_thresh: EEF post-descent ascent threshold for the success heuristic, m (default 0.05)
+            gripper_closed_thresh: Finger-separation closed threshold for the success heuristic (default 0.06)
+            gripper_open_thresh: Minimum finger separation accepted by the closure window; below it the fingers count as fully shut (default 0.0)
             descent_thresh: Required descent before lift detection, m (default 0.10)
         """
         instr = prompt
@@ -266,6 +266,11 @@ class LiberoPrimitives:
                 "name": "pick",
                 "instruction": instr,
                 "success": success,
+                # `success` above is the kinematic early-stop heuristic only;
+                # no contact or held-object query exists, so grasp verification
+                # stays with the caller (evaluate prompt Rule 1b). Never claim
+                # a verified pickup, and never surface privileged object state.
+                "grasp_status": "unknown",
                 "chunks_used": chunks_used,
                 "max_chunks": max_chunks,
                 "peak_lift_m": post_min_peak_z - min_z,

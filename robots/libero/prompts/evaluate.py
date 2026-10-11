@@ -215,8 +215,10 @@ Rule 1b — JUDGE THE GRASP from perception, NOT from a name. After a pick, deci
        now be raised into the gripper, and the spot it came from should be EMPTY.
        Compare before/after wrist or agentview evidence; if needed, use
        `back_project` on wrist pixels to confirm the target surface z jumped up.
-   `pi0_pick.success` (eef-lift + gripper-closure heuristic) is a HINT, not
-   proof — always confirm with the wrist cam before carrying.
+   `pi0_pick.success` (eef-lift + gripper-closure motion heuristic) is a HINT, not
+   proof — it can also fire when the fingers close on air, and `grasp_status`
+   stays "unknown" because pi0_pick has no contact or held-object evidence.
+   Always confirm with the wrist cam before carrying.
 
 Rule 2 — Inspect THEN act. Call `view_env_state({"step": 0})`, inspect
   `agentview_high.png` and the relevant memory/guides BEFORE your first
