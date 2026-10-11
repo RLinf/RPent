@@ -16,51 +16,24 @@
 
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import replace
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
-from robots.dual_franka import robot_spec
-from rpent.cli import dashboard, main
+from rpent.cli import dashboard
 from rpent.dashboard.server import DashboardServer
 from rpent.dashboard.state import DashboardState
 from rpent.planner.base import PlannerResult
-from tests.unit_tests.robots.dual_franka.test_exploration import FakeEnv
 
 
 def test_web_operator_confirms_reset_and_completes_task(
-    tmp_path, monkeypatch, dual_franka_robot_config
+    tmp_path, monkeypatch, dual_franka_run
 ):
-    parser = main._build_argparser()
-    robot_spec._add_cli_args(parser, use_dashboard=True)
-    args = parser.parse_args(
-        [
-            "--robot",
-            "dual_franka",
-            "--dashboard",
-            "--explore",
-            "--task-id",
-            "3",
-            "--planner",
-            "codex",
-            "--auto-merge-memory",
-            "--robot-config",
-            str(dual_franka_robot_config),
-            "--memory-dir",
-            str(tmp_path / "memory"),
-            "--output-dir",
-            str(tmp_path / "run"),
-        ]
-    )
-    env = FakeEnv()
-    spec = replace(
-        robot_spec.get_robot_spec(),
-        init_runtime=lambda *a: (
-            [],
-            {"env": env, "model": None, "task_description": "test"},
-        ),
-    )
+    spec = dual_franka_run.spec
+    args = dual_franka_run.args
+    args.dashboard = True
+    args.task_id = 3
+    env = dual_franka_run.env
     state = DashboardState(output_dir=tmp_path, dashboard_spec=spec.dashboard)
     state.shared_services_ready()
     state.request_task({"task_id": 3})

@@ -38,10 +38,7 @@ from rpent.dashboard.state import DashboardState
 from rpent.session import EnvState
 from rpent.tools import Toolkit, ToolResult, tool
 
-
-@pytest.fixture(autouse=True)
-def tool_template_output_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("rpent.utils.templates.get_output_dir", lambda: tmp_path)
+pytestmark = pytest.mark.usefixtures("tool_template_output_dir")
 
 
 DASHBOARD_SPEC: DashboardSpec = {

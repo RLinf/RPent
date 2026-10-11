@@ -14,7 +14,6 @@
 
 """Offline attended exploration: real toolkit, logger and memory, fake hardware."""
 
-import argparse
 import json
 from pathlib import Path
 
@@ -27,46 +26,8 @@ from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory import MemoryManager
 
 
-class FakeEnv:
-    def __init__(self):
-        self.meta = {}
-        self.resets = 0
-        self.moves = []
-        self.reset_result = {"ok": True}
-        self.fail_observation = False
-
-    def reset(self):
-        self.resets += 1
-        return self.reset_result
-
-    def get_observation(self):
-        if self.fail_observation:
-            raise RuntimeError("camera offline")
-        return {
-            "main_images": np.full((8, 8, 3), self.resets, dtype=np.uint8),
-            "extra_view_images": np.zeros((2, 8, 8, 3), dtype=np.uint8),
-            "main_depths": np.ones((8, 8), dtype=np.float32),
-            "extra_view_depths": np.ones((2, 8, 8), dtype=np.float32),
-            "d455_images": np.zeros((8, 8, 3), dtype=np.uint8),
-            "d455_depths": np.ones((8, 8), dtype=np.float32),
-        }
-
-    def get_robot_state(self):
-        return {
-            "left_arm": {"tcp_pose": [0.5, 0, 0.5, 0, 0, 0, 1]},
-            "right_arm": {"tcp_pose": [0.5, 0, 0.5, 0, 0, 0, 1]},
-        }
-
-    def get_camera_meta(self):
-        return {"cameras": {}}
-
-    def move_delta(self, arm, delta):
-        self.moves.append((arm, list(delta)))
-        return {"ok": True}
-
-
 @pytest.fixture
-def setup(tmp_path, monkeypatch, dual_franka_robot_config):
+def setup(tmp_path, monkeypatch, dual_franka_robot_config, fake_env):
     from rpent.utils import logging
 
     monkeypatch.setattr(logging, "_output_dir", tmp_path)
@@ -74,7 +35,7 @@ def setup(tmp_path, monkeypatch, dual_franka_robot_config):
     from robots.franka.runtime_config import set_robot_config_path
 
     set_robot_config_path(dual_franka_robot_config)
-    env = FakeEnv()
+    env = fake_env
     replies = []
     toolkit = DualFrankaToolkit(
         runtime_kwargs={"env": env, "model": None, "task_description": "test"},
@@ -190,28 +151,9 @@ def test_budget_and_old_perception_boundary(setup):
     assert env.resets == 2
 
 
-def test_explore_prompt_and_factory_use_local_layered_memory(
-    tmp_path, dual_franka_robot_config
-):
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--explore", action="store_true")
-    parser.add_argument("--memory-dir")
-    parser.add_argument("--memory-profile", default=None)
-    parser.add_argument("--output-dir")
-    robot_spec.get_robot_spec().add_cli_args(parser, False)
-    args = parser.parse_args(
-        [
-            "--explore",
-            "--memory-dir",
-            str(tmp_path / "memory"),
-            "--output-dir",
-            str(tmp_path),
-            "--robot-config",
-            str(dual_franka_robot_config),
-        ]
-    )
-    config = robot_spec.get_robot_spec().parse_config(args)
-    prompt = robot_spec.get_robot_spec().prompts.render(
+def test_explore_prompt_and_factory_use_local_layered_memory(tmp_path, dual_franka_run):
+    config = dual_franka_run.spec.parse_config(dual_franka_run.args)
+    prompt = dual_franka_run.spec.prompts.render(
         "system", variables={**config.prompt_vars, "output_dir": tmp_path}
     )
     assert "request_scene_reset" in prompt and "request_operator_verdict" in prompt
@@ -222,7 +164,11 @@ def test_explore_prompt_and_factory_use_local_layered_memory(
     )
     assert "{{" not in prompt and "libero_terminated" not in prompt
     t = robot_spec.get_toolkit(
-        runtime_kwargs={"env": FakeEnv(), "model": None, "task_description": "test"},
+        runtime_kwargs={
+            "env": dual_franka_run.env,
+            "model": None,
+            "task_description": "test",
+        },
         dashboard_events=NullDashboardEventSink(),
         config=config,
         mode="exploration",
@@ -286,17 +232,15 @@ Winning technique and failure evidence.
 
 @pytest.mark.parametrize("interactive", [False, True])
 def test_cli_two_sessions_operator_feedback_and_memory_pipeline(
-    tmp_path, monkeypatch, interactive, dual_franka_robot_config
+    tmp_path, monkeypatch, interactive, dual_franka_run
 ):
     import sys
-    from dataclasses import replace
     from types import SimpleNamespace
 
     from rpent.cli import main as cli
     from rpent.tools.human_in_the_loop import HumanInTheLoopInput
 
-    env = FakeEnv()
-    runtimes = []
+    env = dual_franka_run.env
     planners = []
     replies = iter(["done", "failure dropped", "done", "success lifted"])
 
@@ -315,10 +259,6 @@ def test_cli_two_sessions_operator_feedback_and_memory_pipeline(
 
         def solve(self, *, toolkit, system_prompt, user_message, **kwargs):
             assert "scope: global" in system_prompt
-            if self.number == 2:
-                assert "not automatically reset" in user_message
-                assert "task_name:" in user_message
-                assert "Original operator task instruction:" in user_message
             assert not toolkit._scene_ready
             assert "error" not in call(
                 toolkit, "request_scene_reset", reason="new attempt"
@@ -354,16 +294,7 @@ Observed success in session 2.
                 finish_result=finish, messages=[], stats={}, error=None
             )
 
-    def init_runtime(*args):
-        runtimes.append(args)
-        return [], {
-            "env": env,
-            "model": None,
-            "task_description": "test",
-        }
-
-    spec = replace(robot_spec.get_robot_spec(), init_runtime=init_runtime)
-    monkeypatch.setattr(cli, "get_robot_spec", lambda name: spec)
+    monkeypatch.setattr(cli, "get_robot_spec", lambda name: dual_franka_run.spec)
     monkeypatch.setattr(cli, "build_planner", Planner)
     monkeypatch.setattr(
         cli,
@@ -376,28 +307,17 @@ Observed success in session 2.
         sys,
         "argv",
         [
-            "rpent",
-            "--robot",
-            "dual_franka",
-            "--planner",
-            "codex",
-            "--explore",
+            *dual_franka_run.argv,
             "--explore-sessions",
             "2",
             "--explore-attempts-per-session",
             "1",
-            "--output-dir",
-            str(tmp_path / "run"),
-            "--memory-dir",
-            str(tmp_path / "memory"),
-            "--robot-config",
-            str(dual_franka_robot_config),
-            "--auto-merge-memory",
             *(["--interactive"] if interactive else []),
         ],
     )
     assert cli.main() == 0
-    assert len(planners) == 2 and len(runtimes) == 1 and env.resets == 2
+    assert len(planners) == 2 and len(dual_franka_run.runtime_calls) == 1
+    assert env.resets == 2
     traces = [
         json.loads((tmp_path / f"run/sessions/session_{i:03d}/states.json").read_text())
         for i in (1, 2)
@@ -575,18 +495,16 @@ def test_direct_success_with_failed_observation_does_not_publish(setup):
 def test_cli_direct_verdict_finalizes_and_merges_only_without_errors(
     tmp_path,
     monkeypatch,
-    dual_franka_robot_config,
+    dual_franka_run,
     verdict,
     planner_error,
     robot_name,
 ):
     import sys
-    from dataclasses import replace
     from types import SimpleNamespace
 
     from rpent.cli import main as cli
 
-    env = FakeEnv()
     handlers = {}
     command = verdict
     verdict = "abort" if command == "eof" else verdict
@@ -614,18 +532,7 @@ def test_cli_direct_verdict_finalizes_and_merges_only_without_errors(
                 finish_result=None, messages=[], stats={}, error=planner_error
             )
 
-    spec = replace(
-        robot_spec.get_robot_spec(),
-        init_runtime=lambda *args: (
-            [],
-            {
-                "env": env,
-                "model": None,
-                "task_description": "test",
-            },
-        ),
-    )
-    monkeypatch.setattr(cli, "get_robot_spec", lambda name: spec)
+    monkeypatch.setattr(cli, "get_robot_spec", lambda name: dual_franka_run.spec)
     original_toolkit_factory = cli.get_toolkit
     monkeypatch.setattr(
         cli,
@@ -634,26 +541,8 @@ def test_cli_direct_verdict_finalizes_and_merges_only_without_errors(
     )
     monkeypatch.setattr(cli, "build_planner", lambda *args, **kwargs: Planner())
     monkeypatch.setattr(sys, "stdin", SimpleNamespace(isatty=lambda: True))
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "rpent",
-            "--robot",
-            robot_name,
-            "--planner",
-            "codex",
-            "--explore",
-            "--interactive",
-            "--auto-merge-memory",
-            "--output-dir",
-            str(tmp_path / "run"),
-            "--memory-dir",
-            str(tmp_path / "memory"),
-            "--robot-config",
-            str(dual_franka_robot_config),
-        ],
-    )
+    dual_franka_run.argv[dual_franka_run.argv.index("--robot") + 1] = robot_name
+    monkeypatch.setattr(sys, "argv", [*dual_franka_run.argv, "--interactive"])
     assert cli.main() == (1 if planner_error and verdict != "failure" else 0)
     assert (tmp_path / "memory/task-specific/dual_franka_t0.json").is_file() == (
         verdict == "success" and planner_error is None

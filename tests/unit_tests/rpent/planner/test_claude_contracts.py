@@ -34,6 +34,8 @@ from rpent.planner.claude_code import (
 from rpent.tools import ToolResult, tool
 from rpent.tools.common import CommonTools
 
+pytestmark = pytest.mark.usefixtures("tool_template_output_dir")
+
 
 class RecordingSink:
     def __init__(self) -> None:
@@ -583,8 +585,3 @@ def test_claude_interrupt_waits_for_old_results_before_next_query():
             await asyncio.gather(running, return_exceptions=True)
 
     asyncio.run(scenario())
-
-
-@pytest.fixture(autouse=True)
-def tool_template_output_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("rpent.utils.templates.get_output_dir", lambda: tmp_path)
