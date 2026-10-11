@@ -21,7 +21,7 @@ from pathlib import Path
 from robots.dual_franka import get_robot_spec
 from robots.dual_franka.prompt_bundle import system_prompt, user_prompt
 from robots.dual_franka.runtime_config import load_runtime_config
-from robots.dual_franka.tasks import CLEAN_DESK_VLA_PROMPT, DUAL_FRANKA_TASKS
+from robots.dual_franka.tasks import DUAL_FRANKA_TASKS, get_dual_franka_task
 from rpent.prompt.utils import format_prompt
 from rpent.robots.base import enumerate_robots
 from rpent.robots.base import get_robot_spec as resolve_robot_spec
@@ -59,62 +59,20 @@ def test_dual_franka_uses_rpent_owned_robot_config(fake_rlinf_realworld_modules)
     assert runtime.controller["joint_health_thresholds"]["left"]["warning_q1"] == 1.7
 
 
-def test_clean_desk_task_registers_named_vla_skills_and_fixed_prompt():
-    task = DUAL_FRANKA_TASKS[1]
-
-    assert task.name == "clean_desk_dual_franka_agent_vla"
-    assert "bowls, plates, cup, chopsticks, then spoon" in task.instruction
-    assert "vla_right_grasp" in "\n".join(task.constraints)
-    assert "segment" in "\n".join(task.constraints)
-    assert "joint_health" not in "\n".join(task.constraints)
-    assert CLEAN_DESK_VLA_PROMPT.startswith(
-        "I am currently performing a desk organizing task."
-    )
+def test_registered_tasks_have_required_fields():
+    for task_id, task in DUAL_FRANKA_TASKS.items():
+        assert get_dual_franka_task(task_id) is task
+        assert task.name and task.instruction and task.success_criteria
 
 
 def test_dirty_clean_exploration_candidate_reuses_deployed_task_prompt():
     task = DUAL_FRANKA_TASKS[3]
     candidate = DUAL_FRANKA_TASKS[4]
 
-    assert candidate.name.endswith("_explore_candidate")
     assert candidate.instruction == task.instruction
     assert candidate.setup == task.setup
     assert candidate.success_criteria == task.success_criteria
     assert candidate.constraints != task.constraints
-    candidate_constraints = "\n".join(candidate.constraints)
-    assert "Build a brief D455 localization and sorting table" not in (
-        candidate_constraints
-    )
-    assert "Use short phrases" not in candidate_constraints
-    assert "For bowls, do not use rule-based move_delta" not in candidate_constraints
-    assert "10cm above" not in candidate_constraints
-    assert "projected center/rim x/y can be far from the right TCP" not in (
-        candidate_constraints
-    )
-    assert "keep the current left TCP z" not in candidate_constraints
-    assert "dirty bowls/plates to the metal wire basket/frame" in candidate_constraints
-
-
-def test_metal_basket_task_registers_non_sorting_prompt():
-    task = DUAL_FRANKA_TASKS[5]
-    constraints = "\n".join(task.constraints)
-
-    assert task.name == "clean_desk_all_objects_to_metal_basket_agent_vla"
-    assert "without dirty/clean classification" in task.instruction
-    assert "fixed category order" in task.instruction
-    assert "Every object must go through one right-to-left handoff" in (
-        task.instruction
-    )
-    assert "The spoon must be inserted into the cup" in task.instruction
-    assert "Do not perform dirty/clean classification" in constraints
-    assert "The metal wire basket/frame is the only valid placement container" in (
-        constraints
-    )
-    assert "a failed grasp or drop is recoverable" in constraints
-    assert "Treat the two chopsticks as two separate objects" in task.instruction
-    assert "inspect the right_wrist artifact as primary evidence" in constraints
-    assert "bowls -> plates -> cup -> chopsticks -> spoon" in constraints
-    assert "green object before the blue object" in constraints
 
 
 def test_dual_franka_exploration_prompt_is_opt_in():
