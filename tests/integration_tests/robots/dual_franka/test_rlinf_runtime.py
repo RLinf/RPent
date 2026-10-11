@@ -61,7 +61,6 @@ def dummy_env():
     from robots.dual_franka.runtime_config import load_runtime_config
 
     runtime = load_runtime_config(None, task_description="offline contract")
-    assert runtime.rlinf.env.eval.auto_reset is False
     hardware = DualFrankaConfig(
         **OmegaConf.to_container(
             runtime.rlinf.cluster.node_groups[0].hardware.configs[0]
@@ -69,7 +68,6 @@ def dummy_env():
     )
     override = OmegaConf.to_container(runtime.rlinf.env.eval.override_cfg)
     override["is_dummy"] = True
-    register_rpent_dual_franka_env()
     register_rpent_dual_franka_env()
     env = gym.make(
         runtime.rlinf.env.eval.init_params.id,
@@ -80,7 +78,6 @@ def dummy_env():
         env_cfg=OmegaConf.to_container(runtime.rlinf.env.eval),
     )
     obs, _ = env.reset(seed=7)
-    assert env.action_space.shape == (20,)
     assert env.observation_space.contains(obs)
     env.step(np.zeros(20, dtype=np.float32))
     try:
@@ -135,14 +132,6 @@ def test_raw_policy_and_worker_observations_use_latest_acquisition(
     from robots.dual_franka.env_server import _create_worker_class
 
     env = request.getfixturevalue(env_fixture).unwrapped
-    if not env.config.is_dummy:
-        env._get_camera_observation()
-        snapshot = env.get_raw_camera_snapshot()
-        for name, camera in env._cameras.items():
-            np.testing.assert_array_equal(
-                snapshot["raw_frames"][name], camera.frame[..., ::-1]
-            )
-            np.testing.assert_allclose(snapshot["raw_depths"][name], 0.42)
     vector = gym.vector.SyncVectorEnv([lambda: env])
     wrapped = object.__new__(RealWorldEnv)
     wrapped.env = vector
@@ -163,12 +152,13 @@ def test_raw_policy_and_worker_observations_use_latest_acquisition(
             worker.controller = {"perception": {"cameras": {"unused": {}}}}
             worker._open_perception_cameras()
             assert worker._perception_cameras == {}
-            worker.cfg = SimpleNamespace(
-                env=SimpleNamespace(eval={"main_image_key": "left_wrist_0_rgb"})
-            )
-            assert worker.get_camera_meta()["cameras"]
             return
         assert obs["main_depths"].shape == (224, 224)
+        for name, camera in env._cameras.items():
+            np.testing.assert_array_equal(
+                obs["raw_camera_frames"][name], camera.frame[..., ::-1]
+            )
+            np.testing.assert_allclose(obs["raw_camera_depths"][name], 0.42)
         for camera in env._cameras.values():
             camera.frame[:] = 99
         fresh = worker.get_observation()

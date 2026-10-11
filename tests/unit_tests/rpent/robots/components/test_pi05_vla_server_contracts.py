@@ -97,20 +97,26 @@ def test_cli_forwards_model_configuration(monkeypatch, embodiment, repo_id):
 
     received = {}
     monkeypatch.setenv("DUAL_FRANKA_REPO_ID", "unrelated/local-deployment")
-    argv = [
-        "pi05_vla_server",
-        "--embodiment",
-        embodiment,
-        "--model-path",
-        "/checkpoint",
-        "--norm-stats-path",
-        "/stats",
-        "--port",
-        "6000",
-    ]
-    if repo_id is not None:
-        argv.extend(["--repo-id", repo_id])
-    monkeypatch.setattr(sys, "argv", argv)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "pi05_vla_server",
+            "--embodiment",
+            embodiment,
+            "--model-path",
+            "/checkpoint",
+            "--repo-id",
+            "test/dataset",
+            "--norm-stats-path",
+            "/stats",
+            "--port",
+            "6000",
+        ],
+    )
+    if repo_id is None:
+        sys.argv.remove("--repo-id")
+        sys.argv.remove("test/dataset")
 
     def facade(**kwargs):
         received.update(kwargs)

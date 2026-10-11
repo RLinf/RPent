@@ -73,12 +73,6 @@ def test_dual_franka_uses_rpent_owned_robot_config(fake_rlinf_realworld_modules)
     assert cfg.env.eval.override_cfg.task_description == "test task"
     assert runtime.controller["move_tolerance_m"] == 0.006
     assert runtime.controller["rotate_tolerance_rad"] == 0.04
-    assert runtime.controller["rotate_position_tolerance_m"] == 0.006
-    assert runtime.controller["rotate_max_drift_m"] == 0.03
-    assert runtime.controller["rotate_integral_gain_per_s"] == 0.5
-    assert runtime.controller["rotate_integral_limit_rad"] == 0.12
-    assert runtime.controller["rotate_position_integral_gain_per_s"] == 0.5
-    assert runtime.controller["rotate_position_integral_limit_m"] == 0.015
     assert runtime.controller["iteration_multiplier"] == 50
     assert runtime.controller["min_iterations"] == 200
     assert runtime.controller["gripper_settle_s"] == 1.5

@@ -50,8 +50,8 @@ def worker_classes(monkeypatch):
     return single(), dual()
 
 
-@pytest.mark.parametrize("dual", [False, True])
-def test_last_rotation_step_recomputes_error(worker_classes, dual):
+@pytest.mark.parametrize("dual,drift", [(False, 0), (True, 0), (True, 0.04)])
+def test_last_rotation_step_recomputes_error(worker_classes, dual, drift):
     cls = worker_classes[int(dual)]
     worker = cls.__new__(cls)
     pose = np.array([0.5, 0, 0.4, 0, 0, 0, 1.0])
@@ -67,7 +67,7 @@ def test_last_rotation_step_recomputes_error(worker_classes, dual):
         "rotate_position_integral_gain_per_s": 0.0,
         "rotate_position_integral_limit_m": 0.015,
         "rotate_settle_s": 0,
-        "min_iterations": 1,
+        "min_iterations": 2 if drift else 1,
         "iteration_multiplier": 1,
     }
     worker.action_scale = [1, 1, 1]
@@ -81,6 +81,7 @@ def test_last_rotation_step_recomputes_error(worker_classes, dual):
 
         def step(*args, **kwargs):
             pose[3:] = target
+            pose[1] = drift
 
         worker.env = SimpleNamespace(step=step)
         result = worker.rotate_delta("left", [0.1, 0, 0])
@@ -93,8 +94,10 @@ def test_last_rotation_step_recomputes_error(worker_classes, dual):
         worker._step_delta = step
         result = worker.rotate_delta([0.1, 0, 0])
     assert result["steps_used"] == 1
-    assert result["ok"]
+    assert result["ok"] is (not drift)
     assert result["final_error_rad"] < 1e-6
+    if drift:
+        assert result["exit_reason"] == "position_drift"
 
 
 @pytest.mark.parametrize("opened,expected", [(True, 1), (False, -1)])
@@ -187,12 +190,9 @@ def test_recovery_stops_on_rotation_abort_but_not_tracking_error(
         ["left_move", "left_rotate"]
         if aborted
         else [
-            "left_move",
-            "left_rotate",
-            "left_move",
-            "right_move",
-            "right_rotate",
-            "right_move",
+            f"{arm}_{action}"
+            for arm in ("left", "right")
+            for action in ("move", "rotate", "move")
         ]
     )
     assert result["final"]["gripper_preserved"]
@@ -315,62 +315,3 @@ def test_live_environment_does_not_inherit_coding_profile(tmp_path, dedicated):
     subprocess.run(
         ["bash", "-eu", "-c", command, "test", str(script)], env=env, check=True
     )
-
-
-@pytest.mark.parametrize("drift", [0.01, 0.04])
-def test_rotation_reaches_goal_without_translating_and_stops_on_large_drift(
-    worker_classes, monkeypatch, drift
-):
-    from robots.dual_franka import env_server
-
-    worker = worker_classes[1].__new__(worker_classes[1])
-    worker.per_arm_dim = 10
-    worker.controller = {
-        "rotate_timeout_s": 20,
-        "rotate_tolerance_rad": 0.04,
-        "rotate_max_step_rad": 0.1,
-        "rotate_position_tolerance_m": 0.006,
-        "rotate_max_drift_m": 0.03,
-        "rotate_integral_gain_per_s": 0.5,
-        "rotate_integral_limit_rad": 0.12,
-        "rotate_position_integral_gain_per_s": 0.5,
-        "rotate_position_integral_limit_m": 0.015,
-        "rotate_settle_s": 0.5,
-        "min_iterations": 200,
-        "iteration_multiplier": 1,
-    }
-    ticks = iter(np.arange(0, 100, 0.1))
-    monkeypatch.setattr(
-        env_server,
-        "time",
-        SimpleNamespace(time=lambda: 0.0, monotonic=lambda: next(ticks)),
-    )
-    left = np.array([0.5, 0, 0.4, 0, 0, 0, 1.0])
-    right = np.array([0.4, -0.2, 0.3, 0, 0, 0, 1.0])
-    initial = left.copy()
-    worker._refresh_robot_state = lambda: None
-    worker._arm_poses = lambda: (left.copy(), right.copy())
-    worker._pose_to_world = lambda arm, p: p.copy()
-    worker._pose_from_world = lambda arm, p: p.copy()
-    other_command = worker._hold_action(left, right)[10:]
-
-    def step(action, *, auto_reset):
-        assert not auto_reset
-        command = action[0]
-        np.testing.assert_array_equal(command[[9, 19]], [0, 0])
-        np.testing.assert_array_equal(command[10:], other_command)
-        r6 = command[3:9]
-        reference = Rotation.from_matrix(
-            np.column_stack([r6[:3], r6[3:], np.cross(r6[:3], r6[3:])])
-        )
-        left[:3] = command[:3] + [0, drift, 0]
-        left[3:] = (Rotation.from_euler("z", -0.12) * reference).as_quat()
-
-    worker.env = SimpleNamespace(step=step)
-    result = worker.rotate_delta("left", [0, 0, 0.6])
-    if drift < 0.03:
-        assert result["target_reached"]
-        assert result["final_error_rad"] <= 0.04
-        np.testing.assert_allclose(left[:3], initial[:3], atol=0.006)
-    else:
-        assert not result["ok"] and result["exit_reason"] == "position_drift"

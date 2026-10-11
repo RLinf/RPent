@@ -202,16 +202,12 @@ def run_console(
                 emit("Prompt: " + session.prompt)
             elif command == "status" and not arg:
                 session.status = session.model.status(timeout_s=10)
-                emit(
-                    json.dumps(
-                        {
-                            **session.status,
-                            "prompt": session.prompt,
-                            "expected_action_steps": session.expected_steps,
-                        },
-                        ensure_ascii=False,
-                    )
+                status = dict(
+                    session.status,
+                    prompt=session.prompt,
+                    expected_action_steps=session.expected_steps,
                 )
+                emit(json.dumps(status, ensure_ascii=False))
             elif command == "help" and not arg:
                 emit(help_text)
             elif command == "reset" and not arg:

@@ -39,10 +39,9 @@ from tests.e2e_tests.dual_franka.dual_franka_vla import (
 
 
 def run_full_vla(env, model, *, prompt, workspace, expected_steps, stopped, emit):
-    """Run indefinitely, checking cancellation before each single-action RPC.
+    """Run without resetting, checking stop before each single-action RPC.
 
-    An in-flight inference/RPC is allowed to return; its remaining actions are
-    discarded on cancellation. No reset, recovery or gripper command is added.
+    In-flight RPCs may finish; their remaining actions are discarded on stop.
     """
     if not prompt.strip():
         raise ValueError("policy instruction must not be empty")
@@ -162,34 +161,31 @@ def main():
             env = DualFrankaEnvClient(env_rpc, reset_on_connect=False)
             model = Pi05VLAClient(model_rpc, embodiment="dual_franka")
             status = model.status(timeout_s=10)
-            (output / "deployment.json").write_text(
-                json.dumps(
-                    {
-                        "skill": args.skill,
-                        "task_id": args.task_id,
-                        "prompt": prompt,
-                        "model": status,
-                        "robot_config": str(args.robot_config.resolve()),
-                        "stop_file": str(stop_file),
-                        "reset_on_connect": False,
-                    },
-                    indent=2,
-                    ensure_ascii=False,
+
+            args.robot_config = args.robot_config.resolve()
+            args.stop_file = stop_file
+
+            def save_json(name, value):
+                (output / name).write_text(
+                    json.dumps(value, indent=2, ensure_ascii=False, default=str)
                 )
+
+            save_json(
+                "deployment.json",
+                {
+                    **vars(args),
+                    "prompt": prompt,
+                    "model": status,
+                    "reset_on_connect": False,
+                },
             )
             with (output / "events.jsonl").open("x", buffering=1) as log:
 
                 def emit(record):
-                    log.write(
-                        json.dumps(
-                            {"timestamp": time.time(), **record}, ensure_ascii=False
-                        )
-                        + "\n"
-                    )
+                    record = {"timestamp": time.time(), **record}
+                    log.write(json.dumps(record, ensure_ascii=False) + "\n")
                     if record["kind"] == "finish":
-                        (output / "outcome.json").write_text(
-                            json.dumps({**record, "signals": signals}, indent=2)
-                        )
+                        save_json("outcome.json", {**record, "signals": signals})
                     if record["kind"] in {"chunk_complete", "finish"}:
                         print(json.dumps(record, ensure_ascii=False), flush=True)
 
