@@ -161,6 +161,43 @@ def check_camera(camera: Record, reference: Record) -> None:
         raise ValueError("Camera K must be 3 x 3 with positive focal lengths")
 
 
+def sample_poses(
+    sample: Record,
+    reference: Record,
+    *,
+    arm: str,
+    serial: str,
+    board: Record,
+    source: Path,
+) -> tuple[Array, Array]:
+    """Validate saved sample identity and frames, returning robot and board poses.
+
+    Collection review and solving apply their own sample-count, image-quality,
+    and acquisition-drift requirements after this shared consistency check.
+    """
+    if (
+        sample.get("calibration_mode") != "eye_to_hand"
+        or sample.get("arm") != arm
+        or sample["camera"]["serial"] != serial
+        or sample["board"] != board
+    ):
+        raise ValueError(f"{source}: sample configuration does not match")
+    check_camera(sample["camera"], reference["camera"])
+    for key in ("robot_before", "robot_after"):
+        check_state(sample[key])
+        if not np.allclose(
+            sample[key]["F_T_EE"],
+            reference["robot_before"]["F_T_EE"],
+            rtol=0,
+            atol=1e-8,
+        ):
+            raise ValueError(f"{source}: end-effector frame changed")
+    pose = rigid_transform(sample[f"T_{arm}_base_ee"], str(source))
+    if not np.allclose(pose, transform(sample["robot_before"]), rtol=0, atol=1e-8):
+        raise ValueError(f"{source}: stored pose disagrees with robot_before")
+    return pose, rigid_transform(sample["T_camera_board"], str(source))
+
+
 def load_candidate(path: Path) -> Record:
     """Load a candidate only when its report and original samples still agree."""
     candidate = json.loads(path.read_text(encoding="utf-8"))

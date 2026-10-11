@@ -40,7 +40,7 @@ from common import (
     check_opencv,
     check_state,
     delta,
-    rigid_transform,
+    sample_poses,
     transform,
     write_json,
 )
@@ -143,35 +143,18 @@ class Collector:
                 record = json.loads(
                     (folder / "sample.json").read_text(encoding="utf-8")
                 )
-                if (
-                    type(record["index"]) is not int
-                    or record["index"] != index
-                    or record["arm"] != self.config.arm
-                    or record["calibration_mode"] != "eye_to_hand"
-                    or record["camera"]["serial"] != self.config.camera_serial
-                    or record["board"] != self.config.board_metadata
-                ):
-                    raise ValueError(f"Sample configuration does not match: {folder}")
+                if type(record["index"]) is not int or record["index"] != index:
+                    raise ValueError(f"Sample index does not match: {folder}")
                 if reference is None:
                     reference = record
-                check_camera(record["camera"], reference["camera"])
-                for key in ("robot_before", "robot_after"):
-                    check_state(record[key])
-                    if not np.allclose(
-                        record[key]["F_T_EE"],
-                        reference["robot_before"]["F_T_EE"],
-                        rtol=0,
-                        atol=1e-8,
-                    ):
-                        raise ValueError(f"End-effector frame changed: {folder}")
-                pose = rigid_transform(record[self.pose_key], self.pose_key)
-                if not np.allclose(
-                    pose, transform(record["robot_before"]), rtol=0, atol=1e-8
-                ):
-                    raise ValueError(
-                        f"Stored robot pose disagrees with state: {folder}"
-                    )
-                rigid_transform(record["T_camera_board"], "T_camera_board")
+                sample_poses(
+                    record,
+                    reference,
+                    arm=self.config.arm,
+                    serial=self.config.camera_serial,
+                    board=self.config.board_metadata,
+                    source=folder,
+                )
                 for name in ("color.png", "annotated.png"):
                     if not (folder / name).is_file():
                         raise ValueError(f"Missing sample image: {folder / name}")

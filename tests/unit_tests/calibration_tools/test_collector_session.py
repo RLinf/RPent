@@ -143,6 +143,18 @@ def test_reviewed_samples_require_a_new_calibration_result(collector_module, ses
         state["O_T_EE"][12] = index * 0.02
         collector.sample()
     root = collector.root
+    solver = importlib.import_module("solve_base_handeye")
+    assert len(solver.load_samples(root, "left")[1]) == 10
+    sample_path = root / "sample_005" / "sample.json"
+    original = sample_path.read_text()
+    changed = json.loads(original)
+    changed["T_left_base_ee"][0][3] += 0.1
+    sample_path.write_text(json.dumps(changed))
+    with pytest.raises(ValueError, match="stored pose disagrees"):
+        solver.load_samples(root, "left")
+    with pytest.raises(ValueError, match="stored pose disagrees"):
+        collector_module.Collector(collector.config, root, resume=True)
+    sample_path.write_text(original)
     pose = collector_module.np.eye(4).tolist()
     candidate = {
         "status": "candidate_requires_independent_validation",
