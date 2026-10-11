@@ -602,6 +602,8 @@ def _create_worker_class():
             }
 
         def _open_perception_cameras(self) -> None:
+            if self._raw_rlinf_env().config.is_dummy:
+                return
             for alias, raw_config in self.controller["perception"]["cameras"].items():
                 resolution = tuple(
                     int(value) for value in raw_config.get("resolution", [640, 480])

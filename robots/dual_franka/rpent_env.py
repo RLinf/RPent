@@ -114,6 +114,8 @@ class RPentDualFrankaEnv(DualFrankaTCPEnv):
 
     def get_raw_camera_metadata(self) -> dict[str, dict[str, Any]]:
         """Describe the complete, uncropped snapshot and supported calibration."""
+        if self.config.is_dummy:
+            return {}
         snapshot = self._rpent_camera_snapshot
         if snapshot is None:
             raise RuntimeError(
@@ -148,7 +150,9 @@ class RPentDualFrankaEnv(DualFrankaTCPEnv):
         return metadata
 
     def get_raw_camera_snapshot(self) -> dict[str, Any]:
-        """Return a copy of the preceding acquisition without reading again."""
+        """Copy the preceding acquisition, or return empty physical views in dummy mode."""
+        if self.config.is_dummy:
+            return {"raw_frames": {}, "raw_depths": {}, "camera_meta": {}}
         metadata = self.get_raw_camera_metadata()
         return {
             **copy.deepcopy(self._rpent_camera_snapshot),

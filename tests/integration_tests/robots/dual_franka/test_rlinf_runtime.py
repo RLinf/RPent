@@ -125,20 +125,24 @@ def reading_env(dummy_env):
     return env
 
 
-def test_raw_policy_and_worker_observations_use_latest_acquisition(reading_env):
+@pytest.mark.parametrize("env_fixture", ["dummy_env", "reading_env"])
+def test_raw_policy_and_worker_observations_use_latest_acquisition(
+    request, env_fixture
+):
     import gymnasium as gym
     from rlinf.envs.real.env import RealWorldEnv
 
     from robots.dual_franka.env_server import _create_worker_class
 
-    env = reading_env
-    env._get_camera_observation()
-    snapshot = env.get_raw_camera_snapshot()
-    for name, camera in env._cameras.items():
-        np.testing.assert_array_equal(
-            snapshot["raw_frames"][name], camera.frame[..., ::-1]
-        )
-        np.testing.assert_allclose(snapshot["raw_depths"][name], 0.42)
+    env = request.getfixturevalue(env_fixture).unwrapped
+    if not env.config.is_dummy:
+        env._get_camera_observation()
+        snapshot = env.get_raw_camera_snapshot()
+        for name, camera in env._cameras.items():
+            np.testing.assert_array_equal(
+                snapshot["raw_frames"][name], camera.frame[..., ::-1]
+            )
+            np.testing.assert_allclose(snapshot["raw_depths"][name], 0.42)
     vector = gym.vector.SyncVectorEnv([lambda: env])
     wrapped = object.__new__(RealWorldEnv)
     wrapped.env = vector
@@ -153,6 +157,17 @@ def test_raw_policy_and_worker_observations_use_latest_acquisition(reading_env):
         assert obs["states"].shape == (20,)
         assert obs["main_images"].shape == (224, 224, 3)
         assert obs["extra_view_images"].shape == (2, 224, 224, 3)
+        if env.config.is_dummy:
+            assert obs["raw_camera_frames"] == obs["raw_camera_depths"] == {}
+            assert env.get_raw_camera_metadata() == {}
+            worker.controller = {"perception": {"cameras": {"unused": {}}}}
+            worker._open_perception_cameras()
+            assert worker._perception_cameras == {}
+            worker.cfg = SimpleNamespace(
+                env=SimpleNamespace(eval={"main_image_key": "left_wrist_0_rgb"})
+            )
+            assert worker.get_camera_meta()["cameras"]
+            return
         assert obs["main_depths"].shape == (224, 224)
         for camera in env._cameras.values():
             camera.frame[:] = 99
