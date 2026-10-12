@@ -103,9 +103,6 @@ def run_full_vla(env, model, *, prompt, workspace, expected_steps, stopped, emit
 
 def build_parser():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--skill", choices=["vla_full_rollout"], default="vla_full_rollout"
-    )
     parser.add_argument("--env-endpoint", default="http://127.0.0.1:6002")
     parser.add_argument("--vla-endpoint", default="http://127.0.0.1:6000")
     parser.add_argument("--task-id", type=int, default=6)
@@ -160,7 +157,7 @@ def main():
             stack.callback(model_rpc.close)
             env = DualFrankaEnvClient(env_rpc, reset_on_connect=False)
             model = Pi05VLAClient(model_rpc, embodiment="dual_franka")
-            status = model.status(timeout_s=10)
+            expected_steps = int(model.status(timeout_s=10)["action_chunk"])
 
             args.robot_config = args.robot_config.resolve()
             args.stop_file = stop_file
@@ -175,7 +172,6 @@ def main():
                 {
                     **vars(args),
                     "prompt": prompt,
-                    "model": status,
                     "reset_on_connect": False,
                 },
             )
@@ -194,7 +190,7 @@ def main():
                     model,
                     prompt=prompt,
                     workspace=config["workspace"],
-                    expected_steps=int(status["config"]["openpi"]["action_chunk"]),
+                    expected_steps=expected_steps,
                     stopped=lambda: event.is_set() or stop_file.exists(),
                     emit=emit,
                 )

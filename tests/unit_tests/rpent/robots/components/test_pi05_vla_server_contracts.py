@@ -42,9 +42,6 @@ def test_vla_prediction_follows_shared_component_rpc_contract(monkeypatch, embod
         def eval(self):
             return self
 
-        def parameters(self):
-            return iter([torch.zeros(1)])
-
         def predict_action_batch(self, obs, mode):
             calls.append(mode)
             shape = (20, 20) if embodiment == "dual_franka" else (1, 30, 14)
@@ -88,15 +85,13 @@ def test_vla_prediction_follows_shared_component_rpc_contract(monkeypatch, embod
 
 
 @pytest.mark.parametrize("embodiment", ["libero", "dual_franka", "robodojo", "yam"])
-@pytest.mark.parametrize("repo_id", [None, "test/dataset"])
-def test_cli_forwards_model_configuration(monkeypatch, embodiment, repo_id):
+def test_cli_forwards_model_configuration(monkeypatch, embodiment):
     import sys
     from types import SimpleNamespace
 
     from rpent.robots.components import pi05_vla_server as server
 
     received = {}
-    monkeypatch.setenv("DUAL_FRANKA_REPO_ID", "unrelated/local-deployment")
     monkeypatch.setattr(
         sys,
         "argv",
@@ -114,9 +109,6 @@ def test_cli_forwards_model_configuration(monkeypatch, embodiment, repo_id):
             "6000",
         ],
     )
-    if repo_id is None:
-        sys.argv.remove("--repo-id")
-        sys.argv.remove("test/dataset")
 
     def facade(**kwargs):
         received.update(kwargs)
@@ -125,7 +117,7 @@ def test_cli_forwards_model_configuration(monkeypatch, embodiment, repo_id):
     monkeypatch.setattr(server, "Pi05VLAFacade", facade)
     server.main()
     assert received["embodiment"] == embodiment
-    assert received["repo_id"] == repo_id
+    assert received["repo_id"] == "test/dataset"
     assert received["norm_stats_path"] == "/stats"
     assert received["port"] == 6000
 

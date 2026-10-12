@@ -658,16 +658,32 @@ def _create_worker_class():
                     output["raw_depths"][raw_key] = depth
                 intrinsics = realsense_color_intrinsics(camera)
                 info = camera.camera_info
+                height, width = rgb.shape[:2]
                 meta = {
                     "name": raw_key,
-                    "camera_alias": alias,
-                    "camera_type": info.camera_type,
                     "serial_number": info.serial_number,
-                    "rgb_shape": list(rgb.shape),
-                    "depth_shape": list(depth.shape) if depth is not None else None,
+                    "camera_type": info.camera_type,
+                    "raw_resolution": [width, height],
+                    "output_resolution": [width, height],
+                    "crop_bounds_xyxy": [0, 0, width, height],
+                    "crop_region": None,
+                    "depth_scale": float(camera.depth_scale),
+                    "depth_unit": "m" if depth is not None else None,
+                    "depth_aligned_to_color": bool(info.enable_depth),
+                    "extrinsic_cam2base": None,
+                    "extrinsic_cam2ee": None,
+                    "raw_color_intrinsics": intrinsics,
+                    "intrinsic_K": [
+                        [intrinsics["fx"], 0.0, intrinsics["ppx"]],
+                        [0.0, intrinsics["fy"], intrinsics["ppy"]],
+                        [0.0, 0.0, 1.0],
+                    ],
                     "depth_enabled": bool(info.enable_depth),
                     "depth_available": depth is not None,
-                    "color_intrinsics": intrinsics,
+                    "projection_supported": depth is not None,
+                    "camera_alias": alias,
+                    "rgb_shape": list(rgb.shape),
+                    "depth_shape": list(depth.shape) if depth is not None else None,
                 }
                 output["camera_meta"][raw_key] = meta
                 self._perception_camera_meta[raw_key] = meta

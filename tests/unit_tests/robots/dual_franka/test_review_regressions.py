@@ -120,7 +120,7 @@ def test_selected_perception_config(monkeypatch, tmp_path):
     assert perception._load_perception_config()["base_frames"]["marker"] == "custom"
 
 
-def test_joint_reset_waits_for_both_controller_results(worker_classes):
+def test_joint_reset_dispatches_both_arm_resets(worker_classes):
     worker = worker_classes[1].__new__(worker_classes[1])
     waited = []
 
@@ -143,73 +143,53 @@ def _robot_with_parts(parts):
     )
 
 
-@pytest.mark.parametrize("outcome", ["reached", "stalled", "drift"])
-@pytest.mark.parametrize("drift_step", [1, 4])
-def test_rotation_reference_and_recovery_failure(worker_classes, outcome, drift_step):
+@pytest.mark.parametrize(
+    "outcome", ["reached", "lagged", "stalled", "loop_drift", "final_drift"]
+)
+def test_rotation_reference_holds_position_and_checks_drift(worker_classes, outcome):
     worker = object.__new__(worker_classes[1])
-    calls = []
     worker.controller = {
         **runtime_config.flatten_control(CONTROL),
         "rotate_max_drift_m": 0.03,
         "min_iterations": 4,
         "iteration_multiplier": 1,
     }
-    worker._raw_rlinf_env = lambda: SimpleNamespace(
-        config=SimpleNamespace(is_dummy=True, joint_reset_qpos=[[0] * 7] * 2)
-    )
     poses = np.array([[0.5, 0, 0.4, 0, 0, 0, 1.0]] * 2)
+    worker._refresh_robot_state = lambda: None
     worker._arm_poses = lambda: tuple(p.copy() for p in poses)
     worker._pose_to_world = lambda arm, pose: pose.copy()
     worker._pose_from_world = lambda arm, pose: pose.copy()
     worker.per_arm_dim = 10
-    worker.get_robot_state = lambda: {
-        f"{arm}_arm": {"gripper_open": True} for arm in ("left", "right")
-    }
-    rotated = Rotation.from_euler("x", -0.33).as_quat()
-
-    def move(arm, delta):
-        calls.append(f"{arm}_move")
-        if calls.count(f"{arm}_move") == 1:
-            poses[worker._arm_index(arm), 3:] = rotated
-        return {"ok": True}
-
     commands = []
 
     def step(action, *, auto_reset):
-        arm = calls[-1].split("_")[0]
-        index = worker._arm_index(arm)
-        if calls[-1] == f"{arm}_move":
-            calls.append(f"{arm}_rotate")
-            commands[:] = [-0.33]
+        assert auto_reset is False
         arms = action.reshape(2, 10)
-        np.testing.assert_allclose(arms[index, :3], [0.5, 0, 0.4])
-        other = np.r_[poses[1 - index, :3], worker._arm_rot6d(poses[1 - index])]
-        np.testing.assert_allclose(arms[1 - index, :9], other)
+        np.testing.assert_allclose(arms[0, :3], [0.5, 0, 0.4])
+        np.testing.assert_allclose(
+            arms[1, :9], np.r_[poses[1, :3], worker._arm_rot6d(poses[1])]
+        )
         np.testing.assert_array_equal(arms[:, 9], 0)
-        # For this x-only rotation, the second rot6d column gives sin/cos(angle).
-        angle = float(np.arctan2(arms[index, 8], arms[index, 7]))
-        assert abs(angle - commands[-1]) <= 0.100001
-        commands.append(angle)
-        if outcome != "stalled" and (drift_step == 1 or len(commands) > 4):
-            poses[index, 3:] = Rotation.from_euler("x", angle).as_quat()
-        drift = outcome == "drift" and len(commands) > drift_step
-        poses[index, 1] = 0.04 if drift else 0.001
+        commands.append(float(np.arctan2(arms[0, 8], arms[0, 7])))
+        if outcome == "reached" or (outcome == "lagged" and len(commands) == 4):
+            poses[0, 3:] = Rotation.from_euler("x", 0.33).as_quat()
+        drift = (outcome == "loop_drift" and len(commands) == 1) or (
+            outcome == "final_drift" and len(commands) == 4
+        )
+        poses[0, 1] = 0.04 if drift else 0.001
 
     worker.env = SimpleNamespace(step=step)
-    worker.move_delta = move
-    if outcome == "drift":
+    if outcome.endswith("drift"):
         with pytest.raises(RuntimeError, match="position drift"):
-            worker.recover_joint_posture()
-        assert calls == ["left_move", "left_rotate"]
+            worker.rotate_delta("left", [0.33, 0, 0])
     else:
-        result = worker.recover_joint_posture()
-        assert result["ok"]
-        evaluation = result["return_evaluation"]
-        assert evaluation["rotation_return_ok"] is (outcome == "reached")
-        assert evaluation["rotation_is_diagnostic_only"] is True
-        assert commands[-1] == pytest.approx(0, abs=1e-6)
-        assert calls[:3] == ["left_move", "left_rotate", "left_move"]
-        assert calls[3:] == ["right_move", "right_rotate", "right_move"]
+        result = worker.rotate_delta("left", [0.33, 0, 0])
+        assert result["ok"] is (outcome != "stalled")
+        assert result["final_error_rad"] == pytest.approx(
+            0.33 if outcome == "stalled" else 0, abs=1e-6
+        )
+    expected = [0.1] if outcome == "loop_drift" else [0.1, 0.2, 0.3, 0.33]
+    assert commands == pytest.approx(expected, abs=1e-6)
 
 
 def test_missing_hand_state_is_not_silently_defaulted(worker_classes):

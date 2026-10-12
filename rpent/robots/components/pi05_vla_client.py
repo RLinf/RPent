@@ -237,7 +237,7 @@ class Pi05VLAClient(BaseVLAClient):
         return _ENCODE_OBS[self._embodiment](env_obs)
 
     def status(self, *, timeout_s: float = 10) -> dict[str, Any]:
-        """Query read-only metadata from a server supporting ``vla.status``."""
+        """Query prediction chunk length from a server supporting ``vla.status``."""
         return self._client.call("vla.status", timeout_s=timeout_s)
 
     # ---- inference ----

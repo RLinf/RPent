@@ -130,22 +130,38 @@ class RPentDualFrankaEnv(DualFrankaTCPEnv):
                 if isinstance(camera, RPentRealSenseCamera)
                 else None
             )
+            frame = snapshot["raw_frames"][name]
+            height, width = frame.shape[:2]
             metadata[name] = {
                 "name": name,
                 "serial_number": info.serial_number,
-                "camera_type": (
-                    "realsense"
-                    if info.camera_type == _REALSENSE_BACKEND
-                    else info.camera_type
-                ),
-                "rgb_shape": list(snapshot["raw_frames"][name].shape),
-                "depth_shape": None if depth is None else list(depth.shape),
-                "depth_enabled": info.enable_depth,
-                "depth_available": depth is not None,
-                "depth_unit": None if depth is None else "m",
+                "camera_type": "realsense"
+                if info.camera_type == _REALSENSE_BACKEND
+                else info.camera_type,
+                "raw_resolution": [width, height],
+                "output_resolution": [width, height],
+                "crop_bounds_xyxy": [0, 0, width, height],
+                "crop_region": None,
                 "depth_scale": float(camera.depth_scale),
-                "color_intrinsics": intrinsics,
+                "depth_unit": "m" if depth is not None else None,
+                "depth_aligned_to_color": bool(info.enable_depth),
+                "extrinsic_cam2base": None,
+                "extrinsic_cam2ee": None,
+                "raw_color_intrinsics": intrinsics,
+                "intrinsic_K": (
+                    [
+                        [intrinsics["fx"], 0.0, intrinsics["ppx"]],
+                        [0.0, intrinsics["fy"], intrinsics["ppy"]],
+                        [0.0, 0.0, 1.0],
+                    ]
+                    if intrinsics is not None
+                    else None
+                ),
+                "depth_enabled": bool(info.enable_depth),
+                "depth_available": depth is not None,
                 "projection_supported": depth is not None and intrinsics is not None,
+                "rgb_shape": list(frame.shape),
+                "depth_shape": None if depth is None else list(depth.shape),
             }
         return metadata
 

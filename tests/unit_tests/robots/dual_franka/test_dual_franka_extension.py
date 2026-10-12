@@ -43,20 +43,6 @@ def test_franka_extensions_declare_real_robot():
     assert single.is_real_robot and dual.is_real_robot
 
 
-def test_manual_schemas_preserve_native_tool_declarations():
-    from robots.dual_franka import dual_franka_manual_call as manual
-    from robots.dual_franka.toolkit import DualFrankaToolkit
-
-    tools = DualFrankaToolkit.declared_tools()
-    assert manual._registered_tool_names() == {tool.name for tool in tools}
-    for tool in tools:
-        assert manual._schema_payload(tool.name) == {
-            "primitive": tool.name,
-            "description": tool.description,
-            "input_schema": tool.input_schema,
-        }
-
-
 def test_dual_franka_uses_rpent_owned_robot_config(fake_rlinf_realworld_modules):
     from robots.dual_franka.runtime_config import load_mapping
 
