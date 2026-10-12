@@ -184,8 +184,7 @@ cluster and environment objects. To use a different file, pass
 
 During ``rotate_delta``, the position target stays at the starting TCP position.
 On real hardware, compliance/impedance control can allow the actual pose to
-wander due to load, contact, or limited tracking accuracy. These are possible
-sources of drift, not a diagnosis of a particular run.
+deviate from the target due to load, contact, or limited tracking accuracy.
 
 ``rotation_hold.max_drift_m`` defaults to ``0.10`` m (10 cm) and bounds the
 Euclidean distance from the TCP position at the start of this rotation. It is
@@ -197,9 +196,7 @@ position and angle both meet their tolerances; otherwise it reports ``False``.
 Above the limit, a check during the rotation loop or at its end raises an RPC
 error, ending the call without translation compensation.
 
-Raising the limit allows larger offsets to reach compensation. The 10 cm default
-has not been validated on real hardware, and the robot's own protections can
-still trigger independently.
+The robot's own protections can still trigger independently.
 
 Start the Two-node Ray Cluster
 ------------------------------

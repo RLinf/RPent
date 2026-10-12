@@ -18,7 +18,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from tests.e2e_tests.dual_franka.dual_franka_full_vla import run_full_vla
+from tests.e2e_tests.dual_franka.dual_franka_only_vla import run_only_vla
 from tests.e2e_tests.dual_franka.dual_franka_vla import DeploymentTest, run_console
 
 
@@ -70,7 +70,7 @@ def make_session(tmp_path, *, fail=False, terminate=False):
 
 def test_policy_continues_across_chunks_until_operator_stop(tmp_path):
     session, calls, _ = make_session(tmp_path)
-    result = run_full_vla(
+    result = run_only_vla(
         session.env,
         session.model,
         prompt=session.prompt,
