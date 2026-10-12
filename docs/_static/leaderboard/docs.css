@@ -39,3 +39,4 @@ html[data-theme="dark"] .rpent-static-leaderboard{--rpent-divider:#be96e0}
 .rpent-static-leaderboard .note-reference{font-size:.75em;margin-inline-start:.2em;white-space:nowrap}
 .rpent-static-leaderboard .note-reference a{text-decoration:underline;text-underline-offset:2px}
 .rpent-static-leaderboard .note-reference a:focus-visible,.rpent-static-leaderboard .scope-note:focus-visible{outline:2px solid var(--rpent-divider);outline-offset:3px}
+.rpent-static-leaderboard .episode-count{display:block;font-size:12px;line-height:1.4;font-variant-numeric:tabular-nums;white-space:nowrap}

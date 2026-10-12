@@ -32,7 +32,7 @@
                 {% for row in benchmark.rows %}
                 <tr><th scope="row" class="benchmark-method">{{ row.label }}{% for note in row.notes %}<sup class="note-reference"><a href="#{{ note.id }}" role="doc-noteref">[{{ note.number }}]</a></sup>{% endfor %}<small>{{ row.detail }}</small></th>
                   {% for cell in row.cells %}
-                  <td{% if cell %} data-record="{{ cell.id }}"{% endif %}>{% if cell and cell.rate is not none %}{{ cell.rate }}%{% else %}—{% endif %}</td>
+                  <td data-value="{{ cell.rate if cell and cell.rate is not none else '' }}"{% if cell %} data-record="{{ cell.id }}"{% endif %}>{% if cell and cell.rate is not none %}{{ cell.rate }}%{% else %}—{% endif %}{% if cell and cell.get('episodes') is not none %} <small class="episode-count">({% if cell.get('successes') is not none %}{{ cell.successes }}/{{ cell.episodes }}{% else %}{{ copy.countsOnly }}: {{ cell.episodes }}{% endif %})</small>{% endif %}</td>
                   {% endfor %}
                 </tr>
                 {% endfor %}

@@ -96,3 +96,4 @@ footer{padding-inline:max(var(--gutter),calc((100% - var(--content-max))/2 + var
 .note-reference a{color:inherit;text-decoration:underline;text-underline-offset:2px}
 .note-reference a:focus-visible,.scope-note:focus-visible{outline:2px solid var(--best);outline-offset:3px}
 .scope-note[tabindex]{scroll-margin-top:calc(var(--module-top) + var(--directory-height) + 88px)}
+.episode-count{display:block;font-size:12px;line-height:1.4;font-variant-numeric:tabular-nums}
