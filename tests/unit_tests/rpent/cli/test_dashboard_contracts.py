@@ -73,7 +73,7 @@ def test_shared_runtime_gets_memory_before_startup(
     if explicit_repo:
         from rpent.memory import source
 
-        def prepare(args, name, output_dir):
+        def prepare(args, name):
             assert name == robot and args.memory_repo == "team/memory@release"
             sync(MemoryManager(root), remote_repo="test/memory")
             return root

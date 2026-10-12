@@ -104,7 +104,7 @@ def hub(tmp_path, monkeypatch):
     )
 
     def info(*args, **kwargs):
-        state.info_calls.append(kwargs)
+        state.info_calls.append({"repo_id": args[0], **kwargs})
         if state.fail:
             raise ConnectionError("offline")
         return SimpleNamespace(
@@ -381,11 +381,6 @@ def test_cli_selects_root_before_planner_or_services(
         root = kwargs["memory_dir"]
         assert root.name == ASTRA
         assert (root / "MEMORY.md").read_text() == ASTRA
-        record = json.loads((tmp_path / "run/memory_source.json").read_text())
-        assert (
-            record["source"]
-            == f"https://huggingface.co/datasets/{memory_cli.DEFAULT_REPO}@{hub.sha}"
-        )
         raise RuntimeError("selected corpus reached planner before services")
 
     monkeypatch.setattr(run_cli, "build_planner", build_planner)
@@ -431,12 +426,6 @@ def test_dashboard_selects_claimed_model_before_task_runtime(
         assert task_args.model == "gpt-6-astra"
         assert root.name == ASTRA
         assert (root / "MEMORY.md").read_text() == ASTRA
-        record = json.loads((configs[-1].output_dir / "memory_source.json").read_text())
-        assert record["memory_version"] == ASTRA
-        assert (
-            record["source"]
-            == f"https://huggingface.co/datasets/{memory_cli.DEFAULT_REPO}@{hub.sha}"
-        )
         raise RuntimeError("stop after verifying selected root before task startup")
 
     state = SimpleNamespace(task_replacement_requested=False)
@@ -583,35 +572,17 @@ def test_empty_run_memory_revision_is_rejected(revision):
         memory_cli.validate_options(Namespace(memory_revision=revision))
 
 
-def test_source_record_tracks_a_moving_branch_and_offline_resolution(
-    hub, tmp_path, monkeypatch
-):
-    record = tmp_path / "run/memory_source.json"
-    options = {
-        "version": ASTRA,
-        "cache_dir": tmp_path / "cache",
-        "source_record": record,
-    }
+def test_moving_branch_uses_last_verified_snapshot_offline(hub, tmp_path, monkeypatch):
+    options = {"version": ASTRA, "cache_dir": tmp_path / "cache"}
     first = sync_version(**options)
-    source = json.loads(record.read_text())
-    assert source == {
-        "schema_version": 2,
-        "profile": "hf",
-        "robot": "libero",
-        "source": f"https://huggingface.co/datasets/{memory_cli.DEFAULT_REPO}@{hub.sha}",
-        "memory_version": ASTRA,
-    }
     receipt = json.loads((first.parent / f"{ASTRA}.receipt.json").read_text())
-    assert len(receipt["files"]) == 5
     for name, digest in receipt["files"].items():
         assert hashlib.sha256((first / name).read_bytes()).hexdigest() == digest
     hub.sha = "b" * 40
     second = sync_version(**options)
     assert second != first
-    assert json.loads(record.read_text())["source"].endswith("@" + hub.sha)
     monkeypatch.setenv("HF_HUB_OFFLINE", "1")
     assert sync_version(**options) == second
-    assert json.loads(record.read_text())["source"].endswith("@" + hub.sha)
 
 
 def test_explicit_commit_can_reuse_branch_download_offline_without_a_pin_pointer(
@@ -675,82 +646,16 @@ def test_hub_must_resolve_the_requested_immutable_commit(hub, tmp_path):
     assert not hub.calls
 
 
-def test_full_commit_is_normalized_for_hub_but_original_request_is_recorded(
-    hub, tmp_path
-):
-    record = tmp_path / "source.json"
+def test_full_commit_is_normalized_for_hub(hub, tmp_path):
     sync_version(
         version=ASTRA,
         revision=hub.sha.upper(),
         cache_dir=tmp_path / "cache",
-        source_record=record,
     )
     assert hub.info_calls[-1]["revision"] == hub.sha
-    source = json.loads(record.read_text())
-    assert source["source"].endswith("@" + hub.sha)
 
 
-@pytest.mark.parametrize("target", ["cache", "copy"])
-def test_source_record_cannot_modify_cache_or_copied_corpus(hub, tmp_path, target):
-    with pytest.raises(ValueError, match="outside the memory cache"):
-        sync_version(
-            version=ASTRA,
-            cache_dir=tmp_path / "cache",
-            output_dir=tmp_path / "copy",
-            source_record=tmp_path / target / "source.json",
-        )
-    assert not hub.info_calls
-    assert not (tmp_path / "copy").exists()
-
-
-def test_standalone_source_record_identifies_the_copied_corpus(
-    hub, tmp_path, monkeypatch
-):
-    monkeypatch.setattr(memory_cli, "get_memory_dir", lambda _: tmp_path / "cache")
-    record = tmp_path / "source.json"
-    output = tmp_path / "copy"
-    assert (
-        memory_cli.main(
-            [
-                "sync",
-                "--memory-version",
-                ASTRA,
-                "--revision",
-                hub.sha,
-                "--output-dir",
-                str(output),
-                "--source-record",
-                str(record),
-            ]
-        )
-        == 0
-    )
-    source = json.loads(record.read_text())
-    assert source["source"].endswith("@" + hub.sha)
-    assert "local_dir" not in source
-    assert not (output / "source.json").exists()
-
-
-def test_local_run_clearly_replaces_a_previous_hf_source_record(hub, tmp_path):
-    output = tmp_path / "run"
-    output.mkdir()
-    (output / "memory_source.json").write_text(
-        '{"profile":"hf","resolved_commit":"old"}'
-    )
-    config = SimpleNamespace(
-        output_dir=output, prompt_vars={"memory_dir": str(tmp_path / "local")}
-    )
-    memory_cli.prepare_memory(Namespace(memory_profile="local"), config)
-    source = json.loads((output / "memory_source.json").read_text())
-    assert source["profile"] == "local"
-    assert source["resolved_commit"] is None
-    assert "files_sha256" not in source
-    assert not hub.info_calls
-
-
-def test_changed_export_is_not_published_or_given_a_source_record(
-    hub, tmp_path, monkeypatch
-):
+def test_changed_export_is_not_published(hub, tmp_path, monkeypatch):
     copytree = memory_cli.shutil.copytree
 
     def changed_copy(source, destination, *args, **kwargs):
@@ -761,47 +666,36 @@ def test_changed_export_is_not_published_or_given_a_source_record(
         return result
 
     monkeypatch.setattr(memory_cli.shutil, "copytree", changed_copy)
-    record = tmp_path / "source.json"
     output = tmp_path / "export"
     with pytest.raises(ValueError, match="changed during export"):
         sync_version(
             version=ASTRA,
             cache_dir=tmp_path / "cache",
             output_dir=output,
-            source_record=record,
         )
     assert not output.exists()
-    assert not record.exists()
 
 
-def test_replay_source_pins_corpus_and_repo_across_model_changes(
+def test_pinned_url_and_version_keep_corpus_across_model_changes(
     hub, tmp_path, monkeypatch
 ):
     monkeypatch.setattr(memory_cli, "get_memory_dir", lambda _: tmp_path / "cache")
-    source = tmp_path / "source.json"
-    sync_version(
-        version=ASTRA,
-        repo_id="custom/memory",
-        cache_dir=tmp_path / "cache" / ".versions",
-        source_record=source,
-    )
-    # An explicit saved source must not be replaced by model auto-selection or
-    # an environment override inherited from a different experiment.
-    monkeypatch.setenv("RPENT_MEMORY_HF_REPO", "other/memory")
-    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
     args = Namespace(
         planner="api",
-        model="openai:gpt-5.5",
-        memory_source=str(source),
-        memory_version="auto",
+        model="openai:gpt-6-astra",
+        memory_version=ASTRA,
+        memory_repo=f"https://huggingface.co/datasets/custom/memory@{hub.sha}",
     )
-    config = SimpleNamespace(output_dir=tmp_path / "replay", prompt_vars={})
-    memory_cli.prepare_memory(args, config)
-    assert config.prompt_vars["memory_version"] == ASTRA
-    assert (config.prompt_vars["memory_dir"] / "MEMORY.md").read_text() == ASTRA
-    assert json.loads(
-        (config.output_dir / "memory_source.json").read_text()
-    ) == json.loads(source.read_text())
+    first = SimpleNamespace(prompt_vars={})
+    memory_cli.prepare_memory(args, first)
+    monkeypatch.setenv("RPENT_MEMORY_HF_REPO", "other/memory")
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+    args.model = "openai:gpt-5.5"
+    second = SimpleNamespace(prompt_vars={})
+    memory_cli.prepare_memory(args, second)
+    assert second.prompt_vars["memory_dir"] == first.prompt_vars["memory_dir"]
+    assert second.prompt_vars["memory_version"] == ASTRA
+    assert (second.prompt_vars["memory_dir"] / "MEMORY.md").read_text() == ASTRA
 
 
 def test_repo_url_revision_flows_into_libero_verifier(hub, tmp_path, monkeypatch):
@@ -813,6 +707,6 @@ def test_repo_url_revision_flows_into_libero_verifier(hub, tmp_path, monkeypatch
     )
     config = SimpleNamespace(output_dir=tmp_path / "run", prompt_vars={})
     memory_cli.prepare_memory(args, config)
-    source = json.loads((config.output_dir / "memory_source.json").read_text())
-    assert source["source"] == args.memory_repo
+    assert config.prompt_vars["memory_dir"].parent.name == hub.sha
+    assert hub.info_calls[-1]["repo_id"] == "custom/memory"
     assert hub.info_calls[-1]["revision"] == hub.sha

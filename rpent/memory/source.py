@@ -12,17 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Shared Hugging Face memory source selection and replayable source records."""
+"""Shared Hugging Face memory source selection."""
 
 from __future__ import annotations
 
-import json
 import re
 from argparse import Namespace
 from pathlib import Path
 from urllib.parse import urlsplit
-
-from rpent.evaluation import write_json_atomic
 
 
 def parse_repo(value: str) -> tuple[str, str]:
@@ -50,88 +47,36 @@ def parse_repo(value: str) -> tuple[str, str]:
     return repo, revision if separator else "main"
 
 
-def read_source(path: str | Path, robot: str) -> dict:
-    """Read a compact pinned HF source; reject local directories and mutable refs."""
-    try:
-        data = json.loads(Path(path).expanduser().read_text(encoding="utf-8"))
-        if (
-            not isinstance(data, dict)
-            or data.get("schema_version") != 2
-            or data.get("profile") != "hf"
-        ):
-            raise ValueError("expected a schema-version-2 HF memory source record")
-        if data.get("robot") != robot:
-            raise ValueError("memory source belongs to another robot")
-        repo, commit = parse_repo(data["source"])
-        if not re.fullmatch(r"[0-9a-f]{40}", commit):
-            raise ValueError("memory source must contain a full immutable commit SHA")
-        return {**data, "repository": repo, "resolved_commit": commit}
-    except (OSError, json.JSONDecodeError, KeyError, TypeError) as exc:
-        raise ValueError(f"Cannot read memory source record: {exc}") from exc
-
-
-def validate_source_options(args: Namespace, robot: str) -> None:
-    """Validate explicit source flags before CLI or Dashboard services start."""
+def validate_source_options(args: Namespace) -> None:
+    """Validate an explicit source before CLI or Dashboard services start."""
     repo = getattr(args, "memory_repo", None)
-    source = getattr(args, "memory_source", None)
-    if repo is None and source is None:
+    if repo is None:
         return
     if (
         getattr(args, "explore", False)
         or getattr(args, "memory_profile", None) == "local"
     ):
-        raise ValueError("--memory-repo and --memory-source require HF evaluation")
-    if repo is not None and source is not None:
-        raise ValueError("choose either --memory-repo or --memory-source")
-    if getattr(args, "memory_revision", None):
-        raise ValueError(
-            "use @revision in --memory-repo or the commit from --memory-source"
-        )
-    if source is not None:
-        data = read_source(source, robot)
-        if getattr(args, "memory_version", "auto") != "auto":
-            raise ValueError("--memory-source already selects the corpus version")
-        if robot == "libero" and not isinstance(data.get("memory_version"), str):
-            raise ValueError("LIBERO source record must specify memory_version")
-    else:
-        parse_repo(repo)
+        raise ValueError("--memory-repo requires HF evaluation")
+    if getattr(args, "memory_revision", None) is not None:
+        raise ValueError("use @revision in --memory-repo instead of --memory-revision")
+    parse_repo(repo)
 
 
-def selected_source(args: Namespace, robot: str) -> tuple[str, str, str | None] | None:
-    """Return explicit repository, revision and optional corpus version."""
-    validate_source_options(args, robot)
-    if getattr(args, "memory_source", None):
-        data = read_source(args.memory_source, robot)
-        return data["repository"], data["resolved_commit"], data.get("memory_version")
-    if getattr(args, "memory_repo", None):
-        repo, revision = parse_repo(args.memory_repo)
-        return repo, revision, None
-    return None
+def selected_source(args: Namespace) -> tuple[str, str] | None:
+    """Return an explicit repository and revision, if supplied."""
+    validate_source_options(args)
+    repo = getattr(args, "memory_repo", None)
+    return parse_repo(repo) if repo is not None else None
 
 
-def source_record(
-    repo: str, commit: str, robot: str, *, memory_version: str | None = None
-) -> dict:
-    """Build a small portable identity, without duplicating cache file manifests."""
-    record = {
-        "schema_version": 2,
-        "profile": "hf",
-        "robot": robot,
-        "source": f"https://huggingface.co/datasets/{repo}@{commit}",
-    }
-    if memory_version is not None:
-        record["memory_version"] = memory_version
-    return record
-
-
-def prepare_explicit_source(args: Namespace, robot: str, output_dir: Path) -> Path:
+def prepare_explicit_source(args: Namespace, robot: str) -> Path:
     """Select a robot subtree from an exact Hub snapshot; default sync is unchanged."""
     from huggingface_hub import snapshot_download
 
-    selection = selected_source(args, robot)
+    selection = selected_source(args)
     if selection is None:
         raise ValueError("No explicit memory source selected")
-    repo, revision, _ = selection
+    repo, revision = selection
     snapshot = Path(
         snapshot_download(
             repo_id=repo,
@@ -148,8 +93,4 @@ def prepare_explicit_source(args: Namespace, robot: str, output_dir: Path) -> Pa
     root = snapshot / robot
     if not root.is_dir() or not any(root.rglob("*")):
         raise ValueError(f"Memory source has no {robot}/ corpus")
-    output_dir.mkdir(parents=True, exist_ok=True)
-    write_json_atomic(
-        output_dir / "memory_source.json", source_record(repo, commit, robot)
-    )
     return root

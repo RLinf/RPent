@@ -12,9 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Shared source flags, portable records and robot subtree selection."""
+"""Shared source flags and robot subtree selection."""
 
-import json
 from argparse import Namespace
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -25,8 +24,6 @@ import pytest
 from rpent.memory.loading import prepare_run_memory
 from rpent.memory.source import (
     parse_repo,
-    read_source,
-    source_record,
     validate_source_options,
 )
 
@@ -68,8 +65,6 @@ def test_invalid_source_urls(value):
     "args",
     [
         Namespace(memory_repo=""),
-        Namespace(memory_source=""),
-        Namespace(memory_repo="team/memory", memory_source="source.json"),
         Namespace(memory_repo="team/memory", memory_profile="local"),
         Namespace(memory_repo="team/memory", explore=True),
         Namespace(memory_repo="team/memory", memory_revision="abc"),
@@ -77,11 +72,11 @@ def test_invalid_source_urls(value):
 )
 def test_conflicts_fail_before_download(args):
     with pytest.raises(ValueError):
-        validate_source_options(args, "robotwin")
+        validate_source_options(args)
 
 
 @pytest.mark.parametrize("robot", ["robocasa", "robotwin", "franka"])
-def test_common_preparation_selects_requested_robot_and_replays_pin(
+def test_common_preparation_selects_requested_robot_at_pinned_commit(
     tmp_path, monkeypatch, robot
 ):
     commit = "a" * 40
@@ -97,7 +92,7 @@ def test_common_preparation_selects_requested_robot_and_replays_pin(
     args = Namespace(
         planner="api",
         model="test",
-        memory_repo="team/memory@release",
+        memory_repo=f"team/memory@{commit}",
         memory_profile="hf",
     )
     config = SimpleNamespace(output_dir=tmp_path / "run", prompt_vars={})
@@ -105,34 +100,8 @@ def test_common_preparation_selects_requested_robot_and_replays_pin(
     assert config.prompt_vars["memory_dir"] == str(corpus)
     assert args.memory_dir == str(corpus)
     assert fetch.call_args.kwargs["allow_patterns"] == [f"{robot}/**"]
-    record = config.output_dir / "memory_source.json"
-    assert json.loads(record.read_text()) == source_record("team/memory", commit, robot)
-    args.memory_repo = None
-    args.memory_source = str(record)
-    config.output_dir = tmp_path / "replay"
-    prepare_run_memory(args, spec, config)
     assert fetch.call_args.kwargs["revision"] == commit
-    assert json.loads(
-        (config.output_dir / "memory_source.json").read_text()
-    ) == json.loads(record.read_text())
-
-
-@pytest.mark.parametrize(
-    "change",
-    [
-        {"robot": "libero"},
-        {"profile": "local"},
-        {"schema_version": 1},
-        {"source": "team/memory@main"},
-    ],
-)
-def test_replay_rejects_incompatible_or_mutable_records(tmp_path, change):
-    p = tmp_path / "source.json"
-    p.write_text(
-        json.dumps({**source_record("team/memory", "a" * 40, "robotwin"), **change})
-    )
-    with pytest.raises(ValueError):
-        read_source(p, "robotwin")
+    assert not config.output_dir.exists()
 
 
 def test_missing_robot_subtree_does_not_fall_back_to_default(tmp_path, monkeypatch):
@@ -146,4 +115,4 @@ def test_missing_robot_subtree_does_not_fall_back_to_default(tmp_path, monkeypat
     config = SimpleNamespace(output_dir=tmp_path / "run", prompt_vars={})
     with pytest.raises(ValueError, match="no robotwin"):
         prepare_run_memory(args, spec, config)
-    assert not (config.output_dir / "memory_source.json").exists()
+    assert not config.output_dir.exists()

@@ -25,9 +25,7 @@ import shutil
 import tempfile
 from pathlib import Path, PurePosixPath
 
-from rpent.evaluation import write_json_atomic
 from rpent.memory.source import selected_source
-from rpent.memory.source import source_record as build_source_record
 from rpent.planner.base import resolve_model
 from rpent.robots.robot_spec import RunConfig
 from rpent.utils.config import get_memory_dir
@@ -66,42 +64,26 @@ def validate_options(args: argparse.Namespace) -> None:
 
 
 def prepare_memory(args: argparse.Namespace, config: RunConfig) -> None:
-    """Bind the selected corpus and record its source before each task starts."""
+    """Bind the selected corpus before each task starts."""
     validate_options(args)
     profile = getattr(args, "memory_profile", None) or (
         "local" if getattr(args, "explore", False) else "hf"
     )
     if profile == "local":
-        destination = Path(config.output_dir) / "memory_source.json"
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        write_json_atomic(
-            destination,
-            {
-                "schema_version": 1,
-                "profile": "local",
-                "local_dir": str(
-                    Path(config.prompt_vars["memory_dir"]).expanduser().resolve()
-                ),
-                "resolved_commit": None,
-            },
-        )
         return
-    selection = selected_source(args, "libero")
+    selection = selected_source(args)
     version = select_version(
         getattr(args, "memory_version", "auto"), model=args.model, planner=args.planner
     )
     repo = None
     revision = getattr(args, "memory_revision", None) or "main"
     if selection is not None:
-        repo, revision, recorded_version = selection
-        if recorded_version is not None:
-            version = recorded_version
+        repo, revision = selection
     root = sync_version(
         version=version,
         revision=revision,
         repo_id=repo,
         cache_dir=get_memory_dir("libero") / ".versions",
-        source_record=Path(config.output_dir) / "memory_source.json",
     )
     if args.planner == "flash":
         replay_directory(root)
@@ -212,7 +194,6 @@ def sync_version(
     repo_id: str | None = None,
     revision: str = "main",
     output_dir: Path | None = None,
-    source_record: Path | None = None,
 ) -> Path:
     """Download one complete corpus; reuse only its verified cache on outage.
 
@@ -231,15 +212,6 @@ def sync_version(
     repo_id = repo_id or os.environ.get("RPENT_MEMORY_HF_REPO", DEFAULT_REPO)
     key = hashlib.sha256(repo_id.encode()).hexdigest()[:20]
     base = Path(cache_dir).resolve() / key
-    if source_record is not None:
-        source_record = Path(source_record).expanduser().resolve()
-        protected = [Path(cache_dir).resolve()]
-        if output_dir is not None:
-            protected.append(Path(output_dir).resolve())
-        if any(source_record.is_relative_to(directory) for directory in protected):
-            raise ValueError(
-                "source record must be outside the memory cache and output corpus"
-            )
     base.mkdir(parents=True, exist_ok=True)
     ref_key = hashlib.sha256(f"{revision}:{version}".encode()).hexdigest()
     ref = base / f"{ref_key}.json"
@@ -358,14 +330,9 @@ def sync_version(
                         {"prefix": prefix, "files": hashes},
                     )
             _write_json(ref, {"commit": sha, "version": version, "repo": repo_id})
-        if source_record is not None or output_dir is not None:
+        if output_dir is not None:
             receipt_path = root.parent / f"{version}.receipt.json"
-            receipt_bytes = receipt_path.read_bytes()
-            receipt = json.loads(receipt_bytes)
-        if source_record is not None:
-            provenance = build_source_record(
-                repo_id, sha, "libero", memory_version=version
-            )
+            receipt = json.loads(receipt_path.read_text())
     logger.info("memory: %s @ %s, root=%s", version, sha, root)
     if output_dir is not None:
         destination = Path(output_dir).resolve()
@@ -382,9 +349,6 @@ def sync_version(
                     raise ValueError("Memory contents changed during export")
                 copy.replace(destination)
         root = destination
-    if source_record is not None:
-        source_record.parent.mkdir(parents=True, exist_ok=True)
-        write_json_atomic(source_record, provenance)
     return root
 
 
@@ -405,12 +369,6 @@ def main(argv: list[str] | None = None) -> int:
     )
     sync.add_argument("--revision", default="main", help="Hub commit, tag or branch.")
     sync.add_argument(
-        "--source-record",
-        type=Path,
-        default=None,
-        help="Write resolved source and file hashes outside the cache and output corpus.",
-    )
-    sync.add_argument(
         "--output-dir", type=Path, help="Copy into a new local corpus directory."
     )
     args = parser.parse_args(argv)
@@ -422,7 +380,6 @@ def main(argv: list[str] | None = None) -> int:
         revision=args.revision,
         cache_dir=get_memory_dir("libero") / ".versions",
         output_dir=args.output_dir,
-        source_record=args.source_record,
     )
     print(root)
     return 0

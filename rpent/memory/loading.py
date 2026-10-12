@@ -37,8 +37,8 @@ def prepare_run_memory(args: Namespace, spec: RobotSpec, config: RunConfig) -> N
     )
     if profile == "local":
         return
-    if getattr(args, "memory_repo", None) or getattr(args, "memory_source", None):
-        root = prepare_explicit_source(args, spec.name, config.output_dir)
+    if getattr(args, "memory_repo", None) is not None:
+        root = prepare_explicit_source(args, spec.name)
         config.prompt_vars["memory_dir"] = str(root)
         args.memory_dir = str(root)
         return
