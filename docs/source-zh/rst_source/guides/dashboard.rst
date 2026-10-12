@@ -24,7 +24,9 @@
    rpent --robot libero --suite libero_10_task --task 0 --seed 1 \
      --planner api --model anthropic:claude-opus-4-8 --interactive
 
-模型认证配置见 :doc:`configure_planner`。``--interactive`` 不能与 ``--dashboard`` 同时使用。单臂 Franka 和双臂 Franka 的普通运行需要使用操作员终端；双臂探索中的交互方式见 :doc:`../real_world_robots/dual_franka`。
+模型认证配置见 :doc:`configure_planner`。``--interactive`` 不能与 ``--dashboard`` 同时使用。单臂 Franka 需要使用操作员终端。双臂 Franka 支持通过 Codex 在 Dashboard 中接收操作员输入：按 :doc:`../real_world_robots/dual_franka` 配置启动参数，使用 ``--planner codex --dashboard``，不加 ``--interactive``。
+
+普通双臂任务中，``/success``、``/failure`` 和 ``/continue`` 用于回答待处理的操作员判断请求，随后规划器继续执行，并通过通常的 ``finish`` 工具结束任务。探索模式（``--explore``）中，``/done`` 确认待处理的场景重置请求；直接输入 ``/success``、``/failure`` 或 ``/abort`` 会结束当前 TaskRun。普通任务连接环境时执行 reset；探索任务则等待场景确认后再 reset。可通过 Dashboard 中断控制或启动另一任务来中断或替换普通任务。
 
 .. _dashboard-usage:
 

@@ -676,7 +676,6 @@ def test_segment_returns_mask_overlay_and_world_point(tmp_path, monkeypatch, par
     config.write_text(
         "perception:\n"
         "  calibration:\n"
-        f"    base_camera: {fixtures / 'third_to_right_base_calib_eye_on_base.yaml'}\n"
         f"    d455_camera: {fixtures / 'd455_to_right_base_eye_on_base.yaml'}\n"
         "  projection_views:\n"
         "    d455:\n"
@@ -746,8 +745,6 @@ def test_segment_returns_mask_overlay_and_world_point(tmp_path, monkeypatch, par
         assert (
             state.load(following.data["segment_artifact"])["target_name"] == "following"
         )
-        state.save("d455_depth.npy", np.full((8, 8), 3.958), step=step)
-        assert call(target_name="outside_workspace").data["point_xyz"] is None
     finally:
         set_robot_config_path(None)
 

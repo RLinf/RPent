@@ -250,8 +250,14 @@ export function createInteractionController({ copy, select }) {
     const controlError = errorText(session.control_error);
     const feedback = session.control_feedback.map(errorText).filter(Boolean);
     const operator = session.operator;
-    if (operator?.enabled) {
-      select("#chatHint").textContent += " · /done · /continue · /success · /failure · /abort";
+    const operatorCommands = operator?.pending?.kind === "reset"
+      ? "/done · /abort"
+      : operator?.pending?.kind === "verdict"
+        ? "/success · /failure · /continue" + (operator.exploration ? " · /abort" : "")
+        : operator?.active && operator.exploration && session.session_state !== "switch_pending"
+          ? "/failure · /abort" : "";
+    if (operatorCommands) {
+      select("#chatHint").textContent += " · " + operatorCommands;
     }
     if (state.requestError) {
       status.textContent = state.requestError;
@@ -274,7 +280,9 @@ export function createInteractionController({ copy, select }) {
     } else if (operator?.pending) {
       status.textContent = operator.pending.prompt + (operator.pending.kind === "reset"
         ? "\nEnter /done to confirm scene restoration and allow the robot to reset, or /abort to cancel."
-        : "\nEnter /continue, /success, /failure or /abort, optionally followed by notes.");
+        : operator.exploration
+          ? "\nEnter /continue, /success, /failure or /abort."
+          : "\nEnter /continue, /success or /failure; the planner then continues the task.");
       status.classList.add("is-ready");
     } else if (state.notice) {
       status.textContent = state.notice;

@@ -66,7 +66,7 @@ class FakeEnv:
 
 
 @pytest.fixture
-def setup(tmp_path, monkeypatch, dual_franka_robot_config, fake_env):
+def setup(tmp_path, monkeypatch, dual_franka_robot_config):
     from rpent.utils import logging
 
     monkeypatch.setattr(logging, "_output_dir", tmp_path)
@@ -74,7 +74,7 @@ def setup(tmp_path, monkeypatch, dual_franka_robot_config, fake_env):
     from robots.franka.runtime_config import set_robot_config_path
 
     set_robot_config_path(dual_franka_robot_config)
-    env = fake_env
+    env = FakeEnv()
     replies = []
     toolkit = DualFrankaToolkit(
         runtime_kwargs={"env": env, "model": None, "task_description": "test"},
@@ -191,7 +191,7 @@ def test_budget_and_old_perception_boundary(setup):
 
 
 def test_explore_prompt_and_factory_use_local_layered_memory(
-    tmp_path, dual_franka_robot_config, fake_env
+    tmp_path, dual_franka_robot_config
 ):
     parser = argparse.ArgumentParser()
     parser.add_argument("--explore", action="store_true")
@@ -222,7 +222,7 @@ def test_explore_prompt_and_factory_use_local_layered_memory(
     )
     assert "{{" not in prompt and "libero_terminated" not in prompt
     t = robot_spec.get_toolkit(
-        runtime_kwargs={"env": fake_env, "model": None, "task_description": "test"},
+        runtime_kwargs={"env": FakeEnv(), "model": None, "task_description": "test"},
         dashboard_events=NullDashboardEventSink(),
         config=config,
         mode="exploration",
@@ -243,23 +243,10 @@ def test_explore_prompt_and_factory_use_local_layered_memory(
 
 
 def test_successful_memory_pair_uses_existing_merge_and_index(setup, tmp_path):
-    from rpent.cli.attended import _finalize_operator_verdict
-    from rpent.planner.base import PlannerResult
-
     t, _, replies = setup
     reset(t, replies)
     call(t, "move_delta", arm="left", delta_xyz=[0.01, 0, 0])
-    assert t.request_direct_verdict("success")
-    state_dir = tmp_path / "sessions" / "session_001"
-    finish, error, handoff = _finalize_operator_verdict(
-        PlannerResult(),
-        finalize_verdict=t.finalize_direct_verdict,
-        state_output_dir=state_dir,
-        session_number=1,
-    )
-    evidence = state_dir / "operator_outcome.json"
-    assert finish["status"] == "success" and error is None and str(evidence) in handoff
-    original = evidence.read_bytes()
+    verdict(t, replies, "success")
     t.write_recipe("dual_franka_t0")
     inbox = t.memory.root / "_internal/inbox/dual_franka_t0"
     inbox.mkdir(parents=True)
@@ -295,35 +282,33 @@ Winning technique and failure evidence.
     assert not t.memory.validate()
     assert (t.memory.root / "MEMORY.md").exists()
     assert (t.memory.root / "task-specific/dual_franka_t0_recipe.jsonl").exists()
-    next_memory = MemoryManager(
-        t.memory.root, memory_access="inbox_write", inbox_cell_tag="dual_franka_t0"
-    )
-    assert next_memory.authorize_read(evidence).read_bytes() == original
 
 
 @pytest.mark.parametrize("interactive", [False, True])
 def test_cli_two_sessions_operator_feedback_and_memory_pipeline(
-    tmp_path, monkeypatch, interactive, dual_franka_robot_config, fake_env
+    tmp_path, monkeypatch, interactive, dual_franka_robot_config
 ):
     import sys
     from dataclasses import replace
     from types import SimpleNamespace
 
     from rpent.cli import main as cli
-    from rpent.tools.human_in_the_loop import HumanInTheLoopInput
 
-    env = fake_env
+    env = FakeEnv()
     runtimes = []
     planners = []
     replies = iter(["done", "failure dropped", "done", "success lifted"])
 
-    class Operator(HumanInTheLoopInput):
-        def request(self, prompt, cancelled, *, kind=None):
+    class Operator:
+        def __init__(self, **kwargs):
+            assert kwargs["interactive"] is False
+
+        def __call__(self, prompt, cancelled):
             cancelled()
             return next(replies)
 
-        def __call__(self, prompt, cancelled):
-            return self.request(prompt, cancelled)
+        def close(self):
+            pass
 
     class Planner:
         def __init__(self, *args, **kwargs):
@@ -332,6 +317,10 @@ def test_cli_two_sessions_operator_feedback_and_memory_pipeline(
 
         def solve(self, *, toolkit, system_prompt, user_message, **kwargs):
             assert "scope: global" in system_prompt
+            if self.number == 2:
+                assert "not automatically reset" in user_message
+                assert "task_name:" in user_message
+                assert "Original operator task instruction:" in user_message
             assert not toolkit._scene_ready
             assert "error" not in call(
                 toolkit, "request_scene_reset", reason="new attempt"
@@ -378,11 +367,6 @@ Observed success in session 2.
     spec = replace(robot_spec.get_robot_spec(), init_runtime=init_runtime)
     monkeypatch.setattr(cli, "get_robot_spec", lambda name: spec)
     monkeypatch.setattr(cli, "build_planner", Planner)
-    monkeypatch.setattr(
-        cli,
-        "start_interactive_reader",
-        lambda inputs, **kwargs: inputs.put(kwargs["first_prompt_default"]),
-    )
     monkeypatch.setattr("rpent.tools.human_in_the_loop.HumanInTheLoopInput", Operator)
     monkeypatch.setattr(sys, "stdin", SimpleNamespace(isatty=lambda: True))
     monkeypatch.setattr(
@@ -545,7 +529,7 @@ def test_direct_success_stops_active_tool_and_records_memory(setup, tmp_path):
     worker.start()
     assert entered.wait(2)
     assert t.request_direct_verdict("success")
-    assert not t.request_direct_verdict("success")  # no duplicate planner EOF
+    assert t.request_direct_verdict("success")  # idempotent, never another attempt
     assert call(t, "open_gripper", arm="left")["motion_refused"]
     release.set()
     worker.join(2)
@@ -581,13 +565,12 @@ def test_direct_success_with_failed_observation_does_not_publish(setup):
 
 
 @pytest.mark.parametrize("robot_name", ["dual_franka", "libero"])
-@pytest.mark.parametrize("verdict", ["success", "failure", "abort", "eof"])
+@pytest.mark.parametrize("verdict", ["success", "failure", "abort"])
 @pytest.mark.parametrize("planner_error", [None, "planner transport failed"])
 def test_cli_direct_verdict_finalizes_and_merges_only_without_errors(
     tmp_path,
     monkeypatch,
     dual_franka_robot_config,
-    fake_env,
     verdict,
     planner_error,
     robot_name,
@@ -598,14 +581,11 @@ def test_cli_direct_verdict_finalizes_and_merges_only_without_errors(
 
     from rpent.cli import main as cli
 
-    env = fake_env
+    env = FakeEnv()
     handlers = {}
-    command = verdict
-    verdict = "abort" if command == "eof" else verdict
 
     def reader(input_queue, **kwargs):
         handlers["line"] = kwargs["line_handler"]
-        handlers["close"] = kwargs["on_close"]
         input_queue.put("test task")
 
     monkeypatch.setattr(cli, "start_interactive_reader", reader)
@@ -615,13 +595,8 @@ def test_cli_direct_verdict_finalizes_and_merges_only_without_errors(
             toolkit._operator_input = lambda *args: "done"
             call(toolkit, "request_scene_reset", reason="test")
             call(toolkit, "move_delta", arm="right", delta_xyz=[0.01, 0, 0])
-            if command == "eof":
-                handlers["close"]()
-                input_queue.put(None)
-            else:
-                assert handlers["line"]("/" + verdict)
-                assert input_queue.cancelled
-            assert input_queue.get() is None
+            assert handlers["line"]("/" + verdict)
+            assert input_queue.get(timeout=1) is None
             return SimpleNamespace(
                 finish_result=None, messages=[], stats={}, error=planner_error
             )
@@ -656,7 +631,6 @@ def test_cli_direct_verdict_finalizes_and_merges_only_without_errors(
             "--planner",
             "codex",
             "--explore",
-            "--auto-merge-memory",
             "--interactive",
             "--output-dir",
             str(tmp_path / "run"),
@@ -666,7 +640,7 @@ def test_cli_direct_verdict_finalizes_and_merges_only_without_errors(
             str(dual_franka_robot_config),
         ],
     )
-    assert cli.main() == (1 if planner_error and verdict != "failure" else 0)
+    assert cli.main() == (1 if planner_error else 0)
     assert (tmp_path / "memory/task-specific/dual_franka_t0.json").is_file() == (
         verdict == "success" and planner_error is None
     )
@@ -677,17 +651,17 @@ def test_cli_direct_verdict_finalizes_and_merges_only_without_errors(
         (tmp_path / "run/sessions/session_001/operator_events.json").read_text()
     )
     assert events[-1]["status"] == ("failure" if verdict == "abort" else verdict)
-    assert events[-1]["operator_finished"] is (verdict == "abort")
+    assert events[-1]["operator_finished"] is True
 
 
 def test_direct_failure_ends_without_success_memory_even_before_reset(setup):
     t, env, _ = setup
     assert t.request_direct_verdict("failure")
-    assert not t.request_direct_verdict("failure")
+    assert t.request_direct_verdict("failure")
     assert not t.request_direct_verdict("success")
     assert call(t, "request_scene_reset", reason="late reset")["motion_refused"]
     result = t.finalize_direct_verdict()
-    assert result["status"] == "failure" and not result["operator_finished"]
+    assert result["status"] == "failure" and result["operator_finished"]
     assert not t.solved() and env.resets == 0
     assert t.write_recipe("dual_franka_t0") is None
 
@@ -712,200 +686,3 @@ def test_explore_task_is_only_in_user_prompt():
     for section in ("TASK", "TASK CONSTRAINTS"):
         assert section not in system
         assert section in user
-
-
-@pytest.mark.parametrize("second_tool", ["view_env_state", "request_operator_verdict"])
-def test_fresh_observation_and_verdict_serialize_state_writes(
-    setup, monkeypatch, second_tool
-):
-    import threading
-    from concurrent.futures import ThreadPoolExecutor
-
-    t, env, replies = setup
-    reset(t, replies)
-    initial_step = t.state.latest_step
-    entered, release = threading.Event(), threading.Event()
-    save = t.state.save
-
-    def hold_first_image(name, value, **kwargs):
-        if name.endswith(".png") and not entered.is_set():
-            entered.set()
-            assert release.wait(5)
-        return save(name, value, **kwargs)
-
-    monkeypatch.setattr(t.state, "save", hold_first_image)
-    replies.append("success")
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        first = pool.submit(t.execute_tool, "view_env_state", {})
-        try:
-            assert entered.wait(5)
-            second = pool.submit(t.execute_tool, second_tool, {})
-            with t._scheduler.condition:
-                assert t._scheduler.condition.wait_for(lambda: t._scheduler.pending, 5)
-        finally:
-            release.set()
-        assert not first.result(5).is_error
-        assert not second.result(5).is_error
-    assert first.result().images == [
-        t.state.load_bytes("d455.png", step=initial_step + 1)
-    ]
-    call(t, "view_env_state", step=initial_step)
-    assert t.state.latest_step == initial_step + 2 and t._scene_ready
-    assert not call(t, "move_delta", arm="left", delta_xyz=[0.01, 0, 0]).get("error")
-    assert len(env.moves) == 1 and env.resets == 1
-
-
-@pytest.mark.parametrize(
-    ("completion", "ending"),
-    [
-        ("normal", "/success checked"),
-        ("normal", None),
-        ("late", "/success checked"),
-        ("late", None),
-        ("failed", None),
-        ("authentication required", None),
-        ("unsupported model", None),
-        ("transport closed", None),
-    ],
-)
-def test_attended_confirmation_resumes_same_attempt(
-    setup, tmp_path, monkeypatch, ending, completion
-):
-    import asyncio
-    import queue
-    import threading
-
-    from openai_codex import JsonRpcError, TransportClosedError
-
-    from rpent.planner.codex import CodexPlanner
-    from rpent.session.input import SessionInputQueue
-    from rpent.tools.human_in_the_loop import HumanInTheLoopInput
-
-    toolkit, env, _ = setup
-    broker = HumanInTheLoopInput(interactive=True)
-    toolkit._operator_input = broker
-    ready, prompted = threading.Event(), threading.Event()
-    monkeypatch.setattr("builtins.print", lambda *a, **kw: prompted.set())
-    monkeypatch.setattr(
-        "rpent.planner.codex.logger.info",
-        lambda message, *args: (
-            ready.set() if "Waiting for feedback" in message else None
-        ),
-    )
-    inputs = SessionInputQueue(queue.Queue())
-    clients, prompts = [], []
-
-    async def request(name, args):
-        result = await asyncio.to_thread(toolkit.execute_tool, name, args)
-        assert not result.is_error
-
-    class Client:
-        closed = False
-
-        def __init__(self, config):
-            self.interrupted = asyncio.Event()
-            self.steering_rejected = asyncio.Event()
-            clients.append(self)
-
-        async def thread_start(self, **kwargs):
-            return self
-
-        async def turn(self, text, **kwargs):
-            prompts.append(text)
-            return self
-
-        async def steer(self, text):
-            assert completion != "normal" and text == "continue with this object"
-            self.steering_rejected.set()
-            if completion == "transport closed":
-                raise TransportClosedError(completion)
-            raise JsonRpcError(
-                -32600,
-                "no active turn to steer"
-                if completion in {"late", "failed"}
-                else completion,
-            )
-
-        async def stream(self):
-            if len(prompts) == 1:
-                await request("request_scene_reset", {"reason": "test"})
-                if completion != "normal":
-                    inputs.put("continue with this object")
-                    await self.steering_rejected.wait()
-            else:
-                assert env.resets == 1
-                await request("move_delta", {"arm": "right", "delta_xyz": [0, 0, 0.01]})
-                if ending is None:
-                    inputs.put(None)
-                else:
-                    assert broker.route_line(ending)
-                await self.interrupted.wait()
-            yield {
-                "method": "turn/completed",
-                "payload": {
-                    "turn": {
-                        "status": "failed" if completion == "failed" else "completed"
-                    }
-                },
-            }
-
-        async def interrupt(self):
-            self.interrupted.set()
-
-        async def close(self):
-            self.closed = True
-
-    def verdict(value, notes):
-        accepted = toolkit.request_direct_verdict(value, notes)
-        if accepted:
-            inputs.cancel()
-        return accepted
-
-    broker.bind_verdict(verdict)
-    monkeypatch.setattr("rpent.planner.codex.openai_codex.AsyncCodex", Client)
-    planner = CodexPlanner(
-        output_dir=str(tmp_path),
-        repo_root=tmp_path,
-        timeout_s=10,
-        dashboard_events=NullDashboardEventSink(),
-    )
-    monkeypatch.setattr(planner, "_build_config", lambda url: None)
-
-    async def run():
-        runner = asyncio.create_task(
-            planner._solve_interactive(
-                toolkit=toolkit,
-                input_queue=inputs,
-                prompt="test\n\ntest task",
-                initial_user_text="test task",
-                max_turns=10,
-                interaction=None,
-            )
-        )
-        try:
-            assert await asyncio.to_thread(prompted.wait, 3)
-            assert env.resets == 0 and broker.route_line("/done")
-            if completion in {"normal", "late"}:
-                assert await asyncio.to_thread(ready.wait, 3)
-                if completion == "normal":
-                    inputs.put("continue with this object")
-            return await asyncio.wait_for(runner, 5)
-        finally:
-            inputs.put(None)
-            broker.close()
-            if not runner.done():
-                runner.cancel()
-            await asyncio.gather(runner, return_exceptions=True)
-
-    result = asyncio.run(run())
-    assert len(clients) == 1 and clients[0].closed
-    if completion not in {"normal", "late"}:
-        assert (
-            "Codex turn failed" if completion == "failed" else completion
-        ) in result.error
-        assert prompts == ["test\n\ntest task"] and not env.moves
-        assert inputs.get(block=False) == "continue with this object"
-    else:
-        assert result.error is None
-        assert prompts == ["test\n\ntest task", "continue with this object"]
-        assert env.resets == 1 and len(env.moves) == 1

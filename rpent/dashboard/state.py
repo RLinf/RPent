@@ -45,7 +45,6 @@ from rpent.dashboard.interaction import (
     UnknownDashboardMessageError,
 )
 from rpent.dashboard.spec import DashboardSpec, TaskSpec
-from rpent.tools.human_in_the_loop import parse_operator_command
 from rpent.utils.logging import get_logger
 from rpent.utils.templates import substitute
 
@@ -239,25 +238,24 @@ class DashboardState:
         self._exploration_message: DashboardMessage | None = None
         self.operator: HumanInTheLoopInput | None = None
         self.operator_verdict: str | None = None
+        self.operator_exploration = False
 
-    def operator_changed(self):
+    def operator_changed(self) -> None:
         with self._condition:
             self._projection_changed_locked()
 
-    def operator_snapshot(self):
+    def operator_snapshot(self) -> dict[str, Any]:
         with self._condition:
             return {
-                "enabled": self.operator is not None,
                 "active": self._toolkit is not None,
-                "generation": self._task_generation,
                 "pending": self.operator.snapshot() if self.operator else None,
-                "verdict": self.operator_verdict,
+                "exploration": self.operator_exploration,
             }
 
-    def _finish_operator_locked(self, verdict: str, notes: str) -> None:
+    def _finish_operator_locked(self, verdict: str) -> None:
         if self._toolkit is None:
             raise ValueError("no matching active operator task")
-        if not self._toolkit.request_direct_verdict(verdict, notes):
+        if not self._toolkit.request_direct_verdict(verdict):
             raise ValueError("operator verdict refused in current state")
         self.operator_verdict = verdict
         self._pending_task = None
@@ -282,6 +280,7 @@ class DashboardState:
                 self._toolkit = None
                 if self.operator is not None:
                     self.operator.close()
+                    self.operator = None
                 self._projection_changed_locked()
         toolkit.cancel_active_and_wait()
         with self._condition:
@@ -426,16 +425,6 @@ class DashboardState:
         with self._lock:
             return self._session_state == "switch_pending"
 
-    @property
-    def operator_completed_task(self) -> bool:
-        """Whether operator completion is draining without a queued replacement."""
-        with self._lock:
-            return (
-                self._session_state == "switch_pending"
-                and self.operator_verdict is not None
-                and self._pending_task is None
-            )
-
     def shared_services_ready(self) -> None:
         """Open the command channel after shared services have started."""
         with self._condition:
@@ -531,28 +520,41 @@ class DashboardState:
             self.continue_exploration(explicit=True)
             return {"command": command}
         with self._condition:
-            parsed = parse_operator_command(text) if self.operator is not None else None
-            if parsed is not None:
-                command = f"/{parsed.name}"
-                notes = parsed.notes
+            if self.operator is not None and command in {
+                "/done",
+                "/continue",
+                "/success",
+                "/failure",
+                "/abort",
+            }:
                 if not isinstance(operator_context, dict):
-                    raise ValueError("operator_context must be an object.")
+                    raise ValueError("operator_context must be an object")
                 if (
                     operator_context.get("generation") != self._task_generation
                     or self._session_state == "switch_pending"
+                    or self._toolkit is None
                 ):
                     raise ValueError("expired operator task")
                 pending = self.operator.snapshot()
-                if command == "/continue" and pending is None:
-                    return self._submit_message(text)
-                if command in {"/success", "/failure", "/abort"}:
-                    self._finish_operator_locked(parsed.name, notes)
+                request_id = pending["id"] if pending else None
+                if operator_context.get("request_id") != request_id:
+                    raise ValueError("expired operator request")
+                if not self.operator_exploration:
+                    if (
+                        not pending
+                        or pending["kind"] != "verdict"
+                        or command not in {"/success", "/failure", "/continue"}
+                    ):
+                        raise ValueError(
+                            "evaluation accepts only a pending operator verdict"
+                        )
+                    self.operator.reply(request_id, command[1:])
+                elif command in {"/success", "/failure", "/abort"}:
+                    if pending and pending["kind"] == "reset" and command != "/abort":
+                        raise ValueError("scene reset is not confirmed")
+                    self._finish_operator_locked(command[1:])
                 else:
-                    request_id = operator_context.get("request_id")
-                    answer = command[1:]
-                    if command == "/operator":
-                        request_id, answer = parsed.request_id, parsed.answer
-                    self.operator.reply(request_id, answer, notes)
+                    self.operator.reply(request_id, command[1:])
                 self._control_feedback = [f"{command} accepted"]
                 self._interaction_changed_locked()
                 return None
@@ -687,6 +689,7 @@ class DashboardState:
         self._current_task = request
         self.operator = None
         self.operator_verdict = None
+        self.operator_exploration = False
         self.video_path = output_dir / "episode.mp4"
         self._session_state = "task_starting"
         self._task_state = "starting"

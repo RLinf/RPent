@@ -38,9 +38,6 @@ from rpent.dashboard.state import DashboardState
 from rpent.session import EnvState
 from rpent.tools import Toolkit, ToolResult, tool
 
-pytestmark = pytest.mark.usefixtures("tool_template_output_dir")
-
-
 DASHBOARD_SPEC: DashboardSpec = {
     "task": {
         "command": "/rpent-task",

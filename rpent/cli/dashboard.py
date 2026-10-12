@@ -27,7 +27,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from rpent.cli.attended import _finalize_operator_verdict
 from rpent.cli.main import (
     _handoff_message,
     _serialize_messages,
@@ -228,11 +227,7 @@ def _run_dashboard_task(
                 **task_runtime_kwargs,
                 **shared_runtime_kwargs,
             }
-            prompt_vars = {
-                **run_config.prompt_vars,
-                "output_dir": output_dir,
-                "dashboard": True,
-            }
+            prompt_vars = {**run_config.prompt_vars, "output_dir": output_dir}
             session_message = robot_spec.prompts.render("user", variables=prompt_vars)
             sessions = max(
                 1,
@@ -278,6 +273,7 @@ def _run_dashboard_task(
                     if human_interactive_run:
                         from rpent.tools.human_in_the_loop import HumanInTheLoopInput
 
+                        state.operator_exploration = bool(task_args.explore)
                         state.operator = HumanInTheLoopInput(
                             interactive=True, on_change=state.operator_changed
                         )
@@ -332,13 +328,9 @@ def _run_dashboard_task(
                     stats = result.stats
                     agent_error = result.error
                     if human_interactive_run and toolkit.direct_verdict_requested:
-                        finish_result, _, _ = _finalize_operator_verdict(
-                            result,
-                            finalize_verdict=toolkit.finalize_direct_verdict,
-                            state_output_dir=state_output_dir,
-                            session_number=session_number,
-                            archive=task_args.explore,
-                        )
+                        finish_result = toolkit.finalize_direct_verdict()
+                        if agent_error:
+                            stats["planner_error_at_operator_verdict"] = agent_error
                     if robot_spec.supports_exploration:
                         solved = bool(toolkit.solved())
                         if solved:
@@ -353,7 +345,11 @@ def _run_dashboard_task(
                             solved = environment_success
                     finally:
                         toolkit.close()
-                if solved or state.task_replacement_requested:
+                if (
+                    solved
+                    or state.task_replacement_requested
+                    or (finish_result or {}).get("operator_finished")
+                ):
                     break
                 if agent_error:
                     if session_number < sessions and "timed out" in agent_error.lower():
@@ -371,6 +367,9 @@ def _run_dashboard_task(
         logger.error("EXCEPTION in Dashboard TaskRun %04d: %s", claimed.number, exc)
         agent_error = str(exc)
     finally:
+        if human_interactive_run and state.operator is not None:
+            state.operator.close()
+            state.operator = None
         cleanup_errors: list[str] = []
         if recipe_path:
             logger.info("recipe: %s", recipe_path)
@@ -411,12 +410,8 @@ def _run_dashboard_task(
         getattr(task_args, "explore", False)
         and getattr(task_args, "auto_merge_memory", False)
         and not agent_error
-        and (
-            not state.task_replacement_requested
-            or (human_interactive_run and state.operator_completed_task)
-        )
+        and not state.task_replacement_requested
         and memory_manager is not None
-        and (not human_interactive_run or solved)
     ):
         try:
             merge_result = memory_manager.merge_memory(
@@ -460,11 +455,4 @@ def _run_dashboard_task(
                 logger.warning("%s", finalization_error)
             else:
                 agent_error = finalization_error
-    if (
-        human_interactive_run
-        and not solved
-        and not agent_error
-        and not state.task_replacement_requested
-    ):
-        return "Task ended without operator-confirmed success"
     return agent_error

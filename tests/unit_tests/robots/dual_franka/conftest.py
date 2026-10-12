@@ -25,13 +25,6 @@ from robots.franka.runtime_config import set_robot_config_path
 
 
 @pytest.fixture
-def fake_env():
-    from tests.unit_tests.robots.dual_franka.test_exploration import FakeEnv
-
-    return FakeEnv()
-
-
-@pytest.fixture
 def dual_franka_robot_config(tmp_path: Path) -> Iterator[Path]:
     """Return the packaged config with calibration paths redirected to fixtures."""
     config = yaml.safe_load(DEFAULT_CONFIG.read_text())

@@ -19,6 +19,7 @@ from __future__ import annotations
 import atexit
 import contextlib
 import logging
+import queue
 import sys
 import threading
 from collections.abc import Callable
@@ -29,8 +30,6 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.key_binding.bindings.named_commands import get_by_name
 from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.styles import Style
-
-from rpent.session.input import InputQueue
 
 #: Interactive-mode command tokens (case-insensitive). This module is the single
 #: source of truth; ``api_loop`` imports ``QUIT_TOKENS`` for its steering checks.
@@ -150,7 +149,7 @@ def _restore_tty_on_exit(fd: int) -> None:
 
 
 def start_interactive_reader(
-    input_queue: InputQueue,
+    input_queue: "queue.Queue[str | None]",
     *,
     first_prompt_default: str | None = None,
     line_handler: Callable[[str], bool] | None = None,
@@ -204,7 +203,7 @@ def start_interactive_reader(
     return thread
 
 
-def next_user_line(input_queue: InputQueue) -> str | None:
+def next_user_line(input_queue: "queue.Queue[str | None]") -> str | None:
     """Block for the next actionable user line from an interactive input queue.
 
     Returns the trimmed line, or ``None`` when the session should end (the queue
@@ -224,7 +223,7 @@ def next_user_line(input_queue: InputQueue) -> str | None:
 
 
 def initial_user_message(
-    input_queue: InputQueue,
+    input_queue: "queue.Queue[str | None]",
 ) -> str | None:
     """Block for the first user turn of an interactive session.
 
@@ -244,7 +243,7 @@ def initial_user_message(
 
 
 def start_first_prompt_resolver(
-    input_queue: InputQueue,
+    input_queue: "queue.Queue[str | None]",
 ) -> Callable[[], str | None]:
     """Resolve the opening user turn on a background thread.
 

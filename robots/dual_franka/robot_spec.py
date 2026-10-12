@@ -424,10 +424,7 @@ def _init_runtime(
     connectors = {
         "env": lambda rpc: {
             "env": DualFrankaEnvClient(
-                rpc,
-                reset_on_connect=not (
-                    getattr(args, "explore", False) or getattr(args, "dashboard", False)
-                ),
+                rpc, reset_on_connect=not getattr(args, "explore", False)
             ),
             "task_description": get_dual_franka_task(args.task_id).instruction,
             "vla_instruction": get_dual_franka_task(args.task_id).vla_instruction,

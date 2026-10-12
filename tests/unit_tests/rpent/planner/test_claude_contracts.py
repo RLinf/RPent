@@ -34,8 +34,6 @@ from rpent.planner.claude_code import (
 from rpent.tools import ToolResult, tool
 from rpent.tools.common import CommonTools
 
-pytestmark = pytest.mark.usefixtures("tool_template_output_dir")
-
 
 class RecordingSink:
     def __init__(self) -> None:

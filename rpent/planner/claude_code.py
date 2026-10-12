@@ -27,6 +27,7 @@ import asyncio
 import contextlib
 import dataclasses
 import json
+import queue
 import tempfile
 import time
 from collections.abc import Callable
@@ -52,7 +53,6 @@ from rpent.planner.base import (
     strip_mcp_prefix,
 )
 from rpent.planner.utils.http_mcp_server import mcp_result
-from rpent.session.input import InputQueue, SessionInputQueue
 from rpent.tools import Toolkit, ToolResult
 from rpent.utils.config import get_repo_root
 from rpent.utils.logging import get_logger, init_output_dir
@@ -105,7 +105,7 @@ class ClaudeCodePlanner(Planner):
         user_message: str,
         toolkit: Toolkit,
         max_turns: int,
-        input_queue: InputQueue | None = None,
+        input_queue: queue.Queue[str | None] | None = None,
         dashboard_interaction: DashboardInteractionPort | None = None,
     ) -> PlannerResult:
         """Run a Claude Agent SDK session for the given prompt."""
@@ -134,7 +134,7 @@ class ClaudeCodePlanner(Planner):
         initial_user_text: str,
         toolkit: Toolkit,
         max_turns: int,
-        input_queue: InputQueue | None = None,
+        input_queue: queue.Queue[str | None] | None = None,
         dashboard_interaction: DashboardInteractionPort | None = None,
     ) -> PlannerResult:
         import claude_agent_sdk
@@ -501,33 +501,24 @@ class _ClaudeSessionDriver:
 class _TerminalSessionAdapter:
     """Preserve the terminal TUI's interrupt-then-query steering policy."""
 
-    def __init__(self, *, toolkit: Toolkit, input_queue: InputQueue, emit_user) -> None:
+    def __init__(self, *, toolkit: Toolkit, input_queue: Any, emit_user) -> None:
         self._toolkit = toolkit
-        self._input_queue = SessionInputQueue(input_queue, retain_until_ack=True)
+        self._input_queue = input_queue
         self._emit_user = emit_user
 
     async def initial_query_succeeded(self, driver: _ClaudeSessionDriver) -> None:
         return None
 
     async def run(self, driver: _ClaudeSessionDriver) -> None:
-        try:
-            while True:
-                nxt = await asyncio.to_thread(next_user_line, self._input_queue)
-                if self._input_queue.cancelled:
-                    return
-                await cancel_and_wait(self._toolkit.cancel_active_and_wait)
-                await driver.interrupt()
-                if self._input_queue.cancelled:
-                    return
-                if nxt is None:
-                    self._input_queue.acknowledge()
-                    return
-                self._toolkit.resume_calls()
-                await driver.query(nxt)
-                self._input_queue.acknowledge()
-                self._emit_user(nxt)
-        finally:
-            await self.close()
+        while True:
+            nxt = await asyncio.to_thread(next_user_line, self._input_queue)
+            await cancel_and_wait(self._toolkit.cancel_active_and_wait)
+            await driver.interrupt()
+            if nxt is None:
+                return
+            self._toolkit.resume_calls()
+            self._emit_user(nxt)
+            await driver.query(nxt)
 
     async def on_message(
         self,
@@ -537,7 +528,8 @@ class _TerminalSessionAdapter:
         return None
 
     async def close(self) -> None:
-        self._input_queue.cancel()
+        # Unblock next_user_line() if the consumer (for example finish) won.
+        self._input_queue.put(None)
 
 
 class _ClaudeDashboardAdapter:

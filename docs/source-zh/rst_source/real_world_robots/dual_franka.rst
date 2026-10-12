@@ -276,7 +276,7 @@ ModelScope 上发布了一个可直接使用的 task ``1`` checkpoint： `Brunch
 手动技能测试
 ------------
 
-普通评测需要独占终端（TTY）接收操作员确认，不支持 ``--interactive`` 或 Dashboard。探索模式支持 ``--explore --interactive``，但仍需使用终端，不能通过 Dashboard 提交操作员反馈。不支持的参数组合会在连接硬件前被拒绝。普通任务也会注册 ``request_operator_verdict``，收到人工判定后才允许调用 ``finish``；``request_scene_reset`` 只在探索模式注册。
+通过终端运行普通评测时，需要独占终端（TTY）接收操作员确认，不加 ``--interactive``；终端探索支持 ``--explore --interactive``。使用 Codex 时，两种模式也可通过 ``--dashboard`` 接收操作员输入，Web 命令见 :doc:`../guides/dashboard`。普通任务也会注册 ``request_operator_verdict``，收到人工判定后才允许调用 ``finish``；``request_scene_reset`` 只在探索模式注册。
 
 部署脚本位于 ``robots/dual_franka/``。在仓库根目录运行：
 

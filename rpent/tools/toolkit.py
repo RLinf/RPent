@@ -235,9 +235,7 @@ class Toolkit:
         }
 
         try:
-            operation = self._scheduler.acquire(
-                readonly=self._is_readonly_call(tool, kwargs)
-            )
+            operation = self._scheduler.acquire(readonly=tool.readonly)
         except ToolCancelled as exc:
             return ToolResult(
                 data={"error": str(exc), "code": "tool_cancelled", "interrupted": True}
@@ -311,14 +309,6 @@ class Toolkit:
             return native
         finally:
             self._scheduler.release(operation)
-
-    def _is_readonly_call(self, tool: Tool, kwargs: dict[str, Any]) -> bool:
-        """Choose shared admission independently of automatic state capture.
-
-        Self-recording observation tools can require exclusive admission while
-        retaining their declaration's suppression of automatic capture.
-        """
-        return tool.readonly
 
     def _publish_step(self, record: StepRecord) -> None:
         """Publish one recorded environment step to the dashboard sink."""

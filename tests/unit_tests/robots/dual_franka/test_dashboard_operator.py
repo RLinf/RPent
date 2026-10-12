@@ -12,95 +12,149 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Offline check of an operator-controlled task through the web API."""
+"""Offline Web transport with the real runtime connector, toolkit and runner."""
 
-import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import replace
+from threading import Event
 from types import SimpleNamespace
 
-from fastapi.testclient import TestClient
+import pytest
 
-from robots.dual_franka.robot_spec import get_robot_spec
+from robots.dual_franka import robot_spec
 from rpent.cli import dashboard
+from rpent.cli.main import _build_argparser
 from rpent.dashboard.server import DashboardServer
 from rpent.dashboard.state import DashboardState
 from rpent.planner.base import PlannerResult
+from tests.unit_tests.robots.dual_franka.test_exploration import FakeEnv
 
 
-def test_web_operator_confirms_reset_and_completes_task(
-    tmp_path, monkeypatch, dual_franka_robot_config, fake_env
+@pytest.mark.parametrize(
+    "explore,verdict",
+    [(False, v) for v in ("success", "failure", "continue")]
+    + [(True, v) for v in ("failure", "abort", "replace")],
+)
+def test_web_confirmation_and_task_completion(
+    tmp_path, monkeypatch, dual_franka_robot_config, explore, verdict
 ):
-    env = fake_env
-    spec = replace(
-        get_robot_spec(),
-        init_runtime=lambda *args: (
-            [],
-            {"env": env, "model": None, "task_description": "test"},
-        ),
-    )
-    from rpent.cli.main import _build_argparser
+    fake_env = FakeEnv()
 
+    def rpc_call(name, *, kwargs=None, **options):
+        if name == "env.get_env_meta":
+            return {"explicit_reset_only": True}
+        if name == "env.get_observation":
+            return {**fake_env.get_observation(), "states": []}
+        if name == "env.move_delta":
+            return fake_env.move_delta(kwargs["arm"], kwargs["delta_xyz"])
+        return getattr(fake_env, name.removeprefix("env."))()
+
+    rpc = SimpleNamespace(call=rpc_call)
+    monkeypatch.setattr(robot_spec, "try_spawn_server", lambda *a: (None, rpc))
+    monkeypatch.setattr(robot_spec, "try_wait_server", lambda *a, **kw: kw["post_fn"]())
+    spec = robot_spec.get_robot_spec()
     parser = _build_argparser()
     spec.add_cli_args(parser, use_dashboard=True)
     args = parser.parse_args(
-        [
-            "--robot",
-            "dual_franka",
-            "--dashboard",
-            "--explore",
-            "--task-id",
-            "3",
-            "--robot-config",
-            str(dual_franka_robot_config),
-            "--memory-dir",
-            str(tmp_path / "memory"),
-            "--auto-merge-memory",
-        ]
+        ["--robot", "dual_franka", "--dashboard", "--task-id", "3"]
     )
+    args.robot_config = str(dual_franka_robot_config)
+    args.memory_dir, args.memory_profile = str(tmp_path / "memory"), "local"
+    args.explore, args.explore_sessions = explore, 2
     state = DashboardState(output_dir=tmp_path, dashboard_spec=spec.dashboard)
     state.shared_services_ready()
     state.request_task({"task_id": 3})
     claimed = state.wait_for_task(0)
+    ready, changed, calls = Event(), state.operator_changed, []
+
+    def notify():
+        changed()
+        if state.operator and state.operator.snapshot():
+            ready.set()
+
+    monkeypatch.setattr(state, "operator_changed", notify)
 
     def solve(**kwargs):
-        toolkit = kwargs["toolkit"]
-        assert env.resets == 0
-        with (
-            TestClient(DashboardServer(state=state)._app) as client,
-            ThreadPoolExecutor() as pool,
-        ):
-            future = pool.submit(
-                toolkit.execute_tool, "request_scene_reset", {"reason": "test"}
-            )
-            deadline = time.monotonic() + 3
-            while state.operator.snapshot() is None and time.monotonic() < deadline:
-                time.sleep(0.01)
-            operator = client.get("/api/session/state").json()["operator"]
-            assert operator["pending"] is not None and env.resets == 0
-            context = {
-                "generation": operator["generation"],
-                "request_id": operator["pending"]["id"],
+        calls.append(True)
+        toolkit, reader = kwargs["toolkit"], state.operator
+        call = toolkit.execute_tool
+        motion = {"arm": "right", "delta_xyz": [0, 0, 0.01]}
+        assert fake_env.resets == int(not explore)
+        assert (
+            "request_scene_reset" in {t.name for t in toolkit.list_tools()}
+        ) is explore
+        endpoint = next(
+            r.endpoint
+            for r in DashboardServer(state=state)._app.routes
+            if r.path == "/api/session/messages" and "POST" in r.methods
+        )
+
+        def context():
+            snapshot = state.snapshot()
+            op = snapshot["operator"]
+            return {
+                "generation": snapshot["task_generation"],
+                "request_id": (op["pending"] or {}).get("id"),
             }
 
-            def send(text, **context):
-                return client.post(
-                    "/api/session/messages",
-                    json={"text": text, "operator_context": context},
-                )
+        def send(text, ctx=None):
+            payload = {"text": text, "operator_context": ctx or context()}
+            return endpoint(payload).status_code
 
-            for stale in (
-                {**context, "generation": context["generation"] - 1},
-                {**context, "request_id": "expired"},
-            ):
-                assert send("/done", **stale).is_error
-            assert env.resets == 0
-            assert send("/done", **context).status_code == 202
-            assert not future.result(3).is_error
-            toolkit.execute_tool(
-                "move_delta", {"arm": "right", "delta_xyz": [0, 0, 0.01]}
-            )
-            assert send("/success", **context).status_code == 202
+        with ThreadPoolExecutor() as pool:
+            try:
+                if explore:
+                    assert call("move_delta", motion).is_error
+                    future = pool.submit(
+                        call, "request_scene_reset", {"reason": "test"}
+                    )
+                    assert ready.wait(3)
+                    ctx = context()
+                    for stale in (
+                        {**ctx, "generation": ctx["generation"] - 1},
+                        {**ctx, "request_id": "expired"},
+                    ):
+                        assert send("/done", stale) == 422
+                    assert send("/success", ctx) == 422
+                    assert fake_env.resets == 0
+                    assert send("/done", ctx) == 202
+                    assert not future.result(3).is_error
+                    assert send("/done", ctx) == 422
+                else:
+                    assert send("/success") == 422
+                assert fake_env.resets == 1
+                state.set_planner_activity("idle", accepting_input=True)
+                assert send("move slowly") == 202
+                assert not call("move_delta", motion).is_error
+                ready.clear()
+                pending = pool.submit(call, "request_operator_verdict", {})
+                assert ready.wait(3)
+                ctx = context()
+                assert send("/success", {**ctx, "request_id": "expired"}) == 422
+                if verdict == "replace":
+                    assert send("/rpent-task 4") == 202
+                    assert send("/success") == 422
+                    toolkit.cancel_active_and_wait()
+                else:
+                    if not explore:
+                        assert send("/done") == 422
+                        assert send("/abort") == 422
+                    assert send("/" + verdict, ctx) == 202
+                    assert send("/" + verdict, ctx) == 422
+                response = pending.result(3)
+                assert state.task_replacement_requested is explore
+                if not explore:
+                    assert not response.is_error and response.data["status"] == verdict
+                    assert not toolkit.direct_verdict_requested
+                    status = "failure" if verdict == "failure" else "success"
+                    finish = call("finish", {"status": status, "summary": "test"})
+                    if verdict == "continue":
+                        assert finish.is_error
+                        return PlannerResult()
+                    assert not finish.is_error and finish.data["_finish"]
+                    assert not finish.data.get("operator_finished")
+                    return PlannerResult(finish_result=finish.data)
+            finally:
+                reader.close()
         return PlannerResult()
 
     monkeypatch.setattr(
@@ -111,10 +165,10 @@ def test_web_operator_confirms_reset_and_completes_task(
         robot_spec=spec,
         state=state,
         claimed=claimed,
-        shared_runtime_kwargs={},
+        shared_runtime_kwargs={"model": None},
         unique_components={"env"},
         session_root=tmp_path,
     )
     assert result is None
-    assert env.resets == 1 and len(env.moves) == 1
-    assert (tmp_path / "memory/task-specific/dual_franka_t3_recipe.jsonl").is_file()
+    assert len(calls) == 1 and len(fake_env.moves) == 1 and state.operator is None
+    assert (state.wait_for_task(0) is not None) is (verdict == "replace")

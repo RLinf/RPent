@@ -37,90 +37,6 @@ class ConfigCaptured(Exception):
     """Stop the CLI immediately after argument validation in routing tests."""
 
 
-@pytest.mark.parametrize("backend", ["claude_code", "codex"])
-@pytest.mark.parametrize("cancel_task", [False, True])
-def test_terminal_handoff_preserves_claimed_input_in_fifo(
-    monkeypatch, backend, cancel_task
-):
-    import asyncio
-    import importlib
-    import queue
-    import threading
-
-    from rpent.cli.tui import next_user_line
-    from rpent.session.input import SessionInputQueue
-
-    module = importlib.import_module(f"rpent.planner.{backend}")
-    source = queue.Queue()
-    for line in (" ", " first steering ", "second steering", None):
-        source.put(line)
-    popped, release = threading.Event(), threading.Event()
-    deliveries = []
-
-    def held_read(scope):
-        value = next_user_line(scope)
-        popped.set()
-        assert release.wait(3)
-        return value
-
-    async def submit(text):
-        deliveries.append(text)
-
-    driver = SimpleNamespace(
-        interrupt=lambda: asyncio.sleep(0), query=submit, _submit_text=submit
-    )
-    toolkit = SimpleNamespace(
-        cancel_active_and_wait=lambda: None, resume_calls=lambda: None
-    )
-
-    def adapter():
-        if backend == "claude_code":
-            return module._TerminalSessionAdapter(
-                toolkit=toolkit, input_queue=source, emit_user=lambda text: None
-            )
-        return module._TerminalControl(source, toolkit, lambda text: None)
-
-    async def scenario():
-        old = adapter()
-        monkeypatch.setattr(module, "next_user_line", held_read)
-        task = asyncio.create_task(old.run(driver))
-        try:
-            assert await asyncio.to_thread(popped.wait, 2)
-            if cancel_task:
-                task.cancel()
-                await asyncio.gather(task, return_exceptions=True)
-            elif backend == "claude_code":
-                await old.close()
-            else:
-                old.end()
-            # The next owner can read before the old thread returns, still in FIFO order.
-            current = SessionInputQueue(source)
-            assert [next_user_line(current) for _ in range(3)] == [
-                "first steering",
-                "second steering",
-                None,
-            ]
-            release.set()
-            result = await asyncio.wait_for(
-                asyncio.gather(task, return_exceptions=True), 2
-            )
-            assert result == [None] or (
-                cancel_task and isinstance(result[0], asyncio.CancelledError)
-            )
-            assert deliveries == [] and source.empty()
-            monkeypatch.setattr(module, "next_user_line", next_user_line)
-            for line in ("accepted steering", None):
-                source.put(line)
-            await asyncio.wait_for(adapter().run(driver), 2)
-            assert deliveries == ["accepted steering"] and source.empty()
-        finally:
-            release.set()
-            task.cancel()
-            await asyncio.gather(task, return_exceptions=True)
-
-    asyncio.run(scenario())
-
-
 def _cli_module():
     from rpent.cli import main as cli
 
@@ -451,6 +367,49 @@ def test_real_robot_terminal_requirement_fails_before_runtime(
         cli.main()
     assert exc.value.code == 2
     assert "operator confirmation" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("explore", [False, True])
+@pytest.mark.parametrize(
+    "options,error",
+    [
+        ("--dashboard --planner codex", None),
+        ("--planner codex", "requires a TTY"),
+        ("--dashboard --planner api", "requires an attended Codex robot runtime"),
+    ],
+)
+def test_human_operator_main_routes_dashboard_without_tty(
+    monkeypatch, capsys, explore, options, error
+):
+    cli = _cli_module()
+    from rpent.cli import dashboard as web
+    from rpent.memory import loading
+
+    spec = SimpleNamespace(
+        name="custom",
+        is_real_robot=True,
+        supports_human_interactive_exploration=True,
+        supports_exploration=True,
+        dashboard={},
+        add_cli_args=lambda parser, use_dashboard: None,
+        validate_args=None,
+    )
+    monkeypatch.setattr(cli, "get_robot_spec", lambda name: spec)
+    monkeypatch.setattr(cli, "enumerate_robots", lambda: ("custom",))
+    monkeypatch.setattr(sys, "stdin", SimpleNamespace(isatty=lambda: False))
+    monkeypatch.setattr(
+        loading, "prepare_run_memory", lambda *a: pytest.fail("unexpected memory load")
+    )
+    argv = ["rpent", "--robot", "custom", *options.split()]
+    monkeypatch.setattr(sys, "argv", argv + (["--explore"] if explore else []))
+    if error is None:
+        monkeypatch.setattr(web, "run_dashboard_session", lambda *a, **kw: 73)
+        assert cli.main() == 73
+    else:
+        with pytest.raises(SystemExit) as exc:
+            cli.main()
+        assert exc.value.code == 2
+        assert error in capsys.readouterr().err
 
 
 def test_handoff_message_lists_prior_attempts_deterministically(tmp_path: Path) -> None:

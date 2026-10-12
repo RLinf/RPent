@@ -53,6 +53,4 @@ def user_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
             "Use {{memory_inbox}} for reviewable exploration notes and "
             "{{output_dir}}/attempts/ for failed-attempt archives."
         )
-    if (variables or {}).get("dashboard"):
-        node["OPERATOR INPUT"] = user_parts.DASHBOARD_OPERATOR
     return node

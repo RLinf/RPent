@@ -23,35 +23,6 @@ import pytest
 from rpent.evaluation import write_json_atomic
 
 
-def test_operator_outcomes_are_unique_across_dashboard_runs(tmp_path: Path) -> None:
-    from robots.dual_franka.robot_spec import DUAL_FRANKA_DASHBOARD_SPEC
-    from rpent.dashboard.state import DashboardState
-    from rpent.evaluation.result import record_operator_outcome
-
-    paths = []
-    for run in ("dashboard_a", "dashboard_b"):
-        state = DashboardState(
-            output_dir=tmp_path / run, dashboard_spec=DUAL_FRANKA_DASHBOARD_SPEC
-        )
-        state.shared_services_ready()
-        state.request_task({"task_id": 3})
-        task = state.wait_for_task(0)
-        kwargs = {
-            "state_output_dir": task.output_dir / "sessions" / "session_001",
-            "session_number": 1,
-            "verdict": {"operator_verdict": "failure"},
-            "messages": [],
-            "planner_error": None,
-        }
-        evidence = record_operator_outcome(**kwargs)
-        before = evidence.read_bytes()
-        with pytest.raises(FileExistsError):
-            record_operator_outcome(**kwargs)
-        assert evidence.read_bytes() == before
-        paths.append(evidence)
-    assert paths[0] != paths[1] and all(path.is_file() for path in paths)
-
-
 def test_write_json_atomic_replaces_complete_record(tmp_path: Path) -> None:
     destination = tmp_path / "result.json"
     destination.write_text('{"status": "old"}\n', encoding="utf-8")

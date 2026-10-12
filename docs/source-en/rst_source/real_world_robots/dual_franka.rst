@@ -334,11 +334,11 @@ uncertain.
 Manual Skill Testing
 --------------------
 
-Evaluation requires an exclusive terminal (TTY) for operator confirmation,
-without ``--interactive`` or Dashboard. Exploration supports
-``--explore --interactive`` but still requires a terminal; operator feedback
-through the Dashboard is not supported. Unsupported option combinations are
-rejected before connecting to hardware. Evaluation also exposes
+Terminal evaluation requires an exclusive terminal (TTY) for operator
+confirmation without ``--interactive``; terminal exploration supports
+``--explore --interactive``. With Codex, both modes also accept operator input
+through ``--dashboard``; see :doc:`../guides/dashboard` for Web commands.
+Evaluation exposes
 ``request_operator_verdict`` and requires a verdict before calling ``finish``.
 ``request_scene_reset`` is registered only in exploration mode.
 

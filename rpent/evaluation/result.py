@@ -23,8 +23,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from rpent.utils.logging import get_logger
-
 
 @dataclass(frozen=True)
 class RunFinalizationContext:
@@ -46,47 +44,6 @@ class RunFinalizationContext:
 
 
 RunFinalizer = Callable[[RunFinalizationContext], Path | str | None]
-
-
-def record_operator_outcome(
-    *,
-    session_number: int,
-    state_output_dir: str | Path,
-    verdict: dict[str, Any],
-    messages: list[dict[str, Any]],
-    planner_error: str | None,
-) -> Path:
-    """Archive an operator outcome without overwriting a previous attempt.
-
-    Args:
-        session_number: Attempt number within the run.
-        state_output_dir: Unique attempt directory containing its observations.
-            Evidence stays here when memory drafts are merged.
-        verdict: Operator-confirmed result and notes.
-        messages: Serializable planner transcript.
-        planner_error: Error recorded before operator finalization, if any.
-
-    Returns:
-        Path to the archived evidence JSON.
-    """
-    path = Path(state_output_dir).resolve() / "operator_outcome.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("x") as file:
-        json.dump(
-            {
-                "verdict": verdict,
-                "session": session_number,
-                "evidence_dir": str(state_output_dir),
-                "messages": messages,
-                "planner_error": planner_error,
-                "note": "Operator-confirmed outcome; explanations still require evidence review.",
-            },
-            file,
-            indent=2,
-            default=str,
-        )
-    get_logger("evaluation").info("Attempt evidence saved: %s", path)
-    return path
 
 
 def write_json_atomic(
