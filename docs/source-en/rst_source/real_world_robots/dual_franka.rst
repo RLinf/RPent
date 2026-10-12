@@ -182,6 +182,10 @@ RPent translates this robot-focused schema into the internal two-node RLinf
 cluster and environment objects. To use a different file, pass
 ``--robot-config /path/to/robot_config.yaml``.
 
+``rotation_hold.max_drift_m`` defaults to ``0.03`` m. During ``rotate_delta``,
+TCP drift beyond this distance from the starting position aborts rotation
+through the existing RPC error path.
+
 Start the Two-node Ray Cluster
 ------------------------------
 

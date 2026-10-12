@@ -156,6 +156,8 @@ RPent 将其与所选快照中的末端位姿组合；若位姿使用 ``left_bas
 
 RPent 会将该机器人配置转换成内部双节点 RLinf cluster 和环境对象。如需使用其他文件，请传入 ``--robot-config /path/to/robot_config.yaml``。
 
+``rotation_hold.max_drift_m`` 默认为 ``0.03`` m。``rotate_delta`` 中，TCP 相对起始位置的漂移超过该值时，会通过现有 RPC 错误通道中止旋转。
+
 启动双节点 Ray 集群
 --------------------
 
