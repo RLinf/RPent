@@ -3,11 +3,11 @@
 
 """RoboTwin action layouts for native qpos and end-effector execution."""
 
-from rpent.robots.components.wam_contracts import WAMControlSpec
+from rpent.robots.components.am_contracts import AMControlSpec
 
 # Native joint_action.vector order: left six joint targets and gripper,
 # then right six joint targets and gripper. Preserve native gripper values.
-ROBOTWIN_QPOS = WAMControlSpec(
+ROBOTWIN_QPOS = AMControlSpec(
     embodiment="robotwin_qpos14",
     action_space="robotwin.joint_action.qpos14.v1",
     action_schema=[f"joint_action_{i}" for i in range(14)],
@@ -15,7 +15,7 @@ ROBOTWIN_QPOS = WAMControlSpec(
 )
 
 # Absolute native end-effector poses with wxyz quaternions, left arm first.
-ROBOTWIN_EEF = WAMControlSpec(
+ROBOTWIN_EEF = AMControlSpec(
     embodiment="robotwin_eef16",
     action_space="robotwin.eef_pose.absolute.v1",
     action_schema=[

@@ -6,16 +6,16 @@
 from functools import partial
 
 from robots.libero.control import LIBERO_OSC
+from rpent.robots.components.am_contracts import WAMCapabilities
+from rpent.robots.components.am_facade_base import (
+    WAMAdapter,
+    WAMAdapterSpec,
+)
 from rpent.robots.components.cosmos_policy import USES_SESSIONS
 from rpent.robots.components.cosmos_policy.adapter.decode import decode_libero
 from rpent.robots.components.cosmos_policy.adapter.encode import (
     STATE_SCHEMA,
     encode_libero,
-)
-from rpent.robots.components.wam_contracts import WAMCapabilities
-from rpent.robots.components.wam_facade_base import (
-    WAMAdapter,
-    WAMAdapterSpec,
 )
 
 ACTION_SCHEMA = LIBERO_OSC["action_schema"]

@@ -1,7 +1,11 @@
 # Copyright 2026 The RPent Authors.
 # Licensed under the Apache License, Version 2.0 (the "License");
 
-"""WAM control and RPC field declarations, using plain dictionaries and arrays."""
+"""Shared physical observations/control and WAM RPC field declarations.
+
+VLA model payloads retain their native formats; physical observations can be
+consumed by either VLA clients or WAM adapters before model-specific encoding.
+"""
 
 from collections.abc import Sequence
 from typing import Any, TypedDict
@@ -9,10 +13,18 @@ from typing import Any, TypedDict
 import numpy as np
 from typing_extensions import NotRequired
 
-# --- Platform control: native action semantics ---
+# --- Shared platform observations and native control ---
 
 
-class WAMControlSpec(TypedDict):
+class AMObservation(TypedDict):
+    """Physical RGB views, named robot state and task instruction."""
+
+    images: dict[str, np.ndarray]
+    state: dict[str, np.ndarray]
+    instruction: str
+
+
+class AMControlSpec(TypedDict):
     """Describe field order and native execution mode, without implementing control.
 
     The versioned action_space identifies units, frame, scaling, gripper
@@ -25,7 +37,7 @@ class WAMControlSpec(TypedDict):
     action_type: str | None
 
 
-# --- Connection: worker capabilities and input requirements ---
+# --- WAM connection: worker capabilities and input requirements ---
 
 
 class WAMCapabilities(TypedDict):
@@ -33,7 +45,7 @@ class WAMCapabilities(TypedDict):
 
     backend: str
     checkpoint: str
-    control: WAMControlSpec
+    control: AMControlSpec
     camera_roles: Sequence[str]
     state_schema: dict[str, int]
     chunk_size: int | None
@@ -43,20 +55,17 @@ class WAMCapabilities(TypedDict):
     metadata: NotRequired[dict[str, Any]]
 
 
-# --- Prediction request: physical observations and execution identity ---
+# --- WAM request: physical observations and execution identity ---
 
 
-class WAMRequest(TypedDict):
+class WAMRequest(AMObservation):
     """Physical RGB and named state, with the requested execution identity."""
 
-    images: dict[str, np.ndarray]
-    state: dict[str, np.ndarray]
-    instruction: str
     embodiment: str
     action_space: str
 
 
-# --- Prediction result: executable actions and optional model outputs ---
+# --- WAM result: executable actions and optional model outputs ---
 
 
 class WAMPrediction(TypedDict):

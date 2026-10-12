@@ -1,7 +1,7 @@
 # Copyright 2026 The RPent Authors.
 # Licensed under the Apache License, Version 2.0 (the "License");
 
-"""WAM boundary and deployment behavior without model dependencies."""
+"""Shared action-model startup and VLA/WAM boundaries without model dependencies."""
 
 import argparse
 from unittest.mock import Mock
@@ -9,9 +9,46 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 
-from rpent.robots.components import wam_runtime
-from rpent.robots.components.am_client_base import BaseWAMClient
-from rpent.robots.components.wam_facade_base import BaseWAMFacade
+from rpent.robots.components import am_runtime
+from rpent.robots.components.am_client_base import BaseVLAClient, BaseWAMClient
+from rpent.robots.components.am_facade_base import BaseVLAFacade, BaseWAMFacade
+
+
+def test_vla_dispatch_preserves_options_and_model_extensions():
+    class VLA(BaseVLAFacade):
+        def _register_rpc(self):
+            super()._register_rpc()
+            self._rpc["vla.metadata"] = lambda: {"model": "test"}
+
+        def predict(self, obs, options):
+            return {"actions": obs["state"], "options": options}
+
+    facade = VLA()
+    rpc = Mock(call=lambda method, args, **kw: facade._dispatch(method, args, {}))
+    options = {"mode": "eval"}
+    try:
+        result = BaseVLAClient(rpc).predict({"state": [1, 2]}, options)
+        assert result == {"actions": [1, 2], "options": options}
+        assert facade._dispatch("vla.metadata", (), {}) == {"model": "test"}
+    finally:
+        facade.close()
+
+
+@pytest.mark.parametrize("owned", [False, True])
+@pytest.mark.parametrize("sessions", [False, True])
+def test_shared_service_preserves_ownership_and_sessions(monkeypatch, owned, sessions):
+    rpc, daemon = Mock(), Mock() if owned else None
+    factory = Mock(return_value=rpc)
+    monkeypatch.setattr(am_runtime, "make_rpc_client", factory)
+    result = am_runtime.start_am_service(
+        daemon, "http://localhost:8116", enable_sessions=sessions
+    )
+    assert result == (daemon, rpc)
+    factory.assert_called_once_with("http://localhost:8116", enable_sessions=sessions)
+    if owned:
+        daemon.start.assert_called_once()
+        daemon.stop.assert_not_called()
+    rpc.close.assert_not_called()
 
 
 @pytest.fixture
@@ -138,7 +175,7 @@ def test_worker_launch_and_external_options(tmp_path, monkeypatch, backend, plat
     for name in ("python", "checkpoint", "config", "stats"):
         (tmp_path / name).touch()
     parser = argparse.ArgumentParser()
-    wam_runtime.add_wam_args(parser)
+    am_runtime.add_wam_args(parser)
     extra = (
         ["--wam-predict-future"]
         if backend == "cosmos-policy"
@@ -164,10 +201,10 @@ def test_worker_launch_and_external_options(tmp_path, monkeypatch, backend, plat
     )
     daemon, rpc = Mock(), Mock()
     factory = Mock(return_value=daemon)
-    monkeypatch.setattr(wam_runtime, "ProcessDaemon", factory)
-    monkeypatch.setattr(wam_runtime, "pick_free_port", lambda: 8116)
-    monkeypatch.setattr(wam_runtime, "make_rpc_client", lambda *a, **kw: rpc)
-    selected = wam_runtime.select_wam(args, platform)
+    monkeypatch.setattr(am_runtime, "ProcessDaemon", factory)
+    monkeypatch.setattr(am_runtime, "pick_free_port", lambda: 8116)
+    monkeypatch.setattr(am_runtime, "make_rpc_client", lambda *a, **kw: rpc)
+    selected = am_runtime.select_wam(args, platform)
     assert selected.start_service(args, tmp_path) == (daemon, rpc)
     command = factory.call_args.kwargs["cmd"]
     assert command[:3] == [
@@ -189,4 +226,4 @@ def test_worker_launch_and_external_options(tmp_path, monkeypatch, backend, plat
     args.wam_checkpoint = None
     args.wam_endpoint = "http://localhost:8116"
     with pytest.raises(ValueError, match="require --wam-checkpoint"):
-        wam_runtime.select_wam(args, platform)
+        am_runtime.select_wam(args, platform)

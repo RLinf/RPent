@@ -7,8 +7,10 @@ from typing import Any
 
 import numpy as np
 
+from rpent.robots.components.am_contracts import AMObservation
 
-def physical_observation(raw_obs: dict[str, Any]) -> dict[str, Any]:
+
+def physical_observation(raw_obs: dict[str, Any]) -> AMObservation:
     """Extract top-left-origin RGB and named state without a model representation.
 
     End-effector position and xyzw orientation are in the world frame; position

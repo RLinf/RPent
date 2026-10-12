@@ -14,8 +14,8 @@ from robots.robotwin.control import (
 )
 from robots.robotwin.observation import physical_observation
 from rpent.robots.components.am_client_base import BaseWAMClient
-from rpent.robots.components.wam_contracts import (
-    WAMControlSpec,
+from rpent.robots.components.am_contracts import (
+    AMControlSpec,
     WAMPrediction,
     WAMRequest,
 )
@@ -26,7 +26,7 @@ ACTION_SCHEMA = ROBOTWIN_QPOS["action_schema"]
 
 
 def robotwin_request(
-    observation: dict[str, Any], controller: WAMControlSpec = ROBOTWIN_QPOS
+    observation: dict[str, Any], controller: AMControlSpec = ROBOTWIN_QPOS
 ) -> WAMRequest:
     """Attach the selected execution contract to native RoboTwin observations."""
     return {
@@ -40,7 +40,7 @@ class RoboTwinWAMClient:
     """Return negotiated qpos14/EEF16 chunks for RoboTwin's native executor."""
 
     @cached_property
-    def controller(self) -> WAMControlSpec:
+    def controller(self) -> AMControlSpec:
         caps = self.wam.get_capabilities()
         try:
             controller = ROBOTWIN_CONTROLLERS[caps["control"]["action_space"]]

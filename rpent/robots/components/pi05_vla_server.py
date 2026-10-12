@@ -35,7 +35,7 @@ import numpy as np
 import torch
 from omegaconf import OmegaConf
 
-from rpent.robots.components.vla_facade_base import BaseVLAFacade
+from rpent.robots.components.am_facade_base import BaseVLAFacade
 from rpent.utils.config import get_pi05_checkpoint_path
 from rpent.utils.logging import get_logger
 

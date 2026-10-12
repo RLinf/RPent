@@ -13,8 +13,8 @@ import numpy as np
 from robots.libero.control import LIBERO_OSC
 from robots.libero.observation import physical_observation
 from rpent.robots.components.am_client_base import BaseWAMClient
-from rpent.robots.components.wam_contracts import (
-    WAMControlSpec,
+from rpent.robots.components.am_contracts import (
+    AMControlSpec,
     WAMPrediction,
     WAMRequest,
 )
@@ -46,7 +46,7 @@ class LiberoWAMClient:
         self.controller
 
     @cached_property
-    def controller(self) -> WAMControlSpec:
+    def controller(self) -> AMControlSpec:
         """Connect once and retain the supported native control contract."""
         self.wam.validate_contract(LIBERO_OSC)
         return LIBERO_OSC

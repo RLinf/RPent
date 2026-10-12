@@ -28,7 +28,12 @@ from robots.libero.suites import LIBERO_SUITE_NAMES, resolve_libero_type
 from rpent.dashboard.events import DashboardEventSink
 from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
-from rpent.robots.components.wam_runtime import WAMConfig, add_wam_args, select_wam
+from rpent.robots.components.am_runtime import (
+    WAMConfig,
+    add_wam_args,
+    select_wam,
+    start_am_service,
+)
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_spawn_server, try_wait_server
@@ -414,7 +419,7 @@ def _spawn_vla_server(
 ) -> tuple[ProcessDaemon | None, RpcClient]:
     """Connect to Pi0.5 or launch its shared component server."""
     if args.vla_endpoint:
-        return None, make_rpc_client(args.vla_endpoint)
+        return start_am_service(None, args.vla_endpoint)
     host, port = "127.0.0.1", pick_free_port()
     daemon = ProcessDaemon(
         name="vla_server",
@@ -434,8 +439,7 @@ def _spawn_vla_server(
         ],
         log_path=str(output_dir / "vla_server.log"),
     )
-    daemon.start()
-    return daemon, make_rpc_client(f"http://{host}:{port}")
+    return start_am_service(daemon, f"http://{host}:{port}")
 
 
 def _make_model_client(rpc: RpcClient, wam: WAMConfig | None) -> Any:

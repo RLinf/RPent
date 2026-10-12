@@ -1,7 +1,7 @@
 # Copyright 2026 The RPent Authors.
 # Licensed under the Apache License, Version 2.0 (the "License");
 
-"""Model registration and process ownership shared by robot WAM runtimes."""
+"""Shared action-model service startup and category-specific configuration."""
 
 import argparse
 import importlib
@@ -14,29 +14,60 @@ from rpent.utils.config import get_repo_root
 from rpent.utils.daemon import ProcessDaemon, pick_free_port
 from rpent.utils.rpc import RpcClient, make_rpc_client
 
-BACKENDS = {
+# --- Shared RPent RPC startup: used by VLA and WAM ---
+
+
+def start_am_service(
+    daemon: ProcessDaemon | None,
+    endpoint: str,
+    *,
+    enable_sessions: bool = False,
+) -> tuple[ProcessDaemon | None, RpcClient]:
+    """Attach to a service or start its prepared daemon and hand off resources.
+
+    Callers own model commands and deployment settings. The robot runtime owns
+    readiness checks, Dashboard status and cleanup after a successful handoff.
+    """
+    rpc = make_rpc_client(endpoint, enable_sessions=enable_sessions)
+    if daemon is not None:
+        try:
+            daemon.start()
+        except Exception:
+            try:
+                rpc.close()
+            finally:
+                daemon.stop()
+            raise
+    return daemon, rpc
+
+
+# --- WAM backend selection and worker configuration ---
+
+WAM_BACKENDS = {
     "cosmos-policy": "cosmos_policy",
     "fast-wam": "fast_wam",
 }
-ALIASES = {"cosmos": "cosmos-policy", "fast_wam": "fast-wam"}
+WAM_ALIASES = {"cosmos": "cosmos-policy", "fast_wam": "fast-wam"}
 
 
 def _runtime_config(backend: str) -> ModuleType:
     return importlib.import_module(
-        f"rpent.robots.components.{BACKENDS[backend]}.runtime_config"
+        f"rpent.robots.components.{WAM_BACKENDS[backend]}.runtime_config"
     )
 
 
 def add_wam_args(parser: argparse.ArgumentParser) -> None:
     """Register shared options and lightweight model-owned launch options."""
-    parser.add_argument("--wam-backend", choices=tuple(BACKENDS) + tuple(ALIASES))
+    parser.add_argument(
+        "--wam-backend", choices=tuple(WAM_BACKENDS) + tuple(WAM_ALIASES)
+    )
     parser.add_argument("--wam-endpoint", help="HTTP/socket endpoint of a WAM worker")
     parser.add_argument("--wam-checkpoint", help="Local checkpoint for an owned worker")
     parser.add_argument(
         "--wam-python", help="Python executable in the model environment"
     )
     parser.add_argument("--wam-root", help="Working directory for the model worker")
-    for backend in BACKENDS:
+    for backend in WAM_BACKENDS:
         _runtime_config(backend).add_arguments(parser)
 
 
@@ -50,7 +81,7 @@ class WAMConfig:
 
     @property
     def rpc_backend(self) -> str:
-        return BACKENDS[self.backend]
+        return WAM_BACKENDS[self.backend]
 
     def start_service(
         self, args: argparse.Namespace, output_dir: Path
@@ -58,8 +89,8 @@ class WAMConfig:
         """Borrow an endpoint or launch the registered model in its own environment."""
         runtime_config = _runtime_config(self.backend)
         if self.endpoint:
-            return None, make_rpc_client(
-                self.endpoint, enable_sessions=runtime_config.USES_SESSIONS
+            return start_am_service(
+                None, self.endpoint, enable_sessions=runtime_config.USES_SESSIONS
             )
         port = pick_free_port()
         cmd = [
@@ -96,16 +127,11 @@ class WAMConfig:
             env_overrides=overrides,
             log_path=str(output_dir / "wam_server.log"),
         )
-        rpc = make_rpc_client(
-            f"http://127.0.0.1:{port}", enable_sessions=runtime_config.USES_SESSIONS
+        return start_am_service(
+            daemon,
+            f"http://127.0.0.1:{port}",
+            enable_sessions=runtime_config.USES_SESSIONS,
         )
-        try:
-            daemon.start()
-        except Exception:
-            rpc.close()
-            daemon.stop()
-            raise
-        return daemon, rpc
 
 
 def select_wam(args: argparse.Namespace, platform: str) -> WAMConfig | None:
@@ -113,8 +139,8 @@ def select_wam(args: argparse.Namespace, platform: str) -> WAMConfig | None:
     backend = getattr(args, "wam_backend", None)
     endpoint = getattr(args, "wam_endpoint", None)
     checkpoint = getattr(args, "wam_checkpoint", None)
-    backend = ALIASES.get(backend, backend)
-    for name in BACKENDS:
+    backend = WAM_ALIASES.get(backend, backend)
+    for name in WAM_BACKENDS:
         if name != backend and any(
             getattr(args, field, None) for field in _runtime_config(name).OPTION_FIELDS
         ):
@@ -123,7 +149,7 @@ def select_wam(args: argparse.Namespace, platform: str) -> WAMConfig | None:
         if endpoint or checkpoint:
             raise ValueError("--wam-endpoint/--wam-checkpoint requires --wam-backend")
         return None
-    if backend not in BACKENDS:
+    if backend not in WAM_BACKENDS:
         raise ValueError(f"Unsupported WAM backend: {backend!r}")
     if any(
         getattr(args, key, None)

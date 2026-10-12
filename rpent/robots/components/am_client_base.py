@@ -9,9 +9,9 @@ from typing import Any
 
 import numpy as np
 
-from rpent.robots.components.wam_contracts import (
+from rpent.robots.components.am_contracts import (
+    AMControlSpec,
     WAMCapabilities,
-    WAMControlSpec,
     WAMPrediction,
     WAMRequest,
 )
@@ -78,7 +78,7 @@ class BaseWAMClient(BaseAMClient):
             self._capabilities = capabilities
         return self._capabilities
 
-    def validate_contract(self, expected: WAMControlSpec) -> None:
+    def validate_contract(self, expected: AMControlSpec) -> None:
         """Connect and require the platform's native control contract."""
         actual = self.get_capabilities()["control"]
         if actual != expected:

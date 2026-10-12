@@ -35,6 +35,7 @@ from robots.franka.runtime_config import (
 from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
 from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
+from rpent.robots.components.am_runtime import start_am_service
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_spawn_server, try_wait_server
@@ -322,7 +323,7 @@ def _spawn_vla_server(
 ) -> tuple[ProcessDaemon | None, RpcClient]:
     """Spawn (or attach to) the dual-Franka VLA service."""
     if args.vla_endpoint is not None:
-        return None, make_rpc_client(args.vla_endpoint)
+        return start_am_service(None, args.vla_endpoint)
     if not args.vla_model_path or not args.vla_repo_id:
         raise ValueError(
             "dual-Franka VLA auto-start requires --vla-model-path and "
@@ -335,8 +336,7 @@ def _spawn_vla_server(
         cmd=_vla_server_command(args, host=host, port=port),
         log_path=str(output_dir / "dual_franka_vla_server.log"),
     )
-    daemon.start()
-    return daemon, HttpRpcClient(f"http://{host}:{port}")
+    return start_am_service(daemon, f"http://{host}:{port}")
 
 
 def _spawn_sam3_server(

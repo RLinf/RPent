@@ -1,7 +1,7 @@
 # Copyright 2026 The RPent Authors.
 # Licensed under the Apache License, Version 2.0 (the "License");
 
-"""Server-side validation and session lifecycle for WAM workers."""
+"""Shared action-model RPC registration and VLA/WAM service contracts."""
 
 from __future__ import annotations
 
@@ -10,13 +10,56 @@ from typing import Any, Callable
 
 import numpy as np
 
-from rpent.robots.components.wam_contracts import (
+from rpent.robots.components.am_contracts import (
     WAMCapabilities,
     WAMPrediction,
     WAMRequest,
 )
 from rpent.utils.rpc import RpcFacade
 from rpent.utils.rpc.rpc_facade import DEFAULT_SESSION_TIMEOUT_S
+
+# --- Shared RPC registration ---
+
+
+class BaseAMFacade(RpcFacade):
+    """Register prediction while reusing RPC locking and session ownership."""
+
+    PREDICT_METHOD: str
+
+    def __init__(
+        self,
+        *,
+        enable_sessions: bool = False,
+        session_timeout_s: float = DEFAULT_SESSION_TIMEOUT_S,
+    ) -> None:
+        super().__init__(
+            enable_sessions=enable_sessions, session_timeout_s=session_timeout_s
+        )
+        self._register_rpc()
+
+    def _register_rpc(self) -> None:
+        self._rpc[self.PREDICT_METHOD] = self.predict
+
+    def predict(self, *args: Any, **kwargs: Any) -> Any:
+        """Run model inference using the subclass's request and result format."""
+        raise NotImplementedError
+
+
+# --- VLA: model-owned observation and action formats ---
+
+
+class BaseVLAFacade(BaseAMFacade):
+    """Preserve VLA prediction and model-specific RPC/session extensions.
+
+    Subclasses implement ``predict`` and may extend ``_register_rpc``.
+    Session-aware services supply their own reset and session-drop hooks.
+    """
+
+    PREDICT_METHOD = "vla.predict"
+
+
+# --- WAM: paired adapters, physical observations and native actions ---
+
 
 WAMAdapter = tuple[
     Callable[[dict[str, Any]], dict[str, Any]],
@@ -33,7 +76,7 @@ class WAMAdapterSpec:
     capabilities: Callable[..., WAMCapabilities]
 
 
-class BaseWAMFacade(RpcFacade):
+class BaseWAMFacade(BaseAMFacade):
     """Own the common ``wam.*`` routes, independent of model and simulator."""
 
     PREDICT_METHOD = "wam.predict"
@@ -51,9 +94,11 @@ class BaseWAMFacade(RpcFacade):
             enable_sessions=capabilities["uses_sessions"],
             session_timeout_s=session_timeout_s,
         )
+
+    def _register_rpc(self) -> None:
+        super()._register_rpc()
         self._rpc.update(
             {
-                self.PREDICT_METHOD: self.predict,
                 "wam.capabilities": self.get_capabilities,
                 "wam.reset": self.reset,
             }

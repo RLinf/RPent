@@ -36,14 +36,14 @@ toolkit owns registration, cancellation, state capture and recording.
      - Define native action order, semantics and execution mode.
    * - ``robots/<platform>/wam_client.py``
      - Select a compatible controller and attach execution identity to observations.
-   * - ``rpent/robots/components/wam_contracts.py``
-     - Declare control, capabilities, request and result dictionaries in separate sections.
+   * - ``rpent/robots/components/am_contracts.py``
+     - Declare shared physical observations/native control and WAM-specific capability, request and result dictionaries in separate sections.
    * - ``am_client_base.py``
      - Define the shared ``BaseAMClient`` and its VLA/WAM subclasses; share prediction dispatch and timeouts, keeping each contract's arguments and checks.
-   * - ``wam_facade_base.py``
-     - Register WAM RPC methods, check incoming observations, and manage reset/session hooks.
-   * - ``wam_runtime.py``
-     - Register backends; borrow an endpoint or launch an owned model process.
+   * - ``am_facade_base.py``
+     - Share prediction route registration and RPC session setup through ``BaseAMFacade``; keep VLA and WAM behavior in subclasses.
+   * - ``am_runtime.py``
+     - Share RPent RPC service attachment, process startup and failure cleanup; keep WAM backend selection and worker configuration in a separate section.
    * - ``<model>/runtime_config.py``
      - Supply model-specific arguments, defaults and configuration requirements.
    * - ``<model>/server.py``
@@ -56,6 +56,13 @@ toolkit owns registration, cancellation, state capture and recording.
 its existing prediction arguments and result format. WAM capability checks and
 reset/close remain in ``BaseWAMClient``; VLA lifecycle methods remain with the
 integrations that support them.
+
+``BaseVLAFacade`` and ``BaseWAMFacade`` likewise inherit from ``BaseAMFacade`` in
+``am_facade_base.py``. VLA models retain their native payloads and additional
+routes; WAM owns capability checks, paired adapters and reset hooks.
+``AMObservation`` and ``AMControlSpec`` describe physical platform data shared
+across model categories. ``WAMRequest`` extends the physical observation with
+execution identity; it does not change existing VLA wire formats.
 
 Physical observations are reusable by VLA and WAM integrations. Model encoders
 remain distinct: Cosmos uses LIBERO's xyzw quaternion in a 9D state, whereas
@@ -71,18 +78,25 @@ The platform ``robot_spec.py`` connects the startup layers through callbacks:
      -> robots.runtime.try_spawn_server(spawn_fn)
           -> WAMConfig.start_service()
                -> <model>.runtime_config.worker_arguments()
-               -> start worker and return daemon + RPC client
+               -> am_runtime.start_am_service(daemon, endpoint)
+                    -> start worker and return daemon + RPC client
           -> register owned daemon
      -> robots.runtime.try_wait_server(post_fn)
           -> wait for readiness
           -> create platform WAM client and check control compatibility
           -> report ready to Dashboard
 
-``wam_runtime.py`` owns common launch arguments such as ``--platform`` and
-``--checkpoint``, Python/GPU selection and deployment-mode checks. Model
-configuration modules supply only their additional arguments. The shared
-``robots/runtime.py`` owns readiness, component status and group cleanup;
-``start_service()`` cleans up resources if launch fails before returning them.
+``am_runtime.start_am_service()`` attaches to a borrowed endpoint or starts a
+prepared daemon, preserving session settings and cleaning up failed starts.
+RPent RPC VLA integrations in LIBERO, RoboCasa, RoboDojo, Franka, dual-Franka and
+YAM share this function with WAM. Their platform/model configuration still owns
+command construction. LingBot retains its native WebSocket connection path.
+The shared ``robots/runtime.py`` owns readiness, component status and group
+cleanup after resource handoff.
+
+The WAM section of ``am_runtime.py`` owns ``--platform``, ``--checkpoint``,
+Python/GPU selection and deployment-mode checks. Model ``runtime_config.py``
+modules supply only additional configuration; VLA launch flags remain unchanged.
 
 .. _wam-protocol:
 
@@ -124,8 +138,8 @@ Extension Points
 
 For another model, add a package with ``runtime_config.py``, ``server.py`` and paired
 ``adapter/encode.py`` and ``adapter/decode.py`` implementations. Register the
-package in ``wam_runtime.BACKENDS`` and each supported platform in its
-``ADAPTERS`` mapping. ``WAMAdapterSpec`` lives in ``wam_facade_base.py`` and
+package in ``am_runtime.WAM_BACKENDS`` and each supported platform in its
+``ADAPTERS`` mapping. ``WAMAdapterSpec`` lives in ``am_facade_base.py`` and
 groups encode, decode and capability construction. Reuse existing platform
 clients when their physical observations and control definitions fit.
 
@@ -149,8 +163,9 @@ Passing those checks establishes integration behavior, not benchmark success.
 Tests
 -----
 
-WAM follows the existing VLA/SAM test layout. ``test_wam.py`` covers shared
-boundaries and worker configuration; ``test_wam_adapters.py`` checks camera/state
+WAM follows the existing VLA/SAM test layout. ``test_am.py`` covers shared
+startup, VLA dispatch, WAM boundaries and worker configuration;
+``test_wam_adapters.py`` checks camera/state
 encoding and native action restoration on CPU. Platform tool behavior stays
 with each platform's unit tests. ``test_wam_loopback.py`` uses the existing
 HTTP/socket fixtures for session isolation, reset and cleanup.

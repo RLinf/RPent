@@ -7,7 +7,7 @@ from typing import Any
 
 import numpy as np
 
-from rpent.robots.components.wam_contracts import WAMPrediction
+from rpent.robots.components.am_contracts import WAMPrediction
 
 
 def _denormalize(

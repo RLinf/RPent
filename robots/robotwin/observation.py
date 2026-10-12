@@ -7,10 +7,12 @@ from typing import Any
 
 import numpy as np
 
+from rpent.robots.components.am_contracts import AMObservation
+
 ROBOTWIN_CAMERAS = ("head", "left_wrist", "right_wrist")
 
 
-def physical_observation(observation: dict[str, Any]) -> dict[str, Any]:
+def physical_observation(observation: dict[str, Any]) -> AMObservation:
     """Keep native RGB orientation and the native joint-action vector.
 
     ``qpos_target14`` matches RoboTwin's ``joint_action.vector``: left arm's

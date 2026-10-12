@@ -9,6 +9,11 @@ from typing import Any
 from robots.libero.control import LIBERO_OSC
 from robots.robotwin.control import ROBOTWIN_QPOS
 from robots.robotwin.observation import ROBOTWIN_CAMERAS
+from rpent.robots.components.am_contracts import WAMCapabilities
+from rpent.robots.components.am_facade_base import (
+    WAMAdapter,
+    WAMAdapterSpec,
+)
 from rpent.robots.components.fast_wam import USES_SESSIONS
 from rpent.robots.components.fast_wam.adapter.decode import (
     decode_libero,
@@ -17,11 +22,6 @@ from rpent.robots.components.fast_wam.adapter.decode import (
 from rpent.robots.components.fast_wam.adapter.encode import (
     encode_libero,
     encode_robotwin,
-)
-from rpent.robots.components.wam_contracts import WAMCapabilities
-from rpent.robots.components.wam_facade_base import (
-    WAMAdapter,
-    WAMAdapterSpec,
 )
 
 

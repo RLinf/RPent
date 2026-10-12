@@ -30,14 +30,14 @@ RPent 将平台观测和动作执行与模型推理解耦。Cosmos Policy 支持
      - 定义原生动作的字段顺序、含义和执行模式。
    * - ``robots/<platform>/wam_client.py``
      - 选择兼容控制方式，给物理观测附加执行身份。
-   * - ``rpent/robots/components/wam_contracts.py``
-     - 分节声明控制、能力、请求和结果字典。
+   * - ``rpent/robots/components/am_contracts.py``
+     - 分节声明共享物理观测、原生控制，以及 WAM 专用的能力、请求和结果字典。
    * - ``am_client_base.py``
      - 定义公共 ``BaseAMClient`` 及 VLA/WAM 子类，共享推理转发和超时处理，各自保留协议参数与检查。
-   * - ``wam_facade_base.py``
-     - 注册 WAM RPC 方法，检查收到的观测，管理 reset 与会话钩子。
-   * - ``wam_runtime.py``
-     - 注册后端，连接外部服务或启动自己管理的模型进程。
+   * - ``am_facade_base.py``
+     - 通过 ``BaseAMFacade`` 共享推理路由注册和 RPC 会话初始化；子类分别负责 VLA/WAM 行为。
+   * - ``am_runtime.py``
+     - 共享 RPent RPC 服务连接、进程启动和失败清理；另设 WAM 后端选择与部署配置部分。
    * - ``<model>/runtime_config.py``
      - 补充模型专属参数、默认值和配置要求。
    * - ``<model>/server.py``
@@ -46,6 +46,8 @@ RPent 将平台观测和动作执行与模型推理解耦。Cosmos Policy 支持
      - 注册成对转换，构造模型输入并还原平台动作。
 
 ``BaseVLAClient`` 和 ``BaseWAMClient`` 均继承 ``BaseAMClient``，三个类定义在同一个 ``am_client_base.py`` 中，各自保留原有推理参数和返回格式。WAM 能力检查及 reset/close 留在 ``BaseWAMClient``；VLA 生命周期方法仍由支持这些操作的具体集成提供。
+
+``BaseVLAFacade`` 和 ``BaseWAMFacade`` 同样在 ``am_facade_base.py`` 内继承 ``BaseAMFacade``。VLA 保留模型原生消息和扩展路由，WAM 负责能力检查、配对 adapter 和 reset 钩子。``AMObservation`` 与 ``AMControlSpec`` 描述两类模型可共享的平台物理数据；``WAMRequest`` 在物理观测上增加执行身份，现有 VLA 通信格式保持不变。
 
 物理观测可由 VLA 和 WAM 复用，模型编码仍由各自 adapter 实现。例如 Cosmos 将 LIBERO 的 xyzw 四元数拼入 9 维状态，Fast-WAM 则转换成轴角后组成 8 维状态。RoboTwin 分开提供控制器关节目标与实测关节位置；Fast-WAM 使用对应原生 ``joint_action.vector`` 的目标值。
 
@@ -57,14 +59,17 @@ RPent 将平台观测和动作执行与模型推理解耦。Cosmos Policy 支持
      -> robots.runtime.try_spawn_server(spawn_fn)
           -> WAMConfig.start_service()
                -> <model>.runtime_config.worker_arguments()
-               -> start worker and return daemon + RPC client
+               -> am_runtime.start_am_service(daemon, endpoint)
+                    -> start worker and return daemon + RPC client
           -> register owned daemon
      -> robots.runtime.try_wait_server(post_fn)
           -> wait for readiness
           -> create platform WAM client and check control compatibility
           -> report ready to Dashboard
 
-``wam_runtime.py`` 负责 ``--platform``、``--checkpoint`` 等公共启动参数、Python/GPU 选择和部署模式检查。模型配置模块只补充自己的额外参数。公共 ``robots/runtime.py`` 负责等待就绪、组件状态和进程组清理；如果启动在资源返回前失败，``start_service()`` 负责清理刚创建的资源。
+``am_runtime.start_am_service()`` 连接外部端点或启动已配置的 daemon，保留会话设置，并在启动失败时清理资源。LIBERO、RoboCasa、RoboDojo、Franka、dual-Franka 和 YAM 中使用 RPent RPC 的 VLA 路径与 WAM 共用此函数；命令构造仍由平台或模型配置负责。LingBot 保留原生 WebSocket 连接路径。公共 ``robots/runtime.py`` 在资源交接后负责等待就绪、组件状态和进程组清理。
+
+``am_runtime.py`` 的 WAM 部分负责 ``--platform``、``--checkpoint``、Python/GPU 选择和部署模式检查；模型 ``runtime_config.py`` 只补充自己的额外配置。VLA 启动参数保持不变。
 
 .. _wam-protocol:
 
@@ -82,7 +87,7 @@ RPC 路由为 ``wam.capabilities``、``wam.predict`` 和 ``wam.reset``。请求�
 扩展方式
 --------
 
-增加模型时，新建包含 ``runtime_config.py``、``server.py`` 及配对 ``adapter/encode.py``、``adapter/decode.py`` 的包。在 ``wam_runtime.BACKENDS`` 注册后端，在模型的 ``ADAPTERS`` 中注册支持的平台。``WAMAdapterSpec`` 位于 ``wam_facade_base.py``，组合 encode、decode 和能力构造函数。已有平台的物理观测与控制定义满足要求时，可直接复用平台 client。
+增加模型时，新建包含 ``runtime_config.py``、``server.py`` 及配对 ``adapter/encode.py``、``adapter/decode.py`` 的包。在 ``am_runtime.WAM_BACKENDS`` 注册后端，在模型的 ``ADAPTERS`` 中注册支持的平台。``WAMAdapterSpec`` 位于 ``am_facade_base.py``，组合 encode、decode 和能力构造函数。已有平台的物理观测与控制定义满足要求时，可直接复用平台 client。
 
 增加平台时，提供物理观测、原生控制定义、平台 client 及工具和运行时接线。每个模型仍需匹配的 checkpoint 和配对转换；注册本身不能证明权重兼容。RoboTwin 已定义 EEF16 控制方式，但当前 Fast-WAM adapter 使用 qpos14。Cosmos Policy 尚无 RoboTwin adapter。
 
@@ -93,7 +98,7 @@ RPC 路由为 ``wam.capabilities``、``wam.predict`` 和 ``wam.reset``。请求�
 测试
 ----
 
-WAM 沿用 VLA/SAM 的测试组织。``test_wam.py`` 覆盖公共边界和启动配置；``test_wam_adapters.py`` 在 CPU 上检查相机与状态编码、原生动作还原。平台工具行为保留在各平台的单测中。``test_wam_loopback.py`` 复用已有 HTTP/socket fixture，检查会话隔离、复位和清理。
+WAM 沿用 VLA/SAM 的测试组织。``test_am.py`` 覆盖公共启动、VLA 转发、WAM 边界和部署配置；``test_wam_adapters.py`` 在 CPU 上检查相机与状态编码、原生动作还原。平台工具行为保留在各平台的单测中。``test_wam_loopback.py`` 复用已有 HTTP/socket fixture，检查会话隔离、复位和清理。
 
 真实模型测试放在各平台的 ``test_components.py`` 和 ``test_policy_chain.py``。LIBERO 对 Cosmos Policy 和 Fast-WAM 参数化复用同一组测试；RoboTwin 使用自己的 Fast-WAM checkpoint。启动 worker 后，在对应仿真器环境运行：
 

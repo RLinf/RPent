@@ -153,7 +153,7 @@ integration checks, not task-success benchmarks. Component checks close their
 clients, and CLI checks stop their owned daemons. Externally started model
 services remain the operator's responsibility.
 
-Offline WAM checks follow the VLA/SAM layout: `test_wam.py` covers public
+Offline AM checks follow the VLA/SAM layout: `test_am.py` covers shared startup and public
 boundaries and startup configuration, `test_wam_adapters.py` checks physical
 input and native output transforms, and `test_wam_loopback.py` exercises real
 local HTTP/socket sessions. Platform tool checks stay in platform unit tests.

@@ -8,8 +8,8 @@ from __future__ import annotations
 import argparse
 from typing import Any
 
+from rpent.robots.components.am_facade_base import BaseWAMFacade
 from rpent.robots.components.fast_wam.adapter import ADAPTERS, make_adapter
-from rpent.robots.components.wam_facade_base import BaseWAMFacade
 
 
 class FastWAMFacade(BaseWAMFacade):

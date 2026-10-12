@@ -19,15 +19,21 @@ from rpent.robots.components.am_client_base import (
     BaseVLAClient,
     BaseWAMClient,
 )
+from rpent.robots.components.am_facade_base import (
+    BaseAMFacade,
+    BaseVLAFacade,
+    BaseWAMFacade,
+)
 from rpent.robots.components.env_client_base import BaseEnvClient
 from rpent.robots.components.env_facade_base import BaseEnvFacade
-from rpent.robots.components.vla_facade_base import BaseVLAFacade
 
 __all__ = [
     "BaseAMClient",
+    "BaseAMFacade",
     "BaseEnvClient",
     "BaseEnvFacade",
     "BaseVLAClient",
     "BaseVLAFacade",
     "BaseWAMClient",
+    "BaseWAMFacade",
 ]

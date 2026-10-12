@@ -30,6 +30,7 @@ from rpent.dashboard.events import DashboardEventSink
 from rpent.dashboard.spec import DashboardSpec
 from rpent.evaluation import RunFinalizationContext, write_json_atomic
 from rpent.memory import MemoryManager
+from rpent.robots.components.am_runtime import start_am_service
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_spawn_server, try_wait_server
@@ -411,7 +412,7 @@ def _spawn_vla_server(
 ) -> tuple["ProcessDaemon | None", RpcClient]:
     """Spawn (or attach to) the RoboDojo Pi_05 VLA server."""
     if args.vla_endpoint is not None:
-        return None, make_rpc_client(args.vla_endpoint)
+        return start_am_service(None, args.vla_endpoint)
 
     pi05_python = str(Path(args.pi05_python).expanduser())
     if not Path(pi05_python).exists():
@@ -470,8 +471,7 @@ def _spawn_vla_server(
         env_overrides=overrides,
         log_path=str(Path(output_dir) / "robodojo_vla_server.log"),
     )
-    daemon.start()
-    return daemon, HttpRpcClient(f"http://{host}:{port}")
+    return start_am_service(daemon, f"http://{host}:{port}")
 
 
 def _init_runtime(
