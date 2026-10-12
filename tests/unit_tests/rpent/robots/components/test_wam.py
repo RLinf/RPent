@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from rpent.robots.components import wam_runtime
-from rpent.robots.components.wam_client_base import BaseWAMClient
+from rpent.robots.components.am_client_base import BaseWAMClient
 from rpent.robots.components.wam_facade_base import BaseWAMFacade
 
 
@@ -70,6 +70,16 @@ def test_prediction_keeps_optional_outputs_and_caches_control(worker):
     client.reset()
     client.close()
     rpc.close.assert_called_once()
+
+
+@pytest.mark.parametrize("timeout_s", [300.0, 12.0])
+def test_prediction_and_reset_preserve_rpc_arguments(worker, timeout_s):
+    _, _, rpc, request = worker
+    client = BaseWAMClient(rpc, timeout_s=timeout_s)
+    client.predict(request)
+    rpc.call.assert_called_with("wam.predict", args=(request,), timeout_s=timeout_s)
+    client.reset()
+    rpc.call.assert_called_with("wam.reset", timeout_s=timeout_s)
 
 
 @pytest.mark.parametrize(

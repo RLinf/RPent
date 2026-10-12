@@ -32,8 +32,10 @@ RPent 将平台观测和动作执行与模型推理解耦。Cosmos Policy 支持
      - 选择兼容控制方式，给物理观测附加执行身份。
    * - ``rpent/robots/components/wam_contracts.py``
      - 分节声明控制、能力、请求和结果字典。
-   * - ``wam_client_base.py`` / ``wam_facade_base.py``
-     - 复用 RPent RPC，检查边界数据，管理 reset 与会话钩子。
+   * - ``am_client_base.py``
+     - 定义公共 ``BaseAMClient`` 及 VLA/WAM 子类，共享推理转发和超时处理，各自保留协议参数与检查。
+   * - ``wam_facade_base.py``
+     - 注册 WAM RPC 方法，检查收到的观测，管理 reset 与会话钩子。
    * - ``wam_runtime.py``
      - 注册后端，连接外部服务或启动自己管理的模型进程。
    * - ``<model>/runtime_config.py``
@@ -42,6 +44,8 @@ RPent 将平台观测和动作执行与模型推理解耦。Cosmos Policy 支持
      - 加载模型，实现原生推理。
    * - ``<model>/adapter/{__init__,encode,decode}.py``
      - 注册成对转换，构造模型输入并还原平台动作。
+
+``BaseVLAClient`` 和 ``BaseWAMClient`` 均继承 ``BaseAMClient``，三个类定义在同一个 ``am_client_base.py`` 中，各自保留原有推理参数和返回格式。WAM 能力检查及 reset/close 留在 ``BaseWAMClient``；VLA 生命周期方法仍由支持这些操作的具体集成提供。
 
 物理观测可由 VLA 和 WAM 复用，模型编码仍由各自 adapter 实现。例如 Cosmos 将 LIBERO 的 xyzw 四元数拼入 9 维状态，Fast-WAM 则转换成轴角后组成 8 维状态。RoboTwin 分开提供控制器关节目标与实测关节位置；Fast-WAM 使用对应原生 ``joint_action.vector`` 的目标值。
 

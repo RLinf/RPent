@@ -22,7 +22,7 @@ from typing import Any
 import numpy as np
 
 from robots.robotwin.observation import physical_observation
-from rpent.robots.components.vla_client_base import BaseVLAClient
+from rpent.robots.components.am_client_base import BaseVLAClient
 
 
 class LingBotWebSocketTransport:

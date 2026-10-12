@@ -1,9 +1,11 @@
 # Copyright 2026 The RPent Authors.
 # Licensed under the Apache License, Version 2.0 (the "License");
 
-"""Transport-independent client for RPent WAM workers."""
+"""Shared action-model transport and VLA/WAM client contracts."""
 
 from __future__ import annotations
+
+from typing import Any
 
 import numpy as np
 
@@ -16,7 +18,37 @@ from rpent.robots.components.wam_contracts import (
 from rpent.utils.rpc import RpcClient
 
 
-class BaseWAMClient:
+class BaseAMClient:
+    """Hold an RPC-compatible transport; subclasses own prediction contracts."""
+
+    PREDICT_METHOD: str
+
+    def __init__(self, client: Any, *, timeout_s: float) -> None:
+        self._client = client
+        self._timeout_s = float(timeout_s)
+
+    def _predict(self, *args: Any) -> Any:
+        """Forward the subclass's prediction arguments without conversion."""
+        return self._client.call(
+            self.PREDICT_METHOD, args=args, timeout_s=self._timeout_s
+        )
+
+
+class BaseVLAClient(BaseAMClient):
+    """Preserve the VLA RPC contract for existing model clients."""
+
+    PREDICT_METHOD = "vla.predict"
+    _TIMEOUT_S: dict[str, float] = {"default": 30.0, "predict": 120.0}
+
+    def __init__(self, client: Any) -> None:
+        super().__init__(client, timeout_s=self._TIMEOUT_S["predict"])
+
+    def predict(self, obs: Any, options: dict | None = None) -> Any:
+        """Request a single VLA action chunk from observations and options."""
+        return self._predict(obs, options)
+
+
+class BaseWAMClient(BaseAMClient):
     """Client for the ``wam.*`` RPC contract."""
 
     PREDICT_METHOD = "wam.predict"
@@ -28,9 +60,8 @@ class BaseWAMClient:
         expected_backend: str | None = None,
         timeout_s: float = 300.0,
     ) -> None:
-        self._client = client
+        super().__init__(client, timeout_s=timeout_s)
         self._expected_backend = expected_backend
-        self._timeout_s = float(timeout_s)
         self._capabilities: WAMCapabilities | None = None
 
     def get_capabilities(self) -> WAMCapabilities:
@@ -58,9 +89,7 @@ class BaseWAMClient:
     def predict(self, request: WAMRequest) -> WAMPrediction:
         """Request actions and check their shape and values before execution."""
         capabilities = self.get_capabilities()
-        prediction = self._client.call(
-            self.PREDICT_METHOD, args=(request,), timeout_s=self._timeout_s
-        )
+        prediction = self._predict(request)
         actions = np.asarray(prediction["actions"])
         action_dim = len(capabilities["control"]["action_schema"])
         if actions.ndim != 2 or actions.shape[0] == 0 or actions.shape[1] != action_dim:

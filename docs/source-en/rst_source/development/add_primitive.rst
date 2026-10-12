@@ -88,7 +88,7 @@ primitive requires a few additional components:
    ``shutdown``, parent-death detection, and resource cleanup.
 
 2. **Write a model client.** Subclass
-   :class:`rpent.robots.components.vla_client_base.BaseVLAClient`, which
+   :class:`rpent.robots.components.am_client_base.BaseVLAClient`, which
    provides the common ``vla.predict`` call, and add only the
    environment-specific input / output adaptation. See
    ``rpent.robots.components.pi05_vla_client.Pi05VLAClient`` for the LIBERO

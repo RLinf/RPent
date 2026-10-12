@@ -12,7 +12,7 @@ import numpy as np
 
 from robots.libero.control import LIBERO_OSC
 from robots.libero.observation import physical_observation
-from rpent.robots.components.wam_client_base import BaseWAMClient
+from rpent.robots.components.am_client_base import BaseWAMClient
 from rpent.robots.components.wam_contracts import (
     WAMControlSpec,
     WAMPrediction,

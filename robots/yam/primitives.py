@@ -19,7 +19,7 @@ from robots.yam.contracts import MODEL_SPEC, validate_actions
 from robots.yam.env_client import YamEnvClient
 from robots.yam.servo import JointServoConfig, run_joint_servo
 from robots.yam.tasks import classify_episode
-from rpent.robots.components.vla_client_base import BaseVLAClient
+from rpent.robots.components.am_client_base import BaseVLAClient
 
 
 def _quat_angle_rad(left: np.ndarray, right: np.ndarray) -> float:

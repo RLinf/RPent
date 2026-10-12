@@ -38,8 +38,10 @@ toolkit owns registration, cancellation, state capture and recording.
      - Select a compatible controller and attach execution identity to observations.
    * - ``rpent/robots/components/wam_contracts.py``
      - Declare control, capabilities, request and result dictionaries in separate sections.
-   * - ``wam_client_base.py`` / ``wam_facade_base.py``
-     - Reuse RPent RPC, check boundary data, and manage reset/session hooks.
+   * - ``am_client_base.py``
+     - Define the shared ``BaseAMClient`` and its VLA/WAM subclasses; share prediction dispatch and timeouts, keeping each contract's arguments and checks.
+   * - ``wam_facade_base.py``
+     - Register WAM RPC methods, check incoming observations, and manage reset/session hooks.
    * - ``wam_runtime.py``
      - Register backends; borrow an endpoint or launch an owned model process.
    * - ``<model>/runtime_config.py``
@@ -48,6 +50,12 @@ toolkit owns registration, cancellation, state capture and recording.
      - Load the model and implement native inference.
    * - ``<model>/adapter/{__init__,encode,decode}.py``
      - Register paired transforms, build model input and restore native actions.
+
+``BaseVLAClient`` and ``BaseWAMClient`` inherit from ``BaseAMClient`` in the same
+``am_client_base.py`` module. Each keeps
+its existing prediction arguments and result format. WAM capability checks and
+reset/close remain in ``BaseWAMClient``; VLA lifecycle methods remain with the
+integrations that support them.
 
 Physical observations are reusable by VLA and WAM integrations. Model encoders
 remain distinct: Cosmos uses LIBERO's xyzw quaternion in a 9D state, whereas

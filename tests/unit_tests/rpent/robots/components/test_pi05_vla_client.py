@@ -35,10 +35,13 @@ def test_prediction_preserves_optional_camera_wire_format(embodiment, field, sha
     rpc = Mock(call=Mock(return_value=np.zeros((1, 5, 7))))
     client = Pi05VLAClient(rpc, embodiment=embodiment)
     view = None if shape is None else np.full(shape, 127, dtype=np.float32)
-    client.predict(
+    result = client.predict(
         {"main_images": np.zeros((4, 5, 3)), "states": np.zeros(8), field: view}
     )
     assert rpc.call.call_args.args == ("vla.predict",)
+    assert rpc.call.call_args.kwargs["args"][1] is None
+    assert rpc.call.call_args.kwargs["timeout_s"] == 120.0
+    assert result.shape == (5, 7)
     encoded = rpc.call.call_args.kwargs["args"][0][field]
     if view is None:
         assert encoded is None

@@ -69,7 +69,7 @@
    ``BaseVLAFacade`` 会注册 ``vla.predict`` 并串行化模型调用；继承的 ``RpcFacade.serve`` 负责绑定传输层、处理 ``healthz`` 和 ``shutdown``、检测父进程退出并清理资源。
 
 2. **编写 model client。** 继承
-   :class:`rpent.robots.components.vla_client_base.BaseVLAClient`；它已经提供
+   :class:`rpent.robots.components.am_client_base.BaseVLAClient`；它已经提供
    公共的 ``vla.predict`` 调用，子类只需增加环境专用的输入 / 输出适配。 LIBERO 的实现可参考 ``rpent.robots.components.pi05_vla_client.Pi05VLAClient``。
 
 3. **在 primitives 中添加方法。** 在当前机器人的 primitives 类中调用 model client，将其返回的动作块交给环境执行，并返回 ``ToolResult``。 model client 的接口是
