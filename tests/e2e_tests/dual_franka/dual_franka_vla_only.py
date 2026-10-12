@@ -38,7 +38,7 @@ from tests.e2e_tests.dual_franka.dual_franka_vla import (
 )
 
 
-def run_only_vla(env, model, *, prompt, workspace, expected_steps, stopped, emit):
+def run_vla_only(env, model, *, prompt, workspace, expected_steps, stopped, emit):
     """Run without resetting, checking stop before each single-action RPC.
 
     In-flight RPCs may finish; their remaining actions are discarded on stop.
@@ -118,7 +118,7 @@ def build_parser():
 def main():
     args = build_parser().parse_args()
     output = args.output_dir or Path("logs") / datetime.now().strftime(
-        "%Y%m%d-%H%M%S-manual-only-vla"
+        "%Y%m%d-%H%M%S-manual-vla-only"
     )
     output = output.resolve()
     # Never overwrite an earlier experiment's logs or remove its stop signal.
@@ -185,7 +185,7 @@ def main():
                     if record["kind"] in {"chunk_complete", "finish"}:
                         print(json.dumps(record, ensure_ascii=False), flush=True)
 
-                result = run_only_vla(
+                result = run_vla_only(
                     env,
                     model,
                     prompt=prompt,
