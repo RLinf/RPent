@@ -43,7 +43,9 @@ def test_franka_extensions_declare_real_robot():
     assert single.is_real_robot and dual.is_real_robot
 
 
-def test_dual_franka_uses_rpent_owned_robot_config(fake_rlinf_realworld_modules):
+def test_dual_franka_uses_rpent_owned_robot_config(
+    fake_rlinf_realworld_modules, monkeypatch
+):
     from robots.dual_franka.runtime_config import load_mapping
 
     config_path = Path(__file__).parents[4] / "robots/dual_franka/config/example.yaml"
@@ -61,6 +63,15 @@ def test_dual_franka_uses_rpent_owned_robot_config(fake_rlinf_realworld_modules)
     thresholds = runtime.controller["joint_health_thresholds"]
     assert thresholds["left"] == thresholds["right"]
     assert thresholds == load_mapping(config_path)["joint_health"]["thresholds"]
+    assert runtime.controller["rotate_max_drift_m"] == 0.10
+    raw = load_mapping(config_path)
+    monkeypatch.setattr(
+        "robots.dual_franka.runtime_config.load_mapping", lambda path: raw
+    )
+    for rotation_hold, expected in [({}, 0.10), ({"max_drift_m": 0.03}, 0.03)]:
+        raw["rotation_hold"] = rotation_hold
+        runtime = load_runtime_config(None, task_description="test task")
+        assert runtime.controller["rotate_max_drift_m"] == expected
 
 
 def test_clean_desk_task_registers_named_vla_skills_and_fixed_prompt():

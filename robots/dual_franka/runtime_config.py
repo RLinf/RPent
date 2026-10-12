@@ -251,7 +251,7 @@ def load_runtime_config(
     controller = flatten_control(CONTROL)
     rotation_hold = _require_mapping(raw.get("rotation_hold", {}), "rotation_hold")
     # max_drift_m must be finite and > 0 (m); exceeding it aborts rotation.
-    max_drift = float(rotation_hold.get("max_drift_m", 0.03))
+    max_drift = float(rotation_hold.get("max_drift_m", 0.10))
     controller["rotate_max_drift_m"] = max_drift
     controller["robot_config_path"] = str(
         Path(path or DEFAULT_CONFIG).expanduser().resolve()

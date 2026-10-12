@@ -58,6 +58,7 @@ def test_last_rotation_step_recomputes_error(worker_classes, dual, delta):
     pose = np.array([0.5, 0, 0.4, 0, 0, 0, 1.0])
     target = Rotation.from_euler("x", delta).as_quat()
     worker.controller = {
+        "move_tolerance_m": 0.006,
         "rotate_timeout_s": 10,
         "rotate_tolerance_rad": 0.001,
         "rotate_max_step_rad": 1,
@@ -144,7 +145,18 @@ def _robot_with_parts(parts):
 
 
 @pytest.mark.parametrize(
-    "outcome", ["reached", "lagged", "stalled", "loop_drift", "final_drift"]
+    "outcome",
+    [
+        "reached",
+        "lagged",
+        "stalled",
+        "loop_drift",
+        "final_drift",
+        "corrected",
+        "position_failure",
+        "move_failure",
+        "orientation_failure",
+    ],
 )
 def test_rotation_reference_holds_position_and_checks_drift(worker_classes, outcome):
     worker = object.__new__(worker_classes[1])
@@ -161,6 +173,25 @@ def test_rotation_reference_holds_position_and_checks_drift(worker_classes, outc
     worker._pose_from_world = lambda arm, pose: pose.copy()
     worker.per_arm_dim = 10
     commands = []
+    corrections = []
+    needs_correction = outcome in {
+        "corrected",
+        "position_failure",
+        "move_failure",
+        "orientation_failure",
+    }
+
+    def move_delta(arm, delta):
+        assert arm == "left"
+        np.testing.assert_allclose(delta, [0, -0.02, 0])
+        corrections.append(delta.copy())
+        if outcome != "position_failure":
+            poses[0, :3] += delta
+        if outcome == "orientation_failure":
+            poses[0, 3:] = Rotation.identity().as_quat()
+        return {"ok": outcome != "move_failure", "steps_used": 2}
+
+    worker.move_delta = move_delta
 
     def step(action, *, auto_reset):
         assert auto_reset is False
@@ -171,12 +202,16 @@ def test_rotation_reference_holds_position_and_checks_drift(worker_classes, outc
         )
         np.testing.assert_array_equal(arms[:, 9], 0)
         commands.append(float(np.arctan2(arms[0, 8], arms[0, 7])))
-        if outcome == "reached" or (outcome == "lagged" and len(commands) == 4):
+        if (
+            needs_correction
+            or outcome == "reached"
+            or (outcome == "lagged" and len(commands) == 4)
+        ):
             poses[0, 3:] = Rotation.from_euler("x", 0.33).as_quat()
         drift = (outcome == "loop_drift" and len(commands) == 1) or (
             outcome == "final_drift" and len(commands) == 4
         )
-        poses[0, 1] = 0.04 if drift else 0.001
+        poses[0, 1] = 0.04 if drift else (0.02 if needs_correction else 0)
 
     worker.env = SimpleNamespace(step=step)
     if outcome.endswith("drift"):
@@ -184,10 +219,14 @@ def test_rotation_reference_holds_position_and_checks_drift(worker_classes, outc
             worker.rotate_delta("left", [0.33, 0, 0])
     else:
         result = worker.rotate_delta("left", [0.33, 0, 0])
-        assert result["ok"] is (outcome != "stalled")
+        assert result["ok"] is (outcome in {"reached", "lagged", "corrected"})
+        assert result["steps_used"] == 4 + 2 * needs_correction
+        np.testing.assert_allclose(result["final_tcp_pose"], poses[0])
+        np.testing.assert_allclose(result["start_tcp_pose"], [0.5, 0, 0.4, 0, 0, 0, 1])
         assert result["final_error_rad"] == pytest.approx(
-            0.33 if outcome == "stalled" else 0, abs=1e-6
+            0.33 if outcome in {"stalled", "orientation_failure"} else 0, abs=1e-6
         )
+    assert len(corrections) == int(needs_correction)
     expected = [0.1] if outcome == "loop_drift" else [0.1, 0.2, 0.3, 0.33]
     assert commands == pytest.approx(expected, abs=1e-6)
 

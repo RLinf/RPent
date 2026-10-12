@@ -825,8 +825,27 @@ def _create_worker_class():
                     f"{arm_name} rotation aborted: position drift "
                     f"{position_error:.4f} m exceeds {drift_limit:.4f} m"
                 )
+            move_ok = True
+            if position_error > self.controller["move_tolerance_m"]:
+                correction = self.move_delta(
+                    arm_name, start_world[:3] - final_world[:3]
+                )
+                move_ok = correction["ok"]
+                # Include both rotation and translation compensation steps.
+                iterations += correction["steps_used"]
+                left, right = self._arm_poses()
+                final_local = left if arm_idx == 0 else right
+                final_world = self._pose_to_world(arm_name, final_local)
+                position_error = float(
+                    np.linalg.norm(final_world[:3] - start_world[:3])
+                )
+                error = float(
+                    (target_rot * Rotation.from_quat(final_world[3:]).inv()).magnitude()
+                )
             return {
-                "ok": error <= self.controller["rotate_tolerance_rad"],
+                "ok": move_ok
+                and error <= self.controller["rotate_tolerance_rad"]
+                and position_error <= self.controller["move_tolerance_m"],
                 "arm": arm_name,
                 "coordinate_frame": "right_base",
                 "requested_delta_rpy": requested.tolist(),
