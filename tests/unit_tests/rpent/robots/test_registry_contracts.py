@@ -154,6 +154,31 @@ def test_registry_discovers_exactly_the_source_checkout_robots() -> None:
             assert spec.supports_exploration
 
 
+def test_behavior_sidecars_import_without_planner_dependencies() -> None:
+    import subprocess
+    import sys
+
+    script = """
+import builtins
+
+original_import = builtins.__import__
+
+def block_planner(name, *args, **kwargs):
+    if name.startswith("pydantic_ai"):
+        raise ModuleNotFoundError("simulator runtime does not install pydantic_ai")
+    return original_import(name, *args, **kwargs)
+
+builtins.__import__ = block_planner
+import robots.behavior.env_server
+import robots.behavior.vla_server
+import robots.behavior.dino_v2.server
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, timeout=30
+    )
+    assert result.returncode == 0, result.stderr
+
+
 @pytest.mark.parametrize("robot_name", EXPECTED_ROBOTS)
 def test_robot_prompts_render_from_public_spec(robot_name: str, tmp_path) -> None:
     spec = get_robot_spec(robot_name)
