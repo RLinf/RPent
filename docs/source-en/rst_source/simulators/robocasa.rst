@@ -580,7 +580,7 @@ model weights are needed:
 
    uv pip install pytest pytest-timeout
    RPENT_RUN_ROBOCASA_INTEGRATION=1 \
-      pytest tests/integration_tests/robots/robocasa/test_target50_runtime_smoke.py -v
+      pytest tests/e2e_tests/robocasa/test_environment_smoke.py -v
 
 Expect four passes: three tasks (``OpenDrawer``, ``NavigateKitchen`` and
 ``PickPlaceCounterToCabinet`` at seed 1) plus a mobile-camera check.
