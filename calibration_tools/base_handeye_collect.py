@@ -378,14 +378,17 @@ table{border-collapse:collapse;width:100%}td,th{text-align:left;padding:8px;bord
 This collector only reads robot state. Keep the board visible and collect varied rotations.</p>
 <img id="view"><p><button id="button" onclick="capture()">Capture pose</button></p><pre id="status"></pre>
 <h2>Saved samples</h2>
+<p id="sample-count"></p>
 <p>Preview a sample before excluding it. Excluded samples are kept in the session's
-excluded/ directory and are not used by the solver. Re-solve after changing samples.</p>
+excluded/ directory and are not used by the solver. Re-solve after changing samples.
+Sample IDs stay unchanged after exclusion; gaps in numbering are normal.</p>
 <table><thead><tr><th>Sample</th><th>Corners</th><th>RMS (px)</th><th>Actions</th></tr></thead><tbody id="samples"></tbody></table>
 <p>A recorded sample is not a successful calibration. Solve and validate on new poses.</p>
 <script>
 let busy=false, generation=0, samplesSignature='';
 function showStatus(state){
- document.getElementById('status').textContent=JSON.stringify({count:state.count,session:state.session,last:state.last},null,2);
+ document.getElementById('sample-count').textContent='Active samples: '+state.count;
+ document.getElementById('status').textContent=JSON.stringify({session:state.session,last:state.last},null,2);
  const signature=JSON.stringify(state.samples);if(signature===samplesSignature)return;samplesSignature=signature;
  const rows=document.getElementById('samples');rows.replaceChildren();
  for(const sample of state.samples){const row=rows.insertRow();
@@ -411,7 +414,7 @@ async function mutate(path){if(busy)return;busy=true;generation++;
   try{await loadStatus();}catch(e){}}
 }
 function capture(){return mutate('/sample');}
-function excludeSample(index){if(confirm('Exclude sample '+index+'? Files will be kept in excluded/.'))return mutate('/samples/'+index+'/delete');}
+function excludeSample(index){if(confirm('Exclude sample '+index+' from the next solve? Files will be kept in excluded/. Existing calibration results are not recalculated; re-solve after exclusion.'))return mutate('/samples/'+index+'/delete');}
 </script>"""
 
 

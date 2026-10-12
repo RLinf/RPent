@@ -117,10 +117,26 @@ The tool only reads state. Without ``--output``, sessions are saved under the
 script directory's ``calibration_tools/sessions/``, regardless of the working
 directory.
 
-Stop the collector with ``Ctrl+C``. For D455, repeat with ``D455_SERIAL``,
-``/raw/d455``, and ``calibration_tools/sessions/d455-to-right``. Use a new
-directory for each session; D455 stream compatibility must be checked against
-the supported distortion models above.
+Use the saved-sample table to inspect each sample's corner count and
+reprojection RMS in pixels. Click ``Preview`` to open its annotated image,
+then ``Exclude`` to remove an unsuitable sample from the next solve. Its
+files remain in the session's ``excluded/`` directory. ``Active samples``
+counts only samples used by the solver; IDs remain unchanged, so gaps are
+normal. Adding or excluding samples does not recalculate existing calibration
+results: run the solver again before exporting.
+
+Stop the collector with ``Ctrl+C``. To continue an interrupted session,
+restart the camera service if needed and rerun the collector command above
+with the same ``--output`` path and ``--resume``. Keep the arm, camera,
+board parameters, configured end-effector frame, and both mounting
+relationships unchanged. The collector checks saved sample consistency,
+retains existing files and IDs, and assigns new samples IDs above all saved
+samples, including excluded ones. If either mount or the setup changed, use
+a new session directory.
+
+For D455, repeat with ``D455_SERIAL``, ``/raw/d455``, and
+``calibration_tools/sessions/d455-to-right``. Check that its stream configuration
+uses a supported distortion model as described above.
 
 **3. Fit and export**
 
