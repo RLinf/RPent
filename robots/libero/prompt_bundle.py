@@ -29,7 +29,7 @@ def system_prompt(
 ) -> PromptNode:
     """Assemble the LIBERO system prompt for the selected run mode."""
     if (variables or {}).get("mode", "eval") == "explore":
-        return explore_parts.system_prompt()
+        return explore_parts.system_prompt(variables)
     return evaluate_parts.system_prompt(variables)
 
 

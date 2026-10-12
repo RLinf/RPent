@@ -26,7 +26,6 @@ from typing import Any
 from rpent.evaluation import write_json_atomic
 from rpent.memory import MemoryManager
 from rpent.memory.manager import _split_frontmatter, _validate
-from rpent.tools.toolkit import readonly
 from rpent.utils.config import get_repo_root
 from rpent.utils.logging import get_logger
 
@@ -276,69 +275,49 @@ class RoboCasaMemoryManager(MemoryManager):
             return resolved.relative_to(self.root).as_posix()
         return None
 
-    def get_common_tool_bindings(self):
-        """Wrap shared read/list tools; keep existing read-only write policy."""
-        bindings = super().get_common_tool_bindings()
-        shared_read = bindings["read_text_file"][1]
-        shared_list = bindings["list_dir"][1]
+    file_tool_description = (
+        " RoboCasa memory is limited to the current task and global memory."
+    )
 
-        @readonly
-        def read_text_file(path: str, max_chars: int = 40000) -> dict:
-            relative = self._relative_path(path)
-            if relative is not None:
-                if relative not in self.selection.selected:
-                    raise PermissionError(
-                        f"memory is outside current task/global selection: {path}"
-                    )
-                if (self.root / relative).read_text(
-                    encoding="utf-8"
-                ) != self.selection.contents[relative]:
-                    raise ValueError(f"memory changed during this run: {relative}")
-            result = shared_read(path=path, max_chars=max_chars)
-            if relative is not None and isinstance(result.get("content"), str):
-                content = result["content"]
-                complete = content == self.selection.contents[relative]
-                if complete:
-                    self._read_files.add(relative)
-                if self._output_dir is not None:
-                    event = {
-                        "path": relative,
-                        "complete": complete,
-                    }
-                    with (self._output_dir / "memory_reads.jsonl").open("a") as handle:
-                        handle.write(json.dumps(event) + "\n")
-            return result
-
-        @readonly
-        def list_dir(path: str = "") -> dict:
-            relative = self._relative_path(path) if path else None
-            if relative is None:
-                return shared_list(path=path)
-            prefix = "" if relative == "." else relative.rstrip("/") + "/"
-            entries = sorted(
-                {
-                    name.removeprefix(prefix).split("/")[0]
-                    for name in self.selection.selected
-                    if name.startswith(prefix)
-                }
-            )
-            if not entries and relative != ".":
+    def authorize_read(self, path: str | Path) -> Path:
+        relative = self._relative_path(str(path))
+        if relative is not None:
+            if relative not in self.selection.selected:
                 raise PermissionError(
-                    f"memory directory is outside current task/global selection: {path}"
+                    f"memory is outside current task/global selection: {path}"
                 )
-            return {
-                "path": str((self.root / relative).resolve()),
-                "count": len(entries),
-                "files": entries,
-            }
+            if (self.root / relative).read_text(
+                encoding="utf-8"
+            ) != self.selection.contents[relative]:
+                raise ValueError(f"memory changed during this run: {relative}")
+        return super().authorize_read(path)
 
-        for name, handler in (
-            ("read_text_file", read_text_file),
-            ("list_dir", list_dir),
-        ):
-            spec = dict(bindings[name][0])
-            spec["description"] += (
-                " RoboCasa memory is limited to the current task and global memory."
+    def record_read(self, path: Path, content: str) -> None:
+        relative = self._relative_path(str(path))
+        if relative is None:
+            return
+        complete = content == self.selection.contents[relative]
+        if complete:
+            self._read_files.add(relative)
+        if self._output_dir is not None:
+            event = {"path": relative, "complete": complete}
+            with (self._output_dir / "memory_reads.jsonl").open("a") as handle:
+                handle.write(json.dumps(event) + "\n")
+
+    def list_directory(self, path: str | Path) -> tuple[Path, list[str] | None]:
+        relative = self._relative_path(str(path))
+        if relative is None:
+            return super().list_directory(path)
+        prefix = "" if relative == "." else relative.rstrip("/") + "/"
+        entries = sorted(
+            {
+                name.removeprefix(prefix).split("/")[0]
+                for name in self.selection.selected
+                if name.startswith(prefix)
+            }
+        )
+        if not entries and relative != ".":
+            raise PermissionError(
+                f"memory directory is outside current task/global selection: {path}"
             )
-            bindings[name] = (spec, handler)
-        return bindings
+        return (self.root / relative).resolve(), entries

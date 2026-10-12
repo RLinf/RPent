@@ -16,9 +16,12 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any, Literal
 
-from rpent.tools.toolkit import readonly
+from pydantic import Field
+from pydantic.json_schema import SkipJsonSchema
+
+from rpent.tools import ToolResult, tool
 
 # (camera key in the obs dict, artifact base name). Mirrors the ``frame_channels``
 # declared in ``robot_spec.ROBODOJO_DASHBOARD_SPEC``.
@@ -28,202 +31,18 @@ CAMERA_ARTIFACTS: tuple[tuple[str, str], ...] = (
     ("cam_right_wrist", "cam_right_wrist.png"),
 )
 
-TOOLS_SPEC: list[dict] = [
-    {
-        "name": "view_env_state",
-        "description": (
-            "Read one recorded RoboDojo state: robot joint/ee state, camera "
-            "shapes and calibration, the task instruction, and the three "
-            "camera RGB images (cam_head, cam_left_wrist, cam_right_wrist). "
-            "Step -1 selects the latest record."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "step": {
-                    "type": "integer",
-                    "description": "Recorded step to read (-1 = latest)",
-                }
-            },
-        },
-    },
-    {
-        "name": "back_project",
-        "description": (
-            "Project one pixel from a camera image to a world xyz coordinate "
-            "using depth + intrinsics/extrinsics. Use to localize objects."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "row": {"type": "integer", "description": "Pixel row (0=top)"},
-                "col": {"type": "integer", "description": "Pixel col (0=left)"},
-                "camera": {
-                    "type": "string",
-                    "enum": ["cam_head", "cam_left_wrist", "cam_right_wrist"],
-                    "description": "Camera to project from",
-                },
-            },
-            "required": ["row", "col"],
-        },
-    },
-    {
-        "name": "segment",
-        "description": (
-            "Segment an object in a camera image by text prompt (SAM 3.0). "
-            "Returns mask bounding box and score."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "text_prompt": {"type": "string", "description": "e.g. 'the bottle'"},
-                "camera": {
-                    "type": "string",
-                    "enum": ["cam_head", "cam_left_wrist", "cam_right_wrist"],
-                    "description": "Camera to segment (default cam_head)",
-                },
-                "min_score": {
-                    "type": "number",
-                    "description": "Min score (default 0.2)",
-                },
-            },
-            "required": ["text_prompt"],
-        },
-    },
-    {
-        "name": "move_to",
-        "description": (
-            "Move an arm end-effector to a world xyz target (scripted motion, "
-            "CuRobo IK). gripper: 1=close, -1=open, 0=keep."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "xyz": {
-                    "type": "array",
-                    "items": {"type": "number"},
-                    "minItems": 3,
-                    "maxItems": 3,
-                    "description": "World xyz target for the end-effector",
-                },
-                "arm": {
-                    "type": "string",
-                    "enum": ["left", "right"],
-                    "description": "Arm to move",
-                },
-                "gripper": {
-                    "type": "number",
-                    "description": "1=close, -1=open, 0=keep current",
-                },
-            },
-            "required": ["xyz"],
-        },
-    },
-    {
-        "name": "set_gripper",
-        "description": ("Open or close an arm gripper. 1=close, -1=open."),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "arm": {
-                    "type": "string",
-                    "enum": ["left", "right"],
-                },
-                "gripper": {
-                    "type": "number",
-                    "description": "1=close, -1=open",
-                },
-            },
-            "required": ["arm", "gripper"],
-        },
-    },
-    {
-        "name": "pi0_pick",
-        "description": (
-            "Closed-loop Pi_05 pick: feed the observation to the Pi_05 policy, "
-            "apply its action chunk, and detect grasp success by eef lift + "
-            "gripper closure."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "prompt": {
-                    "type": "string",
-                    "description": "Optional specific target instruction; omit to use resolved official task language",
-                },
-                "arm": {"type": "string", "enum": ["left", "right"]},
-                "max_chunks": {"type": "integer", "description": "Max policy chunks"},
-            },
-            "required": [],
-        },
-    },
-    {
-        "name": "stabilize",
-        "description": (
-            "Emergency stabilization: move an arm's open gripper to a world "
-            "xyz at table height to block/stop a bottle observed rolling "
-            "in the camera images."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "xyz": {
-                    "type": "array",
-                    "items": {"type": "number"},
-                    "minItems": 3,
-                    "maxItems": 3,
-                    "description": "World xyz to block (bottle position)",
-                },
-                "arm": {"type": "string", "enum": ["left", "right"]},
-            },
-            "required": ["xyz"],
-        },
-    },
-    {
-        "name": "place_in_bin",
-        "description": (
-            "Place a held object into the dustbin: carry above the bin mouth "
-            "center, descend BELOW the rim, release, then retract. Use the "
-            "bin mouth center you localized (not the near edge)."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "arm": {"type": "string", "enum": ["left", "right"]},
-                "bin_center_xyz": {
-                    "type": "array",
-                    "items": {"type": "number"},
-                    "minItems": 3,
-                    "maxItems": 3,
-                    "description": "Bin mouth center at approach height",
-                },
-                "approach_z": {
-                    "type": "number",
-                    "description": "Safe carry height above the bin (default 0.95)",
-                },
-                "drop_z": {
-                    "type": "number",
-                    "description": "EE z to descend to before release, BELOW the rim (default 0.78)",
-                },
-            },
-            "required": ["arm", "bin_center_xyz"],
-        },
-    },
-]
 
+@tool(readonly=True, exclude=("state",))
+def view_env_state(step: int = -1, *, state: Any) -> ToolResult:
+    """Read one recorded RoboDojo state: robot joint/ee state, camera shapes and calibration, the task instruction, and the three camera RGB images (cam_head, cam_left_wrist, cam_right_wrist). Step -1 selects the latest record.
 
-@readonly
-def view_env_state(step: int = -1, *, state) -> dict:
-    """Read one recorded RoboDojo state plus its camera artifacts.
-
-    ``step`` selects the record (``-1`` = latest). The three camera RGB PNGs
-    saved with that record are embedded as ``_image_bytes`` / ``_image_cam_bytes``
-    / ``_image_wrist_bytes`` so the planner receives them as image blocks.
-    """
+    Args:
+        step: Recorded step to read (-1 = latest)"""
     try:
         record = state.get(step)
     except Exception as error:
-        return {"error": f"state step not available: {error}"}
+        payload = {"error": f"state step not available: {error}"}
+        return ToolResult(data=payload)
     result: dict[str, Any] = {
         "step": record.step_idx,
         "truncated": record.truncated,
@@ -236,16 +55,14 @@ def view_env_state(step: int = -1, *, state) -> dict:
         "result": record.result,
         "elapsed_s": record.elapsed_s,
     }
-    for slot, (camera, artifact) in zip(
-        ("_image_bytes", "_image_cam_bytes", "_image_wrist_bytes"),
-        CAMERA_ARTIFACTS,
-    ):
+    images: list[bytes] = []
+    for _, artifact in CAMERA_ARTIFACTS:
         if artifact in record.artifacts:
             try:
-                result[slot] = state.load_bytes(artifact, step=record.step_idx)
+                images.append(state.load_bytes(artifact, step=record.step_idx))
             except FileNotFoundError:
                 pass
-    return result
+    return ToolResult(data=result, images=images)
 
 
 def _summarize_obs(obs: dict) -> dict:
@@ -279,31 +96,47 @@ def _summarize_obs(obs: dict) -> dict:
     }
 
 
-@readonly
-def back_project(primitives, state, row, col, camera="cam_head") -> dict:
-    """Pixel -> world xyz via depth + camera calibration."""
+@tool(readonly=True, exclude=("primitives", "state"))
+def back_project(
+    primitives: Any,
+    state: Any,
+    row: int,
+    col: int,
+    camera: Literal["cam_head", "cam_left_wrist", "cam_right_wrist"] = "cam_head",
+) -> ToolResult:
+    """Project one pixel from a camera image to a world xyz coordinate using depth + intrinsics/extrinsics. Use to localize objects.
+
+    Args:
+        row: Pixel row (0=top)
+        col: Pixel col (0=left)
+        camera: Camera to project from"""
     import numpy as np
 
     if primitives._last_obs is None:
         primitives._last_obs = primitives.env.get_obs()
     cam = primitives._last_obs.get("vision", {}).get(camera)
     if cam is None:
-        return {"error": f"camera {camera!r} not in observation"}
+        payload = {"error": f"camera {camera!r} not in observation"}
+        return ToolResult(data=payload)
     depth = cam.get("distance_to_image_plane")
     if depth is None:
         depth = cam.get("depth")
     if depth is None:
-        return {"error": "depth not available in observation"}
+        payload = {"error": "depth not available in observation"}
+        return ToolResult(data=payload)
     K = np.asarray(cam.get("intrinsic_matrix"), dtype=np.float64)
     T = np.asarray(cam.get("extrinsic_matrix"), dtype=np.float64)
     if K.shape != (3, 3) or T.shape != (4, 4):
-        return {"error": f"calibration missing/invalid: K={K.shape} T={T.shape}"}
+        payload = {"error": f"calibration missing/invalid: K={K.shape} T={T.shape}"}
+        return ToolResult(data=payload)
     h, w = int(depth.shape[0]), int(depth.shape[1])
     if not (0 <= int(row) < h and 0 <= int(col) < w):
-        return {"error": f"pixel out of range: row 0..{h - 1}, col 0..{w - 1}"}
+        payload = {"error": f"pixel out of range: row 0..{h - 1}, col 0..{w - 1}"}
+        return ToolResult(data=payload)
     d = float(depth[int(row), int(col)])
     if not np.isfinite(d) or d <= 0:
-        return {"error": f"invalid depth at pixel: {d}"}
+        payload = {"error": f"invalid depth at pixel: {d}"}
+        return ToolResult(data=payload)
     fx, fy = float(K[0, 0]), float(K[1, 1])
     cx, cy = float(K[0, 2]), float(K[1, 2])
     # Isaac/Omniverse cameras look along -Z; the distance_to_image_plane
@@ -315,40 +148,57 @@ def back_project(primitives, state, row, col, camera="cam_head") -> dict:
         dtype=np.float64,
     )
     p_world = T @ p_cam
-    return {
+    payload = {
         "camera": camera,
         "pixel": [int(row), int(col)],
         "depth_m": round(d, 4),
         "world_xyz": [round(float(v), 4) for v in p_world[:3]],
     }
+    return ToolResult(data=payload)
 
 
-@readonly
-def segment(primitives, state, text_prompt, camera="cam_head", min_score=0.2) -> dict:
-    """Segment an object by text prompt using SAM 3.0."""
+@tool(readonly=True, exclude=("primitives", "state"))
+def segment(
+    primitives: Any,
+    state: Any,
+    text_prompt: str,
+    camera: Literal["cam_head", "cam_left_wrist", "cam_right_wrist"] = "cam_head",
+    min_score: float = 0.2,
+) -> ToolResult:
+    """Segment an object in a camera image by text prompt (SAM 3.0). Returns mask bounding box and score.
+
+    Args:
+        text_prompt: e.g. 'the bottle'
+        camera: Camera to segment (default cam_head)
+        min_score: Min score (default 0.2)"""
     if primitives._last_obs is None:
         primitives._last_obs = primitives.env.get_obs()
     cam = primitives._last_obs.get("vision", {}).get(camera)
     if cam is None:
-        return {"error": f"camera {camera!r} not in observation"}
+        payload = {"error": f"camera {camera!r} not in observation"}
+        return ToolResult(data=payload)
     color = cam.get("color")
     if color is None:
-        return {"error": "camera color image missing"}
+        payload = {"error": "camera color image missing"}
+        return ToolResult(data=payload)
     sam3 = getattr(primitives, "sam3_client", None)
     if sam3 is None:
-        return {"error": "sam3_client not configured"}
+        payload = {"error": "sam3_client not configured"}
+        return ToolResult(data=payload)
     result = sam3.segment(color, text_prompt=text_prompt, min_score=min_score)
     if not result.found:
-        return {"camera": camera, "found": False, "text_prompt": text_prompt}
+        payload = {"camera": camera, "found": False, "text_prompt": text_prompt}
+        return ToolResult(data=payload)
     from robots.robodojo.flash.grounding import mask_geometry
 
-    return {
+    payload = {
         "camera": camera,
         "found": True,
         "score": result.score,
         "box_px": _jsonable(result.box),
         **mask_geometry(result.mask),
     }
+    return ToolResult(data=payload)
 
 
 def _arm_ee_pose_key(arm: str) -> str:
@@ -364,25 +214,33 @@ def _refresh_obs(primitives) -> dict:
     return primitives._last_obs
 
 
+@tool(readonly=False, exclude=("primitives", "state", "tol", "max_steps"))
 def move_to(
-    primitives,
-    state,
-    xyz,
-    arm="right",
-    gripper=0,
-    tol=0.01,
-    max_steps=20,
-) -> dict:
-    """Scripted ee motion to a world xyz (CuRobo IK via the ee action path)."""
+    primitives: Any,
+    state: Any,
+    xyz: Annotated[list[float], Field(min_length=3, max_length=3)],
+    arm: Literal["left", "right"] = "right",
+    gripper: float = 0,
+    tol: Any = 0.01,
+    max_steps: Any = 20,
+) -> ToolResult:
+    """Move an arm end-effector to a world xyz target (scripted motion, CuRobo IK). gripper: 1=close, -1=open, 0=keep.
+
+    Args:
+        xyz: World xyz target for the end-effector
+        arm: Arm to move
+        gripper: 1=close, -1=open, 0=keep current"""
     import numpy as np
 
     target = [float(v) for v in xyz]
     if len(target) != 3:
-        return {"error": "xyz must have 3 values"}
+        payload = {"error": "xyz must have 3 values"}
+        return ToolResult(data=payload)
     obs = _refresh_obs(primitives)
     start_ee = obs.get("state", {}).get(_arm_ee_pose_key(arm))
     if start_ee is None:
-        return {"error": f"{arm} ee_pose not in state"}
+        payload = {"error": f"{arm} ee_pose not in state"}
+        return ToolResult(data=payload)
     start = [float(v) for v in np.asarray(start_ee)[:3]]
     final_xyz = list(start)
     dist_to_target = float(np.linalg.norm(np.asarray(target) - np.asarray(final_xyz)))
@@ -414,7 +272,8 @@ def move_to(
             last_error = ik.get("error")
             ee_pose = obs.get("state", {}).get(_arm_ee_pose_key(arm))
             if ee_pose is None:
-                return {"error": f"{arm} ee_pose missing mid-motion"}
+                payload = {"error": f"{arm} ee_pose missing mid-motion"}
+                return ToolResult(data=payload)
             ee_pose = list(np.asarray(ee_pose, dtype=np.float64))
             ee_pose[:3] = target
             action = {_arm_ee_pose_key(arm): ee_pose}
@@ -448,7 +307,7 @@ def move_to(
         )
         if info["status"].get("step", 0) >= info["status"].get("step_limit", 1):
             break
-    return {
+    payload = {
         "arm": arm,
         "target_xyz": target,
         "start_xyz": start,
@@ -458,10 +317,17 @@ def move_to(
         "reached": reached,
         "ik_error": last_error,
     }
+    return ToolResult(data=payload)
 
 
-def set_gripper(primitives, state, arm, gripper) -> dict:
-    """Open (<=0) or close (>0) one gripper without moving the arm."""
+@tool(readonly=False, exclude=("primitives", "state"))
+def set_gripper(
+    primitives: Any, state: Any, arm: Literal["left", "right"], gripper: float
+) -> ToolResult:
+    """Open or close an arm gripper. 1=close, -1=open.
+
+    Args:
+        gripper: 1=close, -1=open"""
     import numpy as np
 
     obs = _refresh_obs(primitives)
@@ -478,7 +344,7 @@ def set_gripper(primitives, state, arm, gripper) -> dict:
                 val = float(np.asarray(joint).reshape(-1)[0])
             action[_arm_ee_joint_key(a)] = [val]
     _obs_step, _reward, _done, info = primitives.env.step(action)
-    return {
+    payload = {
         "arm": arm,
         "gripper": "closed" if gripper > 0 else "open",
         "status": {
@@ -487,18 +353,28 @@ def set_gripper(primitives, state, arm, gripper) -> dict:
             if key in info["status"]
         },
     }
+    return ToolResult(data=payload)
 
 
+@tool(
+    readonly=False,
+    exclude=("primitives", "state", "lift_thresh", "gripper_closed_thresh"),
+    json_schema_extra={"required": []},
+)
 def pi0_pick(
-    primitives,
-    state,
-    prompt=None,
-    arm="right",
-    max_chunks=8,
-    lift_thresh=0.04,
-    gripper_closed_thresh=0.55,
-) -> dict:
-    """Closed-loop Pi_05 pick driven by the policy's own action chunks."""
+    primitives: Any,
+    state: Any,
+    prompt: str | SkipJsonSchema[None] = None,
+    arm: Literal["left", "right"] = "right",
+    max_chunks: int = 8,
+    lift_thresh: Any = 0.04,
+    gripper_closed_thresh: Any = 0.55,
+) -> ToolResult:
+    """Closed-loop Pi_05 pick: feed the observation to the Pi_05 policy, apply its action chunk, and detect grasp success by eef lift + gripper closure.
+
+    Args:
+        prompt: Optional specific target instruction; omit to use resolved official task language
+        max_chunks: Max policy chunks"""
     import numpy as np
 
     from robots.robodojo.tasks import validate_instruction
@@ -509,7 +385,8 @@ def pi0_pick(
 
     vla = getattr(primitives, "vla_client", None)
     if vla is None:
-        return {"error": "vla_client not configured"}
+        payload = {"error": "vla_client not configured"}
+        return ToolResult(data=payload)
     arms = ("left", "right")
     track = {
         a: {
@@ -582,7 +459,7 @@ def pi0_pick(
             "start_gripper": round(t["start_grip"], 3),
             "final_gripper": round(t["last_grip"], 3),
         }
-    return {
+    payload = {
         "monitored_arm": arm,
         "instruction": prompt,
         "success": success,
@@ -590,22 +467,30 @@ def pi0_pick(
         "arms": per_arm,
         "terminated": terminated,
     }
+    return ToolResult(data=payload)
 
 
-@readonly
 def get_reward_details(primitives, state) -> dict:
     """Read the current reward/score breakdown without changing the env."""
     return primitives.env.get_reward_details()
 
 
-@readonly
 def get_safety_status(primitives, state) -> dict:
     """Read the env safety monitor (rolling / off-table alarms)."""
     return primitives.env.get_safety_status()
 
 
-def stabilize(primitives, state, xyz, arm="right") -> dict:
-    """Block a rolling bottle: place the open gripper at table height at xyz."""
+@tool(readonly=False, exclude=("primitives", "state"))
+def stabilize(
+    primitives: Any,
+    state: Any,
+    xyz: Annotated[list[float], Field(min_length=3, max_length=3)],
+    arm: Literal["left", "right"] = "right",
+) -> ToolResult:
+    """Emergency stabilization: move an arm's open gripper to a world xyz at table height to block/stop a bottle observed rolling in the camera images.
+
+    Args:
+        xyz: World xyz to block (bottle position)"""
 
     target = [float(v) for v in xyz]
     target[2] = max(target[2], 0.80)  # keep at/above table height
@@ -614,19 +499,26 @@ def stabilize(primitives, state, xyz, arm="right") -> dict:
     )
 
 
+@tool(readonly=False, exclude=("primitives", "state"))
 def place_in_bin(
-    primitives,
-    state,
-    arm,
-    bin_center_xyz,
-    approach_z=0.95,
-    drop_z=0.78,
-) -> dict:
-    """Carry to the bin mouth center, descend below the rim, release, retract."""
+    primitives: Any,
+    state: Any,
+    arm: Literal["left", "right"],
+    bin_center_xyz: Annotated[list[float], Field(min_length=3, max_length=3)],
+    approach_z: float = 0.95,
+    drop_z: float = 0.78,
+) -> ToolResult:
+    """Place a held object into the dustbin: carry above the bin mouth center, descend BELOW the rim, release, then retract. Use the bin mouth center you localized (not the near edge).
+
+    Args:
+        bin_center_xyz: Bin mouth center at approach height
+        approach_z: Safe carry height above the bin (default 0.95)
+        drop_z: EE z to descend to before release, BELOW the rim (default 0.78)"""
 
     center = [float(v) for v in bin_center_xyz]
     if len(center) != 3:
-        return {"error": "bin_center_xyz must have 3 values"}
+        payload = {"error": "bin_center_xyz must have 3 values"}
+        return ToolResult(data=payload)
     cx, cy = center[0], center[1]
     phases = {
         "approach": [cx, cy, float(approach_z), +1],  # hold the bottle
@@ -647,23 +539,24 @@ def place_in_bin(
         results[name] = {
             "target": [tx, ty, tz],
             "gripper": "hold" if grip > 0 else "open",
-            "dist_to_target_m": m.get("dist_to_target_m"),
-            "reached": m.get("reached"),
-            "steps_used": m.get("steps_used"),
-            "ik_error": m.get("ik_error"),
+            "dist_to_target_m": m.data.get("dist_to_target_m"),
+            "reached": m.data.get("reached"),
+            "steps_used": m.data.get("steps_used"),
+            "ik_error": m.data.get("ik_error"),
         }
-        if not m.get("reached", False):
-            return {
+        if not m.data.get("reached", False):
+            payload = {
                 "arm": arm,
                 "phase": name,
                 "reached": False,
                 "phase_results": results,
-                "error": f"move_to failed at phase {name}: {m.get('ik_error')}",
+                "error": f"move_to failed at phase {name}: {m.data.get('ik_error')}",
             }
+            return ToolResult(data=payload)
     # release
     g = set_gripper(primitives, state, arm, -1)
-    results["release"] = {"gripper": "open", "status": g.get("status")}
-    return {
+    results["release"] = {"gripper": "open", "status": g.data.get("status")}
+    payload = {
         "arm": arm,
         "bin_center_xyz": [cx, cy],
         "approach_z": float(approach_z),
@@ -671,6 +564,7 @@ def place_in_bin(
         "phases": results,
         "released": True,
     }
+    return ToolResult(data=payload)
 
 
 def _jsonable(obj):

@@ -26,7 +26,7 @@ from robots.robotwin import toolkit
 from robots.robotwin.primitives import RoboTwinPrimitives
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory import MemoryManager
-from rpent.tools.toolkit import Toolkit, _is_readonly, readonly
+from rpent.tools import Tool, Toolkit, ToolResult
 from rpent.utils import templates
 
 COMMON_TOOLS = {"read_text_file", "write_text_file", "list_dir", "finish"}
@@ -91,11 +91,11 @@ class FakeRoboTwinPrimitives:
         }
 
     def finish(self, *, status: str, summary: str) -> dict[str, Any]:
-        return {"_finish": True, "status": status, "summary": summary}
+        return ToolResult(data={"_finish": True, "status": status, "summary": summary})
 
     @staticmethod
     def _operation(name: str, **kwargs: Any) -> dict[str, Any]:
-        return {"operation": name, "arguments": kwargs}
+        return ToolResult(data={"operation": name, "arguments": kwargs})
 
     def lingbot_act(self, **kwargs: Any) -> dict[str, Any]:
         return self._operation("lingbot_act", **kwargs)
@@ -113,19 +113,28 @@ class FakeRoboTwinPrimitives:
         return self._operation("release", **kwargs)
 
 
+for _attribute, _definition in vars(RoboTwinPrimitives).items():
+    if isinstance(_definition, Tool):
+        setattr(
+            FakeRoboTwinPrimitives,
+            _attribute,
+            _definition.with_handler(getattr(FakeRoboTwinPrimitives, _attribute)),
+        )
+
+
 def _record(step_idx: int = 0) -> SimpleNamespace:
     return SimpleNamespace(step_idx=step_idx, terminated=False)
 
 
 def _tool_names(robot_toolkit: Toolkit) -> set[str]:
-    return {spec["name"] for spec in robot_toolkit.get_tools_spec()}
+    return {definition.name for definition in robot_toolkit.list_tools()}
 
 
 def _readonly_names(robot_toolkit: Toolkit) -> set[str]:
     return {
-        name
-        for name, (_, handler) in robot_toolkit._tools.items()
-        if _is_readonly(handler)
+        definition.name
+        for definition in robot_toolkit.list_tools()
+        if definition.readonly
     }
 
 
@@ -168,7 +177,9 @@ def test_toolkit_constructs_and_captures_an_initial_observation(
     monkeypatch.setattr(
         toolkit.tools,
         "view_env_state",
-        readonly(lambda step=-1, *, state: {"step": step}),
+        toolkit.tools.view_env_state.with_handler(
+            lambda step=-1, *, state: ToolResult(data={"step": step})
+        ),
     )
 
     robot_toolkit = toolkit.RoboTwinToolkit(
@@ -194,10 +205,12 @@ def test_toolkit_constructs_and_captures_an_initial_observation(
     assert primitive.recording_started is True
     assert callable(primitive.kwargs["check_cancelled"])
 
-    robot_toolkit.get_env_state = lambda *, command, result, elapsed_s: dict(result)
+    robot_toolkit.get_env_state = lambda *, command, result, elapsed_s: ToolResult(
+        data=dict(result)
+    )
     render = robot_toolkit.execute_tool("render", {})
-    assert render.result == {"success": True}
+    assert render.data == {"success": True}
     finish = robot_toolkit.execute_tool(
         "finish", {"status": "failure", "summary": "offline"}
     )
-    assert finish.is_finish is True
+    assert finish.data.get("_finish", False) is True

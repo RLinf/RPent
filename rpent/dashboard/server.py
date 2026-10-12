@@ -276,7 +276,7 @@ class DashboardServer:
                 return JSONResponse({"error": str(exc)}, status_code=500)
             except ValueError as exc:
                 return JSONResponse({"error": str(exc)}, status_code=403)
-            result = tool_result.result
+            result = tool_result.to_dict()
             if isinstance(result, dict) and result.get("error") is not None:
                 error = " ".join(str(result["error"]).split())[:500]
                 return JSONResponse(

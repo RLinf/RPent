@@ -208,6 +208,48 @@ stage splicing, reference-image selection and historical-point reuse are not
 part of this interface. These commands require robot-specific installation and
 operator validation; offline unit tests do not establish real-robot success.
 
+.. _optional-agent-grounding-fallback:
+
+Large model agent assistance for point selection in Flash mode
+--------------------------------------------------------------
+
+In Flash mode, an agent can retry point selection when Molmo cannot find the
+target, selects a pixel with invalid coordinates or depth, or its request fails.
+
+When enabled, RPent first captures a fresh observation, then asks the agent to
+retry once on the same object part. If that attempt also fails, replay stops
+without executing that motion. The next translation starts with Molmo again.
+
+This feature is disabled by default and only applies to live replay in Flash
+mode, not offline plan generation.
+
+To enable it, add ``--grounding-agent-model`` to the replay command:
+
+.. code-block:: bash
+
+   rpent --robot franka --planner flash --task-id 0 \
+     --robot-config /path/to/robot.yaml --flash-plan plan.json \
+     --molmo-endpoint http://localhost:9000 \
+     --grounding-agent-model codex:YOUR_MODEL
+
+You can use Astra or another large model already supported by RPent to improve
+the point-selection success rate. Replace ``YOUR_MODEL`` with the model name;
+the model must support images and structured output.
+For dual Franka, use ``--robot dual_franka`` with its plan and robot configuration.
+
+See :doc:`../guides/configure_planner` for model login and API setup.
+Use ``codex:model`` for Codex CLI or ``provider:model`` for an API model.
+Add ``--grounding-agent-base-url`` if you need to override the model endpoint.
+
+Codex reuses your model/provider settings and file-based login to run the
+fallback agent. It does not load your MCP servers or plugins. If an enabled MCP
+server is detected, the request stops before sending the image. If your login
+is stored only in the OS keyring, use file-based login or set ``CODEX_API_KEY``.
+
+Each attempt is saved in the step's ``flash_grounding.json``. Agent requests
+may incur model costs. The current request timeout is 90 seconds; tokens from
+agent point-selection requests are not included in the Flash planner's counts.
+
 Stop the Run
 ------------
 

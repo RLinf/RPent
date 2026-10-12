@@ -33,6 +33,19 @@ RPent 通过一个 CLI 参数选择 Agentic Planner 的后端：
        :doc:`flash`。
      - 想在新布局上低成本地重跑一个已知可行的方案，无需 LLM 在线规划；仍需要感知和 VLA 服务。
 
+.. _planner-direct-actions:
+
+直接执行动作
+--------------------
+
+使用 LIBERO、RoboCasa 或 RoboTwin 时，在启动命令中添加
+``--enable-direct-action``，即可让 planner 调用
+``execute_action(values=[...])``。planner 传入一组控制数值，环境将其作为
+一个动作执行，RPent 随后记录执行后的状态。
+
+具体需要传入哪些数值，取决于机器人和控制器。planner 收到的工具说明会列出
+数值的个数及各自允许的范围。启用后，planner 仍可使用 VLA 和脚本工具。
+
 ``api`` 规划器（直接调用模型 API）
 -------------------------------------
 

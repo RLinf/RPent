@@ -36,7 +36,7 @@ from rpent.dashboard.interaction import (
 from rpent.dashboard.spec import DashboardSpec
 from rpent.dashboard.state import DashboardState
 from rpent.session import EnvState
-from rpent.tools.toolkit import Toolkit, ToolResult
+from rpent.tools import Toolkit, ToolResult, tool
 
 DASHBOARD_SPEC: DashboardSpec = {
     "task": {
@@ -220,19 +220,20 @@ def test_dashboard_interrupt_lifecycle_accepts_only_busy_active_tasks(
         state.complete_interrupt()
 
 
+@tool(json_schema_extra={"additionalProperties": False})
+def move_to() -> ToolResult:
+    """Move the robot."""
+    return ToolResult(data={"ok": True})
+
+
 def test_dashboard_primitives_are_available_only_while_planner_is_idle(
     tmp_path: Path,
 ) -> None:
     state = _ready_state(tmp_path)
     _claim_started_task(state)
     toolkit = MagicMock(spec=Toolkit)
-    toolkit.get_tools_spec.return_value = [
-        {
-            "name": "move_to",
-            "input_schema": {"type": "object", "additionalProperties": False},
-        }
-    ]
-    tool_result = ToolResult(name="move_to", result={"ok": True})
+    toolkit.list_tools.return_value = (move_to,)
+    tool_result = ToolResult(data={"ok": True})
     toolkit.execute_tool.return_value = tool_result
     state.bind_toolkit(toolkit)
 
@@ -244,7 +245,9 @@ def test_dashboard_primitives_are_available_only_while_planner_is_idle(
 
     state.set_planner_activity("idle", accepting_input=True)
     assert state.snapshot()["primitives_available"] is True
-    assert state.primitive_specs() == toolkit.get_tools_spec.return_value
+    assert state.primitive_specs() == [
+        {"name": move_to.name, "input_schema": move_to.input_schema}
+    ]
     assert state.execute_primitive("move_to", {}) is tool_result
 
     state.set_planner_activity("busy")
@@ -390,12 +393,7 @@ def test_manual_primitive_blocks_resume_and_hands_off_result(tmp_path, wrapped):
     state = _ready_state(tmp_path)
     _claim_started_task(state)
     toolkit = MagicMock(spec=Toolkit)
-    toolkit.get_tools_spec.return_value = [
-        {
-            "name": "move_to",
-            "input_schema": {"type": "object"},
-        }
-    ]
+    toolkit.list_tools.return_value = (move_to,)
     state.bind_toolkit(toolkit)
     state.set_planner_activity("idle", accepting_input=True)
 
@@ -411,7 +409,7 @@ def test_manual_primitive_blocks_resume_and_hands_off_result(tmp_path, wrapped):
         }
         if wrapped:
             result = {"state": {}, "log": {"result": result}}
-        return ToolResult(name=name, result=result)
+        return ToolResult(data=result)
 
     toolkit.execute_tool.side_effect = execute
     state.execute_primitive("move_to", {})
@@ -429,12 +427,8 @@ def test_manual_result_does_not_resume_agent_without_user_message(tmp_path):
     state = _ready_state(tmp_path)
     _claim_started_task(state)
     toolkit = MagicMock(spec=Toolkit)
-    toolkit.get_tools_spec.return_value = [
-        {"name": "move_to", "input_schema": {"type": "object"}}
-    ]
-    toolkit.execute_tool.return_value = ToolResult(
-        name="move_to", result={"error": "timeout"}
-    )
+    toolkit.list_tools.return_value = (move_to,)
+    toolkit.execute_tool.return_value = ToolResult(data={"error": "timeout"})
     state.bind_toolkit(toolkit)
     state.set_planner_activity("idle", accepting_input=True)
     state.execute_primitive("move_to", {})
