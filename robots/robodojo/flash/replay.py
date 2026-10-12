@@ -30,7 +30,7 @@ MAX_OFFSET = 0.5
 
 def execute(toolkit, name: str, arguments: dict) -> dict:
     """Call the registered tool and stop on errors or exhausted episode budget."""
-    raw = toolkit.execute_tool(name, arguments).result
+    raw = toolkit.execute_tool(name, arguments).to_dict()
     if not isinstance(raw, dict) or raw.get("error"):
         raise RuntimeError(f"Flash tool failed: {name}")
     if raw.get("truncated"):

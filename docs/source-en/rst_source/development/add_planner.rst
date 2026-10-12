@@ -21,8 +21,8 @@ The following interface sketch omits model requests and the tool loop; it is not
            input_queue=None,
            dashboard_interaction=None,
        ):
-           tool_specs = toolkit.get_tools_spec()
-           # Call the model with system_prompt, user_message, and tool_specs.
+           tools = toolkit.list_tools()
+           # Call the model with system_prompt, user_message, and tools.
            # Execute each tool call through this interface:
            tool_result = toolkit.execute_tool(tool_name, arguments)
            ...
@@ -36,11 +36,12 @@ The following interface sketch omits model requests and the tool loop; it is not
 Any planner must:
 
 1. Accept the rendered ``system_prompt`` and ``user_message``.
-2. Read the tool schemas from ``toolkit.get_tools_spec()`` and execute
+2. Read each tool's ``name``, ``description``, and ``input_schema`` from
+   ``toolkit.list_tools()`` and execute
    tools with ``toolkit.execute_tool(name, arguments)``.
-3. Convert the text and images in ``ToolResult.content_blocks`` to the
+3. Convert ``ToolResult.to_text()`` and PNG bytes in ``ToolResult.images`` to the
    format expected by the model SDK.
-4. Detect ``ToolResult.is_finish`` and stop according to
+4. Detect ``ToolResult.data.get("_finish")`` and stop according to
    ``max_turns`` and any other limits.
 5. Return a ``PlannerResult`` containing the finish state, messages,
    statistics, and an optional error.

@@ -187,7 +187,6 @@ def _policy_chain(output_dir: Path, args: Namespace) -> dict[str, Any]:
             {
                 "max_chunks": 1,
                 "n_action_steps": 1,
-                "use_prompt": True,
                 "prompt": "Open the drawer",
                 "force_reset": True,
             },

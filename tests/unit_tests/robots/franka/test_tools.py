@@ -112,6 +112,18 @@ def test_vec3_validation_and_motion_forwarding():
         coerce_vec3([1.0, 2.0], name="delta")
 
 
+def test_gripper_error_preserves_environment_payload(monkeypatch):
+    env = FakeEnv()
+    payload = {"ok": False, "error": "gripper blocked"}
+    monkeypatch.setattr(env, "set_gripper", lambda **kwargs: payload)
+
+    result = _primitives(env).close_gripper()
+
+    assert result.is_error
+    assert result.to_dict() == {"ok": False, "error": "gripper blocked"}
+    assert payload == {"ok": False, "error": "gripper blocked"}
+
+
 def test_dump_state_saves_canonical_rgbd_artifacts(tmp_path: Path):
     env = FakeEnv()
     primitives = _primitives(env)
@@ -132,17 +144,20 @@ def test_dump_state_saves_canonical_rgbd_artifacts(tmp_path: Path):
         "wrist.png",
         "wrist_depth.npy",
     }
-    output = view_env_state(state=state)
-    assert output["_image_wrist_bytes"]
-    assert output["_image_cam_bytes"]
-    assert view_camera_meta(state=state)["camera_meta"]["depth_unit"] == "m"
+    output_native = view_env_state(state=state)
+    assert output_native.images == [
+        state.load_bytes("camera.png"),
+        state.load_bytes("wrist.png"),
+    ]
+    assert view_camera_meta(state=state).data["camera_meta"]["depth_unit"] == "m"
 
 
 def test_vla_grasp_runs_bounded_chunks():
     env = FakeEnv()
     primitives = _primitives(env, model=FakeModel())
 
-    result = primitives.vla_grasp("pick up the cube", max_chunks=3)
+    result_native = primitives.vla_grasp("pick up the cube", max_chunks=3)
+    result = result_native.data
 
     assert result["chunks_executed"] == 3
     assert len(env.chunks) == 3
@@ -177,7 +192,8 @@ def test_back_project_reads_rpent_state_artifacts(tmp_path: Path):
     )
     set_robot_config_path(config)
     try:
-        result = back_project(row=2, col=2, camera="wrist", state=state)
+        result_native = back_project(row=2, col=2, camera="wrist", state=state)
+        result = result_native.data
     finally:
         set_robot_config_path(None)
 

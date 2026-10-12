@@ -164,6 +164,44 @@ Franka Flash 任务卡
 历史点复用不属于本接口。运行需要对应机器人环境及操作员验证；离线单测不能证明
 真机任务成功。
 
+.. _agent:
+
+Flash 模式加入大模型 Agent 介入选点
+------------------------------------------
+
+在 Flash 模式下，Molmo 找不到目标、选点的像素或深度无效，或请求失败时，
+可以由 Agent 重新选点。
+
+开启后，RPent 会先刷新观测，再让 Agent 在同一目标部位重试一次。
+再次失败则停止回放，不执行本次运动。下一次平移仍先用 Molmo。
+
+此功能默认关闭，只用于 Flash 模式的实时回放，不用于离线生成任务卡。
+
+在回放命令中增加 ``--grounding-agent-model`` 即可开启：
+
+.. code-block:: bash
+
+   rpent --robot franka --planner flash --task-id 0 \
+     --robot-config /path/to/robot.yaml --flash-plan plan.json \
+     --molmo-endpoint http://localhost:9000 \
+     --grounding-agent-model codex:YOUR_MODEL
+
+用户可以指定 Astra 等 RPent 已支持的大模型来介入选点，以此提高选点成功率。
+将 ``YOUR_MODEL`` 换成对应的模型名称，所选模型需要支持图像输入和结构化输出。
+双臂 Franka 使用 ``--robot dual_franka``，并换成对应的任务卡和机器人配置。
+
+模型登录和 API 配置参见 :doc:`../guides/configure_planner`。
+使用 Codex CLI 时填写 ``codex:model``，使用 API 模型时填写 ``provider:model``。
+需要更换模型端点时，可增加 ``--grounding-agent-base-url``。
+
+
+Codex 复用已有的模型/provider 配置和文件登录，来加载介入的agent，不加载用户的 MCP 和插件。
+如果检测到启用的 MCP，发送图片前会停止请求。若登录凭据只保存在系统钥匙串中，
+请改用文件登录或设置 ``CODEX_API_KEY``。
+
+每次尝试保存到对应步骤的 ``flash_grounding.json``。Agent 请求可能产生模型费用，
+当前设置的超时时间为 90 秒；Agent 选点请求产生的 token 不计入 Flash 规划器的统计。
+
 停止运行
 ------------
 

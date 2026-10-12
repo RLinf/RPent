@@ -87,9 +87,9 @@ def test_pick_defaults_to_official_language_and_rejects_template_before_policy()
         ),
         _check_cancelled=lambda: None,
     )
-    result = tools.pi0_pick(primitives, None, max_chunks=1)
+    result = tools.pi0_pick(primitives, None, max_chunks=1).data
     assert seen == ["Pick the blue car."]
     assert result["instruction"] == seen[0]
     with pytest.raises(ValueError, match="unresolved"):
-        tools.pi0_pick(primitives, None, "Pick <target>.", max_chunks=1)
+        tools.pi0_pick(primitives, None, "Pick <target>.", max_chunks=1).data
     assert len(seen) == 1

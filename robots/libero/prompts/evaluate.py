@@ -449,9 +449,7 @@ Each primitive tool blocks until the next state record is dumped and returns
 the new state view, log, and embedded images. Inspect `agentview_high.png` and
 `wrist_high.png` as needed, call `back_project` for geometry, decide, and repeat.
 """,
-    """ALLOWED PRIMITIVES (physics-only; full schemas in the tool list/guides):
-`move_to`, `pi0_pick`, `pi0_doubled`, `release`, `set_gripper`,
-`rotate_wrist`, `rotate_pitch`, `move_pose`. ⛔ `reset` is FORBIDDEN here
+    """⛔ `reset` is FORBIDDEN here
 (SINGLE-ATTEMPT MODE). FORBIDDEN: `exit`, `set_object_pose`, `articulate_to`,
 `js_move_to`, `carry_object`.
 
@@ -569,10 +567,44 @@ LOCAL_WORKFLOW_STEPS = (
 )
 
 
+def allowed_primitives(enable_direct_action: bool = False) -> str:
+    """List motion tools available in this run, excluding mode-specific reset."""
+    names = [
+        "move_to",
+        "pi0_pick",
+        "pi0_doubled",
+        "release",
+        "set_gripper",
+        "rotate_wrist",
+        "rotate_pitch",
+        "move_pose",
+    ]
+    if enable_direct_action:
+        names.append("execute_action")
+    return (
+        "ALLOWED PRIMITIVES (physics-only; full schemas in the tool list/guides):\n"
+        + ", ".join(f"`{name}`" for name in names)
+        + ".\n"
+    )
+
+
+def workflow_steps(
+    steps: tuple[str, ...], enable_direct_action: bool
+) -> tuple[str, ...]:
+    """Attach the active primitive list to the evaluation step."""
+    return tuple(
+        allowed_primitives(enable_direct_action) + step
+        if step == STEP_PRIMITIVES
+        else step
+        for step in steps
+    )
+
+
 def system_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> PromptNode:
     """Assemble the LIBERO evaluation prompt for the selected memory profile."""
+    enabled = bool((variables or {}).get("enable_direct_action", False))
     if (variables or {}).get("memory_profile", "hf") == "local":
         return {
             "ROLE AND EVALUATION": ROLE_AND_EVALUATION,
@@ -583,7 +615,7 @@ def system_prompt(
             "RULES (NON-NEGOTIABLE)": RULES,
             "LOCALIZATION": LOCALIZATION,
             "FIRST-STEP ALGORITHM": PERCEPTION_ALGORITHM,
-            "WORKFLOW": Numbered(LOCAL_WORKFLOW_STEPS),
+            "WORKFLOW": Numbered(workflow_steps(LOCAL_WORKFLOW_STEPS, enabled)),
             "KEY HYPERPARAMETERS": KEY_HYPERPARAMETERS,
             "OUTPUT DISCIPLINE": OUTPUT_DISCIPLINE,
         }
@@ -602,7 +634,7 @@ def system_prompt(
         "FIRST-STEP ALGORITHM — agentview = IDENTITY, wrist = GEOMETRY": (
             PERCEPTION_ALGORITHM
         ),
-        "WORKFLOW": Numbered(WORKFLOW_STEPS),
+        "WORKFLOW": Numbered(workflow_steps(WORKFLOW_STEPS, enabled)),
         "KEY HYPERPARAMETERS": KEY_HYPERPARAMETERS,
         "OUTPUT DISCIPLINE": OUTPUT_DISCIPLINE,
     }

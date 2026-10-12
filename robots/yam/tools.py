@@ -10,12 +10,13 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any, Literal
 
 import numpy as np
+from pydantic import Field
 
 from rpent.session import EnvState, StepRecord
-from rpent.tools.toolkit import readonly
+from rpent.tools import ToolResult, tool
 
 
 def _tool_error(code: str, message: str, **details: Any) -> dict[str, Any]:
@@ -97,36 +98,48 @@ def _load_world_xyz(env_state: EnvState, *, view: str, step: int | None):
     return state, np.asarray(world), None
 
 
-@readonly
+@tool(readonly=True, exclude=("env_state",))
 def sample_world_xyz(
     env_state: EnvState,
     *,
-    view: str,
-    pixels: list[list[int]],
+    view: Literal["top", "left", "right"],
+    pixels: Annotated[
+        list[Annotated[list[int], Field(min_length=2, max_length=2)]],
+        Field(min_length=1, max_length=256),
+    ],
     step: int | None = None,
-    neighborhood: int = 1,
-) -> dict[str, Any]:
+    neighborhood: Annotated[
+        int, Field(ge=0, le=32, json_schema_extra={"default": 1})
+    ] = 1,
+) -> ToolResult:
+    """Read persisted same-frame YAM world xyz around [row,col] pixels."""
     state, world, error = _load_world_xyz(env_state, view=view, step=step)
     if error is not None:
-        return error
+        payload = error
+        return ToolResult(data=payload)
     assert state is not None and world is not None
     radius = int(neighborhood)
     if radius < 0 or radius > 32:
-        return _tool_error("invalid_neighborhood", "neighborhood must be 0 through 32.")
+        payload = _tool_error(
+            "invalid_neighborhood", "neighborhood must be 0 through 32."
+        )
+        return ToolResult(data=payload)
     if not isinstance(pixels, list) or not pixels or len(pixels) > 256:
-        return _tool_error(
+        payload = _tool_error(
             "invalid_pixels", "pixels must contain 1 to 256 [row,col] pairs."
         )
+        return ToolResult(data=payload)
     height, width = world.shape[:2]
     samples = []
     for pixel in pixels:
         if not isinstance(pixel, (list, tuple)) or len(pixel) != 2:
-            return _tool_error(
+            payload = _tool_error(
                 "invalid_pixel", "Every pixel must be [row,col].", pixel=pixel
             )
+            return ToolResult(data=payload)
         row, col = int(pixel[0]), int(pixel[1])
         if row < 0 or row >= height or col < 0 or col >= width:
-            return _tool_error(
+            payload = _tool_error(
                 "pixel_out_of_bounds",
                 "The pixel is outside this view's world map.",
                 pixel=[row, col],
@@ -135,17 +148,19 @@ def sample_world_xyz(
                 valid_row_range=[0, height - 1],
                 valid_col_range=[0, width - 1],
             )
+            return ToolResult(data=payload)
         region = world[
             max(0, row - radius) : min(height, row + radius + 1),
             max(0, col - radius) : min(width, col + radius + 1),
         ].reshape(-1, 3)
         finite = np.isfinite(region).all(axis=1)
         if not np.any(finite):
-            return _tool_error(
+            payload = _tool_error(
                 "no_valid_world_points",
                 "The requested pixel neighborhood has no finite xyz.",
                 pixel=[row, col],
             )
+            return ToolResult(data=payload)
         xyz = np.nanmedian(region[finite], axis=0)
         samples.append(
             {
@@ -155,7 +170,7 @@ def sample_world_xyz(
                 "valid_points": int(finite.sum()),
             }
         )
-    return {
+    payload = {
         "success": True,
         "step_idx": state["step_idx"],
         "view": view,
@@ -168,46 +183,57 @@ def sample_world_xyz(
         "neighborhood": radius,
         "samples": samples,
     }
+    return ToolResult(data=payload)
 
 
-@readonly
+@tool(readonly=True, exclude=("env_state",))
 def query_world_map(
     env_state: EnvState,
     *,
-    view: str,
-    bbox: list[int],
+    view: Literal["top", "left", "right"],
+    bbox: Annotated[list[int], Field(min_length=4, max_length=4)],
     step: int | None = None,
-    max_points: int = 256,
-) -> dict[str, Any]:
+    max_points: Annotated[
+        int, Field(ge=1, le=4096, json_schema_extra={"default": 256})
+    ] = 256,
+) -> ToolResult:
+    """Read deterministic world-xyz samples from a half-open bbox."""
     state, world, error = _load_world_xyz(env_state, view=view, step=step)
     if error is not None:
-        return error
+        payload = error
+        return ToolResult(data=payload)
     assert state is not None and world is not None
     if not isinstance(bbox, (list, tuple)) or len(bbox) != 4:
-        return _tool_error(
+        payload = _tool_error(
             "invalid_bbox", "bbox must be [row_start,col_start,row_end,col_end]."
         )
+        return ToolResult(data=payload)
     row_start, col_start, row_end, col_end = map(int, bbox)
     height, width = world.shape[:2]
     if not (0 <= row_start < row_end <= height and 0 <= col_start < col_end <= width):
-        return _tool_error(
+        payload = _tool_error(
             "bbox_out_of_bounds",
             "bbox must be a non-empty half-open region inside the view.",
             bbox=list(map(int, bbox)),
             shape=[height, width],
         )
+        return ToolResult(data=payload)
     limit = int(max_points)
     if limit < 1 or limit > 4096:
-        return _tool_error("invalid_max_points", "max_points must be 1 through 4096.")
+        payload = _tool_error(
+            "invalid_max_points", "max_points must be 1 through 4096."
+        )
+        return ToolResult(data=payload)
     region = world[row_start:row_end, col_start:col_end]
     valid_mask = np.isfinite(region).all(axis=2)
     local_rows, local_cols = np.nonzero(valid_mask)
     if not len(local_rows):
-        return _tool_error(
+        payload = _tool_error(
             "no_valid_world_points",
             "The requested region contains no finite world coordinates.",
             bbox=list(map(int, bbox)),
         )
+        return ToolResult(data=payload)
     xyz = region[local_rows, local_cols]
     indices = (
         np.linspace(0, len(xyz) - 1, limit).astype(int)
@@ -221,7 +247,7 @@ def query_world_map(
         }
         for i in indices
     ]
-    return {
+    payload = {
         "success": True,
         "step_idx": state["step_idx"],
         "view": view,
@@ -240,6 +266,7 @@ def query_world_map(
         "xyz_median": np.median(xyz, axis=0).tolist(),
         "points": points,
     }
+    return ToolResult(data=payload)
 
 
 def dump_observation(
@@ -312,12 +339,18 @@ def dump_observation(
     return env_state.get(step_idx)
 
 
-@readonly
-def view_env_state(step: int = -1, *, state: EnvState) -> dict[str, Any]:
+@tool(readonly=True, exclude=("state",))
+def view_env_state(
+    step: Annotated[int, Field(json_schema_extra={"default": -1})] = -1,
+    *,
+    state: EnvState,
+) -> ToolResult:
+    """Read one synchronized YAM state and image artifacts."""
     try:
         record = state.get(step)
     except Exception as error:
-        return {"error": f"state step not available: {error}"}
+        payload = {"error": f"state step not available: {error}"}
+        return ToolResult(data=payload)
     result = {
         "step": record.step_idx,
         "terminated": record.terminated,
@@ -331,201 +364,12 @@ def view_env_state(step: int = -1, *, state: EnvState) -> dict[str, Any]:
             "elapsed_s": record.elapsed_s,
         },
     }
-    for slot, view in (
-        ("_image_bytes", "top"),
-        ("_image_cam_bytes", "left"),
-        ("_image_wrist_bytes", "right"),
-    ):
+    images: list[bytes] = []
+    for view in ("top", "left", "right"):
         name = _artifact_name(view, "rgb")
         if name in record.artifacts:
             try:
-                result[slot] = state.load_bytes(name, step=record.step_idx)
+                images.append(state.load_bytes(name, step=record.step_idx))
             except FileNotFoundError:
                 pass
-    return result
-
-
-TOOLS_SPEC = [
-    {
-        "name": "status",
-        "description": "Read fresh episode rules: ready, awaiting ready, terminal, stop or budget. Does not establish visual clearance or drive hardware.",
-        "input_schema": {
-            "type": "object",
-            "properties": {},
-            "additionalProperties": False,
-        },
-    },
-    {
-        "name": "view_env_state",
-        "description": "Read one synchronized YAM state and image artifacts.",
-        "input_schema": {
-            "type": "object",
-            "properties": {"step": {"type": "integer", "default": -1}},
-        },
-    },
-    {
-        "name": "render",
-        "description": "Capture a fresh synchronized YAM observation.",
-        "input_schema": {"type": "object", "properties": {}},
-    },
-    {
-        "name": "reset",
-        "description": "Operator-approved reset for exploration or a fresh task attempt.",
-        "input_schema": {"type": "object", "properties": {}},
-    },
-    {
-        "name": "sample_world_xyz",
-        "description": "Read persisted same-frame YAM world xyz around [row,col] pixels.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "view": {"type": "string", "enum": ["top", "left", "right"]},
-                "pixels": {
-                    "type": "array",
-                    "minItems": 1,
-                    "maxItems": 256,
-                    "items": {
-                        "type": "array",
-                        "items": {"type": "integer"},
-                        "minItems": 2,
-                        "maxItems": 2,
-                    },
-                },
-                "step": {"type": ["integer", "null"]},
-                "neighborhood": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 32,
-                    "default": 1,
-                },
-            },
-            "required": ["view", "pixels"],
-        },
-    },
-    {
-        "name": "query_world_map",
-        "description": "Read deterministic world-xyz samples from a half-open bbox.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "view": {"type": "string", "enum": ["top", "left", "right"]},
-                "bbox": {
-                    "type": "array",
-                    "items": {"type": "integer"},
-                    "minItems": 4,
-                    "maxItems": 4,
-                },
-                "step": {"type": ["integer", "null"]},
-                "max_points": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": 4096,
-                    "default": 256,
-                },
-            },
-            "required": ["view", "bbox"],
-        },
-    },
-    {
-        "name": "pi05_act",
-        "description": "Run the YAM Pi0.5 qpos14 policy for one or more short chunks.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "chunks": {"type": "integer", "minimum": 1, "default": 1},
-                "use_length": {
-                    "type": "integer",
-                    "const": 5,
-                    "default": 5,
-                },
-                "prompt": {"type": ["string", "null"]},
-            },
-        },
-    },
-    {
-        "name": "move_to",
-        "description": "Plan and move one YAM arm to a left-base xyz and wxyz orientation.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "arm": {"type": "string", "enum": ["left", "right"]},
-                "xyz": {
-                    "type": "array",
-                    "items": {"type": "number"},
-                    "minItems": 3,
-                    "maxItems": 3,
-                },
-                "xyz_bounds": {
-                    "type": ["array", "null"],
-                    "minItems": 2,
-                    "maxItems": 2,
-                    "items": {
-                        "type": "array",
-                        "items": {"type": "number"},
-                        "minItems": 3,
-                        "maxItems": 3,
-                    },
-                    "description": "Optional task-valid [lower_xyz, upper_xyz] containing xyz. Try at most three plans within it; execute only one. Reobserve after recoverable motion failure before choosing another point. Does not relax arrival tolerance or collision checks.",
-                },
-                "quat": {
-                    "type": ["array", "null"],
-                    "items": {"type": "number"},
-                    "minItems": 4,
-                    "maxItems": 4,
-                },
-                "gripper": {"type": ["number", "null"]},
-                "substeps": {"type": "integer", "minimum": 0, "default": 25},
-            },
-            "required": ["arm", "xyz"],
-        },
-    },
-    {
-        "name": "rotate_wrist",
-        "description": "Rotate one wrist about world Z by a relative angle in degrees.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "arm": {"type": "string", "enum": ["left", "right"]},
-                "delta_yaw_deg": {"type": "number"},
-                "gripper": {"type": ["number", "null"]},
-                "substeps": {"type": "integer", "minimum": 0, "default": 25},
-            },
-            "required": ["arm", "delta_yaw_deg"],
-        },
-    },
-    {
-        "name": "set_gripper",
-        "description": "Linearly move one normalized YAM gripper, where 0=closed and 1=open.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "arm": {"type": "string", "enum": ["left", "right"]},
-                "val": {"type": "number", "minimum": 0, "maximum": 1},
-                "steps": {"type": "integer", "minimum": 1, "default": 10},
-            },
-            "required": ["arm", "val"],
-        },
-    },
-    {
-        "name": "release",
-        "description": "Open one YAM gripper to 1.0.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "arm": {"type": "string", "enum": ["left", "right"]},
-                "val": {"type": "number", "default": 1.0},
-                "steps": {"type": "integer", "minimum": 1, "default": 10},
-            },
-            "required": ["arm"],
-        },
-    },
-    {
-        "name": "finish",
-        "description": "Stop the run. Fresh env eval_success is authoritative.",
-        "input_schema": {
-            "type": "object",
-            "properties": {"status": {"type": "string"}, "summary": {"type": "string"}},
-            "required": ["status", "summary"],
-        },
-    },
-]
+    return ToolResult(data=result, images=images)

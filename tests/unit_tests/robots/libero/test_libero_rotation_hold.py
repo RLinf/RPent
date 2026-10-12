@@ -68,7 +68,7 @@ def _primitives(env: _FakeEnv) -> LiberoPrimitives:
 def _call(env: _FakeEnv, method: str, **kwargs):
     primitives = _primitives(env)
     primitives.reset()
-    return getattr(primitives, method)(**kwargs)
+    return getattr(primitives, method)(**kwargs).data
 
 
 def _noop(env: _FakeEnv, action: np.ndarray) -> None:
@@ -214,3 +214,12 @@ def test_missing_rotation_target_does_not_step(method, message):
 
     assert result == {"name": method, "error": message}
     assert env.actions == []
+
+
+@pytest.mark.parametrize("method", ["rotate_wrist", "rotate_pitch"])
+def test_rotation_tool_schema_exposes_hold_arguments(method):
+    properties = getattr(LiberoPrimitives, method).input_schema["properties"]
+
+    for name in ("pos_tol", "action_scale", "rot_scale"):
+        assert properties[name]["type"] == "number"
+        assert properties[name]["description"]

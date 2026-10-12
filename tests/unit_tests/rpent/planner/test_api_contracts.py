@@ -41,8 +41,8 @@ from rpent.dashboard.events import RunStartedEvent, TranscriptEvent, UsageEvent
 from rpent.dashboard.state import DashboardState
 from rpent.planner.api_loop import ApiAgentLoop
 from rpent.session import EnvState
-from rpent.tools import common
-from rpent.tools.toolkit import Toolkit, readonly
+from rpent.tools import Toolkit, ToolResult, common
+from rpent.tools import tool as declare_tool
 
 FINISH_ARGS = {"status": "success", "summary": "done"}
 
@@ -63,23 +63,22 @@ class RobotToolkit(Toolkit):
         super().__init__(dashboard_events=events, memory=SimpleNamespace(), state=state)
 
     def _register_common_tools(self):
-        self.add_tool("finish", common.TOOLS_SPEC[-1], self.finish)
-        self.register("observe", lambda: {"position": 1, "_image_bytes": b"image"})
-
-    def register(self, name, handler, schema=None):
-        self.add_tool(
-            name,
-            {
-                "name": name,
-                "description": name,
-                "input_schema": schema or {"type": "object", "properties": {}},
-            },
-            readonly(handler),
+        self.add_tool(common.CommonTools.finish.with_handler(self.finish))
+        self.register(
+            "observe", lambda: ToolResult(data={"position": 1}, images=[b"image"])
         )
 
-    @readonly
+    def register(self, name, handler, declaration=None):
+        declaration = declaration or declare_tool(name=name, readonly=True)(handler)
+
+        def run(**kwargs):
+            result = handler(**kwargs)
+            return result if isinstance(result, ToolResult) else ToolResult(data=result)
+
+        self.add_tool(declaration.with_handler(run), replace=name in self._tools)
+
     def finish(self, status, summary):
-        return {"_finish": True, "status": status, "summary": summary}
+        return ToolResult(data={"_finish": True, "status": status, "summary": summary})
 
     def execute_tool(self, name, input_dict):
         self.calls.append((name, input_dict))
@@ -89,6 +88,7 @@ class RobotToolkit(Toolkit):
 @pytest.fixture(autouse=True)
 def local_tools(monkeypatch):
     monkeypatch.setattr("rpent.tools.toolkit.substitute", lambda value: value)
+    monkeypatch.setattr("rpent.planner.api_loop.substitute", lambda value: value)
     monkeypatch.setenv("PYDANTIC_AI_NO_BANNER", "1")
 
 
@@ -192,7 +192,7 @@ def test_refused_finish_retries_without_claiming_success(tmp_path):
             return {"error": "finish refused; verify the environment"}
         return {"_finish": True, **args}
 
-    toolkit.register("finish", guarded_finish, common.TOOLS_SPEC[-1]["input_schema"])
+    toolkit.register("finish", guarded_finish, common.CommonTools.finish)
     histories = []
 
     async def stream(messages, info):
@@ -216,7 +216,7 @@ def test_persistent_finish_refusal_stops_at_request_budget(tmp_path):
     toolkit.register(
         "finish",
         lambda **args: {"error": "finish refused"},
-        common.TOOLS_SPEC[-1]["input_schema"],
+        common.CommonTools.finish,
     )
 
     async def stream(messages, info):
@@ -256,7 +256,7 @@ def test_anthropic_request_retains_all_prompt_cache_controls(tmp_path, monkeypat
     assert (
         request["messages"][-1]["content"][-1]["cache_control"]["type"] == "ephemeral"
     )
-    assert request["tool_choice"]["disable_parallel_tool_use"] is True
+    assert request["tool_choice"]["disable_parallel_tool_use"] is False
 
 
 @pytest.mark.parametrize("no_images", [False, True])
@@ -447,17 +447,16 @@ def test_read_image_errors_reach_model_without_ending_run(
 
 def test_schema_validation_and_sequential_physical_tools(tmp_path):
     events = Events()
-    toolkit = RobotToolkit(events)
+    toolkit = RobotToolkit(events, state=EnvState(tmp_path))
+    toolkit.get_env_state = lambda **kwargs: ToolResult(data=kwargs["result"])
     positions = []
-    toolkit.register(
-        "move",
-        lambda position: positions.append(position) or {"position": position},
-        {
-            "type": "object",
-            "properties": {"position": {"type": "integer"}},
-            "required": ["position"],
-        },
-    )
+
+    @declare_tool
+    def move(position: int) -> ToolResult:
+        positions.append(position)
+        return ToolResult(data={"position": position})
+
+    toolkit.add_tool(move)
     calls = 0
 
     async def stream(messages, info):
@@ -579,7 +578,7 @@ def test_dashboard_message_during_finish_is_unsent(tmp_path):
         time.sleep(0.05)
         return {"_finish": True, **args}
 
-    toolkit.register("finish", finish_and_submit, common.TOOLS_SPEC[-1]["input_schema"])
+    toolkit.register("finish", finish_and_submit, common.CommonTools.finish)
     result, _, _ = solve(
         tmp_path,
         TestModel(call_tools=[], custom_output_args=FINISH_ARGS),
@@ -647,7 +646,10 @@ def test_dashboard_interrupt_drains_tool_before_followup(
     tmp_path, dashboard_interrupt_order
 ):
     state = dashboard(tmp_path)
-    toolkit = RobotToolkit(state)
+    toolkit = RobotToolkit(state, state=EnvState(tmp_path / "observations"))
+    toolkit.get_env_state = lambda **kwargs: ToolResult(data=kwargs["result"])
+    observations = []
+    toolkit.register("observe", lambda: observations.append("ran") or ToolResult())
     stopped = threading.Event()
     calls = 0
 
@@ -663,6 +665,10 @@ def test_dashboard_interrupt_drains_tool_before_followup(
                 state.wait_for_interaction_change(
                     state.interaction_version, timeout=0.05
                 )
+            with toolkit._scheduler.condition:
+                assert toolkit._scheduler.condition.wait_for(
+                    lambda: bool(toolkit._scheduler.pending), timeout=2
+                )
             state.request_interrupt()
             state.submit_input("Continue after stopping the move.")
             while True:
@@ -671,7 +677,7 @@ def test_dashboard_interrupt_drains_tool_before_followup(
         finally:
             stopped.set()
 
-    toolkit.register("move", move)
+    toolkit.register("move", move, declaration=declare_tool(name="move")(move))
 
     async def stream(messages, info):
         nonlocal calls
@@ -696,7 +702,8 @@ def test_dashboard_interrupt_drains_tool_before_followup(
     )
     assert result.error is None
     assert result.finish_result["status"] == "success"
-    assert [name for name, _ in toolkit.calls] == ["move", "finish"]
+    assert observations == []
+    assert toolkit.calls[-1][0] == "finish"
     assert [m["status"] for m in state.snapshot()["interaction"]["messages"]] == [
         "unsent",
         "unsent",
@@ -708,10 +715,17 @@ def test_task_replacement_cancels_and_drains_physical_work(
     tmp_path, dashboard_interrupt_order
 ):
     state = dashboard(tmp_path)
-    toolkit = RobotToolkit(state)
+    toolkit = RobotToolkit(state, state=EnvState(tmp_path / "observations"))
+    toolkit.get_env_state = lambda **kwargs: ToolResult(data=kwargs["result"])
+    observations = []
+    toolkit.register("observe", lambda: observations.append("ran") or ToolResult())
     stopped = threading.Event()
 
     def move():
+        with toolkit._scheduler.condition:
+            assert toolkit._scheduler.condition.wait_for(
+                lambda: bool(toolkit._scheduler.pending), timeout=2
+            )
         state.submit_input("/rpent-task 1")
         try:
             while True:
@@ -720,7 +734,7 @@ def test_task_replacement_cancels_and_drains_physical_work(
         finally:
             stopped.set()
 
-    toolkit.register("move", move)
+    toolkit.register("move", move, declaration=declare_tool(name="move")(move))
 
     async def stream(messages, info):
         yield tool("move") | tool("observe", index=1)
@@ -735,7 +749,7 @@ def test_task_replacement_cancels_and_drains_physical_work(
     )
     assert result.error is None
     assert stopped.is_set()
-    assert [name for name, _ in toolkit.calls] == ["move"]
+    assert observations == []
     assert state.planner_activity == "ended"
     assert result.finish_result is None
 
@@ -907,3 +921,100 @@ def test_factory_passes_interactive_mode(tmp_path, monkeypatch):
     assert isinstance(planner, ApiAgentLoop)
     assert isinstance(planner, Planner)
     assert planner.interactive is True
+
+
+def test_offline_http_planner_executes_action_and_finish(tmp_path):
+    from pydantic_ai.models.openai import OpenAIChatModel
+    from pydantic_ai.providers.openai import OpenAIProvider
+
+    from tests.e2e_tests.offline_planner_server import (
+        OFFLINE_MODEL_NAME,
+        OfflinePlannerServer,
+        ScriptedToolCall,
+    )
+
+    events = Events()
+    toolkit = RobotToolkit(events)
+    toolkit.register("move", lambda: {"steps": 1})
+    script = (
+        ScriptedToolCall("move", {}),
+        ScriptedToolCall("finish", FINISH_ARGS),
+    )
+    with OfflinePlannerServer(script) as server:
+        model = OpenAIChatModel(
+            OFFLINE_MODEL_NAME,
+            provider=OpenAIProvider(base_url=server.base_url, api_key="offline-test"),
+        )
+        result, _, _ = solve(
+            tmp_path, model, toolkit=toolkit, events=events, max_turns=2
+        )
+        assert result.error is None
+        assert toolkit.calls == [("move", {}), ("finish", FINISH_ARGS)]
+        assert result.finish_result == {"_finish": True, **FINISH_ARGS}
+        server.assert_complete()
+
+
+def test_offline_http_planner_preserves_non_streaming_responses():
+    from openai import OpenAI
+
+    from tests.e2e_tests.offline_planner_server import (
+        OFFLINE_MODEL_NAME,
+        OfflinePlannerServer,
+        ScriptedToolCall,
+    )
+
+    call = ScriptedToolCall("finish", FINISH_ARGS)
+    with OfflinePlannerServer((call,)) as server:
+        with OpenAI(base_url=server.base_url, api_key="offline-test") as client:
+            response = client.chat.completions.create(
+                model=OFFLINE_MODEL_NAME,
+                messages=[{"role": "user", "content": "Finish the task."}],
+                tools=[
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "finish",
+                            "parameters": common.CommonTools.finish.input_schema,
+                        },
+                    }
+                ],
+                stream=False,
+            )
+        returned = response.choices[0].message.tool_calls[0]
+        assert returned.function.name == "finish"
+        assert json.loads(returned.function.arguments) == FINISH_ARGS
+        server.assert_complete()
+
+
+def test_api_executes_readonly_calls_concurrently(tmp_path):
+    events = Events()
+    toolkit = RobotToolkit(events)
+    rendezvous = threading.Barrier(2)
+    completed = []
+
+    @declare_tool(readonly=True)
+    def sense(label: str) -> ToolResult:
+        rendezvous.wait(timeout=5)
+        completed.append(label)
+        return ToolResult(data={"label": label})
+
+    toolkit.add_tool(sense)
+    requests = 0
+
+    async def stream(messages, info):
+        nonlocal requests
+        requests += 1
+        if requests == 1:
+            yield tool("sense", {"label": "left"}) | tool(
+                "sense", {"label": "right"}, 1
+            )
+        else:
+            yield finish()
+
+    result, _, _ = solve(
+        tmp_path, FunctionModel(stream_function=stream), toolkit, events
+    )
+    assert result.error is None
+    assert sorted(completed) == ["left", "right"]
+    assert result.finish_result == {"_finish": True, **FINISH_ARGS}
+    assert result.stats["tool_calls"] == 3

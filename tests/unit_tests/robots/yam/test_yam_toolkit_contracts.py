@@ -10,18 +10,18 @@ import numpy as np
 import pytest
 
 from robots.yam.primitives import YamPrimitives
-from rpent.tools.toolkit import readonly
+from rpent.tools import tool
 
 
 def test_operator_ready_and_verdict_are_required(toolkit_factory, receipt):
     toolkit = toolkit_factory()
     result = toolkit.execute_tool("reset", {})
-    assert result.result["awaiting_operator"] and toolkit._session_attempt == 0
+    assert result.data["awaiting_operator"] and toolkit._session_attempt == 0
     receipt("ready")
     toolkit.execute_tool("reset", {})
     assert toolkit._session_attempt == 1
     pending = toolkit.execute_tool("finish", {"status": "success", "summary": "claim"})
-    assert pending.result["awaiting_operator"] and not pending.is_finish
+    assert pending.data["awaiting_operator"] and not pending.data.get("_finish", False)
     assert not toolkit.solved()
     assert toolkit.exploration_continuation() is None
     assert toolkit.exploration_continuation(explicit=True)
@@ -58,7 +58,10 @@ def test_finish_respects_operator_verdict_and_attempt_budget(
     result = toolkit.execute_tool(
         "finish", {"status": requested_status, "summary": "agent claim"}
     )
-    assert result.is_finish is finished and result.result["status"] == status
+    assert (
+        result.data.get("_finish", False) is finished
+        and result.data["status"] == status
+    )
     assert toolkit.solved() is (event == "success")
     if event != "success":
         assert toolkit.write_recipe("unverified") == ""
@@ -130,7 +133,7 @@ def test_stop_rpc_error_waits_for_active_tool_before_propagating(
     stop_attempted = threading.Event()
     cancel_finished = threading.Event()
 
-    @readonly
+    @tool(readonly=True)
     def active_tool():
         entered.set()
         assert release.wait(5)
@@ -146,7 +149,7 @@ def test_stop_rpc_error_waits_for_active_tool_before_propagating(
         finally:
             cancel_finished.set()
 
-    toolkit.add_tool("active_tool", {}, active_tool)
+    toolkit.add_tool(active_tool)
     with monkeypatch.context() as patch, ThreadPoolExecutor(max_workers=2) as pool:
         patch.setattr(ready_client, "request_stop", failed_stop)
         active = pool.submit(toolkit.execute_tool, "active_tool", {})
@@ -159,7 +162,7 @@ def test_stop_rpc_error_waits_for_active_tool_before_propagating(
             release.set()
         with pytest.raises(TimeoutError, match="stop RPC failed"):
             cancellation.result(timeout=5)
-        assert active.result(timeout=5).result["interrupted"] is True
+        assert active.result(timeout=5).data["interrupted"] is True
 
 
 def test_stale_receipt_not_reused_after_reset(ready_client, env, receipt):

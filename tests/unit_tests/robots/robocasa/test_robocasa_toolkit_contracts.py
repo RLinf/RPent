@@ -26,7 +26,8 @@ from robots.robocasa import robot_spec, toolkit
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory import MemoryManager
 from rpent.robots import RunConfig
-from rpent.tools.toolkit import Toolkit, _is_readonly
+from rpent.tools import Toolkit, ToolResult
+from rpent.tools.common import CommonTools
 from rpent.utils import templates
 
 COMMON_TOOLS = {"read_text_file", "write_text_file", "list_dir", "finish"}
@@ -54,14 +55,14 @@ def _record(step_idx: int = 0) -> SimpleNamespace:
 
 
 def _tool_names(robot_toolkit: Toolkit) -> set[str]:
-    return {spec["name"] for spec in robot_toolkit.get_tools_spec()}
+    return {definition.name for definition in robot_toolkit.list_tools()}
 
 
 def _readonly_names(robot_toolkit: Toolkit) -> set[str]:
     return {
-        name
-        for name, (_, handler) in robot_toolkit._tools.items()
-        if _is_readonly(handler)
+        definition.name
+        for definition in robot_toolkit.list_tools()
+        if definition.readonly
     }
 
 
@@ -106,6 +107,9 @@ def test_toolkit_constructs_and_classifies_tools_with_a_fake(
     monkeypatch.delenv("RLDX_SETTLE_PATIENCE", raising=False)
     import robots.robocasa.primitives as primitives_module
 
+    fake_single_arm_primitives = fake_single_arm_primitives.for_robot(
+        primitives_module.RoboCasaPrimitives
+    )
     dumped: list[Any] = []
     monkeypatch.setattr(
         templates, "default_variables", lambda: {"output_dir": "/offline/output"}
@@ -162,7 +166,6 @@ def test_optional_reading_preserves_no_reset(
 ):
     from robots.robocasa.memory import RoboCasaMemoryManager, TaskMemory
     from robots.robocasa.primitives import RoboCasaPrimitives
-    from robots.robocasa.tools import TOOLS_SPEC
     from rpent.session import EnvState
 
     root = make_corpus(tmp_path / "robocasa")
@@ -182,22 +185,20 @@ def test_optional_reading_preserves_no_reset(
         eef_pos=SimpleNamespace(tolist=lambda: [0, 0, 0]),
     )
     primitive._rldx = SimpleNamespace(reset_session=lambda: resets.append("vla"))
-    robot_toolkit.add_tool(
-        "reset",
-        next(spec for spec in TOOLS_SPEC if spec["name"] == "reset"),
-        primitive.reset,
-    )
+    robot_toolkit.add_tool(primitive.reset)
     monkeypatch.setattr(
-        robot_toolkit, "get_env_state", lambda **kwargs: kwargs["result"]
+        robot_toolkit,
+        "get_env_state",
+        lambda **kwargs: ToolResult(data=kwargs["result"]),
     )
 
-    read = memory.get_common_tool_bindings()["read_text_file"][1]
+    read = CommonTools(memory=memory).read_text_file
     if reading == "partial":
         read(path=str(root / memory.selection.selected[0]), max_chars=1)
     elif reading == "complete":
         for name in memory.selection.selected:
             read(path=str(root / name))
-    result = robot_toolkit.execute_tool("reset", {}).result
+    result = robot_toolkit.execute_tool("reset", {}).data
     if allow_reset:
         assert result["reset"] is True
         assert resets == ["env", "vla"]
@@ -213,22 +214,26 @@ def test_exploration_attempt_budget_and_solved_guards():
     records = [SimpleNamespace(extras={"success": False})]
     robot_toolkit._state = SimpleNamespace(latest_record=lambda: records[-1])
     resets = []
-    robot_toolkit._primitives = SimpleNamespace(reset=lambda: resets.append(1) or {})
+    robot_toolkit._primitives = SimpleNamespace(
+        reset=lambda: resets.append(1) or ToolResult()
+    )
 
     def inner(**kwargs):
-        return kwargs
+        return ToolResult(data=kwargs)
 
     assert (
-        robot_toolkit._guarded_finish(inner, status="stuck")["error"]
+        robot_toolkit._guarded_finish(inner, status="stuck").data["error"]
         == "finish refused"
     )
-    assert robot_toolkit._reset_episode()["attempt"] == 2
-    assert robot_toolkit._reset_episode()["error"] == "reset refused"
+    assert robot_toolkit._reset_episode().data["attempt"] == 2
+    assert robot_toolkit._reset_episode().data["error"] == "reset refused"
     assert resets == [1]
-    assert robot_toolkit._guarded_finish(inner, status="stuck") == {"status": "stuck"}
+    assert robot_toolkit._guarded_finish(inner, status="stuck").data == {
+        "status": "stuck"
+    }
     records.append(SimpleNamespace(extras={"success": True}))
-    assert robot_toolkit._reset_episode()["error"] == "reset refused"
-    assert robot_toolkit._guarded_finish(inner, status="success") == {
+    assert robot_toolkit._reset_episode().data["error"] == "reset refused"
+    assert robot_toolkit._guarded_finish(inner, status="success").data == {
         "status": "success"
     }
 

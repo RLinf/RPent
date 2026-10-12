@@ -269,8 +269,7 @@ Isaac 的负光轴 Z 约定，分割使用共享 SAM3 client。``view_env_state`
 ``back_project`` 和 ``segment``
 均为只读调用，不推进环境，也不触发动作后的状态采集。
 
-``robots.robodojo.tools.TOOLS_SPEC`` 中的每个后端工具都针对所有任务注册，工具集不再分\
-组，也不按任务名过滤。任何 planner 工具都不暴露 reward 明细或基于真值的安全告警，\
+``robots.robodojo.tools`` 中声明的每个工具都针对所有任务注册，不按任务名过滤。任何 planner 工具都不暴露 reward 明细或基于真值的安全告警，\
 planner 只根据观测判断进展。底层 ``env.get_reward_details`` 和
 ``env.get_safety_status`` RPC 仍在 dev 服务中保留，供外部评测与诊断使用，不注册为 \
 planner 工具。reward 与官方 success 仅由评测路径在 planner 动作通道关闭后读取。
