@@ -124,7 +124,7 @@ LIBERO-PRO 评测结果
 
 :doc:`耗时与 Token 开销 <../leaderboard/time-token-costs>` 报告 Flash Mode 每个评测回合平均耗时 60.19 秒，输出 token 为 0。均值包含成功、失败和超时的评测回合；token 仅统计评测阶段的输出。
 
-RPent Flash Mode 直接使用官方发布的 GPT-5.5 探索记忆，视觉定位模型为 Molmo2-8B。这些结果使用 s0-s9 中表现最佳的 seed。
+RPent Flash Mode 直接使用官方发布的 GPT-5.5 探索记忆，Molmo2-8B 用于视觉定位，动作执行使用与 π_RLinf 相同的 VLA。展示成绩采用 s0-s9 中的最佳评测结果。
 
 历史对比
 ~~~~~~~~
