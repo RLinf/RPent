@@ -51,12 +51,12 @@ def worker_classes(monkeypatch):
     return single(), dual()
 
 
-@pytest.mark.parametrize("dual", [False, True])
-def test_last_rotation_step_recomputes_error(worker_classes, dual):
+@pytest.mark.parametrize("dual,delta", [(False, 0.1), (True, 0.1), (True, 0)])
+def test_last_rotation_step_recomputes_error(worker_classes, dual, delta):
     cls = worker_classes[int(dual)]
     worker = cls.__new__(cls)
     pose = np.array([0.5, 0, 0.4, 0, 0, 0, 1.0])
-    target = Rotation.from_euler("xyz", [0.1, 0, 0]).as_quat()
+    target = Rotation.from_euler("x", delta).as_quat()
     worker.controller = {
         "rotate_timeout_s": 10,
         "rotate_tolerance_rad": 0.001,
@@ -69,7 +69,10 @@ def test_last_rotation_step_recomputes_error(worker_classes, dual):
     if dual:
         worker.per_arm_dim = 10
         worker._refresh_robot_state = lambda: None
-        worker._arm_poses = lambda: (pose.copy(), pose.copy())
+        readings = iter(
+            [pose.copy(), np.r_[pose[:3], Rotation.from_euler("x", 0.1).as_quat()]]
+        )
+        worker._arm_poses = lambda: (next(readings, pose.copy()), pose.copy())
         worker._pose_to_world = lambda arm, p: p.copy()
         worker._pose_from_world = lambda arm, p: p.copy()
         worker._hold_action = lambda *args: np.zeros(20)
@@ -78,7 +81,7 @@ def test_last_rotation_step_recomputes_error(worker_classes, dual):
             pose[3:] = target
 
         worker.env = SimpleNamespace(step=step)
-        result = worker.rotate_delta("left", [0.1, 0, 0])
+        result = worker.rotate_delta("left", [delta, 0, 0])
     else:
         worker._raw_tcp_pose = lambda: pose.copy()
 
@@ -86,7 +89,7 @@ def test_last_rotation_step_recomputes_error(worker_classes, dual):
             pose[3:] = target
 
         worker._step_delta = step
-        result = worker.rotate_delta([0.1, 0, 0])
+        result = worker.rotate_delta([delta, 0, 0])
     assert result["steps_used"] == 1
     assert result["ok"]
     assert result["final_error_rad"] < 1e-6
@@ -122,11 +125,7 @@ def test_joint_reset_waits_for_both_controller_results(worker_classes):
     waited = []
 
     def controller(arm):
-        def reset_joint(qpos):
-            waited.append((arm, qpos))
-            return None
-
-        return SimpleNamespace(reset_joint=reset_joint)
+        return SimpleNamespace(reset_joint=lambda qpos: waited.append((arm, qpos)))
 
     parts = {arm: {"arm": controller(arm)} for arm in ("left", "right")}
     raw = SimpleNamespace(robot=_robot_with_parts(parts))
@@ -166,7 +165,7 @@ def test_rotation_reference_and_recovery_failure(worker_classes, outcome, drift_
     worker.get_robot_state = lambda: {
         f"{arm}_arm": {"gripper_open": True} for arm in ("left", "right")
     }
-    rotated = Rotation.from_euler("x", -0.35).as_quat()
+    rotated = Rotation.from_euler("x", -0.33).as_quat()
 
     def move(arm, delta):
         calls.append(f"{arm}_move")
@@ -181,7 +180,7 @@ def test_rotation_reference_and_recovery_failure(worker_classes, outcome, drift_
         index = worker._arm_index(arm)
         if calls[-1] == f"{arm}_move":
             calls.append(f"{arm}_rotate")
-            commands[:] = [-0.35]
+            commands[:] = [-0.33]
         arms = action.reshape(2, 10)
         np.testing.assert_allclose(arms[index, :3], [0.5, 0, 0.4])
         other = np.r_[poses[1 - index, :3], worker._arm_rot6d(poses[1 - index])]
@@ -191,7 +190,7 @@ def test_rotation_reference_and_recovery_failure(worker_classes, outcome, drift_
         angle = float(np.arctan2(arms[index, 8], arms[index, 7]))
         assert abs(angle - commands[-1]) <= 0.100001
         commands.append(angle)
-        if len(commands) > 4 and outcome != "stalled":
+        if outcome != "stalled" and (drift_step == 1 or len(commands) > 4):
             poses[index, 3:] = Rotation.from_euler("x", angle).as_quat()
         drift = outcome == "drift" and len(commands) > drift_step
         poses[index, 1] = 0.04 if drift else 0.001

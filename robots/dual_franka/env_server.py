@@ -749,6 +749,7 @@ def _create_worker_class():
             target_angle = float((target_rot * start_rot.inv()).magnitude())
             rotation_path = Slerp([0, 1], Rotation.concatenate([start_rot, target_rot]))
             max_step = self.controller["rotate_max_step_rad"]
+            reference_steps = int(np.ceil(target_angle / max_step))
             deadline = time.time() + self.controller["rotate_timeout_s"]
             max_iterations = max(
                 self.controller["min_iterations"],
@@ -773,12 +774,17 @@ def _create_worker_class():
                         f"{arm_name} rotation aborted: position drift "
                         f"{position_error:.4f} m exceeds {drift_limit:.4f} m"
                     )
-                if error <= self.controller["rotate_tolerance_rad"]:
+                if (
+                    iterations >= reference_steps
+                    and error <= self.controller["rotate_tolerance_rad"]
+                ):
                     break
                 # Preserve the skill's step limit even if hardware compliance
                 # allows larger steps, without changing the shared VLA controller.
-                step_rot = rotation_path(
-                    min(1.0, (iterations + 1) * max_step / target_angle)
+                step_rot = (
+                    target_rot
+                    if iterations + 1 >= reference_steps
+                    else rotation_path((iterations + 1) * max_step / target_angle)
                 )
                 next_world = start_world.copy()
                 next_world[3:] = step_rot.as_quat()

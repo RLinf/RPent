@@ -61,11 +61,8 @@ def dummy_env():
     from robots.dual_franka.runtime_config import load_runtime_config
 
     runtime = load_runtime_config(None, task_description="offline contract")
-    hardware = DualFrankaConfig(
-        **OmegaConf.to_container(
-            runtime.rlinf.cluster.node_groups[0].hardware.configs[0]
-        )
-    )
+    hardware_cfg = runtime.rlinf.cluster.node_groups[0].hardware.configs[0]
+    hardware = DualFrankaConfig(**OmegaConf.to_container(hardware_cfg))
     override = OmegaConf.to_container(runtime.rlinf.env.eval.override_cfg)
     override["is_dummy"] = True
     register_rpent_dual_franka_env()

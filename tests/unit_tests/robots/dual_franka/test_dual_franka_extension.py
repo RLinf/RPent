@@ -44,16 +44,13 @@ def test_franka_extensions_declare_real_robot():
 
 
 def test_manual_schemas_preserve_native_tool_declarations():
-    from robots.dual_franka.dual_franka_manual_call import (
-        _registered_tool_names,
-        _schema_payload,
-    )
+    from robots.dual_franka import dual_franka_manual_call as manual
     from robots.dual_franka.toolkit import DualFrankaToolkit
 
     tools = DualFrankaToolkit.declared_tools()
-    assert _registered_tool_names() == {tool.name for tool in tools}
+    assert manual._registered_tool_names() == {tool.name for tool in tools}
     for tool in tools:
-        assert _schema_payload(tool.name) == {
+        assert manual._schema_payload(tool.name) == {
             "primitive": tool.name,
             "description": tool.description,
             "input_schema": tool.input_schema,
