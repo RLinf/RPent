@@ -98,6 +98,7 @@ def _create_worker_class():
     from rlinf.robotics.parts.cameras import Camera, CameraInfo
     from rlinf.scheduler import Worker
     from scipy.spatial.transform import Rotation as Rotation
+    from scipy.spatial.transform import Slerp
 
     from robots.dual_franka.perception import (
         load_calibration_bundle,
@@ -745,6 +746,8 @@ def _create_worker_class():
             start_world = self._pose_to_world(arm_name, start_local)
             start_rot = Rotation.from_quat(start_world[3:])
             target_rot = Rotation.from_euler("xyz", requested) * start_rot
+            target_angle = float((target_rot * start_rot.inv()).magnitude())
+            rotation_path = Slerp([0, 1], Rotation.concatenate([start_rot, target_rot]))
             max_step = self.controller["rotate_max_step_rad"]
             deadline = time.time() + self.controller["rotate_timeout_s"]
             max_iterations = max(
@@ -754,25 +757,8 @@ def _create_worker_class():
             )
             iterations = 0
             error = float("inf")
-            position_tolerance = self.controller["rotate_position_tolerance_m"]
             drift_limit = self.controller["rotate_max_drift_m"]
-            max_position_error = 0.0
-            exit_reason = "iteration_limit"
-            integral = np.zeros(3, dtype=np.float64)
-            position_integral = np.zeros(3, dtype=np.float64)
-            position_integral_gain = self.controller[
-                "rotate_position_integral_gain_per_s"
-            ]
-            position_integral_limit = self.controller[
-                "rotate_position_integral_limit_m"
-            ]
-            integral_gain = self.controller["rotate_integral_gain_per_s"]
-            integral_limit = self.controller["rotate_integral_limit_rad"]
-            commanded_rot = start_rot
-            nominal_rot = start_rot
-            previous_time = time.monotonic()
-            settle_s = self.controller["rotate_settle_s"]
-            reached_since = None
+            drifted = False
             while iterations < max_iterations and time.time() < deadline:
                 left, right = self._arm_poses()
                 current_local = left if arm_idx == 0 else right
@@ -783,68 +769,17 @@ def _create_worker_class():
                 position_error = float(
                     np.linalg.norm(current_world[:3] - start_world[:3])
                 )
-                max_position_error = max(max_position_error, position_error)
-                now = time.monotonic()
-                dt = min(now - previous_time, 0.2)
-                previous_time = now
                 if position_error > drift_limit:
-                    exit_reason = "position_drift"
+                    drifted = True
                     break
-                if (
-                    error <= self.controller["rotate_tolerance_rad"]
-                    and position_error <= position_tolerance
-                ):
-                    if reached_since is None:
-                        reached_since = now
-                    if now - reached_since >= settle_s:
-                        exit_reason = "reached"
-                        break
-                else:
-                    reached_since = None
-                # Finish ramping the nominal reference before compensating
-                # tracking error. The interpolation step is not an error gate.
-                nominal_delta = (target_rot * nominal_rot.inv()).as_rotvec()
-                nominal_angle = float(np.linalg.norm(nominal_delta))
-                if nominal_angle <= max_step:
-                    nominal_rot = target_rot
-                else:
-                    nominal_rot = (
-                        Rotation.from_rotvec(nominal_delta * (max_step / nominal_angle))
-                        * nominal_rot
-                    )
-                if (
-                    nominal_angle <= 1e-8
-                    and error > self.controller["rotate_tolerance_rad"]
-                ):
-                    integral += integral_gain * dt * error_rotvec
-                    integral_norm = float(np.linalg.norm(integral))
-                    if integral_norm > integral_limit:
-                        integral *= integral_limit / integral_norm
-                reference_rot = Rotation.from_rotvec(integral) * nominal_rot
-                if nominal_angle <= 1e-8 and position_error > position_tolerance:
-                    position_integral += (
-                        position_integral_gain
-                        * dt
-                        * (start_world[:3] - current_world[:3])
-                    )
-                    position_integral_norm = float(np.linalg.norm(position_integral))
-                    if position_integral_norm > position_integral_limit:
-                        position_integral *= (
-                            position_integral_limit / position_integral_norm
-                        )
-                # Advance the reference independently of measured tracking lag;
-                # repeatedly stepping from the measured pose can stall before
-                # ever commanding the actual goal under impedance control.
-                command_rotvec = (reference_rot * commanded_rot.inv()).as_rotvec()
-                command_angle = float(np.linalg.norm(command_rotvec))
-                if command_angle > max_step:
-                    command_rotvec *= max_step / command_angle
-                step_rot = Rotation.from_rotvec(command_rotvec) * commanded_rot
-                commanded_rot = step_rot
-                next_world = current_world.copy()
-                # Keep a fixed translation reference; measured drift must not
-                # become the next position target during an in-place rotation.
-                next_world[:3] = start_world[:3] + position_integral
+                if error <= self.controller["rotate_tolerance_rad"]:
+                    break
+                # Preserve the skill's step limit even if hardware compliance
+                # allows larger steps, without changing the shared VLA controller.
+                step_rot = rotation_path(
+                    min(1.0, (iterations + 1) * max_step / target_angle)
+                )
+                next_world = start_world.copy()
                 next_world[3:] = step_rot.as_quat()
                 next_local = self._pose_from_world(arm_name, next_world)
                 action = self._hold_action(left, right)
@@ -862,34 +797,10 @@ def _create_worker_class():
                 (target_rot * Rotation.from_quat(final_world[3:]).inv()).magnitude()
             )
             position_error = float(np.linalg.norm(final_world[:3] - start_world[:3]))
-            max_position_error = max(max_position_error, position_error)
-            rotation_ok = error <= self.controller["rotate_tolerance_rad"]
-            position_ok = position_error <= position_tolerance
-            if max_position_error > drift_limit:
-                exit_reason = "position_drift"
-            elif (
-                rotation_ok
-                and position_ok
-                and (
-                    settle_s == 0
-                    or (
-                        reached_since is not None
-                        and time.monotonic() - reached_since >= settle_s
-                    )
-                )
-            ):
-                exit_reason = "reached"
-            elif time.time() >= deadline:
-                exit_reason = "timeout"
             return {
-                "ok": exit_reason != "position_drift",
-                "status": "aborted" if exit_reason == "position_drift" else "completed",
-                "message": (
-                    "Action aborted: position drift exceeded the protective limit."
-                    if exit_reason == "position_drift"
-                    else "Action completed."
-                ),
-                "target_reached": exit_reason == "reached",
+                "ok": not drifted
+                and position_error <= drift_limit
+                and error <= self.controller["rotate_tolerance_rad"],
                 "arm": arm_name,
                 "coordinate_frame": "right_base",
                 "requested_delta_rpy": requested.tolist(),
@@ -901,16 +812,6 @@ def _create_worker_class():
                 "start_raw_tcp_pose": start_local.tolist(),
                 "final_raw_tcp_pose": final_local.tolist(),
                 "final_error_rad": error,
-                "final_position_error_m": position_error,
-                "max_position_error_m": max_position_error,
-                "position_tolerance_m": position_tolerance,
-                "position_drift_limit_m": drift_limit,
-                "settle_s": settle_s,
-                "integral_rotvec": integral.tolist(),
-                "position_integral": position_integral.tolist(),
-                "rotation_reached": rotation_ok,
-                "position_reached": position_ok,
-                "exit_reason": exit_reason,
                 "steps_used": iterations,
             }
 
@@ -1232,7 +1133,7 @@ def _create_worker_class():
                     "translation_return_ok": translation_return_ok,
                     "non_rotation_return_ok": non_rotation_return_ok,
                     "rotation_return_ok": rotation_return_ok,
-                    "rotation_accuracy_is_diagnostic_only": True,
+                    "rotation_is_diagnostic_only": False,
                     "final_joint_health_ok": final_joint_health_ok,
                     "move_tolerance_m": self.controller["move_tolerance_m"],
                     "rotate_tolerance_rad": self.controller["rotate_tolerance_rad"],

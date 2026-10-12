@@ -1004,7 +1004,7 @@
       },
       {
         "name": "rotate_delta",
-        "description": "Rotate one Franka TCP by a bounded world-frame rpy delta in radians. Completion indicates execution ended; target_reached and residual errors report accuracy, not a mandatory retry condition. Protective aborts remain failures.",
+        "description": "Rotate one Franka TCP by a bounded world-frame rpy delta in radians.",
         "input_schema": {
           "type": "object",
           "properties": {

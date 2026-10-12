@@ -41,11 +41,6 @@ RULES = (
     "specific historical step.",
     "Use purposeful corrections and use the configured inline view(s) as "
     "the primary visual evidence.",
-    "For rotate_delta, status='completed' means execution "
-    "finished, not exact target attainment. target_reached and residual errors "
-    "are accuracy diagnostics; target_reached=false alone is not a controller "
-    "fault or a requirement to retry, stop, or request operator feedback. "
-    "Use the actual final pose and returned observation for the next action.",
     "Never use a VLA trained for another embodiment or action normalization.",
     "VLA segment tools accept a planner-facing prompt. A deployment may still "
     "override it with a checkpoint-specific training instruction during policy "
