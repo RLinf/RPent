@@ -215,6 +215,7 @@ class LiberoToolkit(Toolkit):
 
     def close(self) -> None:
         """Finalize collected data and save the episode video independently."""
+        super().close()
         try:
             episode = self._primitives.finalize_flywheel()
             if episode is not None:

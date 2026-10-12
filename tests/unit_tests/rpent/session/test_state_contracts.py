@@ -418,3 +418,46 @@ def test_env_state_rejects_nested_step_records(tmp_path: Path) -> None:
                 pass
 
     assert env_state.records() == []
+
+
+@pytest.mark.parametrize("second_name", ["first.json", "second.json"])
+def test_concurrent_saves_keep_artifacts_and_manifest_consistent(
+    tmp_path, monkeypatch, second_name
+):
+    import os
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    state = EnvState(tmp_path)
+    with state.record_step(state={}):
+        pass
+    first_manifest = threading.Event()
+    release = threading.Event()
+    second_started = threading.Event()
+    replace = os.replace
+
+    def delayed_replace(source, destination):
+        if Path(destination).name == "states.json" and not first_manifest.is_set():
+            first_manifest.set()
+            assert release.wait(5)
+        replace(source, destination)
+
+    def save_second():
+        second_started.set()
+        return state.save(second_name, {"value": 2})
+
+    monkeypatch.setattr("rpent.session.base.os.replace", delayed_replace)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(state.save, "first.json", {"value": 1})
+        try:
+            assert first_manifest.wait(3)
+            second = pool.submit(save_second)
+            assert second_started.wait(3)
+            assert not second.done()
+        finally:
+            release.set()
+        assert first.result(timeout=3) == "first.json"
+        assert second.result(timeout=3) == second_name
+    manifest = json.loads((tmp_path / "states.json").read_text())
+    assert set(manifest["steps"][0]["artifacts"]) == {"first.json", second_name}
+    assert state.load(second_name) == {"value": 2}

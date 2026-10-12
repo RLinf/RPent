@@ -290,6 +290,7 @@ class RoboTwinToolkit(Toolkit):
 
     def close(self) -> None:
         """Flush the per-step frame buffer into ``episode.mp4`` (LIBERO parity)."""
+        super().close()
         frames = self._primitives.stop_recording()
         if frames:
             self._state.save("episode.mp4", frames, step=None, fps=20)

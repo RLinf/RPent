@@ -465,7 +465,7 @@ def test_handler_error_is_retained_when_state_capture_also_fails(
 
 
 @pytest.mark.timeout(5)
-def test_toolkit_rejects_overlapping_operations_and_cleans_up_after_success(
+def test_toolkit_overlaps_readonly_operations_and_cleans_up_after_success(
     tmp_path: Path,
 ) -> None:
     toolkit = _ContractToolkit(tmp_path)
@@ -493,7 +493,7 @@ def test_toolkit_rejects_overlapping_operations_and_cleans_up_after_success(
     try:
         assert started.wait(2), "blocking handler did not start"
         overlap = toolkit.execute_tool("finish", {"status": "failure", "summary": "x"})
-        assert overlap.data == {"error": "another tool operation is still active"}
+        assert overlap.data == {"_finish": True, "status": "failure", "summary": "x"}
     finally:
         release.set()
         worker.join(2)
@@ -561,5 +561,50 @@ def test_toolkit_cooperatively_cancels_and_cleans_up_active_operation(
     assert toolkit.capture_calls[0]["result"]["code"] == "tool_cancelled"
     assert len(toolkit.events.events) == 1
     assert toolkit.execute_tool(
+        "finish", {"status": "failure", "summary": "paused"}
+    ).is_error
+    toolkit.resume_calls()
+    assert toolkit.execute_tool(
         "finish", {"status": "failure", "summary": "cancelled"}
     ).data.get("_finish", False)
+
+
+def test_common_file_read_waits_for_write_without_state_capture(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError
+
+    toolkit = _ContractToolkit(tmp_path)
+    path = tmp_path / "audit.json"
+    path.write_text("old")
+    writing = threading.Event()
+    reading = threading.Event()
+    release = threading.Event()
+    original_write = Path.write_text
+
+    def paused_write(target, content, **kwargs):
+        original_write(target, "", **kwargs)
+        writing.set()
+        assert release.wait(5)
+        return original_write(target, content, **kwargs)
+
+    def read_file():
+        reading.set()
+        return toolkit.execute_tool("read_text_file", {"path": str(path)})
+
+    monkeypatch.setattr(Path, "write_text", paused_write)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        write = pool.submit(
+            toolkit.execute_tool,
+            "write_text_file",
+            {"path": str(path), "content": "complete"},
+        )
+        try:
+            assert writing.wait(3)
+            read = pool.submit(read_file)
+            assert reading.wait(3)
+            with pytest.raises(TimeoutError):
+                read.result(timeout=0.05)
+        finally:
+            release.set()
+        assert not write.result(timeout=3).is_error
+        assert read.result(timeout=3).data["content"] == "complete"
+    assert toolkit.capture_calls == []

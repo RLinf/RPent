@@ -73,6 +73,9 @@ class FakeToolkit:
     def cancel_active_and_wait(self) -> None:
         self.cancel_calls += 1
 
+    def resume_calls(self) -> None:
+        pass
+
 
 class FakeSdkTools:
     def __init__(self) -> None:
@@ -473,3 +476,110 @@ def test_queue_and_dashboard_are_mutually_exclusive_before_sdk_use(
             input_queue=queue.Queue(),
             dashboard_interaction=object(),
         )
+
+
+def test_claude_bridge_readonly_calls_execute_concurrently(tmp_path):
+    import threading
+
+    from rpent.dashboard.events import NullDashboardEventSink
+    from rpent.memory import MemoryManager
+    from rpent.tools import Toolkit
+    from rpent.utils.logging import init_output_dir
+
+    init_output_dir(tmp_path / "log")
+    toolkit = Toolkit(
+        dashboard_events=NullDashboardEventSink(),
+        memory=MemoryManager(tmp_path / "memory"),
+    )
+    rendezvous = threading.Barrier(2)
+
+    @tool(readonly=True)
+    def sense(label: str) -> ToolResult:
+        rendezvous.wait(timeout=5)
+        return ToolResult(data={"label": label})
+
+    toolkit.add_tool(sense)
+    server = _build_rpent_server(FakeSdkTools(), toolkit=toolkit)
+    handler = next(item for item in server["tools"] if item.sdk_name == "sense")
+
+    async def scenario():
+        results = await asyncio.gather(
+            handler({"label": "left"}), handler({"label": "right"})
+        )
+        assert all(not result.get("is_error") for result in results)
+        assert [
+            json.loads(result["content"][0]["text"])["label"] for result in results
+        ] == ["left", "right"]
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        toolkit.close()
+
+
+def test_claude_interrupt_waits_for_old_results_before_next_query():
+    async def scenario():
+        messages = asyncio.Queue()
+        acknowledged = asyncio.Event()
+        interrupted = asyncio.Event()
+        queries = []
+
+        class Client:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+            async def query(self, text):
+                queries.append(text)
+
+            async def interrupt(self):
+                acknowledged.set()
+
+            async def receive_messages(self):
+                while True:
+                    yield await messages.get()
+
+        client = Client()
+
+        class Sdk:
+            @staticmethod
+            def ClaudeSDKClient(**kwargs):
+                return client
+
+        class Adapter:
+            async def initial_query_succeeded(self, driver):
+                pass
+
+            async def run(self, driver):
+                assert await driver.interrupt() == 1
+                interrupted.set()
+                await driver.query("follow-up")
+
+            async def on_message(self, driver, message):
+                raise AssertionError("Interrupted results must not flush new input")
+
+            async def close(self):
+                pass
+
+        driver = _ClaudeSessionDriver(
+            sdk=Sdk(),
+            options={},
+            recorder=_Recorder(max_turns=3, dashboard_events=RecordingSink()),
+            emit=lambda message: None,
+        )
+        running = asyncio.create_task(driver.run("initial", Adapter()))
+        try:
+            await asyncio.wait_for(acknowledged.wait(), timeout=2)
+            assert not interrupted.is_set()
+            assert queries == ["initial"]
+            await messages.put({"type": "ResultMessage"})
+            await asyncio.wait_for(running, timeout=2)
+            assert interrupted.is_set()
+            assert queries == ["initial", "follow-up"]
+        finally:
+            running.cancel()
+            await asyncio.gather(running, return_exceptions=True)
+
+    asyncio.run(scenario())

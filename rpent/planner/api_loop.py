@@ -64,7 +64,13 @@ from pydantic_ai_harness.compaction import SlidingWindowCompaction
 from rpent.dashboard.events import DashboardEventSink, TranscriptEvent, UsageEvent
 from rpent.dashboard.interaction import DashboardInteractionPort, DashboardMessage
 from rpent.dashboard.planner_control import DashboardPlannerControl
-from rpent.planner.base import REASONING_EFFORTS, Planner, PlannerResult
+from rpent.planner.base import (
+    REASONING_EFFORTS,
+    Planner,
+    PlannerResult,
+    cancel_and_wait,
+    execute_tool,
+)
 from rpent.tools.toolkit import Toolkit, ToolResult
 from rpent.utils.logging import get_logger
 from rpent.utils.templates import substitute
@@ -169,6 +175,7 @@ class ApiAgentLoop(Planner):
             session.control = DashboardPlannerControl(
                 interaction=interaction,
                 cancel_active_and_wait=adapter.cancel_active_and_wait,
+                resume_calls=toolkit.resume_calls,
                 emit_user=session.emit_user,
                 emit_initial_user=lambda: session.emit_user(user_message),
                 defer_message_ack=True,
@@ -204,18 +211,18 @@ class ApiAgentLoop(Planner):
 
 
 def _build_model_settings(model: Model, max_tokens: int) -> ModelSettings:
-    """Configure sequential calls and preserve Anthropic prompt caching."""
+    """Enable parallel tool requests and preserve Anthropic prompt caching."""
     from pydantic_ai.models.anthropic import AnthropicModel, AnthropicModelSettings
 
     if isinstance(model, AnthropicModel):
         return AnthropicModelSettings(
             max_tokens=max_tokens,
-            parallel_tool_calls=False,
+            parallel_tool_calls=True,
             anthropic_cache_instructions=True,
             anthropic_cache_tool_definitions=True,
             anthropic_cache_messages=True,
         )
-    return ModelSettings(max_tokens=max_tokens, parallel_tool_calls=False)
+    return ModelSettings(max_tokens=max_tokens, parallel_tool_calls=True)
 
 
 class _ConversationAgent(WrapperAgent):
@@ -310,7 +317,6 @@ class _HarnessToolkit(FunctionToolset):
                         description=spec.get("description"),
                         json_schema=spec["input_schema"],
                         takes_ctx=True,
-                        sequential=True,
                     )
                 )
 
@@ -363,19 +369,17 @@ class _HarnessToolkit(FunctionToolset):
         if error is not None:
             raise ModelRetry(f"Invalid arguments for {name}: {error.message}")
         self._record_call(name, arguments, ctx)
-        operation = asyncio.create_task(
-            asyncio.to_thread(self.toolkit.execute_tool, name, arguments)
-        )
         try:
-            result = await asyncio.shield(operation)
+            result = await execute_tool(self.toolkit, name, arguments)
         except asyncio.CancelledError:
             self.stopping.set()
-            await asyncio.to_thread(self.cancel_active_and_wait)
-            # A cancelled asyncio task does not stop the physical worker.
-            # Drain it before another run may use the same toolkit.
-            await operation
             raise
         self._record_result(name, ctx, self._text(result))
+        if self.stopping.is_set():
+            # End inside CallToolsNode so the SDK records an interrupted batch
+            # before it can consume queued messages in the next request node.
+            ctx.cancel()
+            raise asyncio.CancelledError
         return result
 
     def _record_call(
@@ -461,6 +465,7 @@ class _Session(AbstractCapability):
     ) -> AgentRunResult:
         if self.toolkit.finish_result is not None:
             raise UserError("The task has finished. Use /exit to close the session.")
+        self.toolkit.toolkit.resume_calls()
         self.toolkit.stopping.clear()
         if self.interactive and ctx.prompt:
             self.emit_user(ctx.prompt)
@@ -496,8 +501,8 @@ class _Session(AbstractCapability):
 
     async def before_node_run(self, ctx: RunContext, *, node: AgentNode) -> AgentNode:
         if self.toolkit.stopping.is_set():
-            # Dashboard drains the physical operation before awaiting the SDK
-            # interrupt. Do not deliver queued input during that drain.
+            # Dashboard drains physical calls before awaiting the SDK interrupt.
+            # Do not deliver queued input during that drain.
             ctx.cancel()
             return node
         if not isinstance(node, ModelRequestNode):
@@ -541,7 +546,10 @@ class _Session(AbstractCapability):
     ) -> None:
         submission = self.enqueued.pop(event.enqueue_id, None)
         if submission is not None and self.control is not None:
-            self.control.message_started(submission.message_id, submission.text)
+            if self.toolkit.stopping.is_set():
+                self.control.message_discarded(submission.message_id)
+            else:
+                self.control.message_started(submission.message_id, submission.text)
 
     @on_event(PartEndEvent)
     async def emit_part(self, ctx: RunContext, event: PartEndEvent) -> None:
@@ -640,7 +648,7 @@ class _Session(AbstractCapability):
             self.toolkit.stopping.set()
             if self.cancellation is not None:
                 self.cancellation.cancel()
-            await asyncio.to_thread(self.toolkit.cancel_active_and_wait)
+            await cancel_and_wait(self.toolkit.cancel_active_and_wait)
             for task in tasks:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
@@ -672,7 +680,9 @@ class _Session(AbstractCapability):
             if self.usage.requests >= self.limits.request_limit:
                 return
             for _ in range(self.completions):
-                await self.control.complete(self)
+                # run_done already released interrupt(); wait for its input
+                # cleanup before consuming the next conversation submission.
+                await self.control.complete(self, wait_for_interrupt=True)
             submission = await self.inbox.get()
             self.control.message_started(submission.message_id, submission.text)
             prompt = submission.text

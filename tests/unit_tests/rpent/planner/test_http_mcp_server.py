@@ -106,7 +106,7 @@ class FakeToolkit(Toolkit):
         return False
 
 
-def test_http_mcp_server_serializes_concurrent_tool_calls(tmp_path: Path) -> None:
+def test_http_mcp_server_schedules_mixed_concurrent_tool_calls(tmp_path: Path) -> None:
     init_output_dir(tmp_path / "log")
     toolkit = FakeToolkit(tmp_path)
     server = HttpMcpServer(toolkit)
@@ -142,3 +142,44 @@ async def _fire_concurrent(url: str) -> int:
                     ):
                         rejected += 1
     return rejected
+
+
+def test_http_mcp_readonly_calls_execute_concurrently(tmp_path):
+    import threading
+
+    init_output_dir(tmp_path / "log")
+    toolkit = FakeToolkit(tmp_path)
+    rendezvous = threading.Barrier(2)
+
+    @tool(readonly=True)
+    def sense(label: str) -> ToolResult:
+        rendezvous.wait(timeout=5)
+        return ToolResult(data={"label": label})
+
+    toolkit.add_tool(sense)
+    server = HttpMcpServer(toolkit)
+
+    async def scenario(url):
+        async with httpx.AsyncClient(trust_env=False) as http_client:
+            async with streamable_http_client(url, http_client=http_client) as (
+                read,
+                write,
+                _,
+            ):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    results = await asyncio.gather(
+                        session.call_tool("sense", {"label": "left"}),
+                        session.call_tool("sense", {"label": "right"}),
+                    )
+                    assert not any(result.isError for result in results)
+                    assert [
+                        json.loads(result.content[0].text)["label"]
+                        for result in results
+                    ] == ["left", "right"]
+
+    try:
+        asyncio.run(scenario(server.start()))
+    finally:
+        toolkit.close()
+        server.stop()

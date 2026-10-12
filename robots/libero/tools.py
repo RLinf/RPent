@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -65,6 +66,8 @@ class LiberoPrimitives:
         self.env = env
         self.model = model
         self._sam3_client = sam3_client
+        self._segment_index_lock = threading.Lock()
+        self._segment_index = 0
         #: Only a Flash Mode replay reads this; other runs never start Molmo.
         self.molmo_client = molmo_client
         self._check_cancelled = check_cancelled
@@ -787,7 +790,10 @@ class LiberoPrimitives:
                 }
             )
 
-        segment_index = _next_segment_index(record)
+        # Reserve an index before writing; failed saves leave gaps, never reuse.
+        with self._segment_index_lock:
+            segment_index = self._segment_index
+            self._segment_index += 1
         segment_name = f"segment_{segment_index:02d}.json"
         overlay_name = f"segment_overlay_{segment_index:02d}.png"
         saved_overlay = None
@@ -903,12 +909,13 @@ def write_recipe_from_states(
     )
     command_events = []
     for record in records:
-        if record.step_idx <= last_reset:
+        if record.step_idx < last_reset:
             continue
         command = record.command
         result = record.result
         if (
             command is not None
+            and command.get("action") != "segment"
             and _is_primitive_action(command.get("action"))
             and not (isinstance(result, dict) and result.get("error"))
         ):
@@ -1280,13 +1287,6 @@ def _select_segment_artifacts(
         ):
             return image_name, world_name, pairs
     return None, None, pairs
-
-
-def _next_segment_index(record: StepRecord) -> int:
-    idx = 0
-    while f"segment_{idx:02d}.json" in record.artifacts:
-        idx += 1
-    return idx
 
 
 def _mask_to_world(
