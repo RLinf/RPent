@@ -215,6 +215,7 @@ class RoboCasaToolkit(Toolkit):
 
     def close(self) -> None:
         """Flush the agent-side video buffer through ``EnvState``."""
+        super().close()
         try:
             frames = self._primitives.stop_recording()
             if frames:

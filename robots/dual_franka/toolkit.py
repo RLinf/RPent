@@ -113,7 +113,7 @@ class DualFrankaToolkit(FrankaToolkit):
         """Seal this attempt immediately; cancel in-flight work at its next boundary."""
         if verdict not in {"success", "failure", "abort"}:
             raise ValueError("verdict must be success, failure or abort")
-        with self._operation_lock:
+        with self._scheduler.condition:
             if self._direct_verdict_event.is_set():
                 return self._direct_verdict == verdict
             if self._mode != "exploration" or (
@@ -123,8 +123,7 @@ class DualFrankaToolkit(FrankaToolkit):
                 return False
             self._direct_verdict = verdict
             self._direct_verdict_event.set()
-            if self._active_operation is not None:
-                self._active_operation.cancel_event.set()
+            self._scheduler.cancel(close=True)
         return True
 
     def raise_if_cancelled(self) -> None:

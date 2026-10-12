@@ -32,7 +32,6 @@ Usage::
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import socket
 import threading
@@ -44,6 +43,7 @@ from mcp import types
 from mcp.server.lowlevel import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 
+from rpent.planner.base import execute_tool
 from rpent.tools import ToolResult
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger
@@ -83,7 +83,6 @@ def _strip_mcp_prefix(name: str) -> str:
 def build_mcp_server(toolkit: Toolkit) -> Server:
     """Expose native declarations through MCP, with Toolkit owning validation."""
     mcp_app: Server = Server(SERVER_NAME, version="0.1.0")
-    tool_execution_lock = asyncio.Lock()
 
     @mcp_app.list_tools()
     async def _list_tools() -> list[types.Tool]:
@@ -101,10 +100,7 @@ def build_mcp_server(toolkit: Toolkit) -> Server:
     @mcp_app.call_tool(validate_input=False)
     async def _call_tool(name: str, arguments: dict[str, Any]) -> types.CallToolResult:
         lookup = _strip_mcp_prefix(name)
-        async with tool_execution_lock:
-            tr = await asyncio.get_running_loop().run_in_executor(
-                None, toolkit.execute_tool, lookup, arguments or {}
-            )
+        tr = await execute_tool(toolkit, lookup, arguments or {})
         return types.CallToolResult(**mcp_result(tr))
 
     return mcp_app

@@ -16,6 +16,8 @@
 
 from __future__ import annotations
 
+import threading
+from itertools import count
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -33,7 +35,7 @@ from robots.franka.runtime_config import (
     load_easy_handeye_yaml,
     load_mapping,
 )
-from rpent.session import EnvState, StepRecord
+from rpent.session import EnvState
 from rpent.tools import ToolResult
 from rpent.tools.base import tool
 from rpent.utils.transforms import (
@@ -41,6 +43,11 @@ from rpent.utils.transforms import (
     transform_points,
     transform_pose,
 )
+
+_segment_index_lock = threading.Lock()
+_segment_indices = count()
+_back_project_index_lock = threading.Lock()
+_back_project_indices = count()
 
 ROBOT_CONFIG_PATH = Path(__file__).resolve().parent / "config" / "example.yaml"
 
@@ -174,15 +181,11 @@ def segment(
             }
         )
 
-    segment_index = _next_named_artifact_index(
-        state.get(step_idx), prefix=f"{camera}_segment", suffix=".json"
-    )
-    segment_name = f"{camera}_segment_{segment_index:02d}.json"
-    overlay_name = f"{camera}_segment_overlay_{segment_index:02d}.png"
     mode = "text" if has_prompt else "point"
 
     localization: dict[str, Any]
     mask = data.mask
+    overlay = None
     saved_overlay = None
     if data.found and isinstance(mask, np.ndarray):
         try:
@@ -200,8 +203,6 @@ def segment(
                 mask,
                 localization=localization,
             )
-            if overlay is not None and state.save(overlay_name, overlay, step=step_idx):
-                saved_overlay = overlay_name
         except Exception as exc:
             localization = {
                 "point_xyz": None,
@@ -220,7 +221,6 @@ def segment(
         "target_name": str(target_name).strip() or "target",
         "camera": camera,
         "source_step": step_idx,
-        "segment_index": segment_index,
         "image_artifact": image_name,
         "depth_artifact": depth_name,
         "min_score": float(min_score),
@@ -247,6 +247,14 @@ def segment(
         segment_blob["error"] = data.reason or "SAM3 found no mask"
     segment_blob.update(localization)
 
+    # Process-wide reservations are never reused, even when a save fails.
+    with _segment_index_lock:
+        segment_index = next(_segment_indices)
+    segment_name = f"{camera}_segment_{segment_index:02d}.json"
+    overlay_name = f"{camera}_segment_overlay_{segment_index:02d}.png"
+    segment_blob["segment_index"] = segment_index
+    if overlay is not None and state.save(overlay_name, overlay, step=step_idx):
+        saved_overlay = overlay_name
     saved_segment = state.save(segment_name, segment_blob, step=step_idx)
     result = {
         "ok": segment_blob["ok"],
@@ -715,9 +723,9 @@ def _save_back_project_diagnostic(
     calibration_key: str,
 ) -> dict[str, str]:
     """Persist a marked camera image and JSON report for one projection call."""
-    artifact_index = _next_named_artifact_index(
-        state.get(step_idx), prefix=f"{camera_alias}_back_project", suffix=".json"
-    )
+    # Reserve before either save; failed calls must not reuse an image's index.
+    with _back_project_index_lock:
+        artifact_index = next(_back_project_indices)
     image_name = f"{camera_alias}.png"
     if not state.exists(image_name, step=step_idx):
         raise ValueError(f"{camera_alias} image artifact is missing")
@@ -972,18 +980,6 @@ def _localization_validity_mask(
         "right_base_xyz_max": _round(xyz_max),
     }
     return valid, contract
-
-
-def _next_named_artifact_index(
-    record: StepRecord,
-    *,
-    prefix: str,
-    suffix: str,
-) -> int:
-    idx = 0
-    while f"{prefix}_{idx:02d}{suffix}" in record.artifacts:
-        idx += 1
-    return idx
 
 
 def _make_segment_overlay(

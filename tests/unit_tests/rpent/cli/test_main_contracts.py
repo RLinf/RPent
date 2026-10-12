@@ -447,6 +447,9 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
                 ),
             )
 
+        def resume_calls(self):
+            pass
+
         def cancel_active_and_wait(self) -> None:
             pass
 

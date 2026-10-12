@@ -218,7 +218,8 @@ Design Principles for a New Primitive
 - **Tools describe intent, not motion.** A good tool name is
   ``pi0_pick``, not ``execute_action_chunk_of_length_20``.
 - **Stateful tools capture state before returning to the planner.** Toolkit
-  calls ``get_env_state`` after the handler; ``readonly`` tools skip this capture.
+  calls ``get_env_state`` after the handler while retaining exclusive execution.
+  ``readonly`` tools skip this capture and may run alongside other readonly tools.
 - **Keep result data small.** Tool return values are fed back to the LLM
   as text. Save larger observations through ``EnvState.save``; ``EnvState``
   automatically records each logical base name in its owned
