@@ -221,9 +221,9 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统说明 
 
 toolkit 模块通常包含四部分：
 
-**Primitives 类**\ （例如 ``MyRobotPrimitives``）是 toolkit 持有的 Python 对象。它保存 ``EnvClient``、VLA ``model`` client 和单次运行所需的状态。每个原语工具（``move_to``、``pi0_pick``、``release`` 等）对应一个方法，并返回日志字典。
+**Primitives 类**\ （例如 ``MyRobotPrimitives``）是 toolkit 持有的 Python 对象。它保存 ``EnvClient``、VLA ``model`` client 和单次运行所需的状态。每个原语工具（``move_to``、``pi0_pick``、``release`` 等）对应一个方法，并返回包含日志数据和可选 PNG 图片的 ``ToolResult``。
 
-**工具定义和处理函数** 包括模块级的 ``TOOLS_SPEC`` 列表（列表元素采用 Anthropic API 的工具定义格式，包含 ``name``、``description`` 和 ``input_schema``），以及 toolkit 引用的模块级函数，例如 ``view_env_state``、``back_project`` 和 ``finish``。
+**工具定义和处理函数** 是使用 ``@tool`` 声明的函数或方法。参数类型注解和 Google 风格 docstring 提供 schema 与说明，包括 ``view_env_state``、``back_project`` 等读取工具。
 
 **每步状态 dump** —— ``dump_state(driver, env_state, log)`` 通过 ``env_state.record_step(...)`` 创建由 ``EnvState`` 持有的步骤，并取得分配的 step index；该 ``StepRecord`` 会被立即追加并提交。大型观测通过 ``env_state.save(...)`` 保存——在 ``record_step`` 块内可省略 ``step`` 参数（默认指向刚创建的步骤），传显式 ``step=<int>`` 可指定其它步骤，``step=None`` 用于运行级工件。每次保存成功后，``EnvState`` 会自动把基础文件名加入该 ``StepRecord`` 的扁平 ``artifacts`` 集合；读取方直接使用规范化的工件文件名。
 
@@ -233,7 +233,7 @@ toolkit 模块通常包含四部分：
   :class:`~rpent.memory.MemoryManager`）和 ``state``。``memory_access`` 和
   ``inbox_cell_tag`` 在构造 ``MemoryManager`` 时配置；eval 默认只读。
 - 在 ``__init__`` 中通过自定义的初始化辅助方法构建 primitives（LIBERO 中的方法名为 ``init_primitives``；它会调用 ``EnvState.reset()``、构造原语并 dump 第 0 步）,
-- 用 ``self.add_tool(name, spec, handler)`` 注册每个工具。无状态的读取工具（如 ``view_env_state``、``finish``）直接绑定模块级函数；原语工具通过 ``_step(name, **kwargs)`` 调用。``_step`` 使用 ``getattr(self._primitives, name)(**kwargs)`` 调用 driver 方法并重新渲染状态；
+- 用 ``self.add_tools(iter_tools(self._primitives))`` 或 ``self.add_tool(definition)`` 注册绑定后的工具；通过 ``definition.with_handler(...)`` 绑定内部资源或执行检查，由 Toolkit 采集动作后的状态；
 - 重写 ``close()``，通过 ``EnvState`` 保存 agent 侧剩余工件（例如 ``state.save("episode.mp4", frames, step=None)``）。
 
 ``runtime_kwargs`` 由 ``robot_spec.py:get_toolkit`` 转发给 toolkit，再原样传入 primitives 的 ``__init__``。其中通常包含 ``{"env": MyEnvClient(...), "model": VLAClient(...), ...}``。
@@ -242,7 +242,7 @@ toolkit 模块通常包含四部分：
 --------------
 
 - ``output_dir`` 是 runner 为单次运行创建的工作目录。环境观测由 ``EnvState`` 管理；调用方只使用逻辑基础文件名，不自行拼接存储路径。 transcript 等运行管理输出与环境工件共享该目录。
-- 工具定义使用 Anthropic API 格式（``name`` / ``description`` / ``input_schema``）。每个用 ``self.add_tool(...)`` 注册的工具都会暴露给所有 planner。
+- 工具提供 ``name``、``description`` 和 ``input_schema``，由各 planner 转换成对应模型接口的格式。
 - 环境侧的返回值必须可 pickle，且不包含 torch 对象。
 - 每个原语工具执行后要 dump 一次新的状态快照, 这样下一次 ``view_env_state`` 看到的是动作后的世界。
 - ``dump_state`` 是 Agent 获取环境状态的唯一数据来源；任何新的模态（例如触觉、力）都通过它提供。

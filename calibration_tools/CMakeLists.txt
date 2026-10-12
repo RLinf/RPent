@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.16)
+project(rpent_calibration_reader LANGUAGES CXX)
+find_package(Franka REQUIRED)
+add_executable(read_franka_state read_right_state.cpp)
+target_compile_features(read_franka_state PRIVATE cxx_std_17)
+target_link_libraries(read_franka_state PRIVATE Franka::Franka)

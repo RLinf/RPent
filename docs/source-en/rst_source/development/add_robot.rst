@@ -290,12 +290,11 @@ A toolkit module typically contains four pieces:
 by the toolkit. It holds the ``EnvClient``, the VLA ``model`` client, and any
 state needed for the current run. It exposes one method per primitive tool
 (``move_to``, ``pi0_pick``, ``release``, …), with each method returning a
-``dict`` log.
+``ToolResult`` with log data and optional PNG images.
 
-**Tool definitions and handlers** — a module-level ``TOOLS_SPEC`` list of
-Anthropic-style tool definitions (``name``, ``description``, ``input_schema``),
-plus any module-level functions referenced by the toolkit (e.g.
-``view_env_state``, ``back_project``, ``finish``).
+**Tool definitions and handlers** — functions and methods decorated with
+``@tool``. Type annotations and Google-style docstrings define their schemas and
+descriptions, including readers such as ``view_env_state`` and ``back_project``.
 
 **Per-step state dump** — ``dump_state(driver, env_state, log)`` opens
 ``env_state.record_step(...)`` and receives the allocated step index; the
@@ -316,10 +315,9 @@ filenames rather than maintaining a parallel observation index.
 - build the primitives in ``__init__`` through a custom initialization
   helper (named ``init_primitives`` in LIBERO; it calls
   ``EnvState.reset()``, constructs the primitives, and dumps step 0),
-- register each tool with ``self.add_tool(name, spec, handler)`` — stateless
-  readers (``view_env_state``, ``finish``, …) bind directly to module-level
-  functions; primitive tools route through ``_step(name, **kwargs)`` which
-  calls ``getattr(self._primitives, name)(**kwargs)`` and re-renders state,
+- register bound tools with ``self.add_tools(iter_tools(self._primitives))``
+  or ``self.add_tool(definition)``. Use ``definition.with_handler(...)`` to
+  bind internal resources or execution guards; Toolkit captures post-action state,
 - override ``close()`` to save remaining agent-side artifacts through
   ``EnvState`` (for example ``state.save("episode.mp4", frames, step=None)``).
 
@@ -334,9 +332,8 @@ Conventions Worth Keeping
   run. Environment observations are owned by ``EnvState``; callers use logical
   base names and never construct storage paths. Transcripts and other
   run-management outputs share the same run directory.
-- Tool definitions use the Anthropic format (``name`` / ``description`` /
-  ``input_schema``). Every tool registered with ``self.add_tool(...)`` is
-  exposed to all planners.
+- Tools expose ``name``, ``description``, and ``input_schema``. Each planner
+  adapts registered tools to its model interface.
 - Server-side return values must be picklable and torch-free.
 - Each primitive tool dumps a fresh state snapshot after running so the next
   ``view_env_state`` call reflects the post-action world.

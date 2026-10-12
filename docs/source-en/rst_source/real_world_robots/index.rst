@@ -15,6 +15,6 @@ Choose a platform for installation and usage instructions.
    * - :doc:`dual_franka`
      - Dual-arm Franka installation, calibration, and operation.
    * - :doc:`yam`
-     - Task demo available; installation and usage instructions are coming soon.
+     - Installation, configuration, and operation.
    * - :doc:`so101`
      - Content coming soon.

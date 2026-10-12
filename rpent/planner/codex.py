@@ -52,6 +52,7 @@ from rpent.planner.base import (
     REASONING_EFFORTS,
     Planner,
     PlannerResult,
+    cancel_and_wait,
     strip_mcp_prefix,
 )
 from rpent.planner.utils.http_mcp_server import HttpMcpServer
@@ -186,6 +187,7 @@ class CodexPlanner(Planner):
                 recorder,
                 state,
                 mcp_url,
+                toolkit,
                 input_queue,
             ),
             name="codex-sdk",
@@ -223,7 +225,13 @@ class CodexPlanner(Planner):
                     _write_jsonl(raw_f, {"type": "error", "message": error})
                 logger.info(rendered.rstrip())
         finally:
-            mcp_server.stop()
+            try:
+                toolkit.cancel_active_and_wait()
+            except Exception as exc:
+                logger.exception("Codex toolkit cleanup failed")
+                error = error or f"Toolkit cleanup failed: {exc}"
+            finally:
+                mcp_server.stop()
 
         elapsed = time.time() - started
         text = state.get("text", "") or output_path.read_text(errors="replace")
@@ -275,6 +283,7 @@ class CodexPlanner(Planner):
         recorder: "_Recorder",
         state: dict[str, Any],
         mcp_url: str,
+        toolkit: Toolkit,
         input_queue: "queue.Queue[str | None] | None" = None,
     ) -> None:
         try:
@@ -303,6 +312,7 @@ class CodexPlanner(Planner):
                                 if stop_steer.is_set():
                                     return
                                 if nxt is None:
+                                    toolkit.cancel_active_and_wait()
                                     try:
                                         turn.interrupt()
                                     except Exception:
@@ -416,6 +426,7 @@ class CodexPlanner(Planner):
                 control = DashboardPlannerControl(
                     interaction=interaction,
                     cancel_active_and_wait=toolkit.cancel_active_and_wait,
+                    resume_calls=toolkit.resume_calls,
                     emit_user=emit_user,
                     emit_initial_user=lambda: emit_user(
                         initial_user_text, initial=True
@@ -451,7 +462,13 @@ class CodexPlanner(Planner):
                         error = error or cleanup_error
                     await session.close()
         finally:
-            mcp_server.stop()
+            try:
+                await cancel_and_wait(toolkit.cancel_active_and_wait)
+            except Exception as exc:
+                logger.exception("Codex toolkit cleanup failed")
+                error = error or f"Toolkit cleanup failed: {exc}"
+            finally:
+                await asyncio.to_thread(mcp_server.stop)
 
         if recorder.final_response is not None:
             last_message_path.write_text(recorder.final_response)
@@ -543,14 +560,7 @@ class _CodexDashboardSession:
         try:
             await asyncio.wait_for(done.wait(), timeout=15)
         except asyncio.TimeoutError:
-            if self._turn_task is not None:
-                self._turn_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await self._turn_task
-            self._turn = None
-            self._turn_done = None
-            self._turn_task = None
-            return 1
+            raise RuntimeError("Codex did not finish the interrupted turn") from None
         # ``_consume_turn`` reports the matching completed turn boundary.
         return 0
 
@@ -680,8 +690,17 @@ class _Recorder:
         if "requestApproval" in method:
             return f"[codex-approval] {method}\n"
         if method in {"error", "fatal"}:
-            self.error = _short_json(_jsonable(payload), limit=500)
-            return f"[codex-error] {self.error}\n"
+            detail = _short_json(_jsonable(payload), limit=500)
+            retrying = bool(_get(payload, "will_retry", False))
+            if not retrying:
+                self.error = detail
+            label = (
+                "Model connection retrying" if retrying else "Model connection failed"
+            )
+            self.dashboard_events.emit(
+                TranscriptEvent({"type": "text", "text": f"[{label}] {detail}"})
+            )
+            return f"[codex-error] {detail}\n"
         return ""
 
     # -- per-item handlers -------------------------------------------------
@@ -802,12 +821,28 @@ class _Recorder:
         if _get(item, "error") not in (None, ""):
             return
         data = _jsonable(item)
-        args = data.get("arguments") if isinstance(data, dict) else None
-        if isinstance(args, str):
-            try:
-                args = json.loads(args)
-            except Exception:
-                args = None
+        if not isinstance(data, dict):
+            return
+        result = data.get("result")
+        if isinstance(result, dict) and ("isError" in result or "content" in result):
+            if result.get("isError") is True:
+                return
+            content = result.get("content")
+            if isinstance(content, list):
+                for block in content:
+                    if not isinstance(block, dict) or block.get("type") != "text":
+                        continue
+                    payload = _json_object(block.get("text"))
+                    if isinstance(payload, dict) and payload.get("_finish") is True:
+                        self.finish_result = dict(payload)
+                        return
+            return
+        payload = _json_object(result)
+        if isinstance(result, dict) or payload is not None:
+            if payload is not None and payload.get("_finish") is True:
+                self.finish_result = dict(payload)
+            return
+        args = _json_object(data.get("arguments"))
         if isinstance(args, dict):
             self.finish_result = {"_finish": True, **args}
 
@@ -868,6 +903,8 @@ def run_probe_turn(
     prompt: str,
     model: str | None,
     timeout_s: int,
+    image_bytes: bytes | None = None,
+    output_schema: dict[str, Any] | None = None,
 ) -> str:
     """Run one tool-free Codex turn and return its final assistant text.
 
@@ -886,6 +923,8 @@ def run_probe_turn(
     classify it rather than seeing it wrapped.
 
     Args:
+        image_bytes: Optional PNG image supplied to a visual point selector.
+        output_schema: Optional structured-output schema for the final response.
         config: Config from :func:`build_probe_config`.
         prompt: The probe prompt to send.
         model: Model id, or ``None`` to use the Codex-configured default.
@@ -914,7 +953,21 @@ def run_probe_turn(
             with openai_codex.Codex(config=config) as codex:
                 state["codex"] = codex
                 thread = codex.thread_start(**options)
-                turn = thread.turn(prompt, **options)
+                turn_input = prompt
+                turn_options = dict(options)
+                if image_bytes is not None:
+                    import base64
+
+                    turn_input = [
+                        openai_codex.TextInput(prompt),
+                        openai_codex.ImageInput(
+                            "data:image/png;base64,"
+                            + base64.b64encode(image_bytes).decode("ascii")
+                        ),
+                    ]
+                if output_schema is not None:
+                    turn_options["output_schema"] = output_schema
+                turn = thread.turn(turn_input, **turn_options)
                 state["turn"] = turn
                 state["result"] = turn.run()
         except Exception as exc:  # surfaced to the caller below
@@ -1084,6 +1137,18 @@ def _summarise_item(item: Any) -> dict[str, Any]:
             key for key in data if key not in {"content", "text", "output"}
         )
     return summary
+
+
+def _json_object(value: Any) -> dict[str, Any] | None:
+    if isinstance(value, dict):
+        return value
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = json.loads(value)
+    except Exception:
+        return None
+    return parsed if isinstance(parsed, dict) else None
 
 
 def _extract_text(value: Any) -> str:

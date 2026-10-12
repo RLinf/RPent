@@ -145,6 +145,10 @@ class RoboTwinEnvFacade(BaseEnvFacade):
         super()._register_rpc()
         self._rpc["env.plan_arm_path"] = self.plan_arm_path
 
+    def get_action_spec(self) -> dict[str, Any]:
+        """Delegate the native action layouts to the active runtime."""
+        return self._env.get_action_spec()
+
     def get_env_meta(self) -> dict[str, Any]:
         """Return immutable identity for endpoint compatibility checks."""
         return dict(self._metadata)

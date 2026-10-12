@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from rpent.robots.components.action_spec import box_action_spec
 from rpent.robots.components.env_facade_base import BaseEnvFacade
 from rpent.utils.logging import get_logger
 from rpent.utils.serialization import to_numpy_tree
@@ -34,7 +35,7 @@ assert "mujoco" not in sys.modules, (
     "mujoco must not be imported before MUJOCO_GL/PYOPENGL_PLATFORM are set"
 )
 
-logger = get_logger("env_server")
+logger = get_logger("libero_env_server")
 
 os.environ.setdefault("ROBOT_PLATFORM", "LIBERO")
 
@@ -42,7 +43,7 @@ os.environ.setdefault("ROBOT_PLATFORM", "LIBERO")
 # sets CUDA_VISIBLE_DEVICES in main()); LiberoEnv transitively imports torch.
 if TYPE_CHECKING:
     import torch  # noqa: F401  (transitive dep of LiberoEnv; type-check only)
-    from rlinf.envs.libero.libero_env import LiberoEnv
+    from rlinf.envs.sim.libero.libero_env import LiberoEnv
 
 
 # ---------------------------------------------------------------------------
@@ -107,8 +108,8 @@ def make_env(
     max_episode_steps: int = 10000,
 ) -> LiberoEnv:
     """Build a single-env LiberoEnv pinned to ``task_id`` / ``seed``."""
-    from rlinf.envs.libero.libero_env import LiberoEnv
-    from rlinf.envs.libero.utils import benchmark as _bench_mod
+    from rlinf.envs.sim.libero.libero_env import LiberoEnv
+    from rlinf.envs.sim.libero.utils import benchmark as _bench_mod
 
     suite = _bench_mod.get_benchmark(suite_name)()
     first_id = sum(len(suite.get_task_init_states(t)) for t in range(task_id))
@@ -132,7 +133,7 @@ def make_env(
 
 class LiberoEnvFacade(BaseEnvFacade):
     """Implements :class:`robots.libero.env_client.LiberoEnvClient`
-    over :class:`rlinf.envs.libero.libero_env.LiberoEnv`.
+    over :class:`rlinf.envs.sim.libero.libero_env.LiberoEnv`.
 
     All return values are converted to CPU numpy so the agent process
     (which does not import torch) can consume them after the pickle round
@@ -234,6 +235,51 @@ class LiberoEnvFacade(BaseEnvFacade):
 
     def raw_obs(self) -> dict:
         return to_numpy_tree(self._env.current_raw_obs[self._env_idx])
+
+    def get_action_spec(self) -> dict:
+        """Describe the active single-arm OSC layout and native input bounds."""
+        worker = self._env.env.workers[self._env_idx]
+        low, high = worker.env_call(
+            "__getattribute__", args=["action_spec"], target="robosuite"
+        )
+        robot_config = worker.env_call(
+            "__getattribute__", args=["robot_configs"], target="robosuite"
+        )[0]
+        # Standard LIBERO uses a composite controller; LIBERO-plus uses
+        # robosuite 1.4's single arm controller configuration.
+        if "composite_controller_config" in robot_config:
+            arm = robot_config["composite_controller_config"]["body_parts"]["right"]
+            frame = arm.get("input_ref_frame", "base")
+            mode = arm.get("input_type", "delta")
+        else:
+            arm = robot_config["controller_config"]
+            frame = "world"
+            mode = "delta" if arm.get("control_delta", True) else "absolute"
+        impedance = arm.get("impedance_mode", "fixed")
+        gains = {
+            "fixed": "",
+            "variable_kp": "6 stiffness gains, then ",
+            "variable": "6 damping ratios, 6 stiffness gains, then ",
+        }[impedance]
+        description = (
+            f"Native {arm['type']} action: {gains}"
+            "[x, y, z, rx, ry, rz], then gripper. "
+            f"Arm commands use the {frame} reference frame and {mode} control; "
+            "rotation is an axis-angle vector, not Euler angles. "
+        )
+        if mode == "delta":
+            description += (
+                "Arm inputs are normalized controller commands, linearly mapped "
+                f"from input_min={arm['input_min']} / input_max={arm['input_max']} "
+                f"to output_min={arm['output_min']} / output_max={arm['output_max']} "
+                "(xyz in metres per action; rotation in radians per action). "
+            )
+        else:
+            description += (
+                "Arm inputs are absolute xyz in metres and axis-angle in radians. "
+            )
+        description += "Gripper: -1 opens, +1 closes, 0 keeps the current command."
+        return {"default": box_action_spec(low, high, description)}
 
     def get_env_meta(self) -> dict:
         """Return the meta info this server was launched with."""

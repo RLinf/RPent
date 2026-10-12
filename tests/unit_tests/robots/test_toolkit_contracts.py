@@ -50,6 +50,7 @@ from robots.robotwin import robot_spec as robotwin_robot_spec
 from robots.robotwin import toolkit as robotwin_toolkit
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.robots import RunConfig
+from rpent.tools.common import CommonTools
 
 
 def _run_config(memory_dir: Path, *, recipe_tag: str = "cell-s0") -> RunConfig:
@@ -100,7 +101,7 @@ def test_evaluation_toolkit_factories_use_configured_read_only_memory(
     )
 
     assert toolkit.memory.root == memory_dir.resolve()
-    write = toolkit.memory.get_common_tool_bindings()["write_text_file"][1]
+    write = CommonTools(memory=toolkit.memory).write_text_file
     with pytest.raises(PermissionError, match="writing to memory is denied"):
         write(str(memory_dir / "global" / "strategy.md"), "changed")
     assert captured["runtime_kwargs"] == {"env": "offline"}
@@ -188,7 +189,7 @@ def test_behavior_toolkit_uses_one_official_memory_manager(
 
     assert toolkit.memory is captured["memory"]
     assert toolkit.memory.root == memory_dir.resolve()
-    write = toolkit.memory.get_common_tool_bindings()["write_text_file"][1]
+    write = CommonTools(memory=toolkit.memory).write_text_file
     destination = memory_dir / "_internal" / "inbox" / recipe_tag / "wip" / "notes.md"
     if write_allowed:
         write(str(destination), "evidence")

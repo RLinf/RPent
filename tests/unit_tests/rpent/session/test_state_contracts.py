@@ -485,7 +485,7 @@ def test_finish_writes_terminal_receipt(tmp_path: Path) -> None:
     )
     receipt = json.loads((output_dir / "terminal_receipt.json").read_text())
 
-    assert result.is_finish is True
+    assert result.data["_finish"] is True
     assert receipt["_finish"] is True
     assert receipt["kind"] == "behavior_finish_terminal_receipt"
     assert receipt["planner_status"] == "incomplete"
@@ -622,21 +622,28 @@ def test_behavior_images_stay_out_of_step_json(tmp_path: Path, name: str) -> Non
     env.observe = lambda **kwargs: payload
     env.open_gripper = lambda **kwargs: payload
     try:
-        result = toolkit.execute_tool(
-            name, {"camera": "head"} if name == "observe" else {"hand": "left"}
+        arguments = (
+            {"camera": "head"}
+            if name == "observe"
+            else {
+                "hand": "left",
+                "visual_hand_check": {
+                    "camera": "left_wrist",
+                    "frame_id": "left-frame",
+                    "selected_hand": "left",
+                    "assessment": "selected_hand_visually_confirmed",
+                },
+            }
         )
-        assert "error" not in result.result
-        assert "state_capture_error" not in result.result
-        blocks = result.content_blocks
-        assert sum(block["type"] == "image" for block in blocks) == 6
-        text = next(block["text"] for block in blocks if block["type"] == "text")
-        assert not any(field in text for field in _PUBLIC_IMAGE_BYTE_FIELDS)
+        result = toolkit.execute_tool(name, arguments)
+        assert "error" not in result.data
+        assert "state_capture_error" not in result.data
+        assert len(result.images) == 6
+        assert not any(field in result.to_text() for field in _PUBLIC_IMAGE_BYTE_FIELDS)
         saved = json.loads((tmp_path / "run" / "states.json").read_text())
         record = saved["steps"][-1]
         assert not any(field in record["result"] for field in _PUBLIC_IMAGE_BYTE_FIELDS)
-        assert record.get("command") == (
-            None if name == "observe" else {"action": "open", "hand": "left"}
-        )
+        assert record.get("command") == {"action": name, **arguments}
     finally:
         toolkit.close()
 
@@ -738,3 +745,46 @@ def test_behavior_pi0_chunk_records_streaming_episode_video(tmp_path: Path) -> N
         "episode.mp4"
         in json.loads((session_dir / "states.json").read_text())["run_artifacts"]
     )
+
+
+@pytest.mark.parametrize("second_name", ["first.json", "second.json"])
+def test_concurrent_saves_keep_artifacts_and_manifest_consistent(
+    tmp_path, monkeypatch, second_name
+):
+    import os
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    state = EnvState(tmp_path)
+    with state.record_step(state={}):
+        pass
+    first_manifest = threading.Event()
+    release = threading.Event()
+    second_started = threading.Event()
+    replace = os.replace
+
+    def delayed_replace(source, destination):
+        if Path(destination).name == "states.json" and not first_manifest.is_set():
+            first_manifest.set()
+            assert release.wait(5)
+        replace(source, destination)
+
+    def save_second():
+        second_started.set()
+        return state.save(second_name, {"value": 2})
+
+    monkeypatch.setattr("rpent.session.base.os.replace", delayed_replace)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(state.save, "first.json", {"value": 1})
+        try:
+            assert first_manifest.wait(3)
+            second = pool.submit(save_second)
+            assert second_started.wait(3)
+            assert not second.done()
+        finally:
+            release.set()
+        assert first.result(timeout=3) == "first.json"
+        assert second.result(timeout=3) == second_name
+    manifest = json.loads((tmp_path / "states.json").read_text())
+    assert set(manifest["steps"][0]["artifacts"]) == {"first.json", second_name}
+    assert state.load(second_name) == {"value": 2}

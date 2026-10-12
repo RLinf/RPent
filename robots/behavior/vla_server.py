@@ -70,7 +70,6 @@ class BehaviorPi05VLAFacade(Pi05VLAFacade):
         *,
         model_path: str,
         embodiment: str,
-        model_backend: str = "openpi_pytorch",
         norm_stats_path: str | None = None,
         repo_id: str | None = None,
     ):
@@ -85,7 +84,6 @@ class BehaviorPi05VLAFacade(Pi05VLAFacade):
         super().__init__(
             model_path=model_path,
             embodiment=embodiment,
-            model_backend=model_backend,
             norm_stats_path=norm_stats_path,
             repo_id=repo_id,
         )

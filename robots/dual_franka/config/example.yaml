@@ -1,5 +1,6 @@
 # RPent example config for a dual-Franka setup.
 robot:
+  realtime_config: ignore
   arms:
     left:
       ip: "172.16.0.2"
@@ -84,6 +85,9 @@ perception:
   calibration:
     base_camera: ~/.ros/easy_handeye/third_to_right_base_calib_eye_on_base.yaml
     d455_camera: ~/.ros/easy_handeye/d455_to_right_base_eye_on_base.yaml
+    # Optional wrist RGBD cameras: uncomment after eye-in-hand calibration.
+    # left_wrist_camera: /absolute/path/to/left_wrist_eye_on_hand.yaml
+    # right_wrist_camera: /absolute/path/to/right_wrist_eye_on_hand.yaml
   # Views that support metric projection and segmentation.
   projection_views:
     base:
@@ -94,6 +98,14 @@ perception:
       raw_key: d455_rgb
       calibration_key: d455_camera
       display_name: D455
+    # left_wrist:
+    #   raw_key: left_wrist_0_rgb
+    #   calibration_key: left_wrist_camera
+    #   display_name: left wrist RGBD (eye-in-hand)
+    # right_wrist:
+    #   raw_key: right_wrist_0_rgb
+    #   calibration_key: right_wrist_camera
+    #   display_name: right wrist RGBD (eye-in-hand)
   localization_validity:
     base_camera:
       depth_m: [0.15, 1.25]

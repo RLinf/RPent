@@ -107,6 +107,7 @@ Choose an environment: :doc:`LIBERO <rst_source/simulators/libero>`, :doc:`BEHAV
    BEHAVIOR <rst_source/simulators/behavior>
    RoboCasa365 <rst_source/simulators/robocasa>
    RoboTwin <rst_source/simulators/robotwin>
+   RoboDojo <rst_source/simulators/robodojo>
 
 .. toctree::
    :maxdepth: 2

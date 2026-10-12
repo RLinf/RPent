@@ -16,10 +16,13 @@
 
 from __future__ import annotations
 
+from functools import partial
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+from jsonschema import Draft202012Validator
+from pydantic import ConfigDict, create_model
 
 from robots.behavior.schemas import behavior_tool_specs_for_task
 from robots.behavior.task_specs import get_task_spec
@@ -32,10 +35,9 @@ from rpent.dashboard.events import (
 from rpent.memory import MemoryManager
 from rpent.robots.runtime import stop_owned_daemons
 from rpent.session import EnvState
-from rpent.tools import common
-from rpent.tools.toolkit import Toolkit, ToolResult
+from rpent.tools import Tool, ToolResult
+from rpent.tools.toolkit import Toolkit
 from rpent.utils.daemon import ProcessDaemon
-from rpent.utils.templates import substitute
 
 
 class BehaviorToolkit(Toolkit):
@@ -89,16 +91,39 @@ class BehaviorToolkit(Toolkit):
             max_frames=2000,
         )
         self._primitives = BehaviorPrimitives(**values)
+        self._input_validators: dict[str, Draft202012Validator] = {}
         for spec in behavior_tool_specs_for_task(self._task_spec):
             if values.get("env") is None:
                 continue
             if spec["name"] == "pi0_nav_pick" and values.get("model") is None:
                 continue
-            self.add_tool(spec["name"], spec, getattr(self._primitives, spec["name"]))
-        finish_spec = next(
-            spec for spec in common.TOOLS_SPEC if spec["name"] == "finish"
+            name = spec["name"]
+            schema = spec["input_schema"]
+            self._input_validators[name] = Draft202012Validator(schema)
+            fields = {
+                field: (Any, ... if field in schema["required"] else None)
+                for field in schema["properties"]
+            }
+            self.add_tool(
+                Tool(
+                    name=name,
+                    description=spec["description"],
+                    args_schema=create_model(
+                        f"Behavior{name.title().replace('_', '')}Args",
+                        __config__=ConfigDict(extra="forbid"),
+                        **fields,
+                    ),
+                    handler=partial(
+                        self._run_primitive, getattr(self._primitives, name)
+                    ),
+                    _input_schema=schema,
+                    readonly=name == "pixel_to_world",
+                )
+            )
+        self.add_tool(
+            self._tools["finish"].with_handler(self._finish),
+            replace=True,
         )
-        self.add_tool("finish", finish_spec, self._primitives.finish)
         if self._primitives.current_observation is not None:
             self.get_env_state(command=None, result={}, elapsed_s=0.0)
             self._publish_step(self._state.latest_record())
@@ -107,47 +132,35 @@ class BehaviorToolkit(Toolkit):
     def primitives(self) -> BehaviorPrimitives:
         return self._primitives
 
-    def get_tools_spec(self) -> list[dict[str, Any]]:
-        return substitute(
-            [spec for spec, _ in self._tools.values()],
-            variables={"output_dir": str(self._primitives.output_dir)},
+    @staticmethod
+    def _run_primitive(primitive: Any, **kwargs: Any) -> ToolResult:
+        payload = dict(
+            primitive(
+                **{key: value for key, value in kwargs.items() if value is not None}
+            )
         )
+        images = [
+            bytes(data)
+            for key in _PUBLIC_IMAGE_BYTE_FIELDS
+            if (data := payload.pop(key, None)) is not None
+        ]
+        return ToolResult(data=payload, images=images)
+
+    def _finish(self, *, status: str, summary: str) -> ToolResult:
+        receipt = self._primitives.finish(status=status, summary=summary)
+        if self._state.save("terminal_receipt.json", receipt, step=None) is None:
+            raise RuntimeError("failed to write terminal_receipt.json")
+        return ToolResult(data=receipt)
 
     def execute_tool(self, name: str, input_dict: dict[str, Any]) -> ToolResult:
-        result = super().execute_tool(name, input_dict)
-        if name == "observe" and self._primitives.current_observation is not None:
-            self.get_env_state(command=None, result=result.result, elapsed_s=0.0)
-            self._publish_step(self._state.latest_record())
-        if (
-            name == "finish"
-            and isinstance(result.result, dict)
-            and result.result.get("_finish") is True
-        ):
-            saved = self._state.save("terminal_receipt.json", result.result, step=None)
-            if saved is None:
-                raise RuntimeError("failed to write terminal_receipt.json")
-        payload = dict(result.result)
-        images = [
-            payload.pop(key)
-            for key in (
-                "_image_bytes",
-                "_depth_image_bytes",
-                "_image_left_wrist_bytes",
-                "_depth_left_wrist_bytes",
-                "_image_right_wrist_bytes",
-                "_depth_right_wrist_bytes",
-            )
-            if key in payload
-        ]
-        if images:
-            result = ToolResult(name=name, result=payload, call_id=result.call_id)
-            for data in images:
-                result.content_blocks.extend(
-                    ToolResult(name=name, result={"_image_bytes": data}).content_blocks[
-                        1:
-                    ]
+        validator = self._input_validators.get(name)
+        if validator is not None:
+            error = next(validator.iter_errors(input_dict), None)
+            if error is not None:
+                return ToolResult(
+                    data={"error": f"bad arguments for {name}: {error.message}"}
                 )
-        return result
+        return super().execute_tool(name, input_dict)
 
     def _save_observation_images(
         self, observation: dict[str, Any], *, step: int
@@ -174,7 +187,7 @@ class BehaviorToolkit(Toolkit):
         command: dict[str, Any] | None,
         result: dict[str, Any],
         elapsed_s: float,
-    ) -> dict[str, Any]:
+    ) -> ToolResult:
         snapshot = self._primitives.snapshot()
         terminated = bool(snapshot.get("task_success"))
         truncated = (
@@ -182,9 +195,11 @@ class BehaviorToolkit(Toolkit):
         )
         result = {**result, "official_success": self.solved()}
         # Image payloads belong to ToolResult blocks, not the JSON step log.
-        images = {
-            key: result.pop(key) for key in _PUBLIC_IMAGE_BYTE_FIELDS if key in result
-        }
+        images = [
+            bytes(data)
+            for key in _PUBLIC_IMAGE_BYTE_FIELDS
+            if (data := result.pop(key, None)) is not None
+        ]
         with self._state.record_step(
             state=snapshot,
             terminated=terminated,
@@ -198,19 +213,22 @@ class BehaviorToolkit(Toolkit):
                 self._save_observation_images(observation, step=step)
             step_idx = step
         record = self._state.get(step_idx)
-        return {
-            **snapshot,
-            "step_idx": step_idx,
-            "artifacts": sorted(record.artifacts),
-            "command": command,
-            "result": result,
-            **images,
-        }
+        return ToolResult(
+            data={
+                **snapshot,
+                "step_idx": step_idx,
+                "artifacts": sorted(record.artifacts),
+                "command": command,
+                "result": result,
+            },
+            images=images,
+        )
 
     def close(self) -> None:
         """Release clients/transports only; never synthesize task success."""
 
         try:
+            super().close()
             self._primitives.shutdown()
         finally:
             stop_owned_daemons(self._owned_daemons, self._dashboard_events)

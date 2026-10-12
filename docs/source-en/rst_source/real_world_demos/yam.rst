@@ -1,7 +1,7 @@
 YAM
 ===
 
-Watch task execution on YAM. :doc:`YAM Installation and Usage <../real_world_robots/yam>` documentation is coming soon.
+Watch task execution on YAM. :doc:`YAM Installation and Usage <../real_world_robots/yam>` guide describes setup and operation.
 
 .. raw:: html
 

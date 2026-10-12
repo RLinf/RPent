@@ -32,7 +32,7 @@ RPent 的动作工具主要分为两类：
    * - :doc:`../real_world_robots/dual_franka`
      - Pi0.5 / openpi
 
-各平台页面给出模型路径、工具范围和任务要求。YAM 的部署说明和 SO-101 内容尚待补充，见 :doc:`../real_world_robots/yam` 和 :doc:`../real_world_robots/so101`。
+各平台页面给出模型路径、工具范围和任务要求。SO-101 内容尚待补充，见 :doc:`../real_world_robots/yam` 和 :doc:`../real_world_robots/so101`。
 
 服务与扩展
 ---------------

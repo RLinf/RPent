@@ -36,7 +36,6 @@ from robots.behavior.terminal_success import (
     official_success_receipt_from_info,
     official_task_success,
 )
-from rpent.tools.toolkit import readonly
 from rpent.utils.logging import get_logger
 
 logger = get_logger("behavior_tools")
@@ -53,14 +52,14 @@ _PRIVATE_RESULT_KEYS = {
     "suggested_next_action",
     "suggested_next_tool",
 }
-_PUBLIC_IMAGE_BYTE_FIELDS = {
+_PUBLIC_IMAGE_BYTE_FIELDS = (
     "_image_bytes",
     "_depth_image_bytes",
     "_image_left_wrist_bytes",
     "_depth_left_wrist_bytes",
     "_image_right_wrist_bytes",
     "_depth_right_wrist_bytes",
-}
+)
 
 
 def _jsonable(value: Any) -> Any:
@@ -573,7 +572,6 @@ class BehaviorPrimitives:
             stop_reason=stop_reason,
         )
 
-    @readonly
     def observe(self, **kwargs: Any) -> dict[str, Any]:
         env = self._require_env()
         request = validate_observe_request(**kwargs)
@@ -583,7 +581,6 @@ class BehaviorPrimitives:
             self._note_info(info)
         return self._envelope("observe", result, primitive_success=True)
 
-    @readonly
     def pixel_to_world(self, **kwargs: Any) -> dict[str, Any]:
         env = self._require_env()
         result = env.pixel_to_world(**kwargs)
@@ -631,7 +628,6 @@ class BehaviorPrimitives:
         env = self._require_env()
         return self._envelope("press", env.press(**kwargs))
 
-    @readonly
     def finish(self, *, status: str, summary: str) -> dict[str, Any]:
         if not isinstance(status, str) or not status.strip():
             raise ValueError("status must be a non-empty string")

@@ -41,7 +41,6 @@ from robots.dual_franka.runtime_config import DEFAULT_CONFIG
 from robots.dual_franka.tasks import get_dual_franka_task
 from robots.dual_franka.toolkit import DualFrankaToolkit
 from robots.dual_franka.tools import (
-    TOOLS_SPEC,
     DualFrankaPrimitives,
     dump_state,
     view_env_state,
@@ -67,7 +66,10 @@ _RESET_SPEC: dict[str, Any] = {
 
 
 def _tool_spec_map(*, include_manual: bool = False) -> dict[str, dict[str, Any]]:
-    specs = {str(spec["name"]): spec for spec in TOOLS_SPEC}
+    specs = {
+        tool.name: {"name": tool.name, "input_schema": tool.input_schema}
+        for tool in DualFrankaToolkit.declared_tools()
+    }
     if include_manual:
         specs[str(_RESET_SPEC["name"])] = _RESET_SPEC
     return specs
@@ -334,7 +336,7 @@ def _call_readonly_tool(
     dump_state_enabled: bool,
 ) -> dict[str, Any]:
     if primitive == "describe_dual_franka_setup":
-        return primitives.describe_dual_franka_setup()
+        return primitives.describe_dual_franka_setup().to_dict()
     if primitive == "view_env_state":
         if dump_state_enabled:
             dump_state(
@@ -344,7 +346,7 @@ def _call_readonly_tool(
                 result=None,
                 elapsed_s=None,
             )
-            return view_env_state(state=state, **params)
+            return view_env_state(state=state, **params).to_dict()
         return {
             "step_idx": None,
             "state": primitives.env.get_robot_state(),
@@ -365,7 +367,7 @@ def _call_readonly_tool(
                 result=None,
                 elapsed_s=None,
             )
-            return view_camera_meta(state=state, **params)
+            return view_camera_meta(state=state, **params).to_dict()
         return {"step": None, "camera_meta": primitives.env.get_camera_meta() or {}}
     if primitive == "back_project":
         if state.latest_step is None:
@@ -381,7 +383,7 @@ def _call_readonly_tool(
                 result=None,
                 elapsed_s=None,
             )
-        return dual_franka_perception.back_project(state=state, **params)
+        return dual_franka_perception.back_project(state=state, **params).to_dict()
     if primitive == "segment":
         if state.latest_step is None:
             if not dump_state_enabled:
@@ -400,7 +402,7 @@ def _call_readonly_tool(
             state=state,
             sam3_client=sam3_client,
             **params,
-        )
+        ).to_dict()
     raise KeyError(primitive)
 
 
@@ -414,18 +416,18 @@ def _call_mutating_primitive(
     if primitive == "reset":
         return env.reset()
     if primitive == "move_delta":
-        return primitives.move_delta(**params)
+        return primitives.move_delta(**params).to_dict()
     if primitive == "rotate_delta":
-        return primitives.rotate_delta(**params)
+        return primitives.rotate_delta(**params).to_dict()
     if primitive == "open_gripper":
-        return primitives.open_gripper(**params)
+        return primitives.open_gripper(**params).to_dict()
     if primitive == "close_gripper":
-        return primitives.close_gripper(**params)
+        return primitives.close_gripper(**params).to_dict()
     if primitive == "recover_joint_posture":
-        return primitives.recover_joint_posture(**params)
+        return primitives.recover_joint_posture(**params).to_dict()
     if primitive in _registered_tool_names():
         handler = getattr(primitives, primitive)
-        return handler(**params)
+        return handler(**params).to_dict()
     raise KeyError(primitive)
 
 
@@ -458,7 +460,7 @@ def _call_toolkit_tool(
         state_output_dir=output_dir,
     )
     try:
-        return toolkit.execute_tool(primitive, params).result
+        return toolkit.execute_tool(primitive, params).to_dict()
     finally:
         toolkit.close()
 

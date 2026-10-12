@@ -37,7 +37,9 @@ EXPECTED_ROBOTS = (
     "franka",
     "libero",
     "robocasa",
+    "robodojo",
     "robotwin",
+    "yam",
 )
 
 PROMPT_VARIABLES = {
@@ -56,6 +58,14 @@ PROMPT_VARIABLES = {
         "memory_dir": "/memory",
         "memory_profile": "local",
         "memory_inbox": "/memory/_internal/inbox/turning_on_radio_s1",
+    },
+    "yam": {
+        "task_name": "tabletop_cleanup_a",
+        "seed": 0,
+        "recipe_tag": "yam_tabletop_cleanup_a_s0",
+        "instruction": "Move the object to the target",
+        "mode": "eval",
+        "memory_dir": "/memory",
     },
     "libero": {
         "suite": "libero_object_task",
@@ -79,6 +89,16 @@ PROMPT_VARIABLES = {
         "mode": "eval",
         "memory_profile": "hf",
         "reference_tag": "OpenDrawer_s0",
+        "memory_dir": "/memory",
+        "output_dir": Path("/output"),
+    },
+    "robodojo": {
+        "task": "put_bottles_into_dustbin",
+        "layout": 0,
+        "env_cfg_type": "arx_x5",
+        "action_type": "joint",
+        "recipe_tag": "put_bottles_into_dustbin_l0",
+        "task_summary": {"task": "put_bottles_into_dustbin", "rigid": ["bottle"]},
         "memory_dir": "/memory",
         "output_dir": Path("/output"),
     },
