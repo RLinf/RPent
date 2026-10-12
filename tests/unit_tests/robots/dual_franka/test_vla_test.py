@@ -20,7 +20,7 @@ import numpy as np
 import pytest
 
 from tests.e2e_tests.dual_franka.dual_franka_vla import DeploymentTest, run_console
-from tests.manual.dual_franka_full_vla import run_full_vla
+from tests.e2e_tests.dual_franka.dual_franka_full_vla import run_full_vla
 
 
 def make_session(tmp_path, *, fail=False, terminate=False):
