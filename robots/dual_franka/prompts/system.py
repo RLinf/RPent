@@ -41,7 +41,7 @@ RULES = (
     "specific historical step.",
     "Use purposeful corrections and use the configured inline view(s) as "
     "the primary visual evidence.",
-    "For move_delta and rotate_delta, status='completed' means execution "
+    "For rotate_delta, status='completed' means execution "
     "finished, not exact target attainment. target_reached and residual errors "
     "are accuracy diagnostics; target_reached=false alone is not a controller "
     "fault or a requirement to retry, stop, or request operator feedback. "

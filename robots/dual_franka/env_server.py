@@ -719,11 +719,7 @@ def _create_worker_class():
             final_world = self._pose_to_world(arm_name, final_local)
             error = float(np.linalg.norm(target_world[:3] - final_world[:3]))
             return {
-                # Completion describes execution, not target accuracy.
-                "ok": True,
-                "status": "completed",
-                "message": "Action completed.",
-                "target_reached": error <= self.controller["move_tolerance_m"],
+                "ok": error <= self.controller["move_tolerance_m"],
                 "arm": arm_name,
                 "coordinate_frame": "right_base",
                 "requested_delta_xyz": requested.tolist(),

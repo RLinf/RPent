@@ -172,7 +172,7 @@ def test_recovery_stops_on_rotation_abort_but_not_tracking_error(
 
     def move(arm, delta):
         calls.append(f"{arm}_move")
-        return {"ok": True, "target_reached": False}
+        return {"ok": True}
 
     def rotate(arm, delta):
         calls.append(f"{arm}_rotate")

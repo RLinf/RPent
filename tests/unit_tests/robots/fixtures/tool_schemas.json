@@ -992,7 +992,7 @@
       },
       {
         "name": "move_delta",
-        "description": "Move one Franka TCP by a bounded world-frame xyz delta in meters. Completion indicates execution ended; target_reached and final_error_m report accuracy, not a mandatory retry condition.",
+        "description": "Move one Franka TCP by a bounded world-frame xyz delta in meters.",
         "input_schema": {
           "type": "object",
           "properties": {
