@@ -758,7 +758,6 @@ def _create_worker_class():
             iterations = 0
             error = float("inf")
             drift_limit = self.controller["rotate_max_drift_m"]
-            drifted = False
             while iterations < max_iterations and time.time() < deadline:
                 left, right = self._arm_poses()
                 current_local = left if arm_idx == 0 else right
@@ -770,8 +769,10 @@ def _create_worker_class():
                     np.linalg.norm(current_world[:3] - start_world[:3])
                 )
                 if position_error > drift_limit:
-                    drifted = True
-                    break
+                    raise RuntimeError(
+                        f"{arm_name} rotation aborted: position drift "
+                        f"{position_error:.4f} m exceeds {drift_limit:.4f} m"
+                    )
                 if error <= self.controller["rotate_tolerance_rad"]:
                     break
                 # Preserve the skill's step limit even if hardware compliance
@@ -797,10 +798,13 @@ def _create_worker_class():
                 (target_rot * Rotation.from_quat(final_world[3:]).inv()).magnitude()
             )
             position_error = float(np.linalg.norm(final_world[:3] - start_world[:3]))
+            if position_error > drift_limit:
+                raise RuntimeError(
+                    f"{arm_name} rotation aborted: position drift "
+                    f"{position_error:.4f} m exceeds {drift_limit:.4f} m"
+                )
             return {
-                "ok": not drifted
-                and position_error <= drift_limit
-                and error <= self.controller["rotate_tolerance_rad"],
+                "ok": error <= self.controller["rotate_tolerance_rad"],
                 "arm": arm_name,
                 "coordinate_frame": "right_base",
                 "requested_delta_rpy": requested.tolist(),
@@ -1014,8 +1018,6 @@ def _create_worker_class():
                         arm,
                         delta_rot.as_euler("xyz").astype(np.float32),
                     )
-                    if not return_results[f"{arm}_rotate"]["ok"]:
-                        break
                     # Orientation correction can shift the TCP position.
                     current_raw = self._arm_poses()[self._arm_index(arm)]
                     current = self._pose_to_world(arm, current_raw)
@@ -1080,7 +1082,7 @@ def _create_worker_class():
                 )
             )
             return_ok = (not return_to_start) or (
-                translation_return_ok and non_rotation_return_ok and rotation_return_ok
+                translation_return_ok and non_rotation_return_ok
             )
             gripper_restore_ok = all(
                 bool(value.get("ok"))
@@ -1133,7 +1135,7 @@ def _create_worker_class():
                     "translation_return_ok": translation_return_ok,
                     "non_rotation_return_ok": non_rotation_return_ok,
                     "rotation_return_ok": rotation_return_ok,
-                    "rotation_is_diagnostic_only": False,
+                    "rotation_is_diagnostic_only": True,
                     "final_joint_health_ok": final_joint_health_ok,
                     "move_tolerance_m": self.controller["move_tolerance_m"],
                     "rotate_tolerance_rad": self.controller["rotate_tolerance_rad"],

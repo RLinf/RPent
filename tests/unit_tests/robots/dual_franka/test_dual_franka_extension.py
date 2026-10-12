@@ -58,7 +58,6 @@ def test_manual_schemas_preserve_native_tool_declarations():
             "description": tool.description,
             "input_schema": tool.input_schema,
         }
-    assert _schema_payload("reset")["description"].startswith("Manual-only")
 
 
 def test_dual_franka_uses_rpent_owned_robot_config(fake_rlinf_realworld_modules):

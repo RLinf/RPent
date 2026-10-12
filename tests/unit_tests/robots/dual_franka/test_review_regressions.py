@@ -166,13 +166,12 @@ def test_rotation_reference_and_recovery_failure(worker_classes, outcome, drift_
     worker.get_robot_state = lambda: {
         f"{arm}_arm": {"gripper_open": True} for arm in ("left", "right")
     }
+    rotated = Rotation.from_euler("x", -0.35).as_quat()
 
     def move(arm, delta):
         calls.append(f"{arm}_move")
         if calls.count(f"{arm}_move") == 1:
-            poses[worker._arm_index(arm), 3:] = Rotation.from_euler(
-                "x", -0.35
-            ).as_quat()
+            poses[worker._arm_index(arm), 3:] = rotated
         return {"ok": True}
 
     commands = []
@@ -182,34 +181,36 @@ def test_rotation_reference_and_recovery_failure(worker_classes, outcome, drift_
         index = worker._arm_index(arm)
         if calls[-1] == f"{arm}_move":
             calls.append(f"{arm}_rotate")
-            commands.clear()
+            commands[:] = [-0.35]
         arms = action.reshape(2, 10)
         np.testing.assert_allclose(arms[index, :3], [0.5, 0, 0.4])
-        np.testing.assert_allclose(arms[1 - index, :3], poses[1 - index, :3])
-        np.testing.assert_allclose(
-            arms[1 - index, 3:9], worker._arm_rot6d(poses[1 - index])
-        )
+        other = np.r_[poses[1 - index, :3], worker._arm_rot6d(poses[1 - index])]
+        np.testing.assert_allclose(arms[1 - index, :9], other)
         np.testing.assert_array_equal(arms[:, 9], 0)
         # For this x-only rotation, the second rot6d column gives sin/cos(angle).
         angle = float(np.arctan2(arms[index, 8], arms[index, 7]))
-        previous = commands[-1] if commands else -0.35
-        assert abs(angle - previous) <= 0.100001
+        assert abs(angle - commands[-1]) <= 0.100001
         commands.append(angle)
-        if len(commands) >= 4 and outcome != "stalled":
+        if len(commands) > 4 and outcome != "stalled":
             poses[index, 3:] = Rotation.from_euler("x", angle).as_quat()
-        drift = outcome == "drift" and len(commands) >= drift_step
+        drift = outcome == "drift" and len(commands) > drift_step
         poses[index, 1] = 0.04 if drift else 0.001
 
     worker.env = SimpleNamespace(step=step)
     worker.move_delta = move
-    result = worker.recover_joint_posture()
-    assert result["ok"] is (outcome == "reached")
-    if outcome != "drift":
+    if outcome == "drift":
+        with pytest.raises(RuntimeError, match="position drift"):
+            worker.recover_joint_posture()
+        assert calls == ["left_move", "left_rotate"]
+    else:
+        result = worker.recover_joint_posture()
+        assert result["ok"]
+        evaluation = result["return_evaluation"]
+        assert evaluation["rotation_return_ok"] is (outcome == "reached")
+        assert evaluation["rotation_is_diagnostic_only"] is True
         assert commands[-1] == pytest.approx(0, abs=1e-6)
-    expected = ["left_move", "left_rotate"]
-    if outcome == "reached":
-        expected += ["left_move", "right_move", "right_rotate", "right_move"]
-    assert calls == expected
+        assert calls[:3] == ["left_move", "left_rotate", "left_move"]
+        assert calls[3:] == ["right_move", "right_rotate", "right_move"]
 
 
 def test_missing_hand_state_is_not_silently_defaulted(worker_classes):
