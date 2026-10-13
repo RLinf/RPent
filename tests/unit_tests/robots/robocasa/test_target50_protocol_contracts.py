@@ -296,6 +296,26 @@ def test_cell_result_counts_planner_timeout_but_not_missing_environment_result()
     assert missing["valid"] is False
 
 
+def test_cell_result_distinguishes_truncated_response_from_infrastructure_error():
+    """A reasoning-only length stop is not broken tooling (#271)."""
+    truncated = _cell_result(
+        agent_error=(
+            "planner response truncated (length): Model token limit (8192) "
+            "exceeded before any response was generated"
+        )
+    )
+    missing = _cell_result(
+        agent_error="planner response truncated (length): token limit exceeded",
+        environment_result_available=False,
+    )
+
+    assert truncated["termination_reason"] == "planner_response_truncated"
+    assert truncated["valid"] is True
+    assert truncated["success"] is False
+    assert missing["valid"] is False
+    assert missing["termination_reason"] == "planner_response_truncated"
+
+
 @pytest.mark.parametrize(
     "memory",
     [

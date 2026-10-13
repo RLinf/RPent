@@ -119,6 +119,43 @@ class PlannerResult:
         self.error = error  # str | None  — set when the planner raises
 
 
+#: Prefix recorded by a planner when a model response exhausted its output
+#: budget without producing usable output (see ``api_loop``).
+PLANNER_TRUNCATION_MARKER = "planner response truncated"
+
+
+def classify_agent_error(agent_error: str | None) -> str:
+    """Classify a recorded planner session error.
+
+    Returns ``"completed"`` when the session reported no error,
+    ``"planner_timeout"`` for the planner's wall-clock timeout,
+    ``"planner_response_truncated"`` for a length-limited response that
+    produced no usable output, and ``"infrastructure_error"`` otherwise.
+    Timeouts and truncations are expected model-side stops; other errors
+    indicate broken tooling.
+    """
+    if not agent_error:
+        return "completed"
+    lowered = agent_error.lower()
+    if "timed out" in lowered:
+        return "planner_timeout"
+    if PLANNER_TRUNCATION_MARKER in lowered:
+        return "planner_response_truncated"
+    return "infrastructure_error"
+
+
+def is_recoverable_agent_error(agent_error: str | None) -> bool:
+    """Whether a fresh exploration session may take over after this error.
+
+    Expected model-side stops — planner timeouts and truncated responses —
+    hand off to the next session; anything else ends the run.
+    """
+    return classify_agent_error(agent_error) in {
+        "planner_timeout",
+        "planner_response_truncated",
+    }
+
+
 class Planner(ABC):
     """A planner selects or supplies the actions used to solve a task.
 

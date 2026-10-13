@@ -33,7 +33,7 @@ from pydantic_ai import (
     ToolReturnPart,
     UserPromptPart,
 )
-from pydantic_ai.exceptions import UsageLimitExceeded
+from pydantic_ai.exceptions import UnexpectedModelBehavior, UsageLimitExceeded
 from pydantic_ai.models.function import DeltaThinkingPart, DeltaToolCall, FunctionModel
 from pydantic_ai.models.test import TestModel
 
@@ -521,6 +521,66 @@ def test_other_usage_limit_failures_remain_errors(tmp_path):
     result, _, _ = solve(tmp_path, FunctionModel(stream_function=stream), max_turns=1)
     assert result.error.startswith("UsageLimitExceeded: provider-specific limit")
     assert result.finish_result is None
+
+
+def test_token_limit_truncation_is_marked_for_recovery(tmp_path):
+    """A reasoning-only length stop is an expected model-side stop (#271).
+
+    pydantic-ai raises ``UnexpectedModelBehavior`` without retrying when a
+    response spends the whole output budget on thinking. The loop must record
+    it under the stable recovery marker instead of the raw SDK error so the
+    CLI can hand off to the next exploration session.
+    """
+
+    async def stream(messages, info):
+        yield {0: DeltaThinkingPart(content="Reasoning past the output budget.")}
+        raise UnexpectedModelBehavior(
+            "Model token limit (8192) exceeded before any response was "
+            "generated. Increase the `max_tokens` model setting, or simplify "
+            "the prompt to result in a shorter response that will fit within "
+            "the limit."
+        )
+
+    result, _, _ = solve(tmp_path, FunctionModel(stream_function=stream), max_turns=2)
+    assert result.error is not None
+    assert result.error.startswith("planner response truncated (length): ")
+    assert (
+        "Model token limit (8192) exceeded before any response was generated"
+        in result.error
+    )
+    assert not result.error.startswith("UnexpectedModelBehavior:")
+    assert result.finish_result is None
+    json.dumps(result.messages)
+
+
+def test_other_unexpected_model_behavior_failures_remain_errors(tmp_path):
+    async def stream(messages, info):
+        raise UnexpectedModelBehavior("Exceeded max retries")
+        yield  # pragma: no cover
+
+    result, _, _ = solve(tmp_path, FunctionModel(stream_function=stream), max_turns=1)
+    assert result.error == "UnexpectedModelBehavior: Exceeded max retries"
+    assert result.finish_result is None
+
+
+def test_agent_error_classification_drives_recovery_decisions():
+    from rpent.planner.base import classify_agent_error, is_recoverable_agent_error
+
+    truncation = (
+        "planner response truncated (length): Model token limit (8192) "
+        "exceeded before any response was generated"
+    )
+    assert classify_agent_error(None) == "completed"
+    assert classify_agent_error("planner timed out after 1800s") == "planner_timeout"
+    assert classify_agent_error(truncation) == "planner_response_truncated"
+    assert (
+        classify_agent_error("RuntimeError: provider unavailable")
+        == "infrastructure_error"
+    )
+    assert is_recoverable_agent_error("planner timed out after 1800s")
+    assert is_recoverable_agent_error(truncation)
+    assert not is_recoverable_agent_error(None)
+    assert not is_recoverable_agent_error("RuntimeError: provider unavailable")
 
 
 def test_harness_compacts_long_history(tmp_path):

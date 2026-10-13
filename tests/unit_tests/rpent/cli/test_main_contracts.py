@@ -690,6 +690,182 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     ]
 
 
+def test_full_cli_exploration_hands_off_after_truncated_reasoning_response(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A length-limited response must not end exploration mid-roster (#271).
+
+    Session 1 hits the pydantic-ai token-limit ``UnexpectedModelBehavior``
+    (reasoning-only, ``finish_reason == "length"``). Like a planner timeout,
+    that is an expected model-side stop: the loop must hand off to session 2,
+    which solves the cell.
+    """
+    cli = _cli_module()
+    from pydantic_ai.exceptions import UnexpectedModelBehavior
+    from pydantic_ai.models.function import DeltaToolCall, FunctionModel
+
+    from rpent.planner.api_loop import ApiAgentLoop
+    from rpent.robots import PromptBundle, RobotSpec, RunConfig
+    from rpent.tools import common
+    from rpent.tools.toolkit import ToolResult
+
+    calls: dict[str, Any] = {}
+    model_requests = 0
+
+    class FakeMemoryManager:
+        def merge_memory(self, **kwargs: Any) -> dict[str, int]:
+            calls["merge_memory"] = kwargs
+            return {"suite": 1}
+
+    class FakeDaemon:
+        stopped = False
+
+        def stop(self) -> None:
+            self.stopped = True
+
+    class FakeToolkit:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict[str, Any]]] = []
+            self.closed = False
+            self.memory = FakeMemoryManager()
+
+        def execute_tool(self, name: str, args: dict[str, Any]) -> ToolResult:
+            self.calls.append((name, args))
+            return ToolResult(
+                data={
+                    "_finish": True,
+                    "status": args["status"],
+                    "summary": args["summary"],
+                },
+            )
+
+        def close(self) -> None:
+            self.closed = True
+
+        def list_tools(self):
+            return (
+                common.CommonTools.finish.with_handler(
+                    lambda **args: ToolResult(data=args)
+                ),
+            )
+
+        def resume_calls(self):
+            pass
+
+        def cancel_active_and_wait(self) -> None:
+            pass
+
+        def solved(self) -> bool:
+            return any(name == "finish" for name, _ in self.calls)
+
+        def write_recipe(self, recipe_tag: str) -> str:
+            calls["write_recipe"] = recipe_tag
+            return str(tmp_path / f"{recipe_tag}_recipe.jsonl")
+
+    daemon = FakeDaemon()
+    toolkit = FakeToolkit()
+
+    def add_cli_args(parser: Any, use_dashboard: bool) -> None:
+        del use_dashboard
+        parser.add_argument("--explore-sessions", type=int, default=1)
+
+    def parse_config(args: Any) -> RunConfig:
+        return RunConfig(
+            recipe_tag="libero_s0",
+            output_dir=Path(args.output_dir),
+            prompt_vars={"memory_dir": args.memory_dir},
+            task_desc={"robot": "libero"},
+        )
+
+    def init_runtime(*args: Any) -> tuple[list[FakeDaemon], dict[str, str]]:
+        return [daemon], {"runtime": "simulated"}
+
+    robot_spec = RobotSpec(
+        name="libero",
+        prompts=PromptBundle(
+            system=lambda variables: "simulated system prompt",
+            user=lambda variables: "simulated user task",
+        ),
+        add_cli_args=add_cli_args,
+        parse_config=parse_config,
+        init_runtime=init_runtime,
+        supports_exploration=True,
+    )
+
+    def build_planner(*args: Any, **kwargs: Any):
+        calls["planner_count"] = calls.get("planner_count", 0) + 1
+
+        async def stream(messages, info):
+            nonlocal model_requests
+            model_requests += 1
+            if model_requests == 1:
+                # What pydantic-ai raises for a thinking-only response that
+                # exhausted max_tokens (see _agent_graph.py in the SDK).
+                raise UnexpectedModelBehavior(
+                    "Model token limit (8192) exceeded before any response was "
+                    "generated. Increase the `max_tokens` model setting, or "
+                    "simplify the prompt to result in a shorter response that "
+                    "will fit within the limit."
+                )
+            yield {
+                0: DeltaToolCall(
+                    name="finish",
+                    json_args=json.dumps({"status": "success", "summary": "done"}),
+                )
+            }
+
+        return ApiAgentLoop(
+            model=FunctionModel(stream_function=stream),
+            dashboard_events=kwargs["dashboard_events"],
+        )
+
+    def get_toolkit(*args: Any, **kwargs: Any) -> FakeToolkit:
+        return toolkit
+
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "")
+    monkeypatch.setattr(cli, "enumerate_robots", lambda: ("libero",))
+    monkeypatch.setattr(cli, "get_robot_spec", lambda name: robot_spec)
+    monkeypatch.setattr(cli, "build_planner", build_planner)
+    monkeypatch.setattr(cli, "get_toolkit", get_toolkit)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr(
+        cli,
+        "start_interactive_reader",
+        lambda *args, **kwargs: pytest.fail("API mode must use the native CLI"),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "rpent",
+            "--robot",
+            "libero",
+            "--explore",
+            "--memory-profile",
+            "local",
+            "--memory-dir",
+            str(tmp_path / "memory"),
+            "--output-dir",
+            str(tmp_path),
+            "--max-turns",
+            "4",
+            "--explore-sessions",
+            "3",
+        ],
+    )
+
+    assert cli.main() == 0
+    assert calls["planner_count"] == 2
+    assert model_requests == 2
+    assert calls["write_recipe"] == "libero_s0"
+    assert toolkit.closed is True
+    assert daemon.stopped is True
+    transcript = json.loads((tmp_path / "transcript_libero_s0.json").read_text())
+    assert transcript["error"] is None
+    assert len([m for m in transcript["messages"] if m["role"] == "user"]) == 2
+
+
 @pytest.mark.parametrize("planner_name", ["codex", "flash"])
 @pytest.mark.parametrize(
     "planner_error", [None, "RuntimeError: Grasp not held; replay stopped"]

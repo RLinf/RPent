@@ -55,7 +55,11 @@ from pydantic_ai import (
 from pydantic_ai.agent import WrapperAgent
 from pydantic_ai.capabilities import AbstractCapability, Thinking, on_event
 from pydantic_ai.capabilities.abstract import AgentNode, NodeResult, WrapRunHandler
-from pydantic_ai.exceptions import UsageLimitExceeded, UserError
+from pydantic_ai.exceptions import (
+    UnexpectedModelBehavior,
+    UsageLimitExceeded,
+    UserError,
+)
 from pydantic_ai.messages import ModelMessage, UserContent
 from pydantic_ai.models import Model, ModelRequestContext
 from pydantic_ai.run import AgentRun, AgentRunResult
@@ -65,6 +69,7 @@ from rpent.dashboard.events import DashboardEventSink, TranscriptEvent, UsageEve
 from rpent.dashboard.interaction import DashboardInteractionPort, DashboardMessage
 from rpent.dashboard.planner_control import DashboardPlannerControl
 from rpent.planner.base import (
+    PLANNER_TRUNCATION_MARKER,
     REASONING_EFFORTS,
     Planner,
     PlannerResult,
@@ -80,6 +85,19 @@ logger = get_logger("api")
 
 class _RequestBudgetExhausted(Exception):
     """The conversation has used its configured model-request budget."""
+
+
+def _is_response_truncation(exc: UnexpectedModelBehavior) -> bool:
+    """Match the SDK's token-limit-without-usable-output failure.
+
+    pydantic-ai raises ``UnexpectedModelBehavior`` for several conditions
+    (retries exhausted, usage limits, malformed responses). Only the
+    empty/blank/thinking-only response stopped by ``finish_reason == "length"``
+    is a predictable output-budget stop, so the classification matches on the
+    SDK message instead of the exception type.
+    """
+    message = str(exc).lower()
+    return "token limit" in message and "before any response was generated" in message
 
 
 class ApiAgentLoop(Planner):
@@ -191,6 +209,18 @@ class ApiAgentLoop(Planner):
         except _RequestBudgetExhausted as exc:
             session.error = None
             logger.info("%s", exc)
+        except UnexpectedModelBehavior as exc:
+            if _is_response_truncation(exc):
+                # A response that spent its whole output budget on thinking is
+                # an expected model-side stop, not broken tooling; mark it so
+                # the run-level recovery policy can hand off to a fresh
+                # exploration session. The SDK message stays attached as
+                # evidence.
+                session.error = f"{PLANNER_TRUNCATION_MARKER} (length): {exc}"
+                logger.warning("%s", session.error)
+            else:
+                session.error = f"{type(exc).__name__}: {exc}"
+                logger.exception("Harness planner failed")
         except Exception as exc:
             session.error = f"{type(exc).__name__}: {exc}"
             logger.exception("Harness planner failed")
