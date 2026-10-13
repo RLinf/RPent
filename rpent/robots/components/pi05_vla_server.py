@@ -225,13 +225,20 @@ class Pi05VLAFacade(BaseVLAFacade):
             cfg["model_path"],
         )
         self._model = get_model(cfg, torch_dtype=None).cuda().eval()
+        self._action_chunk = int(cfg.openpi.get("action_chunk", cfg.num_action_chunks))
         logger.info("model ready in %.1fs", time.time() - t0)
 
     def _register_rpc(self):
         super()._register_rpc()
+        self._rpc["vla.status"] = self.get_status
+        self._readonly_methods.add("vla.status")
         if self._embodiment == "yam":
             self._rpc["vla.get_model_meta"] = self.get_model_meta
             self._readonly_methods.add("vla.get_model_meta")
+
+    def get_status(self) -> dict:
+        """Return prediction chunk length for client-side action validation."""
+        return {"action_chunk": self._action_chunk}
 
     def get_model_meta(self) -> dict:
         """Return YAM policy identity separately from framework readiness."""
