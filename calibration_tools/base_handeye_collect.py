@@ -19,6 +19,7 @@ import argparse
 import base64
 import json
 import logging
+import re
 import shlex
 import shutil
 import subprocess
@@ -100,6 +101,8 @@ class Collector:
         self.root = root
         self.pose_key = f"T_{config.arm}_base_ee"
         self.samples: list[Record] = []
+        self.reference: Record | None = None
+        self.next_index = 1
         self.last: Record = {}
         self.lock = threading.Lock()
         self.board = cv2.aruco.CharucoBoard(
@@ -109,6 +112,28 @@ class Collector:
             cv2.aruco.getPredefinedDictionary(getattr(cv2.aruco, config.dictionary)),
         )
         self.board.setLegacyPattern(False)
+
+    def delete_sample(self, index: int) -> Record:
+        """Exclude a selected sample, preserving its files for manual recovery."""
+        if type(index) is not int or index < 1:
+            raise ValueError("Sample index must be a positive integer")
+        sample = next((s for s in self.samples if s["index"] == index), None)
+        if sample is None:
+            raise ValueError(f"No active sample with index {index}")
+        source = self.root / f"sample_{index:03d}"
+        destination = self.root / "excluded" / source.name
+        if destination.exists():
+            raise FileExistsError(f"Excluded sample already exists: {destination}")
+        destination.parent.mkdir(exist_ok=True)
+        source.rename(destination)
+        self.samples.remove(sample)
+        LOGGER.info("Excluded sample %d; files retained at %s", index, destination)
+        return {
+            "deleted": True,
+            "index": index,
+            "count": len(self.samples),
+            "archived": str(destination),
+        }
 
     def read_state(self) -> Record:
         """Run the configured readOnce probe with a bounded local timeout."""
@@ -150,9 +175,9 @@ class Collector:
             raise ValueError("采样窗口超过 3 秒，请检查网络后重试")
         if before["F_T_EE"] != after["F_T_EE"]:
             raise ValueError("末端坐标定义在采样期间发生变化")
-        if self.samples and not np.allclose(
+        if self.reference is not None and not np.allclose(
             before["F_T_EE"],
-            self.samples[0]["robot_before"]["F_T_EE"],
+            self.reference["robot_before"]["F_T_EE"],
             atol=1e-8,
             rtol=0,
         ):
@@ -161,7 +186,7 @@ class Collector:
             dm, dr = delta(a, np.array(old[self.pose_key]))
             if dm < 0.005 and dr < np.deg2rad(5):
                 raise ValueError("与已有姿态过于接近，请改变姿态后采集；不要重复点击")
-        check_camera(camera, self.samples[0]["camera"] if self.samples else camera)
+        check_camera(camera, self.reference["camera"] if self.reference else camera)
         png = base64.b64decode(camera.pop("png_b64"), validate=True)
         im = cv2.imdecode(np.frombuffer(png, np.uint8), cv2.IMREAD_COLOR)
         if im is None or im.shape[:2] != (camera["height"], camera["width"]):
@@ -203,7 +228,7 @@ class Collector:
         t[:3, :3] = rot
         t[:3, 3] = tv.ravel()
         record = {
-            "index": len(self.samples) + 1,
+            "index": self.next_index,
             "host_start_s": start,
             "host_end_s": time.time(),
             "robot_before": before,
@@ -241,6 +266,9 @@ class Collector:
             if temporary.exists():
                 shutil.rmtree(temporary)
         self.samples.append(record)
+        if self.reference is None:
+            self.reference = record
+        self.next_index += 1
         return {
             "accepted": True,
             "count": len(self.samples),
@@ -255,6 +283,14 @@ class Collector:
             "count": len(self.samples),
             "session": str(self.root),
             "last": self.last,
+            "samples": [
+                {
+                    "index": sample["index"],
+                    "corners": sample["corners"],
+                    "reprojection_rms_px": round(sample["reprojection_rms_px"], 3),
+                }
+                for sample in self.samples
+            ],
         }
 
     def preview(self) -> bytes:
@@ -283,23 +319,6 @@ class Collector:
         return encoded.tobytes()
 
 
-PAGE = b"""<!doctype html><meta charset="utf-8"><title>Hand-eye calibration</title>
-<style>body{font:18px sans-serif;max-width:900px;margin:30px auto}img{max-width:100%}button{padding:12px}</style>
-<h1>Stationary hand-eye calibration</h1>
-<p id="instruction"></p><p>Move the arm manually, release guidance, and wait two seconds.
-This collector only reads robot state. Keep the board visible and collect varied rotations.</p>
-<img id="view"><p><button id="button" onclick="capture()">Capture pose</button></p><pre id="status"></pre>
-<p>A recorded sample is not a successful calibration. Solve and validate on new poses.</p>
-<script>
-async function refresh(){document.getElementById('view').src='/frame.jpg?t='+Date.now();
-try{document.getElementById('status').textContent=JSON.stringify(await(await fetch('/status')).json(),null,2);}catch(e){}
-setTimeout(refresh,1000);}refresh();
-async function capture(){let b=document.getElementById('button');b.disabled=true;
-try{document.getElementById('status').textContent=JSON.stringify(await(await fetch('/sample',{method:'POST'})).json(),null,2);}
-catch(e){document.getElementById('status').textContent=String(e);}finally{b.disabled=false;}}
-</script>"""
-
-
 def make_handler(collector: Collector) -> type[BaseHTTPRequestHandler]:
     """Build a request handler bound to one collector instance."""
 
@@ -318,18 +337,29 @@ def make_handler(collector: Collector) -> type[BaseHTTPRequestHandler]:
         def do_GET(self) -> None:
             """Serve the session page, status, or camera preview."""
             if self.path == "/":
-                instruction = "Fix the board to the end effector and the camera to its stationary mount."
                 self.reply(
                     200,
-                    PAGE.replace(
-                        b'<p id="instruction"></p>', f"<p>{instruction}</p>".encode()
-                    ),
+                    Path(__file__).with_suffix(".html").read_bytes(),
                     "text/html; charset=utf-8",
                 )
             elif self.path == "/status":
                 with collector.lock:
                     status = collector.status()
                 self.reply(200, json.dumps(status, allow_nan=False).encode())
+            elif match := re.fullmatch(r"/samples/([0-9]+)/annotated\.png", self.path):
+                index = int(match[1])
+                with collector.lock:
+                    if not any(s["index"] == index for s in collector.samples):
+                        self.send_error(404)
+                        return
+                    try:
+                        data = (
+                            collector.root / f"sample_{index:03d}" / "annotated.png"
+                        ).read_bytes()
+                    except OSError as error:
+                        self.reply(503, json.dumps({"error": str(error)}).encode())
+                        return
+                self.reply(200, data, "image/png")
             elif self.path.startswith("/frame.jpg"):
                 try:
                     self.reply(200, collector.preview(), "image/jpeg")
@@ -339,16 +369,21 @@ def make_handler(collector: Collector) -> type[BaseHTTPRequestHandler]:
                 self.send_error(404)
 
         def do_POST(self) -> None:
-            """Record one sample while rejecting concurrent acquisition."""
-            if self.path != "/sample":
+            """Serialize sample capture and recoverable exclusion."""
+            deletion = re.fullmatch(r"/samples/([0-9]+)/delete", self.path)
+            if self.path != "/sample" and deletion is None:
                 self.send_error(404)
                 return
             if not collector.lock.acquire(blocking=False):
-                self.reply(409, b'{"error":"sample in progress"}')
+                self.reply(409, b'{"error":"sample operation in progress"}')
                 return
             try:
                 try:
-                    collector.last = collector.sample()
+                    collector.last = (
+                        collector.delete_sample(int(deletion[1]))
+                        if deletion
+                        else collector.sample()
+                    )
                     code = 200
                 except (
                     ValueError,
@@ -357,7 +392,7 @@ def make_handler(collector: Collector) -> type[BaseHTTPRequestHandler]:
                     cv2.error,
                     subprocess.SubprocessError,
                 ) as error:
-                    LOGGER.warning("Sample rejected: %s", error)
+                    LOGGER.warning("Sample operation rejected: %s", error)
                     collector.last = {"accepted": False, "error": str(error)}
                     code = 422
                 self.reply(code, json.dumps(collector.last, allow_nan=False).encode())
