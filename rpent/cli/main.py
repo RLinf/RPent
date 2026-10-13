@@ -370,9 +370,13 @@ def main() -> int:
         or (args.dashboard and robot_spec.supports_human_interactive_exploration)
     ):
         if args.dashboard or args.interactive:
+            option = "--dashboard" if args.dashboard else "--interactive"
+            guidance = "Run in a plain terminal for operator confirmation."
+            if robot_spec.supports_human_interactive_exploration:
+                guidance += " Alternatively, use --dashboard."
             parser.error(
-                "This robot requires terminal interaction for operator confirmation; "
-                "--dashboard and --interactive are not supported. Run in a plain terminal."
+                f"{option} is not supported for this robot in the current mode. "
+                + guidance
             )
         if sys.stdin is None or not sys.stdin.isatty():
             parser.error("This robot requires a TTY for operator confirmation.")

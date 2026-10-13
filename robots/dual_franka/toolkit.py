@@ -61,8 +61,8 @@ class DualFrankaToolkit(FrankaToolkit):
     """Dual-arm tools with operator-gated exploration.
 
     Operator decisions and attempt boundaries are recorded as artifacts rather
-    than simulator termination flags. Operator input can use an injected Web
-    reader instead of a terminal.
+    than simulator termination flags. Operator confirmations can come from the
+    terminal or Dashboard.
     """
 
     _tools_module = dual_franka_tools
