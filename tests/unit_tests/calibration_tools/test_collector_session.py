@@ -21,6 +21,7 @@ import importlib
 import io
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -72,7 +73,16 @@ def session(monkeypatch, tmp_path):
     monkeypatch.setattr(
         collector_module.Collector, "read_state", lambda self: copy.deepcopy(state)
     )
-    monkeypatch.setattr(collector_module.time, "sleep", lambda _: None)
+    clock = [1000.0]
+
+    def advance_clock(seconds):
+        clock[0] += seconds
+
+    monkeypatch.setattr(
+        collector_module,
+        "time",
+        SimpleNamespace(time=lambda: clock[0], sleep=advance_clock),
+    )
     monkeypatch.setattr(collector_module.urllib.request, "urlopen", camera_response)
     return collector_module, collector, state
 
@@ -100,6 +110,9 @@ def request_handler(module, collector, path, method="POST"):
 
 def test_review_exclude_resume_and_continue_capture(session):
     collector_module, collector, state = session
+    code, page, kind = request_handler(collector_module, collector, "/", "GET")
+    assert (code, kind) == (200, "text/html; charset=utf-8")
+    assert b"Fix the board to the end effector" in page
     code, body, _ = request_handler(collector_module, collector, "/sample")
     assert code == 200 and json.loads(body)["accepted"]
     original = snapshot(collector.root / "sample_001")

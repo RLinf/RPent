@@ -152,6 +152,9 @@ For D455, use ``d455-to-right`` and ``d455_to_right.yaml`` instead. Inspect
 ``quality_report.json`` and validate the candidate against independent physical
 measurements. Successful fitting or YAML export does not establish accuracy.
 Export does not overwrite existing files.
+When exporting a recalculated result, choose a new output filename, such as
+``calibration_tools/exports/base_to_right_v2.yaml``. Validate it before updating
+``perception.calibration`` to use the new file.
 
 **4. Configure RPent**
 
