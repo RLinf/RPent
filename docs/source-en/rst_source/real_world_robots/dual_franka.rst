@@ -117,10 +117,21 @@ The tool only reads state. Without ``--output``, sessions are saved under the
 script directory's ``calibration_tools/sessions/``, regardless of the working
 directory.
 
-Stop the collector with ``Ctrl+C``. For D455, repeat with ``D455_SERIAL``,
-``/raw/d455``, and ``calibration_tools/sessions/d455-to-right``. Use a new
-directory for each session; D455 stream compatibility must be checked against
-the supported distortion models above.
+Use the saved-sample table to inspect each sample's corner count and
+reprojection RMS in pixels. Click ``Preview`` to open its annotated image,
+then ``Exclude`` to remove an unsuitable sample from the next solve. Its
+files remain in the session's ``excluded/`` directory. ``Active samples``
+counts only samples used by the solver; IDs remain unchanged, so gaps are
+normal. Adding or excluding samples does not recalculate existing calibration
+results: run the solver again before exporting.
+
+Stop the collector with ``Ctrl+C``. To start again after an interruption or
+recollect the entire session, rerun the command with a new ``--output`` directory.
+Existing session files remain on disk but are not loaded into the new collection.
+
+For D455, repeat with ``D455_SERIAL``, ``/raw/d455``, and
+``calibration_tools/sessions/d455-to-right``. Check that its stream configuration
+uses a supported distortion model as described above.
 
 **3. Fit and export**
 
@@ -136,6 +147,9 @@ For D455, use ``d455-to-right`` and ``d455_to_right.yaml`` instead. Inspect
 ``quality_report.json`` and validate the candidate against independent physical
 measurements. Successful fitting or YAML export does not establish accuracy.
 Export does not overwrite existing files.
+When exporting a recalculated result, choose a new output filename, such as
+``calibration_tools/exports/base_to_right_v2.yaml``. Validate it before updating
+``perception.calibration`` to use the new file.
 
 **4. Configure RPent**
 
@@ -181,6 +195,22 @@ Review and edit the checked-in development defaults before enabling motion:
 RPent translates this robot-focused schema into the internal two-node RLinf
 cluster and environment objects. To use a different file, pass
 ``--robot-config /path/to/robot_config.yaml``.
+
+During ``rotate_delta``, the position target stays at the starting TCP position.
+On real hardware, compliance/impedance control can allow the actual pose to
+deviate from the target due to load, contact, or limited tracking accuracy.
+
+``rotation_hold.max_drift_m`` defaults to ``0.10`` m (10 cm) and bounds the
+Euclidean distance from the TCP position at the start of this rotation. It is
+separate from the position tolerance, ``move_tolerance_m`` (0.006 m). At or below
+the drift limit, after rotation ends, ``move_delta`` returns the TCP to its
+starting position only if the position error exceeds that tolerance. The call
+reports ``ok=True`` only if compensation succeeds (when needed) and the final
+position and angle both meet their tolerances; otherwise it reports ``False``.
+Above the limit, a check during the rotation loop or at its end raises an RPC
+error, ending the call without translation compensation.
+
+The robot's own protections can still trigger independently.
 
 Start the Two-node Ray Cluster
 ------------------------------

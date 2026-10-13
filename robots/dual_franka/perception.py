@@ -349,7 +349,7 @@ def _back_project_camera_pixel(
         camera_alias=camera,
         raw_key=str(camera_config["raw_key"]),
     )
-    intr = meta.get("color_intrinsics") or {}
+    intr = meta.get("raw_color_intrinsics") or meta.get("color_intrinsics") or {}
     fx = float(intr["fx"])
     fy = float(intr["fy"])
     cx = float(intr.get("ppx", intr.get("cx")))
@@ -656,7 +656,9 @@ def _camera_meta(
         aliases.append("extra_0")
     for key in aliases:
         value = meta.get(key)
-        if isinstance(value, dict) and value.get("color_intrinsics"):
+        if isinstance(value, dict) and (
+            value.get("raw_color_intrinsics") or value.get("color_intrinsics")
+        ):
             return value
     raise ValueError(f"{camera_alias} RealSense color intrinsics not found")
 
@@ -864,7 +866,7 @@ def _mask_to_camera_world(
         camera_alias=camera,
         raw_key=str(camera_config["raw_key"]),
     )
-    intr = meta.get("color_intrinsics") or {}
+    intr = meta.get("raw_color_intrinsics") or meta.get("color_intrinsics") or {}
     fx = float(intr["fx"])
     fy = float(intr["fy"])
     cx = float(intr.get("ppx", intr.get("cx")))
