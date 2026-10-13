@@ -74,12 +74,13 @@ pytest tests/unit_tests -v
 
 ## RoboCasa environment smoke tests
 
-The RoboCasa test files have different resource requirements:
+RoboCasa separates simulator checks, model component checks and the full call chain:
 
-| Tests | Requirements |
-| --- | --- |
-| `test_environment_smoke.py` | RoboCasa extra, assets and GPU/EGL; no model weights or planner credentials |
-| `test_components.py`, `test_policy_chain.py` | Model checkpoints and environment resources, supplied by the GPU runner |
+| Tests | Coverage | Requirements |
+| --- | --- | --- |
+| `test_environment_smoke.py` | Three scenes, navigation RGB-D/world map and mobile-camera tracking | RoboCasa extra, assets and GPU/EGL; no model weights or planner credentials |
+| `test_components.py` | Environment observations over RPC and RLDX inference | Model checkpoint, assets and GPU/EGL |
+| `test_policy_chain.py` | CLI → tools → RLDX → simulator action → `finish` | Model checkpoint, assets and GPU/EGL; local scripted planner |
 
 To check simulator installation and interfaces independently, install the
 RoboCasa extra and assets, then run:
@@ -120,9 +121,9 @@ bash tests/e2e_tests/run_gpu_suite.sh \
 ```
 
 For RoboCasa, the runner enables the four environment smoke cases alongside
-the two component tests and one policy-chain test. All seven run in the same
-GPU suite. The policy-chain test uses a local scripted planner and needs no
-external planner credentials.
+the two component tests and one policy-chain test. The existing
+[GPU CI](../.github/workflows/embodied-gpu-e2e-run.yml) uses this same runner for
+all seven checks. The scripted planner needs no external planner credentials.
 
 ## Dual-Franka VLA diagnostic console
 
