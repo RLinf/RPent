@@ -103,10 +103,11 @@ RPent 可以通过 RLinf ``RealWorldEnv`` worker 控制双节点双臂 Franka �
 工具只读取状态，不会移动机械臂。不传 ``--output`` 时，默认写入脚本所在目录下的
 ``calibration_tools/sessions/``，与启动时的工作目录无关。
 
-完成后按 ``Ctrl+C`` 停止采集器。标定 D455 时重复上述命令，将序列号换成
-``D455_SERIAL``、URL 换成 ``/raw/d455``、输出目录换成
-``calibration_tools/sessions/d455-to-right``。每次采集使用新目录；D455 流配置
-需先确认符合上面的畸变模型支持范围。
+在已保存样本表格中查看角点数量和重投影 RMS（像素）。点击 ``Preview`` 打开带标注的样本图像，再通过 ``Exclude`` 将不合适的样本排除出下一次求解；文件仍保留在会话的 ``excluded/`` 目录中。``Active samples`` 只统计参与求解的有效样本；样本编号保持不变，出现空缺是正常的。增加或排除样本不会自动重算已有标定结果，应重新运行求解器后再导出。
+
+按 ``Ctrl+C`` 停止采集器。中断后重新开始或整批重采时，重新运行上面的命令，并为 ``--output`` 指定新会话目录。旧会话文件仍保留在磁盘上，但不会加载到新的采集会话中。
+
+标定 D455 时重复上述命令，将序列号换成 ``D455_SERIAL``、URL 换成 ``/raw/d455``、输出目录换成 ``calibration_tools/sessions/d455-to-right``。D455 流配置需先确认符合上面的畸变模型支持范围。
 
 **3. 求解并导出**
 
@@ -121,6 +122,8 @@ RPent 可以通过 RLinf ``RealWorldEnv`` worker 控制双节点双臂 Franka �
 D455 使用同样步骤，将会话目录和输出文件改为 ``d455-to-right`` 和
 ``d455_to_right.yaml``。检查会话中的 ``quality_report.json``，并通过独立实物
 测量验证候选外参；求解成功或导出 YAML 不代表精度已验证。导出不会覆盖已有文件。
+重新求解后，导出时使用新文件名，例如 ``calibration_tools/exports/base_to_right_v2.yaml``。
+验证新结果后，再更新 ``perception.calibration`` 中的文件路径。
 
 **4. 配置 RPent**
 
@@ -155,6 +158,12 @@ RPent 将其与所选快照中的末端位姿组合；若位姿使用 ``left_bas
 * ``robots/dual_franka/config/example.yaml`` 包含机器人身份（两台机器人 IP、相机序列号/类型、夹爪连接）、工作空间几何（目标位姿、安全边界）、easy_handeye YAML 映射（见上方标定说明）和感知定位边界 + base-frame 变换。示例设置 ``realtime_config: ignore``；在 PREEMPT_RT 内核上可改为 ``enforce``。
 
 RPent 会将该机器人配置转换成内部双节点 RLinf cluster 和环境对象。如需使用其他文件，请传入 ``--robot-config /path/to/robot_config.yaml``。
+
+``rotate_delta`` 旋转时，位置目标保持在本次旋转开始时的 TCP 位置。真实硬件采用柔顺/阻抗控制，实际位姿可能因负载、接触或有限的跟踪精度而偏离目标。
+
+``rotation_hold.max_drift_m`` 默认为 ``0.10`` m（10 cm），限制 TCP 相对本次旋转起始位置的欧氏距离；它与位置到位容差 ``move_tolerance_m`` （0.006 m）不同。漂移小于或等于上限时，旋转结束后仅在位置误差超过到位容差时复用 ``move_delta`` 回位。只有补偿成功（如需补偿），且最终位置和角度均达到各自容差，才返回 ``ok=True`` ，否则返回 ``False`` 。漂移超过上限时，旋转循环中或结束时的检查会抛出 RPC 错误，停止本次调用，不再继续平移补偿。
+
+机器人自身的保护仍可能独立触发。
 
 启动双节点 Ray 集群
 --------------------
