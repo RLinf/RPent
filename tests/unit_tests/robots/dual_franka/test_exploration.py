@@ -66,7 +66,7 @@ class FakeEnv:
 
 
 @pytest.fixture
-def setup(tmp_path, monkeypatch, dual_franka_robot_config):
+def setup(tmp_path, monkeypatch, dual_franka_robot_config, request):
     from rpent.utils import logging
 
     monkeypatch.setattr(logging, "_output_dir", tmp_path)
@@ -84,7 +84,7 @@ def setup(tmp_path, monkeypatch, dual_franka_robot_config):
             memory_access="inbox_write",
             inbox_cell_tag="dual_franka_t0",
         ),
-        mode="exploration",
+        mode=getattr(request, "param", "exploration"),
         attempts_per_session=2,
         state_output_dir=tmp_path / "sessions" / "session_001",
         operator_input=lambda prompt, cancelled: replies.pop(0),
@@ -300,6 +300,8 @@ def test_cli_two_sessions_operator_feedback_and_memory_pipeline(
     replies = iter(["done", "failure dropped", "done", "success lifted"])
 
     class Operator:
+        closed = False
+
         def __init__(self, **kwargs):
             assert kwargs["interactive"] is False
 
@@ -308,7 +310,7 @@ def test_cli_two_sessions_operator_feedback_and_memory_pipeline(
             return next(replies)
 
         def close(self):
-            pass
+            self.closed = True
 
     class Planner:
         def __init__(self, *args, **kwargs):
@@ -440,7 +442,7 @@ def test_invalid_operator_transport_rejected_before_runtime(
     monkeypatch.setattr(sys, "stdin", SimpleNamespace(isatty=lambda: dashboard))
     argv = ["rpent", "--robot", "dual_franka", "--explore"]
     if dashboard:
-        argv.append("--dashboard")
+        argv.extend(["--dashboard", "--interactive"])
     monkeypatch.setattr(sys, "argv", argv)
     monkeypatch.setattr(
         cli, "build_planner", lambda *a, **k: pytest.fail("planner should not start")
@@ -448,7 +450,9 @@ def test_invalid_operator_transport_rejected_before_runtime(
     with pytest.raises(SystemExit) as exc:
         cli.main()
     assert exc.value.code == 2
-    assert ("Dashboard" if dashboard else "TTY") in capsys.readouterr().err
+    assert (
+        "cannot be used together" if dashboard else "TTY"
+    ) in capsys.readouterr().err
 
 
 def test_explore_rejects_old_external_env_without_reset_contract():
@@ -529,7 +533,7 @@ def test_direct_success_stops_active_tool_and_records_memory(setup, tmp_path):
     worker.start()
     assert entered.wait(2)
     assert t.request_direct_verdict("success")
-    assert t.request_direct_verdict("success")  # idempotent, never another attempt
+    assert not t.request_direct_verdict("success")  # idempotent, never another attempt
     assert call(t, "open_gripper", arm="left")["motion_refused"]
     release.set()
     worker.join(2)
@@ -565,14 +569,34 @@ def test_direct_success_with_failed_observation_does_not_publish(setup):
 
 
 @pytest.mark.parametrize("robot_name", ["dual_franka", "libero"])
-@pytest.mark.parametrize("verdict", ["success", "failure", "abort"])
-@pytest.mark.parametrize("planner_error", [None, "planner transport failed"])
+@pytest.mark.parametrize(
+    "verdict",
+    [
+        "success",
+        "failure",
+        "abort",
+        "eof",
+        "success-failure",
+        "success-error",
+        "success-eof",
+    ],
+)
+@pytest.mark.parametrize(
+    "planner_error,auto_merge",
+    [
+        (None, True),
+        (None, False),
+        ("planner transport failed", True),
+        ("planner timed out", True),
+    ],
+)
 def test_cli_direct_verdict_finalizes_and_merges_only_without_errors(
     tmp_path,
     monkeypatch,
     dual_franka_robot_config,
     verdict,
     planner_error,
+    auto_merge,
     robot_name,
 ):
     import sys
@@ -583,22 +607,55 @@ def test_cli_direct_verdict_finalizes_and_merges_only_without_errors(
 
     env = FakeEnv()
     handlers = {}
+    sessions = []
 
     def reader(input_queue, **kwargs):
         handlers["line"] = kwargs["line_handler"]
+        handlers["close"] = kwargs["on_close"]
         input_queue.put("test task")
 
     monkeypatch.setattr(cli, "start_interactive_reader", reader)
 
     class Planner:
         def solve(self, *, toolkit, input_queue, **kwargs):
+            sessions.append(toolkit)
+            current = (
+                verdict.split("-")[0] if len(sessions) == 1 else verdict.split("-")[-1]
+            )
+            error = planner_error or ("backend failed" if current == "error" else None)
+            audit_path = tmp_path / "run/dual_franka_t0.json"
+            assert not audit_path.exists()
+            if (
+                current == "success"
+                and error is None
+                and (len(sessions) == 1 or not auto_merge)
+            ):
+                audit_path.write_text(json.dumps({"agent_session": len(sessions)}))
             toolkit._operator_input = lambda *args: "done"
             call(toolkit, "request_scene_reset", reason="test")
             call(toolkit, "move_delta", arm="right", delta_xyz=[0.01, 0, 0])
-            assert handlers["line"]("/" + verdict)
-            assert input_queue.get(timeout=1) is None
+            inbox = toolkit.memory.root / "_internal/inbox/dual_franka_t0"
+            inbox.mkdir(parents=True, exist_ok=True)
+            (inbox / "new_global_strategy_lesson.md").write_text(
+                "---\nid: lesson\nscope: global\nkind: strategy\ntitle: Lesson\n"
+                "applies_when: Same setup\nconfidence: single-shot\n"
+                "evidence:\n  cells: [dual_franka_t0]\n---\nObserved attempt.\n"
+            )
+            if current == "eof":
+                handlers["close"]()
+                input_queue.put(None)
+                assert input_queue.get() is None
+            else:
+                assert handlers["line"](
+                    "/" + ("failure" if current == "error" else current)
+                )
+            from rpent.session.input import InputCancelled
+
+            if current != "eof":
+                with pytest.raises(InputCancelled):
+                    input_queue.get()
             return SimpleNamespace(
-                finish_result=None, messages=[], stats={}, error=planner_error
+                finish_result=None, messages=[], stats={}, error=error
             )
 
     spec = replace(
@@ -632,6 +689,9 @@ def test_cli_direct_verdict_finalizes_and_merges_only_without_errors(
             "codex",
             "--explore",
             "--interactive",
+            "--explore-sessions",
+            "2",
+            *([] if auto_merge else ["--no-auto-merge-memory"]),
             "--output-dir",
             str(tmp_path / "run"),
             "--memory-dir",
@@ -640,28 +700,73 @@ def test_cli_direct_verdict_finalizes_and_merges_only_without_errors(
             str(dual_franka_robot_config),
         ],
     )
-    assert cli.main() == (1 if planner_error else 0)
+    assert cli.main() == int(bool(planner_error or verdict == "success-error"))
+    assert len(sessions) == (
+        2 if verdict not in {"abort", "eof"} and not planner_error else 1
+    )
+    for i in range(1, len(sessions) + 1):
+        assert (
+            tmp_path / f"run/sessions/session_{i:03d}/transcript_dual_franka_t0.json"
+        ).is_file()
+        if (
+            verdict.startswith("success")
+            and (i == 1 or verdict == "success")
+            and planner_error is None
+        ):
+            audit = json.loads(
+                (
+                    tmp_path / f"run/sessions/session_{i:03d}/dual_franka_t0.json"
+                ).read_text()
+            )
+            expected_agent = {"agent_session": i} if i == 1 or not auto_merge else None
+            assert audit["agent_audit"] == expected_agent
+            assert f"session_{i:03d}" in audit["state_trace"]
+    session_dir = tmp_path / "run/sessions/session_001"
+    assert (session_dir / "dual_franka_t0.json").is_file() == verdict.startswith(
+        "success"
+    )
+    assert (session_dir / "dual_franka_t0_recipe.jsonl").is_file() == (
+        verdict.startswith("success") and planner_error is None
+    )
+    assert (
+        json.loads((session_dir / "transcript_dual_franka_t0.json").read_text())[
+            "error"
+        ]
+        == planner_error
+    )
+    published = (
+        auto_merge
+        and not planner_error
+        and verdict in {"success", "success-failure", "failure"}
+    )
+    assert (tmp_path / "memory/global/lesson.md").is_file() == published
     assert (tmp_path / "memory/task-specific/dual_franka_t0.json").is_file() == (
-        verdict == "success" and planner_error is None
+        published and verdict != "failure"
     )
     assert (
         tmp_path / "memory/task-specific/dual_franka_t0_recipe.jsonl"
-    ).is_file() == (verdict == "success" and planner_error is None)
+    ).is_file() == (published and verdict != "failure")
+    if published and verdict != "failure":
+        assert json.loads(
+            (tmp_path / "memory/task-specific/dual_franka_t0.json").read_text()
+        )["agent_audit"] == {"agent_session": 1}
     events = json.loads(
         (tmp_path / "run/sessions/session_001/operator_events.json").read_text()
     )
-    assert events[-1]["status"] == ("failure" if verdict == "abort" else verdict)
-    assert events[-1]["operator_finished"] is True
+    assert events[-1]["status"] == (
+        "failure" if verdict in {"abort", "eof"} else verdict.split("-")[0]
+    )
+    assert events[-1]["operator_finished"] is (verdict in {"abort", "eof"})
 
 
-def test_direct_failure_ends_without_success_memory_even_before_reset(setup):
+def test_direct_failure_seals_session_without_success_memory_even_before_reset(setup):
     t, env, _ = setup
     assert t.request_direct_verdict("failure")
-    assert t.request_direct_verdict("failure")
+    assert not t.request_direct_verdict("failure")
     assert not t.request_direct_verdict("success")
     assert call(t, "request_scene_reset", reason="late reset")["motion_refused"]
     result = t.finalize_direct_verdict()
-    assert result["status"] == "failure" and result["operator_finished"]
+    assert result["status"] == "failure" and not result["operator_finished"]
     assert not t.solved() and env.resets == 0
     assert t.write_recipe("dual_franka_t0") is None
 
@@ -686,3 +791,71 @@ def test_explore_task_is_only_in_user_prompt():
     for section in ("TASK", "TASK CONSTRAINTS"):
         assert section not in system
         assert section in user
+
+
+@pytest.mark.parametrize("setup", ["exploration", "evaluation"], indirect=True)
+def test_fresh_observation_and_pixel_provenance(setup):
+    from rpent.tools import ToolResult
+
+    t, env, replies = setup
+    if t._mode == "exploration":
+        reset(t, replies)
+    old = t.state.latest_step
+    env.resets += 1  # Out-of-band scene change, visible only on capture.
+    assert not call(t, "view_env_state", step=old).get("error")
+    assert t.state.latest_step == old
+    fresh = call(t, "view_env_state")
+    assert t.state.latest_step == old + 1
+    assert not fresh.get("error")
+    assert t.state.load("left_wrist.png")[0, 0, 0] == env.resets
+    latest = t.state.latest_step
+    for tool, coords in (
+        ("back_project", {"row": 1, "col": 1}),
+        ("segment", {"point": [1, 1]}),
+    ):
+        seen = []
+        for step in (None, -1, old, latest + 1):
+            assert call(t, tool, **coords, step=step).get("error")
+        result = t._current_perception(
+            lambda **kw: seen.append(kw) or ToolResult(data={}), **coords, step=latest
+        )
+        assert not result.is_error and seen[0]["step"] == latest
+    env.fail_observation = True
+    assert call(t, "view_env_state").get("error")
+
+
+def test_fresh_capture_waits_for_active_motion(setup, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+
+    t, env, replies = setup
+    reset(t, replies)
+    moving, release = Event(), Event()
+    observe = env.get_observation
+
+    def move(*args):
+        moving.set()
+        assert release.wait(3)
+        moving.clear()
+        return {"ok": True}
+
+    def capture():
+        assert not moving.is_set()
+        return observe()
+
+    monkeypatch.setattr(env, "move_delta", move)
+    monkeypatch.setattr(env, "get_observation", capture)
+    with ThreadPoolExecutor() as pool:
+        motion = pool.submit(call, t, "move_delta", arm="right", delta_xyz=[0, 0, 0.01])
+        assert moving.wait(2)
+        fresh = pool.submit(call, t, "view_env_state")
+        try:
+            with t._scheduler.condition:
+                assert t._scheduler.condition.wait_for(
+                    lambda: bool(t._scheduler.pending), timeout=2
+                )
+            assert not fresh.done()
+        finally:
+            release.set()
+        assert not motion.result(3).get("error")
+        assert not fresh.result(3).get("error")

@@ -583,3 +583,75 @@ def test_claude_interrupt_waits_for_old_results_before_next_query():
             await asyncio.gather(running, return_exceptions=True)
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("accepted", [False, True])
+@pytest.mark.parametrize("close_during_query", [False, True])
+def test_terminal_adapter_preserves_unaccepted_input_and_interrupt_policy(
+    accepted, close_during_query
+):
+    from rpent.planner.claude_code import _TerminalSessionAdapter
+
+    source = queue.Queue()
+    source.put("steer")
+    calls = []
+
+    class Driver:
+        async def interrupt(self):
+            calls.append("interrupt")
+
+        async def query(self, text):
+            calls.append(text)
+            if not accepted:
+                raise RuntimeError("rejected")
+
+    async def scenario():
+        entered, release = asyncio.Event(), asyncio.Event()
+
+        class RacingDriver(Driver):
+            async def query(self, text):
+                if accepted:
+                    await super().query(text)
+                entered.set()
+                await release.wait()
+                if not accepted:
+                    await super().query(text)
+
+        adapter = _TerminalSessionAdapter(
+            toolkit=FakeToolkit(),
+            input_queue=source,
+            emit_user=lambda text: calls.append("accepted"),
+        )
+        if close_during_query:
+            source.put("later")
+            source.put(None)
+            running = asyncio.create_task(adapter.run(RacingDriver()))
+            await asyncio.wait_for(entered.wait(), 3)
+            closing = asyncio.create_task(adapter.close())
+            await asyncio.sleep(0)
+            assert not closing.done()
+            assert list(source.queue) == ["later", None]
+            running.cancel()
+            release.set()
+            with pytest.raises(asyncio.CancelledError):
+                await running
+            await closing
+        elif accepted:
+            source.put(None)
+            await adapter.run(Driver())
+        else:
+            with pytest.raises(RuntimeError, match="rejected"):
+                await adapter.run(Driver())
+        await adapter.close()
+
+    asyncio.run(scenario())
+    assert calls[:2] == ["interrupt", "steer"]
+    if close_during_query:
+        assert calls[2:] == (["accepted"] if accepted else [])
+        assert list(source.queue) == (
+            ["later", None] if accepted else ["steer", "later", None]
+        )
+    elif accepted:
+        assert calls[2:] == ["accepted", "interrupt"] and source.empty()
+    else:
+        assert source.get_nowait() == "steer" and source.empty()

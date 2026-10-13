@@ -36,8 +36,8 @@ conversation history. Use ``/exit`` to close it. For example:
 
 Configure credentials as described in :doc:`configure_planner`.
 ``--interactive`` and ``--dashboard`` cannot be used together.
-Single-arm Franka and ordinary dual-arm Franka runs require the plain operator
-terminal. For interactive dual-arm exploration, follow :doc:`../real_world_robots/dual_franka`.
+For physical robot setup and human confirmation, see the
+:doc:`../real_world_robots/franka` and :doc:`../real_world_robots/dual_franka` guides.
 
 .. _dashboard-usage:
 

@@ -353,6 +353,16 @@ analytic motion selects exactly one arm, ``left`` or ``right``. Mutating tools
 capture per-arm state and synchronized left-wrist, base, and right-wrist images
 in RPent's central ``EnvState``.
 
+In both modes, ``view_env_state(step=-1)`` acquires and saves new camera and robot
+state, adding capture and artifact I/O cost. A nonnegative step reads saved
+artifacts only. Pixel-based ``back_project`` and ``segment`` calls must name the
+latest saved step; omitted, negative or stale pixel source steps are rejected.
+Text-only segmentation uses a saved image, not a new capture. Capture and
+verdict tools use exclusive tool scheduling so they do not race physical actions.
+These checks cannot detect external scene changes or establish the provenance of
+handwritten motion coordinates. Reobserve and reselect targets after scene changes;
+matching a step number alone does not make coordinates safe to execute.
+
 Safety
 ------
 
@@ -364,13 +374,20 @@ uncertain.
 Manual Skill Testing
 --------------------
 
-Evaluation requires an exclusive terminal (TTY) for operator confirmation,
-without ``--interactive`` or Dashboard. Exploration supports
-``--explore --interactive`` but still requires a terminal; operator feedback
-through the Dashboard is not supported. Unsupported option combinations are
-rejected before connecting to hardware. Evaluation also exposes
-``request_operator_verdict`` and requires a verdict before calling ``finish``.
-``request_scene_reset`` is registered only in exploration mode.
+For ordinary terminal evaluation, omit ``--interactive`` and ``--dashboard``
+and answer human-confirmation prompts in a TTY. ``--explore`` also accepts
+prompted answers without ``--interactive``. To guide exploration through
+terminal conversation, add ``--interactive`` (``-i``); see
+:doc:`../guides/dashboard` for Codex/Claude live input and API follow-up behavior.
+
+With ``--dashboard``, submit tasks, messages and confirmation replies in the
+Dashboard message input; no TTY or ``--interactive`` is needed. The two flags
+cannot be combined. Dashboard supports ``api``, ``claude_code`` and ``codex``
+(current physical experiments have only validated Codex).
+For ordinary tasks, ``/success``, ``/failure`` and ``/continue`` answer a pending
+``request_operator_verdict``; the agent then continues to ``finish``.
+Ordinary tasks reset on environment connection; exploration waits for scene
+confirmation before resetting.
 
 The deployment scripts live in ``robots/dual_franka/``. From the repository root:
 
@@ -417,97 +434,74 @@ explicit permissions. The connectivity probe remains read-only.
 Attended Exploration
 --------------------
 
-``dual_franka --explore`` waits for operator scene confirmation before robot
-reset and records human verdicts with observation evidence. It reuses
-RPent's exploration sessions and layered memory while retaining the existing
-real-robot RGB/depth/state logs. This does not enable single-arm ``franka``
-exploration.
-
-Robots opt into human-interactive exploration through
-``RobotSpec.supports_human_interactive_exploration``. The five operator commands
-appear in interactive help only when this capability is active in exploration mode.
+``dual_franka --explore`` waits for scene confirmation before resetting the
+robot and records human verdicts with camera and robot state. For example,
+start task 0 with the planner and VLA settings described above:
 
 .. code-block:: bash
 
-   rpent --robot dual_franka --task-id 0 --explore --interactive \
+   rpent --robot dual_franka --task-id 0 --explore \
      --robot-config /path/to/robot.yaml \
      --memory-dir /path/to/memory/dual_franka \
      --explore-attempts-per-session 3 --explore-sessions 2 \
      --output-dir /path/to/new-run
 
-Configure the planner and task-1 VLA as described above. The client skips its
-usual reset-on-connect during exploration; underlying hardware initialization
-still follows RLinf's own lifecycle. Every session must call
-``request_scene_reset`` before motion. The operator restores the physical scene
-and replies ``done``; only a successful robot reset with camera/state capture
-starts an attempt. Reset failures keep motion blocked.
+Each planner session begins with ``request_scene_reset``. Secure held objects,
+restore the scene and reply ``done``. A successful reset and camera/state capture
+start an attempt; a failed reset keeps motion blocked.
+``--explore-attempts-per-session`` limits attempts within each session.
+External ``--env-endpoint`` servers must advertise ``explicit_reset_only=True``
+to support this confirmation-before-reset workflow.
 
-``request_operator_verdict`` records a fresh observation and asks for
-``success``, ``failure``, ``continue`` or ``abort``, with optional notes.
-``solved()`` uses the current operator verdict. Motion and ``continue`` clear
-previous verdicts. Abort/EOF permits ending without spending the remaining
-attempt budget.
+``request_operator_verdict`` asks for ``success``, ``failure``, ``continue`` or
+``abort``, with optional notes. Its success/failure reply judges the current
+attempt; ``continue`` resumes it and ``abort`` stops exploration. Further motion
+clears the previous verdict. Closing terminal input also stops exploration.
 
-With ``--interactive``, reply using ``/operator <request-id> <answer>`` as shown
-in the terminal; other lines remain planner steering. Without it, answer the
-terminal prompt directly. A TTY is required. Dashboard operator feedback is not
-implemented, so Dashboard exploration is rejected before runtime startup.
+With Codex/Claude and ``--interactive``, use the displayed request ID, for example
+``/operator <request-id> done`` or ``/operator <request-id> success object lifted``.
+Other messages go to the agent. Without ``--interactive``, answer the prompt
+directly. With ``--dashboard``, use the commands below in the Dashboard message input.
 
-Each ``sessions/session_<NNN>/`` retains state and camera artifacts, per-step
-``exploration.json`` and session-level ``operator_events.json``. Failed attempts
-remain in the trace. Memory reads use ``task-family`` and ``global``; working notes go
-into the task inbox's ``wip/``. After success, draft task-family/global lessons in the
-inbox; the runner exports the winning attempt's command sequence and adds
-operator evidence to its task audit. Recorded coordinates are not automatically
-replayed. ``--auto-merge-memory`` is opt-in and invokes the existing memory
-merge/index workflow only on successful, error-free exploration runs, including
-the ``task-specific`` audit/recipe pair.
+Records and Memory
+~~~~~~~~~~~~~~~~~~
 
-Prompts are selected by ``robots/dual_franka/prompt_bundle.py``. Evaluation uses
-``prompts/system.py`` and ``prompts/user.py``; exploration uses
-``prompts/explore.py``. ``tasks.py`` owns task instructions, success criteria and
-constraints; ``robot_spec.py`` supplies the rendering variables. Continuation
-system prompts retain the task context. The LIBERO exploration prompt
-lives in ``robots/libero/prompts/explore.py``; its simulator reset/termination
-assumptions are not inherited by the real robot.
+Find camera and robot state in ``sessions/session_<NNN>/``, attempt boundaries in
+``exploration.json`` and human feedback in ``operator_events.json``.
+Session transcripts are saved as ``transcript_<recipe_tag>.json``.
+Failed attempts are retained; working notes are in
+``<memory-dir>/_internal/inbox/<recipe_tag>/wip/``.
 
-External ``--env-endpoint`` servers must advertise ``explicit_reset_only=True``.
-Servers without this capability are rejected before client reset so motion
-starts only after operator confirmation. Validate physical reset convergence,
-camera freshness, and task judgment on the deployed robot.
+Memory merging is enabled by default. Normal completion merges valid ``global``
+and ``task-family`` drafts, including lessons from failed attempts. Success also
+saves a complete audit/recipe pair under ``task-specific``.
+On normal completion, the first complete successful record is merged even if a
+later session fails.
+Use ``--no-auto-merge-memory`` to keep records without merging. Errors, aborts,
+task replacement and Dashboard Session shutdown prevent merging. See
+:doc:`../guides/memory` for the memory layout.
 
-Direct Interactive Verdicts
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Exploration Commands
+~~~~~~~~~~~~~~~~~~~~
 
-With ``dual_franka --explore --interactive``, submit ``/success`` or ``/failure``
-on its own to finish exploration through program control. Bare ``success`` and
-``failure`` remain ordinary planner messages. Success requires a confirmed attempt;
-failure can also end the run before the initial reset. The first terminal verdict wins.
-The command never reaches the planner as chat. New tool calls are refused and
-active work is cancelled at its next supported boundary; an outstanding robot
-RPC or inference must return before finalization. A fresh observation backs the
-operator verdict. With ``/success``, the successful recipe/audit pair is published through the
-existing memory merger to ``task-specific`` before exit, even without
-``--auto-merge-memory``. With ``/failure``, failure evidence stays in the run directory
-and no successful memory is published. Observation or persistence errors are reported as failures.
-Scene reset accepts ``/done`` or ``/operator <request-id> done``. Restart the running
-CLI after updating to enable this behavior.
+In Codex/Claude terminal interaction (``--explore --interactive``) or Dashboard
+exploration, ``/success [notes]`` and ``/failure [notes]`` end the current planner
+session, rather than only judge an attempt. If ``--explore-sessions`` has budget
+remaining, another session starts in the same task and requires fresh scene
+confirmation. ``/abort [notes]`` stops the whole task, even if a camera is
+unavailable. API terminal interaction uses the follow-up conversation and tool
+confirmation prompts described in :doc:`../guides/dashboard`.
 
-Other Operator Commands
-~~~~~~~~~~~~~~~~~~~~~~~
+Success requires a confirmed reset. Terminal failure can end a session before
+the first reset; in Dashboard, answer a pending reset with ``/done`` or ``/abort``
+first. ``/done [notes]`` confirms only a pending reset; ``/continue [notes]``
+answers only a pending verdict and resumes the attempt. Notes are saved with
+the corresponding confirmation. Bare words such as ``success`` and ``failure``
+are ordinary agent messages.
 
-* ``/done`` confirms only the currently pending scene-reset request.
-* ``/continue`` answers only the currently pending verdict request and resumes
-  the attempt without marking it successful or ending the session.
-* ``/abort`` cancels exploration at the supported boundary and exits, retaining
-  an abort record without publishing success memory. It does not require a working camera.
-
-Shortcuts without a matching pending request are refused, never buffered for a
-future request. All five bare words without ``/`` remain ordinary agent messages.
-The request-ID form ``/operator <request-id> <answer>`` remains supported.
-
-Direct commands do not invoke a separate global/task-family memory synthesis stage.
-Existing planner errors remain errors and prevent automatic memory publication.
+Already-issued robot actions or RPCs may need to return before a session can
+end; these commands are not an emergency stop. Planner errors, including
+timeouts, stop automatic continuation after a direct verdict.
 
 VLA Diagnostic Console
 ~~~~~~~~~~~~~~~~~~~~~~

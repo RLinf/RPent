@@ -180,7 +180,11 @@ Notes:
 - ``--model`` overrides ``CODEX_MODEL``. If neither is set, RPent uses
   the model configured as the Codex SDK default.
 - ``--planner-timeout-s`` limits the Codex run. Its default is
-  ``CODEX_TIMEOUT_S``, then ``CELL_TIMEOUT_S``, then ``1200`` seconds.
+  ``CODEX_TIMEOUT_S``, then ``CELL_TIMEOUT_S``, then ``1200`` seconds. Set
+  ``--planner-timeout-s 0`` to disable the Codex deadline; negative values are rejected.
+- ``--reasoning-effort ultra`` is Codex-only and requires a model and SDK
+  that support this effort level. Terminal input steers the active Codex turn;
+  it does not keep the conversation open after that turn completes.
 - By default, the Codex SDK reuses existing Codex authentication. For
   a custom Responses-compatible endpoint, set ``CODEX_BASE_URL`` and
   ``CODEX_API_KEY``. This backend does not read ``OPENAI_BASE_URL`` or
