@@ -16,10 +16,15 @@ from __future__ import annotations
 
 import base64
 import binascii
+import io
 import threading
+from contextlib import nullcontext
+from types import SimpleNamespace
 from typing import Any
 
+import numpy as np
 import pytest
+from PIL import Image
 
 from rpent.robots.components.molmo_client import MolmoClient
 from rpent.robots.components.molmo_server import (
@@ -58,20 +63,72 @@ def _image_b64(payload: bytes = b"image-bytes") -> str:
     return base64.b64encode(payload).decode("ascii")
 
 
-def test_parse_molmo2_point() -> None:
-    assert _parse_point('<points coords="1 125 875"/>') == (125.0, 875.0)
+@pytest.mark.parametrize(
+    ("coords", "expected"),
+    [
+        ("1 1 399 756", (399.0, 756.0)),
+        ("1 1 368 439", (368.0, 439.0)),
+        ("1 1 452 432", (452.0, 432.0)),
+        ("1 1 036 356", (36.0, 356.0)),
+        ("1 1 000 1000", (0.0, 1000.0)),
+    ],
+)
+def test_parse_molmo2_point(coords: str, expected: tuple[float, float]) -> None:
+    assert _parse_point(f'<points coords="{coords}">target</points>') == expected
 
 
-def test_parse_first_of_multiple_points() -> None:
-    assert _parse_point('<points coords="1 125 875; 2 500 600"/>') == (
-        125.0,
-        875.0,
-    )
+@pytest.mark.parametrize("separator", [" ", ";1 ", ":1 ", ",1 ", "\t1 "])
+def test_parse_first_of_multiple_points(separator: str) -> None:
+    answer = f'<points coords="1 1 125 875{separator}2 500 600"/>'
+    assert _parse_point(answer) == (125.0, 875.0)
 
 
-def test_reject_invalid_or_out_of_range_point() -> None:
+@pytest.mark.parametrize(
+    "coords",
+    [
+        "",
+        "1 125 875",
+        "1 1 399",
+        "1 1 399 756 2",
+        "1 1 1001 200",
+        "1 1 200 1001",
+        "1 1 -1 200",
+        "1 1 399 7560",
+        "1 1 399 756junk",
+        "1 1 399.5 756",
+        "1 1 399 756;",
+        "1 1 399 756;1 2 500",
+        "2 1 399 756",
+        "1 1 399 756;2 1 500 600",
+    ],
+)
+def test_reject_invalid_or_out_of_range_point(coords: str) -> None:
+    assert _parse_point(f'<points coords="{coords}"/>') is None
+
+
+def test_parse_point_without_markup() -> None:
     assert _parse_point("This isn't in the image.") is None
-    assert _parse_point('<points coords="1 1001 200"/>') is None
+
+
+def test_molmo_ground_scales_real_output_to_image_pixels() -> None:
+    facade = _StubMolmo("unused-checkpoint")
+    answer = '<points coords="1 1 399 756">safe manipulation point</points>'
+    facade._torch = SimpleNamespace(inference_mode=nullcontext)
+    facade._model = SimpleNamespace(
+        device="cpu", generate=lambda **kwargs: np.array([[0, 1]])
+    )
+    facade._processor = SimpleNamespace(
+        apply_chat_template=lambda *args, **kwargs: {
+            "input_ids": SimpleNamespace(to=lambda device: np.array([[0]]))
+        },
+        tokenizer=SimpleNamespace(decode=lambda *args, **kwargs: answer),
+    )
+    buffer = io.BytesIO()
+    Image.new("RGB", (1024, 512)).save(buffer, format="PNG")
+    result = MolmoFacade._ground_bytes(facade, buffer.getvalue(), "the bowl")
+    assert result.point_xy == pytest.approx([408.576, 387.072])
+    assert result.image_size == [1024, 512]
+    assert result.answer == answer
 
 
 def test_molmo_ground_is_a_readonly_namespaced_rpc() -> None:

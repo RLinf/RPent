@@ -47,23 +47,32 @@ from rpent.utils.rpc import RpcFacade
 
 logger = get_logger("molmo_server")
 
-#: Molmo2 writes one or more ``point-id x y`` triples in normalized thousandths.
+#: Each Molmo2 group starts with an image ID, then ``point-id x y`` triples.
 _COORDS = re.compile(r"<(?:point|points)\b[^>]*\bcoords=[\"']([^\"']+)[\"']", re.I)
-_POINT = re.compile(r"(?:^|[\t:;,])\s*\d+\s+([0-9]{1,4})\s+([0-9]{1,4})")
 
 
 def _parse_point(answer: str) -> tuple[float, float] | None:
-    """Return the first normalized Molmo2 point from generated markup."""
+    """Return the first normalized point for the service's single input image."""
     coords = _COORDS.search(answer)
     if coords is None:
         return None
-    point = _POINT.search(coords.group(1))
-    if point is None:
-        return None
-    x, y = float(point.group(1)), float(point.group(2))
-    if not (0 <= x <= 1000 and 0 <= y <= 1000):
-        return None
-    return x, y
+    first_point = None
+    for group in re.split(r"[\t:;,]", coords.group(1)):
+        fields = group.split()
+        if (
+            len(fields) < 4
+            or (len(fields) - 1) % 3
+            or fields[0] != "1"
+            or any(re.fullmatch(r"[0-9]+", field) is None for field in fields)
+        ):
+            return None
+        for index in range(1, len(fields), 3):
+            x, y = float(fields[index + 1]), float(fields[index + 2])
+            if not (0 <= x <= 1000 and 0 <= y <= 1000):
+                return None
+            if first_point is None:
+                first_point = x, y
+    return first_point
 
 
 @dataclass
