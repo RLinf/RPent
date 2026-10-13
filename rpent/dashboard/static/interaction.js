@@ -278,11 +278,11 @@ export function createInteractionController({ copy, select }) {
       status.textContent = copy.interruptRequested;
       status.classList.add("is-busy");
     } else if (operator?.pending) {
-      status.textContent = operator.pending.prompt + (operator.pending.kind === "reset"
-        ? "\nEnter /done to confirm scene restoration and allow the robot to reset, or /abort to cancel."
+      status.textContent = operator.pending.prompt + "\n" + (operator.pending.kind === "reset"
+        ? copy.operatorResetHint
         : operator.exploration
-          ? "\nEnter /continue, /success, /failure or /abort."
-          : "\nEnter /continue, /success or /failure; the planner then continues the task.");
+          ? copy.operatorExploreHint
+          : copy.operatorVerdictHint);
       status.classList.add("is-ready");
     } else if (state.notice) {
       status.textContent = state.notice;

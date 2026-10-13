@@ -374,8 +374,9 @@ def test_real_robot_terminal_requirement_fails_before_runtime(
     "options,error",
     [
         ("--dashboard --planner codex", None),
+        ("--dashboard --planner claude_code", None),
+        ("--dashboard --planner api --model test", None),
         ("--planner codex", "requires a TTY"),
-        ("--dashboard --planner api", "requires an attended Codex robot runtime"),
     ],
 )
 def test_human_operator_main_routes_dashboard_without_tty(

@@ -32,10 +32,11 @@ from tests.unit_tests.robots.dual_franka.test_exploration import FakeEnv
 @pytest.mark.parametrize(
     "explore,verdict",
     [(False, v) for v in ("success", "failure", "continue")]
-    + [(True, v) for v in ("failure", "abort", "replace")],
+    + [(True, v) for v in ("success", "failure", "abort", "replace", "shutdown")],
 )
+@pytest.mark.parametrize("auto_merge", [True, False])
 def test_web_confirmation_and_task_completion(
-    tmp_path, monkeypatch, dual_franka_robot_config, explore, verdict
+    tmp_path, monkeypatch, dual_franka_robot_config, explore, verdict, auto_merge
 ):
     fake_env = FakeEnv()
 
@@ -56,6 +57,7 @@ def test_web_confirmation_and_task_completion(
     spec.add_cli_args(parser, use_dashboard=True)
     args = parser.parse_args(
         ["--robot", "dual_franka", "--dashboard", "--task-id", "3"]
+        + ([] if auto_merge else ["--no-auto-merge-memory"])
     )
     args.robot_config = str(dual_franka_robot_config)
     args.memory_dir, args.memory_profile = str(tmp_path / "memory"), "local"
@@ -78,6 +80,14 @@ def test_web_confirmation_and_task_completion(
         toolkit, reader = kwargs["toolkit"], state.operator
         call = toolkit.execute_tool
         motion = {"arm": "right", "delta_xyz": [0, 0, 0.01]}
+        if explore:
+            inbox = toolkit.memory.root / "_internal/inbox/dual_franka_t3"
+            inbox.mkdir(parents=True, exist_ok=True)
+            (inbox / "new_global_strategy_lesson.md").write_text(
+                "---\nid: lesson\nscope: global\nkind: strategy\ntitle: Lesson\n"
+                "applies_when: Same setup\nconfidence: single-shot\n"
+                "evidence:\n  cells: [dual_franka_t3]\n---\nObserved attempt.\n"
+            )
         assert fake_env.resets == int(not explore)
         assert (
             "request_scene_reset" in {t.name for t in toolkit.list_tools()}
@@ -130,9 +140,12 @@ def test_web_confirmation_and_task_completion(
                 assert ready.wait(3)
                 ctx = context()
                 assert send("/success", {**ctx, "request_id": "expired"}) == 422
-                if verdict == "replace":
-                    assert send("/rpent-task 4") == 202
-                    assert send("/success") == 422
+                if verdict in {"replace", "shutdown"}:
+                    if verdict == "replace":
+                        assert send("/rpent-task 4") == 202
+                        assert send("/success") == 422
+                    else:
+                        state.request_shutdown()
                     toolkit.cancel_active_and_wait()
                 else:
                     if not explore:
@@ -141,7 +154,9 @@ def test_web_confirmation_and_task_completion(
                     assert send("/" + verdict, ctx) == 202
                     assert send("/" + verdict, ctx) == 422
                 response = pending.result(3)
-                assert state.task_replacement_requested is explore
+                assert state.task_replacement_requested is (
+                    explore and verdict != "shutdown"
+                )
                 if not explore:
                     assert not response.is_error and response.data["status"] == verdict
                     assert not toolkit.direct_verdict_requested
@@ -172,3 +187,10 @@ def test_web_confirmation_and_task_completion(
     assert result is None
     assert len(calls) == 1 and len(fake_env.moves) == 1 and state.operator is None
     assert (state.wait_for_task(0) is not None) is (verdict == "replace")
+    assert (tmp_path / "memory/global/lesson.md").is_file() == (
+        explore and auto_merge and verdict in {"success", "failure"}
+    )
+    for name in ("dual_franka_t3.json", "dual_franka_t3_recipe.jsonl"):
+        assert (tmp_path / "memory/task-specific" / name).is_file() == (
+            explore and auto_merge and verdict == "success"
+        )

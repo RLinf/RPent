@@ -371,7 +371,7 @@ def main() -> int:
     ):
         if args.dashboard or args.interactive:
             parser.error(
-                "This robot requires exclusive terminal input for operator confirmation; "
+                "This robot requires terminal interaction for operator confirmation; "
                 "--dashboard and --interactive are not supported. Run in a plain terminal."
             )
         if sys.stdin is None or not sys.stdin.isatty():
@@ -535,7 +535,6 @@ def main() -> int:
     solved = False
     environment_success: bool | None = None
     memory_manager: MemoryManager | None = None
-    direct_operator_success = False
     try:
         if first_user_msg is not None:
             dashboard_events.emit(RunStartedEvent())
@@ -612,7 +611,6 @@ def main() -> int:
                 agent_error = result.error
                 if getattr(toolkit, "direct_verdict_requested", False):
                     finish_result = toolkit.finalize_direct_verdict()
-                    direct_operator_success = finish_result["status"] == "success"
                     if agent_error:
                         logger.info(
                             "Planner stopped after operator verdict: %s", agent_error
@@ -725,10 +723,10 @@ def main() -> int:
     # Publish exploration artifacts into the corpus after the session loop.
     if (
         getattr(args, "explore", False)
-        and (getattr(args, "auto_merge_memory", False) or direct_operator_success)
+        and getattr(args, "auto_merge_memory", False)
         and not agent_error
+        and not (finish_result or {}).get("operator_aborted")
         and memory_manager is not None
-        and (not human_interactive_exploration or solved)
     ):
         try:
             merge_result = memory_manager.merge_memory(

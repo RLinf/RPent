@@ -425,6 +425,17 @@ class DashboardState:
         with self._lock:
             return self._session_state == "switch_pending"
 
+    @property
+    def task_finalization_cancelled(self) -> bool:
+        """Whether replacement, abort or Session closure prevents publication."""
+        with self._lock:
+            return (
+                self._pending_task is not None
+                or self._shutdown_requested
+                or self._session_state == "fatal"
+                or self.operator_verdict == "abort"
+            )
+
     def shared_services_ready(self) -> None:
         """Open the command channel after shared services have started."""
         with self._condition:

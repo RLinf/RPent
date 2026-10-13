@@ -36,18 +36,8 @@ conversation history. Use ``/exit`` to close it. For example:
 
 Configure credentials as described in :doc:`configure_planner`.
 ``--interactive`` and ``--dashboard`` cannot be used together.
-Single-arm Franka requires the plain operator terminal. Dual-arm Franka supports
-Dashboard operator input with Codex: use the launch configuration in
-:doc:`../real_world_robots/dual_franka` with ``--planner codex --dashboard``
-(without ``--interactive``).
-
-For an ordinary dual-arm task, ``/success``, ``/failure`` and ``/continue`` answer
-a pending operator verdict; the planner then continues and uses the usual
-``finish`` tool. In exploration mode (``--explore``), ``/done`` confirms a pending
-scene reset; direct ``/success``, ``/failure`` or ``/abort`` ends the current
-TaskRun. Ordinary tasks reset on environment connection; exploration waits for
-scene confirmation before resetting. Use the Dashboard interrupt control or start another task to interrupt or
-replace an ordinary task.
+For physical robot setup and human confirmation, see the
+:doc:`../real_world_robots/franka` and :doc:`../real_world_robots/dual_franka` guides.
 
 .. _dashboard-usage:
 

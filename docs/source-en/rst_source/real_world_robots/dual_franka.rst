@@ -334,13 +334,23 @@ uncertain.
 Manual Skill Testing
 --------------------
 
-Terminal evaluation requires an exclusive terminal (TTY) for operator
-confirmation without ``--interactive``; terminal exploration supports
-``--explore --interactive``. With Codex, both modes also accept operator input
-through ``--dashboard``; see :doc:`../guides/dashboard` for Web commands.
+Terminal interaction requires a TTY for human confirmation; ordinary tasks do
+not require ``--interactive``. Exploration supports ``--explore --interactive``.
+Both ordinary tasks and exploration accept human confirmation through
+``--dashboard`` without a TTY or ``--interactive``, using ``api``, ``claude_code``
+or ``codex`` (current physical experiments have only validated Codex).
 Evaluation exposes
 ``request_operator_verdict`` and requires a verdict before calling ``finish``.
 ``request_scene_reset`` is registered only in exploration mode.
+
+In the Dashboard message input, ``/success``, ``/failure`` and ``/continue``
+answer an ordinary task's pending verdict request; the planner then continues
+and uses the usual ``finish`` tool. During exploration, ``/done`` confirms a
+pending scene reset; direct ``/success``, ``/failure`` or ``/abort`` ends the
+current TaskRun. Ordinary tasks reset on environment connection; exploration
+waits for scene confirmation before resetting. Use the Dashboard interrupt
+control or start another task to interrupt or replace an ordinary task.
+See :doc:`../guides/dashboard` for Dashboard setup.
 
 The deployment scripts live in ``robots/dual_franka/``. From the repository root:
 
@@ -418,10 +428,11 @@ starts an attempt. Reset failures keep motion blocked.
 previous verdicts. Abort/EOF permits ending without spending the remaining
 attempt budget.
 
-With ``--interactive``, reply using ``/operator <request-id> <answer>`` as shown
+With Codex/Claude terminal interaction and ``--interactive``, reply using
+``/operator <request-id> <answer>`` as shown
 in the terminal; other lines remain planner steering. Without it, answer the
-terminal prompt directly. A TTY is required. Dashboard operator feedback is not
-implemented, so Dashboard exploration is rejected before runtime startup.
+terminal prompt directly. Terminal interaction requires a TTY. With
+``--dashboard``, answer requests in the Dashboard message input instead.
 
 Each ``sessions/session_<NNN>/`` retains state and camera artifacts, per-step
 ``exploration.json`` and session-level ``operator_events.json``. Failed attempts
@@ -429,9 +440,13 @@ remain in the trace. Memory reads use ``task-family`` and ``global``; working no
 into the task inbox's ``wip/``. After success, draft task-family/global lessons in the
 inbox; the runner exports the winning attempt's command sequence and adds
 operator evidence to its task audit. Recorded coordinates are not automatically
-replayed. ``--auto-merge-memory`` is opt-in and invokes the existing memory
-merge/index workflow only on successful, error-free exploration runs, including
-the ``task-specific`` audit/recipe pair.
+replayed. Automatic memory merging is enabled by default. At normal exploration
+completion, the common memory merger publishes valid ``global`` and
+``task-family`` drafts, including lessons from failed exploration. A
+``task-specific`` audit/recipe pair is published only for a solved task with both
+files present. ``--no-auto-merge-memory`` disables all publication while retaining
+run artifacts. Errors, aborts, task replacement and Dashboard Session shutdown prevent
+publication.
 
 Prompts are selected by ``robots/dual_franka/prompt_bundle.py``. Evaluation uses
 ``prompts/system.py`` and ``prompts/user.py``; exploration uses
@@ -456,10 +471,10 @@ failure can also end the run before the initial reset. The first terminal verdic
 The command never reaches the planner as chat. New tool calls are refused and
 active work is cancelled at its next supported boundary; an outstanding robot
 RPC or inference must return before finalization. A fresh observation backs the
-operator verdict. With ``/success``, the successful recipe/audit pair is published through the
-existing memory merger to ``task-specific`` before exit, even without
-``--auto-merge-memory``. With ``/failure``, failure evidence stays in the run directory
-and no successful memory is published. Observation or persistence errors are reported as failures.
+operator verdict. Success exports the successful recipe/audit pair; failure
+retains the failed attempt's evidence. Both finish the TaskRun and use the common
+memory policy described above, including ``--no-auto-merge-memory``.
+Observation or persistence errors are reported as failures.
 Scene reset accepts ``/done`` or ``/operator <request-id> done``. Restart the running
 CLI after updating to enable this behavior.
 

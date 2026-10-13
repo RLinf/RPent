@@ -276,7 +276,9 @@ ModelScope 上发布了一个可直接使用的 task ``1`` checkpoint： `Brunch
 手动技能测试
 ------------
 
-通过终端运行普通评测时，需要独占终端（TTY）接收操作员确认，不加 ``--interactive``；终端探索支持 ``--explore --interactive``。使用 Codex 时，两种模式也可通过 ``--dashboard`` 接收操作员输入，Web 命令见 :doc:`../guides/dashboard`。普通任务也会注册 ``request_operator_verdict``，收到人工判定后才允许调用 ``finish``；``request_scene_reset`` 只在探索模式注册。
+终端交互需要 TTY 接收人工确认；普通任务不要求 ``--interactive``，探索支持 ``--explore --interactive``。普通任务和探索均可通过 ``--dashboard`` 接收人工确认，无需 TTY，也不加 ``--interactive``，支持 ``api``、``claude_code`` 和 ``codex`` （当前真机实验仅验证 Codex）。普通任务会注册 ``request_operator_verdict``，收到人工判定后才允许调用 ``finish``；``request_scene_reset`` 只在探索模式注册。
+
+在 Dashboard 消息输入框中，普通任务的 ``/success``、``/failure`` 和 ``/continue`` 用于回答待处理的人工判断请求，随后规划器继续执行，并通过通常的 ``finish`` 工具结束任务。探索中，``/done`` 确认待处理的场景重置请求；直接输入 ``/success``、``/failure`` 或 ``/abort`` 会结束当前 TaskRun。普通任务连接环境时执行 reset；探索则等待场景确认后再 reset。可通过 Dashboard 中断控制或启动另一任务来中断或替换普通任务。Dashboard 启动方式见 :doc:`../guides/dashboard`。
 
 部署脚本位于 ``robots/dual_franka/``。在仓库根目录运行：
 
@@ -321,7 +323,7 @@ API 部署需显式设置 ``RPENT_CODEX_API_KEY`` 和可选的 ``RPENT_CODEX_BAS
 * ``request_operator_verdict(question)``：记录新观测后，操作员回复 ``success``、``failure``、``continue`` 或 ``abort``，可附备注。 ``solved()`` 只读取当前有效的人工成功判定。后续运动或 ``continue`` 会清除旧判定。
 * ``abort`` 或操作员输入端关闭会终止本次探索；不会为了耗尽预算强迫继续。
 
-交互模式下，回复使用终端显示的请求 ID，例如 ``/operator <id> done`` 或 ``/operator <id> success 物体已稳定提起``。普通输入仍用于指导 agent；只有匹配当前请求 ID 的回复才用于操作员确认，避免与 ``--interactive`` 争抢 stdin。不加 ``--interactive`` 时直接按提示输入答案。两种方式均要求 TTY；目前未实现 Dashboard 操作员反馈，``--dashboard --explore`` 会在启动服务前报错。
+使用 Codex/Claude 终端交互并加 ``--interactive`` 时，回复使用终端显示的请求 ID，例如 ``/operator <id> done`` 或 ``/operator <id> success 物体已稳定提起``。普通输入仍用于指导 agent；只有匹配当前请求 ID 的回复才用于人工确认，避免与 ``--interactive`` 争抢 stdin。不加 ``--interactive`` 时直接按提示输入答案。终端交互需要 TTY；使用 ``--dashboard`` 时改在 Dashboard 消息输入框中回答请求。
 
 日志与记忆
 ~~~~~~~~~~
@@ -333,7 +335,7 @@ API 部署需显式设置 ``RPENT_CODEX_API_KEY`` 和可选的 ``RPENT_CODEX_BAS
 * 读取任务的 ``task-family`` 经验和 ``MEMORY.md`` / ``global`` 通用经验。
 * 失败证据写到运行目录的 ``attempts/``，工作笔记写到 ``<memory-dir>/_internal/inbox/<recipe_tag>/wip/``。
 * 人工确认成功后，整理 inbox 中的 ``task-family`` / ``global`` 草稿。 runner 从最后一次成功复位后的执行记录导出 recipe，并为任务 audit 补入人工判定及状态证据。recipe 保存实际调用序列，不自动执行旧坐标。
-* 默认不自动合并。加 ``--auto-merge-memory`` 后，只在本次运行成功且无 agent 错误时，使用现有 merge/validate/index 流程发布草稿和 ``task-specific`` audit/recipe 对。失败或中止的运行不自动发布草稿；原始日志与工作笔记继续保留。
+* 默认启用自动 memory 合并。探索正常结束后，公共 memory 管理器发布合法的 ``global`` / ``task-family`` 草稿，包括失败探索的经验。只有任务成功且 audit/recipe 文件对完整时才发布 ``task-specific`` 文件对。``--no-auto-merge-memory`` 禁止所有发布，但保留运行证据。运行错误、中止、替换任务或关闭 Dashboard 会话时不发布。
 
 提示词维护
 ~~~~~~~~~~
@@ -351,7 +353,7 @@ API 部署需显式设置 ``RPENT_CODEX_API_KEY`` 和可选的 ``RPENT_CODEX_BAS
 
 在双臂 ``--explore --interactive`` 模式中，单独输入 ``/success`` 或 ``/failure`` 并回车，由程序直接结束当前探索，不作为聊天消息交给规划器。不带斜杠的 ``success``、``failure`` 和其他自然语言照常交给 Agent 理解。 ``/success`` 仅在场景确认并成功复位之后接受；``/failure`` 也可在等待首次复位时结束。两者都不需要等待 Agent 请求结果判定。首次接受的结束判定不会被后续相反判定覆盖。
 
-程序立即禁止新工具调用，并请求取消执行中的工具。VLA 在现有动作边界检查取消；已经发送的机器人动作、正在执行的 RPC 或推理需要返回后才能收尾。随后采集新观测并记录人工判定。``/success`` 导出本次成功尝试的动作序列和审计证据，调用现有 memory 合并接口保存到 ``task-specific``，然后关闭服务并退出。 ``/failure`` 保留运行日志和失败判定并退出，不发布成功经验。 ``/success`` 自动执行 memory 合并，无需额外指定 ``--auto-merge-memory``。观测或保存失败时不会报告完整成功，会返回错误；运行目录保留诊断记录。
+程序立即禁止新工具调用，并请求取消执行中的工具。VLA 在现有动作边界检查取消；已经发送的机器人动作、正在执行的 RPC 或推理需要返回后才能收尾。随后采集新观测并记录人工判定。``/success`` 导出本次成功尝试的动作序列和审计证据，``/failure`` 保留运行日志和失败判定。两者均结束当前 TaskRun，并按上述公共 memory 策略收尾；``--no-auto-merge-memory`` 同样生效。观测或保存失败时不会报告完整成功，会返回错误；运行目录保留诊断记录。
 
 包含其他文字的消息（例如“抓取 success，但整个任务还没完成”）仍是普通聊天消息。场景重置可直接回复 ``/done``，也兼容 ``/operator <request-id> done``。代码更新需要重启当前任务进程后生效。
 

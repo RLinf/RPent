@@ -57,13 +57,10 @@ def run_dashboard_session(
     if (
         robot_spec.is_real_robot
         and not (robot_spec.dashboard or {}).get("external_env", False)
-        and (
-            not robot_spec.supports_human_interactive_exploration
-            or args.planner != "codex"
-        )
+        and not robot_spec.supports_human_interactive_exploration
     ):
         parser.error(
-            "Physical Dashboard control requires an attended Codex robot runtime."
+            "Physical Dashboard control requires a robot runtime with human confirmation."
         )
     from rpent.dashboard.server import DashboardServer
     from rpent.dashboard.session import DashboardSessionController
@@ -238,7 +235,10 @@ def _run_dashboard_task(
             if not state.task_replacement_requested:
                 state.emit(RunStartedEvent())
             for session_number in range(1, sessions + 1):
-                if state.task_replacement_requested:
+                if (
+                    state.task_replacement_requested
+                    or state.task_finalization_cancelled
+                ):
                     break
                 if session_number > 1:
                     logger.info(
@@ -410,7 +410,7 @@ def _run_dashboard_task(
         getattr(task_args, "explore", False)
         and getattr(task_args, "auto_merge_memory", False)
         and not agent_error
-        and not state.task_replacement_requested
+        and not state.task_finalization_cancelled
         and memory_manager is not None
     ):
         try:

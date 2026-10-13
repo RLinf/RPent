@@ -163,11 +163,8 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     parser.add_argument(
         "--auto-merge-memory",
         action=argparse.BooleanOptionalAction,
-        default=False,
-        help=(
-            "Merge exploration output into layered memory. Disabled by default "
-            "for real-robot dual_franka so drafts are reviewed first."
-        ),
+        default=True,
+        help="Merge exploration output into layered memory (default: enabled).",
     )
     parser.add_argument(
         "--explore-attempts-per-session",
