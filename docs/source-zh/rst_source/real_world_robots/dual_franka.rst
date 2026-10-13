@@ -312,7 +312,7 @@ API 部署需显式设置 ``RPENT_CODEX_API_KEY`` 和可选的 ``RPENT_CODEX_BAS
 探索模式（人工复位与判定）
 --------------------------
 
-``dual_franka --explore`` 等待人工确认场景后复位机器人，并记录人工判定、相机及机器人状态。按前文配置规划器和 VLA 参数后，例如使用任务 0：
+``dual_franka --explore`` 等待人工确认场景后复位机器人，并记录人工判定、相机及机器人状态。以下示例按前文配置规划器和 VLA 参数，使用终端确认运行任务 0；通过 Dashboard 消息输入框操作时，添加 ``--dashboard``：
 
 .. code-block:: bash
 

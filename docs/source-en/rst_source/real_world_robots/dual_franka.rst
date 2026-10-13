@@ -425,8 +425,9 @@ Attended Exploration
 --------------------
 
 ``dual_franka --explore`` waits for scene confirmation before resetting the
-robot and records human verdicts with camera and robot state. For example,
-start task 0 with the planner and VLA settings described above:
+robot and records human verdicts with camera and robot state. The following
+example starts task 0 with terminal confirmation and the planner and VLA settings
+described above. Add ``--dashboard`` to use the Dashboard message input instead:
 
 .. code-block:: bash
 
