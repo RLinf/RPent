@@ -69,7 +69,7 @@ def back_project(
     window_radius: Annotated[int, Field(ge=0, json_schema_extra={"default": 2})] = 2,
     state: EnvState | None = None,
 ) -> ToolResult:
-    """Back-project one pixel from a registered RGBD camera view into shared right-base coordinates. Use a camera listed by view_env_state/view_camera_meta; default is the configured primary metric localization camera.
+    """Back-project one pixel from a registered RGBD camera view into shared right-base coordinates. Use a camera listed by view_env_state/view_camera_meta; default is the configured primary metric localization camera. Pass the explicit latest observation step for the selected pixel.
 
     Args:
         camera: Registered projection view name, e.g. d455 or base. Valid names come from perception.projection_views and the current state's saved artifacts.
@@ -106,7 +106,7 @@ def segment(
     state: EnvState | None = None,
     sam3_client: Any | None = None,
 ) -> ToolResult:
-    """Use SAM3 on a registered RGB image with either a text prompt or one positive [row, col] point, return a mask overlay for verification, and estimate the mask median point in shared right-base coordinates.
+    """Use SAM3 on a registered RGB image with either a text prompt or one positive [row, col] point, return a mask overlay for verification, and estimate the mask median point in shared right-base coordinates. Point prompts require the explicit latest observation step; text prompts use the saved image without a new capture.
 
     Args:
         camera: Registered projection view name, e.g. d455 or base. Valid names come from perception.projection_views and the current state's saved artifacts.

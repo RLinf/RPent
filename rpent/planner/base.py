@@ -41,6 +41,7 @@ if TYPE_CHECKING:
 #: Toolkits expose plain tool names; planners add/strip this prefix.
 MCP_TOOL_PREFIX = "mcp__rpent__"
 REASONING_EFFORTS = ("none", "low", "medium", "high", "xhigh")
+CODEX_REASONING_EFFORTS = (*REASONING_EFFORTS, "ultra")
 
 
 def resolve_model(planner: str, model: str | None) -> str | None:

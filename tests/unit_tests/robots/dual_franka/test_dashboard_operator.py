@@ -14,7 +14,9 @@
 
 """Offline Web transport with the real runtime connector, toolkit and runner."""
 
+import json
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from threading import Event
 from types import SimpleNamespace
 
@@ -26,13 +28,30 @@ from rpent.cli.main import _build_argparser
 from rpent.dashboard.server import DashboardServer
 from rpent.dashboard.state import DashboardState
 from rpent.planner.base import PlannerResult
+from rpent.utils.logging import get_output_dir
 from tests.unit_tests.robots.dual_franka.test_exploration import FakeEnv
 
 
 @pytest.mark.parametrize(
     "explore,verdict",
     [(False, v) for v in ("success", "failure", "continue")]
-    + [(True, v) for v in ("success", "failure", "abort", "replace", "shutdown")],
+    + [
+        (True, v)
+        for v in (
+            "success",
+            "failure",
+            "abort",
+            "replace",
+            "shutdown",
+            "failure-replace",
+            "failure-shutdown",
+            "failure-error",
+            "success-failure",
+            "success-replace",
+            "success-shutdown",
+            "success-error",
+        )
+    ],
 )
 @pytest.mark.parametrize("auto_merge", [True, False])
 def test_web_confirmation_and_task_completion(
@@ -67,6 +86,8 @@ def test_web_confirmation_and_task_completion(
     state.request_task({"task_id": 3})
     claimed = state.wait_for_task(0)
     ready, changed, calls = Event(), state.operator_changed, []
+    previous_context = None
+    session_audits = []
 
     def notify():
         changed()
@@ -76,11 +97,24 @@ def test_web_confirmation_and_task_completion(
     monkeypatch.setattr(state, "operator_changed", notify)
 
     def solve(**kwargs):
+        nonlocal previous_context
+        ready.clear()
         calls.append(True)
         toolkit, reader = kwargs["toolkit"], state.operator
+        current = verdict.split("-")[0] if len(calls) == 1 else verdict.split("-")[-1]
+        if explore and current == "success":
+            root_audit = Path(get_output_dir()) / "dual_franka_t3.json"
+            assert not root_audit.exists()
+            if len(calls) == 1:
+                root_audit.write_text(json.dumps({"agent_session": 1}))
+            session_audits.append(
+                toolkit.state.artifact_path("operator_events.json", step=None).parent
+                / root_audit.name
+            )
         call = toolkit.execute_tool
         motion = {"arm": "right", "delta_xyz": [0, 0, 0.01]}
         if explore:
+            assert not (toolkit.memory.root / "global/lesson.md").exists()
             inbox = toolkit.memory.root / "_internal/inbox/dual_franka_t3"
             inbox.mkdir(parents=True, exist_ok=True)
             (inbox / "new_global_strategy_lesson.md").write_text(
@@ -88,7 +122,7 @@ def test_web_confirmation_and_task_completion(
                 "applies_when: Same setup\nconfidence: single-shot\n"
                 "evidence:\n  cells: [dual_franka_t3]\n---\nObserved attempt.\n"
             )
-        assert fake_env.resets == int(not explore)
+        assert fake_env.resets == (len(calls) - 1 if explore else 1)
         assert (
             "request_scene_reset" in {t.name for t in toolkit.list_tools()}
         ) is explore
@@ -125,13 +159,16 @@ def test_web_confirmation_and_task_completion(
                     ):
                         assert send("/done", stale) == 422
                     assert send("/success", ctx) == 422
-                    assert fake_env.resets == 0
-                    assert send("/done", ctx) == 202
+                    assert fake_env.resets == len(calls) - 1
+                    if previous_context is not None:
+                        assert send("/done", previous_context) == 422
+                    previous_context = ctx
+                    assert send("/done scene checked", ctx) == 202
                     assert not future.result(3).is_error
                     assert send("/done", ctx) == 422
                 else:
                     assert send("/success") == 422
-                assert fake_env.resets == 1
+                assert fake_env.resets == (len(calls) if explore else 1)
                 state.set_planner_activity("idle", accepting_input=True)
                 assert send("move slowly") == 202
                 assert not call("move_delta", motion).is_error
@@ -140,8 +177,8 @@ def test_web_confirmation_and_task_completion(
                 assert ready.wait(3)
                 ctx = context()
                 assert send("/success", {**ctx, "request_id": "expired"}) == 422
-                if verdict in {"replace", "shutdown"}:
-                    if verdict == "replace":
+                if current in {"replace", "shutdown"}:
+                    if current == "replace":
                         assert send("/rpent-task 4") == 202
                         assert send("/success") == 422
                     else:
@@ -151,14 +188,16 @@ def test_web_confirmation_and_task_completion(
                     if not explore:
                         assert send("/done") == 422
                         assert send("/abort") == 422
-                    assert send("/" + verdict, ctx) == 202
-                    assert send("/" + verdict, ctx) == 422
+                    answer = "failure" if current == "error" else current
+                    assert send("/" + answer + " operator note", ctx) == 202
+                    assert send("/" + answer, ctx) == 422
                 response = pending.result(3)
                 assert state.task_replacement_requested is (
-                    explore and verdict != "shutdown"
+                    explore and current != "shutdown"
                 )
                 if not explore:
                     assert not response.is_error and response.data["status"] == verdict
+                    assert response.data["operator_notes"] == "operator note"
                     assert not toolkit.direct_verdict_requested
                     status = "failure" if verdict == "failure" else "success"
                     finish = call("finish", {"status": status, "summary": "test"})
@@ -170,7 +209,15 @@ def test_web_confirmation_and_task_completion(
                     return PlannerResult(finish_result=finish.data)
             finally:
                 reader.close()
-        return PlannerResult()
+        if verdict == "failure-replace":
+            state.request_task({"task_id": 4})
+        elif verdict == "failure-shutdown":
+            state.request_shutdown()
+        return PlannerResult(
+            error="planner timed out"
+            if verdict == "failure-error" or current == "error"
+            else None
+        )
 
     monkeypatch.setattr(
         dashboard, "build_planner", lambda *a, **kw: SimpleNamespace(solve=solve)
@@ -184,13 +231,32 @@ def test_web_confirmation_and_task_completion(
         unique_components={"env"},
         session_root=tmp_path,
     )
-    assert result is None
-    assert len(calls) == 1 and len(fake_env.moves) == 1 and state.operator is None
-    assert (state.wait_for_task(0) is not None) is (verdict == "replace")
-    assert (tmp_path / "memory/global/lesson.md").is_file() == (
-        explore and auto_merge and verdict in {"success", "failure"}
+    assert result == ("planner timed out" if verdict.endswith("-error") else None)
+    expected = (
+        2
+        if explore
+        and (verdict in {"success", "failure"} or verdict.startswith("success-"))
+        else 1
     )
+    assert len(calls) == len(fake_env.moves) == expected and state.operator is None
+    assert (state.wait_for_task(0) is not None) is (
+        verdict in {"replace", "failure-replace", "success-replace"}
+    )
+    published = (
+        explore and auto_merge and verdict in {"success", "failure", "success-failure"}
+    )
+    assert (tmp_path / "memory/global/lesson.md").is_file() == published
     for name in ("dual_franka_t3.json", "dual_franka_t3_recipe.jsonl"):
         assert (tmp_path / "memory/task-specific" / name).is_file() == (
-            explore and auto_merge and verdict == "success"
+            published and verdict != "failure"
         )
+    if published and verdict != "failure":
+        assert json.loads(
+            (tmp_path / "memory/task-specific/dual_franka_t3.json").read_text()
+        )["agent_audit"] == {"agent_session": 1}
+    for session_number, path in enumerate(session_audits, 1):
+        audit = json.loads(path.read_text())
+        assert audit["agent_audit"] == (
+            {"agent_session": 1} if session_number == 1 else None
+        )
+        assert f"session_{session_number:03d}" in audit["state_trace"]

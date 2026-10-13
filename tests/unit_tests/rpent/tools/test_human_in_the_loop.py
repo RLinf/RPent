@@ -123,7 +123,7 @@ def test_interactive_reader_routes_operator_input_without_stealing_steering(
 def test_success_is_control_and_never_steering():
     broker = HumanInTheLoopInput(interactive=True)
     calls = []
-    broker.bind_verdict(lambda verdict: calls.append(verdict) or True)
+    broker.bind_verdict(lambda verdict, notes: calls.append(verdict) or True)
     assert not broker.route_line(" success ")
     assert broker.route_line("/success")
     assert len(calls) == 1
@@ -136,18 +136,19 @@ def test_success_is_control_and_never_steering():
 def test_only_slash_verdicts_are_control_commands():
     broker = HumanInTheLoopInput(interactive=True)
     verdicts = []
-    broker.bind_verdict(lambda verdict: verdicts.append(verdict) or True)
+    broker.bind_verdict(
+        lambda verdict, notes: verdicts.append((verdict, notes)) or True
+    )
     for text in (
         "success",
         "failure",
         "抓取成功了",
         "success 请继续",
-        "/success later",
     ):
         assert not broker.route_line(text)
-    assert broker.route_line("/success")
+    assert broker.route_line("/success object lifted")
     assert broker.route_line(" /failure ")
-    assert verdicts == ["success", "failure"]
+    assert verdicts == [("success", "object lifted"), ("failure", "")]
 
 
 @pytest.mark.parametrize(
@@ -173,9 +174,9 @@ def test_shortcuts_only_answer_matching_active_request(
     assert ready.wait(2)
     assert broker.route_line(wrong)
     assert not values and broker._pending is not None
-    assert broker.route_line(command)
+    assert broker.route_line(command + " scene checked")
     thread.join(2)
-    assert not thread.is_alive() and values == [answer]
+    assert not thread.is_alive() and values == [answer + " scene checked"]
     assert broker.route_line(command)  # duplicate cannot authorize another operation
     assert not broker.route_line(answer)
 
@@ -183,7 +184,7 @@ def test_shortcuts_only_answer_matching_active_request(
 def test_abort_is_control_but_bare_words_are_chat():
     broker = HumanInTheLoopInput(interactive=True)
     calls = []
-    broker.bind_verdict(lambda verdict: calls.append(verdict) or True)
+    broker.bind_verdict(lambda verdict, notes: calls.append(verdict) or True)
     assert broker.route_line("/abort")
     assert calls == ["abort"]
     for word in ("done", "continue", "abort", "success", "failure"):

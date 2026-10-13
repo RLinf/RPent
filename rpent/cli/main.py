@@ -39,6 +39,7 @@ import argparse
 import json
 import queue
 import shlex
+import shutil
 import sys
 import time
 from collections.abc import Callable
@@ -53,10 +54,12 @@ from rpent.dashboard.events import (
     RunStartedEvent,
 )
 from rpent.evaluation import RunFinalizationContext
+from rpent.evaluation.result import write_json_atomic
 from rpent.memory import MemoryManager
-from rpent.planner.base import REASONING_EFFORTS, build_planner
+from rpent.planner.base import CODEX_REASONING_EFFORTS, REASONING_EFFORTS, build_planner
 from rpent.planner.check import BASE_URL_ENV_BY_PLANNER
 from rpent.robots import enumerate_robots, get_robot_spec, get_toolkit
+from rpent.session.input import SessionInputQueue
 from rpent.utils.logging import get_logger, init_output_dir
 
 logger = get_logger("agent")
@@ -98,6 +101,36 @@ def _serialize_messages(messages: list[dict]) -> list[dict]:
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+
+
+def _save_operator_session(
+    *,
+    output_dir,
+    state_output_dir,
+    recipe_tag,
+    result,
+    finish_result,
+    solved,
+) -> Path | None:
+    """Keep session evidence and return the directory of a complete success pair."""
+    write_json_atomic(
+        state_output_dir / f"transcript_{recipe_tag}.json",
+        {
+            "finish": finish_result,
+            "error": result.error,
+            "stats": result.stats,
+            "messages": _serialize_messages(result.messages),
+        },
+    )
+    audit_path = Path(output_dir) / f"{recipe_tag}.json"
+    if audit_path.exists():
+        shutil.move(audit_path, state_output_dir / audit_path.name)
+    if solved and not result.error:
+        recipe_name = f"{recipe_tag}_recipe.jsonl"
+        shutil.copy2(Path(output_dir) / recipe_name, state_output_dir / recipe_name)
+        if (state_output_dir / audit_path.name).is_file():
+            return state_output_dir
+    return None
 
 
 def _build_argparser() -> argparse.ArgumentParser:
@@ -154,11 +187,11 @@ def _build_argparser() -> argparse.ArgumentParser:
     ap.add_argument("--max-tokens", type=int, default=8192)
     ap.add_argument(
         "--reasoning-effort",
-        choices=REASONING_EFFORTS,
+        choices=CODEX_REASONING_EFFORTS,
         default="none",
         help="Planner reasoning effort for api, claude_code, and "
         "codex. Higher effort may improve task success rate "
-        "but increases runtime. Defaults to none.",
+        "but increases runtime. Ultra requires a supporting Codex model and SDK. Defaults to none.",
     )
     ap.add_argument(
         "--no-images",
@@ -175,7 +208,7 @@ def _build_argparser() -> argparse.ArgumentParser:
         help="Wall-clock cap for api/claude_code/codex planner runs. "
         "Terminal interactive API/Claude sessions are exempt. "
         "Defaults to CODEX_TIMEOUT_S (codex only), "
-        "CELL_TIMEOUT_S, or 1200.",
+        "CELL_TIMEOUT_S, or 1200. For Codex, 0 disables the deadline.",
     )
     ap.add_argument(
         "--claude-code-max-budget-usd",
@@ -356,6 +389,8 @@ def main() -> int:
     )
     args = parser.parse_args()
     args.robot_name = early.robot_name
+    if args.planner != "codex" and args.reasoning_effort not in REASONING_EFFORTS:
+        parser.error("--reasoning-effort ultra requires --planner codex")
     human_interactive_exploration = (
         args.explore and robot_spec.supports_human_interactive_exploration
     )
@@ -535,11 +570,14 @@ def main() -> int:
     solved = False
     environment_success: bool | None = None
     memory_manager: MemoryManager | None = None
+    success_artifact_dir: Path | None = None
     try:
         if first_user_msg is not None:
             dashboard_events.emit(RunStartedEvent())
         session_msg = first_user_msg
         for session_number in range(1, sessions + 1):
+            continue_after_verdict = False
+            solved = False
             if session_msg is None:
                 break
             if session_number > 1:
@@ -583,17 +621,28 @@ def main() -> int:
                     config=run_config,
                 )
             memory_manager = toolkit.memory
-            if operator_input is not None and input_queue is not None:
+            session_input = (
+                SessionInputQueue(input_queue)
+                if human_interactive_exploration
+                and args.planner in {"codex", "claude_code"}
+                and input_queue is not None
+                else input_queue
+            )
+            if isinstance(session_input, SessionInputQueue):
 
-                def accept_verdict(verdict: str, active_toolkit=toolkit) -> bool:
-                    if not active_toolkit.request_direct_verdict(verdict):
+                def accept_verdict(
+                    verdict: str,
+                    notes: str = "",
+                    active_toolkit=toolkit,
+                    active_input=session_input,
+                ) -> bool:
+                    if not active_toolkit.request_direct_verdict(verdict, notes):
                         return False
                     logger.info(
-                        "/%s accepted: stopping actions, then recording the result and exiting.",
+                        "/%s accepted: stopping this planner session and recording its result.",
                         verdict,
                     )
-                    # EOF is a planner control signal, never a model message.
-                    input_queue.put(None)
+                    active_input.cancel()
                     return True
 
                 operator_input.bind_verdict(accept_verdict)
@@ -603,14 +652,24 @@ def main() -> int:
                     user_message=session_msg,
                     toolkit=toolkit,
                     max_turns=args.max_turns,
-                    input_queue=input_queue,
+                    input_queue=session_input,
                 )
                 finish_result = result.finish_result
                 messages += result.messages
                 stats = result.stats
                 agent_error = result.error
+                if (
+                    human_interactive_exploration
+                    and operator_input.closed
+                    and not (finish_result or toolkit.direct_verdict_requested)
+                ):
+                    toolkit.request_direct_verdict("abort", "Terminal input closed")
                 if getattr(toolkit, "direct_verdict_requested", False):
                     finish_result = toolkit.finalize_direct_verdict()
+                    continue_after_verdict = (
+                        finish_result["operator_verdict"] in {"success", "failure"}
+                        and not agent_error
+                    )
                     if agent_error:
                         logger.info(
                             "Planner stopped after operator verdict: %s", agent_error
@@ -624,9 +683,21 @@ def main() -> int:
                     write_recipe = getattr(toolkit, "write_recipe", None)
                     if solved and callable(write_recipe):
                         recipe_path = write_recipe(recipe_tag) or recipe_path
+                if human_interactive_exploration:
+                    session_success_dir = _save_operator_session(
+                        output_dir=output_dir,
+                        state_output_dir=state_output_dir,
+                        recipe_tag=recipe_tag,
+                        result=result,
+                        finish_result=finish_result,
+                        solved=solved,
+                    )
+                    success_artifact_dir = success_artifact_dir or session_success_dir
             finally:
-                if operator_input is not None and input_queue is not None:
+                if isinstance(session_input, SessionInputQueue):
                     operator_input.bind_verdict(None)
+                    session_input.cancel()
+                    operator_input.cancel_pending()
                 try:
                     if robot_spec.finalize_run is not None:
                         solved_fn = getattr(toolkit, "solved", None)
@@ -637,7 +708,8 @@ def main() -> int:
                 finally:
                     toolkit.close()
             if (
-                solved
+                (solved and not continue_after_verdict)
+                or (operator_input is not None and operator_input.closed)
                 or (finish_result or {}).get("operator_aborted")
                 or (finish_result or {}).get("operator_finished")
             ):
@@ -646,6 +718,7 @@ def main() -> int:
                 if (
                     getattr(args, "explore", False)
                     and session_number < sessions
+                    and not getattr(toolkit, "direct_verdict_requested", False)
                     and "timed out" in agent_error.lower()
                 ):
                     logger.warning(
@@ -731,8 +804,8 @@ def main() -> int:
         try:
             merge_result = memory_manager.merge_memory(
                 cell_tag=run_config.recipe_tag,
-                run_state_dir=run_config.output_dir,
-                solved=solved,
+                run_state_dir=success_artifact_dir or run_config.output_dir,
+                solved=success_artifact_dir is not None or solved,
             )
             if merge_result:
                 logger.info("memory merged: %s", merge_result)

@@ -49,13 +49,14 @@ from rpent.dashboard.events import (
 from rpent.dashboard.interaction import DashboardInteractionPort, DashboardMessage
 from rpent.dashboard.planner_control import DashboardPlannerControl
 from rpent.planner.base import (
-    REASONING_EFFORTS,
+    CODEX_REASONING_EFFORTS,
     Planner,
     PlannerResult,
     cancel_and_wait,
     strip_mcp_prefix,
 )
 from rpent.planner.utils.http_mcp_server import HttpMcpServer
+from rpent.session.input import InputCancelled, SessionInputQueue
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.config import get_repo_root
 from rpent.utils.logging import get_logger
@@ -105,7 +106,9 @@ class CodexPlanner(Planner):
         """Initialize the Codex SDK backend."""
         self._output_dir = str(output_dir)
         self._repo_root = str(repo_root) if repo_root else str(get_repo_root())
-        self._timeout_s = timeout_s
+        if timeout_s < 0:
+            raise ValueError("timeout_s must be nonnegative (0 disables the deadline)")
+        self._timeout_s = None if timeout_s == 0 else timeout_s
         self._extra_dirs = extra_dirs or []
         self._output_path = Path(output_path) if output_path else None
         self._model = model or os.environ.get("CODEX_MODEL", None)
@@ -113,7 +116,7 @@ class CodexPlanner(Planner):
         self._api_key = os.environ.get("CODEX_API_KEY", None)
         self._service_tier = os.environ.get("CODEX_SERVICE_TIER", None)
         self._dashboard_events = dashboard_events
-        if reasoning_effort not in REASONING_EFFORTS:
+        if reasoning_effort not in CODEX_REASONING_EFFORTS:
             raise ValueError(f"unsupported reasoning effort: {reasoning_effort}")
         self._thread_options = {
             "approval_mode": openai_codex.ApprovalMode.deny_all,
@@ -171,7 +174,7 @@ class CodexPlanner(Planner):
         logger.info("prompt: %d chars", len(prompt))
         logger.info("output_dir: %s", self._output_dir)
         logger.info(
-            "invoking Codex SDK model %s (timeout=%ds)",
+            "invoking Codex SDK model %s (timeout=%s)",
             model_desc,
             self._timeout_s,
         )
@@ -302,16 +305,24 @@ class CodexPlanner(Planner):
                     turn = thread.turn(prompt, **self._turn_options)
                     state["turn"] = turn
 
-                    stop_steer: threading.Event | None = None
+                    session_input = None
                     if input_queue is not None:
-                        stop_steer = threading.Event()
+                        session_input = SessionInputQueue(
+                            input_queue, retain_until_ack=True
+                        )
 
                         def _steer() -> None:
                             while True:
-                                nxt = next_user_line(input_queue)
-                                if stop_steer.is_set():
+                                try:
+                                    nxt = next_user_line(session_input)
+                                except InputCancelled:
+                                    if session_input.cancelled:
+                                        return
+                                    nxt = None
+                                if session_input.cancelled:
                                     return
                                 if nxt is None:
+                                    session_input.acknowledge()
                                     toolkit.cancel_active_and_wait()
                                     try:
                                         turn.interrupt()
@@ -326,6 +337,7 @@ class CodexPlanner(Planner):
                                 logger.info(rendered.strip())
                                 try:
                                     turn.steer(nxt)
+                                    session_input.acknowledge()
                                 except Exception as e:
                                     rendered = f"\n[codex-planner] steer failed: {e}\n"
                                     with write_lock:
@@ -335,11 +347,12 @@ class CodexPlanner(Planner):
                                     logger.info(rendered.strip())
                                     return
 
-                        threading.Thread(
+                        steer_worker = threading.Thread(
                             target=_steer,
                             name="codex-steer",
                             daemon=True,
-                        ).start()
+                        )
+                        steer_worker.start()
 
                     limit_reached = False
                     try:
@@ -365,10 +378,10 @@ class CodexPlanner(Planner):
                                         raise
                                     # The terminal notification may still be queued.
                     finally:
-                        if stop_steer is not None:
-                            stop_steer.set()
-                            if input_queue is not None:
-                                input_queue.put(None)
+                        if session_input is not None:
+                            session_input.cancel()
+                            steer_worker.join()
+                            session_input.close()
 
             state["text"] = "".join(chunks)
             if recorder.final_response is not None:

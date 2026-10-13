@@ -150,6 +150,62 @@ def make_planner(tmp_path: Path, sink: RecordingSink, *, timeout_s: float = 1):
     )
 
 
+@pytest.mark.parametrize("accepted", [False, True])
+def test_stream_end_waits_for_steering_acceptance(tmp_path, monkeypatch, accepted):
+    from concurrent.futures import ThreadPoolExecutor
+
+    from rpent.session.input import SessionInputQueue
+
+    install_fake_backend(monkeypatch)
+    entered, release, cancelled = (threading.Event() for _ in range(3))
+    backend_accepted = []
+    original_cancel = SessionInputQueue.cancel
+
+    def cancel(scope):
+        original_cancel(scope)
+        cancelled.set()
+
+    class RacingTurn(FakeTurn):
+        def stream(self):
+            assert entered.wait(3)
+            yield {"method": "turn/completed", "payload": {}}
+
+        def steer(self, text):
+            if accepted:
+                backend_accepted.append(text)
+            entered.set()
+            assert release.wait(3)
+            if not accepted:
+                raise RuntimeError("rejected")
+
+    monkeypatch.setattr(SessionInputQueue, "cancel", cancel)
+    monkeypatch.setattr(FakeThread, "turn", lambda *args, **kwargs: RacingTurn([]))
+    source = queue.Queue()
+    for line in ("steer", "later", None):
+        source.put(line)
+    planner = make_planner(tmp_path, RecordingSink(), timeout_s=5)
+    with ThreadPoolExecutor() as pool:
+        result = pool.submit(
+            planner.solve,
+            system_prompt="",
+            user_message="task",
+            toolkit=FakeToolkit(),
+            max_turns=1,
+            input_queue=SessionInputQueue(source),
+        )
+        try:
+            assert cancelled.wait(3)
+            assert not result.done()
+            assert backend_accepted == (["steer"] if accepted else [])
+            assert list(source.queue) == ["later", None]
+        finally:
+            release.set()
+        assert result.result(3).error is None
+    assert list(source.queue) == (
+        ["later", None] if accepted else ["steer", "later", None]
+    )
+
+
 def install_fake_backend(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     configs: list[dict[str, Any]] = []
 
@@ -1227,3 +1283,41 @@ def test_retry_error_is_visible_without_poisoning_successful_turn():
     )
     assert "Retries exhausted" in recorder.error
     assert "Model connection failed" in str(sink.events[-1])
+
+
+@pytest.mark.parametrize("effort", ["none", "ultra"])
+def test_terminal_turn_finishes_without_leaking_eof(tmp_path, monkeypatch, effort):
+    import queue
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+
+    install_fake_backend(monkeypatch)
+    entered = Event()
+    original_next = codex_module.next_user_line
+
+    def read(source):
+        entered.set()
+        return original_next(source)
+
+    monkeypatch.setattr(codex_module, "next_user_line", read)
+    source = queue.Queue()
+    planner = CodexPlanner(
+        output_dir=str(tmp_path),
+        dashboard_events=RecordingSink(),
+        timeout_s=0,
+        reasoning_effort=effort,
+    )
+    with ThreadPoolExecutor() as pool:
+        future = pool.submit(
+            planner.solve,
+            system_prompt="",
+            user_message="test",
+            toolkit=FakeToolkit(),
+            max_turns=1,
+            input_queue=source,
+        )
+        assert entered.wait(2)
+        assert future.result(3).error is None
+    assert source.empty()
+    assert len(FakeCodex.instances) == 1
+    assert len(FakeCodex.instances[0].thread.turn_prompts) == 1

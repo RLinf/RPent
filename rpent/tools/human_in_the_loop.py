@@ -36,11 +36,13 @@ class HumanInTheLoopInput:
     """
 
     help_text = """Human-interactive exploration commands:
-    /done             Confirm the pending scene reset.
-    /continue         Continue from a pending operator verdict.
-    /success          Finish successfully and save exploration memory.
-    /failure          Finish with a failure record.
-    /abort            Abort exploration without publishing success memory.
+    /done [notes]     Confirm the pending scene reset.
+    /continue [notes] Continue from a pending operator verdict.
+    /success [notes]  End this session with an operator-confirmed success.
+    /failure [notes]  End this session with an operator-confirmed failure.
+    /abort [notes]    End exploration without publishing success memory.
+    Commands accept optional notes; ordinary messages are not saved for handoff.
+    success/failure ends this planner session; another may start within the budget.
     Words without / remain normal messages to the agent.
 
 """
@@ -55,16 +57,18 @@ class HumanInTheLoopInput:
         self._pending: tuple[str, queue.Queue[str | None]] | None = None
         self._pending_kind: str | None = None
         self._closed = False
-        self._verdict_handler: Callable[[str], bool] | None = None
+        self._verdict_handler: Callable[[str, str], bool] | None = None
 
-    def bind_verdict(self, handler: Callable[[str], bool] | None) -> None:
+    def bind_verdict(self, handler: Callable[[str, str], bool] | None) -> None:
         """Bind program-level verdict control for the active exploration session."""
         with self._lock:
             self._verdict_handler = handler
 
     def route_line(self, line: str) -> bool:
         """Consume operator commands; return False for ordinary planner input."""
-        command = line.strip().lower()
+        parts = line.strip().split(maxsplit=1)
+        command = parts[0].lower() if parts else ""
+        notes = parts[1] if len(parts) > 1 else ""
         if command in {"/done", "/continue"}:
             expected = "reset" if command == "/done" else "verdict"
             with self._lock:
@@ -73,14 +77,16 @@ class HumanInTheLoopInput:
                         "%s refused: no pending %s request.", command, expected
                     )
                 else:
-                    self._submit_pending_locked(command[1:])
+                    self._submit_pending_locked(
+                        command[1:] + (" " + notes if notes else "")
+                    )
                     logger.info("%s accepted.", command)
             return True
         if command in {"/success", "/failure", "/abort"}:
             verdict = command[1:]
             with self._lock:
                 handler = self._verdict_handler
-            if handler is None or not handler(verdict):
+            if handler is None or not handler(verdict, notes):
                 logger.warning(
                     "/%s refused: no eligible exploration attempt, or a verdict is already closing the run.",
                     verdict,
@@ -116,7 +122,7 @@ class HumanInTheLoopInput:
                 "prompt": self._pending_prompt,
             }
 
-    def reply(self, request_id: str, answer: str) -> None:
+    def reply(self, request_id: str, answer: str, notes: str = "") -> None:
         """Accept a single Web reply to the matching pending request."""
         with self._lock:
             if self._closed or self._pending is None or request_id != self._pending[0]:
@@ -126,14 +132,31 @@ class HumanInTheLoopInput:
                 if self._pending_kind == "reset"
                 else {"success", "failure", "continue", "abort"}
             )
-            if answer not in choices:
+            if answer not in choices or not isinstance(notes, str):
                 raise ValueError("invalid operator response")
-            self._submit_pending_locked(answer)
+            self._submit_pending_locked(
+                answer + (" " + notes.strip() if notes.strip() else "")
+            )
         self._notify_change()
 
     def _notify_change(self) -> None:
         if self._on_change is not None:
             self._on_change()
+
+    @property
+    def closed(self) -> bool:
+        """Whether the terminal input owner has closed."""
+        with self._lock:
+            return self._closed
+
+    def cancel_pending(self) -> None:
+        """Release the current request without closing the next session's reader."""
+        with self._lock:
+            if self._pending is not None:
+                self._pending[1].put(None)
+                self._pending = None
+                self._pending_kind = None
+        self._notify_change()
 
     def close(self) -> None:
         """Release pending input and detach the active verdict handler."""
@@ -184,7 +207,7 @@ class HumanInTheLoopInput:
             "/done" if kind == "reset" else "/continue" if kind == "verdict" else None
         )
         hint = (
-            f"\nShortcut: {shortcut}; /success, /failure or /abort ends exploration."
+            f"\nShortcut: {shortcut}; /success or /failure ends this session; /abort ends exploration."
             if shortcut
             else ""
         )

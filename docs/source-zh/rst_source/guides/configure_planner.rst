@@ -134,7 +134,8 @@ Codex 规划会话不会自动加载仓库的 ``AGENTS.md`` 和 ``.agents/skills
 
 - 设置 ``CODEX_SERVICE_TIER=fast`` 可向 Codex 后端传入 fast 服务档位，不改变 ``--reasoning-effort``。未设置时 RPent 不覆盖服务档位。
 - ``--model`` 会覆盖 ``CODEX_MODEL``；两者都未设置时使用 Codex SDK 配置的默认模型。
-- ``--planner-timeout-s`` 限制 Codex 运行时间。默认依次读取 ``CODEX_TIMEOUT_S``、``CELL_TIMEOUT_S``，均未设置时为 ``1200`` 秒。
+- ``--planner-timeout-s`` 限制 Codex 运行时间。默认依次读取 ``CODEX_TIMEOUT_S``、``CELL_TIMEOUT_S``，均未设置时为 ``1200`` 秒。设置 ``--planner-timeout-s 0`` 可关闭 Codex 时限；负值会被拒绝。
+- ``--reasoning-effort ultra`` 仅适用于 Codex，且需要模型和 SDK 支持该推理级别。终端输入用于引导正在执行的 Codex turn；turn 完成后不会继续保持对话。
 - 默认情况下，Codex SDK 会复用已有的 Codex 认证。若要接入自定义的 Responses API 兼容端点，请设置 ``CODEX_BASE_URL`` 和 ``CODEX_API_KEY``；这里不读取 ``OPENAI_BASE_URL`` 或 ``OPENAI_API_KEY``。
 
 通过 Codex 使用本地模型

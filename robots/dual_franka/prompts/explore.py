@@ -35,7 +35,9 @@ RULES = (
     "toolkit or planner session does not restore the tabletop.",
     "After reset, re-read the new state and re-localize. Never reuse a pixel, "
     "point or TCP target from an earlier attempt. Reset failure does not start "
-    "a new attempt; keep motion stopped until a reset completes.",
+    "a new attempt; keep motion stopped until a reset completes. view_env_state(-1) "
+    "acquires a fresh observation; pass its explicit step when localizing pixels. "
+    "Saved steps and step checks cannot prove that a scene has remained stationary.",
     "Read describe_dual_franka_setup for registered tools and cameras. Use move_delta, "
     "rotate_delta, gripper tools, recover_joint_posture, back_project, optional "
     "segment, and the named vla_right_grasp/vla_handoff/vla_left_place skills. "
@@ -44,7 +46,8 @@ RULES = (
     "answers success, failure, continue or abort. Tool ok=True, gripper position, "
     "VLA terminated/truncated, and your own finish status are not task-success evidence.",
     "Any subsequent physical action invalidates the verdict. continue clears "
-    "the previous verdict. Obtain another judgment before finish.",
+    "the previous verdict and returns a fresh observation. Apply its notes and resume "
+    "the current attempt without another reset; obtain another judgment before finish.",
     "For a failed attempt, archive evidence and update wip before requesting "
     "a new scene reset. Change a named lever: order, staging, target or VLA prompt/chunk budget. "
     "Use in-place recovery only when safe. Never force a restart after operator abort.",
@@ -58,7 +61,8 @@ Record which memories applied and which did not; no matching entry is acceptable
 Preserve the real-robot logs. Session traces are in
 {{output_dir}}/sessions/session_<NNN>/states.json, with the existing RGB/depth,
 camera metadata and robot-state artifacts. operator_events.json records human
-feedback against an attempt and observation step. Treat these as evidence,
+feedback against an attempt and observation step. Each session also has a
+transcript_{{recipe_tag}}.json with its finish, error and messages. Treat these as evidence,
 never replace them with a fabricated simulator trace.
 
 DURING exploration, archive each failed attempt as

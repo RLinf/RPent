@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, Any
 
 from rpent.cli.main import (
     _handoff_message,
+    _save_operator_session,
     _serialize_messages,
 )
 from rpent.dashboard.events import RunStartedEvent
@@ -211,6 +212,7 @@ def _run_dashboard_task(
     started = time.time()
     solved = False
     memory_manager = None
+    success_artifact_dir: Path | None = None
     environment_success = None
     try:
         task_daemons, task_runtime_kwargs = robot_spec.init_runtime(
@@ -237,8 +239,8 @@ def _run_dashboard_task(
             for session_number in range(1, sessions + 1):
                 if (
                     state.task_replacement_requested
-                    or state.task_finalization_cancelled
-                ):
+                    and not state.operator_session_finished
+                ) or state.task_finalization_cancelled:
                     break
                 if session_number > 1:
                     logger.info(
@@ -298,6 +300,7 @@ def _run_dashboard_task(
                         config=run_config,
                     )
                 solved = False
+                continue_after_verdict = False
                 state.bind_toolkit(toolkit)
                 memory_manager = toolkit.memory
                 try:
@@ -329,6 +332,10 @@ def _run_dashboard_task(
                     agent_error = result.error
                     if human_interactive_run and toolkit.direct_verdict_requested:
                         finish_result = toolkit.finalize_direct_verdict()
+                        continue_after_verdict = (
+                            finish_result["operator_verdict"] in {"success", "failure"}
+                            and not agent_error
+                        )
                         if agent_error:
                             stats["planner_error_at_operator_verdict"] = agent_error
                     if robot_spec.supports_exploration:
@@ -337,6 +344,18 @@ def _run_dashboard_task(
                             recipe_path = (
                                 toolkit.write_recipe(recipe_tag) or recipe_path
                             )
+                    if human_interactive_run and task_args.explore:
+                        session_success_dir = _save_operator_session(
+                            output_dir=output_dir,
+                            state_output_dir=state_output_dir,
+                            recipe_tag=recipe_tag,
+                            result=result,
+                            finish_result=finish_result,
+                            solved=solved,
+                        )
+                        success_artifact_dir = (
+                            success_artifact_dir or session_success_dir
+                        )
                 finally:
                     try:
                         state.unbind_toolkit(toolkit)
@@ -346,13 +365,22 @@ def _run_dashboard_task(
                     finally:
                         toolkit.close()
                 if (
-                    solved
-                    or state.task_replacement_requested
+                    (solved and not continue_after_verdict)
+                    or (
+                        state.task_replacement_requested
+                        and not (
+                            continue_after_verdict and state.operator_session_finished
+                        )
+                    )
                     or (finish_result or {}).get("operator_finished")
                 ):
                     break
                 if agent_error:
-                    if session_number < sessions and "timed out" in agent_error.lower():
+                    if (
+                        session_number < sessions
+                        and not getattr(toolkit, "direct_verdict_requested", False)
+                        and "timed out" in agent_error.lower()
+                    ):
                         logger.warning(
                             "session %d/%d timed out; continuing with a fresh handoff",
                             session_number,
@@ -416,8 +444,8 @@ def _run_dashboard_task(
         try:
             merge_result = memory_manager.merge_memory(
                 cell_tag=run_config.recipe_tag,
-                run_state_dir=run_config.output_dir,
-                solved=solved,
+                run_state_dir=success_artifact_dir or run_config.output_dir,
+                solved=success_artifact_dir is not None or solved,
             )
             if merge_result:
                 logger.info("run finalized: %s", merge_result)

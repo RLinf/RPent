@@ -148,6 +148,23 @@ def test_shared_cli_defaults_reach_robot_config_parser(
     assert args.memory_profile == "hf"
 
 
+def test_codex_ultra_and_unlimited_deadline_reach_configuration(monkeypatch):
+    _, args = _capture_validated_args(
+        monkeypatch,
+        [
+            "--robot",
+            "libero",
+            "--planner",
+            "codex",
+            "--reasoning-effort",
+            "ultra",
+            "--planner-timeout-s",
+            "0",
+        ],
+    )
+    assert args.reasoning_effort == "ultra" and args.planner_timeout_s == 0
+
+
 def test_deprecated_env_alias_routes_to_the_same_robot(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -190,6 +207,10 @@ def test_robot_and_env_aliases_are_mutually_exclusive(
             "cannot be used together",
         ),
         (["--robot", "robocasa", "--explore"], "not supported for robot"),
+        (
+            ["--robot", "libero", "--reasoning-effort", "ultra"],
+            "requires --planner codex",
+        ),
         (
             ["--robot", "libero", "--explore", "--memory-profile", "hf"],
             "cannot be used with --memory-profile hf",
@@ -690,7 +711,9 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     ]
 
 
-@pytest.mark.parametrize("planner_name", ["codex", "flash"])
+@pytest.mark.parametrize(
+    "planner_name,interactive", [("codex", False), ("flash", False), ("codex", True)]
+)
 @pytest.mark.parametrize(
     "planner_error", [None, "RuntimeError: Grasp not held; replay stopped"]
 )
@@ -699,6 +722,7 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
     monkeypatch: pytest.MonkeyPatch,
     planner_name: str,
     planner_error: str | None,
+    interactive: bool,
 ) -> None:
     cli = _cli_module()
     from rpent.evaluation import RunFinalizationContext, write_json_atomic
@@ -706,6 +730,14 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
     from rpent.robots import PromptBundle, RobotSpec, RunConfig
 
     captured: list[RunFinalizationContext] = []
+    terminal_queues = []
+
+    def reader(input_queue, **kwargs):
+        terminal_queues.append(input_queue)
+        input_queue.put("task")
+
+    monkeypatch.setattr(cli, "start_interactive_reader", reader)
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
 
     class FakeDaemon:
         stopped = False
@@ -725,7 +757,9 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
 
     class FakePlanner:
         def solve(self, **kwargs: Any) -> PlannerResult:
-            del kwargs
+            assert kwargs["input_queue"] is (
+                terminal_queues[0] if interactive else None
+            )
             return PlannerResult(
                 finish_result={"status": "success", "summary": "planner claim"},
                 messages=[],
@@ -803,6 +837,7 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
             str(tmp_path / "memory"),
             "--output-dir",
             str(tmp_path),
+            *(["--interactive"] if interactive else []),
         ],
     )
 

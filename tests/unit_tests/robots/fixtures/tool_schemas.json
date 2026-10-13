@@ -940,7 +940,7 @@
       },
       {
         "name": "view_env_state",
-        "description": "Read a dual-Franka state snapshot. Configured inline camera views are returned directly; other available views are returned as artifact paths; use read_image to inspect these artifacts.",
+        "description": "Acquire and save a fresh dual-Franka observation with step=-1; a nonnegative step reads a saved snapshot without hardware access. Configured inline camera views are returned directly; other available views are returned as artifact paths; use read_image to inspect these artifacts.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -960,7 +960,7 @@
       },
       {
         "name": "back_project",
-        "description": "Back-project one pixel from a registered RGBD camera view into shared right-base coordinates. Use a camera listed by view_env_state/view_camera_meta; default is the configured primary metric localization camera.",
+        "description": "Back-project one pixel from a registered RGBD camera view into shared right-base coordinates. Use a camera listed by view_env_state/view_camera_meta; default is the configured primary metric localization camera. Pass the explicit latest observation step for the selected pixel.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -976,7 +976,7 @@
       },
       {
         "name": "segment",
-        "description": "Use SAM3 on a registered RGB image with either a text prompt or one positive [row, col] point, return a mask overlay for verification, and estimate the mask median point in shared right-base coordinates.",
+        "description": "Use SAM3 on a registered RGB image with either a text prompt or one positive [row, col] point, return a mask overlay for verification, and estimate the mask median point in shared right-base coordinates. Point prompts require the explicit latest observation step; text prompts use the saved image without a new capture.",
         "input_schema": {
           "type": "object",
           "properties": {

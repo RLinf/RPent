@@ -235,7 +235,9 @@ class Toolkit:
         }
 
         try:
-            operation = self._scheduler.acquire(readonly=tool.readonly)
+            operation = self._scheduler.acquire(
+                readonly=self._is_readonly_call(tool, kwargs)
+            )
         except ToolCancelled as exc:
             return ToolResult(
                 data={"error": str(exc), "code": "tool_cancelled", "interrupted": True}
@@ -309,6 +311,10 @@ class Toolkit:
             return native
         finally:
             self._scheduler.release(operation)
+
+    def _is_readonly_call(self, tool: Tool, kwargs: dict[str, Any]) -> bool:
+        """Select admission separately from a tool's automatic state capture."""
+        return tool.readonly
 
     def _publish_step(self, record: StepRecord) -> None:
         """Publish one recorded environment step to the dashboard sink."""

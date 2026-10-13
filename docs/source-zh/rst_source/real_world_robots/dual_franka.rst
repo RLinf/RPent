@@ -268,6 +268,8 @@ ModelScope 上发布了一个可直接使用的 task ``1`` checkpoint： `Brunch
 
 双臂 Franka 扩展提供 ``view_env_state``、``view_camera_meta``、 ``move_delta``、``rotate_delta``、``open_gripper``、``close_gripper`` 和 ``vla_right_grasp`` / ``vla_handoff`` / ``vla_left_place``。每次解析式运动只会作用于一条臂（``left`` 或 ``right``）。所有会改变环境状态的工具都会在 RPent 统一的 ``EnvState`` 中保存每条臂的状态以及同步的 left-wrist、base 和 right-wrist 图像。
 
+两种模式下，``view_env_state(step=-1)`` 都会重新采集并保存相机和机器人状态，因此增加采集及文件写入开销；非负 step 只读取已保存的观测。使用像素坐标的 ``back_project`` 和 ``segment`` 必须指定最新观测的明确 step，省略、负值或过期的像素来源 step 会被拒绝。纯文本分割使用已保存图像，不会重新采集。采集和判断工具使用独占工具调度，避免与物理动作并发。这些检查无法检测外部场景变化，也无法追溯手写运动坐标的来源。场景变化后应重新观察并选取目标；step 匹配本身不代表坐标可安全执行。
+
 安全要求
 --------
 
@@ -322,21 +324,18 @@ API 部署需显式设置 ``RPENT_CODEX_API_KEY`` 和可选的 ``RPENT_CODEX_BAS
 日志与记忆
 ~~~~~~~~~~
 
-``sessions/session_<NNN>/`` 保存相机和机器人状态，``exploration.json`` 记录尝试边界，``operator_events.json`` 记录人工反馈。失败尝试的记录会保留，工作笔记位于 ``<memory-dir>/_internal/inbox/<recipe_tag>/wip/``。
+``sessions/session_<NNN>/`` 保存相机和机器人状态，``exploration.json`` 记录尝试边界，``operator_events.json`` 记录人工反馈。会话对话保存在 ``transcript_<recipe_tag>.json``。失败尝试的记录会保留，工作笔记位于 ``<memory-dir>/_internal/inbox/<recipe_tag>/wip/``。
 
-默认启用 memory 合并。正常结束后合并合法的 ``global`` / ``task-family`` 草稿，包括失败尝试的经验；成功时还将完整的 audit/recipe 文件对保存到 ``task-specific``。使用 ``--no-auto-merge-memory`` 可保留记录而不合并。运行错误、中止、切换任务或关闭 Dashboard 会话时不合并。记忆目录说明见 :doc:`../guides/memory`。
+默认启用 memory 合并。正常结束后合并合法的 ``global`` / ``task-family`` 草稿，包括失败尝试的经验；成功时还将完整的 audit/recipe 文件对保存到 ``task-specific``。即使后续会话失败，也会保留并合并首次完整的成功记录。使用 ``--no-auto-merge-memory`` 可保留记录而不合并。运行错误、中止、切换任务或关闭 Dashboard 会话时不合并。记忆目录说明见 :doc:`../guides/memory`。
 
 探索命令
 ~~~~~~~~
 
-在 Codex/Claude 终端交互（``--explore --interactive``）或 Dashboard 探索中，可使用：
+在 Codex/Claude 终端交互（``--explore --interactive``）或 Dashboard 探索中，``/success [备注]`` 和 ``/failure [备注]`` 结束当前规划器会话，而不只是判定当前尝试。``--explore-sessions`` 还有剩余次数时，会在同一任务中开始下一会话，并重新要求确认场景。``/abort [备注]`` 停止整个任务，相机不可用时也可使用。API 终端交互使用 :doc:`../guides/dashboard` 所述的回复后追加对话和工具确认提示。
 
-* ``/success`` 或 ``/failure``：结束整个任务，而不只是判定当前尝试。成功要求场景已确认且复位成功；终端中可在首次复位前用 ``/failure`` 结束任务，Dashboard 中则需先用 ``/done`` 或 ``/abort`` 回答待处理的复位请求。
-* ``/done``：确认待处理的场景复位请求。
-* ``/continue``：回答待处理的判定请求并继续尝试。
-* ``/abort``：停止任务，相机不可用时也可使用。
+成功要求场景已确认且复位成功。终端中可在首次复位前用 ``/failure`` 结束会话；Dashboard 中需先用 ``/done`` 或 ``/abort`` 回答待处理的复位请求。``/done [备注]`` 只确认待处理的复位，``/continue [备注]`` 只回答待处理的判定请求并继续尝试。备注随对应的确认保存。不带斜杠的 ``success``、``failure`` 等词语是发给智能体的普通消息。
 
-每条命令单独输入。不带斜杠的 ``success``、``failure`` 等词语是发给智能体的普通消息。已发送的机器人动作或 RPC 可能需返回后才能结束任务；这些命令不是急停。
+已发送的机器人动作或 RPC 可能需返回后才能结束会话；这些命令不是急停。规划器错误（包括超时）会停止直接判定后的自动续会话。
 
 独立 VLA 诊断控制台
 ~~~~~~~~~~~~~~~~~~~

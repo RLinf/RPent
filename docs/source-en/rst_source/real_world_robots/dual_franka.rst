@@ -323,6 +323,16 @@ analytic motion selects exactly one arm, ``left`` or ``right``. Mutating tools
 capture per-arm state and synchronized left-wrist, base, and right-wrist images
 in RPent's central ``EnvState``.
 
+In both modes, ``view_env_state(step=-1)`` acquires and saves new camera and robot
+state, adding capture and artifact I/O cost. A nonnegative step reads saved
+artifacts only. Pixel-based ``back_project`` and ``segment`` calls must name the
+latest saved step; omitted, negative or stale pixel source steps are rejected.
+Text-only segmentation uses a saved image, not a new capture. Capture and
+verdict tools use exclusive tool scheduling so they do not race physical actions.
+These checks cannot detect external scene changes or establish the provenance of
+handwritten motion coordinates. Reobserve and reselect targets after scene changes;
+matching a step number alone does not make coordinates safe to execute.
+
 Safety
 ------
 
@@ -428,12 +438,15 @@ Records and Memory
 
 Find camera and robot state in ``sessions/session_<NNN>/``, attempt boundaries in
 ``exploration.json`` and human feedback in ``operator_events.json``.
+Session transcripts are saved as ``transcript_<recipe_tag>.json``.
 Failed attempts are retained; working notes are in
 ``<memory-dir>/_internal/inbox/<recipe_tag>/wip/``.
 
 Memory merging is enabled by default. Normal completion merges valid ``global``
 and ``task-family`` drafts, including lessons from failed attempts. Success also
 saves a complete audit/recipe pair under ``task-specific``.
+On normal completion, the first complete successful record is merged even if a
+later session fails.
 Use ``--no-auto-merge-memory`` to keep records without merging. Errors, aborts,
 task replacement and Dashboard Session shutdown prevent merging. See
 :doc:`../guides/memory` for the memory layout.
@@ -442,19 +455,23 @@ Exploration Commands
 ~~~~~~~~~~~~~~~~~~~~
 
 In Codex/Claude terminal interaction (``--explore --interactive``) or Dashboard
-exploration, use:
+exploration, ``/success [notes]`` and ``/failure [notes]`` end the current planner
+session, rather than only judge an attempt. If ``--explore-sessions`` has budget
+remaining, another session starts in the same task and requires fresh scene
+confirmation. ``/abort [notes]`` stops the whole task, even if a camera is
+unavailable. API terminal interaction uses the follow-up conversation and tool
+confirmation prompts described in :doc:`../guides/dashboard`.
 
-* ``/success`` or ``/failure`` to end the task, rather than only judge an attempt.
-  Success requires a confirmed reset. In the terminal, failure can end the task
-  before the first reset; in Dashboard, answer a pending reset with ``/done`` or
-  ``/abort`` first.
-* ``/done`` to confirm a pending scene-reset request.
-* ``/continue`` to answer a pending verdict and resume the attempt.
-* ``/abort`` to stop the task, even if a camera is unavailable.
+Success requires a confirmed reset. Terminal failure can end a session before
+the first reset; in Dashboard, answer a pending reset with ``/done`` or ``/abort``
+first. ``/done [notes]`` confirms only a pending reset; ``/continue [notes]``
+answers only a pending verdict and resumes the attempt. Notes are saved with
+the corresponding confirmation. Bare words such as ``success`` and ``failure``
+are ordinary agent messages.
 
-Enter each command on its own. Bare words such as ``success`` and ``failure``
-are ordinary agent messages. Already-issued robot actions or RPCs may need to
-return before the task can end; these commands are not an emergency stop.
+Already-issued robot actions or RPCs may need to return before a session can
+end; these commands are not an emergency stop. Planner errors, including
+timeouts, stop automatic continuation after a direct verdict.
 
 VLA Diagnostic Console
 ~~~~~~~~~~~~~~~~~~~~~~

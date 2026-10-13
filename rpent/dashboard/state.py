@@ -252,10 +252,10 @@ class DashboardState:
                 "exploration": self.operator_exploration,
             }
 
-    def _finish_operator_locked(self, verdict: str) -> None:
+    def _finish_operator_locked(self, verdict: str, notes: str = "") -> None:
         if self._toolkit is None:
             raise ValueError("no matching active operator task")
-        if not self._toolkit.request_direct_verdict(verdict):
+        if not self._toolkit.request_direct_verdict(verdict, notes):
             raise ValueError("operator verdict refused in current state")
         self.operator_verdict = verdict
         self._pending_task = None
@@ -436,6 +436,16 @@ class DashboardState:
                 or self.operator_verdict == "abort"
             )
 
+    @property
+    def operator_session_finished(self) -> bool:
+        """A direct verdict closed this planner, with no replacement or shutdown."""
+        with self._condition:
+            return (
+                self._session_state == "switch_pending"
+                and self.operator_verdict in {"success", "failure"}
+                and not self.task_finalization_cancelled
+            )
+
     def shared_services_ready(self) -> None:
         """Open the command channel after shared services have started."""
         with self._condition:
@@ -531,6 +541,10 @@ class DashboardState:
             self.continue_exploration(explicit=True)
             return {"command": command}
         with self._condition:
+            if self.operator is not None:
+                parts = text.strip().split(maxsplit=1)
+                command = parts[0].lower()
+                notes = parts[1] if len(parts) > 1 else ""
             if self.operator is not None and command in {
                 "/done",
                 "/continue",
@@ -559,13 +573,13 @@ class DashboardState:
                         raise ValueError(
                             "evaluation accepts only a pending operator verdict"
                         )
-                    self.operator.reply(request_id, command[1:])
+                    self.operator.reply(request_id, command[1:], notes)
                 elif command in {"/success", "/failure", "/abort"}:
                     if pending and pending["kind"] == "reset" and command != "/abort":
                         raise ValueError("scene reset is not confirmed")
-                    self._finish_operator_locked(command[1:])
+                    self._finish_operator_locked(command[1:], notes)
                 else:
-                    self.operator.reply(request_id, command[1:])
+                    self.operator.reply(request_id, command[1:], notes)
                 self._control_feedback = [f"{command} accepted"]
                 self._interaction_changed_locked()
                 return None
@@ -787,7 +801,11 @@ class DashboardState:
         with self._condition:
             if self._task_state not in {"starting", "running"}:
                 raise InteractionUnavailableError("Dashboard TaskRun is not active")
-            if self._session_state == "switch_pending":
+            if self.operator_session_finished:
+                self._session_state = "running"
+                self.operator_verdict = None
+                self._task_generation += 1
+            elif self._session_state == "switch_pending":
                 raise InteractionUnavailableError(
                     "Dashboard TaskRun replacement is pending"
                 )
