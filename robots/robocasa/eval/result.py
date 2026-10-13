@@ -24,7 +24,7 @@ from typing import Any
 from rpent.evaluation import RunFinalizationContext, write_json_atomic
 
 RESULT_SCHEMA_VERSION = "1.1"
-TARGET50_MANIFEST = Path(__file__).with_name("target50_v2.json")
+TARGET50_MANIFEST = Path(__file__).with_name("target50.json")
 
 
 def _target50_identity(
