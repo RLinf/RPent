@@ -109,3 +109,57 @@ def test_invalid_yaw_tolerance_fails_before_actions(yaw_tol):
     with pytest.raises(ValueError, match="yaw_tol"):
         primitives(env).move_to([0, 0, 0], target_yaw=0.8, yaw_tol=yaw_tol)
     assert not env.actions
+
+
+class TiltingMotionEnv(MotionEnv):
+    def __init__(self, horizontal_projection, *, tilt_after=0, terminal=None):
+        super().__init__(terminal=terminal)
+        self.pitch = np.arccos(horizontal_projection)
+        self.tilt_after = tilt_after
+
+    def raw_obs(self):
+        if len(self.actions) < self.tilt_after:
+            return super().raw_obs()
+        rotation = Rotation.from_euler("z", self.yaw) * Rotation.from_euler(
+            "y", self.pitch
+        )
+        return {"robot0_eef_quat": rotation.as_quat()}
+
+
+@pytest.mark.parametrize("projection", [0.0, 0.5e-6, -0.5e-6])
+@pytest.mark.parametrize("max_steps", [0, 80])
+def test_vertical_x_axis_returns_error_even_at_target(projection, max_steps):
+    env = TiltingMotionEnv(projection)
+    result = (
+        primitives(env).move_to([0, 0, 0], target_yaw=0.0, max_steps=max_steps).data
+    )
+    assert result["name"] == "move_to"
+    assert "nearly vertical" in result["error"]
+    assert "1e-6" in result["error"]
+    assert "final_yaw_error_rad" not in result
+    assert not env.actions
+
+
+@pytest.mark.parametrize(
+    ("max_steps", "terminal"),
+    [(80, None), (1, None), (80, "terminated"), (80, "truncated")],
+)
+def test_yaw_becoming_degenerate_stops_without_reporting_convergence(
+    max_steps, terminal
+):
+    env = TiltingMotionEnv(0.0, tilt_after=1, terminal=terminal)
+    result = (
+        primitives(env).move_to([0, 0, 0], target_yaw=0.1, max_steps=max_steps).data
+    )
+    assert result["name"] == "move_to"
+    assert "nearly vertical" in result["error"]
+    assert "final_yaw_error_rad" not in result
+    assert len(env.actions) == 1
+
+
+def test_yaw_projection_above_threshold_is_accepted():
+    env = TiltingMotionEnv(2e-6)
+    result = primitives(env).move_to([0, 0, 0], target_yaw=0.0).data
+    assert "error" not in result
+    assert result["final_yaw_error_rad"] == 0.0
+    assert not env.actions

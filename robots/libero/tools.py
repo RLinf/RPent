@@ -356,11 +356,22 @@ class LiberoPrimitives:
         if not np.isfinite(yaw_tol) or yaw_tol <= 0:
             raise ValueError("yaw_tol must be finite and greater than zero")
 
-        def yaw_error():
+        def yaw_error() -> float | ToolResult:
             from scipy.spatial.transform import Rotation as _R
 
             q = self.env.raw_obs()["robot0_eef_quat"]
             matrix = _R.from_quat(q).as_matrix()
+            # The local X axis is unit length. Below a 1e-6 horizontal
+            # projection (about 1e-6 rad from vertical), its heading is
+            # ill-conditioned; do not feed it to atan2 or claim convergence.
+            if np.hypot(matrix[0, 0], matrix[1, 0]) < 1e-6:
+                return ToolResult(
+                    data={
+                        "error": "Cannot control yaw: EEF local X axis is nearly vertical "
+                        "(horizontal projection < 1e-6). Reorient the EEF before retrying.",
+                        "name": "move_to",
+                    }
+                )
             # World yaw; Euler zyx reverses its sign for gripper-down poses.
             yaw = float(np.arctan2(matrix[1, 0], matrix[0, 0]))
             return (float(target_yaw) - yaw + np.pi) % (2 * np.pi) - np.pi
@@ -379,6 +390,8 @@ class LiberoPrimitives:
                 }
             )
             err = yaw_error() if target_yaw is not None else 0.0
+            if isinstance(err, ToolResult):
+                return err
             if dist < tol and abs(err) < yaw_tol:
                 break
             step_dxyz = np.clip(diff, -step_clip, step_clip)
@@ -407,7 +420,10 @@ class LiberoPrimitives:
         )
 
         if target_yaw is not None:
-            result.data["final_yaw_error_rad"] = round(float(yaw_error()), 4)
+            err = yaw_error()
+            if isinstance(err, ToolResult):
+                return err
+            result.data["final_yaw_error_rad"] = round(float(err), 4)
         return result
 
     @tool
