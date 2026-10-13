@@ -27,12 +27,13 @@ from common import (
     METHODS,
     Array,
     Record,
+    check_camera,
     check_opencv,
+    check_state,
     delta,
     errors,
     mean_pose,
     rigid_transform,
-    sample_poses,
     stats,
     transform,
     write_json,
@@ -100,14 +101,28 @@ def load_samples(
     expected_serial = serial or reference["camera"]["serial"]
     robot_poses, board_poses = [], []
     for path, sample in zip(files, samples):
-        pose, board_pose = sample_poses(
-            sample,
-            reference,
-            arm=arm,
-            serial=expected_serial,
-            board=reference["board"],
-            source=path,
-        )
+        if sample.get("calibration_mode") != "eye_to_hand" or sample.get("arm") != arm:
+            raise ValueError(
+                f"{path}: arm or calibration mode does not match this solver"
+            )
+        if (
+            sample["camera"]["serial"] != expected_serial
+            or sample["board"] != reference["board"]
+        ):
+            raise ValueError(f"{path}: camera serial or board definition changed")
+        check_camera(sample["camera"], reference["camera"])
+        for key in ("robot_before", "robot_after"):
+            check_state(sample[key])
+            if not np.allclose(
+                sample[key]["F_T_EE"],
+                reference["robot_before"]["F_T_EE"],
+                rtol=0,
+                atol=1e-8,
+            ):
+                raise ValueError(f"{path}: end-effector frame changed")
+        pose = rigid_transform(sample[f"T_{arm}_base_ee"], str(path))
+        if not np.allclose(pose, transform(sample["robot_before"]), rtol=0, atol=1e-8):
+            raise ValueError(f"{path}: stored pose disagrees with robot_before")
         drift_m, drift_rad = delta(pose, transform(sample["robot_after"]))
         if drift_m > 0.001 or drift_rad > 0.005:
             raise ValueError(f"{path}: robot moved during image acquisition")
@@ -126,7 +141,7 @@ def load_samples(
                 f"{path}: insufficient corners or excessive reprojection error"
             )
         robot_poses.append(pose)
-        board_poses.append(board_pose)
+        board_poses.append(rigid_transform(sample["T_camera_board"], str(path)))
     return files, samples, np.array(robot_poses), np.array(board_poses)
 
 

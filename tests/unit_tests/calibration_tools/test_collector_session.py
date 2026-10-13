@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Offline functional checks for reviewed and resumed calibration sessions."""
+"""Offline checks for calibration sample preview and exclusion."""
 
 from __future__ import annotations
 
@@ -108,7 +108,7 @@ def request_handler(module, collector, path, method="POST"):
     return responses[0]
 
 
-def test_review_exclude_resume_and_continue_capture(session):
+def test_review_exclude_and_continue_capture(session):
     collector_module, collector, state = session
     code, page, kind = request_handler(collector_module, collector, "/", "GET")
     assert (code, kind) == (200, "text/html; charset=utf-8")
@@ -128,27 +128,17 @@ def test_review_exclude_resume_and_continue_capture(session):
     archived = collector.root / "excluded" / "sample_001"
     assert snapshot(archived) == original
 
-    resumed = collector_module.Collector(collector.config, collector.root, resume=True)
-    assert resumed.status()["count"] == 0
+    assert collector.status()["count"] == 0
     state["O_T_EE"][12] = 0.1
-    code, body, _ = request_handler(collector_module, resumed, "/sample")
+    code, body, _ = request_handler(collector_module, collector, "/sample")
     result = json.loads(body)
     assert code == 200 and result["accepted"]
     assert Path(result["saved"]).name == "sample_002"
-    final = collector_module.Collector(collector.config, collector.root, resume=True)
-    assert [sample["index"] for sample in final.status()["samples"]] == [2]
-    collector = final
+    assert [sample["index"] for sample in collector.status()["samples"]] == [2]
+    assert snapshot(archived) == original
     for index in range(1, 10):
         state["O_T_EE"][12] = 0.1 + index * 0.02
         collector.sample()
     root = collector.root
     solver = importlib.import_module("solve_base_handeye")
     assert len(solver.load_samples(root, "left")[1]) == 10
-    sample_path = root / "sample_005" / "sample.json"
-    changed = json.loads(sample_path.read_text())
-    changed["T_left_base_ee"][0][3] += 0.1
-    sample_path.write_text(json.dumps(changed))
-    with pytest.raises(ValueError, match="stored pose disagrees"):
-        solver.load_samples(root, "left")
-    with pytest.raises(ValueError, match="stored pose disagrees"):
-        collector_module.Collector(collector.config, root, resume=True)

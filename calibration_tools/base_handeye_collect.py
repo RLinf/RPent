@@ -40,7 +40,6 @@ from common import (
     check_opencv,
     check_state,
     delta,
-    sample_poses,
     transform,
     write_json,
 )
@@ -96,9 +95,7 @@ class CaptureConfig:
 class Collector:
     """Own acquisition state without mutating other imported modules."""
 
-    def __init__(
-        self, config: CaptureConfig, root: Path, *, resume: bool = False
-    ) -> None:
+    def __init__(self, config: CaptureConfig, root: Path) -> None:
         """Initialize an isolated session; hardware is read only on request."""
         self.config = config
         self.root = root
@@ -115,54 +112,6 @@ class Collector:
             cv2.aruco.getPredefinedDictionary(getattr(cv2.aruco, config.dictionary)),
         )
         self.board.setLegacyPattern(False)
-        if resume:
-            self._resume()
-        elif root.exists():
-            raise FileExistsError("Output directory already exists; use --resume")
-
-    def _resume(self) -> None:
-        """Load saved samples without changing their identities or files."""
-        if not self.root.is_dir():
-            raise ValueError("--resume requires an existing session directory")
-        reference: Record | None = None
-        indices: set[int] = set()
-        for parent in (self.root, self.root / "excluded"):
-            for folder in sorted(parent.glob("sample_*")):
-                match = re.fullmatch(r"sample_([0-9]+)", folder.name)
-                if not match or not folder.is_dir() or folder.is_symlink():
-                    raise ValueError(f"Invalid sample directory: {folder}")
-                index = int(match[1])
-                if (
-                    index < 1
-                    or index in indices
-                    or folder.name != f"sample_{index:03d}"
-                ):
-                    raise ValueError(f"Invalid or duplicate sample index: {folder}")
-                indices.add(index)
-                self.next_index = max(self.next_index, index + 1)
-                record = json.loads(
-                    (folder / "sample.json").read_text(encoding="utf-8")
-                )
-                if type(record["index"]) is not int or record["index"] != index:
-                    raise ValueError(f"Sample index does not match: {folder}")
-                if reference is None:
-                    reference = record
-                sample_poses(
-                    record,
-                    reference,
-                    arm=self.config.arm,
-                    serial=self.config.camera_serial,
-                    board=self.config.board_metadata,
-                    source=folder,
-                )
-                for name in ("color.png", "annotated.png"):
-                    if not (folder / name).is_file():
-                        raise ValueError(f"Missing sample image: {folder / name}")
-                if parent == self.root:
-                    self.samples.append(record)
-        self.samples.sort(key=lambda sample: sample["index"])
-        self.reference = reference
-        self.last = {"resumed": True, "count": len(self.samples)}
 
     def delete_sample(self, index: int) -> Record:
         """Exclude a selected sample, preserving its files for manual recovery."""
@@ -472,9 +421,6 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         help="Optional libfranka shared-library directory on the reader host",
     )
     parser.add_argument("--output", type=Path)
-    parser.add_argument(
-        "--resume", action="store_true", help="Resume --output with unchanged setup"
-    )
     parser.add_argument("--port", type=int, default=8767)
     parser.add_argument("--squares-x", type=int, default=6)
     parser.add_argument("--squares-y", type=int, default=8)
@@ -530,18 +476,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     add_arguments(parser)
     args = parser.parse_args()
-    if args.resume and args.output is None:
-        parser.error("--resume requires --output")
     config = build_config(args)
     root = args.output or Path(__file__).resolve().parent / "sessions" / (
         datetime.now().strftime("%Y%m%d_%H%M%S_%f") + f"_{config.arm}_eye_to_hand"
     )
-    try:
-        collector = Collector(config, root, resume=args.resume)
-    except (ValueError, OSError, KeyError) as error:
-        parser.error(str(error))
+    if root.exists():
+        parser.error("Output directory already exists; use a new session directory")
     logging.basicConfig(level=logging.INFO)
-    serve(collector, args.port)
+    serve(Collector(config, root), args.port)
 
 
 if __name__ == "__main__":
