@@ -217,9 +217,10 @@ def test_missing_rotation_target_does_not_step(method, message):
 
 
 @pytest.mark.parametrize("method", ["rotate_wrist", "rotate_pitch"])
-def test_rotation_tool_schema_exposes_hold_arguments(method):
+def test_rotation_tool_schema_keeps_controller_scales_internal(method):
     properties = getattr(LiberoPrimitives, method).input_schema["properties"]
 
-    for name in ("pos_tol", "action_scale", "rot_scale"):
-        assert properties[name]["type"] == "number"
-        assert properties[name]["description"]
+    assert properties["pos_tol"]["type"] == "number"
+    assert properties["pos_tol"]["description"]
+    assert "action_scale" not in properties
+    assert "rot_scale" not in properties

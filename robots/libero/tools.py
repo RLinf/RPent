@@ -413,8 +413,6 @@ class LiberoPrimitives:
         tol: float = 0.02,
         step_clip: float = 0.1,
         pos_tol: float = 0.03,
-        action_scale: float = 0.05,
-        rot_scale: float = 0.5,
     ) -> ToolResult:
         """Rotate the wrist around the world Z-axis. Provide either target_yaw (absolute) or delta_yaw (relative). Holds xyz fixed by servoing back to the entry pose; the result carries converged, position_hold_ok, and max_pos_drift_m.
 
@@ -426,10 +424,12 @@ class LiberoPrimitives:
             tol: Yaw tolerance, rad (default 0.02)
             step_clip: Per-step yaw clip, rad (default 0.10)
             pos_tol: Position-hold tolerance on max xyz drift, m (default 0.03)
-            action_scale: OSC translation scale, m per unit action (default 0.05)
-            rot_scale: OSC rotation scale, rad per unit action (default 0.5)
         """
         from scipy.spatial.transform import Rotation as _R
+
+        # LIBERO OSC_POSE scaling: metres/radians per normalized action unit.
+        action_scale = 0.05
+        rot_scale = 0.5
 
         def _yaw_of(quat_xyzw):
             # robot0_eef_quat in libero+robosuite is xyzw (scipy convention).
@@ -510,8 +510,6 @@ class LiberoPrimitives:
         tol: float = 0.02,
         step_clip: float = 0.1,
         pos_tol: float = 0.03,
-        action_scale: float = 0.05,
-        rot_scale: float = 0.5,
     ) -> ToolResult:
         """Tilt the gripper around the world X-axis. Provide either target_pitch (absolute) or delta_pitch (relative). Holds xyz and yaw fixed by servoing back to the entry pose; the result carries converged, position_hold_ok, and max_pos_drift_m. Use before threading the gripper into a narrow opening whose front face normal is along world ±y (e.g. microwave cavity).
 
@@ -523,10 +521,12 @@ class LiberoPrimitives:
             tol: Pitch tolerance, rad (default 0.02)
             step_clip: Per-step pitch clip, rad (default 0.10)
             pos_tol: Position-hold tolerance on max xyz drift, m (default 0.03)
-            action_scale: OSC translation scale, m per unit action (default 0.05)
-            rot_scale: OSC rotation scale, rad per unit action (default 0.5)
         """
         from scipy.spatial.transform import Rotation as _R
+
+        # LIBERO OSC_POSE scaling: metres/radians per normalized action unit.
+        action_scale = 0.05
+        rot_scale = 0.5
 
         def _pitch_of(quat_xyzw):
             q = quat_xyzw

@@ -264,9 +264,7 @@
             "max_steps": {"type": "integer", "description": "Step budget (default 40)"},
             "tol": {"type": "number", "description": "Yaw tolerance, rad (default 0.02)"},
             "step_clip": {"type": "number", "description": "Per-step yaw clip, rad (default 0.10)"},
-            "pos_tol": {"type": "number", "description": "Position-hold tolerance on max xyz drift, m (default 0.03)"},
-            "action_scale": {"type": "number", "description": "OSC translation scale, m per unit action (default 0.05)"},
-            "rot_scale": {"type": "number", "description": "OSC rotation scale, rad per unit action (default 0.5)"}
+            "pos_tol": {"type": "number", "description": "Position-hold tolerance on max xyz drift, m (default 0.03)"}
           }
         }
       },
@@ -282,9 +280,7 @@
             "max_steps": {"type": "integer", "description": "Step budget (default 40)"},
             "tol": {"type": "number", "description": "Pitch tolerance, rad (default 0.02)"},
             "step_clip": {"type": "number", "description": "Per-step pitch clip, rad (default 0.10)"},
-            "pos_tol": {"type": "number", "description": "Position-hold tolerance on max xyz drift, m (default 0.03)"},
-            "action_scale": {"type": "number", "description": "OSC translation scale, m per unit action (default 0.05)"},
-            "rot_scale": {"type": "number", "description": "OSC rotation scale, rad per unit action (default 0.5)"}
+            "pos_tol": {"type": "number", "description": "Position-hold tolerance on max xyz drift, m (default 0.03)"}
           }
         }
       },
