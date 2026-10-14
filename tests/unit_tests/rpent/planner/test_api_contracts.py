@@ -523,7 +523,10 @@ def test_other_usage_limit_failures_remain_errors(tmp_path):
     assert result.finish_result is None
 
 
-def test_token_limit_truncation_is_marked_for_recovery(tmp_path):
+@pytest.mark.parametrize("interactive", [False, True])
+def test_token_limit_truncation_is_marked_for_recovery(
+    tmp_path, monkeypatch, interactive
+):
     """A reasoning-only length stop is an expected model-side stop (#271).
 
     pydantic-ai raises ``UnexpectedModelBehavior`` without retrying when a
@@ -532,7 +535,29 @@ def test_token_limit_truncation_is_marked_for_recovery(tmp_path):
     CLI can hand off to the next exploration session.
     """
 
+    if interactive:
+        import pydantic_ai._cli as cli
+
+        replies = iter(["Inspect.", "/exit"])
+
+        async def read_prompt(*args, **kwargs):
+            return next(replies)
+
+        monkeypatch.setattr(cli, "PYDANTIC_AI_HOME", tmp_path / "cli")
+        monkeypatch.setattr(
+            cli,
+            "PromptSession",
+            lambda **kwargs: SimpleNamespace(prompt_async=read_prompt),
+        )
+
+    requests = 0
+
     async def stream(messages, info):
+        nonlocal requests
+        requests += 1
+        if interactive and requests == 1:
+            yield "Ready."
+            return
         yield {0: DeltaThinkingPart(content="Reasoning past the output budget.")}
         raise UnexpectedModelBehavior(
             "Model token limit (8192) exceeded before any response was "
@@ -541,7 +566,13 @@ def test_token_limit_truncation_is_marked_for_recovery(tmp_path):
             "the limit."
         )
 
-    result, _, _ = solve(tmp_path, FunctionModel(stream_function=stream), max_turns=2)
+    result, _, _ = solve(
+        tmp_path,
+        FunctionModel(stream_function=stream),
+        max_turns=2,
+        interactive=interactive,
+    )
+    assert requests == (2 if interactive else 1)
     assert result.error is not None
     assert result.error.startswith("planner response truncated (length): ")
     assert (

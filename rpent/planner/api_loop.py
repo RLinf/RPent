@@ -508,7 +508,12 @@ class _Session(AbstractCapability):
             self.error = None
             raise
         except Exception as exc:
-            self.error = f"{type(exc).__name__}: {exc}"
+            if isinstance(exc, UnexpectedModelBehavior) and _is_response_truncation(
+                exc
+            ):
+                self.error = f"{PLANNER_TRUNCATION_MARKER} (length): {exc}"
+            else:
+                self.error = f"{type(exc).__name__}: {exc}"
             raise
         finally:
             # clai also keeps its own per-run usage for /usage. Observe it without
