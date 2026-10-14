@@ -1,6 +1,7 @@
 # Copyright 2026 The RPent Authors.
 # Licensed under the Apache License, Version 2.0.
 
+import logging
 from types import SimpleNamespace
 
 import numpy as np
@@ -128,6 +129,59 @@ def test_failed_connect_keeps_release_state_unknown(arms, monkeypatch, failed_si
             pair.close()
     with pytest.raises(RuntimeError, match="cannot reconnect"):
         pair.connect_followers()
+
+
+@pytest.mark.parametrize("failed_side", ["left", "right"])
+def test_sdk_startup_cleanup_failure_keeps_release_state_unknown(
+    monkeypatch, tmp_path, failed_side
+):
+    rlinf_logging = pytest.importorskip("rlinf.utils.logging")
+    monkeypatch.setattr(
+        rlinf_logging, "get_logger", lambda *args, **kwargs: logging.getLogger(__name__)
+    )
+    yam = pytest.importorskip("rlinf.robotics.parts.arms.yam")
+    claims = pytest.importorskip("rlinf.robotics.parts.claims")
+    sdk = pytest.importorskip("i2rt.robots.get_robot")
+    monkeypatch.setattr(claims, "_CLAIM_DIR", str(tmp_path / "claims"))
+
+    class SDKDevice:
+        def __init__(self, fails):
+            self.fails = fails
+            self.closed = False
+
+        def get_joint_pos(self):
+            return np.zeros(7)
+
+        def command_joint_pos(self, target):
+            if self.fails:
+                raise RuntimeError("SDK startup write failed")
+
+        def close(self):
+            if self.fails:
+                raise RuntimeError("SDK cleanup failed")
+            self.closed = True
+
+    devices = {side: SDKDevice(side == failed_side) for side in ("left", "right")}
+    monkeypatch.setattr(
+        sdk, "get_yam_robot", lambda **settings: devices[settings["channel"]]
+    )
+    arms = [yam.YamArm(channel=side) for side in ("left", "right")]
+    pair = YamFollowerPair(
+        *arms,
+        joint_lower=np.full((2, 6), -2.0),
+        joint_upper=np.full((2, 6), 2.0),
+        step_frequency=1000.0,
+    )
+
+    with pytest.raises(RuntimeError, match="SDK cleanup failed"):
+        pair.connect_followers()
+
+    assert not any(arm.is_connected for arm in arms)
+    assert not devices[failed_side].closed
+    if failed_side == "right":
+        assert devices["left"].closed
+    with pytest.raises(RuntimeError, match="state is unknown"):
+        pair.close()
 
 
 def test_limits_wider_than_the_sdk_close_what_opened(arms):
