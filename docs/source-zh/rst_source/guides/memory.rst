@@ -89,19 +89,16 @@ Dashboard 后续任务也使用这些参数。``main`` 等分支可能在任务�
      --planner codex --model gpt-6-astra --reasoning-effort low \
      --memory-profile local --memory-dir /path/to/new-astra-memory
 
-``sync`` 输出实际 memory 根目录，``--output-dir`` 必须是尚不存在的目录。\
-导出的文件会在新目录正式发布前与已验证收据再次核对。\
-``--planner`` 默认是 ``api``，与 ``rpent`` 一致；希望在省略 ``--model`` 时读取 ``CODEX_MODEL``，需指定 ``--planner codex``。 ``--memory-profile local`` 不下载 memory；本地模式或 ``--explore`` 与显式远程 ``--memory-version`` 同时使用会报参数冲突。探索使用本地 memory，每次独立探索应指定单独的空目录。
+``sync`` 输出实际 memory 根目录，``--output-dir`` 必须是尚不存在的目录。
+
+``--memory-profile local`` 读取 ``--memory-dir`` 指定的目录，不下载 memory。\
+本地评测和探索模式均不能显式指定远程 ``--memory-version``。\
+每次独立探索应使用单独的空目录。
 
 分版本下载使用 LIBERO 专用命令；共享的 ``rpent-memory`` 继续提供 ``merge``、 ``validate`` 和 ``build-index`` 三个命令。
 
 发布来源与兼容性
 ~~~~~~~~~~~~~~~~
-
-加载器的引用指针按仓库、请求的引用名称和语料版本隔离。\
-离线解析分支或标签时，先检查指针中的仓库、语料版本和提交格式，再校验对应快照。\
-完整提交请求直接定位快照，不读取引用指针，因此过期或被错误修改的指针不能改变固定提交请求的目标。\
-请求的引用名称可在启动命令和运行日志中查看。
 
 数据集中的 ``libero/README.md`` 和 ``libero/manifest.json`` 记录版本、原始来源快照和发布文件。各版本的 ``files`` 保存相对于该版本根目录的路径与发布文件的 SHA-256，加载器据此校验实际内容。来源 revision 和来源哈希描述原始快照；目录、索引及正文引用调整后，发布哈希另行更新，不改写原始来源哈希。
 

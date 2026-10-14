@@ -115,27 +115,18 @@ Standalone Download and Local Evaluation
      --planner codex --model gpt-6-astra --reasoning-effort low \
      --memory-profile local --memory-dir /path/to/new-astra-memory
 
-``sync`` prints the actual corpus root. ``--output-dir`` must not already
-exist. Exported bytes are checked against the verified receipt before the new
-directory is published.
-``--planner`` defaults to ``api``, matching ``rpent``; pass
-``--planner codex`` to use ``CODEX_MODEL`` when ``--model`` is omitted. ``--memory-profile local`` never downloads memory; combining it or
-``--explore`` with an explicit remote ``--memory-version`` is an error.
-Exploration uses a local corpus; use a separate empty ``--memory-dir`` for
-each independent exploration.
+``sync`` prints the actual corpus root. ``--output-dir`` must not already exist.
+
+``--memory-profile local`` reads the directory specified by ``--memory-dir``
+without downloading memory. Local evaluation and exploration cannot be combined
+with an explicit remote ``--memory-version``. Use a separate empty directory
+for each independent exploration.
 
 Versioned downloads are a LIBERO-specific command. The shared ``rpent-memory``
 command continues to provide ``merge``, ``validate`` and ``build-index``.
 
 Release Provenance and Compatibility
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-The loader's ref pointers are scoped to repository, requested ref and corpus
-version. Offline branch/tag resolution validates the pointer's repository,
-version and commit format before verifying the snapshot. Full commit requests
-address the snapshot directly and do not use ref pointers, so a stale or modified
-pointer cannot redirect a pinned request.
-The requested ref remains visible in the launch command and run log.
 
 The dataset's ``libero/README.md`` and ``libero/manifest.json`` document the
 versions, original source snapshots and published files. Each version's
