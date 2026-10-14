@@ -106,6 +106,30 @@ def test_failed_release_keeps_failing(pair, arms):
     assert not arms[0].connected
 
 
+@pytest.mark.parametrize("failed_side", [0, 1], ids=["left", "right"])
+def test_failed_connect_keeps_release_state_unknown(arms, monkeypatch, failed_side):
+    def fail_connect():
+        raise RuntimeError("CAN cleanup failed during startup")
+
+    monkeypatch.setattr(arms[failed_side], "connect", fail_connect)
+    pair = YamFollowerPair(
+        *arms,
+        joint_lower=np.full((2, 6), -2.0),
+        joint_upper=np.full((2, 6), 2.0),
+        step_frequency=1000.0,
+    )
+
+    with pytest.raises(RuntimeError, match="CAN cleanup failed during startup"):
+        pair.connect_followers()
+
+    assert not any(arm.connected for arm in arms)
+    for _ in range(2):
+        with pytest.raises(RuntimeError, match="state is unknown"):
+            pair.close()
+    with pytest.raises(RuntimeError, match="cannot reconnect"):
+        pair.connect_followers()
+
+
 def test_limits_wider_than_the_sdk_close_what_opened(arms):
     pair = YamFollowerPair(
         *arms,
@@ -118,3 +142,4 @@ def test_limits_wider_than_the_sdk_close_what_opened(arms):
         pair.connect_followers()
     assert not any(arm.connected for arm in arms)
     assert pair.followers is None
+    pair.close()

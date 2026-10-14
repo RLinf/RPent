@@ -29,8 +29,8 @@ setting up:
 .. code-block:: bash
 
    # Control machine
-   git clone https://github.com/andylin-hao/RLinf.git /path/to/RLinf
-   git -C /path/to/RLinf checkout --detach df96344bf0fd5209022400e327c61af7e26f95de
+   git clone https://github.com/RLinf/RLinf.git /path/to/RLinf
+   git -C /path/to/RLinf checkout --detach b5bdd26406244048e22690b7a3635c461d0aaaab
    # GPU machine
    git clone https://github.com/scilwb/RLinf.git /path/to/RLinf
    git -C /path/to/RLinf checkout --detach 4c65548e7ade32b13ae101211f588a34a9f98305
