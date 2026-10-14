@@ -202,16 +202,15 @@ class ApiAgentLoop(Planner):
         except _RequestBudgetExhausted as exc:
             session.error = None
             logger.info("%s", exc)
-        except UnexpectedModelBehavior as exc:
-            if _is_response_truncation(exc):
+        except Exception as exc:
+            if isinstance(exc, UnexpectedModelBehavior) and _is_response_truncation(
+                exc
+            ):
                 session.error = f"{PLANNER_TRUNCATION_MARKER} (length): {exc}"
                 logger.warning("%s", session.error)
             else:
                 session.error = f"{type(exc).__name__}: {exc}"
                 logger.exception("Harness planner failed")
-        except Exception as exc:
-            session.error = f"{type(exc).__name__}: {exc}"
-            logger.exception("Harness planner failed")
         finally:
             session.emit_usage()
         return PlannerResult(

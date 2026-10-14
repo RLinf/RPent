@@ -283,36 +283,31 @@ def test_cell_result_uses_environment_success_and_sanitizes_errors(monkeypatch):
     assert "finish" not in result
 
 
-def test_cell_result_counts_planner_timeout_but_not_missing_environment_result():
-    timeout = _cell_result(agent_error="Codex SDK timed out after 1800s")
-    missing = _cell_result(
-        agent_error="Codex SDK timed out after 1800s",
-        environment_result_available=False,
-    )
-
-    assert timeout["termination_reason"] == "planner_timeout"
-    assert timeout["valid"] is True
-    assert timeout["success"] is False
-    assert missing["valid"] is False
-
-
-def test_cell_result_distinguishes_truncated_response_from_infrastructure_error():
-    truncated = _cell_result(
-        agent_error=(
+@pytest.mark.parametrize(
+    ("agent_error", "termination_reason"),
+    [
+        ("Codex SDK timed out after 1800s", "planner_timeout"),
+        (
             "planner response truncated (length): Model token limit (8192) "
-            "exceeded before any response was generated"
-        )
-    )
+            "exceeded before any response was generated",
+            "planner_response_truncated",
+        ),
+    ],
+)
+def test_cell_result_counts_planner_stops_but_not_missing_environment_result(
+    agent_error, termination_reason
+):
+    result = _cell_result(agent_error=agent_error)
     missing = _cell_result(
-        agent_error="planner response truncated (length): token limit exceeded",
+        agent_error=agent_error,
         environment_result_available=False,
     )
 
-    assert truncated["termination_reason"] == "planner_response_truncated"
-    assert truncated["valid"] is True
-    assert truncated["success"] is False
+    assert result["termination_reason"] == termination_reason
+    assert result["valid"] is True
+    assert result["success"] is False
     assert missing["valid"] is False
-    assert missing["termination_reason"] == "planner_response_truncated"
+    assert missing["termination_reason"] == termination_reason
 
 
 @pytest.mark.parametrize(

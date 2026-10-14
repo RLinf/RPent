@@ -513,13 +513,20 @@ def test_request_budget_stops_normally_without_claiming_success(tmp_path, mode):
     assert len([m for m in result.messages if m["role"] == "tool"]) == 2
 
 
-def test_other_usage_limit_failures_remain_errors(tmp_path):
+@pytest.mark.parametrize(
+    "error",
+    [
+        UsageLimitExceeded("provider-specific limit"),
+        UnexpectedModelBehavior("Exceeded max retries"),
+    ],
+)
+def test_other_model_failures_remain_errors(tmp_path, error):
     async def stream(messages, info):
-        raise UsageLimitExceeded("provider-specific limit")
+        raise error
         yield  # pragma: no cover
 
     result, _, _ = solve(tmp_path, FunctionModel(stream_function=stream), max_turns=1)
-    assert result.error.startswith("UsageLimitExceeded: provider-specific limit")
+    assert result.error == f"{type(error).__name__}: {error}"
     assert result.finish_result is None
 
 
@@ -571,19 +578,8 @@ def test_token_limit_truncation_is_marked_for_recovery(
         "Model token limit (8192) exceeded before any response was generated"
         in result.error
     )
-    assert not result.error.startswith("UnexpectedModelBehavior:")
     assert result.finish_result is None
     json.dumps(result.messages)
-
-
-def test_other_unexpected_model_behavior_failures_remain_errors(tmp_path):
-    async def stream(messages, info):
-        raise UnexpectedModelBehavior("Exceeded max retries")
-        yield  # pragma: no cover
-
-    result, _, _ = solve(tmp_path, FunctionModel(stream_function=stream), max_turns=1)
-    assert result.error == "UnexpectedModelBehavior: Exceeded max retries"
-    assert result.finish_result is None
 
 
 def test_agent_error_classification_drives_recovery_decisions():
