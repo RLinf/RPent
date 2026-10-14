@@ -188,7 +188,7 @@ def test_pinned_cache_extra_global_is_rejected_offline_and_rebuilt_online(
 @pytest.mark.parametrize("mode", ["local", "explore"])
 @pytest.mark.parametrize(
     ("option", "value"),
-    [("--memory-version", ASTRA), ("--memory-revision", "a" * 40)],
+    [("--memory-version", ASTRA), ("--memory-repo", "RLinf/RPent-memory@" + "a" * 40)],
 )
 def test_local_version_conflict_fails_before_services(
     dashboard, mode, option, value, monkeypatch, capsys
@@ -220,7 +220,12 @@ def test_local_version_conflict_fails_before_services(
     with pytest.raises(SystemExit) as exc:
         run_cli.main()
     assert exc.value.code == 2
-    assert f"{option} requires --memory-profile hf" in capsys.readouterr().err
+    expected = (
+        "--memory-repo requires HF evaluation"
+        if option == "--memory-repo"
+        else "--memory-version requires --memory-profile hf"
+    )
+    assert expected in capsys.readouterr().err
 
 
 def test_download_failure_cannot_leave_a_complete_cache(hub, tmp_path):
@@ -373,7 +378,7 @@ def test_cli_selects_root_before_planner_or_services(
             "gpt-6-astra",
             "--output-dir",
             str(tmp_path / "run"),
-            *(["--memory-revision", revision] if revision else []),
+            *(["--memory-repo", f"RLinf/RPent-memory@{revision}"] if revision else []),
         ],
     )
 
@@ -411,7 +416,7 @@ def test_dashboard_selects_claimed_model_before_task_runtime(
             "codex",
             "--model",
             "gpt-5.5",
-            *(["--memory-revision", revision] if revision else []),
+            *(["--memory-repo", f"RLinf/RPent-memory@{revision}"] if revision else []),
         ]
     )
     configs = []
@@ -457,7 +462,9 @@ def test_flash_prepares_the_version_with_published_replay_assets(
 ):
     monkeypatch.setattr(memory_cli, "get_memory_dir", lambda _: tmp_path / "cache")
     spec = get_robot_spec()
-    args = Namespace(planner="flash", model="gpt-6-astra", memory_version="auto")
+    args = Namespace(
+        planner="flash", model="gpt-6-astra", memory_version="auto", memory_repo=None
+    )
     config = SimpleNamespace(prompt_vars={}, output_dir=tmp_path / "run")
     loading.prepare_run_memory(args, spec, config)
     root = config.prompt_vars["memory_dir"]
@@ -496,7 +503,11 @@ def test_sync_and_run_use_same_model_selection(
 
     monkeypatch.setattr(memory_cli, "sync_version", sync)
     sync_options = ["--revision", revision] if revision is not None else []
-    run_options = ["--memory-revision", revision] if revision is not None else []
+    run_options = (
+        ["--memory-repo", f"RLinf/RPent-memory@{revision}"]
+        if revision is not None
+        else []
+    )
     assert memory_cli.main(["sync", *options, *sync_options]) == 0
 
     parser = run_cli._build_argparser()
@@ -540,7 +551,7 @@ def test_run_revision_uses_its_own_verified_cache_offline(hub, tmp_path, monkeyp
         planner="api",
         model="openai:gpt-6-astra",
         memory_version=ASTRA,
-        memory_revision=hub.sha,
+        memory_repo=f"RLinf/RPent-memory@{hub.sha}",
     )
     spec = get_robot_spec()
     first = SimpleNamespace(prompt_vars={}, output_dir=tmp_path / "run")
@@ -548,28 +559,22 @@ def test_run_revision_uses_its_own_verified_cache_offline(hub, tmp_path, monkeyp
     first_revision = hub.sha
 
     hub.sha = "b" * 40
-    args.memory_revision = hub.sha
+    args.memory_repo = f"RLinf/RPent-memory@{hub.sha}"
     second = SimpleNamespace(prompt_vars={}, output_dir=tmp_path / "run")
     loading.prepare_run_memory(args, spec, second)
     assert first.prompt_vars["memory_dir"] != second.prompt_vars["memory_dir"]
 
     hub.fail = True
-    args.memory_revision = first_revision
+    args.memory_repo = f"RLinf/RPent-memory@{first_revision}"
     replay = SimpleNamespace(prompt_vars={}, output_dir=tmp_path / "run")
     loading.prepare_run_memory(args, spec, replay)
     assert replay.prompt_vars["memory_dir"] == first.prompt_vars["memory_dir"]
 
-    args.memory_revision = "c" * 40
+    args.memory_repo = "RLinf/RPent-memory@" + "c" * 40
     with pytest.raises(RuntimeError, match="no complete cache"):
         loading.prepare_run_memory(
             args, spec, SimpleNamespace(prompt_vars={}, output_dir=tmp_path / "run")
         )
-
-
-@pytest.mark.parametrize("revision", ["", " "])
-def test_empty_run_memory_revision_is_rejected(revision):
-    with pytest.raises(ValueError, match="--memory-revision cannot be empty"):
-        memory_cli.validate_options(Namespace(memory_revision=revision))
 
 
 def test_moving_branch_uses_last_verified_snapshot_offline(hub, tmp_path, monkeypatch):

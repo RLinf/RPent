@@ -22,10 +22,7 @@ import huggingface_hub
 import pytest
 
 from rpent.memory.loading import prepare_run_memory
-from rpent.memory.source import (
-    parse_repo,
-    validate_source_options,
-)
+from rpent.memory.source import parse_repo
 
 
 @pytest.mark.parametrize(
@@ -59,20 +56,6 @@ def test_repo_source_parsing(value, expected):
 def test_invalid_source_urls(value):
     with pytest.raises(ValueError):
         parse_repo(value)
-
-
-@pytest.mark.parametrize(
-    "args",
-    [
-        Namespace(memory_repo=""),
-        Namespace(memory_repo="team/memory", memory_profile="local"),
-        Namespace(memory_repo="team/memory", explore=True),
-        Namespace(memory_repo="team/memory", memory_revision="abc"),
-    ],
-)
-def test_conflicts_fail_before_download(args):
-    with pytest.raises(ValueError):
-        validate_source_options(args)
 
 
 @pytest.mark.parametrize("robot", ["robocasa", "robotwin", "franka"])
@@ -116,3 +99,18 @@ def test_missing_robot_subtree_does_not_fall_back_to_default(tmp_path, monkeypat
     with pytest.raises(ValueError, match="no robotwin"):
         prepare_run_memory(args, spec, config)
     assert not config.output_dir.exists()
+
+
+@pytest.mark.parametrize("dashboard", [False, True])
+@pytest.mark.parametrize("option", ["--memory-revision", "--memory-source"])
+def test_removed_source_flags_are_rejected(dashboard, option, capsys):
+    from robots.libero.robot_spec import get_robot_spec
+    from rpent.cli.main import _build_argparser
+
+    parser = _build_argparser()
+    get_robot_spec().add_cli_args(parser, use_dashboard=dashboard)
+    task = ["--dashboard"] if dashboard else ["--suite", "libero_object", "--task", "0"]
+    with pytest.raises(SystemExit) as exc:
+        parser.parse_args(["--robot", "libero", *task, option, "unused"])
+    assert exc.value.code == 2
+    assert f"unrecognized arguments: {option}" in capsys.readouterr().err

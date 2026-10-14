@@ -17,15 +17,12 @@
 from __future__ import annotations
 
 import re
-from argparse import Namespace
 from pathlib import Path
 from urllib.parse import urlsplit
 
 
 def parse_repo(value: str) -> tuple[str, str]:
     """Parse owner/repo or https://huggingface.co/datasets/owner/repo@revision."""
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError("memory repository must not be empty")
     if value.startswith("https://"):
         url = urlsplit(value)
         if url.netloc != "huggingface.co" or url.query or url.fragment:
@@ -47,36 +44,11 @@ def parse_repo(value: str) -> tuple[str, str]:
     return repo, revision if separator else "main"
 
 
-def validate_source_options(args: Namespace) -> None:
-    """Validate an explicit source before CLI or Dashboard services start."""
-    repo = getattr(args, "memory_repo", None)
-    if repo is None:
-        return
-    if (
-        getattr(args, "explore", False)
-        or getattr(args, "memory_profile", None) == "local"
-    ):
-        raise ValueError("--memory-repo requires HF evaluation")
-    if getattr(args, "memory_revision", None) is not None:
-        raise ValueError("use @revision in --memory-repo instead of --memory-revision")
-    parse_repo(repo)
-
-
-def selected_source(args: Namespace) -> tuple[str, str] | None:
-    """Return an explicit repository and revision, if supplied."""
-    validate_source_options(args)
-    repo = getattr(args, "memory_repo", None)
-    return parse_repo(repo) if repo is not None else None
-
-
-def prepare_explicit_source(args: Namespace, robot: str) -> Path:
+def prepare_explicit_source(source: str, robot: str) -> Path:
     """Select a robot subtree from an exact Hub snapshot; default sync is unchanged."""
     from huggingface_hub import snapshot_download
 
-    selection = selected_source(args)
-    if selection is None:
-        raise ValueError("No explicit memory source selected")
-    repo, revision = selection
+    repo, revision = parse_repo(source)
     snapshot = Path(
         snapshot_download(
             repo_id=repo,
@@ -85,11 +57,6 @@ def prepare_explicit_source(args: Namespace, robot: str) -> Path:
             allow_patterns=[f"{robot}/**"],
         )
     )
-    commit = snapshot.name
-    if not re.fullmatch(r"[0-9a-f]{40}", commit):
-        raise ValueError("Hub memory snapshot did not resolve to a commit directory")
-    if re.fullmatch(r"[0-9a-fA-F]{40}", revision) and revision.lower() != commit:
-        raise ValueError("Hub memory snapshot does not match the requested commit")
     root = snapshot / robot
     if not root.is_dir() or not any(root.rglob("*")):
         raise ValueError(f"Memory source has no {robot}/ corpus")

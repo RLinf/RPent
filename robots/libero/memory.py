@@ -25,7 +25,7 @@ import shutil
 import tempfile
 from pathlib import Path, PurePosixPath
 
-from rpent.memory.source import selected_source
+from rpent.memory.source import parse_repo
 from rpent.planner.base import resolve_model
 from rpent.robots.robot_spec import RunConfig
 from rpent.utils.config import get_memory_dir
@@ -40,15 +40,6 @@ DEFAULT_REPO = "RLinf/RPent-memory"
 
 def validate_options(args: argparse.Namespace) -> None:
     """Check memory options without starting services or downloading files."""
-    revision = getattr(args, "memory_revision", None)
-    if revision is not None:
-        if not revision.strip():
-            raise ValueError("--memory-revision cannot be empty")
-        if (
-            getattr(args, "explore", False)
-            or getattr(args, "memory_profile", None) == "local"
-        ):
-            raise ValueError("--memory-revision requires --memory-profile hf")
     if getattr(args, "memory_version", "auto") != "auto" and (
         getattr(args, "explore", False)
         or getattr(args, "memory_profile", None) == "local"
@@ -71,14 +62,12 @@ def prepare_memory(args: argparse.Namespace, config: RunConfig) -> None:
     )
     if profile == "local":
         return
-    selection = selected_source(args)
     version = select_version(
         getattr(args, "memory_version", "auto"), model=args.model, planner=args.planner
     )
-    repo = None
-    revision = getattr(args, "memory_revision", None) or "main"
-    if selection is not None:
-        repo, revision = selection
+    repo, revision = (
+        parse_repo(args.memory_repo) if args.memory_repo else (None, "main")
+    )
     root = sync_version(
         version=version,
         revision=revision,

@@ -51,21 +51,6 @@ model** changes the model for the next task and reselects auto memory then;
 the active task keeps its existing model and corpus. A manually selected
 memory version remains selected across model changes.
 
-For a reproducible LIBERO evaluation, pin the Hub commit without switching
-to the local-memory profile:
-
-.. code-block:: bash
-
-   rpent --robot libero --suite libero_goal_swap --task 1 --seed 1 \
-     --planner codex --model gpt-6-astra --reasoning-effort low \
-     --memory-revision <commit-sha>
-
-``--memory-revision`` accepts a commit, tag or branch. Omitting it follows
-``main`` as before; use a full commit SHA to keep the source fixed across
-runs. It applies to the selected model-specific corpus and to subsequent
-Dashboard tasks, including tasks that select another model. Local-memory evaluation and exploration reject
-this remote-only option.
-
 Only the chosen version is downloaded. LIBERO caches are isolated by repository,
 commit and version under ``memory/libero/.versions/``. Both the exact file set
 and every file hash are verified before cache reuse. Extra files invalidate
@@ -99,7 +84,8 @@ across runs:
      --memory-version GPT_6_astra_low
 
 ``--memory-repo`` accepts a dataset ID or an HTTPS Hugging Face dataset URL,
-optionally followed by ``@revision`` (default ``main``). For LIBERO, retain an
+optionally followed by ``@revision`` (a commit, tag or branch; default ``main``).
+The source also applies to subsequent Dashboard tasks. For LIBERO, retain an
 explicit ``--memory-version`` to keep the same corpus when changing models;
 ``auto`` still selects the corpus for the current model.
 
@@ -109,8 +95,7 @@ their existing task/layout checks. The repository must keep that layout;
 an unavailable explicit source fails instead of falling back to default memory.
 Arbitrary Git remotes are not supported.
 
-Do not combine ``--memory-repo`` with exploration, local memory or
-``--memory-revision``; put the revision in the URL instead. An explicit source
+Do not combine ``--memory-repo`` with exploration or local memory. An explicit source
 takes precedence over ``RPENT_MEMORY_HF_REPO``. Downloads use the host's
 existing HF authentication. Source parsing lives in ``rpent/memory/source.py``;
 robot-specific corpus verification remains with each robot.
