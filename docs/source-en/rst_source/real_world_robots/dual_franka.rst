@@ -8,27 +8,54 @@ Dual-Arm Franka
 
    Dual-Franka system for real-world experiments.
 
-RPent can control a two-node dual-Franka setup through an RLinf
+RPent controls a two-node dual-Franka setup through an RLinf
 ``RealWorldEnv`` worker. Watch the :doc:`task demos <../real_world_demos/franka>`.
 
 Install
 -------
 
-Install libfranka 0.19.0 first by following the `official quick-install guide
-<https://docs.ros.org/en/humble/p/libfranka/__README.html#quick-install>`_.
-
-Clone RPent and install its Python dependencies. If you already have the
-checkout, enter it and run ``uv sync``:
+Install RPent on both Linux control nodes with matching code, Python, Ray and
+RLinf versions. Nodes running VLA or SAM3 locally need an NVIDIA GPU.
+Use the same installation workflow as :doc:`../get_started/quickstart`:
 
 .. code-block:: bash
 
    git clone https://github.com/RLinf/RPent.git
    cd RPent
-   uv sync --extra franka --extra sam3
+   uv venv
+   source .venv/bin/activate
+   uv pip install -e ".[franka,sam3]"
 
-This installs RLinf ``release/v0.4``, ``rpent-openpi``, SAM3, and Franka
-camera, gripper, and teleoperation dependencies into ``.venv``. The included
-``franky-control`` wheel bundles libfranka 0.19.0.
+If Python package downloads are slow, replace the installation command with the
+`Tsinghua PyPI mirror <https://mirrors.tuna.tsinghua.edu.cn/help/pypi/>`_:
+
+.. code-block:: bash
+
+   uv pip install -e ".[franka,sam3]" \
+     --index-url https://pypi.tuna.tsinghua.edu.cn/simple
+
+This option changes only the Python package index; it does not proxy Git
+repositories, direct download URLs or model weights.
+
+Check libfranka compatibility with the robot firmware before connecting.
+The calibration state reader also needs libfranka development files; see the
+calibration steps below.
+
+Run subsequent commands from the repository root in this environment. In a new
+terminal, activate ``.venv`` and set the required model variables again.
+
+Download SAM3 weights on the environment node if local segmentation is needed:
+
+.. code-block:: bash
+
+   uv pip install modelscope
+   modelscope download --model facebook/sam3 sam3.pt \
+     --local_dir ./checkpoints/sam3
+   export SAM3_CHECKPOINT_PATH="$PWD/checkpoints/sam3/sam3.pt"
+
+Without this variable or ``--sam3-endpoint``, segmentation is unavailable;
+installing the extra alone does not download weights. VLA checkpoints are
+configured in :ref:`dual-franka-vla`.
 
 Calibration
 -----------
@@ -40,32 +67,20 @@ Wrist cameras are observation-only in the default configuration. To use a
 wrist RGBD camera for projection, configure its calibration and projection view
 as described below.
 
-The tools support D435 and have been validated with a D435 setup. Other models
-and stream configurations are unverified and may require more than parameter
-changes. Zero distortion coefficients are accepted; nonzero coefficients are
-supported only for ``distortion.brown_conrady``. Other nonzero models are
-rejected with their model and coefficients, without automatic conversion or
-ignoring distortion.
+The collector uses RealSense RGB images and accepts zero distortion coefficients
+or nonzero ``distortion.brown_conrady`` coefficients. Other nonzero distortion
+models are rejected.
 
 **1. Prepare the environment**
 
-On the camera node, activate the existing RLinf Franka environment and check
-the required interfaces from the RPent repository root:
+Use the installed environment from the RPent repository root on the camera node.
+To install calibration dependencies separately, create a dedicated environment:
 
 .. code-block:: bash
 
-   source /absolute/path/to/franka-env/bin/activate
-   cd /absolute/path/to/RPent
-   PYTHONPATH=calibration_tools python -c "import numpy, scipy, yaml, pyrealsense2; from common import check_opencv; check_opencv()"
-
-This checks ChArUco, PnP, ``calibrateHandEye``, and the required method constants.
-If dependencies are missing, create a separate calibration environment:
-
-.. code-block:: bash
-
-   python3 -m venv .venv-calibration
+   uv venv .venv-calibration
    source .venv-calibration/bin/activate
-   pip install -r calibration_tools/requirements.txt pyrealsense2
+   uv pip install -r calibration_tools/requirements.txt pyrealsense2
 
 On the right-arm control node, compile the reader against the libfranka
 development library matching the robot firmware:
@@ -83,6 +98,9 @@ the headers and CMake configuration needed to build this reader.
 Replace the camera serials, SSH alias, absolute reader path, and robot IP below.
 Omit ``--ssh-host`` for a local reader; add ``--library-dir /path/to/lib`` when
 its shared libraries need an explicit search path.
+For a remote reader, configure SSH authentication that works without a password
+prompt (the collector uses ``BatchMode=yes``). Verify the reader path and library
+access as that SSH user before collecting.
 
 **2. Start the camera and collect samples**
 
@@ -98,6 +116,7 @@ stationary. Defaults are 6×8 squares, 25 mm square length, 18 mm marker length,
 DICT_4X4_100, and a non-legacy layout. Configure other boards with
 ``--squares-x``, ``--squares-y``, ``--square-m``, ``--marker-m``, and
 ``--dictionary``; lengths are in meters.
+Measure the printed square size and ensure it matches the configuration.
 
 In another terminal on the same camera node, activate the chosen environment:
 
@@ -111,11 +130,20 @@ In another terminal on the same camera node, activate the chosen environment:
      --output calibration_tools/sessions/base-to-right
 
 Open ``http://127.0.0.1:8767``. Move the right arm manually, release the guidance
-button, wait until stationary, and click ``Capture pose``. Collect 20–30 distinct
+button, wait until stationary, and click ``Capture pose``. Sampling requires
+``robot_mode=1`` (Idle), ``has_errors=false``, and all joint speeds at or below
+0.015 rad/s. The state reader reports these values; the collector rejects
+nonconforming samples and shows the error on the page. It does not change the
+robot mode. Collect 20–30 distinct
 poses with rotations about multiple axes; fitting requires at least ten.
 The tool only reads state. Without ``--output``, sessions are saved under the
 script directory's ``calibration_tools/sessions/``, regardless of the working
 directory.
+
+The camera service and collector bind to loopback. For a browser on another
+computer, forward the collector port, for example
+``ssh -L 8767:127.0.0.1:8767 CAMERA_HOST``; the raw camera service stays local to
+the collector.
 
 Use the saved-sample table to inspect each sample's corner count and
 reprojection RMS in pixels. Click ``Preview`` to open its annotated image,
@@ -162,8 +190,7 @@ List the independently validated YAMLs in your robot configuration:
        base_camera: /absolute/path/to/base_to_right.yaml
        d455_camera: /absolute/path/to/d455_to_right.yaml
 
-Load this configuration with ``--robot-config`` below. Stop the calibration
-camera service before starting RPent. Preserve and verify
+Load this configuration with ``--robot-config`` below. Preserve and verify
 ``perception.base_frames`` and localization bounds; these tools do not calibrate
 the relationship between the two arm bases.
 
@@ -180,8 +207,14 @@ points. Snapshot TCP poses must represent O_T_EE and declare their base frame.
 The default Lumos observation cameras are not automatically enabled for RGBD
 projection; selecting a wrist anchor requires this configuration.
 
+After calibration, stop all camera services, collectors, and robot-state readers
+started for calibration before starting RPent.
+
 Development Configuration
 -------------------------
+
+If calibration used a separate Python environment, reactivate RPent's
+``.venv`` before running the following commands.
 
 Review and edit the checked-in development defaults before enabling motion:
 
@@ -195,6 +228,10 @@ Review and edit the checked-in development defaults before enabling motion:
 RPent translates this robot-focused schema into the internal two-node RLinf
 cluster and environment objects. To use a different file, pass
 ``--robot-config /path/to/robot_config.yaml``.
+
+The default observation cameras provide RGB only. The separate D455 perception
+camera also supplies aligned depth for projection; registering an observation
+camera under ``perception.projection_views`` does not enable depth capture.
 
 During ``rotate_delta``, the position target stays at the starting TCP position.
 On real hardware, compliance/impedance control can allow the actual pose to
@@ -215,15 +252,20 @@ The robot's own protections can still trigger independently.
 Start the Two-node Ray Cluster
 ------------------------------
 
-The two nodes have fixed, different roles (defined in
-``robots/dual_franka/runtime_config.py``):
+Activate the installed ``.venv`` on each node before starting Ray. The default
+placement in ``robots/dual_franka/runtime_config.py`` is:
 
-* Node ``0`` is the Ray head: it runs the dual-Franka environment
-	worker (all cameras, perception, and arm/gripper state), and the **left**
-	arm's real-time controller. For the VLA task, the
-	local VLA server also runs here.
-* Node ``1`` is a Ray worker: it runs only the **right** arm's real-time
-	controller, with no cameras and no RPent process.
+* Node ``0`` is the Ray head: it runs RPent, the environment worker, the
+  **left** arm/gripper controller, the base camera and the left wrist camera.
+  RPent opens the additional D455 locally here. Local VLA and SAM3 services
+  also run here when configured.
+* Node ``1`` is a Ray worker: it runs the **right** arm/gripper controller and
+  its right wrist camera. It needs the installed environment and Ray, but no
+  separate RPent runner.
+
+RLinf creates camera handles on the configured nodes; it does not search other
+nodes for a relocated USB camera. Connect each wrist camera to its arm's control
+node and edit the configured type/serial for the actual device.
 
 .. warning::
 
@@ -245,44 +287,54 @@ Node ``1``:
    ray stop --force
    ray start --address=HEAD_IP:6379 --node-ip-address=WORKER_IP
 
-Run a Smoke Test
-----------------
-
-Configure the planner and model service using :doc:`../guides/configure_planner` first.
-
-Task ``0`` tests small translations, rotations, and gripper actions, one arm at a time:
-
-.. code-block:: bash
-
-   uv run --extra franka rpent --robot dual_franka --task-id 0 \
-     --planner claude_code --model claude-opus-4-8 \
-     --robot-config robots/dual_franka/config/example.yaml
-
-RPent starts ``robots/dual_franka/env_server.py`` with the current interpreter,
-loads the RPent robot config, generates the internal RLinf adapter config,
-connects to Ray, waits for ``healthz``, and records the initial state as step
-``0``. Task ``0`` does not load the VLA.
-
-VLA Grasp Demo
+Task Selection
 --------------
 
-RPent provides a demo that uses a VLA to grasp objects. Task ``1`` exposes
-``vla_right_grasp`` / ``vla_handoff`` / ``vla_left_place`` and can start the dual-Franka VLA server locally.
-``PI05_CHECKPOINT_PATH`` points to the trained Pi-05 checkpoint, while
+The main example uses task ``2``. On first connection, use task ``0`` to check
+small translations, rotations and gripper actions. This is a planner-guided
+check, not a fixed automated sequence, and does not require VLA.
+
+.. list-table::
+   :header-rows: 1
+
+   * - ID
+     - Task
+     - VLA required
+   * - 0
+     - Planner-guided primitive checks
+     - No
+   * - 1
+     - Dirty/clean sorting of bowls and plates, with cup and utensils
+     - Yes
+   * - 2
+     - Dirty/clean sorting of bowls, plates, and two cups; no utensils
+     - Yes
+
+Task 1 was previously task 3; task 2 was previously task 6. Old logs and memory
+retain their original IDs. Do not treat an old ``dual_franka_t1`` memory corpus
+as the new task 1; select and review the intended corpus explicitly. A task ID
+does not enable exploration: add ``--explore`` when desired.
+
+.. _dual-franka-vla:
+
+.. _vla-grasp-demo:
+
+VLA Configuration
+-----------------
+
+Task ``2`` sorts bowls, plates and two cups, without utensils. Chicken nuggets
+inside a bowl, or an egg-tart foil tray in a cup or on a plate, mark it as dirty.
+Dirty objects go into the metal basket; clean objects go into the cardboard box.
+The task provides ``vla_right_grasp`` / ``vla_handoff`` / ``vla_left_place`` skills.
+
+``PI05_CHECKPOINT_PATH`` points to the trained Pi0.5 checkpoint, while
 ``DUAL_FRANKA_REPO_ID`` is the dataset ID used to locate matching normalization
-statistics:
+statistics.
 
-.. code-block:: bash
-
-   export PI05_CHECKPOINT_PATH=/path/to/checkpoints/global_step_N
-   export DUAL_FRANKA_REPO_ID=org/dual-franka-tcp-rot6d
-
-   uv run --extra franka rpent --robot dual_franka --task-id 1 \
-     --cuda-device 0 \
-     --planner claude_code --model claude-opus-4-8 \
-     --robot-config robots/dual_franka/config/example.yaml
-
-The checkpoint must contain:
+The environment variables correspond to ``--vla-model-path`` and
+``--vla-repo-id``. The repo ID is the relative directory containing the matching
+normalization statistics, not the model download repository name. The checkpoint
+must contain:
 
 .. code-block:: text
 
@@ -291,7 +343,8 @@ The checkpoint must contain:
 
 **Pretrained checkpoint**
 
-A ready-made task ``1`` checkpoint is published on ModelScope:
+A clean-desk policy checkpoint is published on ModelScope. It supplies the VLA
+skills, not an automatic dirty/clean sorting decision:
 `Brunchlife/pi05-dualfranka-tcp-rot6d-clean-desk-532-delect-76000
 <https://modelscope.cn/models/Brunchlife/pi05-dualfranka-tcp-rot6d-clean-desk-532-delect-76000>`_.
 Download it, point ``PI05_CHECKPOINT_PATH`` at the downloaded directory, and set
@@ -299,11 +352,16 @@ Download it, point ``PI05_CHECKPOINT_PATH`` at the downloaded directory, and set
 
 .. code-block:: bash
 
+   uv pip install modelscope
    modelscope download \
      --model Brunchlife/pi05-dualfranka-tcp-rot6d-clean-desk-532-delect-76000 \
      --local_dir /path/to/pi05-dualfranka-clean-desk
 
    export PI05_CHECKPOINT_PATH=/path/to/pi05-dualfranka-clean-desk
+   export DUAL_FRANKA_REPO_ID=org/dual-franka-tcp-rot6d
+
+Replace the example repo ID with the directory actually present in your
+checkpoint. Check both files above before starting the task.
 
 .. warning::
 
@@ -315,34 +373,58 @@ Download it, point ``PI05_CHECKPOINT_PATH`` at the downloaded directory, and set
 	<https://rlinf.readthedocs.io/en/latest/rst_source/examples/embodied/dual_franka.html>`_
 	(collect GELLO demos, convert to tcp_rot6d, run SFT, then deploy).
 
-When ``--vla-endpoint`` is absent, RPent starts
-``rpent/robots/components/pi05_vla_server.py`` and loads
-``pi05_dualfranka_tcp_rot6d`` once.
+Run a Task
+----------
 
-To run the VLA service separately:
+Complete calibration, robot configuration and Ray startup, then configure the
+planner using :doc:`../guides/configure_planner`. Before using Codex, complete
+:ref:`dual-franka-codex-isolation`.
 
-.. code-block:: bash
-
-   uv run --extra franka python -m rpent.robots.components.pi05_vla_server \
-     --embodiment dual_franka \
-     --model-path /path/to/checkpoints/global_step_N \
-     --repo-id org/dual-franka-tcp-rot6d \
-     --cuda-device 0 --transport http --host 0.0.0.0 --port 6000
-
-Then pass ``--vla-endpoint http://VLA_HOST:6000`` to ``rpent``. An external
-endpoint always takes precedence over local auto-start.
-
-External Environment Server
----------------------------
-
-To attach RPent to an already-running dual-Franka environment service:
+With the model variables set, run task ``2``. RPent starts the required
+environment and model services automatically; do not start VLA in another terminal:
 
 .. code-block:: bash
 
-   uv run --extra franka rpent --robot dual_franka --task-id 0 \
-     --env-endpoint http://ROBOT_HOST:PORT \
-     --planner claude_code --model claude-opus-4-8 \
-     --robot-config robots/dual_franka/config/example.yaml
+   rpent --robot dual_franka --task-id 2 \
+     --planner codex --model gpt-6-astra --reasoning-effort xhigh \
+     --robot-config robots/dual_franka/config/example.yaml \
+     --memory-profile local --memory-dir ./memory/dual_franka
+
+Connection initializes controllers and grippers without resetting robot posture.
+The agent first calls ``request_scene_reset``: secure held objects, restore the
+tabletop and check both reset paths, then answer ``done`` to allow reset and a
+fresh observation. Motion remains blocked if confirmation or reset fails. Each
+new run/session needs its own confirmation.
+
+The example uses Codex, ``gpt-6-astra`` and ``xhigh`` reasoning. Claude Code is
+also available: replace the planner/model options with
+``--planner claude_code --model claude-opus-4-8``. See
+:doc:`../guides/configure_planner` for model and reasoning settings.
+
+Append options to this same command as needed:
+
+* ``--explore`` explores and accumulates task memory, as described below.
+* ``--explore --interactive`` accepts terminal feedback during exploration;
+  ordinary tasks do not support ``--interactive`` on its own.
+* ``--dashboard`` accepts tasks, messages and confirmations in the web input.
+  Add ``--explore`` for exploration. Do not combine it with ``--interactive``.
+  See :doc:`../guides/dashboard` for interface controls.
+
+View Results
+------------
+
+Use a new ``--output-dir`` for each run. Inspect:
+
+* ``transcript_*.json`` for planner messages, tool calls and the finish result.
+* ``run.log`` and component ``*_server.log`` files for runtime/startup errors.
+* ``states.json`` and its referenced image, depth and robot-state artifacts for
+  the evidence after each step.
+* ``operator_events.json`` for reset confirmations and human verdicts.
+
+Exploration keeps per-session state and operator records under
+``sessions/session_<NNN>/``. Physical task success comes from the operator's
+verdict, not a successful RPC or the planner's own ``finish`` text. See
+:ref:`run-output-files` for the common output layout.
 
 Tools and Artifacts
 -------------------
@@ -364,85 +446,99 @@ uncertain.
 Manual Skill Testing
 --------------------
 
-For ordinary terminal evaluation, omit ``--interactive`` and ``--dashboard``
-and answer human-confirmation prompts in a TTY. ``--explore`` also accepts
-prompted answers without ``--interactive``. To guide exploration through
-terminal conversation, add ``--interactive`` (``-i``); see
-:doc:`../guides/dashboard` for Codex/Claude live input and API follow-up behavior.
-
-With ``--dashboard``, submit tasks, messages and confirmation replies in the
-Dashboard message input; no TTY or ``--interactive`` is needed. The two flags
-cannot be combined. Dashboard supports ``api``, ``claude_code`` and ``codex``
-(current physical experiments have only validated Codex).
-For ordinary tasks, ``/success``, ``/failure`` and ``/continue`` answer a pending
-``request_operator_verdict``; the agent then continues to ``finish``.
-Ordinary tasks reset on environment connection; exploration waits for scene
-confirmation before resetting.
-
-The deployment scripts live in ``robots/dual_franka/``. From the repository root:
+The manual entry reads the registered tool schemas. From the repository root:
 
 .. code-block:: bash
 
-   robots/dual_franka/run_manual_skill.sh --list-primitives
-   robots/dual_franka/run_manual_skill.sh --schema vla_right_grasp
+   python robots/dual_franka/dual_franka_manual_call.py --list-primitives
+   python robots/dual_franka/dual_franka_manual_call.py --schema vla_right_grasp
 
-Use ``--primitive NAME --params JSON`` to call a tool. ``--task-id`` selects
-the task's configured ``vla_instruction`` for named VLA skills; the planner's
-segment prompt is recorded separately. Existing clean-desk tasks retain their
-checkpoint's original training instruction. ``--robot-config`` selects the
-machine configuration; its ``perception.calibration`` mapping points at the
-easy_handeye hand-eye YAMLs. Local SAM3 requires the ``sam3`` extra; a remote
-SAM3 service can be attached with ``--sam3-endpoint``.
+As with the task runner, omitted endpoints start the required services on free
+ports; the manual call uses the returned clients and stops only those services
+when it exits. Supply ``--env-endpoint``, ``--vla-endpoint`` or
+``--sam3-endpoint`` to reuse an existing service. Attaching to an existing Env
+does not reset it. With a newly started Env, a manual action first requests
+scene confirmation and performs one reset. An explicit manual ``reset`` also
+waits for confirmation. Listing tools and printing schemas never starts services.
+
+For example, check the schema before running a small left-arm translation:
+
+.. code-block:: bash
+
+   python robots/dual_franka/dual_franka_manual_call.py --schema move_delta
+   python robots/dual_franka/dual_franka_manual_call.py \
+     --primitive move_delta --params '{"arm":"left","delta_xyz":[0.01,0,0]}' \
+     --robot-config robots/dual_franka/config/example.yaml
+
+Use ``--primitive NAME --params JSON`` to call a tool; manual calls do not select
+a task ID. The example config already sets ``vla.instruction`` for the clean-desk
+policy. Change it for a different checkpoint, or override it with
+``--instruction``. This setting applies only to manual calls; task runners still
+use their registered task instructions. ``prompt`` inside ``--params`` records
+the skill intent and does not replace the policy instruction.
+
+With the VLA checkpoint and normalization variables set, run one grasp skill:
+
+.. code-block:: bash
+
+   python robots/dual_franka/dual_franka_manual_call.py \
+     --primitive vla_right_grasp \
+     --params '{"prompt":"grasp the bowl","max_chunks":1}' \
+     --robot-config robots/dual_franka/config/example.yaml
+
+.. _dual-franka-codex-isolation:
 
 Robot Codex Profile Isolation
-----------------------------------------
+-----------------------------
 
-The deployment wrappers select ``RPENT_CODEX_HOME`` (default:
-``.codex-rpent-live`` inside the checkout), not the coding shell's
-``CODEX_HOME``. Memory defaults to its ``memory`` subdirectory and the Codex
-state database uses the dedicated directory too. Create a private ``config.toml``
-there if needed; do not overwrite existing private settings.
+In a dedicated terminal, activate ``.venv`` and set separate Codex configuration
+and session directories from the repository root. Repeat this in each new
+robot-control terminal:
 
-For API deployments, explicitly set ``RPENT_CODEX_API_KEY`` and optionally
-``RPENT_CODEX_BASE_URL``. The wrappers clear inherited ``CODEX_API_KEY``,
-``CODEX_BASE_URL``, ``OPENAI_API_KEY`` and ``OPENAI_BASE_URL``. Otherwise,
-authenticate separately in the dedicated profile. File-based credential storage
-can be configured; check private configurations for shared OS keychain use.
-Never commit credentials, private configuration or session records.
+.. code-block:: bash
 
-``RPENT_CODEX_MODEL``, ``RPENT_REASONING_EFFORT`` and
-``RPENT_CODEX_SERVICE_TIER`` default to ``gpt-5.5``, ``medium`` and ``fast``.
-These isolation rules apply to the deployment wrappers, not the generic RPent
-CLI. Prefer invoking a wrapper: sourcing its environment script directly changes
-the current shell's environment.
+   export CODEX_HOME="$PWD/.codex-rpent-live"
+   export CODEX_SQLITE_HOME="$CODEX_HOME"
+   export CODEX_SERVICE_TIER=fast
+   mkdir -p "$CODEX_HOME"
+   unset CODEX_API_KEY CODEX_BASE_URL OPENAI_API_KEY OPENAI_BASE_URL CODEX_ACCESS_TOKEN
+   export CODEX_BIN="$(python -c 'from codex_cli_bin import bundled_codex_path; print(bundled_codex_path())')"
 
-Directory isolation is not a security sandbox or workspace-file isolation.
-The planner explicitly uses no interactive approvals and full filesystem access.
-Editing private configuration does not override the planner's
-explicit permissions. The connectivity probe remains read-only.
+On first use, enable file credential storage in ``$CODEX_HOME/config.toml``,
+then log in with the CLI bundled with the SDK:
+
+.. code-block:: toml
+
+   cli_auth_credentials_store = "file"
+
+.. code-block:: bash
+
+   "$CODEX_BIN" login --device-auth
+   "$CODEX_BIN" login status
+
+If ``sqlite_home`` is already configured, point it at the separate directory too.
+For a custom API, explicitly set this deployment's ``CODEX_API_KEY`` and
+``CODEX_BASE_URL``. See `Codex authentication
+<https://developers.openai.com/codex/auth/>`_ for other login methods.
+
+RPent does not enable this isolation automatically. It neither isolates shared
+workspace files nor migrates old sessions. Task memory is selected separately
+with ``--memory-dir``. Never commit the private directory or credentials.
 
 Attended Exploration
 --------------------
 
-``dual_franka --explore`` waits for scene confirmation before resetting the
-robot and records human verdicts with camera and robot state. The following
-example starts task 0 with terminal confirmation and the planner and VLA settings
-described above. Add ``--dashboard`` to use the Dashboard message input instead:
-
-.. code-block:: bash
-
-   rpent --robot dual_franka --task-id 0 --explore \
-     --robot-config /path/to/robot.yaml \
-     --memory-dir /path/to/memory/dual_franka \
-     --explore-attempts-per-session 3 --explore-sessions 2 \
-     --output-dir /path/to/new-run
+Append ``--explore`` to the task ``2`` command. Set attempts per planner session
+with ``--explore-attempts-per-session`` and session count with
+``--explore-sessions``. Add ``--interactive`` for terminal input or
+``--dashboard`` for web interaction.
 
 Each planner session begins with ``request_scene_reset``. Secure held objects,
 restore the scene and reply ``done``. A successful reset and camera/state capture
 start an attempt; a failed reset keeps motion blocked.
 ``--explore-attempts-per-session`` limits attempts within each session.
 External ``--env-endpoint`` servers must advertise ``explicit_reset_only=True``
-to support this confirmation-before-reset workflow.
+for both ordinary and exploration runs.
 
 ``request_operator_verdict`` asks for ``success``, ``failure``, ``continue`` or
 ``abort``, with optional notes. Its success/failure reply judges the current
@@ -491,22 +587,21 @@ VLA Diagnostic Console
 ~~~~~~~~~~~~~~~~~~~~~~
 
 Use the standalone console for prediction recording and explicit execution.
-The existing manual primitive entry remains ``robots/dual_franka/run_manual_skill.sh``.
-Diagnostics do not register task IDs 103/104 or dispatch through the shared runner.
-``--task-id`` selects an existing VLA task profile (default 1); the policy instruction
+``--task-id`` selects an existing VLA task profile; the policy instruction
 comes from its ``vla_instruction`` unless overridden with ``--instruction``.
 Run the following command from a source checkout. The diagnostic initializes only
-the environment and VLA components; configured SAM3 services are not started or contacted.
+the environment and VLA components, without starting SAM3.
 
 .. code-block:: bash
 
-   python -m tests.e2e_tests.dual_franka.dual_franka_vla --task-id 1 \
+   python -m tests.e2e_tests.dual_franka.dual_franka_vla --task-id 2 \
      --robot-config /path/to/robot.yaml \
      --vla-model-path /path/to/checkpoint --vla-repo-id org/dataset
 
 Commands: ``prompt <instruction>``, ``infer`` (no execution), ``step``
 (fresh prediction and execution), ``run N`` (1–20 chunks), ``reset``, ``quit``.
-Initialization may reset the robot. Inputs and predictions are saved before
+Initialization does not reset posture; use the explicit ``reset`` command only
+after clearing both reset paths. Inputs and predictions are saved before
 execution as JSON/NPZ. Invalid observations/actions are rejected; uncertain
 execution blocks further motion until restart. RPC success is not task success.
 Action validation expects 20 steps per prediction chunk. For a checkpoint with a
