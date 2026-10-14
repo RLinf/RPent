@@ -240,6 +240,7 @@ class EnvState:
                             temporary,
                             list(value),
                             fps=int(options.get("fps", 20)),
+                            codec="libx264",
                         )
                 elif suffix in _TEXT_SUFFIXES:
                     temporary.write_text(str(value))
