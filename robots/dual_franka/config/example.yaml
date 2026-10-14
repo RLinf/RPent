@@ -51,6 +51,10 @@ workspace:
     - [0.8, 0.8, 0.7, 3.1416, 3.1416, 3.1416]
     - [0.8, 0.8, 0.7, 3.1416, 3.1416, 3.1416]
 
+rotation_hold:
+  # Abort through the RPC error path if TCP drift from its start exceeds this limit.
+  max_drift_m: 0.10
+
 joint_health:
   # Tune these guard rails for the mounting, reset posture, tool, and task.
   thresholds:

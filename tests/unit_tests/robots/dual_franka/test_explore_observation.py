@@ -31,6 +31,7 @@ def test_worker_reads_before_reset_and_refreshes_cached_frames(monkeypatch):
             "CameraInfo": object,
         },
         "rlinf.scheduler": {"Worker": object},
+        "robots.franka.rpent_env": {"realsense_color_intrinsics": lambda camera: {}},
     }.items():
         module = ModuleType(name)
         module.__dict__.update(attrs)
