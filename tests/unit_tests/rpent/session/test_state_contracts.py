@@ -231,6 +231,106 @@ def test_env_state_per_step_paths_save_load_and_exists(tmp_path: Path) -> None:
     assert env_state.get(1).artifacts == {"detail.json"}
 
 
+def test_env_state_frame_video_supplies_a_supported_encoder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    frames = [np.full((16, 32, 3), value, dtype=np.uint8) for value in (32, 96)]
+
+    def encode(destination, images, *, fps, codec=None):
+        if codec is None:
+            raise TypeError("expected bytes, NoneType found")
+        assert codec == "libx264"
+        assert fps == 12
+        for actual, expected in zip(images, frames, strict=True):
+            np.testing.assert_array_equal(actual, expected)
+        Path(destination).write_bytes(b"encoded-video")
+
+    monkeypatch.setattr("rpent.session.base.imageio.mimwrite", encode)
+    state = EnvState(tmp_path)
+    assert state.save("episode.mp4", iter(frames), step=None, fps=12) == "episode.mp4"
+    assert state.load_bytes("episode.mp4", step=None) == b"encoded-video"
+    assert json.loads((tmp_path / "states.json").read_text())["run_artifacts"] == [
+        "episode.mp4"
+    ]
+
+
+@pytest.mark.parametrize("backend", ["pyav", "FFMPEG"])
+@pytest.mark.parametrize("step", [None, 0])
+def test_env_state_frame_video_encodes_and_decodes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str, step: int | None
+) -> None:
+    av = pytest.importorskip("av")
+    if backend == "FFMPEG":
+        pytest.importorskip("imageio_ffmpeg")
+    import rpent.session.base as state_module
+
+    writer = state_module.imageio.mimwrite
+
+    def write_video(*args, **kwargs):
+        return writer(*args, format=backend, **kwargs)
+
+    monkeypatch.setattr(state_module.imageio, "mimwrite", write_video)
+    state = EnvState(tmp_path)
+    if step is not None:
+        with state.record_step(state={"ready": True}):
+            pass
+    frames = [np.full((16, 32, 3), value, dtype=np.uint8) for value in (32, 64, 96)]
+    assert state.save("clip.mp4", frames, step=step) == "clip.mp4"
+    path = state.artifact_path("clip.mp4", step=step)
+    assert path.stat().st_size > 0
+    with av.open(str(path)) as video:
+        assert video.streams.video[0].codec_context.name == "h264"
+        assert video.streams.video[0].average_rate == 20
+        decoded = [frame.to_ndarray(format="rgb24") for frame in video.decode(video=0)]
+    assert len(decoded) == len(frames)
+    for actual, expected in zip(decoded, frames, strict=True):
+        assert actual.shape == expected.shape
+        assert np.abs(actual.astype(np.int16) - expected).max() <= 5
+    manifest = json.loads((tmp_path / "states.json").read_text())
+    artifacts = (
+        manifest["run_artifacts"]
+        if step is None
+        else manifest["steps"][step]["artifacts"]
+    )
+    assert artifacts == ["clip.mp4"]
+    assert not list(tmp_path.rglob(".*.tmp*"))
+
+
+@pytest.mark.parametrize(
+    "value", [b"encoded", bytearray(b"encoded"), memoryview(b"encoded")]
+)
+def test_env_state_encoded_video_bypasses_encoder(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    value: bytes | bytearray | memoryview,
+) -> None:
+    def unexpected_encoding(*args, **kwargs):
+        pytest.fail("Already encoded video must not be encoded again")
+
+    monkeypatch.setattr("rpent.session.base.imageio.mimwrite", unexpected_encoding)
+    state = EnvState(tmp_path)
+    assert state.save("episode.mp4", value, step=None) == "episode.mp4"
+    assert state.load_bytes("episode.mp4", step=None) == bytes(value)
+
+
+def test_env_state_video_encoding_failure_does_not_publish_artifact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    def fail_encoding(destination, *args, **kwargs):
+        Path(destination).write_bytes(b"partial-video")
+        raise RuntimeError("video encoder failed")
+
+    monkeypatch.setattr("rpent.session.base.imageio.mimwrite", fail_encoding)
+    state = EnvState(tmp_path)
+    with state.record_step(state={"ready": True}):
+        pass
+    assert state.save("clip.mp4", [np.zeros((16, 32, 3), dtype=np.uint8)]) is None
+    assert not state.exists("clip.mp4")
+    assert state.get().artifacts == set()
+    assert "video encoder failed" in caplog.text
+    assert not list(tmp_path.rglob(".*.tmp*"))
+
+
 def test_prune_artifacts_keeps_recent_files_and_historical_records(
     tmp_path: Path,
 ) -> None:

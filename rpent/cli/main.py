@@ -199,6 +199,11 @@ def _build_argparser() -> argparse.ArgumentParser:
         help="Local memory root (environment default when omitted).",
     )
     ap.add_argument(
+        "--memory-repo",
+        default=None,
+        help="HF dataset owner/repo or https://huggingface.co/datasets/owner/repo@revision.",
+    )
+    ap.add_argument(
         "--explore",
         action="store_true",
         help="Enable exploration and memory distillation.",
@@ -416,9 +421,15 @@ def main() -> int:
     args.memory_profile = args.memory_profile or ("local" if args.explore else "hf")
     if args.memory_profile == "hf" and args.memory_dir is not None:
         parser.error("--memory-dir requires --memory-profile local or --explore")
+    if args.memory_repo is not None and args.memory_profile == "local":
+        parser.error("--memory-repo requires HF evaluation")
     from rpent.memory.loading import prepare_run_memory
 
     try:
+        if args.memory_repo is not None:
+            from rpent.memory.source import parse_repo
+
+            parse_repo(args.memory_repo)
         if robot_spec.validate_args is not None:
             robot_spec.validate_args(args)
     except ValueError as exc:
