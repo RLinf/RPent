@@ -343,7 +343,7 @@ Target50 包含 50 个厨房任务，共运行 340 次。以下使用 Codex、GP
 
 .. _codex:
 
-公开成绩见 :doc:`排行榜 <../leaderboard/performance>`。任务列表、评测参数和公开成绩可在下方展开查阅。
+公开成绩见 :doc:`排行榜 <../leaderboard/performance>`。任务列表、评测参数和成绩来源可在下方展开查阅。
 
 .. dropdown:: 完整任务列表
 
@@ -398,37 +398,9 @@ Target50 包含 50 个厨房任务，共运行 340 次。以下使用 Codex、GP
 
    .. _robocasa-reported-results:
 
-   下表成功率以 :doc:`排行榜 <../leaderboard/performance>` 为准。RPent 的三个配置分别为 Codex / GPT-5.5 / xhigh / reasoning、Codex / GPT-6 Astra / low / reasoning，以及 Claude Code / Opus-4.7 / max.reasoning。Harness VLA 参考列采用 `论文表 4 <https://arxiv.org/html/2607.08448v4#S3.T4>`_ 中的 GPT-5.5 结果。Overall 对 50 个任务等权计算，不是 340 回合中的成功回合占比。
+   RPent 的成绩和模型配置见 :doc:`排行榜 <../leaderboard/performance>`。Overall 对 50 个任务等权计算，不是 340 回合中的成功回合占比。
 
-   .. list-table:: 已报告的 Target50 成功率
-      :header-rows: 1
-      :widths: 24 18 18 18 22
-
-      * - Split
-        - RPent / GPT-5.5
-        - RPent / GPT-6 Astra
-        - RPent / Opus-4.7
-        - Harness VLA / GPT-5.5 参考值
-      * - Atomic-Seen
-        - 92.0%
-        - 87.78%
-        - 79.4%
-        - 92.0%
-      * - Composite-Seen
-        - 61.0%
-        - 43.75%
-        - 47.5%
-        - 61.0%
-      * - Composite-Unseen
-        - 13.8%
-        - 42.50%
-        - 15.0%
-        - 13.8%
-      * - 总体（任务加权）
-        - 57.1%
-        - 59.20%
-        - 48.6%
-        - 57.1%
+   Harness VLA 的 GPT-5.5 参考结果见 `论文表 4 <https://arxiv.org/html/2607.08448v4#S3.T4>`_。
 
 .. _environment-smoke-tests:
 
