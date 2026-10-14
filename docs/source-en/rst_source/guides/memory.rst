@@ -90,8 +90,10 @@ explicit ``--memory-version`` to keep the same corpus when changing models;
 ``auto`` still selects the corpus for the current model.
 
 LIBERO retains its versioned manifest and checksum verification. Other robots
-load their ``<robot>/**`` subtree from the resolved Hub snapshot and retain
-their existing task/layout checks. The repository must keep that layout;
+copy their ``<robot>/**`` subtree from the resolved Hub snapshot into
+``memory/<robot>/.sources/``, isolated by repository and commit. These copies
+contain regular files, not links to shared Hub blobs, and are reused across runs.
+Existing task/layout checks still apply. The repository must keep that layout;
 an unavailable explicit source fails instead of falling back to default memory.
 Arbitrary Git remotes are not supported.
 

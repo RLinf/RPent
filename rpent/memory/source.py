@@ -16,9 +16,15 @@
 
 from __future__ import annotations
 
+import fcntl
+import hashlib
 import re
+import shutil
+import tempfile
 from pathlib import Path
 from urllib.parse import urlsplit
+
+from rpent.utils.config import get_memory_dir
 
 
 def parse_repo(value: str) -> tuple[str, str]:
@@ -45,7 +51,11 @@ def parse_repo(value: str) -> tuple[str, str]:
 
 
 def prepare_explicit_source(source: str, robot: str) -> Path:
-    """Select a robot subtree from an exact Hub snapshot; default sync is unchanged."""
+    """Materialize a robot subtree without exposing Hub cache symlinks.
+
+    Copies are shared across runs of the same repository and resolved commit.
+    Robot-specific layout validation remains with the caller.
+    """
     from huggingface_hub import snapshot_download
 
     repo, revision = parse_repo(source)
@@ -60,4 +70,18 @@ def prepare_explicit_source(source: str, robot: str) -> Path:
     root = snapshot / robot
     if not root.is_dir() or not any(root.rglob("*")):
         raise ValueError(f"Memory source has no {robot}/ corpus")
-    return root
+    key = hashlib.sha256(repo.encode()).hexdigest()[:20]
+    cache = get_memory_dir(robot) / ".sources" / key
+    cache.mkdir(parents=True, exist_ok=True)
+    destination = cache / snapshot.name / robot
+    with (cache / "sync.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if not destination.exists():
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with tempfile.TemporaryDirectory(dir=destination.parent) as staging:
+                corpus = Path(staging) / robot
+                # Dereference Hub's snapshot-to-blob links so memory permissions
+                # apply to the actual files and writes cannot alter shared blobs.
+                shutil.copytree(root, corpus, symlinks=False)
+                corpus.replace(destination)
+    return destination

@@ -15,6 +15,7 @@
 """Shared source flags and robot subtree selection."""
 
 from argparse import Namespace
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -22,7 +23,12 @@ import huggingface_hub
 import pytest
 
 from rpent.memory.loading import prepare_run_memory
-from rpent.memory.source import parse_repo
+from rpent.memory.source import parse_repo, prepare_explicit_source
+
+
+@pytest.fixture(autouse=True)
+def isolated_memory_root(tmp_path, monkeypatch):
+    monkeypatch.setenv("RPENT_REPO_ROOT", str(tmp_path / "rpent"))
 
 
 @pytest.mark.parametrize(
@@ -80,11 +86,87 @@ def test_common_preparation_selects_requested_robot_at_pinned_commit(
     )
     config = SimpleNamespace(output_dir=tmp_path / "run", prompt_vars={})
     prepare_run_memory(args, spec, config)
-    assert config.prompt_vars["memory_dir"] == str(corpus)
-    assert args.memory_dir == str(corpus)
+    selected = Path(config.prompt_vars["memory_dir"])
+    assert selected != corpus
+    assert (selected / "MEMORY.md").read_text() == "source"
+    assert args.memory_dir == str(selected)
     assert fetch.call_args.kwargs["allow_patterns"] == [f"{robot}/**"]
     assert fetch.call_args.kwargs["revision"] == commit
     assert not config.output_dir.exists()
+
+
+@pytest.mark.parametrize("robot", ["robocasa", "robotwin", "franka"])
+def test_hub_symlinks_become_read_only_memory_files(tmp_path, monkeypatch, robot):
+    from robots.robocasa.memory import TaskMemory
+    from rpent.memory import MemoryManager
+    from rpent.tools.common import CommonTools
+
+    snapshot = tmp_path / "hub" / "snapshots" / ("a" * 40)
+    blob = tmp_path / "hub" / "blobs" / "content"
+    blob.parent.mkdir(parents=True)
+    blob.write_text("published memory")
+    name = "global/GLOBAL_MEMORY.md" if robot == "robocasa" else "MEMORY.md"
+    link = snapshot / robot / name
+    link.parent.mkdir(parents=True)
+    link.symlink_to(blob)
+    monkeypatch.setattr(
+        huggingface_hub, "snapshot_download", lambda **kwargs: str(snapshot)
+    )
+
+    root = prepare_explicit_source("team/memory@" + "a" * 40, robot)
+    path = root / name
+    assert not path.is_symlink()
+    assert path.resolve().is_relative_to(root.resolve())
+    if robot == "robocasa":
+        memory = TaskMemory.load(root, None, profile="hf")
+        assert memory.contents[name] == "published memory"
+    tools = CommonTools(memory=MemoryManager(root))
+    assert tools.read_text_file(str(path)).data["content"] == "published memory"
+    with pytest.raises(PermissionError, match="writing to memory is denied"):
+        tools.write_text_file(str(path), "changed")
+    assert blob.read_text() == "published memory"
+
+
+def test_copies_are_reused_and_isolated_by_repository_and_commit(tmp_path, monkeypatch):
+    snapshots = {}
+    for commit in ("a" * 40, "b" * 40):
+        snapshot = tmp_path / "snapshots" / commit
+        corpus = snapshot / "robotwin"
+        corpus.mkdir(parents=True)
+        (corpus / "MEMORY.md").write_text(commit)
+        snapshots[commit] = snapshot
+    monkeypatch.setattr(
+        huggingface_hub,
+        "snapshot_download",
+        lambda **kwargs: str(snapshots[kwargs["revision"]]),
+    )
+    first = prepare_explicit_source("team/memory@" + "a" * 40, "robotwin")
+    modified = (first / "MEMORY.md").stat().st_mtime_ns
+    assert prepare_explicit_source("team/memory@" + "a" * 40, "robotwin") == first
+    assert (first / "MEMORY.md").stat().st_mtime_ns == modified
+    other_commit = prepare_explicit_source("team/memory@" + "b" * 40, "robotwin")
+    other_repo = prepare_explicit_source("other/memory@" + "a" * 40, "robotwin")
+    assert len({first, other_commit, other_repo}) == 3
+    assert (first / "MEMORY.md").read_text() == "a" * 40
+    assert (other_commit / "MEMORY.md").read_text() == "b" * 40
+
+
+def test_failed_copy_is_not_reused(tmp_path, monkeypatch):
+    snapshot = tmp_path / "snapshots" / ("a" * 40)
+    corpus = snapshot / "robotwin"
+    corpus.mkdir(parents=True)
+    blob = tmp_path / "missing-blob"
+    (corpus / "MEMORY.md").symlink_to(blob)
+    monkeypatch.setattr(
+        huggingface_hub, "snapshot_download", lambda **kwargs: str(snapshot)
+    )
+    import shutil
+
+    with pytest.raises(shutil.Error):
+        prepare_explicit_source("team/memory@" + "a" * 40, "robotwin")
+    blob.write_text("complete")
+    root = prepare_explicit_source("team/memory@" + "a" * 40, "robotwin")
+    assert (root / "MEMORY.md").read_text() == "complete"
 
 
 def test_missing_robot_subtree_does_not_fall_back_to_default(tmp_path, monkeypatch):
