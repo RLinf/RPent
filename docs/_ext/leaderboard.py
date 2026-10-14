@@ -16,6 +16,7 @@
 
 import json
 import math
+import unicodedata
 from pathlib import Path
 
 from docutils import nodes
@@ -232,6 +233,7 @@ def context(data: dict, language: str) -> dict:
                 **record,
                 "label": label(configs[record["configuration_id"]]),
                 "detail": detail(configs[record["configuration_id"]]),
+                "notes": references.get(record["configuration_id"], []),
                 "width": float(record["rate"]) * 2.35,
                 "color_role": "best"
                 if float(record["rate"]) == float(overview[0]["rate"])
@@ -248,6 +250,9 @@ def context(data: dict, language: str) -> dict:
                 "rows": rows,
                 "bars": bars,
                 "notes": notes,
+                "image_notes": [
+                    note for note in notes if any(note in bar["notes"] for bar in bars)
+                ],
             }
         )
     order = {
@@ -295,6 +300,31 @@ def context(data: dict, language: str) -> dict:
     }
 
 
+def wrap_svg_note(text: str, width: int = 88) -> list[str]:
+    """Wrap English and Chinese note text to fit a leaderboard panel."""
+    lines = []
+    line = ""
+    last_space = -1
+    for character in text:
+        line += character
+        if character.isspace():
+            last_space = len(line) - 1
+        columns = sum(
+            2 if unicodedata.east_asian_width(char) in "FW" else 1 for char in line
+        )
+        if columns > width:
+            if last_space > 0:
+                lines.append(line[:last_space].strip())
+                line = line[last_space + 1 :]
+            else:
+                lines.append(line[:-1].strip())
+                line = character
+            last_space = line.rfind(" ")
+    if line.strip():
+        lines.append(line.strip())
+    return lines
+
+
 class LeaderboardDirective(SphinxDirective):
     """Render an accessible fallback and mount the locally hosted renderer."""
 
@@ -332,7 +362,14 @@ def write_images(app: Sphinx, exception: Exception | None) -> None:
         y = 100
         for offset in range(0, len(panels), 2):
             pair = panels[offset : offset + 2]
-            height = 70 + max(len(panel["bars"]) for panel in pair) * 46
+            for panel in pair:
+                note_y = 70 + len(panel["bars"]) * 46
+                for note in panel["image_notes"]:
+                    note["lines"] = wrap_svg_note(note["text"])
+                    note["y"] = note_y
+                    note_y += len(note["lines"]) * 17 + 8
+                panel["height"] = note_y + (12 if panel["image_notes"] else 0)
+            height = max(panel["height"] for panel in pair)
             for index, panel in enumerate(pair):
                 panel.update(x=30 + index * 640, y=y, height=height)
             y += height + 28

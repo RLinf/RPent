@@ -15,13 +15,20 @@
     <text x="16" y="36" font-size="24">{{ section.name }}</text>
     {% for row in section.bars %}
     <g transform="translate(16,{{ 65 + loop.index0 * 46 }})" data-record="{{ row.id }}">
-      <text y="0" font-size="15">{{ row.label }}</text>
+      <text y="0" font-size="15">{{ row.label }}{% for note in row.notes %} [{{ note.number }}]{% endfor %}</text>
       <text y="17" class="detail">{{ row.detail }}</text>
       <rect x="288" y="-13" width="235" height="23" rx="3" fill="{{ '#3a3345' if dark else '#f1edf6' }}"/>
       <rect x="288" y="-13" width="{{ row.width }}" height="23" rx="3" fill="{{ palette[row.color_role] }}"/>
       <text x="585" y="4" text-anchor="end" font-size="15">{{ row.rate }}%</text>
     </g>
     {% endfor %}
+    {% if section.image_notes %}
+    <line x1="16" x2="604" y1="{{ section.image_notes[0].y - 19 }}" y2="{{ section.image_notes[0].y - 19 }}" stroke="{{ '#4b4255' if dark else '#e4dfea' }}"/>
+    {% for note in section.image_notes %}
+    <text x="16" y="{{ note.y }}" class="detail">[{{ note.number }}]</text>
+    <text x="42" y="{{ note.y }}" class="detail">{% for line in note.lines %}<tspan x="42" dy="{{ 0 if loop.first else 17 }}">{{ line }}</tspan>{% endfor %}</text>
+    {% endfor %}
+    {% endif %}
   </g>
   {% endfor %}
 </svg>
