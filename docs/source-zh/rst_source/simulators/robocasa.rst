@@ -446,7 +446,7 @@ Target50 包含 50 个厨房任务，共运行 340 次。以下使用 Codex、GP
 
    uv pip install pytest pytest-timeout
    RPENT_RUN_ROBOCASA_INTEGRATION=1 \
-      pytest tests/integration_tests/robots/robocasa/test_target50_runtime_smoke.py -v
+      pytest tests/e2e_tests/robocasa/test_environment_smoke.py -v
 
 预期四项通过：三个任务（``OpenDrawer``、``NavigateKitchen``、``PickPlaceCounterToCabinet``，seed 1）和移动相机检查。
 

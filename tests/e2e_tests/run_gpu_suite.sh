@@ -291,6 +291,7 @@ case "$target" in
   robocasa)
     require_dir RLDX_MODEL_PATH
     require_dir ROBOCASA_ASSETS_PATH
+    export RPENT_RUN_ROBOCASA_INTEGRATION=1
     run_in_clean_env \
       robocasa 3.10 robocasa tests/e2e_tests/robocasa "$output_dir/robocasa"
     ;;

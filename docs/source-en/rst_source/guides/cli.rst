@@ -66,6 +66,9 @@ These options control the planner, memory, output directory, and Dashboard.
    * - ``--memory-dir``
      - ``—``
      - Local memory directory; use with the local profile or exploration.
+   * - ``--memory-repo``
+     - ``—``
+     - HF dataset ID or URL with optional @revision; evaluation only.
    * - ``--explore``
      - ``false``
      - Enable exploration on supported environments.
