@@ -79,9 +79,13 @@ Planner
 
    def add_tool(self, tool: Tool, *, replace: bool = False) -> None: ...
 
-用 ``@tool`` 声明函数或方法，参数类型注解和 Google 风格 docstring 提供 schema 与说明；``@tool(readonly=True)`` 跳过动作后的状态采集。处理函数返回 ``ToolResult(data=..., images=...)``：``data`` 保存 JSON 数据，按需包含 ``error`` 或 ``_finish``；``images`` 保存 PNG 字节。
+用 ``@tool`` 声明函数或方法，参数类型注解和 Google 风格 docstring 提供 schema 与说明；``@tool(readonly=True)`` 允许只读工具并行执行，并跳过动作后的状态采集。处理函数返回 ``ToolResult(data=..., images=...)``：``data`` 保存 JSON 数据，按需包含 ``error`` 或 ``_finish``；``images`` 保存 PNG 字节。
 
 基类已注册公共文件工具；子类 ``super().__init__()`` 后追加本机器人工具即可。逐步状态与 ``view_env_state`` 见 :doc:`add_primitive`。
+
+未设置 ``readonly=True`` 的工具按进入调度队列的顺序独占执行。等待中的独占调用优先于新的只读调用，独占范围包括观测采集和 Dashboard 发布。只读工具如果会更新共享缓存，应自行同步这些更新。``EnvState.save`` 会串行保存附件。
+
+``cancel_active_and_wait()`` 暂停接收新调用，向排队中和运行中的调用发送取消信号，并等待清理完成。长时间运行的处理函数在安全边界检查 ``raise_if_cancelled()``。规划器也排空旧请求后，通过 ``resume_calls()`` 恢复接收调用。``close()`` 永久关闭调用入口；子类应先调用 ``super().close()``，再保存录像或释放资源。
 
 进程间通信
 ----------

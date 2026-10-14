@@ -19,6 +19,7 @@ import numpy as np
 import pytest
 
 from tests.e2e_tests.dual_franka.dual_franka_vla import DeploymentTest, run_console
+from tests.e2e_tests.dual_franka.dual_franka_vla_only import run_vla_only
 
 
 def make_session(tmp_path, *, fail=False, terminate=False):
@@ -65,6 +66,22 @@ def make_session(tmp_path, *, fail=False, terminate=False):
         20,
     )
     return s, calls, actions
+
+
+def test_policy_continues_across_chunks_until_operator_stop(tmp_path):
+    session, calls, _ = make_session(tmp_path)
+    result = run_vla_only(
+        session.env,
+        session.model,
+        prompt=session.prompt,
+        workspace=session.workspace,
+        expected_steps=session.expected_steps,
+        stopped=lambda: calls.count("execute") >= 21,
+        emit=lambda event: None,
+    )
+    assert calls.count("execute") == result["steps"] == 21
+    assert calls.count("predict") == result["chunks"] == 2
+    assert result["reason"] == "operator_stop"
 
 
 def test_infer_records_without_execution(tmp_path):

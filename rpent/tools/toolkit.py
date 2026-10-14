@@ -43,10 +43,85 @@ if TYPE_CHECKING:
     from rpent.session import EnvState, StepRecord
 
 
-@dataclass(slots=True)
+@dataclass(eq=False)
 class _ToolOperation:
+    readonly: bool
     cancel_event: threading.Event = field(default_factory=threading.Event)
-    done_event: threading.Event = field(default_factory=threading.Event)
+    done: bool = False
+
+
+class _Scheduler:
+    """Share readonly calls; run queued exclusive calls in arrival order.
+
+    A plain RWLock only provides mutual exclusion. Tool calls also need ordered
+    writers, cancellation of queued and active calls, and pause/close with drain.
+    One condition keeps admission and these lifecycle transitions synchronized.
+    """
+
+    def __init__(self) -> None:
+        self.condition = threading.Condition()
+        self.pending: list[_ToolOperation] = []
+        self.active: set[_ToolOperation] = set()
+        self.paused = False
+        self.closed = False
+
+    def acquire(self, *, readonly: bool) -> _ToolOperation:
+        with self.condition:
+            if self.closed:
+                raise ToolCancelled("Toolkit is closed.")
+            if self.paused:
+                raise ToolCancelled("Tool calls are paused.")
+            call = _ToolOperation(readonly=readonly)
+            self.pending.append(call)
+            self.condition.notify_all()
+            try:
+                while True:
+                    if call.cancel_event.is_set():
+                        raise ToolCancelled("tool operation interrupted")
+                    exclusive = next(
+                        (item for item in self.pending if not item.readonly), None
+                    )
+                    if (
+                        readonly
+                        and exclusive is None
+                        and all(item.readonly for item in self.active)
+                    ) or (not readonly and not self.active and call is exclusive):
+                        self.pending.remove(call)
+                        self.active.add(call)
+                        return call
+                    self.condition.wait()
+            except BaseException:
+                self.pending.remove(call)
+                call.done = True
+                self.condition.notify_all()
+                raise
+
+    def release(self, call: _ToolOperation) -> None:
+        with self.condition:
+            self.active.remove(call)
+            call.done = True
+            self.condition.notify_all()
+
+    def cancel(self, *, close: bool = False) -> list[_ToolOperation]:
+        with self.condition:
+            self.paused = True
+            self.closed |= close
+            calls = [*self.pending, *self.active]
+            for call in calls:
+                call.cancel_event.set()
+            self.condition.notify_all()
+            return calls
+
+    def wait(self, calls: list[_ToolOperation]) -> None:
+        with self.condition:
+            self.condition.wait_for(lambda: all(call.done for call in calls))
+
+    def resume(self) -> None:
+        with self.condition:
+            if self.active or self.pending:
+                raise RuntimeError("Wait for tool cleanup before resuming.")
+            if not self.closed:
+                self.paused = False
 
 
 class ToolCancelled(Exception):
@@ -75,8 +150,7 @@ class Toolkit:
         self._dashboard_events = dashboard_events
         self._state = state
         self._memory = memory
-        self._operation_lock = threading.Lock()
-        self._active_operation: _ToolOperation | None = None
+        self._scheduler = _Scheduler()
         self._register_common_tools()
 
     # ------------------------------------------------------------------
@@ -160,17 +234,17 @@ class Toolkit:
             field: getattr(parameters, field) for field in type(parameters).model_fields
         }
 
-        with self._operation_lock:
-            if self._active_operation is not None:
-                return ToolResult(
-                    data={"error": "another tool operation is still active"}
-                )
-            operation = _ToolOperation()
-            self._active_operation = operation
+        try:
+            operation = self._scheduler.acquire(readonly=tool.readonly)
+        except ToolCancelled as exc:
+            return ToolResult(
+                data={"error": str(exc), "code": "tool_cancelled", "interrupted": True}
+            )
 
         try:
             started = time.perf_counter()
             try:
+                self.raise_if_cancelled()
                 native = tool(**kwargs)
             except TypeError as exc:
                 native = ToolResult(
@@ -234,9 +308,7 @@ class Toolkit:
                 )
             return native
         finally:
-            with self._operation_lock:
-                self._active_operation = None
-                operation.done_event.set()
+            self._scheduler.release(operation)
 
     def _publish_step(self, record: StepRecord) -> None:
         """Publish one recorded environment step to the dashboard sink."""
@@ -262,23 +334,23 @@ class Toolkit:
     # ------------------------------------------------------------------
 
     def cancel_active_and_wait(self) -> None:
-        """Request cancellation and wait for the active tool to return."""
-        with self._operation_lock:
-            operation = self._active_operation
-            if operation is None:
-                return
-            operation.cancel_event.set()
-        operation.done_event.wait()
+        """Pause admission, cancel queued and active calls, and wait for cleanup."""
+        self._scheduler.wait(self._scheduler.cancel())
+
+    def resume_calls(self) -> None:
+        """Reopen admission after interrupted calls and their workers have drained."""
+        self._scheduler.resume()
 
     def raise_if_cancelled(self) -> None:
         """Raise at an environment-defined safe cancellation boundary."""
-        with self._operation_lock:
-            operation = self._active_operation
-        if operation is not None and operation.cancel_event.is_set():
-            raise ToolCancelled("tool operation interrupted")
+        with self._scheduler.condition:
+            if any(call.cancel_event.is_set() for call in self._scheduler.active):
+                raise ToolCancelled("tool operation interrupted")
 
     def close(self) -> None:
-        """Release the robot-side primitives / servers at end of run. Default: no-op."""
+        """Close admission and drain calls before subclasses release resources."""
+        self._scheduler.cancel(close=True)
+        self.cancel_active_and_wait()
 
     def exploration_continuation(self, *, explicit: bool = False) -> str | None:
         """Return a rule-checked continuation at an idle planner boundary."""

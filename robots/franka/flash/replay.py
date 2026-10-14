@@ -30,7 +30,6 @@ from robots.franka.flash.common import (
     VLA_ACTIONS,
     checked_result,
     fingerprint,
-    localize,
     tcp_pose,
     validate_card,
     vector,
@@ -51,6 +50,13 @@ def add_cli_args(parser: argparse.ArgumentParser) -> None:
     """Add Franka Flash replay options."""
     parser.add_argument("--flash-plan", help="Generated Franka Flash JSON")
     parser.add_argument("--molmo-endpoint", help="Live Molmo grounding endpoint")
+    parser.add_argument(
+        "--grounding-agent-model",
+        help="Optional fallback: codex:model or provider:model",
+    )
+    parser.add_argument(
+        "--grounding-agent-base-url", help="Fallback model endpoint override"
+    )
 
 
 def prepare(args: argparse.Namespace, robot: str) -> dict[str, Any] | None:
@@ -77,6 +83,8 @@ def prepare(args: argparse.Namespace, robot: str) -> dict[str, Any] | None:
             "card robot configuration or calibration changed; regenerate/review the card"
         )
     return {
+        "grounding_agent_model": getattr(args, "grounding_agent_model", None),
+        "grounding_agent_base_url": getattr(args, "grounding_agent_base_url", None),
         "card": card,
         "endpoint": args.molmo_endpoint,
     }
@@ -102,7 +110,15 @@ def authorize_runtime(args: argparse.Namespace) -> None:
 
 
 def motion_arguments(
-    entry: dict, *, robot: str, state: Any, molmo: Any, workspace: dict
+    entry: dict,
+    *,
+    robot: str,
+    state: Any,
+    molmo: Any,
+    workspace: dict,
+    toolkit: Any = None,
+    grounding_agent: Any = None,
+    note: Callable[[str], None] = lambda _: None,
 ) -> dict:
     """Resolve a recorded motion against the current calibrated observation."""
     args = dict(entry["arguments"])
@@ -111,7 +127,22 @@ def motion_arguments(
         return args
     pose = tcp_pose(state.get().state, robot, args.get("arm"))
     if action == "move_delta":
-        point = localize(state, robot, entry["anchor"], molmo, arm=args.get("arm"))
+        from robots.franka.flash.common import localize
+        from robots.franka.flash.grounding import localize_with_fallback
+
+        if toolkit is None:
+            point = localize(state, robot, entry["anchor"], molmo, arm=args.get("arm"))
+        else:
+            point = localize_with_fallback(
+                toolkit,
+                robot,
+                entry["anchor"],
+                molmo,
+                arm=args.get("arm"),
+                agent=grounding_agent,
+                note=note,
+            )
+            pose = tcp_pose(state.get().state, robot, args.get("arm"))
         target = point + vector(entry["offset_xyz"])
         lower, upper = workspace["ee_pose_limit_min"], workspace["ee_pose_limit_max"]
         if robot == "dual_franka":
@@ -162,6 +193,7 @@ def replay(
     *,
     human: Callable = ask_human,
     note: Callable[[str], None] = lambda _: None,
+    grounding_agent: Any = None,
 ) -> dict:
     """Replay validated primitives and record the operator outcome."""
     validate_card(card)
@@ -204,6 +236,9 @@ def replay(
                 state=toolkit.state,
                 molmo=molmo,
                 workspace=workspace,
+                toolkit=toolkit,
+                grounding_agent=grounding_agent,
+                note=note,
             )
             note(f"source step {entry['source_step']}: {entry['action']} {args}")
             event = {
@@ -261,6 +296,15 @@ def replay_card(toolkit: Any, cell_tag: str, note: Callable[[str], None]) -> dic
         raise ValueError("missing or mismatched Flash plan")
     if options["card"]["requirements"] != fingerprint():
         raise ValueError("configuration changed after card preparation")
+    from rpent.robots.components.grounding_agent import GroundingAgent
+
+    agent = (
+        GroundingAgent(
+            options["grounding_agent_model"], options.get("grounding_agent_base_url")
+        )
+        if options.get("grounding_agent_model")
+        else None
+    )
     rpc = make_rpc_client(options["endpoint"])
     try:
         return replay(
@@ -269,6 +313,7 @@ def replay_card(toolkit: Any, cell_tag: str, note: Callable[[str], None]) -> dic
             MolmoClient(rpc),
             load_mapping(get_robot_config_path())["workspace"],
             note=note,
+            grounding_agent=agent,
         )
     finally:
         if rpc:

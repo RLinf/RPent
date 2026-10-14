@@ -164,6 +164,12 @@ def test_close_handles_collection_and_video_independently(
     tmp_path, monkeypatch, failure
 ):
     toolkit = libero_toolkit.LiberoToolkit.__new__(libero_toolkit.LiberoToolkit)
+    from rpent.memory import MemoryManager
+    from rpent.tools import Toolkit
+
+    Toolkit.__init__(
+        toolkit, dashboard_events=None, memory=MemoryManager(tmp_path / "memory")
+    )
     frames = [_obs(0)["main_images"]]
     finalize = Mock(return_value=tmp_path / "episode")
     stop = Mock(return_value=frames)
@@ -194,3 +200,38 @@ def test_close_handles_collection_and_video_independently(
             "flywheel episode finalized: %s", tmp_path / "episode"
         )
     assert logger.warning.call_count == (failure is not None)
+
+
+@pytest.mark.parametrize("after_reset", [False, True])
+def test_recipe_exports_each_segment_once_and_keeps_repeated_calls(
+    tmp_path, after_reset
+):
+    import json
+
+    from robots.libero.tools import write_recipe_from_states
+    from rpent.session import EnvState
+
+    state = EnvState(tmp_path)
+    command = {"action": "segment", "prompt": "cup", "camera": "agentview"}
+    artifact = {
+        "mode": "text",
+        "prompt": "cup",
+        "camera": "agentview",
+        "segment_index": 0,
+    }
+    if after_reset:
+        with state.record_step(state={}, command={"action": "move_to"}, result={}):
+            state.save("segment_00.json", artifact)
+    with state.record_step(
+        state={}, command={"action": "reset"} if after_reset else None, result={}
+    ):
+        pass
+    for index in range(2):
+        state.save("segment_00.json", artifact)
+        with state.record_step(
+            state={}, command=command, result={}, terminated=index == 1
+        ):
+            pass
+    name = write_recipe_from_states(state, "test", output_dir=tmp_path)
+    commands = [json.loads(line) for line in (tmp_path / name).read_text().splitlines()]
+    assert commands == [command, command]

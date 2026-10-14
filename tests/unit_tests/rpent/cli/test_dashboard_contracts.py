@@ -36,10 +36,12 @@ from rpent.memory import MemoryManager
         ("robocasa", "local", False, False),
         ("libero", "hf", False, False),
         ("libero", "local", False, False),
+        ("dual_franka", "local", False, False),
     ],
 )
+@pytest.mark.parametrize("planner", ["api", "claude_code", "codex"])
 def test_shared_runtime_gets_memory_before_startup(
-    robot, profile, sync_before_shared, tmp_path, monkeypatch, explicit_repo
+    robot, profile, sync_before_shared, planner, tmp_path, monkeypatch, explicit_repo
 ):
     root = tmp_path / "memory" / robot
     events = []
@@ -83,7 +85,8 @@ def test_shared_runtime_gets_memory_before_startup(
     monkeypatch.setattr(DashboardState, "fail_session", fail_session)
     spec = SimpleNamespace(
         name=robot,
-        is_real_robot=False,
+        is_real_robot=robot == "dual_franka",
+        supports_human_interactive_exploration=robot == "dual_franka",
         memory_repo_id="test/memory",
         prepare_memory=(lambda args, config: None) if robot == "libero" else None,
         dashboard={
@@ -105,7 +108,9 @@ def test_shared_runtime_gets_memory_before_startup(
             robot,
             "--dashboard",
             "--planner",
-            "codex",
+            planner,
+            "--model",
+            "test",
             "--memory-profile",
             profile,
             "--output-dir",
