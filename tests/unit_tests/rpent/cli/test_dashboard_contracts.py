@@ -27,19 +27,21 @@ from rpent.memory import MemoryManager
 
 
 @pytest.mark.parametrize(
-    ("robot", "profile", "sync_before_shared"),
+    ("robot", "profile", "sync_before_shared", "explicit_repo"),
     [
-        ("robocasa", "hf", True),
-        ("robotwin", "hf", True),
-        ("robocasa", "local", False),
-        ("libero", "hf", False),
-        ("libero", "local", False),
-        ("dual_franka", "local", False),
+        ("robocasa", "hf", True, False),
+        ("robocasa", "hf", True, True),
+        ("robotwin", "hf", True, False),
+        ("robotwin", "hf", True, True),
+        ("robocasa", "local", False, False),
+        ("libero", "hf", False, False),
+        ("libero", "local", False, False),
+        ("dual_franka", "local", False, False),
     ],
 )
 @pytest.mark.parametrize("planner", ["api", "claude_code", "codex"])
 def test_shared_runtime_gets_memory_before_startup(
-    robot, profile, sync_before_shared, planner, tmp_path, monkeypatch
+    robot, profile, sync_before_shared, planner, tmp_path, monkeypatch, explicit_repo
 ):
     root = tmp_path / "memory" / robot
     events = []
@@ -70,6 +72,15 @@ def test_shared_runtime_gets_memory_before_startup(
 
     monkeypatch.setattr(dashboard, "get_memory_dir", lambda name: root)
     monkeypatch.setattr(MemoryManager, "sync", sync)
+    if explicit_repo:
+        from rpent.memory import source
+
+        def prepare(source_url, name):
+            assert name == robot and source_url == "team/memory@release"
+            sync(MemoryManager(root), remote_repo="test/memory")
+            return root
+
+        monkeypatch.setattr(source, "prepare_explicit_source", prepare)
     monkeypatch.setattr(DashboardServer, "start", start)
     monkeypatch.setattr(DashboardState, "fail_session", fail_session)
     spec = SimpleNamespace(
@@ -106,8 +117,12 @@ def test_shared_runtime_gets_memory_before_startup(
             str(tmp_path / "run"),
         ]
     )
+    if explicit_repo:
+        args.memory_repo = "team/memory@release"
     assert (
         dashboard.run_dashboard_session(args, spec, parser=argparse.ArgumentParser())
         == 0
     )
     assert events == (["sync"] if sync_before_shared else []) + ["shared-runtime"]
+    if explicit_repo:
+        assert args.memory_dir == str(root)
