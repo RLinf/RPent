@@ -215,16 +215,7 @@ class ApiAgentLoop(Planner):
 def _build_model_settings(
     model: Model, max_tokens: int, reasoning_effort: str | None = None
 ) -> ModelSettings:
-    """Enable parallel tool requests and preserve Anthropic prompt caching.
-
-    ``--reasoning-effort`` rides the unified ``Thinking`` capability, which
-    pydantic-ai silently strips for OpenAI-compatible models whose profile
-    lacks ``supports_thinking`` (e.g. ``openai-chat:deepseek-*``). OpenAI chat
-    models therefore also carry the provider-specific ``openai_reasoning_effort``
-    so the requested effort — including ``none``, which is the only way to
-    disable thinking on servers that default it to enabled — reaches the
-    serialized request body instead of being dropped (issue #272).
-    """
+    """Enable parallel tool requests and preserve Anthropic prompt caching."""
     from pydantic_ai.models.anthropic import AnthropicModel, AnthropicModelSettings
     from pydantic_ai.models.openai import OpenAIChatModel, OpenAIChatModelSettings
     from pydantic_ai.profiles.openai import OPENAI_REASONING_EFFORT_MAP

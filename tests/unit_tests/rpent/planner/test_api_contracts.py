@@ -988,13 +988,7 @@ def test_offline_http_planner_preserves_non_streaming_responses():
 
 @pytest.mark.parametrize("effort", ["none", "high"])
 def test_reasoning_effort_reaches_openai_chat_request_body(tmp_path, effort):
-    """Serialize ``--reasoning-effort`` into the outgoing Chat Completions body.
-
-    Unified ``Thinking`` settings are silently stripped by pydantic-ai for
-    OpenAI-compatible models whose profile lacks ``supports_thinking`` (e.g.
-    ``openai-chat:deepseek-v4.1-flash``), so the loop must forward the CLI
-    effort as the provider-specific ``openai_reasoning_effort`` (issue #272).
-    """
+    """Serialize ``--reasoning-effort`` into the outgoing Chat Completions body."""
     import httpx
     from openai import AsyncOpenAI
     from pydantic_ai.models.openai import OpenAIChatModel
