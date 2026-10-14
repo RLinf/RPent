@@ -125,6 +125,8 @@ franka = [
     "imageio[ffmpeg]",
     "evdev",
     "numpy<2",
+    # PyArrow 26 requires NumPy >=2 at import time, incompatible with Franka.
+    "pyarrow<26.0.0",
     "pyzmq",
     "websockets",
     "rpent-openpi @ git+https://github.com/RLinf/openpi.git@rpent",
