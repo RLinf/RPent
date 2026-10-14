@@ -17,11 +17,6 @@ tests/
 │   ├── dual_franka/      # opt-in real-robot VLA diagnostic console
 │   ├── libero/
 │   ├── robocasa/
-│   │   ├── conftest.py
-│   │   ├── scenario.py
-│   │   ├── test_environment_smoke.py
-│   │   ├── test_components.py
-│   │   └── test_policy_chain.py
 │   └── robotwin/
 └── unit_tests/
     ├── rpent/             # tests for the core rpent package
