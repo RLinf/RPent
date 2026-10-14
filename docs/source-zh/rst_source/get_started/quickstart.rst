@@ -24,7 +24,19 @@
    cd RPent
    uv venv --python 3.11
    source .venv/bin/activate
+   uv pip install torch==2.7.1 torchvision==0.22.1 \
+     --index-url https://download.pytorch.org/whl/cu126
    uv pip install -e ".[libero-pro]"
+
+先通过明确指定的 PyTorch 源安装 Torch，选择本 LIBERO 配置使用的 CUDA 12.6 构建，避免依赖默认包索引选择构建版本。``--index-url`` 只用于安装 Torch 的命令，RPent 的其他依赖仍使用常规索引。实际下载速度取决于网络。
+
+下载模型前，检查已安装的构建版本与 GPU 可用性：
+
+.. code-block:: bash
+
+   python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"
+
+预期输出为 ``2.7.1+cu126 12.6 True``。驱动须兼容所选 CUDA runtime；``nvidia-smi`` 显示的 CUDA 版本不代表已安装的 Torch 构建。其他受支持的构建见 `PyTorch 安装版本说明 <https://pytorch.org/get-started/previous-versions/>`_。
 
 后续命令都在这个终端和 RPent 仓库目录中执行。重新打开终端时，先激活 ``.venv``，再设置下文的模型路径与 API Key。
 

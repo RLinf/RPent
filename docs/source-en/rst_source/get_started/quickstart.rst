@@ -24,7 +24,25 @@ Create an isolated Python environment and install the LIBERO-PRO dependencies.
    cd RPent
    uv venv --python 3.11
    source .venv/bin/activate
+   uv pip install torch==2.7.1 torchvision==0.22.1 \
+     --index-url https://download.pytorch.org/whl/cu126
    uv pip install -e ".[libero-pro]"
+
+Install Torch first from the explicit PyTorch index. This selects the CUDA 12.6
+build used by this LIBERO setup instead of relying on the default package
+index. Keep ``--index-url`` on the Torch command only; RPent's other dependencies
+use the normal index. Download speed still depends on your network.
+
+Check the installed build and GPU access before downloading the models:
+
+.. code-block:: bash
+
+   python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"
+
+Expect ``2.7.1+cu126 12.6 True``. The driver must support this CUDA runtime;
+the CUDA version shown by ``nvidia-smi`` does not identify the installed Torch
+build. See the `PyTorch installation variants
+<https://pytorch.org/get-started/previous-versions/>`_ for other supported builds.
 
 Run the remaining commands in this terminal from the RPent repository root. In a new terminal, activate ``.venv`` and set the checkpoint paths and API key again.
 

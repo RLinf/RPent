@@ -56,7 +56,30 @@ environment, so run it in a separate Python environment:
 .. code-block:: bash
 
    uv venv --python 3.11 /path/to/molmo-venv
+   uv pip install --python /path/to/molmo-venv/bin/python \
+     torch==2.7.1 torchvision==0.22.1 \
+     --index-url https://download.pytorch.org/whl/cu126
    uv pip install --python /path/to/molmo-venv/bin/python -e ".[molmo]"
+
+Install Torch in the Molmo environment **before** the ``molmo`` extra. The extra
+does not pin Torch's CUDA build, and plain ``uv pip install`` does not select a
+build from the locally installed CUDA toolkit. On Linux the default index can
+resolve to CUDA 13 packages even on a CUDA 12 machine. The explicit index above
+selects CUDA 12.6; the following install keeps compatible installed packages
+unless an upgrade is requested. See `uv's PyTorch guide
+<https://docs.astral.sh/uv/guides/integration/pytorch/>`_ for backend selection.
+
+Verify this separate interpreter, not the LIBERO environment:
+
+.. code-block:: bash
+
+   /path/to/molmo-venv/bin/python -c \
+     "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"
+
+Expect ``2.7.1+cu126 12.6 True`` with a compatible driver. If an existing Molmo
+environment has the wrong build, repeat the Torch command with
+``--reinstall-package torch --reinstall-package torchvision``, then check again.
+Do not install ``.[molmo]`` into the LIBERO policy environment.
 
 Download ``allenai/Molmo2-8B`` from `Hugging Face
 <https://huggingface.co/allenai/Molmo2-8B>`_ or `ModelScope
