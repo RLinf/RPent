@@ -254,7 +254,7 @@ def run_session(args: argparse.Namespace) -> int:
     output = init_output_dir(config.output_dir)
     daemons = []
     logger.info(
-        "Initializing VLA test: environment may reset robots; predictions execute only on step/run.",
+        "Initializing VLA test without posture reset; predictions execute only on step/run.",
     )
     try:
         daemons, kwargs = spec.init_runtime(

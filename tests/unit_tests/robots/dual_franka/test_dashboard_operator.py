@@ -56,7 +56,7 @@ def test_web_confirmation_and_task_completion(
     parser = _build_argparser()
     spec.add_cli_args(parser, use_dashboard=True)
     args = parser.parse_args(
-        ["--robot", "dual_franka", "--dashboard", "--task-id", "3"]
+        ["--robot", "dual_franka", "--dashboard", "--task-id", "1"]
         + ([] if auto_merge else ["--no-auto-merge-memory"])
     )
     args.robot_config = str(dual_franka_robot_config)
@@ -64,7 +64,7 @@ def test_web_confirmation_and_task_completion(
     args.explore, args.explore_sessions = explore, 2
     state = DashboardState(output_dir=tmp_path, dashboard_spec=spec.dashboard)
     state.shared_services_ready()
-    state.request_task({"task_id": 3})
+    state.request_task({"task_id": 1})
     claimed = state.wait_for_task(0)
     ready, changed, calls = Event(), state.operator_changed, []
 
@@ -81,17 +81,15 @@ def test_web_confirmation_and_task_completion(
         call = toolkit.execute_tool
         motion = {"arm": "right", "delta_xyz": [0, 0, 0.01]}
         if explore:
-            inbox = toolkit.memory.root / "_internal/inbox/dual_franka_t3"
+            inbox = toolkit.memory.root / "_internal/inbox/dual_franka_t1"
             inbox.mkdir(parents=True, exist_ok=True)
             (inbox / "new_global_strategy_lesson.md").write_text(
                 "---\nid: lesson\nscope: global\nkind: strategy\ntitle: Lesson\n"
                 "applies_when: Same setup\nconfidence: single-shot\n"
-                "evidence:\n  cells: [dual_franka_t3]\n---\nObserved attempt.\n"
+                "evidence:\n  cells: [dual_franka_t1]\n---\nObserved attempt.\n"
             )
-        assert fake_env.resets == int(not explore)
-        assert (
-            "request_scene_reset" in {t.name for t in toolkit.list_tools()}
-        ) is explore
+        assert fake_env.resets == 0
+        assert "request_scene_reset" in {t.name for t in toolkit.list_tools()}
         endpoint = next(
             r.endpoint
             for r in DashboardServer(state=state)._app.routes
@@ -112,25 +110,20 @@ def test_web_confirmation_and_task_completion(
 
         with ThreadPoolExecutor() as pool:
             try:
-                if explore:
-                    assert call("move_delta", motion).is_error
-                    future = pool.submit(
-                        call, "request_scene_reset", {"reason": "test"}
-                    )
-                    assert ready.wait(3)
-                    ctx = context()
-                    for stale in (
-                        {**ctx, "generation": ctx["generation"] - 1},
-                        {**ctx, "request_id": "expired"},
-                    ):
-                        assert send("/done", stale) == 422
-                    assert send("/success", ctx) == 422
-                    assert fake_env.resets == 0
-                    assert send("/done", ctx) == 202
-                    assert not future.result(3).is_error
-                    assert send("/done", ctx) == 422
-                else:
-                    assert send("/success") == 422
+                assert call("move_delta", motion).is_error
+                future = pool.submit(call, "request_scene_reset", {"reason": "test"})
+                assert ready.wait(3)
+                ctx = context()
+                for stale in (
+                    {**ctx, "generation": ctx["generation"] - 1},
+                    {**ctx, "request_id": "expired"},
+                ):
+                    assert send("/done", stale) == 422
+                assert send("/success", ctx) == 422
+                assert fake_env.resets == 0
+                assert send("/done", ctx) == 202
+                assert not future.result(3).is_error
+                assert send("/done", ctx) == 422
                 assert fake_env.resets == 1
                 state.set_planner_activity("idle", accepting_input=True)
                 assert send("move slowly") == 202
@@ -142,7 +135,7 @@ def test_web_confirmation_and_task_completion(
                 assert send("/success", {**ctx, "request_id": "expired"}) == 422
                 if verdict in {"replace", "shutdown"}:
                     if verdict == "replace":
-                        assert send("/rpent-task 4") == 202
+                        assert send("/rpent-task 2") == 202
                         assert send("/success") == 422
                     else:
                         state.request_shutdown()
@@ -190,7 +183,7 @@ def test_web_confirmation_and_task_completion(
     assert (tmp_path / "memory/global/lesson.md").is_file() == (
         explore and auto_merge and verdict in {"success", "failure"}
     )
-    for name in ("dual_franka_t3.json", "dual_franka_t3_recipe.jsonl"):
+    for name in ("dual_franka_t1.json", "dual_franka_t1_recipe.jsonl"):
         assert (tmp_path / "memory/task-specific" / name).is_file() == (
             explore and auto_merge and verdict == "success"
         )

@@ -105,7 +105,7 @@ def build_parser():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--env-endpoint", default="http://127.0.0.1:6002")
     parser.add_argument("--vla-endpoint", default="http://127.0.0.1:6000")
-    parser.add_argument("--task-id", type=int, default=6)
+    parser.add_argument("--task-id", type=int, default=2)
     parser.add_argument(
         "--instruction", help="Override task-configured policy instruction"
     )

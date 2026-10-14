@@ -31,7 +31,6 @@ from robots.dual_franka.perception import (
     load_calibration_bundle,
     segment,
 )
-from robots.dual_franka.tasks import CLEAN_DESK_VLA_PROMPT
 from robots.dual_franka.toolkit import DualFrankaToolkit
 from robots.dual_franka.tools import (
     DualFrankaPrimitives,
@@ -191,7 +190,7 @@ def _primitives(env: FakeEnv, *, model=None, check_cancelled=lambda: None):
         env=env,
         model=model,
         task_description="default task",
-        vla_instruction=CLEAN_DESK_VLA_PROMPT,
+        vla_instruction="test policy instruction",
         check_cancelled=check_cancelled,
     )
 
@@ -200,7 +199,7 @@ def _tool_names(toolkit: DualFrankaToolkit) -> set[str]:
     return set(toolkit._tools)
 
 
-def test_toolkit_exploration_tools_are_opt_in(
+def test_scene_reset_is_required_in_both_modes(
     tmp_path: Path, dual_franka_robot_config: Path
 ):
     set_robot_config_path(dual_franka_robot_config)
@@ -232,13 +231,25 @@ def test_toolkit_exploration_tools_are_opt_in(
     assert evaluation.state.load("recording_fingerprint.json", step=None)[
         "robot_config"
     ]
-    assert "request_scene_reset" not in _tool_names(evaluation)
+    assert "request_scene_reset" in _tool_names(evaluation)
+    assert base_kwargs["env"].resets == 0
+    assert evaluation.execute_tool(
+        "move_delta", {"arm": "right", "delta_xyz": [0, 0, 0.01]}
+    ).is_error
     assert "request_operator_verdict" in _tool_names(evaluation)
     refused_eval = evaluation.execute_tool(
         "finish", {"status": "success", "summary": "not confirmed"}
     )
     assert refused_eval.data["error"] == "finish refused"
     assert refused_eval.data.get("_finish", False) is False
+    evaluation._read_operator_line = lambda prompt: "done"
+    assert not evaluation.execute_tool(
+        "request_scene_reset", {"reason": "prepare"}
+    ).is_error
+    assert base_kwargs["env"].resets == 1
+    assert not evaluation.execute_tool(
+        "move_delta", {"arm": "right", "delta_xyz": [0, 0, 0.01]}
+    ).is_error
     evaluation._read_operator_line = lambda prompt: "success checked by operator"
     evaluation.execute_tool("request_operator_verdict", {})
     accepted_eval = evaluation.execute_tool(
@@ -808,11 +819,15 @@ def test_recover_joint_posture_forwards_to_env():
     assert result["reason"] == "joint drift"
 
 
-def test_named_clean_desk_vla_uses_fixed_prompt_and_semantic_boundary():
+def test_named_vla_uses_configured_instruction_and_semantic_boundary():
+    instruction = "custom checkpoint instruction"
     env = BoundaryEnv()
-    primitives = _primitives(
-        env,
-        model=FakeModel(expected_prompt=CLEAN_DESK_VLA_PROMPT),
+    primitives = DualFrankaPrimitives(
+        env=env,
+        model=FakeModel(expected_prompt=instruction),
+        task_description="planner task description",
+        vla_instruction=instruction,
+        check_cancelled=lambda: None,
     )
 
     result_native = primitives.vla_right_grasp(
@@ -823,23 +838,7 @@ def test_named_clean_desk_vla_uses_fixed_prompt_and_semantic_boundary():
     assert result["ok"]
     assert result["skill_name"] == "vla_right_grasp"
     assert result["prompt_overridden"]
+    assert result["effective_policy_prompt"] == instruction
     assert result["boundary"] == "grasp"
     assert result["boundary_reached"]
     assert len(env.chunks) == 3
-
-
-def test_named_vla_uses_task_configured_policy_instruction():
-    instruction = "custom checkpoint instruction"
-    primitives = DualFrankaPrimitives(
-        env=BoundaryEnv(),
-        model=FakeModel(expected_prompt=instruction),
-        task_description="planner task description",
-        vla_instruction=instruction,
-        check_cancelled=lambda: None,
-    )
-    result_native = primitives.vla_right_grasp(
-        prompt="planner segment intent", max_chunks=2
-    )
-    result = result_native.data
-    assert result["effective_policy_prompt"] == instruction
-    assert result["prompt_overridden"]

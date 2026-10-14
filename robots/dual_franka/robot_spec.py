@@ -238,8 +238,10 @@ def _env_server_command(
     *,
     host: str,
     port: int,
+    task_description: str | None = None,
 ) -> list[str]:
-    task = get_dual_franka_task(args.task_id)
+    if task_description is None:
+        task_description = get_dual_franka_task(args.task_id).instruction
     command = [
         sys.executable,
         "-m",
@@ -251,7 +253,7 @@ def _env_server_command(
         "--port",
         str(port),
         "--task-description",
-        task.instruction,
+        task_description,
         "--parent-watch",
     ]
     if args.robot_config:
@@ -291,6 +293,8 @@ def _vla_server_command(
 def _spawn_env_server(
     args: argparse.Namespace,
     output_dir: Path,
+    *,
+    task_description: str | None = None,
 ) -> tuple[ProcessDaemon | None, RpcClient]:
     """Spawn (or attach to) the RLinf-backed dual-Franka environment server.
 
@@ -302,7 +306,9 @@ def _spawn_env_server(
     host, port = "127.0.0.1", pick_free_port()
     daemon = ProcessDaemon(
         name="dual_franka_env_server",
-        cmd=_env_server_command(args, host=host, port=port),
+        cmd=_env_server_command(
+            args, host=host, port=port, task_description=task_description
+        ),
         # Both Ray nodes already use this project's pre-provisioned environment.
         # Disable Ray's automatic uv hook: it otherwise runs uv from a temporary
         # uploaded directory and can repeatedly miss the worker startup timeout.
@@ -374,12 +380,15 @@ def _init_runtime(
     output_dir: Path,
     dashboard_events: DashboardEventSink,
     components: set[str] | None,
+    *,
+    task_description: str | None = None,
+    vla_instruction: str | None = None,
 ) -> tuple[list[ProcessDaemon], dict[str, Any]]:
     """Initialize every dual-Franka component, or only ``components`` when given.
 
     Each server can be spawned or attached-to independently: pass an endpoint
-    to attach, or leave it unset to spawn a local subprocess. A VLA is only
-    started for VLA-backed dual-Franka tasks (or an explicit ``--vla-endpoint``).
+    to attach, or leave it unset to spawn a local subprocess. Manual calls can
+    supply descriptions directly instead of selecting a registered task.
     """
     from robots.dual_franka.env_client import DualFrankaEnvClient
     from rpent.robots.components.pi05_vla_client import Pi05VLAClient
@@ -392,7 +401,9 @@ def _init_runtime(
         raise ValueError(f"unknown dual-Franka runtime components: {sorted(unknown)}")
 
     needs_vla = args.vla_endpoint is not None
-    if args.task_id is not None:
+    if task_description is not None:
+        needs_vla = needs_vla or vla_instruction is not None
+    elif args.task_id is not None:
         task = get_dual_franka_task(args.task_id)
         needs_vla = needs_vla or task.vla_instruction is not None
     else:
@@ -414,17 +425,23 @@ def _init_runtime(
     if "env" in selected:
         authorize_runtime(args)
     starters = {
-        "env": lambda: _spawn_env_server(args, output_dir),
+        "env": lambda: _spawn_env_server(
+            args, output_dir, task_description=task_description
+        ),
         "vla": lambda: _spawn_vla_server(args, output_dir),
         "sam3": lambda: _spawn_sam3_server(args, output_dir),
     }
     connectors = {
         "env": lambda rpc: {
             "env": DualFrankaEnvClient(
-                rpc, reset_on_connect=not getattr(args, "explore", False)
+                rpc, reset_on_connect=bool(getattr(args, "_flash_options", None))
             ),
-            "task_description": get_dual_franka_task(args.task_id).instruction,
-            "vla_instruction": get_dual_franka_task(args.task_id).vla_instruction,
+            "task_description": task_description
+            if task_description is not None
+            else get_dual_franka_task(args.task_id).instruction,
+            "vla_instruction": vla_instruction
+            if task_description is not None
+            else get_dual_franka_task(args.task_id).vla_instruction,
         },
         "vla": lambda rpc: {"model": Pi05VLAClient(rpc, embodiment="dual_franka")},
         "sam3": lambda rpc: {"sam3_client": Sam3Client(rpc)},
