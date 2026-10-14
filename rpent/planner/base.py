@@ -125,15 +125,7 @@ PLANNER_TRUNCATION_MARKER = "planner response truncated"
 
 
 def classify_agent_error(agent_error: str | None) -> str:
-    """Classify a recorded planner session error.
-
-    Returns ``"completed"`` when the session reported no error,
-    ``"planner_timeout"`` for the planner's wall-clock timeout,
-    ``"planner_response_truncated"`` for a length-limited response that
-    produced no usable output, and ``"infrastructure_error"`` otherwise.
-    Timeouts and truncations are expected model-side stops; other errors
-    indicate broken tooling.
-    """
+    """Classify a recorded planner session error."""
     if not agent_error:
         return "completed"
     lowered = agent_error.lower()

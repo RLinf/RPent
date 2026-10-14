@@ -88,14 +88,7 @@ class _RequestBudgetExhausted(Exception):
 
 
 def _is_response_truncation(exc: UnexpectedModelBehavior) -> bool:
-    """Match the SDK's token-limit-without-usable-output failure.
-
-    pydantic-ai raises ``UnexpectedModelBehavior`` for several conditions
-    (retries exhausted, usage limits, malformed responses). Only the
-    empty/blank/thinking-only response stopped by ``finish_reason == "length"``
-    is a predictable output-budget stop, so the classification matches on the
-    SDK message instead of the exception type.
-    """
+    """Match the SDK's token-limit-without-usable-output failure."""
     message = str(exc).lower()
     return "token limit" in message and "before any response was generated" in message
 
@@ -211,11 +204,6 @@ class ApiAgentLoop(Planner):
             logger.info("%s", exc)
         except UnexpectedModelBehavior as exc:
             if _is_response_truncation(exc):
-                # A response that spent its whole output budget on thinking is
-                # an expected model-side stop, not broken tooling; mark it so
-                # the run-level recovery policy can hand off to a fresh
-                # exploration session. The SDK message stays attached as
-                # evidence.
                 session.error = f"{PLANNER_TRUNCATION_MARKER} (length): {exc}"
                 logger.warning("%s", session.error)
             else:

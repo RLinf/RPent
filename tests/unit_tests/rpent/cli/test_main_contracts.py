@@ -694,13 +694,6 @@ def test_full_cli_exploration_hands_off_after_truncated_reasoning_response(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A length-limited response must not end exploration mid-roster (#271).
-
-    Session 1 hits the pydantic-ai token-limit ``UnexpectedModelBehavior``
-    (reasoning-only, ``finish_reason == "length"``). Like a planner timeout,
-    that is an expected model-side stop: the loop must hand off to session 2,
-    which solves the cell.
-    """
     cli = _cli_module()
     from pydantic_ai.exceptions import UnexpectedModelBehavior
     from pydantic_ai.models.function import DeltaToolCall, FunctionModel
@@ -800,8 +793,6 @@ def test_full_cli_exploration_hands_off_after_truncated_reasoning_response(
             nonlocal model_requests
             model_requests += 1
             if model_requests == 1:
-                # What pydantic-ai raises for a thinking-only response that
-                # exhausted max_tokens (see _agent_graph.py in the SDK).
                 raise UnexpectedModelBehavior(
                     "Model token limit (8192) exceeded before any response was "
                     "generated. Increase the `max_tokens` model setting, or "

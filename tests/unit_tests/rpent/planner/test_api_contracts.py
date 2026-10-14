@@ -527,14 +527,6 @@ def test_other_usage_limit_failures_remain_errors(tmp_path):
 def test_token_limit_truncation_is_marked_for_recovery(
     tmp_path, monkeypatch, interactive
 ):
-    """A reasoning-only length stop is an expected model-side stop (#271).
-
-    pydantic-ai raises ``UnexpectedModelBehavior`` without retrying when a
-    response spends the whole output budget on thinking. The loop must record
-    it under the stable recovery marker instead of the raw SDK error so the
-    CLI can hand off to the next exploration session.
-    """
-
     if interactive:
         import pydantic_ai._cli as cli
 

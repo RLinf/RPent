@@ -297,7 +297,6 @@ def test_cell_result_counts_planner_timeout_but_not_missing_environment_result()
 
 
 def test_cell_result_distinguishes_truncated_response_from_infrastructure_error():
-    """A reasoning-only length stop is not broken tooling (#271)."""
     truncated = _cell_result(
         agent_error=(
             "planner response truncated (length): Model token limit (8192) "
