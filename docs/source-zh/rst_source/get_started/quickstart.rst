@@ -8,7 +8,7 @@
 准备工作
 ------------
 
-- Linux、NVIDIA GPU，以及兼容 CUDA 12 的驱动。
+- Linux、NVIDIA GPU，以及兼容所选 PyTorch CUDA 构建的驱动。
 - ``git``、``bash`` 和 C/C++ 编译工具。
 - `uv <https://docs.astral.sh/uv/getting-started/installation/>`_，用于创建独立的 Python 环境。以下命令使用 Python 3.11。
 - 可访问示例模型的 Anthropic API Key，以及下载仿真资源和模型权重的网络。模型调用会产生 API 费用。
@@ -16,7 +16,7 @@
 1. 安装 RPent
 ---------------
 
-创建独立的 Python 环境，并安装 LIBERO-PRO 所需依赖。
+创建并激活独立的 Python 环境：
 
 .. code-block:: bash
 
@@ -24,11 +24,14 @@
    cd RPent
    uv venv --python 3.11
    source .venv/bin/activate
-   uv pip install torch==2.7.1 torchvision==0.22.1 \
-     --index-url https://download.pytorch.org/whl/cu126
-   uv pip install -e ".[libero-pro]"
 
-先通过明确指定的 PyTorch 源安装 Torch，选择本 LIBERO 配置使用的 CUDA 12.6 构建，避免依赖默认包索引选择构建版本。``--index-url`` 只用于安装 Torch 的命令，RPent 的其他依赖仍使用常规索引。实际下载速度取决于网络。
+**安装 RPent extra 之前**，先安装兼容 GPU 和 NVIDIA 驱动的 PyTorch 构建。本 LIBERO 配置的 OpenPI 依赖要求 ``torch==2.7.1``，搭配 ``torchvision==0.22.1``。从 `PyTorch 安装版本说明 <https://pytorch.org/get-started/previous-versions/>`_ 中选择受支持的 CUDA 构建，在已激活的环境中执行对应安装命令，并将 ``pip install`` 替换为 ``uv pip install``。所选 ``--index-url`` 只用于 PyTorch 安装命令，RPent 的其他依赖仍使用常规索引。实际下载速度取决于网络。
+
+PyTorch 安装完成后，再安装 LIBERO-PRO extra：
+
+.. code-block:: bash
+
+   uv pip install -e ".[libero-pro]"
 
 下载模型前，检查已安装的构建版本与 GPU 可用性：
 
@@ -36,7 +39,7 @@
 
    python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"
 
-预期输出为 ``2.7.1+cu126 12.6 True``。驱动须兼容所选 CUDA runtime；``nvidia-smi`` 显示的 CUDA 版本不代表已安装的 Torch 构建。其他受支持的构建见 `PyTorch 安装版本说明 <https://pytorch.org/get-started/previous-versions/>`_。
+确认输出的 Torch 和 CUDA 版本与所选构建一致，GPU 可用性为 ``True``。``nvidia-smi`` 显示的 CUDA 版本不代表已安装的 Torch 构建。
 
 后续命令都在这个终端和 RPent 仓库目录中执行。重新打开终端时，先激活 ``.venv``，再设置下文的模型路径与 API Key。
 

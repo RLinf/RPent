@@ -36,12 +36,16 @@ Molmo 需要的 ``transformers`` 版本比 LIBERO 策略环境更新，因此应
 .. code-block:: bash
 
    uv venv --python 3.11 /path/to/molmo-venv
-   uv pip install --python /path/to/molmo-venv/bin/python \
-     torch==2.7.1 torchvision==0.22.1 \
-     --index-url https://download.pytorch.org/whl/cu126
-   uv pip install --python /path/to/molmo-venv/bin/python -e ".[molmo]"
 
-务必先在 Molmo 环境安装 Torch，再安装 ``molmo`` extra。该 extra 没有固定 Torch 的 CUDA 构建，普通 ``uv pip install`` 也不会根据本机 CUDA toolkit 自动选择构建；在 Linux 上，即使机器使用 CUDA 12，默认索引仍可能解析出 CUDA 13 依赖。上述显式索引选择 CUDA 12.6；后续安装会保留已安装且满足依赖的版本，除非要求升级。其他后端选择方式见 `uv 的 PyTorch 指南 <https://docs.astral.sh/uv/guides/integration/pytorch/>`_。
+**安装 Molmo extra 之前**，先在该环境中安装 PyTorch 和匹配的 torchvision，按 `PyTorch 安装指南 <https://pytorch.org/get-started/locally/>`_ 选择兼容 GPU 和 NVIDIA 驱动的构建。将所选命令中的 ``pip install`` 替换为 ``uv pip install --python /path/to/molmo-venv/bin/python``，所选 ``--index-url`` 仅用于这条 PyTorch 安装命令。
+
+该 extra 没有固定 Torch 的 CUDA 构建，普通 ``uv pip install`` 也不会根据本机 CUDA toolkit 自动选择构建；在 Linux 上，即使机器使用 CUDA 12，默认索引仍可能解析出 CUDA 13 依赖。其他后端选择方式见 `uv 的 PyTorch 指南 <https://docs.astral.sh/uv/guides/integration/pytorch/>`_。
+
+PyTorch 安装完成后，再安装 Molmo extra。后续安装会保留已安装且满足依赖的版本，除非要求升级：
+
+.. code-block:: bash
+
+   uv pip install --python /path/to/molmo-venv/bin/python -e ".[molmo]"
 
 检查时使用 Molmo 的独立解释器，不要误查 LIBERO 环境：
 
@@ -50,7 +54,7 @@ Molmo 需要的 ``transformers`` 版本比 LIBERO 策略环境更新，因此应
    /path/to/molmo-venv/bin/python -c \
      "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"
 
-驱动兼容时，预期输出为 ``2.7.1+cu126 12.6 True``。若已有 Molmo 环境装错了构建，在上述 Torch 安装命令中加上 ``--reinstall-package torch --reinstall-package torchvision`` 后重新安装，再检查输出。不要把 ``.[molmo]`` 安装到 LIBERO 策略环境中。
+确认输出的 Torch 和 CUDA 版本与所选构建一致，GPU 可用性为 ``True``。若已有 Molmo 环境装错了构建，在所选 PyTorch 安装命令中加上 ``--reinstall-package torch --reinstall-package torchvision`` 后重新安装，再检查输出。不要把 ``.[molmo]`` 安装到 LIBERO 策略环境中。
 
 从 `Hugging Face <https://huggingface.co/allenai/Molmo2-8B>`_ 或 `ModelScope <https://modelscope.cn/models/allenai/Molmo2-8B>`_ 下载 ``allenai/Molmo2-8B``，然后启动服务：
 

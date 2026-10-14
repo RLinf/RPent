@@ -8,7 +8,7 @@ For another platform, follow :doc:`../simulators/robocasa`, :doc:`../simulators/
 Requirements
 ------------
 
-- Linux, an NVIDIA GPU, and a CUDA 12-compatible driver.
+- Linux, an NVIDIA GPU, and a driver compatible with the selected PyTorch CUDA build.
 - ``git``, ``bash``, and a C/C++ toolchain.
 - `uv <https://docs.astral.sh/uv/getting-started/installation/>`_ to create an isolated Python environment. These commands use Python 3.11.
 - An Anthropic API key with access to the example model, and network access to download assets and weights. Model calls incur API charges.
@@ -16,7 +16,7 @@ Requirements
 1. Install RPent
 ----------------
 
-Create an isolated Python environment and install the LIBERO-PRO dependencies.
+Create and activate an isolated Python environment:
 
 .. code-block:: bash
 
@@ -24,14 +24,22 @@ Create an isolated Python environment and install the LIBERO-PRO dependencies.
    cd RPent
    uv venv --python 3.11
    source .venv/bin/activate
-   uv pip install torch==2.7.1 torchvision==0.22.1 \
-     --index-url https://download.pytorch.org/whl/cu126
-   uv pip install -e ".[libero-pro]"
 
-Install Torch first from the explicit PyTorch index. This selects the CUDA 12.6
-build used by this LIBERO setup instead of relying on the default package
-index. Keep ``--index-url`` on the Torch command only; RPent's other dependencies
-use the normal index. Download speed still depends on your network.
+**Before installing the RPent extra**, install a PyTorch build compatible with
+your GPU and NVIDIA driver. This LIBERO setup's OpenPI dependency requires
+``torch==2.7.1``; use the matching ``torchvision==0.22.1``. Choose a supported
+CUDA build from the `PyTorch installation variants
+<https://pytorch.org/get-started/previous-versions/>`_ and run its install
+command in the activated environment, replacing ``pip install`` with
+``uv pip install``. Keep the selected ``--index-url`` on the PyTorch command
+only; RPent's other dependencies use the normal index. Download speed depends
+on your network.
+
+After PyTorch is installed, install the LIBERO-PRO extra:
+
+.. code-block:: bash
+
+   uv pip install -e ".[libero-pro]"
 
 Check the installed build and GPU access before downloading the models:
 
@@ -39,10 +47,9 @@ Check the installed build and GPU access before downloading the models:
 
    python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"
 
-Expect ``2.7.1+cu126 12.6 True``. The driver must support this CUDA runtime;
-the CUDA version shown by ``nvidia-smi`` does not identify the installed Torch
-build. See the `PyTorch installation variants
-<https://pytorch.org/get-started/previous-versions/>`_ for other supported builds.
+Confirm that the printed Torch and CUDA versions match the build you selected,
+and that GPU availability is ``True``. The CUDA version shown by ``nvidia-smi``
+does not identify the installed Torch build.
 
 Run the remaining commands in this terminal from the RPent repository root. In a new terminal, activate ``.venv`` and set the checkpoint paths and API key again.
 
