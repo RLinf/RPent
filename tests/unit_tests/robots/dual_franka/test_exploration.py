@@ -440,7 +440,7 @@ def test_invalid_operator_transport_rejected_before_runtime(
     monkeypatch.setattr(sys, "stdin", SimpleNamespace(isatty=lambda: dashboard))
     argv = ["rpent", "--robot", "dual_franka", "--explore"]
     if dashboard:
-        argv.append("--dashboard")
+        argv.extend(["--dashboard", "--interactive"])
     monkeypatch.setattr(sys, "argv", argv)
     monkeypatch.setattr(
         cli, "build_planner", lambda *a, **k: pytest.fail("planner should not start")
@@ -448,7 +448,9 @@ def test_invalid_operator_transport_rejected_before_runtime(
     with pytest.raises(SystemExit) as exc:
         cli.main()
     assert exc.value.code == 2
-    assert ("Dashboard" if dashboard else "TTY") in capsys.readouterr().err
+    assert (
+        "cannot be used together" if dashboard else "TTY"
+    ) in capsys.readouterr().err
 
 
 def test_explore_rejects_old_external_env_without_reset_contract():
@@ -567,6 +569,7 @@ def test_direct_success_with_failed_observation_does_not_publish(setup):
 @pytest.mark.parametrize("robot_name", ["dual_franka", "libero"])
 @pytest.mark.parametrize("verdict", ["success", "failure", "abort"])
 @pytest.mark.parametrize("planner_error", [None, "planner transport failed"])
+@pytest.mark.parametrize("auto_merge", [True, False])
 def test_cli_direct_verdict_finalizes_and_merges_only_without_errors(
     tmp_path,
     monkeypatch,
@@ -574,6 +577,7 @@ def test_cli_direct_verdict_finalizes_and_merges_only_without_errors(
     verdict,
     planner_error,
     robot_name,
+    auto_merge,
 ):
     import sys
     from dataclasses import replace
@@ -595,6 +599,13 @@ def test_cli_direct_verdict_finalizes_and_merges_only_without_errors(
             toolkit._operator_input = lambda *args: "done"
             call(toolkit, "request_scene_reset", reason="test")
             call(toolkit, "move_delta", arm="right", delta_xyz=[0.01, 0, 0])
+            inbox = toolkit.memory.root / "_internal/inbox/dual_franka_t0"
+            inbox.mkdir(parents=True, exist_ok=True)
+            (inbox / "new_global_strategy_lesson.md").write_text(
+                "---\nid: lesson\nscope: global\nkind: strategy\ntitle: Lesson\n"
+                "applies_when: Same setup\nconfidence: single-shot\n"
+                "evidence:\n  cells: [dual_franka_t0]\n---\nObserved attempt.\n"
+            )
             assert handlers["line"]("/" + verdict)
             assert input_queue.get(timeout=1) is None
             return SimpleNamespace(
@@ -638,15 +649,19 @@ def test_cli_direct_verdict_finalizes_and_merges_only_without_errors(
             str(tmp_path / "memory"),
             "--robot-config",
             str(dual_franka_robot_config),
+            *([] if auto_merge else ["--no-auto-merge-memory"]),
         ],
     )
     assert cli.main() == (1 if planner_error else 0)
     assert (tmp_path / "memory/task-specific/dual_franka_t0.json").is_file() == (
-        verdict == "success" and planner_error is None
+        auto_merge and verdict == "success" and planner_error is None
     )
     assert (
         tmp_path / "memory/task-specific/dual_franka_t0_recipe.jsonl"
-    ).is_file() == (verdict == "success" and planner_error is None)
+    ).is_file() == (auto_merge and verdict == "success" and planner_error is None)
+    assert (tmp_path / "memory/global/lesson.md").is_file() == (
+        auto_merge and verdict != "abort" and planner_error is None
+    )
     events = json.loads(
         (tmp_path / "run/sessions/session_001/operator_events.json").read_text()
     )

@@ -249,6 +249,16 @@ export function createInteractionController({ copy, select }) {
     const backendError = errorText(interaction.last_error);
     const controlError = errorText(session.control_error);
     const feedback = session.control_feedback.map(errorText).filter(Boolean);
+    const operator = session.operator;
+    const operatorCommands = operator?.pending?.kind === "reset"
+      ? "/done · /abort"
+      : operator?.pending?.kind === "verdict"
+        ? "/success · /failure · /continue" + (operator.exploration ? " · /abort" : "")
+        : operator?.active && operator.exploration && session.session_state !== "switch_pending"
+          ? "/failure · /abort" : "";
+    if (operatorCommands) {
+      select("#chatHint").textContent += " · " + operatorCommands;
+    }
     if (state.requestError) {
       status.textContent = state.requestError;
       status.classList.add("is-error");
@@ -267,6 +277,13 @@ export function createInteractionController({ copy, select }) {
     } else if (interaction.interrupt_requested || state.interruptInFlight) {
       status.textContent = copy.interruptRequested;
       status.classList.add("is-busy");
+    } else if (operator?.pending) {
+      status.textContent = operator.pending.prompt + "\n" + (operator.pending.kind === "reset"
+        ? copy.operatorResetHint
+        : operator.exploration
+          ? copy.operatorExploreHint
+          : copy.operatorVerdictHint);
+      status.classList.add("is-ready");
     } else if (state.notice) {
       status.textContent = state.notice;
       status.classList.add("is-ready");
@@ -380,7 +397,13 @@ export function createInteractionController({ copy, select }) {
     try {
       await requestJSON(
         "/api/session/messages",
-        { method: "POST", body: { text } },
+        { method: "POST", body: {
+          text,
+          operator_context: {
+            generation: state.snapshot.task_generation,
+            request_id: state.snapshot.operator?.pending?.id ?? null,
+          },
+        } },
       );
       if (input.value === draft) input.value = "";
     } catch (error) {

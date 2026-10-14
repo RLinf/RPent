@@ -61,7 +61,8 @@ class DualFrankaToolkit(FrankaToolkit):
     """Dual-arm tools with operator-gated exploration.
 
     Operator decisions and attempt boundaries are recorded as artifacts rather
-    than simulator termination flags.
+    than simulator termination flags. Operator confirmations can come from the
+    terminal or Dashboard.
     """
 
     _tools_module = dual_franka_tools
@@ -172,9 +173,7 @@ class DualFrankaToolkit(FrankaToolkit):
         self._publish_step(record)
         self._scene_ready = True
         self._operator_verdict = self._direct_verdict
-        self._operator_notes = (
-            f"Operator entered /{self._direct_verdict} in the interactive terminal."
-        )
+        self._operator_notes = f"Operator submitted /{self._direct_verdict}."
         self._verdict_step = record.step_idx
         self._event(
             "verdict",
@@ -605,16 +604,19 @@ class DualFrankaToolkit(FrankaToolkit):
         self,
         question: str = "Does the current real-robot scene satisfy the task?",
     ) -> ToolResult:
-        """Collect terminal feedback from the real-robot operator."""
-        print("\n[dual_franka exploration] operator verdict requested")
-        print(question)
-        print("Type one of: success, failure, continue. Optional notes may follow.")
-        response = self._read_operator_line("operator verdict: ")
+        """Collect operator feedback through the injected reader or terminal."""
+        if self._operator_input is not None:
+            response = self._ask_operator(question, kind="verdict")
+        else:
+            print("\n[dual_franka exploration] operator verdict requested")
+            print(question)
+            print("Type one of: success, failure, continue. Optional notes may follow.")
+            response = self._read_operator_line("operator verdict: ")
         if response is None:
             return ToolResult(
                 data={
                     "error": "operator verdict unavailable",
-                    "reason": "request_operator_verdict requires a runner terminal so the human operator can judge the physical task state.",
+                    "reason": "request_operator_verdict requires operator input so the human operator can judge the physical task state.",
                     "attempt": self._attempt,
                 }
             )

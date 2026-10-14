@@ -397,7 +397,8 @@ def test_view_env_state_emits_multimodal_image_blocks(tmp_path: Path):
     assert "_image_" not in text_block["text"]
 
 
-def test_back_project_reads_rpent_state_artifacts(tmp_path: Path):
+@pytest.mark.parametrize("intrinsics_key", ["raw_color_intrinsics", "color_intrinsics"])
+def test_back_project_reads_rpent_state_artifacts(tmp_path: Path, intrinsics_key: str):
     state = EnvState(tmp_path)
     with state.record_step(
         state={
@@ -412,7 +413,7 @@ def test_back_project_reads_rpent_state_artifacts(tmp_path: Path):
             "camera_meta.json",
             {
                 "base_0_rgb": {
-                    "color_intrinsics": {
+                    intrinsics_key: {
                         "fx": 100,
                         "fy": 100,
                         "ppx": 2,

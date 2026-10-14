@@ -412,8 +412,9 @@ class LiberoPrimitives:
         max_steps: int = 40,
         tol: float = 0.02,
         step_clip: float = 0.1,
+        pos_tol: float = 0.03,
     ) -> ToolResult:
-        """Rotate the wrist around the world Z-axis. Provide either target_yaw (absolute) or delta_yaw (relative). Holds xyz fixed.
+        """Rotate the wrist around the world Z-axis. Provide either target_yaw (absolute) or delta_yaw (relative). Holds xyz fixed by servoing back to the entry pose; the result carries converged, position_hold_ok, and max_pos_drift_m.
 
         Args:
             target_yaw: Absolute world-frame yaw target, rad
@@ -422,8 +423,13 @@ class LiberoPrimitives:
             max_steps: Step budget (default 40)
             tol: Yaw tolerance, rad (default 0.02)
             step_clip: Per-step yaw clip, rad (default 0.10)
+            pos_tol: Position-hold tolerance on max xyz drift, m (default 0.03)
         """
         from scipy.spatial.transform import Rotation as _R
+
+        # LIBERO OSC_POSE scaling: metres/radians per normalized action unit.
+        action_scale = 0.05
+        rot_scale = 0.5
 
         def _yaw_of(quat_xyzw):
             # robot0_eef_quat in libero+robosuite is xyzw (scipy convention).
@@ -444,9 +450,18 @@ class LiberoPrimitives:
             )
         if target_yaw is None:
             target_yaw = start_yaw + float(delta_yaw)
+        hold_xyz = np.array(self._last_obs_eef_pos, dtype=np.float32, copy=True)
+        max_drift = 0.0
+
+        def _record_drift() -> None:
+            nonlocal max_drift
+            drift = float(np.linalg.norm(self._last_obs_eef_pos - hold_xyz))
+            if drift > max_drift:
+                max_drift = drift
 
         traj = []
         for step in range(max_steps):
+            _record_drift()
             raw = self.env.raw_obs()
             cur_yaw = _yaw_of(raw["robot0_eef_quat"])
             err = float(target_yaw - cur_yaw)
@@ -455,24 +470,29 @@ class LiberoPrimitives:
             traj.append({"step": step, "yaw": round(cur_yaw, 4), "err": round(err, 4)})
             if abs(err) < tol:
                 break
+            cur_xyz = self._last_obs_eef_pos
             step_dyaw = float(np.clip(err, -step_clip, step_clip))
             action = np.zeros(7, dtype=np.float32)
-            action[5] = step_dyaw / 0.10  # scale to ~[-1,1] action range
-            action[5] = float(np.clip(action[5], -1.0, 1.0))
+            action[:3] = np.clip((hold_xyz - cur_xyz) / action_scale, -1.0, 1.0)
+            action[5] = float(np.clip(step_dyaw / rot_scale, -1.0, 1.0))
             action[6] = float(gripper)
             self._step_env(action)
             if self.env.terminated or self.env.truncated:
                 break
         final_yaw = _yaw_of(self.env.raw_obs()["robot0_eef_quat"])
+        final_err = float((target_yaw - final_yaw + np.pi) % (2 * np.pi) - np.pi)
+        _record_drift()
+        max_pos_drift_m = round(max_drift, 4)
         return ToolResult(
             data={
                 "name": "rotate_wrist",
                 "start_yaw": round(start_yaw, 4),
                 "target_yaw": round(float(target_yaw), 4),
                 "final_yaw": round(final_yaw, 4),
-                "final_err": round(
-                    float((target_yaw - final_yaw + np.pi) % (2 * np.pi) - np.pi), 4
-                ),
+                "final_err": round(final_err, 4),
+                "converged": abs(final_err) < tol,
+                "max_pos_drift_m": max_pos_drift_m,
+                "position_hold_ok": max_pos_drift_m <= pos_tol,
                 "steps_used": len(traj),
                 "terminated": self.env.terminated,
                 "truncated": self.env.truncated,
@@ -489,8 +509,9 @@ class LiberoPrimitives:
         max_steps: int = 40,
         tol: float = 0.02,
         step_clip: float = 0.1,
+        pos_tol: float = 0.03,
     ) -> ToolResult:
-        """Tilt the gripper around the world X-axis. Provide either target_pitch (absolute) or delta_pitch (relative). Holds xyz and yaw fixed. Use before threading the gripper into a narrow opening whose front face normal is along world ±y (e.g. microwave cavity).
+        """Tilt the gripper around the world X-axis. Provide either target_pitch (absolute) or delta_pitch (relative). Holds xyz and yaw fixed by servoing back to the entry pose; the result carries converged, position_hold_ok, and max_pos_drift_m. Use before threading the gripper into a narrow opening whose front face normal is along world ±y (e.g. microwave cavity).
 
         Args:
             target_pitch: Absolute world-frame pitch target, rad
@@ -499,16 +520,27 @@ class LiberoPrimitives:
             max_steps: Step budget (default 40)
             tol: Pitch tolerance, rad (default 0.02)
             step_clip: Per-step pitch clip, rad (default 0.10)
+            pos_tol: Position-hold tolerance on max xyz drift, m (default 0.03)
         """
         from scipy.spatial.transform import Rotation as _R
+
+        # LIBERO OSC_POSE scaling: metres/radians per normalized action unit.
+        action_scale = 0.05
+        rot_scale = 0.5
 
         def _pitch_of(quat_xyzw):
             q = quat_xyzw
             R = _R.from_quat([q[0], q[1], q[2], q[3]]).as_matrix()
             return float(np.arctan2(R[1, 2], -R[2, 2]))
 
+        def _yaw_of(quat_xyzw):
+            q = quat_xyzw
+            R = _R.from_quat([q[0], q[1], q[2], q[3]]).as_matrix()
+            return float(np.arctan2(R[1, 0], R[0, 0]))
+
         raw = self.env.raw_obs()
-        start_pitch = _pitch_of(raw["robot0_eef_quat"])
+        start_quat = raw["robot0_eef_quat"]
+        start_pitch = _pitch_of(start_quat)
         if target_pitch is None and delta_pitch is None:
             return ToolResult(
                 data={
@@ -518,11 +550,22 @@ class LiberoPrimitives:
             )
         if target_pitch is None:
             target_pitch = start_pitch + float(delta_pitch)
+        start_yaw = _yaw_of(start_quat)
+        hold_xyz = np.array(self._last_obs_eef_pos, dtype=np.float32, copy=True)
+        max_drift = 0.0
+
+        def _record_drift() -> None:
+            nonlocal max_drift
+            drift = float(np.linalg.norm(self._last_obs_eef_pos - hold_xyz))
+            if drift > max_drift:
+                max_drift = drift
 
         traj = []
         for step in range(max_steps):
+            _record_drift()
             raw = self.env.raw_obs()
-            cur_pitch = _pitch_of(raw["robot0_eef_quat"])
+            cur_quat = raw["robot0_eef_quat"]
+            cur_pitch = _pitch_of(cur_quat)
             err = float(target_pitch - cur_pitch)
             err = (err + np.pi) % (2 * np.pi) - np.pi
             traj.append(
@@ -530,24 +573,34 @@ class LiberoPrimitives:
             )
             if abs(err) < tol:
                 break
+            cur_xyz = self._last_obs_eef_pos
+            cur_yaw = _yaw_of(cur_quat)
+            yaw_err = float((start_yaw - cur_yaw + np.pi) % (2 * np.pi) - np.pi)
             step_dpitch = float(np.clip(err, -step_clip, step_clip))
+            step_dyaw = float(np.clip(yaw_err, -step_clip, step_clip))
             action = np.zeros(7, dtype=np.float32)
-            action[3] = step_dpitch / 0.10
-            action[3] = float(np.clip(action[3], -1.0, 1.0))
+            action[:3] = np.clip((hold_xyz - cur_xyz) / action_scale, -1.0, 1.0)
+            action[3] = float(np.clip(step_dpitch / rot_scale, -1.0, 1.0))
+            action[5] = float(np.clip(step_dyaw / rot_scale, -1.0, 1.0))
             action[6] = float(gripper)
             self._step_env(action)
             if self.env.terminated or self.env.truncated:
                 break
-        final_pitch = _pitch_of(self.env.raw_obs()["robot0_eef_quat"])
+        final_quat = self.env.raw_obs()["robot0_eef_quat"]
+        final_pitch = _pitch_of(final_quat)
+        final_err = float((target_pitch - final_pitch + np.pi) % (2 * np.pi) - np.pi)
+        _record_drift()
+        max_pos_drift_m = round(max_drift, 4)
         return ToolResult(
             data={
                 "name": "rotate_pitch",
                 "start_pitch": round(start_pitch, 4),
                 "target_pitch": round(float(target_pitch), 4),
                 "final_pitch": round(final_pitch, 4),
-                "final_err": round(
-                    float((target_pitch - final_pitch + np.pi) % (2 * np.pi) - np.pi), 4
-                ),
+                "final_err": round(final_err, 4),
+                "converged": abs(final_err) < tol,
+                "max_pos_drift_m": max_pos_drift_m,
+                "position_hold_ok": max_pos_drift_m <= pos_tol,
                 "steps_used": len(traj),
                 "terminated": self.env.terminated,
                 "truncated": self.env.truncated,
