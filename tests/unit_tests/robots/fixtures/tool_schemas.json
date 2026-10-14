@@ -254,7 +254,7 @@
       },
       {
         "name": "rotate_wrist",
-        "description": "Rotate the wrist around the world Z-axis. Provide either target_yaw (absolute) or delta_yaw (relative). Holds xyz fixed.",
+        "description": "Rotate the wrist around the world Z-axis. Provide either target_yaw (absolute) or delta_yaw (relative). Holds xyz fixed by servoing back to the entry pose; the result carries converged, position_hold_ok, and max_pos_drift_m.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -263,13 +263,14 @@
             "gripper": {"type": "number", "description": "Gripper command held during rotation (default +1)"},
             "max_steps": {"type": "integer", "description": "Step budget (default 40)"},
             "tol": {"type": "number", "description": "Yaw tolerance, rad (default 0.02)"},
-            "step_clip": {"type": "number", "description": "Per-step yaw clip, rad (default 0.10)"}
+            "step_clip": {"type": "number", "description": "Per-step yaw clip, rad (default 0.10)"},
+            "pos_tol": {"type": "number", "description": "Position-hold tolerance on max xyz drift, m (default 0.03)"}
           }
         }
       },
       {
         "name": "rotate_pitch",
-        "description": "Tilt the gripper around the world X-axis. Provide either target_pitch (absolute) or delta_pitch (relative). Holds xyz and yaw fixed. Use before threading the gripper into a narrow opening whose front face normal is along world ±y (e.g. microwave cavity).",
+        "description": "Tilt the gripper around the world X-axis. Provide either target_pitch (absolute) or delta_pitch (relative). Holds xyz and yaw fixed by servoing back to the entry pose; the result carries converged, position_hold_ok, and max_pos_drift_m. Use before threading the gripper into a narrow opening whose front face normal is along world ±y (e.g. microwave cavity).",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -278,7 +279,8 @@
             "gripper": {"type": "number", "description": "Gripper command held during rotation (default +1)"},
             "max_steps": {"type": "integer", "description": "Step budget (default 40)"},
             "tol": {"type": "number", "description": "Pitch tolerance, rad (default 0.02)"},
-            "step_clip": {"type": "number", "description": "Per-step pitch clip, rad (default 0.10)"}
+            "step_clip": {"type": "number", "description": "Per-step pitch clip, rad (default 0.10)"},
+            "pos_tol": {"type": "number", "description": "Position-hold tolerance on max xyz drift, m (default 0.03)"}
           }
         }
       },
