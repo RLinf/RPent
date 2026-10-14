@@ -829,3 +829,39 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
     }
     assert robot_toolkit.closed is True
     assert daemon.stopped is True
+
+
+@pytest.mark.parametrize("dashboard", [False, True])
+@pytest.mark.parametrize(
+    "options, message",
+    [
+        (["--memory-repo", ""], "expected owner/repo"),
+        (
+            ["--memory-repo", "team/memory", "--memory-profile", "local"],
+            "--memory-repo requires HF evaluation",
+        ),
+        (
+            ["--memory-repo", "team/memory", "--explore"],
+            "--memory-repo requires HF evaluation",
+        ),
+    ],
+)
+def test_invalid_memory_source_fails_before_startup(
+    dashboard, options, message, monkeypatch, capsys
+):
+    from rpent.cli import dashboard as dashboard_cli
+    from rpent.memory import loading
+
+    cli = _cli_module()
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("Invalid memory options must fail before download or startup")
+
+    monkeypatch.setattr(loading, "prepare_run_memory", unexpected)
+    monkeypatch.setattr(dashboard_cli, "run_dashboard_session", unexpected)
+    task = ["--dashboard"] if dashboard else ["--suite", "libero_object", "--task", "0"]
+    monkeypatch.setattr(sys, "argv", ["rpent", "--robot", "libero", *task, *options])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2
+    assert message in capsys.readouterr().err
