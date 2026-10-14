@@ -48,33 +48,34 @@ CLI 和 Dashboard 都在每个任务开始前解析 memory 根目录。在 Dashb
 它可能落后于 Hub 当前版本。LIBERO 日志会显示实际提交和语料根目录；\
 后续运行可用该完整提交 SHA 固定来源。
 
-共享来源选择
-~~~~~~~~~~~~
+指定记忆仓库和版本
+~~~~~~~~~~~~~~~~~~
 
-所有机器人的 CLI 和 Dashboard 均可在 HF 评测模式下使用 ``--memory-repo``。\
-用完整提交 SHA 固定仓库快照，便于多次运行使用同一来源：
+CLI 和 Dashboard 评测都可以用 ``--memory-repo`` 指定 Hugging Face 记忆数据集。\
+参数可以写成数据集 ID，如 ``RLinf/RPent-memory``，也可以写成 URL，\
+如 ``https://huggingface.co/datasets/RLinf/RPent-memory``。\
+在末尾加 ``@revision`` 可指定分支、标签或提交，省略时使用 ``main``。\
+复现实验时应填写完整的提交 SHA。
+
+下面的 LIBERO 命令读取指定提交中的 ``libero/GPT_6_astra_low/``。\
+运行前，将 ``COMMIT_SHA`` 替换为要使用的数据集提交：
 
 .. code-block:: bash
 
    rpent --robot libero --suite libero_goal_swap --task 1 --seed 1 \
      --planner codex --model gpt-6-astra --reasoning-effort low \
-     --memory-repo https://huggingface.co/datasets/RLinf/RPent-memory@<commit-sha> \
+     --memory-repo RLinf/RPent-memory@COMMIT_SHA \
      --memory-version GPT_6_astra_low
 
-``--memory-repo`` 接受数据集 ID 或 HTTPS Hugging Face 数据集 URL，\
-可用 ``@revision`` 指定提交、标签或分支，默认是 ``main``。\
-后续 Dashboard 任务也沿用该来源。LIBERO 切换模型时，\
-保留显式 ``--memory-version`` 可固定语料子目录； ``auto`` 仍按当前模型选择。
+``--memory-repo`` 指定记忆仓库及其版本。\
+LIBERO 还用 ``--memory-version`` 选择模型对应的记忆：默认 ``auto`` 按当前模型选择，也可指定 ``GPT_6_astra_low`` 等值，固定使用某份记忆。
 
-LIBERO 继续校验分版本清单和文件哈希；其他机器人将已解析 Hub 快照中的 ``<robot>/**`` 子目录\
-复制到 ``memory/<robot>/.sources/``，按仓库和提交隔离，并在多次运行间复用。\
-副本保存实际文件，不保留指向 Hub 共享 blob 的符号链接，仍执行既有任务及目录检查。\
-仓库需要保持对应布局；\
-显式来源不可用时会报错，不会改用默认记忆目录。目前不支持任意 Git remote。
+Dashboard 后续任务也使用这些参数。``main`` 等分支可能在任务之间更新；\
+需要固定版本时，请使用提交 SHA。
 
-``--memory-repo`` 不能与探索或本地模式同用。显式来源优先于 ``RPENT_MEMORY_HF_REPO``，\
-下载使用当前机器已有的 HF 认证。来源解析位于共享的 ``rpent/memory/source.py``，\
-各机器人的语料校验仍由其自身模块负责。
+``--memory-repo`` 仅用于 ``--memory-profile hf``，不能与 ``--explore`` 同用。\
+它优先于 ``RPENT_MEMORY_HF_REPO``，下载使用当前机器已有的 HF 认证。\
+指定来源无法加载时会报错，不会改用默认仓库。此参数仅支持 HF 数据集。
 
 独立下载与本地评测
 ~~~~~~~~~~~~~~~~~~

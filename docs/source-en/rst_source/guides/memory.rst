@@ -69,38 +69,39 @@ corpus version on this machine; it may be older than the current Hub revision.
 LIBERO logs the resolved commit and corpus root. To reuse that snapshot,
 pass its full commit SHA in the next run.
 
-Shared Source Selection
-~~~~~~~~~~~~~~~~~~~~~~~
+.. _shared-source-selection:
 
-All robot CLI and Dashboard entry points accept ``--memory-repo`` in HF
-evaluation mode. Pin a full commit SHA to use the same repository snapshot
-across runs:
+Choose a Memory Repository
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Use ``--memory-repo`` to select a Hugging Face memory dataset for CLI or
+Dashboard evaluation. It accepts a dataset ID such as ``RLinf/RPent-memory``
+or a URL such as ``https://huggingface.co/datasets/RLinf/RPent-memory``.
+Append ``@revision`` to either form to select a branch, tag or commit;
+omitting it selects ``main``. For reproducible runs, use a full commit SHA.
+
+This LIBERO example reads ``libero/GPT_6_astra_low/`` from the specified
+commit. Replace ``COMMIT_SHA`` with the dataset commit you want to use:
 
 .. code-block:: bash
 
    rpent --robot libero --suite libero_goal_swap --task 1 --seed 1 \
      --planner codex --model gpt-6-astra --reasoning-effort low \
-     --memory-repo https://huggingface.co/datasets/RLinf/RPent-memory@<commit-sha> \
+     --memory-repo RLinf/RPent-memory@COMMIT_SHA \
      --memory-version GPT_6_astra_low
 
-``--memory-repo`` accepts a dataset ID or an HTTPS Hugging Face dataset URL,
-optionally followed by ``@revision`` (a commit, tag or branch; default ``main``).
-The source also applies to subsequent Dashboard tasks. For LIBERO, retain an
-explicit ``--memory-version`` to keep the same corpus when changing models;
-``auto`` still selects the corpus for the current model.
+``--memory-repo`` selects the memory repository and revision. LIBERO also uses
+``--memory-version`` to select model-specific memory: the default ``auto``
+selects it based on the running model, while an explicit value such as
+``GPT_6_astra_low`` keeps that memory selected.
 
-LIBERO retains its versioned manifest and checksum verification. Other robots
-copy their ``<robot>/**`` subtree from the resolved Hub snapshot into
-``memory/<robot>/.sources/``, isolated by repository and commit. These copies
-contain regular files, not links to shared Hub blobs, and are reused across runs.
-Existing task/layout checks still apply. The repository must keep that layout;
-an unavailable explicit source fails instead of falling back to default memory.
-Arbitrary Git remotes are not supported.
+Dashboard applies these options to subsequent tasks too. A branch such as
+``main`` can change between tasks; use a commit SHA to keep it fixed.
 
-Do not combine ``--memory-repo`` with exploration or local memory. An explicit source
-takes precedence over ``RPENT_MEMORY_HF_REPO``. Downloads use the host's
-existing HF authentication. Source parsing lives in ``rpent/memory/source.py``;
-robot-specific corpus verification remains with each robot.
+``--memory-repo`` requires ``--memory-profile hf`` and cannot be combined
+with ``--explore``. It overrides ``RPENT_MEMORY_HF_REPO`` and uses the host's
+HF authentication. If the selected source cannot be loaded, the run fails
+instead of switching to the default repository. Only HF datasets are supported.
 
 Standalone Download and Local Evaluation
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
