@@ -194,7 +194,11 @@ def test_cli_json_output_is_parseable_and_matches_the_result(
 
 @pytest.mark.parametrize(
     ("planner", "env_var"),
-    [("claude_code", "ANTHROPIC_BASE_URL"), ("codex", "CODEX_BASE_URL")],
+    [
+        ("claude_code", "ANTHROPIC_BASE_URL"),
+        ("codex", "CODEX_BASE_URL"),
+        ("gemini_cli", "GEMINI_BASE_URL"),
+    ],
 )
 def test_cli_rejects_base_url_for_the_backends_that_ignore_it(
     monkeypatch: pytest.MonkeyPatch,

@@ -28,7 +28,7 @@ classifiers = [
 
 dependencies = [
     # Upgrade together after validating request budgets and failed-request accounting.
-    "pydantic-ai-slim[anthropic,openai,cli]==2.53.0",
+    "pydantic-ai-slim[anthropic,google,openai,cli]==2.53.0",
     "pydantic-ai-harness==0.53.0",
     "pydantic>=2",
     "tomli>=2; python_version < '3.11'",

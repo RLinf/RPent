@@ -199,6 +199,21 @@ def test_robot_and_env_aliases_are_mutually_exclusive(
             "greater than 0",
         ),
         (
+            ["--robot", "libero", "--planner", "gemini_cli", "--interactive"],
+            "--interactive is not supported by the gemini_cli planner",
+        ),
+        (
+            [
+                "--robot",
+                "libero",
+                "--planner",
+                "gemini_cli",
+                "--reasoning-effort",
+                "high",
+            ],
+            "--reasoning-effort is not supported by the gemini_cli planner",
+        ),
+        (
             [
                 "--robot",
                 "libero",
@@ -257,7 +272,11 @@ def test_shared_cli_validation_stops_before_robot_runtime(
 
 @pytest.mark.parametrize(
     ("planner", "env_var"),
-    [("claude_code", "ANTHROPIC_BASE_URL"), ("codex", "CODEX_BASE_URL")],
+    [
+        ("claude_code", "ANTHROPIC_BASE_URL"),
+        ("codex", "CODEX_BASE_URL"),
+        ("gemini_cli", "GEMINI_BASE_URL"),
+    ],
 )
 def test_run_cli_rejects_base_url_for_the_backends_that_ignore_it(
     monkeypatch: pytest.MonkeyPatch,
@@ -267,7 +286,7 @@ def test_run_cli_rejects_base_url_for_the_backends_that_ignore_it(
 ) -> None:
     """build_planner forwards base_url to the api model alone.
 
-    Accepting the flag for these two would drop it without a word, which is
+    Accepting the flag for these backends would drop it without a word, which is
     how a run ends up talking to an endpoint the user thought they had
     overridden.
     """
