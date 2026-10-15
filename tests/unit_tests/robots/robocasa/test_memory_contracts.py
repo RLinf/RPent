@@ -316,6 +316,9 @@ def test_memory_policy_flag_is_not_available(tmp_path):
     get_robot_spec().add_cli_args(parser, use_dashboard=False)
     args = parser.parse_args(["--task-name", "OpenDrawer"])
     assert not hasattr(args, "memory_policy")
+    assert not hasattr(args, "memory_revision")
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--task-name", "OpenDrawer", "--memory-revision", "main"])
     with pytest.raises(SystemExit):
         parser.parse_args(
             ["--task-name", "OpenDrawer", "--memory-policy", "task-specific"]
@@ -325,10 +328,8 @@ def test_memory_policy_flag_is_not_available(tmp_path):
     assert "memory_revision" not in config.prompt_vars
 
 
-@pytest.mark.parametrize("dashboard", [False, True])
-def test_cli_and_dashboard_sync_memory_without_a_revision(
-    tmp_path, monkeypatch, dashboard
-):
+@pytest.mark.parametrize("source", [None, "owner/memory@release/v2"])
+def test_cli_selects_model_memory_before_startup(tmp_path, monkeypatch, source):
     from rpent.cli import main as cli
 
     class SyncCaptured(Exception):
@@ -336,12 +337,12 @@ def test_cli_and_dashboard_sync_memory_without_a_revision(
 
     captured = {}
 
-    def capture_sync(self, **kwargs):
+    def capture_sync(**kwargs):
         captured.update(kwargs)
         raise SyncCaptured
 
     monkeypatch.setenv("RPENT_REPO_ROOT", str(tmp_path))
-    monkeypatch.setattr(MemoryManager, "sync", capture_sync)
+    monkeypatch.setattr("robots.robocasa.memory.sync_version", capture_sync)
     monkeypatch.setattr(
         "rpent.dashboard.server.DashboardServer.start",
         lambda self: "http://127.0.0.1:0",
@@ -357,13 +358,16 @@ def test_cli_and_dashboard_sync_memory_without_a_revision(
         "--output-dir",
         str(tmp_path / "run"),
     ]
-    if dashboard:
-        argv.append("--dashboard")
+    argv.extend(["--model", "gpt-6-astra"])
+    if source:
+        argv.extend(["--memory-repo", source])
     monkeypatch.setattr(sys, "argv", argv)
     with pytest.raises(SyncCaptured):
         cli.main()
     assert captured == {
-        "remote_repo": "RLinf/RPent-memory",
+        "version": "GPT_6_astra_high",
+        "cache_dir": tmp_path / "memory/robocasa/.hub",
+        "repo_id": source,
     }
 
 

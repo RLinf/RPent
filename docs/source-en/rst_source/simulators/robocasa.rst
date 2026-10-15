@@ -212,15 +212,21 @@ Use ``--dashboard`` to watch cameras and planner output; see :doc:`../guides/das
 Task Memory
 -----------
 
-By default, CLI and Dashboard download memory from
-`HF main <https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/robocasa>`_
-and provide the current task's memory (task-specific) and general guidance
-(global). The planner reads as needed, giving priority to live observations
-and task instructions.
+CLI and Dashboard select HF memory by planner model: ``gpt-5.5`` uses
+``robocasa/GPT_5.5_xhigh/`` and ``gpt-6-astra`` uses
+``robocasa/GPT_6_astra_high/``. Other models use GPT-5.5 memory with a warning.
+The default HF branch is ``main``. Selection does not change the model's
+reasoning effort. Override the corpus with ``--memory-version``:
+
+.. code-block:: bash
+
+   rpent --robot robocasa --task-name OpenDrawer --seed 1 \
+     --vla-model-path /path/to/rldx --planner codex --model gpt-6-astra \
+     --memory-profile hf --memory-version GPT_5.5_xhigh
 
 .. code-block:: text
 
-   memory/robocasa/
+   robocasa/<memory-version>/
    ├── task-specific/
    └── global/
 
@@ -239,7 +245,7 @@ local exploration output and custom sources.
 
    .. _robocasa-memory-selection:
 
-   HF mode uses ``robocasa/`` from the dataset's current main branch. It provides
+   HF mode uses the selected ``robocasa/<memory-version>/`` subtree. It provides
    ``<Task>_s0.json``, ``<Task>_s0_recipe.jsonl``, optional ``<Task>.md`` and
    ``global/GLOBAL_MEMORY.md``. The evaluation ``--seed`` changes the scene;
    reference memory still uses ``_s0``.
@@ -262,9 +268,9 @@ local exploration output and custom sources.
    Prompts and RPent file tools share the selected file list. The tools deny
    other tasks, other splits, the root ``MEMORY.md`` index and ``_internal/``;
    this restriction applies only to RPent tools. CLI checks memory before starting
-   services. Dashboard checks the directory and global layer before starting its
-   shared VLA, then task files before starting each environment. A task-file error
-   leaves the shared VLA running.
+   services. Dashboard selects and validates HF memory for each task after its model is
+   known; shared services may already be running. Local mode checks the directory
+   and global layer before shared startup, then validates each task.
 
    The planner reads memory as needed. Live task language, RGB-D, progress and
    tool results take precedence. Continue VLA calls while contact, a held object
@@ -344,7 +350,7 @@ memory into a fresh directory and keep it unchanged throughout the evaluation:
 .. code-block:: bash
 
    hf download RLinf/RPent-memory --repo-type dataset \
-      --include 'robocasa/**' --local-dir ./target50-memory
+      --include 'robocasa/GPT_5.5_xhigh/**' --local-dir ./target50-memory
 
 Set the action parameters and clear any legacy environment override for ``--seed``:
 
@@ -368,7 +374,7 @@ Start with ``OpenDrawer`` at seed 1:
          --planner codex --model gpt-5.5 --reasoning-effort xhigh \
          --max-turns 100 --planner-timeout-s 1800 \
          --memory-profile local \
-         --memory-dir ./target50-memory/robocasa \
+         --memory-dir ./target50-memory/robocasa/GPT_5.5_xhigh \
          --output-dir ./runs/target50/atomic/OpenDrawer_s1
 
 Repeat for every task and seed in the matrix below. Task names are listed in
@@ -649,7 +655,7 @@ Memory Reads
 ~~~~~~~~~~~~
 
 If ``read_text_file`` cannot find current-task memory, check
-``memory/robocasa/task-specific/`` or your local directory and the task name.
+the selected corpus's ``task-specific/`` directory and the task name.
 See :ref:`memory file selection <robocasa-memory-selection>` for naming rules.
 Atomic tasks have no published optional ``<Task>.md``; another task's memory
 is never used as a substitute.
