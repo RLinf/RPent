@@ -21,6 +21,8 @@ overrides explicitly:
 
 .. code-block:: bash
 
+   uv venv --python 3.11 .venv-robodojo
+   source .venv-robodojo/bin/activate
    uv pip install -e ".[robodojo]" --extra-index-url https://pypi.nvidia.com \
      --override requirements/robodojo-override.txt
 
@@ -58,6 +60,8 @@ environment, run:
 
 .. code-block:: bash
 
+   git clone --no-checkout https://github.com/yuechen0614/IsaacLab.git /path/to/IsaacLab
+   git -C /path/to/IsaacLab checkout afca7b09d60d8beb9c1cb28b43066499940b969b
    uv pip install --no-deps \
      -e /path/to/IsaacLab/source/isaaclab \
      -e /path/to/IsaacLab/source/isaaclab_assets \
@@ -88,6 +92,28 @@ Set ``ROBODOJO_ASSETS_ROOT`` to the directory containing ``Assets/``:
   The packaged runtime reads ``ROBODOJO_ASSETS_ROOT/Assets``; no symlink
   into the installed code is needed. Check that ``Robots``, ``Object``,
   ``Material`` and ``Eval_Layout`` contain real files, not LFS pointers.
+
+  After downloading, use the activated environment to generate the simulator's
+  ``curobo.yml`` configurations from the ``curobo_tmp.yml`` templates:
+
+  .. code-block:: bash
+
+     python - <<'PY'
+     import os
+     import runpy
+     from robodojo_runtime import source_root
+
+     script = source_root() / "utils/update_embodiment_config_path.py"
+     os.chdir(os.environ["ROBODOJO_ASSETS_ROOT"])
+     runpy.run_path(str(script), run_name="__main__")
+     PY
+     test -s "$ROBODOJO_ASSETS_ROOT/Assets/Robots/x5/curobo.yml"
+
+  The generator writes a matching ``*.yml`` for each ``*_tmp.yml`` under
+  ``Assets/Robots``, substituting absolute asset paths. It overwrites generated
+  files; back up any manual changes first. Regenerate them after moving the
+  assets.
+
 * **NVIDIA USD/material assets referenced by IsaacLab:** these are separate
   from ``isaaclab_assets``. Obtain the matching asset pack from
   `NVIDIA's asset download instructions <https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/install_faq.html#isaac-sim-setup-assets-content-pack>`_.
@@ -130,7 +156,7 @@ Perception uses SAM 3, which needs its own checkpoint.
 
 .. code-block:: bash
 
-   # 1. Download the released Pi_05 checkpoint (about 7 GB). Use the same
+   # 1. Download the released Pi_05 checkpoint. Use the same
    #    --local-dir root as the assets: hf download keeps the repository path,
    #    so /data/robodojo/ckpt would nest a second ckpt/ level.
    hf download RoboDojo-Benchmark/RoboDojo --repo-type dataset \
@@ -146,9 +172,15 @@ Perception uses SAM 3, which needs its own checkpoint.
      --config-name pi05_aloha \
      --output-path /data/robodojo/pi05_robodojo_arx_x5_torch
 
-   # 3. Point the run at the converted checkpoint and at SAM 3.
+   # 3. Put the matching release statistics where the RLinf RoboDojo preset reads them.
    export PI05_CHECKPOINT_PATH=/data/robodojo/pi05_robodojo_arx_x5_torch
+   mkdir -p "$PI05_CHECKPOINT_PATH/RoboDojo/arx_x5"
+   cp /data/robodojo/ckpt/RoboDojo/Pi_05/RoboDojo-sim-arx_x5-joint-0/59999/assets/arx_x5_sim/norm_stats.json \
+     "$PI05_CHECKPOINT_PATH/RoboDojo/arx_x5/norm_stats.json"
+
+   # 4. Point the run at a separately downloaded SAM 3 checkpoint.
    export SAM3_CHECKPOINT_PATH=/data/sam3/sam3.pt
+   test -s "$SAM3_CHECKPOINT_PATH"
 
 The converter belongs to RLinf and ships inside the ``rlinf`` package that the
 ``robodojo-sim`` extra installs, so call it as a module: an RPent checkout has
@@ -159,8 +191,16 @@ Pi_05 aloha model (32-D actions, horizon 50), which is what the stock
 extra. XPolicyLab's bundled openpi carries an ``..._arx-x5_seed_0`` name for the
 same architecture, but that registry is not the one the converter imports.
 
-Keep the normalization statistics that ship with the release next to the
-converted weights; the client loads them together. ``--inspect_only`` prints the
+The original JAX download and converted weights differ in size. At dataset
+revision ``35efbc7dedfdbeeb6e95fb749bd885d73d483e41``, the Pi_05 download pattern
+above matches about 69.6 GB; the converted ``model.safetensors`` is about
+7.23 GB. Allow space for the original download, converted output and caches.
+
+The RLinf ``pi05_robodojo_arx_x5`` preset uses ``RoboDojo/arx_x5`` as its
+statistics directory, not the release's ``arx_x5_sim`` directory. The converter
+does not perform this copy. Successful loading produces
+``Loaded norm stats from .../RoboDojo/arx_x5`` in the policy log.
+``--inspect_only`` prints the
 orbax parameter keys without converting, which is the quickest way to check a
 download before converting it.
 
@@ -221,15 +261,30 @@ directories for concurrent runs.
 Verify the installation
 -----------------------
 
-Run one bounded development episode and confirm the services come up before the
-planner takes over:
+Configure planner authentication and an available model following
+:doc:`../guides/configure_planner`, then check connectivity in the same terminal
+that will run the task:
+
+.. code-block:: bash
+
+   rpent-check-llm --planner codex --model <planner-model> --json
+
+Select a model with image and tool support. To select a compatible Codex CLI,
+set ``export CODEX_BIN=/absolute/path/to/codex`` and repeat the check.
+The example uses ``--reasoning-effort medium``; choose a reasoning level
+supported by your model. Some models do not accept the default ``none``.
+
+Run one bounded development episode to verify observations, perception, policy
+actions, result recording and shutdown. ``--max-turns 1`` is only a startup
+check, not an action-chain check. The example allows 40 calls:
 
 .. code-block:: bash
 
    export ROBODOJO_PLACEMENT_SETTLE_STEPS=1000
    export OMNI_KIT_ACCEPT_EULA=YES
    rpent --robot robodojo --task put_bottles_into_dustbin --layout 0 \
-     --planner codex --model <planner-model> --max-turns 1 \
+     --planner codex --model <planner-model> --reasoning-effort medium \
+     --max-turns 40 --planner-timeout-s 1500 \
      --sim-python /path/to/sim-env/bin/python \
      --pi05-python /path/to/pi05-env/bin/python \
      --output-dir /path/to/run-output
@@ -245,7 +300,13 @@ Expected behaviour:
 * The environment server reports ready, and the first observation carries
   ``cam_head``, ``cam_left_wrist`` and ``cam_right_wrist`` with intrinsics and
   extrinsics, plus joint and gripper state.
+* ``states.json`` records completed policy actions and post-action observations.
+  The planner calls
+  ``finish``, and ``result.json`` has ``environment_result_available=true`` and
+  ``agent_error_present=false``. The separate ``success`` field reports the
+  native task outcome; installation verification does not require task success.
 * The run writes one MP4 per camera under ``/path/to/run-output/videos``.
+  Check that all three videos decode fully.
 * Shutdown leaves no owned child process behind and the GPUs return to idle.
 
 A service that exits during startup is the usual failure mode; read its log in
