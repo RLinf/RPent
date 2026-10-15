@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import json
+import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
@@ -25,6 +26,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from robots.dual_franka import dual_franka_manual_call as manual
 from robots.dual_franka import get_robot_spec, perception
 from robots.dual_franka.perception import (
     back_project,
@@ -128,6 +130,88 @@ class FakeEnv:
     def chunk_step(self, actions):
         self.chunks.append(np.asarray(actions))
         return {"terminated": False, "truncated": False}
+
+
+@pytest.mark.parametrize("outcome", ["success", "reset_failure", "capture_failure"])
+def test_manual_startup_reset_before_action(
+    monkeypatch, tmp_path, dual_franka_robot_config, outcome
+):
+    env = FakeEnv()
+    monkeypatch.setattr(
+        "robots.dual_franka.robot_spec._init_runtime",
+        lambda *args, **kwargs: ([], {"env": env}),
+    )
+    monkeypatch.setattr(
+        DualFrankaToolkit, "_ask_operator", lambda *args, **kwargs: "done"
+    )
+    if outcome == "reset_failure":
+        monkeypatch.setattr(env, "reset", lambda: {"ok": False})
+    if outcome == "capture_failure":
+        observe = env.get_observation
+
+        def fail_observation():
+            if env.resets:
+                raise RuntimeError("observation unavailable")
+            return observe()
+
+        monkeypatch.setattr(env, "get_observation", fail_observation)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "manual",
+            "--robot-config",
+            str(dual_franka_robot_config),
+            "--output-dir",
+            str(tmp_path / "manual"),
+            "--primitive",
+            "move_delta",
+            "--params",
+            '{"arm":"left","delta_xyz":[0.01,0,0]}',
+        ],
+    )
+    if outcome == "success":
+        assert manual.main() == 0
+        assert env.resets == len(env.moves) == 1
+    else:
+        with pytest.raises(RuntimeError, match="Manual startup reset not completed"):
+            manual.main()
+        assert not env.moves
+
+
+@pytest.mark.parametrize(
+    "primitive,params",
+    [
+        ("move_dleta", {}),
+        ("move_delta", {"arm": "invalid", "delta_xyz": [0.01, 0, 0]}),
+        ("move_delta", {"arm": "left", "delta_xyz": [0.01]}),
+        ("reset", {"unexpected": True}),
+    ],
+)
+def test_invalid_manual_call_never_starts_runtime(
+    monkeypatch, tmp_path, primitive, params
+):
+    def forbidden_runtime(*args, **kwargs):
+        pytest.fail("invalid input must not initialize services")
+
+    monkeypatch.setattr(
+        "robots.dual_franka.robot_spec._init_runtime", forbidden_runtime
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "manual",
+            "--output-dir",
+            str(tmp_path),
+            "--primitive",
+            primitive,
+            "--params",
+            json.dumps(params),
+        ],
+    )
+    with pytest.raises(ValueError):
+        manual.main()
 
 
 class FakeModel:

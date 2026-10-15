@@ -334,6 +334,14 @@ def _load_payload(args: argparse.Namespace) -> dict[str, Any]:
         raise ValueError("payload.primitive must be a non-empty string")
     if not isinstance(params, dict):
         raise ValueError("payload.params must be a JSON object")
+    if primitive == "reset":
+        if params:
+            raise ValueError("reset does not accept parameters")
+    else:
+        tools = {tool.name: tool for tool in DualFrankaToolkit.declared_tools()}
+        if primitive not in tools:
+            raise ValueError(f"unknown primitive {primitive!r}")
+        tools[primitive].args_schema.model_validate(params, strict=True)
     return {"primitive": primitive, "params": params}
 
 
@@ -542,7 +550,11 @@ def _connect_components(
                 output_dir=output_dir / "initial_reset",
                 instruction=args.instruction,
             )
-            if result.get("ok") is not True:
+            if (
+                result.get("error")
+                or result.get("state_capture_error")
+                or result.get("result", {}).get("ok") is not True
+            ):
                 raise RuntimeError(f"Manual startup reset not completed: {result}")
         yield env, model, sam3
     finally:
