@@ -171,9 +171,9 @@ def build_api_model(model: str | None, base_url: str | None = None) -> "Model":
     passing check constructs the same model a real run will.
 
     The API key is always read from the provider's own env vars (e.g.
-    ``ANTHROPIC_API_KEY``, ``OPENAI_API_KEY``). When ``base_url`` is given it
-    overrides the provider's base URL env var (e.g. ``ANTHROPIC_BASE_URL`` /
-    ``OPENAI_BASE_URL``).
+    ``ANTHROPIC_API_KEY``, ``GEMINI_API_KEY``, ``OPENAI_API_KEY``). When
+    ``base_url`` is given it overrides the provider's default endpoint or base
+    URL environment variable.
 
     Args:
         model: Provider-prefixed model id, e.g. ``anthropic:claude-opus-4-8``.
@@ -189,7 +189,8 @@ def build_api_model(model: str | None, base_url: str | None = None) -> "Model":
         raise ValueError(
             "the 'api' planner requires a model id; pass --model with a "
             "provider prefix (e.g. 'anthropic:claude-opus-4-8', "
-            "'openai:gpt-5.5', 'openai-chat:glm-5.2')."
+            "'google:Argon', 'openai:gpt-5.5', "
+            "'openai-chat:glm-5.2')."
         )
 
     import inspect
@@ -230,7 +231,7 @@ def build_planner(
 ) -> Planner:
     """Build a planner for the given backend, resolving credentials from env vars."""
     # Imports are deferred to avoid a circular import: api_loop / claude_code /
-    # codex all import from this module (PlannerResult).
+    # codex / gemini_cli all import from this module (PlannerResult).
 
     if planner_type == "api":
         from rpent.planner.api_loop import ApiAgentLoop
@@ -286,6 +287,25 @@ def build_planner(
             timeout_s=cx_timeout_s,
             extra_dirs=[str(memory_dir or get_memory_dir(robot_name))],
             output_path=Path(output_dir) / f"codex_{recipe_tag}.txt",
+            dashboard_events=dashboard_events,
+            reasoning_effort=reasoning_effort,
+        )
+    if planner_type == "gemini_cli":
+        from rpent.planner.gemini_cli import GeminiCliPlanner
+
+        gemini_timeout_s = planner_timeout_s
+        if gemini_timeout_s is None:
+            gemini_timeout_s = int(
+                os.environ.get(
+                    "GEMINI_CLI_TIMEOUT_S",
+                    os.environ.get("CELL_TIMEOUT_S", "1200"),
+                )
+            )
+        return GeminiCliPlanner(
+            output_dir=str(output_dir),
+            model=model,
+            timeout_s=gemini_timeout_s,
+            output_path=Path(output_dir) / f"gemini_{recipe_tag}.txt",
             dashboard_events=dashboard_events,
             reasoning_effort=reasoning_effort,
         )

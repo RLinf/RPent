@@ -56,21 +56,21 @@ def _parser() -> argparse.ArgumentParser:
         "--planner",
         default="api",
         choices=list(CHECK_PLANNERS),
-        help="LLM backend to check: api | claude_code | codex.",
+        help="LLM backend to check: api | claude_code | codex | gemini_cli.",
     )
     parser.add_argument(
         "--model",
         default=None,
         help="Model id. For the 'api' planner, prefix the provider "
-        "(e.g. anthropic:claude-opus-4-8, openai:gpt-5.5, "
-        "openai-chat:glm-5.2). For claude_code/codex this "
-        "overrides the backend default model.",
+        "(e.g. anthropic:claude-opus-4-8, google:Argon, "
+        "openai:gpt-5.5, openai-chat:glm-5.2). For claude_code, codex, and "
+        "gemini_cli this overrides the backend or upstream default model.",
     )
     parser.add_argument(
         "--base-url",
         default=None,
         help=(
-            "API base URL, for the 'api' planner only. claude_code and codex take their endpoint from ANTHROPIC_BASE_URL / CODEX_BASE_URL instead; passing this flag with either is an error rather than a silent no-op."
+            "API base URL, for the 'api' planner only. claude_code, codex, and gemini_cli take their endpoint from ANTHROPIC_BASE_URL / CODEX_BASE_URL / GEMINI_BASE_URL instead; passing this flag with one of them is an error rather than a silent no-op."
         ),
     )
     parser.add_argument(
@@ -107,7 +107,8 @@ def _remediation(result: LlmCheckResult) -> str:
             "--model anthropic:claude-opus-4-8."
         ),
         STATUS_UNSUPPORTED_PROVIDER: (
-            "Use a provider RPent installs: anthropic:, openai:, or openai-chat:."
+            "Use a provider RPent installs: anthropic:, google:, openai:, "
+            "or openai-chat:."
         ),
         STATUS_MISSING_API_KEY: f"Set {credential} in this shell, then retry.",
         STATUS_INVALID_MODEL: (

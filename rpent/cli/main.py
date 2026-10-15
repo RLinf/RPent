@@ -130,8 +130,8 @@ def _build_argparser() -> argparse.ArgumentParser:
     ap.add_argument(
         "--planner",
         default="api",
-        choices=["api", "claude_code", "codex", "flash"],
-        help="Planner backend: api | claude_code | codex are LLMs in the "
+        choices=["api", "claude_code", "codex", "gemini_cli", "flash"],
+        help="Planner backend: api | claude_code | codex | gemini_cli are LLMs in the "
         "loop; flash is evaluation-only and replays a plan from memory, re-localizing "
         "each waypoint's anchor.",
     )
@@ -139,15 +139,15 @@ def _build_argparser() -> argparse.ArgumentParser:
         "--model",
         default=None,
         help="Model id. For the 'api' planner, prefix the provider "
-        "(e.g. anthropic:claude-opus-4-8, openai:gpt-5.5, "
-        "openai-chat:glm-5.2). For claude_code/codex this "
-        "overrides the backend default model.",
+        "(e.g. anthropic:claude-opus-4-8, google:Argon, "
+        "openai:gpt-5.5, openai-chat:glm-5.2). For claude_code, codex, and "
+        "gemini_cli this overrides the backend or upstream default model.",
     )
     ap.add_argument(
         "--base-url",
         default=None,
         help=(
-            "API base URL, for the 'api' planner only. claude_code and codex take their endpoint from ANTHROPIC_BASE_URL / CODEX_BASE_URL instead; passing this flag with either is an error rather than a silent no-op."
+            "API base URL, for the 'api' planner only. claude_code, codex, and gemini_cli take their endpoint from ANTHROPIC_BASE_URL / CODEX_BASE_URL / GEMINI_BASE_URL instead; passing this flag with one of them is an error rather than a silent no-op."
         ),
     )
     ap.add_argument("--max-turns", type=int, default=100)
@@ -157,8 +157,8 @@ def _build_argparser() -> argparse.ArgumentParser:
         choices=REASONING_EFFORTS,
         default="none",
         help="Planner reasoning effort for api, claude_code, and "
-        "codex. Higher effort may improve task success rate "
-        "but increases runtime. Defaults to none.",
+        "codex. gemini_cli supports none only. Higher effort may improve "
+        "task success rate but increases runtime. Defaults to none.",
     )
     ap.add_argument(
         "--no-images",
@@ -172,10 +172,10 @@ def _build_argparser() -> argparse.ArgumentParser:
         "--planner-timeout-s",
         type=int,
         default=None,
-        help="Wall-clock cap for api/claude_code/codex planner runs. "
+        help="Wall-clock cap for api/claude_code/codex/gemini_cli planner runs. "
         "Terminal interactive API/Claude sessions are exempt. "
-        "Defaults to CODEX_TIMEOUT_S (codex only), "
-        "CELL_TIMEOUT_S, or 1200.",
+        "Defaults to CODEX_TIMEOUT_S (codex only), GEMINI_CLI_TIMEOUT_S "
+        "(gemini_cli only), CELL_TIMEOUT_S, or 1200.",
     )
     ap.add_argument(
         "--claude-code-max-budget-usd",
@@ -366,6 +366,16 @@ def main() -> int:
     )
     if args.dashboard and args.interactive:
         parser.error("--dashboard and --interactive cannot be used together")
+    if args.planner == "gemini_cli" and (args.dashboard or args.interactive):
+        option = "--dashboard" if args.dashboard else "--interactive"
+        parser.error(
+            f"{option} is not supported by the gemini_cli planner; "
+            "run it non-interactively"
+        )
+    if args.planner == "gemini_cli" and args.reasoning_effort != "none":
+        parser.error(
+            "--reasoning-effort is not supported by the gemini_cli planner; use 'none'"
+        )
     external_env_dashboard = (getattr(robot_spec, "dashboard", None) or {}).get(
         "external_env", False
     )

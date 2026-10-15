@@ -77,20 +77,21 @@ CHECK_STATUSES = (
 )
 
 #: Planner backends this module can probe.
-CHECK_PLANNERS = ("api", "claude_code", "codex")
+CHECK_PLANNERS = ("api", "claude_code", "codex", "gemini_cli")
 
 #: Backends whose endpoint comes from an env var, not from ``--base-url``.
-#: ``build_planner`` forwards ``base_url`` to the api model alone, so both
-#: CLIs reject the flag for these rather than dropping it silently — a check
+#: ``build_planner`` forwards ``base_url`` to the api model alone, so these
+#: backends reject the flag rather than dropping it silently — a check
 #: that honoured an endpoint the run ignores would be testing the wrong
 #: thing.
 BASE_URL_ENV_BY_PLANNER = {
     "claude_code": "ANTHROPIC_BASE_URL",
     "codex": "CODEX_BASE_URL",
+    "gemini_cli": "GEMINI_BASE_URL",
 }
 
 #: Diagnostic timeouts, deliberately independent of the 1200s run default.
-DEFAULT_TIMEOUT_S = {"api": 30, "claude_code": 90, "codex": 90}
+DEFAULT_TIMEOUT_S = {"api": 30, "claude_code": 90, "codex": 90, "gemini_cli": 90}
 
 #: Budget for an SDK backend running on a CLI login rather than an env var.
 #: Shorter than the default because a diagnostic should not hold the terminal
@@ -106,6 +107,10 @@ CLI_LOGIN_TIMEOUT_S = 25
 _CLI_LOGIN_FILES = {
     "claude_code": ("~/.claude/.credentials.json",),
     "codex": ("~/.codex/auth.json",),
+    "gemini_cli": (
+        "~/.gemini/oauth_creds.json",
+        "~/.gemini/gemini-credentials.json",
+    ),
 }
 
 #: macOS keeps the Claude Code credential in the login Keychain instead of in
@@ -126,6 +131,7 @@ PROBE_MAX_TOKENS = 2048
 #: does not know about. Mirrors docs/source-en/.../guides/configure_planner.rst.
 _API_KEY_ENV = {
     "anthropic": "ANTHROPIC_API_KEY",
+    "google": "GEMINI_API_KEY",
     "openai": "OPENAI_API_KEY",
     "openai-chat": "OPENAI_API_KEY",
 }
@@ -141,6 +147,8 @@ _CLAUDE_CODE_KEY_ENV = "ANTHROPIC_API_KEY"
 _CLAUDE_CODE_BASE_URL_ENV = "ANTHROPIC_BASE_URL"
 _CODEX_KEY_ENV = "CODEX_API_KEY"
 _CODEX_BASE_URL_ENV = "CODEX_BASE_URL"
+_GEMINI_CLI_KEY_ENV = "GEMINI_API_KEY"
+_GEMINI_CLI_BASE_URL_ENV = "GEMINI_BASE_URL"
 
 #: Cap on how much provider error text is carried in ``detail``.
 _DETAIL_LIMIT = 2000
@@ -150,6 +158,7 @@ _DETAIL_LIMIT = 2000
 #: check report is exactly the kind of output that gets pasted into an issue.
 _SECRET_ENV_NAMES = (
     "ANTHROPIC_API_KEY",
+    "GEMINI_API_KEY",
     "OPENAI_API_KEY",
     "CODEX_API_KEY",
     "RPENT_CODEX_PROVIDER_KEY",
@@ -166,8 +175,8 @@ class LlmCheckRequest:
     Attributes:
         planner: Backend to probe; one of :data:`CHECK_PLANNERS`.
         model: Model id. Required (and provider-prefixed) for ``api``;
-            optional for ``claude_code`` and ``codex``.
-        base_url: Base URL overriding the backend's own env var.
+            optional for ``claude_code``, ``codex``, and ``gemini_cli``.
+        base_url: Base URL override for the ``api`` backend.
         timeout_s: Wall-clock cap. Defaults per backend when ``None``.
     """
 
@@ -286,6 +295,7 @@ def check_llm(request: LlmCheckRequest) -> LlmCheckResult:
         "api": _check_api,
         "claude_code": _check_claude_code,
         "codex": _check_codex,
+        "gemini_cli": _check_gemini_cli,
     }[planner]
 
     # The budget is logged where it is resolved: the SDK backends shorten it
@@ -446,7 +456,8 @@ def _check_api(request: LlmCheckRequest) -> LlmCheckResult:
             detail=(
                 "the 'api' planner requires a model id; pass --model with a "
                 "provider prefix (e.g. 'anthropic:claude-opus-4-8', "
-                "'openai:gpt-5.5', 'openai-chat:glm-5.2')."
+                "'google:Argon', 'openai:gpt-5.5', "
+                "'openai-chat:glm-5.2')."
             ),
         )
     if not provider_name:
@@ -846,6 +857,85 @@ def _check_codex(request: LlmCheckRequest) -> LlmCheckResult:
     return _result(STATUS_OK, reply=reply.strip(), latency_s=latency_s)
 
 
+# ---------------------------------------------------------------------------
+# gemini_cli planner
+# ---------------------------------------------------------------------------
+
+
+def _check_gemini_cli(request: LlmCheckRequest) -> LlmCheckResult:
+    """Probe the installed Gemini CLI with one headless, tool-free request."""
+    model = (request.model or "").strip() or None
+    try:
+        from rpent.planner.gemini_cli import (
+            configured_base_url,
+            has_configured_api_key,
+            run_probe_turn,
+        )
+    except ImportError as exc:
+        return LlmCheckResult(
+            ok=False,
+            status=STATUS_SDK_ERROR,
+            planner="gemini_cli",
+            model=model,
+            detail=_describe(exc),
+        )
+
+    key_present = has_configured_api_key()
+    base_url = configured_base_url()
+
+    def _result(status: str, **kwargs: Any) -> LlmCheckResult:
+        return LlmCheckResult(
+            ok=status == STATUS_OK,
+            status=status,
+            planner="gemini_cli",
+            model=model,
+            credential_env=_GEMINI_CLI_KEY_ENV,
+            credential_present=key_present,
+            base_url=base_url,
+            base_url_env=_GEMINI_CLI_BASE_URL_ENV,
+            **kwargs,
+        )
+
+    if not key_present and not _has_cli_login("gemini_cli"):
+        return _result(
+            STATUS_MISSING_API_KEY,
+            detail=(
+                f"{_GEMINI_CLI_KEY_ENV} is not configured and no Gemini CLI "
+                "login was found."
+            ),
+        )
+
+    timeout_s = _sdk_probe_budget(request, cli_login_only=not key_present)
+    started = time.monotonic()
+    try:
+        reply = run_probe_turn(
+            prompt=PROBE_PROMPT,
+            model=model,
+            timeout_s=timeout_s,
+        )
+    except (asyncio.TimeoutError, TimeoutError):
+        return _result(
+            STATUS_NETWORK_ERROR,
+            detail=f"Gemini CLI did not respond within {timeout_s}s.",
+            latency_s=round(time.monotonic() - started, 3),
+        )
+    except Exception as exc:  # noqa: BLE001 - classified below
+        return _result(
+            _classify_sdk_error(exc, key_present=key_present, model=model),
+            detail=_describe(exc),
+            latency_s=round(time.monotonic() - started, 3),
+        )
+
+    latency_s = round(time.monotonic() - started, 3)
+    if not reply.strip():
+        return _result(
+            STATUS_PROVIDER_ERROR,
+            detail="Gemini CLI returned no assistant text.",
+            latency_s=latency_s,
+        )
+    return _result(STATUS_OK, reply=reply.strip(), latency_s=latency_s)
+
+
 def _names_the_requested_model(text: str, model: str | None) -> bool:
     """Whether a 4xx message echoes back the model id that was requested.
 
@@ -904,7 +994,15 @@ def _classify_sdk_error(
         return STATUS_MISSING_API_KEY if not key_present else STATUS_AUTH_FAILED
     if any(
         token in text
-        for token in ("connection", "dns", "resolve", "network", "unreachable", "tls")
+        for token in (
+            "connection",
+            "dns",
+            "resolve",
+            "network",
+            "unreachable",
+            "tls",
+            "fetch failed",
+        )
     ):
         return STATUS_NETWORK_ERROR
     if any(token in text for token in ("429", "rate limit", "500", "502", "503")):
