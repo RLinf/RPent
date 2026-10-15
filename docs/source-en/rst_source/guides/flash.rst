@@ -183,8 +183,7 @@ refer to evaluation-stage output only.
 
 RPent Flash Mode uses directly downloaded, officially released GPT-5.5
 exploration memory, Molmo2-8B for visual localization, and the same VLA as
-pi_RLinf for action execution. The displayed scores are the best evaluation
-results from s0-s9.
+pi_RLinf for action execution.
 
 Historical Comparison
 ~~~~~~~~~~~~~~~~~~~~~

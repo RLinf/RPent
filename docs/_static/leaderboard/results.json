@@ -30,13 +30,6 @@
       }
     },
     {
-      "id": "memory-experience",
-      "text": {
-        "en": "RPent memory is built through task exploration before evaluation and constitutes additional task experience. Building memory does not update VLA weights.",
-        "zh": "RPent 的 memory 来自评测前的任务探索，属于额外任务经验；memory 构建不涉及 VLA 权重更新。"
-      }
-    },
-    {
       "id": "comparison-scope",
       "text": {
         "en": "Methods may differ in training data, exploration / memory, inference budgets, and result selection. External results follow their original sources; the environment-specific VLA notes identify same-checkpoint comparisons.",
@@ -306,8 +299,8 @@
             "rpent-flash-mode"
           ],
           "text": {
-            "en": "RPent Flash Mode uses directly downloaded, officially released GPT-5.5 exploration memory, Molmo2-8B for visual localization, and the same VLA as pi_RLinf for action execution. The displayed scores are the best evaluation results from s0-s9.",
-            "zh": "RPent Flash Mode 使用直接下载的、官方公开的 GPT-5.5 explore memory，Molmo2-8B 用于视觉定位，动作执行使用与 π_RLinf 相同的 VLA。展示成绩采用 s0-s9 中的最佳评测结果。"
+            "en": "RPent Flash Mode uses directly downloaded, officially released GPT-5.5 exploration memory, Molmo2-8B for visual localization, and the same VLA as pi_RLinf for action execution.",
+            "zh": "RPent Flash Mode 使用直接下载的、官方公开的 GPT-5.5 explore memory，Molmo2-8B 用于视觉定位，动作执行使用与 π_RLinf 相同的 VLA。"
           },
           "placement": "footer"
         },
