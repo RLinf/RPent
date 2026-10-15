@@ -165,17 +165,32 @@ upstream. The adapter uses four inference steps and the checkpoint's history
 noise configuration. FlashAttention must match the model environment's Torch
 and CUDA build; there is no automatic fallback to another attention algorithm.
 
+Organize these resources under one directory, using the following fixed layout.
+Subdirectories may be symbolic links to existing resources; link the complete
+checkpoint directory so its configuration stays with the weights.
+
+.. code-block:: text
+
+   uniwam/
+   ├── policy/                  # full official deployment directory
+   ├── checkpoint/
+   │   ├── config.json
+   │   └── pytorch_model/
+   ├── wan/                     # Wan2.2-TI2V-5B
+   └── vlm/                     # Qwen3-VL-2B-Instruct
+
 From the RPent RoboTwin environment, after configuring a planner, run:
 
 .. code-block:: bash
 
-   export UNIWAM_POLICY_DIR=/path/to/UniWAM/inference/robotwin/uniwam
-   export UNIWAM_MODEL_PATH=/path/to/checkpoint/pytorch_model
-   export UNIWAM_WAN_PATH=/path/to/Wan2.2-TI2V-5B
-   export UNIWAM_VLM_PATH=/path/to/Qwen3-VL-2B-Instruct
+   export UNIWAM_MODEL_PATH=/path/to/uniwam
    rpent --robot robotwin --vla-backend uniwam \
       --uniwam-python /path/to/uniwam-env/bin/python \
       --task-name beat_block_hammer --task-config demo_randomized --seed 100000
+
+``--vla-model-path`` overrides ``UNIWAM_MODEL_PATH`` and points to this resource
+root, not directly to ``pytorch_model/``. ``--uniwam-python`` is optional and
+defaults to the current interpreter; use it to select a separate model environment.
 
 RPent starts and stops its own model process. To borrow an already running
 service, start ``robots/robotwin/uniwam_server.py --help`` with the model

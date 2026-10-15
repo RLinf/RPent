@@ -299,16 +299,9 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         help="Python executable for the isolated UniWAM model environment.",
     )
     parser.add_argument(
-        "--uniwam-policy-dir",
-        default=os.environ.get("UNIWAM_POLICY_DIR"),
-        help="Official UniWAM inference/robotwin/uniwam directory.",
-    )
-    parser.add_argument("--uniwam-wan-path", default=os.environ.get("UNIWAM_WAN_PATH"))
-    parser.add_argument("--uniwam-vlm-path", default=os.environ.get("UNIWAM_VLM_PATH"))
-    parser.add_argument(
         "--vla-model-path",
         default=None,
-        help="Checkpoint path; defaults to LINGBOT_MODEL_PATH or UNIWAM_MODEL_PATH for the selected backend.",
+        help="LingBot checkpoint or UniWAM resource root (policy/, checkpoint/, wan/, vlm/). Defaults to LINGBOT_MODEL_PATH or UNIWAM_MODEL_PATH.",
     )
     parser.add_argument(
         "--lingbot-robot-config",
@@ -632,22 +625,24 @@ def _spawn_uniwam_server(
 
     if args.vla_endpoint is not None:
         return None, make_rpc_client(args.vla_endpoint)
+    model_path = args.vla_model_path or os.environ.get("UNIWAM_MODEL_PATH")
+    if not model_path:
+        raise ValueError(
+            "--vla-model-path or UNIWAM_MODEL_PATH must point to the UniWAM resource root"
+        )
+    root = Path(model_path).expanduser().resolve()
     paths = {
-        "model-path": args.vla_model_path or os.environ.get("UNIWAM_MODEL_PATH"),
-        "policy-dir": args.uniwam_policy_dir,
-        "wan-path": args.uniwam_wan_path,
-        "vlm-path": args.uniwam_vlm_path,
+        "model-path": root / "checkpoint" / "pytorch_model",
+        "policy-dir": root / "policy",
+        "wan-path": root / "wan",
+        "vlm-path": root / "vlm",
     }
     command = [
         args.uniwam_python,
         str(get_repo_root() / "robots" / "robotwin" / "uniwam_server.py"),
     ]
     for name, value in paths.items():
-        if not value:
-            raise ValueError(
-                f"UniWAM {name} is required when launching its model server"
-            )
-        path = Path(value).expanduser().resolve()
+        path = value.resolve()
         _require_directory(path, name)
         command.extend([f"--{name}", str(path)])
     host, port = "127.0.0.1", pick_free_port()

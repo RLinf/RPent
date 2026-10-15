@@ -151,17 +151,28 @@ prompt 和 ``uniwam_act(chunks=1)`` 工具，每块包含 16 步关节／夹爪�
 资源。适配层使用 4 次推理迭代，历史噪声参数沿用 checkpoint 配置。
 FlashAttention 必须与模型环境的 Torch、CUDA 构建匹配，不会自动切换注意力算法。
 
+将资源按以下固定结构组织到一个目录中。子目录可以使用指向已有资源的软链接，无需复制大文件；checkpoint 应链接整个目录，保留配置与权重的相对位置。
+
+.. code-block:: text
+
+   uniwam/
+   ├── policy/                  # 完整的官方部署代码目录
+   ├── checkpoint/
+   │   ├── config.json
+   │   └── pytorch_model/
+   ├── wan/                     # Wan2.2-TI2V-5B
+   └── vlm/                     # Qwen3-VL-2B-Instruct
+
 配置好规划器后，在 RPent 的 RoboTwin 环境中运行：
 
 .. code-block:: bash
 
-   export UNIWAM_POLICY_DIR=/path/to/UniWAM/inference/robotwin/uniwam
-   export UNIWAM_MODEL_PATH=/path/to/checkpoint/pytorch_model
-   export UNIWAM_WAN_PATH=/path/to/Wan2.2-TI2V-5B
-   export UNIWAM_VLM_PATH=/path/to/Qwen3-VL-2B-Instruct
+   export UNIWAM_MODEL_PATH=/path/to/uniwam
    rpent --robot robotwin --vla-backend uniwam \
       --uniwam-python /path/to/uniwam-env/bin/python \
       --task-name beat_block_hammer --task-config demo_randomized --seed 100000
+
+``--vla-model-path`` 可以覆盖 ``UNIWAM_MODEL_PATH``，同样指向资源根目录，而不是直接指向 ``pytorch_model/``。``--uniwam-python`` 为可选参数，默认使用当前解释器；需要独立模型环境时再指定。
 
 RPent 负责启动和清理自己创建的模型进程。如果要连接已有服务，用模型解释器运行
 ``robots/robotwin/uniwam_server.py --help`` 查看启动参数，再向 RPent 传入

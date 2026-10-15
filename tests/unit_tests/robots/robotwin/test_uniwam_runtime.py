@@ -61,7 +61,10 @@ def test_uniwam_external_endpoint_needs_no_local_model_paths(monkeypatch, tmp_pa
     assert runtime["vla_backend"] == "uniwam"
 
 
-def test_uniwam_launcher_uses_selected_interpreter_and_cuda(monkeypatch, tmp_path):
+@pytest.mark.parametrize("use_env", [True, False])
+def test_uniwam_launcher_uses_resource_root_interpreter_and_cuda(
+    monkeypatch, tmp_path, use_env
+):
     created = []
 
     class Daemon:
@@ -78,25 +81,33 @@ def test_uniwam_launcher_uses_selected_interpreter_and_cuda(monkeypatch, tmp_pat
     monkeypatch.setattr(daemon_module, "pick_free_port", lambda: 12345)
     monkeypatch.setattr(rpc_module, "make_rpc_client", lambda endpoint: endpoint)
     monkeypatch.setenv("LINGBOT_MODEL_PATH", "/not-the-uniwam-checkpoint")
-    monkeypatch.setenv("UNIWAM_MODEL_PATH", str(tmp_path))
+    root = tmp_path / "bundle"
+    root.mkdir()
+    for name in ("policy", "checkpoint", "wan", "vlm"):
+        resource = tmp_path / name
+        resource.mkdir()
+        (root / name).symlink_to(resource, target_is_directory=True)
+    (tmp_path / "checkpoint" / "pytorch_model").mkdir()
+    monkeypatch.setenv("UNIWAM_MODEL_PATH", str(root) if use_env else "/unused")
     args = arguments(
         "--vla-backend",
         "uniwam",
         "--uniwam-python",
         "/model-env/bin/python",
-        "--uniwam-policy-dir",
-        str(tmp_path),
-        "--uniwam-wan-path",
-        str(tmp_path),
-        "--uniwam-vlm-path",
-        str(tmp_path),
         "--vla-cuda-device",
         "2",
+        *([] if use_env else ["--vla-model-path", str(root)]),
     )
     owned, endpoint = robot_spec._spawn_uniwam_server(args, tmp_path)
     assert owned is created[0] and owned.started
     assert owned.command[0] == "/model-env/bin/python"
-    assert owned.command[owned.command.index("--model-path") + 1] == str(tmp_path)
+    for flag, relative in (
+        ("--model-path", "checkpoint/pytorch_model"),
+        ("--policy-dir", "policy"),
+        ("--wan-path", "wan"),
+        ("--vlm-path", "vlm"),
+    ):
+        assert owned.command[owned.command.index(flag) + 1] == str(tmp_path / relative)
     assert owned.env["CUDA_VISIBLE_DEVICES"] == "2"
     assert endpoint == "socket://127.0.0.1:12345"
 
@@ -105,12 +116,8 @@ def test_failed_uniwam_start_cleans_up_owned_environment(monkeypatch, tmp_path):
     stopped = []
     env = SimpleNamespace(stop=lambda: stopped.append("env"))
     monkeypatch.setattr(robot_spec, "_spawn_env_server", lambda *a: (env, object()))
-
-    def fail(*args):
-        raise ValueError("missing weights")
-
-    monkeypatch.setattr(robot_spec, "_spawn_uniwam_server", fail)
-    with pytest.raises(RuntimeError, match="spawn failed"):
+    monkeypatch.delenv("UNIWAM_MODEL_PATH", raising=False)
+    with pytest.raises(RuntimeError, match="UNIWAM_MODEL_PATH"):
         robot_spec._init_runtime(
             arguments("--vla-backend", "uniwam"),
             tmp_path,
