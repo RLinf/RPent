@@ -156,8 +156,8 @@ normalization and history padding remain owned by the official policy.
 
 Prepare the official
 `UniWAM RoboTwin deployment <https://github.com/UniWAM/UniWAM/tree/8dcd3401bccda8c002fc558e356b975b1789eecd/inference/robotwin/uniwam>`_
-in a separate Python environment. Install its policy requirements and the base
-RPent package into that environment. Use the full policy directory, not a copy
+and install its policy requirements into the Python environment used to launch
+RPent for local model execution. Use the full policy directory, not a copy
 of only ``deploy_policy.py``. The checkpoint must be a history-flow
 ``pytorch_model/`` export with its accompanying parent ``config.json``;
 also prepare the Wan2.2-TI2V-5B and Qwen3-VL-2B-Instruct resources described
@@ -185,16 +185,17 @@ From the RPent RoboTwin environment, after configuring a planner, run:
 
    export UNIWAM_MODEL_PATH=/path/to/uniwam
    rpent --robot robotwin --vla-backend uniwam \
-      --uniwam-python /path/to/uniwam-env/bin/python \
       --task-name beat_block_hammer --task-config demo_randomized --seed 100000
 
 ``--vla-model-path`` overrides ``UNIWAM_MODEL_PATH`` and points to this resource
-root, not directly to ``pytorch_model/``. ``--uniwam-python`` is optional and
-defaults to the current interpreter; use it to select a separate model environment.
+root, not directly to ``pytorch_model/``. RPent launches the model service using
+its current Python interpreter, as it does for LingBot.
 
-RPent starts and stops its own model process. To borrow an already running
-service, start ``robots/robotwin/uniwam_server.py --help`` with the model
-interpreter for its launch options, then pass
+RPent starts and stops its own model process. If dependencies require a separate
+environment, install the policy requirements and base RPent package there and
+launch the model service independently. Run
+``python robots/robotwin/uniwam_server.py --help`` in that environment for its
+launch options, then pass
 ``--vla-endpoint socket://127.0.0.1:PORT``; RPent does not stop borrowed
 services. The environment must provide per-step joint feedback. A history
 error requires updating the EnvServer, not substituting predicted actions.
@@ -204,7 +205,7 @@ LingBot recipe chunk counts are not UniWAM timing. Native task success still
 comes from ``TASK_ENV.eval_success``, not a successful RPC or tool call.
 
 For opt-in component, mixed-tool and scripted-planner checks, set the paths
-above plus ``ROBOTWIN_ASSETS_PATH``, ``UNIWAM_PYTHON``,
+above plus ``ROBOTWIN_ASSETS_PATH``,
 ``CUDA_VISIBLE_DEVICES`` (one available GPU), and a fresh
 ``RPENT_E2E_OUTPUT_DIR``, then run:
 

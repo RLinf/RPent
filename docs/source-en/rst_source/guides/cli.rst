@@ -99,8 +99,8 @@ RoboTwin accepts ``--vla-backend lingbot|uniwam`` (default: ``lingbot``).
 ``UNIWAM_MODEL_PATH`` for the selected backend. For UniWAM, this is the resource
 root containing ``policy/``, ``checkpoint/``, ``wan/``, and ``vlm/``;
 for LingBot, it remains the checkpoint directory.
-``--uniwam-python`` selects the model interpreter, defaulting to the current
-interpreter. The local resource root is unnecessary when UniWAM connects to an existing
+Local model services use RPent's current Python interpreter.
+The local resource root is unnecessary when UniWAM connects to an existing
 ``--vla-endpoint socket://host:port``. See :doc:`../simulators/robotwin`.
 
 LIBERO selects tasks with ``--suite``, ``--task``, ``--seed``, and ``--libero-type``; the variant defaults to ``LIBERO_TYPE`` or ``pro``. RoboCasa365 and RoboTwin use ``--task-name``. Franka uses ``--task-id`` and ``--robot-config``. See :doc:`../simulators/libero`, :doc:`../simulators/robocasa`, :doc:`../simulators/robotwin`, :doc:`../real_world_robots/franka`, and :doc:`../real_world_robots/dual_franka` for details.

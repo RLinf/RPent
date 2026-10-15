@@ -15,6 +15,7 @@
 
 """UniWAM runtime selection and resource ownership contracts."""
 
+import sys
 from argparse import ArgumentParser
 from types import SimpleNamespace
 
@@ -92,15 +93,13 @@ def test_uniwam_launcher_uses_resource_root_interpreter_and_cuda(
     args = arguments(
         "--vla-backend",
         "uniwam",
-        "--uniwam-python",
-        "/model-env/bin/python",
         "--vla-cuda-device",
         "2",
         *([] if use_env else ["--vla-model-path", str(root)]),
     )
     owned, endpoint = robot_spec._spawn_uniwam_server(args, tmp_path)
     assert owned is created[0] and owned.started
-    assert owned.command[0] == "/model-env/bin/python"
+    assert owned.command[0] == sys.executable
     for flag, relative in (
         ("--model-path", "checkpoint/pytorch_model"),
         ("--policy-dir", "policy"),

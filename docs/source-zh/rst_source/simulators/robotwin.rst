@@ -143,9 +143,9 @@ prompt 和 ``uniwam_act(chunks=1)`` 工具，每块包含 16 步关节／夹爪�
 所有实际执行动作后的状态（包括解析工具产生的状态）都会进入近期历史，重置回合时清空。
 每次推理前，服务用环境历史重新填充官方策略缓存；图像处理、归一化和历史补齐仍由官方实现负责。
 
-先在独立 Python 环境中准备
+先准备
 `UniWAM 官方 RoboTwin 部署代码 <https://github.com/UniWAM/UniWAM/tree/8dcd3401bccda8c002fc558e356b975b1789eecd/inference/robotwin/uniwam>`_，
-安装其策略依赖和 RPent 基础包。保留完整策略目录，不能只复制 ``deploy_policy.py``。
+本地自动启动模型时，需要在运行 RPent 的 Python 环境中安装其策略依赖。保留完整策略目录，不能只复制 ``deploy_policy.py``。
 模型需要 history-flow 格式的 ``pytorch_model/`` 导出目录及其父目录中的
 ``config.json``，另外按官方说明准备 Wan2.2-TI2V-5B 和 Qwen3-VL-2B-Instruct
 资源。适配层使用 4 次推理迭代，历史噪声参数沿用 checkpoint 配置。
@@ -169,13 +169,12 @@ FlashAttention 必须与模型环境的 Torch、CUDA 构建匹配，不会自动
 
    export UNIWAM_MODEL_PATH=/path/to/uniwam
    rpent --robot robotwin --vla-backend uniwam \
-      --uniwam-python /path/to/uniwam-env/bin/python \
       --task-name beat_block_hammer --task-config demo_randomized --seed 100000
 
-``--vla-model-path`` 可以覆盖 ``UNIWAM_MODEL_PATH``，同样指向资源根目录，而不是直接指向 ``pytorch_model/``。``--uniwam-python`` 为可选参数，默认使用当前解释器；需要独立模型环境时再指定。
+``--vla-model-path`` 可以覆盖 ``UNIWAM_MODEL_PATH``，同样指向资源根目录，而不是直接指向 ``pytorch_model/``。模型服务与 LingBot 一样，使用启动 RPent 的 Python 解释器。
 
-RPent 负责启动和清理自己创建的模型进程。如果要连接已有服务，用模型解释器运行
-``robots/robotwin/uniwam_server.py --help`` 查看启动参数，再向 RPent 传入
+RPent 负责启动和清理自己创建的模型进程。如果依赖需要隔离，在独立环境中安装策略依赖和 RPent 基础包，并单独启动模型服务。在该环境中运行
+``python robots/robotwin/uniwam_server.py --help`` 查看启动参数，再向 RPent 传入
 ``--vla-endpoint socket://127.0.0.1:PORT``；RPent 不会关闭外部服务。
 环境服务必须提供逐步关节状态反馈。遇到历史缺失错误应更新 EnvServer，不能用预测动作代替反馈。
 
@@ -184,7 +183,7 @@ RPent 负责启动和清理自己创建的模型进程。如果要连接已有�
 RPC 或工具调用成功不等于任务成功。
 
 需要进行真实组件、混合工具和脚本规划器验证时，设置上述路径以及
-``ROBOTWIN_ASSETS_PATH``、``UNIWAM_PYTHON``、
+``ROBOTWIN_ASSETS_PATH``、
 ``CUDA_VISIBLE_DEVICES``（一张可用 GPU）和新的 ``RPENT_E2E_OUTPUT_DIR``，再运行：
 
 .. code-block:: bash

@@ -93,7 +93,7 @@ RoboTwin 支持 ``--vla-backend lingbot|uniwam``，默认 ``lingbot``。
 ``--vla-model-path`` 覆盖所选后端对应的 ``LINGBOT_MODEL_PATH`` 或
 ``UNIWAM_MODEL_PATH``。UniWAM 使用包含 ``policy/``、``checkpoint/``、
 ``wan/`` 和 ``vlm/`` 的资源根目录；LingBot 仍使用 checkpoint 目录。
-``--uniwam-python`` 选择模型解释器，默认使用当前解释器。
+本地模型服务使用启动 RPent 的 Python 解释器。
 UniWAM 连接已有 ``--vla-endpoint socket://host:port`` 时不需要本地资源目录。
 部署说明见 :doc:`../simulators/robotwin`。
 

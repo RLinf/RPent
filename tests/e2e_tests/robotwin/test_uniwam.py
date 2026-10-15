@@ -50,8 +50,6 @@ def _argv():
         "48",
         "--cuda-device",
         os.environ["CUDA_VISIBLE_DEVICES"],
-        "--uniwam-python",
-        os.environ["UNIWAM_PYTHON"],
     ]
 
 

@@ -294,11 +294,6 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         "--vla-backend", choices=("lingbot", "uniwam"), default="lingbot"
     )
     parser.add_argument(
-        "--uniwam-python",
-        default=sys.executable,
-        help="Python executable for the isolated UniWAM model environment.",
-    )
-    parser.add_argument(
         "--vla-model-path",
         default=None,
         help="LingBot checkpoint or UniWAM resource root (policy/, checkpoint/, wan/, vlm/). Defaults to LINGBOT_MODEL_PATH or UNIWAM_MODEL_PATH.",
@@ -619,7 +614,7 @@ def _init_runtime(
 def _spawn_uniwam_server(
     args: argparse.Namespace, output_dir: Path
 ) -> tuple[ProcessDaemon | None, Any]:
-    """Launch the optional policy interpreter or borrow an existing RPC endpoint."""
+    """Launch UniWAM with the current interpreter or borrow an existing RPC endpoint."""
     from rpent.utils.daemon import ProcessDaemon, pick_free_port
     from rpent.utils.rpc import make_rpc_client
 
@@ -638,7 +633,7 @@ def _spawn_uniwam_server(
         "vlm-path": root / "vlm",
     }
     command = [
-        args.uniwam_python,
+        sys.executable,
         str(get_repo_root() / "robots" / "robotwin" / "uniwam_server.py"),
     ]
     for name, value in paths.items():
