@@ -17,6 +17,8 @@ Isaac Sim / IsaacLab 的版本约束由运行时包维护。``robodojo`` 还会�
 
 .. code-block:: bash
 
+   uv venv --python 3.11 .venv-robodojo
+   source .venv-robodojo/bin/activate
    uv pip install -e ".[robodojo]" --extra-index-url https://pypi.nvidia.com \
      --override requirements/robodojo-override.txt
 
@@ -45,6 +47,8 @@ IsaacLab 上游的非 editable 打包可能遗漏扩展配置。如果所安装�
 
 .. code-block:: bash
 
+   git clone --no-checkout https://github.com/yuechen0614/IsaacLab.git /path/to/IsaacLab
+   git -C /path/to/IsaacLab checkout afca7b09d60d8beb9c1cb28b43066499940b969b
    uv pip install --no-deps \
      -e /path/to/IsaacLab/source/isaaclab \
      -e /path/to/IsaacLab/source/isaaclab_assets \
@@ -73,6 +77,26 @@ IsaacLab 上游的非 editable 打包可能遗漏扩展配置。如果所安装�
   运行时读取 ``ROBODOJO_ASSETS_ROOT/Assets``，无需向安装目录创建符号链接。
   确认 ``Robots``、``Object``、``Material`` 和 ``Eval_Layout`` 下是实际文件，
   而非 LFS 指针。
+
+  下载后，在已激活的环境中将 ``curobo_tmp.yml`` 模板生成为仿真器使用的
+  ``curobo.yml`` 配置：
+
+  .. code-block:: bash
+
+     python - <<'PY'
+     import os
+     import runpy
+     from robodojo_runtime import source_root
+
+     script = source_root() / "utils/update_embodiment_config_path.py"
+     os.chdir(os.environ["ROBODOJO_ASSETS_ROOT"])
+     runpy.run_path(str(script), run_name="__main__")
+     PY
+     test -s "$ROBODOJO_ASSETS_ROOT/Assets/Robots/x5/curobo.yml"
+
+  生成器把 ``Assets/Robots`` 下的 ``*_tmp.yml`` 写成对应的 ``*.yml``，并填入绝对路径。
+  它会覆盖这些生成文件；若曾手工修改，先备份。移动资产目录后需重新生成。
+
 * **IsaacLab 引用的 NVIDIA USD/材质资产：** 它们不在 ``isaaclab_assets`` 包内。
   按 `NVIDIA 资产下载说明 <https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/install_faq.html#isaac-sim-setup-assets-content-pack>`_
   获取对应版本。RoboDojo 的 ``utils/ensure_usd_path.py`` 仅改写
@@ -110,7 +134,7 @@ PyTorch 版本，因此下载后需要转换一次。感知使用 SAM 3，需要
 
 .. code-block:: bash
 
-   # 1. 下载发布版 Pi_05 checkpoint（约 7 GB）。下载根目录与资产保持一致：
+   # 1. 下载发布版 Pi_05 checkpoint。下载根目录与资产保持一致：
    #    hf download 会保留仓库内的路径，写成 /data/robodojo/ckpt 会多套一层 ckpt/。
    hf download RoboDojo-Benchmark/RoboDojo --repo-type dataset \
      --include 'ckpt/RoboDojo/Pi_05/**' --local-dir /data/robodojo
@@ -124,9 +148,15 @@ PyTorch 版本，因此下载后需要转换一次。感知使用 SAM 3，需要
      --config-name pi05_aloha \
      --output-path /data/robodojo/pi05_robodojo_arx_x5_torch
 
-   # 3. 指向转换后的 checkpoint 与 SAM 3。
+   # 3. 将发布权重对应的统计量放到 RLinf RoboDojo 预设读取的位置。
    export PI05_CHECKPOINT_PATH=/data/robodojo/pi05_robodojo_arx_x5_torch
+   mkdir -p "$PI05_CHECKPOINT_PATH/RoboDojo/arx_x5"
+   cp /data/robodojo/ckpt/RoboDojo/Pi_05/RoboDojo-sim-arx_x5-joint-0/59999/assets/arx_x5_sim/norm_stats.json \
+     "$PI05_CHECKPOINT_PATH/RoboDojo/arx_x5/norm_stats.json"
+
+   # 4. 指向另行下载的 SAM 3 checkpoint。
    export SAM3_CHECKPOINT_PATH=/data/sam3/sam3.pt
+   test -s "$SAM3_CHECKPOINT_PATH"
 
 转换器属于 RLinf，随 ``robodojo-sim`` 安装的 ``rlinf`` 包一起落地，因此用模块方式调\
 用；RPent 检出里没有 ``rlinf/utils/`` 目录。``--checkpoint-dir`` 要指向 ``59999`` 这一\
@@ -135,7 +165,13 @@ PyTorch 版本，因此下载后需要转换一次。感知使用 SAM 3，需要
 结构；XPolicyLab 自带的 openpi 里那个 ``..._arx-x5_seed_0`` 名字对应同一结构，但转\
 换器导入的不是那份注册表。
 
-发布版随包携带的归一化统计量要与转换后的权重放在一起，客户端会一并加载。\
+原始 JAX 下载与转换后的权重大小不同：数据集修订 ``35efbc7dedfdbeeb6e95fb749bd885d73d483e41``
+中上述 Pi_05 下载模式匹配约 69.6 GB，转换后的 ``model.safetensors`` 约 7.23 GB。
+需为原始下载、转换输出及缓存分别预留空间。
+
+RLinf 的 ``pi05_robodojo_arx_x5`` 预设使用 ``RoboDojo/arx_x5`` 作为统计量目录名，
+不是发布目录中的 ``arx_x5_sim``。转换器不会自动完成上述复制。
+加载成功后，策略日志会出现 ``Loaded norm stats from .../RoboDojo/arx_x5``。
 ``--inspect_only`` 只打印 orbax 参数键、不做转换，是检查下载结果最快的方式。
 
 RPent 配置
@@ -188,14 +224,27 @@ RLinf 客户端会将原生观测编码为 openpi wire 格式。
 验证安装
 --------
 
-跑一次有界的开发模式 episode，确认规划器接管之前各服务已就绪：
+先按 :doc:`../guides/configure_planner` 配置规划器认证与可用模型，并在运行任务的同一终端检查连接：
+
+.. code-block:: bash
+
+   rpent-check-llm --planner codex --model <planner-model> --json
+
+选择支持图像与工具调用的模型。需要指定兼容的 Codex CLI 时，设置
+``export CODEX_BIN=/absolute/path/to/codex`` 后重新检查。
+下例使用 ``--reasoning-effort medium``；请按所选模型支持的推理级别设置，
+部分模型不接受默认的 ``none``。
+
+然后跑一次有界的开发模式 episode，验证观测、感知、策略动作、结果保存及退出。
+``--max-turns 1`` 仅适合启动检查，不能据此确认策略动作链路。以下使用 40 次调用预算：
 
 .. code-block:: bash
 
    export ROBODOJO_PLACEMENT_SETTLE_STEPS=1000
    export OMNI_KIT_ACCEPT_EULA=YES
    rpent --robot robodojo --task put_bottles_into_dustbin --layout 0 \
-     --planner codex --model <planner-model> --max-turns 1 \
+     --planner codex --model <planner-model> --reasoning-effort medium \
+     --max-turns 40 --planner-timeout-s 1500 \
      --sim-python /path/to/sim-env/bin/python \
      --pi05-python /path/to/pi05-env/bin/python \
      --output-dir /path/to/run-output
@@ -210,7 +259,12 @@ RLinf 客户端会将原生观测编码为 openpi wire 格式。
   ``vla_server.log``。
 * 环境服务报告 ready，第一条观测包含 ``cam_head``、``cam_left_wrist`` 与
   ``cam_right_wrist`` 的内参、外参，以及关节与夹爪状态。
+* ``states.json`` 记录已完成的策略动作及动作后观测。
+  规划器调用 ``finish``，且 ``result.json`` 中 ``environment_result_available`` 为
+  ``true``、``agent_error_present`` 为 ``false``。``success`` 单独表示原生任务结果；
+  安装链路验收不要求任务成功。
 * 本次运行在 ``/path/to/run-output/videos`` 下为每路相机写一个 MP4。
+  检查三路视频均可完整解码。
 * 退出后没有遗留的自有子进程，GPU 回到空闲。
 
 启动阶段某个服务退出是最常见的失败形式，先去运行输出目录读它的日志。
