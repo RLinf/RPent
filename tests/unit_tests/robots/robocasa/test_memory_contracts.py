@@ -633,11 +633,16 @@ def test_local_global_only_and_multiple_plain_global_leaves(tmp_path, make_corpu
         TaskMemory.load(root, "OpenDrawer", profile="local")
 
 
-def test_exploration_can_start_empty_and_keeps_inbox_access(tmp_path, monkeypatch):
+@pytest.mark.parametrize("memory_exists", [False, True])
+def test_exploration_can_start_empty_and_keeps_inbox_access(
+    tmp_path, monkeypatch, memory_exists
+):
     from robots.robocasa import robot_spec, toolkit
     from rpent.dashboard.events import NullDashboardEventSink
 
     root = tmp_path / "empty"
+    if memory_exists:
+        root.mkdir()
     args = _args(tmp_path, memory_dir=root)
     args.explore = True
     args.explore_sessions = 3
@@ -666,6 +671,20 @@ def test_exploration_can_start_empty_and_keeps_inbox_access(tmp_path, monkeypatc
     assert instance.state_output_dir == tmp_path / "attempt"
     file_tools = CommonTools(memory=instance.memory)
     inbox_file = root / "_internal/inbox/OpenDrawer_target_s1/wip/notes.md"
+    prompt = robot_spec.get_robot_spec().prompts.render(
+        "system", variables={**config.prompt_vars, "output_dir": str(config.output_dir)}
+    )
+    for directory in (
+        root / "task-specific",
+        root / "task-family",
+        root / "global",
+        inbox_file.parent,
+    ):
+        assert f"`{directory}/`" in prompt
+        assert file_tools.list_dir(path=str(directory)).data == {
+            "error": f"directory not found: {directory}"
+        }
+    assert root.exists() is memory_exists
     file_tools.write_text_file(path=str(inbox_file), content="Offline note")
     assert (
         file_tools.read_text_file(path=str(inbox_file)).data["content"]
@@ -675,9 +694,6 @@ def test_exploration_can_start_empty_and_keeps_inbox_access(tmp_path, monkeypatc
         file_tools.write_text_file(
             path=str(root / "global/direct.md"), content="Denied"
         )
-    prompt = robot_spec.get_robot_spec().prompts.render(
-        "system", variables={**config.prompt_vars, "output_dir": str(config.output_dir)}
-    )
     assert "scope: task-family" in prompt
     assert "suite: robocasa" in prompt
     assert "scope: suite" not in prompt

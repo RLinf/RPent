@@ -182,8 +182,9 @@ The mean covers successful, failed, and timed-out evaluation episodes; tokens
 refer to evaluation-stage output only.
 
 RPent Flash Mode uses directly downloaded, officially released GPT-5.5
-exploration memory; Molmo2-8B is used for visual localization.
-These results use the best-performing seed from s0-s9.
+exploration memory, Molmo2-8B for visual localization, and the same VLA as
+pi_RLinf for action execution. The displayed scores are the best evaluation
+results from s0-s9.
 
 Historical Comparison
 ~~~~~~~~~~~~~~~~~~~~~
