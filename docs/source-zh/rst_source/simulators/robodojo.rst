@@ -165,14 +165,10 @@ PyTorch 版本，因此下载后需要转换一次。感知使用 SAM 3，需要
 结构；XPolicyLab 自带的 openpi 里那个 ``..._arx-x5_seed_0`` 名字对应同一结构，但转\
 换器导入的不是那份注册表。
 
-原始 JAX 下载与转换后的权重大小不同：数据集修订 ``35efbc7dedfdbeeb6e95fb749bd885d73d483e41``
-中上述 Pi_05 下载模式匹配约 69.6 GB，转换后的 ``model.safetensors`` 约 7.23 GB。
-需为原始下载、转换输出及缓存分别预留空间。
+原始 JAX 权重约 69.6 GB，转换后的 PyTorch 权重约 7.23 GB，请为下载、转换和缓存预留空间。
 
-RLinf 的 ``pi05_robodojo_arx_x5`` 预设使用 ``RoboDojo/arx_x5`` 作为统计量目录名，
-不是发布目录中的 ``arx_x5_sim``。转换器不会自动完成上述复制。
-加载成功后，策略日志会出现 ``Loaded norm stats from .../RoboDojo/arx_x5``。
-``--inspect_only`` 只打印 orbax 参数键、不做转换，是检查下载结果最快的方式。
+将归一化统计量复制到上述目录后，策略日志会显示
+``Loaded norm stats from .../RoboDojo/arx_x5``。
 
 RPent 配置
 ----------
@@ -261,8 +257,7 @@ RLinf 客户端会将原生观测编码为 openpi wire 格式。
   ``cam_right_wrist`` 的内参、外参，以及关节与夹爪状态。
 * ``states.json`` 记录已完成的策略动作及动作后观测。
   规划器调用 ``finish``，且 ``result.json`` 中 ``environment_result_available`` 为
-  ``true``、``agent_error_present`` 为 ``false``。``success`` 单独表示原生任务结果；
-  安装链路验收不要求任务成功。
+  ``true``、``agent_error_present`` 为 ``false``。``success`` 表示任务是否成功。
 * 本次运行在 ``/path/to/run-output/videos`` 下为每路相机写一个 MP4。
   检查三路视频均可完整解码。
 * 退出后没有遗留的自有子进程，GPU 回到空闲。
@@ -419,6 +414,8 @@ RoboDojo 提供双臂运动与夹爪原语、三相机 RGB-D、SAM3 感知、RLi
 
 有界冒烟与退出诊断
 ------------------
+
+检查下载的 JAX 权重时，可在上述转换命令中添加 ``--inspect_only``，只打印 orbax 参数键而不执行转换。
 
 ``fill_pen_holder`` 的冒烟显式使用
 ``--planner-timeout-s 1500 --max-turns 40``，外层使用

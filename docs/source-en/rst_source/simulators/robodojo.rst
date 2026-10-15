@@ -191,18 +191,11 @@ Pi_05 aloha model (32-D actions, horizon 50), which is what the stock
 extra. XPolicyLab's bundled openpi carries an ``..._arx-x5_seed_0`` name for the
 same architecture, but that registry is not the one the converter imports.
 
-The original JAX download and converted weights differ in size. At dataset
-revision ``35efbc7dedfdbeeb6e95fb749bd885d73d483e41``, the Pi_05 download pattern
-above matches about 69.6 GB; the converted ``model.safetensors`` is about
-7.23 GB. Allow space for the original download, converted output and caches.
+The original JAX weights are about 69.6 GB, and the converted PyTorch weights
+are about 7.23 GB. Allow space for the download, conversion and caches.
 
-The RLinf ``pi05_robodojo_arx_x5`` preset uses ``RoboDojo/arx_x5`` as its
-statistics directory, not the release's ``arx_x5_sim`` directory. The converter
-does not perform this copy. Successful loading produces
-``Loaded norm stats from .../RoboDojo/arx_x5`` in the policy log.
-``--inspect_only`` prints the
-orbax parameter keys without converting, which is the quickest way to check a
-download before converting it.
+After copying the normalization statistics to the directory above, the policy
+log reports ``Loaded norm stats from .../RoboDojo/arx_x5``.
 
 RPent configuration
 -------------------
@@ -303,8 +296,8 @@ Expected behaviour:
 * ``states.json`` records completed policy actions and post-action observations.
   The planner calls
   ``finish``, and ``result.json`` has ``environment_result_available=true`` and
-  ``agent_error_present=false``. The separate ``success`` field reports the
-  native task outcome; installation verification does not require task success.
+  ``agent_error_present=false``. The ``success`` field reports whether the task
+  succeeded.
 * The run writes one MP4 per camera under ``/path/to/run-output/videos``.
   Check that all three videos decode fully.
 * Shutdown leaves no owned child process behind and the GPUs return to idle.
@@ -493,6 +486,9 @@ read-only robot operation.
 
 Bounded smoke runs and shutdown diagnostics
 --------------------------------------------
+
+To inspect downloaded JAX weights, add ``--inspect_only`` to the conversion
+command above. It prints orbax parameter keys without converting the weights.
 
 For ``fill_pen_holder``, use an explicit smoke budget of
 ``--planner-timeout-s 1500 --max-turns 40`` with an outer
