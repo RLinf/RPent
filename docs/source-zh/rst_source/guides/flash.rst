@@ -37,7 +37,14 @@
 
    uv venv --python 3.11 /path/to/molmo-venv
 
-接着在该环境中安装 PyTorch 和匹配的 torchvision：按 `PyTorch 安装指南 <https://pytorch.org/get-started/locally/>`_ 选择兼容 GPU 和 NVIDIA 驱动的构建，将命令中的 ``pip install`` 换为 ``uv pip install --python /path/to/molmo-venv/bin/python``。PyTorch 安装完成后，再安装 Molmo extra：
+接着在该环境中安装 PyTorch 和匹配的 torchvision。按 `PyTorch 安装指南 <https://pytorch.org/get-started/locally/>`_ 选择兼容 GPU 和 NVIDIA 驱动的构建，将下方 ``<CUDA_TAG>`` 替换为所选构建（如 ``cu126`` 或 ``cu128``）。此命令使用 `上海交大 PyTorch 镜像 <https://mirror.sjtu.edu.cn/docs/pytorch-wheels>`_：
+
+.. code-block:: bash
+
+   uv pip install --python /path/to/molmo-venv/bin/python \
+     torch torchvision --index-url "https://mirror.sjtu.edu.cn/pytorch-wheels/<CUDA_TAG>/"
+
+PyTorch 安装完成后，再安装 Molmo extra：
 
 .. code-block:: bash
 

@@ -57,9 +57,15 @@ Run Molmo in a separate Python environment:
    uv venv --python 3.11 /path/to/molmo-venv
 
 Next, install PyTorch and matching torchvision in this environment using the
-`PyTorch installation guide <https://pytorch.org/get-started/locally/>`_. Choose
-a build compatible with your GPU and NVIDIA driver, and replace ``pip install``
-with ``uv pip install --python /path/to/molmo-venv/bin/python``.
+command below. Replace ``<CUDA_TAG>`` with a build compatible with your GPU and
+NVIDIA driver (for example, ``cu126`` or ``cu128``); see the
+`PyTorch installation guide <https://pytorch.org/get-started/locally/>`_:
+
+.. code-block:: bash
+
+   uv pip install --python /path/to/molmo-venv/bin/python \
+     torch torchvision --index-url "https://download.pytorch.org/whl/<CUDA_TAG>/"
+
 Once PyTorch is installed, install the Molmo extra:
 
 .. code-block:: bash
