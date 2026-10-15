@@ -50,45 +50,21 @@ plan used for the task.
 Configure Molmo
 ---------------
 
-Molmo requires a newer ``transformers`` version than the LIBERO policy
-environment, so run it in a separate Python environment:
+Run Molmo in a separate Python environment:
 
 .. code-block:: bash
 
    uv venv --python 3.11 /path/to/molmo-venv
 
-**Before installing the Molmo extra**, install PyTorch and matching torchvision
-in this environment, choosing a build compatible with your GPU and NVIDIA
-driver from the `PyTorch installation guide
-<https://pytorch.org/get-started/locally/>`_. In the selected command, replace
-``pip install`` with ``uv pip install --python /path/to/molmo-venv/bin/python``
-and keep the chosen ``--index-url`` on this PyTorch command only.
-
-The extra does not pin Torch's CUDA build, and plain ``uv pip install`` does
-not select a build from the locally installed CUDA toolkit. On Linux the
-default index can resolve to CUDA 13 packages even on a CUDA 12 machine.
-See `uv's PyTorch guide
-<https://docs.astral.sh/uv/guides/integration/pytorch/>`_ for backend selection.
-
-After PyTorch is installed, install the Molmo extra. This keeps compatible
-installed packages unless an upgrade is requested:
+Next, install PyTorch and matching torchvision in this environment using the
+`PyTorch installation guide <https://pytorch.org/get-started/locally/>`_. Choose
+a build compatible with your GPU and NVIDIA driver, and replace ``pip install``
+with ``uv pip install --python /path/to/molmo-venv/bin/python``.
+Once PyTorch is installed, install the Molmo extra:
 
 .. code-block:: bash
 
    uv pip install --python /path/to/molmo-venv/bin/python -e ".[molmo]"
-
-Verify this separate interpreter, not the LIBERO environment:
-
-.. code-block:: bash
-
-   /path/to/molmo-venv/bin/python -c \
-     "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"
-
-Confirm that the printed Torch and CUDA versions match your selected build,
-and that GPU availability is ``True``. If an existing Molmo environment has
-the wrong build, repeat your selected PyTorch install command with
-``--reinstall-package torch --reinstall-package torchvision``, then check again.
-Do not install ``.[molmo]`` into the LIBERO policy environment.
 
 Download ``allenai/Molmo2-8B`` from `Hugging Face
 <https://huggingface.co/allenai/Molmo2-8B>`_ or `ModelScope

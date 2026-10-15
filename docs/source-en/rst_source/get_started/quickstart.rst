@@ -25,31 +25,14 @@ Create and activate an isolated Python environment:
    uv venv --python 3.11
    source .venv/bin/activate
 
-**Before installing the RPent extra**, install a PyTorch build compatible with
-your GPU and NVIDIA driver. This LIBERO setup's OpenPI dependency requires
-``torch==2.7.1``; use the matching ``torchvision==0.22.1``. Choose a supported
-CUDA build from the `PyTorch installation variants
-<https://pytorch.org/get-started/previous-versions/>`_ and run its install
-command in the activated environment, replacing ``pip install`` with
-``uv pip install``. Keep the selected ``--index-url`` on the PyTorch command
-only; RPent's other dependencies use the normal index. Download speed depends
-on your network.
-
-After PyTorch is installed, install the LIBERO-PRO extra:
+Install ``torch==2.7.1`` and ``torchvision==0.22.1`` as required by OpenPI.
+Choose a build compatible with your GPU and NVIDIA driver from the
+`PyTorch installation instructions <https://pytorch.org/get-started/previous-versions/>`_,
+replacing ``pip install`` with ``uv pip install``. Then install LIBERO-PRO:
 
 .. code-block:: bash
 
    uv pip install -e ".[libero-pro]"
-
-Check the installed build and GPU access before downloading the models:
-
-.. code-block:: bash
-
-   python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"
-
-Confirm that the printed Torch and CUDA versions match the build you selected,
-and that GPU availability is ``True``. The CUDA version shown by ``nvidia-smi``
-does not identify the installed Torch build.
 
 Run the remaining commands in this terminal from the RPent repository root. In a new terminal, activate ``.venv`` and set the checkpoint paths and API key again.
 

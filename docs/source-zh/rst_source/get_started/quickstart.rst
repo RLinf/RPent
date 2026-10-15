@@ -25,21 +25,11 @@
    uv venv --python 3.11
    source .venv/bin/activate
 
-**安装 RPent extra 之前**，先安装兼容 GPU 和 NVIDIA 驱动的 PyTorch 构建。本 LIBERO 配置的 OpenPI 依赖要求 ``torch==2.7.1``，搭配 ``torchvision==0.22.1``。从 `PyTorch 安装版本说明 <https://pytorch.org/get-started/previous-versions/>`_ 中选择受支持的 CUDA 构建，在已激活的环境中执行对应安装命令，并将 ``pip install`` 替换为 ``uv pip install``。所选 ``--index-url`` 只用于 PyTorch 安装命令，RPent 的其他依赖仍使用常规索引。实际下载速度取决于网络。
-
-PyTorch 安装完成后，再安装 LIBERO-PRO extra：
+先安装 OpenPI 要求的 ``torch==2.7.1`` 和 ``torchvision==0.22.1``。按 `PyTorch 安装说明 <https://pytorch.org/get-started/previous-versions/>`_ 选择兼容 GPU 和 NVIDIA 驱动的构建，将命令中的 ``pip install`` 换为 ``uv pip install``。安装完成后，再安装 LIBERO-PRO：
 
 .. code-block:: bash
 
    uv pip install -e ".[libero-pro]"
-
-下载模型前，检查已安装的构建版本与 GPU 可用性：
-
-.. code-block:: bash
-
-   python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"
-
-确认输出的 Torch 和 CUDA 版本与所选构建一致，GPU 可用性为 ``True``。``nvidia-smi`` 显示的 CUDA 版本不代表已安装的 Torch 构建。
 
 后续命令都在这个终端和 RPent 仓库目录中执行。重新打开终端时，先激活 ``.venv``，再设置下文的模型路径与 API Key。
 
