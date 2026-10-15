@@ -81,6 +81,13 @@ def test_tool_declarations_match_pre_refactor_contracts(group: str) -> None:
         for item in declarations
     }
     assert len(actual) == len(declarations)
+    if group == "robotwin":
+        assert actual.keys() == expected.keys() | {"uniwam_act"}
+        uniwam = actual.pop("uniwam_act")
+        assert uniwam["input_schema"] == {
+            "type": "object",
+            "properties": {"chunks": {"type": "integer", "minimum": 1, "default": 1}},
+        }
     assert actual.keys() == expected.keys()
     for name in expected:
         assert actual[name] == expected[name], f"{group}/{name}"

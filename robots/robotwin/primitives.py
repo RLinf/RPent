@@ -23,7 +23,12 @@ import numpy as np
 from pydantic import Field
 
 from robots.robotwin.env_client import RoboTwinEnvClient
-from robots.robotwin.robot_spec import MODEL_SPEC, ROBOTWIN_CAMERA_NAMES
+from robots.robotwin.robot_spec import (
+    MODEL_SPEC,
+    ROBOTWIN_CAMERA_NAMES,
+    RoboTwinActionType,
+)
+from robots.robotwin.uniwam_client import ACTION_CHUNK_SIZE, UniWAMClient
 from robots.robotwin.vla_client import LingBotVLAClient
 from rpent.tools import ToolResult, tool
 
@@ -49,15 +54,17 @@ class RoboTwinPrimitives:
         self,
         *,
         env: RoboTwinEnvClient,
-        model: LingBotVLAClient,
+        model: LingBotVLAClient | UniWAMClient,
         seed: int,
         check_cancelled: Callable[[], None],
         seed_mode: str = "exact",
+        vla_backend: Literal["lingbot", "uniwam"] = "lingbot",
     ):
         if seed_mode != "exact":
             raise ValueError("standard RoboTwin integration requires seed_mode='exact'")
         self.env = env
         self.model = model
+        self.vla_backend = vla_backend
         self.seed = int(seed)
         self._check_cancelled = check_cancelled
         self.policy_actions = 0
@@ -119,8 +126,8 @@ class RoboTwinPrimitives:
             "stop_reason": stop_reason,
         }
 
-    def _build_lingbot_observation(self) -> dict[str, Any]:
-        """Assemble the rgb-only observation the LingBot policy infers on."""
+    def _build_policy_observation(self) -> dict[str, Any]:
+        """Collect current views, native language, and robot feedback."""
         views = {}
         for camera_name in ROBOTWIN_CAMERA_NAMES:
             views[camera_name] = {
@@ -239,8 +246,29 @@ class RoboTwinPrimitives:
             raise ValueError(
                 f"RoboTwin LingBot requires use_length={MODEL_SPEC.use_length}"
             )
+        return self._run_policy_chunks(chunks, MODEL_SPEC.use_length, "ee", prompt)
+
+    @tool
+    def uniwam_act(
+        self,
+        *,
+        chunks: Annotated[int, Field(ge=1, json_schema_extra={"default": 1})] = 1,
+    ) -> ToolResult:
+        """Run UniWAM with the complete native task instruction and recent state history. Each chunk predicts 16 qpos actions from fresh observations."""
+        if int(chunks) < 1:
+            raise ValueError("chunks must be at least 1")
+        return self._run_policy_chunks(chunks, ACTION_CHUNK_SIZE, "qpos")
+
+    def _run_policy_chunks(
+        self,
+        chunks: int,
+        chunk_size: int,
+        action_type: RoboTwinActionType,
+        prompt: str | None = None,
+    ) -> ToolResult:
+        """Execute policy chunks with shared cancellation, recording, and budgets."""
         executed = 0
-        requested = int(chunks) * MODEL_SPEC.use_length
+        requested = int(chunks) * chunk_size
         native_prompt = None
         for _ in range(int(chunks)):
             self._check_cancelled()
@@ -251,13 +279,15 @@ class RoboTwinPrimitives:
             ) >= int(step_lim)
             if status.get("eval_success") is True or budget_exhausted:
                 break
-            observation = self._build_lingbot_observation()
+            observation = self._build_policy_observation()
+            if self.vla_backend == "uniwam":
+                observation["qpos_history"] = self.env.qpos_history
             native_prompt = observation["task_language"]
-            actions = self.model.infer(observation)[: MODEL_SPEC.use_length]
+            actions = self.model.infer(observation)[:chunk_size]
             self._check_cancelled()
             payload, _, _, _, info = self.env.chunk_step(
                 actions,
-                action_type="ee",
+                action_type=action_type,
                 return_all_frames=self._recording
                 and self.env.execution_capabilities.get("chunk_step_all_frames")
                 is True,

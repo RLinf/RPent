@@ -113,6 +113,7 @@ class RoboTwinToolkit(Toolkit):
         self._attempt = 1
         self._attempts_per_session = max(0, int(attempts_per_session))
         self._latest_status: dict[str, Any] = {}
+        self._vla_backend = runtime_kwargs.get("vla_backend", "lingbot")
         self._primitives = RoboTwinPrimitives(
             check_cancelled=self.raise_if_cancelled,
             **runtime_kwargs,
@@ -156,6 +157,11 @@ class RoboTwinToolkit(Toolkit):
                 handler = partial(definition, self._state)
             self.add_tool(definition.with_handler(handler))
         for definition in iter_tools(self._primitives):
+            if (
+                definition.name in {"lingbot_act", "uniwam_act"}
+                and definition.name != f"{self._vla_backend}_act"
+            ):
+                continue
             handler = (
                 definition
                 if definition.name == "finish"
@@ -228,7 +234,7 @@ class RoboTwinToolkit(Toolkit):
         and the ``sample_world_xyz`` agent tool. It deliberately fetches depth
         and camera_meta so ``world_xyz`` can be back-projected and saved as an
         artifact -- distinct from the rgb-only observation built for LingBot
-        inference in ``RoboTwinPrimitives._build_lingbot_observation``.
+        inference in ``RoboTwinPrimitives._build_policy_observation``.
         """
         env = self._primitives.env
         views: dict[str, dict[str, Any]] = {}

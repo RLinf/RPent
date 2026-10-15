@@ -94,6 +94,15 @@ These options control the planner, memory, output directory, and Dashboard.
 Environment Options
 -------------------
 
+RoboTwin accepts ``--vla-backend lingbot|uniwam`` (default: ``lingbot``).
+``--vla-model-path`` overrides ``LINGBOT_MODEL_PATH`` or
+``UNIWAM_MODEL_PATH`` for the selected backend. UniWAM additionally accepts
+``--uniwam-policy-dir``, ``--uniwam-wan-path``, and ``--uniwam-vlm-path``
+(defaults: ``UNIWAM_POLICY_DIR``, ``UNIWAM_WAN_PATH``, ``UNIWAM_VLM_PATH``).
+``--uniwam-python`` selects the model interpreter, defaulting to the current
+interpreter. These local model paths are unnecessary with an existing
+``--vla-endpoint socket://host:port``. See :doc:`../simulators/robotwin`.
+
 LIBERO selects tasks with ``--suite``, ``--task``, ``--seed``, and ``--libero-type``; the variant defaults to ``LIBERO_TYPE`` or ``pro``. RoboCasa365 and RoboTwin use ``--task-name``. Franka uses ``--task-id`` and ``--robot-config``. See :doc:`../simulators/libero`, :doc:`../simulators/robocasa`, :doc:`../simulators/robotwin`, :doc:`../real_world_robots/franka`, and :doc:`../real_world_robots/dual_franka` for details.
 
 ``--env-endpoint``, ``--vla-endpoint``, and LIBERO’s ``--sam3-endpoint`` connect to existing services using ``[protocol://]host:port``; the default protocol is ``http``. See :doc:`advanced_deployment` for GPU assignment and remote services.

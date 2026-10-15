@@ -22,7 +22,7 @@ RoboTwin
 
    .. grid-item-card:: 动作模型
 
-      LingBot-VLA
+      LingBot-VLA（默认）、UniWAM（可选）
 
    .. grid-item-card:: 规划器
 
@@ -67,9 +67,9 @@ C2R 使用干净场景中的成功轨迹作为经验，在随机场景中评测�
    * - 项目
      - 说明
    * - 观测
-     - 头部与左右腕部的 RGB 图像、用于定位的深度／世界坐标及机器人状态。LingBot-VLA 使用 RGB 图像、机器人状态和任务文字。
+     - 头部与左右腕部的 RGB 图像、用于定位的深度／世界坐标及机器人状态。两个模型都使用 RGB 图像、机器人状态和任务文字；UniWAM 还使用近期关节状态反馈。
    * - 动作
-     - 规划器调用 ``lingbot_act`` 或动作原语。环境支持 16 维末端动作（``ee``）和 14 维关节／夹爪动作（``qpos``）。
+     - 所选后端暴露 ``lingbot_act`` 或 ``uniwam_act``，同时保留动作原语。环境支持 16 维末端动作（``ee``）和 14 维关节／夹爪动作（``qpos``）。
    * - 奖励与成功判定
      - 任务成功以原生 ``TASK_ENV.eval_success`` 为准，规划器结束与任务超时需分别判断。
    * - 任务指令
@@ -134,6 +134,54 @@ RoboTwin 要求 Python 3.11。宿主机需预先具备兼容的 CUDA toolkit/NVC
    export LINGBOT_MODEL_PATH=/path/to/LingBot-VLA-RoboTwin-EEF-ckpt1500
 
 模型目录中已经包含 RoboTwin 的默认机器人配置。
+
+UniWAM 后端
+~~~~~~~~~~~~~~
+
+UniWAM 是可选后端，默认仍为 LingBot。它沿用环境和 memory 配置，使用独立的规划器
+prompt 和 ``uniwam_act(chunks=1)`` 工具，每块包含 16 步关节／夹爪动作。
+所有实际执行动作后的状态（包括解析工具产生的状态）都会进入近期历史，重置回合时清空。
+每次推理前，服务用环境历史重新填充官方策略缓存；图像处理、归一化和历史补齐仍由官方实现负责。
+
+先在独立 Python 环境中准备
+`UniWAM 官方 RoboTwin 部署代码 <https://github.com/UniWAM/UniWAM/tree/8dcd3401bccda8c002fc558e356b975b1789eecd/inference/robotwin/uniwam>`_，
+安装其策略依赖和 RPent 基础包。保留完整策略目录，不能只复制 ``deploy_policy.py``。
+模型需要 history-flow 格式的 ``pytorch_model/`` 导出目录及其父目录中的
+``config.json``，另外按官方说明准备 Wan2.2-TI2V-5B 和 Qwen3-VL-2B-Instruct
+资源。适配层使用 4 次推理迭代，历史噪声参数沿用 checkpoint 配置。
+FlashAttention 必须与模型环境的 Torch、CUDA 构建匹配，不会自动切换注意力算法。
+
+配置好规划器后，在 RPent 的 RoboTwin 环境中运行：
+
+.. code-block:: bash
+
+   export UNIWAM_POLICY_DIR=/path/to/UniWAM/inference/robotwin/uniwam
+   export UNIWAM_MODEL_PATH=/path/to/checkpoint/pytorch_model
+   export UNIWAM_WAN_PATH=/path/to/Wan2.2-TI2V-5B
+   export UNIWAM_VLM_PATH=/path/to/Qwen3-VL-2B-Instruct
+   rpent --robot robotwin --vla-backend uniwam \
+      --uniwam-python /path/to/uniwam-env/bin/python \
+      --task-name beat_block_hammer --task-config demo_randomized --seed 100000
+
+RPent 负责启动和清理自己创建的模型进程。如果要连接已有服务，用模型解释器运行
+``robots/robotwin/uniwam_server.py --help`` 查看启动参数，再向 RPent 传入
+``--vla-endpoint socket://127.0.0.1:PORT``；RPent 不会关闭外部服务。
+环境服务必须提供逐步关节状态反馈。遇到历史缺失错误应更新 EnvServer，不能用预测动作代替反馈。
+
+原 LingBot prompt 和 memory 选择逻辑保持不变，既有 LingBot 经验中的块数不能直接
+视为 UniWAM 的执行时长。任务成功仍以 ``TASK_ENV.eval_success`` 为准，
+RPC 或工具调用成功不等于任务成功。
+
+需要进行真实组件、混合工具和脚本规划器验证时，设置上述路径以及
+``ROBOTWIN_ASSETS_PATH``、``UNIWAM_PYTHON``、
+``CUDA_VISIBLE_DEVICES``（一张可用 GPU）和新的 ``RPENT_E2E_OUTPUT_DIR``，再运行：
+
+.. code-block:: bash
+
+   RPENT_RUN_UNIWAM_INTEGRATION=1 \
+      pytest tests/e2e_tests/robotwin/test_uniwam.py -v
+
+这些检查调用真实模型和模拟器，脚本规划器不需要 API 凭据，但检查通过不代表基准成功率。
 
 运行一个任务
 ------------

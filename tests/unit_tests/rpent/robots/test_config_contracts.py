@@ -323,6 +323,8 @@ def test_robotwin_cli_defaults_can_come_from_environment(
     )
 
     assert args.robotwin_assets_path == "/offline/assets"
+    # Model defaults depend on the selected backend, resolved after parsing.
+    get_robot_spec("robotwin").parse_config(args)
     assert args.vla_model_path == "/offline/model"
     assert args.lingbot_robot_config == "/offline/robot.yaml"
 

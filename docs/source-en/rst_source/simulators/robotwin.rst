@@ -22,7 +22,7 @@ Check the model, task, and runtime requirements before following the installatio
 
    .. grid-item-card:: Action Models
 
-      LingBot-VLA
+      LingBot-VLA (default), UniWAM (optional)
 
    .. grid-item-card:: Planners
 
@@ -67,9 +67,9 @@ The table distinguishes planner tools, model inputs, and the environment’s suc
    * - Item
      - Description
    * - Observation
-     - Head and left/right wrist RGB views, depth/world coordinates for localization, and robot state. LingBot-VLA uses RGB views, robot state, and task text.
+     - Head and left/right wrist RGB views, depth/world coordinates for localization, and robot state. Both models use RGB views, robot state, and task text; UniWAM also uses recent joint-state feedback.
    * - Action
-     - The planner calls ``lingbot_act`` or motion primitives. The environment accepts 16-value end-effector actions (``ee``) or 14-value joint/gripper actions (``qpos``).
+     - The selected backend exposes ``lingbot_act`` or ``uniwam_act`` alongside motion primitives. The environment accepts 16-value end-effector actions (``ee``) or 14-value joint/gripper actions (``qpos``).
    * - Reward / success
      - Evaluate success using native ``TASK_ENV.eval_success``. Planner completion and episode timeouts are separate outcomes.
    * - Task prompt
@@ -142,6 +142,64 @@ Download the LingBot checkpoint and set its location:
    export LINGBOT_MODEL_PATH=/path/to/LingBot-VLA-RoboTwin-EEF-ckpt1500
 
 The checkpoint includes the default RoboTwin robot configuration.
+
+UniWAM Backend
+~~~~~~~~~~~~~~
+
+UniWAM is an optional backend; LingBot remains the default. It uses the same
+environment and memory configuration, with its own planner prompt and
+``uniwam_act(chunks=1)`` tool. Each chunk contains 16 joint/gripper actions.
+All executed actions, including analytic primitives, contribute to the recent
+state history. Reset clears that history. At each inference request the service
+rebuilds the official policy cache from the environment's history; images,
+normalization and history padding remain owned by the official policy.
+
+Prepare the official
+`UniWAM RoboTwin deployment <https://github.com/UniWAM/UniWAM/tree/8dcd3401bccda8c002fc558e356b975b1789eecd/inference/robotwin/uniwam>`_
+in a separate Python environment. Install its policy requirements and the base
+RPent package into that environment. Use the full policy directory, not a copy
+of only ``deploy_policy.py``. The checkpoint must be a history-flow
+``pytorch_model/`` export with its accompanying parent ``config.json``;
+also prepare the Wan2.2-TI2V-5B and Qwen3-VL-2B-Instruct resources described
+upstream. The adapter uses four inference steps and the checkpoint's history
+noise configuration. FlashAttention must match the model environment's Torch
+and CUDA build; there is no automatic fallback to another attention algorithm.
+
+From the RPent RoboTwin environment, after configuring a planner, run:
+
+.. code-block:: bash
+
+   export UNIWAM_POLICY_DIR=/path/to/UniWAM/inference/robotwin/uniwam
+   export UNIWAM_MODEL_PATH=/path/to/checkpoint/pytorch_model
+   export UNIWAM_WAN_PATH=/path/to/Wan2.2-TI2V-5B
+   export UNIWAM_VLM_PATH=/path/to/Qwen3-VL-2B-Instruct
+   rpent --robot robotwin --vla-backend uniwam \
+      --uniwam-python /path/to/uniwam-env/bin/python \
+      --task-name beat_block_hammer --task-config demo_randomized --seed 100000
+
+RPent starts and stops its own model process. To borrow an already running
+service, start ``robots/robotwin/uniwam_server.py --help`` with the model
+interpreter for its launch options, then pass
+``--vla-endpoint socket://127.0.0.1:PORT``; RPent does not stop borrowed
+services. The environment must provide per-step joint feedback. A history
+error requires updating the EnvServer, not substituting predicted actions.
+
+The default LingBot prompt and memory selection are unchanged. Existing
+LingBot recipe chunk counts are not UniWAM timing. Native task success still
+comes from ``TASK_ENV.eval_success``, not a successful RPC or tool call.
+
+For opt-in component, mixed-tool and scripted-planner checks, set the paths
+above plus ``ROBOTWIN_ASSETS_PATH``, ``UNIWAM_PYTHON``,
+``CUDA_VISIBLE_DEVICES`` (one available GPU), and a fresh
+``RPENT_E2E_OUTPUT_DIR``, then run:
+
+.. code-block:: bash
+
+   RPENT_RUN_UNIWAM_INTEGRATION=1 \
+      pytest tests/e2e_tests/robotwin/test_uniwam.py -v
+
+These checks exercise real models and simulation; the scripted planner needs
+no API credentials. They do not establish benchmark success rates.
 
 Run a Task
 ----------
