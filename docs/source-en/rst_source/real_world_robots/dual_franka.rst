@@ -253,6 +253,12 @@ check, not a fixed automated sequence, and does not require VLA.
      - Dirty/clean sorting of bowls, plates, and two cups; no utensils
      - Yes
 
+.. note::
+
+   Task IDs are used in both launch commands and memory identifiers such as
+   ``dual_franka_t1``. Keep each ID associated with the same task when editing
+   task definitions; do not reorder or reuse IDs for different tasks.
+
 In task ``2``, chicken nuggets inside a bowl, or an egg-tart foil tray in a cup
 or on a plate, mark it as dirty. Dirty objects go into the metal basket; clean
 objects go into the cardboard box. The task provides ``vla_right_grasp`` /
