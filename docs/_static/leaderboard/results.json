@@ -299,8 +299,8 @@
             "rpent-flash-mode"
           ],
           "text": {
-            "en": "RPent Flash Mode uses directly downloaded, officially released GPT-5.5 exploration memory, Molmo2-8B for visual localization, and the same VLA as pi_RLinf for action execution.",
-            "zh": "RPent Flash Mode 使用直接下载的、官方公开的 GPT-5.5 explore memory，Molmo2-8B 用于视觉定位，动作执行使用与 π_RLinf 相同的 VLA。"
+            "en": "RPent Flash Mode uses directly downloaded, officially released GPT-5.5 exploration memory, Molmo2-8B for visual localization, and the same VLA as pi_RLinf for action execution. The displayed scores are the best evaluation results from s0-s9.",
+            "zh": "RPent Flash Mode 使用直接下载的、官方公开的 GPT-5.5 explore memory，Molmo2-8B 用于视觉定位，动作执行使用与 π_RLinf 相同的 VLA。展示成绩采用 s0-s9 中的最佳评测结果。"
           },
           "placement": "footer"
         },
