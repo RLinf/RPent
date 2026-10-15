@@ -56,10 +56,6 @@ _SECRET_ENV_NAMES = ("GEMINI_API_KEY",)
 _NO_BUILTIN_TOOLS = ("__rpent_no_builtin_tools__",)
 
 
-class GeminiCliError(RuntimeError):
-    """Gemini CLI exited without completing a successful headless request."""
-
-
 class GeminiCliPlanner(Planner):
     """Planner that delegates its agent loop to the official Gemini CLI."""
 
@@ -256,7 +252,7 @@ def run_probe_turn(*, prompt: str, model: str | None, timeout_s: int) -> str:
             or _safe_stderr(stderr)
             or (f"Gemini CLI exited with status {process.returncode}")
         )
-        raise GeminiCliError(detail)
+        raise RuntimeError(detail)
     return recorder.final_response
 
 
@@ -298,7 +294,7 @@ def _run_session(
         )
         state["process"] = process
         if process.stdout is None or process.stderr is None:
-            raise GeminiCliError("Gemini CLI pipes were not created")
+            raise RuntimeError("Gemini CLI pipes were not created")
 
         stderr_reader = threading.Thread(
             target=_drain_stderr,
@@ -332,7 +328,7 @@ def _run_session(
         stderr_text = "".join(stderr_chunks)
         stderr_path.write_text(_redact_secrets(stderr_text))
         if returncode != 0 and recorder.error is None:
-            raise GeminiCliError(
+            raise RuntimeError(
                 _safe_stderr(stderr_text)
                 or f"Gemini CLI exited with status {returncode}"
             )
