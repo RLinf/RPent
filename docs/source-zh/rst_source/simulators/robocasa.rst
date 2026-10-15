@@ -186,11 +186,21 @@ RLDX-1 需要微调权重和基础模型的支持文件，两项都要下载。�
 任务记忆
 ------------
 
-默认从 `HF main <https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/robocasa>`_ 下载记忆，CLI 与 Dashboard 行为一致：向规划器提供当前任务记忆（task-specific）和通用记忆（global）。规划器按需读取，以实时观测和任务指令为准。
+CLI 与 Dashboard 默认按规划器模型选择 HF 记忆：``gpt-5.5`` 使用
+``robocasa/GPT_5.5_xhigh/``，``gpt-6-astra`` 使用
+``robocasa/GPT_6_astra_high/``；其他模型使用 GPT-5.5 记忆并给出提示。
+HF 默认分支为 ``main``。记忆选择不会改变模型的推理档位。
+可用 ``--memory-version`` 显式选择：
+
+.. code-block:: bash
+
+   rpent --robot robocasa --task-name OpenDrawer --seed 1 \
+     --vla-model-path /path/to/rldx --planner codex --model gpt-6-astra \
+     --memory-profile hf --memory-version GPT_5.5_xhigh
 
 .. code-block:: text
 
-   memory/robocasa/
+   robocasa/<memory-version>/
    ├── task-specific/
    └── global/
 
@@ -202,7 +212,7 @@ global 文件必须存在。任务记录（JSON）与动作序列（recipe）必
 
    .. _robocasa-memory-selection:
 
-   HF 模式从数据集当前 main 读取 ``robocasa/``，为当前任务提供 ``<Task>_s0.json``、``<Task>_s0_recipe.jsonl``、可选的 ``<Task>.md`` 和 ``global/GLOBAL_MEMORY.md``。评测的 ``--seed`` 改变场景，参考记忆仍使用 ``_s0``。
+   HF 模式读取所选的 ``robocasa/<memory-version>/`` 子目录，为当前任务提供 ``<Task>_s0.json``、``<Task>_s0_recipe.jsonl``、可选的 ``<Task>.md`` 和 ``global/GLOBAL_MEMORY.md``。评测的 ``--seed`` 改变场景，参考记忆仍使用 ``_s0``。
 
    本地评测使用 ``--memory-profile local --memory-dir <目录>``，支持两种任务文件命名：
 
@@ -213,7 +223,7 @@ global 文件必须存在。任务记录（JSON）与动作序列（recipe）必
 
    本地评测还开放 ``global/*.md``，以及 YAML frontmatter 同时匹配 ``suite: robocasa``、``regime: <split>``、``task_id: <Task>`` 的 ``task-family/*.md``。global 层至少需要一份可读文件。
 
-   提示词和 RPent 文件工具使用同一份可读文件列表。工具拒绝访问其他任务、其他 split、根索引 ``MEMORY.md`` 及 ``_internal/``；限制仅作用于 RPent 工具。CLI 在启动服务前检查记忆；Dashboard 在启动共享 VLA 前检查目录和 global，再于任务环境启动前检查任务文件。任务文件错误不会停掉已有的共享 VLA。
+   提示词和 RPent 文件工具使用同一份可读文件列表。工具拒绝访问其他任务、其他 split、根索引 ``MEMORY.md`` 及 ``_internal/``；限制仅作用于 RPent 工具。CLI 在启动服务前检查记忆；Dashboard 在每个任务的模型确定后选择并校验 HF 记忆，此时共享服务可能已经启动。本地模式仍在共享服务启动前检查目录和 global，再逐任务校验。
 
    模型按需读取记忆。实时任务语言、RGB-D、任务进展和工具结果优先；有接触、持物或可见进展时继续调用 VLA，连续两次无接触且无进展后再定位并有限调整姿态。每次调用使用完整的实时任务语言；历史 ``vla_act`` 仅供理解策略，历史坐标不可回放。
 
@@ -267,7 +277,7 @@ Target50 包含 50 个厨房任务，共运行 340 次。以下使用 Codex、GP
 .. code-block:: bash
 
    hf download RLinf/RPent-memory --repo-type dataset \
-      --include 'robocasa/**' --local-dir ./target50-memory
+      --include 'robocasa/GPT_5.5_xhigh/**' --local-dir ./target50-memory
 
 设置动作参数，并清除可能覆盖 ``--seed`` 的旧环境变量：
 
@@ -291,7 +301,7 @@ Target50 包含 50 个厨房任务，共运行 340 次。以下使用 Codex、GP
          --planner codex --model gpt-5.5 --reasoning-effort xhigh \
          --max-turns 100 --planner-timeout-s 1800 \
          --memory-profile local \
-         --memory-dir ./target50-memory/robocasa \
+         --memory-dir ./target50-memory/robocasa/GPT_5.5_xhigh \
          --output-dir ./runs/target50/atomic/OpenDrawer_s1
 
 接着按下表，为每个任务与 seed 组合各运行一次。任务名见 :ref:`完整任务列表 <robocasa-task-list>`，清单位于 ``robots/robocasa/eval/target50.json``。
@@ -487,7 +497,7 @@ VLA 推理检查
 记忆读取
 ~~~~~~~~~~~~
 
-``read_text_file`` 找不到当前任务记忆时，检查 ``memory/robocasa/task-specific/`` 或所选本地目录，以及任务名是否正确。详见 :ref:`记忆文件选择规则 <robocasa-memory-selection>`。Atomic 任务没有发布可选的 ``<Task>.md``；系统不会用其他任务的记忆替代。
+``read_text_file`` 找不到当前任务记忆时，检查所选语料的 ``task-specific/`` 目录，以及任务名是否正确。详见 :ref:`记忆文件选择规则 <robocasa-memory-selection>`。Atomic 任务没有发布可选的 ``<Task>.md``；系统不会用其他任务的记忆替代。
 
 实现说明
 ------------

@@ -158,7 +158,8 @@ def _build_argparser() -> argparse.ArgumentParser:
         default="none",
         help="Planner reasoning effort for api, claude_code, and "
         "codex. Higher effort may improve task success rate "
-        "but increases runtime. Defaults to none.",
+        "but increases runtime. Defaults to high for api and none for "
+        "claude_code/codex.",
     )
     ap.add_argument(
         "--no-images",
@@ -339,6 +340,7 @@ def main() -> int:
     # Two-phase argparse: first grab --robot / --env / --dashboard so we know
     # which robot's flags to add and whether to make its required flags optional.
     early, _ = parser.parse_known_args()
+    parser.set_defaults(reasoning_effort="high" if early.planner == "api" else "none")
 
     # --env is a deprecated alias for --robot; resolve it before loading the spec.
     if early.env_name is not None:
