@@ -439,7 +439,7 @@ equally.
 .. _historical-codex-reproduction:
 
 Published scores are on the :doc:`leaderboard <../leaderboard/performance>`.
-Expand the details below for task names, evaluation settings and published scores.
+Expand the details below for task names, evaluation settings and score references.
 
 .. dropdown:: Full Task List
 
@@ -524,43 +524,13 @@ Expand the details below for task names, evaluation settings and published score
 
    .. _robocasa-reported-results:
 
-   The :doc:`leaderboard <../leaderboard/performance>` is the source for the
-   reported rates below. The RPent configurations are Codex / GPT-5.5 / xhigh /
-   reasoning, Codex / GPT-6 Astra / low / reasoning, and Claude Code /
-   Opus-4.7 / max.reasoning. The Harness VLA reference column reports GPT-5.5
-   results from `paper Table 4 <https://arxiv.org/html/2607.08448v4#S3.T4>`_.
+   See the :doc:`leaderboard <../leaderboard/performance>` for RPent scores
+   and model configurations.
    Overall weights all 50 tasks equally; it is not the fraction of successful
    cells among 340.
 
-   .. list-table:: Reported Target50 success rates
-      :header-rows: 1
-      :widths: 24 18 18 18 22
-
-      * - Split
-        - RPent / GPT-5.5
-        - RPent / GPT-6 Astra
-        - RPent / Opus-4.7
-        - Harness VLA / GPT-5.5 reference
-      * - Atomic-Seen
-        - 92.0%
-        - 87.78%
-        - 79.4%
-        - 92.0%
-      * - Composite-Seen
-        - 61.0%
-        - 43.75%
-        - 47.5%
-        - 61.0%
-      * - Composite-Unseen
-        - 13.8%
-        - 42.50%
-        - 15.0%
-        - 13.8%
-      * - Overall (task-weighted)
-        - 57.1%
-        - 59.20%
-        - 48.6%
-        - 57.1%
+   Harness VLA's GPT-5.5 reference results are in
+   `paper Table 4 <https://arxiv.org/html/2607.08448v4#S3.T4>`_.
 
 .. _environment-smoke-tests:
 
