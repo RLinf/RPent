@@ -141,11 +141,32 @@ def test_shared_cli_defaults_reach_robot_config_parser(
     assert args.model is None
     assert args.max_turns == 100
     assert args.max_tokens == 8192
+    assert args.reasoning_effort == "high"
     assert args.dashboard is False
     assert args.dashboard_host == "127.0.0.1"
     assert args.dashboard_port == 0
     assert args.dashboard_language == "en"
     assert args.memory_profile == "hf"
+
+
+@pytest.mark.parametrize(
+    ("planner", "default_effort"),
+    [("api", "high"), ("codex", "none"), ("claude_code", "none")],
+)
+@pytest.mark.parametrize("explicit_effort", [None, "none", "low", "xhigh"])
+def test_cli_reasoning_effort_defaults_and_explicit_overrides(
+    monkeypatch: pytest.MonkeyPatch,
+    planner: str,
+    default_effort: str,
+    explicit_effort: str | None,
+) -> None:
+    argv = ["--robot", "libero", "--planner", planner]
+    if explicit_effort is not None:
+        argv.extend(["--reasoning-effort", explicit_effort])
+    _, args = _capture_validated_args(monkeypatch, argv)
+
+    expected = default_effort if explicit_effort is None else explicit_effort
+    assert args.reasoning_effort == expected
 
 
 def test_deprecated_env_alias_routes_to_the_same_robot(
@@ -371,16 +392,17 @@ def test_real_robot_terminal_requirement_fails_before_runtime(
 
 @pytest.mark.parametrize("explore", [False, True])
 @pytest.mark.parametrize(
-    "options,error",
+    "options,error,expected_effort",
     [
-        ("--dashboard --planner codex", None),
-        ("--dashboard --planner claude_code", None),
-        ("--dashboard --planner api --model test", None),
-        ("--planner codex", "requires a TTY"),
+        ("--dashboard --planner codex", None, "none"),
+        ("--dashboard --planner claude_code", None, "none"),
+        ("--dashboard --planner api --model test", None, "high"),
+        ("--dashboard --planner api --reasoning-effort none", None, "none"),
+        ("--planner codex", "requires a TTY", "none"),
     ],
 )
 def test_human_operator_main_routes_dashboard_without_tty(
-    monkeypatch, capsys, explore, options, error
+    monkeypatch, capsys, explore, options, error, expected_effort
 ):
     cli = _cli_module()
     from rpent.cli import dashboard as web
@@ -404,7 +426,12 @@ def test_human_operator_main_routes_dashboard_without_tty(
     argv = ["rpent", "--robot", "custom", *options.split()]
     monkeypatch.setattr(sys, "argv", argv + (["--explore"] if explore else []))
     if error is None:
-        monkeypatch.setattr(web, "run_dashboard_session", lambda *a, **kw: 73)
+
+        def run_dashboard_session(args, *a, **kw):
+            assert args.reasoning_effort == expected_effort
+            return 73
+
+        monkeypatch.setattr(web, "run_dashboard_session", run_dashboard_session)
         assert cli.main() == 73
     else:
         with pytest.raises(SystemExit) as exc:

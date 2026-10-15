@@ -80,7 +80,7 @@ def load_data(path: Path = ASSETS / "results.json") -> dict:
     notes = [
         note for benchmark in benchmarks.values() for note in benchmark.get("notes", [])
     ]
-    index(notes, "notes")
+    index(notes + data.get("footer_notes", []), "notes")
     for benchmark in benchmarks.values():
         if benchmark["default_view"] not in {view["id"] for view in benchmark["views"]}:
             raise ExtensionError(
@@ -189,11 +189,21 @@ def context(data: dict, language: str) -> dict:
         )
 
     sections = []
+    footer_notes = [
+        {"id": note["id"], "text": translate(note["text"])}
+        for note in data.get("footer_notes", [])
+    ]
     for section in data["benchmarks"]:
         notes = [
-            {"id": note["id"], "number": number, "text": translate(note["text"])}
+            {
+                "id": note["id"],
+                "number": number,
+                "text": translate(note["text"]),
+                "placement": note.get("placement", "module"),
+            }
             for number, note in enumerate(section.get("notes", []), 1)
         ]
+        footer_notes.extend(note for note in notes if note["placement"] == "footer")
         references = {}
         for note, rendered in zip(section.get("notes", []), notes):
             for config_id in note["configuration_ids"]:
@@ -251,7 +261,10 @@ def context(data: dict, language: str) -> dict:
                 "bars": bars,
                 "notes": notes,
                 "image_notes": [
-                    note for note in notes if any(note in bar["notes"] for bar in bars)
+                    note
+                    for note in notes
+                    if note["placement"] != "footer"
+                    and any(note in bar["notes"] for bar in bars)
                 ],
             }
         )
@@ -295,6 +308,7 @@ def context(data: dict, language: str) -> dict:
     return {
         "sections": sections,
         "costs": costs,
+        "footer_notes": footer_notes,
         "language": language,
         "copy": COPY[language],
     }
@@ -373,6 +387,11 @@ def write_images(app: Sphinx, exception: Exception | None) -> None:
             for index, panel in enumerate(pair):
                 panel.update(x=30 + index * 640, y=y, height=height)
             y += height + 28
+        for note in values["footer_notes"]:
+            prefix = f"* [{note['number']}] " if "number" in note else "* "
+            note["lines"] = wrap_svg_note(prefix + note["text"], width=185)
+            note["y"] = y
+            y += len(note["lines"]) * 17 + 10
         values["height"] = y + 45
         for theme in ("light", "dark"):
             values["dark"] = theme == "dark"
@@ -388,8 +407,8 @@ def setup(app: Sphinx) -> dict:
     app.add_directive("rpent-leaderboard", LeaderboardDirective)
     app.connect("build-finished", write_images)
     return {
-        "version": "3",
-        "env_version": 3,
+        "version": "4",
+        "env_version": 4,
         "parallel_read_safe": True,
         "parallel_write_safe": True,
     }
