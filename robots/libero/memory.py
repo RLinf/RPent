@@ -25,8 +25,8 @@ import shutil
 import tempfile
 from pathlib import Path, PurePosixPath
 
+from rpent.memory.model import select_model_version
 from rpent.memory.source import parse_repo
-from rpent.planner.base import resolve_model
 from rpent.robots.robot_spec import RunConfig
 from rpent.utils.config import get_memory_dir
 from rpent.utils.logging import get_logger
@@ -90,19 +90,13 @@ def select_version(
         return version
     if planner == "flash":
         return GPT5
-    resolved = resolve_model(planner, model)
-    name = resolved.rsplit(":", 1)[-1].lower() if resolved else ""
-    selected = {"gpt-5.5": GPT5, "gpt-6-astra": ASTRA}.get(name)
-    if selected:
-        return selected
-    logger.warning(
-        "No memory mapping for model %r (%s); using %s. "
-        "Use --memory-version to select explicitly.",
-        resolved,
-        planner,
-        GPT5,
+    return select_model_version(
+        version,
+        model=model,
+        planner=planner,
+        model_versions={"gpt-5.5": GPT5, "gpt-6-astra": ASTRA},
+        default_version=GPT5,
     )
-    return GPT5
 
 
 def replay_directory(root: Path) -> Path:

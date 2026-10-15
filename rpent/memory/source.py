@@ -50,7 +50,13 @@ def parse_repo(value: str) -> tuple[str, str]:
     return repo, revision if separator else "main"
 
 
-def prepare_explicit_source(source: str, robot: str) -> Path:
+def prepare_explicit_source(
+    source: str,
+    robot: str,
+    *,
+    version: str | None = None,
+    cache_dir: Path | None = None,
+) -> Path:
     """Materialize a robot subtree without exposing Hub cache symlinks.
 
     Copies are shared across runs of the same repository and resolved commit.
@@ -58,22 +64,29 @@ def prepare_explicit_source(source: str, robot: str) -> Path:
     """
     from huggingface_hub import snapshot_download
 
+    if version is not None and (
+        not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", version)
+        or version in (".", "..")
+    ):
+        raise ValueError("memory version must be a single corpus directory name")
+    prefix = f"{robot}/{version}" if version else robot
     repo, revision = parse_repo(source)
     snapshot = Path(
         snapshot_download(
             repo_id=repo,
             repo_type="dataset",
             revision=revision,
-            allow_patterns=[f"{robot}/**"],
+            allow_patterns=[f"{prefix}/**"],
         )
     )
-    root = snapshot / robot
+    root = snapshot / prefix
     if not root.is_dir() or not any(root.rglob("*")):
-        raise ValueError(f"Memory source has no {robot}/ corpus")
+        raise ValueError(f"Memory source has no {prefix}/ corpus")
     key = hashlib.sha256(repo.encode()).hexdigest()[:20]
-    cache = get_memory_dir(robot) / ".sources" / key
+    cache = (cache_dir or get_memory_dir(robot) / ".sources") / key
     cache.mkdir(parents=True, exist_ok=True)
-    destination = cache / snapshot.name / robot
+    relative = Path("versioned") / prefix if version else Path(robot)
+    destination = cache / snapshot.name / relative
     with (cache / "sync.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         if not destination.exists():
