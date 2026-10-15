@@ -7,7 +7,8 @@
     if (!host || host.dataset.loaded) return;
     const hash=location.hash.replace(/^#(?:native-)?/,'');
     const params=new URLSearchParams(location.search);
-    const requested=hash==='time-token-costs'||hash.startsWith('costs-')?'time-token-costs':
+    const footerTarget=[...host.querySelectorAll('.leaderboard-footer [id]')].some(note=>note.id===hash);
+    const requested=footerTarget?null:hash==='time-token-costs'||hash.startsWith('costs-')?'time-token-costs':
       hash&&hash!=='top'?'performance':
       params.get('section')==='time-token-costs'?'time-token-costs':null;
     const section=host.dataset.section;
