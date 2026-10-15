@@ -158,7 +158,8 @@ def _build_argparser() -> argparse.ArgumentParser:
         default="none",
         help="Planner reasoning effort for api, claude_code, and "
         "codex. Higher effort may improve task success rate "
-        "but increases runtime. Defaults to none.",
+        "but increases runtime. Defaults to high for api and none for "
+        "claude_code/codex.",
     )
     ap.add_argument(
         "--no-images",
@@ -197,6 +198,11 @@ def _build_argparser() -> argparse.ArgumentParser:
         "--memory-dir",
         default=None,
         help="Local memory root (environment default when omitted).",
+    )
+    ap.add_argument(
+        "--memory-repo",
+        default=None,
+        help="HF dataset owner/repo or https://huggingface.co/datasets/owner/repo@revision.",
     )
     ap.add_argument(
         "--explore",
@@ -334,6 +340,7 @@ def main() -> int:
     # Two-phase argparse: first grab --robot / --env / --dashboard so we know
     # which robot's flags to add and whether to make its required flags optional.
     early, _ = parser.parse_known_args()
+    parser.set_defaults(reasoning_effort="high" if early.planner == "api" else "none")
 
     # --env is a deprecated alias for --robot; resolve it before loading the spec.
     if early.env_name is not None:
@@ -416,9 +423,15 @@ def main() -> int:
     args.memory_profile = args.memory_profile or ("local" if args.explore else "hf")
     if args.memory_profile == "hf" and args.memory_dir is not None:
         parser.error("--memory-dir requires --memory-profile local or --explore")
+    if args.memory_repo is not None and args.memory_profile == "local":
+        parser.error("--memory-repo requires HF evaluation")
     from rpent.memory.loading import prepare_run_memory
 
     try:
+        if args.memory_repo is not None:
+            from rpent.memory.source import parse_repo
+
+            parse_repo(args.memory_repo)
         if robot_spec.validate_args is not None:
             robot_spec.validate_args(args)
     except ValueError as exc:
