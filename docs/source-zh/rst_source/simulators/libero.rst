@@ -198,6 +198,8 @@ SAM3 配置
 实验复现
 --------
 
+2026 年 10 月的空记忆实验见 :ref:`libero-pro-empty-memory-evaluation`，包含八类成功率及采样更充分的 Spatial Task/Swap 结果。其分层采样与历史重试处理单独说明，不与下述完整 benchmark 混为同一评测。
+
 RPent 在 LIBERO-PRO Task/Swap 上的统一模型对比及对应配置见 :doc:`../leaderboard/index`。
 
 :doc:`GPT-6 Astra 套件汇总 <../leaderboard/index>`

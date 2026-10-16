@@ -218,6 +218,12 @@ Use ``--explore`` to build local memory or ``--memory-profile local`` to read a 
 Experiment Reproduction
 -----------------------
 
+For the October 2026 empty-memory experiment, see
+:ref:`libero-pro-empty-memory-evaluation`: all eight suite-variant rates and
+the more densely sampled Spatial Task/Swap results. Its stratified coverage
+and historical retry handling are documented separately from the complete
+published benchmark below.
+
 See :doc:`../leaderboard/index` for the unified RPent model comparison on LIBERO-PRO
 Task/Swap and the corresponding model configurations.
 
