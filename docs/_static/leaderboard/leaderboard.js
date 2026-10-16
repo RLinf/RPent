@@ -26,8 +26,9 @@
   const selection = new Map(d.benchmarks.map(s => [s.id, s.default_view]));
   const costGroups=d.benchmarks.filter(b=>d.cost_results.rows.some(r=>r.benchmark_id===b.id)).map(b=>[b.id,b.name]);
   const collapsedModules = new Set([...d.benchmarks.map(s=>s.id),...costGroups.map(([id])=>'costs-'+id)]);
+  const footerNoteIds = new Set([...(d.footer_notes??[]),...d.benchmarks.flatMap(s=>(s.notes??[]).filter(note=>note.placement==='footer'))].map(note=>note.id));
   const normalizeAnchor=hash=>hash.replace(/^#/, '').replace(/^native-/, '');
-  const sectionForAnchor=id=>id==='time-token-costs'||id.startsWith('costs-')?'time-token-costs':id&&id!=='top'?'performance':null;
+  const sectionForAnchor=id=>footerNoteIds.has(id)?null:id==='time-token-costs'||id.startsWith('costs-')?'time-token-costs':id&&id!=='top'?'performance':null;
   let activeSection=options.section??sectionForAnchor(normalizeAnchor(location.hash))??(query.get('section')==='time-token-costs'?'time-token-costs':'performance');
   const activeModules=new Map();
   if (views.has(query.get('view'))) {
@@ -125,7 +126,7 @@
     }).join('');
   }
   function noteParagraph(note,index) {
-    return `<p id="${h(note.id)}" class="scope-note" tabindex="-1" role="note"><span class="note-number">[${index+1}]</span> ${h(tr(note.text))}</p>`;
+    return `<p id="${h(note.id)}" class="scope-note" tabindex="-1" role="note">* ${index===undefined?'':`<span class="note-number">[${index+1}]</span> `}${h(tr(note.text))}</p>`;
   }
   function chart(view, kind='primary') {
     const rows=allRows(view).filter(r=>r.rate!==null);
@@ -150,7 +151,7 @@
   }
   function renderSection(s) {
     const element=document.getElementById('panel-'+s.id);
-    element.innerHTML=sectionBody(s)+(s.notes??[]).map(noteParagraph).join('');
+    element.innerHTML=sectionBody(s)+(s.notes??[]).map((note,index)=>note.placement==='footer'?'':noteParagraph(note,index)).join('');
     setupTables(element,s.id);
   }
   function setupTables(element,key) {
@@ -176,6 +177,7 @@
     document.host.lang=lang==='en'?'en':'zh-CN';
     document.querySelectorAll('[data-i18n]').forEach(el=>el.textContent=t(el.dataset.i18n));
     document.querySelectorAll('[data-i18n-label]').forEach(el=>el.setAttribute('aria-label',t(el.dataset.i18nLabel)));
+    document.getElementById('footer-notes').innerHTML=(d.footer_notes??[]).map(note=>noteParagraph(note)).join('')+d.benchmarks.flatMap(s=>(s.notes??[]).map((note,index)=>note.placement==='footer'?noteParagraph(note,index):'')).join('');
     const language=document.getElementById('language');language.textContent=lang==='en'?'中文':'English';language.lang=lang==='en'?'zh-CN':'en';language.setAttribute('aria-label',lang==='en'?'切换为中文':'Switch to English');
     document.querySelector('#performance .module-nav').innerHTML=d.benchmarks.map(b=>`<a href="#${h(b.id)}">${h(b.name)}</a>`).join('');
     document.getElementById('leaderboards').innerHTML=d.benchmarks.map(s=>`<section id="${s.id}" class="benchmark-band"><div class="benchmark-shell"><details data-module="${s.id}"${collapsedModules.has(s.id)?'':' open'}><summary class="module-header"><h3 class="benchmark-wordmark">${h(s.name)}</h3></summary><div class="module-content"><div id="panel-${s.id}"></div></div></details></div></section>`).join('');
