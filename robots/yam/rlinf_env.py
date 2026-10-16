@@ -758,33 +758,22 @@ class YamAgentEnv:
         if rlinf_root is not None and str(rlinf_root) not in sys.path:
             sys.path.insert(0, str(rlinf_root))
         try:
-            from rlinf.envs.real.yam.config import DualYamJointEnvConfig
-            from rlinf.envs.real.yam.control_runtime import YamControlRuntime
-            from rlinf.envs.real.yam.i2rt_backend import I2RTYamBackendFactory
+            from robots.yam.followers import build_follower_pair
+
+            return build_follower_pair(
+                self._device_config("left_follower", "can_left"),
+                self._device_config("right_follower", "can_right"),
+                joint_lower=self.lower,
+                joint_upper=self.upper,
+                step_frequency=self.control_hz,
+                feedback_timeout_s=float(self.config.get("feedback_timeout_s", 0.25)),
+            )
         except ModuleNotFoundError as error:
             raise RuntimeError(
                 "missing dependency while importing RLinf YAM runtime. "
                 "Set RPENT_RLINF_ROOT or RLINF_REPO_PATH to the RLinf checkout "
                 "and install the pinned YAM/i2rt dependencies on the robot host."
             ) from error
-        runtime_config = DualYamJointEnvConfig(
-            task_description=self.task_language,
-            step_frequency=self.control_hz,
-            max_joint_delta=max(float(self.max_joint_delta_per_step or 0.05), 1e-6),
-            # RPent validates hard limits, command slew and the measured-to-target
-            # path. A second per-joint measured-position clip would reshape that
-            # checked path when joints have different tracking errors.
-            enforce_runtime_joint_limits=False,
-            joint_limit_min=self.lower.tolist(),
-            joint_limit_max=self.upper.tolist(),
-            feedback_timeout_s=float(self.config.get("feedback_timeout_s", 0.25)),
-        )
-        hardware = SimpleNamespace(
-            left_follower=self._device_config("left_follower", "can_left"),
-            right_follower=self._device_config("right_follower", "can_right"),
-            cameras=[],
-        )
-        return YamControlRuntime(runtime_config, hardware, I2RTYamBackendFactory())
 
     def _device_config(self, role: str, default_channel: str) -> SimpleNamespace:
         devices = dict(self.config.get("devices", self.config.get("robot", {})))

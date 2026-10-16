@@ -18,14 +18,24 @@ YAM 使用公共 RobotSpec、Toolkit、RPC、探索生命周期和 MemoryManager
 --------------
 
 使用 Linux、Python 3.11。Agent 机也需要 ``RPent[yam]``：投影代码使用
-OmegaConf 和 RealSense SDK 的计算函数，不连接相机。控制机和推理机使用下面
-固定的 RLinf YAM 提交；它提供可取消的移动接口、运动学以及官方
-``openpi.get_model`` 加载器需要的 ``pi05_yam_joint`` 数据与策略变换。
+OmegaConf 和 RealSense SDK 的计算函数，不连接相机。控制机和推理机使用
+不同的固定 RLinf 提交：控制机需要 RLinf 的双臂 YAM 机器人（负责驱动从臂）及其
+YAM 运动学；推理机需要官方 ``openpi.get_model`` 加载器使用的 ``pi05_yam_joint``
+数据与策略变换。按所配置的机器克隆对应提交：
 
 .. code-block:: bash
 
+   # 控制机
+   git clone https://github.com/RLinf/RLinf.git /path/to/RLinf
+   git -C /path/to/RLinf checkout --detach b5bdd26406244048e22690b7a3635c461d0aaaab
+   # 推理机
    git clone https://github.com/scilwb/RLinf.git /path/to/RLinf
    git -C /path/to/RLinf checkout --detach 4c65548e7ade32b13ae101211f588a34a9f98305
+
+随后在两台机器上执行：
+
+.. code-block:: bash
+
    cd /path/to/RPent
    uv venv --python 3.11
    source .venv/bin/activate

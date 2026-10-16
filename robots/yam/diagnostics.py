@@ -69,7 +69,7 @@ def read_active_follower_targets(runtime: Any) -> np.ndarray:
     reader = getattr(runtime, "read_active_follower_targets", None)
     if callable(reader):
         return np.asarray(_vector(reader(), 14), dtype=np.float64)
-    followers = getattr(runtime, "_followers", None)
+    followers = getattr(runtime, "followers", None)
     if not isinstance(followers, (list, tuple)) or len(followers) != 2:
         raise RuntimeError("YAM runtime has no connected follower pair")
     targets = []
@@ -177,7 +177,7 @@ def read_control_diagnostics(
     sequentially. These diagnostics neither validate health nor enable motion.
     """
     started = time.time()
-    followers = getattr(runtime, "_followers", None)
+    followers = getattr(runtime, "followers", None)
     if not isinstance(followers, (list, tuple)) or len(followers) != 2:
         return {
             "status": "unsupported",

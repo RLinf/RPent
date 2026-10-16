@@ -20,14 +20,25 @@ Dependencies and installation
 
 Use Linux and Python 3.11. The Agent also needs ``RPent[yam]``: projection
 uses OmegaConf and RealSense SDK calculations without connecting cameras.
-The control and GPU machines use the following fixed RLinf YAM revision,
-which supplies the cancellable runtime, kinematics and ``pi05_yam_joint``
-transforms for the official ``openpi.get_model`` loader.
+The two machines use different fixed RLinf revisions. The control machine
+needs RLinf's dual YAM robot, which drives the followers, and its YAM
+kinematics. The GPU machine needs the ``pi05_yam_joint`` transforms for the
+official ``openpi.get_model`` loader. Clone the one for the machine you are
+setting up:
 
 .. code-block:: bash
 
+   # Control machine
+   git clone https://github.com/RLinf/RLinf.git /path/to/RLinf
+   git -C /path/to/RLinf checkout --detach b5bdd26406244048e22690b7a3635c461d0aaaab
+   # GPU machine
    git clone https://github.com/scilwb/RLinf.git /path/to/RLinf
    git -C /path/to/RLinf checkout --detach 4c65548e7ade32b13ae101211f588a34a9f98305
+
+Then, on either machine:
+
+.. code-block:: bash
+
    cd /path/to/RPent
    uv venv --python 3.11
    source .venv/bin/activate
