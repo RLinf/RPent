@@ -12,6 +12,8 @@ Choose a platform for installation and usage instructions.
      - Contents
    * - :doc:`libero`
      - Tabletop manipulation with LIBERO, LIBERO-PRO, and LIBERO-plus.
+   * - :doc:`behavior`
+     - Long-horizon household tasks in OmniGibson.
    * - :doc:`robocasa`
      - Kitchen manipulation with RoboCasa365 and Target50 experiments.
    * - :doc:`robotwin`
