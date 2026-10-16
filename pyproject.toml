@@ -168,10 +168,10 @@ robodojo = [
 robodojo-sim = [
     # Supplies both the simulator adapter and the OpenPI policy configuration.
     "rlinf @ git+https://github.com/littleZ05/RLinf.git@rpent/robodojo",
-    # RLinf organization fork; use a versioned release once it is published.
     "rlinf-robodojo-runtime @ git+https://github.com/RLinf/RoboDojo.git@rpent",
-    # uv reads build overrides only from the root project.
-    "nvidia-curobo[cu12] @ git+https://github.com/yuechen0614/curobo.git@main",
+    # datasets 5 requires PyArrow >=21; PyArrow 26 needs NumPy >=2,
+    # incompatible with RoboDojo's NumPy 1 simulator stack.
+    "pyarrow>=21.0.0,<26.0.0",
 ]
 
 [tool.uv]
@@ -205,6 +205,14 @@ conflicts = [
     [
         { extra = "franka" },
         { extra = "robotwin" },
+    ],
+    [
+        { extra = "franka" },
+        { extra = "robodojo" },
+    ],
+    [
+        { extra = "franka" },
+        { extra = "robodojo-sim" },
     ],
     [
         { extra = "robocasa" },
@@ -242,7 +250,7 @@ conflicts = [
 
 [tool.uv.extra-build-dependencies]
 # Build RoboTwin's Torch extensions against its runtime Torch version.
-# RoboDojo's fork does not compile Torch extensions (CUROBO_USE_PYBIND=0).
+# RoboDojo's fork skips Torch extension builds by default (CUROBO_USE_PYBIND=0).
 nvidia-curobo = ["torch==2.8.0"]
 
 [tool.setuptools]

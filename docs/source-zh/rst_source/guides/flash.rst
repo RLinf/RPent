@@ -31,11 +31,23 @@
 配置 Molmo
 ------------
 
-Molmo 需要的 ``transformers`` 版本比 LIBERO 策略环境更新，因此应在独立 Python 环境中运行：
+在独立 Python 环境中运行 Molmo：
 
 .. code-block:: bash
 
    uv venv --python 3.11 /path/to/molmo-venv
+
+接着在该环境中安装 PyTorch 和匹配的 torchvision。按 `PyTorch 安装指南 <https://pytorch.org/get-started/locally/>`_ 选择兼容 GPU 和 NVIDIA 驱动的构建，将下方 ``<CUDA_TAG>`` 替换为所选构建（如 ``cu126`` 或 ``cu128``）。此命令使用 `上海交大 PyTorch 镜像 <https://mirror.sjtu.edu.cn/docs/pytorch-wheels>`_：
+
+.. code-block:: bash
+
+   uv pip install --python /path/to/molmo-venv/bin/python \
+     torch torchvision --index-url "https://mirror.sjtu.edu.cn/pytorch-wheels/<CUDA_TAG>/"
+
+PyTorch 安装完成后，再安装 Molmo extra：
+
+.. code-block:: bash
+
    uv pip install --python /path/to/molmo-venv/bin/python -e ".[molmo]"
 
 从 `Hugging Face <https://huggingface.co/allenai/Molmo2-8B>`_ 或 `ModelScope <https://modelscope.cn/models/allenai/Molmo2-8B>`_ 下载 ``allenai/Molmo2-8B``，然后启动服务：

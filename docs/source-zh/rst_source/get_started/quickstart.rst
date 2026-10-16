@@ -8,7 +8,7 @@
 准备工作
 ------------
 
-- Linux、NVIDIA GPU，以及兼容 CUDA 12 的驱动。
+- Linux、NVIDIA GPU，以及兼容所选 PyTorch CUDA 构建的驱动。
 - ``git``、``bash`` 和 C/C++ 编译工具。
 - `uv <https://docs.astral.sh/uv/getting-started/installation/>`_，用于创建独立的 Python 环境。以下命令使用 Python 3.11。
 - 可访问示例模型的 Anthropic API Key，以及下载仿真资源和模型权重的网络。模型调用会产生 API 费用。
@@ -16,7 +16,7 @@
 1. 安装 RPent
 ---------------
 
-创建独立的 Python 环境，并安装 LIBERO-PRO 所需依赖。
+创建并激活独立的 Python 环境：
 
 .. code-block:: bash
 
@@ -24,6 +24,11 @@
    cd RPent
    uv venv --python 3.11
    source .venv/bin/activate
+
+先安装 OpenPI 要求的 ``torch==2.7.1`` 和 ``torchvision==0.22.1``。按 `PyTorch 安装说明 <https://pytorch.org/get-started/previous-versions/>`_ 选择兼容 GPU 和 NVIDIA 驱动的构建，将命令中的 ``pip install`` 换为 ``uv pip install``。安装完成后，再安装 LIBERO-PRO：
+
+.. code-block:: bash
+
    uv pip install -e ".[libero-pro]"
 
 后续命令都在这个终端和 RPent 仓库目录中执行。重新打开终端时，先激活 ``.venv``，再设置下文的模型路径与 API Key。

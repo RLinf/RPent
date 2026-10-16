@@ -464,13 +464,21 @@ def test_handoff_message_lists_prior_attempts_deterministically(tmp_path: Path) 
     assert "memory inbox under wip/" in message
 
 
-@pytest.mark.parametrize("interactive", [False, True])
-@pytest.mark.parametrize("budget_exhausted", [False, True])
+@pytest.mark.parametrize(
+    ("interactive", "outcome"),
+    [
+        (False, "success"),
+        (True, "success"),
+        (False, "request_budget"),
+        (True, "request_budget"),
+        (False, "response_truncated"),
+    ],
+)
 def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     interactive: bool,
-    budget_exhausted: bool,
+    outcome: str,
 ) -> None:
     cli = _cli_module()
     from rpent.planner.base import PlannerResult
@@ -479,6 +487,7 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     from rpent.tools.toolkit import ToolResult
 
     calls: dict[str, Any] = {}
+    model_requests = 0
 
     class FakeMemoryManager:
         def merge_memory(self, **kwargs: Any) -> dict[str, int]:
@@ -499,7 +508,7 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
 
         def execute_tool(self, name: str, args: dict[str, Any]) -> ToolResult:
             self.calls.append((name, args))
-            if budget_exhausted:
+            if outcome == "request_budget":
                 return ToolResult(data={"error": "finish refused"})
             return ToolResult(
                 data={
@@ -526,7 +535,9 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
             pass
 
         def solved(self) -> bool:
-            return not budget_exhausted
+            return outcome != "request_budget" and any(
+                name == "finish" for name, _ in self.calls
+            )
 
         def write_recipe(self, recipe_tag: str) -> str:
             calls["write_recipe"] = recipe_tag
@@ -602,12 +613,22 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     def build_planner(*args: Any, **kwargs: Any):
         calls["build_planner"] = (args, kwargs)
         calls["planner_count"] = calls.get("planner_count", 0) + 1
-        if budget_exhausted:
+        if outcome != "success":
+            from pydantic_ai.exceptions import UnexpectedModelBehavior
             from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 
             from rpent.planner.api_loop import ApiAgentLoop
 
             async def stream(messages, info):
+                nonlocal model_requests
+                model_requests += 1
+                if outcome == "response_truncated" and model_requests == 1:
+                    raise UnexpectedModelBehavior(
+                        "Model token limit (8192) exceeded before any response was "
+                        "generated. Increase the `max_tokens` model setting, or "
+                        "simplify the prompt to result in a shorter response that "
+                        "will fit within the limit."
+                    )
                 yield {
                     0: DeltaToolCall(
                         name="finish",
@@ -659,7 +680,7 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
             "--max-turns",
             "4",
             "--explore-sessions",
-            "2",
+            "3" if outcome == "response_truncated" else "2",
             *(["--interactive"] if interactive else []),
         ],
     )
@@ -668,7 +689,11 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     assert calls["build_planner"][1]["interactive"] is interactive
     assert toolkit.closed is True
     assert daemon.stopped is True
-    if budget_exhausted:
+    assert calls["get_toolkit"][1]["runtime_kwargs"] == {"runtime": "simulated"}
+    assert calls["get_toolkit"][1]["mode"] == "exploration"
+    assert calls["get_toolkit"][1]["attempts_per_session"] == 2
+    transcript = json.loads((tmp_path / "transcript_libero_s0.json").read_text())
+    if outcome == "request_budget":
         assert calls["planner_count"] == 2
         assert len(toolkit.calls) == 8
         assert "write_recipe" not in calls
@@ -677,10 +702,22 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
             "run_state_dir": tmp_path,
             "solved": False,
         }
-        transcript = json.loads((tmp_path / "transcript_libero_s0.json").read_text())
         assert transcript["finish"] is None
         assert transcript["stats"]["turns_used"] == 4
         assert len([m for m in transcript["messages"] if m["role"] == "tool"]) == 8
+        return
+
+    assert calls["write_recipe"] == "libero_s0"
+    assert calls["merge_memory"] == {
+        "cell_tag": "libero_s0",
+        "run_state_dir": tmp_path,
+        "solved": True,
+    }
+    assert transcript["error"] is None
+    if outcome == "response_truncated":
+        assert calls["planner_count"] == 2
+        assert model_requests == 2
+        assert len([m for m in transcript["messages"] if m["role"] == "user"]) == 2
         return
 
     assert calls["solve"] == {
@@ -693,17 +730,6 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     assert toolkit.calls == [
         ("finish", {"status": "success", "summary": "simulated task complete"})
     ]
-    assert calls["get_toolkit"][1]["runtime_kwargs"] == {"runtime": "simulated"}
-    assert calls["get_toolkit"][1]["mode"] == "exploration"
-    assert calls["get_toolkit"][1]["attempts_per_session"] == 2
-    assert calls["write_recipe"] == "libero_s0"
-    assert calls["merge_memory"] == {
-        "cell_tag": "libero_s0",
-        "run_state_dir": tmp_path,
-        "solved": True,
-    }
-
-    transcript = json.loads((tmp_path / "transcript_libero_s0.json").read_text())
     assert transcript["robot"] == "libero"
     assert transcript["finish"] == {
         "_finish": True,
@@ -711,7 +737,6 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
         "summary": "simulated task complete",
     }
     assert transcript["stats"]["tool_calls"] == 1
-    assert transcript["error"] is None
     assert transcript["messages"] == [
         {"role": "assistant", "content": "finished offline"}
     ]
