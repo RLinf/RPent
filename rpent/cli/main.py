@@ -55,7 +55,7 @@ from rpent.dashboard.events import (
 from rpent.evaluation import RunFinalizationContext
 from rpent.memory import MemoryManager
 from rpent.planner.base import REASONING_EFFORTS, build_planner
-from rpent.planner.check import BASE_URL_ENV_BY_PLANNER
+from rpent.planner.check import EXTERNALLY_CONFIGURED_PLANNERS
 from rpent.robots import enumerate_robots, get_robot_spec, get_toolkit
 from rpent.utils.logging import get_logger, init_output_dir
 
@@ -147,7 +147,9 @@ def _build_argparser() -> argparse.ArgumentParser:
         "--base-url",
         default=None,
         help=(
-            "API base URL, for the 'api' planner only. claude_code, codex, and gemini_cli take their endpoint from ANTHROPIC_BASE_URL / CODEX_BASE_URL / GEMINI_BASE_URL instead; passing this flag with one of them is an error rather than a silent no-op."
+            "API base URL, for the 'api' planner only. Other planners use "
+            "their existing backend configuration; passing this flag with "
+            "one of them is an error rather than a silent no-op."
         ),
     )
     ap.add_argument("--max-turns", type=int, default=100)
@@ -367,12 +369,6 @@ def main() -> int:
     )
     if args.dashboard and args.interactive:
         parser.error("--dashboard and --interactive cannot be used together")
-    if args.planner == "gemini_cli" and (args.dashboard or args.interactive):
-        option = "--dashboard" if args.dashboard else "--interactive"
-        parser.error(
-            f"{option} is not supported by the gemini_cli planner; "
-            "run it non-interactively"
-        )
     if args.planner == "gemini_cli" and args.reasoning_effort != "none":
         parser.error(
             "--reasoning-effort is not supported by the gemini_cli planner; use 'none'"
@@ -397,11 +393,10 @@ def main() -> int:
         if sys.stdin is None or not sys.stdin.isatty():
             parser.error("This robot requires a TTY for operator confirmation.")
     native_cli = args.interactive and args.planner == "api"
-    if args.base_url and args.planner in BASE_URL_ENV_BY_PLANNER:
+    if args.base_url and args.planner in EXTERNALLY_CONFIGURED_PLANNERS:
         parser.error(
             "--base-url applies to the 'api' planner only; "
-            f"{args.planner} reads its endpoint from "
-            f"{BASE_URL_ENV_BY_PLANNER[args.planner]} instead"
+            f"{args.planner} uses its existing backend configuration instead"
         )
     if args.planner == "flash":
         if args.explore:
@@ -508,15 +503,23 @@ def main() -> int:
     await_first_prompt: "Callable[[], str | None] | None" = None
     if args.interactive and not native_cli:
         input_queue = queue.Queue()
+        queued_help = (
+            "Claude Code/Codex/Gemini: messages queue until the current turn completes.\n"
+            "/interrupt [message] stops the current turn, then sends queued input "
+            "(or the supplied message first).\n"
+            if args.planner in {"claude_code", "codex", "gemini_cli"}
+            else ""
+        )
         # Pre-fill the first prompt with the rendered default task (editable
         # preset);
         start_interactive_reader(
             input_queue,
             first_prompt_default=user_msg,
+            extra_help=queued_help
+            + (operator_input.help_text if operator_input else ""),
             **(
                 {
                     "line_handler": operator_input.route_line,
-                    "extra_help": operator_input.help_text,
                     "on_close": operator_input.close,
                 }
                 if operator_input is not None

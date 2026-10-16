@@ -18,7 +18,6 @@ import asyncio
 import json
 import os
 import queue
-import threading
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -27,13 +26,13 @@ import pytest
 from openai_codex import JsonRpcError, TransportClosedError
 
 import rpent.planner.codex as codex_module
+import rpent.planner.utils.agent_session as interactive_module
 from rpent.dashboard.events import TranscriptEvent, UsageEvent
 from rpent.planner.codex import (
     PROVIDER_ENV_KEY,
     PROVIDER_ID,
     CodexPlanner,
     _codex_mcp_config_overrides,
-    _interrupt,
 )
 from rpent.planner.utils.http_mcp_server import HttpMcpServer, mcp_result
 from rpent.tools import ToolResult
@@ -94,10 +93,11 @@ class FakeTurn:
         self.interrupt_calls = 0
         self.steered: list[str] = []
 
-    def stream(self):
-        yield from self.events
+    async def stream(self):
+        for event in self.events:
+            yield event
 
-    def interrupt(self) -> None:
+    async def interrupt(self) -> None:
         self.interrupt_calls += 1
 
     def steer(self, text: str) -> None:
@@ -109,7 +109,7 @@ class FakeThread:
         self.fake_turn = turn
         self.turn_prompts: list[tuple[str, dict[str, Any]]] = []
 
-    def turn(self, prompt: str, **options: Any) -> FakeTurn:
+    async def turn(self, prompt: str, **options: Any) -> FakeTurn:
         self.turn_prompts.append((prompt, options))
         return self.fake_turn
 
@@ -130,11 +130,11 @@ class FakeCodex:
     def __exit__(self, *args: Any) -> None:
         self.closed = True
 
-    def thread_start(self, **options: Any) -> FakeThread:
+    async def thread_start(self, **options: Any) -> FakeThread:
         self.thread_options = options
         return self.thread
 
-    def close(self) -> None:
+    async def close(self) -> None:
         self.closed = True
 
 
@@ -160,9 +160,9 @@ def install_fake_backend(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]
     FakeMcpServer.instances.clear()
     FakeCodex.instances.clear()
     monkeypatch.setattr(FakeCodex, "events", [])
-    monkeypatch.setattr(codex_module, "HttpMcpServer", FakeMcpServer)
+    monkeypatch.setattr(interactive_module, "HttpMcpServer", FakeMcpServer)
     monkeypatch.setattr(codex_module.openai_codex, "CodexConfig", codex_config)
-    monkeypatch.setattr(codex_module.openai_codex, "Codex", FakeCodex)
+    monkeypatch.setattr(codex_module.openai_codex, "AsyncCodex", FakeCodex)
     return configs
 
 
@@ -481,11 +481,12 @@ def _model_response_events(index: int, *, text: bool = False, finish: bool = Fal
 def test_cli_interrupts_once_at_tool_only_response_budget(tmp_path, monkeypatch):
     install_fake_backend(monkeypatch)
 
-    def stream(self):
+    async def stream(self):
         for index in range(1, 6):
             if self.interrupt_calls:
                 break
-            yield from _model_response_events(index)
+            for event in _model_response_events(index):
+                yield event
         yield {
             "method": "turn/completed",
             "payload": {"turn": {"status": "interrupted"}},
@@ -568,7 +569,7 @@ def test_cli_budget_interrupt_preserves_terminal_status(
         terminal["payload"]["turn"]["error"] = {"message": "provider failed"}
     FakeCodex.events = [*_model_response_events(1, text=True), terminal]
 
-    def interrupt(self):
+    async def interrupt(self):
         self.interrupt_calls += 1
         raise interrupt_error
 
@@ -620,7 +621,7 @@ def test_cli_budget_interrupt_preserves_terminal_status(
 def test_dashboard_interrupts_at_response_budget_and_closes(
     interrupt_error, completed_status, expected_error
 ):
-    from rpent.planner.codex import _CodexDashboardSession, _Recorder
+    from rpent.planner.codex import _CodexSession, _Recorder
 
     async def run():
         class Turn:
@@ -671,7 +672,7 @@ def test_dashboard_interrupts_at_response_budget_and_closes(
             events.append(event)
             recorder.observe(event)
 
-        session = _CodexDashboardSession(
+        session = _CodexSession(
             config=None,
             thread_options={},
             turn_options={},
@@ -805,13 +806,13 @@ def test_fake_codex_backend_failure_stops_mcp_server(
         def __init__(self, config: Any) -> None:
             del config
 
-        def __enter__(self):
+        async def thread_start(self, **kwargs):
             raise RuntimeError("codex unavailable")
 
-        def __exit__(self, *args: Any) -> None:
+        async def close(self) -> None:
             return None
 
-    monkeypatch.setattr(codex_module.openai_codex, "Codex", FailingCodex)
+    monkeypatch.setattr(codex_module.openai_codex, "AsyncCodex", FailingCodex)
     result = make_planner(tmp_path, RecordingSink()).solve(
         system_prompt="",
         user_message="task",
@@ -823,85 +824,46 @@ def test_fake_codex_backend_failure_stops_mcp_server(
     assert FakeMcpServer.instances[0].stopped is True
 
 
-def test_timeout_interrupts_without_starting_a_worker_or_socket(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+@pytest.mark.parametrize("interactive", [False, True])
+def test_timeout_interrupts_and_drains_turn_before_closing(
+    tmp_path, monkeypatch, interactive
+):
     install_fake_backend(monkeypatch)
+    stopped = asyncio.Event()
+    events = []
 
-    class TimeoutThread:
-        def __init__(self, **kwargs: Any) -> None:
-            self.kwargs = kwargs
-            self.join_calls: list[float | None] = []
+    async def stream(self):
+        await stopped.wait()
+        events.append("turn_completed")
+        yield {
+            "method": "turn/completed",
+            "payload": {"turn": {"status": "interrupted"}},
+        }
 
-        def start(self) -> None:
-            return None
+    async def interrupt(self):
+        events.append("interrupt")
+        self.interrupt_calls += 1
+        stopped.set()
 
-        def join(self, timeout: float | None = None) -> None:
-            self.join_calls.append(timeout)
+    async def close(self):
+        events.append("close")
+        self.closed = True
 
-        def is_alive(self) -> bool:
-            return True
-
-    monkeypatch.setattr(
-        codex_module,
-        "threading",
-        SimpleNamespace(Thread=TimeoutThread),
-    )
-    result = make_planner(
-        tmp_path,
-        RecordingSink(),
-        timeout_s=0.01,
-    ).solve(
-        system_prompt="",
-        user_message="task",
-        toolkit=FakeToolkit(),
-        max_turns=1,
-    )
-
-    assert result.error == "Codex SDK timed out after 0.01s"
-    assert FakeMcpServer.instances[0].stopped is True
-
-
-def test_terminal_timeout_cancels_active_toolkit_work(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    install_fake_backend(monkeypatch)
-
-    class TimeoutThread:
-        def __init__(self, **kwargs: Any) -> None:
-            self.kwargs = kwargs
-
-        def start(self) -> None:
-            return None
-
-        def join(self, timeout: float | None = None) -> None:
-            del timeout
-
-        def is_alive(self) -> bool:
-            return True
-
-    monkeypatch.setattr(
-        codex_module,
-        "threading",
-        SimpleNamespace(Thread=TimeoutThread),
-    )
+    monkeypatch.setattr(FakeTurn, "stream", stream)
+    monkeypatch.setattr(FakeTurn, "interrupt", interrupt)
+    monkeypatch.setattr(FakeCodex, "close", close)
     toolkit = FakeToolkit()
-    result = make_planner(
-        tmp_path,
-        RecordingSink(),
-        timeout_s=0.01,
-    ).solve(
+    result = make_planner(tmp_path, RecordingSink(), timeout_s=0.05).solve(
         system_prompt="",
         user_message="task",
         toolkit=toolkit,
         max_turns=1,
+        input_queue=queue.Queue() if interactive else None,
     )
-
-    assert result.error == "Codex SDK timed out after 0.01s"
+    assert result.error == "Codex SDK timed out after 0.05s"
+    assert events == ["interrupt", "turn_completed", "close"]
     assert FakeMcpServer.instances[0].stopped is True
-    assert toolkit.cancel_calls == 2
+    assert toolkit.cancel_calls == 1
 
 
 def test_queue_and_dashboard_are_rejected_before_mcp_construction(
@@ -912,7 +874,7 @@ def test_queue_and_dashboard_are_rejected_before_mcp_construction(
         def __init__(self, toolkit: Any) -> None:
             raise AssertionError(f"MCP should not be constructed: {toolkit}")
 
-    monkeypatch.setattr(codex_module, "HttpMcpServer", UnexpectedMcpServer)
+    monkeypatch.setattr(interactive_module, "HttpMcpServer", UnexpectedMcpServer)
     planner = make_planner(tmp_path, RecordingSink())
 
     with pytest.raises(ValueError, match="cannot be used together"):
@@ -926,20 +888,34 @@ def test_queue_and_dashboard_are_rejected_before_mcp_construction(
         )
 
 
-def test_interrupt_attempts_both_turn_and_codex_cleanup() -> None:
-    events: list[str] = []
+def test_session_close_attempts_codex_cleanup_after_interrupt_error():
+    events = []
 
-    class Turn:
-        def interrupt(self) -> None:
-            events.append("turn-interrupt")
-            raise RuntimeError("already complete")
+    async def scenario():
+        class Turn:
+            async def interrupt(self):
+                events.append("turn-interrupt")
+                raise RuntimeError("already complete")
 
-    class Codex:
-        def close(self) -> None:
-            events.append("codex-close")
+        class Codex:
+            async def close(self):
+                events.append("codex-close")
 
-    _interrupt({"turn": Turn(), "codex": Codex()})
+        session = codex_module._CodexSession(
+            config=None,
+            thread_options={},
+            turn_options={},
+            recorder=None,
+            emit_event=None,
+            control=None,
+        )
+        session._codex = Codex()
+        session._turn = Turn()
+        session._turn_done = asyncio.Event()
+        session._turn_done.set()
+        await session.close()
 
+    asyncio.run(scenario())
     assert events == ["turn-interrupt", "codex-close"]
 
 
@@ -949,20 +925,13 @@ def test_interrupt_attempts_both_turn_and_codex_cleanup() -> None:
 
 
 def test_turn_handle_is_not_iterable_and_exposes_run_and_stream() -> None:
-    """Pin the SDK contract the probe got wrong.
+    """Consume async SDK handles through run or stream, not direct iteration."""
+    from openai_codex import AsyncTurnHandle
 
-    ``thread.turn(...)`` returns a ``TurnHandle``. It is NOT iterable: the only
-    two ways to consume one are ``.stream()`` (an event iterator, used by the
-    planner) and ``.run()`` (blocking, returns a ``TurnResult``, used by the
-    probe). Iterating the handle itself raises
-    ``TypeError: 'TurnHandle' object is not iterable``.
-    """
-    from openai_codex import TurnHandle
-
-    assert callable(TurnHandle.run)
-    assert callable(TurnHandle.stream)
-    assert not hasattr(TurnHandle, "__iter__")
-    assert not hasattr(TurnHandle, "__aiter__")
+    assert callable(AsyncTurnHandle.run)
+    assert callable(AsyncTurnHandle.stream)
+    assert not hasattr(AsyncTurnHandle, "__iter__")
+    assert not hasattr(AsyncTurnHandle, "__aiter__")
 
 
 def test_turn_result_carries_the_fields_the_probe_reads() -> None:
@@ -980,7 +949,7 @@ class FakeProbeTurn:
         self,
         result: Any = None,
         *,
-        blocks: threading.Event | None = None,
+        blocks: asyncio.Event | None = None,
         raises: Exception | None = None,
     ) -> None:
         self.result = result
@@ -988,17 +957,17 @@ class FakeProbeTurn:
         self.raises = raises
         self.interrupt_calls = 0
 
-    def run(self) -> Any:
+    async def run(self) -> Any:
         if self.raises is not None:
             raise self.raises
         if self.blocks is not None:
-            self.blocks.wait(timeout=10)
+            await self.blocks.wait()
         return self.result
 
     def stream(self):
         raise AssertionError("the probe must use run(), not stream()")
 
-    def interrupt(self) -> None:
+    async def interrupt(self) -> None:
         self.interrupt_calls += 1
 
 
@@ -1022,14 +991,14 @@ class FakeProbeCodex:
     def __exit__(self, *exc: Any) -> None:
         self.closed = True
 
-    def close(self) -> None:
+    async def close(self) -> None:
         self.closed = True
 
-    def thread_start(self, **options: Any) -> FakeProbeCodex:
+    async def thread_start(self, **options: Any) -> FakeProbeCodex:
         self.thread_options = options
         return self
 
-    def turn(self, prompt: str, **options: Any) -> FakeProbeTurn:
+    async def turn(self, prompt: str, **options: Any) -> FakeProbeTurn:
         self.turn_prompts.append((prompt, options))
         return self.fake_turn
 
@@ -1041,7 +1010,7 @@ def probe_codex(monkeypatch: pytest.MonkeyPatch):
 
     def _install(turn_factory: Any) -> list[FakeProbeCodex]:
         FakeProbeCodex.turn_factory = turn_factory
-        monkeypatch.setattr(codex_module.openai_codex, "Codex", FakeProbeCodex)
+        monkeypatch.setattr(codex_module.openai_codex, "AsyncCodex", FakeProbeCodex)
         return FakeProbeCodex.instances
 
     return _install
@@ -1122,7 +1091,7 @@ def test_probe_config_keeps_the_provider_override_without_mcp() -> None:
 def test_probe_timeout_interrupts_the_turn_and_closes_the_session(
     probe_codex: Any,
 ) -> None:
-    release = threading.Event()
+    release = asyncio.Event()
     turns: list[FakeProbeTurn] = []
 
     def factory() -> FakeProbeTurn:

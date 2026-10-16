@@ -168,6 +168,19 @@ def test_cli_failure_report_carries_status_detail_and_a_hint(
     assert "Set ANTHROPIC_API_KEY" in out
 
 
+def test_remediation_without_metadata_uses_backend_configuration() -> None:
+    result = LlmCheckResult(
+        ok=False,
+        status=STATUS_AUTH_FAILED,
+        planner="gemini_cli",
+    )
+
+    hint = check_cli._remediation(result)
+
+    assert "backend configuration" in hint
+    assert "--base-url" not in hint
+
+
 def test_cli_json_output_is_parseable_and_matches_the_result(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -193,18 +206,13 @@ def test_cli_json_output_is_parseable_and_matches_the_result(
 
 
 @pytest.mark.parametrize(
-    ("planner", "env_var"),
-    [
-        ("claude_code", "ANTHROPIC_BASE_URL"),
-        ("codex", "CODEX_BASE_URL"),
-        ("gemini_cli", "GEMINI_BASE_URL"),
-    ],
+    "planner",
+    ["claude_code", "codex", "gemini_cli"],
 )
 def test_cli_rejects_base_url_for_the_backends_that_ignore_it(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     planner: str,
-    env_var: str,
 ) -> None:
     """A flag the run would drop must not be honoured by the check.
 
@@ -216,7 +224,7 @@ def test_cli_rejects_base_url_for_the_backends_that_ignore_it(
     with pytest.raises(SystemExit):
         _run(monkeypatch, "--planner", planner, "--base-url", "https://gateway.example")
 
-    assert env_var in capsys.readouterr().err
+    assert "uses its existing backend configuration" in capsys.readouterr().err
 
 
 def test_cli_keeps_base_url_for_the_api_planner(

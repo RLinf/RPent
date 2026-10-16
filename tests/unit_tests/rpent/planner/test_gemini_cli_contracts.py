@@ -14,16 +14,21 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
-from io import StringIO
+from contextlib import asynccontextmanager
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
+import acp
 import pytest
 
 import rpent.planner.gemini_cli as gemini_module
+import rpent.planner.utils.agent_session as session_module
 from rpent.dashboard.events import TranscriptEvent, UsageEvent
 from rpent.planner.gemini_cli import GeminiCliPlanner, _Recorder
+from rpent.tools import ToolResult
 
 
 class RecordingSink:
@@ -45,6 +50,9 @@ class FakeToolkit:
     def cancel_active_and_wait(self) -> None:
         self.cancel_calls += 1
 
+    def resume_calls(self) -> None:
+        pass
+
     def list_tools(self) -> tuple[Any, ...]:
         return (
             type("Tool", (), {"name": "inspect_scene"})(),
@@ -55,7 +63,8 @@ class FakeToolkit:
 class FakeMcpServer:
     instances: list[FakeMcpServer] = []
 
-    def __init__(self, toolkit: FakeToolkit) -> None:
+    def __init__(self, toolkit: FakeToolkit, *, on_tool_result=None) -> None:
+        self.on_tool_result = on_tool_result
         self.toolkit = toolkit
         self.started = False
         self.stopped = False
@@ -98,7 +107,6 @@ def test_workspace_settings_expose_only_rpent_mcp_and_set_turn_limit(
     assert settings["skills"]["enabled"] is False
     assert settings["hooksConfig"]["enabled"] is False
     assert settings["context"]["includeDirectoryTree"] is False
-    assert settings["mcp"] == {"allowed": ["rpent"]}
     assert settings["mcpServers"] == {
         "rpent": {
             "httpUrl": "http://127.0.0.1:43210/mcp/",
@@ -108,23 +116,17 @@ def test_workspace_settings_expose_only_rpent_mcp_and_set_turn_limit(
     assert "GEMINI_API_KEY" not in path.read_text()
 
 
-def test_command_uses_exact_optional_model_and_stable_headless_flags(
+def test_command_uses_acp_and_exact_optional_model(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("GEMINI_BIN", "/fake/gemini")
 
-    inherited = gemini_module._build_command(prompt="task", model=None)
-    overridden = gemini_module._build_command(prompt="task", model="gemini-upstream-id")
+    inherited = gemini_module._build_command(model=None)
+    overridden = gemini_module._build_command(model="gemini-upstream-id")
 
     assert inherited == [
         "/fake/gemini",
-        "--prompt",
-        "task",
-        "--output-format",
-        "stream-json",
-        "--approval-mode",
-        "yolo",
-        "--skip-trust",
+        "--acp",
         "--allowed-mcp-server-names",
         "rpent",
         "--extensions",
@@ -147,49 +149,34 @@ def test_environment_trusts_generated_workspace_and_bypasses_loopback_proxy(
     assert env["no_proxy"] == env["NO_PROXY"]
 
 
-def test_recorder_captures_successful_finish_and_usage() -> None:
+def test_recorder_captures_successful_finish_and_usage():
     sink = RecordingSink()
     recorder = _Recorder(sink)
-
     recorder.observe(
         {
-            "type": "tool_use",
-            "tool_name": "mcp_rpent_finish",
-            "tool_id": "call-1",
-            "parameters": {"status": "success", "summary": "done"},
+            "type": "rpent_tool",
+            "name": "finish",
+            "args": {"status": "success", "summary": "done"},
+            "result": {"_finish": True, "status": "success", "summary": "done"},
+            "is_error": False,
         }
     )
     recorder.observe(
         {
-            "type": "tool_result",
-            "tool_id": "call-1",
-            "status": "success",
-            "output": json.dumps(
-                [
-                    {
-                        "type": "text",
-                        "text": json.dumps(
-                            {"_finish": True, "status": "success", "summary": "done"}
-                        ),
-                    }
-                ]
-            ),
-        }
-    )
-    recorder.observe({"type": "message", "role": "assistant", "content": "complete"})
-    recorder.observe(
-        {
-            "type": "result",
-            "status": "success",
-            "stats": {
-                "input_tokens": 12,
-                "output_tokens": 4,
-                "cached": 3,
-                "tool_calls": 1,
+            "type": "acp_update",
+            "update": {
+                "sessionUpdate": "agent_message_chunk",
+                "content": {"type": "text", "text": "complete"},
             },
         }
     )
-
+    recorder.observe(
+        {
+            "type": "acp_result",
+            "stopReason": "end_turn",
+            "usage": {"inputTokens": 12, "outputTokens": 4, "cachedReadTokens": 3},
+        }
+    )
     assert recorder.finish_result == {
         "_finish": True,
         "status": "success",
@@ -206,25 +193,17 @@ def test_recorder_captures_successful_finish_and_usage() -> None:
     assert any(isinstance(event, UsageEvent) for event in sink.events)
 
 
-def test_failed_finish_tool_is_not_accepted() -> None:
+def test_failed_finish_tool_is_not_accepted():
     recorder = _Recorder(RecordingSink())
     recorder.observe(
         {
-            "type": "tool_use",
-            "tool_name": "mcp_rpent_finish",
-            "tool_id": "call-1",
-            "parameters": {"status": "success", "summary": "not accepted"},
+            "type": "rpent_tool",
+            "name": "finish",
+            "args": {"status": "success"},
+            "is_error": True,
+            "result": {"_finish": True, "status": "success"},
         }
     )
-    recorder.observe(
-        {
-            "type": "tool_result",
-            "tool_id": "call-1",
-            "status": "error",
-            "output": '{"_finish": true, "status": "success"}',
-        }
-    )
-
     assert recorder.finish_result is None
 
 
@@ -239,188 +218,224 @@ def test_stderr_redacts_key_loaded_from_gemini_dotenv(
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
 
-    assert gemini_module._safe_stderr(f"request failed for {secret}") == (
+    assert gemini_module._redact_secrets(f"request failed for {secret}") == (
         "request failed for <GEMINI_API_KEY>"
     )
 
 
-def test_base_url_is_loaded_from_gemini_dotenv(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    gemini_dir = tmp_path / ".gemini"
-    gemini_dir.mkdir()
-    (gemini_dir / ".env").write_text("GEMINI_BASE_URL=https://gateway.example\n")
-    monkeypatch.setattr(Path, "home", lambda: tmp_path)
-    monkeypatch.delenv("GEMINI_BASE_URL", raising=False)
+@pytest.fixture
+def acp_backend(monkeypatch):
+    seen = {"events": [], "reply": "done", "stderr": ""}
+    FakeMcpServer.instances.clear()
+    monkeypatch.setenv("GEMINI_BIN", "/fake/gemini")
+    monkeypatch.setattr(session_module, "HttpMcpServer", FakeMcpServer)
 
-    assert gemini_module.configured_base_url() == "https://gateway.example"
+    @asynccontextmanager
+    async def spawn(client, binary, *args, cwd, **kwargs):
+        seen["command"] = [binary, *args]
+        seen["settings"] = json.loads((cwd / ".gemini" / "settings.json").read_text())
+        seen["cwd"] = cwd
+        stderr = asyncio.StreamReader()
+        stderr.feed_data(seen["stderr"].encode())
+        stderr.feed_eof()
+        stopped = asyncio.Event()
+
+        class Connection:
+            async def initialize(self, **kwargs):
+                seen["events"].append("initialize")
+                if "startup_error" in seen:
+                    raise seen["startup_error"]
+
+            async def authenticate(self, **kwargs):
+                pytest.fail("RPent must not change CLI authentication")
+
+            async def new_session(self, **kwargs):
+                seen["events"].append("new_session")
+                return SimpleNamespace(session_id="same-session")
+
+            async def prompt(self, session_id, prompt):
+                assert session_id == "same-session"
+                seen["prompt"] = prompt[0].text
+                seen["events"].append("prompt")
+                if "prompt_error" in seen:
+                    raise seen["prompt_error"]
+                if seen.get("block"):
+                    await stopped.wait()
+                elif FakeMcpServer.instances and seen.get("finish", True):
+                    server = FakeMcpServer.instances[-1]
+                    server.on_tool_result(
+                        "finish",
+                        {"status": "success", "summary": "done"},
+                        ToolResult(
+                            data={
+                                "_finish": True,
+                                "status": "success",
+                                "summary": "done",
+                            }
+                        ),
+                    )
+                await client.session_update(
+                    session_id,
+                    SimpleNamespace(
+                        model_dump=lambda **kwargs: {
+                            "sessionUpdate": "agent_message_chunk",
+                            "content": {"type": "text", "text": seen["reply"]},
+                        }
+                    ),
+                )
+                seen["events"].append("prompt_completed")
+                return SimpleNamespace(
+                    stop_reason="end_turn",
+                    model_dump=lambda **kwargs: {
+                        "stopReason": "end_turn",
+                        "usage": {"inputTokens": 8, "outputTokens": 2},
+                    },
+                )
+
+            async def cancel(self, session_id):
+                seen["events"].append("cancel")
+                stopped.set()
+
+        try:
+            yield Connection(), SimpleNamespace(stderr=stderr)
+        finally:
+            seen["events"].append("close")
+
+    monkeypatch.setattr(acp, "spawn_agent_process", spawn)
+    return seen
 
 
-def test_session_artifacts_redact_key_echoed_by_cli(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_session_artifacts_redact_key_echoed_by_cli(tmp_path, monkeypatch, acp_backend):
     secret = "environment-secret-value"
-    event = json.dumps(
-        {
-            "type": "error",
-            "severity": "warning",
-            "message": f"request failed for {secret}",
-        }
-    )
-
-    class FakeProcess:
-        def __init__(self) -> None:
-            self.stdout = StringIO(event + "\n")
-            self.stderr = StringIO(f"provider rejected {secret}\n")
-
-        def wait(self) -> int:
-            return 0
-
     monkeypatch.setenv("GEMINI_API_KEY", secret)
-    monkeypatch.setattr(
-        gemini_module.subprocess,
-        "Popen",
-        lambda *args, **kwargs: FakeProcess(),
-    )
-    output_path = tmp_path / "gemini.out"
-    raw_stream_path = tmp_path / "gemini.out.stream.jsonl"
-    stderr_path = tmp_path / "gemini.out.stderr.log"
-    state: dict[str, Any] = {}
-
-    gemini_module._run_session(
-        command=["gemini"],
-        cwd=tmp_path,
-        recorder=_Recorder(RecordingSink()),
-        output_path=output_path,
-        raw_stream_path=raw_stream_path,
-        stderr_path=stderr_path,
-        state=state,
-    )
-
-    for text in (
-        output_path.read_text(),
-        raw_stream_path.read_text(),
-        stderr_path.read_text(),
-        str(state),
-    ):
-        assert secret not in text
-        assert "<GEMINI_API_KEY>" in text
-
-
-def test_planner_lifecycle_writes_config_and_cleans_resources(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    sink = RecordingSink()
-    toolkit = FakeToolkit()
-    seen: dict[str, Any] = {}
-    FakeMcpServer.instances.clear()
-    monkeypatch.setenv("GEMINI_BIN", "/fake/gemini")
-    monkeypatch.setattr(gemini_module, "HttpMcpServer", FakeMcpServer)
-
-    def fake_run_session(**kwargs: Any) -> None:
-        seen["command"] = kwargs["command"]
-        seen["settings"] = json.loads(
-            (kwargs["cwd"] / ".gemini" / "settings.json").read_text()
-        )
-        recorder = kwargs["recorder"]
-        events = [
-            {
-                "type": "tool_use",
-                "tool_name": "mcp_rpent_finish",
-                "tool_id": "finish-1",
-                "parameters": {"status": "success", "summary": "done"},
-            },
-            {
-                "type": "tool_result",
-                "tool_id": "finish-1",
-                "status": "success",
-                "output": '{"_finish": true, "status": "success", "summary": "done"}',
-            },
-            {"type": "message", "role": "assistant", "content": "done"},
-            {
-                "type": "result",
-                "status": "success",
-                "stats": {"input_tokens": 8, "output_tokens": 2, "tool_calls": 1},
-            },
-        ]
-        rendered = "".join(recorder.observe(event) for event in events)
-        kwargs["output_path"].write_text(rendered)
-        kwargs["raw_stream_path"].write_text(
-            "".join(json.dumps(event) + "\n" for event in events)
-        )
-        kwargs["stderr_path"].write_text("")
-        kwargs["state"]["text"] = rendered
-
-    monkeypatch.setattr(gemini_module, "_run_session", fake_run_session)
-
-    result = make_planner(tmp_path, sink).solve(
-        system_prompt="system rules",
-        user_message="user task",
-        toolkit=toolkit,  # type: ignore[arg-type]
-        max_turns=6,
-    )
-
-    server = FakeMcpServer.instances[0]
-    assert server.started is True
-    assert server.stopped is True
-    assert toolkit.cancel_calls == 1
-    assert seen["settings"]["model"]["maxSessionTurns"] == 6
-    assert seen["settings"]["mcpServers"]["rpent"]["httpUrl"].endswith("/mcp/")
-    assert seen["command"][1:3] == [
-        "--prompt",
-        "system rules\n\nuser task",
-    ]
-    assert result.finish_result == {
-        "_finish": True,
-        "status": "success",
-        "summary": "done",
-    }
-    assert result.error is None
-    assert result.stats["backend"] == "gemini_cli"
-    assert (tmp_path / "gemini.out.stream.jsonl").is_file()
-
-
-def test_backend_failure_still_stops_mcp_server(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    toolkit = FakeToolkit()
-    FakeMcpServer.instances.clear()
-    monkeypatch.setenv("GEMINI_BIN", "/fake/gemini")
-    monkeypatch.setattr(gemini_module, "HttpMcpServer", FakeMcpServer)
-
-    def fail(**kwargs: Any) -> None:
-        kwargs["state"]["error"] = RuntimeError("gemini unavailable")
-
-    monkeypatch.setattr(gemini_module, "_run_session", fail)
-
+    acp_backend["reply"] = f"request failed for {secret}"
+    acp_backend["stderr"] = f"provider rejected {secret}\n"
     result = make_planner(tmp_path, RecordingSink()).solve(
         system_prompt="",
         user_message="task",
-        toolkit=toolkit,  # type: ignore[arg-type]
+        toolkit=FakeToolkit(),
         max_turns=2,
     )
+    for path in ("output_path", "raw_stream_path", "stderr_path"):
+        text = Path(result.stats[path]).read_text()
+        assert secret not in text
+        assert "<GEMINI_API_KEY>" in text
+    assert secret not in str(result.messages)
 
-    assert result.error == "RuntimeError: gemini unavailable"
-    assert FakeMcpServer.instances[0].stopped is True
+
+@pytest.mark.parametrize("with_finish", [False, True])
+def test_planner_lifecycle_writes_config_and_cleans_resources(
+    tmp_path, acp_backend, with_finish
+):
+    toolkit = FakeToolkit()
+    acp_backend["finish"] = with_finish
+    result = make_planner(tmp_path, RecordingSink()).solve(
+        system_prompt="system rules",
+        user_message="user task",
+        toolkit=toolkit,
+        max_turns=6,
+    )
+    server = FakeMcpServer.instances[0]
+    assert server.started and server.stopped
     assert toolkit.cancel_calls == 1
+    assert acp_backend["settings"]["model"]["maxSessionTurns"] == 6
+    assert acp_backend["settings"]["mcpServers"]["rpent"]["httpUrl"].endswith("/mcp/")
+    assert acp_backend["command"][1] == "--acp"
+    assert acp_backend["prompt"] == "system rules\n\nuser task"
+    assert acp_backend["events"] == [
+        "initialize",
+        "new_session",
+        "prompt",
+        "prompt_completed",
+        "close",
+    ]
+    assert not acp_backend["cwd"].exists()
+    assert result.finish_result == (
+        {"_finish": True, "status": "success", "summary": "done"}
+        if with_finish
+        else None
+    )
+    assert result.error is None
+    assert result.stats["backend"] == "gemini_cli"
+    assert result.stats["total_input_tokens"] == 8
+    assert (tmp_path / "gemini.out.stream.jsonl").is_file()
 
 
-@pytest.mark.parametrize("channel", ["input_queue", "dashboard_interaction"])
-def test_interactive_channels_are_rejected_before_starting_mcp(
-    tmp_path: Path,
-    channel: str,
-) -> None:
-    kwargs: dict[str, Any] = {channel: object()}
+@pytest.mark.parametrize("stage", ["startup_error", "prompt_error"])
+def test_backend_failure_still_stops_mcp_server(tmp_path, acp_backend, stage):
+    toolkit = FakeToolkit()
+    acp_backend[stage] = RuntimeError("gemini unavailable")
+    result = make_planner(tmp_path, RecordingSink()).solve(
+        system_prompt="",
+        user_message="task",
+        toolkit=toolkit,
+        max_turns=2,
+    )
+    assert result.error == "RuntimeError: gemini unavailable"
+    assert FakeMcpServer.instances[0].stopped
+    assert toolkit.cancel_calls == 1
+    assert acp_backend["events"][-1] == "close"
 
-    with pytest.raises(ValueError, match="non-interactive"):
+
+def test_probe_uses_acp_without_mcp_and_preserves_configuration(acp_backend):
+    assert (
+        gemini_module.run_probe_turn(prompt="ping", model=None, timeout_s=1) == "done"
+    )
+    assert acp_backend["prompt"] == "ping"
+    assert "--model" not in acp_backend["command"]
+    assert "mcpServers" not in acp_backend["settings"]
+    assert not FakeMcpServer.instances
+    assert acp_backend["events"][-1] == "close"
+
+
+def test_probe_timeout_cancels_prompt_and_closes_transport(acp_backend):
+    acp_backend["block"] = True
+    with pytest.raises(TimeoutError, match="did not finish within"):
+        gemini_module.run_probe_turn(prompt="ping", model=None, timeout_s=0.05)
+    assert acp_backend["events"][-3:] == ["cancel", "prompt_completed", "close"]
+
+
+def test_planner_timeout_cancels_tools_before_acp_cancel(tmp_path, acp_backend):
+    acp_backend["block"] = True
+    toolkit = FakeToolkit()
+    toolkit.cancel_active_and_wait = lambda: acp_backend["events"].append(
+        "cancel_tools"
+    )
+    planner = GeminiCliPlanner(
+        output_dir=str(tmp_path),
+        dashboard_events=RecordingSink(),
+        timeout_s=0.05,
+    )
+    result = planner.solve(
+        system_prompt="",
+        user_message="task",
+        toolkit=toolkit,
+        max_turns=2,
+    )
+    assert result.error == "Gemini CLI timed out after 0.05s"
+    assert acp_backend["events"][-4:] == [
+        "cancel_tools",
+        "cancel",
+        "prompt_completed",
+        "close",
+    ]
+    assert FakeMcpServer.instances[0].stopped
+
+
+def test_probe_propagates_authentication_errors(acp_backend):
+    acp_backend["prompt_error"] = RuntimeError("401 Unauthorized")
+    with pytest.raises(RuntimeError, match="401 Unauthorized"):
+        gemini_module.run_probe_turn(prompt="ping", model=None, timeout_s=1)
+    assert acp_backend["events"][-1] == "close"
+
+
+def test_simultaneous_interactive_channels_are_rejected(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="cannot be used together"):
         make_planner(tmp_path, RecordingSink()).solve(
             system_prompt="",
             user_message="task",
             toolkit=FakeToolkit(),  # type: ignore[arg-type]
             max_turns=2,
-            **kwargs,
+            input_queue=object(),
+            dashboard_interaction=object(),
         )

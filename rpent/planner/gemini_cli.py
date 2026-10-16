@@ -12,28 +12,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Gemini CLI planner backed by its headless streaming protocol.
+"""Gemini CLI planner using persistent ACP sessions.
 
 Gemini CLI owns the agent loop. RPent exposes its toolkit through the same
 in-process Streamable HTTP MCP bridge used by the Codex planner, then records
-the CLI's ``stream-json`` events into the common planner result.
+the CLI's events into the common planner result. All sessions use the
+ACP SDK for queued prompts and acknowledged cancellation, not a model API SDK.
 """
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 import os
 import queue
 import shutil
-import signal
-import subprocess
 import tempfile
-import threading
-import time
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, TextIO
+from typing import Any
 
 from rpent.dashboard.events import (
     DashboardEventSink,
@@ -41,19 +40,27 @@ from rpent.dashboard.events import (
     TranscriptEvent,
     UsageEvent,
 )
-from rpent.dashboard.interaction import DashboardInteractionPort
+from rpent.dashboard.interaction import DashboardInteractionPort, DashboardMessage
+from rpent.dashboard.planner_control import DashboardPlannerControl
 from rpent.planner.base import Planner, PlannerResult
-from rpent.planner.utils.http_mcp_server import HttpMcpServer
+from rpent.planner.utils.agent_runtime import (
+    AgentArtifacts,
+    agent_environment,
+    short_json,
+)
+from rpent.planner.utils.agent_session import run_agent
+from rpent.planner.utils.sdk import int_field, jsonable
 from rpent.tools.toolkit import Toolkit
-from rpent.utils.logging import get_logger
 
-logger = get_logger("gemini_cli")
-
-_LOOPBACK_NO_PROXY_HOSTS = ("127.0.0.1", "localhost")
-_MCP_TOOL_PREFIXES = ("mcp_rpent_", "mcp__rpent__")
+_MCP_TOOL_PREFIX = "mcp_rpent_"
 _SECRET_ENV_NAMES = ("GEMINI_API_KEY",)
 # Gemini CLI treats an empty ``tools.core`` list as unset.
 _NO_BUILTIN_TOOLS = ("__rpent_no_builtin_tools__",)
+
+
+# ---------------------------------------------------------------------------
+# Public backend
+# ---------------------------------------------------------------------------
 
 
 class GeminiCliPlanner(Planner):
@@ -101,250 +108,286 @@ class GeminiCliPlanner(Planner):
         input_queue: queue.Queue[str | None] | None = None,
         dashboard_interaction: DashboardInteractionPort | None = None,
     ) -> PlannerResult:
-        """Run one Gemini CLI headless agent session against the RPent toolkit."""
-        if input_queue is not None or dashboard_interaction is not None:
+        """Run a Gemini ACP session with optional queued follow-up input."""
+        if input_queue is not None and dashboard_interaction is not None:
             raise ValueError(
-                "gemini_cli currently supports non-interactive runs only; "
-                "remove --interactive or --dashboard"
+                "input_queue and dashboard_interaction cannot be used together"
             )
+        return asyncio.run(
+            self._solve(
+                prompt=f"{system_prompt}\n\n{user_message}"
+                if system_prompt
+                else user_message,
+                initial_user_text=user_message,
+                toolkit=toolkit,
+                max_turns=max_turns,
+                input_queue=input_queue,
+                interaction=dashboard_interaction,
+            )
+        )
 
-        prompt = f"{system_prompt}\n\n{user_message}" if system_prompt else user_message
-        output_path, raw_stream_path, stderr_path = self._output_paths()
+    async def _solve(
+        self,
+        *,
+        prompt: str,
+        initial_user_text: str,
+        toolkit: Toolkit,
+        max_turns: int,
+        input_queue: queue.Queue[str | None] | None,
+        interaction: DashboardInteractionPort | None,
+    ) -> PlannerResult:
+        artifacts = AgentArtifacts(
+            "gemini_cli", self._output_path, directory=self._output_dir
+        )
         recorder = _Recorder(self._dashboard_events)
-        state: dict[str, Any] = {}
-        error: str | None = None
-        started = time.monotonic()
-
+        stderr_path = artifacts.sidecar(".stderr.log")
         self._output_dir.mkdir(parents=True, exist_ok=True)
-        mcp_server = HttpMcpServer(toolkit)
-        try:
-            mcp_url = mcp_server.start()
-            with tempfile.TemporaryDirectory(
-                prefix="gemini_cli_", dir=self._output_dir
-            ) as session_dir:
-                session_path = Path(session_dir)
+        with tempfile.TemporaryDirectory(
+            prefix="gemini_cli_", dir=self._output_dir
+        ) as cwd:
+            root = Path(cwd)
+
+            def create_session(url, control, emit):
                 _write_settings(
-                    session_path,
-                    mcp_url=mcp_url,
+                    root,
+                    mcp_url=url,
                     max_turns=max_turns,
                     tool_names=(tool.name for tool in toolkit.list_tools()),
                 )
-                command = _build_command(prompt=prompt, model=self._model)
-                worker = threading.Thread(
-                    target=_run_session,
-                    kwargs={
-                        "command": command,
-                        "cwd": session_path,
-                        "recorder": recorder,
-                        "output_path": output_path,
-                        "raw_stream_path": raw_stream_path,
-                        "stderr_path": stderr_path,
-                        "state": state,
-                    },
-                    name="gemini-cli",
-                    daemon=True,
+                return _GeminiSession(
+                    cwd=root,
+                    model=self._model,
+                    control=control,
+                    emit_event=emit,
+                    stderr_path=stderr_path,
                 )
-                worker.start()
-                worker.join(timeout=self._timeout_s)
-                if worker.is_alive():
-                    error = f"Gemini CLI timed out after {self._timeout_s}s"
-                    try:
-                        toolkit.cancel_active_and_wait()
-                    except Exception as exc:
-                        logger.warning(
-                            "failed to cancel toolkit work after Gemini timeout: %s",
-                            exc,
-                        )
-                    _terminate_process(state.get("process"))
-                    worker.join(timeout=15)
-                    _append_text(output_path, f"\n[gemini-cli] {error}\n")
-                    _append_jsonl(
-                        raw_stream_path, {"type": "timeout", "message": error}
-                    )
-                elif exc := state.get("error"):
-                    error = _redact_secrets(f"{type(exc).__name__}: {exc}")
-                    _append_text(output_path, f"\n[gemini-cli] {error}\n")
-        finally:
-            try:
-                toolkit.cancel_active_and_wait()
-            except Exception as exc:
-                logger.exception("Gemini CLI toolkit cleanup failed")
-                error = error or f"Toolkit cleanup failed: {exc}"
-            finally:
-                mcp_server.stop()
 
-        elapsed = time.monotonic() - started
-        text = str(state.get("text") or "")
-        if not text and output_path.exists():
-            text = output_path.read_text(errors="replace")
-        error = error or recorder.error
-        return PlannerResult(
+            error = await run_agent(
+                prompt=prompt,
+                initial_user_text=initial_user_text,
+                toolkit=toolkit,
+                artifacts=artifacts,
+                recorder=recorder,
+                events=self._dashboard_events,
+                create_session=create_session,
+                timeout_s=self._timeout_s,
+                label="Gemini CLI",
+                input_queue=input_queue,
+                interaction=interaction,
+                redact=_redact_secrets,
+                tool_event=lambda name, args, result: {
+                    "type": "rpent_tool",
+                    "name": name,
+                    "args": args,
+                    "result": result.data,
+                    "is_error": result.is_error,
+                },
+            )
+        return artifacts.result(
+            text="",
             finish_result=recorder.finish_result,
-            messages=[{"role": "gemini_cli", "content": text}],
-            stats={
-                "backend": "gemini_cli",
-                "elapsed_s": round(elapsed, 1),
-                "output_chars": len(text),
-                "output_path": str(output_path),
-                "raw_stream_path": str(raw_stream_path),
-                "stderr_path": str(stderr_path),
-                "last_message_chars": len(recorder.final_response),
-                **recorder.stats(),
-            },
+            final_response=recorder.final_response,
+            stats=recorder.stats(),
             error=error,
+            stderr_path=stderr_path,
         )
 
-    def _output_paths(self) -> tuple[Path, Path, Path]:
-        if self._output_path is None:
-            self._output_dir.mkdir(parents=True, exist_ok=True)
-            with tempfile.NamedTemporaryFile(
-                mode="w",
-                suffix=".out",
-                prefix="gemini_cli_task_",
-                dir=self._output_dir,
-                delete=False,
-            ) as file_obj:
-                output_path = Path(file_obj.name)
-        else:
-            output_path = self._output_path
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-        return (
-            output_path,
-            output_path.with_suffix(output_path.suffix + ".stream.jsonl"),
-            output_path.with_suffix(output_path.suffix + ".stderr.log"),
+
+# ---------------------------------------------------------------------------
+# ACP session driver
+# ---------------------------------------------------------------------------
+
+
+class _GeminiSession:
+    """Own a persistent Gemini CLI ACP session and one cancellable prompt."""
+
+    def __init__(
+        self,
+        *,
+        cwd: Path,
+        model: str | None,
+        control: DashboardPlannerControl | None,
+        emit_event,
+        stderr_path: Path,
+    ) -> None:
+        self._cwd = cwd
+        self._model = model
+        self._control = control
+        self._emit = emit_event
+        self._stderr_path = stderr_path
+        self._transport = None
+        self._connection = None
+        self._session_id = None
+        self._task: asyncio.Task | None = None
+        self._done = asyncio.Event()
+        self._done.set()
+        self._stderr_task: asyncio.Task | None = None
+        self._closing = False
+        self.error: str | None = None
+
+    async def run(self, prompt: str) -> None:
+        from acp import PROTOCOL_VERSION, spawn_agent_process
+
+        command = _build_command(model=self._model)
+        transport = spawn_agent_process(
+            self,
+            command[0],
+            *command[1:],
+            cwd=self._cwd,
+            env=_gemini_environment(),
+            transport_kwargs={"limit": 10 * 1024 * 1024},
         )
+        connection, process = await transport.__aenter__()
+        self._transport, self._connection = transport, connection
+        self._stderr_task = asyncio.create_task(self._read_stderr(process.stderr))
+        await connection.initialize(protocol_version=PROTOCOL_VERSION)
+        # new_session uses the CLI's configured authentication; authenticate
+        # would select a method and may rewrite the user's CLI settings.
+        session = await connection.new_session(cwd=str(self._cwd))
+        self._session_id = session.session_id
+        await self.submit(DashboardMessage("initial", prompt, "sending"))
+        if self._control is None:
+            await asyncio.shield(self._task)
+        else:
+            await self._control.start()
+            await self._control.run(self)
+
+    async def submit(self, message: DashboardMessage) -> int:
+        if self._closing or self._session_id is None:
+            raise RuntimeError("Gemini conversation is closed")
+        if not self._done.is_set():
+            raise RuntimeError("Cannot submit while a Gemini prompt is active")
+        self._done = asyncio.Event()
+        self._emit({"type": "acp_prompt"})
+        self._task = asyncio.create_task(self._consume_prompt(message.text, self._done))
+        return 1
+
+    async def _consume_prompt(self, text: str, done: asyncio.Event) -> None:
+        from acp import text_block
+
+        try:
+            response = await self._connection.prompt(
+                session_id=self._session_id,
+                prompt=[text_block(text)],
+            )
+            self._emit(
+                {
+                    "type": "acp_result",
+                    **jsonable(response, by_alias=True),
+                }
+            )
+            done.set()
+            if self._closing or self._control is None:
+                return
+            if response.stop_reason in {"max_turn_requests", "max_tokens", "refusal"}:
+                self._control.end()
+            else:
+                await self._control.complete(self)
+        except Exception as exc:
+            done.set()
+            self.error = _redact_secrets(f"{type(exc).__name__}: {exc}")
+            if self._control is not None:
+                self._control.end()
+
+    async def interrupt(self) -> int:
+        if self._done.is_set():
+            return 0
+        await self._connection.cancel(session_id=self._session_id)
+        try:
+            await asyncio.wait_for(self._done.wait(), timeout=15)
+        except asyncio.TimeoutError:
+            raise RuntimeError("Gemini did not finish the interrupted prompt") from None
+        return 0
+
+    async def session_update(self, session_id: str, update: Any, **kwargs: Any) -> None:
+        self._emit(
+            {
+                "type": "acp_update",
+                "update": jsonable(update, by_alias=True),
+            }
+        )
+
+    async def request_permission(self, session_id, tool_call, options, **kwargs):
+        from acp.schema import DeniedOutcome, RequestPermissionResponse
+
+        # RPent MCP tools are trusted in the generated settings. Do not grant
+        # permissions for any additional tool exposed by a user's configuration.
+        return RequestPermissionResponse(outcome=DeniedOutcome(outcome="cancelled"))
+
+    async def _read_stderr(self, stream) -> None:
+        with self._stderr_path.open("w") as output:
+            if stream is not None:
+                while line := await stream.readline():
+                    output.write(
+                        _redact_secrets(line.decode("utf-8", errors="replace"))
+                    )
+                    output.flush()
+
+    async def close(self) -> None:
+        self._closing = True
+        try:
+            if self._task is not None:
+                with contextlib.suppress(Exception):
+                    await self.interrupt()
+                if not self._task.done():
+                    self._task.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await self._task
+        finally:
+            if self._transport is not None:
+                await self._transport.__aexit__(None, None, None)
+            if self._stderr_task is not None:
+                await self._stderr_task
+
+
+# ---------------------------------------------------------------------------
+# Connectivity probe
+# ---------------------------------------------------------------------------
 
 
 def run_probe_turn(*, prompt: str, model: str | None, timeout_s: int) -> str:
-    """Run one tool-free Gemini CLI request and return assistant text."""
+    """Run a tool-free ACP prompt using the CLI's existing configuration."""
     recorder = _Recorder(NullDashboardEventSink())
-    with tempfile.TemporaryDirectory(prefix="rpent_gemini_probe_") as session_dir:
-        session_path = Path(session_dir)
-        _write_settings(session_path, mcp_url=None, max_turns=1)
-        command = _build_command(prompt=prompt, model=model)
-        process = subprocess.Popen(
-            command,
-            cwd=session_path,
-            env=_gemini_environment(),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            start_new_session=True,
-        )
-        try:
-            stdout, stderr = process.communicate(timeout=timeout_s)
-        except subprocess.TimeoutExpired as exc:
-            _terminate_process(process)
-            process.communicate()
-            raise TimeoutError(
-                f"Gemini CLI did not finish within {timeout_s}s"
-            ) from exc
+    with tempfile.TemporaryDirectory(prefix="rpent_gemini_probe_") as directory:
+        root = Path(directory)
+        _write_settings(root, mcp_url=None, max_turns=1)
+        stderr_path = root / "stderr.log"
 
-    for line in stdout.splitlines():
-        event = _parse_event(line)
-        if event is not None:
-            recorder.observe(event)
-    if process.returncode != 0 or recorder.error:
-        detail = _redact_secrets(
-            recorder.error
-            or _safe_stderr(stderr)
-            or (f"Gemini CLI exited with status {process.returncode}")
-        )
-        raise RuntimeError(detail)
+        async def run():
+            session = _GeminiSession(
+                cwd=root,
+                model=model,
+                control=None,
+                emit_event=recorder.observe,
+                stderr_path=stderr_path,
+            )
+            try:
+                await asyncio.wait_for(session.run(prompt), timeout=timeout_s)
+            except asyncio.TimeoutError:
+                raise TimeoutError(
+                    f"Gemini CLI did not finish within {timeout_s}s"
+                ) from None
+            finally:
+                await session.close()
+            if session.error:
+                raise RuntimeError(session.error)
+
+        asyncio.run(run())
     return recorder.final_response
 
 
-def has_configured_api_key() -> bool:
-    """Return whether Gemini CLI can see ``GEMINI_API_KEY`` without exposing it."""
-    return bool(os.environ.get("GEMINI_API_KEY") or _dotenv_value("GEMINI_API_KEY"))
-
-
-def configured_base_url() -> str | None:
-    """Return Gemini CLI's configured custom endpoint, if present."""
-    return os.environ.get("GEMINI_BASE_URL") or _dotenv_value("GEMINI_BASE_URL")
-
-
-def _run_session(
-    *,
-    command: list[str],
-    cwd: Path,
-    recorder: "_Recorder",
-    output_path: Path,
-    raw_stream_path: Path,
-    stderr_path: Path,
-    state: dict[str, Any],
-) -> None:
-    """Own the Gemini child and consume its streaming JSON on a worker thread."""
-    stderr_chunks: list[str] = []
-    rendered_chunks: list[str] = []
-    try:
-        process = subprocess.Popen(
-            command,
-            cwd=cwd,
-            env=_gemini_environment(),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            bufsize=1,
-            start_new_session=True,
-        )
-        state["process"] = process
-        if process.stdout is None or process.stderr is None:
-            raise RuntimeError("Gemini CLI pipes were not created")
-
-        stderr_reader = threading.Thread(
-            target=_drain_stderr,
-            args=(process.stderr, stderr_chunks),
-            name="gemini-cli-stderr",
-            daemon=True,
-        )
-        stderr_reader.start()
-        with (
-            open(output_path, "w") as output_file,
-            open(raw_stream_path, "w") as raw_file,
-        ):
-            for line in process.stdout:
-                safe_line = _redact_secrets(line)
-                raw_file.write(safe_line)
-                raw_file.flush()
-                event = _parse_event(line)
-                rendered = (
-                    recorder.observe(event)
-                    if event is not None
-                    else f"[gemini-stdout] {safe_line.rstrip()}\n"
-                )
-                if rendered:
-                    rendered_chunks.append(rendered)
-                    output_file.write(rendered)
-                    output_file.flush()
-                    logger.info(rendered.rstrip())
-
-        returncode = process.wait()
-        stderr_reader.join(timeout=5)
-        stderr_text = "".join(stderr_chunks)
-        stderr_path.write_text(_redact_secrets(stderr_text))
-        if returncode != 0 and recorder.error is None:
-            raise RuntimeError(
-                _safe_stderr(stderr_text)
-                or f"Gemini CLI exited with status {returncode}"
-            )
-        state["text"] = "".join(rendered_chunks)
-    except Exception as exc:
-        state["error"] = exc
+# ---------------------------------------------------------------------------
+# Observation layer
+# ---------------------------------------------------------------------------
 
 
 @dataclass
 class _Recorder:
-    """Translate Gemini CLI stream events into RPent transcript and stats."""
+    """Translate ACP updates and actual MCP results into transcript and stats."""
 
     dashboard_events: DashboardEventSink
     tool_calls: int = 0
     finish_result: dict[str, Any] | None = None
-    error: str | None = None
     final_response: str = ""
     usage: dict[str, int] = field(
         default_factory=lambda: {
@@ -353,93 +396,77 @@ class _Recorder:
             "total_cached_input_tokens": 0,
         }
     )
-    _tool_names: dict[str, str] = field(default_factory=dict)
 
     def stats(self) -> dict[str, Any]:
         return {"tool_calls": self.tool_calls, **self.usage}
 
     def observe(self, event: dict[str, Any]) -> str:
         event_type = str(event.get("type") or "")
-        if event_type == "init":
-            return (
-                f"[gemini-system] session={event.get('session_id', '')} "
-                f"model={event.get('model', '')}\n"
-            )
-        if event_type == "message":
-            if event.get("role") != "assistant":
-                return ""
-            text = str(event.get("content") or "")
-            if not text:
-                return ""
-            self.final_response += text
-            self.dashboard_events.emit(TranscriptEvent({"type": "text", "text": text}))
-            return f"[gemini] {text}\n"
-        if event_type == "tool_use":
-            name = _bare_tool_name(str(event.get("tool_name") or ""))
-            tool_id = str(event.get("tool_id") or "")
-            if tool_id:
-                self._tool_names[tool_id] = name
+        if event_type == "rpent_tool":
+            name, arguments, output = event["name"], event["args"], event["result"]
             self.tool_calls += 1
-            arguments = event.get("parameters")
-            if not isinstance(arguments, dict):
-                arguments = {}
+            if (
+                name == "finish"
+                and not event["is_error"]
+                and output.get("_finish") is True
+            ):
+                self.finish_result = self.finish_result or dict(output)
+            result = {
+                "status": "error" if event["is_error"] else "success",
+                "output": output,
+            }
             self.dashboard_events.emit(
                 TranscriptEvent({"type": "tool_call", "tool": name, "args": arguments})
             )
-            return f"[tool->] {name}: {_short_json(arguments)}\n"
-        if event_type == "tool_result":
-            tool_id = str(event.get("tool_id") or "")
-            name = self._tool_names.get(tool_id, tool_id or "unknown")
-            output = event.get("output")
-            status = str(event.get("status") or "")
-            if name == "finish" and status == "success":
-                self.finish_result = self.finish_result or _find_finish(output)
-            result = {
-                "status": status,
-                "output": _summarize_output(output),
-            }
-            if event.get("error"):
-                result["error"] = event["error"]
             self.dashboard_events.emit(
                 TranscriptEvent({"type": "tool_result", "tool": name, "result": result})
             )
-            return f"[tool<-] {name}: {_short_json(result)}\n"
-        if event_type == "error":
-            detail = _redact_secrets(
-                str(event.get("message") or event.get("error") or "unknown error")
+            return (
+                f"[tool->] {name}: {short_json(arguments)}\n"
+                f"[tool<-] {name}: {short_json(result)}\n"
             )
-            if event.get("severity") == "error":
-                self.error = detail
-            self.dashboard_events.emit(
-                TranscriptEvent({"type": "text", "text": f"[Gemini CLI] {detail}"})
-            )
-            return f"[gemini-error] {detail}\n"
-        if event_type == "result":
-            self._set_usage(event.get("stats"))
-            if event.get("status") == "error":
-                error = event.get("error")
-                self.error = _redact_secrets(
-                    str(error.get("message") if isinstance(error, dict) else error)
+        if event_type == "acp_prompt":
+            self.final_response = ""
+            return ""
+        if event_type == "acp_update":
+            update = event["update"]
+            kind = update.get("sessionUpdate")
+            content = update.get("content") or {}
+            if kind == "agent_message_chunk" and content.get("type") == "text":
+                text = content["text"]
+                self.final_response += text
+                self.dashboard_events.emit(
+                    TranscriptEvent({"type": "text", "text": text})
                 )
-            return f"[gemini-result] {event.get('status', '')}\n"
+                return f"[gemini] {text}\n"
+            if kind == "agent_thought_chunk" and content.get("type") == "text":
+                self.dashboard_events.emit(
+                    TranscriptEvent({"type": "thinking", "text": content["text"]})
+                )
+                return f"[gemini-thinking] {content['text']}\n"
+            return ""
+        if event_type == "acp_result":
+            usage = event.get("usage") or {}
+            for target, source in (
+                ("total_input_tokens", "inputTokens"),
+                ("total_output_tokens", "outputTokens"),
+                ("total_cached_input_tokens", "cachedReadTokens"),
+            ):
+                self.usage[target] += int_field(usage, source)
+            self.dashboard_events.emit(
+                UsageEvent(
+                    inp=self.usage["total_input_tokens"],
+                    out=self.usage["total_output_tokens"],
+                    tool_calls=self.tool_calls,
+                )
+            )
+            return f"[gemini-result] {event.get('stopReason', '')}\n"
         return ""
 
-    def _set_usage(self, stats: Any) -> None:
-        if not isinstance(stats, dict):
-            return
-        self.tool_calls = max(self.tool_calls, int(stats.get("tool_calls") or 0))
-        self.usage = {
-            "total_input_tokens": int(stats.get("input_tokens") or 0),
-            "total_output_tokens": int(stats.get("output_tokens") or 0),
-            "total_cached_input_tokens": int(stats.get("cached") or 0),
-        }
-        self.dashboard_events.emit(
-            UsageEvent(
-                inp=self.usage["total_input_tokens"],
-                out=self.usage["total_output_tokens"],
-                tool_calls=self.tool_calls,
-            )
-        )
+
+# ---------------------------------------------------------------------------
+# CLI configuration
+# ---------------------------------------------------------------------------
 
 
 def _write_settings(
@@ -450,7 +477,7 @@ def _write_settings(
     tool_names: Iterable[str] = (),
 ) -> Path:
     """Write workspace-only settings without changing the user's Gemini config."""
-    allowed_tools = [f"mcp_rpent_{name}" for name in tool_names]
+    allowed_tools = [f"{_MCP_TOOL_PREFIX}{name}" for name in tool_names]
     settings: dict[str, Any] = {
         "context": {
             "fileName": "RPENT_NO_PROJECT_CONTEXT.md",
@@ -464,17 +491,12 @@ def _write_settings(
         "tools": {"core": allowed_tools or list(_NO_BUILTIN_TOOLS)},
     }
     if mcp_url:
-        settings.update(
-            {
-                "mcp": {"allowed": ["rpent"]},
-                "mcpServers": {
-                    "rpent": {
-                        "httpUrl": mcp_url,
-                        "trust": True,
-                    }
-                },
+        settings["mcpServers"] = {
+            "rpent": {
+                "httpUrl": mcp_url,
+                "trust": True,
             }
-        )
+        }
     settings_dir = root / ".gemini"
     settings_dir.mkdir(parents=True, exist_ok=True)
     path = settings_dir / "settings.json"
@@ -482,7 +504,7 @@ def _write_settings(
     return path
 
 
-def _build_command(*, prompt: str, model: str | None) -> list[str]:
+def _build_command(*, model: str | None) -> list[str]:
     binary = os.environ.get("GEMINI_BIN") or shutil.which("gemini")
     if not binary:
         raise FileNotFoundError(
@@ -490,13 +512,7 @@ def _build_command(*, prompt: str, model: str | None) -> list[str]:
         )
     command = [
         binary,
-        "--prompt",
-        prompt,
-        "--output-format",
-        "stream-json",
-        "--approval-mode",
-        "yolo",
-        "--skip-trust",
+        "--acp",
         "--allowed-mcp-server-names",
         "rpent",
         "--extensions",
@@ -508,23 +524,13 @@ def _build_command(*, prompt: str, model: str | None) -> list[str]:
 
 
 def _gemini_environment() -> dict[str, str]:
-    env = {
-        **os.environ,
+    return {
+        **agent_environment(),
         "GEMINI_CLI_NO_RELAUNCH": "1",
-        # Workspace settings are merged before --skip-trust is processed.
+        # Trust the generated workspace so Gemini CLI loads its local settings.
         "GEMINI_CLI_TRUST_WORKSPACE": "true",
         "NO_COLOR": "1",
     }
-    entries: list[str] = []
-    for key in ("NO_PROXY", "no_proxy"):
-        entries.extend(item.strip() for item in env.get(key, "").split(","))
-    entries = list(
-        dict.fromkeys(item for item in (*entries, *_LOOPBACK_NO_PROXY_HOSTS) if item)
-    )
-    bypass = ",".join(entries)
-    env["NO_PROXY"] = bypass
-    env["no_proxy"] = bypass
-    return env
 
 
 def _dotenv_value(name: str) -> str | None:
@@ -548,94 +554,9 @@ def _dotenv_value(name: str) -> str | None:
     return None
 
 
-def _parse_event(line: str) -> dict[str, Any] | None:
-    try:
-        event = json.loads(line)
-    except (TypeError, json.JSONDecodeError):
-        return None
-    return event if isinstance(event, dict) else None
-
-
-def _bare_tool_name(name: str) -> str:
-    for prefix in _MCP_TOOL_PREFIXES:
-        if name.startswith(prefix):
-            return name[len(prefix) :]
-    return name
-
-
-def _find_finish(value: Any, *, depth: int = 0) -> dict[str, Any] | None:
-    if depth > 6:
-        return None
-    if isinstance(value, str):
-        try:
-            value = json.loads(value)
-        except json.JSONDecodeError:
-            return None
-        return _find_finish(value, depth=depth + 1)
-    if isinstance(value, dict):
-        if value.get("_finish") is True:
-            return dict(value)
-        for key in ("content", "text", "output", "result", "data"):
-            if key in value and (found := _find_finish(value[key], depth=depth + 1)):
-                return found
-    elif isinstance(value, list):
-        for item in value:
-            if found := _find_finish(item, depth=depth + 1):
-                return found
-    return None
-
-
-def _summarize_output(value: Any) -> Any:
-    if isinstance(value, str) and len(value) > 1000:
-        return value[:1000] + f"...(+{len(value) - 1000})"
-    return value
-
-
-def _short_json(value: Any, *, limit: int = 1000) -> str:
-    text = json.dumps(value, ensure_ascii=False, default=str)
-    if len(text) <= limit:
-        return text
-    return text[:limit] + f"...(+{len(text) - limit})"
-
-
-def _drain_stderr(stream: TextIO, chunks: list[str]) -> None:
-    for line in stream:
-        chunks.append(line)
-
-
-def _safe_stderr(stderr: str, *, limit: int = 2000) -> str:
-    text = _redact_secrets(stderr).strip()
-    if len(text) > limit:
-        text = text[-limit:]
-    return text
-
-
 def _redact_secrets(text: str) -> str:
     for name in _SECRET_ENV_NAMES:
         secret = os.environ.get(name) or _dotenv_value(name)
         if secret and len(secret) >= 8:
             text = text.replace(secret, f"<{name}>")
     return text
-
-
-def _terminate_process(process: subprocess.Popen[str] | None) -> None:
-    if process is None or process.poll() is not None:
-        return
-    try:
-        os.killpg(process.pid, signal.SIGTERM)
-        process.wait(timeout=5)
-    except (OSError, subprocess.TimeoutExpired):
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except OSError:
-            pass
-
-
-def _append_text(path: Path, text: str) -> None:
-    with open(path, "a") as file_obj:
-        file_obj.write(text)
-
-
-def _append_jsonl(path: Path, value: dict[str, Any]) -> None:
-    with open(path, "a") as file_obj:
-        file_obj.write(json.dumps(value, ensure_ascii=False) + "\n")

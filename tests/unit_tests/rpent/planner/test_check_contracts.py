@@ -57,7 +57,6 @@ def _clear_provider_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "ANTHROPIC_BASE_URL",
         "OPENAI_BASE_URL",
         "CODEX_BASE_URL",
-        "GEMINI_BASE_URL",
         "CODEX_MODEL",
     ):
         monkeypatch.delenv(name, raising=False)
@@ -576,10 +575,6 @@ def test_gemini_cli_probe_uses_cli_configuration_and_exact_optional_model(
     import rpent.planner.gemini_cli as gemini_cli
 
     seen: dict[str, Any] = {}
-    monkeypatch.setattr(gemini_cli, "has_configured_api_key", lambda: True)
-    monkeypatch.setattr(
-        gemini_cli, "configured_base_url", lambda: "https://gateway.example"
-    )
 
     def fake_probe(*, prompt: str, model: str | None, timeout_s: int) -> str:
         seen.update(prompt=prompt, model=model, timeout_s=timeout_s)
@@ -592,9 +587,10 @@ def test_gemini_cli_probe_uses_cli_configuration_and_exact_optional_model(
 
     assert result.ok is True
     assert result.reply == "ok"
-    assert result.credential_env == "GEMINI_API_KEY"
-    assert result.base_url_env == "GEMINI_BASE_URL"
-    assert result.base_url == "https://gateway.example"
+    assert result.credential_env is None
+    assert result.credential_present is None
+    assert result.base_url_env is None
+    assert result.base_url is None
     assert seen == {
         "prompt": PROBE_PROMPT,
         "model": "gemini-upstream-id",
@@ -606,9 +602,6 @@ def test_gemini_cli_fetch_failure_is_a_network_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import rpent.planner.gemini_cli as gemini_cli
-
-    monkeypatch.setattr(gemini_cli, "has_configured_api_key", lambda: True)
-    monkeypatch.setattr(gemini_cli, "configured_base_url", lambda: None)
 
     def fail(**kwargs: Any) -> str:
         raise RuntimeError("TypeError: fetch failed sending request")
