@@ -160,7 +160,9 @@ class ApiAgentLoop(Planner):
             end_strategy="early",
             # Finish refusals may span attempts; the request budget still applies.
             retries={"output": max_turns},
-            model_settings=_build_model_settings(self.model, self.max_tokens),
+            model_settings=_build_model_settings(
+                self.model, self.max_tokens, self.reasoning_effort
+            ),
             capabilities=[
                 SlidingWindowCompaction(
                     max_messages=80, max_fraction=0.8, keep_messages=40
@@ -210,9 +212,13 @@ class ApiAgentLoop(Planner):
         )
 
 
-def _build_model_settings(model: Model, max_tokens: int) -> ModelSettings:
+def _build_model_settings(
+    model: Model, max_tokens: int, reasoning_effort: str | None = None
+) -> ModelSettings:
     """Enable parallel tool requests and preserve Anthropic prompt caching."""
     from pydantic_ai.models.anthropic import AnthropicModel, AnthropicModelSettings
+    from pydantic_ai.models.openai import OpenAIChatModel, OpenAIChatModelSettings
+    from pydantic_ai.profiles.openai import OPENAI_REASONING_EFFORT_MAP
 
     if isinstance(model, AnthropicModel):
         return AnthropicModelSettings(
@@ -221,6 +227,14 @@ def _build_model_settings(model: Model, max_tokens: int) -> ModelSettings:
             anthropic_cache_instructions=True,
             anthropic_cache_tool_definitions=True,
             anthropic_cache_messages=True,
+        )
+    if isinstance(model, OpenAIChatModel) and reasoning_effort is not None:
+        return OpenAIChatModelSettings(
+            max_tokens=max_tokens,
+            parallel_tool_calls=True,
+            openai_reasoning_effort=OPENAI_REASONING_EFFORT_MAP.get(
+                reasoning_effort, reasoning_effort
+            ),
         )
     return ModelSettings(max_tokens=max_tokens, parallel_tool_calls=True)
 

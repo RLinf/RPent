@@ -16,5 +16,5 @@ if [ "$TARGET" != "en" ] && [ "$TARGET" != "zh" ]; then
 fi
 
 sphinx-build -W --keep-going "source-$TARGET" build/html && \
-  sphinx-autobuild -W --host "$HOST" --port "$PORT" \
+  sphinx-autobuild -W --watch _static --watch _ext --host "$HOST" --port "$PORT" \
     "source-$TARGET" build/html

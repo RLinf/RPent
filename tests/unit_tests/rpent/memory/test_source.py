@@ -196,3 +196,49 @@ def test_removed_source_flags_are_rejected(dashboard, option, capsys):
         parser.parse_args(["--robot", "libero", *task, option, "unused"])
     assert exc.value.code == 2
     assert f"unrecognized arguments: {option}" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("version", ["../other", "/absolute", "a/b", "..", ""])
+def test_invalid_corpus_directory_rejected_before_download(monkeypatch, version):
+    fetch = Mock()
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", fetch)
+    with pytest.raises(ValueError, match="single corpus directory"):
+        prepare_explicit_source("team/memory", "robotwin", version=version)
+    fetch.assert_not_called()
+
+
+def test_versioned_copies_do_not_reuse_unversioned_copy(tmp_path, monkeypatch):
+    snapshot = tmp_path / "snapshots" / ("a" * 40)
+    root = snapshot / "robotwin"
+    root.mkdir(parents=True)
+    (root / "MEMORY.md").write_text("default")
+    monkeypatch.setattr(
+        huggingface_hub, "snapshot_download", lambda **kw: str(snapshot)
+    )
+    default = prepare_explicit_source("team/memory", "robotwin")
+    corpus = root / "Astra_reference"
+    corpus.mkdir()
+    (corpus / "MEMORY.md").write_text("astra")
+    selected = prepare_explicit_source(
+        "team/memory", "robotwin", version="Astra_reference"
+    )
+    assert (default / "MEMORY.md").read_text() == "default"
+    assert (selected / "MEMORY.md").read_text() == "astra"
+
+
+def test_unversioned_copy_after_versioned_download(tmp_path, monkeypatch):
+    snapshot = tmp_path / "snapshots" / ("a" * 40)
+    root = snapshot / "robotwin"
+    corpus = root / "Astra_reference"
+    corpus.mkdir(parents=True)
+    (corpus / "MEMORY.md").write_text("astra")
+    (root / "MEMORY.md").write_text("default")
+    monkeypatch.setattr(
+        huggingface_hub, "snapshot_download", lambda **kw: str(snapshot)
+    )
+    selected = prepare_explicit_source(
+        "team/memory", "robotwin", version="Astra_reference"
+    )
+    default = prepare_explicit_source("team/memory", "robotwin")
+    assert (default / "MEMORY.md").read_text() == "default"
+    assert (selected / "MEMORY.md").read_text() == "astra"
