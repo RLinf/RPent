@@ -31,20 +31,36 @@ Overview
 Tasks
 ~~~~~
 
-Use ``--task`` to select a task and ``--layout`` to select its scene layout.
-The runtime includes these tasks, among others:
+The `RoboDojo simulation task catalog <https://robodojo-benchmark.com/doc/sim-tasks/>`_
+groups 42 benchmark tasks into five capability categories:
 
 .. list-table::
    :header-rows: 1
 
-   * - Task
-     - Name
-   * - Put bottles into a dustbin
-     - ``put_bottles_into_dustbin``
-   * - Fill a pen holder
-     - ``fill_pen_holder``
-   * - Stack bowls in a randomized scene
-     - ``stack_bowls_random``
+   * - Category
+     - Tasks
+     - Focus
+   * - Generalization
+     - 12
+     - Varied objects and layouts, including random variants.
+   * - Memory
+     - 6
+     - State tracking and sequence recall.
+   * - Precision
+     - 8
+     - Manipulation with tight spatial constraints.
+   * - Long-Horizon
+     - 8
+     - Multi-step tasks with several subgoals.
+   * - Open
+     - 8
+     - Open-ended or language- and image-conditioned tasks.
+
+The catalog also lists one separate DLC task. Use ``--task`` to select a task
+from the installed runtime and ``--layout`` to select its scene layout. For
+example, ``stack_bowls_random`` is a generalization task, while
+``fill_pen_holder`` and ``put_bottles_into_dustbin`` are long-horizon tasks.
+These are examples, not the complete task list.
 
 Observation and Action
 ~~~~~~~~~~~~~~~~~~~~~~

@@ -29,19 +29,33 @@ RoboDojo
 任务
 ~~~~
 
-通过 ``--task`` 选择任务，``--layout`` 选择场景布局。以下是运行时提供的部分任务：
+`RoboDojo 仿真任务目录 <https://robodojo-benchmark.com/doc/sim-tasks/>`_ 将 42 个基准任务分为五类能力：
 
 .. list-table::
    :header-rows: 1
 
-   * - 任务
-     - 名称
-   * - 将瓶子放入垃圾桶
-     - ``put_bottles_into_dustbin``
-   * - 整理笔筒
-     - ``fill_pen_holder``
-   * - 随机场景中的碗堆叠
-     - ``stack_bowls_random``
+   * - 类别
+     - 任务数
+     - 考察内容
+   * - 泛化
+     - 12
+     - 不同物体和布局，包括随机变体。
+   * - 记忆
+     - 6
+     - 状态追踪和顺序记忆。
+   * - 精细操作
+     - 8
+     - 空间约束严格的操作。
+   * - 长程任务
+     - 8
+     - 需要完成多个子目标的多步骤任务。
+   * - 开放任务
+     - 8
+     - 开放式或依赖语言、图像指令的任务。
+
+目录还单列了一个 DLC 任务。通过 ``--task`` 选择已安装运行时中的任务，``--layout`` 选择场景布局。\
+例如，``stack_bowls_random`` 属于泛化任务，``fill_pen_holder`` 和 ``put_bottles_into_dustbin``\
+属于长程任务。这三个名称只是示例，并非完整任务列表。
 
 观测与动作
 ~~~~~~~~~~
