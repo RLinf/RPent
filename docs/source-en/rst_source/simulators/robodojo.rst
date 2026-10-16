@@ -236,6 +236,20 @@ source separately and prepare its Python environment following the
 <https://github.com/XPolicyLab/XPolicyLab/blob/432f82b1758c5b1202e42a3dfe014546dbc50871/policy/Pi_05/README.md#installation>`_.
 You can reuse the original JAX weights and statistics downloaded above,
 but must configure their location as XPolicyLab expects.
+After configuring SAM3 and your planner as described below, run a task with
+the XPolicyLab checkout and its Python environment:
+
+.. code-block:: bash
+
+   rpent --robot robodojo --task put_bottles_into_dustbin --layout 0 \
+     --planner codex --model <planner-model> \
+     --policy-backend xpolicylab --xpolicylab-root /path/to/XPolicyLab \
+     --pi05-python /path/to/xpolicylab-env/bin/python \
+     --output-dir /path/to/run-output
+
+``--xpolicylab-root`` points to the separate XPolicyLab checkout.
+Use ``--pi05-python`` when its policy dependencies live in a separate Python
+environment; otherwise omit that option to use the current environment.
 
 SAM3 Configuration
 ------------------

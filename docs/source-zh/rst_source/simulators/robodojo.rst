@@ -206,6 +206,18 @@ RPent 也提供 XPolicyLab 后端，已有该环境或需要使用其 Pi0.5 实�
 XPolicyLab 是另一套加载和运行 Pi0.5 的软件。使用前需单独克隆源码，\
 并按其 `Pi0.5 安装说明 <https://github.com/XPolicyLab/XPolicyLab/blob/432f82b1758c5b1202e42a3dfe014546dbc50871/policy/Pi_05/README.md#installation>`_ 准备 Python 环境。\
 可复用前面下载的原始 JAX 权重和统计量，但需按 XPolicyLab 的要求配置存放位置。
+按下文完成 SAM3 和规划器配置后，使用单独的 XPolicyLab 源码与 Python 环境运行任务：
+
+.. code-block:: bash
+
+   rpent --robot robodojo --task put_bottles_into_dustbin --layout 0 \
+     --planner codex --model <planner-model> \
+     --policy-backend xpolicylab --xpolicylab-root /path/to/XPolicyLab \
+     --pi05-python /path/to/xpolicylab-env/bin/python \
+     --output-dir /path/to/run-output
+
+``--xpolicylab-root`` 指向单独克隆的 XPolicyLab 源码目录。仅当策略依赖安装在另一 Python 环境时，\
+才需要传入 ``--pi05-python``；否则省略此参数，使用当前环境。
 
 SAM3 配置
 ---------
