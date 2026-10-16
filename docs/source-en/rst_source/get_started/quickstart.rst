@@ -8,7 +8,7 @@ For another platform, follow :doc:`../simulators/robocasa`, :doc:`../simulators/
 Requirements
 ------------
 
-- Linux, an NVIDIA GPU, and a CUDA 12-compatible driver.
+- Linux, an NVIDIA GPU, and a driver compatible with the selected PyTorch CUDA build.
 - ``git``, ``bash``, and a C/C++ toolchain.
 - `uv <https://docs.astral.sh/uv/getting-started/installation/>`_ to create an isolated Python environment. These commands use Python 3.11.
 - An Anthropic API key with access to the example model, and network access to download assets and weights. Model calls incur API charges.
@@ -16,7 +16,7 @@ Requirements
 1. Install RPent
 ----------------
 
-Create an isolated Python environment and install the LIBERO-PRO dependencies.
+Create and activate an isolated Python environment:
 
 .. code-block:: bash
 
@@ -24,6 +24,14 @@ Create an isolated Python environment and install the LIBERO-PRO dependencies.
    cd RPent
    uv venv --python 3.11
    source .venv/bin/activate
+
+Install ``torch==2.7.1`` and ``torchvision==0.22.1`` as required by OpenPI.
+Choose a build compatible with your GPU and NVIDIA driver from the
+`PyTorch installation instructions <https://pytorch.org/get-started/previous-versions/>`_,
+replacing ``pip install`` with ``uv pip install``. Then install LIBERO-PRO:
+
+.. code-block:: bash
+
    uv pip install -e ".[libero-pro]"
 
 Run the remaining commands in this terminal from the RPent repository root. In a new terminal, activate ``.venv`` and set the checkpoint paths and API key again.

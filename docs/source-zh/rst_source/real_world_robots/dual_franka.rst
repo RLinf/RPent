@@ -285,7 +285,9 @@ ModelScope 上发布了一个可直接使用的 task ``1`` checkpoint： `Brunch
 手动技能测试
 ------------
 
-普通评测需要独占终端（TTY）接收操作员确认，不支持 ``--interactive`` 或 Dashboard。探索模式支持 ``--explore --interactive``，但仍需使用终端，不能通过 Dashboard 提交操作员反馈。不支持的参数组合会在连接硬件前被拒绝。普通任务也会注册 ``request_operator_verdict``，收到人工判定后才允许调用 ``finish``；``request_scene_reset`` 只在探索模式注册。
+普通终端评测不加 ``--interactive`` 和 ``--dashboard``，在 TTY 中按提示完成人工确认。``--explore`` 不加 ``--interactive`` 也能按提示答复。需要通过终端对话指导探索时，添加 ``--interactive`` 或 ``-i``；Codex/Claude 的运行中输入和 API 的回复后追加输入方式见 :doc:`../guides/dashboard`。
+
+使用 ``--dashboard`` 时，在 Dashboard 消息输入框中提交任务、消息和确认回复，无需 TTY，也不加 ``--interactive``；两个参数不能同时使用。Dashboard 支持 ``api``、``claude_code`` 和 ``codex`` （当前真机实验仅验证 Codex）。普通任务中，``/success``、``/failure`` 和 ``/continue`` 用于回答待处理的 ``request_operator_verdict``，随后智能体继续执行并调用 ``finish``。普通任务连接环境时复位，探索则等待场景确认后再复位。Dashboard 操作见 :doc:`../guides/dashboard`。
 
 部署脚本位于 ``robots/dual_franka/``。在仓库根目录运行：
 
@@ -310,70 +312,40 @@ API 部署需显式设置 ``RPENT_CODEX_API_KEY`` 和可选的 ``RPENT_CODEX_BAS
 探索模式（人工复位与判定）
 --------------------------
 
-``dual_franka --explore`` 在操作员确认场景准备完成后复位机器人，并记录人工判定及观测证据。探索保留真机状态和相机日志，支持多次尝试、跨会话交接及记忆整理。单臂 ``franka`` 尚未开放该模式。
-
-机器人通过 ``RobotSpec.supports_human_interactive_exploration`` 声明支持人工交互式探索。只有在探索模式中启用该能力时，交互帮助才会显示五个人工指令。
-
-在已配置好的机器人运行环境中启动，例如使用任务 0：
+``dual_franka --explore`` 等待人工确认场景后复位机器人，并记录人工判定、相机及机器人状态。以下示例按前文配置规划器和 VLA 参数，使用终端确认运行任务 0；通过 Dashboard 消息输入框操作时，添加 ``--dashboard``：
 
 .. code-block:: bash
 
-   rpent --robot dual_franka --task-id 0 --explore --interactive \
+   rpent --robot dual_franka --task-id 0 --explore \
      --robot-config /path/to/robot.yaml \
      --memory-dir /path/to/memory/dual_franka \
      --explore-attempts-per-session 3 --explore-sessions 2 \
      --output-dir /path/to/new-run
 
-规划器参数和 VLA 配置仍按前文设置；任务 1 的 checkpoint/外部 VLA 服务要求不变。每个 session 的第一轮也需要确认场景，连接环境客户端时不会额外调用复位。这不替代底层 RLinf/机器人控制器自身的启动流程。
+每个规划器会话先通过 ``request_scene_reset`` 请求场景确认。处理夹持物体、恢复场景后回复 ``done``；机器人复位成功并取得相机和状态观测后开始一次尝试，复位失败时不允许运动。``--explore-attempts-per-session`` 限制每个会话的尝试次数。通过 ``--env-endpoint`` 接入的外部服务必须声明 ``explicit_reset_only=True``，才能支持先确认、后复位。
 
-* ``request_scene_reset(reason, expected_scene_state)``：操作员处理夹持物体并恢复桌面后输入 ``done``，工具再调用机器人 ``reset()``。只有复位返回成功且取得配置要求的相机观测与双臂状态后，才开始一个新的 attempt；失败时保持运动关闭。
-* ``request_operator_verdict(question)``：记录新观测后，操作员回复 ``success``、``failure``、``continue`` 或 ``abort``，可附备注。 ``solved()`` 只读取当前有效的人工成功判定。后续运动或 ``continue`` 会清除旧判定。
-* ``abort`` 或操作员输入端关闭会终止本次探索；不会为了耗尽预算强迫继续。
+``request_operator_verdict`` 请求 ``success``、``failure``、``continue`` 或 ``abort``，可附备注。其中 success/failure 答复判定当前尝试，``continue`` 继续尝试，``abort`` 停止探索。后续运动会清除先前判定；关闭终端输入也会停止探索。
 
-交互模式下，回复使用终端显示的请求 ID，例如 ``/operator <id> done`` 或 ``/operator <id> success 物体已稳定提起``。普通输入仍用于指导 agent；只有匹配当前请求 ID 的回复才用于操作员确认，避免与 ``--interactive`` 争抢 stdin。不加 ``--interactive`` 时直接按提示输入答案。两种方式均要求 TTY；目前未实现 Dashboard 操作员反馈，``--dashboard --explore`` 会在启动服务前报错。
+使用 Codex/Claude 并加 ``--interactive`` 时，确认回复使用显示的请求 ID，例如 ``/operator <request-id> done`` 或 ``/operator <request-id> success 物体已提起``；普通消息发送给智能体。不加 ``--interactive`` 时直接按提示答复；使用 ``--dashboard`` 时在 Dashboard 消息输入框中输入下述命令。
 
 日志与记忆
 ~~~~~~~~~~
 
-每个 session 的 ``sessions/session_<NNN>/`` 保留 ``states.json``、左右腕部、 base、可用的 D455 图像/深度和相机元数据。复位不清空前一次尝试的记录。 ``exploration.json`` 步骤附件记录 attempt 边界，``operator_events.json`` 记录人工反馈和对应的观测步骤。
+``sessions/session_<NNN>/`` 保存相机和机器人状态，``exploration.json`` 记录尝试边界，``operator_events.json`` 记录人工反馈。失败尝试的记录会保留，工作笔记位于 ``<memory-dir>/_internal/inbox/<recipe_tag>/wip/``。
 
-探索沿用 RPent 的 memory 管理器：
+默认启用 memory 合并。正常结束后合并合法的 ``global`` / ``task-family`` 草稿，包括失败尝试的经验；成功时还将完整的 audit/recipe 文件对保存到 ``task-specific``。使用 ``--no-auto-merge-memory`` 可保留记录而不合并。运行错误、中止、切换任务或关闭 Dashboard 会话时不合并。记忆目录说明见 :doc:`../guides/memory`。
 
-* 读取任务的 ``task-family`` 经验和 ``MEMORY.md`` / ``global`` 通用经验。
-* 失败证据写到运行目录的 ``attempts/``，工作笔记写到 ``<memory-dir>/_internal/inbox/<recipe_tag>/wip/``。
-* 人工确认成功后，整理 inbox 中的 ``task-family`` / ``global`` 草稿。 runner 从最后一次成功复位后的执行记录导出 recipe，并为任务 audit 补入人工判定及状态证据。recipe 保存实际调用序列，不自动执行旧坐标。
-* 默认不自动合并。加 ``--auto-merge-memory`` 后，只在本次运行成功且无 agent 错误时，使用现有 merge/validate/index 流程发布草稿和 ``task-specific`` audit/recipe 对。失败或中止的运行不自动发布草稿；原始日志与工作笔记继续保留。
+探索命令
+~~~~~~~~
 
-提示词维护
-~~~~~~~~~~
+在 Codex/Claude 终端交互（``--explore --interactive``）或 Dashboard 探索中，可使用：
 
-``robots/libero/prompts/explore.py`` 是 LIBERO 探索提示词；它包含仿真复位和 ``libero_terminated`` 约定，不能直接用于真机。
+* ``/success`` 或 ``/failure``：结束整个任务，而不只是判定当前尝试。成功要求场景已确认且复位成功；终端中可在首次复位前用 ``/failure`` 结束任务，Dashboard 中则需先用 ``/done`` 或 ``/abort`` 回答待处理的复位请求。
+* ``/done``：确认待处理的场景复位请求。
+* ``/continue``：回答待处理的判定请求并继续尝试。
+* ``/abort``：停止任务，相机不可用时也可使用。
 
-双臂的 ``robots/dual_franka/prompt_bundle.py`` 根据 ``mode`` 选择：普通运行由 ``prompts/system.py`` 和 ``prompts/user.py`` 组装；探索运行使用 ``prompts/explore.py``。任务名称、指令、成功标准和约束来自 ``tasks.py``，由 ``robot_spec.py`` 填充变量，统一通过 ``PromptBundle.render()`` 渲染。跨 session 的 system prompt 也包含当前任务及成功标准。
-
-真机探索提示词保留双臂工具和坐标约定，单独定义人工复位/判定、失败归档及三层 memory 流程；不继承 LIBERO 的“任务保证可解”或自动恢复物体等仿真假设。
-
-使用 ``--env-endpoint`` 连接外部服务时，服务必须在环境元数据中声明 ``explicit_reset_only=True``。未声明该能力的服务会在客户端复位前被拒绝，以保证机器人只在操作员确认后复位。部署时需现场验证相机观测更新、复位到位和任务判定。
-
-交互式结束指令
-~~~~~~~~~~~~~~
-
-在双臂 ``--explore --interactive`` 模式中，单独输入 ``/success`` 或 ``/failure`` 并回车，由程序直接结束当前探索，不作为聊天消息交给规划器。不带斜杠的 ``success``、``failure`` 和其他自然语言照常交给 Agent 理解。 ``/success`` 仅在场景确认并成功复位之后接受；``/failure`` 也可在等待首次复位时结束。两者都不需要等待 Agent 请求结果判定。首次接受的结束判定不会被后续相反判定覆盖。
-
-程序立即禁止新工具调用，并请求取消执行中的工具。VLA 在现有动作边界检查取消；已经发送的机器人动作、正在执行的 RPC 或推理需要返回后才能收尾。随后采集新观测并记录人工判定。``/success`` 导出本次成功尝试的动作序列和审计证据，调用现有 memory 合并接口保存到 ``task-specific``，然后关闭服务并退出。 ``/failure`` 保留运行日志和失败判定并退出，不发布成功经验。 ``/success`` 自动执行 memory 合并，无需额外指定 ``--auto-merge-memory``。观测或保存失败时不会报告完整成功，会返回错误；运行目录保留诊断记录。
-
-包含其他文字的消息（例如“抓取 success，但整个任务还没完成”）仍是普通聊天消息。场景重置可直接回复 ``/done``，也兼容 ``/operator <request-id> done``。代码更新需要重启当前任务进程后生效。
-
-其他程序级操作员指令
-~~~~~~~~~~~~~~~~~~~~
-
-* ``/done``：确认当前等待的场景准备请求，允许复位。不等待复位确认时会拒绝，不会提前缓存并触发之后的复位。
-* ``/continue``：回复当前结果判定请求，继续本轮尝试；不结束、不标记成功。没有结果判定请求时会提示拒绝。
-* ``/abort``：中止探索，禁止后续工具调用，在现有取消边界收尾后退出。保留中止记录，不发布成功 memory；相机不可用也可以中止。
-
-五个指令都需要单独输入并回车。不带 ``/`` 的 ``done``、``success``、 ``failure``、``continue``、``abort`` 均属于普通聊天，不控制程序。
-
-直接指令不会额外调用 global/task-family 经验提炼。已有规划器错误仍会保留并阻止自动发布 memory。
+每条命令单独输入。不带斜杠的 ``success``、``failure`` 等词语是发给智能体的普通消息。已发送的机器人动作或 RPC 可能需返回后才能结束任务；这些命令不是急停。
 
 独立 VLA 诊断控制台
 ~~~~~~~~~~~~~~~~~~~

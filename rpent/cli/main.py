@@ -158,7 +158,8 @@ def _build_argparser() -> argparse.ArgumentParser:
         default="none",
         help="Planner reasoning effort for api, claude_code, and "
         "codex. Higher effort may improve task success rate "
-        "but increases runtime. Defaults to none.",
+        "but increases runtime. Defaults to high for api and none for "
+        "claude_code/codex.",
     )
     ap.add_argument(
         "--no-images",
@@ -197,6 +198,11 @@ def _build_argparser() -> argparse.ArgumentParser:
         "--memory-dir",
         default=None,
         help="Local memory root (environment default when omitted).",
+    )
+    ap.add_argument(
+        "--memory-repo",
+        default=None,
+        help="HF dataset owner/repo or https://huggingface.co/datasets/owner/repo@revision.",
     )
     ap.add_argument(
         "--explore",
@@ -334,6 +340,7 @@ def main() -> int:
     # Two-phase argparse: first grab --robot / --env / --dashboard so we know
     # which robot's flags to add and whether to make its required flags optional.
     early, _ = parser.parse_known_args()
+    parser.set_defaults(reasoning_effort="high" if early.planner == "api" else "none")
 
     # --env is a deprecated alias for --robot; resolve it before loading the spec.
     if early.env_name is not None:
@@ -365,12 +372,18 @@ def main() -> int:
         "external_env", False
     )
     if robot_spec.is_real_robot and not (
-        human_interactive_exploration or external_env_dashboard
+        human_interactive_exploration
+        or external_env_dashboard
+        or (args.dashboard and robot_spec.supports_human_interactive_exploration)
     ):
         if args.dashboard or args.interactive:
+            option = "--dashboard" if args.dashboard else "--interactive"
+            guidance = "Run in a plain terminal for operator confirmation."
+            if robot_spec.supports_human_interactive_exploration:
+                guidance += " Alternatively, use --dashboard."
             parser.error(
-                "This robot requires exclusive terminal input for operator confirmation; "
-                "--dashboard and --interactive are not supported. Run in a plain terminal."
+                f"{option} is not supported for this robot in the current mode. "
+                + guidance
             )
         if sys.stdin is None or not sys.stdin.isatty():
             parser.error("This robot requires a TTY for operator confirmation.")
@@ -398,11 +411,7 @@ def main() -> int:
         )
     if args.explore and getattr(args, "explore_attempts_per_session", 0) < 0:
         parser.error("--explore-attempts-per-session must be nonnegative")
-    if human_interactive_exploration:
-        if args.dashboard:
-            parser.error(
-                "Human-interactive exploration currently requires the CLI operator terminal; Dashboard feedback is not implemented"
-            )
+    if human_interactive_exploration and not args.dashboard:
         if sys.stdin is None or not sys.stdin.isatty():
             parser.error(
                 "Human-interactive exploration requires a TTY for operator reset/verdict feedback"
@@ -414,9 +423,15 @@ def main() -> int:
     args.memory_profile = args.memory_profile or ("local" if args.explore else "hf")
     if args.memory_profile == "hf" and args.memory_dir is not None:
         parser.error("--memory-dir requires --memory-profile local or --explore")
+    if args.memory_repo is not None and args.memory_profile == "local":
+        parser.error("--memory-repo requires HF evaluation")
     from rpent.memory.loading import prepare_run_memory
 
     try:
+        if args.memory_repo is not None:
+            from rpent.memory.source import parse_repo
+
+            parse_repo(args.memory_repo)
         if robot_spec.validate_args is not None:
             robot_spec.validate_args(args)
     except ValueError as exc:
@@ -537,7 +552,6 @@ def main() -> int:
     solved = False
     environment_success: bool | None = None
     memory_manager: MemoryManager | None = None
-    direct_operator_success = False
     try:
         if first_user_msg is not None:
             dashboard_events.emit(RunStartedEvent())
@@ -614,7 +628,6 @@ def main() -> int:
                 agent_error = result.error
                 if getattr(toolkit, "direct_verdict_requested", False):
                     finish_result = toolkit.finalize_direct_verdict()
-                    direct_operator_success = finish_result["status"] == "success"
                     if agent_error:
                         logger.info(
                             "Planner stopped after operator verdict: %s", agent_error
@@ -727,10 +740,10 @@ def main() -> int:
     # Publish exploration artifacts into the corpus after the session loop.
     if (
         getattr(args, "explore", False)
-        and (getattr(args, "auto_merge_memory", False) or direct_operator_success)
+        and getattr(args, "auto_merge_memory", False)
         and not agent_error
+        and not (finish_result or {}).get("operator_aborted")
         and memory_manager is not None
-        and (not human_interactive_exploration or solved)
     ):
         try:
             merge_result = memory_manager.merge_memory(

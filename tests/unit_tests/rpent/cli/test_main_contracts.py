@@ -141,11 +141,32 @@ def test_shared_cli_defaults_reach_robot_config_parser(
     assert args.model is None
     assert args.max_turns == 100
     assert args.max_tokens == 8192
+    assert args.reasoning_effort == "high"
     assert args.dashboard is False
     assert args.dashboard_host == "127.0.0.1"
     assert args.dashboard_port == 0
     assert args.dashboard_language == "en"
     assert args.memory_profile == "hf"
+
+
+@pytest.mark.parametrize(
+    ("planner", "default_effort"),
+    [("api", "high"), ("codex", "none"), ("claude_code", "none")],
+)
+@pytest.mark.parametrize("explicit_effort", [None, "none", "low", "xhigh"])
+def test_cli_reasoning_effort_defaults_and_explicit_overrides(
+    monkeypatch: pytest.MonkeyPatch,
+    planner: str,
+    default_effort: str,
+    explicit_effort: str | None,
+) -> None:
+    argv = ["--robot", "libero", "--planner", planner]
+    if explicit_effort is not None:
+        argv.extend(["--reasoning-effort", explicit_effort])
+    _, args = _capture_validated_args(monkeypatch, argv)
+
+    expected = default_effort if explicit_effort is None else explicit_effort
+    assert args.reasoning_effort == expected
 
 
 def test_deprecated_env_alias_routes_to_the_same_robot(
@@ -355,6 +376,7 @@ def test_real_robot_terminal_requirement_fails_before_runtime(
     cli = _cli_module()
     spec = SimpleNamespace(
         is_real_robot=True,
+        supports_human_interactive_exploration=False,
         dashboard=None,
         add_cli_args=lambda parser, use_dashboard: None,
     )
@@ -366,6 +388,56 @@ def test_real_robot_terminal_requirement_fails_before_runtime(
         cli.main()
     assert exc.value.code == 2
     assert "operator confirmation" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("explore", [False, True])
+@pytest.mark.parametrize(
+    "options,error,expected_effort",
+    [
+        ("--dashboard --planner codex", None, "none"),
+        ("--dashboard --planner claude_code", None, "none"),
+        ("--dashboard --planner api --model test", None, "high"),
+        ("--dashboard --planner api --reasoning-effort none", None, "none"),
+        ("--planner codex", "requires a TTY", "none"),
+    ],
+)
+def test_human_operator_main_routes_dashboard_without_tty(
+    monkeypatch, capsys, explore, options, error, expected_effort
+):
+    cli = _cli_module()
+    from rpent.cli import dashboard as web
+    from rpent.memory import loading
+
+    spec = SimpleNamespace(
+        name="custom",
+        is_real_robot=True,
+        supports_human_interactive_exploration=True,
+        supports_exploration=True,
+        dashboard={},
+        add_cli_args=lambda parser, use_dashboard: None,
+        validate_args=None,
+    )
+    monkeypatch.setattr(cli, "get_robot_spec", lambda name: spec)
+    monkeypatch.setattr(cli, "enumerate_robots", lambda: ("custom",))
+    monkeypatch.setattr(sys, "stdin", SimpleNamespace(isatty=lambda: False))
+    monkeypatch.setattr(
+        loading, "prepare_run_memory", lambda *a: pytest.fail("unexpected memory load")
+    )
+    argv = ["rpent", "--robot", "custom", *options.split()]
+    monkeypatch.setattr(sys, "argv", argv + (["--explore"] if explore else []))
+    if error is None:
+
+        def run_dashboard_session(args, *a, **kw):
+            assert args.reasoning_effort == expected_effort
+            return 73
+
+        monkeypatch.setattr(web, "run_dashboard_session", run_dashboard_session)
+        assert cli.main() == 73
+    else:
+        with pytest.raises(SystemExit) as exc:
+            cli.main()
+        assert exc.value.code == 2
+        assert error in capsys.readouterr().err
 
 
 def test_handoff_message_lists_prior_attempts_deterministically(tmp_path: Path) -> None:
@@ -784,3 +856,39 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
     }
     assert robot_toolkit.closed is True
     assert daemon.stopped is True
+
+
+@pytest.mark.parametrize("dashboard", [False, True])
+@pytest.mark.parametrize(
+    "options, message",
+    [
+        (["--memory-repo", ""], "expected owner/repo"),
+        (
+            ["--memory-repo", "team/memory", "--memory-profile", "local"],
+            "--memory-repo requires HF evaluation",
+        ),
+        (
+            ["--memory-repo", "team/memory", "--explore"],
+            "--memory-repo requires HF evaluation",
+        ),
+    ],
+)
+def test_invalid_memory_source_fails_before_startup(
+    dashboard, options, message, monkeypatch, capsys
+):
+    from rpent.cli import dashboard as dashboard_cli
+    from rpent.memory import loading
+
+    cli = _cli_module()
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("Invalid memory options must fail before download or startup")
+
+    monkeypatch.setattr(loading, "prepare_run_memory", unexpected)
+    monkeypatch.setattr(dashboard_cli, "run_dashboard_session", unexpected)
+    task = ["--dashboard"] if dashboard else ["--suite", "libero_object", "--task", "0"]
+    monkeypatch.setattr(sys, "argv", ["rpent", "--robot", "libero", *task, *options])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2
+    assert message in capsys.readouterr().err

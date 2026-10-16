@@ -56,7 +56,7 @@ DUAL_FRANKA_DASHBOARD_SPEC: DashboardSpec = {
                 "name": "task_id",
                 "kind": "integer",
                 "minimum": 0,
-                "suggestions": tuple(sorted(DUAL_FRANKA_TASKS)),
+                "suggestions": tuple(str(key) for key in sorted(DUAL_FRANKA_TASKS)),
             },
         ),
         "display": "Dual Franka task {task_id}",
@@ -163,11 +163,8 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     parser.add_argument(
         "--auto-merge-memory",
         action=argparse.BooleanOptionalAction,
-        default=False,
-        help=(
-            "Merge exploration output into layered memory. Disabled by default "
-            "for real-robot dual_franka so drafts are reviewed first."
-        ),
+        default=True,
+        help="Merge exploration output into layered memory (default: enabled).",
     )
     parser.add_argument(
         "--explore-attempts-per-session",

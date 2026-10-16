@@ -325,3 +325,15 @@ RoboTwin assets and LingBot-VLA checkpoint as described earlier on this page.
 An episode counts as successful only if the final value of
 ``TASK_ENV.eval_success`` is ``true``; the planner's ``finish`` call does not by
 itself indicate success.
+
+HF Corpus Selection
+-------------------
+
+By default, CLI and Dashboard keep using the unversioned ``robotwin/`` corpus
+from HF ``main``. To select a published subdirectory explicitly, add
+``--memory-profile hf --memory-version <corpus-directory>``; this reads
+``robotwin/<corpus-directory>/``. No model-to-corpus mapping is assumed.
+Use ``--memory-repo owner/dataset@revision`` to select another dataset or revision.
+For offline evaluation, download the subtree first and use
+``--memory-profile local --memory-dir <downloaded-corpus>`` without
+``--memory-version``. The selected directory must retain the RoboTwin memory layout.

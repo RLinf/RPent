@@ -26,6 +26,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
+from robots.robotwin.memory import prepare_memory, validate_options
 from robots.robotwin.prompt_bundle import system_prompt, user_prompt
 from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
 from rpent.dashboard.spec import DashboardSpec
@@ -191,6 +192,8 @@ def get_robot_spec() -> RobotSpec:
         init_runtime=_init_runtime,
         dashboard=ROBOTWIN_DASHBOARD_SPEC,
         supports_exploration=True,
+        validate_args=validate_options,
+        prepare_memory=prepare_memory,
     )
 
 
@@ -223,6 +226,11 @@ def get_toolkit(
 
 
 def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
+    parser.add_argument(
+        "--memory-version",
+        default="auto",
+        help="HF corpus directory under robotwin/; auto keeps the unversioned corpus.",
+    )
     required = not use_dashboard
     parser.add_argument(
         "--enable-direct-action",

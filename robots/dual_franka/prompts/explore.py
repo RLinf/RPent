@@ -107,7 +107,8 @@ ONLY AFTER OPERATOR-CONFIRMED SUCCESS, re-read all working notes and distill:
 
 WRITE memory only under {{memory_inbox}}/. Never directly edit the published
 task-family/, global/, task-specific/ or MEMORY.md. The existing memory merge/validation/
-index workflow publishes drafts; auto-merge is opt-in and only runs on success.
+index workflow publishes valid drafts at normal TaskRun completion unless disabled
+with --no-auto-merge-memory. Successful audit/recipe pairs require confirmed success.
 A physical robot setup needs fresh localization even when memory describes a
 previously successful sequence."""
 
