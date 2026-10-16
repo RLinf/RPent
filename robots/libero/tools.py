@@ -338,8 +338,9 @@ class LiberoPrimitives:
         action_scale: float = 0.05,
         target_yaw: float | None = None,
         yaw_step_clip: float = 0.1,
+        yaw_tol: float = 0.02,
     ) -> ToolResult:
-        """Scripted EEF servo to a world-frame XYZ target via the OSC controller. Holds orientation (use rotate_wrist / rotate_pitch / move_pose to reorient). gripper: -1 = open, +1 = close. NEVER command a single move_to with |Δxy| > 0.30 — OSC flips IK and the run corrupts; split long traversal into 2-3 mid waypoints at carry z.
+        """Scripted EEF servo to a world-frame XYZ target via the OSC controller. Holds orientation unless target_yaw is supplied; then both position and yaw must converge. Use rotate_pitch or move_pose for pitch changes. gripper: -1 = open, +1 = close. NEVER command a single move_to with |Δxy| > 0.30 — OSC flips IK and the run corrupts; split long traversal into 2-3 mid waypoints at carry z.
 
         Args:
             xyz: World-frame target [x, y, z] in meters
@@ -350,7 +351,31 @@ class LiberoPrimitives:
             action_scale: OSC action scale (default 0.05)
             target_yaw: Optional world-frame yaw target in radians
             yaw_step_clip: Per-step yaw clip, rad (default 0.10)
+            yaw_tol: Positive finite yaw tolerance, rad (default 0.02)
         """
+        if not np.isfinite(yaw_tol) or yaw_tol <= 0:
+            raise ValueError("yaw_tol must be finite and greater than zero")
+
+        def yaw_error() -> float | ToolResult:
+            from scipy.spatial.transform import Rotation as _R
+
+            q = self.env.raw_obs()["robot0_eef_quat"]
+            matrix = _R.from_quat(q).as_matrix()
+            # The local X axis is unit length. Below a 1e-6 horizontal
+            # projection (about 1e-6 rad from vertical), its heading is
+            # ill-conditioned; do not feed it to atan2 or claim convergence.
+            if np.hypot(matrix[0, 0], matrix[1, 0]) < 1e-6:
+                return ToolResult(
+                    data={
+                        "error": "Cannot control yaw: EEF local X axis is nearly vertical "
+                        "(horizontal projection < 1e-6). Reorient the EEF before retrying.",
+                        "name": "move_to",
+                    }
+                )
+            # World yaw; Euler zyx reverses its sign for gripper-down poses.
+            yaw = float(np.arctan2(matrix[1, 0], matrix[0, 0]))
+            return (float(target_yaw) - yaw + np.pi) % (2 * np.pi) - np.pi
+
         target = np.asarray(_normalize_xyz(xyz), dtype=np.float32)
         traj = []
         for step in range(max_steps):
@@ -364,24 +389,16 @@ class LiberoPrimitives:
                     "dist_to_target_m": round(dist, 4),
                 }
             )
-            if dist < tol:
+            err = yaw_error() if target_yaw is not None else 0.0
+            if isinstance(err, ToolResult):
+                return err
+            if dist < tol and abs(err) < yaw_tol:
                 break
             step_dxyz = np.clip(diff, -step_clip, step_clip)
             action = np.zeros(7, dtype=np.float32)
             action[:3] = step_dxyz / action_scale  # -> roughly [-0.5, 0.5]
             action[:3] = np.clip(action[:3], -1.0, 1.0)
             if target_yaw is not None:
-                # add wrist yaw control via action[5] (z-axis axis-angle).
-                # NOTE: extract world yaw via atan2(R[1,0], R[0,0]), NOT
-                # as_euler('zyx')[0] — the latter returns -world_yaw for
-                # gripper-down configs (R[2,2]≈-1) and silently flips the
-                # commanded rotation direction. See feedback_rotate_wrist_yaw_sign.
-                from scipy.spatial.transform import Rotation as _R
-
-                q = self.env.raw_obs()["robot0_eef_quat"]
-                _R_mat = _R.from_quat([q[0], q[1], q[2], q[3]]).as_matrix()
-                cur_yaw = float(np.arctan2(_R_mat[1, 0], _R_mat[0, 0]))
-                err = (float(target_yaw) - cur_yaw + np.pi) % (2 * np.pi) - np.pi
                 step_dyaw = float(np.clip(err, -yaw_step_clip, yaw_step_clip))
                 action[5] = float(np.clip(step_dyaw / 0.10, -1.0, 1.0))
             action[6] = gripper
@@ -389,7 +406,7 @@ class LiberoPrimitives:
             if self.env.terminated or self.env.truncated:
                 break
         final = self._last_obs_eef_pos
-        return ToolResult(
+        result = ToolResult(
             data={
                 "name": "move_to",
                 "target_xyz": [float(x) for x in target],
@@ -402,6 +419,13 @@ class LiberoPrimitives:
             }
         )
 
+        if target_yaw is not None:
+            err = yaw_error()
+            if isinstance(err, ToolResult):
+                return err
+            result.data["final_yaw_error_rad"] = round(float(err), 4)
+        return result
+
     @tool
     def rotate_wrist(
         self,
@@ -412,8 +436,9 @@ class LiberoPrimitives:
         max_steps: int = 40,
         tol: float = 0.02,
         step_clip: float = 0.1,
+        pos_tol: float = 0.03,
     ) -> ToolResult:
-        """Rotate the wrist around the world Z-axis. Provide either target_yaw (absolute) or delta_yaw (relative). Holds xyz fixed.
+        """Rotate the wrist around the world Z-axis. Provide either target_yaw (absolute) or delta_yaw (relative). Holds xyz fixed by servoing back to the entry pose; the result carries converged, position_hold_ok, and max_pos_drift_m.
 
         Args:
             target_yaw: Absolute world-frame yaw target, rad
@@ -422,8 +447,13 @@ class LiberoPrimitives:
             max_steps: Step budget (default 40)
             tol: Yaw tolerance, rad (default 0.02)
             step_clip: Per-step yaw clip, rad (default 0.10)
+            pos_tol: Position-hold tolerance on max xyz drift, m (default 0.03)
         """
         from scipy.spatial.transform import Rotation as _R
+
+        # LIBERO OSC_POSE scaling: metres/radians per normalized action unit.
+        action_scale = 0.05
+        rot_scale = 0.5
 
         def _yaw_of(quat_xyzw):
             # robot0_eef_quat in libero+robosuite is xyzw (scipy convention).
@@ -444,9 +474,18 @@ class LiberoPrimitives:
             )
         if target_yaw is None:
             target_yaw = start_yaw + float(delta_yaw)
+        hold_xyz = np.array(self._last_obs_eef_pos, dtype=np.float32, copy=True)
+        max_drift = 0.0
+
+        def _record_drift() -> None:
+            nonlocal max_drift
+            drift = float(np.linalg.norm(self._last_obs_eef_pos - hold_xyz))
+            if drift > max_drift:
+                max_drift = drift
 
         traj = []
         for step in range(max_steps):
+            _record_drift()
             raw = self.env.raw_obs()
             cur_yaw = _yaw_of(raw["robot0_eef_quat"])
             err = float(target_yaw - cur_yaw)
@@ -455,24 +494,29 @@ class LiberoPrimitives:
             traj.append({"step": step, "yaw": round(cur_yaw, 4), "err": round(err, 4)})
             if abs(err) < tol:
                 break
+            cur_xyz = self._last_obs_eef_pos
             step_dyaw = float(np.clip(err, -step_clip, step_clip))
             action = np.zeros(7, dtype=np.float32)
-            action[5] = step_dyaw / 0.10  # scale to ~[-1,1] action range
-            action[5] = float(np.clip(action[5], -1.0, 1.0))
+            action[:3] = np.clip((hold_xyz - cur_xyz) / action_scale, -1.0, 1.0)
+            action[5] = float(np.clip(step_dyaw / rot_scale, -1.0, 1.0))
             action[6] = float(gripper)
             self._step_env(action)
             if self.env.terminated or self.env.truncated:
                 break
         final_yaw = _yaw_of(self.env.raw_obs()["robot0_eef_quat"])
+        final_err = float((target_yaw - final_yaw + np.pi) % (2 * np.pi) - np.pi)
+        _record_drift()
+        max_pos_drift_m = round(max_drift, 4)
         return ToolResult(
             data={
                 "name": "rotate_wrist",
                 "start_yaw": round(start_yaw, 4),
                 "target_yaw": round(float(target_yaw), 4),
                 "final_yaw": round(final_yaw, 4),
-                "final_err": round(
-                    float((target_yaw - final_yaw + np.pi) % (2 * np.pi) - np.pi), 4
-                ),
+                "final_err": round(final_err, 4),
+                "converged": abs(final_err) < tol,
+                "max_pos_drift_m": max_pos_drift_m,
+                "position_hold_ok": max_pos_drift_m <= pos_tol,
                 "steps_used": len(traj),
                 "terminated": self.env.terminated,
                 "truncated": self.env.truncated,
@@ -489,8 +533,9 @@ class LiberoPrimitives:
         max_steps: int = 40,
         tol: float = 0.02,
         step_clip: float = 0.1,
+        pos_tol: float = 0.03,
     ) -> ToolResult:
-        """Tilt the gripper around the world X-axis. Provide either target_pitch (absolute) or delta_pitch (relative). Holds xyz and yaw fixed. Use before threading the gripper into a narrow opening whose front face normal is along world ±y (e.g. microwave cavity).
+        """Tilt the gripper around the world X-axis. Provide either target_pitch (absolute) or delta_pitch (relative). Holds xyz and yaw fixed by servoing back to the entry pose; the result carries converged, position_hold_ok, and max_pos_drift_m. Use before threading the gripper into a narrow opening whose front face normal is along world ±y (e.g. microwave cavity).
 
         Args:
             target_pitch: Absolute world-frame pitch target, rad
@@ -499,16 +544,27 @@ class LiberoPrimitives:
             max_steps: Step budget (default 40)
             tol: Pitch tolerance, rad (default 0.02)
             step_clip: Per-step pitch clip, rad (default 0.10)
+            pos_tol: Position-hold tolerance on max xyz drift, m (default 0.03)
         """
         from scipy.spatial.transform import Rotation as _R
+
+        # LIBERO OSC_POSE scaling: metres/radians per normalized action unit.
+        action_scale = 0.05
+        rot_scale = 0.5
 
         def _pitch_of(quat_xyzw):
             q = quat_xyzw
             R = _R.from_quat([q[0], q[1], q[2], q[3]]).as_matrix()
             return float(np.arctan2(R[1, 2], -R[2, 2]))
 
+        def _yaw_of(quat_xyzw):
+            q = quat_xyzw
+            R = _R.from_quat([q[0], q[1], q[2], q[3]]).as_matrix()
+            return float(np.arctan2(R[1, 0], R[0, 0]))
+
         raw = self.env.raw_obs()
-        start_pitch = _pitch_of(raw["robot0_eef_quat"])
+        start_quat = raw["robot0_eef_quat"]
+        start_pitch = _pitch_of(start_quat)
         if target_pitch is None and delta_pitch is None:
             return ToolResult(
                 data={
@@ -518,11 +574,22 @@ class LiberoPrimitives:
             )
         if target_pitch is None:
             target_pitch = start_pitch + float(delta_pitch)
+        start_yaw = _yaw_of(start_quat)
+        hold_xyz = np.array(self._last_obs_eef_pos, dtype=np.float32, copy=True)
+        max_drift = 0.0
+
+        def _record_drift() -> None:
+            nonlocal max_drift
+            drift = float(np.linalg.norm(self._last_obs_eef_pos - hold_xyz))
+            if drift > max_drift:
+                max_drift = drift
 
         traj = []
         for step in range(max_steps):
+            _record_drift()
             raw = self.env.raw_obs()
-            cur_pitch = _pitch_of(raw["robot0_eef_quat"])
+            cur_quat = raw["robot0_eef_quat"]
+            cur_pitch = _pitch_of(cur_quat)
             err = float(target_pitch - cur_pitch)
             err = (err + np.pi) % (2 * np.pi) - np.pi
             traj.append(
@@ -530,24 +597,34 @@ class LiberoPrimitives:
             )
             if abs(err) < tol:
                 break
+            cur_xyz = self._last_obs_eef_pos
+            cur_yaw = _yaw_of(cur_quat)
+            yaw_err = float((start_yaw - cur_yaw + np.pi) % (2 * np.pi) - np.pi)
             step_dpitch = float(np.clip(err, -step_clip, step_clip))
+            step_dyaw = float(np.clip(yaw_err, -step_clip, step_clip))
             action = np.zeros(7, dtype=np.float32)
-            action[3] = step_dpitch / 0.10
-            action[3] = float(np.clip(action[3], -1.0, 1.0))
+            action[:3] = np.clip((hold_xyz - cur_xyz) / action_scale, -1.0, 1.0)
+            action[3] = float(np.clip(step_dpitch / rot_scale, -1.0, 1.0))
+            action[5] = float(np.clip(step_dyaw / rot_scale, -1.0, 1.0))
             action[6] = float(gripper)
             self._step_env(action)
             if self.env.terminated or self.env.truncated:
                 break
-        final_pitch = _pitch_of(self.env.raw_obs()["robot0_eef_quat"])
+        final_quat = self.env.raw_obs()["robot0_eef_quat"]
+        final_pitch = _pitch_of(final_quat)
+        final_err = float((target_pitch - final_pitch + np.pi) % (2 * np.pi) - np.pi)
+        _record_drift()
+        max_pos_drift_m = round(max_drift, 4)
         return ToolResult(
             data={
                 "name": "rotate_pitch",
                 "start_pitch": round(start_pitch, 4),
                 "target_pitch": round(float(target_pitch), 4),
                 "final_pitch": round(final_pitch, 4),
-                "final_err": round(
-                    float((target_pitch - final_pitch + np.pi) % (2 * np.pi) - np.pi), 4
-                ),
+                "final_err": round(final_err, 4),
+                "converged": abs(final_err) < tol,
+                "max_pos_drift_m": max_pos_drift_m,
+                "position_hold_ok": max_pos_drift_m <= pos_tol,
                 "steps_used": len(traj),
                 "terminated": self.env.terminated,
                 "truncated": self.env.truncated,
