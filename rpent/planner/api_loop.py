@@ -69,7 +69,6 @@ from rpent.dashboard.events import DashboardEventSink, TranscriptEvent, UsageEve
 from rpent.dashboard.interaction import DashboardInteractionPort, DashboardMessage
 from rpent.dashboard.planner_control import DashboardPlannerControl
 from rpent.planner.base import (
-    PLANNER_TRUNCATION_MARKER,
     REASONING_EFFORTS,
     Planner,
     PlannerResult,
@@ -208,7 +207,7 @@ class ApiAgentLoop(Planner):
             if isinstance(exc, UnexpectedModelBehavior) and _is_response_truncation(
                 exc
             ):
-                session.error = f"{PLANNER_TRUNCATION_MARKER} (length): {exc}"
+                session.error = f"planner response truncated (length): {exc}"
                 logger.warning("%s", session.error)
             else:
                 session.error = f"{type(exc).__name__}: {exc}"
@@ -512,7 +511,7 @@ class _Session(AbstractCapability):
             if isinstance(exc, UnexpectedModelBehavior) and _is_response_truncation(
                 exc
             ):
-                self.error = f"{PLANNER_TRUNCATION_MARKER} (length): {exc}"
+                self.error = f"planner response truncated (length): {exc}"
             else:
                 self.error = f"{type(exc).__name__}: {exc}"
             raise

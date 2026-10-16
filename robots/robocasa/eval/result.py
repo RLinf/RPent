@@ -22,7 +22,6 @@ from pathlib import Path
 from typing import Any
 
 from rpent.evaluation import RunFinalizationContext, write_json_atomic
-from rpent.planner.base import classify_agent_error
 
 RESULT_SCHEMA_VERSION = "1.1"
 TARGET50_MANIFEST = Path(__file__).with_name("target50.json")
@@ -50,7 +49,7 @@ def _termination_reason(agent_error: str | None, success: bool) -> str:
         "planner" in lowered or "agent sdk" in lowered or "codex sdk" in lowered
     ):
         return "planner_timeout"
-    if classify_agent_error(agent_error) == "planner_response_truncated":
+    if "planner response truncated" in lowered:
         return "planner_response_truncated"
     return "infrastructure_error"
 

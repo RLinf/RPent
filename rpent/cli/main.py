@@ -57,7 +57,6 @@ from rpent.memory import MemoryManager
 from rpent.planner.base import (
     REASONING_EFFORTS,
     build_planner,
-    classify_agent_error,
     is_recoverable_agent_error,
 )
 from rpent.planner.check import BASE_URL_ENV_BY_PLANNER
@@ -674,7 +673,7 @@ def main() -> int:
                         "session %d/%d ended with %s; continuing with a fresh handoff",
                         session_number,
                         sessions,
-                        classify_agent_error(agent_error),
+                        agent_error,
                     )
                     continue
                 break

@@ -582,19 +582,12 @@ def test_token_limit_truncation_is_marked_for_recovery(
     json.dumps(result.messages)
 
 
-def test_agent_error_classification_drives_recovery_decisions():
-    from rpent.planner.base import classify_agent_error, is_recoverable_agent_error
+def test_agent_error_recovery_decisions():
+    from rpent.planner.base import is_recoverable_agent_error
 
     truncation = (
         "planner response truncated (length): Model token limit (8192) "
         "exceeded before any response was generated"
-    )
-    assert classify_agent_error(None) == "completed"
-    assert classify_agent_error("planner timed out after 1800s") == "planner_timeout"
-    assert classify_agent_error(truncation) == "planner_response_truncated"
-    assert (
-        classify_agent_error("RuntimeError: provider unavailable")
-        == "infrastructure_error"
     )
     assert is_recoverable_agent_error("planner timed out after 1800s")
     assert is_recoverable_agent_error(truncation)
