@@ -1,7 +1,7 @@
 RoboDojo
 ========
 
-使用 RPent 在 RoboDojo 中运行双臂桌面操作任务。仿真器基于 Isaac Sim / IsaacLab，机器人为 ARX-X5，默认使用 Pi0.5 生成动作。\
+使用 RPent 在 RoboDojo 中运行双臂桌面操作任务。仿真器基于 Isaac Sim / IsaacLab，采用 ARX-X5 双机械臂平台，默认使用 Pi0.5 生成动作。\
 该接入仍为实验性，目前尚无完整任务套件的成功率结果。
 
 概览

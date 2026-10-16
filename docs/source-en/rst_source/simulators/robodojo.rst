@@ -2,7 +2,7 @@ RoboDojo
 ========
 
 Run bimanual tabletop tasks with RPent in RoboDojo. The simulator uses Isaac
-Sim / IsaacLab with an ARX-X5 robot and Pi0.5 as the default action model.
+Sim / IsaacLab with an ARX-X5 dual-arm platform and Pi0.5 as the default action model.
 The integration is experimental; success rates across a complete task suite
 have not been established.
 
