@@ -207,6 +207,14 @@ conflicts = [
         { extra = "robotwin" },
     ],
     [
+        { extra = "franka" },
+        { extra = "robodojo" },
+    ],
+    [
+        { extra = "franka" },
+        { extra = "robodojo-sim" },
+    ],
+    [
         { extra = "robocasa" },
         { extra = "robotwin" },
     ],
