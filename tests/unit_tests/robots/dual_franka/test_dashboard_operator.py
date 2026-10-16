@@ -21,6 +21,7 @@ from types import SimpleNamespace
 import pytest
 
 from robots.dual_franka import robot_spec
+from robots.dual_franka.tasks import get_dual_franka_task
 from rpent.cli import dashboard
 from rpent.cli.main import _build_argparser
 from rpent.dashboard.server import DashboardServer
@@ -62,6 +63,11 @@ def test_web_confirmation_and_task_completion(
     args.robot_config = str(dual_franka_robot_config)
     args.memory_dir, args.memory_profile = str(tmp_path / "memory"), "local"
     args.explore, args.explore_sessions = explore, 2
+    tag = f"dual_franka_{get_dual_franka_task(1).name}"
+    old_task = tmp_path / "memory/task-specific"
+    old_task.mkdir(parents=True)
+    for name in ("dual_franka_t1.json", "dual_franka_t1_recipe.jsonl"):
+        (old_task / name).write_text("old task record")
     state = DashboardState(output_dir=tmp_path, dashboard_spec=spec.dashboard)
     state.shared_services_ready()
     state.request_task({"task_id": 1})
@@ -81,12 +87,12 @@ def test_web_confirmation_and_task_completion(
         call = toolkit.execute_tool
         motion = {"arm": "right", "delta_xyz": [0, 0, 0.01]}
         if explore:
-            inbox = toolkit.memory.root / "_internal/inbox/dual_franka_t1"
+            inbox = toolkit.memory.root / "_internal/inbox" / tag
             inbox.mkdir(parents=True, exist_ok=True)
             (inbox / "new_global_strategy_lesson.md").write_text(
                 "---\nid: lesson\nscope: global\nkind: strategy\ntitle: Lesson\n"
                 "applies_when: Same setup\nconfidence: single-shot\n"
-                "evidence:\n  cells: [dual_franka_t1]\n---\nObserved attempt.\n"
+                f"evidence:\n  cells: [{tag}]\n---\nObserved attempt.\n"
             )
         assert fake_env.resets == 0
         assert "request_scene_reset" in {t.name for t in toolkit.list_tools()}
@@ -183,7 +189,9 @@ def test_web_confirmation_and_task_completion(
     assert (tmp_path / "memory/global/lesson.md").is_file() == (
         explore and auto_merge and verdict in {"success", "failure"}
     )
-    for name in ("dual_franka_t1.json", "dual_franka_t1_recipe.jsonl"):
+    for name in (f"{tag}.json", f"{tag}_recipe.jsonl"):
         assert (tmp_path / "memory/task-specific" / name).is_file() == (
             explore and auto_merge and verdict == "success"
         )
+    for name in ("dual_franka_t1.json", "dual_franka_t1_recipe.jsonl"):
+        assert (old_task / name).read_text() == "old task record"

@@ -137,9 +137,18 @@ def test_manual_startup_reset_before_action(
     monkeypatch, tmp_path, dual_franka_robot_config, outcome
 ):
     env = FakeEnv()
+    for component in ("ENV", "VLA", "SAM3"):
+        monkeypatch.setenv(f"RPENT_{component}_ENDPOINT", "http://unused.invalid:9999")
+
+    def start_runtime(args, output, events, components, **kwargs):
+        assert args.env_endpoint is args.vla_endpoint is args.sam3_endpoint is None
+        assert components == {"env"}
+        assert kwargs["task_description"] == ""
+        return [], {"env": env}
+
     monkeypatch.setattr(
         "robots.dual_franka.robot_spec._init_runtime",
-        lambda *args, **kwargs: ([], {"env": env}),
+        start_runtime,
     )
     monkeypatch.setattr(
         DualFrankaToolkit, "_ask_operator", lambda *args, **kwargs: "done"

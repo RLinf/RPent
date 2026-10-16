@@ -17,11 +17,42 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 from robots.dual_franka import get_robot_spec
 from robots.dual_franka.runtime_config import load_runtime_config
 from rpent.robots.base import enumerate_robots
 from rpent.robots.base import get_robot_spec as resolve_robot_spec
+
+
+@pytest.mark.parametrize("task_id", [0, 1, 2])
+def test_named_task_memory_preserves_flash_task_id(
+    monkeypatch, dual_franka_robot_config, task_id
+):
+    from rpent.cli.main import _build_argparser
+
+    spec = get_robot_spec()
+    parser = _build_argparser()
+    spec.add_cli_args(parser, use_dashboard=False)
+    args = parser.parse_args(["--robot", "dual_franka", "--task-id", str(task_id)])
+    args.robot_config = str(dual_franka_robot_config)
+    config = spec.parse_config(args)
+    assert (config.recipe_tag == f"dual_franka_t{task_id}") is (task_id == 0)
+    assert config.prompt_vars["recipe_tag"] == config.recipe_tag
+    assert Path(config.prompt_vars["memory_inbox"]).name == config.recipe_tag
+    card_tag = f"dual_franka_t{task_id}"
+    toolkit = SimpleNamespace(flash_options={"card": {"task": card_tag}})
+    calls = []
+    monkeypatch.setattr(
+        "robots.franka.flash.replay.replay_card",
+        lambda toolkit, tag, note: calls.append(tag) or {"done": True},
+    )
+    assert spec.run_flash(toolkit, config.recipe_tag, lambda text: None)["done"]
+    assert calls == [card_tag]
+    with pytest.raises(ValueError, match="does not match"):
+        spec.run_flash(toolkit, "different_task", lambda text: None)
 
 
 def test_dual_franka_extension_is_discoverable():

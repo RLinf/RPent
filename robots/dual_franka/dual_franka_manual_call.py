@@ -39,6 +39,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from robots.dual_franka import perception as dual_franka_perception
+from robots.dual_franka.robot_spec import _add_runtime_cli_args
 from robots.dual_franka.runtime_config import DEFAULT_CONFIG
 from robots.dual_franka.toolkit import DualFrankaToolkit
 from robots.dual_franka.tools import (
@@ -269,23 +270,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Run one manual Dual-Franka RPent primitive/tool call."
     )
-    parser.add_argument(
-        "--env-endpoint", default=os.environ.get("RPENT_ENV_ENDPOINT") or None
-    )
-    parser.add_argument(
-        "--vla-endpoint", default=os.environ.get("RPENT_VLA_ENDPOINT") or None
-    )
-    parser.add_argument(
-        "--sam3-endpoint", default=os.environ.get("RPENT_SAM3_ENDPOINT") or None
-    )
-    parser.add_argument(
-        "--vla-model-path", default=os.environ.get("PI05_CHECKPOINT_PATH")
-    )
-    parser.add_argument("--vla-repo-id", default=os.environ.get("DUAL_FRANKA_REPO_ID"))
-    parser.add_argument("--cuda-device", type=int, default=None)
-    parser.add_argument(
-        "--robot-config",
-        default=os.environ.get("RPENT_ROBOT_CONFIG", str(DEFAULT_CONFIG)),
+    _add_runtime_cli_args(parser)
+    parser.set_defaults(
+        robot_config=os.environ.get("RPENT_ROBOT_CONFIG", str(DEFAULT_CONFIG))
     )
     parser.add_argument(
         "--instruction", help="Override vla.instruction from the robot config."
@@ -469,7 +456,7 @@ def _call_toolkit_tool(
         runtime_kwargs={
             "env": env,
             "model": model,
-            "task_description": f"Manual {primitive} test",
+            "task_description": "",
             "vla_instruction": instruction,
             "sam3_client": sam3_client,
         },
@@ -508,7 +495,7 @@ def _connect_components(
         output_dir,
         NullDashboardEventSink(),
         components,
-        task_description=f"Manual {primitive} test",
+        task_description="",
         vla_instruction=args.instruction if primitive in _VLA_PRIMITIVES else None,
     )
     try:
@@ -614,7 +601,7 @@ def _execute_primitive(
     primitives = DualFrankaPrimitives(
         env=env,
         model=model,
-        task_description=f"Manual {primitive} test",
+        task_description="",
         vla_instruction=args.instruction,
         check_cancelled=lambda: None,
         sam3_client=sam3_client,

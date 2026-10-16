@@ -82,11 +82,9 @@ DUAL_FRANKA_DASHBOARD_SPEC: DashboardSpec = {
 
 def get_robot_spec() -> RobotSpec:
     """Return the dual-Franka identity, prompts, runtime hooks, and dashboard spec."""
-    from robots.franka.flash import replay_card
-
     return RobotSpec(
         name="dual_franka",
-        run_flash=replay_card,
+        run_flash=_run_flash,
         prompts=PromptBundle(system=system_prompt, user=user_prompt),
         add_cli_args=_add_cli_args,
         parse_config=_parse_config,
@@ -96,6 +94,25 @@ def get_robot_spec() -> RobotSpec:
         supports_exploration=True,
         supports_human_interactive_exploration=True,
     )
+
+
+def _task_recipe_tag(task_id: int) -> str:
+    """Keep smoke-test identity and name the sorting tasks independently of IDs."""
+    task = get_dual_franka_task(task_id)
+    return "dual_franka_t0" if task_id == 0 else f"dual_franka_{task.name}"
+
+
+def _run_flash(
+    toolkit: Any, cell_tag: str, note: Callable[[str], None]
+) -> dict[str, Any]:
+    """Match named task memory to the task ID stored in a Franka Flash card."""
+    from robots.franka.flash.replay import replay_card
+
+    card_tag = toolkit.flash_options["card"]["task"]
+    task_id = int(card_tag.removeprefix("dual_franka_t"))
+    if cell_tag != _task_recipe_tag(task_id):
+        raise ValueError("Flash plan does not match the selected task")
+    return replay_card(toolkit, card_tag, note)
 
 
 def get_toolkit(
@@ -128,16 +145,9 @@ def get_toolkit(
     )
 
 
-def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
-    from robots.franka.flash.replay import add_cli_args
-
-    add_cli_args(parser)
-    parser.add_argument(
-        "--task-id",
-        type=int,
-        default=None if use_dashboard else 0,
-        choices=sorted(DUAL_FRANKA_TASKS),
-    )
+def _add_runtime_cli_args(parser: argparse.ArgumentParser) -> None:
+    """Register component connection and deployment options."""
+    parser.set_defaults(_flash_options=None)
     parser.add_argument("--env-endpoint", default=None)
     parser.add_argument("--vla-endpoint", default=None)
     parser.add_argument(
@@ -160,6 +170,19 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         help="SFT dataset repo ID used to locate norm_stats.json",
     )
     parser.add_argument("--cuda-device", type=int, default=None)
+
+
+def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
+    from robots.franka.flash.replay import add_cli_args
+
+    add_cli_args(parser)
+    _add_runtime_cli_args(parser)
+    parser.add_argument(
+        "--task-id",
+        type=int,
+        default=None if use_dashboard else 0,
+        choices=sorted(DUAL_FRANKA_TASKS),
+    )
     parser.add_argument(
         "--auto-merge-memory",
         action=argparse.BooleanOptionalAction,
@@ -189,6 +212,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
 
     args._flash_options = prepare(args, "dual_franka")
     task = get_dual_franka_task(args.task_id)
+    recipe_tag = _task_recipe_tag(args.task_id)
     explore = args.explore
     timestamp = datetime.now().strftime("%Y%m%d-%H:%M:%S")
     output_dir = Path(
@@ -204,7 +228,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         f"{index}. {constraint}" for index, constraint in enumerate(task.constraints, 1)
     )
     return RunConfig(
-        recipe_tag=f"dual_franka_t{args.task_id}",
+        recipe_tag=recipe_tag,
         output_dir=output_dir,
         prompt_vars={
             "task_id": args.task_id,
@@ -213,13 +237,11 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             "setup": task.setup,
             "success_criteria": task.success_criteria,
             "constraints": constraints,
-            "recipe_tag": f"dual_franka_t{args.task_id}",
+            "recipe_tag": recipe_tag,
             "mode": "explore" if explore else "eval",
             "memory_profile": args.memory_profile,
             "memory_dir": str(memory_dir),
-            "memory_inbox": str(
-                memory_dir / "_internal" / "inbox" / f"dual_franka_t{args.task_id}"
-            ),
+            "memory_inbox": str(memory_dir / "_internal" / "inbox" / recipe_tag),
             "session_number": 1,
             "session_max": max(1, args.explore_sessions) if explore else 1,
         },
@@ -410,7 +432,7 @@ def _init_runtime(
         needs_vla = needs_vla or any(
             task.vla_instruction is not None for task in DUAL_FRANKA_TASKS.values()
         )
-    if options := getattr(args, "_flash_options", None):
+    if options := args._flash_options:
         from robots.franka.flash.common import VLA_ACTIONS
 
         needs_vla = args.vla_endpoint is not None or any(
@@ -433,9 +455,7 @@ def _init_runtime(
     }
     connectors = {
         "env": lambda rpc: {
-            "env": DualFrankaEnvClient(
-                rpc, reset_on_connect=bool(getattr(args, "_flash_options", None))
-            ),
+            "env": DualFrankaEnvClient(rpc, reset_on_connect=bool(args._flash_options)),
             "task_description": task_description
             if task_description is not None
             else get_dual_franka_task(args.task_id).instruction,
@@ -482,6 +502,6 @@ def _init_runtime(
         dashboard_events.emit(RuntimeStatusEvent("sam3", "ready"))
         runtime_kwargs["sam3_client"] = None
 
-    if getattr(args, "_flash_options", None) is not None:
+    if args._flash_options is not None:
         runtime_kwargs["flash_options"] = args._flash_options
     return list(owned_daemons.values()), runtime_kwargs
