@@ -82,8 +82,10 @@ To install calibration dependencies separately, create a dedicated environment:
    source .venv-calibration/bin/activate
    uv pip install -r calibration_tools/requirements.txt pyrealsense2
 
-On the right-arm control node, compile the reader against the libfranka
-development library matching the robot firmware:
+On the right-arm control node, first follow the `official libfranka installation
+guide <https://frankarobotics.github.io/docs/doc/libfranka/README.html#quick-install>`_
+to install a firmware-compatible development library, including headers and CMake
+configuration. Then compile the state reader:
 
 .. code-block:: bash
 
@@ -255,14 +257,19 @@ check, not a fixed automated sequence, and does not require VLA.
 
 .. note::
 
-   Task IDs are used in both launch commands and memory identifiers such as
-   ``dual_franka_t1``. Keep each ID associated with the same task when editing
-   task definitions; do not reorder or reuse IDs for different tasks.
+   Task IDs select tasks in launch commands; sorting tasks use their names for
+   recipe and memory identifiers. Keep IDs and names associated with the same task when
+   editing definitions. Do not reorder IDs or reuse names for different tasks.
+
+In task ``1``, an egg tart or foil tray inside a bowl or on a plate marks it as
+dirty. Dirty bowls and plates go into the metal basket; clean bowls and plates,
+and the cup, go into the cardboard box. The chopsticks and spoon go inside the cup.
 
 In task ``2``, chicken nuggets inside a bowl, or an egg-tart foil tray in a cup
 or on a plate, mark it as dirty. Dirty objects go into the metal basket; clean
-objects go into the cardboard box. The task provides ``vla_right_grasp`` /
-``vla_handoff`` / ``vla_left_place`` skills.
+objects go into the cardboard box. There are no utensils.
+
+Both sorting tasks provide ``vla_right_grasp`` / ``vla_handoff`` / ``vla_left_place`` skills.
 
 .. _dual-franka-vla:
 
@@ -395,16 +402,17 @@ Node ``1``:
 Manual Skill Testing
 --------------------
 
-The manual entry reads the registered tool schemas. From the repository root:
+List the available skills, then inspect the parameters and types accepted by a
+skill. From the repository root:
 
 .. code-block:: bash
 
    python robots/dual_franka/dual_franka_manual_call.py --list-primitives
    python robots/dual_franka/dual_franka_manual_call.py --schema vla_right_grasp
 
-As with the task runner, omitted endpoints start the required services on free
-ports; the manual call uses the returned clients and stops only those services
-when it exits. Supply ``--env-endpoint``, ``--vla-endpoint`` or
+Without service addresses, the script starts and connects to the required
+services automatically; no port selection is needed. It stops only the services
+it started when it exits. Supply ``--env-endpoint``, ``--vla-endpoint`` or
 ``--sam3-endpoint`` to reuse an existing service. Attaching to an existing Env
 does not reset it. With a newly started Env, a manual action first requests
 scene confirmation and performs one reset. An explicit manual ``reset`` also
@@ -438,36 +446,31 @@ With the VLA checkpoint and normalization variables set, run one grasp skill:
 VLA Diagnostic Console
 ~~~~~~~~~~~~~~~~~~~~~~
 
-Use the standalone console for prediction recording and explicit execution.
-``--task-id`` selects an existing VLA task profile; the policy instruction
-comes from its ``vla_instruction`` unless overridden with ``--instruction``.
-Run the following command from a source checkout. The diagnostic initializes only
-the environment and VLA components, without starting SAM3.
+The console runs VLA independently of the agent and registered tasks. The policy
+instruction comes from ``vla.instruction`` in the robot config, unless overridden
+with ``--instruction``. Run it from a source checkout; it starts Env and VLA
+services as needed, without SAM3.
 
 .. code-block:: bash
 
-   python -m tests.e2e_tests.dual_franka.dual_franka_vla --task-id 2 \
-     --robot-config /path/to/robot.yaml \
-     --vla-model-path /path/to/checkpoint --vla-repo-id org/dataset
+   python -m tests.e2e_tests.dual_franka.dual_franka_vla \
+     --robot-config robots/dual_franka/config/example.yaml
 
 Once the console starts, enter:
 
-* ``prompt <instruction>``: change the VLA task instruction.
-* ``infer``: inspect a prediction without moving the arms.
-* ``step``: make a fresh prediction and execute one action chunk (a sequence of
-  actions produced by the model in one prediction).
-* ``run N``: predict and execute N consecutive chunks, where N is 1–20.
-* ``reset``: return both arms to their initial poses. Check that both reset paths
-  are clear before using it.
+* ``run N``: predict and execute N action chunks (sequences produced by the model
+  in one prediction). Omit N for continuous rollout without skill-boundary stops.
+* ``reset``: reset both arms in the same environment after the operator replies
+  ``done``. Replying ``abort`` cancels the reset.
 * ``quit``: exit the console.
 
-Startup does not reset the arms. Start with ``infer`` to inspect the prediction,
-then use ``step`` to execute it. Inputs and predictions are saved as JSON/NPZ
-for inspection. If the console reports an uncertain execution state, check the
-physical scene before restarting the session.
+Startup does not reset the arms. During rollout, press ``Ctrl+C`` or create the
+``STOP`` file in the log directory to stop. An in-flight RPC may still finish;
+this is not a hardware emergency stop. Inputs and predictions are saved as
+JSON/NPZ. If execution state is uncertain, check the physical scene and restart.
 
-Each action chunk is expected to contain 20 steps by default. If your model
-outputs a different length, set ``--expected-action-steps`` to that length at startup.
+The action chunk length is read from the VLA server, or can be set explicitly
+with ``--expected-action-steps``.
 
 Run a Task
 ----------

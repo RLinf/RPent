@@ -50,11 +50,7 @@ RPent 通过 RLinf ``RealWorldEnv`` worker 控制双节点双臂 Franka 系统�
 标定
 ----
 
-``base_camera`` 和 ``d455_camera`` 都需要标定到 **右臂基座**。可使用
-``calibration_tools/``，也可继续使用 ROS
-`easy_handeye <https://github.com/IFL-CAMP/easy_handeye>`_，最终加载格式均为 YAML。
-腕部相机在默认配置中仅用于观测；若使用腕部 RGBD 相机进行投影，需要按下文
-配置手眼标定和投影视图。
+``base_camera`` 和 ``d455_camera`` 都需要标定到 **右臂基座**。可使用 ``calibration_tools/`` 或 ROS `easy_handeye <https://github.com/IFL-CAMP/easy_handeye>`_，最终加载格式均为 YAML。腕部相机默认仅用于观测；若使用腕部 RGBD 相机进行投影，需要配置手眼标定和投影视图。
 
 采集器使用 RealSense RGB 图像，支持零畸变系数或非零的 ``distortion.brown_conrady`` 系数；其他非零畸变模型会拒绝采样。
 
@@ -68,7 +64,7 @@ RPent 通过 RLinf ``RealWorldEnv`` worker 控制双节点双臂 Franka 系统�
    source .venv-calibration/bin/activate
    uv pip install -r calibration_tools/requirements.txt pyrealsense2
 
-在右臂控制节点使用匹配机器人固件的 libfranka 开发库编译状态读取程序：
+在右臂控制节点，先按 `libfranka 官方安装指南 <https://frankarobotics.github.io/docs/doc/libfranka/README.html#quick-install>`_ 安装与机器人固件兼容的开发库（含头文件和 CMake 配置），再编译状态读取程序：
 
 .. code-block:: bash
 
@@ -210,9 +206,13 @@ RPent 会将该机器人配置转换成内部双节点 RLinf cluster 和环境�
 
 .. note::
 
-   任务编号同时用于启动命令和记忆标识（如 ``dual_franka_t1``）。修改任务时，请保持编号与任务内容的对应关系，不要随意重排或复用编号。
+   任务编号用于启动命令，分类任务使用任务名称生成 recipe 和记忆标识。修改任务时，请保持编号、名称与任务内容的对应关系，不要随意重排编号或将已有名称用于不同任务。
 
-任务 ``2`` 中，碗中的鸡块、盘子或杯子中的蛋挞锡盘标记脏污：脏物放入金属筐，干净物放入纸盒。任务提供 ``vla_right_grasp`` / ``vla_handoff`` / ``vla_left_place`` 技能。
+任务 ``1`` 中，碗盘内的蛋挞或蛋挞锡盘标记脏污：脏碗盘放入金属筐，干净碗盘和杯子放入纸盒；筷勺插入杯中。
+
+任务 ``2`` 中，碗内的鸡块、盘子或杯子内的蛋挞锡盘标记脏污：脏物放入金属筐，干净物放入纸盒，不含筷勺。
+
+两个分类任务均提供 ``vla_right_grasp`` / ``vla_handoff`` / ``vla_left_place`` 技能。
 
 .. _dual-franka-vla:
 
@@ -312,14 +312,14 @@ RLinf 按配置的节点创建相机句柄，不会跨节点搜索被移动的 U
 手动技能测试
 ------------
 
-手动入口读取已注册的工具 schema。在仓库根目录运行：
+可先列出可调用的技能，再查看某个技能接受的参数及其类型。在仓库根目录运行：
 
 .. code-block:: bash
 
    python robots/dual_franka/dual_franka_manual_call.py --list-primitives
    python robots/dual_franka/dual_franka_manual_call.py --schema vla_right_grasp
 
-与任务入口一致，未指定 endpoint 时，自动在空闲端口启动所需服务，直接使用返回的客户端，退出时只停止本次启动的服务。传入 ``--env-endpoint``、``--vla-endpoint`` 或 ``--sam3-endpoint`` 可复用已有服务。连接已有 Env 不会复位。若新启动 Env，手动动作前先请求场景确认并执行一次复位；显式调用手动 ``reset`` 也会等待确认。列出工具和查看 schema 不启动服务。
+未指定服务地址时，脚本自动启动并连接所需服务，无需手动填写端口；退出时只关闭本次启动的服务。传入 ``--env-endpoint``、``--vla-endpoint`` 或 ``--sam3-endpoint`` 可复用已有服务。连接已有 Env 不会复位。若新启动 Env，手动动作前先请求场景确认并执行一次复位；显式调用手动 ``reset`` 也会等待确认。列出技能和查看参数不启动服务。
 
 例如，先看 schema，再执行左臂小幅平移：
 
@@ -344,27 +344,23 @@ RLinf 按配置的节点创建相机句柄，不会跨节点搜索被移动的 U
 独立 VLA 诊断控制台
 ~~~~~~~~~~~~~~~~~~~
 
-该控制台用于记录预测和显式执行 VLA 动作。``--task-id`` 选择已有 VLA 任务配置，指令来自其 ``vla_instruction``，可用 ``--instruction`` 覆盖。请在源码仓库中运行以下命令。诊断只初始化环境和 VLA 组件，不启动 SAM3。
+该控制台独立运行 VLA，不经过智能体或注册任务。策略指令来自机器人配置中的 ``vla.instruction``，可用 ``--instruction`` 覆盖。请在源码仓库中运行；控制台按需启动环境和 VLA 服务，不启动 SAM3。
 
 .. code-block:: bash
 
-   python -m tests.e2e_tests.dual_franka.dual_franka_vla --task-id 2 \
-     --robot-config /path/to/robot.yaml \
-     --vla-model-path /path/to/checkpoint --vla-repo-id org/dataset
+   python -m tests.e2e_tests.dual_franka.dual_franka_vla \
+     --robot-config robots/dual_franka/config/example.yaml
 
 启动后，在控制台输入：
 
-* ``prompt <指令>``：修改 VLA 的任务指令。
-* ``infer``：只查看预测，不移动机械臂。
-* ``step``：重新预测并执行一个动作块（模型一次输出的一段连续动作）。
-* ``run N``：连续预测并执行 N 个动作块，N 为 1–20。
-* ``reset``：让双臂回到初始姿态，使用前确认回位路径安全。
+* ``run N``：预测并执行 N 个动作块（每块是模型一次输出的一段连续动作）；不带 N 时持续运行，不在技能边界处停止。
+* ``reset``：等待操作员回复 ``done`` 后，在同一环境中复位双臂；回复 ``abort`` 则不执行复位。
 * ``quit``：退出控制台。
 
-启动时不会自动回位，建议先用 ``infer`` 检查预测，再用 ``step`` 执行。
-输入和预测会保存为 JSON/NPZ，便于检查。如果控制台提示执行状态不确定，请先检查现场，再重启会话。
+启动时不会自动回位。运行中按 ``Ctrl+C`` 或创建日志目录下的 ``STOP`` 文件可停止；正在执行的 RPC 仍可能完成，这不是硬件急停。
+输入和预测保存为 JSON/NPZ。如果提示执行状态不确定，请检查现场后重启会话。
 
-默认每个动作块包含 20 步；若模型输出长度不同，启动时用 ``--expected-action-steps`` 指定实际步数。
+每块动作步数自动从 VLA 服务读取，也可用 ``--expected-action-steps`` 显式指定。
 
 运行一个任务
 ------------
