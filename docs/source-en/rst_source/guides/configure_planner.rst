@@ -38,9 +38,9 @@ loop is orchestrated, and which model SDK or CLI is used.
      - Run tasks through the Codex SDK, using existing authentication or a configured API.
    * - ``gemini_cli``
      - The official `Gemini CLI <https://github.com/google-gemini/gemini-cli>`_
-       in headless mode. RPent exposes the toolkit through a local Streamable
+       through ACP. RPent exposes the toolkit through a local Streamable
        HTTP MCP server; Gemini CLI drives the loop.
-     - Run tasks through an existing Gemini CLI or cc-switch configuration.
+     - Run tasks through an existing Gemini CLI configuration.
    * - ``flash``
      - **Flash Mode**, for evaluation only. Replays a plan from memory,
        recorded from an earlier
@@ -88,12 +88,11 @@ Pick the provider by prefixing ``--model``:
    # OpenAI-compatible chat (e.g. GLM 5.2, text-only)
    rpent --planner api --model openai-chat:glm-5.2 --no-images ...
 
-For Google, ``google:`` selects the Pydantic AI provider and ``Argon`` is the
-model ID defined by the upstream service; RPent and Harness do not define or
-translate that ID. When using a custom Gemini endpoint, pass its service root
-to ``--base-url``, not a complete
-``/v1beta/models/<model>:generateContent`` URL. The Google SDK appends that
-request path from the model ID.
+For Google, ``google:`` selects the Pydantic AI provider. A custom endpoint may
+be either the service root expected by the Google SDK or a complete
+``/v1beta/models/<model>:generateContent`` URL supplied by the upstream
+service. For a complete URL, RPent uses its embedded model ID and passes the
+corresponding service root to the SDK, preserving the upstream request path.
 
 Environment variables it reads (override with ``--base-url`` if
 needed):
@@ -172,14 +171,15 @@ auto-compaction settings.
 The ``gemini_cli`` Planner
 ---------------------------
 
-``--planner gemini_cli`` starts the installed Gemini CLI in headless
-``stream-json`` mode. RPent starts a local Streamable HTTP MCP server and makes
+``--planner gemini_cli`` starts the installed Gemini CLI with ``--acp`` through
+the ACP Python SDK. Non-interactive tasks return after the first agent turn;
+terminal and Dashboard sessions accept queued follow-up messages. RPent starts
+a local Streamable HTTP MCP server and makes
 only the RPent toolkit available to that CLI session. Gemini CLI owns model
 requests and the agent loop; this is separate from the direct Gemini API path
 provided by ``--planner api --model google:Argon``.
 
-Install and configure Gemini CLI first. An existing cc-switch configuration in
-``~/.gemini/.env`` is reused:
+Install and configure Gemini CLI first. Its existing configuration is reused:
 
 .. code-block:: bash
 
@@ -200,8 +200,8 @@ selection, pass the exact ID accepted by the upstream service:
 
 Notes:
 
-- Authentication uses Gemini CLI's existing configuration, including
-  ``GEMINI_API_KEY`` and ``GEMINI_BASE_URL`` from ``~/.gemini/.env``.
+- Authentication and endpoint selection use the existing Gemini CLI
+  configuration. RPent does not select or override its credentials or endpoint.
   Set ``GEMINI_BIN`` only when the executable is not named ``gemini`` or is not
   on ``PATH``. ``--base-url`` is not used by this planner.
 - ``--max-turns`` is passed to Gemini CLI as ``model.maxSessionTurns``.
@@ -210,16 +210,22 @@ Notes:
 - RPent uses a temporary workspace configuration that disables project context
   files, skills, hooks, extensions, and built-in tools. It does not overwrite
   the user's Gemini CLI settings or authentication.
-- This backend currently supports non-interactive task runs. It rejects
-  ``--interactive``, ``--dashboard``, and non-``none``
-  ``--reasoning-effort`` values explicitly.
+- Runs and connectivity checks require a Gemini CLI version supporting ``--acp``. RPent
+  includes ``agent-client-protocol`` for session control; it does not use the
+  Google model API SDK to drive the CLI.
+- Like Codex, additional messages wait until the current agent turn completes.
+  Use ``/interrupt [message]`` in the terminal, or submit a message and press Esc
+  in the Dashboard, to interrupt before continuing in the same conversation.
+  See :doc:`dashboard` for queue ordering and interruption behavior.
+- Non-``none`` ``--reasoning-effort`` values are not supported.
 
 .. _planner-codex:
 
 The ``codex`` Planner
 ----------------------
 
-``--planner codex`` uses the OpenAI Codex Python SDK. For each run,
+``--planner codex`` uses the asynchronous OpenAI Codex Python SDK for both
+interactive and non-interactive tasks. For each run,
 RPent starts a local Streamable HTTP MCP server on a background thread
 in the current process, and Codex calls the same toolkit through that
 server. You do not need to start ``scripts/codex_proxy/`` first.
@@ -316,8 +322,8 @@ It exits ``0`` on success and ``1`` on any failure, and classifies the
 failure as one of ``missing_config``, ``unsupported_provider``,
 ``missing_api_key``, ``auth_failed``, ``network_error``,
 ``provider_error``, or ``sdk_error``. Use ``--json`` for scripting and
-CI. For ``api``, ``--base-url`` overrides the endpoint; CLI/SDK backends read
-the environment variables described above. ``--timeout-s`` overrides the
+CI. For ``api``, ``--base-url`` overrides the endpoint. Other backends use
+their own environment or CLI configuration. ``--timeout-s`` overrides the
 diagnostic timeout (30 s for ``api`` and 90 s for each CLI/SDK backend; the
 ``1200`` s run default is never reused).
 
@@ -360,9 +366,9 @@ The counting rule depends on the backend:
   returns ``error_max_turns`` if the limit is reached.
 - **Gemini CLI:** RPent passes the limit to Gemini CLI as
   ``model.maxSessionTurns``. Gemini CLI counts user, model, and tool turns and
-  returns a turn-limit error when the budget is exhausted. Its
-  ``stream-json`` result reports token and tool-call totals, but not the
-  completed turn count, so RPent does not synthesize ``turns_used``.
+  stops when the budget is exhausted. RPent records token usage when supplied
+  by ACP and counts tool calls from the local MCP server. ACP does not report
+  the completed turn count, so RPent does not synthesize ``turns_used``.
 
 For example, with no retries, the model requests two file reads in one
 response, then summarizes their results in another. API sends two requests,

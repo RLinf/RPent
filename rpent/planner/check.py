@@ -79,16 +79,12 @@ CHECK_STATUSES = (
 #: Planner backends this module can probe.
 CHECK_PLANNERS = ("api", "claude_code", "codex", "gemini_cli")
 
-#: Backends whose endpoint comes from an env var, not from ``--base-url``.
+#: Backends whose endpoint is configured outside RPent, not by ``--base-url``.
 #: ``build_planner`` forwards ``base_url`` to the api model alone, so these
 #: backends reject the flag rather than dropping it silently — a check
 #: that honoured an endpoint the run ignores would be testing the wrong
 #: thing.
-BASE_URL_ENV_BY_PLANNER = {
-    "claude_code": "ANTHROPIC_BASE_URL",
-    "codex": "CODEX_BASE_URL",
-    "gemini_cli": "GEMINI_BASE_URL",
-}
+EXTERNALLY_CONFIGURED_PLANNERS = ("claude_code", "codex", "gemini_cli")
 
 #: Diagnostic timeouts, deliberately independent of the 1200s run default.
 DEFAULT_TIMEOUT_S = {"api": 30, "claude_code": 90, "codex": 90, "gemini_cli": 90}
@@ -100,17 +96,13 @@ DEFAULT_TIMEOUT_S = {"api": 30, "claude_code": 90, "codex": 90, "gemini_cli": 90
 #: into a false failure.
 CLI_LOGIN_TIMEOUT_S = 25
 
-#: Best-effort CLI login markers for the two child-process SDK backends. Both
+#: Best-effort CLI login markers for the two SDK backends. Both
 #: accept an interactive login instead of an env var, so absence is only a
 #: hint that no credential exists — never a verdict. It shortens the probe's
 #: budget; it never skips the probe.
 _CLI_LOGIN_FILES = {
     "claude_code": ("~/.claude/.credentials.json",),
     "codex": ("~/.codex/auth.json",),
-    "gemini_cli": (
-        "~/.gemini/oauth_creds.json",
-        "~/.gemini/gemini-credentials.json",
-    ),
 }
 
 #: macOS keeps the Claude Code credential in the login Keychain instead of in
@@ -147,9 +139,6 @@ _CLAUDE_CODE_KEY_ENV = "ANTHROPIC_API_KEY"
 _CLAUDE_CODE_BASE_URL_ENV = "ANTHROPIC_BASE_URL"
 _CODEX_KEY_ENV = "CODEX_API_KEY"
 _CODEX_BASE_URL_ENV = "CODEX_BASE_URL"
-_GEMINI_CLI_KEY_ENV = "GEMINI_API_KEY"
-_GEMINI_CLI_BASE_URL_ENV = "GEMINI_BASE_URL"
-
 #: Cap on how much provider error text is carried in ``detail``.
 _DETAIL_LIMIT = 2000
 
@@ -863,14 +852,10 @@ def _check_codex(request: LlmCheckRequest) -> LlmCheckResult:
 
 
 def _check_gemini_cli(request: LlmCheckRequest) -> LlmCheckResult:
-    """Probe the installed Gemini CLI with one headless, tool-free request."""
+    """Probe the installed Gemini CLI with one tool-free ACP request."""
     model = (request.model or "").strip() or None
     try:
-        from rpent.planner.gemini_cli import (
-            configured_base_url,
-            has_configured_api_key,
-            run_probe_turn,
-        )
+        from rpent.planner.gemini_cli import run_probe_turn
     except ImportError as exc:
         return LlmCheckResult(
             ok=False,
@@ -880,32 +865,16 @@ def _check_gemini_cli(request: LlmCheckRequest) -> LlmCheckResult:
             detail=_describe(exc),
         )
 
-    key_present = has_configured_api_key()
-    base_url = configured_base_url()
-
     def _result(status: str, **kwargs: Any) -> LlmCheckResult:
         return LlmCheckResult(
             ok=status == STATUS_OK,
             status=status,
             planner="gemini_cli",
             model=model,
-            credential_env=_GEMINI_CLI_KEY_ENV,
-            credential_present=key_present,
-            base_url=base_url,
-            base_url_env=_GEMINI_CLI_BASE_URL_ENV,
             **kwargs,
         )
 
-    if not key_present and not _has_cli_login("gemini_cli"):
-        return _result(
-            STATUS_MISSING_API_KEY,
-            detail=(
-                f"{_GEMINI_CLI_KEY_ENV} is not configured and no Gemini CLI "
-                "login was found."
-            ),
-        )
-
-    timeout_s = _sdk_probe_budget(request, cli_login_only=not key_present)
+    timeout_s = request.resolved_timeout_s()
     started = time.monotonic()
     try:
         reply = run_probe_turn(
@@ -921,7 +890,7 @@ def _check_gemini_cli(request: LlmCheckRequest) -> LlmCheckResult:
         )
     except Exception as exc:  # noqa: BLE001 - classified below
         return _result(
-            _classify_sdk_error(exc, key_present=key_present, model=model),
+            _classify_sdk_error(exc, key_present=False, model=model),
             detail=_describe(exc),
             latency_s=round(time.monotonic() - started, 3),
         )

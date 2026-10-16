@@ -14,8 +14,8 @@
 
 """In-process streamable-HTTP MCP server that wraps a :class:`Toolkit`.
 
-The Codex CLI accepts streamable-HTTP MCP servers via
-``mcp_servers.<name>.url``. This module builds an MCP
+Codex and Gemini CLI connect to the same streamable-HTTP MCP bridge through
+their respective server configuration. This module builds an MCP
 :class:`~mcp.server.lowlevel.Server` and serves it through a
 :class:`~mcp.server.streamable_http_manager.StreamableHTTPSessionManager`
 on a background uvicorn thread — no separate subprocess, no second
@@ -25,7 +25,7 @@ Usage::
 
     server = HttpMcpServer(toolkit)
     server.start()  # binds 127.0.0.1 on a free port
-    codex_url = server.url  # e.g. "http://127.0.0.1:54321/mcp/"
+    mcp_url = server.url  # e.g. "http://127.0.0.1:54321/mcp/"
     ...
     server.stop()
 """
@@ -35,6 +35,7 @@ from __future__ import annotations
 import base64
 import socket
 import threading
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -80,8 +81,15 @@ def _strip_mcp_prefix(name: str) -> str:
     return name
 
 
-def build_mcp_server(toolkit: Toolkit) -> Server:
-    """Expose native declarations through MCP, with Toolkit owning validation."""
+def build_mcp_server(
+    toolkit: Toolkit,
+    on_tool_result: Callable[[str, dict[str, Any], ToolResult], None] | None = None,
+) -> Server:
+    """Expose native declarations through MCP, with Toolkit owning validation.
+
+    The optional observer receives actual tool results on the server event loop;
+    consumers must marshal updates to their own loop without blocking this one.
+    """
     mcp_app: Server = Server(SERVER_NAME, version="0.1.0")
 
     @mcp_app.list_tools()
@@ -101,15 +109,20 @@ def build_mcp_server(toolkit: Toolkit) -> Server:
     async def _call_tool(name: str, arguments: dict[str, Any]) -> types.CallToolResult:
         lookup = _strip_mcp_prefix(name)
         tr = await execute_tool(toolkit, lookup, arguments or {})
+        if on_tool_result is not None:
+            on_tool_result(lookup, arguments or {}, tr)
         return types.CallToolResult(**mcp_result(tr))
 
     return mcp_app
 
 
-def _build_asgi_app(toolkit: Toolkit) -> Any:
+def _build_asgi_app(
+    toolkit: Toolkit,
+    on_tool_result: Callable[[str, dict[str, Any], ToolResult], None] | None = None,
+) -> Any:
     """Build a raw ASGI3 app wrapping an MCP ``Server`` + streamable HTTP."""
     session_manager = StreamableHTTPSessionManager(
-        app=build_mcp_server(toolkit),
+        app=build_mcp_server(toolkit, on_tool_result),
         stateless=True,
         json_response=True,
     )
@@ -187,8 +200,10 @@ class HttpMcpServer:
         host: str = "127.0.0.1",
         port: int = 0,
         path: str = "/mcp",
+        on_tool_result: Callable[[str, dict[str, Any], ToolResult], None] | None = None,
     ) -> None:
         self._toolkit = toolkit
+        self._on_tool_result = on_tool_result
         self._host = host
         self._port = port or _pick_free_port(host)
         self._path = path if path.startswith("/") else f"/{path}"
@@ -204,7 +219,7 @@ class HttpMcpServer:
         if self._thread is not None:
             return self.url
 
-        app = _build_asgi_app(self._toolkit)
+        app = _build_asgi_app(self._toolkit, self._on_tool_result)
 
         config = uvicorn.Config(
             app,

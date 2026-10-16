@@ -25,9 +25,9 @@ import argparse
 import json
 
 from rpent.planner.check import (
-    BASE_URL_ENV_BY_PLANNER,
     CHECK_PLANNERS,
     DEFAULT_TIMEOUT_S,
+    EXTERNALLY_CONFIGURED_PLANNERS,
     STATUS_AUTH_FAILED,
     STATUS_INVALID_MODEL,
     STATUS_MISSING_API_KEY,
@@ -70,7 +70,9 @@ def _parser() -> argparse.ArgumentParser:
         "--base-url",
         default=None,
         help=(
-            "API base URL, for the 'api' planner only. claude_code, codex, and gemini_cli take their endpoint from ANTHROPIC_BASE_URL / CODEX_BASE_URL / GEMINI_BASE_URL instead; passing this flag with one of them is an error rather than a silent no-op."
+            "API base URL, for the 'api' planner only. Other planners use "
+            "their existing backend configuration; passing this flag with "
+            "one of them is an error rather than a silent no-op."
         ),
     )
     parser.add_argument(
@@ -99,8 +101,13 @@ def _remediation(result: LlmCheckResult) -> str:
     Returns:
         A one-line hint, or an empty string when none applies.
     """
-    credential = result.credential_env or "the backend's API key"
-    base_url_env = result.base_url_env or "the backend's base URL variable"
+    credential = result.credential_env or "the configured credentials"
+    endpoint = result.base_url or result.base_url_env or "the backend configuration"
+    missing_credential_hint = (
+        f"Set {result.credential_env} in this shell, then retry."
+        if result.credential_env
+        else "Configure authentication in the backend configuration, then retry."
+    )
     hints = {
         STATUS_MISSING_CONFIG: (
             "Pass --model with a provider prefix, e.g. "
@@ -110,26 +117,26 @@ def _remediation(result: LlmCheckResult) -> str:
             "Use a provider RPent installs: anthropic:, google:, openai:, "
             "or openai-chat:."
         ),
-        STATUS_MISSING_API_KEY: f"Set {credential} in this shell, then retry.",
+        STATUS_MISSING_API_KEY: missing_credential_hint,
         STATUS_INVALID_MODEL: (
-            f"The provider rejected the model id. Check that --model exists "
-            f"for this backend and that {credential} has access to it."
+            "The provider rejected the model id. Check that --model exists "
+            f"for this backend and is available to {credential}."
         ),
         STATUS_AUTH_FAILED: (
-            f"The provider rejected {credential}. Check the key, and that it "
-            f"matches the endpoint in {base_url_env} / --base-url."
+            f"The provider rejected {credential}. Check authentication and "
+            f"endpoint settings ({endpoint})."
         ),
         STATUS_NETWORK_ERROR: (
-            f"Nothing answered in time. Check connectivity, any proxy, and the "
-            f"endpoint in {base_url_env} / --base-url."
+            "Nothing answered in time. Check connectivity, any proxy, and "
+            f"endpoint settings ({endpoint})."
         ),
         STATUS_PROVIDER_ERROR: (
             "The provider was reached but refused the request. Check the model "
             "id, your quota, and any rate limit."
         ),
         STATUS_SDK_ERROR: (
-            "The backend SDK failed before a reply arrived. Run with the "
-            "backend's own CLI to confirm it is installed and logged in."
+            "The backend failed before a reply arrived. Check that its dependency "
+            "is installed and its configuration is valid."
         ),
     }
     return hints.get(result.status, "")
@@ -180,12 +187,11 @@ def main() -> int:
     parser = _parser()
     args = parser.parse_args()
     # Mirrors the run CLI: the flag reaches the api model only, so accepting
-    # it for the SDK backends would test an endpoint the run cannot use.
-    if args.base_url and args.planner in BASE_URL_ENV_BY_PLANNER:
+    # it for the other backends would test an endpoint the run cannot use.
+    if args.base_url and args.planner in EXTERNALLY_CONFIGURED_PLANNERS:
         parser.error(
             "--base-url applies to the 'api' planner only; "
-            f"{args.planner} reads its endpoint from "
-            f"{BASE_URL_ENV_BY_PLANNER[args.planner]} instead"
+            f"{args.planner} uses its existing backend configuration instead"
         )
     result = check_llm(
         LlmCheckRequest(
