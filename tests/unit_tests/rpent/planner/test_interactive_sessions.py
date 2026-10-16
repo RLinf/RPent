@@ -271,41 +271,6 @@ def test_queue_interrupt_and_continuation_share_one_session(
     asyncio.run(scenario())
 
 
-def test_gemini_acp_records_actual_mcp_finish_and_accumulates_usage():
-    recorder = gemini_cli._Recorder(NullDashboardEventSink())
-    recorder.observe(
-        {
-            "type": "rpent_tool",
-            "name": "finish",
-            "args": {},
-            "is_error": True,
-            "result": {"_finish": True},
-        }
-    )
-    assert recorder.finish_result is None
-    recorder.observe(
-        {
-            "type": "rpent_tool",
-            "name": "finish",
-            "args": {},
-            "is_error": False,
-            "result": {"_finish": True, "status": "success"},
-        }
-    )
-    assert recorder.finish_result == {"_finish": True, "status": "success"}
-    for _ in range(2):
-        recorder.observe(
-            {
-                "type": "acp_result",
-                "stopReason": "end_turn",
-                "usage": {"inputTokens": 10, "outputTokens": 2},
-            }
-        )
-    assert recorder.usage["total_input_tokens"] == 20
-    assert recorder.usage["total_output_tokens"] == 4
-    assert recorder.tool_calls == 2
-
-
 @pytest.mark.parametrize("channel", ["terminal", "dashboard"])
 def test_claude_confirmed_finish_does_not_send_pending_input(
     tmp_path, monkeypatch, channel, dashboard
@@ -383,9 +348,19 @@ def test_claude_confirmed_finish_does_not_send_pending_input(
         assert message["status"] == "unsent"
 
 
-@pytest.mark.parametrize("outcome", ["startup_error", "timeout", "finish"])
+@pytest.mark.parametrize(
+    "outcome, expected_error",
+    [
+        ("mcp_error", "RuntimeError: MCP did not start"),
+        ("startup_error", "RuntimeError: backend startup failed"),
+        ("timeout", "test agent timed out after 0.05s"),
+        ("cleanup_error", "Toolkit cleanup failed: <redacted>"),
+        ("both_errors", "RuntimeError: backend startup failed"),
+        ("finish", None),
+    ],
+)
 def test_interactive_cleanup_and_finish_preserve_unsent_input(
-    tmp_path, monkeypatch, dashboard, outcome
+    tmp_path, monkeypatch, dashboard, outcome, expected_error, caplog
 ):
     events = []
 
@@ -395,6 +370,8 @@ def test_interactive_cleanup_and_finish_preserve_unsent_input(
 
         def start(self):
             events.append("mcp_start")
+            if outcome == "mcp_error":
+                raise RuntimeError("MCP did not start")
             return "http://127.0.0.1:12345/mcp/"
 
         def stop(self):
@@ -407,7 +384,7 @@ def test_interactive_cleanup_and_finish_preserve_unsent_input(
             self.control, self.emit = control, emit
 
         async def run(self, prompt):
-            if outcome == "startup_error":
+            if outcome in {"startup_error", "both_errors"}:
                 raise RuntimeError("backend startup failed")
             await self.control.start()
             dashboard.submit_input("never send after finish or timeout")
@@ -422,7 +399,7 @@ def test_interactive_cleanup_and_finish_preserve_unsent_input(
                     }
                 )
                 await self.control.complete(self)
-            else:
+            elif outcome == "timeout":
                 await asyncio.Event().wait()
 
         async def submit(self, message):
@@ -434,12 +411,18 @@ def test_interactive_cleanup_and_finish_preserve_unsent_input(
     monkeypatch.setattr(interactive, "HttpMcpServer", Server)
     artifacts = AgentArtifacts("test", tmp_path / "agent.out")
     recorder = gemini_cli._Recorder(NullDashboardEventSink())
+
+    def cancel():
+        events.append("cancel_tools")
+        if outcome in {"cleanup_error", "both_errors"}:
+            raise RuntimeError("private-key-value")
+
     error = asyncio.run(
         interactive.run_agent(
             prompt="initial",
             initial_user_text="initial",
             toolkit=SimpleNamespace(
-                cancel_active_and_wait=lambda: events.append("cancel_tools"),
+                cancel_active_and_wait=cancel,
                 resume_calls=lambda: events.append("resume_tools"),
             ),
             artifacts=artifacts,
@@ -450,16 +433,21 @@ def test_interactive_cleanup_and_finish_preserve_unsent_input(
             label="test agent",
             input_queue=None,
             interaction=dashboard,
+            redact=lambda text: text.replace("private-key-value", "<redacted>"),
         )
     )
-    assert events == ["mcp_start", "cancel_tools", "agent_close", "mcp_stop"]
+    expected_events = ["mcp_start", "cancel_tools"]
+    if outcome != "mcp_error":
+        expected_events.append("agent_close")
+    assert events == [*expected_events, "mcp_stop"]
+    assert error == expected_error
     assert dashboard.planner_activity == "ended"
-    if outcome == "startup_error":
-        assert error == "RuntimeError: backend startup failed"
-    else:
+    assert "private-key-value" not in caplog.text
+    for path in (artifacts.output_path, artifacts.raw_stream_path):
+        assert "private-key-value" not in path.read_text()
+        if error:
+            assert error in path.read_text()
+    if outcome not in {"mcp_error", "startup_error", "both_errors"}:
         assert dashboard.snapshot()["interaction"]["messages"][0]["status"] == "unsent"
-        if outcome == "timeout":
-            assert "timed out" in error
-        else:
-            assert error is None
-            assert recorder.finish_result["status"] == "success"
+    if outcome == "finish":
+        assert recorder.finish_result["status"] == "success"

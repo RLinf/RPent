@@ -19,51 +19,22 @@ import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from unittest.mock import Mock
 
 import acp
 import pytest
 
 import rpent.planner.gemini_cli as gemini_module
 import rpent.planner.utils.agent_session as session_module
-from rpent.dashboard.events import TranscriptEvent, UsageEvent
+from rpent.dashboard.events import NullDashboardEventSink, TranscriptEvent, UsageEvent
 from rpent.planner.gemini_cli import GeminiCliPlanner, _Recorder
 from rpent.tools import ToolResult
-
-
-class RecordingSink:
-    def __init__(self) -> None:
-        self.events: list[Any] = []
-
-    @property
-    def enabled(self) -> bool:
-        return True
-
-    def emit(self, event: Any) -> None:
-        self.events.append(event)
-
-
-class FakeToolkit:
-    def __init__(self) -> None:
-        self.cancel_calls = 0
-
-    def cancel_active_and_wait(self) -> None:
-        self.cancel_calls += 1
-
-    def resume_calls(self) -> None:
-        pass
-
-    def list_tools(self) -> tuple[Any, ...]:
-        return (
-            type("Tool", (), {"name": "inspect_scene"})(),
-            type("Tool", (), {"name": "finish"})(),
-        )
 
 
 class FakeMcpServer:
     instances: list[FakeMcpServer] = []
 
-    def __init__(self, toolkit: FakeToolkit, *, on_tool_result=None) -> None:
+    def __init__(self, toolkit, *, on_tool_result=None) -> None:
         self.on_tool_result = on_tool_result
         self.toolkit = toolkit
         self.started = False
@@ -78,13 +49,13 @@ class FakeMcpServer:
         self.stopped = True
 
 
-def make_planner(tmp_path: Path, sink: RecordingSink) -> GeminiCliPlanner:
+def make_planner(tmp_path: Path, *, timeout_s=2) -> GeminiCliPlanner:
     return GeminiCliPlanner(
         output_dir=str(tmp_path),
         output_path=tmp_path / "gemini.out",
         model="gemini-upstream-id",
-        timeout_s=2,
-        dashboard_events=sink,
+        timeout_s=timeout_s,
+        dashboard_events=NullDashboardEventSink(),
     )
 
 
@@ -149,16 +120,17 @@ def test_environment_trusts_generated_workspace_and_bypasses_loopback_proxy(
     assert env["no_proxy"] == env["NO_PROXY"]
 
 
-def test_recorder_captures_successful_finish_and_usage():
-    sink = RecordingSink()
-    recorder = _Recorder(sink)
+@pytest.mark.parametrize("tool_error", [False, True])
+def test_recorder_uses_actual_finish_and_accumulates_usage(tool_error):
+    events = []
+    recorder = _Recorder(SimpleNamespace(enabled=True, emit=events.append))
     recorder.observe(
         {
             "type": "rpent_tool",
             "name": "finish",
             "args": {"status": "success", "summary": "done"},
             "result": {"_finish": True, "status": "success", "summary": "done"},
-            "is_error": False,
+            "is_error": tool_error,
         }
     )
     recorder.observe(
@@ -170,41 +142,28 @@ def test_recorder_captures_successful_finish_and_usage():
             },
         }
     )
-    recorder.observe(
-        {
-            "type": "acp_result",
-            "stopReason": "end_turn",
-            "usage": {"inputTokens": 12, "outputTokens": 4, "cachedReadTokens": 3},
-        }
+    for _ in range(2):
+        recorder.observe(
+            {
+                "type": "acp_result",
+                "stopReason": "end_turn",
+                "usage": {"inputTokens": 12, "outputTokens": 4, "cachedReadTokens": 3},
+            }
+        )
+    assert recorder.finish_result == (
+        None
+        if tool_error
+        else {"_finish": True, "status": "success", "summary": "done"}
     )
-    assert recorder.finish_result == {
-        "_finish": True,
-        "status": "success",
-        "summary": "done",
-    }
     assert recorder.final_response == "complete"
     assert recorder.stats() == {
         "tool_calls": 1,
-        "total_input_tokens": 12,
-        "total_output_tokens": 4,
-        "total_cached_input_tokens": 3,
+        "total_input_tokens": 24,
+        "total_output_tokens": 8,
+        "total_cached_input_tokens": 6,
     }
-    assert any(isinstance(event, TranscriptEvent) for event in sink.events)
-    assert any(isinstance(event, UsageEvent) for event in sink.events)
-
-
-def test_failed_finish_tool_is_not_accepted():
-    recorder = _Recorder(RecordingSink())
-    recorder.observe(
-        {
-            "type": "rpent_tool",
-            "name": "finish",
-            "args": {"status": "success"},
-            "is_error": True,
-            "result": {"_finish": True, "status": "success"},
-        }
-    )
-    assert recorder.finish_result is None
+    assert any(isinstance(event, TranscriptEvent) for event in events)
+    assert any(isinstance(event, UsageEvent) for event in events)
 
 
 def test_stderr_redacts_key_loaded_from_gemini_dotenv(
@@ -305,31 +264,28 @@ def acp_backend(monkeypatch):
     return seen
 
 
-def test_session_artifacts_redact_key_echoed_by_cli(tmp_path, monkeypatch, acp_backend):
+@pytest.mark.parametrize(
+    "outcome", ["finish", "no_finish", "startup_error", "prompt_error", "timeout"]
+)
+def test_session_result_artifacts_and_cleanup(
+    tmp_path, monkeypatch, acp_backend, outcome
+):
     secret = "environment-secret-value"
     monkeypatch.setenv("GEMINI_API_KEY", secret)
     acp_backend["reply"] = f"request failed for {secret}"
     acp_backend["stderr"] = f"provider rejected {secret}\n"
-    result = make_planner(tmp_path, RecordingSink()).solve(
-        system_prompt="",
-        user_message="task",
-        toolkit=FakeToolkit(),
-        max_turns=2,
+    acp_backend["finish"] = outcome == "finish"
+    acp_backend["block"] = outcome == "timeout"
+    if outcome in {"startup_error", "prompt_error"}:
+        acp_backend[outcome] = RuntimeError(f"gemini unavailable: {secret}")
+    toolkit = Mock()
+    toolkit.list_tools.return_value = (SimpleNamespace(name="finish"),)
+    toolkit.cancel_active_and_wait.side_effect = lambda: acp_backend["events"].append(
+        "cancel_tools"
     )
-    for path in ("output_path", "raw_stream_path", "stderr_path"):
-        text = Path(result.stats[path]).read_text()
-        assert secret not in text
-        assert "<GEMINI_API_KEY>" in text
-    assert secret not in str(result.messages)
-
-
-@pytest.mark.parametrize("with_finish", [False, True])
-def test_planner_lifecycle_writes_config_and_cleans_resources(
-    tmp_path, acp_backend, with_finish
-):
-    toolkit = FakeToolkit()
-    acp_backend["finish"] = with_finish
-    result = make_planner(tmp_path, RecordingSink()).solve(
+    result = make_planner(
+        tmp_path, timeout_s=0.05 if outcome == "timeout" else 2
+    ).solve(
         system_prompt="system rules",
         user_message="user task",
         toolkit=toolkit,
@@ -337,104 +293,72 @@ def test_planner_lifecycle_writes_config_and_cleans_resources(
     )
     server = FakeMcpServer.instances[0]
     assert server.started and server.stopped
-    assert toolkit.cancel_calls == 1
+    toolkit.cancel_active_and_wait.assert_called_once()
     assert acp_backend["settings"]["model"]["maxSessionTurns"] == 6
     assert acp_backend["settings"]["mcpServers"]["rpent"]["httpUrl"].endswith("/mcp/")
     assert acp_backend["command"][1] == "--acp"
-    assert acp_backend["prompt"] == "system rules\n\nuser task"
-    assert acp_backend["events"] == [
-        "initialize",
-        "new_session",
-        "prompt",
-        "prompt_completed",
-        "close",
-    ]
+    assert acp_backend["events"][-1] == "close"
     assert not acp_backend["cwd"].exists()
     assert result.finish_result == (
         {"_finish": True, "status": "success", "summary": "done"}
-        if with_finish
+        if outcome == "finish"
         else None
     )
-    assert result.error is None
     assert result.stats["backend"] == "gemini_cli"
-    assert result.stats["total_input_tokens"] == 8
-    assert (tmp_path / "gemini.out.stream.jsonl").is_file()
+    assert secret not in str(result.messages)
+    for path in ("output_path", "raw_stream_path", "stderr_path"):
+        text = Path(result.stats[path]).read_text()
+        assert secret not in text
+        if outcome != "timeout":
+            assert "<GEMINI_API_KEY>" in text
+    if outcome == "timeout":
+        assert result.error == "Gemini CLI timed out after 0.05s"
+        assert acp_backend["events"][-4:] == [
+            "cancel_tools",
+            "cancel",
+            "prompt_completed",
+            "close",
+        ]
+    elif outcome in {"startup_error", "prompt_error"}:
+        assert result.error == "RuntimeError: gemini unavailable: <GEMINI_API_KEY>"
+    else:
+        assert result.error is None
+        assert result.stats["total_input_tokens"] == 8
+        assert acp_backend["prompt"] == "system rules\n\nuser task"
 
 
-@pytest.mark.parametrize("stage", ["startup_error", "prompt_error"])
-def test_backend_failure_still_stops_mcp_server(tmp_path, acp_backend, stage):
-    toolkit = FakeToolkit()
-    acp_backend[stage] = RuntimeError("gemini unavailable")
-    result = make_planner(tmp_path, RecordingSink()).solve(
-        system_prompt="",
-        user_message="task",
-        toolkit=toolkit,
-        max_turns=2,
-    )
-    assert result.error == "RuntimeError: gemini unavailable"
-    assert FakeMcpServer.instances[0].stopped
-    assert toolkit.cancel_calls == 1
-    assert acp_backend["events"][-1] == "close"
-
-
-def test_probe_uses_acp_without_mcp_and_preserves_configuration(acp_backend):
-    assert (
-        gemini_module.run_probe_turn(prompt="ping", model=None, timeout_s=1) == "done"
-    )
-    assert acp_backend["prompt"] == "ping"
+@pytest.mark.parametrize("outcome", ["success", "timeout", "auth_error"])
+def test_probe_is_tool_free_and_closes_transport(acp_backend, outcome):
+    acp_backend["block"] = outcome == "timeout"
+    if outcome == "auth_error":
+        acp_backend["prompt_error"] = RuntimeError("401 Unauthorized")
+    if outcome == "success":
+        assert (
+            gemini_module.run_probe_turn(prompt="ping", model=None, timeout_s=1)
+            == "done"
+        )
+    else:
+        error, message = (
+            (TimeoutError, "did not finish within")
+            if outcome == "timeout"
+            else (RuntimeError, "401 Unauthorized")
+        )
+        with pytest.raises(error, match=message):
+            gemini_module.run_probe_turn(prompt="ping", model=None, timeout_s=0.05)
     assert "--model" not in acp_backend["command"]
     assert "mcpServers" not in acp_backend["settings"]
     assert not FakeMcpServer.instances
     assert acp_backend["events"][-1] == "close"
-
-
-def test_probe_timeout_cancels_prompt_and_closes_transport(acp_backend):
-    acp_backend["block"] = True
-    with pytest.raises(TimeoutError, match="did not finish within"):
-        gemini_module.run_probe_turn(prompt="ping", model=None, timeout_s=0.05)
-    assert acp_backend["events"][-3:] == ["cancel", "prompt_completed", "close"]
-
-
-def test_planner_timeout_cancels_tools_before_acp_cancel(tmp_path, acp_backend):
-    acp_backend["block"] = True
-    toolkit = FakeToolkit()
-    toolkit.cancel_active_and_wait = lambda: acp_backend["events"].append(
-        "cancel_tools"
-    )
-    planner = GeminiCliPlanner(
-        output_dir=str(tmp_path),
-        dashboard_events=RecordingSink(),
-        timeout_s=0.05,
-    )
-    result = planner.solve(
-        system_prompt="",
-        user_message="task",
-        toolkit=toolkit,
-        max_turns=2,
-    )
-    assert result.error == "Gemini CLI timed out after 0.05s"
-    assert acp_backend["events"][-4:] == [
-        "cancel_tools",
-        "cancel",
-        "prompt_completed",
-        "close",
-    ]
-    assert FakeMcpServer.instances[0].stopped
-
-
-def test_probe_propagates_authentication_errors(acp_backend):
-    acp_backend["prompt_error"] = RuntimeError("401 Unauthorized")
-    with pytest.raises(RuntimeError, match="401 Unauthorized"):
-        gemini_module.run_probe_turn(prompt="ping", model=None, timeout_s=1)
-    assert acp_backend["events"][-1] == "close"
+    if outcome == "timeout":
+        assert acp_backend["events"][-3:] == ["cancel", "prompt_completed", "close"]
 
 
 def test_simultaneous_interactive_channels_are_rejected(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="cannot be used together"):
-        make_planner(tmp_path, RecordingSink()).solve(
+        make_planner(tmp_path).solve(
             system_prompt="",
             user_message="task",
-            toolkit=FakeToolkit(),  # type: ignore[arg-type]
+            toolkit=Mock(),
             max_turns=2,
             input_queue=object(),
             dashboard_interaction=object(),
