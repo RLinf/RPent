@@ -56,7 +56,7 @@ RoboDojo
    * - 动作
      - 规划器调用 ``pi0_pick`` 或 ``move_to``、``set_gripper`` 等原语。Pi0.5 输出双臂关节和夹爪动作，共 14 维。
    * - 奖励与成功判定
-     - 任务是否成功由 RoboDojo 原生环境判定，记录在 ``result.json`` 的 ``success`` 字段中。规划器调用 ``finish`` 只表示结束规划。
+     - 任务是否成功由 RoboDojo 原生环境判定，记录在 ``result.json`` 的 ``success`` 字段中。
    * - 任务指令
      - 来自当前场景的 RoboDojo 任务描述。省略 ``pi0_pick`` 的 ``prompt`` 参数时，使用该指令。
 

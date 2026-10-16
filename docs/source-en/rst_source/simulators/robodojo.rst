@@ -59,7 +59,7 @@ Observation and Action
    * - Action
      - The planner calls ``pi0_pick`` or primitives such as ``move_to`` and ``set_gripper``. Pi0.5 outputs 14-dimensional joint and gripper actions for both arms.
    * - Reward / success
-     - RoboDojo's native environment determines task success, recorded in the ``success`` field of ``result.json``. Calling ``finish`` only ends planning.
+     - RoboDojo's native environment determines task success, recorded in the ``success`` field of ``result.json``.
    * - Task prompt
      - The current scene's RoboDojo task description. ``pi0_pick`` uses this instruction when its ``prompt`` argument is omitted.
 
