@@ -66,11 +66,11 @@ RoboDojo
    * - 项目
      - 说明
    * - 观测
-     - 头部和左右腕部相机的 RGB-D 图像、相机标定，以及关节、末端和夹爪状态。Pi0.5 使用三路 RGB 图像、机器人状态和任务文字。
+     - 头部和左右腕部相机的 RGB-D 图像、相机标定，以及双臂关节状态、末端执行器位姿和夹爪开合状态。Pi0.5 使用三路 RGB 图像、机器人状态和任务文字。
    * - 动作
-     - 规划器调用 ``pi0_pick`` 或 ``move_to``、``set_gripper`` 等原语。Pi0.5 输出双臂关节和夹爪动作，共 14 维。
+     - planner 调用 ``pi0_pick`` 或 ``move_to``、``set_gripper`` 等原语。Pi0.5 输出双臂关节和夹爪动作，共 14 维。
    * - 奖励与成功判定
-     - 任务是否成功由 RoboDojo 原生环境判定，记录在 ``result.json`` 的 ``success`` 字段中。
+     - 任务是否成功由 RoboDojo 原生环境判定，结果记录在 ``result.json`` 的 ``success`` 字段中。
    * - 任务指令
      - 来自当前场景的 RoboDojo 任务描述。省略 ``pi0_pick`` 的 ``prompt`` 参数时，使用该指令。
 
@@ -203,7 +203,8 @@ RLinf（默认）
 
 添加 ``--inspect_only`` 可只查看参数信息，不执行转换。
 
-模型还需要发布权重配套的归一化统计量。转换器没有将它放到 RoboDojo 预设读取的位置，需手动复制：
+模型还需要发布权重配套的归一化统计文件 ``norm_stats.json``。转换器不会将该文件写入\
+``$PI05_CHECKPOINT_PATH/RoboDojo/arx_x5/norm_stats.json``，需按下方命令复制：
 
 .. code-block:: bash
 
@@ -220,7 +221,7 @@ RPent 也提供 XPolicyLab 后端，已有该环境或需要使用其 Pi0.5 实�
 XPolicyLab 是另一套加载和运行 Pi0.5 的软件。使用前需单独克隆源码，\
 并按其 `Pi0.5 安装说明 <https://github.com/XPolicyLab/XPolicyLab/blob/432f82b1758c5b1202e42a3dfe014546dbc50871/policy/Pi_05/README.md#installation>`_ 准备 Python 环境。\
 可复用前面下载的原始 JAX 权重和统计量，但需按 XPolicyLab 的要求配置存放位置。
-按下文完成 SAM3 和规划器配置后，使用单独的 XPolicyLab 源码与 Python 环境运行任务：
+按下文完成 SAM3 和 planner 配置后，使用单独的 XPolicyLab 源码与 Python 环境运行任务：
 
 .. code-block:: bash
 
@@ -230,8 +231,8 @@ XPolicyLab 是另一套加载和运行 Pi0.5 的软件。使用前需单独克�
      --pi05-python /path/to/xpolicylab-env/bin/python \
      --output-dir /path/to/run-output
 
-``--xpolicylab-root`` 指向单独克隆的 XPolicyLab 源码目录。仅当策略依赖安装在另一 Python 环境时，\
-才需要传入 ``--pi05-python``；否则省略此参数，使用当前环境。
+``--xpolicylab-root`` 指向单独克隆的 XPolicyLab 源码目录。如果 XPolicyLab 的 Pi0.5 推理所需\
+Python 包安装在另一个环境中，用 ``--pi05-python`` 指向该环境的 Python 解释器；否则省略此参数。
 
 SAM3 配置
 ---------
@@ -250,13 +251,14 @@ SAM3 用于物体分割。先在 `facebook/sam3 模型页面 <https://huggingfac
 运行一个任务
 ------------
 
-先按 :doc:`../guides/configure_planner` 配置规划器认证与可用模型，并在运行任务的同一终端检查连接：
+先按 :doc:`../guides/configure_planner` 选择并配置要使用的 planner 和模型。以下以 Codex 为例，\
+在运行任务的同一终端检查连接：
 
 .. code-block:: bash
 
    rpent-check-llm --planner codex --model <planner-model> --json
 
-将 ``<planner-model>`` 替换为支持图像和工具调用的模型名，运行瓶子入桶任务：
+将 ``<planner-model>`` 替换为所选模型名，运行瓶子入桶任务：
 
 .. code-block:: bash
 
@@ -276,17 +278,18 @@ SAM3 用于物体分割。先在 `facebook/sam3 模型页面 <https://huggingfac
 查看结果
 --------
 
-终端会显示服务启动信息、规划器输出和工具调用。运行结束后，查看 ``--output-dir`` 指定目录中的文件：
+终端会显示服务启动信息、planner 输出和工具调用。运行结束后，查看 ``--output-dir`` 指定目录中的文件：
 
 - ``result.json``：环境的任务成功判定及运行错误状态。
 - ``states.json``：动作记录及动作后的观测。
 - ``videos/``：头部、左腕和右腕相机的视频。
 - ``robodojo_env_server.log``、``robodojo_vla_server.log``、``sam3_server.log``：\
   各服务的启动和报错信息。
-- ``run.log`` 和 ``transcript_*.json``：主进程日志、规划器对话和错误。
+- ``run.log`` 和 ``transcript_*.json``：主进程日志、planner 对话和错误。
 
-先检查 ``environment_result_available=true`` 和 ``agent_error_present=false``，\
-再看 ``success`` 是否为 ``true``。服务正常退出或规划器调用 ``finish``，均不能单独说明任务成功。
+先检查 ``environment_result_available=true`` 和\
+``agent_error_present=false``，再看 ``success`` 是否为 ``true``。服务正常退出或 planner\
+调用 ``finish``，均不能单独说明任务成功。
 
 未指定输出目录时，结果保存在 ``logs/<timestamp>_robodojo_<task>_l<layout>/``。并发运行应使用不同目录。\
 实时查看方式见 :doc:`../guides/dashboard`。
@@ -297,7 +300,8 @@ SAM3 用于物体分割。先在 `facebook/sam3 模型页面 <https://huggingfac
 默认由 RPent 在当前 Python 环境中启动仿真、策略和 SAM3 服务。只有将它们分别安装到不同环境时，\
 才需要指定 ``--sim-python`` 和 ``--pi05-python``。
 
-- ``--task`` 和 ``--layout``：选择任务与布局；``--random`` 使用随机场景。
+- ``--task`` 和 ``--layout``：选择任务与固定布局；传入 ``--random`` 时忽略 ``--layout``，\
+  每次重置重新采样随机场景。
 - ``--cuda-device``：为本地启动的服务选择 GPU；省略时沿用 ``CUDA_VISIBLE_DEVICES``。
 - ``--env-endpoint``、``--vla-endpoint``、``--sam3-endpoint``：连接已有服务。\
   VLA 服务需与 ``--policy-backend`` 匹配。

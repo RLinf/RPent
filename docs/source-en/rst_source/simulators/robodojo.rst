@@ -71,7 +71,7 @@ Observation and Action
    * - Item
      - Description
    * - Observation
-     - Head and left/right wrist RGB-D images, camera calibration, and joint, end-effector, and gripper state. Pi0.5 uses three RGB views, robot state, and task text.
+     - Head and left/right wrist RGB-D images, camera calibration, and joint states, end-effector poses, and gripper states for both arms. Pi0.5 uses three RGB views, robot state, and task text.
    * - Action
      - The planner calls ``pi0_pick`` or primitives such as ``move_to`` and ``set_gripper``. Pi0.5 outputs 14-dimensional joint and gripper actions for both arms.
    * - Reward / success
@@ -228,9 +228,9 @@ Convert the weights in the same environment and set the converted model path:
 
 Add ``--inspect_only`` to view parameter information without converting.
 
-The model also needs the normalization statistics supplied with its weights.
-The converter does not place them where the RoboDojo preset reads them,
-so copy them explicitly:
+The model also needs the ``norm_stats.json`` file supplied with its weights.
+The converter does not write this file to
+``$PI05_CHECKPOINT_PATH/RoboDojo/arx_x5/norm_stats.json``, so copy it explicitly:
 
 .. code-block:: bash
 
@@ -264,8 +264,9 @@ the XPolicyLab checkout and its Python environment:
      --output-dir /path/to/run-output
 
 ``--xpolicylab-root`` points to the separate XPolicyLab checkout.
-Use ``--pi05-python`` when its policy dependencies live in a separate Python
-environment; otherwise omit that option to use the current environment.
+If the Python packages needed for XPolicyLab's Pi0.5 inference are installed in
+a separate environment, point ``--pi05-python`` to that environment's Python
+interpreter; otherwise omit the option.
 
 SAM3 Configuration
 ------------------
@@ -286,16 +287,16 @@ Alternatively, download the same file from
 Run a Task
 ----------
 
-Configure planner authentication and an available model following
-:doc:`../guides/configure_planner`, then check connectivity in the terminal
-that will run the task:
+Follow :doc:`../guides/configure_planner` to choose and configure the planner
+and model you want to use. The following Codex example checks connectivity in
+the terminal that will run the task:
 
 .. code-block:: bash
 
    rpent-check-llm --planner codex --model <planner-model> --json
 
-Replace ``<planner-model>`` with a model that supports images and tool calls,
-then run the bottle-disposal task:
+Replace ``<planner-model>`` with the selected model, then run the
+bottle-disposal task:
 
 .. code-block:: bash
 
@@ -326,9 +327,10 @@ run, inspect these files in the directory selected by ``--output-dir``:
 - ``run.log`` and ``transcript_*.json``: main-process logs, planner conversations,
   and errors.
 
-Check ``environment_result_available=true`` and ``agent_error_present=false``
-first, then inspect whether ``success`` is ``true``. A clean service exit or a
-planner call to ``finish`` alone does not establish task success.
+Check ``environment_result_available=true`` and
+``agent_error_present=false`` first, then inspect whether ``success`` is
+``true``. A clean service exit or a planner call to ``finish`` alone does not
+establish task success.
 
 Without ``--output-dir``, results go to
 ``logs/<timestamp>_robodojo_<task>_l<layout>/``. Use different directories for
@@ -341,8 +343,8 @@ RPent starts the simulator, policy, and SAM3 services in the current Python
 environment by default. Specify ``--sim-python`` and ``--pi05-python`` only
 when the simulator and policy are installed in different environments.
 
-- ``--task`` and ``--layout`` select the task and layout; ``--random`` uses
-  a random scene.
+- ``--task`` and ``--layout`` select the task and fixed layout. ``--random``
+  ignores ``--layout`` and samples a new random scene on each reset.
 - ``--cuda-device`` selects the GPU for locally started services. If omitted,
   services inherit ``CUDA_VISIBLE_DEVICES``.
 - ``--env-endpoint``, ``--vla-endpoint``, and ``--sam3-endpoint`` connect to
