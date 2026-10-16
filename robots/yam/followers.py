@@ -166,7 +166,8 @@ class YamFollowerPair:
         """Open the left follower, then the right, each held at its measured pose.
 
         Startup fails on joint limits wider than i2rt allows and on absent or
-        stale feedback, closing whatever opened.
+        stale feedback, closing whatever opened. A failed arm connection leaves
+        its release state unknown and prevents reconnection.
         """
         if self._closed:
             raise RuntimeError("cannot reconnect closed YAM followers")
@@ -175,7 +176,13 @@ class YamFollowerPair:
         opened = []
         try:
             for arm in self._arms:
-                arm.connect()
+                try:
+                    arm.connect()
+                except BaseException as error:
+                    # RLinf can discard the handle after a failed startup release.
+                    self._release_error = self._release_error or error
+                    self._closed = True
+                    raise
                 opened.append(arm)
             self.followers = self._arms
             self._check_joint_limits()
@@ -353,12 +360,13 @@ class YamFollowerPair:
     def close(self) -> None:
         """Release both followers.
 
-        A release that failed once keeps failing: the follower's CAN chain may
-        still be open, so the caller must not hand the hardware to anyone else.
+        A failed connection or release leaves the follower's CAN chain state
+        unknown, so the caller must not hand the hardware to anyone else.
         """
         if self._release_error is not None:
             raise RuntimeError(
-                "a YAM follower failed to release; its CAN chain state is unknown"
+                "a YAM follower's release state is unknown; "
+                "its CAN chain may still be open"
             ) from self._release_error
         self._closed = True
         followers, self.followers = self.followers, None

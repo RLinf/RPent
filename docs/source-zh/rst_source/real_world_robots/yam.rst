@@ -26,8 +26,8 @@ YAM 运动学；推理机需要官方 ``openpi.get_model`` 加载器使用的 ``
 .. code-block:: bash
 
    # 控制机
-   git clone https://github.com/andylin-hao/RLinf.git /path/to/RLinf
-   git -C /path/to/RLinf checkout --detach df96344bf0fd5209022400e327c61af7e26f95de
+   git clone https://github.com/RLinf/RLinf.git /path/to/RLinf
+   git -C /path/to/RLinf checkout --detach b5bdd26406244048e22690b7a3635c461d0aaaab
    # 推理机
    git clone https://github.com/scilwb/RLinf.git /path/to/RLinf
    git -C /path/to/RLinf checkout --detach 4c65548e7ade32b13ae101211f588a34a9f98305
