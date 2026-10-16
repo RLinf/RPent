@@ -605,7 +605,8 @@ def run_probe_turn(
 
     Connectivity checks and visual grounding use the same asynchronous SDK as
     task sessions. The synchronous boundary is retained for existing callers.
-    SDK exceptions propagate unchanged so checks can classify them.
+    SDK exceptions propagate unchanged so checks can classify them. The async
+    session raises ``TimeoutError`` when the turn exceeds ``timeout_s``.
 
     Args:
         image_bytes: Optional PNG image supplied to a visual point selector.
@@ -619,7 +620,6 @@ def run_probe_turn(
         The turn's final response text, empty if the model produced none.
 
     Raises:
-        TimeoutError: If the turn does not finish within ``timeout_s``.
         RuntimeError: If the turn reported ``failed`` or produced no result.
     """
     options: dict[str, Any] = {
