@@ -54,7 +54,11 @@ from rpent.dashboard.events import (
 )
 from rpent.evaluation import RunFinalizationContext
 from rpent.memory import MemoryManager
-from rpent.planner.base import REASONING_EFFORTS, build_planner
+from rpent.planner.base import (
+    REASONING_EFFORTS,
+    build_planner,
+    is_recoverable_agent_error,
+)
 from rpent.planner.check import BASE_URL_ENV_BY_PLANNER
 from rpent.robots import enumerate_robots, get_robot_spec, get_toolkit
 from rpent.utils.logging import get_logger, init_output_dir
@@ -663,12 +667,13 @@ def main() -> int:
                 if (
                     getattr(args, "explore", False)
                     and session_number < sessions
-                    and "timed out" in agent_error.lower()
+                    and is_recoverable_agent_error(agent_error)
                 ):
                     logger.warning(
-                        "session %d/%d timed out; continuing with a fresh handoff",
+                        "session %d/%d ended with %s; continuing with a fresh handoff",
                         session_number,
                         sessions,
+                        agent_error,
                     )
                     continue
                 break
