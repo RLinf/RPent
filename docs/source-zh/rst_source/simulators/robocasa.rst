@@ -90,7 +90,14 @@ Target50 包含以下任务类别，完整任务、seed 和运行限制见本页
    uv venv --python 3.10 .venv-robocasa
    source .venv-robocasa/bin/activate
 
-先按 `PyTorch 安装说明 <https://pytorch.org/get-started/locally/>`_ 安装与本机驱动兼容的 CUDA 版 Torch 和 torchvision，可将命令中的 ``pip`` 换为 ``uv pip``。RLDX 要求 Torch >= 2.7、torchvision >= 0.22，且两者版本匹配。再安装 RoboCasa：
+先按 `PyTorch 安装说明 <https://pytorch.org/get-started/locally/>`_ 选择与 GPU 和驱动兼容的 CUDA 构建。RLDX 要求 Torch >= 2.7、torchvision >= 0.22，且两者版本匹配。国内可使用 `上海交大 PyTorch 镜像 <https://mirror.sjtu.edu.cn/docs/pytorch-wheels>`_；将下方 ``<CUDA_TAG>`` 替换为所选构建（如 ``cu126`` 或 ``cu128``）：
+
+.. code-block:: bash
+
+   uv pip install "torch>=2.7" "torchvision>=0.22" \
+     --index-url "https://mirror.sjtu.edu.cn/pytorch-wheels/<CUDA_TAG>/"
+
+PyTorch 安装完成后，再安装 RoboCasa：
 
 .. list-table::
    :header-rows: 1

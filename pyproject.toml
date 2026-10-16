@@ -156,8 +156,8 @@ yam = [
 ]
 robotwin = [
     "rpent[rlinf]",
-    "rlinf-robotwin-runtime==0.1.1",
-    "rlinf-lingbotvla==0.1.1",
+    "rlinf-robotwin-runtime==0.1.3",
+    "rlinf-lingbotvla==0.1.3",
     "nvidia-curobo @ git+https://github.com/NVlabs/curobo.git@v0.7.8",
 ]
 
@@ -210,12 +210,40 @@ conflicts = [
         { extra = "robocasa" },
         { extra = "robotwin" },
     ],
+    [
+        { extra = "robotwin" },
+        { extra = "libero" },
+    ],
+    [
+        { extra = "robotwin" },
+        { extra = "libero-pro" },
+    ],
+    [
+        { extra = "robotwin" },
+        { extra = "libero-plus" },
+    ],
+    [
+        { extra = "robotwin" },
+        { extra = "molmo" },
+    ],
+    [
+        { extra = "robotwin" },
+        { extra = "flywheel" },
+    ],
+    [
+        { extra = "robotwin" },
+        { extra = "robodojo" },
+    ],
+    [
+        { extra = "robotwin" },
+        { extra = "robodojo-sim" },
+    ],
 ]
 
 [tool.uv.extra-build-dependencies]
-# Build RoboTwin's cuRobo extensions against its runtime Torch version.
+# Build RoboTwin's Torch extensions against its runtime Torch version.
 # RoboDojo's fork skips Torch extension builds by default (CUROBO_USE_PYBIND=0).
-nvidia-curobo = ["torch==2.7.1"]
+nvidia-curobo = ["torch==2.8.0"]
 
 [tool.setuptools]
 include-package-data = true

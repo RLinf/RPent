@@ -50,12 +50,19 @@ RULES = BulletList(
 )
 
 MEMORY = """
-Before acting, inspect the layered memory visible through `list_dir` and
-`read_text_file`. Read the most task-specific RoboCasa entry first, then only
-task-family/global entries whose applicability matches this task. Also inspect
-`{{memory_inbox}}/wip/` for handoff notes from earlier sessions. Treat memory
-as a strategy prior: current RGB-D, task_progress, and primitive results take
-precedence. Coordinates never transfer between scenes.
+Before acting, use `list_dir` directly on `{{memory_dir}}/task-specific/`,
+`{{memory_dir}}/task-family/`, and `{{memory_dir}}/global/` to find published
+memory. Use `read_text_file` to read the most task-specific RoboCasa entry
+first, then only task-family/global entries whose applicability matches this
+task. Check `{{memory_inbox}}/wip/` directly for handoff notes from earlier
+sessions. These directories may not exist yet; if `list_dir` reports
+`directory not found` or an empty listing, skip that location. Do not browse
+`{{memory_dir}}/_internal/` or `{{memory_dir}}/_internal/inbox/`; within
+`_internal/`, only the current inbox `{{memory_inbox}}/` and its contents are
+accessible.
+
+Treat memory as a strategy prior: current RGB-D, task_progress, and primitive
+results take precedence. Coordinates never transfer between scenes.
 
 At every failed-attempt close-out, first write
 `{{output_dir}}/attempts/attempt_<N>_failed.json`. Record the attempt number,

@@ -25,10 +25,13 @@
     {% if section.image_notes %}
     <line x1="16" x2="604" y1="{{ section.image_notes[0].y - 19 }}" y2="{{ section.image_notes[0].y - 19 }}" stroke="{{ '#4b4255' if dark else '#e4dfea' }}"/>
     {% for note in section.image_notes %}
-    <text x="16" y="{{ note.y }}" class="detail">[{{ note.number }}]</text>
-    <text x="42" y="{{ note.y }}" class="detail">{% for line in note.lines %}<tspan x="42" dy="{{ 0 if loop.first else 17 }}">{{ line }}</tspan>{% endfor %}</text>
+    <text x="16" y="{{ note.y }}" class="detail">* [{{ note.number }}]</text>
+    <text x="50" y="{{ note.y }}" class="detail">{% for line in note.lines %}<tspan x="50" dy="{{ 0 if loop.first else 17 }}">{{ line }}</tspan>{% endfor %}</text>
     {% endfor %}
     {% endif %}
   </g>
+  {% endfor %}
+  {% for note in footer_notes %}
+  <text x="30" y="{{ note.y }}" class="detail">{% for line in note.lines %}<tspan x="30" dy="{{ 0 if loop.first else 17 }}">{{ line }}</tspan>{% endfor %}</text>
   {% endfor %}
 </svg>
