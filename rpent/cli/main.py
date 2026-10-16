@@ -675,12 +675,13 @@ def main() -> int:
                 if (
                     getattr(args, "explore", False)
                     and session_number < sessions
-                    and "timed out" in agent_error.lower()
+                    and is_recoverable_agent_error(agent_error)
                 ):
                     logger.warning(
-                        "session %d/%d timed out; continuing with a fresh handoff",
+                        "session %d/%d ended with %s; continuing with a fresh handoff",
                         session_number,
                         sessions,
+                        agent_error,
                     )
                     continue
                 break
