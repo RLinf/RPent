@@ -49,6 +49,8 @@ def _termination_reason(agent_error: str | None, success: bool) -> str:
         "planner" in lowered or "agent sdk" in lowered or "codex sdk" in lowered
     ):
         return "planner_timeout"
+    if "planner response truncated" in lowered:
+        return "planner_response_truncated"
     return "infrastructure_error"
 
 
