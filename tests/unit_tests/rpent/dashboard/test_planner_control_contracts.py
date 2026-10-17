@@ -24,7 +24,8 @@ from rpent.dashboard.interaction import (
     InteractionUnavailableError,
     UnknownDashboardMessageError,
 )
-from rpent.dashboard.planner_control import DashboardPlannerControl
+from rpent.dashboard.planner_control import PlannerInteractionControl
+from rpent.dashboard.state import DashboardState
 
 
 class FakeInteraction:
@@ -205,19 +206,21 @@ def make_control(
     *,
     defer_message_ack: bool = False,
     cancel_error: BaseException | None = None,
-) -> DashboardPlannerControl:
+    queue_until_complete: bool = False,
+) -> PlannerInteractionControl:
     def cancel_active_and_wait() -> None:
         events.append("toolkit-cancel")
         if cancel_error is not None:
             raise cancel_error
 
-    return DashboardPlannerControl(
+    return PlannerInteractionControl(
         interaction=interaction,
         cancel_active_and_wait=cancel_active_and_wait,
         resume_calls=lambda: events.append("toolkit-resume"),
         emit_user=lambda text: events.append(f"user:{text}"),
         emit_initial_user=lambda: events.append("initial-user"),
         defer_message_ack=defer_message_ack,
+        queue_until_complete=queue_until_complete,
     )
 
 
@@ -452,3 +455,101 @@ def test_interrupt_drains_completion_callbacks_before_resuming():
         "backend-interrupt",
         "toolkit-resume",
     ]
+
+
+def test_queued_policy_submits_one_message_per_completed_turn():
+    interaction = FakeInteraction()
+    interaction.submit("one", "first")
+    interaction.submit("two", "second")
+    events = []
+    control = make_control(interaction, events, queue_until_complete=True)
+    driver = FakeDriver(events)
+
+    async def scenario():
+        await control.start()
+        await control._process(driver)
+        await control.tool_completed(driver)
+        assert driver.submissions == []
+        await control.complete(driver)
+        assert [m.text for m in driver.submissions] == ["first"]
+        assert [m.status for m in interaction.messages] == ["sent", "pending"]
+        await control.tool_completed(driver)
+        assert len(driver.submissions) == 1
+        await control.complete(driver)
+        assert [m.text for m in driver.submissions] == ["first", "second"]
+        await control.complete(driver)
+        assert interaction.activity == "idle"
+
+    asyncio.run(scenario())
+
+
+def test_queued_policy_interrupts_before_sending_and_preserves_remaining_queue():
+    interaction = FakeInteraction()
+    interaction.submit("one", "first")
+    interaction.submit("two", "second")
+    events = []
+    control = make_control(interaction, events, queue_until_complete=True)
+
+    class Driver(FakeDriver):
+        async def interrupt(self):
+            await super().interrupt()
+            await control.complete(self)
+            return 0
+
+    driver = Driver(events)
+
+    async def scenario():
+        await control.start()
+        interaction.interrupt_requested = True
+        await asyncio.wait_for(control._process(driver), timeout=1)
+        assert [m.text for m in driver.submissions] == ["first"]
+        assert interaction.messages[1].status == "pending"
+
+    asyncio.run(scenario())
+    assert events == [
+        "initial-user",
+        "toolkit-cancel",
+        "backend-interrupt",
+        "toolkit-resume",
+        "submit:first",
+        "user:first",
+    ]
+
+
+def test_failed_interrupt_keeps_queue_paused_until_successful_retry(tmp_path):
+    interaction = DashboardState(
+        output_dir=tmp_path,
+        dashboard_spec={
+            "task": {
+                "command": "/rpent-task",
+                "usage": "/rpent-task",
+                "fields": (),
+                "display": "test",
+                "output_slug": "test",
+            },
+            "runtime_components": (),
+            "primitives": (),
+        },
+    )
+    interaction.shared_services_ready()
+    interaction.submit_input("/rpent-task")
+    assert interaction.wait_for_task(timeout=0) is not None
+    events = []
+    control = make_control(interaction, events, queue_until_complete=True)
+    driver = FakeDriver(events, interrupt_error=RuntimeError("still running"))
+
+    async def scenario():
+        await control.start()
+        interaction.submit_input("keep queued")
+        assert interaction.request_interrupt() == "accepted"
+        await control._process(driver)
+        await control.complete(driver)
+        await control._process(driver)
+        assert driver.submissions == []
+        assert interaction.planner_activity == "busy"
+        driver.interrupt_error = None
+        assert interaction.request_interrupt() == "accepted"
+        await control._process(driver)
+        assert [m.text for m in driver.submissions] == ["keep queued"]
+
+    asyncio.run(scenario())

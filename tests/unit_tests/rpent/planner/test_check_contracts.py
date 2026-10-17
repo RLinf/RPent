@@ -51,6 +51,7 @@ def _clear_provider_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep the developer's real credentials out of every test."""
     for name in (
         "ANTHROPIC_API_KEY",
+        "GEMINI_API_KEY",
         "OPENAI_API_KEY",
         "CODEX_API_KEY",
         "ANTHROPIC_BASE_URL",
@@ -117,7 +118,12 @@ def test_every_status_is_declared_in_the_public_tuple() -> None:
 
 
 def test_diagnostic_timeouts_never_inherit_the_run_default() -> None:
-    assert DEFAULT_TIMEOUT_S == {"api": 30, "claude_code": 90, "codex": 90}
+    assert DEFAULT_TIMEOUT_S == {
+        "api": 30,
+        "claude_code": 90,
+        "codex": 90,
+        "gemini_cli": 90,
+    }
     for planner, expected in DEFAULT_TIMEOUT_S.items():
         assert LlmCheckRequest(planner=planner).resolved_timeout_s() == expected
     assert LlmCheckRequest(planner="api", timeout_s=5).resolved_timeout_s() == 5
@@ -186,6 +192,7 @@ def test_api_unknown_provider_prefix_reports_unsupported_provider() -> None:
     ("model", "env_var"),
     [
         ("anthropic:claude-opus-4-8", "ANTHROPIC_API_KEY"),
+        ("google:test-model", "GEMINI_API_KEY"),
         ("openai:gpt-5.5", "OPENAI_API_KEY"),
         ("openai-chat:glm-5.2", "OPENAI_API_KEY"),
     ],
@@ -206,6 +213,23 @@ def test_api_empty_key_counts_as_missing(monkeypatch: pytest.MonkeyPatch) -> Non
     result = check_llm(LlmCheckRequest(planner="api", model="anthropic:m"))
 
     assert result.status == STATUS_MISSING_API_KEY
+
+
+def test_api_accepts_the_gemini_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def reply(*args: Any, **kwargs: Any) -> str:
+        return "ok"
+
+    monkeypatch.setenv("GEMINI_API_KEY", SENTINEL_KEY)
+    _patch_model(monkeypatch, _reply_model("ok"))
+    monkeypatch.setattr(check_mod, "_run_api_probe", reply)
+
+    result = check_llm(LlmCheckRequest(planner="api", model="google:gemini"))
+
+    assert result.status == STATUS_OK
+    assert result.credential_env == "GEMINI_API_KEY"
+    assert result.credential_present is True
 
 
 # ---------------------------------------------------------------------------
@@ -395,6 +419,12 @@ def test_a_provider_error_body_echoing_the_key_is_not_carried_verbatim(
     assert SENTINEL_KEY not in str(result.as_dict())
 
 
+def test_gemini_key_value_is_redacted(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GEMINI_API_KEY", SENTINEL_KEY)
+
+    assert check_mod.redact_secrets(SENTINEL_KEY) == "<GEMINI_API_KEY>"
+
+
 # ---------------------------------------------------------------------------
 # Serialisation
 # ---------------------------------------------------------------------------
@@ -539,13 +569,57 @@ def test_codex_probe_timeout_reports_network_error(
     assert result.status == STATUS_NETWORK_ERROR
 
 
+def test_gemini_cli_probe_uses_cli_configuration_and_exact_optional_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import rpent.planner.gemini_cli as gemini_cli
+
+    seen: dict[str, Any] = {}
+
+    def fake_probe(*, prompt: str, model: str | None, timeout_s: int) -> str:
+        seen.update(prompt=prompt, model=model, timeout_s=timeout_s)
+        return "ok"
+
+    monkeypatch.setattr(gemini_cli, "run_probe_turn", fake_probe)
+    result = check_llm(
+        LlmCheckRequest(planner="gemini_cli", model="gemini-upstream-id")
+    )
+
+    assert result.ok is True
+    assert result.reply == "ok"
+    assert result.credential_env is None
+    assert result.credential_present is None
+    assert result.base_url_env is None
+    assert result.base_url is None
+    assert seen == {
+        "prompt": PROBE_PROMPT,
+        "model": "gemini-upstream-id",
+        "timeout_s": DEFAULT_TIMEOUT_S["gemini_cli"],
+    }
+
+
+def test_gemini_cli_fetch_failure_is_a_network_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import rpent.planner.gemini_cli as gemini_cli
+
+    def fail(**kwargs: Any) -> str:
+        raise RuntimeError("TypeError: fetch failed sending request")
+
+    monkeypatch.setattr(gemini_cli, "run_probe_turn", fail)
+
+    result = check_llm(LlmCheckRequest(planner="gemini_cli"))
+
+    assert result.status == STATUS_NETWORK_ERROR
+
+
 # ---------------------------------------------------------------------------
 # SDK backends: the no-credential budget
 #
-# Both accept an interactive CLI login instead of an env var, so a missing
-# variable can never skip the probe outright. It only shortens the budget and
-# renames the timeout, so a user with no key waits seconds, not a minute and
-# a half, and is told which of the two it was.
+# These backends accept an interactive CLI login instead of an env var, so a
+# missing variable can never skip the probe outright. It only shortens the
+# budget and renames the timeout, so a user with no key waits seconds, not a
+# minute and a half, and receives a useful configuration error.
 # ---------------------------------------------------------------------------
 
 

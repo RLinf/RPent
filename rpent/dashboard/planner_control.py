@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Backend-neutral control flow for interactive Dashboard planners."""
+"""Backend-neutral control flow for queued planner interaction."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ from rpent.dashboard.interaction import DashboardInteractionPort, PlannerSession
 from rpent.planner.base import cancel_and_wait
 
 
-class DashboardPlannerControl:
+class PlannerInteractionControl:
     """Coordinate queued input, interrupts, and task replacement."""
 
     def __init__(
@@ -36,6 +36,7 @@ class DashboardPlannerControl:
         emit_initial_user: Callable[[], None],
         defer_message_ack: bool = False,
         submit_while_busy: bool = False,
+        queue_until_complete: bool = False,
     ) -> None:
         self._interaction = interaction
         self._cancel_active_and_wait = cancel_active_and_wait
@@ -44,12 +45,14 @@ class DashboardPlannerControl:
         self._emit_initial_user = emit_initial_user
         self._defer_message_ack = defer_message_ack
         self._submit_while_busy = submit_while_busy
+        self._queue_until_complete = queue_until_complete
+        self._submission_paused = False
         self._lock = asyncio.Lock()
         self._outstanding_completions = 0
         self._interrupting = False
 
     async def start(self) -> None:
-        """Open Dashboard input after the initial backend submission succeeds."""
+        """Open input after the initial backend submission succeeds."""
         self._outstanding_completions = 1
         self._interaction.set_planner_activity(
             "busy",
@@ -58,7 +61,7 @@ class DashboardPlannerControl:
         self._emit_initial_user()
 
     async def run(self, driver: PlannerSessionDriver) -> None:
-        """Forward Dashboard commands until the interaction ends."""
+        """Forward queued input and commands until the interaction ends."""
         version = self._interaction.interaction_version
         while self._interaction.planner_activity != "ended":
             await self._process(driver)
@@ -79,10 +82,12 @@ class DashboardPlannerControl:
                 return
             self._outstanding_completions = max(0, self._outstanding_completions - 1)
             self._interaction.set_planner_activity(
-                "busy" if self._outstanding_completions else "idle"
+                "busy"
+                if self._outstanding_completions or self._submission_paused
+                else "idle"
             )
             await self._flush(driver)
-            if not self._outstanding_completions:
+            if not self._outstanding_completions and not self._submission_paused:
                 continuation = getattr(self._interaction, "continue_exploration", None)
                 if continuation is not None:
                     await asyncio.to_thread(continuation)
@@ -90,7 +95,7 @@ class DashboardPlannerControl:
 
     async def tool_completed(self, driver: PlannerSessionDriver) -> None:
         """Flush input queued while the backend was running a tool."""
-        if self._interrupting:
+        if self._interrupting or self._queue_until_complete:
             return
         async with self._lock:
             await self._flush(driver)
@@ -146,8 +151,11 @@ class DashboardPlannerControl:
                         0, self._outstanding_completions - completed
                     )
                 except Exception as exc:
+                    if self._queue_until_complete:
+                        self._submission_paused = True
                     self._interaction.complete_interrupt(error=_exception_text(exc))
                 else:
+                    self._submission_paused = False
                     self._interaction.complete_interrupt()
                     self._interaction.set_planner_activity(
                         "busy" if self._outstanding_completions else "idle"
@@ -158,6 +166,10 @@ class DashboardPlannerControl:
                 await self._flush(driver)
 
     async def _flush(self, driver: PlannerSessionDriver) -> None:
+        if self._queue_until_complete and (
+            self._outstanding_completions or self._submission_paused
+        ):
+            return
         message = self._interaction.claim_next_pending_message()
         while message is not None and not self._interaction.task_replacement_requested:
             try:
@@ -172,6 +184,8 @@ class DashboardPlannerControl:
                     self.message_started(message.message_id, message.text)
                 self._outstanding_completions += added_completions
                 self._interaction.set_planner_activity("busy")
+                if self._queue_until_complete and added_completions:
+                    return
             message = self._interaction.claim_next_pending_message()
 
 
