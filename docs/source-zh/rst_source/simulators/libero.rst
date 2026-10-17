@@ -22,7 +22,7 @@ LIBERO
 
    .. grid-item-card:: 动作模型
 
-      Pi0.5
+      Pi0.5；Cosmos Policy 和 Fast-WAM 支持 standard/Pro 评测。
 
    .. grid-item-card:: 规划器
 
@@ -179,6 +179,20 @@ SAM3 配置
 
 如需切换 planner，请参阅 :doc:`../guides/configure_planner`。
 
+WAM 评测
+~~~~~~~~
+
+按 :doc:`../development/wam_backends` 准备 worker，保留上面的仿真器和 SAM3 配置。WAM 不需要 Pi0.5 权重。Cosmos 在端口 8116 启动后：
+
+.. code-block:: bash
+
+   rpent --robot libero --suite libero_spatial --task 0 --seed 0 \
+     --libero-type standard --wam-backend cosmos-policy \
+     --wam-endpoint http://127.0.0.1:8116 --memory-profile local \
+     --planner api --model <planner-model>
+
+Fast-WAM 使用 ``--wam-backend fast-wam`` 及其 worker 地址。LIBERO-Pro 需在 Pro 环境中选择 Pro suite 并指定 ``--libero-type pro``。WAM 不支持 LIBERO-Plus、Flash、探索或记忆。``local`` 模式跳过 HF 记忆准备，不创建记忆管理器和文件工具。``wam_act(prompt=None, max_chunks=1)`` 替换 Pi0.5 工具，每次执行 1 至 4 个 chunk，每个 chunk 前重新获取观测。Cosmos 的 chunk 包含 16 个动作，Fast-WAM 包含 ``execute_steps`` 个动作。prompt 仅覆盖本次调用，chunk 预算不指定在 chunk 内的哪一步停止。
+
 查看结果
 ------------
 
@@ -190,6 +204,8 @@ SAM3 配置
 
 任务记忆与探索模式
 ------------------
+
+本节适用于 VLA 路径，WAM 不使用记忆。
 
 评测只运行一次尝试，读取记忆但不更新。默认的 ``hf`` 模式使用 ``--memory-version auto`` 按模型选择记忆版本。显式版本、离线准备和发布来源见 :doc:`../guides/memory`。
 

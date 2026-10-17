@@ -22,7 +22,7 @@ Check the model, task, and runtime requirements before following the installatio
 
    .. grid-item-card:: Action Models
 
-      Pi0.5
+      Pi0.5; Cosmos Policy and Fast-WAM for standard/Pro evaluation.
 
    .. grid-item-card:: Planners
 
@@ -191,6 +191,28 @@ Complete the model setup above and configure a planner with :doc:`../guides/conf
 
 To switch planners, see :doc:`../guides/configure_planner`.
 
+WAM Evaluation
+~~~~~~~~~~~~~~
+
+Prepare a worker with :doc:`../development/wam_backends` and keep the simulator
+and SAM3 setup above. Pi0.5 weights are not needed for WAM. With Cosmos on port 8116:
+
+.. code-block:: bash
+
+   rpent --robot libero --suite libero_spatial --task 0 --seed 0 \
+     --libero-type standard --wam-backend cosmos-policy \
+     --wam-endpoint http://127.0.0.1:8116 --memory-profile local \
+     --planner api --model <planner-model>
+
+Fast-WAM uses ``--wam-backend fast-wam`` and its worker endpoint. For LIBERO-Pro,
+select a Pro suite and ``--libero-type pro`` in a Pro environment. WAM excludes
+LIBERO-Plus, Flash, exploration and memory. The ``local`` profile skips HF memory
+preparation; no memory manager or file tools are created.
+``wam_act(prompt=None, max_chunks=1)`` replaces the Pi0.5 tools and executes one
+to four chunks with fresh observations. Cosmos chunks contain 16 actions;
+Fast-WAM chunks contain ``execute_steps`` actions. A prompt override applies to
+that call only. Chunk budgets do not specify where to stop inside a chunk.
+
 View Results
 ------------
 
@@ -204,6 +226,8 @@ Inspect the final state with ``view_env_state(step=-1)``. Its top-level ``termin
 
 Task Memory and Exploration Mode
 --------------------------------
+
+This section applies to the VLA path. WAM runs without memory.
 
 Evaluation is single-attempt and reads memory without updating it. The default
 ``hf`` profile uses ``--memory-version auto`` to select memory by model. See

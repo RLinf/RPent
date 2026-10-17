@@ -32,6 +32,7 @@ from robots.franka.tasks import FRANKA_TASKS, get_franka_task
 from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
 from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
+from rpent.robots.components.am_runtime import start_am_service
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_spawn_server, try_wait_server
@@ -209,7 +210,7 @@ def _spawn_vla_server(
 ) -> tuple[ProcessDaemon | None, RpcClient]:
     """Attach to an externally managed real-Franka VLA service."""
     del output_dir
-    return None, make_rpc_client(args.vla_endpoint)
+    return start_am_service(None, args.vla_endpoint)
 
 
 def _init_runtime(

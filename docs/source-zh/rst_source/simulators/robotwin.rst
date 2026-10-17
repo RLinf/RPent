@@ -22,7 +22,7 @@ RoboTwin
 
    .. grid-item-card:: 动作模型
 
-      LingBot-VLA
+      LingBot-VLA；使用 RoboTwin checkpoint 的 Fast-WAM。
 
    .. grid-item-card:: 规划器
 
@@ -134,6 +134,20 @@ RoboTwin 要求 Python 3.11。宿主机需预先具备兼容的 CUDA toolkit/NVC
    export LINGBOT_MODEL_PATH=/path/to/LingBot-VLA-RoboTwin-EEF-ckpt1500
 
 模型目录中已经包含 RoboTwin 的默认机器人配置。
+
+Fast-WAM 配置
+~~~~~~~~~~~~~
+
+按 :doc:`../development/wam_backends` 准备 RoboTwin Fast-WAM worker。它使用头部及左右腕部 RGB、原生关节目标，输出 qpos14 动作块，不需要 LingBot 权重。从 LingBot 切换时清除 ``LINGBOT_MODEL_PATH``，不传 VLA 参数。在仿真器环境中运行：
+
+.. code-block:: bash
+
+   rpent --robot robotwin --task-name beat_block_hammer \
+     --task-config demo_randomized --seed 100000 \
+     --wam-backend fast-wam --wam-endpoint http://127.0.0.1:8117 \
+     --memory-profile local --planner api --model <planner-model>
+
+``wam_act(prompt=None, max_chunks=1)`` 替换 ``lingbot_act``；每个 chunk 通过 ``action_type="qpos"`` 执行 worker 配置的 ``execute_steps`` 个动作。WAM 不启用记忆和探索，以原生 ``eval_success`` 判断任务成功。下文的 LingBot 和记忆流程适用于 VLA 路径。
 
 运行一个任务
 ------------

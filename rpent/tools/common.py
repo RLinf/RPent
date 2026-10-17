@@ -26,10 +26,13 @@ if TYPE_CHECKING:
     from rpent.memory import MemoryManager
 
 
+MEMORY_TOOL_NAMES = frozenset({"read_text_file", "write_text_file", "list_dir"})
+
+
 class CommonTools:
     """Bind common tools to the current run's memory access policy."""
 
-    def __init__(self, *, memory: MemoryManager) -> None:
+    def __init__(self, *, memory: MemoryManager | None) -> None:
         self._memory = memory
         self._file_lock = threading.Lock()
 

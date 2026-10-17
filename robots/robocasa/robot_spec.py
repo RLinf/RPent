@@ -39,6 +39,7 @@ from robots.robocasa.prompt_bundle import (
 from rpent.dashboard.events import DashboardEventSink
 from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
+from rpent.robots.components.am_runtime import start_am_service
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_spawn_server, try_wait_server
@@ -421,9 +422,8 @@ def _spawn_vla_server(
             ],
             log_path=str(Path(output_dir) / "vla_server.log"),
         )
-        daemon.start()
-        return daemon, HttpRpcClient(f"http://{host}:{port}", enable_sessions=True)
-    return None, make_rpc_client(args.vla_endpoint, enable_sessions=True)
+        return start_am_service(daemon, f"http://{host}:{port}", enable_sessions=True)
+    return start_am_service(None, args.vla_endpoint, enable_sessions=True)
 
 
 def _init_runtime(

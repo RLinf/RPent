@@ -308,7 +308,7 @@ filenames rather than maintaining a parallel observation index.
 
 **Toolkit class** — subclass ``rpent.tools.toolkit.Toolkit``:
 
-- forward ``memory`` (a :class:`~rpent.memory.MemoryManager`) and ``state`` to
+- forward ``memory`` (a :class:`~rpent.memory.MemoryManager`, or ``None`` to omit memory tools) and ``state`` to
   ``super().__init__(...)``. Configure ``memory_access`` and
   ``inbox_cell_tag`` on the ``MemoryManager``; eval uses read-only access by
   default.

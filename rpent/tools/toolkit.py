@@ -144,7 +144,7 @@ class Toolkit:
         *,
         dashboard_events: DashboardEventSink,
         state: Any = None,
-        memory: "MemoryManager",
+        memory: "MemoryManager | None" = None,
     ) -> None:
         self._tools: dict[str, Tool] = {}
         self._dashboard_events = dashboard_events
@@ -177,10 +177,13 @@ class Toolkit:
             self.add_tool(tool)
 
     def _register_common_tools(self) -> None:
-        from rpent.tools.common import CommonTools
+        from rpent.tools.common import MEMORY_TOOL_NAMES, CommonTools
 
-        self._memory.check_layout()
+        if self._memory is not None:
+            self._memory.check_layout()
         for declaration in iter_tools(CommonTools(memory=self._memory)):
+            if self._memory is None and declaration.name in MEMORY_TOOL_NAMES:
+                continue
             if declaration.name in {"read_text_file", "list_dir"}:
                 declaration = replace(
                     declaration,
@@ -194,8 +197,8 @@ class Toolkit:
     # ------------------------------------------------------------------
 
     @property
-    def memory(self) -> "MemoryManager":
-        """Return the toolkit's memory manager."""
+    def memory(self) -> "MemoryManager | None":
+        """Return the memory manager, or None when memory tools are disabled."""
         return self._memory
 
     @property

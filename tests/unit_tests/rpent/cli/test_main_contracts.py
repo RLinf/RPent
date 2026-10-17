@@ -37,6 +37,41 @@ class ConfigCaptured(Exception):
     """Stop the CLI immediately after argument validation in routing tests."""
 
 
+@pytest.mark.parametrize("dynamic", [False, True])
+def test_dashboard_uses_robot_owned_descriptor(monkeypatch, tmp_path, dynamic):
+    from argparse import ArgumentParser
+    from dataclasses import replace
+
+    from robots.libero.robot_spec import get_robot_spec
+    from rpent.cli import dashboard
+    from rpent.dashboard import state
+
+    spec = get_robot_spec()
+    descriptor = {
+        **spec.dashboard,
+        "runtime_components": (
+            {"name": "custom_policy", "label": "Policy", "scope": "shared"},
+        ),
+    }
+    spec = replace(
+        spec,
+        dashboard=None if dynamic else descriptor,
+        resolve_dashboard=(lambda args: descriptor) if dynamic else None,
+    )
+
+    def capture_state(**kwargs):
+        assert kwargs["dashboard_spec"] == descriptor
+        raise ConfigCaptured
+
+    monkeypatch.setattr(state, "DashboardState", capture_state)
+    monkeypatch.setattr(dashboard, "init_output_dir", lambda path, **kw: path)
+    args = SimpleNamespace(
+        planner="api", model="test", output_dir=tmp_path, verbose=False
+    )
+    with pytest.raises(ConfigCaptured):
+        dashboard.run_dashboard_session(args, spec, parser=ArgumentParser())
+
+
 def _cli_module():
     from rpent.cli import main as cli
 

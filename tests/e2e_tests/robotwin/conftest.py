@@ -20,6 +20,29 @@ import pytest
 from tests.e2e_tests.robotwin.scenario import RoboTwinScenario
 
 
+@pytest.fixture
+def wam_argv() -> list[str]:
+    endpoint = os.getenv("RPENT_FAST_WAM_ROBOTWIN_ENDPOINT")
+    if not endpoint or not os.getenv("ROBOTWIN_ASSETS_PATH"):
+        pytest.skip(
+            "requires RPENT_FAST_WAM_ROBOTWIN_ENDPOINT and ROBOTWIN_ASSETS_PATH"
+        )
+    return [
+        "--task-name",
+        "beat_block_hammer",
+        "--seed",
+        "100000",
+        "--task-config",
+        "demo_randomized",
+        "--max-episode-steps",
+        "64",
+        "--wam-backend",
+        "fast-wam",
+        "--wam-endpoint",
+        endpoint,
+    ]
+
+
 @pytest.fixture(scope="session")
 def robotwin_scenario() -> RoboTwinScenario:
     return RoboTwinScenario(Path(os.environ["RPENT_E2E_OUTPUT_DIR"]))

@@ -72,7 +72,7 @@ primitive requires a few additional components:
 
 1. **Write ``vla_server.py``.** This process owns only the model weights
    and CUDA context. Use
-   :class:`rpent.robots.components.vla_facade_base.BaseVLAFacade` as the base
+   :class:`rpent.robots.components.am_facade_base.BaseVLAFacade` as the base
    class, implement ``predict``, and register any additional model RPCs by
    extending ``_register_rpc``:
 
@@ -88,7 +88,7 @@ primitive requires a few additional components:
    ``shutdown``, parent-death detection, and resource cleanup.
 
 2. **Write a model client.** Subclass
-   :class:`rpent.robots.components.vla_client_base.BaseVLAClient`, which
+   :class:`rpent.robots.components.am_client_base.BaseVLAClient`, which
    provides the common ``vla.predict`` call, and add only the
    environment-specific input / output adaptation. See
    ``rpent.robots.components.pi05_vla_client.Pi05VLAClient`` for the LIBERO

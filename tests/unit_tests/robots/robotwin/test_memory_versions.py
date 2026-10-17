@@ -107,3 +107,38 @@ def test_cli_and_dashboard_accept_explicit_version(dashboard):
         ["--robot", "robotwin", *task, "--memory-version", "Astra_reference"]
     )
     assert args.memory_version == "Astra_reference"
+
+
+def test_wam_skips_hf_preparation(monkeypatch):
+    from rpent.cli.main import _build_argparser
+
+    monkeypatch.delenv("LINGBOT_MODEL_PATH", raising=False)
+    sync, fetch = Mock(), Mock()
+    monkeypatch.setattr(memory.MemoryManager, "sync", sync)
+    monkeypatch.setattr(memory, "prepare_explicit_source", fetch)
+    spec = get_robot_spec()
+    parser = _build_argparser()
+    spec.add_cli_args(parser, use_dashboard=False)
+    args = parser.parse_args(
+        [
+            "--robot",
+            "robotwin",
+            "--task-name",
+            "beat_block_hammer",
+            "--seed",
+            "1",
+            "--wam-backend",
+            "fast-wam",
+            "--wam-endpoint",
+            "http://localhost:8117",
+            "--memory-profile",
+            "local",
+        ]
+    )
+    spec.validate_args(args)
+    config = spec.parse_config(args)
+    prepare_run_memory(args, spec, config)
+    assert config.prompt_vars["memory_enabled"] is False
+    assert args.memory_dir is None
+    sync.assert_not_called()
+    fetch.assert_not_called()
