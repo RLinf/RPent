@@ -168,7 +168,7 @@ A LIBERO run uses the following task settings:
    * - ``--suite``
      - Select a suite from :ref:`Core LIBERO-PRO suites <libero-pro-core-suites>`.
    * - ``--task``
-     - Task index within the suite.
+     - Zero-based task index within the suite. Out-of-range indices and tasks with no stored initial states are rejected; invalid selections never substitute another task.
    * - ``--seed``
      - Environment seed; defaults to ``0``.
    * - ``--libero-type``

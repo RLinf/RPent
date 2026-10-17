@@ -33,7 +33,7 @@ from pydantic_ai import (
     ToolReturnPart,
     UserPromptPart,
 )
-from pydantic_ai.exceptions import UsageLimitExceeded
+from pydantic_ai.exceptions import UnexpectedModelBehavior, UsageLimitExceeded
 from pydantic_ai.models.function import DeltaThinkingPart, DeltaToolCall, FunctionModel
 from pydantic_ai.models.test import TestModel
 
@@ -256,7 +256,7 @@ def test_anthropic_request_retains_all_prompt_cache_controls(tmp_path, monkeypat
     assert (
         request["messages"][-1]["content"][-1]["cache_control"]["type"] == "ephemeral"
     )
-    assert request["tool_choice"]["disable_parallel_tool_use"] is True
+    assert request["tool_choice"]["disable_parallel_tool_use"] is False
 
 
 @pytest.mark.parametrize("no_images", [False, True])
@@ -447,10 +447,11 @@ def test_read_image_errors_reach_model_without_ending_run(
 
 def test_schema_validation_and_sequential_physical_tools(tmp_path):
     events = Events()
-    toolkit = RobotToolkit(events)
+    toolkit = RobotToolkit(events, state=EnvState(tmp_path))
+    toolkit.get_env_state = lambda **kwargs: ToolResult(data=kwargs["result"])
     positions = []
 
-    @declare_tool(readonly=True)
+    @declare_tool
     def move(position: int) -> ToolResult:
         positions.append(position)
         return ToolResult(data={"position": position})
@@ -512,14 +513,86 @@ def test_request_budget_stops_normally_without_claiming_success(tmp_path, mode):
     assert len([m for m in result.messages if m["role"] == "tool"]) == 2
 
 
-def test_other_usage_limit_failures_remain_errors(tmp_path):
+@pytest.mark.parametrize(
+    "error",
+    [
+        UsageLimitExceeded("provider-specific limit"),
+        UnexpectedModelBehavior("Exceeded max retries"),
+    ],
+)
+def test_other_model_failures_remain_errors(tmp_path, error):
     async def stream(messages, info):
-        raise UsageLimitExceeded("provider-specific limit")
+        raise error
         yield  # pragma: no cover
 
     result, _, _ = solve(tmp_path, FunctionModel(stream_function=stream), max_turns=1)
-    assert result.error.startswith("UsageLimitExceeded: provider-specific limit")
+    assert result.error == f"{type(error).__name__}: {error}"
     assert result.finish_result is None
+
+
+@pytest.mark.parametrize("interactive", [False, True])
+def test_token_limit_truncation_is_marked_for_recovery(
+    tmp_path, monkeypatch, interactive
+):
+    if interactive:
+        import pydantic_ai._cli as cli
+
+        replies = iter(["Inspect.", "/exit"])
+
+        async def read_prompt(*args, **kwargs):
+            return next(replies)
+
+        monkeypatch.setattr(cli, "PYDANTIC_AI_HOME", tmp_path / "cli")
+        monkeypatch.setattr(
+            cli,
+            "PromptSession",
+            lambda **kwargs: SimpleNamespace(prompt_async=read_prompt),
+        )
+
+    requests = 0
+
+    async def stream(messages, info):
+        nonlocal requests
+        requests += 1
+        if interactive and requests == 1:
+            yield "Ready."
+            return
+        yield {0: DeltaThinkingPart(content="Reasoning past the output budget.")}
+        raise UnexpectedModelBehavior(
+            "Model token limit (8192) exceeded before any response was "
+            "generated. Increase the `max_tokens` model setting, or simplify "
+            "the prompt to result in a shorter response that will fit within "
+            "the limit."
+        )
+
+    result, _, _ = solve(
+        tmp_path,
+        FunctionModel(stream_function=stream),
+        max_turns=2,
+        interactive=interactive,
+    )
+    assert requests == (2 if interactive else 1)
+    assert result.error is not None
+    assert result.error.startswith("planner response truncated (length): ")
+    assert (
+        "Model token limit (8192) exceeded before any response was generated"
+        in result.error
+    )
+    assert result.finish_result is None
+    json.dumps(result.messages)
+
+
+def test_agent_error_recovery_decisions():
+    from rpent.planner.base import is_recoverable_agent_error
+
+    truncation = (
+        "planner response truncated (length): Model token limit (8192) "
+        "exceeded before any response was generated"
+    )
+    assert is_recoverable_agent_error("planner timed out after 1800s")
+    assert is_recoverable_agent_error(truncation)
+    assert not is_recoverable_agent_error(None)
+    assert not is_recoverable_agent_error("RuntimeError: provider unavailable")
 
 
 def test_harness_compacts_long_history(tmp_path):
@@ -645,7 +718,10 @@ def test_dashboard_interrupt_drains_tool_before_followup(
     tmp_path, dashboard_interrupt_order
 ):
     state = dashboard(tmp_path)
-    toolkit = RobotToolkit(state)
+    toolkit = RobotToolkit(state, state=EnvState(tmp_path / "observations"))
+    toolkit.get_env_state = lambda **kwargs: ToolResult(data=kwargs["result"])
+    observations = []
+    toolkit.register("observe", lambda: observations.append("ran") or ToolResult())
     stopped = threading.Event()
     calls = 0
 
@@ -661,6 +737,10 @@ def test_dashboard_interrupt_drains_tool_before_followup(
                 state.wait_for_interaction_change(
                     state.interaction_version, timeout=0.05
                 )
+            with toolkit._scheduler.condition:
+                assert toolkit._scheduler.condition.wait_for(
+                    lambda: bool(toolkit._scheduler.pending), timeout=2
+                )
             state.request_interrupt()
             state.submit_input("Continue after stopping the move.")
             while True:
@@ -669,7 +749,7 @@ def test_dashboard_interrupt_drains_tool_before_followup(
         finally:
             stopped.set()
 
-    toolkit.register("move", move)
+    toolkit.register("move", move, declaration=declare_tool(name="move")(move))
 
     async def stream(messages, info):
         nonlocal calls
@@ -694,7 +774,8 @@ def test_dashboard_interrupt_drains_tool_before_followup(
     )
     assert result.error is None
     assert result.finish_result["status"] == "success"
-    assert [name for name, _ in toolkit.calls] == ["move", "finish"]
+    assert observations == []
+    assert toolkit.calls[-1][0] == "finish"
     assert [m["status"] for m in state.snapshot()["interaction"]["messages"]] == [
         "unsent",
         "unsent",
@@ -706,10 +787,17 @@ def test_task_replacement_cancels_and_drains_physical_work(
     tmp_path, dashboard_interrupt_order
 ):
     state = dashboard(tmp_path)
-    toolkit = RobotToolkit(state)
+    toolkit = RobotToolkit(state, state=EnvState(tmp_path / "observations"))
+    toolkit.get_env_state = lambda **kwargs: ToolResult(data=kwargs["result"])
+    observations = []
+    toolkit.register("observe", lambda: observations.append("ran") or ToolResult())
     stopped = threading.Event()
 
     def move():
+        with toolkit._scheduler.condition:
+            assert toolkit._scheduler.condition.wait_for(
+                lambda: bool(toolkit._scheduler.pending), timeout=2
+            )
         state.submit_input("/rpent-task 1")
         try:
             while True:
@@ -718,7 +806,7 @@ def test_task_replacement_cancels_and_drains_physical_work(
         finally:
             stopped.set()
 
-    toolkit.register("move", move)
+    toolkit.register("move", move, declaration=declare_tool(name="move")(move))
 
     async def stream(messages, info):
         yield tool("move") | tool("observe", index=1)
@@ -733,7 +821,7 @@ def test_task_replacement_cancels_and_drains_physical_work(
     )
     assert result.error is None
     assert stopped.is_set()
-    assert [name for name, _ in toolkit.calls] == ["move"]
+    assert observations == []
     assert state.planner_activity == "ended"
     assert result.finish_result is None
 
@@ -968,3 +1056,134 @@ def test_offline_http_planner_preserves_non_streaming_responses():
         assert returned.function.name == "finish"
         assert json.loads(returned.function.arguments) == FINISH_ARGS
         server.assert_complete()
+
+
+@pytest.mark.parametrize("effort", ["none", "high"])
+def test_reasoning_effort_reaches_openai_chat_request_body(tmp_path, effort):
+    """Serialize ``--reasoning-effort`` into the outgoing Chat Completions body."""
+    import httpx
+    from openai import AsyncOpenAI
+    from pydantic_ai.models.openai import OpenAIChatModel
+    from pydantic_ai.providers.openai import OpenAIProvider
+
+    bodies = []
+
+    def completion_for(body):
+        return {
+            "id": "chatcmpl-272",
+            "object": "chat.completion",
+            "created": 0,
+            "model": body.get("model", "deepseek-v4.1-flash"),
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [
+                            {
+                                "id": "call_272",
+                                "type": "function",
+                                "function": {
+                                    "name": "finish",
+                                    "arguments": json.dumps(FINISH_ARGS),
+                                },
+                            }
+                        ],
+                    },
+                    "finish_reason": "tool_calls",
+                }
+            ],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        }
+
+    def handle(request):
+        body = json.loads(request.content)
+        bodies.append(body)
+        completion = completion_for(body)
+        if body.get("stream"):
+            metadata = {key: completion[key] for key in ("id", "created", "model")}
+            metadata["object"] = "chat.completion.chunk"
+            message = completion["choices"][0]["message"]
+            delta = {
+                **message,
+                "tool_calls": [
+                    {"index": index, **call}
+                    for index, call in enumerate(message["tool_calls"])
+                ],
+            }
+            chunks = [
+                {
+                    **metadata,
+                    "choices": [{"index": 0, "delta": delta, "finish_reason": None}],
+                },
+                {
+                    **metadata,
+                    "choices": [
+                        {"index": 0, "delta": {}, "finish_reason": "tool_calls"}
+                    ],
+                },
+                {**metadata, "choices": [], "usage": completion["usage"]},
+            ]
+            sse = (
+                "".join(f"data: {json.dumps(chunk)}\n\n" for chunk in chunks)
+                + "data: [DONE]\n\n"
+            )
+            return httpx.Response(
+                200, content=sse.encode(), headers={"Content-Type": "text/event-stream"}
+            )
+        return httpx.Response(200, json=completion)
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+    sdk = AsyncOpenAI(
+        api_key="offline-only",
+        base_url="https://api.deepseek.com/v1",
+        http_client=client,
+    )
+    model = OpenAIChatModel(
+        "deepseek-v4.1-flash", provider=OpenAIProvider(openai_client=sdk)
+    )
+    assert model.profile.get("supports_thinking") is not True
+
+    events = Events()
+    result, toolkit, _ = solve(
+        tmp_path, model, events=events, reasoning_effort=effort, max_turns=2
+    )
+    assert result.error is None
+    assert toolkit.calls == [("finish", FINISH_ARGS)]
+    assert len(bodies) == 1
+    assert bodies[0]["reasoning_effort"] == effort
+
+
+def test_api_executes_readonly_calls_concurrently(tmp_path):
+    events = Events()
+    toolkit = RobotToolkit(events)
+    rendezvous = threading.Barrier(2)
+    completed = []
+
+    @declare_tool(readonly=True)
+    def sense(label: str) -> ToolResult:
+        rendezvous.wait(timeout=5)
+        completed.append(label)
+        return ToolResult(data={"label": label})
+
+    toolkit.add_tool(sense)
+    requests = 0
+
+    async def stream(messages, info):
+        nonlocal requests
+        requests += 1
+        if requests == 1:
+            yield tool("sense", {"label": "left"}) | tool(
+                "sense", {"label": "right"}, 1
+            )
+        else:
+            yield finish()
+
+    result, _, _ = solve(
+        tmp_path, FunctionModel(stream_function=stream), toolkit, events
+    )
+    assert result.error is None
+    assert sorted(completed) == ["left", "right"]
+    assert result.finish_result == {"_finish": True, **FINISH_ARGS}
+    assert result.stats["tool_calls"] == 3

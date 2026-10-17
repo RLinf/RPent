@@ -50,6 +50,10 @@ def test_sam3_component(libero_scenario: LiberoScenario) -> None:
     publish_check("sam3_component", libero_scenario.sam3)
 
 
+def test_move_to_yaw_component(libero_scenario: LiberoScenario) -> None:
+    publish_check("libero_move_to_yaw", libero_scenario.move_to_yaw)
+
+
 @pytest.mark.timeout(1200)
 def test_wam_component(wam_argv, tmp_path, record_property) -> None:
     spec = get_robot_spec()

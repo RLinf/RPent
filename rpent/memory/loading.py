@@ -19,6 +19,7 @@ from __future__ import annotations
 from argparse import Namespace
 
 from rpent.memory import MemoryManager
+from rpent.memory.source import prepare_explicit_source
 from rpent.planner.base import resolve_model
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.utils.config import get_memory_dir
@@ -35,5 +36,10 @@ def prepare_run_memory(args: Namespace, spec: RobotSpec, config: RunConfig) -> N
         "local" if getattr(args, "explore", False) else "hf"
     )
     if profile == "local":
+        return
+    if args.memory_repo is not None:
+        root = prepare_explicit_source(args.memory_repo, spec.name)
+        config.prompt_vars["memory_dir"] = str(root)
+        args.memory_dir = str(root)
         return
     MemoryManager(get_memory_dir(spec.name)).sync(remote_repo=spec.memory_repo_id)

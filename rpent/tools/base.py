@@ -161,7 +161,8 @@ def tool(
     constraints become part of the generated schema; advertise defaults explicitly
     with Field(json_schema_extra={"default": ...}). A leading
     self is bound by Python and excluded from model inputs. Use
-    @tool(readonly=True) to skip Toolkit's automatic observation capture.
+    @tool(readonly=True) to allow concurrent readonly calls and skip Toolkit's
+    automatic observation capture. Other calls execute exclusively.
 
     name overrides the published tool name. exclude names internal resources
     supplied by the caller. Parameters without defaults are required.

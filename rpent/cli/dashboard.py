@@ -34,7 +34,7 @@ from rpent.cli.main import (
 from rpent.dashboard.events import RunStartedEvent
 from rpent.evaluation import RunFinalizationContext
 from rpent.memory import MemoryManager
-from rpent.planner.base import build_planner
+from rpent.planner.base import build_planner, is_recoverable_agent_error
 from rpent.robots import get_toolkit
 from rpent.utils.config import get_memory_dir
 from rpent.utils.logging import get_logger, init_output_dir
@@ -54,10 +54,14 @@ def run_dashboard_session(
     parser: argparse.ArgumentParser,
 ) -> int:
     """Run one long-lived Dashboard Session with sequential fresh TaskRuns."""
-    if robot_spec.is_real_robot and not (robot_spec.dashboard or {}).get(
-        "external_env", False
+    if (
+        robot_spec.is_real_robot
+        and not (robot_spec.dashboard or {}).get("external_env", False)
+        and not robot_spec.supports_human_interactive_exploration
     ):
-        parser.error("This robot requires operator confirmation in a plain terminal.")
+        parser.error(
+            "Physical Dashboard control requires a robot runtime with human confirmation."
+        )
     from rpent.dashboard.server import DashboardServer
     from rpent.dashboard.session import DashboardSessionController
     from rpent.dashboard.state import DashboardState
@@ -90,8 +94,12 @@ def run_dashboard_session(
         if component["scope"] == "unique"
     }
 
-    if getattr(args, "env_endpoint", None) is not None and not dashboard_spec.get(
-        "external_env", False
+    if getattr(args, "env_endpoint", None) is not None and not (
+        dashboard_spec.get("external_env", False)
+        or (
+            robot_spec.is_real_robot
+            and robot_spec.supports_human_interactive_exploration
+        )
     ):
         parser.error(
             "Dashboard task control cannot use --env-endpoint because each "
@@ -138,9 +146,16 @@ def run_dashboard_session(
         and not getattr(args, "explore", False)
         and getattr(args, "memory_profile", "hf") == "hf"
     ):
-        MemoryManager(get_memory_dir(robot_spec.name)).sync(
-            remote_repo=robot_spec.memory_repo_id,
-        )
+        if args.memory_repo is not None:
+            from rpent.memory.source import prepare_explicit_source
+
+            args.memory_dir = str(
+                prepare_explicit_source(args.memory_repo, robot_spec.name)
+            )
+        else:
+            MemoryManager(get_memory_dir(robot_spec.name)).sync(
+                remote_repo=robot_spec.memory_repo_id,
+            )
 
     controller = DashboardSessionController(
         state=state,
@@ -185,6 +200,9 @@ def _run_dashboard_task(
     session_root: Path,
 ) -> str | None:
     """Execute one fresh Dashboard TaskRun against Session-owned services."""
+    human_interactive_run = (
+        robot_spec.is_real_robot and robot_spec.supports_human_interactive_exploration
+    )
     task_args = copy.copy(args)
     for name, value in claimed.request.items():
         setattr(task_args, name, value)
@@ -231,7 +249,10 @@ def _run_dashboard_task(
             if not state.task_replacement_requested:
                 state.emit(RunStartedEvent())
             for session_number in range(1, sessions + 1):
-                if state.task_replacement_requested:
+                if (
+                    state.task_replacement_requested
+                    or state.task_finalization_cancelled
+                ):
                     break
                 if session_number > 1:
                     logger.info(
@@ -262,6 +283,15 @@ def _run_dashboard_task(
                         video_path=state_output_dir / "episode.mp4",
                     )
                 if robot_spec.supports_exploration:
+                    operator_kwargs = {}
+                    if human_interactive_run:
+                        from rpent.tools.human_in_the_loop import HumanInTheLoopInput
+
+                        state.operator_exploration = bool(task_args.explore)
+                        state.operator = HumanInTheLoopInput(
+                            interactive=True, on_change=state.operator_changed
+                        )
+                        operator_kwargs["operator_input"] = state.operator
                     toolkit = get_toolkit(
                         args.robot_name,
                         runtime_kwargs=runtime_kwargs,
@@ -272,6 +302,7 @@ def _run_dashboard_task(
                             task_args, "explore_attempts_per_session", 0
                         ),
                         state_output_dir=state_output_dir,
+                        **operator_kwargs,
                     )
                 else:
                     toolkit = get_toolkit(
@@ -310,6 +341,10 @@ def _run_dashboard_task(
                     messages += result.messages
                     stats = result.stats
                     agent_error = result.error
+                    if human_interactive_run and toolkit.direct_verdict_requested:
+                        finish_result = toolkit.finalize_direct_verdict()
+                        if agent_error:
+                            stats["planner_error_at_operator_verdict"] = agent_error
                     if robot_spec.supports_exploration:
                         solved = bool(toolkit.solved())
                         if solved:
@@ -324,14 +359,21 @@ def _run_dashboard_task(
                             solved = environment_success
                     finally:
                         toolkit.close()
-                if solved or state.task_replacement_requested:
+                if (
+                    solved
+                    or state.task_replacement_requested
+                    or (finish_result or {}).get("operator_finished")
+                ):
                     break
                 if agent_error:
-                    if session_number < sessions and "timed out" in agent_error.lower():
+                    if session_number < sessions and is_recoverable_agent_error(
+                        agent_error
+                    ):
                         logger.warning(
-                            "session %d/%d timed out; continuing with a fresh handoff",
+                            "session %d/%d ended with %s; continuing with a fresh handoff",
                             session_number,
                             sessions,
+                            agent_error,
                         )
                         continue
                     break
@@ -342,6 +384,9 @@ def _run_dashboard_task(
         logger.error("EXCEPTION in Dashboard TaskRun %04d: %s", claimed.number, exc)
         agent_error = str(exc)
     finally:
+        if human_interactive_run and state.operator is not None:
+            state.operator.close()
+            state.operator = None
         cleanup_errors: list[str] = []
         if recipe_path:
             logger.info("recipe: %s", recipe_path)
@@ -382,7 +427,7 @@ def _run_dashboard_task(
         getattr(task_args, "explore", False)
         and getattr(task_args, "auto_merge_memory", False)
         and not agent_error
-        and not state.task_replacement_requested
+        and not state.task_finalization_cancelled
         and memory_manager is not None
     ):
         try:

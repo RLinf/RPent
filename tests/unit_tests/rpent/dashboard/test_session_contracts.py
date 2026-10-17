@@ -211,6 +211,7 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
 
     class FakeState:
         task_replacement_requested = False
+        task_finalization_cancelled = False
 
         def __init__(self) -> None:
             self.warnings: list[str] = []

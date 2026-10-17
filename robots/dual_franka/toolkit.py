@@ -61,7 +61,8 @@ class DualFrankaToolkit(FrankaToolkit):
     """Dual-arm tools with operator-gated exploration.
 
     Operator decisions and attempt boundaries are recorded as artifacts rather
-    than simulator termination flags.
+    than simulator termination flags. Operator confirmations can come from the
+    terminal or Dashboard.
     """
 
     _tools_module = dual_franka_tools
@@ -113,7 +114,7 @@ class DualFrankaToolkit(FrankaToolkit):
         """Seal this attempt immediately; cancel in-flight work at its next boundary."""
         if verdict not in {"success", "failure", "abort"}:
             raise ValueError("verdict must be success, failure or abort")
-        with self._operation_lock:
+        with self._scheduler.condition:
             if self._direct_verdict_event.is_set():
                 return self._direct_verdict == verdict
             if self._mode != "exploration" or (
@@ -123,8 +124,7 @@ class DualFrankaToolkit(FrankaToolkit):
                 return False
             self._direct_verdict = verdict
             self._direct_verdict_event.set()
-            if self._active_operation is not None:
-                self._active_operation.cancel_event.set()
+            self._scheduler.cancel(close=True)
         return True
 
     def raise_if_cancelled(self) -> None:
@@ -173,9 +173,7 @@ class DualFrankaToolkit(FrankaToolkit):
         self._publish_step(record)
         self._scene_ready = True
         self._operator_verdict = self._direct_verdict
-        self._operator_notes = (
-            f"Operator entered /{self._direct_verdict} in the interactive terminal."
-        )
+        self._operator_notes = f"Operator submitted /{self._direct_verdict}."
         self._verdict_step = record.step_idx
         self._event(
             "verdict",
@@ -606,16 +604,19 @@ class DualFrankaToolkit(FrankaToolkit):
         self,
         question: str = "Does the current real-robot scene satisfy the task?",
     ) -> ToolResult:
-        """Collect terminal feedback from the real-robot operator."""
-        print("\n[dual_franka exploration] operator verdict requested")
-        print(question)
-        print("Type one of: success, failure, continue. Optional notes may follow.")
-        response = self._read_operator_line("operator verdict: ")
+        """Collect operator feedback through the injected reader or terminal."""
+        if self._operator_input is not None:
+            response = self._ask_operator(question, kind="verdict")
+        else:
+            print("\n[dual_franka exploration] operator verdict requested")
+            print(question)
+            print("Type one of: success, failure, continue. Optional notes may follow.")
+            response = self._read_operator_line("operator verdict: ")
         if response is None:
             return ToolResult(
                 data={
                     "error": "operator verdict unavailable",
-                    "reason": "request_operator_verdict requires a runner terminal so the human operator can judge the physical task state.",
+                    "reason": "request_operator_verdict requires operator input so the human operator can judge the physical task state.",
                     "attempt": self._attempt,
                 }
             )

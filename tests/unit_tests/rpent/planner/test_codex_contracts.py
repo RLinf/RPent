@@ -67,6 +67,9 @@ class FakeToolkit:
     def cancel_active_and_wait(self) -> None:
         self.cancel_calls += 1
 
+    def resume_calls(self) -> None:
+        pass
+
 
 class FakeMcpServer:
     instances: list[FakeMcpServer] = []
@@ -898,7 +901,7 @@ def test_terminal_timeout_cancels_active_toolkit_work(
 
     assert result.error == "Codex SDK timed out after 0.01s"
     assert FakeMcpServer.instances[0].stopped is True
-    assert toolkit.cancel_calls == 1
+    assert toolkit.cancel_calls == 2
 
 
 def test_queue_and_dashboard_are_rejected_before_mcp_construction(
@@ -1170,6 +1173,28 @@ def test_probe_returns_empty_string_when_the_model_said_nothing(
     )
 
     assert reply == ""
+
+
+def test_probe_forwards_image_and_schema(probe_codex: Any) -> None:
+    """Visual grounding must preserve the image and structured-output request."""
+    result = SimpleNamespace(
+        status="completed", error=None, final_response='{"point_xy":null}'
+    )
+    instances = probe_codex(lambda: FakeProbeTurn(result))
+    schema = {"type": "object", "properties": {"point_xy": {"type": "null"}}}
+    reply = codex_module.run_probe_turn(
+        object(),
+        prompt="select a point",
+        model="test-model",
+        timeout_s=30,
+        image_bytes=b"test-image",
+        output_schema=schema,
+    )
+    payload, options = instances[0].turn_prompts[0]
+    assert isinstance(payload[0], codex_module.openai_codex.TextInput)
+    assert isinstance(payload[1], codex_module.openai_codex.ImageInput)
+    assert options["output_schema"] == schema
+    assert reply == '{"point_xy":null}'
 
 
 def test_retry_error_is_visible_without_poisoning_successful_turn():
