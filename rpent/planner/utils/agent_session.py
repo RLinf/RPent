@@ -28,7 +28,7 @@ from typing import Any
 from rpent.cli.tui import next_user_line
 from rpent.dashboard.events import DashboardEventSink, TranscriptEvent
 from rpent.dashboard.interaction import DashboardInteractionPort, DashboardMessage
-from rpent.dashboard.planner_control import DashboardPlannerControl
+from rpent.dashboard.planner_control import PlannerInteractionControl
 from rpent.planner.base import cancel_and_wait
 from rpent.planner.utils.agent_runtime import AgentArtifacts, write_jsonl
 from rpent.planner.utils.http_mcp_server import HttpMcpServer
@@ -204,7 +204,7 @@ async def run_agent(
             )
 
         control = (
-            DashboardPlannerControl(
+            PlannerInteractionControl(
                 interaction=port,
                 cancel_active_and_wait=toolkit.cancel_active_and_wait,
                 resume_calls=toolkit.resume_calls,
