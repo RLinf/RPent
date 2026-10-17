@@ -23,15 +23,46 @@ the dashboard UI stays in sync with the actual processes.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import sys
+from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any
 
 from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
+from rpent.utils.config import get_repo_root
 from rpent.utils.daemon import ProcessDaemon
 from rpent.utils.rpc import wait_for_ready
 
 if TYPE_CHECKING:
     from rpent.utils.rpc import RpcClient
+
+
+def standalone_server_command(
+    robot_name: str,
+    *,
+    kind: str,
+    extra_args: Sequence[str] = (),
+) -> list[str] | None:
+    """Build the argv to run a robot's standalone ``<kind>_server.py`` script.
+
+    The in-run daemons spawn these same scripts as child processes (e.g.
+    ``robots/libero/robot_spec.py`` for the env server); this helper exposes
+    the identical entrypoint for standalone use, so a server can be started
+    ahead of a run and shared through ``--env-endpoint``-style client flags.
+    The script's own argparse stays the single source of truth for its
+    options — forward them verbatim via ``extra_args``.
+
+    Args:
+        robot_name: Robot package name under ``robots/``.
+        kind: Server kind, matching the ``<kind>_server.py`` suffix (``env``).
+        extra_args: Extra command-line arguments, appended verbatim.
+
+    Returns:
+        The full argv, or ``None`` when the robot ships no such script.
+    """
+    script = get_repo_root() / "robots" / robot_name / f"{kind}_server.py"
+    if not script.is_file():
+        return None
+    return [sys.executable, str(script), *extra_args]
 
 
 def stop_owned_daemons(
