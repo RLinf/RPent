@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import queue
 import shlex
 import sys
@@ -249,6 +250,21 @@ def _build_argparser() -> argparse.ArgumentParser:
         action="store_true",
         help="Interactive mode: opens an interactive cli session.",
     )
+    ap.add_argument(
+        "--env-server",
+        action="store_true",
+        help="Start the robot's standalone env server in the foreground "
+        "(e.g. robots/libero/env_server.py) instead of running an episode; "
+        "point another RPent run at it with its --env-endpoint flag. "
+        "Forward server options verbatim with --env-server-args.",
+    )
+    ap.add_argument(
+        "--env-server-args",
+        nargs=argparse.REMAINDER,
+        default=None,
+        help="Arguments for --env-server, passed through verbatim after "
+        "this flag, e.g. --env-server-args --port 3333 --suite libero_object.",
+    )
 
     return ap
 
@@ -352,12 +368,19 @@ def main() -> int:
             parser.error("--robot and --env are aliases; provide only one of them")
         logger.warning("--env is deprecated and will be removed; use --robot instead")
         early.robot_name = early.env_name
+    if early.env_server_args and not early.env_server:
+        parser.error("--env-server-args requires --env-server")
     if early.robot_name is None:
         if "-h" not in sys.argv and "--help" not in sys.argv:
             parser.error("--robot is required")
     else:
         robot_spec = get_robot_spec(early.robot_name)
-        robot_spec.add_cli_args(parser, use_dashboard=early.dashboard)
+        # --env-server reuses the dashboard's relaxed requiredness: standalone
+        # servers take their task selection from their own script args, not
+        # from the episode flags a normal run requires.
+        robot_spec.add_cli_args(
+            parser, use_dashboard=early.dashboard or early.env_server
+        )
     parser.add_argument(
         "-h",
         "--help",
@@ -372,6 +395,21 @@ def main() -> int:
     )
     if args.dashboard and args.interactive:
         parser.error("--dashboard and --interactive cannot be used together")
+    if args.env_server:
+        from rpent.robots.runtime import standalone_server_command
+
+        cmd = standalone_server_command(
+            args.robot_name,
+            kind="env",
+            extra_args=args.env_server_args or (),
+        )
+        if cmd is None:
+            parser.error(
+                f"--env-server is not supported for robot {args.robot_name!r}: "
+                f"no robots/{args.robot_name}/env_server.py found"
+            )
+        logger.info("env server cmd: %s", shlex.join(cmd))
+        os.execvp(cmd[0], cmd)
     external_env_dashboard = (getattr(robot_spec, "dashboard", None) or {}).get(
         "external_env", False
     )
