@@ -23,7 +23,7 @@ from rpent.dashboard.interaction import DashboardInteractionPort, PlannerSession
 from rpent.planner.base import cancel_and_wait
 
 
-class DashboardPlannerControl:
+class PlannerInteractionControl:
     """Coordinate queued input, interrupts, and task replacement."""
 
     def __init__(

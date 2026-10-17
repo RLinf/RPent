@@ -24,7 +24,7 @@ from rpent.dashboard.interaction import (
     InteractionUnavailableError,
     UnknownDashboardMessageError,
 )
-from rpent.dashboard.planner_control import DashboardPlannerControl
+from rpent.dashboard.planner_control import PlannerInteractionControl
 from rpent.dashboard.state import DashboardState
 
 
@@ -207,13 +207,13 @@ def make_control(
     defer_message_ack: bool = False,
     cancel_error: BaseException | None = None,
     queue_until_complete: bool = False,
-) -> DashboardPlannerControl:
+) -> PlannerInteractionControl:
     def cancel_active_and_wait() -> None:
         events.append("toolkit-cancel")
         if cancel_error is not None:
             raise cancel_error
 
-    return DashboardPlannerControl(
+    return PlannerInteractionControl(
         interaction=interaction,
         cancel_active_and_wait=cancel_active_and_wait,
         resume_calls=lambda: events.append("toolkit-resume"),

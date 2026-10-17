@@ -39,7 +39,7 @@ from rpent.dashboard.events import (
     UsageEvent,
 )
 from rpent.dashboard.interaction import DashboardInteractionPort, DashboardMessage
-from rpent.dashboard.planner_control import DashboardPlannerControl
+from rpent.dashboard.planner_control import PlannerInteractionControl
 from rpent.planner.base import (
     REASONING_EFFORTS,
     Planner,
@@ -173,7 +173,7 @@ class ClaudeCodePlanner(Planner):
                 )
 
             control = (
-                DashboardPlannerControl(
+                PlannerInteractionControl(
                     interaction=interaction,
                     cancel_active_and_wait=toolkit.cancel_active_and_wait,
                     resume_calls=toolkit.resume_calls,
@@ -291,7 +291,7 @@ class _ClaudeSessionDriver:
         recorder: "_Recorder",
         emit: Callable[[Any], None],
         toolkit: Toolkit,
-        control: DashboardPlannerControl | None = None,
+        control: PlannerInteractionControl | None = None,
     ) -> None:
         self._sdk = sdk
         self._options = options

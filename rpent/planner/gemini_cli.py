@@ -41,7 +41,7 @@ from rpent.dashboard.events import (
     UsageEvent,
 )
 from rpent.dashboard.interaction import DashboardInteractionPort, DashboardMessage
-from rpent.dashboard.planner_control import DashboardPlannerControl
+from rpent.dashboard.planner_control import PlannerInteractionControl
 from rpent.planner.base import Planner, PlannerResult
 from rpent.planner.utils.agent_runtime import (
     AgentArtifacts,
@@ -206,7 +206,7 @@ class _GeminiSession:
         *,
         cwd: Path,
         model: str | None,
-        control: DashboardPlannerControl | None,
+        control: PlannerInteractionControl | None,
         emit_event,
         stderr_path: Path,
     ) -> None:

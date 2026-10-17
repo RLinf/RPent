@@ -39,7 +39,7 @@ from rpent.dashboard.events import (
     UsageEvent,
 )
 from rpent.dashboard.interaction import DashboardInteractionPort, DashboardMessage
-from rpent.dashboard.planner_control import DashboardPlannerControl
+from rpent.dashboard.planner_control import PlannerInteractionControl
 from rpent.planner.base import (
     REASONING_EFFORTS,
     Planner,
@@ -206,7 +206,7 @@ class _CodexSession:
         turn_options: dict[str, Any],
         recorder: "_Recorder",
         emit_event,
-        control: DashboardPlannerControl | None,
+        control: PlannerInteractionControl | None,
     ) -> None:
         self._config = config
         self._thread_options = thread_options
