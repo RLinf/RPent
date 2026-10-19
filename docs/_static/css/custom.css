@@ -58,6 +58,11 @@ html[data-theme="dark"] img.rpent-home-logo {
 .bd-page-width { max-width: 100rem; }
 .bd-main .bd-content { justify-content: flex-start; }
 .bd-main .bd-content .bd-article-container { max-width: 58rem; }
+.bd-main .bd-content .bd-article-container:has(#release-v0-1) {
+  width: 100%;
+  min-width: 0;
+}
+.bd-article:has(#release-v0-1) h4 { font-size: 1.1rem; }
 .bd-main .bd-content .bd-article-container:has(.rpent-home-logo) {
   margin-inline: auto;
 }
