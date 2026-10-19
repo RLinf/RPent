@@ -276,6 +276,8 @@ global 文件必须存在。任务记录（JSON）与动作序列（recipe）必
 
 Target50 包含 50 个厨房任务，共运行 340 次。以下使用 Codex、GPT-5.5、xhigh，配合当前任务记忆与 global memory 完成评测。
 
+复现 GPT-6 Astra 榜单配置时，使用 ``--model gpt-6-astra --reasoning-effort high``。下面的命令改为下载 ``robocasa/GPT_6_astra_high/**``，并将 ``--memory-dir`` 指向 ``./target50-memory/robocasa/GPT_6_astra_high``。
+
 1. 准备记忆和运行参数
 ~~~~~~~~~~~~~~~~~~~~~~~~
 

@@ -339,6 +339,11 @@ Experiment Reproduction (Target50)
 Target50 covers 50 kitchen tasks and 340 runs. The example below uses Codex,
 GPT-5.5 and xhigh with task-specific and global memory.
 
+For the GPT-6 Astra leaderboard configuration, use
+``--model gpt-6-astra --reasoning-effort high``. Download
+``robocasa/GPT_6_astra_high/**`` and set ``--memory-dir`` to
+``./target50-memory/robocasa/GPT_6_astra_high`` in the commands below.
+
 .. _run-and-check-results:
 
 1. Prepare Memory and Settings
