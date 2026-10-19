@@ -40,3 +40,6 @@ html[data-theme="dark"] .rpent-static-leaderboard{--rpent-divider:#be96e0}
 .rpent-static-leaderboard .note-reference a{text-decoration:underline;text-underline-offset:2px}
 .rpent-static-leaderboard .note-reference a:focus-visible,.rpent-static-leaderboard .scope-note:focus-visible{outline:2px solid var(--rpent-divider);outline-offset:3px}
 .rpent-static-leaderboard .episode-count{display:block;font-size:12px;line-height:1.4;font-variant-numeric:tabular-nums;white-space:nowrap}
+.rpent-static-leaderboard .leaderboard-footer{margin-top:28px;padding-bottom:24px}
+.rpent-static-leaderboard .leaderboard-footer .scope-note{overflow-wrap:anywhere}
+.rpent-static-leaderboard .leaderboard-footer>span{display:block;font-size:17px;color:var(--pst-color-text-muted,inherit)}

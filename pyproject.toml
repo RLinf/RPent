@@ -156,8 +156,8 @@ yam = [
 ]
 robotwin = [
     "rpent[rlinf]",
-    "rlinf-robotwin-runtime==0.1.1",
-    "rlinf-lingbotvla==0.1.1",
+    "rlinf-robotwin-runtime==0.1.3",
+    "rlinf-lingbotvla==0.1.3",
     "nvidia-curobo @ git+https://github.com/NVlabs/curobo.git@v0.7.8",
 ]
 
@@ -168,10 +168,10 @@ robodojo = [
 robodojo-sim = [
     # Supplies both the simulator adapter and the OpenPI policy configuration.
     "rlinf @ git+https://github.com/littleZ05/RLinf.git@rpent/robodojo",
-    # RLinf organization fork; use a versioned release once it is published.
     "rlinf-robodojo-runtime @ git+https://github.com/RLinf/RoboDojo.git@rpent",
-    # uv reads build overrides only from the root project.
-    "nvidia-curobo[cu12] @ git+https://github.com/yuechen0614/curobo.git@main",
+    # datasets 5 requires PyArrow >=21; PyArrow 26 needs NumPy >=2,
+    # incompatible with RoboDojo's NumPy 1 simulator stack.
+    "pyarrow>=21.0.0,<26.0.0",
 ]
 
 [tool.uv]
@@ -207,19 +207,51 @@ conflicts = [
         { extra = "robotwin" },
     ],
     [
+        { extra = "franka" },
+        { extra = "robodojo" },
+    ],
+    [
+        { extra = "franka" },
+        { extra = "robodojo-sim" },
+    ],
+    [
         { extra = "robocasa" },
         { extra = "robotwin" },
+    ],
+    [
+        { extra = "robotwin" },
+        { extra = "libero" },
+    ],
+    [
+        { extra = "robotwin" },
+        { extra = "libero-pro" },
+    ],
+    [
+        { extra = "robotwin" },
+        { extra = "libero-plus" },
+    ],
+    [
+        { extra = "robotwin" },
+        { extra = "molmo" },
+    ],
+    [
+        { extra = "robotwin" },
+        { extra = "flywheel" },
+    ],
+    [
+        { extra = "robotwin" },
+        { extra = "robodojo" },
+    ],
+    [
+        { extra = "robotwin" },
+        { extra = "robodojo-sim" },
     ],
 ]
 
 [tool.uv.extra-build-dependencies]
-# This key is a package name, so the pin is global to every extra. RoboTwin's
-# cuRobo v0.7.8 needs a statically known build Torch, and `match-runtime`
-# cannot supply one. RoboDojo's fork does not compile Torch extensions at all
-# (CUROBO_USE_PYBIND defaults to 0), so its runtime Torch does not have to
-# match a build-time one: it stays on 2.7.0 through
-# requirements/robodojo-override.txt while this build dependency stays 2.7.1.
-nvidia-curobo = ["torch==2.7.1"]
+# Build RoboTwin's Torch extensions against its runtime Torch version.
+# RoboDojo's fork skips Torch extension builds by default (CUROBO_USE_PYBIND=0).
+nvidia-curobo = ["torch==2.8.0"]
 
 [tool.setuptools]
 include-package-data = true

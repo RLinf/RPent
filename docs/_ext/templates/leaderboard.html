@@ -39,7 +39,7 @@
               </tbody>
             </table>
           </div>
-          {% for note in benchmark.notes %}<p id="{{ note.id }}" class="scope-note" tabindex="-1" role="note"><span class="note-number">[{{ note.number }}]</span> {{ note.text }}</p>{% endfor %}
+          {% for note in benchmark.notes if note.placement != 'footer' %}<p id="{{ note.id }}" class="scope-note" tabindex="-1" role="note">* <span class="note-number">[{{ note.number }}]</span> {{ note.text }}</p>{% endfor %}
         </div>
       </details>
     </section>
@@ -67,5 +67,9 @@
       {% endfor %}
     </section>
     {% endif %}
+    <footer class="leaderboard-footer">
+      {% for note in footer_notes %}<p id="{{ note.id }}" class="scope-note" tabindex="-1" role="note">* {% if note.number is defined %}<span class="note-number">[{{ note.number }}]</span> {% endif %}{{ note.text }}</p>{% endfor %}
+      <span>RPent Leaderboard</span>
+    </footer>
   </div>
 </div>

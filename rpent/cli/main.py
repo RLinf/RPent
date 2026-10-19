@@ -54,7 +54,11 @@ from rpent.dashboard.events import (
 )
 from rpent.evaluation import RunFinalizationContext
 from rpent.memory import MemoryManager
-from rpent.planner.base import REASONING_EFFORTS, build_planner
+from rpent.planner.base import (
+    REASONING_EFFORTS,
+    build_planner,
+    is_recoverable_agent_error,
+)
 from rpent.planner.check import BASE_URL_ENV_BY_PLANNER
 from rpent.robots import enumerate_robots, get_robot_spec, get_toolkit
 from rpent.utils.logging import get_logger, init_output_dir
@@ -158,7 +162,8 @@ def _build_argparser() -> argparse.ArgumentParser:
         default="none",
         help="Planner reasoning effort for api, claude_code, and "
         "codex. Higher effort may improve task success rate "
-        "but increases runtime. Defaults to none.",
+        "but increases runtime. Defaults to high for api and none for "
+        "claude_code/codex.",
     )
     ap.add_argument(
         "--no-images",
@@ -339,6 +344,7 @@ def main() -> int:
     # Two-phase argparse: first grab --robot / --env / --dashboard so we know
     # which robot's flags to add and whether to make its required flags optional.
     early, _ = parser.parse_known_args()
+    parser.set_defaults(reasoning_effort="high" if early.planner == "api" else "none")
 
     # --env is a deprecated alias for --robot; resolve it before loading the spec.
     if early.env_name is not None:
@@ -661,12 +667,13 @@ def main() -> int:
                 if (
                     getattr(args, "explore", False)
                     and session_number < sessions
-                    and "timed out" in agent_error.lower()
+                    and is_recoverable_agent_error(agent_error)
                 ):
                     logger.warning(
-                        "session %d/%d timed out; continuing with a fresh handoff",
+                        "session %d/%d ended with %s; continuing with a fresh handoff",
                         session_number,
                         sessions,
+                        agent_error,
                     )
                     continue
                 break
