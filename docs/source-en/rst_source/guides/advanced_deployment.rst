@@ -95,6 +95,10 @@ and 20 predicted actions of width 20. For ``yam``, select the delta-joint
 checkpoint: three views and 30 absolute qpos14 actions; the existing YAM
 tool executes five per call. Change ``--embodiment`` and the model/statistics
 paths together. APXInf-robo owns the state and action conversions.
+The model directory must use a checkpoint layout and weight keys supported by
+APXInf. A raw RLinf ``actor/model_state_dict/full_weights.pt`` directory is not
+loaded or converted by this adapter; its export and numerical parity must be
+verified before using the real-robot paths.
 
 It supports eval mode only. Record the APXInf, APXInf-robo and RPent revisions, checkpoint,
 tokenizer and statistics when comparing backends; an endpoint health check
