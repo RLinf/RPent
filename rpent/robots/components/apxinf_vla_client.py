@@ -41,10 +41,10 @@ class ApxInfVLAClient(BaseVLAClient):
 
     def __init__(self, client, *, embodiment: str):
         super().__init__(client)
-        if embodiment != "libero":
+        if embodiment not in ("libero", "dual_franka", "yam"):
             raise ValueError(
                 f"unknown apxinf client embodiment: {embodiment!r}; "
-                "registered=['libero']"
+                "registered=['libero', 'dual_franka', 'yam']"
             )
         self._embodiment = embodiment
 

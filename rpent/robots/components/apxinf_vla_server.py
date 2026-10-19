@@ -16,11 +16,11 @@
 
 Wraps an APXInf :class:`~apxinf.policies.base.Policy` behind RPent's
 ``vla.predict`` RPC contract. The policy is loaded once at startup via
-``apxinf.policies.auto.AutoPolicy.from_pretrained``; each ``predict`` call
+``apxinf_robo.presets.build_robot_policy``; each ``predict`` call
 translates the RPent wire observation into the APXInf observation dict,
 runs inference, and returns the deployable action array.
 
-The APXInf engine and ``apxinf_py`` binding must be importable from the
+APXInf-robo, the APXInf engine, and ``apxinf_py`` must be importable from the
 Python environment that runs this server. See the APXInf documentation for
 build instructions.
 """
@@ -64,11 +64,14 @@ logger = get_logger("apxinf_vla_server")
 #     <image_keys[1]>: [H, W, 3] uint8,   (if num_views >= 2)
 #     ...
 #     "prompt": str,
-#     "state": [state_dim] float32,       (only if discrete_state=True)
+#     <state_key>: [state_dim] float32,   (when the policy declares a state key)
 #   }
 
 APXINF_EMBODIMENTS: dict[str, dict[str, Any]] = {
     "libero": {
+        "policy": "franka_libero",
+        "action_chunk": 5,
+        "action_dim": 7,
         # LIBERO pi05 checkpoint: 2 views (base + wrist), action_dim=7,
         # no state injection (openpi pi05_libero convention).
         "policy_kwargs": {
@@ -81,7 +84,29 @@ APXINF_EMBODIMENTS: dict[str, dict[str, Any]] = {
         },
         # Maps RPent wire keys to APXInf VIEW_SLOTS order.
         # index 0 -> base_0_rgb, index 1 -> left_wrist_0_rgb
-        "view_sources": ["main_images", "wrist_images"],
+        "view_sources": [("main_images", None), ("wrist_images", None)],
+    },
+    "dual_franka": {
+        "policy": "dual_franka_tcp_rot6d",
+        "action_chunk": 20,
+        "action_dim": 20,
+        "policy_kwargs": {"num_flow_steps": 5, "num_views": 3, "action_horizon": 20},
+        "view_sources": [
+            ("extra_view_images", 0),
+            ("main_images", None),
+            ("extra_view_images", 1),
+        ],
+    },
+    "yam": {
+        "policy": "yam_joint",
+        "action_chunk": 30,
+        "action_dim": 14,
+        "policy_kwargs": {"num_flow_steps": 5, "num_views": 3, "action_horizon": 30},
+        "view_sources": [
+            ("main_images", None),
+            ("extra_view_images", 0),
+            ("extra_view_images", 1),
+        ],
     },
 }
 
@@ -99,33 +124,22 @@ def _decode_obs(wire_obs: dict[str, Any], embodiment: str, policy) -> dict[str, 
     apx_obs: dict[str, Any] = {}
 
     # Map each view slot to its source wire key.
-    for slot_idx, wire_key in enumerate(view_sources):
-        if slot_idx >= len(image_keys):
-            break
+    for image_key, (wire_key, view_index) in zip(image_keys, view_sources):
         value = wire_obs.get(wire_key)
         if value is None:
             continue
         arr = np.asarray(value)
-        # Strip batch dim: [1, H, W, 3] -> [H, W, 3]
-        # For extra_view_images with N>1 views: [1, N, H, W, 3] -> take each view
-        if wire_key == "extra_view_images" and arr.ndim == 5:
-            # Multiple extra views: fill remaining slots in order
-            for extra_idx in range(arr.shape[1]):
-                target_slot = slot_idx + extra_idx
-                if target_slot < len(image_keys):
-                    apx_obs[image_keys[target_slot]] = arr[0, extra_idx].astype(
-                        np.uint8
-                    )
-        else:
-            if arr.ndim == 4 and arr.shape[0] == 1:
-                arr = arr[0]
-            apx_obs[image_keys[slot_idx]] = arr.astype(np.uint8)
+        if view_index is not None:
+            arr = arr[0, view_index]
+        elif arr.ndim == 4 and arr.shape[0] == 1:
+            arr = arr[0]
+        apx_obs[image_key] = arr.astype(np.uint8)
 
     # Prompt
     descriptions = wire_obs.get("task_descriptions", [""])
     apx_obs[policy.prompt_key] = str(descriptions[0]) if descriptions else ""
 
-    # State (only when the policy is configured to read it)
+    # State is also needed for action recovery when state tokens are disabled.
     if policy.state_key is not None:
         states = np.asarray(wire_obs.get("states", []), dtype=np.float32)
         if states.ndim == 2:
@@ -143,7 +157,7 @@ def _decode_obs(wire_obs: dict[str, Any], embodiment: str, policy) -> dict[str, 
 class ApxInfVLAFacade(MainThreadServeMixin, BaseVLAFacade):
     """VLA facade backed by an APXInf policy.
 
-    Loads the policy via ``AutoPolicy.from_pretrained`` at startup and
+    Loads the policy via ``apxinf_robo.presets.build_robot_policy`` at startup and
     serves ``vla.predict`` by delegating to ``policy.infer``.
 
     Uses :class:`MainThreadServeMixin` so all RPC dispatch runs on the
@@ -168,22 +182,20 @@ class ApxInfVLAFacade(MainThreadServeMixin, BaseVLAFacade):
                 f"registered={list(APXINF_EMBODIMENTS)}"
             )
         self._embodiment = embodiment
-        self._action_chunk = 5
+        self._action_chunk = APXINF_EMBODIMENTS[embodiment]["action_chunk"]
         stats_path = (
             Path(norm_stats_path)
             if norm_stats_path
             else Path(model_path) / "norm_stats.json"
         )
         if not stats_path.is_file():
-            raise FileNotFoundError(
-                f"LIBERO normalization statistics not found: {stats_path}"
-            )
+            raise FileNotFoundError(f"normalization statistics not found: {stats_path}")
         super().__init__()
         try:
-            from apxinf.policies.auto import AutoPolicy
+            from apxinf_robo.presets import build_robot_policy
         except ImportError as exc:
             raise ImportError(
-                "apxinf is not importable. Ensure the APXInf Python package "
+                "apxinf-robo is not importable. Ensure APXInf-robo, APXInf "
                 "and the apxinf_py native binding are installed. "
                 "See the APXInf documentation for build instructions."
             ) from exc
@@ -200,7 +212,8 @@ class ApxInfVLAFacade(MainThreadServeMixin, BaseVLAFacade):
             model_path,
             precision,
         )
-        self._policy = AutoPolicy.from_pretrained(
+        self._policy = build_robot_policy(
+            emb_cfg["policy"],
             model_path,
             device=device,
             precision=precision,
@@ -208,6 +221,15 @@ class ApxInfVLAFacade(MainThreadServeMixin, BaseVLAFacade):
             norm_stats=str(stats_path),
             **policy_kwargs,
         )
+        if (
+            self._policy.action_dim != emb_cfg["action_dim"]
+            or self._policy.action_horizon != emb_cfg["policy_kwargs"]["action_horizon"]
+            or len(self._policy.image_keys) != len(emb_cfg["view_sources"])
+        ):
+            self.close()
+            raise ValueError(
+                f"loaded policy does not match {embodiment} runtime contract"
+            )
         logger.info("APXInf policy ready in %.1fs", time.time() - t0)
         logger.info(
             "policy metadata: image_keys=%s prompt_key=%s state_key=%s "
@@ -223,13 +245,22 @@ class ApxInfVLAFacade(MainThreadServeMixin, BaseVLAFacade):
         super()._register_rpc()
         self._rpc["vla.status"] = self.get_status
         self._readonly_methods.add("vla.status")
+        if self._embodiment == "yam":
+            self._rpc["vla.get_model_meta"] = self.get_model_meta
+            self._readonly_methods.add("vla.get_model_meta")
+
+    def get_model_meta(self) -> dict:
+        """Return the YAM contract required by its existing runtime."""
+        from robots.yam.contracts import vla_runtime_contract
+
+        return vla_runtime_contract()
 
     def get_status(self) -> dict:
         """Return the executable chunk length, as the Pi0.5 server does."""
         return {"action_chunk": self._action_chunk}
 
     def predict(self, obs: dict, options: dict | None = None) -> np.ndarray:
-        """Return one batched five-action LIBERO chunk in environment units."""
+        """Return one batched action chunk in the selected robot's environment units."""
         if (options or {}).get("mode", "eval") != "eval":
             raise ValueError("APXInf VLA supports eval mode only")
         apx_obs = _decode_obs(obs, self._embodiment, self._policy)

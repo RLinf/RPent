@@ -38,6 +38,51 @@ Pi0.5 VLA 服务
 
 VLA 服务只加载一次模型，可以由多个 RPent 运行复用。
 
+APXInf VLA 服务
+-------------------------
+
+可选的 APXInf 适配器提供与 Pi0.5 相同的 RPent RPC 契约。
+适配器按 ``libero``、``dual_franka`` 或 ``yam`` 选择 APXInf-robo policy。
+真机路径仍处于实验阶段：离线契约测试不能证明 checkpoint 兼容或真机 demo 成功。
+单臂 ``franka`` 需要匹配实际 checkpoint 的 policy，目前尚未注册。
+APXInf-robo 原生的 OpenPI WebSocket 服务使用另一种协议，不能直接作为
+``--vla-endpoint`` 使用。
+
+先准备 APXInf 环境，包括带有所选机器人 preset 的 APXInf-robo、APXInf Python 包、CUDA 原生绑定（``apxinf_py``）、
+兼容的 Pi0.5 LIBERO checkpoint、SentencePiece tokenizer 和归一化统计文件。
+在该环境中执行 ``pip install -e /path/to/RPent`` 安装 RPent。
+RPent 不会自动安装 APXInf，也没有 APXInf extra；仅在创建模型时导入它。
+运行 planner 和环境的进程可以继续使用原有 LIBERO 环境。
+
+使用该环境的 Python 启动适配器：
+
+.. code-block:: bash
+
+   /path/to/apxinf-env/bin/python \
+     -m rpent.robots.components.apxinf_vla_server \
+     --embodiment libero \
+     --model-path /path/to/pi05-libero \
+     --tokenizer-path /path/to/tokenizer.model \
+     --norm-stats-path /path/to/norm_stats.json \
+     --precision bf16 \
+     --transport http --host 127.0.0.1 --port 8220
+
+在原有 LIBERO 命令中增加 ``--vla-endpoint http://127.0.0.1:8220``。
+跨主机部署时，将服务绑定到可访问的网络接口，并在 endpoint 中使用该主机地址。
+这个外部服务由调用者管理，用完后需自行停止；省略 endpoint 仍会启动 OpenPI。
+即使选择外部 APXInf 服务，现有 LIBERO extras 也仍会安装 OpenPI。
+
+LIBERO 适配器使用两个相机视角、五次 flow step 和十步预测 horizon，
+取前五步动作，以环境单位的 float32 数组返回，仅支持 eval 模式。
+``dual_franka`` 使用 body-frame 增量 TCP rot6d checkpoint，输入三个视角，
+返回 20 步、每步 20 维的绝对位姿动作。``yam`` 使用关节增量 checkpoint，
+输入三个视角，返回 30 步绝对 qpos14 动作；现有 YAM 工具每次执行前五步。
+切换时需同时修改 ``--embodiment``、模型和统计文件路径。
+状态和动作转换由 APXInf-robo 负责。
+
+比较后端时应记录 APXInf、APXInf-robo 和 RPent 的提交版本、checkpoint、tokenizer 及统计文件。
+endpoint 健康检查不能证明推理质量或任务成功率。
+
 SAM3 服务
 ---------
 
