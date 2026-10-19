@@ -551,13 +551,14 @@ class DashboardState:
                 if operator_context.get("request_id") != request_id:
                     raise ValueError("expired operator request")
                 if not self.operator_exploration:
-                    if (
-                        not pending
-                        or pending["kind"] != "verdict"
-                        or command not in {"/success", "/failure", "/continue"}
+                    if not pending or not (
+                        pending["kind"] == "reset"
+                        and command in {"/done", "/abort"}
+                        or pending["kind"] == "verdict"
+                        and command in {"/success", "/failure", "/continue"}
                     ):
                         raise ValueError(
-                            "evaluation accepts only a pending operator verdict"
+                            "evaluation accepts only a matching pending reset or verdict reply"
                         )
                     self.operator.reply(request_id, command[1:])
                 elif command in {"/success", "/failure", "/abort"}:
