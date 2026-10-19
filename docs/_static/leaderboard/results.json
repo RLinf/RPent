@@ -826,7 +826,7 @@
       "id": "robocasa-astra-effort-correction-20261019",
       "kind": "contributor_correction",
       "checked_at": "2026-10-19",
-      "url": "https://github.com/RLinf/RPent/issues/296#issuecomment-6264452886",
+      "url": "https://huggingface.co/datasets/RLinf/RPent-memory/blob/47f301ef33bf8d0e8c770342f16b3c39c6a0e8c1/robocasa/GPT_6_astra_high/README.md",
       "note": "The experiment contributor confirmed that the RoboCasa GPT-6 Astra evaluations used high reasoning effort. This corrects the configuration label for the reported success rates and time/token results; their numeric values and evaluation coverage are unchanged. LIBERO-PRO and RoboTwin retain their separately reported configurations."
     },
     {
