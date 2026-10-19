@@ -8,8 +8,8 @@ plans are archived as well.
 
 The runner takes a reviewed Python file defining `main(env, output)`. It does
 not install or select a task recipe automatically. See the
-[English guide](../../../docs/source-en/rst_source/guides/robodojo_scripted.rst)
-and [中文指南](../../../docs/source-zh/rst_source/guides/robodojo_scripted.rst)
+[English guide](../../../docs/source-en/rst_source/simulators/robodojo.rst)
+and [中文指南](../../../docs/source-zh/rst_source/simulators/robodojo.rst)
 for the interface and freeze/verify/run workflow.
 
 ## Historical successful plans

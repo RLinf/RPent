@@ -413,3 +413,142 @@ still fail to load, such as ``Assets/Isaac/5.1`` paths, prepare assets for that
 version and configure local loading separately. See the
 `NVIDIA local asset instructions
 <https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/install_faq.html#isaac-sim-setup-assets-content-pack>`_.
+
+Scripted Control Runner
+-----------------------
+
+This standalone runner executes a trusted Python recipe against an exclusively
+owned RoboDojo development server. CuRobo provides server-side IK. The entry
+points are Python modules run from a source checkout; this integration is not
+registered with the planner CLI or Dashboard and does not start a VLA service.
+
+Install the stack as described under **Installation and Resources** above, then follow the steps below.
+
+Start an exclusive dev server
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+In a dedicated terminal, from the checkout:
+
+.. code-block:: bash
+
+   export ROBODOJO_ASSETS_ROOT=/path/to/scene-data
+   export ROBODOJO_PLACEMENT_SETTLE_STEPS=1000
+   python -m robots.robodojo.env_server \
+     --task general_pickup --layout 0 --mode dev \
+     --max-episode-steps 200 --headless --enable_cameras \
+     --host localhost --port 18765 --transport http \
+     --save-dir /path/to/server-output --video-dir /path/to/videos
+
+The default code root is ``robodojo_runtime.source_root()``. Use
+``--source-root`` only to select an explicit alternative, and freeze that same
+tree below. The settling variable changes initialization physics; historical
+success records used 1000 steps. Disclose this setting with results.
+
+Wait for the server to become ready. Keep it exclusive: no Dashboard, second
+recipe or other client may act on it. Use a fixed layout, without ``--random``.
+The runner requires step zero and an exactly matching task, layout and step
+limit, then performs one reset. It does not authenticate the loaded server
+code, enforce exclusive ownership, start, stop or reconfigure the server.
+Stop the server after evaluation to flush its camera videos.
+
+Freeze, verify and run
+~~~~~~~~~~~~~~~~~~~~~~
+
+Write and review a Python recipe defining ``main(env, output)`` first.
+The recipe path below is your own file, not a bundled successful policy.
+In a second terminal using the same environment and checkout:
+
+.. code-block:: bash
+
+   SIM_SOURCE=$(python -c 'from robodojo_runtime import source_root; print(source_root())')
+   python -m robots.robodojo.scripted.eval freeze \
+     --output /path/to/new-release --source-root "$SIM_SOURCE" \
+     --recipe /path/to/recipe.py --task general_pickup --layout 0 \
+     --step-limit 200 --action-budget 180
+   python -m robots.robodojo.scripted.eval verify --output /path/to/new-release
+   python -m robots.robodojo.scripted.eval run \
+     --output /path/to/new-release --endpoint http://localhost:18765
+
+``freeze`` embeds the recipe and numerical primitives, applies the static
+reward-boundary audit and hashes local sources, the interpreter and a dependency
+inventory. ``verify`` checks those bytes and the simulator source inventory.
+These are local fingerprints, not a portable package, dependency reinstall or
+attestation of the live server. External scene assets and installed package
+contents are not comprehensively hashed. Keep the original paths available.
+
+``run`` claims one attempt before contacting the server; even a failed preflight
+consumes the claim. A claimed release cannot be refrozen or retried. Pre-claim
+refreezing archives the old manifest. A new experiment requires a new release
+directory and a fresh episode; retain earlier results when reporting attempts.
+
+The worker sees only public RGB-D, calibration, proprioception, instruction and
+step budgets. Reward and done slots from ``env.step`` are ``None``. After worker
+exit and action-pipe closure, a separate evaluator reads ``env.is_success()``
+and reward. Inspect ``trial/result.json``: ``valid`` describes execution and
+hash checks, while ``official_success`` is the native task predicate. A zero
+CLI exit status alone does not establish either. Logs and audits are under
+``trial/``; recipe artifacts are under ``trial/agent/``. This protocol is for
+trusted code and is not an OS security sandbox or a leaderboard submission.
+
+Recipes
+~~~~~~~
+
+``robots/robodojo/recipes/README.md`` records evidence locations and hashes for
+two historical successful JSON plans: ``general_pickup`` layout 1 (94/200
+actions) and ``pour_by_language`` layout 1 (690/800). The plans themselves are
+archived in the memory dataset, under ``robodojo/recipes/historical/`` in
+`RLinf/RPent-memory <https://huggingface.co/datasets/RLinf/RPent-memory>`_,
+rather than in this repository. Their old controller required pose IK and a
+different action interface, so these JSON files cannot be passed to this
+runner. No Python recipe with demonstrated success on the current interface
+is bundled. No simulator rollout was performed to validate this extraction.
+
+Add your own reviewed Python file under ``recipes/`` or at an external path.
+It may call ``env.get_obs()``, ``env.get_status()``,
+``env.solve_ik_position(arm, xyz)`` and ``env.step(action)``. Actions use native
+joint or end-effector keys. ``solve_ik_pose``, reset and evaluator RPCs are not
+available to the worker. Reserve stdout for the bridge; log to stderr or write
+under ``output``. Recipes may import what they need; ``scripted/reward_audit.py``
+only records references to privileged reward fields.
+
+``move_to`` and ``set_gripper`` embed the same cores that ``robots/robodojo/tools.py``
+wraps for the planner;
+do not import repository modules in a recipe. Their first argument is an object
+with ``env``, ``_last_obs`` and ``_check_cancelled()``; their second argument is
+unused and may be ``None``. For example, this interface-only recipe opens the
+right gripper and does not claim task success:
+
+.. code-block:: python
+
+   class Motion:
+       def __init__(self, env):
+           self.env = env
+           self._last_obs = None
+
+       def _check_cancelled(self):
+           status = self.env.get_status()
+           if status["step"] >= status["step_limit"]:
+               raise RuntimeError("episode budget exhausted")
+
+   def main(env, output):
+       motion = Motion(env)
+       set_gripper(motion, None, arm="right", gripper=-1)
+
+For ``move_to``, positive gripper values close, negative values open and zero
+preserves the current position. For ``set_gripper``, zero also opens.
+The outer bridge enforces the frozen action budget regardless of recipe checks.
+Before adding a success claim, preserve the release, evaluator result, action
+trace, initialization settings and video evidence for the exact task/layout.
+
+Offline checks
+~~~~~~~~~~~~~~
+
+.. code-block:: bash
+
+   uv pip install -e ".[test]"
+   pytest tests/unit_tests/robots/robodojo -v
+   ruff check --preview robots/robodojo tests/unit_tests/robots/robodojo
+
+These CPU tests cover source freezing, reward filtering, single-attempt claims,
+worker/evaluator ordering and environment adapters with fakes. They do not
+start Isaac Sim or establish GPU rollout success.
