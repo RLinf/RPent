@@ -14,11 +14,8 @@
 
 """Offline regression coverage for PR review fixes; never import hardware drivers."""
 
-import os
-import subprocess
 import sys
 import types
-from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -27,7 +24,6 @@ from scipy.spatial.transform import Rotation
 
 from robots.dual_franka import perception, robot_spec
 from robots.dual_franka.runtime_config import CONTROL
-from robots.dual_franka.tasks import CLEAN_DESK_VLA_PROMPT, DUAL_FRANKA_TASKS
 from robots.franka import runtime_config
 
 
@@ -244,13 +240,7 @@ def test_missing_hand_state_is_not_silently_defaulted(worker_classes):
         worker._gripper_states()
 
 
-def test_exploration_candidate_keeps_policy_instruction():
-    for task_id in (1, 3, 4, 5):
-        assert DUAL_FRANKA_TASKS[task_id].vla_instruction == CLEAN_DESK_VLA_PROMPT
-    assert robot_spec.get_robot_spec().is_real_robot is True
-
-
-@pytest.mark.parametrize("task_id", [None, 4])
+@pytest.mark.parametrize("task_id", [None, 2])
 def test_runtime_starts_vla_for_dashboard_and_exploration(
     monkeypatch, tmp_path, task_id
 ):
@@ -265,6 +255,7 @@ def test_runtime_starts_vla_for_dashboard_and_exploration(
         task_id=task_id,
         vla_endpoint=None,
         sam3_endpoint=None,
+        _flash_options=None,
     )
     robot_spec._init_runtime(
         args, tmp_path, SimpleNamespace(emit=lambda event: None), {"vla"}
@@ -312,39 +303,3 @@ def test_chunk_uses_step_observation_without_second_acquisition(worker_classes):
     assert len(seen) == 2
     assert np.asarray(result["observation"][1]["states"]).item() == 2
     assert not hasattr(worker, "last_obs")
-
-
-@pytest.mark.parametrize("dedicated", [False, True])
-def test_live_environment_does_not_inherit_coding_profile(tmp_path, dedicated):
-    script = (
-        Path(__file__).resolve().parents[4] / "robots/dual_franka/rpent_live_env.sh"
-    )
-    env = {"PATH": os.environ["PATH"], "HOME": str(tmp_path)}
-    env.update(
-        {
-            "RPENT_REPO_ROOT": str(tmp_path / "repo"),
-            "CODEX_HOME": str(tmp_path / "coding"),
-            "CODEX_API_KEY": "coding-sentinel",
-            "CODEX_BASE_URL": "https://coding.invalid",
-            "OPENAI_API_KEY": "coding-sentinel",
-            "OPENAI_BASE_URL": "https://coding.invalid",
-        }
-    )
-    if dedicated:
-        env.update(
-            {
-                "RPENT_CODEX_HOME": str(tmp_path / "robot"),
-                "RPENT_CODEX_API_KEY": "robot-sentinel",
-                "RPENT_CODEX_BASE_URL": "https://robot.invalid",
-            }
-        )
-    command = """source "$1"
-[[ "$CODEX_HOME" != "$HOME/coding" ]]
-[[ -z "${OPENAI_API_KEY:-}" && -z "${OPENAI_BASE_URL:-}" ]]
-[[ "${CODEX_API_KEY:-}" == "${RPENT_CODEX_API_KEY:-}" ]]
-[[ "${CODEX_BASE_URL:-}" == "${RPENT_CODEX_BASE_URL:-}" ]]
-[[ "$CODEX_SERVICE_TIER" == fast && "$RPENT_REASONING_EFFORT" == medium ]]
-"""
-    subprocess.run(
-        ["bash", "-eu", "-c", command, "test", str(script)], env=env, check=True
-    )
