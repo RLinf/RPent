@@ -72,7 +72,7 @@ These options control the planner, memory, output directory, and Dashboard.
    * - ``--explore``
      - ``false``
      - Enable exploration on supported environments.
-   * - ``--interactive``, ``-i``
+   * - ``--tui``, ``-i``
      - ``false``
      - Enter instructions in the terminal; see :ref:`terminal-interaction`.
    * - ``--dashboard``

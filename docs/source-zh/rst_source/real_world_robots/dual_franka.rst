@@ -383,8 +383,8 @@ RLinf 按配置的节点创建相机句柄，不会跨节点搜索被移动的 U
 在同一条命令中按需追加参数：
 
 * ``--explore``：探索并积累任务记忆，见下文。
-* ``--explore --interactive``：探索时在终端输入反馈；普通任务不支持单独使用 ``--interactive``。
-* ``--dashboard``：通过网页输入框提交任务、消息和确认；探索时同时加 ``--explore``。不能与 ``--interactive`` 同用。界面操作见 :doc:`../guides/dashboard`。
+* ``--explore --tui``：探索时在终端输入反馈；普通任务不支持单独使用 ``--tui``。
+* ``--dashboard``：通过网页输入框提交任务、消息和确认；探索时同时加 ``--explore``。不能与 ``--tui`` 同用。界面操作见 :doc:`../guides/dashboard`。
 
 查看结果
 --------
@@ -406,13 +406,13 @@ RLinf 按配置的节点创建相机句柄，不会跨节点搜索被移动的 U
 探索模式（人工复位与判定）
 --------------------------
 
-在任务运行命令后追加 ``--explore``，即可启用探索模式。``--explore-attempts-per-session`` 设置每个规划器会话的尝试次数，``--explore-sessions`` 设置会话数；终端交互再加 ``--interactive``，网页交互改用 ``--dashboard``。
+在任务运行命令后追加 ``--explore``，即可启用探索模式。``--explore-attempts-per-session`` 设置每个规划器会话的尝试次数，``--explore-sessions`` 设置会话数；终端交互再加 ``--tui``，网页交互改用 ``--dashboard``。
 
 每个规划器会话先通过 ``request_scene_reset`` 请求场景确认。处理夹持物体、恢复场景后回复 ``done``；机器人复位成功并取得相机和状态观测后开始一次尝试，复位失败时不允许运动。``--explore-attempts-per-session`` 限制每个会话的尝试次数。普通任务和探索模式通过 ``--env-endpoint`` 接入的外部服务都必须声明 ``explicit_reset_only=True``。
 
 ``request_operator_verdict`` 请求 ``success``、``failure``、``continue`` 或 ``abort``，可附备注。其中 success/failure 答复判定当前尝试，``continue`` 继续尝试，``abort`` 停止探索。后续运动会清除先前判定；关闭终端输入也会停止探索。
 
-使用 Codex/Claude 并加 ``--interactive`` 时，确认回复使用显示的请求 ID，例如 ``/operator <request-id> done`` 或 ``/operator <request-id> success 物体已提起``；普通消息发送给智能体。不加 ``--interactive`` 时直接按提示答复；使用 ``--dashboard`` 时在 Dashboard 消息输入框中输入下述命令。
+使用 Codex/Claude 并加 ``--tui`` 时，确认回复使用显示的请求 ID，例如 ``/operator <request-id> done`` 或 ``/operator <request-id> success 物体已提起``；普通消息发送给智能体。不加 ``--tui`` 时直接按提示答复；使用 ``--dashboard`` 时在 Dashboard 消息输入框中输入下述命令。
 
 日志与记忆
 ~~~~~~~~~~
@@ -424,7 +424,7 @@ RLinf 按配置的节点创建相机句柄，不会跨节点搜索被移动的 U
 探索命令
 ~~~~~~~~
 
-在 Codex/Claude 终端交互（``--explore --interactive``）或 Dashboard 探索中，可使用：
+在 Codex/Claude 终端交互（``--explore --tui``）或 Dashboard 探索中，可使用：
 
 * ``/success`` 或 ``/failure``：结束整个任务，而不只是判定当前尝试。成功要求场景已确认且复位成功；终端中可在首次复位前用 ``/failure`` 结束任务，Dashboard 中则需先用 ``/done`` 或 ``/abort`` 回答待处理的复位请求。
 * ``/done``：确认待处理的场景复位请求。

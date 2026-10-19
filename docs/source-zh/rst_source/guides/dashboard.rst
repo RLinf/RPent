@@ -8,12 +8,12 @@
 终端交互（TUI）
 ---------------
 
-在任务命令中添加 ``--interactive`` 或 ``-i``，即可在终端输入指令。请使用支持交互输入的终端（TTY）。
+在任务命令中添加 ``--tui`` 或 ``-i``，即可在终端输入指令。请使用支持交互输入的终端（TTY）。
 
 .. code-block:: bash
 
    rpent --robot libero --suite libero_10_task --task 0 --seed 1 \
-     --planner claude_code --model claude-opus-4-8 --interactive
+     --planner claude_code --model claude-opus-4-8 --tui
 
 使用 ``claude_code`` 或 ``codex`` 时，首次输入会预填任务指令，可编辑后按 Enter 提交，也可直接提交。运行中输入消息可指导智能体：Claude Code 会先中断当前轮次再接收消息，Codex 则在当前轮次中接收消息并调整后续操作。输入 ``/help`` 查看命令，输入 ``/quit``、``/exit`` 或 ``/q`` 结束会话。
 
@@ -22,9 +22,9 @@
 .. code-block:: bash
 
    rpent --robot libero --suite libero_10_task --task 0 --seed 1 \
-     --planner api --model anthropic:claude-opus-4-8 --interactive
+     --planner api --model anthropic:claude-opus-4-8 --tui
 
-模型认证配置见 :doc:`configure_planner`。``--interactive`` 不能与 ``--dashboard`` 同时使用。真机配置及人工确认方式见 :doc:`../real_world_robots/franka` 和 :doc:`../real_world_robots/dual_franka`。
+模型认证配置见 :doc:`configure_planner`。``--tui`` 不能与 ``--dashboard`` 同时使用。真机配置及人工确认方式见 :doc:`../real_world_robots/franka` 和 :doc:`../real_world_robots/dual_franka`。
 
 .. _dashboard-usage:
 
@@ -51,7 +51,7 @@ Session 配置全部来自命令行，打开地址后会直接进入实时监控
 
 每个 TaskRun 使用独立环境，VLA 和 SAM3 服务由 Session 复用。可通过新的 ``/rpent-task`` 启动或切换任务；运行中也可以发送消息引导智能体，并按 Esc 请求中断。在终端按 Ctrl+C 可结束 Session。
 
-``--dashboard`` 不能与 ``--interactive`` 或 ``--env-endpoint`` 同时使用；外部 ``--vla-endpoint`` 和 ``--sam3-endpoint`` 服务仍然可用。使用 ``--dashboard-language zh-cn`` 可切换中文 UI。
+``--dashboard`` 不能与 ``--tui`` 或 ``--env-endpoint`` 同时使用；外部 ``--vla-endpoint`` 和 ``--sam3-endpoint`` 服务仍然可用。使用 ``--dashboard-language zh-cn`` 可切换中文 UI。
 
 查看结果与结束会话
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~

@@ -11,13 +11,13 @@ environment guides first.
 Terminal Interaction (TUI)
 --------------------------
 
-Add ``--interactive`` (``-i``) to a task command to enter instructions in the
+Add ``--tui`` (``-i``) to a task command to enter instructions in the
 terminal. Use a terminal with interactive input (TTY).
 
 .. code-block:: bash
 
    rpent --robot libero --suite libero_10_task --task 0 --seed 1 \
-     --planner claude_code --model claude-opus-4-8 --interactive
+     --planner claude_code --model claude-opus-4-8 --tui
 
 With ``claude_code`` or ``codex``, the first prompt contains the task
 instruction. Edit it or submit it with Enter. During execution, type a message
@@ -32,10 +32,10 @@ conversation history. Use ``/exit`` to close it. For example:
 .. code-block:: bash
 
    rpent --robot libero --suite libero_10_task --task 0 --seed 1 \
-     --planner api --model anthropic:claude-opus-4-8 --interactive
+     --planner api --model anthropic:claude-opus-4-8 --tui
 
 Configure credentials as described in :doc:`configure_planner`.
-``--interactive`` and ``--dashboard`` cannot be used together.
+``--tui`` and ``--dashboard`` cannot be used together.
 For physical robot setup and human confirmation, see the
 :doc:`../real_world_robots/franka` and :doc:`../real_world_robots/dual_franka` guides.
 
@@ -71,7 +71,7 @@ reused by the Session. Submit a new ``/rpent-task`` to start or switch tasks;
 during a run, normal messages steer the agent and Esc requests an interruption.
 Press Ctrl+C in the terminal to stop the Session.
 
-``--dashboard`` cannot be combined with ``--interactive`` or
+``--dashboard`` cannot be combined with ``--tui`` or
 ``--env-endpoint``. External ``--vla-endpoint`` and ``--sam3-endpoint``
 services remain supported. Use ``--dashboard-language zh-cn`` for the
 Chinese UI.
