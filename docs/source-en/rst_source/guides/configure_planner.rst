@@ -129,6 +129,11 @@ Notes:
   Authentication normally uses ``ANTHROPIC_API_KEY``. See the
   `Claude Agent SDK docs
   <https://code.claude.com/docs/en/agent-sdk/overview>`_.
+- By default, SDK-driven sessions write their history next to your local
+  Claude Code CLI state. Set ``RPENT_CLAUDE_CONFIG_DIR=/some/dir`` to isolate
+  RPent sessions: the Claude Code child runs with ``CLAUDE_CONFIG_DIR`` pointed
+  at that directory, so RPent session data never mixes with your ``~/.claude``
+  CLI history.
 
 Local Models with Claude Code
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -185,6 +190,10 @@ Notes:
   a custom Responses-compatible endpoint, set ``CODEX_BASE_URL`` and
   ``CODEX_API_KEY``. This backend does not read ``OPENAI_BASE_URL`` or
   ``OPENAI_API_KEY``.
+- By default, SDK-driven sessions reuse your Codex CLI home. Set
+  ``RPENT_CODEX_HOME=/some/dir`` to isolate RPent sessions: the Codex child
+  runs with ``CODEX_HOME`` pointed at that directory, so RPent rollout and
+  config state never mixes with your ``~/.codex`` CLI history.
 
 Local Models with Codex
 ~~~~~~~~~~~~~~~~~~~~~~~

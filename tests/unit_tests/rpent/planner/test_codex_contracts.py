@@ -338,6 +338,24 @@ def test_build_config_scopes_loopback_no_proxy_to_codex_child(
     assert os.environ["no_proxy"] == ".corp.invalid"
 
 
+def test_build_config_isolates_codex_home_when_configured(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("CODEX_HOME", raising=False)
+    monkeypatch.delenv("RPENT_CODEX_HOME", raising=False)
+
+    default_env = codex_module._codex_environment()
+    assert "CODEX_HOME" not in default_env
+
+    isolate_dir = tmp_path / "codex-state"
+    monkeypatch.setenv("RPENT_CODEX_HOME", str(isolate_dir))
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "cli-home"))
+
+    isolated_env = codex_module._codex_environment()
+    assert isolated_env["CODEX_HOME"] == str(isolate_dir)
+
+
 def test_planner_forwards_configured_service_tier(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

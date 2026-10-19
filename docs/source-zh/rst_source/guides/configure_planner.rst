@@ -98,6 +98,7 @@ RPent 为 Claude 规划会话关闭文件系统配置来源，因此不会自动
 - 非交互运行受 ``--planner-timeout-s`` 限制；默认读取 ``CELL_TIMEOUT_S``，未设置时为 ``1200`` 秒。``--interactive`` 模式不应用这一时限。
 - 通过 ``--claude-code-max-budget-usd`` 设置美元预算（默认取 ``MAX_BUDGET_USD`` 环境变量或 ``10``）。
 - RPent 的依赖中已包含 Claude Agent SDK；该 SDK 自带 Claude Code 二进制文件，无需单独安装 CLI。认证通常使用 ``ANTHROPIC_API_KEY``，详见 `Claude Agent SDK 文档 <https://code.claude.com/docs/en/agent-sdk/overview>`_。
+- 默认情况下，SDK 会话历史与本地 Claude Code CLI 状态存放在同一目录。设置 ``RPENT_CLAUDE_CONFIG_DIR=/some/dir`` 可实现会话隔离：Claude Code 子进程的 ``CLAUDE_CONFIG_DIR`` 将指向该目录，RPent 的会话数据不会混入 ``~/.claude`` 的 CLI 历史。
 
 通过 Claude Code 使用本地模型
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -136,6 +137,7 @@ Codex 规划会话不会自动加载仓库的 ``AGENTS.md`` 和 ``.agents/skills
 - ``--model`` 会覆盖 ``CODEX_MODEL``；两者都未设置时使用 Codex SDK 配置的默认模型。
 - ``--planner-timeout-s`` 限制 Codex 运行时间。默认依次读取 ``CODEX_TIMEOUT_S``、``CELL_TIMEOUT_S``，均未设置时为 ``1200`` 秒。
 - 默认情况下，Codex SDK 会复用已有的 Codex 认证。若要接入自定义的 Responses API 兼容端点，请设置 ``CODEX_BASE_URL`` 和 ``CODEX_API_KEY``；这里不读取 ``OPENAI_BASE_URL`` 或 ``OPENAI_API_KEY``。
+- 默认情况下，SDK 会话复用你的 Codex CLI home。设置 ``RPENT_CODEX_HOME=/some/dir`` 可实现会话隔离：Codex 子进程的 ``CODEX_HOME`` 将指向该目录，RPent 的 rollout 与配置状态不会混入 ``~/.codex`` 的 CLI 历史。
 
 通过 Codex 使用本地模型
 ~~~~~~~~~~~~~~~~~~~~~~~~
