@@ -59,10 +59,15 @@ def _image_b64(payload: bytes = b"image-bytes") -> str:
 
 
 def test_parse_molmo2_point() -> None:
-    assert _parse_point('<points coords="1 125 875"/>') == (125.0, 875.0)
+    assert _parse_point('<points coords="1 1 399 756"/>') == (399.0, 756.0)
+    assert _parse_point('<points coords="1 399 756"/>') == (399.0, 756.0)
 
 
 def test_parse_first_of_multiple_points() -> None:
+    assert _parse_point('<points coords="1 1 125 875; 2 500 600"/>') == (
+        125.0,
+        875.0,
+    )
     assert _parse_point('<points coords="1 125 875; 2 500 600"/>') == (
         125.0,
         875.0,
@@ -71,7 +76,9 @@ def test_parse_first_of_multiple_points() -> None:
 
 def test_reject_invalid_or_out_of_range_point() -> None:
     assert _parse_point("This isn't in the image.") is None
-    assert _parse_point('<points coords="1 1001 200"/>') is None
+    assert _parse_point('<points coords="1 1 1001 200"/>') is None
+    assert _parse_point('<points coords="1 1 399"/>') is None
+    assert _parse_point('<points coords="1 399"/>') is None
 
 
 def test_molmo_ground_is_a_readonly_namespaced_rpc() -> None:
