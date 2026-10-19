@@ -70,7 +70,7 @@ html[data-theme="dark"] img.rpent-home-logo {
   vertical-align: middle;
 }
 .bd-article table.rpent-release-results th {
-  text-align: center;
+  text-align: right;
   white-space: nowrap;
 }
 .bd-article table.rpent-release-results td {
@@ -79,7 +79,10 @@ html[data-theme="dark"] img.rpent-home-logo {
 }
 .bd-article table.rpent-release-results th:first-child,
 .bd-article table.rpent-release-results td:first-child,
+.bd-article table.rpent-memory-results th:nth-child(2),
 .bd-article table.rpent-memory-results td:nth-child(2),
+.bd-article table.rpent-demo-results th:nth-child(2),
+.bd-article table.rpent-demo-results th:nth-child(3),
 .bd-article table.rpent-demo-results td:nth-child(2),
 .bd-article table.rpent-demo-results td:nth-child(3) {
   text-align: left;

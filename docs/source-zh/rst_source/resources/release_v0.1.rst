@@ -20,7 +20,7 @@ Highlights
 仿真评测
 ~~~~~~~~~~~~
 
-- **多仿真环境评测与公开榜单**\ ：使用 GPT-6 Astra 的 RPent 在 LIBERO-PRO、RoboCasa365 Target50 上分别达到 92.63%、59.20% 成功率；使用 GPT-5.5 的 RPent 在 RoboTwin C2R 上达到 62.4%。公开榜单提供评测配置、成功率、耗时与 Token 开销数据。 :doc:`Leaderboard </rst_source/leaderboard/index>`
+- **多仿真环境评测与公开榜单**\ ：使用 GPT-6 Astra 的 RPent 在 LIBERO-PRO（low reasoning）、RoboCasa365 Target50（high reasoning）上分别达到 92.63%、59.20% 成功率；使用 GPT-5.5 的 RPent 在 RoboTwin C2R 上达到 62.4%。公开榜单提供评测配置、成功率、耗时与 Token 开销数据。 :doc:`Leaderboard </rst_source/leaderboard/index>`
 
 系统设计
 ~~~~~~~~~~~~
@@ -34,7 +34,7 @@ Memory 设计
 
 - **积累与复用任务经验**\ ：探索模式积累经验，评测模式只读复用分层保存的通用经验、任务策略和执行记录。 :doc:`Memory </rst_source/development/memory>`
 
-- **用任务卡加快执行**\ ：Flash Mode 将成功流程整理为任务卡，根据当前视觉定位更新动作目标，减少逐步规划开销。在 LIBERO-PRO 的 800 回合评测中，成功率为 **72.63%**\ ，平均耗时 **60.19 秒**\ ，较 Codex + GPT-6 Astra（low reasoning）实现约 **6.8 倍加速**\ 。 :doc:`Flash Mode </rst_source/guides/flash>` ｜ :doc:`评测数据 </rst_source/leaderboard/time-token-costs>`
+- **用任务卡加快执行**\ ：Flash Mode 将成功流程整理为任务卡，根据当前视觉定位更新动作目标，减少逐步规划开销。在 LIBERO-PRO 的 800 回合评测中，成功率为 **72.63%**\ ，平均耗时 **60.19 秒**\ ，较 Codex + GPT-6 Astra（low reasoning）实现约 **6.8 倍加速**\ 。该评测使用官方公开的 GPT-5.5 探索记忆，成绩采用 seed 0–9 中的最佳评测结果。 :doc:`Flash Mode </rst_source/guides/flash>` ｜ :doc:`评测数据 </rst_source/leaderboard/time-token-costs>`
 
 论文
 ~~~~~~~~~~~~
@@ -273,58 +273,58 @@ RPent v0.1 在 LIBERO-PRO、RoboCasa365 和 RoboTwin 上完成 180 回合发布�
      - 5
      - 10
      - 50%
-     - 2,619.00
-     - 5,045,290.00
-     - 20,661.00
+     - 261.97
+     - 504,529.00
+     - 2,066.10
    * - Atomic · NavigateKitchen
      - 10
      - 10
      - 100%
-     - 865.00
-     - 1,543,681.00
-     - 8,544.00
+     - 86.55
+     - 154,368.10
+     - 854.40
    * - Atomic · PickPlaceCounterToCabinet
      - 8
      - 10
      - 80%
-     - 1,866.00
-     - 3,185,890.00
-     - 15,372.00
+     - 186.62
+     - 318,589.00
+     - 1,537.20
    * - Composite-Seen · PrepareCoffee
      - 0
      - 5
      - 0%
-     - 3,485.00
-     - 6,593,509.00
-     - 20,575.00
+     - 697.10
+     - 1,318,701.80
+     - 4,115.00
    * - Composite-Seen · LoadDishwasher
      - 1
      - 5
      - 20%
-     - 2,713.00
-     - 4,494,342.00
-     - 14,324.00
+     - 542.68
+     - 898,868.40
+     - 2,864.80
    * - Composite-Unseen · RecycleBottlesByType
      - 0
      - 5
      - 0%
-     - 3,926.00
-     - 9,632,717.00
-     - 23,379.00
+     - 785.30
+     - 1,926,543.40
+     - 4,675.80
    * - Composite-Unseen · GatherTableware
      - 0
      - 5
      - 0%
-     - 2,024.00
-     - 3,476,059.00
-     - 12,749.00
+     - 404.88
+     - 695,211.80
+     - 2,549.80
    * - **汇总**
      - **24**
      - **50**
      - **48.00%**
-     - **2,284.80**
-     - **4,374,634.90**
-     - **16,018.10**
+     - **350.02**
+     - **679,429.76**
+     - **2,312.08**
 
 1.3 RoboTwin
 ^^^^^^^^^^^^^^^^^^^^^^^^

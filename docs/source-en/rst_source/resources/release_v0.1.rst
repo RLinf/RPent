@@ -30,8 +30,8 @@ Simulation Benchmarks
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 - **Multi-environment evaluation and a public leaderboard**: RPent with GPT-6 Astra achieves success
-  rates of 92.63% on LIBERO-PRO and 59.20% on RoboCasa365 Target50. RPent with GPT-5.5 achieves
-  62.4% on RoboTwin C2R. The leaderboard includes evaluation configurations, success rates, runtime,
+  rates of 92.63% on LIBERO-PRO (low reasoning) and 59.20% on RoboCasa365 Target50 (high reasoning).
+  RPent with GPT-5.5 achieves 62.4% on RoboTwin C2R. The leaderboard includes evaluation configurations, success rates, runtime,
   and token usage. :doc:`Leaderboard </rst_source/leaderboard/index>`
 
 System Design
@@ -55,6 +55,8 @@ Memory
   updates action targets using current visual observations, reducing step-by-step planning overhead.
   Across 800 LIBERO-PRO episodes, it achieves a **\ 72.63%** success rate with an average runtime of
   **\ 60.19 seconds**, approximately **\ 6.8× faster** than Codex + GPT-6 Astra (low reasoning).
+  It uses the officially released GPT-5.5 exploration memory; the reported scores are the best
+  evaluation results from seeds 0–9.
   :doc:`Flash Mode </rst_source/guides/flash>` | :doc:`Evaluation data
   </rst_source/leaderboard/time-token-costs>`
 
@@ -359,58 +361,58 @@ tasks use seeds 1 through 5, for 50 episodes.
      - 5
      - 10
      - 50%
-     - 2,619.00
-     - 5,045,290.00
-     - 20,661.00
+     - 261.97
+     - 504,529.00
+     - 2,066.10
    * - Atomic · NavigateKitchen
      - 10
      - 10
      - 100%
-     - 865.00
-     - 1,543,681.00
-     - 8,544.00
+     - 86.55
+     - 154,368.10
+     - 854.40
    * - Atomic · PickPlaceCounterToCabinet
      - 8
      - 10
      - 80%
-     - 1,866.00
-     - 3,185,890.00
-     - 15,372.00
+     - 186.62
+     - 318,589.00
+     - 1,537.20
    * - Composite-Seen · PrepareCoffee
      - 0
      - 5
      - 0%
-     - 3,485.00
-     - 6,593,509.00
-     - 20,575.00
+     - 697.10
+     - 1,318,701.80
+     - 4,115.00
    * - Composite-Seen · LoadDishwasher
      - 1
      - 5
      - 20%
-     - 2,713.00
-     - 4,494,342.00
-     - 14,324.00
+     - 542.68
+     - 898,868.40
+     - 2,864.80
    * - Composite-Unseen · RecycleBottlesByType
      - 0
      - 5
      - 0%
-     - 3,926.00
-     - 9,632,717.00
-     - 23,379.00
+     - 785.30
+     - 1,926,543.40
+     - 4,675.80
    * - Composite-Unseen · GatherTableware
      - 0
      - 5
      - 0%
-     - 2,024.00
-     - 3,476,059.00
-     - 12,749.00
+     - 404.88
+     - 695,211.80
+     - 2,549.80
    * - **Total**
      - **24**
      - **50**
      - **48.00%**
-     - **2,284.80**
-     - **4,374,634.90**
-     - **16,018.10**
+     - **350.02**
+     - **679,429.76**
+     - **2,312.08**
 
 1.3 RoboTwin
 ^^^^^^^^^^^^^^^^^^^^^^^^
