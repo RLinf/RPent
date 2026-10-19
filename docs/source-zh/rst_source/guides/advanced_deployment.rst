@@ -79,6 +79,9 @@ LIBERO 适配器使用两个相机视角、五次 flow step 和十步预测 hori
 输入三个视角，返回 30 步绝对 qpos14 动作；现有 YAM 工具每次执行前五步。
 切换时需同时修改 ``--embodiment``、模型和统计文件路径。
 状态和动作转换由 APXInf-robo 负责。
+模型目录必须采用 APXInf 支持的 checkpoint 布局和权重命名。
+适配器不会加载或自动转换原始 RLinf ``actor/model_state_dict/full_weights.pt``
+目录；使用真机路径前，还需验证权重导出及数值一致性。
 
 比较后端时应记录 APXInf、APXInf-robo 和 RPent 的提交版本、checkpoint、tokenizer 及统计文件。
 endpoint 健康检查不能证明推理质量或任务成功率。
