@@ -189,6 +189,7 @@ RPent v0.1 was validated with 180 release-version episodes, 180 sampled paper-re
 and 15 memory-reuse episodes across LIBERO-PRO, RoboCasa365, and RoboTwin, plus three real-world
 tasks on Dual Franka and YAM.
 
+One execution of a task with a specified seed counts as one episode.
 Simulation tasks use each environment's native success criterion. Failures and timeouts count toward
 the total episode count. Success rates are the proportion of successful episodes. Runtime and token
 usage for release-version and paper-reproduction tests are per-episode averages; aggregates are
