@@ -207,15 +207,16 @@ LIBERO-10. Each suite includes two selected tasks, each run with seeds 1 through
 
 .. list-table::
    :header-rows: 1
+   :class: rpent-release-results
 
 
    * - Suite and Task
-     - Successful Episodes
+     - Succeeded
      - Episodes
      - Success Rate
-     - Mean Time (s)
-     - Mean Input Tokens
-     - Mean Output Tokens
+     - Time (s)
+     - Input Tokens
+     - Output Tokens
    * - libero_spatial_task · task 0
      - 5
      - 5
@@ -344,15 +345,16 @@ tasks use seeds 1 through 5, for 50 episodes.
 
 .. list-table::
    :header-rows: 1
+   :class: rpent-release-results
 
 
    * - Suite and Task
-     - Successful Episodes
+     - Succeeded
      - Episodes
      - Success Rate
-     - Mean Time (s)
-     - Mean Input Tokens
-     - Mean Output Tokens
+     - Time (s)
+     - Input Tokens
+     - Output Tokens
    * - Atomic · OpenDrawer
      - 5
      - 10
@@ -418,15 +420,16 @@ scene seeds per task, for 50 episodes.
 
 .. list-table::
    :header-rows: 1
+   :class: rpent-release-results
 
 
    * - Suite and Task
-     - Successful Episodes
+     - Succeeded
      - Episodes
      - Success Rate
-     - Mean Time (s)
-     - Mean Input Tokens
-     - Mean Output Tokens
+     - Time (s)
+     - Input Tokens
+     - Output Tokens
    * - adjust_bottle
      - 4
      - 5
@@ -518,16 +521,17 @@ LIBERO-PRO and RoboCasa365 explore with seed 0 and test with seeds 1 through 5. 
 
 .. list-table::
    :header-rows: 1
+   :class: rpent-release-results rpent-memory-results
 
 
    * - Environment and Task
      - Workflow
-     - Successful Episodes
+     - Succeeded
      - Episodes
      - Success Rate
-     - Exploration Time (s)
-     - Exploration Input Tokens
-     - Exploration Output Tokens
+     - Time (s)
+     - Input Tokens
+     - Output Tokens
    * - LIBERO-PRO · libero_object_swap · task 0
      - Passed
      - 5
@@ -571,15 +575,16 @@ setup and run guide </rst_source/simulators/libero>`
 
 .. list-table::
    :header-rows: 1
+   :class: rpent-release-results
 
 
    * - Suite and Task
-     - Successful Episodes
+     - Succeeded
      - Episodes
      - Success Rate
-     - Mean Time (s)
-     - Mean Input Tokens
-     - Mean Output Tokens
+     - Time (s)
+     - Input Tokens
+     - Output Tokens
    * - libero_spatial_task · task 0
      - 4
      - 5
@@ -708,15 +713,16 @@ run guide <reproduce-target50>`
 
 .. list-table::
    :header-rows: 1
+   :class: rpent-release-results
 
 
    * - Suite and Task
-     - Successful Episodes
+     - Succeeded
      - Episodes
      - Success Rate
-     - Mean Time (s)
-     - Mean Input Tokens
-     - Mean Output Tokens
+     - Time (s)
+     - Input Tokens
+     - Output Tokens
    * - OpenDrawer
      - 8
      - 10
@@ -782,15 +788,16 @@ Planner: Codex + GPT-5.5 (xhigh). VLA: LingBot-VLA. Ten tasks, 50 episodes, in `
 
 .. list-table::
    :header-rows: 1
+   :class: rpent-release-results
 
 
    * - Suite and Task
-     - Successful Episodes
+     - Succeeded
      - Episodes
      - Success Rate
-     - Mean Time (s)
-     - Mean Input Tokens
-     - Mean Output Tokens
+     - Time (s)
+     - Input Tokens
+     - Output Tokens
    * - adjust_bottle
      - 5
      - 5
@@ -881,6 +888,7 @@ refer to a single successful execution of each task.
 
 .. list-table::
    :header-rows: 1
+   :class: rpent-release-results rpent-demo-results
 
 
    * - Platform and Task

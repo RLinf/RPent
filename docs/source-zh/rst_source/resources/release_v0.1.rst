@@ -122,15 +122,16 @@ RPent v0.1 在 LIBERO-PRO、RoboCasa365 和 RoboTwin 上完成 180 回合发布�
 
 .. list-table::
    :header-rows: 1
+   :class: rpent-release-results
 
 
    * - 套件与任务
-     - 成功回合数
-     - 测试回合数
+     - 成功回合
+     - 测试回合
      - 成功率
-     - 平均耗时（秒）
-     - 平均输入 Token
-     - 平均输出 Token
+     - 耗时（秒）
+     - 输入 Token
+     - 输出 Token
    * - libero_spatial_task · task 0
      - 5
      - 5
@@ -258,15 +259,16 @@ RPent v0.1 在 LIBERO-PRO、RoboCasa365 和 RoboTwin 上完成 180 回合发布�
 
 .. list-table::
    :header-rows: 1
+   :class: rpent-release-results
 
 
    * - 套件与任务
-     - 成功回合数
-     - 测试回合数
+     - 成功回合
+     - 测试回合
      - 成功率
-     - 平均耗时（秒）
-     - 平均输入 Token
-     - 平均输出 Token
+     - 耗时（秒）
+     - 输入 Token
+     - 输出 Token
    * - Atomic · OpenDrawer
      - 5
      - 10
@@ -331,15 +333,16 @@ RPent v0.1 在 LIBERO-PRO、RoboCasa365 和 RoboTwin 上完成 180 回合发布�
 
 .. list-table::
    :header-rows: 1
+   :class: rpent-release-results
 
 
    * - 套件与任务
-     - 成功回合数
-     - 测试回合数
+     - 成功回合
+     - 测试回合
      - 成功率
-     - 平均耗时（秒）
-     - 平均输入 Token
-     - 平均输出 Token
+     - 耗时（秒）
+     - 输入 Token
+     - 输出 Token
    * - adjust_bottle
      - 4
      - 5
@@ -427,16 +430,17 @@ LIBERO-PRO 与 RoboCasa365 使用 seed 0 探索、seed 1 至 seed 5 测试；Rob
 
 .. list-table::
    :header-rows: 1
+   :class: rpent-release-results rpent-memory-results
 
 
    * - 环境与验证任务
      - 流程验证
-     - 成功回合数
-     - 测试回合数
+     - 成功回合
+     - 测试回合
      - 成功率
-     - 探索耗时（秒）
-     - 探索输入 Token
-     - 探索输出 Token
+     - 耗时（秒）
+     - 输入 Token
+     - 输出 Token
    * - LIBERO-PRO · libero_object_swap · task 0
      - 通过
      - 5
@@ -476,15 +480,16 @@ RoboDojo 完成环境安装与 ``put_bottles_into_dustbin`` 单次任务运行�
 
 .. list-table::
    :header-rows: 1
+   :class: rpent-release-results
 
 
    * - 套件与任务
-     - 成功回合数
-     - 测试回合数
+     - 成功回合
+     - 测试回合
      - 成功率
-     - 平均耗时（秒）
-     - 平均输入 Token
-     - 平均输出 Token
+     - 耗时（秒）
+     - 输入 Token
+     - 输出 Token
    * - libero_spatial_task · task 0
      - 4
      - 5
@@ -612,15 +617,16 @@ RoboDojo 完成环境安装与 ``put_bottles_into_dustbin`` 单次任务运行�
 
 .. list-table::
    :header-rows: 1
+   :class: rpent-release-results
 
 
    * - 套件与任务
-     - 成功回合数
-     - 测试回合数
+     - 成功回合
+     - 测试回合
      - 成功率
-     - 平均耗时（秒）
-     - 平均输入 Token
-     - 平均输出 Token
+     - 耗时（秒）
+     - 输入 Token
+     - 输出 Token
    * - OpenDrawer
      - 8
      - 10
@@ -685,15 +691,16 @@ RoboDojo 完成环境安装与 ``put_bottles_into_dustbin`` 单次任务运行�
 
 .. list-table::
    :header-rows: 1
+   :class: rpent-release-results
 
 
    * - 套件与任务
-     - 成功回合数
-     - 测试回合数
+     - 成功回合
+     - 测试回合
      - 成功率
-     - 平均耗时（秒）
-     - 平均输入 Token
-     - 平均输出 Token
+     - 耗时（秒）
+     - 输入 Token
+     - 输出 Token
    * - adjust_bottle
      - 5
      - 5
@@ -781,6 +788,7 @@ RoboDojo 完成环境安装与 ``put_bottles_into_dustbin`` 单次任务运行�
 
 .. list-table::
    :header-rows: 1
+   :class: rpent-release-results rpent-demo-results
 
 
    * - 平台与任务
