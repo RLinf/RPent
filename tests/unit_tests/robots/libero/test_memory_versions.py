@@ -19,6 +19,7 @@ import json
 import sys
 from argparse import Namespace
 from dataclasses import replace
+from pathlib import Path
 from types import SimpleNamespace
 
 import huggingface_hub
@@ -94,10 +95,16 @@ def hub(tmp_path, monkeypatch):
     manifest = snapshot / "libero/manifest.json"
     manifest.write_text(json.dumps({"versions": files}))
     state = SimpleNamespace(
-        sha="a" * 40, calls=[], fail=False, download_fail=False, snapshot=snapshot
+        sha="a" * 40,
+        calls=[],
+        info_calls=[],
+        fail=False,
+        download_fail=False,
+        snapshot=snapshot,
     )
 
     def info(*args, **kwargs):
+        state.info_calls.append({"repo_id": args[0], **kwargs})
         if state.fail:
             raise ConnectionError("offline")
         return SimpleNamespace(
@@ -178,7 +185,14 @@ def test_pinned_cache_extra_global_is_rejected_offline_and_rebuilt_online(
 
 
 @pytest.mark.parametrize("dashboard", [False, True])
-def test_local_version_conflict_fails_before_services(dashboard, monkeypatch, capsys):
+@pytest.mark.parametrize("mode", ["local", "explore"])
+@pytest.mark.parametrize(
+    ("option", "value"),
+    [("--memory-version", ASTRA), ("--memory-repo", "RLinf/RPent-memory@" + "a" * 40)],
+)
+def test_local_version_conflict_fails_before_services(
+    dashboard, mode, option, value, monkeypatch, capsys
+):
     from rpent.cli import dashboard as dashboard_cli
     from rpent.cli import main as run_cli
 
@@ -197,17 +211,21 @@ def test_local_version_conflict_fails_before_services(dashboard, monkeypatch, ca
             "rpent",
             "--robot",
             "libero",
-            "--memory-profile",
-            "local",
-            "--memory-version",
-            ASTRA,
+            *(["--memory-profile", "local"] if mode == "local" else ["--explore"]),
+            option,
+            value,
             *options,
         ],
     )
     with pytest.raises(SystemExit) as exc:
         run_cli.main()
     assert exc.value.code == 2
-    assert "--memory-version requires --memory-profile hf" in capsys.readouterr().err
+    expected = (
+        "--memory-repo requires HF evaluation"
+        if option == "--memory-repo"
+        else "--memory-version requires --memory-profile hf"
+    )
+    assert expected in capsys.readouterr().err
 
 
 def test_download_failure_cannot_leave_a_complete_cache(hub, tmp_path):
@@ -336,7 +354,10 @@ def test_task_model_changes_resolve_root_again_without_changing_effort(
     assert len(hub.calls) == downloaded
 
 
-def test_cli_selects_root_before_planner_or_services(hub, tmp_path, monkeypatch):
+@pytest.mark.parametrize("revision", [None, "a" * 40])
+def test_cli_selects_root_before_planner_or_services(
+    hub, tmp_path, monkeypatch, revision
+):
     from rpent.cli import main as run_cli
 
     monkeypatch.setattr(memory_cli, "get_memory_dir", lambda _: tmp_path / "cache")
@@ -357,6 +378,7 @@ def test_cli_selects_root_before_planner_or_services(hub, tmp_path, monkeypatch)
             "gpt-6-astra",
             "--output-dir",
             str(tmp_path / "run"),
+            *(["--memory-repo", f"RLinf/RPent-memory@{revision}"] if revision else []),
         ],
     )
 
@@ -370,10 +392,12 @@ def test_cli_selects_root_before_planner_or_services(hub, tmp_path, monkeypatch)
     with pytest.raises(RuntimeError, match="selected corpus reached planner"):
         run_cli.main()
     assert len(hub.calls) == 1
+    assert hub.info_calls[-1]["revision"] == (revision or "main")
 
 
+@pytest.mark.parametrize("revision", [None, "a" * 40])
 def test_dashboard_selects_claimed_model_before_task_runtime(
-    hub, tmp_path, monkeypatch
+    hub, tmp_path, monkeypatch, revision
 ):
     from rpent.cli import dashboard
     from rpent.cli import main as run_cli
@@ -392,6 +416,7 @@ def test_dashboard_selects_claimed_model_before_task_runtime(
             "codex",
             "--model",
             "gpt-5.5",
+            *(["--memory-repo", f"RLinf/RPent-memory@{revision}"] if revision else []),
         ]
     )
     configs = []
@@ -429,6 +454,7 @@ def test_dashboard_selects_claimed_model_before_task_runtime(
     assert "stop after verifying selected root" in error
     assert args.model == "gpt-5.5"
     assert len(hub.calls) == 1
+    assert hub.info_calls[-1]["revision"] == (revision or "main")
 
 
 def test_flash_prepares_the_version_with_published_replay_assets(
@@ -436,8 +462,10 @@ def test_flash_prepares_the_version_with_published_replay_assets(
 ):
     monkeypatch.setattr(memory_cli, "get_memory_dir", lambda _: tmp_path / "cache")
     spec = get_robot_spec()
-    args = Namespace(planner="flash", model="gpt-6-astra", memory_version="auto")
-    config = SimpleNamespace(prompt_vars={})
+    args = Namespace(
+        planner="flash", model="gpt-6-astra", memory_version="auto", memory_repo=None
+    )
+    config = SimpleNamespace(prompt_vars={}, output_dir=tmp_path / "run")
     loading.prepare_run_memory(args, spec, config)
     root = config.prompt_vars["memory_dir"]
     assert root.name == GPT5
@@ -460,8 +488,9 @@ def test_flash_prepares_the_version_with_published_replay_assets(
         (["--planner", "api", "--model", "openai:gpt-6-astra"], ASTRA),
     ],
 )
+@pytest.mark.parametrize("revision", [None, "a" * 40])
 def test_sync_and_run_use_same_model_selection(
-    options, expected, monkeypatch, tmp_path
+    options, expected, revision, monkeypatch, tmp_path
 ):
     from rpent.cli import main as run_cli
 
@@ -469,19 +498,25 @@ def test_sync_and_run_use_same_model_selection(
     selected = []
 
     def sync(**kwargs):
-        selected.append(kwargs["version"])
+        selected.append((kwargs["version"], kwargs.get("revision", "main")))
         return tmp_path / kwargs["version"]
 
     monkeypatch.setattr(memory_cli, "sync_version", sync)
-    assert memory_cli.main(["sync", *options]) == 0
+    sync_options = ["--revision", revision] if revision is not None else []
+    run_options = (
+        ["--memory-repo", f"RLinf/RPent-memory@{revision}"]
+        if revision is not None
+        else []
+    )
+    assert memory_cli.main(["sync", *options, *sync_options]) == 0
 
     parser = run_cli._build_argparser()
     get_robot_spec().add_cli_args(parser, use_dashboard=True)
-    args = parser.parse_args(["--robot", "libero", *options])
-    config = SimpleNamespace(prompt_vars={})
+    args = parser.parse_args(["--robot", "libero", *options, *run_options])
+    config = SimpleNamespace(prompt_vars={}, output_dir=tmp_path / "run")
     spec = get_robot_spec()
     loading.prepare_run_memory(args, spec, config)
-    assert selected == [expected, expected]
+    assert selected == [(expected, revision or "main")] * 2
     assert config.prompt_vars["memory_dir"] == tmp_path / expected
     if args.planner == "codex":
         assert args.model == ("gpt-5.5" if "--model" in options else "gpt-6-astra")
@@ -508,3 +543,175 @@ def test_legacy_cache_cannot_bypass_versioned_source_requirement(hub, tmp_path):
     hub.fail = False
     assert sync_version(version=GPT5, cache_dir=cache) == root
     assert len(hub.calls) == 2
+
+
+def test_run_revision_uses_its_own_verified_cache_offline(hub, tmp_path, monkeypatch):
+    monkeypatch.setattr(memory_cli, "get_memory_dir", lambda _: tmp_path / "cache")
+    args = Namespace(
+        planner="api",
+        model="openai:gpt-6-astra",
+        memory_version=ASTRA,
+        memory_repo=f"RLinf/RPent-memory@{hub.sha}",
+    )
+    spec = get_robot_spec()
+    first = SimpleNamespace(prompt_vars={}, output_dir=tmp_path / "run")
+    loading.prepare_run_memory(args, spec, first)
+    first_revision = hub.sha
+
+    hub.sha = "b" * 40
+    args.memory_repo = f"RLinf/RPent-memory@{hub.sha}"
+    second = SimpleNamespace(prompt_vars={}, output_dir=tmp_path / "run")
+    loading.prepare_run_memory(args, spec, second)
+    assert first.prompt_vars["memory_dir"] != second.prompt_vars["memory_dir"]
+
+    hub.fail = True
+    args.memory_repo = f"RLinf/RPent-memory@{first_revision}"
+    replay = SimpleNamespace(prompt_vars={}, output_dir=tmp_path / "run")
+    loading.prepare_run_memory(args, spec, replay)
+    assert replay.prompt_vars["memory_dir"] == first.prompt_vars["memory_dir"]
+
+    args.memory_repo = "RLinf/RPent-memory@" + "c" * 40
+    with pytest.raises(RuntimeError, match="no complete cache"):
+        loading.prepare_run_memory(
+            args, spec, SimpleNamespace(prompt_vars={}, output_dir=tmp_path / "run")
+        )
+
+
+def test_moving_branch_uses_last_verified_snapshot_offline(hub, tmp_path, monkeypatch):
+    options = {"version": ASTRA, "cache_dir": tmp_path / "cache"}
+    first = sync_version(**options)
+    receipt = json.loads((first.parent / f"{ASTRA}.receipt.json").read_text())
+    for name, digest in receipt["files"].items():
+        assert hashlib.sha256((first / name).read_bytes()).hexdigest() == digest
+    hub.sha = "b" * 40
+    second = sync_version(**options)
+    assert second != first
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+    assert sync_version(**options) == second
+
+
+def test_explicit_commit_can_reuse_branch_download_offline_without_a_pin_pointer(
+    hub, tmp_path, monkeypatch
+):
+    root = sync_version(version=ASTRA, cache_dir=tmp_path / "cache")
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+    for revision in (hub.sha, hub.sha.upper()):
+        assert (
+            sync_version(version=ASTRA, revision=revision, cache_dir=tmp_path / "cache")
+            == root
+        )
+    assert len(hub.info_calls) == 1
+
+
+def test_corrupt_pin_pointer_cannot_redirect_an_explicit_commit(
+    hub, tmp_path, monkeypatch
+):
+    cache = tmp_path / "cache"
+    first = sync_version(version=ASTRA, revision=hub.sha, cache_dir=cache)
+    hub.sha = "b" * 40
+    second = sync_version(version=ASTRA, revision=hub.sha, cache_dir=cache)
+    key = hashlib.sha256(f"{'a' * 40}:{ASTRA}".encode()).hexdigest()
+    (first.parents[2] / f"{key}.json").write_text(
+        json.dumps(
+            {"commit": hub.sha, "version": ASTRA, "repo": memory_cli.DEFAULT_REPO}
+        )
+    )
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+    assert sync_version(version=ASTRA, revision="a" * 40, cache_dir=cache) == first
+    assert first != second
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("repo", "other/repo"),
+        ("version", GPT5),
+        ("commit", "../outside"),
+        ("commit", None),
+    ],
+)
+def test_invalid_branch_pointer_is_rejected_offline(
+    hub, tmp_path, monkeypatch, field, value
+):
+    cache = tmp_path / "cache"
+    root = sync_version(version=ASTRA, cache_dir=cache)
+    key = hashlib.sha256(f"main:{ASTRA}".encode()).hexdigest()
+    pointer = root.parents[2] / f"{key}.json"
+    data = json.loads(pointer.read_text())
+    data[field] = value
+    pointer.write_text(json.dumps(data))
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+    with pytest.raises(RuntimeError, match="no complete cache"):
+        sync_version(version=ASTRA, cache_dir=cache)
+
+
+def test_hub_must_resolve_the_requested_immutable_commit(hub, tmp_path):
+    with pytest.raises(ValueError, match="requested memory commit"):
+        sync_version(version=ASTRA, revision="b" * 40, cache_dir=tmp_path / "cache")
+    assert not hub.calls
+
+
+def test_full_commit_is_normalized_for_hub(hub, tmp_path):
+    sync_version(
+        version=ASTRA,
+        revision=hub.sha.upper(),
+        cache_dir=tmp_path / "cache",
+    )
+    assert hub.info_calls[-1]["revision"] == hub.sha
+
+
+def test_changed_export_is_not_published(hub, tmp_path, monkeypatch):
+    copytree = memory_cli.shutil.copytree
+
+    def changed_copy(source, destination, *args, **kwargs):
+        result = copytree(source, destination, *args, **kwargs)
+        index = Path(destination) / "MEMORY.md"
+        if index.exists():
+            index.write_text("modified during copy")
+        return result
+
+    monkeypatch.setattr(memory_cli.shutil, "copytree", changed_copy)
+    output = tmp_path / "export"
+    with pytest.raises(ValueError, match="changed during export"):
+        sync_version(
+            version=ASTRA,
+            cache_dir=tmp_path / "cache",
+            output_dir=output,
+        )
+    assert not output.exists()
+
+
+def test_pinned_url_and_version_keep_corpus_across_model_changes(
+    hub, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(memory_cli, "get_memory_dir", lambda _: tmp_path / "cache")
+    args = Namespace(
+        planner="api",
+        model="openai:gpt-6-astra",
+        memory_version=ASTRA,
+        memory_repo=f"https://huggingface.co/datasets/custom/memory@{hub.sha}",
+    )
+    first = SimpleNamespace(prompt_vars={})
+    memory_cli.prepare_memory(args, first)
+    monkeypatch.setenv("RPENT_MEMORY_HF_REPO", "other/memory")
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+    args.model = "openai:gpt-5.5"
+    second = SimpleNamespace(prompt_vars={})
+    memory_cli.prepare_memory(args, second)
+    assert second.prompt_vars["memory_dir"] == first.prompt_vars["memory_dir"]
+    assert second.prompt_vars["memory_version"] == ASTRA
+    assert (second.prompt_vars["memory_dir"] / "MEMORY.md").read_text() == ASTRA
+
+
+def test_repo_url_revision_flows_into_libero_verifier(hub, tmp_path, monkeypatch):
+    monkeypatch.setattr(memory_cli, "get_memory_dir", lambda _: tmp_path / "cache")
+    args = Namespace(
+        planner="api",
+        model="openai:gpt-6-astra",
+        memory_repo=f"https://huggingface.co/datasets/custom/memory@{hub.sha}",
+    )
+    config = SimpleNamespace(output_dir=tmp_path / "run", prompt_vars={})
+    memory_cli.prepare_memory(args, config)
+    assert config.prompt_vars["memory_dir"].parent.name == hub.sha
+    assert hub.info_calls[-1]["repo_id"] == "custom/memory"
+    assert hub.info_calls[-1]["revision"] == hub.sha

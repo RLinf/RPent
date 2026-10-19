@@ -50,6 +50,7 @@ from rpent.utils.templates import substitute
 
 if TYPE_CHECKING:
     from rpent.session import EnvState, StepRecord
+    from rpent.tools.human_in_the_loop import HumanInTheLoopInput
     from rpent.tools.toolkit import Toolkit, ToolResult
 
 RUNTIME_STATUSES = {"pending", "starting", "ready", "failed"}
@@ -193,7 +194,7 @@ class DashboardState:
         }
         self._primitive_allowlist = dashboard_spec["primitives"]
 
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._condition = threading.Condition(self._lock)
         self._next_model: str | None = None
         self._task_state: str | None = None
@@ -235,6 +236,33 @@ class DashboardState:
         self._manual_results: list[str] = []
         self._explore_paused = False
         self._exploration_message: DashboardMessage | None = None
+        self.operator: HumanInTheLoopInput | None = None
+        self.operator_verdict: str | None = None
+        self.operator_exploration = False
+
+    def operator_changed(self) -> None:
+        with self._condition:
+            self._projection_changed_locked()
+
+    def operator_snapshot(self) -> dict[str, Any]:
+        with self._condition:
+            return {
+                "active": self._toolkit is not None,
+                "pending": self.operator.snapshot() if self.operator else None,
+                "exploration": self.operator_exploration,
+            }
+
+    def _finish_operator_locked(self, verdict: str) -> None:
+        if self._toolkit is None:
+            raise ValueError("no matching active operator task")
+        if not self._toolkit.request_direct_verdict(verdict):
+            raise ValueError("operator verdict refused in current state")
+        self.operator_verdict = verdict
+        self._pending_task = None
+        self._session_state = "switch_pending"
+        self._accepting_input = False
+        self.operator.close()
+        self._interaction_changed_locked()
 
     def bind_toolkit(self, toolkit: Toolkit) -> None:
         """Expose a TaskRun Toolkit through the Dashboard primitive API."""
@@ -250,6 +278,9 @@ class DashboardState:
         with self._condition:
             if self._toolkit is toolkit:
                 self._toolkit = None
+                if self.operator is not None:
+                    self.operator.close()
+                    self.operator = None
                 self._projection_changed_locked()
         toolkit.cancel_active_and_wait()
         with self._condition:
@@ -394,6 +425,17 @@ class DashboardState:
         with self._lock:
             return self._session_state == "switch_pending"
 
+    @property
+    def task_finalization_cancelled(self) -> bool:
+        """Whether replacement, abort or Session closure prevents publication."""
+        with self._lock:
+            return (
+                self._pending_task is not None
+                or self._shutdown_requested
+                or self._session_state == "fatal"
+                or self.operator_verdict == "abort"
+            )
+
     def shared_services_ready(self) -> None:
         """Open the command channel after shared services have started."""
         with self._condition:
@@ -475,7 +517,9 @@ class DashboardState:
                 self._active_primitive_calls.pop(key, None)
                 self._interaction_changed_locked()
 
-    def submit_input(self, text: str) -> DashboardMessage | TaskRequest:
+    def submit_input(
+        self, text: str, *, operator_context=None
+    ) -> DashboardMessage | TaskRequest | None:
         """Route a local task command or a normal conversation message."""
         if not isinstance(text, str) or not text.strip():
             return self._submit_message(text)
@@ -486,6 +530,46 @@ class DashboardState:
                 raise ValueError(guidance)
             self.continue_exploration(explicit=True)
             return {"command": command}
+        with self._condition:
+            if self.operator is not None and command in {
+                "/done",
+                "/continue",
+                "/success",
+                "/failure",
+                "/abort",
+            }:
+                if not isinstance(operator_context, dict):
+                    raise ValueError("operator_context must be an object")
+                if (
+                    operator_context.get("generation") != self._task_generation
+                    or self._session_state == "switch_pending"
+                    or self._toolkit is None
+                ):
+                    raise ValueError("expired operator task")
+                pending = self.operator.snapshot()
+                request_id = pending["id"] if pending else None
+                if operator_context.get("request_id") != request_id:
+                    raise ValueError("expired operator request")
+                if not self.operator_exploration:
+                    if not pending or not (
+                        pending["kind"] == "reset"
+                        and command in {"/done", "/abort"}
+                        or pending["kind"] == "verdict"
+                        and command in {"/success", "/failure", "/continue"}
+                    ):
+                        raise ValueError(
+                            "evaluation accepts only a matching pending reset or verdict reply"
+                        )
+                    self.operator.reply(request_id, command[1:])
+                elif command in {"/success", "/failure", "/abort"}:
+                    if pending and pending["kind"] == "reset" and command != "/abort":
+                        raise ValueError("scene reset is not confirmed")
+                    self._finish_operator_locked(command[1:])
+                else:
+                    self.operator.reply(request_id, command[1:])
+                self._control_feedback = [f"{command} accepted"]
+                self._interaction_changed_locked()
+                return None
         try:
             request = _parse_task(self._task_spec, text)
         except ValueError as exc:
@@ -591,6 +675,12 @@ class DashboardState:
         if state not in TERMINAL_RUN_STATES:
             raise ValueError(f"invalid terminal run state: {state!r}")
         with self._condition:
+            if self.operator_verdict is not None and error is None:
+                state = {
+                    "success": "succeeded",
+                    "failure": "failed",
+                    "abort": "cancelled",
+                }[self.operator_verdict]
             self._task_state = state
             self._error = None if error is None else str(error)
             self._seal_interaction_locked()
@@ -609,6 +699,9 @@ class DashboardState:
         output_dir: Path,
     ) -> None:
         self._current_task = request
+        self.operator = None
+        self.operator_verdict = None
+        self.operator_exploration = False
         self.video_path = output_dir / "episode.mp4"
         self._session_state = "task_starting"
         self._task_state = "starting"
@@ -1083,6 +1176,7 @@ class DashboardState:
             "pending_task": self._command_snapshot(self._pending_task),
             "control_feedback": list(self._control_feedback),
             "control_error": self._control_error,
+            "operator": self.operator_snapshot(),
         }
 
     def _visible_state_locked(self) -> str:

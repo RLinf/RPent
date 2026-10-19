@@ -24,7 +24,7 @@ from typing import Any
 from rpent.evaluation import RunFinalizationContext, write_json_atomic
 
 RESULT_SCHEMA_VERSION = "1.1"
-TARGET50_MANIFEST = Path(__file__).with_name("target50_v2.json")
+TARGET50_MANIFEST = Path(__file__).with_name("target50.json")
 
 
 def _target50_identity(
@@ -49,6 +49,8 @@ def _termination_reason(agent_error: str | None, success: bool) -> str:
         "planner" in lowered or "agent sdk" in lowered or "codex sdk" in lowered
     ):
         return "planner_timeout"
+    if "planner response truncated" in lowered:
+        return "planner_response_truncated"
     return "infrastructure_error"
 
 

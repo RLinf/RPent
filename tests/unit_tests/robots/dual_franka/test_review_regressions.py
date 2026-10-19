@@ -14,11 +14,8 @@
 
 """Offline regression coverage for PR review fixes; never import hardware drivers."""
 
-import os
-import subprocess
 import sys
 import types
-from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -26,7 +23,7 @@ import pytest
 from scipy.spatial.transform import Rotation
 
 from robots.dual_franka import perception, robot_spec
-from robots.dual_franka.tasks import CLEAN_DESK_VLA_PROMPT, DUAL_FRANKA_TASKS
+from robots.dual_franka.runtime_config import CONTROL
 from robots.franka import runtime_config
 
 
@@ -50,16 +47,18 @@ def worker_classes(monkeypatch):
     return single(), dual()
 
 
-@pytest.mark.parametrize("dual", [False, True])
-def test_last_rotation_step_recomputes_error(worker_classes, dual):
+@pytest.mark.parametrize("dual,delta", [(False, 0.1), (True, 0.1), (True, 0)])
+def test_last_rotation_step_recomputes_error(worker_classes, dual, delta):
     cls = worker_classes[int(dual)]
     worker = cls.__new__(cls)
     pose = np.array([0.5, 0, 0.4, 0, 0, 0, 1.0])
-    target = Rotation.from_euler("xyz", [0.1, 0, 0]).as_quat()
+    target = Rotation.from_euler("x", delta).as_quat()
     worker.controller = {
+        "move_tolerance_m": 0.006,
         "rotate_timeout_s": 10,
         "rotate_tolerance_rad": 0.001,
         "rotate_max_step_rad": 1,
+        "rotate_max_drift_m": 0.03,
         "min_iterations": 1,
         "iteration_multiplier": 1,
     }
@@ -67,7 +66,10 @@ def test_last_rotation_step_recomputes_error(worker_classes, dual):
     if dual:
         worker.per_arm_dim = 10
         worker._refresh_robot_state = lambda: None
-        worker._arm_poses = lambda: (pose.copy(), pose.copy())
+        readings = iter(
+            [pose.copy(), np.r_[pose[:3], Rotation.from_euler("x", 0.1).as_quat()]]
+        )
+        worker._arm_poses = lambda: (next(readings, pose.copy()), pose.copy())
         worker._pose_to_world = lambda arm, p: p.copy()
         worker._pose_from_world = lambda arm, p: p.copy()
         worker._hold_action = lambda *args: np.zeros(20)
@@ -76,7 +78,7 @@ def test_last_rotation_step_recomputes_error(worker_classes, dual):
             pose[3:] = target
 
         worker.env = SimpleNamespace(step=step)
-        result = worker.rotate_delta("left", [0.1, 0, 0])
+        result = worker.rotate_delta("left", [delta, 0, 0])
     else:
         worker._raw_tcp_pose = lambda: pose.copy()
 
@@ -84,7 +86,7 @@ def test_last_rotation_step_recomputes_error(worker_classes, dual):
             pose[3:] = target
 
         worker._step_delta = step
-        result = worker.rotate_delta([0.1, 0, 0])
+        result = worker.rotate_delta([delta, 0, 0])
     assert result["steps_used"] == 1
     assert result["ok"]
     assert result["final_error_rad"] < 1e-6
@@ -115,45 +117,130 @@ def test_selected_perception_config(monkeypatch, tmp_path):
     assert perception._load_perception_config()["base_frames"]["marker"] == "custom"
 
 
-def test_joint_reset_waits_for_both_controller_results(worker_classes):
+def test_joint_reset_dispatches_both_arm_resets(worker_classes):
     worker = worker_classes[1].__new__(worker_classes[1])
     waited = []
 
     def controller(arm):
-        def reset_joint(qpos):
-            def wait():
-                waited.append((arm, qpos))
-                return [None]
+        return SimpleNamespace(reset_joint=lambda qpos: waited.append((arm, qpos)))
 
-            return SimpleNamespace(wait=wait)
-
-        return SimpleNamespace(reset_joint=reset_joint)
-
-    raw = SimpleNamespace(
-        _left_ctrl=controller("left"), _right_ctrl=controller("right")
-    )
+    parts = {arm: {"arm": controller(arm)} for arm in ("left", "right")}
+    raw = SimpleNamespace(robot=_robot_with_parts(parts))
     worker._raw_rlinf_env = lambda: raw
     assert worker._reset_both_joints_no_gripper([[1], [2]]) == {
-        "left": [None],
-        "right": [None],
+        "left": None,
+        "right": None,
     }
     assert sorted(waited) == [("left", [1]), ("right", [2])]
 
 
-def test_missing_gripper_state_is_not_silently_defaulted(worker_classes):
+def _robot_with_parts(parts):
+    return SimpleNamespace(
+        child=lambda side: SimpleNamespace(child=parts[side].__getitem__)
+    )
+
+
+@pytest.mark.parametrize(
+    "outcome",
+    [
+        "reached",
+        "lagged",
+        "stalled",
+        "loop_drift",
+        "final_drift",
+        "corrected",
+        "position_failure",
+        "move_failure",
+        "orientation_failure",
+    ],
+)
+def test_rotation_reference_holds_position_and_checks_drift(worker_classes, outcome):
+    worker = object.__new__(worker_classes[1])
+    worker.controller = {
+        **runtime_config.flatten_control(CONTROL),
+        "rotate_max_drift_m": 0.03,
+        "min_iterations": 4,
+        "iteration_multiplier": 1,
+    }
+    poses = np.array([[0.5, 0, 0.4, 0, 0, 0, 1.0]] * 2)
+    worker._refresh_robot_state = lambda: None
+    worker._arm_poses = lambda: tuple(p.copy() for p in poses)
+    worker._pose_to_world = lambda arm, pose: pose.copy()
+    worker._pose_from_world = lambda arm, pose: pose.copy()
+    worker.per_arm_dim = 10
+    commands = []
+    corrections = []
+    needs_correction = outcome in {
+        "corrected",
+        "position_failure",
+        "move_failure",
+        "orientation_failure",
+    }
+
+    def move_delta(arm, delta):
+        assert arm == "left"
+        np.testing.assert_allclose(delta, [0, -0.02, 0])
+        corrections.append(delta.copy())
+        if outcome != "position_failure":
+            poses[0, :3] += delta
+        if outcome == "orientation_failure":
+            poses[0, 3:] = Rotation.identity().as_quat()
+        return {"ok": outcome != "move_failure", "steps_used": 2}
+
+    worker.move_delta = move_delta
+
+    def step(action, *, auto_reset):
+        assert auto_reset is False
+        arms = action.reshape(2, 10)
+        np.testing.assert_allclose(arms[0, :3], [0.5, 0, 0.4])
+        np.testing.assert_allclose(
+            arms[1, :9], np.r_[poses[1, :3], worker._arm_rot6d(poses[1])]
+        )
+        np.testing.assert_array_equal(arms[:, 9], 0)
+        commands.append(float(np.arctan2(arms[0, 8], arms[0, 7])))
+        if (
+            needs_correction
+            or outcome == "reached"
+            or (outcome == "lagged" and len(commands) == 4)
+        ):
+            poses[0, 3:] = Rotation.from_euler("x", 0.33).as_quat()
+        drift = (outcome == "loop_drift" and len(commands) == 1) or (
+            outcome == "final_drift" and len(commands) == 4
+        )
+        poses[0, 1] = 0.04 if drift else (0.02 if needs_correction else 0)
+
+    worker.env = SimpleNamespace(step=step)
+    if outcome.endswith("drift"):
+        with pytest.raises(RuntimeError, match="position drift"):
+            worker.rotate_delta("left", [0.33, 0, 0])
+    else:
+        result = worker.rotate_delta("left", [0.33, 0, 0])
+        assert result["ok"] is (outcome in {"reached", "lagged", "corrected"})
+        assert result["steps_used"] == 4 + 2 * needs_correction
+        np.testing.assert_allclose(result["final_tcp_pose"], poses[0])
+        np.testing.assert_allclose(result["start_tcp_pose"], [0.5, 0, 0.4, 0, 0, 0, 1])
+        assert result["final_error_rad"] == pytest.approx(
+            0.33 if outcome in {"stalled", "orientation_failure"} else 0, abs=1e-6
+        )
+    assert len(corrections) == int(needs_correction)
+    expected = [0.1] if outcome == "loop_drift" else [0.1, 0.2, 0.3, 0.33]
+    assert commands == pytest.approx(expected, abs=1e-6)
+
+
+def test_missing_hand_state_is_not_silently_defaulted(worker_classes):
     worker = worker_classes[1].__new__(worker_classes[1])
-    worker._arm_states = lambda: (SimpleNamespace(), SimpleNamespace())
-    with pytest.raises(AttributeError, match="gripper_open"):
-        worker._current_gripper_commands()
+    raw = SimpleNamespace(
+        config=SimpleNamespace(is_dummy=False),
+        robot=_robot_with_parts(
+            {arm: {"end_effector": SimpleNamespace()} for arm in ("left", "right")}
+        ),
+    )
+    worker._raw_rlinf_env = lambda: raw
+    with pytest.raises(AttributeError, match="is_open"):
+        worker._gripper_states()
 
 
-def test_exploration_candidate_keeps_policy_instruction():
-    for task_id in (1, 3, 4, 5):
-        assert DUAL_FRANKA_TASKS[task_id].vla_instruction == CLEAN_DESK_VLA_PROMPT
-    assert robot_spec.get_robot_spec().is_real_robot is True
-
-
-@pytest.mark.parametrize("task_id", [None, 4])
+@pytest.mark.parametrize("task_id", [None, 2])
 def test_runtime_starts_vla_for_dashboard_and_exploration(
     monkeypatch, tmp_path, task_id
 ):
@@ -168,6 +255,7 @@ def test_runtime_starts_vla_for_dashboard_and_exploration(
         task_id=task_id,
         vla_endpoint=None,
         sam3_endpoint=None,
+        _flash_options=None,
     )
     robot_spec._init_runtime(
         args, tmp_path, SimpleNamespace(emit=lambda event: None), {"vla"}
@@ -215,39 +303,3 @@ def test_chunk_uses_step_observation_without_second_acquisition(worker_classes):
     assert len(seen) == 2
     assert np.asarray(result["observation"][1]["states"]).item() == 2
     assert not hasattr(worker, "last_obs")
-
-
-@pytest.mark.parametrize("dedicated", [False, True])
-def test_live_environment_does_not_inherit_coding_profile(tmp_path, dedicated):
-    script = (
-        Path(__file__).resolve().parents[4] / "robots/dual_franka/rpent_live_env.sh"
-    )
-    env = {"PATH": os.environ["PATH"], "HOME": str(tmp_path)}
-    env.update(
-        {
-            "RPENT_REPO_ROOT": str(tmp_path / "repo"),
-            "CODEX_HOME": str(tmp_path / "coding"),
-            "CODEX_API_KEY": "coding-sentinel",
-            "CODEX_BASE_URL": "https://coding.invalid",
-            "OPENAI_API_KEY": "coding-sentinel",
-            "OPENAI_BASE_URL": "https://coding.invalid",
-        }
-    )
-    if dedicated:
-        env.update(
-            {
-                "RPENT_CODEX_HOME": str(tmp_path / "robot"),
-                "RPENT_CODEX_API_KEY": "robot-sentinel",
-                "RPENT_CODEX_BASE_URL": "https://robot.invalid",
-            }
-        )
-    command = """source "$1"
-[[ "$CODEX_HOME" != "$HOME/coding" ]]
-[[ -z "${OPENAI_API_KEY:-}" && -z "${OPENAI_BASE_URL:-}" ]]
-[[ "${CODEX_API_KEY:-}" == "${RPENT_CODEX_API_KEY:-}" ]]
-[[ "${CODEX_BASE_URL:-}" == "${RPENT_CODEX_BASE_URL:-}" ]]
-[[ "$CODEX_SERVICE_TIER" == fast && "$RPENT_REASONING_EFFORT" == medium ]]
-"""
-    subprocess.run(
-        ["bash", "-eu", "-c", command, "test", str(script)], env=env, check=True
-    )
