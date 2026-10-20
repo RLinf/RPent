@@ -26,7 +26,8 @@ def add_am_device_arg(
     parser.add_argument(
         f"--{kind}-cuda-device",
         metavar="DEVICE",
-        help=f"CUDA_VISIBLE_DEVICES for the local {kind.upper()} worker only; "
+        help=f"CUDA_VISIBLE_DEVICES for the local {kind.upper()} worker; "
+        "may share GPUs with other services; "
         "inherits the environment when omitted. Configure external workers at their own startup.",
     )
 
@@ -34,7 +35,7 @@ def add_am_device_arg(
 def am_device_env(
     args: argparse.Namespace, kind: Literal["vla", "wam"]
 ) -> dict[str, str]:
-    """Set only the selected model's GPU visibility; otherwise inherit it."""
+    """Set the model worker's GPU visibility, or inherit it when unspecified."""
     device = getattr(args, f"{kind}_cuda_device", None)
     return {"CUDA_VISIBLE_DEVICES": str(device)} if device is not None else {}
 

@@ -78,7 +78,7 @@ def test_wam_help_distinguishes_connection_deployment_and_models(robot_name, cap
 @pytest.mark.parametrize(
     "robot_name", ["libero", "robotwin", "robocasa", "robodojo", "dual_franka"]
 )
-@pytest.mark.parametrize("device", ["0", "2,3"])
+@pytest.mark.parametrize("device", ["0", "2", "2,3"])
 def test_local_vla_gpu_override_reaches_worker(
     monkeypatch, tmp_path, robot_name, device
 ):
@@ -141,6 +141,40 @@ def test_local_vla_gpu_override_reaches_worker(
                 assert command[command.index("--cuda-device") + 1] == "2"
         finally:
             rpc.close()
+
+
+@pytest.mark.parametrize("robot_name", ["libero", "robodojo", "dual_franka"])
+@pytest.mark.parametrize("device", [None, 0, 2])
+def test_sam3_gpu_override_reaches_worker(monkeypatch, tmp_path, robot_name, device):
+    module = importlib.import_module(f"robots.{robot_name}.robot_spec")
+    factory = Mock()
+    monkeypatch.setattr(module, "ProcessDaemon", factory)
+    args = _parser(robot_name, dashboard=True).parse_args(
+        [] if device is None else ["--sam3-cuda-device", str(device)]
+    )
+    args.vla_cuda_device = str(device) if device is not None else None
+    args.env_cuda_device = device
+    if robot_name == "dual_franka":
+        monkeypatch.setenv("SAM3_CHECKPOINT_PATH", str(tmp_path / "sam3.pt"))
+    _, rpc = module._spawn_sam3_server(args, tmp_path)
+    try:
+        command = factory.call_args.kwargs["cmd"]
+        assert ("--cuda-device" in command) == (device is not None)
+        if device is not None:
+            assert command[command.index("--cuda-device") + 1] == str(device)
+    finally:
+        rpc.close()
+
+
+@pytest.mark.parametrize(
+    "robot_name", ["libero", "robotwin", "robocasa", "robodojo", "dual_franka"]
+)
+def test_gpu_help_explains_shared_devices(robot_name):
+    parser = _parser(robot_name, dashboard=True)
+    for action in parser._actions:
+        if action.dest.endswith("_cuda_device"):
+            assert "may share GPUs" in action.help
+            assert "only" not in action.help
 
 
 @pytest.mark.parametrize(

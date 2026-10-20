@@ -269,13 +269,15 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         "--env-cuda-device",
         type=int,
         default=None,
-        help="GPU ordinal for the local LIBERO environment only",
+        help="GPU ordinal for the local LIBERO environment; may share GPUs with "
+        "other services. Omit to use the environment service's default.",
     )
     parser.add_argument(
         "--sam3-cuda-device",
         type=int,
         default=None,
-        help="GPU ordinal for the local SAM3 service only",
+        help="GPU ordinal for the local SAM3 service; may share GPUs with other "
+        "services. Omit to inherit CUDA_VISIBLE_DEVICES.",
     )
 
 

@@ -116,7 +116,13 @@ environment, registered in their own ``robot_spec.py``.
 For example, LIBERO's ``--env-cuda-device 0 --vla-cuda-device 1``
 keeps the simulator on GPU 0 and starts Pi0.5 on GPU 1.
 LIBERO, RoboDojo and dual-Franka use ``--sam3-cuda-device`` for local SAM3.
-These settings are independent and affect only locally started services.
+These settings select devices for locally started services and may name the
+same GPU when memory permits. For example,
+``--env-cuda-device 0 --sam3-cuda-device 0 --vla-cuda-device 0`` runs all three
+LIBERO services on GPU 0. For a locally launched WAM backend, replace
+``--vla-cuda-device 0`` with ``--wam-cuda-device 0``. A task selects either VLA
+or WAM. External endpoints use the GPU configuration set when their services
+were started; RPent's device options do not reconfigure them.
 The RPent CLI no longer accepts the shared ``--cuda-device`` option;
 replace it with the options for the services you intend to configure.
 ``--sim-cuda-device`` is not an alias. Standalone service commands retain

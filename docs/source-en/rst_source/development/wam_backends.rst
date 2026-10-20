@@ -308,6 +308,8 @@ requires both ``--fast-wam-config`` and ``--fast-wam-dataset-stats``.
 ``--wam-cuda-device`` selects the worker GPU independently of
 ``--env-cuda-device``. Without a model GPU option, the worker inherits CUDA
 visibility. Environment GPU selection never supplies a model GPU default.
+The services may share a GPU: specify the same device for each service when
+GPU memory permits.
 
 Discovering Options
 -------------------

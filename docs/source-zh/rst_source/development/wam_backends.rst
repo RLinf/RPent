@@ -186,7 +186,7 @@ RoboTwin 使用 ``--platform robotwin``，并更换为对应 checkpoint 和配�
      --fast-wam-dataset-stats /path/to/dataset_stats.json \
      --memory-profile local --planner api --model openai:gpt-5.5
 
-``--wam-endpoint`` 与 ``--wam-checkpoint`` 互斥。Cosmos 需要 ``--wam-root``，也可用 ``COSMOS_POLICY_PYTHON`` 和 ``COSMOS_POLICY_ROOT`` 分别提供 Python 路径和工作目录的默认值。Fast-WAM 必须同时提供 ``--fast-wam-config`` 和 ``--fast-wam-dataset-stats``。``--wam-cuda-device`` 与 ``--env-cuda-device`` 独立；未指定模型 GPU 时，worker 继承 CUDA 可见设备设置，环境 GPU 不会成为模型 GPU 的默认值。
+``--wam-endpoint`` 与 ``--wam-checkpoint`` 互斥。Cosmos 需要 ``--wam-root``，也可用 ``COSMOS_POLICY_PYTHON`` 和 ``COSMOS_POLICY_ROOT`` 分别提供 Python 路径和工作目录的默认值。Fast-WAM 必须同时提供 ``--fast-wam-config`` 和 ``--fast-wam-dataset-stats``。``--wam-cuda-device`` 与 ``--env-cuda-device`` 独立；未指定模型 GPU 时，worker 继承 CUDA 可见设备设置，环境 GPU 不会成为模型 GPU 的默认值。显存允许时，各服务可指定相同设备，共用一张 GPU。
 
 查看可用参数
 ------------

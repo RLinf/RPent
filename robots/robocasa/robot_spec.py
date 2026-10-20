@@ -275,7 +275,8 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         "--env-cuda-device",
         type=int,
         default=None,
-        help="GPU ordinal for the local RoboCasa environment only",
+        help="GPU ordinal for the local RoboCasa environment; may share GPUs with "
+        "other services. Omit to use the environment service's default.",
     )
 
 

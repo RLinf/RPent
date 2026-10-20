@@ -97,7 +97,9 @@ LIBERO 和 RoboTwin 还支持 ``--wam-backend``，配合 ``--wam-endpoint`` 或 
 
 本地模型服务的 ``--vla-cuda-device`` 和 ``--wam-cuda-device`` 均由 ``am_runtime.py`` 注册，未设置时 worker 继承启动环境的 ``CUDA_VISIBLE_DEVICES``。VLA 参数适用于 LIBERO、RoboTwin、RoboCasa、RoboDojo 和 dual-Franka。Franka、YAM 连接外部部署的 VLA 服务，GPU 在部署服务时选择。
 
-LIBERO、RoboTwin、RoboCasa、RoboDojo 统一使用 ``--env-cuda-device`` 选择环境 GPU，由各自的 ``robot_spec.py`` 注册。例如，LIBERO 使用 ``--env-cuda-device 0 --vla-cuda-device 1`` 时，仿真器使用 GPU 0，Pi0.5 使用 GPU 1。LIBERO、RoboDojo 和 dual-Franka 使用 ``--sam3-cuda-device`` 选择本地 SAM3 的 GPU。这些参数相互独立，仅作用于本地启动的服务。
+LIBERO、RoboTwin、RoboCasa、RoboDojo 统一使用 ``--env-cuda-device`` 选择环境 GPU，由各自的 ``robot_spec.py`` 注册。例如，LIBERO 使用 ``--env-cuda-device 0 --vla-cuda-device 1`` 时，仿真器使用 GPU 0，Pi0.5 使用 GPU 1。LIBERO、RoboDojo 和 dual-Franka 使用 ``--sam3-cuda-device`` 选择本地 SAM3 的 GPU。
+
+这些参数为本地启动的对应服务选择设备，显存允许时可指定同一张 GPU。例如，``--env-cuda-device 0 --sam3-cuda-device 0 --vla-cuda-device 0`` 让 LIBERO 的三个服务共用 GPU 0；本地部署 WAM 时将 ``--vla-cuda-device 0`` 换成 ``--wam-cuda-device 0``。单次任务选择 VLA 或 WAM。连接外部 endpoint 时，设备由该服务启动时的配置决定，RPent 的设备参数不会重新配置外部服务。
 
 RPent CLI 不再接受共享的 ``--cuda-device``，旧命令需改为要配置的各服务参数；``--sim-cuda-device`` 也不是兼容别名。独立服务的启动命令仍可使用其自身支持的 ``--cuda-device``。
 

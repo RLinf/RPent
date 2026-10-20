@@ -175,7 +175,13 @@ def _add_runtime_cli_args(parser: argparse.ArgumentParser) -> None:
         default=os.environ.get("DUAL_FRANKA_REPO_ID"),
         help="SFT dataset repo ID used to locate norm_stats.json",
     )
-    parser.add_argument("--sam3-cuda-device", type=int, default=None)
+    parser.add_argument(
+        "--sam3-cuda-device",
+        type=int,
+        default=None,
+        help="GPU ordinal for the local SAM3 service; may share GPUs with other "
+        "services. Omit to inherit CUDA_VISIBLE_DEVICES.",
+    )
 
 
 def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:

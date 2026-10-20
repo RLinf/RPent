@@ -197,8 +197,9 @@ def test_wrong_worker_is_rejected_before_prediction(worker, mismatch):
     ],
 )
 @pytest.mark.parametrize("legacy_options", [False, True])
+@pytest.mark.parametrize("env_device", [0, 2])
 def test_worker_launch_and_external_options(
-    tmp_path, monkeypatch, backend, platform, legacy_options
+    tmp_path, monkeypatch, backend, platform, legacy_options, env_device
 ):
     for name in ("python", "checkpoint", "config", "stats"):
         (tmp_path / name).touch()
@@ -238,7 +239,8 @@ def test_worker_launch_and_external_options(
         ]
     )
     args.wam_cuda_device = "0"
-    args.env_cuda_device = 2
+    args.env_cuda_device = env_device
+    args.sam3_cuda_device = env_device
     daemon, rpc = Mock(), Mock()
     factory = Mock(return_value=daemon)
     monkeypatch.setattr(am_runtime, "ProcessDaemon", factory)

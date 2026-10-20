@@ -327,7 +327,8 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     parser.add_argument(
         "--env-cuda-device",
         default=None,
-        help="CUDA_VISIBLE_DEVICES value for the local RoboTwin environment only",
+        help="CUDA_VISIBLE_DEVICES for the local RoboTwin environment; may share "
+        "GPUs with other services. Omit to inherit CUDA_VISIBLE_DEVICES.",
     )
     add_am_device_arg(parser, "vla")
 
