@@ -104,7 +104,8 @@ def build_follower_pair(
         right: Right follower settings, as for ``left``.
         joint_lower: ``(2, 6)`` lower joint limits in radians, left first.
         joint_upper: ``(2, 6)`` upper joint limits in radians, left first.
-        step_frequency: Rate :meth:`YamFollowerPair.move_to` commands at, in hertz.
+        step_frequency: Rate :meth:`YamFollowerPair.move_to_qpos` commands at,
+            in hertz.
         feedback_timeout_s: Joint feedback older than this fails a read.
     """
     from rlinf.robotics.parts.arms.yam import YamArm
@@ -142,7 +143,7 @@ class YamFollowerPair:
         right: Unopened right arm part.
         joint_lower: ``(2, 6)`` lower joint limits in radians, left first.
         joint_upper: ``(2, 6)`` upper joint limits in radians, left first.
-        step_frequency: Rate :meth:`move_to` commands at, in hertz.
+        step_frequency: Rate :meth:`move_to_qpos` commands at, in hertz.
     """
 
     def __init__(
@@ -242,7 +243,7 @@ class YamFollowerPair:
             clipped=not np.array_equal(requested, accepted),
         )
 
-    def move_to(
+    def move_to_qpos(
         self,
         target: Any,
         *,

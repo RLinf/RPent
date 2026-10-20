@@ -83,7 +83,7 @@ def test_cancelled_move_holds_and_stays_connected(pair, arms):
     sends = []
 
     with pytest.raises(YamMoveCancelled):
-        pair.move_to(
+        pair.move_to_qpos(
             target,
             duration_s=0.05,
             max_joint_delta=0.02,

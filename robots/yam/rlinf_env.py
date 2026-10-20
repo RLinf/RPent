@@ -540,7 +540,7 @@ class YamAgentEnv:
         if not guard["ok"]:
             raise RuntimeError(f"YAM {name} path rejected: {guard.get('reason')}")
         try:
-            held = self._runtime.move_to(
+            held = self._runtime.move_to_qpos(
                 target,
                 duration_s=float(pose["duration_s"]),
                 max_joint_delta=float(pose["max_joint_delta"]),
