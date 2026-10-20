@@ -92,6 +92,12 @@ RPent 支持运行 ``turning_on_radio`` 和 ``picking_up_trash`` 两个 BEHAVIOR
 
 上述 runtime 目录位于源码树之外。安装器在规划器 venv 中以 editable 模式安装 RPent；ENV、VLA 和 DINO 在独立的模拟器 venv 中使用同一份源码。安装器固定 RLinf 和 CUDA/OpenPI/LeRobot 依赖版本，检查关键 import 与 CUDA，并将依赖 freeze 和源码版本写入 ``$RPENT_REPRO_ROOT/manifests``。全新安装请使用新的 ``RPENT_REPRO_ROOT``；安装器不会覆盖 revision 不符或有未提交改动的 RLinf checkout。selfcheck 通过只说明源码接口检查完成，不代表 GPU 服务或任务动作已经运行。
 
+.. warning::
+
+   当前固定版本的上游包元数据存在冲突：``rlinf-openpi`` 要求 Torch 2.7.1，
+   BEHAVIOR 仿真器却固定 Torch 2.5.1。``uv pip check`` 失败时安装器会退出；
+   仅创建 venv 或通过 selfcheck 不代表全新安装完成。
+
 运动规划在 BEHAVIOR venv 中使用 NVlabs/cuRobo v0.8.0，固定 commit
 ``4ea77366ca48ee453e7df139e39fa6532af49f3b``。安装器在最终 repin 前使用
 constraints，保留 NumPy 1.26.4、Torch 2.5.1+cu124 和 Isaac Sim 4.5.0.0。

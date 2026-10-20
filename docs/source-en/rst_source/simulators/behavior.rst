@@ -110,6 +110,13 @@ freezes and source identities under ``$RPENT_REPRO_ROOT/manifests``. Use a new
 or different RLinf checkout. A successful selfcheck verifies source contracts,
 not GPU services or task execution.
 
+.. warning::
+
+   The pinned upstream package metadata is currently inconsistent:
+   ``rlinf-openpi`` requires Torch 2.7.1, while the BEHAVIOR simulator pins
+   Torch 2.5.1. The installer stops when ``uv pip check`` fails. Venv creation
+   or selfcheck must not be reported as a completed fresh installation.
+
 Motion planning uses NVlabs/cuRobo v0.8.0 at commit
 ``4ea77366ca48ee453e7df139e39fa6532af49f3b`` in the BEHAVIOR venv.
 The installer applies constraints before its final repin, retaining NumPy
