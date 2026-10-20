@@ -146,11 +146,11 @@ Thank you to all contributors, listed in no particular order.
 `@zoeyuchao <https://github.com/zoeyuchao>`__ `@wilburx813 <https://github.com/wilburx813>`__
 `@Elessar123 <https://github.com/Elessar123>`__ `@Sonorous281 <https://github.com/Sonorous281>`__
 `@ye1457 <https://github.com/ye1457>`__ `@silence-breaker <https://github.com/silence-breaker>`__
-`@claude <https://github.com/claude>`__ `@huanming99 <https://github.com/huanming99>`__ `@jx-qiu
+`@huanming99 <https://github.com/huanming99>`__ `@jx-qiu
 <https://github.com/jx-qiu>`__ `@wkzCode <https://github.com/wkzCode>`__ `@6UOOON9
 <https://github.com/6UOOON9>`__ `@zhexuanxu <https://github.com/zhexuanxu>`__ `@ucfyao
 <https://github.com/ucfyao>`__ `@catr1xLiu <https://github.com/catr1xLiu>`__ `@liushb9
-<https://github.com/liushb9>`__ `@RLinf-bot <https://github.com/RLinf-bot>`__ `@andylin-hao
+<https://github.com/liushb9>`__ `@andylin-hao
 <https://github.com/andylin-hao>`__ `@chen00double00guang-cmyk
 <https://github.com/chen00double00guang-cmyk>`__ `@Code-Hit-ai <https://github.com/Code-Hit-ai>`__
 `@Brunch-Life <https://github.com/Brunch-Life>`__ `@JamesHuang0319
