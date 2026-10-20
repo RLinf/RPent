@@ -12,11 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Geometry helpers for the RPent YAM facade.
+"""Transforms, joint-space planning, and collision checks for RPent YAM.
 
-The motion runtime and IK implementation remain owned by RLinf/i2rt. This
-module only normalizes qpos14, calibration transforms, and planning inputs for
-the RPent agent boundary.
+Forward and inverse kinematics use RLinf's YAM adapter.
 """
 
 from __future__ import annotations
