@@ -24,6 +24,7 @@ DEFAULT_CONFIG = Path(__file__).with_name("config") / "example.yaml"
 EPISODE_STEPS = 1000
 
 TASK_KEYS = (
+    "task_id",
     "task_name",
     "task_language",
     "task_description",
@@ -46,14 +47,13 @@ def load_mapping(path: str | Path | None = None) -> dict[str, Any]:
 def load_config(
     path: str | Path | None = None,
     *,
-    task_name: str,
+    task_id: int,
     task_language: str | None = None,
     seed: int = 0,
     max_episode_steps: int = EPISODE_STEPS,
 ) -> dict[str, Any]:
     """Return the flat dict consumed by YamAgentEnv and YamRgbdCameraRig."""
-    if not str(task_name or "").strip():
-        raise ValueError("task_name is required")
+    language = resolve_task_language(task_id, task_language)
     if isinstance(seed, bool) or int(seed) < 0:
         raise ValueError("seed must be a non-negative integer")
     if isinstance(max_episode_steps, bool) or int(max_episode_steps) <= 0:
@@ -76,8 +76,8 @@ def load_config(
     return {
         **raw,
         **control,
-        "task_name": str(task_name),
-        "task_language": resolve_task_language(str(task_name), task_language),
+        "task_id": task_id,
+        "task_language": language,
         "seed": int(seed),
         "max_episode_steps": int(max_episode_steps),
     }

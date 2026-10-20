@@ -144,4 +144,4 @@ Choose an environment: :doc:`LIBERO <rst_source/simulators/libero>`, :doc:`BEHAV
 
    Harness VLA <rst_source/resources/harnessvla>
    Contributing <rst_source/resources/contributing>
-   Release Notes <rst_source/resources/release_notes>
+   v0.1 Release Notes <rst_source/resources/release_v0.1>

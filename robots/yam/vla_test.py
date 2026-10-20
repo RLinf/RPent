@@ -1,6 +1,6 @@
 # Copyright 2026 The RPent Authors.
 # Licensed under the Apache License, Version 2.0.
-"""Task 104: separate no-motion prediction from explicit, single-use execution."""
+"""Separate no-motion prediction from explicit, single-use execution."""
 
 import time
 from pathlib import Path
