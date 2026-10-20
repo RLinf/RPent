@@ -66,7 +66,7 @@ class YamEnvFacade(BaseEnvFacade):
         if method == "env.request_stop":
             return self.request_stop()
         if method == "shutdown":
-            # Parking must succeed while the RPC server is still alive, so an
+            # Home must succeed while the RPC server is still alive, so an
             # operator can retry a failed shutdown without losing motor output.
             with self._dispatch_lock.write():
                 self.close()

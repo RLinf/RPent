@@ -72,7 +72,7 @@ RPent 通过 RLinf 的机器人接口控制 YAM 双臂系统。任务视频见 :
 
 本指南使用三路 D405 的标准 YAM 双臂套装，双臂基座间距为 0.61 米。相机和双臂基座外参采用 `i2rt 官方整站模型参数 <https://github.com/i2rt-robotics/i2rt/blob/47fee5e7dec4e30ca054f798bda1c8894b465ed2/i2rt/robot_models/station/yam_station_linear_4310_d405/README.md>`_，无需另行采集和求解。
 
-``yam + flexible_4310`` 配置可直接使用 ``robots/yam/config/yam_station_d405.json``。将机器人配置中的外参路径设为：
+参数配置可直接使用 ``robots/yam/config/yam_station_d405.json``。将机器人配置中的外参路径设为：
 
 .. code-block:: yaml
 
@@ -86,15 +86,15 @@ RPent 通过 RLinf 的机器人接口控制 YAM 双臂系统。任务视频见 :
 机器人配置
 ----------
 
-在 ``robots/yam/config/example.yaml`` 中按实际工位配置以下项目：
+在 ``robots/yam/config/example.yaml`` 中按真机实际情况配置以下项目：
 
 * ``robot.left_follower/right_follower``：左右臂 CAN 通道、夹爪类型、重力补偿和控制参数。
 * ``cameras``：``top``、``left``、``right`` 三路相机的实际序列号。``top`` 为固定相机，``left/right`` 为腕部相机；示例使用 640x480、30 Hz。
 * ``extrinsics_path``：上面的外参 JSON。
-* 桌面几何、关节限位与碰撞设置：按工位实际测量值填写。
+* 桌面几何、关节限位与碰撞设置：按真机环境的实测值填写。
 * ``reset`` 和 ``park_on_close``：分别设置复位姿态和待机姿态；每种姿态均需填写双臂实测关节位置 ``left_qpos/right_qpos``，每侧各 7 维。
 
-配置好两种姿态后，启用 ``reset.enabled`` 和 ``park_on_close.enabled``。待机姿态未配置时，ENV 无法启动。不要照搬其他工位的关节位置。
+配置好两种姿态后，启用 ``reset.enabled`` 和 ``park_on_close.enabled``。待机姿态未配置时，ENV 无法启动。不要照搬其他真机的关节位置。
 
 如需使用其他文件，请传入 ``--robot-config /path/to/robot_config.yaml``。任务 ID、任务指令、seed 和步数上限通过命令行指定。
 

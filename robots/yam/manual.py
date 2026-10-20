@@ -1,6 +1,6 @@
 # Copyright 2026 The RPent Authors.
 # Licensed under the Apache License, Version 2.0.
-"""Operator-only diagnostics; no planner, implicit reset or parking."""
+"""Operator-only diagnostics; no planner, implicit reset or home."""
 
 import argparse
 import json
@@ -67,7 +67,7 @@ def run_session(args: argparse.Namespace) -> int:
     log.parent.mkdir(parents=True, exist_ok=True)
     print(DIAGNOSTIC_TASKS[args.diagnostic_id], flush=True)
     print(
-        'One JSON command per line: {"tool":"status"}; diagnostic 103: move_to/rotate_wrist/set_gripper/release; diagnostic 104: infer, execute with use_length. quit exits and holds. Stop the Dashboard Agent before using this console.',
+        'One JSON command per line: {"tool":"status"}; primitive checks: move_to/rotate_wrist/set_gripper/release; VLA checks: infer, execute with use_length. quit exits and holds. Stop the Dashboard Agent before using this console.',
         flush=True,
     )
     uncertain = False

@@ -51,7 +51,7 @@ collision_guard:
   enabled: false
   clearance_m: 0.01
 
-# Set measured reset and standby poses before enabling them.
+# Set measured reset and home poses before enabling them.
 # env_server refuses to start without an enabled, valid park_on_close pose.
 reset:
   enabled: false

@@ -52,7 +52,7 @@ class YamAgentEnv:
     The constructor opens no hardware. The first ``reset()``, ``observe()``, or
     mutating command starts cameras first, then connects the single RLinf
     follower writer. Reset means "begin a new RPent episode from the current
-    manually prepared scene"; it does not fold, park, or otherwise move
+    manually prepared scene"; it does not fold, park, home, or otherwise move
     the robot.
     """
 
@@ -135,7 +135,7 @@ class YamAgentEnv:
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         """Consume an operator ready receipt and begin a new episode.
 
-        This is bookkeeping only: it never folds, parks, or otherwise
+        This is bookkeeping only: it never homes, folds, parks, or otherwise
         moves the robot. The ready receipt must be written by the local operator
         for the currently advertised pending ``episode_id``.
         """

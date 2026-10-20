@@ -81,7 +81,7 @@ the arm bases. Camera and arm-base extrinsics use the
 `official i2rt station model parameters <https://github.com/i2rt-robotics/i2rt/blob/47fee5e7dec4e30ca054f798bda1c8894b465ed2/i2rt/robot_models/station/yam_station_linear_4310_d405/README.md>`_,
 without separate calibration data collection or solving.
 
-For ``yam + flexible_4310``, use ``robots/yam/config/yam_station_d405.json`` directly.
+Use ``robots/yam/config/yam_station_d405.json`` directly for the extrinsic parameters.
 Set the extrinsics path in the robot configuration:
 
 .. code-block:: yaml
@@ -97,20 +97,21 @@ extrinsics if the arm spacing or camera mounting positions change.
 Robot Configuration
 -------------------
 
-Set the following fields in ``robots/yam/config/example.yaml`` for your setup:
+Set the following fields in ``robots/yam/config/example.yaml`` for your physical robot:
 
 * ``robot.left_follower/right_follower``: left and right arm CAN channels, gripper
   types, gravity compensation and control parameters.
 * ``cameras``: actual serial numbers for ``top``, ``left`` and ``right``. ``top`` is
   fixed; ``left/right`` are wrist cameras. The example uses 640x480 at 30 Hz.
 * ``extrinsics_path``: the extrinsics JSON above.
-* Table geometry, joint limits and collision settings: use measurements from your setup.
-* ``reset`` and ``park_on_close``: the reset and standby poses, respectively. Set
+* Table geometry, joint limits and collision settings: use measurements from the
+  robot's environment.
+* ``reset`` and ``park_on_close``: the reset and home poses, respectively. Set
   measured joint positions for both arms in ``left_qpos/right_qpos``, with seven values
   per arm.
 
 After configuring both poses, enable ``reset.enabled`` and ``park_on_close.enabled``.
-ENV cannot start without a configured standby pose. Do not copy another setup's joint
+ENV cannot start without a configured home pose. Do not copy another robot's joint
 positions.
 
 To use another file, pass ``--robot-config /path/to/robot_config.yaml``. Specify the
@@ -479,14 +480,14 @@ Stop and Shutdown
 -----------------
 
 After stopping the task, set down or remove any objects held in the grippers. Confirm
-that the path to the standby pose is clear, then run in the operator terminal:
+that the path to the home pose is clear, then run in the operator terminal:
 
 .. code-block:: bash
 
    python -m robots.yam.operator_control --robot-config robots/yam/config/example.yaml \
      --endpoint socket://127.0.0.1:8110 --event shutdown
 
-ENV returns to the standby pose configured in ``park_on_close``, verifies arrival, then
+ENV returns to the home pose configured in ``park_on_close``, verifies arrival, then
 disables motor output. If it cannot reach the pose, keep the process running and inspect
 the physical setup; do not force it to exit. After ENV exits normally, close the VLA
 service and SSH forwarding.
