@@ -43,6 +43,27 @@ if TYPE_CHECKING:
     from rpent.session import EnvState, StepRecord
 
 
+@dataclass(frozen=True)
+class ImageDeliveryPolicy:
+    """Central quota for images embedded into planner-visible tool results.
+
+    Images returned by tools and :meth:`Toolkit.get_env_state` are appended to
+    the planner's message history verbatim and resent with every request, so an
+    unbounded policy makes token cost grow linearly with tool calls. The quota
+    layer bounds the total number of images a conversation ever embeds; once the
+    budget is spent, results carry only their JSON payload (artifact names stay
+    available for :meth:`read_image`-style fetches).
+
+    Set ``max_embedded_images=None`` to restore unlimited delivery.
+    """
+
+    max_embedded_images: int | None = 12
+    max_per_result: int | None = None
+
+
+DEFAULT_IMAGE_DELIVERY_POLICY = ImageDeliveryPolicy()
+
+
 @dataclass(eq=False)
 class _ToolOperation:
     readonly: bool
@@ -145,11 +166,17 @@ class Toolkit:
         dashboard_events: DashboardEventSink,
         state: Any = None,
         memory: "MemoryManager",
+        image_policy: ImageDeliveryPolicy | None = None,
     ) -> None:
         self._tools: dict[str, Tool] = {}
         self._dashboard_events = dashboard_events
         self._state = state
         self._memory = memory
+        self._image_policy = (
+            DEFAULT_IMAGE_DELIVERY_POLICY if image_policy is None else image_policy
+        )
+        self._images_delivered = 0
+        self._image_budget_lock = threading.Lock()
         self._scheduler = _Scheduler()
         self._register_common_tools()
 
@@ -299,6 +326,10 @@ class Toolkit:
                 if record is not None:
                     self._publish_step(record)
 
+            kept_images, omitted = self._apply_image_policy(native.images)
+            if omitted:
+                native.data["images_omitted"] = omitted
+            native = ToolResult(data=native.data, images=kept_images)
             try:
                 json.dumps(native.to_dict(), allow_nan=False, default=str)
             except (TypeError, ValueError) as exc:
@@ -309,6 +340,30 @@ class Toolkit:
             return native
         finally:
             self._scheduler.release(operation)
+
+    def _apply_image_policy(self, images: list[bytes]) -> tuple[list[bytes], int]:
+        """Deliver images within the policy quota and return the kept subset.
+
+        The conversation-wide budget is shared by every tool result, so the
+        total number of images in the planner history stays constant once the
+        budget is exhausted instead of growing with each tool call.
+        """
+        policy = self._image_policy
+        budget: int | None = policy.max_embedded_images
+        per_result: int | None = policy.max_per_result
+        with self._image_budget_lock:
+            if budget is not None:
+                remaining = max(0, budget - self._images_delivered)
+            else:
+                remaining = None
+            kept = images
+            if remaining is not None and len(kept) > remaining:
+                kept = kept[:remaining]
+            if per_result is not None and len(kept) > per_result:
+                kept = kept[:per_result]
+            omitted = len(images) - len(kept)
+            self._images_delivered += len(kept)
+        return kept, omitted
 
     def _publish_step(self, record: StepRecord) -> None:
         """Publish one recorded environment step to the dashboard sink."""
