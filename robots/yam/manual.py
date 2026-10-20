@@ -15,7 +15,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     _add_runtime_args(parser, required=True)
     parser.add_argument(
-        "--task-id",
+        "--diagnostic-id",
         type=int,
         required=True,
         choices=tuple(DIAGNOSTIC_TASKS),
@@ -47,15 +47,17 @@ def run_session(args: argparse.Namespace) -> int:
 
     if not args.env_endpoint:
         raise ValueError("--env-endpoint is required")
-    if args.task_id == 104 and (not args.vla_endpoint or args.without_vla):
-        raise ValueError("task 104 requires --vla-endpoint")
+    if args.diagnostic_id == 104 and (
+        args.task_id == 0 or not args.vla_endpoint or args.without_vla
+    ):
+        raise ValueError("VLA diagnostics require task 1 or 2 and --vla-endpoint")
     rpc = make_rpc_client(args.env_endpoint)
     if rpc.call("env.is_started", timeout_s=5) is not True:
         raise RuntimeError(
             "Start hardware in the operator terminal first; diagnostics never power on"
         )
     config = _parse_config(args)
-    selected = {"env", "vla"} if args.task_id == 104 else {"env"}
+    selected = {"env", "vla"} if args.diagnostic_id == 104 else {"env"}
     _, kwargs = _init_runtime(
         args, config.output_dir, NullDashboardEventSink(), selected
     )
@@ -63,9 +65,9 @@ def run_session(args: argparse.Namespace) -> int:
     test = VLATest(p, config.output_dir)
     log = Path(config.output_dir) / "diagnostics.jsonl"
     log.parent.mkdir(parents=True, exist_ok=True)
-    print(DIAGNOSTIC_TASKS[args.task_id], flush=True)
+    print(DIAGNOSTIC_TASKS[args.diagnostic_id], flush=True)
     print(
-        'One JSON command per line: {"tool":"status"}; task103: move_to/rotate_wrist/set_gripper/release; task104: infer, execute with use_length. quit exits and holds. Stop the Dashboard Agent before using this console.',
+        'One JSON command per line: {"tool":"status"}; diagnostic 103: move_to/rotate_wrist/set_gripper/release; diagnostic 104: infer, execute with use_length. quit exits and holds. Stop the Dashboard Agent before using this console.',
         flush=True,
     )
     uncertain = False
@@ -84,11 +86,13 @@ def run_session(args: argparse.Namespace) -> int:
                 arguments = request.get("arguments", {})
                 allowed = {"status", "stop"} | (
                     {"move_to", "rotate_wrist", "set_gripper", "release"}
-                    if args.task_id == 103
+                    if args.diagnostic_id == 103
                     else {"infer", "execute"}
                 )
                 if name not in allowed:
-                    raise ValueError(f"tool not allowed for task {args.task_id}")
+                    raise ValueError(
+                        f"tool not allowed for diagnostic {args.diagnostic_id}"
+                    )
                 if name == "status":
                     result = p.status()
                 elif name == "stop":

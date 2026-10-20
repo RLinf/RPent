@@ -38,6 +38,7 @@ from robots.yam.geometry import (
 )
 from robots.yam.hardware_ownership import HardwareLease
 from robots.yam.operator_control import read_receipt
+from robots.yam.tasks import resolve_task_language
 from rpent.utils.config import get_rlinf_repo_path
 
 
@@ -64,14 +65,10 @@ class YamAgentEnv:
         kinematics: Any | None = None,
     ) -> None:
         self.config = dict(config)
-        self.task_name = str(
-            self.config.get("task_name", self.config.get("task_language", ""))
-        )
-        self.task_language = str(
-            self.config.get(
-                "task_language",
-                self.config.get("task_description", self.task_name),
-            )
+        self.task_id = self.config.get("task_id", 0)
+        self.task_language = resolve_task_language(
+            self.task_id,
+            self.config.get("task_language", self.config.get("task_description")),
         )
         self.step_lim = int(self.config.get("max_episode_steps", 1000))
         self.control_hz = float(MODEL_SPEC.control_hz)
