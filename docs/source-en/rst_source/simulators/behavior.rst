@@ -369,6 +369,7 @@ Start a Dashboard Session with:
    "$RPENT_REPRO_ROOT/venvs/rpent/bin/rpent" \
      --robot behavior --dashboard \
      --task-name turning_on_radio --public-seed 1 \
+     --planner codex --reasoning-effort low \
      --behavior-repo "$RPENT_REPRO_ROOT/RLinf" \
      --behavior-python "$RPENT_BEHAVIOR_PYTHON" \
      --activity-instance-dir \
