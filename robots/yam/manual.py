@@ -1,6 +1,6 @@
 # Copyright 2026 The RPent Authors.
 # Licensed under the Apache License, Version 2.0.
-"""Operator-only diagnostic tasks; no planner, implicit reset or home."""
+"""Operator-only diagnostics; no planner, implicit reset or parking."""
 
 import argparse
 import json

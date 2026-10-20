@@ -251,7 +251,7 @@ class YamCalibration:
 
 
 def load_calibration(config: dict[str, Any] | None) -> YamCalibration:
-    """Load the RLinf solve_handeye extrinsics.json producer format."""
+    """Load camera and base transforms in the RLinf extrinsics JSON format."""
     config = config or {}
     calibration = _load_json_path(config.get("extrinsics_path"))
     camera_to_world: dict[str, np.ndarray] = {}
@@ -273,8 +273,8 @@ def load_calibration(config: dict[str, Any] | None) -> YamCalibration:
     for key, arm in (("left_wrist", "left"), ("right_wrist", "right")):
         values = calibration.get(key)
         if isinstance(values, dict) and values.get("T_grasp_to_cam") is not None:
-            # RLinf solve_handeye.py verifies FK @ t_tcp_cam @ board_in_cam
-            # and writes t_tcp_cam under this historical key. Do not invert.
+            # The official preset and solve_handeye.py output both store
+            # grasp/TCP-from-camera under this key. Do not invert.
             wrist_grasp_from_camera[arm] = matrix4(
                 values["T_grasp_to_cam"], name=f"{key}.T_grasp_to_cam"
             )

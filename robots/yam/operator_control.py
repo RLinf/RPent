@@ -11,7 +11,7 @@
 
 Run on the control machine as the owner of the local operator receipt file.
 The endpoint is used only to read the episode ID and to consume a ready
-receipt via start (bookkeeping, no home motion). Verdicts remain local files.
+receipt via start (bookkeeping, no arm motion). Verdicts remain local files.
 """
 
 from __future__ import annotations
