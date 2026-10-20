@@ -154,7 +154,6 @@ class Backend:
         closed_on.append(threading.get_ident())
 
 rlinf_env.OfficialBehaviorBackend = Backend
-env_server._build_meta = lambda args: {}
 previous = signal.getsignal(signal.SIGTERM)
 env_server.main()
 assert closed_on == [threading.get_ident()]
@@ -171,6 +170,9 @@ print("OWNING_THREAD_CLEANUP_OK", flush=True)
     try:
         daemon.start()
         wait_for_ready(client, timeout_s=10.0, poll_interval_s=0.01, daemon=daemon)
+        meta = client.call("env.get_env_meta", timeout_s=1.0)
+        assert meta["task"] == 0
+        assert meta["activity_instance_id"] == 242
         daemon.stop()
         log = log_path.read_text()
         assert daemon.poll() == 0, log
@@ -201,6 +203,19 @@ import robots.behavior.dino_v2.server
         [sys.executable, "-c", script], capture_output=True, text=True, timeout=30
     )
     assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    "override",
+    [{"norm_stats_path": "/other/stats.json"}, {"repo_id": "other/dataset"}],
+)
+def test_behavior_vla_rejects_normalization_overrides(override: dict[str, str]) -> None:
+    from robots.behavior.vla_server import BehaviorPi05VLAFacade
+
+    with pytest.raises(ValueError, match="checkpoint-bundled normalization"):
+        BehaviorPi05VLAFacade(
+            model_path="/unused/checkpoint", embodiment="behavior", **override
+        )
 
 
 def test_behavior_uses_the_shared_pi05_registry_and_wire_contract() -> None:

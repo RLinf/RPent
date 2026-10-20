@@ -16,10 +16,13 @@ from __future__ import annotations
 
 import argparse
 import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import numpy as np
 import pytest
 
 from robots.behavior import robot_spec as behavior_robot_spec
@@ -30,7 +33,7 @@ from robots.behavior.env_client import BehaviorEnvClient
 from robots.behavior.robot_spec import get_toolkit
 from robots.behavior.tools import BehaviorPrimitives
 from rpent.dashboard.events import NullDashboardEventSink
-from rpent.memory import loading
+from rpent.memory import MemoryManager, loading
 from rpent.robots import RunConfig, get_robot_spec
 from rpent.tools.common import CommonTools
 
@@ -372,6 +375,91 @@ def test_behavior_clients_and_tools_use_explicit_component_rpc_names() -> None:
     assert "env.open_gripper" in BehaviorEnvClient._TIMEOUT_S
     assert "env.close" not in BehaviorEnvClient._TIMEOUT_S
     assert "env.open" not in BehaviorEnvClient._TIMEOUT_S
+
+
+@pytest.mark.parametrize(
+    ("pause_after", "expected_steps"),
+    [("predict", 0), ("chunk", 32)],
+)
+def test_pi0_nav_pick_stops_at_chunk_cancellation_boundary(
+    tmp_path: Path, pause_after: str, expected_steps: int
+) -> None:
+    entered = threading.Event()
+    release = threading.Event()
+
+    class Model:
+        calls = 0
+
+        def predict(self, observation, *, options):
+            self.calls += 1
+            if pause_after == "predict":
+                entered.set()
+                assert release.wait(5)
+            return np.zeros((32, 23), dtype=np.float32)
+
+    class Env:
+        total_env_steps = 0
+        official_success_latched = False
+        official_success_receipt = None
+        calls = 0
+
+        def chunk_step(self, actions, *, return_all_frames=False):
+            self.calls += 1
+            self.total_env_steps += len(actions)
+            if pause_after == "chunk":
+                entered.set()
+                assert release.wait(5)
+            return (
+                {"states": np.zeros(256, dtype=np.float32)},
+                0.0,
+                False,
+                False,
+                {
+                    "executed_steps": len(actions),
+                    "_rpent": {"total_env_steps": self.total_env_steps},
+                },
+            )
+
+    model = Model()
+    env = Env()
+    toolkit = behavior_toolkit.BehaviorToolkit(
+        runtime_kwargs={
+            "env": env,
+            "model": model,
+            "initial_observation": {"states": np.zeros(256, dtype=np.float32)},
+            "output_dir": tmp_path / "run",
+            "max_episode_steps": 64,
+        },
+        memory=MemoryManager(tmp_path / "memory"),
+    )
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            operation = pool.submit(
+                toolkit.execute_tool,
+                "pi0_nav_pick",
+                {"instruction": "turn on the radio", "chunks": 2},
+            )
+            assert entered.wait(5)
+            cancellation = pool.submit(toolkit.cancel_active_and_wait)
+            try:
+                with toolkit._scheduler.condition:
+                    assert toolkit._scheduler.condition.wait_for(
+                        lambda: toolkit._scheduler.paused, timeout=5
+                    )
+            finally:
+                release.set()
+            result = operation.result(timeout=5)
+            cancellation.result(timeout=5)
+
+        assert model.calls == 1
+        assert env.calls == int(pause_after == "chunk")
+        assert env.total_env_steps == expected_steps
+        assert result.data["code"] == "tool_cancelled"
+        assert result.data["interrupted"] is True
+        assert result.data["task_success"] is False
+        assert result.data["total_env_steps"] == expected_steps
+    finally:
+        toolkit.close()
 
 
 @pytest.mark.parametrize(

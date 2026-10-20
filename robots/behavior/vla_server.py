@@ -75,8 +75,12 @@ class BehaviorPi05VLAFacade(Pi05VLAFacade):
     ):
         if embodiment != "behavior":
             raise ValueError("BEHAVIOR facade requires the behavior embodiment")
-        # The preset keeps RLinf's BEHAVIOR observation transforms. The common
-        # norm_stats_path override replaces that entire config, so resolve here.
+        if norm_stats_path is not None or repo_id is not None:
+            raise ValueError(
+                "BEHAVIOR uses checkpoint-bundled normalization; "
+                "norm_stats_path and repo_id overrides are unsupported"
+            )
+        # The shared override replaces all BEHAVIOR observation transforms.
         config = PI05_EMBODIMENTS["behavior"]
         config["openpi_data"]["norm_stats_path"] = str(
             Path(model_path) / "assets/behavior-1k/2025-challenge-demos/norm_stats.json"
@@ -84,8 +88,6 @@ class BehaviorPi05VLAFacade(Pi05VLAFacade):
         super().__init__(
             model_path=model_path,
             embodiment=embodiment,
-            norm_stats_path=norm_stats_path,
-            repo_id=repo_id,
         )
 
     def predict(self, obs: dict, options: dict | None = None) -> np.ndarray:

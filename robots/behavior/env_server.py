@@ -35,12 +35,7 @@ import numpy as np
 if __package__ in (None, ""):
     import rpent.robots.base  # noqa: F401
 
-from robots.behavior.schemas import (  # noqa: E402
-    ACTION_DIM,
-    DEFAULT_ACTION_CHUNK,
-    validate_action_chunk,
-)
-from robots.behavior.task_specs import get_task_spec  # noqa: E402
+from robots.behavior.schemas import validate_action_chunk  # noqa: E402
 from rpent.robots.components.env_facade_base import BaseEnvFacade  # noqa: E402
 from rpent.utils.rpc.main_thread_serve import MainThreadServeMixin  # noqa: E402
 
@@ -235,40 +230,11 @@ class BehaviorEnvFacade(MainThreadServeMixin, BaseEnvFacade):
         self._closed = True
 
 
-def _build_meta(args: argparse.Namespace) -> dict[str, Any]:
-    task_spec = get_task_spec(args.task_name)
-    return {
-        "runtime": "behavior_env",
-        "task_name": task_spec.task_name,
-        "task": int(args.task_index),
-        "task_language": task_spec.task_language,
-        "activity_definition_id": int(args.activity_definition_id),
-        "activity_instance_id": int(args.activity_instance_id),
-        "public_seed": int(args.public_seed),
-        "scene_model": str(args.scene_model),
-        "max_episode_steps": int(args.max_episode_steps),
-        "action_dim": ACTION_DIM,
-        "action_horizon": DEFAULT_ACTION_CHUNK,
-        "official_success_path": ["info", "done", "success"],
-        "behavior_repo": str(Path(args.behavior_repo).expanduser().resolve()),
-        "activity_instance_dir": (
-            None
-            if not args.activity_instance_dir
-            else str(Path(args.activity_instance_dir).expanduser().resolve())
-        ),
-        "rlinf_env_config_path": (
-            None
-            if not args.env_config_path
-            else str(Path(args.env_config_path).expanduser().resolve())
-        ),
-    }
-
-
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--task-name", required=True)
     parser.add_argument("--public-seed", type=int, required=True)
-    parser.add_argument("--task-index", type=int, required=True)
+    parser.add_argument("--task-index", dest="task", type=int, required=True)
     parser.add_argument("--activity-definition-id", type=int, required=True)
     parser.add_argument("--activity-instance-id", type=int, required=True)
     parser.add_argument("--scene-model", required=True)
@@ -292,8 +258,9 @@ def main() -> None:
     output_dir = Path(args.output_dir).expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     from robots.behavior.rlinf_env import OfficialBehaviorBackend
+    from robots.behavior.runtime import env_runtime_contract
 
-    meta = _build_meta(args)
+    meta = env_runtime_contract(args)
     backend = OfficialBehaviorBackend(meta=meta, output_dir=output_dir)
     facade = BehaviorEnvFacade(backend=backend, meta=meta)
     # Parent-watch EOF handles normal shutdown; ProcessDaemon sends SIGTERM if

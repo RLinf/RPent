@@ -94,7 +94,10 @@ class BehaviorToolkit(Toolkit):
             fps=20,
             max_frames=2000,
         )
-        self._primitives = BehaviorPrimitives(**values)
+        self._primitives = BehaviorPrimitives(
+            check_cancelled=self.raise_if_cancelled,
+            **values,
+        )
         self._input_validators: dict[str, Draft202012Validator] = {}
         for spec in behavior_tool_specs_for_task(self._task_spec):
             if values.get("env") is None:

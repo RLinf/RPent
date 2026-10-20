@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -225,6 +226,7 @@ class BehaviorPrimitives:
         public_seed: int = 0,
         memory_dir: str | Path | None = None,
         dino_component: Any = None,
+        check_cancelled: Callable[[], None] | None = None,
     ) -> None:
         self.env = env
         self.model = model
@@ -246,6 +248,7 @@ class BehaviorPrimitives:
         self.task_spec.instance_for_public_seed(self.public_seed, phase=None)
         self.memory_dir = Path(memory_dir) if memory_dir is not None else None
         self.dino_component = dino_component
+        self._check_cancelled = check_cancelled
         self._memory_matches = self._retrieve_memory(self._current_observation)
         self.started_monotonic = time.monotonic()
         self.last_result: dict[str, Any] | None = None
@@ -489,6 +492,8 @@ class BehaviorPrimitives:
         started = time.monotonic()
 
         for _ in range(chunks):
+            if self._check_cancelled is not None:
+                self._check_cancelled()
             remaining = self._remaining_steps()
             if remaining is not None and remaining <= 0:
                 stop_reason = "episode_step_budget_exhausted"
@@ -508,6 +513,8 @@ class BehaviorPrimitives:
             if action_array.shape[0] <= 0:
                 stop_reason = "episode_step_budget_exhausted"
                 break
+            if self._check_cancelled is not None:
+                self._check_cancelled()
             ret = env.chunk_step(action_array, return_all_frames=self._recording)
             chunks_used += 1
             obs, _reward, terminated, truncated, info = ret

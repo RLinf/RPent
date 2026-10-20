@@ -334,11 +334,12 @@ def parse_config(args: argparse.Namespace) -> RunConfig:
 
 
 def env_runtime_contract(args: argparse.Namespace) -> dict[str, Any]:
+    task_spec = get_task_spec(args.task_name)
     return {
         "runtime": "behavior_env",
-        "task_name": args.task_name,
+        "task_name": task_spec.task_name,
         "task": int(args.task),
-        "task_language": get_task_spec(args.task_name).task_language,
+        "task_language": task_spec.task_language,
         "activity_definition_id": int(args.activity_definition_id),
         "activity_instance_id": int(args.activity_instance_id),
         "public_seed": int(args.public_seed),
