@@ -181,16 +181,27 @@ def test_backend_lifecycle_close_still_closes_env_without_primitive_args(
 
 
 @pytest.mark.parametrize(
-    "ending", ["contact", "terminated", "official_task_success", "duration_limit"]
+    ("ending", "terminated", "success"),
+    [
+        ("contact", False, False),
+        ("terminated", True, False),
+        ("official_task_success", False, True),
+        ("official_task_success", True, True),
+        ("duration_limit", False, False),
+    ],
 )
 def test_press_executes_bounded_hold_actions_and_reports_raw_success(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ending: str
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    ending: str,
+    terminated: bool,
+    success: bool,
 ) -> None:
     backend, env = _official_backend(
         tmp_path,
         _FakeOfficialBehaviorEnv(
-            terminated_on_step=1 if ending == "terminated" else None,
-            success_on_step=1 if ending == "official_task_success" else None,
+            terminated_on_step=1 if terminated else None,
+            success_on_step=1 if success else None,
         ),
     )
 
@@ -218,7 +229,9 @@ def test_press_executes_bounded_hold_actions_and_reports_raw_success(
         hand="left", visual_hand_check=_visual_check("left"), duration_s=0.1
     )
     assert result["stop_reason"] == ending
-    assert result["task_success"] is (ending == "official_task_success")
+    assert result["task_success"] is success
+    assert result["terminated"] is terminated
+    assert result["truncated"] is False
     assert result["primitive_success"] is (
         ending in {"contact", "official_task_success"}
     )

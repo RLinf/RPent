@@ -139,10 +139,19 @@ def test_pixel_projection_uses_observed_depth_and_rejects_old_frame(tmp_path):
 
 
 @pytest.mark.parametrize("hand", ["left", "both"])
-def test_planned_motion_preserves_unselected_joint_commands(tmp_path, hand):
+@pytest.mark.parametrize("terminal_success", [False, True])
+def test_planned_motion_preserves_unselected_joint_commands(
+    tmp_path, hand, terminal_success
+):
     from types import SimpleNamespace
 
-    backend, env = _official_backend(tmp_path)
+    backend, env = _official_backend(
+        tmp_path,
+        _FakeOfficialBehaviorEnv(
+            terminated_on_step=1 if terminal_success else None,
+            success_on_step=1 if terminal_success else None,
+        ),
+    )
     hold = backend._hold_action_from_current_proprio().copy()
     hands = ("left", "right") if hand == "both" else (hand,)
     poses = {
@@ -172,7 +181,9 @@ def test_planned_motion_preserves_unselected_joint_commands(tmp_path, hand):
             target["delta_xyz"] = [0, 0, 0]
     result = backend.move_to(**request)
     assert result["primitive_success"] is True
-    assert result["task_success"] is False
+    assert result["task_success"] is terminal_success
+    assert result["terminated"] is terminal_success
+    assert result["truncated"] is False
     for action in env.actions:
         expected = hold.copy()
         for selected in hands:
@@ -226,7 +237,7 @@ def test_rotate_requires_selected_hand_confirmation_before_motion(tmp_path):
 
 def test_navigation_brake_propagates_raw_success(tmp_path):
     backend, env = _official_backend(
-        tmp_path, _FakeOfficialBehaviorEnv(success_on_step=1)
+        tmp_path, _FakeOfficialBehaviorEnv(success_on_step=1, terminated_on_step=1)
     )
     backend._call_actor = lambda _: {
         "base_position": np.zeros(3),
@@ -244,6 +255,8 @@ def test_navigation_brake_propagates_raw_success(tmp_path):
     )
     assert len(env.actions) == 1
     assert result["task_success"] is True
+    assert result["terminated"] is True
+    assert result["truncated"] is False
     assert result["stop_reason"] == "official_task_success"
 
 

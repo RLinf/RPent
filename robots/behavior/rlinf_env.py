@@ -1442,6 +1442,8 @@ class OfficialBehaviorBackend:
         from robots.behavior.motion import BehaviorMotionPlanner, get_planning_state
 
         started = self.total_env_steps
+        terminated = False
+        truncated = False
         try:
             if self._episode_ended:
                 return self._motion_error(
@@ -1572,6 +1574,8 @@ class OfficialBehaviorBackend:
                 "name": name,
                 "primitive_success": succeeded,
                 "task_success": self.official_success_latched,
+                "terminated": bool(terminated),
+                "truncated": bool(truncated),
                 "stop_reason": reason,
                 "executed_steps": self.total_env_steps - started,
                 "total_env_steps": self.total_env_steps,
@@ -1586,6 +1590,8 @@ class OfficialBehaviorBackend:
             result = self._motion_error(
                 name, request, stop_reason="error", error=str(exc)
             )
+            result["terminated"] = bool(terminated)
+            result["truncated"] = bool(truncated)
             result["executed_steps"] = self.total_env_steps - started
             return result
 
@@ -1604,6 +1610,8 @@ class OfficialBehaviorBackend:
         from robots.behavior.schemas import validate_relative_navigation_motion
 
         started = self.total_env_steps
+        terminated = False
+        truncated = False
         try:
             if self._episode_ended:
                 return self._motion_error(
@@ -1701,6 +1709,8 @@ class OfficialBehaviorBackend:
                 "primitive_success": succeeded,
                 "_observation": self._last_obs,
                 "task_success": self.official_success_latched,
+                "terminated": bool(terminated),
+                "truncated": bool(truncated),
                 "stop_reason": reason,
                 "executed_steps": self.total_env_steps - started,
                 "total_env_steps": self.total_env_steps,
@@ -1713,12 +1723,16 @@ class OfficialBehaviorBackend:
             brake_error = None
             if self.total_env_steps > started and not self._episode_ended:
                 try:
-                    self.chunk_step(self._hold_action_from_current_proprio()[None, :])
+                    _, _, terminated, truncated, _ = self.chunk_step(
+                        self._hold_action_from_current_proprio()[None, :]
+                    )
                 except Exception as brake_exc:
                     brake_error = str(brake_exc)
             result = self._motion_error(
                 "navigate_to", kwargs, stop_reason="error", error=str(exc)
             )
+            result["terminated"] = bool(terminated)
+            result["truncated"] = bool(truncated)
             result["executed_steps"] = self.total_env_steps - started
             if brake_error is not None:
                 result["brake_error"] = brake_error
@@ -1776,6 +1790,8 @@ class OfficialBehaviorBackend:
             )
 
         started = self.total_env_steps
+        terminated = False
+        truncated = False
         try:
             state = self._get_motion_state()
             initial = state["hands"][hand]
@@ -1840,6 +1856,8 @@ class OfficialBehaviorBackend:
                 "_observation": self._last_obs,
                 "primitive_success": succeeded,
                 "task_success": self.official_success_latched,
+                "terminated": bool(terminated),
+                "truncated": bool(truncated),
                 "stop_reason": stop_reason,
                 "executed_steps": self.total_env_steps - started,
                 "total_env_steps": self.total_env_steps,
@@ -1856,6 +1874,8 @@ class OfficialBehaviorBackend:
             result = self._motion_error(
                 "press", request, stop_reason="error", error=str(exc)
             )
+            result["terminated"] = bool(terminated)
+            result["truncated"] = bool(truncated)
             result["executed_steps"] = self.total_env_steps - started
             return result
 
