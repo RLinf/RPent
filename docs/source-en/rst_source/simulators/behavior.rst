@@ -2,145 +2,35 @@ BEHAVIOR
 ========
 
 `BEHAVIOR-1K <https://behavior.stanford.edu/>`_ provides long-horizon household
-tasks in OmniGibson. RPent exposes ``turning_on_radio`` and
-``picking_up_trash`` from the sibling source package ``robots/behavior``.
+tasks in OmniGibson. Run ``turning_on_radio`` or ``picking_up_trash`` with
+RPent's BEHAVIOR integration.
 
-Like LIBERO, RoboCasa, RoboTwin, and Franka, the robot package provides
-``get_robot_spec()`` for CLI/config/runtime hooks and ``get_toolkit()`` for the
-public tools. BEHAVIOR-specific lifecycle code stays inside
-``robots/behavior``. The shared ``--explore`` entry point supports BEHAVIOR
-while preserving its one-attempt-per-session environment lifecycle.
+Overview
+--------
 
-Installation status
--------------------
+Check the task, model, and runtime requirements before installing the simulator.
 
-BEHAVIOR is a source-checkout robot plugin and uses two independent Python
-3.10 environments:
+.. grid:: 2 4 4 4
+   :gutter: 2
 
-- the **RPent venv** runs the CLI, planner, Dashboard, and MemoryManager;
-- the **BEHAVIOR venv** runs RLinf, OmniGibson, Isaac Sim, and Pi0.5.
+   .. grid-item-card:: Action Models
 
-The ordinary ``rpent`` package ships the framework package only. The
-``.[behavior]`` extra installs lightweight RPent-side helpers, but it does not
-package ``robots/behavior`` and does not install the complete simulator,
-assets, or checkpoint. Run the BEHAVIOR setup from an RPent source checkout:
+      Pi0.5 for 32-step action chunks.
 
-.. code-block:: bash
+   .. grid-item-card:: Planners
 
-   python -m pip install -e ".[behavior]"
-   export RPENT_REPRO_ROOT="$PWD/.behavior-runtime"
-   export UV_CACHE_DIR="$RPENT_REPRO_ROOT/uv-cache"
-   python -m robots.behavior.install_runtime
+      ``api``, ``claude_code``, ``codex``.
 
-The installer keeps RPent editable only in the RPent venv; ENV, VLA, and DINO
-load the same source checkout without installing RPent in the simulator venv.
-It clones the reviewed RLinf revision, invokes the official RLinf BEHAVIOR installer,
-applies the reviewed CUDA/OpenPI/LeRobot compatibility pins inside the
-BEHAVIOR runtime venv, verifies critical imports and CUDA, and writes freezes
-plus source identities under ``$RPENT_REPRO_ROOT/manifests``. Use a new
-``RPENT_REPRO_ROOT`` for a fresh install; the script refuses to overwrite a
-wrong or dirty RLinf checkout.
+   .. grid-item-card:: Tasks
 
-Motion planning uses NVlabs/cuRobo v0.8.0 at commit
-``4ea77366ca48ee453e7df139e39fa6532af49f3b`` in the BEHAVIOR venv.
-The installer applies constraints before its final repin, retaining NumPy
-1.26.4, Torch 2.5.1+cu124 and Isaac Sim 4.5.0.0. Do not install cuRobo with
-an unconstrained resolver: a NumPy 2 upgrade is incompatible with this stack.
+      ``turning_on_radio`` and ``picking_up_trash``.
 
-Simulator assets
-----------------
+   .. grid-item-card:: Hardware
 
-Accept the BEHAVIOR/OmniGibson licences, choose a dedicated data root, and use
-the standard asset command. It invokes the three official OmniGibson download
-functions in the BEHAVIOR venv rather than importing OmniGibson into the RPent
-environment:
+      Linux, NVIDIA GPU; two Python 3.10 environments; CUDA and Isaac Sim.
 
-.. code-block:: bash
-
-   export OMNIGIBSON_DATA_PATH=/path/to/BEHAVIOR-1K-datasets
-   export BEHAVIOR_PYTHON="$RPENT_REPRO_ROOT/venvs/behavior/bin/python"
-   python -m robots.behavior.assets_cli --accept-license --skip-existing
-
-Omit ``--accept-license`` to let the official downloader display its
-interactive licence prompt. The flag is an explicit non-interactive
-confirmation; do not use it unless you accept the licence terms.
-
-The final data root must contain:
-
-.. code-block:: text
-
-   BEHAVIOR-1K-datasets/
-     2025-challenge-task-instances/
-     behavior-1k-assets/
-       scenes/
-     omnigibson-robot-assets/
-     omnigibson.key
-
-Pi0.5 checkpoint
-----------------
-
-Download the reviewed checkpoint into a directory outside the source tree:
-
-.. code-block:: bash
-
-   export PI05_CHECKPOINT_PATH=/path/to/RLinf-Pi05-BEHAVIOR-1K-PT50-CS32
-   "$RPENT_REPRO_ROOT/venvs/rpent/bin/hf" download \
-     RLinf/RLinf-Pi05-BEHAVIOR-1K-PT50-CS32 \
-     --local-dir "$PI05_CHECKPOINT_PATH"
-
-``python -m robots.behavior.assets_cli --verify`` verifies the required
-OmniGibson layout and the source-controlled checkpoint size/SHA binding. The
-shared #136 Pi0.5 component receives head, left-wrist, right-wrist, and raw
-R1Pro proprio data. The raw RPC result is ``[1, 32, 23]``; the common client
-returns ``[32, 23]``.
-
-.. code-block:: bash
-
-   python -m robots.behavior.assets_cli --verify
-
-DINOv2 derived cache
---------------------
-
-BEHAVIOR keeps a reviewed `DINOv2 <https://github.com/facebookresearch/dinov2>`_
-ViT-S/14 deployment for whole-image embeddings over the official Memory
-corpus.
-Provide a DINOv2 source archive and the ``dinov2_vits14_pretrain.pth`` weights:
-
-.. code-block:: bash
-
-   export DINOV2_SOURCE_ARCHIVE=/path/to/dinov2-source.tar.gz
-   export DINOV2_WEIGHTS=/path/to/dinov2_vits14_pretrain.pth
-
-   curl -L \
-     https://github.com/facebookresearch/dinov2/archive/7764ea0f912e53c92e82eb78a2a1631e92725fc8.tar.gz \
-     -o "$DINOV2_SOURCE_ARCHIVE"
-   curl -L \
-     https://dl.fbaipublicfiles.com/dinov2/dinov2_vits14/dinov2_vits14_pretrain.pth \
-     -o "$DINOV2_WEIGHTS"
-
-DINOv2 is the shared visual-memory component. It is not a segmentation model,
-does not replace SAM3 masks, and does not replace current public observations
-or MemoryManager Markdown/YAML material. The accepted DINOv2 source revision
-and both asset SHA-256 identities are pinned in
-``robots/behavior/dino_v2/encoder.py``; the runtime rejects mismatched assets.
-
-The DINO cache is rebuilt from published ``task-specific`` audit/recipe pairs and
-their verified evidence in ``task-specific/artifacts/<cell>/``. Only head RGB frames
-are embedded; wrist frames remain diagnostic evidence. Successful runs prepare
-evidence locally, then MemoryManager publishes it with the task pair under the
-same merge lock. ``dino_v2/`` is disposable derived data, not another corpus.
-Use the BEHAVIOR interpreter to rebuild it; do not edit cache files by hand.
-
-.. code-block:: bash
-
-   "$BEHAVIOR_PYTHON" -m robots.behavior.build_memory_cli \
-     --memory-dir /path/to/memory/behavior \
-     --source-archive "$DINOV2_SOURCE_ARCHIVE" \
-     --weights "$DINOV2_WEIGHTS" \
-     --cuda-device 1
-
-Task identity
--------------
+Tasks
+~~~~~
 
 Use ``--task-name`` and ``--public-seed``. Public seeds map to fixed official
 activity instances through ``robots/behavior/task_specs.py``.
@@ -150,7 +40,7 @@ activity instances through ``robots/behavior/task_specs.py``.
    :widths: 24 42 16 18
 
    * - Task
-     - Instruction
+     - Goal
      - Explore seeds
      - Eval seeds
    * - ``turning_on_radio``
@@ -162,16 +52,185 @@ activity instances through ``robots/behavior/task_specs.py``.
      - ``0``-``9``
      - ``10``-``19``
 
-One evaluation run
-------------------
+Observation and Action
+~~~~~~~~~~~~~~~~~~~~~~
 
-Bind each CUDA child to one physical GPU explicitly:
+The planner's observations and tools differ from the inputs and actions of Pi0.5.
+
+.. list-table::
+   :header-rows: 1
+
+   * - Item
+     - Description
+   * - Observation
+     - Head and left/right wrist RGB views, depth/world coordinates, and robot state. Pi0.5 receives three camera views and R1Pro proprioception.
+   * - Action
+     - The planner calls Pi0.5 or motion primitives. Pi0.5 predicts 32 steps of 23-value actions; the environment may stop a chunk early on success or truncation.
+   * - Reward / success
+     - Only the current episode's ``info["done"]["success"] is True`` establishes official task success. Reward, termination, and planner ``finish`` do not.
+   * - Task prompt
+     - The selected task's pinned instruction comes from ``robots/behavior/task_specs.py``.
+
+Installation and Resources
+--------------------------
+
+Use a Linux host with NVIDIA GPUs and a compatible CUDA driver. Install
+``git``, ``bash``, ``curl``, ``nvidia-smi``, and ``sha256sum``, and reserve space
+for the simulator, licensed data, and model weights. The source-checkout
+installer creates two independent Python 3.10 environments:
+
+- the **RPent venv** runs the CLI, planner, Dashboard, and MemoryManager;
+- the **BEHAVIOR venv** runs RLinf, OmniGibson, Isaac Sim, and Pi0.5.
+
+The non-editable RPent wheel includes the ``robots/behavior`` Python package.
+The ``.[behavior]`` extra adds RPent-side dependencies; neither includes the
+OmniGibson runtime, licensed data, or Pi0.5 checkpoint. The dual-venv
+installer itself runs from a source checkout. For non-editable RPent runs,
+set ``RPENT_REPO_ROOT`` to the matching checkout and use a writable
+``--memory-dir``; otherwise default paths can point inside site-packages.
+For a fresh setup:
 
 .. code-block:: bash
 
+   git clone https://github.com/RLinf/RPent.git
+   cd RPent
+   export RPENT_REPRO_ROOT="$PWD/../rpent-behavior-runtime"
+   export UV_CACHE_DIR="$RPENT_REPRO_ROOT/uv-cache"
+   bash robots/behavior/install_behavior_runtime.sh
+   export RPENT_PYTHON="$RPENT_REPRO_ROOT/venvs/rpent/bin/python"
+   export BEHAVIOR_PYTHON="$RPENT_REPRO_ROOT/venvs/behavior/bin/python"
+   "$RPENT_PYTHON" -m robots.behavior.selfcheck
+
+The runtime root above is outside the source checkout. The installer installs
+RPent editable in its planner venv and runs ENV, VLA,
+and DINO from this checkout in the separate simulator venv. It pins RLinf and
+the CUDA/OpenPI/LeRobot stack, checks imports and CUDA, and writes package
+freezes and source identities under ``$RPENT_REPRO_ROOT/manifests``. Use a new
+``RPENT_REPRO_ROOT`` for a fresh installation; it will not overwrite a dirty
+or different RLinf checkout. A successful selfcheck verifies source contracts,
+not GPU services or task execution.
+
+Motion planning uses NVlabs/cuRobo v0.8.0 at commit
+``4ea77366ca48ee453e7df139e39fa6532af49f3b`` in the BEHAVIOR venv.
+The installer applies constraints before its final repin, retaining NumPy
+1.26.4, Torch 2.5.1+cu124 and Isaac Sim 4.5.0.0. Do not install cuRobo with
+an unconstrained resolver: a NumPy 2 upgrade is incompatible with this stack.
+
+Simulator Assets
+~~~~~~~~~~~~~~~~
+
+Accept the BEHAVIOR/OmniGibson licences, choose a dedicated data root, and use
+the standard asset command. It invokes the three official OmniGibson download
+functions in the BEHAVIOR venv rather than importing OmniGibson into the RPent
+environment:
+
+.. code-block:: bash
+
+   export OMNIGIBSON_DATA_PATH="$RPENT_REPRO_ROOT/omnigibson-data"
+   "$RPENT_PYTHON" -m robots.behavior.assets_cli --accept-license
+
+Omit ``--accept-license`` to let the official downloader display its
+interactive licence prompt. The flag is an explicit non-interactive
+confirmation; do not use it unless you accept the licence terms.
+The downloader writes ``.rpent-behavior-download.json`` with a path/size
+inventory after all three official downloads complete. ``--skip-existing``
+and ``--verify`` accept only a matching
+inventory; an older data root without this record needs a complete download
+into a fresh root. This inventory is not a content SHA-256 check.
+
+The final data root must contain:
+
+.. code-block:: text
+
+   <OMNIGIBSON_DATA_PATH>/
+     2025-challenge-task-instances/
+     behavior-1k-assets/
+       scenes/
+     omnigibson-robot-assets/
+     omnigibson.key
+
+Pi0.5 Checkpoint
+~~~~~~~~~~~~~~~~
+
+Download the reviewed checkpoint into a directory outside the source tree:
+
+.. code-block:: bash
+
+   export PI05_CHECKPOINT_PATH="$RPENT_REPRO_ROOT/downloads/RLinf-Pi05-BEHAVIOR-1K-PT50-CS32"
+   "$RPENT_REPRO_ROOT/venvs/rpent/bin/hf" download \
+     RLinf/RLinf-Pi05-BEHAVIOR-1K-PT50-CS32 \
+     --local-dir "$PI05_CHECKPOINT_PATH"
+
+The shared Pi0.5 component receives head, left-wrist, right-wrist, and raw
+R1Pro proprio data. The raw RPC result is ``[1, 32, 23]``; the client returns
+``[32, 23]``. The checkpoint validator checks the pinned file sizes and SHA-256
+identities before startup.
+
+DINOv2 Derived Cache
+~~~~~~~~~~~~~~~~~~~~
+
+BEHAVIOR keeps a reviewed `DINOv2 <https://github.com/facebookresearch/dinov2>`_
+ViT-S/14 deployment for whole-image embeddings over the official Memory
+corpus.
+Provide a DINOv2 source archive and the ``dinov2_vits14_pretrain.pth`` weights:
+
+.. code-block:: bash
+
+   export DINOV2_SOURCE_ARCHIVE="$RPENT_REPRO_ROOT/downloads/dinov2-source.tar.gz"
+   export DINOV2_WEIGHTS="$RPENT_REPRO_ROOT/downloads/dinov2_vits14_pretrain.pth"
+
+   curl -fL \
+     https://github.com/facebookresearch/dinov2/archive/7764ea0f912e53c92e82eb78a2a1631e92725fc8.tar.gz \
+     -o "$DINOV2_SOURCE_ARCHIVE"
+   curl -fL \
+     https://dl.fbaipublicfiles.com/dinov2/dinov2_vits14/dinov2_vits14_pretrain.pth \
+     -o "$DINOV2_WEIGHTS"
+
+DINOv2 provides whole-image embeddings for the official Memory corpus; it
+does not replace current observations or MemoryManager's Markdown/YAML records.
+The source revision and both asset SHA-256 identities are pinned in
+``robots/behavior/dino_v2/encoder.py``.
+
+Check the complete asset layout and pinned checkpoint/DINO file identities
+before starting a task:
+
+.. code-block:: bash
+
+   "$RPENT_PYTHON" -m robots.behavior.assets_cli --verify
+
+The DINO cache is rebuilt from published ``task-specific`` audit/recipe pairs and
+their verified evidence in ``task-specific/artifacts/<cell>/``. Only head RGB frames
+are embedded; wrist frames remain diagnostic evidence. Successful runs prepare
+evidence locally, then MemoryManager publishes it with the task pair under the
+same merge lock. ``dino_v2/`` is disposable derived data, not another corpus.
+Use the BEHAVIOR interpreter to rebuild it; do not edit cache files by hand.
+
+.. code-block:: bash
+
+   "$BEHAVIOR_PYTHON" -m robots.behavior.build_memory_cli \
+     --memory-dir "$RPENT_REPRO_ROOT/memory/behavior" \
+     --source-archive "$DINOV2_SOURCE_ARCHIVE" \
+     --weights "$DINOV2_WEIGHTS" \
+     --cuda-device 1
+
+Run a Task
+----------
+
+Configure a planner with :doc:`../guides/configure_planner` and check its
+connection. Replace GPU ordinals ``0`` and ``1`` with available physical GPUs;
+each component receives only its selected GPU. This example runs one Eval
+episode with an empty local memory corpus, so it needs no HF memory download:
+
+.. code-block:: bash
+
+   "$RPENT_REPRO_ROOT/venvs/rpent/bin/rpent-check-llm" \
+     --planner codex --model gpt-5.5
    "$RPENT_REPRO_ROOT/venvs/rpent/bin/rpent" --robot behavior \
      --task-name turning_on_radio --public-seed 1 \
      --planner codex --model gpt-5.5 \
+     --memory-profile local \
+     --memory-dir "$RPENT_REPRO_ROOT/memory/behavior" \
+     --output-dir "$RPENT_REPRO_ROOT/runs/first-eval" \
      --behavior-repo "$RPENT_REPRO_ROOT/RLinf" \
      --behavior-python "$RPENT_REPRO_ROOT/venvs/behavior/bin/python" \
      --activity-instance-dir \
@@ -182,11 +241,42 @@ Bind each CUDA child to one physical GPU explicitly:
      --dino-source-archive "$DINOV2_SOURCE_ARCHIVE" \
      --dino-weights "$DINOV2_WEIGHTS"
 
-The first environment load can take several minutes. The environment, VLA, and
-DINO are separate processes, and each receives only its explicitly selected GPU.
+The first environment load can take several minutes. Proceed only if the
+planner check succeeds; it checks credentials and connectivity, not the
+simulator. Choose a new output directory for later runs.
 
-Official MemoryManager
-----------------------
+View Results
+------------
+
+For the Eval command above, inspect these paths after the run:
+
+.. code-block:: text
+
+   <output-dir>/run.log
+   <output-dir>/transcript_*.json
+   <output-dir>/states.json
+   <output-dir>/episode.mp4
+   <output-dir>/terminal_receipt.json       (when finish was called)
+   <output-dir>/behavior_env_server.log
+   <output-dir>/behavior_vla_server.log
+   <output-dir>/behavior_dino_server.log
+
+``states.json`` indexes step observations and camera images. The transcript
+records planner messages and ``environment_success``. A video, clean process
+exit, reward, or planner ``finish`` is not official success; only the current
+episode's raw ``info["done"]["success"] is True`` is. The receipt records
+evidence and its SHA-256 digest; it cannot manufacture success.
+
+Explore keeps ``run.log``, the transcript, and server logs at the run root,
+but writes ``states.json``, ``episode.mp4``, and
+``terminal_receipt.json`` under ``<output-dir>/sessions/session_001/`` (then
+``session_002/``, and so on). Dashboard creates each TaskRun under
+``<output-dir>/tasks/0001_<task-name>_s<seed>/``; its task state and video live
+there, and an Explore TaskRun adds ``sessions/session_001/``. See
+:doc:`../guides/dashboard` for the shared viewer.
+
+Task Memory
+-----------
 
 BEHAVIOR uses the same Markdown/YAML ``MemoryManager`` format and common memory
 tools as the other robots. Normal Eval follows the shared default
@@ -209,6 +299,9 @@ remains historical guidance only.
 An absent or empty corpus is valid, but it contains no advice. Pass the same
 explicit ``--memory-dir`` only to local runs that should share reviewed memory.
 
+Exploration Mode
+----------------
+
 Use the standard RPent Explore entry point for a bounded sequence of sessions:
 
 .. code-block:: bash
@@ -217,8 +310,8 @@ Use the standard RPent Explore entry point for a bounded sequence of sessions:
      --explore \
      --explore-sessions 3 \
      --task-name picking_up_trash --public-seed 0 \
-     --output-dir /path/to/behavior-explore \
-     --memory-dir /path/to/behavior-memory \
+     --output-dir "$RPENT_REPRO_ROOT/runs/behavior-explore" \
+     --memory-dir "$RPENT_REPRO_ROOT/memory/behavior" \
      --planner codex --model gpt-5.5 \
      --behavior-repo "$RPENT_REPRO_ROOT/RLinf" \
      --behavior-python "$RPENT_REPRO_ROOT/venvs/behavior/bin/python" \
@@ -242,7 +335,8 @@ Runtime and Dashboard
 The runtime has four component roles:
 
 - ``env``: the task-scoped official BEHAVIOR/OmniGibson environment;
-- ``vla``: the shared ``rpent/robots/components/pi05_vla_server.py`` service;
+- ``vla``: the session-shared ``robots/behavior/vla_server.py`` adapter built
+  on the common Pi0.5 facade;
 - ``dino``: the shared ``robots/behavior/dino_v2/server.py`` episode-memory
   embedding service;
 - ``memory``: the task-scoped official MemoryManager.
@@ -262,7 +356,11 @@ Start a Dashboard Session with:
      --policy-checkpoint "$PI05_CHECKPOINT_PATH" \
      --dino-source-archive "$DINOV2_SOURCE_ARCHIVE" \
      --dino-weights "$DINOV2_WEIGHTS" \
-     --output-dir /path/to/behavior-dashboard-run
+     --behavior-env-cuda-device 0 \
+     --behavior-model-cuda-device 1 \
+     --memory-profile local \
+     --memory-dir "$RPENT_REPRO_ROOT/memory/behavior" \
+     --output-dir "$RPENT_REPRO_ROOT/runs/behavior-dashboard"
 
 The Dashboard uses the common Start Session flow and head/left-wrist/right-
 wrist camera views. BEHAVIOR does not add robot-local manual buttons, a manual
@@ -281,14 +379,3 @@ Planning, collision, tracking and duration failures are reported explicitly.
 Only raw ``info["done"]["success"]`` establishes task success. Motion primitives
 return their final observation for the next policy call and streaming video;
 VLA chunks additionally record each returned environment frame.
-
-The main logs are:
-
-.. code-block:: text
-
-   <output-dir>/run.log
-   <output-dir>/behavior_vla_server.log
-   <output-dir>/behavior_dino_server.log
-   <output-dir>/tasks/<task-run>/behavior_env_server.log
-   <output-dir>/tasks/<task-run>/episode.mp4
-   <output-dir>/tasks/<task-run>/terminal_receipt.json

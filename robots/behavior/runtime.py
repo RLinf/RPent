@@ -329,7 +329,6 @@ def parse_config(args: argparse.Namespace) -> RunConfig:
             "behavior_env_cuda_device": env_cuda_device,
             "behavior_model_cuda_device": model_cuda_device,
             "memory_profile": memory_profile,
-            "memory_dir": str(memory_dir),
         },
     )
 
@@ -377,18 +376,6 @@ def _behavior_subprocess_env(
         **overrides,
         "RPENT_REPO_ROOT": str(get_repo_root()),
         **({"CUDA_VISIBLE_DEVICES": cuda_device} if cuda_device is not None else {}),
-    }
-
-
-def vla_runtime_contract(args: argparse.Namespace) -> dict[str, Any]:
-    return {
-        "runtime": "pi05_vla",
-        "embodiment": "behavior",
-        "config_name": "pi05_behavior",
-        "action_dim": ACTION_DIM,
-        "action_horizon": DEFAULT_ACTION_CHUNK,
-        "policy_profile_id": SHARED_POLICY_PROFILE_ID,
-        "checkpoint": str(Path(args.policy_checkpoint).expanduser()),
     }
 
 
@@ -731,5 +718,4 @@ __all__ = [
     "env_runtime_contract",
     "init_runtime",
     "parse_config",
-    "vla_runtime_contract",
 ]

@@ -36,9 +36,9 @@ stop, or reach into ENV, VLA, checkpoint, simulator, or RPC internals."""
 GOAL = """Execute the exact runtime task instruction: {{task_instruction}}"""
 
 MEMORY_CONTEXT = """The official MemoryManager corpus is
-`{{memory_dir}}` (profile `{{memory_profile}}`). This invocation's inbox is
-`{{memory_inbox}}`. Memory is historical guidance only: it is not a current
-observation, coordinate source, progress label, or success proof.
+`{{memory_dir}}` (profile `{{memory_profile}}`). Memory is historical guidance
+only: it is not a current observation, coordinate source, progress label, or
+success proof.
 
 DINO matches in public receipts are derived from this corpus's published task
 evidence and filtered to the current task. Each match refers back to the

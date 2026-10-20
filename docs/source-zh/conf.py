@@ -54,7 +54,6 @@ redirects = {
     "rst_source/usage/flywheel": "../guides/flywheel.html",
     "rst_source/usage/advanced_deployment": "../guides/advanced_deployment.html",
     "rst_source/usage/libero": "../simulators/libero.html",
-    "rst_source/usage/behavior": "../simulators/behavior.html",
     "rst_source/usage/robocasa": "../simulators/robocasa.html",
     "rst_source/usage/robotwin": "../simulators/robotwin.html",
     "rst_source/usage/franka": "../real_world_robots/franka.html",

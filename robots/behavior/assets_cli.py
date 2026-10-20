@@ -14,16 +14,17 @@
 
 """Download and verify BEHAVIOR assets.
 
-This command requires an RPent source checkout with ``robots.behavior``
-available through editable install.
+The downloader delegates simulator data installation to OmniGibson.
 """
 
 from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import os
 import subprocess
+import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -42,15 +43,18 @@ from omnigibson.utils.asset_utils import (
     download_omnigibson_robot_assets,
 )
 
-actions = set(filter(None, sys.argv[1].split(",")))
-accept_license = sys.argv[2] == "1"
-if "robot" in actions:
-    download_omnigibson_robot_assets()
-if "behavior" in actions:
-    download_behavior_1k_assets(accept_license=accept_license)
-if "challenge" in actions:
-    download_2025_challenge_task_instances()
+accept_license = sys.argv[1] == "1"
+download_omnigibson_robot_assets()
+download_behavior_1k_assets(accept_license=accept_license)
+download_2025_challenge_task_instances()
 """
+
+_DATASETS = (
+    "omnigibson-robot-assets",
+    "behavior-1k-assets",
+    "2025-challenge-task-instances",
+)
+_DOWNLOAD_RECORD = ".rpent-behavior-download.json"
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -105,12 +109,12 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--skip-existing",
         action="store_true",
-        help="Do not call a downloader for an asset directory already present.",
+        help="Skip assets only when a matching completion record exists.",
     )
     parser.add_argument(
         "--verify",
         action="store_true",
-        help="Verify existing simulator, checkpoint, and DINO assets without downloading.",
+        help="Check the simulator download record, checkpoint, and DINO files.",
     )
     return parser
 
@@ -126,23 +130,22 @@ def _env_path(value: Path | None, *names: str) -> Path | None:
 
 
 def _behavior_python(value: Path | None) -> Path:
-    resolved = _env_path(value, "BEHAVIOR_PYTHON", "RPENT_BEHAVIOR_PYTHON")
-    if resolved is None:
-        repro_root = os.environ.get("RPENT_REPRO_ROOT")
-        if repro_root:
-            resolved = (
-                Path(repro_root).expanduser().resolve()
-                / "venvs"
-                / "behavior"
-                / "bin"
-                / "python"
-            )
-    if resolved is None or not resolved.is_file():
+    configured = value
+    if configured is None:
+        for name in ("BEHAVIOR_PYTHON", "RPENT_BEHAVIOR_PYTHON"):
+            if os.environ.get(name):
+                configured = Path(os.environ[name])
+                break
+    if configured is None and os.environ.get("RPENT_REPRO_ROOT"):
+        configured = Path(os.environ["RPENT_REPRO_ROOT"]) / "venvs/behavior/bin/python"
+    # A venv's bin/python may be a symlink to the system interpreter.
+    executable = configured.expanduser().absolute() if configured is not None else None
+    if executable is None or not executable.is_file():
         raise ValueError(
             "BEHAVIOR Python is unavailable; pass --behavior-python or set "
             "BEHAVIOR_PYTHON"
         )
-    return resolved
+    return executable
 
 
 def _require_data_path(value: Path | None) -> Path:
@@ -169,6 +172,98 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _dataset_inventory(path: Path) -> dict[str, int | str]:
+    if not path.is_dir() or path.is_symlink():
+        raise ValueError(f"missing or unsupported asset directory: {path}")
+    digest = hashlib.sha256()
+    file_count = 0
+    total_bytes = 0
+    for item in sorted(path.rglob("*")):
+        if ".git" in item.relative_to(path).parts:
+            continue
+        if item.is_symlink():
+            raise ValueError(f"unsupported symlink in asset directory: {item}")
+        if not item.is_file():
+            continue
+        size = item.stat().st_size
+        digest.update(item.relative_to(path).as_posix().encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(str(size).encode("ascii"))
+        digest.update(b"\n")
+        file_count += 1
+        total_bytes += size
+    if not file_count or not total_bytes:
+        raise ValueError(f"asset directory has no downloaded files: {path}")
+    return {
+        "files": file_count,
+        "bytes": total_bytes,
+        "path_size_sha256": digest.hexdigest(),
+    }
+
+
+def _current_download_record(data_path: Path) -> dict[str, object]:
+    key = _require_file(data_path / "omnigibson.key", label="OmniGibson licence key")
+    if key.stat().st_size == 0:
+        raise ValueError(f"empty OmniGibson licence key: {key}")
+    return {
+        "format": 1,
+        "datasets": {
+            dataset: _dataset_inventory(data_path / dataset) for dataset in _DATASETS
+        },
+    }
+
+
+def _check_download_record(data_path: Path, *, required: bool) -> bool:
+    record_path = data_path / _DOWNLOAD_RECORD
+    if record_path.is_symlink() or (record_path.exists() and not record_path.is_file()):
+        raise ValueError(f"invalid BEHAVIOR asset completion record: {record_path}")
+    if not record_path.is_file():
+        if required or any(
+            (data_path / dataset).exists() or (data_path / dataset).is_symlink()
+            for dataset in _DATASETS
+        ):
+            raise ValueError(
+                f"unverified BEHAVIOR assets at {data_path}: no completion record. "
+                "Use a new data root for a fresh download; do not remove or "
+                "overwrite existing assets without checking their ownership."
+            )
+        return False
+    try:
+        recorded = json.loads(record_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError(
+            f"invalid BEHAVIOR asset completion record: {record_path}"
+        ) from error
+    current = _current_download_record(data_path)
+    if recorded != current:
+        raise ValueError(
+            f"BEHAVIOR asset inventory changed since download: {data_path}. "
+            "Use a new data root or inspect the existing assets manually."
+        )
+    return True
+
+
+def _write_download_record(data_path: Path) -> None:
+    record_path = data_path / _DOWNLOAD_RECORD
+    payload = json.dumps(_current_download_record(data_path), indent=2, sort_keys=True)
+    stream = tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        dir=data_path,
+        prefix=f"{_DOWNLOAD_RECORD}.tmp-",
+        delete=False,
+    )
+    temporary_path = Path(stream.name)
+    try:
+        with stream:
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary_path, record_path)
+    finally:
+        temporary_path.unlink(missing_ok=True)
+
+
 def verify_assets(
     *,
     data_path: Path,
@@ -176,15 +271,7 @@ def verify_assets(
     dino_source_archive: Path | None,
     dino_weights: Path | None,
 ) -> None:
-    required_directories = (
-        data_path / "behavior-1k-assets" / "scenes",
-        data_path / "omnigibson-robot-assets",
-        data_path / "2025-challenge-task-instances",
-    )
-    for path in required_directories:
-        if not path.is_dir():
-            raise ValueError(f"missing required directory: {path}")
-    _require_file(data_path / "omnigibson.key", label="OmniGibson licence key")
+    _check_download_record(data_path, required=True)
 
     if checkpoint is None:
         raise ValueError(
@@ -217,19 +304,9 @@ def download_assets(
     accept_license: bool,
     skip_existing: bool,
 ) -> None:
-    actions = ["robot", "behavior", "challenge"]
-    if skip_existing:
-        present = {
-            "robot": (data_path / "omnigibson-robot-assets").is_dir(),
-            "behavior": (
-                (data_path / "behavior-1k-assets").is_dir()
-                and (data_path / "omnigibson.key").is_file()
-            ),
-            "challenge": (data_path / "2025-challenge-task-instances").is_dir(),
-        }
-        actions = [name for name in actions if not present[name]]
-    if not actions:
-        print("BEHAVIOR assets already exist; nothing to download.")
+    completed = _check_download_record(data_path, required=False)
+    if completed and skip_existing:
+        print("BEHAVIOR assets match their completion record; nothing to download.")
         return
 
     data_path.mkdir(parents=True, exist_ok=True)
@@ -240,12 +317,12 @@ def download_assets(
             str(behavior_python),
             "-c",
             _DOWNLOAD_SNIPPET,
-            ",".join(actions),
             "1" if accept_license else "0",
         ],
         check=True,
         env=env,
     )
+    _write_download_record(data_path)
 
 
 def main(argv: Sequence[str] | None = None) -> int:

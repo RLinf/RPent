@@ -78,9 +78,9 @@ fi
 if [[ ! -x "${RPENT_VENV}/bin/python" ]]; then
     "${UV_BIN}" venv --python "${PYTHON_VERSION}" "${RPENT_VENV}"
 fi
-# RPent's ordinary package contains only rpent*. Keep the planner venv editable
-# so it can discover the sibling BEHAVIOR source plugin; simulator sidecars run
-# from the same checkout without installing RPent into their separate venv.
+# This installer uses the same checkout for the planner and simulator sidecars.
+# Keep the planner venv editable; simulator sidecars run from this checkout
+# without pulling planner dependencies into their separate venv.
 "${UV_BIN}" pip install --python "${RPENT_VENV}/bin/python" -e "${RPENT_ROOT}"
 # Episode video writer backend; mirrors the .[behavior] extra pin.
 # Do NOT switch the rpent venv to .[behavior] (keeps the CLI venv light).
@@ -250,10 +250,14 @@ mkdir -p "${MANIFEST_DIR}"
     echo "python_version=$("${BEHAVIOR_PYTHON}" --version 2>&1)"
 } > "${MANIFEST_DIR}/source-versions.txt"
 
-echo "Running uv dependency metadata check (report-only for upstream pin conflicts)."
-"${UV_BIN}" pip check --python "${BEHAVIOR_PYTHON}" \
-    > "${MANIFEST_DIR}/behavior-pip-check.txt" 2>&1 || true
-cat "${MANIFEST_DIR}/behavior-pip-check.txt"
+echo "Checking simulator dependency metadata."
+PIP_CHECK_REPORT="${MANIFEST_DIR}/behavior-pip-check.txt"
+if ! "${UV_BIN}" pip check --python "${BEHAVIOR_PYTHON}" 2>&1 \
+    | tee "${PIP_CHECK_REPORT}"; then
+    echo "Simulator dependency metadata is inconsistent; installation is incomplete." >&2
+    echo "See ${PIP_CHECK_REPORT}." >&2
+    exit 1
+fi
 
 cd "${RPENT_ROOT}"
 "${RPENT_VENV}/bin/python" -m robots.behavior.selfcheck

@@ -2,143 +2,43 @@ BEHAVIOR
 ========
 
 `BEHAVIOR-1K <https://behavior.stanford.edu/>`_ 基于 OmniGibson 提供长程家庭任务。
-RPent 当前在源码目录 ``robots/behavior`` 中提供 ``turning_on_radio`` 和
-``picking_up_trash`` 两个 BEHAVIOR 任务。
+RPent 支持运行 ``turning_on_radio`` 和 ``picking_up_trash`` 两个 BEHAVIOR 任务。
 
-和 LIBERO、RoboCasa、RoboTwin、Franka 一样，BEHAVIOR 通过
-``get_robot_spec()`` 提供命令行、配置和运行时入口，通过 ``get_toolkit()``
-提供公开工具。BEHAVIOR 专属的生命周期逻辑保留在 ``robots/behavior`` 内。
-共享的 ``--explore`` 入口已支持 BEHAVIOR，并保持“每个 session 只运行一次
-attempt”的环境生命周期。
+概览
+----
 
-安装状态
---------
+安装前先确认任务、模型和运行环境要求。
 
-BEHAVIOR 是源码目录中的机器人插件，并使用两个相互独立的 Python 3.10 环境：
+.. grid:: 2 4 4 4
+   :gutter: 2
 
-- **RPent venv**：运行 CLI、planner、Dashboard 和 MemoryManager；
-- **BEHAVIOR venv**：运行 RLinf、OmniGibson、Isaac Sim 和 Pi0.5。
+   .. grid-item-card:: 动作模型
 
-普通 ``rpent`` 包只发布框架本体。``.[behavior]`` 只安装轻量的 RPent 侧辅助依赖，
-不会把 ``robots/behavior`` 打进普通 wheel，也不包含完整模拟器、资产或
-checkpoint。请在 RPent 源码目录中执行：
+      Pi0.5 生成 32 步动作块。
 
-.. code-block:: bash
+   .. grid-item-card:: 规划器
 
-   python -m pip install -e ".[behavior]"
-   export RPENT_REPRO_ROOT="$PWD/.behavior-runtime"
-   export UV_CACHE_DIR="$RPENT_REPRO_ROOT/uv-cache"
-   python -m robots.behavior.install_runtime
+      ``api``、``claude_code``、``codex``。
 
-安装器仅在 RPent venv 中以 editable 方式安装 RPent；ENV、VLA 和 DINO 在
-BEHAVIOR venv 中直接加载同一份源码，不会额外安装 RPent。安装器还会克隆已审查的
-RLinf revision，调用官方 RLinf BEHAVIOR 安装器，并在 BEHAVIOR runtime venv 内应用
-已审查的 CUDA/OpenPI/LeRobot 兼容性 pin，验证关键 import 和 CUDA，并在
-``$RPENT_REPRO_ROOT/manifests`` 写入 freeze 与源码身份。全新安装应使用新的
-``RPENT_REPRO_ROOT``；脚本不会覆盖 revision 错误或 dirty 的 RLinf checkout。
+   .. grid-item-card:: 任务
 
-运动规划在 BEHAVIOR venv 中使用 NVlabs/cuRobo v0.8.0，固定 commit
-``4ea77366ca48ee453e7df139e39fa6532af49f3b``。安装器在最终 repin 前使用
-constraints，保留 NumPy 1.26.4、Torch 2.5.1+cu124 和 Isaac Sim 4.5.0.0。
-不要无约束安装 cuRobo：resolver 升级到 NumPy 2 会破坏此环境的兼容性。
+      ``turning_on_radio`` 和 ``picking_up_trash``。
 
-仿真资产
---------
+   .. grid-item-card:: 硬件
 
-接受 BEHAVIOR/OmniGibson 许可后，选择独立数据根并使用标准资产命令。该命令会在
-BEHAVIOR venv 中调用三个 OmniGibson 官方下载函数，不会把 OmniGibson import 到
-RPent 环境：
+      Linux、NVIDIA GPU；两个 Python 3.10 环境；CUDA 与 Isaac Sim。
 
-.. code-block:: bash
+任务
+~~~~
 
-   export OMNIGIBSON_DATA_PATH=/path/to/BEHAVIOR-1K-datasets
-   export BEHAVIOR_PYTHON="$RPENT_REPRO_ROOT/venvs/behavior/bin/python"
-   python -m robots.behavior.assets_cli --accept-license --skip-existing
-
-不传 ``--accept-license`` 时，官方下载器会显示交互式许可确认。该参数代表明确的
-非交互许可确认；仅在接受许可条款后使用。
-
-最终数据根必须包含：
-
-.. code-block:: text
-
-   BEHAVIOR-1K-datasets/
-     2025-challenge-task-instances/
-     behavior-1k-assets/
-       scenes/
-     omnigibson-robot-assets/
-     omnigibson.key
-
-Pi0.5 checkpoint
-----------------
-
-将已审查 checkpoint 下载到源码树之外：
-
-.. code-block:: bash
-
-   export PI05_CHECKPOINT_PATH=/path/to/RLinf-Pi05-BEHAVIOR-1K-PT50-CS32
-   "$RPENT_REPRO_ROOT/venvs/rpent/bin/hf" download \
-     RLinf/RLinf-Pi05-BEHAVIOR-1K-PT50-CS32 \
-     --local-dir "$PI05_CHECKPOINT_PATH"
-
-``python -m robots.behavior.assets_cli --verify`` 会检查 OmniGibson 必需目录，以及
-源码中固定的 checkpoint size/SHA binding。#136 的共享 Pi0.5 component 接收
-head、left wrist、right wrist 和 raw R1Pro proprio；原始 RPC 输出为
-``[1, 32, 23]``，公共 client 返回 ``[32, 23]``。
-
-.. code-block:: bash
-
-   python -m robots.behavior.assets_cli --verify
-
-DINOv2 派生缓存
----------------
-
-BEHAVIOR 保留经审查的 `DINOv2 <https://github.com/facebookresearch/dinov2>`_
-ViT-S/14 部署，用于从官方 Memory 语料中生成整图 embedding。运行前提供 DINOv2
-源码归档和 ``dinov2_vits14_pretrain.pth`` 权重：
-
-.. code-block:: bash
-
-   export DINOV2_SOURCE_ARCHIVE=/path/to/dinov2-source.tar.gz
-   export DINOV2_WEIGHTS=/path/to/dinov2_vits14_pretrain.pth
-
-   curl -L \
-     https://github.com/facebookresearch/dinov2/archive/7764ea0f912e53c92e82eb78a2a1631e92725fc8.tar.gz \
-     -o "$DINOV2_SOURCE_ARCHIVE"
-   curl -L \
-     https://dl.fbaipublicfiles.com/dinov2/dinov2_vits14/dinov2_vits14_pretrain.pth \
-     -o "$DINOV2_WEIGHTS"
-
-DINOv2 是共享视觉 memory component；它不是分割模型，不替代 SAM3 mask、当前
-公开观察或 MemoryManager 的 Markdown/YAML 语料。接受的源码 revision 和两个资产
-SHA-256 固定在 ``robots/behavior/dino_v2/encoder.py``；runtime 会拒绝不匹配的资产。
-
-DINO 缓存从已发布的 ``task-specific`` audit/recipe 对及其
-``task-specific/artifacts/<cell>/`` 下经过校验的证据重建。仅 head RGB 帧参与
-embedding，左右腕帧保留用于诊断。成功运行先在本地准备证据，再由 MemoryManager
-在同一个 merge 锁内将证据和任务对一起发布。``dino_v2/`` 是可删除重建的派生数据，
-不是另一套语料。使用 BEHAVIOR 解释器执行重建，不要手工修改缓存文件。
-
-.. code-block:: bash
-
-   "$BEHAVIOR_PYTHON" -m robots.behavior.build_memory_cli \
-     --memory-dir /path/to/memory/behavior \
-     --source-archive "$DINOV2_SOURCE_ARCHIVE" \
-     --weights "$DINOV2_WEIGHTS" \
-     --cuda-device 1
-
-任务身份
---------
-
-使用 ``--task-name`` 和 ``--public-seed``。public seed 通过
-``robots/behavior/task_specs.py`` 固定映射到官方 activity instance。
+使用 ``--task-name`` 和 ``--public-seed`` 选择任务。public seed 通过 ``robots/behavior/task_specs.py`` 固定映射到官方 activity instance。
 
 .. list-table::
    :header-rows: 1
    :widths: 24 42 16 18
 
    * - 任务
-     - 指令
+     - 目标
      - Explore seeds
      - Eval seeds
    * - ``turning_on_radio``
@@ -150,16 +50,150 @@ embedding，左右腕帧保留用于诊断。成功运行先在本地准备证�
      - ``0``-``9``
      - ``10``-``19``
 
-运行一次 Eval
--------------
+观测与动作
+~~~~~~~~~~
 
-每个 CUDA 子进程必须显式绑定一个物理 GPU：
+规划器使用的观测与工具不同于 Pi0.5 的输入和动作。
+
+.. list-table::
+   :header-rows: 1
+
+   * - 项目
+     - 说明
+   * - 观测
+     - 头部和左右腕部 RGB 图像、深度／世界坐标及机器人状态。Pi0.5 接收三路相机画面和 R1Pro 本体状态。
+   * - 动作
+     - 规划器调用 Pi0.5 或运动原语。Pi0.5 预测 32 步、每步 23 维的动作；任务成功或截断时，环境可能提前停止动作块。
+   * - 奖励与成功判定
+     - 只有当前 episode 的 ``info["done"]["success"] is True`` 才是官方任务成功；reward、终止和规划器的 ``finish`` 都不能替代。
+   * - 任务指令
+     - 固定任务指令来自 ``robots/behavior/task_specs.py``。
+
+安装与资源准备
+--------------
+
+使用带 NVIDIA GPU 和兼容 CUDA 驱动的 Linux 主机，安装 ``git``、``bash``、``curl``、``nvidia-smi`` 和 ``sha256sum``，并为模拟器、授权数据及模型权重留足磁盘空间。源码 checkout 中的安装器会创建两个相互独立的 Python 3.10 环境：
+
+- **RPent venv**：运行 CLI、planner、Dashboard 和 MemoryManager；
+- **BEHAVIOR venv**：运行 RLinf、OmniGibson、Isaac Sim 和 Pi0.5。
+
+非 editable 的 RPent wheel 包含 ``robots/behavior`` Python 包。``.[behavior]`` 只添加 RPent 侧依赖；两者都不包含 OmniGibson 运行环境、授权数据或 Pi0.5 checkpoint。双 venv 安装器本身需要从源码 checkout 执行。非 editable 运行时应将 ``RPENT_REPO_ROOT`` 设为同一提交的 checkout，并显式指定可写的 ``--memory-dir``；否则默认路径可能落在 site-packages 中。全新安装步骤：
 
 .. code-block:: bash
 
+   git clone https://github.com/RLinf/RPent.git
+   cd RPent
+   export RPENT_REPRO_ROOT="$PWD/../rpent-behavior-runtime"
+   export UV_CACHE_DIR="$RPENT_REPRO_ROOT/uv-cache"
+   bash robots/behavior/install_behavior_runtime.sh
+   export RPENT_PYTHON="$RPENT_REPRO_ROOT/venvs/rpent/bin/python"
+   export BEHAVIOR_PYTHON="$RPENT_REPRO_ROOT/venvs/behavior/bin/python"
+   "$RPENT_PYTHON" -m robots.behavior.selfcheck
+
+上述 runtime 目录位于源码树之外。安装器在规划器 venv 中以 editable 模式安装 RPent；ENV、VLA 和 DINO 在独立的模拟器 venv 中使用同一份源码。安装器固定 RLinf 和 CUDA/OpenPI/LeRobot 依赖版本，检查关键 import 与 CUDA，并将依赖 freeze 和源码版本写入 ``$RPENT_REPRO_ROOT/manifests``。全新安装请使用新的 ``RPENT_REPRO_ROOT``；安装器不会覆盖 revision 不符或有未提交改动的 RLinf checkout。selfcheck 通过只说明源码接口检查完成，不代表 GPU 服务或任务动作已经运行。
+
+运动规划在 BEHAVIOR venv 中使用 NVlabs/cuRobo v0.8.0，固定 commit
+``4ea77366ca48ee453e7df139e39fa6532af49f3b``。安装器在最终 repin 前使用
+constraints，保留 NumPy 1.26.4、Torch 2.5.1+cu124 和 Isaac Sim 4.5.0.0。
+不要无约束安装 cuRobo：resolver 升级到 NumPy 2 会破坏此环境的兼容性。
+
+仿真资产
+~~~~~~~~
+
+接受 BEHAVIOR/OmniGibson 许可后，选择独立数据根并使用标准资产命令。该命令会在
+BEHAVIOR venv 中调用三个 OmniGibson 官方下载函数，不会把 OmniGibson import 到
+RPent 环境：
+
+.. code-block:: bash
+
+   export OMNIGIBSON_DATA_PATH="$RPENT_REPRO_ROOT/omnigibson-data"
+   "$RPENT_PYTHON" -m robots.behavior.assets_cli --accept-license
+
+不传 ``--accept-license`` 时，官方下载器会显示交互式许可确认。该参数代表明确的
+非交互许可确认；仅在接受许可条款后使用。
+三个官方下载步骤都完成后，下载器才将路径和文件大小清单写入 ``.rpent-behavior-download.json``。``--skip-existing`` 与 ``--verify`` 只接受与清单匹配的数据；没有记录的旧数据根应改用新目录重新下载并验证。该清单并非内容 SHA-256 校验。
+
+最终数据根必须包含：
+
+.. code-block:: text
+
+   <OMNIGIBSON_DATA_PATH>/
+     2025-challenge-task-instances/
+     behavior-1k-assets/
+       scenes/
+     omnigibson-robot-assets/
+     omnigibson.key
+
+Pi0.5 checkpoint
+~~~~~~~~~~~~~~~~
+
+将已审查 checkpoint 下载到源码树之外：
+
+.. code-block:: bash
+
+   export PI05_CHECKPOINT_PATH="$RPENT_REPRO_ROOT/downloads/RLinf-Pi05-BEHAVIOR-1K-PT50-CS32"
+   "$RPENT_REPRO_ROOT/venvs/rpent/bin/hf" download \
+     RLinf/RLinf-Pi05-BEHAVIOR-1K-PT50-CS32 \
+     --local-dir "$PI05_CHECKPOINT_PATH"
+
+共享 Pi0.5 组件接收头部、左腕、右腕画面与原始 R1Pro 本体状态。原始 RPC 输出形状为 ``[1, 32, 23]``，客户端返回 ``[32, 23]``。启动前会检查 checkpoint 文件大小及固定的 SHA-256 身份。
+
+DINOv2 派生缓存
+~~~~~~~~~~~~~~~~
+
+BEHAVIOR 保留经审查的 `DINOv2 <https://github.com/facebookresearch/dinov2>`_
+ViT-S/14 部署，用于从官方 Memory 语料中生成整图 embedding。运行前提供 DINOv2
+源码归档和 ``dinov2_vits14_pretrain.pth`` 权重：
+
+.. code-block:: bash
+
+   export DINOV2_SOURCE_ARCHIVE="$RPENT_REPRO_ROOT/downloads/dinov2-source.tar.gz"
+   export DINOV2_WEIGHTS="$RPENT_REPRO_ROOT/downloads/dinov2_vits14_pretrain.pth"
+
+   curl -fL \
+     https://github.com/facebookresearch/dinov2/archive/7764ea0f912e53c92e82eb78a2a1631e92725fc8.tar.gz \
+     -o "$DINOV2_SOURCE_ARCHIVE"
+   curl -fL \
+     https://dl.fbaipublicfiles.com/dinov2/dinov2_vits14/dinov2_vits14_pretrain.pth \
+     -o "$DINOV2_WEIGHTS"
+
+DINOv2 从官方 Memory 语料生成整图 embedding，不替代当前观测或 MemoryManager 的 Markdown/YAML 记录。源码 revision 和两个资产的 SHA-256 固定在 ``robots/behavior/dino_v2/encoder.py``。
+
+运行任务前检查完整资产布局，以及 checkpoint 和 DINO 文件的固定身份：
+
+.. code-block:: bash
+
+   "$RPENT_PYTHON" -m robots.behavior.assets_cli --verify
+
+DINO 缓存从已发布的 ``task-specific`` audit/recipe 对及其
+``task-specific/artifacts/<cell>/`` 下经过校验的证据重建。仅 head RGB 帧参与
+embedding，左右腕帧保留用于诊断。成功运行先在本地准备证据，再由 MemoryManager
+在同一个 merge 锁内将证据和任务对一起发布。``dino_v2/`` 是可删除重建的派生数据，
+不是另一套语料。使用 BEHAVIOR 解释器执行重建，不要手工修改缓存文件。
+
+.. code-block:: bash
+
+   "$BEHAVIOR_PYTHON" -m robots.behavior.build_memory_cli \
+     --memory-dir "$RPENT_REPRO_ROOT/memory/behavior" \
+     --source-archive "$DINOV2_SOURCE_ARCHIVE" \
+     --weights "$DINOV2_WEIGHTS" \
+     --cuda-device 1
+
+运行一个任务
+------------
+
+先按 :doc:`../guides/configure_planner` 配置规划器并检查连接。将 GPU 序号 ``0`` 和 ``1`` 换成空闲的物理 GPU；各组件只使用指定的设备。以下示例以空的本地记忆语料运行一次 Eval，因此不需下载 HF 记忆：
+
+.. code-block:: bash
+
+   "$RPENT_REPRO_ROOT/venvs/rpent/bin/rpent-check-llm" \
+     --planner codex --model gpt-5.5
    "$RPENT_REPRO_ROOT/venvs/rpent/bin/rpent" --robot behavior \
      --task-name turning_on_radio --public-seed 1 \
      --planner codex --model gpt-5.5 \
+     --memory-profile local \
+     --memory-dir "$RPENT_REPRO_ROOT/memory/behavior" \
+     --output-dir "$RPENT_REPRO_ROOT/runs/first-eval" \
      --behavior-repo "$RPENT_REPRO_ROOT/RLinf" \
      --behavior-python "$RPENT_REPRO_ROOT/venvs/behavior/bin/python" \
      --activity-instance-dir \
@@ -170,11 +204,30 @@ embedding，左右腕帧保留用于诊断。成功运行先在本地准备证�
      --dino-source-archive "$DINOV2_SOURCE_ARCHIVE" \
      --dino-weights "$DINOV2_WEIGHTS"
 
-首次加载环境通常需要数分钟。env、VLA 和 DINO 是不同进程，每个进程只接收自己
-显式选择的 GPU。
+首次加载环境可能需要数分钟。规划器检查通过后再启动任务；该检查只验证认证与连接，不验证模拟器。后续运行请使用新的输出目录。
 
-官方 MemoryManager
-------------------
+查看结果
+--------
+
+上述 Eval 命令结束后，检查以下文件：
+
+.. code-block:: text
+
+   <output-dir>/run.log
+   <output-dir>/transcript_*.json
+   <output-dir>/states.json
+   <output-dir>/episode.mp4
+   <output-dir>/terminal_receipt.json       （调用 finish 后）
+   <output-dir>/behavior_env_server.log
+   <output-dir>/behavior_vla_server.log
+   <output-dir>/behavior_dino_server.log
+
+``states.json`` 索引每一步的观测和相机图像；transcript 记录规划器消息和 ``environment_success``。视频、进程正常退出、reward 或规划器 ``finish`` 都不是官方成功。只有当前 episode 的原始 ``info["done"]["success"] is True`` 才是成功判定。receipt 记录证据及其 SHA-256 摘要，不能制造成功。
+
+Explore 的 ``run.log``、transcript 和服务日志留在运行根目录；``states.json``、``episode.mp4`` 与 ``terminal_receipt.json`` 写在 ``<output-dir>/sessions/session_001/`` 下，后续 session 依次递增。Dashboard 为每个 TaskRun 创建 ``<output-dir>/tasks/0001_<task-name>_s<seed>/``，状态和视频写在该目录；Explore TaskRun 还会增加 ``sessions/session_001/`` 子目录。浏览器查看方式见 :doc:`../guides/dashboard`。
+
+任务记忆
+--------
 
 BEHAVIOR 使用和其他机器人相同的 Markdown/YAML ``MemoryManager`` 格式与公共 memory
 工具。普通 Eval 使用共享默认值 ``--memory-profile hf``；Explore 使用本地 memory，
@@ -196,6 +249,9 @@ BEHAVIOR 使用和其他机器人相同的 Markdown/YAML ``MemoryManager`` 格�
 缺失或空 corpus 是合法状态，但不会提供任何建议。只有需要共享本地已审查 memory
 的运行才显式传入同一个 ``--memory-dir``。
 
+探索模式
+--------
+
 使用标准 RPent Explore 入口运行一组有界 session：
 
 .. code-block:: bash
@@ -204,8 +260,8 @@ BEHAVIOR 使用和其他机器人相同的 Markdown/YAML ``MemoryManager`` 格�
      --explore \
      --explore-sessions 3 \
      --task-name picking_up_trash --public-seed 0 \
-     --output-dir /path/to/behavior-explore \
-     --memory-dir /path/to/behavior-memory \
+     --output-dir "$RPENT_REPRO_ROOT/runs/behavior-explore" \
+     --memory-dir "$RPENT_REPRO_ROOT/memory/behavior" \
      --planner codex --model gpt-5.5 \
      --behavior-repo "$RPENT_REPRO_ROOT/RLinf" \
      --behavior-python "$RPENT_REPRO_ROOT/venvs/behavior/bin/python" \
@@ -228,7 +284,8 @@ Runtime 与 Dashboard
 runtime 有四个 component role：
 
 - ``env``：task-scoped 官方 BEHAVIOR/OmniGibson 环境；
-- ``vla``：共享 ``rpent/robots/components/pi05_vla_server.py`` 服务；
+- ``vla``：基于公共 Pi0.5 facade 的 ``robots/behavior/vla_server.py`` 适配服务，
+  在 session 间共享；
 - ``dino``：共享 ``robots/behavior/dino_v2/server.py`` episode-memory
   embedding 服务；
 - ``memory``：task-scoped 官方 MemoryManager。
@@ -248,7 +305,11 @@ runtime 有四个 component role：
      --policy-checkpoint "$PI05_CHECKPOINT_PATH" \
      --dino-source-archive "$DINOV2_SOURCE_ARCHIVE" \
      --dino-weights "$DINOV2_WEIGHTS" \
-     --output-dir /path/to/behavior-dashboard-run
+     --behavior-env-cuda-device 0 \
+     --behavior-model-cuda-device 1 \
+     --memory-profile local \
+     --memory-dir "$RPENT_REPRO_ROOT/memory/behavior" \
+     --output-dir "$RPENT_REPRO_ROOT/runs/behavior-dashboard"
 
 Dashboard 使用公共 Start Session 流程与 head/left-wrist/right-wrist 相机视图。
 BEHAVIOR 不增加 robot-local 手动按钮、手动控制 backend 或
@@ -263,14 +324,3 @@ RGB-D 投影使用当前物理相机帧；R1Pro 没有可动头部相机，因�
 规划、碰撞、跟踪和时长限制导致的失败均明确返回。
 任务成功仅认原始 ``info["done"]["success"]``。运动原语返回最终观测供后续策略调用
 和流式视频使用；VLA chunk 另外记录每个实际返回的环境帧。
-
-主要日志：
-
-.. code-block:: text
-
-   <output-dir>/run.log
-   <output-dir>/behavior_vla_server.log
-   <output-dir>/behavior_dino_server.log
-   <output-dir>/tasks/<task-run>/behavior_env_server.log
-   <output-dir>/tasks/<task-run>/episode.mp4
-   <output-dir>/tasks/<task-run>/terminal_receipt.json

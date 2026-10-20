@@ -195,25 +195,6 @@ def write_policy_checkpoint_manifest(
     return binding
 
 
-def assert_matching_policy_checkpoint_binding(
-    actual: Mapping[str, Any] | None,
-    expected: PolicyCheckpointBinding | Mapping[str, Any],
-) -> dict[str, Any]:
-    expected_value = (
-        expected.as_dict()
-        if isinstance(expected, PolicyCheckpointBinding)
-        else dict(expected)
-    )
-    if not isinstance(actual, Mapping):
-        raise PolicyCheckpointError("VLA health metadata lacks checkpoint_binding")
-    actual_value = dict(actual)
-    if actual_value != expected_value:
-        raise PolicyCheckpointError(
-            "VLA checkpoint binding does not match your Pi05-Behavior model"
-        )
-    return actual_value
-
-
 __all__ = [
     "POLICY_CHECKPOINT_BINDING_SCHEMA_VERSION",
     "POLICY_CHECKPOINT_ENV",
@@ -224,7 +205,6 @@ __all__ = [
     "PolicyCheckpointBinding",
     "PolicyCheckpointError",
     "PolicyCheckpointProfile",
-    "assert_matching_policy_checkpoint_binding",
     "validate_policy_checkpoint",
     "write_policy_checkpoint_manifest",
 ]

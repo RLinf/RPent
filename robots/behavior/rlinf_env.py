@@ -1239,6 +1239,9 @@ class OfficialBehaviorBackend:
         *,
         return_all_frames: bool = False,
     ) -> tuple[Any, float, bool, bool, dict[str, Any]]:
+        """Expose final-step scalars; ``info.executed_steps`` records a short chunk."""
+        if self._episode_ended:
+            raise RuntimeError("BEHAVIOR episode already ended; reset is required")
         action_array = _validate_action_chunk(actions)
         last_obs: Any = None
         last_reward = 0.0
