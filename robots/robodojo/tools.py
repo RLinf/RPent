@@ -18,10 +18,301 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
+import numpy as np
 from pydantic import Field
 from pydantic.json_schema import SkipJsonSchema
 
+from rpent.session import EnvState
 from rpent.tools import ToolResult, tool
+
+
+def _tool_error(code: str, message: str, **details: Any) -> ToolResult:
+    return ToolResult(
+        data={
+            "error": {"code": code, "message": message, **details},
+            "success": False,
+        }
+    )
+
+
+def _artifact_name(view: str, field: str) -> str:
+    suffix = {
+        "rgb": ".png",
+        "depth": ".npy",
+        "world_xyz": ".npy",
+        "camera_meta": ".json",
+    }[field]
+    return f"{view}_{field}{suffix}"
+
+
+def _load_world_xyz(
+    env_state: EnvState,
+    *,
+    view: str,
+    step: int | None,
+) -> tuple[dict[str, Any] | None, np.ndarray | None, ToolResult | None]:
+    """Load one persisted agent-visible world map without touching the env."""
+    requested_step = -1 if step is None else int(step)
+    try:
+        record = env_state.get(requested_step)
+    except Exception:
+        return (
+            None,
+            None,
+            _tool_error(
+                "state_not_found",
+                "The requested RoboDojo state artifact does not exist.",
+                step=requested_step,
+            ),
+        )
+    state = record.state
+    actual_step = record.step_idx
+    views = state.get("artifacts", {})
+    if view not in views:
+        return (
+            None,
+            None,
+            _tool_error(
+                "view_not_found",
+                "The requested view is unavailable in this state.",
+                view=view,
+                available_views=sorted(views) if isinstance(views, dict) else [],
+            ),
+        )
+    world_name = _artifact_name(view, "world_xyz")
+    if world_name not in record.artifacts:
+        return (
+            None,
+            None,
+            _tool_error(
+                "world_xyz_not_found",
+                "The requested view has no persisted world map.",
+                view=view,
+                step_idx=actual_step,
+            ),
+        )
+    try:
+        world = env_state.load(world_name, step=actual_step)
+    except Exception as error:
+        return (
+            None,
+            None,
+            _tool_error(
+                "world_xyz_invalid",
+                "The persisted world map cannot be read.",
+                detail=str(error),
+            ),
+        )
+    if world.ndim != 3 or world.shape[2] != 3:
+        return (
+            None,
+            None,
+            _tool_error(
+                "world_xyz_shape",
+                "A RoboDojo world map must have shape [H,W,3].",
+                actual_shape=list(world.shape),
+            ),
+        )
+    return state, np.asarray(world), None
+
+
+@tool(readonly=True, exclude=("env_state",))
+def sample_world_xyz(
+    env_state: EnvState,
+    *,
+    view: str,
+    pixels: Annotated[
+        list[Annotated[list[int], Field(min_length=2, max_length=2)]],
+        Field(min_length=1, max_length=256),
+    ],
+    step: int | None = None,
+    neighborhood: Annotated[
+        int, Field(ge=0, le=32, json_schema_extra={"default": 1})
+    ] = 1,
+) -> ToolResult:
+    """Read persisted same-frame world xyz around [row,col] pixels. The view is also the pixel coordinate space: use the exact view whose RGB supplied the pixels. The current state's view_specs gives each view's [height,width]. This is read-only and does not render or move the robot.
+
+    Args:
+        view: Artifact view and pixel coordinate space. It must match the RGB image used to choose pixels.
+    """
+    state, world, error = _load_world_xyz(env_state, view=view, step=step)
+    if error is not None:
+        return error
+    assert state is not None and world is not None
+    radius = int(neighborhood)
+    if radius < 0 or radius > 32:
+        return _tool_error(
+            "invalid_neighborhood",
+            "neighborhood must be an integer from 0 through 32.",
+        )
+    if not isinstance(pixels, list) or not pixels or len(pixels) > 256:
+        return _tool_error(
+            "invalid_pixels",
+            "pixels must contain between 1 and 256 [row,col] pairs.",
+        )
+    height, width = world.shape[:2]
+    samples: list[dict[str, Any]] = []
+    for pixel in pixels:
+        if (
+            not isinstance(pixel, (list, tuple))
+            or len(pixel) != 2
+            or not all(isinstance(value, (int, np.integer)) for value in pixel)
+        ):
+            return _tool_error(
+                "invalid_pixel",
+                "Every pixel must be an integer [row,col] pair.",
+                pixel=pixel,
+            )
+        row, col = (int(pixel[0]), int(pixel[1]))
+        if row < 0 or row >= height or col < 0 or col >= width:
+            return _tool_error(
+                "pixel_out_of_bounds",
+                "The pixel is outside this view's world map. Use the exact "
+                "artifact view whose RGB supplied the pixel; do not reuse "
+                "high-resolution pixels with a base-resolution view.",
+                pixel=[row, col],
+                shape=[height, width],
+                view=view,
+                coordinate_space=view,
+                valid_row_range=[0, height - 1],
+                valid_col_range=[0, width - 1],
+            )
+        row_start = max(0, row - radius)
+        row_end = min(height, row + radius + 1)
+        col_start = max(0, col - radius)
+        col_end = min(width, col + radius + 1)
+        region = world[row_start:row_end, col_start:col_end].reshape(-1, 3)
+        region = region[np.isfinite(region).all(axis=1)]
+        finite_counts = np.full(3, len(region))
+        if not len(region):
+            return _tool_error(
+                "no_valid_world_points",
+                "The requested pixel neighborhood has no finite xyz coordinate.",
+                pixel=[row, col],
+                neighborhood=radius,
+            )
+        xyz = np.median(region, axis=0)
+        samples.append(
+            {
+                "pixel": [row, col],
+                "valid": True,
+                "xyz": xyz.tolist(),
+                "valid_points": int(np.isfinite(region).all(axis=1).sum()),
+                "valid_coordinates": finite_counts.tolist(),
+            }
+        )
+    return ToolResult(
+        data={
+            "success": True,
+            "step_idx": state["step_idx"],
+            "view": view,
+            "coordinate_space": view,
+            "image_shape": [height, width],
+            "pixel_order": "row_col",
+            "coordinate_order": "xyz",
+            "frame": "world",
+            "unit": "metre",
+            "neighborhood": radius,
+            "samples": samples,
+        }
+    )
+
+
+@tool(readonly=True, exclude=("env_state",))
+def query_world_map(
+    env_state: EnvState,
+    *,
+    view: str,
+    bbox: Annotated[list[int], Field(min_length=4, max_length=4)],
+    step: int | None = None,
+    max_points: Annotated[
+        int, Field(ge=1, le=4096, json_schema_extra={"default": 256})
+    ] = 256,
+) -> ToolResult:
+    """Read deterministic world-xyz samples from a half-open [row_start,col_start,row_end,col_end] region. The view is also the bbox coordinate space and must match the source RGB artifact; view_specs gives [height,width]. This is read-only.
+
+    Args:
+        view: Artifact view and bbox coordinate space. It must match the RGB image used to choose the bbox.
+    """
+    state, world, error = _load_world_xyz(env_state, view=view, step=step)
+    if error is not None:
+        return error
+    assert state is not None and world is not None
+    if (
+        not isinstance(bbox, (list, tuple))
+        or len(bbox) != 4
+        or not all(isinstance(value, (int, np.integer)) for value in bbox)
+    ):
+        return _tool_error(
+            "invalid_bbox",
+            "bbox must be [row_start,col_start,row_end,col_end].",
+        )
+    row_start, col_start, row_end, col_end = map(int, bbox)
+    height, width = world.shape[:2]
+    if not (0 <= row_start < row_end <= height and 0 <= col_start < col_end <= width):
+        return _tool_error(
+            "bbox_out_of_bounds",
+            "bbox must be a non-empty half-open region inside this view's "
+            "world map. Use the exact artifact view whose RGB supplied the "
+            "bbox coordinates.",
+            bbox=list(map(int, bbox)),
+            shape=[height, width],
+            view=view,
+            coordinate_space=view,
+            valid_bbox=[0, 0, height, width],
+        )
+    limit = int(max_points)
+    if limit < 1 or limit > 4096:
+        return _tool_error(
+            "invalid_max_points",
+            "max_points must be an integer from 1 through 4096.",
+        )
+    region = world[row_start:row_end, col_start:col_end]
+    valid_mask = np.isfinite(region).all(axis=2)
+    local_rows, local_cols = np.nonzero(valid_mask)
+    if not len(local_rows):
+        return _tool_error(
+            "no_valid_world_points",
+            "The requested region contains no finite world coordinates.",
+            bbox=list(map(int, bbox)),
+        )
+    xyz = region[local_rows, local_cols]
+    if len(xyz) > limit:
+        indices = np.linspace(0, len(xyz) - 1, limit).astype(int)
+    else:
+        indices = np.arange(len(xyz))
+    points = [
+        {
+            "pixel": [
+                int(row_start + local_rows[index]),
+                int(col_start + local_cols[index]),
+            ],
+            "xyz": xyz[index].tolist(),
+        }
+        for index in indices
+    ]
+    return ToolResult(
+        data={
+            "success": True,
+            "step_idx": state["step_idx"],
+            "view": view,
+            "coordinate_space": view,
+            "image_shape": [height, width],
+            "bbox": [row_start, col_start, row_end, col_end],
+            "bbox_interval": "half_open",
+            "pixel_order": "row_col",
+            "coordinate_order": "xyz",
+            "frame": "world",
+            "unit": "metre",
+            "valid_points": int(len(xyz)),
+            "returned_points": len(points),
+            "xyz_min": np.min(xyz, axis=0).tolist(),
+            "xyz_max": np.max(xyz, axis=0).tolist(),
+            "xyz_median": np.median(xyz, axis=0).tolist(),
+            "points": points,
+        }
+    )
+
 
 # (camera key in the obs dict, artifact base name). Mirrors the ``frame_channels``
 # declared in ``robot_spec.ROBODOJO_DASHBOARD_SPEC``.
@@ -103,6 +394,7 @@ def back_project(
     row: int,
     col: int,
     camera: Literal["cam_head", "cam_left_wrist", "cam_right_wrist"] = "cam_head",
+    step: int | None = None,
 ) -> ToolResult:
     """Project one pixel from a camera image to a world xyz coordinate using depth + intrinsics/extrinsics. Use to localize objects.
 
@@ -112,9 +404,7 @@ def back_project(
         camera: Camera to project from"""
     import numpy as np
 
-    if primitives._last_obs is None:
-        primitives._last_obs = primitives.env.get_obs()
-    cam = primitives._last_obs.get("vision", {}).get(camera)
+    cam, step_idx = _recorded_camera(primitives, state, camera, step)
     if cam is None:
         payload = {"error": f"camera {camera!r} not in observation"}
         return ToolResult(data=payload)
@@ -126,10 +416,22 @@ def back_project(
         return ToolResult(data=payload)
     K = np.asarray(cam.get("intrinsic_matrix"), dtype=np.float64)
     T = np.asarray(cam.get("extrinsic_matrix"), dtype=np.float64)
-    if K.shape != (3, 3) or T.shape != (4, 4):
+    if (
+        K.shape != (3, 3)
+        or T.shape != (4, 4)
+        or not np.isfinite(K).all()
+        or not np.isfinite(T).all()
+        or K[0, 0] <= 0
+        or K[1, 1] <= 0
+    ):
         payload = {"error": f"calibration missing/invalid: K={K.shape} T={T.shape}"}
         return ToolResult(data=payload)
-    h, w = int(depth.shape[0]), int(depth.shape[1])
+    depth = np.asarray(depth)
+    if depth.ndim != 2:
+        return ToolResult(data={"error": "depth must have shape [H,W]"})
+    if type(row) is not int or type(col) is not int:
+        return ToolResult(data={"error": "pixel must be integer [row,col]"})
+    h, w = depth.shape
     if not (0 <= int(row) < h and 0 <= int(col) < w):
         payload = {"error": f"pixel out of range: row 0..{h - 1}, col 0..{w - 1}"}
         return ToolResult(data=payload)
@@ -150,6 +452,7 @@ def back_project(
     p_world = T @ p_cam
     payload = {
         "camera": camera,
+        "step_idx": step_idx,
         "pixel": [int(row), int(col)],
         "depth_m": round(d, 4),
         "world_xyz": [round(float(v), 4) for v in p_world[:3]],
@@ -163,17 +466,20 @@ def segment(
     state: Any,
     text_prompt: str,
     camera: Literal["cam_head", "cam_left_wrist", "cam_right_wrist"] = "cam_head",
-    min_score: float = 0.2,
+    min_score: Annotated[float, Field(ge=0, le=1, allow_inf_nan=False)] = 0.2,
+    step: int | None = None,
 ) -> ToolResult:
-    """Segment an object in a camera image by text prompt (SAM 3.0). Returns mask bounding box and score.
+    """Segment a saved camera image with SAM3. Inspect the returned red-mask overlay before using point_rc with back_project at the same camera and step_idx. This tool does not move the robot or compute a grasp pose.
 
     Args:
         text_prompt: e.g. 'the bottle'
         camera: Camera to segment (default cam_head)
         min_score: Min score (default 0.2)"""
-    if primitives._last_obs is None:
-        primitives._last_obs = primitives.env.get_obs()
-    cam = primitives._last_obs.get("vision", {}).get(camera)
+    if not text_prompt.strip() or not np.isfinite(min_score) or not 0 <= min_score <= 1:
+        return ToolResult(
+            data={"error": "provide nonempty text and finite min_score in [0,1]"}
+        )
+    cam, step_idx = _recorded_camera(primitives, state, camera, step)
     if cam is None:
         payload = {"error": f"camera {camera!r} not in observation"}
         return ToolResult(data=payload)
@@ -185,175 +491,134 @@ def segment(
     if sam3 is None:
         payload = {"error": "sam3_client not configured"}
         return ToolResult(data=payload)
-    result = sam3.segment(color, text_prompt=text_prompt, min_score=min_score)
+    fallback = "Use a visible pixel with back_project or sample_world_xyz on the same saved frame."
+    try:
+        result = sam3.segment(color, text_prompt=text_prompt, min_score=min_score)
+    except Exception as exc:
+        return ToolResult(
+            data={
+                "error": f"segmentation service call failed: {exc}",
+                "camera": camera,
+                "step_idx": step_idx,
+                "fallback": fallback,
+            }
+        )
     if not result.found:
-        payload = {"camera": camera, "found": False, "text_prompt": text_prompt}
+        payload = {
+            "camera": camera,
+            "step_idx": step_idx,
+            "found": False,
+            "text_prompt": text_prompt,
+            "score": result.score,
+            "reason": getattr(result, "reason", None) or "SAM3 found no mask",
+            "fallback": fallback,
+        }
         return ToolResult(data=payload)
     from robots.robodojo.flash.grounding import mask_geometry
 
+    mask = np.asarray(result.mask, dtype=bool)
+    if mask.shape != np.asarray(color).shape[:2] or not mask.any():
+        return ToolResult(
+            data={"error": "SAM3 mask must match the RGB image and contain foreground"}
+        )
+    geometry = mask_geometry(mask)
+    rows, cols = np.nonzero(mask)
+    centroid = geometry["centroid_rc"]
+    index = np.argmin((rows - centroid[0]) ** 2 + (cols - centroid[1]) ** 2)
+    point = [int(rows[index]), int(cols[index])]
     payload = {
         "camera": camera,
+        "step_idx": step_idx,
+        "text_prompt": text_prompt,
+        "min_score": min_score,
         "found": True,
         "score": result.score,
         "box_px": _jsonable(result.box),
-        **mask_geometry(result.mask),
+        **geometry,
+        "point_rc": point,
+        "point_method": "nearest_foreground_to_centroid",
+        "centroid_in_mask": bool(mask[tuple(centroid)]),
     }
-    return ToolResult(data=payload)
+    import imageio.v2 as imageio
+
+    overlay = np.asarray(color).copy()
+    overlay[mask] = (
+        0.55 * overlay[mask].astype(np.float32) + 0.45 * np.array([255, 0, 0])
+    ).astype(np.uint8)
+    overlay_bytes = imageio.imwrite("<bytes>", overlay, format="png")
+    if state is not None:
+        index = primitives.reserve_segment_index()
+        overlay_name = f"segment_overlay_{index:02d}.png"
+        segment_name = f"segment_{index:02d}.json"
+        saved_overlay = state.save(overlay_name, overlay, step=step_idx)
+        saved_segment = state.save(segment_name, payload, step=step_idx)
+        if saved_overlay is None or saved_segment is None:
+            return ToolResult(
+                data={
+                    **payload,
+                    "error": "could not persist segmentation evidence",
+                    "fallback": fallback,
+                },
+                images=[overlay_bytes],
+            )
+        payload.update(overlay_artifact=saved_overlay, segment_artifact=saved_segment)
+    return ToolResult(data=payload, images=[overlay_bytes])
 
 
-def _arm_ee_pose_key(arm: str) -> str:
-    return f"{arm}_ee_pose"
+def _recorded_camera(
+    primitives, state, camera: str, step: int | None
+) -> tuple[dict | None, int | None]:
+    """Load a saved frame, never silently render during a read-only query."""
+    if state is None:
+        # Direct legacy callers may supply their own immutable observation.
+        return (primitives._last_obs or {}).get("vision", {}).get(camera), None
+    record = state.get(-1 if step is None else step)
+    view = camera.removeprefix("cam_")
+    cam = dict(record.state.get("cameras", {}).get(camera, {}))
+    for field, name in (
+        ("color", f"{camera}.png"),
+        ("depth", _artifact_name(view, "depth")),
+    ):
+        if name in record.artifacts:
+            cam[field] = state.load(name, step=record.step_idx)
+    return cam or None, record.step_idx
 
 
-def _arm_ee_joint_key(arm: str) -> str:
-    return f"{arm}_ee_joint_state"
+def _world_from_depth(depth, intrinsic, cam2world) -> np.ndarray:
+    """Project optical-axis metres using USD camera axes (+X, +Y up, -Z)."""
+    depth = np.asarray(depth, dtype=np.float64)
+    intrinsic = np.asarray(intrinsic, dtype=np.float64)
+    cam2world = np.asarray(cam2world, dtype=np.float64)
+    if depth.ndim != 2:
+        raise ValueError("depth must have shape [H,W]")
+    if (
+        intrinsic.shape != (3, 3)
+        or cam2world.shape != (4, 4)
+        or not np.isfinite(intrinsic).all()
+        or not np.isfinite(cam2world).all()
+        or intrinsic[0, 0] <= 0
+        or intrinsic[1, 1] <= 0
+    ):
+        raise ValueError(
+            "camera calibration must be finite with positive focal lengths"
+        )
+    valid = np.isfinite(depth) & (depth > 0)
+    depth = np.where(valid, depth, np.nan)
+    rows, cols = np.indices(depth.shape)
+    points = np.stack(
+        (
+            (cols - intrinsic[0, 2]) * depth / intrinsic[0, 0],
+            -(rows - intrinsic[1, 2]) * depth / intrinsic[1, 1],
+            -depth,
+        ),
+        axis=-1,
+    )
+    return (points @ cam2world[:3, :3].T + cam2world[:3, 3]).astype(np.float32)
 
 
 def _refresh_obs(primitives) -> dict:
     primitives._last_obs = primitives.env.get_obs()
     return primitives._last_obs
-
-
-@tool(readonly=False, exclude=("primitives", "state", "tol", "max_steps"))
-def move_to(
-    primitives: Any,
-    state: Any,
-    xyz: Annotated[list[float], Field(min_length=3, max_length=3)],
-    arm: Literal["left", "right"] = "right",
-    gripper: float = 0,
-    tol: Any = 0.01,
-    max_steps: Any = 20,
-) -> ToolResult:
-    """Move an arm end-effector to a world xyz target (scripted motion, CuRobo IK). gripper: 1=close, -1=open, 0=keep.
-
-    Args:
-        xyz: World xyz target for the end-effector
-        arm: Arm to move
-        gripper: 1=close, -1=open, 0=keep current"""
-    import numpy as np
-
-    target = [float(v) for v in xyz]
-    if len(target) != 3:
-        payload = {"error": "xyz must have 3 values"}
-        return ToolResult(data=payload)
-    obs = _refresh_obs(primitives)
-    start_ee = obs.get("state", {}).get(_arm_ee_pose_key(arm))
-    if start_ee is None:
-        payload = {"error": f"{arm} ee_pose not in state"}
-        return ToolResult(data=payload)
-    start = [float(v) for v in np.asarray(start_ee)[:3]]
-    final_xyz = list(start)
-    dist_to_target = float(np.linalg.norm(np.asarray(target) - np.asarray(final_xyz)))
-    steps_used = 0
-    reached = False
-    last_error = None
-    for step in range(max_steps):
-        primitives._check_cancelled()
-        if dist_to_target <= tol:
-            reached = True
-            break
-        obs = _refresh_obs(primitives)
-        action: dict
-        # Preferred: position-only IK over several orientation candidates so
-        # lateral targets do not diverge; fall back to the fixed-orientation
-        # ee path if the solver reports no reachable solution.
-        ik = primitives.env.solve_ik_position(arm, target)
-        if ik.get("status") == "Success":
-            action = {f"{arm}_arm_joint_state": ik["joint_value"]}
-            for a in ("left", "right"):
-                if a == arm:
-                    continue
-                joints = obs.get("state", {}).get(f"{a}_arm_joint_state")
-                if joints is not None:
-                    action[f"{a}_arm_joint_state"] = list(
-                        np.asarray(joints, dtype=np.float64)
-                    )
-        else:
-            last_error = ik.get("error")
-            ee_pose = obs.get("state", {}).get(_arm_ee_pose_key(arm))
-            if ee_pose is None:
-                payload = {"error": f"{arm} ee_pose missing mid-motion"}
-                return ToolResult(data=payload)
-            ee_pose = list(np.asarray(ee_pose, dtype=np.float64))
-            ee_pose[:3] = target
-            action = {_arm_ee_pose_key(arm): ee_pose}
-            for a in ("left", "right"):
-                if a == arm:
-                    continue
-                pose = obs.get("state", {}).get(_arm_ee_pose_key(a))
-                if pose is not None:
-                    action[_arm_ee_pose_key(a)] = list(
-                        np.asarray(pose, dtype=np.float64)
-                    )
-        for a in ("left", "right"):
-            joint = obs.get("state", {}).get(_arm_ee_joint_key(a))
-            if joint is None:
-                continue
-            if a == arm and gripper != 0:
-                # Env convention: normalized joint 1.0 = OPEN, 0.0 = CLOSED
-                # (reward is_all_gripper_open uses >=0.8). Tool arg semantics:
-                # 1=close, -1=open. Map close -> 0.0, open -> 1.0.
-                action[_arm_ee_joint_key(a)] = [0.0 if gripper > 0 else 1.0]
-            else:
-                action[_arm_ee_joint_key(a)] = [float(np.asarray(joint).reshape(-1)[0])]
-        obs_step, _reward, _done, info = primitives.env.step(action)
-        steps_used = step + 1
-        final = obs_step.get("state", {}).get(_arm_ee_pose_key(arm))
-        if final is None:
-            break
-        final_xyz = [float(v) for v in np.asarray(final)[:3]]
-        dist_to_target = float(
-            np.linalg.norm(np.asarray(target) - np.asarray(final_xyz))
-        )
-        if info["status"].get("step", 0) >= info["status"].get("step_limit", 1):
-            break
-    payload = {
-        "arm": arm,
-        "target_xyz": target,
-        "start_xyz": start,
-        "final_xyz": final_xyz,
-        "dist_to_target_m": round(dist_to_target, 4),
-        "steps_used": steps_used,
-        "reached": reached,
-        "ik_error": last_error,
-    }
-    return ToolResult(data=payload)
-
-
-@tool(readonly=False, exclude=("primitives", "state"))
-def set_gripper(
-    primitives: Any, state: Any, arm: Literal["left", "right"], gripper: float
-) -> ToolResult:
-    """Open or close an arm gripper. 1=close, -1=open.
-
-    Args:
-        gripper: 1=close, -1=open"""
-    import numpy as np
-
-    obs = _refresh_obs(primitives)
-    action: dict = {}
-    for a in ("left", "right"):
-        pose = obs.get("state", {}).get(_arm_ee_pose_key(a))
-        joint = obs.get("state", {}).get(_arm_ee_joint_key(a))
-        if pose is not None:
-            action[_arm_ee_pose_key(a)] = list(np.asarray(pose, dtype=np.float64))
-        if joint is not None:
-            # Env convention: 1.0 = OPEN, 0.0 = CLOSED. Tool arg: 1=close, -1=open.
-            val = 0.0 if (a == arm and gripper > 0) else 1.0
-            if a != arm:
-                val = float(np.asarray(joint).reshape(-1)[0])
-            action[_arm_ee_joint_key(a)] = [val]
-    _obs_step, _reward, _done, info = primitives.env.step(action)
-    payload = {
-        "arm": arm,
-        "gripper": "closed" if gripper > 0 else "open",
-        "status": {
-            key: info["status"][key]
-            for key in ("step", "step_limit")
-            if key in info["status"]
-        },
-    }
-    return ToolResult(data=payload)
 
 
 @tool(
@@ -487,15 +752,11 @@ def stabilize(
     xyz: Annotated[list[float], Field(min_length=3, max_length=3)],
     arm: Literal["left", "right"] = "right",
 ) -> ToolResult:
-    """Emergency stabilization: move an arm's open gripper to a world xyz at table height to block/stop a bottle observed rolling in the camera images.
-
-    Args:
-        xyz: World xyz to block (bottle position)"""
-
-    target = [float(v) for v in xyz]
-    target[2] = max(target[2], 0.80)  # keep at/above table height
-    return move_to(
-        primitives, state, target, arm=arm, gripper=-1, tol=0.015, max_steps=20
+    """Retained, unregistered legacy composite; unavailable without replacement motion tools."""
+    return ToolResult(
+        data={
+            "error": "stabilize is disabled: the legacy move_to primitive was removed"
+        }
     )
 
 
@@ -508,63 +769,12 @@ def place_in_bin(
     approach_z: float = 0.95,
     drop_z: float = 0.78,
 ) -> ToolResult:
-    """Place a held object into the dustbin: carry above the bin mouth center, descend BELOW the rim, release, then retract. Use the bin mouth center you localized (not the near edge).
-
-    Args:
-        bin_center_xyz: Bin mouth center at approach height
-        approach_z: Safe carry height above the bin (default 0.95)
-        drop_z: EE z to descend to before release, BELOW the rim (default 0.78)"""
-
-    center = [float(v) for v in bin_center_xyz]
-    if len(center) != 3:
-        payload = {"error": "bin_center_xyz must have 3 values"}
-        return ToolResult(data=payload)
-    cx, cy = center[0], center[1]
-    phases = {
-        "approach": [cx, cy, float(approach_z), +1],  # hold the bottle
-        "descend": [cx, cy, float(drop_z), +1],  # hold while below rim
-        "retract": [cx, cy, float(approach_z), -1],  # already released
-    }
-    results = {}
-    for name, (tx, ty, tz, grip) in phases.items():
-        m = move_to(
-            primitives,
-            state,
-            [tx, ty, tz],
-            arm=arm,
-            gripper=grip,
-            tol=0.015,
-            max_steps=25,
-        )
-        results[name] = {
-            "target": [tx, ty, tz],
-            "gripper": "hold" if grip > 0 else "open",
-            "dist_to_target_m": m.data.get("dist_to_target_m"),
-            "reached": m.data.get("reached"),
-            "steps_used": m.data.get("steps_used"),
-            "ik_error": m.data.get("ik_error"),
+    """Retained, unregistered legacy composite; unavailable without replacement motion tools."""
+    return ToolResult(
+        data={
+            "error": "place_in_bin is disabled: the legacy move_to and set_gripper primitives were removed"
         }
-        if not m.data.get("reached", False):
-            payload = {
-                "arm": arm,
-                "phase": name,
-                "reached": False,
-                "phase_results": results,
-                "error": f"move_to failed at phase {name}: {m.data.get('ik_error')}",
-            }
-            return ToolResult(data=payload)
-    # release
-    g = set_gripper(primitives, state, arm, -1)
-    results["release"] = {"gripper": "open", "status": g.data.get("status")}
-    payload = {
-        "arm": arm,
-        "bin_center_xyz": [cx, cy],
-        "approach_z": float(approach_z),
-        "drop_z": float(drop_z),
-        "phases": results,
-        "released": True,
-    }
-    return ToolResult(data=payload)
+    )
 
 
 def _jsonable(obj):
@@ -595,8 +805,46 @@ def dump_state(primitives, state, *, log: dict | None = None, perception=None):
     obs = _refresh_obs(primitives)
     status = primitives.env.get_status()
     log = log or {}
+    summary = _summarize_obs(obs)
+    step_idx = 0 if state.latest_step is None else state.latest_step + 1
+    summary.update(step_idx=step_idx, artifacts={}, view_specs={})
+    views = {}
+    for camera, cam in obs.get("vision", {}).items():
+        if camera not in dict(CAMERA_ARTIFACTS):
+            continue
+        view = camera.removeprefix("cam_")
+        color = cam.get("color")
+        if color is None:
+            continue
+        shape = np.asarray(color).shape[:2]
+        summary["view_specs"][view] = {
+            "coordinate_space": view,
+            "image_shape": list(shape),
+            "pixel_order": "row_col",
+        }
+        summary["artifacts"][view] = {"rgb": f"{camera}.png"}
+        depth = cam.get("distance_to_image_plane")
+        if depth is None:
+            depth = cam.get("depth")
+        if depth is not None:
+            if np.asarray(depth).shape != shape:
+                raise ValueError("RGB and depth must have the same image dimensions")
+            world = _world_from_depth(
+                depth, cam.get("intrinsic_matrix"), cam.get("extrinsic_matrix")
+            )
+            views[view] = {
+                "depth": np.asarray(depth),
+                "world_xyz": world,
+                "camera_meta": {
+                    "intrinsic_matrix": _jsonable(cam.get("intrinsic_matrix")),
+                    "extrinsic_matrix": _jsonable(cam.get("extrinsic_matrix")),
+                },
+            }
+            summary["artifacts"][view].update(
+                {field: _artifact_name(view, field) for field in views[view]}
+            )
     with state.record_step(
-        state=_summarize_obs(obs),
+        state=summary,
         # Official success is read by the runner after planner execution,
         # not written into planner-readable state artifacts.
         terminated=False,
@@ -605,7 +853,8 @@ def dump_state(primitives, state, *, log: dict | None = None, perception=None):
         result=log.get("result"),
         elapsed_s=log.get("elapsed_s"),
         extras={
-            "task_language": primitives.env.get_task_language(),
+            "task_language": obs.get("instruction")
+            or primitives.env.get_task_language(),
             **({"perception": perception} if perception else {}),
         },
     ) as step_idx:
@@ -614,4 +863,7 @@ def dump_state(primitives, state, *, log: dict | None = None, perception=None):
             color = (vision.get(camera) or {}).get("color")
             if color is not None:
                 state.save(artifact, color, step=step_idx)
+        for view, fields in views.items():
+            for field, value in fields.items():
+                state.save(_artifact_name(view, field), value, step=step_idx)
     return state.get(step_idx)

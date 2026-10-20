@@ -1,0 +1,423 @@
+{
+  "sample_world_xyz": {
+    "name": "sample_world_xyz",
+    "description": "Read persisted same-frame world xyz around [row,col] pixels. The view is also the pixel coordinate space: use the exact view whose RGB supplied the pixels. The current state's view_specs gives each view's [height,width]. This is read-only and does not render or move the robot.",
+    "input_schema": {
+      "properties": {
+        "view": {
+          "description": "Artifact view and pixel coordinate space. It must match the RGB image used to choose pixels.",
+          "type": "string"
+        },
+        "pixels": {
+          "items": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "maxItems": 256,
+          "minItems": 1,
+          "type": "array"
+        },
+        "step": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "neighborhood": {
+          "default": 1,
+          "maximum": 32,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "view",
+        "pixels"
+      ],
+      "type": "object"
+    }
+  },
+  "query_world_map": {
+    "name": "query_world_map",
+    "description": "Read deterministic world-xyz samples from a half-open [row_start,col_start,row_end,col_end] region. The view is also the bbox coordinate space and must match the source RGB artifact; view_specs gives [height,width]. This is read-only.",
+    "input_schema": {
+      "properties": {
+        "view": {
+          "description": "Artifact view and bbox coordinate space. It must match the RGB image used to choose the bbox.",
+          "type": "string"
+        },
+        "bbox": {
+          "items": {
+            "type": "integer"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": "array"
+        },
+        "step": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "max_points": {
+          "default": 256,
+          "maximum": 4096,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "view",
+        "bbox"
+      ],
+      "type": "object"
+    }
+  },
+  "view_env_state": {
+    "name": "view_env_state",
+    "description": "Read one recorded RoboDojo state: robot joint/ee state, camera shapes and calibration, the task instruction, and the three camera RGB images (cam_head, cam_left_wrist, cam_right_wrist). Step -1 selects the latest record.",
+    "input_schema": {
+      "properties": {
+        "step": {
+          "description": "Recorded step to read (-1 = latest)",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "back_project": {
+    "name": "back_project",
+    "description": "Project one pixel from a camera image to a world xyz coordinate using depth + intrinsics/extrinsics. Use to localize objects.",
+    "input_schema": {
+      "properties": {
+        "row": {
+          "description": "Pixel row (0=top)",
+          "type": "integer"
+        },
+        "col": {
+          "description": "Pixel col (0=left)",
+          "type": "integer"
+        },
+        "camera": {
+          "description": "Camera to project from",
+          "enum": [
+            "cam_head",
+            "cam_left_wrist",
+            "cam_right_wrist"
+          ],
+          "type": "string"
+        },
+        "step": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "row",
+        "col"
+      ],
+      "type": "object"
+    }
+  },
+  "segment": {
+    "name": "segment",
+    "description": "Segment a saved camera image with SAM3. Inspect the returned red-mask overlay before using point_rc with back_project at the same camera and step_idx. This tool does not move the robot or compute a grasp pose.",
+    "input_schema": {
+      "properties": {
+        "text_prompt": {
+          "description": "e.g. 'the bottle'",
+          "type": "string"
+        },
+        "camera": {
+          "description": "Camera to segment (default cam_head)",
+          "enum": [
+            "cam_head",
+            "cam_left_wrist",
+            "cam_right_wrist"
+          ],
+          "type": "string"
+        },
+        "min_score": {
+          "description": "Min score (default 0.2)",
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        "step": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "text_prompt"
+      ],
+      "type": "object"
+    }
+  },
+  "pi0_pick": {
+    "name": "pi0_pick",
+    "description": "Closed-loop Pi_05 pick: feed the observation to the Pi_05 policy, apply its action chunk, and detect grasp success by eef lift + gripper closure.",
+    "input_schema": {
+      "properties": {
+        "prompt": {
+          "description": "Optional specific target instruction; omit to use resolved official task language",
+          "type": "string"
+        },
+        "arm": {
+          "enum": [
+            "left",
+            "right"
+          ],
+          "type": "string"
+        },
+        "max_chunks": {
+          "description": "Max policy chunks",
+          "type": "integer"
+        }
+      },
+      "type": "object",
+      "required": []
+    }
+  },
+  "stabilize": {
+    "name": "stabilize",
+    "description": "Retained, unregistered legacy composite; unavailable without replacement motion tools.",
+    "input_schema": {
+      "properties": {
+        "xyz": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        "arm": {
+          "enum": [
+            "left",
+            "right"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "xyz"
+      ],
+      "type": "object"
+    }
+  },
+  "place_in_bin": {
+    "name": "place_in_bin",
+    "description": "Retained, unregistered legacy composite; unavailable without replacement motion tools.",
+    "input_schema": {
+      "properties": {
+        "arm": {
+          "enum": [
+            "left",
+            "right"
+          ],
+          "type": "string"
+        },
+        "bin_center_xyz": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        "approach_z": {
+          "type": "number"
+        },
+        "drop_z": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "arm",
+        "bin_center_xyz"
+      ],
+      "type": "object"
+    }
+  },
+  "move_to": {
+    "name": "move_to",
+    "description": "Plan a world-metre xyz and wxyz orientation. Omitted orientation/opening is held. substeps caps sampled waypoints (0: full path, 1: final only), not physics steps. Sampling and the native table-only obstacle model do not guarantee scene-wide collision avoidance.",
+    "input_schema": {
+      "properties": {
+        "arm": {
+          "enum": [
+            "left",
+            "right"
+          ],
+          "type": "string"
+        },
+        "xyz": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        "quat": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "gripper": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "substeps": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "arm",
+        "xyz"
+      ],
+      "type": "object"
+    }
+  },
+  "rotate_wrist": {
+    "name": "rotate_wrist",
+    "description": "Rotate the end effector about world Z by a relative angle in degrees.",
+    "input_schema": {
+      "properties": {
+        "arm": {
+          "enum": [
+            "left",
+            "right"
+          ],
+          "type": "string"
+        },
+        "delta_yaw_deg": {
+          "type": "number"
+        },
+        "gripper": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "substeps": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "arm",
+        "delta_yaw_deg"
+      ],
+      "type": "object"
+    }
+  },
+  "set_gripper": {
+    "name": "set_gripper",
+    "description": "Move one gripper from measured opening to val (0 closed, 1 open). steps counts gradual native action targets, not physics steps. Other controller targets are retained.",
+    "input_schema": {
+      "properties": {
+        "arm": {
+          "enum": [
+            "left",
+            "right"
+          ],
+          "type": "string"
+        },
+        "val": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        "steps": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "arm",
+        "val"
+      ],
+      "type": "object"
+    }
+  },
+  "release": {
+    "name": "release",
+    "description": "Open one gripper, by default to 1.0 over ten action targets.",
+    "input_schema": {
+      "properties": {
+        "arm": {
+          "enum": [
+            "left",
+            "right"
+          ],
+          "type": "string"
+        },
+        "val": {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        "steps": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "arm"
+      ],
+      "type": "object"
+    }
+  },
+  "finish": {
+    "name": "finish",
+    "description": "Stop the run; the environment, not the requested status, judges task success.",
+    "input_schema": {
+      "properties": {
+        "status": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "summary"
+      ],
+      "type": "object"
+    }
+  },
+  "render": {
+    "name": "render",
+    "description": "Refresh the synchronized RGB-D, calibration and robot state record.",
+    "input_schema": {
+      "properties": {},
+      "type": "object"
+    }
+  }
+}

@@ -24,7 +24,12 @@ import torch
 from rlinf.envs.sim.robodojo.robodojo_env import RoboDojoEnv
 
 from robots.robodojo.agent_support import (
+    _arm_target,
+    _gripper_value,
+    _motion_robot,
+    _motion_state,
     _obs_dict,
+    _plan_arm_path,
     _reward_details,
     _SafetyMonitor,
     _solve_ik_position,
@@ -72,6 +77,9 @@ class RoboDojoAgentEnv(RoboDojoEnv):
         self.bottle_mon = _SafetyMonitor(self.meta.get("task", ""))
         super().__init__(cfg, 1, 0, 1, None, record_metrics=False)
         try:
+            seed_manager = self.env.seed_manager
+            seed_manager.config["seed"] = meta.get("seed", 0)
+            seed_manager.init_eval()
             self.venv.reset(env_seeds=[meta["layout"]])
         except BaseException:
             self.close()
@@ -165,6 +173,44 @@ class RoboDojoAgentEnv(RoboDojoEnv):
         self.bottle_mon = _SafetyMonitor(self.meta.get("task", ""))
         return self.get_native_obs()
 
+    def get_motion_state(self) -> dict[str, Any]:
+        """Return measured robot poses/openings and held controller targets."""
+        return _motion_state(self.env)
+
+    def plan_arm_path(self, arm: str, target_pose: list[float]) -> dict[str, Any]:
+        return _plan_arm_path(self.env, arm, target_pose)
+
+    def step_joint_update(
+        self,
+        arm: str,
+        arm_qpos: list[float] | None = None,
+        gripper: float | None = None,
+    ) -> dict[str, Any]:
+        """Execute one waypoint while retaining every unspecified target."""
+        robot = _motion_robot(self.env, arm)
+        if arm_qpos is None and gripper is None:
+            raise ValueError("set arm_qpos and/or gripper")
+        if arm_qpos is not None:
+            arm_qpos = _arm_target(self.env, robot, arm_qpos)
+        if gripper is not None:
+            gripper = _gripper_value(gripper)
+        status = self.get_status()
+        if status["step"] >= status["step_limit"] or status.get("success") is True:
+            return {"executed_actions": 0, "episode_status": status}
+        if self.env.end_flag[0]:
+            return {"executed_actions": 0, "episode_status": status}
+        action = self.get_motion_state()["targets"]
+        if arm_qpos is not None:
+            action[f"{arm}_arm_joint_state"] = arm_qpos
+        if gripper is not None:
+            action[f"{arm}_ee_joint_state"] = [gripper]
+        obs, _, _, info = self.step_native(action)
+        return {
+            "executed_actions": info["executed_actions"],
+            "episode_status": info["status"],
+            "observation": obs,
+        }
+
     def step_native(self, flat_action):
         """Apply one RoboDojo action and return ``(obs, reward, done, info)``.
 
@@ -178,11 +224,18 @@ class RoboDojoAgentEnv(RoboDojoEnv):
             self.env.step_lim
         ):
             raise RuntimeError("Episode step budget exhausted")
+        before = int(self.env.take_action_cnt[0])
         self._sub_env(0).apply_action(
             flat_action, action_type, eval_fair=self.eval_fair
         )
+        executed = int(self.env.take_action_cnt[0]) - before
         if self.eval_fair:
-            return self._observation(), 0.0, False, {"status": self.get_status()}
+            return (
+                self._observation(),
+                0.0,
+                False,
+                {"status": self.get_status(), "executed_actions": executed},
+            )
         alarms = self.bottle_mon.check(self.env)
         if alarms:
             logger.warning("SAFETY ALARM: %s", alarms)
@@ -191,6 +244,7 @@ class RoboDojoAgentEnv(RoboDojoEnv):
         reward = float(reward_details.get("reward", 0.0) or 0.0)
         done = bool(self.env.is_success(env_idx=0))
         info: dict[str, Any] = {
+            "executed_actions": executed,
             "status": _status(self.env, self.bottle_mon),
             "step_limit": int(self.env.step_lim),
             "safety": alarms,

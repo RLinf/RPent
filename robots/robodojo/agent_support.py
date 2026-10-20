@@ -318,6 +318,114 @@ def _find_robot(env, arm: str):
     return None
 
 
+def _motion_robot(env, arm: str):
+    if arm not in ("left", "right"):
+        raise ValueError("arm must be 'left' or 'right'")
+    robot = _find_robot(env, arm)
+    if robot is None:
+        raise ValueError(f"robot for arm {arm!r} not found")
+    return robot
+
+
+def _finite_vector(value, length: int, name: str) -> np.ndarray:
+    array = np.asarray(value, dtype=np.float64)
+    if array.shape != (length,) or not np.isfinite(array).all():
+        raise ValueError(f"{name} must be finite with shape ({length},)")
+    return array
+
+
+def _gripper_value(value: float) -> float:
+    value = float(value)
+    if not np.isfinite(value) or not 0 <= value <= 1:
+        raise ValueError("gripper must be finite and in [0,1]")
+    return value
+
+
+def _arm_target(env, robot, value) -> list[float]:
+    """Validate joint targets against the articulation's actual joint limits."""
+    target = _finite_vector(value, len(robot.arm_joint_indices), "arm_qpos")
+    manager = env.robot_manager
+    articulation = manager.robot_key[manager.robot_list.index(robot)]
+    limits = articulation.data.joint_pos_limits[0, robot.arm_joint_indices]
+    if hasattr(limits, "detach"):
+        limits = limits.detach().cpu().numpy()
+    limits = np.asarray(limits)
+    if limits.shape != (len(target), 2) or not np.isfinite(limits).all():
+        raise ValueError("articulation joint limits are invalid")
+    if np.any(target < limits[:, 0]) or np.any(target > limits[:, 1]):
+        raise ValueError("arm_qpos exceeds articulation joint limits")
+    return target.tolist()
+
+
+def _motion_state(env) -> dict:
+    """Read proprioception separately from the controller's held targets."""
+    manager = env.robot_manager
+    previous = manager.control_manager.prev_control[0]
+    state = {"targets": {}}
+    for arm in ("left", "right"):
+        robot = _motion_robot(env, arm)
+        joints = manager.get_joint(robot, env_idx_list=[0])[0]
+        pose = manager.get_real_endpose(robot, env_idx_list=[0], is_relative=False)[0]
+        real = float(manager.get_end_effector_real_val(robot, env_idx_list=[0])[0][0])
+        lo, hi = robot.gripper_scale
+        if not hi > lo:
+            raise ValueError("gripper scale must be increasing")
+
+        def normalized(position):
+            return (
+                (position - lo) / (hi - lo)
+                if robot.gripper_move["sign"] == 1
+                else (hi - position) / (hi - lo)
+            )
+
+        state[f"{arm}_eef_pose"] = _finite_vector(pose, 7, "eef pose").tolist()
+        state[f"{arm}_gripper"] = float(normalized(real))
+        arm_key = manager.process_name(robot.arm_name)
+        gripper_key = manager.process_name(robot.gripper_name)
+        # Missing targets indicate a broken/reset-incomplete controller, not
+        # permission to replace its targets with measured positions.
+        state["targets"][arm_key] = _finite_vector(
+            previous[arm_key]["position"], len(joints), arm_key
+        ).tolist()
+        state["targets"][gripper_key] = [
+            _gripper_value(normalized(float(previous[gripper_key]["position"][0])))
+        ]
+    return state
+
+
+def _plan_arm_path(env, arm: str, target_pose) -> dict:
+    """Plan one full world pose without executing or changing its orientation."""
+    robot = _motion_robot(env, arm)
+    target = _finite_vector(target_pose, 7, "target_pose").copy()
+    norm = np.linalg.norm(target[3:])
+    if not np.isfinite(norm) or norm < 1e-8:
+        raise ValueError("quaternion must be nonzero (wxyz)")
+    target[3:] /= norm
+    manager = env.robot_manager
+    # Native planner expects environment-relative coordinates. Public inputs
+    # and feedback remain world-frame, including nonzero environment origins.
+    origin = manager.scene.env_origins[0]
+    if hasattr(origin, "detach"):
+        origin = origin.detach().cpu().numpy()
+    target[:3] -= np.asarray(origin)
+    result = manager.planner[robot.robot_name].plan_path(
+        curr_joint_pos=manager.get_joint(robot, env_idx_list=[0])[0],
+        target_ee_pose=target.tolist(),
+        real_robot_pose=robot.entity_origin_pose,
+    )
+    if result.get("status") != "Success":
+        return {"status": result.get("status", "Fail")}
+    path = np.asarray(result.get("position"), dtype=np.float64)
+    if (
+        path.ndim != 2
+        or not len(path)
+        or path.shape[1] != len(robot.arm_joint_indices)
+        or not np.isfinite(path).all()
+    ):
+        raise ValueError("native planner returned an invalid joint trajectory")
+    return {"status": "Success", "position": path.tolist()}
+
+
 def _solve_ik_position(env, arm: str, xyz: list) -> dict:
     """Position-only IK for scripted motion.
 
