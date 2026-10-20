@@ -16,11 +16,9 @@
 
 from __future__ import annotations
 
-import copy
 from pathlib import Path
-from typing import Any, Annotated
+from typing import Annotated, Any
 
-import pytest
 from pydantic import Field
 
 from rpent.memory import MemoryManager
@@ -90,7 +88,6 @@ def _register_action_toolkit(toolkit: _ImageToolkit) -> None:
     ) -> ToolResult:
         """Move the robot."""
         return ToolResult(data={"moved": distance})
-
 
     toolkit.add_tool(move)
 
