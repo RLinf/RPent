@@ -75,7 +75,7 @@ Installation and Resources
 --------------------------
 
 Use a Linux host with NVIDIA GPUs and a compatible CUDA driver. Install
-``git``, ``bash``, ``curl``, ``nvidia-smi``, and ``sha256sum``, and reserve space
+``git``, ``bash``, ``curl``, and ``nvidia-smi``, and reserve space
 for the simulator, licensed data, and model weights. RLinf installs its system
 dependencies using non-interactive ``sudo``. On a host where they are already
 installed, set ``RLINF_NO_ROOT=1`` to pass RLinf's ``--no-root`` option instead.
@@ -115,16 +115,6 @@ package freezes and source identities under ``$RPENT_REPRO_ROOT/manifests``.
 Use a new ``RPENT_REPRO_ROOT`` for a fresh installation; it will not overwrite
 a dirty or different RLinf checkout. A successful selfcheck verifies source
 contracts, not GPU services or task execution.
-
-.. warning::
-
-   The pinned RLinf combined recipe currently reports four dependency metadata
-   mismatches: OpenPI/Torch, Transformers/tokenizers, and LeRobot/torchcodec and
-   torchvision. The installer records the raw ``uv pip check`` result and only
-   recognizes these exact upstream diagnostics; any different mismatch stops
-   installation. This is not a clean dependency check. Runtime acceptance also
-   requires CUDA, a real ENV reset, Pi0.5 inference, and executed environment
-   actions. Venv creation or selfcheck alone does not establish these results.
 
 Motion planning uses NVlabs/cuRobo v0.8.0 at commit
 ``4ea77366ca48ee453e7df139e39fa6532af49f3b`` in the BEHAVIOR venv.
@@ -343,7 +333,7 @@ Use the standard RPent Explore entry point for a bounded sequence of sessions:
      --dino-source-archive "$DINOV2_SOURCE_ARCHIVE" \
      --dino-weights "$DINOV2_WEIGHTS"
 
-For BEHAVIOR, one session is exactly one attempt. Each session starts a fresh
+In BEHAVIOR Explore, one session is exactly one attempt. Each session starts a fresh
 environment sidecar, episode, and ``sessions/session_NNN`` output directory;
 the VLA and DINO sidecars stay shared across sessions. The planner cannot reset
 inside an invocation, and ``--explore-attempts-per-session`` values above zero
@@ -352,26 +342,24 @@ are rejected.
 Runtime and Dashboard
 ---------------------
 
-The runtime has four component roles:
+The Dashboard Session uses three services and one memory manager:
 
 - ``env``: the task-scoped official BEHAVIOR/OmniGibson environment;
 - ``vla``: the session-shared ``robots/behavior/vla_server.py`` adapter built
   on the common Pi0.5 facade;
 - ``dino``: the shared ``robots/behavior/dino_v2/server.py`` episode-memory
   embedding service;
-- ``memory``: the task-scoped official MemoryManager.
+- ``memory``: a task-scoped MemoryManager, not a separate service.
 
 Start a Dashboard Session with:
 
 .. code-block:: bash
 
-   export RPENT_BEHAVIOR_PYTHON="$RPENT_REPRO_ROOT/venvs/behavior/bin/python"
    "$RPENT_REPRO_ROOT/venvs/rpent/bin/rpent" \
      --robot behavior --dashboard \
-     --task-name turning_on_radio --public-seed 1 \
      --planner codex --reasoning-effort low \
      --behavior-repo "$RPENT_REPRO_ROOT/RLinf" \
-     --behavior-python "$RPENT_BEHAVIOR_PYTHON" \
+     --behavior-python "$RPENT_REPRO_ROOT/venvs/behavior/bin/python" \
      --activity-instance-dir \
        "$OMNIGIBSON_DATA_PATH/2025-challenge-task-instances" \
      --policy-checkpoint "$PI05_CHECKPOINT_PATH" \
@@ -383,10 +371,20 @@ Start a Dashboard Session with:
      --memory-dir "$RPENT_REPRO_ROOT/memory/behavior" \
      --output-dir "$RPENT_REPRO_ROOT/runs/behavior-dashboard"
 
+Open the printed Dashboard URL. Once the shared VLA and DINO services are
+ready, submit this task in the Dashboard:
+
+.. code-block:: text
+
+   /rpent-task turning_on_radio 1
+
+This starts a task-scoped ENV. Press Ctrl+C in the launch terminal to stop the
+Session; closing the browser does not stop its services. See
+:doc:`../guides/dashboard` for the shared Session workflow.
+
 The Dashboard uses the common Start Session flow and head/left-wrist/right-
-wrist camera views. BEHAVIOR does not add robot-local manual buttons, a manual
-control backend, or ``env.dashboard_*`` RPC methods. The public contract
-registers nine executable planner primitives: ``pi0_nav_pick``, ``observe``,
+wrist camera views. It has no manual robot-control buttons. The planner has
+nine tools: ``pi0_nav_pick``, ``observe``,
 ``pixel_to_world``, ``navigate_to``, ``move_to``, ``rotate_wrist``, ``close``,
 ``open``, and ``press``. ``move_to(hand=both)`` coordinates both arms through
 cuRobo collision-checked trajectories; wrist rotation uses the same planner.

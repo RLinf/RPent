@@ -73,7 +73,7 @@ RPent 支持运行 ``turning_on_radio`` 和 ``picking_up_trash`` 两个 BEHAVIOR
 --------------
 
 使用带 NVIDIA GPU 和兼容 CUDA 驱动的 Linux 主机，安装 ``git``、``bash``、``curl``、
-``nvidia-smi`` 和 ``sha256sum``，并为模拟器、授权数据及模型权重留足磁盘空间。
+``nvidia-smi``，并为模拟器、授权数据及模型权重留足磁盘空间。
 RLinf 默认通过无需交互的 ``sudo`` 安装系统依赖；若主机已经安装这些依赖，
 可设置 ``RLINF_NO_ROOT=1``，让安装器传入 RLinf 的 ``--no-root`` 选项。
 上游下载缓慢时，可设置 ``RLINF_USE_MIRROR=1``，传入 RLinf 的 ``--use-mirror``
@@ -103,15 +103,6 @@ Torch、OpenPI 或 LeRobot 版本；RPent 仅补装运动规划所需的 cuRobo�
 和源码版本写入 ``$RPENT_REPRO_ROOT/manifests``。全新安装请使用新的
 ``RPENT_REPRO_ROOT``；安装器不会覆盖 revision 不符或有未提交改动的 RLinf checkout。
 selfcheck 通过只说明源码接口检查完成，不代表 GPU 服务或任务动作已经运行。
-
-.. warning::
-
-   当前固定版本的 RLinf 合装流程存在四项依赖元数据不一致：OpenPI/Torch、
-   Transformers/tokenizers，以及 LeRobot/torchcodec 和 torchvision。
-   安装器保留 ``uv pip check`` 的原始结果，只识别这四项上游诊断；
-   出现其他不一致时会停止。非零结果不能称为依赖检查通过。
-   运行验收还必须通过 CUDA、真实 ENV reset、Pi0.5 推理和环境动作执行。
-   仅创建 venv 或通过 selfcheck 不能证明这些结果。
 
 运动规划在 BEHAVIOR venv 中使用 NVlabs/cuRobo v0.8.0，固定 commit
 ``4ea77366ca48ee453e7df139e39fa6532af49f3b``。应基于 RLinf 安装后的
@@ -294,34 +285,31 @@ BEHAVIOR 使用和其他机器人相同的 Markdown/YAML ``MemoryManager`` 格�
      --dino-source-archive "$DINOV2_SOURCE_ARCHIVE" \
      --dino-weights "$DINOV2_WEIGHTS"
 
-对 BEHAVIOR 而言，一个 session 就是一个 attempt。每个 session 都启动 fresh env
-sidecar、new episode，并写入独立的 ``sessions/session_NNN`` 目录；VLA 与 DINO
-sidecar 在各 session 之间共享。planner 无权在单次 invocation 内 reset，且
+在 BEHAVIOR 探索模式中，每个 session 只进行一次任务尝试。每次都会启动新的环境服务进程
+和仿真回合，并写入独立的 ``sessions/session_NNN`` 目录；VLA 与 DINO 服务
+在各次尝试间共享。规划器不能在一次调用中重置环境，且
 ``--explore-attempts-per-session`` 大于零会被拒绝。
 
 Runtime 与 Dashboard
 --------------------
 
-runtime 有四个 component role：
+Dashboard Session 使用三个服务和一个记忆管理器：
 
-- ``env``：task-scoped 官方 BEHAVIOR/OmniGibson 环境；
-- ``vla``：基于公共 Pi0.5 facade 的 ``robots/behavior/vla_server.py`` 适配服务，
-  在 session 间共享；
-- ``dino``：共享 ``robots/behavior/dino_v2/server.py`` episode-memory
-  embedding 服务；
-- ``memory``：task-scoped 官方 MemoryManager。
+- ``env``：当前任务独占的 BEHAVIOR/OmniGibson 环境；
+- ``vla``：基于公共 Pi0.5 facade 的 ``robots/behavior/vla_server.py`` 服务，
+  在任务间共享；
+- ``dino``：在任务间共享的 ``robots/behavior/dino_v2/server.py`` 记忆嵌入服务；
+- ``memory``：当前任务使用的 MemoryManager，不是独立服务。
 
 启动 Dashboard Session：
 
 .. code-block:: bash
 
-   export RPENT_BEHAVIOR_PYTHON="$RPENT_REPRO_ROOT/venvs/behavior/bin/python"
    "$RPENT_REPRO_ROOT/venvs/rpent/bin/rpent" \
      --robot behavior --dashboard \
-     --task-name turning_on_radio --public-seed 1 \
      --planner codex --reasoning-effort low \
      --behavior-repo "$RPENT_REPRO_ROOT/RLinf" \
-     --behavior-python "$RPENT_BEHAVIOR_PYTHON" \
+     --behavior-python "$RPENT_REPRO_ROOT/venvs/behavior/bin/python" \
      --activity-instance-dir \
        "$OMNIGIBSON_DATA_PATH/2025-challenge-task-instances" \
      --policy-checkpoint "$PI05_CHECKPOINT_PATH" \
@@ -333,9 +321,17 @@ runtime 有四个 component role：
      --memory-dir "$RPENT_REPRO_ROOT/memory/behavior" \
      --output-dir "$RPENT_REPRO_ROOT/runs/behavior-dashboard"
 
+打开终端打印的 Dashboard URL。共享的 VLA 和 DINO 服务就绪后，在 Dashboard 中输入：
+
+.. code-block:: text
+
+   /rpent-task turning_on_radio 1
+
+这会为任务启动独立的 ENV。结束 Session 时，在启动终端按 Ctrl+C；只关闭浏览器
+不会停止服务。通用操作见 :doc:`../guides/dashboard`。
+
 Dashboard 使用公共 Start Session 流程与 head/left-wrist/right-wrist 相机视图。
-BEHAVIOR 不增加 robot-local 手动按钮、手动控制 backend 或
-``env.dashboard_*`` RPC。公开合同注册 9 个可执行 planner primitive：
+界面不提供手动控制机器人按钮。规划器可调用 9 个工具：
 ``pi0_nav_pick``、``observe``、``pixel_to_world``、``navigate_to``、``move_to``、
 ``rotate_wrist``、``close``、``open`` 和 ``press``。
 ``move_to(hand=both)`` 通过 cuRobo 碰撞检查轨迹协调双臂，腕旋转复用同一规划器。

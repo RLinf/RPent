@@ -12,11 +12,11 @@
      - 内容
    * - :doc:`libero`
      - 桌面操作；LIBERO、LIBERO-PRO 与 LIBERO-plus。
-   * - :doc:`behavior`
-     - 基于 OmniGibson 的长程家庭任务。
    * - :doc:`robocasa`
      - 厨房操作；RoboCasa365 与 Target50 实验。
    * - :doc:`robotwin`
      - 双臂操作；RoboTwin C2R 实验。
+   * - :doc:`behavior`
+     - 基于 OmniGibson 的长程家庭任务。
    * - :doc:`robodojo`
      - Isaac Sim 双臂 ARX-X5 操作与 RLinf Pi0.5 策略。

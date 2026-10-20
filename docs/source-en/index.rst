@@ -104,9 +104,9 @@ Choose an environment: :doc:`LIBERO <rst_source/simulators/libero>`, :doc:`BEHAV
    :caption: Simulators
 
    LIBERO <rst_source/simulators/libero>
-   BEHAVIOR <rst_source/simulators/behavior>
    RoboCasa365 <rst_source/simulators/robocasa>
    RoboTwin <rst_source/simulators/robotwin>
+   BEHAVIOR <rst_source/simulators/behavior>
    RoboDojo <rst_source/simulators/robodojo>
 
 .. toctree::
