@@ -14,7 +14,7 @@ export DOWNLOAD_DIR="${DOWNLOAD_DIR:-${REPRO_ROOT}/downloads}"
 UV_VERSION="${UV_VERSION:-0.12.7}"
 PYTHON_VERSION="${PYTHON_VERSION:-3.10}"
 RLINF_REPO_URL="${RLINF_REPO_URL:-https://github.com/RLinf/RLinf.git}"
-RLINF_COMMIT="${RLINF_COMMIT:-dd92c62857da4c67aa5e7c36f731c0d6a121f6d7}"
+RLINF_COMMIT="${RLINF_COMMIT:-91a302ec50ddacd1fdabc5859b85e3661d768236}"
 
 mkdir -p "${LOG_DIR}" "${TOOLS_DIR}" "${DOWNLOAD_DIR}" "$(dirname "${RPENT_VENV}")"
 LOG_FILE="${LOG_DIR}/install-$(date -u +%Y%m%dT%H%M%SZ).log"
@@ -58,7 +58,7 @@ if [[ "${UV_VERSION_OUTPUT}" != "uv ${UV_VERSION}" ]] &&
 fi
 export PATH="${TOOLS_DIR}:${PATH}"
 
-if [[ ! -d "${RLINF_ROOT}/.git" ]]; then
+if [[ ! -e "${RLINF_ROOT}/.git" ]]; then
     mkdir -p "$(dirname "${RLINF_ROOT}")"
     git clone "${RLINF_REPO_URL}" "${RLINF_ROOT}"
     git -C "${RLINF_ROOT}" checkout --detach "${RLINF_COMMIT}"
@@ -81,21 +81,27 @@ fi
 # This installer uses the same checkout for the planner and simulator sidecars.
 # Keep the planner venv editable; simulator sidecars run from this checkout
 # without pulling planner dependencies into their separate venv.
-"${UV_BIN}" pip install --python "${RPENT_VENV}/bin/python" -e "${RPENT_ROOT}"
-# Episode video writer backend; mirrors the .[behavior] extra pin.
-# Do NOT switch the rpent venv to .[behavior] (keeps the CLI venv light).
-"${UV_BIN}" pip install --python "${RPENT_VENV}/bin/python" "imageio-ffmpeg>=0.5"
+"${UV_BIN}" pip install --python "${RPENT_VENV}/bin/python" -e "${RPENT_ROOT}[behavior]"
+"${UV_BIN}" pip check --python "${RPENT_VENV}/bin/python"
 
 export UV_TORCH_BACKEND=cu124
+RLINF_INSTALL_ARGS=()
+if [[ "${RLINF_NO_ROOT:-0}" == 1 ]]; then
+    RLINF_INSTALL_ARGS+=(--no-root)
+fi
+if [[ "${RLINF_USE_MIRROR:-0}" == 1 ]]; then
+    RLINF_INSTALL_ARGS+=(--use-mirror)
+fi
 (
     cd "${RLINF_ROOT}"
     bash requirements/install.sh embodied \
         --model openpi \
         --env behavior \
+        --python "${PYTHON_VERSION}" \
         --venv "${BEHAVIOR_VENV}" \
         --install-rlinf \
         --no-flash-attn \
-        --no-root
+        "${RLINF_INSTALL_ARGS[@]}"
 )
 
 BEHAVIOR_PYTHON="${BEHAVIOR_VENV}/bin/python"
@@ -107,77 +113,53 @@ fi
 # ENV, VLA, and DINO run from this source checkout. Installing RPent here would
 # pull planner dependencies into the simulator environment and conflict with its pins.
 
-# The official BEHAVIOR runtime is validated against CUDA 12.4 and torch 2.5.1.
-"${UV_BIN}" pip install --python "${BEHAVIOR_PYTHON}" --reinstall \
-    --no-deps \
-    --index-url https://download.pytorch.org/whl/cu124 \
-    'torch==2.5.1+cu124' \
-    'torchvision==0.20.1+cu124' \
-    'torchaudio==2.5.1+cu124'
+MANIFEST_DIR="${REPRO_ROOT}/manifests"
+mkdir -p "${MANIFEST_DIR}"
+RLINF_FREEZE="${MANIFEST_DIR}/rlinf-venv.freeze.txt"
+"${UV_BIN}" pip freeze --exclude-editable --python "${BEHAVIOR_PYTHON}" > "${RLINF_FREEZE}"
+RLINF_PIP_CHECK="${MANIFEST_DIR}/rlinf-pip-check.txt"
+RLINF_METADATA_CONFLICT=0
+KNOWN_RLINF_MISMATCH='The package `rlinf-openpi` requires `torch==2.7.1`, but `2.5.1+cu124` is installed'
+KNOWN_CHECK_RESULT="$(printf 'Found 1 incompatibility\n%s' "${KNOWN_RLINF_MISMATCH}")"
+if ! "${UV_BIN}" pip check --python "${BEHAVIOR_PYTHON}" > "${RLINF_PIP_CHECK}" 2>&1; then
+    CHECK_RESULT="$(sed -E '/^Using Python .* environment at: /d; /^Checked [0-9]+ packages in /d' "${RLINF_PIP_CHECK}")"
+    if [[ "${CHECK_RESULT}" != "${KNOWN_CHECK_RESULT}" ]]; then
+        cat "${RLINF_PIP_CHECK}" >&2
+        echo "Unexpected dependency incompatibility in the RLinf recipe." >&2
+        exit 1
+    fi
+    RLINF_METADATA_CONFLICT=1
+fi
+cat "${RLINF_PIP_CHECK}"
 
-# Shared constraints protect the simulation stack during motion-planner installation.
-FINAL_PINS=(
-    'numpy==1.26.4'
-    'protobuf==6.33.6'
-    'anyio==4.14.2'
-    'pillow==11.0.0'
-    'fsspec==2025.3.0'
-    'ml-dtypes==0.5.3'
-    'click==8.2.1'
-    'llvmlite==0.48.0'
-    'numba==0.66.0'
-    'fastapi==0.110.0'
-    'starlette==0.36.3'
-    'pydantic==2.9.2'
-    'pydantic-core==2.23.4'
-    'uvicorn==0.52.4'
-    'ray==2.55.1'
-    'tensorflow-metadata==1.21.0'
-    'typeguard==4.5.2'
-    'gdown==6.1.0'
-    'pymunk==7.3.0'
-    'zarr==3.0.0a5'
-    'google-api-core==2.30.3'
-    'googleapis-common-protos==1.75.0'
-    'proto-plus==1.28.0'
-    'beautifulsoup4==4.15.0'
-    'soupsieve==2.8.4'
-    'asciitree==0.3.3'
-    'crc32c==2.8'
-    'donfig==0.8.1.post1'
-    'numcodecs==0.13.1'
-    'torchcodec==0.2.0'
-    'rlinf-openpi==0.1.1'
-    'rlinf-transformer-openpi==4.53.2'
-    'lerobot==0.3.3'
-    'openpi-client==0.1.2'
-)
+# Resolve cuRobo's real dependencies without changing RLinf's installed versions.
 CUROBO_COMMIT=4ea77366ca48ee453e7df139e39fa6532af49f3b # v0.8.0
-CUROBO_CONSTRAINTS="${LOG_DIR}/curobo-constraints.txt"
-printf '%s\n' "${FINAL_PINS[@]}" \
-    'torch==2.5.1+cu124' 'torchvision==0.20.1+cu124' 'torchaudio==2.5.1+cu124' \
-    'isaacsim==4.5.0.0' 'isaacsim-core==4.5.0.0' 'isaacsim-rl==4.5.0.0' \
-    'omnigibson==3.7.2' 'transformers==4.53.2' 'trimesh==5.1.0' \
-    > "${CUROBO_CONSTRAINTS}"
+CUROBO_CONSTRAINTS="${MANIFEST_DIR}/rlinf-installed-constraints.txt"
+awk -F '==' 'NF == 2 && $1 ~ /^[A-Za-z0-9_.-]+$/ {print}' \
+    "${RLINF_FREEZE}" > "${CUROBO_CONSTRAINTS}"
 "${UV_BIN}" pip install --python "${BEHAVIOR_PYTHON}" \
     --constraint "${CUROBO_CONSTRAINTS}" \
     "nvidia-curobo[cu12-torch] @ git+https://github.com/NVlabs/curobo.git@${CUROBO_COMMIT}"
 
-# Final compatibility repin runs after every dependency installer. --no-deps
-# prevents a late resolver pass from silently changing Isaac/OpenPI versions.
-"${UV_BIN}" pip install --python "${BEHAVIOR_PYTHON}" --no-deps "${FINAL_PINS[@]}"
+"${BEHAVIOR_PYTHON}" - "${CUROBO_CONSTRAINTS}" <<'PY'
+from importlib.metadata import version
+from pathlib import Path
+import sys
 
-# OpenPI's replacement files must match the final transformers build. No package
-# installation is allowed after this block.
-"${UV_BIN}" pip install --python "${BEHAVIOR_PYTHON}" --no-deps \
-    'transformers==4.53.2' 'tokenizers==0.21.4' 'huggingface-hub==0.36.2'
+for line in Path(sys.argv[1]).read_text().splitlines():
+    package, expected = line.split("==", 1)
+    actual = version(package)
+    if actual != expected:
+        raise RuntimeError(f"RLinf package changed while adding cuRobo: {package} {expected} -> {actual}")
+PY
+
+# RLinf owns OpenPI's Transformers replacement; verify rather than recopy it.
 SITE_PACKAGES="$("${BEHAVIOR_PYTHON}" -c 'import site; print(site.getsitepackages()[0])')"
 TRANSFORMERS_REPLACE="${SITE_PACKAGES}/openpi/models_pytorch/transformers_replace"
 if [[ ! -d "${TRANSFORMERS_REPLACE}" ]]; then
     echo "Missing OpenPI transformer replacement directory: ${TRANSFORMERS_REPLACE}" >&2
     exit 1
 fi
-cp -a "${TRANSFORMERS_REPLACE}/." "${SITE_PACKAGES}/transformers/"
 
 "${BEHAVIOR_PYTHON}" - <<'PY'
 from importlib.metadata import version
@@ -185,24 +167,8 @@ from pathlib import Path
 import hashlib
 import site
 
-expected = {
-    "torch": "2.5.1+cu124",
-    "torchvision": "0.20.1+cu124",
-    "torchaudio": "2.5.1+cu124",
-    "numpy": "1.26.4",
-    "fastapi": "0.110.0",
-    "starlette": "0.36.3",
-    "pydantic": "2.9.2",
-    "transformers": "4.53.2",
-    "tokenizers": "0.21.4",
-    "rlinf-openpi": "0.1.1",
-    "rlinf-transformer-openpi": "4.53.2",
-    "lerobot": "0.3.3",
-}
-for package, wanted in expected.items():
-    actual = version(package)
-    if actual != wanted:
-        raise RuntimeError(f"{package}: expected {wanted}, got {actual}")
+if version("rlinf-openpi") != "0.1.1" or not version("torch").startswith("2.5.1"):
+    raise RuntimeError("RLinf BEHAVIOR/OpenPI versions differ from its pinned recipe")
 
 root = Path(site.getsitepackages()[0])
 replacement = root / "openpi/models_pytorch/transformers_replace"
@@ -221,6 +187,7 @@ import omnigibson
 import ray
 import rlinf
 import openpi
+import curobo
 
 if not torch.cuda.is_available():
     raise RuntimeError("torch.cuda.is_available() is false")
@@ -235,8 +202,6 @@ PY
         'import robots.behavior.env_server, robots.behavior.vla_server, robots.behavior.dino_v2.server'
 )
 
-MANIFEST_DIR="${REPRO_ROOT}/manifests"
-mkdir -p "${MANIFEST_DIR}"
 "${UV_BIN}" pip freeze --python "${RPENT_VENV}/bin/python" \
     > "${MANIFEST_DIR}/rpent-venv.freeze.txt"
 "${UV_BIN}" pip freeze --python "${BEHAVIOR_PYTHON}" \
@@ -252,17 +217,25 @@ mkdir -p "${MANIFEST_DIR}"
 
 echo "Checking simulator dependency metadata."
 PIP_CHECK_REPORT="${MANIFEST_DIR}/behavior-pip-check.txt"
-if ! "${UV_BIN}" pip check --python "${BEHAVIOR_PYTHON}" 2>&1 \
-    | tee "${PIP_CHECK_REPORT}"; then
-    echo "Simulator dependency metadata is inconsistent; installation is incomplete." >&2
-    echo "See ${PIP_CHECK_REPORT}." >&2
-    exit 1
+if ! "${UV_BIN}" pip check --python "${BEHAVIOR_PYTHON}" > "${PIP_CHECK_REPORT}" 2>&1; then
+    CHECK_RESULT="$(sed -E '/^Using Python .* environment at: /d; /^Checked [0-9]+ packages in /d' "${PIP_CHECK_REPORT}")"
+    if [[ "${RLINF_METADATA_CONFLICT}" != 1 ]] || [[ "${CHECK_RESULT}" != "${KNOWN_CHECK_RESULT}" ]]; then
+        cat "${PIP_CHECK_REPORT}" >&2
+        echo "Unexpected simulator dependency incompatibility." >&2
+        exit 1
+    fi
 fi
+cat "${PIP_CHECK_REPORT}"
+echo "RLinf and final dependency reports: ${RLINF_PIP_CHECK}, ${PIP_CHECK_REPORT}"
 
 cd "${RPENT_ROOT}"
 "${RPENT_VENV}/bin/python" -m robots.behavior.selfcheck
 
-echo "Installation complete."
+if [[ "${RLINF_METADATA_CONFLICT}" == 1 ]]; then
+    echo "Runtime installed; uv pip check still reports the known RLinf/OpenPI metadata conflict."
+else
+    echo "Installation complete; dependency metadata check passed."
+fi
 echo "Behavior Python: ${BEHAVIOR_PYTHON}"
 echo "Version manifests: ${MANIFEST_DIR}"
 echo "Next: export the asset variables and run:"

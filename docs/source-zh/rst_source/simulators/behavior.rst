@@ -72,7 +72,12 @@ RPent 支持运行 ``turning_on_radio`` 和 ``picking_up_trash`` 两个 BEHAVIOR
 安装与资源准备
 --------------
 
-使用带 NVIDIA GPU 和兼容 CUDA 驱动的 Linux 主机，安装 ``git``、``bash``、``curl``、``nvidia-smi`` 和 ``sha256sum``，并为模拟器、授权数据及模型权重留足磁盘空间。源码 checkout 中的安装器会创建两个相互独立的 Python 3.10 环境：
+使用带 NVIDIA GPU 和兼容 CUDA 驱动的 Linux 主机，安装 ``git``、``bash``、``curl``、
+``nvidia-smi`` 和 ``sha256sum``，并为模拟器、授权数据及模型权重留足磁盘空间。
+RLinf 默认通过无需交互的 ``sudo`` 安装系统依赖；若主机已经安装这些依赖，
+可设置 ``RLINF_NO_ROOT=1``，让安装器传入 RLinf 的 ``--no-root`` 选项。
+上游下载缓慢时，可设置 ``RLINF_USE_MIRROR=1``，传入 RLinf 的 ``--use-mirror`` 选项。
+源码 checkout 中的安装器会创建两个相互独立的 Python 3.10 环境：
 
 - **RPent venv**：运行 CLI、planner、Dashboard 和 MemoryManager；
 - **BEHAVIOR venv**：运行 RLinf、OmniGibson、Isaac Sim 和 Pi0.5。
@@ -90,18 +95,27 @@ RPent 支持运行 ``turning_on_radio`` 和 ``picking_up_trash`` 两个 BEHAVIOR
    export BEHAVIOR_PYTHON="$RPENT_REPRO_ROOT/venvs/behavior/bin/python"
    "$RPENT_PYTHON" -m robots.behavior.selfcheck
 
-上述 runtime 目录位于源码树之外。安装器在规划器 venv 中以 editable 模式安装 RPent；ENV、VLA 和 DINO 在独立的模拟器 venv 中使用同一份源码。安装器固定 RLinf 和 CUDA/OpenPI/LeRobot 依赖版本，检查关键 import 与 CUDA，并将依赖 freeze 和源码版本写入 ``$RPENT_REPRO_ROOT/manifests``。全新安装请使用新的 ``RPENT_REPRO_ROOT``；安装器不会覆盖 revision 不符或有未提交改动的 RLinf checkout。selfcheck 通过只说明源码接口检查完成，不代表 GPU 服务或任务动作已经运行。
+上述 runtime 目录位于源码树之外。安装器在规划器 venv 中以 editable 模式安装
+RPent；ENV、VLA 和 DINO 在独立的模拟器 venv 中使用同一份源码。安装器调用固定
+RLinf checkout 的 ``embodied --model openpi --env behavior`` 合装流程，不再覆盖其
+Torch、OpenPI 或 LeRobot 版本；RPent 仅补装运动规划所需的 cuRobo，并将依赖 freeze
+和源码版本写入 ``$RPENT_REPRO_ROOT/manifests``。全新安装请使用新的
+``RPENT_REPRO_ROOT``；安装器不会覆盖 revision 不符或有未提交改动的 RLinf checkout。
+selfcheck 通过只说明源码接口检查完成，不代表 GPU 服务或任务动作已经运行。
 
 .. warning::
 
-   当前固定版本的上游包元数据存在冲突：``rlinf-openpi`` 要求 Torch 2.7.1，
-   BEHAVIOR 仿真器却固定 Torch 2.5.1。``uv pip check`` 失败时安装器会退出；
-   仅创建 venv 或通过 selfcheck 不代表全新安装完成。
+   RLinf 的合装流程最终为 OmniGibson 使用 Torch 2.5.1，但
+   ``rlinf-openpi==0.1.1`` 的包元数据声明需要 ``torch==2.7.1``。
+   安装器保留 ``uv pip check`` 的原始结果；非零结果不能称为依赖检查通过。
+   除这项已知不一致外，出现其他冲突时安装器会停止。
+   运行验收还必须通过 CUDA、真实 ENV reset、Pi0.5 推理和环境动作执行。
+   仅创建 venv 或通过 selfcheck 不能证明这些结果。
 
 运动规划在 BEHAVIOR venv 中使用 NVlabs/cuRobo v0.8.0，固定 commit
-``4ea77366ca48ee453e7df139e39fa6532af49f3b``。安装器在最终 repin 前使用
-constraints，保留 NumPy 1.26.4、Torch 2.5.1+cu124 和 Isaac Sim 4.5.0.0。
-不要无约束安装 cuRobo：resolver 升级到 NumPy 2 会破坏此环境的兼容性。
+``4ea77366ca48ee453e7df139e39fa6532af49f3b``。应基于 RLinf 安装后的
+runtime 安装 cuRobo，不改变其 Torch、NumPy 或 Isaac Sim 版本；无约束解析器
+可能升级到 NumPy 2，破坏该仿真环境的兼容性。
 
 仿真资产
 ~~~~~~~~

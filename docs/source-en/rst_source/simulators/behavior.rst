@@ -76,8 +76,13 @@ Installation and Resources
 
 Use a Linux host with NVIDIA GPUs and a compatible CUDA driver. Install
 ``git``, ``bash``, ``curl``, ``nvidia-smi``, and ``sha256sum``, and reserve space
-for the simulator, licensed data, and model weights. The source-checkout
-installer creates two independent Python 3.10 environments:
+for the simulator, licensed data, and model weights. RLinf installs its system
+dependencies using non-interactive ``sudo``. On a host where they are already
+installed, set ``RLINF_NO_ROOT=1`` to pass RLinf's ``--no-root`` option instead.
+On a slow upstream connection, ``RLINF_USE_MIRROR=1`` passes RLinf's
+``--use-mirror`` option.
+
+The source-checkout installer creates two independent Python 3.10 environments:
 
 - the **RPent venv** runs the CLI, planner, Dashboard, and MemoryManager;
 - the **BEHAVIOR venv** runs RLinf, OmniGibson, Isaac Sim, and Pi0.5.
@@ -102,26 +107,30 @@ For a fresh setup:
    "$RPENT_PYTHON" -m robots.behavior.selfcheck
 
 The runtime root above is outside the source checkout. The installer installs
-RPent editable in its planner venv and runs ENV, VLA,
-and DINO from this checkout in the separate simulator venv. It pins RLinf and
-the CUDA/OpenPI/LeRobot stack, checks imports and CUDA, and writes package
-freezes and source identities under ``$RPENT_REPRO_ROOT/manifests``. Use a new
-``RPENT_REPRO_ROOT`` for a fresh installation; it will not overwrite a dirty
-or different RLinf checkout. A successful selfcheck verifies source contracts,
-not GPU services or task execution.
+RPent editable in its planner venv and runs ENV, VLA, and DINO from this
+checkout in the separate simulator venv. It uses the pinned RLinf checkout's
+``embodied --model openpi --env behavior`` installer without repinning its
+Torch, OpenPI, or LeRobot versions, adds cuRobo for motion planning, and writes
+package freezes and source identities under ``$RPENT_REPRO_ROOT/manifests``.
+Use a new ``RPENT_REPRO_ROOT`` for a fresh installation; it will not overwrite
+a dirty or different RLinf checkout. A successful selfcheck verifies source
+contracts, not GPU services or task execution.
 
 .. warning::
 
-   The pinned upstream package metadata is currently inconsistent:
-   ``rlinf-openpi`` requires Torch 2.7.1, while the BEHAVIOR simulator pins
-   Torch 2.5.1. The installer stops when ``uv pip check`` fails. Venv creation
-   or selfcheck must not be reported as a completed fresh installation.
+   RLinf's combined recipe finishes with Torch 2.5.1 for OmniGibson, although
+   ``rlinf-openpi==0.1.1`` declares ``torch==2.7.1`` in its package metadata.
+   The installer records the raw ``uv pip check`` result; a nonzero result must
+   not be reported as a clean dependency check. Other mismatches stop the
+   installer. Runtime acceptance also
+   requires CUDA, a real ENV reset, Pi0.5 inference, and executed environment
+   actions. Venv creation or selfcheck alone does not establish these results.
 
 Motion planning uses NVlabs/cuRobo v0.8.0 at commit
 ``4ea77366ca48ee453e7df139e39fa6532af49f3b`` in the BEHAVIOR venv.
-The installer applies constraints before its final repin, retaining NumPy
-1.26.4, Torch 2.5.1+cu124 and Isaac Sim 4.5.0.0. Do not install cuRobo with
-an unconstrained resolver: a NumPy 2 upgrade is incompatible with this stack.
+Install it against the RLinf-selected runtime without changing that runtime's
+Torch, NumPy, or Isaac Sim versions; an unconstrained resolver can upgrade
+NumPy to 2, which is incompatible with this simulator stack.
 
 Simulator Assets
 ~~~~~~~~~~~~~~~~
