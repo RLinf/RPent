@@ -78,7 +78,11 @@ class BehaviorToolkit(Toolkit):
             state=EnvState(self._state_output_dir),
             memory=memory,
         )
-        self._run_state = EnvState(self._run_output_dir)
+        self._run_state = (
+            self._state
+            if self._run_output_dir.resolve() == self._state_output_dir.resolve()
+            else EnvState(self._run_output_dir)
+        )
         values["memory_dir"] = memory.root
         self._task_spec = get_task_spec(
             str(values.get("task_name") or "turning_on_radio")
@@ -189,7 +193,9 @@ class BehaviorToolkit(Toolkit):
         elapsed_s: float,
     ) -> ToolResult:
         snapshot = self._primitives.snapshot()
-        terminated = bool(snapshot.get("task_success"))
+        terminated = (
+            bool(result.get("terminated")) or result.get("stop_reason") == "terminated"
+        )
         truncated = (
             bool(result.get("truncated")) or result.get("stop_reason") == "truncated"
         )

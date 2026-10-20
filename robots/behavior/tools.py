@@ -483,6 +483,8 @@ class BehaviorPrimitives:
         chunks_used = 0
         full_chunks = 0
         stop_reason = "exact_requested_chunks"
+        last_terminated = False
+        last_truncated = False
         last_info: dict[str, Any] | None = self._current_info
         started = time.monotonic()
 
@@ -509,6 +511,8 @@ class BehaviorPrimitives:
             ret = env.chunk_step(action_array, return_all_frames=self._recording)
             chunks_used += 1
             obs, _reward, terminated, truncated, info = ret
+            last_terminated = bool(terminated)
+            last_truncated = bool(truncated)
             if isinstance(obs, list):
                 for frame_obs in obs:
                     self.record_frame(frame_obs)
@@ -549,8 +553,8 @@ class BehaviorPrimitives:
 
         env_steps_used = max(0, self.total_env_steps - started_steps)
         result = {
-            "terminated": stop_reason == "terminated",
-            "truncated": stop_reason == "truncated",
+            "terminated": last_terminated,
+            "truncated": last_truncated,
             "stop_reason": stop_reason,
             "requested_chunks": int(chunks),
             "chunks_used": chunks_used,

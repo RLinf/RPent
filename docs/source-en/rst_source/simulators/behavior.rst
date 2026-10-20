@@ -279,10 +279,13 @@ For the Eval command above, inspect these paths after the run:
    <output-dir>/behavior_dino_server.log
 
 ``states.json`` indexes step observations and camera images. The transcript
-records planner messages and ``environment_success``. A video, clean process
-exit, reward, or planner ``finish`` is not official success; only the current
-episode's raw ``info["done"]["success"] is True`` is. The receipt records
-evidence and its SHA-256 digest; it cannot manufacture success.
+records planner messages; after ``finish``, inspect ``terminal_receipt.json``,
+not the transcript's unset ``environment_success``, for BEHAVIOR's official
+outcome. A video, clean process exit, reward, or planner ``finish`` is not
+official success; only the current episode's raw
+``info["done"]["success"] is True`` is. The receipt records
+evidence and its SHA-256 digest; it cannot manufacture success. The video is
+limited to the first 2,000 recorded frames, so it may not cover the full episode.
 
 Explore keeps ``run.log``, the transcript, and server logs at the run root,
 but writes ``states.json``, ``episode.mp4``, and

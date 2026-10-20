@@ -93,9 +93,7 @@ class VideoArtifactWriter:
             if self._aborted or self.frames_written <= 0:
                 self._temporary.unlink(missing_ok=True)
                 return None
-            saved = self._env_state.save(
-                self._name, self._temporary.read_bytes(), step=self._step
-            )
+            saved = self._env_state.save(self._name, self._temporary, step=self._step)
             if saved is None:
                 raise RuntimeError(f"failed to save {self._name}")
             return saved

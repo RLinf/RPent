@@ -243,7 +243,7 @@ embedding，左右腕帧保留用于诊断。成功运行先在本地准备证�
    <output-dir>/behavior_vla_server.log
    <output-dir>/behavior_dino_server.log
 
-``states.json`` 索引每一步的观测和相机图像；transcript 记录规划器消息和 ``environment_success``。视频、进程正常退出、reward 或规划器 ``finish`` 都不是官方成功。只有当前 episode 的原始 ``info["done"]["success"] is True`` 才是成功判定。receipt 记录证据及其 SHA-256 摘要，不能制造成功。
+``states.json`` 索引每一步的观测和相机图像；transcript 记录规划器消息。调用 ``finish`` 后，BEHAVIOR 的官方结果请查看 ``terminal_receipt.json``，不要依赖 transcript 中未设置的 ``environment_success``。视频、进程正常退出、reward 或规划器 ``finish`` 都不是官方成功。只有当前 episode 的原始 ``info["done"]["success"] is True`` 才是成功判定。receipt 记录证据及其 SHA-256 摘要，不能制造成功。视频最多保留前 2,000 帧，可能不覆盖完整 episode。
 
 Explore 的 ``run.log``、transcript 和服务日志留在运行根目录；``states.json``、``episode.mp4`` 与 ``terminal_receipt.json`` 写在 ``<output-dir>/sessions/session_001/`` 下，后续 session 依次递增。Dashboard 为每个 TaskRun 创建 ``<output-dir>/tasks/0001_<task-name>_s<seed>/``，状态和视频写在该目录；Explore TaskRun 还会增加 ``sessions/session_001/`` 子目录。浏览器查看方式见 :doc:`../guides/dashboard`。
 

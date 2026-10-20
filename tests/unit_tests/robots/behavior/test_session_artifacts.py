@@ -115,6 +115,34 @@ def test_receipt_is_session_artifact_and_recipe_is_run_artifact(
     assert "command" not in commands[0]
 
 
+def test_eval_recipe_preserves_state_manifest(tmp_path: Path) -> None:
+    run_dir = tmp_path / "run"
+    toolkit = BehaviorToolkit(
+        runtime_kwargs={
+            "task_name": "turning_on_radio",
+            "output_dir": run_dir,
+            "initial_info": {"done": {"success": True}},
+        },
+        memory=MemoryManager(tmp_path / "memory"),
+    )
+    with toolkit.state.record_step(
+        state={"task_success": True},
+        command={"action": "pi0_nav_pick", "instruction": "turn on radio"},
+        result={"ok": True},
+    ):
+        pass
+    toolkit.execute_tool("finish", {"status": "complete", "summary": "done"})
+
+    assert toolkit.write_recipe("turning_on_radio_s0") is not None
+    manifest = json.loads((run_dir / "states.json").read_text())
+    assert len(manifest["steps"]) == 1
+    assert manifest["steps"][0]["command"]["action"] == "pi0_nav_pick"
+    assert manifest["run_artifacts"] == [
+        "terminal_receipt.json",
+        "turning_on_radio_s0_recipe.jsonl",
+    ]
+
+
 def test_solved_behavior_session_without_terminal_receipt_refuses_recipe(
     tmp_path: Path,
 ) -> None:
@@ -207,15 +235,19 @@ def test_behavior_images_stay_out_of_step_json(tmp_path: Path, name: str) -> Non
 
 
 @pytest.mark.parametrize(
-    ("payload", "expected"),
+    ("payload", "expected_truncated", "expected_terminated"),
     [
-        ({"truncated": True}, True),
-        ({"stop_reason": "truncated"}, True),
-        ({"terminated": True, "truncated": False}, False),
+        ({"truncated": True}, True, False),
+        ({"stop_reason": "truncated"}, True, False),
+        ({"terminated": True, "truncated": False}, False, True),
+        ({"stop_reason": "terminated"}, False, True),
     ],
 )
 def test_behavior_truncation_reaches_state_and_dashboard(
-    tmp_path: Path, payload: dict, expected: bool
+    tmp_path: Path,
+    payload: dict,
+    expected_truncated: bool,
+    expected_terminated: bool,
 ) -> None:
     from robots.behavior.robot_spec import BEHAVIOR_DASHBOARD_SPEC
     from rpent.dashboard.state import DashboardState
@@ -238,19 +270,21 @@ def test_behavior_truncation_reaches_state_and_dashboard(
             elapsed_s=0.1,
         )
         record = toolkit.state.latest_record()
-        assert record.truncated is expected
-        assert record.terminated is False
+        assert record.truncated is expected_truncated
+        assert record.terminated is expected_terminated
         assert toolkit.solved() is False
         stored = json.loads((tmp_path / "run" / "states.json").read_text())["steps"][-1]
-        assert stored["truncated"] is expected
+        assert stored["truncated"] is expected_truncated
+        assert stored["terminated"] is expected_terminated
         dashboard = DashboardState(
             output_dir=tmp_path / "dashboard", dashboard_spec=BEHAVIOR_DASHBOARD_SPEC
         )
         dashboard.on_step(record)
         snapshot = dashboard.session_detail()
-        assert snapshot["truncated"] is expected
-        assert snapshot["terminated"] is False
+        assert snapshot["truncated"] is expected_truncated
+        assert snapshot["terminated"] is expected_terminated
         assert snapshot["timeline"][-1]["result"]["official_success"] is False
-        assert snapshot["timeline"][-1]["truncated"] is expected
+        assert snapshot["timeline"][-1]["truncated"] is expected_truncated
+        assert snapshot["timeline"][-1]["terminated"] is expected_terminated
     finally:
         toolkit.close()

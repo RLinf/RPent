@@ -117,3 +117,43 @@ def test_behavior_pi0_chunk_records_streaming_episode_video(tmp_path: Path) -> N
         "episode.mp4"
         in json.loads((session_dir / "states.json").read_text())["run_artifacts"]
     )
+
+
+def test_pi0_chunk_keeps_gym_termination_separate_from_success(tmp_path: Path) -> None:
+    class SuccessfulTerminalEnv(_FakeChunkEnv):
+        def chunk_step(self, actions: Any, *, return_all_frames: bool = False):
+            obs, reward, _, _, info = super().chunk_step(
+                actions, return_all_frames=return_all_frames
+            )
+            return obs, reward, True, True, {**info, "done": {"success": True}}
+
+    toolkit = BehaviorToolkit(
+        runtime_kwargs={
+            "env": SuccessfulTerminalEnv(),
+            "model": _FakeModel(),
+            "task_name": "turning_on_radio",
+            "output_dir": tmp_path / "run",
+            "initial_observation": {
+                "main_images": np.zeros((16, 16, 3), dtype=np.uint8),
+            },
+        },
+        memory=MemoryManager(tmp_path / "memory"),
+    )
+    try:
+        result = toolkit.primitives.pi0_nav_pick(
+            instruction="turn on the radio", chunks=1
+        )
+        assert result["stop_reason"] == "official_task_success"
+        assert result["task_success"] is True
+        assert result["terminated"] is True
+        assert result["truncated"] is True
+
+        toolkit.get_env_state(
+            command={"action": "pi0_nav_pick"}, result=result, elapsed_s=0.1
+        )
+        record = toolkit.state.latest_record()
+        assert record is not None
+        assert record.terminated is True
+        assert record.truncated is True
+    finally:
+        toolkit.close()
