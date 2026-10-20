@@ -324,42 +324,11 @@ weights and use ``id_0`` as shown above.
 
 .. _dual-franka-codex-isolation:
 
-Robot Codex Profile Isolation
------------------------------
+Codex Configuration
+-------------------
 
-In a dedicated terminal, activate ``.venv`` and set separate Codex configuration
-and session directories from the repository root. Repeat this in each new
-robot-control terminal:
-
-.. code-block:: bash
-
-   export CODEX_HOME="$PWD/.codex-rpent-live"
-   export CODEX_SQLITE_HOME="$CODEX_HOME"
-   export CODEX_SERVICE_TIER=fast
-   mkdir -p "$CODEX_HOME"
-   unset CODEX_API_KEY CODEX_BASE_URL OPENAI_API_KEY OPENAI_BASE_URL CODEX_ACCESS_TOKEN
-   export CODEX_BIN="$(python -c 'from codex_cli_bin import bundled_codex_path; print(bundled_codex_path())')"
-
-On first use, enable file credential storage in ``$CODEX_HOME/config.toml``,
-then log in with the CLI bundled with the SDK:
-
-.. code-block:: toml
-
-   cli_auth_credentials_store = "file"
-
-.. code-block:: bash
-
-   "$CODEX_BIN" login --device-auth
-   "$CODEX_BIN" login status
-
-If ``sqlite_home`` is already configured, point it at the separate directory too.
-For a custom API, explicitly set this deployment's ``CODEX_API_KEY`` and
-``CODEX_BASE_URL``. See `Codex authentication
-<https://developers.openai.com/codex/auth/>`_ for other login methods.
-
-RPent does not enable this isolation automatically. It neither isolates shared
-workspace files nor migrates old sessions. Task memory is selected separately
-with ``--memory-dir``. Never commit the private directory or credentials.
+Before using Codex, configure separate runtime directories and log in by following
+:ref:`planner-codex-isolation`.
 
 Start the Two-node Ray Cluster
 ------------------------------
@@ -477,7 +446,7 @@ Run a Task
 
 Complete calibration, robot configuration and Ray startup, then configure the
 planner using :doc:`../guides/configure_planner`. Before using Codex, complete
-:ref:`dual-franka-codex-isolation`.
+:ref:`planner-codex-isolation`.
 
 With the model variables set, the example below runs task ``2``. Select another
 registered task with ``--task-id``. RPent starts the required

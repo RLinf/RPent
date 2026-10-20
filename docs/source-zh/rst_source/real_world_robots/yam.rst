@@ -148,36 +148,10 @@ VLA 服务使用 ``pi05_yam_joint`` 配置，相机顺序为 ``top/left/right``�
 
 .. _yam-codex-isolation:
 
-机器人 Codex 运行配置隔离
--------------------------
+Codex 配置
+----------------
 
-在控制机运行 RPent 的终端激活 ``.venv``，从仓库根目录设置独立的 Codex 配置与会话目录。每次新开运行 RPent 的终端都需执行：
-
-.. code-block:: bash
-
-   cd /path/to/RPent
-   source .venv/bin/activate
-   export CODEX_HOME="$PWD/.codex-rpent-live"
-   export CODEX_SQLITE_HOME="$CODEX_HOME"
-   export CODEX_SERVICE_TIER=fast
-   mkdir -p "$CODEX_HOME"
-   unset CODEX_API_KEY CODEX_BASE_URL OPENAI_API_KEY OPENAI_BASE_URL CODEX_ACCESS_TOKEN
-   export CODEX_BIN="$(python -c 'from codex_cli_bin import bundled_codex_path; print(bundled_codex_path())')"
-
-首次使用时，在 ``$CODEX_HOME/config.toml`` 中设置文件凭据存储，再用 SDK 自带的 CLI 登录：
-
-.. code-block:: toml
-
-   cli_auth_credentials_store = "file"
-
-.. code-block:: bash
-
-   "$CODEX_BIN" login --device-auth
-   "$CODEX_BIN" login status
-
-若配置中已有 ``sqlite_home``，也应指向独立目录。使用自定义 API 时，重新设置本次部署的 ``CODEX_API_KEY`` 和 ``CODEX_BASE_URL``；其他登录方式见 `Codex 认证说明 <https://developers.openai.com/codex/auth/>`_。
-
-RPent 不会自动启用上述隔离；它不隔离共享工作区或迁移旧会话。任务记忆另由 ``--memory-dir`` 选择。不要提交该目录或凭据。
+使用 Codex 时，先按\ :ref:`planner-codex-isolation`\ 配置独立的运行目录并登录。
 
 .. _id3:
 .. _yam-services:
@@ -296,7 +270,7 @@ RPent 不会自动启用上述隔离；它不隔离共享工作区或迁移旧�
 运行一个任务
 ------------
 
-完成机器人配置和双机服务启动，并按\ :doc:`../guides/configure_planner`\ 配置规划器。使用 Codex 前，先完成\ :ref:`yam-codex-isolation`。将 ``MODEL_ID`` 替换为已配置的模型，并选择该模型支持的推理档位。在控制机的 RPent 终端运行：
+完成机器人配置和双机服务启动，并按\ :doc:`../guides/configure_planner`\ 配置规划器。使用 Codex 前，先完成\ :ref:`planner-codex-isolation`。将 ``MODEL_ID`` 替换为已配置的模型，并选择该模型支持的推理档位。在控制机的 RPent 终端运行：
 
 .. code-block:: bash
 

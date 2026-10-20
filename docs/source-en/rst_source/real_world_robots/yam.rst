@@ -178,44 +178,11 @@ executes the first five action steps.
 
 .. _yam-codex-isolation:
 
-Robot Codex Profile Isolation
------------------------------
+Codex Configuration
+-------------------
 
-In the terminal that runs RPent on the control machine, activate ``.venv`` and set
-separate Codex configuration and session directories from the repository root. Repeat
-this setup in each new terminal used to run RPent:
-
-.. code-block:: bash
-
-   cd /path/to/RPent
-   source .venv/bin/activate
-   export CODEX_HOME="$PWD/.codex-rpent-live"
-   export CODEX_SQLITE_HOME="$CODEX_HOME"
-   export CODEX_SERVICE_TIER=fast
-   mkdir -p "$CODEX_HOME"
-   unset CODEX_API_KEY CODEX_BASE_URL OPENAI_API_KEY OPENAI_BASE_URL CODEX_ACCESS_TOKEN
-   export CODEX_BIN="$(python -c 'from codex_cli_bin import bundled_codex_path; print(bundled_codex_path())')"
-
-Before first use, set file-based credential storage in ``$CODEX_HOME/config.toml``, then
-log in with the CLI bundled with the SDK:
-
-.. code-block:: toml
-
-   cli_auth_credentials_store = "file"
-
-.. code-block:: bash
-
-   "$CODEX_BIN" login --device-auth
-   "$CODEX_BIN" login status
-
-If ``sqlite_home`` is already configured, point it to the separate directory as well.
-For a custom API, set ``CODEX_API_KEY`` and ``CODEX_BASE_URL`` for this deployment.
-Other login methods are described in
-`Codex authentication <https://developers.openai.com/codex/auth/>`_.
-
-RPent does not enable this isolation automatically. It does not isolate the shared
-workspace or migrate old sessions. Task memory is selected separately with
-``--memory-dir``. Do not commit this directory or credentials.
+Before using Codex, configure separate runtime directories and log in by following
+:ref:`planner-codex-isolation`.
 
 .. _id3:
 .. _yam-services:
@@ -354,7 +321,7 @@ Run a Task
 
 Complete robot configuration and start the two-machine services, then configure the
 planner using :doc:`../guides/configure_planner`. Before using Codex, complete
-:ref:`yam-codex-isolation`. Replace ``MODEL_ID`` with a configured model and choose a
+:ref:`planner-codex-isolation`. Replace ``MODEL_ID`` with a configured model and choose a
 reasoning setting supported by that model. In the RPent terminal on the control machine,
 run:
 
