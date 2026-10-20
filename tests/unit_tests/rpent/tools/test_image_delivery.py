@@ -92,12 +92,24 @@ def _register_action_toolkit(toolkit: _ImageToolkit) -> None:
     toolkit.add_tool(move)
 
 
-def test_unbounded_policy_replays_every_image_linearly(tmp_path: Path) -> None:
-    """Bug repro: history image count grows linearly with the number of actions."""
+def _register_view_toolkit(toolkit: _ImageToolkit) -> None:
+    @tool(readonly=True)
+    def view_env_state() -> ToolResult:
+        """Explicit observation request; mirrors robots' view_env_state."""
+        return ToolResult(
+            data={"view": "ok"},
+            images=[b"agentview", b"wrist"],
+        )
+
+    toolkit.add_tool(view_env_state)
+
+
+def test_default_policy_delivers_every_image(tmp_path: Path) -> None:
+    """Default stays unlimited: no behavior change for any existing user."""
+    assert ImageDeliveryPolicy().max_embedded_images is None
+
     toolkit = _ImageToolkit(tmp_path / "state")
     _register_action_toolkit(toolkit)
-    policy = ImageDeliveryPolicy(max_embedded_images=None)
-    toolkit._image_policy = policy
 
     total_images = 0
     for step in range(5):
@@ -107,9 +119,11 @@ def test_unbounded_policy_replays_every_image_linearly(tmp_path: Path) -> None:
     assert total_images == 5 * IMAGES_PER_ACTION
 
 
-def test_default_policy_caps_total_images_in_history(tmp_path: Path) -> None:
-    """Fix check: total delivered images stay within the conversation budget."""
-    toolkit = _ImageToolkit(tmp_path / "state")
+def test_opt_in_budget_caps_auto_attached_images(tmp_path: Path) -> None:
+    """With an explicit budget, auto-attached images stay within the quota."""
+    toolkit = _ImageToolkit(
+        tmp_path / "state", image_policy=ImageDeliveryPolicy(max_embedded_images=12)
+    )
     _register_action_toolkit(toolkit)
 
     payload_images: list[bytes] = []
@@ -117,14 +131,14 @@ def test_default_policy_caps_total_images_in_history(tmp_path: Path) -> None:
         result = toolkit.execute_tool("move", {"distance": float(step)})
         payload_images.extend(result.images)
 
-    budget = ImageDeliveryPolicy().max_embedded_images
-    assert budget is not None
-    assert len(payload_images) == budget
+    assert len(payload_images) == 12
     assert len(payload_images) < 10 * IMAGES_PER_ACTION
 
 
 def test_exhausted_budget_reports_omitted_images(tmp_path: Path) -> None:
-    toolkit = _ImageToolkit(tmp_path / "state")
+    toolkit = _ImageToolkit(
+        tmp_path / "state", image_policy=ImageDeliveryPolicy(max_embedded_images=12)
+    )
     _register_action_toolkit(toolkit)
 
     result = toolkit.execute_tool("move", {"distance": 0.0})
@@ -140,9 +154,9 @@ def test_exhausted_budget_reports_omitted_images(tmp_path: Path) -> None:
 
 
 def test_per_result_cap_trims_single_result(tmp_path: Path) -> None:
-    toolkit = _ImageToolkit(tmp_path / "state")
-    toolkit._image_policy = ImageDeliveryPolicy(
-        max_embedded_images=None, max_per_result=1
+    toolkit = _ImageToolkit(
+        tmp_path / "state",
+        image_policy=ImageDeliveryPolicy(max_embedded_images=None, max_per_result=1),
     )
     _register_action_toolkit(toolkit)
 
@@ -150,3 +164,25 @@ def test_per_result_cap_trims_single_result(tmp_path: Path) -> None:
         result = toolkit.execute_tool("move", {"distance": float(step)})
         assert len(result.images) == 1
         assert result.data["images_omitted"] == IMAGES_PER_ACTION - 1
+
+
+def test_readonly_results_bypass_quota(tmp_path: Path) -> None:
+    """Explicit observation requests always deliver images, even with no budget left.
+
+    The planner has no other way to re-fetch scene images, so read-only results
+    (e.g. view_env_state) must never be throttled by the auto-attach budget.
+    """
+    toolkit = _ImageToolkit(
+        tmp_path / "state", image_policy=ImageDeliveryPolicy(max_embedded_images=3)
+    )
+    _register_action_toolkit(toolkit)
+    _register_view_toolkit(toolkit)
+
+    toolkit.execute_tool("move", {"distance": 0.0})  # budget fully spent
+    result = toolkit.execute_tool("move", {"distance": 1.0})
+    assert result.images == []
+    assert result.data["images_omitted"] == IMAGES_PER_ACTION
+
+    view = toolkit.execute_tool("view_env_state", {})
+    assert view.images == [b"agentview", b"wrist"]
+    assert "images_omitted" not in view.data

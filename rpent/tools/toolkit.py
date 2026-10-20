@@ -45,19 +45,23 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class ImageDeliveryPolicy:
-    """Central quota for images embedded into planner-visible tool results.
+    """Opt-in quota for images auto-attached to planner-visible tool results.
 
-    Images returned by tools and :meth:`Toolkit.get_env_state` are appended to
-    the planner's message history verbatim and resent with every request, so an
-    unbounded policy makes token cost grow linearly with tool calls. The quota
-    layer bounds the total number of images a conversation ever embeds; once the
-    budget is spent, results carry only their JSON payload (artifact names stay
-    available for :meth:`read_image`-style fetches).
+    Images auto-captured by :meth:`Toolkit.get_env_state` after each stateful
+    tool call are appended to the planner's message history verbatim and resent
+    with every request, so an unbounded policy makes token cost grow linearly
+    with tool calls. When a budget is configured, auto-attached images are
+    trimmed once the conversation budget is spent; results report the trimmed
+    count as ``images_omitted``.
 
-    Set ``max_embedded_images=None`` to restore unlimited delivery.
+    The default is unlimited delivery: today's behavior is unchanged for every
+    user until the all-vs-budget comparison tracked in issue #305 settles the
+    default. Explicit read-only observation results (e.g. ``view_env_state``)
+    always bypass the quota, so the planner can always re-fetch scene images on
+    demand.
     """
 
-    max_embedded_images: int | None = 12
+    max_embedded_images: int | None = None
     max_per_result: int | None = None
 
 
@@ -319,17 +323,18 @@ class Toolkit:
                         for key, value in native.data.items():
                             observed.data.setdefault(key, value)
                         observed.data["error"] = native.data["error"]
-                    native = ToolResult(
-                        data=observed.data,
-                        images=native.images + observed.images,
+                    kept_images, omitted = self._apply_image_policy(
+                        native.images + observed.images
                     )
+                    if omitted:
+                        observed.data["images_omitted"] = omitted
+                    native = ToolResult(data=observed.data, images=kept_images)
                 if record is not None:
                     self._publish_step(record)
 
-            kept_images, omitted = self._apply_image_policy(native.images)
-            if omitted:
-                native.data["images_omitted"] = omitted
-            native = ToolResult(data=native.data, images=kept_images)
+            # Read-only results bypass the quota entirely: explicit observation
+            # requests (e.g. view_env_state) are the planner's way to re-fetch
+            # scene images on demand and must never be throttled.
             try:
                 json.dumps(native.to_dict(), allow_nan=False, default=str)
             except (TypeError, ValueError) as exc:
@@ -342,11 +347,12 @@ class Toolkit:
             self._scheduler.release(operation)
 
     def _apply_image_policy(self, images: list[bytes]) -> tuple[list[bytes], int]:
-        """Deliver images within the policy quota and return the kept subset.
+        """Deliver auto-attached images within the policy quota.
 
-        The conversation-wide budget is shared by every tool result, so the
-        total number of images in the planner history stays constant once the
-        budget is exhausted instead of growing with each tool call.
+        The conversation-wide budget applies only to images auto-captured after
+        stateful tool calls, so the auto-attached portion of the planner history
+        stays bounded once the budget is exhausted instead of growing with each
+        action.
         """
         policy = self._image_policy
         budget: int | None = policy.max_embedded_images
