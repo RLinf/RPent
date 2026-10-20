@@ -9,7 +9,7 @@ RPent（Recursive Physical Agent）是面向真实物理世界的开源具身智
 
 v0.1 支持使用 Codex、Claude Code 等 Agent Harness 进行任务规划，接入 LIBERO 系列、RoboCasa365、RoboTwin、RoboDojo 等仿真环境，以及单臂 Franka、双臂 Franka 和 YAM 真机，提供 Memory、Flash Mode、交互式 CLI 与 Web Dashboard。RPent 已在多种仿真环境和真机任务中完成验证，并在 LIBERO-PRO 等仿真基准上取得榜单所列方法中的领先任务成功率。
 
-Highlights
+版本亮点
 --------------------
 
 真机演示
@@ -41,7 +41,7 @@ Memory 设计
 
 - **Harness VLA**\ ：RPent 的首篇研究论文，介绍如何利用任务记忆组合 VLA 模型与解析式原语。无需更新 VLA 权重，即可应对任务变化、环境扰动和多步骤操作。 `论文 <https://arxiv.org/abs/2607.08448>`__ ｜ `项目主页 <https://harnessvla.github.io/>`__
 
-Features
+功能特性
 ----------------
 
 真机
