@@ -171,21 +171,34 @@ def test_wrong_worker_is_rejected_before_prediction(worker, mismatch):
         ("fast-wam", "robotwin"),
     ],
 )
-def test_worker_launch_and_external_options(tmp_path, monkeypatch, backend, platform):
+@pytest.mark.parametrize("legacy_options", [False, True])
+def test_worker_launch_and_external_options(
+    tmp_path, monkeypatch, backend, platform, legacy_options
+):
     for name in ("python", "checkpoint", "config", "stats"):
         (tmp_path / name).touch()
     parser = argparse.ArgumentParser()
     am_runtime.add_wam_args(parser)
     extra = (
-        ["--wam-predict-future"]
+        [
+            "--cosmos-predict-future",
+            "--cosmos-cached-instructions-only",
+            "--cosmos-text-embeddings",
+            str(tmp_path / "embeddings.pkl"),
+        ]
         if backend == "cosmos-policy"
         else [
-            "--wam-config",
+            "--fast-wam-config",
             str(tmp_path / "config"),
-            "--wam-dataset-stats",
+            "--fast-wam-dataset-stats",
             str(tmp_path / "stats"),
         ]
     )
+    if legacy_options:
+        extra = [
+            arg.replace("--cosmos-", "--wam-").replace("--fast-wam-", "--wam-")
+            for arg in extra
+        ]
     args = parser.parse_args(
         [
             "--wam-backend",
@@ -217,6 +230,14 @@ def test_worker_launch_and_external_options(tmp_path, monkeypatch, backend, plat
     assert (
         "--predict-future" if backend == "cosmos-policy" else "--dataset-stats"
     ) in command
+    if backend == "cosmos-policy":
+        assert "--cached-instructions-only" in command
+        assert command[command.index("--text-embeddings") + 1] == str(
+            tmp_path / "embeddings.pkl"
+        )
+    else:
+        assert command[command.index("--config") + 1] == str(tmp_path / "config")
+        assert command[command.index("--dataset-stats") + 1] == str(tmp_path / "stats")
     daemon.start.assert_called_once()
     daemon.start.side_effect = RuntimeError("launch failed")
     with pytest.raises(RuntimeError, match="launch failed"):
@@ -227,3 +248,23 @@ def test_worker_launch_and_external_options(tmp_path, monkeypatch, backend, plat
     args.wam_endpoint = "http://localhost:8116"
     with pytest.raises(ValueError, match="require --wam-checkpoint"):
         am_runtime.select_wam(args, platform)
+    external_args = parser.parse_args(
+        ["--wam-backend", backend, "--wam-endpoint", "http://localhost:8116"]
+    )
+    factory.reset_mock()
+    assert am_runtime.select_wam(external_args, platform).start_service(
+        external_args, tmp_path
+    ) == (None, rpc)
+    factory.assert_not_called()
+    other_backend = "fast-wam" if backend == "cosmos-policy" else "cosmos-policy"
+    external_args = parser.parse_args(
+        [
+            "--wam-backend",
+            other_backend,
+            "--wam-endpoint",
+            "http://localhost:8116",
+            *extra,
+        ]
+    )
+    with pytest.raises(ValueError, match=f"require --wam-backend {backend}"):
+        am_runtime.select_wam(external_args, platform)

@@ -103,8 +103,13 @@ or ``--wam-checkpoint`` plus ``--wam-python``. WAM and VLA options are mutually
 exclusive. WAM defaults to the ``local`` memory profile without memory tools;
 it rejects HF memory, ``--memory-dir``, Flash and exploration. See
 :doc:`../development/wam_backends` for model launch options and supported pairs.
-For an owned RoboTwin worker, ``--wam-cuda-device`` selects the model GPU;
-``--env-cuda-device`` selects the simulator GPU.
+For an owned worker, ``--wam-cuda-device`` selects the model GPU independently
+of the simulator. RoboTwin uses ``--env-cuda-device`` for the simulator;
+LIBERO uses ``--cuda-device``. Platform ``--help`` groups WAM connection,
+local deployment and model-specific options. Cosmos uses ``--cosmos-*``
+options; Fast-WAM uses ``--fast-wam-*``. The WAM backend guide separates
+one-time worker deployment from repeated task commands and includes examples
+for both external services and workers started by RPent.
 
 The following defaults apply to LIBERO; check each other environment’s ``--help`` for its defaults.
 

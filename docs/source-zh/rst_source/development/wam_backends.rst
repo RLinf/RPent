@@ -121,6 +121,8 @@ WAM 沿用 VLA/SAM 的测试组织。``test_am.py`` 覆盖公共启动、VLA 转
 部署模型服务
 ------------
 
+反复运行任务时，先用下面的命令启动一次 worker，再在每次 RPent 运行时通过 ``--wam-endpoint`` 连接。RPent 退出后模型服务继续运行，使用结束后需单独停止。也可以使用后面的单次运行示例，让 RPent 自动启动和停止 worker。
+
 先准备官方模型环境、checkpoint 和辅助文件，并安装 RPent 运行时依赖；``PYTHONPATH`` 只让该环境能导入当前代码，不会安装依赖。仿真器保留在 RPent 环境中。在已准备好的 Cosmos 源码目录启动：
 
 .. code-block:: bash
@@ -144,4 +146,65 @@ checkpoint 目录包含 ``Cosmos-Policy-LIBERO-Predict2-2B.pt``、``libero_datas
 
 RoboTwin 使用 ``--platform robotwin``，并更换为对应 checkpoint 和配置。YAML 提供解析好的 Hydra ``model``、``processor``，后者来自官方配置的 ``data.train.processor``，还需包含 ``action_horizon``、``execute_steps``、``video_size`` 和 ``concat``。可选 ``inference_options`` 传给 ``model.infer_action``，不能覆盖编码后的观测或 ``action_horizon``。处理未缓存指令时需在模型配置中启用文本编码器。``execute_steps`` 为正数且不超过 ``action_horizon``，是对外声明的可执行 ``chunk_size``。``binarize_gripper`` 仅适用于 LIBERO。未来视频生成、时序动作集成和自动 Hydra 配置组合尚未实现。
 
-让 RPent 管理 worker 时，将平台命令中的 ``--wam-endpoint`` 替换为 ``--wam-checkpoint`` 和 ``--wam-python``。Cosmos 还需 ``--wam-root``，``COSMOS_POLICY_PYTHON`` 与 ``COSMOS_POLICY_ROOT`` 可提供默认值。Fast-WAM 还需 ``--wam-config`` 和 ``--wam-dataset-stats``。endpoint 和 checkpoint 两种模式互斥。外部服务的模型参数在其启动时配置，各 worker 的 ``--help`` 可列出启动选项。
+连接已有服务运行任务
+--------------------
+
+准备好平台资产和 planner 凭据后，在 RPent 仿真器环境中运行下面任一示例（前置配置见 :doc:`../simulators/libero`）：
+
+.. code-block:: bash
+
+   # Cosmos worker already running on port 8116.
+   rpent --robot libero --suite libero_spatial --task 0 \
+     --wam-backend cosmos-policy --wam-endpoint http://127.0.0.1:8116 \
+     --memory-profile local --planner api --model openai:gpt-5.5
+
+   # Fast-WAM worker already running on port 8117.
+   rpent --robot libero --suite libero_spatial --task 0 \
+     --wam-backend fast-wam --wam-endpoint http://127.0.0.1:8117 \
+     --memory-profile local --planner api --model openai:gpt-5.5
+
+之后修改 task 或 suite 即可继续使用兼容的 worker。模型路径和推理选项在部署服务时配置，无需在每次任务命令中重复填写。planner 模型可换成你已配置的供应商支持的模型。RoboTwin 的任务命令见 :doc:`../simulators/robotwin`。
+
+由 RPent 在每次运行时启动服务
+----------------------------
+
+下面两种方式会在每次运行时启动新的 worker，并在退出时停止它。模型环境和文件与独立部署相同；RPent 不会自动下载权重或安装模型依赖。将示例路径替换为实际部署路径：
+
+.. code-block:: bash
+
+   rpent --robot libero --suite libero_spatial --task 0 \
+     --wam-backend cosmos-policy --wam-checkpoint /path/to/cosmos-libero \
+     --wam-python /path/to/cosmos/.venv/bin/python --wam-root /path/to/cosmos \
+     --memory-profile local --planner api --model openai:gpt-5.5
+
+   rpent --robot libero --suite libero_spatial --task 0 \
+     --wam-backend fast-wam --wam-checkpoint /path/to/fast-wam-libero.pt \
+     --wam-python /path/to/fast-wam/venv/bin/python \
+     --fast-wam-config /path/to/worker.yaml \
+     --fast-wam-dataset-stats /path/to/dataset_stats.json \
+     --memory-profile local --planner api --model openai:gpt-5.5
+
+``--wam-endpoint`` 与 ``--wam-checkpoint`` 互斥。Cosmos 需要 ``--wam-root``，也可用 ``COSMOS_POLICY_PYTHON`` 和 ``COSMOS_POLICY_ROOT`` 分别提供 Python 路径和工作目录的默认值。Fast-WAM 必须同时提供 ``--fast-wam-config`` 和 ``--fast-wam-dataset-stats``。``--wam-cuda-device`` 可独立于仿真器选择模型 GPU；未指定时，worker 使用平台提供的 ``--cuda-device``，否则继承 CUDA 可见设备设置。
+
+查看可用参数
+------------
+
+``rpent --robot libero --help`` 和 ``rpent --robot robotwin --help`` 按后端选择、连接服务、本地部署、具体模型分组显示 WAM 参数。公共参数使用 ``--wam-*``，Cosmos 专用参数使用 ``--cosmos-*``，Fast-WAM 专用参数使用 ``--fast-wam-*``。RPent 命令中的模型专用参数仅用于本地部署。独立 worker 的 ``--help`` 列出它自己的参数，使用 ``--config``、``--predict-future`` 等不带模型前缀的名称。
+
+旧命令通过隐藏别名继续兼容：
+
+.. list-table:: 模型参数名称
+   :header-rows: 1
+
+   * - 旧参数
+     - 推荐参数
+   * - ``--wam-text-embeddings``
+     - ``--cosmos-text-embeddings``
+   * - ``--wam-predict-future``
+     - ``--cosmos-predict-future``
+   * - ``--wam-cached-instructions-only``
+     - ``--cosmos-cached-instructions-only``
+   * - ``--wam-config``
+     - ``--fast-wam-config``
+   * - ``--wam-dataset-stats``
+     - ``--fast-wam-dataset-stats``

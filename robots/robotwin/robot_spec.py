@@ -247,7 +247,6 @@ def get_toolkit(
 
 def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     add_wam_args(parser)
-    parser.add_argument("--wam-cuda-device", default=None)
     parser.add_argument(
         "--memory-version",
         default="auto",

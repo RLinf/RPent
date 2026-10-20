@@ -43,6 +43,33 @@ def _parser(robot_name: str, *, dashboard: bool = False) -> argparse.ArgumentPar
     return parser
 
 
+@pytest.mark.parametrize("robot_name", ["libero", "robotwin"])
+def test_wam_help_distinguishes_connection_deployment_and_models(robot_name, capsys):
+    with pytest.raises(SystemExit) as exc:
+        _parser(robot_name).parse_args(["--help"])
+    assert exc.value.code == 0
+    help_text = capsys.readouterr().out
+    for group in (
+        "WAM backend:",
+        "WAM connection (repeated tasks):",
+        "WAM local deployment (per run):",
+        "Cosmos Policy local options:",
+        "Fast-WAM local options:",
+    ):
+        assert group in help_text
+    assert "wam_backends.html" in help_text
+    for option in (
+        "cosmos-text-embeddings",
+        "cosmos-predict-future",
+        "cosmos-cached-instructions-only",
+        "fast-wam-config",
+        "fast-wam-dataset-stats",
+    ):
+        assert f"--{option}" in help_text
+        legacy = option.replace("cosmos-", "wam-").replace("fast-wam-", "wam-")
+        assert f"--{legacy}" not in help_text
+
+
 @pytest.mark.parametrize(
     ("robot_name", "required_args", "identity_fields"),
     [
