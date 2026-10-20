@@ -119,8 +119,11 @@ RLINF_FREEZE="${MANIFEST_DIR}/rlinf-venv.freeze.txt"
 "${UV_BIN}" pip freeze --exclude-editable --python "${BEHAVIOR_PYTHON}" > "${RLINF_FREEZE}"
 RLINF_PIP_CHECK="${MANIFEST_DIR}/rlinf-pip-check.txt"
 RLINF_METADATA_CONFLICT=0
-KNOWN_RLINF_MISMATCH='The package `rlinf-openpi` requires `torch==2.7.1`, but `2.5.1+cu124` is installed'
-KNOWN_CHECK_RESULT="$(printf 'Found 1 incompatibility\n%s' "${KNOWN_RLINF_MISMATCH}")"
+KNOWN_CHECK_RESULT='Found 4 incompatibilities
+The package `rlinf-openpi` requires `torch==2.7.1`, but `2.5.1` is installed
+The package `transformers` requires `tokenizers>=0.22.0,<=0.23.0`, but `0.21.4` is installed
+The package `lerobot` requires `torchcodec>=0.2.1,<0.6.0 ; (platform_machine != '\''aarch64'\'' and platform_machine != '\''arm64'\'' and platform_machine != '\''armv7l'\'' and sys_platform == '\''linux'\'') or (platform_machine != '\''x86_64'\'' and sys_platform == '\''darwin'\'') or (sys_platform != '\''darwin'\'' and sys_platform != '\''linux'\'' and sys_platform != '\''win32'\'')`, but `0.1.0` is installed
+The package `lerobot` requires `torchvision>=0.21.0,<0.23.0`, but `0.20.1` is installed'
 if ! "${UV_BIN}" pip check --python "${BEHAVIOR_PYTHON}" > "${RLINF_PIP_CHECK}" 2>&1; then
     CHECK_RESULT="$(sed -E '/^Using Python .* environment at: /d; /^Checked [0-9]+ packages in /d' "${RLINF_PIP_CHECK}")"
     if [[ "${CHECK_RESULT}" != "${KNOWN_CHECK_RESULT}" ]]; then
@@ -135,8 +138,17 @@ cat "${RLINF_PIP_CHECK}"
 # Resolve cuRobo's real dependencies without changing RLinf's installed versions.
 CUROBO_COMMIT=4ea77366ca48ee453e7df139e39fa6532af49f3b # v0.8.0
 CUROBO_CONSTRAINTS="${MANIFEST_DIR}/rlinf-installed-constraints.txt"
-awk -F '==' 'NF == 2 && $1 ~ /^[A-Za-z0-9_.-]+$/ {print}' \
-    "${RLINF_FREEZE}" > "${CUROBO_CONSTRAINTS}"
+"${BEHAVIOR_PYTHON}" - "${CUROBO_CONSTRAINTS}" <<'PY'
+from importlib.metadata import distributions
+from pathlib import Path
+import sys
+
+constraints = sorted(
+    {f"{dist.metadata['Name']}=={dist.version}" for dist in distributions()},
+    key=str.casefold,
+)
+Path(sys.argv[1]).write_text("\n".join(constraints) + "\n")
+PY
 "${UV_BIN}" pip install --python "${BEHAVIOR_PYTHON}" \
     --constraint "${CUROBO_CONSTRAINTS}" \
     "nvidia-curobo[cu12-torch] @ git+https://github.com/NVlabs/curobo.git@${CUROBO_COMMIT}"
@@ -232,7 +244,7 @@ cd "${RPENT_ROOT}"
 "${RPENT_VENV}/bin/python" -m robots.behavior.selfcheck
 
 if [[ "${RLINF_METADATA_CONFLICT}" == 1 ]]; then
-    echo "Runtime installed; uv pip check still reports the known RLinf/OpenPI metadata conflict."
+    echo "Runtime installed; uv pip check still reports the four known RLinf metadata conflicts."
 else
     echo "Installation complete; dependency metadata check passed."
 fi

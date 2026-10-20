@@ -105,10 +105,10 @@ selfcheck 通过只说明源码接口检查完成，不代表 GPU 服务或任�
 
 .. warning::
 
-   RLinf 的合装流程最终为 OmniGibson 使用 Torch 2.5.1，但
-   ``rlinf-openpi==0.1.1`` 的包元数据声明需要 ``torch==2.7.1``。
-   安装器保留 ``uv pip check`` 的原始结果；非零结果不能称为依赖检查通过。
-   除这项已知不一致外，出现其他冲突时安装器会停止。
+   当前固定版本的 RLinf 合装流程存在四项依赖元数据不一致：OpenPI/Torch、
+   Transformers/tokenizers，以及 LeRobot/torchcodec 和 torchvision。
+   安装器保留 ``uv pip check`` 的原始结果，只识别这四项上游诊断；
+   出现其他不一致时会停止。非零结果不能称为依赖检查通过。
    运行验收还必须通过 CUDA、真实 ENV reset、Pi0.5 推理和环境动作执行。
    仅创建 venv 或通过 selfcheck 不能证明这些结果。
 

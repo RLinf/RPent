@@ -118,11 +118,11 @@ contracts, not GPU services or task execution.
 
 .. warning::
 
-   RLinf's combined recipe finishes with Torch 2.5.1 for OmniGibson, although
-   ``rlinf-openpi==0.1.1`` declares ``torch==2.7.1`` in its package metadata.
-   The installer records the raw ``uv pip check`` result; a nonzero result must
-   not be reported as a clean dependency check. Other mismatches stop the
-   installer. Runtime acceptance also
+   The pinned RLinf combined recipe currently reports four dependency metadata
+   mismatches: OpenPI/Torch, Transformers/tokenizers, and LeRobot/torchcodec and
+   torchvision. The installer records the raw ``uv pip check`` result and only
+   recognizes these exact upstream diagnostics; any different mismatch stops
+   installation. This is not a clean dependency check. Runtime acceptance also
    requires CUDA, a real ENV reset, Pi0.5 inference, and executed environment
    actions. Venv creation or selfcheck alone does not establish these results.
 
