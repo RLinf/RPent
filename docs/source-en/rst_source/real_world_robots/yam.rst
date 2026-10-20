@@ -319,7 +319,7 @@ command above with the current episode ID.
 
 .. code-block:: bash
 
-   python -m robots.yam.manual --task-id "$TASK_ID" --diagnostic-id 103 \
+   python -m robots.yam.manual --task-id "$TASK_ID" --mode primitives \
      --env-endpoint socket://127.0.0.1:8110 --max-episode-steps 1000
 
 Enter one JSON command per line, such as ``{"tool":"status"}``. Supported tools are
@@ -330,7 +330,7 @@ through ``arguments``.
 
 .. code-block:: bash
 
-   python -m robots.yam.manual --task-id "$TASK_ID" --diagnostic-id 104 \
+   python -m robots.yam.manual --task-id "$TASK_ID" --mode vla \
      --env-endpoint socket://127.0.0.1:8110 --max-episode-steps 1000 \
      --vla-endpoint socket://127.0.0.1:8220 --output-dir /path/to/diagnostics
 

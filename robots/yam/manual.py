@@ -6,8 +6,6 @@ import argparse
 import json
 from pathlib import Path
 
-from robots.yam.tasks import DIAGNOSTIC_TASKS
-
 
 def _build_parser() -> argparse.ArgumentParser:
     from robots.yam.robot_spec import _add_runtime_args
@@ -15,11 +13,10 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     _add_runtime_args(parser, required=True)
     parser.add_argument(
-        "--diagnostic-id",
-        type=int,
+        "--mode",
         required=True,
-        choices=tuple(DIAGNOSTIC_TASKS),
-        help="103 manual primitive checks; 104 VLA inference and execution checks",
+        choices=("primitives", "vla"),
+        help="primitives: manual motion checks; vla: inference and execution checks",
     )
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--memory-dir", type=Path, default=None)
@@ -47,7 +44,7 @@ def run_session(args: argparse.Namespace) -> int:
 
     if not args.env_endpoint:
         raise ValueError("--env-endpoint is required")
-    if args.diagnostic_id == 104 and (
+    if args.mode == "vla" and (
         args.task_id == 0 or not args.vla_endpoint or args.without_vla
     ):
         raise ValueError("VLA diagnostics require task 1 or 2 and --vla-endpoint")
@@ -57,7 +54,7 @@ def run_session(args: argparse.Namespace) -> int:
             "Start hardware in the operator terminal first; diagnostics never power on"
         )
     config = _parse_config(args)
-    selected = {"env", "vla"} if args.diagnostic_id == 104 else {"env"}
+    selected = {"env", "vla"} if args.mode == "vla" else {"env"}
     _, kwargs = _init_runtime(
         args, config.output_dir, NullDashboardEventSink(), selected
     )
@@ -65,7 +62,7 @@ def run_session(args: argparse.Namespace) -> int:
     test = VLATest(p, config.output_dir)
     log = Path(config.output_dir) / "diagnostics.jsonl"
     log.parent.mkdir(parents=True, exist_ok=True)
-    print(DIAGNOSTIC_TASKS[args.diagnostic_id], flush=True)
+    print(f"YAM {args.mode} checks", flush=True)
     print(
         'One JSON command per line: {"tool":"status"}; primitive checks: move_to/rotate_wrist/set_gripper/release; VLA checks: infer, execute with use_length. quit exits and holds. Stop the Dashboard Agent before using this console.',
         flush=True,
@@ -86,13 +83,11 @@ def run_session(args: argparse.Namespace) -> int:
                 arguments = request.get("arguments", {})
                 allowed = {"status", "stop"} | (
                     {"move_to", "rotate_wrist", "set_gripper", "release"}
-                    if args.diagnostic_id == 103
+                    if args.mode == "primitives"
                     else {"infer", "execute"}
                 )
                 if name not in allowed:
-                    raise ValueError(
-                        f"tool not allowed for diagnostic {args.diagnostic_id}"
-                    )
+                    raise ValueError(f"tool not allowed in {args.mode} mode")
                 if name == "status":
                     result = p.status()
                 elif name == "stop":

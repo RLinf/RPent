@@ -54,15 +54,16 @@ def test_yaml_rejects_ambiguous_fields(tmp_path, update, error):
 
 
 @pytest.mark.parametrize("task", [0, 1, 2])
-def test_env_and_agent_share_default_instruction(task):
+@pytest.mark.parametrize("mode", ["primitives", "vla"])
+def test_env_and_agent_share_default_instruction(task, mode):
     from robots.yam.manual import _build_parser
     from robots.yam.robot_spec import _parse_config
     from robots.yam.tasks import TASK_INSTRUCTIONS
 
     args = _build_parser().parse_args(
         [
-            "--diagnostic-id",
-            "103",
+            "--mode",
+            mode,
             "--task-id",
             str(task),
             "--env-endpoint",

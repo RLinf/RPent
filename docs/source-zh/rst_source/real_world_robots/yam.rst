@@ -271,7 +271,7 @@ RPent 不会自动启用上述隔离；它不隔离共享工作区或迁移旧�
 
 .. code-block:: bash
 
-   python -m robots.yam.manual --task-id "$TASK_ID" --diagnostic-id 103 \
+   python -m robots.yam.manual --task-id "$TASK_ID" --mode primitives \
      --env-endpoint socket://127.0.0.1:8110 --max-episode-steps 1000
 
 每行输入一个 JSON，例如 ``{"tool":"status"}``。支持 ``move_to``、``rotate_wrist``、``set_gripper`` 和 ``release``，通过 ``arguments`` 传参。
@@ -280,7 +280,7 @@ RPent 不会自动启用上述隔离；它不隔离共享工作区或迁移旧�
 
 .. code-block:: bash
 
-   python -m robots.yam.manual --task-id "$TASK_ID" --diagnostic-id 104 \
+   python -m robots.yam.manual --task-id "$TASK_ID" --mode vla \
      --env-endpoint socket://127.0.0.1:8110 --max-episode-steps 1000 \
      --vla-endpoint socket://127.0.0.1:8220 --output-dir /path/to/diagnostics
 
