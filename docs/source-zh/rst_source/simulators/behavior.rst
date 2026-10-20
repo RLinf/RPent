@@ -207,10 +207,10 @@ embedding，左右腕帧保留用于诊断。成功运行先在本地准备证�
 .. code-block:: bash
 
    "$RPENT_REPRO_ROOT/venvs/rpent/bin/rpent-check-llm" \
-     --planner codex --model gpt-5.5
+     --planner codex
    "$RPENT_REPRO_ROOT/venvs/rpent/bin/rpent" --robot behavior \
      --task-name turning_on_radio --public-seed 1 \
-     --planner codex --model gpt-5.5 \
+     --planner codex \
      --memory-profile local \
      --memory-dir "$RPENT_REPRO_ROOT/memory/behavior" \
      --output-dir "$RPENT_REPRO_ROOT/runs/first-eval" \
@@ -282,7 +282,7 @@ BEHAVIOR 使用和其他机器人相同的 Markdown/YAML ``MemoryManager`` 格�
      --task-name picking_up_trash --public-seed 0 \
      --output-dir "$RPENT_REPRO_ROOT/runs/behavior-explore" \
      --memory-dir "$RPENT_REPRO_ROOT/memory/behavior" \
-     --planner codex --model gpt-5.5 \
+     --planner codex \
      --behavior-repo "$RPENT_REPRO_ROOT/RLinf" \
      --behavior-python "$RPENT_REPRO_ROOT/venvs/behavior/bin/python" \
      --activity-instance-dir \
