@@ -189,12 +189,12 @@ embedding，左右腕帧保留用于诊断。成功运行先在本地准备证�
      --memory-dir "$RPENT_REPRO_ROOT/memory/behavior" \
      --source-archive "$DINOV2_SOURCE_ARCHIVE" \
      --weights "$DINOV2_WEIGHTS" \
-     --cuda-device 1
+     --cuda-device 0
 
 运行一个任务
 ------------
 
-先按 :doc:`../guides/configure_planner` 配置规划器并检查连接。将 GPU 序号 ``0`` 和 ``1`` 换成空闲的物理 GPU；各组件只使用指定的设备。以下示例以空的本地记忆语料运行一次 Eval，因此不需下载 HF 记忆：
+先按 :doc:`../guides/configure_planner` 配置规划器并检查连接。将 GPU 序号 ``0`` 换成一张有足够空闲显存的物理 GPU。``--cuda-device`` 让 ENV、Pi0.5 和 DINO 共用该卡；如需分卡，可使用各组件的专用参数。以下示例以空的本地记忆语料运行一次 Eval，因此不需下载 HF 记忆：
 
 .. code-block:: bash
 
@@ -211,8 +211,7 @@ embedding，左右腕帧保留用于诊断。成功运行先在本地准备证�
      --activity-instance-dir \
        "$OMNIGIBSON_DATA_PATH/2025-challenge-task-instances" \
      --policy-checkpoint "$PI05_CHECKPOINT_PATH" \
-     --behavior-env-cuda-device 0 \
-     --behavior-model-cuda-device 1 \
+     --cuda-device 0 \
      --dino-source-archive "$DINOV2_SOURCE_ARCHIVE" \
      --dino-weights "$DINOV2_WEIGHTS"
 
@@ -280,8 +279,7 @@ BEHAVIOR 使用和其他机器人相同的 Markdown/YAML ``MemoryManager`` 格�
      --activity-instance-dir \
        "$OMNIGIBSON_DATA_PATH/2025-challenge-task-instances" \
      --policy-checkpoint "$PI05_CHECKPOINT_PATH" \
-     --behavior-env-cuda-device 0 \
-     --behavior-model-cuda-device 1 \
+     --cuda-device 0 \
      --dino-source-archive "$DINOV2_SOURCE_ARCHIVE" \
      --dino-weights "$DINOV2_WEIGHTS"
 
@@ -315,8 +313,7 @@ Dashboard Session 使用三个服务和一个记忆管理器：
      --policy-checkpoint "$PI05_CHECKPOINT_PATH" \
      --dino-source-archive "$DINOV2_SOURCE_ARCHIVE" \
      --dino-weights "$DINOV2_WEIGHTS" \
-     --behavior-env-cuda-device 0 \
-     --behavior-model-cuda-device 1 \
+     --cuda-device 0 \
      --memory-profile local \
      --memory-dir "$RPENT_REPRO_ROOT/memory/behavior" \
      --output-dir "$RPENT_REPRO_ROOT/runs/behavior-dashboard"

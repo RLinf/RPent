@@ -74,7 +74,7 @@ The planner's observations and tools differ from the inputs and actions of Pi0.5
 Installation and Resources
 --------------------------
 
-Use a Linux host with NVIDIA GPUs and a compatible CUDA driver. Install
+Use a Linux host with an NVIDIA GPU and a compatible CUDA driver. Install
 ``git``, ``bash``, ``curl``, and ``nvidia-smi``, and reserve space
 for the simulator, licensed data, and model weights. RLinf installs its system
 dependencies using non-interactive ``sudo``. On a host where they are already
@@ -217,15 +217,17 @@ Use the BEHAVIOR interpreter to rebuild it; do not edit cache files by hand.
      --memory-dir "$RPENT_REPRO_ROOT/memory/behavior" \
      --source-archive "$DINOV2_SOURCE_ARCHIVE" \
      --weights "$DINOV2_WEIGHTS" \
-     --cuda-device 1
+     --cuda-device 0
 
 Run a Task
 ----------
 
 Configure a planner with :doc:`../guides/configure_planner` and check its
-connection. Replace GPU ordinals ``0`` and ``1`` with available physical GPUs;
-each component receives only its selected GPU. This example runs one Eval
-episode with an empty local memory corpus, so it needs no HF memory download:
+connection. Replace GPU ordinal ``0`` with an available physical GPU with
+enough free memory for ENV, Pi0.5, and DINO. ``--cuda-device`` selects it for
+all three; use the component-specific flags to split them across GPUs if needed.
+This example runs one Eval episode with an empty local memory corpus, so it
+needs no HF memory download:
 
 .. code-block:: bash
 
@@ -242,8 +244,7 @@ episode with an empty local memory corpus, so it needs no HF memory download:
      --activity-instance-dir \
        "$OMNIGIBSON_DATA_PATH/2025-challenge-task-instances" \
      --policy-checkpoint "$PI05_CHECKPOINT_PATH" \
-     --behavior-env-cuda-device 0 \
-     --behavior-model-cuda-device 1 \
+     --cuda-device 0 \
      --dino-source-archive "$DINOV2_SOURCE_ARCHIVE" \
      --dino-weights "$DINOV2_WEIGHTS"
 
@@ -328,8 +329,7 @@ Use the standard RPent Explore entry point for a bounded sequence of sessions:
      --activity-instance-dir \
        "$OMNIGIBSON_DATA_PATH/2025-challenge-task-instances" \
      --policy-checkpoint "$PI05_CHECKPOINT_PATH" \
-     --behavior-env-cuda-device 0 \
-     --behavior-model-cuda-device 1 \
+     --cuda-device 0 \
      --dino-source-archive "$DINOV2_SOURCE_ARCHIVE" \
      --dino-weights "$DINOV2_WEIGHTS"
 
@@ -365,8 +365,7 @@ Start a Dashboard Session with:
      --policy-checkpoint "$PI05_CHECKPOINT_PATH" \
      --dino-source-archive "$DINOV2_SOURCE_ARCHIVE" \
      --dino-weights "$DINOV2_WEIGHTS" \
-     --behavior-env-cuda-device 0 \
-     --behavior-model-cuda-device 1 \
+     --cuda-device 0 \
      --memory-profile local \
      --memory-dir "$RPENT_REPRO_ROOT/memory/behavior" \
      --output-dir "$RPENT_REPRO_ROOT/runs/behavior-dashboard"

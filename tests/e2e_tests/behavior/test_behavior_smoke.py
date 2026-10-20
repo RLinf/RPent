@@ -37,17 +37,13 @@ from tests.e2e_tests.common import (
     require_rgb,
     run_scripted_policy_chain,
     runtime_phase,
+    selected_cuda_ordinal,
 )
 
 
 @pytest.fixture(scope="module")
 def behavior_suite() -> tuple[Namespace, Path, list[str]]:
-    devices = os.environ["CUDA_VISIBLE_DEVICES"].split(",")
-    if len(devices) != 2 or any(not device.isdecimal() for device in devices):
-        raise RuntimeError("CUDA_VISIBLE_DEVICES must name two physical GPU ordinals")
-    env_device, model_device = devices
-    if env_device == model_device:
-        raise RuntimeError("BEHAVIOR ENV and model GPUs must be distinct")
+    cuda_device = str(selected_cuda_ordinal())
 
     data_path = Path(os.environ["OMNIGIBSON_DATA_PATH"]).expanduser().resolve()
     robot_argv = [
@@ -69,10 +65,8 @@ def behavior_suite() -> tuple[Namespace, Path, list[str]]:
         os.environ["DINOV2_SOURCE_ARCHIVE"],
         "--dino-weights",
         os.environ["DINOV2_WEIGHTS"],
-        "--behavior-env-cuda-device",
-        env_device,
-        "--behavior-model-cuda-device",
-        model_device,
+        "--cuda-device",
+        cuda_device,
     ]
     spec = get_robot_spec()
     args = parse_runtime_args(spec, robot_argv)
@@ -91,7 +85,7 @@ def behavior_suite() -> tuple[Namespace, Path, list[str]]:
                 "dino_source_archive": args.dino_source_archive,
                 "dino_weights": args.dino_weights,
             },
-            "gpu": {"env": env_device, "model_and_dino": model_device},
+            "gpu": {"env": cuda_device, "model_and_dino": cuda_device},
         },
     )
     return args, output_dir, robot_argv
