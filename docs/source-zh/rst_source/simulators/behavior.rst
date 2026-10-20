@@ -76,7 +76,8 @@ RPent 支持运行 ``turning_on_radio`` 和 ``picking_up_trash`` 两个 BEHAVIOR
 ``nvidia-smi`` 和 ``sha256sum``，并为模拟器、授权数据及模型权重留足磁盘空间。
 RLinf 默认通过无需交互的 ``sudo`` 安装系统依赖；若主机已经安装这些依赖，
 可设置 ``RLINF_NO_ROOT=1``，让安装器传入 RLinf 的 ``--no-root`` 选项。
-上游下载缓慢时，可设置 ``RLINF_USE_MIRROR=1``，传入 RLinf 的 ``--use-mirror`` 选项。
+上游下载缓慢时，可设置 ``RLINF_USE_MIRROR=1``，传入 RLinf 的 ``--use-mirror``
+选项，并让 cuRobo 复用相同的 Git 镜像。
 源码 checkout 中的安装器会创建两个相互独立的 Python 3.10 环境：
 
 - **RPent venv**：运行 CLI、planner、Dashboard 和 MemoryManager；

@@ -80,7 +80,7 @@ for the simulator, licensed data, and model weights. RLinf installs its system
 dependencies using non-interactive ``sudo``. On a host where they are already
 installed, set ``RLINF_NO_ROOT=1`` to pass RLinf's ``--no-root`` option instead.
 On a slow upstream connection, ``RLINF_USE_MIRROR=1`` passes RLinf's
-``--use-mirror`` option.
+``--use-mirror`` option and uses the same Git mirror for cuRobo.
 
 The source-checkout installer creates two independent Python 3.10 environments:
 

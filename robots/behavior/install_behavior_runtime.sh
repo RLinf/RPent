@@ -33,6 +33,17 @@ for command_name in bash curl git nvidia-smi sha256sum; do
     require_command "${command_name}"
 done
 
+if [[ "${RLINF_USE_MIRROR:-0}" == 1 ]]; then
+    # RLinf's mirror setting ends with its installer; cuRobo is installed later.
+    export UV_DEFAULT_INDEX=https://mirrors.aliyun.com/pypi/simple
+    export UV_GIT_FETCH_WITH_CLI=true
+    export GITHUB_PREFIX="${GITHUB_PREFIX:-https://gh-proxy.com/}"
+    mirror_index="${GIT_CONFIG_COUNT:-0}"
+    export "GIT_CONFIG_KEY_${mirror_index}=url.${GITHUB_PREFIX}github.com/.insteadOf"
+    export "GIT_CONFIG_VALUE_${mirror_index}=https://github.com/"
+    export GIT_CONFIG_COUNT=$((mirror_index + 1))
+fi
+
 echo "RPent root: ${RPENT_ROOT}"
 echo "RLinf root: ${RLINF_ROOT}"
 echo "RPent venv: ${RPENT_VENV}"
