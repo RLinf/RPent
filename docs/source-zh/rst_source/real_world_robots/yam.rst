@@ -17,8 +17,9 @@ YAM 使用公共 RobotSpec、Toolkit、RPC、探索生命周期和 MemoryManager
 安装与真实依赖
 --------------
 
-使用 Linux、Python 3.11。Agent 机也需要 ``RPent[yam]``：投影代码使用
-OmegaConf 和 RealSense SDK 的计算函数，不连接相机。控制机和推理机使用
+使用 Linux、Python 3.11。控制机运行 RPent Agent 和 ENV 服务，需要 ``RPent[yam]``。
+Agent 的投影代码使用 OmegaConf 和 RealSense SDK 的计算函数，不连接相机。
+控制机和推理机使用
 同一官方 RLinf 固定提交：控制机需要 RLinf 的双臂 YAM 机器人（负责驱动从臂）及其
 YAM 运动学；推理机需要官方 ``openpi.get_model`` 加载器使用的 ``pi05_yam_joint``
 数据与策略变换。在两台机器上分别克隆该提交：
@@ -128,7 +129,7 @@ YAM 运动学；推理机需要官方 ``openpi.get_model`` 加载器使用的 ``
      --transport socket --host 127.0.0.1 --port 8220
 
 仅在 checkpoint 自带预期统计量时省略 ``--norm-stats-path``。
-通过 SSH 把 VLA 转发到 Agent/控制机，或显式绑定可信内网接口并填写对应地址。
+通过 SSH 把 VLA 转发到控制机，或显式绑定可信内网接口并填写对应地址。
 不要向不可信客户端暴露 pickle RPC。服务返回完整 30 步绝对 qpos14，每次只执行
 前 5 步；布局为左六关节、左夹爪、右六关节、右夹爪。夹爪 0 闭、1 开，
 RGB 顺序固定为 ``top/left/right``。契约检查会拒绝不兼容服务。
@@ -136,7 +137,7 @@ RGB 顺序固定为 ``top/left/right``。契约检查会拒绝不兼容服务。
 Dashboard 与终端探索
 --------------------
 
-选择可用的 planner 模型，并按部署环境填写地址与路径。将下面的 ``MODEL_ID``
+在控制机上选择可用的 planner 模型，并按部署环境填写地址与路径。将下面的 ``MODEL_ID``
 替换为已配置的 Codex 后端支持的模型，并选择该模型支持的推理档位。
 
 .. code-block:: bash
@@ -199,7 +200,7 @@ transcript、session 记录、recipe/audit 与更新后的 ``MEMORY.md`` 区分�
 诊断与部署迁移
 --------------
 
-先停止 Dashboard Agent，再打开诊断台；ENV 必须已启动。诊断动作前用人工
+在控制机上，先停止 Dashboard Agent，再打开诊断台；ENV 必须已启动。诊断动作前用人工
 ``--event start`` 消费 ready，诊断台自身不会创建就绪回执。
 
 .. code-block:: bash

@@ -18,11 +18,12 @@ primitive console; task 104 separates policy prediction from execution.
 Dependencies and installation
 -------------------------------
 
-Use Linux and Python 3.11. The Agent also needs ``RPent[yam]``: projection
-uses OmegaConf and RealSense SDK calculations without connecting cameras.
+Use Linux and Python 3.11. The control machine runs the RPent Agent and ENV
+service and needs ``RPent[yam]``. The Agent's projection code uses OmegaConf
+and RealSense SDK calculations without connecting cameras.
 The two machines use the same fixed official RLinf revision. The control machine
 needs RLinf's dual YAM robot, which drives the followers, and its YAM
-kinematics. The GPU machine needs the ``pi05_yam_joint`` transforms for the
+kinematics. The inference machine needs the ``pi05_yam_joint`` transforms for the
 official ``openpi.get_model`` loader. Clone this revision on each machine:
 
 .. code-block:: bash
@@ -30,7 +31,7 @@ official ``openpi.get_model`` loader. Clone this revision on each machine:
    git clone --branch main https://github.com/RLinf/RLinf.git /path/to/RLinf
    git -C /path/to/RLinf checkout --detach 196d40b6dec6f7a4063edee31cfeaa6ca0ee435a
 
-Then, on either machine:
+Then, on each machine:
 
 .. code-block:: bash
 
@@ -51,7 +52,7 @@ On the control machine, install the pinned i2rt SDK and its compatible
      -r "$RPENT_RLINF_ROOT/requirements/embodied/envs/yam.txt"
    uv pip check
 
-On the GPU machine, use RLinf's YAM OpenPI installer, then install RPent:
+On the inference machine, use RLinf's YAM OpenPI installer, then install RPent:
 
 .. code-block:: bash
 
@@ -123,7 +124,7 @@ Use ``env.is_started`` for a passive programmatic startup check.
      --endpoint socket://127.0.0.1:8110 --episode-id CURRENT_ID \
      --event ready --note 'Scene restored; ready for this attempt'
 
-On the GPU machine, activate the environment installed above. The shared model
+On the inference machine, activate the environment installed above. The shared model
 server uses the official unified RLinf OpenPI loader:
 
 .. code-block:: bash
@@ -136,7 +137,7 @@ server uses the official unified RLinf OpenPI loader:
      --transport socket --host 127.0.0.1 --port 8220
 
 Omit ``--norm-stats-path`` only if the checkpoint supplies the expected stats.
-Forward the GPU service to the Agent/control machine over SSH, or bind it to a
+Forward the VLA service to the control machine over SSH, or bind it to a
 trusted private interface and supply that endpoint. Pickle RPC must not be
 exposed to untrusted clients. Policy output is 30 absolute qpos14 targets; each
 call executes exactly the first five. Grippers use 0=closed, 1=open. State layout
@@ -146,9 +147,9 @@ is left six joints, left gripper, right six joints, right gripper. RGB order is
 Dashboard and terminal exploration
 ------------------------------------
 
-Choose an available planner model and adjust the endpoints and paths. Replace
-``MODEL_ID`` below with a model supported by your configured Codex backend; use
-a reasoning setting supported by that model.
+On the control machine, choose an available planner model and adjust the
+endpoints and paths. Replace ``MODEL_ID`` below with a model supported by your
+configured Codex backend; use a reasoning setting supported by that model.
 
 .. code-block:: bash
 
@@ -218,9 +219,10 @@ termination or power loss cannot guarantee this sequence.
 Diagnostic tasks and interface migration
 ------------------------------------------
 
-Stop the Dashboard Agent before opening either console. ENV must already be
-started. For diagnostics, use operator ``--event start`` to consume readiness
-before explicit moves; diagnostics never create readiness themselves.
+On the control machine, stop the Dashboard Agent before opening either console.
+ENV must already be started. For diagnostics, use operator ``--event start`` to
+consume readiness before explicit moves; diagnostics never create readiness
+themselves.
 
 .. code-block:: bash
 
