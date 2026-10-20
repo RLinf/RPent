@@ -268,10 +268,16 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         "If unset, a local SAM3 server is spawned.",
     )
     parser.add_argument(
-        "--cuda-device",
+        "--env-cuda-device",
         type=int,
         default=None,
-        help="GPU device to expose via CUDA_VISIBLE_DEVICES.",
+        help="GPU ordinal for the local LIBERO environment only",
+    )
+    parser.add_argument(
+        "--sam3-cuda-device",
+        type=int,
+        default=None,
+        help="GPU ordinal for the local SAM3 service only",
     )
 
 
@@ -411,9 +417,11 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     )
 
 
-def _cuda_args(args: argparse.Namespace) -> list[str]:
+def _sam3_cuda_args(args: argparse.Namespace) -> list[str]:
     return (
-        ["--cuda-device", str(args.cuda_device)] if args.cuda_device is not None else []
+        ["--cuda-device", str(args.sam3_cuda_device)]
+        if args.sam3_cuda_device is not None
+        else []
     )
 
 
@@ -470,6 +478,7 @@ def _spawn_env_server(
         return None, make_rpc_client(args.env_endpoint)
 
     host, port = "127.0.0.1", pick_free_port()
+    device = args.env_cuda_device
     daemon = ProcessDaemon(
         name="env_server",
         cmd=[
@@ -490,7 +499,7 @@ def _spawn_env_server(
             "--port",
             str(port),
             "--parent-watch",
-            *_cuda_args(args),
+            *(["--cuda-device", str(device)] if device is not None else []),
         ],
         env_overrides={
             "LIBERO_TYPE": resolve_libero_type(args.suite, args.libero_type),
@@ -523,7 +532,7 @@ def _spawn_sam3_server(
             "--port",
             str(port),
             "--parent-watch",
-            *_cuda_args(args),
+            *_sam3_cuda_args(args),
         ],
         log_path=str(output_dir / "sam3_server.log"),
     )

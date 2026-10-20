@@ -302,7 +302,7 @@ SAM3 用于物体分割。先在 `facebook/sam3 模型页面 <https://huggingfac
 
 - ``--task`` 和 ``--layout``：选择任务与固定布局；传入 ``--random`` 时忽略 ``--layout``，\
   每次重置重新采样随机场景。
-- ``--cuda-device``：为本地启动的服务选择 GPU；省略时沿用 ``CUDA_VISIBLE_DEVICES``。
+- ``--env-cuda-device``、``--vla-cuda-device``、``--sam3-cuda-device``：分别选择对应本地服务的 GPU；省略时沿用 ``CUDA_VISIBLE_DEVICES``。
 - ``--env-endpoint``、``--vla-endpoint``、``--sam3-endpoint``：连接已有服务。\
   VLA 服务需与 ``--policy-backend`` 匹配。
 - ``--source-root``：使用本地 RoboDojo 源码替代包内源码。

@@ -328,11 +328,10 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
             "the model snapshot's configs/robot_configs/robotwin_eef.yaml."
         ),
     )
-    parser.add_argument("--cuda-device", default=None)
     parser.add_argument(
         "--env-cuda-device",
         default=None,
-        help="CUDA_VISIBLE_DEVICES value for the RoboTwin EnvServer.",
+        help="CUDA_VISIBLE_DEVICES value for the local RoboTwin environment only",
     )
     add_am_device_arg(parser, "vla")
 
@@ -519,12 +518,7 @@ def _resolve_lingbot_robot_config(
 def _resolve_cuda_devices(
     args: argparse.Namespace,
 ) -> tuple[str | None, str | None]:
-    shared = getattr(args, "cuda_device", None)
     env_device = getattr(args, "env_cuda_device", None)
-    if shared is not None and env_device is not None:
-        raise ValueError("--cuda-device cannot be combined with --env-cuda-device")
-    if shared is not None:
-        env_device = shared
     return (
         str(env_device) if env_device is not None else None,
         am_device_env(args, "vla").get("CUDA_VISIBLE_DEVICES"),

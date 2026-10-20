@@ -175,7 +175,7 @@ def _add_runtime_cli_args(parser: argparse.ArgumentParser) -> None:
         default=os.environ.get("DUAL_FRANKA_REPO_ID"),
         help="SFT dataset repo ID used to locate norm_stats.json",
     )
-    parser.add_argument("--cuda-device", type=int, default=None)
+    parser.add_argument("--sam3-cuda-device", type=int, default=None)
 
 
 def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
@@ -255,9 +255,11 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     )
 
 
-def _cuda_args(args: argparse.Namespace) -> list[str]:
+def _sam3_cuda_args(args: argparse.Namespace) -> list[str]:
     return (
-        ["--cuda-device", str(args.cuda_device)] if args.cuda_device is not None else []
+        ["--cuda-device", str(args.sam3_cuda_device)]
+        if args.sam3_cuda_device is not None
+        else []
     )
 
 
@@ -393,7 +395,7 @@ def _spawn_sam3_server(
             "--port",
             str(port),
             "--parent-watch",
-            *_cuda_args(args),
+            *_sam3_cuda_args(args),
         ],
         log_path=str(output_dir / "sam3_server.log"),
     )

@@ -6,7 +6,7 @@ RPent 将平台观测和动作执行与模型推理解耦。Cosmos Policy 支持
 架构与职责
 ----------
 
-本地模型服务的 ``--vla-cuda-device``、``--wam-cuda-device`` 统一由 ``am_runtime.add_am_device_arg()`` 注册。``am_device_env()`` 优先使用模型专用参数，其次使用 ``--cuda-device``，两者都未设置时保留继承的 GPU 环境。平台负责仿真器 GPU 配置，并在启动模型 worker 时传入公共层生成的设置；外部 endpoint 的 GPU 仍由部署服务时的配置决定。
+本地模型服务的 ``--vla-cuda-device``、``--wam-cuda-device`` 统一由 ``am_runtime.add_am_device_arg()`` 注册。``am_device_env()`` 只读取对应模型的参数，未设置时保留继承的 GPU 环境。平台在自己的 ``robot_spec.py`` 中注册 ``--env-cuda-device``，并在启动模型 worker 时传入公共层生成的模型设置；环境 GPU 不会成为模型 GPU 的默认值。外部 endpoint 的 GPU 仍由部署服务时的配置决定。
 
 .. code-block:: text
 
@@ -186,7 +186,7 @@ RoboTwin 使用 ``--platform robotwin``，并更换为对应 checkpoint 和配�
      --fast-wam-dataset-stats /path/to/dataset_stats.json \
      --memory-profile local --planner api --model openai:gpt-5.5
 
-``--wam-endpoint`` 与 ``--wam-checkpoint`` 互斥。Cosmos 需要 ``--wam-root``，也可用 ``COSMOS_POLICY_PYTHON`` 和 ``COSMOS_POLICY_ROOT`` 分别提供 Python 路径和工作目录的默认值。Fast-WAM 必须同时提供 ``--fast-wam-config`` 和 ``--fast-wam-dataset-stats``。``--wam-cuda-device`` 可独立于仿真器选择模型 GPU；未指定时，worker 使用平台提供的 ``--cuda-device``，否则继承 CUDA 可见设备设置。
+``--wam-endpoint`` 与 ``--wam-checkpoint`` 互斥。Cosmos 需要 ``--wam-root``，也可用 ``COSMOS_POLICY_PYTHON`` 和 ``COSMOS_POLICY_ROOT`` 分别提供 Python 路径和工作目录的默认值。Fast-WAM 必须同时提供 ``--fast-wam-config`` 和 ``--fast-wam-dataset-stats``。``--wam-cuda-device`` 与 ``--env-cuda-device`` 独立；未指定模型 GPU 时，worker 继承 CUDA 可见设备设置，环境 GPU 不会成为模型 GPU 的默认值。
 
 查看可用参数
 ------------

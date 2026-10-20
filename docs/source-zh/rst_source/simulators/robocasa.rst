@@ -304,7 +304,8 @@ Target50 包含 50 个厨房任务，共运行 340 次。以下使用 Codex、GP
 
    rpent --robot robocasa \
          --task-name OpenDrawer --split target --seed 1 \
-         --vla-model-path ./checkpoints/rldx-1-ft-rc365 --cuda-device 0 \
+         --vla-model-path ./checkpoints/rldx-1-ft-rc365 \
+         --env-cuda-device 0 --vla-cuda-device 0 \
          --planner codex --model gpt-5.5 --reasoning-effort xhigh \
          --max-turns 100 --planner-timeout-s 1800 \
          --memory-profile local \

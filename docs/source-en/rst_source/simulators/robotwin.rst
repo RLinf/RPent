@@ -224,13 +224,12 @@ height). Pass ``--task-config demo_clean`` for a simple, clean scene.
 
 - ``--robotwin-assets-path`` overrides ``ROBOTWIN_ASSETS_PATH``.
 - ``--vla-model-path`` overrides ``LINGBOT_MODEL_PATH``.
-- ``--cuda-device`` supplies a shared GPU default for the simulator and model.
 - ``--env-cuda-device`` and ``--vla-cuda-device`` place the simulator and VLA
-  on different GPUs. ``--env-cuda-device`` cannot be combined with
-  ``--cuda-device``. Model-specific ``--vla-cuda-device`` or
-  ``--wam-cuda-device`` takes precedence over ``--cuda-device``; for example,
-  ``--cuda-device 0 --vla-cuda-device 1`` uses GPU 0 for simulation and GPU 1
-  for LingBot. All model GPU options apply only to services started by RPent.
+  on independently selected GPUs. For example,
+  ``--env-cuda-device 0 --vla-cuda-device 1`` uses GPU 0 for simulation and
+  GPU 1 for LingBot; use ``--wam-cuda-device`` for a WAM worker instead.
+  These options apply only to services started by RPent. The shared
+  ``--cuda-device`` option has been removed from the RPent CLI.
 
 For planner setup, external service endpoints, and offline resources, see
 :doc:`../guides/configure_planner`, :doc:`../guides/advanced_deployment`, and

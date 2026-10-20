@@ -105,15 +105,21 @@ it rejects HF memory, ``--memory-dir``, Flash and exploration. See
 :doc:`../development/wam_backends` for model launch options and supported pairs.
 For local model services, ``--vla-cuda-device`` and ``--wam-cuda-device``
 select the corresponding model GPU independently of the simulator. Both are
-registered by ``am_runtime.py`` and take precedence over ``--cuda-device``.
-When neither the model-specific option nor ``--cuda-device`` is set, the
-worker inherits ``CUDA_VISIBLE_DEVICES``.
+registered by ``am_runtime.py``. An omitted model option leaves
+``CUDA_VISIBLE_DEVICES`` inherited from the launching environment.
 The VLA option is supported by LIBERO, RoboTwin, RoboCasa, RoboDojo and
 dual-Franka. Franka and YAM connect to externally deployed VLA services;
 select their GPU when deploying the service.
-RoboTwin uses ``--env-cuda-device`` for the simulator; LIBERO uses
-``--cuda-device``. For example, LIBERO's ``--cuda-device 0 --vla-cuda-device 1``
+LIBERO, RoboTwin, RoboCasa and RoboDojo use ``--env-cuda-device`` for the
+environment, registered in their own ``robot_spec.py``.
+For example, LIBERO's ``--env-cuda-device 0 --vla-cuda-device 1``
 keeps the simulator on GPU 0 and starts Pi0.5 on GPU 1.
+LIBERO, RoboDojo and dual-Franka use ``--sam3-cuda-device`` for local SAM3.
+These settings are independent and affect only locally started services.
+The RPent CLI no longer accepts the shared ``--cuda-device`` option;
+replace it with the options for the services you intend to configure.
+``--sim-cuda-device`` is not an alias. Standalone service commands retain
+their own ``--cuda-device`` where supported.
 Platform ``--help`` groups WAM connection,
 local deployment and model-specific options. Cosmos uses ``--cosmos-*``
 options; Fast-WAM uses ``--fast-wam-*``. The WAM backend guide separates

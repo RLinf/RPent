@@ -345,7 +345,8 @@ when the simulator and policy are installed in different environments.
 
 - ``--task`` and ``--layout`` select the task and fixed layout. ``--random``
   ignores ``--layout`` and samples a new random scene on each reset.
-- ``--cuda-device`` selects the GPU for locally started services. If omitted,
+- ``--env-cuda-device``, ``--vla-cuda-device`` and ``--sam3-cuda-device`` select
+  GPUs independently for the corresponding local services. If omitted,
   services inherit ``CUDA_VISIBLE_DEVICES``.
 - ``--env-endpoint``, ``--vla-endpoint``, and ``--sam3-endpoint`` connect to
   existing services. The VLA service must match ``--policy-backend``.

@@ -32,7 +32,7 @@ def test_worker_needs_no_user_revision(monkeypatch, tmp_path):
     args = SimpleNamespace(
         vla_endpoint=None,
         vla_model_path="checkpoint",
-        cuda_device=0,
+        vla_cuda_device="0",
     )
     robot_spec._spawn_vla_server(args, tmp_path)
     command = captured["cmd"]

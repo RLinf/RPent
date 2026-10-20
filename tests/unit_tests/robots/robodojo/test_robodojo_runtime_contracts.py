@@ -136,9 +136,10 @@ def test_cuda_selection_is_only_overridden_explicitly(
             pass
 
     monkeypatch.setattr(robot_spec, "ProcessDaemon", Daemon)
-    flags = [] if explicit is None else ["--cuda-device", str(explicit)]
+    flags = [] if explicit is None else [f"--{component}-cuda-device", str(explicit)]
     args = _args("--source-root", str(tmp_path), "--policy-backend", backend, *flags)
-    assert args.cuda_device == explicit
+    selected = getattr(args, f"{component}_cuda_device")
+    assert selected is None if explicit is None else str(selected) == str(explicit)
     getattr(robot_spec, f"_spawn_{component}_server")(args, tmp_path)
     overrides = recorded.get("env_overrides", {})
     if component != "sam3":

@@ -17,17 +17,16 @@ from rpent.robots.components.am_facade_base import BaseVLAFacade, BaseWAMFacade
 
 @pytest.mark.parametrize("kind", ["vla", "wam"])
 @pytest.mark.parametrize(
-    "shared,specific,expected",
+    "specific,expected",
     [
-        (None, None, {}),
-        (0, None, {"CUDA_VISIBLE_DEVICES": "0"}),
-        (1, "0", {"CUDA_VISIBLE_DEVICES": "0"}),
-        (None, "2,3", {"CUDA_VISIBLE_DEVICES": "2,3"}),
-        (None, "GPU-example", {"CUDA_VISIBLE_DEVICES": "GPU-example"}),
+        (None, {}),
+        ("0", {"CUDA_VISIBLE_DEVICES": "0"}),
+        ("2,3", {"CUDA_VISIBLE_DEVICES": "2,3"}),
+        ("GPU-example", {"CUDA_VISIBLE_DEVICES": "GPU-example"}),
     ],
 )
 def test_model_gpu_selection_preserves_parent_environment(
-    monkeypatch, kind, shared, specific, expected
+    monkeypatch, kind, specific, expected
 ):
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "inherited")
     parser = argparse.ArgumentParser()
@@ -35,7 +34,7 @@ def test_model_gpu_selection_preserves_parent_environment(
     args = parser.parse_args(
         [] if specific is None else [f"--{kind}-cuda-device", specific]
     )
-    args.cuda_device = shared
+    args.env_cuda_device = 9
     assert am_runtime.am_device_env(args, kind) == expected
     assert os.environ["CUDA_VISIBLE_DEVICES"] == "inherited"
 
@@ -238,8 +237,8 @@ def test_worker_launch_and_external_options(
             *extra,
         ]
     )
-    args.cuda_device = 1
     args.wam_cuda_device = "0"
+    args.env_cuda_device = 2
     daemon, rpc = Mock(), Mock()
     factory = Mock(return_value=daemon)
     monkeypatch.setattr(am_runtime, "ProcessDaemon", factory)

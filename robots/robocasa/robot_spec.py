@@ -272,10 +272,10 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         help="RLDX checkpoint path for locally spawned vla_server",
     )
     parser.add_argument(
-        "--cuda-device",
+        "--env-cuda-device",
         type=int,
         default=None,
-        help="GPU device to pin MuJoCo and torch(CUDA ordinal).",
+        help="GPU ordinal for the local RoboCasa environment only",
     )
 
 
@@ -352,6 +352,7 @@ def _spawn_env_server(
     """
     if args.env_endpoint is None:
         host, port = "127.0.0.1", pick_free_port()
+        device = args.env_cuda_device
         daemon = ProcessDaemon(
             name="env_server",
             cmd=[
@@ -370,11 +371,7 @@ def _spawn_env_server(
                 "--port",
                 str(port),
                 "--parent-watch",
-                *(
-                    ["--cuda-device", str(args.cuda_device)]
-                    if args.cuda_device is not None
-                    else []
-                ),
+                *(["--cuda-device", str(device)] if device is not None else []),
             ],
             env_overrides={
                 "MUJOCO_GL": "egl",

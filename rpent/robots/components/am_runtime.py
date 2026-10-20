@@ -26,18 +26,16 @@ def add_am_device_arg(
     parser.add_argument(
         f"--{kind}-cuda-device",
         metavar="DEVICE",
-        help=f"Local {kind.upper()} worker CUDA_VISIBLE_DEVICES; overrides --cuda-device, "
-        "otherwise inherits the environment. Configure external workers at their own startup.",
+        help=f"CUDA_VISIBLE_DEVICES for the local {kind.upper()} worker only; "
+        "inherits the environment when omitted. Configure external workers at their own startup.",
     )
 
 
 def am_device_env(
     args: argparse.Namespace, kind: Literal["vla", "wam"]
 ) -> dict[str, str]:
-    """Resolve model-specific GPU selection, then the shared fallback."""
+    """Set only the selected model's GPU visibility; otherwise inherit it."""
     device = getattr(args, f"{kind}_cuda_device", None)
-    if device is None:
-        device = getattr(args, "cuda_device", None)
     return {"CUDA_VISIBLE_DEVICES": str(device)} if device is not None else {}
 
 

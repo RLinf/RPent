@@ -133,8 +133,6 @@ def _runtime_overrides(args: argparse.Namespace) -> dict[str, str]:
     }
     if os.environ.get("ROBODOJO_ASSETS_ROOT"):
         overrides["ROBODOJO_ASSETS_ROOT"] = os.environ["ROBODOJO_ASSETS_ROOT"]
-    if args.cuda_device is not None:
-        overrides["CUDA_VISIBLE_DEVICES"] = str(args.cuda_device)
     return overrides
 
 
@@ -250,10 +248,16 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     )
     parser.add_argument("--max-episode-steps", type=int, default=700)
     parser.add_argument(
-        "--cuda-device",
+        "--env-cuda-device",
         type=int,
         default=None,
-        help="GPU device for local services (default: inherit CUDA_VISIBLE_DEVICES)",
+        help="GPU ordinal for the local RoboDojo environment only",
+    )
+    parser.add_argument(
+        "--sam3-cuda-device",
+        type=int,
+        default=None,
+        help="GPU ordinal for the local SAM3 service only",
     )
     parser.add_argument(
         "--random",
@@ -322,9 +326,11 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     )
 
 
-def _cuda_args(args: argparse.Namespace) -> list[str]:
+def _sam3_cuda_args(args: argparse.Namespace) -> list[str]:
     return (
-        ["--cuda-device", str(args.cuda_device)] if args.cuda_device is not None else []
+        ["--cuda-device", str(args.sam3_cuda_device)]
+        if args.sam3_cuda_device is not None
+        else []
     )
 
 
@@ -342,6 +348,10 @@ def _spawn_env_server(
         )
 
     host, port = "127.0.0.1", pick_free_port()
+    device = args.env_cuda_device
+    overrides = _runtime_overrides(args)
+    if device is not None:
+        overrides["CUDA_VISIBLE_DEVICES"] = str(device)
     daemon = ProcessDaemon(
         name="robodojo_env_server",
         cmd=[
@@ -374,10 +384,10 @@ def _spawn_env_server(
             "--kit_args",
             "--enable isaacsim.replicator.behavior --enable isaacsim.sensors.camera",
         ]
-        + _cuda_args(args)
+        + (["--cuda-device", str(device)] if device is not None else [])
         + (["--mode", "eval-fair"] if getattr(args, "planner", None) == "flash" else [])
         + (["--random"] if getattr(args, "random", False) else []),
-        env_overrides=_runtime_overrides(args),
+        env_overrides=overrides,
         log_path=str(Path(output_dir) / "robodojo_env_server.log"),
     )
     daemon.start()
@@ -405,7 +415,7 @@ def _spawn_sam3_server(
             str(port),
             "--parent-watch",
         ]
-        + _cuda_args(args),
+        + _sam3_cuda_args(args),
         log_path=str(Path(output_dir) / "sam3_server.log"),
     )
     daemon.start()
@@ -492,6 +502,7 @@ def _init_runtime(
     from rpent.robots.components.sam3_client import Sam3Client
     from rpent.robots.components.xpolicylab_vla_client import XPolicyLabVLAClient
 
+    device = args.env_cuda_device
     starters = {
         "env": lambda: _spawn_env_server(args, output_dir),
         "vla": lambda: _spawn_vla_server(args, output_dir),
@@ -505,9 +516,7 @@ def _init_runtime(
                     "task": args.task,
                     "layout": args.layout,
                     "env_cfg_type": args.env_cfg_type,
-                    "device_id": args.cuda_device
-                    if args.cuda_device is not None
-                    else 0,
+                    "device_id": device if device is not None else 0,
                     "num_envs": 1,
                     "max_episode_steps": args.max_episode_steps,
                     "random": getattr(args, "random", False),

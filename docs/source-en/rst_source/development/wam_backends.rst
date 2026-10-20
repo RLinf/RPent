@@ -96,9 +96,9 @@ cleanup after resource handoff.
 
 ``am_runtime.add_am_device_arg()`` registers ``--vla-cuda-device`` or
 ``--wam-cuda-device`` for local model services. ``am_device_env()`` supplies
-the child process's GPU visibility using the model-specific option first,
-then ``--cuda-device``, otherwise preserving the inherited environment.
-Platforms keep simulator GPU configuration and forward these model settings
+the child process's GPU visibility using only its model-specific option,
+otherwise preserving the inherited environment.
+Platforms register ``--env-cuda-device`` for the environment and forward model settings
 when launching a worker. External endpoints retain their deployment settings.
 
 The WAM section of ``am_runtime.py`` owns ``--platform``, ``--checkpoint``,
@@ -302,9 +302,9 @@ Replace the example paths with your deployment paths:
 requires ``--wam-root``; ``COSMOS_POLICY_PYTHON`` and ``COSMOS_POLICY_ROOT``
 provide fallbacks for its Python executable and working directory. Fast-WAM
 requires both ``--fast-wam-config`` and ``--fast-wam-dataset-stats``.
-``--wam-cuda-device`` selects the worker GPU independently of the simulator;
-without it, the worker uses ``--cuda-device`` where available, otherwise the
-inherited CUDA visibility.
+``--wam-cuda-device`` selects the worker GPU independently of
+``--env-cuda-device``. Without a model GPU option, the worker inherits CUDA
+visibility. Environment GPU selection never supplies a model GPU default.
 
 Discovering Options
 -------------------

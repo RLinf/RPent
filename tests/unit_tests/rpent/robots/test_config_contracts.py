@@ -51,6 +51,9 @@ def test_wam_help_distinguishes_connection_deployment_and_models(robot_name, cap
         _parser(robot_name).parse_args(["--help"])
     assert exc.value.code == 0
     help_text = capsys.readouterr().out
+    assert "--env-cuda-device" in help_text
+    assert "--cuda-device" not in help_text
+    assert "--sim-cuda-device" not in help_text
     for group in (
         "WAM backend:",
         "WAM connection (repeated tasks):",
@@ -91,7 +94,8 @@ def test_local_vla_gpu_override_reaches_worker(
         monkeypatch.setattr(module, "pick_free_port", lambda: 8116)
     monkeypatch.setattr(am_runtime, "make_rpc_client", Mock())
     args = _parser(robot_name, dashboard=True).parse_args(
-        ["--cuda-device", "1", "--vla-cuda-device", device]
+        ["--vla-cuda-device", device]
+        + (["--env-cuda-device", "2"] if robot_name != "dual_franka" else [])
     )
     args.vla_model_path = str(tmp_path)
     args.vla_repo_id = "test/data"
@@ -102,14 +106,14 @@ def test_local_vla_gpu_override_reaches_worker(
             "_resolve_lingbot_robot_config",
             lambda *args: tmp_path / "robot.yaml",
         )
-        assert module._resolve_cuda_devices(args) == ("1", device)
+        assert module._resolve_cuda_devices(args) == ("2", device)
     elif robot_name == "robodojo":
         args.source_root = str(tmp_path)
         args.policy_backend = "xpolicylab"
         args.task = "put_bottles_into_dustbin"
     module._spawn_vla_server(args, tmp_path)
     assert factory.call_args.kwargs["env_overrides"]["CUDA_VISIBLE_DEVICES"] == device
-    assert str(args.cuda_device) == "1"
+    assert not hasattr(args, "cuda_device")
     if robot_name == "robodojo":
         from rpent.robots.components.xpolicylab_vla_server import add_backend_args
 
@@ -117,6 +121,26 @@ def test_local_vla_gpu_override_reaches_worker(
         add_backend_args(parser)
         child_args, _ = parser.parse_known_args(factory.call_args.kwargs["cmd"])
         assert child_args.policy_gpu == device
+    if robot_name != "dual_franka":
+        args.seed = 0
+        if robot_name == "libero":
+            args.suite, args.task = "libero_spatial", 0
+        elif robot_name == "robotwin":
+            monkeypatch.setattr(
+                module, "_resolve_env_runtime_path", lambda args: tmp_path
+            )
+        _, rpc = module._spawn_env_server(args, tmp_path)
+        try:
+            if robot_name in ("robotwin", "robodojo"):
+                assert (
+                    factory.call_args.kwargs["env_overrides"]["CUDA_VISIBLE_DEVICES"]
+                    == "2"
+                )
+            if robot_name != "robotwin":
+                command = factory.call_args.kwargs["cmd"]
+                assert command[command.index("--cuda-device") + 1] == "2"
+        finally:
+            rpc.close()
 
 
 @pytest.mark.parametrize(
@@ -405,25 +429,12 @@ def test_robotwin_cli_defaults_can_come_from_environment(
     assert args.lingbot_robot_config == "/offline/robot.yaml"
 
 
-def test_robotwin_rejects_conflicting_cuda_routes() -> None:
-    args = _parser("robotwin").parse_args(
-        [
-            "--task-name",
-            "block_hammer_beat",
-            "--seed",
-            "1",
-            "--env-endpoint",
-            "http://offline.invalid:1",
-            "--vla-endpoint",
-            "ws://offline.invalid:2",
-            "--cuda-device",
-            "0",
-            "--env-cuda-device",
-            "1",
-        ]
-    )
-    with pytest.raises(ValueError, match="cannot be combined"):
-        get_robot_spec("robotwin").parse_config(args)
+@pytest.mark.parametrize("robot_name", ["libero", "robotwin", "robocasa", "robodojo"])
+@pytest.mark.parametrize("option", ["--cuda-device", "--sim-cuda-device"])
+def test_removed_gpu_options_are_rejected(robot_name, option) -> None:
+    with pytest.raises(SystemExit) as exc:
+        _parser(robot_name, dashboard=True).parse_args([option, "0"])
+    assert exc.value.code == 2
 
 
 @pytest.mark.parametrize(

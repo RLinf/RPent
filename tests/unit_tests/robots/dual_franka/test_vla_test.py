@@ -319,7 +319,7 @@ def test_dual_franka_spawns_shared_vla_server(monkeypatch, tmp_path):
             "/checkpoint",
             "--vla-repo-id",
             "test/data",
-            "--cuda-device",
+            "--vla-cuda-device",
             "2",
         ]
     )
