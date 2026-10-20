@@ -211,7 +211,7 @@ embedding，左右腕帧保留用于诊断。成功运行先在本地准备证�
      --planner codex
    "$RPENT_REPRO_ROOT/venvs/rpent/bin/rpent" --robot behavior \
      --task-name turning_on_radio --public-seed 1 \
-     --planner codex \
+     --planner codex --reasoning-effort low \
      --memory-profile local \
      --memory-dir "$RPENT_REPRO_ROOT/memory/behavior" \
      --output-dir "$RPENT_REPRO_ROOT/runs/first-eval" \
@@ -225,7 +225,7 @@ embedding，左右腕帧保留用于诊断。成功运行先在本地准备证�
      --dino-source-archive "$DINOV2_SOURCE_ARCHIVE" \
      --dino-weights "$DINOV2_WEIGHTS"
 
-首次加载环境可能需要数分钟。规划器检查通过后再启动任务；该检查只验证认证与连接，不验证模拟器。后续运行请使用新的输出目录。
+首次加载环境可能需要数分钟。规划器检查通过后再启动任务；该检查只验证认证与连接，不验证模拟器或指定的推理强度。后续运行请使用新的输出目录。
 
 查看结果
 --------
@@ -283,7 +283,7 @@ BEHAVIOR 使用和其他机器人相同的 Markdown/YAML ``MemoryManager`` 格�
      --task-name picking_up_trash --public-seed 0 \
      --output-dir "$RPENT_REPRO_ROOT/runs/behavior-explore" \
      --memory-dir "$RPENT_REPRO_ROOT/memory/behavior" \
-     --planner codex \
+     --planner codex --reasoning-effort low \
      --behavior-repo "$RPENT_REPRO_ROOT/RLinf" \
      --behavior-python "$RPENT_REPRO_ROOT/venvs/behavior/bin/python" \
      --activity-instance-dir \

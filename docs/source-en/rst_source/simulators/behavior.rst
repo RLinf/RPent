@@ -243,7 +243,7 @@ episode with an empty local memory corpus, so it needs no HF memory download:
      --planner codex
    "$RPENT_REPRO_ROOT/venvs/rpent/bin/rpent" --robot behavior \
      --task-name turning_on_radio --public-seed 1 \
-     --planner codex \
+     --planner codex --reasoning-effort low \
      --memory-profile local \
      --memory-dir "$RPENT_REPRO_ROOT/memory/behavior" \
      --output-dir "$RPENT_REPRO_ROOT/runs/first-eval" \
@@ -259,7 +259,8 @@ episode with an empty local memory corpus, so it needs no HF memory download:
 
 The first environment load can take several minutes. Proceed only if the
 planner check succeeds; it checks credentials and connectivity, not the
-simulator. Choose a new output directory for later runs.
+simulator or the selected reasoning effort. Choose a new output directory for
+later runs.
 
 View Results
 ------------
@@ -328,7 +329,7 @@ Use the standard RPent Explore entry point for a bounded sequence of sessions:
      --task-name picking_up_trash --public-seed 0 \
      --output-dir "$RPENT_REPRO_ROOT/runs/behavior-explore" \
      --memory-dir "$RPENT_REPRO_ROOT/memory/behavior" \
-     --planner codex \
+     --planner codex --reasoning-effort low \
      --behavior-repo "$RPENT_REPRO_ROOT/RLinf" \
      --behavior-python "$RPENT_REPRO_ROOT/venvs/behavior/bin/python" \
      --activity-instance-dir \
