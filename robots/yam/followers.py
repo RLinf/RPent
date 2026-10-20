@@ -197,16 +197,20 @@ class YamFollowerPair:
     def read_state(self) -> YamPairState:
         """Read both followers, refusing stale or non-finite feedback."""
         states = []
-        for arm in self._require_followers():
-            state = arm.get_state()
-            states.append(
-                YamFollowerState(
-                    qpos=np.concatenate(
-                        [state.arm_joint_position, state.gripper_position]
-                    ),
-                    timestamp_s=float(state.timestamp),
+        try:
+            for arm in self._require_followers():
+                state = arm.get_state()
+                states.append(
+                    YamFollowerState(
+                        qpos=np.concatenate(
+                            [state.arm_joint_position, state.gripper_position]
+                        ),
+                        timestamp_s=float(state.timestamp),
+                    )
                 )
-            )
+        except Exception:
+            self.emergency_hold()
+            raise
         return YamPairState(*states)
 
     def command(self, action: Any) -> YamCommandResult:
