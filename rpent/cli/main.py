@@ -507,9 +507,7 @@ def main() -> int:
         from rpent.tools.human_in_the_loop import HumanInTheLoopInput
 
         # The native CLI reads between runs, leaving the TTY available to tools.
-        operator_input = HumanInTheLoopInput(
-            interactive=args.tui and not native_cli
-        )
+        operator_input = HumanInTheLoopInput(interactive=args.tui and not native_cli)
     input_queue: "queue.Queue[str | None] | None" = None
     await_first_prompt: "Callable[[], str | None] | None" = None
     if args.tui and not native_cli:
