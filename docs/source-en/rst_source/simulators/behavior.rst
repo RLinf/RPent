@@ -87,13 +87,7 @@ The source-checkout installer creates two independent Python 3.10 environments:
 - the **RPent venv** runs the CLI, planner, Dashboard, and MemoryManager;
 - the **BEHAVIOR venv** runs RLinf, OmniGibson, Isaac Sim, and Pi0.5.
 
-The non-editable RPent wheel includes the ``robots/behavior`` Python package.
-The ``.[behavior]`` extra adds RPent-side dependencies; neither includes the
-OmniGibson runtime, licensed data, or Pi0.5 checkpoint. The dual-venv
-installer itself runs from a source checkout. For non-editable RPent runs,
-set ``RPENT_REPO_ROOT`` to the matching checkout and use a writable
-``--memory-dir``; otherwise default paths can point inside site-packages.
-For a fresh setup:
+For a fresh setup, run the installer from a source checkout:
 
 .. code-block:: bash
 
@@ -121,6 +115,13 @@ Motion planning uses NVlabs/cuRobo v0.8.0 at commit
 Install it against the RLinf-selected runtime without changing that runtime's
 Torch, NumPy, or Isaac Sim versions; an unconstrained resolver can upgrade
 NumPy to 2, which is incompatible with this simulator stack.
+
+For a non-editable RPent installation, set ``RPENT_REPO_ROOT`` to a writable
+checkout at the same revision. Local-memory runs also need ``--memory-profile local``
+and a writable ``--memory-dir``; HF-profile Eval does not accept
+``--memory-dir``. The wheel includes ``robots/behavior``, but ``.[behavior]``
+installs only RPent-side dependencies, not OmniGibson, licensed data, or the
+Pi0.5 checkpoint.
 
 Simulator Assets
 ~~~~~~~~~~~~~~~~
@@ -158,7 +159,7 @@ The final data root must contain:
 Pi0.5 Checkpoint
 ~~~~~~~~~~~~~~~~
 
-Download the reviewed checkpoint into a directory outside the source tree:
+Download the pinned checkpoint into a directory outside the source tree:
 
 .. code-block:: bash
 
@@ -175,7 +176,7 @@ identities before startup.
 DINOv2 Derived Cache
 ~~~~~~~~~~~~~~~~~~~~
 
-BEHAVIOR keeps a reviewed `DINOv2 <https://github.com/facebookresearch/dinov2>`_
+BEHAVIOR uses a pinned `DINOv2 <https://github.com/facebookresearch/dinov2>`_
 ViT-S/14 deployment for whole-image embeddings over the official Memory
 corpus.
 Provide a DINOv2 source archive and the ``dinov2_vits14_pretrain.pth`` weights:
@@ -192,9 +193,7 @@ Provide a DINOv2 source archive and the ``dinov2_vits14_pretrain.pth`` weights:
      https://dl.fbaipublicfiles.com/dinov2/dinov2_vits14/dinov2_vits14_pretrain.pth \
      -o "$DINOV2_WEIGHTS"
 
-DINOv2 provides whole-image embeddings for the official Memory corpus; it
-does not replace current observations or MemoryManager's Markdown/YAML records.
-The source revision and both asset SHA-256 identities are pinned in
+The source revision and both file SHA-256 identities are pinned in
 ``robots/behavior/dino_v2/encoder.py``.
 
 Check the complete asset layout and pinned checkpoint/DINO file identities
@@ -203,21 +202,6 @@ before starting a task:
 .. code-block:: bash
 
    "$RPENT_PYTHON" -m robots.behavior.assets_cli --verify
-
-The DINO cache is rebuilt from published ``task-specific`` audit/recipe pairs and
-their verified evidence in ``task-specific/artifacts/<cell>/``. Only head RGB frames
-are embedded; wrist frames remain diagnostic evidence. Successful runs prepare
-evidence locally, then MemoryManager publishes it with the task pair under the
-same merge lock. ``dino_v2/`` is disposable derived data, not another corpus.
-Use the BEHAVIOR interpreter to rebuild it; do not edit cache files by hand.
-
-.. code-block:: bash
-
-   "$BEHAVIOR_PYTHON" -m robots.behavior.build_memory_cli \
-     --memory-dir "$RPENT_REPRO_ROOT/memory/behavior" \
-     --source-archive "$DINOV2_SOURCE_ARCHIVE" \
-     --weights "$DINOV2_WEIGHTS" \
-     --cuda-device 0
 
 Run a Task
 ----------
@@ -269,14 +253,14 @@ For the Eval command above, inspect these paths after the run:
    <output-dir>/behavior_vla_server.log
    <output-dir>/behavior_dino_server.log
 
-``states.json`` indexes step observations and camera images. The transcript
-records planner messages; after ``finish``, inspect ``terminal_receipt.json``,
-not the transcript's unset ``environment_success``, for BEHAVIOR's official
-outcome. A video, clean process exit, reward, or planner ``finish`` is not
-official success; only the current episode's raw
-``info["done"]["success"] is True`` is. The receipt records
-evidence and its SHA-256 digest; it cannot manufacture success. The video is
-limited to the first 2,000 recorded frames, so it may not cover the full episode.
+``states.json`` indexes step observations and camera images; the transcript
+records planner messages. After ``finish``, ``terminal_receipt.json`` records
+``task_success``. Its nested ``official_success_receipt`` is ``null`` unless
+the current episode reported ``info["done"]["success"] is True``. On success,
+that nested receipt includes a SHA-256 digest for integrity checking, not proof
+of simulator authenticity. A video, clean process exit, reward, or planner
+``finish`` cannot establish official success. The video is limited to the first
+2,000 recorded frames, so it may not cover the full episode.
 
 Explore keeps ``run.log``, the transcript, and server logs at the run root,
 but writes ``states.json``, ``episode.mp4``, and
@@ -289,26 +273,30 @@ there, and an Explore TaskRun adds ``sessions/session_001/``. See
 Task Memory
 -----------
 
-BEHAVIOR uses the same Markdown/YAML ``MemoryManager`` format and common memory
-tools as the other robots. Normal Eval follows the shared default
-``--memory-profile hf``. Explore uses local memory and writes only through the
-shared inbox flow. The DINO cache is derived from reviewed Memory corpus
-records; when configured, its advisory is attached to public tool receipts and
-remains historical guidance only.
+BEHAVIOR uses the shared Markdown/YAML ``MemoryManager`` corpus and memory
+tools; see :doc:`../guides/memory` for memory profiles and exploration. Eval
+uses read-only memory (HF by default, or local with
+``--memory-profile local``); Explore writes drafts to its local inbox. An empty
+corpus is valid but provides no advice. Use the same ``--memory-dir`` for local
+runs that should share published experience.
 
-- Eval creates one ``MemoryManager`` with ``read_only`` access from the default
-  HF corpus unless ``--memory-profile local`` is explicitly requested.
-- Explore creates one ``MemoryManager`` with ``inbox_write`` access scoped to
-  ``<memory-dir>/_internal/inbox/<recipe-tag>``.
-- ``MEMORY.md``, ``global/``, ``task-family/``, and ``task-specific/`` hold the
-  published corpus. Solved audit/recipe pairs are copied to ``task-specific/`` using the
-  shared MemoryManager names, including ``<tag>_recipe.jsonl`` for recipes.
-- When merge processes a valid root-level draft, the cell inbox is archived to
-  ``_internal/merged/<recipe-tag>``. An inbox containing only invalid drafts
-  stays in place; conflicting prose is archived under ``_internal/conflicts/``.
+DINO derives an optional cache under ``<memory-dir>/dino_v2/`` from published
+``task-specific`` audit/recipe pairs and their verified evidence. Only head RGB
+frames are embedded; wrist frames remain diagnostic evidence. Valid success
+evidence is published with the task audit/recipe pair through MemoryManager.
+When published sources exist, a query rebuilds a missing or stale cache. Its
+matches are historical advice in tool results, not current observations or
+another corpus.
+To rebuild the cache ahead of a run, use the BEHAVIOR interpreter; do not edit
+cache files by hand:
 
-An absent or empty corpus is valid, but it contains no advice. Pass the same
-explicit ``--memory-dir`` only to local runs that should share reviewed memory.
+.. code-block:: bash
+
+   "$BEHAVIOR_PYTHON" -m robots.behavior.build_memory_cli \
+     --memory-dir "$RPENT_REPRO_ROOT/memory/behavior" \
+     --source-archive "$DINOV2_SOURCE_ARCHIVE" \
+     --weights "$DINOV2_WEIGHTS" \
+     --cuda-device 0
 
 Exploration Mode
 ----------------
@@ -339,8 +327,8 @@ the VLA and DINO sidecars stay shared across sessions. The planner cannot reset
 inside an invocation, and ``--explore-attempts-per-session`` values above zero
 are rejected.
 
-Runtime and Dashboard
----------------------
+Dashboard
+---------
 
 The Dashboard Session uses three services and one memory manager:
 
@@ -382,8 +370,9 @@ Session; closing the browser does not stop its services. See
 :doc:`../guides/dashboard` for the shared Session workflow.
 
 The Dashboard uses the common Start Session flow and head/left-wrist/right-
-wrist camera views. It has no manual robot-control buttons. The planner has
-nine tools: ``pi0_nav_pick``, ``observe``,
+wrist camera views. It has no manual robot-control buttons. BEHAVIOR adds nine
+robot-specific tools alongside the common memory and ``finish`` tools:
+``pi0_nav_pick``, ``observe``,
 ``pixel_to_world``, ``navigate_to``, ``move_to``, ``rotate_wrist``, ``close``,
 ``open``, and ``press``. ``move_to(hand=both)`` coordinates both arms through
 cuRobo collision-checked trajectories; wrist rotation uses the same planner.

@@ -83,7 +83,7 @@ RLinf 默认通过无需交互的 ``sudo`` 安装系统依赖；若主机已经�
 - **RPent venv**：运行 CLI、planner、Dashboard 和 MemoryManager；
 - **BEHAVIOR venv**：运行 RLinf、OmniGibson、Isaac Sim 和 Pi0.5。
 
-非 editable 的 RPent wheel 包含 ``robots/behavior`` Python 包。``.[behavior]`` 只添加 RPent 侧依赖；两者都不包含 OmniGibson 运行环境、授权数据或 Pi0.5 checkpoint。双 venv 安装器本身需要从源码 checkout 执行。非 editable 运行时应将 ``RPENT_REPO_ROOT`` 设为同一提交的 checkout，并显式指定可写的 ``--memory-dir``；否则默认路径可能落在 site-packages 中。全新安装步骤：
+全新安装请从源码 checkout 执行安装器：
 
 .. code-block:: bash
 
@@ -108,6 +108,12 @@ selfcheck 通过只说明源码接口检查完成，不代表 GPU 服务或任�
 ``4ea77366ca48ee453e7df139e39fa6532af49f3b``。应基于 RLinf 安装后的
 runtime 安装 cuRobo，不改变其 Torch、NumPy 或 Isaac Sim 版本；无约束解析器
 可能升级到 NumPy 2，破坏该仿真环境的兼容性。
+
+若另行安装非 editable 的 RPent，请将 ``RPENT_REPO_ROOT`` 指向同一版本的可写源码
+checkout。本地记忆运行还需同时指定 ``--memory-profile local`` 和可写的
+``--memory-dir``；HF 来源的 Eval 不接受 ``--memory-dir``。wheel 包含
+``robots/behavior``，但 ``.[behavior]`` 只安装 RPent 侧依赖，不包含
+OmniGibson、授权数据或 Pi0.5 权重。
 
 仿真资产
 ~~~~~~~~
@@ -139,7 +145,7 @@ RPent 环境：
 Pi0.5 checkpoint
 ~~~~~~~~~~~~~~~~
 
-将已审查 checkpoint 下载到源码树之外：
+将固定版本的 checkpoint 下载到源码树之外：
 
 .. code-block:: bash
 
@@ -153,7 +159,7 @@ Pi0.5 checkpoint
 DINOv2 派生缓存
 ~~~~~~~~~~~~~~~~
 
-BEHAVIOR 保留经审查的 `DINOv2 <https://github.com/facebookresearch/dinov2>`_
+BEHAVIOR 使用固定版本的 `DINOv2 <https://github.com/facebookresearch/dinov2>`_
 ViT-S/14 部署，用于从官方 Memory 语料中生成整图 embedding。运行前提供 DINOv2
 源码归档和 ``dinov2_vits14_pretrain.pth`` 权重：
 
@@ -169,27 +175,14 @@ ViT-S/14 部署，用于从官方 Memory 语料中生成整图 embedding。运�
      https://dl.fbaipublicfiles.com/dinov2/dinov2_vits14/dinov2_vits14_pretrain.pth \
      -o "$DINOV2_WEIGHTS"
 
-DINOv2 从官方 Memory 语料生成整图 embedding，不替代当前观测或 MemoryManager 的 Markdown/YAML 记录。源码 revision 和两个资产的 SHA-256 固定在 ``robots/behavior/dino_v2/encoder.py``。
+源码 revision 和两个文件的 SHA-256 身份固定在
+``robots/behavior/dino_v2/encoder.py``。
 
 运行任务前检查完整资产布局，以及 checkpoint 和 DINO 文件的固定身份：
 
 .. code-block:: bash
 
    "$RPENT_PYTHON" -m robots.behavior.assets_cli --verify
-
-DINO 缓存从已发布的 ``task-specific`` audit/recipe 对及其
-``task-specific/artifacts/<cell>/`` 下经过校验的证据重建。仅 head RGB 帧参与
-embedding，左右腕帧保留用于诊断。成功运行先在本地准备证据，再由 MemoryManager
-在同一个 merge 锁内将证据和任务对一起发布。``dino_v2/`` 是可删除重建的派生数据，
-不是另一套语料。使用 BEHAVIOR 解释器执行重建，不要手工修改缓存文件。
-
-.. code-block:: bash
-
-   "$BEHAVIOR_PYTHON" -m robots.behavior.build_memory_cli \
-     --memory-dir "$RPENT_REPRO_ROOT/memory/behavior" \
-     --source-archive "$DINOV2_SOURCE_ARCHIVE" \
-     --weights "$DINOV2_WEIGHTS" \
-     --cuda-device 0
 
 运行一个任务
 ------------
@@ -233,32 +226,38 @@ embedding，左右腕帧保留用于诊断。成功运行先在本地准备证�
    <output-dir>/behavior_vla_server.log
    <output-dir>/behavior_dino_server.log
 
-``states.json`` 索引每一步的观测和相机图像；transcript 记录规划器消息。调用 ``finish`` 后，BEHAVIOR 的官方结果请查看 ``terminal_receipt.json``，不要依赖 transcript 中未设置的 ``environment_success``。视频、进程正常退出、reward 或规划器 ``finish`` 都不是官方成功。只有当前 episode 的原始 ``info["done"]["success"] is True`` 才是成功判定。receipt 记录证据及其 SHA-256 摘要，不能制造成功。视频最多保留前 2,000 帧，可能不覆盖完整 episode。
+``states.json`` 索引每一步的观测和相机图像；transcript 记录规划器消息。调用
+``finish`` 后，``terminal_receipt.json`` 会记录 ``task_success``。只有当前
+episode 返回 ``info["done"]["success"] is True`` 时，其中的
+``official_success_receipt`` 才不为 ``null``，并附带用于完整性校验的 SHA-256
+摘要；该摘要不能证明仿真器观测的真实性。视频、进程正常退出、reward 或规划器
+``finish`` 都不能替代官方成功判定。视频最多保留前 2,000 帧，可能不覆盖完整 episode。
 
 Explore 的 ``run.log``、transcript 和服务日志留在运行根目录；``states.json``、``episode.mp4`` 与 ``terminal_receipt.json`` 写在 ``<output-dir>/sessions/session_001/`` 下，后续 session 依次递增。Dashboard 为每个 TaskRun 创建 ``<output-dir>/tasks/0001_<task-name>_s<seed>/``，状态和视频写在该目录；Explore TaskRun 还会增加 ``sessions/session_001/`` 子目录。浏览器查看方式见 :doc:`../guides/dashboard`。
 
 任务记忆
 --------
 
-BEHAVIOR 使用和其他机器人相同的 Markdown/YAML ``MemoryManager`` 格式与公共 memory
-工具。普通 Eval 使用共享默认值 ``--memory-profile hf``；Explore 使用本地 memory，
-并且只通过公共 inbox 流程写入。DINO cache 从已审查的 Memory 语料派生；配置后，
-它的 advisory 会附加到公开 tool receipt，并始终只作为历史建议。
+BEHAVIOR 使用公共 ``MemoryManager`` 的 Markdown/YAML 语料和记忆工具；记忆来源
+与探索流程见 :doc:`../guides/memory`。Eval 只读记忆，默认使用 HF 来源；传入
+``--memory-profile local`` 后改读本地目录。Explore 将草稿写入本地 inbox。
+空语料可以正常运行，但不会提供建议。需要共享本地已发布经验的运行应使用相同的
+``--memory-dir``。
 
-- Eval 默认从 HF 语料构造 ``read_only`` MemoryManager；只有显式传入
-  ``--memory-profile local`` 时才读取本地目录；
-- Explore 只构造一个 ``inbox_write`` MemoryManager，写入范围限定为
-  ``<memory-dir>/_internal/inbox/<recipe-tag>``；
-- ``MEMORY.md``、``global/``、``task-family/`` 和 ``task-specific/``
-  保存已发布语料，
-  成功的 audit/recipe 对复制到 ``task-specific/``，recipe 文件使用共享
-  MemoryManager 命名，例如 ``<tag>_recipe.jsonl``；
-- merge 处理有效的根级草稿后，将该 cell 的 inbox 归档到
-  ``_internal/merged/<recipe-tag>``。只有无效草稿的 inbox 保留原位；
-  冲突文本归档到 ``_internal/conflicts/``。
+DINO 的可选缓存位于 ``<memory-dir>/dino_v2/``，由已发布的 ``task-specific``
+audit/recipe 对及其已校验证据派生。只有头部 RGB 帧用于生成 embedding；腕部帧
+仍保留为诊断证据。有效的成功证据会通过 MemoryManager 与任务 audit/recipe 对一同
+发布。存在已发布来源时，查询会自动重建缺失或过期的缓存。检索结果
+只作为工具结果中的历史建议，不替代当前观测，也不是另一套语料。如需在运行前
+手动重建缓存，请使用 BEHAVIOR 解释器，不要编辑缓存文件：
 
-缺失或空 corpus 是合法状态，但不会提供任何建议。只有需要共享本地已审查 memory
-的运行才显式传入同一个 ``--memory-dir``。
+.. code-block:: bash
+
+   "$BEHAVIOR_PYTHON" -m robots.behavior.build_memory_cli \
+     --memory-dir "$RPENT_REPRO_ROOT/memory/behavior" \
+     --source-archive "$DINOV2_SOURCE_ARCHIVE" \
+     --weights "$DINOV2_WEIGHTS" \
+     --cuda-device 0
 
 探索模式
 --------
@@ -288,8 +287,8 @@ BEHAVIOR 使用和其他机器人相同的 Markdown/YAML ``MemoryManager`` 格�
 在各次尝试间共享。规划器不能在一次调用中重置环境，且
 ``--explore-attempts-per-session`` 大于零会被拒绝。
 
-Runtime 与 Dashboard
---------------------
+Dashboard
+---------
 
 Dashboard Session 使用三个服务和一个记忆管理器：
 
@@ -328,7 +327,8 @@ Dashboard Session 使用三个服务和一个记忆管理器：
 不会停止服务。通用操作见 :doc:`../guides/dashboard`。
 
 Dashboard 使用公共 Start Session 流程与 head/left-wrist/right-wrist 相机视图。
-界面不提供手动控制机器人按钮。规划器可调用 9 个工具：
+界面不提供手动控制机器人按钮。除公共记忆工具和 ``finish`` 外，BEHAVIOR 还提供
+9 个专用工具：
 ``pi0_nav_pick``、``observe``、``pixel_to_world``、``navigate_to``、``move_to``、
 ``rotate_wrist``、``close``、``open`` 和 ``press``。
 ``move_to(hand=both)`` 通过 cuRobo 碰撞检查轨迹协调双臂，腕旋转复用同一规划器。
