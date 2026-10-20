@@ -23,11 +23,9 @@ from __future__ import annotations
 
 import argparse
 import base64
-import io
 import os
 import re
 import signal
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -298,12 +296,8 @@ def main() -> None:
     meta = _build_meta(args)
     backend = OfficialBehaviorBackend(meta=meta, output_dir=output_dir)
     facade = BehaviorEnvFacade(backend=backend, meta=meta)
-    if args.parent_watch:
-        # Graceful SIGTERM must not finalize a BufferedReader held by the
-        # shared parent watcher while the parent still owns the pipe.
-        sys.stdin = io.TextIOWrapper(io.FileIO(sys.stdin.fileno(), "r", closefd=False))
-    # ProcessDaemon.stop sends SIGTERM. Let the serving loop finish and close
-    # the RLinf actor pool on its owning thread, not Ray's exit handler.
+    # Parent-watch EOF handles normal shutdown; ProcessDaemon sends SIGTERM if
+    # that times out. Keep actor-pool cleanup on the serving thread.
     previous_sigterm = signal.signal(
         signal.SIGTERM, lambda signum, frame: facade._shutdown_event.set()
     )

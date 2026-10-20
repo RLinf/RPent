@@ -37,12 +37,7 @@ from robots.behavior.terminal_success import (
 from rpent.robots.components.env_client_base import BaseEnvClient
 from rpent.utils.rpc import RpcClient
 
-_POST_SUCCESS_ALLOWED = frozenset(
-    {
-        "env.get_env_meta",
-        "env.current_observation",
-    }
-)
+_POST_SUCCESS_ALLOWED = frozenset({"env.current_observation"})
 _IMAGE_BYTE_FIELDS = frozenset(
     {
         "_depth_image_bytes",
@@ -108,14 +103,13 @@ class BehaviorEnvClient(BaseEnvClient):
     }
 
     def __init__(self, client: RpcClient, *, expected_meta: dict[str, Any]) -> None:
-        # BaseEnvClient.__init__ performs an automatic reset and exact metadata
-        # equality. BEHAVIOR reset is explicitly owned by runtime initialization.
+        # The base supports reset_on_connect=False, but its metadata check is
+        # an assertion of exact equality. Keep this explicit subset validation
+        # so a mismatched task identity still fails under python -O.
         self._client = client
         self.last_obs: dict[str, Any] | None = None
         self.last_info: dict[str, Any] = {}
-        self.episode_done = False
         self.total_env_steps = 0
-        self.vla_endpoint: str | None = None
         self._official_success_latched = False
         self._official_success_receipt: dict[str, Any] | None = None
         server_meta = self._client.call(
@@ -151,7 +145,6 @@ class BehaviorEnvClient(BaseEnvClient):
             if isinstance(steps, (int, np.integer)) and not isinstance(steps, bool):
                 self.total_env_steps = max(self.total_env_steps, int(steps))
         if official_task_success(info):
-            self.episode_done = True
             self._official_success_latched = True
             self._official_success_receipt = validate_official_success_receipt(
                 self._receipt_from_info(info)
@@ -198,7 +191,6 @@ class BehaviorEnvClient(BaseEnvClient):
         if not isinstance(obs, dict) or not isinstance(info, dict):
             raise TypeError("env.reset must return observation/info mappings")
         self.total_env_steps = 0
-        self.episode_done = False
         self.last_obs = obs
         self.last_info = info
         return obs, info

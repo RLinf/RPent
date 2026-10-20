@@ -36,7 +36,13 @@ from typing import Any
 
 import numpy as np
 
-from robots.behavior.schemas import ENV_ACTION_SEGMENTS, RAW_PROPRIO_SEGMENTS
+from robots.behavior.schemas import (
+    ACTION_DIM,
+    ENV_ACTION_SEGMENTS,
+    PHYSICAL_CAMERAS,
+    RAW_PROPRIO_SEGMENTS,
+    validate_action_chunk,
+)
 from robots.behavior.terminal_success import (
     official_success_receipt_sha256,
     official_task_success,
@@ -44,12 +50,9 @@ from robots.behavior.terminal_success import (
 from rpent.utils.config import get_rlinf_repo_path
 from rpent.utils.serialization import to_numpy_tree
 
-ACTION_DIM = 23
-ACTION_HORIZON = 32
 GRIPPER_COMMAND_CONTROL_CYCLES = 15
 GRIPPER_OPEN_COMMAND = 1.0
 GRIPPER_CLOSE_COMMAND = -1.0
-PHYSICAL_CAMERAS = ("head", "left_wrist", "right_wrist")
 EXACT_OFFICIAL_CONFIG_MODE = "exact_official_v1"
 EXACT_OFFICIAL_RUNTIME_SUPPORT_SCHEMA = (
     "rlinf.behavior.exact_official_runtime_support.v1"
@@ -816,15 +819,6 @@ def _normalize_single_observation(
     }
 
 
-def _validate_action_chunk(actions: Any) -> np.ndarray:
-    arr = np.asarray(actions, dtype=np.float32)
-    if arr.ndim != 2 or arr.shape[1] != ACTION_DIM or arr.shape[0] < 1:
-        raise ValueError(f"BEHAVIOR actions must be [T,{ACTION_DIM}], got {arr.shape}")
-    if not np.isfinite(arr).all():
-        raise ValueError("BEHAVIOR actions contain NaN or infinity")
-    return np.ascontiguousarray(arr)
-
-
 def _receipt_from_info(
     info: Mapping[str, Any], *, env_step: int
 ) -> dict[str, Any] | None:
@@ -1123,7 +1117,7 @@ class OfficialBehaviorBackend:
             ]
         action[ENV_ACTION_SEGMENTS["left_gripper"]] = self._gripper_latch["left"]
         action[ENV_ACTION_SEGMENTS["right_gripper"]] = self._gripper_latch["right"]
-        return _validate_action_chunk(action[None, :])[0]
+        return validate_action_chunk(action[None, :])[0]
 
     def _motion_error(
         self,
@@ -1242,7 +1236,7 @@ class OfficialBehaviorBackend:
         """Expose final-step scalars; ``info.executed_steps`` records a short chunk."""
         if self._episode_ended:
             raise RuntimeError("BEHAVIOR episode already ended; reset is required")
-        action_array = _validate_action_chunk(actions)
+        action_array = np.ascontiguousarray(validate_action_chunk(actions))
         last_obs: Any = None
         last_reward = 0.0
         terminated = False
@@ -1990,7 +1984,6 @@ def _physical_camera(value: Any) -> str:
 
 __all__ = [
     "ACTION_DIM",
-    "ACTION_HORIZON",
     "PHYSICAL_CAMERAS",
     "OfficialBehaviorBackend",
     "build_behavior_env_config",
