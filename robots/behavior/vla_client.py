@@ -18,7 +18,11 @@ from __future__ import annotations
 
 import numpy as np
 
-from robots.behavior.schemas import extract_policy_state, validate_action_chunk
+from robots.behavior.schemas import (
+    DEFAULT_ACTION_CHUNK,
+    extract_policy_state,
+    validate_action_chunk,
+)
 from rpent.robots.components.pi05_vla_client import _ENCODE_OBS, Pi05VLAClient
 from rpent.robots.components.vla_client_base import BaseVLAClient
 
@@ -82,4 +86,10 @@ class BehaviorPi05VLAClient(Pi05VLAClient):
         )
         if actions.ndim != 3 or actions.shape[0] != 1:
             raise ValueError(f"BEHAVIOR actions must be [1,T,23], got {actions.shape}")
-        return validate_action_chunk(actions[0])
+        chunk = validate_action_chunk(actions[0], max_horizon=DEFAULT_ACTION_CHUNK)
+        if chunk.shape[0] != DEFAULT_ACTION_CHUNK:
+            raise ValueError(
+                f"BEHAVIOR Pi0.5 must return {DEFAULT_ACTION_CHUNK} actions, "
+                f"got {chunk.shape[0]}"
+            )
+        return chunk

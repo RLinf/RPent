@@ -634,8 +634,17 @@ def _connect_vla(
 ) -> dict[str, Any]:
     from robots.behavior.vla_client import BehaviorPi05VLAClient
 
+    model = BehaviorPi05VLAClient(rpc, embodiment="behavior")
+    status = model.status()
+    if (
+        not isinstance(status, dict)
+        or status.get("action_chunk") != DEFAULT_ACTION_CHUNK
+    ):
+        raise RuntimeError(
+            f"BEHAVIOR Pi0.5 action_chunk must be {DEFAULT_ACTION_CHUNK}, got {status!r}"
+        )
     return {
-        "model": BehaviorPi05VLAClient(rpc, embodiment="behavior"),
+        "model": model,
     }
 
 

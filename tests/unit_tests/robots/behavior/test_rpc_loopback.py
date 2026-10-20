@@ -375,3 +375,82 @@ def test_behavior_external_sidecar_python_gets_source_checkout(
     assert env["CUDA_VISIBLE_DEVICES"] == "2"
     assert "PYTHONPATH" not in env
     assert env["RPENT_REPO_ROOT"] == str(runtime.get_repo_root())
+
+
+@pytest.mark.parametrize("action_chunk", [32, 16])
+def test_behavior_vla_connect_checks_shared_status(action_chunk: int, tmp_path) -> None:
+    from robots.behavior import runtime
+    from robots.behavior.vla_client import BehaviorPi05VLAClient
+
+    class Rpc:
+        def call(self, method, *, timeout_s):
+            assert method == "vla.status"
+            return {"action_chunk": action_chunk}
+
+    if action_chunk != 32:
+        with pytest.raises(RuntimeError, match="action_chunk|32"):
+            runtime._connect_vla(argparse.Namespace(), Rpc(), tmp_path)
+    else:
+        model = runtime._connect_vla(argparse.Namespace(), Rpc(), tmp_path)["model"]
+        assert isinstance(model, BehaviorPi05VLAClient)
+
+
+def test_behavior_vla_connect_rejects_dino_healthz_endpoint(tmp_path) -> None:
+    from robots.behavior import runtime
+
+    dino = BehaviorDinoFacade(
+        encoder=object(), meta={"runtime": "behavior_dino", "dimension": 384}
+    )
+
+    class Rpc:
+        def call(self, method, args=(), kwargs=None, *, timeout_s=None):
+            return dino._dispatch(method, args, kwargs or {})
+
+    rpc = Rpc()
+    assert rpc.call("healthz") == {"status": "ok"}
+    with pytest.raises((ValueError, RuntimeError), match="vla.status"):
+        runtime._connect_vla(argparse.Namespace(), rpc, tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("action_chunk", "message"), [(31, "must return"), (33, "exceeds")]
+)
+def test_behavior_vla_wrong_horizon_never_reaches_env(
+    action_chunk: int, message: str
+) -> None:
+    from robots.behavior.tools import BehaviorPrimitives
+    from robots.behavior.vla_client import BehaviorPi05VLAClient
+
+    class Rpc:
+        def call(self, method, *, args, timeout_s):
+            assert method == "vla.predict"
+            return np.zeros((1, action_chunk, 23), dtype=np.float32)
+
+    class Env:
+        total_env_steps = 0
+        official_success_latched = False
+
+        def __init__(self):
+            self.calls = 0
+
+        def chunk_step(self, actions, *, return_all_frames=False):
+            self.calls += 1
+            raise AssertionError("invalid VLA actions reached ENV")
+
+    env = Env()
+    primitives = BehaviorPrimitives(
+        env=env,
+        model=BehaviorPi05VLAClient(Rpc(), embodiment="behavior"),
+        max_episode_steps=100,
+        initial_observation={
+            "main_images": np.zeros((2, 2, 3), dtype=np.uint8),
+            "wrist_images": np.zeros((2, 2, 2, 3), dtype=np.uint8),
+            "states": np.zeros(256, dtype=np.float32),
+            "task_descriptions": "turn on the radio",
+        },
+        task_name="turning_on_radio",
+        public_seed=0,
+    )
+    with pytest.raises(ValueError, match=message):
+        primitives.pi0_nav_pick(instruction="turn on the radio", chunks=1)
+    assert env.calls == 0
