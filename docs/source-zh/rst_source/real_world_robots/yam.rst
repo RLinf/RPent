@@ -19,18 +19,14 @@ YAM 使用公共 RobotSpec、Toolkit、RPC、探索生命周期和 MemoryManager
 
 使用 Linux、Python 3.11。Agent 机也需要 ``RPent[yam]``：投影代码使用
 OmegaConf 和 RealSense SDK 的计算函数，不连接相机。控制机和推理机使用
-不同的固定 RLinf 提交：控制机需要 RLinf 的双臂 YAM 机器人（负责驱动从臂）及其
+同一官方 RLinf 固定提交：控制机需要 RLinf 的双臂 YAM 机器人（负责驱动从臂）及其
 YAM 运动学；推理机需要官方 ``openpi.get_model`` 加载器使用的 ``pi05_yam_joint``
-数据与策略变换。按所配置的机器克隆对应提交：
+数据与策略变换。在两台机器上分别克隆该提交：
 
 .. code-block:: bash
 
-   # 控制机
-   git clone https://github.com/RLinf/RLinf.git /path/to/RLinf
-   git -C /path/to/RLinf checkout --detach b5bdd26406244048e22690b7a3635c461d0aaaab
-   # 推理机
-   git clone https://github.com/scilwb/RLinf.git /path/to/RLinf
-   git -C /path/to/RLinf checkout --detach 4c65548e7ade32b13ae101211f588a34a9f98305
+   git clone --branch main https://github.com/RLinf/RLinf.git /path/to/RLinf
+   git -C /path/to/RLinf checkout --detach 196d40b6dec6f7a4063edee31cfeaa6ca0ee435a
 
 随后在两台机器上执行：
 
@@ -52,16 +48,15 @@ YAM 运动学；推理机需要官方 ``openpi.get_model`` 加载器使用的 ``
      -r "$RPENT_RLINF_ROOT/requirements/embodied/envs/yam.txt"
    uv pip check
 
-推理机使用独立环境，安装固定的 OpenPI 提交和 CUDA 12.8 Torch：
+推理机先使用 RLinf 的 YAM OpenPI 安装器，再安装 RPent：
 
 .. code-block:: bash
 
-   uv pip install --torch-backend cu128 \
-     -e '.[yam]' -e "$RPENT_RLINF_ROOT[embodied]" \
-     'rpent-openpi @ git+https://github.com/RLinf/openpi.git@a560f4dd8205b8423ecd4c8a0fabb5f54140b8a0' \
-     -r "$RPENT_RLINF_ROOT/requirements/embodied/models/openpi.txt" \
-     'torch==2.7.1' 'torchvision==0.22.1' 'torchcodec==0.5' \
-     'tokenizers==0.22.2' 'numpy==1.26.4' 'opencv-python==4.11.0.86'
+   cd "$RPENT_RLINF_ROOT"
+   bash requirements/install.sh embodied --model openpi --env yam \
+     --venv "$RPENT_REPO_ROOT/.venv"
+   cd "$RPENT_REPO_ROOT"
+   uv pip install -e '.[yam]'
    uv pip check
 
 ``yam`` extra 将 ``huggingface-hub`` 限制为小于 1，因为 i2rt 1.1.2 要求

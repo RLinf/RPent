@@ -20,20 +20,15 @@ Dependencies and installation
 
 Use Linux and Python 3.11. The Agent also needs ``RPent[yam]``: projection
 uses OmegaConf and RealSense SDK calculations without connecting cameras.
-The two machines use different fixed RLinf revisions. The control machine
+The two machines use the same fixed official RLinf revision. The control machine
 needs RLinf's dual YAM robot, which drives the followers, and its YAM
 kinematics. The GPU machine needs the ``pi05_yam_joint`` transforms for the
-official ``openpi.get_model`` loader. Clone the one for the machine you are
-setting up:
+official ``openpi.get_model`` loader. Clone this revision on each machine:
 
 .. code-block:: bash
 
-   # Control machine
-   git clone https://github.com/RLinf/RLinf.git /path/to/RLinf
-   git -C /path/to/RLinf checkout --detach b5bdd26406244048e22690b7a3635c461d0aaaab
-   # GPU machine
-   git clone https://github.com/scilwb/RLinf.git /path/to/RLinf
-   git -C /path/to/RLinf checkout --detach 4c65548e7ade32b13ae101211f588a34a9f98305
+   git clone --branch main https://github.com/RLinf/RLinf.git /path/to/RLinf
+   git -C /path/to/RLinf checkout --detach 196d40b6dec6f7a4063edee31cfeaa6ca0ee435a
 
 Then, on either machine:
 
@@ -56,17 +51,15 @@ On the control machine, install the pinned i2rt SDK and its compatible
      -r "$RPENT_RLINF_ROOT/requirements/embodied/envs/yam.txt"
    uv pip check
 
-On the GPU machine, use a separate environment and install the fixed OpenPI
-revision with CUDA 12.8 Torch:
+On the GPU machine, use RLinf's YAM OpenPI installer, then install RPent:
 
 .. code-block:: bash
 
-   uv pip install --torch-backend cu128 \
-     -e '.[yam]' -e "$RPENT_RLINF_ROOT[embodied]" \
-     'rpent-openpi @ git+https://github.com/RLinf/openpi.git@a560f4dd8205b8423ecd4c8a0fabb5f54140b8a0' \
-     -r "$RPENT_RLINF_ROOT/requirements/embodied/models/openpi.txt" \
-     'torch==2.7.1' 'torchvision==0.22.1' 'torchcodec==0.5' \
-     'tokenizers==0.22.2' 'numpy==1.26.4' 'opencv-python==4.11.0.86'
+   cd "$RPENT_RLINF_ROOT"
+   bash requirements/install.sh embodied --model openpi --env yam \
+     --venv "$RPENT_REPO_ROOT/.venv"
+   cd "$RPENT_REPO_ROOT"
+   uv pip install -e '.[yam]'
    uv pip check
 
 The ``yam`` extra keeps ``huggingface-hub<1`` because i2rt 1.1.2 requires
