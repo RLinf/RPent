@@ -360,11 +360,7 @@ Target50 包含 50 个厨房任务，共运行 340 次。以下使用 Codex、GP
 
 .. _codex:
 
-公开成绩见 :doc:`排行榜 <../leaderboard/performance>`。
-
-复现 GPT-6 Astra 榜单配置时，使用 ``--model gpt-6-astra --reasoning-effort high``。上述命令改为下载 ``robocasa/GPT_6_astra_high/**``，并将 ``--memory-dir`` 指向 ``./target50-memory/robocasa/GPT_6_astra_high``。
-
-任务列表、评测参数和成绩来源可在下方展开查阅。
+公开成绩见 :doc:`排行榜 <../leaderboard/performance>`。任务列表、评测参数和成绩来源可在下方展开查阅。
 
 .. dropdown:: 完整任务列表
 
