@@ -176,6 +176,16 @@ retraining the model.
 The VLA service uses ``pi05_yam_joint`` with camera order ``top/left/right``. Each call
 executes the first five action steps.
 
+.. _yam-training:
+
+Data Collection and Training
+----------------------------
+
+For demonstration collection, see the `RLinf YAM data collection guide
+<https://rlinf.readthedocs.io/en/latest/rst_source/examples/embodied/yam.html>`_.
+For model training and evaluation, see `Pi0.5 Training and Evaluation on YAM
+<https://rlinf.readthedocs.io/en/latest/rst_source/examples/embodied/yam_openpi.html>`_.
+
 .. _yam-codex-isolation:
 
 Codex Configuration

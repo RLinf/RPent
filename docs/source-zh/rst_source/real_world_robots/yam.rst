@@ -146,6 +146,13 @@ VLA 配置
 
 VLA 服务使用 ``pi05_yam_joint`` 配置，相机顺序为 ``top/left/right``，每次调用执行前 5 步动作。
 
+.. _yam-training:
+
+数据采集与训练
+--------------
+
+示教数据采集见\ `RLinf YAM 数据采集 <https://rlinf.readthedocs.io/zh-cn/latest/rst_source/examples/embodied/yam.html>`_，模型训练与评估见\ `YAM Pi0.5 训练与评估 <https://rlinf.readthedocs.io/zh-cn/latest/rst_source/examples/embodied/yam_openpi.html>`_。
+
 .. _yam-codex-isolation:
 
 Codex 配置
