@@ -78,7 +78,7 @@ def discover_rlinf_root() -> Path:
     """Return the RLinf checkout that contains the official BehaviorEnv."""
 
     root = get_rlinf_repo_path().resolve()
-    if (root / "rlinf" / "envs" / "behavior" / "behavior_env.py").is_file():
+    if (root / "rlinf" / "envs" / "sim" / "behavior" / "behavior_env.py").is_file():
         return root
     raise FileNotFoundError(
         "could not locate RLinf behavior_env.py; set "
@@ -908,7 +908,7 @@ class OfficialBehaviorBackend:
         )
         if behavior_env_cls is None:
             ensure_rlinf_import_path()
-            from rlinf.envs.behavior.behavior_env import BehaviorEnv
+            from rlinf.envs.sim.behavior.behavior_env import BehaviorEnv
 
             behavior_env_cls = BehaviorEnv
         self._env = behavior_env_cls(

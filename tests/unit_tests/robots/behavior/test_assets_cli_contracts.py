@@ -13,6 +13,19 @@ import pytest
 from robots.behavior import assets_cli
 
 
+def test_behavior_finds_the_official_rlinf_env_layout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from robots.behavior import rlinf_env
+
+    env_file = tmp_path / "rlinf/envs/sim/behavior/behavior_env.py"
+    env_file.parent.mkdir(parents=True)
+    env_file.touch()
+    monkeypatch.setattr(rlinf_env, "get_rlinf_repo_path", lambda: tmp_path)
+
+    assert rlinf_env.discover_rlinf_root() == tmp_path
+
+
 def test_behavior_resolves_the_official_challenge_instance_layout(
     tmp_path: Path,
 ) -> None:
