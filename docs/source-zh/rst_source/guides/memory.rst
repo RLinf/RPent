@@ -43,6 +43,40 @@ CLI 和 Dashboard 都在每个任务开始前解析 memory 根目录。在 Dashb
 
 仅下载所选版本。LIBERO 缓存位于 ``memory/libero/.versions/``，按仓库、提交和版本隔离，每次复用前校验文件集合完全一致及每份文件的哈希。额外文件会使缓存失效，固定 revision 时也不例外；联网同步会重建无效缓存。``HF_HUB_OFFLINE=1`` 要求所选版本及 revision 已有完整、未改动的缓存。下载失败不会改用另一模型的 memory；缓存缺失或不完整会明确报错。旧缓存记录未标明版本来源时，需要联网成功刷新一次；不复用旧的无版本缓存。其他机器人保持原有的 memory 同步行为。
 
+无法连接 Hub 时，完整提交 SHA 会选择该提交的缓存，包括先前通过分支下载的同一提交。\
+指定分支或标签时，会使用本机最近一次成功同步该名称、仓库和语料版本时的提交，\
+它可能落后于 Hub 当前版本。LIBERO 日志会显示实际提交和语料根目录；\
+后续运行可用该完整提交 SHA 固定来源。
+
+指定记忆仓库和版本
+~~~~~~~~~~~~~~~~~~
+
+CLI 和 Dashboard 评测都可以用 ``--memory-repo`` 指定 Hugging Face 记忆数据集。\
+参数可以写成数据集 ID，如 ``RLinf/RPent-memory``，也可以写成 URL，\
+如 ``https://huggingface.co/datasets/RLinf/RPent-memory``。\
+在末尾加 ``@revision`` 可指定分支、标签或提交，省略时使用 ``main``。\
+复现实验时应填写完整的提交 SHA。
+
+下面的 LIBERO 命令读取指定提交中的 ``libero/GPT_6_astra_low/``。\
+运行前，将 ``COMMIT_SHA`` 替换为要使用的数据集提交：
+
+.. code-block:: bash
+
+   rpent --robot libero --suite libero_goal_swap --task 1 --seed 1 \
+     --planner codex --model gpt-6-astra --reasoning-effort low \
+     --memory-repo RLinf/RPent-memory@COMMIT_SHA \
+     --memory-version GPT_6_astra_low
+
+``--memory-repo`` 指定记忆仓库及其版本。\
+LIBERO 还用 ``--memory-version`` 选择模型对应的记忆：默认 ``auto`` 按当前模型选择，也可指定 ``GPT_6_astra_low`` 等值，固定使用某份记忆。
+
+Dashboard 后续任务也使用这些参数。``main`` 等分支可能在任务之间更新；\
+需要固定版本时，请使用提交 SHA。
+
+``--memory-repo`` 仅用于 ``--memory-profile hf``，不能与 ``--explore`` 同用。\
+它优先于 ``RPENT_MEMORY_HF_REPO``，下载使用当前机器已有的 HF 认证。\
+指定来源无法加载时会报错，不会改用默认仓库。此参数仅支持 HF 数据集。
+
 独立下载与本地评测
 ~~~~~~~~~~~~~~~~~~
 
@@ -55,7 +89,11 @@ CLI 和 Dashboard 都在每个任务开始前解析 memory 根目录。在 Dashb
      --planner codex --model gpt-6-astra --reasoning-effort low \
      --memory-profile local --memory-dir /path/to/new-astra-memory
 
-``sync`` 输出实际 memory 根目录，``--output-dir`` 必须是尚不存在的目录。 ``--planner`` 默认是 ``api``，与 ``rpent`` 一致；希望在省略 ``--model`` 时读取 ``CODEX_MODEL``，需指定 ``--planner codex``。 ``--memory-profile local`` 不下载 memory；本地模式或 ``--explore`` 与显式远程 ``--memory-version`` 同时使用会报参数冲突。探索使用本地 memory，每次独立探索应指定单独的空目录。
+``sync`` 输出实际 memory 根目录，``--output-dir`` 必须是尚不存在的目录。
+
+``--memory-profile local`` 读取 ``--memory-dir`` 指定的目录，不下载 memory。\
+本地评测和探索模式均不能显式指定远程 ``--memory-version``。\
+每次独立探索应使用单独的空目录。
 
 分版本下载使用 LIBERO 专用命令；共享的 ``rpent-memory`` 继续提供 ``merge``、 ``validate`` 和 ``build-index`` 三个命令。
 

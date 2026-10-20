@@ -8,58 +8,63 @@
 
    用于真机实验的双臂 Franka 系统。
 
-RPent 可以通过 RLinf ``RealWorldEnv`` worker 控制双节点双臂 Franka 系统。 任务视频见 :doc:`双臂 Franka 演示 <../real_world_demos/franka>`。
+RPent 通过 RLinf ``RealWorldEnv`` worker 控制双节点双臂 Franka 系统。任务视频见 :doc:`双臂 Franka 演示 <../real_world_demos/franka>`。
 
 安装
 ----
 
-请先按照 `libfranka 官方快速安装指南 <https://docs.ros.org/en/humble/p/libfranka/__README.html#quick-install>`_ 安装 libfranka 0.19.0。
-
-克隆 RPent 并安装 Python 依赖。若已有仓库，进入仓库后执行 ``uv sync``：
+在两台 Linux 控制节点分别安装 RPent，保持代码、Python、Ray 和 RLinf 版本一致。本地运行 VLA 或 SAM3 的节点需要 NVIDIA GPU。以下沿用 :doc:`../get_started/quickstart` 的安装方式：
 
 .. code-block:: bash
 
    git clone https://github.com/RLinf/RPent.git
    cd RPent
-   uv sync --extra franka --extra sam3
+   uv venv
+   source .venv/bin/activate
+   uv pip install -e ".[franka,sam3]"
 
-该命令将 RLinf ``release/v0.4``、``rpent-openpi``、SAM3 以及 Franka 的相机、夹爪和遥操作依赖安装到 ``.venv``。其中的 ``franky-control`` wheel 已包含 libfranka 0.19.0。
+下载 Python 依赖较慢时，可使用 `清华 PyPI 镜像 <https://mirrors.tuna.tsinghua.edu.cn/help/pypi/>`_ 替换上面的安装命令：
 
-标定（Calibration）
-----------------------------------------
+.. code-block:: bash
 
-``base_camera`` 和 ``d455_camera`` 都需要标定到 **右臂基座**。可使用
-``calibration_tools/``，也可继续使用 ROS
-`easy_handeye <https://github.com/IFL-CAMP/easy_handeye>`_，最终加载格式均为 YAML。
-腕部相机在默认配置中仅用于观测；若使用腕部 RGBD 相机进行投影，需要按下文
-配置手眼标定和投影视图。
+   uv pip install -e ".[franka,sam3]" \
+     --index-url https://pypi.tuna.tsinghua.edu.cn/simple
 
-本工具支持 D435，已在 D435 配置下验证；其他型号和流配置尚未验证，不能保证
-仅修改参数即可使用。零畸变系数可直接使用；非零系数仅支持
-``distortion.brown_conrady``。不支持的非零畸变模型会拒绝采样，并显示模型和
-系数，不会自动转换或忽略畸变。
+该选项只替换 Python 包索引，不代理 Git 仓库、直接下载链接或模型权重。
+
+连接机械臂前，请核对 libfranka 与机器人固件的兼容性。标定状态读取程序还需要 libfranka 开发库，见下文的标定步骤。
+
+后续命令在仓库根目录和该环境中执行。新开终端时，重新激活 ``.venv`` 并设置所需的模型环境变量。
+
+需要本地分割时，在环境节点下载 SAM3 权重：
+
+.. code-block:: bash
+
+   uv pip install modelscope
+   modelscope download --model facebook/sam3 sam3.pt \
+     --local_dir ./checkpoints/sam3
+   export SAM3_CHECKPOINT_PATH="$PWD/checkpoints/sam3/sam3.pt"
+
+未设置该变量或 ``--sam3-endpoint`` 时，分割功能不可用；仅安装 extra 不会下载权重。VLA checkpoint 配置见 :ref:`dual-franka-vla`。
+
+标定
+----
+
+``base_camera`` 和 ``d455_camera`` 都需要标定到 **右臂基座**。可使用 ``calibration_tools/`` 或 ROS `easy_handeye <https://github.com/IFL-CAMP/easy_handeye>`_，最终加载格式均为 YAML。腕部相机默认仅用于观测；若使用腕部 RGBD 相机进行投影，需要配置手眼标定和投影视图。
+
+采集器使用 RealSense RGB 图像，支持零畸变系数或非零的 ``distortion.brown_conrady`` 系数；其他非零畸变模型会拒绝采样。
 
 **1. 准备环境**
 
-在相机节点激活已有的 RLinf Franka 运行环境，然后进入 RPent 仓库根目录，
-检查所需接口：
+在相机节点的 RPent 仓库根目录使用已安装的环境。若需独立安装标定依赖，可创建单独环境：
 
 .. code-block:: bash
 
-   source /absolute/path/to/franka-env/bin/activate
-   cd /absolute/path/to/RPent
-   PYTHONPATH=calibration_tools python -c "import numpy, scipy, yaml, pyrealsense2; from common import check_opencv; check_opencv()"
-
-检查包含 ChArUco、PnP、``calibrateHandEye`` 及所需方法常量。
-若现有环境不满足依赖，可另建标定环境，避免改动策略运行环境：
-
-.. code-block:: bash
-
-   python3 -m venv .venv-calibration
+   uv venv .venv-calibration
    source .venv-calibration/bin/activate
-   pip install -r calibration_tools/requirements.txt pyrealsense2
+   uv pip install -r calibration_tools/requirements.txt pyrealsense2
 
-在右臂控制节点使用匹配机器人固件的 libfranka 开发库编译状态读取程序：
+在右臂控制节点，先按 `libfranka 官方安装指南 <https://frankarobotics.github.io/docs/doc/libfranka/README.html#quick-install>`_ 安装与机器人固件兼容的开发库（含头文件和 CMake 配置），再编译状态读取程序：
 
 .. code-block:: bash
 
@@ -67,11 +72,12 @@ RPent 可以通过 RLinf ``RealWorldEnv`` worker 控制双节点双臂 Franka �
      -DCMAKE_PREFIX_PATH=/absolute/path/to/libfranka/install
    cmake --build calibration_tools/build --parallel
 
-产物为 ``calibration_tools/build/read_franka_state``，通过 ``readOnce()`` 读取末端
-位姿、关节速度和机器人状态并输出 JSON，不发送运动指令。Python 控制包的安装
-不保证包含此编译步骤所需的头文件和 CMake 配置。
-下文替换相机序列号、SSH 别名、读取程序绝对路径和机器人 IP；读取程序在本机时
-省略 ``--ssh-host``，需要指定共享库目录时追加 ``--library-dir /path/to/lib``。
+编译后得到 ``calibration_tools/build/read_franka_state``。标定时用它读取机械臂状态，不会移动机械臂。
+
+* 本机读取：读取程序与采集器在同一节点，不传 ``--ssh-host``。
+* 远程读取：用 ``--ssh-host`` 指定读取程序所在节点，并提前配置 SSH 免密登录。
+
+下文命令中的相机序列号、机器人 IP 和程序路径均需替换为实际值。
 
 **2. 启动相机并采集**
 
@@ -86,6 +92,7 @@ RPent 可以通过 RLinf ``RealWorldEnv`` worker 控制双节点双臂 Franka �
 标记边长 18 mm、DICT_4X4_100、非 legacy 布局。其他板可通过
 ``--squares-x``、``--squares-y``、``--square-m``、``--marker-m`` 和
 ``--dictionary`` 配置，长度单位为米。
+请实测打印后的格边长，确保与配置一致。
 
 在同一相机节点另开终端，激活上一步选用的环境后运行：
 
@@ -98,15 +105,20 @@ RPent 可以通过 RLinf ``RealWorldEnv`` worker 控制双节点双臂 Franka �
      --reader /absolute/path/to/read_franka_state --robot-ip ROBOT_IP \
      --output calibration_tools/sessions/base-to-right
 
-打开 ``http://127.0.0.1:8767``，人工调整右臂，释放引导按钮并停稳后点击
-``Capture pose``。建议采集 20–30 个不同姿态，覆盖多个旋转轴；求解至少需要十组。
-工具只读取状态，不会移动机械臂。不传 ``--output`` 时，默认写入脚本所在目录下的
-``calibration_tools/sessions/``，与启动时的工作目录无关。
+打开 ``http://127.0.0.1:8767``，按以下步骤采样：
 
-完成后按 ``Ctrl+C`` 停止采集器。标定 D455 时重复上述命令，将序列号换成
-``D455_SERIAL``、URL 换成 ``/raw/d455``、输出目录换成
-``calibration_tools/sessions/d455-to-right``。每次采集使用新目录；D455 流配置
-需先确认符合上面的畸变模型支持范围。
+1. 确认机械臂处于 Idle 且无报错。人工调整右臂后，释放引导按钮，停稳后点击 ``Capture pose``。
+2. 采集 20–30 个不同位置和角度，覆盖多个旋转轴；求解至少需要 10 组。
+3. 用 ``Preview`` 查看样本，``Exclude`` 排除不合适的样本。样本调整后需重新求解。
+4. 采完按 ``Ctrl+C`` 停止采集器。重新采集时，为 ``--output`` 指定新目录。
+
+若从自己的电脑访问网页，先转发端口，再打开上面的地址：
+
+.. code-block:: bash
+
+   ssh -L 8767:127.0.0.1:8767 CAMERA_HOST
+
+标定 D455 时复用采集命令，将序列号改为 ``D455_SERIAL``、URL 改为 ``http://127.0.0.1:8765/raw/d455``、输出目录改为 ``calibration_tools/sessions/d455-to-right``。
 
 **3. 求解并导出**
 
@@ -121,6 +133,8 @@ RPent 可以通过 RLinf ``RealWorldEnv`` worker 控制双节点双臂 Franka �
 D455 使用同样步骤，将会话目录和输出文件改为 ``d455-to-right`` 和
 ``d455_to_right.yaml``。检查会话中的 ``quality_report.json``，并通过独立实物
 测量验证候选外参；求解成功或导出 YAML 不代表精度已验证。导出不会覆盖已有文件。
+重新求解后，导出时使用新文件名，例如 ``calibration_tools/exports/base_to_right_v2.yaml``。
+验证新结果后，再更新 ``perception.calibration`` 中的文件路径。
 
 **4. 配置 RPent**
 
@@ -133,7 +147,7 @@ D455 使用同样步骤，将会话目录和输出文件改为 ``d455-to-right``
        base_camera: /absolute/path/to/base_to_right.yaml
        d455_camera: /absolute/path/to/d455_to_right.yaml
 
-通过下文的 ``--robot-config`` 加载配置。启动 RPent 前停止标定相机服务。
+通过下文的 ``--robot-config`` 加载配置。
 保留并核对 ``perception.base_frames`` 和定位边界；本工具不会自动标定左右基座关系。
 
 腕部投影为可选功能。在示例配置中取消 ``perception.calibration`` 和
@@ -147,8 +161,12 @@ RPent 将其与所选快照中的末端位姿组合；若位姿使用 ``left_bas
 并声明基座坐标系。默认的 Lumos 观测相机不会自动启用 RGBD 投影；选择腕部锚点前
 必须完成这些配置。
 
-开发配置
---------
+标定结束后，停止本次标定启动的全部相机服务、采集器和机器人状态读取程序，再启动 RPent。
+
+机器人配置
+----------
+
+若标定使用了独立 Python 环境，执行后续命令前请重新激活 RPent 的 ``.venv``。
 
 启用机械臂运动前，请检查并修改仓库中的开发默认值：
 
@@ -156,13 +174,120 @@ RPent 将其与所选快照中的末端位姿组合；若位姿使用 ``left_bas
 
 RPent 会将该机器人配置转换成内部双节点 RLinf cluster 和环境对象。如需使用其他文件，请传入 ``--robot-config /path/to/robot_config.yaml``。
 
+示例配置中，各相机的用途如下：
+
+* ``base``、``left_wrist``、``right_wrist``：提供 RGB 图像，用于观察场景。
+* ``d455``：提供 RGB 和对齐深度图像，可将图像中的选点转换为三维坐标。反投影需要该相机的有效标定。
+
+``perception.projection_views`` 用于选择反投影视角，不控制相机是否采集深度；示例配置中应使用 ``d455``。
+
+``rotate_delta`` 调整末端朝向，并尽量保持旋转开始时的位置。``rotation_hold.max_drift_m`` 设置旋转时允许的位置偏移上限，默认 ``0.10`` m（10 cm）；超出上限时中止本次调用并报错。
+
+任务选择
+--------
+
+主要示例使用任务 ``2``。首次连接时可先用任务 ``0`` 检查小幅平移、旋转和夹爪动作；该任务由规划器驱动，不是固定自动测试序列，也不需要 VLA。
+
+.. list-table::
+   :header-rows: 1
+
+   * - ID
+     - 内容
+     - 是否需要 VLA
+   * - 0
+     - 规划器驱动的单技能检查
+     - 否
+   * - 1
+     - 碗盘脏污分类，包含杯子和筷勺
+     - 是
+   * - 2
+     - 碗盘及两个杯子脏污分类，无筷勺
+     - 是
+
+.. note::
+
+   任务编号用于启动命令，分类任务使用任务名称生成 recipe 和记忆标识。修改任务时，请保持编号、名称与任务内容的对应关系，不要随意重排编号或将已有名称用于不同任务。
+
+任务 ``1`` 中，碗盘内的蛋挞或蛋挞锡盘标记脏污：脏碗盘放入金属筐，干净碗盘和杯子放入纸盒；筷勺插入杯中。
+
+任务 ``2`` 中，碗内的鸡块、盘子或杯子内的蛋挞锡盘标记脏污：脏物放入金属筐，干净物放入纸盒，不含筷勺。
+
+两个分类任务均提供 ``vla_right_grasp`` / ``vla_handoff`` / ``vla_left_place`` 技能。
+
+.. _dual-franka-vla:
+
+VLA 配置
+--------
+
+``PI05_CHECKPOINT_PATH`` 指向训练好的 Pi0.5 checkpoint，``DUAL_FRANKA_REPO_ID`` 是用于查找对应归一化统计的数据集 ID。
+
+上述环境变量对应 ``--vla-model-path`` 和 ``--vla-repo-id``。repo ID 是 checkpoint 内对应归一化统计的相对目录，不是模型下载仓库名。checkpoint 必须包含：
+
+.. code-block:: text
+
+   actor/model_state_dict/full_weights.pt
+   <DUAL_FRANKA_REPO_ID>/norm_stats.json
+
+**预训练 checkpoint**
+
+从 Hugging Face 下载 `双臂 Franka clean-desk checkpoint <https://huggingface.co/RLinf/RLinf-Pi05-RealWorld-DualFranka-Clean_Desk>`_。它用于执行 VLA 技能，物体的脏污分类由 RPent 规划器判断。
+
+.. code-block:: bash
+
+   uv pip install huggingface_hub
+   hf download RLinf/RLinf-Pi05-RealWorld-DualFranka-Clean_Desk \
+     --revision 4f43adc723dfe98fae806a131ad61999e1f95e4f \
+     --local-dir ./models/pi05-dualfranka-clean-desk
+
+   export PI05_CHECKPOINT_PATH="$PWD/models/pi05-dualfranka-clean-desk"
+   export DUAL_FRANKA_REPO_ID=id_0
+
+该 checkpoint 已包含 ``id_0/norm_stats.json``，请与权重一起保留，并按上例将 repo ID 设置为 ``id_0``。
+
+.. warning::
+
+	该 checkpoint 仅在我们的内部测试环境（机器人位姿、相机、工作空间布局和物体）上训练，切换到不同的环境时预计表现会较差。若要部署到你自己的机器上，请使用 RLinf 采集示教数据并微调你自己的 checkpoint，参见 `RLinf 双臂 Franka 指南 <https://rlinf.readthedocs.io/zh-cn/latest/rst_source/examples/embodied/dual_franka.html>`_ （采集 GELLO 示教数据、转换为 tcp_rot6d、运行 SFT，然后部署）。
+
+.. _dual-franka-codex-isolation:
+
+机器人 Codex 运行配置隔离
+-------------------------
+
+在专用终端激活 ``.venv``，从仓库根目录设置独立的 Codex 配置与会话目录。每次新开机器人控制终端都需执行：
+
+.. code-block:: bash
+
+   export CODEX_HOME="$PWD/.codex-rpent-live"
+   export CODEX_SQLITE_HOME="$CODEX_HOME"
+   export CODEX_SERVICE_TIER=fast
+   mkdir -p "$CODEX_HOME"
+   unset CODEX_API_KEY CODEX_BASE_URL OPENAI_API_KEY OPENAI_BASE_URL CODEX_ACCESS_TOKEN
+   export CODEX_BIN="$(python -c 'from codex_cli_bin import bundled_codex_path; print(bundled_codex_path())')"
+
+首次使用时，在 ``$CODEX_HOME/config.toml`` 中设置文件凭据存储，再用 SDK 自带的 CLI 登录：
+
+.. code-block:: toml
+
+   cli_auth_credentials_store = "file"
+
+.. code-block:: bash
+
+   "$CODEX_BIN" login --device-auth
+   "$CODEX_BIN" login status
+
+若配置中已有 ``sqlite_home``，也应指向独立目录。使用自定义 API 时，重新设置本次部署的 ``CODEX_API_KEY`` 和 ``CODEX_BASE_URL``；其他登录方式见 `Codex 认证说明 <https://developers.openai.com/codex/auth/>`_。
+
+RPent 不会自动启用上述隔离；它不隔离共享工作区或迁移旧会话。任务记忆另由 ``--memory-dir`` 选择。不要提交该目录或凭据。
+
 启动双节点 Ray 集群
 --------------------
 
-两个节点的角色不同（定义在 ``robots/dual_franka/runtime_config.py`` 中）：
+启动 Ray 前，在两个节点分别激活安装好的 ``.venv``。``robots/dual_franka/runtime_config.py`` 的默认部署为：
 
-* 节点 ``0`` 是 Ray head 节点：运行双臂 Franka 环境 worker （全部相机、感知以及双臂和夹爪状态）和左臂的实时控制器。VLA 任务的本地 VLA 服务也运行在该节点上。
-* 节点 ``1`` 是 Ray worker 节点：只运行右臂的实时控制器，不接相机，也不运行 RPent 进程。
+* 节点 ``0`` 是 Ray head：运行 RPent、环境 worker、左臂及夹爪控制器、base 相机和左腕相机。额外的 D455 由 RPent 在此本地打开；按需启动的本地 VLA、SAM3 服务也运行在这里。
+* 节点 ``1`` 是 Ray worker：运行右臂及夹爪控制器和右腕相机，需要安装环境并启动 Ray，但不需要另起 RPent runner。
+
+RLinf 按配置的节点创建相机句柄，不会跨节点搜索被移动的 USB 相机。腕部相机应接在对应机械臂的控制节点，并按实际设备填写型号和序列号。
 
 .. warning::
 
@@ -184,212 +309,136 @@ RPent 会将该机器人配置转换成内部双节点 RLinf cluster 和环境�
    ray stop --force
    ray start --address=HEAD_IP:6379 --node-ip-address=WORKER_IP
 
-运行冒烟测试
+手动技能测试
 ------------
 
-先按 :doc:`../guides/configure_planner` 配置规划器与模型服务。
-
-任务 ``0`` 用于逐臂测试小幅平移、旋转和夹爪动作：
+可先列出可调用的技能，再查看某个技能接受的参数及其类型。在仓库根目录运行：
 
 .. code-block:: bash
 
-   uv run --extra franka rpent --robot dual_franka --task-id 0 \
-     --planner claude_code --model claude-opus-4-8 \
+   python robots/dual_franka/dual_franka_manual_call.py --list-primitives
+   python robots/dual_franka/dual_franka_manual_call.py --schema vla_right_grasp
+
+未指定服务地址时，脚本自动启动并连接所需服务，无需手动填写端口；退出时只关闭本次启动的服务。传入 ``--env-endpoint``、``--vla-endpoint`` 或 ``--sam3-endpoint`` 可复用已有服务。连接已有 Env 不会复位。若新启动 Env，手动动作前先请求场景确认并执行一次复位；显式调用手动 ``reset`` 也会等待确认。列出技能和查看参数不启动服务。
+
+例如，先看 schema，再执行左臂小幅平移：
+
+.. code-block:: bash
+
+   python robots/dual_franka/dual_franka_manual_call.py --schema move_delta
+   python robots/dual_franka/dual_franka_manual_call.py \
+     --primitive move_delta --params '{"arm":"left","delta_xyz":[0.01,0,0]}' \
      --robot-config robots/dual_franka/config/example.yaml
 
-RPent 使用当前解释器启动 ``robots/dual_franka/env_server.py``，加载 RPent robot config 并生成内部 RLinf adapter config，然后连接 Ray，等待 ``healthz``，并将初始状态记录为 step ``0``。任务 ``0`` 不会加载 VLA。
+通过 ``--primitive NAME --params JSON`` 调用工具，不选择任务编号。示例配置的 ``vla.instruction`` 已填写 clean-desk 策略指令；更换 checkpoint 时可修改该值，或用 ``--instruction`` 覆盖。该配置只用于手动调用，任务 runner 仍使用已注册任务的指令。``--params`` 中的 ``prompt`` 记录技能意图，不替代策略指令。
 
-VLA 抓取演示
--------------
-
-RPent 提供了一个使用 VLA 抓取物品的演示。任务 ``1`` 提供 ``vla_right_grasp`` / ``vla_handoff`` / ``vla_left_place`` 工具，并可在本地启动双臂 Franka VLA 服务。``PI05_CHECKPOINT_PATH`` 指向训练好的 Pi-05 checkpoint，``DUAL_FRANKA_REPO_ID`` 是用于查找对应归一化统计的数据集 ID：
+设置好上文的 VLA checkpoint 和归一化统计变量后，可以执行一次抓取技能：
 
 .. code-block:: bash
 
-   export PI05_CHECKPOINT_PATH=/path/to/checkpoints/global_step_N
-   export DUAL_FRANKA_REPO_ID=org/dual-franka-tcp-rot6d
-
-   uv run --extra franka rpent --robot dual_franka --task-id 1 \
-     --cuda-device 0 \
-     --planner claude_code --model claude-opus-4-8 \
+   python robots/dual_franka/dual_franka_manual_call.py \
+     --primitive vla_right_grasp \
+     --params '{"prompt":"grasp the bowl","max_chunks":1}' \
      --robot-config robots/dual_franka/config/example.yaml
 
-checkpoint 必须包含：
+独立 VLA 诊断控制台
+~~~~~~~~~~~~~~~~~~~
 
-.. code-block:: text
-
-   actor/model_state_dict/full_weights.pt
-   <DUAL_FRANKA_REPO_ID>/norm_stats.json
-
-**预训练 checkpoint**
-
-ModelScope 上发布了一个可直接使用的 task ``1`` checkpoint： `Brunchlife/pi05-dualfranka-tcp-rot6d-clean-desk-532-delect-76000 <https://modelscope.cn/models/Brunchlife/pi05-dualfranka-tcp-rot6d-clean-desk-532-delect-76000>`_。下载后将 ``PI05_CHECKPOINT_PATH`` 指向下载目录，并将 ``DUAL_FRANKA_REPO_ID`` 设置为包含 ``norm_stats.json`` 的子目录：
+该控制台独立运行 VLA，不经过智能体或注册任务。策略指令来自机器人配置中的 ``vla.instruction``，可用 ``--instruction`` 覆盖。请在源码仓库中运行；控制台按需启动环境和 VLA 服务，不启动 SAM3。
 
 .. code-block:: bash
 
-   modelscope download \
-     --model Brunchlife/pi05-dualfranka-tcp-rot6d-clean-desk-532-delect-76000 \
-     --local_dir /path/to/pi05-dualfranka-clean-desk
-
-   export PI05_CHECKPOINT_PATH=/path/to/pi05-dualfranka-clean-desk
-
-.. warning::
-
-	该 checkpoint 仅在我们的内部测试环境（机器人位姿、相机、工作空间布局和物体）上训练，切换到不同的环境时预计表现会较差。若要部署到你自己的机器上，请使用 RLinf 采集示教数据并微调你自己的 checkpoint，参见 `RLinf 双臂 Franka 指南 <https://rlinf.readthedocs.io/zh-cn/latest/rst_source/examples/embodied/dual_franka.html>`_ （采集 GELLO 示教数据、转换为 tcp_rot6d、运行 SFT，然后部署）。
-
-未设置 ``--vla-endpoint`` 时，RPent 会启动 ``rpent/robots/components/pi05_vla_server.py``，并只加载一次 ``pi05_dualfranka_tcp_rot6d``。
-
-也可以单独启动 VLA 服务：
-
-.. code-block:: bash
-
-   uv run --extra franka python -m rpent.robots.components.pi05_vla_server \
-     --embodiment dual_franka \
-     --model-path /path/to/checkpoints/global_step_N \
-     --repo-id org/dual-franka-tcp-rot6d \
-     --cuda-device 0 --transport http --host 0.0.0.0 --port 6000
-
-然后向 ``rpent`` 传入 ``--vla-endpoint http://VLA_HOST:6000``。外部 endpoint 始终优先于本地自动启动。
-
-连接外部环境服务
-----------------
-
-连接已经运行的双臂 Franka 环境服务：
-
-.. code-block:: bash
-
-   uv run --extra franka rpent --robot dual_franka --task-id 0 \
-     --env-endpoint http://ROBOT_HOST:PORT \
-     --planner claude_code --model claude-opus-4-8 \
+   python -m tests.e2e_tests.dual_franka.dual_franka_vla \
      --robot-config robots/dual_franka/config/example.yaml
+
+启动后，在控制台输入：
+
+* ``run N``：预测并执行 N 个动作块（每块是模型一次输出的一段连续动作）；不带 N 时持续运行，不在技能边界处停止。
+* ``reset``：等待操作员回复 ``done`` 后，在同一环境中复位双臂；回复 ``abort`` 则不执行复位。
+* ``quit``：退出控制台。
+
+启动时不会自动回位。运行中按 ``Ctrl+C`` 或创建日志目录下的 ``STOP`` 文件可停止；正在执行的 RPC 仍可能完成，这不是硬件急停。
+输入和预测保存为 JSON/NPZ。如果提示执行状态不确定，请检查现场后重启会话。
+
+每块动作步数自动从 VLA 服务读取，也可用 ``--expected-action-steps`` 显式指定。
+
+运行一个任务
+------------
+
+完成相机标定、机器人配置和 Ray 集群启动，并按 :doc:`../guides/configure_planner` 配置规划器。使用 Codex 前，先完成 :ref:`dual-franka-codex-isolation`。
+
+设置好上面的模型变量后，以下以任务 ``2`` 为例运行；可通过 ``--task-id`` 选择其他已注册任务。RPent 自动启动所需的环境和模型服务，无需另开终端手动启动 VLA：
+
+.. code-block:: bash
+
+   rpent --robot dual_franka --task-id 2 \
+     --planner codex --model gpt-6-astra --reasoning-effort xhigh \
+     --robot-config robots/dual_franka/config/example.yaml \
+     --memory-profile local --memory-dir ./memory/dual_franka
+
+连接环境会初始化控制器和夹爪，但不复位机器人姿态。智能体先调用 ``request_scene_reset``：处理夹持物、恢复桌面并确认双臂回位路径安全后回复 ``done``，工具才执行复位并采集新观测。未确认或复位失败时禁止运动，每次新运行或会话都需要重新确认。
+
+示例使用 Codex、``gpt-6-astra`` 和 ``xhigh`` 推理强度。也可将规划器和模型参数换为 ``--planner claude_code --model claude-opus-4-8``。模型与推理强度的配置见 :doc:`../guides/configure_planner`。
+
+在同一条命令中按需追加参数：
+
+* ``--explore``：探索并积累任务记忆，见下文。
+* ``--explore --interactive``：探索时在终端输入反馈；普通任务不支持单独使用 ``--interactive``。
+* ``--dashboard``：通过网页输入框提交任务、消息和确认；探索时同时加 ``--explore``。不能与 ``--interactive`` 同用。界面操作见 :doc:`../guides/dashboard`。
+
+查看结果
+--------
+
+每次运行使用新的 ``--output-dir``。重点查看：
+
+* ``transcript_*.json``：规划器消息、工具调用与结束结果。
+* ``run.log`` 及各组件 ``*_server.log``：运行或启动错误。
+* ``states.json`` 及其引用的图像、深度和机器人状态文件：每步执行后的观测证据。
+* ``operator_events.json``：复位确认与人工判定。
+
+探索模式的逐会话状态和人工记录位于 ``sessions/session_<NNN>/``。真机任务成功以操作员判定为准，RPC 成功或规划器自己的 ``finish`` 文本不能替代该判定。通用目录说明见 :ref:`run-output-files`。
 
 工具与状态产物
 --------------
 
 双臂 Franka 扩展提供 ``view_env_state``、``view_camera_meta``、 ``move_delta``、``rotate_delta``、``open_gripper``、``close_gripper`` 和 ``vla_right_grasp`` / ``vla_handoff`` / ``vla_left_place``。每次解析式运动只会作用于一条臂（``left`` 或 ``right``）。所有会改变环境状态的工具都会在 RPent 统一的 ``EnvState`` 中保存每条臂的状态以及同步的 left-wrist、base 和 right-wrist 图像。
 
-安全要求
---------
-
-两条机械臂的急停按钮旁都必须有操作员值守。先使用极小幅度的单臂动作验证任务 ``0``，再尝试抓取。当相机与状态结果不一致、目标运动没有到位，或任何标定存在疑问时，应立即停止。
-
-手动技能测试
-------------
-
-普通评测需要独占终端（TTY）接收操作员确认，不支持 ``--interactive`` 或 Dashboard。探索模式支持 ``--explore --interactive``，但仍需使用终端，不能通过 Dashboard 提交操作员反馈。不支持的参数组合会在连接硬件前被拒绝。普通任务也会注册 ``request_operator_verdict``，收到人工判定后才允许调用 ``finish``；``request_scene_reset`` 只在探索模式注册。
-
-部署脚本位于 ``robots/dual_franka/``。在仓库根目录运行：
-
-.. code-block:: bash
-
-   robots/dual_franka/run_manual_skill.sh --list-primitives
-   robots/dual_franka/run_manual_skill.sh --schema vla_right_grasp
-
-通过 ``--primitive NAME --params JSON`` 调用工具。``--task-id`` 为命名 VLA 技能选择任务配置中的 ``vla_instruction``，规划器的阶段 prompt 单独记入日志。当前 clean-desk 任务继续使用 checkpoint 原来的训练指令。 ``--robot-config`` 选择机器参数，其中的 ``perception.calibration`` 映射指向 easy_handeye 手眼标定 YAML。本地 SAM3 需要安装 ``sam3`` extra；远端服务可通过 ``--sam3-endpoint`` 接入。
-
-机器人 Codex 运行配置隔离
--------------------------
-
-上述启动脚本使用独立的 ``RPENT_CODEX_HOME`` （默认仓库内 ``.codex-rpent-live``），不继承编程终端的 ``CODEX_HOME``。本地记忆默认放在该目录的 ``memory`` 中，Codex 状态数据库也使用独立目录。按需在独立目录创建私人 ``config.toml``，不要覆盖已有私人配置。
-
-API 部署需显式设置 ``RPENT_CODEX_API_KEY`` 和可选的 ``RPENT_CODEX_BASE_URL``。脚本会清除继承的 ``CODEX_API_KEY``、``CODEX_BASE_URL``、``OPENAI_API_KEY`` 和 ``OPENAI_BASE_URL``。不使用 API key 时，应在独立目录下单独登录；可将凭据配置为保存在文件中。不要提交真实配置、凭据或日志。已有私人配置若使用系统钥匙串，须另行检查账号共享。
-
-模型、推理强度、服务档位分别通过 ``RPENT_CODEX_MODEL``、 ``RPENT_REASONING_EFFORT``、``RPENT_CODEX_SERVICE_TIER`` 设置，默认保持 ``gpt-5.5``、``medium``、``fast``。这些规则只适用于上述部署脚本，不改变直接调用 RPent CLI 的通用环境变量接口。建议通过启动脚本运行；手动 source 会修改当前终端的环境变量。
-
-目录隔离不是权限沙盒，也不隔离共享工作区文件。当前 planner 显式使用不请求交互审批、完整文件访问的运行参数。仅修改私人配置不能覆盖 planner 显式传入的权限；连接检测仍使用只读沙盒。
-
 探索模式（人工复位与判定）
 --------------------------
 
-``dual_franka --explore`` 在操作员确认场景准备完成后复位机器人，并记录人工判定及观测证据。探索保留真机状态和相机日志，支持多次尝试、跨会话交接及记忆整理。单臂 ``franka`` 尚未开放该模式。
+在任务运行命令后追加 ``--explore``，即可启用探索模式。``--explore-attempts-per-session`` 设置每个规划器会话的尝试次数，``--explore-sessions`` 设置会话数；终端交互再加 ``--interactive``，网页交互改用 ``--dashboard``。
 
-机器人通过 ``RobotSpec.supports_human_interactive_exploration`` 声明支持人工交互式探索。只有在探索模式中启用该能力时，交互帮助才会显示五个人工指令。
+每个规划器会话先通过 ``request_scene_reset`` 请求场景确认。处理夹持物体、恢复场景后回复 ``done``；机器人复位成功并取得相机和状态观测后开始一次尝试，复位失败时不允许运动。``--explore-attempts-per-session`` 限制每个会话的尝试次数。普通任务和探索模式通过 ``--env-endpoint`` 接入的外部服务都必须声明 ``explicit_reset_only=True``。
 
-在已配置好的机器人运行环境中启动，例如使用任务 0：
+``request_operator_verdict`` 请求 ``success``、``failure``、``continue`` 或 ``abort``，可附备注。其中 success/failure 答复判定当前尝试，``continue`` 继续尝试，``abort`` 停止探索。后续运动会清除先前判定；关闭终端输入也会停止探索。
 
-.. code-block:: bash
-
-   rpent --robot dual_franka --task-id 0 --explore --interactive \
-     --robot-config /path/to/robot.yaml \
-     --memory-dir /path/to/memory/dual_franka \
-     --explore-attempts-per-session 3 --explore-sessions 2 \
-     --output-dir /path/to/new-run
-
-规划器参数和 VLA 配置仍按前文设置；任务 1 的 checkpoint/外部 VLA 服务要求不变。每个 session 的第一轮也需要确认场景，连接环境客户端时不会额外调用复位。这不替代底层 RLinf/机器人控制器自身的启动流程。
-
-* ``request_scene_reset(reason, expected_scene_state)``：操作员处理夹持物体并恢复桌面后输入 ``done``，工具再调用机器人 ``reset()``。只有复位返回成功且取得配置要求的相机观测与双臂状态后，才开始一个新的 attempt；失败时保持运动关闭。
-* ``request_operator_verdict(question)``：记录新观测后，操作员回复 ``success``、``failure``、``continue`` 或 ``abort``，可附备注。 ``solved()`` 只读取当前有效的人工成功判定。后续运动或 ``continue`` 会清除旧判定。
-* ``abort`` 或操作员输入端关闭会终止本次探索；不会为了耗尽预算强迫继续。
-
-交互模式下，回复使用终端显示的请求 ID，例如 ``/operator <id> done`` 或 ``/operator <id> success 物体已稳定提起``。普通输入仍用于指导 agent；只有匹配当前请求 ID 的回复才用于操作员确认，避免与 ``--interactive`` 争抢 stdin。不加 ``--interactive`` 时直接按提示输入答案。两种方式均要求 TTY；目前未实现 Dashboard 操作员反馈，``--dashboard --explore`` 会在启动服务前报错。
+使用 Codex/Claude 并加 ``--interactive`` 时，确认回复使用显示的请求 ID，例如 ``/operator <request-id> done`` 或 ``/operator <request-id> success 物体已提起``；普通消息发送给智能体。不加 ``--interactive`` 时直接按提示答复；使用 ``--dashboard`` 时在 Dashboard 消息输入框中输入下述命令。
 
 日志与记忆
 ~~~~~~~~~~
 
-每个 session 的 ``sessions/session_<NNN>/`` 保留 ``states.json``、左右腕部、 base、可用的 D455 图像/深度和相机元数据。复位不清空前一次尝试的记录。 ``exploration.json`` 步骤附件记录 attempt 边界，``operator_events.json`` 记录人工反馈和对应的观测步骤。
+``sessions/session_<NNN>/`` 保存相机和机器人状态，``exploration.json`` 记录尝试边界，``operator_events.json`` 记录人工反馈。失败尝试的记录会保留，工作笔记位于 ``<memory-dir>/_internal/inbox/<recipe_tag>/wip/``。
 
-探索沿用 RPent 的 memory 管理器：
+默认启用 memory 合并。正常结束后合并合法的 ``global`` / ``task-family`` 草稿，包括失败尝试的经验；成功时还将完整的 audit/recipe 文件对保存到 ``task-specific``。使用 ``--no-auto-merge-memory`` 可保留记录而不合并。运行错误、中止、切换任务或关闭 Dashboard 会话时不合并。记忆目录说明见 :doc:`../guides/memory`。
 
-* 读取任务的 ``task-family`` 经验和 ``MEMORY.md`` / ``global`` 通用经验。
-* 失败证据写到运行目录的 ``attempts/``，工作笔记写到 ``<memory-dir>/_internal/inbox/<recipe_tag>/wip/``。
-* 人工确认成功后，整理 inbox 中的 ``task-family`` / ``global`` 草稿。 runner 从最后一次成功复位后的执行记录导出 recipe，并为任务 audit 补入人工判定及状态证据。recipe 保存实际调用序列，不自动执行旧坐标。
-* 默认不自动合并。加 ``--auto-merge-memory`` 后，只在本次运行成功且无 agent 错误时，使用现有 merge/validate/index 流程发布草稿和 ``task-specific`` audit/recipe 对。失败或中止的运行不自动发布草稿；原始日志与工作笔记继续保留。
+探索命令
+~~~~~~~~
 
-提示词维护
-~~~~~~~~~~
+在 Codex/Claude 终端交互（``--explore --interactive``）或 Dashboard 探索中，可使用：
 
-``robots/libero/prompts/explore.py`` 是 LIBERO 探索提示词；它包含仿真复位和 ``libero_terminated`` 约定，不能直接用于真机。
+* ``/success`` 或 ``/failure``：结束整个任务，而不只是判定当前尝试。成功要求场景已确认且复位成功；终端中可在首次复位前用 ``/failure`` 结束任务，Dashboard 中则需先用 ``/done`` 或 ``/abort`` 回答待处理的复位请求。
+* ``/done``：确认待处理的场景复位请求。
+* ``/continue``：回答待处理的判定请求并继续尝试。
+* ``/abort``：停止任务，相机不可用时也可使用。
 
-双臂的 ``robots/dual_franka/prompt_bundle.py`` 根据 ``mode`` 选择：普通运行由 ``prompts/system.py`` 和 ``prompts/user.py`` 组装；探索运行使用 ``prompts/explore.py``。任务名称、指令、成功标准和约束来自 ``tasks.py``，由 ``robot_spec.py`` 填充变量，统一通过 ``PromptBundle.render()`` 渲染。跨 session 的 system prompt 也包含当前任务及成功标准。
-
-真机探索提示词保留双臂工具和坐标约定，单独定义人工复位/判定、失败归档及三层 memory 流程；不继承 LIBERO 的“任务保证可解”或自动恢复物体等仿真假设。
-
-使用 ``--env-endpoint`` 连接外部服务时，服务必须在环境元数据中声明 ``explicit_reset_only=True``。未声明该能力的服务会在客户端复位前被拒绝，以保证机器人只在操作员确认后复位。部署时需现场验证相机观测更新、复位到位和任务判定。
-
-交互式结束指令
-~~~~~~~~~~~~~~
-
-在双臂 ``--explore --interactive`` 模式中，单独输入 ``/success`` 或 ``/failure`` 并回车，由程序直接结束当前探索，不作为聊天消息交给规划器。不带斜杠的 ``success``、``failure`` 和其他自然语言照常交给 Agent 理解。 ``/success`` 仅在场景确认并成功复位之后接受；``/failure`` 也可在等待首次复位时结束。两者都不需要等待 Agent 请求结果判定。首次接受的结束判定不会被后续相反判定覆盖。
-
-程序立即禁止新工具调用，并请求取消执行中的工具。VLA 在现有动作边界检查取消；已经发送的机器人动作、正在执行的 RPC 或推理需要返回后才能收尾。随后采集新观测并记录人工判定。``/success`` 导出本次成功尝试的动作序列和审计证据，调用现有 memory 合并接口保存到 ``task-specific``，然后关闭服务并退出。 ``/failure`` 保留运行日志和失败判定并退出，不发布成功经验。 ``/success`` 自动执行 memory 合并，无需额外指定 ``--auto-merge-memory``。观测或保存失败时不会报告完整成功，会返回错误；运行目录保留诊断记录。
-
-包含其他文字的消息（例如“抓取 success，但整个任务还没完成”）仍是普通聊天消息。场景重置可直接回复 ``/done``，也兼容 ``/operator <request-id> done``。代码更新需要重启当前任务进程后生效。
-
-其他程序级操作员指令
-~~~~~~~~~~~~~~~~~~~~
-
-* ``/done``：确认当前等待的场景准备请求，允许复位。不等待复位确认时会拒绝，不会提前缓存并触发之后的复位。
-* ``/continue``：回复当前结果判定请求，继续本轮尝试；不结束、不标记成功。没有结果判定请求时会提示拒绝。
-* ``/abort``：中止探索，禁止后续工具调用，在现有取消边界收尾后退出。保留中止记录，不发布成功 memory；相机不可用也可以中止。
-
-五个指令都需要单独输入并回车。不带 ``/`` 的 ``done``、``success``、 ``failure``、``continue``、``abort`` 均属于普通聊天，不控制程序。
-
-直接指令不会额外调用 global/task-family 经验提炼。已有规划器错误仍会保留并阻止自动发布 memory。
-
-独立 VLA 诊断控制台
-~~~~~~~~~~~~~~~~~~~
-
-原语测试复用 ``robots/dual_franka/run_manual_skill.sh``，VLA 诊断使用独立入口。不注册 task103/104，也不经过共享 runner 分发。``--task-id`` 选择已有 VLA 任务配置（默认 1），指令来自其 ``vla_instruction``，可用 ``--instruction`` 覆盖。请在源码仓库中运行以下命令。诊断只初始化环境和 VLA 组件，即使配置了 SAM3，也不会启动或连接其服务。
-
-.. code-block:: bash
-
-   python -m tests.e2e_tests.dual_franka.dual_franka_vla --task-id 1 \
-     --robot-config /path/to/robot.yaml \
-     --vla-model-path /path/to/checkpoint --vla-repo-id org/dataset
-
-支持 ``prompt <指令>``、``infer`` （不执行）、``step`` （重新推理并执行）、 ``run N`` （1–20 块）、``reset``、``quit``。初始化可能复位。执行前将输入与预测保存为 JSON/NPZ，拒绝无效观测或动作；执行结果不确定时禁止继续运动，需重启会话。 RPC 成功不代表任务成功。动作校验默认要求每块预测包含 20 步；如果 checkpoint 使用不同块长度，请通过 ``--expected-action-steps`` 显式指定匹配的值。外部模型服务使用标准 VLA 推理和健康检查 RPC。
+每条命令单独输入。不带斜杠的 ``success``、``failure`` 等词语是发给智能体的普通消息。已发送的机器人动作或 RPC 可能需返回后才能结束任务；这些命令不是急停。
 
 Flash 回放
 ----------
 
-双臂使用共享的 :ref:`Franka Flash 流程 <franka-flash>`。生成任务卡时使用
+双臂使用共享的 :ref:`Franka Flash 流程 <franka-flash>`。以下以任务 ``0`` 为例；其他任务应同时替换生成和回放参数中的任务编号。生成任务卡时使用
 ``--robot dual_franka --task dual_franka_t0``，回放时使用
 ``--robot dual_franka --planner flash --task-id 0``，并提供双臂任务卡及配置。
 平移标注使用具有深度和有效标定的 ``base``、``d455``、``left_wrist`` 或
 ``right_wrist`` 相机。移动原语通过 ``arm: left`` 或 ``arm: right`` 指定机械臂；
 左臂工作空间检查会把共享的右基座目标坐标转换到左基座坐标系。
-
-停止运行
-------------
-
-在终端按 Ctrl+C 请求结束 RPent。已经发送的机器人动作或正在执行的 RPC 需要返回后才能完成清理；紧急情况下应使用硬件急停按钮。停止后检查两条机械臂与夹爪状态，再按控制系统的停机流程关闭服务。

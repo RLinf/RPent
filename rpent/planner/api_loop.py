@@ -55,7 +55,11 @@ from pydantic_ai import (
 from pydantic_ai.agent import WrapperAgent
 from pydantic_ai.capabilities import AbstractCapability, Thinking, on_event
 from pydantic_ai.capabilities.abstract import AgentNode, NodeResult, WrapRunHandler
-from pydantic_ai.exceptions import UsageLimitExceeded, UserError
+from pydantic_ai.exceptions import (
+    UnexpectedModelBehavior,
+    UsageLimitExceeded,
+    UserError,
+)
 from pydantic_ai.messages import ModelMessage, UserContent
 from pydantic_ai.models import Model, ModelRequestContext
 from pydantic_ai.run import AgentRun, AgentRunResult
@@ -80,6 +84,12 @@ logger = get_logger("api")
 
 class _RequestBudgetExhausted(Exception):
     """The conversation has used its configured model-request budget."""
+
+
+def _is_response_truncation(exc: UnexpectedModelBehavior) -> bool:
+    """Match the SDK's token-limit-without-usable-output failure."""
+    message = str(exc).lower()
+    return "token limit" in message and "before any response was generated" in message
 
 
 class ApiAgentLoop(Planner):
@@ -160,7 +170,9 @@ class ApiAgentLoop(Planner):
             end_strategy="early",
             # Finish refusals may span attempts; the request budget still applies.
             retries={"output": max_turns},
-            model_settings=_build_model_settings(self.model, self.max_tokens),
+            model_settings=_build_model_settings(
+                self.model, self.max_tokens, self.reasoning_effort
+            ),
             capabilities=[
                 SlidingWindowCompaction(
                     max_messages=80, max_fraction=0.8, keep_messages=40
@@ -192,8 +204,14 @@ class ApiAgentLoop(Planner):
             session.error = None
             logger.info("%s", exc)
         except Exception as exc:
-            session.error = f"{type(exc).__name__}: {exc}"
-            logger.exception("Harness planner failed")
+            if isinstance(exc, UnexpectedModelBehavior) and _is_response_truncation(
+                exc
+            ):
+                session.error = f"planner response truncated (length): {exc}"
+                logger.warning("%s", session.error)
+            else:
+                session.error = f"{type(exc).__name__}: {exc}"
+                logger.exception("Harness planner failed")
         finally:
             session.emit_usage()
         return PlannerResult(
@@ -210,9 +228,13 @@ class ApiAgentLoop(Planner):
         )
 
 
-def _build_model_settings(model: Model, max_tokens: int) -> ModelSettings:
+def _build_model_settings(
+    model: Model, max_tokens: int, reasoning_effort: str | None = None
+) -> ModelSettings:
     """Enable parallel tool requests and preserve Anthropic prompt caching."""
     from pydantic_ai.models.anthropic import AnthropicModel, AnthropicModelSettings
+    from pydantic_ai.models.openai import OpenAIChatModel, OpenAIChatModelSettings
+    from pydantic_ai.profiles.openai import OPENAI_REASONING_EFFORT_MAP
 
     if isinstance(model, AnthropicModel):
         return AnthropicModelSettings(
@@ -221,6 +243,14 @@ def _build_model_settings(model: Model, max_tokens: int) -> ModelSettings:
             anthropic_cache_instructions=True,
             anthropic_cache_tool_definitions=True,
             anthropic_cache_messages=True,
+        )
+    if isinstance(model, OpenAIChatModel) and reasoning_effort is not None:
+        return OpenAIChatModelSettings(
+            max_tokens=max_tokens,
+            parallel_tool_calls=True,
+            openai_reasoning_effort=OPENAI_REASONING_EFFORT_MAP.get(
+                reasoning_effort, reasoning_effort
+            ),
         )
     return ModelSettings(max_tokens=max_tokens, parallel_tool_calls=True)
 
@@ -478,7 +508,12 @@ class _Session(AbstractCapability):
             self.error = None
             raise
         except Exception as exc:
-            self.error = f"{type(exc).__name__}: {exc}"
+            if isinstance(exc, UnexpectedModelBehavior) and _is_response_truncation(
+                exc
+            ):
+                self.error = f"planner response truncated (length): {exc}"
+            else:
+                self.error = f"{type(exc).__name__}: {exc}"
             raise
         finally:
             # clai also keeps its own per-run usage for /usage. Observe it without

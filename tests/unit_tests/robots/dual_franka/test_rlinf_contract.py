@@ -47,6 +47,7 @@ _HARDWARE_KEYS = {
     "left_controller_node_rank",
     "right_controller_node_rank",
     "node_rank",
+    "compliance",
 }
 
 

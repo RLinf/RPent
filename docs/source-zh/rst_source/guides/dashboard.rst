@@ -24,7 +24,7 @@
    rpent --robot libero --suite libero_10_task --task 0 --seed 1 \
      --planner api --model anthropic:claude-opus-4-8 --interactive
 
-模型认证配置见 :doc:`configure_planner`。``--interactive`` 不能与 ``--dashboard`` 同时使用。单臂 Franka 和双臂 Franka 的普通运行需要使用操作员终端；双臂探索中的交互方式见 :doc:`../real_world_robots/dual_franka`。
+模型认证配置见 :doc:`configure_planner`。``--interactive`` 不能与 ``--dashboard`` 同时使用。真机配置及人工确认方式见 :doc:`../real_world_robots/franka` 和 :doc:`../real_world_robots/dual_franka`。
 
 .. _dashboard-usage:
 
