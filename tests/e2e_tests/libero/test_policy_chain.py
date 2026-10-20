@@ -38,7 +38,6 @@ def test_wam_policy_chain(wam_argv, tmp_path, record_property) -> None:
         output_dir=tmp_path / "chain",
         action=ScriptedToolCall("wam_act", {"max_chunks": 4}),
         action_count_field="chunks",
-        use_memory=False,
     )
     assert result["status"] == "passed"
     assert list((tmp_path / "chain" / "agentview_high.png").glob("*.png"))

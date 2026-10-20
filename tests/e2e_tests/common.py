@@ -47,22 +47,20 @@ def run_scripted_policy_chain(
     output_dir: Path,
     action: ScriptedToolCall,
     action_count_field: str,
-    use_memory: bool = True,
 ) -> dict[str, Any]:
     """Run the public CLI against a deterministic loopback planner."""
     memory_dir = output_dir.parent / "offline-memory"
-    if use_memory:
-        memory_dir.mkdir(parents=True, exist_ok=True)
-        (memory_dir / "MEMORY.md").write_text(
-            "# Offline GPU E2E memory\n",
-            encoding="utf-8",
-        )
-        global_dir = memory_dir / "global"
-        global_dir.mkdir(exist_ok=True)
-        (global_dir / "GLOBAL_MEMORY.md").write_text(
-            "# Offline GPU E2E memory\n\nNo task-specific guidance is provided.\n",
-            encoding="utf-8",
-        )
+    memory_dir.mkdir(parents=True, exist_ok=True)
+    (memory_dir / "MEMORY.md").write_text(
+        "# Offline GPU E2E memory\n",
+        encoding="utf-8",
+    )
+    global_dir = memory_dir / "global"
+    global_dir.mkdir(exist_ok=True)
+    (global_dir / "GLOBAL_MEMORY.md").write_text(
+        "# Offline GPU E2E memory\n\nNo task-specific guidance is provided.\n",
+        encoding="utf-8",
+    )
     script = (
         action,
         ScriptedToolCall(
@@ -90,7 +88,8 @@ def run_scripted_policy_chain(
         "--no-images",
         "--memory-profile",
         "local",
-        *(["--memory-dir", str(memory_dir)] if use_memory else []),
+        "--memory-dir",
+        str(memory_dir),
         "--output-dir",
         str(output_dir),
         *robot_argv,

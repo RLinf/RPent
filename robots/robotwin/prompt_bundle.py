@@ -47,7 +47,8 @@ def user_prompt(
 ) -> PromptNode:
     if (variables or {}).get("policy_kind") == "wam":
         return {
-            "TASK": "Inspect view_env_state for the native task and current scene, then use wam_act."
+            "TASK": "Inspect view_env_state for the native task and current scene, then use wam_act.",
+            "MEMORY": "Local memory directory: {{memory_dir}}.",
         }
     prompt = {
         "CELL": user_parts.CELL,

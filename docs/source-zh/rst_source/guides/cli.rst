@@ -93,7 +93,7 @@ LIBERO 使用 ``--suite``、``--task``、``--seed`` 和 ``--libero-type`` 选择
 
 ``--env-endpoint``、``--vla-endpoint`` 和 LIBERO 的 ``--sam3-endpoint`` 可连接已启动的环境、VLA 或 SAM3 服务器，地址格式为 ``[protocol://]host:port``，默认协议为 ``http``。GPU 分配和远程服务见 :doc:`advanced_deployment`。
 
-LIBERO 和 RoboTwin 还支持 ``--wam-backend``，配合 ``--wam-endpoint`` 或 ``--wam-checkpoint`` 加 ``--wam-python`` 使用。WAM 与 VLA 参数互斥。WAM 默认采用 ``local`` 记忆模式但不注册记忆工具，拒绝 HF 记忆、``--memory-dir``、Flash 和探索模式。模型启动参数及支持的组合见 :doc:`../development/wam_backends`。
+LIBERO 和 RoboTwin 还支持 ``--wam-backend``，配合 ``--wam-endpoint`` 或 ``--wam-checkpoint`` 加 ``--wam-python`` 使用。WAM 与 VLA 参数互斥。WAM 采用 ``local`` 记忆模式并注册记忆文件工具，默认目录按后端区分，可通过 ``--memory-dir`` 指定目录；目前不支持 HF 记忆、Flash 和探索模式。模型启动参数及支持的组合见 :doc:`../development/wam_backends`。
 
 本地模型服务的 ``--vla-cuda-device`` 和 ``--wam-cuda-device`` 均由 ``am_runtime.py`` 注册，未设置时 worker 继承启动环境的 ``CUDA_VISIBLE_DEVICES``。VLA 参数适用于 LIBERO、RoboTwin、RoboCasa、RoboDojo 和 dual-Franka。Franka、YAM 连接外部部署的 VLA 服务，GPU 在部署服务时选择。
 

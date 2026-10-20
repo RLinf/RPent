@@ -61,6 +61,7 @@ def user_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
     if (variables or {}).get("policy_kind") == "wam":
         return {
             "CELL": user_parts.CELL,
+            "MEMORY": "Local memory directory: {{memory_dir}}.",
             "BEGIN": "Call view_env_state at step 0, inspect the task and camera "
             "images, and use wam_act to begin.",
         }

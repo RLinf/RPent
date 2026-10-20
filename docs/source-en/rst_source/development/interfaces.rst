@@ -51,10 +51,10 @@ functions implemented in ``robot_spec.py`` for ``main.py`` to call:
 
 ``get_toolkit`` usually passes ``runtime_kwargs`` into your robot subclass;
 ``dashboard_events`` and ``config`` are supplied by the active runner. It must
-construct a :class:`~rpent.memory.MemoryManager` when memory is enabled (rooted at the configured
+construct a :class:`~rpent.memory.MemoryManager` (rooted at the configured
 ``config.prompt_vars["memory_dir"]``, falling back to
 ``get_memory_dir(robot_name)`` when unset) and pass it to the toolkit.
-Pass ``memory=None`` to omit memory file tools while retaining ``finish``.
+The manager is required; the toolkit always registers memory file tools and ``finish``.
 Memory access permissions are configured on the manager. Robots that need
 extra toolkit arguments may declare them as keyword-only parameters; LIBERO
 additionally uses ``mode``, ``attempts_per_session``, and ``state_output_dir``.

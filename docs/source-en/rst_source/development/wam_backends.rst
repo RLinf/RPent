@@ -157,10 +157,12 @@ checkpoint compatibility. RoboTwin's EEF16 controller is defined, but its
 current Fast-WAM adapter uses qpos14. Cosmos Policy has no RoboTwin adapter.
 
 ``future_observation`` and ``value`` reserve space for model predictions.
-Separate forecasting/planning RPCs, planner consumption of predictions and WAM
-memory integration are not implemented. WAM evaluation currently excludes
-Flash and exploration. Passing ``memory=None`` skips memory file tools while
-retaining ``finish`` and platform tools.
+Separate forecasting/planning RPCs and planner consumption of predictions are
+not implemented. Every toolkit requires a ``MemoryManager`` and registers memory
+file tools. WAM uses local memory under the platform's memory root, in a
+subdirectory named after the backend; ``--memory-dir`` overrides that directory.
+The corpus may be empty. No compatible HF corpus is configured for WAM, and WAM
+evaluation currently excludes HF memory, Flash and exploration.
 
 Offline checks cover adapters, control matching, malformed observations/actions
 and real local HTTP/socket session lifecycle. Opt-in GPU checks exercise model
@@ -201,7 +203,8 @@ to ``libero_spatial``, task 0, seed 0; set ``RPENT_WAM_SUITE=libero_spatial_task
 and use Pro assets for LIBERO-Pro. Component tests record checkpoint identity,
 one inference time and native success. CLI tests use a scripted planner,
 execute bounded ``wam_act`` calls and check state artifacts and ``finish``.
-They use neither Qwen nor Memory and do not estimate benchmark success rates.
+They use a local memory fixture without task guidance and no Qwen planner;
+they do not estimate benchmark success rates or memory benefits.
 These opt-in tests are separate from the standard GPU provisioning runner.
 
 Worker Deployment

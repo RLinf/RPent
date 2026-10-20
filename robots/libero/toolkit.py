@@ -49,7 +49,7 @@ class LiberoToolkit(Toolkit):
         *,
         runtime_kwargs: dict[str, Any],
         dashboard_events: DashboardEventSink,
-        memory: MemoryManager | None = None,
+        memory: MemoryManager,
         enable_direct_action: bool = False,
         mode: str = "evaluation",
         attempts_per_session: int = 0,

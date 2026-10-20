@@ -81,7 +81,7 @@ def _run_config(memory_dir: Path, *, recipe_tag: str = "cell-s0") -> RunConfig:
 
 
 @pytest.mark.parametrize("backend", ["cosmos-policy", "fast-wam"])
-def test_wam_configuration_and_toolkit_exclude_memory(tmp_path, monkeypatch, backend):
+def test_wam_configuration_and_toolkit_use_local_memory(tmp_path, monkeypatch, backend):
     parser = argparse.ArgumentParser()
     parser.add_argument("--output-dir")
     parser.add_argument("--memory-profile")
@@ -104,7 +104,7 @@ def test_wam_configuration_and_toolkit_exclude_memory(tmp_path, monkeypatch, bac
     )
     config = spec.parse_config(args)
     assert args.libero_type == "pro" and args.memory_profile == "local"
-    assert config.prompt_vars["memory_enabled"] is False
+    assert Path(config.prompt_vars["memory_dir"]).name == backend
     assert "wam" in {
         item["name"] for item in spec.resolve_dashboard(args)["runtime_components"]
     }
@@ -121,9 +121,12 @@ def test_wam_configuration_and_toolkit_exclude_memory(tmp_path, monkeypatch, bac
         dashboard_events=NullDashboardEventSink(),
         config=config,
     )
-    assert instance.memory is None
+    assert isinstance(instance.memory, MemoryManager)
+    assert instance.memory.root == Path(config.prompt_vars["memory_dir"]).resolve()
+    args.memory_dir = str(tmp_path / "custom-memory")
+    assert spec.parse_config(args).prompt_vars["memory_dir"] == args.memory_dir
     args.memory_profile = "hf"
-    with pytest.raises(ValueError, match="memory is not supported"):
+    with pytest.raises(ValueError, match="no compatible HF corpus"):
         spec.parse_config(args)
 
 

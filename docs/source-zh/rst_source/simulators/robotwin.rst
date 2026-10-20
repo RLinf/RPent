@@ -147,7 +147,7 @@ Fast-WAM 配置
      --wam-backend fast-wam --wam-endpoint http://127.0.0.1:8117 \
      --memory-profile local --planner api --model <planner-model>
 
-``wam_act(prompt=None, max_chunks=1)`` 替换 ``lingbot_act``；每个 chunk 通过 ``action_type="qpos"`` 执行 worker 配置的 ``execute_steps`` 个动作。WAM 不启用记忆和探索，以原生 ``eval_success`` 判断任务成功。下文的 LingBot 和记忆流程适用于 VLA 路径。
+``wam_act(prompt=None, max_chunks=1)`` 替换 ``lingbot_act``；每个 chunk 通过 ``action_type="qpos"`` 执行 worker 配置的 ``execute_steps`` 个动作。WAM 必须启用本地记忆管理器和文件工具，默认目录按后端区分，语料允许为空；可通过 ``--memory-dir`` 指定兼容的本地语料，目前不支持 HF 记忆和探索。任务成功由原生 ``eval_success`` 判断。下文的 LingBot 和 HF 记忆流程适用于 VLA 路径。
 
 运行一个任务
 ------------

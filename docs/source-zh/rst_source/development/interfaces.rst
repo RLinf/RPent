@@ -81,7 +81,7 @@ Planner
 
 用 ``@tool`` 声明函数或方法，参数类型注解和 Google 风格 docstring 提供 schema 与说明；``@tool(readonly=True)`` 允许只读工具并行执行，并跳过动作后的状态采集。处理函数返回 ``ToolResult(data=..., images=...)``：``data`` 保存 JSON 数据，按需包含 ``error`` 或 ``_finish``；``images`` 保存 PNG 字节。
 
-提供记忆管理器时，基类注册公共文件工具；传入 ``memory=None`` 时跳过这些工具，仍保留 ``finish``。子类 ``super().__init__()`` 后追加本机器人工具即可。逐步状态与 ``view_env_state`` 见 :doc:`add_primitive`。
+必须传入 ``MemoryManager``，基类始终注册公共文件工具和 ``finish``。子类 ``super().__init__()`` 后追加本机器人工具即可。逐步状态与 ``view_env_state`` 见 :doc:`add_primitive`。
 
 未设置 ``readonly=True`` 的工具按进入调度队列的顺序独占执行。等待中的独占调用优先于新的只读调用，独占范围包括观测采集和 Dashboard 发布。只读工具如果会更新共享缓存，应自行同步这些更新。``EnvState.save`` 会串行保存附件。
 

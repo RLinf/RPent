@@ -100,8 +100,9 @@ LIBERO selects tasks with ``--suite``, ``--task``, ``--seed``, and ``--libero-ty
 
 LIBERO and RoboTwin also accept ``--wam-backend`` with either ``--wam-endpoint``
 or ``--wam-checkpoint`` plus ``--wam-python``. WAM and VLA options are mutually
-exclusive. WAM defaults to the ``local`` memory profile without memory tools;
-it rejects HF memory, ``--memory-dir``, Flash and exploration. See
+exclusive. WAM uses the ``local`` memory profile with memory file tools and a
+backend-specific directory; ``--memory-dir`` overrides it. WAM currently rejects
+HF memory, Flash and exploration. See
 :doc:`../development/wam_backends` for model launch options and supported pairs.
 For local model services, ``--vla-cuda-device`` and ``--wam-cuda-device``
 select the corresponding model GPU independently of the simulator. Both are

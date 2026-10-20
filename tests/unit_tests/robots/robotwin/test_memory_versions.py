@@ -15,6 +15,7 @@
 """RoboTwin corpus overrides through shared CLI/Dashboard preparation."""
 
 from argparse import Namespace
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -138,7 +139,7 @@ def test_wam_skips_hf_preparation(monkeypatch):
     spec.validate_args(args)
     config = spec.parse_config(args)
     prepare_run_memory(args, spec, config)
-    assert config.prompt_vars["memory_enabled"] is False
+    assert Path(config.prompt_vars["memory_dir"]).name == "fast-wam"
     assert args.memory_dir is None
     sync.assert_not_called()
     fetch.assert_not_called()

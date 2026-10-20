@@ -230,14 +230,10 @@ def get_toolkit(
     """Return the RoboTwin toolkit for the current session."""
     from robots.robotwin.toolkit import RoboTwinToolkit
 
-    memory = (
-        MemoryManager(
-            root=config.prompt_vars.get("memory_dir") or get_memory_dir("robotwin"),
-            memory_access="inbox_write" if mode == "exploration" else "read_only",
-            inbox_cell_tag=config.recipe_tag if mode == "exploration" else None,
-        )
-        if config.prompt_vars.get("memory_enabled", True)
-        else None
+    memory = MemoryManager(
+        root=config.prompt_vars.get("memory_dir") or get_memory_dir("robotwin"),
+        memory_access="inbox_write" if mode == "exploration" else "read_only",
+        inbox_cell_tag=config.recipe_tag if mode == "exploration" else None,
     )
     return RoboTwinToolkit(
         runtime_kwargs=runtime_kwargs,
@@ -343,9 +339,9 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     if wam is not None:
         if getattr(args, "explore", False) or getattr(args, "planner", None) == "flash":
             raise ValueError("WAM supports evaluation without Flash Mode only")
-        if args.memory_dir or getattr(args, "memory_profile", None) == "hf":
+        if getattr(args, "memory_profile", None) == "hf":
             raise ValueError(
-                "WAM memory is not supported; use --memory-profile local without --memory-dir"
+                "WAM requires --memory-profile local; no compatible HF corpus is configured"
             )
         args.memory_profile = "local"
     env_cuda_device, vla_cuda_device = _resolve_cuda_devices(args)
@@ -357,10 +353,13 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         output_dir = get_repo_root() / "logs" / f"{timestamp}_{recipe_tag}"
     output_dir = Path(output_dir)
     initial_seed = int(args.seed)
+    default_memory_dir = get_memory_dir("robotwin")
+    if wam is not None:
+        default_memory_dir /= wam.backend
     memory_dir = (
         Path(args.memory_dir).expanduser().resolve()
         if args.memory_dir
-        else get_memory_dir("robotwin")
+        else default_memory_dir
     )
     explore = bool(getattr(args, "explore", False))
     memory_profile = getattr(args, "memory_profile", None) or (
@@ -383,9 +382,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         "recipe_tag": recipe_tag,
     }
     if wam is not None:
-        prompt_vars.update(
-            policy_kind="wam", policy_backend=wam.backend, memory_enabled=False
-        )
+        prompt_vars.update(policy_kind="wam", policy_backend=wam.backend)
     if explore:
         prompt_vars.update(
             {

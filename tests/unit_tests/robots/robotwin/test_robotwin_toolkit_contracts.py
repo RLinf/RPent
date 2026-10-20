@@ -198,16 +198,13 @@ def test_toolkit_constructs_and_captures_an_initial_observation(
             "policy_kind": policy_kind,
         },
         dashboard_events=NullDashboardEventSink(),
-        memory=MemoryManager(tmp_path / "memory") if policy_kind == "vla" else None,
+        memory=MemoryManager(tmp_path / "memory"),
     )
 
     if policy_kind == "wam":
         model.reset.assert_called_once()
-        expected = (EXPECTED_TOOLS - COMMON_TOOLS - {"lingbot_act"}) | {
-            "finish",
-            "wam_act",
-        }
-        common = {"finish"}
+        expected = (EXPECTED_TOOLS - {"lingbot_act"}) | {"wam_act"}
+        common = COMMON_TOOLS
     else:
         model.reset.assert_not_called()
         expected, common = EXPECTED_TOOLS, COMMON_TOOLS

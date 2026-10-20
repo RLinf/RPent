@@ -93,7 +93,7 @@ RPC 路由为 ``wam.capabilities``、``wam.predict`` 和 ``wam.reset``。请求�
 
 增加平台时，提供物理观测、原生控制定义、平台 client 及工具和运行时接线。每个模型仍需匹配的 checkpoint 和配对转换；注册本身不能证明权重兼容。RoboTwin 已定义 EEF16 控制方式，但当前 Fast-WAM adapter 使用 qpos14。Cosmos Policy 尚无 RoboTwin adapter。
 
-``future_observation`` 和 ``value`` 为模型预测预留字段。独立的预测与规划 RPC、规划器使用预测结果、WAM 记忆接入尚未实现。当前 WAM 评测不支持 Flash 和探索模式。传入 ``memory=None`` 时不注册记忆文件工具，仍保留 ``finish`` 和平台工具。
+``future_observation`` 和 ``value`` 为模型预测预留字段，独立的预测与规划 RPC 以及规划器使用预测结果尚未实现。每个 toolkit 必须持有 ``MemoryManager``，并注册记忆文件工具。WAM 默认使用平台记忆根目录下以后端命名的本地子目录，可通过 ``--memory-dir`` 指定目录，语料允许为空。WAM 尚未配置兼容的 HF 经验库，当前评测不支持 HF 记忆、Flash 和探索模式。
 
 离线测试覆盖 adapter、控制匹配、无效观测与动作，以及真实本机 HTTP/socket 会话生命周期。显式启用的 GPU 测试覆盖实模推理和有限步数的仿真器、toolkit 执行，命令见 ``tests/README.md``。这些测试通过说明接入链路可用，不代表 benchmark 成功率。
 
@@ -118,7 +118,7 @@ WAM 沿用 VLA/SAM 的测试组织。``test_am.py`` 覆盖公共启动、VLA 转
      pytest tests/e2e_tests/robotwin/test_components.py \
        tests/e2e_tests/robotwin/test_policy_chain.py -k wam -v
 
-没有设置 endpoint 的模型用例会跳过。LIBERO 默认使用 ``libero_spatial``、task 0、seed 0；测试 LIBERO-Pro 时设置 ``RPENT_WAM_SUITE=libero_spatial_task`` 并使用 Pro 资产。组件测试记录 checkpoint、单次推理耗时和原生成功标志。CLI 测试用脚本化 planner 执行有限次数的 ``wam_act``，检查状态产物和 ``finish``。测试不使用 Qwen 或 Memory，也不估计 benchmark 成功率。这些显式启用的测试独立于标准 GPU 环境准备脚本。
+没有设置 endpoint 的模型用例会跳过。LIBERO 默认使用 ``libero_spatial``、task 0、seed 0；测试 LIBERO-Pro 时设置 ``RPENT_WAM_SUITE=libero_spatial_task`` 并使用 Pro 资产。组件测试记录 checkpoint、单次推理耗时和原生成功标志。CLI 测试用脚本化 planner 执行有限次数的 ``wam_act``，检查状态产物和 ``finish``。测试使用不含任务指导的本地记忆 fixture，不使用 Qwen，也不估计 benchmark 成功率或记忆收益。这些显式启用的测试独立于标准 GPU 环境准备脚本。
 
 部署模型服务
 ------------

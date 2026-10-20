@@ -158,13 +158,11 @@ def get_toolkit(
     from robots.libero.toolkit import LiberoToolkit
 
     explore = mode == "exploration"
-    memory = None
-    if config.prompt_vars.get("memory_enabled", True):
-        memory = MemoryManager(
-            root=config.prompt_vars.get("memory_dir") or get_memory_dir("libero"),
-            memory_access="inbox_write" if explore else "read_only",
-            inbox_cell_tag=config.recipe_tag if explore else None,
-        )
+    memory = MemoryManager(
+        root=config.prompt_vars.get("memory_dir") or get_memory_dir("libero"),
+        memory_access="inbox_write" if explore else "read_only",
+        inbox_cell_tag=config.recipe_tag if explore else None,
+    )
     return LiberoToolkit(
         runtime_kwargs=runtime_kwargs,
         dashboard_events=dashboard_events,
@@ -297,7 +295,6 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     wam = select_wam(args, "libero")
     policy_kind = "wam" if wam else "vla"
     policy_backend = wam.backend if wam else (args.vla_backend or "pi05")
-    memory_enabled = wam is None
     if wam:
         if planner == "flash" or getattr(args, "explore", False):
             raise ValueError("WAM supports evaluation without Flash Mode only")
@@ -305,10 +302,8 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             raise ValueError("WAM supports standard and pro environments only")
         if getattr(args, "memory_profile", None) == "hf":
             raise ValueError(
-                "WAM requires --memory-profile local; WAM memory is not supported"
+                "WAM requires --memory-profile local; no compatible HF corpus is configured"
             )
-        if args.memory_dir is not None:
-            raise ValueError("WAM does not support --memory-dir")
     if planner == "flash":
         if getattr(args, "explore", False):
             raise ValueError("Flash Mode is evaluation-only; remove --explore")
@@ -333,18 +328,21 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     if explore and args.collect_flywheel_data:
         raise ValueError("flywheel collection supports evaluation mode only")
     memory_profile = requested_profile or (
-        "local" if explore or not memory_enabled else "hf"
+        "local" if explore or wam is not None else "hf"
     )
     if memory_profile == "hf" and args.memory_dir is not None:
         raise ValueError("--memory-dir requires --memory-profile local or --explore")
     args.memory_profile = memory_profile
+    default_memory_dir = get_memory_dir("libero")
+    if wam is not None:
+        default_memory_dir /= wam.backend
     memory_dir = (
         Path(args.memory_dir).expanduser().resolve()
         if args.memory_dir
-        else get_memory_dir("libero")
+        else default_memory_dir
     )
     local_eval = not explore and memory_profile == "local"
-    if local_eval and memory_enabled:
+    if local_eval and wam is None:
         if planner == "flash":
             from robots.libero.memory import replay_directory
 
@@ -373,7 +371,6 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     prompt_vars = {
         "policy_backend": policy_backend,
         "policy_kind": policy_kind,
-        "memory_enabled": memory_enabled,
         "suite": args.suite,
         "task": args.task,
         "seed": args.seed,
@@ -385,12 +382,9 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         "session_number": 1,
         "session_max": max(1, args.explore_sessions) if explore else 1,
     }
-    if memory_enabled:
-        prompt_vars["memory_dir"] = str(memory_dir)
-        # Per-cell inbox: parallel explore runs must not append to a shared file.
-        prompt_vars["memory_inbox"] = str(
-            memory_dir / "_internal" / "inbox" / recipe_tag
-        )
+    prompt_vars["memory_dir"] = str(memory_dir)
+    # Per-cell inbox: parallel explore runs must not append to a shared file.
+    prompt_vars["memory_inbox"] = str(memory_dir / "_internal" / "inbox" / recipe_tag)
 
     output_dir = args.output_dir
     if output_dir is None:

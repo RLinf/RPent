@@ -160,8 +160,10 @@ switching from a LingBot setup and omit VLA options. From the simulator environm
 
 ``wam_act(prompt=None, max_chunks=1)`` replaces ``lingbot_act``; each chunk
 executes the worker's configured ``execute_steps`` through ``action_type="qpos"``.
-Memory and exploration are disabled for WAM. Native ``eval_success`` determines
-task success. The LingBot and memory workflows below apply to the VLA path.
+WAM uses a required local memory manager and file tools, with a backend-specific
+directory that may be empty; ``--memory-dir`` selects a compatible local corpus.
+HF memory and exploration are unsupported. Native ``eval_success`` determines
+task success. The LingBot and HF memory workflows below apply to the VLA path.
 
 Run a Task
 ----------

@@ -206,8 +206,9 @@ and SAM3 setup above. Pi0.5 weights are not needed for WAM. With Cosmos on port 
 
 Fast-WAM uses ``--wam-backend fast-wam`` and its worker endpoint. For LIBERO-Pro,
 select a Pro suite and ``--libero-type pro`` in a Pro environment. WAM excludes
-LIBERO-Plus, Flash, exploration and memory. The ``local`` profile skips HF memory
-preparation; no memory manager or file tools are created.
+LIBERO-Plus, Flash and exploration. WAM uses a required local memory manager
+and file tools, with a backend-specific directory that may be empty.
+Use ``--memory-dir`` to select a compatible local corpus; HF memory is unsupported.
 ``wam_act(prompt=None, max_chunks=1)`` replaces the Pi0.5 tools and executes one
 to four chunks with fresh observations. Cosmos chunks contain 16 actions;
 Fast-WAM chunks contain ``execute_steps`` actions. A prompt override applies to
@@ -227,7 +228,8 @@ Inspect the final state with ``view_env_state(step=-1)``. Its top-level ``termin
 Task Memory and Exploration Mode
 --------------------------------
 
-This section applies to the VLA path. WAM runs without memory.
+The HF memory and exploration workflows in this section apply to VLA.
+WAM uses local memory as described above.
 
 Evaluation is single-attempt and reads memory without updating it. The default
 ``hf`` profile uses ``--memory-version auto`` to select memory by model. See

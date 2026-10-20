@@ -36,7 +36,6 @@ def test_wam_policy_chain(wam_argv, tmp_path, record_property) -> None:
         output_dir=tmp_path / "chain",
         action=ScriptedToolCall("wam_act", {"max_chunks": 2}),
         action_count_field="executed_steps",
-        use_memory=False,
     )
     assert result["status"] == "passed"
     states = json.loads((tmp_path / "chain" / "states.json").read_text())["steps"]
