@@ -34,7 +34,7 @@ from rpent.cli.main import (
 from rpent.dashboard.events import RunStartedEvent
 from rpent.evaluation import RunFinalizationContext
 from rpent.memory import MemoryManager
-from rpent.planner.base import build_planner
+from rpent.planner.base import build_planner, is_recoverable_agent_error
 from rpent.robots import get_toolkit
 from rpent.utils.config import get_memory_dir
 from rpent.utils.logging import get_logger, init_output_dir
@@ -139,9 +139,16 @@ def run_dashboard_session(
         and not getattr(args, "explore", False)
         and getattr(args, "memory_profile", "hf") == "hf"
     ):
-        MemoryManager(get_memory_dir(robot_spec.name)).sync(
-            remote_repo=robot_spec.memory_repo_id,
-        )
+        if args.memory_repo is not None:
+            from rpent.memory.source import prepare_explicit_source
+
+            args.memory_dir = str(
+                prepare_explicit_source(args.memory_repo, robot_spec.name)
+            )
+        else:
+            MemoryManager(get_memory_dir(robot_spec.name)).sync(
+                remote_repo=robot_spec.memory_repo_id,
+            )
 
     controller = DashboardSessionController(
         state=state,
@@ -352,11 +359,14 @@ def _run_dashboard_task(
                 ):
                     break
                 if agent_error:
-                    if session_number < sessions and "timed out" in agent_error.lower():
+                    if session_number < sessions and is_recoverable_agent_error(
+                        agent_error
+                    ):
                         logger.warning(
-                            "session %d/%d timed out; continuing with a fresh handoff",
+                            "session %d/%d ended with %s; continuing with a fresh handoff",
                             session_number,
                             sessions,
+                            agent_error,
                         )
                         continue
                     break

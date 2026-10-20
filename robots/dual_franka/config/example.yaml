@@ -36,6 +36,13 @@ cameras:
       serial: "311322304048"
       type: realsense
 
+vla:
+  # Policy instruction for manual VLA calls; --instruction overrides this value.
+  instruction: >-
+    I am currently performing a desk organizing task. I will use my right hand
+    to hand bowls, plates, cups, chopsticks, and a spoon to my left hand in
+    order, and then put them into a basket.
+
 workspace:
   # Tune these setup-specific values for the table layout and arm mounting.
   joint_reset_qpos:

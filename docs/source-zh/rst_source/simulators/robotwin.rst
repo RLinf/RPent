@@ -242,3 +242,15 @@ RPent 默认使用 RoboTwin 的 ``demo_randomized`` 任务配置，该配置带�
      --max-episode-steps 10000
 
 本例运行 ``beat_block_hammer`` 的 seed 100000。复现全部成绩时，按 ``demo_randomized.json`` 为每个任务逐一运行其中列出的 seed。运行前还需按照本页前文配置 RoboTwin 仿真资源和 LingBot-VLA checkpoint。每次运行仅在 ``TASK_ENV.eval_success`` 的最终值为 ``true`` 时计为成功；规划器调用 ``finish`` 本身不代表成功。
+
+HF 语料选择
+-----------
+
+CLI 与 Dashboard 默认继续使用 HF ``main`` 的未分版本 ``robotwin/`` 语料。
+如需显式选择已发布的子目录，添加
+``--memory-profile hf --memory-version <语料目录名>``，读取
+``robotwin/<语料目录名>/``。目前不预设模型与语料的映射。
+可用 ``--memory-repo owner/dataset@revision`` 选择其他数据集或版本。
+离线评测前先下载对应子目录，再使用
+``--memory-profile local --memory-dir <下载的语料目录>``，不传
+``--memory-version``。所选目录需保留 RoboTwin 的记忆布局。
