@@ -16,7 +16,6 @@ grippers to ``[0, 1]``, and holds both arms after any failed read or write.
 
 from __future__ import annotations
 
-import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -24,7 +23,9 @@ from typing import Any
 
 import numpy as np
 
-_LOGGER = logging.getLogger(__name__)
+from rpent.utils.logging import get_logger
+
+_LOGGER = get_logger(__name__)
 _SIDES = ("left", "right")
 _ARM_JOINTS = np.array([*range(6), *range(7, 13)])
 
