@@ -159,6 +159,7 @@ Thank you to all contributors, listed in no particular order.
 <https://github.com/Gaojr-2024>`__ `@Hiforever-h <https://github.com/Hiforever-h>`__ `@scilwb
 <https://github.com/scilwb>`__ `@ZhuWeiwen315 <https://github.com/ZhuWeiwen315>`__ `@skyswordx
 <https://github.com/skyswordx>`__ `@littleZ05 <https://github.com/littleZ05>`__
+`@mvanhorn <https://github.com/mvanhorn>`__ `@akushonkamen <https://github.com/akushonkamen>`__ `@Yang-star-code <https://github.com/Yang-star-code>`__
 
 RPent Benchmark Results
 ----------------------------------------------
