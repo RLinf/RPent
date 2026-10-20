@@ -3,7 +3,7 @@ YAM
 
 .. Product: https://i2rt.com/products/yam-box
 
-.. figure:: ../../../_static/images/robots/yam_box.png
+.. figure:: https://raw.githubusercontent.com/RLinf/misc/main/rpent/yam_box.png
    :alt: YAM 双臂整机，包括 YAM Box、双臂和三路相机
    :figclass: rpent-robot-figure
    :align: center

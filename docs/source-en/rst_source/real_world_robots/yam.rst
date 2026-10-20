@@ -3,7 +3,7 @@ YAM
 
 .. Product: https://i2rt.com/products/yam-box
 
-.. figure:: ../../../_static/images/robots/yam_box.png
+.. figure:: https://raw.githubusercontent.com/RLinf/misc/main/rpent/yam_box.png
    :alt: Complete dual-arm YAM system with the YAM Box, two arms, and three cameras
    :figclass: rpent-robot-figure
    :align: center
