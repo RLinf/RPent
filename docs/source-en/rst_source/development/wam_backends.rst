@@ -280,7 +280,7 @@ not repeated in these task commands. Choose a planner model configured for
 your provider. RoboTwin task commands are in :doc:`../simulators/robotwin`.
 
 Let RPent Start a Worker
------------------------
+--------------------------------
 
 These alternatives start a fresh worker for each RPent run and stop it on exit.
 Use the same provisioned environments and model files as in standalone
