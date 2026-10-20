@@ -55,7 +55,7 @@ YAM 运动学；推理机需要官方 ``openpi.get_model`` 加载器使用的 ``
 
    cd "$RPENT_RLINF_ROOT"
    bash requirements/install.sh embodied --model openpi --env yam \
-     --venv "$RPENT_REPO_ROOT/.venv"
+     --venv "$RPENT_REPO_ROOT/.venv" --install-rlinf
    cd "$RPENT_REPO_ROOT"
    uv pip install -e '.[yam]'
    uv pip check

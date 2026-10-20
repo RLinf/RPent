@@ -58,7 +58,7 @@ On the inference machine, use RLinf's YAM OpenPI installer, then install RPent:
 
    cd "$RPENT_RLINF_ROOT"
    bash requirements/install.sh embodied --model openpi --env yam \
-     --venv "$RPENT_REPO_ROOT/.venv"
+     --venv "$RPENT_REPO_ROOT/.venv" --install-rlinf
    cd "$RPENT_REPO_ROOT"
    uv pip install -e '.[yam]'
    uv pip check
