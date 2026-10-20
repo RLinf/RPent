@@ -30,7 +30,11 @@ from rpent.dashboard.events import DashboardEventSink
 from rpent.dashboard.spec import DashboardSpec
 from rpent.evaluation import RunFinalizationContext, write_json_atomic
 from rpent.memory import MemoryManager
-from rpent.robots.components.am_runtime import start_am_service
+from rpent.robots.components.am_runtime import (
+    add_am_device_arg,
+    am_device_env,
+    start_am_service,
+)
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_spawn_server, try_wait_server
@@ -200,6 +204,7 @@ def get_toolkit(
 
 
 def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
+    add_am_device_arg(parser, "vla")
     required = not use_dashboard
     parser.add_argument(
         "--source-root",
@@ -419,6 +424,7 @@ def _spawn_vla_server(
         raise RuntimeError(f"RoboDojo Pi_05 env python not found: {pi05_python}")
     host, port = "127.0.0.1", pick_free_port()
     overrides = _runtime_overrides(args)
+    overrides.update(am_device_env(args, "vla"))
     if args.policy_backend == "rlinf":
         # End-to-end policy-chain smoke only (real weights, one prediction);
         # simulation task success rates have not yet been established.
@@ -451,8 +457,8 @@ def _spawn_vla_server(
             "--policy-port",
             str(pick_free_port()),
         ]
-        if args.cuda_device is not None:
-            policy_args += ["--policy-gpu", str(args.cuda_device)]
+        if "CUDA_VISIBLE_DEVICES" in overrides:
+            policy_args += ["--policy-gpu", overrides["CUDA_VISIBLE_DEVICES"]]
     daemon = ProcessDaemon(
         name="robodojo_vla_server",
         cmd=[

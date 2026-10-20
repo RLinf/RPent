@@ -192,8 +192,8 @@ RPent 默认使用 RoboTwin 的 ``demo_randomized`` 任务配置，该配置带�
 
 - ``--robotwin-assets-path``：覆盖 ``ROBOTWIN_ASSETS_PATH`` 指定的资源目录。
 - ``--vla-model-path``：覆盖 ``LINGBOT_MODEL_PATH`` 指定的模型目录。
-- ``--cuda-device``：让仿真环境和 VLA 使用同一张 GPU。
-- ``--env-cuda-device`` 和 ``--vla-cuda-device``：让仿真环境和 VLA 使用不同 GPU。这两个参数不能与 ``--cuda-device`` 同时使用。
+- ``--cuda-device``：为仿真环境和模型提供共用的 GPU 默认值。
+- ``--env-cuda-device`` 和 ``--vla-cuda-device``：让仿真环境和 VLA 使用不同 GPU。``--env-cuda-device`` 不能与 ``--cuda-device`` 同时使用。模型专用的 ``--vla-cuda-device`` 或 ``--wam-cuda-device`` 优先于 ``--cuda-device``；例如 ``--cuda-device 0 --vla-cuda-device 1`` 让仿真器使用 GPU 0，LingBot 使用 GPU 1。模型 GPU 参数仅作用于 RPent 启动的服务。
 
 规划器配置、外部服务和离线参考资料的说明分别见 :doc:`../guides/configure_planner`、 :doc:`../guides/advanced_deployment` 和 :doc:`../guides/memory`。
 

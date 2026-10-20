@@ -94,6 +94,13 @@ command construction. LingBot retains its native WebSocket connection path.
 The shared ``robots/runtime.py`` owns readiness, component status and group
 cleanup after resource handoff.
 
+``am_runtime.add_am_device_arg()`` registers ``--vla-cuda-device`` or
+``--wam-cuda-device`` for local model services. ``am_device_env()`` supplies
+the child process's GPU visibility using the model-specific option first,
+then ``--cuda-device``, otherwise preserving the inherited environment.
+Platforms keep simulator GPU configuration and forward these model settings
+when launching a worker. External endpoints retain their deployment settings.
+
 The WAM section of ``am_runtime.py`` owns ``--platform``, ``--checkpoint``,
 Python/GPU selection and deployment-mode checks. Model ``runtime_config.py``
 modules supply only additional configuration; VLA launch flags remain unchanged.

@@ -15,7 +15,9 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
@@ -68,6 +70,53 @@ def test_wam_help_distinguishes_connection_deployment_and_models(robot_name, cap
         assert f"--{option}" in help_text
         legacy = option.replace("cosmos-", "wam-").replace("fast-wam-", "wam-")
         assert f"--{legacy}" not in help_text
+
+
+@pytest.mark.parametrize(
+    "robot_name", ["libero", "robotwin", "robocasa", "robodojo", "dual_franka"]
+)
+@pytest.mark.parametrize("device", ["0", "2,3"])
+def test_local_vla_gpu_override_reaches_worker(
+    monkeypatch, tmp_path, robot_name, device
+):
+    from rpent.robots.components import am_runtime
+    from rpent.utils import daemon
+
+    module = importlib.import_module(f"robots.{robot_name}.robot_spec")
+    factory = Mock()
+    monkeypatch.setattr(daemon, "ProcessDaemon", factory)
+    monkeypatch.setattr(daemon, "pick_free_port", lambda: 8116)
+    if hasattr(module, "ProcessDaemon"):
+        monkeypatch.setattr(module, "ProcessDaemon", factory)
+        monkeypatch.setattr(module, "pick_free_port", lambda: 8116)
+    monkeypatch.setattr(am_runtime, "make_rpc_client", Mock())
+    args = _parser(robot_name, dashboard=True).parse_args(
+        ["--cuda-device", "1", "--vla-cuda-device", device]
+    )
+    args.vla_model_path = str(tmp_path)
+    args.vla_repo_id = "test/data"
+    if robot_name == "robotwin":
+        monkeypatch.setattr(module, "_resolve_vla_runtime_path", lambda args: tmp_path)
+        monkeypatch.setattr(
+            module,
+            "_resolve_lingbot_robot_config",
+            lambda *args: tmp_path / "robot.yaml",
+        )
+        assert module._resolve_cuda_devices(args) == ("1", device)
+    elif robot_name == "robodojo":
+        args.source_root = str(tmp_path)
+        args.policy_backend = "xpolicylab"
+        args.task = "put_bottles_into_dustbin"
+    module._spawn_vla_server(args, tmp_path)
+    assert factory.call_args.kwargs["env_overrides"]["CUDA_VISIBLE_DEVICES"] == device
+    assert str(args.cuda_device) == "1"
+    if robot_name == "robodojo":
+        from rpent.robots.components.xpolicylab_vla_server import add_backend_args
+
+        parser = argparse.ArgumentParser()
+        add_backend_args(parser)
+        child_args, _ = parser.parse_known_args(factory.call_args.kwargs["cmd"])
+        assert child_args.policy_gpu == device
 
 
 @pytest.mark.parametrize(

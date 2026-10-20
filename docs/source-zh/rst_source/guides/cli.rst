@@ -95,6 +95,8 @@ LIBERO 使用 ``--suite``、``--task``、``--seed`` 和 ``--libero-type`` 选择
 
 LIBERO 和 RoboTwin 还支持 ``--wam-backend``，配合 ``--wam-endpoint`` 或 ``--wam-checkpoint`` 加 ``--wam-python`` 使用。WAM 与 VLA 参数互斥。WAM 默认采用 ``local`` 记忆模式但不注册记忆工具，拒绝 HF 记忆、``--memory-dir``、Flash 和探索模式。模型启动参数及支持的组合见 :doc:`../development/wam_backends`。由 RPent 启动的 worker 可用 ``--wam-cuda-device`` 独立选择模型 GPU；RoboTwin 用 ``--env-cuda-device`` 选择仿真器 GPU，LIBERO 用 ``--cuda-device``。
 
+本地模型服务的 ``--vla-cuda-device`` 和 ``--wam-cuda-device`` 均由 ``am_runtime.py`` 注册，模型专用参数优先于 ``--cuda-device``；专用参数和公共参数都未设置时，worker 继承 ``CUDA_VISIBLE_DEVICES``。VLA 参数适用于 LIBERO、RoboTwin、RoboCasa、RoboDojo 和 dual-Franka。Franka、YAM 连接外部部署的 VLA 服务，GPU 在部署服务时选择。例如，LIBERO 使用 ``--cuda-device 0 --vla-cuda-device 1`` 时，仿真器使用 GPU 0，Pi0.5 使用 GPU 1。
+
 平台的 ``--help`` 将 WAM 参数分为连接服务、本地部署和模型专用选项。Cosmos 使用 ``--cosmos-*`` 参数，Fast-WAM 使用 ``--fast-wam-*`` 参数。WAM 后端指南分别介绍一次部署模型服务和反复运行任务，并提供连接外部服务、由 RPent 启动服务两种方式的示例。
 
 以下默认值适用于 LIBERO，其他环境以各自的 ``--help`` 为准。

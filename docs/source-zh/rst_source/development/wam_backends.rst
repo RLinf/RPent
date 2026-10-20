@@ -6,6 +6,8 @@ RPent 将平台观测和动作执行与模型推理解耦。Cosmos Policy 支持
 架构与职责
 ----------
 
+本地模型服务的 ``--vla-cuda-device``、``--wam-cuda-device`` 统一由 ``am_runtime.add_am_device_arg()`` 注册。``am_device_env()`` 优先使用模型专用参数，其次使用 ``--cuda-device``，两者都未设置时保留继承的 GPU 环境。平台负责仿真器 GPU 配置，并在启动模型 worker 时传入公共层生成的设置；外部 endpoint 的 GPU 仍由部署服务时的配置决定。
+
 .. code-block:: text
 
    CLI / Dashboard

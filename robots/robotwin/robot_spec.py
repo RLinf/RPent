@@ -32,7 +32,12 @@ from robots.robotwin.prompt_bundle import system_prompt, user_prompt
 from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
 from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
-from rpent.robots.components.am_runtime import add_wam_args, select_wam
+from rpent.robots.components.am_runtime import (
+    add_am_device_arg,
+    add_wam_args,
+    am_device_env,
+    select_wam,
+)
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import (
@@ -329,11 +334,7 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         default=None,
         help="CUDA_VISIBLE_DEVICES value for the RoboTwin EnvServer.",
     )
-    parser.add_argument(
-        "--vla-cuda-device",
-        default=None,
-        help="CUDA_VISIBLE_DEVICES value for the LingBot VLA server.",
-    )
+    add_am_device_arg(parser, "vla")
 
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
@@ -520,18 +521,13 @@ def _resolve_cuda_devices(
 ) -> tuple[str | None, str | None]:
     shared = getattr(args, "cuda_device", None)
     env_device = getattr(args, "env_cuda_device", None)
-    vla_device = getattr(args, "vla_cuda_device", None)
-    if shared is not None and (env_device is not None or vla_device is not None):
-        raise ValueError(
-            "--cuda-device cannot be combined with --env-cuda-device or "
-            "--vla-cuda-device"
-        )
+    if shared is not None and env_device is not None:
+        raise ValueError("--cuda-device cannot be combined with --env-cuda-device")
     if shared is not None:
-        value = str(shared)
-        return value, value
+        env_device = shared
     return (
         str(env_device) if env_device is not None else None,
-        str(vla_device) if vla_device is not None else None,
+        am_device_env(args, "vla").get("CUDA_VISIBLE_DEVICES"),
     )
 
 
@@ -714,7 +710,6 @@ def _spawn_vla_server(
     if args.vla_endpoint is not None:
         return None, _parse_vla_endpoint(args.vla_endpoint)
 
-    _, vla_cuda_device = _resolve_cuda_devices(args)
     model_path = _resolve_vla_runtime_path(args)
     assert model_path is not None
     robot_config = _resolve_lingbot_robot_config(args, model_path)
@@ -740,11 +735,7 @@ def _spawn_vla_server(
         ],
         env_overrides={
             "QWEN25_PATH": str(qwen_path),
-            **(
-                {"CUDA_VISIBLE_DEVICES": vla_cuda_device}
-                if vla_cuda_device is not None
-                else {}
-            ),
+            **am_device_env(args, "vla"),
         },
         log_path=str(output_dir / "lingbot_vla_server.log"),
     )

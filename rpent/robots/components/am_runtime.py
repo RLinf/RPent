@@ -9,12 +9,36 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
+from typing import Literal
 
 from rpent.utils.config import get_repo_root
 from rpent.utils.daemon import ProcessDaemon, pick_free_port
 from rpent.utils.rpc import RpcClient, make_rpc_client
 
-# --- Shared RPent RPC startup: used by VLA and WAM ---
+# --- Shared model GPU selection and RPent RPC startup ---
+
+
+def add_am_device_arg(
+    parser: argparse.ArgumentParser | argparse._ArgumentGroup,
+    kind: Literal["vla", "wam"],
+) -> None:
+    """Register a model service's GPU option on the owning parser or group."""
+    parser.add_argument(
+        f"--{kind}-cuda-device",
+        metavar="DEVICE",
+        help=f"Local {kind.upper()} worker CUDA_VISIBLE_DEVICES; overrides --cuda-device, "
+        "otherwise inherits the environment. Configure external workers at their own startup.",
+    )
+
+
+def am_device_env(
+    args: argparse.Namespace, kind: Literal["vla", "wam"]
+) -> dict[str, str]:
+    """Resolve model-specific GPU selection, then the shared fallback."""
+    device = getattr(args, f"{kind}_cuda_device", None)
+    if device is None:
+        device = getattr(args, "cuda_device", None)
+    return {"CUDA_VISIBLE_DEVICES": str(device)} if device is not None else {}
 
 
 def start_am_service(
@@ -96,11 +120,7 @@ def add_wam_args(parser: argparse.ArgumentParser) -> None:
         metavar="DIR",
         help="Worker working directory (default: RPent checkout, unless required by the model)",
     )
-    deployment.add_argument(
-        "--wam-cuda-device",
-        metavar="DEVICE",
-        help="Worker CUDA_VISIBLE_DEVICES; defaults to --cuda-device where available, otherwise inherited",
-    )
+    add_am_device_arg(deployment, "wam")
     for backend in WAM_BACKENDS:
         _runtime_config(backend).add_arguments(parser)
     parser.epilog = (parser.epilog or "") + (
@@ -151,11 +171,7 @@ class WAMConfig:
                 filter(None, (str(get_repo_root()), os.getenv("PYTHONPATH")))
             )
         }
-        device = getattr(args, "wam_cuda_device", None)
-        if device is None:
-            device = getattr(args, "cuda_device", None)
-        if device is not None:
-            overrides["CUDA_VISIBLE_DEVICES"] = str(device)
+        overrides.update(am_device_env(args, "wam"))
         daemon = ProcessDaemon(
             name="wam",
             cmd=cmd,

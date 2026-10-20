@@ -4,6 +4,7 @@
 """Shared action-model startup and VLA/WAM boundaries without model dependencies."""
 
 import argparse
+import os
 from unittest.mock import Mock
 
 import numpy as np
@@ -12,6 +13,31 @@ import pytest
 from rpent.robots.components import am_runtime
 from rpent.robots.components.am_client_base import BaseVLAClient, BaseWAMClient
 from rpent.robots.components.am_facade_base import BaseVLAFacade, BaseWAMFacade
+
+
+@pytest.mark.parametrize("kind", ["vla", "wam"])
+@pytest.mark.parametrize(
+    "shared,specific,expected",
+    [
+        (None, None, {}),
+        (0, None, {"CUDA_VISIBLE_DEVICES": "0"}),
+        (1, "0", {"CUDA_VISIBLE_DEVICES": "0"}),
+        (None, "2,3", {"CUDA_VISIBLE_DEVICES": "2,3"}),
+        (None, "GPU-example", {"CUDA_VISIBLE_DEVICES": "GPU-example"}),
+    ],
+)
+def test_model_gpu_selection_preserves_parent_environment(
+    monkeypatch, kind, shared, specific, expected
+):
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "inherited")
+    parser = argparse.ArgumentParser()
+    am_runtime.add_am_device_arg(parser, kind)
+    args = parser.parse_args(
+        [] if specific is None else [f"--{kind}-cuda-device", specific]
+    )
+    args.cuda_device = shared
+    assert am_runtime.am_device_env(args, kind) == expected
+    assert os.environ["CUDA_VISIBLE_DEVICES"] == "inherited"
 
 
 def test_vla_dispatch_preserves_options_and_model_extensions():
@@ -212,6 +238,8 @@ def test_worker_launch_and_external_options(
             *extra,
         ]
     )
+    args.cuda_device = 1
+    args.wam_cuda_device = "0"
     daemon, rpc = Mock(), Mock()
     factory = Mock(return_value=daemon)
     monkeypatch.setattr(am_runtime, "ProcessDaemon", factory)
@@ -220,6 +248,7 @@ def test_worker_launch_and_external_options(
     selected = am_runtime.select_wam(args, platform)
     assert selected.start_service(args, tmp_path) == (daemon, rpc)
     command = factory.call_args.kwargs["cmd"]
+    assert factory.call_args.kwargs["env_overrides"]["CUDA_VISIBLE_DEVICES"] == "0"
     assert command[:3] == [
         str(tmp_path / "python"),
         "-m",

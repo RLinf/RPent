@@ -53,7 +53,7 @@ def add_backend_args(parser: argparse.ArgumentParser) -> None:
         "evaluation-id",
     ):
         parser.add_argument(f"--{name}")
-    parser.add_argument("--policy-gpu", type=int, default=None)
+    parser.add_argument("--policy-gpu", default=None)
     parser.add_argument("--policy-port", type=int, default=0)
     parser.add_argument("--policy-server-url")
     parser.add_argument(

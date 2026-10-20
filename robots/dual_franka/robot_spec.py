@@ -35,7 +35,11 @@ from robots.franka.runtime_config import (
 from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
 from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
-from rpent.robots.components.am_runtime import start_am_service
+from rpent.robots.components.am_runtime import (
+    add_am_device_arg,
+    am_device_env,
+    start_am_service,
+)
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_spawn_server, try_wait_server
@@ -148,6 +152,7 @@ def get_toolkit(
 
 def _add_runtime_cli_args(parser: argparse.ArgumentParser) -> None:
     """Register component connection and deployment options."""
+    add_am_device_arg(parser, "vla")
     parser.set_defaults(_flash_options=None)
     parser.add_argument("--env-endpoint", default=None)
     parser.add_argument("--vla-endpoint", default=None)
@@ -308,8 +313,6 @@ def _vla_server_command(
         args.vla_repo_id,
         "--parent-watch",
     ]
-    if args.cuda_device is not None:
-        command.extend(_cuda_args(args))
     return command
 
 
@@ -359,6 +362,7 @@ def _spawn_vla_server(
     daemon = ProcessDaemon(
         name="dual_franka_vla_server",
         cmd=_vla_server_command(args, host=host, port=port),
+        env_overrides=am_device_env(args, "vla"),
         log_path=str(output_dir / "dual_franka_vla_server.log"),
     )
     return start_am_service(daemon, f"http://{host}:{port}")

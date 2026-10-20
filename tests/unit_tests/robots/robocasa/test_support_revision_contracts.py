@@ -37,7 +37,7 @@ def test_worker_needs_no_user_revision(monkeypatch, tmp_path):
     robot_spec._spawn_vla_server(args, tmp_path)
     command = captured["cmd"]
     assert "--backbone-revision" not in command
-    assert "env_overrides" not in captured
+    assert captured["env_overrides"] == {"CUDA_VISIBLE_DEVICES": "0"}
 
 
 def test_cli_has_no_separate_backbone_option():

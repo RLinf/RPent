@@ -30,7 +30,9 @@ from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
 from rpent.robots.components.am_runtime import (
     WAMConfig,
+    add_am_device_arg,
     add_wam_args,
+    am_device_env,
     select_wam,
     start_am_service,
 )
@@ -200,6 +202,7 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     parser.add_argument("--max-episode-steps", type=int, default=10000)
     parser.add_argument("--vla-backend", choices=("pi05",), default=None)
     parser.add_argument("--vla-endpoint", default=None)
+    add_am_device_arg(parser, "vla")
     add_wam_args(parser)
     parser.add_argument(
         "--libero-type",
@@ -435,8 +438,8 @@ def _spawn_vla_server(
             "--port",
             str(port),
             "--parent-watch",
-            *_cuda_args(args),
         ],
+        env_overrides=am_device_env(args, "vla"),
         log_path=str(output_dir / "vla_server.log"),
     )
     return start_am_service(daemon, f"http://{host}:{port}")
