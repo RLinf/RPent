@@ -90,6 +90,9 @@ class MT3Config:
     feasibility_topk: int = 5
     #: Extra alignment transit height [m], always applied.
     transit_clearance: float = 0.0
+    #: Demo retrieval: "nearest" (reference-body distance) or "reach" (most
+    #: segments whose transferred bottleneck the arm can reach, then nearest).
+    retrieval: str = "nearest"
     alignment_replans: int = 0
     alignment_guard_pos: float = 0.0
     alignment_guard_rot_deg: float = 15.0
@@ -346,7 +349,11 @@ class MT3Runner:
         return not self.env.done()
 
     def run_segment(self, k: int) -> dict[str, Any]:
-        if self.cfg.feasibility_check != "select" or self.env.check_paths is None:
+        if self.env.check_paths is None:
+            return self._segment(k)
+        if self.cfg.feasibility_check == "minimal":
+            return self._run_minimal(k)
+        if self.cfg.feasibility_check != "select":
             return self._segment(k)
         ref = self.segments[k]["ref"]
         live = self.env.body_poses([ref])[ref]
@@ -409,6 +416,106 @@ class MT3Runner:
                 key: pick[key] for key in ("demo", "corridor", "clearance", "n")
             },
             candidates=candidates,
+        )
+        return log
+
+    def _use_demo(self, demo: int) -> None:
+        """Replay ``demo`` from now on (this and all later segments)."""
+        rows = self.lib.frames(demo)
+        self.demo, self.first = demo, rows.start
+        self.eef, self.target = self.lib.eef[rows], self.lib.target[rows]
+        self.gripper, self.actions = self.lib.gripper[rows], self.lib.actions[rows]
+        self.segments = self.lib.segments[demo]
+
+    def _run_minimal(self, k: int) -> dict[str, Any]:
+        """Change the configured route only when it is infeasible.
+
+        1. The configured route (this demo, configured corridor, no extra
+           height) when it is feasible.
+        2. Else this demo with another corridor / transit height.
+        3. Else, only while nothing is held, another of the nearest demos;
+           the switch persists for the later segments, so a grasp and the
+           placement that follows come from the same demonstration.
+        4. Else the configured route.
+        """
+        ref = self.segments[k]["ref"]
+        live = self.env.body_poses([ref])[ref]
+        held = (
+            self.gripper[
+                bottleneck_frame(
+                    self.eef,
+                    self.segments[k]["start"],
+                    self.segments[k]["c"],
+                    self.cfg.radius,
+                )
+            ]
+            > 0
+        )
+        corridor = self.cfg.approach_corridor
+        tried: list[dict[str, Any]] = []
+
+        def best(cands):
+            ok = [x for x in cands if x["feasible"]]
+            return min(
+                ok,
+                key=lambda x: (x["first_movable_contact"] is not None, x["n"]),
+                default=None,
+            )
+
+        stage, pick = "configured", None
+        cands = self._feasibility(k, live, 0.0, [self.demo], (corridor,), (0.0,))
+        tried += cands
+        if cands and cands[0]["feasible"]:
+            pick = cands[0]
+        if pick is None:
+            stage = "same demo"
+            cands = self._feasibility(
+                k,
+                live,
+                0.0,
+                [self.demo],
+                tuple(sorted({corridor, 0.2, 0.1, 0.0}, reverse=True)),
+            )
+            tried += cands
+            pick = best(cands)
+        if pick is None and not held:
+            stage = "other demo"
+            scene = self.env.body_poses(self.lib.ref_bodies)
+            others = [d for d in self.lib.ranked(scene, self.cfg) if d != self.demo]
+            cands = self._feasibility(
+                k,
+                live,
+                0.0,
+                others[: max(1, self.cfg.feasibility_topk - 1)],
+                (corridor,),
+                (0.0, 0.06, 0.12),
+            )
+            tried += cands
+            pick = best(cands)
+            if pick is not None:
+                self._use_demo(pick["demo"])
+        if pick is None:
+            log = self._segment(k)
+            log.update(
+                selection={"stage": "none feasible; configured route"}, candidates=tried
+            )
+            return log
+        saved = self.cfg
+        self.cfg = replace(
+            self.cfg,
+            approach_corridor=pick["corridor"],
+            transit_clearance=pick["clearance"],
+        )
+        try:
+            log = self._segment(k)
+        finally:
+            self.cfg = saved
+        log.update(
+            selection={
+                "stage": stage,
+                **{key: pick[key] for key in ("demo", "corridor", "clearance", "n")},
+            },
+            candidates=tried if stage != "configured" else [],
         )
         return log
 
@@ -569,7 +676,13 @@ class MT3Runner:
         return self._close(log, n0, "segment replayed")
 
     def _feasibility(
-        self, k: int, live: np.ndarray, hold: float
+        self,
+        k: int,
+        live: np.ndarray,
+        hold: float,
+        demos: list[int] | None = None,
+        lengths: tuple[float, ...] = (0.0, 0.1, 0.2),
+        clearances: tuple[float, ...] = (0.0, 0.06, 0.12, 0.2),
     ) -> list[dict[str, Any]]:
         """Candidate alignment routes for segment ``k`` and their static feasibility.
 
@@ -580,10 +693,12 @@ class MT3Runner:
         """
         lib, seg = self.lib, self.segments[k]
         ref = seg["ref"]
-        scene = self.env.body_poses(lib.ref_bodies)
-        ranked = [self.demo] + [
-            d for d in lib.ranked(scene, self.cfg) if d != self.demo
-        ][: max(0, self.cfg.feasibility_topk - 1)]
+        if demos is None:
+            scene = self.env.body_poses(lib.ref_bodies)
+            demos = [self.demo] + [
+                d for d in lib.ranked(scene, self.cfg) if d != self.demo
+            ][: max(0, self.cfg.feasibility_topk - 1)]
+        ranked = demos
         start = self.env.eef_pose()
         names, paths = [], []
         for d in ranked:
@@ -597,12 +712,12 @@ class MT3Runner:
                 live, lib.pose[ref][rows.start + b], self.cfg.symmetry(ref)
             )
             goal = transform @ eef[b]
-            for length in (0.0, 0.1, 0.2):
+            for length in lengths:
                 entry = (
                     bottleneck_frame(eef, other["start"], b, length) if length else b
                 )
                 lead = [transform @ eef[f] for f in range(entry, b)]
-                for clearance in (0.0, 0.06, 0.12, 0.2):
+                for clearance in clearances:
                     head = lead[0] if lead else goal
                     path = alignment_path(start, head, self.cfg.align_step, clearance)
                     paths.append(path + lead[1:] + ([goal] if lead else []))
@@ -675,3 +790,55 @@ class MT3Runner:
         return self._close(
             {"call": "replay", "demo_length": len(self.actions)}, n0, "replayed"
         )
+
+
+def reach_retrieval(
+    lib: TaskLibrary, scene: dict[str, np.ndarray], cfg: MT3Config, env: EnvHooks
+) -> tuple[int, dict[str, Any]]:
+    """Kept demo with the most segments whose transferred bottleneck is
+    reachable (IK only, on a copy of the live scene); ties go to the nearest.
+
+    Each segment's bottleneck is transferred with the reference body's pose in
+    ``scene`` (the start of the episode), so it is exact for fixtures and
+    placement targets that stay put, approximate for objects moved earlier.
+    """
+    ranked = lib.ranked(scene, cfg)
+    start = env.eef_pose()
+    paths, owners = [], []
+    for d in ranked:
+        rows = lib.frames(d)
+        eef = lib.eef[rows]
+        for seg in lib.segments[d]:
+            ref = seg["ref"]
+            b = bottleneck_frame(eef, seg["start"], seg["c"], cfg.radius)
+            transform, _ = transfer_4dof(
+                scene[ref], lib.pose[ref][rows.start + b], cfg.symmetry(ref)
+            )
+            goal = transform @ eef[b]
+            # A coarse straight approach warm-starts the IK toward the goal.
+            n = 8
+            paths.append(
+                [
+                    make_pose(
+                        start[:3, 3] + (goal[:3, 3] - start[:3, 3]) * (j / n),
+                        slerp(start[:3, :3], goal[:3, :3], j / n),
+                    )
+                    for j in range(1, n + 1)
+                ]
+            )
+            owners.append(d)
+    results = env.check_paths(paths)
+    reach: dict[int, int] = dict.fromkeys(ranked, 0)
+    for d, r in zip(owners, results):
+        reach[d] += int(
+            r["goal_ik_pos_err_cm"] <= 3.0 and r["goal_ik_rot_err_deg"] <= 8.0
+        )
+    best = max(ranked, key=lambda d: (reach[d], -ranked.index(d)))
+    return best, {
+        "demo": best,
+        "reachable_segments": reach[best],
+        "segments": len(lib.segments[best]),
+        "nearest_demo": ranked[0],
+        "nearest_reachable_segments": reach[ranked[0]],
+        "candidates": len(ranked),
+    }

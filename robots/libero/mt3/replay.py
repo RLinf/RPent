@@ -43,6 +43,7 @@ from robots.libero.mt3.core import (
     MT3Runner,
     TaskLibrary,
     pose_from_wxyz,
+    reach_retrieval,
 )
 from rpent.utils.logging import get_output_dir
 
@@ -134,6 +135,9 @@ def run_mt3(
     )
     scene = hooks.body_poses(lib.ref_bodies)
     demo, retrieval = lib.nearest(scene, cfg)
+    if cfg.retrieval == "reach" and hooks.check_paths is not None:
+        demo, reach = reach_retrieval(lib, scene, cfg, hooks)
+        retrieval = {**retrieval, "demo": demo, "reach": reach}
     runner = MT3Runner(lib, demo, cfg, hooks)
     note(
         f"MT3 {cfg.mode}: {suite} task {task}, demo {demo} of {len(lib)} "
