@@ -16,8 +16,20 @@ from types import SimpleNamespace
 
 import numpy as np
 
-from robots.libero.env_server import _seed_fixture_sampler
+from robots.libero.env_server import _configure_fixture_seed, _seed_fixture_sampler
 from robots.libero.mt3.core import POS_SCALE, EnvHooks, MT3Config, MT3Runner
+
+
+def test_native_rpent_policy_preserves_seed_method(monkeypatch):
+    """Benchmark evaluation must leave RPent's native seed behavior intact."""
+    monkeypatch.setenv("RPENT_MT3_FIXTURE_SEED_POLICY", "rpent")
+    calls = []
+    seed = calls.append
+    env = SimpleNamespace(seed=seed)
+    assert _configure_fixture_seed(env) is env
+    assert env.seed is seed
+    env.seed(9)
+    assert calls == [9]
 
 
 def test_fixture_placement_repeats_after_reseeding():

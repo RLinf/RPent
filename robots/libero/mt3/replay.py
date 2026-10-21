@@ -27,6 +27,7 @@ toolkit's usual state capture and success bookkeeping.
 from __future__ import annotations
 
 import json
+import os
 import re
 from collections.abc import Callable
 from functools import partial
@@ -125,6 +126,11 @@ def run_mt3(
     cfg, library_dir = load_config(Path(toolkit.memory.root))
     lib = TaskLibrary(library_dir / suite / f"task_{task:02d}.npz")
     hooks = _hooks(toolkit)
+    # Fixture roots are not contained in the saved qpos init-state vector.
+    # Preserve their actual placement when evaluating native RPent seeding.
+    (Path(get_output_dir()) / "initial_body_poses.json").write_text(
+        json.dumps(toolkit.primitives.env.poses(), indent=1)
+    )
     scene = hooks.body_poses(lib.ref_bodies)
     demo, retrieval = lib.nearest(scene, cfg)
     runner = MT3Runner(lib, demo, cfg, hooks)
@@ -171,6 +177,9 @@ def run_mt3(
         "task": task,
         "seed": seed,
         "mode": cfg.mode,
+        "fixture_seed_policy": os.environ.get(
+            "RPENT_MT3_FIXTURE_SEED_POLICY", "deterministic"
+        ),
         "config": cfg.__dict__,
         "library": str(lib.path),
         "retrieval": retrieval,

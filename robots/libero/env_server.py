@@ -141,9 +141,19 @@ def _with_pose_reader(env_fn):
     """Wrap an rlinf env factory so the env it builds can report poses."""
 
     def make():
-        return _attach_pose_reader(_seed_fixture_sampler(env_fn()))
+        return _attach_pose_reader(_configure_fixture_seed(env_fn()))
 
     return make
+
+
+def _configure_fixture_seed(env):
+    """Select native RPent initialization or the deterministic pilot repair."""
+    policy = os.environ.get("RPENT_MT3_FIXTURE_SEED_POLICY", "deterministic")
+    if policy == "rpent":
+        return env
+    if policy == "deterministic":
+        return _seed_fixture_sampler(env)
+    raise ValueError(f"unknown RPENT_MT3_FIXTURE_SEED_POLICY: {policy!r}")
 
 
 def _seed_fixture_sampler(env):
