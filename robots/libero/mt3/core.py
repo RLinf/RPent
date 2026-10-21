@@ -36,7 +36,10 @@ pose change, and replays the demo from there (Dreczkowski et al., "Learning a
 Thousand Tasks in a Day", 2025). ``mt3`` tracks the carried target poses
 closed loop; ``mt3_open`` applies the demo's per-step relative commands to the
 current pose (MT3's open-loop twist replay); ``replay`` sends the retrieved
-demo's raw actions unchanged.
+demo's raw actions unchanged. ``continuous`` retains all source frames and
+smoothly blends object-relative target poses during each approach, with no
+separate alignment or settling steps. It still uses the interaction events
+as reference anchors; object poses are read only at the start of each segment.
 """
 
 from __future__ import annotations
@@ -50,7 +53,7 @@ from typing import Any
 import numpy as np
 from scipy.spatial.transform import Rotation
 
-MODES = ("mt3", "mt3_open", "replay")
+MODES = ("mt3", "mt3_open", "continuous", "replay")
 #: OSC_POSE delta scaling of LIBERO's Panda: 1.0 = 5 cm / 0.5 rad per step.
 POS_SCALE = 0.05
 ROT_SCALE = 0.5
@@ -291,6 +294,7 @@ class MT3Runner:
         self.steps = 0
         self._last_target: np.ndarray | None = None
         self._last_gripper = -1.0
+        self._previous_transform = np.eye(4)
 
     def _send(self, target: np.ndarray, gripper: float) -> bool:
         """Track ``target`` for one step; False once the episode has ended."""
@@ -322,6 +326,9 @@ class MT3Runner:
             "ref_yaw_change_deg": round(float(np.degrees(dyaw)), 1),
         }
         n0 = self.steps
+
+        if self.cfg.mode == "continuous":
+            return self._run_continuous(seg, log, transform, b, n0)
 
         goal = transform @ self.eef[b]
         hold = self.gripper[b]
@@ -368,6 +375,44 @@ class MT3Runner:
             if not self._send(target, self.gripper[f]):
                 return self._close(log, n0, "done during interaction")
         return self._close(log, n0, "segment replayed")
+
+    def _run_continuous(
+        self,
+        seg: dict[str, Any],
+        log: dict[str, Any],
+        transform: np.ndarray,
+        bottleneck: int,
+        n0: int,
+    ) -> dict[str, Any]:
+        """Keep every source frame, blending reference frames before contact.
+
+        At a segment boundary, the reference body's live pose is measured once.
+        During the approach, smoothstep blends the previous and new transforms
+        of each source target. From the bottleneck through contact, the new
+        transform is fixed. There is no separate alignment path or settling.
+        """
+        start = seg["start"]
+        log.update(align_steps=0, settle_steps=0, source_frames=seg["end"] - start)
+        for frame in range(start, seg["end"]):
+            tau = min(1.0, (frame - start) / max(1, bottleneck - start))
+            if bottleneck == start:
+                tau = 1.0
+            weight = tau * tau * (3.0 - 2.0 * tau)
+            old = self._previous_transform @ self.target[frame]
+            new = transform @ self.target[frame]
+            target = make_pose(
+                (1.0 - weight) * old[:3, 3] + weight * new[:3, 3],
+                slerp(old[:3, :3], new[:3, :3], weight),
+            )
+            if frame == seg["c"]:
+                contact = (transform @ self.eef[frame])[:3, 3]
+                log["contact_err_cm"] = round(
+                    100 * float(np.linalg.norm(self.env.eef_pose()[:3, 3] - contact)), 2
+                )
+            if not self._send(target, self.gripper[frame]):
+                return self._close(log, n0, "done during continuous replay")
+        self._previous_transform = transform
+        return self._close(log, n0, "source frames replayed")
 
     def _close(self, log: dict[str, Any], n0: int, status: str) -> dict[str, Any]:
         log.update(steps=self.steps - n0, status=status, done=self.env.done())

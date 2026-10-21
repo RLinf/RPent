@@ -141,9 +141,26 @@ def _with_pose_reader(env_fn):
     """Wrap an rlinf env factory so the env it builds can report poses."""
 
     def make():
-        return _attach_pose_reader(env_fn())
+        return _attach_pose_reader(_seed_fixture_sampler(env_fn()))
 
     return make
+
+
+def _seed_fixture_sampler(env):
+    """Seed LIBERO's legacy placement RNG along with robosuite's generator.
+
+    LIBERO's fixture samplers use the NumPy global RNG. Under robosuite 1.5,
+    the wrapper's seed method resets only the generator owned by robosuite;
+    fixture placements would otherwise vary between processes at the same seed.
+    """
+    original_seed = env.seed
+
+    def seed(value):
+        np.random.seed(value)
+        return original_seed(value)
+
+    env.seed = seed
+    return env
 
 
 def make_env(
