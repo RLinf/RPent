@@ -58,10 +58,6 @@ RoboDojo
      - 8
      - 开放式或依赖语言、图像指令的任务。
 
-目录还单列了一个 DLC 任务。通过 ``--task`` 选择已安装运行时中的任务，``--layout`` 选择场景布局。\
-例如，``stack_bowls_random`` 属于泛化任务，``fill_pen_holder`` 和 ``put_bottles_into_dustbin``\
-属于长程任务。这三个名称只是示例，并非完整任务列表。
-
 观测与动作
 ~~~~~~~~~~
 

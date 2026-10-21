@@ -66,12 +66,6 @@ groups 42 benchmark tasks into five capability categories:
      - 8
      - Open-ended or language- and image-conditioned tasks.
 
-The catalog also lists one separate DLC task. Use ``--task`` to select a task
-from the installed runtime and ``--layout`` to select its scene layout. For
-example, ``stack_bowls_random`` is a generalization task, while
-``fill_pen_holder`` and ``put_bottles_into_dustbin`` are long-horizon tasks.
-These are examples, not the complete task list.
-
 Observation and Action
 ~~~~~~~~~~~~~~~~~~~~~~
 
