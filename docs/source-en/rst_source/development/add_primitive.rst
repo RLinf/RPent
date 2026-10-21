@@ -4,7 +4,7 @@ Add an Action Primitive
 An *action primitive* in RPent turns a tool call into an action that
 the environment can execute. It can be a learned policy (a VLA, a WAM,
 a diffusion planner) or a scripted routine (``move_to``,
-``open_gripper``). This page explains how to add either type.
+``open_gripper``). This page covers tool declaration, registration and execution.
 
 Two Types of Primitives
 -----------------------
@@ -18,7 +18,7 @@ Two Types of Primitives
      - Examples
    * - **Model-based**
        (VLA / WAM / diffusion / …)
-     - Runs in its own process (``vla_server``) and is called through
+     - Runs in its own model service process and is called through
        a *model client* held by the toolkit.
      - Pi0.5 (LIBERO), RLDX-1 (RoboCasa)
    * - **Scripted**
@@ -64,118 +64,14 @@ All three planners use the registered declarations.
 
 .. _add-primitive-model-based:
 
-Add a VLA (or Other Model-based Primitive)
-------------------------------------------
+Model-backed Tools
+------------------
 
-Because the model runs in its own process, adding a model-based
-primitive requires a few additional components:
-
-1. **Write ``vla_server.py``.** This process owns only the model weights
-   and CUDA context. Use
-   :class:`rpent.robots.components.am_facade_base.BaseVLAFacade` as the base
-   class, implement ``predict``, and register any additional model RPCs by
-   extending ``_register_rpc``:
-
-   - The default transport is **HTTP** (JSON over ``POST /call``),
-     which works well for flat ``image + state`` payloads such as the
-     LIBERO / Pi0.5 pattern.
-   - Switch to **socket RPC** (``--transport socket``) if your obs is
-     a nested dict of numpy arrays with history stacks (avoids the
-     JSON re-encode overhead).
-
-   ``BaseVLAFacade`` registers ``vla.predict`` and serializes model calls;
-   its inherited ``RpcFacade.serve`` handles transport binding, ``healthz``,
-   ``shutdown``, parent-death detection, and resource cleanup.
-
-2. **Write a model client.** Subclass
-   :class:`rpent.robots.components.am_client_base.BaseVLAClient`, which
-   provides the common ``vla.predict`` call, and add only the
-   environment-specific input / output adaptation. See
-   ``rpent.robots.components.pi05_vla_client.Pi05VLAClient`` for the LIBERO
-   implementation.
-
-3. **Add a method to the primitives.** In the current
-   robot's primitives class, call the model client, pass
-   the returned action chunk to the environment, and return a
-   ``ToolResult``. The model client API is
-   :meth:`rpent.robots.components.pi05_vla_client.Pi05VLAClient.predict`,
-   which reads the instruction from ``env_obs["task_descriptions"]`` and
-   returns a ``[chunk, action_dim]`` numpy action chunk (batch dim already
-   stripped):
-
-   .. code-block:: python
-
-      @tool
-      def mymodel_pick(self, target: str) -> ToolResult:
-          """Pick the requested target using the model."""
-          env_obs = self._env.get_obs()
-          env_obs["task_descriptions"] = f"pick {target}"
-          chunk = self._model.predict(env_obs)
-          self._env.chunk_step(chunk)
-          return ToolResult(data={"model": "mymodel", "target": target})
-
-4. **Register the declared tool in the toolkit.** Follow the
-   same pattern as for a scripted primitive.
-
-5. **Wire the components together in ``robot_spec.py``.** The
-   robot's ``get_toolkit`` builds the toolkit with
-   ``runtime_kwargs``:
-
-   .. code-block:: python
-
-      def get_toolkit(*, runtime_kwargs, dashboard_events):
-          from robots.myrobot.toolkit import MyRobotToolkit
-          return MyRobotToolkit(
-              runtime_kwargs=runtime_kwargs,
-              dashboard_events=dashboard_events,
-          )
-
-   The robot package's ``_init_runtime`` builds
-   ``runtime_kwargs``, for example
-   ``{"env": MyRobotEnvClient(...), "model": MyModelClient(...)}``.
-   The toolkit constructor then forwards it to the primitives.
-
-Reuse an Existing vla_server Across Runs
-----------------------------------------
-
-Model servers often take a long time to start, so the runner can
-connect to an instance that is already running:
-
-.. code-block:: bash
-
-   rpent --robot libero --vla-endpoint http://vla-host:8000 ...
-
-If the model keeps per-episode state, expose a ``vla_reset`` RPC and
-call it between tasks. The same server process can then be reused safely
-across sequential runs.
-
-Session-aware VLA Backends (per-client Policy State)
-----------------------------------------------------
-
-Most VLA backends are stateless: ``predict`` only runs inference and keeps
-no per-client state, so ``session_id`` can be ignored. Some models do carry
-per-client policy state (e.g. RLDX-1's memory/RTC); when a single
-``vla_server`` serves multiple clients, their policy state would
-cross-contaminate, so it must be isolated per session. Wiring it up in three
-parts:
-
-- **Facade side**: construct the ``BaseVLAFacade`` subclass with
-  ``enable_sessions=True`` and ``session_timeout_s``, and implement
-  ``_on_session_drop`` — clean up that client's policy state when the session
-  ends (the client's ``session.close`` RPC or idle expiry). If you need an
-  explicit reset, expose an extra ``reset_session`` RPC (clears policy state
-  only, does not destroy the session). ``serve`` must pass ``session_sweep_s``
-  (> 0) so a background thread periodically reclaims expired sessions.
-
-- **Client side**: construct the ``RpcClient`` inside the model client with
-  ``enable_sessions=True``; it registers a session with the server on
-  connect. ``session_id`` is derived from the connection and injected into
-  the server-side handler by the facade — the client does **not** pass it,
-  and must not forge ``session_ids`` inside ``predict``'s ``options``.
-
-- **Primitives side**: call ``reset_session`` before a task starts to clear
-  policy state left over from the previous episode, so consecutive runs do
-  not leak state into each other.
+For VLA/WAM services, clients, adapters and session lifecycle, follow
+:doc:`add_action_model`. The platform tool calls its model client, executes the
+returned native action chunk through the environment, and returns a
+``ToolResult``. Register it with the same ``@tool`` and ``iter_tools``
+mechanism used above.
 
 Single-threaded Serve (EGL-rendering Backends)
 ----------------------------------------------
@@ -228,22 +124,3 @@ Design Principles for a New Primitive
 - **Guardrails belong in env_server**, not in the toolkit. The LLM
   can and will call any tool with any arguments; workspace bounds
   and safety clamps must be enforced on the server side.
-
-Beyond VLAs
------------
-
-The same pattern extends to non-VLA model primitives:
-
-- **World Action Models (WAM)** — imagination-based rollouts that
-  produce a plan the env then executes. Wire them exactly like a
-  VLA: their own process, their own client.
-- **Diffusion planners / MPC** — same shape; the "action" the tool
-  returns may be a trajectory rather than a single chunk, and the
-  ``env_server`` steps it out.
-- **Multiple primitives sharing one server** — a single
-  ``vla_server`` can host several models; the tool decides which
-  head to call via a ``model`` kwarg on ``predict``.
-
-Regardless of the implementation, the framework contract remains
-unchanged: model process → model client → primitives method →
-tool schema → ``Toolkit.add_tool``.

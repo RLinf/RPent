@@ -4,6 +4,7 @@ WAM Backends
 RPent separates platform observations and action execution from model inference.
 Cosmos Policy supports LIBERO and LIBERO-Pro; Fast-WAM supports LIBERO,
 LIBERO-Pro and RoboTwin. Each pair requires a matching checkpoint.
+For model integration steps, see :doc:`add_action_model`.
 Deployment examples are in :doc:`../simulators/libero` and
 :doc:`../simulators/robotwin`.
 
@@ -43,7 +44,7 @@ toolkit owns registration, cancellation, state capture and recording.
    * - ``am_facade_base.py``
      - Share prediction route registration and RPC session setup through ``BaseAMFacade``; keep VLA and WAM behavior in subclasses.
    * - ``am_runtime.py``
-     - Share RPent RPC service attachment, process startup and failure cleanup; keep WAM backend selection and worker configuration in a separate section.
+     - Register VLA/WAM GPU options; select WAM backends and construct worker commands and connections.
    * - ``<model>/runtime_config.py``
      - Supply model-specific arguments, defaults and configuration requirements.
    * - ``<model>/server.py``
@@ -78,26 +79,24 @@ The platform ``robot_spec.py`` connects the startup layers through callbacks:
      -> robots.runtime.try_spawn_server(spawn_fn)
           -> WAMConfig.start_service()
                -> <model>.runtime_config.worker_arguments()
-               -> am_runtime.start_am_service(daemon, endpoint)
-                    -> start worker and return daemon + RPC client
+               -> ProcessDaemon.start() + make_rpc_client()
+               -> return daemon + RPC client
           -> register owned daemon
      -> robots.runtime.try_wait_server(post_fn)
           -> wait for readiness
           -> create platform WAM client and check control compatibility
           -> report ready to Dashboard
 
-``am_runtime.start_am_service()`` attaches to a borrowed endpoint or starts a
-prepared daemon, preserving session settings and cleaning up failed starts.
-RPent RPC VLA integrations in LIBERO, RoboCasa, RoboDojo, Franka, dual-Franka and
-YAM share this function with WAM. Their platform/model configuration still owns
-command construction. LingBot retains its native WebSocket connection path.
-The shared ``robots/runtime.py`` owns readiness, component status and group
-cleanup after resource handoff.
+WAM configuration and platform VLA launchers use ``ProcessDaemon.start()`` and
+the existing RPC clients directly. ``ProcessDaemon`` closes its log on a failed
+spawn. LingBot retains its native WebSocket connection path. The shared
+``robots/runtime.py`` owns readiness, component status and group cleanup after
+resource handoff. Borrowed endpoints return no owned daemon.
 
 ``am_runtime.add_am_device_arg()`` registers ``--vla-cuda-device`` or
-``--wam-cuda-device`` for local model services. ``am_device_env()`` supplies
-the child process's GPU visibility using only its model-specific option,
-otherwise preserving the inherited environment.
+``--wam-cuda-device`` for local model services. Each launcher forwards its
+model-specific option as the child's ``CUDA_VISIBLE_DEVICES`` override;
+omitting it preserves the inherited environment.
 Platforms register ``--env-cuda-device`` for the environment and forward model settings
 when launching a worker. External endpoints retain their deployment settings.
 
@@ -110,16 +109,18 @@ modules supply only additional configuration; VLA launch flags remain unchanged.
 Communication and Lifecycle
 ---------------------------
 
-The routes are ``wam.capabilities``, ``wam.predict`` and ``wam.reset``.
+The routes are ``wam.get_model_meta``, ``wam.predict`` and ``wam.reset``.
 Requests contain ``images``, ``state``, ``instruction``, ``embodiment`` and
-``action_space``. Capabilities contain the ``control`` dictionary, required
+``action_space``. Model metadata contains the ``control`` dictionary, required
 cameras and state dimensions, executable ``chunk_size``, backend/checkpoint
 identity and session settings. Predictions contain ``actions`` and may contain
 ``future_observation``, ``value`` and ``metadata``.
 
 Messages are dictionaries and NumPy arrays handled by the existing transport.
 There is no object-to-wire conversion or protocol-version field. Deploy clients
-and workers from the same checkout. At connection, the platform compares the
+and workers from the same checkout. ``BaseWAMClient`` fetches metadata once in
+its constructor and retains it in ``model_meta``; predictions use that snapshot.
+At connection, the platform compares the
 worker's control dictionary with its supported control definition and caches the
 selection. Create a new client when switching services or control modes.
 The service checks incoming observations; the client checks returned action
@@ -147,7 +148,9 @@ For another model, add a package with ``runtime_config.py``, ``server.py`` and p
 ``adapter/encode.py`` and ``adapter/decode.py`` implementations. Register the
 package in ``am_runtime.WAM_BACKENDS`` and each supported platform in its
 ``ADAPTERS`` mapping. ``WAMAdapterSpec`` lives in ``am_facade_base.py`` and
-groups encode, decode and capability construction. Reuse existing platform
+groups encode, decode and model metadata construction. ``BaseWAMFacade`` requires
+the bound encoder/decoder pair; prediction always goes through both transforms.
+Reuse existing platform
 clients when their physical observations and control definitions fit.
 
 For another platform, provide physical observations, native control definitions,

@@ -1,12 +1,12 @@
 WAM 后端
 ========
 
-RPent 将平台观测和动作执行与模型推理解耦。Cosmos Policy 支持 LIBERO、LIBERO-Pro；Fast-WAM 支持 LIBERO、LIBERO-Pro 和 RoboTwin。每个组合都需要匹配的 checkpoint。部署示例见 :doc:`../simulators/libero` 和 :doc:`../simulators/robotwin`。
+RPent 将平台观测和动作执行与模型推理解耦。Cosmos Policy 支持 LIBERO、LIBERO-Pro；Fast-WAM 支持 LIBERO、LIBERO-Pro 和 RoboTwin。每个组合都需要匹配的 checkpoint。模型接入步骤见 :doc:`add_action_model`，部署示例见 :doc:`../simulators/libero` 和 :doc:`../simulators/robotwin`。
 
 架构与职责
 ----------
 
-本地模型服务的 ``--vla-cuda-device``、``--wam-cuda-device`` 统一由 ``am_runtime.add_am_device_arg()`` 注册。``am_device_env()`` 只读取对应模型的参数，未设置时保留继承的 GPU 环境。平台在自己的 ``robot_spec.py`` 中注册 ``--env-cuda-device``，并在启动模型 worker 时传入公共层生成的模型设置；环境 GPU 不会成为模型 GPU 的默认值。外部 endpoint 的 GPU 仍由部署服务时的配置决定。
+本地模型服务的 ``--vla-cuda-device``、``--wam-cuda-device`` 统一由 ``am_runtime.add_am_device_arg()`` 注册。各启动函数直接将对应模型参数传入子进程的 ``CUDA_VISIBLE_DEVICES``，未设置时保留继承的 GPU 环境。平台在自己的 ``robot_spec.py`` 中注册 ``--env-cuda-device``；环境 GPU 不会成为模型 GPU 的默认值。外部 endpoint 的 GPU 仍由部署服务时的配置决定。
 
 .. code-block:: text
 
@@ -39,7 +39,7 @@ RPent 将平台观测和动作执行与模型推理解耦。Cosmos Policy 支持
    * - ``am_facade_base.py``
      - 通过 ``BaseAMFacade`` 共享推理路由注册和 RPC 会话初始化；子类分别负责 VLA/WAM 行为。
    * - ``am_runtime.py``
-     - 共享 RPent RPC 服务连接、进程启动和失败清理；另设 WAM 后端选择与部署配置部分。
+     - 统一注册 VLA/WAM GPU 参数，选择 WAM 后端并构造 worker 启动命令与连接。
    * - ``<model>/runtime_config.py``
      - 补充模型专属参数、默认值和配置要求。
    * - ``<model>/server.py``
@@ -61,15 +61,15 @@ RPent 将平台观测和动作执行与模型推理解耦。Cosmos Policy 支持
      -> robots.runtime.try_spawn_server(spawn_fn)
           -> WAMConfig.start_service()
                -> <model>.runtime_config.worker_arguments()
-               -> am_runtime.start_am_service(daemon, endpoint)
-                    -> start worker and return daemon + RPC client
+               -> ProcessDaemon.start() + make_rpc_client()
+               -> return daemon + RPC client
           -> register owned daemon
      -> robots.runtime.try_wait_server(post_fn)
           -> wait for readiness
           -> create platform WAM client and check control compatibility
           -> report ready to Dashboard
 
-``am_runtime.start_am_service()`` 连接外部端点或启动已配置的 daemon，保留会话设置，并在启动失败时清理资源。LIBERO、RoboCasa、RoboDojo、Franka、dual-Franka 和 YAM 中使用 RPent RPC 的 VLA 路径与 WAM 共用此函数；命令构造仍由平台或模型配置负责。LingBot 保留原生 WebSocket 连接路径。公共 ``robots/runtime.py`` 在资源交接后负责等待就绪、组件状态和进程组清理。
+WAM 配置和平台 VLA 启动函数直接使用 ``ProcessDaemon.start()`` 与已有 RPC 客户端。``ProcessDaemon`` 在启动失败时关闭日志；LingBot 保留原生 WebSocket 连接路径。公共 ``robots/runtime.py`` 在资源交接后负责等待就绪、组件状态和进程组清理。连接外部 endpoint 时不返回自有 daemon。
 
 ``am_runtime.py`` 的 WAM 部分负责 ``--platform``、``--checkpoint``、Python/GPU 选择和部署模式检查；模型 ``runtime_config.py`` 只补充自己的额外配置。VLA 启动参数保持不变。
 
@@ -78,7 +78,9 @@ RPent 将平台观测和动作执行与模型推理解耦。Cosmos Policy 支持
 通信与生命周期
 --------------
 
-RPC 路由为 ``wam.capabilities``、``wam.predict`` 和 ``wam.reset``。请求包含 ``images``、``state``、``instruction``、``embodiment`` 和 ``action_space``。能力声明包含 ``control`` 控制字典、必需相机与状态维度、可执行 ``chunk_size``、后端与 checkpoint 身份及会话设置。预测结果包含 ``actions``，可选返回 ``future_observation``、``value`` 和 ``metadata``。
+RPC 路由为 ``wam.get_model_meta``、``wam.predict`` 和 ``wam.reset``。请求包含 ``images``、``state``、``instruction``、``embodiment`` 和 ``action_space``。模型元数据包含 ``control`` 控制字典、必需相机与状态维度、可执行 ``chunk_size``、后端与 checkpoint 身份及会话设置。预测结果包含 ``actions``，可选返回 ``future_observation``、``value`` 和 ``metadata``。
+
+``BaseWAMClient`` 在构造时查询一次模型元数据并保存在 ``model_meta``，后续预测直接使用该快照。
 
 消息直接使用已有传输支持的字典和 NumPy 数组，没有对象到通信格式的转换，也没有协议版本字段。client 和 worker 应从同一份代码部署。连接时，平台将服务的控制字典与本地支持的定义直接比较，并缓存选择；更换服务或控制方式时创建新 client。服务端检查收到的观测，客户端在执行前检查动作形状、chunk 长度及有限数值。decoder 保留夹爪二值化、动作前缀选择等转换之前的必要检查，避免转换隐藏无效输出。
 
@@ -89,7 +91,7 @@ RPC 路由为 ``wam.capabilities``、``wam.predict`` 和 ``wam.reset``。请求�
 扩展方式
 --------
 
-增加模型时，新建包含 ``runtime_config.py``、``server.py`` 及配对 ``adapter/encode.py``、``adapter/decode.py`` 的包。在 ``am_runtime.WAM_BACKENDS`` 注册后端，在模型的 ``ADAPTERS`` 中注册支持的平台。``WAMAdapterSpec`` 位于 ``am_facade_base.py``，组合 encode、decode 和能力构造函数。已有平台的物理观测与控制定义满足要求时，可直接复用平台 client。
+增加模型时，新建包含 ``runtime_config.py``、``server.py`` 及配对 ``adapter/encode.py``、``adapter/decode.py`` 的包。在 ``am_runtime.WAM_BACKENDS`` 注册后端，在模型的 ``ADAPTERS`` 中注册支持的平台。``WAMAdapterSpec`` 位于 ``am_facade_base.py``，组合 encode、decode 和模型元数据构造函数。``BaseWAMFacade`` 必须接收绑定后的 encoder/decoder 函数对，预测始终经过这两个转换。已有平台的物理观测与控制定义满足要求时，可直接复用平台 client。
 
 增加平台时，提供物理观测、原生控制定义、平台 client 及工具和运行时接线。每个模型仍需匹配的 checkpoint 和配对转换；注册本身不能证明权重兼容。RoboTwin 已定义 EEF16 控制方式，但当前 Fast-WAM adapter 使用 qpos14。Cosmos Policy 尚无 RoboTwin adapter。
 

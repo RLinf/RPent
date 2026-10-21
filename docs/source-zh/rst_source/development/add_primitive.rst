@@ -1,7 +1,7 @@
 添加动作原语
 ==================
 
-在 RPent 中，*动作原语* 负责将一次工具调用转换为环境可执行的动作。它既可以基于 VLA、WAM 或 Diffusion Policy，也可以是 ``move_to``、 ``open_gripper`` 等脚本化例程。本页分别介绍这两类原语的添加方法。
+在 RPent 中，*动作原语* 负责将一次工具调用转换为环境可执行的动作。它既可以基于 VLA、WAM 或 Diffusion Policy，也可以是 ``move_to``、 ``open_gripper`` 等脚本化例程。本页介绍工具声明、注册与执行。
 
 两类原语
 --------
@@ -15,7 +15,7 @@
      - 例子
    * - **基于模型的**
        （VLA / WAM / Diffusion Policy / …）
-     - 在独立进程（``vla_server``）中运行，通过 toolkit 持有的
+     - 在独立模型服务进程中运行，通过 toolkit 持有的
        *model client* 调用。
      - Pi0.5（LIBERO）、RLDX-1（RoboCasa）
    * - **脚本化**
@@ -54,75 +54,10 @@
 
 .. _add-primitive-model-based:
 
-添加一个 VLA（或其他基于模型的原语）
-------------------------------------
+基于模型的工具
+----------------
 
-由于模型运行在独立进程中，添加基于模型的原语还需要以下组件：
-
-1. **编写 ``vla_server.py``。** 该进程只持有模型权重和 CUDA 上下文。继承 :class:`rpent.robots.components.am_facade_base.BaseVLAFacade`，实现 ``predict``，并通过扩展 ``_register_rpc`` 注册其他模型 RPC：
-
-   - 默认传输方式为 **HTTP**，通过 ``POST /call`` 传输 JSON，适合
-     LIBERO/Pi0.5 使用的扁平 ``image + state`` 数据。
-   - 当观测数据包含多帧历史信息或采用嵌套数据结构时，可以切换到
-     **socket RPC**\ （``--transport socket``），避免重复进行 JSON 编码。
-
-   ``BaseVLAFacade`` 会注册 ``vla.predict`` 并串行化模型调用；继承的 ``RpcFacade.serve`` 负责绑定传输层、处理 ``healthz`` 和 ``shutdown``、检测父进程退出并清理资源。
-
-2. **编写 model client。** 继承
-   :class:`rpent.robots.components.am_client_base.BaseVLAClient`；它已经提供
-   公共的 ``vla.predict`` 调用，子类只需增加环境专用的输入 / 输出适配。 LIBERO 的实现可参考 ``rpent.robots.components.pi05_vla_client.Pi05VLAClient``。
-
-3. **在 primitives 中添加方法。** 在当前机器人的 primitives 类中调用 model client，将其返回的动作块交给环境执行，并返回 ``ToolResult``。 model client 的接口是
-   :meth:`rpent.robots.components.pi05_vla_client.Pi05VLAClient.predict`，
-   指令从 ``env_obs["task_descriptions"]`` 中读取；返回形状为 ``[chunk, action_dim]`` 的 NumPy 动作块（已移除 batch 维度）：
-
-   .. code-block:: python
-
-      @tool
-      def mymodel_pick(self, target: str) -> ToolResult:
-          """使用模型抓取指定目标。"""
-          env_obs = self._env.get_obs()
-          env_obs["task_descriptions"] = f"pick {target}"
-          chunk = self._model.predict(env_obs)
-          self._env.chunk_step(chunk)
-          return ToolResult(data={"model": "mymodel", "target": target})
-
-4. **在 toolkit 中注册声明的工具。** 具体做法与脚本化原语相同。
-
-5. **在 ``robot_spec.py`` 中连接各组件。** 机器人的 ``get_toolkit`` 使用 ``runtime_kwargs`` 构造 toolkit：
-
-   .. code-block:: python
-
-      def get_toolkit(*, runtime_kwargs, dashboard_events):
-          from robots.myrobot.toolkit import MyRobotToolkit
-          return MyRobotToolkit(
-              runtime_kwargs=runtime_kwargs,
-              dashboard_events=dashboard_events,
-          )
-
-   机器人包中的 ``_init_runtime`` 则负责构造 ``runtime_kwargs``，例如 ``{"env": MyRobotEnvClient(...), "model": MyModelClient(...)}``，再由 toolkit 构造器将其转发给 primitives。
-
-在多次运行之间复用 vla_server
------------------------------
-
-模型服务进程通常需要较长的启动时间，因此 runner 可以通过 ``--vla-endpoint`` 连接已经在运行的实例：
-
-.. code-block:: bash
-
-   rpent --robot libero --vla-endpoint http://vla-host:8000 ...
-
-如果模型会保存每个回合的内部状态，应提供 ``vla_reset`` RPC，并在任务之间调用它完成重置。这样，同一个服务进程就能安全地复用于多次连续运行。
-
-带会话状态的 VLA 后端（按客户端隔离策略状态）
-------------------------------------------------
-
-大多数 VLA 后端是无状态的：``predict`` 只做推理，不保存各客户端的中间状态，``session_id`` 可以忽略。但有些模型带按客户端隔离的策略状态（如 RLDX-1 的 memory/RTC），同一个 ``vla_server`` 服务多个客户端时，不同客户端的策略状态会互相污染，必须按 session 隔离。接入分三块：
-
-- **facade 侧**：构造 ``BaseVLAFacade`` 子类时传 ``enable_sessions=True`` 和 ``session_timeout_s``，并实现 ``_on_session_drop``——session 结束（客户端调用 ``session.close`` RPC 或空闲超时）时在这里清理该客户端的策略状态。需要显式重置时，额外提供 ``reset_session`` RPC（只清策略状态，不销毁 session）。``serve`` 必须传 ``session_sweep_s`` （> 0），让后台线程定期回收过期 session。
-
-- **client 侧**：model client 内部的 ``RpcClient`` 以 ``enable_sessions=True`` 构造，连接时自动向 server 注册 session。 ``session_id`` 由 facade 从连接派生并注入 server 端 handler，客户端 **不传**，也不应在 ``predict`` 的 ``options`` 里伪造 ``session_ids``。
-
-- **primitives 侧**：任务开始前调用 ``reset_session`` 清空上一回合残留的策略状态，保证连续多次运行之间状态不串。
+VLA/WAM 的服务、客户端、adapter 与会话生命周期见 :doc:`add_action_model`。平台工具调用模型客户端，通过环境执行返回的原生动作块，再返回 ``ToolResult``。工具声明与注册仍使用上文的 ``@tool`` 和 ``iter_tools``。
 
 单线程 serve（EGL 渲染后端）
 ----------------------------
@@ -150,14 +85,3 @@ mixin 覆盖的 ``serve`` 与 :class:`~rpent.utils.rpc.RpcFacade` 的 ``serve`` 
 - **改变状态的工具在返回规划器前采集状态。** Toolkit 在处理函数执行后调用 ``get_env_state``，期间继续保持独占执行。``readonly`` 工具跳过这一步，并可与其他只读工具并行。
 - **保持结果数据简短。** 返回值会以文本形式提供给 LLM；图像、深度数据和其他大型观测应通过 ``EnvState.save`` 保存；``EnvState`` 会把每个逻辑基础文件名自动加入其持有的 ``StepRecord.artifacts`` 集合。图像通过 ``view_env_state`` 提供，几何数据通过环境工具访问，不返回原始路径。
 - **安全限制由 ``env_server`` 强制执行。** LLM 可能使用任意参数调用工具，因此工作空间边界和安全限制不能只依赖 toolkit。
-
-其他基于模型的原语
-------------------
-
-同样的架构也适用于非 VLA 的模型原语：
-
-- **World Action Model (WAM)** —— 根据模型预测生成 rollout 和执行计划，再交给环境执行。其接入方式与 VLA 相同：使用独立进程和独立 client。
-- **Diffusion Policy / MPC** —— 接口形式相同，但工具返回的动作可能是一段 trajectory，而非单个 chunk，并由 ``env_server`` 按顺序执行。
-- **多个原语共享一个 server** —— 一个 ``vla_server`` 可以承载多个模型，由工具通过 ``predict`` 的 ``model`` kwarg 选择要调用的模型或输出 head。
-
-无论具体实现如何，框架的契约都保持不变：模型进程 → model client → primitives 方法 → 工具定义 → ``Toolkit.add_tool``。
