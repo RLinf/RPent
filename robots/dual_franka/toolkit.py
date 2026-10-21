@@ -43,8 +43,6 @@ if TYPE_CHECKING:
 
 OperatorReader = Callable[[str, Callable[[], None]], str | None]
 
-_EXPLORATION_ONLY_TOOLS = {"request_scene_reset"}
-
 _MOTION_TOOLS = {
     "move_delta",
     "rotate_delta",
@@ -58,7 +56,7 @@ _MOTION_TOOLS = {
 
 
 class DualFrankaToolkit(FrankaToolkit):
-    """Dual-arm tools with operator-gated exploration.
+    """Dual-arm tools with operator-gated scene restoration.
 
     Operator decisions and attempt boundaries are recorded as artifacts rather
     than simulator termination flags. Operator confirmations can come from the
@@ -88,7 +86,7 @@ class DualFrankaToolkit(FrankaToolkit):
         self._budget = attempts_per_session
         self._attempts_per_session = attempts_per_session
         self._session_attempt = 1
-        self._scene_ready = mode != "exploration"
+        self._scene_ready = bool(runtime_kwargs.get("flash_options"))
         self._operator_input = operator_input
         self._operator_verdict = None
         self._operator_notes = ""
@@ -191,13 +189,9 @@ class DualFrankaToolkit(FrankaToolkit):
         self._event("finish", **result)
         return result
 
-    def _describe_exploration_setup(self, inner) -> ToolResult:
+    def _describe_setup(self, inner) -> ToolResult:
         result = inner()
-        result.data["phase"] = "exploration"
-        result.data["reset_policy"] = (
-            "No automatic reset was performed by the client. Before motion in "
-            "each session call request_scene_reset and wait for operator confirmation."
-        )
+        result.data["phase"] = self._mode
         result.data["scene_ready"] = self._scene_ready
         return result
 
@@ -272,7 +266,7 @@ class DualFrankaToolkit(FrankaToolkit):
             str, Field(json_schema_extra={"default": ""})
         ] = "",
     ) -> ToolResult:
-        """Exploration-only real-robot reset gate. Ask the human operator to remove/secure held objects and restore the tabletop scene for another attempt, wait for terminal confirmation, then reset the robot posture. This does not automatically restore physical objects like a simulator.
+        """Ask the operator to remove or secure held objects and restore the scene, wait for confirmation, then reset robot posture. Required before motion in every ordinary or exploration run; physical objects are not restored automatically.
 
         Args:
             reason: Why the scene needs to be restored.
@@ -347,7 +341,7 @@ class DualFrankaToolkit(FrankaToolkit):
             ),
         ] = "Does the current scene satisfy the task success criteria?",
     ) -> ToolResult:
-        """Exploration-only human feedback gate. Ask the operator to mark the current physical task state as success, failure, or continue before the planner finishes or starts another attempt."""
+        """Ask the operator to mark the current physical task state as success, failure, or continue before the planner finishes or starts another attempt."""
         self._clear_verdict()
         if (
             self._direct_verdict_event.is_set()
@@ -422,10 +416,6 @@ class DualFrankaToolkit(FrankaToolkit):
         return result
 
     def get_env_state(self, *, command, result, elapsed_s):
-        if self._mode != "exploration":
-            return super().get_env_state(
-                command=command, result=result, elapsed_s=elapsed_s
-            )
         try:
             output = super().get_env_state(
                 command=command, result=result, elapsed_s=elapsed_s
@@ -438,6 +428,8 @@ class DualFrankaToolkit(FrankaToolkit):
                 self._scene_ready = True
                 self._attempt_start_step = self.state.latest_step
                 self._event("reset_completed")
+            if self._mode != "exploration":
+                return output
             status = {
                 "attempt": self._attempt,
                 "attempts_per_session": self._budget,
@@ -573,16 +565,13 @@ class DualFrankaToolkit(FrankaToolkit):
         )
         for definition in self.declared_tools():
             name = definition.name
-            if name in _EXPLORATION_ONLY_TOOLS and self._mode != "exploration":
-                continue
             handler = state_handlers.get(name) or getattr(self._primitives, name)
-            if self._mode == "exploration":
-                if name in _MOTION_TOOLS:
-                    handler = partial(self._guard_motion, handler)
-                elif name in {"back_project", "segment"}:
-                    handler = partial(self._current_perception, handler)
-                elif name == "describe_dual_franka_setup":
-                    handler = partial(self._describe_exploration_setup, handler)
+            if name in _MOTION_TOOLS:
+                handler = partial(self._guard_motion, handler)
+            elif name in {"back_project", "segment"}:
+                handler = partial(self._current_perception, handler)
+            elif name == "describe_dual_franka_setup":
+                handler = partial(self._describe_setup, handler)
             self.add_tool(definition.with_handler(handler))
         finish = self._tools["finish"]
         guard = (
@@ -605,6 +594,10 @@ class DualFrankaToolkit(FrankaToolkit):
         question: str = "Does the current real-robot scene satisfy the task?",
     ) -> ToolResult:
         """Collect operator feedback through the injected reader or terminal."""
+        if not self._scene_ready or self._operator_aborted:
+            return ToolResult(
+                data={"error": "request_scene_reset must complete before evaluation"}
+            )
         if self._operator_input is not None:
             response = self._ask_operator(question, kind="verdict")
         else:
@@ -655,6 +648,8 @@ class DualFrankaToolkit(FrankaToolkit):
 
     def _evaluation_finish(self, inner: Any, **kwargs: Any) -> ToolResult:
         """Require real-robot operator feedback before finishing a task."""
+        if self._operator_aborted:
+            return self._guarded_finish(inner, **kwargs)
         if self._operator_verdict is None:
             return ToolResult(
                 data={

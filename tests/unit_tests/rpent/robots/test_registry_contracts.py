@@ -41,9 +41,9 @@ EXPECTED_ROBOTS = (
 
 PROMPT_VARIABLES = {
     "yam": {
-        "task_name": "tabletop_cleanup_a",
+        "task_id": 1,
         "seed": 0,
-        "recipe_tag": "yam_tabletop_cleanup_a_s0",
+        "recipe_tag": "yam_t1_s0",
         "instruction": "Move the object to the target",
         "mode": "eval",
         "memory_dir": "/memory",

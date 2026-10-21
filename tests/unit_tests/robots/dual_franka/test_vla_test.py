@@ -19,7 +19,6 @@ import numpy as np
 import pytest
 
 from tests.e2e_tests.dual_franka.dual_franka_vla import DeploymentTest, run_console
-from tests.e2e_tests.dual_franka.dual_franka_vla_only import run_vla_only
 
 
 def make_session(tmp_path, *, fail=False, terminate=False):
@@ -43,6 +42,7 @@ def make_session(tmp_path, *, fail=False, terminate=False):
         return actions.copy()
 
     def execute(a):
+        assert a.shape == (1, 20)
         calls.append("execute")
         if fail:
             raise RuntimeError("RPC timeout")
@@ -70,25 +70,19 @@ def make_session(tmp_path, *, fail=False, terminate=False):
 
 def test_policy_continues_across_chunks_until_operator_stop(tmp_path):
     session, calls, _ = make_session(tmp_path)
-    result = run_vla_only(
-        session.env,
-        session.model,
-        prompt=session.prompt,
-        workspace=session.workspace,
-        expected_steps=session.expected_steps,
-        stopped=lambda: calls.count("execute") >= 21,
-        emit=lambda event: None,
-    )
-    assert calls.count("execute") == result["steps"] == 21
-    assert calls.count("predict") == result["chunks"] == 2
-    assert result["reason"] == "operator_stop"
+    session.stopped = lambda: calls.count("execute") >= 21
+    run_console(session, read=lambda _: "run", emit=lambda event: None)
+    assert calls.count("execute") == 21
+    assert calls.count("predict") == 2
+    assert json.loads((tmp_path / "vla_000002.json").read_text())["steps_executed"] == 1
 
 
-def test_infer_records_without_execution(tmp_path):
+def test_run_records_input_and_prediction(tmp_path):
     s, calls, _ = make_session(tmp_path)
     result = s.chunk()
-    assert calls == ["observe", "predict"]
-    assert not result["executed"]
+    assert result["ok"]
+    assert calls[:2] == ["observe", "predict"]
+    assert calls.count("execute") == 20
     record = json.loads((tmp_path / "vla_000001.json").read_text())
     assert record["prompt"] == "pick"
     with np.load(tmp_path / "vla_000001.npz", allow_pickle=False) as a:
@@ -96,11 +90,12 @@ def test_infer_records_without_execution(tmp_path):
         assert a["root/input/main_images"].dtype == np.uint8
 
 
-def test_step_reinfers_instead_of_reusing_preview(tmp_path):
+def test_chunks_use_fresh_predictions(tmp_path):
     s, calls, _ = make_session(tmp_path)
     s.chunk()
-    s.chunk(True)
-    assert calls.count("predict") == 2 and calls.count("execute") == 1
+    s.chunk()
+    assert calls.count("predict") == 2
+    assert calls.count("execute") == 40
     assert "robot_state_after" in json.loads((tmp_path / "vla_000002.json").read_text())
 
 
@@ -117,14 +112,14 @@ def test_bad_actions_never_execute(tmp_path, kind):
         a[0, 3:9] = 0
     s.model.predict = lambda *args, **kw: a
     with pytest.raises(ValueError):
-        s.chunk(True)
+        s.chunk()
     assert "execute" not in calls
     assert not json.loads((tmp_path / "vla_000001.json").read_text())["ok"]
 
 
 def test_failure_aborts_run_and_blocks_further_motion(tmp_path):
     s, calls, _ = make_session(tmp_path, fail=True)
-    lines = iter(["run 3", "step", "quit"])
+    lines = iter(["run 3", "run 1", "quit"])
     run_console(s, read=lambda _: next(lines), emit=lambda _: None)
     assert calls.count("execute") == 1
     assert s.execution_uncertain
@@ -138,7 +133,7 @@ def test_termination_stops_run(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "line", ["run 0", "run 21", "run abc", "step 3", "infer 2", "prompt "]
+    "line", ["run 0", "run -1", "run abc", "step", "infer", "prompt pick", "reset x"]
 )
 def test_invalid_commands_do_nothing(tmp_path, line):
     s, calls, _ = make_session(tmp_path)
@@ -147,20 +142,31 @@ def test_invalid_commands_do_nothing(tmp_path, line):
     assert calls == []
 
 
-def test_diagnostics_are_not_registered_as_planner_tasks():
-    from robots.dual_franka.tasks import get_dual_franka_task
-
-    for task_id in (103, 104):
-        with pytest.raises(ValueError):
-            get_dual_franka_task(task_id)
-
-
 def test_terminated_episode_requires_reset(tmp_path):
     s, calls, _ = make_session(tmp_path, terminate=True)
-    s.chunk(True)
+    s.chunk()
     with pytest.raises(RuntimeError, match="Episode ended"):
-        s.chunk(True)
+        s.chunk()
     assert calls.count("execute") == 1
+
+
+@pytest.mark.parametrize("response", ["done", "abort"])
+def test_console_reset_uses_operator_confirmation_on_same_env(
+    monkeypatch, tmp_path, dual_franka_robot_config, response
+):
+    from robots.dual_franka.toolkit import DualFrankaToolkit
+    from robots.franka.runtime_config import set_robot_config_path
+    from tests.unit_tests.robots.dual_franka.test_dual_franka_tools import FakeEnv
+
+    set_robot_config_path(dual_franka_robot_config)
+    session, _, _ = make_session(tmp_path)
+    session.env = FakeEnv()
+    session.episode_done = True
+    monkeypatch.setattr(DualFrankaToolkit, "_ask_operator", lambda *a, **kw: response)
+    lines = iter(["reset", "run 1", "quit"])
+    run_console(session, read=lambda _: next(lines), emit=lambda _: None)
+    assert session.env.resets == (1 if response == "done" else 0)
+    assert len(session.env.chunks) == (20 if response == "done" else 0)
 
 
 def test_dual_client_uses_live_state_instead_of_cached_reset():
@@ -172,95 +178,79 @@ def test_dual_client_uses_live_state_instead_of_cached_reset():
     np.testing.assert_array_equal(client.get_observation()["states"], np.ones(20))
 
 
-@pytest.mark.parametrize("instruction", [None, "diagnostic prompt"])
+@pytest.mark.parametrize(
+    "instruction,expected_steps", [(None, None), ("diagnostic prompt", 20)]
+)
 def test_session_accepts_standard_config_without_local_deployment(
-    tmp_path, monkeypatch, instruction
+    tmp_path, monkeypatch, instruction, expected_steps
 ):
-    import argparse
-
     import yaml
 
-    from robots.dual_franka.tasks import get_dual_franka_task
     from tests.e2e_tests.dual_franka import dual_franka_vla as vla_test
 
+    monkeypatch.setattr("robots.franka.runtime_config._robot_config_path", None)
     config_path = tmp_path / "robot.yaml"
-    config_path.write_text(yaml.safe_dump({"workspace": {}}))
-    closed = []
-    observed = []
-    args = argparse.Namespace(
-        expected_action_steps=20,
-        robot_config=str(config_path),
-        task_id=1,
-        instruction=instruction,
-        vla_model_path="checkpoint",
-        vla_repo_id="dataset",
+    config_path.write_text(
+        yaml.safe_dump(
+            {
+                "workspace": {},
+                "vla": {"instruction": "configured instruction"},
+            }
+        )
     )
-    model = SimpleNamespace()
+    args = vla_test.build_parser().parse_args(
+        [
+            "--robot-config",
+            str(config_path),
+            "--output-dir",
+            str(tmp_path / "run"),
+        ]
+        + (["--instruction", instruction] if instruction else [])
+    )
+    args.expected_action_steps = expected_steps
+    closed, observed = [], []
 
-    def init_runtime(args, output, events, components):
+    def status(**kwargs):
+        assert expected_steps is None
+        return {"action_chunk": 5}
+
+    model = SimpleNamespace(status=status)
+
+    def init_runtime(args, output, events, components, **kwargs):
         assert components == {"env", "vla"}
+        assert kwargs == {
+            "task_description": "",
+            "vla_instruction": instruction or "configured instruction",
+        }
         return (
             [SimpleNamespace(stop=lambda: closed.append(True))],
             {"model": model, "env": SimpleNamespace(get_camera_meta=lambda: {})},
         )
 
-    spec = SimpleNamespace(
-        parse_config=lambda args: SimpleNamespace(output_dir=tmp_path / "run"),
-        init_runtime=init_runtime,
-    )
-    monkeypatch.setattr(vla_test, "get_robot_spec", lambda: spec)
+    monkeypatch.setattr(vla_test, "_init_runtime", init_runtime)
     monkeypatch.setattr(
-        vla_test, "run_console", lambda session: observed.append(session.prompt)
+        vla_test,
+        "run_console",
+        lambda session: observed.append((session.prompt, session.expected_steps)),
     )
     assert vla_test.run_session(args) == 0
-    assert observed == [instruction or get_dual_franka_task(1).vla_instruction]
+    assert observed == [(instruction or "configured instruction", expected_steps or 5)]
     assert closed == [True]
 
 
-def test_primitive_profile_is_rejected_before_runtime(tmp_path, monkeypatch):
-    import argparse
-
+def test_missing_instruction_is_rejected_before_runtime(tmp_path, monkeypatch):
     from tests.e2e_tests.dual_franka import dual_franka_vla as vla_test
 
     config = tmp_path / "config.yaml"
     config.write_text("workspace: {}\n")
-    args = argparse.Namespace(
-        expected_action_steps=20,
-        task_id=0,
-        instruction="explicit prompt",
-        robot_config=str(config),
-        vla_endpoint=None,
-    )
+    args = vla_test.build_parser().parse_args(["--robot-config", str(config)])
     monkeypatch.setattr(
         vla_test,
-        "get_robot_spec",
-        lambda: SimpleNamespace(
-            parse_config=lambda args: pytest.fail("must reject before runtime setup")
-        ),
+        "_init_runtime",
+        lambda *a, **kw: pytest.fail("must reject before runtime setup"),
     )
-    with pytest.raises(ValueError, match="VLA task profile"):
+    with pytest.raises(ValueError, match="instruction"):
         vla_test.run_session(args)
-
-
-def test_diagnostic_parser_provides_shared_config_defaults(
-    tmp_path, dual_franka_robot_config
-):
-    from robots.dual_franka.robot_spec import get_robot_spec
-    from tests.e2e_tests.dual_franka.dual_franka_vla import build_parser
-
-    args = build_parser().parse_args(
-        [
-            "--output-dir",
-            str(tmp_path),
-            "--robot-config",
-            str(dual_franka_robot_config),
-        ]
-    )
-    assert args.explore is False
-    assert args.memory_dir is None and args.memory_profile is None
-    config = get_robot_spec().parse_config(args)
-    assert config.prompt_vars["mode"] == "eval"
-    assert config.prompt_vars["session_max"] == 1
 
 
 def test_diagnostic_runtime_ignores_configured_sam3(monkeypatch, tmp_path):
@@ -269,6 +259,7 @@ def test_diagnostic_runtime_ignores_configured_sam3(monkeypatch, tmp_path):
 
     monkeypatch.setenv("SAM3_CHECKPOINT_PATH", "/unused/checkpoint")
     args = build_parser().parse_args(["--sam3-endpoint", "http://unused:9999"])
+    assert not hasattr(args, "task_id") and args._flash_options is None
     started, waited = [], []
     monkeypatch.setattr(
         robot_spec,
@@ -281,7 +272,12 @@ def test_diagnostic_runtime_ignores_configured_sam3(monkeypatch, tmp_path):
         lambda owned, events, name, *args, **kwargs: waited.append(name) or {},
     )
     robot_spec._init_runtime(
-        args, tmp_path, SimpleNamespace(emit=lambda event: None), {"env", "vla"}
+        args,
+        tmp_path,
+        SimpleNamespace(emit=lambda event: None),
+        {"env", "vla"},
+        task_description="",
+        vla_instruction="pick",
     )
     assert started == ["env", "vla"] and waited == ["env", "vla"]
 
@@ -292,8 +288,8 @@ def test_invalid_chunk_length_rejected_before_runtime(monkeypatch, steps):
 
     monkeypatch.setattr(
         dual_franka_vla,
-        "get_robot_spec",
-        lambda: pytest.fail("must reject before initializing runtime"),
+        "_init_runtime",
+        lambda *a, **kw: pytest.fail("must reject before initializing runtime"),
     )
     with pytest.raises(ValueError, match="must be positive"):
         dual_franka_vla.run_session(SimpleNamespace(expected_action_steps=steps))
@@ -303,11 +299,11 @@ def test_configured_chunk_length_is_checked_before_execution(tmp_path):
     session, calls, actions = make_session(tmp_path)
     session.expected_steps = 5
     with pytest.raises(ValueError, match="Expected finite actions"):
-        session.chunk(execute=True)
+        session.chunk()
     assert "execute" not in calls
     session.model.predict = lambda *args, **kwargs: actions[:5]
-    assert session.chunk(execute=True)["actions"] == 5
-    assert calls.count("execute") == 1
+    assert session.chunk()["actions"] == 5
+    assert calls.count("execute") == 5
 
 
 def test_dual_franka_spawns_shared_vla_server():

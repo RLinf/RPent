@@ -143,4 +143,4 @@ RPent（Recursive Physical Agent）是一个开源框架，用于构建在与物
 
    Harness VLA <rst_source/resources/harnessvla>
    贡献指南 <rst_source/resources/contributing>
-   版本说明 <rst_source/resources/release_notes>
+   v0.1 发布说明 <rst_source/resources/release_v0.1>
