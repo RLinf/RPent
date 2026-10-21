@@ -440,6 +440,9 @@ class MT3Runner:
         #: Extra yaw [rad] applied to the next segment's transfer (see
         #: ``yaw_search_deg``).
         self._yaw = 0.0
+        #: Yaw [deg] the last grasp was turned by; the placement that follows
+        #: turns by the same amount so the object sits where the demo put it.
+        self._carry_yaw = 0.0
 
     def _send(self, target: np.ndarray, gripper: float) -> bool:
         """Track ``target`` for one step; False once the episode has ended."""
@@ -616,8 +619,11 @@ class MT3Runner:
                 default=None,
             )
 
+        base = self._carry_yaw if held else 0.0
         stage, pick = "configured", None
-        cands = self._feasibility(k, live, 0.0, [self.demo], (corridor,), (0.0,))
+        cands = self._feasibility(
+            k, live, 0.0, [self.demo], (corridor,), (0.0,), (base,)
+        )
         tried += cands
         if cands and cands[0]["feasible"]:
             pick = cands[0]
@@ -629,13 +635,15 @@ class MT3Runner:
                 0.0,
                 [self.demo],
                 tuple(sorted({corridor, 0.2, 0.1, 0.0}, reverse=True)),
+                (0.0, 0.06, 0.12, 0.2),
+                (base,),
             )
             tried += cands
             pick = best(cands)
         if pick is None and self._yaw_allowed(k, held):
             stage = "yaw"
             turns = tuple(
-                sign * a for a in self.cfg.yaw_search_deg for sign in (1.0, -1.0)
+                base + sign * a for a in self.cfg.yaw_search_deg for sign in (1.0, -1.0)
             )
             cands = self._feasibility(
                 k,
@@ -652,7 +660,7 @@ class MT3Runner:
             pick = min(
                 ok,
                 key=lambda x: (
-                    abs(x["yaw"]),
+                    abs(x["yaw"] - base),
                     x["first_movable_contact"] is not None,
                     x["n"],
                 ),
@@ -675,9 +683,15 @@ class MT3Runner:
             if pick is not None:
                 self._use_demo(pick["demo"])
         if pick is None:
-            log = self._segment(k)
+            self._yaw = np.radians(base)
+            try:
+                log = self._segment(k)
+            finally:
+                self._yaw = 0.0
+            self._carry_yaw = 0.0
             log.update(
-                selection={"stage": "none feasible; configured route"}, candidates=tried
+                selection={"stage": "none feasible; configured route", "yaw": base},
+                candidates=tried,
             )
             return log
         saved = self.cfg
@@ -692,6 +706,7 @@ class MT3Runner:
         finally:
             self.cfg = saved
             self._yaw = 0.0
+        self._carry_yaw = 0.0 if held else float(pick.get("yaw", 0.0))
         log.update(
             selection={
                 "stage": stage,
