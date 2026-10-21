@@ -75,6 +75,10 @@ class MT3Config:
     #: Steps the last target is held after the demo ends, waiting for success.
     hold_steps: int = 30
     #: Extra high-clearance alignment attempts after the ordinary route stalls.
+    #: Length [m] of the demo's own approach path, ending at the bottleneck,
+    #: that is replayed (transferred) after aligning to its entry; 0 aligns
+    #: straight to the bottleneck.
+    approach_corridor: float = 0.0
     alignment_replans: int = 0
     alignment_guard_pos: float = 0.0
     alignment_guard_rot_deg: float = 15.0
@@ -365,12 +369,22 @@ class MT3Runner:
                     )
                     goal = goal @ grasp_delta
         hold = self.gripper[b]
+        corridor: list[np.ndarray] = []
+        if self.cfg.approach_corridor > 0:
+            entry = bottleneck_frame(self.eef, start, b, self.cfg.approach_corridor)
+            corridor = [transform @ self.eef[f] @ grasp_delta for f in range(entry, b)]
+            log["corridor_frames"] = [entry, b]
         attempts = []
         align_steps, total_settle = 0, 0
         for attempt in range(self.cfg.alignment_replans + 1):
-            path = alignment_path(
-                self.env.eef_pose(), goal, self.cfg.align_step, 0.06 * attempt
-            )
+            if corridor:
+                path = alignment_path(
+                    self.env.eef_pose(), corridor[0], self.cfg.align_step, 0.06 * attempt
+                ) + corridor[1:] + [goal]
+            else:
+                path = alignment_path(
+                    self.env.eef_pose(), goal, self.cfg.align_step, 0.06 * attempt
+                )
             for pose in path:
                 if not self._send(pose, hold):
                     return self._close(log, n0, "done during alignment")
