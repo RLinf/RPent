@@ -93,6 +93,10 @@ class MT3Config:
     #: where the held object is put down, since placement goals ignore its yaw;
     #: other segments only for references matching ``yaw_free``.
     yaw_search_deg: list[float] = field(default_factory=list)
+    #: Escape offsets [m, world frame] tried by "minimal" before the transit
+    #: when this demo's routes and yaw variants are blocked: the arm first
+    #: moves by the offset from where it is (e.g. up, or back toward the base).
+    via_offsets: list[list[float]] = field(default_factory=list)
     #: Body-name substrings whose grasp may be turned about their own axis.
     yaw_free: list[str] = field(default_factory=list)
     #: Also check the source interaction from the bottleneck to contact,
@@ -231,6 +235,23 @@ def yaw_about(transform: np.ndarray, angle: float, pivot: np.ndarray) -> np.ndar
     rot = rz(angle)
     turn = make_pose(pivot - rot @ pivot, rot)
     return turn @ transform
+
+
+def via_path(
+    start: np.ndarray, head: np.ndarray, offset, step: float, clearance: float
+) -> list[np.ndarray]:
+    """Move by ``offset`` from ``start`` first, then the usual lift / transit /
+    descend to ``head``. ``offset`` None is the plain alignment path."""
+    if offset is None:
+        return alignment_path(start, head, step, clearance)
+    via = start.copy()
+    via[:3, 3] = start[:3, 3] + np.asarray(offset, dtype=float)
+    n = max(1, int(np.ceil(np.linalg.norm(offset) / step)))
+    lead = [
+        make_pose(start[:3, 3] + (via[:3, 3] - start[:3, 3]) * j / n, start[:3, :3])
+        for j in range(1, n + 1)
+    ]
+    return lead + alignment_path(via, head, step, clearance)
 
 
 def _family(name: str) -> str:
@@ -443,6 +464,8 @@ class MT3Runner:
         #: Yaw [deg] the last grasp was turned by; the placement that follows
         #: turns by the same amount so the object sits where the demo put it.
         self._carry_yaw = 0.0
+        #: Escape offset [m] for the next alignment (see ``via_offsets``).
+        self._via: np.ndarray | None = None
 
     def _send(self, target: np.ndarray, gripper: float) -> bool:
         """Track ``target`` for one step; False once the episode has ended."""
@@ -666,6 +689,36 @@ class MT3Runner:
                 ),
                 default=None,
             )
+        if pick is None and self.cfg.via_offsets:
+            stage = "via"
+            turns = (base,)
+            if self._yaw_allowed(k, held):
+                turns += tuple(
+                    base + sign * a
+                    for a in self.cfg.yaw_search_deg
+                    for sign in (1.0, -1.0)
+                )
+            cands = self._feasibility(
+                k,
+                live,
+                0.0,
+                [self.demo],
+                tuple(sorted({corridor, 0.0}, reverse=True)),
+                (0.0, 0.06),
+                turns,
+                tuple(tuple(v) for v in self.cfg.via_offsets),
+            )
+            tried += cands
+            ok = [x for x in cands if x["feasible"]]
+            pick = min(
+                ok,
+                key=lambda x: (
+                    abs(x["yaw"] - base),
+                    x["first_movable_contact"] is not None,
+                    x["n"],
+                ),
+                default=None,
+            )
         if pick is None and not held:
             stage = "other demo"
             scene = self.env.body_poses(self.lib.ref_bodies)
@@ -701,18 +754,20 @@ class MT3Runner:
             transit_clearance=pick["clearance"],
         )
         self._yaw = np.radians(pick.get("yaw", 0.0))
+        self._via = None if pick.get("via") is None else np.asarray(pick["via"])
         try:
             log = self._segment(k)
         finally:
             self.cfg = saved
             self._yaw = 0.0
+            self._via = None
         self._carry_yaw = 0.0 if held else float(pick.get("yaw", 0.0))
         log.update(
             selection={
                 "stage": stage,
                 **{
                     key: pick.get(key)
-                    for key in ("demo", "corridor", "clearance", "yaw", "n")
+                    for key in ("demo", "corridor", "clearance", "yaw", "via", "n")
                 },
             },
             candidates=tried if stage != "configured" else [],
@@ -816,15 +871,23 @@ class MT3Runner:
                 log["approach"] = "dmp"
             elif corridor:
                 path = (
-                    alignment_path(
-                        self.env.eef_pose(), corridor[0], self.cfg.align_step, clearance
+                    via_path(
+                        self.env.eef_pose(),
+                        corridor[0],
+                        self._via if attempt == 0 else None,
+                        self.cfg.align_step,
+                        clearance,
                     )
                     + corridor[1:]
                     + [goal]
                 )
             else:
-                path = alignment_path(
-                    self.env.eef_pose(), goal, self.cfg.align_step, clearance
+                path = via_path(
+                    self.env.eef_pose(),
+                    goal,
+                    self._via if attempt == 0 else None,
+                    self.cfg.align_step,
+                    clearance,
                 )
             for pose in path:
                 if not self._send(pose, hold):
@@ -914,6 +977,7 @@ class MT3Runner:
         lengths: tuple[float, ...] = (0.0, 0.1, 0.2),
         clearances: tuple[float, ...] = (0.0, 0.06, 0.12, 0.2),
         yaws: tuple[float, ...] = (0.0,),
+        vias: tuple = (None,),
     ) -> list[dict[str, Any]]:
         """Candidate alignment routes for segment ``k`` and their static feasibility.
 
@@ -963,6 +1027,7 @@ class MT3Runner:
                     names,
                     paths,
                     tails,
+                    vias,
                 )
         options = None
         if self.cfg.feasibility_interaction:
@@ -1001,6 +1066,7 @@ class MT3Runner:
         names,
         paths,
         tails,
+        vias=(None,),
     ) -> None:
         """Append the routes of one (demo, yaw) to ``paths`` / ``names``."""
         goal = transform @ eef[b]
@@ -1021,11 +1087,14 @@ class MT3Runner:
             entry = bottleneck_frame(eef, other["start"], b, length) if length else b
             lead = [transform @ eef[f] for f in range(entry, b)]
             for clearance in clearances:
-                head = lead[0] if lead else goal
-                path = alignment_path(start, head, self.cfg.align_step, clearance)
-                paths.append(path + lead[1:] + ([goal] if lead else []) + reach_in)
-                names.append(dict(tag, corridor=length, clearance=clearance))
-                tails.append(near if reach_in else 0)
+                for via in vias:
+                    head = lead[0] if lead else goal
+                    path = via_path(start, head, via, self.cfg.align_step, clearance)
+                    paths.append(path + lead[1:] + ([goal] if lead else []) + reach_in)
+                    names.append(
+                        dict(tag, corridor=length, clearance=clearance, via=via)
+                    )
+                    tails.append(near if reach_in else 0)
 
     def _run_continuous(
         self,
