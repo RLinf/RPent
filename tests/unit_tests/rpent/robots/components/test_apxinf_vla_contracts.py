@@ -90,7 +90,7 @@ def test_client_server_returns_five_actions_with_explicit_stats(
     assert facade._dispatch("vla.status", (), {}) == {"action_chunk": 5}
 
 
-@pytest.mark.parametrize("shape", [(7,), (10, 6)])
+@pytest.mark.parametrize("shape", [(7,), (10, 6), (4, 7), (11, 7), (1, 10, 7)])
 def test_invalid_action_shape_is_rejected(loaded_facade, shape):
     facade, policy, _ = loaded_facade
     policy.infer = lambda obs: {"actions": np.zeros(shape)}
@@ -98,9 +98,10 @@ def test_invalid_action_shape_is_rejected(loaded_facade, shape):
         facade.predict({})
 
 
-def test_nonfinite_actions_are_rejected(loaded_facade):
+@pytest.mark.parametrize("value", [np.nan, np.inf, -np.inf])
+def test_nonfinite_actions_are_rejected(loaded_facade, value):
     facade, policy, _ = loaded_facade
-    policy.infer = lambda obs: {"actions": np.full((10, 7), np.nan)}
+    policy.infer = lambda obs: {"actions": np.full((10, 7), value)}
     with pytest.raises(ValueError, match="invalid APXInf actions"):
         facade.predict({})
 
