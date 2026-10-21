@@ -46,7 +46,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -83,9 +83,13 @@ class MT3Config:
     carry_clearance: float = 0.0
     #: "log": before each alignment, check candidate routes (top-k demos x
     #: corridor x transit height) for reach and collisions and log the result;
-    #: execution is unchanged. "" disables the check.
+    #: execution is unchanged. "select": execute the segment with the shortest
+    #: feasible candidate (its demo, corridor and transit height), or the
+    #: configured route when none is feasible. "" disables the check.
     feasibility_check: str = ""
     feasibility_topk: int = 5
+    #: Extra alignment transit height [m], always applied.
+    transit_clearance: float = 0.0
     alignment_replans: int = 0
     alignment_guard_pos: float = 0.0
     alignment_guard_rot_deg: float = 15.0
@@ -342,6 +346,65 @@ class MT3Runner:
         return not self.env.done()
 
     def run_segment(self, k: int) -> dict[str, Any]:
+        if self.cfg.feasibility_check != "select" or self.env.check_paths is None:
+            return self._segment(k)
+        ref = self.segments[k]["ref"]
+        live = self.env.body_poses([ref])[ref]
+        candidates = self._feasibility(k, live, 0.0)
+        feasible = [x for x in candidates if x["feasible"]]
+        if not feasible:
+            log = self._segment(k)
+            log.update(
+                selection="none feasible; configured route", candidates=candidates
+            )
+            return log
+        # Shortest route; ties keep this runner's demo, then the shorter corridor.
+        pick = min(
+            feasible, key=lambda x: (x["n"], x["demo"] != self.demo, x["corridor"])
+        )
+        saved = (
+            self.demo,
+            self.first,
+            self.eef,
+            self.target,
+            self.gripper,
+            self.actions,
+            self.segments,
+            self.cfg,
+        )
+        rows = self.lib.frames(pick["demo"])
+        self.demo, self.first = pick["demo"], rows.start
+        self.eef, self.target = self.lib.eef[rows], self.lib.target[rows]
+        self.gripper, self.actions = self.lib.gripper[rows], self.lib.actions[rows]
+        self.segments = self.lib.segments[pick["demo"]]
+        self.cfg = replace(
+            self.cfg,
+            approach_corridor=pick["corridor"],
+            transit_clearance=pick["clearance"],
+            carry_clearance=0.0,
+        )
+        try:
+            log = self._segment(k)
+        finally:
+            (
+                self.demo,
+                self.first,
+                self.eef,
+                self.target,
+                self.gripper,
+                self.actions,
+                self.segments,
+                self.cfg,
+            ) = saved
+        log.update(
+            selection={
+                key: pick[key] for key in ("demo", "corridor", "clearance", "n")
+            },
+            candidates=candidates,
+        )
+        return log
+
+    def _segment(self, k: int) -> dict[str, Any]:
         seg = self.segments[k]
         ref, start, c, end = seg["ref"], seg["start"], seg["c"], seg["end"]
         radius = self.cfg.radius
@@ -391,7 +454,7 @@ class MT3Runner:
                     )
                     goal = goal @ grasp_delta
         hold = self.gripper[b]
-        if self.cfg.feasibility_check and self.env.check_paths is not None:
+        if self.cfg.feasibility_check == "log" and self.env.check_paths is not None:
             log["feasibility"] = self._feasibility(k, live, hold)
         corridor: list[np.ndarray] = []
         if self.cfg.approach_corridor > 0:
@@ -401,11 +464,19 @@ class MT3Runner:
         attempts = []
         align_steps, total_settle = 0, 0
         for attempt in range(self.cfg.alignment_replans + 1):
-            clearance = 0.06 * attempt + (self.cfg.carry_clearance if hold > 0 else 0.0)
+            clearance = (
+                0.06 * attempt
+                + self.cfg.transit_clearance
+                + (self.cfg.carry_clearance if hold > 0 else 0.0)
+            )
             if corridor:
-                path = alignment_path(
-                    self.env.eef_pose(), corridor[0], self.cfg.align_step, clearance
-                ) + corridor[1:] + [goal]
+                path = (
+                    alignment_path(
+                        self.env.eef_pose(), corridor[0], self.cfg.align_step, clearance
+                    )
+                    + corridor[1:]
+                    + [goal]
+                )
             else:
                 path = alignment_path(
                     self.env.eef_pose(), goal, self.cfg.align_step, clearance
@@ -489,7 +560,9 @@ class MT3Runner:
                         return self._close(log, n0, "done during tracking correction")
         return self._close(log, n0, "segment replayed")
 
-    def _feasibility(self, k: int, live: np.ndarray, hold: float) -> list[dict[str, Any]]:
+    def _feasibility(
+        self, k: int, live: np.ndarray, hold: float
+    ) -> list[dict[str, Any]]:
         """Candidate alignment routes for segment ``k`` and their static feasibility.
 
         Candidates: the ``feasibility_topk`` kept demos nearest the live scene
@@ -517,13 +590,17 @@ class MT3Runner:
             )
             goal = transform @ eef[b]
             for length in (0.0, 0.1, 0.2):
-                entry = bottleneck_frame(eef, other["start"], b, length) if length else b
+                entry = (
+                    bottleneck_frame(eef, other["start"], b, length) if length else b
+                )
                 lead = [transform @ eef[f] for f in range(entry, b)]
                 for clearance in (0.0, 0.06, 0.12, 0.2):
                     head = lead[0] if lead else goal
                     path = alignment_path(start, head, self.cfg.align_step, clearance)
                     paths.append(path + lead[1:] + ([goal] if lead else []))
-                    names.append({"demo": d, "corridor": length, "clearance": clearance})
+                    names.append(
+                        {"demo": d, "corridor": length, "clearance": clearance}
+                    )
         results = self.env.check_paths(paths) if paths else []
         return [dict(n, **r) for n, r in zip(names, results)]
 

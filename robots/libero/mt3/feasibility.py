@@ -54,16 +54,22 @@ class SceneChecker:
         self.src = data
         self.data = mujoco.MjData(model)
         m = model
-        self.body_names = [mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_BODY, i) or "" for i in range(m.nbody)]
+        self.body_names = [
+            mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_BODY, i) or ""
+            for i in range(m.nbody)
+        ]
         self.site = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, GRIP_SITE)
         self.arm_joints = [
-            mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, f"robot0_joint{k}") for k in range(1, 8)
+            mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, f"robot0_joint{k}")
+            for k in range(1, 8)
         ]
         self.arm_qpos = np.array([m.jnt_qposadr[j] for j in self.arm_joints])
         self.arm_dof = np.array([m.jnt_dofadr[j] for j in self.arm_joints])
         self.lo = m.jnt_range[self.arm_joints, 0]
         self.hi = m.jnt_range[self.arm_joints, 1]
-        self.robot_body = np.array([n.startswith(ROBOT_PREFIXES) for n in self.body_names])
+        self.robot_body = np.array(
+            [n.startswith(ROBOT_PREFIXES) for n in self.body_names]
+        )
         self.base_body = np.array([n.startswith(_BASE_BODIES) for n in self.body_names])
 
     # ---- state helpers ----
@@ -101,7 +107,11 @@ class SceneChecker:
                     touching.setdefault(int(m.body_rootid[b]), set()).add(name)
         for root, fingers in touching.items():
             jnt = m.body_jntadr[root]
-            if len(fingers) >= 2 and jnt >= 0 and m.jnt_type[jnt] == self.mj.mjtJoint.mjJNT_FREE:
+            if (
+                len(fingers) >= 2
+                and jnt >= 0
+                and m.jnt_type[jnt] == self.mj.mjtJoint.mjJNT_FREE
+            ):
                 return root
         return None
 
@@ -121,7 +131,10 @@ class SceneChecker:
             dp = target[:3, 3] - cur[:3, 3]
             rel = target[:3, :3] @ cur[:3, :3].T
             dr = _rotvec(rel)
-            pos_err, rot_err = float(np.linalg.norm(dp)), float(np.degrees(np.linalg.norm(dr)))
+            pos_err, rot_err = (
+                float(np.linalg.norm(dp)),
+                float(np.degrees(np.linalg.norm(dr))),
+            )
             if pos_err < 1e-3 and rot_err < 0.5:
                 break
             mj.mj_jacSite(m, d, jacp, jacr, self.site)
@@ -150,16 +163,25 @@ class SceneChecker:
             c = d.contact[k]
             if c.dist > -depth:
                 continue
-            r1, r2 = int(m.body_rootid[m.geom_bodyid[c.geom1]]), int(m.body_rootid[m.geom_bodyid[c.geom2]])
+            r1, r2 = (
+                int(m.body_rootid[m.geom_bodyid[c.geom1]]),
+                int(m.body_rootid[m.geom_bodyid[c.geom2]]),
+            )
             b1, b2 = int(m.geom_bodyid[c.geom1]), int(m.geom_bodyid[c.geom2])
             mover1 = self.robot_body[b1] or (held is not None and r1 == held)
             mover2 = self.robot_body[b2] or (held is not None and r2 == held)
             if mover1 == mover2:
                 continue  # robot-robot, robot-held, or scene-scene
             mover, other = (b1, b2) if mover1 else (b2, b1)
-            if self.base_body[mover] or other in ignore or int(m.body_rootid[other]) in ignore:
+            if (
+                self.base_body[mover]
+                or other in ignore
+                or int(m.body_rootid[other]) in ignore
+            ):
                 continue
-            hits.append((self.body_names[mover], self.body_names[other], float(-c.dist)))
+            hits.append(
+                (self.body_names[mover], self.body_names[other], float(-c.dist))
+            )
         return hits
 
     def check(
@@ -178,7 +200,9 @@ class SceneChecker:
         if held is not None:
             held_offset = np.linalg.inv(self._site_pose()) @ self._body_pose(held)
         fams = set(ignore_families)
-        ignore = {i for i, n in enumerate(self.body_names) if fams and _family(n) in fams}
+        ignore = {
+            i for i, n in enumerate(self.body_names) if fams and _family(n) in fams
+        }
         # Contacts present before moving (the held object on the table, a
         # finger on the grasped handle) are not attributed to the path.
         pre = {(a, b) for a, b, _ in self.collisions(held, depth, ignore)}
@@ -189,7 +213,10 @@ class SceneChecker:
             pos_err, rot_err = self.solve(np.asarray(target))
             worst_pos = max(worst_pos, pos_err)
             q = self.data.qpos[self.arm_qpos]
-            min_margin = min(min_margin, float(np.degrees(np.min(np.minimum(q - self.lo, self.hi - q)))))
+            min_margin = min(
+                min_margin,
+                float(np.degrees(np.min(np.minimum(q - self.lo, self.hi - q)))),
+            )
             if first_ik_fail is None and (pos_err > ik_pos_tol or rot_err > ik_rot_tol):
                 first_ik_fail = i
             goal_pos_err, goal_rot_err = pos_err, rot_err
