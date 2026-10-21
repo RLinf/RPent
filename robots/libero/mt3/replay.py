@@ -105,7 +105,7 @@ def _hooks(toolkit: Any) -> EnvHooks:
         eef_pose=lambda: pose_from_wxyz(env.poses([], [GRIP_SITE])[GRIP_SITE]),
         body_poses=body_poses,
         done=lambda: bool(env.terminated or env.truncated),
-        check_paths=lambda paths: env.check_paths(paths),
+        check_paths=lambda paths, options=None: env.check_paths(paths, options),
     )
 
 

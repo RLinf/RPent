@@ -88,6 +88,9 @@ class MT3Config:
     #: configured route when none is feasible. "" disables the check.
     feasibility_check: str = ""
     feasibility_topk: int = 5
+    #: Also check the source interaction from the bottleneck to contact,
+    #: ignoring the segment's reference object.
+    feasibility_interaction: bool = False
     #: Extra alignment transit height [m], always applied.
     transit_clearance: float = 0.0
     #: Alignment route: "path" (lift / transit / descend, plus the approach
@@ -210,6 +213,15 @@ def alignment_path(
         tau = s / total if total > 0 else 1.0
         poses.append(make_pose(pos, slerp(start[:3, :3], goal[:3, :3], tau)))
     return poses
+
+
+def _family(name: str) -> str:
+    """Object instance a body belongs to: ``microwave_1_microdoorroot`` -> ``microwave_1``."""
+    parts = name.split("_")
+    for i, part in enumerate(parts):
+        if part.isdigit():
+            return "_".join(parts[: i + 1])
+    return name
 
 
 def dmp_path(
@@ -383,7 +395,7 @@ class EnvHooks:
     done: Callable[[], bool]
     #: Static feasibility of grip-site paths on a copy of the live scene
     #: (``robots.libero.mt3.feasibility``); None when unavailable.
-    check_paths: Callable[[list[list[np.ndarray]]], list[dict[str, Any]]] | None = None
+    check_paths: Callable[..., list[dict[str, Any]]] | None = None
 
 
 class MT3Runner:
@@ -837,6 +849,13 @@ class MT3Runner:
                 live, lib.pose[ref][rows.start + b], self.cfg.symmetry(ref)
             )
             goal = transform @ eef[b]
+            # The source interaction up to contact: it must not run into a
+            # fixture either (the reference object itself is ignored).
+            reach_in = (
+                [transform @ lib.target[rows][f] for f in range(b + 1, other["c"] + 1)]
+                if self.cfg.feasibility_interaction
+                else []
+            )
             for length in lengths:
                 entry = (
                     bottleneck_frame(eef, other["start"], b, length) if length else b
@@ -845,11 +864,16 @@ class MT3Runner:
                 for clearance in clearances:
                     head = lead[0] if lead else goal
                     path = alignment_path(start, head, self.cfg.align_step, clearance)
-                    paths.append(path + lead[1:] + ([goal] if lead else []))
+                    paths.append(path + lead[1:] + ([goal] if lead else []) + reach_in)
                     names.append(
                         {"demo": d, "corridor": length, "clearance": clearance}
                     )
-        results = self.env.check_paths(paths) if paths else []
+        options = (
+            {"ignore_families": [_family(ref), "table"]}
+            if self.cfg.feasibility_interaction
+            else None
+        )
+        results = self.env.check_paths(paths, options) if paths else []
         return [dict(n, **r) for n, r in zip(names, results)]
 
     def _run_continuous(
