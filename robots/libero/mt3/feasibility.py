@@ -129,7 +129,11 @@ class SceneChecker:
             # the edge of the workspace produce with lighter damping.
             jac = np.vstack([jacp[:, self.arm_dof], 0.5 * jacr[:, self.arm_dof]])
             err = np.concatenate([dp, 0.5 * dr])
-            dq = jac.T @ np.linalg.solve(jac @ jac.T + 1e-2 * np.eye(6), err)
+            inv = jac.T @ np.linalg.inv(jac @ jac.T + 1e-2 * np.eye(6))
+            dq = inv @ err
+            # Null-space pull toward the starting posture, as the OSC
+            # controller does, so the walk does not drift into far branches.
+            dq += (np.eye(7) - inv @ jac) @ (0.1 * (self.q0 - d.qpos[self.arm_qpos]))
             q = d.qpos[self.arm_qpos] + np.clip(dq, -0.2, 0.2)
             d.qpos[self.arm_qpos] = np.clip(q, self.lo, self.hi)
         return pos_err, rot_err
@@ -168,6 +172,7 @@ class SceneChecker:
     ) -> dict[str, Any]:
         """Walk ``path`` (4x4 grip-site poses) from the live state."""
         self._reset_copy()
+        self.q0 = self.data.qpos[self.arm_qpos].copy()
         held = self.held_body()
         held_offset = None
         if held is not None:
