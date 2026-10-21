@@ -21,7 +21,12 @@ import pytest
 from pydantic_ai import ModelRequest, UserPromptPart
 from pydantic_ai.models import ModelRequestParameters
 
-from rpent.planner.base import build_api_model
+from rpent.planner.base import (
+    add_mcp_prefix,
+    build_api_model,
+    display_tool_name,
+    strip_mcp_prefix,
+)
 
 
 @pytest.mark.parametrize("source", ["argument", "environment", "override"])
@@ -108,3 +113,22 @@ def test_google_endpoint_rejects_conflicting_explicit_model(monkeypatch, source)
     assert result.status == "missing_config"
     assert result.model == "google:explicit-model"
     assert "does not match" in result.detail
+def test_add_mcp_prefix_namespaces_bare_names_once() -> None:
+    assert add_mcp_prefix("finish") == "mcp__rpent__finish"
+    assert add_mcp_prefix("mcp__rpent__finish") == "mcp__rpent__finish"
+
+
+def test_strip_mcp_prefix_recognizes_rpent_tools_only() -> None:
+    assert strip_mcp_prefix("mcp__rpent__finish") == "finish"
+    # An external server's ``finish`` keeps its namespace, so finish detection
+    # never mistakes it for RPent's own.
+    assert strip_mcp_prefix("mcp__web__finish") == "mcp__web__finish"
+    assert strip_mcp_prefix("Read") == "Read"
+
+
+def test_display_tool_name_shortens_mcp_names() -> None:
+    assert display_tool_name("mcp__rpent__finish") == "finish"
+    assert display_tool_name("mcp__web__search") == "web:search"
+    assert display_tool_name("Read") == "Read"
+    # Non-MCP names, including pydantic-ai's ``<server>_<tool>``, pass through.
+    assert display_tool_name("web_search") == "web_search"

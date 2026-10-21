@@ -39,6 +39,7 @@ from rpent.robots.prompt_bundle import PromptBundle
 
 if TYPE_CHECKING:
     from rpent.utils.daemon import ProcessDaemon
+    from rpent.utils.mcp_servers import McpServerSpec
 
 
 @dataclass(frozen=True)
@@ -50,6 +51,10 @@ class RunConfig:
     prompt_vars: dict[str, Any]
     task_desc: dict[str, Any]
     enable_direct_action: bool = False
+    #: External MCP servers this robot declares for its planners to attach,
+    #: parsed from the config's ``mcp_servers`` section. Empty for robots that
+    #: declare none.
+    mcp_servers: tuple["McpServerSpec", ...] = ()
 
 
 @dataclass(frozen=True)
