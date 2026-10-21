@@ -90,6 +90,11 @@ class MT3Config:
     feasibility_topk: int = 5
     #: Extra alignment transit height [m], always applied.
     transit_clearance: float = 0.0
+    #: Alignment route: "path" (lift / transit / descend, plus the approach
+    #: corridor) or "dmp" (a DMP fitted to the demo's own approach from the
+    #: segment start to the bottleneck, transferred, replayed from the live pose;
+    #: as in DynaMimicGen).
+    approach: str = "path"
     #: Retries of a grasp segment whose object was not picked up.
     grasp_retries: int = 0
     #: Demo retrieval: "nearest" (reference-body distance) or "reach" (most
@@ -205,6 +210,68 @@ def alignment_path(
         tau = s / total if total > 0 else 1.0
         poses.append(make_pose(pos, slerp(start[:3, :3], goal[:3, :3], tau)))
     return poses
+
+
+def dmp_path(
+    start: np.ndarray, demo: list[np.ndarray], step: float, n_basis: int = 30
+) -> list[np.ndarray]:
+    """Demo-shaped route from ``start`` to ``demo[-1]``.
+
+    Positions follow a discrete DMP (Hoffmann et al. 2009 form, which does not
+    flip when the start-goal vector changes) fitted to ``demo`` and integrated
+    from ``start``; orientation is the demo's, with the initial offset to
+    ``start`` decayed along the canonical phase. Waypoints are resampled to at
+    most ``step`` apart. Returns the poses after ``start``.
+    """
+    y = np.array([p[:3, 3] for p in demo])
+    n = len(y)
+    if n < 3:
+        return alignment_path(start, demo[-1], step)
+    t = np.linspace(0.0, 1.0, n)
+    dt = t[1] - t[0]
+    yd = np.gradient(y, dt, axis=0)
+    ydd = np.gradient(yd, dt, axis=0)
+    k_gain, d_gain, alpha_x = 100.0, 20.0, 4.0
+    x = np.exp(-alpha_x * t)
+    g, y0 = y[-1], y[0]
+    # Forcing term the demo implies, regressed on Gaussian bases in the phase.
+    f_target = (ydd - k_gain * (g - y) + d_gain * yd) / k_gain + (g - y0) * x[:, None]
+    centers = np.exp(-alpha_x * np.linspace(0.0, 1.0, n_basis))
+    widths = n_basis**1.5 / centers / alpha_x
+    psi = np.exp(-widths * (x[:, None] - centers) ** 2)
+    feat = psi * x[:, None] / (psi.sum(axis=1, keepdims=True) + 1e-10)
+    weights = np.linalg.lstsq(feat, f_target, rcond=None)[0]
+    # Integrate from the live start (zero velocity) toward the same goal.
+    p, v = start[:3, 3].copy(), np.zeros(3)
+    p_start = p.copy()
+    out = []
+    for i in range(n):
+        f = feat[i] @ weights
+        acc = k_gain * (g - p) - d_gain * v - k_gain * (g - p_start) * x[i] + k_gain * f
+        v = v + acc * dt
+        p = p + v * dt
+        out.append(p.copy())
+    out[-1] = g.copy()
+    offset = start[:3, :3] @ demo[0][:3, :3].T
+    poses = []
+    for i, pos in enumerate(out):
+        decay = Rotation.from_matrix(offset).as_rotvec() * x[i] / x[0]
+        rot = Rotation.from_rotvec(decay).as_matrix() @ demo[i][:3, :3]
+        poses.append(make_pose(pos, rot))
+    # Resample so consecutive waypoints are at most ``step`` apart.
+    dense, prev = [], start
+    for pose in poses:
+        gap = float(np.linalg.norm(pose[:3, 3] - prev[:3, 3]))
+        m = max(1, int(np.ceil(gap / step)))
+        for j in range(1, m + 1):
+            dense.append(
+                make_pose(
+                    prev[:3, 3] + (pose[:3, 3] - prev[:3, 3]) * j / m,
+                    slerp(prev[:3, :3], pose[:3, :3], j / m),
+                )
+            )
+        prev = pose
+    return dense
 
 
 def bottleneck_frame(eef: np.ndarray, start: int, c: int, radius: float) -> int:
@@ -636,7 +703,13 @@ class MT3Runner:
                 + self.cfg.transit_clearance
                 + (self.cfg.carry_clearance if hold > 0 else 0.0)
             )
-            if corridor:
+            if self.cfg.approach == "dmp" and attempt == 0 and b > start:
+                demo_path = [
+                    transform @ self.eef[f] @ grasp_delta for f in range(start, b + 1)
+                ]
+                path = dmp_path(self.env.eef_pose(), demo_path, self.cfg.align_step)
+                log["approach"] = "dmp"
+            elif corridor:
                 path = (
                     alignment_path(
                         self.env.eef_pose(), corridor[0], self.cfg.align_step, clearance
