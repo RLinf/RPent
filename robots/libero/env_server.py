@@ -133,7 +133,14 @@ def _attach_pose_reader(env):
             ]
         return out
 
+    def check_paths(paths, options=None):
+        """Static feasibility of grip-site paths; see ``robots.libero.mt3.feasibility``."""
+        from robots.libero.mt3.feasibility import check_paths as _check
+
+        return _check(env.env.sim, paths, **(options or {}))
+
     env.read_poses = read_poses
+    env.check_paths = check_paths
     return env
 
 
@@ -267,10 +274,12 @@ class LiberoEnvFacade(BaseEnvFacade):
                 "env.get_camera_meta": self.get_camera_meta,
                 "env.get_task_language": self.get_task_language,
                 "env.poses": self.poses,
+                "env.check_paths": self.check_paths,
             }
         )
         self._readonly_methods.add("env.get_task_language")
         self._readonly_methods.add("env.poses")
+        self._readonly_methods.add("env.check_paths")
 
     # ---- shape helpers ----
 
@@ -393,6 +402,14 @@ class LiberoEnvFacade(BaseEnvFacade):
         return self._env.env.workers[self._env_idx].env_call(
             "read_poses",
             args=[None if bodies is None else list(bodies), list(sites)],
+            target="self",
+        )
+
+    def check_paths(self, paths, options=None) -> list:
+        """Feasibility of grip-site paths on a copy of the live simulator state."""
+        return self._env.env.workers[self._env_idx].env_call(
+            "check_paths",
+            args=[[np.asarray(p).tolist() for p in paths], options or {}],
             target="self",
         )
 

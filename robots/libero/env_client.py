@@ -104,6 +104,14 @@ class LiberoEnvClient(BaseEnvClient):
             timeout_s=self._TIMEOUT_S["default"],
         )
 
+    def check_paths(self, paths, options=None) -> list:
+        """Static feasibility (IK reach, collisions) of 4x4 grip-site paths."""
+        return self._client.call(
+            "env.check_paths",
+            kwargs={"paths": [np.asarray(p).tolist() for p in paths], "options": options},
+            timeout_s=600,
+        )
+
     def render_camera(
         self,
         camera_name: str = "agentview",
