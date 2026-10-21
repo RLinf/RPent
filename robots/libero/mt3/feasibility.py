@@ -205,8 +205,15 @@ class SceneChecker:
         ik_pos_tol: float = 0.03,
         ik_rot_tol: float = 8.0,
         ignore_families: tuple[str, ...] = (),
+        tail_families: tuple[str, ...] = (),
+        tail: int = 0,
     ) -> dict[str, Any]:
-        """Walk ``path`` (4x4 grip-site poses) from the live state."""
+        """Walk ``path`` (4x4 grip-site poses) from the live state.
+
+        Contacts with ``ignore_families`` never count; contacts with
+        ``tail_families`` do not count on the last ``tail`` waypoints (the
+        intended contact at the end of a placement into a container).
+        """
         self._reset_copy()
         self.q0 = self.data.qpos[self.arm_qpos].copy()
         held = self.held_body()
@@ -216,6 +223,10 @@ class SceneChecker:
         fams = set(ignore_families)
         ignore = {
             i for i, n in enumerate(self.body_names) if fams and _family(n) in fams
+        }
+        tail_fams = set(tail_families)
+        ignore_tail = ignore | {
+            i for i, n in enumerate(self.body_names) if _family(n) in tail_fams
         }
         # Contacts present before moving (the held object on the table, a
         # finger already against a wall) count only once they press 5 mm
@@ -243,9 +254,10 @@ class SceneChecker:
                 adr = self.model.jnt_qposadr[self.model.body_jntadr[held]]
                 self.data.qpos[adr : adr + 3] = pose[:3, 3]
                 self.data.qpos[adr + 3 : adr + 7] = _quat_wxyz(pose[:3, :3])
+            now = ignore_tail if i >= len(path) - tail else ignore
             hits = [
                 h
-                for h in self.collisions(held, depth, ignore)
+                for h in self.collisions(held, depth, now)
                 if h[2] > pre.get(h[:2], -1.0) + 0.005
             ]
             fixed = [h for h in hits if not h[3]]
@@ -298,4 +310,8 @@ def _quat_wxyz(rot: np.ndarray) -> np.ndarray:
 def check_paths(sim: Any, paths: list, **kwargs: Any) -> list[dict[str, Any]]:
     """Check each path in ``paths`` against ``sim`` (robosuite MjSim)."""
     checker = SceneChecker(sim.model._model, sim.data._data)
-    return [checker.check([np.asarray(p) for p in path], **kwargs) for path in paths]
+    tails = kwargs.pop("tails", None) or [0] * len(paths)
+    return [
+        checker.check([np.asarray(p) for p in path], tail=t, **kwargs)
+        for path, t in zip(paths, tails)
+    ]

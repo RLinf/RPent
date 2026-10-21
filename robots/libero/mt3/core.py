@@ -931,7 +931,7 @@ class MT3Runner:
             ][: max(0, self.cfg.feasibility_topk - 1)]
         ranked = demos
         start = self.env.eef_pose()
-        names, paths = [], []
+        names, paths, tails = [], [], []
         for d in ranked:
             other = lib.segments[d][k] if k < len(lib.segments[d]) else None
             if other is None or other["ref"] != ref:
@@ -962,12 +962,27 @@ class MT3Runner:
                     {"demo": d, "yaw": yaw},
                     names,
                     paths,
+                    tails,
                 )
-        options = (
-            {"ignore_families": [_family(ref), "table"]}
-            if self.cfg.feasibility_interaction
-            else None
-        )
+        options = None
+        if self.cfg.feasibility_interaction:
+            placing = (
+                self.gripper[
+                    bottleneck_frame(self.eef, seg["start"], seg["c"], self.cfg.radius)
+                ]
+                > 0
+            )
+            # A grasp may touch its object all the way in; a placement into a
+            # container (the reference) only right before release.
+            options = (
+                {
+                    "ignore_families": ["table"],
+                    "tail_families": [_family(ref)],
+                    "tails": tails,
+                }
+                if placing
+                else {"ignore_families": [_family(ref), "table"]}
+            )
         results = self.env.check_paths(paths, options) if paths else []
         return [dict(n, **r) for n, r in zip(names, results)]
 
@@ -985,6 +1000,7 @@ class MT3Runner:
         tag,
         names,
         paths,
+        tails,
     ) -> None:
         """Append the routes of one (demo, yaw) to ``paths`` / ``names``."""
         goal = transform @ eef[b]
@@ -995,6 +1011,12 @@ class MT3Runner:
             if self.cfg.feasibility_interaction
             else []
         )
+        # Where the reference may be touched: the last 3 cm before contact.
+        near = sum(
+            1
+            for f in range(b + 1, other["c"] + 1)
+            if np.linalg.norm(eef[f, :3, 3] - eef[other["c"], :3, 3]) <= 0.03
+        )
         for length in lengths:
             entry = bottleneck_frame(eef, other["start"], b, length) if length else b
             lead = [transform @ eef[f] for f in range(entry, b)]
@@ -1003,6 +1025,7 @@ class MT3Runner:
                 path = alignment_path(start, head, self.cfg.align_step, clearance)
                 paths.append(path + lead[1:] + ([goal] if lead else []) + reach_in)
                 names.append(dict(tag, corridor=length, clearance=clearance))
+                tails.append(near if reach_in else 0)
 
     def _run_continuous(
         self,
