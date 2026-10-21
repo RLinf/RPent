@@ -82,6 +82,8 @@ class MT3Config:
     track_extra_steps: int = 0
     track_pos_tol: float = 0.015
     track_rot_tol_deg: float = 5.0
+    #: Compensate measured in-hand pose differences before a placement segment.
+    grasp_compensation: bool = False
     #: Rotational symmetry about z per body-name substring: 0 ignores the yaw
     #: change (continuous symmetry), P folds it into +-P/2 degrees. Bodies that
     #: match nothing use their full yaw change.
@@ -339,6 +341,29 @@ class MT3Runner:
             return self._run_continuous(seg, log, transform, b, n0)
 
         goal = transform @ self.eef[b]
+        grasp_delta = np.eye(4)
+        if self.cfg.grasp_compensation and k > 0 and self.gripper[b] > 0:
+            previous = self.segments[k - 1]
+            held = previous["ref"]
+            placing = any(e[0] in {"release", "end"} for e in seg["events"])
+            grasped = any(e[0] == "grasp" for e in previous["events"])
+            if placing and grasped and held in self.lib.pose:
+                live_grasp = (
+                    np.linalg.inv(self.env.eef_pose())
+                    @ self.env.body_poses([held])[held]
+                )
+                demo_grasp = (
+                    np.linalg.inv(self.eef[b]) @ self.lib.pose[held][self.first + b]
+                )
+                if np.linalg.norm(live_grasp[:3, 3]) < 0.15:
+                    grasp_delta = demo_grasp @ np.linalg.inv(live_grasp)
+                    log["grasp_correction_cm"] = round(
+                        100 * float(np.linalg.norm(grasp_delta[:3, 3])), 3
+                    )
+                    log["grasp_correction_deg"] = round(
+                        rot_angle_deg(grasp_delta[:3, :3]), 2
+                    )
+                    goal = goal @ grasp_delta
         hold = self.gripper[b]
         attempts = []
         align_steps, total_settle = 0, 0
@@ -398,13 +423,13 @@ class MT3Runner:
 
         for f in range(b, end):
             if self.cfg.mode == "mt3":
-                target = transform @ self.target[f]
+                target = transform @ self.target[f] @ grasp_delta
             else:  # mt3_open: the demo's command relative to its own pose
                 target = (
                     self.env.eef_pose() @ np.linalg.inv(self.eef[f]) @ self.target[f]
                 )
             if f == c:
-                ref_pos = (transform @ self.eef[c])[:3, 3]
+                ref_pos = (transform @ self.eef[c] @ grasp_delta)[:3, 3]
                 log["contact_err_cm"] = round(
                     100 * float(np.linalg.norm(self.env.eef_pose()[:3, 3] - ref_pos)), 2
                 )
