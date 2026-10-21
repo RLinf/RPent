@@ -35,11 +35,21 @@ def system_prompt(
 
 def user_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
     """Assemble the LIBERO user prompt tree."""
-    return {
+    sections = {
         "CELL": user_parts.CELL,
         "MODE": user_parts.MODE,
         "BEGIN": user_parts.BEGIN,
     }
+    if (variables or {}).get("replay_config"):
+        sections["TRAJECTORY TOOLS"] = (
+            "You can call trajectory_catalog to select a demonstrated subtask, then trajectory_replay(segment, demo). "
+            "The replay tool internally uses simulator object poses; using this tool is permitted. "
+            "Inspect the current camera observation before deciding to replay, and inspect the resulting images and "
+            "alignment residuals after each segment. You may choose replay or ordinary motor/VLA tools at each stage. "
+            "If alignment is blocked, inspect the scene and recover within the same episode; do not reset. "
+            "Only environment termination establishes task success."
+        )
+    return sections
 
 
 __all__ = ["system_prompt", "user_prompt"]

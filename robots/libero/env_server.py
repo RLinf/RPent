@@ -141,9 +141,39 @@ def _with_pose_reader(env_fn):
     """Wrap an rlinf env factory so the env it builds can report poses."""
 
     def make():
-        return _attach_pose_reader(_configure_fixture_seed(env_fn()))
+        env = _configure_fixture_seed(env_fn())
+        return _attach_pose_reader(_restore_scene_after_reset(env))
 
     return make
+
+
+def _restore_scene_after_reset(env):
+    """Restore saved fixture roots for a paired replay experiment."""
+    snapshot_path = os.environ.get("RPENT_MT3_SCENE_SNAPSHOT")
+    if not snapshot_path:
+        return env
+    import json
+    from pathlib import Path
+
+    snapshot = json.loads(Path(snapshot_path).read_text())
+    original_reset = env.reset
+
+    def reset():
+        original_reset()
+        sim = env.env.sim
+        for fixture in env.env.fixtures_dict.values():
+            name = fixture.root_body
+            body = sim.model.body_name2id(name)
+            if int(sim.model.body_parentid[body]) != 0:
+                raise ValueError(f"fixture {name} is not world-rooted")
+            values = snapshot[name]
+            sim.model.body_pos[body] = values[:3]
+            sim.model.body_quat[body] = values[3:]
+        sim.forward()
+        return env.regenerate_obs_from_state(env.get_sim_state())
+
+    env.reset = reset
+    return env
 
 
 def _configure_fixture_seed(env):

@@ -74,6 +74,14 @@ class MT3Config:
     settle_max: int = 50
     #: Steps the last target is held after the demo ends, waiting for success.
     hold_steps: int = 30
+    #: Extra high-clearance alignment attempts after the ordinary route stalls.
+    alignment_replans: int = 0
+    alignment_guard_pos: float = 0.0
+    alignment_guard_rot_deg: float = 15.0
+    #: Repeat a source target when its tracking residual exceeds these limits.
+    track_extra_steps: int = 0
+    track_pos_tol: float = 0.015
+    track_rot_tol_deg: float = 5.0
     #: Rotational symmetry about z per body-name substring: 0 ignores the yaw
     #: change (continuous symmetry), P folds it into +-P/2 degrees. Bodies that
     #: match nothing use their full yaw change.
@@ -151,13 +159,13 @@ def slerp(r0: np.ndarray, r1: np.ndarray, tau: float) -> np.ndarray:
 
 
 def alignment_path(
-    start: np.ndarray, goal: np.ndarray, step: float
+    start: np.ndarray, goal: np.ndarray, step: float, clearance: float = 0.0
 ) -> list[np.ndarray]:
     """Lift / transit / descend: rise (or stay) to the higher of the two heights,
     move horizontally, then go down to ``goal``, with orientation slerped along
     the arc length. Returns the poses after ``start``."""
     p0, p3 = start[:3, 3], goal[:3, 3]
-    zh = max(p0[2], p3[2])
+    zh = max(p0[2], p3[2]) + clearance
     pts = [p0, np.array([p0[0], p0[1], zh]), np.array([p3[0], p3[1], zh]), p3]
     legs = [(a, b) for a, b in zip(pts[:-1], pts[1:]) if np.linalg.norm(b - a) > 1e-9]
     lengths = [float(np.linalg.norm(b - a)) for a, b in legs]
@@ -332,33 +340,61 @@ class MT3Runner:
 
         goal = transform @ self.eef[b]
         hold = self.gripper[b]
-        path = alignment_path(self.env.eef_pose(), goal, self.cfg.align_step)
-        for pose in path:
-            if not self._send(pose, hold):
-                return self._close(log, n0, "done during alignment")
-        settle, pos_err, rot_err = 0, np.inf, np.inf
-        while True:
-            eef = self.env.eef_pose()
-            pos_err = float(np.linalg.norm(eef[:3, 3] - goal[:3, 3]))
-            rot_err = rot_angle_deg(eef[:3, :3].T @ goal[:3, :3])
-            if (
-                pos_err <= self.cfg.settle_pos_tol
-                and rot_err <= self.cfg.settle_rot_tol_deg
-            ) or settle >= self.cfg.settle_max:
+        attempts = []
+        align_steps, total_settle = 0, 0
+        for attempt in range(self.cfg.alignment_replans + 1):
+            path = alignment_path(
+                self.env.eef_pose(), goal, self.cfg.align_step, 0.06 * attempt
+            )
+            for pose in path:
+                if not self._send(pose, hold):
+                    return self._close(log, n0, "done during alignment")
+            align_steps += len(path)
+            settle, pos_err, rot_err = 0, np.inf, np.inf
+            while True:
+                eef = self.env.eef_pose()
+                pos_err = float(np.linalg.norm(eef[:3, 3] - goal[:3, 3]))
+                rot_err = rot_angle_deg(eef[:3, :3].T @ goal[:3, :3])
+                if (
+                    pos_err <= self.cfg.settle_pos_tol
+                    and rot_err <= self.cfg.settle_rot_tol_deg
+                ) or settle >= self.cfg.settle_max:
+                    break
+                if not self._send(goal, hold):
+                    return self._close(log, n0, "done while settling")
+                settle += 1
+            total_settle += settle
+            attempts.append(
+                {
+                    "clearance": 0.06 * attempt,
+                    "pos_error_cm": round(100 * pos_err, 3),
+                    "rot_error_deg": round(rot_err, 2),
+                }
+            )
+            if not self.cfg.alignment_guard_pos or (
+                pos_err <= self.cfg.alignment_guard_pos
+                and rot_err <= self.cfg.alignment_guard_rot_deg
+            ):
                 break
-            if not self._send(goal, hold):
-                return self._close(log, n0, "done while settling")
-            settle += 1
         after = self.env.body_poses([ref])[ref]
         log.update(
-            align_steps=len(path),
-            settle_steps=settle,
+            align_steps=align_steps,
+            settle_steps=total_settle,
+            alignment_attempts=attempts,
             settle_pos_err_cm=round(100 * pos_err, 3),
             settle_rot_err_deg=round(rot_err, 2),
             ref_moved_during_align_cm=round(
                 100 * float(np.linalg.norm(after[:3, 3] - live[:3, 3])), 2
             ),
         )
+        if self.cfg.alignment_guard_pos and (
+            pos_err > self.cfg.alignment_guard_pos
+            or rot_err > self.cfg.alignment_guard_rot_deg
+        ):
+            log["blocked"] = True
+            return self._close(
+                log, n0, "alignment blocked; source interaction not executed"
+            )
 
         for f in range(b, end):
             if self.cfg.mode == "mt3":
@@ -374,6 +410,19 @@ class MT3Runner:
                 )
             if not self._send(target, self.gripper[f]):
                 return self._close(log, n0, "done during interaction")
+            if self.cfg.mode == "mt3":
+                for _ in range(self.cfg.track_extra_steps):
+                    achieved = self.env.eef_pose()
+                    if (
+                        np.linalg.norm(achieved[:3, 3] - target[:3, 3])
+                        <= self.cfg.track_pos_tol
+                        and rot_angle_deg(achieved[:3, :3].T @ target[:3, :3])
+                        <= self.cfg.track_rot_tol_deg
+                    ):
+                        break
+                    log["tracking_extra_steps"] = log.get("tracking_extra_steps", 0) + 1
+                    if not self._send(target, self.gripper[f]):
+                        return self._close(log, n0, "done during tracking correction")
         return self._close(log, n0, "segment replayed")
 
     def _run_continuous(

@@ -167,7 +167,9 @@ def run_mt3(
             note(
                 f"  segment {k} ({runner.logs[-1]['ref']}): {runner.logs[-1]['status']}"
             )
-        if not hooks.done():
+            if runner.logs[-1].get("blocked"):
+                break
+        if not hooks.done() and not any(c.get("blocked") for c in runner.logs):
             execute(toolkit, "mt3_hold", {})
             calls += 1
 

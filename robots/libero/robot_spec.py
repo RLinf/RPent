@@ -174,7 +174,7 @@ def get_toolkit(
         memory_access="inbox_write" if explore else "read_only",
         inbox_cell_tag=config.recipe_tag if explore else None,
     )
-    return LiberoToolkit(
+    toolkit = LiberoToolkit(
         runtime_kwargs=runtime_kwargs,
         dashboard_events=dashboard_events,
         memory=memory,
@@ -182,6 +182,13 @@ def get_toolkit(
         attempts_per_session=attempts_per_session,
         state_output_dir=state_output_dir,
     )
+    if config.prompt_vars.get("replay_config"):
+        from robots.libero.mt3.agent import register_agent_tools
+
+        register_agent_tools(
+            toolkit, config.recipe_tag, config.prompt_vars["replay_config"]
+        )
+    return toolkit
 
 
 def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
@@ -202,6 +209,11 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         help="HF memory: auto selects by model; explicit versions override. Effort describes memory generation only.",
     )
     parser.add_argument("--max-episode-steps", type=int, default=10000)
+    parser.add_argument(
+        "--replay-config",
+        default=None,
+        help="Optional mt3.json exposing guarded trajectory replay to the ordinary planner.",
+    )
     parser.add_argument(
         "--libero-type",
         default=None,
@@ -376,6 +388,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         "recipe_tag": recipe_tag,
         "mode": "explore" if explore else "eval",
         "memory_profile": memory_profile,
+        "replay_config": getattr(args, "replay_config", None),
         "memory_dir": str(memory_dir),
         "reference_tag": f"{args.suite.replace('libero_', '')}_t{args.task}_s0",
         # Per-cell inbox: parallel explore runs must not append to a shared file.
