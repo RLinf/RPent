@@ -307,7 +307,7 @@ def dump_observation(
 
     state = {
         "step_idx": step_idx,
-        "task_name": observation["task_name"],
+        "task_id": observation["task_id"],
         "task_language": observation["task_language"],
         "robot_state": observation["robot_state"],
         "episode_status": status,

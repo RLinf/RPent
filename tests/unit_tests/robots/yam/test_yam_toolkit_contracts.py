@@ -197,7 +197,7 @@ def test_configured_motion_checks_new_stop_before_next_command(
         "timeout_s": 2.0,
     }
 
-    def move_to(target, *, cancelled, **kwargs):
+    def move_to_qpos(target, *, cancelled, **kwargs):
         for step in range(3):
             if cancelled():
                 env._runtime.hold()
@@ -207,7 +207,7 @@ def test_configured_motion_checks_new_stop_before_next_command(
                 env.request_stop()
         return env._runtime.hold()
 
-    monkeypatch.setattr(env._runtime, "move_to", move_to, raising=False)
+    monkeypatch.setattr(env._runtime, "move_to_qpos", move_to_qpos, raising=False)
     operation = env.reset_to_configured_qpos if pose_name == "reset" else env.close
     if new_stop:
         with pytest.raises(RuntimeError, match="cancelled"):
@@ -245,7 +245,7 @@ def test_shutdown_keeps_output_after_late_stop(env, monkeypatch, stop_stage):
         monkeypatch.setattr(env, "_read_active_target_locked", read_target)
         monkeypatch.setattr(
             env._runtime,
-            "move_to",
+            "move_to_qpos",
             lambda target, **kwargs: env._runtime.hold(),
             raising=False,
         )
