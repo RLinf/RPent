@@ -90,6 +90,8 @@ class MT3Config:
     feasibility_topk: int = 5
     #: Extra alignment transit height [m], always applied.
     transit_clearance: float = 0.0
+    #: Retries of a grasp segment whose object was not picked up.
+    grasp_retries: int = 0
     #: Demo retrieval: "nearest" (reference-body distance) or "reach" (most
     #: segments whose transferred bottleneck the arm can reach, then nearest).
     retrieval: str = "nearest"
@@ -349,6 +351,56 @@ class MT3Runner:
         return not self.env.done()
 
     def run_segment(self, k: int) -> dict[str, Any]:
+        """Run segment ``k``; a grasp that did not pick its object up is retried
+        (open, lift, re-align from the object's new pose) up to
+        ``grasp_retries`` times."""
+        seg = self.segments[k]
+        grasping = self.cfg.grasp_retries > 0 and any(
+            e[0] == "grasp" for e in seg.get("events", ())
+        )
+        ref = seg["ref"]
+        before = self.env.body_poses([ref])[ref] if grasping else None
+        log = self._dispatch(k)
+        retries = []
+        while (
+            grasping
+            and len(retries) < self.cfg.grasp_retries
+            and not self.env.done()
+            and not self._picked_up(ref, before)
+        ):
+            self._release_and_lift()
+            before = self.env.body_poses([ref])[ref]
+            log = self._dispatch(k)
+            retries.append(log.get("status"))
+        if grasping:
+            log["grasp_held"] = bool(self._picked_up(ref, before))
+            if retries:
+                log["grasp_retries"] = retries
+        return log
+
+    def _picked_up(self, body: str, before: np.ndarray) -> bool:
+        """``body`` rose with the closed gripper and stays near the grip site."""
+        now = self.env.body_poses([body])[body]
+        eef = self.env.eef_pose()
+        return bool(
+            self._last_gripper > 0
+            and now[2, 3] - before[2, 3] >= 0.015
+            and np.linalg.norm(now[:3, 3] - eef[:3, 3]) <= 0.10
+        )
+
+    def _release_and_lift(self, lift: float = 0.08) -> None:
+        """Open the gripper in place, then rise ``lift`` m."""
+        pose = self.env.eef_pose()
+        for _ in range(10):
+            if not self._send(pose, -1.0):
+                return
+        up = pose.copy()
+        up[2, 3] += lift
+        for target in alignment_path(pose, up, self.cfg.align_step):
+            if not self._send(target, -1.0):
+                return
+
+    def _dispatch(self, k: int) -> dict[str, Any]:
         if self.env.check_paths is None:
             return self._segment(k)
         if self.cfg.feasibility_check == "minimal":
