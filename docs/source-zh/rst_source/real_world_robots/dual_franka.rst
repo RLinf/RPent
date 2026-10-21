@@ -250,34 +250,10 @@ VLA 配置
 
 .. _dual-franka-codex-isolation:
 
-机器人 Codex 运行配置隔离
--------------------------
+Codex 配置
+----------------
 
-在专用终端激活 ``.venv``，从仓库根目录设置独立的 Codex 配置与会话目录。每次新开机器人控制终端都需执行：
-
-.. code-block:: bash
-
-   export CODEX_HOME="$PWD/.codex-rpent-live"
-   export CODEX_SQLITE_HOME="$CODEX_HOME"
-   export CODEX_SERVICE_TIER=fast
-   mkdir -p "$CODEX_HOME"
-   unset CODEX_API_KEY CODEX_BASE_URL OPENAI_API_KEY OPENAI_BASE_URL CODEX_ACCESS_TOKEN
-   export CODEX_BIN="$(python -c 'from codex_cli_bin import bundled_codex_path; print(bundled_codex_path())')"
-
-首次使用时，在 ``$CODEX_HOME/config.toml`` 中设置文件凭据存储，再用 SDK 自带的 CLI 登录：
-
-.. code-block:: toml
-
-   cli_auth_credentials_store = "file"
-
-.. code-block:: bash
-
-   "$CODEX_BIN" login --device-auth
-   "$CODEX_BIN" login status
-
-若配置中已有 ``sqlite_home``，也应指向独立目录。使用自定义 API 时，重新设置本次部署的 ``CODEX_API_KEY`` 和 ``CODEX_BASE_URL``；其他登录方式见 `Codex 认证说明 <https://developers.openai.com/codex/auth/>`_。
-
-RPent 不会自动启用上述隔离；它不隔离共享工作区或迁移旧会话。任务记忆另由 ``--memory-dir`` 选择。不要提交该目录或凭据。
+使用 Codex 时，先按\ :ref:`planner-codex-isolation`\ 配置独立的运行目录并登录。
 
 启动双节点 Ray 集群
 --------------------
@@ -365,7 +341,7 @@ RLinf 按配置的节点创建相机句柄，不会跨节点搜索被移动的 U
 运行一个任务
 ------------
 
-完成相机标定、机器人配置和 Ray 集群启动，并按 :doc:`../guides/configure_planner` 配置规划器。使用 Codex 前，先完成 :ref:`dual-franka-codex-isolation`。
+完成相机标定、机器人配置和 Ray 集群启动，并按 :doc:`../guides/configure_planner` 配置规划器。使用 Codex 前，先完成 :ref:`planner-codex-isolation`。
 
 设置好上面的模型变量后，以下以任务 ``2`` 为例运行；可通过 ``--task-id`` 选择其他已注册任务。RPent 自动启动所需的环境和模型服务，无需另开终端手动启动 VLA：
 

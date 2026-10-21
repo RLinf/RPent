@@ -17,6 +17,7 @@ import threading
 
 from robots.yam import runtime_config
 from robots.yam.contracts import env_runtime_contract
+from robots.yam.tasks import TASK_INSTRUCTIONS
 from rpent.robots.components.env_facade_base import BaseEnvFacade
 
 
@@ -32,7 +33,7 @@ class YamEnvFacade(BaseEnvFacade):
     def __init__(self, env, *, metadata=None):
         self._env = env
         self._metadata = metadata or env_runtime_contract(
-            task_name=env.get_task_language(),
+            task_id=env.task_id,
         )
         super().__init__()
 
@@ -151,7 +152,9 @@ def main():
         default=None,
         help="YAM robot YAML (defaults to robots/yam/config/example.yaml)",
     )
-    parser.add_argument("--task-name", required=True)
+    parser.add_argument(
+        "--task-id", type=int, choices=tuple(TASK_INSTRUCTIONS), required=True
+    )
     parser.add_argument("--task-language", default=None)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument(
@@ -167,7 +170,7 @@ def main():
     try:
         config = runtime_config.load_config(
             args.robot_config,
-            task_name=args.task_name,
+            task_id=args.task_id,
             task_language=args.task_language,
             seed=args.seed,
             max_episode_steps=args.max_episode_steps,
@@ -177,7 +180,7 @@ def main():
         parser.error(str(error))
     env = YamAgentEnv(config)
     metadata = env_runtime_contract(
-        task_name=args.task_name,
+        task_id=args.task_id,
         seed=args.seed,
         max_episode_steps=args.max_episode_steps,
         joint_servo=config.get("joint_servo"),
