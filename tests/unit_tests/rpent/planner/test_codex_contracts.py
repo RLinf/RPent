@@ -35,10 +35,13 @@ from rpent.planner.codex import (
     CodexPlanner,
     _codex_mcp_config_overrides,
 )
-from rpent.planner.utils.http_mcp_server import HttpMcpServer
+from rpent.planner.utils.http_mcp_server import (
+    HttpMcpServer,
+)
 from rpent.session import EnvState, MissingInfo, Payload, codex_capture
 from rpent.tools import ToolResult
 from rpent.tools.common import CommonTools
+from rpent.utils.mcp_servers import McpServerSpec
 
 
 class RecordingSink:
@@ -424,6 +427,32 @@ def test_restricted_sandboxes_approve_the_planner_owned_mcp_tools(
         base_url=None,
         sandbox="full-access",
     ) == ['mcp_servers.rpent.url="http://fake.invalid/mcp/"']
+
+
+def test_config_overrides_attach_external_mcp_servers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("CODEX_MODEL_CONTEXT_WINDOW", raising=False)
+    monkeypatch.delenv("CODEX_AUTO_COMPACT_TOKEN_LIMIT", raising=False)
+
+    overrides = _codex_mcp_config_overrides(
+        mcp_url=None,
+        base_url=None,
+        mcp_servers=(
+            McpServerSpec(name="web", url="https://mcp.example/mcp"),
+            McpServerSpec(
+                name="kb",
+                url="https://kb.example/mcp",
+                headers={"Authorization": "Bearer token"},
+            ),
+        ),
+    )
+
+    assert overrides == [
+        'mcp_servers.web.url="https://mcp.example/mcp"',
+        'mcp_servers.kb.url="https://kb.example/mcp"',
+        'mcp_servers.kb.http_headers={"Authorization" = "Bearer token"}',
+    ]
 
 
 def test_config_overrides_include_optional_context_limits(

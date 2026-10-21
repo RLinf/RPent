@@ -28,7 +28,7 @@ import os
 import queue
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 import openai_codex
@@ -45,7 +45,8 @@ from rpent.planner.base import (
     REASONING_EFFORTS,
     Planner,
     PlannerResult,
-    strip_mcp_prefix,
+    cancel_and_wait,
+    display_tool_name,
 )
 from rpent.planner.utils.agent_runtime import (
     AgentArtifacts,
@@ -57,6 +58,12 @@ from rpent.planner.utils.sdk import get_field, int_field, json_object, jsonable,
 from rpent.session.codex_capture import finalize_codex_capture
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.config import get_repo_root
+from rpent.utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from rpent.utils.mcp_servers import McpServerSpec
+
+logger = get_logger("codex")
 
 PROVIDER_ID = "rpent_proxy"
 PROVIDER_ENV_KEY = "RPENT_CODEX_PROVIDER_KEY"
@@ -91,6 +98,7 @@ class CodexPlanner(Planner):
         model: str | None = None,
         reasoning_effort: str = "none",
         sandbox: str = "full-access",
+        mcp_servers: tuple["McpServerSpec", ...] = (),
     ):
         """Initialize the Codex SDK backend."""
         self._output_dir = str(output_dir)
@@ -103,6 +111,7 @@ class CodexPlanner(Planner):
         self._api_key = os.environ.get("CODEX_API_KEY", None)
         self._service_tier = os.environ.get("CODEX_SERVICE_TIER", None)
         self._dashboard_events = dashboard_events
+        self._mcp_servers = mcp_servers
         if reasoning_effort not in REASONING_EFFORTS:
             raise ValueError(f"unsupported reasoning effort: {reasoning_effort}")
         if sandbox not in _SANDBOX_MODES:
@@ -227,6 +236,7 @@ class CodexPlanner(Planner):
             cwd=self._repo_root,
             sandbox=self._sandbox,
             trace_root=trace_root,
+            mcp_servers=self._mcp_servers,
         )
 
 
@@ -474,7 +484,7 @@ class _Recorder:
         if _is_tool_item(item):
             self.tool_calls += 1
             if item_type in {"mcpToolCall", "dynamicToolCall"}:
-                name = strip_mcp_prefix(str(get_field(item, "tool", item_type)))
+                name = display_tool_name(str(get_field(item, "tool", item_type)))
                 self._maybe_capture_finish(name, item)
             elif item_type == "commandExecution":
                 name = str(get_field(item, "command", item_type))
@@ -602,6 +612,7 @@ def build_codex_config(
     cwd: str,
     sandbox: str = "full-access",
     trace_root: Path | None = None,
+    mcp_servers: tuple["McpServerSpec", ...] = (),
 ) -> Any:
     """Build the Codex child config with optional native rollout tracing.
 
@@ -615,6 +626,8 @@ def build_codex_config(
             override to reach RPent tools under ``deny_all``.
         trace_root: Directory where Codex writes native rollout traces. If ``None``,
             the child inherits the parent's ``CODEX_ROLLOUT_TRACE_ROOT`` setting.
+        mcp_servers: External streamable-HTTP MCP servers to attach alongside
+            RPent's own, each rendered as an ``mcp_servers.<name>`` table.
 
     Returns:
         The ``openai_codex.CodexConfig`` to open a session with.
@@ -625,7 +638,10 @@ def build_codex_config(
     if trace_root is not None:
         env["CODEX_ROLLOUT_TRACE_ROOT"] = str(trace_root.resolve())
     config_overrides = _codex_mcp_config_overrides(
-        mcp_url=mcp_url, base_url=base_url, sandbox=sandbox
+        mcp_url=mcp_url,
+        base_url=base_url,
+        sandbox=sandbox,
+        mcp_servers=mcp_servers,
     )
     # Project development instructions and skills are excluded from planner context.
     config_overrides.append("project_doc_max_bytes=0")
@@ -760,6 +776,7 @@ def _codex_mcp_config_overrides(
     mcp_url: str | None,
     base_url: str | None,
     sandbox: str = "full-access",
+    mcp_servers: tuple["McpServerSpec", ...] = (),
 ) -> list[str]:
     config: list[tuple[str, Any]] = []
     if mcp_url:
@@ -770,6 +787,10 @@ def _codex_mcp_config_overrides(
         # shell permissions.
         if sandbox != "full-access":
             config.append(("mcp_servers.rpent.default_tools_approval_mode", "approve"))
+    for server in mcp_servers:
+        config.append((f"mcp_servers.{server.name}.url", server.url))
+        if server.headers:
+            config.append((f"mcp_servers.{server.name}.http_headers", server.headers))
     if base_url:
         normalized = base_url.rstrip("/")
         if not normalized.endswith("/v1"):
@@ -789,7 +810,22 @@ def _codex_mcp_config_overrides(
     auto_compact_token_limit = os.environ.get("CODEX_AUTO_COMPACT_TOKEN_LIMIT", None)
     if auto_compact_token_limit is not None:
         config.append(("model_auto_compact_token_limit", int(auto_compact_token_limit)))
-    return [f"{key}={json.dumps(value)}" for key, value in config]
+    return [f"{key}={_toml_value(value)}" for key, value in config]
+
+
+def _toml_value(value: Any) -> str:
+    """Render a ``--config`` override value as TOML.
+
+    Codex parses each override's value as TOML, so a mapping (an MCP server's
+    ``http_headers``) must be an inline table, not the JSON object
+    ``json.dumps`` would otherwise produce.
+    """
+    if isinstance(value, dict):
+        inner = ", ".join(
+            f"{json.dumps(key)} = {json.dumps(val)}" for key, val in value.items()
+        )
+        return "{" + inner + "}"
+    return json.dumps(value)
 
 
 # ---------------------------------------------------------------------------
