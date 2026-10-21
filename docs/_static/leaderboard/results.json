@@ -47,6 +47,14 @@
       "effort": "low"
     },
     {
+      "id": "gpt-6-astra-high",
+      "kind": "rpent",
+      "backend": "Codex",
+      "model": "GPT-6 Astra",
+      "reasoning": true,
+      "effort": "high"
+    },
+    {
       "id": "gpt-5-6-xhigh",
       "kind": "rpent",
       "backend": "Codex",
@@ -580,7 +588,7 @@
     {"id": "robocasa-composite-unseen--pi0", "view_id": "robocasa-composite-unseen", "configuration_id": "pi0", "rate": "1.1", "source_ids": ["paper-table-4"], "protocol_id": "external-robocasa"},
     {"id": "libero-pro--opus-4-7-reported", "view_id": "libero-pro", "configuration_id": "opus-4-7-reported", "rate": "82.4", "episodes": 800, "source_ids": ["contributor-correction-20260916"], "protocol_id": "contributor-pro-eight"},
     {"id": "libero-pro--rpent-flash-mode", "view_id": "libero-pro", "configuration_id": "rpent-flash-mode", "rate": "72.63", "successes": 581, "episodes": 800, "source_ids": ["repo-flash-mode-800", "flash-contributor-800-outcomes"], "protocol_id": "rpent-pro-flash-mode"},
-    {"id": "robocasa--gpt-6-astra-reported", "view_id": "robocasa", "configuration_id": "gpt-6-astra-low", "rate": "59.20", "episodes": 340, "source_ids": ["contributor-20260915", "contributor-settings-20260915", "robocasa-astra-contributor-correction-20260920"], "protocol_id": "rpent-robocasa"},
+    {"id": "robocasa--gpt-6-astra-reported", "view_id": "robocasa", "configuration_id": "gpt-6-astra-high", "rate": "59.20", "episodes": 340, "source_ids": ["contributor-20260915", "robocasa-astra-effort-correction-20261019", "robocasa-astra-contributor-correction-20260920"], "protocol_id": "rpent-robocasa"},
     {"id": "robotwin--gpt-5-5-xhigh", "view_id": "robotwin", "configuration_id": "gpt-5-5-xhigh", "rate": "62.4", "successes": 156, "episodes": 250, "source_ids": ["repo-robotwin-20260915"], "protocol_id": "repo-robotwin-20260915", "task_failures": 58, "episode_timeouts": 36},
     {"id": "robocasa--xiaomi-robotics-1", "view_id": "robocasa", "configuration_id": "xiaomi-robotics-1", "rate": "57.4", "source_ids": ["xiaomi-official-robocasa365", "xiaomi-paper-v2-table-3"], "protocol_id": "xiaomi-official-robocasa365"},
     {"id": "robocasa-atomic-seen--xiaomi-robotics-1", "view_id": "robocasa-atomic-seen", "configuration_id": "xiaomi-robotics-1", "rate": "80.2", "source_ids": ["xiaomi-official-robocasa365", "xiaomi-paper-v2-table-3"], "protocol_id": "xiaomi-official-robocasa365"},
@@ -603,9 +611,9 @@
     {"id": "goal-swap--rpent-flash-mode", "view_id": "goal-swap", "configuration_id": "rpent-flash-mode", "rate": "65.00", "successes": 65, "episodes": 100, "source_ids": ["flash-contributor-800-outcomes"], "protocol_id": "rpent-pro-flash-mode"},
     {"id": "long-task--rpent-flash-mode", "view_id": "long-task", "configuration_id": "rpent-flash-mode", "rate": "60.00", "successes": 60, "episodes": 100, "source_ids": ["flash-contributor-800-outcomes"], "protocol_id": "rpent-pro-flash-mode"},
     {"id": "long-swap--rpent-flash-mode", "view_id": "long-swap", "configuration_id": "rpent-flash-mode", "rate": "54.00", "successes": 54, "episodes": 100, "source_ids": ["flash-contributor-800-outcomes"], "protocol_id": "rpent-pro-flash-mode"},
-    {"id": "robocasa-atomic-seen--gpt-6-astra-low", "view_id": "robocasa-atomic-seen", "configuration_id": "gpt-6-astra-low", "rate": "87.78", "episodes": 180, "source_ids": ["robocasa-astra-contributor-correction-20260920", "contributor-settings-20260915"], "protocol_id": "rpent-robocasa"},
-    {"id": "robocasa-composite-seen--gpt-6-astra-low", "view_id": "robocasa-composite-seen", "configuration_id": "gpt-6-astra-low", "rate": "43.75", "episodes": 80, "source_ids": ["robocasa-astra-contributor-correction-20260920", "contributor-settings-20260915"], "protocol_id": "rpent-robocasa"},
-    {"id": "robocasa-composite-unseen--gpt-6-astra-low", "view_id": "robocasa-composite-unseen", "configuration_id": "gpt-6-astra-low", "rate": "42.50", "episodes": 80, "source_ids": ["robocasa-astra-contributor-correction-20260920", "contributor-settings-20260915"], "protocol_id": "rpent-robocasa"},
+    {"id": "robocasa-atomic-seen--gpt-6-astra-high", "view_id": "robocasa-atomic-seen", "configuration_id": "gpt-6-astra-high", "rate": "87.78", "episodes": 180, "source_ids": ["robocasa-astra-contributor-correction-20260920", "robocasa-astra-effort-correction-20261019"], "protocol_id": "rpent-robocasa"},
+    {"id": "robocasa-composite-seen--gpt-6-astra-high", "view_id": "robocasa-composite-seen", "configuration_id": "gpt-6-astra-high", "rate": "43.75", "episodes": 80, "source_ids": ["robocasa-astra-contributor-correction-20260920", "robocasa-astra-effort-correction-20261019"], "protocol_id": "rpent-robocasa"},
+    {"id": "robocasa-composite-unseen--gpt-6-astra-high", "view_id": "robocasa-composite-unseen", "configuration_id": "gpt-6-astra-high", "rate": "42.50", "episodes": 80, "source_ids": ["robocasa-astra-contributor-correction-20260920", "robocasa-astra-effort-correction-20261019"], "protocol_id": "rpent-robocasa"},
     {"id": "libero-pro--qwen3-6-27b-no-reasoning", "view_id": "libero-pro", "configuration_id": "qwen3-6-27b-no-reasoning", "rate": "70.63", "successes": 565, "episodes": 800, "source_ids": ["contributor-qwen-costs-20260918"], "protocol_id": "rpent-pro-qwen-eight-suites"},
     {"id": "spatial-task--qwen3-6-27b-no-reasoning", "view_id": "spatial-task", "configuration_id": "qwen3-6-27b-no-reasoning", "rate": "82.00", "successes": 82, "episodes": 100, "source_ids": ["contributor-qwen-costs-20260918"], "protocol_id": "rpent-pro-qwen-eight-suites"},
     {"id": "spatial-swap--qwen3-6-27b-no-reasoning", "view_id": "spatial-swap", "configuration_id": "qwen3-6-27b-no-reasoning", "rate": "78.00", "successes": 78, "episodes": 100, "source_ids": ["contributor-qwen-costs-20260918"], "protocol_id": "rpent-pro-qwen-eight-suites"},
@@ -627,7 +635,7 @@
       {"id": "libero-pro--rpent-flash-mode", "benchmark_id": "libero-pro", "configuration_id": "rpent-flash-mode", "mean_elapsed_seconds": 60.19, "total_output_tokens": 0},
       {"id": "robocasa--gpt-5-6-xhigh", "benchmark_id": "robocasa", "configuration_id": "gpt-5-6-xhigh", "mean_elapsed_seconds": 1197.56, "total_output_tokens": 5258391},
       {"id": "robocasa--gpt-5-6-no-reasoning", "benchmark_id": "robocasa", "configuration_id": "gpt-5-6-no-reasoning", "mean_elapsed_seconds": 1013.21, "total_output_tokens": 4792104},
-      {"id": "robocasa--gpt-6-astra-low", "benchmark_id": "robocasa", "configuration_id": "gpt-6-astra-low", "mean_elapsed_seconds": 1168.95, "total_output_tokens": 5894436},
+      {"id": "robocasa--gpt-6-astra-high", "benchmark_id": "robocasa", "configuration_id": "gpt-6-astra-high", "mean_elapsed_seconds": 1168.95, "total_output_tokens": 5894436, "source_ids": ["contributor-qwen-costs-20260918", "robocasa-astra-effort-correction-20261019"]},
       {"id": "robotwin--gpt-5-6-xhigh", "benchmark_id": "robotwin", "configuration_id": "gpt-5-6-xhigh", "mean_elapsed_seconds": 1828.7, "total_output_tokens": 4763915},
       {"id": "robotwin--gpt-5-6-no-reasoning", "benchmark_id": "robotwin", "configuration_id": "gpt-5-6-no-reasoning", "mean_elapsed_seconds": 957.4, "total_output_tokens": 2456401},
       {"id": "robotwin--gpt-6-astra-low", "benchmark_id": "robotwin", "configuration_id": "gpt-6-astra-low", "mean_elapsed_seconds": 1078.8, "total_output_tokens": 2763641}
@@ -813,6 +821,13 @@
           "rate": "54.00"
         }
       }
+    },
+    {
+      "id": "robocasa-astra-effort-correction-20261019",
+      "kind": "contributor_correction",
+      "checked_at": "2026-10-19",
+      "url": "https://huggingface.co/datasets/RLinf/RPent-memory/blob/47f301ef33bf8d0e8c770342f16b3c39c6a0e8c1/robocasa/GPT_6_astra_high/README.md",
+      "note": "The experiment contributor confirmed that the RoboCasa GPT-6 Astra evaluations used high reasoning effort. This corrects the configuration label for the reported success rates and time/token results; their numeric values and evaluation coverage are unchanged. LIBERO-PRO and RoboTwin retain their separately reported configurations."
     },
     {
       "id": "robocasa-astra-contributor-correction-20260920",
