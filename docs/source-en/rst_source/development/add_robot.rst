@@ -376,6 +376,10 @@ validates those fields and returns a
 - ``task_desc`` — robot-specific dict of task-identifying fields, written into
   the transcript JSON record verbatim (LIBERO:
   ``{"suite": ..., "task": ..., "seed": ...}``).
+- ``mcp_servers`` — optional tuple of external MCP servers the robot declares
+  for its planners, parsed from the robot config's ``mcp_servers`` section with
+  :func:`~rpent.utils.mcp_servers.parse_mcp_servers`. Leave it empty to attach
+  none. See :ref:`external-mcp-servers`.
 
 .. code-block:: python
 

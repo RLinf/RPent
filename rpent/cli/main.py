@@ -319,6 +319,7 @@ def _start_continuation_session(
     prompt_vars,
     session_number: int,
     session_max: int,
+    mcp_servers=(),
 ):
     """Build a fresh planner and prompts for an exploration handoff."""
     logger.info("=== handing off to agent %d/%d ===", session_number, session_max)
@@ -336,6 +337,7 @@ def _start_continuation_session(
         dashboard_events=dashboard_events,
         no_images=args.no_images,
         interactive=args.tui,
+        mcp_servers=mcp_servers,
     )
     system_prompt = prompt_bundle.render(
         "system",
@@ -505,6 +507,7 @@ def main() -> int:
         dashboard_events=dashboard_events,
         no_images=args.no_images,
         interactive=args.tui,
+        mcp_servers=run_config.mcp_servers,
     )
     prompt_bundle = robot_spec.prompts
     prompt_vars = {**prompt_vars, "output_dir": output_dir}
@@ -599,6 +602,7 @@ def main() -> int:
                     prompt_vars=prompt_vars,
                     session_number=session_number,
                     session_max=sessions,
+                    mcp_servers=run_config.mcp_servers,
                 )
             state_output_dir = output_dir
             if getattr(args, "explore", False):

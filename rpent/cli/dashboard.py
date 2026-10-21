@@ -342,6 +342,7 @@ def _run_dashboard_task(
                         claude_code_max_budget_usd=args.claude_code_max_budget_usd,
                         dashboard_events=state,
                         no_images=args.no_images,
+                        mcp_servers=run_config.mcp_servers,
                     )
                     result = planner.solve(
                         system_prompt=system_prompt,

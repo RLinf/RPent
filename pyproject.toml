@@ -28,7 +28,8 @@ classifiers = [
 
 dependencies = [
     # Upgrade together after validating request budgets and failed-request accounting.
-    "pydantic-ai-slim[anthropic,openai,cli]==2.53.0",
+    # The `mcp` extra pulls the MCP client the api planner uses for external servers.
+    "pydantic-ai-slim[anthropic,openai,cli,mcp]==2.53.0",
     "pydantic-ai-harness==0.53.0",
     # Anthropic 2.x turns BetaMessageParam into a non-callable Union.
     # Remove after upgrading Pydantic AI to a release fixing:

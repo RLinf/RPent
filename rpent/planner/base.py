@@ -37,6 +37,8 @@ from rpent.utils.config import (
 if TYPE_CHECKING:
     from pydantic_ai.models import Model
 
+    from rpent.utils.mcp_servers import McpServerSpec
+
 #: MCP namespace prefix for RPent tools (``mcp__<server>__<tool>``).
 #: Toolkits expose plain tool names; planners add/strip this prefix.
 MCP_TOOL_PREFIX = "mcp__rpent__"
@@ -93,6 +95,24 @@ async def execute_tool(toolkit: Toolkit, name: str, arguments: dict) -> ToolResu
         finally:
             await _wait_for_cleanup(worker)
         raise
+
+
+def display_tool_name(name: str) -> str:
+    """Return a transcript-friendly tool name.
+
+    RPent's own tools drop the ``mcp__rpent__`` namespace (``finish``); a tool
+    from an external server keeps a short ``<server>:<tool>`` tag so the
+    transcript shows which server answered. Non-MCP names pass through. This is
+    display only — finish detection stays on :func:`strip_mcp_prefix`, so an
+    external server's ``finish`` tool is never mistaken for RPent's.
+    """
+    if name.startswith(MCP_TOOL_PREFIX):
+        return name[len(MCP_TOOL_PREFIX) :]
+    rest = name.removeprefix("mcp__")
+    if rest != name and "__" in rest:
+        server, tool = rest.split("__", 1)
+        return f"{server}:{tool}"
+    return name
 
 
 class PlannerResult:
@@ -240,8 +260,13 @@ def build_planner(
     dashboard_events: DashboardEventSink,
     no_images: bool = False,
     interactive: bool = False,
+    mcp_servers: tuple["McpServerSpec", ...] = (),
 ) -> Planner:
-    """Build a planner for the given backend, resolving credentials from env vars."""
+    """Build a planner for the given backend, resolving credentials from env vars.
+
+    ``mcp_servers`` are external streamable-HTTP MCP servers the robot declared
+    for its planners to attach, alongside RPent's own toolkit server.
+    """
     # Imports are deferred to avoid a circular import: api_loop / claude_code /
     # codex all import from this module (PlannerResult).
 
@@ -260,6 +285,7 @@ def build_planner(
             no_images=no_images,
             timeout_s=api_timeout_s,
             interactive=interactive,
+            mcp_servers=mcp_servers,
         )
     if planner_type == "claude_code":
         from rpent.planner.claude_code import ClaudeCodePlanner
@@ -280,6 +306,7 @@ def build_planner(
             output_path=Path(output_dir) / f"claude_{recipe_tag}.txt",
             dashboard_events=dashboard_events,
             reasoning_effort=reasoning_effort,
+            mcp_servers=mcp_servers,
         )
     if planner_type == "codex":
         from rpent.planner.codex import CodexPlanner
@@ -301,6 +328,7 @@ def build_planner(
             output_path=Path(output_dir) / f"codex_{recipe_tag}.txt",
             dashboard_events=dashboard_events,
             reasoning_effort=reasoning_effort,
+            mcp_servers=mcp_servers,
         )
     if planner_type == "flash":
         from rpent.planner.flash import FlashPlanner

@@ -276,6 +276,49 @@ The value passed to RPent with ``--model`` must match vLLM's
 ``--served-model-name``. For another model, use its recommended vLLM parser
 settings.
 
+.. _external-mcp-servers:
+
+Attach External MCP Servers
+---------------------------
+
+A robot can attach third-party MCP servers it does not own, so the model calls
+their tools alongside RPent's own. This is opt-in and configured per robot: a
+robot declares the servers in its own config, and every online planner
+(``api``, ``claude_code``, ``codex``) attaches them. Robots that need no
+external server omit the section entirely.
+
+Declare the servers under ``mcp_servers`` in the robot's config YAML:
+
+.. code-block:: yaml
+
+   mcp_servers:
+     web:
+       url: https://mcp.example.com/mcp
+       headers:
+         Authorization: Bearer ${oc.env:WEB_MCP_TOKEN}
+       tools: "*"
+
+Fields:
+
+- ``url`` — the server's Streamable HTTP endpoint. Only HTTP(S) servers are
+  supported; stdio servers (``command``) are not.
+- ``headers`` — optional request headers, for example an ``Authorization``
+  token. Use ``${oc.env:...}`` to inject secrets from the environment.
+- ``tools`` — ``"*"`` (or omit) admits every tool the server exposes; a list of
+  names admits only those tools. Only ``claude_code`` needs this, because its
+  ``allowed_tools`` is an allowlist; ``api`` and ``codex`` expose all of an
+  attached server's tools.
+
+The server name becomes the tool namespace. ``claude_code`` and ``codex`` show
+the tools as ``mcp__<server>__<tool>``; the ``api`` planner shows them as
+``<server>_<tool>``. The name must be a simple identifier (letters, digits,
+``_``, ``-``) and cannot be ``rpent``, which is reserved for RPent's own
+toolkit server.
+
+The ``api`` planner attaches MCP servers through Pydantic AI's MCP client,
+installed by the ``pydantic-ai-slim[mcp]`` extra, which RPent lists by default.
+A robot that declares no ``mcp_servers`` never loads it.
+
 .. _planner-check:
 
 Verify Your Configuration

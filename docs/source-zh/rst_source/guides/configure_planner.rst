@@ -205,6 +205,34 @@ vLLM 在兼容 OpenAI 的 ``/v1/models`` 响应中用 ``max_model_len`` 表示�
 
 RPent 的 ``--model`` 必须与 vLLM 的 ``--served-model-name`` 保持一致。使用其他模型时，请按照对应的 vLLM 部署说明设置解析参数。
 
+.. _external-mcp-servers:
+
+接入外部 MCP 服务
+-----------------
+
+robot 可以接入自己并不拥有的第三方 MCP 服务，让模型在调用 RPent 自身工具的同时调用这些服务的工具。该能力可选，且按 robot 配置：robot 在自己的 config 中声明服务，所有在线规划器（``api``、``claude_code``、``codex``）都会接入它们。不需要外部服务的 robot 直接省略该段。
+
+在 robot 的 config YAML 中通过 ``mcp_servers`` 声明：
+
+.. code-block:: yaml
+
+   mcp_servers:
+     web:
+       url: https://mcp.example.com/mcp
+       headers:
+         Authorization: Bearer ${oc.env:WEB_MCP_TOKEN}
+       tools: "*"
+
+字段：
+
+- ``url`` —— 服务的 Streamable HTTP 端点。只支持 HTTP(S) 服务，不支持 stdio 服务（``command``）。
+- ``headers`` —— 可选的请求头，例如 ``Authorization`` token。可用 ``${oc.env:...}`` 从环境变量注入密钥。
+- ``tools`` —— ``"*"``（或省略）放行服务暴露的全部工具；给出工具名列表则只放行这些工具。只有 ``claude_code`` 需要它，因为其 ``allowed_tools`` 是白名单；``api`` 和 ``codex`` 会暴露已接入服务的全部工具。
+
+服务名会成为工具的命名空间。``claude_code`` 和 ``codex`` 将工具显示为 ``mcp__<server>__<tool>``；``api`` 规划器显示为 ``<server>_<tool>``。服务名必须是简单标识符（字母、数字、``_``、``-``），且不能为 ``rpent``——该名字保留给 RPent 自身的 toolkit 服务。
+
+``api`` 规划器通过 Pydantic AI 的 MCP 客户端接入 MCP 服务，该客户端由 ``pydantic-ai-slim[mcp]`` extra 安装，RPent 默认列出该 extra。未声明 ``mcp_servers`` 的 robot 不会加载它。
+
 .. _planner-check:
 
 验证你的配置

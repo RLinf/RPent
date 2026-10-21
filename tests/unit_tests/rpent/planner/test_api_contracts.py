@@ -21,6 +21,7 @@ import copy
 import json
 import math
 import queue
+import sys
 import threading
 import time
 from types import SimpleNamespace
@@ -41,10 +42,11 @@ from pydantic_core import to_jsonable_python
 
 from rpent.dashboard.events import RunStartedEvent, TranscriptEvent, UsageEvent
 from rpent.dashboard.state import DashboardState
-from rpent.planner.api_loop import ApiAgentLoop
+from rpent.planner.api_loop import ApiAgentLoop, _external_result_text, _HarnessToolkit
 from rpent.session import EnvState, Payload
 from rpent.tools import Toolkit, ToolResult, common
 from rpent.tools import tool as declare_tool
+from rpent.utils.mcp_servers import McpServerSpec
 
 FINISH_ARGS = {"status": "success", "summary": "done"}
 
@@ -1622,3 +1624,66 @@ def test_interrupted_tool_arguments_are_retained_without_execution(tmp_path):
     assert call.arguments.data == '{ "position":'
     assert call.arguments.completeness == "partial"
     assert call.status == "not_executed" and toolkit.calls == []
+
+
+def test_no_external_toolsets_without_declared_servers() -> None:
+    events = Events()
+    planner = ApiAgentLoop(model=TestModel(), dashboard_events=events)
+    adapter = _HarnessToolkit(
+        RobotToolkit(events), dashboard_events=events, no_images=True
+    )
+    assert planner._external_toolsets(adapter) == []
+
+
+def test_external_toolsets_require_the_mcp_extra(monkeypatch) -> None:
+    # Force the optional pydantic-ai MCP import to fail.
+    monkeypatch.setitem(sys.modules, "pydantic_ai.mcp", None)
+    events = Events()
+    planner = ApiAgentLoop(
+        model=TestModel(),
+        dashboard_events=events,
+        mcp_servers=(McpServerSpec(name="web", url="https://mcp.example/mcp"),),
+    )
+    adapter = _HarnessToolkit(
+        RobotToolkit(events), dashboard_events=events, no_images=True
+    )
+    with pytest.raises(RuntimeError, match=r"pydantic-ai-slim\[mcp\]"):
+        planner._external_toolsets(adapter)
+
+
+def test_external_tool_hook_records_like_a_local_tool() -> None:
+    events = Events()
+    adapter = _HarnessToolkit(
+        RobotToolkit(events), dashboard_events=events, no_images=True
+    )
+    ctx = SimpleNamespace(tool_call_id="call-1")
+
+    async def call_tool(name, args):
+        assert (name, args) == ("search", {"q": "x"})
+        return {"hits": 2}
+
+    result = asyncio.run(
+        adapter.external_tool_hook("web")(ctx, call_tool, "search", {"q": "x"})
+    )
+
+    assert result == {"hits": 2}
+    assert adapter.tool_calls == 1
+    assert adapter.messages == [
+        {
+            "role": "tool",
+            "name": "web_search",
+            "tool_call_id": "call-1",
+            "content": '{"hits": 2}',
+        }
+    ]
+    transcript = [e.payload for e in events.events if isinstance(e, TranscriptEvent)]
+    assert transcript == [
+        {"type": "tool_call", "tool": "web_search", "args": {"q": "x"}},
+        {"type": "tool_result", "tool": "web_search", "result": '{"hits": 2}'},
+    ]
+
+
+def test_external_result_text_renders_result_shapes() -> None:
+    assert _external_result_text("hi") == "hi"
+    assert _external_result_text({"a": 1}) == '{"a": 1}'
+    assert _external_result_text(["x", {"b": 2}]) == 'x\n{"b": 2}'

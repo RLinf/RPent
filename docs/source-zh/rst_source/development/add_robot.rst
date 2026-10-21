@@ -265,6 +265,7 @@ toolkit 模块通常包含四部分：
 - ``output_dir`` —— 单次运行的临时目录路径。main.py 随后调用 ``init_output_dir`` 创建目录并配置日志。
 - ``prompt_vars`` —— 传给 ``PromptBundle.render`` 的字典，通常包含运行标识和 prompt 引用的其他变量。
 - ``task_desc`` —— 机器人特定的任务标识字典，会原样写入 transcript JSON 记录（LIBERO 使用 ``{"suite": ..., "task": ..., "seed": ...}``）。
+- ``mcp_servers`` —— 可选的元组，列出机器人为其规划器声明的外部 MCP 服务，由 robot config 的 ``mcp_servers`` 段经 :func:`~rpent.utils.mcp_servers.parse_mcp_servers` 解析得到。不需要时留空。参见 :ref:`external-mcp-servers`。
 
 .. code-block:: python
 

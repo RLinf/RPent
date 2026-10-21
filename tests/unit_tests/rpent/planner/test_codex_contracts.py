@@ -36,10 +36,13 @@ from rpent.planner.codex import (
     _codex_mcp_config_overrides,
     _interrupt,
 )
-from rpent.planner.utils.http_mcp_server import HttpMcpServer
+from rpent.planner.utils.http_mcp_server import (
+    HttpMcpServer,
+)
 from rpent.session import EnvState, MissingInfo, Payload, codex_capture
 from rpent.tools import ToolResult
 from rpent.tools.common import CommonTools
+from rpent.utils.mcp_servers import McpServerSpec
 
 
 class RecordingSink:
@@ -388,6 +391,32 @@ def test_config_overrides_normalize_provider_url(
         f'model_providers.{PROVIDER_ID}.base_url="https://provider.invalid/root/v1"',
         f'model_providers.{PROVIDER_ID}.wire_api="responses"',
         f'model_providers.{PROVIDER_ID}.env_key="{PROVIDER_ENV_KEY}"',
+    ]
+
+
+def test_config_overrides_attach_external_mcp_servers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("CODEX_MODEL_CONTEXT_WINDOW", raising=False)
+    monkeypatch.delenv("CODEX_AUTO_COMPACT_TOKEN_LIMIT", raising=False)
+
+    overrides = _codex_mcp_config_overrides(
+        mcp_url=None,
+        base_url=None,
+        mcp_servers=(
+            McpServerSpec(name="web", url="https://mcp.example/mcp"),
+            McpServerSpec(
+                name="kb",
+                url="https://kb.example/mcp",
+                headers={"Authorization": "Bearer token"},
+            ),
+        ),
+    )
+
+    assert overrides == [
+        'mcp_servers.web.url="https://mcp.example/mcp"',
+        'mcp_servers.kb.url="https://kb.example/mcp"',
+        'mcp_servers.kb.http_headers={"Authorization" = "Bearer token"}',
     ]
 
 

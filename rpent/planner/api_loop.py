@@ -22,10 +22,10 @@ RPent's runner saves the returned transcript through its existing output flow.
 import asyncio
 import json
 import threading
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager, nullcontext
 from functools import partial
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from jsonschema import Draft202012Validator
@@ -82,6 +82,9 @@ from rpent.tools.toolkit import Toolkit, ToolResult
 from rpent.utils.logging import get_logger
 from rpent.utils.templates import substitute
 
+if TYPE_CHECKING:
+    from rpent.utils.mcp_servers import McpServerSpec
+
 logger = get_logger("api")
 
 
@@ -108,6 +111,7 @@ class ApiAgentLoop(Planner):
         no_images: bool = False,
         timeout_s: float = 1200,
         interactive: bool = False,
+        mcp_servers: tuple["McpServerSpec", ...] = (),
     ) -> None:
         if reasoning_effort not in REASONING_EFFORTS:
             raise ValueError(f"unsupported reasoning effort: {reasoning_effort}")
@@ -120,6 +124,7 @@ class ApiAgentLoop(Planner):
         self.no_images = no_images
         self.timeout_s = timeout_s
         self.interactive = interactive
+        self.mcp_servers = mcp_servers
 
     def solve(
         self,
@@ -180,7 +185,7 @@ class ApiAgentLoop(Planner):
             name="rpent_api",
             system_prompt=system_prompt,
             output_type=adapter.output_types,
-            toolsets=[adapter],
+            toolsets=[adapter, *self._external_toolsets(adapter)],
             # Accepted finish skips sibling tool calls in the same response.
             end_strategy="early",
             # Finish refusals may span attempts; the request budget still applies.
@@ -246,6 +251,34 @@ class ApiAgentLoop(Planner):
             stop_reason=session.stop_reason,
         )
 
+    def _external_toolsets(self, recorder: "_HarnessToolkit") -> list[Any]:
+        """Build one MCP toolset per external server the robot declared.
+
+        Each server's tools are prefixed with its name (``<server>_<tool>``) so
+        they never collide with RPent's own tools or another server's. The
+        pydantic-ai MCP client is an optional import: it is only needed when a
+        robot actually attaches external servers.
+        """
+        if not self.mcp_servers:
+            return []
+        try:
+            from pydantic_ai.mcp import MCPToolset
+        except ImportError as exc:
+            raise RuntimeError(
+                "attaching external MCP servers to the 'api' planner requires "
+                "the pydantic-ai MCP client; install it with "
+                '`pip install "pydantic-ai-slim[mcp]"`.'
+            ) from exc
+        return [
+            MCPToolset(
+                server.url,
+                id=server.name,
+                headers=server.headers or None,
+                process_tool_call=recorder.external_tool_hook(server.name),
+            ).prefixed(server.name)
+            for server in self.mcp_servers
+        ]
+
 
 def _build_model_settings(
     model: Model, max_tokens: int, reasoning_effort: str | None = None
@@ -272,6 +305,17 @@ def _build_model_settings(
             ),
         )
     return ModelSettings(max_tokens=max_tokens, parallel_tool_calls=True)
+
+
+def _external_result_text(result: Any) -> str:
+    """Render an external MCP tool result as transcript text."""
+    if isinstance(result, str):
+        return result
+    if isinstance(result, dict):
+        return json.dumps(result)
+    if isinstance(result, Sequence):
+        return "\n".join(_external_result_text(item) for item in result)
+    return str(result)
 
 
 class _ConversationAgent(WrapperAgent):
@@ -479,6 +523,27 @@ class _HarnessToolkit(FunctionToolset):
         self.dashboard_events.emit(
             TranscriptEvent({"type": "tool_result", "tool": name, "result": text})
         )
+
+    def external_tool_hook(self, server: str) -> Callable[..., Any]:
+        """Wrap an external MCP tool call so it is recorded like a local one.
+
+        The toolset's ``process_tool_call`` receives the bare tool name; the
+        server prefix is restored here to match the name the model invoked.
+        """
+
+        async def hook(
+            ctx: RunContext,
+            call_tool: Callable[..., Any],
+            name: str,
+            args: dict[str, Any],
+        ) -> Any:
+            tool = f"{server}_{name}"
+            self._record_call(tool, args, ctx)
+            result = await call_tool(name, args)
+            self._record_result(tool, ctx, _external_result_text(result))
+            return result
+
+        return hook
 
     async def call(self, name: str, ctx: RunContext, /, **arguments: Any) -> ToolReturn:
         """Return native multimodal content for an ordinary tool."""
