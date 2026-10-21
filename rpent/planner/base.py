@@ -257,4 +257,11 @@ def build_planner(
             recipe_tag=recipe_tag,
             robot_name=robot_name,
         )
+    if planner_type == "mt3":
+        from rpent.planner.mt3 import MT3Planner
+
+        return MT3Planner(
+            recipe_tag=recipe_tag,
+            robot_name=robot_name,
+        )
     raise ValueError(f"unknown planner_type: {planner_type}")

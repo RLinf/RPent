@@ -55,9 +55,9 @@ class LiberoPrimitives:
     def __init__(
         self,
         env: LiberoEnvClient,
-        model: Pi05VLAClient,
-        sam3_client: Sam3Client,
-        check_cancelled: Callable[[], None],
+        model: Pi05VLAClient | None = None,
+        sam3_client: Sam3Client | None = None,
+        check_cancelled: Callable[[], None] = lambda: None,
         molmo_client: MolmoClient | None = None,
         flywheel_config: dict[str, Any] | None = None,
     ):

@@ -47,6 +47,14 @@ def validate_options(args: argparse.Namespace) -> None:
             "--memory-version requires --memory-profile hf; local memory and exploration use --memory-dir"
         )
     if (
+        getattr(args, "planner", None) == "mt3"
+        and (getattr(args, "memory_profile", None) or "hf") != "local"
+    ):
+        raise ValueError(
+            "--planner mt3 reads its library from --memory-profile local "
+            "--memory-dir <directory holding mt3.json>"
+        )
+    if (
         getattr(args, "planner", None) == "flash"
         and getattr(args, "memory_version", "auto") == ASTRA
     ):

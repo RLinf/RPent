@@ -130,10 +130,11 @@ def _build_argparser() -> argparse.ArgumentParser:
     ap.add_argument(
         "--planner",
         default="api",
-        choices=["api", "claude_code", "codex", "flash"],
+        choices=["api", "claude_code", "codex", "flash", "mt3"],
         help="Planner backend: api | claude_code | codex are LLMs in the "
         "loop; flash is evaluation-only and replays a plan from memory, re-localizing "
-        "each waypoint's anchor.",
+        "each waypoint's anchor; mt3 is evaluation-only and replays the nearest "
+        "demonstration from an MT3 library, moved with the objects it touches.",
     )
     ap.add_argument(
         "--model",
@@ -381,6 +382,11 @@ def main() -> int:
             parser.error("Flash Mode is evaluation-only; remove --explore")
         if robot_spec.run_flash is None:
             parser.error(f"Flash Mode is not supported for robot {args.robot_name!r}")
+    if args.planner == "mt3":
+        if args.explore:
+            parser.error("MT3 is evaluation-only; remove --explore")
+        if robot_spec.run_mt3 is None:
+            parser.error(f"MT3 is not supported for robot {args.robot_name!r}")
     if args.explore and not robot_spec.supports_exploration:
         detail = (
             " Real-robot exploration requires operator-mediated scene restoration "

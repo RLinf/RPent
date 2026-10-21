@@ -72,6 +72,14 @@ FLASH_SUITES = frozenset(
     }
 )
 
+#: Suites MT3 can run: task i is the base suite's task i, with the base suite's
+#: objects. ``_task`` changes the goal and ``_object`` the object assets.
+MT3_SUITES = frozenset(
+    f"libero_{family}{suffix}"
+    for family in ("spatial", "object", "goal", "10")
+    for suffix in ("", "_swap", "_lan")
+)
+
 LIBERO_DASHBOARD_SPEC: DashboardSpec = {
     "task": {
         "command": "/rpent-task",
@@ -115,6 +123,13 @@ def _run_flash(toolkit, cell_tag: str, note) -> dict:
     return run_flash(toolkit, cell_tag, note)
 
 
+def _run_mt3(toolkit, cell_tag: str, note) -> dict:
+    """Run MT3 for one cell. Imported late: it loads numpy and scipy."""
+    from robots.libero.mt3 import run_mt3
+
+    return run_mt3(toolkit, cell_tag, note)
+
+
 def get_robot_spec() -> RobotSpec:
     """Return the LIBERO robot identity, prompt bundle, and runner hooks.
 
@@ -135,6 +150,7 @@ def get_robot_spec() -> RobotSpec:
         dashboard=LIBERO_DASHBOARD_SPEC,
         supports_exploration=True,
         run_flash=_run_flash,
+        run_mt3=_run_mt3,
         validate_args=validate_options,
         prepare_memory=prepare_memory,
     )
@@ -289,6 +305,15 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             raise ValueError("--planner flash requires --molmo-endpoint")
     elif args.molmo_endpoint is not None:
         raise ValueError("--molmo-endpoint requires --planner flash")
+    if planner == "mt3":
+        if getattr(args, "explore", False):
+            raise ValueError("MT3 is evaluation-only; remove --explore")
+        if args.suite not in MT3_SUITES:
+            supported = ", ".join(sorted(MT3_SUITES))
+            raise ValueError(
+                f"--planner mt3 does not support --suite {args.suite!r}; "
+                f"supported suites: {supported}"
+            )
 
     recipe_tag = f"{args.suite.replace('libero_', '')}_t{args.task}_s{args.seed}"
     explore = bool(getattr(args, "explore", False))
@@ -310,7 +335,16 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     )
     local_eval = not explore and memory_profile == "local"
     if local_eval:
-        if planner == "flash":
+        if planner == "mt3":
+            from robots.libero.mt3.replay import CONFIG_NAME
+
+            has_local_memory = (memory_dir / CONFIG_NAME).is_file()
+            if not has_local_memory:
+                raise ValueError(
+                    f"no {CONFIG_NAME} under {memory_dir}; --planner mt3 reads its "
+                    "settings and library location from it"
+                )
+        elif planner == "flash":
             from robots.libero.memory import replay_directory
 
             replay_root = replay_directory(memory_dir)
@@ -531,6 +565,9 @@ def _init_runtime(
     selected = set(starters) if components is None else set(components)
     if getattr(args, "planner", None) != "flash":
         selected.discard("molmo")
+    if getattr(args, "planner", None) == "mt3":
+        # MT3 drives the arm from a demonstration; no policy or segmenter runs.
+        selected &= {"env"}
     unknown = selected.difference(starters)
     if unknown:
         raise ValueError(f"unknown LIBERO runtime components: {sorted(unknown)}")

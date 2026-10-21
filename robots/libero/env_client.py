@@ -96,6 +96,14 @@ class LiberoEnvClient(BaseEnvClient):
     def raw_obs(self) -> dict:
         return self._client.call("env.raw_obs", timeout_s=self._TIMEOUT_S["default"])
 
+    def poses(self, bodies=None, sites=()) -> dict:
+        """Ground-truth ``{name: [x, y, z, qw, qx, qy, qz]}`` of MuJoCo bodies and sites."""
+        return self._client.call(
+            "env.poses",
+            kwargs={"bodies": bodies, "sites": list(sites)},
+            timeout_s=self._TIMEOUT_S["default"],
+        )
+
     def render_camera(
         self,
         camera_name: str = "agentview",

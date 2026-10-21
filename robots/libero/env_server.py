@@ -100,6 +100,52 @@ def build_env_cfg(
     return cfg
 
 
+def _attach_pose_reader(env):
+    """Give a worker-side LIBERO env a read-only ``read_poses`` method.
+
+    The simulator lives in rlinf's subprocess worker, and fixtures (cabinets,
+    stoves, microwaves) and their articulated links are not in the observation
+    dict. ``read_poses`` returns world poses straight from MuJoCo so the
+    server can expose them as ``env.poses``.
+    """
+    import mujoco
+
+    def read_poses(bodies=None, sites=()):
+        """``{name: [x, y, z, qw, qx, qy, qz]}``; ``bodies=None`` reads every body."""
+        sim = env.env.sim
+        model = sim.model
+        if bodies is None:
+            bodies = [model.body_id2name(i) for i in range(model.nbody)]
+        out = {}
+        for name in bodies:
+            i = model.body_name2id(name)
+            out[name] = [float(v) for v in sim.data.body_xpos[i]] + [
+                float(v) for v in sim.data.body_xquat[i]
+            ]
+        for name in sites:
+            i = model.site_name2id(name)
+            quat = np.zeros(4)
+            mujoco.mju_mat2Quat(
+                quat, np.asarray(sim.data.site_xmat[i], dtype=np.float64)
+            )
+            out[name] = [float(v) for v in sim.data.site_xpos[i]] + [
+                float(v) for v in quat
+            ]
+        return out
+
+    env.read_poses = read_poses
+    return env
+
+
+def _with_pose_reader(env_fn):
+    """Wrap an rlinf env factory so the env it builds can report poses."""
+
+    def make():
+        return _attach_pose_reader(env_fn())
+
+    return make
+
+
 def make_env(
     task_id: int,
     seed: int,
@@ -109,6 +155,12 @@ def make_env(
     """Build a single-env LiberoEnv pinned to ``task_id`` / ``seed``."""
     from rlinf.envs.libero.libero_env import LiberoEnv
     from rlinf.envs.libero.utils import benchmark as _bench_mod
+
+    class _PoseReadingLiberoEnv(LiberoEnv):
+        """LiberoEnv whose workers also answer ``read_poses``; nothing else changes."""
+
+        def get_env_fns(self):
+            return [_with_pose_reader(fn) for fn in super().get_env_fns()]
 
     suite = _bench_mod.get_benchmark(suite_name)()
     first_id = sum(len(suite.get_task_init_states(t)) for t in range(task_id))
@@ -120,7 +172,7 @@ def make_env(
         seed=seed,
         max_episode_steps=max_episode_steps,
     )
-    return LiberoEnv(
+    return _PoseReadingLiberoEnv(
         cfg=cfg, num_envs=1, seed_offset=0, total_num_processes=1, worker_info=None
     )
 
@@ -157,9 +209,11 @@ class LiberoEnvFacade(BaseEnvFacade):
                 "env.render_camera": self.render_camera,
                 "env.get_camera_meta": self.get_camera_meta,
                 "env.get_task_language": self.get_task_language,
+                "env.poses": self.poses,
             }
         )
         self._readonly_methods.add("env.get_task_language")
+        self._readonly_methods.add("env.poses")
 
     # ---- shape helpers ----
 
@@ -276,6 +330,14 @@ class LiberoEnvFacade(BaseEnvFacade):
 
     def get_task_language(self) -> str | None:
         return self._env.task_descriptions[self._env_idx]
+
+    def poses(self, bodies=None, sites=()) -> dict:
+        """Ground-truth world poses of named bodies and sites (see ``_attach_pose_reader``)."""
+        return self._env.env.workers[self._env_idx].env_call(
+            "read_poses",
+            args=[None if bodies is None else list(bodies), list(sites)],
+            target="self",
+        )
 
 
 # ---------------------------------------------------------------------------

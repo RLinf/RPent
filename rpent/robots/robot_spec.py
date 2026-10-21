@@ -89,3 +89,7 @@ class RobotSpec:
     #: Takes the toolkit, the cell tag, and a note sink; returns at least
     #: ``{"done": bool}``. Left unset by robots without Flash Mode.
     run_flash: Callable[[Any, str, Callable[[str], None]], dict[str, Any]] | None = None
+    #: Run MT3 (retrieve a demonstration, align, replay) for one cell, in place
+    #: of a planner. Same signature and return as ``run_flash``; left unset by
+    #: robots without an MT3 library.
+    run_mt3: Callable[[Any, str, Callable[[str], None]], dict[str, Any]] | None = None
