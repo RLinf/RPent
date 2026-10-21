@@ -381,7 +381,7 @@ skill. From the repository root:
 
 Without service addresses, the script starts and connects to the required
 services automatically; no port selection is needed. It stops only the services
-it started when it exits. Supply ``--env-endpoint``, ``--vla-endpoint`` or
+it started when it exits. Supply ``--env-endpoint``, ``--am-endpoint`` or
 ``--sam3-endpoint`` to reuse an existing service. Attaching to an existing Env
 does not reset it. With a newly started Env, a manual action first requests
 scene confirmation and performs one reset. An explicit manual ``reset`` also

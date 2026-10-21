@@ -295,7 +295,7 @@ RLinf 按配置的节点创建相机句柄，不会跨节点搜索被移动的 U
    python robots/dual_franka/dual_franka_manual_call.py --list-primitives
    python robots/dual_franka/dual_franka_manual_call.py --schema vla_right_grasp
 
-未指定服务地址时，脚本自动启动并连接所需服务，无需手动填写端口；退出时只关闭本次启动的服务。传入 ``--env-endpoint``、``--vla-endpoint`` 或 ``--sam3-endpoint`` 可复用已有服务。连接已有 Env 不会复位。若新启动 Env，手动动作前先请求场景确认并执行一次复位；显式调用手动 ``reset`` 也会等待确认。列出技能和查看参数不启动服务。
+未指定服务地址时，脚本自动启动并连接所需服务，无需手动填写端口；退出时只关闭本次启动的服务。传入 ``--env-endpoint``、``--am-endpoint`` 或 ``--sam3-endpoint`` 可复用已有服务。连接已有 Env 不会复位。若新启动 Env，手动动作前先请求场景确认并执行一次复位；显式调用手动 ``reset`` 也会等待确认。列出技能和查看参数不启动服务。
 
 例如，先看 schema，再执行左臂小幅平移：
 

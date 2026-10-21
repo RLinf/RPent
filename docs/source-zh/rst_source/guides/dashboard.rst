@@ -51,7 +51,7 @@ Session 配置全部来自命令行，打开地址后会直接进入实时监控
 
 每个 TaskRun 使用独立环境，VLA 和 SAM3 服务由 Session 复用。可通过新的 ``/rpent-task`` 启动或切换任务；运行中也可以发送消息引导智能体，并按 Esc 请求中断。在终端按 Ctrl+C 可结束 Session。
 
-``--dashboard`` 不能与 ``--interactive`` 或 ``--env-endpoint`` 同时使用；外部 ``--vla-endpoint`` 和 ``--sam3-endpoint`` 服务仍然可用。使用 ``--dashboard-language zh-cn`` 可切换中文 UI。
+``--dashboard`` 不能与 ``--interactive`` 或 ``--env-endpoint`` 同时使用；外部 ``--am-endpoint`` 和 ``--sam3-endpoint`` 服务仍然可用。使用 ``--dashboard-language zh-cn`` 可切换中文 UI。
 
 查看结果与结束会话
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~

@@ -348,7 +348,7 @@ when the simulator and policy are installed in different environments.
 - ``--env-cuda-device``, ``--vla-cuda-device`` and ``--sam3-cuda-device`` select
   GPUs independently for the corresponding local services. If omitted,
   services inherit ``CUDA_VISIBLE_DEVICES``.
-- ``--env-endpoint``, ``--vla-endpoint``, and ``--sam3-endpoint`` connect to
+- ``--env-endpoint``, ``--am-endpoint``, and ``--sam3-endpoint`` connect to
   existing services. The VLA service must match ``--policy-backend``.
 - ``--source-root`` selects a local RoboDojo checkout instead of the packaged code.
 

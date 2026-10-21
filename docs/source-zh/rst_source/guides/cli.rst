@@ -91,17 +91,17 @@
 
 LIBERO 使用 ``--suite``、``--task``、``--seed`` 和 ``--libero-type`` 选择任务；默认类型为 ``LIBERO_TYPE`` 或 ``pro``。RoboCasa365 和 RoboTwin 使用 ``--task-name``。Franka 使用 ``--task-id`` 和 ``--robot-config``。具体选项见 :doc:`../simulators/libero`、:doc:`../simulators/robocasa`、:doc:`../simulators/robotwin`、:doc:`../real_world_robots/franka` 和 :doc:`../real_world_robots/dual_franka`。
 
-``--env-endpoint``、``--vla-endpoint`` 和 LIBERO 的 ``--sam3-endpoint`` 可连接已启动的环境、VLA 或 SAM3 服务器，地址格式为 ``[protocol://]host:port``，默认协议为 ``http``。GPU 分配和远程服务见 :doc:`advanced_deployment`。
+``--env-endpoint``、``--am-endpoint`` 和 LIBERO 的 ``--sam3-endpoint`` 可连接已启动的环境、VLA 或 SAM3 服务器，地址格式为 ``[protocol://]host:port``，默认协议为 ``http``。GPU 分配和远程服务见 :doc:`advanced_deployment`。
 
-LIBERO 和 RoboTwin 还支持 ``--wam-backend``，配合 ``--wam-endpoint`` 或 ``--wam-checkpoint`` 加 ``--wam-python`` 使用。WAM 与 VLA 参数互斥。WAM 采用 ``local`` 记忆模式并注册记忆文件工具，默认目录按后端区分，可通过 ``--memory-dir`` 指定目录；目前不支持 HF 记忆、Flash 和探索模式。模型启动参数及支持的组合见 :doc:`../development/wam_backends`。
+LIBERO 和 RoboTwin 通过 ``--am-backend`` 选择一个动作模型，默认分别为 ``pi05`` 和 ``lingbot``。VLA 和 WAM 均通过 ``--am-endpoint`` 连接已有服务；本地部署 WAM 时，使用 ``--wam-checkpoint`` 加 ``--wam-python``，不传 endpoint。原有 ``--vla-endpoint`` 和 LIBERO 的 ``--vla-backend`` 仍作为兼容别名接受。WAM 采用 ``local`` 记忆模式并注册记忆文件工具，默认目录按后端区分，可通过 ``--memory-dir`` 指定目录；目前不支持 HF 记忆、Flash 和探索模式。模型启动参数及支持的组合见 :doc:`../development/wam_backends`。
 
-本地模型服务的 ``--vla-cuda-device`` 和 ``--wam-cuda-device`` 均由 ``am_runtime.py`` 注册，未设置时 worker 继承启动环境的 ``CUDA_VISIBLE_DEVICES``。VLA 参数适用于 LIBERO、RoboTwin、RoboCasa、RoboDojo 和 dual-Franka。Franka、YAM 连接外部部署的 VLA 服务，GPU 在部署服务时选择。
+本地模型服务的 ``--vla-cuda-device`` 和 ``--wam-cuda-device`` 均由 ``am_runtime.py`` 注册，未设置时先使用 ``--cuda-device``，两者均未设置时继承启动环境的 ``CUDA_VISIBLE_DEVICES``。VLA 参数适用于 LIBERO、RoboTwin、RoboCasa、RoboDojo 和 dual-Franka。Franka、YAM 连接外部部署的 VLA 服务，GPU 在部署服务时选择。
 
 LIBERO、RoboTwin、RoboCasa、RoboDojo 统一使用 ``--env-cuda-device`` 选择环境 GPU，由各自的 ``robot_spec.py`` 注册。例如，LIBERO 使用 ``--env-cuda-device 0 --vla-cuda-device 1`` 时，仿真器使用 GPU 0，Pi0.5 使用 GPU 1。LIBERO、RoboDojo 和 dual-Franka 使用 ``--sam3-cuda-device`` 选择本地 SAM3 的 GPU。
 
 这些参数为本地启动的对应服务选择设备，显存允许时可指定同一张 GPU。例如，``--env-cuda-device 0 --sam3-cuda-device 0 --vla-cuda-device 0`` 让 LIBERO 的三个服务共用 GPU 0；本地部署 WAM 时将 ``--vla-cuda-device 0`` 换成 ``--wam-cuda-device 0``。单次任务选择 VLA 或 WAM。连接外部 endpoint 时，设备由该服务启动时的配置决定，RPent 的设备参数不会重新配置外部服务。
 
-RPent CLI 不再接受共享的 ``--cuda-device``，旧命令需改为要配置的各服务参数；``--sim-cuda-device`` 也不是兼容别名。独立服务的启动命令仍可使用其自身支持的 ``--cuda-device``。
+RPent CLI 保留原有 ``--cuda-device`` 作为本地服务的共享默认值；各服务专属参数优先，与参数顺序无关。例如，``--cuda-device 0 --wam-cuda-device 1`` 让环境和 SAM3 使用 GPU 0，WAM worker 使用 GPU 1。``--sim-cuda-device`` 不是兼容别名。独立服务的启动命令仍可使用其自身支持的 ``--cuda-device``。
 
 平台的 ``--help`` 将 WAM 参数分为连接服务、本地部署和模型专用选项。Cosmos 使用 ``--cosmos-*`` 参数，Fast-WAM 使用 ``--fast-wam-*`` 参数。WAM 后端指南分别介绍一次部署模型服务和反复运行任务，并提供连接外部服务、由 RPent 启动服务两种方式的示例。
 

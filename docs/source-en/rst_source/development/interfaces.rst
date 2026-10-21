@@ -129,7 +129,7 @@ normal-CLI or Dashboard runtime hook:
 
    [protocol://]host:port    # defaults to http when protocol is omitted
 
-Common flags: ``--env-endpoint``, ``--vla-endpoint``. The default ``http`` sends
+Common flags: ``--env-endpoint``, ``--am-endpoint``. The default ``http`` sends
 JSON over ``POST /call``, encoding NumPy arrays as
 ``{"__ndarray__": <base64>, "dtype": ..., "shape": ...}`` and NumPy scalars as
 ``{"__npscalar__": <value>, "dtype": ...}`` so dtypes survive the round trip;
@@ -147,5 +147,5 @@ not implement ``healthz`` or ``shutdown`` in application subclasses.
 
 Details are in the env_server / vla_server sections of :doc:`add_robot`.
 
-WAM workers use ``BaseWAMClient`` and ``BaseWAMFacade`` with ``--wam-endpoint``.
+WAM workers use ``BaseWAMClient`` and ``BaseWAMFacade`` with ``--am-endpoint``.
 See :doc:`wam_backends` for model adapters, control matching and lifecycle.

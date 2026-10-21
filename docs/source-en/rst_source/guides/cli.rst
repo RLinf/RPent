@@ -96,18 +96,21 @@ Environment Options
 
 LIBERO selects tasks with ``--suite``, ``--task``, ``--seed``, and ``--libero-type``; the variant defaults to ``LIBERO_TYPE`` or ``pro``. RoboCasa365 and RoboTwin use ``--task-name``. Franka uses ``--task-id`` and ``--robot-config``. See :doc:`../simulators/libero`, :doc:`../simulators/robocasa`, :doc:`../simulators/robotwin`, :doc:`../real_world_robots/franka`, and :doc:`../real_world_robots/dual_franka` for details.
 
-``--env-endpoint``, ``--vla-endpoint``, and LIBERO’s ``--sam3-endpoint`` connect to existing services using ``[protocol://]host:port``; the default protocol is ``http``. See :doc:`advanced_deployment` for GPU assignment and remote services.
+``--env-endpoint``, ``--am-endpoint``, and LIBERO’s ``--sam3-endpoint`` connect to existing services using ``[protocol://]host:port``; the default protocol is ``http``. See :doc:`advanced_deployment` for GPU assignment and remote services.
 
-LIBERO and RoboTwin also accept ``--wam-backend`` with either ``--wam-endpoint``
-or ``--wam-checkpoint`` plus ``--wam-python``. WAM and VLA options are mutually
-exclusive. WAM uses the ``local`` memory profile with memory file tools and a
+LIBERO and RoboTwin select one action model with ``--am-backend``; the defaults
+are ``pi05`` and ``lingbot``, respectively. Both VLA and WAM use ``--am-endpoint``
+to connect to an existing worker. For local WAM deployment, use
+``--wam-checkpoint`` plus ``--wam-python`` instead of an endpoint.
+The original ``--vla-endpoint`` and LIBERO ``--vla-backend`` spellings remain
+accepted as compatibility aliases. WAM uses the ``local`` memory profile with memory file tools and a
 backend-specific directory; ``--memory-dir`` overrides it. WAM currently rejects
 HF memory, Flash and exploration. See
 :doc:`../development/wam_backends` for model launch options and supported pairs.
 For local model services, ``--vla-cuda-device`` and ``--wam-cuda-device``
 select the corresponding model GPU independently of the simulator. Both are
-registered by ``am_runtime.py``. An omitted model option leaves
-``CUDA_VISIBLE_DEVICES`` inherited from the launching environment.
+registered by ``am_runtime.py``. An omitted model option falls back to
+``--cuda-device``, then inherits ``CUDA_VISIBLE_DEVICES`` from the launching environment.
 The VLA option is supported by LIBERO, RoboTwin, RoboCasa, RoboDojo and
 dual-Franka. Franka and YAM connect to externally deployed VLA services;
 select their GPU when deploying the service.
@@ -123,8 +126,10 @@ LIBERO services on GPU 0. For a locally launched WAM backend, replace
 ``--vla-cuda-device 0`` with ``--wam-cuda-device 0``. A task selects either VLA
 or WAM. External endpoints use the GPU configuration set when their services
 were started; RPent's device options do not reconfigure them.
-The RPent CLI no longer accepts the shared ``--cuda-device`` option;
-replace it with the options for the services you intend to configure.
+The original ``--cuda-device`` option remains a shared default for local services.
+Per-service options take precedence, independent of argument order. For example,
+``--cuda-device 0 --wam-cuda-device 1`` starts the environment and SAM3 on GPU 0
+and the WAM worker on GPU 1.
 ``--sim-cuda-device`` is not an alias. Standalone service commands retain
 their own ``--cuda-device`` where supported.
 Platform ``--help`` groups WAM connection,

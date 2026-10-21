@@ -137,13 +137,18 @@ artifacts in each recorded step. Keep task suggestions in the spec so
 importing the robot does not require simulator packages. See
 ``robots/libero/robot_spec.py`` for the reference shape.
 
+When components depend on session options such as ``--am-backend``, pass a
+callable ``dashboard(args) -> DashboardSpec`` instead of a static dictionary.
+Consumers call ``RobotSpec.resolve_dashboard(args)`` for either form; physical
+environment checks and Dashboard startup use the same resolved configuration.
+
 That's the entire registration step — ``_resolve_robot(name)`` does an
 ``importlib.import_module(f"robots.{name}")``, so dropping the package under
 ``robots/`` on disk is enough. No central list to update.
 
 The sections below describe what each referenced module must contain.
 ``_add_cli_args`` / ``_parse_config`` are covered in §4 and the runtime hook
-in §5. The Dashboard spec is consumed only by the Dashboard runner.
+in §5.
 
 .. _add-robot-env-rpc:
 
@@ -420,7 +425,7 @@ start them all before waiting for readiness so their initialization can
 overlap. See ``robots/libero/robot_spec.py`` for the ordered component registry
 used by the reference implementation.
 
-Endpoint parsing (``--env-endpoint``, ``--vla-endpoint``, and LIBERO's
+Endpoint parsing (``--env-endpoint``, ``--am-endpoint``, and LIBERO's
 ``--sam3-endpoint``) and robot-specific server commands belong in the
 hook that owns the corresponding service. Wrap those spawners with
 ``rpent.robots.runtime.try_spawn_server`` and ``try_wait_server`` so status

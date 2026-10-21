@@ -200,11 +200,11 @@ and SAM3 setup above. Pi0.5 weights are not needed for WAM. With Cosmos on port 
 .. code-block:: bash
 
    rpent --robot libero --suite libero_spatial --task 0 --seed 0 \
-     --libero-type standard --wam-backend cosmos-policy \
-     --wam-endpoint http://127.0.0.1:8116 --memory-profile local \
+     --libero-type standard --am-backend cosmos-policy \
+     --am-endpoint http://127.0.0.1:8116 --memory-profile local \
      --planner api --model <planner-model>
 
-Fast-WAM uses ``--wam-backend fast-wam`` and its worker endpoint. For LIBERO-Pro,
+Fast-WAM uses ``--am-backend fast-wam`` and its worker endpoint. For LIBERO-Pro,
 select a Pro suite and ``--libero-type pro`` in a Pro environment. WAM excludes
 LIBERO-Plus, Flash and exploration. WAM uses a required local memory manager
 and file tools, with a backend-specific directory that may be empty.
@@ -277,7 +277,7 @@ Reproduction command:
      --planner-timeout-s 5000 \
      --max-episode-steps 10000 \
      --libero-type pro \
-     --vla-endpoint http://127.0.0.1:8220 \
+     --am-endpoint http://127.0.0.1:8220 \
      --sam3-endpoint http://127.0.0.1:8114
 
 What Runs Where
@@ -352,7 +352,7 @@ client without touching the robot by:
 
 1. Writing a new ``vla_server.py`` that exposes the same ``predict``
    RPC contract (over HTTP or socket).
-2. Pointing at it with ``--vla-endpoint [protocol://]host:port``.
+2. Pointing at it with ``--am-endpoint [protocol://]host:port``.
 3. Optionally updating ``robots/libero/toolkit.py`` if the tool
    surface (e.g. ``pi0_pick`` → ``mymodel_pick``) needs to change.
 

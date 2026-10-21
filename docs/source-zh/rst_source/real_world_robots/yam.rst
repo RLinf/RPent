@@ -263,7 +263,7 @@ Codex 配置
 
    python -m robots.yam.manual --task-id "$TASK_ID" --mode vla \
      --env-endpoint socket://127.0.0.1:8110 --max-episode-steps 1000 \
-     --vla-endpoint socket://127.0.0.1:8220 --output-dir /path/to/diagnostics
+     --am-endpoint socket://127.0.0.1:8220 --output-dir /path/to/diagnostics
 
 先输入 ``{"tool":"infer"}`` 保存预测，此时机械臂不动。人工检查后，再输入 ``{"tool":"execute","arguments":{"use_length":5}}``，执行前五步；每份预测最多执行一次。
 
@@ -285,7 +285,7 @@ Codex 配置
      --planner codex --model MODEL_ID --reasoning-effort low \
      --robot-config robots/yam/config/example.yaml \
      --env-endpoint socket://127.0.0.1:8110 \
-     --vla-endpoint socket://127.0.0.1:8220 \
+     --am-endpoint socket://127.0.0.1:8220 \
      --max-episode-steps 1000 \
      --memory-profile local --memory-dir ./memory/yam
 

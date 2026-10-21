@@ -98,10 +98,10 @@ Planner
 
    [protocol://]host:port    # 未写协议时默认为 http
 
-常见：``--env-endpoint``、``--vla-endpoint``。``http`` 为默认，走 ``POST /call`` 传 JSON，其中 NumPy 数组编码为 ``{"__ndarray__": <base64>, "dtype": ..., "shape": ...}``； NumPy 标量编码为 ``{"__npscalar__": <value>, "dtype": ...}`` 以保留精确 dtype；观测数据很大、或是多帧堆叠的嵌套 NumPy 字典时可改 ``socket``，用带长度前缀的 pickle 数据帧传输，省掉反复的 JSON 编解码。pickle 不适合不可信输入，socket 只应连接可信端点。
+常见：``--env-endpoint``、``--am-endpoint``。``http`` 为默认，走 ``POST /call`` 传 JSON，其中 NumPy 数组编码为 ``{"__ndarray__": <base64>, "dtype": ..., "shape": ...}``； NumPy 标量编码为 ``{"__npscalar__": <value>, "dtype": ...}`` 以保留精确 dtype；观测数据很大、或是多帧堆叠的嵌套 NumPy 字典时可改 ``socket``，用带长度前缀的 pickle 数据帧传输，省掉反复的 JSON 编解码。pickle 不适合不可信输入，socket 只应连接可信端点。
 
 环境和 VLA client 通常应分别继承 ``BaseEnvClient``、``BaseVLAClient``；服务端分别继承 ``BaseEnvFacade``、``BaseVLAFacade``，并通过 ``_register_rpc`` 注册扩展路由。这些基类在 ``RpcFacade`` 之上提供公共路由和锁。只有尚无专用基类的服务类型才直接继承 ``RpcFacade``。业务子类不必实现 ``healthz`` / ``shutdown``。
 
 细节见 :doc:`add_robot` 中的 env_server 与 vla_server 章节。
 
-WAM worker 使用 ``BaseWAMClient`` 和 ``BaseWAMFacade``，通过 ``--wam-endpoint`` 连接。模型 adapter、控制匹配和生命周期见 :doc:`wam_backends`。
+WAM worker 使用 ``BaseWAMClient`` 和 ``BaseWAMFacade``，通过 ``--am-endpoint`` 连接。模型 adapter、控制匹配和生命周期见 :doc:`wam_backends`。

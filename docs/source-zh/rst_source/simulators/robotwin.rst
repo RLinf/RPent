@@ -138,13 +138,13 @@ RoboTwin 要求 Python 3.11。宿主机需预先具备兼容的 CUDA toolkit/NVC
 Fast-WAM 配置
 ~~~~~~~~~~~~~
 
-按 :doc:`../development/wam_backends` 准备 RoboTwin Fast-WAM worker。它使用头部及左右腕部 RGB、原生关节目标，输出 qpos14 动作块，不需要 LingBot 权重。从 LingBot 切换时清除 ``LINGBOT_MODEL_PATH``，不传 VLA 参数。在仿真器环境中运行：
+按 :doc:`../development/wam_backends` 准备 RoboTwin Fast-WAM worker。它使用头部及左右腕部 RGB、原生关节目标，输出 qpos14 动作块。通过 ``--am-backend fast-wam`` 选择该模型，无需 LingBot 权重。在仿真器环境中运行：
 
 .. code-block:: bash
 
    rpent --robot robotwin --task-name beat_block_hammer \
      --task-config demo_randomized --seed 100000 \
-     --wam-backend fast-wam --wam-endpoint http://127.0.0.1:8117 \
+     --am-backend fast-wam --am-endpoint http://127.0.0.1:8117 \
      --memory-profile local --planner api --model <planner-model>
 
 ``wam_act(prompt=None, max_chunks=1)`` 替换 ``lingbot_act``；每个 chunk 通过 ``action_type="qpos"`` 执行 worker 配置的 ``execute_steps`` 个动作。WAM 必须启用本地记忆管理器和文件工具，默认目录按后端区分，语料允许为空；可通过 ``--memory-dir`` 指定兼容的本地语料，目前不支持 HF 记忆和探索。任务成功由原生 ``eval_success`` 判断。下文的 LingBot 和 HF 记忆流程适用于 VLA 路径。
@@ -192,7 +192,7 @@ RPent 默认使用 RoboTwin 的 ``demo_randomized`` 任务配置，该配置带�
 
 - ``--robotwin-assets-path``：覆盖 ``ROBOTWIN_ASSETS_PATH`` 指定的资源目录。
 - ``--vla-model-path``：覆盖 ``LINGBOT_MODEL_PATH`` 指定的模型目录。
-- ``--env-cuda-device`` 和 ``--vla-cuda-device``：分别选择仿真环境和 VLA 的 GPU。例如 ``--env-cuda-device 0 --vla-cuda-device 1`` 让仿真器使用 GPU 0，LingBot 使用 GPU 1；WAM worker 使用 ``--wam-cuda-device``。这些参数仅作用于 RPent 启动的服务。共享的 ``--cuda-device`` 已从 RPent CLI 移除。
+- ``--env-cuda-device`` 和 ``--vla-cuda-device``：分别选择仿真环境和 VLA 的 GPU。例如 ``--env-cuda-device 0 --vla-cuda-device 1`` 让仿真器使用 GPU 0，LingBot 使用 GPU 1；WAM worker 使用 ``--wam-cuda-device``。这些参数仅作用于 RPent 启动的服务。共享的 ``--cuda-device`` 提供默认值，各服务专属参数优先。
 
 规划器配置、外部服务和离线参考资料的说明分别见 :doc:`../guides/configure_planner`、 :doc:`../guides/advanced_deployment` 和 :doc:`../guides/memory`。
 

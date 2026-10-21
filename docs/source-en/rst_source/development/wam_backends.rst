@@ -96,13 +96,15 @@ resource handoff. Borrowed endpoints return no owned daemon.
 ``am_runtime.add_am_device_arg()`` registers ``--vla-cuda-device`` or
 ``--wam-cuda-device`` for local model services. Each launcher forwards its
 model-specific option as the child's ``CUDA_VISIBLE_DEVICES`` override;
-omitting it preserves the inherited environment.
+omitting it uses ``--cuda-device``, or preserves the inherited environment
+when neither is set.
 Platforms register ``--env-cuda-device`` for the environment and forward model settings
 when launching a worker. External endpoints retain their deployment settings.
 
 The WAM section of ``am_runtime.py`` owns ``--platform``, ``--checkpoint``,
 Python/GPU selection and deployment-mode checks. Model ``runtime_config.py``
-modules supply only additional configuration; VLA launch flags remain unchanged.
+modules supply only additional configuration. ``--am-backend`` selects either
+category, and ``--am-endpoint`` supplies the selected model's service address.
 
 .. _wam-protocol:
 
@@ -214,7 +216,7 @@ Worker Deployment
 -----------------
 
 For repeated tasks, start a worker once using the commands below, then connect
-each RPent run with ``--wam-endpoint``. The worker stays loaded when RPent exits;
+each RPent run with ``--am-endpoint``. The worker stays loaded when RPent exits;
 stop it separately when finished. Alternatively, use the per-run deployment
 examples below to let RPent start and stop the worker automatically.
 
@@ -269,12 +271,12 @@ planner credentials (see :doc:`../simulators/libero`), run either example:
 
    # Cosmos worker already running on port 8116.
    rpent --robot libero --suite libero_spatial --task 0 \
-     --wam-backend cosmos-policy --wam-endpoint http://127.0.0.1:8116 \
+     --am-backend cosmos-policy --am-endpoint http://127.0.0.1:8116 \
      --memory-profile local --planner api --model openai:gpt-5.5
 
    # Fast-WAM worker already running on port 8117.
    rpent --robot libero --suite libero_spatial --task 0 \
-     --wam-backend fast-wam --wam-endpoint http://127.0.0.1:8117 \
+     --am-backend fast-wam --am-endpoint http://127.0.0.1:8117 \
      --memory-profile local --planner api --model openai:gpt-5.5
 
 Change the task or suite for subsequent runs against the same compatible
@@ -293,24 +295,24 @@ Replace the example paths with your deployment paths:
 .. code-block:: bash
 
    rpent --robot libero --suite libero_spatial --task 0 \
-     --wam-backend cosmos-policy --wam-checkpoint /path/to/cosmos-libero \
+     --am-backend cosmos-policy --wam-checkpoint /path/to/cosmos-libero \
      --wam-python /path/to/cosmos/.venv/bin/python --wam-root /path/to/cosmos \
      --memory-profile local --planner api --model openai:gpt-5.5
 
    rpent --robot libero --suite libero_spatial --task 0 \
-     --wam-backend fast-wam --wam-checkpoint /path/to/fast-wam-libero.pt \
+     --am-backend fast-wam --wam-checkpoint /path/to/fast-wam-libero.pt \
      --wam-python /path/to/fast-wam/venv/bin/python \
      --fast-wam-config /path/to/worker.yaml \
      --fast-wam-dataset-stats /path/to/dataset_stats.json \
      --memory-profile local --planner api --model openai:gpt-5.5
 
-``--wam-endpoint`` and ``--wam-checkpoint`` are mutually exclusive. Cosmos
+``--am-endpoint`` and ``--wam-checkpoint`` are mutually exclusive. Cosmos
 requires ``--wam-root``; ``COSMOS_POLICY_PYTHON`` and ``COSMOS_POLICY_ROOT``
 provide fallbacks for its Python executable and working directory. Fast-WAM
 requires both ``--fast-wam-config`` and ``--fast-wam-dataset-stats``.
 ``--wam-cuda-device`` selects the worker GPU independently of
-``--env-cuda-device``. Without a model GPU option, the worker inherits CUDA
-visibility. Environment GPU selection never supplies a model GPU default.
+``--env-cuda-device``. Without a model GPU option, the worker uses the shared
+``--cuda-device`` default, or inherits CUDA visibility if neither is set.
 The services may share a GPU: specify the same device for each service when
 GPU memory permits.
 
@@ -319,7 +321,8 @@ Discovering Options
 
 ``rpent --robot libero --help`` and ``rpent --robot robotwin --help`` group WAM
 options by backend selection, connection, local deployment and model. Shared
-options use ``--wam-*``. Cosmos-specific options use ``--cosmos-*``; Fast-WAM
+selection/connection options use ``--am-*``; WAM deployment options use
+``--wam-*``. Cosmos-specific options use ``--cosmos-*``; Fast-WAM
 options use ``--fast-wam-*``. Model-specific options on the RPent command apply
 only to local deployment. Each standalone worker's ``--help`` lists its own
 unprefixed options, such as ``--config`` or ``--predict-future``.

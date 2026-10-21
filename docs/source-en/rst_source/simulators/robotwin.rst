@@ -148,14 +148,14 @@ Fast-WAM Configuration
 
 Prepare a RoboTwin Fast-WAM worker using :doc:`../development/wam_backends`.
 It uses head/left-wrist/right-wrist RGB, native joint targets, and qpos14 action
-chunks. LingBot weights are not required. Clear ``LINGBOT_MODEL_PATH`` when
-switching from a LingBot setup and omit VLA options. From the simulator environment:
+chunks. Select it with ``--am-backend fast-wam``; LingBot weights are not
+required. From the simulator environment:
 
 .. code-block:: bash
 
    rpent --robot robotwin --task-name beat_block_hammer \
      --task-config demo_randomized --seed 100000 \
-     --wam-backend fast-wam --wam-endpoint http://127.0.0.1:8117 \
+     --am-backend fast-wam --am-endpoint http://127.0.0.1:8117 \
      --memory-profile local --planner api --model <planner-model>
 
 ``wam_act(prompt=None, max_chunks=1)`` replaces ``lingbot_act``; each chunk
@@ -231,7 +231,7 @@ height). Pass ``--task-config demo_clean`` for a simple, clean scene.
   ``--env-cuda-device 0 --vla-cuda-device 1`` uses GPU 0 for simulation and
   GPU 1 for LingBot; use ``--wam-cuda-device`` for a WAM worker instead.
   These options apply only to services started by RPent. The shared
-  ``--cuda-device`` option has been removed from the RPent CLI.
+  ``--cuda-device`` option supplies a default; per-service options override it.
 
 For planner setup, external service endpoints, and offline resources, see
 :doc:`../guides/configure_planner`, :doc:`../guides/advanced_deployment`, and

@@ -109,7 +109,9 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统说明 
 
 ``_resolve_robot(name)`` 通过 ``importlib.import_module(f"robots.{name}")`` 动态加载机器人包。因此，只需将机器人包放在 ``robots/`` 下，无需维护中央注册列表。
 
-下文依次说明这些模块需要实现的内容。``_add_cli_args`` 和 ``_parse_config`` 见第 4 节，runtime 钩子见第 5 节。Dashboard spec 只由 Dashboard runner 使用。
+当组件取决于 ``--am-backend`` 等会话参数时，可将 ``dashboard`` 设为 ``dashboard(args) -> DashboardSpec`` 回调，替代静态字典。调用方统一使用 ``RobotSpec.resolve_dashboard(args)``，实体环境检查和 Dashboard 启动均读取解析后的配置。
+
+下文依次说明这些模块需要实现的内容。``_add_cli_args`` 和 ``_parse_config`` 见第 4 节，runtime 钩子见第 5 节。
 
 .. _add-robot-env-rpc:
 
@@ -296,7 +298,7 @@ toolkit 模块通常包含四部分：
 
 实现应在启动任何服务前拒绝未知 component 名称。如果多个选中的本地服务初始化较慢，应先全部启动，再依次等待 ready，让初始化过程可以重叠。参考实现见 ``robots/libero/robot_spec.py`` 中的有序 component registry。
 
-endpoint（``--env-endpoint``、``--vla-endpoint``，以及 LIBERO 的 ``--sam3-endpoint``）解析和环境专用服务命令，应放在拥有对应服务的钩子中。这些 spawner 应通过 ``rpent.robots.runtime.try_spawn_server`` 和 ``try_wait_server`` 组合，使各环境的状态事件、就绪失败和 owned daemon 清理保持一致；runner 不处理这些环境细节。参考模式见 ``robots/libero/robot_spec.py`` 和 ``robots/robocasa/robot_spec.py``。
+endpoint（``--env-endpoint``、``--am-endpoint``，以及 LIBERO 的 ``--sam3-endpoint``）解析和环境专用服务命令，应放在拥有对应服务的钩子中。这些 spawner 应通过 ``rpent.robots.runtime.try_spawn_server`` 和 ``try_wait_server`` 组合，使各环境的状态事件、就绪失败和 owned daemon 清理保持一致；runner 不处理这些环境细节。参考模式见 ``robots/libero/robot_spec.py`` 和 ``robots/robocasa/robot_spec.py``。
 
 可选的运行结果 finalizer
 ------------------------

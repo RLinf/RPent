@@ -62,11 +62,11 @@
 在多次运行之间复用 vla_server
 -----------------------------
 
-模型服务进程通常需要较长的启动时间，因此 runner 可以通过 ``--vla-endpoint`` 连接已经在运行的实例：
+模型服务进程通常需要较长的启动时间，因此 runner 可以通过 ``--am-endpoint`` 连接已经在运行的实例：
 
 .. code-block:: bash
 
-   rpent --robot libero --vla-endpoint http://vla-host:8000 ...
+   rpent --robot libero --am-endpoint http://vla-host:8000 ...
 
 如果模型会保存每个回合的内部状态，应提供 ``vla_reset`` RPC，并在任务之间调用它完成重置。这样，同一个服务进程就能安全地复用于多次连续运行。
 
