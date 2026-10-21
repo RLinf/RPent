@@ -119,10 +119,6 @@ class RoboDojoToolkit(Toolkit):
             robodojo_tools.dump_state(self._primitives, self._state, log=None)
         )
 
-    def close(self) -> None:
-        """Drain tools; the runtime owns the environment across planner sessions."""
-        super().close()
-
     def solved(self) -> bool:
         """Read official success for the runner after planner execution."""
         if self.eval_fair:
@@ -138,7 +134,7 @@ class RoboDojoToolkit(Toolkit):
             resources = {"state": self._state}
             if definition.name in {"sample_world_xyz", "query_world_map"}:
                 resources = {"env_state": self._state}
-            elif definition.name != "view_env_state":
+            elif definition.name == "segment":
                 resources["primitives"] = self._primitives
             self.add_tool(definition.with_handler(partial(definition, **resources)))
         for definition in iter_tools(self._primitives):
@@ -150,22 +146,6 @@ class RoboDojoToolkit(Toolkit):
         """Refresh the synchronized RGB-D, calibration and robot state record."""
         self.raise_if_cancelled()
         return ToolResult(data={"success": True})
-
-    def write_recipe(self, recipe_tag: str) -> str:
-        """Export motion commands from a successful episode."""
-        if not self.solved():
-            return ""
-        records = self._state.records()
-        recipe = [
-            r.command
-            for r in records
-            if (r.command or {}).get("action") in MOTION_TOOLS
-            and not (r.result or {}).get("error")
-            and (r.result or {}).get("success") is not False
-        ]
-        name = f"{recipe_tag}_recipe.jsonl"
-        self._state.save(name, recipe, step=None)
-        return str(self._state.artifact_path(name, step=None))
 
     def get_env_state(
         self,

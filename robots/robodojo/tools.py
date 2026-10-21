@@ -387,75 +387,47 @@ def _summarize_obs(obs: dict) -> dict:
     }
 
 
-@tool(readonly=True, exclude=("primitives", "state"))
+@tool(readonly=True, exclude=("state",))
 def back_project(
-    primitives: Any,
-    state: Any,
+    state: EnvState,
     row: int,
     col: int,
     camera: Literal["cam_head", "cam_left_wrist", "cam_right_wrist"] = "cam_head",
     step: int | None = None,
 ) -> ToolResult:
-    """Project one pixel from a camera image to a world xyz coordinate using depth + intrinsics/extrinsics. Use to localize objects.
+    """Read one pixel's world xyz from the selected camera's saved world map. Use the same camera and step as the source image. Returns world coordinates in metres.
 
     Args:
         row: Pixel row (0=top)
         col: Pixel col (0=left)
         camera: Camera to project from"""
-    import numpy as np
-
-    cam, step_idx = _recorded_camera(primitives, state, camera, step)
-    if cam is None:
-        payload = {"error": f"camera {camera!r} not in observation"}
-        return ToolResult(data=payload)
-    depth = cam.get("distance_to_image_plane")
-    if depth is None:
-        depth = cam.get("depth")
-    if depth is None:
-        payload = {"error": "depth not available in observation"}
-        return ToolResult(data=payload)
-    K = np.asarray(cam.get("intrinsic_matrix"), dtype=np.float64)
-    T = np.asarray(cam.get("extrinsic_matrix"), dtype=np.float64)
-    if (
-        K.shape != (3, 3)
-        or T.shape != (4, 4)
-        or not np.isfinite(K).all()
-        or not np.isfinite(T).all()
-        or K[0, 0] <= 0
-        or K[1, 1] <= 0
-    ):
-        payload = {"error": f"calibration missing/invalid: K={K.shape} T={T.shape}"}
-        return ToolResult(data=payload)
-    depth = np.asarray(depth)
-    if depth.ndim != 2:
-        return ToolResult(data={"error": "depth must have shape [H,W]"})
+    view = camera.removeprefix("cam_")
+    record, world, error = _load_world_xyz(state, view=view, step=step)
+    if error is not None:
+        return error
+    step_idx = record["step_idx"]
     if type(row) is not int or type(col) is not int:
         return ToolResult(data={"error": "pixel must be integer [row,col]"})
-    h, w = depth.shape
-    if not (0 <= int(row) < h and 0 <= int(col) < w):
+    h, w = world.shape[:2]
+    if not (0 <= row < h and 0 <= col < w):
         payload = {"error": f"pixel out of range: row 0..{h - 1}, col 0..{w - 1}"}
         return ToolResult(data=payload)
-    d = float(depth[int(row), int(col)])
+    try:
+        d = float(state.load(_artifact_name(view, "depth"), step=step_idx)[row, col])
+    except Exception as exc:
+        return ToolResult(data={"error": f"saved depth unavailable: {exc}"})
     if not np.isfinite(d) or d <= 0:
         payload = {"error": f"invalid depth at pixel: {d}"}
         return ToolResult(data=payload)
-    fx, fy = float(K[0, 0]), float(K[1, 1])
-    cx, cy = float(K[0, 2]), float(K[1, 2])
-    # Isaac/Omniverse cameras look along -Z; the distance_to_image_plane
-    # annotator returns distance along the optical axis, so the camera-frame
-    # z coordinate is NEGATIVE d. Image rows grow downward while the USD
-    # camera frame has +Y up, so the row offset enters negated.
-    p_cam = np.array(
-        [(int(col) - cx) / fx * d, -(int(row) - cy) / fy * d, -d, 1.0],
-        dtype=np.float64,
-    )
-    p_world = T @ p_cam
+    point = world[row, col]
+    if not np.isfinite(point).all():
+        return ToolResult(data={"error": f"invalid world xyz at pixel ({row},{col})"})
     payload = {
         "camera": camera,
         "step_idx": step_idx,
-        "pixel": [int(row), int(col)],
+        "pixel": [row, col],
         "depth_m": round(d, 4),
-        "world_xyz": [round(float(v), 4) for v in p_world[:3]],
+        "world_xyz": [round(float(v), 4) for v in point],
     }
     return ToolResult(data=payload)
 
@@ -573,14 +545,10 @@ def _recorded_camera(
         # Direct legacy callers may supply their own immutable observation.
         return (primitives._last_obs or {}).get("vision", {}).get(camera), None
     record = state.get(-1 if step is None else step)
-    view = camera.removeprefix("cam_")
     cam = dict(record.state.get("cameras", {}).get(camera, {}))
-    for field, name in (
-        ("color", f"{camera}.png"),
-        ("depth", _artifact_name(view, "depth")),
-    ):
-        if name in record.artifacts:
-            cam[field] = state.load(name, step=record.step_idx)
+    name = f"{camera}.png"
+    if name in record.artifacts:
+        cam["color"] = state.load(name, step=record.step_idx)
     return cam or None, record.step_idx
 
 
@@ -743,38 +711,6 @@ def get_reward_details(primitives, state) -> dict:
 def get_safety_status(primitives, state) -> dict:
     """Read the env safety monitor (rolling / off-table alarms)."""
     return primitives.env.get_safety_status()
-
-
-@tool(readonly=False, exclude=("primitives", "state"))
-def stabilize(
-    primitives: Any,
-    state: Any,
-    xyz: Annotated[list[float], Field(min_length=3, max_length=3)],
-    arm: Literal["left", "right"] = "right",
-) -> ToolResult:
-    """Retained, unregistered legacy composite; unavailable without replacement motion tools."""
-    return ToolResult(
-        data={
-            "error": "stabilize is disabled: the legacy move_to primitive was removed"
-        }
-    )
-
-
-@tool(readonly=False, exclude=("primitives", "state"))
-def place_in_bin(
-    primitives: Any,
-    state: Any,
-    arm: Literal["left", "right"],
-    bin_center_xyz: Annotated[list[float], Field(min_length=3, max_length=3)],
-    approach_z: float = 0.95,
-    drop_z: float = 0.78,
-) -> ToolResult:
-    """Retained, unregistered legacy composite; unavailable without replacement motion tools."""
-    return ToolResult(
-        data={
-            "error": "place_in_bin is disabled: the legacy move_to and set_gripper primitives were removed"
-        }
-    )
 
 
 def _jsonable(obj):

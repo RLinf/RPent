@@ -93,7 +93,7 @@
   },
   "back_project": {
     "name": "back_project",
-    "description": "Project one pixel from a camera image to a world xyz coordinate using depth + intrinsics/extrinsics. Use to localize objects.",
+    "description": "Read one pixel's world xyz from the selected camera's saved world map. Use the same camera and step as the source image. Returns world coordinates in metres.",
     "input_schema": {
       "properties": {
         "row": {
@@ -187,67 +187,6 @@
       },
       "type": "object",
       "required": []
-    }
-  },
-  "stabilize": {
-    "name": "stabilize",
-    "description": "Retained, unregistered legacy composite; unavailable without replacement motion tools.",
-    "input_schema": {
-      "properties": {
-        "xyz": {
-          "items": {
-            "type": "number"
-          },
-          "maxItems": 3,
-          "minItems": 3,
-          "type": "array"
-        },
-        "arm": {
-          "enum": [
-            "left",
-            "right"
-          ],
-          "type": "string"
-        }
-      },
-      "required": [
-        "xyz"
-      ],
-      "type": "object"
-    }
-  },
-  "place_in_bin": {
-    "name": "place_in_bin",
-    "description": "Retained, unregistered legacy composite; unavailable without replacement motion tools.",
-    "input_schema": {
-      "properties": {
-        "arm": {
-          "enum": [
-            "left",
-            "right"
-          ],
-          "type": "string"
-        },
-        "bin_center_xyz": {
-          "items": {
-            "type": "number"
-          },
-          "maxItems": 3,
-          "minItems": 3,
-          "type": "array"
-        },
-        "approach_z": {
-          "type": "number"
-        },
-        "drop_z": {
-          "type": "number"
-        }
-      },
-      "required": [
-        "arm",
-        "bin_center_xyz"
-      ],
-      "type": "object"
     }
   },
   "move_to": {

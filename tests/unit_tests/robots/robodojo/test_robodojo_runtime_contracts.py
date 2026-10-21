@@ -320,13 +320,33 @@ def test_pi0_pick_stops_the_chunk_when_the_grasp_is_held():
     assert len(executed) == 2
 
 
-@pytest.mark.parametrize("name", ["move_to", "set_gripper"])
+@pytest.mark.parametrize(
+    "name", ["move_to", "set_gripper", "stabilize", "place_in_bin"]
+)
 def test_removed_motion_tools_have_no_implementation(name):
     assert not hasattr(tools, name)
     assert name not in {definition.name for definition in iter_tools(tools)}
 
 
-def test_readers_are_readonly_and_do_not_act():
+@pytest.fixture
+def saved_camera(tmp_path):
+    from rpent.session import EnvState
+
+    def save(camera):
+        depth = camera.get("depth", camera.get("distance_to_image_plane"))
+        camera = {"color": np.zeros((*depth.shape, 3), dtype=np.uint8), **camera}
+        env = SimpleNamespace(
+            get_obs=lambda: {"vision": {"cam_head": camera}, "instruction": "Pick."},
+            get_status=lambda: {"step": 0, "step_limit": 10},
+        )
+        state = EnvState(tmp_path)
+        tools.dump_state(SimpleNamespace(env=env), state)
+        return state
+
+    return save
+
+
+def test_readers_are_readonly_and_do_not_act(saved_camera):
     from rpent.robots.components.sam3_client import Sam3Result
 
     obs = {
@@ -351,11 +371,12 @@ def test_readers_are_readonly_and_do_not_act():
         assert getattr(tools, name).readonly
     assert not isinstance(tools.get_reward_details, Tool)
     assert not isinstance(tools.get_safety_status, Tool)
-    assert tools.back_project(primitives, None, 0, 0).data["world_xyz"] == [0, 0, -1]
+    state = saved_camera(obs["vision"]["cam_head"])
+    assert tools.back_project(state, 0, 0).data["world_xyz"] == [0, 0, -1]
     assert tools.segment(primitives, None, "object").data["found"] is False
 
 
-def test_back_project_row_axis_follows_the_usd_camera_frame():
+def test_back_project_row_axis_follows_the_usd_camera_frame(saved_camera):
     """Image rows grow downward, the camera frame's +Y grows upward."""
     obs = {
         "vision": {
@@ -368,14 +389,14 @@ def test_back_project_row_axis_follows_the_usd_camera_frame():
             }
         }
     }
-    primitives = SimpleNamespace(_last_obs=obs)
-    above = tools.back_project(primitives, None, 0, 1).data["world_xyz"]
-    below = tools.back_project(primitives, None, 2, 1).data["world_xyz"]
+    state = saved_camera(obs["vision"]["cam_head"])
+    above = tools.back_project(state, 0, 1).data["world_xyz"]
+    below = tools.back_project(state, 2, 1).data["world_xyz"]
     assert above == [0.0, 2.0, -2.0]
     assert below == [0.0, -2.0, -2.0]
 
 
-def test_back_project_applies_camera_to_world_transform():
+def test_back_project_applies_camera_to_world_transform(saved_camera):
     camera = {
         "distance_to_image_plane": np.full((3, 3), 2.0),
         "intrinsic_matrix": np.array(
@@ -385,22 +406,22 @@ def test_back_project_applies_camera_to_world_transform():
             [[0, -1, 0, 3], [1, 0, 0, 4], [0, 0, 1, 5], [0, 0, 0, 1]]
         ),
     }
-    primitives = SimpleNamespace(_last_obs={"vision": {"cam_head": camera}})
+    state = saved_camera(camera)
     # Pixel (2, 2) is (1, -1, -2) in USD camera coordinates, then rotated
     # 90 degrees about Z and translated by (3, 4, 5).
-    result = tools.back_project(primitives, None, 2, 2).data
+    result = tools.back_project(state, 2, 2).data
     assert result["world_xyz"] == [4.0, 5.0, 3.0]
 
 
 @pytest.mark.parametrize("depth", [0.0, -1.0, np.nan, np.inf])
-def test_back_project_rejects_invalid_depth(depth):
+def test_back_project_rejects_invalid_depth(depth, saved_camera):
     camera = {
         "depth": np.array([[depth]]),
         "intrinsic_matrix": np.eye(3),
         "extrinsic_matrix": np.eye(4),
     }
-    primitives = SimpleNamespace(_last_obs={"vision": {"cam_head": camera}})
-    result = tools.back_project(primitives, None, 0, 0).data
+    state = saved_camera(camera)
+    result = tools.back_project(state, 0, 0).data
     assert "invalid depth" in result["error"]
     assert "world_xyz" not in result
 
@@ -563,19 +584,3 @@ def test_flash_rejected_before_services_start(monkeypatch, tmp_path):
         robot_spec.get_robot_spec().validate_args(args)
     with pytest.raises(ValueError, match="Flash replay is unavailable"):
         robot_spec._init_runtime(args, tmp_path, NullDashboardEventSink(), None)
-
-
-@pytest.mark.parametrize(
-    "name,arguments",
-    [
-        ("stabilize", {"xyz": [0.2, 0.3, 0.8]}),
-        ("place_in_bin", {"arm": "left", "bin_center_xyz": [0.2, 0.3, 0.4]}),
-    ],
-)
-def test_retained_composites_fail_without_executing_motion(name, arguments):
-    # No environment is supplied: disabled composites must not read or step it.
-    result = getattr(tools, name)(None, None, **arguments).data
-    assert "disabled" in result["error"]
-    assert "removed" in result["error"]
-    assert not result.get("released")
-    assert not result.get("reached")

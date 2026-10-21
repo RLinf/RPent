@@ -364,7 +364,6 @@ def _motion_state(env) -> dict:
     state = {"targets": {}}
     for arm in ("left", "right"):
         robot = _motion_robot(env, arm)
-        joints = manager.get_joint(robot, env_idx_list=[0])[0]
         pose = manager.get_real_endpose(robot, env_idx_list=[0], is_relative=False)[0]
         real = float(manager.get_end_effector_real_val(robot, env_idx_list=[0])[0][0])
         lo, hi = robot.gripper_scale
@@ -385,7 +384,7 @@ def _motion_state(env) -> dict:
         # Missing targets indicate a broken/reset-incomplete controller, not
         # permission to replace its targets with measured positions.
         state["targets"][arm_key] = _finite_vector(
-            previous[arm_key]["position"], len(joints), arm_key
+            previous[arm_key]["position"], len(robot.arm_joint_indices), arm_key
         ).tolist()
         state["targets"][gripper_key] = [
             _gripper_value(normalized(float(previous[gripper_key]["position"][0])))

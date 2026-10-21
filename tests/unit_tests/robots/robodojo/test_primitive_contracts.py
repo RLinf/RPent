@@ -348,9 +348,18 @@ def test_queries_and_segmentation_use_requested_saved_frame(toolkit_factory):
         {"view": "head", "pixels": [[1, 1]], "step": 0, "neighborhood": 0},
     ).data
     assert sample["samples"][0]["xyz"] == [0, 0, -2]
-    assert toolkit.execute_tool("back_project", {"row": 1, "col": 1, "step": 1}).data[
+    assert toolkit.execute_tool(
+        "back_project", {"row": 1, "col": 1, "step": 1}
+    ).data == {
+        "camera": "cam_head",
+        "step_idx": 1,
+        "pixel": [1, 1],
+        "depth_m": 4.0,
+        "world_xyz": [0, 0, -4],
+    }
+    assert toolkit.execute_tool("back_project", {"row": 1, "col": 1, "step": 0}).data[
         "world_xyz"
-    ] == [0, 0, -4]
+    ] == [0, 0, -2]
     response = toolkit.execute_tool("segment", {"text_prompt": "ring", "step": 0})
     result = response.data
     assert result["step_idx"] == 0 and result["centroid_in_mask"] is False
@@ -427,6 +436,9 @@ def test_invalid_depth_and_half_open_regions(toolkit_factory):
     world[0, 0] = np.inf
     world[0, 1] = np.nan
     toolkit._state.save("head_world_xyz.npy", world, step=0)
+    for col in (0, 1):
+        assert toolkit.execute_tool("back_project", {"row": 0, "col": col}).is_error
+    assert toolkit.execute_tool("back_project", {"row": 3, "col": 0}).is_error
     result = tools.query_world_map(
         toolkit._state, view="head", bbox=[0, 0, 2, 2], max_points=1
     ).data

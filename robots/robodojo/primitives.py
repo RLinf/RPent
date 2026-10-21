@@ -160,8 +160,6 @@ class RoboDojoPrimitives:
                 }
             )
         path = np.asarray(planned["position"], dtype=float)
-        if path.ndim != 2 or not len(path) or not np.isfinite(path).all():
-            raise ValueError("planner returned invalid waypoints")
         if substeps == 1:
             path = path[-1:]
         elif substeps >= 2 and len(path) > substeps:
