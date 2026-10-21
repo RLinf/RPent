@@ -139,8 +139,13 @@ def _attach_pose_reader(env):
 
         return _check(env.env.sim, paths, **(options or {}))
 
+    def sim_state():
+        """The flattened MuJoCo state (LIBERO demo ``states`` format)."""
+        return [float(v) for v in env.get_sim_state()]
+
     env.read_poses = read_poses
     env.check_paths = check_paths
+    env.sim_state = sim_state
     return env
 
 
@@ -149,7 +154,7 @@ def _with_pose_reader(env_fn):
 
     def make():
         env = _configure_fixture_seed(env_fn())
-        return _attach_pose_reader(_restore_scene_after_reset(env))
+        return _attach_pose_reader(_fresh_scene(_restore_scene_after_reset(env)))
 
     return make
 
@@ -180,6 +185,27 @@ def _restore_scene_after_reset(env):
         return env.regenerate_obs_from_state(env.get_sim_state())
 
     env.reset = reset
+    return env
+
+
+def _fresh_scene(env):
+    """Sample a new scene instead of a benchmark init state (data generation).
+
+    With ``RPENT_MT3_FRESH_SCENE=<seed>``, ``set_init_state`` ignores the
+    benchmark state and resets the env again with the NumPy global RNG seeded,
+    so object and fixture placements are drawn anew from the task's BDDL
+    regions. These scenes are disjoint from the 50 evaluation init states.
+    """
+    fresh = os.environ.get("RPENT_MT3_FRESH_SCENE")
+    if not fresh:
+        return env
+
+    def set_init_state(init_state=None):
+        np.random.seed(int(fresh))
+        env.reset()
+        return env.regenerate_obs_from_state(env.get_sim_state())
+
+    env.set_init_state = set_init_state
     return env
 
 
@@ -275,11 +301,13 @@ class LiberoEnvFacade(BaseEnvFacade):
                 "env.get_task_language": self.get_task_language,
                 "env.poses": self.poses,
                 "env.check_paths": self.check_paths,
+                "env.sim_state": self.sim_state,
             }
         )
         self._readonly_methods.add("env.get_task_language")
         self._readonly_methods.add("env.poses")
         self._readonly_methods.add("env.check_paths")
+        self._readonly_methods.add("env.sim_state")
 
     # ---- shape helpers ----
 
@@ -403,6 +431,12 @@ class LiberoEnvFacade(BaseEnvFacade):
             "read_poses",
             args=[None if bodies is None else list(bodies), list(sites)],
             target="self",
+        )
+
+    def sim_state(self) -> list:
+        """Flattened MuJoCo state of the live simulator."""
+        return self._env.env.workers[self._env_idx].env_call(
+            "sim_state", args=[], target="self"
         )
 
     def check_paths(self, paths, options=None) -> list:

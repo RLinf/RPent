@@ -128,6 +128,17 @@ def run_mt3(
     cfg, library_dir = load_config(Path(toolkit.memory.root))
     lib = TaskLibrary(library_dir / suite / f"task_{task:02d}.npz")
     hooks = _hooks(toolkit)
+    trace: dict[str, list] = {"states": [], "actions": []}
+    if cfg.record_trace:
+        env = toolkit.primitives.env
+        step = hooks.step
+
+        def recorded_step(action: np.ndarray) -> None:
+            trace["states"].append(env.sim_state())
+            trace["actions"].append(np.asarray(action, dtype=np.float64))
+            step(action)
+
+        hooks.step = recorded_step
     # Fixture roots are not contained in the saved qpos init-state vector.
     # Preserve their actual placement when evaluating native RPent seeding.
     (Path(get_output_dir()) / "initial_body_poses.json").write_text(
@@ -201,6 +212,13 @@ def run_mt3(
         "terminated": bool(toolkit.primitives.env.terminated),
         "truncated": bool(toolkit.primitives.env.truncated),
     }
+    if cfg.record_trace and trace["actions"]:
+        np.savez_compressed(
+            Path(get_output_dir()) / "mt3_trace.npz",
+            states=np.asarray(trace["states"]),
+            actions=np.asarray(trace["actions"]),
+            success=bool(toolkit.solved()),
+        )
     (Path(get_output_dir()) / "mt3_episode.json").write_text(
         json.dumps(episode, indent=1)
     )

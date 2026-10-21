@@ -105,6 +105,9 @@ class MT3Config:
     #: segment start to the bottleneck, transferred, replayed from the live pose;
     #: as in DynaMimicGen).
     approach: str = "path"
+    #: Save the executed episode (state before each step, the action) as
+    #: ``mt3_trace.npz`` for building a library from successful runs.
+    record_trace: bool = False
     #: Retries of a grasp segment whose object was not picked up.
     grasp_retries: int = 0
     #: Demo retrieval: "nearest" (reference-body distance) or "reach" (most
