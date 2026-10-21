@@ -183,6 +183,7 @@ class SceneChecker:
         # finger on the grasped handle) are not attributed to the path.
         pre = {(a, b) for a, b, _ in self.collisions(held, depth, ignore)}
         first_collision, first_ik_fail, bodies = None, None, set()
+        goal_pos_err, goal_rot_err = np.inf, np.inf
         worst_pos, min_margin, deepest = 0.0, np.inf, 0.0
         for i, target in enumerate(path):
             pos_err, rot_err = self.solve(np.asarray(target))
@@ -191,6 +192,7 @@ class SceneChecker:
             min_margin = min(min_margin, float(np.degrees(np.min(np.minimum(q - self.lo, self.hi - q)))))
             if first_ik_fail is None and (pos_err > ik_pos_tol or rot_err > ik_rot_tol):
                 first_ik_fail = i
+            goal_pos_err, goal_rot_err = pos_err, rot_err
             if held is not None:
                 pose = self._site_pose() @ held_offset
                 adr = self.model.jnt_qposadr[self.model.body_jntadr[held]]
@@ -211,7 +213,14 @@ class SceneChecker:
             "max_ik_pos_err_cm": round(100 * worst_pos, 2),
             "max_penetration_cm": round(100 * deepest, 2),
             "min_joint_margin_deg": round(min_margin, 1),
-            "feasible": first_collision is None and first_ik_fail is None,
+            "goal_ik_pos_err_cm": round(100 * goal_pos_err, 2),
+            "goal_ik_rot_err_deg": round(goal_rot_err, 1),
+            # Unreachable intermediate waypoints are not disqualifying: the
+            # controller cuts the corner as long as nothing is hit and the
+            # final pose can be reached.
+            "feasible": first_collision is None
+            and goal_pos_err <= ik_pos_tol
+            and goal_rot_err <= ik_rot_tol,
         }
 
 
