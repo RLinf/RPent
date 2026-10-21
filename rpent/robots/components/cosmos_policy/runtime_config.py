@@ -33,7 +33,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         "Cosmos Policy local options",
         "For local Cosmos deployment; all options below are optional.\n"
         "Append to your platform/task/planner command (replace example paths):\n"
-        "  --wam-backend cosmos-policy --wam-checkpoint /models/cosmos \\\n"
+        "  --am-backend cosmos-policy --wam-checkpoint /models/cosmos \\\n"
         "    --wam-python /envs/cosmos/bin/python --wam-root /src/cosmos\n"
         "COSMOS_POLICY_PYTHON and COSMOS_POLICY_ROOT provide path defaults.",
     )

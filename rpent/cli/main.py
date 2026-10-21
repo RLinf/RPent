@@ -373,9 +373,12 @@ def main() -> int:
     )
     if args.dashboard and args.interactive:
         parser.error("--dashboard and --interactive cannot be used together")
-    external_env_dashboard = (getattr(robot_spec, "dashboard", None) or {}).get(
-        "external_env", False
-    )
+    try:
+        external_env_dashboard = robot_spec.is_real_robot and (
+            robot_spec.resolve_dashboard(args) or {}
+        ).get("external_env", False)
+    except ValueError as exc:
+        parser.error(str(exc))
     if robot_spec.is_real_robot and not (
         human_interactive_exploration
         or external_env_dashboard

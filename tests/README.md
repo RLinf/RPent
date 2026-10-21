@@ -160,7 +160,7 @@ and executes a component chunk through `env.chunk_step(action_type="qpos")`.
 The separate CLI chain executes up to two chunks within a 64-action horizon.
 The worker must advertise `robotwin.joint_action.qpos14.v1`. It records latency,
 executed action counts and episode status; no LingBot checkpoint is needed.
-The RoboTwin CLI selects this backend with `--wam-backend fast-wam`; its toolkit
+The RoboTwin CLI selects this backend with `--am-backend fast-wam`; its toolkit
 uses `wam_act`. Without a WAM backend, it retains LingBot's EEF16 interface.
 
 The policy-chain tests exercise the public CLI and `wam_act` toolkit path

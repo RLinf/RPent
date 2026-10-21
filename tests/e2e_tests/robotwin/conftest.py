@@ -36,9 +36,9 @@ def wam_argv() -> list[str]:
         "demo_randomized",
         "--max-episode-steps",
         "64",
-        "--wam-backend",
+        "--am-backend",
         "fast-wam",
-        "--wam-endpoint",
+        "--am-endpoint",
         endpoint,
     ]
 

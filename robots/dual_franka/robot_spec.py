@@ -37,11 +37,17 @@ from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
 from rpent.robots.components.am_runtime import (
     add_am_device_arg,
+    add_am_endpoint_arg,
 )
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_spawn_server, try_wait_server
-from rpent.utils.config import get_memory_dir, get_repo_root
+from rpent.utils.config import (
+    add_cuda_device_arg,
+    get_memory_dir,
+    get_repo_root,
+    resolve_cuda_device,
+)
 from rpent.utils.daemon import ProcessDaemon, pick_free_port
 from rpent.utils.rpc import make_rpc_client
 from rpent.utils.rpc.http_rpc import HttpRpcClient
@@ -150,10 +156,11 @@ def get_toolkit(
 
 def _add_runtime_cli_args(parser: argparse.ArgumentParser) -> None:
     """Register component connection and deployment options."""
+    add_cuda_device_arg(parser)
     add_am_device_arg(parser, "vla")
     parser.set_defaults(_flash_options=None)
     parser.add_argument("--env-endpoint", default=None)
-    parser.add_argument("--vla-endpoint", default=None)
+    add_am_endpoint_arg(parser)
     parser.add_argument(
         "--sam3-endpoint",
         default=None,
@@ -178,7 +185,7 @@ def _add_runtime_cli_args(parser: argparse.ArgumentParser) -> None:
         type=int,
         default=None,
         help="GPU ordinal for the local SAM3 service; may share GPUs with other "
-        "services. Omit to inherit CUDA_VISIBLE_DEVICES.",
+        "services. Defaults to --cuda-device, then inherits CUDA_VISIBLE_DEVICES.",
     )
 
 
@@ -261,8 +268,8 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
 
 def _sam3_cuda_args(args: argparse.Namespace) -> list[str]:
     return (
-        ["--cuda-device", str(args.sam3_cuda_device)]
-        if args.sam3_cuda_device is not None
+        ["--cuda-device", str(resolve_cuda_device(args, "sam3"))]
+        if resolve_cuda_device(args, "sam3") is not None
         else []
     )
 
@@ -356,8 +363,8 @@ def _spawn_vla_server(
     output_dir: Path,
 ) -> tuple[ProcessDaemon | None, RpcClient]:
     """Spawn (or attach to) the dual-Franka VLA service."""
-    if args.vla_endpoint is not None:
-        return None, make_rpc_client(args.vla_endpoint)
+    if args.am_endpoint is not None:
+        return None, make_rpc_client(args.am_endpoint)
     if not args.vla_model_path or not args.vla_repo_id:
         raise ValueError(
             "dual-Franka VLA auto-start requires --vla-model-path and "
@@ -368,8 +375,8 @@ def _spawn_vla_server(
     daemon = ProcessDaemon(
         name="dual_franka_vla_server",
         cmd=_vla_server_command(args, host=host, port=port),
-        env_overrides={"CUDA_VISIBLE_DEVICES": str(args.vla_cuda_device)}
-        if args.vla_cuda_device is not None
+        env_overrides={"CUDA_VISIBLE_DEVICES": str(resolve_cuda_device(args, "vla"))}
+        if resolve_cuda_device(args, "vla") is not None
         else {},
         log_path=str(output_dir / "dual_franka_vla_server.log"),
     )
@@ -435,7 +442,7 @@ def _init_runtime(
     if unknown:
         raise ValueError(f"unknown dual-Franka runtime components: {sorted(unknown)}")
 
-    needs_vla = args.vla_endpoint is not None
+    needs_vla = args.am_endpoint is not None
     if task_description is not None:
         needs_vla = needs_vla or vla_instruction is not None
     elif args.task_id is not None:
@@ -448,7 +455,7 @@ def _init_runtime(
     if options := args._flash_options:
         from robots.franka.flash.common import VLA_ACTIONS
 
-        needs_vla = args.vla_endpoint is not None or any(
+        needs_vla = args.am_endpoint is not None or any(
             entry["action"] in VLA_ACTIONS for entry in options["card"]["plan"]
         )
     needs_sam3 = args.sam3_endpoint is not None or bool(

@@ -53,11 +53,11 @@ def test_wam_help_distinguishes_connection_deployment_and_models(robot_name, cap
     assert exc.value.code == 0
     help_text = capsys.readouterr().out
     assert "--env-cuda-device" in help_text
-    assert "--cuda-device" not in help_text
+    assert "--cuda-device" in help_text
     assert "--sim-cuda-device" not in help_text
     for group in (
-        "WAM backend:",
-        "WAM connection (repeated tasks):",
+        "Action model:",
+        "Action-model connection (repeated tasks):",
         "WAM local deployment (per run):",
         "Cosmos Policy local options:",
         "Fast-WAM local options:",
@@ -80,8 +80,9 @@ def test_wam_help_distinguishes_connection_deployment_and_models(robot_name, cap
     "robot_name", ["libero", "robotwin", "robocasa", "robodojo", "dual_franka"]
 )
 @pytest.mark.parametrize("device", [None, "0", "2", "2,3", "GPU-example"])
+@pytest.mark.parametrize("shared_device", [None, "1"])
 def test_local_vla_gpu_override_reaches_worker(
-    monkeypatch, tmp_path, robot_name, device
+    monkeypatch, tmp_path, robot_name, device, shared_device
 ):
     from rpent.utils import daemon
 
@@ -97,7 +98,9 @@ def test_local_vla_gpu_override_reaches_worker(
     args = _parser(robot_name, dashboard=True).parse_args(
         (["--vla-cuda-device", device] if device is not None else [])
         + (["--env-cuda-device", "2"] if robot_name != "dual_franka" else [])
+        + (["--cuda-device", shared_device] if shared_device is not None else [])
     )
+    device = device if device is not None else shared_device
     args.vla_model_path = str(tmp_path)
     args.vla_repo_id = "test/data"
     if robot_name == "robotwin":
@@ -117,7 +120,9 @@ def test_local_vla_gpu_override_reaches_worker(
     assert overrides.get("CUDA_VISIBLE_DEVICES") == device
     assert ("CUDA_VISIBLE_DEVICES" in overrides) == (device is not None)
     assert os.environ["CUDA_VISIBLE_DEVICES"] == "inherited"
-    assert not hasattr(args, "cuda_device")
+    assert (
+        str(args.cuda_device) if args.cuda_device is not None else None
+    ) == shared_device
     if robot_name == "robodojo":
         from rpent.robots.components.xpolicylab_vla_server import add_backend_args
 
@@ -152,13 +157,18 @@ def test_local_vla_gpu_override_reaches_worker(
 
 @pytest.mark.parametrize("robot_name", ["libero", "robodojo", "dual_franka"])
 @pytest.mark.parametrize("device", [None, 0, 2])
-def test_sam3_gpu_override_reaches_worker(monkeypatch, tmp_path, robot_name, device):
+@pytest.mark.parametrize("shared_device", [None, 1])
+def test_sam3_gpu_override_reaches_worker(
+    monkeypatch, tmp_path, robot_name, device, shared_device
+):
     module = importlib.import_module(f"robots.{robot_name}.robot_spec")
     factory = Mock()
     monkeypatch.setattr(module, "ProcessDaemon", factory)
     args = _parser(robot_name, dashboard=True).parse_args(
-        [] if device is None else ["--sam3-cuda-device", str(device)]
+        ([] if device is None else ["--sam3-cuda-device", str(device)])
+        + ([] if shared_device is None else ["--cuda-device", str(shared_device)])
     )
+    device = device if device is not None else shared_device
     args.vla_cuda_device = str(device) if device is not None else None
     args.env_cuda_device = device
     if robot_name == "dual_franka":
@@ -182,6 +192,49 @@ def test_gpu_help_explains_shared_devices(robot_name):
         if action.dest.endswith("_cuda_device"):
             assert "may share GPUs" in action.help
             assert "only" not in action.help
+
+
+@pytest.mark.parametrize(
+    "robot_name",
+    ["libero", "robotwin", "robocasa", "robodojo", "dual_franka", "franka", "yam"],
+)
+def test_legacy_vla_endpoint_uses_unified_destination(robot_name):
+    parser = _parser(robot_name, dashboard=True)
+    endpoint = "http://localhost:8116"
+    assert parser.parse_args(["--vla-endpoint", endpoint]).am_endpoint == endpoint
+    assert parser.parse_args(["--am-endpoint", endpoint]).am_endpoint == endpoint
+    assert "--vla-endpoint" not in parser.format_help()
+
+
+@pytest.mark.parametrize(
+    "robot_name,default_backend", [("libero", "pi05"), ("robotwin", "lingbot")]
+)
+def test_am_backend_selects_one_model_category(robot_name, default_backend):
+    from rpent.robots.components.am_runtime import select_wam
+
+    parser = _parser(robot_name, dashboard=True)
+    args = parser.parse_args(["--am-endpoint", "http://localhost:8116"])
+    assert args.am_backend == default_backend
+    assert (
+        parser.parse_args(["--vla-backend", default_backend]).am_backend
+        == default_backend
+    )
+    assert select_wam(args, robot_name) is None
+    args = parser.parse_args(
+        ["--am-backend", "fast-wam", "--am-endpoint", "http://localhost:8117"]
+    )
+    assert select_wam(args, robot_name).endpoint == args.am_endpoint
+    assert "wam" in {
+        item["name"]
+        for item in get_robot_spec(robot_name).resolve_dashboard(args)[
+            "runtime_components"
+        ]
+    }
+    assert "--vla-backend" not in parser.format_help()
+    assert "--wam-backend" not in parser.format_help()
+    args = parser.parse_args(["--wam-checkpoint", "/unused"])
+    with pytest.raises(ValueError, match="require a WAM --am-backend"):
+        select_wam(args, robot_name)
 
 
 @pytest.mark.parametrize(
@@ -385,7 +438,7 @@ def test_robotwin_external_runtime_config_needs_no_local_assets(tmp_path: Path) 
             "demo_clean",
             "--env-endpoint",
             "http://offline.invalid:1",
-            "--vla-endpoint",
+            "--am-endpoint",
             "ws://offline.invalid:2",
             "--env-cuda-device",
             "2",
@@ -408,7 +461,7 @@ def test_robotwin_external_runtime_config_needs_no_local_assets(tmp_path: Path) 
     assert config.task_desc["env_cuda_device"] == "2"
     assert config.task_desc["vla_cuda_device"] == "3"
     assert args.env_endpoint == "http://offline.invalid:1"
-    assert args.vla_endpoint == "ws://offline.invalid:2"
+    assert args.am_endpoint == "ws://offline.invalid:2"
 
 
 def test_robotwin_exploration_uses_config_qualified_local_reference(
@@ -425,7 +478,7 @@ def test_robotwin_exploration_uses_config_qualified_local_reference(
             "demo_clean",
             "--env-endpoint",
             "http://offline.invalid:1",
-            "--vla-endpoint",
+            "--am-endpoint",
             "ws://offline.invalid:2",
             "--output-dir",
             str(tmp_path / "run"),
@@ -471,7 +524,7 @@ def test_robotwin_cli_defaults_can_come_from_environment(
 
 
 @pytest.mark.parametrize("robot_name", ["libero", "robotwin", "robocasa", "robodojo"])
-@pytest.mark.parametrize("option", ["--cuda-device", "--sim-cuda-device"])
+@pytest.mark.parametrize("option", ["--sim-cuda-device"])
 def test_removed_gpu_options_are_rejected(robot_name, option) -> None:
     with pytest.raises(SystemExit) as exc:
         _parser(robot_name, dashboard=True).parse_args([option, "0"])

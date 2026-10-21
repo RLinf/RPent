@@ -29,7 +29,7 @@ def test_worker_needs_no_user_revision(monkeypatch, tmp_path):
     monkeypatch.setattr(robot_spec, "pick_free_port", lambda: 12345)
     monkeypatch.setattr(robot_spec, "HttpRpcClient", lambda *args, **kwargs: "rpc")
     args = SimpleNamespace(
-        vla_endpoint=None,
+        am_endpoint=None,
         vla_model_path="checkpoint",
         vla_cuda_device="0",
     )

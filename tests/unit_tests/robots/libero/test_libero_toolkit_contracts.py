@@ -96,9 +96,9 @@ def test_wam_configuration_and_toolkit_use_local_memory(tmp_path, monkeypatch, b
             "libero_spatial_task",
             "--task",
             "0",
-            "--wam-backend",
+            "--am-backend",
             backend,
-            "--wam-endpoint",
+            "--am-endpoint",
             "http://localhost:8116",
         ]
     )

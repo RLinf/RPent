@@ -45,9 +45,9 @@ def run_session(args: argparse.Namespace) -> int:
     if not args.env_endpoint:
         raise ValueError("--env-endpoint is required")
     if args.mode == "vla" and (
-        args.task_id == 0 or not args.vla_endpoint or args.without_vla
+        args.task_id == 0 or not args.am_endpoint or args.without_vla
     ):
-        raise ValueError("VLA diagnostics require task 1 or 2 and --vla-endpoint")
+        raise ValueError("VLA diagnostics require task 1 or 2 and --am-endpoint")
     rpc = make_rpc_client(args.env_endpoint)
     if rpc.call("env.is_started", timeout_s=5) is not True:
         raise RuntimeError(

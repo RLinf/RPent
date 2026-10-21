@@ -93,7 +93,7 @@ class FrankaPrimitives:
     ) -> ToolResult:
         """Run bounded real-world VLA action chunks for a local grasp attempt."""
         if self.model is None:
-            raise RuntimeError("vla_grasp requires --vla-endpoint")
+            raise RuntimeError("vla_grasp requires --am-endpoint")
         if not prompt.strip():
             raise ValueError("prompt must be non-empty")
         if not 1 <= int(max_chunks) <= 20:

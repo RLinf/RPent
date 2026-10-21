@@ -141,7 +141,7 @@ def test_manual_startup_reset_before_action(
         monkeypatch.setenv(f"RPENT_{component}_ENDPOINT", "http://unused.invalid:9999")
 
     def start_runtime(args, output, events, components, **kwargs):
-        assert args.env_endpoint is args.vla_endpoint is args.sam3_endpoint is None
+        assert args.env_endpoint is args.am_endpoint is args.sam3_endpoint is None
         assert components == {"env"}
         assert kwargs["task_description"] == ""
         return [], {"env": env}

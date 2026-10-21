@@ -46,9 +46,9 @@ def wam_argv(request) -> list[str]:
         suite_variant(suite),
         "--max-episode-steps",
         "32",
-        "--wam-backend",
+        "--am-backend",
         backend,
-        "--wam-endpoint",
+        "--am-endpoint",
         endpoint,
     ]
 

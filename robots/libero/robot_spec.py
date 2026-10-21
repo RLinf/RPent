@@ -30,14 +30,19 @@ from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
 from rpent.robots.components.am_runtime import (
     WAMConfig,
+    add_am_args,
     add_am_device_arg,
-    add_wam_args,
     select_wam,
 )
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_spawn_server, try_wait_server
-from rpent.utils.config import get_memory_dir, get_repo_root
+from rpent.utils.config import (
+    add_cuda_device_arg,
+    get_memory_dir,
+    get_repo_root,
+    resolve_cuda_device,
+)
 from rpent.utils.daemon import ProcessDaemon, pick_free_port
 from rpent.utils.rpc import make_rpc_client
 from rpent.utils.rpc.http_rpc import HttpRpcClient
@@ -134,8 +139,7 @@ def get_robot_spec() -> RobotSpec:
         add_cli_args=_add_cli_args,
         parse_config=_parse_config,
         init_runtime=_init_runtime,
-        dashboard=LIBERO_DASHBOARD_SPEC,
-        resolve_dashboard=_resolve_dashboard,
+        dashboard=_resolve_dashboard,
         supports_exploration=True,
         run_flash=_run_flash,
         validate_args=validate_options,
@@ -196,10 +200,9 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         help="HF memory: auto selects by model; explicit versions override. Effort describes memory generation only.",
     )
     parser.add_argument("--max-episode-steps", type=int, default=10000)
-    parser.add_argument("--vla-backend", choices=("pi05",), default=None)
-    parser.add_argument("--vla-endpoint", default=None)
+    add_cuda_device_arg(parser)
     add_am_device_arg(parser, "vla")
-    add_wam_args(parser)
+    add_am_args(parser, default_backend="pi05")
     parser.add_argument(
         "--libero-type",
         default=None,
@@ -268,14 +271,14 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         type=int,
         default=None,
         help="GPU ordinal for the local LIBERO environment; may share GPUs with "
-        "other services. Omit to use the environment service's default.",
+        "other services. Defaults to --cuda-device, then the service default.",
     )
     parser.add_argument(
         "--sam3-cuda-device",
         type=int,
         default=None,
         help="GPU ordinal for the local SAM3 service; may share GPUs with other "
-        "services. Omit to inherit CUDA_VISIBLE_DEVICES.",
+        "services. Defaults to --cuda-device, then inherits CUDA_VISIBLE_DEVICES.",
     )
 
 
@@ -294,7 +297,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     args.libero_type = resolve_libero_type(args.suite, args.libero_type)
     wam = select_wam(args, "libero")
     policy_kind = "wam" if wam else "vla"
-    policy_backend = wam.backend if wam else (args.vla_backend or "pi05")
+    policy_backend = wam.backend if wam else (args.am_backend or "pi05")
     if wam:
         if planner == "flash" or getattr(args, "explore", False):
             raise ValueError("WAM supports evaluation without Flash Mode only")
@@ -413,8 +416,8 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
 
 def _sam3_cuda_args(args: argparse.Namespace) -> list[str]:
     return (
-        ["--cuda-device", str(args.sam3_cuda_device)]
-        if args.sam3_cuda_device is not None
+        ["--cuda-device", str(resolve_cuda_device(args, "sam3"))]
+        if resolve_cuda_device(args, "sam3") is not None
         else []
     )
 
@@ -423,8 +426,8 @@ def _spawn_vla_server(
     args: argparse.Namespace, output_dir: Path
 ) -> tuple[ProcessDaemon | None, RpcClient]:
     """Connect to Pi0.5 or launch its shared component server."""
-    if args.vla_endpoint:
-        return None, make_rpc_client(args.vla_endpoint)
+    if args.am_endpoint:
+        return None, make_rpc_client(args.am_endpoint)
     host, port = "127.0.0.1", pick_free_port()
     daemon = ProcessDaemon(
         name="vla_server",
@@ -441,8 +444,8 @@ def _spawn_vla_server(
             str(port),
             "--parent-watch",
         ],
-        env_overrides={"CUDA_VISIBLE_DEVICES": str(args.vla_cuda_device)}
-        if args.vla_cuda_device is not None
+        env_overrides={"CUDA_VISIBLE_DEVICES": str(resolve_cuda_device(args, "vla"))}
+        if resolve_cuda_device(args, "vla") is not None
         else {},
         log_path=str(output_dir / "vla_server.log"),
     )
@@ -475,7 +478,7 @@ def _spawn_env_server(
         return None, make_rpc_client(args.env_endpoint)
 
     host, port = "127.0.0.1", pick_free_port()
-    device = args.env_cuda_device
+    device = resolve_cuda_device(args, "env")
     daemon = ProcessDaemon(
         name="env_server",
         cmd=[

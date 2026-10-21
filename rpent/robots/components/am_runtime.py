@@ -22,7 +22,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Literal
 
-from rpent.utils.config import get_repo_root
+from rpent.utils.config import get_repo_root, resolve_cuda_device
 from rpent.utils.daemon import ProcessDaemon, pick_free_port
 from rpent.utils.rpc import RpcClient, make_rpc_client
 
@@ -39,7 +39,8 @@ def add_am_device_arg(
         metavar="DEVICE",
         help=f"CUDA_VISIBLE_DEVICES for the local {kind.upper()} worker; "
         "may share GPUs with other services; "
-        "inherits the environment when omitted. Configure external workers at their own startup.",
+        "defaults to --cuda-device, then inherits the environment. "
+        "Configure external workers at their own startup.",
     )
 
 
@@ -58,30 +59,44 @@ def _runtime_config(backend: str) -> ModuleType:
     )
 
 
-def add_wam_args(parser: argparse.ArgumentParser) -> None:
+def add_am_endpoint_arg(
+    parser: argparse.ArgumentParser | argparse._ArgumentGroup,
+) -> None:
+    """Register one action-model endpoint, retaining the original VLA spelling."""
+    parser.add_argument(
+        "--am-endpoint", metavar="URL", help="Existing action-model worker endpoint"
+    )
+    parser.add_argument("--vla-endpoint", dest="am_endpoint", help=argparse.SUPPRESS)
+
+
+def add_am_args(parser: argparse.ArgumentParser, *, default_backend: str) -> None:
     """Register shared options and lightweight model-owned launch options."""
-    selection = parser.add_argument_group("WAM backend")
+    selection = parser.add_argument_group("Action model")
     selection.add_argument(
-        "--wam-backend",
-        choices=tuple(WAM_BACKENDS) + tuple(WAM_ALIASES),
-        help="Model backend; select either an existing endpoint or a local checkpoint",
+        "--am-backend",
+        choices=(default_backend, *WAM_BACKENDS, *WAM_ALIASES),
+        default=default_backend,
+        help=f"Action model (default: {default_backend}); use --am-endpoint to reuse a worker",
     )
     connection = parser.add_argument_group(
-        "WAM connection (repeated tasks)",
+        "Action-model connection (repeated tasks)",
         "Start a worker once, then reuse its endpoint across task runs.\n"
         "Configure model options at worker startup. RPent leaves it running.\n"
         "Append to your platform/task/planner command:\n"
-        "  --wam-backend <backend> --wam-endpoint http://127.0.0.1:<port>",
+        "  --am-backend <backend> --am-endpoint http://127.0.0.1:<port>",
     )
-    connection.add_argument(
-        "--wam-endpoint",
-        metavar="URL",
-        help="Existing HTTP/socket worker; excludes --wam-checkpoint",
+    add_am_endpoint_arg(connection)
+    selection.add_argument(
+        "--vla-backend",
+        dest="am_backend",
+        choices=(default_backend,),
+        default=argparse.SUPPRESS,
+        help=argparse.SUPPRESS,
     )
     deployment = parser.add_argument_group(
         "WAM local deployment (per run)",
         "RPent starts and stops the worker for this run. Requires a checkpoint\n"
-        "and a provisioned model Python environment; excludes --wam-endpoint.",
+        "and a provisioned model Python environment; excludes --am-endpoint.",
     )
     deployment.add_argument(
         "--wam-checkpoint",
@@ -149,8 +164,9 @@ class WAMConfig:
                 filter(None, (str(get_repo_root()), os.getenv("PYTHONPATH")))
             )
         }
-        if args.wam_cuda_device is not None:
-            overrides["CUDA_VISIBLE_DEVICES"] = str(args.wam_cuda_device)
+        device = resolve_cuda_device(args, "wam")
+        if device is not None:
+            overrides["CUDA_VISIBLE_DEVICES"] = str(device)
         daemon = ProcessDaemon(
             name="wam",
             cmd=cmd,
@@ -169,26 +185,22 @@ class WAMConfig:
 
 def select_wam(args: argparse.Namespace, platform: str) -> WAMConfig | None:
     """Validate backend/platform support and exclusive local/remote configuration."""
-    backend = getattr(args, "wam_backend", None)
-    endpoint = getattr(args, "wam_endpoint", None)
+    backend = getattr(args, "am_backend", None)
+    endpoint = getattr(args, "am_endpoint", None)
     checkpoint = getattr(args, "wam_checkpoint", None)
     backend = WAM_ALIASES.get(backend, backend)
     for name in WAM_BACKENDS:
         if name != backend and any(
             getattr(args, field, None) for field in _runtime_config(name).OPTION_FIELDS
         ):
-            raise ValueError(f"{name} worker options require --wam-backend {name}")
-    if backend is None:
-        if endpoint or checkpoint:
-            raise ValueError("--wam-endpoint/--wam-checkpoint requires --wam-backend")
-        return None
+            raise ValueError(f"{name} worker options require --am-backend {name}")
     if backend not in WAM_BACKENDS:
-        raise ValueError(f"Unsupported WAM backend: {backend!r}")
-    if any(
-        getattr(args, key, None)
-        for key in ("vla_backend", "vla_endpoint", "vla_model_path")
-    ):
-        raise ValueError("--wam-backend cannot be combined with VLA options")
+        if checkpoint or any(
+            getattr(args, field, None)
+            for field in ("wam_python", "wam_root", "wam_cuda_device")
+        ):
+            raise ValueError("WAM deployment options require a WAM --am-backend")
+        return None
     runtime_config = _runtime_config(backend)
     if platform not in runtime_config.ADAPTERS:
         raise ValueError(
@@ -196,7 +208,7 @@ def select_wam(args: argparse.Namespace, platform: str) -> WAMConfig | None:
         )
     if bool(endpoint) == bool(checkpoint):
         raise ValueError(
-            "--wam-backend requires --wam-endpoint or --wam-checkpoint, mutually exclusive"
+            "--am-backend requires --am-endpoint or --wam-checkpoint, mutually exclusive"
         )
     if endpoint and any(
         getattr(args, field, None) for field in runtime_config.OPTION_FIELDS

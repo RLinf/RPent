@@ -33,8 +33,8 @@ from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
 from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
 from rpent.robots.components.am_runtime import (
+    add_am_args,
     add_am_device_arg,
-    add_wam_args,
     select_wam,
 )
 from rpent.robots.prompt_bundle import PromptBundle
@@ -44,7 +44,12 @@ from rpent.robots.runtime import (
     try_spawn_server,
     try_wait_server,
 )
-from rpent.utils.config import get_memory_dir, get_repo_root
+from rpent.utils.config import (
+    add_cuda_device_arg,
+    get_memory_dir,
+    get_repo_root,
+    resolve_cuda_device,
+)
 
 if TYPE_CHECKING:
     from rpent.utils.daemon import ProcessDaemon
@@ -209,8 +214,7 @@ def get_robot_spec() -> RobotSpec:
         add_cli_args=_add_cli_args,
         parse_config=_parse_config,
         init_runtime=_init_runtime,
-        dashboard=ROBOTWIN_DASHBOARD_SPEC,
-        resolve_dashboard=_resolve_dashboard,
+        dashboard=_resolve_dashboard,
         supports_exploration=True,
         validate_args=validate_options,
         prepare_memory=prepare_memory,
@@ -246,7 +250,7 @@ def get_toolkit(
 
 
 def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
-    add_wam_args(parser)
+    add_am_args(parser, default_backend="lingbot")
     parser.add_argument(
         "--memory-version",
         default="auto",
@@ -309,7 +313,6 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         help=("Path to the RoboTwin asset snapshot. Defaults to ROBOTWIN_ASSETS_PATH."),
     )
     parser.add_argument("--env-endpoint", default=None)
-    parser.add_argument("--vla-endpoint", default=None)
     parser.add_argument(
         "--vla-model-path",
         default=os.environ.get("LINGBOT_MODEL_PATH"),
@@ -327,8 +330,9 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         "--env-cuda-device",
         default=None,
         help="CUDA_VISIBLE_DEVICES for the local RoboTwin environment; may share "
-        "GPUs with other services. Omit to inherit CUDA_VISIBLE_DEVICES.",
+        "GPUs with other services. Defaults to --cuda-device, then inherits CUDA_VISIBLE_DEVICES.",
     )
+    add_cuda_device_arg(parser, device_type=str)
     add_am_device_arg(parser, "vla")
 
 
@@ -441,7 +445,7 @@ def _parse_vla_endpoint(endpoint: str) -> tuple[str, int]:
     value = endpoint.split("://", 1)[-1]
     host, separator, port_text = value.rpartition(":")
     if not separator or not host or not port_text:
-        raise ValueError("--vla-endpoint must be [ws://]host:port")
+        raise ValueError("--am-endpoint must be [ws://]host:port")
     return host, int(port_text)
 
 
@@ -468,7 +472,7 @@ def _resolve_env_runtime_path(args: argparse.Namespace) -> Path | None:
 
 def _resolve_vla_runtime_path(args: argparse.Namespace) -> Path | None:
     model_path: Path | None = None
-    if args.vla_endpoint is None:
+    if args.am_endpoint is None:
         configured_model = getattr(args, "vla_model_path", None)
         if not configured_model:
             raise ValueError(
@@ -515,10 +519,11 @@ def _resolve_lingbot_robot_config(
 def _resolve_cuda_devices(
     args: argparse.Namespace,
 ) -> tuple[str | None, str | None]:
-    env_device = getattr(args, "env_cuda_device", None)
+    env_device = resolve_cuda_device(args, "env")
+    vla_device = resolve_cuda_device(args, "vla")
     return (
         str(env_device) if env_device is not None else None,
-        str(args.vla_cuda_device) if args.vla_cuda_device is not None else None,
+        str(vla_device) if vla_device is not None else None,
     )
 
 
@@ -698,8 +703,8 @@ def _spawn_vla_server(
 ) -> tuple[ProcessDaemon | None, tuple[str, int]]:
     from rpent.utils.daemon import ProcessDaemon, pick_free_port
 
-    if args.vla_endpoint is not None:
-        return None, _parse_vla_endpoint(args.vla_endpoint)
+    if args.am_endpoint is not None:
+        return None, _parse_vla_endpoint(args.am_endpoint)
 
     model_path = _resolve_vla_runtime_path(args)
     assert model_path is not None
@@ -727,8 +732,8 @@ def _spawn_vla_server(
         env_overrides={
             "QWEN25_PATH": str(qwen_path),
             **(
-                {"CUDA_VISIBLE_DEVICES": str(args.vla_cuda_device)}
-                if args.vla_cuda_device is not None
+                {"CUDA_VISIBLE_DEVICES": str(resolve_cuda_device(args, "vla"))}
+                if resolve_cuda_device(args, "vla") is not None
                 else {}
             ),
         },

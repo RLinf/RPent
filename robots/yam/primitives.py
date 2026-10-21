@@ -154,7 +154,7 @@ class YamPrimitives:
     ) -> dict[str, Any]:
         if self.model is None:
             raise RuntimeError(
-                "YAM VLA is not connected; pi05_act requires a trained --vla-endpoint"
+                "YAM VLA is not connected; pi05_act requires a trained --am-endpoint"
             )
         if type(chunks) is not int or chunks < 1:
             raise ValueError("chunks must be a positive integer")

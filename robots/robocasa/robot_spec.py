@@ -41,11 +41,17 @@ from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
 from rpent.robots.components.am_runtime import (
     add_am_device_arg,
+    add_am_endpoint_arg,
 )
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_spawn_server, try_wait_server
-from rpent.utils.config import get_memory_dir, get_repo_root
+from rpent.utils.config import (
+    add_cuda_device_arg,
+    get_memory_dir,
+    get_repo_root,
+    resolve_cuda_device,
+)
 from rpent.utils.daemon import ProcessDaemon, pick_free_port
 from rpent.utils.rpc import make_rpc_client
 from rpent.utils.rpc.http_rpc import HttpRpcClient
@@ -207,6 +213,7 @@ def get_toolkit(
 
 def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     """Register RoboCasa CLI flags on the shared ``parser``."""
+    add_cuda_device_arg(parser)
     add_am_device_arg(parser, "vla")
     parser.add_argument(
         "--memory-version",
@@ -259,11 +266,7 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         default=None,
         help="[protocol://]host:port of an existing env_server",
     )
-    parser.add_argument(
-        "--vla-endpoint",
-        default=None,
-        help="[protocol://]host:port of an existing vla_server",
-    )
+    add_am_endpoint_arg(parser)
     parser.add_argument(
         "--vla-model-path",
         default=None,
@@ -274,7 +277,7 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         type=int,
         default=None,
         help="GPU ordinal for the local RoboCasa environment; may share GPUs with "
-        "other services. Omit to use the environment service's default.",
+        "other services. Defaults to --cuda-device, then the service default.",
     )
 
 
@@ -351,7 +354,7 @@ def _spawn_env_server(
     """
     if args.env_endpoint is None:
         host, port = "127.0.0.1", pick_free_port()
-        device = args.env_cuda_device
+        device = resolve_cuda_device(args, "env")
         daemon = ProcessDaemon(
             name="env_server",
             cmd=[
@@ -395,7 +398,7 @@ def _spawn_vla_server(
     Returns ``(daemon, rpc)`` — the daemon is ``None`` when an external
     endpoint was attached (the caller must not own it).
     """
-    if args.vla_endpoint is None:
+    if args.am_endpoint is None:
         if not args.vla_model_path:
             raise ValueError(
                 "--vla-model-path is required when spawning a local vla_server"
@@ -416,14 +419,16 @@ def _spawn_vla_server(
                 str(port),
                 "--parent-watch",
             ],
-            env_overrides={"CUDA_VISIBLE_DEVICES": str(args.vla_cuda_device)}
-            if args.vla_cuda_device is not None
+            env_overrides={
+                "CUDA_VISIBLE_DEVICES": str(resolve_cuda_device(args, "vla"))
+            }
+            if resolve_cuda_device(args, "vla") is not None
             else {},
             log_path=str(Path(output_dir) / "vla_server.log"),
         )
         daemon.start()
         return daemon, HttpRpcClient(f"http://{host}:{port}", enable_sessions=True)
-    return None, make_rpc_client(args.vla_endpoint, enable_sessions=True)
+    return None, make_rpc_client(args.am_endpoint, enable_sessions=True)
 
 
 def _init_runtime(

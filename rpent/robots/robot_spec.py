@@ -64,9 +64,10 @@ class RobotSpec:
         [argparse.Namespace, Path, DashboardEventSink, set[str] | None],
         tuple[list["ProcessDaemon"], dict[str, Any]],
     ]
-    dashboard: DashboardSpec | None = None
-    #: Optional robot-owned selection of Dashboard components from session options.
-    resolve_dashboard: Callable[[argparse.Namespace], DashboardSpec] | None = None
+    #: Static descriptor or robot-owned selection from session options.
+    dashboard: DashboardSpec | Callable[[argparse.Namespace], DashboardSpec] | None = (
+        None
+    )
     #: Physical scene restoration requires operator involvement, not simulator reset.
     #: Operator input requires an exclusive terminal unless an external ENV owns it.
     is_real_robot: bool = False
@@ -92,3 +93,7 @@ class RobotSpec:
     #: Takes the toolkit, the cell tag, and a note sink; returns at least
     #: ``{"done": bool}``. Left unset by robots without Flash Mode.
     run_flash: Callable[[Any, str, Callable[[str], None]], dict[str, Any]] | None = None
+
+    def resolve_dashboard(self, args: argparse.Namespace) -> DashboardSpec | None:
+        """Return the Dashboard descriptor for this session's configuration."""
+        return self.dashboard(args) if callable(self.dashboard) else self.dashboard

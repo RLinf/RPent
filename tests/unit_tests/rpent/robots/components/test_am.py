@@ -165,13 +165,14 @@ def test_wrong_control_is_rejected_before_prediction(worker):
 )
 @pytest.mark.parametrize("legacy_options", [False, True])
 @pytest.mark.parametrize("env_device", [0, 2])
+@pytest.mark.parametrize("model_device", [None, "0"])
 def test_worker_launch_and_external_options(
-    tmp_path, monkeypatch, backend, platform, legacy_options, env_device
+    tmp_path, monkeypatch, backend, platform, legacy_options, env_device, model_device
 ):
     for name in ("python", "checkpoint", "config", "stats"):
         (tmp_path / name).touch()
     parser = argparse.ArgumentParser()
-    am_runtime.add_wam_args(parser)
+    am_runtime.add_am_args(parser, default_backend="pi05")
     extra = (
         [
             "--cosmos-predict-future",
@@ -194,7 +195,7 @@ def test_worker_launch_and_external_options(
         ]
     args = parser.parse_args(
         [
-            "--wam-backend",
+            "--am-backend",
             backend,
             "--wam-checkpoint",
             str(tmp_path / "checkpoint"),
@@ -205,7 +206,8 @@ def test_worker_launch_and_external_options(
             *extra,
         ]
     )
-    args.wam_cuda_device = "0"
+    args.wam_cuda_device = model_device
+    args.cuda_device = 1
     args.env_cuda_device = env_device
     args.sam3_cuda_device = env_device
     daemon, rpc = Mock(), Mock()
@@ -218,7 +220,9 @@ def test_worker_launch_and_external_options(
     assert selected.start_service(args, tmp_path) == (daemon, rpc)
     rpc_factory.assert_called_once_with("http://127.0.0.1:8116", enable_sessions=False)
     command = factory.call_args.kwargs["cmd"]
-    assert factory.call_args.kwargs["env_overrides"]["CUDA_VISIBLE_DEVICES"] == "0"
+    assert factory.call_args.kwargs["env_overrides"]["CUDA_VISIBLE_DEVICES"] == (
+        model_device or "1"
+    )
     assert command[:3] == [
         str(tmp_path / "python"),
         "-m",
@@ -244,11 +248,11 @@ def test_worker_launch_and_external_options(
         selected.start_service(args, tmp_path)
     rpc_factory.assert_not_called()
     args.wam_checkpoint = None
-    args.wam_endpoint = "http://localhost:8116"
+    args.am_endpoint = "http://localhost:8116"
     with pytest.raises(ValueError, match="require --wam-checkpoint"):
         am_runtime.select_wam(args, platform)
     external_args = parser.parse_args(
-        ["--wam-backend", backend, "--wam-endpoint", "http://localhost:8116"]
+        ["--am-backend", backend, "--am-endpoint", "http://localhost:8116"]
     )
     factory.reset_mock()
     assert am_runtime.select_wam(external_args, platform).start_service(
@@ -259,12 +263,12 @@ def test_worker_launch_and_external_options(
     other_backend = "fast-wam" if backend == "cosmos-policy" else "cosmos-policy"
     external_args = parser.parse_args(
         [
-            "--wam-backend",
+            "--am-backend",
             other_backend,
-            "--wam-endpoint",
+            "--am-endpoint",
             "http://localhost:8116",
             *extra,
         ]
     )
-    with pytest.raises(ValueError, match=f"require --wam-backend {backend}"):
+    with pytest.raises(ValueError, match=f"require --am-backend {backend}"):
         am_runtime.select_wam(external_args, platform)
