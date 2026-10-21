@@ -55,7 +55,11 @@ from pydantic_ai import (
 from pydantic_ai.agent import WrapperAgent
 from pydantic_ai.capabilities import AbstractCapability, Thinking, on_event
 from pydantic_ai.capabilities.abstract import AgentNode, NodeResult, WrapRunHandler
-from pydantic_ai.exceptions import UsageLimitExceeded, UserError
+from pydantic_ai.exceptions import (
+    UnexpectedModelBehavior,
+    UsageLimitExceeded,
+    UserError,
+)
 from pydantic_ai.messages import ModelMessage, UserContent
 from pydantic_ai.models import Model, ModelRequestContext
 from pydantic_ai.run import AgentRun, AgentRunResult
@@ -80,6 +84,12 @@ logger = get_logger("api")
 
 class _RequestBudgetExhausted(Exception):
     """The conversation has used its configured model-request budget."""
+
+
+def _is_response_truncation(exc: UnexpectedModelBehavior) -> bool:
+    """Match the SDK's token-limit-without-usable-output failure."""
+    message = str(exc).lower()
+    return "token limit" in message and "before any response was generated" in message
 
 
 class ApiAgentLoop(Planner):
@@ -194,8 +204,14 @@ class ApiAgentLoop(Planner):
             session.error = None
             logger.info("%s", exc)
         except Exception as exc:
-            session.error = f"{type(exc).__name__}: {exc}"
-            logger.exception("Harness planner failed")
+            if isinstance(exc, UnexpectedModelBehavior) and _is_response_truncation(
+                exc
+            ):
+                session.error = f"planner response truncated (length): {exc}"
+                logger.warning("%s", session.error)
+            else:
+                session.error = f"{type(exc).__name__}: {exc}"
+                logger.exception("Harness planner failed")
         finally:
             session.emit_usage()
         return PlannerResult(
@@ -492,7 +508,12 @@ class _Session(AbstractCapability):
             self.error = None
             raise
         except Exception as exc:
-            self.error = f"{type(exc).__name__}: {exc}"
+            if isinstance(exc, UnexpectedModelBehavior) and _is_response_truncation(
+                exc
+            ):
+                self.error = f"planner response truncated (length): {exc}"
+            else:
+                self.error = f"{type(exc).__name__}: {exc}"
             raise
         finally:
             # clai also keeps its own per-run usage for /usage. Observe it without

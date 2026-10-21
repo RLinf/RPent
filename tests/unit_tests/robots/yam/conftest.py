@@ -109,7 +109,7 @@ def env(tmp_path, monkeypatch):
     )
     value = YamAgentEnv(
         {
-            "task_name": "place_cube",
+            "task_id": 1,
             "task_language": "place the cube",
             "seed": 12,
             "max_episode_steps": 100,
@@ -147,9 +147,7 @@ def receipt(env):
 
 @pytest.fixture
 def client(env):
-    metadata = env_runtime_contract(
-        task_name="place_cube", seed=12, max_episode_steps=100
-    )
+    metadata = env_runtime_contract(task_id=1, seed=12, max_episode_steps=100)
     metadata["execution"]["compact_control"] = True
     facade = YamEnvFacade(env, metadata=metadata)
 

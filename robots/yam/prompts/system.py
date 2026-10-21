@@ -149,7 +149,7 @@ for a changed approach; stop immediately if the operator aborts.
 
 After actual env success, distil a task technique to {{memory_inbox}}/technique.md.
 Use YAML frontmatter: scope: task-family, suite: yam, regime: real,
-task_id: {{task_name}}, task_language: the actual env language,
+task_id: {{task_id}}, task_language: the actual env language,
 confidence: single-shot, evidence: {cells: [{{recipe_tag}}]}.
 Write mechanisms, object recognition, measured parameters, failed alternatives,
 operator intervention, and the evidence boundaries. Use probable/verified only
