@@ -218,8 +218,11 @@ class SceneChecker:
             i for i, n in enumerate(self.body_names) if fams and _family(n) in fams
         }
         # Contacts present before moving (the held object on the table, a
-        # finger on the grasped handle) are not attributed to the path.
-        pre = {h[:2] for h in self.collisions(held, depth, ignore)}
+        # finger already against a wall) count only once they press 5 mm
+        # deeper than at the start.
+        pre: dict[tuple[str, str], float] = {}
+        for h in self.collisions(held, depth, ignore):
+            pre[h[:2]] = max(pre.get(h[:2], 0.0), h[2])
         first_collision, first_ik_fail, bodies = None, None, set()
         first_movable, movable_pairs = None, set()
         goal_pos_err, goal_rot_err = np.inf, np.inf
@@ -240,7 +243,11 @@ class SceneChecker:
                 adr = self.model.jnt_qposadr[self.model.body_jntadr[held]]
                 self.data.qpos[adr : adr + 3] = pose[:3, 3]
                 self.data.qpos[adr + 3 : adr + 7] = _quat_wxyz(pose[:3, :3])
-            hits = [h for h in self.collisions(held, depth, ignore) if h[:2] not in pre]
+            hits = [
+                h
+                for h in self.collisions(held, depth, ignore)
+                if h[2] > pre.get(h[:2], -1.0) + 0.005
+            ]
             fixed = [h for h in hits if not h[3]]
             if fixed:
                 bodies.update(f"{h[0]}|{h[1]}" for h in fixed)
