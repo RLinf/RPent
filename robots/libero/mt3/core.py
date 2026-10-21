@@ -88,6 +88,13 @@ class MT3Config:
     #: configured route when none is feasible. "" disables the check.
     feasibility_check: str = ""
     feasibility_topk: int = 5
+    #: Extra rotations [deg] about the vertical axis tried by "minimal" when
+    #: this demo's routes are infeasible: placements (object held) turn about
+    #: where the held object is put down, since placement goals ignore its yaw;
+    #: other segments only for references matching ``yaw_free``.
+    yaw_search_deg: list[float] = field(default_factory=list)
+    #: Body-name substrings whose grasp may be turned about their own axis.
+    yaw_free: list[str] = field(default_factory=list)
     #: Also check the source interaction from the bottleneck to contact,
     #: ignoring the segment's reference object.
     feasibility_interaction: bool = False
@@ -213,6 +220,14 @@ def alignment_path(
         tau = s / total if total > 0 else 1.0
         poses.append(make_pose(pos, slerp(start[:3, :3], goal[:3, :3], tau)))
     return poses
+
+
+def yaw_about(transform: np.ndarray, angle: float, pivot: np.ndarray) -> np.ndarray:
+    """``transform`` followed by a rotation of ``angle`` [rad] about the
+    vertical axis through ``pivot``."""
+    rot = rz(angle)
+    turn = make_pose(pivot - rot @ pivot, rot)
+    return turn @ transform
 
 
 def _family(name: str) -> str:
@@ -419,6 +434,9 @@ class MT3Runner:
         self._last_target: np.ndarray | None = None
         self._last_gripper = -1.0
         self._previous_transform = np.eye(4)
+        #: Extra yaw [rad] applied to the next segment's transfer (see
+        #: ``yaw_search_deg``).
+        self._yaw = 0.0
 
     def _send(self, target: np.ndarray, gripper: float) -> bool:
         """Track ``target`` for one step; False once the episode has ended."""
@@ -564,10 +582,12 @@ class MT3Runner:
         1. The configured route (this demo, configured corridor, no extra
            height) when it is feasible.
         2. Else this demo with another corridor / transit height.
-        3. Else, only while nothing is held, another of the nearest demos;
+        3. Else this demo turned about the vertical axis (``yaw_search_deg``),
+           for placements and for ``yaw_free`` references.
+        4. Else, only while nothing is held, another of the nearest demos;
            the switch persists for the later segments, so a grasp and the
            placement that follows come from the same demonstration.
-        4. Else the configured route.
+        5. Else the configured route.
         """
         ref = self.segments[k]["ref"]
         live = self.env.body_poses([ref])[ref]
@@ -609,6 +629,32 @@ class MT3Runner:
             )
             tried += cands
             pick = best(cands)
+        if pick is None and self._yaw_allowed(k, held):
+            stage = "yaw"
+            turns = tuple(
+                sign * a for a in self.cfg.yaw_search_deg for sign in (1.0, -1.0)
+            )
+            cands = self._feasibility(
+                k,
+                live,
+                0.0,
+                [self.demo],
+                tuple(sorted({corridor, 0.0}, reverse=True)),
+                (0.0, 0.06, 0.12),
+                turns,
+            )
+            tried += cands
+            # Smallest turn first, then the usual order.
+            ok = [x for x in cands if x["feasible"]]
+            pick = min(
+                ok,
+                key=lambda x: (
+                    abs(x["yaw"]),
+                    x["first_movable_contact"] is not None,
+                    x["n"],
+                ),
+                default=None,
+            )
         if pick is None and not held:
             stage = "other demo"
             scene = self.env.body_poses(self.lib.ref_bodies)
@@ -637,18 +683,43 @@ class MT3Runner:
             approach_corridor=pick["corridor"],
             transit_clearance=pick["clearance"],
         )
+        self._yaw = np.radians(pick.get("yaw", 0.0))
         try:
             log = self._segment(k)
         finally:
             self.cfg = saved
+            self._yaw = 0.0
         log.update(
             selection={
                 "stage": stage,
-                **{key: pick[key] for key in ("demo", "corridor", "clearance", "n")},
+                **{
+                    key: pick.get(key)
+                    for key in ("demo", "corridor", "clearance", "yaw", "n")
+                },
             },
             candidates=tried if stage != "configured" else [],
         )
         return log
+
+    def _pivot(
+        self, k: int, demo: int, transform: np.ndarray, live: np.ndarray
+    ) -> np.ndarray:
+        """Point a yaw variant of segment ``k`` turns about: where the held
+        object (the previous segment's reference) is at contact for a
+        placement, else the live reference body."""
+        seg = self.lib.segments[demo][k]
+        rows = self.lib.frames(demo)
+        if k > 0:
+            held = self.lib.segments[demo][k - 1]["ref"]
+            if self.lib.gripper[rows][seg["c"]] > 0 and held in self.lib.pose:
+                return (transform @ self.lib.pose[held][rows.start + seg["c"]])[:3, 3]
+        return live[:3, 3].copy()
+
+    def _yaw_allowed(self, k: int, held: bool) -> bool:
+        ref = self.segments[k]["ref"]
+        return bool(self.cfg.yaw_search_deg) and (
+            held or any(key in ref for key in self.cfg.yaw_free)
+        )
 
     def _segment(self, k: int) -> dict[str, Any]:
         seg = self.segments[k]
@@ -658,6 +729,10 @@ class MT3Runner:
         live = self.env.body_poses([ref])[ref]
         demo_ref = self.lib.pose[ref][self.first + b]
         transform, dyaw = transfer_4dof(live, demo_ref, self.cfg.symmetry(ref))
+        if self._yaw:
+            transform = yaw_about(
+                transform, self._yaw, self._pivot(k, self.demo, transform, live)
+            )
         log: dict[str, Any] = {
             "segment": k,
             "ref": ref,
@@ -820,6 +895,7 @@ class MT3Runner:
         demos: list[int] | None = None,
         lengths: tuple[float, ...] = (0.0, 0.1, 0.2),
         clearances: tuple[float, ...] = (0.0, 0.06, 0.12, 0.2),
+        yaws: tuple[float, ...] = (0.0,),
     ) -> list[dict[str, Any]]:
         """Candidate alignment routes for segment ``k`` and their static feasibility.
 
@@ -848,26 +924,27 @@ class MT3Runner:
             transform, _ = transfer_4dof(
                 live, lib.pose[ref][rows.start + b], self.cfg.symmetry(ref)
             )
-            goal = transform @ eef[b]
-            # The source interaction up to contact: it must not run into a
-            # fixture either (the reference object itself is ignored).
-            reach_in = (
-                [transform @ lib.target[rows][f] for f in range(b + 1, other["c"] + 1)]
-                if self.cfg.feasibility_interaction
-                else []
-            )
-            for length in lengths:
-                entry = (
-                    bottleneck_frame(eef, other["start"], b, length) if length else b
+            base = transform
+            for yaw in yaws:
+                transform = (
+                    yaw_about(base, np.radians(yaw), self._pivot(k, d, base, live))
+                    if yaw
+                    else base
                 )
-                lead = [transform @ eef[f] for f in range(entry, b)]
-                for clearance in clearances:
-                    head = lead[0] if lead else goal
-                    path = alignment_path(start, head, self.cfg.align_step, clearance)
-                    paths.append(path + lead[1:] + ([goal] if lead else []) + reach_in)
-                    names.append(
-                        {"demo": d, "corridor": length, "clearance": clearance}
-                    )
+                self._candidate_routes(
+                    lib,
+                    rows,
+                    eef,
+                    other,
+                    b,
+                    transform,
+                    start,
+                    lengths,
+                    clearances,
+                    {"demo": d, "yaw": yaw},
+                    names,
+                    paths,
+                )
         options = (
             {"ignore_families": [_family(ref), "table"]}
             if self.cfg.feasibility_interaction
@@ -875,6 +952,39 @@ class MT3Runner:
         )
         results = self.env.check_paths(paths, options) if paths else []
         return [dict(n, **r) for n, r in zip(names, results)]
+
+    def _candidate_routes(
+        self,
+        lib,
+        rows,
+        eef,
+        other,
+        b,
+        transform,
+        start,
+        lengths,
+        clearances,
+        tag,
+        names,
+        paths,
+    ) -> None:
+        """Append the routes of one (demo, yaw) to ``paths`` / ``names``."""
+        goal = transform @ eef[b]
+        # The source interaction up to contact: it must not run into a
+        # fixture either (the reference object itself is ignored).
+        reach_in = (
+            [transform @ lib.target[rows][f] for f in range(b + 1, other["c"] + 1)]
+            if self.cfg.feasibility_interaction
+            else []
+        )
+        for length in lengths:
+            entry = bottleneck_frame(eef, other["start"], b, length) if length else b
+            lead = [transform @ eef[f] for f in range(entry, b)]
+            for clearance in clearances:
+                head = lead[0] if lead else goal
+                path = alignment_path(start, head, self.cfg.align_step, clearance)
+                paths.append(path + lead[1:] + ([goal] if lead else []) + reach_in)
+                names.append(dict(tag, corridor=length, clearance=clearance))
 
     def _run_continuous(
         self,
