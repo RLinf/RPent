@@ -20,6 +20,8 @@ LIBERO primitives (``move_to``, ``pi0_pick``, ``release``, ...) on top.
 
 from __future__ import annotations
 
+import json
+import os
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -208,6 +210,10 @@ class LiberoToolkit(Toolkit):
         primitives.start_recording()
         self._action_frame_cursor = primitives.recorded_frame_count()
         record = libero_tools.dump_state(primitives, self._state, log=None)
+        if os.environ.get("RPENT_MT3_SCENE_SNAPSHOT"):
+            (self._state_output_dir / "initial_body_poses.json").write_text(
+                json.dumps(primitives.env.poses(), indent=1)
+            )
         self._primitives = primitives
         self._publish_step(record)
 
