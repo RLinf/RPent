@@ -71,6 +71,15 @@ class SceneChecker:
             [n.startswith(ROBOT_PREFIXES) for n in self.body_names]
         )
         self.base_body = np.array([n.startswith(_BASE_BODIES) for n in self.body_names])
+        #: Bodies whose root floats freely (objects that a touch can push aside)
+        #: as opposed to fixtures, which stop the arm.
+        free = mujoco.mjtJoint.mjJNT_FREE
+        self.movable_body = np.array(
+            [
+                m.body_jntadr[r] >= 0 and m.jnt_type[m.body_jntadr[r]] == free
+                for r in m.body_rootid
+            ]
+        )
 
     # ---- state helpers ----
 
@@ -155,7 +164,7 @@ class SceneChecker:
 
     def collisions(
         self, held: int | None, depth: float, ignore: set[int]
-    ) -> list[tuple[str, str, float]]:
+    ) -> list[tuple[str, str, float, bool]]:
         mj, m, d = self.mj, self.model, self.data
         mj.mj_forward(m, d)
         hits = []
@@ -180,7 +189,12 @@ class SceneChecker:
             ):
                 continue
             hits.append(
-                (self.body_names[mover], self.body_names[other], float(-c.dist))
+                (
+                    self.body_names[mover],
+                    self.body_names[other],
+                    float(-c.dist),
+                    bool(self.movable_body[other]),
+                )
             )
         return hits
 
@@ -205,8 +219,9 @@ class SceneChecker:
         }
         # Contacts present before moving (the held object on the table, a
         # finger on the grasped handle) are not attributed to the path.
-        pre = {(a, b) for a, b, _ in self.collisions(held, depth, ignore)}
+        pre = {h[:2] for h in self.collisions(held, depth, ignore)}
         first_collision, first_ik_fail, bodies = None, None, set()
+        first_movable, movable_pairs = None, set()
         goal_pos_err, goal_rot_err = np.inf, np.inf
         worst_pos, min_margin, deepest = 0.0, np.inf, 0.0
         for i, target in enumerate(path):
@@ -226,17 +241,26 @@ class SceneChecker:
                 self.data.qpos[adr : adr + 3] = pose[:3, 3]
                 self.data.qpos[adr + 3 : adr + 7] = _quat_wxyz(pose[:3, :3])
             hits = [h for h in self.collisions(held, depth, ignore) if h[:2] not in pre]
-            if hits:
-                bodies.update(f"{a}|{b}" for a, b, _ in hits)
-                deepest = max(deepest, max(h[2] for h in hits))
+            fixed = [h for h in hits if not h[3]]
+            if fixed:
+                bodies.update(f"{h[0]}|{h[1]}" for h in fixed)
+                deepest = max(deepest, max(h[2] for h in fixed))
                 if first_collision is None:
                     first_collision = i
+            if len(fixed) < len(hits):
+                movable_pairs.update(f"{h[0]}|{h[1]}" for h in hits if h[3])
+                if first_movable is None:
+                    first_movable = i
         return {
             "n": len(path),
             "held": self.body_names[held] if held is not None else None,
             "first_collision": first_collision,
             "first_ik_fail": first_ik_fail,
             "collision_pairs": sorted(bodies)[:8],
+            # Touches of free objects: they are pushed rather than blocking,
+            # but can knock an object over.
+            "first_movable_contact": first_movable,
+            "movable_pairs": sorted(movable_pairs)[:8],
             "max_ik_pos_err_cm": round(100 * worst_pos, 2),
             "max_penetration_cm": round(100 * deepest, 2),
             "min_joint_margin_deg": round(min_margin, 1),

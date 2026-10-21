@@ -359,8 +359,16 @@ class MT3Runner:
             )
             return log
         # Shortest route; ties keep this runner's demo, then the shorter corridor.
+        # Routes that touch no free object first, then the shortest; ties keep
+        # this runner's demo, then the shorter corridor.
         pick = min(
-            feasible, key=lambda x: (x["n"], x["demo"] != self.demo, x["corridor"])
+            feasible,
+            key=lambda x: (
+                x["first_movable_contact"] is not None,
+                x["n"],
+                x["demo"] != self.demo,
+                x["corridor"],
+            ),
         )
         saved = (
             self.demo,
