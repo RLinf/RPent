@@ -79,6 +79,8 @@ class MT3Config:
     #: that is replayed (transferred) after aligning to its entry; 0 aligns
     #: straight to the bottleneck.
     approach_corridor: float = 0.0
+    #: Extra transit height [m] while the gripper holds an object.
+    carry_clearance: float = 0.0
     alignment_replans: int = 0
     alignment_guard_pos: float = 0.0
     alignment_guard_rot_deg: float = 15.0
@@ -377,13 +379,14 @@ class MT3Runner:
         attempts = []
         align_steps, total_settle = 0, 0
         for attempt in range(self.cfg.alignment_replans + 1):
+            clearance = 0.06 * attempt + (self.cfg.carry_clearance if hold > 0 else 0.0)
             if corridor:
                 path = alignment_path(
-                    self.env.eef_pose(), corridor[0], self.cfg.align_step, 0.06 * attempt
+                    self.env.eef_pose(), corridor[0], self.cfg.align_step, clearance
                 ) + corridor[1:] + [goal]
             else:
                 path = alignment_path(
-                    self.env.eef_pose(), goal, self.cfg.align_step, 0.06 * attempt
+                    self.env.eef_pose(), goal, self.cfg.align_step, clearance
                 )
             for pose in path:
                 if not self._send(pose, hold):
@@ -405,7 +408,7 @@ class MT3Runner:
             total_settle += settle
             attempts.append(
                 {
-                    "clearance": 0.06 * attempt,
+                    "clearance": clearance,
                     "pos_error_cm": round(100 * pos_err, 3),
                     "rot_error_deg": round(rot_err, 2),
                 }
