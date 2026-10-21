@@ -1,5 +1,16 @@
 # Copyright 2026 The RPent Authors.
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Shared action-model service startup and category-specific configuration."""
 
@@ -15,7 +26,7 @@ from rpent.utils.config import get_repo_root
 from rpent.utils.daemon import ProcessDaemon, pick_free_port
 from rpent.utils.rpc import RpcClient, make_rpc_client
 
-# --- Shared model GPU selection and RPent RPC startup ---
+# --- Shared model GPU option registration ---
 
 
 def add_am_device_arg(
@@ -30,38 +41,6 @@ def add_am_device_arg(
         "may share GPUs with other services; "
         "inherits the environment when omitted. Configure external workers at their own startup.",
     )
-
-
-def am_device_env(
-    args: argparse.Namespace, kind: Literal["vla", "wam"]
-) -> dict[str, str]:
-    """Set the model worker's GPU visibility, or inherit it when unspecified."""
-    device = getattr(args, f"{kind}_cuda_device", None)
-    return {"CUDA_VISIBLE_DEVICES": str(device)} if device is not None else {}
-
-
-def start_am_service(
-    daemon: ProcessDaemon | None,
-    endpoint: str,
-    *,
-    enable_sessions: bool = False,
-) -> tuple[ProcessDaemon | None, RpcClient]:
-    """Attach to a service or start its prepared daemon and hand off resources.
-
-    Callers own model commands and deployment settings. The robot runtime owns
-    readiness checks, Dashboard status and cleanup after a successful handoff.
-    """
-    rpc = make_rpc_client(endpoint, enable_sessions=enable_sessions)
-    if daemon is not None:
-        try:
-            daemon.start()
-        except Exception:
-            try:
-                rpc.close()
-            finally:
-                daemon.stop()
-            raise
-    return daemon, rpc
 
 
 # --- WAM backend selection and worker configuration ---
@@ -146,8 +125,8 @@ class WAMConfig:
         """Borrow an endpoint or launch the registered model in its own environment."""
         runtime_config = _runtime_config(self.backend)
         if self.endpoint:
-            return start_am_service(
-                None, self.endpoint, enable_sessions=runtime_config.USES_SESSIONS
+            return None, make_rpc_client(
+                self.endpoint, enable_sessions=runtime_config.USES_SESSIONS
             )
         port = pick_free_port()
         cmd = [
@@ -170,7 +149,8 @@ class WAMConfig:
                 filter(None, (str(get_repo_root()), os.getenv("PYTHONPATH")))
             )
         }
-        overrides.update(am_device_env(args, "wam"))
+        if args.wam_cuda_device is not None:
+            overrides["CUDA_VISIBLE_DEVICES"] = str(args.wam_cuda_device)
         daemon = ProcessDaemon(
             name="wam",
             cmd=cmd,
@@ -180,8 +160,8 @@ class WAMConfig:
             env_overrides=overrides,
             log_path=str(output_dir / "wam_server.log"),
         )
-        return start_am_service(
-            daemon,
+        daemon.start()
+        return daemon, make_rpc_client(
             f"http://127.0.0.1:{port}",
             enable_sessions=runtime_config.USES_SESSIONS,
         )

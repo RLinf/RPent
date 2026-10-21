@@ -41,8 +41,6 @@ from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
 from rpent.robots.components.am_runtime import (
     add_am_device_arg,
-    am_device_env,
-    start_am_service,
 )
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
@@ -418,11 +416,14 @@ def _spawn_vla_server(
                 str(port),
                 "--parent-watch",
             ],
-            env_overrides=am_device_env(args, "vla"),
+            env_overrides={"CUDA_VISIBLE_DEVICES": str(args.vla_cuda_device)}
+            if args.vla_cuda_device is not None
+            else {},
             log_path=str(Path(output_dir) / "vla_server.log"),
         )
-        return start_am_service(daemon, f"http://{host}:{port}", enable_sessions=True)
-    return start_am_service(None, args.vla_endpoint, enable_sessions=True)
+        daemon.start()
+        return daemon, HttpRpcClient(f"http://{host}:{port}", enable_sessions=True)
+    return None, make_rpc_client(args.vla_endpoint, enable_sessions=True)
 
 
 def _init_runtime(

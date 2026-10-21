@@ -1,5 +1,16 @@
 # Copyright 2026 The RPent Authors.
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Shared physical observations/control and WAM RPC field declarations.
 
@@ -37,10 +48,10 @@ class AMControlSpec(TypedDict):
     action_type: str | None
 
 
-# --- WAM connection: worker capabilities and input requirements ---
+# --- WAM connection: model metadata and input requirements ---
 
 
-class WAMCapabilities(TypedDict):
+class WAMModelMeta(TypedDict):
     """One worker's control contract and checkpoint input requirements."""
 
     backend: str

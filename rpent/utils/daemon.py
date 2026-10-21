@@ -139,16 +139,21 @@ class ProcessDaemon:
         self._log_f = (
             open(self.log_path, "a") if self.log_path else open(os.devnull, "w")
         )
-        self._proc = subprocess.Popen(
-            self.cmd,
-            # stdin pipe lets the child detect our death via EOF; see
-            # watch_parent_death above.
-            stdin=subprocess.PIPE,
-            stdout=self._log_f,
-            stderr=subprocess.STDOUT,
-            env=self.subprocess_env,
-            cwd=self.cwd or get_repo_root(),
-        )
+        try:
+            self._proc = subprocess.Popen(
+                self.cmd,
+                # stdin pipe lets the child detect our death via EOF; see
+                # watch_parent_death above.
+                stdin=subprocess.PIPE,
+                stdout=self._log_f,
+                stderr=subprocess.STDOUT,
+                env=self.subprocess_env,
+                cwd=self.cwd or get_repo_root(),
+            )
+        except Exception:
+            self._log_f.close()
+            self._log_f = None
+            raise
         logger.info("%s spawned (pid=%s)", self.name, self._proc.pid)
 
     def stop(self, timeout: float = 15.0) -> None:

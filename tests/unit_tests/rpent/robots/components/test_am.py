@@ -1,10 +1,20 @@
 # Copyright 2026 The RPent Authors.
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Shared action-model startup and VLA/WAM boundaries without model dependencies."""
 
 import argparse
-import os
 from unittest.mock import Mock
 
 import numpy as np
@@ -13,30 +23,6 @@ import pytest
 from rpent.robots.components import am_runtime
 from rpent.robots.components.am_client_base import BaseVLAClient, BaseWAMClient
 from rpent.robots.components.am_facade_base import BaseVLAFacade, BaseWAMFacade
-
-
-@pytest.mark.parametrize("kind", ["vla", "wam"])
-@pytest.mark.parametrize(
-    "specific,expected",
-    [
-        (None, {}),
-        ("0", {"CUDA_VISIBLE_DEVICES": "0"}),
-        ("2,3", {"CUDA_VISIBLE_DEVICES": "2,3"}),
-        ("GPU-example", {"CUDA_VISIBLE_DEVICES": "GPU-example"}),
-    ],
-)
-def test_model_gpu_selection_preserves_parent_environment(
-    monkeypatch, kind, specific, expected
-):
-    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "inherited")
-    parser = argparse.ArgumentParser()
-    am_runtime.add_am_device_arg(parser, kind)
-    args = parser.parse_args(
-        [] if specific is None else [f"--{kind}-cuda-device", specific]
-    )
-    args.env_cuda_device = 9
-    assert am_runtime.am_device_env(args, kind) == expected
-    assert os.environ["CUDA_VISIBLE_DEVICES"] == "inherited"
 
 
 def test_vla_dispatch_preserves_options_and_model_extensions():
@@ -59,23 +45,6 @@ def test_vla_dispatch_preserves_options_and_model_extensions():
         facade.close()
 
 
-@pytest.mark.parametrize("owned", [False, True])
-@pytest.mark.parametrize("sessions", [False, True])
-def test_shared_service_preserves_ownership_and_sessions(monkeypatch, owned, sessions):
-    rpc, daemon = Mock(), Mock() if owned else None
-    factory = Mock(return_value=rpc)
-    monkeypatch.setattr(am_runtime, "make_rpc_client", factory)
-    result = am_runtime.start_am_service(
-        daemon, "http://localhost:8116", enable_sessions=sessions
-    )
-    assert result == (daemon, rpc)
-    factory.assert_called_once_with("http://localhost:8116", enable_sessions=sessions)
-    if owned:
-        daemon.start.assert_called_once()
-        daemon.stop.assert_not_called()
-    rpc.close.assert_not_called()
-
-
 @pytest.fixture
 def worker():
     control = {
@@ -93,7 +62,8 @@ def worker():
             "state_schema": {"joints": 2},
             "chunk_size": 3,
             "uses_sessions": False,
-        }
+        },
+        adapter=(lambda request: request, lambda result: result),
     )
     facade.predict_native = Mock(
         return_value={
@@ -114,20 +84,21 @@ def worker():
         "images": {"primary": np.zeros((2, 2, 3), np.uint8)},
         "state": {"joints": np.zeros(2)},
     }
-    yield facade, BaseWAMClient(rpc, expected_backend="test"), rpc, request
+    yield facade, BaseWAMClient(rpc), rpc, request
     facade.close()
 
 
 def test_prediction_keeps_optional_outputs_and_caches_control(worker):
     facade, client, rpc, request = worker
-    client.validate_contract(facade.get_capabilities()["control"])
+    rpc.call.assert_called_once_with("wam.get_model_meta", timeout_s=30.0)
+    client.validate_contract(facade.get_model_meta()["control"])
     for _ in range(2):
         result = client.predict(request)
         assert result["actions"].shape == (3, 2)
         assert result["value"] == 0.5
         assert result["future_observation"] == {"predicted": True}
     assert [call.args[0] for call in rpc.call.call_args_list].count(
-        "wam.capabilities"
+        "wam.get_model_meta"
     ) == 1
     client.reset()
     client.close()
@@ -175,14 +146,10 @@ def test_bad_actions_stop_at_client_boundary(worker, actions):
         client.predict(request)
 
 
-@pytest.mark.parametrize("mismatch", ["backend", "control"])
-def test_wrong_worker_is_rejected_before_prediction(worker, mismatch):
+def test_wrong_control_is_rejected_before_prediction(worker):
     facade, client, _, _ = worker
-    expected = {**facade.get_capabilities()["control"]}
-    if mismatch == "backend":
-        facade.get_capabilities()["backend"] = "other"
-    else:
-        expected["action_schema"] = ["y", "x"]
+    expected = {**facade.get_model_meta()["control"]}
+    expected["action_schema"] = ["y", "x"]
     with pytest.raises(ValueError):
         client.validate_contract(expected)
     facade.predict_native.assert_not_called()
@@ -245,9 +212,11 @@ def test_worker_launch_and_external_options(
     factory = Mock(return_value=daemon)
     monkeypatch.setattr(am_runtime, "ProcessDaemon", factory)
     monkeypatch.setattr(am_runtime, "pick_free_port", lambda: 8116)
-    monkeypatch.setattr(am_runtime, "make_rpc_client", lambda *a, **kw: rpc)
+    rpc_factory = Mock(return_value=rpc)
+    monkeypatch.setattr(am_runtime, "make_rpc_client", rpc_factory)
     selected = am_runtime.select_wam(args, platform)
     assert selected.start_service(args, tmp_path) == (daemon, rpc)
+    rpc_factory.assert_called_once_with("http://127.0.0.1:8116", enable_sessions=False)
     command = factory.call_args.kwargs["cmd"]
     assert factory.call_args.kwargs["env_overrides"]["CUDA_VISIBLE_DEVICES"] == "0"
     assert command[:3] == [
@@ -269,11 +238,11 @@ def test_worker_launch_and_external_options(
         assert command[command.index("--config") + 1] == str(tmp_path / "config")
         assert command[command.index("--dataset-stats") + 1] == str(tmp_path / "stats")
     daemon.start.assert_called_once()
+    rpc_factory.reset_mock()
     daemon.start.side_effect = RuntimeError("launch failed")
     with pytest.raises(RuntimeError, match="launch failed"):
         selected.start_service(args, tmp_path)
-    rpc.close.assert_called_once()
-    daemon.stop.assert_called_once()
+    rpc_factory.assert_not_called()
     args.wam_checkpoint = None
     args.wam_endpoint = "http://localhost:8116"
     with pytest.raises(ValueError, match="require --wam-checkpoint"):
@@ -286,6 +255,7 @@ def test_worker_launch_and_external_options(
         external_args, tmp_path
     ) == (None, rpc)
     factory.assert_not_called()
+    rpc_factory.assert_called_once_with("http://localhost:8116", enable_sessions=False)
     other_backend = "fast-wam" if backend == "cosmos-policy" else "cosmos-policy"
     external_args = parser.parse_args(
         [

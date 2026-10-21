@@ -1,5 +1,16 @@
 # Copyright 2026 The RPent Authors.
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Select matched Fast-WAM platform encoders, decoders and controller contracts."""
 
@@ -9,7 +20,7 @@ from typing import Any
 from robots.libero.control import LIBERO_OSC
 from robots.robotwin.control import ROBOTWIN_QPOS
 from robots.robotwin.observation import ROBOTWIN_CAMERAS
-from rpent.robots.components.am_contracts import WAMCapabilities
+from rpent.robots.components.am_contracts import WAMModelMeta
 from rpent.robots.components.am_facade_base import (
     WAMAdapter,
     WAMAdapterSpec,
@@ -25,12 +36,12 @@ from rpent.robots.components.fast_wam.adapter.encode import (
 )
 
 
-def _libero_capabilities(
+def _libero_model_meta(
     *, processor: Any, binarize_gripper: bool, **common: Any
-) -> WAMCapabilities:
+) -> WAMModelMeta:
     if processor.num_output_cameras not in (1, 2):
         raise ValueError("Fast-WAM LIBERO supports one or two cameras")
-    return WAMCapabilities(
+    return WAMModelMeta(
         control=LIBERO_OSC,
         camera_roles=("primary", "wrist")[: processor.num_output_cameras],
         state_schema={"eef_position": 3, "eef_quaternion_xyzw": 4, "gripper_qpos": 2},
@@ -38,14 +49,14 @@ def _libero_capabilities(
     )
 
 
-def _robotwin_capabilities(
+def _robotwin_model_meta(
     *, processor: Any, binarize_gripper: bool, **common: Any
-) -> WAMCapabilities:
+) -> WAMModelMeta:
     if processor.num_output_cameras != 3:
         raise ValueError("Fast-WAM RoboTwin requires three cameras")
     if binarize_gripper:
         raise ValueError("RoboTwin qpos does not use LIBERO gripper binarization")
-    return WAMCapabilities(
+    return WAMModelMeta(
         control=ROBOTWIN_QPOS,
         camera_roles=ROBOTWIN_CAMERAS,
         state_schema={"joint_targets": 14},
@@ -54,10 +65,8 @@ def _robotwin_capabilities(
 
 
 ADAPTERS = {
-    "libero": WAMAdapterSpec(encode_libero, decode_libero, _libero_capabilities),
-    "robotwin": WAMAdapterSpec(
-        encode_robotwin, decode_robotwin, _robotwin_capabilities
-    ),
+    "libero": WAMAdapterSpec(encode_libero, decode_libero, _libero_model_meta),
+    "robotwin": WAMAdapterSpec(encode_robotwin, decode_robotwin, _robotwin_model_meta),
 }
 
 
@@ -74,7 +83,7 @@ def make_adapter(
     execute_steps: int,
     concat: str,
     binarize_gripper: bool = False,
-) -> tuple[WAMCapabilities, WAMAdapter]:
+) -> tuple[WAMModelMeta, WAMAdapter]:
     """Bind checkpoint preprocessing and a supported execution prefix."""
     if platform not in ADAPTERS:
         raise ValueError(f"unsupported Fast-WAM platform: {platform!r}")
@@ -87,7 +96,7 @@ def make_adapter(
             "Fast-WAM requires 0 < execute_steps <= action_horizon (integers)"
         )
     spec = ADAPTERS[platform]
-    capabilities = spec.capabilities(
+    model_meta = spec.model_meta(
         processor=processor,
         binarize_gripper=binarize_gripper,
         backend="fast_wam",
@@ -98,7 +107,7 @@ def make_adapter(
         returns_value=False,
         metadata={"prediction_horizon": action_horizon},
     )
-    return capabilities, (
+    return model_meta, (
         partial(
             spec.encode,
             processor=processor,

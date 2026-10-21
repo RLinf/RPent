@@ -1,12 +1,23 @@
 # Copyright 2026 The RPent Authors.
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Matched Cosmos Policy platform encoders and decoders."""
 
 from functools import partial
 
 from robots.libero.control import LIBERO_OSC
-from rpent.robots.components.am_contracts import WAMCapabilities
+from rpent.robots.components.am_contracts import WAMModelMeta
 from rpent.robots.components.am_facade_base import (
     WAMAdapter,
     WAMAdapterSpec,
@@ -24,7 +35,7 @@ ADAPTERS = {
         encode_libero,
         decode_libero,
         partial(
-            WAMCapabilities,
+            WAMModelMeta,
             control=LIBERO_OSC,
             camera_roles=("primary", "wrist"),
             state_schema=STATE_SCHEMA,
@@ -35,12 +46,12 @@ ADAPTERS = {
 
 def make_adapter(
     platform: str, checkpoint: str, *, predict_future: bool = False
-) -> tuple[WAMCapabilities, WAMAdapter]:
+) -> tuple[WAMModelMeta, WAMAdapter]:
     """Select a supported checkpoint contract and its paired transforms."""
     if platform not in ADAPTERS:
         raise ValueError(f"unsupported Cosmos Policy platform: {platform!r}")
     spec = ADAPTERS[platform]
-    capabilities = spec.capabilities(
+    model_meta = spec.model_meta(
         backend="cosmos_policy",
         checkpoint=checkpoint,
         chunk_size=16,
@@ -49,7 +60,7 @@ def make_adapter(
         returns_value=predict_future,
         metadata={},
     )
-    return capabilities, (
+    return model_meta, (
         spec.encode,
         partial(spec.decode, predict_future=predict_future),
     )

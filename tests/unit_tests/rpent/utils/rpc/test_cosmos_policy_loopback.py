@@ -65,7 +65,7 @@ def facade():
 def test_cosmos_policy_roundtrip(
     transport, make_server_and_client, raw_obs, facade, predict_future
 ) -> None:
-    facade._capabilities, facade._adapter = make_adapter(
+    facade._model_meta, facade._adapter = make_adapter(
         "libero", "test", predict_future=predict_future
     )
     facade._predict_future = predict_future
@@ -111,8 +111,8 @@ def test_invalid_observation(raw_obs, key, value, facade):
 )
 def test_client_rejects_invalid_chunks(raw_obs, actions, facade):
     def call(method, args=(), **kwargs):
-        if method == "wam.capabilities":
-            return facade.get_capabilities()
+        if method == "wam.get_model_meta":
+            return facade.get_model_meta()
         result = facade.predict(args[0])
         return {**result, "actions": actions}
 

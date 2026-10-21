@@ -310,7 +310,6 @@ def test_dual_franka_spawns_shared_vla_server(monkeypatch, tmp_path):
     from unittest.mock import Mock
 
     from robots.dual_franka import robot_spec
-    from rpent.robots.components import am_runtime
     from tests.e2e_tests.dual_franka.dual_franka_vla import build_parser
 
     args = build_parser().parse_args(
@@ -326,7 +325,7 @@ def test_dual_franka_spawns_shared_vla_server(monkeypatch, tmp_path):
     factory = Mock()
     monkeypatch.setattr(robot_spec, "ProcessDaemon", factory)
     monkeypatch.setattr(robot_spec, "pick_free_port", lambda: 6000)
-    monkeypatch.setattr(am_runtime, "make_rpc_client", Mock())
+    monkeypatch.setattr(robot_spec, "HttpRpcClient", Mock())
     robot_spec._spawn_vla_server(args, tmp_path)
     command = factory.call_args.kwargs["cmd"]
     assert command[1:5] == [

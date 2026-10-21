@@ -32,8 +32,6 @@ from rpent.evaluation import RunFinalizationContext, write_json_atomic
 from rpent.memory import MemoryManager
 from rpent.robots.components.am_runtime import (
     add_am_device_arg,
-    am_device_env,
-    start_am_service,
 )
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
@@ -429,14 +427,15 @@ def _spawn_vla_server(
 ) -> tuple["ProcessDaemon | None", RpcClient]:
     """Spawn (or attach to) the RoboDojo Pi_05 VLA server."""
     if args.vla_endpoint is not None:
-        return start_am_service(None, args.vla_endpoint)
+        return None, make_rpc_client(args.vla_endpoint)
 
     pi05_python = str(Path(args.pi05_python).expanduser())
     if not Path(pi05_python).exists():
         raise RuntimeError(f"RoboDojo Pi_05 env python not found: {pi05_python}")
     host, port = "127.0.0.1", pick_free_port()
     overrides = _runtime_overrides(args)
-    overrides.update(am_device_env(args, "vla"))
+    if args.vla_cuda_device is not None:
+        overrides["CUDA_VISIBLE_DEVICES"] = str(args.vla_cuda_device)
     if args.policy_backend == "rlinf":
         # End-to-end policy-chain smoke only (real weights, one prediction);
         # simulation task success rates have not yet been established.
@@ -489,7 +488,8 @@ def _spawn_vla_server(
         env_overrides=overrides,
         log_path=str(Path(output_dir) / "robodojo_vla_server.log"),
     )
-    return start_am_service(daemon, f"http://{host}:{port}")
+    daemon.start()
+    return daemon, HttpRpcClient(f"http://{host}:{port}")
 
 
 def _init_runtime(

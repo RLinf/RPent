@@ -1,5 +1,16 @@
 # Copyright 2026 The RPent Authors.
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """LIBERO observation and controller adapter shared by compatible WAM workers."""
 
@@ -36,10 +47,8 @@ def libero_request(raw_obs: dict[str, Any]) -> WAMRequest:
 class LiberoWAMClient:
     """Adapt raw LIBERO observations to the model-independent WAM client."""
 
-    def __init__(
-        self, client: RpcClient, *, expected_backend: str | None = None
-    ) -> None:
-        self.wam = BaseWAMClient(client, expected_backend=expected_backend)
+    def __init__(self, client: RpcClient) -> None:
+        self.wam = BaseWAMClient(client)
 
     def validate_libero(self) -> None:
         """Reject incompatible controllers before starting a control loop."""

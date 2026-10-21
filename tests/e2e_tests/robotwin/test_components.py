@@ -45,7 +45,7 @@ def test_wam_component(wam_argv, tmp_path, record_property) -> None:
     with runtime_phase(spec, args, tmp_path, {"env", "wam"}) as runtime:
         env = runtime["env"]
         with closing(runtime["model"]) as model:
-            caps = model.wam.get_capabilities()
+            caps = model.wam.model_meta
             record_property("checkpoint", caps["checkpoint"])
             env.reset()
             model.reset()

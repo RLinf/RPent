@@ -1,5 +1,16 @@
 # Copyright 2026 The RPent Authors.
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Shared action-model RPC registration and VLA/WAM service contracts."""
 
@@ -11,7 +22,7 @@ from typing import Any, Callable
 import numpy as np
 
 from rpent.robots.components.am_contracts import (
-    WAMCapabilities,
+    WAMModelMeta,
     WAMPrediction,
     WAMRequest,
 )
@@ -69,11 +80,11 @@ WAMAdapter = tuple[
 
 @dataclass(frozen=True)
 class WAMAdapterSpec:
-    """Register server-side transforms and their checkpoint capabilities together."""
+    """Register paired transforms and a checkpoint metadata factory."""
 
     encode: Callable[..., dict[str, Any]]
     decode: Callable[..., WAMPrediction]
-    capabilities: Callable[..., WAMCapabilities]
+    model_meta: Callable[..., WAMModelMeta]
 
 
 class BaseWAMFacade(BaseAMFacade):
@@ -83,15 +94,15 @@ class BaseWAMFacade(BaseAMFacade):
 
     def __init__(
         self,
-        capabilities: WAMCapabilities,
+        model_meta: WAMModelMeta,
         *,
-        adapter: WAMAdapter | None = None,
+        adapter: WAMAdapter,
         session_timeout_s: float = DEFAULT_SESSION_TIMEOUT_S,
     ) -> None:
-        self._capabilities = capabilities
+        self._model_meta = model_meta
         self._adapter = adapter
         super().__init__(
-            enable_sessions=capabilities["uses_sessions"],
+            enable_sessions=model_meta["uses_sessions"],
             session_timeout_s=session_timeout_s,
         )
 
@@ -99,21 +110,21 @@ class BaseWAMFacade(BaseAMFacade):
         super()._register_rpc()
         self._rpc.update(
             {
-                "wam.capabilities": self.get_capabilities,
+                "wam.get_model_meta": self.get_model_meta,
                 "wam.reset": self.reset,
             }
         )
-        self._readonly_methods.add("wam.capabilities")
+        self._readonly_methods.add("wam.get_model_meta")
 
-    def get_capabilities(self, *, session_id: str | None = None) -> WAMCapabilities:
+    def get_model_meta(self, *, session_id: str | None = None) -> WAMModelMeta:
         """Return this checkpoint's input and execution contract."""
-        return self._capabilities
+        return self._model_meta
 
     def predict(
         self, request: WAMRequest, *, session_id: str | None = None
     ) -> WAMPrediction:
         """Check incoming observations, then encode, infer and decode directly."""
-        control = self._capabilities["control"]
+        control = self._model_meta["control"]
         if any(request[key] != control[key] for key in ("embodiment", "action_space")):
             raise ValueError("WAM request does not match the worker's control contract")
         if (
@@ -121,7 +132,7 @@ class BaseWAMFacade(BaseAMFacade):
             or not request["instruction"].strip()
         ):
             raise ValueError("instruction must be a non-empty string")
-        for role in self._capabilities["camera_roles"]:
+        for role in self._model_meta["camera_roles"]:
             image = np.asarray(request["images"].get(role))
             if (
                 image.ndim != 3
@@ -132,7 +143,7 @@ class BaseWAMFacade(BaseAMFacade):
                 raise ValueError(
                     f"images.{role} must have non-empty [H, W, 3] uint8 RGB shape"
                 )
-        for name, size in self._capabilities["state_schema"].items():
+        for name, size in self._model_meta["state_schema"].items():
             state = np.asarray(request["state"].get(name))
             if (
                 state.shape != (size,)
@@ -142,9 +153,9 @@ class BaseWAMFacade(BaseAMFacade):
                 raise ValueError(
                     f"state.{name} must have shape ({size},) without NaN or Inf"
                 )
-        model_input = self._adapter[0](request) if self._adapter else request
+        model_input = self._adapter[0](request)
         result = self.predict_native(model_input, session_id=session_id)
-        return self._adapter[1](result) if self._adapter else result
+        return self._adapter[1](result)
 
     def predict_native(
         self, request: dict[str, Any], *, session_id: str | None = None
@@ -159,7 +170,7 @@ class BaseWAMFacade(BaseAMFacade):
 
     def reset_native(self, *, session_id: str | None = None) -> None:
         """Stateful workers must discard this session's cached model state."""
-        if self._capabilities["uses_sessions"]:
+        if self._model_meta["uses_sessions"]:
             raise NotImplementedError(
                 "session-based WAM workers must implement reset_native"
             )

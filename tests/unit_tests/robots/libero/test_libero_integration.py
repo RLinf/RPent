@@ -82,7 +82,7 @@ def test_wam_refreshes_observations_and_stops_on_native_end(terminated, truncate
     env.raw_obs.side_effect = [{"position": 0}, {"position": 1}]
     env.reset.return_value = (_obs(0), {})
     model = Mock(predict=Mock(return_value=np.zeros((16, 7))))
-    model.wam.get_capabilities.return_value = {"backend": "test"}
+    model.wam.model_meta = {"backend": "test"}
     primitives = LiberoPrimitives(env, model, Mock(), lambda: None, policy_kind="wam")
     primitives.reset()
     model.reset.assert_called_once()

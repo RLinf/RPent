@@ -228,7 +228,7 @@ class LiberoPrimitives:
             chunks += 1
         return ToolResult(
             data={
-                "model": self.model.wam.get_capabilities()["backend"],
+                "model": self.model.wam.model_meta["backend"],
                 "chunks": chunks,
                 "success": self.env.terminated,
                 "terminated": self.env.terminated,

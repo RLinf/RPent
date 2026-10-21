@@ -11,7 +11,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from robots.robocasa import robot_spec, vla_server
-from rpent.robots.components import am_runtime
 
 REVISION = "4b9f870d1287e0d38d7eb1445e6d8c60afe66dd7"
 
@@ -28,7 +27,7 @@ def test_worker_needs_no_user_revision(monkeypatch, tmp_path):
 
     monkeypatch.setattr(robot_spec, "ProcessDaemon", Daemon)
     monkeypatch.setattr(robot_spec, "pick_free_port", lambda: 12345)
-    monkeypatch.setattr(am_runtime, "make_rpc_client", lambda *args, **kwargs: "rpc")
+    monkeypatch.setattr(robot_spec, "HttpRpcClient", lambda *args, **kwargs: "rpc")
     args = SimpleNamespace(
         vla_endpoint=None,
         vla_model_path="checkpoint",

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import os
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -78,12 +79,13 @@ def test_wam_help_distinguishes_connection_deployment_and_models(robot_name, cap
 @pytest.mark.parametrize(
     "robot_name", ["libero", "robotwin", "robocasa", "robodojo", "dual_franka"]
 )
-@pytest.mark.parametrize("device", ["0", "2", "2,3"])
+@pytest.mark.parametrize("device", [None, "0", "2", "2,3", "GPU-example"])
 def test_local_vla_gpu_override_reaches_worker(
     monkeypatch, tmp_path, robot_name, device
 ):
-    from rpent.robots.components import am_runtime
     from rpent.utils import daemon
+
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "inherited")
 
     module = importlib.import_module(f"robots.{robot_name}.robot_spec")
     factory = Mock()
@@ -92,9 +94,8 @@ def test_local_vla_gpu_override_reaches_worker(
     if hasattr(module, "ProcessDaemon"):
         monkeypatch.setattr(module, "ProcessDaemon", factory)
         monkeypatch.setattr(module, "pick_free_port", lambda: 8116)
-    monkeypatch.setattr(am_runtime, "make_rpc_client", Mock())
     args = _parser(robot_name, dashboard=True).parse_args(
-        ["--vla-cuda-device", device]
+        (["--vla-cuda-device", device] if device is not None else [])
         + (["--env-cuda-device", "2"] if robot_name != "dual_franka" else [])
     )
     args.vla_model_path = str(tmp_path)
@@ -112,7 +113,10 @@ def test_local_vla_gpu_override_reaches_worker(
         args.policy_backend = "xpolicylab"
         args.task = "put_bottles_into_dustbin"
     module._spawn_vla_server(args, tmp_path)
-    assert factory.call_args.kwargs["env_overrides"]["CUDA_VISIBLE_DEVICES"] == device
+    overrides = factory.call_args.kwargs["env_overrides"]
+    assert overrides.get("CUDA_VISIBLE_DEVICES") == device
+    assert ("CUDA_VISIBLE_DEVICES" in overrides) == (device is not None)
+    assert os.environ["CUDA_VISIBLE_DEVICES"] == "inherited"
     assert not hasattr(args, "cuda_device")
     if robot_name == "robodojo":
         from rpent.robots.components.xpolicylab_vla_server import add_backend_args
@@ -120,7 +124,10 @@ def test_local_vla_gpu_override_reaches_worker(
         parser = argparse.ArgumentParser()
         add_backend_args(parser)
         child_args, _ = parser.parse_known_args(factory.call_args.kwargs["cmd"])
-        assert child_args.policy_gpu == device
+        if device is not None:
+            assert child_args.policy_gpu == device
+        else:
+            assert "--policy-gpu" not in factory.call_args.kwargs["cmd"]
     if robot_name != "dual_franka":
         args.seed = 0
         if robot_name == "libero":

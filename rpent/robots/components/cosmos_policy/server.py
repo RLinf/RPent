@@ -59,7 +59,7 @@ class CosmosPolicyFacade(BaseWAMFacade):
         if denoising_steps <= 0:
             raise ValueError("denoising_steps must be positive")
         checkpoint = resolve_cosmos_checkpoint(checkpoint)
-        capabilities, adapter = make_adapter(
+        model_meta, adapter = make_adapter(
             platform, checkpoint, predict_future=predict_future
         )
         # Cosmos pins its own Torch/Transformers stack. Keep imports in its worker.
@@ -92,8 +92,8 @@ class CosmosPolicyFacade(BaseWAMFacade):
         if config.dataloader_train.dataset.chunk_size != self._cfg.chunk_size:
             raise ValueError("Cosmos Policy checkpoint must use 16-action chunks")
         self._get_action = cosmos_utils.get_action
-        capabilities["metadata"]["cached_instructions_only"] = cached_instructions_only
-        super().__init__(capabilities, adapter=adapter)
+        model_meta["metadata"]["cached_instructions_only"] = cached_instructions_only
+        super().__init__(model_meta, adapter=adapter)
 
     def predict_native(
         self, request: dict, *, session_id: str | None = None

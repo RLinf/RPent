@@ -1,5 +1,16 @@
 # Copyright 2026 The RPent Authors.
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Check physical-to-model transforms and native action restoration on CPU."""
 
@@ -96,7 +107,7 @@ def test_same_physical_observation_drives_cosmos_and_fast_wam():
 
     facade = _facade()
     rpc = Mock(call=lambda method, args=(), **kw: facade._dispatch(method, args, {}))
-    result = LiberoWAMClient(rpc, expected_backend="fast_wam").predict_result(raw)
+    result = LiberoWAMClient(rpc).predict_result(raw)
     assert result["actions"].shape == (3, 7)
     np.testing.assert_allclose(result["actions"][:, -1], [1, 0, -1])
     native = facade._model.infer_action.call_args.kwargs
@@ -143,7 +154,7 @@ def test_robotwin_pair_keeps_joint_actions_and_three_camera_layout():
     )
     np.testing.assert_array_equal(physical["state"]["joint_targets"], np.arange(14))
     rpc = Mock(call=lambda method, args=(), **kw: facade._dispatch(method, args, {}))
-    client = RoboTwinWAMClient(rpc, expected_backend="fast_wam")
+    client = RoboTwinWAMClient(rpc)
     result = client.predict(observation)
     assert result.shape == (3, 14) and client.action_type == "qpos"
     np.testing.assert_allclose(result[:, -1], [0, 0.5, 1])

@@ -1,5 +1,16 @@
 # Copyright 2026 The RPent Authors.
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Serve an official Fast-WAM model with paired platform adapters."""
 
@@ -37,7 +48,7 @@ class FastWAMFacade(BaseWAMFacade):
             )
         self._model = model
         self._inference_options = {**options, "action_horizon": action_horizon}
-        capabilities, adapter = make_adapter(
+        model_meta, adapter = make_adapter(
             platform,
             checkpoint,
             processor=processor,
@@ -50,7 +61,7 @@ class FastWAMFacade(BaseWAMFacade):
             execute_steps=execute_steps,
             binarize_gripper=binarize_gripper,
         )
-        super().__init__(capabilities, adapter=adapter)
+        super().__init__(model_meta, adapter=adapter)
 
     def predict_native(self, request: dict, *, session_id: str | None = None) -> dict:
         """Invoke the official action-only inference API on encoded inputs."""

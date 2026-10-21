@@ -175,11 +175,9 @@ def test_task_inventory_uses_explicit_checkout(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("component", ["env", "vla"])
 def test_borrowed_endpoint_needs_no_local_paths(monkeypatch, tmp_path, component):
-    from rpent.robots.components import am_runtime
-
     client = object()
     monkeypatch.setattr(
-        robot_spec if component == "env" else am_runtime,
+        robot_spec,
         "make_rpc_client",
         lambda endpoint, **kwargs: client,
     )

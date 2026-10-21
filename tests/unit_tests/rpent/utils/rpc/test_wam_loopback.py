@@ -1,5 +1,16 @@
 # Copyright 2026 The RPent Authors.
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """A session-based joint controller exercises the same RPC as stateless Cosmos."""
 
@@ -9,7 +20,7 @@ import numpy as np
 import pytest
 
 from rpent.robots.components.am_client_base import BaseWAMClient
-from rpent.robots.components.am_contracts import WAMCapabilities, WAMPrediction
+from rpent.robots.components.am_contracts import WAMModelMeta, WAMPrediction
 from rpent.robots.components.am_facade_base import BaseWAMFacade
 from rpent.utils.rpc import RpcError, wait_for_ready
 
@@ -18,7 +29,7 @@ class _JointWAM(BaseWAMFacade):
     def __init__(self):
         self.history = {}
         super().__init__(
-            WAMCapabilities(
+            WAMModelMeta(
                 backend="test_joint_wam",
                 checkpoint="test",
                 control={
@@ -31,7 +42,8 @@ class _JointWAM(BaseWAMFacade):
                 state_schema={"joint_position": 7, "gripper_position": 1},
                 uses_sessions=True,
                 chunk_size=None,
-            )
+            ),
+            adapter=(lambda request: request, lambda result: result),
         )
 
     def predict_native(self, request, *, session_id=None):
@@ -52,7 +64,7 @@ def test_session_history_isolation_reset_and_cleanup(transport, make_server_and_
         "action_space": "test.joint_position.v1",
         "images": {
             role: np.zeros((2, 3, 3), np.uint8)
-            for role in facade._capabilities["camera_roles"]
+            for role in facade._model_meta["camera_roles"]
         },
         "state": {"joint_position": np.zeros(7), "gripper_position": np.zeros(1)},
     }
@@ -65,7 +77,7 @@ def test_session_history_isolation_reset_and_cleanup(transport, make_server_and_
             wait_for_ready(rpc, timeout_s=5)
             clients.append(BaseWAMClient(rpc))
         first, second = clients
-        assert first.get_capabilities()["uses_sessions"]
+        assert first.model_meta["uses_sessions"]
         assert first.predict(request)["actions"].shape == (1, 8)
         assert first.predict(request)["actions"].shape == (2, 8)
         assert second.predict(request)["actions"].shape == (1, 8)

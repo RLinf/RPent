@@ -32,9 +32,7 @@ from rpent.robots.components.am_runtime import (
     WAMConfig,
     add_am_device_arg,
     add_wam_args,
-    am_device_env,
     select_wam,
-    start_am_service,
 )
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
@@ -426,7 +424,7 @@ def _spawn_vla_server(
 ) -> tuple[ProcessDaemon | None, RpcClient]:
     """Connect to Pi0.5 or launch its shared component server."""
     if args.vla_endpoint:
-        return start_am_service(None, args.vla_endpoint)
+        return None, make_rpc_client(args.vla_endpoint)
     host, port = "127.0.0.1", pick_free_port()
     daemon = ProcessDaemon(
         name="vla_server",
@@ -443,10 +441,13 @@ def _spawn_vla_server(
             str(port),
             "--parent-watch",
         ],
-        env_overrides=am_device_env(args, "vla"),
+        env_overrides={"CUDA_VISIBLE_DEVICES": str(args.vla_cuda_device)}
+        if args.vla_cuda_device is not None
+        else {},
         log_path=str(output_dir / "vla_server.log"),
     )
-    return start_am_service(daemon, f"http://{host}:{port}")
+    daemon.start()
+    return daemon, HttpRpcClient(f"http://{host}:{port}")
 
 
 def _make_model_client(rpc: RpcClient, wam: WAMConfig | None) -> Any:
@@ -454,11 +455,11 @@ def _make_model_client(rpc: RpcClient, wam: WAMConfig | None) -> Any:
     if wam is not None:
         from robots.libero.wam_client import LiberoWAMClient
 
-        client = LiberoWAMClient(rpc, expected_backend=wam.rpc_backend)
         try:
+            client = LiberoWAMClient(rpc)
             client.validate_libero()
         except Exception:
-            client.close()
+            rpc.close()
             raise
         return client
     from rpent.robots.components.pi05_vla_client import Pi05VLAClient

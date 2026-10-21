@@ -35,7 +35,6 @@ from rpent.memory import MemoryManager
 from rpent.robots.components.am_runtime import (
     add_am_device_arg,
     add_wam_args,
-    am_device_env,
     select_wam,
 )
 from rpent.robots.prompt_bundle import PromptBundle
@@ -519,7 +518,7 @@ def _resolve_cuda_devices(
     env_device = getattr(args, "env_cuda_device", None)
     return (
         str(env_device) if env_device is not None else None,
-        am_device_env(args, "vla").get("CUDA_VISIBLE_DEVICES"),
+        str(args.vla_cuda_device) if args.vla_cuda_device is not None else None,
     )
 
 
@@ -609,11 +608,11 @@ def _init_runtime(
         def connect_wam():
             from robots.robotwin.wam_client import RoboTwinWAMClient
 
-            client = RoboTwinWAMClient(rpc, expected_backend=wam.rpc_backend)
             try:
+                client = RoboTwinWAMClient(rpc)
                 client.validate_robotwin()
             except Exception:
-                client.close()
+                rpc.close()
                 raise
             return {"model": client, "policy_kind": "wam"}
 
@@ -727,7 +726,11 @@ def _spawn_vla_server(
         ],
         env_overrides={
             "QWEN25_PATH": str(qwen_path),
-            **am_device_env(args, "vla"),
+            **(
+                {"CUDA_VISIBLE_DEVICES": str(args.vla_cuda_device)}
+                if args.vla_cuda_device is not None
+                else {}
+            ),
         },
         log_path=str(output_dir / "lingbot_vla_server.log"),
     )

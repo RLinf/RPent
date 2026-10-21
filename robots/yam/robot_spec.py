@@ -27,7 +27,6 @@ from robots.yam.tasks import TASK_INSTRUCTIONS, resolve_task_language
 from rpent.dashboard.events import DashboardEventSink
 from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
-from rpent.robots.components.am_runtime import start_am_service
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_wait_server
@@ -272,7 +271,7 @@ def _init_runtime(
             )
         )
     if "vla" in selected:
-        _, vla_rpc = start_am_service(None, args.vla_endpoint)
+        vla_rpc = make_rpc_client(args.vla_endpoint)
         primitives_kwargs.update(
             try_wait_server(
                 owned_daemons,

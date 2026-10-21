@@ -1,5 +1,16 @@
 # Copyright 2026 The RPent Authors.
+#
 # Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """Shared action-model transport and VLA/WAM client contracts."""
 
@@ -11,7 +22,7 @@ import numpy as np
 
 from rpent.robots.components.am_contracts import (
     AMControlSpec,
-    WAMCapabilities,
+    WAMModelMeta,
     WAMPrediction,
     WAMRequest,
 )
@@ -49,7 +60,7 @@ class BaseVLAClient(BaseAMClient):
 
 
 class BaseWAMClient(BaseAMClient):
-    """Client for the ``wam.*`` RPC contract."""
+    """Client for ``wam.*`` RPCs, with metadata fetched once on connection."""
 
     PREDICT_METHOD = "wam.predict"
 
@@ -57,30 +68,16 @@ class BaseWAMClient(BaseAMClient):
         self,
         client: RpcClient,
         *,
-        expected_backend: str | None = None,
         timeout_s: float = 300.0,
     ) -> None:
         super().__init__(client, timeout_s=timeout_s)
-        self._expected_backend = expected_backend
-        self._capabilities: WAMCapabilities | None = None
-
-    def get_capabilities(self) -> WAMCapabilities:
-        """Fetch, validate, and cache checkpoint capabilities."""
-        if self._capabilities is None:
-            capabilities = self._client.call("wam.capabilities", timeout_s=30.0)
-            if (
-                self._expected_backend is not None
-                and capabilities["backend"] != self._expected_backend
-            ):
-                raise ValueError(
-                    f"expected backend {self._expected_backend!r}, got {capabilities['backend']!r}"
-                )
-            self._capabilities = capabilities
-        return self._capabilities
+        self.model_meta: WAMModelMeta = self._client.call(
+            "wam.get_model_meta", timeout_s=30.0
+        )
 
     def validate_contract(self, expected: AMControlSpec) -> None:
-        """Connect and require the platform's native control contract."""
-        actual = self.get_capabilities()["control"]
+        """Require the platform's native control contract in cached metadata."""
+        actual = self.model_meta["control"]
         if actual != expected:
             raise ValueError(
                 f"WAM control mismatch: expected={expected!r}, actual={actual!r}"
@@ -88,15 +85,15 @@ class BaseWAMClient(BaseAMClient):
 
     def predict(self, request: WAMRequest) -> WAMPrediction:
         """Request actions and check their shape and values before execution."""
-        capabilities = self.get_capabilities()
+        model_meta = self.model_meta
         prediction = self._predict(request)
         actions = np.asarray(prediction["actions"])
-        action_dim = len(capabilities["control"]["action_schema"])
+        action_dim = len(model_meta["control"]["action_schema"])
         if actions.ndim != 2 or actions.shape[0] == 0 or actions.shape[1] != action_dim:
             raise ValueError(
                 f"WAM actions must have non-empty [chunk, {action_dim}] shape"
             )
-        chunk_size = capabilities["chunk_size"]
+        chunk_size = model_meta["chunk_size"]
         if chunk_size is not None and len(actions) != chunk_size:
             raise ValueError(f"WAM prediction must contain {chunk_size} actions")
         if actions.dtype.kind not in "iuf" or not np.isfinite(actions).all():
