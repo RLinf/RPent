@@ -144,15 +144,22 @@ def run_mt3(
     cfg, library_dir = load_config(Path(toolkit.memory.root))
     if cfg.force_recorded_trace:
         trace = np.load(cfg.force_recorded_trace)
-        for action in trace["actions"]:
-            toolkit.primitives._step_env(np.asarray(action, dtype=np.float64))
-            toolkit.get_env_state(
-                command={"action": "mt3_exact_trace_step"},
-                result={"success": bool(toolkit.primitives.env.terminated)},
-                elapsed_s=0.0,
-            )
-            if toolkit.primitives.env.terminated or toolkit.primitives.env.truncated:
-                break
+        def replay_trace() -> dict[str, Any]:
+            executed = 0
+            for action in trace["actions"]:
+                toolkit.primitives._step_env(np.asarray(action, dtype=np.float64))
+                executed += 1
+                if toolkit.primitives.env.terminated or toolkit.primitives.env.truncated:
+                    break
+            return {"steps": executed, "success": bool(toolkit.primitives.env.terminated)}
+
+        toolkit.add_tool(
+            "mt3_exact_trace",
+            {"name": "mt3_exact_trace", "description": "Replay the recorded raw action trace verbatim.",
+             "input_schema": {"type": "object", "properties": {}}},
+            partial(toolkit._execute_primitive, "mt3_exact_trace", replay_trace),
+        )
+        execute(toolkit, "mt3_exact_trace", {})
         episode = {
             "cell": cell_tag, "suite": suite, "task": task, "seed": seed,
             "mode": "exact_recorded_trace", "success": bool(toolkit.solved()),
