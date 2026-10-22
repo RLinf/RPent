@@ -135,6 +135,9 @@ class MT3Config:
     #: Demo retrieval: "nearest" (reference-body distance) or "reach" (most
     #: segments whose transferred bottleneck the arm can reach, then nearest).
     retrieval: str = "nearest"
+    #: Zero-based position in the distance-ranked library, useful for controlled
+    #: exploration when the nearest demonstration fails deterministically.
+    retrieval_rank: int = 0
     alignment_replans: int = 0
     #: Additional alignment attempts for references matching a body-name
     #: substring. Absent entries preserve the global setting.

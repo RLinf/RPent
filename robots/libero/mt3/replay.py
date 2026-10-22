@@ -121,6 +121,21 @@ def execute(toolkit: Any, name: str, arguments: dict[str, Any]) -> None:
         raise RuntimeError(f"{name} failed: {error}\n{result.get('traceback', '')}")
 
 
+def select_demo(lib: TaskLibrary, scene: dict[str, np.ndarray], cfg: MT3Config):
+    """Select the configured distance rank; rank zero is the usual nearest demo."""
+    demo, retrieval = lib.nearest(scene, cfg)
+    rank = int(cfg.retrieval_rank)
+    if rank:
+        ranked = lib.ranked(scene, cfg)
+        if rank < 0 or rank >= len(ranked):
+            raise ValueError(
+                f"retrieval_rank {rank} is outside the {len(ranked)} kept demonstrations"
+            )
+        demo = ranked[rank]
+        retrieval = {**retrieval, "demo": demo, "rank": rank}
+    return demo, retrieval
+
+
 def run_mt3(
     toolkit: Any, cell_tag: str, note: Callable[[str], None] = lambda _: None
 ) -> dict:
@@ -146,7 +161,7 @@ def run_mt3(
         json.dumps(toolkit.primitives.env.poses(), indent=1)
     )
     scene = hooks.body_poses(lib.ref_bodies)
-    demo, retrieval = lib.nearest(scene, cfg)
+    demo, retrieval = select_demo(lib, scene, cfg)
     if cfg.retrieval == "reach" and hooks.check_paths is not None:
         demo, reach = reach_retrieval(lib, scene, cfg, hooks)
         retrieval = {**retrieval, "demo": demo, "reach": reach}

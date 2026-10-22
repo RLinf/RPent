@@ -28,6 +28,7 @@ from robots.libero.mt3.core import (
     tilt_about,
 )
 from robots.libero.mt3.feasibility import _rrt_connect, _shortcut_path
+from robots.libero.mt3.replay import select_demo
 
 
 def test_native_rpent_policy_preserves_seed_method(monkeypatch):
@@ -40,6 +41,21 @@ def test_native_rpent_policy_preserves_seed_method(monkeypatch):
     assert env.seed is seed
     env.seed(9)
     assert calls == [9]
+
+
+def test_configured_retrieval_rank_selects_distance_rank():
+    class Library:
+        def nearest(self, scene, cfg):
+            return 4, {"demo": 4, "dist": 0.1}
+
+        def ranked(self, scene, cfg):
+            return [4, 2, 7]
+
+    demo, metadata = select_demo(Library(), {}, MT3Config(retrieval_rank=2))
+    assert demo == 7
+    assert metadata["demo"] == 7
+    assert metadata["rank"] == 2
+    assert select_demo(Library(), {}, MT3Config())[0] == 4
 
 
 def test_reference_specific_alignment_replans_preserve_default():
