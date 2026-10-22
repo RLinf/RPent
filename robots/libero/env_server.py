@@ -143,9 +143,16 @@ def _attach_pose_reader(env):
         """The flattened MuJoCo state (LIBERO demo ``states`` format)."""
         return [float(v) for v in env.get_sim_state()]
 
+    def plan_path(goal_pose, options=None):
+        """Joint-space RRT path for one grip-site goal on copied scene state."""
+        from robots.libero.mt3.feasibility import plan_path as _plan
+
+        return _plan(env.env.sim, goal_pose, **(options or {}))
+
     env.read_poses = read_poses
     env.check_paths = check_paths
     env.sim_state = sim_state
+    env.plan_path = plan_path
     return env
 
 
@@ -302,12 +309,14 @@ class LiberoEnvFacade(BaseEnvFacade):
                 "env.poses": self.poses,
                 "env.check_paths": self.check_paths,
                 "env.sim_state": self.sim_state,
+                "env.plan_path": self.plan_path,
             }
         )
         self._readonly_methods.add("env.get_task_language")
         self._readonly_methods.add("env.poses")
         self._readonly_methods.add("env.check_paths")
         self._readonly_methods.add("env.sim_state")
+        self._readonly_methods.add("env.plan_path")
 
     # ---- shape helpers ----
 
@@ -444,6 +453,14 @@ class LiberoEnvFacade(BaseEnvFacade):
         return self._env.env.workers[self._env_idx].env_call(
             "check_paths",
             args=[[np.asarray(p).tolist() for p in paths], options or {}],
+            target="self",
+        )
+
+    def plan_path(self, goal_pose, options=None) -> dict:
+        """Plan to a grip-site pose on a copy of the live simulator state."""
+        return self._env.env.workers[self._env_idx].env_call(
+            "plan_path",
+            args=[np.asarray(goal_pose).tolist(), options or {}],
             target="self",
         )
 

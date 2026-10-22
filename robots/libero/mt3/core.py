@@ -87,6 +87,8 @@ class MT3Config:
     #: feasible candidate (its demo, corridor and transit height), or the
     #: configured route when none is feasible. "" disables the check.
     feasibility_check: str = ""
+    #: Use joint-space RRT-Connect when all static alignment routes fail.
+    rrt_fallback: bool = False
     feasibility_topk: int = 5
     #: Extra rotations [deg] about the vertical axis tried by "minimal" when
     #: this demo's routes are infeasible: placements (object held) turn about
@@ -435,6 +437,8 @@ class EnvHooks:
     #: Static feasibility of grip-site paths on a copy of the live scene
     #: (``robots.libero.mt3.feasibility``); None when unavailable.
     check_paths: Callable[..., list[dict[str, Any]]] | None = None
+    #: Plan one grip-site pose on a copied simulator state.
+    plan_path: Callable[[np.ndarray], dict[str, Any]] | None = None
 
 
 class MT3Runner:
@@ -736,6 +740,41 @@ class MT3Runner:
             if pick is not None:
                 self._use_demo(pick["demo"])
         if pick is None:
+            if self.cfg.rrt_fallback and self.env.plan_path is not None:
+                b = bottleneck_frame(
+                    self.eef,
+                    self.segments[k]["start"],
+                    self.segments[k]["c"],
+                    self.cfg.radius,
+                )
+                demo_ref = self.lib.pose[ref][self.first + b]
+                transform, _ = transfer_4dof(live, demo_ref, self.cfg.symmetry(ref))
+                if base:
+                    transform = yaw_about(
+                        transform,
+                        np.radians(base),
+                        self._pivot(k, self.demo, transform, live),
+                    )
+                planned = self.env.plan_path(transform @ self.eef[b])
+                if planned.get("success"):
+                    self._yaw = np.radians(base)
+                    try:
+                        log = self._segment(
+                            k, precomputed_path=[np.asarray(p) for p in planned["path"]]
+                        )
+                    finally:
+                        self._yaw = 0.0
+                    self._carry_yaw = 0.0 if held else float(base)
+                    log.update(
+                        selection={
+                            "stage": "rrt",
+                            **planned,
+                            "path": None,
+                            "yaw": base,
+                        },
+                        candidates=tried,
+                    )
+                    return log
             self._yaw = np.radians(base)
             try:
                 log = self._segment(k)
@@ -794,7 +833,9 @@ class MT3Runner:
             held or any(key in ref for key in self.cfg.yaw_free)
         )
 
-    def _segment(self, k: int) -> dict[str, Any]:
+    def _segment(
+        self, k: int, precomputed_path: list[np.ndarray] | None = None
+    ) -> dict[str, Any]:
         seg = self.segments[k]
         ref, start, c, end = seg["ref"], seg["start"], seg["c"], seg["end"]
         radius = self.cfg.radius
@@ -863,7 +904,9 @@ class MT3Runner:
                 + self.cfg.transit_clearance
                 + (self.cfg.carry_clearance if hold > 0 else 0.0)
             )
-            if self.cfg.approach == "dmp" and attempt == 0 and b > start:
+            if precomputed_path is not None and attempt == 0:
+                path = precomputed_path
+            elif self.cfg.approach == "dmp" and attempt == 0 and b > start:
                 demo_path = [
                     transform @ self.eef[f] @ grasp_delta for f in range(start, b + 1)
                 ]

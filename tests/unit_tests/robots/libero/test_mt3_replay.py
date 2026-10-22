@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import time
 from types import SimpleNamespace
 
 import numpy as np
@@ -19,6 +20,7 @@ import pytest
 
 from robots.libero.env_server import _configure_fixture_seed, _seed_fixture_sampler
 from robots.libero.mt3.core import POS_SCALE, EnvHooks, MT3Config, MT3Runner
+from robots.libero.mt3.feasibility import _rrt_connect, _shortcut_path
 
 
 def test_native_rpent_policy_preserves_seed_method(monkeypatch):
@@ -116,6 +118,90 @@ def test_blocked_alignment_does_not_execute_source_grasp():
     result = runner.run_segment(0)
     assert result["blocked"]
     assert all(action[6] == -1 for action in actions)
+
+
+def test_rrt_connect_routes_around_joint_space_wall_and_shortcuts_safely():
+    """A box obstacle blocks the direct edge in a 2-D toy configuration space."""
+    lo, hi = np.zeros(2), np.ones(2)
+
+    def valid(q):
+        return not (0.42 <= q[0] <= 0.58 and 0.0 <= q[1] <= 0.72)
+
+    start, goal = np.array([0.15, 0.2]), np.array([0.85, 0.2])
+    assert not all(valid(start + (goal - start) * t) for t in np.linspace(0, 1, 50))
+    path, iterations = _rrt_connect(
+        start,
+        goal,
+        valid,
+        lo,
+        hi,
+        np.random.default_rng(12),
+        max_iterations=3000,
+        timeout=5.0,
+        started=time.monotonic(),
+        step_size=0.16,
+        edge_step=0.02,
+    )
+    assert path is not None
+    assert iterations > 0
+    assert np.allclose(path[0], start)
+    assert np.allclose(path[-1], goal)
+
+    def edge_valid(a, b):
+        count = max(1, int(np.ceil(np.max(np.abs(b - a)) / 0.02)))
+        return all(valid(a + (b - a) * i / count) for i in range(1, count + 1))
+
+    smooth = _shortcut_path(
+        path,
+        valid,
+        np.random.default_rng(9),
+        attempts=100,
+        edge_step=0.02,
+    )
+    assert all(edge_valid(a, b) for a, b in zip(smooth, smooth[1:]))
+
+
+def test_minimal_route_uses_rrt_path_when_candidates_fail():
+    poses = np.repeat(np.eye(4)[None], 4, axis=0)
+    poses[:, 0, 3] = np.linspace(0.0, 0.03, 4)
+    calls = []
+    planned_path = [np.eye(4), np.eye(4)]
+    planned_path[1] = np.eye(4)
+    planned_path[1][1, 3] = 0.01
+    lib = SimpleNamespace(
+        frames=lambda _: slice(0, 4),
+        eef=poses,
+        target=poses.copy(),
+        gripper=np.full(4, -1.0),
+        actions=np.zeros((4, 7)),
+        segments=[[{"ref": "object", "start": 0, "c": 2, "end": 4}]],
+        pose={"object": np.repeat(np.eye(4)[None], 4, axis=0)},
+        ref_bodies=["object"],
+        ranked=lambda *_: [],
+    )
+    current = np.eye(4)
+    hooks = EnvHooks(
+        lambda action: calls.append(action),
+        lambda: current.copy(),
+        lambda names: {name: np.eye(4) for name in names},
+        lambda: False,
+        check_paths=lambda paths, options=None: [{"feasible": False} for _ in paths],
+        plan_path=lambda goal: {
+            "success": True,
+            "path": planned_path,
+            "iterations": 3,
+            "time_s": 0.01,
+            "path_length": 0.5,
+            "movable_contact_count": 0,
+        },
+    )
+    cfg = MT3Config(feasibility_check="minimal", rrt_fallback=True, settle_max=0)
+    runner = MT3Runner(lib, 0, cfg, hooks)
+    result = runner.run_segment(0)
+    assert result["selection"]["stage"] == "rrt"
+    assert result["selection"]["iterations"] == 3
+    assert result["align_steps"] == len(planned_path)
+    assert len(calls) > len(planned_path)
 
 
 def test_agent_replay_catalog_and_bounds(monkeypatch, tmp_path):

@@ -119,6 +119,14 @@ class LiberoEnvClient(BaseEnvClient):
             timeout_s=600,
         )
 
+    def plan_path(self, goal_pose, options=None) -> dict:
+        """Plan a joint-space path to one grip-site pose."""
+        return self._client.call(
+            "env.plan_path",
+            kwargs={"goal_pose": np.asarray(goal_pose).tolist(), "options": options},
+            timeout_s=600,
+        )
+
     def render_camera(
         self,
         camera_name: str = "agentview",
