@@ -55,6 +55,7 @@
     "download": "Download CSV",
     "print": "Print page",
     "menu": "Chart options",
+    "countsOnly": "Evaluated",
     "saved": "CSV downloaded",
     "allScores": "All methods & reported scores",
     "environments": "Environments"
@@ -78,6 +79,7 @@
     "download": "下载 CSV",
     "print": "打印页面",
     "menu": "图表选项",
+    "countsOnly": "已评测",
     "saved": "CSV 已下载",
     "allScores": "完整方法与分项成绩",
     "environments": "环境"
@@ -108,14 +110,7 @@
   }
   const allRows = view => [...rowsByView.get(view.id)].sort((a,b)=>
     a.rate===null?b.rate===null?a.id.localeCompare(b.id):1:b.rate===null?-1:Number(b.rate)-Number(a.rate)||a.id.localeCompare(b.id));
-  const rate = value => Number(value).toFixed(2);
-  const count = r => {
-    if(r.episodes==null)return '—';
-    if(r.successes!=null)return `${r.successes}/${r.episodes}`;
-    if(r.rate==null)return '—';
-    const estimate=Number(r.rate)*r.episodes/100;
-    return `${Math.round(estimate)}/${r.episodes}`;
-  };
+  const count = r => r.successes!=null?`${r.successes}/${r.episodes}`:r.episodes!=null?`${t('countsOnly')}: ${r.episodes}`:'—';
   function headline(id) {
     const view=views.get(id);
     const benchmark=d.benchmarks.find(b=>b.id===view.benchmark_id);
@@ -137,7 +132,7 @@
     const rows=allRows(view).filter(r=>r.rate!==null);
     const bestRate=Number(rows[0]?.rate);
     return `<div class="chart ${kind}" aria-label="${h(headline(view.id))}"><div class="chart-grid" aria-hidden="true">${Array.from({length:6},()=>'<i></i>').join('')}</div><div class="chart-rows">${rows.map(r=>
-      `<div class="chart-row" data-record="${r.id}" aria-label="${h(label(r)+', '+detailLabel(r)+', '+rate(r.rate)+'%, '+count(r))}"><div class="method-label"><span class="method-text"><span class="method-name">${h(label(r))}${noteReference(r)}</span><span class="method-description">${h(detailLabel(r))}</span>${r.episodes!=null?`<span class="episode-count">${h(count(r))}</span>`:''}</span></div><div class="bar-track"><div class="bar${Number(r.rate)===0?' zero':''}" style="--value:${Number(r.rate)}%;--bar-color:${color(r,bestRate)}"><span class="bar-value">${rate(r.rate)}%</span></div></div></div>`).join('')}</div><div class="axis" aria-hidden="true">${[0,20,40,60,80,100].map(x=>`<span>${x}</span>`).join('')}</div></div>`;
+      `<div class="chart-row" data-record="${r.id}" aria-label="${h(label(r)+', '+detailLabel(r)+', '+r.rate+'%, '+count(r))}"><div class="method-label"><span class="method-text"><span class="method-name">${h(label(r))}${noteReference(r)}</span><span class="method-description">${h(detailLabel(r))}</span>${r.episodes!=null?`<span class="episode-count">${h(count(r))}</span>`:''}</span></div><div class="bar-track"><div class="bar${Number(r.rate)===0?' zero':''}" style="--value:${Number(r.rate)}%;--bar-color:${color(r,bestRate)}"><span class="bar-value">${r.rate}%</span></div></div></div>`).join('')}</div><div class="axis" aria-hidden="true">${[0,20,40,60,80,100].map(x=>`<span>${x}</span>`).join('')}</div></div>`;
   }
   function comparisonMatrix(s) {
     const columns=s.views;
@@ -146,7 +141,7 @@
       const sample=columns.flatMap(allRows).find(r=>r.configuration_id===c.id&&r.rate!==null);
       return `<tr data-method="${c.id}"><th scope="row"><div class="matrix-label"><span>${h(label(sample))}${noteReference(sample)}<small> ${h(detailLabel(sample))}</small></span></div></th>${columns.map(v=>{
         const r=allRows(v).find(r=>r.configuration_id===c.id);
-        return `<td class="rate" data-value="${r?.rate??''}"${r?` data-matrix-record="${r.id}"`:''} title="${h(tr(r?.evaluation_note)||tr(v.label))}">${r?.rate!=null?rate(r.rate)+'%':`<span class="not-reported" aria-label="${t('unreported')}">—</span>`}${r?.episodes!=null?` <small class="episode-count">(${h(count(r))})</small>`:''}</td>`;
+        return `<td class="rate" data-value="${r?.rate??''}"${r?` data-matrix-record="${r.id}"`:''} title="${h(tr(r?.evaluation_note)||tr(v.label))}">${r?.rate!=null?r.rate+'%':`<span class="not-reported" aria-label="${t('unreported')}">—</span>`}${r?.episodes!=null?` <small class="episode-count">(${h(count(r))})</small>`:''}</td>`;
       }).join('')}</tr>`;
     }).join('')}</tbody></table></div></details>`;
   }

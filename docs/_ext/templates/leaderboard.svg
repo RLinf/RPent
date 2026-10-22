@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1320" height="{{ height }}" viewBox="0 0 1320 {{ height }}" role="img" aria-labelledby="title description">
   <title id="title">RPent Leaderboard</title>
-  <desc id="description">{{ copy.scope }} {% for section in sections %}{{ section.name }}: {% for row in section.bars %}{{ row.label }} {{ row.display_rate }}%; {% endfor %}{% endfor %}</desc>
+  <desc id="description">{{ copy.scope }} {% for section in sections %}{{ section.name }}: {% for row in section.bars %}{{ row.label }} {{ row.rate }}%; {% endfor %}{% endfor %}</desc>
   <rect width="1320" height="{{ height }}" fill="{{ '#191620' if dark else '#faf8fd' }}"/>
   <style>
     text { font-family: "Times New Roman", "Noto Serif CJK SC", serif; fill: {{ '#f4f0fa' if dark else '#30283d' }}; }
@@ -19,7 +19,7 @@
       <text y="17" class="detail">{{ row.detail }}</text>
       <rect x="288" y="-13" width="235" height="23" rx="3" fill="{{ '#3a3345' if dark else '#f1edf6' }}"/>
       <rect x="288" y="-13" width="{{ row.width }}" height="23" rx="3" fill="{{ palette[row.color_role] }}"/>
-      <text x="585" y="4" text-anchor="end" font-size="15">{{ row.display_rate }}%</text>
+      <text x="585" y="4" text-anchor="end" font-size="15">{{ row.rate }}%</text>
     </g>
     {% endfor %}
     {% if section.image_notes %}
