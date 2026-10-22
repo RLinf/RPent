@@ -186,6 +186,50 @@ Notes:
   ``CODEX_API_KEY``. This backend does not read ``OPENAI_BASE_URL`` or
   ``OPENAI_API_KEY``.
 
+.. _planner-codex-isolation:
+
+Separate Codex Configuration and Login
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Use separate directories to avoid mixing RPent's configuration and session history
+with your everyday Codex development setup.
+
+In the terminal that runs RPent, activate ``.venv`` and set separate Codex
+configuration and session directories from the repository root. Repeat this setup
+in each new terminal used to run RPent:
+
+.. code-block:: bash
+
+   cd /path/to/RPent
+   source .venv/bin/activate
+   export CODEX_HOME="$PWD/.codex-rpent-live"
+   export CODEX_SQLITE_HOME="$CODEX_HOME"
+   export CODEX_SERVICE_TIER=fast
+   mkdir -p "$CODEX_HOME"
+   unset CODEX_API_KEY CODEX_BASE_URL OPENAI_API_KEY OPENAI_BASE_URL CODEX_ACCESS_TOKEN
+   export CODEX_BIN="$(python -c 'from codex_cli_bin import bundled_codex_path; print(bundled_codex_path())')"
+
+Before first use, set file-based credential storage in ``$CODEX_HOME/config.toml``, then
+log in with the CLI bundled with the SDK:
+
+.. code-block:: toml
+
+   cli_auth_credentials_store = "file"
+
+.. code-block:: bash
+
+   "$CODEX_BIN" login --device-auth
+   "$CODEX_BIN" login status
+
+If ``sqlite_home`` is already configured, point it to the separate directory as well.
+For a custom API, set ``CODEX_API_KEY`` and ``CODEX_BASE_URL`` for this deployment.
+Other login methods are described in
+`Codex authentication <https://developers.openai.com/codex/auth/>`_.
+
+RPent does not enable this isolation automatically. It does not isolate the shared
+workspace or migrate old sessions. Task memory is selected separately with
+``--memory-dir``. Do not commit this directory or credentials.
+
 Local Models with Codex
 ~~~~~~~~~~~~~~~~~~~~~~~
 

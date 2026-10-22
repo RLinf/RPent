@@ -119,6 +119,12 @@ class PlannerResult:
         self.error = error  # str | None  — set when the planner raises
 
 
+def is_recoverable_agent_error(agent_error: str | None) -> bool:
+    """Whether the error allows a fresh exploration session."""
+    lowered = (agent_error or "").lower()
+    return "timed out" in lowered or "planner response truncated" in lowered
+
+
 class Planner(ABC):
     """A planner selects or supplies the actions used to solve a task.
 

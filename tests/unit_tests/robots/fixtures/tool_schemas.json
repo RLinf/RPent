@@ -1051,7 +1051,7 @@
       },
       {
         "name": "request_scene_reset",
-        "description": "Exploration-only real-robot reset gate. Ask the human operator to remove/secure held objects and restore the tabletop scene for another attempt, wait for terminal confirmation, then reset the robot posture. This does not automatically restore physical objects like a simulator.",
+        "description": "Ask the operator to remove or secure held objects and restore the scene, wait for confirmation, then reset robot posture. Required before motion in every ordinary or exploration run; physical objects are not restored automatically.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -1063,7 +1063,7 @@
       },
       {
         "name": "request_operator_verdict",
-        "description": "Exploration-only human feedback gate. Ask the operator to mark the current physical task state as success, failure, or continue before the planner finishes or starts another attempt.",
+        "description": "Ask the operator to mark the current physical task state as success, failure, or continue before the planner finishes or starts another attempt.",
         "input_schema": {
           "type": "object",
           "properties": {
