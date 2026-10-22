@@ -140,6 +140,14 @@ def run_mt3(
     toolkit: Any, cell_tag: str, note: Callable[[str], None] = lambda _: None
 ) -> dict:
     """The ``RobotSpec`` hook behind ``--planner mt3``: one episode, no retries."""
+    # Avoid numba's source cache locator failure when LIBERO is launched from
+    # worker processes. The simulator does not depend on a persistent cache.
+    try:
+        import robosuite.macros as robosuite_macros
+
+        robosuite_macros.CACHE_NUMBA = False
+    except ImportError:
+        pass
     suite, task, seed = parse_cell(cell_tag)
     cfg, library_dir = load_config(Path(toolkit.memory.root))
     if cfg.force_recorded_trace:
