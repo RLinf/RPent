@@ -30,6 +30,8 @@ dependencies = [
     # Upgrade together after validating request budgets and failed-request accounting.
     "pydantic-ai-slim[anthropic,openai,cli]==2.53.0",
     "pydantic-ai-harness==0.53.0",
+    # Pydantic AI 2.53 constructs BetaMessageParam; Anthropic 2.x makes it a Union.
+    "anthropic<2",
     "pydantic>=2",
     "tomli>=2; python_version < '3.11'",
     "fastapi>=0.110",
