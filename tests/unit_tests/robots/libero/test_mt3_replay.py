@@ -24,6 +24,7 @@ from robots.libero.mt3.core import (
     EnvHooks,
     MT3Config,
     MT3Runner,
+    offset_recorded,
     segment_bottleneck,
     tilt_about,
 )
@@ -33,7 +34,10 @@ from robots.libero.mt3.replay import select_demo
 
 def test_force_recorded_trace_is_disabled_by_default():
     assert MT3Config().force_recorded_trace == ""
-    assert MT3Config.from_json({"force_recorded_trace": "trace.npz"}).force_recorded_trace == "trace.npz"
+    assert (
+        MT3Config.from_json({"force_recorded_trace": "trace.npz"}).force_recorded_trace
+        == "trace.npz"
+    )
 
 
 def test_native_rpent_policy_preserves_seed_method(monkeypatch):
@@ -118,7 +122,9 @@ def test_reference_specific_segment_overshoot_follows_last_five_target_frames():
     runner = MT3Runner(
         lib,
         0,
-        MT3Config(radius=0.0, settle_max=0, segment_overshoot_by_ref={"microdoorroot": 0.025}),
+        MT3Config(
+            radius=0.0, settle_max=0, segment_overshoot_by_ref={"microdoorroot": 0.025}
+        ),
         hooks,
     )
     result = runner.run_segment(0)
@@ -402,6 +408,20 @@ def test_reference_offset_shifts_transfers_in_the_reference_frame():
     plain, _ = cfg.transfer("microwave_1_microdoorroot", live, demo)
     np.testing.assert_allclose(shifted[:3, 3] - plain[:3, 3], [-0.04, 0.0, 0.0])
     np.testing.assert_allclose(shifted[:3, :3], plain[:3, :3])
+
+
+def test_reference_offset_skips_demos_recorded_with_it():
+    """A demo recorded with ``ref_offset`` applied is not shifted a second time."""
+    live = np.eye(4)
+    live[:3, 3] = [0.5, 0.0, 0.9]
+    cfg = MT3Config(ref_offset={"microwave_1_main": [0.0, 0.04, 0.0]})
+    shifted, _ = cfg.transfer("microwave_1_main", live, np.eye(4))
+    recorded, _ = cfg.transfer("microwave_1_main", live, np.eye(4), recorded=True)
+    np.testing.assert_allclose(shifted[:3, 3] - recorded[:3, 3], [0.0, 0.04, 0.0])
+    lib = SimpleNamespace(meta={"placement_offset_recorded": [False, True]})
+    assert not offset_recorded(lib, 0)
+    assert offset_recorded(lib, 1)
+    assert not offset_recorded(SimpleNamespace(meta={}), 0)
 
 
 def test_agent_replay_catalog_and_bounds(monkeypatch, tmp_path):

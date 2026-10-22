@@ -115,7 +115,9 @@ class MT3Config:
     grasp_tilt_axis: int = 0
     #: Shift [m, reference body frame] of every segment transferred onto a
     #: reference whose name contains the key, e.g. to move a demo's marginal
-    #: release toward the middle of a container.
+    #: release toward the middle of a container. Demos whose library entry
+    #: ``meta.placement_offset_recorded`` marks them as recorded with this
+    #: shift already in place are not shifted again.
     ref_offset: dict[str, list[float]] = field(default_factory=dict)
     #: Also check the source interaction from the bottleneck to contact,
     #: ignoring the segment's reference object.
@@ -169,10 +171,13 @@ class MT3Config:
         return cfg
 
     def transfer(
-        self, ref: str, live: np.ndarray, demo: np.ndarray
+        self, ref: str, live: np.ndarray, demo: np.ndarray, recorded: bool = False
     ) -> tuple[np.ndarray, float]:
-        """``transfer_4dof`` of reference ``ref``, plus its ``ref_offset``."""
+        """``transfer_4dof`` of reference ``ref``, plus its ``ref_offset`` unless
+        the demo was ``recorded`` with that offset already applied."""
         transform, dyaw = transfer_4dof(live, demo, self.symmetry(ref))
+        if recorded:
+            return transform, dyaw
         for key, offset in self.ref_offset.items():
             if key in ref:
                 shift = np.eye(4)
@@ -224,6 +229,14 @@ def yaw_change(live: np.ndarray, demo: np.ndarray, period: float | None) -> floa
         return 0.0
     p = np.radians(period)
     return angle - np.round(angle / p) * p
+
+
+def offset_recorded(lib: Any, demo: int) -> bool:
+    """Whether library ``demo`` was recorded with ``ref_offset`` already applied."""
+    flags = getattr(lib, "meta", {}).get("placement_offset_recorded", False)
+    if isinstance(flags, list):
+        return bool(flags[demo]) if demo < len(flags) else False
+    return bool(flags)
 
 
 def transfer_4dof(live: np.ndarray, demo: np.ndarray, period: float | None):
@@ -834,7 +847,9 @@ class MT3Runner:
             if self.cfg.rrt_fallback and self.env.plan_path is not None:
                 b = segment_bottleneck(self.eef, self.segments[k], self.cfg.radius)
                 demo_ref = self.lib.pose[ref][self.first + b]
-                transform, _ = self.cfg.transfer(ref, live, demo_ref)
+                transform, _ = self.cfg.transfer(
+                    ref, live, demo_ref, offset_recorded(self.lib, self.demo)
+                )
                 if base:
                     transform = yaw_about(
                         transform,
@@ -973,7 +988,9 @@ class MT3Runner:
         b = segment_bottleneck(self.eef, seg, radius)
         live = self.env.body_poses([ref])[ref]
         demo_ref = self.lib.pose[ref][self.first + b]
-        transform, dyaw = self.cfg.transfer(ref, live, demo_ref)
+        transform, dyaw = self.cfg.transfer(
+            ref, live, demo_ref, offset_recorded(self.lib, self.demo)
+        )
         if self._yaw:
             transform = yaw_about(
                 transform, self._yaw, self._pivot(k, self.demo, transform, live)
@@ -1192,7 +1209,9 @@ class MT3Runner:
             rows = lib.frames(d)
             eef = lib.eef[rows]
             b = segment_bottleneck(eef, other, self.cfg.radius)
-            transform, _ = self.cfg.transfer(ref, live, lib.pose[ref][rows.start + b])
+            transform, _ = self.cfg.transfer(
+                ref, live, lib.pose[ref][rows.start + b], offset_recorded(lib, d)
+            )
             base = transform
             for yaw, tilt in [(y, t) for y in yaws for t in tilts]:
                 transform = (
@@ -1381,7 +1400,9 @@ def reach_retrieval(
         for seg in lib.segments[d]:
             ref = seg["ref"]
             b = segment_bottleneck(eef, seg, cfg.radius)
-            transform, _ = cfg.transfer(ref, scene[ref], lib.pose[ref][rows.start + b])
+            transform, _ = cfg.transfer(
+                ref, scene[ref], lib.pose[ref][rows.start + b], offset_recorded(lib, d)
+            )
             goal = transform @ eef[b]
             # A coarse straight approach warm-starts the IK toward the goal.
             n = 8
