@@ -404,31 +404,6 @@ def test_reference_offset_shifts_transfers_in_the_reference_frame():
     np.testing.assert_allclose(shifted[:3, :3], plain[:3, :3])
 
 
-def test_placement_object_offset_is_config_gated_and_uses_reference_axes():
-    hooks = EnvHooks(lambda _: None, lambda: np.eye(4), lambda _: {}, lambda: False)
-    identity = np.eye(4)
-    cfg = MT3Config()
-    runner = MT3Runner(_pick_place_library(), 0, cfg, hooks)
-    np.testing.assert_allclose(runner._placement_delta("microwave", identity), identity)
-    rotated = identity.copy()
-    rotated[:3, :3] = np.array(
-        [[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]]
-    )
-    cfg = MT3Config(placement_object_offset_by_ref={"microwave": [0.0, 0.04, 0.0]})
-    runner = MT3Runner(_pick_place_library(), 0, cfg, hooks)
-    delta = runner._placement_delta("microwave_1_main", rotated)
-    np.testing.assert_allclose(delta[:3, 3], [-0.04, 0.0, 0.0])
-    np.testing.assert_allclose(delta[:3, :3], identity[:3, :3])
-    lib = _pick_place_library()
-    lib.meta = {"placement_offset_recorded": [True]}
-    runner = MT3Runner(lib, 0, cfg, hooks)
-    adjusted = runner._placement_adjusted_delta(1, 0, 4, "microwave_1_main", rotated, None)
-    np.testing.assert_allclose(adjusted[:3, 3], [-0.04, 0.0, 0.0])
-    lib.meta = {"placement_offset_recorded": [False]}
-    runner = MT3Runner(lib, 0, cfg, hooks)
-    assert runner._placement_adjusted_delta(1, 0, 4, "microwave_1_main", rotated, None) is None
-
-
 def test_agent_replay_catalog_and_bounds(monkeypatch, tmp_path):
     from robots.libero.mt3 import agent
 

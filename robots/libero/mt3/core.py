@@ -117,9 +117,6 @@ class MT3Config:
     #: reference whose name contains the key, e.g. to move a demo's marginal
     #: release toward the middle of a container.
     ref_offset: dict[str, list[float]] = field(default_factory=dict)
-    #: Additional held-object translation [m, destination reference frame] for
-    #: placement segments. Unlike ref_offset, this is not applied to the hand.
-    placement_object_offset_by_ref: dict[str, list[float]] = field(default_factory=dict)
     #: Also check the source interaction from the bottleneck to contact,
     #: ignoring the segment's reference object.
     feasibility_interaction: bool = False
@@ -961,15 +958,6 @@ class MT3Runner:
         )
         return demo_grasp @ np.linalg.inv(live_grasp)
 
-    def _placement_delta(self, ref: str, transform: np.ndarray) -> np.ndarray:
-        """World-space correction derived from destination-reference axes."""
-        delta = np.eye(4)
-        for key, offset in self.cfg.placement_object_offset_by_ref.items():
-            if key in ref:
-                delta[:3, 3] = transform[:3, :3] @ np.asarray(offset, dtype=float)
-                break
-        return delta
-
     def _yaw_allowed(self, k: int, held: bool) -> bool:
         ref = self.segments[k]["ref"]
         return bool(self.cfg.yaw_search_deg) and (
@@ -1022,20 +1010,6 @@ class MT3Runner:
             log["grasp_correction_deg"] = round(rot_angle_deg(grasp_delta[:3, :3]), 2)
             goal = goal @ grasp_delta
         hold = self.gripper[b]
-        adjusted_delta = self._placement_adjusted_delta(
-            k, self.demo, b, ref, transform, grasp_delta
-        )
-        if adjusted_delta is not None and not np.allclose(
-            adjusted_delta, grasp_delta if grasp_delta is not None else np.eye(4)
-        ):
-            placement_delta = self._placement_delta(ref, transform)
-            log["placement_object_offset_cm"] = round(
-                100 * float(np.linalg.norm(placement_delta[:3, 3])), 3
-            )
-        grasp_delta = adjusted_delta
-        if grasp_delta is None:
-            grasp_delta = np.eye(4)
-        goal = transform @ self.eef[b] @ grasp_delta
         if self.cfg.feasibility_check == "log" and self.env.check_paths is not None:
             log["feasibility"] = self._feasibility(k, live, hold)
         corridor: list[np.ndarray] = []
@@ -1248,9 +1222,7 @@ class MT3Runner:
                     paths,
                     tails,
                     vias,
-                    self._placement_adjusted_delta(
-                        k, d, b, ref, transform, self._grasp_delta(k, d, b)
-                    ),
+                    self._grasp_delta(k, d, b),
                 )
         options = None
         if self.cfg.feasibility_interaction:
@@ -1270,32 +1242,6 @@ class MT3Runner:
             )
         results = self.env.check_paths(paths, options) if paths else []
         return [dict(n, **r) for n, r in zip(names, results)]
-
-    def _placement_adjusted_delta(
-        self,
-        k: int,
-        demo: int,
-        b: int,
-        ref: str,
-        transform: np.ndarray,
-        grasp_delta: np.ndarray | None,
-    ) -> np.ndarray | None:
-        """Same object path correction for route checks and execution."""
-        if k == 0 or self.lib.gripper[self.lib.frames(demo)][b] <= 0:
-            return grasp_delta
-        base = np.eye(4) if grasp_delta is None else grasp_delta
-        delta = self._placement_delta(ref, transform)
-        if np.allclose(delta, np.eye(4)):
-            return grasp_delta
-        # Old libraries have no provenance for whether ref_offset was already
-        # baked into the recorded placement. Skip the new correction for them
-        # rather than risk shifting those demos twice.
-        recorded = self.lib.meta.get("placement_offset_recorded", False)
-        if isinstance(recorded, list):
-            recorded = bool(recorded[demo]) if demo < len(recorded) else False
-        if not recorded:
-            return grasp_delta
-        return base @ delta
 
     def _candidate_routes(
         self,
