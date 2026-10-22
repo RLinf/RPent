@@ -176,7 +176,7 @@ export LIBERO_TYPE=pro
 # Run one task: libero_object_swap, task 2, seed 0, using Claude Code
 # with Claude Opus 4.8.
 rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
-  --env-cuda-device 0 --vla-cuda-device 0 --sam3-cuda-device 0 \
+  --env-cuda-device 0 --am-cuda-device 0 --sam3-cuda-device 0 \
   --planner claude_code --model claude-opus-4-8
 ```
 

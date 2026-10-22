@@ -49,7 +49,7 @@ toolkit owns registration, cancellation, state capture and recording.
    * - ``am_facade_base.py``
      - Share prediction route registration and RPC session setup through ``BaseAMFacade``; keep VLA and WAM behavior in subclasses.
    * - ``am_runtime.py``
-     - Register action-model selection, endpoint and GPU options; select WAM backends and construct worker commands and connections.
+     - Register common deployment options, resolve VLA/WAM settings into ``AMConfig``, and start workers with their Python, working directory and GPU configuration.
    * - ``rpent/robots/components/pi05_vla_client.py``
      - Adapt platform observations and model outputs for Pi0.5; other VLA integrations provide their own model clients.
    * - ``<model>/runtime_config.py``
@@ -84,10 +84,11 @@ For a WAM worker, the call chain is:
 .. code-block:: text
 
    robot_spec._init_runtime()
+     -> am_runtime.select_am(args, platform): resolve AMConfig and model options
      -> robots.runtime.try_spawn_server(spawn_fn)
-          -> WAMConfig.start_service()
-               -> <model>.runtime_config.worker_arguments()
-               -> ProcessDaemon.start() + make_rpc_client()
+          -> am_runtime.start_wam_service(config, output_dir)
+               -> AMConfig.spawn_worker() -> ProcessDaemon.start()
+               -> make_rpc_client()
                -> return daemon + RPC client
           -> register owned daemon
      -> robots.runtime.try_wait_server(post_fn)
@@ -95,24 +96,27 @@ For a WAM worker, the call chain is:
           -> create platform WAM client and check control compatibility
           -> report ready to Dashboard
 
-WAM configuration and platform VLA launchers use ``ProcessDaemon.start()`` and
-the existing RPC clients directly. ``ProcessDaemon`` closes its log on a failed
-spawn. LingBot retains its native WebSocket connection path. The shared
+VLA launchers also use ``AMConfig.spawn_worker()``. Platforms retain their
+transport and model command arguments, including LingBot's native WebSocket
+connection and RoboCasa's session-enabled RPC. ``ProcessDaemon`` closes its
+log on a failed spawn. The shared
 ``robots/runtime.py`` owns readiness, component status and group cleanup after
 resource handoff. Borrowed endpoints return no owned daemon.
 
-``am_runtime.add_am_device_arg()`` registers ``--vla-cuda-device`` or
-``--wam-cuda-device`` for local model services. Each launcher forwards its
-model-specific option as the child's ``CUDA_VISIBLE_DEVICES`` override;
+``am_runtime.add_am_args(parser, platform=...)`` registers supported backends
+and common options. ``AMConfig.spawn_worker()`` forwards ``--am-cuda-device``
+as the child's ``CUDA_VISIBLE_DEVICES`` override;
 omitting it uses ``--cuda-device``, or preserves the inherited environment
 when neither is set.
 Platforms register ``--env-cuda-device`` for the environment and forward model settings
 when launching a worker. External endpoints retain their deployment settings.
 
-The WAM section of ``am_runtime.py`` owns ``--platform``, ``--checkpoint``,
-Python/GPU selection and deployment-mode checks. Model ``runtime_config.py``
-modules supply only additional configuration. ``--am-backend`` selects either
-category, and ``--am-endpoint`` supplies the selected model's service address.
+``AMConfig`` stores the resolved backend, platform, endpoint, checkpoint,
+Python, working directory, GPU and additional worker arguments. Model defaults
+are resolved without modifying the parsed namespace, so Dashboard reuse does
+not mistake defaults for explicit options. WAM ``runtime_config.py`` modules
+provide model-specific defaults and worker arguments; VLA platform launchers
+retain their native command construction.
 
 Add a VLA
 ---------
@@ -312,8 +316,33 @@ evaluation currently excludes HF memory, Flash and exploration.
 
 .. _action-model-deployment:
 
-WAM Deployment and Task Runs
-----------------------------
+Action-Model Deployment and Task Runs
+--------------------------------------
+
+VLA and WAM share six deployment options:
+
+.. list-table:: Common action-model options
+   :header-rows: 1
+
+   * - Option
+     - Purpose
+   * - ``--am-backend``
+     - Select one model supported by the platform.
+   * - ``--am-endpoint``
+     - Connect to an already deployed model service.
+   * - ``--am-checkpoint``
+     - Select weights for a locally launched worker.
+   * - ``--am-python``
+     - Select the model environment's Python; VLA defaults to the current interpreter.
+   * - ``--am-root``
+     - Set the worker's working directory; defaults to the RPent checkout, except Cosmos which requires its provisioned source directory.
+   * - ``--am-cuda-device``
+     - Set the local model's visible GPUs; falls back to ``--cuda-device``, then the inherited environment.
+
+Franka and YAM connect to external services and do not expose local deployment
+options. Explicit local deployment options, including model-specific ones,
+are rejected with ``--am-endpoint``. Environment-variable defaults for an
+unselected or external model are ignored. Other services may share the model GPU.
 
 Start a Standalone Worker
 ~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -398,22 +427,27 @@ Replace the example paths with your deployment paths:
 .. code-block:: bash
 
    rpent --robot libero --suite libero_spatial --task 0 \
-     --am-backend cosmos-policy --wam-checkpoint /path/to/cosmos-libero \
-     --wam-python /path/to/cosmos/.venv/bin/python --wam-root /path/to/cosmos \
+     --am-backend pi05 --am-checkpoint /path/to/pi05-libero \
+     --am-python /path/to/pi05-env/bin/python \
+     --planner api --model openai:gpt-5.5
+
+   rpent --robot libero --suite libero_spatial --task 0 \
+     --am-backend cosmos-policy --am-checkpoint /path/to/cosmos-libero \
+     --am-python /path/to/cosmos/.venv/bin/python --am-root /path/to/cosmos \
      --memory-profile local --planner api --model openai:gpt-5.5
 
    rpent --robot libero --suite libero_spatial --task 0 \
-     --am-backend fast-wam --wam-checkpoint /path/to/fast-wam-libero.pt \
-     --wam-python /path/to/fast-wam/venv/bin/python \
+     --am-backend fast-wam --am-checkpoint /path/to/fast-wam-libero.pt \
+     --am-python /path/to/fast-wam/venv/bin/python \
      --fast-wam-config /path/to/worker.yaml \
      --fast-wam-dataset-stats /path/to/dataset_stats.json \
      --memory-profile local --planner api --model openai:gpt-5.5
 
-``--am-endpoint`` and ``--wam-checkpoint`` are mutually exclusive. Cosmos
-requires ``--wam-root``; ``COSMOS_POLICY_PYTHON`` and ``COSMOS_POLICY_ROOT``
+``--am-endpoint`` and ``--am-checkpoint`` are mutually exclusive. Cosmos
+requires ``--am-root``; ``COSMOS_POLICY_PYTHON`` and ``COSMOS_POLICY_ROOT``
 provide fallbacks for its Python executable and working directory. Fast-WAM
 requires both ``--fast-wam-config`` and ``--fast-wam-dataset-stats``.
-``--wam-cuda-device`` selects the worker GPU independently of
+``--am-cuda-device`` selects the worker GPU independently of
 ``--env-cuda-device``. Without a model GPU option, the worker uses the shared
 ``--cuda-device`` default, or inherits CUDA visibility if neither is set.
 The services may share a GPU: specify the same device for each service when
@@ -422,12 +456,18 @@ GPU memory permits.
 Discovering Options
 ~~~~~~~~~~~~~~~~~~~
 
-``rpent --robot libero --help`` and ``rpent --robot robotwin --help`` group WAM
-options by backend selection, connection, local deployment and model. Shared
-selection/connection options use ``--am-*``; WAM deployment options use
-``--wam-*``. Cosmos-specific options use ``--cosmos-*``; Fast-WAM
-options use ``--fast-wam-*``. Model-specific options on the RPent command apply
-only to local deployment. Each standalone worker's ``--help`` lists its own
+Help groups options by backend selection, connection, local deployment and
+selected model. Put the backend before ``--help`` to see that model's options:
+
+.. code-block:: bash
+
+   rpent --robot libero --am-backend cosmos-policy --help
+   rpent --robot robotwin --am-backend fast-wam --help
+
+Without ``--am-backend``, help shows the platform's default model. Common options
+use ``--am-*``; model options retain ``--cosmos-*``, ``--fast-wam-*``,
+``--lingbot-*`` and ``--pi05-*``. Explicit options for another model are rejected.
+Each standalone worker's ``--help`` lists its own
 unprefixed options, such as ``--config`` or ``--predict-future``.
 
 Existing commands remain supported through hidden aliases:
@@ -437,6 +477,22 @@ Existing commands remain supported through hidden aliases:
 
    * - Previous option
      - Preferred option
+   * - ``--vla-backend``, ``--wam-backend``
+     - ``--am-backend``
+   * - ``--policy-backend rlinf`` (RoboDojo)
+     - ``--am-backend pi05``
+   * - ``--vla-endpoint``, ``--wam-endpoint``
+     - ``--am-endpoint``
+   * - ``--vla-model-path``, ``--wam-checkpoint``
+     - ``--am-checkpoint``
+   * - ``--pi05-python``, ``--wam-python``
+     - ``--am-python``
+   * - ``--wam-root``
+     - ``--am-root``
+   * - ``--vla-cuda-device``, ``--wam-cuda-device``
+     - ``--am-cuda-device``
+   * - ``--vla-repo-id``
+     - ``--pi05-repo-id``
    * - ``--wam-text-embeddings``
      - ``--cosmos-text-embeddings``
    * - ``--wam-predict-future``

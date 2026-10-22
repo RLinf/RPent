@@ -225,11 +225,11 @@ adds scene disturbances (random backgrounds, clutter, lighting, and table
 height). Pass ``--task-config demo_clean`` for a simple, clean scene.
 
 - ``--robotwin-assets-path`` overrides ``ROBOTWIN_ASSETS_PATH``.
-- ``--vla-model-path`` overrides ``LINGBOT_MODEL_PATH``.
-- ``--env-cuda-device`` and ``--vla-cuda-device`` place the simulator and VLA
+- ``--am-checkpoint`` overrides ``LINGBOT_MODEL_PATH``.
+- ``--env-cuda-device`` and ``--am-cuda-device`` place the simulator and VLA
   on independently selected GPUs. For example,
-  ``--env-cuda-device 0 --vla-cuda-device 1`` uses GPU 0 for simulation and
-  GPU 1 for LingBot; use ``--wam-cuda-device`` for a WAM worker instead.
+  ``--env-cuda-device 0 --am-cuda-device 1`` uses GPU 0 for simulation and
+  GPU 1 for LingBot. The same option selects a WAM worker's GPU.
   These options apply only to services started by RPent. The shared
   ``--cuda-device`` option supplies a default; per-service options override it.
 

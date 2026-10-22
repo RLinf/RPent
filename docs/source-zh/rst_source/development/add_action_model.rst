@@ -8,7 +8,7 @@
 
 模型包负责权重与模型专用预处理；平台负责物理观测、控制方式和执行工具。公共 AM 基类复用 RPC 传输与推理转发。VLA 保留模型专用消息格式，WAM 使用 ``am_contracts.py`` 中的物理观测与原生控制声明。
 
-本地模型服务的 ``--vla-cuda-device``、``--wam-cuda-device`` 统一由 ``am_runtime.add_am_device_arg()`` 注册。各启动函数将对应模型参数传入子进程的 ``CUDA_VISIBLE_DEVICES``，未设置时使用 ``--cuda-device``，两者均未设置时保留继承的 GPU 环境。平台在自己的 ``robot_spec.py`` 中注册 ``--env-cuda-device``；环境 GPU 不会成为模型 GPU 的默认值。外部 endpoint 的 GPU 仍由部署服务时的配置决定。
+``am_runtime.add_am_args(parser, platform=...)`` 统一注册当前平台支持的后端与公共部署参数。``AMConfig.spawn_worker()`` 将 ``--am-cuda-device`` 传入子进程的 ``CUDA_VISIBLE_DEVICES``，未设置时使用 ``--cuda-device``，两者均未设置时保留继承的 GPU 环境。平台在自己的 ``robot_spec.py`` 中注册 ``--env-cuda-device``；环境 GPU 不会成为模型 GPU 的默认值。外部 endpoint 的 GPU 由部署服务时的配置决定。
 
 下面以 WAM 执行链路说明平台与模型之间的职责边界：
 
@@ -43,7 +43,7 @@
    * - ``am_facade_base.py``
      - 通过 ``BaseAMFacade`` 共享推理路由注册和 RPC 会话初始化；子类分别负责 VLA/WAM 行为。
    * - ``am_runtime.py``
-     - 统一注册动作模型选择、endpoint 和 GPU 参数，选择 WAM 后端并构造 worker 启动命令与连接。
+     - 统一注册公共部署参数，将 VLA/WAM 配置解析为 ``AMConfig``，按指定 Python、工作目录和 GPU 启动 worker。
    * - ``rpent/robots/components/pi05_vla_client.py``
      - 为 Pi0.5 适配平台观测和模型输出；其他 VLA 接入提供各自的模型客户端。
    * - ``<model>/runtime_config.py``
@@ -64,10 +64,11 @@
 .. code-block:: text
 
    robot_spec._init_runtime()
+     -> am_runtime.select_am(args, platform): resolve AMConfig and model options
      -> robots.runtime.try_spawn_server(spawn_fn)
-          -> WAMConfig.start_service()
-               -> <model>.runtime_config.worker_arguments()
-               -> ProcessDaemon.start() + make_rpc_client()
+          -> am_runtime.start_wam_service(config, output_dir)
+               -> AMConfig.spawn_worker() -> ProcessDaemon.start()
+               -> make_rpc_client()
                -> return daemon + RPC client
           -> register owned daemon
      -> robots.runtime.try_wait_server(post_fn)
@@ -75,9 +76,9 @@
           -> create platform WAM client and check control compatibility
           -> report ready to Dashboard
 
-WAM 配置和平台 VLA 启动函数直接使用 ``ProcessDaemon.start()`` 与已有 RPC 客户端。``ProcessDaemon`` 在启动失败时关闭日志；LingBot 保留原生 WebSocket 连接路径。公共 ``robots/runtime.py`` 在资源交接后负责等待就绪、组件状态和进程组清理。连接外部 endpoint 时不返回自有 daemon。
+VLA 启动函数也使用 ``AMConfig.spawn_worker()``。平台保留各自的服务命令和传输方式，包括 LingBot 的原生 WebSocket 连接与 RoboCasa 的带会话 RPC。``ProcessDaemon`` 在启动失败时关闭日志；公共 ``robots/runtime.py`` 在资源交接后负责等待就绪、组件状态和进程组清理。连接外部 endpoint 时不返回自有 daemon。
 
-``am_runtime.py`` 的 WAM 部分负责 ``--platform``、``--checkpoint``、Python/GPU 选择和部署模式检查；模型 ``runtime_config.py`` 只补充自己的额外配置。两类模型统一由 ``--am-backend`` 选择，``--am-endpoint`` 提供所选模型的服务地址。
+``AMConfig`` 保存解析后的后端、平台、endpoint、checkpoint、Python、工作目录、GPU 和额外的 worker 参数。默认值解析不会修改原始 Namespace，避免 Dashboard 再次使用时把默认值误认为显式参数。WAM 的 ``runtime_config.py`` 补充模型专属默认值和 worker 参数；VLA 平台启动函数保留各自的原生命令构造。
 
 添加 VLA
 --------
@@ -187,8 +188,30 @@ RPC 路由为 ``wam.get_model_meta``、``wam.predict`` 和 ``wam.reset``。请�
 
 .. _action-model-deployment:
 
-WAM 部署与任务运行
-------------------
+动作模型部署与任务运行
+----------------------
+
+VLA 与 WAM 共用六个部署参数：
+
+.. list-table:: 公共动作模型参数
+   :header-rows: 1
+
+   * - 参数
+     - 作用
+   * - ``--am-backend``
+     - 选择当前平台支持的一个动作模型。
+   * - ``--am-endpoint``
+     - 连接已经部署的模型服务。
+   * - ``--am-checkpoint``
+     - 指定本地 worker 使用的权重。
+   * - ``--am-python``
+     - 指定模型环境的 Python；VLA 默认使用当前解释器。
+   * - ``--am-root``
+     - 指定 worker 工作目录；默认使用 RPent 仓库目录，Cosmos 则需要已准备好的源码目录。
+   * - ``--am-cuda-device``
+     - 指定本地模型的可见 GPU；未设置时使用 ``--cuda-device``，再回退到继承的环境。
+
+Franka 和 YAM 连接外部模型服务，帮助中不展示本地部署参数。使用 ``--am-endpoint`` 时，显式传入公共或模型专属的本地部署参数会报错。未选中模型和外部模型的环境变量默认值不会生效。显存允许时，模型可与其他服务共用 GPU。
 
 独立部署模型服务
 ~~~~~~~~~~~~~~~~
@@ -240,28 +263,40 @@ RoboTwin 使用 ``--platform robotwin``，并更换为对应 checkpoint 和配�
 由 RPent 在每次运行时启动服务
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-下面两种方式会在每次运行时启动新的 worker，并在退出时停止它。模型环境和文件与独立部署相同；RPent 不会自动下载权重或安装模型依赖。将示例路径替换为实际部署路径：
+下面的示例会在每次运行时启动新的 worker，并在退出时停止它。模型环境和文件与独立部署相同；RPent 不会自动下载权重或安装模型依赖。将示例路径替换为实际部署路径：
 
 .. code-block:: bash
 
    rpent --robot libero --suite libero_spatial --task 0 \
-     --am-backend cosmos-policy --wam-checkpoint /path/to/cosmos-libero \
-     --wam-python /path/to/cosmos/.venv/bin/python --wam-root /path/to/cosmos \
+     --am-backend pi05 --am-checkpoint /path/to/pi05-libero \
+     --am-python /path/to/pi05-env/bin/python \
+     --planner api --model openai:gpt-5.5
+
+   rpent --robot libero --suite libero_spatial --task 0 \
+     --am-backend cosmos-policy --am-checkpoint /path/to/cosmos-libero \
+     --am-python /path/to/cosmos/.venv/bin/python --am-root /path/to/cosmos \
      --memory-profile local --planner api --model openai:gpt-5.5
 
    rpent --robot libero --suite libero_spatial --task 0 \
-     --am-backend fast-wam --wam-checkpoint /path/to/fast-wam-libero.pt \
-     --wam-python /path/to/fast-wam/venv/bin/python \
+     --am-backend fast-wam --am-checkpoint /path/to/fast-wam-libero.pt \
+     --am-python /path/to/fast-wam/venv/bin/python \
      --fast-wam-config /path/to/worker.yaml \
      --fast-wam-dataset-stats /path/to/dataset_stats.json \
      --memory-profile local --planner api --model openai:gpt-5.5
 
-``--am-endpoint`` 与 ``--wam-checkpoint`` 互斥。Cosmos 需要 ``--wam-root``，也可用 ``COSMOS_POLICY_PYTHON`` 和 ``COSMOS_POLICY_ROOT`` 分别提供 Python 路径和工作目录的默认值。Fast-WAM 必须同时提供 ``--fast-wam-config`` 和 ``--fast-wam-dataset-stats``。``--wam-cuda-device`` 与 ``--env-cuda-device`` 独立；未指定模型 GPU 时先使用共享的 ``--cuda-device``，两者均未指定时继承 CUDA 可见设备设置。显存允许时，各服务可指定相同设备，共用一张 GPU。
+``--am-endpoint`` 与 ``--am-checkpoint`` 互斥。Cosmos 需要 ``--am-root``，也可用 ``COSMOS_POLICY_PYTHON`` 和 ``COSMOS_POLICY_ROOT`` 分别提供 Python 路径和工作目录的默认值。Fast-WAM 必须同时提供 ``--fast-wam-config`` 和 ``--fast-wam-dataset-stats``。``--am-cuda-device`` 与 ``--env-cuda-device`` 独立；未指定模型 GPU 时先使用共享的 ``--cuda-device``，两者均未指定时继承 CUDA 可见设备设置。显存允许时，各服务可指定相同设备，共用一张 GPU。
 
 查看可用参数
 ~~~~~~~~~~~~
 
-``rpent --robot libero --help`` 和 ``rpent --robot robotwin --help`` 按后端选择、连接服务、本地部署、具体模型分组显示参数。模型选择和连接使用 ``--am-*``，WAM 部署参数使用 ``--wam-*``，Cosmos 专用参数使用 ``--cosmos-*``，Fast-WAM 专用参数使用 ``--fast-wam-*``。RPent 命令中的模型专用参数仅用于本地部署。独立 worker 的 ``--help`` 列出它自己的参数，使用 ``--config``、``--predict-future`` 等不带模型前缀的名称。
+帮助按后端选择、连接服务、本地部署、所选模型分组展示参数。在 ``--help`` 前指定模型即可查看对应选项：
+
+.. code-block:: bash
+
+   rpent --robot libero --am-backend cosmos-policy --help
+   rpent --robot robotwin --am-backend fast-wam --help
+
+省略 ``--am-backend`` 时展示平台默认模型。公共参数统一使用 ``--am-*``，模型专属参数保留 ``--cosmos-*``、``--fast-wam-*``、``--lingbot-*`` 和 ``--pi05-*``。显式传入其他模型的参数会报错。独立 worker 的 ``--help`` 列出它自己的参数，使用 ``--config``、``--predict-future`` 等不带模型前缀的名称。
 
 旧命令通过隐藏别名继续兼容：
 
@@ -270,6 +305,22 @@ RoboTwin 使用 ``--platform robotwin``，并更换为对应 checkpoint 和配�
 
    * - 旧参数
      - 推荐参数
+   * - ``--vla-backend``、``--wam-backend``
+     - ``--am-backend``
+   * - RoboDojo 的 ``--policy-backend rlinf``
+     - ``--am-backend pi05``
+   * - ``--vla-endpoint``、``--wam-endpoint``
+     - ``--am-endpoint``
+   * - ``--vla-model-path``、``--wam-checkpoint``
+     - ``--am-checkpoint``
+   * - ``--pi05-python``、``--wam-python``
+     - ``--am-python``
+   * - ``--wam-root``
+     - ``--am-root``
+   * - ``--vla-cuda-device``、``--wam-cuda-device``
+     - ``--am-cuda-device``
+   * - ``--vla-repo-id``
+     - ``--pi05-repo-id``
    * - ``--wam-text-embeddings``
      - ``--cosmos-text-embeddings``
    * - ``--wam-predict-future``

@@ -177,7 +177,7 @@ export LIBERO_TYPE=pro
 # 运行一个任务：libero_object_swap，task 2，seed 0，使用 Claude Code
 # 和 Claude Opus 4.8。
 rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
-  --env-cuda-device 0 --vla-cuda-device 0 --sam3-cuda-device 0 \
+  --env-cuda-device 0 --am-cuda-device 0 --sam3-cuda-device 0 \
   --planner claude_code --model claude-opus-4-8
 ```
 

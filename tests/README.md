@@ -185,7 +185,7 @@ statistics, cameras, reachable robot environment, and easy_handeye YAML paths un
 ```bash
 python -m tests.e2e_tests.dual_franka.dual_franka_vla \
   --robot-config /path/to/robot.yaml \
-  --vla-model-path /path/to/checkpoint --vla-repo-id org/dataset
+  --am-checkpoint /path/to/checkpoint --pi05-repo-id org/dataset
 ```
 
 This console is not collected by pytest or included in the automated GPU suite.

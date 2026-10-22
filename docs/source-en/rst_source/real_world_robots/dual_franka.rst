@@ -282,8 +282,8 @@ VLA Configuration
 ``DUAL_FRANKA_REPO_ID`` is the dataset ID used to locate matching normalization
 statistics.
 
-The environment variables correspond to ``--vla-model-path`` and
-``--vla-repo-id``. The repo ID is the relative directory containing the matching
+The environment variables correspond to ``--am-checkpoint`` and
+``--pi05-repo-id``. The repo ID is the relative directory containing the matching
 normalization statistics, not the model download repository name. The checkpoint
 must contain:
 

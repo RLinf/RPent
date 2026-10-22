@@ -154,12 +154,12 @@ NVIDIA 驱动版本建议参考 `Isaac Sim 5.1 官方系统要求 <https://docs.
 VLA 配置
 --------
 
-通过 ``--policy-backend`` 选择 Pi0.5 后端，默认使用 ``rlinf``，也可选择另行准备的 ``xpolicylab``。
+通过 ``--am-backend`` 选择 Pi0.5 后端，默认使用 ``pi05``（RLinf），也可选择另行准备的 ``xpolicylab``。
 
 RLinf（默认）
 ~~~~~~~~~~~~~~~~
 
-``--policy-backend rlinf`` 使用安装步骤中提供的 RLinf 运行时，\
+``--am-backend pi05`` 使用安装步骤中提供的 RLinf 运行时，\
 通过 ``PI05_CHECKPOINT_PATH`` 指定 PyTorch 权重和配套统计量。
 
 发布权重为 JAX 格式，需要转换成 PyTorch 格式。本例只需下载 ``RoboDojo-sim-arx_x5-joint-0/59999`` 中的完整 ``params/`` 目录和配套的 ``norm_stats.json``，\
@@ -215,8 +215,8 @@ RLinf（默认）
 XPolicyLab（可选）
 ~~~~~~~~~~~~~~~~~~~~
 
-推荐使用前面的 RLinf 方式，默认后端为 ``--policy-backend rlinf``，无需额外安装 XPolicyLab。\
-RPent 也提供 XPolicyLab 后端，已有该环境或需要使用其 Pi0.5 实现时，可选择 ``--policy-backend xpolicylab``。
+推荐使用前面的 RLinf 方式，默认后端为 ``--am-backend pi05``，无需额外安装 XPolicyLab。\
+RPent 也提供 XPolicyLab 后端，已有该环境或需要使用其 Pi0.5 实现时，可选择 ``--am-backend xpolicylab``。
 
 XPolicyLab 是另一套加载和运行 Pi0.5 的软件。使用前需单独克隆源码，\
 并按其 `Pi0.5 安装说明 <https://github.com/XPolicyLab/XPolicyLab/blob/432f82b1758c5b1202e42a3dfe014546dbc50871/policy/Pi_05/README.md#installation>`_ 准备 Python 环境。\
@@ -227,12 +227,12 @@ XPolicyLab 是另一套加载和运行 Pi0.5 的软件。使用前需单独克�
 
    rpent --robot robodojo --task put_bottles_into_dustbin --layout 0 \
      --planner codex --model <planner-model> \
-     --policy-backend xpolicylab --xpolicylab-root /path/to/XPolicyLab \
-     --pi05-python /path/to/xpolicylab-env/bin/python \
+     --am-backend xpolicylab --xpolicylab-root /path/to/XPolicyLab \
+     --am-python /path/to/xpolicylab-env/bin/python \
      --output-dir /path/to/run-output
 
 ``--xpolicylab-root`` 指向单独克隆的 XPolicyLab 源码目录。如果 XPolicyLab 的 Pi0.5 推理所需\
-Python 包安装在另一个环境中，用 ``--pi05-python`` 指向该环境的 Python 解释器；否则省略此参数。
+Python 包安装在另一个环境中，用 ``--am-python`` 指向该环境的 Python 解释器；否则省略此参数。
 
 SAM3 配置
 ---------
@@ -298,13 +298,13 @@ SAM3 用于物体分割。先在 `facebook/sam3 模型页面 <https://huggingfac
 --------
 
 默认由 RPent 在当前 Python 环境中启动仿真、策略和 SAM3 服务。只有将它们分别安装到不同环境时，\
-才需要指定 ``--sim-python`` 和 ``--pi05-python``。
+才需要指定 ``--sim-python`` 和 ``--am-python``。
 
 - ``--task`` 和 ``--layout``：选择任务与固定布局；传入 ``--random`` 时忽略 ``--layout``，\
   每次重置重新采样随机场景。
-- ``--env-cuda-device``、``--vla-cuda-device``、``--sam3-cuda-device``：分别选择对应本地服务的 GPU；省略时沿用 ``CUDA_VISIBLE_DEVICES``。
+- ``--env-cuda-device``、``--am-cuda-device``、``--sam3-cuda-device``：分别选择对应本地服务的 GPU；省略时沿用 ``CUDA_VISIBLE_DEVICES``。
 - ``--env-endpoint``、``--am-endpoint``、``--sam3-endpoint``：连接已有服务。\
-  VLA 服务需与 ``--policy-backend`` 匹配。
+  VLA 服务需与 ``--am-backend`` 匹配。
 - ``--source-root``：使用本地 RoboDojo 源码替代包内源码。
 
 子服务继承当前终端的环境变量；CLI 不会自动读取 ``config/runtime.env``。\

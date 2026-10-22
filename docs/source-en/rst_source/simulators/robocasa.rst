@@ -153,7 +153,7 @@ Model Weights
 ~~~~~~~~~~~~~
 
 Download ``RLDX-1-FT-RC365``, the RoboCasa365 fine-tune, and set
-``--vla-model-path`` to this directory when running a task:
+``--am-checkpoint`` to this directory when running a task:
 
 .. code-block:: bash
 
@@ -180,7 +180,7 @@ only; base-model weights are not required:
 Keep these cache variables in the launch shell and avoid pointing
 ``TRANSFORMERS_CACHE`` at another empty directory. Ordinary runs, Target50 and
 separately started RPent VLA servers automatically use this support revision;
-``--vla-model-path`` still selects the fine-tuned weights. The support download
+``--am-checkpoint`` still selects the fine-tuned weights. The support download
 contains 15 configuration, documentation and image files, about 16.4 MB.
 
 Run a Task
@@ -194,7 +194,7 @@ Configure your model service with :doc:`../guides/configure_planner` and check i
          --task-name OpenDrawer \
          --split target \
          --seed 1 \
-         --vla-model-path ./checkpoints/rldx-1-ft-rc365 \
+         --am-checkpoint ./checkpoints/rldx-1-ft-rc365 \
          --planner claude_code \
          --model claude-opus-4-8
 
@@ -221,7 +221,7 @@ reasoning effort. Override the corpus with ``--memory-version``:
 .. code-block:: bash
 
    rpent --robot robocasa --task-name OpenDrawer --seed 1 \
-     --vla-model-path /path/to/rldx --planner codex --model gpt-6-astra \
+     --am-checkpoint /path/to/rldx --planner codex --model gpt-6-astra \
      --memory-profile hf --memory-version GPT_5.5_xhigh
 
 .. code-block:: text
@@ -316,7 +316,7 @@ at most five attempts per session by default:
 .. code-block:: bash
 
    rpent --robot robocasa --task-name OpenDrawer --split target --seed 0 \
-     --vla-model-path /path/to/rldx \
+     --am-checkpoint /path/to/rldx \
      --planner codex --reasoning-effort high --planner-timeout-s 7200 \
      --explore --explore-sessions 3 --explore-attempts-per-session 5 \
      --memory-dir /path/to/robocasa-memory
@@ -370,8 +370,8 @@ Start with ``OpenDrawer`` at seed 1:
 
    rpent --robot robocasa \
          --task-name OpenDrawer --split target --seed 1 \
-         --vla-model-path ./checkpoints/rldx-1-ft-rc365 \
-         --env-cuda-device 0 --vla-cuda-device 0 \
+         --am-checkpoint ./checkpoints/rldx-1-ft-rc365 \
+         --env-cuda-device 0 --am-cuda-device 0 \
          --planner codex --model gpt-5.5 --reasoning-effort xhigh \
          --max-turns 100 --planner-timeout-s 1800 \
          --memory-profile local \

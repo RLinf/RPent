@@ -221,7 +221,7 @@ VLA 配置
 
 ``PI05_CHECKPOINT_PATH`` 指向训练好的 Pi0.5 checkpoint，``DUAL_FRANKA_REPO_ID`` 是用于查找对应归一化统计的数据集 ID。
 
-上述环境变量对应 ``--vla-model-path`` 和 ``--vla-repo-id``。repo ID 是 checkpoint 内对应归一化统计的相对目录，不是模型下载仓库名。checkpoint 必须包含：
+上述环境变量对应 ``--am-checkpoint`` 和 ``--pi05-repo-id``。repo ID 是 checkpoint 内对应归一化统计的相对目录，不是模型下载仓库名。checkpoint 必须包含：
 
 .. code-block:: text
 

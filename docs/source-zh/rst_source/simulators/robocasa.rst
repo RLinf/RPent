@@ -142,7 +142,7 @@ RLDX-1 需要微调权重和基础模型的支持文件，两项都要下载。�
 模型权重
 ~~~~~~~~~~~~
 
-下载针对 RoboCasa365 微调的 ``RLDX-1-FT-RC365``，运行时将 ``--vla-model-path`` 指向该目录：
+下载针对 RoboCasa365 微调的 ``RLDX-1-FT-RC365``，运行时将 ``--am-checkpoint`` 指向该目录：
 
 .. code-block:: bash
 
@@ -164,7 +164,7 @@ RLDX-1 需要微调权重和基础模型的支持文件，两项都要下载。�
       --include "*.json" "*.txt" "*.jinja" "*.md" "*.png" ".gitattributes" \
       --exclude "*.safetensors.index.json"
 
-启动时保留上述缓存变量，避免 ``TRANSFORMERS_CACHE`` 指向其他空目录。普通运行、Target50 和单独启动的 RPent VLA 服务都会自动使用此支持文件版本；微调权重仍由 ``--vla-model-path`` 指定。支持文件共约 16.4 MB，包含 15 个配置、文档和图片文件。
+启动时保留上述缓存变量，避免 ``TRANSFORMERS_CACHE`` 指向其他空目录。普通运行、Target50 和单独启动的 RPent VLA 服务都会自动使用此支持文件版本；微调权重仍由 ``--am-checkpoint`` 指定。支持文件共约 16.4 MB，包含 15 个配置、文档和图片文件。
 
 运行一个任务
 ------------------
@@ -177,7 +177,7 @@ RLDX-1 需要微调权重和基础模型的支持文件，两项都要下载。�
          --task-name OpenDrawer \
          --split target \
          --seed 1 \
-         --vla-model-path ./checkpoints/rldx-1-ft-rc365 \
+         --am-checkpoint ./checkpoints/rldx-1-ft-rc365 \
          --planner claude_code \
          --model claude-opus-4-8
 
@@ -202,7 +202,7 @@ HF 默认分支为 ``main``。记忆选择不会改变模型的推理档位。
 .. code-block:: bash
 
    rpent --robot robocasa --task-name OpenDrawer --seed 1 \
-     --vla-model-path /path/to/rldx --planner codex --model gpt-6-astra \
+     --am-checkpoint /path/to/rldx --planner codex --model gpt-6-astra \
      --memory-profile hf --memory-version GPT_5.5_xhigh
 
 .. code-block:: text
@@ -260,7 +260,7 @@ global 文件必须存在。任务记录（JSON）与动作序列（recipe）必
 .. code-block:: bash
 
    rpent --robot robocasa --task-name OpenDrawer --split target --seed 0 \
-     --vla-model-path /path/to/rldx \
+     --am-checkpoint /path/to/rldx \
      --planner codex --reasoning-effort high --planner-timeout-s 7200 \
      --explore --explore-sessions 3 --explore-attempts-per-session 5 \
      --memory-dir /path/to/robocasa-memory
@@ -304,8 +304,8 @@ Target50 包含 50 个厨房任务，共运行 340 次。以下使用 Codex、GP
 
    rpent --robot robocasa \
          --task-name OpenDrawer --split target --seed 1 \
-         --vla-model-path ./checkpoints/rldx-1-ft-rc365 \
-         --env-cuda-device 0 --vla-cuda-device 0 \
+         --am-checkpoint ./checkpoints/rldx-1-ft-rc365 \
+         --env-cuda-device 0 --am-cuda-device 0 \
          --planner codex --model gpt-5.5 --reasoning-effort xhigh \
          --max-turns 100 --planner-timeout-s 1800 \
          --memory-profile local \

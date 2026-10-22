@@ -191,8 +191,8 @@ Fast-WAM 配置
 RPent 默认使用 RoboTwin 的 ``demo_randomized`` 任务配置，该配置带环境扰动（随机背景、桌面杂物、光照、桌高）。如需简单、干净的场景，可使用 ``--task-config demo_clean``。
 
 - ``--robotwin-assets-path``：覆盖 ``ROBOTWIN_ASSETS_PATH`` 指定的资源目录。
-- ``--vla-model-path``：覆盖 ``LINGBOT_MODEL_PATH`` 指定的模型目录。
-- ``--env-cuda-device`` 和 ``--vla-cuda-device``：分别选择仿真环境和 VLA 的 GPU。例如 ``--env-cuda-device 0 --vla-cuda-device 1`` 让仿真器使用 GPU 0，LingBot 使用 GPU 1；WAM worker 使用 ``--wam-cuda-device``。这些参数仅作用于 RPent 启动的服务。共享的 ``--cuda-device`` 提供默认值，各服务专属参数优先。
+- ``--am-checkpoint``：覆盖 ``LINGBOT_MODEL_PATH`` 指定的模型目录。
+- ``--env-cuda-device`` 和 ``--am-cuda-device``：分别选择仿真环境和动作模型的 GPU。例如 ``--env-cuda-device 0 --am-cuda-device 1`` 让仿真器使用 GPU 0，LingBot 使用 GPU 1；WAM 也使用同一个模型 GPU 参数。显存允许时可共用同一张 GPU。这些参数作用于 RPent 启动的服务。共享的 ``--cuda-device`` 提供默认值，各服务专属参数优先。
 
 规划器配置、外部服务和离线参考资料的说明分别见 :doc:`../guides/configure_planner`、 :doc:`../guides/advanced_deployment` 和 :doc:`../guides/memory`。
 
