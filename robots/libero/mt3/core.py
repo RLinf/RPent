@@ -106,6 +106,13 @@ class MT3Config:
     #: nothing matches. A handled mug's origin is off its cup axis, so turning
     #: about the origin moves the grasp off the rim.
     yaw_pivot: dict[str, list[float]] = field(default_factory=dict)
+    #: Tilts [deg] of a grasp about the fingers' closing axis through the
+    #: contact pose, tried by "minimal" (before yaw turns) when the grasp
+    #: route is infeasible. A pinch keeps its contact faces under this turn
+    #: while the wrist swings to the other side.
+    grasp_tilt_deg: list[float] = field(default_factory=list)
+    #: Grip-site axis the fingers close along (LIBERO Panda: x).
+    grasp_tilt_axis: int = 0
     #: Also check the source interaction from the bottleneck to contact,
     #: ignoring the segment's reference object.
     feasibility_interaction: bool = False
@@ -241,6 +248,17 @@ def yaw_about(transform: np.ndarray, angle: float, pivot: np.ndarray) -> np.ndar
     vertical axis through ``pivot``."""
     rot = rz(angle)
     turn = make_pose(pivot - rot @ pivot, rot)
+    return turn @ transform
+
+
+def tilt_about(
+    transform: np.ndarray, angle: float, grip: np.ndarray, axis: int
+) -> np.ndarray:
+    """``transform`` followed by a rotation of ``angle`` [rad] about grip-site
+    axis ``axis`` of the transferred contact pose ``transform @ grip``."""
+    contact = transform @ grip
+    rot = Rotation.from_rotvec(angle * contact[:3, axis]).as_matrix()
+    turn = make_pose(contact[:3, 3] - rot @ contact[:3, 3], rot)
     return turn @ transform
 
 
@@ -479,6 +497,8 @@ class MT3Runner:
         #: Extra yaw [rad] applied to the next segment's transfer (see
         #: ``yaw_search_deg``).
         self._yaw = 0.0
+        #: Extra tilt [rad] of the next grasp (see ``grasp_tilt_deg``).
+        self._tilt = 0.0
         #: Yaw [deg] the last grasp was turned by; the placement that follows
         #: turns by the same amount so the object sits where the demo put it.
         self._carry_yaw = 0.0
@@ -678,6 +698,31 @@ class MT3Runner:
             )
             tried += cands
             pick = best(cands)
+        grasping = any(e[0] == "grasp" for e in self.segments[k].get("events", ()))
+        if pick is None and self.cfg.grasp_tilt_deg and grasping and not held:
+            stage = "tilt"
+            cands = self._feasibility(
+                k,
+                live,
+                0.0,
+                [self.demo],
+                tuple(sorted({corridor, 0.0}, reverse=True)),
+                (0.0, 0.06, 0.12),
+                tilts=tuple(
+                    sign * a for a in self.cfg.grasp_tilt_deg for sign in (1.0, -1.0)
+                ),
+            )
+            tried += cands
+            ok = [x for x in cands if x["feasible"]]
+            pick = min(
+                ok,
+                key=lambda x: (
+                    abs(x["tilt"]),
+                    x["first_movable_contact"] is not None,
+                    x["n"],
+                ),
+                default=None,
+            )
         if pick is None and self._yaw_allowed(k, held):
             stage = "yaw"
             turns = tuple(
@@ -799,12 +844,14 @@ class MT3Runner:
             transit_clearance=pick["clearance"],
         )
         self._yaw = np.radians(pick.get("yaw", 0.0))
+        self._tilt = np.radians(pick.get("tilt", 0.0))
         self._via = None if pick.get("via") is None else np.asarray(pick["via"])
         try:
             log = self._segment(k)
         finally:
             self.cfg = saved
             self._yaw = 0.0
+            self._tilt = 0.0
             self._via = None
         self._carry_yaw = 0.0 if held else float(pick.get("yaw", 0.0))
         log.update(
@@ -812,7 +859,15 @@ class MT3Runner:
                 "stage": stage,
                 **{
                     key: pick.get(key)
-                    for key in ("demo", "corridor", "clearance", "yaw", "via", "n")
+                    for key in (
+                        "demo",
+                        "corridor",
+                        "clearance",
+                        "yaw",
+                        "tilt",
+                        "via",
+                        "n",
+                    )
                 },
             },
             candidates=tried if stage != "configured" else [],
@@ -887,6 +942,10 @@ class MT3Runner:
         if self._yaw:
             transform = yaw_about(
                 transform, self._yaw, self._pivot(k, self.demo, transform, live)
+            )
+        if self._tilt:
+            transform = tilt_about(
+                transform, self._tilt, self.eef[c], self.cfg.grasp_tilt_axis
             )
         log: dict[str, Any] = {
             "segment": k,
@@ -1048,6 +1107,7 @@ class MT3Runner:
         clearances: tuple[float, ...] = (0.0, 0.06, 0.12, 0.2),
         yaws: tuple[float, ...] = (0.0,),
         vias: tuple = (None,),
+        tilts: tuple[float, ...] = (0.0,),
     ) -> list[dict[str, Any]]:
         """Candidate alignment routes for segment ``k`` and their static feasibility.
 
@@ -1077,12 +1137,19 @@ class MT3Runner:
                 live, lib.pose[ref][rows.start + b], self.cfg.symmetry(ref)
             )
             base = transform
-            for yaw in yaws:
+            for yaw, tilt in [(y, t) for y in yaws for t in tilts]:
                 transform = (
                     yaw_about(base, np.radians(yaw), self._pivot(k, d, base, live))
                     if yaw
                     else base
                 )
+                if tilt:
+                    transform = tilt_about(
+                        transform,
+                        np.radians(tilt),
+                        eef[other["c"]],
+                        self.cfg.grasp_tilt_axis,
+                    )
                 self._candidate_routes(
                     lib,
                     rows,
@@ -1093,7 +1160,7 @@ class MT3Runner:
                     start,
                     lengths,
                     clearances,
-                    {"demo": d, "yaw": yaw},
+                    {"demo": d, "yaw": yaw, **({"tilt": tilt} if tilt else {})},
                     names,
                     paths,
                     tails,

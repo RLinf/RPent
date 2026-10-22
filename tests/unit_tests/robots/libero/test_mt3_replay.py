@@ -25,6 +25,7 @@ from robots.libero.mt3.core import (
     MT3Config,
     MT3Runner,
     segment_bottleneck,
+    tilt_about,
 )
 from robots.libero.mt3.feasibility import _rrt_connect, _shortcut_path
 
@@ -284,6 +285,18 @@ def test_grasp_yaw_turns_about_the_configured_body_point():
     assert np.allclose(
         MT3Runner(lib, 0, MT3Config(), hooks)._pivot(0, 0, np.eye(4), live), 0
     )
+
+
+def test_grasp_tilt_keeps_the_pinch_and_swings_the_approach():
+    grip = np.eye(4)
+    grip[:3, 3] = [0.3, 0.1, 0.9]
+    transform = np.eye(4)
+    transform[:3, 3] = [0.05, 0.0, 0.0]
+    turned = tilt_about(transform, np.radians(30), grip, axis=0) @ grip
+    before = transform @ grip
+    np.testing.assert_allclose(turned[:3, 3], before[:3, 3], atol=1e-12)
+    np.testing.assert_allclose(turned[:3, 0], before[:3, 0], atol=1e-12)
+    assert np.degrees(np.arccos(turned[:3, 2] @ before[:3, 2])) == pytest.approx(30)
 
 
 def test_agent_replay_catalog_and_bounds(monkeypatch, tmp_path):
