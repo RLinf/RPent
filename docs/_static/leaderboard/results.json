@@ -4,8 +4,8 @@
     {
       "id": "rpent-evaluation-period",
       "text": {
-        "en": "All RPent method results shown in this leaderboard are from September 2026 evaluations.",
-        "zh": "Leaderboard 中所有 RPent 方法均展示 2026.09 测试结果。"
+        "en": "RPent results on this leaderboard come from different evaluation dates; each source note identifies its run.",
+        "zh": "Leaderboard 中的 RPent 成绩来自不同评测日期；各来源注释标明对应批次。"
       }
     },
     {
@@ -48,6 +48,14 @@
     },
     {
       "id": "deepseek-v4-1-flash-xhigh",
+      "kind": "rpent",
+      "backend": "Codex",
+      "model": "DeepSeek V4.1 Flash",
+      "reasoning": true,
+      "effort": "xhigh"
+    },
+    {
+      "id": "deepseek-v4-1-flash-xhigh-deepseek-memory",
       "kind": "rpent",
       "backend": "Codex",
       "model": "DeepSeek V4.1 Flash",
@@ -330,6 +338,22 @@
           "text": {
             "en": "GPT-6 Astra (memory-enabled configuration): Long Task/Swap and the other six suites use separate memory-file snapshots frozen after their respective exploration phases, with no updates during evaluation. Overall combines two non-overlapping batches: Long 157/200 plus the other suites 584/600, giving 741/800 (92.63%); the 800 episodes do not share a single memory snapshot.",
             "zh": "GPT-6 Astra（使用 memory 的配置）：Long Task/Swap 与其余六套件使用各自探索后冻结的 memory 文件快照，评测期间不更新。Overall 合并两个不重叠批次：Long 157/200，加上其余套件 584/600，得到 741/800（92.63%）；并非全部回合共享同一份 memory 快照。"
+          }
+        },
+        {
+          "id": "libero-pro-deepseek-astra-memory",
+          "configuration_ids": ["deepseek-v4-1-flash-xhigh"],
+          "text": {
+            "en": "DeepSeek V4.1 Flash evaluated with memory explored by GPT-6 Astra.",
+            "zh": "DeepSeek V4.1 Flash 使用 GPT-6 Astra 探索的 memory 评测。"
+          }
+        },
+        {
+          "id": "libero-pro-deepseek-self-memory",
+          "configuration_ids": ["deepseek-v4-1-flash-xhigh-deepseek-memory"],
+          "text": {
+            "en": "DeepSeek V4.1 Flash evaluated with its own seed-0 exploration memory.",
+            "zh": "DeepSeek V4.1 Flash 使用自身 seed-0 探索的 memory 评测。"
           }
         }
       ]
@@ -632,7 +656,16 @@
     {"id": "goal-task--deepseek-v4-1-flash-xhigh", "view_id": "goal-task", "configuration_id": "deepseek-v4-1-flash-xhigh", "rate": "90.00", "successes": 90, "episodes": 100, "source_ids": ["deepseek-libero-pro-800-20261001"], "protocol_id": "rpent-pro-deepseek-eight-suites"},
     {"id": "goal-swap--deepseek-v4-1-flash-xhigh", "view_id": "goal-swap", "configuration_id": "deepseek-v4-1-flash-xhigh", "rate": "93.00", "successes": 93, "episodes": 100, "source_ids": ["deepseek-libero-pro-800-20261001"], "protocol_id": "rpent-pro-deepseek-eight-suites"},
     {"id": "long-task--deepseek-v4-1-flash-xhigh", "view_id": "long-task", "configuration_id": "deepseek-v4-1-flash-xhigh", "rate": "74.00", "successes": 74, "episodes": 100, "source_ids": ["deepseek-libero-pro-800-20261001"], "protocol_id": "rpent-pro-deepseek-eight-suites"},
-    {"id": "long-swap--deepseek-v4-1-flash-xhigh", "view_id": "long-swap", "configuration_id": "deepseek-v4-1-flash-xhigh", "rate": "67.00", "successes": 67, "episodes": 100, "source_ids": ["deepseek-libero-pro-800-20261001"], "protocol_id": "rpent-pro-deepseek-eight-suites"}
+    {"id": "long-swap--deepseek-v4-1-flash-xhigh", "view_id": "long-swap", "configuration_id": "deepseek-v4-1-flash-xhigh", "rate": "67.00", "successes": 67, "episodes": 100, "source_ids": ["deepseek-libero-pro-800-20261001"], "protocol_id": "rpent-pro-deepseek-eight-suites"},
+    {"id": "libero-pro--deepseek-v4-1-flash-xhigh-deepseek-memory", "view_id": "libero-pro", "configuration_id": "deepseek-v4-1-flash-xhigh-deepseek-memory", "rate": "88.63", "successes": 709, "episodes": 800, "source_ids": ["deepseek-libero-pro-seed0-memory-20261022"], "protocol_id": "rpent-pro-deepseek-seed0-memory"},
+    {"id": "spatial-task--deepseek-v4-1-flash-xhigh-deepseek-memory", "view_id": "spatial-task", "configuration_id": "deepseek-v4-1-flash-xhigh-deepseek-memory", "rate": "99.00", "successes": 99, "episodes": 100, "source_ids": ["deepseek-libero-pro-seed0-memory-20261022"], "protocol_id": "rpent-pro-deepseek-seed0-memory"},
+    {"id": "spatial-swap--deepseek-v4-1-flash-xhigh-deepseek-memory", "view_id": "spatial-swap", "configuration_id": "deepseek-v4-1-flash-xhigh-deepseek-memory", "rate": "90.00", "successes": 90, "episodes": 100, "source_ids": ["deepseek-libero-pro-seed0-memory-20261022"], "protocol_id": "rpent-pro-deepseek-seed0-memory"},
+    {"id": "object-task--deepseek-v4-1-flash-xhigh-deepseek-memory", "view_id": "object-task", "configuration_id": "deepseek-v4-1-flash-xhigh-deepseek-memory", "rate": "99.00", "successes": 99, "episodes": 100, "source_ids": ["deepseek-libero-pro-seed0-memory-20261022"], "protocol_id": "rpent-pro-deepseek-seed0-memory"},
+    {"id": "object-swap--deepseek-v4-1-flash-xhigh-deepseek-memory", "view_id": "object-swap", "configuration_id": "deepseek-v4-1-flash-xhigh-deepseek-memory", "rate": "100.00", "successes": 100, "episodes": 100, "source_ids": ["deepseek-libero-pro-seed0-memory-20261022"], "protocol_id": "rpent-pro-deepseek-seed0-memory"},
+    {"id": "goal-task--deepseek-v4-1-flash-xhigh-deepseek-memory", "view_id": "goal-task", "configuration_id": "deepseek-v4-1-flash-xhigh-deepseek-memory", "rate": "79.00", "successes": 79, "episodes": 100, "source_ids": ["deepseek-libero-pro-seed0-memory-20261022"], "protocol_id": "rpent-pro-deepseek-seed0-memory"},
+    {"id": "goal-swap--deepseek-v4-1-flash-xhigh-deepseek-memory", "view_id": "goal-swap", "configuration_id": "deepseek-v4-1-flash-xhigh-deepseek-memory", "rate": "98.00", "successes": 98, "episodes": 100, "source_ids": ["deepseek-libero-pro-seed0-memory-20261022"], "protocol_id": "rpent-pro-deepseek-seed0-memory"},
+    {"id": "long-task--deepseek-v4-1-flash-xhigh-deepseek-memory", "view_id": "long-task", "configuration_id": "deepseek-v4-1-flash-xhigh-deepseek-memory", "rate": "70.00", "successes": 70, "episodes": 100, "source_ids": ["deepseek-libero-pro-seed0-memory-20261022"], "protocol_id": "rpent-pro-deepseek-seed0-memory"},
+    {"id": "long-swap--deepseek-v4-1-flash-xhigh-deepseek-memory", "view_id": "long-swap", "configuration_id": "deepseek-v4-1-flash-xhigh-deepseek-memory", "rate": "74.00", "successes": 74, "episodes": 100, "source_ids": ["deepseek-libero-pro-seed0-memory-20261022"], "protocol_id": "rpent-pro-deepseek-seed0-memory"}
   ],
   "cost_results": {
     "source_ids": ["contributor-qwen-costs-20260918"],
@@ -648,7 +681,8 @@
       {"id": "robotwin--gpt-5-6-xhigh", "benchmark_id": "robotwin", "configuration_id": "gpt-5-6-xhigh", "mean_elapsed_seconds": 1828.7, "total_output_tokens": 4763915},
       {"id": "robotwin--gpt-5-6-no-reasoning", "benchmark_id": "robotwin", "configuration_id": "gpt-5-6-no-reasoning", "mean_elapsed_seconds": 957.4, "total_output_tokens": 2456401},
       {"id": "robotwin--gpt-6-astra-low", "benchmark_id": "robotwin", "configuration_id": "gpt-6-astra-low", "mean_elapsed_seconds": 1078.8, "total_output_tokens": 2763641},
-      {"id": "libero-pro--deepseek-v4-1-flash-xhigh", "benchmark_id": "libero-pro", "configuration_id": "deepseek-v4-1-flash-xhigh", "mean_elapsed_seconds": 963.25, "source_ids": ["deepseek-libero-pro-800-20261001"], "total_output_tokens": 5229711.52}
+      {"id": "libero-pro--deepseek-v4-1-flash-xhigh", "benchmark_id": "libero-pro", "configuration_id": "deepseek-v4-1-flash-xhigh", "mean_elapsed_seconds": 963.25, "source_ids": ["deepseek-libero-pro-800-20261001"], "total_output_tokens": 5229711.52},
+      {"id": "libero-pro--deepseek-v4-1-flash-xhigh-deepseek-memory", "benchmark_id": "libero-pro", "configuration_id": "deepseek-v4-1-flash-xhigh-deepseek-memory", "mean_elapsed_seconds": 632.65, "source_ids": ["deepseek-libero-pro-seed0-memory-20261022"], "total_output_tokens": 4309012.18}
     ]
   },
   "sources": [
@@ -880,7 +914,12 @@
     {
       "id": "deepseek-libero-pro-800-20261001",
       "type": "experiment_report",
-      "note": "Infini deepseek-v4.1-flash with Codex, xhigh requested and reasoning enabled. Completed eight LIBERO-PRO suites with frozen memory: 720/800 successes. Each suite covers tasks 0–9 and seeds 1–10; timeouts count as failures. Historical retries are not counted twice. Costs average planner elapsed_s and (total_input_tokens + total_output_tokens) across all 800 final episodes, including failure and timeout. Cached input and reasoning output are not added again. Historical attempts are excluded."
+      "note": "Infini deepseek-v4.1-flash with Codex, xhigh requested and reasoning enabled, using memory explored by GPT-6 Astra. Completed eight LIBERO-PRO suites: 720/800 successes. Each suite covers tasks 0–9 and seeds 1–10; timeouts count as failures. Historical retries are not counted twice. Costs average planner elapsed_s and (total_input_tokens + total_output_tokens) across all 800 final episodes, including failure and timeout. Cached input and reasoning output are not added again. Historical attempts are excluded."
+    },
+    {
+      "id": "deepseek-libero-pro-seed0-memory-20261022",
+      "type": "experiment_report",
+      "note": "Infini deepseek-v4.1-flash with Codex xhigh, using its own frozen published seed-0 exploration memory (343 files). RPent main d3efb4fa and RLinf c52e780f. Eight LIBERO-PRO suites, tasks 0–9 and seeds 1–10: 709/800 native simulator successes, 91 unsolved, zero final errors or timeouts. A historical HTTP 500 cell was rerun; only final episodes count. Mean planner elapsed_s and input plus output tokens use all 800 final episodes; cached input and reasoning output are included within their parent totals."
     }
   ],
   "palette": {
