@@ -39,18 +39,23 @@ logger = get_logger("env_server")
 os.environ.setdefault("ROBOT_PLATFORM", "LIBERO")
 
 # Some managed Python installs mark robosuite sources without a numba cache
-# locator. Disable persistent caching before LIBERO imports robosuite while
-# retaining its nopython JIT compilation.
+# locator. Disable only persistent caching before LIBERO imports robosuite;
+# numerical kernels remain JIT compiled.
 try:
-    import numba
+    import importlib.util
+    import site
+    from pathlib import Path
 
-    _numba_jit = numba.jit
-
-    def _jit_without_cache(*args: Any, **kwargs: Any) -> Any:
-        kwargs["cache"] = False
-        return _numba_jit(*args, **kwargs)
-
-    numba.jit = _jit_without_cache
+    for _site in site.getsitepackages():
+        _macro_file = Path(_site) / "robosuite" / "macros.py"
+        if _macro_file.is_file():
+            _spec = importlib.util.spec_from_file_location("robosuite.macros", _macro_file)
+            _macros = importlib.util.module_from_spec(_spec)
+            _macros.CACHE_NUMBA = False
+            sys.modules["robosuite.macros"] = _macros
+            _spec.loader.exec_module(_macros)
+            _macros.CACHE_NUMBA = False
+            break
 except ImportError:
     pass
 
