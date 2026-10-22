@@ -139,6 +139,9 @@ class MT3Config:
     #: Additional alignment attempts for references matching a body-name
     #: substring. Absent entries preserve the global setting.
     alignment_replans_by_ref: dict[str, int] = field(default_factory=dict)
+    #: Continue a transferred segment's final target direction by this distance
+    #: [m], for references matching a body-name substring. Empty by default.
+    segment_overshoot_by_ref: dict[str, float] = field(default_factory=dict)
     alignment_guard_pos: float = 0.0
     alignment_guard_rot_deg: float = 15.0
     #: Repeat a source target when its tracking residual exceeds these limits.
@@ -1122,6 +1125,30 @@ class MT3Runner:
                     log["tracking_extra_steps"] = log.get("tracking_extra_steps", 0) + 1
                     if not self._send(target, self.gripper[f]):
                         return self._close(log, n0, "done during tracking correction")
+        overshoot = next(
+            (
+                float(distance)
+                for key, distance in self.cfg.segment_overshoot_by_ref.items()
+                if key in ref
+            ),
+            0.0,
+        )
+        if overshoot > 0 and end > b:
+            tail_start = max(b, end - 5)
+            first_target = transform @ self.target[tail_start] @ grasp_delta
+            last_target = transform @ self.target[end - 1] @ grasp_delta
+            direction = last_target[:3, 3] - first_target[:3, 3]
+            norm = float(np.linalg.norm(direction))
+            if norm > 1e-9:
+                direction /= norm
+                count = int(np.ceil(overshoot / self.cfg.align_step))
+                for i in range(1, count + 1):
+                    extra = min(i * self.cfg.align_step, overshoot)
+                    target = last_target.copy()
+                    target[:3, 3] += direction * extra
+                    if not self._send(target, self.gripper[end - 1]):
+                        return self._close(log, n0, "done during segment overshoot")
+                log["overshoot_m"] = overshoot
         return self._close(log, n0, "segment replayed")
 
     def _feasibility(

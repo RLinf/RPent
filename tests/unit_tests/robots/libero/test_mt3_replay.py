@@ -66,6 +66,54 @@ def test_reference_specific_alignment_replans_preserve_default():
     assert configured._alignment_replans("white_yellow_mug_1_main") == 0
 
 
+def test_reference_specific_segment_overshoot_follows_last_five_target_frames():
+    frames = 10
+    poses = np.repeat(np.eye(4)[None], frames, axis=0)
+    poses[:, 0, 3] = np.arange(frames) * 0.01
+    poses[:, 1, 3] = np.arange(frames) * 0.002
+    segments = [[{"ref": "microwave_1_microdoorroot", "start": 0, "c": 5, "end": 10}]]
+    lib = SimpleNamespace(
+        frames=lambda _: slice(0, frames),
+        eef=poses,
+        target=poses.copy(),
+        gripper=np.arange(frames, dtype=float),
+        actions=np.zeros((frames, 7)),
+        segments=segments,
+        pose={"microwave_1_microdoorroot": np.repeat(np.eye(4)[None], frames, axis=0)},
+    )
+    current = poses[0].copy()
+    commanded = []
+
+    def step(action):
+        current[:3, 3] += action[:3] * POS_SCALE
+        commanded.append(action.copy())
+
+    hooks = EnvHooks(
+        step,
+        lambda: current.copy(),
+        lambda names: {name: np.eye(4) for name in names},
+        lambda: False,
+    )
+    runner = MT3Runner(
+        lib,
+        0,
+        MT3Config(radius=0.0, settle_max=0, segment_overshoot_by_ref={"microdoorroot": 0.025}),
+        hooks,
+    )
+    result = runner.run_segment(0)
+
+    # The transferred final target is x=.09/y=.018. The tail displacement
+    # (frames 5..9) points along +x/+y; the extension ends 2.5 cm farther.
+    expected_direction = np.array([0.01, 0.002, 0.0]) / np.linalg.norm([0.01, 0.002])
+    last_target = poses[9, :3, 3]
+    end_goal = last_target + expected_direction * 0.025
+    np.testing.assert_allclose(current[:3, 3], end_goal, atol=1e-7)
+    assert len(commanded) >= 13  # source frames, alignment, and 3 overshoot steps
+    assert commanded[-1][6] == lib.gripper[9]
+    assert commanded[-2][6] == lib.gripper[9]
+    assert result["overshoot_m"] == 0.025
+
+
 def test_fixture_placement_repeats_after_reseeding():
     """Both placement samplers and the wrapped environment receive the seed."""
     state = np.random.get_state()
