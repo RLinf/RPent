@@ -17,6 +17,7 @@
 import json
 import math
 import unicodedata
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
 from docutils import nodes
@@ -36,7 +37,6 @@ COPY = {
         "costs": "Time & Token Costs",
         "method": "Method",
         "rate": "Success rate",
-        "countsOnly": "Evaluated",
         "time": "Mean time / episode (s)",
         "mean_total_tokens": "Mean input + output tokens / episode",
         "total_output_tokens": "Total output tokens",
@@ -47,7 +47,6 @@ COPY = {
         "costs": "耗时与 Token 开销",
         "method": "方法",
         "rate": "成功率",
-        "countsOnly": "已评测",
         "time": "平均每回合耗时（秒）",
         "mean_total_tokens": "平均每回合输入＋输出 token",
         "total_output_tokens": "总输出 token",
@@ -158,7 +157,26 @@ def context(data: dict, language: str) -> dict:
     configs = {item["id"]: item for item in data["configurations"]}
     records_by_view = {}
     for record in data["results"]:
-        records_by_view.setdefault(record["view_id"], []).append(record)
+        count = None
+        episodes = record.get("episodes")
+        if episodes is not None:
+            successes = record.get("successes")
+            if successes is not None:
+                count = f"{successes}/{episodes}"
+            elif record.get("rate") is not None:
+                estimate = Decimal(str(record["rate"])) * episodes / 100
+                rounded = int(estimate.to_integral_value(rounding=ROUND_HALF_UP))
+                count = f"{rounded}/{episodes}"
+        display_record = {
+            **record,
+            "display_rate": (
+                f"{float(record['rate']):.2f}"
+                if record.get("rate") is not None
+                else None
+            ),
+            "display_count": count,
+        }
+        records_by_view.setdefault(record["view_id"], []).append(display_record)
 
     def label(config):
         if config.get("display_name"):

@@ -55,7 +55,6 @@
     "download": "Download CSV",
     "print": "Print page",
     "menu": "Chart options",
-    "countsOnly": "Evaluated",
     "saved": "CSV downloaded",
     "allScores": "All methods & reported scores",
     "environments": "Environments"
@@ -79,7 +78,6 @@
     "download": "下载 CSV",
     "print": "打印页面",
     "menu": "图表选项",
-    "countsOnly": "已评测",
     "saved": "CSV 已下载",
     "allScores": "完整方法与分项成绩",
     "environments": "环境"
@@ -110,7 +108,14 @@
   }
   const allRows = view => [...rowsByView.get(view.id)].sort((a,b)=>
     a.rate===null?b.rate===null?a.id.localeCompare(b.id):1:b.rate===null?-1:Number(b.rate)-Number(a.rate)||a.id.localeCompare(b.id));
-  const count = r => r.successes!=null?`${r.successes}/${r.episodes}`:r.episodes!=null?`${t('countsOnly')}: ${r.episodes}`:'—';
+  const rate = value => Number(value).toFixed(2);
+  const count = r => {
+    if(r.episodes==null)return '—';
+    if(r.successes!=null)return `${r.successes}/${r.episodes}`;
+    if(r.rate==null)return '—';
+    const estimate=Number(r.rate)*r.episodes/100;
+    return `${Math.round(estimate)}/${r.episodes}`;
+  };
   function headline(id) {
     const view=views.get(id);
     const benchmark=d.benchmarks.find(b=>b.id===view.benchmark_id);
@@ -132,7 +137,7 @@
     const rows=allRows(view).filter(r=>r.rate!==null);
     const bestRate=Number(rows[0]?.rate);
     return `<div class="chart ${kind}" aria-label="${h(headline(view.id))}"><div class="chart-grid" aria-hidden="true">${Array.from({length:6},()=>'<i></i>').join('')}</div><div class="chart-rows">${rows.map(r=>
-      `<div class="chart-row" data-record="${r.id}" aria-label="${h(label(r)+', '+detailLabel(r)+', '+r.rate+'%, '+count(r))}"><div class="method-label"><span class="method-text"><span class="method-name">${h(label(r))}${noteReference(r)}</span><span class="method-description">${h(detailLabel(r))}</span>${r.episodes!=null?`<span class="episode-count">${h(count(r))}</span>`:''}</span></div><div class="bar-track"><div class="bar${Number(r.rate)===0?' zero':''}" style="--value:${Number(r.rate)}%;--bar-color:${color(r,bestRate)}"><span class="bar-value">${r.rate}%</span></div></div></div>`).join('')}</div><div class="axis" aria-hidden="true">${[0,20,40,60,80,100].map(x=>`<span>${x}</span>`).join('')}</div></div>`;
+      `<div class="chart-row" data-record="${r.id}" aria-label="${h(label(r)+', '+detailLabel(r)+', '+rate(r.rate)+'%, '+count(r))}"><div class="method-label"><span class="method-text"><span class="method-name">${h(label(r))}${noteReference(r)}</span><span class="method-description">${h(detailLabel(r))}</span>${r.episodes!=null?`<span class="episode-count">${h(count(r))}</span>`:''}</span></div><div class="bar-track"><div class="bar${Number(r.rate)===0?' zero':''}" style="--value:${Number(r.rate)}%;--bar-color:${color(r,bestRate)}"><span class="bar-value">${rate(r.rate)}%</span></div></div></div>`).join('')}</div><div class="axis" aria-hidden="true">${[0,20,40,60,80,100].map(x=>`<span>${x}</span>`).join('')}</div></div>`;
   }
   function comparisonMatrix(s) {
     const columns=s.views;
@@ -141,7 +146,7 @@
       const sample=columns.flatMap(allRows).find(r=>r.configuration_id===c.id&&r.rate!==null);
       return `<tr data-method="${c.id}"><th scope="row"><div class="matrix-label"><span>${h(label(sample))}${noteReference(sample)}<small> ${h(detailLabel(sample))}</small></span></div></th>${columns.map(v=>{
         const r=allRows(v).find(r=>r.configuration_id===c.id);
-        return `<td class="rate" data-value="${r?.rate??''}"${r?` data-matrix-record="${r.id}"`:''} title="${h(tr(r?.evaluation_note)||tr(v.label))}">${r?.rate!=null?r.rate+'%':`<span class="not-reported" aria-label="${t('unreported')}">—</span>`}${r?.episodes!=null?` <small class="episode-count">(${h(count(r))})</small>`:''}</td>`;
+        return `<td class="rate" data-value="${r?.rate??''}"${r?` data-matrix-record="${r.id}"`:''} title="${h(tr(r?.evaluation_note)||tr(v.label))}">${r?.rate!=null?rate(r.rate)+'%':`<span class="not-reported" aria-label="${t('unreported')}">—</span>`}${r?.episodes!=null?` <small class="episode-count">(${h(count(r))})</small>`:''}</td>`;
       }).join('')}</tr>`;
     }).join('')}</tbody></table></div></details>`;
   }
@@ -166,7 +171,7 @@
       const tokenMetrics=['total_output_tokens','mean_total_tokens'].filter(key=>rows.some(r=>r[key]!=null));
       const benchmark=d.benchmarks.find(b=>b.id===id);
       return `<section id="costs-${id}" class="cost-group" data-cost-group="${id}"><div class="section-inner"><details data-module="costs-${id}"${collapsedModules.has('costs-'+id)?'':' open'}><summary class="module-header"><h3>${name}</h3></summary><div class="module-content"><div class="table-wrap" tabindex="0" role="region" aria-label="${name} ${h(t('costs'))}"><table data-sort-key="costs-${id}" data-sortable="false" data-highlight-best="false"><thead><tr><th>${t('method')}</th><th class="rate">${t('meanTime')}</th>${tokenMetrics.map(key=>`<th class="rate">${t(key)}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>{
-        return `<tr data-cost-record="${r.id}" data-method="${r.configuration_id}"><td><div class="matrix-label"><span>${h(label(r))}${noteReference(r,true)}<small> ${h(detailLabel(r))}</small></span></div></td><td class="rate" data-value="${r.mean_elapsed_seconds??''}">${r.mean_elapsed_seconds===null?'—':r.mean_elapsed_seconds.toLocaleString('en-US')}</td>${tokenMetrics.map(key=>`<td class="rate" data-value="${r[key]??''}">${r[key]==null?'—':r[key].toLocaleString('en-US',{maximumFractionDigits:0})}</td>`).join('')}</tr>`;
+        return `<tr data-cost-record="${r.id}" data-method="${r.configuration_id}"><td><div class="matrix-label"><span>${h(label(r))}${noteReference(r,true)}<small> ${h(detailLabel(r))}</small></span></div></td><td class="rate" data-value="${r.mean_elapsed_seconds??''}">${r.mean_elapsed_seconds==null?'—':r.mean_elapsed_seconds.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>${tokenMetrics.map(key=>`<td class="rate" data-value="${r[key]??''}">${r[key]==null?'—':r[key].toLocaleString('en-US',{maximumFractionDigits:0})}</td>`).join('')}</tr>`;
       }).join('')}</tbody></table></div>${(benchmark.notes??[]).map((note,index)=>note.placement==='footer'||!rows.some(r=>note.configuration_ids.includes(r.configuration_id))?'':noteParagraph({...note,id:'costs-'+note.id},index)).join('')}</div></details></div></section>`;
     }).join('')}</div></div>`;
     setupTables(element,'costs');
