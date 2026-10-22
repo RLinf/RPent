@@ -299,6 +299,18 @@ def test_grasp_tilt_keeps_the_pinch_and_swings_the_approach():
     assert np.degrees(np.arccos(turned[:3, 2] @ before[:3, 2])) == pytest.approx(30)
 
 
+def test_reference_offset_shifts_transfers_in_the_reference_frame():
+    live = np.eye(4)
+    live[:3, :3] = np.array([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
+    live[:3, 3] = [0.5, 0.0, 0.9]
+    demo = np.eye(4)
+    cfg = MT3Config(ref_offset={"microwave_1_main": [0.0, 0.04, 0.0]})
+    shifted, _ = cfg.transfer("microwave_1_main", live, demo)
+    plain, _ = cfg.transfer("microwave_1_microdoorroot", live, demo)
+    np.testing.assert_allclose(shifted[:3, 3] - plain[:3, 3], [-0.04, 0.0, 0.0])
+    np.testing.assert_allclose(shifted[:3, :3], plain[:3, :3])
+
+
 def test_agent_replay_catalog_and_bounds(monkeypatch, tmp_path):
     from robots.libero.mt3 import agent
 
