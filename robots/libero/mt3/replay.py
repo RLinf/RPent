@@ -144,6 +144,9 @@ def run_mt3(
     cfg, library_dir = load_config(Path(toolkit.memory.root))
     if cfg.force_recorded_trace:
         trace = np.load(cfg.force_recorded_trace)
+        (Path(get_output_dir()) / "exact_trace_progress.json").write_text(
+            json.dumps({"phase": "loaded", "actions": int(len(trace["actions"]))})
+        )
         def replay_trace() -> dict[str, Any]:
             executed = 0
             for action in trace["actions"]:
@@ -158,6 +161,9 @@ def run_mt3(
             {"name": "mt3_exact_trace", "description": "Replay the recorded raw action trace verbatim.",
              "input_schema": {"type": "object", "properties": {}}},
             partial(toolkit._execute_primitive, "mt3_exact_trace", replay_trace),
+        )
+        (Path(get_output_dir()) / "exact_trace_progress.json").write_text(
+            json.dumps({"phase": "tool_registered", "actions": int(len(trace["actions"]))})
         )
         execute(toolkit, "mt3_exact_trace", {})
         episode = {
