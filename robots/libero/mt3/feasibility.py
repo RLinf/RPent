@@ -306,8 +306,14 @@ class SceneChecker:
         shortcut_attempts: int = 100,
         pose_step: float = 0.01,
         depth: float = 0.002,
+        goal_pos_tol: float = 0.03,
+        goal_rot_tol: float = 8.0,
     ) -> dict[str, Any]:
-        """Plan a collision-free joint path to ``goal_pose`` on a state copy."""
+        """Plan a collision-free joint path to ``goal_pose`` on a state copy.
+
+        The goal tolerances match ``check``: poses at the edge of the workspace
+        come within ~2-3 cm by IK, and settling closes the rest.
+        """
         started = time.monotonic()
         rng = np.random.default_rng(seed)
         self._reset_copy()
@@ -351,7 +357,7 @@ class SceneChecker:
             q = self.data.qpos[self.arm_qpos].copy()
             if (pos_err, rot_err) < best_error:
                 best_error = (pos_err, rot_err)
-            if pos_err <= 0.015 and rot_err <= 5.0 and valid(q):
+            if pos_err <= goal_pos_tol and rot_err <= goal_rot_tol and valid(q):
                 goal_q = q
                 break
 
