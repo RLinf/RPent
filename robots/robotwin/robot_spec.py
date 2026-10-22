@@ -34,8 +34,8 @@ from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
 from rpent.robots.components.am_runtime import (
     add_am_args,
-    add_am_device_arg,
-    select_wam,
+    select_am,
+    start_wam_service,
 )
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
@@ -191,7 +191,8 @@ def vla_runtime_contract() -> dict[str, object]:
 
 
 def _resolve_dashboard(args: argparse.Namespace) -> DashboardSpec:
-    wam = select_wam(args, "robotwin")
+    am = select_am(args, "robotwin")
+    wam = am if am.is_wam else None
     if wam is None:
         return ROBOTWIN_DASHBOARD_SPEC
     return {
@@ -250,7 +251,7 @@ def get_toolkit(
 
 
 def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
-    add_am_args(parser, default_backend="lingbot")
+    add_am_args(parser, platform="robotwin")
     parser.add_argument(
         "--memory-version",
         default="auto",
@@ -314,32 +315,19 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     )
     parser.add_argument("--env-endpoint", default=None)
     parser.add_argument(
-        "--vla-model-path",
-        default=os.environ.get("LINGBOT_MODEL_PATH"),
-        help=("LingBot checkpoint. Defaults to LINGBOT_MODEL_PATH when set."),
-    )
-    parser.add_argument(
-        "--lingbot-robot-config",
-        default=os.environ.get("LINGBOT_ROBOT_CONFIG"),
-        help=(
-            "Path to the LingBot FeatureTransform robot config. Defaults to "
-            "the model snapshot's configs/robot_configs/robotwin_eef.yaml."
-        ),
-    )
-    parser.add_argument(
         "--env-cuda-device",
         default=None,
         help="CUDA_VISIBLE_DEVICES for the local RoboTwin environment; may share "
         "GPUs with other services. Defaults to --cuda-device, then inherits CUDA_VISIBLE_DEVICES.",
     )
     add_cuda_device_arg(parser, device_type=str)
-    add_am_device_arg(parser, "vla")
 
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
     if not args.task_name:
         raise ValueError("--task-name is required")
-    wam = select_wam(args, "robotwin")
+    am = select_am(args, "robotwin")
+    wam = am if am.is_wam else None
     if wam is not None:
         if getattr(args, "explore", False) or getattr(args, "planner", None) == "flash":
             raise ValueError("WAM supports evaluation without Flash Mode only")
@@ -473,10 +461,10 @@ def _resolve_env_runtime_path(args: argparse.Namespace) -> Path | None:
 def _resolve_vla_runtime_path(args: argparse.Namespace) -> Path | None:
     model_path: Path | None = None
     if args.am_endpoint is None:
-        configured_model = getattr(args, "vla_model_path", None)
+        configured_model = select_am(args, "robotwin").checkpoint
         if not configured_model:
             raise ValueError(
-                "--vla-model-path is required when launching the local VLA "
+                "--am-checkpoint is required when launching the local LingBot "
                 "server; set LINGBOT_MODEL_PATH or pass the option explicitly"
             )
         model_path = Path(configured_model).expanduser().resolve()
@@ -501,7 +489,9 @@ def _resolve_lingbot_robot_config(
     args: argparse.Namespace,
     model_path: Path,
 ) -> Path:
-    configured = getattr(args, "lingbot_robot_config", None)
+    configured = getattr(args, "lingbot_robot_config", None) or os.environ.get(
+        "LINGBOT_ROBOT_CONFIG"
+    )
     path = (
         Path(configured).expanduser()
         if configured
@@ -520,7 +510,7 @@ def _resolve_cuda_devices(
     args: argparse.Namespace,
 ) -> tuple[str | None, str | None]:
     env_device = resolve_cuda_device(args, "env")
-    vla_device = resolve_cuda_device(args, "vla")
+    vla_device = resolve_cuda_device(args, "am")
     return (
         str(env_device) if env_device is not None else None,
         str(vla_device) if vla_device is not None else None,
@@ -534,7 +524,8 @@ def _init_runtime(
     components: set[str] | None,
 ) -> tuple[list["ProcessDaemon"], dict[str, Any]]:
     """Initialize every RoboTwin component, or only ``components`` when given."""
-    wam = select_wam(args, "robotwin")
+    am = select_am(args, "robotwin")
+    wam = am if am.is_wam else None
     available = {"env", "wam" if wam else "vla"}
     selected = available if components is None else components
     unknown = selected.difference(available)
@@ -571,7 +562,7 @@ def _init_runtime(
             owned_daemons,
             dashboard_events,
             "wam",
-            lambda: wam.start_service(args, output_dir),
+            lambda: start_wam_service(wam, output_dir),
         )
 
     runtime_kwargs: dict[str, Any] = {}
@@ -701,10 +692,11 @@ def _spawn_vla_server(
     args: argparse.Namespace,
     output_dir: Path,
 ) -> tuple[ProcessDaemon | None, tuple[str, int]]:
-    from rpent.utils.daemon import ProcessDaemon, pick_free_port
+    from rpent.utils.daemon import pick_free_port
 
-    if args.am_endpoint is not None:
-        return None, _parse_vla_endpoint(args.am_endpoint)
+    am = select_am(args, "robotwin")
+    if am.endpoint is not None:
+        return None, _parse_vla_endpoint(am.endpoint)
 
     model_path = _resolve_vla_runtime_path(args)
     assert model_path is not None
@@ -712,10 +704,8 @@ def _spawn_vla_server(
     host, vla_port = "127.0.0.1", pick_free_port()
     norm_path = model_path / MODEL_SPEC.norm_stats
     qwen_path = model_path / MODEL_SPEC.qwen_base
-    daemon = ProcessDaemon(
-        "lingbot_vla_server",
+    daemon = am.spawn_worker(
         [
-            sys.executable,
             str(get_repo_root() / "robots" / "robotwin" / "vla_server.py"),
             "--model-path",
             str(model_path),
@@ -729,17 +719,12 @@ def _spawn_vla_server(
             str(robot_config),
             "--parent-watch",
         ],
+        output_dir,
+        name="lingbot_vla_server",
         env_overrides={
             "QWEN25_PATH": str(qwen_path),
-            **(
-                {"CUDA_VISIBLE_DEVICES": str(resolve_cuda_device(args, "vla"))}
-                if resolve_cuda_device(args, "vla") is not None
-                else {}
-            ),
         },
-        log_path=str(output_dir / "lingbot_vla_server.log"),
     )
-    daemon.start()
     return daemon, (host, vla_port)
 
 

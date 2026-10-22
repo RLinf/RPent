@@ -27,7 +27,7 @@ from robots.yam.tasks import TASK_INSTRUCTIONS, resolve_task_language
 from rpent.dashboard.events import DashboardEventSink
 from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
-from rpent.robots.components.am_runtime import add_am_endpoint_arg
+from rpent.robots.components.am_runtime import add_am_args, select_am
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_wait_server
@@ -159,7 +159,7 @@ def _add_runtime_args(parser: argparse.ArgumentParser, *, required: bool) -> Non
         required=required,
         help="YAM env_server endpoint. Use socket://host:port for pickle TCP.",
     )
-    add_am_endpoint_arg(parser)
+    add_am_args(parser, platform="yam")
     parser.add_argument(
         "--without-vla",
         action="store_true",
@@ -168,6 +168,7 @@ def _add_runtime_args(parser: argparse.ArgumentParser, *, required: bool) -> Non
 
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
+    select_am(args, "yam")
     if args.task_id is None:
         raise ValueError("--task-id is required")
     instruction = resolve_task_language(args.task_id, args.task_language)
@@ -234,6 +235,7 @@ def _init_runtime(
     dashboard_events: DashboardEventSink,
     components: set[str] | None,
 ) -> tuple[list["ProcessDaemon"], dict[str, Any]]:
+    am = select_am(args, "yam")
     del output_dir
     available = {"env", "vla"}
     selected = (
@@ -269,7 +271,7 @@ def _init_runtime(
             )
         )
     if "vla" in selected:
-        vla_rpc = make_rpc_client(args.am_endpoint)
+        vla_rpc = make_rpc_client(am.endpoint)
         primitives_kwargs.update(
             try_wait_server(
                 owned_daemons,

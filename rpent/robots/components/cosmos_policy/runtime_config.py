@@ -33,8 +33,8 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         "Cosmos Policy local options",
         "For local Cosmos deployment; all options below are optional.\n"
         "Append to your platform/task/planner command (replace example paths):\n"
-        "  --am-backend cosmos-policy --wam-checkpoint /models/cosmos \\\n"
-        "    --wam-python /envs/cosmos/bin/python --wam-root /src/cosmos\n"
+        "  --am-backend cosmos-policy --am-checkpoint /models/cosmos \\\n"
+        "    --am-python /envs/cosmos/bin/python --am-root /src/cosmos\n"
         "COSMOS_POLICY_PYTHON and COSMOS_POLICY_ROOT provide path defaults.",
     )
     group.add_argument(
@@ -65,10 +65,10 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 
 def validate_options(args: argparse.Namespace) -> None:
     """Resolve Cosmos environment defaults and require its working directory."""
-    args.wam_python = args.wam_python or os.getenv("COSMOS_POLICY_PYTHON")
-    args.wam_root = args.wam_root or os.getenv("COSMOS_POLICY_ROOT")
-    if not args.wam_root:
-        raise ValueError("--wam-root must reference the provisioned Cosmos environment")
+    args.am_python = args.am_python or os.getenv("COSMOS_POLICY_PYTHON")
+    args.am_root = args.am_root or os.getenv("COSMOS_POLICY_ROOT")
+    if not args.am_root:
+        raise ValueError("--am-root must reference the provisioned Cosmos environment")
 
 
 def worker_arguments(args: argparse.Namespace) -> list[str]:

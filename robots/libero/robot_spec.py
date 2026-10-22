@@ -29,10 +29,10 @@ from rpent.dashboard.events import DashboardEventSink
 from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
 from rpent.robots.components.am_runtime import (
-    WAMConfig,
+    AMConfig,
     add_am_args,
-    add_am_device_arg,
-    select_wam,
+    select_am,
+    start_wam_service,
 )
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
@@ -110,7 +110,7 @@ def _run_flash(toolkit, cell_tag: str, note) -> dict:
 
 def _resolve_dashboard(args: argparse.Namespace) -> DashboardSpec:
     """Label the selected action model using its public category."""
-    kind = "wam" if select_wam(args, "libero") else "vla"
+    kind = "wam" if select_am(args, "libero").is_wam else "vla"
     return {
         **LIBERO_DASHBOARD_SPEC,
         "runtime_components": tuple(
@@ -201,8 +201,7 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     )
     parser.add_argument("--max-episode-steps", type=int, default=10000)
     add_cuda_device_arg(parser)
-    add_am_device_arg(parser, "vla")
-    add_am_args(parser, default_backend="pi05")
+    add_am_args(parser, platform="libero")
     parser.add_argument(
         "--libero-type",
         default=None,
@@ -295,7 +294,8 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         raise ValueError("--task is required")
     planner = getattr(args, "planner", None)
     args.libero_type = resolve_libero_type(args.suite, args.libero_type)
-    wam = select_wam(args, "libero")
+    am = select_am(args, "libero")
+    wam = am if am.is_wam else None
     policy_kind = "wam" if wam else "vla"
     policy_backend = wam.backend if wam else (args.am_backend or "pi05")
     if wam:
@@ -426,14 +426,14 @@ def _spawn_vla_server(
     args: argparse.Namespace, output_dir: Path
 ) -> tuple[ProcessDaemon | None, RpcClient]:
     """Connect to Pi0.5 or launch its shared component server."""
-    if args.am_endpoint:
-        return None, make_rpc_client(args.am_endpoint)
+    am = select_am(args, "libero")
+    if am.endpoint:
+        return None, make_rpc_client(am.endpoint)
     host, port = "127.0.0.1", pick_free_port()
-    daemon = ProcessDaemon(
-        name="vla_server",
-        cmd=[
-            sys.executable,
-            str(get_repo_root() / "rpent/robots/components/pi05_vla_server.py"),
+    daemon = am.spawn_worker(
+        [
+            "-m",
+            "rpent.robots.components.pi05_vla_server",
             "--embodiment",
             "libero",
             "--transport",
@@ -443,17 +443,16 @@ def _spawn_vla_server(
             "--port",
             str(port),
             "--parent-watch",
+            *(["--model-path", am.checkpoint] if am.checkpoint else []),
+            *am.model_arguments,
         ],
-        env_overrides={"CUDA_VISIBLE_DEVICES": str(resolve_cuda_device(args, "vla"))}
-        if resolve_cuda_device(args, "vla") is not None
-        else {},
-        log_path=str(output_dir / "vla_server.log"),
+        output_dir,
+        name="vla_server",
     )
-    daemon.start()
     return daemon, HttpRpcClient(f"http://{host}:{port}")
 
 
-def _make_model_client(rpc: RpcClient, wam: WAMConfig | None) -> Any:
+def _make_model_client(rpc: RpcClient, wam: AMConfig | None) -> Any:
     """Bind the platform client and validate the worker before executing actions."""
     if wam is not None:
         from robots.libero.wam_client import LiberoWAMClient
@@ -564,12 +563,13 @@ def _init_runtime(
     from rpent.robots.components.molmo_client import MolmoClient
     from rpent.robots.components.sam3_client import Sam3Client
 
-    wam = select_wam(args, "libero")
+    am = select_am(args, "libero")
+    wam = am if am.is_wam else None
     policy_kind = "wam" if wam else "vla"
     starters = {
         "env": lambda: _spawn_env_server(args, output_dir),
         policy_kind: lambda: (
-            wam.start_service(args, output_dir)
+            start_wam_service(wam, output_dir)
             if wam
             else _spawn_vla_server(args, output_dir)
         ),

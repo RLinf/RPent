@@ -12,45 +12,36 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Shared action-model service startup and category-specific configuration."""
+"""Action-model selection and deployment shared by VLA and WAM integrations."""
 
 import argparse
 import importlib
 import os
+import shutil
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
-from typing import Literal
 
 from rpent.utils.config import get_repo_root, resolve_cuda_device
 from rpent.utils.daemon import ProcessDaemon, pick_free_port
 from rpent.utils.rpc import RpcClient, make_rpc_client
 
-# --- Shared model GPU option registration ---
-
-
-def add_am_device_arg(
-    parser: argparse.ArgumentParser | argparse._ArgumentGroup,
-    kind: Literal["vla", "wam"],
-) -> None:
-    """Register a model service's GPU option on the owning parser or group."""
-    parser.add_argument(
-        f"--{kind}-cuda-device",
-        metavar="DEVICE",
-        help=f"CUDA_VISIBLE_DEVICES for the local {kind.upper()} worker; "
-        "may share GPUs with other services; "
-        "defaults to --cuda-device, then inherits the environment. "
-        "Configure external workers at their own startup.",
-    )
-
-
-# --- WAM backend selection and worker configuration ---
-
 WAM_BACKENDS = {
     "cosmos-policy": "cosmos_policy",
     "fast-wam": "fast_wam",
 }
-WAM_ALIASES = {"cosmos": "cosmos-policy", "fast_wam": "fast-wam"}
+BACKEND_ALIASES = {"cosmos": "cosmos-policy", "fast_wam": "fast-wam", "rlinf": "pi05"}
+PLATFORM_VLA_BACKENDS = {
+    "libero": ("pi05",),
+    "robotwin": ("lingbot",),
+    "robocasa": ("rldx",),
+    "robodojo": ("pi05", "xpolicylab"),
+    "dual_franka": ("pi05",),
+    "franka": ("pi05",),
+    "yam": ("pi05",),
+}
+REMOTE_ONLY_PLATFORMS = {"franka", "yam"}
 
 
 def _runtime_config(backend: str) -> ModuleType:
@@ -59,171 +50,323 @@ def _runtime_config(backend: str) -> ModuleType:
     )
 
 
-def add_am_endpoint_arg(
-    parser: argparse.ArgumentParser | argparse._ArgumentGroup,
-) -> None:
-    """Register one action-model endpoint, retaining the original VLA spelling."""
-    parser.add_argument(
-        "--am-endpoint", metavar="URL", help="Existing action-model worker endpoint"
+def _supported_backends(platform: str) -> tuple[str, ...]:
+    return PLATFORM_VLA_BACKENDS[platform] + tuple(
+        name for name in WAM_BACKENDS if platform in _runtime_config(name).ADAPTERS
     )
-    parser.add_argument("--vla-endpoint", dest="am_endpoint", help=argparse.SUPPRESS)
 
 
-def add_am_args(parser: argparse.ArgumentParser, *, default_backend: str) -> None:
-    """Register shared options and lightweight model-owned launch options."""
+def _show_model_options(parser: argparse.ArgumentParser, backend: str) -> None:
+    for group in parser._action_groups:
+        if not hasattr(group, "_am_backend"):
+            continue
+        visible = group._am_backend == backend
+        group.description = group._am_description if visible else None
+        for action in group._group_actions:
+            action.help = action._am_help if visible else argparse.SUPPRESS
+
+
+class _BackendAction(argparse.Action):
+    """Select one model and show its options in subsequent --help output."""
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        backend = BACKEND_ALIASES.get(values, values)
+        setattr(namespace, self.dest, backend)
+        _show_model_options(parser, backend)
+
+
+def add_am_args(parser: argparse.ArgumentParser, *, platform: str) -> None:
+    """Register supported backends, common deployment fields and model options."""
+    backends = _supported_backends(platform)
     selection = parser.add_argument_group("Action model")
     selection.add_argument(
         "--am-backend",
-        choices=(default_backend, *WAM_BACKENDS, *WAM_ALIASES),
-        default=default_backend,
-        help=f"Action model (default: {default_backend}); use --am-endpoint to reuse a worker",
+        choices=backends,
+        default=backends[0],
+        type=lambda value: BACKEND_ALIASES.get(value, value),
+        action=_BackendAction,
+        help=f"Action model (default: {backends[0]}). Select before --help to see model options.",
     )
+    for alias in ("--vla-backend", "--wam-backend") + (
+        ("--policy-backend",) if platform == "robodojo" else ()
+    ):
+        selection.add_argument(
+            alias,
+            dest="am_backend",
+            choices=backends,
+            type=lambda value: BACKEND_ALIASES.get(value, value),
+            action=_BackendAction,
+            default=argparse.SUPPRESS,
+            help=argparse.SUPPRESS,
+        )
     connection = parser.add_argument_group(
         "Action-model connection (repeated tasks)",
-        "Start a worker once, then reuse its endpoint across task runs.\n"
-        "Configure model options at worker startup. RPent leaves it running.\n"
-        "Append to your platform/task/planner command:\n"
-        "  --am-backend <backend> --am-endpoint http://127.0.0.1:<port>",
+        "Reuse an existing worker: --am-backend <backend> --am-endpoint <URL>. "
+        "Configure its checkpoint and devices when deploying that worker.",
     )
-    add_am_endpoint_arg(connection)
-    selection.add_argument(
-        "--vla-backend",
-        dest="am_backend",
-        choices=(default_backend,),
-        default=argparse.SUPPRESS,
-        help=argparse.SUPPRESS,
+    connection.add_argument(
+        "--am-endpoint", metavar="URL", help="Existing model service"
     )
+    for alias in ("--vla-endpoint", "--wam-endpoint"):
+        connection.add_argument(
+            alias, dest="am_endpoint", default=argparse.SUPPRESS, help=argparse.SUPPRESS
+        )
     deployment = parser.add_argument_group(
-        "WAM local deployment (per run)",
-        "RPent starts and stops the worker for this run. Requires a checkpoint\n"
-        "and a provisioned model Python environment; excludes --am-endpoint.",
+        "Action-model local deployment (per run)",
+        "Start and stop a model worker for this run; excludes --am-endpoint."
+        if platform not in REMOTE_ONLY_PLATFORMS
+        else "This platform connects to externally deployed model services.",
     )
-    deployment.add_argument(
-        "--wam-checkpoint",
-        metavar="PATH",
-        help="Local model checkpoint (required for local deployment)",
-    )
-    deployment.add_argument(
-        "--wam-python",
-        metavar="PYTHON",
-        help="Model environment Python (required unless the model supplies a default)",
-    )
-    deployment.add_argument(
-        "--wam-root",
-        metavar="DIR",
-        help="Worker working directory (default: RPent checkout, unless required by the model)",
-    )
-    add_am_device_arg(deployment, "wam")
-    for backend in WAM_BACKENDS:
-        _runtime_config(backend).add_arguments(parser)
+    fields = {
+        "checkpoint": (
+            "PATH",
+            "Model checkpoint; model-specific environment defaults may apply",
+        ),
+        "python": (
+            "PYTHON",
+            "Model environment Python; VLA defaults to the current interpreter",
+        ),
+        "root": (
+            "DIR",
+            "Model working directory; defaults to the RPent checkout unless required by the model",
+        ),
+        "cuda-device": (
+            "DEVICE",
+            "CUDA_VISIBLE_DEVICES for the local action model; may share GPUs with other services; defaults to --cuda-device, then inherits the environment",
+        ),
+    }
+    aliases = {
+        "checkpoint": ("--wam-checkpoint", "--vla-model-path"),
+        "python": ("--wam-python", "--pi05-python"),
+        "root": ("--wam-root",),
+        "cuda-device": ("--wam-cuda-device", "--vla-cuda-device"),
+    }
+    for field, (metavar, help_text) in fields.items():
+        deployment.add_argument(
+            f"--am-{field}",
+            metavar=metavar,
+            help=help_text
+            if platform not in REMOTE_ONLY_PLATFORMS
+            else argparse.SUPPRESS,
+        )
+        for alias in aliases[field]:
+            deployment.add_argument(
+                alias,
+                dest="am_" + field.replace("-", "_"),
+                default=argparse.SUPPRESS,
+                help=argparse.SUPPRESS,
+            )
+    for backend in backends:
+        before = len(parser._action_groups)
+        if backend in WAM_BACKENDS:
+            _runtime_config(backend).add_arguments(parser)
+        elif backend == "lingbot":
+            group = parser.add_argument_group("LingBot local options")
+            group.add_argument(
+                "--lingbot-robot-config",
+                help="FeatureTransform robot YAML; defaults to LINGBOT_ROBOT_CONFIG or the checkpoint config",
+            )
+        elif backend == "pi05" and platform not in REMOTE_ONLY_PLATFORMS:
+            group = parser.add_argument_group("Pi0.5 local options")
+            group.add_argument(
+                "--pi05-repo-id",
+                help="Dataset normalization statistics ID; dual-Franka defaults to DUAL_FRANKA_REPO_ID",
+            )
+            group.add_argument(
+                "--pi05-norm-stats-path",
+                help="Normalization statistics directory; defaults to PI05_NORM_STATS_PATH",
+            )
+            group.add_argument(
+                "--vla-repo-id",
+                dest="pi05_repo_id",
+                default=argparse.SUPPRESS,
+                help=argparse.SUPPRESS,
+            )
+        for group in parser._action_groups[before:]:
+            group._am_backend = backend
+            group._am_description = group.description
+            for action in group._group_actions:
+                action._am_help = action.help
+    _show_model_options(parser, backends[0])
     parser.epilog = (parser.epilog or "") + (
-        "\n\nWAM deployment and task examples:\n"
+        "\n\nAction-model deployment and task examples:\n"
         "https://rpent.readthedocs.io/en/latest/rst_source/development/add_action_model.html#action-model-deployment"
     )
 
 
 @dataclass(frozen=True)
-class WAMConfig:
-    """Selected backend and platform, independent of robot toolkit behavior."""
+class AMConfig:
+    """Resolved model deployment, independent of the platform's transport."""
 
     backend: str
     platform: str
     endpoint: str | None
+    checkpoint: str | None
+    python: str
+    root: Path
+    cuda_device: str | None
+    model_arguments: tuple[str, ...] = ()
 
     @property
-    def rpc_backend(self) -> str:
-        return WAM_BACKENDS[self.backend]
+    def is_wam(self) -> bool:
+        return self.backend in WAM_BACKENDS
 
-    def start_service(
-        self, args: argparse.Namespace, output_dir: Path
-    ) -> tuple[ProcessDaemon | None, RpcClient]:
-        """Borrow an endpoint or launch the registered model in its own environment."""
-        runtime_config = _runtime_config(self.backend)
-        if self.endpoint:
-            return None, make_rpc_client(
-                self.endpoint, enable_sessions=runtime_config.USES_SESSIONS
-            )
-        port = pick_free_port()
-        cmd = [
-            str(Path(args.wam_python).expanduser().absolute()),
-            "-m",
-            f"rpent.robots.components.{self.rpc_backend}.server",
-            "--platform",
-            self.platform,
-            "--checkpoint",
-            str(Path(args.wam_checkpoint).expanduser().resolve()),
-            *runtime_config.worker_arguments(args),
-            "--host",
-            "127.0.0.1",
-            "--port",
-            str(port),
-            "--parent-watch",
-        ]
+    def spawn_worker(
+        self,
+        command: list[str],
+        output_dir: Path,
+        *,
+        name: str,
+        env_overrides: dict[str, str] | None = None,
+    ) -> ProcessDaemon:
+        """Start Python worker arguments with this deployment's cwd and devices."""
         overrides = {
             "PYTHONPATH": os.pathsep.join(
                 filter(None, (str(get_repo_root()), os.getenv("PYTHONPATH")))
-            )
+            ),
+            **(env_overrides or {}),
         }
-        device = resolve_cuda_device(args, "wam")
-        if device is not None:
-            overrides["CUDA_VISIBLE_DEVICES"] = str(device)
+        if self.cuda_device is not None:
+            overrides["CUDA_VISIBLE_DEVICES"] = self.cuda_device
         daemon = ProcessDaemon(
-            name="wam",
-            cmd=cmd,
-            cwd=str(Path(args.wam_root).expanduser().resolve())
-            if args.wam_root
-            else str(get_repo_root()),
+            name=name,
+            cmd=[self.python, *command],
+            cwd=str(self.root),
             env_overrides=overrides,
-            log_path=str(output_dir / "wam_server.log"),
+            log_path=str(output_dir / f"{name}.log"),
         )
         daemon.start()
-        return daemon, make_rpc_client(
-            f"http://127.0.0.1:{port}",
-            enable_sessions=runtime_config.USES_SESSIONS,
+        return daemon
+
+
+def select_am(args: argparse.Namespace, platform: str) -> AMConfig:
+    """Resolve the chosen model and reject inapplicable explicit launch options."""
+    backend = getattr(args, "am_backend", None) or PLATFORM_VLA_BACKENDS[platform][0]
+    backend = BACKEND_ALIASES.get(backend, backend)
+    if backend not in _supported_backends(platform):
+        raise ValueError(
+            f"{backend} is not supported on {platform}; choose from {_supported_backends(platform)}"
         )
-
-
-def select_wam(args: argparse.Namespace, platform: str) -> WAMConfig | None:
-    """Validate backend/platform support and exclusive local/remote configuration."""
-    backend = getattr(args, "am_backend", None)
     endpoint = getattr(args, "am_endpoint", None)
-    checkpoint = getattr(args, "wam_checkpoint", None)
-    backend = WAM_ALIASES.get(backend, backend)
-    for name in WAM_BACKENDS:
-        if name != backend and any(
-            getattr(args, field, None) for field in _runtime_config(name).OPTION_FIELDS
-        ):
-            raise ValueError(f"{name} worker options require --am-backend {name}")
-    if backend not in WAM_BACKENDS:
-        if checkpoint or any(
-            getattr(args, field, None)
-            for field in ("wam_python", "wam_root", "wam_cuda_device")
-        ):
-            raise ValueError("WAM deployment options require a WAM --am-backend")
-        return None
-    runtime_config = _runtime_config(backend)
-    if platform not in runtime_config.ADAPTERS:
-        raise ValueError(
-            f"{backend} has no adapter for {platform}; supported: {tuple(runtime_config.ADAPTERS)}"
-        )
-    if bool(endpoint) == bool(checkpoint):
-        raise ValueError(
-            "--am-backend requires --am-endpoint or --wam-checkpoint, mutually exclusive"
-        )
-    if endpoint and any(
-        getattr(args, field, None) for field in runtime_config.OPTION_FIELDS
-    ):
-        raise ValueError(
-            "WAM worker options require --wam-checkpoint; configure external workers at their launch"
-        )
-    if checkpoint:
-        runtime_config.validate_options(args)
-        if not Path(checkpoint).expanduser().exists():
-            raise ValueError("--wam-checkpoint must reference a local checkpoint")
-        if not args.wam_python or not Path(args.wam_python).expanduser().is_file():
-            raise ValueError(
-                "--wam-python must reference the provisioned model environment"
+    explicit = {
+        field: getattr(args, "am_" + field, None)
+        for field in ("checkpoint", "python", "root", "cuda_device")
+    }
+    model_fields = {
+        **{name: _runtime_config(name).OPTION_FIELDS for name in WAM_BACKENDS},
+        "lingbot": ("lingbot_robot_config",),
+        "pi05": ("pi05_repo_id", "pi05_norm_stats_path"),
+    }
+    for name, fields in model_fields.items():
+        for field in fields:
+            if (
+                getattr(args, field, None) is not None
+                and getattr(args, field) is not False
+            ):
+                if name != backend:
+                    raise ValueError(
+                        f"--{field.replace('_', '-')} requires --am-backend {name}"
+                    )
+                if endpoint:
+                    raise ValueError(
+                        f"--{field.replace('_', '-')} configures local deployment; remove --am-endpoint"
+                    )
+    if endpoint or platform in REMOTE_ONLY_PLATFORMS:
+        for field, value in explicit.items():
+            if value is not None:
+                raise ValueError(
+                    f"--am-{field.replace('_', '-')} configures local deployment; this run uses an external model service"
+                )
+    checkpoint, python, root = (explicit[k] for k in ("checkpoint", "python", "root"))
+    model_arguments: tuple[str, ...] = ()
+    if not endpoint and platform not in REMOTE_ONLY_PLATFORMS:
+        if backend in WAM_BACKENDS:
+            if not checkpoint:
+                raise ValueError(
+                    "--am-backend requires --am-endpoint or --am-checkpoint"
+                )
+            # Model defaults are resolved on a copy, so they never become explicit
+            # options when a Dashboard reuses the session namespace.
+            model_args = argparse.Namespace(**vars(args))
+            _runtime_config(backend).validate_options(model_args)
+            python, root = model_args.am_python, model_args.am_root
+            if not python:
+                raise ValueError(
+                    "--am-python must reference the provisioned model environment"
+                )
+            if not Path(checkpoint).expanduser().exists():
+                raise ValueError("--am-checkpoint must reference a local checkpoint")
+            model_arguments = tuple(
+                _runtime_config(backend).worker_arguments(model_args)
             )
-        if args.wam_root and not Path(args.wam_root).expanduser().is_dir():
-            raise ValueError("--wam-root must reference a directory")
-    return WAMConfig(backend, platform, endpoint or None)
+        elif backend == "pi05":
+            checkpoint = checkpoint or os.getenv("PI05_CHECKPOINT_PATH")
+            options = []
+            repo_id = getattr(args, "pi05_repo_id", None) or (
+                os.getenv("DUAL_FRANKA_REPO_ID") if platform == "dual_franka" else None
+            )
+            norm_stats = getattr(args, "pi05_norm_stats_path", None) or os.getenv(
+                "PI05_NORM_STATS_PATH"
+            )
+            if repo_id:
+                options += ["--repo-id", repo_id]
+            if norm_stats:
+                options += [
+                    "--norm-stats-path",
+                    str(Path(norm_stats).expanduser().absolute()),
+                ]
+            model_arguments = tuple(options)
+        elif backend == "lingbot":
+            checkpoint = checkpoint or os.getenv("LINGBOT_MODEL_PATH")
+        elif backend == "xpolicylab":
+            checkpoint = checkpoint or "RoboDojo-sim-arx_x5-joint-0"
+    python = python or sys.executable
+    executable = shutil.which(str(Path(python).expanduser()))
+    if not executable:
+        raise ValueError("--am-python must reference a Python executable")
+    root_path = Path(root).expanduser().resolve() if root else get_repo_root()
+    if not root_path.is_dir():
+        raise ValueError("--am-root must reference a directory")
+    device = resolve_cuda_device(args, "am")
+    return AMConfig(
+        backend=backend,
+        platform=platform,
+        endpoint=endpoint,
+        checkpoint=str(Path(checkpoint).expanduser().absolute())
+        if checkpoint and backend != "xpolicylab"
+        else checkpoint,
+        python=str(Path(executable).absolute()),
+        root=root_path,
+        cuda_device=str(device) if device is not None else None,
+        model_arguments=model_arguments,
+    )
+
+
+def start_wam_service(
+    config: AMConfig, output_dir: Path
+) -> tuple[ProcessDaemon | None, RpcClient]:
+    """Connect a WAM endpoint or launch its model-owned RPC entry point."""
+    runtime_config = _runtime_config(config.backend)
+    if config.endpoint:
+        return None, make_rpc_client(
+            config.endpoint, enable_sessions=runtime_config.USES_SESSIONS
+        )
+    port = pick_free_port()
+    command = [
+        "-m",
+        f"rpent.robots.components.{WAM_BACKENDS[config.backend]}.server",
+        "--platform",
+        config.platform,
+        "--checkpoint",
+        config.checkpoint,
+        *config.model_arguments,
+        "--host",
+        "127.0.0.1",
+        "--port",
+        str(port),
+        "--parent-watch",
+    ]
+    daemon = config.spawn_worker(command, output_dir, name="wam_server")
+    return daemon, make_rpc_client(
+        f"http://127.0.0.1:{port}", enable_sessions=runtime_config.USES_SESSIONS
+    )

@@ -36,8 +36,9 @@ from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
 from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
 from rpent.robots.components.am_runtime import (
-    add_am_device_arg,
-    add_am_endpoint_arg,
+    AMConfig,
+    add_am_args,
+    select_am,
 )
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
@@ -157,10 +158,9 @@ def get_toolkit(
 def _add_runtime_cli_args(parser: argparse.ArgumentParser) -> None:
     """Register component connection and deployment options."""
     add_cuda_device_arg(parser)
-    add_am_device_arg(parser, "vla")
     parser.set_defaults(_flash_options=None)
     parser.add_argument("--env-endpoint", default=None)
-    add_am_endpoint_arg(parser)
+    add_am_args(parser, platform="dual_franka")
     parser.add_argument(
         "--sam3-endpoint",
         default=None,
@@ -171,15 +171,6 @@ def _add_runtime_cli_args(parser: argparse.ArgumentParser) -> None:
         ),
     )
     parser.add_argument("--robot-config", default=None)
-    parser.add_argument(
-        "--vla-model-path",
-        default=os.environ.get("PI05_CHECKPOINT_PATH"),
-    )
-    parser.add_argument(
-        "--vla-repo-id",
-        default=os.environ.get("DUAL_FRANKA_REPO_ID"),
-        help="SFT dataset repo ID used to locate norm_stats.json",
-    )
     parser.add_argument(
         "--sam3-cuda-device",
         type=int,
@@ -221,6 +212,7 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
 
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
+    select_am(args, "dual_franka")
     set_robot_config_path(args.robot_config or DEFAULT_CONFIG)
     validate_calibration_sources()
     if args.task_id is None:
@@ -303,13 +295,12 @@ def _env_server_command(
 
 
 def _vla_server_command(
-    args: argparse.Namespace,
+    am: AMConfig,
     *,
     host: str,
     port: int,
 ) -> list[str]:
     command = [
-        sys.executable,
         "-m",
         "rpent.robots.components.pi05_vla_server",
         "--embodiment",
@@ -321,9 +312,8 @@ def _vla_server_command(
         "--port",
         str(port),
         "--model-path",
-        args.vla_model_path,
-        "--repo-id",
-        args.vla_repo_id,
+        am.checkpoint,
+        *am.model_arguments,
         "--parent-watch",
     ]
     return command
@@ -363,24 +353,21 @@ def _spawn_vla_server(
     output_dir: Path,
 ) -> tuple[ProcessDaemon | None, RpcClient]:
     """Spawn (or attach to) the dual-Franka VLA service."""
-    if args.am_endpoint is not None:
-        return None, make_rpc_client(args.am_endpoint)
-    if not args.vla_model_path or not args.vla_repo_id:
+    am = select_am(args, "dual_franka")
+    if am.endpoint is not None:
+        return None, make_rpc_client(am.endpoint)
+    if not am.checkpoint or not am.model_arguments:
         raise ValueError(
-            "dual-Franka VLA auto-start requires --vla-model-path and "
-            "--vla-repo-id (or PI05_CHECKPOINT_PATH and "
+            "dual-Franka VLA auto-start requires --am-checkpoint and "
+            "--pi05-repo-id or --pi05-norm-stats-path (or PI05_CHECKPOINT_PATH and "
             "DUAL_FRANKA_REPO_ID)"
         )
     host, port = "127.0.0.1", pick_free_port()
-    daemon = ProcessDaemon(
+    daemon = am.spawn_worker(
+        _vla_server_command(am, host=host, port=port),
+        output_dir,
         name="dual_franka_vla_server",
-        cmd=_vla_server_command(args, host=host, port=port),
-        env_overrides={"CUDA_VISIBLE_DEVICES": str(resolve_cuda_device(args, "vla"))}
-        if resolve_cuda_device(args, "vla") is not None
-        else {},
-        log_path=str(output_dir / "dual_franka_vla_server.log"),
     )
-    daemon.start()
     return daemon, HttpRpcClient(f"http://{host}:{port}")
 
 
@@ -432,6 +419,7 @@ def _init_runtime(
     to attach, or leave it unset to spawn a local subprocess. Manual calls can
     supply descriptions directly instead of selecting a registered task.
     """
+    select_am(args, "dual_franka")
     from robots.dual_franka.env_client import DualFrankaEnvClient
     from rpent.robots.components.pi05_vla_client import Pi05VLAClient
     from rpent.robots.components.sam3_client import Sam3Client

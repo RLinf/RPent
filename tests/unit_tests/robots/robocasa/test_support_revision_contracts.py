@@ -11,6 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from robots.robocasa import robot_spec, vla_server
+from rpent.robots.components import am_runtime
 
 REVISION = "4b9f870d1287e0d38d7eb1445e6d8c60afe66dd7"
 
@@ -25,18 +26,18 @@ def test_worker_needs_no_user_revision(monkeypatch, tmp_path):
         def start(self):
             pass
 
-    monkeypatch.setattr(robot_spec, "ProcessDaemon", Daemon)
+    monkeypatch.setattr(am_runtime, "ProcessDaemon", Daemon)
     monkeypatch.setattr(robot_spec, "pick_free_port", lambda: 12345)
     monkeypatch.setattr(robot_spec, "HttpRpcClient", lambda *args, **kwargs: "rpc")
     args = SimpleNamespace(
         am_endpoint=None,
-        vla_model_path="checkpoint",
-        vla_cuda_device="0",
+        am_checkpoint="checkpoint",
+        am_cuda_device="0",
     )
     robot_spec._spawn_vla_server(args, tmp_path)
     command = captured["cmd"]
     assert "--backbone-revision" not in command
-    assert captured["env_overrides"] == {"CUDA_VISIBLE_DEVICES": "0"}
+    assert captured["env_overrides"]["CUDA_VISIBLE_DEVICES"] == "0"
 
 
 def test_cli_has_no_separate_backbone_option():

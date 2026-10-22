@@ -40,8 +40,8 @@ from rpent.dashboard.events import DashboardEventSink
 from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
 from rpent.robots.components.am_runtime import (
-    add_am_device_arg,
-    add_am_endpoint_arg,
+    add_am_args,
+    select_am,
 )
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
@@ -214,7 +214,6 @@ def get_toolkit(
 def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     """Register RoboCasa CLI flags on the shared ``parser``."""
     add_cuda_device_arg(parser)
-    add_am_device_arg(parser, "vla")
     parser.add_argument(
         "--memory-version",
         choices=MEMORY_VERSIONS,
@@ -266,12 +265,7 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         default=None,
         help="[protocol://]host:port of an existing env_server",
     )
-    add_am_endpoint_arg(parser)
-    parser.add_argument(
-        "--vla-model-path",
-        default=None,
-        help="RLDX checkpoint path for locally spawned vla_server",
-    )
+    add_am_args(parser, platform="robocasa")
     parser.add_argument(
         "--env-cuda-device",
         type=int,
@@ -283,6 +277,7 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
     """Validate final ``args`` and derive per-run identifiers."""
+    select_am(args, "robocasa")
     validate_options(args)
     if not args.task_name:
         raise ValueError("--task-name is required")
@@ -398,19 +393,18 @@ def _spawn_vla_server(
     Returns ``(daemon, rpc)`` — the daemon is ``None`` when an external
     endpoint was attached (the caller must not own it).
     """
-    if args.am_endpoint is None:
-        if not args.vla_model_path:
+    am = select_am(args, "robocasa")
+    if am.endpoint is None:
+        if not am.checkpoint:
             raise ValueError(
-                "--vla-model-path is required when spawning a local vla_server"
+                "--am-checkpoint is required when spawning a local RLDX server"
             )
         host, port = "127.0.0.1", pick_free_port()
-        daemon = ProcessDaemon(
-            name="vla_server",
-            cmd=[
-                sys.executable,
+        daemon = am.spawn_worker(
+            [
                 str(get_repo_root() / "robots" / "robocasa" / "vla_server.py"),
                 "--model-path",
-                args.vla_model_path,
+                am.checkpoint,
                 "--transport",
                 "http",
                 "--host",
@@ -419,16 +413,11 @@ def _spawn_vla_server(
                 str(port),
                 "--parent-watch",
             ],
-            env_overrides={
-                "CUDA_VISIBLE_DEVICES": str(resolve_cuda_device(args, "vla"))
-            }
-            if resolve_cuda_device(args, "vla") is not None
-            else {},
-            log_path=str(Path(output_dir) / "vla_server.log"),
+            output_dir,
+            name="vla_server",
         )
-        daemon.start()
         return daemon, HttpRpcClient(f"http://{host}:{port}", enable_sessions=True)
-    return None, make_rpc_client(args.am_endpoint, enable_sessions=True)
+    return None, make_rpc_client(am.endpoint, enable_sessions=True)
 
 
 def _init_runtime(
@@ -442,6 +431,7 @@ def _init_runtime(
     Each server can be spawned or attached-to independently: pass an
     endpoint to attach, or leave it unset to spawn a local subprocess.
     """
+    select_am(args, "robocasa")
     from robots.robocasa.env_client import RoboCasaEnvClient
     from robots.robocasa.vla_client import RoboCasaVLAClient
 

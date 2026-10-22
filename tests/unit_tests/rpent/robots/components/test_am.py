@@ -171,8 +171,9 @@ def test_worker_launch_and_external_options(
 ):
     for name in ("python", "checkpoint", "config", "stats"):
         (tmp_path / name).touch()
+    (tmp_path / "python").chmod(0o755)
     parser = argparse.ArgumentParser()
-    am_runtime.add_am_args(parser, default_backend="pi05")
+    am_runtime.add_am_args(parser, platform=platform)
     extra = (
         [
             "--cosmos-predict-future",
@@ -197,16 +198,16 @@ def test_worker_launch_and_external_options(
         [
             "--am-backend",
             backend,
-            "--wam-checkpoint",
+            "--wam-checkpoint" if legacy_options else "--am-checkpoint",
             str(tmp_path / "checkpoint"),
-            "--wam-python",
+            "--wam-python" if legacy_options else "--am-python",
             str(tmp_path / "python"),
-            "--wam-root",
+            "--wam-root" if legacy_options else "--am-root",
             str(tmp_path),
             *extra,
         ]
     )
-    args.wam_cuda_device = model_device
+    args.am_cuda_device = model_device
     args.cuda_device = 1
     args.env_cuda_device = env_device
     args.sam3_cuda_device = env_device
@@ -216,8 +217,8 @@ def test_worker_launch_and_external_options(
     monkeypatch.setattr(am_runtime, "pick_free_port", lambda: 8116)
     rpc_factory = Mock(return_value=rpc)
     monkeypatch.setattr(am_runtime, "make_rpc_client", rpc_factory)
-    selected = am_runtime.select_wam(args, platform)
-    assert selected.start_service(args, tmp_path) == (daemon, rpc)
+    selected = am_runtime.select_am(args, platform)
+    assert am_runtime.start_wam_service(selected, tmp_path) == (daemon, rpc)
     rpc_factory.assert_called_once_with("http://127.0.0.1:8116", enable_sessions=False)
     command = factory.call_args.kwargs["cmd"]
     assert factory.call_args.kwargs["env_overrides"]["CUDA_VISIBLE_DEVICES"] == (
@@ -226,7 +227,7 @@ def test_worker_launch_and_external_options(
     assert command[:3] == [
         str(tmp_path / "python"),
         "-m",
-        f"rpent.robots.components.{selected.rpc_backend}.server",
+        f"rpent.robots.components.{am_runtime.WAM_BACKENDS[backend]}.server",
     ]
     assert command.count("--platform") == command.count("--checkpoint") == 1
     assert command[command.index("--platform") + 1] == platform
@@ -245,22 +246,22 @@ def test_worker_launch_and_external_options(
     rpc_factory.reset_mock()
     daemon.start.side_effect = RuntimeError("launch failed")
     with pytest.raises(RuntimeError, match="launch failed"):
-        selected.start_service(args, tmp_path)
+        am_runtime.start_wam_service(selected, tmp_path)
     rpc_factory.assert_not_called()
-    args.wam_checkpoint = None
+    args.am_checkpoint = None
     args.am_endpoint = "http://localhost:8116"
-    with pytest.raises(ValueError, match="require --wam-checkpoint"):
-        am_runtime.select_wam(args, platform)
+    with pytest.raises(ValueError, match="configures local deployment"):
+        am_runtime.select_am(args, platform)
     external_args = parser.parse_args(
         ["--am-backend", backend, "--am-endpoint", "http://localhost:8116"]
     )
     factory.reset_mock()
-    assert am_runtime.select_wam(external_args, platform).start_service(
-        external_args, tmp_path
+    assert am_runtime.start_wam_service(
+        am_runtime.select_am(external_args, platform), tmp_path
     ) == (None, rpc)
     factory.assert_not_called()
     rpc_factory.assert_called_once_with("http://localhost:8116", enable_sessions=False)
-    other_backend = "fast-wam" if backend == "cosmos-policy" else "cosmos-policy"
+    other_backend = "pi05" if platform == "libero" else "lingbot"
     external_args = parser.parse_args(
         [
             "--am-backend",
@@ -270,5 +271,5 @@ def test_worker_launch_and_external_options(
             *extra,
         ]
     )
-    with pytest.raises(ValueError, match=f"require --am-backend {backend}"):
-        am_runtime.select_wam(external_args, platform)
+    with pytest.raises(ValueError, match=f"requires --am-backend {backend}"):
+        am_runtime.select_am(external_args, platform)

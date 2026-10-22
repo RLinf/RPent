@@ -33,6 +33,7 @@ from robots.franka.runtime_config import (
     set_robot_config_path,
 )
 from rpent.robots import get_robot_spec
+from rpent.robots.components import am_runtime
 from rpent.utils.config import get_memory_dir
 
 
@@ -46,10 +47,21 @@ def _parser(robot_name: str, *, dashboard: bool = False) -> argparse.ArgumentPar
     return parser
 
 
-@pytest.mark.parametrize("robot_name", ["libero", "robotwin"])
-def test_wam_help_distinguishes_connection_deployment_and_models(robot_name, capsys):
+@pytest.mark.parametrize(
+    "robot_name,backend",
+    [
+        ("libero", "pi05"),
+        ("libero", "cosmos-policy"),
+        ("libero", "fast-wam"),
+        ("robotwin", "lingbot"),
+        ("robotwin", "fast-wam"),
+    ],
+)
+def test_am_help_distinguishes_connection_deployment_and_models(
+    robot_name, backend, capsys
+):
     with pytest.raises(SystemExit) as exc:
-        _parser(robot_name).parse_args(["--help"])
+        _parser(robot_name).parse_args(["--am-backend", backend, "--help"])
     assert exc.value.code == 0
     help_text = capsys.readouterr().out
     assert "--env-cuda-device" in help_text
@@ -58,22 +70,23 @@ def test_wam_help_distinguishes_connection_deployment_and_models(robot_name, cap
     for group in (
         "Action model:",
         "Action-model connection (repeated tasks):",
-        "WAM local deployment (per run):",
-        "Cosmos Policy local options:",
-        "Fast-WAM local options:",
+        "Action-model local deployment (per run):",
     ):
         assert group in help_text
     assert "add_action_model.html#action-model-deployment" in help_text
-    for option in (
-        "cosmos-text-embeddings",
-        "cosmos-predict-future",
-        "cosmos-cached-instructions-only",
-        "fast-wam-config",
-        "fast-wam-dataset-stats",
+    for option, model in (
+        ("cosmos-text-embeddings", "cosmos-policy"),
+        ("cosmos-predict-future", "cosmos-policy"),
+        ("cosmos-cached-instructions-only", "cosmos-policy"),
+        ("fast-wam-config", "fast-wam"),
+        ("fast-wam-dataset-stats", "fast-wam"),
+        ("lingbot-robot-config", "lingbot"),
+        ("pi05-repo-id", "pi05"),
     ):
-        assert f"--{option}" in help_text
+        assert (f"--{option}" in help_text) == (backend == model)
         legacy = option.replace("cosmos-", "wam-").replace("fast-wam-", "wam-")
-        assert f"--{legacy}" not in help_text
+        if legacy != option:
+            assert f"--{legacy}" not in help_text
 
 
 @pytest.mark.parametrize(
@@ -90,19 +103,31 @@ def test_local_vla_gpu_override_reaches_worker(
 
     module = importlib.import_module(f"robots.{robot_name}.robot_spec")
     factory = Mock()
+    monkeypatch.setattr(am_runtime, "ProcessDaemon", factory)
     monkeypatch.setattr(daemon, "ProcessDaemon", factory)
     monkeypatch.setattr(daemon, "pick_free_port", lambda: 8116)
     if hasattr(module, "ProcessDaemon"):
         monkeypatch.setattr(module, "ProcessDaemon", factory)
         monkeypatch.setattr(module, "pick_free_port", lambda: 8116)
+    interpreter = tmp_path / "python"
+    interpreter.touch(mode=0o755)
     args = _parser(robot_name, dashboard=True).parse_args(
         (["--vla-cuda-device", device] if device is not None else [])
         + (["--env-cuda-device", "2"] if robot_name != "dual_franka" else [])
         + (["--cuda-device", shared_device] if shared_device is not None else [])
+        + [
+            "--am-python",
+            str(interpreter),
+            "--am-root",
+            str(tmp_path),
+            "--am-checkpoint",
+            str(tmp_path),
+        ]
     )
     device = device if device is not None else shared_device
-    args.vla_model_path = str(tmp_path)
-    args.vla_repo_id = "test/data"
+    args.am_checkpoint = str(tmp_path)
+    if args.am_backend == "pi05" and robot_name != "robodojo":
+        args.pi05_repo_id = "test/data"
     if robot_name == "robotwin":
         monkeypatch.setattr(module, "_resolve_vla_runtime_path", lambda args: tmp_path)
         monkeypatch.setattr(
@@ -113,9 +138,14 @@ def test_local_vla_gpu_override_reaches_worker(
         assert module._resolve_cuda_devices(args) == ("2", device)
     elif robot_name == "robodojo":
         args.source_root = str(tmp_path)
-        args.policy_backend = "xpolicylab"
+        args.am_backend = "xpolicylab"
         args.task = "put_bottles_into_dustbin"
     module._spawn_vla_server(args, tmp_path)
+    command = factory.call_args.kwargs["cmd"]
+    assert command[0] == str(interpreter)
+    assert factory.call_args.kwargs["cwd"] == str(tmp_path)
+    checkpoint_flag = "--ckpt" if robot_name == "robodojo" else "--model-path"
+    assert command[command.index(checkpoint_flag) + 1] == str(tmp_path)
     overrides = factory.call_args.kwargs["env_overrides"]
     assert overrides.get("CUDA_VISIBLE_DEVICES") == device
     assert ("CUDA_VISIBLE_DEVICES" in overrides) == (device is not None)
@@ -169,7 +199,7 @@ def test_sam3_gpu_override_reaches_worker(
         + ([] if shared_device is None else ["--cuda-device", str(shared_device)])
     )
     device = device if device is not None else shared_device
-    args.vla_cuda_device = str(device) if device is not None else None
+    args.am_cuda_device = str(device) if device is not None else None
     args.env_cuda_device = device
     if robot_name == "dual_franka":
         monkeypatch.setenv("SAM3_CHECKPOINT_PATH", str(tmp_path / "sam3.pt"))
@@ -189,7 +219,7 @@ def test_sam3_gpu_override_reaches_worker(
 def test_gpu_help_explains_shared_devices(robot_name):
     parser = _parser(robot_name, dashboard=True)
     for action in parser._actions:
-        if action.dest.endswith("_cuda_device"):
+        if action.dest.endswith("_cuda_device") and action.help != argparse.SUPPRESS:
             assert "may share GPUs" in action.help
             assert "only" not in action.help
 
@@ -207,10 +237,117 @@ def test_legacy_vla_endpoint_uses_unified_destination(robot_name):
 
 
 @pytest.mark.parametrize(
+    "alias,canonical,value",
+    [
+        ("--vla-model-path", "--am-checkpoint", "/models/checkpoint"),
+        ("--wam-checkpoint", "--am-checkpoint", "/models/checkpoint"),
+        ("--wam-python", "--am-python", "/env/bin/python"),
+        ("--pi05-python", "--am-python", "/env/bin/python"),
+        ("--wam-root", "--am-root", "/model/source"),
+        ("--vla-cuda-device", "--am-cuda-device", "0,1"),
+        ("--wam-cuda-device", "--am-cuda-device", "0,1"),
+    ],
+)
+def test_legacy_deployment_options_use_one_destination(alias, canonical, value):
+    parser = _parser("libero", dashboard=True)
+    old, new = parser.parse_args([alias, value]), parser.parse_args([canonical, value])
+    assert vars(old) == vars(new)
+    assert not hasattr(old, alias[2:].replace("-", "_"))
+    assert alias not in parser.format_help()
+
+
+@pytest.mark.parametrize(
+    "platform,options,message",
+    [
+        ("libero", ["--cosmos-predict-future"], "requires --am-backend cosmos-policy"),
+        (
+            "libero",
+            ["--am-backend", "fast-wam", "--pi05-repo-id", "data"],
+            "requires --am-backend pi05",
+        ),
+        (
+            "robotwin",
+            ["--am-backend", "fast-wam", "--lingbot-robot-config", "robot.yaml"],
+            "requires --am-backend lingbot",
+        ),
+        (
+            "robocasa",
+            ["--am-endpoint", "http://host:8000", "--am-checkpoint", "/model"],
+            "configures local deployment",
+        ),
+        (
+            "robotwin",
+            ["--am-endpoint", "ws://host:8000", "--am-cuda-device", "0"],
+            "configures local deployment",
+        ),
+        (
+            "libero",
+            ["--am-endpoint", "http://host:8000", "--am-python", "python"],
+            "configures local deployment",
+        ),
+        (
+            "libero",
+            ["--am-endpoint", "http://host:8000", "--am-root", "/model"],
+            "configures local deployment",
+        ),
+        ("franka", ["--am-checkpoint", "/model"], "external model service"),
+        ("yam", ["--am-cuda-device", "0"], "external model service"),
+    ],
+)
+def test_inapplicable_am_options_fail_before_startup(platform, options, message):
+    args = _parser(platform, dashboard=True).parse_args(options)
+    with pytest.raises(ValueError, match=message):
+        am_runtime.select_am(args, platform)
+
+
+def test_backend_choices_are_scoped_to_platform():
+    parser = _parser("robotwin", dashboard=True)
+    with pytest.raises(SystemExit) as exc:
+        parser.parse_args(["--am-backend", "cosmos-policy"])
+    assert exc.value.code == 2
+
+
+def test_environment_defaults_do_not_become_explicit_launch_options(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setenv("PI05_CHECKPOINT_PATH", str(tmp_path))
+    parser = _parser("libero", dashboard=True)
+    args = parser.parse_args([])
+    selected = am_runtime.select_am(args, "libero")
+    assert selected.checkpoint == str(tmp_path)
+    assert args.am_checkpoint is None
+    args.am_endpoint = "http://host:8000"
+    assert am_runtime.select_am(args, "libero").checkpoint is None
+    assert selected.endpoint is None
+
+
+def test_relative_model_python_is_resolved_before_changing_worker_directory(
+    monkeypatch, tmp_path
+):
+    monkeypatch.chdir(tmp_path)
+    interpreter = tmp_path / "venv" / "python"
+    interpreter.parent.mkdir()
+    interpreter.touch(mode=0o755)
+    worker_root = tmp_path / "model"
+    worker_root.mkdir()
+    args = _parser("libero", dashboard=True).parse_args(
+        [
+            "--am-python",
+            "venv/python",
+            "--am-root",
+            "model",
+        ]
+    )
+    selected = am_runtime.select_am(args, "libero")
+    assert selected.python == str(interpreter)
+    assert selected.root == worker_root
+
+
+@pytest.mark.parametrize(
     "robot_name,default_backend", [("libero", "pi05"), ("robotwin", "lingbot")]
 )
 def test_am_backend_selects_one_model_category(robot_name, default_backend):
-    from rpent.robots.components.am_runtime import select_wam
+    from rpent.robots.components.am_runtime import select_am
 
     parser = _parser(robot_name, dashboard=True)
     args = parser.parse_args(["--am-endpoint", "http://localhost:8116"])
@@ -219,11 +356,11 @@ def test_am_backend_selects_one_model_category(robot_name, default_backend):
         parser.parse_args(["--vla-backend", default_backend]).am_backend
         == default_backend
     )
-    assert select_wam(args, robot_name) is None
+    assert not select_am(args, robot_name).is_wam
     args = parser.parse_args(
         ["--am-backend", "fast-wam", "--am-endpoint", "http://localhost:8117"]
     )
-    assert select_wam(args, robot_name).endpoint == args.am_endpoint
+    assert select_am(args, robot_name).endpoint == args.am_endpoint
     assert "wam" in {
         item["name"]
         for item in get_robot_spec(robot_name).resolve_dashboard(args)[
@@ -233,8 +370,8 @@ def test_am_backend_selects_one_model_category(robot_name, default_backend):
     assert "--vla-backend" not in parser.format_help()
     assert "--wam-backend" not in parser.format_help()
     args = parser.parse_args(["--wam-checkpoint", "/unused"])
-    with pytest.raises(ValueError, match="require a WAM --am-backend"):
-        select_wam(args, robot_name)
+    assert select_am(args, robot_name).checkpoint == "/unused"
+    assert not hasattr(args, "wam_checkpoint")
 
 
 @pytest.mark.parametrize(
@@ -442,8 +579,6 @@ def test_robotwin_external_runtime_config_needs_no_local_assets(tmp_path: Path) 
             "ws://offline.invalid:2",
             "--env-cuda-device",
             "2",
-            "--vla-cuda-device",
-            "3",
             "--output-dir",
             str(tmp_path),
         ]
@@ -459,7 +594,7 @@ def test_robotwin_external_runtime_config_needs_no_local_assets(tmp_path: Path) 
     assert config.prompt_vars["instruction"].startswith("<native")
     assert config.task_desc["seed_mode"] == "exact"
     assert config.task_desc["env_cuda_device"] == "2"
-    assert config.task_desc["vla_cuda_device"] == "3"
+    assert config.task_desc["vla_cuda_device"] is None
     assert args.env_endpoint == "http://offline.invalid:1"
     assert args.am_endpoint == "ws://offline.invalid:2"
 
@@ -519,8 +654,13 @@ def test_robotwin_cli_defaults_can_come_from_environment(
     )
 
     assert args.robotwin_assets_path == "/offline/assets"
-    assert args.vla_model_path == "/offline/model"
-    assert args.lingbot_robot_config == "/offline/robot.yaml"
+    assert am_runtime.select_am(args, "robotwin").checkpoint == "/offline/model"
+    from robots.robotwin.robot_spec import _resolve_lingbot_robot_config
+
+    monkeypatch.setattr(Path, "is_file", lambda self: True)
+    assert _resolve_lingbot_robot_config(args, Path("/offline/model")) == Path(
+        "/offline/robot.yaml"
+    )
 
 
 @pytest.mark.parametrize("robot_name", ["libero", "robotwin", "robocasa", "robodojo"])

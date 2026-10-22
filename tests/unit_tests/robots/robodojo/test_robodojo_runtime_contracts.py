@@ -24,6 +24,7 @@ import numpy as np
 import pytest
 
 from robots.robodojo import robot_spec, tools
+from rpent.robots.components import am_runtime
 from rpent.tools import Tool, ToolResult, iter_tools
 
 
@@ -93,7 +94,11 @@ def test_explicit_paths_do_not_read_workspace_or_mutate_parent(monkeypatch, tmp_
     assert str(tmp_path / "policy") in env["PYTHONPATH"].split(os.pathsep)
     assert env["ROBODOJO_PI05_POLICY_ROOT"] == str(tmp_path / "policy/policy/Pi_05")
     assert dict(os.environ) == before
-    assert args.sim_python == args.pi05_python == sys.executable
+    assert (
+        args.sim_python
+        == am_runtime.select_am(args, "robodojo").python
+        == sys.executable
+    )
 
 
 def test_local_spawn_uses_packaged_source_root(monkeypatch, tmp_path):
@@ -136,9 +141,10 @@ def test_cuda_selection_is_only_overridden_explicitly(
             pass
 
     monkeypatch.setattr(robot_spec, "ProcessDaemon", Daemon)
+    monkeypatch.setattr(am_runtime, "ProcessDaemon", Daemon)
     flags = [] if explicit is None else [f"--{component}-cuda-device", str(explicit)]
     args = _args("--source-root", str(tmp_path), "--policy-backend", backend, *flags)
-    selected = getattr(args, f"{component}_cuda_device")
+    selected = getattr(args, f"{'am' if component == 'vla' else component}_cuda_device")
     assert selected is None if explicit is None else str(selected) == str(explicit)
     getattr(robot_spec, f"_spawn_{component}_server")(args, tmp_path)
     overrides = recorded.get("env_overrides", {})
@@ -205,9 +211,10 @@ def test_spawn_uses_explicit_interpreter_and_child_paths(
             recorded["started"] = True
 
     monkeypatch.setattr(robot_spec, "ProcessDaemon", Daemon)
+    monkeypatch.setattr(am_runtime, "ProcessDaemon", Daemon)
     flags = [] if backend == "rlinf" else ["--policy-backend", backend]
     args = _args("--source-root", str(tmp_path), flag, sys.executable, *flags)
-    assert args.policy_backend == backend
+    assert args.am_backend == ("pi05" if backend == "rlinf" else backend)
     getattr(robot_spec, f"_spawn_{component}_server")(args, tmp_path)
     assert recorded["cmd"][0] == sys.executable
     assert recorded["started"]
