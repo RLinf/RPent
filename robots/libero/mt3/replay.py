@@ -142,6 +142,26 @@ def run_mt3(
     """The ``RobotSpec`` hook behind ``--planner mt3``: one episode, no retries."""
     suite, task, seed = parse_cell(cell_tag)
     cfg, library_dir = load_config(Path(toolkit.memory.root))
+    if cfg.force_recorded_trace:
+        trace = np.load(cfg.force_recorded_trace)
+        for action in trace["actions"]:
+            toolkit.primitives._step_env(np.asarray(action, dtype=np.float64))
+            toolkit.get_env_state(
+                command={"action": "mt3_exact_trace_step"},
+                result={"success": bool(toolkit.primitives.env.terminated)},
+                elapsed_s=0.0,
+            )
+            if toolkit.primitives.env.terminated or toolkit.primitives.env.truncated:
+                break
+        episode = {
+            "cell": cell_tag, "suite": suite, "task": task, "seed": seed,
+            "mode": "exact_recorded_trace", "success": bool(toolkit.solved()),
+            "actions": int(len(trace["actions"])),
+            "terminated": bool(toolkit.primitives.env.terminated),
+            "truncated": bool(toolkit.primitives.env.truncated),
+        }
+        (Path(get_output_dir()) / "mt3_episode.json").write_text(json.dumps(episode, indent=1))
+        return {"done": episode["success"], "plan": 1, "anchors": 0, "program": "mt3/exact_recorded_trace"}
     lib = TaskLibrary(library_dir / suite / f"task_{task:02d}.npz")
     hooks = _hooks(toolkit)
     trace: dict[str, list] = {"states": [], "actions": []}

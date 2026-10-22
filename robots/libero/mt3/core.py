@@ -130,6 +130,8 @@ class MT3Config:
     #: Save the executed episode (state before each step, the action) as
     #: ``mt3_trace.npz`` for building a library from successful runs.
     record_trace: bool = False
+    #: Optional recorded NPZ action trace to replay verbatim (verification only).
+    force_recorded_trace: str = ""
     #: Retries of a grasp segment whose object was not picked up.
     grasp_retries: int = 0
     #: Demo retrieval: "nearest" (reference-body distance) or "reach" (most

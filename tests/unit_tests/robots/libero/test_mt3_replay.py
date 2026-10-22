@@ -31,6 +31,11 @@ from robots.libero.mt3.feasibility import _rrt_connect, _shortcut_path
 from robots.libero.mt3.replay import select_demo
 
 
+def test_force_recorded_trace_is_disabled_by_default():
+    assert MT3Config().force_recorded_trace == ""
+    assert MT3Config.from_json({"force_recorded_trace": "trace.npz"}).force_recorded_trace == "trace.npz"
+
+
 def test_native_rpent_policy_preserves_seed_method(monkeypatch):
     """Benchmark evaluation must leave RPent's native seed behavior intact."""
     monkeypatch.setenv("RPENT_MT3_FIXTURE_SEED_POLICY", "rpent")
