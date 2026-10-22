@@ -219,6 +219,73 @@ def test_minimal_route_uses_rrt_path_when_candidates_fail():
     assert len(calls) > len(planned_path)
 
 
+def _pick_place_library(frames: int = 8) -> SimpleNamespace:
+    """Grasp ``obj`` (frames 0-3), then release it at ``box`` (frames 4-7)."""
+    poses = np.repeat(np.eye(4)[None], frames, axis=0)
+    poses[:, 0, 3] = np.linspace(0.0, 0.07, frames)
+    segments = [
+        {"ref": "obj", "start": 0, "c": 2, "end": 4, "events": [["grasp", 2, "obj"]]},
+        {"ref": "box", "start": 4, "c": 6, "end": 8, "events": [["release", 6, "box"]]},
+    ]
+    return SimpleNamespace(
+        frames=lambda _: slice(0, frames),
+        eef=poses,
+        target=poses.copy(),
+        gripper=np.array([-1.0, -1.0] + [1.0] * (frames - 2)),
+        actions=np.zeros((frames, 7)),
+        segments=[segments],
+        # The demo holds ``obj`` exactly at the grip site.
+        pose={"obj": poses.copy(), "box": np.repeat(np.eye(4)[None], frames, axis=0)},
+        ref_bodies=["obj", "box"],
+        ranked=lambda *_: [],
+    )
+
+
+def test_compensated_placement_routes_are_checked_as_executed():
+    """Route checks shift the placement by the measured in-hand offset."""
+    lib = _pick_place_library()
+    hand = np.eye(4)
+    held = np.eye(4)
+    held[0, 3] = 0.01  # the object sits 1 cm ahead of the grip site
+    checked = []
+    hooks = EnvHooks(
+        lambda action: None,
+        lambda: hand.copy(),
+        lambda names: {"obj": held, "box": np.eye(4)},
+        lambda: False,
+        check_paths=lambda paths, options=None: (
+            checked.extend(paths) or [{"feasible": True} for _ in paths]
+        ),
+    )
+    cfg = MT3Config(radius=0.0, grasp_compensation=True)
+    runner = MT3Runner(lib, 0, cfg, hooks)
+    runner._feasibility(1, np.eye(4), 1.0, [0], (0.0,), (0.0,))
+    b = segment_bottleneck(lib.eef, lib.segments[0][1], cfg.radius)
+    np.testing.assert_allclose(
+        checked[0][-1][:3, 3], lib.eef[b][:3, 3] - [0.01, 0.0, 0.0], atol=1e-12
+    )
+
+
+def test_grasp_yaw_turns_about_the_configured_body_point():
+    lib = _pick_place_library()
+    hooks = EnvHooks(
+        lambda action: None,
+        lambda: np.eye(4),
+        lambda names: {name: np.eye(4) for name in names},
+        lambda: False,
+    )
+    live = np.eye(4)
+    live[:3, :3] = np.array([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])
+    cfg = MT3Config(yaw_pivot={"obj": [-0.02, 0.0, 0.0]})
+    runner = MT3Runner(lib, 0, cfg, hooks)
+    np.testing.assert_allclose(
+        runner._pivot(0, 0, np.eye(4), live), [0.0, -0.02, 0.0], atol=1e-12
+    )
+    assert np.allclose(
+        MT3Runner(lib, 0, MT3Config(), hooks)._pivot(0, 0, np.eye(4), live), 0
+    )
+
+
 def test_agent_replay_catalog_and_bounds(monkeypatch, tmp_path):
     from robots.libero.mt3 import agent
 

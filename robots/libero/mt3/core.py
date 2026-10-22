@@ -101,6 +101,11 @@ class MT3Config:
     via_offsets: list[list[float]] = field(default_factory=list)
     #: Body-name substrings whose grasp may be turned about their own axis.
     yaw_free: list[str] = field(default_factory=list)
+    #: Point [m, body frame] that grasp yaw variants of a ``yaw_free``
+    #: reference turn about, per body-name substring; the body origin when
+    #: nothing matches. A handled mug's origin is off its cup axis, so turning
+    #: about the origin moves the grasp off the rim.
+    yaw_pivot: dict[str, list[float]] = field(default_factory=dict)
     #: Also check the source interaction from the bottleneck to contact,
     #: ignoring the segment's reference object.
     feasibility_interaction: bool = False
@@ -650,7 +655,9 @@ class MT3Runner:
                 default=None,
             )
 
-        base = self._carry_yaw if held else 0.0
+        # With grasp compensation the held object follows the demo's own path,
+        # so a turned grasp needs no turned placement.
+        base = self._carry_yaw if held and not self.cfg.grasp_compensation else 0.0
         stage, pick = "configured", None
         cands = self._feasibility(
             k, live, 0.0, [self.demo], (corridor,), (0.0,), (base,)
@@ -824,7 +831,42 @@ class MT3Runner:
             held = self.lib.segments[demo][k - 1]["ref"]
             if self.lib.gripper[rows][seg["c"]] > 0 and held in self.lib.pose:
                 return (transform @ self.lib.pose[held][rows.start + seg["c"]])[:3, 3]
-        return live[:3, 3].copy()
+        ref = seg["ref"]
+        offset = next(
+            (v for key, v in self.cfg.yaw_pivot.items() if key in ref), (0.0, 0.0, 0.0)
+        )
+        return (live @ np.append(np.asarray(offset, dtype=float), 1.0))[:3]
+
+    def _grasp_delta(self, k: int, demo: int, b: int) -> np.ndarray | None:
+        """In-hand correction ``demo_grasp @ inv(live_grasp)`` for a placement.
+
+        Applies (with ``grasp_compensation``) to segment ``k`` of ``demo`` when
+        it releases the object grasped in the previous segment and that object
+        is between the fingers now; ``None`` otherwise. Right-multiplied onto
+        the demo's grip-site poses, it makes the held object follow the demo's.
+        """
+        if not self.cfg.grasp_compensation or k == 0:
+            return None
+        rows = self.lib.frames(demo)
+        segs = self.lib.segments[demo]
+        seg, previous = segs[k], segs[k - 1]
+        held = previous["ref"]
+        if (
+            self.lib.gripper[rows][b] <= 0
+            or held not in self.lib.pose
+            or not any(e[0] in {"release", "end"} for e in seg["events"])
+            or not any(e[0] == "grasp" for e in previous["events"])
+        ):
+            return None
+        live_grasp = (
+            np.linalg.inv(self.env.eef_pose()) @ self.env.body_poses([held])[held]
+        )
+        if np.linalg.norm(live_grasp[:3, 3]) >= 0.15:
+            return None
+        demo_grasp = (
+            np.linalg.inv(self.lib.eef[rows][b]) @ self.lib.pose[held][rows.start + b]
+        )
+        return demo_grasp @ np.linalg.inv(live_grasp)
 
     def _yaw_allowed(self, k: int, held: bool) -> bool:
         ref = self.segments[k]["ref"]
@@ -864,29 +906,15 @@ class MT3Runner:
             return self._run_continuous(seg, log, transform, b, n0)
 
         goal = transform @ self.eef[b]
-        grasp_delta = np.eye(4)
-        if self.cfg.grasp_compensation and k > 0 and self.gripper[b] > 0:
-            previous = self.segments[k - 1]
-            held = previous["ref"]
-            placing = any(e[0] in {"release", "end"} for e in seg["events"])
-            grasped = any(e[0] == "grasp" for e in previous["events"])
-            if placing and grasped and held in self.lib.pose:
-                live_grasp = (
-                    np.linalg.inv(self.env.eef_pose())
-                    @ self.env.body_poses([held])[held]
-                )
-                demo_grasp = (
-                    np.linalg.inv(self.eef[b]) @ self.lib.pose[held][self.first + b]
-                )
-                if np.linalg.norm(live_grasp[:3, 3]) < 0.15:
-                    grasp_delta = demo_grasp @ np.linalg.inv(live_grasp)
-                    log["grasp_correction_cm"] = round(
-                        100 * float(np.linalg.norm(grasp_delta[:3, 3])), 3
-                    )
-                    log["grasp_correction_deg"] = round(
-                        rot_angle_deg(grasp_delta[:3, :3]), 2
-                    )
-                    goal = goal @ grasp_delta
+        grasp_delta = self._grasp_delta(k, self.demo, b)
+        if grasp_delta is None:
+            grasp_delta = np.eye(4)
+        else:
+            log["grasp_correction_cm"] = round(
+                100 * float(np.linalg.norm(grasp_delta[:3, 3])), 3
+            )
+            log["grasp_correction_deg"] = round(rot_angle_deg(grasp_delta[:3, :3]), 2)
+            goal = goal @ grasp_delta
         hold = self.gripper[b]
         if self.cfg.feasibility_check == "log" and self.env.check_paths is not None:
             log["feasibility"] = self._feasibility(k, live, hold)
@@ -1070,14 +1098,12 @@ class MT3Runner:
                     paths,
                     tails,
                     vias,
+                    self._grasp_delta(k, d, b),
                 )
         options = None
         if self.cfg.feasibility_interaction:
             placing = (
-                self.gripper[
-                    segment_bottleneck(self.eef, seg, self.cfg.radius)
-                ]
-                > 0
+                self.gripper[segment_bottleneck(self.eef, seg, self.cfg.radius)] > 0
             )
             # A grasp may touch its object all the way in; a placement into a
             # container (the reference) only right before release.
@@ -1109,13 +1135,22 @@ class MT3Runner:
         paths,
         tails,
         vias=(None,),
+        grasp_delta: np.ndarray | None = None,
     ) -> None:
-        """Append the routes of one (demo, yaw) to ``paths`` / ``names``."""
-        goal = transform @ eef[b]
+        """Append the routes of one (demo, yaw) to ``paths`` / ``names``.
+
+        ``grasp_delta`` (see ``_grasp_delta``) corrects every demo pose the way
+        execution does.
+        """
+        delta = np.eye(4) if grasp_delta is None else grasp_delta
+        goal = transform @ eef[b] @ delta
         # The source interaction up to contact: it must not run into a
         # fixture either (the reference object itself is ignored).
         reach_in = (
-            [transform @ lib.target[rows][f] for f in range(b + 1, other["c"] + 1)]
+            [
+                transform @ lib.target[rows][f] @ delta
+                for f in range(b + 1, other["c"] + 1)
+            ]
             if self.cfg.feasibility_interaction
             else []
         )
@@ -1127,7 +1162,7 @@ class MT3Runner:
         )
         for length in lengths:
             entry = bottleneck_frame(eef, other["start"], b, length) if length else b
-            lead = [transform @ eef[f] for f in range(entry, b)]
+            lead = [transform @ eef[f] @ delta for f in range(entry, b)]
             for clearance in clearances:
                 for via in vias:
                     head = lead[0] if lead else goal
