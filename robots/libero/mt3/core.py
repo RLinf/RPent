@@ -26,7 +26,7 @@ bottleneck may sit at. Arrays:
 - ``pose/<body>`` (T, 4, 4): world pose of each reference body.
 - ``keep`` (N,): the demo's segment sequence is the task's usual one.
 - ``segments``: JSON, per demo a list of ``{"ref", "start", "c", "end",
-  "events"}`` with demo-local frames.
+  "events"}`` with demo-local frames, plus an optional bottleneck ``b``.
 - ``ref_bodies``, ``meta``: JSON.
 
 An episode retrieves the kept demo whose reference bodies sit closest to the
@@ -335,6 +335,15 @@ def bottleneck_frame(eef: np.ndarray, start: int, c: int, radius: float) -> int:
     return start + int(far[-1]) if len(far) else start
 
 
+def segment_bottleneck(eef: np.ndarray, seg: dict[str, Any], radius: float) -> int:
+    """A segment's bottleneck frame: its stored ``b`` when the library gives one
+    (MT3-generated demos, where it is the frame the executed interaction
+    started from rest), else :func:`bottleneck_frame`."""
+    if seg.get("b") is not None:
+        return int(seg["b"])
+    return bottleneck_frame(eef, seg["start"], seg["c"], radius)
+
+
 def target_to_action(eef: np.ndarray, target: np.ndarray, gripper: float) -> np.ndarray:
     """OSC_POSE delta action driving the grip site from ``eef`` toward ``target``.
 
@@ -626,12 +635,7 @@ class MT3Runner:
         live = self.env.body_poses([ref])[ref]
         held = (
             self.gripper[
-                bottleneck_frame(
-                    self.eef,
-                    self.segments[k]["start"],
-                    self.segments[k]["c"],
-                    self.cfg.radius,
-                )
+                segment_bottleneck(self.eef, self.segments[k], self.cfg.radius)
             ]
             > 0
         )
@@ -741,12 +745,7 @@ class MT3Runner:
                 self._use_demo(pick["demo"])
         if pick is None:
             if self.cfg.rrt_fallback and self.env.plan_path is not None:
-                b = bottleneck_frame(
-                    self.eef,
-                    self.segments[k]["start"],
-                    self.segments[k]["c"],
-                    self.cfg.radius,
-                )
+                b = segment_bottleneck(self.eef, self.segments[k], self.cfg.radius)
                 demo_ref = self.lib.pose[ref][self.first + b]
                 transform, _ = transfer_4dof(live, demo_ref, self.cfg.symmetry(ref))
                 if base:
@@ -839,7 +838,7 @@ class MT3Runner:
         seg = self.segments[k]
         ref, start, c, end = seg["ref"], seg["start"], seg["c"], seg["end"]
         radius = self.cfg.radius
-        b = bottleneck_frame(self.eef, start, c, radius)
+        b = segment_bottleneck(self.eef, seg, radius)
         live = self.env.body_poses([ref])[ref]
         demo_ref = self.lib.pose[ref][self.first + b]
         transform, dyaw = transfer_4dof(live, demo_ref, self.cfg.symmetry(ref))
@@ -1045,7 +1044,7 @@ class MT3Runner:
                 continue
             rows = lib.frames(d)
             eef = lib.eef[rows]
-            b = bottleneck_frame(eef, other["start"], other["c"], self.cfg.radius)
+            b = segment_bottleneck(eef, other, self.cfg.radius)
             transform, _ = transfer_4dof(
                 live, lib.pose[ref][rows.start + b], self.cfg.symmetry(ref)
             )
@@ -1076,7 +1075,7 @@ class MT3Runner:
         if self.cfg.feasibility_interaction:
             placing = (
                 self.gripper[
-                    bottleneck_frame(self.eef, seg["start"], seg["c"], self.cfg.radius)
+                    segment_bottleneck(self.eef, seg, self.cfg.radius)
                 ]
                 > 0
             )
@@ -1222,7 +1221,7 @@ def reach_retrieval(
         eef = lib.eef[rows]
         for seg in lib.segments[d]:
             ref = seg["ref"]
-            b = bottleneck_frame(eef, seg["start"], seg["c"], cfg.radius)
+            b = segment_bottleneck(eef, seg, cfg.radius)
             transform, _ = transfer_4dof(
                 scene[ref], lib.pose[ref][rows.start + b], cfg.symmetry(ref)
             )
