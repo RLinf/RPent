@@ -252,14 +252,19 @@ class ApiAgentLoop(Planner):
         )
 
     def _external_toolsets(self, recorder: "_HarnessToolkit") -> list[Any]:
-        """Build one MCP toolset per external server the robot declared.
+        """Build one MCP toolset per planner-layer external server.
 
         Each server's tools are prefixed with its name (``<server>_<tool>``) so
-        they never collide with RPent's own tools or another server's. The
-        pydantic-ai MCP client is an optional import: it is only needed when a
-        robot actually attaches external servers.
+        they never collide with RPent's own tools or another server's. A spec
+        that names its tools is filtered before dispatch, so coordinated tools
+        adopted by the robot's Toolkit cannot leak back into the planner layer.
+        The pydantic-ai MCP client is an optional import: it is only needed
+        when a server is actually attached.
         """
-        if not self.mcp_servers:
+        servers = [
+            server for server in self.mcp_servers if server.planner_tools is not None
+        ]
+        if not servers:
             return []
         try:
             from pydantic_ai.mcp import MCPToolset
@@ -269,15 +274,24 @@ class ApiAgentLoop(Planner):
                 "the pydantic-ai MCP client; install it with "
                 '`pip install "pydantic-ai-slim[mcp]"`.'
             ) from exc
-        return [
-            MCPToolset(
+
+        from rpent.utils.mcp_servers import ALL_TOOLS, request_headers
+
+        toolsets: list[Any] = []
+        for server in servers:
+            toolset = MCPToolset(
                 server.url,
                 id=server.name,
-                headers=server.headers or None,
+                headers=request_headers(server) or None,
                 process_tool_call=recorder.external_tool_hook(server.name),
-            ).prefixed(server.name)
-            for server in self.mcp_servers
-        ]
+            )
+            if server.planner_tools != ALL_TOOLS:
+                allowed = frozenset(server.planner_tools or ())
+                toolset = toolset.filtered(
+                    lambda _ctx, tool_def, allowed=allowed: tool_def.name in allowed
+                )
+            toolsets.append(toolset.prefixed(server.name))
+        return toolsets
 
 
 def _build_model_settings(

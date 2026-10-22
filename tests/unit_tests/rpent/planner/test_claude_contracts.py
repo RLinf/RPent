@@ -208,13 +208,18 @@ def test_options_attach_external_mcp_servers(tmp_path: Path) -> None:
         output_path=tmp_path / "claude.out",
         dashboard_events=RecordingSink(),
         mcp_servers=(
-            McpServerSpec(name="web", url="https://mcp.example/mcp"),
+            McpServerSpec(
+                name="web",
+                url="https://mcp.example/mcp",
+                planner_tools="*",
+            ),
             McpServerSpec(
                 name="kb",
                 url="https://kb.example/mcp",
                 headers={"Authorization": "Bearer token"},
-                tools=("search", "fetch"),
+                planner_tools=("search", "fetch"),
             ),
+            McpServerSpec(name="dock", url="https://dock.example/mcp"),
         ),
     )
     fake_sdk = FakeSdkTools()
@@ -231,11 +236,14 @@ def test_options_attach_external_mcp_servers(tmp_path: Path) -> None:
         "url": "https://kb.example/mcp",
         "headers": {"Authorization": "Bearer token"},
     }
-    # ``tools=None`` allows the whole server; a listed spec names each tool.
+    # A spec without ``planner_tools`` stays in the Env/Toolkit layer.
+    assert "dock" not in options["mcp_servers"]
+    # ``planner_tools="*"`` allows the whole server; a listed spec names each.
     assert "mcp__web" in options["allowed_tools"]
     assert "mcp__kb__search" in options["allowed_tools"]
     assert "mcp__kb__fetch" in options["allowed_tools"]
     assert "mcp__kb" not in options["allowed_tools"]
+    assert "mcp__dock" not in options["allowed_tools"]
 
 
 def test_in_process_mcp_bridge_maps_schema_dispatch_and_errors() -> None:

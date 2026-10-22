@@ -281,43 +281,83 @@ settings.
 Attach External MCP Servers
 ---------------------------
 
-A robot can attach third-party MCP servers it does not own, so the model calls
-their tools alongside RPent's own. This is opt-in and configured per robot: a
-robot declares the servers in its own config, and every online planner
-(``api``, ``claude_code``, ``codex``) attaches them. Robots that need no
-external server omit the section entirely.
+A site or a robot can attach third-party MCP servers it does not own, so the
+model calls their tools alongside RPent's own. MCP is only the transport: the
+layer a server belongs to is decided by whether RPent's control loop must
+coordinate with the device, not by the fact that it speaks MCP.
 
-Declare the servers under ``mcp_servers`` in the robot's config YAML:
+Two layers
+~~~~~~~~~~
+
+- **Env/robot layer.** Devices the execution loop must coordinate with — safety
+  interlocks, a charging dock whose state changes motion limits, battery or task
+  scheduling, lighting that changes camera exposure — become first-class
+  Toolkit tools. The robot adopts them with
+  :meth:`~rpent.tools.toolkit.Toolkit.add_mcp_tools`; they then reach every
+  planner through RPent's own ``mcp__rpent__`` namespace, capture observations,
+  and honor the ``readonly`` marker derived from the server's
+  ``readOnlyHint``. See :ref:`add-robot-toolkit`.
+- **Planner layer.** Independent tools that need no coordination — decorative
+  lighting, unrelated site outlets or electronics — attach directly to the
+  selected planner. A single server may serve both layers: split it at the tool
+  boundary, adopting the tools that need coordination and listing the rest
+  under ``planner_tools``.
+
+Both layers accept only Streamable HTTP servers; stdio servers (``command``)
+are not supported.
+
+Deployment-level configuration
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Facility services belong to the site rather than to any single robot, so
+declare them in a shared YAML and pass it with ``--site-config``:
 
 .. code-block:: yaml
 
    mcp_servers:
-     web:
-       url: https://mcp.example.com/mcp
-       headers:
-         Authorization: Bearer ${oc.env:WEB_MCP_TOKEN}
-       tools: "*"
+     facility:
+       url: https://facility.example.com/mcp
+       env_http_headers:
+         Authorization: FACILITY_TOKEN
+       planner_tools: [read_power_meter]
+     docs:
+       url: https://docs.example.com/mcp
+       planner_tools: "*"
+
+.. code-block:: bash
+
+   rpent --robot myrobot --site-config /path/to/site.yaml --planner claude_code ...
+
+The CLI merges site servers into every run, for every robot, without editing
+the robot. A robot that also owns a service can declare it under
+``mcp_servers`` in its own config YAML (parsed with
+:func:`~rpent.utils.mcp_servers.parse_mcp_servers`); names must be unique
+across both sources.
 
 Fields:
 
 - ``url`` — the server's Streamable HTTP endpoint. Only HTTP(S) servers are
-  supported; stdio servers (``command``) are not.
-- ``headers`` — optional request headers, for example an ``Authorization``
-  token. Use ``${oc.env:...}`` to inject secrets from the environment.
-- ``tools`` — ``"*"`` (or omit) admits every tool the server exposes; a list of
-  names admits only those tools. Only ``claude_code`` needs this, because its
-  ``allowed_tools`` is an allowlist; ``api`` and ``codex`` expose all of an
-  attached server's tools.
+  supported.
+- ``headers`` — optional literal request headers. In a site config,
+  ``${oc.env:...}`` resolves the value when the file is loaded.
+- ``env_http_headers`` — optional mapping of header name to environment
+  variable name. Values are resolved when a request is made; ``codex`` receives
+  the mapping itself, so the secret never appears on its command line. A header
+  cannot appear in both ``headers`` and ``env_http_headers``.
+- ``planner_tools`` — ``"*"`` admits every tool the server exposes; a list of
+  names admits only those tools; omit it to keep the server out of the planner
+  layer entirely (the Env/Toolkit layer may still adopt its tools).
 
-The server name becomes the tool namespace. ``claude_code`` and ``codex`` show
-the tools as ``mcp__<server>__<tool>``; the ``api`` planner shows them as
-``<server>_<tool>``. The name must be a simple identifier (letters, digits,
-``_``, ``-``) and cannot be ``rpent``, which is reserved for RPent's own
-toolkit server.
+Every online planner (``api``, ``claude_code``, ``codex``) attaches the servers
+declared with ``planner_tools``. The server name becomes the tool namespace:
+``claude_code`` and ``codex`` show the tools as ``mcp__<server>__<tool>``; the
+``api`` planner shows them as ``<server>_<tool>``. The name must be a simple
+identifier (letters, digits, ``_``, ``-``) and cannot be ``rpent``, which is
+reserved for RPent's own toolkit server.
 
 The ``api`` planner attaches MCP servers through Pydantic AI's MCP client,
 installed by the ``pydantic-ai-slim[mcp]`` extra, which RPent lists by default.
-A robot that declares no ``mcp_servers`` never loads it.
+A run that attaches no MCP server never loads it.
 
 .. _planner-check:
 

@@ -938,8 +938,9 @@ def build_codex_config(
         cwd: Working directory handed to the Codex child process.
         trace_root: Directory where Codex writes native rollout traces. If ``None``,
             the child inherits the parent's ``CODEX_ROLLOUT_TRACE_ROOT`` setting.
-        mcp_servers: External streamable-HTTP MCP servers to attach alongside
-            RPent's own, each rendered as an ``mcp_servers.<name>`` table.
+        mcp_servers: Planner-layer streamable-HTTP MCP servers to attach
+            alongside RPent's own, each rendered as an ``mcp_servers.<name>``
+            table. Specs without ``planner_tools`` are skipped.
 
     Returns:
         The ``openai_codex.CodexConfig`` to open a session with.
@@ -1102,10 +1103,22 @@ def _codex_mcp_config_overrides(
     config: list[tuple[str, Any]] = []
     if mcp_url:
         config.append(("mcp_servers.rpent.url", mcp_url))
+    from rpent.utils.mcp_servers import ALL_TOOLS
+
     for server in mcp_servers:
+        if server.planner_tools is None:
+            continue
         config.append((f"mcp_servers.{server.name}.url", server.url))
         if server.headers:
             config.append((f"mcp_servers.{server.name}.http_headers", server.headers))
+        if server.env_http_headers:
+            config.append(
+                (f"mcp_servers.{server.name}.env_http_headers", server.env_http_headers)
+            )
+        if server.planner_tools != ALL_TOOLS:
+            config.append(
+                (f"mcp_servers.{server.name}.enabled_tools", list(server.planner_tools))
+            )
     if base_url:
         normalized = base_url.rstrip("/")
         if not normalized.endswith("/v1"):

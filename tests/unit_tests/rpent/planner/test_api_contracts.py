@@ -1642,13 +1642,53 @@ def test_external_toolsets_require_the_mcp_extra(monkeypatch) -> None:
     planner = ApiAgentLoop(
         model=TestModel(),
         dashboard_events=events,
-        mcp_servers=(McpServerSpec(name="web", url="https://mcp.example/mcp"),),
+        mcp_servers=(
+            McpServerSpec(
+                name="web",
+                url="https://mcp.example/mcp",
+                planner_tools="*",
+            ),
+        ),
     )
     adapter = _HarnessToolkit(
         RobotToolkit(events), dashboard_events=events, no_images=True
     )
     with pytest.raises(RuntimeError, match=r"pydantic-ai-slim\[mcp\]"):
         planner._external_toolsets(adapter)
+
+
+def test_external_toolsets_attach_only_the_planner_layer() -> None:
+    events = Events()
+    planner = ApiAgentLoop(
+        model=TestModel(),
+        dashboard_events=events,
+        mcp_servers=(
+            McpServerSpec(
+                name="kb",
+                url="https://kb.example/mcp",
+                planner_tools=("search",),
+            ),
+            McpServerSpec(
+                name="docs",
+                url="https://docs.example/mcp",
+                planner_tools="*",
+            ),
+            McpServerSpec(name="dock", url="https://dock.example/mcp"),
+        ),
+    )
+    adapter = _HarnessToolkit(
+        RobotToolkit(events), dashboard_events=events, no_images=True
+    )
+
+    from pydantic_ai.toolsets.filtered import FilteredToolset
+    from pydantic_ai.toolsets.prefixed import PrefixedToolset
+
+    toolsets = planner._external_toolsets(adapter)
+
+    assert [toolset.prefix for toolset in toolsets] == ["kb", "docs"]
+    assert all(isinstance(toolset, PrefixedToolset) for toolset in toolsets)
+    assert isinstance(toolsets[0].wrapped, FilteredToolset)
+    assert not isinstance(toolsets[1].wrapped, FilteredToolset)
 
 
 def test_external_tool_hook_records_like_a_local_tool() -> None:

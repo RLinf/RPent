@@ -240,6 +240,17 @@ toolkit 模块通常包含四部分：
 
 ``runtime_kwargs`` 由 ``robot_spec.py:get_toolkit`` 转发给 toolkit，再原样传入 primitives 的 ``__init__``。其中通常包含 ``{"env": MyEnvClient(...), "model": VLAClient(...), ...}``。
 
+如果执行循环必须与站点 MCP 服务暴露的某个设备协调，应把这些工具采纳为 Toolkit 的一等工具，而不是把服务挂到 planner 上。``get_toolkit`` 会收到本次运行的 ``config``，因此采纳范围同时覆盖站点服务和 robot 自有服务：
+
+.. code-block:: python
+
+   self.add_mcp_tools(
+       config.mcp_servers,
+       tools={"facility": ["set_charging_dock", "read_battery"]},
+   )
+
+采纳时会在构造 toolkit 的阶段对照服务端工具列表校验名称，保留远端输入 schema，并在服务设置 ``readOnlyHint`` 时把工具标为 ``readonly``。被采纳的工具仍通过 ``mcp__rpent__`` 对所有 planner 可见，并参与观测记录。无需协调的工具应放入 ``planner_tools``。参见 :ref:`external-mcp-servers`。
+
 建议遵循的约定
 --------------
 
@@ -265,7 +276,7 @@ toolkit 模块通常包含四部分：
 - ``output_dir`` —— 单次运行的临时目录路径。main.py 随后调用 ``init_output_dir`` 创建目录并配置日志。
 - ``prompt_vars`` —— 传给 ``PromptBundle.render`` 的字典，通常包含运行标识和 prompt 引用的其他变量。
 - ``task_desc`` —— 机器人特定的任务标识字典，会原样写入 transcript JSON 记录（LIBERO 使用 ``{"suite": ..., "task": ..., "seed": ...}``）。
-- ``mcp_servers`` —— 可选的元组，列出机器人为其规划器声明的外部 MCP 服务，由 robot config 的 ``mcp_servers`` 段经 :func:`~rpent.utils.mcp_servers.parse_mcp_servers` 解析得到。不需要时留空。参见 :ref:`external-mcp-servers`。
+- ``mcp_servers`` —— 可选的元组，列出该 robot 贡献的 MCP 服务，由 robot config 的 ``mcp_servers`` 段经 :func:`~rpent.utils.mcp_servers.parse_mcp_servers` 解析得到。CLI 会合并部署级的站点服务，因此 robot 没有自有服务时留空即可。只有声明了 ``planner_tools`` 的条目会进入 planner；Env/Toolkit 层通过 :meth:`~rpent.tools.toolkit.Toolkit.add_mcp_tools` 采纳需要协调的工具。参见 :ref:`external-mcp-servers`。
 
 .. code-block:: python
 

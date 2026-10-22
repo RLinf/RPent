@@ -42,7 +42,7 @@ import shlex
 import sys
 import time
 from collections.abc import Callable
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 
 from rpent.cli.tui import (
@@ -61,9 +61,14 @@ from rpent.planner.base import (
     is_recoverable_agent_error,
 )
 from rpent.planner.check import BASE_URL_ENV_BY_PLANNER
-from rpent.robots import enumerate_robots, get_robot_spec, get_toolkit
+from rpent.robots import RunConfig, enumerate_robots, get_robot_spec, get_toolkit
 from rpent.session.planner_capture import end_planner_task, start_planner_task
 from rpent.utils.logging import get_logger, init_output_dir
+from rpent.utils.mcp_servers import (
+    McpServerSpec,
+    load_site_mcp_servers,
+    merge_mcp_servers,
+)
 
 logger = get_logger("agent")
 
@@ -193,6 +198,15 @@ def _build_argparser() -> argparse.ArgumentParser:
         "Defaults to MAX_BUDGET_USD env or 10.",
     )
 
+    ap.add_argument(
+        "--site-config",
+        default=None,
+        help="Deployment-level YAML shared by every robot at this site. Its "
+        "mcp_servers section declares facility MCP servers; tools listed "
+        "under planner_tools are attached to the selected planner, while "
+        "unlisted tools stay available to the robot's Env/Toolkit layer.",
+    )
+
     # other config
     ap.add_argument("--output-dir", default=None)
     ap.add_argument(
@@ -309,6 +323,24 @@ def _handoff_message(
     )
 
 
+def _with_site_mcp_servers(
+    run_config: RunConfig,
+    site_servers: tuple[McpServerSpec, ...],
+) -> RunConfig:
+    """Merge deployment-level MCP servers into a robot's run config.
+
+    Site servers are shared by every robot at the deployment, so the CLI adds
+    them after the robot's own ``parse_config``. Duplicate names are rejected:
+    a robot must not silently shadow a facility server.
+    """
+    if not site_servers:
+        return run_config
+    return replace(
+        run_config,
+        mcp_servers=merge_mcp_servers(run_config.mcp_servers, site_servers),
+    )
+
+
 def _start_continuation_session(
     args,
     *,
@@ -390,6 +422,10 @@ def main() -> int:
     args.robot_name = early.robot_name
     if "--interactive" in sys.argv or "-i" in sys.argv:
         logger.warning("--interactive is deprecated; use --tui instead")
+    try:
+        args.site_mcp_servers = load_site_mcp_servers(args.site_config)
+    except (OSError, ValueError) as exc:
+        parser.error(str(exc))
     human_interactive_exploration = (
         args.explore and robot_spec.supports_human_interactive_exploration
     )
@@ -474,7 +510,9 @@ def main() -> int:
         return run_dashboard_session(args, robot_spec, parser=parser)
 
     try:
-        run_config = robot_spec.parse_config(args)
+        run_config = _with_site_mcp_servers(
+            robot_spec.parse_config(args), args.site_mcp_servers
+        )
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
     recipe_tag = run_config.recipe_tag

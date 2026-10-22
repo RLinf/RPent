@@ -1061,3 +1061,70 @@ def test_invalid_memory_source_fails_before_startup(
         cli.main()
     assert exc.value.code == 2
     assert message in capsys.readouterr().err
+
+
+def test_site_mcp_servers_merge_into_run_config(tmp_path: Path) -> None:
+    cli = _cli_module()
+    from rpent.robots import RunConfig
+    from rpent.utils.mcp_servers import McpServerSpec
+
+    run_config = RunConfig(
+        recipe_tag="run",
+        output_dir=tmp_path,
+        prompt_vars={},
+        task_desc={},
+    )
+    site = (McpServerSpec(name="lights", url="https://lights.example/mcp"),)
+
+    merged = cli._with_site_mcp_servers(run_config, site)
+
+    assert merged.mcp_servers == site
+    assert run_config.mcp_servers == ()
+
+
+def test_site_mcp_servers_reject_collision_with_robot_config(tmp_path: Path) -> None:
+    cli = _cli_module()
+    from rpent.robots import RunConfig
+    from rpent.utils.mcp_servers import McpServerSpec
+
+    run_config = RunConfig(
+        recipe_tag="run",
+        output_dir=tmp_path,
+        prompt_vars={},
+        task_desc={},
+        mcp_servers=(McpServerSpec(name="web", url="https://robot.example/mcp"),),
+    )
+    site = (McpServerSpec(name="web", url="https://site.example/mcp"),)
+
+    with pytest.raises(ValueError, match="duplicate MCP server name 'web'"):
+        cli._with_site_mcp_servers(run_config, site)
+
+
+def test_cli_rejects_a_missing_site_config(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    cli = _cli_module()
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "rpent",
+            "--robot",
+            "libero",
+            "--suite",
+            "libero_object",
+            "--task",
+            "0",
+            "--seed",
+            "0",
+            "--site-config",
+            str(tmp_path / "missing.yaml"),
+        ],
+    )
+
+    with pytest.raises(SystemExit):
+        cli.main()
+
+    assert "site config not found" in capsys.readouterr().err

@@ -264,9 +264,15 @@ def build_planner(
 ) -> Planner:
     """Build a planner for the given backend, resolving credentials from env vars.
 
-    ``mcp_servers`` are external streamable-HTTP MCP servers the robot declared
-    for its planners to attach, alongside RPent's own toolkit server.
+    ``mcp_servers`` are external streamable-HTTP MCP servers available to this
+    run (site-level plus robot-declared). Only specs with ``planner_tools`` set
+    are attached: servers reserved for the robot's Env/Toolkit layer are
+    skipped here because the model must reach those tools through a
+    coordinated first-class tool instead.
     """
+    planner_servers = tuple(
+        server for server in mcp_servers if server.planner_tools is not None
+    )
     # Imports are deferred to avoid a circular import: api_loop / claude_code /
     # codex all import from this module (PlannerResult).
 
@@ -285,7 +291,7 @@ def build_planner(
             no_images=no_images,
             timeout_s=api_timeout_s,
             interactive=interactive,
-            mcp_servers=mcp_servers,
+            mcp_servers=planner_servers,
         )
     if planner_type == "claude_code":
         from rpent.planner.claude_code import ClaudeCodePlanner
@@ -306,7 +312,7 @@ def build_planner(
             output_path=Path(output_dir) / f"claude_{recipe_tag}.txt",
             dashboard_events=dashboard_events,
             reasoning_effort=reasoning_effort,
-            mcp_servers=mcp_servers,
+            mcp_servers=planner_servers,
         )
     if planner_type == "codex":
         from rpent.planner.codex import CodexPlanner
@@ -328,7 +334,7 @@ def build_planner(
             output_path=Path(output_dir) / f"codex_{recipe_tag}.txt",
             dashboard_events=dashboard_events,
             reasoning_effort=reasoning_effort,
-            mcp_servers=mcp_servers,
+            mcp_servers=planner_servers,
         )
     if planner_type == "flash":
         from rpent.planner.flash import FlashPlanner

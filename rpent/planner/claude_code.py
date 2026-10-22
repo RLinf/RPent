@@ -850,27 +850,36 @@ class _Recorder:
 def _external_mcp_config(
     mcp_servers: tuple["McpServerSpec", ...],
 ) -> tuple[dict[str, Any], list[str]]:
-    """Render external MCP servers for the SDK's ``mcp_servers`` + allowlist.
+    """Render planner-layer MCP servers for the SDK and its allowlist.
 
     Each spec becomes an SDK streamable-HTTP entry. ``allowed_tools`` is an
     allowlist, so every tool the model may call must be named: a spec that
-    lists ``tools`` yields ``mcp__<server>__<tool>`` per name; a spec that
-    admits all tools yields the server-level ``mcp__<server>`` rule.
+    lists ``planner_tools`` yields ``mcp__<server>__<tool>`` per name; a spec
+    that admits all tools yields the server-level ``mcp__<server>`` rule. A
+    server with ``planner_tools`` unset belongs to the robot's Env/Toolkit
+    layer and is skipped here.
 
     Returns:
         ``(mcp_servers_entries, allowed_tool_names)``.
     """
+    from rpent.utils.mcp_servers import ALL_TOOLS, request_headers
+
     servers: dict[str, Any] = {}
     allowed: list[str] = []
     for server in mcp_servers:
+        if server.planner_tools is None:
+            continue
         entry: dict[str, Any] = {"type": "http", "url": server.url}
-        if server.headers:
-            entry["headers"] = server.headers
+        headers = request_headers(server)
+        if headers:
+            entry["headers"] = headers
         servers[server.name] = entry
-        if server.tools is None:
+        if server.planner_tools == ALL_TOOLS:
             allowed.append(f"mcp__{server.name}")
         else:
-            allowed.extend(f"mcp__{server.name}__{tool}" for tool in server.tools)
+            allowed.extend(
+                f"mcp__{server.name}__{tool}" for tool in server.planner_tools
+            )
     return servers, allowed
 
 

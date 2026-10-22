@@ -404,12 +404,19 @@ def test_config_overrides_attach_external_mcp_servers(
         mcp_url=None,
         base_url=None,
         mcp_servers=(
-            McpServerSpec(name="web", url="https://mcp.example/mcp"),
+            McpServerSpec(
+                name="web",
+                url="https://mcp.example/mcp",
+                planner_tools="*",
+            ),
             McpServerSpec(
                 name="kb",
                 url="https://kb.example/mcp",
                 headers={"Authorization": "Bearer token"},
+                env_http_headers={"X-Site-Token": "SITE_TOKEN"},
+                planner_tools=("search", "fetch"),
             ),
+            McpServerSpec(name="dock", url="https://dock.example/mcp"),
         ),
     )
 
@@ -417,6 +424,8 @@ def test_config_overrides_attach_external_mcp_servers(
         'mcp_servers.web.url="https://mcp.example/mcp"',
         'mcp_servers.kb.url="https://kb.example/mcp"',
         'mcp_servers.kb.http_headers={"Authorization" = "Bearer token"}',
+        'mcp_servers.kb.env_http_headers={"X-Site-Token" = "SITE_TOKEN"}',
+        'mcp_servers.kb.enabled_tools=["search", "fetch"]',
     ]
 
 
