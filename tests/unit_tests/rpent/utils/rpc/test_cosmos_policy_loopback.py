@@ -91,34 +91,11 @@ def test_cosmos_policy_roundtrip(
     )
 
 
-@pytest.mark.parametrize(
-    "key,value",
-    [
-        ("agentview_image", np.zeros((128, 128, 3), np.uint8)),
-        ("robot0_eye_in_hand_image", np.zeros((256, 256, 3), np.float32)),
-        ("robot0_eef_quat", np.zeros(3)),
-        ("robot0_gripper_qpos", np.array([np.nan, 0])),
-    ],
-)
-def test_invalid_observation(raw_obs, key, value, facade):
+def test_cosmos_rejects_wrong_image_resolution(raw_obs, facade):
+    raw_obs["agentview_image"] = np.zeros((128, 128, 3), np.uint8)
     with pytest.raises(ValueError):
-        facade.predict(libero_request({**raw_obs, key: value}))
+        facade.predict(libero_request(raw_obs))
     facade._get_action.assert_not_called()
-
-
-@pytest.mark.parametrize(
-    "actions", [np.zeros((1, 16, 7)), np.zeros((0, 7)), np.full((16, 7), np.inf)]
-)
-def test_client_rejects_invalid_chunks(raw_obs, actions, facade):
-    def call(method, args=(), **kwargs):
-        if method == "wam.get_model_meta":
-            return facade.get_model_meta()
-        result = facade.predict(args[0])
-        return {**result, "actions": actions}
-
-    client = LiberoWAMClient(Mock(call=call))
-    with pytest.raises(ValueError):
-        client.predict(raw_obs)
 
 
 def test_cached_only_worker_rejects_uncached_instruction(raw_obs, facade):

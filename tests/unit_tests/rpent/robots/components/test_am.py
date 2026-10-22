@@ -121,6 +121,8 @@ def test_prediction_and_reset_preserve_rpc_arguments(worker, timeout_s):
         {"instruction": " "},
         {"embodiment": "other"},
         {"images": {}},
+        {"images": {"primary": np.zeros((2, 2, 3), np.float32)}},
+        {"state": {"joints": np.zeros(3)}},
         {"state": {"joints": np.array([0, np.nan])}},
     ],
 )
@@ -134,9 +136,12 @@ def test_bad_observation_stops_before_inference(worker, change):
 @pytest.mark.parametrize(
     "actions",
     [
+        np.zeros((1, 3, 2)),
+        np.zeros((0, 2)),
         np.zeros((3, 3)),
         np.zeros((2, 2)),
         np.full((3, 2), np.nan),
+        np.full((3, 2), np.inf),
     ],
 )
 def test_bad_actions_stop_at_client_boundary(worker, actions):
@@ -163,11 +168,9 @@ def test_wrong_control_is_rejected_before_prediction(worker):
         ("fast-wam", "robotwin"),
     ],
 )
-@pytest.mark.parametrize("legacy_options", [False, True])
-@pytest.mark.parametrize("env_device", [0, 2])
-@pytest.mark.parametrize("model_device", [None, "0"])
+@pytest.mark.parametrize("legacy_options,model_device", [(False, None), (True, "0")])
 def test_worker_launch_and_external_options(
-    tmp_path, monkeypatch, backend, platform, legacy_options, env_device, model_device
+    tmp_path, monkeypatch, backend, platform, legacy_options, model_device
 ):
     for name in ("python", "checkpoint", "config", "stats"):
         (tmp_path / name).touch()
@@ -198,19 +201,18 @@ def test_worker_launch_and_external_options(
         [
             "--am-backend",
             backend,
-            "--wam-checkpoint" if legacy_options else "--am-checkpoint",
+            "--am-checkpoint",
             str(tmp_path / "checkpoint"),
-            "--wam-python" if legacy_options else "--am-python",
+            "--am-python",
             str(tmp_path / "python"),
-            "--wam-root" if legacy_options else "--am-root",
+            "--am-root",
             str(tmp_path),
             *extra,
         ]
     )
     args.am_cuda_device = model_device
     args.cuda_device = 1
-    args.env_cuda_device = env_device
-    args.sam3_cuda_device = env_device
+    args.env_cuda_device = args.sam3_cuda_device = 0
     daemon, rpc = Mock(), Mock()
     factory = Mock(return_value=daemon)
     monkeypatch.setattr(am_runtime, "ProcessDaemon", factory)
@@ -248,8 +250,8 @@ def test_worker_launch_and_external_options(
     with pytest.raises(RuntimeError, match="launch failed"):
         am_runtime.start_wam_service(selected, tmp_path)
     rpc_factory.assert_not_called()
-    args.am_checkpoint = None
     args.am_endpoint = "http://localhost:8116"
+    args.am_checkpoint = args.am_python = args.am_root = args.am_cuda_device = None
     with pytest.raises(ValueError, match="configures local deployment"):
         am_runtime.select_am(args, platform)
     external_args = parser.parse_args(
@@ -261,15 +263,3 @@ def test_worker_launch_and_external_options(
     ) == (None, rpc)
     factory.assert_not_called()
     rpc_factory.assert_called_once_with("http://localhost:8116", enable_sessions=False)
-    other_backend = "pi05" if platform == "libero" else "lingbot"
-    external_args = parser.parse_args(
-        [
-            "--am-backend",
-            other_backend,
-            "--am-endpoint",
-            "http://localhost:8116",
-            *extra,
-        ]
-    )
-    with pytest.raises(ValueError, match=f"requires --am-backend {backend}"):
-        am_runtime.select_am(external_args, platform)

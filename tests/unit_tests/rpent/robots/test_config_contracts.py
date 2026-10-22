@@ -92,8 +92,17 @@ def test_am_help_distinguishes_connection_deployment_and_models(
 @pytest.mark.parametrize(
     "robot_name", ["libero", "robotwin", "robocasa", "robodojo", "dual_franka"]
 )
-@pytest.mark.parametrize("device", [None, "0", "2", "2,3", "GPU-example"])
-@pytest.mark.parametrize("shared_device", [None, "1"])
+@pytest.mark.parametrize(
+    "device,shared_device",
+    [
+        (None, None),
+        (None, "1"),
+        ("0", None),
+        ("0", "1"),
+        ("2,3", "1"),
+        ("GPU-example", "1"),
+    ],
+)
 def test_local_vla_gpu_override_reaches_worker(
     monkeypatch, tmp_path, robot_name, device, shared_device
 ):
@@ -186,8 +195,9 @@ def test_local_vla_gpu_override_reaches_worker(
 
 
 @pytest.mark.parametrize("robot_name", ["libero", "robodojo", "dual_franka"])
-@pytest.mark.parametrize("device", [None, 0, 2])
-@pytest.mark.parametrize("shared_device", [None, 1])
+@pytest.mark.parametrize(
+    "device,shared_device", [(None, None), (None, 1), (0, None), (0, 1)]
+)
 def test_sam3_gpu_override_reaches_worker(
     monkeypatch, tmp_path, robot_name, device, shared_device
 ):
@@ -225,20 +235,10 @@ def test_gpu_help_explains_shared_devices(robot_name):
 
 
 @pytest.mark.parametrize(
-    "robot_name",
-    ["libero", "robotwin", "robocasa", "robodojo", "dual_franka", "franka", "yam"],
-)
-def test_legacy_vla_endpoint_uses_unified_destination(robot_name):
-    parser = _parser(robot_name, dashboard=True)
-    endpoint = "http://localhost:8116"
-    assert parser.parse_args(["--vla-endpoint", endpoint]).am_endpoint == endpoint
-    assert parser.parse_args(["--am-endpoint", endpoint]).am_endpoint == endpoint
-    assert "--vla-endpoint" not in parser.format_help()
-
-
-@pytest.mark.parametrize(
     "alias,canonical,value",
     [
+        ("--vla-endpoint", "--am-endpoint", "http://host:8116"),
+        ("--wam-endpoint", "--am-endpoint", "http://host:8116"),
         ("--vla-model-path", "--am-checkpoint", "/models/checkpoint"),
         ("--wam-checkpoint", "--am-checkpoint", "/models/checkpoint"),
         ("--wam-python", "--am-python", "/env/bin/python"),
@@ -248,7 +248,7 @@ def test_legacy_vla_endpoint_uses_unified_destination(robot_name):
         ("--wam-cuda-device", "--am-cuda-device", "0,1"),
     ],
 )
-def test_legacy_deployment_options_use_one_destination(alias, canonical, value):
+def test_legacy_am_options_use_one_destination(alias, canonical, value):
     parser = _parser("libero", dashboard=True)
     old, new = parser.parse_args([alias, value]), parser.parse_args([canonical, value])
     assert vars(old) == vars(new)
@@ -260,6 +260,16 @@ def test_legacy_deployment_options_use_one_destination(alias, canonical, value):
     "platform,options,message",
     [
         ("libero", ["--cosmos-predict-future"], "requires --am-backend cosmos-policy"),
+        (
+            "libero",
+            ["--fast-wam-config", "config.yaml"],
+            "requires --am-backend fast-wam",
+        ),
+        (
+            "robotwin",
+            ["--fast-wam-config", "config.yaml"],
+            "requires --am-backend fast-wam",
+        ),
         (
             "libero",
             ["--am-backend", "fast-wam", "--pi05-repo-id", "data"],
@@ -369,9 +379,6 @@ def test_am_backend_selects_one_model_category(robot_name, default_backend):
     }
     assert "--vla-backend" not in parser.format_help()
     assert "--wam-backend" not in parser.format_help()
-    args = parser.parse_args(["--wam-checkpoint", "/unused"])
-    assert select_am(args, robot_name).checkpoint == "/unused"
-    assert not hasattr(args, "wam_checkpoint")
 
 
 @pytest.mark.parametrize(
