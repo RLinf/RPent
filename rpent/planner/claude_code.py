@@ -859,10 +859,15 @@ def _external_mcp_config(
     server with ``planner_tools`` unset belongs to the robot's Env/Toolkit
     layer and is skipped here.
 
+    The SDK serializes these entries onto the ``claude`` child process's
+    command line, where other local users can read them. Env-backed headers
+    therefore carry only ``${VAR}``: the CLI, which inherits RPent's
+    environment, expands the value after the command line is parsed.
+
     Returns:
         ``(mcp_servers_entries, allowed_tool_names)``.
     """
-    from rpent.utils.mcp_servers import ALL_TOOLS, request_headers
+    from rpent.utils.mcp_servers import ALL_TOOLS
 
     servers: dict[str, Any] = {}
     allowed: list[str] = []
@@ -870,7 +875,9 @@ def _external_mcp_config(
         if server.planner_tools is None:
             continue
         entry: dict[str, Any] = {"type": "http", "url": server.url}
-        headers = request_headers(server)
+        headers = dict(server.headers)
+        for name, env_name in server.env_http_headers.items():
+            headers[name] = f"${{{env_name}}}"
         if headers:
             entry["headers"] = headers
         servers[server.name] = entry

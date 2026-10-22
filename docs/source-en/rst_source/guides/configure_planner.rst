@@ -329,10 +329,12 @@ declare them in a shared YAML and pass it with ``--site-config``:
    rpent --robot myrobot --site-config /path/to/site.yaml --planner claude_code ...
 
 The CLI merges site servers into every run, for every robot, without editing
-the robot. A robot that also owns a service can declare it under
-``mcp_servers`` in its own config YAML (parsed with
-:func:`~rpent.utils.mcp_servers.parse_mcp_servers`); names must be unique
-across both sources.
+the robot. A robot can also own a service: its ``parse_config`` parses its own
+config YAML's ``mcp_servers`` section with
+:func:`~rpent.utils.mcp_servers.parse_mcp_servers` and returns the specs on
+``RunConfig``. No shipped robot wires this yet, so use ``--site-config`` for
+services every robot at the site shares; names must be unique across both
+sources.
 
 Fields:
 
@@ -341,9 +343,10 @@ Fields:
 - ``headers`` — optional literal request headers. In a site config,
   ``${oc.env:...}`` resolves the value when the file is loaded.
 - ``env_http_headers`` — optional mapping of header name to environment
-  variable name. Values are resolved when a request is made; ``codex`` receives
-  the mapping itself, so the secret never appears on its command line. A header
-  cannot appear in both ``headers`` and ``env_http_headers``.
+  variable name. Values are resolved when a request is made. ``codex`` receives
+  the mapping itself, and ``claude_code`` passes ``${VAR}`` for the CLI to
+  expand, so the secret never appears on a child process command line. A
+  header cannot appear in both ``headers`` and ``env_http_headers``.
 - ``planner_tools`` — ``"*"`` admits every tool the server exposes; a list of
   names admits only those tools; omit it to keep the server out of the planner
   layer entirely (the Env/Toolkit layer may still adopt its tools).

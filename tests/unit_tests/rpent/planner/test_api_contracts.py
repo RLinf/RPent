@@ -1723,6 +1723,24 @@ def test_external_tool_hook_records_like_a_local_tool() -> None:
     ]
 
 
+@pytest.mark.parametrize("no_images", [False, True])
+def test_external_tool_hook_omits_images_with_no_images(no_images: bool) -> None:
+    events = Events()
+    adapter = _HarnessToolkit(
+        RobotToolkit(events), dashboard_events=events, no_images=no_images
+    )
+    ctx = SimpleNamespace(tool_call_id="call-1")
+    image = BinaryContent(data=b"png", media_type="image/png")
+
+    async def call_tool(name, args):
+        return ["caption", image]
+
+    result = asyncio.run(adapter.external_tool_hook("web")(ctx, call_tool, "look", {}))
+
+    omitted = "[Image omitted: --no-images is enabled.]"
+    assert result == ["caption", omitted if no_images else image]
+
+
 def test_external_result_text_renders_result_shapes() -> None:
     assert _external_result_text("hi") == "hi"
     assert _external_result_text({"a": 1}) == '{"a": 1}'

@@ -50,6 +50,11 @@ _JSON_TYPES: dict[str, Any] = {
     "boolean": bool,
 }
 
+_MCP_CLIENT_HINT = (
+    "adopting site MCP tools requires the MCP client; install it with "
+    '`pip install "pydantic-ai-slim[mcp]"`.'
+)
+
 
 def register_mcp_tools(
     toolkit: Toolkit,
@@ -74,6 +79,13 @@ def register_mcp_tools(
             belongs to the toolkit or another adopted server.
         RuntimeError: If the MCP client dependency is missing.
     """
+    # Fail at toolkit construction with an install hint instead of on the
+    # first remote call.
+    try:
+        _mcp_client()
+    except ImportError as exc:
+        raise RuntimeError(_MCP_CLIENT_HINT) from exc
+
     by_name = {server.name: server for server in servers}
     unknown_servers = sorted(set(tools) - set(by_name))
     if unknown_servers:
@@ -199,6 +211,14 @@ def _call_remote_tool(spec: McpServerSpec, name: str, arguments: dict[str, Any])
     return _run_remote(spec, call)
 
 
+def _mcp_client() -> tuple[Any, Any]:
+    """Import the optional MCP client lazily."""
+    from mcp import ClientSession
+    from mcp.client.streamable_http import streamablehttp_client
+
+    return ClientSession, streamablehttp_client
+
+
 def _run_remote(spec: McpServerSpec, action: Callable[[Any], Awaitable[Any]]) -> Any:
     """Run one MCP session action to completion.
 
@@ -206,15 +226,7 @@ def _run_remote(spec: McpServerSpec, action: Callable[[Any], Awaitable[Any]]) ->
     safe. If a handler is ever invoked from a thread that already owns a loop,
     the action runs on a short-lived helper thread instead of failing.
     """
-    try:
-        from mcp import ClientSession
-        from mcp.client.streamable_http import streamablehttp_client
-    except ImportError as exc:
-        raise RuntimeError(
-            "adopting site MCP tools requires the MCP client; install it with "
-            '`pip install "pydantic-ai-slim[mcp]"`.'
-        ) from exc
-
+    ClientSession, streamablehttp_client = _mcp_client()
     headers = request_headers(spec) or None
 
     async def main() -> Any:

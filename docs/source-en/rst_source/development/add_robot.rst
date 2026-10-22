@@ -337,10 +337,19 @@ attaching the server to a planner. ``get_toolkit`` receives the run's
 
 .. code-block:: python
 
-   self.add_mcp_tools(
-       config.mcp_servers,
-       tools={"facility": ["set_charging_dock", "read_battery"]},
-   )
+   def get_toolkit(*, runtime_kwargs, dashboard_events, config):
+       toolkit = MyRobotToolkit(
+           runtime_kwargs=runtime_kwargs,
+           dashboard_events=dashboard_events,
+           memory=MemoryManager(
+               root=config.prompt_vars.get("memory_dir") or get_memory_dir("myrobot"),
+           ),
+       )
+       toolkit.add_mcp_tools(
+           config.mcp_servers,
+           tools={"facility": ["set_charging_dock", "read_battery"]},
+       )
+       return toolkit
 
 Adoption validates the names against the server's tool list when the toolkit is
 constructed, keeps the remote input schemas, and marks a tool ``readonly`` when

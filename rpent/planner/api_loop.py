@@ -332,6 +332,15 @@ def _external_result_text(result: Any) -> str:
     return str(result)
 
 
+def _omit_external_images(result: Any) -> Any:
+    """Replace external MCP image content the way local tools do."""
+    if isinstance(result, BinaryContent):
+        return "[Image omitted: --no-images is enabled.]"
+    if isinstance(result, list):
+        return [_omit_external_images(item) for item in result]
+    return result
+
+
 class _ConversationAgent(WrapperAgent):
     """Preserve completed operations across failed and cancelled runs.
 
@@ -555,7 +564,7 @@ class _HarnessToolkit(FunctionToolset):
             self._record_call(tool, args, ctx)
             result = await call_tool(name, args)
             self._record_result(tool, ctx, _external_result_text(result))
-            return result
+            return _omit_external_images(result) if self.no_images else result
 
         return hook
 

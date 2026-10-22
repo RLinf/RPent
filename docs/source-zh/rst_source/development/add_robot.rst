@@ -244,10 +244,19 @@ toolkit 模块通常包含四部分：
 
 .. code-block:: python
 
-   self.add_mcp_tools(
-       config.mcp_servers,
-       tools={"facility": ["set_charging_dock", "read_battery"]},
-   )
+   def get_toolkit(*, runtime_kwargs, dashboard_events, config):
+       toolkit = MyRobotToolkit(
+           runtime_kwargs=runtime_kwargs,
+           dashboard_events=dashboard_events,
+           memory=MemoryManager(
+               root=config.prompt_vars.get("memory_dir") or get_memory_dir("myrobot"),
+           ),
+       )
+       toolkit.add_mcp_tools(
+           config.mcp_servers,
+           tools={"facility": ["set_charging_dock", "read_battery"]},
+       )
+       return toolkit
 
 采纳时会在构造 toolkit 的阶段对照服务端工具列表校验名称，保留远端输入 schema，并在服务设置 ``readOnlyHint`` 时把工具标为 ``readonly``。被采纳的工具仍通过 ``mcp__rpent__`` 对所有 planner 可见，并参与观测记录。无需协调的工具应放入 ``planner_tools``。参见 :ref:`external-mcp-servers`。
 
