@@ -42,6 +42,30 @@ def test_native_rpent_policy_preserves_seed_method(monkeypatch):
     assert calls == [9]
 
 
+def test_reference_specific_alignment_replans_preserve_default():
+    lib = SimpleNamespace(
+        frames=lambda _: slice(0, 1),
+        eef=np.eye(4)[None],
+        target=np.eye(4)[None],
+        gripper=np.zeros(1),
+        actions=np.zeros((1, 7)),
+        segments=[[{"ref": "microwave_1_microdoorroot"}]],
+        pose={},
+    )
+    hooks = EnvHooks(lambda _: None, lambda: np.eye(4), lambda _: {}, lambda: False)
+    default = MT3Runner(lib, 0, MT3Config(), hooks)
+    configured = MT3Runner(
+        lib,
+        0,
+        MT3Config(alignment_replans_by_ref={"microdoorroot": 2}),
+        hooks,
+    )
+    assert default._alignment_replans("microwave_1_microdoorroot") == 0
+    assert default._alignment_replans("white_yellow_mug_1_main") == 0
+    assert configured._alignment_replans("microwave_1_microdoorroot") == 2
+    assert configured._alignment_replans("white_yellow_mug_1_main") == 0
+
+
 def test_fixture_placement_repeats_after_reseeding():
     """Both placement samplers and the wrapped environment receive the seed."""
     state = np.random.get_state()

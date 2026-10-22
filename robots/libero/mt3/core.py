@@ -136,6 +136,9 @@ class MT3Config:
     #: segments whose transferred bottleneck the arm can reach, then nearest).
     retrieval: str = "nearest"
     alignment_replans: int = 0
+    #: Additional alignment attempts for references matching a body-name
+    #: substring. Absent entries preserve the global setting.
+    alignment_replans_by_ref: dict[str, int] = field(default_factory=dict)
     alignment_guard_pos: float = 0.0
     alignment_guard_rot_deg: float = 15.0
     #: Repeat a source target when its tracking residual exceeds these limits.
@@ -529,6 +532,14 @@ class MT3Runner:
         self.steps += 1
         self._last_target, self._last_gripper = target, float(gripper)
         return not self.env.done()
+
+    def _alignment_replans(self, ref: str) -> int:
+        """Return the global count plus reference-specific alignment attempts."""
+        return self.cfg.alignment_replans + sum(
+            max(0, int(count))
+            for key, count in self.cfg.alignment_replans_by_ref.items()
+            if key in ref
+        )
 
     def run_segment(self, k: int) -> dict[str, Any]:
         """Run segment ``k``; a grasp that did not pick its object up is retried
@@ -1000,7 +1011,7 @@ class MT3Runner:
             log["corridor_frames"] = [entry, b]
         attempts = []
         align_steps, total_settle = 0, 0
-        for attempt in range(self.cfg.alignment_replans + 1):
+        for attempt in range(self._alignment_replans(ref) + 1):
             clearance = (
                 0.06 * attempt
                 + self.cfg.transit_clearance
