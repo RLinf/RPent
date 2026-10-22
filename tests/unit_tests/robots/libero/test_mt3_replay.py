@@ -18,7 +18,13 @@ import numpy as np
 import pytest
 
 from robots.libero.env_server import _configure_fixture_seed, _seed_fixture_sampler
-from robots.libero.mt3.core import POS_SCALE, EnvHooks, MT3Config, MT3Runner
+from robots.libero.mt3.core import (
+    POS_SCALE,
+    EnvHooks,
+    MT3Config,
+    MT3Runner,
+    segment_bottleneck,
+)
 
 
 def test_native_rpent_policy_preserves_seed_method(monkeypatch):
@@ -91,6 +97,15 @@ def test_continuous_replay_keeps_transit_frames_and_blends_reference_changes():
     assert 0.0 < achieved[14][1, 3] < 0.02
     assert achieved[21][1, 3] == 0.02
     assert all(log["align_steps"] == 0 for log in runner.logs)
+
+
+def test_stored_bottleneck_overrides_the_radius_rule():
+    """A generated demo resumes from the frame its interaction started at rest."""
+    eef = np.tile(np.eye(4), (6, 1, 1))
+    eef[:, 0, 3] = [0.0, 0.05, 0.11, 0.11, 0.11, 0.2]
+    seg = {"ref": "obj", "start": 0, "c": 5, "end": 6}
+    assert segment_bottleneck(eef, seg, 0.1) == 1
+    assert segment_bottleneck(eef, {**seg, "b": 4}, 0.1) == 4
 
 
 def test_blocked_alignment_does_not_execute_source_grasp():
