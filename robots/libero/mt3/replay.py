@@ -106,6 +106,7 @@ def _hooks(toolkit: Any) -> EnvHooks:
         body_poses=body_poses,
         done=lambda: bool(env.terminated or env.truncated),
         check_paths=lambda paths: env.check_paths(paths),
+        plan_path=lambda goal: env.plan_path(goal),
     )
 
 

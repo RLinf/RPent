@@ -24,6 +24,7 @@ the scene are reported. Uses the scene's ground-truth collision geometry.
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 import numpy as np
@@ -274,6 +275,118 @@ class SceneChecker:
             and goal_rot_err <= ik_rot_tol,
         }
 
+    def plan(
+        self,
+        goal_pose: np.ndarray,
+        *,
+        seed: int = 0,
+        max_iterations: int = 3000,
+        timeout: float = 5.0,
+        step_size: float = 0.25,
+        edge_step: float = 0.05,
+        shortcut_attempts: int = 100,
+        pose_step: float = 0.01,
+        depth: float = 0.002,
+    ) -> dict[str, Any]:
+        """Plan a collision-free joint path to ``goal_pose`` on a state copy."""
+        started = time.monotonic()
+        rng = np.random.default_rng(seed)
+        self._reset_copy()
+        start = self.data.qpos[self.arm_qpos].copy()
+        self.q0 = start.copy()
+        held = self.held_body()
+        held_offset = None
+        if held is not None:
+            held_offset = np.linalg.inv(self._site_pose()) @ self._body_pose(held)
+        pre = {h[:2] for h in self.collisions(held, depth, set())}
+        movable_pairs: set[str] = set()
+
+        def set_q(q: np.ndarray) -> None:
+            self.data.qpos[self.arm_qpos] = q
+            self.mj.mj_forward(self.model, self.data)
+            if held is not None:
+                pose = self._site_pose() @ held_offset
+                adr = self.model.jnt_qposadr[self.model.body_jntadr[held]]
+                self.data.qpos[adr : adr + 3] = pose[:3, 3]
+                self.data.qpos[adr + 3 : adr + 7] = _quat_wxyz(pose[:3, :3])
+                self.mj.mj_forward(self.model, self.data)
+
+        def valid(q: np.ndarray) -> bool:
+            set_q(q)
+            hits = [h for h in self.collisions(held, depth, set()) if h[:2] not in pre]
+            movable_pairs.update(f"{h[0]}|{h[1]}" for h in hits if h[3])
+            return not any(not h[3] for h in hits)
+
+        goal_q = None
+        best_error = (np.inf, np.inf)
+        for attempt in range(9):
+            if time.monotonic() - started >= timeout:
+                break
+            if attempt == 0:
+                seed_q = start
+            else:
+                seed_q = rng.uniform(self.lo, self.hi)
+            set_q(seed_q)
+            self.q0 = seed_q.copy()
+            pos_err, rot_err = self.solve(np.asarray(goal_pose), iters=150)
+            q = self.data.qpos[self.arm_qpos].copy()
+            if (pos_err, rot_err) < best_error:
+                best_error = (pos_err, rot_err)
+            if pos_err <= 0.015 and rot_err <= 5.0 and valid(q):
+                goal_q = q
+                break
+
+        iterations = 0
+        joint_path = None
+        raw_path = []
+        if goal_q is not None:
+            joint_path, iterations = _rrt_connect(
+                start,
+                goal_q,
+                valid,
+                self.lo,
+                self.hi,
+                rng,
+                max_iterations=max_iterations,
+                timeout=timeout,
+                started=started,
+                step_size=step_size,
+                edge_step=edge_step,
+            )
+        if joint_path:
+            raw_path = joint_path
+            joint_path = _shortcut_path(
+                joint_path,
+                valid,
+                rng,
+                attempts=shortcut_attempts,
+                edge_step=edge_step,
+            )
+            joint_path = _resample_joint_path(joint_path, edge_step)
+            poses = []
+            for q in joint_path:
+                set_q(q)
+                poses.append(self._site_pose().copy())
+            poses = _resample_pose_path(poses, pose_step)
+        else:
+            poses = []
+        length = (
+            float(sum(np.linalg.norm(b - a) for a, b in zip(raw_path, raw_path[1:])))
+            if joint_path
+            else 0.0
+        )
+        return {
+            "success": bool(joint_path),
+            "path": poses,
+            "iterations": iterations,
+            "time_s": round(time.monotonic() - started, 4),
+            "path_length": round(length, 4),
+            "movable_contacts": sorted(movable_pairs),
+            "movable_contact_count": len(movable_pairs),
+            "goal_ik_pos_err_cm": round(100 * best_error[0], 2),
+            "goal_ik_rot_err_deg": round(best_error[1], 2),
+        }
+
 
 def _rotvec(rot: np.ndarray) -> np.ndarray:
     from scipy.spatial.transform import Rotation
@@ -292,3 +405,119 @@ def check_paths(sim: Any, paths: list, **kwargs: Any) -> list[dict[str, Any]]:
     """Check each path in ``paths`` against ``sim`` (robosuite MjSim)."""
     checker = SceneChecker(sim.model._model, sim.data._data)
     return [checker.check([np.asarray(p) for p in path], **kwargs) for path in paths]
+
+
+def _edge_valid(a, b, valid, edge_step):
+    count = max(1, int(np.ceil(np.max(np.abs(b - a)) / edge_step)))
+    return all(valid(a + (b - a) * (i / count)) for i in range(1, count + 1))
+
+
+def _extend(tree, target, valid, lo, hi, step_size, edge_step):
+    nodes, parents = tree
+    nearest = int(np.argmin(np.linalg.norm(nodes - target, axis=1)))
+    delta = target - nodes[nearest]
+    distance = np.linalg.norm(delta)
+    q = nodes[nearest] + delta * min(1.0, step_size / max(distance, 1e-12))
+    q = np.clip(q, lo, hi)
+    if np.linalg.norm(q - nodes[nearest]) < 1e-8 or not _edge_valid(
+        nodes[nearest], q, valid, edge_step
+    ):
+        return None
+    nodes.append(q)
+    parents.append(nearest)
+    return len(nodes) - 1
+
+
+def _trace(tree, index):
+    nodes, parents = tree
+    path = []
+    while index >= 0:
+        path.append(nodes[index])
+        index = parents[index]
+    return path[::-1]
+
+
+def _rrt_connect(
+    start,
+    goal,
+    valid,
+    lo,
+    hi,
+    rng,
+    *,
+    max_iterations,
+    timeout,
+    started,
+    step_size,
+    edge_step,
+):
+    if not valid(start) or not valid(goal):
+        return None, 0
+    trees = [([start.copy()], [-1]), ([goal.copy()], [-1])]
+    for iteration in range(max_iterations):
+        if time.monotonic() - started >= timeout:
+            break
+        a_idx = iteration % 2
+        ta, tb = trees[a_idx], trees[1 - a_idx]
+        sample = goal if iteration % 10 == 0 else rng.uniform(lo, hi)
+        idx = _extend(ta, sample, valid, lo, hi, step_size, edge_step)
+        if idx is None:
+            continue
+        q = ta[0][idx]
+        while True:
+            before = len(tb[0])
+            j = _extend(tb, q, valid, lo, hi, step_size, edge_step)
+            if j is None:
+                break
+            if np.linalg.norm(tb[0][j] - q) < 1e-8:
+                left, right = _trace(ta, idx), _trace(tb, j)
+                path = left + right[-2::-1] if a_idx == 0 else right + left[-2::-1]
+                return path, iteration + 1
+            if len(tb[0]) == before:
+                break
+        trees[a_idx], trees[1 - a_idx] = tb, ta
+    return None, iteration + 1 if max_iterations else 0
+
+
+def _shortcut_path(path, valid, rng, *, attempts, edge_step):
+    path = [np.asarray(q).copy() for q in path]
+    for _ in range(attempts):
+        if len(path) < 3:
+            break
+        i, j = sorted(rng.choice(len(path), size=2, replace=False))
+        if j > i + 1 and _edge_valid(path[i], path[j], valid, edge_step):
+            path[i + 1 : j] = []
+    return path
+
+
+def _resample_joint_path(path, step):
+    result = [path[0]]
+    for a, b in zip(path, path[1:]):
+        n = max(1, int(np.ceil(np.max(np.abs(b - a)) / step)))
+        result.extend(a + (b - a) * (i / n) for i in range(1, n + 1))
+    return result
+
+
+def _resample_pose_path(path, step):
+    from scipy.spatial.transform import Rotation, Slerp
+
+    result = []
+    for a, b in zip(path, path[1:]):
+        distance = np.linalg.norm(b[:3, 3] - a[:3, 3])
+        count = max(1, int(np.ceil(distance / step)))
+        rotations = Rotation.from_matrix(np.stack([a[:3, :3], b[:3, :3]]))
+        slerp = Slerp([0.0, 1.0], rotations)
+        for t in np.arange(count) / count:
+            pose = np.eye(4)
+            pose[:3, 3] = a[:3, 3] * (1 - t) + b[:3, 3] * t
+            pose[:3, :3] = slerp([t]).as_matrix()[0]
+            result.append(pose)
+    if path:
+        result.append(path[-1])
+    return result
+
+
+def plan_path(sim: Any, goal_pose: np.ndarray, **kwargs: Any) -> dict[str, Any]:
+    """Plan from the live simulator state without modifying it."""
+    checker = SceneChecker(sim.model._model, sim.data._data)
+    return checker.plan(np.asarray(goal_pose), **kwargs)

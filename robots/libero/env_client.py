@@ -108,7 +108,18 @@ class LiberoEnvClient(BaseEnvClient):
         """Static feasibility (IK reach, collisions) of 4x4 grip-site paths."""
         return self._client.call(
             "env.check_paths",
-            kwargs={"paths": [np.asarray(p).tolist() for p in paths], "options": options},
+            kwargs={
+                "paths": [np.asarray(p).tolist() for p in paths],
+                "options": options,
+            },
+            timeout_s=600,
+        )
+
+    def plan_path(self, goal_pose, options=None) -> dict:
+        """Plan a joint-space path to one grip-site pose."""
+        return self._client.call(
+            "env.plan_path",
+            kwargs={"goal_pose": np.asarray(goal_pose).tolist(), "options": options},
             timeout_s=600,
         )
 

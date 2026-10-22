@@ -87,6 +87,8 @@ class MT3Config:
     #: feasible candidate (its demo, corridor and transit height), or the
     #: configured route when none is feasible. "" disables the check.
     feasibility_check: str = ""
+    #: Use joint-space RRT-Connect when all static alignment routes fail.
+    rrt_fallback: bool = False
     feasibility_topk: int = 5
     #: Extra alignment transit height [m], always applied.
     transit_clearance: float = 0.0
@@ -315,6 +317,8 @@ class EnvHooks:
     #: Static feasibility of grip-site paths on a copy of the live scene
     #: (``robots.libero.mt3.feasibility``); None when unavailable.
     check_paths: Callable[[list[list[np.ndarray]]], list[dict[str, Any]]] | None = None
+    #: Plan one grip-site pose on a copied simulator state.
+    plan_path: Callable[[np.ndarray], dict[str, Any]] | None = None
 
 
 class MT3Runner:
@@ -495,6 +499,25 @@ class MT3Runner:
             if pick is not None:
                 self._use_demo(pick["demo"])
         if pick is None:
+            if self.cfg.rrt_fallback and self.env.plan_path is not None:
+                b = bottleneck_frame(
+                    self.eef,
+                    self.segments[k]["start"],
+                    self.segments[k]["c"],
+                    self.cfg.radius,
+                )
+                demo_ref = self.lib.pose[ref][self.first + b]
+                transform, _ = transfer_4dof(live, demo_ref, self.cfg.symmetry(ref))
+                planned = self.env.plan_path(transform @ self.eef[b])
+                if planned.get("success"):
+                    log = self._segment(
+                        k, precomputed_path=[np.asarray(p) for p in planned["path"]]
+                    )
+                    log.update(
+                        selection={"stage": "rrt", **planned, "path": None},
+                        candidates=tried,
+                    )
+                    return log
             log = self._segment(k)
             log.update(
                 selection={"stage": "none feasible; configured route"}, candidates=tried
@@ -519,7 +542,9 @@ class MT3Runner:
         )
         return log
 
-    def _segment(self, k: int) -> dict[str, Any]:
+    def _segment(
+        self, k: int, precomputed_path: list[np.ndarray] | None = None
+    ) -> dict[str, Any]:
         seg = self.segments[k]
         ref, start, c, end = seg["ref"], seg["start"], seg["c"], seg["end"]
         radius = self.cfg.radius
@@ -584,7 +609,9 @@ class MT3Runner:
                 + self.cfg.transit_clearance
                 + (self.cfg.carry_clearance if hold > 0 else 0.0)
             )
-            if corridor:
+            if precomputed_path is not None:
+                path = precomputed_path
+            elif corridor:
                 path = (
                     alignment_path(
                         self.env.eef_pose(), corridor[0], self.cfg.align_step, clearance
