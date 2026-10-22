@@ -194,7 +194,7 @@ To switch planners, see :doc:`../guides/configure_planner`.
 WAM Evaluation
 ~~~~~~~~~~~~~~
 
-Prepare a worker with :doc:`../development/wam_backends` and keep the simulator
+Prepare a worker with :doc:`../development/add_action_model` and keep the simulator
 and SAM3 setup above. Pi0.5 weights are not needed for WAM. With Cosmos on port 8116:
 
 .. code-block:: bash

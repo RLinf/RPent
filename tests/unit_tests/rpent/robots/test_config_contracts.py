@@ -63,7 +63,7 @@ def test_wam_help_distinguishes_connection_deployment_and_models(robot_name, cap
         "Fast-WAM local options:",
     ):
         assert group in help_text
-    assert "wam_backends.html" in help_text
+    assert "add_action_model.html#action-model-deployment" in help_text
     for option in (
         "cosmos-text-embeddings",
         "cosmos-predict-future",

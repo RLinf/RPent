@@ -106,7 +106,7 @@ The original ``--vla-endpoint`` and LIBERO ``--vla-backend`` spellings remain
 accepted as compatibility aliases. WAM uses the ``local`` memory profile with memory file tools and a
 backend-specific directory; ``--memory-dir`` overrides it. WAM currently rejects
 HF memory, Flash and exploration. See
-:doc:`../development/wam_backends` for model launch options and supported pairs.
+:doc:`../development/add_action_model` for model launch options and supported pairs.
 For local model services, ``--vla-cuda-device`` and ``--wam-cuda-device``
 select the corresponding model GPU independently of the simulator. Both are
 registered by ``am_runtime.py``. An omitted model option falls back to
@@ -134,7 +134,7 @@ and the WAM worker on GPU 1.
 their own ``--cuda-device`` where supported.
 Platform ``--help`` groups WAM connection,
 local deployment and model-specific options. Cosmos uses ``--cosmos-*``
-options; Fast-WAM uses ``--fast-wam-*``. The WAM backend guide separates
+options; Fast-WAM uses ``--fast-wam-*``. The action-model guide separates
 one-time worker deployment from repeated task commands and includes examples
 for both external services and workers started by RPent.
 

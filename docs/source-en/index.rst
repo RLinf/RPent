@@ -129,7 +129,6 @@ Choose an environment: :doc:`LIBERO <rst_source/simulators/libero>`, :doc:`RoboC
 
    Architecture and Execution <rst_source/development/architecture>
    Core Interfaces <rst_source/development/interfaces>
-   WAM Backends <rst_source/development/wam_backends>
    Memory Design <rst_source/development/memory>
    Add a Robot or Simulator <rst_source/development/add_robot>
    Add an Action Primitive <rst_source/development/add_primitive>

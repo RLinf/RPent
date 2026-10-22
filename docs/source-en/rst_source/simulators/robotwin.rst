@@ -146,7 +146,7 @@ The checkpoint includes the default RoboTwin robot configuration.
 Fast-WAM Configuration
 ~~~~~~~~~~~~~~~~~~~~~~
 
-Prepare a RoboTwin Fast-WAM worker using :doc:`../development/wam_backends`.
+Prepare a RoboTwin Fast-WAM worker using :doc:`../development/add_action_model`.
 It uses head/left-wrist/right-wrist RGB, native joint targets, and qpos14 action
 chunks. Select it with ``--am-backend fast-wam``; LingBot weights are not
 required. From the simulator environment:

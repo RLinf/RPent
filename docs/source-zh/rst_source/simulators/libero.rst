@@ -182,7 +182,7 @@ SAM3 配置
 WAM 评测
 ~~~~~~~~
 
-按 :doc:`../development/wam_backends` 准备 worker，保留上面的仿真器和 SAM3 配置。WAM 不需要 Pi0.5 权重。Cosmos 在端口 8116 启动后：
+按 :doc:`../development/add_action_model` 准备 worker，保留上面的仿真器和 SAM3 配置。WAM 不需要 Pi0.5 权重。Cosmos 在端口 8116 启动后：
 
 .. code-block:: bash
 

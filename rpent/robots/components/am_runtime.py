@@ -118,7 +118,7 @@ def add_am_args(parser: argparse.ArgumentParser, *, default_backend: str) -> Non
         _runtime_config(backend).add_arguments(parser)
     parser.epilog = (parser.epilog or "") + (
         "\n\nWAM deployment and task examples:\n"
-        "https://rpent.readthedocs.io/en/latest/rst_source/development/wam_backends.html"
+        "https://rpent.readthedocs.io/en/latest/rst_source/development/add_action_model.html#action-model-deployment"
     )
 
 

@@ -104,4 +104,4 @@ Planner
 
 细节见 :doc:`add_robot` 中的 env_server 与 vla_server 章节。
 
-WAM worker 使用 ``BaseWAMClient`` 和 ``BaseWAMFacade``，通过 ``--am-endpoint`` 连接。模型 adapter、控制匹配和生命周期见 :doc:`wam_backends`。
+WAM worker 使用 ``BaseWAMClient`` 和 ``BaseWAMFacade``，通过 ``--am-endpoint`` 连接。模型 adapter、控制匹配和生命周期见 :doc:`add_action_model`。

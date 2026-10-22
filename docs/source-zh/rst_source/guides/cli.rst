@@ -93,7 +93,7 @@ LIBERO 使用 ``--suite``、``--task``、``--seed`` 和 ``--libero-type`` 选择
 
 ``--env-endpoint``、``--am-endpoint`` 和 LIBERO 的 ``--sam3-endpoint`` 可连接已启动的环境、VLA 或 SAM3 服务器，地址格式为 ``[protocol://]host:port``，默认协议为 ``http``。GPU 分配和远程服务见 :doc:`advanced_deployment`。
 
-LIBERO 和 RoboTwin 通过 ``--am-backend`` 选择一个动作模型，默认分别为 ``pi05`` 和 ``lingbot``。VLA 和 WAM 均通过 ``--am-endpoint`` 连接已有服务；本地部署 WAM 时，使用 ``--wam-checkpoint`` 加 ``--wam-python``，不传 endpoint。原有 ``--vla-endpoint`` 和 LIBERO 的 ``--vla-backend`` 仍作为兼容别名接受。WAM 采用 ``local`` 记忆模式并注册记忆文件工具，默认目录按后端区分，可通过 ``--memory-dir`` 指定目录；目前不支持 HF 记忆、Flash 和探索模式。模型启动参数及支持的组合见 :doc:`../development/wam_backends`。
+LIBERO 和 RoboTwin 通过 ``--am-backend`` 选择一个动作模型，默认分别为 ``pi05`` 和 ``lingbot``。VLA 和 WAM 均通过 ``--am-endpoint`` 连接已有服务；本地部署 WAM 时，使用 ``--wam-checkpoint`` 加 ``--wam-python``，不传 endpoint。原有 ``--vla-endpoint`` 和 LIBERO 的 ``--vla-backend`` 仍作为兼容别名接受。WAM 采用 ``local`` 记忆模式并注册记忆文件工具，默认目录按后端区分，可通过 ``--memory-dir`` 指定目录；目前不支持 HF 记忆、Flash 和探索模式。模型启动参数及支持的组合见 :doc:`../development/add_action_model`。
 
 本地模型服务的 ``--vla-cuda-device`` 和 ``--wam-cuda-device`` 均由 ``am_runtime.py`` 注册，未设置时先使用 ``--cuda-device``，两者均未设置时继承启动环境的 ``CUDA_VISIBLE_DEVICES``。VLA 参数适用于 LIBERO、RoboTwin、RoboCasa、RoboDojo 和 dual-Franka。Franka、YAM 连接外部部署的 VLA 服务，GPU 在部署服务时选择。
 
@@ -103,7 +103,7 @@ LIBERO、RoboTwin、RoboCasa、RoboDojo 统一使用 ``--env-cuda-device`` 选�
 
 RPent CLI 保留原有 ``--cuda-device`` 作为本地服务的共享默认值；各服务专属参数优先，与参数顺序无关。例如，``--cuda-device 0 --wam-cuda-device 1`` 让环境和 SAM3 使用 GPU 0，WAM worker 使用 GPU 1。``--sim-cuda-device`` 不是兼容别名。独立服务的启动命令仍可使用其自身支持的 ``--cuda-device``。
 
-平台的 ``--help`` 将 WAM 参数分为连接服务、本地部署和模型专用选项。Cosmos 使用 ``--cosmos-*`` 参数，Fast-WAM 使用 ``--fast-wam-*`` 参数。WAM 后端指南分别介绍一次部署模型服务和反复运行任务，并提供连接外部服务、由 RPent 启动服务两种方式的示例。
+平台的 ``--help`` 将 WAM 参数分为连接服务、本地部署和模型专用选项。Cosmos 使用 ``--cosmos-*`` 参数，Fast-WAM 使用 ``--fast-wam-*`` 参数。动作模型接入指南分别介绍一次部署模型服务和反复运行任务，并提供连接外部服务、由 RPent 启动服务两种方式的示例。
 
 以下默认值适用于 LIBERO，其他环境以各自的 ``--help`` 为准。
 

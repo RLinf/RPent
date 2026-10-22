@@ -125,7 +125,7 @@ all seven checks. The scripted planner needs no external planner credentials.
 The opt-in backend tests use separately provisioned checkpoint services. They
 are not included in `run_gpu_suite.sh`, which provisions the standard robot
 stacks. Start the workers described in the
-[WAM backend guide](../docs/source-en/rst_source/development/wam_backends.rst),
+[action-model guide](../docs/source-en/rst_source/development/add_action_model.rst),
 then run from a LIBERO-enabled test environment:
 
 ```bash

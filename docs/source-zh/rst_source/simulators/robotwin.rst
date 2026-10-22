@@ -138,7 +138,7 @@ RoboTwin 要求 Python 3.11。宿主机需预先具备兼容的 CUDA toolkit/NVC
 Fast-WAM 配置
 ~~~~~~~~~~~~~
 
-按 :doc:`../development/wam_backends` 准备 RoboTwin Fast-WAM worker。它使用头部及左右腕部 RGB、原生关节目标，输出 qpos14 动作块。通过 ``--am-backend fast-wam`` 选择该模型，无需 LingBot 权重。在仿真器环境中运行：
+按 :doc:`../development/add_action_model` 准备 RoboTwin Fast-WAM worker。它使用头部及左右腕部 RGB、原生关节目标，输出 qpos14 动作块。通过 ``--am-backend fast-wam`` 选择该模型，无需 LingBot 权重。在仿真器环境中运行：
 
 .. code-block:: bash
 

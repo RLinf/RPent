@@ -86,8 +86,8 @@ RPent is built for four kinds of users:
           <li><b>WAM</b></li>
           <ul>
             <li>DreamZero</li>
-            <li><a href="docs/source-en/rst_source/development/wam_backends.rst">Cosmos Policy</a> (LIBERO / LIBERO-Pro)</li>
-            <li><a href="docs/source-en/rst_source/development/wam_backends.rst">Fast-WAM</a> (LIBERO / LIBERO-Pro / RoboTwin)</li>
+            <li><a href="docs/source-en/rst_source/development/add_action_model.rst">Cosmos Policy</a> (LIBERO / LIBERO-Pro)</li>
+            <li><a href="docs/source-en/rst_source/development/add_action_model.rst">Fast-WAM</a> (LIBERO / LIBERO-Pro / RoboTwin)</li>
           </ul>
         </ul>
       </td>

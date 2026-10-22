@@ -148,4 +148,4 @@ not implement ``healthz`` or ``shutdown`` in application subclasses.
 Details are in the env_server / vla_server sections of :doc:`add_robot`.
 
 WAM workers use ``BaseWAMClient`` and ``BaseWAMFacade`` with ``--am-endpoint``.
-See :doc:`wam_backends` for model adapters, control matching and lifecycle.
+See :doc:`add_action_model` for model adapters, control matching and lifecycle.
