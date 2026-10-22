@@ -51,9 +51,11 @@ class RunConfig:
     prompt_vars: dict[str, Any]
     task_desc: dict[str, Any]
     enable_direct_action: bool = False
-    #: External MCP servers this robot declares for its planners to attach,
-    #: parsed from the config's ``mcp_servers`` section. Empty for robots that
-    #: declare none.
+    #: External MCP servers available to this run. The robot contributes the
+    #: ``mcp_servers`` section of its own config; the CLI appends the
+    #: deployment-level site config before planning. Planners attach only
+    #: specs with ``planner_tools`` set, while the robot's Toolkit may adopt
+    #: coordinated tools from the rest. Empty when no server is declared.
     mcp_servers: tuple["McpServerSpec", ...] = ()
 
 
