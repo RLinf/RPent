@@ -28,6 +28,12 @@ def system_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> PromptNode:
     """Return the RoboTwin system prompt for the selected run mode."""
+    if (variables or {}).get("vla_backend", "lingbot") == "uniwam":
+        from robots.robotwin.prompts.uniwam import evaluate, explore
+
+        if (variables or {}).get("mode", "eval") == "explore":
+            return explore.system_prompt()
+        return evaluate.system_prompt(variables)
     if (variables or {}).get("mode", "eval") == "explore":
         return explore_parts.system_prompt()
     return evaluate_parts.system_prompt(variables)
@@ -36,6 +42,13 @@ def system_prompt(
 def user_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> PromptNode:
+    if (variables or {}).get("vla_backend", "lingbot") == "uniwam":
+        from robots.robotwin.prompts.uniwam import explore, user
+
+        prompt = {"CELL": user.CELL, "BEGIN": user.BEGIN}
+        if (variables or {}).get("mode", "eval") == "explore":
+            prompt["EXPLORE MODE"] = explore.USER_MODE
+        return prompt
     prompt = {
         "CELL": user_parts.CELL,
         "BEGIN": user_parts.BEGIN,
