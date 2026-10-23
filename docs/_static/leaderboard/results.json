@@ -4,8 +4,8 @@
     {
       "id": "rpent-evaluation-period",
       "text": {
-        "en": "All RPent method results shown in this leaderboard are from September 2026 evaluations.",
-        "zh": "Leaderboard 中所有 RPent 方法均展示 2026.09 测试结果。"
+        "en": "RPent method results are from September 2026 evaluations unless another evaluation period is specified; the GPT-6.1 Sol empty-memory sample is from October 2026.",
+        "zh": "除另有标注外，RPent 方法展示 2026 年 9 月测试结果；GPT-6.1 Sol 空记忆样本来自 2026 年 10 月。"
       }
     },
     {
@@ -214,6 +214,15 @@
       "id": "aspire",
       "kind": "external",
       "model": "ASPIRE"
+    },
+    {
+      "id": "gpt-6-1-sol-low-no-memory",
+      "kind": "rpent",
+      "backend": "Codex",
+      "model": "GPT-6.1 Sol",
+      "reasoning": true,
+      "effort": "low",
+      "display_name": "RPent / GPT-6.1 Sol / no memory (stratified sample)"
     }
   ],
   "benchmarks": [
@@ -330,6 +339,16 @@
           "text": {
             "en": "GPT-6 Astra (memory-enabled configuration): Long Task/Swap and the other six suites use separate memory-file snapshots frozen after their respective exploration phases, with no updates during evaluation. Overall combines two non-overlapping batches: Long 157/200 plus the other suites 584/600, giving 741/800 (92.63%); the 800 episodes do not share a single memory snapshot.",
             "zh": "GPT-6 Astra（使用 memory 的配置）：Long Task/Swap 与其余六套件使用各自探索后冻结的 memory 文件快照，评测期间不更新。Overall 合并两个不重叠批次：Long 157/200，加上其余套件 584/600，得到 741/800（92.63%）；并非全部回合共享同一份 memory 快照。"
+          }
+        },
+        {
+          "id": "libero-pro-no-memory-240",
+          "configuration_ids": [
+            "gpt-6-1-sol-low-no-memory"
+          ],
+          "text": {
+            "en": "GPT-6.1 Sol / no memory (October 2026): 76/226 valid of 240 nominal episodes; 14 unavailable init-state rows excluded, 24 timeouts counted as failures. Spatial Task/Swap use seeds 0–5 (19/48 and 28/60); the other six suites use seeds 0–1. Overall is a stratified micro-average, not an 800-episode score or a paired memory ablation. Repeated invocations and one transcript-only failure are documented in the empty-memory evaluation report below.",
+            "zh": "GPT-6.1 Sol / 空记忆（2026 年 10 月）：240 个名义回合中 226 个有效，成功 76 次；14 项初始状态缺失不计入分母，24 项 timeout 计失败。Spatial Task/Swap 使用 seed 0–5（19/48、28/60），其余六类使用 seed 0–1。总体为分层样本微平均，不是 800 回合成绩或严格配对的记忆消融；重复调用及一项仅有 transcript 的失败记录详见下方空记忆评测报告。"
           }
         }
       ]
@@ -623,7 +642,16 @@
     {"id": "goal-swap--qwen3-6-27b-no-reasoning", "view_id": "goal-swap", "configuration_id": "qwen3-6-27b-no-reasoning", "rate": "68.00", "successes": 68, "episodes": 100, "source_ids": ["contributor-qwen-costs-20260918"], "protocol_id": "rpent-pro-qwen-eight-suites"},
     {"id": "long-task--qwen3-6-27b-no-reasoning", "view_id": "long-task", "configuration_id": "qwen3-6-27b-no-reasoning", "rate": "61.00", "successes": 61, "episodes": 100, "source_ids": ["contributor-qwen-costs-20260918"], "protocol_id": "rpent-pro-qwen-eight-suites"},
     {"id": "long-swap--qwen3-6-27b-no-reasoning", "view_id": "long-swap", "configuration_id": "qwen3-6-27b-no-reasoning", "rate": "41.00", "successes": 41, "episodes": 100, "source_ids": ["contributor-qwen-costs-20260918"], "protocol_id": "rpent-pro-qwen-eight-suites"},
-    {"id": "long-task--gpt-6-astra-low-motor-only", "view_id": "long-task", "configuration_id": "gpt-6-astra-low-motor-only", "rate": "38.0", "successes": 38, "episodes": 100, "source_ids": ["contributor-motor-only-long-task-20260920"], "protocol_id": "rpent-pro-motor-only"}
+    {"id": "long-task--gpt-6-astra-low-motor-only", "view_id": "long-task", "configuration_id": "gpt-6-astra-low-motor-only", "rate": "38.0", "successes": 38, "episodes": 100, "source_ids": ["contributor-motor-only-long-task-20260920"], "protocol_id": "rpent-pro-motor-only"},
+    {"id": "libero-pro--gpt-6-1-sol-low-no-memory", "view_id": "libero-pro", "configuration_id": "gpt-6-1-sol-low-no-memory", "rate": "33.63", "successes": 76, "episodes": 226, "source_ids": ["contributor-libero-pro-no-memory-20261008"], "protocol_id": "rpent-pro-empty-memory-stratified-240", "evaluation_note": {"en": "No memory; 226/240 evaluable; stratified micro-average", "zh": "空记忆；240 项中 226 项可评测；分层样本微平均"}, "derived_from": ["spatial-task--gpt-6-1-sol-low-no-memory", "spatial-swap--gpt-6-1-sol-low-no-memory", "object-task--gpt-6-1-sol-low-no-memory", "object-swap--gpt-6-1-sol-low-no-memory", "goal-task--gpt-6-1-sol-low-no-memory", "goal-swap--gpt-6-1-sol-low-no-memory", "long-task--gpt-6-1-sol-low-no-memory", "long-swap--gpt-6-1-sol-low-no-memory"]},
+    {"id": "spatial-task--gpt-6-1-sol-low-no-memory", "view_id": "spatial-task", "configuration_id": "gpt-6-1-sol-low-no-memory", "rate": "39.58", "successes": 19, "episodes": 48, "source_ids": ["contributor-libero-pro-no-memory-20261008"], "protocol_id": "rpent-pro-empty-memory-stratified-240", "evaluation_note": {"en": "No memory; seeds 0–5; 48/60 evaluable", "zh": "空记忆；seed 0–5；60 项中 48 项可评测"}},
+    {"id": "spatial-swap--gpt-6-1-sol-low-no-memory", "view_id": "spatial-swap", "configuration_id": "gpt-6-1-sol-low-no-memory", "rate": "46.67", "successes": 28, "episodes": 60, "source_ids": ["contributor-libero-pro-no-memory-20261008"], "protocol_id": "rpent-pro-empty-memory-stratified-240", "evaluation_note": {"en": "No memory; seeds 0–5; 60/60 evaluable", "zh": "空记忆；seed 0–5；60 项中 60 项可评测"}},
+    {"id": "object-task--gpt-6-1-sol-low-no-memory", "view_id": "object-task", "configuration_id": "gpt-6-1-sol-low-no-memory", "rate": "35.00", "successes": 7, "episodes": 20, "source_ids": ["contributor-libero-pro-no-memory-20261008"], "protocol_id": "rpent-pro-empty-memory-stratified-240", "evaluation_note": {"en": "No memory; seeds 0–1; 20/20 evaluable", "zh": "空记忆；seed 0–1；20 项中 20 项可评测"}},
+    {"id": "object-swap--gpt-6-1-sol-low-no-memory", "view_id": "object-swap", "configuration_id": "gpt-6-1-sol-low-no-memory", "rate": "30.00", "successes": 6, "episodes": 20, "source_ids": ["contributor-libero-pro-no-memory-20261008"], "protocol_id": "rpent-pro-empty-memory-stratified-240", "evaluation_note": {"en": "No memory; seeds 0–1; 20/20 evaluable", "zh": "空记忆；seed 0–1；20 项中 20 项可评测"}},
+    {"id": "goal-task--gpt-6-1-sol-low-no-memory", "view_id": "goal-task", "configuration_id": "gpt-6-1-sol-low-no-memory", "rate": "35.00", "successes": 7, "episodes": 20, "source_ids": ["contributor-libero-pro-no-memory-20261008"], "protocol_id": "rpent-pro-empty-memory-stratified-240", "evaluation_note": {"en": "No memory; seeds 0–1; 20/20 evaluable", "zh": "空记忆；seed 0–1；20 项中 20 项可评测"}},
+    {"id": "goal-swap--gpt-6-1-sol-low-no-memory", "view_id": "goal-swap", "configuration_id": "gpt-6-1-sol-low-no-memory", "rate": "25.00", "successes": 5, "episodes": 20, "source_ids": ["contributor-libero-pro-no-memory-20261008"], "protocol_id": "rpent-pro-empty-memory-stratified-240", "evaluation_note": {"en": "No memory; seeds 0–1; 20/20 evaluable", "zh": "空记忆；seed 0–1；20 项中 20 项可评测"}},
+    {"id": "long-task--gpt-6-1-sol-low-no-memory", "view_id": "long-task", "configuration_id": "gpt-6-1-sol-low-no-memory", "rate": "11.11", "successes": 2, "episodes": 18, "source_ids": ["contributor-libero-pro-no-memory-20261008"], "protocol_id": "rpent-pro-empty-memory-stratified-240", "evaluation_note": {"en": "No memory; seeds 0–1; 18/20 evaluable", "zh": "空记忆；seed 0–1；20 项中 18 项可评测"}},
+    {"id": "long-swap--gpt-6-1-sol-low-no-memory", "view_id": "long-swap", "configuration_id": "gpt-6-1-sol-low-no-memory", "rate": "10.00", "successes": 2, "episodes": 20, "source_ids": ["contributor-libero-pro-no-memory-20261008"], "protocol_id": "rpent-pro-empty-memory-stratified-240", "evaluation_note": {"en": "No memory; seeds 0–1; 20/20 evaluable", "zh": "空记忆；seed 0–1；20 项中 20 项可评测"}}
   ],
   "cost_results": {
     "source_ids": ["contributor-qwen-costs-20260918"],
@@ -873,6 +901,106 @@
       "kind": "contributor-confirmed",
       "url": "https://huggingface.co/datasets/RLinf/RPent-memory",
       "note": "The contributor confirms that the displayed Flash Mode evaluation uses directly downloaded, officially released GPT-5.5 exploration memory and the best-performing seed from s0-s9. Molmo2-8B is used for visual localization. No memory snapshot revision is inferred."
+    },
+    {
+      "id": "contributor-libero-pro-no-memory-20261008",
+      "type": "contributor_archive",
+      "reported_at": "2026-10-08",
+      "checked_at": "2026-10-16",
+      "artifact": "03-memory-tuned-evaluation/final_record_20261008/",
+      "audit_sha256": "4f29b752ea4ebaa18fa54cf3ea58bcc036412179699289701f7d2f36489cf185",
+      "note": "Contributor-reported ordinary evaluation with an empty local memory corpus, Codex gpt-6.1-sol/low and frozen RLinf-Pi05-LIBERO-130-fullshot-SFT. This 240-row stratified manifest is not an 800-episode benchmark: Spatial Task/Swap use seeds 0-5; the other six suite-variants use seeds 0-1. Fourteen unavailable init-state rows are excluded; 24 planner timeouts count as failures. Repeated invocations and a transcript-only failure limit strict single-run and paired-memory interpretation. The exact historical source/assets revisions were not independently established.",
+      "evidence_coverage": {
+        "terminal_json": 201,
+        "planner_timeout_logs": 24,
+        "final_transcript_failure": 1,
+        "unavailable_rows": 14,
+        "unavailable_row_logs_present": 8,
+        "unavailable_rows_from_consolidated_report": 6
+      },
+      "aggregates": {
+        "spatial-task": {
+          "nominal_episodes": 60,
+          "successes": 19,
+          "episodes": 48,
+          "failures": 29,
+          "timeout_failures": 4,
+          "unavailable": 12,
+          "rate": "39.58"
+        },
+        "spatial-swap": {
+          "nominal_episodes": 60,
+          "successes": 28,
+          "episodes": 60,
+          "failures": 32,
+          "timeout_failures": 4,
+          "unavailable": 0,
+          "rate": "46.67"
+        },
+        "object-task": {
+          "nominal_episodes": 20,
+          "successes": 7,
+          "episodes": 20,
+          "failures": 13,
+          "timeout_failures": 2,
+          "unavailable": 0,
+          "rate": "35.00"
+        },
+        "object-swap": {
+          "nominal_episodes": 20,
+          "successes": 6,
+          "episodes": 20,
+          "failures": 14,
+          "timeout_failures": 2,
+          "unavailable": 0,
+          "rate": "30.00"
+        },
+        "goal-task": {
+          "nominal_episodes": 20,
+          "successes": 7,
+          "episodes": 20,
+          "failures": 13,
+          "timeout_failures": 2,
+          "unavailable": 0,
+          "rate": "35.00"
+        },
+        "goal-swap": {
+          "nominal_episodes": 20,
+          "successes": 5,
+          "episodes": 20,
+          "failures": 15,
+          "timeout_failures": 7,
+          "unavailable": 0,
+          "rate": "25.00"
+        },
+        "long-task": {
+          "nominal_episodes": 20,
+          "successes": 2,
+          "episodes": 18,
+          "failures": 16,
+          "timeout_failures": 1,
+          "unavailable": 2,
+          "rate": "11.11"
+        },
+        "long-swap": {
+          "nominal_episodes": 20,
+          "successes": 2,
+          "episodes": 20,
+          "failures": 18,
+          "timeout_failures": 2,
+          "unavailable": 0,
+          "rate": "10.00"
+        },
+        "overall": {
+          "nominal_episodes": 240,
+          "successes": 76,
+          "episodes": 226,
+          "failures": 150,
+          "timeout_failures": 24,
+          "unavailable": 14,
+          "rate": "33.63"
+        }
+      }
     }
   ],
   "palette": {
