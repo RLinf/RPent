@@ -43,6 +43,31 @@ if TYPE_CHECKING:
     from rpent.session import EnvState, StepRecord
 
 
+@dataclass(frozen=True)
+class ImageDeliveryPolicy:
+    """Opt-in quota for images auto-attached to planner-visible tool results.
+
+    Images auto-captured by :meth:`Toolkit.get_env_state` after each stateful
+    tool call are appended to the planner's message history verbatim and resent
+    with every request, so an unbounded policy makes token cost grow linearly
+    with tool calls. When a budget is configured, auto-attached images are
+    trimmed once the conversation budget is spent; results report the trimmed
+    count as ``images_omitted``.
+
+    The default is unlimited delivery: today's behavior is unchanged for every
+    user until the all-vs-budget comparison tracked in issue #305 settles the
+    default. Explicit read-only observation results (e.g. ``view_env_state``)
+    always bypass the quota, so the planner can always re-fetch scene images on
+    demand.
+    """
+
+    max_embedded_images: int | None = None
+    max_per_result: int | None = None
+
+
+DEFAULT_IMAGE_DELIVERY_POLICY = ImageDeliveryPolicy()
+
+
 @dataclass(eq=False)
 class _ToolOperation:
     readonly: bool
@@ -145,11 +170,17 @@ class Toolkit:
         dashboard_events: DashboardEventSink,
         state: Any = None,
         memory: "MemoryManager",
+        image_policy: ImageDeliveryPolicy | None = None,
     ) -> None:
         self._tools: dict[str, Tool] = {}
         self._dashboard_events = dashboard_events
         self._state = state
         self._memory = memory
+        self._image_policy = (
+            DEFAULT_IMAGE_DELIVERY_POLICY if image_policy is None else image_policy
+        )
+        self._images_delivered = 0
+        self._image_budget_lock = threading.Lock()
         self._scheduler = _Scheduler()
         self._register_common_tools()
 
@@ -292,13 +323,18 @@ class Toolkit:
                         for key, value in native.data.items():
                             observed.data.setdefault(key, value)
                         observed.data["error"] = native.data["error"]
-                    native = ToolResult(
-                        data=observed.data,
-                        images=native.images + observed.images,
+                    kept_images, omitted = self._apply_image_policy(
+                        native.images + observed.images
                     )
+                    if omitted:
+                        observed.data["images_omitted"] = omitted
+                    native = ToolResult(data=observed.data, images=kept_images)
                 if record is not None:
                     self._publish_step(record)
 
+            # Read-only results bypass the quota entirely: explicit observation
+            # requests (e.g. view_env_state) are the planner's way to re-fetch
+            # scene images on demand and must never be throttled.
             try:
                 json.dumps(native.to_dict(), allow_nan=False, default=str)
             except (TypeError, ValueError) as exc:
@@ -309,6 +345,31 @@ class Toolkit:
             return native
         finally:
             self._scheduler.release(operation)
+
+    def _apply_image_policy(self, images: list[bytes]) -> tuple[list[bytes], int]:
+        """Deliver auto-attached images within the policy quota.
+
+        The conversation-wide budget applies only to images auto-captured after
+        stateful tool calls, so the auto-attached portion of the planner history
+        stays bounded once the budget is exhausted instead of growing with each
+        action.
+        """
+        policy = self._image_policy
+        budget: int | None = policy.max_embedded_images
+        per_result: int | None = policy.max_per_result
+        with self._image_budget_lock:
+            if budget is not None:
+                remaining = max(0, budget - self._images_delivered)
+            else:
+                remaining = None
+            kept = images
+            if remaining is not None and len(kept) > remaining:
+                kept = kept[:remaining]
+            if per_result is not None and len(kept) > per_result:
+                kept = kept[:per_result]
+            omitted = len(images) - len(kept)
+            self._images_delivered += len(kept)
+        return kept, omitted
 
     def _publish_step(self, record: StepRecord) -> None:
         """Publish one recorded environment step to the dashboard sink."""
