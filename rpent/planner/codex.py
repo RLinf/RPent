@@ -68,8 +68,15 @@ _LOOPBACK_NO_PROXY_HOSTS = ("127.0.0.1", "localhost")
 
 
 def _codex_environment() -> dict[str, str]:
-    """Build the Codex child environment with direct access to its local MCP."""
+    """Build the Codex child environment with direct access to its local MCP.
+
+    When ``RPENT_CODEX_HOME`` is set, it is exported to the child as
+    ``CODEX_HOME`` so SDK-driven sessions keep their rollout/config state in a
+    dedicated directory instead of the user's ``~/.codex`` CLI history.
+    """
     env = {**os.environ}
+    if codex_home := os.environ.get("RPENT_CODEX_HOME"):
+        env["CODEX_HOME"] = codex_home
     entries: list[str] = []
     for key in ("NO_PROXY", "no_proxy"):
         entries.extend(item.strip() for item in env.get(key, "").split(","))
