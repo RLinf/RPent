@@ -46,6 +46,11 @@ def _parser(robot_name: str, *, dashboard: bool = False) -> argparse.ArgumentPar
 @pytest.mark.parametrize(
     ("robot_name", "required_args", "identity_fields"),
     [
+        (
+            "behavior",
+            ["--task-name", "turning_on_radio", "--public-seed", "1"],
+            ("task_name", "public_seed"),
+        ),
         ("libero", ["--suite", "libero_object_task", "--task", "2"], ("suite", "task")),
         ("robocasa", ["--task-name", "OpenDrawer"], ("task_name",)),
         (
@@ -72,6 +77,7 @@ def test_robot_arguments_are_required_on_cli_but_deferred_for_dashboard(
 @pytest.mark.parametrize(
     ("robot_name", "message"),
     [
+        ("behavior", "--task-name is required"),
         ("libero", "--suite is required"),
         ("robocasa", "--task-name is required"),
         ("robotwin", "--task-name is required"),

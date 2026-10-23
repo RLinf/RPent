@@ -313,6 +313,31 @@ def test_env_state_encoded_video_bypasses_encoder(
     assert state.load_bytes("episode.mp4", step=None) == bytes(value)
 
 
+def test_env_state_encoded_video_path_preserves_source_and_manifest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def unexpected_encoding(*args, **kwargs):
+        pytest.fail("Already encoded video must not be encoded again")
+
+    monkeypatch.setattr("rpent.session.base.imageio.mimwrite", unexpected_encoding)
+    source = tmp_path / "source.mp4"
+    source.write_bytes(b"encoded-video")
+    state = EnvState(tmp_path / "output")
+
+    assert state.save("episode.mp4", source, step=None) == "episode.mp4"
+    assert source.read_bytes() == b"encoded-video"
+    assert state.load_bytes("episode.mp4", step=None) == b"encoded-video"
+    assert json.loads((tmp_path / "output/states.json").read_text())[
+        "run_artifacts"
+    ] == ["episode.mp4"]
+    assert state.save("missing.mp4", tmp_path / "missing.mp4", step=None) is None
+    assert not state.exists("missing.mp4", step=None)
+    assert json.loads((tmp_path / "output/states.json").read_text())[
+        "run_artifacts"
+    ] == ["episode.mp4"]
+    assert not list((tmp_path / "output").glob(".*.tmp*"))
+
+
 def test_env_state_video_encoding_failure_does_not_publish_artifact(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:

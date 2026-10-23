@@ -30,6 +30,7 @@ from rpent.robots import enumerate_robots, get_robot_spec
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 
 EXPECTED_ROBOTS = (
+    "behavior",
     "dual_franka",
     "franka",
     "libero",
@@ -40,6 +41,22 @@ EXPECTED_ROBOTS = (
 )
 
 PROMPT_VARIABLES = {
+    "behavior": {
+        "mode": "eval",
+        "task_name": "turning_on_radio",
+        "task": 0,
+        "task_language": "Turn on the radio.",
+        "task_instruction": "Turn on the radio.",
+        "public_seed": 1,
+        "recipe_tag": "turning_on_radio_s1",
+        "output_dir": Path("/output"),
+        "max_episode_steps": 43200,
+        "wall_clock_seconds": 7200,
+        "public_capabilities": ["observe", "pi0_nav_pick", "finish"],
+        "memory_dir": "/memory",
+        "memory_profile": "local",
+        "memory_inbox": "/memory/_internal/inbox/turning_on_radio_s1",
+    },
     "yam": {
         "task_id": 1,
         "seed": 0,
@@ -213,6 +230,10 @@ def test_dashboard_metadata_has_consistent_fields_and_runtime_components(
         "unique",
         "shared",
     }
+
+    primitives = dashboard["primitives"]
+    assert isinstance(primitives, tuple)
+    assert len(primitives) == len(set(primitives))
 
 
 def test_run_config_and_robot_spec_are_frozen_contract_values() -> None:

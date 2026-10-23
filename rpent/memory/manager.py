@@ -300,19 +300,31 @@ class MemoryManager:
             audit = run_dir / f"{cell_tag}.json"
             recipe = run_dir / f"{cell_tag}_recipe.jsonl"
             if solved and audit.exists() and recipe.exists():
-                audit_target = tiers["task"] / audit.name
-                recipe_target = tiers["task"] / recipe.name
-                if not audit_target.exists() and not recipe_target.exists():
-                    shutil.copy2(audit, audit_target)
-                    shutil.copy2(recipe, recipe_target)
-                    result["task"] = 1
-                elif audit_target.exists() != recipe_target.exists():
-                    result["skipped"].append(
-                        "incomplete existing task audit/recipe pair"
-                    )
+                self._publish_task_artifacts(audit, recipe, tiers["task"], result)
 
             self.rebuild_index()
         return result
+
+    def _publish_task_artifacts(
+        self,
+        audit: Path,
+        recipe: Path,
+        task_dir: Path,
+        result: dict[str, Any],
+    ) -> None:
+        """Publish a solved task pair under the corpus merge lock.
+
+        Robot-specific task artifacts can extend this step without a second
+        publication lock or a separate manager lifecycle.
+        """
+        audit_target = task_dir / audit.name
+        recipe_target = task_dir / recipe.name
+        if not audit_target.exists() and not recipe_target.exists():
+            shutil.copy2(audit, audit_target)
+            shutil.copy2(recipe, recipe_target)
+            result["task"] = 1
+        elif audit_target.exists() != recipe_target.exists():
+            result["skipped"].append("incomplete existing task audit/recipe pair")
 
     def rebuild_index(self) -> Path | None:
         """Regenerate MEMORY.md from global and task-family leaves.

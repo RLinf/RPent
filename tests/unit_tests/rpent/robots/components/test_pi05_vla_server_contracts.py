@@ -24,7 +24,7 @@ from rpent.robots.components.pi05_vla_server import (
 from rpent.robots.components.vla_facade_base import BaseVLAFacade
 
 
-@pytest.mark.parametrize("embodiment", ["dual_franka", "yam"])
+@pytest.mark.parametrize("embodiment", ["behavior", "dual_franka", "yam"])
 def test_vla_prediction_follows_shared_component_rpc_contract(monkeypatch, embodiment):
     import sys
     from types import ModuleType
@@ -42,18 +42,33 @@ def test_vla_prediction_follows_shared_component_rpc_contract(monkeypatch, embod
         def eval(self):
             return self
 
-        def predict_action_batch(self, obs, mode):
+        def predict_action_batch(self, obs, mode, compute_values=None):
             calls.append(mode)
+            if embodiment == "behavior":
+                assert compute_values is False
+                return torch.ones((1, 32, 23)), None
             shape = (20, 20) if embodiment == "dual_franka" else (1, 30, 14)
             return torch.ones(shape), None
 
     def get_model(cfg, torch_dtype):
-        assert cfg.openpi_data.repo_id == "test/dataset"
+        if embodiment != "behavior":
+            assert cfg.openpi_data.repo_id == "test/dataset"
         assert cfg.pi05 is True
         assert cfg.openpi.task == "eval"
         assert cfg.openpi.model_action_dim == 32
         assert cfg.openpi.paligemma_variant == "gemma_2b"
         assert cfg.openpi.action_expert_variant == "gemma_300m"
+        if embodiment == "behavior":
+            assert cfg.action_dim == 32 and cfg.openpi.action_env_dim == 23
+            assert cfg.num_action_chunks == cfg.openpi.action_chunk == 32
+            assert cfg.openpi.num_images_in_input == 3
+            assert cfg.openpi_data.extract_state_from_proprio is True
+            assert cfg.openpi_data.use_all_wrist_images is True
+            assert (
+                cfg.openpi_data.norm_stats_path
+                == "/unused/checkpoint/assets/behavior-1k/2025-challenge-demos/norm_stats.json"
+            )
+            return Model()
         if embodiment == "dual_franka":
             assert cfg.action_dim == 20 and cfg.openpi.num_images_in_input == 3
             assert cfg.openpi.config_name == "pi05_dualfranka_tcp_rot6d"
@@ -69,15 +84,25 @@ def test_vla_prediction_follows_shared_component_rpc_contract(monkeypatch, embod
     loader = ModuleType("rlinf.models.embodiment.openpi")
     loader.get_model = get_model
     monkeypatch.setitem(sys.modules, loader.__name__, loader)
-    facade = Pi05VLAFacade(
+    if embodiment == "behavior":
+        from robots.behavior.vla_server import BehaviorPi05VLAFacade
+
+        facade_class = BehaviorPi05VLAFacade
+    else:
+        facade_class = Pi05VLAFacade
+    facade = facade_class(
         model_path="/unused/checkpoint",
         embodiment=embodiment,
-        repo_id="test/dataset",
+        repo_id=None if embodiment == "behavior" else "test/dataset",
     )
     try:
         assert calls == []
         actions = facade._dispatch("vla.predict", ({},), {"options": {"mode": "eval"}})
-        expected_shape = (20, 20) if embodiment == "dual_franka" else (1, 30, 14)
+        expected_shape = {
+            "behavior": (1, 32, 23),
+            "dual_franka": (20, 20),
+            "yam": (1, 30, 14),
+        }[embodiment]
         assert actions.shape == expected_shape and actions.dtype == np.float32
         assert calls == ["eval"]
     finally:

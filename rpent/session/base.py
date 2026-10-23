@@ -19,6 +19,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import shutil
 import threading
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -200,6 +201,7 @@ class EnvState:
         made inside (or right after) a :meth:`record_step` block attach to that
         step without an explicit index. Pass an ``int`` to target a specific
         step, or ``None`` for a session-level artifact such as an episode video.
+        An encoded MP4 may be supplied as bytes or a source :class:`Path`.
         """
         with self._artifact_lock:
             step = self._resolve_read_step(step)
@@ -235,6 +237,8 @@ class EnvState:
                 elif suffix == ".mp4":
                     if isinstance(value, (bytes, bytearray, memoryview)):
                         temporary.write_bytes(bytes(value))
+                    elif isinstance(value, Path):
+                        shutil.copyfile(value, temporary)
                     else:
                         imageio.mimwrite(
                             temporary,

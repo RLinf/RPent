@@ -92,7 +92,7 @@ const COPY = {
       starting: "starting",
       ready: "ready",
       running: "running",
-      succeeded: "succeeded",
+      succeeded: "run completed",
       failed: "failed",
       cancelled: "cancelled",
       stale: "stale",
@@ -200,7 +200,7 @@ const COPY = {
       starting: "启动中",
       ready: "就绪",
       running: "运行中",
-      succeeded: "执行成功",
+      succeeded: "运行结束",
       failed: "运行失败",
       cancelled: "已取消",
       stale: "已停止",
@@ -271,6 +271,7 @@ function renderFrameTabs() {
 function configureDashboardSpec(spec) {
   runtimeComponents = spec.runtime_components;
   taskCommandUsage = spec.task.usage;
+  $(".primitive-panel").hidden = spec.primitives.length === 0;
 }
 
 function updateFrameAvailability(available) {

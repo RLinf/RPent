@@ -16,5 +16,7 @@ Choose a platform for installation and usage instructions.
      - Kitchen manipulation with RoboCasa365 and Target50 experiments.
    * - :doc:`robotwin`
      - Bimanual manipulation and RoboTwin C2R experiments.
+   * - :doc:`behavior`
+     - Long-horizon household tasks in OmniGibson.
    * - :doc:`robodojo`
      - Dual-arm ARX-X5 manipulation with Isaac Sim and the RLinf Pi0.5 policy.
