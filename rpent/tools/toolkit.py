@@ -32,6 +32,8 @@ from typing import TYPE_CHECKING, Any
 from pydantic import ValidationError
 
 from rpent.dashboard.events import DashboardEventSink, StepRecordEvent
+from rpent.session import Payload
+from rpent.session.capture import current_tool_call
 from rpent.tools.base import Tool, ToolResult, iter_tools
 from rpent.utils.logging import get_logger
 from rpent.utils.templates import substitute
@@ -243,8 +245,11 @@ class Toolkit:
 
         try:
             started = time.perf_counter()
+            capture = current_tool_call.get()
             try:
                 self.raise_if_cancelled()
+                if capture is not None:
+                    capture.start()
                 native = tool(**kwargs)
             except TypeError as exc:
                 native = ToolResult(
@@ -265,6 +270,16 @@ class Toolkit:
                 logger.exception("Tool %s failed", name)
                 native = ToolResult(
                     data={"error": str(exc), "traceback": traceback.format_exc()}
+                )
+
+            if capture is not None and capture.started:
+                capture.result(
+                    Payload(
+                        format="rpent.tool_result",
+                        format_version="1",
+                        data={"data": native.data, "images": native.images},
+                        completeness="complete",
+                    )
                 )
 
             if not tool.readonly:
@@ -305,6 +320,15 @@ class Toolkit:
                 native = ToolResult(
                     data={"error": f"Tool result serialization failed: {exc}"},
                     images=native.images,
+                )
+            if capture is not None:
+                capture.finish(
+                    "cancelled"
+                    if native.data.get("code") == "tool_cancelled"
+                    else "failed"
+                    if native.is_error
+                    else "completed",
+                    str(native.data.get("error", "")),
                 )
             return native
         finally:

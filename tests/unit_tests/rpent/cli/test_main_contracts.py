@@ -107,6 +107,7 @@ def test_public_cli_help_runs_from_source_checkout_without_a_robot_runtime() -> 
         "--env",
         "--planner",
         "--output-dir",
+        "--record-trajectory",
         "--dashboard",
         "--interactive",
     ):
@@ -147,6 +148,7 @@ def test_shared_cli_defaults_reach_robot_config_parser(
     assert args.dashboard_port == 0
     assert args.dashboard_language == "en"
     assert args.memory_profile == "hf"
+    assert args.record_trajectory is False
 
 
 @pytest.mark.parametrize(
@@ -465,13 +467,14 @@ def test_handoff_message_lists_prior_attempts_deterministically(tmp_path: Path) 
 
 
 @pytest.mark.parametrize(
-    ("interactive", "outcome"),
+    ("interactive", "outcome", "record_trajectory"),
     [
-        (False, "success"),
-        (True, "success"),
-        (False, "request_budget"),
-        (True, "request_budget"),
-        (False, "response_truncated"),
+        (False, "success", True),
+        (True, "success", True),
+        (False, "request_budget", False),
+        (False, "request_budget", True),
+        (True, "request_budget", True),
+        (False, "response_truncated", True),
     ],
 )
 def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
@@ -479,14 +482,17 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     monkeypatch: pytest.MonkeyPatch,
     interactive: bool,
     outcome: str,
+    record_trajectory: bool,
 ) -> None:
     cli = _cli_module()
     from rpent.planner.base import PlannerResult
     from rpent.robots import PromptBundle, RobotSpec, RunConfig
+    from rpent.session import EnvState
     from rpent.tools import common
     from rpent.tools.toolkit import ToolResult
 
     calls: dict[str, Any] = {}
+    stores = []
     model_requests = 0
 
     class FakeMemoryManager:
@@ -645,6 +651,8 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
 
     def get_toolkit(*args: Any, **kwargs: Any) -> FakeToolkit:
         calls["get_toolkit"] = (args, kwargs)
+        toolkit.state = EnvState(kwargs["state_output_dir"])
+        stores.append(toolkit.state)
         return toolkit
 
     def reject_memory_sync(*args: Any, **kwargs: Any) -> None:
@@ -682,11 +690,36 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
             "--explore-sessions",
             "3" if outcome == "response_truncated" else "2",
             *(["--interactive"] if interactive else []),
+            *(["--record-trajectory"] if record_trajectory else []),
         ],
     )
 
     assert cli.main() == 0
     assert calls["build_planner"][1]["interactive"] is interactive
+    saved_tasks = {
+        data["task_id"]: data
+        for path in tmp_path.glob("**/trajectories/*/task.json")
+        for data in [json.loads(path.read_text())["task"]]
+    }
+    if record_trajectory:
+        assert len(saved_tasks) == len(stores)
+        for store in stores:
+            task = store.get_task()
+            assert task.ended_at is not None
+            assert saved_tasks[task.task_id]["status"] == task.status
+        assert [store.get_task().status for store in stores] == (
+            ["failed", "completed"]
+            if outcome == "response_truncated"
+            else ["completed"] * len(stores)
+        )
+        if outcome == "request_budget":
+            assert all(
+                store.get_task().stop_reason == "request_limit" for store in stores
+            )
+    else:
+        assert all(store.get_task() is None for store in stores)
+        assert all(store.planner_records() == [] for store in stores)
+        assert not list(tmp_path.glob("**/trajectories"))
     assert toolkit.closed is True
     assert daemon.stopped is True
     assert calls["get_toolkit"][1]["runtime_kwargs"] == {"runtime": "simulated"}
@@ -742,7 +775,10 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     ]
 
 
-@pytest.mark.parametrize("planner_name", ["codex", "flash"])
+@pytest.mark.parametrize(
+    ("planner_name", "record_trajectory"),
+    [("api", False), ("api", True), ("codex", True), ("flash", True)],
+)
 @pytest.mark.parametrize(
     "planner_error", [None, "RuntimeError: Grasp not held; replay stopped"]
 )
@@ -751,11 +787,13 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
     monkeypatch: pytest.MonkeyPatch,
     planner_name: str,
     planner_error: str | None,
+    record_trajectory: bool,
 ) -> None:
     cli = _cli_module()
     from rpent.evaluation import RunFinalizationContext, write_json_atomic
     from rpent.planner.base import PlannerResult
     from rpent.robots import PromptBundle, RobotSpec, RunConfig
+    from rpent.session import EnvState
 
     captured: list[RunFinalizationContext] = []
 
@@ -768,6 +806,7 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
     class FakeToolkit:
         memory = SimpleNamespace()
         closed = False
+        state = EnvState(tmp_path / "state")
 
         def solved(self) -> bool:
             return False
@@ -801,6 +840,13 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
     def finalize_run(context: RunFinalizationContext) -> Path:
         captured.append(context)
         assert robot_toolkit.closed is True
+        if planner_name == "api" and record_trajectory:
+            task = robot_toolkit.state.get_task()
+            assert task.status == ("failed" if planner_error else "completed")
+            assert task.result.data["environment_success"] is False
+            assert task.instruction == "task\n"
+        else:
+            assert robot_toolkit.state.get_task() is None
         return write_json_atomic(
             context.output_dir / "result.json",
             {
@@ -843,6 +889,7 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
             "1",
             "--planner",
             planner_name,
+            *(["--record-trajectory"] if record_trajectory else []),
             "--model",
             "gpt-5.5",
             "--reasoning-effort",

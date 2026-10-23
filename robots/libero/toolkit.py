@@ -204,6 +204,7 @@ class LiberoToolkit(Toolkit):
 
         primitives = libero_tools.LiberoPrimitives(
             check_cancelled=self.raise_if_cancelled,
+            capture_actions=self._mode == "evaluation",
             **runtime_kwargs,
         )
         primitives.reset()

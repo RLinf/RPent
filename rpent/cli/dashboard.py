@@ -31,6 +31,7 @@ from rpent.cli.main import (
     _handoff_message,
     _serialize_messages,
 )
+from rpent.cli.task_capture import end_api_task, start_api_task
 from rpent.dashboard.events import RunStartedEvent
 from rpent.evaluation import RunFinalizationContext
 from rpent.memory import MemoryManager
@@ -307,7 +308,14 @@ def _run_dashboard_task(
                 solved = False
                 state.bind_toolkit(toolkit)
                 memory_manager = toolkit.memory
+                task_state = None
+                result = None
+                finish_result = None
+                environment_success = None
                 try:
+                    task_state = start_api_task(
+                        toolkit, task_args, run_config, session_message
+                    )
                     planner = build_planner(
                         task_args.planner,
                         output_dir=output_dir,
@@ -340,6 +348,7 @@ def _run_dashboard_task(
                             stats["planner_error_at_operator_verdict"] = agent_error
                     if robot_spec.supports_exploration:
                         solved = bool(toolkit.solved())
+                        environment_success = solved
                         if solved:
                             recipe_path = (
                                 toolkit.write_recipe(recipe_tag) or recipe_path
@@ -351,7 +360,23 @@ def _run_dashboard_task(
                             environment_success = bool(toolkit.solved())
                             solved = environment_success
                     finally:
-                        toolkit.close()
+                        try:
+                            toolkit.close()
+                        finally:
+                            end_api_task(
+                                task_state,
+                                result,
+                                finish_result=finish_result,
+                                environment_success=environment_success,
+                                exception=sys.exc_info()[1],
+                                cancelled_reason=(
+                                    "task_replaced"
+                                    if state.task_replacement_requested
+                                    else "operator"
+                                    if state.task_finalization_cancelled
+                                    else None
+                                ),
+                            )
                 if (
                     solved
                     or state.task_replacement_requested

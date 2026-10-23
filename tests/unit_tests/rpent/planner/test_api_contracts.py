@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import json
+import math
 import queue
 import threading
 import time
@@ -36,11 +37,12 @@ from pydantic_ai import (
 from pydantic_ai.exceptions import UnexpectedModelBehavior, UsageLimitExceeded
 from pydantic_ai.models.function import DeltaThinkingPart, DeltaToolCall, FunctionModel
 from pydantic_ai.models.test import TestModel
+from pydantic_core import to_jsonable_python
 
 from rpent.dashboard.events import RunStartedEvent, TranscriptEvent, UsageEvent
 from rpent.dashboard.state import DashboardState
 from rpent.planner.api_loop import ApiAgentLoop
-from rpent.session import EnvState
+from rpent.session import EnvState, Payload
 from rpent.tools import Toolkit, ToolResult, common
 from rpent.tools import tool as declare_tool
 
@@ -340,6 +342,7 @@ def test_read_image_returns_saved_artifact_and_records_call(
 ):
     events = Events()
     toolkit = RobotToolkit(events, state=image_state)
+    image_state.start_task(instruction="Read the image.", config=Payload("test", {}))
     arguments = {"name": name}
     if step is not None:
         arguments["step"] = step
@@ -373,6 +376,10 @@ def test_read_image_returns_saved_artifact_and_records_call(
         for part in message.parts
         if isinstance(part, ToolReturnPart) and part.tool_name == "read_image"
     )
+    call = image_state.planner_records()[0].tool_calls[0]
+    assert call.name == "read_image" and call.status == "completed"
+    assert call.feedback.data["return_value"] == returned.content
+    assert call.raw_result.data == call.feedback.data
     assert returned.content["artifact"] == name
     assert returned.content["step"] == resolved_step
     images = [
@@ -400,6 +407,18 @@ def test_read_image_returns_saved_artifact_and_records_call(
         "tool_call",
         "tool_result",
     ]
+    toolkit.close()
+    image_state.end_task(status="completed", stop_reason=result.stop_reason)
+    root = image_state.save_planner_trajectory()
+    saved = [
+        json.loads(line) for line in (root / "planners.jsonl").read_text().splitlines()
+    ]
+    restored = restore_byte_artifacts(saved, root)
+    assert restored[0]["tool_calls"][0]["raw_result"]["data"] == call.raw_result.data
+    assert restored[0]["tool_calls"][0]["feedback"]["data"] == call.feedback.data
+    assert len(list((root / "artifacts").iterdir())) == (0 if no_images else 1)
+    if not no_images:
+        assert call.feedback.data["content"][0]["data"] == expected_bytes
 
 
 @pytest.mark.parametrize(
@@ -448,6 +467,7 @@ def test_read_image_errors_reach_model_without_ending_run(
 def test_schema_validation_and_sequential_physical_tools(tmp_path):
     events = Events()
     toolkit = RobotToolkit(events, state=EnvState(tmp_path))
+    toolkit.state.start_task(instruction="Do the task.", config=Payload("test", {}))
     toolkit.get_env_state = lambda **kwargs: ToolResult(data=kwargs["result"])
     positions = []
 
@@ -474,6 +494,13 @@ def test_schema_validation_and_sequential_physical_tools(tmp_path):
     )
     assert result.error is None
     assert positions == [1, 2]
+    planners = toolkit.state.planner_records()
+    assert [len(record.tool_calls) for record in planners] == [1, 2, 1]
+    refused = planners[0].tool_calls[0]
+    assert json.loads(refused.arguments.data) == {"position": "bad"}
+    assert refused.status == "not_executed" and refused.started_at is None
+    assert refused.feedback.format == "pydantic_ai.model_retry"
+    assert all(call.status == "completed" for call in planners[1].tool_calls)
     assert len(toolkit.calls) == 3  # Only validated calls reach the Toolkit.
     assert [m["name"] for m in result.messages if m["role"] == "tool"] == [
         "move",
@@ -483,11 +510,18 @@ def test_schema_validation_and_sequential_physical_tools(tmp_path):
 
 
 def test_finish_skips_sibling_actions_using_native_end_strategy(tmp_path):
+    toolkit = capturing_toolkit(tmp_path)
+
     async def stream(messages, info):
         yield finish() | tool("observe", index=1)
 
-    result, toolkit, _ = solve(tmp_path, FunctionModel(stream_function=stream))
+    result, toolkit, _ = solve(tmp_path, FunctionModel(stream_function=stream), toolkit)
     assert result.error is None
+    calls = toolkit.state.planner_records()[0].tool_calls
+    assert [call.name for call in calls] == ["finish", "observe"]
+    assert [call.status for call in calls] == ["completed", "not_executed"]
+    assert calls[1].started_at is None and calls[1].raw_result is None
+    assert calls[1].missing["raw_result"].reason == "not_applicable"
     assert [name for name, _ in toolkit.calls] == ["finish"]
     assert [m["name"] for m in result.messages if m["role"] == "tool"] == ["finish"]
 
@@ -596,14 +630,28 @@ def test_agent_error_recovery_decisions():
 
 
 def test_harness_compacts_long_history(tmp_path):
+    toolkit = capturing_toolkit(tmp_path)
     lengths = []
+    requests = []
 
     async def stream(messages, info):
         lengths.append(len(messages))
+        from pydantic_ai.messages import ModelMessagesTypeAdapter
+
+        requests.append(ModelMessagesTypeAdapter.dump_python(messages, mode="json"))
         yield tool("observe") if len(lengths) < 45 else finish()
 
-    result, _, _ = solve(tmp_path, FunctionModel(stream_function=stream), max_turns=50)
+    result, _, _ = solve(
+        tmp_path, FunctionModel(stream_function=stream), toolkit, max_turns=50
+    )
     assert result.error is None
+    assert (
+        to_jsonable_python(
+            [p.request.data["messages"] for p in toolkit.state.planner_records()],
+            bytes_mode="base64",
+        )
+        == requests
+    )
     assert any(after < before for before, after in zip(lengths, lengths[1:]))
     assert result.messages[0] == {"role": "user", "content": "Do the task."}
     assert len([m for m in result.messages if m["role"] == "assistant"]) == 45
@@ -666,6 +714,7 @@ def test_dashboard_message_during_finish_is_unsent(tmp_path):
 
 def test_dashboard_interrupt_then_followup_preserves_history(tmp_path):
     state = dashboard(tmp_path)
+    toolkit = capturing_toolkit(tmp_path / "captures", state)
     calls = 0
 
     async def stream(messages, info):
@@ -684,11 +733,21 @@ def test_dashboard_interrupt_then_followup_preserves_history(tmp_path):
     result, _, _ = solve(
         tmp_path,
         FunctionModel(stream_function=stream),
+        toolkit=toolkit,
         events=state,
         dashboard_interaction=state,
         timeout_s=3,
     )
     assert result.error is None
+    assert result.stop_reason == "finish"
+    records = toolkit.state.planner_records()
+    assert [p.status for p in records] == ["cancelled", "completed"]
+    assert records[0].response.completeness == "partial"
+    assert (
+        records[0].source_ids["pydantic_ai.run_id"]
+        != records[1].source_ids["pydantic_ai.run_id"]
+    )
+    assert toolkit.state.get_task().status == "running"
     assert result.finish_result["status"] == "success"
     assert [m["content"] for m in result.messages if m["role"] == "user"] == [
         "Do the task.",
@@ -719,6 +778,7 @@ def test_dashboard_interrupt_drains_tool_before_followup(
 ):
     state = dashboard(tmp_path)
     toolkit = RobotToolkit(state, state=EnvState(tmp_path / "observations"))
+    toolkit.state.start_task(instruction="Do the task.", config=Payload("test", {}))
     toolkit.get_env_state = lambda **kwargs: ToolResult(data=kwargs["result"])
     observations = []
     toolkit.register("observe", lambda: observations.append("ran") or ToolResult())
@@ -788,6 +848,7 @@ def test_task_replacement_cancels_and_drains_physical_work(
 ):
     state = dashboard(tmp_path)
     toolkit = RobotToolkit(state, state=EnvState(tmp_path / "observations"))
+    toolkit.state.start_task(instruction="Do the task.", config=Payload("test", {}))
     toolkit.get_env_state = lambda **kwargs: ToolResult(data=kwargs["result"])
     observations = []
     toolkit.register("observe", lambda: observations.append("ran") or ToolResult())
@@ -821,6 +882,10 @@ def test_task_replacement_cancels_and_drains_physical_work(
     )
     assert result.error is None
     assert stopped.is_set()
+    calls = toolkit.state.planner_records()[0].tool_calls
+    assert [call.status for call in calls] == ["cancelled", "not_executed"]
+    assert calls[0].raw_result.data["data"]["code"] == "tool_cancelled"
+    assert calls[1].started_at is None
     assert observations == []
     assert state.planner_activity == "ended"
     assert result.finish_result is None
@@ -828,7 +893,7 @@ def test_task_replacement_cancels_and_drains_physical_work(
 
 def test_timeout_drains_physical_work_and_records_partial_history(tmp_path):
     events = Events()
-    toolkit = RobotToolkit(events)
+    toolkit = capturing_toolkit(tmp_path, events)
     stopped = threading.Event()
 
     def move():
@@ -848,6 +913,11 @@ def test_timeout_drains_physical_work_and_records_partial_history(tmp_path):
         tmp_path, FunctionModel(stream_function=stream), toolkit, events, timeout_s=0.15
     )
     assert "timed out" in result.error
+    assert result.stop_reason == "timeout"
+    call = toolkit.state.planner_records()[0].tool_calls[0]
+    assert call.status == "cancelled" and call.ended_at is not None
+    assert call.raw_result.data["data"]["code"] == "tool_cancelled"
+    assert call.feedback is None and call.missing["feedback"].reason == "not_recorded"
     assert stopped.is_set()
     assert result.messages[0] == {"role": "user", "content": "Do the task."}
     assert result.messages[1]["content"][0]["name"] == "move"
@@ -859,6 +929,7 @@ def test_native_terminal_preserves_completed_actions_after_model_failure(
 ):
     import pydantic_ai._cli as cli
 
+    toolkit = capturing_toolkit(tmp_path / "captures")
     requests = []
     replies = iter(["Inspect the scene.", "Continue after the error.", "/exit"])
 
@@ -880,9 +951,17 @@ def test_native_terminal_preserves_completed_actions_after_model_failure(
         cli, "PromptSession", lambda **kwargs: SimpleNamespace(prompt_async=read_prompt)
     )
     result, toolkit, _ = solve(
-        tmp_path, FunctionModel(stream_function=stream), interactive=True
+        tmp_path, FunctionModel(stream_function=stream), toolkit, interactive=True
     )
     assert result.error is None
+    records = toolkit.state.planner_records()
+    assert [p.status for p in records] == [
+        "completed",
+        "completed",
+        "failed",
+        "completed",
+    ]
+    assert records[1].tool_calls[0].status == "completed"
     assert any(
         isinstance(part, TextPart) and part.content == "Ready."
         for message in requests[-1]
@@ -1006,7 +1085,7 @@ def test_offline_http_planner_executes_action_and_finish(tmp_path):
     )
 
     events = Events()
-    toolkit = RobotToolkit(events)
+    toolkit = capturing_toolkit(tmp_path, events)
     toolkit.register("move", lambda: {"steps": 1})
     script = (
         ScriptedToolCall("move", {}),
@@ -1023,6 +1102,11 @@ def test_offline_http_planner_executes_action_and_finish(tmp_path):
         assert result.error is None
         assert toolkit.calls == [("move", {}), ("finish", FINISH_ARGS)]
         assert result.finish_result == {"_finish": True, **FINISH_ARGS}
+        assert len(toolkit.state.planner_records()) == 2
+        assert all(
+            p.source_ids.get("provider.response_id")
+            for p in toolkit.state.planner_records()
+        )
         server.assert_complete()
 
 
@@ -1156,13 +1240,19 @@ def test_reasoning_effort_reaches_openai_chat_request_body(tmp_path, effort):
 
 
 def test_api_executes_readonly_calls_concurrently(tmp_path):
+    from weakref import ref
+
+    from rpent.session.capture import current_tool_call
+
     events = Events()
-    toolkit = RobotToolkit(events)
+    toolkit = capturing_toolkit(tmp_path, events)
     rendezvous = threading.Barrier(2)
     completed = []
+    captures = []
 
     @declare_tool(readonly=True)
     def sense(label: str) -> ToolResult:
+        captures.append(ref(current_tool_call.get()))
         rendezvous.wait(timeout=5)
         completed.append(label)
         return ToolResult(data={"label": label})
@@ -1178,6 +1268,7 @@ def test_api_executes_readonly_calls_concurrently(tmp_path):
                 "sense", {"label": "right"}, 1
             )
         else:
+            assert all(capture() is None for capture in captures)
             yield finish()
 
     result, _, _ = solve(
@@ -1185,5 +1276,348 @@ def test_api_executes_readonly_calls_concurrently(tmp_path):
     )
     assert result.error is None
     assert sorted(completed) == ["left", "right"]
+    calls = toolkit.state.planner_records()[0].tool_calls
+    assert [c.raw_result.data["data"]["label"] for c in calls] == ["left", "right"]
+    assert all(c.status == "completed" for c in calls)
     assert result.finish_result == {"_finish": True, **FINISH_ARGS}
     assert result.stats["tool_calls"] == 3
+
+
+def capturing_toolkit(tmp_path, events=None):
+    state = EnvState(tmp_path)
+    state.start_task(instruction="Do the task.", config=Payload("test", {}))
+    return RobotToolkit(events or Events(), state=state)
+
+
+def restore_byte_artifacts(value, root):
+    if isinstance(value, list):
+        return [restore_byte_artifacts(item, root) for item in value]
+    if isinstance(value, dict):
+        if value.get("$type") == "artifact_ref":
+            assert value["kind"] == "bytes"
+            return (root / value["path"]).read_bytes()
+        return {key: restore_byte_artifacts(item, root) for key, item in value.items()}
+    return value
+
+
+@pytest.mark.parametrize("no_images", [False, True])
+def test_capture_keeps_original_tool_result_and_actual_multimodal_feedback(
+    tmp_path, no_images
+):
+    from pydantic_ai.messages import ModelMessagesTypeAdapter
+
+    toolkit = capturing_toolkit(tmp_path)
+    original = {"executed_steps": 2, "text": "a" * 61000}
+    original_image = b"\x00\xfforiginal image"
+    observation_image = b"\x00\xffobservation image"
+
+    @declare_tool
+    def move() -> ToolResult:
+        return ToolResult(data=original, images=[original_image])
+
+    toolkit.add_tool(move)
+    toolkit.get_env_state = lambda **kwargs: ToolResult(
+        data={"position": 5}, images=[observation_image]
+    )
+    seen = []
+
+    async def stream(messages, info):
+        seen.append(ModelMessagesTypeAdapter.dump_python(messages, mode="json"))
+        yield tool("move") if len(seen) < 3 else finish()
+
+    result, _, _ = solve(
+        tmp_path, FunctionModel(stream_function=stream), toolkit, no_images=no_images
+    )
+    assert result.error is None
+    planners = toolkit.state.planner_records()
+    assert [p.status for p in planners] == ["completed"] * 3
+    assert (
+        to_jsonable_python(
+            [p.request.data["messages"] for p in planners], bytes_mode="base64"
+        )
+        == seen
+    )
+    assert planners[0].request.data["model_request_parameters"]["function_tools"]
+    assert planners[0].request.data["model_request_parameters"]["output_tools"]
+    call = planners[0].tool_calls[0]
+    assert call.raw_result.data == {"data": original, "images": [original_image]}
+    assert json.loads(call.feedback.data["return_value"][0]) == {"position": 5}
+    image_content = call.feedback.data["return_value"][1:]
+    assert len(image_content) == 2
+    assert all(
+        isinstance(item, str) if no_images else item["kind"] == "binary"
+        for item in image_content
+    )
+    if not no_images:
+        assert [item["data"] for item in image_content] == [
+            original_image,
+            observation_image,
+        ]
+    assert call.before_observation_id is None
+    assert call.missing["before_observation_id"].reason == "not_recorded"
+    assert call.started_at <= call.ended_at
+    assert "raw_result" not in call.missing and "feedback" not in call.missing
+    assert toolkit.state.action_records() == []
+
+    toolkit.close()
+    toolkit.state.end_task(status="completed", stop_reason=result.stop_reason)
+    root = toolkit.state.save_planner_trajectory()
+    saved = [
+        json.loads(line) for line in (root / "planners.jsonl").read_text().splitlines()
+    ]
+    restored = restore_byte_artifacts(saved, root)
+    assert (
+        to_jsonable_python(
+            [p["request"]["data"]["messages"] for p in restored], bytes_mode="base64"
+        )
+        == seen
+    )
+    assert [p["response"]["data"] for p in restored] == [
+        planner.response.data for planner in planners
+    ]
+    saved_call = saved[0]["tool_calls"][0]
+    assert restored[0]["tool_calls"][0]["feedback"]["data"] == call.feedback.data
+    assert saved_call["raw_result"]["data"]["data"] == original
+    image_ref = saved_call["raw_result"]["data"]["images"][0]
+    assert (root / image_ref["path"]).read_bytes() == original_image
+    assert saved[1]["tool_calls"][0]["raw_result"]["data"]["images"][0] == image_ref
+    if not no_images:
+        assert saved_call["feedback"]["data"]["return_value"][1]["data"] == image_ref
+    assert len(list((root / "artifacts").iterdir())) == (1 if no_images else 2)
+    assert toolkit.state.planner_records() == planners
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), -float("inf")])
+def test_capture_saves_nonfinite_raw_results_and_serializable_feedback(tmp_path, value):
+    toolkit = capturing_toolkit(tmp_path)
+
+    @declare_tool(readonly=True)
+    def measure() -> ToolResult:
+        return ToolResult(data={"samples": [value, np.float32(value)], "count": 2})
+
+    toolkit.add_tool(measure)
+    requests = 0
+
+    async def stream(messages, info):
+        nonlocal requests
+        requests += 1
+        yield tool("measure") if requests == 1 else finish()
+
+    result, _, _ = solve(tmp_path, FunctionModel(stream_function=stream), toolkit)
+    assert result.error is None
+    toolkit.close()
+    toolkit.state.end_task(
+        status="completed",
+        stop_reason=result.stop_reason,
+        result=Payload("test.result", {"score": value}),
+    )
+
+    root = toolkit.state.save_planner_trajectory()
+
+    def reject_constant(token):
+        pytest.fail(f"Nonstandard JSON constant: {token}")
+
+    planners = [
+        json.loads(line, parse_constant=reject_constant)
+        for line in (root / "planners.jsonl").read_text().splitlines()
+    ]
+    saved_call = planners[0]["tool_calls"][0]
+    raw = saved_call["raw_result"]["data"]["data"]
+    assert raw["count"] == 2
+    for sample in raw["samples"]:
+        assert sample["$type"] == "float"
+        restored = float(sample["value"])
+        assert math.isnan(restored) if math.isnan(value) else restored == value
+    call = toolkit.state.planner_records()[0].tool_calls[0]
+    assert saved_call["status"] == "failed"
+    assert saved_call["feedback"]["data"] == call.feedback.data
+    assert "serialization failed" in saved_call["feedback"]["data"]["return_value"][0]
+    assert not math.isfinite(call.raw_result.data["data"]["samples"][0])
+    task = json.loads((root / "task.json").read_text(), parse_constant=reject_constant)
+    assert task["task"]["result"]["data"]["score"] == raw["samples"][0]
+
+
+@pytest.mark.parametrize("partial", [False, True])
+def test_capture_keeps_model_failure_and_partial_response(tmp_path, partial):
+    toolkit = capturing_toolkit(tmp_path)
+
+    async def stream(messages, info):
+        if partial:
+            yield "Received part."
+        raise RuntimeError("provider connection lost")
+        yield "unreachable"
+
+    result, _, _ = solve(tmp_path, FunctionModel(stream_function=stream), toolkit)
+    assert "provider connection lost" in result.error
+    (record,) = toolkit.state.planner_records()
+    assert record.status == "failed" and record.ended_at is not None
+    assert record.request is not None
+    if partial:
+        assert record.response.completeness == "partial"
+        assert record.response.data["parts"][0]["content"] == "Received part."
+    else:
+        assert record.response is None
+        assert record.missing["response"].reason == "capture_failed"
+
+
+def test_capture_non_streaming_model_request(tmp_path):
+    from pydantic_ai import ModelResponse, TextPart
+    from pydantic_ai.messages import (
+        AgentInstructionSource,
+        FilePart,
+        ImageUrl,
+        InstructionId,
+        InstructionPart,
+        ModelMessagesTypeAdapter,
+        ThinkingPart,
+    )
+    from pydantic_ai.models import ModelRequestParameters
+
+    from rpent.session.capture import CapturingModel
+
+    toolkit = capturing_toolkit(tmp_path)
+    image = BinaryContent(
+        b"\x00\xff\xfb\xef", media_type="image/png", vendor_metadata={"detail": "high"}
+    )
+    literal = "AP_77w=="
+    messages = [
+        ModelRequest(
+            parts=[
+                UserPromptPart(
+                    ["hello", image, ImageUrl("https://example.com/image.png"), literal]
+                )
+            ],
+            metadata={"kind": "binary", "data": literal, "media_type": "image/png"},
+        )
+    ]
+    response = ModelResponse(
+        parts=[
+            TextPart("done"),
+            FilePart(image),
+            ThinkingPart("reasoning", signature=literal),
+        ],
+        provider_response_id="response-1",
+    )
+    parameters = ModelRequestParameters(
+        instruction_parts=[
+            InstructionPart("Look.", id=InstructionId(AgentInstructionSource()))
+        ]
+    )
+    model = CapturingModel(
+        FunctionModel(lambda messages, info: response),
+        toolkit.state,
+        "conversation-1",
+    )
+    asyncio.run(
+        model.request(
+            messages,
+            {"max_tokens": 10},
+            parameters,
+        )
+    )
+    (record,) = toolkit.state.planner_records()
+    assert record.status == "completed"
+    assert record.request.data["model_settings"] == {"max_tokens": 10}
+    assert (
+        record.request.data["model_request_parameters"]["instruction_parts"][0]["id"]
+        == "agent"
+    )
+    assert record.response.data["parts"][0]["content"] == "done"
+    assert record.source_ids == {
+        "pydantic_ai.conversation_id": "conversation-1",
+        "provider.response_id": "response-1",
+    }
+    toolkit.state.end_task(status="completed", stop_reason="model_output")
+    root = toolkit.state.save_planner_trajectory()
+    saved = json.loads((root / "planners.jsonl").read_text())
+    restored = restore_byte_artifacts(saved, root)
+    restored_messages = ModelMessagesTypeAdapter.validate_python(
+        restored["request"]["data"]["messages"]
+    )
+    restored_response = ModelMessagesTypeAdapter.validate_python(
+        [restored["response"]["data"]]
+    )
+    assert ModelMessagesTypeAdapter.dump_python(
+        restored_messages, mode="json"
+    ) == ModelMessagesTypeAdapter.dump_python(messages, mode="json")
+    assert ModelMessagesTypeAdapter.dump_python(
+        restored_response, mode="json"
+    ) == ModelMessagesTypeAdapter.dump_python([response], mode="json")
+    assert len(list((root / "artifacts").iterdir())) == 1
+    assert toolkit.state.planner_records() == [record]
+
+
+@pytest.mark.parametrize("name,arguments", [("observe", "{"), ("missing_tool", "{}")])
+def test_capture_keeps_calls_rejected_by_sdk(tmp_path, name, arguments):
+    toolkit = capturing_toolkit(tmp_path)
+    requests = 0
+
+    async def stream(messages, info):
+        nonlocal requests
+        requests += 1
+        if requests == 1:
+            yield {0: DeltaToolCall(name=name, json_args=arguments)}
+        else:
+            yield finish()
+
+    result, _, _ = solve(tmp_path, FunctionModel(stream_function=stream), toolkit)
+    assert result.error is None
+    call = toolkit.state.planner_records()[0].tool_calls[0]
+    assert call.name == name and call.arguments.data == arguments
+    assert call.status == "not_executed" and call.started_at is None
+    assert call.raw_result is None and call.feedback is None
+    assert call.missing["feedback"].reason == "not_applicable"
+    retry_request = toolkit.state.planner_records()[1].request.data
+    assert any(
+        part["part_kind"] == "retry-prompt"
+        for message in retry_request["messages"]
+        for part in message["parts"]
+    )
+
+
+def test_image_reader_drains_before_capture_finishes_on_timeout(
+    tmp_path, image_state, monkeypatch
+):
+    image_state.start_task(instruction="Read image.", config=Payload("test", {}))
+    toolkit = RobotToolkit(Events(), state=image_state)
+    load = image_state.load_bytes
+    done = threading.Event()
+
+    def slow_load(*args, **kwargs):
+        time.sleep(0.2)
+        result = load(*args, **kwargs)
+        done.set()
+        return result
+
+    monkeypatch.setattr(image_state, "load_bytes", slow_load)
+
+    async def stream(messages, info):
+        yield tool("read_image", {"name": "camera.png"})
+
+    result, _, _ = solve(
+        tmp_path, FunctionModel(stream_function=stream), toolkit, timeout_s=0.1
+    )
+    assert result.stop_reason == "timeout" and done.is_set()
+    call = image_state.planner_records()[0].tool_calls[0]
+    assert call.status == "completed" and call.raw_result is not None
+    assert call.feedback is None
+    assert call.missing["feedback"].reason == "not_recorded"
+
+
+def test_interrupted_tool_arguments_are_retained_without_execution(tmp_path):
+    toolkit = capturing_toolkit(tmp_path)
+
+    async def stream(messages, info):
+        yield {0: DeltaToolCall(name="observe", json_args='{ "position":')}
+        await asyncio.sleep(5)
+
+    result, _, _ = solve(
+        tmp_path, FunctionModel(stream_function=stream), toolkit, timeout_s=0.1
+    )
+    assert result.stop_reason == "timeout"
+    (record,) = toolkit.state.planner_records()
+    assert record.status == "cancelled"
+    (call,) = record.tool_calls
+    assert call.arguments.data == '{ "position":'
+    assert call.arguments.completeness == "partial"
+    assert call.status == "not_executed" and toolkit.calls == []
