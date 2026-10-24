@@ -99,7 +99,7 @@ LIBERO 的任务成功以最终环境状态的顶层 ``terminated`` 为准，可
 
 .. _quickstart-interactive:
 
-若要在终端中交互，添加 ``--interactive`` 或 ``-i`` 即可输入后续指令。该选项不能与 ``--dashboard`` 同时使用；各规划器的操作方式见 :ref:`terminal-interaction`。
+若要在终端中交互，添加 ``--tui`` 或 ``-i`` 即可输入后续指令。该选项不能与 ``--dashboard`` 同时使用；各规划器的操作方式见 :ref:`terminal-interaction`。
 
 遇到问题时
 ---------------
