@@ -200,6 +200,7 @@ def context(data: dict, language: str) -> dict:
                 "number": number,
                 "text": translate(note["text"]),
                 "placement": note.get("placement", "module"),
+                "configuration_ids": note["configuration_ids"],
             }
             for number, note in enumerate(section.get("notes", []), 1)
         ]
@@ -286,10 +287,20 @@ def context(data: dict, language: str) -> dict:
             ),
         )
         if rows:
+            cost_config_ids = {record["configuration_id"] for record in rows}
             costs.append(
                 {
                     "id": section["id"],
                     "name": section["name"],
+                    "notes": [
+                        note
+                        for note in section["notes"]
+                        if note["placement"] != "footer"
+                        and any(
+                            config_id in cost_config_ids
+                            for config_id in note["configuration_ids"]
+                        )
+                    ],
                     "token_metrics": [
                         {"key": key, "label": COPY[language][key]}
                         for key in ("total_output_tokens", "mean_total_tokens")
@@ -300,6 +311,13 @@ def context(data: dict, language: str) -> dict:
                             **record,
                             "label": label(configs[record["configuration_id"]]),
                             "detail": detail(configs[record["configuration_id"]]),
+                            "notes": [
+                                note
+                                for note in section["notes"]
+                                if note["placement"] != "footer"
+                                and record["configuration_id"]
+                                in note["configuration_ids"]
+                            ],
                         }
                         for record in rows
                     ],
