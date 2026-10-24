@@ -19,11 +19,18 @@ terminal. Use a terminal with interactive input (TTY).
    rpent --robot libero --suite libero_10_task --task 0 --seed 1 \
      --planner claude_code --model claude-opus-4-8 --interactive
 
-With ``claude_code`` or ``codex``, the first prompt contains the task
-instruction. Edit it or submit it with Enter. During execution, type a message
-to guide the agent. Claude Code interrupts the current turn before receiving
-your message; Codex steers the current turn. Use ``/help`` to see commands and
-``/quit``, ``/exit``, or ``/q`` to end the session.
+With ``claude_code``, ``codex``, or ``gemini_cli``, the first prompt contains the
+task instruction. Edit it or submit it with Enter. Use ``/help`` to see commands
+and ``/quit``, ``/exit``, or ``/q`` to end the session.
+
+Claude Code, Codex, and Gemini queue additional messages in arrival order and
+submit one message after each complete agent turn, not after each tool call. Use
+``/interrupt`` to stop the current turn and send the next queued message.
+``/interrupt new instruction`` puts that instruction ahead of the remaining
+queue. Both continue in the same conversation. Tool execution is cancelled and
+drained before the backend is interrupted; new input is sent only after the
+backend confirms completion. If interruption fails, messages remain queued
+until a successful interrupt retry. Completed physical actions are not undone.
 
 With the ``api`` planner, the selected task starts automatically. After the
 agent responds, the terminal accepts follow-up instructions with the existing
@@ -44,7 +51,7 @@ For physical robot setup and human confirmation, see the
 Dashboard
 ---------
 
-The Dashboard supports the ``api``, ``claude_code``, and ``codex`` planners.
+The Dashboard supports the ``api``, ``claude_code``, ``codex``, and ``gemini_cli`` planners.
 Configure ``--planner`` and ``--model`` on the command line as for a normal
 run; see :doc:`configure_planner`.
 
@@ -70,6 +77,12 @@ Each TaskRun gets a fresh environment while the VLA and SAM3 services are
 reused by the Session. Submit a new ``/rpent-task`` to start or switch tasks;
 during a run, normal messages steer the agent and Esc requests an interruption.
 Press Ctrl+C in the terminal to stop the Session.
+
+With Claude Code, Codex, and Gemini, ordinary messages queue until the current
+agent turn completes. To continue sooner, submit the message and press Esc: the active tool
+and backend turn are stopped before the next queued message is sent. Remaining
+messages keep their queue order. A successful ``finish`` ends the task without
+sending pending messages.
 
 ``--dashboard`` cannot be combined with ``--interactive`` or
 ``--env-endpoint``. External ``--vla-endpoint`` and ``--sam3-endpoint``

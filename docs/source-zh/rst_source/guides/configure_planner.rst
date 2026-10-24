@@ -5,9 +5,9 @@ RPent 通过一个 CLI 参数选择 Agentic Planner 的后端：
 
 .. code-block:: text
 
-   --planner {api,claude_code,codex,flash}
+   --planner {api,claude_code,codex,gemini_cli,flash}
 
-三种在线规划器（``api``、``claude_code`` 和 ``codex``）接收相同的系统提示词和用户提示词，也使用同一套 RPent 工具定义。它们的区别在于如何将这些工具接入模型、如何组织工具调用循环，以及使用哪个模型 SDK。
+四种在线规划器（``api``、``claude_code``、``codex`` 和 ``gemini_cli``）接收相同的系统提示词和用户提示词，也使用同一套 RPent 工具定义。它们的区别在于如何将这些工具接入模型、如何组织工具调用循环，以及使用哪个模型 SDK 或 CLI。
 
 .. list-table::
    :header-rows: 1
@@ -18,7 +18,7 @@ RPent 通过一个 CLI 参数选择 Agentic Planner 的后端：
      - 什么时候选它
    * - ``api``
      - 基于 `Pydantic AI <https://ai.pydantic.dev/>`_ 的工具调用循环，支持多种模型 API。对话较长时，会减少发送给模型的早期消息。
-     - 直接调用 Anthropic、OpenAI 或兼容的模型服务。
+     - 直接调用 Anthropic、Google、OpenAI 或兼容的模型服务。
    * - ``claude_code``
      - `Claude Agent SDK
        <https://code.claude.com/docs/en/agent-sdk/overview>`_。把 RPent 的 toolkit 暴露为进程内 MCP 服务，由 Claude Agent SDK 驱动循环。
@@ -27,6 +27,11 @@ RPent 通过一个 CLI 参数选择 Agentic Planner 的后端：
      - OpenAI **Codex Python SDK**。RPent 在进程内启动
        Streamable HTTP MCP 服务，把 toolkit 接入 Codex。
      - 通过 Codex SDK 运行任务，复用已有的 Codex 认证或配置独立 API。
+   * - ``gemini_cli``
+     - 官方 `Gemini CLI <https://github.com/google-gemini/gemini-cli>`_ 的
+       ACP 接口。RPent 通过本地 Streamable HTTP MCP 服务暴露 toolkit，
+       由 Gemini CLI 驱动循环。
+     - 通过已有的 Gemini CLI 配置运行任务。
    * - ``flash``
      - **Flash Mode**，仅用于评测。重放 memory 中保存的成功执行计划，并对每个路点
        的锚点重新定位，使方案能跟随移动过的物体。参见
@@ -49,7 +54,7 @@ RPent 通过一个 CLI 参数选择 Agentic Planner 的后端：
 ``api`` 规划器（直接调用模型 API）
 -------------------------------------
 
-``--planner api`` 是默认选项。它使用 Pydantic AI 原生工具调用循环，并要求 ``--model`` 带有模型提供商前缀。当前项目安装的依赖包含 Anthropic 和 OpenAI 集成，因此可以直接使用 Anthropic Messages API、OpenAI Responses API，以及 OpenAI 兼容的 Chat Completions API。
+``--planner api`` 是默认选项。它使用 Pydantic AI 原生工具调用循环，并要求 ``--model`` 带有模型提供商前缀。当前项目安装的依赖包含 Anthropic、Google 和 OpenAI 集成，因此可以直接使用 Anthropic Messages API、Gemini API、OpenAI Responses API，以及 OpenAI 兼容的 Chat Completions API。
 
 通过 ``--model`` 前缀选择模型提供商：
 
@@ -58,15 +63,24 @@ RPent 通过一个 CLI 参数选择 Agentic Planner 的后端：
    # Anthropic Claude
    rpent --planner api --model anthropic:claude-opus-4-8 ...
 
+   # Google Gemini API；使用上游服务规定的 model ID
+   rpent --planner api --model google:Argon ...
+
    # OpenAI Responses (例如 GPT-5.5)
    rpent --planner api --model openai:gpt-5.5 ...
 
    # OpenAI 兼容的 Chat Completions（例如 GLM 5.2，纯文本）
    rpent --planner api --model openai-chat:glm-5.2 --no-images ...
 
+对于 Google，``google:`` 用于选择 Pydantic AI provider。自定义端点既可以是
+Google SDK 所需的服务根地址，也可以是上游提供的完整
+``/v1beta/models/<model>:generateContent`` URL。传入完整 URL 时，RPent 会使用
+其中的 model ID，并向 SDK 传递对应的服务根地址，从而保持上游规定的请求路径。
+
 它读取以下环境变量；需要覆盖 API 地址时使用 ``--base-url``：
 
 - ``anthropic:*`` → ``ANTHROPIC_BASE_URL`` / ``ANTHROPIC_API_KEY``
+- ``google:*`` → ``GEMINI_API_KEY``
 - ``openai:*`` / ``openai-chat:*`` → ``OPENAI_BASE_URL`` /
   ``OPENAI_API_KEY``
 
@@ -115,12 +129,59 @@ Claude Code 可以连接兼容 Anthropic Messages API 的本地模型服务。�
 
 对于无法识别的本地模型名称，Claude Code 默认按 200,000 token 的上下文窗口管理会话。如果本地服务使用其他长度，请参考 `Claude Code 环境变量文档 <https://code.claude.com/docs/en/env-vars>`_ 配置它的上下文和自动压缩参数。
 
+.. _planner-gemini-cli:
+
+``gemini_cli`` 规划器
+----------------------
+
+``--planner gemini_cli`` 通过 ACP Python SDK 以 ``--acp`` 模式启动已安装的 Gemini CLI。
+非交互任务在首个 agent turn 完成后返回；终端和 Dashboard 会话则继续接收排队的追加消息。
+RPent 启动本地 Streamable HTTP MCP 服务，并且只向该 CLI
+会话提供 RPent toolkit。模型请求和 agent loop 均由 Gemini CLI 负责；它与
+``--planner api --model google:Argon`` 提供的 Gemini API
+直连路径彼此独立。
+
+先安装并配置 Gemini CLI。已有配置会直接复用：
+
+.. code-block:: bash
+
+   npm install -g @google/gemini-cli
+
+   rpent --robot libero --planner gemini_cli \
+     --suite libero_goal_task --task 1 --seed 0
+
+RPent 不选择也不转换 model ID。省略 ``--model`` 时，由 Gemini CLI 及其
+上游配置选择模型。如需覆盖，请传入上游服务实际接受的准确 ID：
+
+.. code-block:: bash
+
+   rpent --robot libero --planner gemini_cli \
+     --model Argon \
+     --suite libero_goal_task --task 1 --seed 0
+
+注意事项：
+
+- 认证和服务端点均由现有 Gemini CLI 配置管理；RPent 不选择或覆盖其凭据和
+  服务端点。只有可执行文件不叫 ``gemini`` 或不在 ``PATH`` 中时，才需要设置
+  ``GEMINI_BIN``。该 planner 不使用 ``--base-url``。
+- ``--max-turns`` 会写入 Gemini CLI 的 ``model.maxSessionTurns``。
+  ``--planner-timeout-s`` 默认依次读取 ``GEMINI_CLI_TIMEOUT_S``、
+  ``CELL_TIMEOUT_S``，均未设置时为 ``1200`` 秒。
+- RPent 使用临时 workspace 配置，关闭项目 context 文件、skills、hooks、
+  extensions 和内置工具；用户的 Gemini CLI 设置与认证不会被覆盖。
+- 任务运行和连接检查均需要支持 ``--acp`` 的 Gemini CLI 版本。RPent 使用
+  ``agent-client-protocol`` 管理会话，而不是用 Google 模型 API SDK 驱动 CLI。
+- 与 Codex 一样，追加消息默认排队，等待当前 agent turn 完成。终端可使用
+  ``/interrupt [message]``；Dashboard 可先提交消息，再按 Esc 中断，并在同一会话中继续。
+  队列顺序和中断行为详见 :doc:`dashboard`。
+- 不支持非 ``none`` 的 ``--reasoning-effort``。
+
 .. _planner-codex:
 
 ``codex`` planner
 ------------------
 
-``--planner codex`` 使用 OpenAI Codex Python SDK。每次运行时，RPent 会在当前进程的后台线程中启动本地 Streamable HTTP MCP 服务，Codex 通过该服务调用同一个 toolkit；无需预先启动 ``scripts/codex_proxy/``。
+``--planner codex`` 的交互与非交互任务均使用 OpenAI Codex Python SDK 的异步接口。每次运行时，RPent 会在当前进程的后台线程中启动本地 Streamable HTTP MCP 服务，Codex 通过该服务调用同一个 toolkit；无需预先启动 ``scripts/codex_proxy/``。
 
 Codex 规划会话不会自动加载仓库的 ``AGENTS.md`` 和 ``.agents/skills/`` 中的开发 skills。工作目录仍为仓库根目录，机器人指南和 memory 仍可通过已有工具读取。
 
@@ -217,8 +278,9 @@ RPent 的 ``--model`` 必须与 vLLM 的 ``--served-model-name`` 保持一致。
    rpent-check-llm --planner api --model anthropic:claude-opus-4-8
    rpent-check-llm --planner claude_code
    rpent-check-llm --planner codex --json
+   rpent-check-llm --planner gemini_cli --json
 
-成功时退出码为 ``0``，任何失败为 ``1``，并将失败归类为 ``missing_config``、``unsupported_provider``、``missing_api_key``、 ``auth_failed``、``network_error``、``provider_error``、``sdk_error`` 之一。脚本与 CI 建议使用 ``--json``。``--base-url`` 覆盖后端端点， ``--timeout-s`` 覆盖诊断超时（``api`` 为 30 秒，两个 SDK 后端为 90 秒；运行时的 ``1200`` 秒默认值不会被复用）。
+成功时退出码为 ``0``，任何失败为 ``1``，并将失败归类为 ``missing_config``、``unsupported_provider``、``missing_api_key``、 ``auth_failed``、``network_error``、``provider_error``、``sdk_error`` 之一。脚本与 CI 建议使用 ``--json``。对于 ``api``，``--base-url`` 会覆盖服务端点；CLI/SDK 后端读取前文所述的环境变量。``--timeout-s`` 覆盖诊断超时（``api`` 为 30 秒，各 CLI/SDK 后端为 90 秒；运行时的 ``1200`` 秒默认值不会被复用）。
 
 使用 Dashboard 时，也请先在终端运行上述检查，并使用准备运行任务的规划器与模型配置。Dashboard 从命令行接收配置，打开后直接显示运行监控页面。启动方法见 :doc:`dashboard`。
 
@@ -239,6 +301,7 @@ RPent 的 ``--model`` 必须与 vLLM 的 ``--served-model-name`` 保持一致。
 - **API：** 整段对话中，每次模型请求算一轮，包含重试和用户后续输入产生的请求。Pydantic AI 负责执行这个上限，RPent 将请求次数记为 ``turns_used``。达到上限时正常停止，不记为规划器错误，也不代表任务成功。探索模式仍可继续下一会话，并在满足其他条件时合并记忆。
 - **Codex：** 模型每回复一次算一轮。只有推理或工具调用、没有文字的回复也计数；同一次回复中的多个工具调用不会分别计数。RPent 负责执行这个上限。
 - **Claude Code：** 一轮是“模型请求工具 → 工具执行 → 结果返回模型”。最后不调用工具的文字答复不占用这一预算。RPent 把上限交给 Claude Code 执行，达到上限时返回 ``error_max_turns``。
+- **Gemini CLI：** RPent 将上限作为 ``model.maxSessionTurns`` 传给 Gemini CLI。Gemini CLI 对用户、模型和工具轮次计数，预算耗尽时停止。RPent 记录 ACP 返回的 token 用量（若提供），并从本地 MCP 服务统计工具调用次数。ACP 不返回已完成轮数，因此 RPent 不会推算 ``turns_used``。
 
 例如，没有重试时，模型先在一次回复中要求读取两个文件，拿到结果后再给出文字总结：API 发送两次请求，Codex 计两次回复，Claude 消耗一轮工具预算。三者都报告 ``turns_used=2``；Claude 报告的回复次数与工具预算的计数不同。
 

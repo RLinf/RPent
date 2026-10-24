@@ -33,6 +33,44 @@ from rpent.planner.claude_code import (
 )
 from rpent.tools import ToolResult, tool
 from rpent.tools.common import CommonTools
+from rpent.utils.logging import init_output_dir
+
+
+@pytest.fixture(autouse=True)
+def logging_directory(tmp_path):
+    init_output_dir(tmp_path / "logs")
+
+
+def patch_client_stream(monkeypatch, stream_factory):
+    """Exercise the persistent-client surface without starting a real CLI."""
+
+    class Client:
+        def __init__(self, *, options):
+            self.options = options
+            self.stream = None
+
+        async def __aenter__(self):
+            self.owner = asyncio.current_task()
+            return self
+
+        async def __aexit__(self, *args):
+            assert asyncio.current_task() is self.owner
+            if self.stream is not None:
+                await self.stream.aclose()
+
+        async def query(self, prompt):
+            self.stream = stream_factory(prompt=prompt, options=self.options)
+
+        async def receive_messages(self):
+            async for message in self.stream:
+                yield message
+
+    monkeypatch.setattr(claude_agent_sdk, "ClaudeSDKClient", Client)
+
+    def forbidden_query(**kwargs):
+        pytest.fail("Planner tasks must use ClaudeSDKClient in every mode")
+
+    monkeypatch.setattr(claude_agent_sdk, "query", forbidden_query)
 
 
 class RecordingSink:
@@ -243,6 +281,12 @@ def test_successful_fake_sdk_stream_accounts_for_finish_and_hides_image_payload(
                 },
             ],
         }
+        handler = next(
+            tool
+            for tool in options["mcp_servers"]["rpent"]["tools"]
+            if tool.sdk_name == "finish"
+        )
+        await handler({"status": "success", "summary": "done"})
         yield {
             "type": "UserMessage",
             "parent_tool_use_id": "finish-1",
@@ -251,12 +295,12 @@ def test_successful_fake_sdk_stream_accounts_for_finish_and_hides_image_payload(
             ],
         }
 
-    monkeypatch.setattr(claude_agent_sdk, "query", query)
+    patch_client_stream(monkeypatch, query)
     sink = RecordingSink()
     result = make_planner(tmp_path, sink).solve(
         system_prompt="system rules",
         user_message="user task",
-        toolkit=FakeToolkit(),
+        toolkit=FakeToolkit({"_finish": True, "status": "success", "summary": "done"}),
         max_turns=3,
     )
 
@@ -330,7 +374,7 @@ def test_fake_sdk_failure_and_timeout_are_returned(
         raise RuntimeError("sdk unavailable")
         yield  # pragma: no cover
 
-    monkeypatch.setattr(claude_agent_sdk, "query", failed_query)
+    patch_client_stream(monkeypatch, failed_query)
     failure = make_planner(tmp_path / "failure", RecordingSink()).solve(
         system_prompt="",
         user_message="task",
@@ -349,7 +393,7 @@ def test_fake_sdk_failure_and_timeout_are_returned(
         finally:
             slow_stream_closed = True
 
-    monkeypatch.setattr(claude_agent_sdk, "query", slow_query)
+    patch_client_stream(monkeypatch, slow_query)
     timeout = make_planner(
         tmp_path / "timeout",
         RecordingSink(),
@@ -366,7 +410,7 @@ def test_fake_sdk_failure_and_timeout_are_returned(
     assert slow_stream_closed is True
 
 
-def test_terminal_timeout_cancels_active_toolkit_work(
+def test_noninteractive_timeout_cancels_active_toolkit_work(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -383,7 +427,7 @@ def test_terminal_timeout_cancels_active_toolkit_work(
         finally:
             stream_closed = True
 
-    monkeypatch.setattr(claude_agent_sdk, "query", slow_query)
+    patch_client_stream(monkeypatch, slow_query)
     toolkit = FakeToolkit()
     result = make_planner(
         tmp_path,
@@ -401,65 +445,63 @@ def test_terminal_timeout_cancels_active_toolkit_work(
     assert toolkit.cancel_calls == 1
 
 
-def test_stateful_sdk_driver_closes_adapter_tasks_and_client() -> None:
-    events: list[str] = []
+def test_stateful_sdk_driver_drains_tools_before_closing_tasks_and_client():
+    events = []
 
     class Client:
         async def __aenter__(self):
+            self.owner = asyncio.current_task()
             events.append("client-enter")
             return self
 
-        async def __aexit__(self, *args: Any) -> None:
+        async def __aexit__(self, *args):
+            assert asyncio.current_task() is self.owner
             events.append("client-exit")
 
-        async def query(self, text: str) -> None:
+        async def query(self, text):
             events.append(f"query:{text}")
 
         async def receive_messages(self):
             events.append("consumer-started")
-            await asyncio.Event().wait()
-            yield  # pragma: no cover
-
-    client = Client()
+            try:
+                await asyncio.Event().wait()
+                yield  # pragma: no cover
+            finally:
+                events.append("consumer-closed")
 
     class Sdk:
         @staticmethod
-        def ClaudeSDKClient(*, options: Any) -> Client:
-            assert options == {"fake": "options"}
-            return client
+        def ClaudeSDKClient(*, options):
+            return Client()
 
-    class Adapter:
-        async def initial_query_succeeded(self, driver: Any) -> None:
-            del driver
+    class Control:
+        async def start(self):
             events.append("initial-succeeded")
 
-        async def run(self, driver: Any) -> None:
-            del driver
+        async def run(self, driver):
             events.append("command-pump-complete")
 
-        async def on_message(self, driver: Any, message: Any) -> None:
-            del driver, message
+        def end(self):
+            events.append("control-end")
 
-        async def close(self) -> None:
-            events.append("adapter-close")
+    class Toolkit(FakeToolkit):
+        def cancel_active_and_wait(self):
+            events.append("tools-drained")
 
     driver = _ClaudeSessionDriver(
         sdk=Sdk(),
-        options={"fake": "options"},
+        options={},
         recorder=_Recorder(max_turns=1, dashboard_events=RecordingSink()),
-        emit=lambda message: events.append(f"message:{message}"),
+        emit=lambda message: None,
+        toolkit=Toolkit(),
+        control=Control(),
     )
+    asyncio.run(driver.run("initial prompt"))
 
-    asyncio.run(driver.run("initial prompt", Adapter()))
-
-    assert events[:3] == [
-        "client-enter",
-        "query:initial prompt",
-        "initial-succeeded",
-    ]
+    assert events[:3] == ["client-enter", "query:initial prompt", "initial-succeeded"]
     assert "consumer-started" in events
     assert "command-pump-complete" in events
-    assert events[-2:] == ["adapter-close", "client-exit"]
+    assert events[-3:] == ["tools-drained", "consumer-closed", "client-exit"]
 
 
 def test_queue_and_dashboard_are_mutually_exclusive_before_sdk_use(
@@ -548,8 +590,8 @@ def test_claude_interrupt_waits_for_old_results_before_next_query():
             def ClaudeSDKClient(**kwargs):
                 return client
 
-        class Adapter:
-            async def initial_query_succeeded(self, driver):
+        class Control:
+            async def start(self):
                 pass
 
             async def run(self, driver):
@@ -557,10 +599,10 @@ def test_claude_interrupt_waits_for_old_results_before_next_query():
                 interrupted.set()
                 await driver.query("follow-up")
 
-            async def on_message(self, driver, message):
+            async def complete(self, driver):
                 raise AssertionError("Interrupted results must not flush new input")
 
-            async def close(self):
+            def end(self):
                 pass
 
         driver = _ClaudeSessionDriver(
@@ -568,8 +610,10 @@ def test_claude_interrupt_waits_for_old_results_before_next_query():
             options={},
             recorder=_Recorder(max_turns=3, dashboard_events=RecordingSink()),
             emit=lambda message: None,
+            toolkit=FakeToolkit(),
+            control=Control(),
         )
-        running = asyncio.create_task(driver.run("initial", Adapter()))
+        running = asyncio.create_task(driver.run("initial"))
         try:
             await asyncio.wait_for(acknowledged.wait(), timeout=2)
             assert not interrupted.is_set()
@@ -583,3 +627,120 @@ def test_claude_interrupt_waits_for_old_results_before_next_query():
             await asyncio.gather(running, return_exceptions=True)
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "verdict",
+    [
+        {"_finish": True, "status": "success", "summary": "verified"},
+        {"_finish": True, "status": "failure", "summary": "operator aborted"},
+        {"status": "pending", "awaiting_operator": True},
+        {"error": "finish refused", "_finish": True, "status": "success"},
+    ],
+)
+def test_finish_uses_actual_tool_verdict(tmp_path, monkeypatch, verdict):
+    fake_sdk = FakeSdkTools()
+    patch_sdk_surface(monkeypatch, fake_sdk)
+    toolkit = FakeToolkit(verdict)
+    continued = []
+
+    async def stream(*, prompt, options):
+        yield {
+            "type": "AssistantMessage",
+            "content": [
+                {
+                    "type": "ToolUseBlock",
+                    "id": "finish-1",
+                    "name": "mcp__rpent__finish",
+                    "input": {"status": "success", "summary": "model claim"},
+                }
+            ],
+        }
+        handler = next(
+            tool
+            for tool in options["mcp_servers"]["rpent"]["tools"]
+            if tool.sdk_name == "finish"
+        )
+        response = await handler({"status": "success", "summary": "model claim"})
+        yield {
+            "type": "UserMessage",
+            "content": [
+                {
+                    "type": "ToolResultBlock",
+                    "tool_use_id": "finish-1",
+                    **response,
+                }
+            ],
+        }
+        continued.append(True)
+        yield {"type": "ResultMessage", "subtype": "success"}
+
+    patch_client_stream(monkeypatch, stream)
+    result = make_planner(tmp_path, RecordingSink()).solve(
+        system_prompt="",
+        user_message="task",
+        toolkit=toolkit,
+        max_turns=3,
+    )
+    accepted = verdict.get("_finish") is True and "error" not in verdict
+    assert result.finish_result == (verdict if accepted else None)
+    assert continued == ([] if accepted else [True])
+    assert result.error is None
+    assert toolkit.cancel_calls == 1
+
+
+def test_noninteractive_client_stops_at_first_result(tmp_path, monkeypatch):
+    fake_sdk = FakeSdkTools()
+    patch_sdk_surface(monkeypatch, fake_sdk)
+
+    async def stream(**kwargs):
+        yield {"type": "ResultMessage", "subtype": "success"}
+        pytest.fail("A non-interactive task must not wait for another user turn")
+
+    patch_client_stream(monkeypatch, stream)
+    result = make_planner(tmp_path, RecordingSink()).solve(
+        system_prompt="",
+        user_message="task",
+        toolkit=FakeToolkit(),
+        max_turns=3,
+    )
+    assert result.error is None
+    assert result.finish_result is None
+
+
+@pytest.mark.parametrize("stage", ["connect", "query"])
+def test_terminal_startup_failure_closes_input_and_drains_tools(
+    tmp_path, monkeypatch, stage
+):
+    fake_sdk = FakeSdkTools()
+    patch_sdk_surface(monkeypatch, fake_sdk)
+    closed = []
+    toolkit = FakeToolkit()
+
+    class Client:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            if stage == "connect":
+                raise RuntimeError("connect failed")
+            return self
+
+        async def __aexit__(self, *args):
+            assert toolkit.cancel_calls == 1
+            closed.append(True)
+
+        async def query(self, prompt):
+            raise RuntimeError("query failed")
+
+    monkeypatch.setattr(claude_agent_sdk, "ClaudeSDKClient", Client)
+    result = make_planner(tmp_path, RecordingSink()).solve(
+        system_prompt="",
+        user_message="task",
+        toolkit=toolkit,
+        max_turns=3,
+        input_queue=queue.Queue(),
+    )
+    assert result.error == f"RuntimeError: {stage} failed"
+    assert toolkit.cancel_calls == 1
+    assert closed == ([True] if stage == "query" else [])
