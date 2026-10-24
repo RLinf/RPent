@@ -1,4 +1,24 @@
 {
+  "vpp2_act": {
+    "name": "vpp2_act",
+    "description": "Execute a natural-language subtask with VPP2. Each chunk predicts 32 native dual-arm EE targets and executes the first 24, then replans from real feedback. Completion means commands executed, not subtask success. Inspect fresh images afterward.",
+    "input_schema": {
+      "properties": {
+        "instruction": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "chunks": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "instruction"
+      ],
+      "type": "object"
+    }
+  },
   "sample_world_xyz": {
     "name": "sample_world_xyz",
     "description": "Read persisted same-frame world xyz around [row,col] pixels. The view is also the pixel coordinate space: use the exact view whose RGB supplied the pixels. The current state's view_specs gives each view's [height,width]. This is read-only and does not render or move the robot.",

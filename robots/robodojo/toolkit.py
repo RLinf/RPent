@@ -29,7 +29,9 @@ from rpent.utils.logging import get_output_dir
 OBSERVATION_TOOLS = frozenset(
     {"view_env_state", "segment", "back_project", "sample_world_xyz", "query_world_map"}
 )
-MOTION_TOOLS = frozenset({"move_to", "rotate_wrist", "set_gripper", "release"})
+MOTION_TOOLS = frozenset(
+    {"move_to", "rotate_wrist", "set_gripper", "release", "vpp2_act"}
+)
 
 if TYPE_CHECKING:
     from rpent.memory.manager import MemoryManager
@@ -138,6 +140,8 @@ class RoboDojoToolkit(Toolkit):
                 resources["primitives"] = self._primitives
             self.add_tool(definition.with_handler(partial(definition, **resources)))
         for definition in iter_tools(self._primitives):
+            if definition.name == "vpp2_act" and self._primitives.vla_client is None:
+                continue
             self.add_tool(definition, replace=definition.name == "finish")
         self.add_tool(self.render)
 

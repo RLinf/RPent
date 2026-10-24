@@ -20,7 +20,7 @@ TASK = """- task:   {{task}}
 - seed group: {{seed}}
 - layout: {{layout}}
 - env_cfg: {{env_cfg_type}}
-- control: analytic joint targets
+- control: analytic joint targets and VPP2 native EE16 targets
 - output_dir: {{output_dir}}
 - scene (static hint): {{task_summary}}"""
 

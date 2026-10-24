@@ -76,7 +76,7 @@ class RoboDojoPrimitives:
             result["success"] = status["success"]
         return result
 
-    def _execute(self, updates: list[dict]) -> dict:
+    def _execute(self, updates: list[dict], *, policy_actions: bool = False) -> dict:
         executed = 0
         status = self._public_status(self.env.get_status())
         reason = None
@@ -90,7 +90,14 @@ class RoboDojoPrimitives:
                 break
             try:
                 self._check_cancelled()
-                result = self.env.step_joint_update(**update)
+                if policy_actions:
+                    _, _, _, info = self.env.step(update)
+                    result = {
+                        "executed_actions": info["executed_actions"],
+                        "episode_status": info["status"],
+                    }
+                else:
+                    result = self.env.step_joint_update(**update)
             except ToolCancelled:
                 reason = "cancelled"
                 break
@@ -127,6 +134,57 @@ class RoboDojoPrimitives:
             **({"error": error, "execution_uncertain": True} if error else {}),
             **({"interrupted": True} if reason == "cancelled" else {}),
         }
+
+    @tool
+    def vpp2_act(
+        self,
+        *,
+        instruction: Annotated[str, Field(min_length=1)],
+        chunks: Annotated[int, Field(ge=1)] = 1,
+    ) -> ToolResult:
+        """Execute a natural-language subtask with VPP2. Each chunk predicts 32 native dual-arm EE targets and executes the first 24, then replans from real feedback. Completion means commands executed, not subtask success. Inspect fresh images afterward."""
+        from robots.robodojo.vpp2_client import REPLAN_STEPS
+
+        if not isinstance(instruction, str) or not instruction.strip():
+            raise ValueError("instruction must be a nonempty subtask string")
+        if type(chunks) is not int or chunks < 1:
+            raise ValueError("chunks must be a positive integer")
+        if self.vla_client is None:
+            raise RuntimeError("VPP2 is not connected")
+        result = self._execute([])
+        executed = completed_chunks = 0
+        for _ in range(chunks):
+            if result["stop_reason"] != "completed":
+                break
+            try:
+                self._check_cancelled()
+                actions = self.vla_client.infer(
+                    self.env.policy_observation(), instruction
+                )
+            except ToolCancelled:
+                result.update(stop_reason="cancelled", interrupted=True)
+                break
+            except Exception as exc:
+                result.update(
+                    success=False, stop_reason="inference_failed", error=str(exc)
+                )
+                break
+            result = self._execute(actions, policy_actions=True)
+            executed += result["executed_actions"]
+            completed_chunks += int(result["completed"])
+            if not result["completed"]:
+                break
+        result.update(
+            instruction=instruction,
+            requested_chunks=chunks,
+            executed_chunks=completed_chunks,
+            requested_steps=chunks * REPLAN_STEPS,
+            requested_actions=chunks * REPLAN_STEPS,
+            executed_steps=executed,
+            executed_actions=executed,
+            completed=completed_chunks == chunks,
+        )
+        return ToolResult(data=result)
 
     @tool
     def move_to(
