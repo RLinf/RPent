@@ -233,6 +233,7 @@ def test_tool_replans_after_analytic_actions_and_keeps_subtasks_in_one_episode(
     result = primitive.vpp2_act(instruction="pick the red block", chunks=2).data
     assert result["completed"] and result["executed_actions"] == 48
     assert result["executed_chunks"] == 2
+    assert result["episode_status"]["remaining_steps"] == 951
     assert stamps(calls[0])[-1] == 1 and stamps(calls[1])[-1] == 25
     assert [call["inference_index"] for call in calls] == [0, 1]
     primitive.vpp2_act(instruction="put it in the basket")
@@ -327,6 +328,11 @@ def test_toolkit_registers_policy_and_persists_subtask_without_recipe_export(
         assert not names.intersection({"pi0_pick", "stabilize", "place_in_bin"})
         result = toolkit.execute_tool("vpp2_act", {"instruction": "pick the red block"})
         assert not result.is_error, result.data
+        assert result.data["episode_status"] == {
+            "step": 24,
+            "step_limit": 1000,
+            "remaining_steps": 976,
+        }
         record = toolkit._state.latest_record()
         assert record.result["executed_actions"] == 24
         assert record.command["instruction"] == "pick the red block"
