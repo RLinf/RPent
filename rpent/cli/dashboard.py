@@ -70,10 +70,13 @@ def run_dashboard_session(
     dashboard_spec = robot_spec.dashboard
     if dashboard_spec is None:
         parser.error(f"robot {robot_spec.name!r} does not support Dashboard control")
+    select_defaults = getattr(robot_spec, "default_runtime_components", None)
+    default_components = select_defaults(args) if select_defaults else None
     runtime_components = tuple(
         component
         for component in dashboard_spec["runtime_components"]
-        if not component.get("planners") or args.planner in component["planners"]
+        if (not component.get("planners") or args.planner in component["planners"])
+        and (default_components is None or component["name"] in default_components)
     )
     dashboard_spec = {**dashboard_spec, "runtime_components": runtime_components}
     shared_components = {

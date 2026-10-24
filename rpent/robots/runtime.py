@@ -62,9 +62,11 @@ def try_spawn_server(
         if daemon is not None:
             daemons[component] = daemon
         return daemon, rpc
-    except Exception as exc:
+    except BaseException as exc:
         stop_owned_daemons(daemons, dashboard_events)
         dashboard_events.emit(RuntimeStatusEvent(component, "failed", error=exc))
+        if not isinstance(exc, Exception):
+            raise
         raise RuntimeError(f"[{component}] spawn failed: {exc}") from exc
 
 
@@ -83,9 +85,11 @@ def try_wait_server(
         result = None
         if post_fn is not None:
             result = post_fn()
-    except Exception as exc:
+    except BaseException as exc:
         stop_owned_daemons(daemons, dashboard_events)
         dashboard_events.emit(RuntimeStatusEvent(component, "failed", error=exc))
+        if not isinstance(exc, Exception):
+            raise
         raise RuntimeError(
             f"[{component}] wait / client connect failed: {exc}"
         ) from exc

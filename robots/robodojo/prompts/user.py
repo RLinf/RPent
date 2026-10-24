@@ -17,19 +17,21 @@
 from __future__ import annotations
 
 TASK = """- task:   {{task}}
+- seed group: {{seed}}
 - layout: {{layout}}
 - env_cfg: {{env_cfg_type}}
-- action_type: {{action_type}}
 - output_dir: {{output_dir}}
 - scene (static hint): {{task_summary}}"""
 
 BEGIN = """Call `view_env_state` first to read the instruction and observe the
-scene, then localize targets and execute."""
+scene. Localize relevant targets, act through the registered primitives,
+inspect execution feedback, and record the outcome before finishing."""
 
-PUT_BOTTLES_CONTEXT = """For put_bottles_into_dustbin:
-- Use `place_in_bin` to carry a held bottle to the bin mouth CENTER, descend
-  below the rim, release, and retract. Releasing at mouth height can catch the rim.
-- Inspect camera images for bottles rolling or falling off the table.
-  For a rolling bottle, use `stabilize` to place an open gripper in its
-  path at table height; reassess before resuming. An off-table bottle may be
-  unrecoverable."""
+
+POLICY_BEGIN = """Read the original task instruction with `view_env_state`, then
+choose bounded `run_policy` calls and inspect their feedback until the episode
+ends or execution is interrupted. Report the observed outcome with `finish`."""
+
+MIXED_BEGIN = """Read `view_env_state` for the original task and current images.
+Plan from the observation, act through the configured tools, and check their
+actual effects."""

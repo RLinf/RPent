@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Positive observation allowlist for frozen-plan replay."""
+"""Public observation fields and Planner RGB requirements."""
 
 CAMERAS = ("cam_head", "cam_left_wrist", "cam_right_wrist")
 STATE_KEYS = tuple(
@@ -43,3 +43,18 @@ def public_observation(obs: dict) -> dict:
             if name in CAMERAS
         },
     }
+
+
+def validate_rgb(obs: dict) -> None:
+    """Require the head and wrist images shown by the Awomo toolkit."""
+    import numpy as np
+
+    for name in CAMERAS:
+        rgb = np.asarray(obs.get("vision", {}).get(name, {}).get("color"))
+        if (
+            rgb.ndim != 3
+            or rgb.shape[-1] != 3
+            or min(rgb.shape[:2]) == 0
+            or rgb.dtype != np.uint8
+        ):
+            raise ValueError(f"Planner observation requires HWC uint8 RGB: {name}")

@@ -14,10 +14,11 @@
 
 """Shared policy adapter for XPolicyLab WebSocket inference.
 
-Exposes the shared :class:`BaseVLAFacade` wire protocol (``vla.predict``) over
-the XPolicyLab WebSocket Pi_05 policy server. It starts the policy through its
-Python entry point or shell launcher and connects with the XPolicyLab model
-client. Policy observations are passed through unchanged.
+Exposes ``vla.predict`` for existing callers. Opt-in stateful mode uses RPC
+sessions with ``vla.reset_session``, ``vla.update_obs(obs, step)`` and
+``vla.get_action``. ``vla.end_episode`` releases history ownership without
+disconnecting the transport. One session owns the upstream model at a time.
+Policy observations are passed through unchanged.
 """
 
 from __future__ import annotations
@@ -41,21 +42,33 @@ from rpent.utils.logging import get_logger
 logger = get_logger("vla_server")
 
 
+def add_connection_args(
+    parser: argparse.ArgumentParser, *, required: bool = False
+) -> None:
+    """Register the upstream WebSocket connection and evaluation identity."""
+    parser.add_argument("--task", required=required)
+    parser.add_argument("--evaluation-id")
+    parser.add_argument("--policy-server-url", required=required)
+
+
 def add_backend_args(parser: argparse.ArgumentParser) -> None:
     """Register XPolicyLab launch and WebSocket configuration."""
+    add_connection_args(parser)
     for name in (
-        "task",
         "bench",
         "ckpt",
         "env-cfg-type",
         "action-type",
         "policy-root",
-        "evaluation-id",
     ):
         parser.add_argument(f"--{name}")
     parser.add_argument("--policy-gpu", type=int, default=None)
     parser.add_argument("--policy-port", type=int, default=0)
-    parser.add_argument("--policy-server-url")
+    parser.add_argument(
+        "--stateful",
+        action="store_true",
+        help="Require an exclusive RPC session and explicit per-step observations",
+    )
     parser.add_argument(
         "--output-dir", default=os.getcwd(), help="Directory for policy server logs"
     )
@@ -161,7 +174,7 @@ def _connect_policy(url: str, args: argparse.Namespace):
 
 
 class XPolicyLabVLAFacade(BaseVLAFacade):
-    """Adapt the XPolicyLab Pi_05 WebSocket policy to the shared VLA facade."""
+    """Adapt XPolicyLab policies with optional exclusive episode history."""
 
     def __init__(self, args: argparse.Namespace) -> None:
         if not args.task:
@@ -180,6 +193,11 @@ class XPolicyLabVLAFacade(BaseVLAFacade):
             )
         self._policy_daemon = None
         self._model_client = None
+        self._stateful = getattr(args, "stateful", False)
+        self._owner: str | None = None
+        self._next_step = 0
+        self._inferred_step = -1
+        self._episode_ready = False
         self._close_lock = threading.Lock()
         atexit.register(self.close)
         try:
@@ -188,24 +206,46 @@ class XPolicyLabVLAFacade(BaseVLAFacade):
                 self._policy_daemon = _spawn_policy_server(args)
                 policy_url = f"ws://localhost:{args.policy_port}"
             logger.info("connecting to policy server: %s", policy_url)
-            self._model_client = _connect_policy(policy_url, args)
+            self._model_client = self._connect_policy(policy_url, args)
             self._ws_lock = threading.Lock()
-            super().__init__()
+            super().__init__(enable_sessions=self._stateful)
         except BaseException:
             self.close()
             raise
         logger.info("policy client connected")
 
+    def _connect_policy(self, url: str, args: argparse.Namespace) -> Any:
+        return _connect_policy(url, args)
+
     def _register_rpc(self) -> None:
         super()._register_rpc()
         self._rpc["reset"] = self.reset
+        if self._stateful:
+            self._rpc.update(
+                {
+                    "vla.reset_session": self.reset_session,
+                    "vla.update_obs": self.update_obs,
+                    "vla.get_action": self.get_action,
+                    "vla.end_episode": self.end_episode,
+                }
+            )
 
-    def reset(self) -> dict[str, Any]:
+    def reset(self, *, session_id: str | None = None) -> dict[str, Any]:
+        if self._stateful:
+            raise ValueError("Use vla.reset_session in stateful mode")
         with self._ws_lock:
             self._model_client.call(func_name="reset")
         return {"ok": True}
 
-    def predict(self, obs: dict[str, Any], options: dict | None = None) -> Any:
+    def predict(
+        self,
+        obs: dict[str, Any],
+        options: dict | None = None,
+        *,
+        session_id: str | None = None,
+    ) -> Any:
+        if self._stateful:
+            raise ValueError("Use vla.update_obs and vla.get_action in stateful mode")
         del options
         with self._ws_lock:
             self._model_client.call(func_name="update_obs", obs=obs)
@@ -213,6 +253,75 @@ class XPolicyLabVLAFacade(BaseVLAFacade):
         if isinstance(result, dict) and "actions" in result:
             return result["actions"]
         return result
+
+    def reset_session(self, *, session_id: str) -> dict[str, Any]:
+        """Start an episode for the sole owner of this policy instance."""
+        with self._ws_lock:
+            if self._owner is not None and self._owner != session_id:
+                raise RuntimeError("Policy history is owned by another session")
+            self._owner = session_id
+            self._episode_ready = False
+            self._model_client.call(func_name="reset")
+            self._next_step = 0
+            self._inferred_step = -1
+            self._episode_ready = True
+        return {"ok": True}
+
+    def _require_episode(self, session_id: str) -> None:
+        if self._owner != session_id:
+            raise RuntimeError("Call vla.reset_session to acquire policy history")
+        if not self._episode_ready:
+            raise RuntimeError(
+                "Policy state is uncertain; reset the episode before use"
+            )
+
+    def _episode_call(self, **kwargs) -> Any:
+        # A failed response may follow a successful model mutation. Never retry
+        # or continue a history whose contents are no longer known.
+        try:
+            return self._model_client.call(**kwargs)
+        except Exception:
+            self._episode_ready = False
+            raise
+
+    def update_obs(self, obs: dict, step: int, *, session_id: str) -> dict:
+        """Append exactly one control observation, starting at episode step zero."""
+        with self._ws_lock:
+            self._require_episode(session_id)
+            if type(step) is not int or step != self._next_step:
+                raise ValueError(
+                    f"Expected observation step {self._next_step}, got {step}"
+                )
+            self._episode_call(func_name="update_obs", obs=obs)
+            self._next_step += 1
+        return {"ok": True}
+
+    def get_action(self, *, session_id: str, include_info: bool = False) -> Any:
+        """Infer once; optionally retain the upstream result envelope."""
+        if type(include_info) is not bool:
+            raise ValueError("include_info must be a boolean")
+        with self._ws_lock:
+            self._require_episode(session_id)
+            current_step = self._next_step - 1
+            if current_step <= self._inferred_step:
+                raise RuntimeError("A new observation is required before inference")
+            result = self._episode_call(func_name="get_action")
+            self._inferred_step = current_step
+        if not include_info and isinstance(result, dict) and "actions" in result:
+            return result["actions"]
+        return result
+
+    def _on_session_drop(self, session_id: str) -> None:
+        # The next owner must reset before any observation or inference.
+        with self._ws_lock:
+            if self._owner == session_id:
+                self._owner = None
+                self._episode_ready = False
+
+    def end_episode(self, *, session_id: str) -> dict:
+        """Release episode ownership while retaining the reusable RPC connection."""
+        self._on_session_drop(session_id)
+        return {"ok": True}
 
     def close(self) -> None:
         """Release owned policy processes even when the WebSocket close fails."""
@@ -274,6 +383,7 @@ def main() -> None:
             host=args.host,
             port=args.port,
             parent_watch=args.parent_watch,
+            **({"session_sweep_s": 60.0} if args.stateful else {}),
         )
     finally:
         try:

@@ -24,9 +24,9 @@ from rpent.robots.components.vla_client_base import BaseVLAClient
 class XPolicyLabVLAClient(BaseVLAClient):
     """Client for the shared XPolicyLab WebSocket policy adapter.
 
-    Uses the shared :class:`BaseVLAClient` wire protocol (``vla.predict``);
-    the shared XPolicyLab adapter translates WebSocket Pi_05 calls into
-    that protocol, including the backend's stateful ``reset`` operation.
+    Legacy callers use ``predict`` and ``reset``. A stateful bridge requires
+    a session-aware transport registered through ``wait_for_ready``; use
+    ``reset_session``, ``update_obs`` and ``get_action`` on that connection.
     """
 
     def healthz(self) -> dict[str, Any]:
@@ -34,3 +34,35 @@ class XPolicyLabVLAClient(BaseVLAClient):
 
     def reset(self) -> None:
         self._client.call("reset")
+
+    def reset_session(self) -> None:
+        """Acquire the stateful policy and clear its episode history."""
+        self._client.call("vla.reset_session", timeout_s=self._TIMEOUT_S["predict"])
+
+    def update_obs(self, obs: dict[str, Any], step: int) -> None:
+        """Send one observation at the next contiguous episode control step."""
+        self._client.call(
+            "vla.update_obs",
+            args=(obs, step),
+            timeout_s=self._TIMEOUT_S["predict"],
+        )
+
+    def get_action(self, *, include_info: bool = False) -> Any:
+        """Infer once, optionally retaining the backend's result envelope."""
+        return self._client.call(
+            "vla.get_action",
+            **(
+                {"kwargs": {"include_info": include_info}}
+                if include_info is not False
+                else {}
+            ),
+            timeout_s=self._TIMEOUT_S["predict"],
+        )
+
+    def close(self) -> None:
+        """Release this client's RPC session."""
+        self._client.close()
+
+    def end_episode(self) -> None:
+        """Release policy history while keeping this transport reusable."""
+        self._client.call("vla.end_episode")

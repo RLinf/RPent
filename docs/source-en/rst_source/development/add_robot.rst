@@ -406,13 +406,22 @@ validates those fields and returns a
   supporting clients.
 
 The fourth argument, ``components``, selects which named services to
-initialize. ``None`` means all services and is what the normal CLI passes.
+initialize. ``None`` selects the robot’s configured defaults and is what the
+normal CLI passes. An explicit set must be honored independently of defaults.
 The Dashboard derives two subsets from ``dashboard.runtime_components``. Every
 component declares either ``scope: "shared"`` or ``scope: "unique"`` explicitly.
 The Dashboard initializes shared components once, then initializes unique
 components for every fresh environment instance. It calls this same hook for
 both subsets and merges the returned ``runtime_kwargs`` dictionaries. For
 LIBERO, the subsets are ``{"vla", "sam3"}`` and ``{"env"}``.
+
+Robots whose defaults depend on the backend or enabled tools can register
+``RobotSpec(default_runtime_components=...)``. This optional callback takes
+``args`` and returns the default component names. Use it inside ``init_runtime``
+when ``components is None`` as well. Dashboard uses it to filter its declared
+component list before splitting shared and unique services; declarations alone
+are not explicit requests. Without this callback, Dashboard keeps the declared
+components, subject to the existing planner filter.
 
 An implementation should reject unknown component names before starting
 anything. When several selected local services are expensive to initialize,

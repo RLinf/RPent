@@ -292,7 +292,9 @@ toolkit 模块通常包含四部分：
 - ``owned_daemons: list[ProcessDaemon]`` 只包含当前进程实际启动的子进程，当前 runner 会在清理阶段停止它们。连接外部 endpoint 时，不能把外部服务加入该列表。
 - ``runtime_kwargs: dict`` 会传给 toolkit 构造器，再由后者传入 primitives 的 ``__init__``。完整参数通常包含 ``{"env": MyEnvClient(...), "model": VLAClient(...)}``，以及其他辅助 client。
 
-第四个参数 ``components`` 指定要初始化的服务名称。``None`` 表示全部服务，普通 CLI 会传入这个值。Dashboard 根据 ``dashboard.runtime_components`` 得到两个子集，每个 component 都必须显式声明 ``scope: "shared"`` 或 ``scope: "unique"``。Dashboard 先初始化一次 shared components，再为每个新的环境实例初始化 unique components。两次都调用同一个钩子，最后合并返回的 ``runtime_kwargs``。在 LIBERO 中，这两个子集分别是 ``{"vla", "sam3"}`` 和 ``{"env"}``。
+第四个参数 ``components`` 指定要初始化的服务名称。``None`` 表示机器人当前配置的默认服务，普通 CLI 会传入这个值；显式集合应独立于默认值得到保留。Dashboard 根据 ``dashboard.runtime_components`` 得到两个子集，每个 component 都必须显式声明 ``scope: "shared"`` 或 ``scope: "unique"``。Dashboard 先初始化一次 shared components，再为每个新的环境实例初始化 unique components。两次都调用同一个钩子，最后合并返回的 ``runtime_kwargs``。在 LIBERO 中，这两个子集分别是 ``{"vla", "sam3"}`` 和 ``{"env"}``。
+
+如果默认服务取决于后端或启用的工具，可注册 ``RobotSpec(default_runtime_components=...)``。这个可选回调接收 ``args``，返回默认组件名称集合；``init_runtime`` 在 ``components is None`` 时也应调用它。Dashboard 在划分 shared 和 unique 服务之前，使用该回调过滤已声明的组件列表；静态声明本身不代表显式请求。不提供回调时，Dashboard 保留原有声明，并继续应用规划器过滤规则。
 
 实现应在启动任何服务前拒绝未知 component 名称。如果多个选中的本地服务初始化较慢，应先全部启动，再依次等待 ready，让初始化过程可以重叠。参考实现见 ``robots/libero/robot_spec.py`` 中的有序 component registry。
 

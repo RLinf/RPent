@@ -90,3 +90,6 @@ class RobotSpec:
     #: Takes the toolkit, the cell tag, and a note sink; returns at least
     #: ``{"done": bool}``. Left unset by robots without Flash Mode.
     run_flash: Callable[[Any, str, Callable[[str], None]], dict[str, Any]] | None = None
+    #: Select default services for CLI and Dashboard from robot configuration.
+    #: Explicit init_runtime component sets remain authoritative.
+    default_runtime_components: Callable[[argparse.Namespace], set[str]] | None = None

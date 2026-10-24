@@ -33,7 +33,7 @@ import queue
 import tempfile
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -106,13 +106,13 @@ class CodexPlanner(Planner):
         self._output_dir = str(output_dir)
         self._repo_root = str(repo_root) if repo_root else str(get_repo_root())
         self._timeout_s = timeout_s
-        self._extra_dirs = extra_dirs or []
         self._output_path = Path(output_path) if output_path else None
         self._model = model or os.environ.get("CODEX_MODEL", None)
         self._base_url = os.environ.get("CODEX_BASE_URL", None)
         self._api_key = os.environ.get("CODEX_API_KEY", None)
         self._service_tier = os.environ.get("CODEX_SERVICE_TIER", None)
         self._dashboard_events = dashboard_events
+        self._registered_tools_only = False
         if reasoning_effort not in REASONING_EFFORTS:
             raise ValueError(f"unsupported reasoning effort: {reasoning_effort}")
         self._thread_options = {
@@ -127,6 +127,8 @@ class CodexPlanner(Planner):
             **self._thread_options,
             "effort": getattr(ReasoningEffort, reasoning_effort),
         }
+        self._default_thread_options = dict(self._thread_options)
+        self._default_turn_options = dict(self._turn_options)
 
     def solve(
         self,
@@ -142,6 +144,21 @@ class CodexPlanner(Planner):
         if input_queue is not None and dashboard_interaction is not None:
             raise ValueError(
                 "input_queue and dashboard_interaction cannot be used together"
+            )
+        self._registered_tools_only = getattr(toolkit, "registered_tools_only", False)
+        self._thread_options = dict(self._default_thread_options)
+        self._turn_options = dict(self._default_turn_options)
+        if self._registered_tools_only:
+            work = Path(self._output_dir) / "planner-work"
+            work.mkdir(parents=True, exist_ok=True)
+            self._thread_options.update(
+                cwd=str(work),
+                sandbox=openai_codex.Sandbox.read_only,
+                ephemeral=True,
+                base_instructions="Follow the supplied task and tool contracts. Perform task operations through the registered RPent tools.",
+            )
+            self._turn_options.update(
+                cwd=str(work), sandbox=openai_codex.Sandbox.read_only
             )
         prompt = f"{system_prompt}\n\n{user_message}" if system_prompt else user_message
         if dashboard_interaction is not None:
@@ -492,12 +509,15 @@ class CodexPlanner(Planner):
     # -- config builder ----------------------------------------------------
 
     def _build_config(self, mcp_url: str) -> Any:
-        return build_codex_config(
+        config = build_codex_config(
             mcp_url=mcp_url,
             base_url=self._base_url,
             api_key=self._api_key,
-            cwd=self._repo_root,
+            cwd=self._thread_options["cwd"],
+            registered_tools_only=self._registered_tools_only,
+            tool_timeout_s=self._timeout_s,
         )
+        return _exclude_external_mcp(config) if self._registered_tools_only else config
 
 
 class _CodexDashboardSession:
@@ -858,6 +878,8 @@ def build_codex_config(
     base_url: str | None,
     api_key: str | None,
     cwd: str,
+    registered_tools_only: bool = False,
+    tool_timeout_s: int = 600,
 ) -> Any:
     """Build the Codex SDK config shared by the planner and the check.
 
@@ -867,6 +889,12 @@ def build_codex_config(
         base_url: Custom Responses-compatible endpoint, or ``None``.
         api_key: Key exported to the child as ``RPENT_CODEX_PROVIDER_KEY``.
         cwd: Working directory handed to the Codex child process.
+        registered_tools_only: Disable Codex's native execution tools, plugins
+            and automatic personal context. This is a task access profile, not
+            an OS isolation boundary or a guarantee that no SDK helper tools
+            are exposed. The planner separately excludes inherited MCP servers.
+        tool_timeout_s: Planner deadline; the MCP timeout allows 30 additional
+            seconds for the planner's cancellation and drain to complete.
 
     Returns:
         The ``openai_codex.CodexConfig`` to open a session with.
@@ -875,6 +903,14 @@ def build_codex_config(
     if api_key:
         env[PROVIDER_ENV_KEY] = api_key
     config_overrides = _codex_mcp_config_overrides(mcp_url=mcp_url, base_url=base_url)
+    if mcp_url:
+        config_overrides.extend(
+            [
+                "mcp_servers.rpent.required=true",
+                'mcp_servers.rpent.default_tools_approval_mode="approve"',
+                f"mcp_servers.rpent.tool_timeout_sec={tool_timeout_s + 30}",
+            ]
+        )
     # Project development instructions and skills are excluded from planner context.
     config_overrides.append("project_doc_max_bytes=0")
     disabled_skills = [
@@ -884,6 +920,39 @@ def build_codex_config(
     ]
     if disabled_skills:
         config_overrides.append(f"skills.config=[{', '.join(disabled_skills)}]")
+    if registered_tools_only:
+        # CLI 0.163 supports these per-process context and tool-source settings.
+        # Codex memory is independent of memory readers registered in RPent MCP.
+        config_overrides.extend(
+            [
+                'web_search="disabled"',
+                "memories.use_memories=false",
+                "memories.generate_memories=false",
+                "memories.dedicated_tools=false",
+                "features.skip_host_skill_discovery=true",
+                'developer_instructions=""',
+            ]
+        )
+        config_overrides.extend(
+            f"features.{name}=false"
+            for name in (
+                "shell_tool",
+                "unified_exec",
+                "view_image",
+                "apps",
+                "browser_use",
+                "browser_use_external",
+                "computer_use",
+                "remote_plugin",
+                "plugins",
+                "skill_search",
+                "multi_agent",
+                "image_generation",
+                "goals",
+                "sleep_tool",
+                "in_app_browser",
+            )
+        )
     kwargs: dict[str, Any] = {
         "config_overrides": tuple(config_overrides),
         "cwd": cwd,
@@ -895,6 +964,41 @@ def build_codex_config(
     if codex_bin := os.environ.get("CODEX_BIN"):
         kwargs["codex_bin"] = codex_bin
     return openai_codex.CodexConfig(**kwargs)
+
+
+def _exclude_external_mcp(config: Any) -> Any:
+    """Disable inherited servers in the child config, retaining auth/provider.
+
+    Codex merges MCP tables across configuration layers, so assigning a table
+    containing only RPent does not remove inherited entries. Read the effective
+    config before any thread (and hence MCP connections) starts. This uses the
+    same SDK config/read interface as the grounding agent; no user files change.
+    """
+    from openai_codex.client import CodexClient
+    from openai_codex.generated.v2_all import ConfigReadResponse
+
+    with CodexClient(config=config) as client:
+        client.initialize()
+        response = client.request(
+            "config/read",
+            {"cwd": config.cwd, "includeLayers": False},
+            response_model=ConfigReadResponse,
+        )
+    servers = response.config.model_dump().get("mcp_servers", {})
+    disabled = ", ".join(
+        f"{json.dumps(name)}={{enabled=false}}"
+        for name, server in servers.items()
+        if name != "rpent" and server.get("enabled", True)
+    )
+    # CLI dotted paths are split literally, not parsed as TOML keys. An inline
+    # table also handles server names containing dots. Apply it before RPent's
+    # dotted overrides so the CLI does not replace those entries with this table.
+    if not disabled:
+        return config
+    return replace(
+        config,
+        config_overrides=(f"mcp_servers={{{disabled}}}", *config.config_overrides),
+    )
 
 
 def run_probe_turn(

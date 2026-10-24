@@ -139,6 +139,11 @@ class Toolkit:
     :meth:`close` to release robot-side primitives / servers at the end of the run.
     """
 
+    # Request task operations through registered tools. Codex implements this
+    # with its restricted task access profile; API planners expose these tools
+    # directly. It does not remove registered memory readers or impose a strategy.
+    registered_tools_only: bool = False
+
     def __init__(
         self,
         *,
@@ -242,73 +247,87 @@ class Toolkit:
             )
 
         try:
-            started = time.perf_counter()
-            try:
-                self.raise_if_cancelled()
-                native = tool(**kwargs)
-            except TypeError as exc:
-                native = ToolResult(
-                    data={
-                        "error": f"bad arguments for {name}: {exc}",
-                        "got": input_dict,
-                    }
-                )
-            except ToolCancelled as exc:
-                native = ToolResult(
-                    data={
-                        "error": str(exc),
-                        "code": "tool_cancelled",
-                        "interrupted": True,
-                    }
-                )
-            except Exception as exc:
-                logger.exception("Tool %s failed", name)
-                native = ToolResult(
-                    data={"error": str(exc), "traceback": traceback.format_exc()}
-                )
-
-            if not tool.readonly:
-                elapsed_s = round(time.perf_counter() - started, 2)
-                result_dict = native.to_dict()
-                command = {"action": name, **input_dict}
-                record: StepRecord | None = None
-                try:
-                    observed = self.get_env_state(
-                        command=command,
-                        result=result_dict,
-                        elapsed_s=elapsed_s,
-                    )
-                except Exception as exc:
-                    logger.exception("State capture failed after %s", name)
-                    native.data["state_capture_error"] = str(exc)
-                    if not native.is_error:
-                        native.data["error"] = (
-                            f"failed to capture state after {name}: {exc}"
-                        )
-                    native.data.setdefault("traceback", traceback.format_exc())
-                else:
-                    record = self._state.latest_record()
-                    if native.is_error:
-                        for key, value in native.data.items():
-                            observed.data.setdefault(key, value)
-                        observed.data["error"] = native.data["error"]
-                    native = ToolResult(
-                        data=observed.data,
-                        images=native.images + observed.images,
-                    )
-                if record is not None:
-                    self._publish_step(record)
-
-            try:
-                json.dumps(native.to_dict(), allow_nan=False, default=str)
-            except (TypeError, ValueError) as exc:
-                native = ToolResult(
-                    data={"error": f"Tool result serialization failed: {exc}"},
-                    images=native.images,
-                )
-            return native
+            return self._execute_tool(tool, kwargs, input_dict)
         finally:
             self._scheduler.release(operation)
+
+    def _execute_tool(
+        self, tool: Tool, kwargs: dict[str, Any], input_dict: dict[str, Any]
+    ) -> ToolResult:
+        """Execute one validated call while holding its scheduler admission.
+
+        Robot-specific feedback handling can extend this boundary so confirmed
+        progress and failed delivery are resolved before another control starts.
+        """
+        name = tool.name
+        started = time.perf_counter()
+        try:
+            self.raise_if_cancelled()
+            native = tool(**kwargs)
+        except TypeError as exc:
+            native = ToolResult(
+                data={
+                    "error": f"bad arguments for {name}: {exc}",
+                    "got": input_dict,
+                }
+            )
+        except ToolCancelled as exc:
+            native = ToolResult(
+                data={
+                    "error": str(exc),
+                    "code": "tool_cancelled",
+                    "interrupted": True,
+                }
+            )
+        except Exception as exc:
+            logger.exception("Tool %s failed", name)
+            native = ToolResult(
+                data={"error": str(exc), "traceback": traceback.format_exc()}
+            )
+
+        # Capture errors and robot-specific presentation must not mutate a
+        # handler-owned result (for example an executor's last_run).
+        native = ToolResult(data=native.to_dict(), images=native.images)
+        if not tool.readonly:
+            elapsed_s = round(time.perf_counter() - started, 2)
+            result_dict = native.to_dict()
+            command = {"action": name, **input_dict}
+            record: StepRecord | None = None
+            try:
+                observed = self.get_env_state(
+                    command=command,
+                    result=result_dict,
+                    elapsed_s=elapsed_s,
+                )
+            except Exception as exc:
+                logger.exception("State capture failed after %s", name)
+                native.data["state_capture_error"] = str(exc)
+                if not native.is_error:
+                    native.data["error"] = (
+                        f"failed to capture state after {name}: {exc}"
+                    )
+                native.data.setdefault("traceback", traceback.format_exc())
+            else:
+                record = self._state.latest_record()
+                if native.is_error:
+                    for key, value in native.data.items():
+                        observed.data.setdefault(key, value)
+                    observed.data["error"] = native.data["error"]
+                native = ToolResult(
+                    data=observed.data,
+                    images=native.images + observed.images,
+                )
+            if record is not None:
+                self._publish_step(record)
+
+        try:
+            json.dumps(native.to_dict(), allow_nan=False, default=str)
+        except (TypeError, ValueError) as exc:
+            native = ToolResult(
+                data={"error": f"Tool result serialization failed: {exc}"},
+                images=native.images,
+            )
+        return native
 
     def _publish_step(self, record: StepRecord) -> None:
         """Publish one recorded environment step to the dashboard sink."""

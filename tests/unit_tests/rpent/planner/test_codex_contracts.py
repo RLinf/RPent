@@ -160,6 +160,7 @@ def install_fake_backend(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]
     FakeMcpServer.instances.clear()
     FakeCodex.instances.clear()
     monkeypatch.setattr(FakeCodex, "events", [])
+    monkeypatch.setattr(codex_module, "_exclude_external_mcp", lambda config: config)
     monkeypatch.setattr(codex_module, "HttpMcpServer", FakeMcpServer)
     monkeypatch.setattr(codex_module.openai_codex, "CodexConfig", codex_config)
     monkeypatch.setattr(codex_module.openai_codex, "Codex", FakeCodex)
@@ -1227,3 +1228,97 @@ def test_retry_error_is_visible_without_poisoning_successful_turn():
     )
     assert "Retries exhausted" in recorder.error
     assert "Model connection failed" in str(sink.events[-1])
+
+
+def test_tool_access_profile_is_scoped_to_each_solve(tmp_path, monkeypatch):
+    configs = install_fake_backend(monkeypatch)
+    planner = make_planner(tmp_path, RecordingSink())
+    for restricted in (False, True, False):
+        kit = FakeToolkit()
+        kit.registered_tools_only = restricted
+        result = planner.solve(
+            system_prompt="Task", user_message="Proceed", toolkit=kit, max_turns=3
+        )
+        assert result.error is None
+        assert FakeMcpServer.instances[-1].toolkit is kit
+        assert FakeMcpServer.instances[-1].stopped
+        # The MCP call must outlive the planner deadline, allowing cancellation
+        # and drain to finish instead of silently applying the MCP default (60s).
+        assert (
+            "mcp_servers.rpent.tool_timeout_sec=31" in configs[-1]["config_overrides"]
+        )
+    ordinary, restricted, restored = FakeCodex.instances
+    assert restored.thread_options == ordinary.thread_options
+    assert restored.thread.turn_prompts == ordinary.thread.turn_prompts
+    assert configs[-1] == configs[0]
+    assert restricted.thread_options["ephemeral"] is True
+    assert restricted.thread_options["cwd"] == str(tmp_path / "planner-work")
+    assert (
+        restricted.thread_options["sandbox"]
+        == codex_module.openai_codex.Sandbox.read_only
+    )
+    turn_options = restricted.thread.turn_prompts[0][1]
+    assert turn_options["cwd"] == restricted.thread_options["cwd"]
+    assert turn_options["sandbox"] == restricted.thread_options["sandbox"]
+    overrides = configs[1]["config_overrides"]
+    for key in (
+        "memories.use_memories",
+        "memories.generate_memories",
+        "features.shell_tool",
+        "features.plugins",
+    ):
+        assert key + "=false" in overrides
+    assert "mcp_servers.rpent.required=true" in overrides
+    assert 'mcp_servers.rpent.default_tools_approval_mode="approve"' in overrides
+
+
+def test_restricted_config_disables_effective_external_mcp_without_changing_provider(
+    tmp_path, monkeypatch
+):
+    requests = []
+
+    class ConfigClient:
+        def __init__(self, config):
+            self.config = config
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def initialize(self):
+            pass
+
+        def request(self, method, params, response_model):
+            requests.append((method, params))
+            return response_model.model_validate(
+                {
+                    "config": {
+                        "mcp_servers": {
+                            "rpent": {"url": "http://rpent/mcp"},
+                            "external.server": {"url": "http://external/mcp"},
+                            "off": {"enabled": False},
+                        }
+                    },
+                    "origins": {},
+                }
+            )
+
+    monkeypatch.setattr("openai_codex.client.CodexClient", ConfigClient)
+    config = codex_module.build_codex_config(
+        mcp_url="http://rpent/mcp",
+        base_url="http://provider",
+        api_key="local-key",
+        cwd=str(tmp_path),
+        registered_tools_only=True,
+    )
+    updated = codex_module._exclude_external_mcp(config)
+    assert requests == [("config/read", {"cwd": str(tmp_path), "includeLayers": False})]
+    assert updated.config_overrides == (
+        'mcp_servers={"external.server"={enabled=false}}',
+        *config.config_overrides,
+    )
+    assert updated.env == config.env
+    assert updated.cwd == config.cwd
+    assert updated.codex_bin == config.codex_bin

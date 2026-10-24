@@ -122,7 +122,9 @@ Claude Code 可以连接兼容 Anthropic Messages API 的本地模型服务。�
 
 ``--planner codex`` 使用 OpenAI Codex Python SDK。每次运行时，RPent 会在当前进程的后台线程中启动本地 Streamable HTTP MCP 服务，Codex 通过该服务调用同一个 toolkit；无需预先启动 ``scripts/codex_proxy/``。
 
-Codex 规划会话不会自动加载仓库的 ``AGENTS.md`` 和 ``.agents/skills/`` 中的开发 skills。工作目录仍为仓库根目录，机器人指南和 memory 仍可通过已有工具读取。
+Codex 规划会话不会自动加载仓库的 ``AGENTS.md`` 和开发 skills。普通会话以仓库根目录为工作目录；Toolkit 请求 ``registered_tools_only`` 时，使用 ``output_dir/planner-work``、只读沙箱和临时线程，并关闭原生执行工具、插件／应用、网页搜索、继承的外部 MCP，以及 Codex 自身记忆的自动读取和生成。RPent 注册的记忆读取工具仍可在 Toolkit 允许的目录内使用。
+
+认证、provider 和模型设置继续沿用。这些单次运行设置不修改全局配置，也不影响后续普通会话。MCP 资源辅助工具和 ``request_user_input`` 仍可能暴露，因此它不是严格工具白名单或通用安全沙箱；实际工具暴露取决于 CLI 版本与受管理配置。
 
 .. code-block:: bash
 

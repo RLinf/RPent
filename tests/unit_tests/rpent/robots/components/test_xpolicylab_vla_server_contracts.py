@@ -16,6 +16,58 @@ import numpy as np
 import pytest
 
 
+def test_stateful_cli_serves_and_shuts_down_without_model_weights(tmp_path):
+    import sys
+    import textwrap
+
+    from rpent.robots.components.xpolicylab_vla_client import XPolicyLabVLAClient
+    from rpent.utils.daemon import ProcessDaemon, pick_free_port
+    from rpent.utils.rpc import make_rpc_client, wait_for_ready
+
+    script = textwrap.dedent("""
+        from types import SimpleNamespace
+        from rpent.robots.components import xpolicylab_vla_server as ws
+
+        def call(func_name, obs=None):
+            return [{"joint": [1.0]}] if func_name == "get_action" else None
+        ws._connect_policy = lambda *a: SimpleNamespace(call=call, close=lambda: None)
+        ws.main()
+    """)
+    port = pick_free_port()
+    daemon = ProcessDaemon(
+        name="stateful_bridge",
+        cmd=[
+            sys.executable,
+            "-c",
+            script,
+            "--task",
+            "pick",
+            "--stateful",
+            "--policy-server-url",
+            "ws://fake",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+        ],
+        log_path=str(tmp_path / "bridge.log"),
+    )
+    rpc = make_rpc_client(f"http://127.0.0.1:{port}", enable_sessions=True)
+    try:
+        daemon.start()
+        wait_for_ready(rpc, daemon=daemon, timeout_s=10, poll_interval_s=0.05)
+        policy = XPolicyLabVLAClient(rpc)
+        policy.reset_session()
+        policy.update_obs({"instruction": "pick"}, 0)
+        assert policy.get_action() == [{"joint": [1.0]}]
+        policy.close()
+        rpc.call("shutdown")
+        assert daemon._proc.wait(timeout=5) == 0
+    finally:
+        rpc.close()
+        daemon.stop()
+
+
 @pytest.mark.parametrize("mask", [None, "", "2,3", "GPU-example"])
 def test_policy_without_gpu_flag_preserves_visibility(monkeypatch, tmp_path, mask):
     import argparse
@@ -356,7 +408,7 @@ def test_xpolicylab_owned_launcher_cleanup(
     monkeypatch.setattr(ws, "_connect_policy", connect)
     if failure == "base":
 
-        def fail_init(self):
+        def fail_init(self, **kwargs):
             raise RuntimeError("base failed")
 
         monkeypatch.setattr(ws.BaseVLAFacade, "__init__", fail_init)

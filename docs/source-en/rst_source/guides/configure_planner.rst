@@ -161,10 +161,19 @@ RPent starts a local Streamable HTTP MCP server on a background thread
 in the current process, and Codex calls the same toolkit through that
 server. You do not need to start ``scripts/codex_proxy/`` first.
 
-RPent excludes repository ``AGENTS.md`` instructions and development skills
-in ``.agents/skills/`` from the Codex planner's automatic context loading.
-The working directory remains the repository root; robot guides and memory
-remain available through the existing tools.
+RPent excludes repository ``AGENTS.md`` and development skills from automatic
+context loading. Ordinary sessions work in the repository root. Toolkits that
+request ``registered_tools_only`` use ``output_dir/planner-work``, a read-only
+sandbox and an ephemeral thread. The profile disables native execution tools,
+plugins/apps, web search, inherited external MCP servers and Codex's automatic
+memory use/generation. RPent's registered memory readers remain available within
+the directories allowed by the toolkit.
+
+Authentication, provider and model settings are retained. These per-run settings
+do not change global configuration or subsequent ordinary sessions. MCP resource
+helpers and ``request_user_input`` may remain exposed: the profile is neither an
+exact tool allowlist nor a general security sandbox. Tool exposure depends on
+the CLI version and managed configuration.
 
 .. code-block:: bash
 

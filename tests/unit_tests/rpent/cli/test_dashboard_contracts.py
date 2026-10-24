@@ -126,3 +126,65 @@ def test_shared_runtime_gets_memory_before_startup(
     assert events == (["sync"] if sync_before_shared else []) + ["shared-runtime"]
     if explicit_repo:
         assert args.memory_dir == str(root)
+
+
+@pytest.mark.parametrize(
+    "backend,flags,expected",
+    [
+        ("vpp2", [], {"vla", "sam3"}),
+        ("awomo05", [], {"vla"}),
+        ("awomo05", ["--vla-agent", "--agent-tools", "policy", "geometry"], {"vla"}),
+        (
+            "awomo05",
+            ["--vla-agent", "--agent-tools", "policy", "sam3"],
+            {"vla", "sam3"},
+        ),
+    ],
+)
+def test_dashboard_uses_robot_defaults_for_automatic_shared_services(
+    monkeypatch, tmp_path, backend, flags, expected
+):
+    from dataclasses import replace
+
+    from robots.robodojo import robot_spec
+
+    parser = _build_argparser()
+    robot_spec._add_cli_args(parser, True)
+    args = parser.parse_args(
+        [
+            "--robot",
+            "robodojo",
+            "--dashboard",
+            "--planner",
+            "api",
+            "--model",
+            "test",
+            "--vla-backend",
+            backend,
+            "--vla-endpoint",
+            "http://policy",
+            "--memory-profile",
+            "local",
+            "--output-dir",
+            str(tmp_path),
+            *flags,
+        ]
+    )
+    started = []
+
+    def init_runtime(args, output_dir, state, components):
+        started.append(components)
+        return [], {}
+
+    def start(server):
+        assert {
+            component["name"]
+            for component in server._state.dashboard_spec["runtime_components"]
+        } == expected | {"env"}
+        server._state.request_shutdown()
+        return "http://127.0.0.1:12345"
+
+    monkeypatch.setattr(DashboardServer, "start", start)
+    spec = replace(robot_spec.get_robot_spec(), init_runtime=init_runtime)
+    assert dashboard.run_dashboard_session(args, spec, parser=parser) == 0
+    assert started == [expected]
