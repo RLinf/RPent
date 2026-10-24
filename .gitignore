@@ -27,3 +27,5 @@ build/
 
 # Standalone calibration environment.
 .venv-calibration/
+
+wj/

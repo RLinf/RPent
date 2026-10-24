@@ -32,6 +32,7 @@ from robots.franka.tasks import FRANKA_TASKS, get_franka_task
 from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
 from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
+from rpent.robots.components.am_runtime import add_am_args, select_am
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_spawn_server, try_wait_server
@@ -120,11 +121,12 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         choices=sorted(FRANKA_TASKS),
     )
     parser.add_argument("--env-endpoint", default=None)
-    parser.add_argument("--vla-endpoint", default=None)
+    add_am_args(parser, platform="franka")
     parser.add_argument("--robot-config", default=None)
 
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
+    select_am(args, "franka")
     set_robot_config_path(args.robot_config)
     # Fail fast before servers/planner start when easy_handeye YAMLs are
     # missing (e.g. the calibration has not been run on this machine).
@@ -209,7 +211,7 @@ def _spawn_vla_server(
 ) -> tuple[ProcessDaemon | None, RpcClient]:
     """Attach to an externally managed real-Franka VLA service."""
     del output_dir
-    return None, make_rpc_client(args.vla_endpoint)
+    return None, make_rpc_client(select_am(args, "franka").endpoint)
 
 
 def _init_runtime(
@@ -220,9 +222,10 @@ def _init_runtime(
 ) -> tuple[list[ProcessDaemon], dict[str, Any]]:
     """Initialize every Franka component, or only ``components`` when given.
 
-    The Franka VLA is attach-only; it is skipped unless ``--vla-endpoint`` is
+    The Franka VLA is attach-only; it is skipped unless ``--am-endpoint`` is
     provided.
     """
+    select_am(args, "franka")
     from robots.franka.env_client import FrankaEnvClient
     from rpent.robots.components.pi05_vla_client import Pi05VLAClient
 
@@ -232,7 +235,7 @@ def _init_runtime(
     if unknown:
         raise ValueError(f"unknown Franka runtime components: {sorted(unknown)}")
 
-    needs_vla = args.vla_endpoint is not None
+    needs_vla = args.am_endpoint is not None
 
     from robots.franka.flash.replay import authorize_runtime
 

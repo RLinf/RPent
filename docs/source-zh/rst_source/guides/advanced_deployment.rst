@@ -3,9 +3,9 @@
 
 默认情况下，RPent 会随每次 LIBERO 运行启动并关闭环境、VLA 与 SAM3 服务。单机运行时建议保留这一默认行为。只有当服务分布在不同主机，或需要跨任务复用 VLA 与 SAM3 模型时，才需要配置外部 endpoint。
 
-三个参数分别设置对应服务的 endpoint：LIBERO 环境用 ``--env-endpoint``， Pi0.5 VLA 用 ``--vla-endpoint``，SAM3 用 ``--sam3-endpoint``。每个都取 ``[protocol://]HOST:PORT``，省略 protocol 时默认 HTTP，也可用 ``socket://`` 改走 socket RPC。
+三个参数分别设置对应服务的 endpoint：LIBERO 环境用 ``--env-endpoint``， Pi0.5 VLA 用 ``--am-endpoint``，SAM3 用 ``--sam3-endpoint``。每个都取 ``[protocol://]HOST:PORT``，省略 protocol 时默认 HTTP，也可用 ``socket://`` 改走 socket RPC。
 
-Dashboard Session 不支持 ``--env-endpoint``，因为每个 TaskRun 都需要使用新的环境服务；Dashboard 模式仍可使用 ``--vla-endpoint`` 和 ``--sam3-endpoint``。
+Dashboard Session 不支持 ``--env-endpoint``，因为每个 TaskRun 都需要使用新的环境服务；Dashboard 模式仍可使用 ``--am-endpoint`` 和 ``--sam3-endpoint``。
 
 LIBERO 环境服务
 ---------------
@@ -64,7 +64,7 @@ SAM3 服务只加载一次模型，可以由多个 RPent 运行复用。
      --suite libero_object_swap --task 2 --seed 0 \
      --libero-type pro --max-episode-steps 10000 \
      --env-endpoint http://ENV_HOST:ENV_PORT \
-     --vla-endpoint http://VLA_HOST:VLA_PORT \
+     --am-endpoint http://VLA_HOST:VLA_PORT \
      --sam3-endpoint http://SAM3_HOST:SAM3_PORT \
      --planner claude_code --model claude-opus-4-8
 
@@ -100,7 +100,7 @@ SAM3 服务只加载一次模型，可以由多个 RPent 运行复用。
      rpent --robot libero --libero-type pro \
        --suite libero_object_swap --task 2 --seed 0 \
        --planner claude_code --model claude-opus-4-8 \
-       --vla-endpoint http://VLA_HOST:VLA_PORT \
+       --am-endpoint http://VLA_HOST:VLA_PORT \
        --sam3-endpoint http://SAM3_HOST:SAM3_PORT \
        --output-dir logs/parallel_object_swap_t2_s0/run_$i &
      pids+=($!)

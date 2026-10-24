@@ -125,7 +125,7 @@ def test_task_zero_does_not_connect_or_expose_vla(env, receipt, tmp_path, monkey
             "0",
             "--env-endpoint",
             "socket://unused:8110",
-            "--vla-endpoint",
+            "--am-endpoint",
             "socket://unused:8220",
         ]
     )

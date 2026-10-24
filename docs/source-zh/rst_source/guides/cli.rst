@@ -91,7 +91,19 @@
 
 LIBERO 使用 ``--suite``、``--task``、``--seed`` 和 ``--libero-type`` 选择任务；默认类型为 ``LIBERO_TYPE`` 或 ``pro``。RoboCasa365 和 RoboTwin 使用 ``--task-name``。Franka 使用 ``--task-id`` 和 ``--robot-config``。具体选项见 :doc:`../simulators/libero`、:doc:`../simulators/robocasa`、:doc:`../simulators/robotwin`、:doc:`../real_world_robots/franka` 和 :doc:`../real_world_robots/dual_franka`。
 
-``--env-endpoint``、``--vla-endpoint`` 和 LIBERO 的 ``--sam3-endpoint`` 可连接已启动的环境、VLA 或 SAM3 服务器，地址格式为 ``[protocol://]host:port``，默认协议为 ``http``。GPU 分配和远程服务见 :doc:`advanced_deployment`。
+``--env-endpoint``、``--am-endpoint`` 和 LIBERO 的 ``--sam3-endpoint`` 可连接已启动的环境、VLA 或 SAM3 服务器，地址格式为 ``[protocol://]host:port``，默认协议为 ``http``。GPU 分配和远程服务见 :doc:`advanced_deployment`。
+
+``--am-backend`` 选择当前平台支持的一个动作模型；LIBERO 和 RoboTwin 默认分别为 ``pi05`` 和 ``lingbot``。VLA 和 WAM 共用 ``--am-endpoint`` 连接已有服务，共用 ``--am-checkpoint``、``--am-python``、``--am-root`` 和 ``--am-cuda-device`` 配置本地部署。使用 endpoint 时，显式传入本地部署参数会报错。旧 VLA/WAM 参数保留为隐藏别名，写入同一组配置字段。WAM 采用 ``local`` 记忆模式并注册记忆文件工具，默认目录按后端区分，可通过 ``--memory-dir`` 指定目录；目前不支持 HF 记忆、Flash 和探索模式。模型启动参数及支持的组合见 :doc:`../development/add_action_model`。
+
+本地模型服务的 ``--am-cuda-device`` 由 ``am_runtime.py`` 注册，未设置时先使用 ``--cuda-device``，两者均未设置时继承启动环境的 ``CUDA_VISIBLE_DEVICES``。LIBERO、RoboTwin、RoboCasa、RoboDojo 和 dual-Franka 支持本地模型部署。Franka、YAM 连接外部部署的 VLA 服务，GPU 在部署服务时选择。
+
+LIBERO、RoboTwin、RoboCasa、RoboDojo 统一使用 ``--env-cuda-device`` 选择环境 GPU，由各自的 ``robot_spec.py`` 注册。例如，LIBERO 使用 ``--env-cuda-device 0 --am-cuda-device 1`` 时，仿真器使用 GPU 0，Pi0.5 使用 GPU 1。LIBERO、RoboDojo 和 dual-Franka 使用 ``--sam3-cuda-device`` 选择本地 SAM3 的 GPU。
+
+这些参数为本地启动的对应服务选择设备，显存允许时可指定同一张 GPU。例如，``--env-cuda-device 0 --sam3-cuda-device 0 --am-cuda-device 0`` 让 LIBERO 的三个服务共用 GPU 0，动作模型可选择 VLA 或 WAM。连接外部 endpoint 时，设备由该服务启动时的配置决定。
+
+RPent CLI 保留原有 ``--cuda-device`` 作为本地服务的共享默认值；各服务专属参数优先，与参数顺序无关。例如，``--cuda-device 0 --am-cuda-device 1`` 让环境和 SAM3 使用 GPU 0，WAM worker 使用 GPU 1。``--sim-cuda-device`` 不是兼容别名。独立服务的启动命令仍可使用其自身支持的 ``--cuda-device``。
+
+``rpent --robot libero --am-backend fast-wam --help`` 按连接服务、本地部署和所选模型展示参数。模型专属参数保留模型名前缀，传入其他模型的参数会报错。动作模型接入指南分别介绍一次部署模型服务和反复运行任务，并提供连接外部服务、由 RPent 启动服务两种方式的示例。
 
 以下默认值适用于 LIBERO，其他环境以各自的 ``--help`` 为准。
 

@@ -206,7 +206,7 @@ def test_spawned_environment_uses_cli_seed_and_clears_legacy_override(
         task_name="OpenDrawer",
         split="target",
         seed=7,
-        cuda_device=0,
+        env_cuda_device=0,
     )
 
     daemon, client = robot_spec._spawn_env_server(args, tmp_path)

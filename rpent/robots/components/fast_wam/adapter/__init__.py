@@ -1,0 +1,127 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Select matched Fast-WAM platform encoders, decoders and controller contracts."""
+
+from functools import partial
+from typing import Any
+
+from robots.libero.control import LIBERO_OSC
+from robots.robotwin.control import ROBOTWIN_QPOS
+from robots.robotwin.observation import ROBOTWIN_CAMERAS
+from rpent.robots.components.am_contracts import WAMModelMeta
+from rpent.robots.components.am_facade_base import (
+    WAMAdapter,
+    WAMAdapterSpec,
+)
+from rpent.robots.components.fast_wam import USES_SESSIONS
+from rpent.robots.components.fast_wam.adapter.decode import (
+    decode_libero,
+    decode_robotwin,
+)
+from rpent.robots.components.fast_wam.adapter.encode import (
+    encode_libero,
+    encode_robotwin,
+)
+
+
+def _libero_model_meta(
+    *, processor: Any, binarize_gripper: bool, **common: Any
+) -> WAMModelMeta:
+    if processor.num_output_cameras not in (1, 2):
+        raise ValueError("Fast-WAM LIBERO supports one or two cameras")
+    return WAMModelMeta(
+        control=LIBERO_OSC,
+        camera_roles=("primary", "wrist")[: processor.num_output_cameras],
+        state_schema={"eef_position": 3, "eef_quaternion_xyzw": 4, "gripper_qpos": 2},
+        **common,
+    )
+
+
+def _robotwin_model_meta(
+    *, processor: Any, binarize_gripper: bool, **common: Any
+) -> WAMModelMeta:
+    if processor.num_output_cameras != 3:
+        raise ValueError("Fast-WAM RoboTwin requires three cameras")
+    if binarize_gripper:
+        raise ValueError("RoboTwin qpos does not use LIBERO gripper binarization")
+    return WAMModelMeta(
+        control=ROBOTWIN_QPOS,
+        camera_roles=ROBOTWIN_CAMERAS,
+        state_schema={"joint_targets": 14},
+        **common,
+    )
+
+
+ADAPTERS = {
+    "libero": WAMAdapterSpec(encode_libero, decode_libero, _libero_model_meta),
+    "robotwin": WAMAdapterSpec(encode_robotwin, decode_robotwin, _robotwin_model_meta),
+}
+
+
+def make_adapter(
+    platform: str,
+    checkpoint: str,
+    *,
+    processor: Any,
+    device: str,
+    dtype: Any,
+    prompt_template: str,
+    video_size: tuple[int, int],
+    action_horizon: int,
+    execute_steps: int,
+    concat: str,
+    binarize_gripper: bool = False,
+) -> tuple[WAMModelMeta, WAMAdapter]:
+    """Bind checkpoint preprocessing and a supported execution prefix."""
+    if platform not in ADAPTERS:
+        raise ValueError(f"unsupported Fast-WAM platform: {platform!r}")
+    if (
+        type(action_horizon) is not int
+        or type(execute_steps) is not int
+        or not 0 < execute_steps <= action_horizon
+    ):
+        raise ValueError(
+            "Fast-WAM requires 0 < execute_steps <= action_horizon (integers)"
+        )
+    spec = ADAPTERS[platform]
+    model_meta = spec.model_meta(
+        processor=processor,
+        binarize_gripper=binarize_gripper,
+        backend="fast_wam",
+        checkpoint=checkpoint,
+        chunk_size=execute_steps,
+        uses_sessions=USES_SESSIONS,
+        returns_future_observation=False,
+        returns_value=False,
+        metadata={"prediction_horizon": action_horizon},
+    )
+    return model_meta, (
+        partial(
+            spec.encode,
+            processor=processor,
+            device=device,
+            dtype=dtype,
+            prompt_template=prompt_template,
+            video_size=video_size,
+            concat=concat,
+        ),
+        partial(
+            spec.decode,
+            processor=processor,
+            horizon=action_horizon,
+            execute_steps=execute_steps,
+            binarize_gripper=binarize_gripper,
+        ),
+    )

@@ -22,7 +22,7 @@ Check the model, task, and runtime requirements before following the installatio
 
    .. grid-item-card:: Action Models
 
-      LingBot-VLA
+      LingBot-VLA; Fast-WAM with a RoboTwin checkpoint.
 
    .. grid-item-card:: Planners
 
@@ -143,6 +143,28 @@ Download the LingBot checkpoint and set its location:
 
 The checkpoint includes the default RoboTwin robot configuration.
 
+Fast-WAM Configuration
+~~~~~~~~~~~~~~~~~~~~~~
+
+Prepare a RoboTwin Fast-WAM worker using :doc:`../development/add_action_model`.
+It uses head/left-wrist/right-wrist RGB, native joint targets, and qpos14 action
+chunks. Select it with ``--am-backend fast-wam``; LingBot weights are not
+required. From the simulator environment:
+
+.. code-block:: bash
+
+   rpent --robot robotwin --task-name beat_block_hammer \
+     --task-config demo_randomized --seed 100000 \
+     --am-backend fast-wam --am-endpoint http://127.0.0.1:8117 \
+     --memory-profile local --planner api --model <planner-model>
+
+``wam_act(prompt=None, max_chunks=1)`` replaces ``lingbot_act``; each chunk
+executes the worker's configured ``execute_steps`` through ``action_type="qpos"``.
+WAM uses a required local memory manager and file tools, with a backend-specific
+directory that may be empty; ``--memory-dir`` selects a compatible local corpus.
+HF memory and exploration are unsupported. Native ``eval_success`` determines
+task success. The LingBot and HF memory workflows below apply to the VLA path.
+
 Run a Task
 ----------
 
@@ -203,10 +225,13 @@ adds scene disturbances (random backgrounds, clutter, lighting, and table
 height). Pass ``--task-config demo_clean`` for a simple, clean scene.
 
 - ``--robotwin-assets-path`` overrides ``ROBOTWIN_ASSETS_PATH``.
-- ``--vla-model-path`` overrides ``LINGBOT_MODEL_PATH``.
-- ``--cuda-device`` runs the simulator and VLA on the same GPU.
-- ``--env-cuda-device`` and ``--vla-cuda-device`` place the simulator and VLA
-  on different GPUs. Do not combine these options with ``--cuda-device``.
+- ``--am-checkpoint`` overrides ``LINGBOT_MODEL_PATH``.
+- ``--env-cuda-device`` and ``--am-cuda-device`` place the simulator and VLA
+  on independently selected GPUs. For example,
+  ``--env-cuda-device 0 --am-cuda-device 1`` uses GPU 0 for simulation and
+  GPU 1 for LingBot. The same option selects a WAM worker's GPU.
+  These options apply only to services started by RPent. The shared
+  ``--cuda-device`` option supplies a default; per-service options override it.
 
 For planner setup, external service endpoints, and offline resources, see
 :doc:`../guides/configure_planner`, :doc:`../guides/advanced_deployment`, and

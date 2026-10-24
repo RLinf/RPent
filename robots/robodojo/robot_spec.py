@@ -30,10 +30,19 @@ from rpent.dashboard.events import DashboardEventSink
 from rpent.dashboard.spec import DashboardSpec
 from rpent.evaluation import RunFinalizationContext, write_json_atomic
 from rpent.memory import MemoryManager
+from rpent.robots.components.am_runtime import (
+    add_am_args,
+    select_am,
+)
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_spawn_server, try_wait_server
-from rpent.utils.config import get_memory_dir, get_repo_root
+from rpent.utils.config import (
+    add_cuda_device_arg,
+    get_memory_dir,
+    get_repo_root,
+    resolve_cuda_device,
+)
 from rpent.utils.daemon import ProcessDaemon, pick_free_port
 from rpent.utils.rpc import make_rpc_client
 from rpent.utils.rpc.http_rpc import HttpRpcClient
@@ -128,8 +137,6 @@ def _runtime_overrides(args: argparse.Namespace) -> dict[str, str]:
     }
     if os.environ.get("ROBODOJO_ASSETS_ROOT"):
         overrides["ROBODOJO_ASSETS_ROOT"] = os.environ["ROBODOJO_ASSETS_ROOT"]
-    if args.cuda_device is not None:
-        overrides["CUDA_VISIBLE_DEVICES"] = str(args.cuda_device)
     return overrides
 
 
@@ -199,6 +206,7 @@ def get_toolkit(
 
 
 def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
+    add_cuda_device_arg(parser)
     required = not use_dashboard
     parser.add_argument(
         "--source-root",
@@ -214,17 +222,6 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         "--sim-python",
         default=sys.executable,
         help="Python executable with Isaac Sim and RoboDojo installed",
-    )
-    parser.add_argument(
-        "--policy-backend",
-        choices=["rlinf", "xpolicylab"],
-        default="rlinf",
-        help="Pi0.5 policy backend (default: rlinf)",
-    )
-    parser.add_argument(
-        "--pi05-python",
-        default=sys.executable,
-        help="Python executable with Pi_05 dependencies installed",
     )
     parser.add_argument(
         "--task",
@@ -244,10 +241,18 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     )
     parser.add_argument("--max-episode-steps", type=int, default=700)
     parser.add_argument(
-        "--cuda-device",
+        "--env-cuda-device",
         type=int,
         default=None,
-        help="GPU device for local services (default: inherit CUDA_VISIBLE_DEVICES)",
+        help="GPU ordinal for the local RoboDojo environment; may share GPUs with "
+        "other services. Defaults to --cuda-device, then the service default.",
+    )
+    parser.add_argument(
+        "--sam3-cuda-device",
+        type=int,
+        default=None,
+        help="GPU ordinal for the local SAM3 service; may share GPUs with other "
+        "services. Defaults to --cuda-device, then inherits CUDA_VISIBLE_DEVICES.",
     )
     parser.add_argument(
         "--random",
@@ -259,11 +264,7 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         default=None,
         help="[protocol://]host:port of an existing env_server",
     )
-    parser.add_argument(
-        "--vla-endpoint",
-        default=None,
-        help="[protocol://]host:port of an existing Pi_05 policy server",
-    )
+    add_am_args(parser, platform="robodojo")
     parser.add_argument(
         "--sam3-endpoint",
         default=None,
@@ -272,6 +273,7 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
 
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
+    select_am(args, "robodojo")
     from robots.robodojo import tasks as robodojo_tasks
 
     source_root = getattr(args, "source_root", None)
@@ -316,9 +318,11 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     )
 
 
-def _cuda_args(args: argparse.Namespace) -> list[str]:
+def _sam3_cuda_args(args: argparse.Namespace) -> list[str]:
     return (
-        ["--cuda-device", str(args.cuda_device)] if args.cuda_device is not None else []
+        ["--cuda-device", str(resolve_cuda_device(args, "sam3"))]
+        if resolve_cuda_device(args, "sam3") is not None
+        else []
     )
 
 
@@ -336,6 +340,10 @@ def _spawn_env_server(
         )
 
     host, port = "127.0.0.1", pick_free_port()
+    device = resolve_cuda_device(args, "env")
+    overrides = _runtime_overrides(args)
+    if device is not None:
+        overrides["CUDA_VISIBLE_DEVICES"] = str(device)
     daemon = ProcessDaemon(
         name="robodojo_env_server",
         cmd=[
@@ -368,10 +376,10 @@ def _spawn_env_server(
             "--kit_args",
             "--enable isaacsim.replicator.behavior --enable isaacsim.sensors.camera",
         ]
-        + _cuda_args(args)
+        + (["--cuda-device", str(device)] if device is not None else [])
         + (["--mode", "eval-fair"] if getattr(args, "planner", None) == "flash" else [])
         + (["--random"] if getattr(args, "random", False) else []),
-        env_overrides=_runtime_overrides(args),
+        env_overrides=overrides,
         log_path=str(Path(output_dir) / "robodojo_env_server.log"),
     )
     daemon.start()
@@ -399,7 +407,7 @@ def _spawn_sam3_server(
             str(port),
             "--parent-watch",
         ]
-        + _cuda_args(args),
+        + _sam3_cuda_args(args),
         log_path=str(Path(output_dir) / "sam3_server.log"),
     )
     daemon.start()
@@ -410,21 +418,20 @@ def _spawn_vla_server(
     args: argparse.Namespace, output_dir: Path
 ) -> tuple["ProcessDaemon | None", RpcClient]:
     """Spawn (or attach to) the RoboDojo Pi_05 VLA server."""
-    if args.vla_endpoint is not None:
-        return None, make_rpc_client(args.vla_endpoint)
-
-    pi05_python = str(Path(args.pi05_python).expanduser())
-    if not Path(pi05_python).exists():
-        raise RuntimeError(f"RoboDojo Pi_05 env python not found: {pi05_python}")
+    am = select_am(args, "robodojo")
+    if am.endpoint is not None:
+        return None, make_rpc_client(am.endpoint)
     host, port = "127.0.0.1", pick_free_port()
     overrides = _runtime_overrides(args)
-    if args.policy_backend == "rlinf":
+    if am.backend == "pi05":
         # End-to-end policy-chain smoke only (real weights, one prediction);
         # simulation task success rates have not yet been established.
         policy_args = [
             "rpent.robots.components.pi05_vla_server",
             "--embodiment",
             "robodojo",
+            *(["--model-path", am.checkpoint] if am.checkpoint else []),
+            *am.model_arguments,
         ]
     else:
         policy_args = [
@@ -446,16 +453,14 @@ def _spawn_vla_server(
             "--action-type",
             args.action_type,
             "--ckpt",
-            "RoboDojo-sim-arx_x5-joint-0",
+            am.checkpoint,
             "--policy-port",
             str(pick_free_port()),
         ]
-        if args.cuda_device is not None:
-            policy_args += ["--policy-gpu", str(args.cuda_device)]
-    daemon = ProcessDaemon(
-        name="robodojo_vla_server",
-        cmd=[
-            pi05_python,
+        if am.cuda_device is not None:
+            policy_args += ["--policy-gpu", am.cuda_device]
+    daemon = am.spawn_worker(
+        [
             "-u",
             "-m",
             *policy_args,
@@ -467,10 +472,10 @@ def _spawn_vla_server(
             "http",
             "--parent-watch",
         ],
+        output_dir,
+        name="robodojo_vla_server",
         env_overrides=overrides,
-        log_path=str(Path(output_dir) / "robodojo_vla_server.log"),
     )
-    daemon.start()
     return daemon, HttpRpcClient(f"http://{host}:{port}")
 
 
@@ -481,11 +486,13 @@ def _init_runtime(
     components: set[str] | None,
 ) -> tuple[list[ProcessDaemon], dict[str, Any]]:
     """Initialize every RoboDojo component, or only ``components`` when given."""
+    am = select_am(args, "robodojo")
     from robots.robodojo.env_client import RoboDojoEnvClient
     from rpent.robots.components.pi05_vla_client import Pi05VLAClient
     from rpent.robots.components.sam3_client import Sam3Client
     from rpent.robots.components.xpolicylab_vla_client import XPolicyLabVLAClient
 
+    device = resolve_cuda_device(args, "env")
     starters = {
         "env": lambda: _spawn_env_server(args, output_dir),
         "vla": lambda: _spawn_vla_server(args, output_dir),
@@ -499,9 +506,7 @@ def _init_runtime(
                     "task": args.task,
                     "layout": args.layout,
                     "env_cfg_type": args.env_cfg_type,
-                    "device_id": args.cuda_device
-                    if args.cuda_device is not None
-                    else 0,
+                    "device_id": device if device is not None else 0,
                     "num_envs": 1,
                     "max_episode_steps": args.max_episode_steps,
                     "random": getattr(args, "random", False),
@@ -516,7 +521,7 @@ def _init_runtime(
         "vla": lambda rpc: {
             "vla_client": (
                 Pi05VLAClient(rpc, embodiment="robodojo")
-                if args.policy_backend == "rlinf"
+                if am.backend == "pi05"
                 else XPolicyLabVLAClient(rpc)
             )
         },

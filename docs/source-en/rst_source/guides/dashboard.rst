@@ -72,7 +72,7 @@ during a run, normal messages steer the agent and Esc requests an interruption.
 Press Ctrl+C in the terminal to stop the Session.
 
 ``--dashboard`` cannot be combined with ``--interactive`` or
-``--env-endpoint``. External ``--vla-endpoint`` and ``--sam3-endpoint``
+``--env-endpoint``. External ``--am-endpoint`` and ``--sam3-endpoint``
 services remain supported. Use ``--dashboard-language zh-cn`` for the
 Chinese UI.
 

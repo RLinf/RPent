@@ -132,6 +132,7 @@ Choose an environment: :doc:`LIBERO <rst_source/simulators/libero>`, :doc:`RoboC
    Memory Design <rst_source/development/memory>
    Add a Robot or Simulator <rst_source/development/add_robot>
    Add an Action Primitive <rst_source/development/add_primitive>
+   Add an Action Model <rst_source/development/add_action_model>
    Add a Planner <rst_source/development/add_planner>
 
 .. toctree::
