@@ -318,6 +318,11 @@ Tools
 
 The planner cannot reset an episode; exploration and Flash replay are unavailable.
 
+Initial observations and motion feedback include ``episode_status.step``
+(native actions used), ``step_limit`` (total budget), and ``remaining_steps``.
+These counters describe the saved observation; the top-level ``step`` is its
+record index. Reading historical observations does not consume action steps.
+
 ``vpp2_act(instruction, chunks=1)`` runs the specified subtask. Each chunk
 predicts 32 absolute dual-arm EE16 targets (xyz, wxyz and gripper per arm)
 and executes the first 24 through native EE control before replanning.

@@ -23,6 +23,7 @@ from typing import Annotated, Literal
 import numpy as np
 from pydantic import Field
 
+from robots.robodojo.access import public_episode_budget
 from rpent.tools import ToolResult, tool
 from rpent.tools.toolkit import ToolCancelled
 
@@ -70,11 +71,10 @@ class RoboDojoPrimitives:
 
     @staticmethod
     def _public_status(status: dict) -> dict:
-        return {
-            key: status[key]
-            for key in ("step", "step_limit", "success")
-            if key in status
-        }
+        result = public_episode_budget(status)
+        if "success" in status:
+            result["success"] = status["success"]
+        return result
 
     def _execute(self, updates: list[dict], *, policy_actions: bool = False) -> dict:
         executed = 0

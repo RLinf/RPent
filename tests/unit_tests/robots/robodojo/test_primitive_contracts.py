@@ -127,6 +127,7 @@ def test_release_defaults_open_and_budget_is_partial(motion):
     assert not result["completed"]
     assert result["executed_steps"] == 4 and result["requested_steps"] == 10
     assert result["stop_reason"] == "budget_exhausted"
+    assert result["episode_status"]["remaining_steps"] == 0
     assert env.opening["left"] == pytest.approx(0.4)
 
 
@@ -141,6 +142,7 @@ def test_cancellation_retains_acknowledged_progress(motion):
     result = primitive.set_gripper(arm="left", val=0).data
     assert result["executed_steps"] == 4
     assert not result["completed"] and result["interrupted"]
+    assert result["episode_status"]["remaining_steps"] == 96
 
 
 def test_ambiguous_mutation_timeout_is_not_retried(motion):
@@ -328,6 +330,37 @@ def toolkit_factory(tmp_path, monkeypatch):
         return env, toolkit
 
     return create
+
+
+def test_observations_and_motion_report_budget_at_capture_time(toolkit_factory):
+    env, toolkit = toolkit_factory()
+    initial_budget = {"step": 0, "step_limit": 100, "remaining_steps": 100}
+    initial = toolkit.execute_tool("view_env_state", {}).data
+    assert initial["episode_status"] == initial_budget
+    calls = [
+        ("set_gripper", {"arm": "left", "val": 0, "steps": 4}, 4),
+        ("move_to", {"arm": "left", "xyz": [0.1, 0.2, 0.9], "substeps": 5}, 9),
+        ("rotate_wrist", {"arm": "left", "delta_yaw_deg": 1, "substeps": 1}, 10),
+        ("release", {"arm": "left", "steps": 2}, 12),
+    ]
+    for name, arguments, used in calls:
+        result = toolkit.execute_tool(name, arguments)
+        assert not result.is_error
+        budget = {"step": used, "step_limit": 100, "remaining_steps": 100 - used}
+        assert result.data["episode_status"] == budget
+        assert result.data["log"]["result"]["episode_status"] == {
+            **budget,
+            "success": False,
+        }
+    assert result.data["step"] == 4
+    reads = env.reads
+    assert toolkit.execute_tool("view_env_state", {}).data["episode_status"] == budget
+    assert (
+        toolkit.execute_tool("view_env_state", {"step": 0}).data["episode_status"]
+        == initial_budget
+    )
+    assert env.reads == reads and env.step_count == 12
+    toolkit.close()
 
 
 def test_queries_and_segmentation_use_requested_saved_frame(toolkit_factory):

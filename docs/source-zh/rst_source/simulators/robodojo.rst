@@ -267,6 +267,9 @@ SAM3 用于物体分割。先在 `facebook/sam3 模型页面 <https://huggingfac
 
 规划器不能重置回合；探索模式和 Flash 重放不可用。
 
+初始观测和运动反馈包含 ``episode_status.step`` （已用原生动作步数）、``step_limit`` （总步数上限）和 ``remaining_steps`` （剩余步数）。
+这些计数对应观测保存时的状态；顶层 ``step`` 是观测记录编号。读取历史观测不会消耗动作步数。
+
 ``vpp2_act(instruction, chunks=1)`` 执行指定子任务。每个 chunk 预测 32 个双臂 EE16 绝对目标（每臂 xyz、wxyz 和夹爪），通过原生 EE 控制执行前 24 步，再重新推理。VPP2 使用初始 RGB 帧和间隔为 25 个动作的 8 个历史采样。策略动作和 Primitive 动作都会更新历史，切换子任务时保留历史；看图和 ``render`` 不增加动作时刻。动作反馈缺失后，策略历史失效，直到 reset；无法 reset 时，需开始新回合才能恢复 VPP2。
 
 ``view_env_state`` 读取保存的图像和状态，``render`` 刷新观测。``sample_world_xyz(view, pixels, step=None, neighborhood=1)`` 查询 [行,列] 像素，默认取 3×3 邻域。``query_world_map`` 查询半开区间 [r0,c0,r1,c1]，默认最多返回 256 个点。view 使用 ``head``、``left_wrist`` 或 ``right_wrist``，必须与选点图像的视角及步号一致。查询读取保存的同帧深度，不暗中刷新；无效深度被排除，返回的是可见表面坐标，不是物体中心。
