@@ -47,6 +47,8 @@ def run_scripted_policy_chain(
     output_dir: Path,
     action: ScriptedToolCall,
     action_count_field: str,
+    before_action_calls: tuple[ScriptedToolCall, ...] = (),
+    include_images: bool = False,
 ) -> dict[str, Any]:
     """Run the public CLI against a deterministic loopback planner."""
     memory_dir = output_dir.parent / "offline-memory"
@@ -62,12 +64,13 @@ def run_scripted_policy_chain(
         encoding="utf-8",
     )
     script = (
+        *before_action_calls,
         action,
         ScriptedToolCall(
             "finish",
             {
                 "status": "stuck",
-                "summary": "bounded GPU E2E completed one VLA action call",
+                "summary": "bounded GPU E2E completed one action call",
             },
         ),
     )
@@ -85,7 +88,7 @@ def run_scripted_policy_chain(
         f"openai-chat:{OFFLINE_MODEL_NAME}",
         "--max-turns",
         str(len(script)),
-        "--no-images",
+        *([] if include_images else ["--no-images"]),
         "--memory-profile",
         "local",
         "--memory-dir",
@@ -121,6 +124,8 @@ def run_scripted_policy_chain(
             f"scripted {robot} session failed with exit code {completed.returncode}"
         )
     planner_server.assert_complete()
+    if include_images and not planner_server.image_digests[-1]:
+        raise RuntimeError("post-action planner request contained no images")
 
     transcript_paths = list(output_dir.glob("transcript_*.json"))
     if len(transcript_paths) != 1:
@@ -156,7 +161,7 @@ def run_scripted_policy_chain(
     return {
         "status": "passed",
         "definition": (
-            "offline planner -> public CLI -> toolkit -> checkpoint-backed VLA "
+            "offline planner -> public CLI -> toolkit -> action primitive "
             "-> simulator action -> finish"
         ),
         "planner": "offline-scripted",
@@ -167,6 +172,11 @@ def run_scripted_policy_chain(
         "finish_status": finish.get("status"),
         "transcript": transcript_paths[0].name,
         "state_manifest": state_path.name,
+        "planner_image_counts": [len(items) for items in planner_server.image_digests],
+        "post_action_new_image_count": len(
+            set(planner_server.image_digests[-1])
+            - set(planner_server.image_digests[-2])
+        ),
     }
 
 

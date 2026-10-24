@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Positive observation allowlist for frozen-plan replay."""
+"""Public observation and episode-budget fields."""
 
 CAMERAS = ("cam_head", "cam_left_wrist", "cam_right_wrist")
 STATE_KEYS = tuple(
@@ -28,6 +28,17 @@ CAMERA_KEYS = (
     "extrinsic_matrix",
     "shape",
 )
+
+
+def public_episode_budget(status: dict) -> dict[str, int]:
+    """Extract native action counters without exposing scores or diagnostics."""
+    step = int(status["step"])
+    step_limit = int(status["step_limit"])
+    return {
+        "step": step,
+        "step_limit": step_limit,
+        "remaining_steps": max(0, step_limit - step),
+    }
 
 
 def public_observation(obs: dict) -> dict:

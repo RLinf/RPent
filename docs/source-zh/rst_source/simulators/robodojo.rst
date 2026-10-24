@@ -1,8 +1,13 @@
 RoboDojo
 ========
 
-使用 RPent 在 RoboDojo 中运行双臂桌面操作任务。仿真器基于 Isaac Sim / IsaacLab，采用 ARX-X5 双机械臂平台，默认使用 Pi0.5 生成动作。\
-该接入仍为实验性，目前尚无完整任务套件的成功率结果。
+通过 RPent 工具控制 RoboDojo 双臂桌面场景。仿真器基于 Isaac Sim / IsaacLab，采用 ARX-X5 双机械臂平台。
+
+.. note::
+
+   解析式工具调用原生 cuRobo 位姿规划，并执行关节目标。规划器默认障碍物模型只有简化桌面，未包含全部物体或另一只机械臂。路径规划及抽样不能保证执行时无碰撞。组件检查和有界动作执行检查不能说明基准任务成功率。
+
+   ``pi0_pick``、``stabilize`` 和 ``place_in_bin`` 不注册。常规启动仅加载 Env 和 SAM3，不需要动作策略权重；Flash 重放仍不可用。
 
 概览
 ----
@@ -12,7 +17,7 @@ RoboDojo
 
    .. grid-item-card:: 动作模型
 
-      Pi0.5
+      解析式位姿和夹爪 Primitive
 
    .. grid-item-card:: 规划器
 
@@ -53,10 +58,6 @@ RoboDojo
      - 8
      - 开放式或依赖语言、图像指令的任务。
 
-目录还单列了一个 DLC 任务。通过 ``--task`` 选择已安装运行时中的任务，``--layout`` 选择场景布局。\
-例如，``stack_bowls_random`` 属于泛化任务，``fill_pen_holder`` 和 ``put_bottles_into_dustbin``\
-属于长程任务。这三个名称只是示例，并非完整任务列表。
-
 观测与动作
 ~~~~~~~~~~
 
@@ -66,13 +67,13 @@ RoboDojo
    * - 项目
      - 说明
    * - 观测
-     - 头部和左右腕部相机的 RGB-D 图像、相机标定，以及双臂关节状态、末端执行器位姿和夹爪开合状态。Pi0.5 使用三路 RGB 图像、机器人状态和任务文字。
+     - 头部和左右腕部相机的 RGB-D 图像、相机标定，以及双臂关节状态、末端执行器位姿和夹爪开合状态。
    * - 动作
-     - planner 调用 ``pi0_pick`` 或 ``move_to``、``set_gripper`` 等原语。Pi0.5 输出双臂关节和夹爪动作，共 14 维。
+     - ``move_to``、``rotate_wrist``、``set_gripper`` 和 ``release``。``finish`` 不能覆盖原生任务判定。
    * - 奖励与成功判定
      - 任务是否成功由 RoboDojo 原生环境判定，结果记录在 ``result.json`` 的 ``success`` 字段中。
    * - 任务指令
-     - 来自当前场景的 RoboDojo 任务描述。省略 ``pi0_pick`` 的 ``prompt`` 参数时，使用该指令。
+     - 来自当前场景的 RoboDojo 任务描述，通过 ``view_env_state`` 读取。
 
 安装与资源准备
 --------------
@@ -84,7 +85,7 @@ NVIDIA 驱动版本建议参考 `Isaac Sim 5.1 官方系统要求 <https://docs.
 
    uv venv --python 3.11 .venv-robodojo
    source .venv-robodojo/bin/activate
-   uv pip install -e ".[robodojo]" --extra-index-url https://pypi.nvidia.com \
+   uv pip install -e ".[robodojo-sim,sam3]" --extra-index-url https://pypi.nvidia.com \
      --override requirements/robodojo-override.txt
 
 .. note::
@@ -95,7 +96,7 @@ NVIDIA 驱动版本建议参考 `Isaac Sim 5.1 官方系统要求 <https://docs.
 
    .. code-block:: bash
 
-      uv pip install -e ".[robodojo]" --extra-index-url https://pypi.nvidia.com \
+      uv pip install -e ".[robodojo-sim,sam3]" --extra-index-url https://pypi.nvidia.com \
         --override requirements/robodojo-override.txt \
         --torch-backend=cu128
 
@@ -151,89 +152,6 @@ NVIDIA 驱动版本建议参考 `Isaac Sim 5.1 官方系统要求 <https://docs.
 
 场景引用的部分 NVIDIA 素材默认在线加载。离线运行或相关资源持续加载失败时，参见文末的 :ref:`robodojo-local-nvidia-assets`。
 
-VLA 配置
---------
-
-通过 ``--policy-backend`` 选择 Pi0.5 后端，默认使用 ``rlinf``，也可选择另行准备的 ``xpolicylab``。
-
-RLinf（默认）
-~~~~~~~~~~~~~~~~
-
-``--policy-backend rlinf`` 使用安装步骤中提供的 RLinf 运行时，\
-通过 ``PI05_CHECKPOINT_PATH`` 指定 PyTorch 权重和配套统计量。
-
-发布权重为 JAX 格式，需要转换成 PyTorch 格式。本例只需下载 ``RoboDojo-sim-arx_x5-joint-0/59999`` 中的完整 ``params/`` 目录和配套的 ``norm_stats.json``，\
-合计约 12.4 GB，无需下载训练状态或其他模型。转换后的权重约 7.23 GB，请另为转换过程和缓存预留空间。
-
-.. code-block:: bash
-
-   hf download RoboDojo-Benchmark/RoboDojo --repo-type dataset \
-     --include \
-       'ckpt/RoboDojo/Pi_05/RoboDojo-sim-arx_x5-joint-0/59999/params/**' \
-       'ckpt/RoboDojo/Pi_05/RoboDojo-sim-arx_x5-joint-0/59999/assets/arx_x5_sim/norm_stats.json' \
-     --local-dir /data/robodojo/pi05_jax
-   export PI05_JAX_CHECKPOINT=/data/robodojo/pi05_jax/ckpt/RoboDojo/Pi_05/RoboDojo-sim-arx_x5-joint-0/59999
-
-.. note::
-
-   建议将 ``--local-dir`` 的目录名设为小写 ``pi05_`` 开头，例如上面的 ``pi05_jax``。\
-   当前转换器要求输入路径中包含小写 ``pi05``；发布目录名 ``Pi_05`` 不满足这一要求。
-
-   如果已下载到不含小写 ``pi05`` 的路径，无需重新下载。为包含 ``59999/`` 的模型目录创建一个以 ``pi05_`` 开头的软链接，\
-   再将 ``PI05_JAX_CHECKPOINT`` 设为链接下的 ``59999``。例如，原下载目录为 ``/data/robodojo`` 时：
-
-   .. code-block:: bash
-
-      ln -s /data/robodojo/ckpt/RoboDojo/Pi_05/RoboDojo-sim-arx_x5-joint-0 \
-        /data/robodojo/pi05_robodojo_arx_x5
-      export PI05_JAX_CHECKPOINT=/data/robodojo/pi05_robodojo_arx_x5/59999
-
-在同一环境中转换权重，并设置转换后的模型目录：
-
-.. code-block:: bash
-
-   export PI05_CHECKPOINT_PATH=/data/robodojo/pi05_robodojo_arx_x5_torch
-
-   python -m rlinf.utils.ckpt_convertor.convert_openpi_jax_to_python \
-     --checkpoint-dir "$PI05_JAX_CHECKPOINT" \
-     --config-name pi05_aloha \
-     --output-path "$PI05_CHECKPOINT_PATH"
-
-``--checkpoint-dir`` 指向包含 ``params/`` 的目录。
-
-添加 ``--inspect_only`` 可只查看参数信息，不执行转换。
-
-模型还需要发布权重配套的归一化统计文件 ``norm_stats.json``。转换器不会将该文件写入\
-``$PI05_CHECKPOINT_PATH/RoboDojo/arx_x5/norm_stats.json``，需按下方命令复制：
-
-.. code-block:: bash
-
-   mkdir -p "$PI05_CHECKPOINT_PATH/RoboDojo/arx_x5"
-   cp "$PI05_JAX_CHECKPOINT/assets/arx_x5_sim/norm_stats.json" \
-     "$PI05_CHECKPOINT_PATH/RoboDojo/arx_x5/norm_stats.json"
-
-XPolicyLab（可选）
-~~~~~~~~~~~~~~~~~~~~
-
-推荐使用前面的 RLinf 方式，默认后端为 ``--policy-backend rlinf``，无需额外安装 XPolicyLab。\
-RPent 也提供 XPolicyLab 后端，已有该环境或需要使用其 Pi0.5 实现时，可选择 ``--policy-backend xpolicylab``。
-
-XPolicyLab 是另一套加载和运行 Pi0.5 的软件。使用前需单独克隆源码，\
-并按其 `Pi0.5 安装说明 <https://github.com/XPolicyLab/XPolicyLab/blob/432f82b1758c5b1202e42a3dfe014546dbc50871/policy/Pi_05/README.md#installation>`_ 准备 Python 环境。\
-可复用前面下载的原始 JAX 权重和统计量，但需按 XPolicyLab 的要求配置存放位置。
-按下文完成 SAM3 和 planner 配置后，使用单独的 XPolicyLab 源码与 Python 环境运行任务：
-
-.. code-block:: bash
-
-   rpent --robot robodojo --task put_bottles_into_dustbin --layout 0 \
-     --planner codex --model <planner-model> \
-     --policy-backend xpolicylab --xpolicylab-root /path/to/XPolicyLab \
-     --pi05-python /path/to/xpolicylab-env/bin/python \
-     --output-dir /path/to/run-output
-
-``--xpolicylab-root`` 指向单独克隆的 XPolicyLab 源码目录。如果 XPolicyLab 的 Pi0.5 推理所需\
-Python 包安装在另一个环境中，用 ``--pi05-python`` 指向该环境的 Python 解释器；否则省略此参数。
-
 SAM3 配置
 ---------
 
@@ -258,7 +176,7 @@ SAM3 用于物体分割。先在 `facebook/sam3 模型页面 <https://huggingfac
 
    rpent-check-llm --planner codex --model <planner-model> --json
 
-将 ``<planner-model>`` 替换为所选模型名，运行瓶子入桶任务：
+将 ``<planner-model>`` 替换为所选模型名，配置好 SAM3 后运行瓶子入桶任务。此命令会让 Agent 控制双臂动作：
 
 .. code-block:: bash
 
@@ -281,39 +199,51 @@ SAM3 用于物体分割。先在 `facebook/sam3 模型页面 <https://huggingfac
 终端会显示服务启动信息、planner 输出和工具调用。运行结束后，查看 ``--output-dir`` 指定目录中的文件：
 
 - ``result.json``：环境的任务成功判定及运行错误状态。
-- ``states.json``：动作记录及动作后的观测。
+- ``states.json``：工具命令、执行结果及同帧观测记录。
+- 各相机逐步保存的 RGB、米制深度、标定和世界坐标三维图。
 - ``videos/``：头部、左腕和右腕相机的视频。
-- ``robodojo_env_server.log``、``robodojo_vla_server.log``、``sam3_server.log``：\
-  各服务的启动和报错信息。
+- ``robodojo_env_server.log`` 和 ``sam3_server.log``：\
+  本地启动服务的日志和报错信息。
 - ``run.log`` 和 ``transcript_*.json``：主进程日志、planner 对话和错误。
 
 先检查 ``environment_result_available=true`` 和\
 ``agent_error_present=false``，再看 ``success`` 是否为 ``true``。服务正常退出或 planner\
 调用 ``finish``，均不能单独说明任务成功。
 
-未指定输出目录时，结果保存在 ``logs/<timestamp>_robodojo_<task>_l<layout>/``。并发运行应使用不同目录。\
+未指定输出目录时，结果保存在 ``logs/<timestamp>_robodojo_<task>_s<seed>_l<layout>/``。并发运行应使用不同目录。\
 实时查看方式见 :doc:`../guides/dashboard`。
 
 常用参数
 --------
 
-默认由 RPent 在当前 Python 环境中启动仿真、策略和 SAM3 服务。只有将它们分别安装到不同环境时，\
-才需要指定 ``--sim-python`` 和 ``--pi05-python``。
+默认由 RPent 在当前 Python 环境中启动仿真和 SAM3 服务。仿真器安装在独立环境时，指定 ``--sim-python``。旧 Pi0.5 诊断辅助代码保留在源码中，但 CLI 不启动该服务，也不向规划器开放其工具。
 
-- ``--task`` 和 ``--layout``：选择任务与固定布局；传入 ``--random`` 时忽略 ``--layout``，\
-  每次重置重新采样随机场景。
+使用 ``--task`` 选择任务。固定场景通过 ``--seed`` 选择官方布局组，通过 ``--layout`` 选择组内布局，两者默认均为 ``0``。例如，``--task stack_blocks --seed 0 --layout 2`` 使用第 0 组的第 2 个布局。需要随机生成场景时，添加 ``--random``，此时 ``--layout`` 不生效。
+
 - ``--cuda-device``：为本地启动的服务选择 GPU；省略时沿用 ``CUDA_VISIBLE_DEVICES``。
-- ``--env-endpoint``、``--vla-endpoint``、``--sam3-endpoint``：连接已有服务。\
-  VLA 服务需与 ``--policy-backend`` 匹配。
+- ``--env-endpoint`` 和 ``--sam3-endpoint``：连接已有服务。
 - ``--source-root``：使用本地 RoboDojo 源码替代包内源码。
 
 子服务继承当前终端的环境变量；CLI 不会自动读取 ``config/runtime.env``。\
 完整参数可运行 ``rpent --robot robodojo --help`` 查看。
 
-任务记忆与 Flash 重放
-----------------------------
+工具
+----
 
-RoboDojo 暂不支持 Flash Mode 和 ``--explore``。
+规划器不能重置回合；探索模式和 Flash 重放不可用。
+
+初始观测和运动反馈包含 ``episode_status.step`` （已用原生动作步数）、``step_limit`` （总步数上限）和 ``remaining_steps`` （剩余步数）。
+这些计数对应观测保存时的状态；顶层 ``step`` 是观测记录编号。读取历史观测不会消耗动作步数。
+
+``view_env_state`` 读取保存的图像和状态，``render`` 刷新观测。``sample_world_xyz(view, pixels, step=None, neighborhood=1)`` 查询 [行,列] 像素，默认取 3×3 邻域。``query_world_map`` 查询半开区间 [r0,c0,r1,c1]，默认最多返回 256 个点。view 使用 ``head``、``left_wrist`` 或 ``right_wrist``，必须与选点图像的视角及步号一致。查询读取保存的同帧深度，不暗中刷新；无效深度被排除，返回的是可见表面坐标，不是物体中心。
+
+``segment`` 和 ``back_project`` 也接受 ``step``。分割返回质心 ``centroid_rc`` 和掩码内像素 ``point_rc``；凹形掩码的质心可能在物体外，反投影应优先使用 ``point_rc`` 及返回的 ``step_idx``。这两个工具保留相机名 ``cam_head``、``cam_left_wrist``、``cam_right_wrist``。
+
+调用 ``segment(text_prompt=...)`` 时，描述可见的颜色、形状和位置。工具返回红色掩码叠加图；使用定位点前先检查叠加图，高分不代表选中了正确物体。分割失败时可修改描述，或在同一历史帧中手动选取可见像素查询。叠加图和几何结果保存在对应帧中。与 LIBERO 的接口不同，这里不接受点提示，也不返回掩码区域的世界坐标中位数；选定掩码内像素后需调用 ``back_project``。
+
+``move_to(arm, xyz, quat=None, gripper=None, substeps=25)`` 使用世界坐标、米及 wxyz 四元数；省略姿态或夹爪参数则保持对应状态／目标。``substeps`` 限制路径抽样数，0 保留完整路径，1 仅取最后路点，不代表速度或物理步数。``rotate_wrist`` 绕世界 Z 轴相对旋转，单位为度。``final_dist_m`` 是实测位置误差，不是到达保证。检查 ``completed``、``executed_steps`` 和 ``stop_reason``；超时的动作可能已在服务端执行，不会自动重试。
+
+``set_gripper(arm, val, steps=10)`` 使用 0=闭、1=开，``release`` 默认开到 1。中间值是连续控制目标，不保证对应精确物理宽度；反馈读取实际关节，而非命令字段。仅当实测值因物理超调越界时，将插值起点限制在合法范围，用户非法输入仍被拒绝。其他关节目标保持不变，每次下发目标还会经过底层插值。
 
 .. _robodojo-local-nvidia-assets:
 
