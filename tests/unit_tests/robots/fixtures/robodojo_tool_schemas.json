@@ -80,7 +80,7 @@
   },
   "view_env_state": {
     "name": "view_env_state",
-    "description": "Read one recorded RoboDojo state: robot joint/ee state, camera shapes and calibration, the task instruction, and the three camera RGB images (cam_head, cam_left_wrist, cam_right_wrist). Step -1 selects the latest record.",
+    "description": "Read one recorded RoboDojo state: robot joint/ee state, camera shapes and calibration, the task instruction, action budget and the three camera RGB images (cam_head, cam_left_wrist, cam_right_wrist). Step -1 selects the latest record. episode_status contains native step, step_limit and remaining_steps at capture time; the top-level step is the observation index.",
     "input_schema": {
       "properties": {
         "step": {

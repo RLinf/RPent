@@ -270,6 +270,11 @@ Tools
 
 The planner cannot reset an episode; exploration and Flash replay are unavailable.
 
+Initial observations and motion feedback include ``episode_status.step``
+(native actions used), ``step_limit`` (total budget), and ``remaining_steps``.
+These counters describe the saved observation; the top-level ``step`` is its
+record index. Reading historical observations does not consume action steps.
+
 ``view_env_state`` reads saved images and state; ``render`` captures a new
 observation. ``sample_world_xyz(view, pixels, step=None, neighborhood=1)``
 samples [row,col] pixels, with a default 3-by-3 neighborhood. ``query_world_map``
