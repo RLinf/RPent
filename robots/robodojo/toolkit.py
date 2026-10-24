@@ -12,17 +12,37 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""RoboDojo toolkit: shared perception and backend-specific control tools."""
+"""RoboDojo tool registration and observation capture."""
 
 from __future__ import annotations
 
 from functools import partial
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from robots.robodojo.execution import ExecutionSyncError
+from robots.robodojo.primitives import RoboDojoPrimitives
 from rpent.dashboard.events import DashboardEventSink
 from rpent.session import EnvState
-from rpent.tools import Toolkit, ToolResult, iter_tools
-from rpent.utils.logging import get_output_dir
+from rpent.tools import Toolkit, ToolResult, iter_tools, tool
+from rpent.utils.logging import get_logger, get_output_dir
+
+logger = get_logger(__name__)
+
+OBSERVATION_TOOLS = frozenset(
+    {"view_env_state", "segment", "back_project", "sample_world_xyz", "query_world_map"}
+)
+MOTION_TOOLS = frozenset(
+    {
+        "move_to",
+        "move_delta",
+        "hold",
+        "rotate_wrist",
+        "set_gripper",
+        "release",
+        "vpp2_act",
+    }
+)
 
 if TYPE_CHECKING:
     from rpent.memory.manager import MemoryManager
@@ -31,10 +51,9 @@ if TYPE_CHECKING:
 class RoboDojoToolkit(Toolkit):
     """Toolkit for the RoboDojo (Isaac Sim) environment.
 
-    Every robot tool is registered for every task. ``eval_fair`` additionally
-    requires a mode-validated environment, removes file tools, and disables
-    development perception recording. Scoring and safety diagnostics are never
-    planner tools.
+    Legacy policy code and composites are not exposed. ``eval_fair`` requires a mode-validated
+    environment, removes file tools, and disables development perception
+    recording. Scoring and safety diagnostics are never planner tools.
     """
 
     def __init__(
@@ -44,12 +63,12 @@ class RoboDojoToolkit(Toolkit):
         dashboard_events: DashboardEventSink,
         memory: MemoryManager,
         eval_fair: bool = False,
+        state_output_dir: Path | str | None = None,
     ) -> None:
         self.eval_fair = eval_fair
-        self._task_name = primitives_kwargs.get("task", "")
         if eval_fair and not getattr(primitives_kwargs.get("env"), "eval_fair", False):
             raise ValueError("eval-fair requires a mode-validated environment client")
-        state = EnvState(get_output_dir())
+        state = EnvState(Path(state_output_dir or get_output_dir()))
         super().__init__(
             dashboard_events=dashboard_events,
             state=state,
@@ -58,20 +77,21 @@ class RoboDojoToolkit(Toolkit):
         self.init_primitives(primitives_kwargs=primitives_kwargs)
         self._register_robodojo_tools()
         if eval_fair:
-            allowed = {
-                "view_env_state",
-                "segment",
-                "back_project",
-                "move_to",
-                "set_gripper",
-                "pi0_pick",
-            }
+            allowed = OBSERVATION_TOOLS | MOTION_TOOLS | {"finish", "render"}
             self._tools = {
                 name: entry for name, entry in self._tools.items() if name in allowed
             }
 
     def execute_tool(self, name, input_dict):
         result = super().execute_tool(name, input_dict)
+        if name == "finish" and result.data.get("_finish"):
+            end = getattr(self._primitives.env, "end_execution", None)
+            if end is not None:
+                try:
+                    end()
+                except ExecutionSyncError as exc:
+                    logger.exception("Failed to close execution after finish")
+                    result.data.setdefault("error", str(exc))
         if not self.eval_fair and name in {
             "segment",
             "back_project",
@@ -104,11 +124,7 @@ class RoboDojoToolkit(Toolkit):
         return obs
 
     def init_primitives(self, *, primitives_kwargs: dict[str, Any]) -> None:
-        """Wipe stale run artifacts, build the primitives, dump step 0.
-
-        The env server resets the Isaac Sim scene once at boot, so the client
-        does not re-reset here; this only establishes the initial state record.
-        """
+        """Start a new trace from the runtime-owned environment."""
         from robots.robodojo import tools as robodojo_tools
 
         self._pending_perception = []
@@ -124,11 +140,6 @@ class RoboDojoToolkit(Toolkit):
             robodojo_tools.dump_state(self._primitives, self._state, log=None)
         )
 
-    def close(self) -> None:
-        """Flush the env server's episode videos before the daemon is stopped."""
-        super().close()
-        self._primitives.env.close()
-
     def solved(self) -> bool:
         """Read official success for the runner after planner execution."""
         if self.eval_fair:
@@ -139,10 +150,25 @@ class RoboDojoToolkit(Toolkit):
         from robots.robodojo import tools as robodojo_tools
 
         for definition in iter_tools(robodojo_tools):
+            if definition.name not in OBSERVATION_TOOLS:
+                continue
             resources = {"state": self._state}
-            if definition.name != "view_env_state":
+            if definition.name in {"sample_world_xyz", "query_world_map"}:
+                resources = {"env_state": self._state}
+            elif definition.name == "segment":
                 resources["primitives"] = self._primitives
             self.add_tool(definition.with_handler(partial(definition, **resources)))
+        for definition in iter_tools(self._primitives):
+            if definition.name == "vpp2_act" and self._primitives.vla_client is None:
+                continue
+            self.add_tool(definition, replace=definition.name == "finish")
+        self.add_tool(self.render)
+
+    @tool
+    def render(self) -> ToolResult:
+        """Refresh the synchronized RGB-D, calibration and robot state record."""
+        self.raise_if_cancelled()
+        return ToolResult(data={"success": True})
 
     def get_env_state(
         self,
@@ -162,14 +188,32 @@ class RoboDojoToolkit(Toolkit):
         self._pending_perception = []
         return robodojo_tools.view_env_state(record.step_idx, state=self._state)
 
+    def close(self) -> None:
+        """Drain tools; the runtime owns the environment across planner sessions."""
+        drained = False
+        try:
+            super().close()
+            drained = True
+        finally:
+            end = getattr(self._primitives.env, "end_execution", None)
+            if end is not None:
+                try:
+                    end()
+                except ExecutionSyncError:
+                    if drained:
+                        raise
+                    logger.exception(
+                        "Failed to close execution after tool cleanup failed"
+                    )
 
-class RoboDojoPrimitives:
-    """Primitive implementations backed by the RoboDojo env RPC client."""
+    def cancel_active_and_wait(self) -> None:
+        super().cancel_active_and_wait()
+        pause = getattr(self._primitives.env, "pause_execution", None)
+        if pause is not None:
+            pause()
 
-    def __init__(self, *, env, sam3_client, vla_client, action_type, check_cancelled):
-        self.env = env
-        self.sam3_client = sam3_client
-        self.vla_client = vla_client
-        self.action_type = action_type
-        self._check_cancelled = check_cancelled
-        self._last_obs = None
+    def resume_calls(self) -> None:
+        resume = getattr(self._primitives.env, "resume_execution", None)
+        if resume is not None:
+            resume()
+        super().resume_calls()

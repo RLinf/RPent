@@ -75,6 +75,7 @@ PROMPT_VARIABLES = {
     },
     "robodojo": {
         "task": "put_bottles_into_dustbin",
+        "seed": 0,
         "layout": 0,
         "env_cfg_type": "arx_x5",
         "action_type": "joint",
