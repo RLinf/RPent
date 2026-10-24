@@ -48,6 +48,62 @@ On the VLA host, set the checkpoint path and start the HTTP service:
 
 The VLA service loads the model once and can be reused by multiple RPent runs.
 
+APXInf VLA Service
+------------------------------
+
+The optional APXInf adapter serves the same RPent RPC contract as Pi0.5.
+The adapter selects an APXInf-robo policy for ``libero``, ``dual_franka``,
+or ``yam``. The real-robot paths are experimental: offline contract tests
+do not establish checkpoint compatibility or successful real-robot demos.
+Single-arm ``franka`` needs a policy matching its deployed checkpoint and
+is not yet registered.
+APXInf-robo's native OpenPI WebSocket server uses a different protocol and
+cannot be passed directly to ``--vla-endpoint``.
+
+Prepare an APXInf environment with APXInf-robo (including the selected robot
+preset), the APXInf Python package, CUDA native binding
+(``apxinf_py``), a compatible Pi0.5 LIBERO checkpoint, SentencePiece tokenizer,
+and normalization statistics. Install RPent in that environment with
+``pip install -e /path/to/RPent``. RPent does not install APXInf automatically
+and has no APXInf extra; the imports are delayed until model construction.
+The planner/environment process can keep its existing LIBERO environment.
+
+Start the adapter with that environment's Python:
+
+.. code-block:: bash
+
+   /path/to/apxinf-env/bin/python \
+     -m rpent.robots.components.apxinf_vla_server \
+     --embodiment libero \
+     --model-path /path/to/pi05-libero \
+     --tokenizer-path /path/to/tokenizer.model \
+     --norm-stats-path /path/to/norm_stats.json \
+     --precision bf16 \
+     --transport http --host 127.0.0.1 --port 8220
+
+Add ``--vla-endpoint http://127.0.0.1:8220`` to the usual LIBERO command.
+For another host, bind the service to its reachable interface and use that
+host's address in the endpoint. The caller owns this external service and
+must stop it when finished. Omitting the endpoint still starts OpenPI.
+The existing LIBERO extras still install OpenPI even when an external APXInf
+service is selected.
+
+For LIBERO, the adapter uses two camera views, five flow steps, and a ten-step prediction
+horizon, returning the first five actions as float32 in environment units.
+For ``dual_franka``, select the body-delta TCP rot6d checkpoint: three views
+and 20 predicted actions of width 20. For ``yam``, select the delta-joint
+checkpoint: three views and 30 absolute qpos14 actions; the existing YAM
+tool executes five per call. Change ``--embodiment`` and the model/statistics
+paths together. APXInf-robo owns the state and action conversions.
+The model directory must use a checkpoint layout and weight keys supported by
+APXInf. A raw RLinf ``actor/model_state_dict/full_weights.pt`` directory is not
+loaded or converted by this adapter; its export and numerical parity must be
+verified before using the real-robot paths.
+
+It supports eval mode only. Record the APXInf, APXInf-robo and RPent revisions, checkpoint,
+tokenizer and statistics when comparing backends; an endpoint health check
+does not verify inference quality or task success.
+
 SAM3 Service
 ------------
 
