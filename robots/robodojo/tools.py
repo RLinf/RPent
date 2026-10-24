@@ -22,6 +22,7 @@ import numpy as np
 from pydantic import Field
 from pydantic.json_schema import SkipJsonSchema
 
+from robots.robodojo.access import public_episode_budget
 from rpent.session import EnvState
 from rpent.tools import ToolResult, tool
 
@@ -325,7 +326,7 @@ CAMERA_ARTIFACTS: tuple[tuple[str, str], ...] = (
 
 @tool(readonly=True, exclude=("state",))
 def view_env_state(step: int = -1, *, state: Any) -> ToolResult:
-    """Read one recorded RoboDojo state: robot joint/ee state, camera shapes and calibration, the task instruction, and the three camera RGB images (cam_head, cam_left_wrist, cam_right_wrist). Step -1 selects the latest record.
+    """Read one recorded RoboDojo state: robot joint/ee state, camera shapes and calibration, the task instruction, action budget and the three camera RGB images (cam_head, cam_left_wrist, cam_right_wrist). Step -1 selects the latest record. episode_status contains native step, step_limit and remaining_steps at capture time; the top-level step is the observation index.
 
     Args:
         step: Recorded step to read (-1 = latest)"""
@@ -340,6 +341,7 @@ def view_env_state(step: int = -1, *, state: Any) -> ToolResult:
         "state": record.state,
         "artifacts": sorted(record.artifacts),
         "task_language": record.extras.get("task_language"),
+        "episode_status": record.extras.get("episode_status"),
     }
     result["log"] = {
         "command": record.command,
@@ -791,6 +793,7 @@ def dump_state(primitives, state, *, log: dict | None = None, perception=None):
         extras={
             "task_language": obs.get("instruction")
             or primitives.env.get_task_language(),
+            "episode_status": public_episode_budget(status),
             **({"perception": perception} if perception else {}),
         },
     ) as step_idx:

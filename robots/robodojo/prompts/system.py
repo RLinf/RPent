@@ -23,7 +23,11 @@ Do not control services or the robot through scripts, shell or direct RPC."""
 
 TOOL_ACCESS = """Use view_env_state to inspect recorded head and wrist images.
 render captures a new synchronized observation without commanding robot motion.
-Each non-readonly tool also captures a new observation after execution."""
+Each non-readonly tool also captures a new observation after execution.
+Observations and motion feedback include episode_status.step (native actions
+used), step_limit (total budget), and remaining_steps at capture time. Read
+this budget before acting and after motion. The top-level step is an observation
+index; historical observations retain their historical budget."""
 
 PERCEPTION = """Use sample_world_xyz(view, pixels, step) for [row,col] pixels
 or query_world_map(view, bbox, step) for a half-open [r0,c0,r1,c1] region.
