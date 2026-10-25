@@ -319,21 +319,24 @@ def toolkit_factory(tmp_path, monkeypatch):
 
     monkeypatch.setattr(logging, "_output_dir", tmp_path)
 
-    def create(sam3=None):
+    def create(mode="evaluation", attempts=5, sam3=None):
         env = MotionEnv()
         toolkit = RoboDojoToolkit(
             primitives_kwargs={"env": env, "sam3_client": sam3},
             dashboard_events=NullDashboardEventSink(),
             memory=MemoryManager(tmp_path / "memory"),
-            state_output_dir=tmp_path / "states",
+            mode=mode,
+            attempts_per_session=attempts,
+            state_output_dir=tmp_path / mode,
         )
         return env, toolkit
 
     return create
 
 
-def test_observations_and_motion_report_budget_at_capture_time(toolkit_factory):
-    env, toolkit = toolkit_factory()
+@pytest.mark.parametrize("mode", ["evaluation", "exploration"])
+def test_observations_and_motion_report_budget_at_capture_time(toolkit_factory, mode):
+    env, toolkit = toolkit_factory(mode=mode)
     initial_budget = {"step": 0, "step_limit": 100, "remaining_steps": 100}
     initial = toolkit.execute_tool("view_env_state", {}).data
     assert initial["episode_status"] == initial_budget
@@ -360,6 +363,13 @@ def test_observations_and_motion_report_budget_at_capture_time(toolkit_factory):
         == initial_budget
     )
     assert env.reads == reads and env.step_count == 12
+    if mode == "exploration":
+        reset = toolkit.execute_tool("reset", {}).data
+        assert reset["episode_status"] == initial_budget
+        assert (
+            toolkit.execute_tool("view_env_state", {"step": 4}).data["episode_status"]
+            == budget
+        )
     toolkit.close()
 
 
@@ -486,7 +496,122 @@ def test_invalid_depth_and_half_open_regions(toolkit_factory):
     assert np.isnan(tools._world_from_depth(depth, np.eye(3), np.eye(4))).all()
 
 
-def test_scene_identity_in_config(tmp_path):
+def test_reset_attempt_budget_and_history_are_runtime_enforced(toolkit_factory):
+    env, toolkit = toolkit_factory(mode="exploration")
+    assert env.resets == 1
+    assert toolkit.execute_tool(
+        "finish", {"status": "failure", "summary": "try"}
+    ).is_error
+    for attempt in range(2, 6):
+        result = toolkit.execute_tool("reset", {}).data
+        assert result["log"]["result"]["attempt"] == attempt
+    assert env.resets == 5
+    assert toolkit.execute_tool("reset", {}).is_error
+    assert env.resets == 5 and toolkit._state.get(0).step_idx == 0
+    assert toolkit.execute_tool(
+        "finish", {"status": "failure", "summary": "done"}
+    ).data["_finish"]
+    toolkit.close()
+    # No env.close: the same runtime serves the next planner session.
+
+
+def test_solved_reset_refused_and_only_successful_attempt_exported(toolkit_factory):
+    env, toolkit = toolkit_factory(mode="exploration")
+    toolkit.execute_tool("set_gripper", {"arm": "left", "val": 0, "steps": 1})
+    toolkit.execute_tool("reset", {})
+    original = env.step_joint_update
+
+    def succeed(**kwargs):
+        result = original(**kwargs)
+        env.success = True
+        return result
+
+    env.step_joint_update = succeed
+    toolkit.execute_tool("release", {"arm": "left", "steps": 1})
+    assert toolkit.execute_tool("reset", {}).is_error
+    path = toolkit.write_recipe("example")
+    import json
+    from pathlib import Path
+
+    recipe = [json.loads(line) for line in Path(path).read_text().splitlines()]
+    assert recipe == [{"action": "release", "arm": "left", "steps": 1}]
+
+
+def test_recipe_preserves_sam3_call_order_and_excludes_failed_attempts(toolkit_factory):
+    import json
+    from pathlib import Path
+
+    def segment(image, *, text_prompt, **kwargs):
+        if text_prompt == "service error":
+            raise RuntimeError("SAM3 unavailable")
+        return SimpleNamespace(
+            found=text_prompt != "missing",
+            score=0.9,
+            mask=np.ones(image.shape[:2], dtype=bool),
+            box=[0, 0, 3, 3],
+        )
+
+    env, toolkit = toolkit_factory(
+        mode="exploration", sam3=SimpleNamespace(segment=segment)
+    )
+    toolkit.execute_tool("segment", {"text_prompt": "failed attempt"})
+    toolkit.execute_tool("set_gripper", {"arm": "left", "val": 0, "steps": 1})
+    assert toolkit.write_recipe("unsolved") == ""
+    toolkit.execute_tool("segment", {"text_prompt": "before reset"})
+    toolkit.execute_tool("reset", {})
+    source_step = toolkit._state.latest_step
+    first = {"text_prompt": "object", "step": source_step}
+    toolkit.execute_tool("segment", first)
+    toolkit.execute_tool("segment", {"text_prompt": "missing"})
+    toolkit.execute_tool("segment", {"text_prompt": "service error"})
+    toolkit.execute_tool("back_project", {"row": 1, "col": 1})
+    toolkit.execute_tool("set_gripper", {"arm": "left", "val": 0, "steps": 1})
+
+    # Two later queries of the same saved image must stay after the motion,
+    # rather than being sorted by image step or deduplicated.
+    later = {"text_prompt": "object again", "step": source_step, "min_score": 0.5}
+    toolkit.execute_tool("segment", later)
+    toolkit.execute_tool("segment", later)
+    original = env.step_joint_update
+
+    def succeed(**kwargs):
+        result = original(**kwargs)
+        env.success = True
+        return result
+
+    env.step_joint_update = succeed
+    toolkit.execute_tool("release", {"arm": "left", "steps": 1})
+    final = {"text_prompt": "final observation"}
+    toolkit.execute_tool("segment", final)
+    toolkit.execute_tool("finish", {"status": "success", "summary": "done"})
+    path = toolkit.write_recipe("example")
+    recipe = [json.loads(line) for line in Path(path).read_text().splitlines()]
+    assert recipe == [
+        {"action": "segment", **first},
+        {"action": "set_gripper", "arm": "left", "val": 0, "steps": 1},
+        {"action": "segment", **later},
+        {"action": "segment", **later},
+        {"action": "release", "arm": "left", "steps": 1},
+        {"action": "segment", **final},
+    ]
+    toolkit.close()
+
+
+def test_failed_reset_does_not_consume_an_attempt(toolkit_factory):
+    env, toolkit = toolkit_factory(mode="exploration")
+    original = env.reset
+
+    def fail():
+        raise RuntimeError("reset failed")
+
+    env.reset = fail
+    assert toolkit.execute_tool("reset", {}).is_error
+    env.reset = original
+    result = toolkit.execute_tool("reset", {}).data
+    assert result["log"]["result"]["attempt"] == 2
+
+
+def test_explore_defaults_and_scene_identity_in_config(tmp_path):
     import argparse
 
     parser = argparse.ArgumentParser()
@@ -495,7 +620,115 @@ def test_scene_identity_in_config(tmp_path):
         ["--task", "put_bottles_into_dustbin", "--seed", "2", "--layout", "3"]
     )
     args.output_dir = tmp_path
+    args.explore = True
     config = robot_spec._parse_config(args)
+    assert args.explore_attempts_per_session == 5 and args.explore_sessions == 3
     assert config.task_desc["seed"] == 2 and config.task_desc["layout"] == 3
     assert config.recipe_tag.endswith("s2_l3")
-    assert robot_spec.get_robot_spec().supports_exploration is False
+    prompt = robot_spec.get_robot_spec().prompts.render(
+        "system", variables={**config.prompt_vars, "output_dir": str(tmp_path)}
+    )
+    assert "5 attempts" in " ".join(prompt.split())
+    args.random = True
+    with pytest.raises(ValueError, match="fixed seed/layout"):
+        robot_spec._validate_args(args)
+
+
+@pytest.mark.parametrize("task", ["stack_blocks", "stack_blocks_random"])
+def test_evaluation_references_seed_zero_without_changing_output_identity(
+    tmp_path, task
+):
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    robot_spec._add_cli_args(parser, False)
+    args = parser.parse_args(["--task", task, "--seed", "1", "--layout", "3"])
+    args.output_dir = tmp_path
+    config = robot_spec._parse_config(args)
+    assert config.recipe_tag == f"{task}_s1_l3"
+    assert config.prompt_vars["reference_tag"] == f"{task}_s0_l0"
+    prompt = robot_spec.get_robot_spec().prompts.render(
+        "system", variables={**config.prompt_vars, "output_dir": str(tmp_path)}
+    )
+    memory = config.prompt_vars["memory_dir"]
+    assert f"{memory}/task-specific/{task}_s0_l0.json" in prompt
+    assert f"{memory}/task-specific/{task}_s0_l0_recipe.jsonl" in prompt
+    assert f"{memory}/task-family/task-family_robodojo_arx_x5_t{task}.md" in prompt
+    assert f"{tmp_path}/{task}_s1_l3.json" in prompt
+    assert f"{memory}/task-specific/{task}_s1_l3" not in prompt
+    other = "stack_blocks" if task.endswith("_random") else "stack_blocks_random"
+    assert f"{memory}/task-specific/{other}_s0_l0" not in prompt
+    assert "{{" not in prompt
+
+
+def test_exploration_memory_can_be_published_and_read_by_evaluation(
+    tmp_path, monkeypatch
+):
+    import json
+
+    from rpent.robots.robot_spec import RunConfig
+    from rpent.utils import logging
+
+    monkeypatch.setattr(logging, "_output_dir", tmp_path)
+    root = tmp_path / "memory"
+    tag = "general_pickup_s0_l0"
+    config = RunConfig(
+        recipe_tag=tag,
+        output_dir=tmp_path,
+        prompt_vars={"memory_dir": str(root)},
+        task_desc={"task": "general_pickup", "seed": 0, "layout": 0},
+    )
+    env = MotionEnv()
+    toolkit = robot_spec.get_toolkit(
+        runtime_kwargs={"env": env},
+        dashboard_events=NullDashboardEventSink(),
+        config=config,
+        mode="exploration",
+        attempts_per_session=2,
+        state_output_dir=tmp_path / "sessions" / "session_001",
+    )
+    proposal = root / "_internal" / "inbox" / tag / "task-family_draft.md"
+    content = (
+        "---\nscope: task-family\nsuite: robodojo\nregime: arx_x5\n"
+        "task_id: general_pickup\ntask_language: Move the object.\n"
+        f"evidence:\n  cells: [{tag}]\nconfidence: single-shot\n---\n"
+        "Re-localize the target after a reset.\n"
+    )
+    assert not toolkit.execute_tool(
+        "write_text_file", {"path": str(proposal), "content": content}
+    ).is_error
+    assert toolkit.execute_tool(
+        "write_text_file", {"path": str(root / "MEMORY.md"), "content": "overwrite"}
+    ).is_error
+    original = env.step_joint_update
+
+    def succeed(**kwargs):
+        result = original(**kwargs)
+        env.success = True
+        return result
+
+    env.step_joint_update = succeed
+    toolkit.execute_tool("release", {"arm": "left", "steps": 1})
+    toolkit.write_recipe(tag)
+    (tmp_path / f"{tag}.json").write_text(json.dumps({"success": True}))
+    merged = toolkit.memory.merge_memory(
+        cell_tag=tag, run_state_dir=tmp_path, solved=True
+    )
+    assert merged["task-family"] == 1 and merged["task"] == 1
+    assert toolkit.memory.validate() == []
+    toolkit.close()
+
+    evaluation = robot_spec.get_toolkit(
+        runtime_kwargs={"env": MotionEnv()},
+        dashboard_events=NullDashboardEventSink(),
+        config=config,
+        state_output_dir=tmp_path / "evaluation",
+    )
+    leaf = next((root / "task-family").glob("*.md"))
+    result = evaluation.execute_tool("read_text_file", {"path": str(leaf)})
+    assert "Re-localize" in result.data["content"]
+    assert evaluation.execute_tool(
+        "write_text_file", {"path": str(proposal), "content": content}
+    ).is_error
+    assert "reset" not in {tool.name for tool in evaluation.list_tools()}
+    evaluation.close()

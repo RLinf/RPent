@@ -80,6 +80,7 @@ PROMPT_VARIABLES = {
         "env_cfg_type": "arx_x5",
         "action_type": "joint",
         "recipe_tag": "put_bottles_into_dustbin_l0",
+        "reference_tag": "put_bottles_into_dustbin_s0_l0",
         "task_summary": {"task": "put_bottles_into_dustbin", "rigid": ["bottle"]},
         "memory_dir": "/memory",
         "output_dir": Path("/output"),

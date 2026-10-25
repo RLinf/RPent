@@ -537,11 +537,13 @@ def test_task_guidance_is_scoped_and_tools_are_injected():
         variables = {
             "task": task,
             "output_dir": "/output",
+            "memory_dir": "/memory",
             "layout": 0,
             "env_cfg_type": "arx_x5",
             "action_type": "joint",
             "task_summary": "scene",
             "recipe_tag": task,
+            "reference_tag": f"{task}_s0_l0",
             "seed": 0,
         }
         system = bundle.render("system", variables=variables)

@@ -303,9 +303,7 @@ def test_inference_failure_keeps_completed_chunk_counts(connected):
     assert env.policy_observation()["inference_index"] == 2
 
 
-def test_toolkit_registers_policy_and_persists_subtask_without_recipe_export(
-    connected, tmp_path, monkeypatch
-):
+def test_toolkit_registers_policy_and_exports_subtask(connected, tmp_path, monkeypatch):
     import json
 
     from robots.robodojo.toolkit import RoboDojoToolkit
@@ -344,8 +342,9 @@ def test_toolkit_registers_policy_and_persists_subtask_without_recipe_export(
         assert entry["action"] == "vpp2_act"
         assert entry["instruction"] == "pick the red block"
         assert manifest["steps"][-1]["result"]["executed_actions"] == 24
-        assert toolkit.write_recipe("example") is None
-        assert not (tmp_path / "example_recipe.jsonl").exists()
+        assert toolkit.write_recipe("example") == str(tmp_path / "example_recipe.jsonl")
+        recipe = (tmp_path / "example_recipe.jsonl").read_text()
+        assert json.loads(recipe) == entry
     finally:
         toolkit.close()
 

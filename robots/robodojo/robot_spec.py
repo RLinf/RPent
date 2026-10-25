@@ -147,6 +147,7 @@ def get_robot_spec() -> RobotSpec:
         dashboard=ROBODOJO_DASHBOARD_SPEC,
         validate_args=_validate_args,
         finalize_run=finalize_run,
+        supports_exploration=True,
     )
 
 
@@ -173,12 +174,14 @@ def finalize_run(context: RunFinalizationContext) -> Path:
 
 
 def _validate_args(args: argparse.Namespace) -> None:
-    """Reject unsupported replay and invalid scene identity before startup."""
+    """Reject unsupported replay and changing-scene exploration before startup."""
     if getattr(args, "planner", None) == "flash":
         raise ValueError(
             "RoboDojo legacy Flash replay is unavailable with the new motion tools"
         )
-    for name in ("seed", "layout"):
+    if getattr(args, "explore", False) and getattr(args, "random", False):
+        raise ValueError("exploration requires a fixed seed/layout; omit --random")
+    for name in ("seed", "layout", "explore_attempts_per_session"):
         if getattr(args, name, 0) < 0:
             raise ValueError(f"{name} must be nonnegative")
 
@@ -188,6 +191,8 @@ def get_toolkit(
     runtime_kwargs: dict[str, Any],
     dashboard_events: DashboardEventSink,
     config: RunConfig,
+    mode: str = "evaluation",
+    attempts_per_session: int = 5,
     state_output_dir: Path | str | None = None,
 ):
     """Return the RoboDojo toolkit (common tools + RoboDojo primitives)."""
@@ -195,7 +200,8 @@ def get_toolkit(
 
     memory = MemoryManager(
         root=config.prompt_vars.get("memory_dir") or get_memory_dir("robodojo"),
-        memory_access="read_only",
+        memory_access="inbox_write" if mode == "exploration" else "read_only",
+        inbox_cell_tag=config.recipe_tag if mode == "exploration" else None,
     )
     if config.prompt_vars.get("mode") == "eval-fair":
         from robots.robodojo.flash.replay import load_plan
@@ -206,6 +212,8 @@ def get_toolkit(
         dashboard_events=dashboard_events,
         memory=memory,
         eval_fair=config.prompt_vars.get("mode") == "eval-fair",
+        mode=mode,
+        attempts_per_session=attempts_per_session,
         state_output_dir=state_output_dir,
     )
 
@@ -255,6 +263,16 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         type=int,
         default=0,
         help="Layout index within the selected seed group",
+    )
+    parser.add_argument(
+        "--explore-attempts-per-session",
+        type=int,
+        default=5,
+        help="Exploration attempts including the initial episode; 0 disables this limit",
+    )
+    parser.add_argument("--explore-sessions", type=int, default=3)
+    parser.add_argument(
+        "--auto-merge-memory", action=argparse.BooleanOptionalAction, default=True
     )
     parser.add_argument(
         "--env-cfg-type", default=DEFAULT_ENV_CFG, help="RoboDojo env config (arx_x5)"
@@ -312,6 +330,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     eval_fair = getattr(args, "planner", None) == "flash"
     summary = {} if eval_fair else robodojo_tasks.task_summary(args.task, source_root)
     seed = getattr(args, "seed", 0)
+    explore = bool(getattr(args, "explore", False))
     recipe_tag = f"{args.task}_s{seed}_l{args.layout}"
     if getattr(args, "random", False):
         recipe_tag = f"{args.task}_random"
@@ -335,9 +354,24 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             "env_cfg_type": args.env_cfg_type,
             "action_type": args.action_type,
             "recipe_tag": recipe_tag,
+            "reference_tag": f"{args.task}_s0_l0",
             "task_summary": summary,
             "memory_dir": str(memory_dir),
-            "mode": "eval-fair" if eval_fair else "dev",
+            "mode": "explore" if explore else "eval-fair" if eval_fair else "dev",
+            **(
+                {
+                    "memory_inbox": str(
+                        memory_dir / "_internal" / "inbox" / recipe_tag
+                    ),
+                    "session_number": 1,
+                    "session_max": getattr(args, "explore_sessions", 3),
+                    "explore_attempts_per_session": getattr(
+                        args, "explore_attempts_per_session", 5
+                    ),
+                }
+                if explore
+                else {}
+            ),
         },
         task_desc={
             "task": args.task,

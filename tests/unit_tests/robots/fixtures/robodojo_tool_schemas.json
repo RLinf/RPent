@@ -211,7 +211,7 @@
   },
   "move_to": {
     "name": "move_to",
-    "description": "Plan a world-metre xyz and wxyz orientation. Omitted orientation/opening is held. substeps caps sampled waypoints (0: full path, 1: final only), not physics steps. Sampling and the native table-only obstacle model do not guarantee scene-wide collision avoidance.",
+    "description": "Plan a world-metre xyz and wxyz orientation. Omitted orientation/opening is held. Use substeps=25 by default; choose only 1, 5, 10 or 25 using the motion guidance. Each executed waypoint consumes one native action step; completion does not guarantee arrival. Sampling can skip detours, and the native planner does not model every scene obstacle.",
     "input_schema": {
       "properties": {
         "arm": {
@@ -262,7 +262,7 @@
   },
   "rotate_wrist": {
     "name": "rotate_wrist",
-    "description": "Rotate the end effector about world Z by a relative angle in degrees.",
+    "description": "Rotate the end effector about world Z by a relative angle in degrees. Use the same substeps selection as move_to: 25 by default, or 10, 5 or 1 for progressively smaller adjustments. Inspect the achieved orientation and held object afterward.",
     "input_schema": {
       "properties": {
         "arm": {
@@ -374,6 +374,14 @@
   "render": {
     "name": "render",
     "description": "Refresh the synchronized RGB-D, calibration and robot state record.",
+    "input_schema": {
+      "properties": {},
+      "type": "object"
+    }
+  },
+  "reset": {
+    "name": "reset",
+    "description": "Retry the same task/seed/layout in exploration. Re-perceive after reset.",
     "input_schema": {
       "properties": {},
       "type": "object"

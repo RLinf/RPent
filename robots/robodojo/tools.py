@@ -783,9 +783,11 @@ def dump_state(primitives, state, *, log: dict | None = None, perception=None):
             )
     with state.record_step(
         state=summary,
-        # Official success is read by the runner after planner execution,
-        # not written into planner-readable state artifacts.
-        terminated=False,
+        # Exploration records termination for successful-attempt recipe export.
+        # Evaluation reads the verdict through the runner.
+        terminated=bool(
+            getattr(primitives, "exploration", False) and status.get("success") is True
+        ),
         truncated=int(status.get("step", 0)) >= int(status.get("step_limit", 0) or 0),
         command=log.get("command"),
         result=log.get("result"),
