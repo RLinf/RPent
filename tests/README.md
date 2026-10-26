@@ -122,17 +122,16 @@ all seven checks. The scripted planner needs no external planner credentials.
 
 ## APXInf LIBERO integration
 
-`libero/test_apxinf.py` adds a real prediction from an environment observation
-and a bounded public-CLI policy chain through the APXInf endpoint. It uses the
-existing scripted planner, real simulator, and checkpoint, without an LLM API.
-The tests verify the five-action contract, recorded execution and observations,
-survival of the borrowed endpoint after CLI cleanup, and clean APXInf shutdown.
-They do not measure task success rates, numerical parity, or inference speed.
+[`test_apxinf.py`](e2e_tests/libero/test_apxinf.py) checks real model inference
+and a bounded CLI policy chain using LIBERO-PRO and a scripted planner,
+without an LLM API.
+It verifies five-action predictions, saved actions and observations, and
+service cleanup, including keeping the external endpoint alive after CLI exit.
+These are integration checks, not task-success, numerical-parity or speed benchmarks.
 
-These cases are skipped unless `RPENT_RUN_APXINF_INTEGRATION=1`. Use the existing
-LIBERO-PRO GPU runner and its asset, Pi0.5 and SAM3 checkpoint prerequisites.
-Install APXInf and this RPent checkout in a separate GPU Python environment,
-then export the additional resources before calling the runner:
+The tests are skipped unless `RPENT_RUN_APXINF_INTEGRATION=1`. Prepare the
+LIBERO-PRO GPU runner's assets, Pi0.5 and SAM3 checkpoints described above.
+Install APXInf and RPent in a separate GPU Python environment, then run:
 
 ```bash
 export RPENT_RUN_APXINF_INTEGRATION=1
@@ -145,12 +144,12 @@ bash tests/e2e_tests/run_gpu_suite.sh \
   libero-pro /path/to/new-output-dir /path/to/new-venv-root
 ```
 
-The APXInf process inherits `CUDA_VISIBLE_DEVICES` from the runner. Inspect
-`pro/apxinf/server.log`, the JUnit report, policy-chain artifacts and the
-runner's process-cleanup report. Record both engine/checkpoint identities when
-reporting results. These tests do not establish support for real-robot demos.
+APXInf inherits the runner's `CUDA_VISIBLE_DEVICES`. In the output directory,
+inspect `pro/apxinf/server.log`, the JUnit report, policy-chain artifacts and
+process-cleanup report. Include engine revisions and checkpoint identities
+when reporting results.
 
-Offline adapter tests run without APXInf or a GPU:
+For offline adapter checks without APXInf or a GPU:
 
 ```bash
 pytest tests/unit_tests/rpent/robots/components/test_apxinf_vla_contracts.py -v

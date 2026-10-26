@@ -39,22 +39,12 @@ Pi0.5 VLA 服务
 VLA 服务只加载一次模型，可以由多个 RPent 运行复用。
 
 APXInf VLA 服务
--------------------------
+------------------
 
-可选的 APXInf 适配器提供与 Pi0.5 相同的 RPent RPC 契约。
-适配器按 ``libero``、``dual_franka`` 或 ``yam`` 选择 APXInf-robo policy。
-真机路径仍处于实验阶段：离线契约测试不能证明 checkpoint 兼容或真机 demo 成功。
-单臂 ``franka`` 需要匹配实际 checkpoint 的 policy，目前尚未注册。
-APXInf-robo 原生的 OpenPI WebSocket 服务使用另一种协议，不能直接作为
-``--vla-endpoint`` 使用。
+可选的 APXInf 适配器可以替代 Pi0.5 服务。在独立 Python 环境中安装 APXInf-robo、APXInf 及其 CUDA 绑定（``apxinf_py``），再执行 ``pip install -e /path/to/RPent`` 安装 RPent。
+准备兼容的 Pi0.5 LIBERO 模型权重、SentencePiece tokenizer 和归一化统计文件。RPent 不会自动安装 APXInf；规划器和环境可以继续使用原有 LIBERO 安装及其 OpenPI 依赖。
 
-先准备 APXInf 环境，包括带有所选机器人 preset 的 APXInf-robo、APXInf Python 包、CUDA 原生绑定（``apxinf_py``）、
-兼容的 Pi0.5 LIBERO checkpoint、SentencePiece tokenizer 和归一化统计文件。
-在该环境中执行 ``pip install -e /path/to/RPent`` 安装 RPent。
-RPent 不会自动安装 APXInf，也没有 APXInf extra；仅在创建模型时导入它。
-运行 planner 和环境的进程可以继续使用原有 LIBERO 环境。
-
-使用该环境的 Python 启动适配器：
+使用该环境的 Python 启动服务：
 
 .. code-block:: bash
 
@@ -67,24 +57,16 @@ RPent 不会自动安装 APXInf，也没有 APXInf extra；仅在创建模型时
      --precision bf16 \
      --transport http --host 127.0.0.1 --port 8220
 
-在原有 LIBERO 命令中增加 ``--vla-endpoint http://127.0.0.1:8220``。
-跨主机部署时，将服务绑定到可访问的网络接口，并在 endpoint 中使用该主机地址。
-这个外部服务由调用者管理，用完后需自行停止；省略 endpoint 仍会启动 OpenPI。
-即使选择外部 APXInf 服务，现有 LIBERO extras 也仍会安装 OpenPI。
+在 LIBERO 命令中增加 ``--vla-endpoint http://127.0.0.1:8220``。跨主机访问时，将服务绑定到可访问的网络接口，并使用服务端地址。用完后需自行停止这个外部服务；省略 endpoint 会启动 OpenPI。
+APXInf-robo 原生的 OpenPI WebSocket 服务不是 RPent RPC endpoint，请使用上述适配器。
 
-LIBERO 适配器使用两个相机视角、五次 flow step 和十步预测 horizon，
-取前五步动作，以环境单位的 float32 数组返回，仅支持 eval 模式。
-``dual_franka`` 使用 body-frame 增量 TCP rot6d checkpoint，输入三个视角，
-返回 20 步、每步 20 维的绝对位姿动作。``yam`` 使用关节增量 checkpoint，
-输入三个视角，返回 30 步绝对 qpos14 动作；现有 YAM 工具每次执行前五步。
-切换时需同时修改 ``--embodiment``、模型和统计文件路径。
-状态和动作转换由 APXInf-robo 负责。
-模型目录必须采用 APXInf 支持的 checkpoint 布局和权重命名。
-适配器不会加载或自动转换原始 RLinf ``actor/model_state_dict/full_weights.pt``
-目录；使用真机路径前，还需验证权重导出及数值一致性。
+适配器仅支持 eval 模式，模型配置如下：
 
-比较后端时应记录 APXInf、APXInf-robo 和 RPent 的提交版本、checkpoint、tokenizer 及统计文件。
-endpoint 健康检查不能证明推理质量或任务成功率。
+- ``libero``：两个视角、五次流匹配迭代、十步动作预测；返回前五步动作，使用环境单位和 float32 类型。
+- ``dual_franka``：采用本体坐标系增量 TCP rot6d 的模型，输入三个视角；返回 20 步绝对位姿动作，每步 20 维。
+- ``yam``：采用关节增量模型，输入三个视角；返回 30 步绝对 qpos14 动作，YAM 工具每次执行五步。
+
+修改 ``--embodiment`` 时，需选择匹配的 APXInf-robo 预设、模型权重和统计文件。双臂 Franka 和 YAM 仍处于实验阶段，权重导出、数值一致性和真机执行尚需验证。适配器需要 APXInf 兼容的权重，不会转换原始 RLinf ``actor/model_state_dict/full_weights.pt``；目前不支持单臂 ``franka``。
 
 SAM3 服务
 ---------
