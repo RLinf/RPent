@@ -70,6 +70,7 @@ def main() -> None:
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--config", required=True)
     parser.add_argument("--sglang-endpoint", required=True)
+    parser.add_argument("--transport", choices=("http", "socket"), default="http")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8118)
     parser.add_argument("--parent-watch", action="store_true")
@@ -94,7 +95,12 @@ def main() -> None:
         platform=args.platform,
         checkpoint=args.checkpoint,
     )
-    facade.serve(host=args.host, port=args.port, parent_watch=args.parent_watch)
+    facade.serve(
+        transport=args.transport,
+        host=args.host,
+        port=args.port,
+        parent_watch=args.parent_watch,
+    )
 
 
 if __name__ == "__main__":
