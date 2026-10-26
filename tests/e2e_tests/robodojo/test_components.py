@@ -1,5 +1,5 @@
 # Copyright 2026 The RPent Authors.
-"""Opt-in real SAM3 segmentation and back-projection."""
+"""Opt-in real SAM3 and VPP2; the SAM3 test needs no VLA weights."""
 
 import os
 from pathlib import Path
@@ -74,3 +74,43 @@ def test_sam3_component(monkeypatch):
             )
         finally:
             toolkit.close()
+
+
+@pytest.mark.timeout(2400)
+@pytest.mark.skipif(
+    not (
+        os.environ.get("VPP2_MODEL_PATH")
+        or os.environ.get("RPENT_ROBODOJO_VLA_ENDPOINT")
+    ),
+    reason="requires VPP2 resources or a borrowed VPP2 endpoint",
+)
+def test_vpp2_component():
+    output = Path(os.environ["RPENT_E2E_OUTPUT_DIR"]) / "vpp2-component"
+    spec = get_robot_spec()
+    endpoint = os.environ.get("RPENT_ROBODOJO_VLA_ENDPOINT")
+    args = parse_runtime_args(
+        spec,
+        [
+            "--task",
+            "put_bottles_into_dustbin",
+            *(["--vla-endpoint", endpoint] if endpoint else []),
+        ],
+    )
+    with runtime_phase(spec, args, output / "runtime", {"env", "vla"}) as runtime:
+        env = runtime["env"]
+        env.step_joint_update("left", gripper=0.5)
+        context = env.policy_observation()
+        actions = runtime["vla_client"].infer(
+            context, "Pick up the pink bottle on the table"
+        )
+        assert len(actions) == 24
+        assert all(
+            np.isfinite(value).all() for action in actions for value in action.values()
+        )
+        obs, _, _, info = env.step(actions[0])
+        assert info["executed_actions"] == 1
+        after = env.policy_observation()
+        assert after["inference_index"] == 1
+        np.testing.assert_array_equal(
+            after["history"][-1][0], obs["vision"]["cam_head"]["color"]
+        )

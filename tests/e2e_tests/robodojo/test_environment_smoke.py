@@ -55,6 +55,7 @@ def test_environment_primitives(monkeypatch):
         )
         try:
             initial = env.get_motion_state()
+            assert env.policy_observation()["inference_index"] == 0
             record = toolkit._state.latest_record()
             for view in ("head", "left_wrist", "right_wrist"):
                 rgb = require_rgb(toolkit._state.load(f"cam_{view}.png"), view)
@@ -110,7 +111,30 @@ def test_environment_primitives(monkeypatch):
                 check_pose_transition(
                     moved, env.get_motion_state()[f"{arm}_eef_pose"], yaw_deg=3
                 )
+            # Exercise VPP2's native EE route with a measured hold pose, without
+            # loading a policy. Analytic execution must already be in its history.
+            policy_obs = env.policy_observation()
+            assert policy_obs["inference_index"] == 1
+            assert env._history_step == env.get_status()["step"]
+            state = policy_obs["state"]
+            obs, _, _, info = env.step(
+                {
+                    "left_ee_pose": state[:7],
+                    "left_ee_joint_state": state[7:8],
+                    "right_ee_pose": state[8:15],
+                    "right_ee_joint_state": state[15:16],
+                }
+            )
+            assert info["executed_actions"] == 1
+            latest = env.policy_observation()
+            for rgb, camera in zip(
+                latest["history"][-1], ("cam_head", "cam_left_wrist", "cam_right_wrist")
+            ):
+                np.testing.assert_array_equal(rgb, obs["vision"][camera]["color"])
+            assert env._history_step == env.get_status()["step"]
             env.reset()
+            reset_input = env.policy_observation()
+            assert reset_input["inference_index"] == 0 and env._history_step == 0
             assert toolkit._state.get(record.step_idx).step_idx == record.step_idx
             final = env.get_motion_state()
             for arm in ("left", "right"):

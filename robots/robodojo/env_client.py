@@ -16,7 +16,10 @@
 
 from __future__ import annotations
 
+from collections import deque
 from typing import Any
+
+import numpy as np
 
 from rpent.robots.components.env_client_base import BaseEnvClient
 
@@ -33,11 +36,84 @@ class RoboDojoEnvClient(BaseEnvClient):
 
     def __init__(self, client, *, expected_meta: dict[str, Any]):
         self.eval_fair = expected_meta.get("mode") == "eval-fair"
+        self._rgb_history = deque(maxlen=177)
+        self._history_valid = False
+        self._inference_index = 0
         super().__init__(
             client,
             expected_meta=expected_meta,
             reset_on_connect=expected_meta.get("mode") != "eval-fair",
         )
+
+    def _record_policy_frame(self, obs: dict) -> None:
+        frame = []
+        for camera in ("cam_head", "cam_left_wrist", "cam_right_wrist"):
+            rgb = np.asarray(obs["vision"][camera]["color"])
+            if rgb.dtype != np.uint8 or rgb.ndim != 3 or rgb.shape[-1] != 3:
+                raise ValueError(f"{camera} must supply uint8 HWC RGB")
+            frame.append(rgb.copy())
+        if not self._rgb_history:
+            self._history_step = 0
+            self._rgb_anchor = frame
+        else:
+            self._history_step += 1
+        self._rgb_history.append((self._history_step, frame))
+
+    def reset(self):
+        """Clear episode history before a potentially failing reset RPC."""
+        self._history_valid = False
+        self._rgb_history.clear()
+        self._rgb_anchor = None
+        self._inference_index = 0
+        obs = super().reset()
+        self._record_policy_frame(obs)
+        self._history_valid = True
+        return obs
+
+    def _accept_feedback(self, obs: dict, count: int, was_valid: bool) -> None:
+        if count not in (0, 1):
+            raise ValueError("one action RPC must report zero or one executed action")
+        if was_valid and count:
+            self._record_policy_frame(obs)
+        self._history_valid = was_valid
+        self.last_obs = obs
+
+    def step(self, flat_action):
+        was_valid, self._history_valid = self._history_valid, False
+        result = super().step(flat_action)
+        self._accept_feedback(result[0], result[3]["executed_actions"], was_valid)
+        return result
+
+    def policy_observation(self) -> dict:
+        """Reserve one inference index and sample anchor + stride-25 RGB history.
+
+        Read-only observation refreshes do not advance this action timeline.
+        Uncertain mutations invalidate it until an actual episode reset.
+        """
+        if not self._history_valid:
+            raise RuntimeError(
+                "VPP2 history unavailable; reset the episode before inference"
+            )
+        frames = dict(self._rgb_history)
+        indices = [
+            0,
+            *[max(0, self._history_step - offset) for offset in range(175, -1, -25)],
+        ]
+        state = self.last_obs["state"]
+        ee16 = np.concatenate(
+            [
+                np.asarray(state[f"{arm}_{field}"], dtype=np.float32).reshape(size)
+                for arm in ("left", "right")
+                for field, size in (("ee_pose", 7), ("ee_joint_state", 1))
+            ]
+        )
+        payload = {
+            "history": [self._rgb_anchor if i == 0 else frames[i] for i in indices],
+            "state": ee16,
+            "inference_index": self._inference_index,
+        }
+        self._inference_index += 1
+        return payload
 
     def get_obs(self) -> dict[str, Any]:
         return self._client.call("env.get_obs")
@@ -61,6 +137,7 @@ class RoboDojoEnvClient(BaseEnvClient):
         arm_qpos: list[float] | None = None,
         gripper: float | None = None,
     ) -> dict[str, Any]:
+        was_valid, self._history_valid = self._history_valid, False
         result = self._client.call(
             "env.step_joint_update",
             kwargs={"arm": arm, "arm_qpos": arm_qpos, "gripper": gripper},
@@ -68,7 +145,7 @@ class RoboDojoEnvClient(BaseEnvClient):
         )
         count = result["executed_actions"]
         obs = result.pop("observation") if count else self.last_obs
-        self.last_obs = obs
+        self._accept_feedback(obs, count, was_valid)
         return result
 
     def get_reward_details(self) -> dict[str, Any]:

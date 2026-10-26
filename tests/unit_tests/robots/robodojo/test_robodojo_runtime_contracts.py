@@ -230,6 +230,28 @@ def test_spawn_uses_explicit_interpreter_and_child_paths(
     )
 
 
+@pytest.mark.parametrize("backend", ["rlinf", "xpolicylab"])
+def test_runtime_connects_vpp2_independently_of_legacy_backend(
+    monkeypatch, tmp_path, backend
+):
+    from robots.robodojo.vpp2_client import VPP2Client
+    from rpent.dashboard.events import NullDashboardEventSink
+
+    rpc = object()
+    monkeypatch.setattr(robot_spec, "_spawn_vpp2_server", lambda *a: (None, rpc))
+    monkeypatch.setattr(robot_spec, "try_wait_server", lambda *a, post_fn: post_fn())
+    daemons, kwargs = robot_spec._init_runtime(
+        _args("--policy-backend", backend, "--vla-endpoint", "socket://localhost:1234"),
+        tmp_path,
+        NullDashboardEventSink(),
+        {"vla"},
+    )
+    assert daemons == []
+    client = kwargs["vla_client"]
+    assert isinstance(client, VPP2Client)
+    assert client._client is rpc
+
+
 @pytest.mark.parametrize("lifting_arm", ["left", "right"])
 def test_pi0_pick_monitors_both_arms_and_preserves_policy_input(lifting_arm):
     def observation(z):
@@ -450,7 +472,7 @@ def test_toolkit_exposes_new_primitives_without_legacy_actions(
     names = {spec.name for spec in toolkit.list_tools()}
     robot_names = {spec.name for spec in iter_tools(tools)}
     assert names & robot_names == set(module.OBSERVATION_TOOLS)
-    assert module.MOTION_TOOLS | {"render"} <= names
+    assert (module.MOTION_TOOLS - {"vpp2_act"}) | {"render"} <= names
     assert "vpp2_act" not in names  # This component-only toolkit has no model.
     assert "reset" not in names
     assert "finish" in names
@@ -480,6 +502,7 @@ def test_toolkit_exposes_new_primitives_without_legacy_actions(
         "rotate_wrist",
         "set_gripper",
         "release",
+        "vpp2_act",
     }
 
 
@@ -532,28 +555,30 @@ def test_task_guidance_is_scoped_and_tools_are_injected():
         assert "MCP URL" not in system + user
 
 
-def test_default_runtime_starts_env_and_sam3_without_a_policy(monkeypatch, tmp_path):
+def test_default_runtime_starts_env_sam3_and_vpp2(monkeypatch, tmp_path):
     from rpent.dashboard.events import NullDashboardEventSink
 
     started = []
-    for name in ("env", "sam3"):
+    for name in ("env", "sam3", "vla"):
 
         def spawn(*args, component=name):
             started.append(component)
             return None, object()
 
-        monkeypatch.setattr(robot_spec, f"_spawn_{name}_server", spawn)
+        monkeypatch.setattr(
+            robot_spec, f"_spawn_{'vpp2' if name == 'vla' else name}_server", spawn
+        )
     monkeypatch.setattr(robot_spec, "try_wait_server", lambda *a, **kw: {})
     daemons, kwargs = robot_spec._init_runtime(
-        _args(),
+        _args("--vla-endpoint", "socket://localhost:1234"),
         tmp_path,
         NullDashboardEventSink(),
         None,
     )
-    assert started == ["env", "sam3"]
+    assert started == ["env", "vla", "sam3"]
     assert daemons == []
     assert "vla_client" not in kwargs
-    assert "vla" not in {
+    assert "vla" in {
         item["name"]
         for item in robot_spec.ROBODOJO_DASHBOARD_SPEC["runtime_components"]
     }

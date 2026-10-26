@@ -65,6 +65,7 @@ ROBODOJO_DASHBOARD_SPEC: DashboardSpec = {
     "runtime_components": (
         {"name": "env", "label": "ENV", "scope": "unique"},
         {"name": "sam3", "label": "SAM3", "scope": "shared"},
+        {"name": "vla", "label": "VPP2", "scope": "shared"},
     ),
     "frame_channels": (
         {
@@ -94,6 +95,7 @@ ROBODOJO_DASHBOARD_SPEC: DashboardSpec = {
         "rotate_wrist",
         "set_gripper",
         "release",
+        "vpp2_act",
     ),
 }
 
@@ -281,9 +283,17 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         help="[protocol://]host:port of an existing env_server",
     )
     parser.add_argument(
+        "--vla-backend", choices=("vpp2",), default="vpp2", help="VLA policy backend"
+    )
+    parser.add_argument(
+        "--vla-model-path",
+        default=os.environ.get("VPP2_MODEL_PATH"),
+        help="VPP2 resource root containing policy/ and checkpoints/ (or VPP2_MODEL_PATH)",
+    )
+    parser.add_argument(
         "--vla-endpoint",
         default=None,
-        help="[protocol://]host:port for explicit legacy Pi0.5 diagnostics",
+        help="socket://host:port of an existing VPP2 server",
     )
     parser.add_argument(
         "--sam3-endpoint",
@@ -498,19 +508,58 @@ def _spawn_vla_server(
     return daemon, HttpRpcClient(f"http://{host}:{port}")
 
 
+def _spawn_vpp2_server(
+    args: argparse.Namespace, output_dir: Path
+) -> tuple["ProcessDaemon | None", RpcClient]:
+    """Start VPP2 in this interpreter, or borrow a separately managed service."""
+    if args.vla_endpoint is not None:
+        return None, make_rpc_client(args.vla_endpoint)
+    from robots.robodojo.vpp2_server import model_paths
+
+    model_paths(args.vla_model_path)
+    host, port = "127.0.0.1", pick_free_port()
+    daemon = ProcessDaemon(
+        name="robodojo_vpp2_server",
+        cmd=[
+            sys.executable,
+            "-u",
+            "-m",
+            "robots.robodojo.vpp2_server",
+            "--model-path",
+            str(Path(args.vla_model_path).expanduser().resolve()),
+            "--host",
+            host,
+            "--port",
+            str(port),
+            "--parent-watch",
+        ],
+        env_overrides=(
+            {"CUDA_VISIBLE_DEVICES": str(args.cuda_device)}
+            if args.cuda_device is not None
+            else {}
+        ),
+        log_path=str(Path(output_dir) / "robodojo_vpp2_server.log"),
+    )
+    daemon.start()
+    return daemon, make_rpc_client(f"socket://{host}:{port}")
+
+
 def _init_runtime(
     args: argparse.Namespace,
     output_dir: Path,
     dashboard_events: DashboardEventSink,
     components: set[str] | None,
 ) -> tuple[list[ProcessDaemon], dict[str, Any]]:
-    """Start Env and SAM3, or only the requested Dashboard components."""
+    """Start Env, SAM3 and VPP2, or only the requested Dashboard components."""
     _validate_args(args)
     from robots.robodojo.env_client import RoboDojoEnvClient
+    from robots.robodojo.vpp2_client import VPP2Client
     from rpent.robots.components.sam3_client import Sam3Client
 
+    vla_starter = {"vpp2": _spawn_vpp2_server}[args.vla_backend]
     starters = {
         "env": lambda: _spawn_env_server(args, output_dir),
+        "vla": lambda: vla_starter(args, output_dir),
         "sam3": lambda: _spawn_sam3_server(args, output_dir),
     }
     connectors = {
@@ -536,14 +585,20 @@ def _init_runtime(
                 },
             )
         },
+        "vla": lambda rpc: {"vla_client": VPP2Client(rpc)},
         "sam3": lambda rpc: {"sam3_client": Sam3Client(rpc)},
     }
-    timeouts = {"env": 900.0, "sam3": 300.0}
-    wait_order = ("env", "sam3")
-    selected = {"env", "sam3"} if components is None else set(components)
+    timeouts = {"env": 900.0, "sam3": 300.0, "vla": 1800.0}
+    wait_order = ("env", "sam3", "vla")
+    selected = {"env", "sam3", "vla"} if components is None else set(components)
     unknown = selected.difference(starters)
     if unknown:
         raise ValueError(f"unknown RoboDojo runtime components: {sorted(unknown)}")
+    if "vla" in selected and args.vla_endpoint is None:
+        from robots.robodojo.vpp2_server import model_paths
+
+        model_paths(args.vla_model_path)
+
     pending: dict[str, tuple[ProcessDaemon | None, RpcClient]] = {}
     owned_daemons: dict[str, ProcessDaemon] = {}
     for component, starter in starters.items():
