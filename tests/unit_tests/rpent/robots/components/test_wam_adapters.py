@@ -31,6 +31,55 @@ from rpent.robots.components.fast_wam.server import FastWAMFacade, load_libero_p
 torch = pytest.importorskip("torch")
 
 
+def test_cosmos3_delegates_request_and_native_actions_to_rlinf(monkeypatch):
+    from omegaconf import OmegaConf
+
+    from rpent.robots.components.cosmos3.server import Cosmos3Facade
+
+    actions = torch.full((1, 16, 7), 0.25)
+    prepare = Mock(return_value=np.full((16, 7), -0.5, np.float32))
+    monkeypatch.setitem(
+        sys.modules,
+        "rlinf.envs.action_utils",
+        SimpleNamespace(prepare_actions_for_libero=prepare),
+    )
+    policy = SimpleNamespace(
+        model_cfg=OmegaConf.create(
+            {
+                "raw_action_dim": 10,
+                "action_dim": 7,
+                "action_normalization": "quantile_rot",
+                "action_stats_path": "stats.json",
+                "num_action_chunks": 16,
+            }
+        ),
+        cfg_rollout={},
+        action_path="/v1/actions/generations",
+        build_request=Mock(return_value=({"input": "encoded"}, {"batch": 1})),
+        parse_response=Mock(return_value=(actions, {})),
+    )
+    http = Mock()
+    facade = Cosmos3Facade(policy, http, platform="libero", checkpoint="weights")
+    rpc = Mock(call=lambda method, args=(), **kw: facade._dispatch(method, args, {}))
+    raw = _raw_obs()
+    result = LiberoWAMClient(rpc).predict(raw)
+    native = policy.build_request.call_args.args[0]
+    np.testing.assert_array_equal(
+        native["main_images"][0], raw["agentview_image"][::-1, ::-1]
+    )
+    np.testing.assert_array_equal(
+        native["wrist_images"][0], raw["robot0_eye_in_hand_image"][::-1, ::-1]
+    )
+    assert native["task_descriptions"] == [raw["task_descriptions"]]
+    http.post.assert_called_once_with(
+        policy.action_path, {"input": "encoded"}, msgpack=True, timeout_s=600
+    )
+    policy.parse_response.assert_called_once_with(http.post.return_value, {"batch": 1})
+    assert prepare.call_args.kwargs == {"model_type": "cosmos3"}
+    np.testing.assert_array_equal(prepare.call_args.args[0], actions[0].numpy())
+    np.testing.assert_array_equal(result, prepare.return_value)
+
+
 def test_libero_loader_preserves_worker_options_in_rlinf_config(tmp_path, monkeypatch):
     from omegaconf import OmegaConf
 

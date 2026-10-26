@@ -52,6 +52,7 @@ def _parser(robot_name: str, *, dashboard: bool = False) -> argparse.ArgumentPar
     [
         ("libero", "pi05"),
         ("libero", "cosmos-policy"),
+        ("libero", "cosmos3"),
         ("libero", "fast-wam"),
         ("robotwin", "lingbot"),
         ("robotwin", "fast-wam"),
@@ -78,6 +79,8 @@ def test_am_help_distinguishes_connection_deployment_and_models(
         ("cosmos-text-embeddings", "cosmos-policy"),
         ("cosmos-predict-future", "cosmos-policy"),
         ("cosmos-cached-instructions-only", "cosmos-policy"),
+        ("cosmos3-config", "cosmos3"),
+        ("cosmos3-sglang-endpoint", "cosmos3"),
         ("fast-wam-config", "fast-wam"),
         ("fast-wam-dataset-stats", "fast-wam"),
         ("lingbot-robot-config", "lingbot"),

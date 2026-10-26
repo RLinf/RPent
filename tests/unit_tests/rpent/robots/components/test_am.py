@@ -164,6 +164,7 @@ def test_wrong_control_is_rejected_before_prediction(worker):
     "backend,platform",
     [
         ("cosmos-policy", "libero"),
+        ("cosmos3", "libero"),
         ("fast-wam", "libero"),
         ("fast-wam", "robotwin"),
     ],
@@ -192,6 +193,13 @@ def test_worker_launch_and_external_options(
             str(tmp_path / "stats"),
         ]
     )
+    if backend == "cosmos3":
+        extra = [
+            "--cosmos3-config",
+            str(tmp_path / "config"),
+            "--cosmos3-sglang-endpoint",
+            "http://localhost:30000",
+        ]
     if legacy_options:
         extra = [
             arg.replace("--cosmos-", "--wam-").replace("--fast-wam-", "--wam-")
@@ -233,13 +241,16 @@ def test_worker_launch_and_external_options(
     ]
     assert command.count("--platform") == command.count("--checkpoint") == 1
     assert command[command.index("--platform") + 1] == platform
-    assert (
-        "--predict-future" if backend == "cosmos-policy" else "--dataset-stats"
-    ) in command
     if backend == "cosmos-policy":
+        assert "--predict-future" in command
         assert "--cached-instructions-only" in command
         assert command[command.index("--text-embeddings") + 1] == str(
             tmp_path / "embeddings.pkl"
+        )
+    elif backend == "cosmos3":
+        assert command[command.index("--config") + 1] == str(tmp_path / "config")
+        assert (
+            command[command.index("--sglang-endpoint") + 1] == "http://localhost:30000"
         )
     else:
         assert command[command.index("--config") + 1] == str(tmp_path / "config")

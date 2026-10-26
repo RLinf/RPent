@@ -20,17 +20,17 @@ import pytest
 from tests.e2e_tests.libero.scenario import LiberoScenario
 
 
-@pytest.fixture(params=["cosmos-policy", "fast-wam"])
+@pytest.fixture(params=["cosmos-policy", "cosmos3", "fast-wam"])
 def wam_argv(request) -> list[str]:
     """Select a provisioned worker without requiring Pi0.5 or SAM3 weights."""
     from robots.libero.suites import suite_variant
 
     backend = request.param
-    variable = (
-        "RPENT_COSMOS_ENDPOINT"
-        if backend == "cosmos-policy"
-        else "RPENT_FAST_WAM_ENDPOINT"
-    )
+    variable = {
+        "cosmos-policy": "RPENT_COSMOS_ENDPOINT",
+        "cosmos3": "RPENT_COSMOS3_ENDPOINT",
+        "fast-wam": "RPENT_FAST_WAM_ENDPOINT",
+    }[backend]
     endpoint = os.getenv(variable)
     if not endpoint:
         pytest.skip(f"requires {variable} and LIBERO assets")

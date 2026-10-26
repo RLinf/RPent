@@ -29,6 +29,7 @@ from rpent.utils.rpc import RpcClient, make_rpc_client
 
 WAM_BACKENDS = {
     "cosmos-policy": "cosmos_policy",
+    "cosmos3": "cosmos3",
     "fast-wam": "fast_wam",
 }
 BACKEND_ALIASES = {"cosmos": "cosmos-policy", "fast_wam": "fast-wam", "rlinf": "pi05"}
