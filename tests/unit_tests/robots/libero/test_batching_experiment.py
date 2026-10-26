@@ -403,3 +403,38 @@ def test_episode_owns_cleanup_and_distinguishes_budget_from_service_failure(
     ]
     assert rpc_calls == ["vla.predict"]
     assert (output / "result.json").exists()
+
+
+def test_remote_environment_uses_owned_compressed_tunnel_and_quoted_launcher(
+    monkeypatch,
+):
+    import shlex
+
+    from robots.libero.experiments import benchmark_batching as benchmark
+
+    probes = []
+
+    def probe(command, **kwargs):
+        probes.append(command)
+        return "41234\n"
+
+    monkeypatch.setattr(benchmark.subprocess, "check_output", probe)
+    command = benchmark.environment_command(
+        {
+            "env_ssh_host": "thor2",
+            "env_python": "/path with spaces/python",
+            "suite": "libero_object_task",
+            "max_episode_steps": 10000,
+            "cuda_device": 0,
+        },
+        {"task": 0, "seed": 1},
+        12345,
+    )
+    assert command[0] == "ssh" and "-C" in command
+    assert "127.0.0.1:12345:127.0.0.1:41234" in command
+    remote = shlex.split(" ".join(command[command.index("thor2") + 1 :]))
+    assert "/path with spaces/python" in remote
+    assert remote[remote.index("--port") + 1] == "41234"
+    # ProcessDaemon uses this exact argument to close stdin on graceful stop.
+    assert "--parent-watch" in command
+    assert probes[0][probes[0].index("thor2") + 1] == "'/path with spaces/python'"

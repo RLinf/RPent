@@ -22,6 +22,7 @@ import itertools
 import json
 import math
 import os
+import shlex
 import shutil
 import signal
 import statistics
@@ -85,8 +86,84 @@ class TimedRpc:
                 stream.write(json.dumps(event) + "\n")
 
 
+def environment_command(
+    config: dict[str, Any], cell: dict[str, Any], local_port: int
+) -> list[str]:
+    """Launch an owned environment locally or over an SSH forwarding session."""
+    host = config.get("env_ssh_host")
+    python = config.get("env_python") or sys.executable
+    ssh = [
+        "ssh",
+        "-T",
+        "-C",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ConnectTimeout=10",
+        "-o",
+        "ExitOnForwardFailure=yes",
+        "-o",
+        "ServerAliveInterval=15",
+        "-o",
+        "ServerAliveCountMax=3",
+    ]
+    remote_port = local_port
+    if host:
+        probe = [
+            python,
+            "-c",
+            "import socket; s=socket.socket(); s.bind(('127.0.0.1',0)); print(s.getsockname()[1]); s.close()",
+        ]
+        remote_port = int(
+            subprocess.check_output(
+                [*ssh, host, *map(shlex.quote, probe)],
+                text=True,
+                timeout=20,
+            ).strip()
+        )
+    command = [
+        python,
+        "-m",
+        "robots.libero.env_server",
+        "--suite",
+        config["suite"],
+        "--task",
+        str(cell["task"]),
+        "--seed",
+        str(cell["seed"]),
+        "--max-episode-steps",
+        str(config["max_episode_steps"]),
+        "--transport",
+        "http",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        str(remote_port),
+        "--parent-watch",
+    ]
+    if config["cuda_device"] is not None:
+        command += ["--cuda-device", str(config["cuda_device"])]
+    if host:
+        command = [
+            "env",
+            "LIBERO_TYPE=pro",
+            "MUJOCO_GL=egl",
+            "PYTHONHASHSEED=0",
+            "ROBOT_PLATFORM=LIBERO",
+            *command,
+        ]
+        return [
+            *ssh,
+            "-L",
+            f"127.0.0.1:{local_port}:127.0.0.1:{remote_port}",
+            host,
+            *map(shlex.quote, command),
+        ]
+    return command
+
+
 def run_episode(config: dict[str, Any], cell: dict[str, Any], output: Path) -> dict:
-    """Own one local simulator; borrow and close clients to shared services."""
+    """Own one simulator; borrow and close clients to shared services."""
     from robots.libero.env_client import LiberoEnvClient
     from robots.libero.experiments.batching import BatchToolkit, execution_policy
     from robots.libero.robot_spec import get_robot_spec
@@ -119,28 +196,7 @@ def run_episode(config: dict[str, Any], cell: dict[str, Any], output: Path) -> d
             # Shared model startup/health checks are outside episode timing.
             started = time.perf_counter()
             port = pick_free_port()
-            command = [
-                sys.executable,
-                "-m",
-                "robots.libero.env_server",
-                "--suite",
-                config["suite"],
-                "--task",
-                str(cell["task"]),
-                "--seed",
-                str(cell["seed"]),
-                "--max-episode-steps",
-                str(config["max_episode_steps"]),
-                "--transport",
-                "http",
-                "--host",
-                "127.0.0.1",
-                "--port",
-                str(port),
-                "--parent-watch",
-            ]
-            if config["cuda_device"] is not None:
-                command += ["--cuda-device", str(config["cuda_device"])]
+            command = environment_command(config, cell, port)
             daemon = ProcessDaemon(
                 "batching_env",
                 command,
@@ -384,6 +440,12 @@ def parser() -> argparse.ArgumentParser:
     ap.add_argument("--max-turns", type=int, default=100)
     ap.add_argument("--planner-timeout-s", type=int, default=900)
     ap.add_argument("--max-episode-steps", type=int, default=10000)
+    ap.add_argument(
+        "--env-ssh-host", help="SSH alias for the simulator; planner stays local"
+    )
+    ap.add_argument(
+        "--env-python", help="Simulator Python or executable wrapper; required for SSH"
+    )
     ap.add_argument("--cuda-device", type=int)
     ap.add_argument("--resume", action="store_true")
     return ap
@@ -399,6 +461,12 @@ def sweep(args: argparse.Namespace) -> None:
     config["memory_dir"] = str(args.memory_dir.resolve())
     config["provenance"] = json.loads(args.provenance.read_text())
     config.pop("resume")
+    if config["env_ssh_host"] and (
+        not config["env_python"] or config["env_ssh_host"].startswith("-")
+    ):
+        raise ValueError(
+            "SSH environment requires a host and explicit remote --env-python"
+        )
     backends = {}
     for item in config.pop("backend"):
         name, endpoint = item.split("=", 1)

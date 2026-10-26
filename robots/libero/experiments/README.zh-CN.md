@@ -33,7 +33,27 @@ python -m robots.libero.experiments.benchmark_batching \
 
 规划器仍可调用普通工具。提高上限不保证实际批量长度增加，应统计每批实际动作数和规划器回复数。相同任务与后端下，`--batch-sizes 0 1 4 8` 会运行 160 回合。一个 `pi0_pick` 内部可多次调用 VLA，因此批量上限不是 VLA chunk 数。工具内部预算和成功阈值保持不变。实验同时改变工具可用性和提示词，不能分离两者的贡献。
 
-默认上限为 100 次规划器回复、900 秒规划器时间和 10,000 个环境步，可通过 `--max-turns`、`--planner-timeout-s`、`--max-episode-steps` 对所有组统一修改。工作进程看门狗额外允许 900 秒用于准备与清理。每回合启动独立本地环境服务，不支持真机或 Flash 模式。
+默认上限为 100 次规划器回复、900 秒规划器时间和 10,000 个环境步，可通过 `--max-turns`、`--planner-timeout-s`、`--max-episode-steps` 对所有组统一修改。工作进程看门狗额外允许 900 秒用于准备与清理。每回合启动独立环境服务，不支持真机或 Flash 模式。
+
+## 本机规划器与远程模拟器
+
+Codex 认证保留在规划器所在机器。在 GPU 主机准备相同版本的 RPent 和模拟器依赖。`--env-ssh-host` 通过 SSH 为每回合启动环境进程，并建立独立的压缩回环隧道。`--env-python` 指定远程 Python，或一个先设置远程 `PYTHONPATH`、资源／缓存路径，再通过 `exec` 向 Python 转发 `"$@"` 的可执行包装脚本。包装脚本也必须支持 `-c`，用于分配远程端口。
+
+另外转发共享 VLA／SAM3 服务，并保持此 SSH 会话运行：
+
+```bash
+ssh -C -N -o ExitOnForwardFailure=yes \
+  -L 19012:127.0.0.1:9012 -L 19014:127.0.0.1:9014 \
+  -L 19018:127.0.0.1:9018 thor2
+```
+
+在本机运行同一个实验命令，将 `--backend`／`--sam3-endpoint` 改为转发后的端口，并添加：
+
+```bash
+--env-ssh-host thor2 --env-python /path/to/remote-python
+```
+
+本机需要 RPent、Codex 和 LIBERO 工具层的轻量 Python 依赖；模拟器和 GPU 模型依赖留在远程。使用 SSH 密钥认证和已核验的主机密钥，不复制 Codex 凭证。SSH 连接失败会作为基础设施异常停止实验。provenance 中需记录此部署拓扑：远程 RPC 时间包含网络延迟，不能直接与 localhost 测量相比。未设置 `--env-ssh-host` 时仍使用本地模拟器。
 
 ## 序列边界
 

@@ -65,8 +65,40 @@ prompt instructions, so their contributions are not isolated.
 Defaults are 100 planner responses, 900 seconds of planner time and 10,000
 environment steps. `--max-turns`, `--planner-timeout-s` and
 `--max-episode-steps` change these limits for every arm. The worker watchdog allows
-an additional 900 seconds for setup and cleanup. Each episode starts a fresh local
+an additional 900 seconds for setup and cleanup. Each episode starts a fresh owned
 environment server; there is no real-robot or Flash mode.
+
+## Local planner with a remote simulator
+
+Keep Codex authentication on the planner machine. Prepare the same RPent revision
+and simulator dependencies on the GPU host. `--env-ssh-host` starts each simulator
+through SSH and owns a compressed loopback tunnel for that episode. Specify
+`--env-python` as the remote Python executable, or an executable wrapper that
+sets remote `PYTHONPATH`, asset/cache paths and then `exec`s Python with `"$@"`.
+The wrapper must also support `-c` (used to allocate a remote port).
+
+Forward the shared VLA/SAM3 services separately and keep this SSH session open:
+
+```bash
+ssh -C -N -o ExitOnForwardFailure=yes \
+  -L 19012:127.0.0.1:9012 -L 19014:127.0.0.1:9014 \
+  -L 19018:127.0.0.1:9018 thor2
+```
+
+Run the same experiment command on the planner machine with the forwarded
+`--backend`/`--sam3-endpoint` ports and these additional arguments:
+
+```bash
+--env-ssh-host thor2 --env-python /path/to/remote-python
+```
+
+The local environment needs RPent, Codex and the LIBERO toolkit's lightweight
+Python dependencies; the simulator and GPU model dependencies stay remote.
+Use key-based SSH authentication and an already verified host key. No Codex
+credentials are copied to the GPU host. A broken SSH connection stops the sweep
+as an infrastructure failure. Record this transport topology in provenance:
+remote RPC timings include network latency and cannot be compared directly with
+localhost timings. The default without `--env-ssh-host` remains a local simulator.
 
 ## Sequence boundaries
 
