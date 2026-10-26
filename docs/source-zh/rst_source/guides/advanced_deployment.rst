@@ -38,17 +38,29 @@ Pi0.5 VLA 服务
 
 VLA 服务只加载一次模型，可以由多个 RPent 运行复用。
 
-APXInf VLA 服务
-------------------
+.. _apxinf-vla-service-optional:
 
-可选的 APXInf 适配器可以替代 Pi0.5 服务。在独立 Python 环境中安装 APXInf-robo、APXInf 及其 CUDA 绑定（``apxinf_py``），再执行 ``pip install -e /path/to/RPent`` 安装 RPent。
-准备兼容的 Pi0.5 LIBERO 模型权重、SentencePiece tokenizer 和归一化统计文件。RPent 不会自动安装 APXInf；规划器和环境可以继续使用原有 LIBERO 安装及其 OpenPI 依赖。
+APXInf VLA 服务（可选）
+------------------------------
+
+APXInf 适配器可以替代 Pi0.5 服务。在 RPent 源码目录中，使用 uv 安装可选 Python 依赖：
+
+.. code-block:: bash
+
+   uv venv --python 3.11 .venv-apxinf
+   uv pip install --python .venv-apxinf/bin/python -e ".[apxinf]"
+   uv pip install --python .venv-apxinf/bin/python /path/to/wheels/apxinf_py-*.whl
+
+按照 `APXInf-robo 构建说明 <https://github.com/RLinf/APXinf-robo/tree/1d593ea94805b8a49c3305eaf24919968a8f987b#build-apxinf-robo>`_ 为目标 GPU 构建 ``apxinf_py`` wheel，使用 RPent 的 ``apxinf`` extra 中固定的引擎版本。该 extra 不会安装 CUDA、Rust 或原生绑定。若复用已有环境，跳过 ``uv venv``，并将两条安装命令中的 Python 路径替换为已有环境的路径。
+规划器和环境可以继续使用原有 LIBERO 安装及其 OpenPI 依赖。
+
+准备兼容的 Pi0.5 LIBERO 模型权重、SentencePiece tokenizer 和归一化统计文件。
 
 使用该环境的 Python 启动服务：
 
 .. code-block:: bash
 
-   /path/to/apxinf-env/bin/python \
+   .venv-apxinf/bin/python \
      -m rpent.robots.components.apxinf_vla_server \
      --embodiment libero \
      --model-path /path/to/pi05-libero \

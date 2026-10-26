@@ -111,7 +111,9 @@ APXINF_EMBODIMENTS: dict[str, dict[str, Any]] = {
 }
 
 
-def _decode_obs(wire_obs: dict[str, Any], embodiment: str, policy) -> dict[str, Any]:
+def apxinf_format_decode(
+    wire_obs: dict[str, Any], embodiment: str, policy
+) -> dict[str, Any]:
     """Convert one batched RPent wire observation to an APXInf observation dict.
 
     Strips the leading batch dimension (B=1) from all arrays and renames
@@ -263,7 +265,7 @@ class ApxInfVLAFacade(MainThreadServeMixin, BaseVLAFacade):
         """Return one batched action chunk in the selected robot's environment units."""
         if (options or {}).get("mode", "eval") != "eval":
             raise ValueError("APXInf VLA supports eval mode only")
-        apx_obs = _decode_obs(obs, self._embodiment, self._policy)
+        apx_obs = apxinf_format_decode(obs, self._embodiment, self._policy)
         result = self._policy.infer(apx_obs)
         actions = np.asarray(result["actions"], dtype=np.float32)
         expected = (self._policy.action_horizon, self._policy.action_dim)

@@ -120,41 +120,6 @@ the two component tests and one policy-chain test. The existing
 [GPU CI](../.github/workflows/embodied-gpu-e2e-run.yml) uses this same runner for
 all seven checks. The scripted planner needs no external planner credentials.
 
-## APXInf LIBERO integration
-
-[`test_apxinf.py`](e2e_tests/libero/test_apxinf.py) checks real model inference
-and a bounded CLI policy chain using LIBERO-PRO and a scripted planner,
-without an LLM API.
-It verifies five-action predictions, saved actions and observations, and
-service cleanup, including keeping the external endpoint alive after CLI exit.
-These are integration checks, not task-success, numerical-parity or speed benchmarks.
-
-The tests are skipped unless `RPENT_RUN_APXINF_INTEGRATION=1`. Prepare the
-LIBERO-PRO GPU runner's assets, Pi0.5 and SAM3 checkpoints described above.
-Install APXInf and RPent in a separate GPU Python environment, then run:
-
-```bash
-export RPENT_RUN_APXINF_INTEGRATION=1
-export APXINF_PYTHON=/path/to/apxinf-env/bin/python
-export APXINF_MODEL_PATH=/path/to/pi05-libero
-export APXINF_TOKENIZER_PATH=/path/to/tokenizer.model
-export APXINF_NORM_STATS_PATH=/path/to/norm_stats.json
-
-bash tests/e2e_tests/run_gpu_suite.sh \
-  libero-pro /path/to/new-output-dir /path/to/new-venv-root
-```
-
-APXInf inherits the runner's `CUDA_VISIBLE_DEVICES`. In the output directory,
-inspect `pro/apxinf/server.log`, the JUnit report, policy-chain artifacts and
-process-cleanup report. Include engine revisions and checkpoint identities
-when reporting results.
-
-For offline adapter checks without APXInf or a GPU:
-
-```bash
-pytest tests/unit_tests/rpent/robots/components/test_apxinf_vla_contracts.py -v
-```
-
 ## Dual-Franka VLA diagnostic console
 
 Run the real-robot diagnostic explicitly from a source checkout after installing
