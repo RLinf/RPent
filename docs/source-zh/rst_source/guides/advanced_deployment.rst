@@ -38,6 +38,36 @@ Pi0.5 VLA 服务
 
 VLA 服务只加载一次模型，可以由多个 RPent 运行复用。
 
+APXInf VLA 服务
+------------------
+
+可选的 APXInf 适配器可以替代 Pi0.5 服务。在独立 Python 环境中安装 APXInf-robo、APXInf 及其 CUDA 绑定（``apxinf_py``），再执行 ``pip install -e /path/to/RPent`` 安装 RPent。
+准备兼容的 Pi0.5 LIBERO 模型权重、SentencePiece tokenizer 和归一化统计文件。RPent 不会自动安装 APXInf；规划器和环境可以继续使用原有 LIBERO 安装及其 OpenPI 依赖。
+
+使用该环境的 Python 启动服务：
+
+.. code-block:: bash
+
+   /path/to/apxinf-env/bin/python \
+     -m rpent.robots.components.apxinf_vla_server \
+     --embodiment libero \
+     --model-path /path/to/pi05-libero \
+     --tokenizer-path /path/to/tokenizer.model \
+     --norm-stats-path /path/to/norm_stats.json \
+     --precision bf16 \
+     --transport http --host 127.0.0.1 --port 8220
+
+在 LIBERO 命令中增加 ``--vla-endpoint http://127.0.0.1:8220``。跨主机访问时，将服务绑定到可访问的网络接口，并使用服务端地址。用完后需自行停止这个外部服务；省略 endpoint 会启动 OpenPI。
+APXInf-robo 原生的 OpenPI WebSocket 服务不是 RPent RPC endpoint，请使用上述适配器。
+
+适配器仅支持 eval 模式，模型配置如下：
+
+- ``libero``：两个视角、五次流匹配迭代、十步动作预测；返回前五步动作，使用环境单位和 float32 类型。
+- ``dual_franka``：采用本体坐标系增量 TCP rot6d 的模型，输入三个视角；返回 20 步绝对位姿动作，每步 20 维。
+- ``yam``：采用关节增量模型，输入三个视角；返回 30 步绝对 qpos14 动作，YAM 工具每次执行五步。
+
+修改 ``--embodiment`` 时，需选择匹配的 APXInf-robo 预设、模型权重和统计文件。双臂 Franka 和 YAM 仍处于实验阶段，权重导出、数值一致性和真机执行尚需验证。适配器需要 APXInf 兼容的权重，不会转换原始 RLinf ``actor/model_state_dict/full_weights.pt``；目前不支持单臂 ``franka``。
+
 SAM3 服务
 ---------
 
