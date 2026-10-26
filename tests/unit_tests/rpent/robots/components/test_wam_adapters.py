@@ -14,6 +14,7 @@
 
 """Check physical-to-model transforms and native action restoration on CPU."""
 
+import sys
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -25,9 +26,59 @@ from robots.libero.wam_client import LiberoWAMClient, libero_request
 from robots.robotwin.observation import physical_observation as robotwin_observation
 from robots.robotwin.wam_client import RoboTwinWAMClient
 from rpent.robots.components.cosmos_policy.adapter import make_adapter as cosmos_adapter
-from rpent.robots.components.fast_wam.server import FastWAMFacade
+from rpent.robots.components.fast_wam.server import FastWAMFacade, load_libero_policy
 
 torch = pytest.importorskip("torch")
+
+
+def test_libero_loader_preserves_worker_options_in_rlinf_config(tmp_path, monkeypatch):
+    from omegaconf import OmegaConf
+
+    factory = Mock()
+    monkeypatch.setitem(
+        sys.modules,
+        "rlinf.models.embodiment.fastwam",
+        SimpleNamespace(get_model=factory),
+    )
+    cfg = OmegaConf.create(
+        {
+            "action_horizon": 32,
+            "execute_steps": 10,
+            "concat": "horizontal",
+            "binarize_gripper": True,
+            "inference_options": {
+                "seed": 1,
+                "num_inference_steps": 5,
+                "compile_action_infer": False,
+            },
+        }
+    )
+    path = tmp_path / "worker.yaml"
+    load_libero_policy(str(path), cfg, "weights.pt", "stats.json", torch.bfloat16)
+    resolved = factory.call_args.args[0]
+    assert (resolved.model_path, resolved.dataset_stats_path) == (
+        "weights.pt",
+        "stats.json",
+    )
+    assert (resolved.action_horizon, resolved.num_action_chunks) == (32, 10)
+    assert (resolved.seed, resolved.num_inference_steps, resolved.binarize_gripper) == (
+        1,
+        5,
+        True,
+    )
+    assert resolved.fastwam.config_dir == str(tmp_path)
+    assert resolved.fastwam.config_name == path.name
+    composed = OmegaConf.merge(
+        {"processor": {"num_output_cameras": 2}},
+        OmegaConf.from_dotlist(list(resolved.fastwam.overrides)),
+    )
+    assert composed.data.train.processor.num_output_cameras == 2
+    assert composed.data.train.num_frames == 33
+    assert composed.data.train.concat_multi_camera == "horizontal"
+    assert factory.call_args.kwargs == {"torch_dtype": torch.bfloat16}
+    cfg.inference_options.compile_action_infer = True
+    with pytest.raises(ValueError, match="compile_action_infer"):
+        load_libero_policy(str(path), cfg, "weights.pt", "stats.json", torch.bfloat16)
 
 
 def _processor(cameras):
@@ -58,6 +109,9 @@ def _facade(platform="libero", **overrides):
         device="cpu",
         torch_dtype=torch.float32,
         infer_action=Mock(return_value={"action": actions}),
+        predict_action_batch=Mock(
+            return_value=(np.full((1, 3, 7), 0.25, np.float32), {})
+        ),
     )
     options = {
         "checkpoint": "test",
@@ -109,25 +163,22 @@ def test_same_physical_observation_drives_cosmos_and_fast_wam():
     rpc = Mock(call=lambda method, args=(), **kw: facade._dispatch(method, args, {}))
     result = LiberoWAMClient(rpc).predict_result(raw)
     assert result["actions"].shape == (3, 7)
-    np.testing.assert_allclose(result["actions"][:, -1], [1, 0, -1])
-    native = facade._model.infer_action.call_args.kwargs
-    expected = np.concatenate(
-        (
-            raw["agentview_image"][::-1, ::-1],
-            raw["robot0_eye_in_hand_image"][::-1, ::-1],
-        ),
-        axis=1,
+    np.testing.assert_array_equal(result["actions"], np.full((3, 7), 0.25))
+    native = facade._model.predict_action_batch.call_args.args[0]
+    np.testing.assert_array_equal(
+        native["main_images"][0], raw["agentview_image"][::-1, ::-1]
+    )
+    np.testing.assert_array_equal(
+        native["wrist_images"][0], raw["robot0_eye_in_hand_image"][::-1, ::-1]
     )
     np.testing.assert_allclose(
-        native["input_image"][0].permute(1, 2, 0).numpy(),
-        expected.astype(np.float32) * (2 / 255) - 1,
-    )
-    np.testing.assert_allclose(
-        native["proprio"].numpy()[0],
-        np.array([1, 2, 3, 0, 0, 1.5 * np.pi, 0.04, -0.04]) + 10,
+        native["states"][0],
+        np.array([1, 2, 3, 0, 0, 1.5 * np.pi, 0.04, -0.04]),
         atol=1e-6,
     )
-    assert native["prompt"] == "Task: pick the bowl" and native["action_horizon"] == 4
+    assert native["task_descriptions"] == ["pick the bowl"]
+    facade._model.infer_action.assert_not_called()
+    facade._model.predict_action_batch.assert_called_once_with(native, mode="eval")
     np.testing.assert_array_equal(raw["agentview_image"][0, 0], [1, 2, 3])
 
 
@@ -176,19 +227,22 @@ def test_robotwin_client_rejects_a_libero_controller_before_inference():
     with pytest.raises(ValueError):
         RoboTwinWAMClient(rpc).predict({})
     facade._model.infer_action.assert_not_called()
+    facade._model.predict_action_batch.assert_not_called()
 
 
 @pytest.mark.parametrize(
     "bad_actions",
     [
-        torch.zeros(4, 8),
-        torch.zeros(2, 4, 7),
-        torch.full((4, 7), float("nan")),
-        torch.cat((torch.zeros(4, 6), torch.full((4, 1), float("inf"))), dim=1),
+        torch.zeros(4, 15),
+        torch.zeros(2, 4, 14),
+        torch.full((4, 14), float("nan")),
+        torch.cat((torch.zeros(4, 13), torch.full((4, 1), float("inf"))), dim=1),
     ],
 )
-def test_fast_wam_rejects_invalid_native_output(bad_actions):
-    facade = _facade(binarize_gripper=True)
-    facade._model.infer_action.return_value = {"action": bad_actions}
+def test_robotwin_rejects_invalid_native_output_before_prefix_selection(bad_actions):
+    from rpent.robots.components.fast_wam.adapter.decode import decode_robotwin
+
     with pytest.raises(ValueError):
-        facade.predict(libero_request(_raw_obs()))
+        decode_robotwin(
+            {"action": bad_actions}, processor=_processor(3), horizon=4, execute_steps=3
+        )

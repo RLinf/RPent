@@ -234,7 +234,9 @@ checkpoint 目录包含 ``Cosmos-Policy-LIBERO-Predict2-2B.pt``、``libero_datas
      --config /path/to/worker.yaml --dataset-stats /path/to/dataset_stats.json \
      --port 8117
 
-RoboTwin 使用 ``--platform robotwin``，并更换为对应 checkpoint 和配置。YAML 提供解析好的 Hydra ``model``、``processor``，后者来自官方配置的 ``data.train.processor``，还需包含 ``action_horizon``、``execute_steps``、``video_size`` 和 ``concat``。可选 ``inference_options`` 传给 ``model.infer_action``，不能覆盖编码后的观测或 ``action_horizon``。处理未缓存指令时需在模型配置中启用文本编码器。``execute_steps`` 为正数且不超过 ``action_horizon``，是对外声明的可执行 ``chunk_size``。``binarize_gripper`` 仅适用于 LIBERO。未来视频生成、时序动作集成和自动 Hydra 配置组合尚未实现。
+LIBERO worker 的模型环境需要安装 RLinf ``release/v0.4`` 的 Fast-WAM 接入，以及其 ``requirements/install.sh`` 指定的 Fast-WAM 版本（目前为 ``45d8e1458921d83f8ad6cf9ce993d371208dabd0``）。在 RLinf 仓库执行 ``bash requirements/install.sh embodied --model fastwam`` 配套安装；其他 Fast-WAM 版本的 VAE 接口可能不兼容。worker 调用 RLinf 的 ``get_model`` 和 ``predict_action_batch``，图像缩放与拼接、状态归一化、推理及 LIBERO 动作还原均由 RLinf 负责。RPent 只将物理观测映射到 RLinf 输入字段，并从返回动作中移除单环境 batch 维度。RLinf 的该策略尚不支持 RoboTwin 的三相机/qpos14 接口，因此 RoboTwin 保留官方 Fast-WAM 推理路径。
+
+RoboTwin 使用 ``--platform robotwin``，并更换为对应 checkpoint 和配置。YAML 提供解析好的 Hydra ``model``、``processor``，后者来自官方配置的 ``data.train.processor``，还需包含 ``action_horizon``、``execute_steps``、``video_size`` 和 ``concat``。LIBERO 的 ``inference_options`` 配置 RLinf 策略的去噪步数、seed、sigma shift、text CFG、negative prompt、随机数设备和 tiling，不支持 ``compile_action_infer=True``。RoboTwin 将选项传给官方 ``model.infer_action``。选项不能覆盖编码后的观测或 ``action_horizon``。处理未缓存指令时需在模型配置中启用文本编码器。``execute_steps`` 为正数且不超过 ``action_horizon``，是对外声明的可执行 ``chunk_size``。``binarize_gripper`` 仅适用于 LIBERO。未来视频生成、时序动作集成和自动 Hydra 配置组合尚未实现。
 
 连接已有服务运行任务
 ~~~~~~~~~~~~~~~~~~~~

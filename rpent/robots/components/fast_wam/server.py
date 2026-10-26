@@ -12,11 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Serve an official Fast-WAM model with paired platform adapters."""
+"""Serve RLinf's LIBERO policy or the official Fast-WAM RoboTwin model."""
 
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 from typing import Any
 
 from rpent.robots.components.am_facade_base import BaseWAMFacade
@@ -24,7 +25,7 @@ from rpent.robots.components.fast_wam.adapter import ADAPTERS, make_adapter
 
 
 class FastWAMFacade(BaseWAMFacade):
-    """Use the official model and processor without importing a simulator."""
+    """Bridge platform observations to model inference without a simulator."""
 
     def __init__(
         self,
@@ -47,6 +48,7 @@ class FastWAMFacade(BaseWAMFacade):
                 "inference_options must not override encoded observations or action_horizon"
             )
         self._model = model
+        self._platform = platform
         self._inference_options = {**options, "action_horizon": action_horizon}
         model_meta, adapter = make_adapter(
             platform,
@@ -63,12 +65,62 @@ class FastWAMFacade(BaseWAMFacade):
         )
         super().__init__(model_meta, adapter=adapter)
 
-    def predict_native(self, request: dict, *, session_id: str | None = None) -> dict:
-        """Invoke the official action-only inference API on encoded inputs."""
+    def predict_native(self, request: dict, *, session_id: str | None = None) -> Any:
+        """Use RLinf's LIBERO policy pipeline or RoboTwin's native inference."""
+        if self._platform == "libero":
+            return self._model.predict_action_batch(request, mode="eval")
         import torch
 
         with torch.no_grad():
             return self._model.infer_action(**request, **self._inference_options)
+
+
+def load_libero_policy(
+    config_path: str, cfg: Any, checkpoint: str, stats: str, dtype: Any
+) -> Any:
+    """Load RLinf's policy while preserving the resolved RPent worker YAML."""
+    from omegaconf import OmegaConf
+    from rlinf.models.embodiment.fastwam import get_model
+
+    options = dict(cfg.get("inference_options", {}))
+    # RLinf's rollout API does not expose upstream's optional compiled path.
+    if options.pop("compile_action_infer", False):
+        raise ValueError("RLinf Fast-WAM does not support compile_action_infer")
+    supported = {
+        "num_inference_steps",
+        "text_cfg_scale",
+        "negative_prompt",
+        "sigma_shift",
+        "seed",
+        "rand_device",
+        "tiled",
+    }
+    if unknown := options.keys() - supported:
+        raise ValueError(
+            f"Unsupported RLinf Fast-WAM inference options: {sorted(unknown)}"
+        )
+    path = Path(config_path).resolve()
+    model_cfg = OmegaConf.create(
+        {
+            "model_path": checkpoint,
+            "dataset_stats_path": stats,
+            "action_horizon": cfg.action_horizon,
+            "num_action_chunks": cfg.execute_steps,
+            "binarize_gripper": cfg.get("binarize_gripper", False),
+            "num_inference_steps": 20,
+            **options,
+            "fastwam": {
+                "config_dir": str(path.parent),
+                "config_name": path.name,
+                "overrides": [
+                    r"data.train.processor=\${processor}",
+                    f"data.train.num_frames={cfg.action_horizon + 1}",
+                    f"data.train.concat_multi_camera={cfg.concat}",
+                ],
+            },
+        }
+    )
+    return get_model(model_cfg, torch_dtype=dtype).eval()
 
 
 def main() -> None:
@@ -99,15 +151,25 @@ def main() -> None:
     from omegaconf import OmegaConf
 
     cfg = OmegaConf.load(args.config)
-    model = instantiate(
-        cfg.model, model_dtype=getattr(torch, args.dtype), device=args.device
-    )
-    model.load_checkpoint(args.checkpoint)
-    model = model.to(args.device).eval()
-    processor = instantiate(cfg.processor).eval()
-    processor.set_normalizer_from_stats(
-        load_dataset_stats_from_json(args.dataset_stats)
-    )
+    if args.platform == "libero":
+        model = load_libero_policy(
+            args.config,
+            cfg,
+            args.checkpoint,
+            args.dataset_stats,
+            getattr(torch, args.dtype),
+        ).to(args.device)
+        processor = model.processor
+    else:
+        model = instantiate(
+            cfg.model, model_dtype=getattr(torch, args.dtype), device=args.device
+        )
+        model.load_checkpoint(args.checkpoint)
+        model = model.to(args.device).eval()
+        processor = instantiate(cfg.processor).eval()
+        processor.set_normalizer_from_stats(
+            load_dataset_stats_from_json(args.dataset_stats)
+        )
     facade = FastWAMFacade(
         model,
         processor,

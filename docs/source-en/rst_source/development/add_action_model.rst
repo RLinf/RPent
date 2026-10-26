@@ -377,6 +377,18 @@ uncached instructions; otherwise the official runtime handles uncached text.
 
 For Fast-WAM, use its provisioned environment:
 
+The LIBERO worker requires RLinf's ``release/v0.4`` Fast-WAM integration and
+the Fast-WAM revision selected by RLinf's ``requirements/install.sh`` (currently
+``45d8e1458921d83f8ad6cf9ce993d371208dabd0``). Prepare these together using
+RLinf's ``bash requirements/install.sh embodied --model fastwam``; arbitrary
+Fast-WAM revisions can have incompatible VAE interfaces.
+It calls RLinf's ``get_model`` and ``predict_action_batch``;
+RLinf owns image resizing/composition, state normalization, inference and
+LIBERO action restoration. RPent maps physical observations to RLinf's input
+fields and removes the single-environment batch dimension from the result.
+RoboTwin retains its official Fast-WAM path because this RLinf policy does
+not implement its three-camera/qpos14 interface.
+
 .. code-block:: bash
 
    CUDA_VISIBLE_DEVICES=0 PYTHONPATH=/path/to/RPent \
@@ -390,8 +402,11 @@ RoboTwin needs ``--platform robotwin`` with its own checkpoint and configuration
 The YAML supplies resolved Hydra ``model`` and ``processor`` mappings, with the
 processor taken from the official configuration's ``data.train.processor``, plus
 ``action_horizon``, ``execute_steps``, ``video_size`` and ``concat``.
-Optional ``inference_options`` are forwarded to ``model.infer_action`` and cannot
-override encoded observations or ``action_horizon``. Enable the text encoder in
+For LIBERO, ``inference_options`` configure RLinf's policy: denoising steps,
+seed, sigma shift, text CFG, negative prompt, random device and tiling.
+``compile_action_infer=True`` is unsupported. RoboTwin forwards options to
+the official ``model.infer_action``. Options cannot override encoded
+observations or ``action_horizon``. Enable the text encoder in
 the model configuration for uncached instructions. ``execute_steps`` is positive,
 no larger than ``action_horizon``, and advertised as executable ``chunk_size``.
 ``binarize_gripper`` applies only to LIBERO. Future video generation, temporal
