@@ -227,13 +227,17 @@ parts:
 Add a WAM
 ---------
 
-Cosmos Policy supports LIBERO and LIBERO-Pro; Fast-WAM supports LIBERO,
+Cosmos Policy and Cosmos3 support LIBERO and LIBERO-Pro; Fast-WAM supports LIBERO,
 LIBERO-Pro and RoboTwin. Each model/platform pair requires a matching checkpoint.
 
-The Cosmos backend uses NVIDIA's released ``Cosmos-Policy-LIBERO-Predict2-2B``
-checkpoint and its official LIBERO inference API. RLinf's Cosmos3 integration
-uses a different model and an SGLang ``/v1/actions/generations`` service;
-supporting it requires a separate backend and compatible checkpoint.
+``cosmos-policy`` uses NVIDIA's released ``Cosmos-Policy-LIBERO-Predict2-2B``
+checkpoint and official LIBERO inference API. ``cosmos3`` connects to a
+separately deployed SGLang ``/v1/actions/generations`` service using RLinf's
+``Cosmos3SGLangAdapter`` and HTTP client. RLinf handles image composition,
+request construction, action denormalization and rotation conversion; its
+``prepare_actions_for_libero`` also supplies the simulator's gripper convention.
+RPent reuses its existing LIBERO client and maps observations and predictions
+at that boundary. These backends require different checkpoints.
 
 A historical policy-only evaluation at RPent ``373e900`` achieved **30/30
 (100%)** native successes on LIBERO Spatial: all ten tasks, initial states
@@ -243,6 +247,19 @@ generation, planner or memory guidance. That runner stopped within a chunk
 on success. This is a small evaluation of the earlier implementation, not a
 success-rate measurement of the current AM refactor or other suites. The
 bounded E2E checks below report integration behavior separately.
+
+Cosmos3 at RPent ``fa9310c`` completed **10/10 LIBERO-10 tasks** on 2026-10-27,
+with zero runtime errors: initial state 0 per task, a 520-action horizon,
+30 denoising steps, seed 1 and 16-action predictions. The checkpoint was
+``nvidia/cosmos3-nano-libero10-sdg-export-S2_s43`` at ``d088b07``, served through
+RLinf ``357f85b`` and SGLang 0.5.19. Two A100 40GB GPUs used TP=2,
+TORCH_SDPA, DiT CPU offload and VAE layerwise offload; the simulator used a
+separate GPU. Without planner or memory guidance, mean control time was
+64.69 s per episode (78.43 s including simulator startup/cleanup), and mean
+RPC latency was 3.324 s. Sampled peak model memory was 16,506 MiB per GPU.
+Success came from the native simulator predicate, stopping within chunks.
+This small run covers one initial state per task; Cosmos3's three maintained
+GPU E2E checks passed separately.
 
 1. Create a model package under ``rpent/robots/components/``. Its
    ``server.py`` subclasses ``BaseWAMFacade`` and implements
@@ -293,11 +310,11 @@ the full dictionary. Episode reset clears the environment and model history.
 RoboTwin reuses the environment's initial reset and clears model history when
 constructing the toolkit. Connecting a client does not reset an active episode;
 direct users call ``reset()`` before their first prediction and ``close()`` when
-finished. Session-aware workers implement ``reset_native``; both current model
+finished. Session-aware workers implement ``reset_native``; current model
 packages declare ``USES_SESSIONS = False`` once for runtime and capabilities.
 
 Model dependencies live in separately provisioned environments. The shared
-RPent installation does not install Cosmos Policy or Fast-WAM dependencies.
+RPent installation does not install the model workers' dependencies.
 Owned workers use the existing daemon lifecycle; borrowed endpoints remain
 running when RPent stops its owned services.
 
@@ -412,6 +429,53 @@ no larger than ``action_horizon``, and advertised as executable ``chunk_size``.
 ``binarize_gripper`` applies only to LIBERO. Future video generation, temporal
 action ensembling and automatic Hydra composition are not implemented.
 
+For Cosmos3, prepare a task-trained Cosmos3 checkpoint in Diffusers component
+format and deploy SGLang using RLinf's ``Cosmos3 SGLang Evaluation`` guide.
+Use an RLinf checkout containing ``Cosmos3SGLangAdapter`` and its matching
+SGLang dependencies. The RPC worker runs in that environment:
+
+.. code-block:: bash
+
+   PYTHONPATH=/path/to/RPent:/path/to/RLinf /path/to/sglang-env/bin/python \
+     -m rpent.robots.components.cosmos3.server \
+     --platform libero --checkpoint /path/to/cosmos3-diffusers \
+     --config /path/to/cosmos3.yaml \
+     --sglang-endpoint http://127.0.0.1:30000 --port 8118
+
+The checkpoint must identify the model served by SGLang. ``cosmos3.yaml``
+contains resolved RLinf configuration, without Hydra ``defaults`` composition.
+For a LIBERO rot6d checkpoint trained with the standard Cosmos3 recipe:
+
+.. code-block:: yaml
+
+   env:
+     eval:
+       env_type: libero
+   rollout:
+     model:
+       raw_action_dim: 10
+       action_dim: 7
+       action_normalization: quantile_rot
+       action_stats_path: /path/to/libero_native_frame_wise_relative_rot6d.json
+       num_action_chunks: 16
+       action_mode: policy
+       action_fps: 20.0
+       fps: 20
+       num_inference_steps: 30
+       action_view_point: ego_view
+       num_frames: 17
+       size: 320x192
+     sglang:
+       seed: 1
+       http_timeout_s: 600
+       server:
+         batching_max_size: 1
+
+Match these settings and normalization statistics to the checkpoint's training
+recipe. SGLang owns the model process and GPU allocation; stopping the RPent
+worker does not stop SGLang. The RPC worker's ``--am-cuda-device`` does not
+change that external service's devices.
+
 Run Tasks Against an Existing Worker
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -428,6 +492,11 @@ planner credentials (see :doc:`../simulators/libero`), run either example:
    # Fast-WAM worker already running on port 8117.
    rpent --robot libero --suite libero_spatial --task 0 \
      --am-backend fast-wam --am-endpoint http://127.0.0.1:8117 \
+     --memory-profile local --planner api --model openai:gpt-5.5
+
+   # Cosmos3 RPC worker already running on port 8118.
+   rpent --robot libero --suite libero_10 --task 0 \
+     --am-backend cosmos3 --am-endpoint http://127.0.0.1:8118 \
      --memory-profile local --planner api --model openai:gpt-5.5
 
 Change the task or suite for subsequent runs against the same compatible
@@ -466,6 +535,8 @@ Replace the example paths with your deployment paths:
 requires ``--am-root``; ``COSMOS_POLICY_PYTHON`` and ``COSMOS_POLICY_ROOT``
 provide fallbacks for its Python executable and working directory. Fast-WAM
 requires both ``--fast-wam-config`` and ``--fast-wam-dataset-stats``.
+Cosmos3 requires ``--cosmos3-config`` and ``--cosmos3-sglang-endpoint``;
+this starts the RPC worker against an already running SGLang service.
 ``--am-cuda-device`` selects the worker GPU independently of
 ``--env-cuda-device``. Without a model GPU option, the worker uses the shared
 ``--cuda-device`` default, or inherits CUDA visibility if neither is set.
@@ -484,7 +555,7 @@ selected model. Put the backend before ``--help`` to see that model's options:
    rpent --robot robotwin --am-backend fast-wam --help
 
 Without ``--am-backend``, help shows the platform's default model. Common options
-use ``--am-*``; model options retain ``--cosmos-*``, ``--fast-wam-*``,
+use ``--am-*``; model options retain ``--cosmos-*``, ``--cosmos3-*``, ``--fast-wam-*``,
 ``--lingbot-*`` and ``--pi05-*``. Explicit options for another model are rejected.
 Each standalone worker's ``--help`` lists its own
 unprefixed options, such as ``--config`` or ``--predict-future``.

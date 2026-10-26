@@ -147,11 +147,13 @@ VLA 启动函数也使用 ``AMConfig.spawn_worker()``。平台保留各自的服
 添加 WAM
 --------
 
-Cosmos Policy 支持 LIBERO、LIBERO-Pro；Fast-WAM 支持 LIBERO、LIBERO-Pro 和 RoboTwin。每个模型与平台组合都需要匹配的 checkpoint。
+Cosmos Policy 和 Cosmos3 支持 LIBERO、LIBERO-Pro；Fast-WAM 支持 LIBERO、LIBERO-Pro 和 RoboTwin。每个模型与平台组合都需要匹配的 checkpoint。
 
-Cosmos 后端使用 NVIDIA 发布的 ``Cosmos-Policy-LIBERO-Predict2-2B`` 权重及其官方 LIBERO 推理接口。RLinf 的 Cosmos3 接入使用另一种模型和 SGLang ``/v1/actions/generations`` 服务，需要独立的后端适配与兼容权重。
+``cosmos-policy`` 使用 NVIDIA 发布的 ``Cosmos-Policy-LIBERO-Predict2-2B`` 权重和官方 LIBERO 推理接口。``cosmos3`` 通过 RLinf 的 ``Cosmos3SGLangAdapter`` 和 HTTP client，连接独立部署的 SGLang ``/v1/actions/generations`` 服务。图像拼接、请求构造、动作反归一化和旋转转换由 RLinf 负责，其 ``prepare_actions_for_libero`` 还负责适配仿真器的夹爪约定。RPent 复用已有 LIBERO client，只在接口边界映射观测与预测。这两个后端需要不同的 checkpoint。
 
 RPent ``373e900`` 的历史纯策略评测在 LIBERO Spatial 上取得 **30/30（100%）** 原生任务成功：覆盖全部 10 个任务，每任务使用初始状态 0/1/2，每回合最多 220 个动作。实验使用 A100 40GB、5 步去噪、策略 seed 1，每次预测 16 个动作，不生成未来状态或价值，也没有 planner 或记忆指导；评测程序在成功时停止执行 chunk 中的剩余动作。这是旧实现的小规模评测，不代表当前 AM 重构或其他套件的成功率。下文的有限步数 E2E 检查单独验证接入链路。
+
+2026-10-27，RPent ``fa9310c`` 上的 Cosmos3 完成了 **10/10 个 LIBERO-10 任务**，运行错误为 0：每任务使用初始状态 0，每回合最多 520 个动作，30 步去噪、seed 1，每次预测 16 个动作。checkpoint 为 ``nvidia/cosmos3-nano-libero10-sdg-export-S2_s43`` 的 ``d088b07`` 版本，通过 RLinf ``357f85b`` 和 SGLang 0.5.19 提供服务。模型使用两张 A100 40GB、TP=2、TORCH_SDPA、DiT CPU offload 和 VAE 逐层 offload，仿真器使用另一张 GPU。无 planner 或记忆指导，平均控制耗时为 64.69 秒/回合，计入仿真器启动与清理后为 78.43 秒；平均 RPC 耗时为 3.324 秒，模型单卡采样峰值显存为 16,506 MiB。成功由仿真器原生判定，可在 chunk 内停止。这次小规模评测每任务只覆盖一个初始状态；Cosmos3 的 3 项现有 GPU E2E 检查也单独通过。
 
 1. 在 ``rpent/robots/components/`` 下创建模型包。``server.py`` 继承 ``BaseWAMFacade`` 并实现 ``predict_native``，必须提供 ``(encode, decode)`` adapter 函数对。
 2. 使用 ``am_facade_base.py`` 中的 ``WAMAdapterSpec`` 在模型的 ``ADAPTERS`` 中注册支持的平台。模型元数据工厂声明 checkpoint 身份、相机与状态要求、原生控制约定及可执行 chunk 长度。encode 将物理观测转换为模型输入，decode 将预测还原为声明的平台动作格式。
@@ -170,9 +172,9 @@ RPC 路由为 ``wam.get_model_meta``、``wam.predict`` 和 ``wam.reset``。请�
 
 消息直接使用已有传输支持的字典和 NumPy 数组，没有对象到通信格式的转换，也没有协议版本字段。client 和 worker 应从同一份代码部署。连接时，平台将服务的控制字典与本地支持的定义直接比较，并缓存选择；更换服务或控制方式时创建新 client。服务端检查收到的观测，客户端在执行前检查动作形状、chunk 长度及有限数值。decoder 保留夹爪二值化、动作前缀选择等转换之前的必要检查，避免转换隐藏无效输出。
 
-平台 client 用 ``predict()`` 返回动作，用 ``predict_result()`` 返回完整字典。回合复位同时清空环境与模型历史。RoboTwin 复用环境首次初始化的 reset，并在构造 toolkit 时清空模型历史。连接 client 不会复位已有回合；直接使用 client 时，在首次预测前调用 ``reset()``，结束后调用 ``close()``。带会话的 worker 实现 ``reset_native``；当前两个模型包均只声明一次 ``USES_SESSIONS = False``，供启动逻辑和能力声明共用。
+平台 client 用 ``predict()`` 返回动作，用 ``predict_result()`` 返回完整字典。回合复位同时清空环境与模型历史。RoboTwin 复用环境首次初始化的 reset，并在构造 toolkit 时清空模型历史。连接 client 不会复位已有回合；直接使用 client 时，在首次预测前调用 ``reset()``，结束后调用 ``close()``。带会话的 worker 实现 ``reset_native``；当前模型包均只声明一次 ``USES_SESSIONS = False``，供启动逻辑和能力声明共用。
 
-模型依赖安装在单独准备的环境中，RPent 的公共安装不会安装 Cosmos Policy 或 Fast-WAM 的依赖。自己启动的 worker 复用已有 daemon 生命周期；外部服务在 RPent 停止自己管理的服务后仍保持运行。
+模型依赖安装在单独准备的环境中，RPent 的公共安装不会安装模型 worker 的依赖。自己启动的 worker 复用已有 daemon 生命周期；外部服务在 RPent 停止自己管理的服务后仍保持运行。
 
 添加平台与检查兼容性
 ~~~~~~~~~~~~~~~~~~~~
@@ -238,6 +240,45 @@ LIBERO worker 的模型环境需要安装 RLinf ``release/v0.4`` 的 Fast-WAM �
 
 RoboTwin 使用 ``--platform robotwin``，并更换为对应 checkpoint 和配置。YAML 提供解析好的 Hydra ``model``、``processor``，后者来自官方配置的 ``data.train.processor``，还需包含 ``action_horizon``、``execute_steps``、``video_size`` 和 ``concat``。LIBERO 的 ``inference_options`` 配置 RLinf 策略的去噪步数、seed、sigma shift、text CFG、negative prompt、随机数设备和 tiling，不支持 ``compile_action_infer=True``。RoboTwin 将选项传给官方 ``model.infer_action``。选项不能覆盖编码后的观测或 ``action_horizon``。处理未缓存指令时需在模型配置中启用文本编码器。``execute_steps`` 为正数且不超过 ``action_horizon``，是对外声明的可执行 ``chunk_size``。``binarize_gripper`` 仅适用于 LIBERO。未来视频生成、时序动作集成和自动 Hydra 配置组合尚未实现。
 
+Cosmos3 需要转换为 Diffusers 组件格式的任务训练 checkpoint，并按 RLinf 的 ``Cosmos3 SGLang Evaluation`` 指南独立部署 SGLang。使用包含 ``Cosmos3SGLangAdapter`` 的 RLinf 版本及其配套 SGLang 依赖。RPC worker 在该环境中运行：
+
+.. code-block:: bash
+
+   PYTHONPATH=/path/to/RPent:/path/to/RLinf /path/to/sglang-env/bin/python \
+     -m rpent.robots.components.cosmos3.server \
+     --platform libero --checkpoint /path/to/cosmos3-diffusers \
+     --config /path/to/cosmos3.yaml \
+     --sglang-endpoint http://127.0.0.1:30000 --port 8118
+
+checkpoint 必须对应 SGLang 实际加载的模型。``cosmos3.yaml`` 使用解析好的 RLinf 配置，不执行 Hydra ``defaults`` 组合。按标准 Cosmos3 配方训练的 LIBERO rot6d checkpoint 可使用：
+
+.. code-block:: yaml
+
+   env:
+     eval:
+       env_type: libero
+   rollout:
+     model:
+       raw_action_dim: 10
+       action_dim: 7
+       action_normalization: quantile_rot
+       action_stats_path: /path/to/libero_native_frame_wise_relative_rot6d.json
+       num_action_chunks: 16
+       action_mode: policy
+       action_fps: 20.0
+       fps: 20
+       num_inference_steps: 30
+       action_view_point: ego_view
+       num_frames: 17
+       size: 320x192
+     sglang:
+       seed: 1
+       http_timeout_s: 600
+       server:
+         batching_max_size: 1
+
+这些设置和归一化统计必须与 checkpoint 的训练配方匹配。模型进程和 GPU 分配由 SGLang 管理；停止 RPent worker 不会停止 SGLang，RPC worker 的 ``--am-cuda-device`` 也不会改变外部服务使用的 GPU。
+
 连接已有服务运行任务
 ~~~~~~~~~~~~~~~~~~~~
 
@@ -253,6 +294,11 @@ RoboTwin 使用 ``--platform robotwin``，并更换为对应 checkpoint 和配�
    # Fast-WAM worker already running on port 8117.
    rpent --robot libero --suite libero_spatial --task 0 \
      --am-backend fast-wam --am-endpoint http://127.0.0.1:8117 \
+     --memory-profile local --planner api --model openai:gpt-5.5
+
+   # Cosmos3 RPC worker already running on port 8118.
+   rpent --robot libero --suite libero_10 --task 0 \
+     --am-backend cosmos3 --am-endpoint http://127.0.0.1:8118 \
      --memory-profile local --planner api --model openai:gpt-5.5
 
 之后修改 task 或 suite 即可继续使用兼容的 worker。模型路径和推理选项在部署服务时配置，无需在每次任务命令中重复填写。planner 模型可换成你已配置的供应商支持的模型。RoboTwin 的任务命令见 :doc:`../simulators/robotwin`。
@@ -283,6 +329,8 @@ RoboTwin 使用 ``--platform robotwin``，并更换为对应 checkpoint 和配�
 
 ``--am-endpoint`` 与 ``--am-checkpoint`` 互斥。Cosmos 需要 ``--am-root``，也可用 ``COSMOS_POLICY_PYTHON`` 和 ``COSMOS_POLICY_ROOT`` 分别提供 Python 路径和工作目录的默认值。Fast-WAM 必须同时提供 ``--fast-wam-config`` 和 ``--fast-wam-dataset-stats``。``--am-cuda-device`` 与 ``--env-cuda-device`` 独立；未指定模型 GPU 时先使用共享的 ``--cuda-device``，两者均未指定时继承 CUDA 可见设备设置。显存允许时，各服务可指定相同设备，共用一张 GPU。
 
+Cosmos3 需要 ``--cosmos3-config`` 和 ``--cosmos3-sglang-endpoint``；该方式只启动 RPC worker，连接已经运行的 SGLang 服务。
+
 查看可用参数
 ~~~~~~~~~~~~
 
@@ -293,7 +341,7 @@ RoboTwin 使用 ``--platform robotwin``，并更换为对应 checkpoint 和配�
    rpent --robot libero --am-backend cosmos-policy --help
    rpent --robot robotwin --am-backend fast-wam --help
 
-省略 ``--am-backend`` 时展示平台默认模型。公共参数统一使用 ``--am-*``，模型专属参数保留 ``--cosmos-*``、``--fast-wam-*``、``--lingbot-*`` 和 ``--pi05-*``。显式传入其他模型的参数会报错。独立 worker 的 ``--help`` 列出它自己的参数，使用 ``--config``、``--predict-future`` 等不带模型前缀的名称。
+省略 ``--am-backend`` 时展示平台默认模型。公共参数统一使用 ``--am-*``，模型专属参数保留 ``--cosmos-*``、``--cosmos3-*``、``--fast-wam-*``、``--lingbot-*`` 和 ``--pi05-*``。显式传入其他模型的参数会报错。独立 worker 的 ``--help`` 列出它自己的参数，使用 ``--config``、``--predict-future`` 等不带模型前缀的名称。
 
 旧命令通过隐藏别名继续兼容：
 
