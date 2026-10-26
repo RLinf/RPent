@@ -192,19 +192,9 @@ primitive requires a few additional components:
    ``{"env": MyRobotEnvClient(...), "model": MyModelClient(...)}``.
    The toolkit constructor then forwards it to the primitives.
 
-Reuse an Existing VLA Server
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Model servers often take a long time to start, so the runner can
-connect to an instance that is already running:
-
-.. code-block:: bash
-
-   rpent --robot libero --am-endpoint http://vla-host:8000 ...
-
-If the model keeps per-episode state, expose a ``vla_reset`` RPC and
-call it between tasks. The same server process can then be reused safely
-across sequential runs.
+For existing-service deployment and endpoint examples, see
+:doc:`../guides/advanced_deployment`. Stateful models also need the
+per-client lifecycle hooks below.
 
 Per-client Policy State
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -239,6 +229,20 @@ Add a WAM
 
 Cosmos Policy supports LIBERO and LIBERO-Pro; Fast-WAM supports LIBERO,
 LIBERO-Pro and RoboTwin. Each model/platform pair requires a matching checkpoint.
+
+The Cosmos backend uses NVIDIA's released ``Cosmos-Policy-LIBERO-Predict2-2B``
+checkpoint and its official LIBERO inference API. RLinf's Cosmos3 integration
+uses a different model and an SGLang ``/v1/actions/generations`` service;
+supporting it requires a separate backend and compatible checkpoint.
+
+A historical policy-only evaluation at RPent ``373e900`` achieved **30/30
+(100%)** native successes on LIBERO Spatial: all ten tasks, initial states
+0/1/2, at most 220 actions per episode. It used an A100 40GB, five denoising
+steps, policy seed 1, 16-action predictions and no future-state/value
+generation, planner or memory guidance. That runner stopped within a chunk
+on success. This is a small evaluation of the earlier implementation, not a
+success-rate measurement of the current AM refactor or other suites. The
+bounded E2E checks below report integration behavior separately.
 
 1. Create a model package under ``rpent/robots/components/``. Its
    ``server.py`` subclasses ``BaseWAMFacade`` and implements

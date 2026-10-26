@@ -131,16 +131,7 @@ VLA 启动函数也使用 ``AMConfig.spawn_worker()``。平台保留各自的服
 
    机器人包中的 ``_init_runtime`` 则负责构造 ``runtime_kwargs``，例如 ``{"env": MyRobotEnvClient(...), "model": MyModelClient(...)}``，再由 toolkit 构造器将其转发给 primitives。
 
-复用已有 VLA 服务
-~~~~~~~~~~~~~~~~~
-
-模型服务进程通常需要较长的启动时间，因此 runner 可以通过 ``--am-endpoint`` 连接已经在运行的实例：
-
-.. code-block:: bash
-
-   rpent --robot libero --am-endpoint http://vla-host:8000 ...
-
-如果模型会保存每个回合的内部状态，应提供 ``vla_reset`` RPC，并在任务之间调用它完成重置。这样，同一个服务进程就能安全地复用于多次连续运行。
+已有服务的部署方式与 endpoint 示例见 :doc:`../guides/advanced_deployment`。有状态模型还需要实现下面的按客户端隔离与重置逻辑。
 
 按客户端隔离策略状态
 ~~~~~~~~~~~~~~~~~~~~
@@ -157,6 +148,10 @@ VLA 启动函数也使用 ``AMConfig.spawn_worker()``。平台保留各自的服
 --------
 
 Cosmos Policy 支持 LIBERO、LIBERO-Pro；Fast-WAM 支持 LIBERO、LIBERO-Pro 和 RoboTwin。每个模型与平台组合都需要匹配的 checkpoint。
+
+Cosmos 后端使用 NVIDIA 发布的 ``Cosmos-Policy-LIBERO-Predict2-2B`` 权重及其官方 LIBERO 推理接口。RLinf 的 Cosmos3 接入使用另一种模型和 SGLang ``/v1/actions/generations`` 服务，需要独立的后端适配与兼容权重。
+
+RPent ``373e900`` 的历史纯策略评测在 LIBERO Spatial 上取得 **30/30（100%）** 原生任务成功：覆盖全部 10 个任务，每任务使用初始状态 0/1/2，每回合最多 220 个动作。实验使用 A100 40GB、5 步去噪、策略 seed 1，每次预测 16 个动作，不生成未来状态或价值，也没有 planner 或记忆指导；评测程序在成功时停止执行 chunk 中的剩余动作。这是旧实现的小规模评测，不代表当前 AM 重构或其他套件的成功率。下文的有限步数 E2E 检查单独验证接入链路。
 
 1. 在 ``rpent/robots/components/`` 下创建模型包。``server.py`` 继承 ``BaseWAMFacade`` 并实现 ``predict_native``，必须提供 ``(encode, decode)`` adapter 函数对。
 2. 使用 ``am_facade_base.py`` 中的 ``WAMAdapterSpec`` 在模型的 ``ADAPTERS`` 中注册支持的平台。模型元数据工厂声明 checkpoint 身份、相机与状态要求、原生控制约定及可执行 chunk 长度。encode 将物理观测转换为模型输入，decode 将预测还原为声明的平台动作格式。
