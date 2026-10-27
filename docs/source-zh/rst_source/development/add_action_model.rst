@@ -319,11 +319,7 @@ Cosmos3 需要转换为 Diffusers 组件格式的任务训练 checkpoint，并�
 
 Cosmos3 需要 ``--cosmos3-config`` 和 ``--cosmos3-sglang-endpoint``；该方式只启动 RPC worker，连接已经运行的 SGLang 服务。
 
-
-
 测试
 ----
 
-WAM 沿用 VLA/SAM 的测试组织。``test_am.py`` 覆盖公共启动、VLA 转发、WAM 边界和部署配置；``test_wam_adapters.py`` 在 CPU 上检查相机与状态编码、原生动作还原。平台工具行为保留在各平台的单测中。``test_wam_loopback.py`` 复用已有 HTTP/socket fixture，检查会话隔离、复位和清理。
-
-真实模型测试放在各平台的 ``test_components.py`` 和 ``test_policy_chain.py``。LIBERO 对 Cosmos Policy、Cosmos3 和 Fast-WAM 参数化复用同一组测试；RoboTwin 使用自己的 Fast-WAM checkpoint。组件测试记录模型身份、推理耗时和原生状态。CLI 测试使用脚本化 planner、有限次数的 ``wam_act`` 和不含任务指导的本地记忆，检查状态产物、``finish`` 和清理。这些检查验证接入链路，不估计 benchmark 成功率或记忆收益。环境准备、endpoint 变量、suite 选择和具体命令统一见 ``tests/README.md``。
+新增模型与平台组合时，扩展已有的适配器、RPC 和平台测试。测试位置、GPU 环境要求、运行命令，以及集成检查与任务成功率评测的区别，统一见 ``tests/README.md``。

@@ -504,24 +504,10 @@ requires both ``--fast-wam-config`` and ``--fast-wam-dataset-stats``.
 Cosmos3 requires ``--cosmos3-config`` and ``--cosmos3-sglang-endpoint``;
 this starts the RPC worker against an already running SGLang service.
 
-
-
 Tests
 -----
 
-WAM follows the existing VLA/SAM test layout. ``test_am.py`` covers shared
-startup, VLA dispatch, WAM boundaries and worker configuration;
-``test_wam_adapters.py`` checks camera/state
-encoding and native action restoration on CPU. Platform tool behavior stays
-with each platform's unit tests. ``test_wam_loopback.py`` uses the existing
-HTTP/socket fixtures for session isolation, reset and cleanup.
-
-Real-model checks live in each platform's ``test_components.py`` and
-``test_policy_chain.py``. LIBERO parametrizes the same tests over Cosmos Policy,
-Cosmos3 and Fast-WAM; RoboTwin uses its Fast-WAM checkpoint. Component tests
-record model identity, inference time and native status. CLI tests use a scripted
-planner, bounded ``wam_act`` calls and local memory without task guidance;
-they check state artifacts, ``finish`` and cleanup. These checks establish
-integration behavior, not benchmark success rates or memory benefits.
-See ``tests/README.md`` for environment prerequisites, endpoint variables,
-suite selection and commands.
+Extend the existing adapter, RPC and platform tests for each new model/platform
+pair. Test locations, GPU prerequisites, commands and the distinction between
+integration checks and task-success benchmarks are documented in
+``tests/README.md``.

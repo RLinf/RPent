@@ -162,8 +162,6 @@ and executes a component chunk through `env.chunk_step(action_type="qpos")`.
 The separate CLI chain executes up to two chunks within a 64-action horizon.
 The worker must advertise `robotwin.joint_action.qpos14.v1`. It records latency,
 executed action counts and episode status; no LingBot checkpoint is needed.
-The RoboTwin CLI selects this backend with `--am-backend fast-wam`; its toolkit
-uses `wam_act`. Without a WAM backend, it retains LingBot's EEF16 interface.
 
 The policy-chain tests exercise the public CLI and `wam_act` toolkit path
 with a scripted planner, recording observations and `finish`. These are bounded
@@ -171,11 +169,12 @@ integration checks, not task-success benchmarks. Component checks close their
 clients, and CLI checks stop their owned daemons. Externally started model
 services remain the operator's responsibility.
 
-Offline AM checks follow the VLA/SAM layout: `test_am.py` covers shared startup and public
-boundaries and startup configuration, `test_wam_adapters.py` checks physical
-input and native output transforms, and `test_wam_loopback.py` exercises real
-local HTTP/socket sessions. Platform tool checks stay in platform unit tests.
-Full benchmark experiments are separate from these bounded integration checks.
+Offline AM checks follow the VLA/SAM layout: `test_am.py` covers startup,
+configuration and public boundaries; `test_wam_adapters.py` checks physical
+input and native output transforms. `test_wam_loopback.py` covers HTTP/socket
+session isolation, reset and cleanup; `test_cosmos_policy_loopback.py` covers
+Cosmos Policy conversion through those transports. Platform tool checks stay
+in platform unit tests.
 
 ## Dual-Franka VLA diagnostic console
 

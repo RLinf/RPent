@@ -22,10 +22,9 @@ import numpy as np
 import pytest
 
 from robots.libero.observation import physical_observation
-from robots.libero.wam_client import LiberoWAMClient, libero_request
+from robots.libero.wam_client import LiberoWAMClient
 from robots.robotwin.observation import physical_observation as robotwin_observation
 from robots.robotwin.wam_client import RoboTwinWAMClient
-from rpent.robots.components.cosmos_policy.adapter import make_adapter as cosmos_adapter
 from rpent.robots.components.fast_wam.server import FastWAMFacade, load_libero_policy
 
 torch = pytest.importorskip("torch")
@@ -162,8 +161,8 @@ def _facade(platform="libero", **overrides):
     options = {
         "action_horizon": 4,
         "execute_steps": 3,
-        "video_size": (256, 512) if platform == "libero" else (384, 320),
-        "concat": "horizontal" if platform == "libero" else "robotwin",
+        "video_size": (384, 320),
+        "concat": "robotwin",
         **overrides,
     }
     return FastWAMFacade(
@@ -190,7 +189,7 @@ def _raw_obs():
     }
 
 
-def test_same_physical_observation_drives_cosmos_and_fast_wam():
+def test_libero_physical_observation_drives_rlinf_fast_wam():
     raw = _raw_obs()
     raw["robot0_joint_pos"] = np.arange(7)
     raw["robot0_joint_vel"] = np.ones(7)
@@ -198,17 +197,6 @@ def test_same_physical_observation_drives_cosmos_and_fast_wam():
     np.testing.assert_array_equal(physical["state"]["joint_positions"], np.arange(7))
     np.testing.assert_array_equal(physical["state"]["joint_velocities"], np.ones(7))
     assert "action_space" not in physical
-    request = libero_request(raw)
-    _, (encode, _) = cosmos_adapter("libero", "test")
-    cosmos = encode(request)["observation"]
-    np.testing.assert_allclose(
-        cosmos["proprio"],
-        np.r_[
-            raw["robot0_gripper_qpos"], raw["robot0_eef_pos"], raw["robot0_eef_quat"]
-        ],
-    )
-    np.testing.assert_array_equal(cosmos["primary_image"], raw["agentview_image"][::-1])
-
     facade = _facade()
     rpc = Mock(call=lambda method, args=(), **kw: facade._dispatch(method, args, {}))
     result = LiberoWAMClient(rpc).predict_result(raw)

@@ -226,12 +226,9 @@ height). Pass ``--task-config demo_clean`` for a simple, clean scene.
 
 - ``--robotwin-assets-path`` overrides ``ROBOTWIN_ASSETS_PATH``.
 - ``--am-checkpoint`` overrides ``LINGBOT_MODEL_PATH``.
-- ``--env-cuda-device`` and ``--am-cuda-device`` place the simulator and VLA
-  on independently selected GPUs. For example,
-  ``--env-cuda-device 0 --am-cuda-device 1`` uses GPU 0 for simulation and
-  GPU 1 for LingBot. The same option selects a WAM worker's GPU.
-  These options apply only to services started by RPent. The shared
-  ``--cuda-device`` option supplies a default; per-service options override it.
+- ``--env-cuda-device 0 --am-cuda-device 1`` assigns GPU 0 to the local
+  simulator and GPU 1 to the local action model. For GPU defaults and overrides,
+  see :doc:`../guides/cli`.
 
 For planner setup, external service endpoints, and offline resources, see
 :doc:`../guides/configure_planner`, :doc:`../guides/advanced_deployment`, and
