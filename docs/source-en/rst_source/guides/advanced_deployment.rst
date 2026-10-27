@@ -53,22 +53,10 @@ The VLA service loads the model once and can be reused by multiple RPent runs.
 APXInf VLA Service (Optional)
 -----------------------------
 
-Use the APXInf adapter in place of the Pi0.5 service. From the RPent checkout,
-install the optional Python dependencies with uv:
-
-.. code-block:: bash
-
-   uv venv --python 3.11 .venv-apxinf
-   uv pip install --python .venv-apxinf/bin/python -e ".[apxinf]"
-   uv pip install --python .venv-apxinf/bin/python /path/to/wheels/apxinf_py-*.whl
-
-Build the ``apxinf_py`` wheel for the target GPU using the
-`APXInf-robo build instructions <https://github.com/RLinf/APXinf-robo/tree/1d593ea94805b8a49c3305eaf24919968a8f987b#build-apxinf-robo>`_.
-Use the engine revision pinned in RPent's ``apxinf`` extra. CUDA, Rust and the
-native binding are not installed by the extra. To reuse an existing environment,
-skip ``uv venv`` and replace the Python path in both install commands.
-The planner and environment can keep their existing LIBERO installation,
-including its OpenPI dependency.
+Use the APXInf adapter in place of the Pi0.5 service. Follow the
+`APXinf-robo installation instructions <https://github.com/RLinf/APXinf-robo#build-apxinf-robo>`_
+in an environment with RPent installed. The planner and environment can keep
+their existing LIBERO installation, including its OpenPI dependency.
 
 Prepare a compatible Pi0.5 LIBERO checkpoint, SentencePiece tokenizer and
 normalization statistics.
@@ -77,8 +65,7 @@ Start the service with that environment's Python:
 
 .. code-block:: bash
 
-   .venv-apxinf/bin/python \
-     -m rpent.robots.components.apxinf_vla_server \
+   python -m rpent.robots.components.apxinf_vla_server \
      --embodiment libero \
      --model-path /path/to/pi05-libero \
      --tokenizer-path /path/to/tokenizer.model \

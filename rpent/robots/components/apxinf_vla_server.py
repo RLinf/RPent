@@ -46,7 +46,7 @@ logger = get_logger("apxinf_vla_server")
 # ---------------------------------------------------------------------------
 
 # Each embodiment declares how to convert RPent wire obs (as produced by
-# ``ApxInfVLAClient._encode_obs_*``) into the APXInf observation dict, and
+# ``Pi05VLAClient``) into the APXInf observation dict, and
 # which ``from_pretrained`` kwargs to use.
 #
 # RPent wire format (openpi convention, what the client sends):

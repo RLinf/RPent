@@ -23,7 +23,6 @@ from types import ModuleType, SimpleNamespace
 import numpy as np
 import pytest
 
-from rpent.robots.components.apxinf_vla_client import ApxInfVLAClient
 from rpent.robots.components.apxinf_vla_server import ApxInfVLAFacade
 from rpent.robots.components.pi05_vla_client import Pi05VLAClient
 from rpent.utils.daemon import pick_free_port
@@ -57,10 +56,7 @@ def loaded_facade(monkeypatch, tmp_path):
     facade.close()
 
 
-@pytest.mark.parametrize("client_type", [Pi05VLAClient, ApxInfVLAClient])
-def test_client_server_returns_five_actions_with_explicit_stats(
-    loaded_facade, client_type
-):
+def test_client_server_returns_five_actions_with_explicit_stats(loaded_facade):
     facade, _, calls = loaded_facade
     path, kwargs = calls[0]
     assert kwargs["norm_stats"] == path + "/norm_stats.json"
@@ -74,7 +70,7 @@ def test_client_server_returns_five_actions_with_explicit_stats(
             return facade._dispatch(method, args, {})
 
     image = np.zeros((16, 16, 3), dtype=np.uint8)
-    client = client_type(Rpc(), embodiment="libero")
+    client = Pi05VLAClient(Rpc(), embodiment="libero")
     actions = client.predict(
         {
             "main_images": image,
@@ -194,7 +190,6 @@ class RejectApxInf(importlib.abc.MetaPathFinder):
 
 sys.meta_path.insert(0, RejectApxInf())
 import rpent
-from rpent.robots.components.apxinf_vla_client import ApxInfVLAClient
 from rpent.cli.main import _build_argparser
 _build_argparser()
 sys.argv = ["apxinf_vla_server", "--help"]
@@ -214,9 +209,8 @@ runpy.run_module("rpent.robots.components.apxinf_vla_server", run_name="__main__
         ("yam", "yam_joint", 14, 30, (10, 20, 30)),
     ],
 )
-@pytest.mark.parametrize("client_type", [Pi05VLAClient, ApxInfVLAClient])
 def test_real_robot_policy_selection_and_wire_contract(
-    monkeypatch, tmp_path, embodiment, preset, width, horizon, view_order, client_type
+    monkeypatch, tmp_path, embodiment, preset, width, horizon, view_order
 ):
     (tmp_path / "norm_stats.json").write_text("{}")
     received = []
@@ -249,7 +243,7 @@ def test_real_robot_policy_selection_and_wire_contract(
             return facade._dispatch(method, args, {})
 
     try:
-        client = client_type(Rpc(), embodiment=embodiment)
+        client = Pi05VLAClient(Rpc(), embodiment=embodiment)
         image = np.full((4, 4, 3), 10, dtype=np.uint8)
         state = np.arange(width, dtype=np.float32)
         result = client.predict(

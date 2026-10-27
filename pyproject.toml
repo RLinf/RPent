@@ -65,9 +65,7 @@ Documentation = "https://rpent.readthedocs.io/en/latest/"
 
 [project.optional-dependencies]
 apxinf = [
-    # Python packages only; build apxinf_py separately for the target GPU.
-    "apxinf-robo @ git+https://github.com/RLinf/APXinf-robo.git@1d593ea94805b8a49c3305eaf24919968a8f987b",
-    "apxinf @ git+https://github.com/infinigence/ApxInf.git@7f37642dd6c5896bca66d7640d9944c2a3fe04b4#subdirectory=python/apxinf",
+    "apxinf-robo @ git+https://github.com/RLinf/APXinf-robo.git@main",
 ]
 test = [
     "coverage",
