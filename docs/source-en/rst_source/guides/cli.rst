@@ -62,7 +62,7 @@ These options control the planner, memory, output directory, and Dashboard.
      - Artifact directory; the environment generates the default name.
    * - ``--memory-profile``
      - ``—``
-     - Defaults to ``hf`` for evaluation and ``local`` for exploration.
+     - Evaluation normally defaults to ``hf``; exploration and WAM evaluation use ``local``.
    * - ``--memory-dir``
      - ``—``
      - Local memory directory; use with the local profile or exploration.
@@ -96,23 +96,24 @@ Environment Options
 
 LIBERO selects tasks with ``--suite``, ``--task``, ``--seed``, and ``--libero-type``; the variant defaults to ``LIBERO_TYPE`` or ``pro``. RoboCasa365 and RoboTwin use ``--task-name``. Franka uses ``--task-id`` and ``--robot-config``. See :doc:`../simulators/libero`, :doc:`../simulators/robocasa`, :doc:`../simulators/robotwin`, :doc:`../real_world_robots/franka`, and :doc:`../real_world_robots/dual_franka` for details.
 
-``--env-endpoint``, ``--am-endpoint``, and LIBERO’s ``--sam3-endpoint`` connect to existing services using ``[protocol://]host:port``; the default protocol is ``http``. See :doc:`advanced_deployment` for GPU assignment and remote services.
+``--env-endpoint``, ``--am-endpoint``, and LIBERO’s ``--sam3-endpoint`` connect to existing environment, action-model (VLA or WAM), and SAM3 services respectively. RPent RPC addresses use ``[protocol://]host:port``, defaulting to ``http``. LingBot uses native WebSocket; see :doc:`../simulators/robotwin`. See :doc:`advanced_deployment` for GPU assignment and remote services.
 
 ``--am-backend`` selects one action model supported by the platform. LIBERO
 defaults to ``pi05`` and RoboTwin to ``lingbot``. VLA and WAM share
 ``--am-endpoint`` for existing workers, and ``--am-checkpoint``, ``--am-python``,
 ``--am-root`` and ``--am-cuda-device`` for local deployment. Explicit local
-deployment options are rejected with an endpoint. Old VLA/WAM options remain
-hidden aliases that write the same configuration fields.
+deployment options are rejected with an endpoint.
 ``--am-checkpoint`` supplies local weights or a service model identity as required
 by the backend. ``--am-python`` selects the provisioned model interpreter;
 VLA defaults to the current interpreter. ``--am-root`` selects the working
 directory, defaulting to the RPent checkout; Cosmos Policy requires its source
 directory.
+
 WAM uses the ``local`` memory profile with memory file tools and a
 backend-specific directory; ``--memory-dir`` overrides it. WAM currently rejects
 HF memory, Flash and exploration. See
 :doc:`../development/add_action_model` for model launch options and supported pairs.
+
 ``--predict-future`` enables future-state/value outputs during local deployment.
 Currently only Cosmos Policy supports this option; other backends reject it.
 Configure it when starting the worker if connecting with ``--am-endpoint``.
@@ -159,37 +160,44 @@ The following defaults apply to LIBERO; check each other environment’s ``--hel
 Action-Model Compatibility
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Existing commands remain supported through hidden aliases:
+Use the current options in the left column for new commands. The right column
+lists hidden aliases retained for existing commands; they do not appear in
+``--help`` and write the same configuration fields as their current names.
+
+Common deployment options use ``--am-*``. Model-specific options use
+``--pi05-*``, ``--cosmos-*``, ``--cosmos3-*``, ``--fast-wam-*`` or ``--lingbot-*``.
+Here ``fast-wam`` is the model name, distinct from the old generic ``--wam-*``
+prefix.
 
 .. list-table:: Model option names
    :header-rows: 1
 
-   * - Previous option
-     - Preferred option
-   * - ``--vla-backend``, ``--wam-backend``
-     - ``--am-backend``
-   * - ``--policy-backend rlinf`` (RoboDojo)
-     - ``--am-backend pi05``
-   * - ``--vla-endpoint``, ``--wam-endpoint``
-     - ``--am-endpoint``
-   * - ``--vla-model-path``, ``--wam-checkpoint``
-     - ``--am-checkpoint``
-   * - ``--pi05-python``, ``--wam-python``
-     - ``--am-python``
-   * - ``--wam-root``
-     - ``--am-root``
-   * - ``--vla-cuda-device``, ``--wam-cuda-device``
-     - ``--am-cuda-device``
-   * - ``--vla-repo-id``
-     - ``--pi05-repo-id``
-   * - ``--wam-text-embeddings``
-     - ``--cosmos-text-embeddings``
-   * - ``--wam-cached-instructions-only``
-     - ``--cosmos-cached-instructions-only``
-   * - ``--wam-config``
-     - ``--fast-wam-config``
-   * - ``--wam-dataset-stats``
-     - ``--fast-wam-dataset-stats``
+   * - Current option
+     - Compatibility alias (hidden)
+   * - ``--am-backend``
+     - ``--vla-backend``, ``--wam-backend``
+   * - ``--am-backend pi05``
+     - ``--policy-backend rlinf`` (RoboDojo)
+   * - ``--am-endpoint``
+     - ``--vla-endpoint``, ``--wam-endpoint``
+   * - ``--am-checkpoint``
+     - ``--vla-model-path``, ``--wam-checkpoint``
+   * - ``--am-python``
+     - ``--pi05-python``, ``--wam-python``
+   * - ``--am-root``
+     - ``--wam-root``
+   * - ``--am-cuda-device``
+     - ``--vla-cuda-device``, ``--wam-cuda-device``
+   * - ``--pi05-repo-id``
+     - ``--vla-repo-id``
+   * - ``--cosmos-text-embeddings``
+     - ``--wam-text-embeddings``
+   * - ``--cosmos-cached-instructions-only``
+     - ``--wam-cached-instructions-only``
+   * - ``--fast-wam-config``
+     - ``--wam-config``
+   * - ``--fast-wam-dataset-stats``
+     - ``--wam-dataset-stats``
 
 Model-Service Environment Variables
 -----------------------------------
@@ -236,7 +244,7 @@ The table uses LIBERO as an example. Files depend on the environment, recording,
      - Episode video.
    * - ``run.log``
      - RPent process log.
-   * - ``env_server.log`` / ``vla_server.log`` / ``sam3_server.log``
+   * - ``env_server.log`` / ``vla_server.log`` / ``wam_server.log`` / ``sam3_server.log``
      - Logs from environment and model servers started by this run.
    * - ``*_recipe.jsonl``
      - Action sequence exported from a successful task; failed runs may not produce this file.

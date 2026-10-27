@@ -1,13 +1,13 @@
 Remote Services and Parallel Runs
 =================================
 
-By default, RPent starts and stops the environment, VLA, and SAM3 services
-with each LIBERO run. Keep that default for single-machine use. Configure
-external endpoints only when services live on different hosts, or when you
-want to reuse VLA and SAM3 models across tasks.
+The examples below use LIBERO with Pi0.5 VLA and SAM3. By default, RPent starts
+and stops these services and the environment with each run. Configure external
+endpoints when services live on different hosts or are reused across tasks.
+For WAM worker deployment, see :ref:`action-model-deployment`.
 
 Three flags set the endpoints: ``--env-endpoint`` for the LIBERO
-environment, ``--am-endpoint`` for the Pi0.5 VLA, and ``--sam3-endpoint``
+environment, ``--am-endpoint`` for the selected action model, and ``--sam3-endpoint``
 for SAM3. Each takes ``[protocol://]HOST:PORT`` — HTTP when the protocol is
 omitted, or ``socket://`` for socket RPC.
 

@@ -56,7 +56,7 @@ toolkit owns registration, cancellation, state capture and recording.
    * - ``<model>/runtime_config.py``
      - Supply WAM model-specific arguments, defaults and configuration requirements.
    * - ``<model>/server.py``
-     - Load a WAM model and implement native inference.
+     - Load a WAM model or connect its native service, and implement the inference call.
    * - ``<model>/adapter/{__init__,encode,decode}.py``
      - Register paired transforms, build model input and restore native actions.
 
@@ -439,8 +439,8 @@ For a LIBERO rot6d checkpoint trained with the standard Cosmos3 recipe:
 
 Match these settings and normalization statistics to the checkpoint's training
 recipe. SGLang owns the model process and GPU allocation; stopping the RPent
-worker does not stop SGLang. The RPC worker's ``--am-cuda-device`` does not
-change that external service's devices.
+worker does not stop SGLang. RPent's ``--am-cuda-device`` configures the local
+RPC worker process; it does not change that external service's devices.
 
 Run Tasks Against an Existing Worker
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

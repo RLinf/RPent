@@ -49,7 +49,7 @@
    * - ``<model>/runtime_config.py``
      - 补充 WAM 模型专属参数、默认值和配置要求。
    * - ``<model>/server.py``
-     - 加载 WAM 模型，实现原生推理。
+     - 加载 WAM 模型或连接其原生服务，实现推理调用。
    * - ``<model>/adapter/{__init__,encode,decode}.py``
      - 注册成对转换，构造模型输入并还原平台动作。
 
@@ -265,7 +265,7 @@ Cosmos3 需要转换为 Diffusers 组件格式的任务训练 checkpoint，并�
        server:
          batching_max_size: 1
 
-这些设置和归一化统计必须与 checkpoint 的训练配方匹配。模型进程和 GPU 分配由 SGLang 管理；停止 RPent worker 不会停止 SGLang，RPC worker 的 ``--am-cuda-device`` 也不会改变外部服务使用的 GPU。
+这些设置和归一化统计必须与 checkpoint 的训练配方匹配。模型进程和 GPU 分配由 SGLang 管理；停止 RPent worker 不会停止 SGLang。RPent 的 ``--am-cuda-device`` 配置本地 RPC worker 进程，不会改变外部服务使用的 GPU。
 
 连接已有服务运行任务
 ~~~~~~~~~~~~~~~~~~~~
