@@ -33,6 +33,7 @@ from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
 from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
 from rpent.robots.components.am_runtime import (
+    WAM_BACKENDS,
     add_am_args,
     select_am,
     start_wam_service,
@@ -191,9 +192,7 @@ def vla_runtime_contract() -> dict[str, object]:
 
 
 def _resolve_dashboard(args: argparse.Namespace) -> DashboardSpec:
-    am = select_am(args, "robotwin")
-    wam = am if am.is_wam else None
-    if wam is None:
+    if getattr(args, "am_backend", None) not in WAM_BACKENDS:
         return ROBOTWIN_DASHBOARD_SPEC
     return {
         **ROBOTWIN_DASHBOARD_SPEC,

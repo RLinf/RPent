@@ -221,6 +221,8 @@ def test_worker_launch_and_external_options(
         ]
     )
     args.am_cuda_device = model_device
+    if backend == "cosmos3":
+        args.am_checkpoint = "nvidia/cosmos3-nano-libero10-sdg-export-S2_s43"
     args.cuda_device = 1
     args.env_cuda_device = args.sam3_cuda_device = 0
     daemon, rpc = Mock(), Mock()
@@ -242,6 +244,7 @@ def test_worker_launch_and_external_options(
         f"rpent.robots.components.{am_runtime.WAM_BACKENDS[backend]}.server",
     ]
     assert command.count("--platform") == command.count("--checkpoint") == 1
+    assert command[command.index("--checkpoint") + 1] == args.am_checkpoint
     assert command[command.index("--platform") + 1] == platform
     if backend == "cosmos-policy":
         assert "--predict-future" in command
@@ -263,6 +266,10 @@ def test_worker_launch_and_external_options(
     with pytest.raises(RuntimeError, match="launch failed"):
         am_runtime.start_wam_service(selected, tmp_path)
     rpc_factory.assert_not_called()
+    if backend != "cosmos3":
+        args.am_checkpoint = str(tmp_path / "missing-checkpoint")
+        with pytest.raises(ValueError, match="--am-checkpoint"):
+            am_runtime.select_am(args, platform)
     args.am_endpoint = "http://localhost:8116"
     args.am_checkpoint = args.am_python = args.am_root = args.am_cuda_device = None
     with pytest.raises(ValueError, match="configures local deployment"):

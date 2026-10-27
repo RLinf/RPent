@@ -120,8 +120,8 @@ def add_am_args(parser: argparse.ArgumentParser, *, platform: str) -> None:
     )
     fields = {
         "checkpoint": (
-            "PATH",
-            "Model checkpoint; model-specific environment defaults may apply",
+            "MODEL",
+            "Model checkpoint or service model identity, as required by the backend",
         ),
         "python": (
             "PYTHON",
@@ -290,13 +290,12 @@ def select_am(args: argparse.Namespace, platform: str) -> AMConfig:
             # options when a Dashboard reuses the session namespace.
             model_args = argparse.Namespace(**vars(args))
             _runtime_config(backend).validate_options(model_args)
+            checkpoint = model_args.am_checkpoint
             python, root = model_args.am_python, model_args.am_root
             if not python:
                 raise ValueError(
                     "--am-python must reference the provisioned model environment"
                 )
-            if not Path(checkpoint).expanduser().exists():
-                raise ValueError("--am-checkpoint must reference a local checkpoint")
             model_arguments = tuple(
                 _runtime_config(backend).worker_arguments(model_args)
             )
@@ -334,7 +333,7 @@ def select_am(args: argparse.Namespace, platform: str) -> AMConfig:
         platform=platform,
         endpoint=endpoint,
         checkpoint=str(Path(checkpoint).expanduser().absolute())
-        if checkpoint and backend != "xpolicylab"
+        if checkpoint and backend not in WAM_BACKENDS and backend != "xpolicylab"
         else checkpoint,
         python=str(Path(executable).absolute()),
         root=root_path,

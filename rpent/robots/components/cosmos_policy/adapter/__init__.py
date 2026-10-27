@@ -29,7 +29,6 @@ from rpent.robots.components.cosmos_policy.adapter.encode import (
     encode_libero,
 )
 
-ACTION_SCHEMA = LIBERO_OSC["action_schema"]
 ADAPTERS = {
     "libero": WAMAdapterSpec(
         encode_libero,

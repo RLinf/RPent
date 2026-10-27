@@ -69,7 +69,9 @@ def main() -> None:
     """Start an RPC worker; the SGLang process remains externally owned."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--platform", choices=tuple(ADAPTERS), required=True)
-    parser.add_argument("--checkpoint", required=True)
+    parser.add_argument(
+        "--checkpoint", required=True, help="Identity of the model served by SGLang"
+    )
     parser.add_argument("--config", required=True)
     parser.add_argument("--sglang-endpoint", required=True)
     parser.add_argument("--transport", choices=("http", "socket"), default="http")
@@ -83,7 +85,6 @@ def main() -> None:
     from rlinf.utils.http_client import InferenceHTTPClient
 
     cfg = OmegaConf.load(args.config)
-    cfg.rollout.model.model_path = args.checkpoint
     if cfg.env.eval.env_type != args.platform:
         raise ValueError("Cosmos3 configuration must select the requested environment")
     client = InferenceHTTPClient(args.sglang_endpoint)

@@ -32,9 +32,6 @@ from rpent.robots.components.am_contracts import (
 )
 from rpent.utils.rpc import RpcClient
 
-ACTION_SPACE = ROBOTWIN_QPOS["action_space"]
-ACTION_SCHEMA = ROBOTWIN_QPOS["action_schema"]
-
 
 def robotwin_request(
     observation: dict[str, Any], controller: AMControlSpec = ROBOTWIN_QPOS

@@ -65,6 +65,12 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 
 def validate_options(args: argparse.Namespace) -> None:
     """Resolve Cosmos environment defaults and require its working directory."""
+    checkpoint = Path(args.am_checkpoint).expanduser().resolve()
+    if not checkpoint.exists():
+        raise ValueError(
+            "--am-checkpoint must reference a local Cosmos Policy checkpoint"
+        )
+    args.am_checkpoint = str(checkpoint)
     args.am_python = args.am_python or os.getenv("COSMOS_POLICY_PYTHON")
     args.am_root = args.am_root or os.getenv("COSMOS_POLICY_ROOT")
     if not args.am_root:

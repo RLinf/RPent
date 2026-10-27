@@ -53,11 +53,12 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def validate_options(args: argparse.Namespace) -> None:
-    """Require the model configuration and dataset statistics files."""
-    for field in OPTION_FIELDS:
+    """Require local weights, model configuration and dataset statistics."""
+    for field in ("am_checkpoint", *OPTION_FIELDS):
         value = getattr(args, field, None)
         if not value or not Path(value).expanduser().is_file():
             raise ValueError(f"--{field.replace('_', '-')} must reference a local file")
+    args.am_checkpoint = str(Path(args.am_checkpoint).expanduser().resolve())
 
 
 def worker_arguments(args: argparse.Namespace) -> list[str]:

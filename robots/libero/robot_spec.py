@@ -29,6 +29,7 @@ from rpent.dashboard.events import DashboardEventSink
 from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
 from rpent.robots.components.am_runtime import (
+    WAM_BACKENDS,
     AMConfig,
     add_am_args,
     select_am,
@@ -110,7 +111,7 @@ def _run_flash(toolkit, cell_tag: str, note) -> dict:
 
 def _resolve_dashboard(args: argparse.Namespace) -> DashboardSpec:
     """Label the selected action model using its public category."""
-    kind = "wam" if select_am(args, "libero").is_wam else "vla"
+    kind = "wam" if getattr(args, "am_backend", None) in WAM_BACKENDS else "vla"
     return {
         **LIBERO_DASHBOARD_SPEC,
         "runtime_components": tuple(

@@ -374,6 +374,8 @@ def test_am_backend_selects_one_model_category(robot_name, default_backend):
         ["--am-backend", "fast-wam", "--am-endpoint", "http://localhost:8117"]
     )
     assert select_am(args, robot_name).endpoint == args.am_endpoint
+    # The Dashboard descriptor does not require a complete deployment yet.
+    args.am_endpoint = None
     assert "wam" in {
         item["name"]
         for item in get_robot_spec(robot_name).resolve_dashboard(args)[

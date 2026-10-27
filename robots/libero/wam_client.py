@@ -32,7 +32,6 @@ from rpent.robots.components.am_contracts import (
 from rpent.utils.rpc import RpcClient
 
 ACTION_SPACE = LIBERO_OSC["action_space"]
-ACTION_SCHEMA = LIBERO_OSC["action_schema"]
 
 
 def libero_request(raw_obs: dict[str, Any]) -> WAMRequest:
