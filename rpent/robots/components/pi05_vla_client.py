@@ -65,6 +65,29 @@ def _encode_obs_libero(env_obs: dict) -> dict:
     }
 
 
+def _encode_obs_robolab(env_obs: dict) -> dict:
+    """Batch one RoboLab DROID observation for the two-camera Pi0.5 policy."""
+    main = np.asarray(env_obs["main_images"])
+    wrist = np.asarray(env_obs["wrist_images"])
+    state = np.asarray(env_obs["states"], dtype=np.float32)
+    instruction = env_obs["task_descriptions"]
+    if main.shape != (224, 224, 3) or main.dtype != np.uint8:
+        raise ValueError("RoboLab main image must be uint8 RGB [224,224,3]")
+    if wrist.shape != main.shape or wrist.dtype != np.uint8:
+        raise ValueError("RoboLab wrist image must be uint8 RGB [224,224,3]")
+    if state.shape != (8,) or not np.isfinite(state).all():
+        raise ValueError("RoboLab DROID state must be finite [8]")
+    if not isinstance(instruction, str) or not instruction.strip():
+        raise ValueError("RoboLab task instruction must be nonempty")
+    return {
+        "main_images": main[None],
+        "wrist_images": wrist[None],
+        "extra_view_images": None,
+        "states": state[None],
+        "task_descriptions": [instruction],
+    }
+
+
 def _encode_obs_robodojo(env_obs: dict) -> dict:
     """RoboDojo single-env obs → openpi batched wire obs."""
 
@@ -202,6 +225,7 @@ def _encode_obs_yam(env_obs: dict) -> dict:
 # the two registries are kept in sync manually.
 _ENCODE_OBS: dict[str, Any] = {
     "libero": _encode_obs_libero,
+    "robolab": _encode_obs_robolab,
     "robodojo": _encode_obs_robodojo,
     "franka": _encode_obs_franka,
     "dual_franka": _encode_obs_dual_franka,

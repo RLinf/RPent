@@ -170,7 +170,11 @@ Codex 独立配置与登录
 
 若配置中已有 ``sqlite_home``，也应指向独立目录。使用自定义 API 时，重新设置本次部署的 ``CODEX_API_KEY`` 和 ``CODEX_BASE_URL``；其他登录方式见 `Codex 认证说明 <https://developers.openai.com/codex/auth/>`_。
 
-RPent 不会自动启用上述隔离；它不隔离共享工作区或迁移旧会话。任务记忆另由 ``--memory-dir`` 选择。不要提交该目录或凭据。
+RPent 默认继承现有 ``CODEX_HOME``，除非你显式设置它。每个 Codex SDK 会话默认在
+RPent 仓库的 ``data/codex-sqlite/`` 下创建独立 SQLite 目录；设置 ``CODEX_SQLITE_HOME``
+可以指定目录，RPent 会通过 ``sqlite_home`` 配置覆盖项明确传入该路径。这样可以复用
+已有登录并分开存放数据库，但不会隔离共享工作区或迁移旧会话。任务记忆另由
+``--memory-dir`` 选择。不要提交该目录或凭据。
 
 通过 Codex 使用本地模型
 ~~~~~~~~~~~~~~~~~~~~~~~~

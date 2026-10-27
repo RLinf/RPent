@@ -173,6 +173,10 @@ robodojo-sim = [
     # incompatible with RoboDojo's NumPy 1 simulator stack.
     "pyarrow>=21.0.0,<26.0.0",
 ]
+robolab = [
+    "rpent[rlinf]",
+    "rpent-openpi @ git+https://github.com/RLinf/openpi.git@rpent",
+]
 
 [tool.uv]
 prerelease = "allow"

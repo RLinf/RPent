@@ -48,6 +48,26 @@ logger = get_logger("pi05_vla_server")
 # NOTE: an embodiment added here must also be registered in the client's
 # ``_ENCODE_OBS`` (obs encoding); the two registries are kept in sync manually.
 PI05_EMBODIMENTS: dict[str, dict] = {
+    "robolab": {
+        "num_action_chunks": 15,
+        "action_dim": 8,
+        "use_proprio": True,
+        "num_steps": 10,
+        "add_value_head": False,
+        "openpi": {
+            "task": "eval",
+            "config_name": "pi05_droid_polaris",
+            "num_images_in_input": 2,
+            "action_chunk": 15,
+            "action_env_dim": 8,
+            "num_steps": 10,
+            "model_action_dim": 32,
+            "paligemma_variant": "gemma_2b",
+            "action_expert_variant": "gemma_300m",
+            "max_token_len": 200,
+            "torch_compile": False,
+        },
+    },
     # End-to-end policy-chain smoke only (real weights, one prediction);
     # simulation task success rates have not yet been established.
     "robodojo": {
