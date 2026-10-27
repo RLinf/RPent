@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 from typing import Any
 
 from rpent.robots.components.am_facade_base import BaseWAMFacade
@@ -30,38 +29,34 @@ class FastWAMFacade(BaseWAMFacade):
     def __init__(
         self,
         model: Any,
-        processor: Any,
         *,
         checkpoint: str,
         platform: str,
-        action_horizon: int,
-        execute_steps: int,
-        video_size: tuple[int, int],
-        concat: str,
-        prompt_template: str,
-        inference_options: dict[str, Any] | None = None,
-        binarize_gripper: bool = False,
+        processor: Any = None,
+        config: Any = None,
+        prompt_template: str = "{task}",
     ) -> None:
-        options = dict(inference_options or {})
+        options = (
+            dict(config.get("inference_options", {})) if config is not None else {}
+        )
         if set(options) & {"prompt", "input_image", "proprio", "action_horizon"}:
             raise ValueError(
                 "inference_options must not override encoded observations or action_horizon"
             )
         self._model = model
         self._platform = platform
-        self._inference_options = {**options, "action_horizon": action_horizon}
+        self._inference_options = (
+            {**options, "action_horizon": config.action_horizon}
+            if platform == "robotwin"
+            else {}
+        )
         model_meta, adapter = make_adapter(
             platform,
             checkpoint,
+            model=model,
             processor=processor,
-            device=model.device,
-            dtype=model.torch_dtype,
+            config=config,
             prompt_template=prompt_template,
-            video_size=video_size,
-            concat=concat,
-            action_horizon=action_horizon,
-            execute_steps=execute_steps,
-            binarize_gripper=binarize_gripper,
         )
         super().__init__(model_meta, adapter=adapter)
 
@@ -75,62 +70,28 @@ class FastWAMFacade(BaseWAMFacade):
             return self._model.infer_action(**request, **self._inference_options)
 
 
-def load_libero_policy(
-    config_path: str, cfg: Any, checkpoint: str, stats: str, dtype: Any
-) -> Any:
-    """Load RLinf's policy while preserving the resolved RPent worker YAML."""
-    from omegaconf import OmegaConf
+def load_libero_policy(cfg: Any, checkpoint: str, stats: str, dtype: Any) -> Any:
+    """Pass native RLinf model configuration through with deployment paths."""
     from rlinf.models.embodiment.fastwam import get_model
 
-    options = dict(cfg.get("inference_options", {}))
-    # RLinf's rollout API does not expose upstream's optional compiled path.
-    if options.pop("compile_action_infer", False):
-        raise ValueError("RLinf Fast-WAM does not support compile_action_infer")
-    supported = {
-        "num_inference_steps",
-        "text_cfg_scale",
-        "negative_prompt",
-        "sigma_shift",
-        "seed",
-        "rand_device",
-        "tiled",
-    }
-    if unknown := options.keys() - supported:
+    if "execute_steps" in cfg or "inference_options" in cfg:
         raise ValueError(
-            f"Unsupported RLinf Fast-WAM inference options: {sorted(unknown)}"
+            "Fast-WAM LIBERO requires RLinf model YAML: replace execute_steps with "
+            "num_action_chunks and move inference_options to top-level model fields"
         )
-    path = Path(config_path).resolve()
-    model_cfg = OmegaConf.create(
-        {
-            "model_path": checkpoint,
-            "dataset_stats_path": stats,
-            "action_horizon": cfg.action_horizon,
-            "num_action_chunks": cfg.execute_steps,
-            "binarize_gripper": cfg.get("binarize_gripper", False),
-            "num_inference_steps": 20,
-            **options,
-            "fastwam": {
-                "config_dir": str(path.parent),
-                "config_name": path.name,
-                "overrides": [
-                    r"data.train.processor=\${processor}",
-                    f"data.train.num_frames={cfg.action_horizon + 1}",
-                    f"data.train.concat_multi_camera={cfg.concat}",
-                ],
-            },
-        }
-    )
-    return get_model(model_cfg, torch_dtype=dtype).eval()
+    cfg.model_path = checkpoint
+    cfg.dataset_stats_path = stats
+    return get_model(cfg, torch_dtype=dtype).eval()
 
 
 def main() -> None:
-    """Load a resolved Fast-WAM model/processor config in its provisioned env."""
+    """Load the platform's Fast-WAM configuration in its provisioned env."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--platform", choices=tuple(ADAPTERS), required=True)
     parser.add_argument(
         "--config",
         required=True,
-        help="Resolved YAML containing model, processor and inference settings",
+        help="LIBERO: RLinf model YAML; RoboTwin: resolved model/processor YAML",
     )
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--dataset-stats", required=True)
@@ -145,22 +106,26 @@ def main() -> None:
     args = parser.parse_args()
 
     import torch
-    from fastwam.datasets.lerobot.robot_video_dataset import DEFAULT_PROMPT
-    from fastwam.datasets.lerobot.utils.normalizer import load_dataset_stats_from_json
-    from hydra.utils import instantiate
     from omegaconf import OmegaConf
 
     cfg = OmegaConf.load(args.config)
     if args.platform == "libero":
         model = load_libero_policy(
-            args.config,
             cfg,
             args.checkpoint,
             args.dataset_stats,
             getattr(torch, args.dtype),
         ).to(args.device)
-        processor = model.processor
+        facade = FastWAMFacade(
+            model, checkpoint=args.checkpoint, platform=args.platform
+        )
     else:
+        from fastwam.datasets.lerobot.robot_video_dataset import DEFAULT_PROMPT
+        from fastwam.datasets.lerobot.utils.normalizer import (
+            load_dataset_stats_from_json,
+        )
+        from hydra.utils import instantiate
+
         model = instantiate(
             cfg.model, model_dtype=getattr(torch, args.dtype), device=args.device
         )
@@ -170,21 +135,14 @@ def main() -> None:
         processor.set_normalizer_from_stats(
             load_dataset_stats_from_json(args.dataset_stats)
         )
-    facade = FastWAMFacade(
-        model,
-        processor,
-        checkpoint=args.checkpoint,
-        platform=args.platform,
-        action_horizon=cfg.action_horizon,
-        execute_steps=cfg.execute_steps,
-        video_size=tuple(cfg.video_size),
-        concat=cfg.concat,
-        prompt_template=DEFAULT_PROMPT,
-        inference_options=OmegaConf.to_container(
-            cfg.get("inference_options", OmegaConf.create({})), resolve=True
-        ),
-        binarize_gripper=cfg.get("binarize_gripper", False),
-    )
+        facade = FastWAMFacade(
+            model,
+            checkpoint=args.checkpoint,
+            platform=args.platform,
+            processor=processor,
+            config=cfg,
+            prompt_template=DEFAULT_PROMPT,
+        )
     facade.serve(
         transport=args.transport,
         host=args.host,

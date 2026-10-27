@@ -34,7 +34,6 @@ def encode_libero(
     request: dict,
     *,
     processor: Any,
-    **_: Any,
 ) -> dict[str, Any]:
     """Map physical observations to RLinf's batched LIBERO policy input."""
     state = request["state"]
@@ -66,20 +65,11 @@ def encode_robotwin(
     device: str,
     dtype: Any,
     prompt_template: str,
-    video_size: tuple[int, int],
-    concat: str = "robotwin",
+    state_key: str,
 ) -> dict[str, Any]:
     """Match upstream's head-over-two-wrists layout and joint_action.vector."""
     import torch
 
-    if (
-        tuple(video_size) != (384, 320)
-        or concat != "robotwin"
-        or processor.num_output_cameras != 3
-    ):
-        raise ValueError(
-            "RoboTwin requires three cameras in the [384,320] robotwin layout"
-        )
     images = [
         np.asarray(
             Image.fromarray(request["images"][role]).resize(
@@ -93,16 +83,12 @@ def encode_robotwin(
         )
     ]
     image = np.concatenate((images[0], np.concatenate(images[1:], axis=1)), axis=0)
-    state_meta = processor.shape_meta["state"]
-    if len(state_meta) != 1:
-        raise ValueError("Fast-WAM requires one merged state key")
-    key = state_meta[0]["key"]
     state = torch.tensor(request["state"]["joint_targets"], dtype=torch.float32)
-    batch = processor.action_state_transform({"state": {key: state[None]}})
+    batch = processor.action_state_transform({"state": {state_key: state[None]}})
     batch = processor.normalizer.forward(batch)
     pixels = torch.tensor(image).permute(2, 0, 1)[None].to(device=device, dtype=dtype)
     return {
         "prompt": prompt_template.format(task=request["instruction"]),
         "input_image": pixels * (2.0 / 255.0) - 1.0,
-        "proprio": batch["state"][key],
+        "proprio": batch["state"][state_key],
     }

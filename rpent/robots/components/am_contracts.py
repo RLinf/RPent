@@ -61,6 +61,7 @@ class WAMModelMeta(TypedDict):
     state_schema: dict[str, int]
     chunk_size: int | None
     uses_sessions: bool
+    prediction_timeout_s: NotRequired[float]
     returns_future_observation: NotRequired[bool]
     returns_value: NotRequired[bool]
     metadata: NotRequired[dict[str, Any]]

@@ -36,7 +36,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     group.add_argument(
         "--fast-wam-config",
         metavar="YAML",
-        help="Resolved model/processor YAML (required)",
+        help="LIBERO: RLinf model YAML; RoboTwin: resolved model/processor YAML (required)",
     )
     group.add_argument(
         "--fast-wam-dataset-stats",

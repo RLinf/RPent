@@ -60,9 +60,13 @@ def test_cosmos3_delegates_request_and_native_actions_to_rlinf(monkeypatch):
     )
     http = Mock()
     facade = Cosmos3Facade(policy, http, platform="libero", checkpoint="weights")
-    rpc = Mock(call=lambda method, args=(), **kw: facade._dispatch(method, args, {}))
+    rpc = Mock()
+    rpc.call.side_effect = lambda method, args=(), **kw: facade._dispatch(
+        method, args, {}
+    )
     raw = _raw_obs()
     result = LiberoWAMClient(rpc).predict(raw)
+    assert rpc.call.call_args.kwargs["timeout_s"] == 630
     native = policy.build_request.call_args.args[0]
     np.testing.assert_array_equal(
         native["main_images"][0], raw["agentview_image"][::-1, ::-1]
@@ -80,7 +84,7 @@ def test_cosmos3_delegates_request_and_native_actions_to_rlinf(monkeypatch):
     np.testing.assert_array_equal(result, prepare.return_value)
 
 
-def test_libero_loader_preserves_worker_options_in_rlinf_config(tmp_path, monkeypatch):
+def test_libero_loader_passes_native_rlinf_config(monkeypatch):
     from omegaconf import OmegaConf
 
     factory = Mock()
@@ -92,19 +96,16 @@ def test_libero_loader_preserves_worker_options_in_rlinf_config(tmp_path, monkey
     cfg = OmegaConf.create(
         {
             "action_horizon": 32,
-            "execute_steps": 10,
-            "concat": "horizontal",
+            "num_action_chunks": 10,
             "binarize_gripper": True,
-            "inference_options": {
-                "seed": 1,
-                "num_inference_steps": 5,
-                "compile_action_infer": False,
-            },
+            "seed": 1,
+            "num_inference_steps": 5,
+            "fastwam": {"config_dir": "/official/configs", "config_name": "sim_libero"},
         }
     )
-    path = tmp_path / "worker.yaml"
-    load_libero_policy(str(path), cfg, "weights.pt", "stats.json", torch.bfloat16)
+    load_libero_policy(cfg, "weights.pt", "stats.json", torch.bfloat16)
     resolved = factory.call_args.args[0]
+    assert resolved is cfg
     assert (resolved.model_path, resolved.dataset_stats_path) == (
         "weights.pt",
         "stats.json",
@@ -115,19 +116,11 @@ def test_libero_loader_preserves_worker_options_in_rlinf_config(tmp_path, monkey
         5,
         True,
     )
-    assert resolved.fastwam.config_dir == str(tmp_path)
-    assert resolved.fastwam.config_name == path.name
-    composed = OmegaConf.merge(
-        {"processor": {"num_output_cameras": 2}},
-        OmegaConf.from_dotlist(list(resolved.fastwam.overrides)),
-    )
-    assert composed.data.train.processor.num_output_cameras == 2
-    assert composed.data.train.num_frames == 33
-    assert composed.data.train.concat_multi_camera == "horizontal"
+    assert resolved.fastwam.config_name == "sim_libero"
     assert factory.call_args.kwargs == {"torch_dtype": torch.bfloat16}
-    cfg.inference_options.compile_action_infer = True
-    with pytest.raises(ValueError, match="compile_action_infer"):
-        load_libero_policy(str(path), cfg, "weights.pt", "stats.json", torch.bfloat16)
+    cfg.execute_steps = 10
+    with pytest.raises(ValueError, match="num_action_chunks"):
+        load_libero_policy(cfg, "weights.pt", "stats.json", torch.bfloat16)
 
 
 def _processor(cameras):
@@ -151,28 +144,36 @@ def _processor(cameras):
 
 
 def _facade(platform="libero", **overrides):
+    from omegaconf import OmegaConf
+
     dim = 7 if platform == "libero" else 14
     actions = torch.zeros((4, dim))
     actions[:, -1] = torch.tensor([0, 0.25, 0.5, 0.75])
     model = SimpleNamespace(
         device="cpu",
         torch_dtype=torch.float32,
+        processor=_processor(2),
+        policy_cfg=SimpleNamespace(action_horizon=4, num_action_chunks=3),
         infer_action=Mock(return_value={"action": actions}),
         predict_action_batch=Mock(
             return_value=(np.full((1, 3, 7), 0.25, np.float32), {})
         ),
     )
     options = {
-        "checkpoint": "test",
-        "platform": platform,
         "action_horizon": 4,
         "execute_steps": 3,
         "video_size": (256, 512) if platform == "libero" else (384, 320),
         "concat": "horizontal" if platform == "libero" else "robotwin",
-        "prompt_template": "Task: {task}",
         **overrides,
     }
-    return FastWAMFacade(model, _processor(2 if platform == "libero" else 3), **options)
+    return FastWAMFacade(
+        model,
+        checkpoint="test",
+        platform=platform,
+        processor=_processor(3) if platform == "robotwin" else None,
+        config=OmegaConf.create(options) if platform == "robotwin" else None,
+        prompt_template="Task: {task}",
+    )
 
 
 def _raw_obs():
@@ -280,6 +281,14 @@ def test_robotwin_client_rejects_a_libero_controller_before_inference():
 
 
 @pytest.mark.parametrize(
+    "options", [{"concat": "horizontal"}, {"binarize_gripper": True}]
+)
+def test_robotwin_rejects_incompatible_config_at_startup(options):
+    with pytest.raises(ValueError, match="RoboTwin"):
+        _facade("robotwin", **options)
+
+
+@pytest.mark.parametrize(
     "bad_actions",
     [
         torch.zeros(4, 15),
@@ -293,5 +302,8 @@ def test_robotwin_rejects_invalid_native_output_before_prefix_selection(bad_acti
 
     with pytest.raises(ValueError):
         decode_robotwin(
-            {"action": bad_actions}, processor=_processor(3), horizon=4, execute_steps=3
+            {"action": bad_actions},
+            normalizer=_processor(3).normalizer.normalizers["action"]["default"],
+            horizon=4,
+            execute_steps=3,
         )

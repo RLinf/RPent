@@ -48,6 +48,8 @@ class Cosmos3Facade(BaseWAMFacade):
             policy.cfg_rollout.get("sglang", {}).get("http_timeout_s", 600)
         )
         meta, adapter = make_adapter(platform, checkpoint, policy=policy)
+        # Cover the native request budget plus encoding and RPC overhead.
+        meta["prediction_timeout_s"] = self._timeout + 30.0
         super().__init__(meta, adapter=adapter)
 
     def predict_native(

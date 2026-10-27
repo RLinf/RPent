@@ -68,11 +68,16 @@ class BaseWAMClient(BaseAMClient):
         self,
         client: RpcClient,
         *,
-        timeout_s: float = 300.0,
+        timeout_s: float | None = None,
     ) -> None:
-        super().__init__(client, timeout_s=timeout_s)
-        self.model_meta: WAMModelMeta = self._client.call(
+        self.model_meta: WAMModelMeta = client.call(
             "wam.get_model_meta", timeout_s=30.0
+        )
+        super().__init__(
+            client,
+            timeout_s=timeout_s
+            if timeout_s is not None
+            else self.model_meta.get("prediction_timeout_s", 300.0),
         )
 
     def validate_contract(self, expected: AMControlSpec) -> None:

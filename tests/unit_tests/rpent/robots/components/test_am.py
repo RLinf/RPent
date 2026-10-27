@@ -97,6 +97,7 @@ def test_prediction_keeps_optional_outputs_and_caches_control(worker):
         assert result["actions"].shape == (3, 2)
         assert result["value"] == 0.5
         assert result["future_observation"] == {"predicted": True}
+        assert rpc.call.call_args.kwargs["timeout_s"] == 300.0
     assert [call.args[0] for call in rpc.call.call_args_list].count(
         "wam.get_model_meta"
     ) == 1
@@ -107,7 +108,8 @@ def test_prediction_keeps_optional_outputs_and_caches_control(worker):
 
 @pytest.mark.parametrize("timeout_s", [300.0, 12.0])
 def test_prediction_and_reset_preserve_rpc_arguments(worker, timeout_s):
-    _, _, rpc, request = worker
+    facade, _, rpc, request = worker
+    facade.get_model_meta()["prediction_timeout_s"] = 630.0
     client = BaseWAMClient(rpc, timeout_s=timeout_s)
     client.predict(request)
     rpc.call.assert_called_with("wam.predict", args=(request,), timeout_s=timeout_s)

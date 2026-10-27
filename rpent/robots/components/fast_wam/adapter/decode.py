@@ -21,7 +21,7 @@ import numpy as np
 from rpent.robots.components.am_contracts import WAMPrediction
 
 
-def decode_libero(result: tuple[np.ndarray, dict], **_: Any) -> WAMPrediction:
+def decode_libero(result: tuple[np.ndarray, dict]) -> WAMPrediction:
     """Unbatch executable actions already decoded and truncated by RLinf."""
     actions, metadata = result
     if actions.ndim != 3 or actions.shape[0] != 1:
@@ -32,25 +32,18 @@ def decode_libero(result: tuple[np.ndarray, dict], **_: Any) -> WAMPrediction:
 def decode_robotwin(
     result: dict,
     *,
-    processor: Any,
+    normalizer: Any,
     horizon: int,
     execute_steps: int,
-    binarize_gripper: bool = False,
 ) -> WAMPrediction:
     """Return the official 14D qpos vector unchanged after denormalization."""
     import torch
 
-    if binarize_gripper:
-        raise ValueError("LIBERO gripper binarization does not apply to RoboTwin qpos")
     action = result["action"]
     if action.ndim == 2:
         action = action.unsqueeze(0)
     if tuple(action.shape) != (1, horizon, 14):
         raise ValueError(f"Fast-WAM actions must have [1,{horizon},14] shape")
-    meta = processor.shape_meta["action"]
-    if len(meta) != 1:
-        raise ValueError("Fast-WAM requires one merged action key")
-    normalizer = processor.normalizer.normalizers["action"][meta[0]["key"]]
     decoded = normalizer.backward(action.detach().to(dtype=torch.float32, device="cpu"))
     actions = decoded[0].numpy().astype(np.float32)
     if actions.shape != (horizon, 14):
