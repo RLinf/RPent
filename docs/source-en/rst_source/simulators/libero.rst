@@ -22,7 +22,7 @@ Check the model, task, and runtime requirements before following the installatio
 
    .. grid-item-card:: Action Models
 
-      Pi0.5; Cosmos Policy and Fast-WAM for standard/Pro evaluation.
+      Pi0.5; Cosmos Policy, Cosmos3 and Fast-WAM for standard/Pro evaluation.
 
    .. grid-item-card:: Planners
 
@@ -210,8 +210,8 @@ LIBERO-Plus, Flash and exploration. WAM uses a required local memory manager
 and file tools, with a backend-specific directory that may be empty.
 Use ``--memory-dir`` to select a compatible local corpus; HF memory is unsupported.
 ``wam_act(prompt=None, max_chunks=1)`` replaces the Pi0.5 tools and executes one
-to four chunks with fresh observations. Cosmos chunks contain 16 actions;
-Fast-WAM chunks contain ``execute_steps`` actions. A prompt override applies to
+to four chunks with fresh observations. The worker's ``chunk_size`` metadata
+declares the number of actions per chunk. A prompt override applies to
 that call only. Chunk budgets do not specify where to stop inside a chunk.
 
 View Results

@@ -95,13 +95,13 @@ LIBERO 使用 ``--suite``、``--task``、``--seed`` 和 ``--libero-type`` 选择
 
 ``--am-backend`` 选择当前平台支持的一个动作模型；LIBERO 和 RoboTwin 默认分别为 ``pi05`` 和 ``lingbot``。VLA 和 WAM 共用 ``--am-endpoint`` 连接已有服务，共用 ``--am-checkpoint``、``--am-python``、``--am-root`` 和 ``--am-cuda-device`` 配置本地部署。使用 endpoint 时，显式传入本地部署参数会报错。旧 VLA/WAM 参数保留为隐藏别名，写入同一组配置字段。WAM 采用 ``local`` 记忆模式并注册记忆文件工具，默认目录按后端区分，可通过 ``--memory-dir`` 指定目录；目前不支持 HF 记忆、Flash 和探索模式。模型启动参数及支持的组合见 :doc:`../development/add_action_model`。
 
-本地模型服务的 ``--am-cuda-device`` 由 ``am_runtime.py`` 注册，未设置时先使用 ``--cuda-device``，两者均未设置时继承启动环境的 ``CUDA_VISIBLE_DEVICES``。LIBERO、RoboTwin、RoboCasa、RoboDojo 和 dual-Franka 支持本地模型部署。Franka、YAM 连接外部部署的 VLA 服务，GPU 在部署服务时选择。
+``--am-checkpoint`` 按后端要求提供本地权重或服务模型标识。``--am-python`` 指定已准备好的模型解释器，VLA 默认使用当前解释器；``--am-root`` 指定工作目录，默认使用 RPent 仓库目录，Cosmos Policy 则要求其源码目录。Franka 和 YAM 仅提供外部服务连接。
 
-LIBERO、RoboTwin、RoboCasa、RoboDojo 统一使用 ``--env-cuda-device`` 选择环境 GPU，由各自的 ``robot_spec.py`` 注册。例如，LIBERO 使用 ``--env-cuda-device 0 --am-cuda-device 1`` 时，仿真器使用 GPU 0，Pi0.5 使用 GPU 1。LIBERO、RoboDojo 和 dual-Franka 使用 ``--sam3-cuda-device`` 选择本地 SAM3 的 GPU。
+``--am-cuda-device`` 独立选择本地模型的 GPU。LIBERO、RoboTwin、RoboCasa、RoboDojo 和 dual-Franka 支持本地模型部署；外部模型服务的 GPU 在部署时选择。LIBERO、RoboTwin、RoboCasa、RoboDojo 使用 ``--env-cuda-device`` 选择环境 GPU。LIBERO、RoboDojo 和 dual-Franka 使用 ``--sam3-cuda-device`` 选择本地 SAM3 的 GPU。
 
-这些参数为本地启动的对应服务选择设备，显存允许时可指定同一张 GPU。例如，``--env-cuda-device 0 --sam3-cuda-device 0 --am-cuda-device 0`` 让 LIBERO 的三个服务共用 GPU 0，动作模型可选择 VLA 或 WAM。连接外部 endpoint 时，设备由该服务启动时的配置决定。
+显存允许时，各服务可共用同一张 GPU。连接外部 endpoint 时，设备由该服务启动时的配置决定。
 
-RPent CLI 保留原有 ``--cuda-device`` 作为本地服务的共享默认值；各服务专属参数优先，与参数顺序无关。例如，``--cuda-device 0 --am-cuda-device 1`` 让环境和 SAM3 使用 GPU 0，WAM worker 使用 GPU 1。``--sim-cuda-device`` 不是兼容别名。独立服务的启动命令仍可使用其自身支持的 ``--cuda-device``。
+RPent CLI 保留原有 ``--cuda-device`` 作为本地服务的共享默认值；各服务专属参数优先，与参数顺序无关，两者均未设置时继承 ``CUDA_VISIBLE_DEVICES``。例如，``--cuda-device 0 --am-cuda-device 1`` 让环境和 SAM3 使用 GPU 0，WAM worker 使用 GPU 1。独立服务的启动命令仍可使用其自身支持的 ``--cuda-device``。
 
 ``rpent --robot libero --am-backend fast-wam --help`` 按连接服务、本地部署和所选模型展示参数。模型专属参数保留模型名前缀，传入其他模型的参数会报错。动作模型接入指南分别介绍一次部署模型服务和反复运行任务，并提供连接外部服务、由 RPent 启动服务两种方式的示例。
 
@@ -122,6 +122,43 @@ RPent CLI 保留原有 ``--cuda-device`` 作为本地服务的共享默认值；
    * - ``--max-episode-steps``
      - ``10000``
      - 环境步数上限，与规划器的 ``--max-turns`` 分开计算。
+
+动作模型参数兼容
+~~~~~~~~~~~~~~~~
+
+旧命令通过隐藏别名继续兼容：
+
+.. list-table:: 模型参数名称
+   :header-rows: 1
+
+   * - 旧参数
+     - 推荐参数
+   * - ``--vla-backend``、``--wam-backend``
+     - ``--am-backend``
+   * - RoboDojo 的 ``--policy-backend rlinf``
+     - ``--am-backend pi05``
+   * - ``--vla-endpoint``、``--wam-endpoint``
+     - ``--am-endpoint``
+   * - ``--vla-model-path``、``--wam-checkpoint``
+     - ``--am-checkpoint``
+   * - ``--pi05-python``、``--wam-python``
+     - ``--am-python``
+   * - ``--wam-root``
+     - ``--am-root``
+   * - ``--vla-cuda-device``、``--wam-cuda-device``
+     - ``--am-cuda-device``
+   * - ``--vla-repo-id``
+     - ``--pi05-repo-id``
+   * - ``--wam-text-embeddings``
+     - ``--cosmos-text-embeddings``
+   * - ``--wam-predict-future``
+     - ``--cosmos-predict-future``
+   * - ``--wam-cached-instructions-only``
+     - ``--cosmos-cached-instructions-only``
+   * - ``--wam-config``
+     - ``--fast-wam-config``
+   * - ``--wam-dataset-stats``
+     - ``--fast-wam-dataset-stats``
 
 模型服务环境变量
 ------------------------

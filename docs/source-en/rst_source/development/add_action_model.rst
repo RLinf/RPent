@@ -306,30 +306,9 @@ evaluation currently excludes HF memory, Flash and exploration.
 Action-Model Deployment and Task Runs
 --------------------------------------
 
-VLA and WAM share six deployment options:
-
-.. list-table:: Common action-model options
-   :header-rows: 1
-
-   * - Option
-     - Purpose
-   * - ``--am-backend``
-     - Select one model supported by the platform.
-   * - ``--am-endpoint``
-     - Connect to an already deployed model service.
-   * - ``--am-checkpoint``
-     - Select weights for a locally launched worker.
-   * - ``--am-python``
-     - Select the model environment's Python; VLA defaults to the current interpreter.
-   * - ``--am-root``
-     - Set the worker's working directory; defaults to the RPent checkout, except Cosmos which requires its provisioned source directory.
-   * - ``--am-cuda-device``
-     - Set the local model's visible GPUs; see :doc:`../guides/cli` for fallback rules.
-
-Franka and YAM connect to external services and do not expose local deployment
-options. Explicit local deployment options, including model-specific ones,
-are rejected with ``--am-endpoint``. Environment-variable defaults for an
-unselected or external model are ignored. Other services may share the model GPU.
+Common action-model options, GPU selection and compatibility aliases are described
+in :doc:`../guides/cli`. Each standalone worker's ``--help`` lists its own
+unprefixed options, such as ``--config`` or ``--predict-future``.
 
 Start a Standalone Worker
 ~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -397,10 +376,8 @@ model/processor configuration and resolves inference options. For example:
      config_name: sim_libero
      overrides: []
 
-Match the official configuration and overrides to the checkpoint. Migrate earlier
-RPent LIBERO YAML by replacing ``execute_steps`` with ``num_action_chunks`` and
-moving ``inference_options`` into RLinf's top-level model fields. Model and
-processor composition now belongs to ``fastwam.config_dir/config_name/overrides``.
+Match the official configuration and overrides to the checkpoint. Model and
+processor composition belongs to ``fastwam.config_dir/config_name/overrides``.
 The worker advertises the loaded policy's executable chunk size.
 
 RoboTwin needs ``--platform robotwin`` with its own checkpoint and configuration.
@@ -425,11 +402,13 @@ SGLang dependencies. The RPC worker runs in that environment:
 
    PYTHONPATH=/path/to/RPent:/path/to/RLinf /path/to/sglang-env/bin/python \
      -m rpent.robots.components.cosmos3.server \
-     --platform libero --checkpoint /path/to/cosmos3-diffusers \
+     --platform libero --checkpoint nvidia/cosmos3-nano-libero10-sdg-export-S2_s43 \
      --config /path/to/cosmos3.yaml \
      --sglang-endpoint http://127.0.0.1:30000 --port 8118
 
-The checkpoint must identify the model served by SGLang. ``cosmos3.yaml``
+``--checkpoint`` identifies the model served by SGLang; the RPC worker does not
+load weights or require them on its host. It requires the local action statistics
+referenced by its configuration. ``cosmos3.yaml``
 contains resolved RLinf configuration, without Hydra ``defaults`` composition.
 For a LIBERO rot6d checkpoint trained with the standard Cosmos3 recipe:
 
@@ -525,56 +504,7 @@ requires both ``--fast-wam-config`` and ``--fast-wam-dataset-stats``.
 Cosmos3 requires ``--cosmos3-config`` and ``--cosmos3-sglang-endpoint``;
 this starts the RPC worker against an already running SGLang service.
 
-Discovering Options
-~~~~~~~~~~~~~~~~~~~
 
-Help groups options by backend selection, connection, local deployment and
-selected model. Put the backend before ``--help`` to see that model's options:
-
-.. code-block:: bash
-
-   rpent --robot libero --am-backend cosmos-policy --help
-   rpent --robot robotwin --am-backend fast-wam --help
-
-Without ``--am-backend``, help shows the platform's default model. Common options
-use ``--am-*``; model options retain ``--cosmos-*``, ``--cosmos3-*``, ``--fast-wam-*``,
-``--lingbot-*`` and ``--pi05-*``. Explicit options for another model are rejected.
-Each standalone worker's ``--help`` lists its own
-unprefixed options, such as ``--config`` or ``--predict-future``.
-
-Existing commands remain supported through hidden aliases:
-
-.. list-table:: Model option names
-   :header-rows: 1
-
-   * - Previous option
-     - Preferred option
-   * - ``--vla-backend``, ``--wam-backend``
-     - ``--am-backend``
-   * - ``--policy-backend rlinf`` (RoboDojo)
-     - ``--am-backend pi05``
-   * - ``--vla-endpoint``, ``--wam-endpoint``
-     - ``--am-endpoint``
-   * - ``--vla-model-path``, ``--wam-checkpoint``
-     - ``--am-checkpoint``
-   * - ``--pi05-python``, ``--wam-python``
-     - ``--am-python``
-   * - ``--wam-root``
-     - ``--am-root``
-   * - ``--vla-cuda-device``, ``--wam-cuda-device``
-     - ``--am-cuda-device``
-   * - ``--vla-repo-id``
-     - ``--pi05-repo-id``
-   * - ``--wam-text-embeddings``
-     - ``--cosmos-text-embeddings``
-   * - ``--wam-predict-future``
-     - ``--cosmos-predict-future``
-   * - ``--wam-cached-instructions-only``
-     - ``--cosmos-cached-instructions-only``
-   * - ``--wam-config``
-     - ``--fast-wam-config``
-   * - ``--wam-dataset-stats``
-     - ``--fast-wam-dataset-stats``
 
 Tests
 -----

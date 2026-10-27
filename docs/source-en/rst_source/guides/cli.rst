@@ -104,33 +104,29 @@ defaults to ``pi05`` and RoboTwin to ``lingbot``. VLA and WAM share
 ``--am-root`` and ``--am-cuda-device`` for local deployment. Explicit local
 deployment options are rejected with an endpoint. Old VLA/WAM options remain
 hidden aliases that write the same configuration fields.
+``--am-checkpoint`` supplies local weights or a service model identity as required
+by the backend. ``--am-python`` selects the provisioned model interpreter;
+VLA defaults to the current interpreter. ``--am-root`` selects the working
+directory, defaulting to the RPent checkout; Cosmos Policy requires its source
+directory.
 WAM uses the ``local`` memory profile with memory file tools and a
 backend-specific directory; ``--memory-dir`` overrides it. WAM currently rejects
 HF memory, Flash and exploration. See
 :doc:`../development/add_action_model` for model launch options and supported pairs.
-For local model services, ``--am-cuda-device`` selects the model GPU
-independently of the simulator. It is registered by ``am_runtime.py``.
-An omitted model option falls back to
-``--cuda-device``, then inherits ``CUDA_VISIBLE_DEVICES`` from the launching environment.
+``--am-cuda-device`` selects the local model GPU independently of the simulator.
 Local model deployment is supported by LIBERO, RoboTwin, RoboCasa, RoboDojo and
 dual-Franka. Franka and YAM connect to externally deployed VLA services;
 select their GPU when deploying the service.
-LIBERO, RoboTwin, RoboCasa and RoboDojo use ``--env-cuda-device`` for the
-environment, registered in their own ``robot_spec.py``.
-For example, LIBERO's ``--env-cuda-device 0 --am-cuda-device 1``
-keeps the simulator on GPU 0 and starts Pi0.5 on GPU 1.
+LIBERO, RoboTwin, RoboCasa and RoboDojo use ``--env-cuda-device`` for the environment.
 LIBERO, RoboDojo and dual-Franka use ``--sam3-cuda-device`` for local SAM3.
-These settings select devices for locally started services and may name the
-same GPU when memory permits. For example,
-``--env-cuda-device 0 --sam3-cuda-device 0 --am-cuda-device 0`` runs all three
-LIBERO services on GPU 0, with either a VLA or WAM backend. External endpoints
+These services may share a GPU when memory permits. External endpoints
 use the GPU configuration set when their services were started.
 The original ``--cuda-device`` option remains a shared default for local services.
-Per-service options take precedence, independent of argument order. For example,
+Per-service options take precedence, independent of argument order; without either
+option, services inherit ``CUDA_VISIBLE_DEVICES``. For example,
 ``--cuda-device 0 --am-cuda-device 1`` starts the environment and SAM3 on GPU 0
 and the WAM worker on GPU 1.
-``--sim-cuda-device`` is not an alias. Standalone service commands retain
-their own ``--cuda-device`` where supported.
+Standalone service commands retain their own ``--cuda-device`` where supported.
 ``rpent --robot libero --am-backend fast-wam --help`` groups connection,
 local deployment and selected-model options. Model-specific options retain
 their model prefix; options for another model are rejected. The action-model guide separates
@@ -154,6 +150,43 @@ The following defaults apply to LIBERO; check each other environment’s ``--hel
    * - ``--max-episode-steps``
      - ``10000``
      - Environment step limit, separate from planner turns (``--max-turns``).
+
+Action-Model Compatibility
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Existing commands remain supported through hidden aliases:
+
+.. list-table:: Model option names
+   :header-rows: 1
+
+   * - Previous option
+     - Preferred option
+   * - ``--vla-backend``, ``--wam-backend``
+     - ``--am-backend``
+   * - ``--policy-backend rlinf`` (RoboDojo)
+     - ``--am-backend pi05``
+   * - ``--vla-endpoint``, ``--wam-endpoint``
+     - ``--am-endpoint``
+   * - ``--vla-model-path``, ``--wam-checkpoint``
+     - ``--am-checkpoint``
+   * - ``--pi05-python``, ``--wam-python``
+     - ``--am-python``
+   * - ``--wam-root``
+     - ``--am-root``
+   * - ``--vla-cuda-device``, ``--wam-cuda-device``
+     - ``--am-cuda-device``
+   * - ``--vla-repo-id``
+     - ``--pi05-repo-id``
+   * - ``--wam-text-embeddings``
+     - ``--cosmos-text-embeddings``
+   * - ``--wam-predict-future``
+     - ``--cosmos-predict-future``
+   * - ``--wam-cached-instructions-only``
+     - ``--cosmos-cached-instructions-only``
+   * - ``--wam-config``
+     - ``--fast-wam-config``
+   * - ``--wam-dataset-stats``
+     - ``--fast-wam-dataset-stats``
 
 Model-Service Environment Variables
 -----------------------------------

@@ -180,27 +180,7 @@ RPC 路由为 ``wam.get_model_meta``、``wam.predict`` 和 ``wam.reset``。请�
 动作模型部署与任务运行
 ----------------------
 
-VLA 与 WAM 共用六个部署参数：
-
-.. list-table:: 公共动作模型参数
-   :header-rows: 1
-
-   * - 参数
-     - 作用
-   * - ``--am-backend``
-     - 选择当前平台支持的一个动作模型。
-   * - ``--am-endpoint``
-     - 连接已经部署的模型服务。
-   * - ``--am-checkpoint``
-     - 指定本地 worker 使用的权重。
-   * - ``--am-python``
-     - 指定模型环境的 Python；VLA 默认使用当前解释器。
-   * - ``--am-root``
-     - 指定 worker 工作目录；默认使用 RPent 仓库目录，Cosmos 则需要已准备好的源码目录。
-   * - ``--am-cuda-device``
-     - 指定本地模型的可见 GPU，默认值规则见 :doc:`../guides/cli`。
-
-Franka 和 YAM 连接外部模型服务，帮助中不展示本地部署参数。使用 ``--am-endpoint`` 时，显式传入公共或模型专属的本地部署参数会报错。未选中模型和外部模型的环境变量默认值不会生效。显存允许时，模型可与其他服务共用 GPU。
+公共动作模型参数、GPU 选择及兼容别名统一见 :doc:`../guides/cli`。独立 worker 的 ``--help`` 列出其自身不带模型前缀的参数，例如 ``--config`` 和 ``--predict-future``。
 
 独立部署模型服务
 ~~~~~~~~~~~~~~~~
@@ -244,7 +224,7 @@ LIBERO 直接使用 RLinf 原生模型 YAML。RPent 从部署参数填入 checkp
      config_name: sim_libero
      overrides: []
 
-官方配置及 overrides 需匹配 checkpoint。迁移旧 RPent LIBERO YAML 时，将 ``execute_steps`` 改为 ``num_action_chunks``，将 ``inference_options`` 移到 RLinf 模型配置顶层；模型与 processor 的组合交给 ``fastwam.config_dir/config_name/overrides``。worker 从已加载的 policy 读取可执行 chunk 长度。
+官方配置及 overrides 需匹配 checkpoint。模型与 processor 的组合交给 ``fastwam.config_dir/config_name/overrides``，worker 从已加载的 policy 读取可执行 chunk 长度。
 
 RoboTwin 使用 ``--platform robotwin``，并更换为对应 checkpoint 和配置。它的 YAML 提供解析好的 Hydra ``model``、``processor``，后者来自官方配置的 ``data.train.processor``，还需包含 ``action_horizon``、``execute_steps``、``video_size`` 和 ``concat``。``inference_options`` 传给官方 ``model.infer_action``，不能覆盖编码后的观测或 ``action_horizon``。处理未缓存指令时需在模型配置中启用文本编码器。``execute_steps`` 为正数且不超过 ``action_horizon``，是对外声明的可执行 ``chunk_size``。固定三相机布局、合并后的状态/动作字段和禁用 LIBERO 夹爪二值化在启动时检查；预测时仍在截取动作前缀前检查输出形状和有限数值。
 
@@ -254,11 +234,11 @@ Cosmos3 需要转换为 Diffusers 组件格式的任务训练 checkpoint，并�
 
    PYTHONPATH=/path/to/RPent:/path/to/RLinf /path/to/sglang-env/bin/python \
      -m rpent.robots.components.cosmos3.server \
-     --platform libero --checkpoint /path/to/cosmos3-diffusers \
+     --platform libero --checkpoint nvidia/cosmos3-nano-libero10-sdg-export-S2_s43 \
      --config /path/to/cosmos3.yaml \
      --sglang-endpoint http://127.0.0.1:30000 --port 8118
 
-checkpoint 必须对应 SGLang 实际加载的模型。``cosmos3.yaml`` 使用解析好的 RLinf 配置，不执行 Hydra ``defaults`` 组合。按标准 Cosmos3 配方训练的 LIBERO rot6d checkpoint 可使用：
+``--checkpoint`` 标识 SGLang 实际加载的模型；RPC worker 不加载权重，也不要求本机存有权重，但需要配置中引用的本地动作统计文件。``cosmos3.yaml`` 使用解析好的 RLinf 配置，不执行 Hydra ``defaults`` 组合。按标准 Cosmos3 配方训练的 LIBERO rot6d checkpoint 可使用：
 
 .. code-block:: yaml
 
@@ -339,51 +319,7 @@ checkpoint 必须对应 SGLang 实际加载的模型。``cosmos3.yaml`` 使用�
 
 Cosmos3 需要 ``--cosmos3-config`` 和 ``--cosmos3-sglang-endpoint``；该方式只启动 RPC worker，连接已经运行的 SGLang 服务。
 
-查看可用参数
-~~~~~~~~~~~~
 
-帮助按后端选择、连接服务、本地部署、所选模型分组展示参数。在 ``--help`` 前指定模型即可查看对应选项：
-
-.. code-block:: bash
-
-   rpent --robot libero --am-backend cosmos-policy --help
-   rpent --robot robotwin --am-backend fast-wam --help
-
-省略 ``--am-backend`` 时展示平台默认模型。公共参数统一使用 ``--am-*``，模型专属参数保留 ``--cosmos-*``、``--cosmos3-*``、``--fast-wam-*``、``--lingbot-*`` 和 ``--pi05-*``。显式传入其他模型的参数会报错。独立 worker 的 ``--help`` 列出它自己的参数，使用 ``--config``、``--predict-future`` 等不带模型前缀的名称。
-
-旧命令通过隐藏别名继续兼容：
-
-.. list-table:: 模型参数名称
-   :header-rows: 1
-
-   * - 旧参数
-     - 推荐参数
-   * - ``--vla-backend``、``--wam-backend``
-     - ``--am-backend``
-   * - RoboDojo 的 ``--policy-backend rlinf``
-     - ``--am-backend pi05``
-   * - ``--vla-endpoint``、``--wam-endpoint``
-     - ``--am-endpoint``
-   * - ``--vla-model-path``、``--wam-checkpoint``
-     - ``--am-checkpoint``
-   * - ``--pi05-python``、``--wam-python``
-     - ``--am-python``
-   * - ``--wam-root``
-     - ``--am-root``
-   * - ``--vla-cuda-device``、``--wam-cuda-device``
-     - ``--am-cuda-device``
-   * - ``--vla-repo-id``
-     - ``--pi05-repo-id``
-   * - ``--wam-text-embeddings``
-     - ``--cosmos-text-embeddings``
-   * - ``--wam-predict-future``
-     - ``--cosmos-predict-future``
-   * - ``--wam-cached-instructions-only``
-     - ``--cosmos-cached-instructions-only``
-   * - ``--wam-config``
-     - ``--fast-wam-config``
-   * - ``--wam-dataset-stats``
-     - ``--fast-wam-dataset-stats``
 
 测试
 ----

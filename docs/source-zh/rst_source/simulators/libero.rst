@@ -22,7 +22,7 @@ LIBERO
 
    .. grid-item-card:: 动作模型
 
-      Pi0.5；Cosmos Policy 和 Fast-WAM 支持 standard/Pro 评测。
+      Pi0.5；Cosmos Policy、Cosmos3 和 Fast-WAM 支持 standard/Pro 评测。
 
    .. grid-item-card:: 规划器
 
@@ -191,7 +191,7 @@ WAM 评测
      --am-endpoint http://127.0.0.1:8116 --memory-profile local \
      --planner api --model <planner-model>
 
-Fast-WAM 使用 ``--am-backend fast-wam`` 及其 worker 地址。LIBERO-Pro 需在 Pro 环境中选择 Pro suite 并指定 ``--libero-type pro``。WAM 不支持 LIBERO-Plus、Flash 和探索。WAM 必须启用本地记忆管理器和文件工具，默认目录按后端区分，语料允许为空；可通过 ``--memory-dir`` 指定兼容的本地语料，目前不支持 HF 记忆。``wam_act(prompt=None, max_chunks=1)`` 替换 Pi0.5 工具，每次执行 1 至 4 个 chunk，每个 chunk 前重新获取观测。Cosmos 的 chunk 包含 16 个动作，Fast-WAM 包含 ``execute_steps`` 个动作。prompt 仅覆盖本次调用，chunk 预算不指定在 chunk 内的哪一步停止。
+Fast-WAM 使用 ``--am-backend fast-wam`` 及其 worker 地址。LIBERO-Pro 需在 Pro 环境中选择 Pro suite 并指定 ``--libero-type pro``。WAM 不支持 LIBERO-Plus、Flash 和探索。WAM 必须启用本地记忆管理器和文件工具，默认目录按后端区分，语料允许为空；可通过 ``--memory-dir`` 指定兼容的本地语料，目前不支持 HF 记忆。``wam_act(prompt=None, max_chunks=1)`` 替换 Pi0.5 工具，每次执行 1 至 4 个 chunk，每个 chunk 前重新获取观测。每个 chunk 的动作数由 worker 的 ``chunk_size`` 元数据声明。prompt 仅覆盖本次调用，chunk 预算不指定在 chunk 内的哪一步停止。
 
 查看结果
 ------------
