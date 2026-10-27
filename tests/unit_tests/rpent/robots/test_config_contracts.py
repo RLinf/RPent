@@ -77,7 +77,7 @@ def test_am_help_distinguishes_connection_deployment_and_models(
     assert "add_action_model.html#action-model-deployment" in help_text
     for option, model in (
         ("cosmos-text-embeddings", "cosmos-policy"),
-        ("cosmos-predict-future", "cosmos-policy"),
+        ("predict-future", "cosmos-policy"),
         ("cosmos-cached-instructions-only", "cosmos-policy"),
         ("cosmos3-config", "cosmos3"),
         ("cosmos3-sglang-endpoint", "cosmos3"),
@@ -249,11 +249,17 @@ def test_gpu_help_explains_shared_devices(robot_name):
         ("--wam-root", "--am-root", "/model/source"),
         ("--vla-cuda-device", "--am-cuda-device", "0,1"),
         ("--wam-cuda-device", "--am-cuda-device", "0,1"),
+        ("--cosmos-predict-future", "--predict-future", None),
+        ("--wam-predict-future", "--predict-future", None),
     ],
 )
 def test_legacy_am_options_use_one_destination(alias, canonical, value):
     parser = _parser("libero", dashboard=True)
-    old, new = parser.parse_args([alias, value]), parser.parse_args([canonical, value])
+    values = [value] if value is not None else []
+    old, new = (
+        parser.parse_args([alias, *values]),
+        parser.parse_args([canonical, *values]),
+    )
     assert vars(old) == vars(new)
     assert not hasattr(old, alias[2:].replace("-", "_"))
     assert alias not in parser.format_help()
@@ -262,7 +268,23 @@ def test_legacy_am_options_use_one_destination(alias, canonical, value):
 @pytest.mark.parametrize(
     "platform,options,message",
     [
-        ("libero", ["--cosmos-predict-future"], "requires --am-backend cosmos-policy"),
+        ("libero", ["--predict-future"], "requires --am-backend cosmos-policy"),
+        (
+            "libero",
+            ["--am-backend", "fast-wam", "--predict-future"],
+            "requires --am-backend cosmos-policy",
+        ),
+        (
+            "libero",
+            [
+                "--am-backend",
+                "cosmos-policy",
+                "--am-endpoint",
+                "http://host:8116",
+                "--predict-future",
+            ],
+            "configures local deployment",
+        ),
         (
             "libero",
             ["--fast-wam-config", "config.yaml"],

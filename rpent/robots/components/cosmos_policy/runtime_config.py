@@ -23,7 +23,7 @@ from rpent.robots.components.cosmos_policy.adapter import ADAPTERS as ADAPTERS
 
 OPTION_FIELDS = (
     "cosmos_text_embeddings",
-    "cosmos_predict_future",
+    "predict_future",
     "cosmos_cached_instructions_only",
 )
 
@@ -43,9 +43,9 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         help="T5 embedding cache (default: checkpoint's libero_t5_embeddings.pkl)",
     )
     group.add_argument(
-        "--cosmos-predict-future",
+        "--predict-future",
         action="store_true",
-        help="Enable Cosmos future-state/value prediction",
+        help="Enable future-state/value outputs (currently supported by Cosmos Policy)",
     )
     group.add_argument(
         "--cosmos-cached-instructions-only",
@@ -53,9 +53,14 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         help="Use only cached Cosmos instructions",
     )
     # Existing launch commands retain their aliases without crowding --help.
-    for field in OPTION_FIELDS:
+    for alias, field in (
+        ("--wam-text-embeddings", "cosmos_text_embeddings"),
+        ("--cosmos-predict-future", "predict_future"),
+        ("--wam-predict-future", "predict_future"),
+        ("--wam-cached-instructions-only", "cosmos_cached_instructions_only"),
+    ):
         group.add_argument(
-            "--" + field.replace("cosmos_", "wam_", 1).replace("_", "-"),
+            alias,
             dest=field,
             action="store" if field == "cosmos_text_embeddings" else "store_true",
             default=argparse.SUPPRESS,
@@ -81,7 +86,7 @@ def worker_arguments(args: argparse.Namespace) -> list[str]:
     """Return Cosmos-specific worker arguments."""
     result = []
     for field, option in (
-        ("cosmos_predict_future", "--predict-future"),
+        ("predict_future", "--predict-future"),
         ("cosmos_cached_instructions_only", "--cached-instructions-only"),
     ):
         if getattr(args, field, False):

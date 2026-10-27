@@ -113,6 +113,11 @@ WAM uses the ``local`` memory profile with memory file tools and a
 backend-specific directory; ``--memory-dir`` overrides it. WAM currently rejects
 HF memory, Flash and exploration. See
 :doc:`../development/add_action_model` for model launch options and supported pairs.
+``--predict-future`` enables future-state/value outputs during local deployment.
+Currently only Cosmos Policy supports this option; other backends reject it.
+Configure it when starting the worker if connecting with ``--am-endpoint``.
+RPent does not yet use these outputs for planning.
+
 ``--am-cuda-device`` selects the local model GPU independently of the simulator.
 Local model deployment is supported by LIBERO, RoboTwin, RoboCasa, RoboDojo and
 dual-Franka. Franka and YAM connect to externally deployed VLA services;
@@ -179,8 +184,8 @@ Existing commands remain supported through hidden aliases:
      - ``--pi05-repo-id``
    * - ``--wam-text-embeddings``
      - ``--cosmos-text-embeddings``
-   * - ``--wam-predict-future``
-     - ``--cosmos-predict-future``
+   * - ``--wam-predict-future``, ``--cosmos-predict-future``
+     - ``--predict-future``
    * - ``--wam-cached-instructions-only``
      - ``--cosmos-cached-instructions-only``
    * - ``--wam-config``
