@@ -8,7 +8,8 @@ native action executor. Tool declarations and state capture are described in
 Shared Architecture
 -------------------
 
-Model packages own weights and model-specific preprocessing. Platforms own
+Model packages reuse RLinf's supported inference and numerical transforms;
+only unsupported model/platform pairs need their own implementation. Platforms own
 physical observations, controllers and execution tools. The shared AM bases
 reuse RPC transport and dispatch; VLA keeps model-specific payloads, while WAM
 uses the physical observation and native control declarations in
@@ -59,19 +60,6 @@ toolkit owns registration, cancellation, state capture and recording.
    * - ``<model>/adapter/{__init__,encode,decode}.py``
      - Register paired transforms, build model input and restore native actions.
 
-``BaseVLAClient`` and ``BaseWAMClient`` inherit from ``BaseAMClient`` in the same
-``am_client_base.py`` module. Each keeps
-its existing prediction arguments and result format. WAM capability checks and
-reset/close remain in ``BaseWAMClient``; VLA lifecycle methods remain with the
-integrations that support them.
-
-``BaseVLAFacade`` and ``BaseWAMFacade`` likewise inherit from ``BaseAMFacade`` in
-``am_facade_base.py``. VLA models retain their native payloads and additional
-routes; WAM owns capability checks, paired adapters and reset hooks.
-``AMObservation`` and ``AMControlSpec`` describe physical platform data shared
-across model categories. ``WAMRequest`` extends the physical observation with
-execution identity; it does not change existing VLA wire formats.
-
 Physical observations are reusable by VLA and WAM integrations. Model encoders
 remain distinct: Cosmos uses LIBERO's xyzw quaternion in a 9D state, whereas
 Fast-WAM converts orientation to axis-angle for an 8D state. RoboTwin exposes
@@ -104,12 +92,8 @@ log on a failed spawn. The shared
 resource handoff. Borrowed endpoints return no owned daemon.
 
 ``am_runtime.add_am_args(parser, platform=...)`` registers supported backends
-and common options. ``AMConfig.spawn_worker()`` forwards ``--am-cuda-device``
-as the child's ``CUDA_VISIBLE_DEVICES`` override;
-omitting it uses ``--cuda-device``, or preserves the inherited environment
-when neither is set.
-Platforms register ``--env-cuda-device`` for the environment and forward model settings
-when launching a worker. External endpoints retain their deployment settings.
+and common options. GPU selection and compatibility aliases are documented in
+:doc:`../guides/cli`.
 
 ``AMConfig`` stores the resolved backend, platform, endpoint, checkpoint,
 Python, working directory, GPU and additional worker arguments. Model defaults
@@ -239,28 +223,6 @@ request construction, action denormalization and rotation conversion; its
 RPent reuses its existing LIBERO client and maps observations and predictions
 at that boundary. These backends require different checkpoints.
 
-A historical policy-only evaluation at RPent ``373e900`` achieved **30/30
-(100%)** native successes on LIBERO Spatial: all ten tasks, initial states
-0/1/2, at most 220 actions per episode. It used an A100 40GB, five denoising
-steps, policy seed 1, 16-action predictions and no future-state/value
-generation, planner or memory guidance. That runner stopped within a chunk
-on success. This is a small evaluation of the earlier implementation, not a
-success-rate measurement of the current AM refactor or other suites. The
-bounded E2E checks below report integration behavior separately.
-
-Cosmos3 at RPent ``fa9310c`` completed **10/10 LIBERO-10 tasks** on 2026-10-27,
-with zero runtime errors: initial state 0 per task, a 520-action horizon,
-30 denoising steps, seed 1 and 16-action predictions. The checkpoint was
-``nvidia/cosmos3-nano-libero10-sdg-export-S2_s43`` at ``d088b07``, served through
-RLinf ``357f85b`` and SGLang 0.5.19. Two A100 40GB GPUs used TP=2,
-TORCH_SDPA, DiT CPU offload and VAE layerwise offload; the simulator used a
-separate GPU. Without planner or memory guidance, mean control time was
-64.69 s per episode (78.43 s including simulator startup/cleanup), and mean
-RPC latency was 3.324 s. Sampled peak model memory was 16,506 MiB per GPU.
-Success came from the native simulator predicate, stopping within chunks.
-This small run covers one initial state per task; Cosmos3's three maintained
-GPU E2E checks passed separately.
-
 1. Create a model package under ``rpent/robots/components/``. Its
    ``server.py`` subclasses ``BaseWAMFacade`` and implements
    ``predict_native``; provide a required ``(encode, decode)`` adapter pair.
@@ -274,7 +236,8 @@ GPU E2E checks passed separately.
    initialization; the platform checks control compatibility before executing
    predictions. The client retains metadata in ``model_meta``.
 4. Add model deployment options in ``runtime_config.py`` and register the
-   backend in ``am_runtime.WAM_BACKENDS``. Declare session usage in the
+   backend in ``am_runtime.WAM_BACKENDS``; model-specific launch logic stays
+   in the model package. Declare session usage in the
    model package, and implement ``reset_native`` if inference retains
    session history.
 5. Wire the selected backend into the platform's runtime and tool execution.
@@ -292,6 +255,9 @@ Requests contain ``images``, ``state``, ``instruction``, ``embodiment`` and
 cameras and state dimensions, executable ``chunk_size``, backend/checkpoint
 identity and session settings. Predictions contain ``actions`` and may contain
 ``future_observation``, ``value`` and ``metadata``.
+An optional ``prediction_timeout_s`` supplies the client's request budget;
+without it, the default is 300 seconds. An explicit client timeout takes precedence.
+Cosmos3 advertises its native HTTP timeout plus 30 seconds for RPC overhead.
 
 Messages are dictionaries and NumPy arrays handled by the existing transport.
 There is no object-to-wire conversion or protocol-version field. Deploy clients
@@ -358,7 +324,7 @@ VLA and WAM share six deployment options:
    * - ``--am-root``
      - Set the worker's working directory; defaults to the RPent checkout, except Cosmos which requires its provisioned source directory.
    * - ``--am-cuda-device``
-     - Set the local model's visible GPUs; falls back to ``--cuda-device``, then the inherited environment.
+     - Set the local model's visible GPUs; see :doc:`../guides/cli` for fallback rules.
 
 Franka and YAM connect to external services and do not expose local deployment
 options. Explicit local deployment options, including model-specific ones,
@@ -415,19 +381,40 @@ not implement its three-camera/qpos14 interface.
      --config /path/to/worker.yaml --dataset-stats /path/to/dataset_stats.json \
      --port 8117
 
+LIBERO uses RLinf's native model YAML. RPent supplies the checkpoint and dataset
+statistics paths from the deployment arguments; RLinf composes the official
+model/processor configuration and resolves inference options. For example:
+
+.. code-block:: yaml
+
+   action_horizon: 32
+   num_action_chunks: 10
+   num_inference_steps: 20
+   binarize_gripper: true
+   seed: 1
+   fastwam:
+     config_dir: /path/to/FastWAM/configs
+     config_name: sim_libero
+     overrides: []
+
+Match the official configuration and overrides to the checkpoint. Migrate earlier
+RPent LIBERO YAML by replacing ``execute_steps`` with ``num_action_chunks`` and
+moving ``inference_options`` into RLinf's top-level model fields. Model and
+processor composition now belongs to ``fastwam.config_dir/config_name/overrides``.
+The worker advertises the loaded policy's executable chunk size.
+
 RoboTwin needs ``--platform robotwin`` with its own checkpoint and configuration.
-The YAML supplies resolved Hydra ``model`` and ``processor`` mappings, with the
+Its YAML supplies resolved Hydra ``model`` and ``processor`` mappings, with the
 processor taken from the official configuration's ``data.train.processor``, plus
 ``action_horizon``, ``execute_steps``, ``video_size`` and ``concat``.
-For LIBERO, ``inference_options`` configure RLinf's policy: denoising steps,
-seed, sigma shift, text CFG, negative prompt, random device and tiling.
-``compile_action_infer=True`` is unsupported. RoboTwin forwards options to
-the official ``model.infer_action``. Options cannot override encoded
+``inference_options`` are forwarded to the official ``model.infer_action``.
+Options cannot override encoded
 observations or ``action_horizon``. Enable the text encoder in
 the model configuration for uncached instructions. ``execute_steps`` is positive,
 no larger than ``action_horizon``, and advertised as executable ``chunk_size``.
-``binarize_gripper`` applies only to LIBERO. Future video generation, temporal
-action ensembling and automatic Hydra composition are not implemented.
+The worker checks the fixed three-camera layout, merged state/action keys and
+absence of LIBERO gripper binarization at startup. Predictions still check native
+output shape and finite values before selecting the execution prefix.
 
 For Cosmos3, prepare a task-trained Cosmos3 checkpoint in Diffusers component
 format and deploy SGLang using RLinf's ``Cosmos3 SGLang Evaluation`` guide.
@@ -537,11 +524,6 @@ provide fallbacks for its Python executable and working directory. Fast-WAM
 requires both ``--fast-wam-config`` and ``--fast-wam-dataset-stats``.
 Cosmos3 requires ``--cosmos3-config`` and ``--cosmos3-sglang-endpoint``;
 this starts the RPC worker against an already running SGLang service.
-``--am-cuda-device`` selects the worker GPU independently of
-``--env-cuda-device``. Without a model GPU option, the worker uses the shared
-``--cuda-device`` default, or inherits CUDA visibility if neither is set.
-The services may share a GPU: specify the same device for each service when
-GPU memory permits.
 
 Discovering Options
 ~~~~~~~~~~~~~~~~~~~
@@ -605,32 +587,11 @@ with each platform's unit tests. ``test_wam_loopback.py`` uses the existing
 HTTP/socket fixtures for session isolation, reset and cleanup.
 
 Real-model checks live in each platform's ``test_components.py`` and
-``test_policy_chain.py``. LIBERO parametrizes the same tests over Cosmos Policy
-and Fast-WAM; RoboTwin uses its Fast-WAM checkpoint. After starting a worker,
-run in the matching simulator environment:
-
-.. code-block:: bash
-
-   RPENT_COSMOS_ENDPOINT=http://127.0.0.1:8116 \
-     pytest tests/e2e_tests/libero/test_components.py \
-       tests/e2e_tests/libero/test_policy_chain.py -k 'wam or horizon' -v
-
-   RPENT_FAST_WAM_ENDPOINT=http://127.0.0.1:8117 \
-     pytest tests/e2e_tests/libero/test_components.py \
-       tests/e2e_tests/libero/test_policy_chain.py -k 'wam or horizon' -v
-
-   RPENT_FAST_WAM_ROBOTWIN_ENDPOINT=http://127.0.0.1:8117 \
-     pytest tests/e2e_tests/robotwin/test_components.py \
-       tests/e2e_tests/robotwin/test_policy_chain.py -k wam -v
-
-Missing endpoint variables skip the corresponding WAM cases. LIBERO defaults
-to ``libero_spatial``, task 0, seed 0; set ``RPENT_WAM_SUITE=libero_spatial_task``
-and use Pro assets for LIBERO-Pro. Component tests record checkpoint identity,
-one inference time and native success. CLI tests use a scripted planner,
-execute bounded ``wam_act`` calls and check state artifacts and ``finish``.
-They use a local memory fixture without task guidance and no Qwen planner;
-they do not estimate benchmark success rates or memory benefits.
-These opt-in tests are separate from the standard GPU provisioning runner.
-
-Passing these checks establishes integration behavior, not benchmark success.
-See ``tests/README.md`` for environment prerequisites and the full test workflow.
+``test_policy_chain.py``. LIBERO parametrizes the same tests over Cosmos Policy,
+Cosmos3 and Fast-WAM; RoboTwin uses its Fast-WAM checkpoint. Component tests
+record model identity, inference time and native status. CLI tests use a scripted
+planner, bounded ``wam_act`` calls and local memory without task guidance;
+they check state artifacts, ``finish`` and cleanup. These checks establish
+integration behavior, not benchmark success rates or memory benefits.
+See ``tests/README.md`` for environment prerequisites, endpoint variables,
+suite selection and commands.
