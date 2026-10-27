@@ -184,8 +184,6 @@ Existing commands remain supported through hidden aliases:
      - ``--pi05-repo-id``
    * - ``--wam-text-embeddings``
      - ``--cosmos-text-embeddings``
-   * - ``--wam-predict-future``, ``--cosmos-predict-future``
-     - ``--predict-future``
    * - ``--wam-cached-instructions-only``
      - ``--cosmos-cached-instructions-only``
    * - ``--wam-config``

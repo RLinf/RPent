@@ -182,7 +182,7 @@ def test_worker_launch_and_external_options(
     am_runtime.add_am_args(parser, platform=platform)
     extra = (
         [
-            "--predict-future" if not legacy_options else "--wam-predict-future",
+            "--predict-future",
             "--cosmos-cached-instructions-only",
             "--cosmos-text-embeddings",
             str(tmp_path / "embeddings.pkl"),

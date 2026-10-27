@@ -55,8 +55,6 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     # Existing launch commands retain their aliases without crowding --help.
     for alias, field in (
         ("--wam-text-embeddings", "cosmos_text_embeddings"),
-        ("--cosmos-predict-future", "predict_future"),
-        ("--wam-predict-future", "predict_future"),
         ("--wam-cached-instructions-only", "cosmos_cached_instructions_only"),
     ):
         group.add_argument(

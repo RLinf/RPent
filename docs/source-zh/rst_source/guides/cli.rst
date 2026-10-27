@@ -153,8 +153,6 @@ RPent CLI 保留原有 ``--cuda-device`` 作为本地服务的共享默认值；
      - ``--pi05-repo-id``
    * - ``--wam-text-embeddings``
      - ``--cosmos-text-embeddings``
-   * - ``--wam-predict-future``、``--cosmos-predict-future``
-     - ``--predict-future``
    * - ``--wam-cached-instructions-only``
      - ``--cosmos-cached-instructions-only``
    * - ``--wam-config``

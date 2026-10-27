@@ -249,17 +249,11 @@ def test_gpu_help_explains_shared_devices(robot_name):
         ("--wam-root", "--am-root", "/model/source"),
         ("--vla-cuda-device", "--am-cuda-device", "0,1"),
         ("--wam-cuda-device", "--am-cuda-device", "0,1"),
-        ("--cosmos-predict-future", "--predict-future", None),
-        ("--wam-predict-future", "--predict-future", None),
     ],
 )
 def test_legacy_am_options_use_one_destination(alias, canonical, value):
     parser = _parser("libero", dashboard=True)
-    values = [value] if value is not None else []
-    old, new = (
-        parser.parse_args([alias, *values]),
-        parser.parse_args([canonical, *values]),
-    )
+    old, new = parser.parse_args([alias, value]), parser.parse_args([canonical, value])
     assert vars(old) == vars(new)
     assert not hasattr(old, alias[2:].replace("-", "_"))
     assert alias not in parser.format_help()
