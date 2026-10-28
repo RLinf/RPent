@@ -64,9 +64,6 @@ Documentation = "https://rpent.readthedocs.io/en/latest/"
 "Bug Report" = "https://github.com/RLinf/RPent/issues"
 
 [project.optional-dependencies]
-apxinf = [
-    "apxinf-robo @ git+https://github.com/RLinf/APXinf-robo.git@main",
-]
 test = [
     "coverage",
     "pytest",
