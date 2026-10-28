@@ -213,11 +213,9 @@ published references before choosing an approach, when present:
    manipulation or failure mode. Usually one to three relevant leaves suffice.
 
 Use read_text_file with max_chars=100000 for the task references. Check the
-returned size and content for truncation. Increasing max_chars can remove the
-file reader's limit, but the tool transport may still truncate a large response.
-If available, use read-only file access to inspect omitted sections in smaller
-parts; otherwise record the incomplete reference. Do not repeatedly request
-the same oversized response or treat a partial read as the complete reference.
+returned size and content for truncation; if truncated, read again with
+max_chars at least equal to the reported size. Do not treat a partial read as
+the complete reference.
 
 The reference is the same exact task variant explored at seed 0, layout 0.
 Keep standard and Random task-specific pairs and task-family notes separate:
