@@ -134,6 +134,7 @@ _API_KEY_ENV = {
 }
 _API_BASE_URL_ENV = {
     "anthropic": "ANTHROPIC_BASE_URL",
+    "google": "GEMINI_BASE_URL",
     "openai": "OPENAI_BASE_URL",
     "openai-chat": "OPENAI_BASE_URL",
 }

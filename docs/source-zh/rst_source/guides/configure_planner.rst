@@ -72,15 +72,10 @@ RPent 通过一个 CLI 参数选择 Agentic Planner 的后端：
    # OpenAI 兼容的 Chat Completions（例如 GLM 5.2，纯文本）
    rpent --planner api --model openai-chat:glm-5.2 --no-images ...
 
-对于 Google，``google:`` 用于选择 Pydantic AI provider。自定义端点既可以是
-Google SDK 所需的服务根地址，也可以是上游提供的完整
-``/v1beta/models/<model>:generateContent`` URL。传入完整 URL 时，RPent 会使用
-其中的 model ID，并向 SDK 传递对应的服务根地址，从而保持上游规定的请求路径。
-
 它读取以下环境变量；需要覆盖 API 地址时使用 ``--base-url``：
 
 - ``anthropic:*`` → ``ANTHROPIC_BASE_URL`` / ``ANTHROPIC_API_KEY``
-- ``google:*`` → ``GEMINI_API_KEY``
+- ``google:*`` → ``GEMINI_BASE_URL`` / ``GEMINI_API_KEY``
 - ``openai:*`` / ``openai-chat:*`` → ``OPENAI_BASE_URL`` /
   ``OPENAI_API_KEY``
 

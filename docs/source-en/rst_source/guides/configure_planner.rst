@@ -88,17 +88,11 @@ Pick the provider by prefixing ``--model``:
    # OpenAI-compatible chat (e.g. GLM 5.2, text-only)
    rpent --planner api --model openai-chat:glm-5.2 --no-images ...
 
-For Google, ``google:`` selects the Pydantic AI provider. A custom endpoint may
-be either the service root expected by the Google SDK or a complete
-``/v1beta/models/<model>:generateContent`` URL supplied by the upstream
-service. For a complete URL, RPent uses its embedded model ID and passes the
-corresponding service root to the SDK, preserving the upstream request path.
-
 Environment variables it reads (override with ``--base-url`` if
 needed):
 
 - ``anthropic:*`` → ``ANTHROPIC_BASE_URL`` / ``ANTHROPIC_API_KEY``
-- ``google:*`` → ``GEMINI_API_KEY``
+- ``google:*`` → ``GEMINI_BASE_URL`` / ``GEMINI_API_KEY``
 - ``openai:*`` / ``openai-chat:*`` → ``OPENAI_BASE_URL`` /
   ``OPENAI_API_KEY``
 

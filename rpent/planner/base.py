@@ -208,13 +208,11 @@ def build_api_model(model: str | None, base_url: str | None = None) -> "Model":
     The API key is always read from the provider's own env vars (e.g.
     ``ANTHROPIC_API_KEY``, ``GEMINI_API_KEY``, ``OPENAI_API_KEY``). When
     ``base_url`` is given it overrides the provider's default endpoint or base
-    URL environment variable. For Google, it may also be a complete
-    ``v1beta/models/<model>:generateContent`` endpoint; the embedded model ID
-    and SDK base URL are derived from that endpoint.
+    URL environment variable.
 
     Args:
         model: Provider-prefixed model id, e.g. ``anthropic:claude-opus-4-8``.
-        base_url: Provider base URL or complete Google ``generateContent`` URL.
+        base_url: Base URL overriding the provider's own env var.
 
     Returns:
         The resolved pydantic-ai ``Model``.
@@ -230,6 +228,8 @@ def build_api_model(model: str | None, base_url: str | None = None) -> "Model":
             "'openai-chat:glm-5.2')."
         )
 
+    if model.startswith("google:"):
+        base_url = base_url or os.environ.get("GEMINI_BASE_URL")
     model, base_url = _normalize_google_endpoint(model, base_url)
 
     import inspect

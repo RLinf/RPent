@@ -55,6 +55,7 @@ def _clear_provider_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "OPENAI_API_KEY",
         "CODEX_API_KEY",
         "ANTHROPIC_BASE_URL",
+        "GEMINI_BASE_URL",
         "OPENAI_BASE_URL",
         "CODEX_BASE_URL",
         "CODEX_MODEL",
@@ -230,6 +231,7 @@ def test_api_accepts_the_gemini_key(
     assert result.status == STATUS_OK
     assert result.credential_env == "GEMINI_API_KEY"
     assert result.credential_present is True
+    assert result.base_url_env == "GEMINI_BASE_URL"
 
 
 # ---------------------------------------------------------------------------
@@ -345,10 +347,16 @@ def test_api_user_error_during_resolution_is_classified(
     assert result.status == STATUS_UNSUPPORTED_PROVIDER
 
 
+@pytest.mark.parametrize(
+    ("provider", "key_env"),
+    [("anthropic", "ANTHROPIC_API_KEY"), ("google", "GEMINI_API_KEY")],
+)
 def test_api_base_url_override_is_forwarded_and_reported(
     monkeypatch: pytest.MonkeyPatch,
+    provider: str,
+    key_env: str,
 ) -> None:
-    monkeypatch.setenv("ANTHROPIC_API_KEY", SENTINEL_KEY)
+    monkeypatch.setenv(key_env, SENTINEL_KEY)
     seen: dict[str, Any] = {}
 
     def capture(model_id: str, base_url: str | None = None) -> Any:
@@ -359,11 +367,11 @@ def test_api_base_url_override_is_forwarded_and_reported(
     monkeypatch.setattr("rpent.planner.base.build_api_model", capture)
     result = check_llm(
         LlmCheckRequest(
-            planner="api", model="anthropic:m", base_url="https://gateway.example"
+            planner="api", model=f"{provider}:m", base_url="https://gateway.example"
         )
     )
 
-    assert seen == {"model": "anthropic:m", "base_url": "https://gateway.example"}
+    assert seen == {"model": f"{provider}:m", "base_url": "https://gateway.example"}
     assert result.base_url == "https://gateway.example"
     assert result.ok is True
 

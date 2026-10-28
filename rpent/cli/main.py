@@ -151,7 +151,8 @@ def _build_argparser() -> argparse.ArgumentParser:
         "--base-url",
         default=None,
         help=(
-            "API base URL, for the 'api' planner only. Other planners use "
+            "API base URL, for the 'api' planner only. Overrides "
+            "ANTHROPIC_BASE_URL / GEMINI_BASE_URL / OPENAI_BASE_URL. Other planners use "
             "their existing backend configuration; passing this flag with "
             "one of them is an error rather than a silent no-op."
         ),

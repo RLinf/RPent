@@ -24,13 +24,26 @@ from pydantic_ai.models import ModelRequestParameters
 from rpent.planner.base import build_api_model
 
 
-def test_google_complete_generate_content_url_uses_embedded_model(
+@pytest.mark.parametrize("source", ["argument", "environment", "override"])
+@pytest.mark.parametrize("complete_url", [False, True])
+def test_google_endpoint_configuration_preserves_request_url(
     monkeypatch: pytest.MonkeyPatch,
+    source: str,
+    complete_url: bool,
 ) -> None:
     monkeypatch.setenv("GEMINI_API_KEY", "offline-test-key")
     endpoint = "https://www.packyapi.com/v1beta/models/gemini-4-argon:generateContent"
+    configured_url = endpoint if complete_url else "https://www.packyapi.com"
+    monkeypatch.delenv("GEMINI_BASE_URL", raising=False)
+    if source == "environment":
+        monkeypatch.setenv("GEMINI_BASE_URL", configured_url)
+    elif source == "override":
+        monkeypatch.setenv("GEMINI_BASE_URL", "https://unused.invalid")
 
-    model = build_api_model("google:Argon", endpoint)
+    model = build_api_model(
+        "google:Argon" if complete_url else "google:gemini-4-argon",
+        None if source == "environment" else configured_url,
+    )
 
     assert type(model).__name__ == "GoogleModel"
     assert model.model_name == "gemini-4-argon"
