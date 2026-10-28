@@ -24,16 +24,7 @@ from pydantic.json_schema import SkipJsonSchema
 
 from robots.robodojo.access import public_episode_budget
 from rpent.session import EnvState
-from rpent.tools import ToolResult, tool
-
-
-def _tool_error(code: str, message: str, **details: Any) -> ToolResult:
-    return ToolResult(
-        data={
-            "error": {"code": code, "message": message, **details},
-            "success": False,
-        }
-    )
+from rpent.tools import ToolResult, tool, tool_error
 
 
 def _artifact_name(view: str, field: str) -> str:
@@ -60,7 +51,7 @@ def _load_world_xyz(
         return (
             None,
             None,
-            _tool_error(
+            tool_error(
                 "state_not_found",
                 "The requested RoboDojo state artifact does not exist.",
                 step=requested_step,
@@ -73,7 +64,7 @@ def _load_world_xyz(
         return (
             None,
             None,
-            _tool_error(
+            tool_error(
                 "view_not_found",
                 "The requested view is unavailable in this state.",
                 view=view,
@@ -85,7 +76,7 @@ def _load_world_xyz(
         return (
             None,
             None,
-            _tool_error(
+            tool_error(
                 "world_xyz_not_found",
                 "The requested view has no persisted world map.",
                 view=view,
@@ -98,7 +89,7 @@ def _load_world_xyz(
         return (
             None,
             None,
-            _tool_error(
+            tool_error(
                 "world_xyz_invalid",
                 "The persisted world map cannot be read.",
                 detail=str(error),
@@ -108,7 +99,7 @@ def _load_world_xyz(
         return (
             None,
             None,
-            _tool_error(
+            tool_error(
                 "world_xyz_shape",
                 "A RoboDojo world map must have shape [H,W,3].",
                 actual_shape=list(world.shape),
@@ -142,12 +133,12 @@ def sample_world_xyz(
     assert state is not None and world is not None
     radius = int(neighborhood)
     if radius < 0 or radius > 32:
-        return _tool_error(
+        return tool_error(
             "invalid_neighborhood",
             "neighborhood must be an integer from 0 through 32.",
         )
     if not isinstance(pixels, list) or not pixels or len(pixels) > 256:
-        return _tool_error(
+        return tool_error(
             "invalid_pixels",
             "pixels must contain between 1 and 256 [row,col] pairs.",
         )
@@ -159,14 +150,14 @@ def sample_world_xyz(
             or len(pixel) != 2
             or not all(isinstance(value, (int, np.integer)) for value in pixel)
         ):
-            return _tool_error(
+            return tool_error(
                 "invalid_pixel",
                 "Every pixel must be an integer [row,col] pair.",
                 pixel=pixel,
             )
         row, col = (int(pixel[0]), int(pixel[1]))
         if row < 0 or row >= height or col < 0 or col >= width:
-            return _tool_error(
+            return tool_error(
                 "pixel_out_of_bounds",
                 "The pixel is outside this view's world map. Use the exact "
                 "artifact view whose RGB supplied the pixel; do not reuse "
@@ -186,7 +177,7 @@ def sample_world_xyz(
         region = region[np.isfinite(region).all(axis=1)]
         finite_counts = np.full(3, len(region))
         if not len(region):
-            return _tool_error(
+            return tool_error(
                 "no_valid_world_points",
                 "The requested pixel neighborhood has no finite xyz coordinate.",
                 pixel=[row, col],
@@ -244,14 +235,14 @@ def query_world_map(
         or len(bbox) != 4
         or not all(isinstance(value, (int, np.integer)) for value in bbox)
     ):
-        return _tool_error(
+        return tool_error(
             "invalid_bbox",
             "bbox must be [row_start,col_start,row_end,col_end].",
         )
     row_start, col_start, row_end, col_end = map(int, bbox)
     height, width = world.shape[:2]
     if not (0 <= row_start < row_end <= height and 0 <= col_start < col_end <= width):
-        return _tool_error(
+        return tool_error(
             "bbox_out_of_bounds",
             "bbox must be a non-empty half-open region inside this view's "
             "world map. Use the exact artifact view whose RGB supplied the "
@@ -264,7 +255,7 @@ def query_world_map(
         )
     limit = int(max_points)
     if limit < 1 or limit > 4096:
-        return _tool_error(
+        return tool_error(
             "invalid_max_points",
             "max_points must be an integer from 1 through 4096.",
         )
@@ -272,7 +263,7 @@ def query_world_map(
     valid_mask = np.isfinite(region).all(axis=2)
     local_rows, local_cols = np.nonzero(valid_mask)
     if not len(local_rows):
-        return _tool_error(
+        return tool_error(
             "no_valid_world_points",
             "The requested region contains no finite world coordinates.",
             bbox=list(map(int, bbox)),
