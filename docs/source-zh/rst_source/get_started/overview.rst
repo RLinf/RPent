@@ -17,17 +17,12 @@ RPent 的三条核心设计原则是服务化、标准化和可组合（service-
 对比 LIBERO、LIBERO-PRO、RoboCasa365 Target50 和 RoboTwin C2R 上的成功率。
 排名仅限图中方法及评测范围；完整结果、模型配置和来源见 :doc:`../leaderboard/index`。
 
-.. image:: https://cdn.jsdelivr.net/gh/RLinf/misc@705bd44bfc8ad7586b76239de13167db35abcce7/rpent/benchmarks/leaderboard-zh-light.png
-   :alt: RPent 排行榜
-   :class: only-light
-   :width: 100%
-   :target: ../leaderboard/index.html
+.. raw:: html
 
-.. image:: https://cdn.jsdelivr.net/gh/RLinf/misc@705bd44bfc8ad7586b76239de13167db35abcce7/rpent/benchmarks/leaderboard-zh-dark.png
-   :alt: RPent 排行榜
-   :class: only-dark
-   :width: 100%
-   :target: ../leaderboard/index.html
+   <a href="../leaderboard/index.html">
+     <img class="only-light" src="../../_static/leaderboard/leaderboard-zh-light.svg" alt="RPent 排行榜" width="100%">
+     <img class="only-dark" src="../../_static/leaderboard/leaderboard-zh-dark.svg" alt="RPent 排行榜" width="100%">
+   </a>
 
 选择平台
 ------------
@@ -44,6 +39,8 @@ RPent 的三条核心设计原则是服务化、标准化和可组合（service-
      - RLDX-1、厨房任务和 Target50 复现。
    * - :doc:`RoboTwin <../simulators/robotwin>`
      - LingBot-VLA、双臂仿真任务和 C2R 复现。
+   * - :doc:`RoboDojo <../simulators/robodojo>`
+     - Isaac Sim 双臂 ARX-X5 操作，使用 RLinf Pi0.5 策略。
    * - :doc:`单臂 Franka <../real_world_robots/franka>`
      - 硬件准备、标定、自检和运行。
    * - :doc:`双臂 Franka <../real_world_robots/dual_franka>`

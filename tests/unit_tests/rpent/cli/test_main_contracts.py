@@ -77,6 +77,7 @@ def _capture_validated_args(
     def get_robot_spec(name: str):
         captured["robot_name"] = name
         return SimpleNamespace(
+            name=name,
             add_cli_args=add_cli_args,
             parse_config=parse_config,
             supports_exploration=name == "libero",
@@ -140,11 +141,32 @@ def test_shared_cli_defaults_reach_robot_config_parser(
     assert args.model is None
     assert args.max_turns == 100
     assert args.max_tokens == 8192
+    assert args.reasoning_effort == "high"
     assert args.dashboard is False
     assert args.dashboard_host == "127.0.0.1"
     assert args.dashboard_port == 0
     assert args.dashboard_language == "en"
     assert args.memory_profile == "hf"
+
+
+@pytest.mark.parametrize(
+    ("planner", "default_effort"),
+    [("api", "high"), ("codex", "none"), ("claude_code", "none")],
+)
+@pytest.mark.parametrize("explicit_effort", [None, "none", "low", "xhigh"])
+def test_cli_reasoning_effort_defaults_and_explicit_overrides(
+    monkeypatch: pytest.MonkeyPatch,
+    planner: str,
+    default_effort: str,
+    explicit_effort: str | None,
+) -> None:
+    argv = ["--robot", "libero", "--planner", planner]
+    if explicit_effort is not None:
+        argv.extend(["--reasoning-effort", explicit_effort])
+    _, args = _capture_validated_args(monkeypatch, argv)
+
+    expected = default_effort if explicit_effort is None else explicit_effort
+    assert args.reasoning_effort == expected
 
 
 def test_deprecated_env_alias_routes_to_the_same_robot(
@@ -354,6 +376,8 @@ def test_real_robot_terminal_requirement_fails_before_runtime(
     cli = _cli_module()
     spec = SimpleNamespace(
         is_real_robot=True,
+        supports_human_interactive_exploration=False,
+        dashboard=None,
         add_cli_args=lambda parser, use_dashboard: None,
     )
     monkeypatch.setattr(cli, "get_robot_spec", lambda name: spec)
@@ -364,6 +388,56 @@ def test_real_robot_terminal_requirement_fails_before_runtime(
         cli.main()
     assert exc.value.code == 2
     assert "operator confirmation" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("explore", [False, True])
+@pytest.mark.parametrize(
+    "options,error,expected_effort",
+    [
+        ("--dashboard --planner codex", None, "none"),
+        ("--dashboard --planner claude_code", None, "none"),
+        ("--dashboard --planner api --model test", None, "high"),
+        ("--dashboard --planner api --reasoning-effort none", None, "none"),
+        ("--planner codex", "requires a TTY", "none"),
+    ],
+)
+def test_human_operator_main_routes_dashboard_without_tty(
+    monkeypatch, capsys, explore, options, error, expected_effort
+):
+    cli = _cli_module()
+    from rpent.cli import dashboard as web
+    from rpent.memory import loading
+
+    spec = SimpleNamespace(
+        name="custom",
+        is_real_robot=True,
+        supports_human_interactive_exploration=True,
+        supports_exploration=True,
+        dashboard={},
+        add_cli_args=lambda parser, use_dashboard: None,
+        validate_args=None,
+    )
+    monkeypatch.setattr(cli, "get_robot_spec", lambda name: spec)
+    monkeypatch.setattr(cli, "enumerate_robots", lambda: ("custom",))
+    monkeypatch.setattr(sys, "stdin", SimpleNamespace(isatty=lambda: False))
+    monkeypatch.setattr(
+        loading, "prepare_run_memory", lambda *a: pytest.fail("unexpected memory load")
+    )
+    argv = ["rpent", "--robot", "custom", *options.split()]
+    monkeypatch.setattr(sys, "argv", argv + (["--explore"] if explore else []))
+    if error is None:
+
+        def run_dashboard_session(args, *a, **kw):
+            assert args.reasoning_effort == expected_effort
+            return 73
+
+        monkeypatch.setattr(web, "run_dashboard_session", run_dashboard_session)
+        assert cli.main() == 73
+    else:
+        with pytest.raises(SystemExit) as exc:
+            cli.main()
+        assert exc.value.code == 2
+        assert error in capsys.readouterr().err
 
 
 def test_handoff_message_lists_prior_attempts_deterministically(tmp_path: Path) -> None:
@@ -390,13 +464,21 @@ def test_handoff_message_lists_prior_attempts_deterministically(tmp_path: Path) 
     assert "memory inbox under wip/" in message
 
 
-@pytest.mark.parametrize("interactive", [False, True])
-@pytest.mark.parametrize("budget_exhausted", [False, True])
+@pytest.mark.parametrize(
+    ("interactive", "outcome"),
+    [
+        (False, "success"),
+        (True, "success"),
+        (False, "request_budget"),
+        (True, "request_budget"),
+        (False, "response_truncated"),
+    ],
+)
 def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     interactive: bool,
-    budget_exhausted: bool,
+    outcome: str,
 ) -> None:
     cli = _cli_module()
     from rpent.planner.base import PlannerResult
@@ -405,6 +487,7 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     from rpent.tools.toolkit import ToolResult
 
     calls: dict[str, Any] = {}
+    model_requests = 0
 
     class FakeMemoryManager:
         def merge_memory(self, **kwargs: Any) -> dict[str, int]:
@@ -425,11 +508,10 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
 
         def execute_tool(self, name: str, args: dict[str, Any]) -> ToolResult:
             self.calls.append((name, args))
-            if budget_exhausted:
-                return ToolResult(name, {"error": "finish refused"})
+            if outcome == "request_budget":
+                return ToolResult(data={"error": "finish refused"})
             return ToolResult(
-                name,
-                {
+                data={
                     "_finish": True,
                     "status": args["status"],
                     "summary": args["summary"],
@@ -439,14 +521,23 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
         def close(self) -> None:
             self.closed = True
 
-        def get_tools_spec(self) -> list[dict[str, Any]]:
-            return [common.TOOLS_SPEC[-1]]
+        def list_tools(self):
+            return (
+                common.CommonTools.finish.with_handler(
+                    lambda **args: ToolResult(data=args)
+                ),
+            )
+
+        def resume_calls(self):
+            pass
 
         def cancel_active_and_wait(self) -> None:
             pass
 
         def solved(self) -> bool:
-            return not budget_exhausted
+            return outcome != "request_budget" and any(
+                name == "finish" for name, _ in self.calls
+            )
 
         def write_recipe(self, recipe_tag: str) -> str:
             calls["write_recipe"] = recipe_tag
@@ -475,7 +566,7 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
                 {"status": "success", "summary": "simulated task complete"},
             )
             return PlannerResult(
-                finish_result=finish.result,
+                finish_result=finish.data,
                 messages=[{"role": "assistant", "content": "finished offline"}],
                 stats={
                     "total_input_tokens": 0,
@@ -522,12 +613,22 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     def build_planner(*args: Any, **kwargs: Any):
         calls["build_planner"] = (args, kwargs)
         calls["planner_count"] = calls.get("planner_count", 0) + 1
-        if budget_exhausted:
+        if outcome != "success":
+            from pydantic_ai.exceptions import UnexpectedModelBehavior
             from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 
             from rpent.planner.api_loop import ApiAgentLoop
 
             async def stream(messages, info):
+                nonlocal model_requests
+                model_requests += 1
+                if outcome == "response_truncated" and model_requests == 1:
+                    raise UnexpectedModelBehavior(
+                        "Model token limit (8192) exceeded before any response was "
+                        "generated. Increase the `max_tokens` model setting, or "
+                        "simplify the prompt to result in a shorter response that "
+                        "will fit within the limit."
+                    )
                 yield {
                     0: DeltaToolCall(
                         name="finish",
@@ -579,7 +680,7 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
             "--max-turns",
             "4",
             "--explore-sessions",
-            "2",
+            "3" if outcome == "response_truncated" else "2",
             *(["--interactive"] if interactive else []),
         ],
     )
@@ -588,7 +689,11 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     assert calls["build_planner"][1]["interactive"] is interactive
     assert toolkit.closed is True
     assert daemon.stopped is True
-    if budget_exhausted:
+    assert calls["get_toolkit"][1]["runtime_kwargs"] == {"runtime": "simulated"}
+    assert calls["get_toolkit"][1]["mode"] == "exploration"
+    assert calls["get_toolkit"][1]["attempts_per_session"] == 2
+    transcript = json.loads((tmp_path / "transcript_libero_s0.json").read_text())
+    if outcome == "request_budget":
         assert calls["planner_count"] == 2
         assert len(toolkit.calls) == 8
         assert "write_recipe" not in calls
@@ -597,10 +702,22 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
             "run_state_dir": tmp_path,
             "solved": False,
         }
-        transcript = json.loads((tmp_path / "transcript_libero_s0.json").read_text())
         assert transcript["finish"] is None
         assert transcript["stats"]["turns_used"] == 4
         assert len([m for m in transcript["messages"] if m["role"] == "tool"]) == 8
+        return
+
+    assert calls["write_recipe"] == "libero_s0"
+    assert calls["merge_memory"] == {
+        "cell_tag": "libero_s0",
+        "run_state_dir": tmp_path,
+        "solved": True,
+    }
+    assert transcript["error"] is None
+    if outcome == "response_truncated":
+        assert calls["planner_count"] == 2
+        assert model_requests == 2
+        assert len([m for m in transcript["messages"] if m["role"] == "user"]) == 2
         return
 
     assert calls["solve"] == {
@@ -613,17 +730,6 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     assert toolkit.calls == [
         ("finish", {"status": "success", "summary": "simulated task complete"})
     ]
-    assert calls["get_toolkit"][1]["runtime_kwargs"] == {"runtime": "simulated"}
-    assert calls["get_toolkit"][1]["mode"] == "exploration"
-    assert calls["get_toolkit"][1]["attempts_per_session"] == 2
-    assert calls["write_recipe"] == "libero_s0"
-    assert calls["merge_memory"] == {
-        "cell_tag": "libero_s0",
-        "run_state_dir": tmp_path,
-        "solved": True,
-    }
-
-    transcript = json.loads((tmp_path / "transcript_libero_s0.json").read_text())
     assert transcript["robot"] == "libero"
     assert transcript["finish"] == {
         "_finish": True,
@@ -636,9 +742,15 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     ]
 
 
+@pytest.mark.parametrize("planner_name", ["codex", "flash"])
+@pytest.mark.parametrize(
+    "planner_error", [None, "RuntimeError: Grasp not held; replay stopped"]
+)
 def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    planner_name: str,
+    planner_error: str | None,
 ) -> None:
     cli = _cli_module()
     from rpent.evaluation import RunFinalizationContext, write_json_atomic
@@ -670,6 +782,7 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
                 finish_result={"status": "success", "summary": "planner claim"},
                 messages=[],
                 stats={"tool_calls": 0},
+                error=planner_error,
             )
 
     def add_cli_args(parser: Any, use_dashboard: bool) -> None:
@@ -710,6 +823,7 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
         parse_config=parse_config,
         init_runtime=lambda *args: ([daemon], {"runtime": "simulated"}),
         finalize_run=finalize_run,
+        run_flash=lambda *args: {},
     )
 
     monkeypatch.setattr(cli, "enumerate_robots", lambda: ("testrobot",))
@@ -728,7 +842,7 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
             "--seed",
             "1",
             "--planner",
-            "codex",
+            planner_name,
             "--model",
             "gpt-5.5",
             "--reasoning-effort",
@@ -744,14 +858,16 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
         ],
     )
 
-    assert cli.main() == 0
+    assert cli.main() == (1 if planner_error else 0)
+    transcript = json.loads((tmp_path / "transcript_OpenDrawer_s1.json").read_text())
+    assert transcript["error"] == planner_error
 
     assert len(captured) == 1
     context = captured[0]
     assert context.robot_name == "testrobot"
     assert context.environment_success is False
-    assert context.agent_error is None
-    assert context.planner == "codex"
+    assert context.agent_error == planner_error
+    assert context.planner == planner_name
     assert context.model == "gpt-5.5"
     assert context.reasoning_effort == "xhigh"
     assert context.max_turns == 100
@@ -765,3 +881,39 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
     }
     assert robot_toolkit.closed is True
     assert daemon.stopped is True
+
+
+@pytest.mark.parametrize("dashboard", [False, True])
+@pytest.mark.parametrize(
+    "options, message",
+    [
+        (["--memory-repo", ""], "expected owner/repo"),
+        (
+            ["--memory-repo", "team/memory", "--memory-profile", "local"],
+            "--memory-repo requires HF evaluation",
+        ),
+        (
+            ["--memory-repo", "team/memory", "--explore"],
+            "--memory-repo requires HF evaluation",
+        ),
+    ],
+)
+def test_invalid_memory_source_fails_before_startup(
+    dashboard, options, message, monkeypatch, capsys
+):
+    from rpent.cli import dashboard as dashboard_cli
+    from rpent.memory import loading
+
+    cli = _cli_module()
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("Invalid memory options must fail before download or startup")
+
+    monkeypatch.setattr(loading, "prepare_run_memory", unexpected)
+    monkeypatch.setattr(dashboard_cli, "run_dashboard_session", unexpected)
+    task = ["--dashboard"] if dashboard else ["--suite", "libero_object", "--task", "0"]
+    monkeypatch.setattr(sys, "argv", ["rpent", "--robot", "libero", *task, *options])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2
+    assert message in capsys.readouterr().err

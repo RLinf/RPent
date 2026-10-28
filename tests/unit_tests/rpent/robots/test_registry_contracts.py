@@ -35,7 +35,9 @@ EXPECTED_ROBOTS = (
     "libero",
     "metaworld",
     "robocasa",
+    "robodojo",
     "robotwin",
+    "yam",
 )
 
 PROMPT_VARIABLES = {
@@ -43,6 +45,14 @@ PROMPT_VARIABLES = {
         "instruction": "Reach the visible goal",
         "seed": 0,
         "max_episode_steps": 500,
+        "memory_dir": "/memory",
+    },
+    "yam": {
+        "task_id": 1,
+        "seed": 0,
+        "recipe_tag": "yam_t1_s0",
+        "instruction": "Move the object to the target",
+        "mode": "eval",
         "memory_dir": "/memory",
     },
     "libero": {
@@ -67,6 +77,16 @@ PROMPT_VARIABLES = {
         "mode": "eval",
         "memory_profile": "hf",
         "reference_tag": "OpenDrawer_s0",
+        "memory_dir": "/memory",
+        "output_dir": Path("/output"),
+    },
+    "robodojo": {
+        "task": "put_bottles_into_dustbin",
+        "layout": 0,
+        "env_cfg_type": "arx_x5",
+        "action_type": "joint",
+        "recipe_tag": "put_bottles_into_dustbin_l0",
+        "task_summary": {"task": "put_bottles_into_dustbin", "rigid": ["bottle"]},
         "memory_dir": "/memory",
         "output_dir": Path("/output"),
     },

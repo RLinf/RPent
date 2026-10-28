@@ -27,6 +27,8 @@ import json
 import os
 import sys
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -37,16 +39,19 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from robots.dual_franka import perception as dual_franka_perception
+from robots.dual_franka.robot_spec import _add_runtime_cli_args
 from robots.dual_franka.runtime_config import DEFAULT_CONFIG
-from robots.dual_franka.tasks import get_dual_franka_task
 from robots.dual_franka.toolkit import DualFrankaToolkit
 from robots.dual_franka.tools import (
-    TOOLS_SPEC,
     DualFrankaPrimitives,
     dump_state,
     view_env_state,
 )
-from robots.franka.runtime_config import set_robot_config_path
+from robots.franka.runtime_config import (
+    _require_mapping,
+    load_mapping,
+    set_robot_config_path,
+)
 from robots.franka.tools import view_camera_meta
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory.manager import MemoryManager
@@ -67,7 +72,10 @@ _RESET_SPEC: dict[str, Any] = {
 
 
 def _tool_spec_map(*, include_manual: bool = False) -> dict[str, dict[str, Any]]:
-    specs = {str(spec["name"]): spec for spec in TOOLS_SPEC}
+    specs = {
+        tool.name: {"name": tool.name, "input_schema": tool.input_schema}
+        for tool in DualFrankaToolkit.declared_tools()
+    }
     if include_manual:
         specs[str(_RESET_SPEC["name"])] = _RESET_SPEC
     return specs
@@ -262,15 +270,12 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Run one manual Dual-Franka RPent primitive/tool call."
     )
-    parser.add_argument("--env-endpoint", default="http://127.0.0.1:6001")
-    parser.add_argument("--vla-endpoint", default=None)
-    parser.add_argument("--sam3-endpoint", default=None)
-    parser.add_argument(
-        "--robot-config",
-        default=os.environ.get("RPENT_ROBOT_CONFIG", str(DEFAULT_CONFIG)),
+    _add_runtime_cli_args(parser)
+    parser.set_defaults(
+        robot_config=os.environ.get("RPENT_ROBOT_CONFIG", str(DEFAULT_CONFIG))
     )
     parser.add_argument(
-        "--task-id", type=int, default=int(os.environ.get("RPENT_TASK_ID", "3"))
+        "--instruction", help="Override vla.instruction from the robot config."
     )
     parser.add_argument("--primitive", default=None)
     parser.add_argument(
@@ -316,6 +321,14 @@ def _load_payload(args: argparse.Namespace) -> dict[str, Any]:
         raise ValueError("payload.primitive must be a non-empty string")
     if not isinstance(params, dict):
         raise ValueError("payload.params must be a JSON object")
+    if primitive == "reset":
+        if params:
+            raise ValueError("reset does not accept parameters")
+    else:
+        tools = {tool.name: tool for tool in DualFrankaToolkit.declared_tools()}
+        if primitive not in tools:
+            raise ValueError(f"unknown primitive {primitive!r}")
+        tools[primitive].args_schema.model_validate(params, strict=True)
     return {"primitive": primitive, "params": params}
 
 
@@ -334,7 +347,7 @@ def _call_readonly_tool(
     dump_state_enabled: bool,
 ) -> dict[str, Any]:
     if primitive == "describe_dual_franka_setup":
-        return primitives.describe_dual_franka_setup()
+        return primitives.describe_dual_franka_setup().to_dict()
     if primitive == "view_env_state":
         if dump_state_enabled:
             dump_state(
@@ -344,7 +357,7 @@ def _call_readonly_tool(
                 result=None,
                 elapsed_s=None,
             )
-            return view_env_state(state=state, **params)
+            return view_env_state(state=state, **params).to_dict()
         return {
             "step_idx": None,
             "state": primitives.env.get_robot_state(),
@@ -365,7 +378,7 @@ def _call_readonly_tool(
                 result=None,
                 elapsed_s=None,
             )
-            return view_camera_meta(state=state, **params)
+            return view_camera_meta(state=state, **params).to_dict()
         return {"step": None, "camera_meta": primitives.env.get_camera_meta() or {}}
     if primitive == "back_project":
         if state.latest_step is None:
@@ -381,7 +394,7 @@ def _call_readonly_tool(
                 result=None,
                 elapsed_s=None,
             )
-        return dual_franka_perception.back_project(state=state, **params)
+        return dual_franka_perception.back_project(state=state, **params).to_dict()
     if primitive == "segment":
         if state.latest_step is None:
             if not dump_state_enabled:
@@ -400,7 +413,7 @@ def _call_readonly_tool(
             state=state,
             sam3_client=sam3_client,
             **params,
-        )
+        ).to_dict()
     raise KeyError(primitive)
 
 
@@ -414,18 +427,18 @@ def _call_mutating_primitive(
     if primitive == "reset":
         return env.reset()
     if primitive == "move_delta":
-        return primitives.move_delta(**params)
+        return primitives.move_delta(**params).to_dict()
     if primitive == "rotate_delta":
-        return primitives.rotate_delta(**params)
+        return primitives.rotate_delta(**params).to_dict()
     if primitive == "open_gripper":
-        return primitives.open_gripper(**params)
+        return primitives.open_gripper(**params).to_dict()
     if primitive == "close_gripper":
-        return primitives.close_gripper(**params)
+        return primitives.close_gripper(**params).to_dict()
     if primitive == "recover_joint_posture":
-        return primitives.recover_joint_posture(**params)
+        return primitives.recover_joint_posture(**params).to_dict()
     if primitive in _registered_tool_names():
         handler = getattr(primitives, primitive)
-        return handler(**params)
+        return handler(**params).to_dict()
     raise KeyError(primitive)
 
 
@@ -437,14 +450,14 @@ def _call_toolkit_tool(
     model: Pi05VLAClient | None,
     sam3_client: Sam3Client | None,
     output_dir: Path,
-    task: Any,
+    instruction: str | None,
 ) -> dict[str, Any]:
     toolkit = DualFrankaToolkit(
         runtime_kwargs={
             "env": env,
             "model": model,
-            "task_description": task.instruction,
-            "vla_instruction": task.vla_instruction,
+            "task_description": "",
+            "vla_instruction": instruction,
             "sam3_client": sam3_client,
         },
         dashboard_events=NullDashboardEventSink(),
@@ -458,9 +471,82 @@ def _call_toolkit_tool(
         state_output_dir=output_dir,
     )
     try:
-        return toolkit.execute_tool(primitive, params).result
+        return toolkit.execute_tool(primitive, params).to_dict()
     finally:
         toolkit.close()
+
+
+@contextmanager
+def _connect_components(
+    args: argparse.Namespace, output_dir: Path, primitive: str
+) -> Iterator[tuple[Any, Pi05VLAClient | None, Sam3Client | None]]:
+    """Start missing services through the normal runtime and stop only owned ones."""
+    from robots.dual_franka.robot_spec import _init_runtime
+
+    components = set()
+    if args.env_endpoint is None:
+        components.add("env")
+    if primitive in _VLA_PRIMITIVES and args.vla_endpoint is None:
+        components.add("vla")
+    if primitive in _SAM3_PRIMITIVES and args.sam3_endpoint is None:
+        components.add("sam3")
+    daemons, runtime = _init_runtime(
+        args,
+        output_dir,
+        NullDashboardEventSink(),
+        components,
+        task_description="",
+        vla_instruction=args.instruction if primitive in _VLA_PRIMITIVES else None,
+    )
+    try:
+        if args.env_endpoint is None:
+            env = runtime["env"]
+        else:
+            if not args.no_ready_check:
+                wait_for_ready(
+                    make_rpc_client(args.env_endpoint),
+                    timeout_s=min(args.timeout_s, 60.0),
+                )
+            env = ManualDualFrankaEnv(args.env_endpoint)
+        model = runtime.get("model")
+        if primitive in _VLA_PRIMITIVES and args.vla_endpoint is not None:
+            rpc = make_rpc_client(args.vla_endpoint)
+            if not args.no_ready_check:
+                wait_for_ready(rpc, timeout_s=min(args.timeout_s, 60.0))
+            model = Pi05VLAClient(rpc, embodiment="dual_franka")
+        sam3 = runtime.get("sam3_client")
+        if primitive in _SAM3_PRIMITIVES and args.sam3_endpoint is not None:
+            rpc = make_rpc_client(args.sam3_endpoint)
+            if not args.no_ready_check:
+                wait_for_ready(rpc, timeout_s=min(args.timeout_s, 60.0))
+            sam3 = Sam3Client(rpc)
+        if (
+            args.env_endpoint is None
+            and primitive not in {"reset", "request_scene_reset"}
+            and any(
+                definition.name == primitive and not definition.readonly
+                for definition in DualFrankaToolkit.declared_tools()
+            )
+        ):
+            result = _call_toolkit_tool(
+                "request_scene_reset",
+                {"reason": "Prepare a newly started environment for a manual skill"},
+                env=env,
+                model=model,
+                sam3_client=sam3,
+                output_dir=output_dir / "initial_reset",
+                instruction=args.instruction,
+            )
+            if (
+                result.get("error")
+                or result.get("state_capture_error")
+                or result.get("result", {}).get("ok") is not True
+            ):
+                raise RuntimeError(f"Manual startup reset not completed: {result}")
+        yield env, model, sam3
+    finally:
+        for daemon in reversed(daemons):
+            daemon.stop()
 
 
 def main() -> int:
@@ -479,43 +565,44 @@ def main() -> int:
         return 0
 
     set_robot_config_path(args.robot_config)
-    task = get_dual_franka_task(args.task_id)
     payload = _load_payload(args)
     primitive = payload["primitive"]
-    params = payload["params"]
+    if primitive in _VLA_PRIMITIVES:
+        if args.instruction is None:
+            config = load_mapping(args.robot_config)
+            args.instruction = _require_mapping(config.get("vla", {}), "vla").get(
+                "instruction"
+            )
+        if not isinstance(args.instruction, str) or not args.instruction.strip():
+            parser.error(
+                "VLA skills require a non-empty --instruction or vla.instruction "
+                "in the robot config"
+            )
     output_dir = (
         Path(args.output_dir) if args.output_dir else _default_output_dir(primitive)
     )
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    env_rpc = make_rpc_client(args.env_endpoint)
-    if not args.no_ready_check:
-        wait_for_ready(env_rpc, timeout_s=min(args.timeout_s, 60.0))
-    env = ManualDualFrankaEnv(args.env_endpoint)
+    with _connect_components(args, output_dir, primitive) as (env, model, sam3_client):
+        return _execute_primitive(args, output_dir, payload, env, model, sam3_client)
 
-    needs_vla = primitive in _VLA_PRIMITIVES
-    needs_sam3 = primitive in _SAM3_PRIMITIVES
 
-    model = None
-    if args.vla_endpoint and needs_vla:
-        vla_rpc = make_rpc_client(args.vla_endpoint)
-        if not args.no_ready_check:
-            wait_for_ready(vla_rpc, timeout_s=min(args.timeout_s, 60.0))
-        model = Pi05VLAClient(vla_rpc, embodiment="dual_franka")
-
-    sam3_client = None
-    if args.sam3_endpoint and needs_sam3:
-        sam3_rpc = make_rpc_client(args.sam3_endpoint)
-        if not args.no_ready_check:
-            wait_for_ready(sam3_rpc, timeout_s=min(args.timeout_s, 60.0))
-        sam3_client = Sam3Client(sam3_rpc)
-
+def _execute_primitive(
+    args: argparse.Namespace,
+    output_dir: Path,
+    payload: dict[str, Any],
+    env: Any,
+    model: Pi05VLAClient | None,
+    sam3_client: Sam3Client | None,
+) -> int:
+    primitive = payload["primitive"]
+    params = payload["params"]
     state = EnvState(output_dir)
     primitives = DualFrankaPrimitives(
         env=env,
         model=model,
-        task_description=task.instruction,
-        vla_instruction=task.vla_instruction,
+        task_description="",
+        vla_instruction=args.instruction,
         check_cancelled=lambda: None,
         sam3_client=sam3_client,
     )
@@ -530,7 +617,18 @@ def main() -> int:
     }
     used_toolkit_tool = False
     try:
-        if primitive in readonly:
+        if primitive == "reset":
+            used_toolkit_tool = True
+            result = _call_toolkit_tool(
+                "request_scene_reset",
+                {"reason": "Manual full posture reset"},
+                env=env,
+                model=model,
+                sam3_client=sam3_client,
+                output_dir=output_dir,
+                instruction=args.instruction,
+            )
+        elif primitive in readonly:
             result = _call_readonly_tool(
                 primitive,
                 params,
@@ -551,7 +649,7 @@ def main() -> int:
                     model=model,
                     sam3_client=sam3_client,
                     output_dir=output_dir,
-                    task=task,
+                    instruction=args.instruction,
                 )
             else:
                 result = _call_mutating_primitive(

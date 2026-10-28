@@ -33,6 +33,19 @@ RPent 通过一个 CLI 参数选择 Agentic Planner 的后端：
        :doc:`flash`。
      - 想在新布局上低成本地重跑一个已知可行的方案，无需 LLM 在线规划；仍需要感知和 VLA 服务。
 
+.. _planner-direct-actions:
+
+直接执行动作
+--------------------
+
+使用 LIBERO、RoboCasa 或 RoboTwin 时，在启动命令中添加
+``--enable-direct-action``，即可让 planner 调用
+``execute_action(values=[...])``。planner 传入一组控制数值，环境将其作为
+一个动作执行，RPent 随后记录执行后的状态。
+
+具体需要传入哪些数值，取决于机器人和控制器。planner 收到的工具说明会列出
+数值的个数及各自允许的范围。启用后，planner 仍可使用 VLA 和脚本工具。
+
 ``api`` 规划器（直接调用模型 API）
 -------------------------------------
 
@@ -60,7 +73,6 @@ RPent 通过一个 CLI 参数选择 Agentic Planner 的后端：
 ``api`` 规划器的相关参数：
 
 - ``--max-tokens`` —— 单次 LLM 回复的 token 上限（默认 ``8192``）。
-- ``--max-turns`` —— 整段对话的模型请求次数上限，包括重试和后续输入（默认 ``100``）。达到上限属于正常停止，不表示规划器报错或任务成功；探索模式在满足其他条件时仍可进入下一会话并合并记忆。
 - ``--no-images`` —— 不向模型发送图片字节；纯文本模型必须加此参数。此时智能体只依赖文本状态推理，任务表现可能不够理想。
 
 终端交互方式见 :ref:`终端交互 <quickstart-interactive>`。
@@ -83,7 +95,6 @@ RPent 为 Claude 规划会话关闭文件系统配置来源，因此不会自动
 注意事项：
 
 - ``--model`` **不要** 加模型提供商前缀；省略时默认使用 ``sonnet``。
-- ``--max-turns`` 会传给 Claude Agent SDK，默认 ``100``。
 - 非交互运行受 ``--planner-timeout-s`` 限制；默认读取 ``CELL_TIMEOUT_S``，未设置时为 ``1200`` 秒。``--interactive`` 模式不应用这一时限。
 - 通过 ``--claude-code-max-budget-usd`` 设置美元预算（默认取 ``MAX_BUDGET_USD`` 环境变量或 ``10``）。
 - RPent 的依赖中已包含 Claude Agent SDK；该 SDK 自带 Claude Code 二进制文件，无需单独安装 CLI。认证通常使用 ``ANTHROPIC_API_KEY``，详见 `Claude Agent SDK 文档 <https://code.claude.com/docs/en/agent-sdk/overview>`_。
@@ -125,6 +136,41 @@ Codex 规划会话不会自动加载仓库的 ``AGENTS.md`` 和 ``.agents/skills
 - ``--model`` 会覆盖 ``CODEX_MODEL``；两者都未设置时使用 Codex SDK 配置的默认模型。
 - ``--planner-timeout-s`` 限制 Codex 运行时间。默认依次读取 ``CODEX_TIMEOUT_S``、``CELL_TIMEOUT_S``，均未设置时为 ``1200`` 秒。
 - 默认情况下，Codex SDK 会复用已有的 Codex 认证。若要接入自定义的 Responses API 兼容端点，请设置 ``CODEX_BASE_URL`` 和 ``CODEX_API_KEY``；这里不读取 ``OPENAI_BASE_URL`` 或 ``OPENAI_API_KEY``。
+
+.. _planner-codex-isolation:
+
+Codex 独立配置与登录
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+使用独立目录，避免与日常 Codex 开发混用配置和会话记录。
+
+在运行 RPent 的终端激活 ``.venv``，从仓库根目录设置独立的 Codex 配置与会话目录。每次新开运行 RPent 的终端都需执行：
+
+.. code-block:: bash
+
+   cd /path/to/RPent
+   source .venv/bin/activate
+   export CODEX_HOME="$PWD/.codex-rpent-live"
+   export CODEX_SQLITE_HOME="$CODEX_HOME"
+   export CODEX_SERVICE_TIER=fast
+   mkdir -p "$CODEX_HOME"
+   unset CODEX_API_KEY CODEX_BASE_URL OPENAI_API_KEY OPENAI_BASE_URL CODEX_ACCESS_TOKEN
+   export CODEX_BIN="$(python -c 'from codex_cli_bin import bundled_codex_path; print(bundled_codex_path())')"
+
+首次使用时，在 ``$CODEX_HOME/config.toml`` 中设置文件凭据存储，再用 SDK 自带的 CLI 登录：
+
+.. code-block:: toml
+
+   cli_auth_credentials_store = "file"
+
+.. code-block:: bash
+
+   "$CODEX_BIN" login --device-auth
+   "$CODEX_BIN" login status
+
+若配置中已有 ``sqlite_home``，也应指向独立目录。使用自定义 API 时，重新设置本次部署的 ``CODEX_API_KEY`` 和 ``CODEX_BASE_URL``；其他登录方式见 `Codex 认证说明 <https://developers.openai.com/codex/auth/>`_。
+
+RPent 不会自动启用上述隔离；它不隔离共享工作区或迁移旧会话。任务记忆另由 ``--memory-dir`` 选择。不要提交该目录或凭据。
 
 通过 Codex 使用本地模型
 ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -188,10 +234,21 @@ RPent 的 ``--model`` 必须与 vLLM 的 ``--served-model-name`` 保持一致。
 设置规划器的运行限制
 -----------------------
 
-以下参数的作用范围并不相同：
+``--max-turns N`` 设置规划轮数上限，默认 ``100``。一轮不是一次机器人动作：模型的一次回复可以要求调用多个工具。各后端的计数规则不同：
 
-- ``--max-tokens`` 只限制 ``api`` 规划器每次回复的 token 数。LIBERO 类任务通常使用 ``8192`` 即可；RoboCasa 的长时序任务可以在模型支持的范围内调大。
-- ``--max-turns`` 默认为 ``100``。``api`` 按整段对话的模型请求次数计算，包括重试和后续输入；SDK 规划器使用各自的轮数限制。
-- ``--planner-timeout-s`` 限制规划器的运行时间。
+- **API：** 整段对话中，每次模型请求算一轮，包含重试和用户后续输入产生的请求。Pydantic AI 负责执行这个上限，RPent 将请求次数记为 ``turns_used``。达到上限时正常停止，不记为规划器错误，也不代表任务成功。探索模式仍可继续下一会话，并在满足其他条件时合并记忆。
+- **Codex：** 模型每回复一次算一轮。只有推理或工具调用、没有文字的回复也计数；同一次回复中的多个工具调用不会分别计数。RPent 负责执行这个上限。
+- **Claude Code：** 一轮是“模型请求工具 → 工具执行 → 结果返回模型”。最后不调用工具的文字答复不占用这一预算。RPent 把上限交给 Claude Code 执行，达到上限时返回 ``error_max_turns``。
 
-模型调用 ``finish`` 工具后，规划器会记录相应的结束状态。达到轮数上限或超时时，运行结束，主程序仍会保存对话记录。超时或 SDK 异常会写入规划器结果，并输出到日志。
+例如，没有重试时，模型先在一次回复中要求读取两个文件，拿到结果后再给出文字总结：API 发送两次请求，Codex 计两次回复，Claude 消耗一轮工具预算。三者都报告 ``turns_used=2``；Claude 报告的回复次数与工具预算的计数不同。
+
+Claude 交互模式下，每次新增用户输入都会获得新的轮数预算，``turns_used`` 则继续累计。详见 `Claude 的轮数限制说明 <https://code.claude.com/docs/en/agent-sdk/agent-loop#turns-and-budget>`_。
+
+``flash`` 直接重放计划，不运行 LLM 循环，因此不使用这一预算，报告的 ``turns_used`` 为 ``0``。
+
+其他限制的作用范围不同：
+
+- ``--max-tokens`` 仅限制 ``api`` 每次回复的 token 数，默认 ``8192``。LIBERO 类任务通常使用这个默认值即可；RoboCasa 的长时序任务可以在模型支持的范围内调大。
+- ``--planner-timeout-s`` 限制规划器的运行时间；各后端的默认值及交互模式行为见上文。
+
+模型调用 ``finish`` 后，规划器会记录结束状态。达到轮数上限时，当前循环停止；Claude 交互会话仍可接收下一次 query。运行结束时，主程序会保存对话记录。超时或 SDK 异常会写入规划器结果，并输出到日志。

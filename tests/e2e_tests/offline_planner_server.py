@@ -145,7 +145,48 @@ class OfflinePlannerServer:
                 "total_tokens": 2,
             },
         }
-        self._send_json(handler, 200, response)
+        if request.get("stream"):
+            self._send_stream(handler, response)
+        else:
+            self._send_json(handler, 200, response)
+
+    @staticmethod
+    def _send_stream(handler: BaseHTTPRequestHandler, response: dict[str, Any]) -> None:
+        metadata = {
+            "id": response["id"],
+            "object": "chat.completion.chunk",
+            "created": response["created"],
+            "model": response["model"],
+        }
+        message = response["choices"][0]["message"]
+        delta = {
+            **message,
+            "tool_calls": [
+                {"index": index, **call}
+                for index, call in enumerate(message["tool_calls"])
+            ],
+        }
+        chunks = [
+            {
+                **metadata,
+                "choices": [{"index": 0, "delta": delta, "finish_reason": None}],
+            },
+            {
+                **metadata,
+                "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}],
+            },
+            {**metadata, "choices": [], "usage": response["usage"]},
+        ]
+        body = (
+            "".join(f"data: {json.dumps(chunk)}\n\n" for chunk in chunks)
+            + "data: [DONE]\n\n"
+        ).encode("utf-8")
+        handler.send_response(200)
+        handler.send_header("Content-Type", "text/event-stream")
+        handler.send_header("Content-Length", str(len(body)))
+        handler.send_header("Connection", "close")
+        handler.end_headers()
+        handler.wfile.write(body)
 
     @staticmethod
     def _send_json(

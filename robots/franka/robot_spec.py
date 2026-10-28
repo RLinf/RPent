@@ -75,8 +75,11 @@ FRANKA_DASHBOARD_SPEC: DashboardSpec = {
 
 def get_robot_spec() -> RobotSpec:
     """Return the Franka identity, prompts, runtime hooks, and dashboard spec."""
+    from robots.franka.flash import replay_card
+
     return RobotSpec(
         name="franka",
+        run_flash=replay_card,
         prompts=PromptBundle(system=system_prompt, user=user_prompt),
         add_cli_args=_add_cli_args,
         parse_config=_parse_config,
@@ -107,6 +110,9 @@ def get_toolkit(
 
 
 def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
+    from robots.franka.flash.replay import add_cli_args
+
+    add_cli_args(parser)
     parser.add_argument(
         "--task-id",
         type=int,
@@ -125,6 +131,9 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     validate_calibration_sources()
     if args.task_id is None:
         raise ValueError("--task-id is required")
+    from robots.franka.flash.replay import prepare
+
+    args._flash_options = prepare(args, "franka")
     task = get_franka_task(args.task_id)
     timestamp = datetime.now().strftime("%Y%m%d-%H:%M:%S")
     output_dir = Path(
@@ -225,6 +234,10 @@ def _init_runtime(
 
     needs_vla = args.vla_endpoint is not None
 
+    from robots.franka.flash.replay import authorize_runtime
+
+    if "env" in selected:
+        authorize_runtime(args)
     starters = {
         "env": lambda: _spawn_env_server(args, output_dir),
         "vla": lambda: _spawn_vla_server(args, output_dir),
@@ -265,4 +278,6 @@ def _init_runtime(
         dashboard_events.emit(RuntimeStatusEvent("vla", "ready"))
         runtime_kwargs["model"] = None
 
+    if getattr(args, "_flash_options", None) is not None:
+        runtime_kwargs["flash_options"] = args._flash_options
     return list(owned_daemons.values()), runtime_kwargs

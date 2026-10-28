@@ -25,9 +25,12 @@ from typing import TYPE_CHECKING, Any
 
 from robots.robocasa.eval.result import finalize_cell_result
 from robots.robocasa.memory import (
+    MEMORY_VERSIONS,
     RoboCasaMemoryManager,
     TaskMemory,
     memory_from_variables,
+    prepare_memory,
+    validate_options,
 )
 from robots.robocasa.prompt_bundle import (
     system_prompt,
@@ -156,6 +159,8 @@ def get_robot_spec() -> RobotSpec:
         dashboard=ROBOCASA_DASHBOARD_SPEC,
         supports_exploration=True,
         finalize_run=finalize_cell_result,
+        prepare_memory=prepare_memory,
+        validate_args=validate_options,
     )
 
 
@@ -190,6 +195,7 @@ def get_toolkit(
         runtime_kwargs=runtime_kwargs,
         dashboard_events=dashboard_events,
         memory=memory,
+        enable_direct_action=config.enable_direct_action,
         mode=mode,
         attempts_per_session=attempts_per_session,
         state_output_dir=state_output_dir,
@@ -198,7 +204,18 @@ def get_toolkit(
 
 def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     """Register RoboCasa CLI flags on the shared ``parser``."""
+    parser.add_argument(
+        "--memory-version",
+        choices=MEMORY_VERSIONS,
+        default="auto",
+        help="HF memory corpus: auto selects by model; explicit versions override.",
+    )
     required = not use_dashboard
+    parser.add_argument(
+        "--enable-direct-action",
+        action="store_true",
+        help="Expose execute_action for one native environment action alongside existing primitives.",
+    )
     parser.add_argument(
         "--task-name",
         default=None,
@@ -258,6 +275,7 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
     """Validate final ``args`` and derive per-run identifiers."""
+    validate_options(args)
     if not args.task_name:
         raise ValueError("--task-name is required")
 
@@ -309,6 +327,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     output_dir = Path(output_dir)
 
     return RunConfig(
+        enable_direct_action=getattr(args, "enable_direct_action", False),
         recipe_tag=recipe_tag,
         output_dir=output_dir,
         prompt_vars=prompt_vars,
@@ -448,11 +467,13 @@ def _init_runtime(
     if unknown:
         raise ValueError(f"unknown RoboCasa runtime components: {sorted(unknown)}")
 
-    # CLI/Dashboard supply a memory profile; standalone component diagnostics
-    # only parse robot arguments and do not use planner memory. Dashboard starts
-    # shared services before a task is selected, so validate the global layer
-    # then and the current task before starting its environment.
-    if hasattr(args, "memory_profile") and not getattr(args, "explore", False):
+    # HF selection waits for the Dashboard task's model. Local shared services
+    # can validate their fixed root before a task is selected.
+    if (
+        hasattr(args, "memory_profile")
+        and not getattr(args, "explore", False)
+        and ("env" in selected or getattr(args, "memory_profile", None) == "local")
+    ):
         TaskMemory.load(
             getattr(args, "memory_dir", None) or get_memory_dir("robocasa"),
             args.task_name,

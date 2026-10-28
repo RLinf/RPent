@@ -62,6 +62,47 @@ Caches created before versioned-source receipts require one successful online
 refresh; old unversioned caches are not reused.
 Other robots retain their existing synchronization behavior.
 
+When the Hub cannot be reached, a full commit SHA selects that exact cached
+commit, including one previously downloaded through a branch. A branch or tag
+selects the commit last successfully synchronized for that name, repository and
+corpus version on this machine; it may be older than the current Hub revision.
+LIBERO logs the resolved commit and corpus root. To reuse that snapshot,
+pass its full commit SHA in the next run.
+
+.. _shared-source-selection:
+
+Choose a Memory Repository
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Use ``--memory-repo`` to select a Hugging Face memory dataset for CLI or
+Dashboard evaluation. It accepts a dataset ID such as ``RLinf/RPent-memory``
+or a URL such as ``https://huggingface.co/datasets/RLinf/RPent-memory``.
+Append ``@revision`` to either form to select a branch, tag or commit;
+omitting it selects ``main``. For reproducible runs, use a full commit SHA.
+
+This LIBERO example reads ``libero/GPT_6_astra_low/`` from the specified
+commit. Replace ``COMMIT_SHA`` with the dataset commit you want to use:
+
+.. code-block:: bash
+
+   rpent --robot libero --suite libero_goal_swap --task 1 --seed 1 \
+     --planner codex --model gpt-6-astra --reasoning-effort low \
+     --memory-repo RLinf/RPent-memory@COMMIT_SHA \
+     --memory-version GPT_6_astra_low
+
+``--memory-repo`` selects the memory repository and revision. LIBERO also uses
+``--memory-version`` to select model-specific memory: the default ``auto``
+selects it based on the running model, while an explicit value such as
+``GPT_6_astra_low`` keeps that memory selected.
+
+Dashboard applies these options to subsequent tasks too. A branch such as
+``main`` can change between tasks; use a commit SHA to keep it fixed.
+
+``--memory-repo`` requires ``--memory-profile hf`` and cannot be combined
+with ``--explore``. It overrides ``RPENT_MEMORY_HF_REPO`` and uses the host's
+HF authentication. If the selected source cannot be loaded, the run fails
+instead of switching to the default repository. Only HF datasets are supported.
+
 Standalone Download and Local Evaluation
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -74,12 +115,12 @@ Standalone Download and Local Evaluation
      --planner codex --model gpt-6-astra --reasoning-effort low \
      --memory-profile local --memory-dir /path/to/new-astra-memory
 
-``sync`` prints the actual corpus root. ``--output-dir`` must not already
-exist. ``--planner`` defaults to ``api``, matching ``rpent``; pass
-``--planner codex`` to use ``CODEX_MODEL`` when ``--model`` is omitted. ``--memory-profile local`` never downloads memory; combining it or
-``--explore`` with an explicit remote ``--memory-version`` is an error.
-Exploration uses a local corpus; use a separate empty ``--memory-dir`` for
-each independent exploration.
+``sync`` prints the actual corpus root. ``--output-dir`` must not already exist.
+
+``--memory-profile local`` reads the directory specified by ``--memory-dir``
+without downloading memory. Local evaluation and exploration cannot be combined
+with an explicit remote ``--memory-version``. Use a separate empty directory
+for each independent exploration.
 
 Versioned downloads are a LIBERO-specific command. The shared ``rpent-memory``
 command continues to provide ``merge``, ``validate`` and ``build-index``.

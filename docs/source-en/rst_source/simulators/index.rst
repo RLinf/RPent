@@ -19,3 +19,5 @@ Choose a platform for installation and usage instructions.
 
    * - :doc:`metaworld`
      - Ten task types with RGB-D and bounded Cartesian control.
+   * - :doc:`robodojo`
+     - Dual-arm ARX-X5 manipulation with Isaac Sim and the RLinf Pi0.5 policy.

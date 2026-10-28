@@ -16,14 +16,18 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import queue
 from abc import ABC, abstractmethod
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from rpent.dashboard.events import DashboardEventSink
 from rpent.dashboard.interaction import DashboardInteractionPort
+from rpent.tools.base import ToolResult
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.config import (
     get_memory_dir,
@@ -56,6 +60,41 @@ def strip_mcp_prefix(name: str) -> str:
     return name.removeprefix(MCP_TOOL_PREFIX)
 
 
+async def _wait_for_cleanup(worker: asyncio.Future) -> None:
+    """Finish cleanup asynchronously even if the caller is cancelled again."""
+    cancelled = False
+    while not worker.done():
+        try:
+            await asyncio.shield(worker)
+        except asyncio.CancelledError:
+            cancelled = True
+    worker.result()
+    if cancelled:
+        raise asyncio.CancelledError
+
+
+async def cancel_and_wait(cancel: Callable[[], None]) -> None:
+    """Drain tools without competing for their potentially saturated worker pool."""
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="tool-control") as pool:
+        worker = asyncio.get_running_loop().run_in_executor(pool, cancel)
+        await _wait_for_cleanup(worker)
+
+
+async def execute_tool(toolkit: Toolkit, name: str, arguments: dict) -> ToolResult:
+    """Retain tool workers, including queued executor jobs, through cancellation."""
+    worker = asyncio.create_task(
+        asyncio.to_thread(toolkit.execute_tool, name, arguments)
+    )
+    try:
+        return await asyncio.shield(worker)
+    except asyncio.CancelledError:
+        try:
+            await cancel_and_wait(toolkit.cancel_active_and_wait)
+        finally:
+            await _wait_for_cleanup(worker)
+        raise
+
+
 class PlannerResult:
     """Result returned by a planner invocation."""
 
@@ -78,6 +117,12 @@ class PlannerResult:
             stats or {}
         )  # {"total_input_tokens", "total_output_tokens", "turns_used", "tool_calls"}
         self.error = error  # str | None  — set when the planner raises
+
+
+def is_recoverable_agent_error(agent_error: str | None) -> bool:
+    """Whether the error allows a fresh exploration session."""
+    lowered = (agent_error or "").lower()
+    return "timed out" in lowered or "planner response truncated" in lowered
 
 
 class Planner(ABC):
@@ -106,7 +151,7 @@ class Planner(ABC):
             user_message: Initial user message (task description, first steps).
             toolkit: The full :class:`~rpent.tools.toolkit.Toolkit`
                 (common + robot tools). Backends derive ``tools_spec`` via
-                ``toolkit.get_tools_spec()`` and dispatch calls via
+                ``toolkit.list_tools()`` and dispatch calls via
                 ``toolkit.execute_tool()``.
             max_turns: Maximum LLM turns before giving up.
             input_queue: Optional queue of user-typed lines for interactive steering.

@@ -126,6 +126,7 @@ def load_easy_handeye_yaml(path: str | Path) -> dict[str, Any]:
         raise ValueError(f"{yaml_path} missing transform fields: {sorted(missing)}")
     return {
         "source_name": yaml_path.name,
+        "arm": data.get("arm"),
         "parameters": data["parameters"],
         "transformation": dict(transformation),
     }
@@ -332,6 +333,8 @@ def load_runtime_config(
         FrankaConfig,
         {
             "robot_ip": robot["ip"],
+            "backend": str(robot.get("backend", "franky")),
+            "realtime_config": robot.get("realtime_config"),
             "camera_serials": camera_serials,
             "camera_type": camera_types.pop(),
             "gripper_type": end_effector.get("type", "franka"),

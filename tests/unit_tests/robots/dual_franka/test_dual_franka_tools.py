@@ -16,18 +16,23 @@
 
 from __future__ import annotations
 
+import json
+import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-from robots.dual_franka import get_robot_spec
+from robots.dual_franka import dual_franka_manual_call as manual
+from robots.dual_franka import get_robot_spec, perception
 from robots.dual_franka.perception import (
     back_project,
     load_calibration_bundle,
     segment,
 )
-from robots.dual_franka.tasks import CLEAN_DESK_VLA_PROMPT
 from robots.dual_franka.toolkit import DualFrankaToolkit
 from robots.dual_franka.tools import (
     DualFrankaPrimitives,
@@ -40,8 +45,8 @@ from robots.franka.tools import view_camera_meta
 from rpent.dashboard.events import NullDashboardEventSink, StepRecordEvent
 from rpent.dashboard.state import DashboardState
 from rpent.memory import MemoryManager
+from rpent.planner.utils.http_mcp_server import mcp_result
 from rpent.session import EnvState
-from rpent.tools.toolkit import ToolResult
 
 
 class FakeEnv:
@@ -127,6 +132,97 @@ class FakeEnv:
         return {"terminated": False, "truncated": False}
 
 
+@pytest.mark.parametrize("outcome", ["success", "reset_failure", "capture_failure"])
+def test_manual_startup_reset_before_action(
+    monkeypatch, tmp_path, dual_franka_robot_config, outcome
+):
+    env = FakeEnv()
+    for component in ("ENV", "VLA", "SAM3"):
+        monkeypatch.setenv(f"RPENT_{component}_ENDPOINT", "http://unused.invalid:9999")
+
+    def start_runtime(args, output, events, components, **kwargs):
+        assert args.env_endpoint is args.vla_endpoint is args.sam3_endpoint is None
+        assert components == {"env"}
+        assert kwargs["task_description"] == ""
+        return [], {"env": env}
+
+    monkeypatch.setattr(
+        "robots.dual_franka.robot_spec._init_runtime",
+        start_runtime,
+    )
+    monkeypatch.setattr(
+        DualFrankaToolkit, "_ask_operator", lambda *args, **kwargs: "done"
+    )
+    if outcome == "reset_failure":
+        monkeypatch.setattr(env, "reset", lambda: {"ok": False})
+    if outcome == "capture_failure":
+        observe = env.get_observation
+
+        def fail_observation():
+            if env.resets:
+                raise RuntimeError("observation unavailable")
+            return observe()
+
+        monkeypatch.setattr(env, "get_observation", fail_observation)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "manual",
+            "--robot-config",
+            str(dual_franka_robot_config),
+            "--output-dir",
+            str(tmp_path / "manual"),
+            "--primitive",
+            "move_delta",
+            "--params",
+            '{"arm":"left","delta_xyz":[0.01,0,0]}',
+        ],
+    )
+    if outcome == "success":
+        assert manual.main() == 0
+        assert env.resets == len(env.moves) == 1
+    else:
+        with pytest.raises(RuntimeError, match="Manual startup reset not completed"):
+            manual.main()
+        assert not env.moves
+
+
+@pytest.mark.parametrize(
+    "primitive,params",
+    [
+        ("move_dleta", {}),
+        ("move_delta", {"arm": "invalid", "delta_xyz": [0.01, 0, 0]}),
+        ("move_delta", {"arm": "left", "delta_xyz": [0.01]}),
+        ("reset", {"unexpected": True}),
+    ],
+)
+def test_invalid_manual_call_never_starts_runtime(
+    monkeypatch, tmp_path, primitive, params
+):
+    def forbidden_runtime(*args, **kwargs):
+        pytest.fail("invalid input must not initialize services")
+
+    monkeypatch.setattr(
+        "robots.dual_franka.robot_spec._init_runtime", forbidden_runtime
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "manual",
+            "--output-dir",
+            str(tmp_path),
+            "--primitive",
+            primitive,
+            "--params",
+            json.dumps(params),
+        ],
+    )
+    with pytest.raises(ValueError):
+        manual.main()
+
+
 class FakeModel:
     def __init__(self, expected_prompt="hand over the cube") -> None:
         self.expected_prompt = expected_prompt
@@ -187,7 +283,7 @@ def _primitives(env: FakeEnv, *, model=None, check_cancelled=lambda: None):
         env=env,
         model=model,
         task_description="default task",
-        vla_instruction=CLEAN_DESK_VLA_PROMPT,
+        vla_instruction="test policy instruction",
         check_cancelled=check_cancelled,
     )
 
@@ -196,7 +292,10 @@ def _tool_names(toolkit: DualFrankaToolkit) -> set[str]:
     return set(toolkit._tools)
 
 
-def test_toolkit_exploration_tools_are_opt_in(tmp_path: Path):
+def test_scene_reset_is_required_in_both_modes(
+    tmp_path: Path, dual_franka_robot_config: Path
+):
+    set_robot_config_path(dual_franka_robot_config)
     base_kwargs = {
         "env": FakeEnv(),
         "model": None,
@@ -222,19 +321,34 @@ def test_toolkit_exploration_tools_are_opt_in(tmp_path: Path):
         state_output_dir=tmp_path / "explore-state",
     )
 
-    assert "request_scene_reset" not in _tool_names(evaluation)
+    assert evaluation.state.load("recording_fingerprint.json", step=None)[
+        "robot_config"
+    ]
+    assert "request_scene_reset" in _tool_names(evaluation)
+    assert base_kwargs["env"].resets == 0
+    assert evaluation.execute_tool(
+        "move_delta", {"arm": "right", "delta_xyz": [0, 0, 0.01]}
+    ).is_error
     assert "request_operator_verdict" in _tool_names(evaluation)
     refused_eval = evaluation.execute_tool(
         "finish", {"status": "success", "summary": "not confirmed"}
     )
-    assert refused_eval.result["error"] == "finish refused"
-    assert refused_eval.is_finish is False
+    assert refused_eval.data["error"] == "finish refused"
+    assert refused_eval.data.get("_finish", False) is False
+    evaluation._read_operator_line = lambda prompt: "done"
+    assert not evaluation.execute_tool(
+        "request_scene_reset", {"reason": "prepare"}
+    ).is_error
+    assert base_kwargs["env"].resets == 1
+    assert not evaluation.execute_tool(
+        "move_delta", {"arm": "right", "delta_xyz": [0, 0, 0.01]}
+    ).is_error
     evaluation._read_operator_line = lambda prompt: "success checked by operator"
     evaluation.execute_tool("request_operator_verdict", {})
     accepted_eval = evaluation.execute_tool(
         "finish", {"status": "success", "summary": "confirmed"}
     )
-    assert accepted_eval.is_finish is True
+    assert accepted_eval.data.get("_finish", False) is True
     assert evaluation.solved()
     assert "request_scene_reset" in _tool_names(exploration)
     assert "request_operator_verdict" in _tool_names(exploration)
@@ -243,8 +357,8 @@ def test_toolkit_exploration_tools_are_opt_in(tmp_path: Path):
         "finish",
         {"status": "success", "summary": "agent thinks done"},
     )
-    assert refused.result["error"].startswith("finish refused")
-    assert refused.is_finish is False
+    assert refused.data["error"].startswith("finish refused")
+    assert refused.data.get("_finish", False) is False
 
     exploration._read_operator_line = lambda prompt: "done"
     exploration.execute_tool("request_scene_reset", {"reason": "prepare"})
@@ -254,11 +368,14 @@ def test_toolkit_exploration_tools_are_opt_in(tmp_path: Path):
         "finish",
         {"status": "success", "summary": "operator accepted"},
     )
-    assert accepted.is_finish is True
-    assert accepted.result["operator_verdict"] == "success"
+    assert accepted.data.get("_finish", False) is True
+    assert accepted.data["operator_verdict"] == "success"
 
 
-def test_scene_reset_waits_for_operator_then_resets_robot(tmp_path: Path):
+def test_scene_reset_waits_for_operator_then_resets_robot(
+    tmp_path: Path, dual_franka_robot_config: Path
+):
+    set_robot_config_path(dual_franka_robot_config)
     env = FakeEnv()
     exploration = DualFrankaToolkit(
         runtime_kwargs={
@@ -284,7 +401,7 @@ def test_scene_reset_waits_for_operator_then_resets_robot(tmp_path: Path):
             "reason": "retry with restored layout",
             "expected_scene_state": "objects back at the starting positions",
         },
-    ).result
+    ).data
 
     assert env.resets == 1
     assert result["result"]["robot_reset"] == {"ok": True}
@@ -336,16 +453,14 @@ def test_dump_state_saves_three_camera_artifacts(tmp_path: Path):
         "d455_depth.npy",
         "camera_meta.json",
     }
-    output = view_env_state(state=state)
-    assert output["_image_bytes"]
-    assert "_image_nav_bytes" not in output
-    assert "_image_cam_bytes" not in output
-    assert "_image_wrist_bytes" not in output
+    output_native = view_env_state(state=state)
+    output = output_native.data
+    assert output_native.images == [state.load_bytes("d455.png")]
     assert output["artifact_images"] == ["base", "d455", "left_wrist", "right_wrist"]
     assert output["image_block_order"] == ["d455"]
     np.testing.assert_array_equal(state.load("base.png"), 7)
     np.testing.assert_array_equal(state.load("base_depth.npy"), 9)
-    camera_meta = view_camera_meta(state=state)["camera_meta"]
+    camera_meta = view_camera_meta(state=state).data["camera_meta"]
     assert camera_meta["observation_camera_map"]["main"] == "left_wrist_0_rgb"
 
 
@@ -370,22 +485,24 @@ def test_view_env_state_emits_multimodal_image_blocks(tmp_path: Path):
     state = EnvState(tmp_path)
 
     dump_state(primitives, state, command=None, result=None, elapsed_s=None)
-    output = view_env_state(state=state)
+    output_native = view_env_state(state=state)
+    output = output_native.data
     # Routine planner snapshots inline only D455, while auxiliary camera
     # artifacts stay available through returned paths/read_image.
     assert output["images"] == ["d455"]
     assert output["image_block_order"] == output["images"]
     assert output["artifact_images"] == ["base", "d455", "left_wrist", "right_wrist"]
 
-    result = ToolResult(name="view_env_state", result=output)
-    image_blocks = [b for b in result.content_blocks if b.get("type") == "image"]
+    blocks = mcp_result(output_native)["content"]
+    image_blocks = [b for b in blocks if b.get("type") == "image"]
     assert len(image_blocks) == 1
-    text_block = next(b for b in result.content_blocks if b.get("type") == "text")
+    text_block = next(b for b in blocks if b.get("type") == "text")
     # Image bytes must be lifted out of the text block, not serialized into it.
     assert "_image_" not in text_block["text"]
 
 
-def test_back_project_reads_rpent_state_artifacts(tmp_path: Path):
+@pytest.mark.parametrize("intrinsics_key", ["raw_color_intrinsics", "color_intrinsics"])
+def test_back_project_reads_rpent_state_artifacts(tmp_path: Path, intrinsics_key: str):
     state = EnvState(tmp_path)
     with state.record_step(
         state={
@@ -400,7 +517,7 @@ def test_back_project_reads_rpent_state_artifacts(tmp_path: Path):
             "camera_meta.json",
             {
                 "base_0_rgb": {
-                    "color_intrinsics": {
+                    intrinsics_key: {
                         "fx": 100,
                         "fy": 100,
                         "ppx": 2,
@@ -432,7 +549,8 @@ def test_back_project_reads_rpent_state_artifacts(tmp_path: Path):
     )
     set_robot_config_path(config)
     try:
-        result = back_project(camera="base", row=2, col=2, state=state)
+        result_native = back_project(camera="base", row=2, col=2, state=state)
+        result = result_native.data
     finally:
         set_robot_config_path(None)
 
@@ -497,7 +615,10 @@ def test_load_calibration_bundle_rejects_missing_easy_handeye_yaml(tmp_path: Pat
         set_robot_config_path(None)
 
 
-def test_back_project_returns_annotated_image_block(tmp_path: Path):
+@pytest.mark.parametrize("parallel", [False, True])
+def test_back_project_returns_annotated_image_block(
+    tmp_path: Path, monkeypatch, parallel
+):
     state = EnvState(tmp_path)
     with state.record_step(
         state={
@@ -543,11 +664,63 @@ def test_back_project_returns_annotated_image_block(tmp_path: Path):
         "        - [0.0, 0.0, 1.0, 0.0]\n"
         "        - [0.0, 0.0, 0.0, 1.0]\n"
     )
+    targets = ["first", "second"] if parallel else ["first"]
+    save = state.save
+    save_barrier = threading.Barrier(len(targets))
+
+    def synchronized_save(name, value, **kwargs):
+        if name.startswith("d455_back_project_") and name.endswith("_annotated.png"):
+            # Both calls have allocated names before either writes its report.
+            save_barrier.wait(timeout=3)
+        return save(name, value, **kwargs)
+
+    monkeypatch.setattr(state, "save", synchronized_save)
     set_robot_config_path(config)
     try:
-        result = back_project(row=4, col=4, state=state)
+        call = partial(back_project, row=4, col=4, state=state)
+        with ThreadPoolExecutor(max_workers=len(targets)) as pool:
+            results = list(pool.map(lambda target: call(target_name=target), targets))
+        result_native = results[0]
+        result = result_native.data
+
+        failed_names = []
+        saved_images = []
+
+        def fail_json_save(name, value, **kwargs):
+            if name.startswith("d455_back_project_"):
+                if name.endswith(".json"):
+                    failed_names.append(name)
+                    return None
+                saved_images.append(name)
+            return save(name, value, **kwargs)
+
+        monkeypatch.setattr(state, "save", fail_json_save)
+        failed = call(target_name="failed")
+        assert "failed to save back-project report" in failed.data["diagnostic_error"]
+        failed_image = state.load_bytes(saved_images[0])
+        monkeypatch.setattr(state, "save", save)
+        following = call(target_name="following")
+        following_paths = following.data["diagnostic_artifacts"]
+        assert following_paths["report_json"] not in {
+            str(state.artifact_path(name)) for name in failed_names
+        }
+        assert following_paths["annotated_image"] not in {
+            str(state.artifact_path(name)) for name in saved_images
+        }
+        assert state.load_bytes(saved_images[0]) == failed_image
     finally:
         set_robot_config_path(None)
+
+    for key in ("report_json", "annotated_image"):
+        assert len({item.data["diagnostic_artifacts"][key] for item in results}) == len(
+            targets
+        )
+    for target, item in zip(targets, results, strict=True):
+        paths = item.data["diagnostic_artifacts"]
+        report = json.loads(Path(paths["report_json"]).read_text())
+        assert report["projection"]["target_name"] == target
+        assert report["annotated_image"] == paths["annotated_image"]
+        assert item.images == [Path(paths["annotated_image"]).read_bytes()]
 
     assert result["coordinate_frame"] == "right_base"
     assert result["tcp_delta_coordinate_frame"] == "right_base"
@@ -565,17 +738,18 @@ def test_back_project_returns_annotated_image_block(tmp_path: Path):
         atol=1e-5,
     )
     assert result["diagnostic_artifacts"]["annotated_image"].endswith(".png")
-    assert result["_image_cam_bytes"]
+    assert result_native.images and all(result_native.images)
     assert result["image_block_order"] == ["d455_selection_diagnostic"]
 
-    tool_result = ToolResult(name="back_project", result=result)
-    image_blocks = [b for b in tool_result.content_blocks if b.get("type") == "image"]
+    blocks = mcp_result(result_native)["content"]
+    image_blocks = [b for b in blocks if b.get("type") == "image"]
     assert len(image_blocks) == 1
-    text_block = next(b for b in tool_result.content_blocks if b.get("type") == "text")
+    text_block = next(b for b in blocks if b.get("type") == "text")
     assert "_image_" not in text_block["text"]
 
 
-def test_segment_returns_mask_overlay_and_world_point(tmp_path: Path):
+@pytest.mark.parametrize("parallel", [False, True])
+def test_segment_returns_mask_overlay_and_world_point(tmp_path, monkeypatch, parallel):
     state = EnvState(tmp_path)
     with state.record_step(
         state={
@@ -621,18 +795,70 @@ def test_segment_returns_mask_overlay_and_world_point(tmp_path: Path):
         "        - [0.0, 0.0, 1.0, 0.0]\n"
         "        - [0.0, 0.0, 0.0, 1.0]\n"
     )
+    targets = ["first", "second"] if parallel else ["first"]
+    barrier = threading.Barrier(len(targets))
+    localize = perception._mask_to_camera_world
+
+    def synchronized_localize(*args, **kwargs):
+        # Both calls reach localization before either can save an artifact.
+        barrier.wait(timeout=3)
+        return localize(*args, **kwargs)
+
+    monkeypatch.setattr(perception, "_mask_to_camera_world", synchronized_localize)
+    save = state.save
+    save_barrier = threading.Barrier(len(targets))
+
+    def synchronized_save(name, value, **kwargs):
+        if name.startswith("d455_segment_overlay_"):
+            save_barrier.wait(timeout=3)
+        return save(name, value, **kwargs)
+
+    monkeypatch.setattr(state, "save", synchronized_save)
     set_robot_config_path(config)
     try:
-        result = segment(
+        call = partial(
+            segment,
             prompt="white cardboard box interior",
-            target_name="cardboard_box_interior",
             min_valid_depth_pixels=1,
             state=state,
             sam3_client=FakeSam3Client(),
         )
+        with ThreadPoolExecutor(max_workers=len(targets)) as pool:
+            results = list(pool.map(lambda target: call(target_name=target), targets))
+        result_native = results[0]
+        result = result_native.data
+
+        monkeypatch.setattr(perception, "_mask_to_camera_world", localize)
+        failed_names = []
+
+        def fail_json_save(name, value, **kwargs):
+            if name.startswith("d455_segment_") and name.endswith(".json"):
+                failed_names.append(name)
+                return None
+            return save(name, value, **kwargs)
+
+        monkeypatch.setattr(state, "save", fail_json_save)
+        failed = call(target_name="failed")
+        failed_overlay = state.load_bytes(failed.data["overlay_artifact"])
+        monkeypatch.setattr(state, "save", save)
+        following = call(target_name="following")
+        assert failed.is_error
+        assert not following.is_error
+        assert following.data["segment_artifact"] not in failed_names
+        assert following.data["overlay_artifact"] != failed.data["overlay_artifact"]
+        assert state.load_bytes(failed.data["overlay_artifact"]) == failed_overlay
+        assert (
+            state.load(following.data["segment_artifact"])["target_name"] == "following"
+        )
     finally:
         set_robot_config_path(None)
 
+    assert len({item.data["segment_artifact"] for item in results}) == len(targets)
+    assert len({item.data["overlay_artifact"] for item in results}) == len(targets)
+    for target, item in zip(targets, results, strict=True):
+        assert not item.is_error
+        assert state.load(item.data["segment_artifact"])["target_name"] == target
+        assert item.images == [state.load_bytes(item.data["overlay_artifact"])]
     assert result["ok"]
     assert result["found"]
     assert result["coordinate_frame"] == "right_base"
@@ -643,11 +869,11 @@ def test_segment_returns_mask_overlay_and_world_point(tmp_path: Path):
     assert result["centroid_pixel"] == [4, 4]
     assert result["segment_artifact"].startswith("d455_segment_")
     assert result["overlay_artifact"].startswith("d455_segment_overlay_")
-    assert result["_image_cam_bytes"]
+    assert result_native.images and all(result_native.images)
     assert result["image_block_order"] == ["d455_segment_overlay"]
 
-    tool_result = ToolResult(name="segment", result=result)
-    image_blocks = [b for b in tool_result.content_blocks if b.get("type") == "image"]
+    blocks = mcp_result(result_native)["content"]
+    image_blocks = [b for b in blocks if b.get("type") == "image"]
     assert len(image_blocks) == 1
 
 
@@ -656,7 +882,8 @@ def test_segment_without_sam3_client_falls_back(tmp_path: Path):
     with state.record_step(state={}):
         pass
 
-    result = segment(prompt="cup", state=state, sam3_client=None)
+    result_native = segment(prompt="cup", state=state, sam3_client=None)
+    result = result_native.data
 
     assert not result["ok"]
     assert "SAM3 client is not configured" in result["error"]
@@ -667,7 +894,8 @@ def test_vla_grasp_runs_bounded_chunks():
     env = FakeEnv()
     primitives = _primitives(env, model=FakeModel())
 
-    result = primitives.vla_grasp("hand over the cube", max_chunks=3)
+    result_native = primitives.vla_grasp("hand over the cube", max_chunks=3)
+    result = result_native.data
 
     assert result["chunks_executed"] == 3
     assert len(env.chunks) == 3
@@ -677,40 +905,33 @@ def test_recover_joint_posture_forwards_to_env():
     env = FakeEnv()
     primitives = _primitives(env)
 
-    result = primitives.recover_joint_posture(reason="joint drift")
+    result_native = primitives.recover_joint_posture(reason="joint drift")
+    result = result_native.data
 
     assert result["ok"]
     assert result["reason"] == "joint drift"
 
 
-def test_named_clean_desk_vla_uses_fixed_prompt_and_semantic_boundary():
-    env = BoundaryEnv()
-    primitives = _primitives(
-        env,
-        model=FakeModel(expected_prompt=CLEAN_DESK_VLA_PROMPT),
-    )
-
-    result = primitives.vla_right_grasp(
-        prompt="grasp the next task-allowed object", max_chunks=2
-    )
-
-    assert result["ok"]
-    assert result["skill_name"] == "vla_right_grasp"
-    assert result["prompt_overridden"]
-    assert result["boundary"] == "grasp"
-    assert result["boundary_reached"]
-    assert len(env.chunks) == 3
-
-
-def test_named_vla_uses_task_configured_policy_instruction():
+def test_named_vla_uses_configured_instruction_and_semantic_boundary():
     instruction = "custom checkpoint instruction"
+    env = BoundaryEnv()
     primitives = DualFrankaPrimitives(
-        env=BoundaryEnv(),
+        env=env,
         model=FakeModel(expected_prompt=instruction),
         task_description="planner task description",
         vla_instruction=instruction,
         check_cancelled=lambda: None,
     )
-    result = primitives.vla_right_grasp(prompt="planner segment intent", max_chunks=2)
-    assert result["effective_policy_prompt"] == instruction
+
+    result_native = primitives.vla_right_grasp(
+        prompt="grasp the next task-allowed object", max_chunks=2
+    )
+    result = result_native.data
+
+    assert result["ok"]
+    assert result["skill_name"] == "vla_right_grasp"
     assert result["prompt_overridden"]
+    assert result["effective_policy_prompt"] == instruction
+    assert result["boundary"] == "grasp"
+    assert result["boundary_reached"]
+    assert len(env.chunks) == 3

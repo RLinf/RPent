@@ -62,6 +62,7 @@ class BaseEnvFacade(RpcFacade):
     def _register_rpc(self):
         """Can be overridden to register more RPC methods."""
         self._rpc["env.get_env_meta"] = self.get_env_meta
+        self._rpc["env.get_action_spec"] = self.get_action_spec
 
         self._rpc["env.reset"] = self.reset
         self._rpc["env.step"] = self.step
@@ -75,6 +76,7 @@ class BaseEnvFacade(RpcFacade):
         self._readonly_methods.update(
             [
                 "env.get_env_meta",
+                "env.get_action_spec",
                 "env.get_task_language",
                 "env.get_camera_meta",
                 "env.render_camera",
@@ -82,6 +84,12 @@ class BaseEnvFacade(RpcFacade):
         )
 
     # ---- abstract methods (subclasses must override) ----
+    def get_action_spec(self) -> dict:
+        """Return native action layouts and bounds for the direct-action tool."""
+        raise NotImplementedError(
+            "this environment does not expose direct-action specifications"
+        )
+
     def reset(self, *args, **kwargs):
         """Reset the env and return ``(initial_obs, info)``."""
         raise NotImplementedError

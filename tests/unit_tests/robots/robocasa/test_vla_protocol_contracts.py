@@ -22,9 +22,9 @@ from typing import Any
 
 from robots.robocasa.primitives import RoboCasaPrimitives
 from robots.robocasa.prompt_bundle import system_prompt
-from robots.robocasa.tools import TOOLS_SPEC
 from robots.robocasa.vla_server import _normalize_legacy_processor_geometry
 from rpent.prompt.utils import format_prompt
+from rpent.tools import iter_tools
 
 
 class _RecordingRldx:
@@ -87,15 +87,17 @@ def test_prompt_requires_live_task_language_and_fresh_geometry(tmp_path: Path) -
 
 def test_vla_tool_schema_hides_historical_prompt_override() -> None:
     vla_specs = {
-        spec["name"]: spec for spec in TOOLS_SPEC if spec["name"].startswith("rldx_")
+        spec.name: spec
+        for spec in iter_tools(RoboCasaPrimitives)
+        if spec.name.startswith("rldx_")
     }
 
     assert set(vla_specs) == {"rldx_skill", "rldx_arm"}
     for spec in vla_specs.values():
-        schema = spec["input_schema"]
+        schema = spec.input_schema
         assert schema["required"] == ["prompt"]
         assert "use_prompt" not in schema["properties"]
-        assert "complete live task_language" in spec["description"]
+        assert "complete live task_language" in spec.description
 
 
 def test_vla_always_uses_live_task_language_and_preserves_continuity() -> None:
@@ -106,12 +108,12 @@ def test_vla_always_uses_live_task_language_and_preserves_continuity() -> None:
         prompt="Pick the squash up.",
         use_prompt=True,
         max_chunks=3,
-    )
+    ).data
     second = primitives.rldx_arm(
         prompt="Place it in the microwave.",
         use_prompt=True,
         max_chunks=4,
-    )
+    ).data
 
     assert [call["prompt"] for call in rldx.calls] == [task_language, task_language]
     assert rldx.calls[0]["force_reset"] is True
@@ -131,7 +133,7 @@ def test_environment_max_chunks_locks_the_formal_protocol(monkeypatch) -> None:
     primitives, rldx = _fake_primitives(task_language)
     monkeypatch.setenv("RLDX_MAX_CHUNKS", "40")
 
-    result = primitives.rldx_skill(prompt=task_language, max_chunks=70)
+    result = primitives.rldx_skill(prompt=task_language, max_chunks=70).data
 
     assert rldx.calls[0]["max_chunks"] == 40
     assert result["effective_max_chunks"] == 40
@@ -142,7 +144,7 @@ def test_ordinary_robocasa_keeps_default_max_chunks_at_70(monkeypatch) -> None:
     primitives, rldx = _fake_primitives(task_language)
     monkeypatch.delenv("RLDX_MAX_CHUNKS", raising=False)
 
-    result = primitives.rldx_skill(prompt=task_language)
+    result = primitives.rldx_skill(prompt=task_language).data
 
     assert rldx.calls[0]["max_chunks"] == 70
     assert result["effective_max_chunks"] == 70
@@ -160,7 +162,7 @@ def test_environment_locks_all_formal_rldx_runtime_values(monkeypatch) -> None:
         max_chunks=2,
         n_action_steps=1,
         settle_patience=2,
-    )
+    ).data
 
     assert rldx.calls[0]["max_chunks"] == 40
     assert rldx.calls[0]["n_action_steps"] == 8
@@ -187,7 +189,7 @@ def test_invalid_vla_budgets_return_errors_without_executing_rldx(
         result = primitives.rldx_skill(
             prompt="Open the left drawer.",
             **arguments,
-        )
+        ).data
 
         assert result == {
             "error": f"{parameter} must be positive; VLA was not executed"
@@ -199,7 +201,7 @@ def test_matching_vla_prompt_is_reported_without_override() -> None:
     task_language = "Open the left drawer."
     primitives, rldx = _fake_primitives(task_language)
 
-    result = primitives.rldx_skill(prompt=task_language, use_prompt=False)
+    result = primitives.rldx_skill(prompt=task_language, use_prompt=False).data
 
     assert rldx.calls[0]["prompt"] == task_language
     assert result["effective_prompt"] == task_language
@@ -210,7 +212,7 @@ def test_matching_vla_prompt_is_reported_without_override() -> None:
 def test_vla_does_not_run_without_environment_task_language() -> None:
     primitives, rldx = _fake_primitives("")
 
-    result = primitives.rldx_skill(prompt="atomic fallback", use_prompt=True)
+    result = primitives.rldx_skill(prompt="atomic fallback", use_prompt=True).data
 
     assert "task language is unavailable" in result["error"]
     assert rldx.calls == []

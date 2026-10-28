@@ -16,7 +16,9 @@
 
 from __future__ import annotations
 
+import argparse
 import json
+import os
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -26,14 +28,74 @@ from typing import Any
 from rpent.evaluation import write_json_atomic
 from rpent.memory import MemoryManager
 from rpent.memory.manager import _split_frontmatter, _validate
-from rpent.tools.toolkit import readonly
-from rpent.utils.config import get_repo_root
+from rpent.memory.model import select_model_version, validate_options
+from rpent.memory.source import prepare_explicit_source
+from rpent.robots.robot_spec import RunConfig
+from rpent.utils.config import get_memory_dir, get_repo_root
 from rpent.utils.logging import get_logger
 
 logger = get_logger("robocasa_memory")
 GLOBAL_FILE = "global/GLOBAL_MEMORY.md"
 _TASK_NAME = re.compile(r"[A-Za-z][A-Za-z0-9]*\Z")
 _SPLIT_NAME = re.compile(r"[A-Za-z][A-Za-z0-9_-]*\Z")
+
+
+GPT5 = "GPT_5.5_xhigh"
+ASTRA = "GPT_6_astra_high"
+MEMORY_VERSIONS = ("auto", GPT5, ASTRA)
+MODEL_VERSIONS = {"gpt-5.5": GPT5, "gpt-6-astra": ASTRA}
+
+
+def select_version(
+    version: str = "auto", *, model: str | None = None, planner: str = "api"
+) -> str:
+    """Select the corpus independently of the evaluation reasoning effort."""
+    return select_model_version(
+        version,
+        model=model,
+        planner=planner,
+        model_versions=MODEL_VERSIONS,
+        default_version=GPT5,
+    )
+
+
+def sync_version(
+    *,
+    version: str,
+    cache_dir: Path,
+    repo_id: str | None = None,
+) -> Path:
+    """Download the selected corpus from the requested HF source (default main)."""
+    if version not in (GPT5, ASTRA):
+        raise ValueError("sync_version requires a resolved memory version")
+    source = repo_id or os.environ.get("RPENT_MEMORY_HF_REPO", "RLinf/RPent-memory")
+    root = prepare_explicit_source(
+        source, "robocasa", version=version, cache_dir=cache_dir
+    )
+    TaskMemory.load(root, None, profile="hf")
+    return root
+
+
+def prepare_memory(args: argparse.Namespace, config: RunConfig) -> None:
+    """Bind the model-selected root before prompts, tools and task services."""
+    validate_options(args)
+    profile = getattr(args, "memory_profile", None) or (
+        "local" if getattr(args, "explore", False) else "hf"
+    )
+    if profile == "local":
+        return
+    version = select_version(
+        getattr(args, "memory_version", "auto"), model=args.model, planner=args.planner
+    )
+    root = sync_version(
+        version=version,
+        repo_id=getattr(args, "memory_repo", None),
+        cache_dir=get_memory_dir("robocasa") / ".hub",
+    )
+    TaskMemory.load(root, args.task_name, profile="hf", split=args.split)
+    config.prompt_vars.update(memory_dir=str(root), memory_version=version)
+    # Runtime preflight receives args rather than RunConfig.
+    args.memory_dir = str(root)
 
 
 def task_files(task_name: str) -> tuple[str, str, str]:
@@ -276,69 +338,49 @@ class RoboCasaMemoryManager(MemoryManager):
             return resolved.relative_to(self.root).as_posix()
         return None
 
-    def get_common_tool_bindings(self):
-        """Wrap shared read/list tools; keep existing read-only write policy."""
-        bindings = super().get_common_tool_bindings()
-        shared_read = bindings["read_text_file"][1]
-        shared_list = bindings["list_dir"][1]
+    file_tool_description = (
+        " RoboCasa memory is limited to the current task and global memory."
+    )
 
-        @readonly
-        def read_text_file(path: str, max_chars: int = 40000) -> dict:
-            relative = self._relative_path(path)
-            if relative is not None:
-                if relative not in self.selection.selected:
-                    raise PermissionError(
-                        f"memory is outside current task/global selection: {path}"
-                    )
-                if (self.root / relative).read_text(
-                    encoding="utf-8"
-                ) != self.selection.contents[relative]:
-                    raise ValueError(f"memory changed during this run: {relative}")
-            result = shared_read(path=path, max_chars=max_chars)
-            if relative is not None and isinstance(result.get("content"), str):
-                content = result["content"]
-                complete = content == self.selection.contents[relative]
-                if complete:
-                    self._read_files.add(relative)
-                if self._output_dir is not None:
-                    event = {
-                        "path": relative,
-                        "complete": complete,
-                    }
-                    with (self._output_dir / "memory_reads.jsonl").open("a") as handle:
-                        handle.write(json.dumps(event) + "\n")
-            return result
-
-        @readonly
-        def list_dir(path: str = "") -> dict:
-            relative = self._relative_path(path) if path else None
-            if relative is None:
-                return shared_list(path=path)
-            prefix = "" if relative == "." else relative.rstrip("/") + "/"
-            entries = sorted(
-                {
-                    name.removeprefix(prefix).split("/")[0]
-                    for name in self.selection.selected
-                    if name.startswith(prefix)
-                }
-            )
-            if not entries and relative != ".":
+    def authorize_read(self, path: str | Path) -> Path:
+        relative = self._relative_path(str(path))
+        if relative is not None:
+            if relative not in self.selection.selected:
                 raise PermissionError(
-                    f"memory directory is outside current task/global selection: {path}"
+                    f"memory is outside current task/global selection: {path}"
                 )
-            return {
-                "path": str((self.root / relative).resolve()),
-                "count": len(entries),
-                "files": entries,
-            }
+            if (self.root / relative).read_text(
+                encoding="utf-8"
+            ) != self.selection.contents[relative]:
+                raise ValueError(f"memory changed during this run: {relative}")
+        return super().authorize_read(path)
 
-        for name, handler in (
-            ("read_text_file", read_text_file),
-            ("list_dir", list_dir),
-        ):
-            spec = dict(bindings[name][0])
-            spec["description"] += (
-                " RoboCasa memory is limited to the current task and global memory."
+    def record_read(self, path: Path, content: str) -> None:
+        relative = self._relative_path(str(path))
+        if relative is None:
+            return
+        complete = content == self.selection.contents[relative]
+        if complete:
+            self._read_files.add(relative)
+        if self._output_dir is not None:
+            event = {"path": relative, "complete": complete}
+            with (self._output_dir / "memory_reads.jsonl").open("a") as handle:
+                handle.write(json.dumps(event) + "\n")
+
+    def list_directory(self, path: str | Path) -> tuple[Path, list[str] | None]:
+        relative = self._relative_path(str(path))
+        if relative is None:
+            return super().list_directory(path)
+        prefix = "" if relative == "." else relative.rstrip("/") + "/"
+        entries = sorted(
+            {
+                name.removeprefix(prefix).split("/")[0]
+                for name in self.selection.selected
+                if name.startswith(prefix)
+            }
+        )
+        if not entries and relative != ".":
+            raise PermissionError(
+                f"memory directory is outside current task/global selection: {path}"
             )
-            bindings[name] = (spec, handler)
-        return bindings
+        return (self.root / relative).resolve(), entries

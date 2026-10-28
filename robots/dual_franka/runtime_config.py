@@ -190,6 +190,8 @@ def load_runtime_config(
             "right_gripper_type": str(right_gripper["type"]),
             "left_gripper_connection": left_gripper.get("connection"),
             "right_gripper_connection": right_gripper.get("connection"),
+            "realtime_config": robot.get("realtime_config"),
+            "compliance": robot.get("compliance"),
             "left_controller_node_rank": LEFT_CONTROLLER_NODE,
             "right_controller_node_rank": RIGHT_CONTROLLER_NODE,
             "node_rank": HARDWARE_NODE,
@@ -240,13 +242,17 @@ def load_runtime_config(
                     "keyboard_reward_wrapper": None,
                     "use_relative_frame": False,
                     "video_cfg": {},
-                    "init_params": {"id": "DualFrankaTCPEnv-v1"},
+                    "init_params": {"id": "RPentDualFrankaTCPEnv-v1"},
                     "override_cfg": override_cfg,
                 }
             },
         }
     )
     controller = flatten_control(CONTROL)
+    rotation_hold = _require_mapping(raw.get("rotation_hold", {}), "rotation_hold")
+    # max_drift_m must be finite and > 0 (m); exceeding it aborts rotation.
+    max_drift = float(rotation_hold.get("max_drift_m", 0.10))
+    controller["rotate_max_drift_m"] = max_drift
     controller["robot_config_path"] = str(
         Path(path or DEFAULT_CONFIG).expanduser().resolve()
     )

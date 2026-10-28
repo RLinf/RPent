@@ -1,0 +1,5 @@
+# Offline geometry and ChArUco detection. Install in a separate environment.
+numpy>=1.26,<2
+scipy>=1.11,<1.17
+opencv-contrib-python-headless==4.10.0.84
+PyYAML>=6.0,<7

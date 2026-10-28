@@ -107,6 +107,7 @@ Choose an environment: :doc:`LIBERO <rst_source/simulators/libero>`, :doc:`RoboC
    RoboCasa365 <rst_source/simulators/robocasa>
    RoboTwin <rst_source/simulators/robotwin>
    MetaWorld <rst_source/simulators/metaworld>
+   RoboDojo <rst_source/simulators/robodojo>
 
 .. toctree::
    :maxdepth: 2
@@ -143,4 +144,4 @@ Choose an environment: :doc:`LIBERO <rst_source/simulators/libero>`, :doc:`RoboC
 
    Harness VLA <rst_source/resources/harnessvla>
    Contributing <rst_source/resources/contributing>
-   Release Notes <rst_source/resources/release_notes>
+   v0.1 Release Notes <rst_source/resources/release_v0.1>

@@ -110,10 +110,10 @@ def test_projection_stays_bound_to_visible_snapshot_after_capture_failure(tmp_pa
     motion = toolkit.execute_tool(
         "move_to", {"target_xyz": [0.01, 0, 0], "gripper": -1, "max_steps": 1}
     )
-    assert "state_capture_error" in motion.result
+    assert "state_capture_error" in motion.data
     projection = toolkit.execute_tool("back_project", {"row": 1, "col": 2})
-    assert "error" not in projection.result
-    np.testing.assert_allclose(projection.result["world_xyz"], [2, 2, 1])
+    assert "error" not in projection.data
+    np.testing.assert_allclose(projection.data["world_xyz"], [2, 2, 1])
 
 
 def test_far_plane_is_not_reported_as_a_surface():

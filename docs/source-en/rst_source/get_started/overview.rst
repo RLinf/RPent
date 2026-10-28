@@ -32,17 +32,12 @@ Compare success rates on LIBERO, LIBERO-PRO, RoboCasa365 Target50, and RoboTwin
 C2R. Rankings apply to the methods and evaluation coverage shown; see
 :doc:`../leaderboard/index` for detailed results, configurations, and sources.
 
-.. image:: https://cdn.jsdelivr.net/gh/RLinf/misc@705bd44bfc8ad7586b76239de13167db35abcce7/rpent/benchmarks/leaderboard-en-light.png
-   :alt: RPent Leaderboard
-   :class: only-light
-   :width: 100%
-   :target: ../leaderboard/index.html
+.. raw:: html
 
-.. image:: https://cdn.jsdelivr.net/gh/RLinf/misc@705bd44bfc8ad7586b76239de13167db35abcce7/rpent/benchmarks/leaderboard-en-dark.png
-   :alt: RPent Leaderboard
-   :class: only-dark
-   :width: 100%
-   :target: ../leaderboard/index.html
+   <a href="../leaderboard/index.html">
+     <img class="only-light" src="../../_static/leaderboard/leaderboard-en-light.svg" alt="RPent Leaderboard" width="100%">
+     <img class="only-dark" src="../../_static/leaderboard/leaderboard-en-dark.svg" alt="RPent Leaderboard" width="100%">
+   </a>
 
 Choose a Platform
 -----------------
@@ -59,6 +54,8 @@ Choose a Platform
      - RLDX-1, kitchen tasks, and Target50 reproduction.
    * - :doc:`RoboTwin <../simulators/robotwin>`
      - LingBot-VLA, dual-arm simulation tasks, and C2R reproduction.
+   * - :doc:`RoboDojo <../simulators/robodojo>`
+     - Dual-arm ARX-X5 manipulation in Isaac Sim, with the RLinf Pi0.5 policy.
    * - :doc:`Single-Arm Franka <../real_world_robots/franka>`
      - Hardware preparation, calibration, motion checks, and operation.
    * - :doc:`Dual-Arm Franka <../real_world_robots/dual_franka>`

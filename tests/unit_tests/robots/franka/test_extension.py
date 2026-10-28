@@ -33,6 +33,9 @@ def test_franka_uses_rpent_owned_robot_config(fake_rlinf_realworld_modules):
 
     assert cfg.env.eval.init_params.id == "RPentFrankaEnv-v1"
     assert cfg.env.eval.override_cfg.task_description == "test task"
+    hardware = cfg.cluster.node_groups[0].hardware.configs[0]
+    assert hardware["backend"] == "franky"
+    assert hardware["realtime_config"] == "ignore"
 
 
 def test_rpent_franka_registration_exists(fake_rlinf_realworld_modules):

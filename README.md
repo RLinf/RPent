@@ -33,7 +33,7 @@ Compare RPent with reference methods on LIBERO, LIBERO-PRO, RoboCasa365 Target50
 
 Codex / GPT-6 Astra / low / reasoning: **92.63% Overall (741/800)** across all eight LIBERO-PRO suites. See the [suite results and memory-batch explanation](https://rpent.readthedocs.io/en/latest/rst_source/leaderboard/index.html#libero-pro-astra-memory), including the separately frozen Long and Spatial/Object/Goal memory batches.
 
-[![RPent Leaderboard](https://cdn.jsdelivr.net/gh/RLinf/misc@705bd44bfc8ad7586b76239de13167db35abcce7/rpent/benchmarks/leaderboard-en-light.png)](https://rpent.readthedocs.io/en/latest/rst_source/leaderboard/index.html)
+[![RPent Leaderboard](https://rpent.readthedocs.io/en/latest/_static/leaderboard/leaderboard-en-light.svg)](https://rpent.readthedocs.io/en/latest/rst_source/leaderboard/index.html)
 
 
 ## Who Should Consider Using RPent?
@@ -96,7 +96,7 @@ RPent is built for four kinds of users:
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/simulators/robocasa.html">RoboCasa</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/simulators/robotwin.html">RoboTwin</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/simulators/metaworld.html">MetaWorld (10 tasks)</a> ✅</li>
-          <li>RoboDojo</li>
+          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/simulators/robodojo.html">RoboDojo</a> ✅</li>
         </ul>
       </td>
       <td>
@@ -123,6 +123,7 @@ pip install -e ".[libero-pro]"  # Recommended default (LIBERO-PRO)
 pip install -e ".[robocasa]"    # RoboCasa
 pip install -e ".[robotwin]"    # RoboTwin
 pip install -e ".[metaworld]"   # MetaWorld
+pip install -e ".[franka]"      # Franka and dual Franka
 ```
 
 `.[libero-pro]` is the recommended default. See the [installation docs](https://rpent.readthedocs.io/en/latest/rst_source/get_started/quickstart.html) for other environments.

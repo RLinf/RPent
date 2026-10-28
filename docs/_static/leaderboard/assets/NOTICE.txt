@@ -1,0 +1,10 @@
+Interface icons: ellipsis, download and arrow-down
+Source: https://github.com/lucide-icons/lucide/tree/main/icons
+License: ISC. See LUCIDE-LICENSE.
+
+Visual design reference
+https://anonymous-report-421.github.io/public-website/?lang=en&view=1
+Only the leaderboard layout was used as a reference. Its JavaScript bundle,
+fonts, brand artwork and experimental results are not redistributed here.
+Method identities are displayed as text only. Lucide icons are used only for
+interface actions, not method identities. See the included LUCIDE-LICENSE.

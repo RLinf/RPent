@@ -23,6 +23,9 @@ import pytest
 from robots.metaworld.config import validate
 from robots.metaworld.env_server import MetaWorldEnvFacade
 from robots.metaworld.toolkit import MetaWorldToolkit, back_project_pixel
+from rpent.dashboard.events import NullDashboardEventSink
+from rpent.memory import MemoryManager
+from rpent.tools import ToolResult
 from rpent.tools.toolkit import ToolCancelled
 
 
@@ -143,7 +146,7 @@ def toolkit():
 
 def test_motion_respects_budget_and_preserves_gripper_command():
     tk = toolkit()
-    result = tk.move_to([0.2, 0, 0], gripper=-1, max_steps=3)
+    result = tk.move_to([0.2, 0, 0], gripper=-1, max_steps=3).data
     assert result["steps"] == 3
     assert not result["reached"]
     assert tk.env.step.call_count == 3
@@ -160,7 +163,7 @@ def test_motion_stops_on_episode_end_and_on_cancellation():
         True,
         {},
     )
-    assert tk.move_to([0.2, 0, 0], 1, 50)["steps"] == 1
+    assert tk.move_to([0.2, 0, 0], 1, 50).data["steps"] == 1
     tk = toolkit()
     tk.raise_if_cancelled.side_effect = ToolCancelled("cancelled")
     with pytest.raises(ToolCancelled):
@@ -182,3 +185,60 @@ def test_bad_motion_input_cannot_act(target, gripper, budget):
     with pytest.raises(ValueError):
         tk.move_to(target, gripper, budget)
     tk.env.step.assert_not_called()
+
+
+def test_native_dispatch_keeps_images_motion_and_readonly_state(tmp_path):
+    env = toolkit().env
+    obs = {
+        "eef_position": [0.0, 0.0, 0.0],
+        "gripper_opening": 1.0,
+        "terminated": False,
+        "truncated": False,
+        "instruction": "reach the goal",
+        "steps": 0,
+        "rgb": np.zeros((3, 3, 3), dtype=np.uint8),
+        "depth": np.ones((3, 3)),
+        "camera": {
+            "intrinsics": np.eye(3).tolist(),
+            "position_world": [0, 0, 0],
+            "rotation_world_from_camera": np.eye(3).tolist(),
+        },
+    }
+
+    def step(action):
+        obs["steps"] += 1
+        return obs, 0, False, False, {}
+
+    env.last_obs = obs
+    env.get_obs = lambda: obs
+    env.step.side_effect = step
+    tk = MetaWorldToolkit(
+        runtime_kwargs={"env_client": env},
+        dashboard_events=NullDashboardEventSink(),
+        memory=MemoryManager(tmp_path / "memory"),
+        state_output_dir=tmp_path / "run",
+    )
+    initial = tk.state.latest_record()
+    read = tk.execute_tool("view_env_state", {})
+    assert isinstance(read, ToolResult)
+    assert read.images[0].startswith(b"\x89PNG")
+    assert "_image_bytes" not in read.data
+    projected = tk.execute_tool("back_project", {"row": 0, "col": 0})
+    assert projected.data["world_xyz"] == [0, 0, -1]
+    assert tk.state.latest_record() is initial
+
+    invalid = tk.execute_tool("set_gripper", {"gripper": -1, "steps": 21})
+    assert invalid.is_error
+    env.step.assert_not_called()
+    assert tk.state.latest_record() is initial
+
+    moved = tk.execute_tool("set_gripper", {"gripper": -1, "steps": 2})
+    assert not moved.is_error
+    assert moved.data["motion_result"]["steps"] == 2
+    assert moved.data["steps"] == 2
+    assert moved.images[0].startswith(b"\x89PNG")
+    assert tk.state.latest_record().command["action"] == "set_gripper"
+    record = tk.state.latest_record()
+    finished = tk.execute_tool("finish", {"status": "stuck", "summary": "test"})
+    assert finished.data["_finish"]
+    assert tk.state.latest_record() is record

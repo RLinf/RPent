@@ -1,10 +1,10 @@
 # Test suite structure
 
-RPent keeps its fast, offline unit tests under `unit_tests` and its
-checkpoint-backed embodied GPU tests and explicit real-robot diagnostics under
-`e2e_tests`. Unit tests mirror the
-production module they exercise. GPU E2E tests are grouped by robot stack and
-exercise the real simulator and model runtime.
+RPent keeps fast, offline unit tests under `unit_tests`. Real-simulator smoke
+tests, model component and policy-chain tests, and explicit real-robot
+diagnostics belong under `e2e_tests`. Unit tests mirror the production module
+they exercise; GPU tests are grouped by robot stack. Environment smoke tests
+can run without model checkpoints.
 
 ## Directory layout
 
@@ -14,7 +14,7 @@ tests/
 ├── e2e_tests/
 │   ├── common.py         # shared assertions and runtime lifecycle helpers
 │   ├── run_gpu_suite.sh  # clean-environment entry point for one robot stack
-│   ├── dual_franka/     # opt-in real-robot VLA diagnostic console
+│   ├── dual_franka/      # opt-in real-robot VLA diagnostic console
 │   ├── libero/
 │   ├── robocasa/
 │   └── robotwin/
@@ -52,9 +52,10 @@ them when the first test for that module lands.
 - Name files after the behavior they verify: `*_contracts.py` for stable API
   contracts, `*_loopback.py` for real local transports, `*_lifecycle.py` for
   resource ownership, and `*_smoke.py` for installation or startup checks.
-- Put checkpoint-backed simulator and policy-chain coverage under the matching
-  `tests/e2e_tests/<robot>/` directory. Keep reusable validation and lifecycle
-  code in `tests/e2e_tests/common.py`.
+- Put real-simulator smoke tests, model component tests and policy-chain tests
+  under `tests/e2e_tests/<robot>/`. Keep environment smoke tests independent of
+  fixtures that require model checkpoints. Reusable validation and lifecycle
+  code belongs in `tests/e2e_tests/common.py`.
 
 Unit tests must run offline on an ordinary CPU machine. They may cross a real
 local boundary, such as a loopback TCP connection or child process, but must
@@ -68,14 +69,24 @@ pytest tests/unit_tests -v
 
 ## RoboCasa environment smoke tests
 
-The opt-in RoboCasa smoke suite verifies simulator installation and environment
-interfaces without loading a planner or VLA checkpoint. Install the RoboCasa
-extra and assets, then run:
+RoboCasa separates simulator checks, model component checks and the full call chain:
+
+| Tests | Coverage | Requirements |
+| --- | --- | --- |
+| `test_environment_smoke.py` | Three scenes, navigation RGB-D/world map and mobile-camera tracking | RoboCasa extra, assets and GPU/EGL; no model weights or planner credentials |
+| `test_components.py` | Environment observations over RPC and RLDX inference | Model checkpoint, assets and GPU/EGL |
+| `test_policy_chain.py` | CLI → tools → RLDX → simulator action → `finish` | Model checkpoint, assets and GPU/EGL; local scripted planner |
+
+To check simulator installation and interfaces independently, install the
+RoboCasa extra and assets, then run:
 
 ```bash
 RPENT_RUN_ROBOCASA_INTEGRATION=1 \
-  pytest tests/integration_tests/robots/robocasa/test_target50_runtime_smoke.py -v
+  pytest tests/e2e_tests/robocasa/test_environment_smoke.py -v
 ```
+
+This command needs neither `RLDX_MODEL_PATH` nor `RPENT_E2E_OUTPUT_DIR`. Without
+`RPENT_RUN_ROBOCASA_INTEGRATION=1`, the four smoke cases are skipped.
 
 The four cases cover `OpenDrawer`, `NavigateKitchen`, and
 `PickPlaceCounterToCabinet` at seed 1, plus mobile-camera movement. Task checks
@@ -104,6 +115,11 @@ bash tests/e2e_tests/run_gpu_suite.sh \
   /path/to/new-venv-root
 ```
 
+For RoboCasa, the runner enables the four environment smoke cases alongside
+the two component tests and one policy-chain test. The existing
+[GPU CI](../.github/workflows/embodied-gpu-e2e-run.yml) uses this same runner for
+all seven checks. The scripted planner needs no external planner credentials.
+
 ## Dual-Franka VLA diagnostic console
 
 Run the real-robot diagnostic explicitly from a source checkout after installing
@@ -112,16 +128,20 @@ statistics, cameras, reachable robot environment, and easy_handeye YAML paths un
 `perception.calibration` in the robot config:
 
 ```bash
-python -m tests.e2e_tests.dual_franka.dual_franka_vla --task-id 1 \
+python -m tests.e2e_tests.dual_franka.dual_franka_vla \
   --robot-config /path/to/robot.yaml \
   --vla-model-path /path/to/checkpoint --vla-repo-id org/dataset
 ```
 
 This console is not collected by pytest or included in the automated GPU suite.
-Initialization may reset the robot. Only `step` and `run N` execute predictions;
-`infer` records a prediction without execution. Action validation expects 20
-steps per chunk; use `--expected-action-steps` for a different checkpoint chunk
-length. The console starts only env and VLA components, with no SAM3 dependency.
+Startup does not reset the robot. Enter `run N` for N prediction chunks, `run`
+for continuous rollout, `reset` for an operator-confirmed reset, or `quit` to exit.
+The instruction comes from `vla.instruction` in the robot config or `--instruction`,
+not a registered task. Ctrl-C, SIGTERM, or the printed `STOP` file stops rollout;
+stop checks occur between individual actions, but an in-flight RPC may still finish.
+Inputs and predictions are saved as JSON/NPZ. The prediction chunk length comes
+from `vla.status`; `--expected-action-steps` overrides it. The console starts only
+env and VLA components, with no SAM3 dependency.
 Offline regression tests remain in `unit_tests/robots/dual_franka/`.
 
 See the deployment prerequisites in the

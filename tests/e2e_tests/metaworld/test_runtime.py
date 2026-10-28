@@ -120,16 +120,16 @@ def test_tool_dispatch_records_motion_and_finish(output):
         )
         try:
             read = toolkit.execute_tool("view_env_state", {})
-            assert read.result["_image_bytes"]
+            assert read.images[0]
             move = toolkit.execute_tool("set_gripper", {"gripper": -1, "steps": 2})
-            assert "error" not in move.result
-            assert move.result["motion_result"]["steps"] == 2
-            assert move.result["steps"] == 2
+            assert "error" not in move.data
+            assert move.data["motion_result"]["steps"] == 2
+            assert move.data["steps"] == 2
             finish = toolkit.execute_tool(
                 "finish",
                 {"status": "stuck", "summary": "bounded real simulator tool check"},
             )
-            assert finish.is_finish
+            assert finish.data["_finish"]
             assert (config.output_dir / "states.json").exists()
         finally:
             toolkit.close()

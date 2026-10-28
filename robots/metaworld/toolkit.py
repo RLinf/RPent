@@ -17,13 +17,14 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Annotated, Any
 
 import numpy as np
+from pydantic import Field
 
 from rpent.dashboard.events import DashboardEventSink
 from rpent.session import EnvState
-from rpent.tools.toolkit import Toolkit, readonly
+from rpent.tools import Toolkit, ToolResult, iter_tools, tool
 
 if TYPE_CHECKING:
     from rpent.memory import MemoryManager
@@ -75,95 +76,43 @@ class MetaWorldToolkit(Toolkit):
             state=EnvState(state_output_dir),
             memory=memory,
         )
-        number = {"type": "number"}
-        for name, description, properties, required, handler in [
-            (
-                "view_env_state",
-                "Read the current RGB image and arm proprioception.",
-                {},
-                [],
-                self.view_env_state,
-            ),
-            (
-                "back_project",
-                "Map an image pixel (row, col) to a visible surface in world meters.",
-                {"row": {"type": "integer"}, "col": {"type": "integer"}},
-                ["row", "col"],
-                self.back_project,
-            ),
-            (
-                "move_to",
-                "Move toward a world XYZ target with fixed wrist orientation; gripper +1 closes, -1 opens. Check reached.",
-                {
-                    "target_xyz": {
-                        "type": "array",
-                        "items": number,
-                        "minItems": 3,
-                        "maxItems": 3,
-                    },
-                    "gripper": number,
-                    "max_steps": {"type": "integer", "minimum": 1, "maximum": 100},
-                },
-                ["target_xyz", "gripper"],
-                self.move_to,
-            ),
-            (
-                "set_gripper",
-                "Open (-1) or close (+1) while holding the current end-effector position.",
-                {
-                    "gripper": number,
-                    "steps": {"type": "integer", "minimum": 1, "maximum": 20},
-                },
-                ["gripper"],
-                self.set_gripper,
-            ),
-        ]:
-            self.add_tool(
-                name,
-                {
-                    "name": name,
-                    "description": description,
-                    "input_schema": {
-                        "type": "object",
-                        "properties": properties,
-                        "required": required,
-                        "additionalProperties": False,
-                    },
-                },
-                handler,
-            )
+        self.add_tools(iter_tools(self))
         self.get_env_state(command={}, result={}, elapsed_s=0)
         self._publish_step(self._state.latest_record())
 
-    @readonly
-    def view_env_state(self) -> dict:
+    @tool(readonly=True)
+    def view_env_state(self) -> ToolResult:
         """Read the latest camera snapshot without advancing simulation."""
         return self._view()
 
-    def _view(self) -> dict:
+    def _view(self) -> ToolResult:
         record = self._state.latest_record()
-        return {
-            **record.state,
-            "episode_ended": bool(record.terminated or record.truncated),
-            "terminated": record.terminated,
-            "truncated": record.truncated,
-            "_image_bytes": self._state.load_bytes("camera.png", step=-1),
-        }
+        return ToolResult(
+            data={
+                **record.state,
+                "episode_ended": bool(record.terminated or record.truncated),
+                "terminated": record.terminated,
+                "truncated": record.truncated,
+            },
+            images=[self._state.load_bytes("camera.png", step=-1)],
+        )
 
-    @readonly
-    def back_project(self, row: int, col: int) -> dict:
+    @tool(readonly=True)
+    def back_project(self, row: int, col: int) -> ToolResult:
         """Locate a visible surface from the latest snapshot's depth."""
-        return {
-            "world_xyz": back_project_pixel(
-                {
-                    "depth": self._state.load("depth.npy", step=-1),
-                    "camera": self._state.latest_record().state["camera"],
-                },
-                row,
-                col,
-            ),
-            "pixel": [row, col],
-        }
+        return ToolResult(
+            data={
+                "world_xyz": back_project_pixel(
+                    {
+                        "depth": self._state.load("depth.npy", step=-1),
+                        "camera": self._state.latest_record().state["camera"],
+                    },
+                    row,
+                    col,
+                ),
+                "pixel": [row, col],
+            }
+        )
 
     @staticmethod
     def _gripper(value: float) -> float:
@@ -178,10 +127,14 @@ class MetaWorldToolkit(Toolkit):
             raise RuntimeError("episode ended; call finish")
         self.obs = self.env.step(action)[0]
 
+    @tool
     def move_to(
-        self, target_xyz: list[float], gripper: float, max_steps: int = 50
-    ) -> dict:
-        """Apply bounded Cartesian corrections with the requested gripper action."""
+        self,
+        target_xyz: Annotated[list[float], Field(min_length=3, max_length=3)],
+        gripper: Annotated[float, Field(ge=-1, le=1)],
+        max_steps: Annotated[int, Field(ge=1, le=100)] = 50,
+    ) -> ToolResult:
+        """Move toward world XYZ with fixed wrist orientation; gripper +1 closes, -1 opens. Check reached."""
         target = np.asarray(target_xyz, dtype=float)
         if target.shape != (3,) or not np.isfinite(target).all():
             raise ValueError("target_xyz must be three finite world coordinates")
@@ -205,9 +158,16 @@ class MetaWorldToolkit(Toolkit):
             self._step([*np.clip(delta / 0.01, -1, 1).tolist(), gripper])
             count += 1
         distance = float(np.linalg.norm(target - np.asarray(self.obs["eef_position"])))
-        return {"reached": distance < 0.005, "distance_m": distance, "steps": count}
+        return ToolResult(
+            data={"reached": distance < 0.005, "distance_m": distance, "steps": count}
+        )
 
-    def set_gripper(self, gripper: float, steps: int = 10) -> dict:
+    @tool
+    def set_gripper(
+        self,
+        gripper: Annotated[float, Field(ge=-1, le=1)],
+        steps: Annotated[int, Field(ge=1, le=20)] = 10,
+    ) -> ToolResult:
         """Apply a gripper command without requesting Cartesian displacement."""
         gripper = self._gripper(gripper)
         if (
@@ -220,9 +180,13 @@ class MetaWorldToolkit(Toolkit):
         while count < steps and not (self.obs["terminated"] or self.obs["truncated"]):
             self._step([0, 0, 0, gripper])
             count += 1
-        return {"steps": count, "gripper_opening": self.obs["gripper_opening"]}
+        return ToolResult(
+            data={"steps": count, "gripper_opening": self.obs["gripper_opening"]}
+        )
 
-    def get_env_state(self, *, command: dict, result: dict, elapsed_s: float) -> dict:
+    def get_env_state(
+        self, *, command: dict, result: dict, elapsed_s: float
+    ) -> ToolResult:
         """Record the observation and attach the motion result to the tool response."""
         self.obs = self.env.get_obs()
         public = {
@@ -245,7 +209,9 @@ class MetaWorldToolkit(Toolkit):
         ):
             self._state.save("camera.png", self.obs["rgb"])
             self._state.save("depth.npy", self.obs["depth"])
-        return {**self._view(), "motion_result": result}
+        observed = self._view()
+        observed.data["motion_result"] = result
+        return observed
 
     def solved(self) -> bool:
         """Read the native success accumulator only for run finalization."""

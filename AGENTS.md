@@ -1,8 +1,9 @@
 # Working on RPent
 
-Follow [CONTRIBUTING.md](CONTRIBUTING.md) for development, testing, and pull
-requests. Use the implementation and its callers to verify behavior; report
-disagreements with documentation instead of assuming either is correct.
+Follow [CONTRIBUTING.md](CONTRIBUTING.md) for development conventions, including
+module ownership and interface contracts, and for testing and pull requests.
+Use the implementation and its callers to verify behavior; report disagreements
+with documentation instead of assuming either is correct.
 
 ## Repository map
 
@@ -23,10 +24,9 @@ disagreements with documentation instead of assuming either is correct.
   Preserve unrelated working-tree changes.
 - Reuse existing configuration, registration, RPC, runtime, and artifact
   helpers. Prefer RLinf's supported Env/VLA implementations with thin RPent
-  adapters; keep robot-specific behavior in its owning package.
-- Preserve existing contracts. Base compatibility paths and new abstractions
-  on actual consumers or supported data, and explain intentional behavior
-  changes and migrations in the PR.
+  adapters.
+- Base compatibility paths and new abstractions on actual consumers or
+  supported data.
 - Validate external inputs at the boundary that owns the operation. Keep
   internal control flow direct, avoid repeated checks of established state,
   and preserve useful errors. Make resource ownership and cleanup explicit.

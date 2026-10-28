@@ -19,3 +19,5 @@
 
    * - :doc:`metaworld`
      - 十种任务类型，支持 RGB-D 与有步数上限的笛卡尔控制。
+   * - :doc:`robodojo`
+     - Isaac Sim 双臂 ARX-X5 操作与 RLinf Pi0.5 策略。

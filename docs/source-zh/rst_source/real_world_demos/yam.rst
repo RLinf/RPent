@@ -1,7 +1,7 @@
 YAM
 ===
 
-本页展示 YAM 的任务执行过程。:doc:`YAM 安装与使用 <../real_world_robots/yam>` 文档即将推出。
+本页展示 YAM 的任务执行过程。:doc:`YAM 安装与使用 <../real_world_robots/yam>` 文档说明安装与运行。
 
 .. raw:: html
 

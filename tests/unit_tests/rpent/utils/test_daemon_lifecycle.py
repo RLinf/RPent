@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 import time
 from collections.abc import Callable
@@ -23,7 +24,7 @@ from typing import Any
 
 import pytest
 
-from rpent.utils.daemon import ProcessDaemon
+from rpent.utils.daemon import ParentDeathWatcher, ProcessDaemon
 from rpent.utils.rpc import wait_for_ready
 
 
@@ -81,6 +82,82 @@ def test_daemon_starts_logs_and_stops_idempotently(tmp_path: Path) -> None:
     assert daemon.poll() is not None
     assert log_path.read_text().strip() == "ready"
     daemon.stop(timeout=0.01)
+
+
+def test_parent_watcher_uses_raw_fd_and_stops_without_fatal_thread() -> None:
+    read_fd, write_fd = os.pipe()
+    calls: list[bool] = []
+    try:
+        watcher = ParentDeathWatcher(lambda: calls.append(True), fd=read_fd)
+        os.close(write_fd)
+        _wait_until(lambda: calls == [True])
+        watcher.close()
+        assert not watcher._thread.is_alive()
+    finally:
+        for fd in (read_fd, write_fd):
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+
+
+@pytest.mark.parametrize("eof", [False, True])
+def test_watcher_subprocess_eof_and_cancellation_exit_cleanly(eof):
+    script = """
+import threading
+from rpent.utils.daemon import watch_parent_death
+done = threading.Event()
+watcher = watch_parent_death(done.set)
+print("ready", flush=True)
+if EOF:
+    assert done.wait(5)
+watcher.close()
+assert not watcher._thread.is_alive()
+assert done.is_set() == EOF
+""".replace("EOF", repr(eof))
+    proc = subprocess.Popen(
+        [sys.executable, "-c", script],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert proc.stdout.readline().strip() == "ready"
+        if eof:
+            proc.stdin.close()
+        assert proc.wait(timeout=10) == 0
+        assert "Fatal Python error" not in proc.stderr.read()
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+        proc.stdin.close()
+        proc.stdout.close()
+        proc.stderr.close()
+
+
+def test_daemon_parent_watch_exits_zero_on_stop(tmp_path):
+    script = """
+import threading
+from rpent.utils.daemon import watch_parent_death
+done = threading.Event()
+watcher = watch_parent_death(done.set)
+print("ready", flush=True)
+try:
+    done.wait()
+finally:
+    watcher.close()
+"""
+    daemon, log = _python_daemon(tmp_path, script)
+    daemon.cmd.append("--parent-watch")
+    daemon.start()
+    try:
+        _wait_until(lambda: "ready" in log.read_text())
+    finally:
+        daemon.stop(timeout=2)
+    assert daemon.poll() == 0
+    assert "Fatal Python error" not in log.read_text()
 
 
 def test_wait_for_ready_fails_fast_when_daemon_exits(tmp_path: Path) -> None:

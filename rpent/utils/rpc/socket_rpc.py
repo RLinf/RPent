@@ -19,16 +19,18 @@ process and receives the method's return value. Numpy arrays, dicts of
 arrays, and any other pickle-serializable payloads ride the wire as pickle
 frames (length-prefixed, one frame per request/response).
 
-Both processes are spawned by the same user on the same host, so we use
-pickle rather than a more defensive codec.
+This transport trusts both endpoints. Use a private network or SSH tunnel;
+unpickling data from an untrusted client permits arbitrary code execution.
 """
 
 from __future__ import annotations
 
 import pickle
+import shutil
 import socket
 import socketserver
 import struct
+import tempfile
 from typing import Any, Callable
 
 from rpent.utils.logging import get_logger
@@ -61,8 +63,15 @@ def _read_frame(reader) -> Any:
 
 
 def _write_frame(writer, obj: Any) -> None:
-    body = pickle.dumps(obj, protocol=pickle.HIGHEST_PROTOCOL)
-    writer.write(_LEN_PREFIX.pack(len(body)) + body)
+    # Protocol 5 uses numpy._core.numeric for NumPy 2 arrays, which the
+    # deployed NumPy 1.26 model runtime cannot import. Protocol 4 works on both.
+    # Spill large RGBD chunks instead of keeping serialized bytes plus a second
+    # concatenated length-prefixed copy in RAM. This is not a real-time guarantee.
+    with tempfile.SpooledTemporaryFile(max_size=1024 * 1024) as body:
+        pickle.dump(obj, body, protocol=4)
+        writer.write(_LEN_PREFIX.pack(body.tell()))
+        body.seek(0)
+        shutil.copyfileobj(body, writer, length=1024 * 1024)
     writer.flush()
 
 
