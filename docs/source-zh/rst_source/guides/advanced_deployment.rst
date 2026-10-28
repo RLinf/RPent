@@ -43,7 +43,7 @@ VLA 服务只加载一次模型，可以由多个 RPent 运行复用。
 APXInf VLA 服务（可选）
 ------------------------------
 
-APXInf 适配器可以替代 Pi0.5 服务。在已安装 RPent 的环境中，按照 `APXinf-robo 安装说明 <https://github.com/RLinf/APXinf-robo#build-apxinf-robo>`_ 安装推理依赖。规划器和环境可以继续使用原有 LIBERO 安装及其 OpenPI 依赖。
+APXInf 适配器可以替代 Pi0.5 服务。在已安装 RPent 的环境中，按照 `APXinf-robo 安装说明 <https://github.com/RLinf/APXinf-robo#build-apxinf-robo>`_ 安装推理依赖。上游安装说明中的 ``libero`` 和 ``serve`` extras 并非此 RPent RPC endpoint 的必需依赖。规划器和环境可以继续使用原有 LIBERO 安装及其 OpenPI 依赖。
 
 准备兼容的 Pi0.5 LIBERO 模型权重、SentencePiece tokenizer 和归一化统计文件。
 

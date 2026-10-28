@@ -55,8 +55,10 @@ APXInf VLA Service (Optional)
 
 Use the APXInf adapter in place of the Pi0.5 service. Follow the
 `APXinf-robo installation instructions <https://github.com/RLinf/APXinf-robo#build-apxinf-robo>`_
-in an environment with RPent installed. The planner and environment can keep
-their existing LIBERO installation, including its OpenPI dependency.
+in an environment with RPent installed. The ``libero`` and ``serve`` extras in
+the upstream instructions are not required for this RPent RPC endpoint. The
+planner and environment can keep their existing LIBERO installation, including
+its OpenPI dependency.
 
 Prepare a compatible Pi0.5 LIBERO checkpoint, SentencePiece tokenizer and
 normalization statistics.
