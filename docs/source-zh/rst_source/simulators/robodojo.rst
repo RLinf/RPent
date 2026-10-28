@@ -245,6 +245,42 @@ SAM3 用于物体分割。先在 `facebook/sam3 模型页面 <https://huggingfac
 未指定输出目录时，结果保存在 ``logs/<timestamp>_robodojo_<task>_s<seed>_l<layout>/``。并发运行应使用不同目录。\
 实时查看方式见 :doc:`../guides/dashboard`。
 
+任务记忆与探索模式
+------------------
+
+评测只读已发布记忆。Prompt 选择同一任务版本在 seed 0、layout 0 上生成的 JSON 审计与 JSONL 动作序列，同时读取对应 task-family 经验和相关 global 经验。普通版与 ``*_random`` 版本的参考文件分开使用；缺少参考时，规划器记录缺失并根据当前观测继续。其他探索场景的产物可以作为经验保留，但不是评测 prompt 的默认参考。
+
+使用已准备的本地记忆进行评测：
+
+.. code-block:: bash
+
+   rpent --robot robodojo --vla-backend vpp2 \
+     --task stack_blocks --seed 1 --layout 0 \
+     --planner codex --model <planner-model> --reasoning-effort low \
+     --memory-profile local --memory-dir /path/to/robodojo-memory \
+     --max-turns 10000 --max-episode-steps 10000 --planner-timeout-s 4800 \
+     --output-dir /path/to/eval-output
+
+使用已发布的 Hugging Face 记忆时，将本地记忆参数替换为 ``--memory-profile hf`` 和 ``--memory-repo RLinf/RPent-memory@COMMIT_SHA``。公共加载器读取数据集的 ``robodojo/`` 目录；将 ``COMMIT_SHA`` 替换为已发布的数据集版本。来源选择和发布流程见 :doc:`../guides/memory`。
+
+探索复用公共 session 循环和本地记忆 inbox，在同一 task、seed 组和 layout 上重试，默认最多 3 个 session、每个 session 5 次尝试。原生成功后提前结束整个运行。按前文配置服务后，执行：
+
+.. code-block:: bash
+
+   rpent --robot robodojo --vla-backend vpp2 \
+     --task stack_blocks --seed 0 --layout 0 --explore \
+     --planner codex --model <planner-model> --reasoning-effort low \
+     --memory-dir /path/to/robodojo-memory \
+     --explore-sessions 3 --explore-attempts-per-session 5 \
+     --max-turns 10000 --max-episode-steps 10000 --planner-timeout-s 4800 \
+     --output-dir /path/to/explore-output
+
+使用 ``--task stack_blocks_random`` 探索保存好的随机化版本。``--random`` 参数会生成新场景，因此探索模式不支持它。两个示例都保留任务的原生动作步数上限，较大的包装层限制不会延长原生预算。``--planner-timeout-s`` 限制每个 planner session 的耗时，包括推理与工具调用。
+
+规划器读取 ``robots/robodojo/guides/GUIDE_RPENT.md`` 并使用对应模式的 prompt。探索期间，失败尝试记录保存在运行输出中，工作笔记保存在当前场景的 ``_internal/inbox/<cell>/wip/``。成功后，runner 按调用顺序将最后一次尝试中的运动命令和成功返回掩码的 SAM3 调用导出为 ``<cell>_recipe.jsonl``。规划器写入对应的 ``<cell>.json`` 审计，并提出 task-family 和 global 经验。SAM3 返回掩码不代表对象身份已确认，仍需检查图像。
+
+公共 finalizer 将成功的审计／动作序列文件对和有效经验合并到本地 ``task-specific/``、``task-family/`` 和 ``global/``，并更新 ``MEMORY.md``。使用 ``--no-auto-merge-memory`` 可保留产物供手动审核。本地发布不会上传 Hugging Face；公开记忆在数据集仓库中单独审核。目录结构见 :doc:`../development/memory`。
+
 常用参数
 --------
 
@@ -265,7 +301,7 @@ SAM3 用于物体分割。先在 `facebook/sam3 模型页面 <https://huggingfac
 工具
 ----
 
-规划器不能重置回合；探索模式和 Flash 重放不可用。
+评测只运行一个回合，不提供 reset；探索模式允许通过 ``reset`` 重试同一场景。Flash 回放仍不可用。
 
 初始观测和运动反馈包含 ``episode_status.step`` （已用原生动作步数）、``step_limit`` （总步数上限）和 ``remaining_steps`` （剩余步数）。
 这些计数对应观测保存时的状态；顶层 ``step`` 是观测记录编号。读取历史观测不会消耗动作步数。
@@ -280,7 +316,7 @@ SAM3 用于物体分割。先在 `facebook/sam3 模型页面 <https://huggingfac
 
 运动 Primitive 使用原生 cuRobo 位姿规划并执行关节目标。规划器的障碍物模型包含简化桌面，未完整表示场景物体和另一只机械臂；选择路点时应为它们留出空间。
 
-``move_to(arm, xyz, quat=None, gripper=None, substeps=25)`` 使用世界坐标、米及 wxyz 四元数；省略姿态或夹爪参数则保持对应状态／目标。``substeps`` 限制路径抽样数，0 保留完整路径，1 仅取最后路点，不代表速度或物理步数。``rotate_wrist`` 绕世界 Z 轴相对旋转，单位为度。``final_dist_m`` 是实测位置误差，不是到达保证。检查 ``completed``、``executed_steps`` 和 ``stop_reason``；超时的动作可能已在服务端执行，不会自动重试。
+``move_to(arm, xyz, quat=None, gripper=None, substeps=25)`` 使用世界坐标、米及 wxyz 四元数；省略姿态或夹爪参数则保持对应状态／目标。``substeps`` 限制路径抽样数，每个执行的路点消耗一个原生动作步（0.04 秒仿真时间）。Prompt 默认使用 25，较小修正可依次选择 10、5、1；1 只发送最后路点，不会等待到达。``rotate_wrist`` 绕世界 Z 轴相对旋转，单位为度。``final_dist_m`` 是实测位置误差，不是到达保证。检查 ``completed``、``executed_steps`` 和 ``stop_reason``；超时的动作可能已在服务端执行，不会自动重试。
 
 ``set_gripper(arm, val, steps=10)`` 使用 0=闭、1=开，``release`` 默认开到 1。中间值表示归一化开度目标，而非物理宽度。反馈读取实测关节状态，夹爪运动期间保持其他关节目标不变。
 

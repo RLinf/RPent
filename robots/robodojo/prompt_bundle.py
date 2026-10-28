@@ -18,7 +18,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from robots.robodojo.prompts import system as system_parts
+from robots.robodojo.prompts import evaluate as evaluate_parts
+from robots.robodojo.prompts import explore as explore_parts
 from robots.robodojo.prompts import user as user_parts
 from rpent.prompt.utils import PromptNode
 
@@ -26,24 +27,10 @@ from rpent.prompt.utils import PromptNode
 def system_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> PromptNode:
-    sections = {
-        "ROLE AND RULES": system_parts.ROLE_AND_RULES,
-        "TOOL ACCESS": system_parts.TOOL_ACCESS,
-        "PERCEPTION": system_parts.PERCEPTION,
-        "AVAILABLE OPERATIONS": system_parts.TOOLS,
-        "OBSERVE AND ACT": system_parts.ACTION_LOOP,
-        "SAFETY": system_parts.SAFETY,
-        "REWARD AND SCORE": system_parts.REWARD,
-        "OUTPUT DISCIPLINE": system_parts.OUTPUT_DISCIPLINE,
-    }
-    if (variables or {}).get("mode") == "eval-fair":
-        sections["REWARD AND SCORE"] = (
-            "Task success feedback is unavailable to this client."
-        )
-        sections["OUTPUT DISCIPLINE"] = (
-            "Call finish with your observed outcome; do not claim a verified task verdict."
-        )
-    return sections
+    """Select the RoboDojo evaluation or exploration system prompt."""
+    if (variables or {}).get("mode") == "explore":
+        return explore_parts.system_prompt()
+    return evaluate_parts.system_prompt(variables)
 
 
 def user_prompt(

@@ -433,10 +433,12 @@ def test_mode_tools_state_and_prompt_gate(monkeypatch, tmp_path, eval_fair):
         "task": "put_bottles_into_dustbin",
         "layout": 0,
         "output_dir": str(tmp_path),
+        "memory_dir": str(tmp_path / "memory"),
         "env_cfg_type": "arx_x5",
         "action_type": "joint",
         "task_summary": "scene",
         "recipe_tag": "pick",
+        "reference_tag": "put_bottles_into_dustbin_s0_l0",
         "seed": 0,
     }
     prompt = bundle.render("system", variables=variables) + bundle.render(

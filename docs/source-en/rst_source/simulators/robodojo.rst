@@ -286,6 +286,69 @@ Without ``--output-dir``, results go to
 ``logs/<timestamp>_robodojo_<task>_s<seed>_l<layout>/``. Use different directories for
 concurrent runs. For live monitoring, see :doc:`../guides/dashboard`.
 
+Task Memory and Exploration Mode
+--------------------------------
+
+Evaluation reads published memory without modifying it. The prompt selects the
+exact task variant's seed-0/layout-0 audit and recipe, together with its
+task-family note and relevant global lessons. Standard and ``*_random``
+references remain separate; missing references are reported, and the planner
+continues from current observations. Other exploration cells remain available
+as evidence but are not the evaluation prompt's default reference.
+
+To evaluate with a prepared local corpus:
+
+.. code-block:: bash
+
+   rpent --robot robodojo --vla-backend vpp2 \
+     --task stack_blocks --seed 1 --layout 0 \
+     --planner codex --model <planner-model> --reasoning-effort low \
+     --memory-profile local --memory-dir /path/to/robodojo-memory \
+     --max-turns 10000 --max-episode-steps 10000 --planner-timeout-s 4800 \
+     --output-dir /path/to/eval-output
+
+For a published Hugging Face corpus, use ``--memory-profile hf`` and
+``--memory-repo RLinf/RPent-memory@COMMIT_SHA`` instead of the local memory
+arguments. The shared loader selects the dataset's ``robodojo/`` directory;
+replace ``COMMIT_SHA`` with the published dataset revision. See
+:doc:`../guides/memory` for source selection and publication.
+
+Exploration uses the shared session loop and local memory inbox. It retries the
+same task, seed group and layout, with three sessions and five attempts per
+session by default. Native success ends the run early. Configure services as
+above, then run:
+
+.. code-block:: bash
+
+   rpent --robot robodojo --vla-backend vpp2 \
+     --task stack_blocks --seed 0 --layout 0 --explore \
+     --planner codex --model <planner-model> --reasoning-effort low \
+     --memory-dir /path/to/robodojo-memory \
+     --explore-sessions 3 --explore-attempts-per-session 5 \
+     --max-turns 10000 --max-episode-steps 10000 --planner-timeout-s 4800 \
+     --output-dir /path/to/explore-output
+
+Use ``--task stack_blocks_random`` to explore the saved randomized variant.
+The ``--random`` flag generates a new scene and is unavailable in exploration.
+The native task action limit remains in force in both examples; the larger
+wrapper limit does not extend it. ``--planner-timeout-s`` bounds each planner
+session, including its reasoning and tool calls.
+
+The planner reads ``robots/robodojo/guides/GUIDE_RPENT.md`` and follows the
+mode-specific prompt. Exploration records failed attempts under run output and
+working notes in the cell's ``_internal/inbox/<cell>/wip/``. After success, the
+runner exports motion commands and successful SAM3 detections from the final
+attempt to ``<cell>_recipe.jsonl`` in call order. The planner writes the matching
+``<cell>.json`` audit and proposes task-family and global lessons. A successful
+SAM3 detection means a mask was returned; identity still requires inspection.
+
+The shared finalizer publishes the successful audit/recipe pair and valid
+proposals into local ``task-specific/``, ``task-family/`` and ``global/`` and
+updates ``MEMORY.md``. ``--no-auto-merge-memory`` retains output for manual
+review. Local publication does not upload to Hugging Face; public memory is
+reviewed separately in the dataset repository. See :doc:`../development/memory`
+for the shared file layout.
+
 Common Options
 --------------
 
@@ -316,7 +379,8 @@ for the full option list.
 Tools
 -----
 
-The planner cannot reset an episode; exploration and Flash replay are unavailable.
+Evaluation runs one episode without reset. Exploration exposes ``reset`` for
+retries of the same scene; Flash replay remains unavailable.
 
 Initial observations and motion feedback include ``episode_status.step``
 (native actions used), ``step_limit`` (total budget), and ``remaining_steps``.
@@ -360,8 +424,10 @@ represented in that model.
 
 ``move_to(arm, xyz, quat=None, gripper=None, substeps=25)`` uses world metres
 and wxyz orientation. Omitted orientation and gripper targets are held.
-``substeps`` caps sampled waypoints: 0 keeps the full path, 1 keeps only its
-final waypoint. It is not a speed or physics-step count. ``rotate_wrist``
+``substeps`` caps sampled waypoints. Each executed waypoint consumes one native
+action step (0.04 seconds of simulation). The prompt uses 25 by default, or
+10, 5 and 1 for progressively smaller corrections; 1 sends only the final
+waypoint and does not wait for arrival. ``rotate_wrist``
 rotates about world Z in degrees. ``final_dist_m`` is measured position error,
 not an arrival guarantee. Check ``completed``, ``executed_steps`` and
 ``stop_reason``; a timed-out mutation may have executed and is not retried.

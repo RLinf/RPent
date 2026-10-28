@@ -52,18 +52,20 @@ class RoboDojoPrimitives:
         sam3_client=None,
         vla_client=None,
         action_type="joint",
+        exploration=False,
     ):
         self.env = env
         self._check_cancelled = check_cancelled
         self.sam3_client = sam3_client
         self.vla_client = vla_client
         self.action_type = action_type
+        self.exploration = exploration
         self._last_obs = None
         self._segment_index = 0
         self._segment_index_lock = Lock()
 
     def reserve_segment_index(self) -> int:
-        """Allocate a unique artifact index within this trace."""
+        """Allocate a trace-wide artifact index, including across resets."""
         with self._segment_index_lock:
             index = self._segment_index
             self._segment_index += 1
@@ -196,7 +198,7 @@ class RoboDojoPrimitives:
         gripper: Annotated[float, Field(ge=0, le=1, allow_inf_nan=False)] | None = None,
         substeps: Annotated[int, Field(ge=0)] = 25,
     ) -> ToolResult:
-        """Plan a world-metre xyz and wxyz orientation. Omitted orientation/opening is held. substeps caps sampled waypoints (0: full path, 1: final only), not physics steps. Sampling and the native table-only obstacle model do not guarantee scene-wide collision avoidance."""
+        """Plan a world-metre xyz and wxyz orientation. Omitted orientation/opening is held. Use substeps=25 by default; choose only 1, 5, 10 or 25 using the motion guidance. Each executed waypoint consumes one native action step; completion does not guarantee arrival. Sampling can skip detours, and the native planner does not model every scene obstacle."""
         if type(substeps) is not int or substeps < 0:
             raise ValueError("substeps must be a nonnegative integer")
         if gripper is not None and (not np.isfinite(gripper) or not 0 <= gripper <= 1):
@@ -245,7 +247,7 @@ class RoboDojoPrimitives:
         gripper: Annotated[float, Field(ge=0, le=1, allow_inf_nan=False)] | None = None,
         substeps: Annotated[int, Field(ge=0)] = 25,
     ) -> ToolResult:
-        """Rotate the end effector about world Z by a relative angle in degrees."""
+        """Rotate the end effector about world Z by a relative angle in degrees. Use the same substeps selection as move_to: 25 by default, or 10, 5 or 1 for progressively smaller adjustments. Inspect the achieved orientation and held object afterward."""
         if not np.isfinite(delta_yaw_deg):
             raise ValueError("delta_yaw_deg must be finite")
         self._check_cancelled()
@@ -300,6 +302,13 @@ class RoboDojoPrimitives:
     ) -> ToolResult:
         """Open one gripper, by default to 1.0 over ten action targets."""
         return self.set_gripper(arm=arm, val=val, steps=steps)
+
+    def reset(self) -> dict:
+        """Restart the configured task/seed/layout without clearing EnvState."""
+        self._check_cancelled()
+        self.env.reset()
+        self._last_obs = None
+        return {"success": True}
 
     @tool(readonly=True)
     def finish(self, *, status: str, summary: str) -> ToolResult:
