@@ -1052,3 +1052,76 @@ def test_claude_code_api_error_status_429_is_provider_error(
     result = check_llm(LlmCheckRequest(planner="claude_code"))
 
     assert result.status == STATUS_PROVIDER_ERROR
+
+
+# ---------------------------------------------------------------------------
+# Session isolation must reach the connectivity check too
+# ---------------------------------------------------------------------------
+
+
+def test_the_claude_probe_honours_rpent_claude_config_dir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    """The probe redirects CLAUDE_CONFIG_DIR exactly like a real run.
+
+    Without this, the connectivity check writes to the user's personal CLI
+    history and validates a different configuration than the planner uses.
+    """
+    monkeypatch.setenv("ANTHROPIC_API_KEY", SENTINEL_KEY)
+    monkeypatch.setenv("RPENT_CLAUDE_CONFIG_DIR", str(tmp_path))
+
+    import claude_agent_sdk
+    from claude_agent_sdk import TextBlock
+
+    seen: dict[str, Any] = {}
+
+    async def fake_query(*, prompt: str, options: Any):
+        seen["env"] = options.env
+        yield _assistant([TextBlock(text="ok")])
+        yield _result_message(result="ok")
+
+    monkeypatch.setattr(claude_agent_sdk, "query", fake_query)
+    result = check_llm(LlmCheckRequest(planner="claude_code"))
+
+    assert result.ok is True
+    assert seen["env"] == {"CLAUDE_CONFIG_DIR": str(tmp_path)}
+
+
+def test_the_claude_probe_sends_no_env_without_the_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", SENTINEL_KEY)
+    monkeypatch.delenv("RPENT_CLAUDE_CONFIG_DIR", raising=False)
+
+    import claude_agent_sdk
+    from claude_agent_sdk import TextBlock
+
+    seen: dict[str, Any] = {}
+
+    async def fake_query(*, prompt: str, options: Any):
+        seen["env"] = options.env
+        yield _assistant([TextBlock(text="ok")])
+        yield _result_message(result="ok")
+
+    monkeypatch.setattr(claude_agent_sdk, "query", fake_query)
+    assert check_llm(LlmCheckRequest(planner="claude_code")).ok is True
+    assert seen["env"] is None
+
+
+def test_a_codex_login_only_under_rpent_codex_home_is_detected(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    """Credentials under the isolated CODEX_HOME count as a CLI login."""
+    monkeypatch.undo()  # drop the autouse _has_cli_login stub
+    monkeypatch.delenv("RPENT_CODEX_HOME", raising=False)
+    monkeypatch.setattr(check_mod, "_CLI_LOGIN_FILES", {"codex": ()})
+    monkeypatch.setattr(check_mod, "_KEYCHAIN_SERVICES", {})
+    monkeypatch.setattr(check_mod.sys, "platform", "linux")
+
+    assert check_mod._has_cli_login("codex") is False
+
+    monkeypatch.setenv("RPENT_CODEX_HOME", str(tmp_path))
+    assert check_mod._has_cli_login("codex") is False
+
+    (tmp_path / "auth.json").write_text("{}")
+    assert check_mod._has_cli_login("codex") is True

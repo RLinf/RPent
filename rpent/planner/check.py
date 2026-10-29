@@ -108,6 +108,16 @@ _CLI_LOGIN_FILES = {
     "codex": ("~/.codex/auth.json",),
 }
 
+#: Per-backend (env var, login filename) pairs for session-isolated logins.
+#: When ``RPENT_CLAUDE_CONFIG_DIR`` / ``RPENT_CODEX_HOME`` is set, the planner
+#: child runs with its credential directory redirected there, so a login that
+#: exists only under the isolated directory is a real credential. Resolving it
+#: here keeps the pre-flight consistent with what the child actually uses.
+_ISOLATED_LOGIN_FILES = {
+    "claude_code": ("RPENT_CLAUDE_CONFIG_DIR", ".credentials.json"),
+    "codex": ("RPENT_CODEX_HOME", "auth.json"),
+}
+
 #: macOS keeps the Claude Code credential in the login Keychain instead of in
 #: a file, so the file check alone reports a logged-in Mac user as having no
 #: credential. The lookup asks only whether the item exists — it never reads
@@ -349,7 +359,33 @@ def _has_cli_login(planner: str) -> bool:
                 return True
         except OSError:
             continue
+    if _has_isolated_cli_login(planner):
+        return True
     return _has_keychain_login(planner)
+
+
+def _has_isolated_cli_login(planner: str) -> bool:
+    """Whether a login file exists under the session-isolated config dir.
+
+    Args:
+        planner: The backend being probed.
+
+    Returns:
+        True when ``RPENT_CLAUDE_CONFIG_DIR`` / ``RPENT_CODEX_HOME`` is set and
+        holds that backend's login file. False when the override is unset —
+        the default directories were already checked by :func:`_has_cli_login`.
+    """
+    spec = _ISOLATED_LOGIN_FILES.get(planner)
+    if spec is None:
+        return False
+    env_name, filename = spec
+    base = os.environ.get(env_name)
+    if not base:
+        return False
+    try:
+        return (Path(base).expanduser() / filename).is_file()
+    except OSError:
+        return False
 
 
 def _has_keychain_login(planner: str) -> bool:
@@ -692,13 +728,27 @@ class _ClaudeProbeOutcome:
 
 
 async def _run_claude_probe(sdk: Any, model: str) -> _ClaudeProbeOutcome:
-    """Consume one tool-free Claude Agent SDK turn and report what it said."""
+    """Consume one tool-free Claude Agent SDK turn and report what it said.
+
+    Applies the same ``RPENT_CLAUDE_CONFIG_DIR`` -> ``CLAUDE_CONFIG_DIR``
+    override as the planner's own child options, so the probe neither writes
+    to the user's personal CLI history nor checks a different configuration
+    than an actual run.
+    """
+    env = {
+        key: value
+        for key, value in (
+            ("CLAUDE_CONFIG_DIR", os.environ.get("RPENT_CLAUDE_CONFIG_DIR")),
+        )
+        if value
+    }
     options = sdk.ClaudeAgentOptions(
         model=model,
         max_turns=1,
         tools=None,
         allowed_tools=[],
         mcp_servers={},
+        env=env or None,
     )
     chunks: list[str] = []
     sdk_error: str | None = None
