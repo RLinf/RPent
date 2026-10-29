@@ -52,16 +52,17 @@ OSMesa 在 CPU 上渲染）。该环境已成功跑通一个完整 LIBERO-PRO �
 .. code-block:: bash
 
    printf 'torch==2.8.0+rocm6.4\ntorchvision==0.23.0+rocm6.4\ntriton ; sys_platform == "never"\n' > torch-override.txt
-   uv venv venv --python 3.11
-   uv pip install --python venv/bin/python -e "RPent[libero-pro]" --override torch-override.txt \
+   uv venv --python 3.11
+   source .venv/bin/activate
+   uv pip install -e ".[libero-pro]" --override torch-override.txt \
      --extra-index-url https://download.pytorch.org/whl/rocm6.4 --index-strategy unsafe-best-match
 
 如果环境中已装入 CUDA 版 ``triton``,先卸载再重装 ROCm 版：
 
 .. code-block:: bash
 
-   uv pip uninstall --python venv/bin/python triton
-   uv pip install --python venv/bin/python -e "RPent[libero-pro]" --override torch-override.txt \
+   uv pip uninstall triton
+   uv pip install -e ".[libero-pro]" --override torch-override.txt \
      --extra-index-url https://download.pytorch.org/whl/rocm6.4 --index-strategy unsafe-best-match \
      --reinstall-package pytorch-triton-rocm
 
@@ -69,10 +70,11 @@ OSMesa 在 CPU 上渲染）。该环境已成功跑通一个完整 LIBERO-PRO �
 
 .. code-block:: bash
 
-   python -c "import torch; print(torch.version.hip)"; ls venv/lib/python3.11/site-packages/triton/backends
+   python -c "import torch; print(torch.version.hip)"; ls .venv/lib/python3.11/site-packages/triton/backends
 
 ``torch.version.hip`` 应输出 ROCm 版本号,且 ``triton/backends/`` 中包含 ``amd``。
 两项检查都通过后再继续。
+后续命令都在已激活的 ``.venv`` 中执行；新开终端时先 ``source .venv/bin/activate`` 再继续，与快速开始保持一致。
 
 3. 下载资源与模型
 -----------------

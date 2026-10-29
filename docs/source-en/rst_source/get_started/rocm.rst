@@ -57,8 +57,9 @@ excluded. Create the override file and install:
 .. code-block:: bash
 
    printf 'torch==2.8.0+rocm6.4\ntorchvision==0.23.0+rocm6.4\ntriton ; sys_platform == "never"\n' > torch-override.txt
-   uv venv venv --python 3.11
-   uv pip install --python venv/bin/python -e "RPent[libero-pro]" --override torch-override.txt \
+   uv venv --python 3.11
+   source .venv/bin/activate
+   uv pip install -e ".[libero-pro]" --override torch-override.txt \
      --extra-index-url https://download.pytorch.org/whl/rocm6.4 --index-strategy unsafe-best-match
 
 If a CUDA ``triton`` was already installed in the environment, remove it and
@@ -66,8 +67,8 @@ reinstall the ROCm one:
 
 .. code-block:: bash
 
-   uv pip uninstall --python venv/bin/python triton
-   uv pip install --python venv/bin/python -e "RPent[libero-pro]" --override torch-override.txt \
+   uv pip uninstall triton
+   uv pip install -e ".[libero-pro]" --override torch-override.txt \
      --extra-index-url https://download.pytorch.org/whl/rocm6.4 --index-strategy unsafe-best-match \
      --reinstall-package pytorch-triton-rocm
 
@@ -75,10 +76,13 @@ Verify the install:
 
 .. code-block:: bash
 
-   python -c "import torch; print(torch.version.hip)"; ls venv/lib/python3.11/site-packages/triton/backends
+   python -c "import torch; print(torch.version.hip)"; ls .venv/lib/python3.11/site-packages/triton/backends
 
 ``torch.version.hip`` prints a ROCm version and ``triton/backends/`` contains
 ``amd``. Proceed only after both checks pass.
+
+All subsequent commands run inside the activated ``.venv``; in a new terminal,
+run ``source .venv/bin/activate`` first, matching the quickstart.
 
 3. Download Assets and Models
 -----------------------------
