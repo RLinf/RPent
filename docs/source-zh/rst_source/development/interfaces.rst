@@ -105,7 +105,8 @@ Planner
 .. code-block:: bash
 
    # 终端 1：前台运行该机器人的独立 env server。
-   rpent --robot libero --env-server --env-server-args --port 3333
+   rpent --robot libero --suite libero_object --task 0 \
+       --env-server --env-server-args --port 3333
 
    # 终端 2：让一次普通运行连接它。
    rpent --robot libero --suite libero_object --task 0 \

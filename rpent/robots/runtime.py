@@ -42,22 +42,9 @@ def standalone_server_command(
     kind: str,
     extra_args: Sequence[str] = (),
 ) -> list[str] | None:
-    """Build the argv to run a robot's standalone ``<kind>_server.py`` script.
+    """Build the argv to launch a robot's standalone ``<kind>_server.py``.
 
-    The in-run daemons spawn these same scripts as child processes (e.g.
-    ``robots/libero/robot_spec.py`` for the env server); this helper exposes
-    the identical entrypoint for standalone use, so a server can be started
-    ahead of a run and shared through ``--env-endpoint``-style client flags.
-    The script's own argparse stays the single source of truth for its
-    options — forward them verbatim via ``extra_args``.
-
-    Args:
-        robot_name: Robot package name under ``robots/``.
-        kind: Server kind, matching the ``<kind>_server.py`` suffix (``env``).
-        extra_args: Extra command-line arguments, appended verbatim.
-
-    Returns:
-        The full argv, or ``None`` when the robot ships no such script.
+    Returns ``None`` when the robot ships no such script.
     """
     script = get_repo_root() / "robots" / robot_name / f"{kind}_server.py"
     if not script.is_file():

@@ -143,7 +143,8 @@ of launching the script by hand:
 .. code-block:: bash
 
    # Terminal 1: run the robot's standalone env server in the foreground.
-   rpent --robot libero --env-server --env-server-args --port 3333
+   rpent --robot libero --suite libero_object --task 0 \
+       --env-server --env-server-args --port 3333
 
    # Terminal 2: attach a normal run to it.
    rpent --robot libero --suite libero_object --task 0 \
