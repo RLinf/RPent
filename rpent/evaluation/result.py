@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +41,7 @@ class RunFinalizationContext:
     planner_timeout_s: int | None
     finish_result: Mapping[str, Any] | None
     stats: Mapping[str, Any]
+    environment_metrics: Mapping[str, Any] = field(default_factory=dict)
 
 
 RunFinalizer = Callable[[RunFinalizationContext], Path | str | None]

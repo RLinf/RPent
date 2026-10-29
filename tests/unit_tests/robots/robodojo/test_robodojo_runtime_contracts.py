@@ -33,9 +33,18 @@ def _args(*flags):
     return parser.parse_args(["--task", "put_bottles_into_dustbin", *flags])
 
 
-@pytest.mark.parametrize("success", [True, False, None])
+@pytest.mark.parametrize(
+    "success, metrics",
+    [
+        (True, {"score": 100.0}),
+        (False, {"score": 40.0}),
+        (False, {"score": 0.0}),
+        (False, {"score": None, "score_error": "RPC unavailable"}),
+        (None, {}),
+    ],
+)
 @pytest.mark.parametrize("mode", ["dev", "eval-fair"])
-def test_finalize_run_writes_environment_result(tmp_path, success, mode):
+def test_finalize_run_writes_environment_result(tmp_path, success, metrics, mode):
     from rpent.evaluation import RunFinalizationContext
 
     task_desc = {"task": "put_bottles_into_dustbin", "layout": 2}
@@ -55,16 +64,21 @@ def test_finalize_run_writes_environment_result(tmp_path, success, mode):
         planner_timeout_s=60,
         finish_result={"done": True},
         stats={},
+        environment_metrics=metrics,
     )
     path = robot_spec.get_robot_spec().finalize_run(context)
     assert path == tmp_path / "result.json"
     record = json.loads(path.read_text())
+    if "score_error" in metrics:
+        assert record.pop("score_error") == metrics["score_error"]
     assert record == {
         "task": task_desc["task"],
         "layout": 2,
         "seed": 0,
         "mode": mode,
         "success": success,
+        "score": metrics.get("score"),
+        "score_available": metrics.get("score") is not None,
         "environment_result_available": success is not None,
         "agent_error_present": True,
         "elapsed_s": 12.3,
@@ -460,6 +474,8 @@ def test_toolkit_exposes_new_primitives_without_legacy_actions(
         "place_in_bin",
         "get_reward_details",
         "get_safety_status",
+        "get_score",
+        "evaluation_metrics",
     ):
         assert name not in names
         assert toolkit.execute_tool(name, {}).data == {"error": f"unknown tool: {name}"}

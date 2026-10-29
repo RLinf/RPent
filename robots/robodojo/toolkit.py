@@ -125,6 +125,17 @@ class RoboDojoToolkit(Toolkit):
             return False  # Plan completion is not an official task verdict.
         return self._primitives.env.is_success()
 
+    def evaluation_metrics(self, *, success: bool | None) -> dict[str, Any]:
+        """Collect native Score for the runner without exposing it as a tool."""
+        if self.eval_fair or success is None:
+            return {"score": None}
+        if success:
+            return {"score": 100.0}
+        try:
+            return {"score": self._primitives.env.get_score()}
+        except Exception as exc:
+            return {"score": None, "score_error": f"{type(exc).__name__}: {exc}"}
+
     def _register_robodojo_tools(self) -> None:
         from robots.robodojo import tools as robodojo_tools
 

@@ -365,6 +365,17 @@ class Toolkit:
         """
         raise NotImplementedError
 
+    def evaluation_metrics(self, *, success: bool | None) -> dict[str, Any]:
+        """Collect run metrics after tools drain and before runtime shutdown.
+
+        Args:
+            success: The environment verdict collected for this episode.
+
+        Returns:
+            Robot-specific metrics for result artifacts, not planner feedback.
+        """
+        return {}
+
     def write_recipe(self, recipe_tag: str) -> str | None:
         """Write a replay recipe for this robot, if supported."""
         return None

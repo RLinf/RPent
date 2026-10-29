@@ -156,6 +156,8 @@ def finalize_run(context: RunFinalizationContext) -> Path:
         "seed": context.task_desc.get("seed", 0),
         "mode": context.task_desc.get("mode", "dev"),
         "success": context.environment_success,
+        "score": context.environment_metrics.get("score"),
+        "score_available": context.environment_metrics.get("score") is not None,
         "environment_result_available": context.environment_success is not None,
         "agent_error_present": context.agent_error is not None,
         "elapsed_s": round(context.elapsed_s, 1),
@@ -167,6 +169,8 @@ def finalize_run(context: RunFinalizationContext) -> Path:
         },
         "planner_timeout_s": context.planner_timeout_s,
     }
+    if "score_error" in context.environment_metrics:
+        record["score_error"] = context.environment_metrics["score_error"]
     return write_json_atomic(context.output_dir / "result.json", record)
 
 

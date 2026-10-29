@@ -43,6 +43,7 @@ class RoboDojoEnvFacade(MainThreadServeMixin, BaseEnvFacade):
                 "env.plan_arm_path": self.plan_arm_path,
                 "env.step_joint_update": self.step_joint_update,
                 "env.is_success": self.is_success,
+                "env.get_score": self.get_score,
                 "env.close": self.request_close,
             }
         )
@@ -55,6 +56,7 @@ class RoboDojoEnvFacade(MainThreadServeMixin, BaseEnvFacade):
                 "env.get_obs",
                 "env.get_status",
                 "env.get_reward_details",
+                "env.get_score",
                 "env.get_safety_status",
                 "env.solve_ik_position",
                 "env.get_motion_state",
@@ -68,6 +70,7 @@ class RoboDojoEnvFacade(MainThreadServeMixin, BaseEnvFacade):
                 "env.get_reward_details",
                 "env.get_safety_status",
                 "env.is_success",
+                "env.get_score",
                 "env.reset",
             ):
                 self._rpc.pop(method, None)
@@ -126,6 +129,10 @@ class RoboDojoEnvFacade(MainThreadServeMixin, BaseEnvFacade):
 
     def is_success(self) -> bool:
         return self.env.is_success()
+
+    def get_score(self) -> float:
+        """Read the native process score without advancing the environment."""
+        return self.env.get_score()
 
     def request_close(self) -> None:
         self._shutdown_event.set()

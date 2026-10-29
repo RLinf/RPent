@@ -555,6 +555,7 @@ def main() -> int:
     recipe_path = ""
     solved = False
     environment_success: bool | None = None
+    environment_metrics: dict = {}
     memory_manager: MemoryManager | None = None
     try:
         if first_user_msg is not None:
@@ -563,6 +564,7 @@ def main() -> int:
         for session_number in range(1, sessions + 1):
             if session_msg is None:
                 break
+            environment_success, environment_metrics = None, {}
             if session_number > 1:
                 planner, system_prompt, session_msg = _start_continuation_session(
                     args,
@@ -650,11 +652,15 @@ def main() -> int:
                     operator_input.bind_verdict(None)
                 try:
                     if robot_spec.finalize_run is not None:
+                        toolkit.cancel_active_and_wait()
                         solved_fn = getattr(toolkit, "solved", None)
                         environment_success = (
                             bool(solved_fn()) if callable(solved_fn) else None
                         )
                         solved = bool(environment_success)
+                        environment_metrics = toolkit.evaluation_metrics(
+                            success=environment_success
+                        )
                 finally:
                     toolkit.close()
             if (
@@ -723,6 +729,7 @@ def main() -> int:
                     robot_name=robot_name,
                     task_desc=dict(task_desc),
                     environment_success=environment_success,
+                    environment_metrics=environment_metrics,
                     agent_error=agent_error,
                     elapsed_s=elapsed,
                     planner=args.planner,

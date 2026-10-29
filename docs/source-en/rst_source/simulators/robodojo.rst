@@ -237,6 +237,14 @@ Check ``environment_result_available=true`` and
 ``true``. A clean service exit or a planner call to ``finish`` alone does not
 establish task success.
 
+``score`` records the native task-progress score on a 0–100 scale. Successful
+episodes receive 100; failed episodes use the native partial score, or 0 for
+tasks without partial scoring. The runner collects it after tools finish and
+before the environment shuts down, without adding it to planner feedback.
+``score_available=false`` and ``score=null`` indicate that no score was
+collected; a read failure also records ``score_error``. Score is unavailable
+in ``eval-fair`` mode, which blocks access to evaluator results.
+
 Without ``--output-dir``, results go to
 ``logs/<timestamp>_robodojo_<task>_s<seed>_l<layout>/``. Use different directories for
 concurrent runs. For live monitoring, see :doc:`../guides/dashboard`.
