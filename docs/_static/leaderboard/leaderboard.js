@@ -116,13 +116,13 @@
     const benchmark=d.benchmarks.find(b=>b.id===view.benchmark_id);
     return benchmark.name+' · '+tr(view.label)+' · '+t('rate');
   }
-  function noteReference(record) {
-    const benchmark=d.benchmarks.find(b=>b.id===views.get(record.view_id).benchmark_id);
+  function noteReference(record, costs=false) {
+    const benchmark=d.benchmarks.find(b=>b.id===(record.benchmark_id??views.get(record.view_id).benchmark_id));
     return (benchmark.notes??[]).map((note,index)=>{
-      if(!note.configuration_ids.includes(record.configuration_id))return '';
+      if(!note.configuration_ids.includes(record.configuration_id)||(costs&&note.placement==='footer'))return '';
       const marker=index+1;
       const description=lang==='en'?`Evaluation note ${marker} for ${label(record)}`:`${label(record)}的评测说明 ${marker}`;
-      return `<sup class="note-reference"><a href="#${h(note.id)}" role="doc-noteref" aria-label="${h(description)}">[${marker}]</a></sup>`;
+      return `<sup class="note-reference"><a href="#${h(costs?'costs-'+note.id:note.id)}" role="doc-noteref" aria-label="${h(description)}">[${marker}]</a></sup>`;
     }).join('');
   }
   function noteParagraph(note,index) {
@@ -164,9 +164,10 @@
     element.innerHTML=`<div class="section-layout"><details class="module-directory" open><summary>${t('environments')}</summary><nav class="module-nav" aria-label="${h(t('costs'))}">${groups.map(([id,name])=>`<a href="#costs-${id}">${name}</a>`).join('')}</nav></details><div class="section-results">${groups.map(([id,name])=>{
       const rows=d.cost_results.rows.filter(r=>r.benchmark_id===id).sort((a,b)=>(methodOrder.get(a.configuration_id)??Infinity)-(methodOrder.get(b.configuration_id)??Infinity)||a.id.localeCompare(b.id));
       const tokenMetrics=['total_output_tokens','mean_total_tokens'].filter(key=>rows.some(r=>r[key]!=null));
+      const benchmark=d.benchmarks.find(b=>b.id===id);
       return `<section id="costs-${id}" class="cost-group" data-cost-group="${id}"><div class="section-inner"><details data-module="costs-${id}"${collapsedModules.has('costs-'+id)?'':' open'}><summary class="module-header"><h3>${name}</h3></summary><div class="module-content"><div class="table-wrap" tabindex="0" role="region" aria-label="${name} ${h(t('costs'))}"><table data-sort-key="costs-${id}" data-sortable="false" data-highlight-best="false"><thead><tr><th>${t('method')}</th><th class="rate">${t('meanTime')}</th>${tokenMetrics.map(key=>`<th class="rate">${t(key)}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>{
-        return `<tr data-cost-record="${r.id}" data-method="${r.configuration_id}"><td><div class="matrix-label"><span>${h(label(r))}<small> ${h(detailLabel(r))}</small></span></div></td><td class="rate" data-value="${r.mean_elapsed_seconds??''}">${r.mean_elapsed_seconds===null?'—':r.mean_elapsed_seconds.toLocaleString('en-US')}</td>${tokenMetrics.map(key=>`<td class="rate" data-value="${r[key]??''}">${r[key]==null?'—':r[key].toLocaleString('en-US',{maximumFractionDigits:0})}</td>`).join('')}</tr>`;
-      }).join('')}</tbody></table></div></div></details></div></section>`;
+        return `<tr data-cost-record="${r.id}" data-method="${r.configuration_id}"><td><div class="matrix-label"><span>${h(label(r))}${noteReference(r,true)}<small> ${h(detailLabel(r))}</small></span></div></td><td class="rate" data-value="${r.mean_elapsed_seconds??''}">${r.mean_elapsed_seconds==null?'—':r.mean_elapsed_seconds.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>${tokenMetrics.map(key=>`<td class="rate" data-value="${r[key]??''}">${r[key]==null?'—':r[key].toLocaleString('en-US',{maximumFractionDigits:0})}</td>`).join('')}</tr>`;
+      }).join('')}</tbody></table></div>${(benchmark.notes??[]).map((note,index)=>note.placement==='footer'||!rows.some(r=>note.configuration_ids.includes(r.configuration_id))?'':noteParagraph({...note,id:'costs-'+note.id},index)).join('')}</div></details></div></section>`;
     }).join('')}</div></div>`;
     setupTables(element,'costs');
   }
