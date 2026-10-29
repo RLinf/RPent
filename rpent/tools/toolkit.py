@@ -57,8 +57,9 @@ class ImageDeliveryPolicy:
     The default is unlimited delivery: today's behavior is unchanged for every
     user until the all-vs-budget comparison tracked in issue #305 settles the
     default. Explicit read-only observation results (e.g. ``view_env_state``)
-    always bypass the quota, so the planner can always re-fetch scene images on
-    demand.
+    always bypass the quota and restart it when they deliver images, so the
+    planner can always re-fetch scene images on demand and never gets stuck
+    with a stale observation after the budget is spent.
     """
 
     max_embedded_images: int | None = None
@@ -332,9 +333,14 @@ class Toolkit:
                 if record is not None:
                     self._publish_step(record)
 
-            # Read-only results bypass the quota entirely: explicit observation
-            # requests (e.g. view_env_state) are the planner's way to re-fetch
-            # scene images on demand and must never be throttled.
+            # Read-only results bypass the quota entirely, and an explicit
+            # observation (e.g. view_env_state) restarts it: the planner just
+            # asked for fresh scene images, so subsequent auto-attachment
+            # resumes instead of leaving the latest observation unattached for
+            # the rest of the episode.
+            if tool.readonly and native.images and self._image_budget_active:
+                with self._image_budget_lock:
+                    self._images_delivered = 0
             try:
                 json.dumps(native.to_dict(), allow_nan=False, default=str)
             except (TypeError, ValueError) as exc:
@@ -345,6 +351,11 @@ class Toolkit:
             return native
         finally:
             self._scheduler.release(operation)
+
+    @property
+    def _image_budget_active(self) -> bool:
+        """Whether a cumulative auto-attach budget is configured."""
+        return self._image_policy.max_embedded_images is not None
 
     def _apply_image_policy(self, images: list[bytes]) -> tuple[list[bytes], int]:
         """Deliver auto-attached images within the policy quota.

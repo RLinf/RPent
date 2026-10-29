@@ -186,3 +186,37 @@ def test_readonly_results_bypass_quota(tmp_path: Path) -> None:
     view = toolkit.execute_tool("view_env_state", {})
     assert view.images == [b"agentview", b"wrist"]
     assert "images_omitted" not in view.data
+
+
+def test_explicit_observation_restarts_the_budget(tmp_path: Path) -> None:
+    """After an explicit view_env_state, auto-attachment resumes.
+
+    Restarting the budget on an explicit observation guarantees the planner
+    always has a path back to a current auto-attached scene, instead of the
+    latest observation silently dropping out of the history for the rest of
+    the episode once the cumulative budget is spent.
+    """
+    toolkit = _ImageToolkit(
+        tmp_path / "state", image_policy=ImageDeliveryPolicy(max_embedded_images=6)
+    )
+    _register_action_toolkit(toolkit)
+    _register_view_toolkit(toolkit)
+
+    toolkit.execute_tool("move", {"distance": 0.0})  # 3 images delivered
+    toolkit.execute_tool("move", {"distance": 1.0})  # budget spent
+    result = toolkit.execute_tool("move", {"distance": 2.0})
+    assert result.images == []
+
+    view = toolkit.execute_tool("view_env_state", {})
+    assert view.images == [b"agentview", b"wrist"]
+
+    result = toolkit.execute_tool("move", {"distance": 3.0})
+    assert len(result.images) == IMAGES_PER_ACTION
+    assert "images_omitted" not in result.data
+
+    # The restarted budget is bounded again, not unlimited.
+    result = toolkit.execute_tool("move", {"distance": 4.0})
+    assert len(result.images) == IMAGES_PER_ACTION
+    result = toolkit.execute_tool("move", {"distance": 5.0})
+    assert result.images == []
+    assert result.data["images_omitted"] == IMAGES_PER_ACTION
