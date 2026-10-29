@@ -67,7 +67,7 @@
    * - ``--explore``
      - ``false``
      - 在支持的环境中启用探索。
-   * - ``--tui``、``-i``
+   * - ``--tui``、``-t``
      - ``false``
      - 在终端输入指令，见 :ref:`terminal-interaction`。
    * - ``--dashboard``

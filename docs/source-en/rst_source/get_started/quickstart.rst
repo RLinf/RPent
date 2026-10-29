@@ -102,7 +102,7 @@ See :ref:`dashboard-usage` to watch cameras and actions live. For more tasks, ex
 
 .. _quickstart-interactive:
 
-For terminal interaction, add ``--tui`` (``-i``) to enter follow-up
+For terminal interaction, add ``--tui`` (``-t``) to enter follow-up
 instructions. It cannot be combined with ``--dashboard``. See
 :ref:`terminal-interaction` for planner-specific controls.
 

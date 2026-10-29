@@ -420,8 +420,8 @@ Append ``--explore`` to the task command to explore and accumulate task memory.
 ``--explore-attempts-per-session`` sets attempts per session, and ``--explore-sessions``
 sets the number of sessions.
 
-Add ``--interactive`` when you need to enter feedback in the terminal. For browser
-interaction, use ``--dashboard``, which cannot be combined with ``--interactive``.
+Add ``--tui`` when you need to enter feedback in the terminal. For browser
+interaction, use ``--dashboard``, which cannot be combined with ``--tui``.
 
 After each attempt, confirm success, failure or abort in the operator terminal. Before
 another attempt, set down or remove any objects held in the grippers, restore the scene

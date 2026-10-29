@@ -11,7 +11,7 @@ environment guides first.
 Terminal Interaction (TUI)
 --------------------------
 
-Add ``--tui`` (``-i``) to a task command to enter instructions in the
+Add ``--tui`` (``-t``) to a task command to enter instructions in the
 terminal. Use a terminal with interactive input (TTY).
 
 .. code-block:: bash
