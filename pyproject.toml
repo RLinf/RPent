@@ -28,7 +28,7 @@ classifiers = [
 
 dependencies = [
     # Upgrade together after validating request budgets and failed-request accounting.
-    "pydantic-ai-slim[anthropic,openai,cli]==2.53.0",
+    "pydantic-ai-slim[anthropic,google,openai,cli]==2.53.0",
     "pydantic-ai-harness==0.53.0",
     # Anthropic 2.x turns BetaMessageParam into a non-callable Union.
     # Remove after upgrading Pydantic AI to a release fixing:
@@ -42,6 +42,7 @@ dependencies = [
     "jsonschema>=4.18",
     "claude-agent-sdk>=0.1.60",
     "openai-codex>=0.1.0b3",
+    "agent-client-protocol>=0.12.1,<0.13",
     "mcp>=1.23.0,<2.0.0",
     "huggingface_hub>=0.24",
     "prompt-toolkit>=3.0.48",
