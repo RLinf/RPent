@@ -48,6 +48,54 @@ On the VLA host, set the checkpoint path and start the HTTP service:
 
 The VLA service loads the model once and can be reused by multiple RPent runs.
 
+.. _apxinf-vla-service-optional:
+
+APXInf VLA Service (Optional)
+-----------------------------
+
+Use the APXInf adapter in place of the Pi0.5 service. Follow the
+`APXinf-robo installation instructions <https://github.com/RLinf/APXinf-robo#build-apxinf-robo>`_
+in an environment with RPent installed. The ``libero`` and ``serve`` extras in
+the upstream instructions are not required for this RPent RPC endpoint. The
+planner and environment can keep their existing LIBERO installation, including
+its OpenPI dependency.
+
+Prepare a compatible Pi0.5 LIBERO checkpoint, SentencePiece tokenizer and
+normalization statistics.
+
+Start the service with that environment's Python:
+
+.. code-block:: bash
+
+   python -m rpent.robots.components.apxinf_vla_server \
+     --embodiment libero \
+     --model-path /path/to/pi05-libero \
+     --tokenizer-path /path/to/tokenizer.model \
+     --norm-stats-path /path/to/norm_stats.json \
+     --precision bf16 \
+     --transport http --host 127.0.0.1 --port 8220
+
+Add ``--vla-endpoint http://127.0.0.1:8220`` to the LIBERO command. For remote
+access, bind to a reachable interface and use the server's address. Stop this
+external service yourself when finished. Omitting the endpoint starts OpenPI.
+APXInf-robo's native OpenPI WebSocket server is not an RPent RPC endpoint;
+use the adapter above.
+
+The adapter supports eval mode with these checkpoint configurations:
+
+- ``libero``: two views, five flow steps, ten predicted actions; returns the
+  first five as float32 in environment units.
+- ``dual_franka``: body-frame delta TCP rot6d checkpoint, three views;
+  returns 20 absolute-pose actions of width 20.
+- ``yam``: delta-joint checkpoint, three views; returns 30 absolute qpos14
+  actions. The YAM tool executes five per call.
+
+When changing ``--embodiment``, select the matching APXInf-robo preset, checkpoint
+and statistics. Dual-Franka and YAM remain experimental; checkpoint export,
+numerical parity and real-robot execution still need validation. The adapter
+requires APXInf-compatible weights and does not convert raw RLinf
+``actor/model_state_dict/full_weights.pt``. Single-arm ``franka`` is not supported.
+
 SAM3 Service
 ------------
 

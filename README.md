@@ -47,6 +47,7 @@ RPent is built for four kinds of users:
 
 ## What's NEW!
 
+- [2026/10] 🔥 Added an optional APXInf VLA endpoint. See the [deployment guide](https://rpent.readthedocs.io/en/latest/rst_source/guides/advanced_deployment.html#apxinf-vla-service-optional).
 - [2026/09] 🔥 Added the interactive RPent Leaderboard for LIBERO, LIBERO-PRO, RoboCasa365, and RoboTwin, with model comparisons and suite-level results. Explore the [Leaderboard](https://rpent.readthedocs.io/en/latest/rst_source/leaderboard/index.html).
 - [2026/09] 🔥 RPent supports Franka single-arm and dual-arm real-robot extensions. Doc: [Franka](https://rpent.readthedocs.io/en/latest/rst_source/real_world_robots/franka.html) · [Dual Franka](https://rpent.readthedocs.io/en/latest/rst_source/real_world_robots/dual_franka.html).
 - [2026/08] 🔥 RPent supports RoboCasa with RLDX-1 as manipulation model. See the [RoboCasa setup and Target50 guide](https://rpent.readthedocs.io/en/latest/rst_source/simulators/robocasa.html).
