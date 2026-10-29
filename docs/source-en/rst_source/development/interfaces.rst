@@ -137,6 +137,25 @@ for large or history-stacked nested-NumPy observations to move length-prefixed
 pickle frames and skip repeated JSON encoding. Pickle is unsafe on untrusted
 input, so only point ``socket`` at trusted endpoints.
 
+To start the server such an endpoint attaches to, use ``--env-server`` instead
+of launching the script by hand:
+
+.. code-block:: bash
+
+   # Terminal 1: run the robot's standalone env server in the foreground.
+   rpent --robot libero --suite libero_object --task 0 \
+       --env-server --env-server-args --port 3333
+
+   # Terminal 2: attach a normal run to it.
+   rpent --robot libero --suite libero_object --task 0 \
+       --env-endpoint 127.0.0.1:3333
+
+``--env-server`` execs the robot's own ``robots/<robot>/env_server.py`` with the
+current interpreter — the same script the in-run runtime daemon starts — so the
+script's own argparse remains the source of truth for its options, which
+``--env-server-args`` forwards verbatim (a robot without such a script rejects
+the flag, and ``--env-server-args`` requires ``--env-server``).
+
 Environment and VLA clients should normally subclass ``BaseEnvClient`` and
 ``BaseVLAClient``; their servers should subclass ``BaseEnvFacade`` and
 ``BaseVLAFacade`` and register extension routes through ``_register_rpc``. The

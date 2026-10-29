@@ -100,6 +100,20 @@ Planner
 
 常见：``--env-endpoint``、``--vla-endpoint``。``http`` 为默认，走 ``POST /call`` 传 JSON，其中 NumPy 数组编码为 ``{"__ndarray__": <base64>, "dtype": ..., "shape": ...}``； NumPy 标量编码为 ``{"__npscalar__": <value>, "dtype": ...}`` 以保留精确 dtype；观测数据很大、或是多帧堆叠的嵌套 NumPy 字典时可改 ``socket``，用带长度前缀的 pickle 数据帧传输，省掉反复的 JSON 编解码。pickle 不适合不可信输入，socket 只应连接可信端点。
 
+这类端点所连接的服务器可以用 CLI 直接启动，无需手动运行脚本：
+
+.. code-block:: bash
+
+   # 终端 1：前台运行该机器人的独立 env server。
+   rpent --robot libero --suite libero_object --task 0 \
+       --env-server --env-server-args --port 3333
+
+   # 终端 2：让一次普通运行连接它。
+   rpent --robot libero --suite libero_object --task 0 \
+       --env-endpoint 127.0.0.1:3333
+
+``--env-server`` 以当前解释器执行该机器人自己的 ``robots/<robot>/env_server.py``——与运行时守护进程启动的是同一个脚本，因此脚本自身的 argparse 仍是其参数的唯一来源，``--env-server-args`` 会把这些参数原样转发（机器人没有该脚本时会明确报错；``--env-server-args`` 必须与 ``--env-server`` 同用）。
+
 环境和 VLA client 通常应分别继承 ``BaseEnvClient``、``BaseVLAClient``；服务端分别继承 ``BaseEnvFacade``、``BaseVLAFacade``，并通过 ``_register_rpc`` 注册扩展路由。这些基类在 ``RpcFacade`` 之上提供公共路由和锁。只有尚无专用基类的服务类型才直接继承 ``RpcFacade``。业务子类不必实现 ``healthz`` / ``shutdown``。
 
 细节见 :doc:`add_robot` 中的 env_server 与 vla_server 章节。

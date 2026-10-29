@@ -23,15 +23,33 @@ the dashboard UI stays in sync with the actual processes.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import sys
+from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any
 
 from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
+from rpent.utils.config import get_repo_root
 from rpent.utils.daemon import ProcessDaemon
 from rpent.utils.rpc import wait_for_ready
 
 if TYPE_CHECKING:
     from rpent.utils.rpc import RpcClient
+
+
+def standalone_server_command(
+    robot_name: str,
+    *,
+    kind: str,
+    extra_args: Sequence[str] = (),
+) -> list[str] | None:
+    """Build the argv to launch a robot's standalone ``<kind>_server.py``.
+
+    Returns ``None`` when the robot ships no such script.
+    """
+    script = get_repo_root() / "robots" / robot_name / f"{kind}_server.py"
+    if not script.is_file():
+        return None
+    return [sys.executable, str(script), *extra_args]
 
 
 def stop_owned_daemons(

@@ -109,6 +109,7 @@ def test_public_cli_help_runs_from_source_checkout_without_a_robot_runtime() -> 
         "--output-dir",
         "--dashboard",
         "--interactive",
+        "--env-server",
     ):
         assert option in result.stdout
 
