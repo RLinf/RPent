@@ -123,5 +123,13 @@ def test_environment_primitives(monkeypatch):
                 "finish", {"status": "stuck", "summary": "bounded primitive checks"}
             )
             assert finish.data["_finish"]
+            toolkit.cancel_active_and_wait()
+            before_score = env.get_status()["step"]
+            success = toolkit.solved()
+            metrics = toolkit.evaluation_metrics(success=success)
+            native = env.get_reward_details()
+            assert metrics["score"] == (100.0 if success else native["score"])
+            assert env.get_status()["step"] == before_score
+            assert env.get_score() == native["score"]
         finally:
             toolkit.close()

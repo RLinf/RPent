@@ -275,6 +275,12 @@ class RoboDojoAgentEnv(RoboDojoEnv):
     def is_success(self) -> bool:
         return bool(self.env.is_success(env_idx=0))
 
+    def get_score(self) -> float:
+        """Read cached native scoring state after is_success finalizes rewards."""
+        if not hasattr(self.env, "get_score"):
+            return 0.0
+        return float(self.env.reward_manager.get_score()[0])
+
     def close(self, clear_cache: bool = True) -> None:
         """Flush video before the bridge releases cameras and the Isaac app."""
         if self._closed:

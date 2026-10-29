@@ -499,3 +499,53 @@ def test_scene_identity_in_config(tmp_path):
     assert config.task_desc["seed"] == 2 and config.task_desc["layout"] == 3
     assert config.recipe_tag.endswith("s2_l3")
     assert robot_spec.get_robot_spec().supports_exploration is False
+
+
+@pytest.mark.parametrize(
+    "success, partial, expected", [(True, 40, 100), (False, 40, 40), (False, None, 0)]
+)
+def test_score_uses_native_cache_without_advancing_reward_state(
+    make_agent, success, partial, expected
+):
+    from robots.robodojo.env_client import RoboDojoEnvClient
+    from robots.robodojo.env_facade import RoboDojoEnvFacade
+
+    checks = []
+
+    def verdict(env_idx):
+        checks.append(env_idx)
+        return success
+
+    native = SimpleNamespace(is_success=verdict)
+    if partial is not None:
+        native.get_score = lambda: pytest.fail("must not register scoring again")
+        native.reward_manager = SimpleNamespace(get_score=lambda: [partial])
+    facade = RoboDojoEnvFacade(make_agent(native))
+    client = object.__new__(RoboDojoEnvClient)
+    client._client = SimpleNamespace(call=lambda method: facade._rpc[method]())
+    toolkit = object.__new__(RoboDojoToolkit)
+    toolkit.eval_fair = False
+    toolkit._primitives = SimpleNamespace(env=client)
+    assert toolkit.evaluation_metrics(success=client.is_success()) == {
+        "score": expected
+    }
+    assert checks == [0]
+    if not success and partial is not None:
+        native.reward_manager.get_score = lambda: [15]
+        assert toolkit.evaluation_metrics(success=False) == {"score": 15}
+
+
+def test_score_read_failure_and_restricted_mode_are_not_zero():
+    def unavailable():
+        raise ConnectionError("environment disconnected")
+
+    toolkit = object.__new__(RoboDojoToolkit)
+    toolkit.eval_fair = False
+    toolkit._primitives = SimpleNamespace(env=SimpleNamespace(get_score=unavailable))
+    assert toolkit.evaluation_metrics(success=False) == {
+        "score": None,
+        "score_error": "ConnectionError: environment disconnected",
+    }
+    assert toolkit.evaluation_metrics(success=None) == {"score": None}
+    toolkit.eval_fair = True
+    assert toolkit.evaluation_metrics(success=True) == {"score": None}

@@ -85,6 +85,10 @@ class RoboDojoEnvClient(BaseEnvClient):
     def is_success(self) -> bool:
         return bool(self._client.call("env.is_success"))
 
+    def get_score(self) -> float:
+        """Read the native process score after the final success check."""
+        return float(self._client.call("env.get_score"))
+
     def close(self) -> None:
         try:
             self._client.call("env.close", timeout_s=10)

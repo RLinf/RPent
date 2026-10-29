@@ -213,6 +213,12 @@ SAM3 用于物体分割。先在 `facebook/sam3 模型页面 <https://huggingfac
 未指定输出目录时，结果保存在 ``logs/<timestamp>_robodojo_<task>_s<seed>_l<layout>/``。并发运行应使用不同目录。\
 实时查看方式见 :doc:`../guides/dashboard`。
 
+``score`` 记录原生任务进度分数，范围为 0–100。成功回合记为 100；失败回合
+使用原生阶段分数，没有阶段评分的任务记为 0。运行器在工具执行结束后、
+环境关闭前采集分数，不将其加入规划器反馈。``score_available=false`` 且
+``score=null`` 表示未取得分数；读取失败时还会记录 ``score_error``。
+``eval-fair`` 模式禁止访问评测结果，因此不提供 Score。
+
 常用参数
 --------
 
