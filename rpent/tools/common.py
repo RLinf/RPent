@@ -38,14 +38,18 @@ class CommonTools:
         """Read a UTF-8 text file. Use for past recipe JSONLs, audit JSONs, and memory files. Large files are truncated. Published memory is read-only. During exploration, you may write only to your current memory inbox. Memory for other robots is unavailable.
 
         Args:
-            path: Absolute or repo-relative path
+            path: Absolute or relative path within the active file boundary
             max_chars: Max chars (default 40000)
         """
         resolved = self._memory.authorize_read(path)
         if not resolved.exists():
-            return ToolResult(data={"error": f"file not found: {resolved}"})
+            return ToolResult(
+                data={"error": f"file not found: {self._memory.display_path(resolved)}"}
+            )
         if resolved.is_dir():
-            return ToolResult(data={"error": f"is a directory: {resolved}"})
+            return ToolResult(
+                data={"error": f"is a directory: {self._memory.display_path(resolved)}"}
+            )
         with self._file_lock:
             text = resolved.read_text(encoding="utf-8", errors="replace")
         content = text
@@ -55,7 +59,11 @@ class CommonTools:
             )
         self._memory.record_read(resolved, content)
         return ToolResult(
-            data={"path": str(resolved), "size": len(text), "content": content}
+            data={
+                "path": self._memory.display_path(resolved),
+                "size": len(text),
+                "content": content,
+            }
         )
 
     @tool(readonly=True)
@@ -66,21 +74,34 @@ class CommonTools:
         with self._file_lock:
             resolved.write_text(content, encoding="utf-8")
         return ToolResult(
-            data={"path": str(resolved), "bytes_written": len(content.encode("utf-8"))}
+            data={
+                "path": self._memory.display_path(resolved),
+                "bytes_written": len(content.encode("utf-8")),
+            }
         )
 
     @tool(readonly=True)
     def list_dir(self, path: str = "") -> ToolResult:
-        """List files in a directory (non-recursive). Default = {{output_dir}}. Use to inspect the working directory or discover existing resource files. Published memory is read-only. During exploration, you may write only to your current memory inbox. Memory for other robots is unavailable.
+        """List files in a directory (non-recursive). Default = the current episode's file directory. Use to inspect the working directory or discover existing resource files. Published memory is read-only. During exploration, you may write only to your current memory inbox. Memory for other robots is unavailable.
 
         Args:
-            path: Default: {{output_dir}}
+            path: Defaults to the current episode's file directory
         """
-        resolved, files = self._memory.list_directory(path or get_output_dir())
+        resolved, files = self._memory.list_directory(
+            path or self._memory.file_root or get_output_dir()
+        )
         if files is None:
-            return ToolResult(data={"error": f"directory not found: {resolved}"})
+            return ToolResult(
+                data={
+                    "error": f"directory not found: {self._memory.display_path(resolved)}"
+                }
+            )
         return ToolResult(
-            data={"path": str(resolved), "count": len(files), "files": files}
+            data={
+                "path": self._memory.display_path(resolved),
+                "count": len(files),
+                "files": files,
+            }
         )
 
     @tool(readonly=True)

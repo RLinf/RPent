@@ -127,14 +127,9 @@ def test_tool_result_text_limit_preserves_internal_payload(monkeypatch) -> None:
     assert result.data == payload
 
 
-def test_toolkit_registers_common_specs_with_fresh_placeholder_substitution(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    output_dir = tmp_path / "run-output"
+def test_toolkit_registers_common_specs_as_fresh_copies(tmp_path: Path) -> None:
     original = common.CommonTools.list_dir
     original_schema = original.input_schema
-    monkeypatch.setattr("rpent.utils.templates.get_output_dir", lambda: output_dir)
     toolkit = _ContractToolkit(tmp_path / "state")
 
     first = toolkit.list_tools()
@@ -147,7 +142,6 @@ def test_toolkit_registers_common_specs_with_fresh_placeholder_substitution(
         "finish",
     ]
     list_dir = next(definition for definition in first if definition.name == "list_dir")
-    assert str(output_dir) in list_dir.description
     assert common.CommonTools.list_dir is original
     assert original.input_schema == original_schema
     assert first == second

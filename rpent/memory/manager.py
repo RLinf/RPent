@@ -139,10 +139,14 @@ class MemoryManager:
         *,
         memory_access: str = "read_only",
         inbox_cell_tag: str | None = None,
+        file_root: str | Path | None = None,
     ) -> None:
         self._root = Path(root).resolve()
         self._memory_access = memory_access
         self._inbox_cell_tag = inbox_cell_tag
+        self.file_root = Path(file_root).resolve() if file_root is not None else None
+        if memory_access == "none" and self.file_root is None:
+            raise ValueError("No-memory file access requires a run-owned file_root")
 
     @property
     def root(self) -> Path:
@@ -155,6 +159,8 @@ class MemoryManager:
         A sync may leave old cached directories beside their replacements.
         Only the current directories are exposed by the memory file tools.
         """
+        if self._memory_access == "none":
+            return
         for old, current in (("task_only", "task-specific"), ("suite", "task-family")):
             if (self._root / old).exists() and not (self._root / current).is_dir():
                 raise ValueError(
@@ -162,7 +168,12 @@ class MemoryManager:
                     f"updated corpus with {current}/ into a fresh directory"
                 )
 
-    file_tool_description = ""
+    @property
+    def file_tool_description(self) -> str:
+        """Describe the active file boundary to the planner."""
+        if self._memory_access == "none":
+            return " Only files/ in the current episode directory is accessible; relative paths start at that directory."
+        return ""
 
     def authorize_read(self, path: str | Path) -> Path:
         """Resolve a path and enforce the current run's memory read permissions."""
@@ -180,10 +191,29 @@ class MemoryManager:
         """Resolve a path and enforce the current run's memory write permissions."""
         return self._authorize(path, write=True)
 
+    def display_path(self, path: Path) -> str:
+        """Return an authorized file path in the planner's path convention."""
+        if self._memory_access == "none":
+            return str(path.relative_to(self.file_root.parent))
+        return str(path)
+
     def _authorize(self, path: str | Path, *, write: bool) -> Path:
         repo_root = get_repo_root()
-        resolved = (repo_root / path).resolve()
+        base = self.file_root.parent if self._memory_access == "none" else repo_root
+        resolved = (base / path).resolve()
+        if self._memory_access == "none":
+            if not resolved.is_relative_to(self.file_root):
+                raise PermissionError(
+                    f"file is outside this episode's file directory: {path}"
+                )
+            return resolved
         if not resolved.is_relative_to(self._root):
+            if self.file_root is not None:
+                if not resolved.is_relative_to(self.file_root):
+                    raise PermissionError(
+                        f"file is outside this episode's file directory and memory: {path}"
+                    )
+                return resolved
             if resolved.is_relative_to((repo_root / "memory").resolve()):
                 raise PermissionError(
                     f"access to another robot's memory is denied: {path}"

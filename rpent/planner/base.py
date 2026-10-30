@@ -98,7 +98,7 @@ async def execute_tool(toolkit: Toolkit, name: str, arguments: dict) -> ToolResu
 class PlannerResult:
     """Result returned by a planner invocation."""
 
-    __slots__ = ("finish_result", "messages", "stats", "error")
+    __slots__ = ("finish_result", "messages", "stats", "error", "error_kind")
 
     def __init__(
         self,
@@ -107,6 +107,7 @@ class PlannerResult:
         messages: list[dict] | None = None,
         stats: dict | None = None,
         error: str | None = None,
+        error_kind: str | None = None,
     ):
         """Initialize a serializable planner result."""
         self.finish_result = (
@@ -117,6 +118,7 @@ class PlannerResult:
             stats or {}
         )  # {"total_input_tokens", "total_output_tokens", "turns_used", "tool_calls"}
         self.error = error  # str | None  — set when the planner raises
+        self.error_kind = error_kind
 
 
 def is_recoverable_agent_error(agent_error: str | None) -> bool:

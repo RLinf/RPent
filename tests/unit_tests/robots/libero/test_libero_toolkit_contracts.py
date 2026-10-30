@@ -58,6 +58,33 @@ def _record(step_idx: int = 0) -> SimpleNamespace:
     return SimpleNamespace(step_idx=step_idx, terminated=False)
 
 
+def test_observation_does_not_expose_simulator_object_identity_or_pose(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from robots.libero import tools
+
+    proprioception = {
+        "robot0_eef_pos": [0.1, 0.2, 0.3],
+        "robot0_eef_quat": [1.0, 0.0, 0.0, 0.0],
+        "robot0_gripper_qpos": [0.04, -0.04],
+    }
+    raw = {**proprioception, "hidden_butter_pos": [0.4, 0.5, 0.6]}
+    primitives = SimpleNamespace(
+        env=SimpleNamespace(
+            raw_obs=lambda: raw,
+            terminated=False,
+            truncated=False,
+            get_task_language=lambda: "put the butter in the basket",
+        )
+    )
+    monkeypatch.setattr(tools, "_save_observation_artifacts", lambda *args: None)
+    state = EnvState(tmp_path)
+    tools.dump_state(primitives, state)
+    observed = tools.view_env_state(state=state).data
+    assert observed["state"] == proprioception
+    assert observed["task_language"] == "put the butter in the basket"
+
+
 def _tool_names(robot_toolkit: Toolkit) -> set[str]:
     return {definition.name for definition in robot_toolkit.list_tools()}
 

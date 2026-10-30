@@ -29,6 +29,7 @@ import pytest
 from pydantic_ai import (
     BinaryContent,
     ModelRequest,
+    RetryPromptPart,
     TextPart,
     ToolReturnPart,
     UserPromptPart,
@@ -111,6 +112,9 @@ def solve(tmp_path, model, toolkit=None, events=None, **kwargs):
             "no_images",
             "reasoning_effort",
             "interactive",
+            "compaction",
+            "model_settings",
+            "sequential_tools",
         )
         if key in kwargs
     }
@@ -123,6 +127,44 @@ def solve(tmp_path, model, toolkit=None, events=None, **kwargs):
         **kwargs,
     )
     return result, toolkit, events
+
+
+def test_uncompacted_sampling_preserves_history_and_settings(tmp_path):
+    histories = []
+
+    async def stream(messages, info):
+        histories.append(copy.deepcopy(messages))
+        assert info.model_settings["temperature"] == 1.6
+        assert info.model_settings["parallel_tool_calls"] is False
+        if len(histories) == 6:
+            yield finish()
+        else:
+            yield tool("observe")
+
+    result, toolkit, _ = solve(
+        tmp_path,
+        FunctionModel(stream_function=stream),
+        compaction=None,
+        sequential_tools=True,
+        model_settings={
+            "temperature": 1.6,
+            "parallel_tool_calls": False,
+            "max_tokens": 128,
+        },
+        no_images=True,
+    )
+    assert result.error is None
+    assert len(histories) == 6
+    assert [name for name, _ in toolkit.calls] == ["observe"] * 5 + ["finish"]
+    assert histories[-1][: len(histories[0])] == histories[0]
+    assert (
+        sum(
+            isinstance(part, ToolReturnPart)
+            for message in histories[-1]
+            for part in message.parts
+        )
+        == 5
+    )
 
 
 def dashboard(tmp_path):
@@ -302,6 +344,7 @@ def test_multimodal_tool_results_and_dashboard_events(tmp_path, no_images):
         "tool_call",
         "tool_result",
     }
+
     assert all("aW1hZ2U=" not in str(p) for p in transcript)
     usage = [event for event in events.events if isinstance(event, UsageEvent)][-1]
     assert usage.tool_calls == 2
@@ -445,7 +488,8 @@ def test_read_image_errors_reach_model_without_ending_run(
     assert error in returned.content["error"]
 
 
-def test_schema_validation_and_sequential_physical_tools(tmp_path):
+@pytest.mark.parametrize("invalid_position", ["bad", 593.1058349609375])
+def test_schema_validation_and_sequential_physical_tools(tmp_path, invalid_position):
     events = Events()
     toolkit = RobotToolkit(events, state=EnvState(tmp_path))
     toolkit.get_env_state = lambda **kwargs: ToolResult(data=kwargs["result"])
@@ -463,8 +507,13 @@ def test_schema_validation_and_sequential_physical_tools(tmp_path):
         nonlocal calls
         calls += 1
         if calls == 1:
-            yield tool("move", {"position": "bad"})
+            yield tool("move", {"position": invalid_position})
         elif calls == 2:
+            assert any(
+                isinstance(part, RetryPromptPart)
+                for message in messages
+                for part in message.parts
+            )
             yield tool("move", {"position": 1}) | tool("move", {"position": 2}, 1)
         else:
             yield finish()
@@ -480,6 +529,47 @@ def test_schema_validation_and_sequential_physical_tools(tmp_path):
         "move",
         "finish",
     ]
+
+
+@pytest.mark.parametrize("invalid", ["schema", "json", "json_list", "tool_name"])
+def test_invalid_tool_arguments_exhaust_retries_without_executing(tmp_path, invalid):
+    events = Events()
+    toolkit = RobotToolkit(events, state=EnvState(tmp_path))
+    positions = []
+
+    @declare_tool
+    def move(position: int) -> ToolResult:
+        positions.append(position)
+        return ToolResult()
+
+    toolkit.add_tool(move)
+    requests = 0
+
+    async def stream(messages, info):
+        nonlocal requests
+        requests += 1
+        if invalid in {"json", "json_list"}:
+            yield {
+                0: DeltaToolCall(
+                    name="move",
+                    json_args='{"position":' if invalid == "json" else "[]",
+                    tool_call_id="bad-json",
+                )
+            }
+        else:
+            yield tool(
+                "unknown" if invalid == "tool_name" else "move", {"position": 850.507}
+            )
+
+    result, _, _ = solve(
+        tmp_path, FunctionModel(stream_function=stream), toolkit, events
+    )
+    assert requests == 2
+    assert not positions
+    assert result.error_kind == (
+        "tool_name" if invalid == "tool_name" else "tool_arguments"
+    )
+    assert result.error and result.finish_result is None
 
 
 def test_finish_skips_sibling_actions_using_native_end_strategy(tmp_path):
@@ -518,6 +608,7 @@ def test_request_budget_stops_normally_without_claiming_success(tmp_path, mode):
     [
         UsageLimitExceeded("provider-specific limit"),
         UnexpectedModelBehavior("Exceeded max retries"),
+        asyncio.TimeoutError("provider timeout"),
     ],
 )
 def test_other_model_failures_remain_errors(tmp_path, error):
@@ -527,6 +618,7 @@ def test_other_model_failures_remain_errors(tmp_path, error):
 
     result, _, _ = solve(tmp_path, FunctionModel(stream_function=stream), max_turns=1)
     assert result.error == f"{type(error).__name__}: {error}"
+    assert result.error_kind is None
     assert result.finish_result is None
 
 
@@ -574,6 +666,7 @@ def test_token_limit_truncation_is_marked_for_recovery(
     assert requests == (2 if interactive else 1)
     assert result.error is not None
     assert result.error.startswith("planner response truncated (length): ")
+    assert result.error_kind == "response_truncated"
     assert (
         "Model token limit (8192) exceeded before any response was generated"
         in result.error
@@ -848,6 +941,7 @@ def test_timeout_drains_physical_work_and_records_partial_history(tmp_path):
         tmp_path, FunctionModel(stream_function=stream), toolkit, events, timeout_s=0.15
     )
     assert "timed out" in result.error
+    assert result.error_kind == "episode_timeout"
     assert stopped.is_set()
     assert result.messages[0] == {"role": "user", "content": "Do the task."}
     assert result.messages[1]["content"][0]["name"] == "move"

@@ -76,3 +76,18 @@ def test_valid_task_offsets_and_seed_wrapping_are_preserved(
     assert config.seed == seed
     assert config.task_suite_name == "demo"
     constructor.assert_called_once()
+
+
+def test_reset_reports_resolved_state_without_changing_handshake():
+    from robots.libero.env_server import LiberoEnvFacade
+
+    env = SimpleNamespace(
+        reset=lambda: ({"task_descriptions": ["task"]}, {}),
+        task_ids=[2],
+        trial_ids=[3],
+    )
+    facade = LiberoEnvFacade(env, meta={"task": 2, "seed": 53})
+    obs, info = facade.reset()
+    assert obs == {"task_descriptions": "task"}
+    assert info == {"task_id": 2, "init_state_id": 3}
+    assert facade.get_env_meta() == {"task": 2, "seed": 53}

@@ -194,9 +194,9 @@ def _build_argparser() -> argparse.ArgumentParser:
     ap.add_argument("--output-dir", default=None)
     ap.add_argument(
         "--memory-profile",
-        choices=["hf", "local"],
+        choices=["hf", "local", "none"],
         default=None,
-        help="Memory profile (default: hf for evaluation, local for exploration).",
+        help="Memory profile (default: hf for evaluation, local for exploration). none supports LIBERO API evaluation only.",
     )
     ap.add_argument(
         "--memory-dir",
@@ -440,6 +440,13 @@ def main() -> int:
         parser.error("--memory-dir requires --memory-profile local or --explore")
     if args.memory_repo is not None and args.memory_profile == "local":
         parser.error("--memory-repo requires HF evaluation")
+    if args.memory_profile == "none":
+        if args.robot_name != "libero" or args.planner != "api" or args.explore:
+            parser.error("--memory-profile none supports LIBERO API evaluation only")
+        if args.memory_dir is not None or args.memory_repo is not None:
+            parser.error(
+                "--memory-profile none cannot use --memory-dir or --memory-repo"
+            )
     from rpent.memory.loading import prepare_run_memory
 
     try:

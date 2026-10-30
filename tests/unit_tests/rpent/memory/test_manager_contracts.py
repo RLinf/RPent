@@ -25,6 +25,67 @@ from rpent.memory import MemoryManager
 from rpent.tools.common import CommonTools
 
 
+def test_read_only_corpus_with_episode_files(tmp_path):
+    corpus = tmp_path / "memory"
+    corpus.mkdir()
+    note = corpus / "MEMORY.md"
+    note.write_text("frozen observation")
+    files = tmp_path / "episode" / "files"
+    files.mkdir(parents=True)
+    outside = tmp_path / "other-run.txt"
+    outside.write_text("private experiment")
+    (files / "escape").symlink_to(outside)
+    (files / "memory-link").symlink_to(note)
+    tools = CommonTools(memory=MemoryManager(corpus, file_root=files))
+    assert tools.read_text_file(str(note)).data["content"] == "frozen observation"
+    tools.write_text_file(str(files / "scratch.txt"), "current episode")
+    for path in (note, files / "memory-link"):
+        with pytest.raises(PermissionError):
+            tools.write_text_file(str(path), "overwrite")
+    for path in (outside, files / "escape"):
+        with pytest.raises(PermissionError):
+            tools.read_text_file(str(path))
+        with pytest.raises(PermissionError):
+            tools.write_text_file(str(path), "overwrite")
+    assert note.read_text() == "frozen observation"
+
+
+def test_no_memory_relative_files_are_isolated_and_portable(tmp_path):
+    tools = [
+        CommonTools(
+            memory=MemoryManager(
+                tmp_path / "memory",
+                memory_access="none",
+                file_root=tmp_path / name / "files",
+            )
+        )
+        for name in ("episode-a", "episode-b")
+    ]
+    for toolset, text in zip(tools, ("left", "right")):
+        result = toolset.write_text_file("files/note.txt", text)
+        assert result.data["path"] == "files/note.txt"
+        read = toolset.read_text_file(result.data["path"])
+        assert read.data["content"] == text
+        assert read.data["path"] == "files/note.txt"
+        assert toolset.list_dir().data == {
+            "path": "files",
+            "count": 1,
+            "files": ["note.txt"],
+        }
+        assert str(tmp_path) not in str(toolset.read_text_file("files/missing").data)
+    (tmp_path / "episode-a/files/escape").symlink_to(tmp_path / "episode-b/files")
+    for path in (
+        "files/../env.log",
+        "../episode-b/files/note.txt",
+        "files/escape/note.txt",
+    ):
+        with pytest.raises(PermissionError):
+            tools[0].read_text_file(path)
+        with pytest.raises(PermissionError):
+            tools[0].write_text_file(path, "overwrite")
+    assert (tmp_path / "episode-b/files/note.txt").read_text() == "right"
+
+
 def _write_memory_leaf(
     path: Path,
     *,
@@ -440,3 +501,26 @@ def test_memory_manager_refuses_to_complete_an_existing_partial_task_pair(
     assert result["task"] == 0
     assert result["skipped"] == ["incomplete existing task audit/recipe pair"]
     assert not (task_dir / f"{cell}_recipe.jsonl").exists()
+
+
+def test_frozen_memory_reads_the_corpus_and_writes_only_episode_files(tmp_path):
+    memory = tmp_path / "memory"
+    (memory / "global").mkdir(parents=True)
+    (memory / "global/lesson.md").write_text("Lesson")
+    outside = tmp_path / "private.txt"
+    outside.write_text("private")
+    files = tmp_path / "episode/files"
+    files.mkdir(parents=True)
+    (files / "escape").symlink_to(outside)
+    tools = CommonTools(memory=MemoryManager(memory, file_root=files))
+    assert tools.read_text_file(str(memory / "global/lesson.md")).data["content"] == (
+        "Lesson"
+    )
+    tools.write_text_file(str(files / "audit.json"), "{}")
+    assert (files / "audit.json").read_text() == "{}"
+    for path in (memory / "global/lesson.md", files / "escape", outside):
+        with pytest.raises(PermissionError):
+            tools.write_text_file(str(path), "overwrite")
+    for path in (files / "escape", outside):
+        with pytest.raises(PermissionError):
+            tools.read_text_file(str(path))

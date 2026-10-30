@@ -38,6 +38,7 @@ from omegaconf import OmegaConf
 from rpent.robots.components.vla_facade_base import BaseVLAFacade
 from rpent.utils.config import get_pi05_checkpoint_path
 from rpent.utils.logging import get_logger
+from rpent.utils.rpc.main_thread_serve import MainThreadServeMixin
 
 logger = get_logger("pi05_vla_server")
 
@@ -176,12 +177,15 @@ def build_model_cfg(model_path: str, emb_cfg: dict) -> Any:
 # ---------------------------------------------------------------------------
 
 
-class Pi05VLAFacade(BaseVLAFacade):
+class Pi05VLAFacade(MainThreadServeMixin, BaseVLAFacade):
     """Pi0.5 VLA inference backed by an openpi model.
 
     Wires ``vla.predict`` to :meth:`predict` (registered by the base class).
     Embodiment-specific behavior (model config, loader, obs decode) is driven
     by the ``embodiment`` name passed at construction.
+
+    Inference runs on the FIFO main-thread dispatcher, so new requests cannot
+    overtake queued predictions or start per-request CUDA threads.
 
     Session-isolation is not supported (``reset_session`` is not registered).
     """
@@ -253,10 +257,20 @@ class Pi05VLAFacade(BaseVLAFacade):
 
         The caller (client) is responsible for encoding env-native obs into
         the openpi wire format (see ``Pi05VLAClient.encode_obs``).
+        ``options['seed']`` optionally fixes this request's sampling noise
+        without changing the shared service's random-number state.
         """
         mode = (options or {}).get("mode", "eval")
+        seed = (options or {}).get("seed")
+        sampling = {}
+        if seed is not None:
+            if type(seed) is not int or not 0 <= seed < 2**64:
+                raise ValueError("seed must be an integer in [0, 2**64)")
+            sampling["rng"] = torch.Generator(device=self._model.device).manual_seed(
+                seed
+            )
         with torch.no_grad():
-            actions, _ = self._model.predict_action_batch(obs, mode=mode)
+            actions, _ = self._model.predict_action_batch(obs, mode=mode, **sampling)
         return (
             actions.detach().cpu().numpy()
             if (

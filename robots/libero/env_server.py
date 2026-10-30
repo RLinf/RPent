@@ -89,7 +89,8 @@ def build_env_cfg(
                 # Render depth too, so we can back-project pixels to world
                 # from depth + camera calibration
                 "camera_depths": True,
-                "horizon": max_episode_steps,
+                # RLinf counts policy steps separately from reset settling.
+                "ignore_done": True,
                 **(
                     {"robots": [os.environ["LIBERO_ROBOT_BASE"]]}
                     if os.environ.get("LIBERO_ROBOT_BASE")
@@ -197,7 +198,10 @@ class LiberoEnvFacade(BaseEnvFacade):
     def reset(self):
         obs, info = self._env.reset()
         obs = self._strip_obs(to_numpy_tree(obs))
-        return obs, to_numpy_tree(info)
+        info = dict(to_numpy_tree(info))
+        info["task_id"] = int(self._env.task_ids[self._env_idx])
+        info["init_state_id"] = int(self._env.trial_ids[self._env_idx])
+        return obs, info
 
     def step(self, action):
         obs, rew, term, trunc, info = self._env.step(self._expand_action(action))

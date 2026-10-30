@@ -37,6 +37,55 @@ from robots.libero.robot_spec import get_robot_spec
 from rpent.memory import loading
 
 
+def test_frozen_prompt_entries_keep_content_and_verify_provenance(tmp_path):
+    root = tmp_path / "memory"
+    directory = root / "task-family"
+    directory.mkdir(parents=True)
+    source = directory / "task.md"
+    source.write_bytes(b"Check the drawer.\n")
+    entry = {
+        "id": "task-family/task.md",
+        "sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+    }
+    prompt, receipt = memory_cli.render_frozen_entries(root, [entry])
+    assert source.read_text() in prompt
+    assert receipt == [{**entry, "bytes": source.stat().st_size}]
+    source.write_text("changed")
+    with pytest.raises(ValueError, match="hash mismatch"):
+        memory_cli.render_frozen_entries(root, [entry])
+    source.unlink()
+    outside = tmp_path / "outside.md"
+    outside.write_text("other task")
+    source.symlink_to(outside)
+    with pytest.raises(ValueError, match="escapes"):
+        memory_cli.render_frozen_entries(root, [entry])
+    with pytest.raises(ValueError, match="corpus-relative"):
+        memory_cli.render_frozen_entries(root, [{**entry, "id": "../outside.md"}])
+
+
+@pytest.mark.parametrize("memory_in_task", [False, True])
+def test_task_memory_prompt_reads_neither_guides_nor_memory_files(memory_in_task):
+    variables = {
+        "memory_profile": "local",
+        "memory_in_task": memory_in_task,
+        "memory_dir": "/memory",
+        "suite": "libero_goal_task",
+        "task": 7,
+        "seed": 0,
+        "output_dir": "/episode/files",
+        "recipe_tag": "goal_task_t7_s0",
+        "reference_tag": "goal_task_t7_s0",
+    }
+    prompts = get_robot_spec().prompts
+    text = prompts.render("system", variables=variables) + prompts.render(
+        "user", variables=variables
+    )
+    # Ordinary local evaluation keeps reading both; the RL server injects memory.
+    assert ("robots/libero/guides/" in text) is not memory_in_task
+    assert ("/memory/MEMORY.md" in text) is not memory_in_task
+    assert ("frozen task memory" in text) is memory_in_task
+
+
 @pytest.mark.parametrize(
     ("model", "planner", "version", "expected"),
     [

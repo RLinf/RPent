@@ -44,7 +44,7 @@ recover in place or write an honest failure audit and `finish`.
 | | oracle mode (not in this repo) | **perception (this guide)** |
 |---|---|---|
 | how launched | oracle-state run | `rpent/cli/main.py --libero-type pro` (or `LIBERO_TYPE=pro`); perception artifacts always dumped, coords withheld |
-| returned `state` objects | full `objects:{name:[x,y,z]}` | **`object_names:[…]` only — NO coords** |
+| returned `state` objects | full `objects:{name:[x,y,z]}` | **none — robot state only** |
 | how you learn the task | env prompt / scrape BDDL | **initial `task_language` returned by `view_env_state`** (authoritative `:language`, coord-free) — never read the BDDL |
 | extra obs artifacts | agentview RGB only | **logical agentview/wrist image, depth, world-map, and metadata keys, including `agentview_high.png` and `wrist_high.png`** — geometry consumed through `back_project` |
 | cameras | agentview only | **agentview (fixed, ~1m → ±8-13cm) + eye-in-hand wrist (moves with gripper, ±1-2cm when <20cm to target)** — see §3.6 |
@@ -255,8 +255,7 @@ In **oracle** mode the documented fix is to read the swap BDDL `:init` block and
 recompute the fixture site's world coordinates. **That is forbidden here** — the
 `:init` block is ground-truth geometry. In **perception** mode you instead:
 
-1. Identify the target fixture by name from the (perturbed) task language and
-   `state.object_names`.
+1. Identify the target fixture by name from the (perturbed) task language.
 2. **Localize the fixture's predicate site visually** in
   `agentview_high.png`: pick pixels on the stove's cook region /
    cabinet top surface / rack top shelf, then `back_project` (sample 3–5 pixels,
