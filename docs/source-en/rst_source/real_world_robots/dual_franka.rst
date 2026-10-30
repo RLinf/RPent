@@ -473,10 +473,10 @@ also available: replace the planner/model options with
 Append options to this same command as needed:
 
 * ``--explore`` explores and accumulates task memory, as described below.
-* ``--explore --interactive`` accepts terminal feedback during exploration;
-  ordinary tasks do not support ``--interactive`` on its own.
+* ``--explore --tui`` accepts terminal feedback during exploration;
+  ordinary tasks do not support ``--tui`` on its own.
 * ``--dashboard`` accepts tasks, messages and confirmations in the web input.
-  Add ``--explore`` for exploration. Do not combine it with ``--interactive``.
+  Add ``--explore`` for exploration. Do not combine it with ``--tui``.
   See :doc:`../guides/dashboard` for interface controls.
 
 View Results
@@ -509,7 +509,7 @@ Attended Exploration
 
 Append ``--explore`` to a task command to enable exploration. Set attempts per planner session
 with ``--explore-attempts-per-session`` and session count with
-``--explore-sessions``. Add ``--interactive`` for terminal input or
+``--explore-sessions``. Add ``--tui`` for terminal input or
 ``--dashboard`` for web interaction.
 
 Each planner session begins with ``request_scene_reset``. Secure held objects,
@@ -524,9 +524,9 @@ for both ordinary and exploration runs.
 attempt; ``continue`` resumes it and ``abort`` stops exploration. Further motion
 clears the previous verdict. Closing terminal input also stops exploration.
 
-With Codex/Claude and ``--interactive``, use the displayed request ID, for example
+With Codex/Claude and ``--tui``, use the displayed request ID, for example
 ``/operator <request-id> done`` or ``/operator <request-id> success object lifted``.
-Other messages go to the agent. Without ``--interactive``, answer the prompt
+Other messages go to the agent. Without ``--tui``, answer the prompt
 directly. With ``--dashboard``, use the commands below in the Dashboard message input.
 
 Records and Memory
@@ -547,7 +547,7 @@ task replacement and Dashboard Session shutdown prevent merging. See
 Exploration Commands
 ~~~~~~~~~~~~~~~~~~~~
 
-In Codex/Claude terminal interaction (``--explore --interactive``) or Dashboard
+In Codex/Claude terminal interaction (``--explore --tui``) or Dashboard
 exploration, use:
 
 * ``/success`` or ``/failure`` to end the task, rather than only judge an attempt.
