@@ -275,10 +275,19 @@ def _build_argparser() -> argparse.ArgumentParser:
         "file. Defaults to INFO when not set.",
     )
     ap.add_argument(
+        "--tui",
+        "-t",
+        action="store_true",
+        help="TUI mode: opens an interactive cli session.",
+    )
+    # Deprecated alias for --tui; hidden from --help. Kept so existing
+    # scripts keep working until the flag is removed.
+    ap.add_argument(
         "--interactive",
         "-i",
+        dest="tui",
         action="store_true",
-        help="Interactive mode: opens an interactive cli session.",
+        help=argparse.SUPPRESS,
     )
 
     return ap
@@ -348,7 +357,7 @@ def _start_continuation_session(
         claude_code_max_budget_usd=args.claude_code_max_budget_usd,
         dashboard_events=dashboard_events,
         no_images=args.no_images,
-        interactive=args.interactive,
+        interactive=args.tui,
     )
     session_message = _handoff_message(
         output_dir,
@@ -395,11 +404,13 @@ def main() -> int:
         parser.error("--code-timeout-s must be finite and greater than 0")
     if args.code_max_calls <= 0:
         parser.error("--code-max-calls must be greater than 0")
+    if "--interactive" in sys.argv or "-i" in sys.argv:
+        logger.warning("--interactive is deprecated; use --tui instead")
     human_interactive_exploration = (
         args.explore and robot_spec.supports_human_interactive_exploration
     )
-    if args.dashboard and args.interactive:
-        parser.error("--dashboard and --interactive cannot be used together")
+    if args.dashboard and args.tui:
+        parser.error("--dashboard and --tui cannot be used together")
     external_env_dashboard = (getattr(robot_spec, "dashboard", None) or {}).get(
         "external_env", False
     )
@@ -408,8 +419,8 @@ def main() -> int:
         or external_env_dashboard
         or (args.dashboard and robot_spec.supports_human_interactive_exploration)
     ):
-        if args.dashboard or args.interactive:
-            option = "--dashboard" if args.dashboard else "--interactive"
+        if args.dashboard or args.tui:
+            option = "--dashboard" if args.dashboard else "--tui"
             guidance = "Run in a plain terminal for operator confirmation."
             if robot_spec.supports_human_interactive_exploration:
                 guidance += " Alternatively, use --dashboard."
@@ -419,7 +430,7 @@ def main() -> int:
             )
         if sys.stdin is None or not sys.stdin.isatty():
             parser.error("This robot requires a TTY for operator confirmation.")
-    native_cli = args.interactive and args.planner == "api"
+    native_cli = args.tui and args.planner == "api"
     if args.base_url and args.planner in BASE_URL_ENV_BY_PLANNER:
         parser.error(
             "--base-url applies to the 'api' planner only; "
@@ -526,22 +537,23 @@ def main() -> int:
         claude_code_max_budget_usd=args.claude_code_max_budget_usd,
         dashboard_events=dashboard_events,
         no_images=args.no_images,
-        interactive=args.interactive,
+        interactive=args.tui,
     )
     prompt_vars = {**prompt_vars, "output_dir": output_dir}
-    user_msg = robot_spec.prompts.render("user", variables=prompt_vars)
+    if args.policy_mode == "code":
+        user_msg = json.dumps(task_desc, ensure_ascii=False)
+    else:
+        user_msg = robot_spec.prompts.render("user", variables=prompt_vars)
 
     operator_input = None
     if human_interactive_exploration:
         from rpent.tools.human_in_the_loop import HumanInTheLoopInput
 
         # The native CLI reads between runs, leaving the TTY available to tools.
-        operator_input = HumanInTheLoopInput(
-            interactive=args.interactive and not native_cli
-        )
+        operator_input = HumanInTheLoopInput(interactive=args.tui and not native_cli)
     input_queue: "queue.Queue[str | None] | None" = None
     await_first_prompt: "Callable[[], str | None] | None" = None
-    if args.interactive and not native_cli:
+    if args.tui and not native_cli:
         input_queue = queue.Queue()
         # Pre-fill the first prompt with the rendered default task (editable
         # preset);

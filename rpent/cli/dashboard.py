@@ -237,7 +237,12 @@ def _run_dashboard_task(
                 **shared_runtime_kwargs,
             }
             prompt_vars = {**run_config.prompt_vars, "output_dir": output_dir}
-            session_message = robot_spec.prompts.render("user", variables=prompt_vars)
+            if getattr(task_args, "policy_mode", "tools") == "code":
+                session_message = json.dumps(run_config.task_desc, ensure_ascii=False)
+            else:
+                session_message = robot_spec.prompts.render(
+                    "user", variables=prompt_vars
+                )
             sessions = max(
                 1,
                 int(getattr(task_args, "explore_sessions", 1) or 1),
