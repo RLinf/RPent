@@ -1,10 +1,20 @@
 RoboDojo
 ========
 
-Run bimanual tabletop tasks with RPent in RoboDojo. The simulator uses Isaac
-Sim / IsaacLab with an ARX-X5 dual-arm platform and Pi0.5 as the default action model.
-The integration is experimental; success rates across a complete task suite
-have not been established.
+Control bimanual tabletop scenes through RPent tools in RoboDojo. The simulator
+uses Isaac Sim / IsaacLab with an ARX-X5 dual-arm platform.
+
+.. note::
+
+   Scripted tools use native cuRobo pose planning and joint-target execution.
+   The planner's default obstacle model contains a simplified table, not all
+   objects or the opposite arm. Planning and path subsampling do not guarantee
+   collision-free execution. Component and bounded execution checks do not
+   establish a benchmark success rate.
+
+   ``pi0_pick``, ``stabilize``, and ``place_in_bin`` are not registered. Normal
+   startup loads Env and SAM3; no action-policy checkpoint is needed.
+   Flash replay remains unavailable.
 
 Overview
 --------
@@ -14,7 +24,7 @@ Overview
 
    .. grid-item-card:: Action Models
 
-      Pi0.5
+      Scripted pose and gripper primitives
 
    .. grid-item-card:: Planners
 
@@ -56,12 +66,6 @@ groups 42 benchmark tasks into five capability categories:
      - 8
      - Open-ended or language- and image-conditioned tasks.
 
-The catalog also lists one separate DLC task. Use ``--task`` to select a task
-from the installed runtime and ``--layout`` to select its scene layout. For
-example, ``stack_bowls_random`` is a generalization task, while
-``fill_pen_holder`` and ``put_bottles_into_dustbin`` are long-horizon tasks.
-These are examples, not the complete task list.
-
 Observation and Action
 ~~~~~~~~~~~~~~~~~~~~~~
 
@@ -71,13 +75,13 @@ Observation and Action
    * - Item
      - Description
    * - Observation
-     - Head and left/right wrist RGB-D images, camera calibration, and joint states, end-effector poses, and gripper states for both arms. Pi0.5 uses three RGB views, robot state, and task text.
+     - Head and left/right wrist RGB-D images, camera calibration, and joint states, end-effector poses, and gripper states for both arms.
    * - Action
-     - The planner calls ``pi0_pick`` or primitives such as ``move_to`` and ``set_gripper``. Pi0.5 outputs 14-dimensional joint and gripper actions for both arms.
+     - ``move_to``, ``rotate_wrist``, ``set_gripper``, and ``release``. ``finish`` cannot override the native task verdict.
    * - Reward / success
      - RoboDojo's native environment determines task success, recorded in the ``success`` field of ``result.json``.
    * - Task prompt
-     - The current scene's RoboDojo task description. ``pi0_pick`` uses this instruction when its ``prompt`` argument is omitted.
+     - The current scene's RoboDojo task description, read through ``view_env_state``.
 
 Installation and Resources
 --------------------------
@@ -91,7 +95,7 @@ cuRobo. From the RPent root, create an environment and install the dependencies:
 
    uv venv --python 3.11 .venv-robodojo
    source .venv-robodojo/bin/activate
-   uv pip install -e ".[robodojo]" --extra-index-url https://pypi.nvidia.com \
+   uv pip install -e ".[robodojo-sim,sam3]" --extra-index-url https://pypi.nvidia.com \
      --override requirements/robodojo-override.txt
 
 .. note::
@@ -103,7 +107,7 @@ cuRobo. From the RPent root, create an environment and install the dependencies:
 
    .. code-block:: bash
 
-      uv pip install -e ".[robodojo]" --extra-index-url https://pypi.nvidia.com \
+      uv pip install -e ".[robodojo-sim,sam3]" --extra-index-url https://pypi.nvidia.com \
         --override requirements/robodojo-override.txt \
         --torch-backend=cu128
 
@@ -169,105 +173,6 @@ Some NVIDIA resources referenced by the scene load online by default.
 For offline use or repeated resource-loading failures, see
 :ref:`robodojo-local-nvidia-assets` at the end of this page.
 
-VLA Configuration
------------------
-
-Use ``--policy-backend`` to select the Pi0.5 backend. The default is ``rlinf``;
-``xpolicylab`` is available for a separately prepared runtime.
-
-RLinf (Default)
-~~~~~~~~~~~~~~~
-
-``--policy-backend rlinf`` uses the RLinf runtime installed above.
-``PI05_CHECKPOINT_PATH`` selects its PyTorch weights and normalization statistics.
-
-The released weights use JAX format and need conversion to PyTorch.
-This example downloads only the complete ``params/`` directory and matching
-``norm_stats.json`` from ``RoboDojo-sim-arx_x5-joint-0/59999``, about 12.4 GB
-in total. Training state and other models are unnecessary. The converted
-weights are about 7.23 GB; allow extra space for conversion and caches.
-
-.. code-block:: bash
-
-   hf download RoboDojo-Benchmark/RoboDojo --repo-type dataset \
-     --include \
-       'ckpt/RoboDojo/Pi_05/RoboDojo-sim-arx_x5-joint-0/59999/params/**' \
-       'ckpt/RoboDojo/Pi_05/RoboDojo-sim-arx_x5-joint-0/59999/assets/arx_x5_sim/norm_stats.json' \
-     --local-dir /data/robodojo/pi05_jax
-   export PI05_JAX_CHECKPOINT=/data/robodojo/pi05_jax/ckpt/RoboDojo/Pi_05/RoboDojo-sim-arx_x5-joint-0/59999
-
-.. note::
-
-   Give the ``--local-dir`` directory a lowercase ``pi05_`` prefix, as in
-   ``pi05_jax`` above. The current converter requires lowercase ``pi05`` in
-   its input path; the release directory name ``Pi_05`` does not satisfy this.
-
-   If your existing download path has no lowercase ``pi05``, you do not need
-   to download again. Create a symlink with a ``pi05_`` prefix to the model
-   directory containing ``59999/``, then set ``PI05_JAX_CHECKPOINT`` to
-   ``59999`` under that link. For a download rooted at ``/data/robodojo``:
-
-   .. code-block:: bash
-
-      ln -s /data/robodojo/ckpt/RoboDojo/Pi_05/RoboDojo-sim-arx_x5-joint-0 \
-        /data/robodojo/pi05_robodojo_arx_x5
-      export PI05_JAX_CHECKPOINT=/data/robodojo/pi05_robodojo_arx_x5/59999
-
-Convert the weights in the same environment and set the converted model path:
-
-.. code-block:: bash
-
-   export PI05_CHECKPOINT_PATH=/data/robodojo/pi05_robodojo_arx_x5_torch
-
-   python -m rlinf.utils.ckpt_convertor.convert_openpi_jax_to_python \
-     --checkpoint-dir "$PI05_JAX_CHECKPOINT" \
-     --config-name pi05_aloha \
-     --output-path "$PI05_CHECKPOINT_PATH"
-
-``--checkpoint-dir`` must point to the directory containing ``params/``.
-
-Add ``--inspect_only`` to view parameter information without converting.
-
-The model also needs the ``norm_stats.json`` file supplied with its weights.
-The converter does not write this file to
-``$PI05_CHECKPOINT_PATH/RoboDojo/arx_x5/norm_stats.json``, so copy it explicitly:
-
-.. code-block:: bash
-
-   mkdir -p "$PI05_CHECKPOINT_PATH/RoboDojo/arx_x5"
-   cp "$PI05_JAX_CHECKPOINT/assets/arx_x5_sim/norm_stats.json" \
-     "$PI05_CHECKPOINT_PATH/RoboDojo/arx_x5/norm_stats.json"
-
-XPolicyLab (Optional)
-~~~~~~~~~~~~~~~~~~~~~
-
-Use the RLinf setup above unless you need XPolicyLab. The default backend is
-``--policy-backend rlinf``, so no XPolicyLab installation is needed. RPent also
-provides ``--policy-backend xpolicylab`` for users who already have that
-environment or want its Pi0.5 implementation.
-
-XPolicyLab is another software stack for loading and running Pi0.5. Clone its
-source separately and prepare its Python environment following the
-`Pi0.5 installation instructions
-<https://github.com/XPolicyLab/XPolicyLab/blob/432f82b1758c5b1202e42a3dfe014546dbc50871/policy/Pi_05/README.md#installation>`_.
-You can reuse the original JAX weights and statistics downloaded above,
-but must configure their location as XPolicyLab expects.
-After configuring SAM3 and your planner as described below, run a task with
-the XPolicyLab checkout and its Python environment:
-
-.. code-block:: bash
-
-   rpent --robot robodojo --task put_bottles_into_dustbin --layout 0 \
-     --planner codex --model <planner-model> \
-     --policy-backend xpolicylab --xpolicylab-root /path/to/XPolicyLab \
-     --pi05-python /path/to/xpolicylab-env/bin/python \
-     --output-dir /path/to/run-output
-
-``--xpolicylab-root`` points to the separate XPolicyLab checkout.
-If the Python packages needed for XPolicyLab's Pi0.5 inference are installed in
-a separate environment, point ``--pi05-python`` to that environment's Python
-interpreter; otherwise omit the option.
-
 SAM3 Configuration
 ------------------
 
@@ -295,8 +200,7 @@ the terminal that will run the task:
 
    rpent-check-llm --planner codex --model <planner-model> --json
 
-Replace ``<planner-model>`` with the selected model, then run the
-bottle-disposal task:
+Replace ``<planner-model>`` with the selected model. After configuring SAM3, run the bottle-disposal task. This command can move both arms:
 
 .. code-block:: bash
 
@@ -320,10 +224,11 @@ The terminal shows service startup, planner output, and tool calls. After the
 run, inspect these files in the directory selected by ``--output-dir``:
 
 - ``result.json``: the environment's task verdict and run error status.
-- ``states.json``: action records and post-action observations.
+- ``states.json``: commands, execution results and synchronized observation records.
+- Per-step RGB, metric depth, calibration and world-xyz artifacts for available cameras.
 - ``videos/``: head, left-wrist, and right-wrist camera videos.
-- ``robodojo_env_server.log``, ``robodojo_vla_server.log``, and
-  ``sam3_server.log``: service startup and error logs.
+- ``robodojo_env_server.log`` and ``sam3_server.log``:
+  locally owned service startup and error logs.
 - ``run.log`` and ``transcript_*.json``: main-process logs, planner conversations,
   and errors.
 
@@ -332,33 +237,88 @@ Check ``environment_result_available=true`` and
 ``true``. A clean service exit or a planner call to ``finish`` alone does not
 establish task success.
 
+``score`` records the native task-progress score on a 0–100 scale. Successful
+episodes receive 100; failed episodes use the native partial score, or 0 for
+tasks without partial scoring. The runner collects it after tools finish and
+before the environment shuts down, without adding it to planner feedback.
+``score_available=false`` and ``score=null`` indicate that no score was
+collected; a read failure also records ``score_error``. Score is unavailable
+in ``eval-fair`` mode, which blocks access to evaluator results.
+
 Without ``--output-dir``, results go to
-``logs/<timestamp>_robodojo_<task>_l<layout>/``. Use different directories for
+``logs/<timestamp>_robodojo_<task>_s<seed>_l<layout>/``. Use different directories for
 concurrent runs. For live monitoring, see :doc:`../guides/dashboard`.
 
 Common Options
 --------------
 
-RPent starts the simulator, policy, and SAM3 services in the current Python
-environment by default. Specify ``--sim-python`` and ``--pi05-python`` only
-when the simulator and policy are installed in different environments.
+RPent starts the simulator and SAM3 services in the current Python environment
+by default. Specify ``--sim-python`` when the simulator uses a separate
+environment. Legacy Pi0.5 diagnostic helpers remain in source, but are not
+started by the CLI or exposed as planner tools.
 
-- ``--task`` and ``--layout`` select the task and fixed layout. ``--random``
-  ignores ``--layout`` and samples a new random scene on each reset.
+Use ``--task`` to select a task. For a fixed scene, ``--seed`` selects an
+official layout group and ``--layout`` selects a layout within that group;
+both default to ``0``. For example,
+``--task stack_blocks --seed 0 --layout 2`` uses layout 2 from group 0.
+Add ``--random`` to generate a random scene instead; ``--layout`` has no effect
+in this mode.
+
 - ``--cuda-device`` selects the GPU for locally started services. If omitted,
   services inherit ``CUDA_VISIBLE_DEVICES``.
-- ``--env-endpoint``, ``--vla-endpoint``, and ``--sam3-endpoint`` connect to
-  existing services. The VLA service must match ``--policy-backend``.
+- ``--env-endpoint`` and ``--sam3-endpoint`` connect to existing services.
 - ``--source-root`` selects a local RoboDojo checkout instead of the packaged code.
 
 Child services inherit the current shell environment. The CLI does not load
 ``config/runtime.env`` automatically. Run ``rpent --robot robodojo --help``
 for the full option list.
 
-Task Memory and Flash Replay
-----------------------------
+Tools
+-----
 
-RoboDojo does not currently support Flash Mode or ``--explore``.
+The planner cannot reset an episode; exploration and Flash replay are unavailable.
+
+Initial observations and motion feedback include ``episode_status.step``
+(native actions used), ``step_limit`` (total budget), and ``remaining_steps``.
+These counters describe the saved observation; the top-level ``step`` is its
+record index. Reading historical observations does not consume action steps.
+
+``view_env_state`` reads saved images and state; ``render`` captures a new
+observation. ``sample_world_xyz(view, pixels, step=None, neighborhood=1)``
+samples [row,col] pixels, with a default 3-by-3 neighborhood. ``query_world_map``
+samples a half-open [r0,c0,r1,c1] image region (default limit 256 points).
+Use views ``head``, ``left_wrist`` or ``right_wrist`` from the source RGB step.
+Both queries use saved same-frame depth, not a live refresh. Invalid depths
+are excluded. These are visible surface coordinates, not object centres.
+
+``segment`` and ``back_project`` also accept ``step``. Segmentation returns
+``centroid_rc`` and a foreground ``point_rc``; the centroid can lie outside a
+concave mask. Prefer ``point_rc`` and the returned ``step_idx`` for back-projection.
+These two tools retain camera names ``cam_head``, ``cam_left_wrist`` and
+``cam_right_wrist``.
+
+Describe visible colour, shape and location in ``segment(text_prompt=...)``.
+It returns a red-mask overlay; inspect it before using the point, because a
+high score does not establish object identity. If segmentation fails, revise
+the description or manually query a visible pixel in the same saved frame.
+The overlay and geometry are saved with that frame. Unlike LIBERO's interface,
+this tool does not accept point prompts or return mask-median world coordinates;
+use ``back_project`` for the selected foreground pixel.
+
+``move_to(arm, xyz, quat=None, gripper=None, substeps=25)`` uses world metres
+and wxyz orientation. Omitted orientation and gripper targets are held.
+``substeps`` caps sampled waypoints: 0 keeps the full path, 1 keeps only its
+final waypoint. It is not a speed or physics-step count. ``rotate_wrist``
+rotates about world Z in degrees. ``final_dist_m`` is measured position error,
+not an arrival guarantee. Check ``completed``, ``executed_steps`` and
+``stop_reason``; a timed-out mutation may have executed and is not retried.
+
+``set_gripper(arm, val, steps=10)`` uses 0=closed and 1=open. ``release``
+defaults to 1. Intermediate values are continuous targets, not guaranteed
+physical widths. Feedback comes from measured joints, not the command field.
+Only a physically out-of-range measurement is saturated when selecting the
+interpolation start; invalid user inputs are rejected. Other controller
+targets are retained. Each action target undergoes native interpolation.
 
 .. _robodojo-local-nvidia-assets:
 

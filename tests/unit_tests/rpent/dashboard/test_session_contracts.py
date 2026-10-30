@@ -173,6 +173,7 @@ def test_dashboard_session_stops_shared_daemons_in_reverse_after_cleanup_error(
     assert "shared runtime cleanup failed: stop failed" in caplog.text
 
 
+@pytest.mark.parametrize("collect_metrics", [False, True])
 @pytest.mark.parametrize("merge_fails", [False, True])
 @pytest.mark.parametrize("sessions", [1, 2])
 def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
@@ -180,11 +181,13 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
     monkeypatch: pytest.MonkeyPatch,
     merge_fails: bool,
     sessions: int,
+    collect_metrics: bool,
 ) -> None:
     from rpent.cli import dashboard as dashboard_cli
 
     merge_calls: list[dict[str, Any]] = []
-    solved_calls = []
+    planner_runs = []
+    finalized = []
 
     class FakeMemoryManager:
         def merge_memory(self, **kwargs: Any) -> dict[str, int]:
@@ -195,19 +198,24 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
 
     class FakeToolkit:
         memory = FakeMemoryManager()
+        drained = False
+        closed = False
 
         def cancel_active_and_wait(self) -> None:
-            pass
+            self.drained = True
+
+        def evaluation_metrics(self, *, success):
+            assert self.drained and not self.closed
+            return {"score": 10 * len(planner_runs)}
 
         def solved(self) -> bool:
-            solved_calls.append(True)
-            return len(solved_calls) == sessions
+            return len(planner_runs) == sessions
 
         def write_recipe(self, recipe_tag: str) -> str:
             return str(tmp_path / f"{recipe_tag}_recipe.jsonl")
 
         def close(self) -> None:
-            pass
+            self.closed = True
 
     class FakeState:
         task_replacement_requested = False
@@ -237,6 +245,7 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
     class FakePlanner:
         def solve(self, **kwargs: Any) -> PlannerResult:
             del kwargs
+            planner_runs.append(True)
             return PlannerResult(
                 finish_result={"status": "success"},
                 messages=[],
@@ -252,7 +261,7 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
     )
     robot_spec = SimpleNamespace(
         name="custom_exploration_env",
-        finalize_run=None,
+        finalize_run=finalized.append if collect_metrics else None,
         prepare_memory=None,
         supports_exploration=True,
         is_real_robot=False,
@@ -302,6 +311,9 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
         session_root=tmp_path / "session",
     )
 
+    if collect_metrics:
+        assert len(finalized) == 1
+        assert finalized[0].environment_metrics == {"score": 10 * sessions}
     assert error is None
     assert state.toolkit_lifecycle == ["bound", "unbound"] * sessions
     assert merge_calls == [

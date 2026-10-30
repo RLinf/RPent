@@ -101,6 +101,51 @@ for setup and test prerequisites.
 
 ## Embodied GPU E2E tests
 
+### RoboDojo primitive smoke test
+
+RoboDojo has a separate opt-in environment check; it is not a target of
+`run_gpu_suite.sh` or the GPU CI workflow. Use the RoboDojo environment and
+asset setup from the simulator guide, reserve one GPU, then run:
+
+```bash
+CUDA_VISIBLE_DEVICES=<reserved-GPU-ordinal> \
+  OMNI_KIT_ACCEPT_EULA=YES \
+  RPENT_RUN_ROBODOJO_INTEGRATION=1 \
+  RPENT_E2E_OUTPUT_DIR=/path/to/new-output-dir \
+  python -m pytest tests/e2e_tests/robodojo/test_environment_smoke.py -v -s
+```
+
+This checks saved RGB-D/world maps, both grippers at 0/0.5/1, held controller
+targets, small Cartesian moves and wrist rotations, backend reset, and `finish`.
+It requires Isaac Sim, cuRobo, RoboDojo assets and a GPU, but no SAM3,
+VLA or external planner. The 900-second test timeout includes simulator
+startup. It is not a SAM3 test, a planner-policy-chain test, or a benchmark
+success claim. Without the opt-in flag it is skipped.
+
+With the same opt-in variables, SAM3 installed in the runtime environment, and
+`SAM3_CHECKPOINT_PATH` pointing to its local checkpoint, run:
+
+```bash
+python -m pytest tests/e2e_tests/robodojo/test_components.py::test_sam3_component -v -s
+```
+
+The SAM3 component test segments a real saved frame and back-projects a foreground
+pixel without advancing the environment. It needs no VLA or external planner.
+
+With the same simulator and SAM3 setup, run the public CLI chain:
+
+```bash
+python -m pytest tests/e2e_tests/robodojo/test_policy_chain.py -v -s
+```
+
+The scripted local planner requests images, segmentation, a depth query, a gripper
+action, fresh image feedback and `finish`. Normal CLI startup starts only Env
+and SAM3; no VLA checkpoint or external planner credential is needed.
+Use a fresh output directory for each invocation. This checks integration,
+not autonomous planning quality or benchmark task success.
+
+### Supported full suites
+
 The runner must expose one GPU and the checkpoint and simulator assets required
 by the selected target. Run one GPU suite with two new output paths:
 

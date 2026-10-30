@@ -24,7 +24,7 @@ import numpy as np
 import pytest
 
 from robots.robodojo import robot_spec, tools
-from rpent.tools import Tool, ToolResult, iter_tools
+from rpent.tools import Tool, iter_tools
 
 
 def _args(*flags):
@@ -33,9 +33,18 @@ def _args(*flags):
     return parser.parse_args(["--task", "put_bottles_into_dustbin", *flags])
 
 
-@pytest.mark.parametrize("success", [True, False, None])
+@pytest.mark.parametrize(
+    "success, metrics",
+    [
+        (True, {"score": 100.0}),
+        (False, {"score": 40.0}),
+        (False, {"score": 0.0}),
+        (False, {"score": None, "score_error": "RPC unavailable"}),
+        (None, {}),
+    ],
+)
 @pytest.mark.parametrize("mode", ["dev", "eval-fair"])
-def test_finalize_run_writes_environment_result(tmp_path, success, mode):
+def test_finalize_run_writes_environment_result(tmp_path, success, metrics, mode):
     from rpent.evaluation import RunFinalizationContext
 
     task_desc = {"task": "put_bottles_into_dustbin", "layout": 2}
@@ -55,15 +64,21 @@ def test_finalize_run_writes_environment_result(tmp_path, success, mode):
         planner_timeout_s=60,
         finish_result={"done": True},
         stats={},
+        environment_metrics=metrics,
     )
     path = robot_spec.get_robot_spec().finalize_run(context)
     assert path == tmp_path / "result.json"
     record = json.loads(path.read_text())
+    if "score_error" in metrics:
+        assert record.pop("score_error") == metrics["score_error"]
     assert record == {
         "task": task_desc["task"],
         "layout": 2,
+        "seed": 0,
         "mode": mode,
         "success": success,
+        "score": metrics.get("score"),
+        "score_available": metrics.get("score") is not None,
         "environment_result_available": success is not None,
         "agent_error_present": True,
         "elapsed_s": 12.3,
@@ -229,28 +244,6 @@ def test_spawn_uses_explicit_interpreter_and_child_paths(
     )
 
 
-@pytest.mark.parametrize("backend", ["rlinf", "xpolicylab"])
-def test_runtime_connects_matching_policy_client(monkeypatch, tmp_path, backend):
-    from rpent.dashboard.events import NullDashboardEventSink
-    from rpent.robots.components.pi05_vla_client import Pi05VLAClient
-    from rpent.robots.components.xpolicylab_vla_client import XPolicyLabVLAClient
-
-    rpc = object()
-    monkeypatch.setattr(robot_spec, "_spawn_vla_server", lambda *a: (None, rpc))
-    monkeypatch.setattr(robot_spec, "try_wait_server", lambda *a, post_fn: post_fn())
-    daemons, kwargs = robot_spec._init_runtime(
-        _args("--policy-backend", backend), tmp_path, NullDashboardEventSink(), {"vla"}
-    )
-    assert daemons == []
-    client = kwargs["vla_client"]
-    assert isinstance(
-        client, Pi05VLAClient if backend == "rlinf" else XPolicyLabVLAClient
-    )
-    assert client._client is rpc
-    if backend == "rlinf":
-        assert client._embodiment == "robodojo"
-
-
 @pytest.mark.parametrize("lifting_arm", ["left", "right"])
 def test_pi0_pick_monitors_both_arms_and_preserves_policy_input(lifting_arm):
     def observation(z):
@@ -329,31 +322,35 @@ def test_pi0_pick_stops_the_chunk_when_the_grasp_is_held():
     assert len(executed) == 2
 
 
-def test_gripper_result_does_not_expose_environment_feedback():
-    primitives = SimpleNamespace(
-        env=SimpleNamespace(
-            get_obs=lambda: {"state": {}},
-            step=lambda action: (
-                {},
-                100,
-                True,
-                {
-                    "status": {
-                        "step": 1,
-                        "step_limit": 10,
-                        "success": True,
-                        "score": 100,
-                        "safety": {"rolling": ["bottle"]},
-                    }
-                },
-            ),
-        ),
-    )
-    result = tools.set_gripper(primitives, None, "left", 1).data
-    assert result["status"] == {"step": 1, "step_limit": 10}
+@pytest.mark.parametrize(
+    "name", ["move_to", "set_gripper", "stabilize", "place_in_bin"]
+)
+def test_removed_motion_tools_have_no_implementation(name):
+    assert not hasattr(tools, name)
+    assert name not in {definition.name for definition in iter_tools(tools)}
 
 
-def test_readers_are_readonly_and_do_not_act():
+@pytest.fixture
+def saved_camera(tmp_path):
+    from rpent.session import EnvState
+
+    def save(camera):
+        depth = camera.get("depth", camera.get("distance_to_image_plane"))
+        camera = {"color": np.zeros((*depth.shape, 3), dtype=np.uint8), **camera}
+        env = SimpleNamespace(
+            get_obs=lambda: {"vision": {"cam_head": camera}, "instruction": "Pick."},
+            get_status=lambda: {"step": 0, "step_limit": 10},
+        )
+        state = EnvState(tmp_path)
+        tools.dump_state(SimpleNamespace(env=env), state)
+        return state
+
+    return save
+
+
+def test_readers_are_readonly_and_do_not_act(saved_camera):
+    from rpent.robots.components.sam3_client import Sam3Result
+
     obs = {
         "vision": {
             "cam_head": {
@@ -366,9 +363,7 @@ def test_readers_are_readonly_and_do_not_act():
     }
     primitives = SimpleNamespace(
         _last_obs=obs,
-        sam3_client=SimpleNamespace(
-            segment=lambda *a, **kw: SimpleNamespace(found=False)
-        ),
+        sam3_client=SimpleNamespace(segment=lambda *a, **kw: Sam3Result(found=False)),
     )
     for name in [
         "back_project",
@@ -378,12 +373,12 @@ def test_readers_are_readonly_and_do_not_act():
         assert getattr(tools, name).readonly
     assert not isinstance(tools.get_reward_details, Tool)
     assert not isinstance(tools.get_safety_status, Tool)
-    assert not tools.move_to.readonly
-    assert tools.back_project(primitives, None, 0, 0).data["world_xyz"] == [0, 0, -1]
+    state = saved_camera(obs["vision"]["cam_head"])
+    assert tools.back_project(state, 0, 0).data["world_xyz"] == [0, 0, -1]
     assert tools.segment(primitives, None, "object").data["found"] is False
 
 
-def test_back_project_row_axis_follows_the_usd_camera_frame():
+def test_back_project_row_axis_follows_the_usd_camera_frame(saved_camera):
     """Image rows grow downward, the camera frame's +Y grows upward."""
     obs = {
         "vision": {
@@ -396,15 +391,47 @@ def test_back_project_row_axis_follows_the_usd_camera_frame():
             }
         }
     }
-    primitives = SimpleNamespace(_last_obs=obs)
-    above = tools.back_project(primitives, None, 0, 1).data["world_xyz"]
-    below = tools.back_project(primitives, None, 2, 1).data["world_xyz"]
+    state = saved_camera(obs["vision"]["cam_head"])
+    above = tools.back_project(state, 0, 1).data["world_xyz"]
+    below = tools.back_project(state, 2, 1).data["world_xyz"]
     assert above == [0.0, 2.0, -2.0]
     assert below == [0.0, -2.0, -2.0]
 
 
+def test_back_project_applies_camera_to_world_transform(saved_camera):
+    camera = {
+        "distance_to_image_plane": np.full((3, 3), 2.0),
+        "intrinsic_matrix": np.array(
+            [[2.0, 0.0, 1.0], [0.0, 2.0, 1.0], [0.0, 0.0, 1.0]]
+        ),
+        "extrinsic_matrix": np.array(
+            [[0, -1, 0, 3], [1, 0, 0, 4], [0, 0, 1, 5], [0, 0, 0, 1]]
+        ),
+    }
+    state = saved_camera(camera)
+    # Pixel (2, 2) is (1, -1, -2) in USD camera coordinates, then rotated
+    # 90 degrees about Z and translated by (3, 4, 5).
+    result = tools.back_project(state, 2, 2).data
+    assert result["world_xyz"] == [4.0, 5.0, 3.0]
+
+
+@pytest.mark.parametrize("depth", [0.0, -1.0, np.nan, np.inf])
+def test_back_project_rejects_invalid_depth(depth, saved_camera):
+    camera = {
+        "depth": np.array([[depth]]),
+        "intrinsic_matrix": np.eye(3),
+        "extrinsic_matrix": np.eye(4),
+    }
+    state = saved_camera(camera)
+    result = tools.back_project(state, 0, 0).data
+    assert "invalid depth" in result["error"]
+    assert "world_xyz" not in result
+
+
 @pytest.mark.parametrize("task", ["put_bottles_into_dustbin", "stack_bowls_random"])
-def test_toolkit_exposes_every_robot_tool(monkeypatch, tmp_path, task):
+def test_toolkit_exposes_new_primitives_without_legacy_actions(
+    monkeypatch, tmp_path, task
+):
     from robots.robodojo import toolkit as module
     from rpent.dashboard.events import NullDashboardEventSink
     from rpent.memory import MemoryManager
@@ -436,13 +463,40 @@ def test_toolkit_exposes_every_robot_tool(monkeypatch, tmp_path, task):
     assert toolkit.memory.root == tmp_path / "memory"
     names = {spec.name for spec in toolkit.list_tools()}
     robot_names = {spec.name for spec in iter_tools(tools)}
-    # Every backend tool is exposed for every task: the toolkit no longer
-    # filters schemas by group or by task name.
-    assert names & robot_names == robot_names
+    assert names & robot_names == set(module.OBSERVATION_TOOLS)
+    assert module.MOTION_TOOLS | {"render"} <= names
+    assert "vpp2_act" not in names  # This component-only toolkit has no model.
+    assert "reset" not in names
     assert "finish" in names
-    for name in ("get_reward_details", "get_safety_status"):
+    for name in (
+        "pi0_pick",
+        "stabilize",
+        "place_in_bin",
+        "get_reward_details",
+        "get_safety_status",
+        "get_score",
+        "evaluation_metrics",
+    ):
         assert name not in names
         assert toolkit.execute_tool(name, {}).data == {"error": f"unknown tool: {name}"}
+    result = toolkit.execute_tool(
+        "finish", {"status": "stuck", "summary": "Observation only"}
+    ).data
+    assert result["_finish"] is True
+    assert result["status"] == "stuck"
+    assert result["success"] is None
+    assert set(robot_spec.ROBODOJO_DASHBOARD_SPEC["primitives"]) == {
+        "view_env_state",
+        "segment",
+        "back_project",
+        "render",
+        "sample_world_xyz",
+        "query_world_map",
+        "move_to",
+        "rotate_wrist",
+        "set_gripper",
+        "release",
+    }
 
 
 @pytest.mark.parametrize("missing", ["runtime_kwargs", "dashboard_events", "config"])
@@ -480,36 +534,57 @@ def test_task_guidance_is_scoped_and_tools_are_injected():
             "env_cfg_type": "arx_x5",
             "action_type": "joint",
             "task_summary": "scene",
+            "recipe_tag": task,
+            "seed": 0,
         }
         system = bundle.render("system", variables=variables)
         user = bundle.render("user", variables=variables)
-        assert "dustbin" not in system and "place_in_bin" not in system
-        assert ("place_in_bin" in user) == (task == "put_bottles_into_dustbin")
+        assert "move_to" in system and "set_gripper" in system
+        for name in ("pi0_pick", "stabilize", "place_in_bin"):
+            assert name not in system + user
         assert "bottles_on_bin_bottom" not in user
-        assert ("rolling" in user) == (task == "put_bottles_into_dustbin")
-        assert "planner supplies structured tools" in system
+        assert "registered tools" in system
         assert "JSON-RPC" not in system + user
         assert "MCP URL" not in system + user
 
 
-def test_place_in_bin_keeps_backend_phase_sequence(monkeypatch):
-    calls = []
+def test_default_runtime_starts_env_and_sam3_without_a_policy(monkeypatch, tmp_path):
+    from rpent.dashboard.events import NullDashboardEventSink
 
-    def move(primitives, state, xyz, **kwargs):
-        calls.append((xyz, kwargs["gripper"]))
-        return ToolResult(data={"reached": True})
+    started = []
+    for name in ("env", "sam3"):
 
-    monkeypatch.setattr(tools, "move_to", move)
-    monkeypatch.setattr(
-        tools,
-        "set_gripper",
-        lambda *args: ToolResult(data={"status": {"success": True}}),
+        def spawn(*args, component=name):
+            started.append(component)
+            return None, object()
+
+        monkeypatch.setattr(robot_spec, f"_spawn_{name}_server", spawn)
+    monkeypatch.setattr(robot_spec, "try_wait_server", lambda *a, **kw: {})
+    daemons, kwargs = robot_spec._init_runtime(
+        _args(),
+        tmp_path,
+        NullDashboardEventSink(),
+        None,
     )
-    result = tools.place_in_bin(None, None, "left", [0.2, 0.3, 0.4]).data
-    assert calls == [
-        ([0.2, 0.3, 0.95], 1),
-        ([0.2, 0.3, 0.78], 1),
-        ([0.2, 0.3, 0.95], -1),
-    ]
-    assert result["released"] is True
-    assert result["phases"]["release"]["status"]["success"] is True
+    assert started == ["env", "sam3"]
+    assert daemons == []
+    assert "vla_client" not in kwargs
+    assert "vla" not in {
+        item["name"]
+        for item in robot_spec.ROBODOJO_DASHBOARD_SPEC["runtime_components"]
+    }
+
+
+def test_flash_rejected_before_services_start(monkeypatch, tmp_path):
+    from rpent.dashboard.events import NullDashboardEventSink
+
+    args = _args()
+    args.planner = "flash"
+    monkeypatch.setattr(
+        robot_spec, "_spawn_env_server", lambda *a: pytest.fail("simulator started")
+    )
+    assert robot_spec.get_robot_spec().run_flash is None
+    with pytest.raises(ValueError, match="Flash replay is unavailable"):
+        robot_spec.get_robot_spec().validate_args(args)
+    with pytest.raises(ValueError, match="Flash replay is unavailable"):
+        robot_spec._init_runtime(args, tmp_path, NullDashboardEventSink(), None)

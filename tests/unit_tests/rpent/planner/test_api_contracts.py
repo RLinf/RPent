@@ -995,7 +995,8 @@ def test_factory_passes_interactive_mode(tmp_path, monkeypatch):
     assert planner.interactive is True
 
 
-def test_offline_http_planner_executes_action_and_finish(tmp_path):
+@pytest.mark.parametrize("no_images", [False, True])
+def test_offline_http_planner_executes_action_and_finish(tmp_path, no_images):
     from pydantic_ai.models.openai import OpenAIChatModel
     from pydantic_ai.providers.openai import OpenAIProvider
 
@@ -1007,7 +1008,9 @@ def test_offline_http_planner_executes_action_and_finish(tmp_path):
 
     events = Events()
     toolkit = RobotToolkit(events)
-    toolkit.register("move", lambda: {"steps": 1})
+    toolkit.register(
+        "move", lambda: ToolResult(data={"steps": 1}, images=[b"post-action-image"])
+    )
     script = (
         ScriptedToolCall("move", {}),
         ScriptedToolCall("finish", FINISH_ARGS),
@@ -1018,15 +1021,26 @@ def test_offline_http_planner_executes_action_and_finish(tmp_path):
             provider=OpenAIProvider(base_url=server.base_url, api_key="offline-test"),
         )
         result, _, _ = solve(
-            tmp_path, model, toolkit=toolkit, events=events, max_turns=2
+            tmp_path,
+            model,
+            toolkit=toolkit,
+            events=events,
+            max_turns=2,
+            no_images=no_images,
         )
         assert result.error is None
         assert toolkit.calls == [("move", {}), ("finish", FINISH_ARGS)]
         assert result.finish_result == {"_finish": True, **FINISH_ARGS}
         server.assert_complete()
+        assert len(server.image_digests) == 2
+        assert not server.image_digests[0]
+        assert bool(server.image_digests[1]) is not no_images
 
 
-def test_offline_http_planner_preserves_non_streaming_responses():
+@pytest.mark.parametrize("include_image", [False, True])
+def test_offline_http_planner_preserves_non_streaming_responses(include_image):
+    import hashlib
+
     from openai import OpenAI
 
     from tests.e2e_tests.offline_planner_server import (
@@ -1036,11 +1050,20 @@ def test_offline_http_planner_preserves_non_streaming_responses():
     )
 
     call = ScriptedToolCall("finish", FINISH_ARGS)
+    image_url = "data:image/png;base64,b2ZmbGluZS10ZXN0"
+    content = (
+        [
+            {"type": "text", "text": "Finish the task."},
+            {"type": "image_url", "image_url": {"url": image_url}},
+        ]
+        if include_image
+        else "Finish the task."
+    )
     with OfflinePlannerServer((call,)) as server:
         with OpenAI(base_url=server.base_url, api_key="offline-test") as client:
             response = client.chat.completions.create(
                 model=OFFLINE_MODEL_NAME,
-                messages=[{"role": "user", "content": "Finish the task."}],
+                messages=[{"role": "user", "content": content}],
                 tools=[
                     {
                         "type": "function",
@@ -1056,6 +1079,9 @@ def test_offline_http_planner_preserves_non_streaming_responses():
         assert returned.function.name == "finish"
         assert json.loads(returned.function.arguments) == FINISH_ARGS
         server.assert_complete()
+        assert server.image_digests == [
+            [hashlib.sha256(image_url.encode()).hexdigest()] if include_image else []
+        ]
 
 
 @pytest.mark.parametrize("effort", ["none", "high"])
