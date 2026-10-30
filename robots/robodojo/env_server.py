@@ -30,7 +30,10 @@ from robots.robodojo.env_facade import RoboDojoEnvFacade  # noqa: E402
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="RoboDojo Isaac Sim env RPC server")
     parser.add_argument("--task", default="put_bottles_into_dustbin")
-    parser.add_argument("--layout", type=int, default=0, help="layout id == seed")
+    parser.add_argument(
+        "--layout", type=int, default=0, help="Layout index within seed group"
+    )
+    parser.add_argument("--seed", type=int, default=0, help="Official layout group")
     parser.add_argument("--env-cfg-type", default="arx_x5")
     parser.add_argument("--cuda-device", type=int, default=0)
     parser.add_argument("--num-envs", type=int, default=1)
@@ -102,6 +105,7 @@ def main() -> None:
         meta={
             "task": args.task,
             "layout": args.layout,
+            "seed": args.seed,
             "env_cfg_type": args.env_cfg_type,
             "device_id": args.cuda_device,
             "num_envs": args.num_envs,

@@ -101,6 +101,57 @@ for setup and test prerequisites.
 
 ## Embodied GPU E2E tests
 
+### RoboDojo primitive smoke test
+
+RoboDojo has a separate opt-in environment check; it is not a target of
+`run_gpu_suite.sh` or the GPU CI workflow. Use the RoboDojo environment and
+asset setup from the simulator guide, reserve one GPU, then run:
+
+```bash
+CUDA_VISIBLE_DEVICES=<reserved-GPU-ordinal> \
+  OMNI_KIT_ACCEPT_EULA=YES \
+  RPENT_RUN_ROBODOJO_INTEGRATION=1 \
+  RPENT_E2E_OUTPUT_DIR=/path/to/new-output-dir \
+  python -m pytest tests/e2e_tests/robodojo/test_environment_smoke.py -v -s
+```
+
+This checks saved RGB-D/world maps, both grippers at 0/0.5/1, held controller
+targets, small Cartesian moves and wrist rotations, native EE hold execution,
+action-aligned VPP2 history and reset, and `finish`.
+It requires Isaac Sim, cuRobo, RoboDojo assets and a GPU, but no SAM3,
+VLA or external planner. The 900-second test timeout includes simulator
+startup. It is not a SAM3 test, a planner-policy-chain test, or a benchmark
+success claim. Without the opt-in flag it is skipped.
+
+With the same opt-in variables, SAM3 installed in the runtime environment, and
+`SAM3_CHECKPOINT_PATH` pointing to its local checkpoint, run:
+
+```bash
+python -m pytest tests/e2e_tests/robodojo/test_components.py::test_sam3_component -v -s
+```
+
+The SAM3 component test segments a real saved frame and back-projects a foreground
+pixel without advancing the environment. It needs no VLA or external planner.
+
+With VPP2 dependencies and `VPP2_MODEL_PATH` configured as in the simulator guide,
+run `test_components.py::test_vpp2_component` and `test_policy_chain.py`.
+To reuse an already running VPP2 service, set
+`RPENT_ROBODOJO_VLA_ENDPOINT=socket://host:port` instead of `VPP2_MODEL_PATH`.
+The tests leave this borrowed service running.
+The VPP2 component checks real prediction after an analytic action and executes
+one native EE target. The two policy-chain cases use the public CLI and a
+scripted local planner to request images, segmentation, a depth query, either
+a gripper action or one VPP2 chunk, fresh image feedback and `finish`.
+Normal CLI startup requires all three services, even in the analytic case.
+The model-backed tests have a 2400-second timeout and are skipped without
+both `VPP2_MODEL_PATH` and `RPENT_ROBODOJO_VLA_ENDPOINT`; the Env and SAM3
+cases retain their 900-second timeout.
+This checks integration, not autonomous planning quality or benchmark task success.
+RoboDojo is not yet a target of
+`run_gpu_suite.sh`; run these opt-in tests directly with a fresh output directory.
+
+### Supported full suites
+
 The runner must expose one GPU and the checkpoint and simulator assets required
 by the selected target. Run one GPU suite with two new output paths:
 

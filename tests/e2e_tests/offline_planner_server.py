@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import threading
 import time
@@ -41,6 +42,7 @@ class OfflinePlannerServer:
         self._script = script
         self._lock = threading.Lock()
         self._request_count = 0
+        self.image_digests: list[list[str]] = []
 
         owner = self
 
@@ -110,6 +112,15 @@ class OfflinePlannerServer:
                         f"tool {call.name!r} was not advertised by RPent"
                     )
                 self._request_count += 1
+                self.image_digests.append(
+                    [
+                        hashlib.sha256(part["image_url"]["url"].encode()).hexdigest()
+                        for message in request.get("messages", [])
+                        if isinstance(message.get("content"), list)
+                        for part in message["content"]
+                        if part.get("type") == "image_url"
+                    ]
+                )
         except Exception as exc:  # noqa: BLE001 - returned as a local API error
             self._send_json(handler, 400, {"error": {"message": str(exc)}})
             return

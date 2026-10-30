@@ -129,3 +129,42 @@ def test_camera_and_language_preserve_rpc_contract(make_agent):
         agent._sub_env(1)
     with pytest.raises(ValueError, match="unknown camera"):
         facade.get_camera_meta("missing")
+
+
+def action():
+    return [0.1] * 12 + [0.25, 0.75]
+
+
+@pytest.mark.parametrize("eval_fair", [False, True])
+@pytest.mark.parametrize("expected_step", [None, 0])
+def test_server_terminal_guard_never_updates_controller_targets(
+    boundary, monkeypatch, eval_fair, expected_step
+):
+    b = boundary
+    b.agent.eval_fair = eval_fair
+    if eval_fair:
+        monkeypatch.setattr(
+            b.agent, "get_status", type(b.agent).get_status.__get__(b.agent)
+        )
+        b.native.is_success = lambda **kw: pytest.fail("success queried in eval-fair")
+    monkeypatch.setattr(
+        b.agent, "get_motion_state", lambda: pytest.fail("terminal targets read")
+    )
+    b.native.end_flag[0] = True
+    for operation in (
+        lambda: b.facade.step(action(), expected_step=expected_step),
+        lambda: b.facade.step_joint_update(
+            "right", gripper=0.5, expected_step=expected_step
+        ),
+    ):
+        receipt = operation()
+        info = receipt[3] if isinstance(receipt, tuple) else receipt
+        assert info["executed_actions"] == 0 and info["truncated"]
+        assert not info["terminated"]
+        if isinstance(receipt, tuple):
+            assert "status" in info and "episode_status" not in info
+        else:
+            assert "episode_status" in info and "status" not in info
+        if eval_fair:
+            assert "success" not in info.get("status", info.get("episode_status"))
+    assert not b.applied

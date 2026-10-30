@@ -39,6 +39,9 @@ class RoboDojoEnvFacade(MainThreadServeMixin, BaseEnvFacade):
                 "env.get_reward_details": self.get_reward_details,
                 "env.get_safety_status": self.get_safety_status,
                 "env.solve_ik_position": self.solve_ik_position,
+                "env.get_motion_state": self.get_motion_state,
+                "env.plan_arm_path": self.plan_arm_path,
+                "env.step_joint_update": self.step_joint_update,
                 "env.is_success": self.is_success,
                 "env.close": self.request_close,
             }
@@ -54,6 +57,8 @@ class RoboDojoEnvFacade(MainThreadServeMixin, BaseEnvFacade):
                 "env.get_reward_details",
                 "env.get_safety_status",
                 "env.solve_ik_position",
+                "env.get_motion_state",
+                "env.plan_arm_path",
             ]
         )
         if self.eval_fair:
@@ -84,8 +89,8 @@ class RoboDojoEnvFacade(MainThreadServeMixin, BaseEnvFacade):
     def reset(self) -> dict:
         return self.env.reset_episode()
 
-    def step(self, flat_action):
-        return self.env.step_native(flat_action)
+    def step(self, flat_action, *, expected_step=None):
+        return self.env.step_native(flat_action, expected_step=expected_step)
 
     def chunk_step(self, flat_actions, *, return_all_frames: bool = False):
         raise NotImplementedError("RoboDojo uses step for action control")
@@ -104,6 +109,24 @@ class RoboDojoEnvFacade(MainThreadServeMixin, BaseEnvFacade):
 
     def solve_ik_position(self, arm: str, xyz: list) -> dict:
         return self.env.solve_ik_position(arm, xyz)
+
+    def get_motion_state(self) -> dict:
+        return self.env.get_motion_state()
+
+    def plan_arm_path(self, arm: str, target_pose: list[float]) -> dict:
+        return self.env.plan_arm_path(arm, target_pose)
+
+    def step_joint_update(
+        self,
+        arm: str,
+        arm_qpos: list[float] | None = None,
+        gripper: float | None = None,
+        *,
+        expected_step: int | None = None,
+    ) -> dict:
+        return self.env.step_joint_update(
+            arm, arm_qpos, gripper, expected_step=expected_step
+        )
 
     def is_success(self) -> bool:
         return self.env.is_success()
