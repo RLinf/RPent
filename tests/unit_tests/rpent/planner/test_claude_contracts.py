@@ -29,7 +29,6 @@ from rpent.planner.claude_code import (
     _build_rpent_server,
     _ClaudeSessionDriver,
     _Recorder,
-    _tool_result_to_mcp,
 )
 from rpent.tools import ToolResult, tool
 from rpent.tools.common import CommonTools
@@ -197,24 +196,6 @@ def test_in_process_mcp_bridge_maps_schema_dispatch_and_errors() -> None:
     assert response["is_error"] is True
     assert [block["type"] for block in response["content"]] == ["text", "image"]
     assert response["content"][1]["mimeType"] == "image/png"
-
-
-def test_tool_result_conversion_preserves_data_and_images() -> None:
-    plain = _tool_result_to_mcp(ToolResult(data={"value": "plain"}))
-    assert json.loads(plain["content"][0]["text"]) == {"value": "plain"}
-
-    result = ToolResult(
-        data={"value": "visible"},
-        images=[b"pixels"],
-    )
-    converted = _tool_result_to_mcp(result)
-
-    assert converted["content"][0] == {
-        "type": "text",
-        "text": '{\n  "value": "visible"\n}',
-    }
-    assert converted["content"][1]["type"] == "image"
-    assert "is_error" not in converted
 
 
 def test_successful_fake_sdk_stream_accounts_for_finish_and_hides_image_payload(

@@ -131,6 +131,9 @@ def test_registry_discovers_exactly_the_source_checkout_robots() -> None:
         assert callable(spec.add_cli_args)
         assert callable(spec.parse_config)
         assert callable(spec.init_runtime)
+        assert (spec.flywheel is not None) == (
+            name in {"libero", "robocasa", "robodojo", "robotwin"}
+        )
 
 
 @pytest.mark.parametrize("robot_name", EXPECTED_ROBOTS)

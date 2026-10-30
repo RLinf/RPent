@@ -152,6 +152,7 @@ def env_runtime_contract(
             "chunk_step": True,
             "action_layouts": ["qpos14", MODEL_SPEC.action_layout],
             "chunk_step_all_frames": True,
+            "chunk_step_frame_format": "robotwin.observation",
             "step_limit": int(max_episode_steps),
         },
         "extensions": {
@@ -183,6 +184,42 @@ def vla_runtime_contract() -> dict[str, object]:
     }
 
 
+FLYWHEEL_CONFIG = {
+    "observation_format": "robotwin.observation",
+    "state": {
+        "fields": (
+            {"path": ("robot_state", "left_eef_pose"), "shape": (7,)},
+            {
+                "path": ("robot_state", "left_gripper"),
+                "shape": (),
+                "dtype_from": 0,
+            },
+            {"path": ("robot_state", "right_eef_pose"), "shape": (7,)},
+            {
+                "path": ("robot_state", "right_gripper"),
+                "shape": (),
+                "dtype_from": 2,
+            },
+        ),
+    },
+    "action": {
+        "format": "robotwin.action.ee",
+        "fields": ({"path": (), "shape": (16,)},),
+    },
+    "images": {
+        f"observation.images.{name}": {"path": ("observation", camera, "rgb")}
+        for name, camera in (
+            ("cam_high", "head_camera"),
+            ("cam_left_wrist", "left_camera"),
+            ("cam_right_wrist", "right_camera"),
+        )
+    },
+    "result_format": "robotwin.step_result",
+    "success": {"field": "terminated", "truncated": "truncated"},
+    "fps": 20,
+}
+
+
 def get_robot_spec() -> RobotSpec:
     return RobotSpec(
         name="robotwin",
@@ -191,6 +228,7 @@ def get_robot_spec() -> RobotSpec:
         parse_config=_parse_config,
         init_runtime=_init_runtime,
         dashboard=ROBOTWIN_DASHBOARD_SPEC,
+        flywheel=FLYWHEEL_CONFIG,
         supports_exploration=True,
         validate_args=validate_options,
         prepare_memory=prepare_memory,

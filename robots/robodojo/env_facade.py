@@ -84,8 +84,8 @@ class RoboDojoEnvFacade(MainThreadServeMixin, BaseEnvFacade):
     def reset(self) -> dict:
         return self.env.reset_episode()
 
-    def step(self, flat_action):
-        return self.env.step_native(flat_action)
+    def step(self, flat_action, *, capture: bool = False):
+        return self.env.step_native(flat_action, capture=capture)
 
     def chunk_step(self, flat_actions, *, return_all_frames: bool = False):
         raise NotImplementedError("RoboDojo uses step for action control")

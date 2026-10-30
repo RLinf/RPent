@@ -18,17 +18,33 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 import os
 import threading
 from collections.abc import Generator
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields, is_dataclass
+from datetime import datetime, timezone
+from hashlib import sha256
 from pathlib import Path
-from typing import Any
+from typing import IO, Any, Literal
+from uuid import uuid4
 
 import imageio.v2 as imageio
 import numpy as np
 
+from rpent.session.records import (
+    ActionRecord,
+    ArtifactRef,
+    DataRef,
+    MissingInfo,
+    ObservationRecord,
+    Payload,
+    PlannerRecord,
+    PredictionRecord,
+    TaskRecord,
+    ToolCallRecord,
+)
 from rpent.utils.logging import get_logger
 
 logger = get_logger("env_state")
@@ -94,11 +110,19 @@ class StepRecord:
 
 
 class EnvState:
-    """Own a session's step trace and all state-related files in its output root."""
+    """Own task records, legacy tool steps, and stored artifacts."""
 
     def __init__(self, output_dir: Path | str):
         self._output_dir = Path(output_dir)
         self._artifact_lock = threading.Lock()
+        self._records_lock = threading.Lock()
+        self._task: TaskRecord | None = None
+        self._planners: dict[str, PlannerRecord] = {}
+        self._tool_calls: dict[str, ToolCallRecord] = {}
+        self._observations: dict[str, ObservationRecord] = {}
+        self._actions: dict[str, ActionRecord] = {}
+        self._predictions: dict[str, PredictionRecord] = {}
+        self._id_counters = dict.fromkeys(("P", "T", "O", "A", "V"), 0)
         self.reset()
 
     # -- private file resolution -----------------------------------------
@@ -153,10 +177,634 @@ class EnvState:
         finally:
             temporary.unlink(missing_ok=True)
 
-    # -- lifecycle and counters -----------------------------------------
+    # -- task lifecycle -------------------------------------------------
+
+    def start_task(self, *, instruction: str, config: Payload) -> str:
+        """Start this store's single task and return its ID.
+
+        A new task needs a new EnvState; reset() does not clear task records.
+        """
+        with self._records_lock:
+            if self._task is not None:
+                raise RuntimeError("a task has already been started")
+            self._task = TaskRecord(
+                task_id=uuid4().hex,
+                instruction=instruction,
+                config=copy.deepcopy(config),
+                status="running",
+                started_at=datetime.now(timezone.utc),
+            )
+            return self._task.task_id
+
+    def end_task(
+        self,
+        *,
+        status: Literal["completed", "failed", "cancelled"],
+        stop_reason: str,
+        result: Payload | None = None,
+    ) -> None:
+        """Record task completion after all execution and capture have settled."""
+        if status not in {"completed", "failed", "cancelled"}:
+            raise ValueError(f"invalid task end status: {status!r}")
+        with self._records_lock:
+            task = self._running_task()
+            result = copy.deepcopy(result)
+            task.status = status
+            task.stop_reason = stop_reason
+            task.result = result
+            task.ended_at = datetime.now(timezone.utc)
+
+    def get_task(self) -> TaskRecord | None:
+        """Return a task snapshot, or None before start_task()."""
+        with self._records_lock:
+            return copy.deepcopy(self._task)
+
+    def _running_task(self) -> TaskRecord:
+        if self._task is None or self._task.status != "running":
+            raise RuntimeError("task is not running")
+        return self._task
+
+    def _new_record_id(self, kind: Literal["P", "T", "O", "A", "V"]) -> str:
+        """Allocate an ID while holding the records lock."""
+        self._id_counters[kind] += 1
+        return f"{kind}{self._id_counters[kind]}"
+
+    # -- task record registration ---------------------------------------
+
+    def register_planner(
+        self,
+        *,
+        backend: str,
+        status: Literal["open", "completed", "failed", "cancelled"] = "open",
+        request: Payload | None = None,
+        response: Payload | None = None,
+        source_ids: dict[str, str] | None = None,
+        started_at: datetime | None = None,
+        ended_at: datetime | None = None,
+        missing: dict[str, MissingInfo] | None = None,
+    ) -> str:
+        """Register one model call; tool calls are registered separately."""
+        with self._records_lock:
+            self._running_task()
+            record = copy.deepcopy(
+                PlannerRecord(
+                    planner_id=self._new_record_id("P"),
+                    backend=backend,
+                    status=status,
+                    request=request,
+                    response=response,
+                    source_ids=source_ids or {},
+                    started_at=started_at,
+                    ended_at=ended_at,
+                    missing=missing or {},
+                )
+            )
+            self._planners[record.planner_id] = record
+            return record.planner_id
+
+    def register_tool_call(
+        self,
+        *,
+        planner_id: str,
+        name: str,
+        arguments: Payload,
+        status: Literal[
+            "requested",
+            "running",
+            "completed",
+            "failed",
+            "cancelled",
+            "not_executed",
+            "unknown",
+        ] = "requested",
+        source_ids: dict[str, str] | None = None,
+        effective_instruction: str | None = None,
+        model_config: Payload | None = None,
+        started_at: datetime | None = None,
+        ended_at: datetime | None = None,
+        raw_result: Payload | None = None,
+        feedback: Payload | None = None,
+        before_observation_id: str | None = None,
+        after_observation_id: str | None = None,
+        missing: dict[str, MissingInfo] | None = None,
+    ) -> str:
+        """Register a model-issued tool call in response order and index it."""
+        with self._records_lock:
+            self._running_task()
+            planner = self._planners[planner_id]
+            record = copy.deepcopy(
+                ToolCallRecord(
+                    tool_call_id=self._new_record_id("T"),
+                    planner_id=planner_id,
+                    origin="model",
+                    name=name,
+                    arguments=arguments,
+                    status=status,
+                    source_ids=source_ids or {},
+                    effective_instruction=effective_instruction,
+                    model_config=model_config,
+                    started_at=started_at,
+                    ended_at=ended_at,
+                    raw_result=raw_result,
+                    feedback=feedback,
+                    before_observation_id=before_observation_id,
+                    after_observation_id=after_observation_id,
+                    missing=missing or {},
+                )
+            )
+            planner.tool_calls.append(record)
+            self._tool_calls[record.tool_call_id] = record
+            return record.tool_call_id
+
+    def register_observation(
+        self,
+        *,
+        payload: Payload,
+        captured_at: datetime | None = None,
+        missing: dict[str, MissingInfo] | None = None,
+    ) -> str:
+        """Register a new capture in acquisition order; reuse its ID to share it."""
+        with self._records_lock:
+            self._running_task()
+            record = copy.deepcopy(
+                ObservationRecord(
+                    observation_id=self._new_record_id("O"),
+                    payload=payload,
+                    captured_at=captured_at,
+                    missing=missing or {},
+                )
+            )
+            self._observations[record.observation_id] = record
+            return record.observation_id
+
+    def register_action(
+        self,
+        *,
+        tool_call_id: str,
+        source: Literal["vla", "tool_computed", "direct"],
+        action: Payload,
+        before_observation_id: str | None,
+        after_observation_id: str | None,
+        executed_at: datetime | None = None,
+        result: Payload | None = None,
+        prediction_id: str | None = None,
+        missing: dict[str, MissingInfo] | None = None,
+    ) -> str:
+        """Register a confirmed action and link it to its VLA prediction, if given."""
+        with self._records_lock:
+            self._running_task()
+            if tool_call_id not in self._tool_calls:
+                raise KeyError(tool_call_id)
+            prediction = (
+                self._predictions[prediction_id] if prediction_id is not None else None
+            )
+            if prediction is not None and (
+                source != "vla" or prediction.tool_call_id != tool_call_id
+            ):
+                raise ValueError(
+                    "prediction requires a VLA action from the same tool call"
+                )
+            record = copy.deepcopy(
+                ActionRecord(
+                    action_id=self._new_record_id("A"),
+                    tool_call_id=tool_call_id,
+                    source=source,
+                    action=action,
+                    before_observation_id=before_observation_id,
+                    after_observation_id=after_observation_id,
+                    executed_at=executed_at,
+                    result=result,
+                    missing=missing or {},
+                )
+            )
+            self._actions[record.action_id] = record
+            if prediction is not None:
+                prediction.action_ids.append(record.action_id)
+            return record.action_id
+
+    def register_prediction(
+        self,
+        *,
+        tool_call_id: str,
+        instruction: str,
+        action_ids: list[str] | None = None,
+        missing: dict[str, MissingInfo] | None = None,
+    ) -> str:
+        """Register a VLA prediction, optionally linking already executed actions."""
+        with self._records_lock:
+            self._running_task()
+            tool_call = self._tool_calls[tool_call_id]
+            action_ids = action_ids or []
+            for action_id in action_ids:
+                if self._actions[action_id].tool_call_id != tool_call_id:
+                    raise ValueError(
+                        f"action {action_id!r} does not belong to tool call {tool_call_id!r}"
+                    )
+            record = copy.deepcopy(
+                PredictionRecord(
+                    prediction_id=self._new_record_id("V"),
+                    planner_id=tool_call.planner_id,
+                    tool_call_id=tool_call_id,
+                    instruction=instruction,
+                    action_ids=action_ids,
+                    missing=missing or {},
+                )
+            )
+            self._predictions[record.prediction_id] = record
+            return record.prediction_id
+
+    # -- task record updates --------------------------------------------
+
+    def update_planner(
+        self,
+        planner_id: str,
+        *,
+        status: Literal["open", "completed", "failed", "cancelled"] | None = None,
+        response: Payload | None = None,
+        source_ids: dict[str, str] | None = None,
+        ended_at: datetime | None = None,
+        missing: dict[str, MissingInfo | None] | None = None,
+    ) -> None:
+        """Update a model call while its task is running.
+
+        None leaves fields unchanged; response can only be filled once.
+        Source IDs merge by key; None values in ``missing`` remove reasons.
+        """
+        with self._records_lock:
+            self._running_task()
+            record = self._planners[planner_id]
+            if status is not None and status not in {
+                "open",
+                "completed",
+                "failed",
+                "cancelled",
+            }:
+                raise ValueError(f"invalid planner status: {status!r}")
+            self._update_call_record(
+                record,
+                values={"status": status, "response": response, "ended_at": ended_at},
+                source_ids=source_ids,
+                missing=missing,
+            )
+
+    def update_tool_call(
+        self,
+        tool_call_id: str,
+        *,
+        status: Literal[
+            "requested",
+            "running",
+            "completed",
+            "failed",
+            "cancelled",
+            "not_executed",
+            "unknown",
+        ]
+        | None = None,
+        effective_instruction: str | None = None,
+        model_config: Payload | None = None,
+        started_at: datetime | None = None,
+        ended_at: datetime | None = None,
+        raw_result: Payload | None = None,
+        feedback: Payload | None = None,
+        before_observation_id: str | None = None,
+        after_observation_id: str | None = None,
+        source_ids: dict[str, str] | None = None,
+        missing: dict[str, MissingInfo | None] | None = None,
+    ) -> None:
+        """Update a tool call while its task is running.
+
+        None leaves fields unchanged; model config, raw result, and feedback
+        can each only be filled once. Source IDs merge by key; None values in
+        ``missing`` remove reasons. Observation IDs marked missing are cleared.
+        """
+        with self._records_lock:
+            self._running_task()
+            record = self._tool_calls[tool_call_id]
+            if status is not None and status not in {
+                "requested",
+                "running",
+                "completed",
+                "failed",
+                "cancelled",
+                "not_executed",
+                "unknown",
+            }:
+                raise ValueError(f"invalid tool call status: {status!r}")
+            self._update_call_record(
+                record,
+                values={
+                    "status": status,
+                    "effective_instruction": effective_instruction,
+                    "model_config": model_config,
+                    "started_at": started_at,
+                    "ended_at": ended_at,
+                    "raw_result": raw_result,
+                    "feedback": feedback,
+                    "before_observation_id": before_observation_id,
+                    "after_observation_id": after_observation_id,
+                },
+                source_ids=source_ids,
+                missing=missing,
+            )
+            for name in ("before_observation_id", "after_observation_id"):
+                if missing and missing.get(name) is not None:
+                    setattr(record, name, None)
+
+    @staticmethod
+    def _update_call_record(
+        record: PlannerRecord | ToolCallRecord,
+        *,
+        values: dict[str, Any],
+        source_ids: dict[str, str] | None,
+        missing: dict[str, MissingInfo | None] | None,
+    ) -> None:
+        """Apply a call update in place while holding the records lock."""
+        values = {name: value for name, value in values.items() if value is not None}
+        for name in ("response", "model_config", "raw_result", "feedback"):
+            if name in values and getattr(record, name) is not None:
+                raise ValueError(f"{name} has already been captured")
+        values, source_ids, missing = copy.deepcopy(
+            (values, source_ids or {}, missing or {})
+        )
+        for name, value in values.items():
+            setattr(record, name, value)
+        record.source_ids.update(source_ids)
+        for name, reason in missing.items():
+            if reason is None:
+                record.missing.pop(name, None)
+            else:
+                record.missing[name] = reason
+
+    # -- task record snapshots ------------------------------------------
+
+    def get_planner(self, planner_id: str) -> PlannerRecord:
+        """Return a model call and its tool calls as a snapshot."""
+        with self._records_lock:
+            return copy.deepcopy(self._planners[planner_id])
+
+    def get_tool_call(self, tool_call_id: str) -> ToolCallRecord:
+        """Return a tool call snapshot by ID."""
+        with self._records_lock:
+            return copy.deepcopy(self._tool_calls[tool_call_id])
+
+    def get_observation(self, observation_id: str) -> ObservationRecord:
+        """Return an observation snapshot by ID."""
+        with self._records_lock:
+            return copy.deepcopy(self._observations[observation_id])
+
+    def get_action(self, action_id: str) -> ActionRecord:
+        """Return an executed action snapshot by ID."""
+        with self._records_lock:
+            return copy.deepcopy(self._actions[action_id])
+
+    def planner_records(self) -> list[PlannerRecord]:
+        """Return model call snapshots in registration order."""
+        with self._records_lock:
+            return copy.deepcopy(list(self._planners.values()))
+
+    def action_records(self) -> list[ActionRecord]:
+        """Return executed action snapshots in registration order."""
+        with self._records_lock:
+            return copy.deepcopy(list(self._actions.values()))
+
+    def prediction_records(self) -> list[PredictionRecord]:
+        """Return VLA prediction snapshots in registration order."""
+        with self._records_lock:
+            return copy.deepcopy(list(self._predictions.values()))
+
+    # -- trajectory storage ---------------------------------------------
+
+    def save_trajectory_artifact(
+        self, value: np.ndarray | bytes, *, name: str | None = None
+    ) -> ArtifactRef:
+        """Store an array or bytes in the task's trajectory and return its reference."""
+        if self._task is None:
+            raise RuntimeError(
+                "start_task() must run before saving trajectory artifacts"
+            )
+        if not isinstance(value, (np.ndarray, bytes)):
+            raise TypeError("trajectory artifacts must be numpy arrays or bytes")
+        is_bytes = isinstance(value, bytes)
+        suffix = ".bin" if is_bytes else ".npy"
+        name = self._validate_name(
+            name if name is not None else f"capture-{uuid4().hex}{suffix}"
+        )
+        if Path(name).suffix != suffix:
+            raise ValueError(f"trajectory artifact name must end with {suffix}")
+        path = f"artifacts/{name}"
+        destination = self._output_dir / "trajectories" / self._task.task_id / path
+        with self._artifact_lock:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with self._write_trajectory_file(destination, binary=True) as file:
+                if is_bytes:
+                    file.write(value)
+                else:
+                    np.save(file, value, allow_pickle=False)
+        return ArtifactRef(
+            path=path,
+            kind="bytes" if is_bytes else "ndarray",
+            dtype=None if is_bytes else str(value.dtype),
+            shape=None if is_bytes else value.shape,
+        )
+
+    def save_planner_trajectory(self) -> Path:
+        """Save task, planner, action, and prediction records after end_task().
+
+        Attachment I/O failures are marked as missing in the saved payload.
+        Record-file write failures propagate to the caller. Each file is
+        replaced after a successful write; the directory is not atomic.
+
+        Returns:
+            The output directory's trajectories/<task_id> subdirectory.
+        """
+        if self._task is None or self._task.status == "running":
+            raise RuntimeError("end_task() must finish before saving the trajectory")
+        root = self._output_dir / "trajectories" / self._task.task_id
+        (root / "artifacts").mkdir(parents=True, exist_ok=True)
+        reserved_paths: set[Path] = set()
+        byte_artifacts: dict[str, ArtifactRef] = {}
+        attachment_count = 0
+
+        def reserve_artifacts(value: Any) -> None:
+            if isinstance(value, ArtifactRef):
+                reserved_paths.add((root / value.path).resolve())
+            elif is_dataclass(value):
+                for item in fields(value):
+                    reserve_artifacts(getattr(value, item.name))
+            elif isinstance(value, dict):
+                for item in value.values():
+                    reserve_artifacts(item)
+            elif isinstance(value, (list, tuple)):
+                for item in value:
+                    reserve_artifacts(item)
+
+        reserve_artifacts(self._task)
+        for planner in self._planners.values():
+            reserve_artifacts(planner)
+        for observation in self._observations.values():
+            reserve_artifacts(observation)
+        for action in self._actions.values():
+            reserve_artifacts(action)
+        for prediction in self._predictions.values():
+            reserve_artifacts(prediction)
+
+        def encode(
+            value: Any,
+            *,
+            missing: dict[str, MissingInfo] | None = None,
+            pointer: str = "",
+            inline_array_paths: tuple[str, ...] = (),
+        ) -> Any:
+            nonlocal attachment_count
+            if isinstance(value, np.generic):
+                value = value.item()
+            if isinstance(value, np.ndarray) and pointer in inline_array_paths:
+                return {
+                    "$type": "ndarray",
+                    "dtype": str(value.dtype),
+                    "shape": list(value.shape),
+                    "value": encode(value.tolist(), missing=missing, pointer=pointer),
+                }
+            if isinstance(value, (np.ndarray, bytes)):
+                is_bytes = isinstance(value, bytes)
+                digest = sha256(value).hexdigest() if is_bytes else None
+                if digest is not None and digest in byte_artifacts:
+                    return encode(byte_artifacts[digest])
+                suffix = ".bin" if is_bytes else ".npy"
+                while True:
+                    attachment_count += 1
+                    path = f"artifacts/payload-{attachment_count:06d}{suffix}"
+                    destination = root / path
+                    if not any(
+                        candidate.resolve() in reserved_paths
+                        for candidate in (
+                            destination,
+                            self._temporary_file(destination),
+                        )
+                    ):
+                        break
+                try:
+                    value = self.save_trajectory_artifact(value, name=destination.name)
+                except OSError as exc:
+                    if missing is None:
+                        raise
+                    missing[pointer] = MissingInfo(
+                        "capture_failed", f"{type(exc).__name__}: {exc}"
+                    )
+                    return None
+                if digest is not None:
+                    byte_artifacts[digest] = value
+            if is_dataclass(value):
+                is_payload = isinstance(value, Payload)
+                failures = {} if is_payload else None
+                data = {
+                    item.name: encode(
+                        getattr(value, item.name),
+                        missing=failures if item.name == "data" else None,
+                        inline_array_paths=(
+                            value.inline_array_paths
+                            if is_payload and item.name == "data"
+                            else ()
+                        ),
+                    )
+                    for item in fields(value)
+                    if not (is_payload and item.name == "inline_array_paths")
+                }
+                if failures:
+                    data["missing"].update(encode(failures))
+                    data["completeness"] = "partial"
+                if isinstance(value, (ArtifactRef, DataRef)):
+                    data["$type"] = (
+                        "artifact_ref" if isinstance(value, ArtifactRef) else "data_ref"
+                    )
+                return data
+            if isinstance(value, dict):
+                data = {
+                    key: encode(
+                        item,
+                        missing=missing,
+                        pointer=f"{pointer}/{key.replace('~', '~0').replace('/', '~1')}",
+                        inline_array_paths=inline_array_paths,
+                    )
+                    for key, item in value.items()
+                }
+                return {"$type": "dict", "value": data} if "$type" in value else data
+            if isinstance(value, (list, tuple)):
+                return [
+                    encode(
+                        item,
+                        missing=missing,
+                        pointer=f"{pointer}/{index}",
+                        inline_array_paths=inline_array_paths,
+                    )
+                    for index, item in enumerate(value)
+                ]
+            if isinstance(value, float) and not math.isfinite(value):
+                return {"$type": "float", "value": str(value)}
+            if isinstance(value, datetime):
+                return value.isoformat()
+            if isinstance(value, Path):
+                return str(value)
+            return value
+
+        with self._write_trajectory_file(root / "planners.jsonl") as file:
+            for planner in self._planners.values():
+                json.dump(encode(planner), file, ensure_ascii=False, allow_nan=False)
+                file.write("\n")
+        observations: dict[str, Any] = {}
+        for filename, records, sides in (
+            ("actions.jsonl", self._actions.values(), ("before", "after")),
+            ("predictions.jsonl", self._predictions.values(), ()),
+        ):
+            with self._write_trajectory_file(root / filename) as file:
+                for record in records:
+                    data = encode(record)
+                    for side in sides:
+                        observation_id = getattr(record, f"{side}_observation_id")
+                        if (
+                            observation_id is not None
+                            and observation_id not in observations
+                        ):
+                            observations[observation_id] = encode(
+                                self._observations[observation_id]
+                            )
+                        data[f"{side}_observation"] = (
+                            observations[observation_id]
+                            if observation_id is not None
+                            else None
+                        )
+                    json.dump(data, file, ensure_ascii=False, allow_nan=False)
+                    file.write("\n")
+        with self._write_trajectory_file(root / "task.json") as file:
+            json.dump(
+                {"schema_version": 5, "task": encode(self._task)},
+                file,
+                ensure_ascii=False,
+                allow_nan=False,
+                indent=2,
+            )
+        return root
+
+    @contextmanager
+    def _write_trajectory_file(
+        self, destination: Path, *, binary: bool = False
+    ) -> Generator[IO[Any], None, None]:
+        """Replace a trajectory file only after its write succeeds."""
+        temporary = self._temporary_file(destination)
+        try:
+            with temporary.open(
+                "wb" if binary else "w", encoding=None if binary else "utf-8"
+            ) as file:
+                yield file
+            os.replace(temporary, destination)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    # -- legacy lifecycle and counters ----------------------------------
 
     def reset(self) -> None:
-        """Reset the in-memory trace without removing on-disk artifacts."""
+        """Clear legacy tool state, preserving task records and disk artifacts."""
         self._output_dir.mkdir(parents=True, exist_ok=True)
         self._steps: list[StepRecord] = []
         self._run_artifacts: set[str] = set()

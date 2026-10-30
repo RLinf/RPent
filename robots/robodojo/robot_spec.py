@@ -133,6 +133,43 @@ def _runtime_overrides(args: argparse.Namespace) -> dict[str, str]:
     return overrides
 
 
+_FLYWHEEL_JOINT_FIELDS = (
+    ("left_arm_joint_state", 6),
+    ("right_arm_joint_state", 6),
+    ("left_ee_joint_state", 1),
+    ("right_ee_joint_state", 1),
+)
+
+FLYWHEEL_CONFIG = {
+    "observation_format": "robodojo.observation",
+    "state": {
+        "raw_dtype": "float32",
+        "fields": tuple(
+            {"path": ("state", name), "shape": (size,)}
+            for name, size in _FLYWHEEL_JOINT_FIELDS
+        ),
+    },
+    "action": {
+        "format": "robodojo.action.joint",
+        "raw_dtype": "float32",
+        "fields": tuple(
+            {"path": (name,), "shape": (size,)} for name, size in _FLYWHEEL_JOINT_FIELDS
+        ),
+    },
+    "images": {
+        f"observation.images.{name}": {"path": ("vision", camera, "color")}
+        for name, camera in (
+            ("cam_high", "cam_head"),
+            ("cam_left_wrist", "cam_left_wrist"),
+            ("cam_right_wrist", "cam_right_wrist"),
+        )
+    },
+    "result_format": "robodojo.step_result",
+    "success": {"field": "done"},
+    "fps": 25,
+}
+
+
 def get_robot_spec() -> RobotSpec:
     """Return the RoboDojo robot identity, prompt bundle, and runner hooks."""
     return RobotSpec(
@@ -142,6 +179,7 @@ def get_robot_spec() -> RobotSpec:
         parse_config=_parse_config,
         init_runtime=_init_runtime,
         dashboard=ROBODOJO_DASHBOARD_SPEC,
+        flywheel=FLYWHEEL_CONFIG,
         run_flash=_run_flash,
         finalize_run=finalize_run,
     )

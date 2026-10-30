@@ -141,6 +141,48 @@ ROBOCASA_DASHBOARD_SPEC: DashboardSpec = {
 }
 
 
+FLYWHEEL_CONFIG = {
+    "observation_format": "robocasa.observation",
+    "state": {
+        "fields": tuple(
+            {"name": name, "path": (source,), "shape": (size,)}
+            for name, source, size in (
+                ("end_effector_position_relative", "robot0_base_to_eef_pos", 3),
+                ("end_effector_rotation_relative", "robot0_base_to_eef_quat", 4),
+                ("gripper_qpos", "robot0_gripper_qpos", 2),
+                ("base_position", "robot0_base_pos", 3),
+                ("base_rotation", "robot0_base_quat", 4),
+            )
+        ),
+    },
+    "action": {
+        "format": "robocasa.action",
+        "fields": ({"path": (), "shape": (12,)},),
+        "value_maps": {6: {-1: 0, 1: 1}, 11: {-1: 0, 1: 1}},
+        "groups": {
+            "end_effector_position": 3,
+            "end_effector_rotation": 3,
+            "gripper_close": 1,
+            "base_motion": 4,
+            "control_mode": 1,
+        },
+    },
+    "images": {
+        f"observation.images.{camera}": {"path": ("images", camera)}
+        for camera in (
+            "robot0_agentview_left",
+            "robot0_agentview_right",
+            "robot0_eye_in_hand",
+        )
+    },
+    "result_format": "robocasa.step_result",
+    "success": None,
+    "fps": 20,
+    "use_videos": True,
+    "metadata": "rldx",
+}
+
+
 def get_robot_spec() -> RobotSpec:
     """Return the RoboCasa robot identity, prompt bundle, and runner hooks.
 
@@ -157,6 +199,7 @@ def get_robot_spec() -> RobotSpec:
         parse_config=_parse_config,
         init_runtime=_init_runtime,
         dashboard=ROBOCASA_DASHBOARD_SPEC,
+        flywheel=FLYWHEEL_CONFIG,
         supports_exploration=True,
         finalize_run=finalize_cell_result,
         prepare_memory=prepare_memory,

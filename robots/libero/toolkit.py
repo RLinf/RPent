@@ -20,14 +20,16 @@ LIBERO primitives (``move_to``, ``pi0_pick``, ``release``, ...) on top.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
+
+import numpy as np
 
 from robots.libero import tools as libero_tools
 from rpent.dashboard.events import DashboardEventSink
 from rpent.session import EnvState
+from rpent.session.env_capture import CapturingEnvClient
 from rpent.tools import ToolResult, iter_tools
 from rpent.tools.base import tool
 from rpent.tools.direct_action import direct_action_tool
@@ -35,6 +37,7 @@ from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger, get_output_dir
 
 if TYPE_CHECKING:
+    from robots.libero.env_client import LiberoEnvClient
     from rpent.memory.manager import MemoryManager
 
 logger = get_logger("libero_toolkit")
@@ -75,11 +78,7 @@ class LiberoToolkit(Toolkit):
             self.add_tool(
                 direct_action_tool(
                     self._primitives.env.action_specs,
-                    partial(
-                        self._execute_primitive,
-                        "execute_action",
-                        self._primitives.execute_action,
-                    ),
+                    self._primitives.execute_action,
                 )
             )
 
@@ -93,25 +92,16 @@ class LiberoToolkit(Toolkit):
             )
         for definition in iter_tools(self._primitives):
             if definition.name == "segment":
-                handler = partial(definition, state=self._state)
-            else:
-                handler = partial(self._execute_primitive, definition.name, definition)
-            self.add_tool(definition.with_handler(handler))
+                definition = definition.with_handler(
+                    partial(definition, state=self._state)
+                )
+            self.add_tool(definition)
         if self._mode == "exploration":
             self.add_tool(self._reset_episode)
             finish = self._tools["finish"]
             self.add_tool(
                 finish.with_handler(partial(self._guarded_finish, finish)), replace=True
             )
-
-    def _execute_primitive(
-        self, name: str, handler: Callable[..., ToolResult], **kwargs: Any
-    ) -> ToolResult:
-        self._primitives.begin_primitive(name)
-        try:
-            return handler(**kwargs)
-        finally:
-            self._primitives.end_primitive()
 
     def _guarded_finish(self, inner: Any, **kwargs: Any) -> ToolResult:
         """Refuse to end an unsolved session while attempts remain."""
@@ -202,6 +192,14 @@ class LiberoToolkit(Toolkit):
         """Wipe stale run artifacts, build the LiberoPrimitives, dump step 0."""
         self._state.reset()
 
+        runtime_kwargs = dict(runtime_kwargs)
+        if self._mode == "evaluation":
+            env = runtime_kwargs["env"]
+            runtime_kwargs["env"] = CapturingEnvClient(
+                env,
+                self._state,
+                capture_call=partial(_capture_libero_call, env),
+            )
         primitives = libero_tools.LiberoPrimitives(
             check_cancelled=self.raise_if_cancelled,
             **runtime_kwargs,
@@ -214,15 +212,8 @@ class LiberoToolkit(Toolkit):
         self._publish_step(record)
 
     def close(self) -> None:
-        """Finalize collected data and save the episode video independently."""
+        """Save the episode video on close."""
         super().close()
-        try:
-            episode = self._primitives.finalize_flywheel()
-            if episode is not None:
-                logger.info("flywheel episode finalized: %s", episode)
-        except Exception as e:
-            logger.warning("failed to finalize flywheel episode: %s", e)
-
         try:
             frames = self._primitives.stop_recording()
             if frames:
@@ -241,3 +232,68 @@ class LiberoToolkit(Toolkit):
         return libero_tools.write_recipe_from_states(
             self._state, recipe_tag, output_dir=get_output_dir()
         )
+
+
+def _capture_libero_call(
+    env: LiberoEnvClient,
+    method: Literal["step", "chunk_step"],
+    actions: Any,
+    *,
+    return_all_frames: bool | None = None,
+) -> dict[str, Any]:
+    """Execute a LIBERO call and collect its actions and observations."""
+    before = env.last_obs
+    if method == "step":
+        result = env.step(actions)
+        actions = [np.asarray(actions)]
+        steps = [result]
+    else:
+        if return_all_frames is None:
+            return_all_frames = env.return_all_frames
+        obs, rewards, term, trunc, infos = env.chunk_step(
+            actions, return_all_frames=True
+        )
+        result = (obs if return_all_frames else obs[-1], rewards, term, trunc, infos)
+        actions = np.asarray(actions)
+        steps = zip(obs, rewards, term, trunc, infos)
+
+    def observation_payload(obs):
+        return {
+            "format": "libero.observation",
+            "data": obs,
+            "completeness": "complete",
+            "inline_array_paths": ("/states",),
+        }
+
+    return {
+        "result": result,
+        "before_observation": observation_payload(before),
+        "steps": [
+            {
+                "action": {
+                    "format": "libero.action",
+                    "data": action,
+                    "completeness": "complete",
+                    "inline_array_paths": ("",),
+                },
+                "after_observation": observation_payload(obs),
+                "result": {
+                    "format": "libero.step_result",
+                    "data": {
+                        "reward": reward,
+                        "terminated": term,
+                        "truncated": trunc,
+                        "info": info,
+                    },
+                    "completeness": "complete",
+                    "inline_array_paths": (
+                        "/info/episode/success_once",
+                        "/info/episode/return",
+                        "/info/episode/episode_len",
+                        "/info/episode/reward",
+                    ),
+                },
+            }
+            for action, (obs, reward, term, trunc, info) in zip(actions, steps)
+        ],
+    }

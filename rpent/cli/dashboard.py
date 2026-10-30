@@ -23,6 +23,7 @@ import shlex
 import sys
 import threading
 import time
+from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -36,6 +37,7 @@ from rpent.evaluation import RunFinalizationContext
 from rpent.memory import MemoryManager
 from rpent.planner.base import build_planner, is_recoverable_agent_error
 from rpent.robots import get_toolkit
+from rpent.session.planner_capture import end_api_task, start_api_task
 from rpent.utils.config import get_memory_dir
 from rpent.utils.logging import get_logger, init_output_dir
 
@@ -307,7 +309,20 @@ def _run_dashboard_task(
                 solved = False
                 state.bind_toolkit(toolkit)
                 memory_manager = toolkit.memory
+                task_state = None
+                result = None
+                finish_result = None
+                environment_success = None
                 try:
+                    if task_args.planner == "api" and task_args.record_trajectory:
+                        task_state = start_api_task(
+                            toolkit.state,
+                            instruction=session_message,
+                            config={
+                                "arguments": vars(task_args),
+                                "run": asdict(run_config),
+                            },
+                        )
                     planner = build_planner(
                         task_args.planner,
                         output_dir=output_dir,
@@ -340,6 +355,7 @@ def _run_dashboard_task(
                             stats["planner_error_at_operator_verdict"] = agent_error
                     if robot_spec.supports_exploration:
                         solved = bool(toolkit.solved())
+                        environment_success = solved
                         if solved:
                             recipe_path = (
                                 toolkit.write_recipe(recipe_tag) or recipe_path
@@ -351,7 +367,23 @@ def _run_dashboard_task(
                             environment_success = bool(toolkit.solved())
                             solved = environment_success
                     finally:
-                        toolkit.close()
+                        try:
+                            toolkit.close()
+                        finally:
+                            end_api_task(
+                                task_state,
+                                result,
+                                finish_result=finish_result,
+                                environment_success=environment_success,
+                                exception=sys.exc_info()[1],
+                                cancelled_reason=(
+                                    "task_replaced"
+                                    if state.task_replacement_requested
+                                    else "operator"
+                                    if state.task_finalization_cancelled
+                                    else None
+                                ),
+                            )
                 if (
                     solved
                     or state.task_replacement_requested

@@ -21,7 +21,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from robots.dual_franka import get_robot_spec
+from robots.dual_franka import get_robot_spec, robot_spec
 from robots.dual_franka.runtime_config import load_runtime_config
 from rpent.robots.base import enumerate_robots
 from rpent.robots.base import get_robot_spec as resolve_robot_spec
@@ -100,3 +100,26 @@ def test_dual_franka_uses_rpent_owned_robot_config(
         raw["rotation_hold"] = rotation_hold
         runtime = load_runtime_config(None, task_description="test task")
         assert runtime.controller["rotate_max_drift_m"] == expected
+
+
+@pytest.mark.parametrize("task_id", [None, 2])
+def test_runtime_starts_vla_for_dashboard_and_exploration(
+    monkeypatch, tmp_path, task_id
+):
+    started = []
+    monkeypatch.setattr(
+        robot_spec,
+        "try_spawn_server",
+        lambda owned, events, name, fn: started.append(name) or (None, object()),
+    )
+    monkeypatch.setattr(robot_spec, "try_wait_server", lambda *args, **kwargs: {})
+    args = SimpleNamespace(
+        task_id=task_id,
+        vla_endpoint=None,
+        sam3_endpoint=None,
+        _flash_options=None,
+    )
+    robot_spec._init_runtime(
+        args, tmp_path, SimpleNamespace(emit=lambda event: None), {"vla"}
+    )
+    assert started == ["vla"]

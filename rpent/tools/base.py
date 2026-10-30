@@ -24,7 +24,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from functools import wraps
 from types import SimpleNamespace
-from typing import Annotated, Any, Generic, ParamSpec, get_type_hints
+from typing import Annotated, Any, Generic, Literal, ParamSpec, get_type_hints
 
 from pydantic import BaseModel, ConfigDict, Field, create_model
 from pydantic.json_schema import GenerateJsonSchema
@@ -123,6 +123,7 @@ class Tool(Generic[ParamsT]):
     _input_schema: dict[str, Any]
     readonly: bool = False
     _unbound_method: bool = False
+    action_source: Literal["tool_computed", "direct"] = "tool_computed"
 
     @property
     def input_schema(self) -> dict[str, Any]:

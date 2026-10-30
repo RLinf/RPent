@@ -75,19 +75,22 @@ class BaseEnvClient:
         )
         return self.last_obs
 
-    def step(self, flat_action):
-        """Execute one env action. Returns the gym 5-tuple
-        ``(obs, rew, term, trunc, info)``.
+    def step(self, flat_action, *, capture: bool = False):
+        """Execute one env action. Returns the backend's gym tuple.
 
         Also updates the ``self.last_obs`` cache with the first element (obs)
         of the returned tuple.
+
+        With ``capture=True``, supporting backends return execution details
+        with the original tuple under ``result``. The cache uses that tuple.
         """
         result = self._client.call(
             "env.step",
             args=(flat_action,),
+            kwargs={"capture": True} if capture else None,
             timeout_s=self._TIMEOUT_S["env.step"],
         )
-        self.last_obs = result[0]
+        self.last_obs = (result["result"] if capture else result)[0]
         return result
 
     def chunk_step(self, flat_actions, *, return_all_frames: bool = False):

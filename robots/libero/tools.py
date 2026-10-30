@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import threading
 from collections.abc import Callable
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -30,6 +31,7 @@ from rpent.robots.components.molmo_client import MolmoClient
 from rpent.robots.components.pi05_vla_client import Pi05VLAClient
 from rpent.robots.components.sam3_client import Sam3Client
 from rpent.session import EnvState, StepRecord
+from rpent.session.env_capture import CapturingEnvClient
 from rpent.tools import Tool, ToolResult, tool
 from rpent.utils.logging import get_logger
 
@@ -49,19 +51,18 @@ class LiberoPrimitives:
     """Wraps a single-env LIBERO-shaped env + VLA policy with primitive-
     level methods.
 
-    ``pi0_pick`` and ``pi0_doubled`` override ``obs['task_descriptions']``
-    with a sub-instruction. ``move_to`` and friends are scripted (no VLM
+    ``pi0_pick`` and ``pi0_doubled`` pass a sub-instruction to the policy.
+    ``move_to`` and friends are scripted (no VLM
     call) and drive the underlying OSC controller directly.
     """
 
     def __init__(
         self,
-        env: LiberoEnvClient,
+        env: LiberoEnvClient | CapturingEnvClient,
         model: Pi05VLAClient,
         sam3_client: Sam3Client,
         check_cancelled: Callable[[], None],
         molmo_client: MolmoClient | None = None,
-        flywheel_config: dict[str, Any] | None = None,
     ):
         self.env = env
         self.model = model
@@ -79,8 +80,6 @@ class LiberoPrimitives:
         # Toggled via start_recording() / stop_recording().
         self._recording = False
         self._frames = []
-        self._flywheel_config = flywheel_config
-        self._flywheel = None
 
     def start_recording(self):
         self._recording = True
@@ -116,29 +115,12 @@ class LiberoPrimitives:
     def reset(self):
         obs, info = self.env.reset()
         self.set_obs(obs)
-        if self._flywheel_config is not None:
-            from robots.libero.flywheel import create_episode_writer
-
-            self._flywheel = create_episode_writer(self._flywheel_config, obs)
         return self._last_obs, info
-
-    def begin_primitive(self, name: str) -> None:
-        if self._flywheel is not None:
-            self._flywheel.begin_primitive(name)
-
-    def end_primitive(self) -> None:
-        if self._flywheel is not None:
-            self._flywheel.end_primitive()
-
-    def finalize_flywheel(self) -> Path | None:
-        return self._flywheel.finalize() if self._flywheel is not None else None
 
     def _step_env(self, action) -> None:
         """Execute one env action between cancellation checkpoints."""
         self._check_cancelled()
-        obs, reward, terminated, truncated, _info = self.env.step(action)
-        if self._flywheel is not None:
-            self._flywheel.add_transition(action, obs, reward, terminated, truncated)
+        obs, *_ = self.env.step(action)
         self.set_obs(obs)
         if self._recording:
             self.record_frame(obs)
@@ -159,48 +141,26 @@ class LiberoPrimitives:
         }
 
     def _vlm_chunk(self, instruction: str):
-        """One model forward + ``chunk_size`` env steps. Overrides prompt."""
+        """Predict and execute one VLA action chunk with a sub-instruction."""
         self._check_cancelled()
-        original_task = self._last_obs.get("task_descriptions")
-        try:
-            self._last_obs["task_descriptions"] = instruction
-            self._last_obs.setdefault("extra_view_images", None)
-
-            actions = self.model.predict(self._last_obs, options={"mode": "eval"})
+        capturing = isinstance(self.env, CapturingEnvClient)
+        policy_obs = {**self._last_obs, "task_descriptions": instruction}
+        policy_obs.setdefault("extra_view_images", None)
+        prediction = self.env.prediction(instruction) if capturing else nullcontext()
+        with prediction:
+            actions = self.model.predict(policy_obs, options={"mode": "eval"})
             self._check_cancelled()
-
-            vla_id = (
-                self._flywheel.add_proposal(instruction, actions)
-                if self._flywheel is not None
-                else -1
+            all_frames = self._recording
+            chunk_obs, *_ = self.env.chunk_step(
+                actions, return_all_frames=True if all_frames else None
             )
-
-            if not self._recording and self._flywheel is None:
-                chunk_obs, _r, _t, _tr, _i = self.env.chunk_step(actions)
-                obs = chunk_obs[-1] if self.env.return_all_frames else chunk_obs
-            else:
-                chunk_obs, rewards, terminated, truncated, _info = self.env.chunk_step(
-                    actions, return_all_frames=True
-                )
-                for index, obs in enumerate(chunk_obs):
-                    if self._recording:
-                        self.record_frame(obs)
-                    if self._flywheel is not None:
-                        self._flywheel.add_transition(
-                            actions[index],
-                            obs,
-                            rewards[index],
-                            terminated[index],
-                            truncated[index],
-                            vla_id=vla_id,
-                            proposal_index=index,
-                        )
-                obs = chunk_obs[-1]
-            self.set_obs(obs)
-            return self._last_obs
-        finally:
-            if original_task is not None:
-                self._last_obs["task_descriptions"] = original_task
+        if not all_frames:
+            self.set_obs(chunk_obs[-1] if self.env.return_all_frames else chunk_obs)
+        else:
+            self.set_obs(chunk_obs[-1])
+            for obs in chunk_obs:
+                self.record_frame(obs)
+        return self._last_obs
 
     @tool
     def pi0_pick(

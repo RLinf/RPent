@@ -83,12 +83,6 @@ class FakeSingleArmPrimitives:
             "Fake" + primitives_type.__name__, (cls,), {**declarations, "instances": []}
         )
 
-    def begin_primitive(self, name):
-        pass
-
-    def end_primitive(self):
-        pass
-
 
 class FakeRealSenseCamera:
     """Inert stand-in for RLinf's concrete RealSense camera class."""

@@ -30,9 +30,8 @@ def environment(description=None):
     )
 
 
-def test_official_manager_is_shared_by_rpc_observation_and_eval(monkeypatch):
+def test_official_manager_is_shared_by_rpc_observation_and_eval():
     env = environment("Pick up the mint green scissors by 10 cm.")
-    monkeypatch.setattr(agent_support, "_record_obs_frame", lambda *args: None)
     rpc = resolve_instruction(env)
     obs = agent_support._obs_dict(env, None)
     assert rpc == obs["instruction"] == public_observation(obs)["instruction"]

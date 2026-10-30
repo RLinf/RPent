@@ -24,7 +24,7 @@ import httpx
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
-from rpent.dashboard.events import DashboardEventSink
+from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory.manager import MemoryManager
 from rpent.planner.utils.http_mcp_server import HttpMcpServer
 from rpent.session import EnvState
@@ -40,24 +40,12 @@ CONCURRENT_CALLS = [
 ]
 
 
-class RecordingSink(DashboardEventSink):
-    def __init__(self) -> None:
-        self.events: list[Any] = []
-
-    @property
-    def enabled(self) -> bool:
-        return True
-
-    def emit(self, event: Any) -> None:
-        self.events.append(event)
-
-
 class FakeToolkit(Toolkit):
     """Minimal toolkit whose tools sleep to widen the overlap window."""
 
     def __init__(self, state_dir: Path) -> None:
         super().__init__(
-            dashboard_events=RecordingSink(),
+            dashboard_events=NullDashboardEventSink(),
             state=EnvState(state_dir),
             memory=MemoryManager(state_dir / "memory"),
         )

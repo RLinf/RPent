@@ -42,6 +42,7 @@ import shlex
 import sys
 import time
 from collections.abc import Callable
+from dataclasses import asdict
 from pathlib import Path
 
 from rpent.cli.tui import (
@@ -61,6 +62,7 @@ from rpent.planner.base import (
 )
 from rpent.planner.check import BASE_URL_ENV_BY_PLANNER
 from rpent.robots import enumerate_robots, get_robot_spec, get_toolkit
+from rpent.session.planner_capture import end_api_task, start_api_task
 from rpent.utils.logging import get_logger, init_output_dir
 
 logger = get_logger("agent")
@@ -192,6 +194,12 @@ def _build_argparser() -> argparse.ArgumentParser:
 
     # other config
     ap.add_argument("--output-dir", default=None)
+    ap.add_argument(
+        "--record-trajectory",
+        action="store_true",
+        help="Record task, planner, and tool trajectories (api planner only). "
+        "Also records actions and VLA predictions in LIBERO evaluation mode.",
+    )
     ap.add_argument(
         "--memory-profile",
         choices=["hf", "local"],
@@ -627,7 +635,17 @@ def main() -> int:
                     return True
 
                 operator_input.bind_verdict(accept_verdict)
+            task_state = None
+            result = None
+            finish_result = None
+            environment_success = None
             try:
+                if args.planner == "api" and args.record_trajectory:
+                    task_state = start_api_task(
+                        toolkit.state,
+                        instruction=session_msg,
+                        config={"arguments": vars(args), "run": asdict(run_config)},
+                    )
                 result = planner.solve(
                     system_prompt=system_prompt,
                     user_message=session_msg,
@@ -651,6 +669,7 @@ def main() -> int:
                     solved_fn
                 ):
                     solved = bool(solved_fn())
+                    environment_success = solved
                     write_recipe = getattr(toolkit, "write_recipe", None)
                     if solved and callable(write_recipe):
                         recipe_path = write_recipe(recipe_tag) or recipe_path
@@ -665,7 +684,16 @@ def main() -> int:
                         )
                         solved = bool(environment_success)
                 finally:
-                    toolkit.close()
+                    try:
+                        toolkit.close()
+                    finally:
+                        end_api_task(
+                            task_state,
+                            result,
+                            finish_result=finish_result,
+                            environment_success=environment_success,
+                            exception=sys.exc_info()[1],
+                        )
             if (
                 solved
                 or (finish_result or {}).get("operator_aborted")

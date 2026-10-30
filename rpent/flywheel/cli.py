@@ -12,62 +12,96 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Command-line entry point for LIBERO Flywheel data."""
-
-from __future__ import annotations
+"""Command-line export of recorded trajectories to training data."""
 
 import argparse
-import json
 from pathlib import Path
 
+from rpent.utils.logging import get_logger
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="rpent-flywheel")
-    commands = parser.add_subparsers(dest="command", required=True)
+logger = get_logger("flywheel")
 
-    validate = commands.add_parser("validate", help="validate one raw episode")
-    validate.add_argument("episode", type=Path)
 
-    export = commands.add_parser(
-        "export-lerobot", help="export successful episodes to LeRobot"
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="rpent-flywheel",
+        description=(
+            "Export successful VLA trajectory segments as per-step training data. "
+            "Robot type is read from task records; export each robot separately."
+        ),
     )
-    export.add_argument(
-        "--data-root",
+    parser.add_argument(
+        "--input-root",
         type=Path,
-        default=Path("datacollection"),
-        help="root containing raw Flywheel episodes",
+        required=True,
+        help="One trajectory directory or a directory containing trajectory runs.",
     )
-    export.add_argument("--suite", required=True)
-    export.add_argument("--task", type=int, required=True)
-    export.add_argument("--dataset-id")
-    export.add_argument(
-        "--output-root",
+    parser.add_argument(
+        "--output-dir",
         type=Path,
-        help="parent directory for the exported LeRobot dataset",
+        required=True,
+        help="New output directory for the training dataset and report.json.",
     )
+    parser.add_argument(
+        "--pattern",
+        default="*",
+        help="Glob for child directories to search recursively (default: *). "
+        "Ignored when input-root contains task.json. Quote shell wildcards.",
+    )
+    parser.add_argument(
+        "--horizon",
+        type=int,
+        default=10,
+        help="Positive window length used only for report counts (default: 10). "
+        "Exported frames and tails are unchanged.",
+    )
+    parser.add_argument(
+        "--repo-id",
+        default="rpent/vla-sft",
+        help="Local LeRobot dataset identifier (default: rpent/vla-sft). "
+        "Does not upload data.",
+    )
+    return parser
 
-    args = parser.parse_args(argv)
-    import rpent.robots  # noqa: F401 - initialize the official robot source path
-    from robots.libero.flywheel import LIBERO_SPEC, export_options
 
-    if args.command == "validate":
-        from rpent.flywheel.episode import validate_episode
+def main() -> int:
+    """Export trajectories and display the resulting counts and paths."""
+    args = _parser().parse_args()
+    try:
+        from rpent.flywheel.export import export_dataset
 
-        result = validate_episode(args.episode, spec=LIBERO_SPEC)
-    else:
-        from rpent.flywheel.export import export_lerobot
-
-        result = export_lerobot(
-            **export_options(
-                args.data_root,
-                suite=args.suite,
-                task_id=args.task,
-                output_root=args.output_root,
-            ),
-            dataset_id=args.dataset_id,
-            spec=LIBERO_SPEC,
+        report = export_dataset(
+            args.input_root,
+            args.output_dir,
+            pattern=args.pattern,
+            horizon=args.horizon,
+            repo_id=args.repo_id,
         )
-    print(json.dumps(result, indent=2, sort_keys=True))
+    except ModuleNotFoundError as exc:
+        if exc.name != "lerobot":
+            raise
+        logger.error(
+            'LeRobot is required. Install it with: uv pip install -e ".[flywheel]"'
+        )
+        return 1
+    except (OSError, ValueError) as exc:
+        logger.error("%s", exc)
+        return 1
+
+    output = Path(report["output_dir"])
+    print(f"Trajectories: {report['trajectory_count']}")
+    print(f"Exported trajectories: {report['exported_trajectory_count']}")
+    print(f"Segments: {report['episode_counts']['train']}")
+    print(f"Frames: {report['frame_counts']['train']}")
+    print(
+        f"Complete windows (horizon={report['horizon']}): "
+        f"{report['window_counts']['train']}"
+    )
+    if report["frame_counts"]["train"]:
+        print(f"Dataset: {output / report['dataset_paths']['train']}")
+    else:
+        logger.warning("No training frames exported; see report.json for exclusions.")
+    print(f"Report: {output / 'report.json'}")
     return 0
 
 

@@ -40,6 +40,7 @@ from robots.dual_franka.tools import (
     dump_state,
     view_env_state,
 )
+from robots.franka import runtime_config
 from robots.franka.runtime_config import set_robot_config_path
 from robots.franka.tools import view_camera_meta
 from rpent.dashboard.events import NullDashboardEventSink, StepRecordEvent
@@ -935,3 +936,10 @@ def test_named_vla_uses_configured_instruction_and_semantic_boundary():
     assert result["boundary"] == "grasp"
     assert result["boundary_reached"]
     assert len(env.chunks) == 3
+
+
+def test_selected_perception_config(monkeypatch, tmp_path):
+    path = tmp_path / "robot.yaml"
+    path.write_text("perception:\n  base_frames:\n    marker: custom\n")
+    monkeypatch.setattr(runtime_config, "_robot_config_path", path)
+    assert perception._load_perception_config()["base_frames"]["marker"] == "custom"

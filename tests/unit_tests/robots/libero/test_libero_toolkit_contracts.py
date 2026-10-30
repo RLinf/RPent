@@ -144,14 +144,14 @@ def test_toolkit_modes_construct_with_fake_primitives(
     )
 
     evaluation = toolkit.LiberoToolkit(
-        runtime_kwargs={"env_client": object()},
+        runtime_kwargs={"env": object()},
         dashboard_events=NullDashboardEventSink(),
         memory=MemoryManager(tmp_path / "evaluation-memory"),
         mode="evaluation",
         state_output_dir=tmp_path / "evaluation",
     )
     exploration = toolkit.LiberoToolkit(
-        runtime_kwargs={"env_client": object()},
+        runtime_kwargs={"env": object()},
         dashboard_events=NullDashboardEventSink(),
         memory=MemoryManager(
             tmp_path / "exploration-memory",

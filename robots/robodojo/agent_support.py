@@ -94,10 +94,6 @@ class _VideoRecorder:
         return paths
 
 
-def _record_obs_frame(recorder, obs: dict) -> None:
-    recorder.record(obs)
-
-
 # ---------------------------------------------------------------------------
 # Safety monitor: rolling / off-table bottle alarm (env-internal, GT-based)
 #
@@ -250,7 +246,8 @@ def _obs_dict(env, recorder) -> dict[str, Any]:
 
     obs = env.get_obs(env_idx=0)
     obs["instruction"] = resolve_instruction(env)
-    _record_obs_frame(recorder, obs)
+    if recorder is not None:
+        recorder.record(obs)
     return obs
 
 

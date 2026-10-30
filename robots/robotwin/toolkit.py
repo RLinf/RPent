@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
@@ -27,12 +27,14 @@ from robots.robotwin.primitives import RoboTwinPrimitives
 from robots.robotwin.robot_spec import ROBOTWIN_CAMERA_NAMES
 from rpent.dashboard.events import DashboardEventSink
 from rpent.session import EnvState
+from rpent.session.env_capture import CapturingEnvClient
 from rpent.tools import ToolResult, iter_tools, tool
 from rpent.tools.direct_action import direct_action_tool
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_output_dir
 
 if TYPE_CHECKING:
+    from robots.robotwin.env_client import RoboTwinEnvClient
     from rpent.memory.manager import MemoryManager
 
 # State-advancing RoboTwin primitives eligible for the recipe. ``reset``,
@@ -113,6 +115,16 @@ class RoboTwinToolkit(Toolkit):
         self._attempt = 1
         self._attempts_per_session = max(0, int(attempts_per_session))
         self._latest_status: dict[str, Any] = {}
+        if self._mode == "evaluation":
+            env = runtime_kwargs["env"]
+            runtime_kwargs = {
+                **runtime_kwargs,
+                "env": CapturingEnvClient(
+                    env,
+                    state,
+                    capture_call=partial(_capture_robotwin_call, env),
+                ),
+            }
         self._primitives = RoboTwinPrimitives(
             check_cancelled=self.raise_if_cancelled,
             **runtime_kwargs,
@@ -348,3 +360,79 @@ class RoboTwinToolkit(Toolkit):
         if saved is None:
             raise RuntimeError(f"failed to save RoboTwin recipe artifact: {name}")
         return str(destination.artifact_path(name, step=None))
+
+
+def _capture_robotwin_call(
+    env: RoboTwinEnvClient,
+    method: Literal["step", "chunk_step"],
+    *args: Any,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """Execute a RoboTwin call and extract its capture data."""
+    if args:
+        (actions,) = args
+    else:
+        actions = kwargs.pop("action" if method == "step" else "actions")
+    array = np.atleast_2d(np.asarray(actions, dtype=np.float64))
+    if method == "step" and len(array) != 1:
+        raise ValueError("RoboTwin common action must be a single action")
+    return_all_frames = (
+        kwargs.pop("return_all_frames", False) if method == "chunk_step" else False
+    )
+    obs, rewards, terminated, truncated, info = env.chunk_step(
+        array, return_all_frames=True, **kwargs
+    )
+    before = info.pop("before_observation")
+    if method == "step":
+        result = (
+            obs["final"],
+            float(rewards[0]),
+            bool(terminated[0]),
+            bool(truncated[0]),
+            info,
+        )
+    else:
+        result = (
+            obs if return_all_frames else obs["final"],
+            rewards,
+            terminated,
+            truncated,
+            info,
+        )
+
+    def observation_payload(observation):
+        return {
+            "format": "robotwin.observation",
+            "data": observation,
+            "completeness": "complete",
+            "inline_array_paths": tuple(
+                f"/robot_state/{key}" for key in observation["robot_state"]
+            ),
+        }
+
+    return {
+        "result": result,
+        "before_observation": observation_payload(before),
+        "steps": [
+            {
+                "action": {
+                    "format": f"robotwin.action.{info['action_type']}",
+                    "data": array[index].copy(),
+                    "completeness": "complete",
+                    "inline_array_paths": ("",),
+                },
+                "after_observation": observation_payload(obs["frames"][index]),
+                "result": {
+                    "format": "robotwin.step_result",
+                    "data": {
+                        "reward": float(rewards[index]),
+                        "terminated": bool(terminated[index]),
+                        "truncated": bool(truncated[index]),
+                        "info": info["per_step"][index],
+                    },
+                    "completeness": "complete",
+                },
+            }
+            for index in range(info["executed_actions"])
+        ],
+    }

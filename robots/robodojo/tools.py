@@ -16,11 +16,13 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from typing import Annotated, Any, Literal
 
 from pydantic import Field
 from pydantic.json_schema import SkipJsonSchema
 
+from rpent.session.env_capture import CapturingEnvClient
 from rpent.tools import ToolResult, tool
 
 # (camera key in the obs dict, artifact base name). Mirrors the ``frame_channels``
@@ -416,36 +418,42 @@ def pi0_pick(
                     np.asarray(obs["state"][f"{a}_ee_joint_state"]).reshape(-1)[0]
                 )
                 t["last_grip"] = t["start_grip"]
-        actions = vla.predict(obs)
-        chunks_used = c + 1
-        for action in actions:
-            obs_step, _reward, _done, info = primitives.env.step(action)
-            st = obs_step["state"]
-            for a in arms:
-                t = track[a]
-                z = float(np.asarray(st[f"{a}_ee_pose"], dtype=np.float64)[2])
-                grip = float(np.asarray(st[f"{a}_ee_joint_state"]).reshape(-1)[0])
-                t["last_grip"] = grip
-                if z < t["min_z"]:
-                    t["min_z"] = z
-                    t["peak"] = z
-                else:
-                    t["peak"] = max(t["peak"], z)
-                descended = (t["start_z"] - t["min_z"]) >= 0.06
-                if descended:
-                    ascended = (t["peak"] - t["min_z"]) >= lift_thresh
-                    closed = grip < gripper_closed_thresh
-                    if ascended and closed:
-                        success = True
-                        break
-            if success:
-                # Stop the chunk at once: the remaining actions were predicted
-                # for an ungrasped state and would reopen the gripper, dropping
-                # the object while ``success`` stays true.
-                break
-            if info["status"]["step"] >= info["status"]["step_limit"]:
-                terminated = True
-                break
+        prediction = (
+            primitives.env.prediction(prompt)
+            if isinstance(primitives.env, CapturingEnvClient)
+            else nullcontext()
+        )
+        with prediction:
+            actions = vla.predict(obs)
+            chunks_used = c + 1
+            for action in actions:
+                obs_step, _reward, _done, info = primitives.env.step(action)
+                st = obs_step["state"]
+                for a in arms:
+                    t = track[a]
+                    z = float(np.asarray(st[f"{a}_ee_pose"], dtype=np.float64)[2])
+                    grip = float(np.asarray(st[f"{a}_ee_joint_state"]).reshape(-1)[0])
+                    t["last_grip"] = grip
+                    if z < t["min_z"]:
+                        t["min_z"] = z
+                        t["peak"] = z
+                    else:
+                        t["peak"] = max(t["peak"], z)
+                    descended = (t["start_z"] - t["min_z"]) >= 0.06
+                    if descended:
+                        ascended = (t["peak"] - t["min_z"]) >= lift_thresh
+                        closed = grip < gripper_closed_thresh
+                        if ascended and closed:
+                            success = True
+                            break
+                if success:
+                    # Stop the chunk at once: the remaining actions were predicted
+                    # for an ungrasped state and would reopen the gripper, dropping
+                    # the object while ``success`` stays true.
+                    break
+                if info["status"]["step"] >= info["status"]["step_limit"]:
+                    terminated = True
+                    break
         if success or terminated:
             break
     per_arm = {}

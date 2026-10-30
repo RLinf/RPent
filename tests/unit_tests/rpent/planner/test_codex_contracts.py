@@ -35,7 +35,7 @@ from rpent.planner.codex import (
     _codex_mcp_config_overrides,
     _interrupt,
 )
-from rpent.planner.utils.http_mcp_server import HttpMcpServer, mcp_result
+from rpent.planner.utils.http_mcp_server import HttpMcpServer
 from rpent.tools import ToolResult
 from rpent.tools.common import CommonTools
 
@@ -164,18 +164,6 @@ def install_fake_backend(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]
     monkeypatch.setattr(codex_module.openai_codex, "CodexConfig", codex_config)
     monkeypatch.setattr(codex_module.openai_codex, "Codex", FakeCodex)
     return configs
-
-
-def test_mcp_content_conversion_preserves_text_images_and_error_status() -> None:
-    plain = mcp_result(ToolResult(data={"value": "plain"}))
-    assert plain["isError"] is False
-    assert json.loads(plain["content"][0]["text"]) == {"value": "plain"}
-    result = ToolResult(data={"error": "finish refused"}, images=[b"image bytes"])
-    response = mcp_result(result)
-    assert [block["type"] for block in response["content"]] == ["text", "image"]
-    assert json.loads(response["content"][0]["text"]) == {"error": "finish refused"}
-    assert response["content"][1]["mimeType"] == "image/png"
-    assert response["isError"] is True
 
 
 def test_http_mcp_readiness_ignores_environment_proxy(

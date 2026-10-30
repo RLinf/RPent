@@ -22,17 +22,22 @@ from __future__ import annotations
 
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
+
+import numpy as np
 
 from robots.robocasa import tools as robocasa_tools
+from robots.robocasa.env_server import DEFAULT_CAMS
 from rpent.dashboard.events import DashboardEventSink
 from rpent.session import EnvState
+from rpent.session.env_capture import CapturingEnvClient
 from rpent.tools import ToolResult, iter_tools
 from rpent.tools.direct_action import direct_action_tool
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger, get_output_dir
 
 if TYPE_CHECKING:
+    from robots.robocasa.env_client import RoboCasaEnvClient
     from rpent.memory.manager import MemoryManager
 
 logger = get_logger("robocasa_toolkit")
@@ -190,6 +195,14 @@ class RoboCasaToolkit(Toolkit):
 
         from robots.robocasa.primitives import RoboCasaPrimitives
 
+        runtime_kwargs = dict(runtime_kwargs)
+        if self._mode == "evaluation":
+            env = runtime_kwargs["env_client"]
+            runtime_kwargs["env_client"] = CapturingEnvClient(
+                env,
+                self._state,
+                capture_call=partial(_capture_robocasa_call, env),
+            )
         primitives = RoboCasaPrimitives(
             check_cancelled=self.raise_if_cancelled,
             **runtime_kwargs,
@@ -235,3 +248,52 @@ class RoboCasaToolkit(Toolkit):
             recipe_tag,
             output_dir=get_output_dir() if self._mode == "exploration" else None,
         )
+
+
+def _capture_robocasa_call(
+    env: RoboCasaEnvClient,
+    method: Literal["step"],
+    flat_action: Any,
+) -> dict[str, Any]:
+    """Execute a RoboCasa step and collect its action and observations."""
+
+    def observation_payload(obs):
+        return {
+            "format": "robocasa.observation",
+            "data": {
+                **obs,
+                "images": {
+                    camera: env.render_camera(camera) for camera in DEFAULT_CAMS
+                },
+            },
+            "completeness": "complete",
+            "inline_array_paths": tuple(
+                f"/{key}"
+                for key, value in obs.items()
+                if isinstance(value, np.ndarray) and value.ndim <= 1
+            ),
+        }
+
+    before = observation_payload(env.last_obs)
+    result = getattr(env, method)(flat_action)
+    obs, reward, done, info = result
+    return {
+        "result": result,
+        "before_observation": before,
+        "steps": [
+            {
+                "action": {
+                    "format": "robocasa.action",
+                    "data": np.asarray(flat_action, dtype=np.float64).reshape(-1),
+                    "completeness": "complete",
+                    "inline_array_paths": ("",),
+                },
+                "after_observation": observation_payload(obs),
+                "result": {
+                    "format": "robocasa.step_result",
+                    "data": {"reward": reward, "done": done, "info": info},
+                    "completeness": "complete",
+                },
+            }
+        ],
+    }

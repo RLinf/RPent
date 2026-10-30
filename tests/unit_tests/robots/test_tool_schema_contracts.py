@@ -101,21 +101,20 @@ def test_robot_tool_schemas_have_valid_object_inputs(robot_name: str) -> None:
 
 
 def test_robot_action_schemas_keep_bounded_vector_shapes() -> None:
-    schema_sets = [
-        {
-            spec.name: spec
-            for spec in list(
-                iter_tools(libero_tools, libero_tools.LiberoPrimitives, LiberoToolkit)
-            )
-        }["move_to"],
-        {
-            spec.name: spec
-            for spec in list(
-                iter_tools(robotwin_tools, RoboTwinPrimitives, RoboTwinToolkit)
-            )
-        }["move_to"],
-    ]
-    for spec in schema_sets:
+    for robot in ("libero", "robotwin"):
+        spec = next(item for item in TOOL_DECLARATIONS[robot] if item.name == "move_to")
         xyz = spec.input_schema["properties"]["xyz"]
         assert xyz["type"] == "array"
         assert xyz["minItems"] == xyz["maxItems"] == 3
+
+
+def test_robotwin_perception_schemas_use_the_same_view_coordinate_space() -> None:
+    by_name = {spec.name: spec for spec in TOOL_DECLARATIONS["robotwin"]}
+
+    for tool_name, coordinate_name in (
+        ("sample_world_xyz", "pixels"),
+        ("query_world_map", "bbox"),
+    ):
+        schema = by_name[tool_name].input_schema
+        assert schema["required"] == ["view", coordinate_name]
+        assert schema["properties"]["view"]["type"] == "string"

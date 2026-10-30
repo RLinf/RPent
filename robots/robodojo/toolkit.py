@@ -17,14 +17,16 @@
 from __future__ import annotations
 
 from functools import partial
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from rpent.dashboard.events import DashboardEventSink
 from rpent.session import EnvState
+from rpent.session.env_capture import CapturingEnvClient
 from rpent.tools import Toolkit, ToolResult, iter_tools
 from rpent.utils.logging import get_output_dir
 
 if TYPE_CHECKING:
+    from robots.robodojo.env_client import RoboDojoEnvClient
     from rpent.memory.manager import MemoryManager
 
 
@@ -113,8 +115,13 @@ class RoboDojoToolkit(Toolkit):
 
         self._pending_perception = []
         self._state.reset()
+        env = primitives_kwargs["env"]
         self._primitives = RoboDojoPrimitives(
-            env=primitives_kwargs["env"],
+            env=CapturingEnvClient(
+                env,
+                self._state,
+                capture_call=partial(_capture_robodojo_call, env),
+            ),
             sam3_client=primitives_kwargs.get("sam3_client"),
             vla_client=primitives_kwargs.get("vla_client"),
             action_type=primitives_kwargs.get("action_type", "joint"),
@@ -173,3 +180,44 @@ class RoboDojoPrimitives:
         self.action_type = action_type
         self._check_cancelled = check_cancelled
         self._last_obs = None
+
+
+def _capture_robodojo_call(
+    env: RoboDojoEnvClient,
+    method: Literal["step"],
+    flat_action: Any,
+) -> dict[str, Any]:
+    """Execute a RoboDojo step and collect its action and observations."""
+    response = getattr(env, method)(flat_action, capture=True)
+    result = response["result"]
+    obs, reward, done, info = result
+    action = response["action"]
+
+    def observation_payload(obs):
+        return {
+            "format": "robodojo.observation",
+            "data": obs,
+            "completeness": "complete",
+            "inline_array_paths": tuple(f"/state/{key}" for key in obs["state"]),
+        }
+
+    return {
+        "result": result,
+        "before_observation": observation_payload(response["before_observation"]),
+        "steps": [
+            {
+                "action": {
+                    "format": f"robodojo.action.{response['action_type']}",
+                    "data": action,
+                    "completeness": "complete",
+                    "inline_array_paths": tuple(f"/{key}" for key in action),
+                },
+                "after_observation": observation_payload(obs),
+                "result": {
+                    "format": "robodojo.step_result",
+                    "data": {"reward": reward, "done": done, "info": info},
+                    "completeness": "complete",
+                },
+            }
+        ],
+    }

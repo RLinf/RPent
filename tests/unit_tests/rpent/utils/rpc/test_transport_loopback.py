@@ -23,7 +23,7 @@ import time
 import urllib.request
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from types import SimpleNamespace
 from typing import Literal
@@ -31,6 +31,9 @@ from typing import Literal
 import numpy as np
 import pytest
 
+from rpent.robots.components.env_client_base import BaseEnvClient
+from rpent.robots.components.env_facade_base import BaseEnvFacade
+from rpent.session.records import Payload
 from rpent.utils.daemon import pick_free_port
 from rpent.utils.rpc import (
     RpcClient,
@@ -355,3 +358,174 @@ def test_transport_timeout_does_not_wedge_the_server(transport: Transport) -> No
 
         assert running.client.call("healthz", timeout_s=1.0) == {"status": "ok"}
         assert running.facade.delay_finished.wait(timeout=1.0)
+
+
+class _CaptureEnv(BaseEnvFacade):
+    def __init__(self, tuple_size=5):
+        self.tuple_size = tuple_size
+        super().__init__()
+
+    def get_env_meta(self):
+        return {}
+
+    def _observation(self):
+        return {
+            "state": np.array([self.position], dtype=np.float32),
+            "image": np.full((2, 3, 3), self.count, dtype=np.uint8),
+        }
+
+    def reset(self):
+        self.position = 0.0
+        self.count = 0
+        return self._observation()
+
+    def step(self, action, *, capture=False):
+        before = self._observation() if capture else None
+        if action[0] < 0:
+            raise ValueError("environment step failed")
+        native_action = np.clip(action, 0, 1).astype(np.float32)
+        self.position += float(native_action[0])
+        self.count += 1
+        obs = self._observation()
+        reward = self.position
+        done = self.count == 2
+        info = {"count": self.count}
+        result = (obs, reward, done, info)
+        if self.tuple_size == 5:
+            result = (obs, reward, done, False, info)
+        if not capture:
+            return result
+        return {
+            "result": result,
+            "before_observation": asdict(
+                Payload("test.observation", before, completeness="complete")
+            ),
+            "steps": [
+                {
+                    "action": asdict(
+                        Payload("test.action", native_action, completeness="complete")
+                    ),
+                    "after_observation": asdict(
+                        Payload("test.observation", obs, completeness="complete")
+                    ),
+                    "result": asdict(
+                        Payload(
+                            "test.result",
+                            {"reward": reward, "done": done, "info": info},
+                            completeness="complete",
+                        )
+                    ),
+                }
+            ],
+        }
+
+    def chunk_step(self, actions, *, return_all_frames=False):
+        results = []
+        for action in actions:
+            result = self.step(action)
+            results.append(result)
+            if result[2]:
+                break
+        obs = [result[0] for result in results]
+        result = (
+            obs if return_all_frames else obs[-1],
+            np.array([result[1] for result in results]),
+            np.array([result[2] for result in results]),
+            {"executed_actions": len(results)},
+        )
+        if self.tuple_size == 5:
+            result = (*result[:3], np.zeros(len(results), dtype=bool), result[-1])
+        return result
+
+
+@pytest.mark.parametrize("tuple_size", [4, 5])
+@pytest.mark.parametrize("value", [0.5, 2.0])
+def test_step_capture_preserves_result_and_executed_action(
+    transport, make_server_and_client, tuple_size, value
+):
+    facade = _CaptureEnv(tuple_size)
+    action = np.array([value], dtype=np.float64)
+    with make_server_and_client(facade, transport) as rpc:
+        env = BaseEnvClient(rpc, expected_meta={})
+        original = env.step(action)
+        original_obs = env.last_obs
+        env.reset()
+        captured = env.step(action, capture=True)
+
+    np.testing.assert_equal(captured["result"], original)
+    np.testing.assert_equal(env.last_obs, original_obs)
+    before = captured["before_observation"]
+    assert before["format"] == "test.observation"
+    np.testing.assert_array_equal(before["data"]["state"], [0.0])
+    (step,) = captured["steps"]
+    assert step["action"]["format"] == "test.action"
+    assert step["action"]["completeness"] == "complete"
+    assert step["action"]["data"].dtype == np.float32
+    np.testing.assert_array_equal(step["action"]["data"], [min(value, 1)])
+    after = step["after_observation"]
+    assert after["format"] == "test.observation"
+    assert after["data"]["state"].dtype == np.float32
+    np.testing.assert_array_equal(after["data"]["state"], [min(value, 1)])
+    assert after["data"]["image"].dtype == np.uint8
+    np.testing.assert_array_equal(
+        after["data"]["image"], np.full((2, 3, 3), 1, dtype=np.uint8)
+    )
+    assert step["result"]["format"] == "test.result"
+    assert step["result"]["data"]["info"] == {"count": 1}
+
+
+@pytest.mark.parametrize("tuple_size", [4, 5])
+@pytest.mark.parametrize("all_frames", [False, True])
+def test_chunk_returns_executed_frames_and_caches_final_observation(
+    transport, make_server_and_client, tuple_size, all_frames
+):
+    facade = _CaptureEnv(tuple_size)
+    with make_server_and_client(facade, transport) as rpc:
+        env = BaseEnvClient(rpc, expected_meta={})
+        result = env.chunk_step(
+            np.array([[0.5], [2.0], [0.75]]), return_all_frames=all_frames
+        )
+
+    assert facade.count == 2
+    assert len(result) == tuple_size
+    assert result[-1] == {"executed_actions": 2}
+    np.testing.assert_array_equal(result[1], [0.5, 1.5])
+    np.testing.assert_array_equal(result[2], [False, True])
+    observations = result[0] if all_frames else [result[0]]
+    assert len(observations) == (2 if all_frames else 1)
+    for count, obs in zip((1, 2) if all_frames else (2,), observations):
+        np.testing.assert_array_equal(obs["state"], [0.5 if count == 1 else 1.5])
+        np.testing.assert_array_equal(
+            obs["image"], np.full((2, 3, 3), count, dtype=np.uint8)
+        )
+    assert env.last_obs is observations[-1]
+
+
+def test_failed_chunk_raises_without_updating_cached_observation(
+    transport, make_server_and_client
+):
+    facade = _CaptureEnv()
+    with make_server_and_client(facade, transport) as rpc:
+        env = BaseEnvClient(rpc, expected_meta={})
+        before = env.last_obs
+        with pytest.raises(RpcError, match="environment step failed"):
+            env.chunk_step(np.array([[0.5], [-1.0]]))
+        assert facade.count == 1
+        assert env.last_obs is before
+
+
+def test_disabled_capture_supports_existing_facade_signatures(
+    transport, make_server_and_client
+):
+    class ExistingEnv(_CaptureEnv):
+        def step(self, action):
+            return super().step(action)
+
+        def chunk_step(self, actions, *, return_all_frames=False):
+            results = [self.step(action) for action in actions]
+            return results[-1]
+
+    with make_server_and_client(ExistingEnv(), transport) as rpc:
+        env = BaseEnvClient(rpc, expected_meta={})
+        assert env.step(np.array([0.5]), capture=False)[1] == 0.5
+        assert env.chunk_step(np.array([[0.5]]))[1] == 1.0

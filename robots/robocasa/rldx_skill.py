@@ -25,11 +25,13 @@ with a per-call session id + reset_memory for the RLDX memory module.
 
 import os
 from collections import deque
+from contextlib import nullcontext
 
 import imageio.v2 as imageio
 import numpy as np
 
 from robots.robocasa.env_client import RoboCasaEnvClient
+from rpent.session.env_capture import CapturingEnvClient
 from rpent.utils.logging import get_logger
 
 logger = get_logger("rldx_skill")
@@ -37,7 +39,10 @@ logger = get_logger("rldx_skill")
 
 class RLDXSkill:
     def __init__(
-        self, env_client: RoboCasaEnvClient, vla_client=None, check_cancelled=None
+        self,
+        env_client: RoboCasaEnvClient | CapturingEnvClient,
+        vla_client=None,
+        check_cancelled=None,
     ):
         self.env = env_client  # RoboCasaEnvClient
         self._vla_client = vla_client  # VLA RPC client (when set, _load() uses it instead of loading the model directly)
@@ -275,42 +280,48 @@ class RLDXSkill:
             fresh = False
             if self._check_cancelled is not None:
                 self._check_cancelled()
-            actions = self._vla_client.predict(obs, options)
-            # gym Dict -> native flat 12-d [eef_pos(3),eef_rot(3),gripper(1),base(4),mode(1)]
-            horizon = actions["action.gripper_close"].shape[1]
-            for step in range(min(n_action_steps, horizon)):
-                base_motion = np.asarray(actions["action.base_motion"])[0, step]
-                if base_clip is not None:
-                    # rldx_arm only: clamp base velocities so the VLA micro-aligns but
-                    # can't drive off (eval/rldx_skill pass base_clip=None = full motion).
-                    base_motion = np.clip(base_motion, -base_clip, base_clip)
-                # Build the action through the EVAL's own conversion (binarizes gripper +
-                # control_mode); identical to how the policy is evaluated. See _build_env_action.
-                last_cmd_close = (
-                    float(
-                        np.asarray(actions["action.gripper_close"])[0, step].reshape(
-                            -1
-                        )[0]
+            prediction = (
+                self.env.prediction(prompt)
+                if isinstance(self.env, CapturingEnvClient)
+                else nullcontext()
+            )
+            with prediction:
+                actions = self._vla_client.predict(obs, options)
+                # gym Dict -> native flat 12-d [eef_pos(3),eef_rot(3),gripper(1),base(4),mode(1)]
+                horizon = actions["action.gripper_close"].shape[1]
+                for step in range(min(n_action_steps, horizon)):
+                    base_motion = np.asarray(actions["action.base_motion"])[0, step]
+                    if base_clip is not None:
+                        # rldx_arm only: clamp base velocities so the VLA micro-aligns but
+                        # can't drive off (eval/rldx_skill pass base_clip=None = full motion).
+                        base_motion = np.clip(base_motion, -base_clip, base_clip)
+                    # Build the action through the EVAL's own conversion (binarizes gripper +
+                    # control_mode); identical to how the policy is evaluated. See _build_env_action.
+                    last_cmd_close = (
+                        float(
+                            np.asarray(actions["action.gripper_close"])[
+                                0, step
+                            ].reshape(-1)[0]
+                        )
+                        >= 0.5
                     )
-                    >= 0.5
-                )
-                a = self._build_env_action(
-                    np.asarray(actions["action.end_effector_position"])[0, step],
-                    np.asarray(actions["action.end_effector_rotation"])[0, step],
-                    np.asarray(actions["action.gripper_close"])[0, step],
-                    base_motion,
-                    np.asarray(actions["action.control_mode"])[0, step],
-                )
-                if self._check_cancelled is not None:
-                    self._check_cancelled()
-                self.env.step(a)
-                if recording:
-                    record_frame()
-                applied += 1
-                self._record_frame(
-                    prompt
-                )  # PER-SIM-STEP history (matches eval cadence)
-                self._capture_video_frame()  # OPTIONAL video (no-op if RLDX_VIDEO_DIR unset)
+                    a = self._build_env_action(
+                        np.asarray(actions["action.end_effector_position"])[0, step],
+                        np.asarray(actions["action.end_effector_rotation"])[0, step],
+                        np.asarray(actions["action.gripper_close"])[0, step],
+                        base_motion,
+                        np.asarray(actions["action.control_mode"])[0, step],
+                    )
+                    if self._check_cancelled is not None:
+                        self._check_cancelled()
+                    self.env.step(a)
+                    if recording:
+                        record_frame()
+                    applied += 1
+                    self._record_frame(
+                        prompt
+                    )  # PER-SIM-STEP history (matches eval cadence)
+                    self._capture_video_frame()  # OPTIONAL video (no-op if RLDX_VIDEO_DIR unset)
             # ROBUST grasp check once per chunk (direction-agnostic; see _grasp_contact)
             g_now, g_obj = self._grasp_contact()
             if g_now:

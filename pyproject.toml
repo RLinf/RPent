@@ -148,6 +148,10 @@ robocasa = [
 ]
 flywheel = [
     "lerobot>=0.3.3,<0.4",
+    # LeRobot 0.3.x expects Fraction frame rates; PyAV 19 returns AVRational.
+    "av<19",
+    # OpenPI requires NumPy 1.x; PyArrow 26 requires NumPy 2 at import time.
+    "pyarrow<26",
 ]
 yam = [
     # Install the fixed RLinf YAM revision and i2rt SDK from the YAM guide.
