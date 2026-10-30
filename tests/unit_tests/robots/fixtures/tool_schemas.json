@@ -931,6 +931,125 @@
         }
       }
     ],
+    "robots/r2/tools.py": [
+      {
+        "name": "move_to",
+        "description": "Move one gripper's TCP to an absolute base_link position in metres.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "arm": {"description": "The arm to move.", "enum": ["left", "right"], "type": "string"},
+            "xyz": {"description": "Target TCP position.", "items": {"type": "number"}, "maxItems": 3, "minItems": 3, "type": "array"},
+            "rpy": {"description": "Target roll, pitch, yaw in radians (extrinsic xyz); omit to keep the current orientation.", "items": {"type": "number"}, "maxItems": 3, "minItems": 3, "type": ["array", "null"]}
+          },
+          "required": ["arm", "xyz"]
+        }
+      },
+      {
+        "name": "move_delta",
+        "description": "Translate one TCP by a base_link offset in metres, keeping its orientation.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "arm": {"enum": ["left", "right"], "type": "string"},
+            "delta_xyz": {"items": {"type": "number"}, "maxItems": 3, "minItems": 3, "type": "array"}
+          },
+          "required": ["arm", "delta_xyz"]
+        }
+      },
+      {
+        "name": "rotate_delta",
+        "description": "Rotate one TCP about the base_link x, y, z axes by radians, keeping its position.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "arm": {"enum": ["left", "right"], "type": "string"},
+            "delta_rpy": {"items": {"type": "number"}, "maxItems": 3, "minItems": 3, "type": "array"}
+          },
+          "required": ["arm", "delta_rpy"]
+        }
+      },
+      {
+        "name": "set_gripper",
+        "description": "Move one gripper to an opening between 0 (closed) and 1 (fully open).",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "arm": {"enum": ["left", "right"], "type": "string"},
+            "opening": {"maximum": 1, "minimum": 0, "type": "number"}
+          },
+          "required": ["arm", "opening"]
+        }
+      },
+      {
+        "name": "look",
+        "description": "Turn the head camera to absolute neck angles in radians; negative pitch looks down, positive yaw looks left.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "yaw": {"type": "number"},
+            "pitch": {"type": "number"}
+          },
+          "required": ["yaw", "pitch"]
+        }
+      },
+      {
+        "name": "go_home",
+        "description": "Return both arms to the rest pose, hanging beside the body.",
+        "input_schema": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      {
+        "name": "move_base",
+        "description": "Drive the chassis at a body-frame velocity (m/s, m/s, rad/s) for a duration in seconds, then stop.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "vx": {"type": "number"},
+            "vy": {"type": "number"},
+            "wz": {"type": "number"},
+            "duration": {"exclusiveMinimum": 0, "type": "number"}
+          },
+          "required": ["vx", "vy", "wz", "duration"]
+        }
+      },
+      {
+        "name": "view_env_state",
+        "description": "Read one recorded R2 state with its head and wrist camera images.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "step": {"default": -1, "type": "integer"}
+          }
+        }
+      },
+      {
+        "name": "view_camera_meta",
+        "description": "Read the recorded camera intrinsics and base_link camera poses.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "step": {"default": -1, "type": "integer"}
+          }
+        }
+      },
+      {
+        "name": "back_project",
+        "description": "Convert [row, col] pixels of a recorded camera image into base_link points.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "pixels": {"description": "Pixels as [row, col] in that camera's image.", "items": {"items": {"type": "integer"}, "maxItems": 2, "minItems": 2, "type": "array"}, "maxItems": 32, "minItems": 1, "type": "array"},
+            "camera": {"description": "The camera whose image the pixels come from.", "enum": ["head", "wrist_left", "wrist_right"], "type": "string"},
+            "step": {"default": -1, "description": "The recorded state the image belongs to.", "type": "integer"},
+            "neighborhood": {"default": 2, "description": "Half-width of the window whose median depth is used.", "maximum": 10, "minimum": 0, "type": "integer"}
+          },
+          "required": ["pixels"]
+        }
+      }
+    ],
     "robots/dual_franka/tools.py": [
       {
         "name": "describe_dual_franka_setup",

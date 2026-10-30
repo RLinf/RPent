@@ -33,6 +33,7 @@ EXPECTED_ROBOTS = (
     "dual_franka",
     "franka",
     "libero",
+    "r2",
     "robocasa",
     "robodojo",
     "robotwin",
@@ -92,6 +93,13 @@ PROMPT_VARIABLES = {
         "mode": "eval",
         "memory_profile": "hf",
         "reference_tag": "block_hammer_beat_s0",
+        "output_dir": Path("/output"),
+    },
+    "r2": {
+        "task_name": "tabletop_pick_place",
+        "instruction": "Pick up the cup",
+        "success_criteria": "the cup rests at the new place",
+        "constraints": "1. Hover 0.10 m above a grasp point",
         "output_dir": Path("/output"),
     },
     "franka": {

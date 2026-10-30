@@ -1,0 +1,59 @@
+# R2 site configuration read by robots.r2.env_server on the robot.
+# Review every value against your robot and workspace before enabling motion.
+
+# RLinf R2Config fields: the hardware variant and its sensors.
+robot:
+  body_dof: null              # 20 or 21; null detects it from /robotic/joint_states
+  end_effector_type: gripper
+  enable_base: false          # subscribe to the chassis; base.allow_motion also gates driving
+  cameras: [head, wrist_left, wrist_right]
+  enable_depth: true
+  use_compressed_camera: true
+
+# Rest pose that reset and go_home return both arms to (RLinf R2EnvConfig).
+rest:
+  joint_qpos: null            # 14 joint angles (left, right); null keeps RLinf's R2 rest pose
+  joint_speed: 0.5            # rad/s
+  duration: 2.0               # minimum seconds
+
+# Bounds the env server enforces on every planner-commanded arm, gripper, and
+# head motion. Positions are metres in base_link (x forward, y left, z up,
+# origin on the floor). The arms rest at about x=0.08, y=+-0.18, z=0.66.
+motion:
+  max_joint_speed: 0.5        # rad/s for every arm and neck joint
+  max_move_m: 0.3             # largest move_to translation per call
+  max_delta_m: 0.1            # largest move_delta translation per call
+  max_rotation_rad: 0.5       # largest rotate_delta per call
+  workspace:
+    left:
+      low: [0.05, -0.15, 0.55]
+      high: [0.75, 0.55, 1.40]
+    right:
+      low: [0.05, -0.55, 0.55]
+      high: [0.75, 0.15, 1.40]
+
+# Chassis motion for move_base, offered to the planner only when allowed.
+base:
+  allow_motion: false
+  max_linear_speed: 0.2       # m/s
+  max_angular_speed: 0.3      # rad/s
+  max_duration: 2.0           # s per call
+
+# Camera poses come from the robot's own URDF, which carries its hand-eye
+# calibration, and the measured joints. Intrinsics are not published by the
+# robot; fill them in at the published image resolution (head 1280x800, wrist
+# 640x480) from the camera's factory calibration or a checkerboard calibration.
+# The head lens is wide-angle, so also give its OpenCV distortion
+# coefficients as distortion: [k1, k2, p1, p2, k3].
+perception:
+  urdf: /opt/robby/r-model-assets/r2/pvt/urdf/R2_PVT1_with_dual_gripper_v2_local.urdf
+  cameras:
+    head:
+      frame: camera_head_color_optical_frame_calibration
+      intrinsics: null        # {fx: ..., fy: ..., cx: ..., cy: ...}
+    wrist_left:
+      frame: camera_left_hand_color_optical_frame_fake
+      intrinsics: null
+    wrist_right:
+      frame: camera_right_hand_color_optical_frame_fake
+      intrinsics: null

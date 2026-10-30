@@ -47,6 +47,8 @@ RPent 的三条核心设计原则是服务化、标准化和可组合（service-
      - 双节点部署、操作与人工参与的探索。
    * - :doc:`YAM <../real_world_robots/yam>`
      - 已有任务演示；安装使用文档即将推出。
+   * - :doc:`R2 <../real_world_robots/r2>`
+     - 由 LLM 规划手臂、夹爪和头部动作，借助深度定位目标，无需 VLA。
    * - :doc:`SO-101 <../real_world_robots/so101>`
      - 内容即将推出。
 

@@ -1,0 +1,245 @@
+Robbyant R2
+===========
+
+RPent can operate a Robbyant R2, a wheeled humanoid with two 7-DoF arms,
+parallel grippers, a head RGB-D camera on a pan-tilt neck, and an RGB-D camera
+on each wrist, with an LLM planner and no learned action policy. The planner
+looks at the camera images, locates targets in 3D from depth, and moves the
+arms, grippers, and head through bounded tools. Every motion is checked
+against limits set in a site configuration before the robot moves.
+
+The work is split across two machines:
+
+* An **env server** runs on the R2. It owns RLinf's R2 environment, which
+  connects to the robot's controller and cameras, and it enforces the site
+  limits on every command.
+* RPent and the planner run on a **workstation** and connect to the env server
+  over HTTP. The workstation needs no robot software.
+
+Each tool call is one bounded motion: the env server solves inverse kinematics,
+streams the move to the controller, and returns the measured result. RPent
+then records the robot state and all camera images before the planner chooses
+the next action.
+
+Requirements
+------------
+
+* An R2 with its robot software and ROS 2 environment, as shipped
+  (``/opt/robbyant/entry_env.sh`` and the Python 3.10 in ``/opt/py310``).
+* An RLinf source checkout on the robot that includes the R2 environment
+  (``rlinf/envs/real/r2``). The R2 integration is on RLinf's ``feat/r2-robot``
+  branch.
+* Network access from the workstation to the robot, and an operator at the
+  emergency stop whenever the env server is running.
+
+Install
+-------
+
+**On the robot**, put RPent next to RLinf and install it into its own virtual
+environment. ``--system-site-packages`` lets pip reuse the packages the
+robot's Python already has, such as NumPy and SciPy, instead of installing
+second copies:
+
+.. code-block:: bash
+
+   git clone https://github.com/RLinf/RPent.git ~/RPent
+   git clone -b feat/r2-robot https://github.com/RLinf/RLinf.git ~/RLinf  # skip if present
+   /opt/py310/bin/python3.10 -m venv --system-site-packages ~/rpent-venv
+   ~/rpent-venv/bin/pip install -e ~/RPent
+
+**On the workstation**, install RPent as usual; R2 needs no extra:
+
+.. code-block:: bash
+
+   git clone https://github.com/RLinf/RPent.git
+   cd RPent
+   uv sync
+
+Then configure a planner with :doc:`../guides/configure_planner`.
+
+Site Configuration
+------------------
+
+The env server reads one YAML file that describes the robot and the limits the
+planner works within. Copy ``robots/r2/config/example.yaml`` on the robot,
+for example to ``~/r2_site.yaml``, and review every section before enabling
+motion:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 18 82
+
+   * - Section
+     - Contents
+   * - ``robot``
+     - RLinf ``R2Config`` options: body variant (detected when ``null``),
+       end effector, cameras, depth, and whether to read the chassis.
+   * - ``rest``
+     - The rest pose that a run's reset and ``go_home`` return the arms to,
+       with its speed and minimum duration.
+   * - ``motion``
+     - The joint speed for every planner move, the largest translation and
+       rotation per call, and an axis-aligned workspace box for each arm's
+       TCP.
+   * - ``base``
+     - Whether the planner may drive the chassis (off by default), and its
+       speed and duration limits. ``allow_motion: true`` also requires
+       ``robot.enable_base: true``.
+   * - ``perception``
+     - The robot's URDF, and for each camera its URDF frame, intrinsics, and
+       lens distortion.
+
+All positions are metres in ``base_link``: x forward, y left, z up, with the
+origin on the floor under the robot. At rest the TCPs hang at about
+``x=0.08, y=±0.18, z=0.66``. Set each workspace box to the table area the arm
+may reach, and keep it clear of the body and other people.
+
+**Camera calibration.** Camera poses come from the robot's URDF, which carries
+its hand-eye calibration, together with the measured waist, neck, and arm
+joints, so they stay correct as the head turns and the arms move. The R2 does
+not publish camera intrinsics. Without them the planner can still move in small
+steps while checking the images, but it cannot convert a pixel into a 3D point.
+To enable ``back_project``, add each camera's intrinsics at its published
+resolution (head 1280×800, wrists 640×480), from the camera's factory
+calibration or a checkerboard calibration. The head lens is wide-angle, so also
+add its OpenCV distortion coefficients:
+
+.. code-block:: yaml
+
+   perception:
+     cameras:
+       head:
+         frame: camera_head_color_optical_frame_calibration
+         intrinsics: {fx: 0.0, fy: 0.0, cx: 0.0, cy: 0.0}  # your calibration
+         distortion: [0.0, 0.0, 0.0, 0.0, 0.0]            # k1, k2, p1, p2, k3
+
+Start the Env Server
+--------------------
+
+On the robot, load the robot environment, then put the RPent environment first
+on ``PYTHONPATH``. ``entry_env.sh`` adds the system's site-packages to
+``PYTHONPATH``, which would otherwise shadow RPent's newer dependencies:
+
+.. code-block:: bash
+
+   source /opt/robbyant/entry_env.sh
+   export PYTHONPATH=~/rpent-venv/lib/python3.10/site-packages:~/RLinf:~/.local/lib/python3.10/site-packages:$PYTHONPATH
+   cd ~/RPent
+   ~/rpent-venv/bin/python -m robots.r2.env_server \
+     --robot-config ~/r2_site.yaml --host 0.0.0.0 --port 8120
+
+Use ``--host`` to choose the address the workstation reaches; the default
+``127.0.0.1`` accepts only local connections. The server does not authenticate
+clients, so anyone who can reach its port can move the robot: bind it to an
+interface on a network you control. ``--transport socket`` is faster than the
+default HTTP transport but unpickles every request, which also lets a client
+run code on the robot. Starting the server connects to the robot without
+moving it. It stays running across RPent runs; press Ctrl-C to disconnect it.
+
+Check the Robot Without Moving It
+---------------------------------
+
+Before the first run, and after any configuration change, check the server from
+the workstation:
+
+.. code-block:: bash
+
+   python -m robots.r2.diagnostics --env-endpoint http://ROBOT_IP:8120
+
+The check prints the configured limits, the robot's health, both TCP positions,
+and for each camera its image size, the fraction of valid depth pixels, and
+whether it has intrinsics and a pose. It saves one image per camera under
+``r2_check/``. It exits with a nonzero status when the robot reports a fault.
+
+Run a Task
+----------
+
+Task ``0`` is a smoke test: the planner tilts the head toward the work area,
+moves each arm by a few centimetres, rotates a wrist, opens and closes a
+gripper, and returns home. Run it first:
+
+.. code-block:: bash
+
+   uv run rpent --robot r2 --task-id 0 \
+     --env-endpoint http://ROBOT_IP:8120 \
+     --planner claude_code --model claude-opus-4-8
+
+When RPent connects, it resets the robot: **both arms move to the rest pose**.
+It then records the initial state as step ``0``, including ``robot_info`` with
+the workspace boxes and per-call limits.
+
+Task ``1`` picks up an object on the table and places it about 0.15 m to the
+side. It locates the object with ``back_project``, so it needs camera
+calibration. ``--task-language`` replaces a task's instruction, for example to
+name the object:
+
+.. code-block:: bash
+
+   uv run rpent --robot r2 --task-id 1 --task-language "Pick up the red cup and place it on the plate" \
+     --env-endpoint http://ROBOT_IP:8120 \
+     --planner claude_code --model claude-opus-4-8
+
+Tools
+-----
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 78
+
+   * - Tool
+     - Behavior
+   * - ``move_to``
+     - Moves one TCP to an absolute position, keeping its orientation unless a
+       roll, pitch, yaw is given. Refused outside the arm's workspace or beyond
+       ``max_move_m``.
+   * - ``move_delta``
+     - Translates one TCP by an offset of at most ``max_delta_m``.
+   * - ``rotate_delta``
+     - Rotates one TCP about the ``base_link`` axes by at most
+       ``max_rotation_rad``, keeping its position.
+   * - ``set_gripper``
+     - Moves one gripper to an opening from 0 (closed) to 1 (open).
+   * - ``look``
+     - Turns the head to absolute neck angles; negative pitch looks down.
+   * - ``go_home``
+     - Returns both arms to the rest pose.
+   * - ``move_base``
+     - Drives the chassis for a bounded time. Offered only when the site
+       allows base motion.
+   * - ``view_env_state``
+     - Reads a recorded state with its head and wrist images.
+   * - ``view_camera_meta``
+     - Reads the recorded camera intrinsics and poses.
+   * - ``back_project``
+     - Converts pixels of a recorded image into ``base_link`` points using that
+       step's depth, intrinsics, and camera pose.
+
+A refused motion returns ``ok: false`` with the reason and leaves the robot
+still. A move that starts but does not complete also returns the robot's
+health.
+
+View Results
+------------
+
+Each run writes to ``logs/<timestamp>_r2_t<task_id>/``. ``states.json`` lists
+every step with its command, result, and measured state. Each step stores
+``head.png``, ``wrist_left.png``, ``wrist_right.png``, depth images in
+millimetres (``<camera>_depth_mm.npy``), and ``camera_meta.json`` with the
+camera intrinsics and poses used by ``back_project``.
+
+R2 has no automatic success check. The planner's ``finish`` summary and the
+recorded images are evidence for the operator, who judges whether the task
+succeeded.
+
+Safety and Stopping
+-------------------
+
+* Keep an operator at the emergency stop whenever the env server runs.
+  Validate task ``0`` and a reviewed workspace before attempting grasps.
+* Interrupting RPent waits for the current motion to finish; every motion is
+  bounded in distance and speed.
+* The env server reports controller faults in each state's ``health``. RLinf
+  clears recoverable faults automatically; an emergency stop stays latched
+  until the operator releases it on the robot. The planner is instructed to
+  stop when health is not ok.
+* Stop the env server with Ctrl-C. The arms hold their last position.
