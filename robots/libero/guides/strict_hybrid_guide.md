@@ -13,8 +13,8 @@ state JSON carried GT object coordinates, is not included here).
 
 | | legacy oracle mode (not in this repo) | **perception (this guide)** |
 |---|---|---|
-| how object coords are withheld | (none — full GT coords in `state`) | **the returned `state` carries `object_names` only, no coordinates** |
-| returned `state` objects | full `objects:{name:[x,y,z]}` | **`object_names:[…]` only — NO coords** |
+| how object coords are withheld | (none — full GT coords in `state`) | **the returned `state` carries robot state only, no object names or coordinates** |
+| returned `state` objects | full `objects:{name:[x,y,z]}` | **none — robot state only** |
 | how you learn the task | env prompt / BDDL | **top-level `task_language` returned by `view_env_state`** (authoritative `:language`, coord-free) — never scrape the BDDL |
 | extra obs artifacts | policy image only | **logical agentview/wrist image, depth, world-map, and metadata keys, including `agentview_high.png` and `wrist_high.png`** |
 | cameras | agentview only | **agentview (fixed, ~1m → ±8–13 cm) + eye-in-hand wrist (moves with gripper, ±1–2 cm when <20 cm to target)** — coarse→fine, see below |
@@ -273,7 +273,7 @@ sim) — do not start/stop it. You call MCP tools; begin by reading step 0 via
 
 | logical artifact or field | what's in it |
 |---|---|
-| `view_env_state` result | `step`, top-level `task_language`, `terminated`, `truncated`, `state.{robot0_eef_pos, robot0_eef_quat, robot0_gripper_qpos, object_names}`, `artifacts`, and nested `log.{command,result,elapsed_s}`. **No object coordinates.** Step `-1` selects latest. |
+| `view_env_state` result | `step`, top-level `task_language`, `terminated`, `truncated`, `state.{robot0_eef_pos, robot0_eef_quat, robot0_gripper_qpos}`, `artifacts`, and nested `log.{command,result,elapsed_s}`. **No object coordinates.** Step `-1` selects latest. |
 | `agentview_policy.png` | RGB in Pi0 frame. *Do not pick pixels here for back-projection.* |
 | `agentview.png` | 256×256 agentview RGB in **calibration frame**. Pick object pixels HERE only with `back_project(..., resolution:"low")`. |
 | `agentview_high.png` | **HI-RES 1024×1024** agentview RGB, calibration frame. **PREFER this for looking / identification**; `back_project` defaults to `resolution:"high"`. |
@@ -410,7 +410,7 @@ beats eyeballing 3–5 pixels. Workflow:
 **Prompt phrasing (important — SAM3 is sensitive):**
 - ✅ Use plain colour + shape + spatial relation: `"the black bowl on the stove"`,
   `"the white plate"`, `"the bowl on the cookies box"`.
-- ❌ Do NOT use the object's internal/brand NAME from `object_names`/BDDL:
+- ❌ Do NOT use the object's internal/brand NAME from the BDDL:
   `"the akita black bowl"` scores ~0.03 (no detection) because SAM3 can't ground
   "akita"; the same object as `"the black bowl on the stove"` scores ~0.76. Strip
   proper nouns (`akita`, `glazed_rim_porcelain_…`) — say what it *looks like*.

@@ -31,3 +31,23 @@ MODE = """Inspect `agentview_high.png` returned by `view_env_state`, then use
 BEGIN = """Read the guides, then call `view_env_state({"step": 0})` and inspect
 `task_language` and `agentview_high.png`. Read matching memory and available
 seed-0 references for the current task and scene, then localize, plan, and execute."""
+
+
+BEGIN_WITH_TASK_MEMORY = """Call `view_env_state({"step": 0})` and inspect `task_language`
+and `agentview_high.png`. Use the frozen task memory below for the current task
+and scene, then localize, plan, and execute."""
+
+
+# Without memory the agent writes its audit and recipe under ./files/.
+NO_MEMORY_CELL = """- suite:      {{suite}}
+- task:       {{task}}
+- seed:       {{seed}}
+- output_dir: .
+- audit:      ./files/{{recipe_tag}}.json
+- recipe:     ./files/{{recipe_tag}}_recipe.jsonl"""
+
+
+NO_MEMORY_BEGIN = (
+    'Call `view_env_state({"step": 0})`, read `task_language`, then use the '
+    "images and available tools to complete it."
+)

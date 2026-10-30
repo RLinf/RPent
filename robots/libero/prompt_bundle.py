@@ -35,10 +35,18 @@ def system_prompt(
 
 def user_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
     """Assemble the LIBERO user prompt tree."""
+    if (variables or {}).get("memory_profile") == "none":
+        return {
+            "CELL": user_parts.NO_MEMORY_CELL,
+            "MODE": user_parts.MODE,
+            "BEGIN": user_parts.NO_MEMORY_BEGIN,
+        }
     return {
         "CELL": user_parts.CELL,
         "MODE": user_parts.MODE,
-        "BEGIN": user_parts.BEGIN,
+        "BEGIN": user_parts.BEGIN_WITH_TASK_MEMORY
+        if (variables or {}).get("memory_in_task")
+        else user_parts.BEGIN,
     }
 
 

@@ -22,13 +22,15 @@ RPent's runner saves the returned transcript through its existing output flow.
 import asyncio
 import json
 import threading
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager
 from functools import partial
 from typing import Any
 from uuid import uuid4
 
 from jsonschema import Draft202012Validator
+from openai import APIConnectionError
+from pydantic import ValidationError
 from pydantic_ai import (
     Agent,
     BinaryContent,
@@ -56,6 +58,8 @@ from pydantic_ai.agent import WrapperAgent
 from pydantic_ai.capabilities import AbstractCapability, Thinking, on_event
 from pydantic_ai.capabilities.abstract import AgentNode, NodeResult, WrapRunHandler
 from pydantic_ai.exceptions import (
+    ModelAPIError,
+    ModelHTTPError,
     UnexpectedModelBehavior,
     UsageLimitExceeded,
     UserError,
@@ -63,6 +67,7 @@ from pydantic_ai.exceptions import (
 from pydantic_ai.messages import ModelMessage, UserContent
 from pydantic_ai.models import Model, ModelRequestContext
 from pydantic_ai.run import AgentRun, AgentRunResult
+from pydantic_ai.tools import ToolDefinition
 from pydantic_ai_harness.compaction import SlidingWindowCompaction
 
 from rpent.dashboard.events import DashboardEventSink, TranscriptEvent, UsageEvent
@@ -82,6 +87,10 @@ from rpent.utils.templates import substitute
 logger = get_logger("api")
 
 
+class _InvalidToolArguments(ModelRetry):
+    """Model-supplied arguments rejected before tool execution."""
+
+
 class _RequestBudgetExhausted(Exception):
     """The conversation has used its configured model-request budget."""
 
@@ -92,8 +101,25 @@ def _is_response_truncation(exc: UnexpectedModelBehavior) -> bool:
     return "token limit" in message and "before any response was generated" in message
 
 
+def _is_context_overflow(exc: ModelHTTPError) -> bool:
+    """Match an endpoint that rejects a request longer than its context."""
+    return (
+        isinstance(exc.body, dict) and exc.body.get("code") == "context_length_exceeded"
+    )
+
+
+def _default_compaction() -> SlidingWindowCompaction:
+    return SlidingWindowCompaction(max_messages=80, max_fraction=0.8, keep_messages=40)
+
+
 class ApiAgentLoop(Planner):
-    """Implement ``Planner`` with a native Agent and reusable Harness capabilities."""
+    """Implement ``Planner`` with a native Agent and reusable Harness capabilities.
+
+    ``compaction`` builds each run's history compaction, and ``None`` disables
+    compaction; ``model_settings`` replaces the settings derived from
+    ``max_tokens`` and ``reasoning_effort``; ``sequential_tools`` runs physical
+    tools one at a time. Defaults preserve ordinary runs.
+    """
 
     def __init__(
         self,
@@ -105,6 +131,9 @@ class ApiAgentLoop(Planner):
         no_images: bool = False,
         timeout_s: float = 1200,
         interactive: bool = False,
+        compaction: Callable[[], SlidingWindowCompaction] | None = _default_compaction,
+        model_settings: ModelSettings | None = None,
+        sequential_tools: bool = False,
     ) -> None:
         if reasoning_effort not in REASONING_EFFORTS:
             raise ValueError(f"unsupported reasoning effort: {reasoning_effort}")
@@ -117,6 +146,9 @@ class ApiAgentLoop(Planner):
         self.no_images = no_images
         self.timeout_s = timeout_s
         self.interactive = interactive
+        self.compaction = compaction
+        self.model_settings = model_settings
+        self.sequential_tools = sequential_tools
 
     def solve(
         self,
@@ -129,36 +161,48 @@ class ApiAgentLoop(Planner):
         dashboard_interaction: DashboardInteractionPort | None = None,
     ) -> PlannerResult:
         """Run a conversation and return its transcript for RPent to save."""
-        if max_turns < 1:
-            raise ValueError("max_turns must be positive")
         if input_queue is not None:
             raise ValueError("api does not use RPent's terminal input queue")
-        if self.interactive and dashboard_interaction is not None:
-            raise ValueError("clai and Dashboard cannot run together")
         return asyncio.run(
-            self._solve(
-                system_prompt,
-                user_message,
-                toolkit,
-                max_turns,
-                dashboard_interaction,
+            self.solve_async(
+                system_prompt=system_prompt,
+                user_message=user_message,
+                toolkit=toolkit,
+                max_turns=max_turns,
+                dashboard_interaction=dashboard_interaction,
             )
         )
 
-    async def _solve(
+    async def solve_async(
         self,
+        *,
         system_prompt: str,
         user_message: str,
         toolkit: Toolkit,
         max_turns: int,
-        interaction: DashboardInteractionPort | None,
+        dashboard_interaction: DashboardInteractionPort | None = None,
     ) -> PlannerResult:
+        """Run ``solve`` on the caller's event loop, which may cancel the run.
+
+        Exhausting the run's own time budget drains tools and returns
+        ``error_kind="episode_timeout"``. Backend timeouts remain model errors.
+        """
+        if max_turns < 1:
+            raise ValueError("max_turns must be positive")
+        if self.interactive and dashboard_interaction is not None:
+            raise ValueError("clai and Dashboard cannot run together")
         conversation_id = uuid4().hex
         adapter = _HarnessToolkit(
-            toolkit, dashboard_events=self.dashboard_events, no_images=self.no_images
+            toolkit,
+            dashboard_events=self.dashboard_events,
+            no_images=self.no_images,
+            sequential_tools=self.sequential_tools,
         )
         session = _Session(
-            adapter, conversation_id, max_turns, interactive=self.interactive
+            adapter,
+            conversation_id,
+            max_turns,
+            interactive=self.interactive,
         )
         agent = Agent(
             self.model,
@@ -170,22 +214,22 @@ class ApiAgentLoop(Planner):
             end_strategy="early",
             # Finish refusals may span attempts; the request budget still applies.
             retries={"output": max_turns},
-            model_settings=_build_model_settings(
+            model_settings=self.model_settings
+            if self.model_settings is not None
+            else _build_model_settings(
                 self.model, self.max_tokens, self.reasoning_effort
             ),
             capabilities=[
-                SlidingWindowCompaction(
-                    max_messages=80, max_fraction=0.8, keep_messages=40
-                ),
+                *([self.compaction()] if self.compaction is not None else []),
                 Thinking(
                     False if self.reasoning_effort == "none" else self.reasoning_effort
                 ),
                 session,
             ],
         )
-        if interaction is not None:
+        if dashboard_interaction is not None:
             session.control = DashboardPlannerControl(
-                interaction=interaction,
+                interaction=dashboard_interaction,
                 cancel_active_and_wait=adapter.cancel_active_and_wait,
                 resume_calls=toolkit.resume_calls,
                 emit_user=session.emit_user,
@@ -193,18 +237,21 @@ class ApiAgentLoop(Planner):
                 defer_message_ack=True,
                 submit_while_busy=True,
             )
+        run = asyncio.create_task(session.run(_ConversationAgent(agent), user_message))
         try:
             await asyncio.wait_for(
-                session.run(_ConversationAgent(agent), user_message),
+                run,
                 timeout=None if self.interactive else self.timeout_s,
             )
-        except asyncio.TimeoutError:
-            session.error = f"planner timed out after {self.timeout_s:g}s"
         except _RequestBudgetExhausted as exc:
             session.error = None
             logger.info("%s", exc)
         except Exception as exc:
-            if isinstance(exc, UnexpectedModelBehavior) and _is_response_truncation(
+            if isinstance(exc, asyncio.TimeoutError) and run.cancelled():
+                # wait_for cancels this task only when its own deadline expires.
+                session.error = f"planner timed out after {self.timeout_s:g}s"
+                session.error_kind = "episode_timeout"
+            elif isinstance(exc, UnexpectedModelBehavior) and _is_response_truncation(
                 exc
             ):
                 session.error = f"planner response truncated (length): {exc}"
@@ -225,6 +272,7 @@ class ApiAgentLoop(Planner):
                 "tool_calls": adapter.tool_calls,
             },
             error=session.error,
+            error_kind=session.error_kind,
         )
 
 
@@ -298,6 +346,7 @@ class _HarnessToolkit(FunctionToolset):
         *,
         dashboard_events: DashboardEventSink,
         no_images: bool,
+        sequential_tools: bool = False,
     ) -> None:
         super().__init__(id="rpent")
         self.toolkit = toolkit
@@ -347,6 +396,7 @@ class _HarnessToolkit(FunctionToolset):
                         description=spec.get("description"),
                         json_schema=spec["input_schema"],
                         takes_ctx=True,
+                        sequential=sequential_tools,
                     )
                 )
 
@@ -397,7 +447,9 @@ class _HarnessToolkit(FunctionToolset):
         """Validate and run one physical operation, retaining cancellation ownership."""
         error = next(self.validators[name].iter_errors(arguments), None)
         if error is not None:
-            raise ModelRetry(f"Invalid arguments for {name}: {error.message}")
+            raise _InvalidToolArguments(
+                f"Invalid arguments for {name}: {error.message}"
+            )
         self._record_call(name, arguments, ctx)
         try:
             result = await execute_tool(self.toolkit, name, arguments)
@@ -482,6 +534,7 @@ class _Session(AbstractCapability):
         self.usage = RunUsage()
         self.interactive = interactive
         self.error: str | None = None
+        self.error_kind: str | None = None
         self.control: DashboardPlannerControl | None = None
         self.inbox: asyncio.Queue[DashboardMessage] = asyncio.Queue()
         self.enqueued: dict[str, DashboardMessage] = {}
@@ -497,6 +550,7 @@ class _Session(AbstractCapability):
             raise UserError("The task has finished. Use /exit to close the session.")
         self.toolkit.toolkit.resume_calls()
         self.toolkit.stopping.clear()
+        self.error_kind = None
         if self.interactive and ctx.prompt:
             self.emit_user(ctx.prompt)
         try:
@@ -504,13 +558,37 @@ class _Session(AbstractCapability):
             self.error = None
             return result
         except _RequestBudgetExhausted:
-            # The native CLI catches run exceptions before _solve can see them.
+            # The native CLI catches run exceptions before solve_async can see them.
             self.error = None
             raise
         except Exception as exc:
+            self.error_kind = None
+            if isinstance(exc, APIConnectionError) or (
+                isinstance(exc, ModelAPIError)
+                and isinstance(exc.__cause__, APIConnectionError)
+            ):
+                self.error_kind = "model_transport"
+            if isinstance(exc, ModelHTTPError) and _is_context_overflow(exc):
+                self.error_kind = "context_limit"
+            if isinstance(exc, UnexpectedModelBehavior):
+                cause = exc.__cause__
+                if isinstance(cause, _InvalidToolArguments) or (
+                    isinstance(cause, ValidationError)
+                    and any(
+                        error["type"] in {"json_invalid", "dict_type"}
+                        and not error["loc"]
+                        for error in cause.errors()
+                    )
+                ):
+                    self.error_kind = "tool_arguments"
+                elif isinstance(cause, ModelRetry) and str(cause).startswith(
+                    "Unknown tool name:"
+                ):
+                    self.error_kind = "tool_name"
             if isinstance(exc, UnexpectedModelBehavior) and _is_response_truncation(
                 exc
             ):
+                self.error_kind = "response_truncated"
                 self.error = f"planner response truncated (length): {exc}"
             else:
                 self.error = f"{type(exc).__name__}: {exc}"
@@ -533,6 +611,21 @@ class _Session(AbstractCapability):
                 message += " Use /exit to close the session."
             raise _RequestBudgetExhausted(message) from None
         return request_context
+
+    async def after_tool_validate(
+        self,
+        ctx: RunContext,
+        *,
+        call: ToolCallPart,
+        tool_def: ToolDefinition,
+        args: Any,
+    ) -> Any:
+        # Tool.from_schema skips schema validation, including the object root type.
+        if not isinstance(args, dict):
+            raise _InvalidToolArguments(
+                f"Arguments for {call.tool_name} must be a JSON object"
+            )
+        return args
 
     async def before_node_run(self, ctx: RunContext, *, node: AgentNode) -> AgentNode:
         if self.toolkit.stopping.is_set():
@@ -562,12 +655,19 @@ class _Session(AbstractCapability):
                 elif isinstance(part, ThinkingPart) and part.content:
                     content.append({"type": "thinking", "thinking": part.content})
                 elif isinstance(part, ToolCallPart):
+                    arguments = part.args if part.args is not None else {}
+                    if isinstance(arguments, str):
+                        try:
+                            arguments = json.loads(arguments)
+                        except json.JSONDecodeError:
+                            # Retain malformed arguments in the audit without rewriting them.
+                            pass
                     content.append(
                         {
                             "type": "tool_use",
                             "id": part.tool_call_id,
                             "name": part.tool_name,
-                            "input": part.args_as_dict(),
+                            "input": arguments,
                         }
                     )
             self.toolkit.messages.append({"role": "assistant", "content": content})

@@ -25,6 +25,7 @@ import shutil
 import tempfile
 from pathlib import Path, PurePosixPath
 
+from rpent.memory import MemoryManager
 from rpent.memory.model import select_model_version
 from rpent.memory.source import parse_repo
 from rpent.robots.robot_spec import RunConfig
@@ -38,11 +39,31 @@ MEMORY_VERSIONS = ("auto", GPT5, ASTRA)
 DEFAULT_REPO = "RLinf/RPent-memory"
 
 
+def render_frozen_entries(root: Path, entries: list[dict]) -> tuple[str, list[dict]]:
+    """Read selected corpus entries with pinned hashes for the first user message."""
+    manager = MemoryManager(root, memory_access="read_only")
+    sections, receipt = [], []
+    for entry in entries:
+        name = entry["id"]
+        if not _safe_relative(name):
+            raise ValueError(f"memory entry must be a corpus-relative path: {name}")
+        path = manager.authorize_read(manager.root / name)
+        if not path.is_relative_to(manager.root):
+            raise ValueError(f"memory entry escapes the frozen corpus: {name}")
+        payload = path.read_bytes()
+        digest = hashlib.sha256(payload).hexdigest()
+        if digest != entry["sha256"]:
+            raise ValueError(f"frozen memory hash mismatch: {name}")
+        sections.append(f"### {name}\n{payload.decode('utf-8')}")
+        receipt.append({"id": name, "sha256": digest, "bytes": len(payload)})
+    return "\n\n".join(sections), receipt
+
+
 def validate_options(args: argparse.Namespace) -> None:
     """Check memory options without starting services or downloading files."""
     if getattr(args, "memory_version", "auto") != "auto" and (
         getattr(args, "explore", False)
-        or getattr(args, "memory_profile", None) == "local"
+        or getattr(args, "memory_profile", None) in {"local", "none"}
     ):
         raise ValueError(
             "--memory-version requires --memory-profile hf; local memory and exploration use --memory-dir"
@@ -60,7 +81,7 @@ def prepare_memory(args: argparse.Namespace, config: RunConfig) -> None:
     profile = getattr(args, "memory_profile", None) or (
         "local" if getattr(args, "explore", False) else "hf"
     )
-    if profile == "local":
+    if profile in {"local", "none"}:
         return
     version = select_version(
         getattr(args, "memory_version", "auto"), model=args.model, planner=args.planner

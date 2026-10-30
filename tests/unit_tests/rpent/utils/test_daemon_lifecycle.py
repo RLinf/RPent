@@ -25,7 +25,7 @@ from typing import Any
 import pytest
 
 from rpent.utils.daemon import ParentDeathWatcher, ProcessDaemon
-from rpent.utils.rpc import wait_for_ready
+from rpent.utils.rpc import make_rpc_client, wait_for_endpoint, wait_for_ready
 
 
 def _wait_until(
@@ -176,6 +176,39 @@ def test_wait_for_ready_fails_fast_when_daemon_exits(tmp_path: Path) -> None:
                 poll_interval_s=0.01,
                 daemon=daemon,
             )
+    finally:
+        daemon.stop(timeout=1.0)
+
+
+def test_wait_for_endpoint_returns_the_port_a_server_bound(tmp_path: Path) -> None:
+    log_path = tmp_path / "facade.log"
+    daemon = ProcessDaemon(
+        "facade",
+        [
+            sys.executable,
+            "-c",
+            "from rpent.utils.rpc import RpcFacade; "
+            "RpcFacade().serve(transport='http', host='127.0.0.1', port=0, "
+            "parent_watch=True)",
+            "--parent-watch",
+        ],
+        log_path=str(log_path),
+    )
+    daemon.start()
+    try:
+        endpoint = wait_for_endpoint(daemon, timeout_s=30.0)
+        assert not endpoint.endswith(":0")
+        wait_for_ready(make_rpc_client(endpoint), timeout_s=30.0, daemon=daemon)
+    finally:
+        daemon.stop(timeout=2.0)
+
+
+def test_wait_for_endpoint_fails_fast_when_daemon_exits(tmp_path: Path) -> None:
+    daemon, _ = _python_daemon(tmp_path, "import sys; sys.exit(3)")
+    daemon.start()
+    try:
+        with pytest.raises(RuntimeError, match="exit code 3"):
+            wait_for_endpoint(daemon, timeout_s=30.0)
     finally:
         daemon.stop(timeout=1.0)
 

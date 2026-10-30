@@ -36,7 +36,8 @@ Pi0.5 VLA 服务
      --cuda-device 0 \
      --transport http --host 0.0.0.0 --port VLA_PORT
 
-VLA 服务只加载一次模型，可以由多个 RPent 运行复用。
+VLA 服务只加载一次模型，可以由多个 RPent 运行复用。并发预测请求按到达顺序排队，
+由同一个推理线程执行；增加客户端数量不会让模型同时执行多个预测。
 
 .. _apxinf-vla-service-optional:
 
@@ -143,6 +144,13 @@ SAM3 服务只加载一次模型，可以由多个 RPent 运行复用。
 .. note::
 
    通过 SSH 运行长时间评测时，请在 ``nohup`` 或 ``tmux`` / ``screen`` 会话中启动共享服务；直接使用 ``&`` 时，SSH shell 退出可能会结束服务。
+
+用于 RL 训练的 episode
+----------------------
+
+RLinf 等 RL 训练框架在运行仿真器的机器上，为每个 LIBERO episode 启动一个 ``robots.libero.rl_episode`` 进程。``--request`` 指向一个 JSON 文件，包含任务（``suite``、``task``、``seed``，以及可选的 ``vla_seed`` 和 ``memory_entries``）和 planner 的配置：提供待训练 policy 的 OpenAI 兼容接口、模型名、轮数和 token 上限、超时时间以及历史压缩参数。原生的 Evaluation planner 在新建的环境中完成任务，环境释放后，进程把结果写入 ``--output-dir`` 下的 ``outcome.json``。
+
+按上文启动一个 Pi0.5 服务和一个 SAM3 服务，把它们的地址交给训练框架，由它为每个 episode 传入 ``--vla-endpoint`` 和 ``--sam3-endpoint``。指定 ``--frozen-memory-dir`` 时，每个任务都要带上自己的记忆条目，记忆内容直接放进第一条任务消息，planner 不再读取指南和记忆文件。历史压缩用 ``--tokenizer-path`` 指定的 tokenizer 计算 token 数；不指定时按每 4 个字符一个 token 估算。环境或共享服务没有启动成功时，进程以状态码 75 退出，训练框架可以重新运行这个 episode。
 
 远程访问 Dashboard
 ----------------------

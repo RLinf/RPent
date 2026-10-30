@@ -16,7 +16,9 @@
 
 from __future__ import annotations
 
+import re
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from rpent.utils.logging import get_logger
@@ -26,6 +28,8 @@ if TYPE_CHECKING:
     from rpent.utils.rpc.rpc_client import RpcClient
 
 logger = get_logger("client_utils")
+# Printed by RpcFacade once the server has bound its port.
+_ANNOUNCEMENT = re.compile(r"^RPC server listening on (\S+)$", re.MULTILINE)
 
 
 def parse_endpoint(endpoint: str) -> tuple[str, str, int]:
@@ -54,6 +58,25 @@ def make_rpc_client(endpoint: str, *, enable_sessions: bool = False) -> "RpcClie
     if protocol == "socket":
         return SocketRpcClient(host, port, enable_sessions=enable_sessions)
     raise ValueError(f"endpoint protocol must be http or socket, got {protocol!r}")
+
+
+def wait_for_endpoint(daemon: "ProcessDaemon", *, timeout_s: float = 300.0) -> str:
+    """Return the endpoint that ``daemon``'s RPC server announced in its log.
+
+    Start the server with ``--port 0`` and a fresh log, so that it binds a free
+    port itself; a port picked by the parent can be taken by another process
+    before the server binds it.
+    """
+    deadline = time.monotonic() + timeout_s
+    log = Path(daemon.log_path)
+    while (match := _ANNOUNCEMENT.search(log.read_text())) is None:
+        if daemon.poll() is not None or time.monotonic() > deadline:
+            raise RuntimeError(
+                f"{daemon.name} did not announce its endpoint "
+                f"(exit code {daemon.poll()}); see {log}"
+            )
+        time.sleep(0.5)
+    return match[1]
 
 
 def wait_for_ready(

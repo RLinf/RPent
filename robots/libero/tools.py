@@ -52,6 +52,7 @@ class LiberoPrimitives:
     ``pi0_pick`` and ``pi0_doubled`` override ``obs['task_descriptions']``
     with a sub-instruction. ``move_to`` and friends are scripted (no VLM
     call) and drive the underlying OSC controller directly.
+    Optional ``vla_seed`` repeats the VLA noise sequence after each reset.
     """
 
     def __init__(
@@ -62,6 +63,7 @@ class LiberoPrimitives:
         check_cancelled: Callable[[], None],
         molmo_client: MolmoClient | None = None,
         flywheel_config: dict[str, Any] | None = None,
+        vla_seed: int | None = None,
     ):
         self.env = env
         self.model = model
@@ -81,6 +83,8 @@ class LiberoPrimitives:
         self._frames = []
         self._flywheel_config = flywheel_config
         self._flywheel = None
+        self._vla_seed = vla_seed
+        self._vla_rng = None
 
     def start_recording(self):
         self._recording = True
@@ -115,7 +119,13 @@ class LiberoPrimitives:
 
     def reset(self):
         obs, info = self.env.reset()
+        self.reset_info = info
         self.set_obs(obs)
+        self._vla_rng = (
+            np.random.default_rng(self._vla_seed)
+            if self._vla_seed is not None
+            else None
+        )
         if self._flywheel_config is not None:
             from robots.libero.flywheel import create_episode_writer
 
@@ -166,7 +176,10 @@ class LiberoPrimitives:
             self._last_obs["task_descriptions"] = instruction
             self._last_obs.setdefault("extra_view_images", None)
 
-            actions = self.model.predict(self._last_obs, options={"mode": "eval"})
+            options = {"mode": "eval"}
+            if self._vla_rng is not None:
+                options["seed"] = int(self._vla_rng.integers(0, 2**63))
+            actions = self.model.predict(self._last_obs, options=options)
             self._check_cancelled()
 
             vla_id = (
@@ -795,7 +808,7 @@ class LiberoPrimitives:
         *,
         state: EnvState,
     ) -> ToolResult:
-        """SAM3 visual segmentation over an existing run artifact. It never renders a new camera view. Provide exactly one text prompt or single positive point. A successful top-ranked mask is projected through the matching world map to produce world_xyz.
+        """Locate an object in a recorded image with SAM3. Use either prompt or point, never both. When found and world_error is null, world_xyz is the object's world position in meters, ready for motion tools; no back_project call is needed. The box is a floating-point [left, top, right, bottom] image rectangle, not a [row, col] pixel or world position. This tool does not move the robot or render a new view.
 
         Args:
             prompt: Object/text prompt to segment.
@@ -1073,11 +1086,6 @@ def dump_state(
         "robot0_eef_pos": [float(x) for x in raw["robot0_eef_pos"]],
         "robot0_eef_quat": [float(x) for x in raw["robot0_eef_quat"]],
         "robot0_gripper_qpos": [float(x) for x in raw["robot0_gripper_qpos"]],
-        "object_names": sorted(
-            k[:-4]
-            for k in raw
-            if k.endswith("_pos") and "robot0" not in k and "to_robot" not in k
-        ),
     }
     log = log or {}
     with env_state.record_step(
@@ -1445,7 +1453,7 @@ def view_camera_meta(
     *,
     state: EnvState,
 ) -> ToolResult:
-    """Read per-step camera calibration metadata from recorded artifacts.
+    """Read camera calibration from a recorded step. This does not capture a new image or advance the environment. segment and back_project already apply calibration; this tool is only needed to inspect the calibration itself.
 
     Args:
         camera: Camera metadata to read (default agentview).
@@ -1493,8 +1501,8 @@ def back_project(
     REGION MODE: pass row_range=[r0,r1] and col_range=[c0,c1] instead of row/col to get the midpoint of world xy over that pixel window, with an optional world-z band (z_min, z_max). Use it for the center of a container cavity or flat region, where a single-pixel or mask-median estimate is biased toward an edge/rim.
 
     Args:
-        row: Pixel row (0=top) in the selected resolution image.
-        col: Pixel column (0=left) in the selected resolution image.
+        row: Integer pixel row (0=top) in the selected resolution image, not a bounding-box coordinate.
+        col: Integer pixel column (0=left) in the selected resolution image, not a bounding-box coordinate.
         step: Depth/world-map step; 0 = initial, -1 = latest.
         camera: Camera to back-project from (default agentview).
         resolution: Coordinate system for row/col (default high). Use low only when row/col came from the embedded/standard 256 image.
