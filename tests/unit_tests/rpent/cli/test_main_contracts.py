@@ -228,6 +228,10 @@ def test_robot_and_env_aliases_are_mutually_exclusive(
         ),
         (["--robot", "robocasa", "--explore"], "not supported for robot"),
         (
+            ["--robot", "libero", "--policy-mode", "code", "--explore"],
+            "cannot be used with --explore",
+        ),
+        (
             ["--robot", "libero", "--explore", "--memory-profile", "hf"],
             "cannot be used with --memory-profile hf",
         ),

@@ -129,11 +129,13 @@ def get_toolkit(
     from robots.dual_franka.toolkit import DualFrankaToolkit
 
     explore = mode == "exploration"
-    memory = MemoryManager(
-        root=config.prompt_vars.get("memory_dir") or get_memory_dir("dual_franka"),
-        memory_access="inbox_write" if explore else "read_only",
-        inbox_cell_tag=config.recipe_tag if explore else None,
-    )
+    memory = None
+    if config.use_memory:
+        memory = MemoryManager(
+            root=config.prompt_vars.get("memory_dir") or get_memory_dir("dual_franka"),
+            memory_access="inbox_write" if explore else "read_only",
+            inbox_cell_tag=config.recipe_tag if explore else None,
+        )
     return DualFrankaToolkit(
         runtime_kwargs=runtime_kwargs,
         dashboard_events=dashboard_events,

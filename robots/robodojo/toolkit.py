@@ -42,7 +42,7 @@ class RoboDojoToolkit(Toolkit):
         *,
         primitives_kwargs: dict[str, Any],
         dashboard_events: DashboardEventSink,
-        memory: MemoryManager,
+        memory: MemoryManager | None,
         eval_fair: bool = False,
     ) -> None:
         self.eval_fair = eval_fair

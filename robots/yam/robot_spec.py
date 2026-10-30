@@ -104,11 +104,13 @@ def get_toolkit(
     from robots.yam.toolkit import YamToolkit
 
     explore = mode == "exploration"
-    memory = MemoryManager(
-        root=config.prompt_vars.get("memory_dir") or get_memory_dir("yam"),
-        memory_access="inbox_write" if explore else "read_only",
-        inbox_cell_tag=config.recipe_tag if explore else None,
-    )
+    memory = None
+    if config.use_memory:
+        memory = MemoryManager(
+            root=config.prompt_vars.get("memory_dir") or get_memory_dir("yam"),
+            memory_access="inbox_write" if explore else "read_only",
+            inbox_cell_tag=config.recipe_tag if explore else None,
+        )
     if config.prompt_vars["task_id"] == 0:
         runtime_kwargs = {
             key: value for key, value in runtime_kwargs.items() if key != "model"

@@ -99,9 +99,11 @@ def get_toolkit(
     """Return the Franka toolkit."""
     from robots.franka.toolkit import FrankaToolkit
 
-    memory = MemoryManager(
-        root=config.prompt_vars.get("memory_dir") or get_memory_dir("franka"),
-    )
+    memory = None
+    if config.use_memory:
+        memory = MemoryManager(
+            root=config.prompt_vars.get("memory_dir") or get_memory_dir("franka"),
+        )
     return FrankaToolkit(
         runtime_kwargs=runtime_kwargs,
         dashboard_events=dashboard_events,

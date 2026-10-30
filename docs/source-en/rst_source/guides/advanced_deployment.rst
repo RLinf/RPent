@@ -211,3 +211,36 @@ In a local terminal, forward the port, replacing ``USER@HOST`` with the server l
    ssh -N -L 8000:127.0.0.1:8000 USER@HOST
 
 Open ``http://127.0.0.1:8000`` in your local browser. Keep the SSH connection and server-side RPent process running; see :doc:`dashboard` for task controls.
+
+.. _code-as-policy-optional:
+
+Code as Policy (Optional)
+------------------------------
+
+This mode lets the model write Python code to control the robot through
+``robo.<tool_name>()``. Code can combine actions with loops and conditions,
+and variables persist within a session.
+
+Once a normal task runs successfully, add ``--policy-mode code`` to your
+command. For example:
+
+.. code-block:: bash
+
+   rpent --robot libero --libero-type pro \
+     --suite libero_object_swap --task 2 --seed 0 \
+     --planner claude_code --model claude-opus-4-8 \
+     --policy-mode code
+
+Each code snippet allows up to 120 seconds and 100 robot tool calls by default.
+Adjust these with ``--code-timeout-s`` and ``--code-max-calls``. Code and results
+are saved in ``code_policy/`` under the run's output directory.
+
+The model ends the task with ``robo.finish(...)``; code after a successful
+finish does not run. Operator requests such as ``request_scene_reset`` and
+``request_operator_verdict`` stay separate tools outside Python, because waiting
+for the operator can exceed the per-snippet time limit.
+
+This mode uses separate prompts, skips task memory, and does not generate
+recipes. It supports the ``api``, ``claude_code``, and ``codex`` planners,
+but not ``flash``, and it cannot be combined with ``--explore``. Omit the
+flag to use the default tool-calling mode.

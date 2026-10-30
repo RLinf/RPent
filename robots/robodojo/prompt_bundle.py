@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from robots.robodojo.prompts import code_policy as code_parts
 from robots.robodojo.prompts import system as system_parts
 from robots.robodojo.prompts import user as user_parts
 from rpent.prompt.utils import PromptNode
@@ -26,6 +27,8 @@ from rpent.prompt.utils import PromptNode
 def system_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> PromptNode:
+    if (variables or {}).get("policy_mode") == "code":
+        return code_parts.system_prompt()
     if (variables or {}).get("mode") == "eval-fair":
         return {
             "EXECUTION": "Replay the frozen plan using live RGB-D and robot proprioception. No language model participates."
@@ -44,6 +47,12 @@ def system_prompt(
 def user_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> PromptNode:
+    if (variables or {}).get("policy_mode") == "code":
+        return {
+            "TASK": user_parts.TASK,
+            "BEGIN": "The task instruction comes from `task_language` in "
+            "`robo.view_env_state(step=0)`.",
+        }
     sections = {
         "TASK": user_parts.TASK,
         "BEGIN": user_parts.BEGIN,
