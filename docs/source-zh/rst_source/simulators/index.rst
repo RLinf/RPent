@@ -16,5 +16,8 @@
      - 厨房操作；RoboCasa365 与 Target50 实验。
    * - :doc:`robotwin`
      - 双臂操作；RoboTwin C2R 实验。
+
+   * - :doc:`metaworld`
+     - 十种任务类型，支持 RGB-D 与有步数上限的笛卡尔控制。
    * - :doc:`robodojo`
      - Isaac Sim 双臂 ARX-X5 操作与 RLinf Pi0.5 策略。

@@ -20,7 +20,7 @@ set -euo pipefail
 unset PYTHONPATH VIRTUAL_ENV CONDA_PREFIX
 
 if [[ $# -ne 3 ]]; then
-  echo "Usage: $0 <libero-pro|robocasa|robotwin> <output-dir> <venv-root>"
+  echo "Usage: $0 <libero-pro|robocasa|robotwin|metaworld> <output-dir> <venv-root>"
   exit 2
 fi
 
@@ -252,6 +252,10 @@ run_in_clean_env() {
 }
 
 case "$target" in
+  metaworld)
+    run_in_clean_env \
+      metaworld 3.11 metaworld tests/e2e_tests/metaworld "$output_dir/metaworld"
+    ;;
   libero-pro)
     require_dir PI05_CHECKPOINT_PATH
     require_file SAM3_CHECKPOINT_PATH
