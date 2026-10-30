@@ -382,8 +382,8 @@ def main() -> int:
     human_interactive_exploration = (
         args.explore and robot_spec.supports_human_interactive_exploration
     )
-    if args.dashboard and args.interactive:
-        parser.error("--dashboard and --interactive cannot be used together")
+    if args.dashboard and args.tui:
+        parser.error("--dashboard and --tui cannot be used together")
     try:
         external_env_dashboard = robot_spec.is_real_robot and (
             robot_spec.resolve_dashboard(args) or {}
