@@ -12,12 +12,15 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from robots.yam.prompts import code_policy as code_parts
 from robots.yam.prompts import system as system_parts
 from robots.yam.prompts import user as user_parts
 from rpent.prompt.utils import PromptNode
 
 
 def system_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
+    if (variables or {}).get("policy_mode") == "code":
+        return code_parts.system_prompt()
     policy = (
         system_parts.VLA
         if (variables or {}).get("vla_enabled", False)
@@ -40,6 +43,8 @@ def system_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
 
 
 def user_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
+    if (variables or {}).get("policy_mode") == "code":
+        return {"CELL": user_parts.CELL}
     return {"CELL": user_parts.CELL, "BEGIN": user_parts.BEGIN}
 
 

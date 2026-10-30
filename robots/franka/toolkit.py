@@ -44,7 +44,7 @@ class FrankaToolkit(Toolkit):
         *,
         runtime_kwargs: dict[str, Any],
         dashboard_events: DashboardEventSink,
-        memory: MemoryManager,
+        memory: MemoryManager | None,
         state_output_dir: Path | str | None = None,
     ) -> None:
         runtime_kwargs = dict(runtime_kwargs)

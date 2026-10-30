@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import queue
 import shlex
 import sys
@@ -49,6 +50,7 @@ from rpent.cli.tui import (
     start_first_prompt_resolver,
     start_interactive_reader,
 )
+from rpent.code_policy.toolkit import CodePolicyTools
 from rpent.dashboard.events import (
     NullDashboardEventSink,
     RunStartedEvent,
@@ -60,9 +62,12 @@ from rpent.planner.base import (
     REASONING_EFFORTS,
     build_planner,
     is_recoverable_agent_error,
+    resolve_model,
 )
 from rpent.planner.check import EXTERNALLY_CONFIGURED_PLANNERS
+from rpent.prompt.code_policy import code_policy_api_reference
 from rpent.robots import enumerate_robots, get_robot_spec, get_toolkit
+from rpent.robots.robot_spec import RunConfig
 from rpent.session.planner_capture import end_planner_task, start_planner_task
 from rpent.utils.logging import get_logger, init_output_dir
 
@@ -107,6 +112,14 @@ def _serialize_messages(messages: list[dict]) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
+def _disable_memory(config: RunConfig) -> None:
+    """Run code policies without a memory corpus, inbox or memory file tools."""
+    config.use_memory = False
+    config.prompt_vars["policy_mode"] = "code"
+    for name in ("memory_dir", "memory_inbox"):
+        config.prompt_vars.pop(name, None)
+
+
 def _build_argparser() -> argparse.ArgumentParser:
     known_robots = enumerate_robots()
     known_robots_text = ", ".join(known_robots) if known_robots else "none"
@@ -142,6 +155,24 @@ def _build_argparser() -> argparse.ArgumentParser:
         help="Planner backend: api | claude_code | codex | gemini_cli are LLMs in the "
         "loop; flash is evaluation-only and replays a plan from memory, re-localizing "
         "each waypoint's anchor.",
+    )
+    ap.add_argument(
+        "--policy-mode",
+        choices=["tools", "code"],
+        default="tools",
+        help="Policy execution: direct tool calls or persistent Python cells.",
+    )
+    ap.add_argument(
+        "--code-timeout-s",
+        type=float,
+        default=120.0,
+        help="Wall-clock limit for each Python cell in code policy mode.",
+    )
+    ap.add_argument(
+        "--code-max-calls",
+        type=int,
+        default=100,
+        help="Maximum robot tool calls per Python cell in code policy mode.",
     )
     ap.add_argument(
         "--model",
@@ -325,18 +356,19 @@ def _start_continuation_session(
     output_dir,
     recipe_tag,
     dashboard_events,
-    prompt_bundle,
     prompt_vars,
     session_number: int,
     session_max: int,
 ):
-    """Build a fresh planner and prompts for an exploration handoff."""
+    """Build a fresh planner and task message for an exploration handoff."""
     logger.info("=== handing off to agent %d/%d ===", session_number, session_max)
     planner = build_planner(
         args.planner,
         output_dir=output_dir,
         recipe_tag=recipe_tag,
         robot_name=args.robot_name,
+        memory_dir=prompt_vars.get("memory_dir"),
+        use_memory=args.policy_mode == "tools",
         base_url=args.base_url,
         model=args.model,
         max_tokens=args.max_tokens,
@@ -348,14 +380,6 @@ def _start_continuation_session(
         no_images=args.no_images,
         interactive=args.tui,
     )
-    system_prompt = prompt_bundle.render(
-        "system",
-        variables={
-            **prompt_vars,
-            "session_number": session_number,
-            "session_max": session_max,
-        },
-    )
     session_message = _handoff_message(
         output_dir,
         session_number,
@@ -366,7 +390,7 @@ def _start_continuation_session(
         session_message += "\n\nOriginal operator task instruction:\n" + str(
             prompt_vars["initial_user_message"]
         )
-    return planner, system_prompt, session_message
+    return planner, session_message
 
 
 def main() -> int:
@@ -399,6 +423,10 @@ def main() -> int:
     args.robot_name = early.robot_name
     if "--interactive" in sys.argv or "-i" in sys.argv:
         logger.warning("--interactive is deprecated; use --tui instead")
+    if not math.isfinite(args.code_timeout_s) or args.code_timeout_s <= 0:
+        parser.error("--code-timeout-s must be finite and greater than 0")
+    if args.code_max_calls <= 0:
+        parser.error("--code-max-calls must be greater than 0")
     human_interactive_exploration = (
         args.explore and robot_spec.supports_human_interactive_exploration
     )
@@ -439,6 +467,8 @@ def main() -> int:
             f"{args.planner} uses its existing backend configuration instead"
         )
     if args.planner == "flash":
+        if args.policy_mode == "code":
+            parser.error("--policy-mode code cannot be used with --planner flash")
         if args.explore:
             parser.error("Flash Mode is evaluation-only; remove --explore")
         if robot_spec.run_flash is None:
@@ -460,7 +490,21 @@ def main() -> int:
             parser.error(
                 "Human-interactive exploration requires a TTY for operator reset/verdict feedback"
             )
-    if args.explore and args.memory_profile == "hf":
+    if args.policy_mode == "code":
+        if args.explore:
+            parser.error("--policy-mode code cannot be used with --explore")
+        if args.memory_dir or args.memory_repo or args.memory_profile:
+            logger.info(
+                "Code policy runs without task memory; memory options are unused."
+            )
+        args.memory_profile = "local"
+        args.memory_dir = None
+        args.memory_repo = None
+        args.auto_merge_memory = False
+        args.model = resolve_model(args.planner, args.model)
+        if hasattr(args, "memory_version"):
+            args.memory_version = "auto"
+    elif args.explore and args.memory_profile == "hf":
         parser.error("--explore cannot be used with --memory-profile hf")
     if args.explore and getattr(args, "explore_sessions", 1) <= 0:
         parser.error("--explore-sessions must be greater than 0")
@@ -487,6 +531,8 @@ def main() -> int:
 
     try:
         run_config = robot_spec.parse_config(args)
+        if args.policy_mode == "code":
+            _disable_memory(run_config)
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
     recipe_tag = run_config.recipe_tag
@@ -500,7 +546,8 @@ def main() -> int:
     output_dir = init_output_dir(output_dir, verbose=args.verbose)
     logger.info("physical agent cmd: %s", shlex.join([sys.executable, *sys.argv]))
 
-    prepare_run_memory(args, robot_spec, run_config)
+    if args.policy_mode == "tools":
+        prepare_run_memory(args, robot_spec, run_config)
 
     dashboard_events = NullDashboardEventSink()
 
@@ -510,6 +557,7 @@ def main() -> int:
         recipe_tag=recipe_tag,
         robot_name=robot_name,
         memory_dir=prompt_vars.get("memory_dir"),
+        use_memory=run_config.use_memory,
         base_url=args.base_url,
         model=args.model,
         max_tokens=args.max_tokens,
@@ -527,7 +575,6 @@ def main() -> int:
         "user",
         variables=prompt_vars,
     )
-
     operator_input = None
     if human_interactive_exploration:
         from rpent.tools.human_in_the_loop import HumanInTheLoopInput
@@ -592,7 +639,7 @@ def main() -> int:
             # The interactive reader keeps the earlier render, which is only the
             # editable default.
             user_msg = prompt_bundle.render("user", variables=prompt_vars)
-        system_prompt = prompt_bundle.render("system", variables=prompt_vars)
+
     except BaseException:
         # The agent-loop ``finally`` below stops the daemons. A prompt or hook
         # failure happens before it and must not leak the runtime.
@@ -630,16 +677,22 @@ def main() -> int:
                 break
             environment_success, environment_metrics = None, {}
             if session_number > 1:
-                planner, system_prompt, session_msg = _start_continuation_session(
+                planner, session_msg = _start_continuation_session(
                     args,
                     output_dir=output_dir,
                     recipe_tag=recipe_tag,
                     dashboard_events=dashboard_events,
-                    prompt_bundle=prompt_bundle,
                     prompt_vars=prompt_vars,
                     session_number=session_number,
                     session_max=sessions,
                 )
+            session_prompt_vars = prompt_vars
+            if session_number > 1:
+                session_prompt_vars = {
+                    **prompt_vars,
+                    "session_number": session_number,
+                    "session_max": sessions,
+                }
             state_output_dir = output_dir
             if getattr(args, "explore", False):
                 state_output_dir = (
@@ -693,15 +746,45 @@ def main() -> int:
                     task_state = start_planner_task(
                         toolkit.state,
                         instruction=session_msg,
-                        config={"arguments": vars(args), "run": asdict(run_config)},
+                        config={
+                            "arguments": vars(args),
+                            "run": asdict(run_config),
+                        },
                     )
-                result = planner.solve(
-                    system_prompt=system_prompt,
-                    user_message=session_msg,
-                    toolkit=toolkit,
-                    max_turns=args.max_turns,
-                    input_queue=input_queue,
-                )
+                planner_tools = toolkit
+                if args.policy_mode == "code":
+                    planner_tools = CodePolicyTools(
+                        toolkit,
+                        output_dir=Path(state_output_dir),
+                        timeout_s=args.code_timeout_s,
+                        max_calls=args.code_max_calls,
+                        include_images=not args.no_images,
+                    )
+
+                try:
+                    if args.policy_mode == "code":
+                        session_prompt_vars = {
+                            **session_prompt_vars,
+                            "code_policy_api": code_policy_api_reference(
+                                planner_tools.robot_tools()
+                            ),
+                        }
+
+                    system_prompt = prompt_bundle.render(
+                        "system",
+                        variables=session_prompt_vars,
+                    )
+
+                    result = planner.solve(
+                        system_prompt=system_prompt,
+                        user_message=session_msg,
+                        toolkit=planner_tools,
+                        max_turns=args.max_turns,
+                        input_queue=input_queue,
+                    )
+                finally:
+                    if planner_tools is not toolkit:
+                        planner_tools.close()
                 finish_result = result.finish_result
                 messages += result.messages
                 stats = result.stats
@@ -720,7 +803,11 @@ def main() -> int:
                     solved = bool(solved_fn())
                     environment_success = solved
                     write_recipe = getattr(toolkit, "write_recipe", None)
-                    if solved and callable(write_recipe):
+                    if (
+                        args.policy_mode == "tools"
+                        and solved
+                        and callable(write_recipe)
+                    ):
                         recipe_path = write_recipe(recipe_tag) or recipe_path
             finally:
                 if operator_input is not None and input_queue is not None:
@@ -775,7 +862,7 @@ def main() -> int:
             operator_input.close()
         if recipe_path:
             logger.info("recipe: %s", recipe_path)
-        else:
+        elif args.policy_mode == "tools":
             logger.info("recipe: not written (cell unsolved)")
         for d in daemons:
             d.stop()
@@ -786,6 +873,9 @@ def main() -> int:
     record = {
         **task_desc,
         "model": args.model,
+        "policy_mode": args.policy_mode,
+        "code_timeout_s": args.code_timeout_s,
+        "code_max_calls": args.code_max_calls,
         "elapsed_s": round(elapsed, 1),
         "finish": finish_result,
         "error": agent_error,
@@ -835,7 +925,8 @@ def main() -> int:
 
     # Publish exploration artifacts into the corpus after the session loop.
     if (
-        getattr(args, "explore", False)
+        args.policy_mode == "tools"
+        and getattr(args, "explore", False)
         and getattr(args, "auto_merge_memory", False)
         and not agent_error
         and not (finish_result or {}).get("operator_aborted")

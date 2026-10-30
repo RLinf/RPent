@@ -555,8 +555,6 @@ class _Recorder:
     def _maybe_capture_finish(self, name: str, item: Any) -> None:
         if self.finish_result is not None:
             return
-        if name.lower() != "finish":
-            return
         status = _status(item)
         if status and status != "completed":
             return
@@ -585,7 +583,7 @@ class _Recorder:
                 self.finish_result = dict(payload)
             return
         args = json_object(data.get("arguments"))
-        if isinstance(args, dict):
+        if name.lower() == "finish" and isinstance(args, dict):
             self.finish_result = {"_finish": True, **args}
 
 

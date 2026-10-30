@@ -61,7 +61,7 @@ class RoboDojoToolkit(Toolkit):
         *,
         primitives_kwargs: dict[str, Any],
         dashboard_events: DashboardEventSink,
-        memory: MemoryManager,
+        memory: MemoryManager | None,
         eval_fair: bool = False,
         mode: str = "evaluation",
         attempts_per_session: int = 5,

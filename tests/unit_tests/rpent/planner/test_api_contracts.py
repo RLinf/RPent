@@ -1103,6 +1103,27 @@ def test_factory_passes_interactive_mode(tmp_path, monkeypatch):
     assert planner.interactive is True
 
 
+@pytest.mark.parametrize("planner_type", ["claude_code", "codex"])
+@pytest.mark.parametrize("use_memory", [True, False])
+def test_factory_mounts_memory_only_when_enabled(
+    tmp_path, planner_type, use_memory
+):
+    from rpent.planner.base import build_planner
+
+    planner = build_planner(
+        planner_type,
+        output_dir=tmp_path,
+        recipe_tag="test",
+        robot_name="test",
+        memory_dir=tmp_path / "memory",
+        use_memory=use_memory,
+        dashboard_events=Events(),
+    )
+    assert planner._extra_dirs == (
+        [str(tmp_path / "memory")] if use_memory else []
+    )
+
+
 @pytest.mark.parametrize("no_images", [False, True])
 def test_offline_http_planner_executes_action_and_finish(tmp_path, no_images):
     from pydantic_ai.models.openai import OpenAIChatModel

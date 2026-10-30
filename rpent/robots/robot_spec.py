@@ -50,6 +50,8 @@ class RunConfig:
     prompt_vars: dict[str, Any]
     task_desc: dict[str, Any]
     enable_direct_action: bool = False
+    #: False builds toolkits without a memory corpus or file tools.
+    use_memory: bool = True
 
 
 @dataclass(frozen=True)
