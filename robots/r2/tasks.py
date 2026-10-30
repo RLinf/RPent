@@ -58,7 +58,7 @@ R2_TASKS = {
             "on the table at the new place with the gripper open and clear of it."
         ),
         constraints=(
-            "Locate the object with back_project before moving toward it.",
+            "Locate the object with segment or back_project before moving toward it.",
             "Hover 0.10 m above a grasp point, then descend in steps of 0.05 m or less.",
             "Do not infer a grasp from gripper opening alone; confirm it in the images.",
         ),

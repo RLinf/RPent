@@ -4,8 +4,9 @@ Robbyant R2
 RPent can operate a Robbyant R2, a wheeled humanoid with two 7-DoF arms,
 parallel grippers, a head RGB-D camera on a pan-tilt neck, and an RGB-D camera
 on each wrist, with an LLM planner and no learned action policy. The planner
-looks at the camera images, locates targets in 3D from depth, and moves the
-arms, grippers, and head through bounded tools. Every motion is checked
+looks at the camera images, locates targets in 3D from depth (optionally
+finding objects by name with SAM3), and moves the arms, grippers, and head
+through bounded tools. Every motion is checked
 against limits set in a site configuration before the robot moves.
 
 The work is split across two machines:
@@ -169,8 +170,8 @@ It then records the initial state as step ``0``, including ``robot_info`` with
 the workspace boxes and per-call limits.
 
 Task ``1`` picks up an object on the table and places it about 0.15 m to the
-side. It locates the object with ``back_project``, so it needs camera
-calibration. ``--task-language`` replaces a task's instruction, for example to
+side. It locates the object with ``segment`` or ``back_project``, so it needs
+camera calibration. ``--task-language`` replaces a task's instruction, for example to
 name the object:
 
 .. code-block:: bash
@@ -178,6 +179,29 @@ name the object:
    uv run rpent --robot r2 --task-id 1 --task-language "Pick up the red cup and place it on the plate" \
      --env-endpoint http://ROBOT_IP:8120 \
      --planner claude_code --model claude-opus-4-8
+
+Locate Objects with SAM3
+------------------------
+
+SAM3 lets the planner find an object by a short name, such as "red cup",
+instead of choosing pixels itself. It is optional and needs a GPU, so it runs on
+the workstation or another GPU machine, never on the robot. Install it with
+``uv sync --extra sam3`` and download ``sam3.pt`` as described under SAM3
+Configuration in :doc:`../simulators/libero`. Then either:
+
+* set ``SAM3_CHECKPOINT_PATH`` to the checkpoint, and RPent starts a SAM3
+  server for the run (its log is ``sam3_server.log`` in the run directory); or
+* start a shared SAM3 server as described in
+  :doc:`../guides/advanced_deployment`, and pass
+  ``--sam3-endpoint http://SAM3_HOST:SAM3_PORT``.
+
+RPent connects to SAM3 before the env server, so a SAM3 failure stops the run
+before the reset moves the arms. With SAM3 configured, the planner gets the
+``segment`` tool. It masks the object in a recorded camera image and returns
+the mask's pixel box and centre, with an overlay image so the planner can check
+the selection. When that camera has depth and calibration, it also returns the
+object's median ``base_link`` point and its extent. Without calibration it
+still returns the pixels.
 
 Tools
 -----
@@ -213,6 +237,10 @@ Tools
    * - ``back_project``
      - Converts pixels of a recorded image into ``base_link`` points using that
        step's depth, intrinsics, and camera pose.
+   * - ``segment``
+     - Finds one object in a recorded image with SAM3, by name or by a pixel on
+       it, and returns its mask, overlay, and ``base_link`` location. Offered
+       only when SAM3 is configured.
 
 A refused motion returns ``ok: false`` with the reason and leaves the robot
 still. A move that starts but does not complete also returns the robot's
@@ -225,7 +253,9 @@ Each run writes to ``logs/<timestamp>_r2_t<task_id>/``. ``states.json`` lists
 every step with its command, result, and measured state. Each step stores
 ``head.png``, ``wrist_left.png``, ``wrist_right.png``, depth images in
 millimetres (``<camera>_depth_mm.npy``), and ``camera_meta.json`` with the
-camera intrinsics and poses used by ``back_project``.
+camera intrinsics and poses used by ``back_project``. Each ``segment`` call
+adds its overlay, ``<camera>_segment_<n>.png``, to the step whose image it
+segmented.
 
 R2 has no automatic success check. The planner's ``finish`` summary and the
 recorded images are evidence for the operator, who judges whether the task

@@ -42,6 +42,8 @@ class R2Toolkit(Toolkit):
         memory: MemoryManager,
         state_output_dir: Path | str | None = None,
     ) -> None:
+        runtime_kwargs = dict(runtime_kwargs)
+        sam3_client = runtime_kwargs.pop("sam3_client", None)
         state = EnvState(Path(state_output_dir or get_output_dir()))
         super().__init__(dashboard_events=dashboard_events, state=state, memory=memory)
         self._primitives = r2_tools.R2Primitives(
@@ -54,9 +56,12 @@ class R2Toolkit(Toolkit):
             if definition.name != "move_base" or meta["base_motion"]
         )
         for definition in iter_tools(r2_tools):
-            self.add_tool(
-                definition.with_handler(partial(definition, state=self._state))
-            )
+            resources: dict[str, Any] = {"state": self._state}
+            if definition.name == "segment":
+                if sam3_client is None:
+                    continue
+                resources["sam3_client"] = sam3_client
+            self.add_tool(definition.with_handler(partial(definition, **resources)))
         self._state.reset()
         record = r2_tools.dump_state(
             self._primitives,

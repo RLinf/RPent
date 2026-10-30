@@ -49,7 +49,9 @@ def check(endpoint: str, output_dir: Path) -> dict[str, Any]:
         meta = observation["camera_meta"]["cameras"][name]
         cameras[name] = {
             "image_shape": list(view["rgb"].shape[:2]),
-            "valid_depth": None if depth is None else round(float((depth > 0).mean()), 3),
+            "valid_depth": None
+            if depth is None
+            else round(float((depth > 0).mean()), 3),
             "calibrated": meta["intrinsics"] is not None,
             "posed": meta["T_base_camera"] is not None,
         }

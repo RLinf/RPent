@@ -19,9 +19,16 @@ import numpy as np
 import pytest
 
 from robots.r2.toolkit import R2Toolkit
-from robots.r2.tools import R2Primitives, back_project, dump_state, view_env_state
+from robots.r2.tools import (
+    R2Primitives,
+    back_project,
+    dump_state,
+    segment,
+    view_env_state,
+)
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory import MemoryManager
+from rpent.robots.components.sam3_client import Sam3Result
 from rpent.session import EnvState
 from rpent.utils.logging import init_output_dir
 
@@ -170,13 +177,84 @@ def test_back_project_names_the_missing_calibration(tmp_path):
     assert "pose" not in result["error"] and "depth" not in result["error"]
 
 
-@pytest.mark.parametrize("base_motion", [False, True])
-def test_toolkit_offers_base_motion_only_when_the_server_allows_it(
-    tmp_path, base_motion
+class FakeSam3:
+    def __init__(self, found=True) -> None:
+        self.found = found
+        self.calls: list[dict] = []
+
+    def segment(self, image, *, text_prompt=None, point=None, min_score=0.2):
+        self.calls.append({"prompt": text_prompt, "point": point, "png": image[:4]})
+        if not self.found:
+            return Sam3Result(found=False, reason="no match for the prompt")
+        mask = np.zeros((4, 6), dtype=bool)
+        mask[1:4, 1:6] = True
+        return Sam3Result(found=True, score=0.91, mask=mask, mask_shape=(4, 6))
+
+
+def _recorded(tmp_path, **client):
+    state = EnvState(tmp_path)
+    dump_state(
+        R2Primitives(env=FakeClient(**client), check_cancelled=lambda: None),
+        state,
+        command=None,
+        result=None,
+        elapsed_s=None,
+    )
+    return state
+
+
+def test_segment_locates_the_mask_and_records_an_overlay(tmp_path):
+    state = _recorded(tmp_path)
+    sam3 = FakeSam3()
+
+    result = segment(prompt=" red cup ", state=state, sam3_client=sam3)
+
+    assert sam3.calls == [{"prompt": "red cup", "point": None, "png": b"\x89PNG"}]
+    data = result.data
+    assert (data["found"], data["score"], data["mask_pixels"]) == (True, 0.91, 15)
+    assert data["pixel_box"] == [1, 1, 3, 5] and data["pixel_centre"] == [2, 3]
+    # Every mask pixel is 2 m ahead; the median pixel is the principal point.
+    assert data["xyz"] == pytest.approx([2.0, 0.0, 1.0])
+    assert data["extent_low"][1] < 0.0 < data["extent_high"][1]
+    assert state.exists(data["overlay"], step=0) and len(result.images) == 1
+
+
+def test_segment_without_calibration_still_returns_the_pixels(tmp_path):
+    state = _recorded(tmp_path, intrinsics=False)
+
+    data = segment(point=[2, 3], state=state, sam3_client=FakeSam3()).data
+
+    assert data["pixel_centre"] == [2, 3]
+    assert "xyz" not in data and "intrinsics" in data["xyz_error"]
+
+
+def test_segment_reports_a_miss_and_needs_exactly_one_query(tmp_path):
+    state = _recorded(tmp_path)
+
+    missed = segment(prompt="cup", state=state, sam3_client=FakeSam3(found=False))
+    neither = segment(state=state, sam3_client=FakeSam3())
+    both = segment(prompt="cup", point=[1, 1], state=state, sam3_client=FakeSam3())
+
+    assert missed.data == {
+        "step": 0,
+        "camera": "head",
+        "found": False,
+        "reason": "no match for the prompt",
+    }
+    assert neither.data["error"] == both.data["error"]
+    assert neither.data["error"] == "give exactly one of prompt or point"
+
+
+@pytest.mark.parametrize(("base_motion", "sam3"), [(False, None), (True, FakeSam3())])
+def test_toolkit_offers_optional_tools_only_when_configured(
+    tmp_path, base_motion, sam3
 ):
     init_output_dir(tmp_path / "run")
     toolkit = R2Toolkit(
-        runtime_kwargs={"env": FakeClient(base_motion=base_motion)},
+        runtime_kwargs={
+            "env": FakeClient(base_motion=base_motion),
+            "sam3_client": sam3,
+        },
         dashboard_events=NullDashboardEventSink(),
         memory=MemoryManager(root=tmp_path / "memory"),
     )
@@ -185,6 +263,7 @@ def test_toolkit_offers_base_motion_only_when_the_server_allows_it(
 
     assert {"move_to", "back_project", "view_env_state", "go_home"} <= names
     assert ("move_base" in names) is base_motion
+    assert ("segment" in names) is (sam3 is not None)
     assert toolkit.state.get(0).state["robot_info"]["robot"] == "r2"
     moved = toolkit.execute_tool(
         "move_delta", {"arm": "left", "delta_xyz": [0.0, 0.0, 0.01]}

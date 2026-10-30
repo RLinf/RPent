@@ -1048,6 +1048,20 @@
           },
           "required": ["pixels"]
         }
+      },
+      {
+        "name": "segment",
+        "description": "Find one object in a recorded camera image with SAM3 and locate it in base_link.\n\nReturns the mask's [row, col] box and centre and an overlay image to verify\nthe selection. When the camera has depth and calibration, it also returns\nthe mask's median base_link point and its 5th-95th percentile extent.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "prompt": {"description": "A short noun phrase for the object, such as \"red cup\". Give exactly one of prompt or point.", "type": ["string", "null"]},
+            "point": {"description": "A [row, col] pixel on the object. Give exactly one of prompt or point.", "items": {"type": "integer"}, "maxItems": 2, "minItems": 2, "type": ["array", "null"]},
+            "camera": {"description": "The camera whose image to segment.", "enum": ["head", "wrist_left", "wrist_right"], "type": "string"},
+            "step": {"default": -1, "description": "The recorded state the image belongs to.", "type": "integer"},
+            "min_score": {"default": 0.2, "description": "The lowest SAM3 confidence to accept.", "maximum": 1, "minimum": 0, "type": "number"}
+          }
+        }
       }
     ],
     "robots/dual_franka/tools.py": [

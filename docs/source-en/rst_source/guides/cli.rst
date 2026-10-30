@@ -94,7 +94,7 @@ These options control the planner, memory, output directory, and Dashboard.
 Environment Options
 -------------------
 
-LIBERO selects tasks with ``--suite``, ``--task``, ``--seed``, and ``--libero-type``; the variant defaults to ``LIBERO_TYPE`` or ``pro``. RoboCasa365 and RoboTwin use ``--task-name``. Franka uses ``--task-id`` and ``--robot-config``. R2 uses ``--task-id``, ``--task-language``, and ``--env-endpoint``. See :doc:`../simulators/libero`, :doc:`../simulators/robocasa`, :doc:`../simulators/robotwin`, :doc:`../real_world_robots/franka`, :doc:`../real_world_robots/dual_franka`, and :doc:`../real_world_robots/r2` for details.
+LIBERO selects tasks with ``--suite``, ``--task``, ``--seed``, and ``--libero-type``; the variant defaults to ``LIBERO_TYPE`` or ``pro``. RoboCasa365 and RoboTwin use ``--task-name``. Franka uses ``--task-id`` and ``--robot-config``. R2 uses ``--task-id``, ``--task-language``, ``--env-endpoint``, and optionally ``--sam3-endpoint``. See :doc:`../simulators/libero`, :doc:`../simulators/robocasa`, :doc:`../simulators/robotwin`, :doc:`../real_world_robots/franka`, :doc:`../real_world_robots/dual_franka`, and :doc:`../real_world_robots/r2` for details.
 
 ``--env-endpoint``, ``--vla-endpoint``, and LIBERO’s ``--sam3-endpoint`` connect to existing services using ``[protocol://]host:port``; the default protocol is ``http``. See :doc:`advanced_deployment` for GPU assignment and remote services.
 

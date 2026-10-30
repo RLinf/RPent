@@ -17,23 +17,26 @@
 from __future__ import annotations
 
 import argparse
+import os
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from robots.r2.prompt_bundle import system_prompt, user_prompt
 from robots.r2.tasks import R2_TASKS, get_r2_task
-from rpent.dashboard.events import DashboardEventSink
+from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
 from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
-from rpent.robots.runtime import try_wait_server
+from rpent.robots.runtime import try_spawn_server, try_wait_server
 from rpent.utils.config import get_memory_dir, get_repo_root
+from rpent.utils.daemon import ProcessDaemon, pick_free_port
 from rpent.utils.rpc import make_rpc_client
 
 if TYPE_CHECKING:
-    from rpent.utils.daemon import ProcessDaemon
+    from rpent.utils.rpc import RpcClient
 
 
 R2_DASHBOARD_SPEC: DashboardSpec = {
@@ -51,7 +54,10 @@ R2_DASHBOARD_SPEC: DashboardSpec = {
         "display": "R2 task {task_id}",
         "output_slug": "r2_t{task_id}",
     },
-    "runtime_components": ({"name": "env", "label": "R2", "scope": "unique"},),
+    "runtime_components": (
+        {"name": "env", "label": "R2", "scope": "unique"},
+        {"name": "sam3", "label": "SAM3", "scope": "shared"},
+    ),
     "primitives": (
         "move_to",
         "move_delta",
@@ -112,6 +118,14 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         required=not use_dashboard,
         help="R2 env_server endpoint running on the robot, e.g. http://ROBOT_IP:8120",
     )
+    parser.add_argument(
+        "--sam3-endpoint",
+        default=None,
+        help=(
+            "[protocol://]host:port of a running SAM3 server. If unset, a local "
+            "SAM3 server starts only when SAM3_CHECKPOINT_PATH is set."
+        ),
+    )
 
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
@@ -143,39 +157,93 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     )
 
 
+def _spawn_sam3_server(
+    args: argparse.Namespace, output_dir: Path
+) -> tuple[ProcessDaemon | None, RpcClient]:
+    """Attach to ``--sam3-endpoint``, or start a local SAM3 server."""
+    if args.sam3_endpoint is not None:
+        return None, make_rpc_client(args.sam3_endpoint)
+    host, port = "127.0.0.1", pick_free_port()
+    daemon = ProcessDaemon(
+        name="sam3_server",
+        cmd=[
+            sys.executable,
+            str(get_repo_root() / "rpent" / "robots" / "components" / "sam3_server.py"),
+            "--transport",
+            "http",
+            "--host",
+            host,
+            "--port",
+            str(port),
+            "--parent-watch",
+        ],
+        log_path=str(output_dir / "sam3_server.log"),
+    )
+    daemon.start()
+    return daemon, make_rpc_client(f"http://{host}:{port}")
+
+
 def _init_runtime(
     args: argparse.Namespace,
     output_dir: Path,
     dashboard_events: DashboardEventSink,
     components: set[str] | None,
 ) -> tuple[list[ProcessDaemon], dict[str, Any]]:
-    """Attach to the env server the operator started on the robot.
+    """Attach to the robot's env server and, when configured, SAM3.
 
     RPent never starts the R2 env server: it owns the hardware and runs on the
-    robot under the operator's control.
+    robot under the operator's control. SAM3 is ready before the env client
+    connects, because connecting resets the robot.
     """
-    del output_dir
-    selected = {"env"} if components is None else set(components)
-    unknown = selected - {"env"}
+    from robots.r2.env_client import R2EnvClient
+    from rpent.robots.components.sam3_client import Sam3Client
+
+    selected = {"env", "sam3"} if components is None else set(components)
+    unknown = selected - {"env", "sam3"}
     if unknown:
         raise ValueError(f"unknown R2 runtime components: {sorted(unknown)}")
-    if "env" not in selected:
-        return [], {}
-    if not args.env_endpoint:
+    if "env" in selected and not args.env_endpoint:
         raise ValueError(
             "--env-endpoint is required for R2; start robots.r2.env_server on the robot first"
         )
-    from robots.r2.env_client import R2EnvClient
-
-    rpc = make_rpc_client(args.env_endpoint)
-    owned_daemons: dict[str, ProcessDaemon] = {}
-    runtime_kwargs = try_wait_server(
-        owned_daemons,
-        dashboard_events,
-        "env",
-        rpc,
-        None,
-        5.0 if getattr(args, "dashboard", False) else 60.0,
-        post_fn=lambda: {"env": R2EnvClient(rpc)},
+    needs_sam3 = args.sam3_endpoint is not None or bool(
+        os.environ.get("SAM3_CHECKPOINT_PATH")
     )
-    return [], runtime_kwargs
+
+    owned_daemons: dict[str, ProcessDaemon] = {}
+    runtime_kwargs: dict[str, Any] = {}
+    if "sam3" in selected and needs_sam3:
+        daemon, sam3_rpc = try_spawn_server(
+            owned_daemons,
+            dashboard_events,
+            "sam3",
+            lambda: _spawn_sam3_server(args, output_dir),
+        )
+        runtime_kwargs.update(
+            try_wait_server(
+                owned_daemons,
+                dashboard_events,
+                "sam3",
+                sam3_rpc,
+                daemon,
+                300.0,
+                post_fn=lambda: {"sam3_client": Sam3Client(sam3_rpc)},
+            )
+        )
+    elif "sam3" in selected:
+        dashboard_events.emit(RuntimeStatusEvent("sam3", "ready"))
+        runtime_kwargs["sam3_client"] = None
+    if "env" in selected:
+        env_rpc = make_rpc_client(args.env_endpoint)
+        runtime_kwargs.update(
+            try_wait_server(
+                owned_daemons,
+                dashboard_events,
+                "env",
+                env_rpc,
+                None,
+                5.0 if getattr(args, "dashboard", False) else 60.0,
+                post_fn=lambda: {"env": R2EnvClient(env_rpc)},
+            )
+        )
+    return list(owned_daemons.values()), runtime_kwargs

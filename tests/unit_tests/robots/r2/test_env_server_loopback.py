@@ -15,9 +15,12 @@
 
 from __future__ import annotations
 
+import base64
+import io
 import threading
 from argparse import Namespace
 
+import imageio.v2 as imageio
 import numpy as np
 import pytest
 
@@ -26,7 +29,7 @@ from robots.r2.diagnostics import check
 from robots.r2.env_server import R2EnvFacade
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.utils.daemon import pick_free_port
-from rpent.utils.rpc import make_rpc_client
+from rpent.utils.rpc import RpcFacade, make_rpc_client
 
 
 class FakeAgentEnv:
@@ -64,11 +67,32 @@ class FakeAgentEnv:
         return lambda **kwargs: {"ok": True, name: kwargs}
 
 
+class FakeSam3Server(RpcFacade):
+    def __init__(self) -> None:
+        super().__init__()
+        self._rpc["sam3.segment"] = self.segment
+
+    def segment(self, image_base64, min_score, text_prompt=None, point=None):
+        buffer = io.BytesIO()
+        imageio.imwrite(buffer, np.full((2, 3), 255, dtype=np.uint8), format="png")
+        return {
+            "found": True,
+            "score": 0.8,
+            "mask_png_base64": base64.b64encode(buffer.getvalue()).decode("ascii"),
+            "mask_shape": [2, 3],
+        }
+
+
+@pytest.fixture(autouse=True)
+def no_local_sam3(monkeypatch):
+    monkeypatch.delenv("SAM3_CHECKPOINT_PATH", raising=False)
+
+
 @pytest.fixture
 def served():
     def serve(env):
         port = pick_free_port()
-        facade = R2EnvFacade(env)
+        facade = env if isinstance(env, RpcFacade) else R2EnvFacade(env)
         thread = threading.Thread(
             target=facade.serve,
             kwargs={"transport": "http", "host": "127.0.0.1", "port": port},
@@ -85,8 +109,10 @@ def served():
         thread.join(timeout=5)
 
 
-def _args(endpoint):
-    return Namespace(env_endpoint=endpoint, dashboard=False)
+def _args(endpoint, sam3_endpoint=None):
+    return Namespace(
+        env_endpoint=endpoint, sam3_endpoint=sam3_endpoint, dashboard=False
+    )
 
 
 def test_runtime_attaches_to_the_robot_server_without_owning_it(served):
@@ -100,8 +126,25 @@ def test_runtime_attaches_to_the_robot_server_without_owning_it(served):
     client.move_delta("left", [0.0, 0.0, 0.01])
 
     assert daemons == []
+    assert runtime_kwargs["sam3_client"] is None
     assert depth.dtype == np.uint16 and depth.tolist() == [[0, 1, 2], [3, 4, 5]]
     assert env.calls == [("reset",), ("move_delta", "left", [0.0, 0.0, 0.01])]
+
+
+def test_runtime_attaches_to_a_running_sam3_server(served):
+    daemons, runtime_kwargs = robot_spec._init_runtime(
+        _args(None, served(FakeSam3Server())),
+        None,
+        NullDashboardEventSink(),
+        {"sam3"},
+    )
+
+    found = runtime_kwargs["sam3_client"].segment(
+        np.zeros((2, 3, 3), dtype=np.uint8), text_prompt="cup"
+    )
+
+    assert daemons == [] and "env" not in runtime_kwargs
+    assert found.found and found.mask.all() and found.score == 0.8
 
 
 def test_client_refuses_a_server_with_another_protocol(served):

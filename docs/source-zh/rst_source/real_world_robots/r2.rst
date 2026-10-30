@@ -1,7 +1,7 @@
 Robbyant R2
 ===========
 
-RPent 可以用 LLM 规划器直接操作 Robbyant R2，无需学习得到的动作策略。R2 是一台轮式人形机器人，配有两条 7 自由度机械臂、平行夹爪、装在俯仰/偏航颈部上的头部 RGB-D 相机，以及两个腕部 RGB-D 相机。规划器查看相机图像，借助深度把目标定位到三维空间，再通过有界的工具调用控制机械臂、夹爪和头部。每个动作在机器人执行前，都会先按站点配置中的限位进行检查。
+RPent 可以用 LLM 规划器直接操作 Robbyant R2，无需学习得到的动作策略。R2 是一台轮式人形机器人，配有两条 7 自由度机械臂、平行夹爪、装在俯仰/偏航颈部上的头部 RGB-D 相机，以及两个腕部 RGB-D 相机。规划器查看相机图像，借助深度把目标定位到三维空间（也可以用 SAM3 按名称查找物体），再通过有界的工具调用控制机械臂、夹爪和头部。每个动作在机器人执行前，都会先按站点配置中的限位进行检查。
 
 整个系统分布在两台机器上：
 
@@ -113,13 +113,23 @@ env server 读取一个 YAML 文件，其中描述了机器人本身，以及规
 
 RPent 连接后会先复位机器人：**两条手臂会移动到休息位姿**。随后把初始状态记录为第 ``0`` 步，其中的 ``robot_info`` 包含各臂工作空间和单次调用的限位。
 
-任务 ``1`` 从桌上拿起一个物体，并放到原位置旁边约 0.15 m 处。它用 ``back_project`` 定位物体，因此需要先完成相机标定。``--task-language`` 可以替换任务指令，例如指明要拿的物体：
+任务 ``1`` 从桌上拿起一个物体，并放到原位置旁边约 0.15 m 处。它用 ``segment`` 或 ``back_project`` 定位物体，因此需要先完成相机标定。``--task-language`` 可以替换任务指令，例如指明要拿的物体：
 
 .. code-block:: bash
 
    uv run rpent --robot r2 --task-id 1 --task-language "Pick up the red cup and place it on the plate" \
      --env-endpoint http://ROBOT_IP:8120 \
      --planner claude_code --model claude-opus-4-8
+
+用 SAM3 定位物体
+----------------
+
+有了 SAM3，规划器可以直接用简短的名称（例如 "red cup"）查找物体，而不必自己挑选像素。SAM3 是可选组件，需要 GPU，因此运行在工作站或其他 GPU 机器上，而不是机器人上。先用 ``uv sync --extra sam3`` 安装，再按 :doc:`../simulators/libero` 中 SAM3 配置一节的说明下载 ``sam3.pt``。之后任选一种方式：
+
+* 把 ``SAM3_CHECKPOINT_PATH`` 设为该权重文件，RPent 会为本次运行启动一个 SAM3 server，日志位于运行目录下的 ``sam3_server.log``；
+* 按 :doc:`../guides/advanced_deployment` 启动一个共享的 SAM3 server，并传入 ``--sam3-endpoint http://SAM3_HOST:SAM3_PORT``。
+
+RPent 先连接 SAM3，再连接 env server，因此 SAM3 启动失败时，运行会在复位让手臂运动之前就停止。配置 SAM3 后，规划器会获得 ``segment`` 工具：它在一张已记录的相机图像中分割出目标物体，返回掩码的像素框和中心，并附带叠加图，方便规划器核对选中的是否正确。若该相机有深度和标定，还会返回物体在 ``base_link`` 中的中位点和空间范围；没有标定时仍会返回像素结果。
 
 工具
 ----
@@ -150,13 +160,15 @@ RPent 连接后会先复位机器人：**两条手臂会移动到休息位姿**�
      - 读取已记录的相机内参和位姿。
    * - ``back_project``
      - 用该步的深度、内参和相机位姿，把已记录图像中的像素换算成 ``base_link`` 中的点。
+   * - ``segment``
+     - 用 SAM3 按名称或物体上的一个像素，在已记录图像中找到一个物体，返回掩码、叠加图和它在 ``base_link`` 中的位置。只有配置了 SAM3 时才会提供。
 
 被拒绝的动作会返回 ``ok: false`` 和原因，机器人保持不动。已经开始但没有完成的动作，还会附带机器人的健康状态。
 
 查看结果
 --------
 
-每次运行的结果写入 ``logs/<timestamp>_r2_t<task_id>/``。``states.json`` 按步列出指令、结果和实测状态。每一步都保存 ``head.png``、``wrist_left.png``、``wrist_right.png``、以毫米为单位的深度图（``<camera>_depth_mm.npy``），以及 ``camera_meta.json``，后者记录了 ``back_project`` 所用的相机内参和位姿。
+每次运行的结果写入 ``logs/<timestamp>_r2_t<task_id>/``。``states.json`` 按步列出指令、结果和实测状态。每一步都保存 ``head.png``、``wrist_left.png``、``wrist_right.png``、以毫米为单位的深度图（``<camera>_depth_mm.npy``），以及 ``camera_meta.json``，后者记录了 ``back_project`` 所用的相机内参和位姿。每次调用 ``segment`` 都会把叠加图 ``<camera>_segment_<n>.png`` 存到被分割图像所在的那一步。
 
 R2 没有自动成功判定。规划器的 ``finish`` 总结和记录下来的图像是给操作员的依据，由操作员判断任务是否成功。
 

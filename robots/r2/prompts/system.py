@@ -36,7 +36,7 @@ server enforces."""
 
 RULES = (
     "Inspect view_env_state before moving and after every motion tool call.",
-    "Locate targets with back_project on the head camera; if it reports missing calibration or depth, move in small move_delta steps and check the images instead.",
+    "Locate objects with segment when it is available, by a short name or a pixel on the object, and check its overlay before trusting the point; otherwise use back_project on pixels you pick in the head image. If either reports missing calibration or depth, move in small move_delta steps and check the images instead.",
     "Use the arm on the target's side, and approach from above: hover about 0.10 m over the grasp point, open the gripper, descend, close, then lift.",
     "Keep every target inside the arm's workspace and within the per-call limits; split long moves.",
     "When a tool refuses or a move does not complete, read its error and health before deciding what to do; never repeat a refused command unchanged.",
