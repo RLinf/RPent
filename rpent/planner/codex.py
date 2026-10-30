@@ -813,6 +813,8 @@ class _Recorder:
     def _maybe_capture_finish(self, name: str, item: Any) -> None:
         if self.finish_result is not None:
             return
+        if name.lower() not in {"finish", "python"}:
+            return
         status = _status(item)
         if status and status != "completed":
             return

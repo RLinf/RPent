@@ -747,7 +747,7 @@ class _Recorder:
             summary["is_error"] = bool(is_error)
         # Promote the finish payload once the tool result lands successfully.
         pending = self.pending_finish.pop(tool_use_id, None)
-        if not is_error and self.finish_result is None:
+        if name == "python" and not is_error and self.finish_result is None:
             blocks = content if isinstance(content, list) else [content]
             for block in blocks:
                 text = block if isinstance(block, str) else _get(block, "text")
