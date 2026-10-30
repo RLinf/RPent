@@ -89,6 +89,14 @@
 环境参数
 ------------
 
+RoboTwin 支持 ``--vla-backend lingbot|uniwam``，默认 ``lingbot``。
+``--vla-model-path`` 覆盖所选后端对应的 ``LINGBOT_MODEL_PATH`` 或
+``UNIWAM_MODEL_PATH``。UniWAM 使用包含 ``policy/``、``checkpoint/``、
+``wan/`` 和 ``vlm/`` 的资源根目录；LingBot 仍使用 checkpoint 目录。
+本地模型服务使用启动 RPent 的 Python 解释器。
+UniWAM 连接已有 ``--vla-endpoint socket://host:port`` 时不需要本地资源目录。
+部署说明见 :doc:`../simulators/robotwin`。
+
 LIBERO 使用 ``--suite``、``--task``、``--seed`` 和 ``--libero-type`` 选择任务；默认类型为 ``LIBERO_TYPE`` 或 ``pro``。RoboCasa365 和 RoboTwin 使用 ``--task-name``。Franka 使用 ``--task-id`` 和 ``--robot-config``。具体选项见 :doc:`../simulators/libero`、:doc:`../simulators/robocasa`、:doc:`../simulators/robotwin`、:doc:`../real_world_robots/franka` 和 :doc:`../real_world_robots/dual_franka`。
 
 ``--env-endpoint``、``--vla-endpoint`` 和 LIBERO 的 ``--sam3-endpoint`` 可连接已启动的环境、VLA 或 SAM3 服务器，地址格式为 ``[protocol://]host:port``，默认协议为 ``http``。GPU 分配和远程服务见 :doc:`advanced_deployment`。

@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+from collections import deque
 from typing import Any
 
 import numpy as np
@@ -37,6 +38,9 @@ class RoboTwinEnvClient(BaseEnvClient):
     _TIMEOUT_S = {**BaseEnvClient._TIMEOUT_S, "default": ROBOTWIN_READ_TIMEOUT_S}
 
     def __init__(self, client: RpcClient, *, expected_meta: dict[str, Any]):
+        # Keep one supported policy chunk; history is independent of the backend.
+        self._qpos_history: deque[np.ndarray] = deque(maxlen=16)
+        self._history_complete = False
         self.terminated = False
         self.truncated = False
         self._expected_seed = int(expected_meta["seed"])
@@ -86,8 +90,41 @@ class RoboTwinEnvClient(BaseEnvClient):
             raise ValueError(f"episode_status is missing {missing}: {status!r}")
         return status
 
+    @property
+    def qpos_history(self) -> np.ndarray:
+        """Return recent native joint states, seeded with the reset state.
+
+        Older EnvServers remain usable without history consumers, but cannot
+        provide history by repeating their final state for missing steps.
+        """
+        if not self._history_complete:
+            raise RuntimeError(
+                "Complete history is unavailable; reset the episode using an EnvServer with per-step qpos feedback"
+            )
+        return np.stack(self._qpos_history)
+
+    def _record_qpos_history(self, info: dict[str, Any]) -> None:
+        history_complete = self._history_complete
+        self._history_complete = False
+        steps = info.get("per_step", [])
+        if len(steps) != info.get("executed_actions") or any(
+            "qpos_target14" not in step for step in steps
+        ):
+            self._qpos_history.clear()
+            return
+        for step in steps:
+            self._append_qpos(step["qpos_target14"])
+        self._history_complete = history_complete
+
+    def _append_qpos(self, value: Any) -> None:
+        state = np.asarray(value, dtype=np.float64)
+        if state.shape != (14,) or not np.isfinite(state).all():
+            raise ValueError("qpos_target14 must be finite with shape (14,)")
+        self._qpos_history.append(state.copy())
+
     def reset(self) -> tuple[dict[str, Any], dict[str, Any]]:
         """Reset to the TaskRun seed and validate the native result."""
+        self._history_complete = False
         result = self._client.call("env.reset", timeout_s=self._TIMEOUT_S["env.reset"])
         observation, info = self._require_result_tuple(result, 2, "env.reset")
         if not isinstance(observation, dict):
@@ -104,6 +141,11 @@ class RoboTwinEnvClient(BaseEnvClient):
         self.last_info = info
         self.terminated = False
         self.truncated = False
+        self._qpos_history.clear()
+        initial = info.get("robot_state", {}).get("qpos_target14")
+        if initial is not None:
+            self._append_qpos(initial)
+            self._history_complete = True
         return observation, info
 
     def step(
@@ -118,6 +160,8 @@ class RoboTwinEnvClient(BaseEnvClient):
             raise ValueError("RoboTwin common action must be a single action")
         flat = flat[0]
         self._require_common_active()
+        history_complete = self._history_complete
+        self._history_complete = False  # A failed RPC may still have moved the robot.
         result = self._client.call(
             "env.step",
             args=(flat,),
@@ -131,6 +175,8 @@ class RoboTwinEnvClient(BaseEnvClient):
         self.last_info = info
         self.terminated |= bool(np.asarray(terminated).any())
         self.truncated |= bool(np.asarray(truncated).any())
+        self._history_complete = history_complete
+        self._record_qpos_history(info)
         return result
 
     def chunk_step(
@@ -149,6 +195,8 @@ class RoboTwinEnvClient(BaseEnvClient):
         ):
             raise ValueError("env.chunk_step does not support return_all_frames=True")
         self._require_common_active()
+        history_complete = self._history_complete
+        self._history_complete = False
         result = self._client.call(
             "env.chunk_step",
             args=(array,),
@@ -185,6 +233,8 @@ class RoboTwinEnvClient(BaseEnvClient):
         self.last_info = info
         self.terminated |= bool(np.asarray(terminated).any())
         self.truncated |= bool(np.asarray(truncated).any())
+        self._history_complete = history_complete
+        self._record_qpos_history(info)
         return result
 
     def render_camera(self, camera_name: str, *, depth: bool = False) -> Any:

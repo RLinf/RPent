@@ -123,6 +123,7 @@ ROBOTWIN_DASHBOARD_SPEC: DashboardSpec = {
     ),
     "primitives": (
         "lingbot_act",
+        "uniwam_act",
         "move_to",
         "rotate_wrist",
         "set_gripper",
@@ -290,9 +291,12 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     parser.add_argument("--env-endpoint", default=None)
     parser.add_argument("--vla-endpoint", default=None)
     parser.add_argument(
+        "--vla-backend", choices=("lingbot", "uniwam"), default="lingbot"
+    )
+    parser.add_argument(
         "--vla-model-path",
-        default=os.environ.get("LINGBOT_MODEL_PATH"),
-        help=("LingBot checkpoint. Defaults to LINGBOT_MODEL_PATH when set."),
+        default=None,
+        help="LingBot checkpoint or UniWAM resource root (policy/, checkpoint/, wan/, vlm/). Defaults to LINGBOT_MODEL_PATH or UNIWAM_MODEL_PATH.",
     )
     parser.add_argument(
         "--lingbot-robot-config",
@@ -311,13 +315,18 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     parser.add_argument(
         "--vla-cuda-device",
         default=None,
-        help="CUDA_VISIBLE_DEVICES value for the LingBot VLA server.",
+        help="CUDA_VISIBLE_DEVICES value for the selected VLA server.",
     )
 
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
     if not args.task_name:
         raise ValueError("--task-name is required")
+    backend = getattr(args, "vla_backend", "lingbot")
+    # Resolve after parsing so --vla-backend works in either argument order.
+    args.vla_model_path = getattr(args, "vla_model_path", None) or os.environ.get(
+        "UNIWAM_MODEL_PATH" if backend == "uniwam" else "LINGBOT_MODEL_PATH"
+    )
     env_cuda_device, vla_cuda_device = _resolve_cuda_devices(args)
     task_config = getattr(args, "task_config", "demo_randomized")
     recipe_tag = f"robotwin_{args.task_name}_{task_config}_s{args.seed}"
@@ -342,6 +351,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         else f"{args.task_name}_s0"
     )
     prompt_vars = {
+        "vla_backend": backend,
         "task_name": args.task_name,
         "seed": args.seed,
         "task_config": task_config,
@@ -376,8 +386,10 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             "seed_mode": "exact",
             "task_config": task_config,
             "instruction": None,
-            "policy_name": MODEL_SPEC.policy_name,
-            "action_layout": MODEL_SPEC.action_layout,
+            "policy_name": "uniwam" if backend == "uniwam" else MODEL_SPEC.policy_name,
+            "action_layout": "qpos14"
+            if backend == "uniwam"
+            else MODEL_SPEC.action_layout,
             "env_cuda_device": env_cuda_device,
             "vla_cuda_device": vla_cuda_device,
         },
@@ -438,7 +450,9 @@ def _resolve_env_runtime_path(args: argparse.Namespace) -> Path | None:
 def _resolve_vla_runtime_path(args: argparse.Namespace) -> Path | None:
     model_path: Path | None = None
     if args.vla_endpoint is None:
-        configured_model = getattr(args, "vla_model_path", None)
+        configured_model = getattr(args, "vla_model_path", None) or os.environ.get(
+            "LINGBOT_MODEL_PATH"
+        )
         if not configured_model:
             raise ValueError(
                 "--vla-model-path is required when launching the local VLA "
@@ -517,6 +531,7 @@ def _init_runtime(
     owned_daemons: dict[str, ProcessDaemon] = {}
     env_pending: tuple[ProcessDaemon | None, Any] | None = None
     vla_pending: tuple[ProcessDaemon | None, tuple[str, int]] | None = None
+    uniwam_pending: tuple[ProcessDaemon | None, Any] | None = None
 
     if "env" in selected:
         env_pending = try_spawn_server(
@@ -526,7 +541,14 @@ def _init_runtime(
             lambda: _spawn_env_server(args, output_dir),
         )
 
-    if "vla" in selected:
+    if "vla" in selected and getattr(args, "vla_backend", "lingbot") == "uniwam":
+        uniwam_pending = try_spawn_server(
+            owned_daemons,
+            dashboard_events,
+            "vla",
+            lambda: _spawn_uniwam_server(args, output_dir),
+        )
+    elif "vla" in selected:
         dashboard_events.emit(RuntimeStatusEvent("vla", "starting"))
         try:
             vla_pending = _spawn_vla_server(args, output_dir)
@@ -571,7 +593,64 @@ def _init_runtime(
         dashboard_events.emit(RuntimeStatusEvent("vla", "ready"))
         runtime_kwargs.update(vla_kwargs)
 
+    if uniwam_pending is not None:
+        from robots.robotwin.uniwam_client import UniWAMClient
+
+        daemon, rpc = uniwam_pending
+        model = try_wait_server(
+            owned_daemons,
+            dashboard_events,
+            "vla",
+            rpc,
+            daemon,
+            900.0 if daemon is not None else 300.0,
+            post_fn=lambda: UniWAMClient(rpc),
+        )
+        runtime_kwargs.update(model=model, vla_backend="uniwam")
+
     return list(owned_daemons.values()), runtime_kwargs
+
+
+def _spawn_uniwam_server(
+    args: argparse.Namespace, output_dir: Path
+) -> tuple[ProcessDaemon | None, Any]:
+    """Launch UniWAM with the current interpreter or borrow an existing RPC endpoint."""
+    from rpent.utils.daemon import ProcessDaemon, pick_free_port
+    from rpent.utils.rpc import make_rpc_client
+
+    if args.vla_endpoint is not None:
+        return None, make_rpc_client(args.vla_endpoint)
+    model_path = args.vla_model_path or os.environ.get("UNIWAM_MODEL_PATH")
+    if not model_path:
+        raise ValueError(
+            "--vla-model-path or UNIWAM_MODEL_PATH must point to the UniWAM resource root"
+        )
+    root = Path(model_path).expanduser().resolve()
+    paths = {
+        "model-path": root / "checkpoint" / "pytorch_model",
+        "policy-dir": root / "policy",
+        "wan-path": root / "wan",
+        "vlm-path": root / "vlm",
+    }
+    command = [
+        sys.executable,
+        str(get_repo_root() / "robots" / "robotwin" / "uniwam_server.py"),
+    ]
+    for name, value in paths.items():
+        path = value.resolve()
+        _require_directory(path, name)
+        command.extend([f"--{name}", str(path)])
+    host, port = "127.0.0.1", pick_free_port()
+    command.extend(["--host", host, "--port", str(port), "--parent-watch"])
+    _, device = _resolve_cuda_devices(args)
+    daemon = ProcessDaemon(
+        "uniwam_vla_server",
+        command,
+        env_overrides={"CUDA_VISIBLE_DEVICES": device} if device is not None else {},
+        log_path=str(output_dir / "uniwam_vla_server.log"),
+    )
+    daemon.start()
+    return daemon, make_rpc_client(f"socket://{host}:{port}")
 
 
 def _spawn_env_server(

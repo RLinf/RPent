@@ -100,6 +100,9 @@ class FakeRoboTwinPrimitives:
     def lingbot_act(self, **kwargs: Any) -> dict[str, Any]:
         return self._operation("lingbot_act", **kwargs)
 
+    def uniwam_act(self, **kwargs: Any) -> dict[str, Any]:
+        return self._operation("uniwam_act", **kwargs)
+
     def move_to(self, **kwargs: Any) -> dict[str, Any]:
         return self._operation("move_to", **kwargs)
 
@@ -150,9 +153,11 @@ def test_fake_and_real_implement_toolkit_primitive_protocol() -> None:
         )
 
 
+@pytest.mark.parametrize("backend", ["lingbot", "uniwam"])
 def test_toolkit_constructs_and_captures_an_initial_observation(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    backend: str,
 ) -> None:
     FakeRoboTwinPrimitives.instances.clear()
     dumped: list[dict[str, Any]] = []
@@ -183,12 +188,19 @@ def test_toolkit_constructs_and_captures_an_initial_observation(
     )
 
     robot_toolkit = toolkit.RoboTwinToolkit(
-        runtime_kwargs={"env": object(), "model": object(), "seed": 7},
+        runtime_kwargs={
+            "env": object(),
+            "model": object(),
+            "seed": 7,
+            "vla_backend": backend,
+        },
         dashboard_events=NullDashboardEventSink(),
         memory=MemoryManager(tmp_path / "memory"),
     )
 
-    assert _tool_names(robot_toolkit) == EXPECTED_TOOLS
+    assert _tool_names(robot_toolkit) == (EXPECTED_TOOLS - {"lingbot_act"}) | {
+        f"{backend}_act"
+    }
     assert _readonly_names(robot_toolkit) == COMMON_TOOLS | {
         "view_env_state",
         "sample_world_xyz",
