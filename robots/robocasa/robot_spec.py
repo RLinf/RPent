@@ -176,13 +176,14 @@ def get_toolkit(
     """Return the RoboCasa toolkit for the current session."""
     from robots.robocasa.toolkit import RoboCasaToolkit
 
-    if mode == "exploration":
+    memory: MemoryManager | None = None
+    if config.use_memory and mode == "exploration":
         memory = MemoryManager(
             root=config.prompt_vars.get("memory_dir") or get_memory_dir("robocasa"),
             memory_access="inbox_write",
             inbox_cell_tag=config.recipe_tag,
         )
-    else:
+    elif config.use_memory:
         selection = memory_from_variables(
             {
                 "memory_dir": str(get_memory_dir("robocasa")),
@@ -471,6 +472,7 @@ def _init_runtime(
     # can validate their fixed root before a task is selected.
     if (
         hasattr(args, "memory_profile")
+        and getattr(args, "policy_mode", "tools") != "code"
         and not getattr(args, "explore", False)
         and ("env" in selected or getattr(args, "memory_profile", None) == "local")
     ):

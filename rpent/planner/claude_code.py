@@ -747,6 +747,19 @@ class _Recorder:
             summary["is_error"] = bool(is_error)
         # Promote the finish payload once the tool result lands successfully.
         pending = self.pending_finish.pop(tool_use_id, None)
+        if not is_error and self.finish_result is None:
+            blocks = content if isinstance(content, list) else [content]
+            for block in blocks:
+                text = block if isinstance(block, str) else _get(block, "text")
+                if not isinstance(text, str):
+                    continue
+                try:
+                    payload = json.loads(text)
+                except ValueError:
+                    continue
+                if isinstance(payload, dict) and payload.get("_finish") is True:
+                    self.finish_result = payload
+                    break
         if pending is not None and not is_error and self.finish_result is None:
             self.finish_result = {"_finish": True, **pending}
         self.dashboard_events.emit(

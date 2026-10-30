@@ -256,3 +256,50 @@ def test_validate_calibration_sources_rejects_missing_yaml(tmp_path: Path):
             validate_calibration_sources()
     finally:
         set_robot_config_path(None)
+
+
+def test_code_policy_dispatches_single_franka_tools(tmp_path, monkeypatch):
+    from robots.franka.toolkit import FrankaToolkit
+    from rpent.code_policy.toolkit import CodePolicyTools
+    from rpent.dashboard.events import NullDashboardEventSink
+    from rpent.utils import logging as logging_module
+
+    monkeypatch.setattr(logging_module, "_output_dir", tmp_path)
+    fixtures = Path(__file__).parent / "fixtures"
+    config = tmp_path / "robot_config.yaml"
+    config.write_text(
+        "perception:\n"
+        "  calibration:\n"
+        f"    external: {fixtures / 'fr3_external_apriltag_eye_on_base.yaml'}\n"
+        f"    wrist: {fixtures / 'fr3_wrist_apriltag_ee_eye_on_hand.yaml'}\n"
+    )
+    set_robot_config_path(config)
+    try:
+        env = FakeEnv()
+        toolkit = FrankaToolkit(
+            runtime_kwargs={"env": env, "model": None, "task_description": "test"},
+            dashboard_events=NullDashboardEventSink(),
+            memory=None,
+            state_output_dir=tmp_path / "state",
+        )
+        try:
+            provider = CodePolicyTools(toolkit, output_dir=tmp_path)
+            try:
+                result = provider.execute_tool(
+                    "python", {"code": "robo.move_delta(delta_xyz=[0.01, 0.0, 0.0])"}
+                )
+                assert result.data["exception"] is None
+                assert result.data["primitive_call_count"] == 1
+                assert result.images
+                np.testing.assert_allclose(env.moves, [[0.01, 0.0, 0.0]])
+                read = provider.execute_tool(
+                    "python", {"code": "robo.view_env_state(step=-1)"}
+                )
+                assert read.data["exception"] is None
+                assert not read.data["last_tool_result"].get("error")
+            finally:
+                provider.close()
+        finally:
+            toolkit.close()
+    finally:
+        set_robot_config_path(None)

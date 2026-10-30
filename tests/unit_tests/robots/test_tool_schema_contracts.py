@@ -59,6 +59,19 @@ def test_tool_declarations_match_pre_refactor_contracts(group: str) -> None:
     )
     path = "rpent/tools/common.py" if group == "common" else f"robots/{group}/tools.py"
     expected = {item["name"]: item for item in baseline["tools"][path]}
+    if group == "dual_franka":
+        # Fresh observation is an additive tool; existing contracts stay fixed.
+        expected["observe"] = {
+            "name": "observe",
+            "description": (
+                "Capture fresh cameras and arm state without moving or resetting "
+                "the robot.\n\n"
+                "The normal tool execution path records and publishes the "
+                "observation.\n"
+                "Observing does not confirm scene readiness or an operator verdict."
+            ),
+            "input_schema": {"properties": {}, "type": "object"},
+        }
     if group == "libero":
         # The yaw fix deliberately extends the native declaration while all
         # other pre-refactor contracts remain unchanged.

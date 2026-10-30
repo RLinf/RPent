@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from robots.robotwin.prompts import code_policy as code_parts
 from robots.robotwin.prompts import evaluate as evaluate_parts
 from robots.robotwin.prompts import explore as explore_parts
 from robots.robotwin.prompts import user as user_parts
@@ -28,6 +29,8 @@ def system_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> PromptNode:
     """Return the RoboTwin system prompt for the selected run mode."""
+    if (variables or {}).get("policy_mode") == "code":
+        return code_parts.system_prompt()
     if (variables or {}).get("mode", "eval") == "explore":
         return explore_parts.system_prompt()
     return evaluate_parts.system_prompt(variables)
@@ -36,6 +39,12 @@ def system_prompt(
 def user_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> PromptNode:
+    if (variables or {}).get("policy_mode") == "code":
+        return {
+            "CELL": user_parts.CELL,
+            "BEGIN": "The task instruction comes from `task_language` in "
+            "`robo.view_env_state(step=0)`.",
+        }
     prompt = {
         "CELL": user_parts.CELL,
         "BEGIN": user_parts.BEGIN,

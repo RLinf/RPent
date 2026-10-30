@@ -153,11 +153,13 @@ def get_toolkit(
     from robots.libero.toolkit import LiberoToolkit
 
     explore = mode == "exploration"
-    memory = MemoryManager(
-        root=config.prompt_vars.get("memory_dir") or get_memory_dir("libero"),
-        memory_access="inbox_write" if explore else "read_only",
-        inbox_cell_tag=config.recipe_tag if explore else None,
-    )
+    memory = None
+    if config.use_memory:
+        memory = MemoryManager(
+            root=config.prompt_vars.get("memory_dir") or get_memory_dir("libero"),
+            memory_access="inbox_write" if explore else "read_only",
+            inbox_cell_tag=config.recipe_tag if explore else None,
+        )
     return LiberoToolkit(
         runtime_kwargs=runtime_kwargs,
         dashboard_events=dashboard_events,
@@ -314,7 +316,11 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         if args.memory_dir
         else get_memory_dir("libero")
     )
-    local_eval = not explore and memory_profile == "local"
+    local_eval = (
+        not explore
+        and memory_profile == "local"
+        and getattr(args, "policy_mode", "tools") != "code"
+    )
     if local_eval:
         if planner == "flash":
             from robots.libero.memory import replay_directory

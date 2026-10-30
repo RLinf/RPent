@@ -209,11 +209,13 @@ def get_toolkit(
     """Return the RoboTwin toolkit for the current session."""
     from robots.robotwin.toolkit import RoboTwinToolkit
 
-    memory = MemoryManager(
-        root=config.prompt_vars.get("memory_dir") or get_memory_dir("robotwin"),
-        memory_access="inbox_write" if mode == "exploration" else "read_only",
-        inbox_cell_tag=config.recipe_tag if mode == "exploration" else None,
-    )
+    memory = None
+    if config.use_memory:
+        memory = MemoryManager(
+            root=config.prompt_vars.get("memory_dir") or get_memory_dir("robotwin"),
+            memory_access="inbox_write" if mode == "exploration" else "read_only",
+            inbox_cell_tag=config.recipe_tag if mode == "exploration" else None,
+        )
     return RoboTwinToolkit(
         runtime_kwargs=runtime_kwargs,
         dashboard_events=dashboard_events,

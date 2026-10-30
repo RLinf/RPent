@@ -935,3 +935,54 @@ def test_named_vla_uses_configured_instruction_and_semantic_boundary():
     assert result["boundary"] == "grasp"
     assert result["boundary_reached"]
     assert len(env.chunks) == 3
+
+
+def test_code_policy_preserves_dual_franka_operator_gates(
+    tmp_path, dual_franka_robot_config, monkeypatch
+):
+    from rpent.code_policy.toolkit import CodePolicyTools
+    from rpent.utils import logging as logging_module
+
+    monkeypatch.setattr(logging_module, "_output_dir", tmp_path)
+    set_robot_config_path(dual_franka_robot_config)
+    env = FakeEnv()
+    toolkit = DualFrankaToolkit(
+        runtime_kwargs={"env": env, "model": None, "task_description": "test"},
+        dashboard_events=NullDashboardEventSink(),
+        memory=None,
+        mode="evaluation",
+        state_output_dir=tmp_path / "state",
+    )
+    try:
+        provider = CodePolicyTools(toolkit, output_dir=tmp_path)
+        try:
+            code = "robo.move_delta(arm='right', delta_xyz=[0.0, 0.0, 0.01])"
+            blocked = provider.execute_tool("python", {"code": code})
+            assert blocked.data["last_tool_result"].get("error")
+            assert not env.moves
+            toolkit._read_operator_line = lambda prompt: "done"
+            reset = provider.execute_tool("request_scene_reset", {"reason": "test"})
+            assert not reset.is_error
+            observed = provider.execute_tool("python", {"code": "robo.observe()"})
+            assert observed.data["exception"] is None
+            assert observed.images
+            assert not env.moves
+            moved = provider.execute_tool("python", {"code": code})
+            assert moved.data["exception"] is None
+            assert not moved.data["last_tool_result"].get("error")
+            assert len(env.moves) == 1
+            refused = provider.execute_tool(
+                "python", {"code": "robo.finish(status='success', summary='test')"}
+            )
+            assert refused.data["last_tool_result"].get("error")
+            assert not refused.data.get("_finish")
+            toolkit._read_operator_line = lambda prompt: "success checked by operator"
+            verdict = provider.execute_tool("request_operator_verdict", {})
+            assert not verdict.is_error
+            assert provider.execute_tool(
+                "python", {"code": "robo.finish(status='success', summary='confirmed')"}
+            ).data["_finish"]
+        finally:
+            provider.close()
+    finally:
+        toolkit.close()

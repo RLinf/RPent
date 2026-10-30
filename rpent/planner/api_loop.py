@@ -62,8 +62,10 @@ from pydantic_ai.exceptions import (
 )
 from pydantic_ai.messages import ModelMessage, UserContent
 from pydantic_ai.models import Model, ModelRequestContext
+from pydantic_ai.result import FinalResult
 from pydantic_ai.run import AgentRun, AgentRunResult
 from pydantic_ai_harness.compaction import SlidingWindowCompaction
+from pydantic_graph import End
 
 from rpent.dashboard.events import DashboardEventSink, TranscriptEvent, UsageEvent
 from rpent.dashboard.interaction import DashboardInteractionPort, DashboardMessage
@@ -405,6 +407,8 @@ class _HarnessToolkit(FunctionToolset):
             self.stopping.set()
             raise
         self._record_result(name, ctx, self._text(result))
+        if not result.is_error and result.data.get("_finish") is True:
+            self.finish_result = result.to_dict()
         if self.stopping.is_set():
             # End inside CallToolsNode so the SDK records an interrupted batch
             # before it can consume queued messages in the next request node.
@@ -573,6 +577,11 @@ class _Session(AbstractCapability):
             self.toolkit.messages.append({"role": "assistant", "content": content})
         if isinstance(node, (ModelRequestNode, CallToolsNode)):
             self.emit_usage(self.usage + ctx.usage)
+        if (
+            isinstance(result, ModelRequestNode)
+            and self.toolkit.finish_result is not None
+        ):
+            return End(FinalResult(self.toolkit.finish_result))
         return result
 
     @on_event(EnqueuedMessagesEvent)

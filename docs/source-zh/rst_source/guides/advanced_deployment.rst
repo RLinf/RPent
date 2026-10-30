@@ -161,3 +161,25 @@ SAM3 服务只加载一次模型，可以由多个 RPent 运行复用。
    ssh -N -L 8000:127.0.0.1:8000 USER@HOST
 
 在本机浏览器打开 ``http://127.0.0.1:8000``。保持 SSH 连接和服务器上的 RPent 进程运行；任务操作见 :doc:`dashboard`。
+
+.. _code-as-policy-optional:
+
+Code as Policy（可选）
+------------------------------
+
+这个模式让模型编写 Python 代码，通过 ``robo.<工具名>()`` 操作机器人。代码可以用循环和条件判断组织多步操作，变量会在同一次会话中保留。
+
+先确认普通任务能正常运行，再在原来的命令后加上 ``--policy-mode code``，例如：
+
+.. code-block:: bash
+
+   rpent --robot libero --libero-type pro \
+     --suite libero_object_swap --task 2 --seed 0 \
+     --planner claude_code --model claude-opus-4-8 \
+     --policy-mode code
+
+每段代码默认最多运行 120 秒、调用 100 次机器人工具，可通过 ``--code-timeout-s`` 和 ``--code-max-calls`` 调整。代码和执行结果保存在运行输出目录下的 ``code_policy/`` 中。
+
+模型通过 ``robo.finish(...)`` 结束任务，finish 成功后同一段代码中后面的语句不会再执行。``request_scene_reset``、``request_operator_verdict`` 等操作员请求仍是 Python 之外的独立工具，因为等待操作员的时间可能超过单段代码的时间限制。
+
+该模式使用单独的提示词，不读取任务记忆，也不生成 recipe；支持 ``api``、``claude_code`` 和 ``codex`` planner，不支持 ``flash``，也不能与 ``--explore`` 一起使用。不加这个参数时，仍使用默认的工具调用模式。

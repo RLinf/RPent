@@ -319,3 +319,32 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
         )
     else:
         assert state.warnings == []
+
+
+def test_dashboard_task_rejects_exploration_in_code_policy_mode(tmp_path: Path) -> None:
+    from rpent.cli import dashboard as dashboard_cli
+
+    def parse_config(args: Any) -> RunConfig:
+        raise AssertionError("code exploration must be rejected before setup")
+
+    robot_spec = SimpleNamespace(
+        name="custom_exploration_env",
+        supports_exploration=True,
+        is_real_robot=False,
+        parse_config=parse_config,
+    )
+    args = SimpleNamespace(policy_mode="code", explore=False)
+    claimed = ClaimedTask(
+        number=1, request={"explore": True}, output_dir=tmp_path / "task"
+    )
+
+    with pytest.raises(ValueError, match="cannot be used with --explore"):
+        dashboard_cli._run_dashboard_task(
+            args=args,
+            robot_spec=robot_spec,
+            state=SimpleNamespace(),
+            claimed=claimed,
+            shared_runtime_kwargs={},
+            unique_components=set(),
+            session_root=tmp_path / "session",
+        )

@@ -156,6 +156,21 @@ def test_toolkit_registers_common_specs_with_fresh_placeholder_substitution(
     assert list_dir.input_schema == original_schema
 
 
+def test_toolkit_without_memory_keeps_finish_but_no_file_tools(tmp_path: Path) -> None:
+    toolkit = Toolkit(
+        dashboard_events=_RecordingEventSink(),
+        state=EnvState(tmp_path),
+        memory=None,
+    )
+
+    assert toolkit.memory is None
+    assert [definition.name for definition in toolkit.list_tools()] == ["finish"]
+    assert toolkit.execute_tool("read_text_file", {"path": "MEMORY.md"}).is_error
+    finished = toolkit.execute_tool("finish", {"status": "success", "summary": "done"})
+    assert finished.data["_finish"] is True
+    assert not (tmp_path / "memory").exists()
+
+
 def test_common_file_tools_dispatch_offline_without_capturing_robot_state(
     tmp_path: Path,
 ) -> None:

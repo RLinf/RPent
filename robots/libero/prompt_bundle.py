@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from robots.libero.prompts import code_policy as code_parts
 from robots.libero.prompts import evaluate as evaluate_parts
 from robots.libero.prompts import explore as explore_parts
 from robots.libero.prompts import user as user_parts
@@ -28,6 +29,8 @@ def system_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> PromptNode:
     """Assemble the LIBERO system prompt for the selected run mode."""
+    if (variables or {}).get("policy_mode") == "code":
+        return code_parts.system_prompt()
     if (variables or {}).get("mode", "eval") == "explore":
         return explore_parts.system_prompt(variables)
     return evaluate_parts.system_prompt(variables)
@@ -35,6 +38,12 @@ def system_prompt(
 
 def user_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
     """Assemble the LIBERO user prompt tree."""
+    if (variables or {}).get("policy_mode") == "code":
+        return {
+            "CELL": "- suite: {{suite}}\n- task: {{task}}\n- seed: {{seed}}",
+            "BEGIN": "The task instruction comes from `task_language` in "
+            "`robo.view_env_state(step=0)`.",
+        }
     return {
         "CELL": user_parts.CELL,
         "MODE": user_parts.MODE,
