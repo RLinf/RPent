@@ -267,6 +267,7 @@ def build_planner(
     base_url: str | None = None,
     model: str | None = None,
     memory_dir: str | Path | None = None,
+    use_memory: bool = True,
     max_tokens: int = 8192,
     planner_timeout_s: int | None = None,
     reasoning_effort: str = "none",
@@ -279,6 +280,8 @@ def build_planner(
     # Imports are deferred to avoid a circular import: api_loop / claude_code /
     # codex / gemini_cli all import from this module (PlannerResult).
 
+    # CLI planners reach the memory corpus only through these extra directories.
+    memory_dirs = [str(memory_dir or get_memory_dir(robot_name))] if use_memory else []
     if planner_type == "api":
         from rpent.planner.api_loop import ApiAgentLoop
 
@@ -310,7 +313,7 @@ def build_planner(
             model=model or "sonnet",
             timeout_s=cc_timeout_s,
             max_budget_usd=cc_budget,
-            extra_dirs=[str(memory_dir or get_memory_dir(robot_name))],
+            extra_dirs=memory_dirs,
             output_path=Path(output_dir) / f"claude_{recipe_tag}.txt",
             dashboard_events=dashboard_events,
             reasoning_effort=reasoning_effort,
@@ -331,7 +334,7 @@ def build_planner(
             repo_root=get_repo_root(),
             model=model,
             timeout_s=cx_timeout_s,
-            extra_dirs=[str(memory_dir or get_memory_dir(robot_name))],
+            extra_dirs=memory_dirs,
             output_path=Path(output_dir) / f"codex_{recipe_tag}.txt",
             dashboard_events=dashboard_events,
             reasoning_effort=reasoning_effort,

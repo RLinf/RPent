@@ -29,9 +29,7 @@ if TYPE_CHECKING:
 class CommonTools:
     """Bind common tools to the current run's memory access policy."""
 
-    def __init__(self, *, memory: MemoryManager) -> None:
-        if memory is None:
-            raise TypeError("memory must be a MemoryManager, not None")
+    def __init__(self, *, memory: MemoryManager | None) -> None:
         self._memory = memory
         self._file_lock = threading.Lock()
 

@@ -146,7 +146,7 @@ class Toolkit:
         *,
         dashboard_events: DashboardEventSink,
         state: Any = None,
-        memory: "MemoryManager",
+        memory: "MemoryManager | None",
     ) -> None:
         self._tools: dict[str, Tool] = {}
         self._dashboard_events = dashboard_events
@@ -180,10 +180,17 @@ class Toolkit:
 
     def _register_common_tools(self) -> None:
         from rpent.tools.common import CommonTools
+        declarations = iter_tools(CommonTools(memory=self._memory))
 
-        common = CommonTools(memory=self._memory)
+        if self._memory is None:
+            # File tools require memory; only register finish.
+            self.add_tools(
+                item for item in declarations if item.name == "finish"
+            )
+            return
+
         self._memory.check_layout()
-        for declaration in iter_tools(common):
+        for declaration in declarations:
             if declaration.name in {"read_text_file", "list_dir"}:
                 declaration = replace(
                     declaration,
@@ -197,8 +204,8 @@ class Toolkit:
     # ------------------------------------------------------------------
 
     @property
-    def memory(self) -> "MemoryManager":
-        """Return the run's required memory manager."""
+    def memory(self) -> "MemoryManager | None":
+        """Return the toolkit's memory manager, or None when memory is disabled."""
         return self._memory
 
     @property
@@ -284,36 +291,9 @@ class Toolkit:
                 )
 
             if not tool.readonly:
-                elapsed_s = round(time.perf_counter() - started, 2)
-                result_dict = native.to_dict()
-                command = {"action": name, **input_dict}
-                record: StepRecord | None = None
-                try:
-                    observed = self.get_env_state(
-                        command=command,
-                        result=result_dict,
-                        elapsed_s=elapsed_s,
-                    )
-                except Exception as exc:
-                    logger.exception("State capture failed after %s", name)
-                    native.data["state_capture_error"] = str(exc)
-                    if not native.is_error:
-                        native.data["error"] = (
-                            f"failed to capture state after {name}: {exc}"
-                        )
-                    native.data.setdefault("traceback", traceback.format_exc())
-                else:
-                    record = self._state.latest_record()
-                    if native.is_error:
-                        for key, value in native.data.items():
-                            observed.data.setdefault(key, value)
-                        observed.data["error"] = native.data["error"]
-                    native = ToolResult(
-                        data=observed.data,
-                        images=native.images + observed.images,
-                    )
-                if record is not None:
-                    self._publish_step(record)
+                native = self._capture_state(
+                    name, input_dict, native, round(time.perf_counter() - started, 2)
+                )
 
             try:
                 json.dumps(native.to_dict(), allow_nan=False, default=str)
@@ -334,6 +314,43 @@ class Toolkit:
             return native
         finally:
             self._scheduler.release(operation)
+
+    def _capture_state(
+        self,
+        name: str,
+        input_dict: dict[str, Any],
+        native: ToolResult,
+        elapsed_s: float,
+    ) -> ToolResult:
+        """Attach and publish an observation after a stateful tool call."""
+        result_dict = native.to_dict()
+        command = {"action": name, **input_dict}
+        record: StepRecord | None = None
+        try:
+            observed = self.get_env_state(
+                command=command,
+                result=result_dict,
+                elapsed_s=elapsed_s,
+            )
+        except Exception as exc:
+            logger.exception("State capture failed after %s", name)
+            native.data["state_capture_error"] = str(exc)
+            if not native.is_error:
+                native.data["error"] = f"failed to capture state after {name}: {exc}"
+            native.data.setdefault("traceback", traceback.format_exc())
+        else:
+            record = self._state.latest_record()
+            if native.is_error:
+                for key, value in native.data.items():
+                    observed.data.setdefault(key, value)
+                observed.data["error"] = native.data["error"]
+            native = ToolResult(
+                data=observed.data,
+                images=native.images + observed.images,
+            )
+        if record is not None:
+            self._publish_step(record)
+        return native
 
     def _publish_step(self, record: StepRecord) -> None:
         """Publish one recorded environment step to the dashboard sink."""

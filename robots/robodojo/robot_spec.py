@@ -259,11 +259,14 @@ def get_toolkit(
     """Return the RoboDojo toolkit (common tools + RoboDojo primitives)."""
     from robots.robodojo.toolkit import RoboDojoToolkit
 
-    memory = MemoryManager(
-        root=config.prompt_vars.get("memory_dir") or get_memory_dir("robodojo"),
-        memory_access="inbox_write" if mode == "exploration" else "read_only",
-        inbox_cell_tag=config.recipe_tag if mode == "exploration" else None,
-    )
+    memory = None
+    if config.use_memory:
+        memory = MemoryManager(
+            root=config.prompt_vars.get("memory_dir") or get_memory_dir("robodojo"),
+            memory_access="inbox_write" if mode == "exploration" else "read_only",
+            inbox_cell_tag=config.recipe_tag if mode == "exploration" else None,
+        )
+
     if config.prompt_vars.get("mode") == "eval-fair":
         from robots.robodojo.flash.replay import load_plan
 
