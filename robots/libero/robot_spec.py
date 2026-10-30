@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from datetime import datetime
 from functools import partial
@@ -416,7 +417,7 @@ def _spawn_env_server(
         ],
         env_overrides={
             "LIBERO_TYPE": args.libero_type or get_libero_type(),
-            "MUJOCO_GL": "egl",
+            "MUJOCO_GL": os.environ.get("MUJOCO_GL", "egl"),
             "ROBOT_PLATFORM": "LIBERO",
         },
         log_path=str(output_dir / "env_server.log"),

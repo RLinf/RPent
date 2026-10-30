@@ -159,6 +159,41 @@ def test_dashboard_flywheel_config_belongs_to_unique_env(tmp_path, monkeypatch):
     }
 
 
+@pytest.mark.parametrize(("environ", "expected"), [(None, "egl"), ("osmesa", "osmesa")])
+def test_spawned_env_server_keeps_caller_mujoco_gl(
+    tmp_path, monkeypatch, environ, expected
+):
+    captured = {}
+
+    class FakeDaemon:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def start(self):
+            pass
+
+    if environ is None:
+        monkeypatch.delenv("MUJOCO_GL", raising=False)
+    else:
+        monkeypatch.setenv("MUJOCO_GL", environ)
+    monkeypatch.setattr(robot_spec, "ProcessDaemon", FakeDaemon)
+    monkeypatch.setattr(robot_spec, "pick_free_port", lambda: 43210)
+    monkeypatch.setattr(robot_spec, "HttpRpcClient", lambda url: url)
+    args = SimpleNamespace(
+        env_endpoint=None,
+        suite="libero_object",
+        task=2,
+        seed=3,
+        max_episode_steps=100,
+        cuda_device=None,
+        libero_type="pro",
+    )
+
+    robot_spec._spawn_env_server(args, tmp_path)
+
+    assert captured["env_overrides"]["MUJOCO_GL"] == expected
+
+
 @pytest.mark.parametrize("failure", [None, "finalize", "stop", "save"])
 def test_close_handles_collection_and_video_independently(
     tmp_path, monkeypatch, failure
