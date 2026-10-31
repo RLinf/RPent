@@ -456,6 +456,84 @@ def test_human_operator_main_routes_dashboard_without_tty(
         assert error in capsys.readouterr().err
 
 
+def _manual_robot_spec(*, real_robot: bool = False):
+    return SimpleNamespace(
+        name="custom",
+        is_real_robot=real_robot,
+        supports_human_interactive_exploration=real_robot,
+        supports_exploration=True,
+        run_flash=None,
+        dashboard={},
+        add_cli_args=lambda parser, use_dashboard: None,
+        validate_args=None,
+    )
+
+
+@pytest.mark.parametrize(
+    "options,message",
+    [
+        (["--planner", "manual"], "add --dashboard"),
+        (
+            ["--dashboard", "--planner", "manual", "--explore"],
+            "--planner manual does not run exploration",
+        ),
+        (
+            ["--dashboard", "--planner", "manual", "--model", "gpt-5.5"],
+            "--planner manual has no LLM",
+        ),
+        (
+            [
+                "--dashboard",
+                "--planner",
+                "manual",
+                "--base-url",
+                "https://gateway.example",
+            ],
+            "--planner manual has no LLM",
+        ),
+    ],
+)
+def test_manual_planner_rejects_options_it_cannot_honor(
+    options, message, monkeypatch, capsys
+):
+    cli = _cli_module()
+    monkeypatch.setattr(cli, "get_robot_spec", lambda name: _manual_robot_spec())
+    monkeypatch.setattr(cli, "enumerate_robots", lambda: ("custom",))
+    monkeypatch.setattr(sys, "argv", ["rpent", "--robot", "custom", *options])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2
+    assert message in capsys.readouterr().err
+
+
+def test_manual_planner_starts_the_dashboard_without_a_model(monkeypatch):
+    cli = _cli_module()
+    from rpent.cli import dashboard as web
+    from rpent.memory import loading
+
+    monkeypatch.setattr(
+        cli, "get_robot_spec", lambda name: _manual_robot_spec(real_robot=True)
+    )
+    monkeypatch.setattr(cli, "enumerate_robots", lambda: ("custom",))
+    monkeypatch.setattr(
+        loading, "prepare_run_memory", lambda *a: pytest.fail("manual reads no memory")
+    )
+    calls = []
+
+    def run_dashboard_session(args, spec, **kwargs):
+        calls.append((args.planner, args.model))
+        return 11
+
+    monkeypatch.setattr(web, "run_dashboard_session", run_dashboard_session)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["rpent", "--robot", "custom", "--dashboard", "--planner", "manual"],
+    )
+    assert cli.main() == 11
+    assert calls == [("manual", None)]
+
+
 def test_handoff_message_lists_prior_attempts_deterministically(tmp_path: Path) -> None:
     cli = _cli_module()
     attempts = tmp_path / "attempts"

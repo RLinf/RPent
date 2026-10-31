@@ -46,7 +46,9 @@ Dashboard
 
 The Dashboard supports the ``api``, ``claude_code``, and ``codex`` planners.
 Configure ``--planner`` and ``--model`` on the command line as for a normal
-run; see :doc:`configure_planner`.
+run; see :doc:`configure_planner`. ``--planner manual`` runs no planner and
+lets the operator drive the robot from the Dashboard instead; see
+:ref:`dashboard-teleoperation`.
 
 Start a Session and Submit a Task
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -75,6 +77,45 @@ Press Ctrl+C in the terminal to stop the Session.
 ``--env-endpoint``. External ``--vla-endpoint`` and ``--sam3-endpoint``
 services remain supported. Use ``--dashboard-language zh-cn`` for the
 Chinese UI.
+
+.. _dashboard-teleoperation:
+
+Teleoperate Without a Planner
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``--planner manual`` starts the same Session with no language model: the
+TaskRun hands the base to the operator instead of to a planner.
+
+.. code-block:: bash
+
+   rpent --robot lekiwi --dashboard --planner manual \
+     --env-endpoint http://ROBOT_HOST:8120
+
+The LeKiwi environment is external, so ``--env-endpoint`` is required: start
+the env server on the robot's computer first, as described in
+:doc:`../real_world_robots/lekiwi`.
+
+Start a TaskRun with ``/rpent-task`` as usual. The Teleoperation panel then
+drives the base: hold a direction button to move, release it to stop. Each
+press sends the velocity to the env server, which steps the wheels at the
+robot's own control rate until the command expires or a stop arrives, so
+network jitter delays a change of direction but never pauses the base. A
+command that stops being refreshed expires after one second, so a closed or
+disconnected browser leaves the robot at rest. The sliders set the linear
+speed in m/s and the turning rate in deg/s. ``End run`` finishes the TaskRun
+and returns the Session to waiting for the next task.
+
+The two checkboxes choose what the run keeps, and can be changed while it
+runs. With ``Record video`` on, each continuous stretch of driving is written
+as ``teleop_NNN.mp4`` in the run output; turning it off saves the stretch
+recorded so far and stops collecting frames, while the live camera keeps
+updating. With ``Record actions`` on, each stretch driven at one constant
+velocity is appended to ``teleop_actions.jsonl``, with the velocity, its
+duration, and the number of control steps it took, and is shown in the action
+timeline.
+
+``--planner manual`` requires ``--dashboard`` and cannot be combined with
+``--explore``, ``--model``, or ``--base-url``.
 
 Inspect Results and End the Session
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

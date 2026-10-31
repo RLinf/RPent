@@ -32,6 +32,7 @@ from rpent.cli.main import (
     _serialize_messages,
 )
 from rpent.dashboard.events import RunStartedEvent
+from rpent.dashboard.teleop import TeleopController
 from rpent.evaluation import RunFinalizationContext
 from rpent.memory import MemoryManager
 from rpent.planner.base import build_planner, is_recoverable_agent_error
@@ -135,7 +136,8 @@ def run_dashboard_session(
     # Shared robot services may validate memory before a task is claimed.
     # Robots with a preparation hook select memory at each task boundary instead.
     if (
-        robot_spec.prepare_memory is None
+        args.planner != "manual"
+        and robot_spec.prepare_memory is None
         and not getattr(args, "explore", False)
         and getattr(args, "memory_profile", "hf") == "hf"
     ):
@@ -205,7 +207,9 @@ def _run_dashboard_task(
     run_config = robot_spec.parse_config(task_args)
     from rpent.memory.loading import prepare_run_memory
 
-    prepare_run_memory(task_args, robot_spec, run_config)
+    if task_args.planner != "manual":
+        # Manual runs drive the base directly; nothing reads campaign memory.
+        prepare_run_memory(task_args, robot_spec, run_config)
     output_dir = init_output_dir(run_config.output_dir, verbose=args.verbose)
 
     recipe_tag = run_config.recipe_tag
@@ -308,42 +312,50 @@ def _run_dashboard_task(
                 state.bind_toolkit(toolkit)
                 memory_manager = toolkit.memory
                 try:
-                    planner = build_planner(
-                        task_args.planner,
-                        output_dir=output_dir,
-                        recipe_tag=recipe_tag,
-                        robot_name=args.robot_name,
-                        base_url=args.base_url,
-                        model=task_args.model,
-                        memory_dir=run_config.prompt_vars.get("memory_dir"),
-                        max_tokens=args.max_tokens,
-                        planner_timeout_s=args.planner_timeout_s,
-                        reasoning_effort=args.reasoning_effort,
-                        claude_code_max_budget_usd=args.claude_code_max_budget_usd,
-                        dashboard_events=state,
-                        no_images=args.no_images,
-                    )
-                    result = planner.solve(
-                        system_prompt=system_prompt,
-                        user_message=session_message,
-                        toolkit=toolkit,
-                        max_turns=args.max_turns,
-                        dashboard_interaction=state,
-                    )
-                    finish_result = result.finish_result
-                    messages += result.messages
-                    stats = result.stats
-                    agent_error = result.error
-                    if human_interactive_run and toolkit.direct_verdict_requested:
-                        finish_result = toolkit.finalize_direct_verdict()
-                        if agent_error:
-                            stats["planner_error_at_operator_verdict"] = agent_error
-                    if robot_spec.supports_exploration:
-                        solved = bool(toolkit.solved())
-                        if solved:
-                            recipe_path = (
-                                toolkit.write_recipe(recipe_tag) or recipe_path
-                            )
+                    if task_args.planner == "manual":
+                        stats = _run_manual_task(
+                            state=state,
+                            toolkit=toolkit,
+                            runtime_kwargs=runtime_kwargs,
+                            output_dir=output_dir,
+                        )
+                    else:
+                        planner = build_planner(
+                            task_args.planner,
+                            output_dir=output_dir,
+                            recipe_tag=recipe_tag,
+                            robot_name=args.robot_name,
+                            base_url=args.base_url,
+                            model=task_args.model,
+                            memory_dir=run_config.prompt_vars.get("memory_dir"),
+                            max_tokens=args.max_tokens,
+                            planner_timeout_s=args.planner_timeout_s,
+                            reasoning_effort=args.reasoning_effort,
+                            claude_code_max_budget_usd=args.claude_code_max_budget_usd,
+                            dashboard_events=state,
+                            no_images=args.no_images,
+                        )
+                        result = planner.solve(
+                            system_prompt=system_prompt,
+                            user_message=session_message,
+                            toolkit=toolkit,
+                            max_turns=args.max_turns,
+                            dashboard_interaction=state,
+                        )
+                        finish_result = result.finish_result
+                        messages += result.messages
+                        stats = result.stats
+                        agent_error = result.error
+                        if human_interactive_run and toolkit.direct_verdict_requested:
+                            finish_result = toolkit.finalize_direct_verdict()
+                            if agent_error:
+                                stats["planner_error_at_operator_verdict"] = agent_error
+                        if robot_spec.supports_exploration:
+                            solved = bool(toolkit.solved())
+                            if solved:
+                                recipe_path = (
+                                    toolkit.write_recipe(recipe_tag) or recipe_path
+                                )
                 finally:
                     try:
                         state.unbind_toolkit(toolkit)
@@ -466,3 +478,34 @@ def _run_dashboard_task(
             else:
                 agent_error = finalization_error
     return agent_error
+
+
+def _run_manual_task(
+    *,
+    state: DashboardState,
+    toolkit: Any,
+    runtime_kwargs: dict[str, Any],
+    output_dir: Path,
+) -> dict[str, Any]:
+    """Hand the robot to the operator until the Dashboard ends the run."""
+    env = runtime_kwargs.get("env")
+    if env is None:
+        raise ValueError(
+            "the manual planner needs an 'env' in the TaskRun runtime, "
+            f"found {sorted(runtime_kwargs)}"
+        )
+    controller = TeleopController(
+        env=env,
+        dashboard=state,
+        output_dir=output_dir,
+        env_state=toolkit.state,
+    )
+    state.bind_teleop(controller)
+    state.set_planner_activity("idle", accepting_input=False)
+    try:
+        ended = state.wait_for_manual_end()
+    finally:
+        summary = state.unbind_teleop(controller)
+    if not ended:
+        logger.info("manual TaskRun ended by a new task or shutdown")
+    return {"manual": summary}

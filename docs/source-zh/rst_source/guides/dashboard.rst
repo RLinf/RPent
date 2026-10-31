@@ -31,7 +31,7 @@
 Dashboard
 ---------
 
-Dashboard 支持 ``api``、``claude_code`` 和 ``codex`` 规划器。在命令行传递 ``--planner`` 与 ``--model``，配置方式和普通运行一致，详见 :doc:`configure_planner`。
+Dashboard 支持 ``api``、``claude_code`` 和 ``codex`` 规划器。在命令行传递 ``--planner`` 与 ``--model``，配置方式和普通运行一致，详见 :doc:`configure_planner`。``--planner manual`` 不运行规划器，由操作者在 Dashboard 中直接遥控机器人，见 :ref:`dashboard-teleoperation`。
 
 启动并提交任务
 ~~~~~~~~~~~~~~~~~~~~~
@@ -52,6 +52,26 @@ Session 配置全部来自命令行，打开地址后会直接进入实时监控
 每个 TaskRun 使用独立环境，VLA 和 SAM3 服务由 Session 复用。可通过新的 ``/rpent-task`` 启动或切换任务；运行中也可以发送消息引导智能体，并按 Esc 请求中断。在终端按 Ctrl+C 可结束 Session。
 
 ``--dashboard`` 不能与 ``--tui`` 或 ``--env-endpoint`` 同时使用；外部 ``--vla-endpoint`` 和 ``--sam3-endpoint`` 服务仍然可用。使用 ``--dashboard-language zh-cn`` 可切换中文 UI。
+
+.. _dashboard-teleoperation:
+
+不使用规划器的手动遥控
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``--planner manual`` 启动同样的 Session，但不加载语言模型：TaskRun 把机器人交给操作者控制，而不是交给规划器。
+
+.. code-block:: bash
+
+   rpent --robot lekiwi --dashboard --planner manual \
+     --env-endpoint http://ROBOT_HOST:8120
+
+LeKiwi 的环境属于外部服务，必须通过 ``--env-endpoint`` 连接；请先在机器人主机上启动 env_server，方法见 :doc:`../real_world_robots/lekiwi`。
+
+照常输入 ``/rpent-task`` 启动任务，``手动遥控`` 面板即可驱动机器人：按住方向按钮移动，松开即停止。每次按键只把速度发给 env_server，由它按机器人自身的控制频率持续驱动轮子，直到命令过期或收到停止，因此网络抖动只会延迟方向的变化，不会让底盘走走停停。命令超过一秒没有刷新即过期，所以关闭网页或断网后机器人保持静止。滑块分别设置线速度（m/s）和转向速度（deg/s）。点击 ``结束本次运行`` 结束当前 TaskRun，Session 回到等待下一个任务的状态。
+
+面板上的两个复选框决定本次运行保存什么，运行中也可以修改。开启 ``录制视频`` 时，每段连续驾驶保存为运行目录下的 ``teleop_NNN.mp4``；关闭时会先保存已采集的画面，之后不再采集，但实时相机画面继续更新。开启 ``记录动作`` 时，每一段匀速驾驶写入 ``teleop_actions.jsonl``，包含速度、持续时间和控制步数，并显示在动作时间线中。
+
+``--planner manual`` 需要同时指定 ``--dashboard``，不能与 ``--explore``、``--model`` 或 ``--base-url`` 一起使用。
 
 查看结果与结束会话
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~

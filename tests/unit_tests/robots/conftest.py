@@ -168,12 +168,47 @@ def fake_rlinf_realworld_modules(monkeypatch: pytest.MonkeyPatch) -> None:
         "right_controller_node_rank",
         "node_rank",
     ]
+    lekiwi_robot_fields = [
+        "enable_camera_player",
+        "is_dummy",
+        "step_frequency",
+        "camera_max_age",
+        "camera_names",
+        "frame_size",
+        "max_linear_velocity",
+        "max_angular_velocity",
+        "max_num_steps",
+    ]
+    lekiwi_hardware_fields = [
+        "node_rank",
+        "disable_validate",
+        "port",
+        "wheel_radius",
+        "base_radius",
+        "max_raw",
+        "camera_serials",
+        "camera_type",
+    ]
 
     def dataclass_for(name: str, fields: list[str]) -> type:
         return make_dataclass(name, [(field, object, None) for field in fields])
 
     class FakeFrankaEnv:
         pass
+
+    class FakeLeKiwiEnv:
+        pass
+
+    class FakeLeKiwiDriveEnv(FakeLeKiwiEnv):
+        """Converts ``override_cfg`` kwargs, as the real drive env does."""
+
+        def __init__(
+            self,
+            override_cfg: dict | None = None,
+            *_: Any,
+            **__: Any,
+        ) -> None:
+            pass
 
     modules = {
         "rlinf": _fake_module("rlinf", __path__=[]),
@@ -195,6 +230,16 @@ def fake_rlinf_realworld_modules(monkeypatch: pytest.MonkeyPatch) -> None:
                 "DualFrankaTCPEnvConfig", dual_robot_fields
             ),
         ),
+        "rlinf.envs.real.lekiwi": _fake_module("rlinf.envs.real.lekiwi", __path__=[]),
+        "rlinf.envs.real.lekiwi.base": _fake_module(
+            "rlinf.envs.real.lekiwi.base",
+            LeKiwiEnv=FakeLeKiwiEnv,
+            LeKiwiEnvConfig=dataclass_for("LeKiwiEnvConfig", lekiwi_robot_fields),
+        ),
+        "rlinf.envs.real.lekiwi.drive": _fake_module(
+            "rlinf.envs.real.lekiwi.drive",
+            LeKiwiDriveEnv=FakeLeKiwiDriveEnv,
+        ),
         "rlinf.robotics": _fake_module("rlinf.robotics", __path__=[]),
         "rlinf.robotics.parts": _fake_module("rlinf.robotics.parts", __path__=[]),
         "rlinf.robotics.parts.cameras": _fake_module(
@@ -210,6 +255,10 @@ def fake_rlinf_realworld_modules(monkeypatch: pytest.MonkeyPatch) -> None:
         "rlinf.robotics.robots.dual_franka": _fake_module(
             "rlinf.robotics.robots.dual_franka",
             DualFrankaConfig=dataclass_for("DualFrankaConfig", dual_hardware_fields),
+        ),
+        "rlinf.robotics.robots.lekiwi": _fake_module(
+            "rlinf.robotics.robots.lekiwi",
+            LeKiwiConfig=dataclass_for("LeKiwiConfig", lekiwi_hardware_fields),
         ),
     }
     for name, module in modules.items():

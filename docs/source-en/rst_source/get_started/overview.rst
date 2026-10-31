@@ -62,6 +62,8 @@ Choose a Platform
      - Two-node deployment, operation, and exploration with an operator.
    * - :doc:`YAM <../real_world_robots/yam>`
      - Task demo available; installation and usage documentation is coming soon.
+   * - :doc:`LeKiwi <../real_world_robots/lekiwi>`
+     - Mobile-base deployment, driving tools, and safety.
    * - :doc:`SO-101 <../real_world_robots/so101>`
      - Coming soon.
 

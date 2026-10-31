@@ -16,5 +16,7 @@ Choose a platform for installation and usage instructions.
      - Dual-arm Franka installation, calibration, and operation.
    * - :doc:`yam`
      - Installation, configuration, and operation.
+   * - :doc:`lekiwi`
+     - Mobile-base deployment, driving tools, and safety.
    * - :doc:`so101`
      - Content coming soon.

@@ -20,6 +20,8 @@ from typing import Any
 
 import pytest
 
+from robots.lekiwi import robot_spec as lekiwi_robot_spec
+from robots.lekiwi import toolkit as lekiwi_toolkit
 from robots.libero import robot_spec as libero_robot_spec
 from robots.libero import toolkit as libero_toolkit
 from robots.robocasa import robot_spec as robocasa_robot_spec
@@ -89,6 +91,7 @@ def test_evaluation_toolkit_factories_use_configured_read_only_memory(
     ("robot_name", "robot_spec", "toolkit_module", "toolkit_name"),
     [
         ("libero", libero_robot_spec, libero_toolkit, "LiberoToolkit"),
+        ("lekiwi", lekiwi_robot_spec, lekiwi_toolkit, "LeKiwiToolkit"),
         ("robotwin", robotwin_robot_spec, robotwin_toolkit, "RoboTwinToolkit"),
     ],
 )

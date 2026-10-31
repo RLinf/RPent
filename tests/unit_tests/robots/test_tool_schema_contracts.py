@@ -22,6 +22,7 @@ import pytest
 from robots.dual_franka.toolkit import DualFrankaToolkit
 from robots.franka import perception as franka_perception
 from robots.franka import tools as franka_tools
+from robots.lekiwi import tools as lekiwi_tools
 from robots.libero import tools as libero_tools
 from robots.libero.toolkit import LiberoToolkit
 from robots.robocasa import tools as robocasa_tools
@@ -41,6 +42,7 @@ TOOL_DECLARATIONS = {
         iter_tools(franka_tools.FrankaPrimitives, franka_tools, franka_perception)
     ),
     "dual_franka": DualFrankaToolkit.declared_tools(),
+    "lekiwi": list(iter_tools(lekiwi_tools.LeKiwiPrimitives, lekiwi_tools)),
     "yam": list(iter_tools(YamToolkit, yam_tools)),
     "libero": list(
         iter_tools(libero_tools, libero_tools.LiberoPrimitives, LiberoToolkit)

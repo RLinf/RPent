@@ -92,7 +92,43 @@
       </div>
       <div class="gutter gutter-h" id="gutterH" title="Drag to resize frame height" data-i18n-title="resizeFrame"></div>
       <div class="col" style="min-height:0">
-        <details class="primitive-panel">
+        <details class="teleop-panel" id="teleopPanel" hidden>
+          <summary>
+            <span data-i18n="teleopTitle">Teleoperation</span>
+            <span id="teleopStatus" class="teleop-status" role="status" aria-live="polite" data-i18n="teleopWaiting">waiting for a manual TaskRun</span>
+          </summary>
+          <div class="teleop-panel-body">
+            <div class="teleop-options">
+              <label><input type="checkbox" id="teleopRecordVideo" checked /> <span data-i18n="recordVideo">Record video</span></label>
+              <label><input type="checkbox" id="teleopRecordActions" checked /> <span data-i18n="recordActions">Record actions</span></label>
+            </div>
+            <div class="teleop-speeds">
+              <label><span data-i18n="teleopLinear">linear m/s</span>
+                <output id="teleopLinearValue"></output>
+                <input type="range" id="teleopLinear" min="0.05" max="0.3" step="0.01" value="0.15" />
+              </label>
+              <label><span data-i18n="teleopAngular">turn deg/s</span>
+                <output id="teleopAngularValue"></output>
+                <input type="range" id="teleopAngular" min="5" max="60" step="5" value="30" />
+              </label>
+            </div>
+            <div class="teleop-pad" id="teleopPad">
+              <button type="button" class="teleop-hold" data-move="turnLeft" data-i18n="teleopTurnLeft">turn left</button>
+              <button type="button" class="teleop-hold" data-move="forward" data-i18n="teleopForward">forward</button>
+              <button type="button" class="teleop-hold" data-move="turnRight" data-i18n="teleopTurnRight">turn right</button>
+              <button type="button" class="teleop-hold" data-move="left" data-i18n="teleopLeft">left</button>
+              <button type="button" id="teleopStop" data-i18n="teleopStop">STOP</button>
+              <button type="button" class="teleop-hold" data-move="right" data-i18n="teleopRight">right</button>
+              <button type="button" class="teleop-hold" data-move="back" data-i18n="teleopBack">back</button>
+            </div>
+            <div class="teleop-actions">
+              <button type="button" id="teleopEnd" data-i18n="teleopEndRun">End run</button>
+              <span class="grow"></span>
+              <span id="teleopHint" class="meta" data-i18n="teleopHint">Hold a button to drive; releasing it stops the base.</span>
+            </div>
+          </div>
+        </details>
+        <details class="primitive-panel" id="primitivePanel">
           <summary>
             <span data-i18n="primitiveControls">Primitive controls</span>
             <span id="primitiveAvailability" class="primitive-availability" data-i18n="primitiveWaiting">waiting for TaskRun</span>

@@ -242,3 +242,94 @@ def test_healthz_still_reports_transport_liveness_only(state: DashboardState) ->
 
     assert resp.status_code == 200
     assert resp.json() == {"ok": True}
+
+
+class _FakeTeleop:
+    """Minimal controller surface the teleop routes drive."""
+
+    def __init__(self) -> None:
+        self.held: list[tuple[object, float]] = []
+        self.stopped = 0
+        self.recording: dict[str, bool] = {"video": True, "actions": True}
+
+    def hold(self, velocity, *, ttl_s):
+        self.held.append((velocity, ttl_s))
+        return {"active": True, "steps": 0}
+
+    def stop(self):
+        self.stopped += 1
+        return {"active": True, "steps": 0}
+
+    def set_recording(self, *, video=None, actions=None):
+        if video is not None:
+            self.recording["video"] = bool(video)
+        if actions is not None:
+            self.recording["actions"] = bool(actions)
+        return {"active": True, "recording": dict(self.recording)}
+
+    def snapshot(self):
+        return {"active": True, "steps": 0}
+
+    def close(self):
+        return {"steps": 0, "clips": []}
+
+
+def _manual_task_state(state: DashboardState) -> None:
+    from rpent.dashboard.events import RunStartedEvent
+
+    state.shared_services_ready()
+    state.request_task({"seed": 1})
+    assert state.wait_for_task(timeout=0) is not None
+    state.emit(RunStartedEvent())
+
+
+def test_teleop_routes_drive_and_end_the_manual_run(state: DashboardState) -> None:
+    _manual_task_state(state)
+    client = _client(_server(state, planner="manual"))
+
+    # No controller is bound until the manual TaskRun starts.
+    assert (
+        client.post("/api/session/teleop", json={"velocity": [0.1, 0, 0]}).status_code
+        == 409
+    )
+    assert client.post("/api/session/teleop/end").status_code == 409
+
+    controller = _FakeTeleop()
+    state.bind_teleop(controller)
+    response = client.post(
+        "/api/session/teleop", json={"velocity": [0.1, 0, 0], "ttl_s": 0.5}
+    )
+    assert response.status_code == 200
+    assert response.json()["teleop"]["active"] is True
+    assert controller.held == [([0.1, 0, 0], 0.5)]
+
+    assert (
+        client.post(
+            "/api/session/teleop", json={"velocity": [0.1, 0, 0], "ttl_s": "soon"}
+        ).status_code
+        == 422
+    )
+    assert (
+        client.post("/api/session/teleop/recording", json={"video": "yes"}).status_code
+        == 422
+    )
+    assert (
+        client.post(
+            "/api/session/teleop/recording", json={"actions": False}
+        ).status_code
+        == 200
+    )
+    assert controller.recording == {"video": True, "actions": False}
+    assert client.post("/api/session/teleop/stop").status_code == 200
+    assert controller.stopped == 1
+
+    assert client.post("/api/session/teleop/end").status_code == 202
+    assert state.wait_for_manual_end(timeout=0) is True
+
+
+def test_manual_sessions_do_not_accept_a_model_change(state: DashboardState) -> None:
+    client = _client(_server(state, planner="manual"))
+
+    response = client.post("/api/session/config", json={"model": "gpt-6-astra"})
+
+    assert response.status_code == 422

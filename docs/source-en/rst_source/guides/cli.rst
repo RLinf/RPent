@@ -27,7 +27,7 @@ These options control the planner, memory, output directory, and Dashboard.
      - Select a discovered robot or simulator.
    * - ``--planner``
      - ``api``
-     - ``api``, ``claude_code``, ``codex``, or ``flash``.
+     - ``api``, ``claude_code``, ``codex``, ``flash``, or ``manual`` (Dashboard teleoperation).
    * - ``--model``
      - ``—``
      - ``api`` requires a provider prefix; SDK planners use their backend defaults.

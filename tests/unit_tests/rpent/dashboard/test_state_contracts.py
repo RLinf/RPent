@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -254,6 +255,97 @@ def test_dashboard_primitives_are_available_only_while_planner_is_idle(
     assert state.snapshot()["primitives_available"] is False
     with pytest.raises(InteractionUnavailableError, match="not available"):
         state.execute_primitive("move_to", {})
+
+
+class FakeTeleop:
+    """Minimal TeleopController surface the Dashboard projects."""
+
+    def __init__(self) -> None:
+        self.held: list[tuple[object, float]] = []
+        self.stopped = 0
+        self.recording: list[dict[str, Any]] = []
+        self.closed = 0
+
+    def hold(self, velocity, *, ttl_s):
+        self.held.append((velocity, ttl_s))
+        return {"active": True}
+
+    def stop(self):
+        self.stopped += 1
+        return {"active": True}
+
+    def set_recording(self, *, video=None, actions=None):
+        self.recording.append({"video": video, "actions": actions})
+        return {"active": True}
+
+    def snapshot(self):
+        return {"active": True, "steps": 0}
+
+    def close(self):
+        self.closed += 1
+        return {"steps": 0, "clips": []}
+
+
+def test_manual_teleop_replaces_primitives_and_is_projected(tmp_path: Path) -> None:
+    state = _ready_state(tmp_path)
+    _claim_started_task(state)
+    toolkit = MagicMock(spec=Toolkit)
+    toolkit.list_tools.return_value = (move_to,)
+    state.bind_toolkit(toolkit)
+    state.set_planner_activity("idle", accepting_input=True)
+    assert state.snapshot()["primitives_available"] is True
+
+    state.bind_teleop(FakeTeleop())
+
+    snapshot = state.snapshot()
+    assert snapshot["primitives_available"] is False
+    assert snapshot["teleop"] == {"active": True, "steps": 0}
+    with pytest.raises(InteractionUnavailableError, match="not available"):
+        state.execute_primitive("move_to", {})
+
+
+def test_teleop_commands_delegate_and_need_a_bound_controller(tmp_path: Path) -> None:
+    state = _ready_state(tmp_path)
+    _claim_started_task(state)
+    with pytest.raises(InteractionUnavailableError, match="not available"):
+        state.submit_teleop_command([0.1, 0.0, 0.0])
+    with pytest.raises(InteractionUnavailableError, match="not available"):
+        state.request_manual_end()
+
+    controller = FakeTeleop()
+    state.bind_teleop(controller)
+    state.submit_teleop_command([0.1, 0.0, 0.0], ttl_s=0.5)
+    state.stop_teleop()
+    state.set_teleop_recording(video=False, actions=True)
+
+    assert controller.held == [([0.1, 0.0, 0.0], 0.5)]
+    assert controller.stopped == 1
+    assert controller.recording == [{"video": False, "actions": True}]
+    assert state.unbind_teleop(controller) == {"steps": 0, "clips": []}
+    assert controller.closed == 1
+    assert state.snapshot()["teleop"] is None
+
+
+def test_manual_run_ends_only_on_request_or_a_replacing_task(tmp_path: Path) -> None:
+    state = _ready_state(tmp_path)
+    _claim_started_task(state)
+    state.bind_teleop(FakeTeleop())
+
+    assert state.wait_for_manual_end(timeout=0) is False
+    state.request_manual_end()
+    assert state.wait_for_manual_end(timeout=0) is True
+
+
+def test_a_pending_task_wakes_the_manual_loop_and_seals_control(tmp_path: Path) -> None:
+    state = _ready_state(tmp_path)
+    _claim_started_task(state)
+    state.bind_teleop(FakeTeleop())
+
+    state.request_task({"mode": "pick", "seed": 2})
+
+    assert state.wait_for_manual_end(timeout=0) is False
+    with pytest.raises(InteractionUnavailableError, match="not available"):
+        state.submit_teleop_command([0.1, 0.0, 0.0])
 
 
 def test_dashboard_discovers_step_pngs_and_serves_only_current_frames(tmp_path):

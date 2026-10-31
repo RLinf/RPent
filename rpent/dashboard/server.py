@@ -137,9 +137,10 @@ class DashboardServer:
         def api_update_session_config(
             payload: dict[str, Any] = Body(default={}),
         ) -> JSONResponse:
-            if self._planner_config.get("planner") == "flash":
+            if self._planner_config.get("planner") in {"flash", "manual"}:
                 return JSONResponse(
-                    {"error": "Flash replay has no language model"}, status_code=422
+                    {"error": "This session runs no language model"},
+                    status_code=422,
                 )
             if set(payload) != {"model"}:
                 return JSONResponse(
@@ -287,6 +288,51 @@ class DashboardServer:
                     status_code=422,
                 )
             return JSONResponse({"ok": True})
+
+        @app.post("/api/session/teleop")
+        def api_teleop(payload: dict[str, Any] = Body(default={})) -> JSONResponse:
+            try:
+                snapshot = self._state.submit_teleop_command(
+                    payload.get("velocity"),
+                    ttl_s=float(payload.get("ttl_s", 1.0)),
+                )
+            except InteractionUnavailableError as exc:
+                return JSONResponse({"error": str(exc)}, status_code=409)
+            except (TypeError, ValueError) as exc:
+                return JSONResponse({"error": str(exc)}, status_code=422)
+            return JSONResponse({"ok": True, "teleop": snapshot})
+
+        @app.post("/api/session/teleop/stop")
+        def api_teleop_stop() -> JSONResponse:
+            try:
+                snapshot = self._state.stop_teleop()
+            except InteractionUnavailableError as exc:
+                return JSONResponse({"error": str(exc)}, status_code=409)
+            return JSONResponse({"ok": True, "teleop": snapshot})
+
+        @app.post("/api/session/teleop/recording")
+        def api_teleop_recording(
+            payload: dict[str, Any] = Body(default={}),
+        ) -> JSONResponse:
+            choices = {key: payload.get(key) for key in ("video", "actions")}
+            for key, value in choices.items():
+                if value is not None and not isinstance(value, bool):
+                    return JSONResponse(
+                        {"error": f"{key} must be a boolean"}, status_code=422
+                    )
+            try:
+                snapshot = self._state.set_teleop_recording(**choices)
+            except InteractionUnavailableError as exc:
+                return JSONResponse({"error": str(exc)}, status_code=409)
+            return JSONResponse({"ok": True, "teleop": snapshot})
+
+        @app.post("/api/session/teleop/end")
+        def api_teleop_end() -> JSONResponse:
+            try:
+                self._state.request_manual_end()
+            except InteractionUnavailableError as exc:
+                return JSONResponse({"error": str(exc)}, status_code=409)
+            return JSONResponse({"ok": True}, status_code=202)
 
         @app.get("/api/session/transcript")
         def api_transcript(since: int = 0) -> JSONResponse:

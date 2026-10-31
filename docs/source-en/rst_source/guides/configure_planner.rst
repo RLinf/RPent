@@ -7,7 +7,10 @@ Select the Agentic Planner backend with one CLI flag:
 
 .. code-block:: text
 
-   --planner {api,claude_code,codex,flash}
+   --planner {api,claude_code,codex,flash,manual}
+
+``manual`` runs no planner: it drives the robot from the Dashboard instead.
+See :ref:`dashboard-teleoperation`.
 
 All three online planners receive the same rendered system and user prompts
 and use the RPent tool schemas from the same toolkit. They differ in
