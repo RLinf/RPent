@@ -114,12 +114,12 @@ statistics match the current Franka training configuration:
 .. code-block:: bash
 
    uv run --extra franka rpent --robot franka --task-id 1 \
-     --vla-endpoint http://VLA_HOST:PORT \
+     --am-endpoint http://VLA_HOST:PORT \
      --planner claude_code --model claude-opus-4-8 \
      --robot-config robots/franka/config/example.yaml
 
 The VLA server must be deployed separately for now. Without
-``--vla-endpoint``, analytic motion and gripper tools remain available, but
+``--am-endpoint``, analytic motion and gripper tools remain available, but
 ``vla_grasp`` raises a runtime error.
 
 Tools and Artifacts
@@ -193,7 +193,7 @@ Replay from a dedicated operator terminal::
 
 For dual Franka, use ``--robot dual_franka`` and the corresponding plan/config.
 Configure Env/VLA endpoints as in the robot setup guide; single-arm plans with
-``vla_grasp`` require ``--vla-endpoint``. Replay asks before driver initialization
+``vla_grasp`` require ``--am-endpoint``. Replay asks before driver initialization
 (which may reset the robot), before execution, and for the final task verdict.
 Do not use ``--tui``, ``--dashboard`` or ``--explore`` with this mode.
 

@@ -22,7 +22,7 @@ LIBERO
 
    .. grid-item-card:: 动作模型
 
-      Pi0.5
+      Pi0.5；Cosmos Policy、Cosmos3 和 Fast-WAM 支持 standard/Pro 评测。
 
    .. grid-item-card:: 规划器
 
@@ -179,6 +179,20 @@ SAM3 配置
 
 如需切换 planner，请参阅 :doc:`../guides/configure_planner`。
 
+WAM 评测
+~~~~~~~~
+
+按 :doc:`../development/add_action_model` 准备 worker，保留上面的仿真器和 SAM3 配置。WAM 不需要 Pi0.5 权重。Cosmos 在端口 8116 启动后：
+
+.. code-block:: bash
+
+   rpent --robot libero --suite libero_spatial --task 0 --seed 0 \
+     --libero-type standard --am-backend cosmos-policy \
+     --am-endpoint http://127.0.0.1:8116 --memory-profile local \
+     --planner api --model <planner-model>
+
+Fast-WAM 使用 ``--am-backend fast-wam`` 及其 worker 地址。LIBERO-Pro 需在 Pro 环境中选择 Pro suite 并指定 ``--libero-type pro``。WAM 不支持 LIBERO-Plus、Flash 和探索。WAM 必须启用本地记忆管理器和文件工具，默认目录按后端区分，语料允许为空；可通过 ``--memory-dir`` 指定兼容的本地语料，目前不支持 HF 记忆。``wam_act(prompt=None, max_chunks=1)`` 替换 Pi0.5 工具，每次执行 1 至 4 个 chunk，每个 chunk 前重新获取观测。每个 chunk 的动作数由 worker 的 ``chunk_size`` 元数据声明。prompt 仅覆盖本次调用，chunk 预算不指定在 chunk 内的哪一步停止。
+
 查看结果
 ------------
 
@@ -190,6 +204,8 @@ SAM3 配置
 
 任务记忆与探索模式
 ------------------
+
+本节的 HF 记忆与探索流程适用于 VLA；WAM 使用上文说明的本地记忆。
 
 评测只运行一次尝试，读取记忆但不更新。默认的 ``hf`` 模式使用 ``--memory-version auto`` 按模型选择记忆版本。显式版本、离线准备和发布来源见 :doc:`../guides/memory`。
 
@@ -224,7 +240,7 @@ Long 结果使用 `reproduce/libero <https://github.com/RLinf/RPent/tree/reprodu
      --planner-timeout-s 5000 \
      --max-episode-steps 10000 \
      --libero-type pro \
-     --vla-endpoint http://127.0.0.1:8220 \
+     --am-endpoint http://127.0.0.1:8220 \
      --sam3-endpoint http://127.0.0.1:8114
 
 进程分工
@@ -276,7 +292,7 @@ Dashboard
 如果你有一个与 LIBERO 兼容、但并非 Pi0.5 的 VLA，可以在不修改机器人实现的情况下替换 model client：
 
 1. 写一个新的 ``vla_server.py``，暴露相同的 ``predict`` RPC 契约（HTTP 或 socket 均可）。
-2. 用 ``--vla-endpoint [protocol://]host:port`` 指向它。
+2. 用 ``--am-endpoint [protocol://]host:port`` 指向它。
 3. 如果可用工具需要调整（比如将 ``pi0_pick`` 改成 ``mymodel_pick``），相应更新 ``robots/libero/toolkit.py``。
 
 完整流程见 :doc:`../development/add_primitive`。

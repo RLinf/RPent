@@ -102,6 +102,7 @@ def test_shared_runtime_gets_memory_before_startup(
         },
         init_runtime=init_runtime,
     )
+    spec.resolve_dashboard = lambda args: spec.dashboard
     args = _build_argparser().parse_args(
         [
             "--robot",

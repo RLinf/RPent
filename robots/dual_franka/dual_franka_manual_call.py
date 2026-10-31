@@ -486,7 +486,7 @@ def _connect_components(
     components = set()
     if args.env_endpoint is None:
         components.add("env")
-    if primitive in _VLA_PRIMITIVES and args.vla_endpoint is None:
+    if primitive in _VLA_PRIMITIVES and args.am_endpoint is None:
         components.add("vla")
     if primitive in _SAM3_PRIMITIVES and args.sam3_endpoint is None:
         components.add("sam3")
@@ -509,8 +509,8 @@ def _connect_components(
                 )
             env = ManualDualFrankaEnv(args.env_endpoint)
         model = runtime.get("model")
-        if primitive in _VLA_PRIMITIVES and args.vla_endpoint is not None:
-            rpc = make_rpc_client(args.vla_endpoint)
+        if primitive in _VLA_PRIMITIVES and args.am_endpoint is not None:
+            rpc = make_rpc_client(args.am_endpoint)
             if not args.no_ready_check:
                 wait_for_ready(rpc, timeout_s=min(args.timeout_s, 60.0))
             model = Pi05VLAClient(rpc, embodiment="dual_franka")

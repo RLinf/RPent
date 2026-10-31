@@ -37,6 +37,49 @@ class ConfigCaptured(Exception):
     """Stop the CLI immediately after argument validation in routing tests."""
 
 
+@pytest.mark.parametrize("dynamic", [False, True])
+@pytest.mark.parametrize("real_robot", [False, True])
+def test_dashboard_uses_robot_owned_descriptor(
+    monkeypatch, tmp_path, dynamic, real_robot
+):
+    from argparse import ArgumentParser
+    from dataclasses import replace
+
+    from robots.libero.robot_spec import get_robot_spec
+    from rpent.cli import dashboard
+    from rpent.dashboard import state
+
+    spec = get_robot_spec()
+    descriptor = {
+        **spec.resolve_dashboard(SimpleNamespace()),
+        "external_env": real_robot,
+        "runtime_components": (
+            {"name": "custom_policy", "label": "Policy", "scope": "shared"},
+        ),
+    }
+    spec = replace(
+        spec,
+        dashboard=(lambda args: descriptor) if dynamic else descriptor,
+        is_real_robot=real_robot,
+    )
+
+    def capture_state(**kwargs):
+        assert kwargs["dashboard_spec"] == descriptor
+        raise ConfigCaptured
+
+    monkeypatch.setattr(state, "DashboardState", capture_state)
+    monkeypatch.setattr(dashboard, "init_output_dir", lambda path, **kw: path)
+    args = SimpleNamespace(
+        planner="api",
+        model="test",
+        output_dir=tmp_path,
+        verbose=False,
+        env_endpoint="http://localhost:8115" if real_robot else None,
+    )
+    with pytest.raises(ConfigCaptured):
+        dashboard.run_dashboard_session(args, spec, parser=ArgumentParser())
+
+
 def _cli_module():
     from rpent.cli import main as cli
 
@@ -394,6 +437,7 @@ def test_real_robot_terminal_requirement_fails_before_runtime(
         is_real_robot=True,
         supports_human_interactive_exploration=False,
         dashboard=None,
+        resolve_dashboard=lambda args: None,
         add_cli_args=lambda parser, use_dashboard: None,
     )
     monkeypatch.setattr(cli, "get_robot_spec", lambda name: spec)
@@ -430,6 +474,7 @@ def test_human_operator_main_routes_dashboard_without_tty(
         supports_human_interactive_exploration=True,
         supports_exploration=True,
         dashboard={},
+        resolve_dashboard=lambda args: {},
         add_cli_args=lambda parser, use_dashboard: None,
         validate_args=None,
     )

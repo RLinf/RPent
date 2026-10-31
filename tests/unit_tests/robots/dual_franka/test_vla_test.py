@@ -306,8 +306,11 @@ def test_configured_chunk_length_is_checked_before_execution(tmp_path):
     assert calls.count("execute") == 5
 
 
-def test_dual_franka_spawns_shared_vla_server():
-    from robots.dual_franka.robot_spec import _vla_server_command
+def test_dual_franka_spawns_shared_vla_server(monkeypatch, tmp_path):
+    from unittest.mock import Mock
+
+    from robots.dual_franka import robot_spec
+    from rpent.robots.components import am_runtime
     from tests.e2e_tests.dual_franka.dual_franka_vla import build_parser
 
     args = build_parser().parse_args(
@@ -316,11 +319,16 @@ def test_dual_franka_spawns_shared_vla_server():
             "/checkpoint",
             "--vla-repo-id",
             "test/data",
-            "--cuda-device",
+            "--vla-cuda-device",
             "2",
         ]
     )
-    command = _vla_server_command(args, host="127.0.0.1", port=6000)
+    factory = Mock()
+    monkeypatch.setattr(am_runtime, "ProcessDaemon", factory)
+    monkeypatch.setattr(robot_spec, "pick_free_port", lambda: 6000)
+    monkeypatch.setattr(robot_spec, "HttpRpcClient", Mock())
+    robot_spec._spawn_vla_server(args, tmp_path)
+    command = factory.call_args.kwargs["cmd"]
     assert command[1:5] == [
         "-m",
         "rpent.robots.components.pi05_vla_server",
@@ -329,4 +337,4 @@ def test_dual_franka_spawns_shared_vla_server():
     ]
     assert command[command.index("--repo-id") + 1] == "test/data"
     assert command[command.index("--model-path") + 1] == "/checkpoint"
-    assert command[command.index("--cuda-device") + 1] == "2"
+    assert factory.call_args.kwargs["env_overrides"]["CUDA_VISIBLE_DEVICES"] == "2"

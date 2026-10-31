@@ -282,8 +282,8 @@ VLA Configuration
 ``DUAL_FRANKA_REPO_ID`` is the dataset ID used to locate matching normalization
 statistics.
 
-The environment variables correspond to ``--vla-model-path`` and
-``--vla-repo-id``. The repo ID is the relative directory containing the matching
+The environment variables correspond to ``--am-checkpoint`` and
+``--pi05-repo-id``. The repo ID is the relative directory containing the matching
 normalization statistics, not the model download repository name. The checkpoint
 must contain:
 
@@ -381,7 +381,7 @@ skill. From the repository root:
 
 Without service addresses, the script starts and connects to the required
 services automatically; no port selection is needed. It stops only the services
-it started when it exits. Supply ``--env-endpoint``, ``--vla-endpoint`` or
+it started when it exits. Supply ``--env-endpoint``, ``--am-endpoint`` or
 ``--sam3-endpoint`` to reuse an existing service. Attaching to an existing Env
 does not reset it. With a newly started Env, a manual action first requests
 scene confirmation and performs one reset. An explicit manual ``reset`` also

@@ -27,6 +27,7 @@ from robots.yam.tasks import TASK_INSTRUCTIONS, resolve_task_language
 from rpent.dashboard.events import DashboardEventSink
 from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
+from rpent.robots.components.am_runtime import add_am_args, select_am
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_wait_server
@@ -158,10 +159,7 @@ def _add_runtime_args(parser: argparse.ArgumentParser, *, required: bool) -> Non
         required=required,
         help="YAM env_server endpoint. Use socket://host:port for pickle TCP.",
     )
-    parser.add_argument(
-        "--vla-endpoint",
-        help="Optional trained Pi0.5 YAM endpoint; omit for primitives-only control.",
-    )
+    add_am_args(parser, platform="yam")
     parser.add_argument(
         "--without-vla",
         action="store_true",
@@ -170,6 +168,7 @@ def _add_runtime_args(parser: argparse.ArgumentParser, *, required: bool) -> Non
 
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
+    select_am(args, "yam")
     if args.task_id is None:
         raise ValueError("--task-id is required")
     instruction = resolve_task_language(args.task_id, args.task_language)
@@ -210,7 +209,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             "instruction": instruction,
             "mode": "explore" if explore else "eval",
             "vla_enabled": bool(
-                args.task_id != 0 and args.vla_endpoint and not args.without_vla
+                args.task_id != 0 and args.am_endpoint and not args.without_vla
             ),
             "memory_profile": memory_profile,
             "memory_dir": str(memory_dir),
@@ -236,10 +235,11 @@ def _init_runtime(
     dashboard_events: DashboardEventSink,
     components: set[str] | None,
 ) -> tuple[list["ProcessDaemon"], dict[str, Any]]:
+    am = select_am(args, "yam")
     del output_dir
     available = {"env", "vla"}
     selected = (
-        ({"env", "vla"} if args.vla_endpoint else {"env"})
+        ({"env", "vla"} if args.am_endpoint else {"env"})
         if components is None
         else set(components)
     )
@@ -252,8 +252,8 @@ def _init_runtime(
         raise ValueError(
             "--env-endpoint is required for YAM; start env_server on the control machine first"
         )
-    if "vla" in selected and not args.vla_endpoint:
-        raise ValueError("--vla-endpoint or --without-vla is required for YAM")
+    if "vla" in selected and not args.am_endpoint:
+        raise ValueError("--am-endpoint or --without-vla is required for YAM")
 
     owned_daemons: dict[str, ProcessDaemon] = {}
     primitives_kwargs: dict[str, Any] = {}
@@ -271,7 +271,7 @@ def _init_runtime(
             )
         )
     if "vla" in selected:
-        vla_rpc = make_rpc_client(args.vla_endpoint)
+        vla_rpc = make_rpc_client(am.endpoint)
         primitives_kwargs.update(
             try_wait_server(
                 owned_daemons,

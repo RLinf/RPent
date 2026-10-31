@@ -17,7 +17,25 @@
 from __future__ import annotations
 
 import os
+from argparse import ArgumentParser, Namespace
 from pathlib import Path
+
+
+def add_cuda_device_arg(parser: ArgumentParser, *, device_type: type = int) -> None:
+    """Retain the shared GPU default for existing RPent commands."""
+    parser.add_argument(
+        "--cuda-device",
+        type=device_type,
+        help="Default GPU for local services; per-service CUDA options override it. "
+        "Services may share GPUs. Omit to use each service's environment/default.",
+    )
+
+
+def resolve_cuda_device(args: Namespace, component: str) -> str | int | None:
+    """Prefer the service-specific device over the legacy shared default."""
+    device = getattr(args, f"{component}_cuda_device", None)
+    return device if device is not None else getattr(args, "cuda_device", None)
+
 
 # ============================================================================
 # Repository / package roots

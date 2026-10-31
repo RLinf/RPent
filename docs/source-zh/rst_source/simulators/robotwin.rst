@@ -22,7 +22,7 @@ RoboTwin
 
    .. grid-item-card:: 动作模型
 
-      LingBot-VLA
+      LingBot-VLA；使用 RoboTwin checkpoint 的 Fast-WAM。
 
    .. grid-item-card:: 规划器
 
@@ -135,6 +135,20 @@ RoboTwin 要求 Python 3.11。宿主机需预先具备兼容的 CUDA toolkit/NVC
 
 模型目录中已经包含 RoboTwin 的默认机器人配置。
 
+Fast-WAM 配置
+~~~~~~~~~~~~~
+
+按 :doc:`../development/add_action_model` 准备 RoboTwin Fast-WAM worker。它使用头部及左右腕部 RGB、原生关节目标，输出 qpos14 动作块。通过 ``--am-backend fast-wam`` 选择该模型，无需 LingBot 权重。在仿真器环境中运行：
+
+.. code-block:: bash
+
+   rpent --robot robotwin --task-name beat_block_hammer \
+     --task-config demo_randomized --seed 100000 \
+     --am-backend fast-wam --am-endpoint http://127.0.0.1:8117 \
+     --memory-profile local --planner api --model <planner-model>
+
+``wam_act(prompt=None, max_chunks=1)`` 替换 ``lingbot_act``；每个 chunk 通过 ``action_type="qpos"`` 执行 worker 配置的 ``execute_steps`` 个动作。WAM 必须启用本地记忆管理器和文件工具，默认目录按后端区分，语料允许为空；可通过 ``--memory-dir`` 指定兼容的本地语料，目前不支持 HF 记忆和探索。任务成功由原生 ``eval_success`` 判断。下文的 LingBot 和 HF 记忆流程适用于 VLA 路径。
+
 运行一个任务
 ------------
 
@@ -177,9 +191,8 @@ RoboTwin 要求 Python 3.11。宿主机需预先具备兼容的 CUDA toolkit/NVC
 RPent 默认使用 RoboTwin 的 ``demo_randomized`` 任务配置，该配置带环境扰动（随机背景、桌面杂物、光照、桌高）。如需简单、干净的场景，可使用 ``--task-config demo_clean``。
 
 - ``--robotwin-assets-path``：覆盖 ``ROBOTWIN_ASSETS_PATH`` 指定的资源目录。
-- ``--vla-model-path``：覆盖 ``LINGBOT_MODEL_PATH`` 指定的模型目录。
-- ``--cuda-device``：让仿真环境和 VLA 使用同一张 GPU。
-- ``--env-cuda-device`` 和 ``--vla-cuda-device``：让仿真环境和 VLA 使用不同 GPU。这两个参数不能与 ``--cuda-device`` 同时使用。
+- ``--am-checkpoint``：覆盖 ``LINGBOT_MODEL_PATH`` 指定的模型目录。
+- ``--env-cuda-device 0 --am-cuda-device 1``：让本地仿真器使用 GPU 0，本地动作模型使用 GPU 1。GPU 默认值和覆盖规则见 :doc:`../guides/cli`。
 
 规划器配置、外部服务和离线参考资料的说明分别见 :doc:`../guides/configure_planner`、 :doc:`../guides/advanced_deployment` 和 :doc:`../guides/memory`。
 

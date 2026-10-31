@@ -14,6 +14,18 @@
 
 """LIBERO robot extension."""
 
-from robots.libero.robot_spec import get_robot_spec, get_toolkit
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from robots.libero.robot_spec import get_robot_spec, get_toolkit
 
 __all__ = ["get_robot_spec", "get_toolkit"]
+
+
+def __getattr__(name: str) -> Any:
+    """Load runtime factories only when requested, keeping control imports light."""
+    if name in __all__:
+        from robots.libero import robot_spec
+
+        return getattr(robot_spec, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

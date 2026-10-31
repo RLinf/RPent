@@ -35,10 +35,20 @@ from robots.franka.runtime_config import (
 from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
 from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
+from rpent.robots.components.am_runtime import (
+    AMConfig,
+    add_am_args,
+    select_am,
+)
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_spawn_server, try_wait_server
-from rpent.utils.config import get_memory_dir, get_repo_root
+from rpent.utils.config import (
+    add_cuda_device_arg,
+    get_memory_dir,
+    get_repo_root,
+    resolve_cuda_device,
+)
 from rpent.utils.daemon import ProcessDaemon, pick_free_port
 from rpent.utils.rpc import make_rpc_client
 from rpent.utils.rpc.http_rpc import HttpRpcClient
@@ -147,9 +157,10 @@ def get_toolkit(
 
 def _add_runtime_cli_args(parser: argparse.ArgumentParser) -> None:
     """Register component connection and deployment options."""
+    add_cuda_device_arg(parser)
     parser.set_defaults(_flash_options=None)
     parser.add_argument("--env-endpoint", default=None)
-    parser.add_argument("--vla-endpoint", default=None)
+    add_am_args(parser, platform="dual_franka")
     parser.add_argument(
         "--sam3-endpoint",
         default=None,
@@ -161,15 +172,12 @@ def _add_runtime_cli_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--robot-config", default=None)
     parser.add_argument(
-        "--vla-model-path",
-        default=os.environ.get("PI05_CHECKPOINT_PATH"),
+        "--sam3-cuda-device",
+        type=int,
+        default=None,
+        help="GPU ordinal for the local SAM3 service; may share GPUs with other "
+        "services. Defaults to --cuda-device, then inherits CUDA_VISIBLE_DEVICES.",
     )
-    parser.add_argument(
-        "--vla-repo-id",
-        default=os.environ.get("DUAL_FRANKA_REPO_ID"),
-        help="SFT dataset repo ID used to locate norm_stats.json",
-    )
-    parser.add_argument("--cuda-device", type=int, default=None)
 
 
 def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
@@ -204,6 +212,7 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
 
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
+    select_am(args, "dual_franka")
     set_robot_config_path(args.robot_config or DEFAULT_CONFIG)
     validate_calibration_sources()
     if args.task_id is None:
@@ -249,9 +258,11 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     )
 
 
-def _cuda_args(args: argparse.Namespace) -> list[str]:
+def _sam3_cuda_args(args: argparse.Namespace) -> list[str]:
     return (
-        ["--cuda-device", str(args.cuda_device)] if args.cuda_device is not None else []
+        ["--cuda-device", str(resolve_cuda_device(args, "sam3"))]
+        if resolve_cuda_device(args, "sam3") is not None
+        else []
     )
 
 
@@ -284,13 +295,12 @@ def _env_server_command(
 
 
 def _vla_server_command(
-    args: argparse.Namespace,
+    am: AMConfig,
     *,
     host: str,
     port: int,
 ) -> list[str]:
     command = [
-        sys.executable,
         "-m",
         "rpent.robots.components.pi05_vla_server",
         "--embodiment",
@@ -302,13 +312,10 @@ def _vla_server_command(
         "--port",
         str(port),
         "--model-path",
-        args.vla_model_path,
-        "--repo-id",
-        args.vla_repo_id,
+        am.checkpoint,
+        *am.model_arguments,
         "--parent-watch",
     ]
-    if args.cuda_device is not None:
-        command.extend(_cuda_args(args))
     return command
 
 
@@ -346,21 +353,21 @@ def _spawn_vla_server(
     output_dir: Path,
 ) -> tuple[ProcessDaemon | None, RpcClient]:
     """Spawn (or attach to) the dual-Franka VLA service."""
-    if args.vla_endpoint is not None:
-        return None, make_rpc_client(args.vla_endpoint)
-    if not args.vla_model_path or not args.vla_repo_id:
+    am = select_am(args, "dual_franka")
+    if am.endpoint is not None:
+        return None, make_rpc_client(am.endpoint)
+    if not am.checkpoint or not am.model_arguments:
         raise ValueError(
-            "dual-Franka VLA auto-start requires --vla-model-path and "
-            "--vla-repo-id (or PI05_CHECKPOINT_PATH and "
+            "dual-Franka VLA auto-start requires --am-checkpoint and "
+            "--pi05-repo-id or --pi05-norm-stats-path (or PI05_CHECKPOINT_PATH and "
             "DUAL_FRANKA_REPO_ID)"
         )
     host, port = "127.0.0.1", pick_free_port()
-    daemon = ProcessDaemon(
+    daemon = am.spawn_worker(
+        _vla_server_command(am, host=host, port=port),
+        output_dir,
         name="dual_franka_vla_server",
-        cmd=_vla_server_command(args, host=host, port=port),
-        log_path=str(output_dir / "dual_franka_vla_server.log"),
     )
-    daemon.start()
     return daemon, HttpRpcClient(f"http://{host}:{port}")
 
 
@@ -389,7 +396,7 @@ def _spawn_sam3_server(
             "--port",
             str(port),
             "--parent-watch",
-            *_cuda_args(args),
+            *_sam3_cuda_args(args),
         ],
         log_path=str(output_dir / "sam3_server.log"),
     )
@@ -412,6 +419,7 @@ def _init_runtime(
     to attach, or leave it unset to spawn a local subprocess. Manual calls can
     supply descriptions directly instead of selecting a registered task.
     """
+    select_am(args, "dual_franka")
     from robots.dual_franka.env_client import DualFrankaEnvClient
     from rpent.robots.components.pi05_vla_client import Pi05VLAClient
     from rpent.robots.components.sam3_client import Sam3Client
@@ -422,7 +430,7 @@ def _init_runtime(
     if unknown:
         raise ValueError(f"unknown dual-Franka runtime components: {sorted(unknown)}")
 
-    needs_vla = args.vla_endpoint is not None
+    needs_vla = args.am_endpoint is not None
     if task_description is not None:
         needs_vla = needs_vla or vla_instruction is not None
     elif args.task_id is not None:
@@ -435,7 +443,7 @@ def _init_runtime(
     if options := args._flash_options:
         from robots.franka.flash.common import VLA_ACTIONS
 
-        needs_vla = args.vla_endpoint is not None or any(
+        needs_vla = args.am_endpoint is not None or any(
             entry["action"] in VLA_ACTIONS for entry in options["card"]["plan"]
         )
     needs_sam3 = args.sam3_endpoint is not None or bool(

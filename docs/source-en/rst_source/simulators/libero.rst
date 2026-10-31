@@ -22,7 +22,7 @@ Check the model, task, and runtime requirements before following the installatio
 
    .. grid-item-card:: Action Models
 
-      Pi0.5
+      Pi0.5; Cosmos Policy, Cosmos3 and Fast-WAM for standard/Pro evaluation.
 
    .. grid-item-card:: Planners
 
@@ -191,6 +191,29 @@ Complete the model setup above and configure a planner with :doc:`../guides/conf
 
 To switch planners, see :doc:`../guides/configure_planner`.
 
+WAM Evaluation
+~~~~~~~~~~~~~~
+
+Prepare a worker with :doc:`../development/add_action_model` and keep the simulator
+and SAM3 setup above. Pi0.5 weights are not needed for WAM. With Cosmos on port 8116:
+
+.. code-block:: bash
+
+   rpent --robot libero --suite libero_spatial --task 0 --seed 0 \
+     --libero-type standard --am-backend cosmos-policy \
+     --am-endpoint http://127.0.0.1:8116 --memory-profile local \
+     --planner api --model <planner-model>
+
+Fast-WAM uses ``--am-backend fast-wam`` and its worker endpoint. For LIBERO-Pro,
+select a Pro suite and ``--libero-type pro`` in a Pro environment. WAM excludes
+LIBERO-Plus, Flash and exploration. WAM uses a required local memory manager
+and file tools, with a backend-specific directory that may be empty.
+Use ``--memory-dir`` to select a compatible local corpus; HF memory is unsupported.
+``wam_act(prompt=None, max_chunks=1)`` replaces the Pi0.5 tools and executes one
+to four chunks with fresh observations. The worker's ``chunk_size`` metadata
+declares the number of actions per chunk. A prompt override applies to
+that call only. Chunk budgets do not specify where to stop inside a chunk.
+
 View Results
 ------------
 
@@ -204,6 +227,9 @@ Inspect the final state with ``view_env_state(step=-1)``. Its top-level ``termin
 
 Task Memory and Exploration Mode
 --------------------------------
+
+The HF memory and exploration workflows in this section apply to VLA.
+WAM uses local memory as described above.
 
 Evaluation is single-attempt and reads memory without updating it. The default
 ``hf`` profile uses ``--memory-version auto`` to select memory by model. See
@@ -251,7 +277,7 @@ Reproduction command:
      --planner-timeout-s 5000 \
      --max-episode-steps 10000 \
      --libero-type pro \
-     --vla-endpoint http://127.0.0.1:8220 \
+     --am-endpoint http://127.0.0.1:8220 \
      --sam3-endpoint http://127.0.0.1:8114
 
 What Runs Where
@@ -326,7 +352,7 @@ client without touching the robot by:
 
 1. Writing a new ``vla_server.py`` that exposes the same ``predict``
    RPC contract (over HTTP or socket).
-2. Pointing at it with ``--vla-endpoint [protocol://]host:port``.
+2. Pointing at it with ``--am-endpoint [protocol://]host:port``.
 3. Optionally updating ``robots/libero/toolkit.py`` if the tool
    surface (e.g. ``pi0_pick`` → ``mymodel_pick``) needs to change.
 

@@ -19,7 +19,7 @@ import os
 
 import numpy as np
 
-from rpent.robots.components.vla_facade_base import BaseVLAFacade
+from rpent.robots.components.am_facade_base import BaseVLAFacade
 from rpent.utils.logging import get_logger
 from rpent.utils.rpc.rpc_facade import DEFAULT_SESSION_TIMEOUT_S
 

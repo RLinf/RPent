@@ -54,9 +54,15 @@ def run_dashboard_session(
     parser: argparse.ArgumentParser,
 ) -> int:
     """Run one long-lived Dashboard Session with sequential fresh TaskRuns."""
+    try:
+        dashboard_spec = robot_spec.resolve_dashboard(args)
+    except ValueError as exc:
+        parser.error(str(exc))
+    if dashboard_spec is None:
+        parser.error(f"robot {robot_spec.name!r} does not support Dashboard control")
     if (
         robot_spec.is_real_robot
-        and not (robot_spec.dashboard or {}).get("external_env", False)
+        and not dashboard_spec.get("external_env", False)
         and not robot_spec.supports_human_interactive_exploration
     ):
         parser.error(
@@ -67,9 +73,6 @@ def run_dashboard_session(
     from rpent.dashboard.state import DashboardState
     from rpent.utils.config import get_repo_root
 
-    dashboard_spec = robot_spec.dashboard
-    if dashboard_spec is None:
-        parser.error(f"robot {robot_spec.name!r} does not support Dashboard control")
     runtime_components = tuple(
         component
         for component in dashboard_spec["runtime_components"]

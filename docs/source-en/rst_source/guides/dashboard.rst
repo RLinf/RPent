@@ -71,8 +71,8 @@ reused by the Session. Submit a new ``/rpent-task`` to start or switch tasks;
 during a run, normal messages steer the agent and Esc requests an interruption.
 Press Ctrl+C in the terminal to stop the Session.
 
-``--dashboard`` cannot be combined with ``--tui`` or
-``--env-endpoint``. External ``--vla-endpoint`` and ``--sam3-endpoint``
+``--dashboard`` cannot be combined with ``--interactive`` or
+``--env-endpoint``. External ``--am-endpoint`` and ``--sam3-endpoint``
 services remain supported. Use ``--dashboard-language zh-cn`` for the
 Chinese UI.
 
