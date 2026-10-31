@@ -362,6 +362,8 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         else f"{args.task_name}_s0"
     )
     prompt_vars = {
+        "policy_kind": "wam" if wam else "vla",
+        "policy_backend": am.backend,
         "task_name": args.task_name,
         "seed": args.seed,
         "task_config": task_config,
@@ -372,8 +374,6 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         "reference_tag": reference_tag,
         "recipe_tag": recipe_tag,
     }
-    if wam is not None:
-        prompt_vars.update(policy_kind="wam", policy_backend=wam.backend)
     if explore:
         prompt_vars.update(
             {

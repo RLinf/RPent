@@ -28,16 +28,11 @@ def system_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> PromptNode:
     """Return the RoboTwin system prompt for the selected run mode."""
-    if (variables or {}).get("policy_kind") == "wam":
-        return {
-            "ROLE": "Control the RoboTwin robot using wam_act and scripted tools.",
-            "WORKFLOW": "Inspect view_env_state at step 0. Call wam_act for one chunk, "
-            "then inspect the new state and images before continuing. Omit prompt to use "
-            "the native task; supply a grounded subtask only when needed. "
-            "Stop acting when the episode ends. Use native eval_success to judge full-task "
-            "success, and call finish with the observed outcome.",
-        }
-    if (variables or {}).get("mode", "eval") == "explore":
+    variables = variables or {}
+    if (
+        variables.get("mode", "eval") == "explore"
+        and variables.get("policy_kind") != "wam"
+    ):
         return explore_parts.system_prompt()
     return evaluate_parts.system_prompt(variables)
 
@@ -47,8 +42,8 @@ def user_prompt(
 ) -> PromptNode:
     if (variables or {}).get("policy_kind") == "wam":
         return {
-            "TASK": "Inspect view_env_state for the native task and current scene, then use wam_act.",
-            "MEMORY": "Local memory directory: {{memory_dir}}.",
+            "TASK": user_parts.WAM_TASK,
+            "MEMORY": user_parts.WAM_MEMORY,
         }
     prompt = {
         "CELL": user_parts.CELL,
