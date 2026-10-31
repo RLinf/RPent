@@ -47,8 +47,13 @@ def run_scripted_policy_chain(
     output_dir: Path,
     action: ScriptedToolCall,
     action_count_field: str,
+    before_finish: tuple[ScriptedToolCall, ...] = (),
 ) -> dict[str, Any]:
-    """Run the public CLI against a deterministic loopback planner."""
+    """Run the public CLI against a deterministic loopback planner.
+
+    ``before_finish`` holds calls a robot requires between the action and
+    ``finish``, such as asking a real robot's operator for a verdict.
+    """
     memory_dir = output_dir.parent / "offline-memory"
     memory_dir.mkdir(parents=True, exist_ok=True)
     (memory_dir / "MEMORY.md").write_text(
@@ -63,6 +68,7 @@ def run_scripted_policy_chain(
     )
     script = (
         action,
+        *before_finish,
         ScriptedToolCall(
             "finish",
             {
@@ -114,6 +120,8 @@ def run_scripted_policy_chain(
             [*command, "--base-url", planner_server.base_url],
             cwd=repo_root,
             env=env,
+            # A scripted session must never wait for an operator's terminal input.
+            stdin=subprocess.DEVNULL,
             check=False,
         )
     if completed.returncode != 0:

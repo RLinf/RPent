@@ -218,3 +218,38 @@ def test_diagnostics_reports_health_and_cameras_without_moving(served, tmp_path)
     }
     assert "error" in report["cameras"]["wrist_left"]
     assert (tmp_path / "check" / "head.png").exists()
+
+
+class BlockingAgentEnv(FakeAgentEnv):
+    def __init__(self) -> None:
+        super().__init__()
+        self.moving = threading.Event()
+        self.released = threading.Event()
+
+    def move_delta(self, arm, delta_xyz):
+        self.moving.set()
+        stopped = self.released.wait(timeout=5.0)
+        return {"ok": not stopped, "stopped": stopped}
+
+    def stop(self):
+        self.released.set()
+        return {"ok": True, "stopped": True}
+
+
+def test_a_stop_request_reaches_the_motion_holding_the_server(served):
+    env = BlockingAgentEnv()
+    _, runtime_kwargs = robot_spec._init_runtime(
+        _args(served(env)), None, NullDashboardEventSink(), {"env"}
+    )
+    client = runtime_kwargs["env"]
+    moved: dict = {}
+    mover = threading.Thread(
+        target=lambda: moved.update(client.move_delta("left", [0.0, 0.0, 0.05]))
+    )
+    mover.start()
+    assert env.moving.wait(timeout=5.0)
+
+    assert client.request_stop() == {"ok": True, "stopped": True}
+    mover.join(timeout=5.0)
+
+    assert moved == {"ok": False, "stopped": True}

@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -64,6 +65,7 @@ class R2AgentEnv:
         self._site = site
         self._env = env
         self._closed = False
+        self._stop_requested = threading.Event()
         self._connection = connection
         self._joint_names = {
             group: tuple(names) for group, names in joint_names.items()
@@ -286,6 +288,7 @@ class R2AgentEnv:
     ) -> dict[str, Any]:
         """Move one TCP to an absolute pose, keeping its orientation by default."""
         self._check_arm(arm)
+        self._stop_requested.clear()
         _, tcp = self._measured()
         start = tcp[arm]
         target_xyz = np.asarray(xyz, dtype=np.float64).reshape(3)
@@ -302,6 +305,7 @@ class R2AgentEnv:
     def move_delta(self, arm: str, delta_xyz: Sequence[float]) -> dict[str, Any]:
         """Translate one TCP by a ``base_link`` offset, keeping its orientation."""
         self._check_arm(arm)
+        self._stop_requested.clear()
         delta = np.asarray(delta_xyz, dtype=np.float64).reshape(3)
         if float(np.linalg.norm(delta)) > self._site.motion.max_delta_m:
             return _refusal(
@@ -315,6 +319,7 @@ class R2AgentEnv:
     def rotate_delta(self, arm: str, delta_rpy: Sequence[float]) -> dict[str, Any]:
         """Rotate one TCP about the ``base_link`` axes, keeping its position."""
         self._check_arm(arm)
+        self._stop_requested.clear()
         rotation = Rotation.from_euler("xyz", np.asarray(delta_rpy, dtype=np.float64))
         if rotation.magnitude() > self._site.motion.max_rotation_rad:
             return _refusal(
@@ -371,13 +376,13 @@ class R2AgentEnv:
             ),
         }
         if not completed:
-            result["error"] = "the move did not complete"
-            result["health"] = self._connection.diagnose().to_dict()
+            result.update(self._incomplete("the move"))
         return result
 
     def set_gripper(self, arm: str, opening: float) -> dict[str, Any]:
         """Move one gripper to ``opening`` (0 closed, 1 fully open)."""
         self._check_arm(arm)
+        self._stop_requested.clear()
         if self._connection.end_effector_type != "gripper":
             return _refusal(
                 f"this R2 has end effector {self._connection.end_effector_type!r}, "
@@ -397,12 +402,12 @@ class R2AgentEnv:
             ),
         }
         if not completed:
-            result["error"] = "the gripper command did not complete"
-            result["health"] = self._connection.diagnose().to_dict()
+            result.update(self._incomplete("the gripper command"))
         return result
 
     def look(self, yaw: float, pitch: float) -> dict[str, Any]:
         """Turn the head to absolute neck angles in radians."""
+        self._stop_requested.clear()
         target = np.array([float(yaw), float(pitch)])
         low, high = np.asarray(self._neck_spec.low), np.asarray(self._neck_spec.high)
         if np.any(target < low) or np.any(target > high):
@@ -419,22 +424,23 @@ class R2AgentEnv:
         if int(self._connection.body_dof) == 20:
             result["notice"] = "This 20-DoF body has no neck yaw; only pitch moved."
         if not completed:
-            result["error"] = "the head move did not complete"
-            result["health"] = self._connection.diagnose().to_dict()
+            result.update(self._incomplete("the head move"))
         return result
 
     def go_home(self) -> dict[str, Any]:
         """Return both arms to the configured rest pose."""
+        self._stop_requested.clear()
         try:
             self._env.go_to_rest()
         except RuntimeError as error:
-            return _refusal(str(error), health=self._connection.diagnose().to_dict())
+            return {"ok": False, **self._incomplete("the return home", str(error))}
         return {"ok": True, "robot_state": self.robot_state()}
 
     def move_base(
         self, vx: float, vy: float, wz: float, duration: float
     ) -> dict[str, Any]:
         """Drive the chassis at a body-frame velocity for ``duration`` seconds."""
+        self._stop_requested.clear()
         limits = self._site.base
         if not limits.allow_motion:
             return _refusal("base motion is disabled in this site's config")
@@ -450,11 +456,33 @@ class R2AgentEnv:
         start = _rounded(state.base_pose)
         self._connection.move_base_pulse([vx, vy, wz], duration=float(duration))
         state, _ = self._measured()
-        return {
-            "ok": True,
+        result = {
+            "ok": not self._stop_requested.is_set(),
             "start_base_pose": start,
             "base_pose": _rounded(state.base_pose),
         }
+        if not result["ok"]:
+            result.update(self._incomplete("the base motion"))
+        return result
+
+    def _incomplete(self, what: str, reason: str = "") -> dict[str, Any]:
+        """Explain why a motion that started did not complete."""
+        if self._stop_requested.is_set():
+            return {"error": f"{what} was stopped on request", "stopped": True}
+        return {
+            "error": reason or f"{what} did not complete",
+            "health": self._connection.diagnose().to_dict(),
+        }
+
+    def stop(self) -> dict[str, Any]:
+        """Stop the arms, head, and chassis where they are, ending the running motion.
+
+        Safe to call from another thread while a motion runs; that motion then
+        reports that it was stopped.
+        """
+        self._stop_requested.set()
+        self._connection.hold()
+        return {"ok": True, "stopped": True}
 
     # Episode lifecycle
 

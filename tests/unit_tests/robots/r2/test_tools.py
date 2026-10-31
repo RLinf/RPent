@@ -15,6 +15,8 @@
 
 from __future__ import annotations
 
+import threading
+
 import numpy as np
 import pytest
 
@@ -270,3 +272,103 @@ def test_toolkit_offers_optional_tools_only_when_configured(
     )
     assert moved.data["step_idx"] == 1 and moved.images
     assert toolkit.execute_tool("set_gripper", {"arm": "left", "opening": 2.0}).is_error
+
+
+def _toolkit(tmp_path, client=None, answers=()):
+    init_output_dir(tmp_path / "run")
+    replies = iter(answers)
+    return R2Toolkit(
+        runtime_kwargs={"env": client or FakeClient()},
+        dashboard_events=NullDashboardEventSink(),
+        memory=MemoryManager(root=tmp_path / "memory"),
+        operator_input=lambda prompt: next(replies),
+    )
+
+
+def _finish(toolkit, status="failure"):
+    return toolkit.execute_tool("finish", {"status": status, "summary": "done"}).data
+
+
+def test_finish_follows_the_operator_verdict(tmp_path):
+    toolkit = _toolkit(tmp_path, answers=["Success  cup on the plate", "failure"])
+    move = {"arm": "left", "delta_xyz": [0.0, 0.0, 0.01]}
+
+    assert _finish(toolkit)["error"] == "finish refused"
+    judged = toolkit.execute_tool("request_operator_verdict", {}).data["result"]
+    assert judged == {
+        "ok": True,
+        "operator_verdict": "success",
+        "operator_notes": "cup on the plate",
+    }
+    assert toolkit.solved()
+    # Moving afterwards changes the judged scene, so the verdict is dropped.
+    toolkit.execute_tool("move_delta", move)
+    assert not toolkit.solved() and _finish(toolkit)["error"] == "finish refused"
+    toolkit.execute_tool("request_operator_verdict", {})
+    finished = _finish(toolkit, status="success")
+
+    assert finished["_finish"] is True and finished["status"] == "failure"
+    assert finished["operator_verdict"] == "failure"
+    events = toolkit.state.load("operator_events.json", step=None)
+    assert [e["kind"] for e in events] == [
+        "verdict",
+        "verdict_discarded",
+        "verdict",
+        "finish",
+    ]
+
+
+def test_an_operator_abort_refuses_motion_and_allows_finish(tmp_path):
+    toolkit = _toolkit(tmp_path, answers=["maybe", "abort arm too close"])
+    move = {"arm": "left", "delta_xyz": [0.0, 0.0, 0.01]}
+
+    invalid = toolkit.execute_tool("request_operator_verdict", {}).data
+    toolkit.execute_tool("request_operator_verdict", {})
+    refused = toolkit.execute_tool("move_delta", move).data
+
+    assert "invalid operator reply" in invalid["error"]
+    assert refused["error"] == "motion refused: the operator aborted this run"
+    finished = _finish(toolkit, status="success")
+    assert finished["status"] == "failure" and finished["operator_aborted"] is True
+
+
+def test_without_an_operator_the_run_finishes_unverified(tmp_path):
+    toolkit = _toolkit(tmp_path, answers=[None])
+
+    unavailable = toolkit.execute_tool("request_operator_verdict", {}).data
+
+    assert unavailable["error"] == "no operator can answer from this terminal"
+    assert _finish(toolkit, status="success")["status"] == "failure"
+
+
+class SlowClient(FakeClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.moving = threading.Event()
+        self.released = threading.Event()
+
+    def move_delta(self, arm, delta_xyz):
+        self.moving.set()
+        self.released.wait(timeout=5.0)
+        return {"ok": False, "stopped": True}
+
+    def request_stop(self):
+        self.calls.append(("request_stop",))
+        self.released.set()
+        return {"ok": True, "stopped": True}
+
+
+def test_cancelling_a_motion_stops_the_robot(tmp_path):
+    client = SlowClient()
+    toolkit = _toolkit(tmp_path, client=client)
+    worker = threading.Thread(
+        target=toolkit.execute_tool,
+        args=("move_delta", {"arm": "left", "delta_xyz": [0.0, 0.0, 0.01]}),
+    )
+    worker.start()
+    assert client.moving.wait(timeout=5.0)
+
+    toolkit.cancel_active_and_wait()
+    worker.join(timeout=5.0)
+
+    assert not worker.is_alive() and ("request_stop",) in client.calls

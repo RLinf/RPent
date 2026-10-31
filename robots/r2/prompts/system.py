@@ -48,5 +48,5 @@ WORKFLOW = (
     "Point the head at the work area with look, then locate the targets.",
     "Plan a short sequence of bounded moves and execute one at a time, checking each result.",
     "Return the arms home when the task is done or abandoned.",
-    "Finish only when the success evidence is visible in the images and consistent with the state.",
+    "Call request_operator_verdict when the task looks done or cannot be done, then finish; the operator's verdict decides the outcome. If the operator answers continue, keep working; if abort, stop moving and finish.",
 )

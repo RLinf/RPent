@@ -1062,6 +1062,16 @@
             "min_score": {"default": 0.2, "description": "The lowest SAM3 confidence to accept.", "maximum": 1, "minimum": 0, "type": "number"}
           }
         }
+      },
+      {
+        "name": "request_operator_verdict",
+        "description": "Ask the onsite operator to judge the robot's physical result; finish follows their verdict.\n\nThe operator answers success, failure, continue (keep working), or abort\n(stop moving), optionally with notes. Moving the robot afterwards\ndiscards a success or failure verdict.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "question": {"default": "Is the task done as instructed?", "description": "What the operator should judge, phrased for a person looking at the robot.", "type": "string"}
+          }
+        }
       }
     ],
     "robots/dual_franka/tools.py": [

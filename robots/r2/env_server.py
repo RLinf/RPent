@@ -17,6 +17,9 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
+import sys
+from pathlib import Path
 from typing import Any
 
 from robots.r2.runtime_config import load_site_config
@@ -30,7 +33,8 @@ class R2EnvFacade(BaseEnvFacade):
     """Expose the R2 ``env.*`` protocol from one :class:`R2AgentEnv`.
 
     Every motion holds the facade's write lock, so planner calls never
-    overlap on the hardware; observations take the read lock.
+    overlap on the hardware; observations take the read lock. A stop request
+    takes neither, so it reaches the motion that is running.
     """
 
     _MOTIONS = (
@@ -51,9 +55,18 @@ class R2EnvFacade(BaseEnvFacade):
         super()._register_rpc()
         for name in self._MOTIONS:
             self._rpc[f"env.{name}"] = getattr(self._env, name)
+        self._rpc["env.request_stop"] = self._env.stop
         self._rpc["env.observe"] = self._env.observe
         self._rpc["env.get_robot_state"] = self._env.robot_state
         self._readonly_methods.update({"env.observe", "env.get_robot_state"})
+
+    def _dispatch(
+        self, method: str, args: tuple, kwargs: dict, *, session_id: str | None = None
+    ) -> Any:
+        # A stop has to reach the motion that holds the write lock.
+        if method == "env.request_stop":
+            return self._env.stop()
+        return super()._dispatch(method, args, kwargs, session_id=session_id)
 
     def get_env_meta(self) -> dict[str, Any]:
         return self._env.get_env_meta()
@@ -70,6 +83,26 @@ class R2EnvFacade(BaseEnvFacade):
 
     def close(self) -> None:
         self._env.close()
+
+
+def simulated_sdks() -> contextlib.AbstractContextManager:
+    """Install RLinf's simulated R2 controller in place of the robot's SDK.
+
+    The simulation ships with RLinf's tests, so it needs RLinf from a source
+    checkout rather than an installed wheel.
+    """
+    import rlinf
+
+    tests = Path(rlinf.__file__).resolve().parents[1] / "tests"
+    if not (tests / "robot_mocks").is_dir():
+        raise RuntimeError(
+            f"--mock needs RLinf from a source checkout; {tests / 'robot_mocks'} "
+            "does not exist"
+        )
+    sys.path.insert(0, str(tests))
+    from robot_mocks import mocked_sdks
+
+    return mocked_sdks()
 
 
 def main() -> int:
@@ -92,6 +125,11 @@ def main() -> int:
         help="socket unpickles requests, so use it only on a trusted network",
     )
     parser.add_argument("--parent-watch", action="store_true")
+    parser.add_argument(
+        "--mock",
+        action="store_true",
+        help="Drive RLinf's simulated R2 controller instead of the robot",
+    )
     args = parser.parse_args()
 
     from robots.r2.rlinf_env import R2AgentEnv
@@ -100,21 +138,22 @@ def main() -> int:
         site = load_site_config(args.robot_config)
     except (OSError, ValueError) as error:
         parser.error(str(error))
-    env = R2AgentEnv.from_site(site)
-    facade = R2EnvFacade(env)
-    logger.info("R2 env server ready: %s", env.get_env_meta())
-    try:
-        # serve() closes the facade, and with it the robot, when it returns.
-        facade.serve(
-            transport=args.transport,
-            host=args.host,
-            port=args.port,
-            parent_watch=args.parent_watch,
-        )
-    except KeyboardInterrupt:
-        pass
-    finally:
-        env.close()
+    with simulated_sdks() if args.mock else contextlib.nullcontext():
+        env = R2AgentEnv.from_site(site)
+        facade = R2EnvFacade(env)
+        logger.info("R2 env server ready: %s", env.get_env_meta())
+        try:
+            # serve() closes the facade, and with it the robot, when it returns.
+            facade.serve(
+                transport=args.transport,
+                host=args.host,
+                port=args.port,
+                parent_watch=args.parent_watch,
+            )
+        except KeyboardInterrupt:
+            pass
+        finally:
+            env.close()
     return 0
 
 

@@ -76,6 +76,12 @@ class R2EnvClient(BaseEnvClient):
             "env.get_camera_meta", timeout_s=self._TIMEOUT_S["default"]
         )
 
+    def request_stop(self) -> dict[str, Any]:
+        """Stop the running motion, if any, where the robot is."""
+        return self._client.call(
+            "env.request_stop", timeout_s=self._TIMEOUT_S["default"]
+        )
+
     def _motion(self, name: str, **kwargs: Any) -> dict[str, Any]:
         return self._client.call(
             f"env.{name}", kwargs=kwargs, timeout_s=self._TIMEOUT_S["env.motion"]

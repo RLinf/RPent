@@ -40,6 +40,8 @@ if TYPE_CHECKING:
 
 
 R2_DASHBOARD_SPEC: DashboardSpec = {
+    # The operator runs the env server on the robot; RPent only attaches to it.
+    "external_env": True,
     "task": {
         "command": "/rpent-task",
         "usage": "/rpent-task <task_id>",

@@ -241,6 +241,10 @@ Tools
      - Finds one object in a recorded image with SAM3, by name or by a pixel on
        it, and returns its mask, overlay, and ``base_link`` location. Offered
        only when SAM3 is configured.
+   * - ``request_operator_verdict``
+     - Asks the operator, on RPent's terminal, whether the task is done:
+       ``success``, ``failure``, ``continue``, or ``abort``, optionally followed
+       by notes.
 
 A refused motion returns ``ok: false`` with the reason and leaves the robot
 still. A move that starts but does not complete also returns the robot's
@@ -257,17 +261,45 @@ camera intrinsics and poses used by ``back_project``. Each ``segment`` call
 adds its overlay, ``<camera>_segment_<n>.png``, to the step whose image it
 segmented.
 
-R2 has no automatic success check. The planner's ``finish`` summary and the
-recorded images are evidence for the operator, who judges whether the task
-succeeded.
+R2 has no automatic success check, so the operator judges the result. When
+the task looks done, the planner calls ``request_operator_verdict`` and RPent
+asks on its terminal; answer ``success`` or ``failure`` (notes may follow),
+``continue`` to let the planner keep working, or ``abort`` to refuse any
+further motion. ``finish`` is refused until the operator has answered, and its
+status is the operator's verdict rather than the planner's own claim. Moving
+the robot after a verdict discards it, because the scene it judged has
+changed. Without a terminal, for example when RPent runs in the background,
+the run finishes as an unverified failure. Every question and answer is saved
+in ``operator_events.json``.
+
+Try It Without the Robot
+------------------------
+
+``--mock`` runs the env server against RLinf's simulated R2 controller instead
+of the robot. The simulation follows the streamed joint commands and reports
+joint states like the robot, but its cameras return blank images without depth,
+so use it to check motion, stopping, and the planner's tool flow rather than
+perception. It ships with RLinf's tests, so it needs an RLinf source checkout
+with the R2 integration, importable together with RPent. The robot's URDF is
+not available off the robot, so use a site config with ``perception.urdf:
+null``:
+
+.. code-block:: bash
+
+   python -m robots.r2.env_server --mock --robot-config site_without_urdf.yaml
+   uv run rpent --robot r2 --task-id 0 --env-endpoint http://127.0.0.1:8120 \
+     --planner claude_code --model claude-opus-4-8
+
+The same setup runs the end-to-end tests: ``pytest tests/e2e_tests/r2``.
 
 Safety and Stopping
 -------------------
 
 * Keep an operator at the emergency stop whenever the env server runs.
   Validate task ``0`` and a reviewed workspace before attempting grasps.
-* Interrupting RPent waits for the current motion to finish; every motion is
-  bounded in distance and speed.
+* Interrupting RPent stops the running motion: the env server brakes the arms,
+  head, and chassis within their acceleration limits, and they hold where they
+  stop. The interrupted tool reports that it was stopped.
 * The env server reports controller faults in each state's ``health``. RLinf
   clears recoverable faults automatically; an emergency stop stays latched
   until the operator releases it on the robot. The planner is instructed to

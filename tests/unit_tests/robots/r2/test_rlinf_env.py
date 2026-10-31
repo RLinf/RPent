@@ -55,6 +55,8 @@ class FakeConnection:
         self.grippers = {"left": 1.0, "right": 1.0}
         self.moves: list[dict] = []
         self.complete = True
+        self.holds = 0
+        self.during_move = None
         self.joint_group_specs = {
             "neck": SimpleNamespace(
                 low=np.array([-1.5, -0.7]), high=np.array([1.5, 0.35])
@@ -93,7 +95,13 @@ class FakeConnection:
             solved[f"{arm}_joint_positions"] = q
         return solved
 
+    def hold(self):
+        self.holds += 1
+        self.complete = False
+
     def move_body_smooth(self, **kwargs):
+        if self.during_move is not None:
+            self.during_move()
         self.moves.append(kwargs)
         for group in ("left_arm", "right_arm", "neck"):
             if group in kwargs:
@@ -267,3 +275,21 @@ def test_reset_starts_from_rest_and_close_is_idempotent():
     env.close()
 
     assert (rlinf_env.resets, rlinf_env.closed) == (1, 1)
+
+
+def test_a_stop_ends_the_running_motion_and_says_so():
+    env, connection, _ = _env()
+    connection.during_move = env.stop
+
+    stopped = env.move_delta("left", [0.0, 0.0, 0.05])
+    connection.during_move = None
+    failed = env.look(0.0, -0.3)
+
+    assert connection.holds == 1
+    assert stopped["ok"] is False and stopped["stopped"] is True
+    assert stopped["error"] == "the move was stopped on request"
+    assert "health" not in stopped
+    # A later motion clears the request, so its own failure is not a stop.
+    assert (
+        failed["error"] == "the head move did not complete" and "stopped" not in failed
+    )

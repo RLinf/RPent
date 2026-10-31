@@ -162,6 +162,8 @@ RPent 先连接 SAM3，再连接 env server，因此 SAM3 启动失败时，运�
      - 用该步的深度、内参和相机位姿，把已记录图像中的像素换算成 ``base_link`` 中的点。
    * - ``segment``
      - 用 SAM3 按名称或物体上的一个像素，在已记录图像中找到一个物体，返回掩码、叠加图和它在 ``base_link`` 中的位置。只有配置了 SAM3 时才会提供。
+   * - ``request_operator_verdict``
+     - 在 RPent 的终端上询问操作员任务是否完成，可回答 ``success``、``failure``、``continue`` 或 ``abort``，后面可附备注。
 
 被拒绝的动作会返回 ``ok: false`` 和原因，机器人保持不动。已经开始但没有完成的动作，还会附带机器人的健康状态。
 
@@ -170,12 +172,25 @@ RPent 先连接 SAM3，再连接 env server，因此 SAM3 启动失败时，运�
 
 每次运行的结果写入 ``logs/<timestamp>_r2_t<task_id>/``。``states.json`` 按步列出指令、结果和实测状态。每一步都保存 ``head.png``、``wrist_left.png``、``wrist_right.png``、以毫米为单位的深度图（``<camera>_depth_mm.npy``），以及 ``camera_meta.json``，后者记录了 ``back_project`` 所用的相机内参和位姿。每次调用 ``segment`` 都会把叠加图 ``<camera>_segment_<n>.png`` 存到被分割图像所在的那一步。
 
-R2 没有自动成功判定。规划器的 ``finish`` 总结和记录下来的图像是给操作员的依据，由操作员判断任务是否成功。
+R2 没有自动成功判定，任务结果由操作员判断。规划器认为任务完成时会调用 ``request_operator_verdict``，RPent 随即在终端上提问：回答 ``success`` 或 ``failure``（后面可附备注）；回答 ``continue`` 让规划器继续工作；回答 ``abort`` 则拒绝之后的一切运动。操作员作答之前，``finish`` 会被拒绝；结束状态以操作员的判断为准，而不是规划器自己的结论。判断之后如果机器人又动了，这次判断就会作废，因为它评判的场景已经改变。如果 RPent 没有可用的终端（例如在后台运行），本次运行会以“未经确认的失败”结束。每一次提问和回答都会保存在 ``operator_events.json`` 中。
+
+不连接机器人试运行
+------------------
+
+``--mock`` 让 env server 连接 RLinf 的模拟 R2 控制器，而不是真实机器人。模拟控制器会跟随流式下发的关节指令，并像机器人一样上报关节状态；但它的相机只返回空白图像，没有深度。因此它适合检查运动、停止和规划器的工具调用流程，而不适合检查感知。模拟控制器随 RLinf 的测试代码一起提供，所以需要一份包含 R2 集成的 RLinf 源码，并且能和 RPent 在同一个环境中导入。机器人的 URDF 只存在于机器人上，所以请使用 ``perception.urdf: null`` 的站点配置：
+
+.. code-block:: bash
+
+   python -m robots.r2.env_server --mock --robot-config site_without_urdf.yaml
+   uv run rpent --robot r2 --task-id 0 --env-endpoint http://127.0.0.1:8120 \
+     --planner claude_code --model claude-opus-4-8
+
+同样的环境也可以运行端到端测试：``pytest tests/e2e_tests/r2``。
 
 安全与停止
 ----------
 
 * env server 运行期间，必须有操作员守在急停按钮旁。在尝试抓取之前，先跑通任务 ``0``，并检查好工作空间配置。
-* 中断 RPent 时会等待当前动作结束；每个动作的距离和速度都有上限。
+* 中断 RPent 会停止正在执行的动作：env server 让手臂、头部和底盘在加速度上限内减速，并停在减速结束的位置。被中断的工具会报告它已被停止。
 * env server 在每一步状态的 ``health`` 中报告控制器故障。可恢复的故障由 RLinf 自动清除；急停会保持锁定，直到操作员在机器人上解除。规划器被要求在健康状态异常时停止。
 * 按 Ctrl-C 停止 env server，手臂会停在最后的位置。
