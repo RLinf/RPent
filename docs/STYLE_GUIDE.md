@@ -54,7 +54,7 @@ Keep the same sections and ordering in both languages:
 5. **Simulators / 仿真环境**: LIBERO, RoboCasa365, and RoboTwin. Each page owns
    its installation, first run, reproduction protocol, and troubleshooting.
 6. **Real-World Robots / 真实机器人**: Single-Arm Franka, Dual-Arm Franka, YAM,
-   and SO-101. Preserve coming-soon pages and describe their actual status.
+   R2, and SO-101. Preserve coming-soon pages and describe their actual status.
 7. **Concepts & Development / 原理与开发**: architecture, interfaces, memory
    design, and extension guides for environments, tools, and planners.
 8. **Resources / 项目资源**: Harness VLA, contributing, and release notes.

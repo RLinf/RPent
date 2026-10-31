@@ -16,6 +16,7 @@ tests/
 │   ├── run_gpu_suite.sh  # clean-environment entry point for one robot stack
 │   ├── dual_franka/      # opt-in real-robot VLA diagnostic console
 │   ├── libero/
+│   ├── r2/               # R2 against RLinf's simulated controller; no hardware
 │   ├── robocasa/
 │   └── robotwin/
 └── unit_tests/
@@ -147,3 +148,16 @@ Offline regression tests remain in `unit_tests/robots/dual_franka/`.
 See the deployment prerequisites in the
 [English](../docs/source-en/rst_source/real_world_robots/dual_franka.rst) or
 [Chinese](../docs/source-zh/rst_source/real_world_robots/dual_franka.rst) guide.
+
+## R2 simulated-controller tests
+
+`e2e_tests/r2/` starts `robots.r2.env_server --mock`, which drives RLinf's
+simulated R2 controller instead of the robot, then checks the env component
+(observation, motion, stop, return home) and the scripted policy chain through
+the public CLI. They need no GPU or robot, but they need RPent and an RLinf
+source checkout with the R2 integration importable in one environment, because
+the simulation ships with RLinf's tests. Without that, they are skipped.
+
+```bash
+pytest tests/e2e_tests/r2 -v
+```

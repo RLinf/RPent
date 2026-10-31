@@ -1,0 +1,196 @@
+Robbyant R2
+===========
+
+RPent 可以用 LLM 规划器直接操作 Robbyant R2，无需学习得到的动作策略。R2 是一台轮式人形机器人，配有两条 7 自由度机械臂、平行夹爪、装在俯仰/偏航颈部上的头部 RGB-D 相机，以及两个腕部 RGB-D 相机。规划器查看相机图像，借助深度把目标定位到三维空间（也可以用 SAM3 按名称查找物体），再通过有界的工具调用控制机械臂、夹爪和头部。每个动作在机器人执行前，都会先按站点配置中的限位进行检查。
+
+整个系统分布在两台机器上：
+
+* **env server** 运行在 R2 上。它持有 RLinf 的 R2 环境，由该环境连接机器人控制器和相机，并对每条指令执行站点限位检查。
+* RPent 和规划器运行在 **工作站** 上，通过 HTTP 连接 env server。工作站不需要安装任何机器人软件。
+
+每次工具调用对应一个有界动作：env server 求解逆运动学，把动作流式发送给控制器，并返回实测结果。随后 RPent 记录机器人状态和所有相机图像，规划器再据此决定下一步。
+
+环境要求
+--------
+
+* 一台 R2，带出厂的机器人软件和 ROS 2 环境（``/opt/robbyant/entry_env.sh`` 以及 ``/opt/py310`` 中的 Python 3.10）。
+* 机器人上有一份包含 R2 环境（``rlinf/envs/real/r2``）的 RLinf 源码。R2 集成位于 RLinf 的 ``feat/r2-robot`` 分支。
+* 工作站能通过网络访问机器人；env server 运行期间，必须有操作员守在急停按钮旁。
+
+安装
+----
+
+**在机器人上**，把 RPent 放在 RLinf 旁边，并安装到独立的虚拟环境中。``--system-site-packages`` 让 pip 复用机器人 Python 中已有的 NumPy、SciPy 等包，而不是再装一份：
+
+.. code-block:: bash
+
+   git clone https://github.com/RLinf/RPent.git ~/RPent
+   git clone -b feat/r2-robot https://github.com/RLinf/RLinf.git ~/RLinf  # 已有则跳过
+   /opt/py310/bin/python3.10 -m venv --system-site-packages ~/rpent-venv
+   ~/rpent-venv/bin/pip install -e ~/RPent
+
+**在工作站上**，按常规方式安装 RPent，R2 不需要额外的依赖组：
+
+.. code-block:: bash
+
+   git clone https://github.com/RLinf/RPent.git
+   cd RPent
+   uv sync
+
+然后参照 :doc:`../guides/configure_planner` 配置规划器。
+
+站点配置
+--------
+
+env server 读取一个 YAML 文件，其中描述了机器人本身，以及规划器可以活动的范围。在机器人上复制一份 ``robots/r2/config/example.yaml``，例如复制到 ``~/r2_site.yaml``，并在允许机器人运动之前逐节检查：
+
+.. list-table::
+   :header-rows: 1
+   :widths: 18 82
+
+   * - 配置节
+     - 内容
+   * - ``robot``
+     - RLinf ``R2Config`` 选项：本体型号（为 ``null`` 时自动检测）、末端执行器、相机、深度，以及是否读取底盘。
+   * - ``rest``
+     - 任务复位和 ``go_home`` 时两臂回到的休息位姿，以及回位速度和最短时长。
+   * - ``motion``
+     - 规划器每次运动的关节速度、单次调用允许的最大平移和旋转，以及每条机械臂 TCP 的轴对齐工作空间。
+   * - ``base``
+     - 是否允许规划器驱动底盘（默认关闭），以及速度和时长限制。``allow_motion: true`` 还要求 ``robot.enable_base: true``。
+   * - ``perception``
+     - 机器人的 URDF，以及每个相机在 URDF 中的坐标系、内参和镜头畸变。
+
+所有位置都以米为单位，表示在 ``base_link`` 中：x 向前、y 向左、z 向上，原点位于机器人正下方的地面。休息位姿下两个 TCP 大约在 ``x=0.08, y=±0.18, z=0.66``。请把每条机械臂的工作空间设为它可以触及的桌面区域，并与机身和周围人员保持距离。
+
+**相机标定。** 相机位姿由机器人的 URDF（其中已包含手眼标定结果）和实测的腰部、颈部、手臂关节角共同算出，因此头部转动、手臂运动后依然准确。R2 不发布相机内参。没有内参时，规划器仍可以小步移动并对照图像检查结果，但无法把像素换算成三维点。要启用 ``back_project``，请按各相机发布的分辨率（头部 1280×800，腕部 640×480）填写内参，数值可来自相机出厂标定或棋盘格标定。头部是广角镜头，还需要填写 OpenCV 畸变系数：
+
+.. code-block:: yaml
+
+   perception:
+     cameras:
+       head:
+         frame: camera_head_color_optical_frame_calibration
+         intrinsics: {fx: 0.0, fy: 0.0, cx: 0.0, cy: 0.0}  # 填入你的标定结果
+         distortion: [0.0, 0.0, 0.0, 0.0, 0.0]            # k1, k2, p1, p2, k3
+
+启动 env server
+---------------
+
+在机器人上先加载机器人环境，再把 RPent 虚拟环境放在 ``PYTHONPATH`` 最前面。``entry_env.sh`` 会把系统 site-packages 加入 ``PYTHONPATH``，否则这些旧版本会遮住 RPent 所需的新版本依赖：
+
+.. code-block:: bash
+
+   source /opt/robbyant/entry_env.sh
+   export PYTHONPATH=~/rpent-venv/lib/python3.10/site-packages:~/RLinf:~/.local/lib/python3.10/site-packages:$PYTHONPATH
+   cd ~/RPent
+   ~/rpent-venv/bin/python -m robots.r2.env_server \
+     --robot-config ~/r2_site.yaml --host 0.0.0.0 --port 8120
+
+用 ``--host`` 指定工作站能访问的地址；默认的 ``127.0.0.1`` 只接受本机连接。server 不对客户端做身份验证，任何能访问该端口的人都能让机器人运动，所以只应绑定到你能控制的网络接口上。``--transport socket`` 比默认的 HTTP 传输更快，但它会反序列化（unpickle）每个请求，客户端因此也能在机器人上执行代码。启动 server 只会连接机器人，不会让它运动。server 可以跨多次 RPent 运行持续工作，按 Ctrl-C 即可断开。
+
+不运动检查机器人
+----------------
+
+首次运行前，以及每次修改配置后，先在工作站上检查 server：
+
+.. code-block:: bash
+
+   python -m robots.r2.diagnostics --env-endpoint http://ROBOT_IP:8120
+
+检查会输出已配置的限位、机器人健康状态、两个 TCP 的位置，以及每个相机的图像尺寸、有效深度像素比例、是否已有内参和位姿，并在 ``r2_check/`` 下为每个相机保存一张图像。机器人报告故障时，命令以非零状态退出。
+
+运行一个任务
+------------
+
+任务 ``0`` 是冒烟测试：规划器把头转向工作区，让每条手臂移动几厘米，转动一个手腕，开合一个夹爪，最后回到休息位姿。请先运行它：
+
+.. code-block:: bash
+
+   uv run rpent --robot r2 --task-id 0 \
+     --env-endpoint http://ROBOT_IP:8120 \
+     --planner claude_code --model claude-opus-4-8
+
+RPent 连接后会先复位机器人：**两条手臂会移动到休息位姿**。随后把初始状态记录为第 ``0`` 步，其中的 ``robot_info`` 包含各臂工作空间和单次调用的限位。
+
+任务 ``1`` 从桌上拿起一个物体，并放到原位置旁边约 0.15 m 处。它用 ``segment`` 或 ``back_project`` 定位物体，因此需要先完成相机标定。``--task-language`` 可以替换任务指令，例如指明要拿的物体：
+
+.. code-block:: bash
+
+   uv run rpent --robot r2 --task-id 1 --task-language "Pick up the red cup and place it on the plate" \
+     --env-endpoint http://ROBOT_IP:8120 \
+     --planner claude_code --model claude-opus-4-8
+
+用 SAM3 定位物体
+----------------
+
+有了 SAM3，规划器可以直接用简短的名称（例如 "red cup"）查找物体，而不必自己挑选像素。SAM3 是可选组件，需要 GPU，因此运行在工作站或其他 GPU 机器上，而不是机器人上。先用 ``uv sync --extra sam3`` 安装，再按 :doc:`../simulators/libero` 中 SAM3 配置一节的说明下载 ``sam3.pt``。之后任选一种方式：
+
+* 把 ``SAM3_CHECKPOINT_PATH`` 设为该权重文件，RPent 会为本次运行启动一个 SAM3 server，日志位于运行目录下的 ``sam3_server.log``；
+* 按 :doc:`../guides/advanced_deployment` 启动一个共享的 SAM3 server，并传入 ``--sam3-endpoint http://SAM3_HOST:SAM3_PORT``。
+
+RPent 先连接 SAM3，再连接 env server，因此 SAM3 启动失败时，运行会在复位让手臂运动之前就停止。配置 SAM3 后，规划器会获得 ``segment`` 工具：它在一张已记录的相机图像中分割出目标物体，返回掩码的像素框和中心，并附带叠加图，方便规划器核对选中的是否正确。若该相机有深度和标定，还会返回物体在 ``base_link`` 中的中位点和空间范围；没有标定时仍会返回像素结果。
+
+工具
+----
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 78
+
+   * - 工具
+     - 行为
+   * - ``move_to``
+     - 把一个 TCP 移到绝对位置；未给出 roll、pitch、yaw 时保持当前姿态。超出该臂工作空间或超过 ``max_move_m`` 时拒绝执行。
+   * - ``move_delta``
+     - 把一个 TCP 平移一段不超过 ``max_delta_m`` 的偏移。
+   * - ``rotate_delta``
+     - 绕 ``base_link`` 坐标轴把一个 TCP 旋转不超过 ``max_rotation_rad`` 的角度，位置保持不变。
+   * - ``set_gripper``
+     - 把一个夹爪移到 0（闭合）到 1（张开）之间的开度。
+   * - ``look``
+     - 把头部转到绝对颈部角度；pitch 为负时向下看。
+   * - ``go_home``
+     - 让两条手臂回到休息位姿。
+   * - ``move_base``
+     - 在限定时间内驱动底盘。只有站点配置允许底盘运动时才会提供。
+   * - ``view_env_state``
+     - 读取一条已记录的状态，以及对应的头部和腕部图像。
+   * - ``view_camera_meta``
+     - 读取已记录的相机内参和位姿。
+   * - ``back_project``
+     - 用该步的深度、内参和相机位姿，把已记录图像中的像素换算成 ``base_link`` 中的点。
+   * - ``segment``
+     - 用 SAM3 按名称或物体上的一个像素，在已记录图像中找到一个物体，返回掩码、叠加图和它在 ``base_link`` 中的位置。只有配置了 SAM3 时才会提供。
+   * - ``request_operator_verdict``
+     - 在 RPent 的终端上询问操作员任务是否完成，可回答 ``success``、``failure``、``continue`` 或 ``abort``，后面可附备注。
+
+被拒绝的动作会返回 ``ok: false`` 和原因，机器人保持不动。已经开始但没有完成的动作，还会附带机器人的健康状态。
+
+查看结果
+--------
+
+每次运行的结果写入 ``logs/<timestamp>_r2_t<task_id>/``。``states.json`` 按步列出指令、结果和实测状态。每一步都保存 ``head.png``、``wrist_left.png``、``wrist_right.png``、以毫米为单位的深度图（``<camera>_depth_mm.npy``），以及 ``camera_meta.json``，后者记录了 ``back_project`` 所用的相机内参和位姿。每次调用 ``segment`` 都会把叠加图 ``<camera>_segment_<n>.png`` 存到被分割图像所在的那一步。
+
+R2 没有自动成功判定，任务结果由操作员判断。规划器认为任务完成时会调用 ``request_operator_verdict``，RPent 随即在终端上提问：回答 ``success`` 或 ``failure``（后面可附备注）；回答 ``continue`` 让规划器继续工作；回答 ``abort`` 则拒绝之后的一切运动。操作员作答之前，``finish`` 会被拒绝；结束状态以操作员的判断为准，而不是规划器自己的结论。判断之后如果机器人又动了，这次判断就会作废，因为它评判的场景已经改变。如果 RPent 没有可用的终端（例如在后台运行），本次运行会以“未经确认的失败”结束。每一次提问和回答都会保存在 ``operator_events.json`` 中。
+
+不连接机器人试运行
+------------------
+
+``--mock`` 让 env server 连接 RLinf 的模拟 R2 控制器，而不是真实机器人。模拟控制器会跟随流式下发的关节指令，并像机器人一样上报关节状态；但它的相机只返回空白图像，没有深度。因此它适合检查运动、停止和规划器的工具调用流程，而不适合检查感知。模拟控制器随 RLinf 的测试代码一起提供，所以需要一份包含 R2 集成的 RLinf 源码，并且能和 RPent 在同一个环境中导入。机器人的 URDF 只存在于机器人上，所以请使用 ``perception.urdf: null`` 的站点配置：
+
+.. code-block:: bash
+
+   python -m robots.r2.env_server --mock --robot-config site_without_urdf.yaml
+   uv run rpent --robot r2 --task-id 0 --env-endpoint http://127.0.0.1:8120 \
+     --planner claude_code --model claude-opus-4-8
+
+同样的环境也可以运行端到端测试：``pytest tests/e2e_tests/r2``。
+
+安全与停止
+----------
+
+* env server 运行期间，必须有操作员守在急停按钮旁。在尝试抓取之前，先跑通任务 ``0``，并检查好工作空间配置。
+* 中断 RPent 会停止正在执行的动作：env server 让手臂、头部和底盘在加速度上限内减速，并停在减速结束的位置。被中断的工具会报告它已被停止。
+* env server 在每一步状态的 ``health`` 中报告控制器故障。可恢复的故障由 RLinf 自动清除；急停会保持锁定，直到操作员在机器人上解除。规划器被要求在健康状态异常时停止。
+* 按 Ctrl-C 停止 env server，手臂会停在最后的位置。

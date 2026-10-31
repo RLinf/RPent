@@ -62,6 +62,8 @@ Choose a Platform
      - Two-node deployment, operation, and exploration with an operator.
    * - :doc:`YAM <../real_world_robots/yam>`
      - Task demo available; installation and usage documentation is coming soon.
+   * - :doc:`R2 <../real_world_robots/r2>`
+     - LLM-planned arm, gripper, and head motion with depth-based target localization, without a VLA.
    * - :doc:`SO-101 <../real_world_robots/so101>`
      - Coming soon.
 

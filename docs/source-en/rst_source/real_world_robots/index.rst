@@ -16,5 +16,7 @@ Choose a platform for installation and usage instructions.
      - Dual-arm Franka installation, calibration, and operation.
    * - :doc:`yam`
      - Installation, configuration, and operation.
+   * - :doc:`r2`
+     - Wheeled humanoid operated by an LLM planner without a VLA.
    * - :doc:`so101`
      - Content coming soon.
