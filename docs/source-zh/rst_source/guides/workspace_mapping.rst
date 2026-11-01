@@ -10,7 +10,7 @@
 
 1. 安装 extra 与模型权重。
 2. 启动建图、感知与定位服务。
-3. 在操作者遥控时构建地图。
+3. 从录制的视频构建地图，录制过长时按段构建。
 4. 在已构建的地图上标注物体并查看结果。
 5. 定位归档帧或实时帧，并评估定位。
 6. 从终端、RPC 调用或 agent 工具检查通行。
@@ -22,8 +22,9 @@
 准备工作
 --------
 
-建图、标注、定位与通行检查都需要 CUDA GPU。300 帧的地图可以放进 24 GB 显
-存；更长的录制需要降低帧数或换用更大的设备。按需安装对应的 extra：
+建图、标注、定位与通行检查都需要 CUDA GPU。一次建图会话默认接收 300 帧，
+约为 24 GB 显存能重建的规模；``rpent.tools.build_map`` 会把更长的录制按段
+构建，而不是要求更大的设备。按需安装对应的 extra：
 
 .. list-table::
    :header-rows: 1
@@ -73,14 +74,15 @@ Hugging Face 上 transformers 格式的 ``model.safetensors`` 无法加载。
 每项能力都是独立的 RPC 服务，因此一台 GPU 机器可以为只有网络连接的机器人
 托管它们。按需启动。
 
-**建图。** ``rpent.robots.components.lingbotmap_server`` 同一时间持有一个建
-图会话（开始、推送帧、构建、停止），并把每张地图写到
-``LINGBOTMAP_OUTPUT_DIR`` 之下。
+这些服务位于顶层 ``toolkits`` 包中，与 ``robots`` 同级。
+
+**建图。** ``toolkits.mapping.server`` 同一时间持有一个建图会话（开始、推
+送帧、构建、停止），并把每张地图写到 ``LINGBOTMAP_OUTPUT_DIR`` 之下。
 
 .. code-block:: bash
 
    LINGBOTMAP_OUTPUT_DIR=/path/to/maps \
-       python -m rpent.robots.components.lingbotmap_server \
+       python -m toolkits.mapping.server \
        --transport http --host 127.0.0.1 --port 8116
 
 导出 ``LINGBOTMAP_CHECKPOINT_PATH`` 后，``build`` 会返回 GCT 流式模型算出的
@@ -88,63 +90,114 @@ Hugging Face 上 transformers 格式的 ``model.safetensors`` 无法加载。
 归档帧与位姿：工具流程相同，但地图没有深度，无法支撑定位或通行检查。请在
 启动服务端的环境中导出上述变量。
 
-**感知。** ``rpent.robots.components.gdino_sam2_server`` 把 Grounding DINO
-（开放词汇检测）与 SAM 2（掩码细化）封装在一次
-``gdino_sam2.detect_segment`` 调用背后。
+**感知。** ``toolkits.grounding.server`` 把 Grounding DINO（开放词汇检测）与
+SAM 2（掩码细化）封装在一次 ``gdino_sam2.detect_segment`` 调用背后。
 
 .. code-block:: bash
 
-   python -m rpent.robots.components.gdino_sam2_server \
+   python -m toolkits.grounding.server \
        --transport http --host 127.0.0.1 --port 8115
 
-**定位与通行检查。** ``rpent.robots.components.localize_server`` 加载一张已
-构建的地图，估计查询帧的位姿，并从该位姿检查一条走廊。DISK 与 LightGlue 在
-首次使用时下载权重。
+**定位与通行检查。** ``toolkits.localization.server`` 加载一张已构建的地图，
+估计查询帧的位姿，并从该位姿检查一条走廊。它的 ``--map-path`` 是构建写出的
+地图目录，例如 ``/path/to/maps/workspace``。DISK 与 LightGlue 在首次使用时
+下载权重。
 
 .. code-block:: bash
 
-   python -m rpent.robots.components.localize_server \
+   python -m toolkits.localization.server \
        --map-path /path/to/maps/workspace \
        --transport http --host 127.0.0.1 --port 8117
 
 当地图没有米制尺度、而结果需要以米表示时，传入 ``--camera-height-m``；详见
 :ref:`workspace-mapping-frames`。
 
-从 agent 工具集调用
-~~~~~~~~~~~~~~~~~~~
+服务客户端
+~~~~~~~~~~
 
-``rpent.tools.mapping.MappingMixin`` 把面向 agent 的工具加入机器人工具集，
-并且只在对应客户端已经接入时注册该工具：
+每项服务都在 ``toolkits`` 包中配有与传输无关的客户端，同一段调用既可用于本
+地服务，也可用于远程服务：
 
 .. list-table::
    :header-rows: 1
 
-   * - 客户端
-     - 增加的工具
-   * - ``LingBotMapClient``
-     - ``build_map``：开启会话、推送实时帧并完成构建。
-   * - ``GdinoSam2Client``
-     - ``detect_objects``，以及 ``build_map`` 内的标签标注。
-   * - ``LocalizeClient``
-     - 针对服务端所加载地图的 ``check_clearance``。
+   * - 调用
+     - 输入
+     - 返回
+   * - ``LingBotMapClient.start_session(map_name=...)``
+     - 地图名：由字母、数字、``_``、``.`` 和 ``-`` 组成的单个路径段。
+     - 会话 id。
+   * - ``LingBotMapClient.push_frame(rgb, pose=None, timestamp_s=...)``
+     - RGB ``[H,W,3]`` ``uint8`` 数组或 PNG 字节；可选机器人地图坐标系中的
+       底盘位姿 ``[x, y, yaw, roll, pitch, yaw_head]``；录制时钟上的秒数。
+     - 已接收的帧数。
+   * - ``LingBotMapClient.build()``
+     - 无。
+     - ``map_path``、帧数与 ``map.json`` 元数据；地图目录写在服务所在主机上。
+   * - ``LingBotMapClient.load_frame()``、``load_depth()``
+     - 地图路径与帧索引。
+     - 归档的 PNG 字节，以及深度与置信度数组。
+   * - ``GdinoSam2Client.detect_segment(image, labels=...)``
+     - RGB 帧与最多 16 个标签。
+     - 带得分的框与逐检测的实例掩码。
+   * - ``LocalizeClient.localize(frame, ...)``
+     - 与地图分辨率一致的 RGB 帧。
+     - ``status``、相机到世界位姿、所用关键帧与内点数。
+   * - ``LocalizeClient.check_path(frame=... | pose=..., ...)``
+     - 只传一个 RGB 帧或一个 4x4 相机到世界位姿，外加走廊参数。
+     - 通行状态及其测量结果。
 
-工具集通过 ``_map_frame()`` 提供每一步同步的 RGB 帧；机器人上报里程计时还会
-提供底盘位姿。这里不会拉起任何服务：先启动上面的服务端，再接入指向它们的
-客户端。未接入客户端时，工具不会出现在模型的工具列表中，避免模型调用必然失败
-的接口。
+地图路径始终是构建写出的目录，而不是其中的某个文件：``map.json`` 保存元数据
+契约，帧与 ``.npy`` 数组与它并列。客户端通过 RPC 读取帧与深度，
+``save_annotations`` 把标注写回，因此客户端无需访问构建地图那台机器的文件
+系统。
 
-构建地图
---------
+从视频构建地图
+--------------
 
-当工具集暴露 ``build_map`` 时，agent 通过该工具构建地图。工具开启会话，请操作
-者缓慢地遥控机器人绕行工作空间，并在操作者驾驶期间每 0.5 秒推送一次同步的
-相机帧（机器人上报里程计时还会推送底盘位姿）。操作者回复后，工具完成构建。
-若给出了标签，它随后从已构建的地图读回关键帧，并用感知服务做标注。见
-:ref:`workspace-mapping-grounding`。
+``rpent.tools.build_map`` 对录制采样，并按段构建地图，因此超过帧数上限的走
+查不需要更大的显卡：
 
-地图名必须是单个路径段，由字母、数字、``_``、``.`` 和 ``-`` 组成，并以字
-母或数字开头。服务端拒绝构建到已存在的地图目录，避免旧帧和旧标注混入新的构
-建。请换一个名字，或先删除旧目录。
+.. code-block:: bash
+
+   python -m rpent.tools.build_map \
+       --video workspace_walkthrough.mp4 \
+       --map-name workspace \
+       --endpoint http://127.0.0.1:8116
+
+命令每秒采样五帧（``--fps``），并在 ``--segment-frames`` 帧后结束一个会话，
+默认 300，需与服务端的 ``--max-frames`` 一致。能放进一段的录制写为
+``maps/workspace``；更长的录制写为 ``maps/workspace_00``、
+``maps/workspace_01`` 等，每段一张地图。各段独立重建、彼此不共享位姿，应分
+别当作独立的地图。
+
+加上 ``--labels chair desk monitor --perception-endpoint
+http://127.0.0.1:8115`` 可对每张地图做物体标注；见
+:ref:`workspace-mapping-grounding`。命令打印 JSON 摘要：
+
+.. code-block:: json
+
+   {
+     "video": "workspace_walkthrough.mp4",
+     "map_name": "workspace",
+     "fps": 5.0,
+     "segment_frames": 300,
+     "maps": [
+       {
+         "map_name": "workspace_00",
+         "map_path": "/path/to/maps/workspace_00",
+         "frames": 300,
+         "frames_pushed": 300,
+         "backend": "gct_stream",
+         "has_depth": true
+       }
+     ]
+   }
+
+``--output summary.json`` 把同一份文档写入文件。地图名必须是单个路径段，由字
+母、数字、``_``、``.`` 和 ``-`` 组成，并以字母或数字开头；按段编号时会追加
+``_00``、``_01`` 等。服务端拒绝构建到已存在的地图目录，避免旧帧和旧标注混入
+新的构建。请换一个名字，或先删除旧目录。
 
 构建出的地图目录如下：
 
@@ -196,7 +249,18 @@ Hugging Face 上 transformers 格式的 ``model.safetensors`` 无法加载。
    * - ``keyframes``
      - 关键帧索引文件及数量。
 
-录制超过帧数上限会以明确的错误结束；见 :ref:`workspace-mapping-limits`。
+从机器人构建
+~~~~~~~~~~~~
+
+``rpent.tools.mapping.MappingMixin`` 把三个面向 agent 的工具加入机器人工具
+集，并且只在对应客户端已经接入时注册该工具：``LingBotMapClient`` 对应
+``build_map``，``GdinoSam2Client`` 对应 ``detect_objects``，
+``LocalizeClient`` 对应 ``check_clearance``。工具集通过 ``_map_frame()`` 提供
+每一步同步的 RGB 帧，机器人上报里程计时还会提供底盘位姿；``build_map`` 开启
+会话、请操作者遥控机器人，并在操作者回复后完成构建。
+
+本仓库目前没有工具集接入这些工具，遥控路径也尚未在这里验证。上文从视频构建
+的命令是受支持的建图方式；服务协议与地图格式完全相同。
 
 不使用机器人测试建图服务
 ------------------------
@@ -207,8 +271,8 @@ Hugging Face 上 transformers 格式的 ``model.safetensors`` 无法加载。
 .. code-block:: python
 
    import numpy as np
-   from rpent.robots.components.lingbotmap_client import LingBotMapClient
    from rpent.utils.rpc.http_rpc import HttpRpcClient
+   from toolkits.mapping.client import LingBotMapClient
 
    client = LingBotMapClient(HttpRpcClient("http://127.0.0.1:8116"))
    client.start_session(map_name="smoke_test")
@@ -221,46 +285,26 @@ Hugging Face 上 transformers 格式的 ``model.safetensors`` 无法加载。
 
 构建成功会打印地图目录和帧数。若要丢弃会话，改调 ``client.stop_session()``。
 
-要真正跑重建并得到可检查的地图，可以用走查视频：读取视频，每秒抽取几帧
-（走动时画面变化缓慢，~5 fps 足够），然后推入：
+要得到可检查的地图，可用上文介绍的离线命令直接从走查视频构建：
 
-.. code-block:: python
+.. code-block:: bash
 
-   import cv2
-   from rpent.robots.components.lingbotmap_client import LingBotMapClient
-   from rpent.utils.rpc.http_rpc import HttpRpcClient
+   python -m rpent.tools.build_map \
+       --video workspace_walkthrough.mp4 \
+       --map-name from_video \
+       --endpoint http://127.0.0.1:8116
 
-   video = cv2.VideoCapture("workspace_walkthrough.mp4")
-   fps = video.get(cv2.CAP_PROP_FPS) or 30.0
-   sample_every = max(1, round(fps / 5.0))  # ~5 fps
-   frames = []
-   while True:
-       ok, frame = video.read()
-       if not ok:
-           break
-       frames.append(frame)
-   video.release()
-
-   client = LingBotMapClient(HttpRpcClient("http://127.0.0.1:8116"))
-   client.start_session(map_name="from_video")
-   for index, frame in enumerate(frames[::sample_every]):
-       rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)  # cv2 解码为 BGR
-       client.push_frame(rgb, pose=None, timestamp_s=index / 5.0)
-   result = client.build()
-   print(result.frames, "frames ->", result.map_path)
-
-录制时相机大致朝前。一个会话默认接受 300 帧；在更大的设备上可以调高服务端
-的 ``--max-frames``，录制更长的视频前请先读
-:ref:`workspace-mapping-limits`。该示例不推送底盘位姿，因此地图保持在模型
-坐标系中，尺度任意。可对生成的目录运行下文的离线标注。
+录制时相机大致朝前。该命令不推送底盘位姿，因此地图保持在模型坐标系中，尺度
+任意。可对生成的目录运行下文的离线标注。构建细节、分段规则与输出摘要见上文
+的“从视频构建地图”一节，帧数上限见 :ref:`workspace-mapping-limits`。
 
 .. _workspace-mapping-grounding:
 
 标注物体
 --------
 
-标注不必在 ``build_map`` 内完成。``rpent.tools.ground_map`` 读取已构建的地
-图，均匀选取关键帧（或用 ``--keyframes`` 指定索引），并把标注写回地图：
+标注可以在任何一次构建之后单独运行。``rpent.tools.ground_map`` 读取已构建
+的地图，均匀选取关键帧（或用 ``--keyframes`` 指定索引），并把标注写回地图：
 
 .. code-block:: bash
 
@@ -385,15 +429,15 @@ PnP RANSAC 解出查询帧在 ``map.json`` 所记录坐标系中的相机到世�
 
 .. code-block:: bash
 
-   python -m rpent.robots.components.localize_server \
+   python -m toolkits.localization.server \
        --map-path /path/to/maps/workspace \
        --transport http --host 0.0.0.0 --port 8117
 
 .. code-block:: python
 
    import imageio
-   from rpent.robots.components.localize_client import LocalizeClient
    from rpent.utils.rpc.http_rpc import HttpRpcClient
+   from toolkits.localization.client import LocalizeClient
 
    client = LocalizeClient(HttpRpcClient("http://127.0.0.1:8117"))
    frame = imageio.imread("live_frame.png")  # RGB [H,W,3]
@@ -507,8 +551,8 @@ PnP RANSAC 解出查询帧在 ``map.json`` 所记录坐标系中的相机到世�
 
 .. code-block:: python
 
-   from rpent.robots.components.localize_client import LocalizeClient
    from rpent.utils.rpc.http_rpc import HttpRpcClient
+   from toolkits.localization.client import LocalizeClient
 
    client = LocalizeClient(HttpRpcClient("http://127.0.0.1:8117"))
    result = client.check_path(frame, exhaustive=True, length=2.0)
@@ -567,9 +611,10 @@ PnP RANSAC 解出查询帧在 ``map.json`` 所记录坐标系中的相机到世�
 ----------
 
 **地图在帧数上限处停止。** 会话在达到 ``--max-frames`` 后拒绝新帧，默认 300，
-约为 24 GB 显存能重建的规模。一次 400 帧的构建在 24 GB 设备上耗尽显存。请
-放慢走查速度、在更大的设备上调高 ``--max-frames``，或把工作空间分成两张地
-图。显存耗尽失败后，下一次构建前先重启建图服务。
+约为 24 GB 显存能重建的规模。一次 400 帧的构建在 24 GB 设备上耗尽显存。
+``rpent.tools.build_map`` 会自动把更长的录像切成多段。实时会话必须在上限处
+停止，因此请降低 ``--fps``、在更大的设备上调高 ``--max-frames``，或改为从
+视频重建。显存耗尽失败后，下一次构建前先重启建图服务。
 
 **没有重力或地面。** 通行检查需要两者。过短或接近平面的录制可能没有足够的
 相机旋转来估计重力；此时地图对通行检查报告 ``unusable``，但定位仍然可用。

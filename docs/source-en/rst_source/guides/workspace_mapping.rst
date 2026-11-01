@@ -12,7 +12,7 @@ This page covers:
 
 1. Installing the extras and downloading the checkpoints.
 2. Starting the mapping, perception, and localization services.
-3. Building a map while an operator teleoperates.
+3. Building maps from a recorded video, in segments when it is long.
 4. Grounding object labels on a built map and inspecting the result.
 5. Localizing an archived or live frame, and evaluating localization.
 6. Checking obstacle clearance from the terminal, over RPC, or with the agent
@@ -26,9 +26,11 @@ the map records. The sections below state which frame and unit a result uses.
 Prerequisites
 -------------
 
-Mapping, grounding, localization, and clearance need a CUDA GPU. A 300-frame
-map fits in 24 GB of GPU memory; longer recordings need a smaller frame count
-or a larger device. Install the extras for the parts you use:
+Mapping, grounding, localization, and the clearance check need a CUDA GPU. One
+mapping session holds 300 frames by default, about what 24 GB of GPU memory
+reconstructs; ``rpent.tools.build_map`` builds a longer recording in segments
+instead of asking for a larger device. Install the extras for the parts you
+use:
 
 .. list-table::
    :header-rows: 1
@@ -80,14 +82,16 @@ Start the Services
 Each capability runs as its own RPC service, so a GPU machine can host them
 for a robot that has only a network connection. Start the ones you need.
 
-**Mapping.** ``rpent.robots.components.lingbotmap_server`` owns one mapping
-session at a time (start, push frames, build, stop) and writes each map below
+The services live in the top-level ``toolkits`` package, beside ``robots``.
+
+**Mapping.** ``toolkits.mapping.server`` owns one mapping session at a time
+(start, push frames, build, stop) and writes each map below
 ``LINGBOTMAP_OUTPUT_DIR``.
 
 .. code-block:: bash
 
    LINGBOTMAP_OUTPUT_DIR=/path/to/maps \
-       python -m rpent.robots.components.lingbotmap_server \
+       python -m toolkits.mapping.server \
        --transport http --host 127.0.0.1 --port 8116
 
 With ``LINGBOTMAP_CHECKPOINT_PATH`` exported, ``build`` returns camera poses
@@ -97,68 +101,124 @@ instead: the tool flow is identical, but the map has no depth and cannot
 support localization or clearance. Export these variables in the environment
 that starts the server.
 
-**Perception.** ``rpent.robots.components.gdino_sam2_server`` wraps Grounding
-DINO (open-vocabulary detection) and SAM 2 (mask refinement) behind one
+**Perception.** ``toolkits.grounding.server`` wraps Grounding DINO
+(open-vocabulary detection) and SAM 2 (mask refinement) behind one
 ``gdino_sam2.detect_segment`` call.
 
 .. code-block:: bash
 
-   python -m rpent.robots.components.gdino_sam2_server \
+   python -m toolkits.grounding.server \
        --transport http --host 127.0.0.1 --port 8115
 
-**Localization and clearance.** ``rpent.robots.components.localize_server``
-loads one built map, estimates the pose of a query frame, and checks a
-corridor from that pose. DISK and LightGlue download their weights on first
-use.
+**Localization and clearance.** ``toolkits.localization.server`` loads one
+built map, estimates the pose of a query frame, and checks a corridor from
+that pose. Its ``--map-path`` is the directory a build wrote, for example
+``/path/to/maps/workspace``. DISK and LightGlue download their weights on
+first use.
 
 .. code-block:: bash
 
-   python -m rpent.robots.components.localize_server \
+   python -m toolkits.localization.server \
        --map-path /path/to/maps/workspace \
        --transport http --host 127.0.0.1 --port 8117
 
 Pass ``--camera-height-m`` when the map has no metric scale and you want
 distances in metres; see :ref:`workspace-mapping-frames`.
 
-Use from an agent toolkit
-~~~~~~~~~~~~~~~~~~~~~~~~~
+Service Clients
+~~~~~~~~~~~~~~~
 
-``rpent.tools.mapping.MappingMixin`` adds the agent-facing tools to a robot
-toolkit and registers each one only when its client is attached:
+Each service has a transport-independent client in the ``toolkits`` package,
+so the same call works against a local or remote server:
 
 .. list-table::
    :header-rows: 1
 
-   * - Client
-     - Adds
-   * - ``LingBotMapClient``
-     - ``build_map``, which starts a session, pushes live frames, and builds.
-   * - ``GdinoSam2Client``
-     - ``detect_objects`` and label grounding inside ``build_map``.
-   * - ``LocalizeClient``
-     - ``check_clearance`` against the map loaded by the server.
+   * - Call
+     - Inputs
+     - Returns
+   * - ``LingBotMapClient.start_session(map_name=...)``
+     - A map name: one path segment of letters, digits, ``_``, ``.``, and
+       ``-``.
+     - The session id.
+   * - ``LingBotMapClient.push_frame(rgb, pose=None, timestamp_s=...)``
+     - An RGB ``[H,W,3]`` ``uint8`` array or PNG bytes; optionally the base
+       pose ``[x, y, yaw, roll, pitch, yaw_head]`` in the robot map frame;
+       seconds on the recording clock.
+     - Frames accepted so far.
+   * - ``LingBotMapClient.build()``
+     - Nothing.
+     - ``map_path``, the frame count, and the ``map.json`` metadata; the
+       service writes the map directory on its own host.
+   * - ``LingBotMapClient.load_frame()``, ``load_depth()``
+     - A map path and a frame index.
+     - The archived PNG bytes, and the depth and confidence arrays.
+   * - ``GdinoSam2Client.detect_segment(image, labels=...)``
+     - An RGB frame and at most 16 labels.
+     - Scored boxes and one instance mask per detection.
+   * - ``LocalizeClient.localize(frame, ...)``
+     - An RGB frame at the map's resolution.
+     - ``status``, the camera-to-world pose, the keyframe used, and inliers.
+   * - ``LocalizeClient.check_path(frame=... | pose=..., ...)``
+     - Exactly one RGB frame or one 4x4 camera-to-world pose, plus corridor
+       parameters.
+     - The clearance status and its measurements.
 
-The toolkit supplies one synchronized RGB frame per step through
-``_map_frame()``, and the base pose when the robot reports odometry. Nothing
-here starts a service: launch the servers above and attach clients that point
-at them. A run without the clients keeps the tools out of the model's schema
-rather than offering calls that would fail.
+A map path is always the directory a build created, never a file inside it:
+``map.json`` holds the metadata contract, and the frames and ``.npy`` arrays
+sit beside it. Clients read frames and depth over RPC, and
+``save_annotations`` writes grounding results back, so a client does not need
+filesystem access to the machine that built the map.
 
-Build a Map
------------
+Build Maps from a Video
+-----------------------
 
-When a toolkit exposes ``build_map``, the agent builds the map with that tool.
-It opens a session, asks the operator to teleoperate the robot slowly around
-the workspace, and pushes synchronized camera frames (and the base pose when
-the robot reports odometry) every 0.5 s while they drive. When the operator
-replies, the tool builds the map. If labels are given, it then reads keyframes
-back from the built map and grounds them with the perception service. See
-:ref:`workspace-mapping-grounding`.
+``rpent.tools.build_map`` samples a recording and builds one map per segment,
+so a walkthrough longer than the frame cap does not need a larger GPU:
 
-The map name must be a single path segment of letters, digits, ``_``, ``.``,
-and ``-``, starting with a letter or digit. The service refuses to build into
-an existing map directory, so stale frames and annotations cannot mix with a
-new build. Choose a new name, or delete the old directory first.
+.. code-block:: bash
+
+   python -m rpent.tools.build_map \
+       --video workspace_walkthrough.mp4 \
+       --map-name workspace \
+       --endpoint http://127.0.0.1:8116
+
+The command samples five frames per second (``--fps``) and closes a session
+after ``--segment-frames`` frames, 300 by default, which must match the
+server's ``--max-frames``. A recording that fits in one segment writes
+``maps/workspace``; a longer one writes ``maps/workspace_00``,
+``maps/workspace_01``, and so on, one map per segment. Segments are
+reconstructed independently and share no poses, so treat each as its own map.
+
+Add ``--labels chair desk monitor --perception-endpoint
+http://127.0.0.1:8115`` to ground objects on every built map; see
+:ref:`workspace-mapping-grounding`. The command prints a JSON summary:
+
+.. code-block:: json
+
+   {
+     "video": "workspace_walkthrough.mp4",
+     "map_name": "workspace",
+     "fps": 5.0,
+     "segment_frames": 300,
+     "maps": [
+       {
+         "map_name": "workspace_00",
+         "map_path": "/path/to/maps/workspace_00",
+         "frames": 300,
+         "frames_pushed": 300,
+         "backend": "gct_stream",
+         "has_depth": true
+       }
+     ]
+   }
+
+``--output summary.json`` writes the same document to a file. The map name
+must be a single path segment of letters, digits, ``_``, ``.``, and ``-``,
+starting with a letter or digit; numbered segments append ``_00``, ``_01``,
+and so on. The service refuses to build into an existing map directory, so
+stale frames and annotations cannot mix with a new build. Choose a new name,
+or delete the old directory first.
 
 A built map directory looks like this:
 
@@ -211,8 +271,20 @@ result should be interpreted are:
    * - ``keyframes``
      - The keyframe index file and its count.
 
-Recording longer than the frame cap fails with an explicit error; see
-:ref:`workspace-mapping-limits`.
+Building from a robot
+~~~~~~~~~~~~~~~~~~~~~
+
+``rpent.tools.mapping.MappingMixin`` adds three agent tools to a robot
+toolkit and registers each one only when its client is attached:
+``build_map`` with ``LingBotMapClient``, ``detect_objects`` with
+``GdinoSam2Client``, and ``check_clearance`` with ``LocalizeClient``. The
+toolkit supplies one synchronized RGB frame per step through ``_map_frame()``,
+and the base pose when the robot reports odometry; ``build_map`` opens a
+session, asks the operator to teleoperate, and builds the map when they reply.
+
+No toolkit in this repository wires those tools yet, and the teleoperation
+path has not been validated here. The video command above is the supported way
+to build a map; the service protocol and map format are the same.
 
 Test the Mapping Service Without a Robot
 ----------------------------------------
@@ -224,8 +296,8 @@ session and build paths:
 .. code-block:: python
 
    import numpy as np
-   from rpent.robots.components.lingbotmap_client import LingBotMapClient
    from rpent.utils.rpc.http_rpc import HttpRpcClient
+   from toolkits.mapping.client import LingBotMapClient
 
    client = LingBotMapClient(HttpRpcClient("http://127.0.0.1:8116"))
    client.start_session(map_name="smoke_test")
@@ -239,51 +311,28 @@ session and build paths:
 A successful build prints the map directory and the frame count. Call
 ``client.stop_session()`` instead of ``build`` to discard a session.
 
-To exercise reconstruction and produce a map worth inspecting, build from a
-walkthrough video: read it, sample a few frames per second (a walkthrough
-changes slowly, so ~5 fps is plenty), and push them:
+To produce a map worth inspecting, build it from a walkthrough video with the
+offline command described above:
 
-.. code-block:: python
+.. code-block:: bash
 
-   import cv2
-   from rpent.robots.components.lingbotmap_client import LingBotMapClient
-   from rpent.utils.rpc.http_rpc import HttpRpcClient
+   python -m rpent.tools.build_map \
+       --video workspace_walkthrough.mp4 \
+       --map-name from_video \
+       --endpoint http://127.0.0.1:8116
 
-   video = cv2.VideoCapture("workspace_walkthrough.mp4")
-   fps = video.get(cv2.CAP_PROP_FPS) or 30.0
-   sample_every = max(1, round(fps / 5.0))  # ~5 fps
-   frames = []
-   while True:
-       ok, frame = video.read()
-       if not ok:
-           break
-       frames.append(frame)
-   video.release()
-
-   client = LingBotMapClient(HttpRpcClient("http://127.0.0.1:8116"))
-   client.start_session(map_name="from_video")
-   for index, frame in enumerate(frames[::sample_every]):
-       rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)  # cv2 decodes BGR
-       client.push_frame(rgb, pose=None, timestamp_s=index / 5.0)
-   result = client.build()
-   print(result.frames, "frames ->", result.map_path)
-
-Hold the camera roughly forward-facing while walking. A session accepts 300
-frames by default; raise the server's ``--max-frames`` on a larger device, and
-read :ref:`workspace-mapping-limits` before recording longer. This example
-pushes no base poses, so the map stays in the model frame at arbitrary scale.
-Run the offline grounder below on the resulting directory to add object
-annotations.
+Hold the camera roughly forward-facing while walking. The command pushes no
+base poses, so the map stays in the model frame at arbitrary scale. Run the
+offline grounder below on the resulting directory to add object annotations.
 
 .. _workspace-mapping-grounding:
 
 Ground Objects
 --------------
 
-Grounding does not have to run inside ``build_map``.
-``rpent.tools.ground_map`` reads a built map, picks evenly spaced keyframes (or
-the indices passed with ``--keyframes``), and writes the annotations back into
-the map:
+Grounding can run on its own, after any build. ``rpent.tools.ground_map``
+reads a built map, picks evenly spaced keyframes (or the indices passed with
+``--keyframes``), and writes the annotations back into the map:
 
 .. code-block:: bash
 
@@ -429,15 +478,15 @@ frame per call:
 
 .. code-block:: bash
 
-   python -m rpent.robots.components.localize_server \
+   python -m toolkits.localization.server \
        --map-path /path/to/maps/workspace \
        --transport http --host 0.0.0.0 --port 8117
 
 .. code-block:: python
 
    import imageio
-   from rpent.robots.components.localize_client import LocalizeClient
    from rpent.utils.rpc.http_rpc import HttpRpcClient
+   from toolkits.localization.client import LocalizeClient
 
    client = LocalizeClient(HttpRpcClient("http://127.0.0.1:8117"))
    frame = imageio.imread("live_frame.png")  # RGB [H,W,3]
@@ -567,8 +616,8 @@ camera-to-world pose in the map frame, and forwards the corridor arguments:
 
 .. code-block:: python
 
-   from rpent.robots.components.localize_client import LocalizeClient
    from rpent.utils.rpc.http_rpc import HttpRpcClient
+   from toolkits.localization.client import LocalizeClient
 
    client = LocalizeClient(HttpRpcClient("http://127.0.0.1:8117"))
    result = client.check_path(frame, exhaustive=True, length=2.0)
@@ -637,9 +686,11 @@ Limits and Troubleshooting
 
 **The map stops at the frame cap.** A session refuses frames after
 ``--max-frames`` (300 by default, about what 24 GB of GPU memory reconstructs).
-A 400-frame build ran out of memory on a 24 GB device. Record a slower sweep,
-raise ``--max-frames`` on a larger device, or build two maps. After an
-out-of-memory failure, restart the mapping service before the next build.
+A 400-frame build ran out of memory on a 24 GB device. ``rpent.tools.build_map``
+splits a longer recording into segments automatically. A live session must stop
+at the cap instead, so lower ``--fps``, raise ``--max-frames`` on a larger
+device, or rebuild from the video. After an out-of-memory failure, restart the
+mapping service before the next build.
 
 **No gravity or floor.** Clearance needs both. A short or nearly planar
 recording may not give the estimator enough camera rotation to find gravity;
