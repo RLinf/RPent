@@ -875,16 +875,6 @@ def build_codex_config(
     if api_key:
         env[PROVIDER_ENV_KEY] = api_key
     config_overrides = _codex_mcp_config_overrides(mcp_url=mcp_url, base_url=base_url)
-    if sqlite_home := env.get("CODEX_SQLITE_HOME"):
-        sqlite_path = Path(sqlite_home).expanduser().resolve()
-        sqlite_path.mkdir(parents=True, exist_ok=True, mode=0o700)
-    else:
-        sqlite_root = Path(cwd) / "data" / "codex-sqlite"
-        sqlite_root.mkdir(parents=True, exist_ok=True, mode=0o700)
-        sqlite_path = Path(tempfile.mkdtemp(prefix="session-", dir=sqlite_root))
-    env["CODEX_SQLITE_HOME"] = str(sqlite_path)
-    config_overrides.append(f"sqlite_home={json.dumps(str(sqlite_path))}")
-    logger.info("Codex SQLite directory: %s", sqlite_path)
     # Project development instructions and skills are excluded from planner context.
     config_overrides.append("project_doc_max_bytes=0")
     disabled_skills = [

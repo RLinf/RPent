@@ -210,7 +210,7 @@ def main() -> None:
     init_output_dir(args.output_dir)
 
     device = args.device
-    kit_args = ""
+    kit_args = "--/renderer/multiGpu/autoEnable=false"
     if device.startswith("cuda"):
         os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
         ordinal = int(device.split(":")[1]) if ":" in device else 0
@@ -225,15 +225,19 @@ def main() -> None:
             ordinal = int(devices[ordinal])
         # Vulkan keeps physical GPU ordinals when CUDA masks remap CUDA devices.
         device = f"cuda:{ordinal}"
-        kit_args = f"--/renderer/activeGpu={ordinal}"
+        kit_args += f" --/renderer/activeGpu={ordinal}"
     logger.info("RoboLab simulation device: %s (requested %s)", device, args.device)
 
     import cv2  # noqa: F401 -- Isaac Lab requires OpenCV to load first.
     from isaaclab.app import AppLauncher
 
     app_launcher = AppLauncher(
-        headless=True, enable_cameras=True, device=device,
-        renderer="realtime", kit_args=kit_args,
+        headless=True,
+        enable_cameras=True,
+        device=device,
+        renderer="realtime",
+        multi_gpu=False,
+        kit_args=kit_args,
     )
     app = app_launcher.app
     logger.info("Isaac app started for RoboLab task %s", args.task)
@@ -257,8 +261,12 @@ def main() -> None:
         set_output_dir(args.output_dir)
         logger.info("Creating RoboLab environment for %s", args.task)
         env, env_cfg = create_env(
-            args.task, device=device, seed=args.seed, num_envs=1,
-            policy="rpent", renderer="realtime",
+            args.task,
+            device=device,
+            seed=args.seed,
+            num_envs=1,
+            policy="rpent",
+            renderer="realtime",
         )
         logger.info("RoboLab environment created for %s", args.task)
         facade = RoboLabEnvFacade(
