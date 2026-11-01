@@ -160,8 +160,9 @@ further, and the environment clips each one to these limits.
 ``camera_max_age`` is how old, in seconds, the newest captured frame may be for
 a step to reuse it. RLinf's default of 0.5 s yields at most two distinct frames
 a second, however fast the camera runs; ``0.05`` follows the 15 fps camera
-driver. The value must stay positive, so ``0`` is rejected, and raising it
-trades frame freshness for fewer camera reads.
+driver. ``0`` makes every step wait for a fresh frame, which stalls the drive
+while the camera is slower than the control loop; raising it trades frame
+freshness for fewer camera reads.
 
 Edit the generated file where it does not fit the robot, for example to
 rename the front camera entry or to raise ``frame_size`` for a resolution the
