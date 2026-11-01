@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from rpent.tools.ground_map import PreprocessSpec
+from toolkits.grounding.ground_map import PreprocessSpec
 from toolkits.mapping.server import _build_gct_metadata
 
 FRAMES = 2

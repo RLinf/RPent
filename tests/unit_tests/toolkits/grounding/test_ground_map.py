@@ -25,17 +25,17 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from rpent.tools.ground_map import (
+from toolkits.grounding.client import (
+    Detection,
+    DetectSegmentResult,
+)
+from toolkits.grounding.ground_map import (
     LocalMapSource,
     PreprocessSpec,
     ground_map,
     lift_mask,
     save_grounded_map,
     select_keyframes,
-)
-from toolkits.grounding.client import (
-    Detection,
-    DetectSegmentResult,
 )
 
 SOURCE_SIZE = (12, 16)

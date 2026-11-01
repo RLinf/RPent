@@ -34,13 +34,13 @@ fast hint whose result is still verified by PnP.
 The offline evaluator replays archived frames as held-out queries and reports
 success, translation/rotation error, and latency::
 
-    python -m rpent.tools.localize \\
+    python -m toolkits.localization.localize \\
         --map-path /path/to/maps/workspace \\
         --evaluate --query-stride 10
 
 Localize a single archived or live frame::
 
-    python -m rpent.tools.localize \\
+    python -m toolkits.localization.localize \\
         --map-path /path/to/maps/workspace \\
         --image /path/to/live_frame.png
 
@@ -66,8 +66,8 @@ from typing import Any, Protocol
 import numpy as np
 from PIL import Image
 
-from rpent.tools.ground_map import LocalMapSource, PreprocessSpec
 from rpent.utils.logging import get_logger
+from toolkits.grounding.ground_map import LocalMapSource, PreprocessSpec
 
 logger = get_logger("localize")
 

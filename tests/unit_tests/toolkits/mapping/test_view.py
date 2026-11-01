@@ -25,7 +25,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from rpent.tools.map_view import (
+from toolkits.mapping.view import (
     HTML_FILE,
     ISOMETRIC_FILE,
     OBJECTS_CSV,

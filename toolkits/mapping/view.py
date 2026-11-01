@@ -27,7 +27,7 @@ inspect without loading the reconstruction arrays:
 
 Run it on a map that has already been grounded::
 
-    python -m rpent.tools.map_view --map-path /path/to/maps/workspace
+    python -m toolkits.mapping.view --map-path /path/to/maps/workspace
 
 The report is written to ``<map>/report`` unless ``--output-dir`` names
 another directory. Plots are skipped for a map annotated in 2D only.
@@ -50,12 +50,12 @@ from typing import Any
 
 import numpy as np
 
-from rpent.tools.ground_map import (
+from rpent.utils.logging import get_logger
+from toolkits.grounding.ground_map import (
     LABEL_PALETTE,
     LocalMapSource,
 )
-from rpent.tools.map_geometry import gravity_up, meters_per_unit, rotation_to_z
-from rpent.utils.logging import get_logger
+from toolkits.map_geometry import gravity_up, meters_per_unit, rotation_to_z
 from toolkits.mapping.server import (
     ANNOTATIONS_DIR,
     OBJECTS_FILE,
@@ -809,7 +809,7 @@ def build_report(
         raise FileNotFoundError(f"map metadata not found: {metadata_path}")
     if not objects_path.is_file():
         raise FileNotFoundError(
-            f"annotations not found: {objects_path}; run rpent.tools.ground_map first"
+            f"annotations not found: {objects_path}; run toolkits.grounding.ground_map first"
         )
     metadata = json.loads(metadata_path.read_text())
     document = json.loads(objects_path.read_text())

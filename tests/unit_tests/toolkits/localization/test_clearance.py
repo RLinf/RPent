@@ -23,7 +23,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from rpent.tools.clearance import (
+from toolkits.localization.clearance import (
     ClearanceGeometry,
     ClearanceRequest,
     ClearanceResult,
@@ -488,7 +488,7 @@ class TestClearanceResult:
 def test_cli_checks_an_archived_pose(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    from rpent.tools.clearance import main
+    from toolkits.localization.clearance import main
 
     root = _write_map(
         tmp_path / "map",

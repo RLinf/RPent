@@ -25,8 +25,8 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from rpent.tools.ground_map import PreprocessSpec
-from rpent.tools.localize import (
+from toolkits.grounding.ground_map import PreprocessSpec
+from toolkits.localization.localize import (
     FeatureMatches,
     FeatureSet,
     LocalizationResult,

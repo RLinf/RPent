@@ -36,7 +36,7 @@ a caller-supplied camera height) also reports metres.
 
 Check a pose archived in a built map::
 
-    python -m rpent.tools.clearance \\
+    python -m toolkits.localization.clearance \\
         --map-path /path/to/maps/workspace \\
         --frame-index 40 --heading-deg 15
 """
@@ -55,9 +55,9 @@ from typing import Any
 
 import numpy as np
 
-from rpent.tools.ground_map import LocalMapSource, select_serialized_frame
-from rpent.tools.map_geometry import gravity_up, meters_per_unit, rotation_to_z
 from rpent.utils.logging import get_logger
+from toolkits.grounding.ground_map import LocalMapSource, select_serialized_frame
+from toolkits.map_geometry import gravity_up, meters_per_unit, rotation_to_z
 from toolkits.mapping.server import (
     OBJECTS_FILE,
     SEMANTIC_POINTS_FILE,

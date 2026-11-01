@@ -30,7 +30,7 @@ instances in the map's 3D frame:
 
 Run it offline on a built map directory::
 
-    python -m rpent.tools.ground_map \\
+    python -m toolkits.grounding.ground_map \\
         --map-path /path/to/maps/workspace \\
         --labels chair desk monitor \\
         --perception-endpoint http://127.0.0.1:8115

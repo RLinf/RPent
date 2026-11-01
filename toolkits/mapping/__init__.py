@@ -12,4 +12,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Workspace mapping service: a LingBot-Map RPC server and its client."""
+"""Workspace mapping: a LingBot-Map RPC service, its client, and offline map tools."""

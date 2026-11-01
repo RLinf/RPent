@@ -21,7 +21,9 @@ from typing import Any
 
 import numpy as np
 
-from rpent.tools.clearance import (
+from rpent.utils.images import encode_rgb_png
+from rpent.utils.rpc import RpcClient
+from toolkits.localization.clearance import (
     DEFAULT_HALF_WIDTH,
     DEFAULT_LENGTH,
     DEFAULT_MAX_HEIGHT,
@@ -29,7 +31,7 @@ from rpent.tools.clearance import (
     DEFAULT_UNIT,
     ClearanceResult,
 )
-from rpent.tools.localize import (
+from toolkits.localization.localize import (
     DEFAULT_MAX_RMS_PX,
     DEFAULT_MIN_INLIER_RATIO,
     DEFAULT_MIN_INLIERS,
@@ -37,8 +39,6 @@ from rpent.tools.localize import (
     DEFAULT_TOP_K,
     LocalizationResult,
 )
-from rpent.utils.images import encode_rgb_png
-from rpent.utils.rpc import RpcClient
 
 #: Exhaustive localization of a large map can take tens of seconds on first use.
 DEFAULT_TIMEOUT_S = 120.0

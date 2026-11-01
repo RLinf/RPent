@@ -24,9 +24,9 @@ from typing import Any
 import numpy as np
 import pytest
 
-from rpent.tools.localize import LocalizationResult
 from rpent.utils.rpc import RpcClient
 from toolkits.localization.client import LocalizeClient
+from toolkits.localization.localize import LocalizationResult
 from toolkits.localization.server import LocalizeFacade
 
 

@@ -22,13 +22,13 @@ the frame limit yields several maps instead of requiring a larger GPU.
 
 Run it against a running mapping service::
 
-    python -m rpent.tools.build_map \\
+    python -m toolkits.mapping.build_map \\
         --video workspace_walkthrough.mp4 \\
         --map-name workspace \\
         --endpoint http://127.0.0.1:8116
 
 Add ``--labels`` to ground objects on every map through the perception
-service; see :mod:`rpent.tools.ground_map`.
+service; see :mod:`toolkits.grounding.ground_map`.
 """
 
 from __future__ import annotations
@@ -42,14 +42,14 @@ from typing import Any
 
 import numpy as np
 
-from rpent.tools.ground_map import (
+from rpent.utils.logging import get_logger
+from rpent.utils.rpc.http_rpc import HttpRpcClient
+from toolkits.grounding.client import GdinoSam2Client
+from toolkits.grounding.ground_map import (
     ClientMapSource,
     ground_map,
     save_grounded_map_via_client,
 )
-from rpent.utils.logging import get_logger
-from rpent.utils.rpc.http_rpc import HttpRpcClient
-from toolkits.grounding.client import GdinoSam2Client
 from toolkits.mapping.client import LingBotMapClient, MapBuildResult
 from toolkits.mapping.server import DEFAULT_MAX_SESSION_FRAMES
 

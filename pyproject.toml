@@ -70,9 +70,9 @@ test = [
     "pytest-timeout",
     "omegaconf",
     "gymnasium",
-    # rpent.tools.map_view; offline report tests render real figures.
+    # toolkits.mapping.view; offline report tests render real figures.
     "matplotlib>=3.8",
-    # rpent.tools.localize; PnP and preprocessing tests need OpenCV.
+    # toolkits.localization.localize; PnP and preprocessing tests need OpenCV.
     "opencv-python-headless>=4.8",
 ]
 rlinf = [
@@ -164,7 +164,7 @@ yam = [
 ]
 grounding-sam2 = [
     # Local Grounding DINO + SAM 2 perception server for map labeling and the
-    # standalone detect_objects tool. Install into a CUDA environment and
+    # standalone ground_map tool. Install into a CUDA environment and
     # export GDINO_CHECKPOINT_PATH / SAM2_CHECKPOINT_PATH before starting it.
     "groundingdino-py==0.4.0",
     # groundingdino-py 0.4.0 calls BertModel.get_extended_attention_mask,
@@ -182,16 +182,16 @@ lingbot-map = [
     # checkpoint the server falls back to the frame-archive backend.
     "lingbot-map @ git+https://github.com/Robbyant/lingbot-map.git",
     "torch",
-    # rpent.tools.build_map decodes recorded videos with OpenCV.
+    # toolkits.mapping.build_map decodes recorded videos with OpenCV.
     "opencv-python-headless>=4.8",
 ]
 map-view = [
-    # Offline report renderer (rpent.tools.map_view) for built semantic maps.
+    # Offline report renderer (toolkits.mapping.view) for built semantic maps.
     "matplotlib>=3.8",
 ]
 localize = [
-    # Relocalization against a built map (rpent.tools.localize). DISK and
-    # LightGlue come from kornia and download their weights on first use.
+    # Relocalization against a built map (toolkits.localization.localize).
+    # DISK and LightGlue come from kornia and download their weights on first use.
     "kornia>=0.7",
     "opencv-python-headless>=4.8",
     "torch",

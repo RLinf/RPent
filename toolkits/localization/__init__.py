@@ -12,4 +12,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Map localization and clearance service over RPC."""
+"""Map localization and clearance: an RPC service, its client, and offline tools."""

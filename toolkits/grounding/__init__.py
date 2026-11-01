@@ -12,4 +12,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Object grounding service: Grounding DINO + SAM 2 over RPC."""
+"""Object grounding: a Grounding DINO + SAM 2 RPC service, its client, and offline labeling."""

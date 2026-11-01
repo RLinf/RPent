@@ -40,7 +40,9 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
-from rpent.tools.clearance import (
+from rpent.utils.logging import get_logger
+from rpent.utils.rpc import RpcFacade
+from toolkits.localization.clearance import (
     DEFAULT_HALF_WIDTH,
     DEFAULT_LENGTH,
     DEFAULT_MAX_HEIGHT,
@@ -49,7 +51,7 @@ from rpent.tools.clearance import (
     ClearanceRequest,
     MapClearance,
 )
-from rpent.tools.localize import (
+from toolkits.localization.localize import (
     DEFAULT_MAX_RMS_PX,
     DEFAULT_MIN_INLIER_RATIO,
     DEFAULT_MIN_INLIERS,
@@ -57,8 +59,6 @@ from rpent.tools.localize import (
     DEFAULT_TOP_K,
     MapLocalizer,
 )
-from rpent.utils.logging import get_logger
-from rpent.utils.rpc import RpcFacade
 
 logger = get_logger("localize_server")
 
@@ -147,7 +147,7 @@ def _index_list(value: Any) -> list[int]:
 
 
 class LocalizeFacade(RpcFacade):
-    """RPC server wrapping one :class:`~rpent.tools.localize.MapLocalizer`."""
+    """RPC server wrapping one :class:`~toolkits.localization.localize.MapLocalizer`."""
 
     def __init__(
         self,

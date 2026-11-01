@@ -22,7 +22,7 @@ from typing import Any
 import numpy as np
 import pytest
 
-from rpent.tools.build_map import (
+from toolkits.mapping.build_map import (
     build_maps,
     build_maps_from_video,
     estimated_segments,
