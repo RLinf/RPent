@@ -182,6 +182,8 @@ lingbot-map = [
     # checkpoint the server falls back to the frame-archive backend.
     "lingbot-map @ git+https://github.com/Robbyant/lingbot-map.git",
     "torch",
+    # rpent.tools.build_map decodes recorded videos with OpenCV.
+    "opencv-python-headless>=4.8",
 ]
 map-view = [
     # Offline report renderer (rpent.tools.map_view) for built semantic maps.
