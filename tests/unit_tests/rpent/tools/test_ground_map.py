@@ -25,10 +25,6 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from rpent.robots.components.gdino_sam2_client import (
-    Detection,
-    DetectSegmentResult,
-)
 from rpent.tools.ground_map import (
     LocalMapSource,
     PreprocessSpec,
@@ -36,6 +32,10 @@ from rpent.tools.ground_map import (
     lift_mask,
     save_grounded_map,
     select_keyframes,
+)
+from toolkits.grounding.client import (
+    Detection,
+    DetectSegmentResult,
 )
 
 SOURCE_SIZE = (12, 16)

@@ -18,8 +18,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from rpent.robots.components.lingbotmap_server import _build_gct_metadata
 from rpent.tools.ground_map import PreprocessSpec
+from toolkits.mapping.server import _build_gct_metadata
 
 FRAMES = 2
 

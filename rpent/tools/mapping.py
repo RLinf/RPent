@@ -44,20 +44,24 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal, Protocol
 
 from pydantic import Field
 
-from rpent.robots.components.gdino_sam2_client import GdinoSam2Client
-from rpent.robots.components.lingbotmap_client import (
-    DEFAULT_PUSH_TIMEOUT_S,
-    LingBotMapClient,
-)
-from rpent.robots.components.localize_client import LocalizeClient
 from rpent.tools import ToolResult, tool
 from rpent.tools.clearance import (
     DEFAULT_HALF_WIDTH,
     DEFAULT_LENGTH,
     DEFAULT_UNIT,
 )
-from rpent.tools.ground_map import ClientMapSource, ground_map
+from rpent.tools.ground_map import (
+    ClientMapSource,
+    ground_map,
+    save_grounded_map_via_client,
+)
 from rpent.utils.logging import get_logger
+from toolkits.grounding.client import GdinoSam2Client
+from toolkits.localization.client import LocalizeClient
+from toolkits.mapping.client import (
+    DEFAULT_PUSH_TIMEOUT_S,
+    LingBotMapClient,
+)
 
 if TYPE_CHECKING:
     from rpent.tools.base import Tool
@@ -466,18 +470,7 @@ class MappingMixin:
             annotations[label] = record
 
         try:
-            has_points = result.semantic_points.shape[0] > 0
-            map_client.save_annotations(
-                map_path,
-                objects=result.objects_payload(),
-                masks=result.masks,
-                semantic_points_npz=(
-                    result.semantic_npz_bytes() if has_points else None
-                ),
-                semantic_points_ply=(
-                    result.semantic_ply_bytes() if has_points else None
-                ),
-            )
+            save_grounded_map_via_client(result, map_client)
         except Exception as exc:
             return annotations, f"could not persist annotations: {exc}"
         return annotations, None

@@ -50,17 +50,17 @@ from typing import Any
 
 import numpy as np
 
-from rpent.robots.components.lingbotmap_server import (
-    ANNOTATIONS_DIR,
-    OBJECTS_FILE,
-    SEMANTIC_POINTS_FILE,
-)
 from rpent.tools.ground_map import (
     LABEL_PALETTE,
     LocalMapSource,
 )
 from rpent.tools.map_geometry import gravity_up, meters_per_unit, rotation_to_z
 from rpent.utils.logging import get_logger
+from toolkits.mapping.server import (
+    ANNOTATIONS_DIR,
+    OBJECTS_FILE,
+    SEMANTIC_POINTS_FILE,
+)
 
 logger = get_logger("map_view")
 

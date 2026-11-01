@@ -26,16 +26,16 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from rpent.robots.components.gdino_sam2_client import (
+from rpent.utils.rpc import RpcClient
+from toolkits.grounding.client import (
     GdinoSam2Client,
 )
-from rpent.robots.components.lingbotmap_client import LingBotMapClient
-from rpent.robots.components.lingbotmap_server import (
+from toolkits.mapping.client import LingBotMapClient
+from toolkits.mapping.server import (
     FrameArchiveBackend,
     LingBotMapFacade,
     build_lingbot_backend,
 )
-from rpent.utils.rpc import RpcClient
 
 
 class _LocalRpcClient(RpcClient):

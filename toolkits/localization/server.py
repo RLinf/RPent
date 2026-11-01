@@ -16,7 +16,7 @@
 
 Run manually with::
 
-    python -m rpent.robots.components.localize_server \
+    python -m toolkits.localization.server \
         --map-path /path/to/maps/workspace \
         --transport http --host 127.0.0.1 --port 8117
 

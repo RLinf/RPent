@@ -18,7 +18,7 @@ Run manually with::
 
     LINGBOTMAP_OUTPUT_DIR=/path/to/maps \\
     LINGBOTMAP_CHECKPOINT_PATH=/path/to/lingbot-map.pt \\
-        python -m rpent.robots.components.lingbotmap_server \\
+        python -m toolkits.mapping.server \\
         --transport http --host 127.0.0.1 --port 8116
 
 RPent can spawn this process as a dashboard runtime component, or attach to a

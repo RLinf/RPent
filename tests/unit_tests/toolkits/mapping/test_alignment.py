@@ -19,7 +19,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from rpent.robots.components.lingbotmap_server import (
+from toolkits.mapping.server import (
     _apply_alignment,
     _estimate_base_alignment,
     _estimate_similarity,

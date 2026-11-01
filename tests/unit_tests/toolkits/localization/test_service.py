@@ -24,10 +24,10 @@ from typing import Any
 import numpy as np
 import pytest
 
-from rpent.robots.components.localize_client import LocalizeClient
-from rpent.robots.components.localize_server import LocalizeFacade
 from rpent.tools.localize import LocalizationResult
 from rpent.utils.rpc import RpcClient
+from toolkits.localization.client import LocalizeClient
+from toolkits.localization.server import LocalizeFacade
 
 
 class _LocalRpcClient(RpcClient):

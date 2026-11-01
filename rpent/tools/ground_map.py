@@ -55,14 +55,16 @@ from typing import Any, Protocol
 import numpy as np
 from PIL import Image, ImageDraw
 
-from rpent.robots.components.gdino_sam2_client import (
+from rpent.utils.logging import get_logger
+from rpent.utils.rpc.http_rpc import HttpRpcClient
+from toolkits.grounding.client import (
     MAX_LABELS_PER_CALL,
     Detection,
     GdinoSam2Client,
     normalize_labels,
 )
-from rpent.robots.components.lingbotmap_client import LingBotMapClient
-from rpent.robots.components.lingbotmap_server import (
+from toolkits.mapping.client import LingBotMapClient
+from toolkits.mapping.server import (
     ANNOTATIONS_DIR,
     MAP_SCHEMA_VERSION,
     OBJECTS_FILE,
@@ -70,8 +72,6 @@ from rpent.robots.components.lingbotmap_server import (
     SEMANTIC_POINTS_FILE,
     camera_to_world,
 )
-from rpent.utils.logging import get_logger
-from rpent.utils.rpc.http_rpc import HttpRpcClient
 
 logger = get_logger("ground_map")
 
@@ -1168,6 +1168,26 @@ def save_grounded_map(
         ply_path.write_bytes(result.semantic_ply_bytes())
         written["semantic_ply"] = str(ply_path)
     return written
+
+
+def save_grounded_map_via_client(
+    result: GroundMapResult,
+    client: LingBotMapClient,
+) -> dict[str, Any]:
+    """Write grounded artifacts into a map that lives on the mapping server.
+
+    Offline callers that read a map directory on the local filesystem use
+    :func:`save_grounded_map`; this variant sends the same artifacts over RPC
+    so a client can label a map whose files it cannot reach directly.
+    """
+    has_points = result.semantic_points.shape[0] > 0
+    return client.save_annotations(
+        result.map_path,
+        objects=result.objects_payload(),
+        masks=result.masks,
+        semantic_points_npz=result.semantic_npz_bytes() if has_points else None,
+        semantic_points_ply=result.semantic_ply_bytes() if has_points else None,
+    )
 
 
 def _camera_array(

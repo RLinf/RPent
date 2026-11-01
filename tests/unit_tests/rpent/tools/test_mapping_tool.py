@@ -27,14 +27,14 @@ from PIL import Image
 
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory import MemoryManager
-from rpent.robots.components.lingbotmap_server import (
-    FrameArchiveBackend,
-    LingBotMapFacade,
-)
 from rpent.session import EnvState
 from rpent.tools.mapping import MappingMixin
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import init_output_dir
+from toolkits.mapping.server import (
+    FrameArchiveBackend,
+    LingBotMapFacade,
+)
 
 
 class _LocalRpcClient:
@@ -57,7 +57,7 @@ class _FakePerception:
         self.calls: list[list[str]] = []
 
     def detect_segment(self, image: Any, *, labels: list[str], min_score: float = 0.3):
-        from rpent.robots.components.gdino_sam2_client import (
+        from toolkits.grounding.client import (
             Detection,
             DetectSegmentResult,
         )
@@ -112,7 +112,7 @@ class _MappingToolkit(MappingMixin, Toolkit):
         self.register_mapping_tools()
 
     def _make_map_client(self, output_dir: Path) -> Any:
-        from rpent.robots.components.lingbotmap_client import LingBotMapClient
+        from toolkits.mapping.client import LingBotMapClient
 
         facade = LingBotMapFacade(FrameArchiveBackend(str(output_dir / "maps")))
         return LingBotMapClient(_LocalRpcClient(facade))

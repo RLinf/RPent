@@ -18,7 +18,7 @@ Run manually with::
 
     GDINO_CHECKPOINT_PATH=/path/to/groundingdino_swint_ogc.pth \\
     SAM2_CHECKPOINT_PATH=/path/to/sam2.1_hiera_large.pt \\
-        python -m rpent.robots.components.gdino_sam2_server \\
+        python -m toolkits.grounding.server \\
         --transport http --host 127.0.0.1 --port 8115
 
 RPent normally starts this process automatically. The service exposes one
@@ -41,9 +41,9 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
-from rpent.robots.components.gdino_sam2_client import normalize_labels
 from rpent.utils.logging import get_logger
 from rpent.utils.rpc import RpcFacade
+from toolkits.grounding.client import normalize_labels
 
 logger = get_logger("gdino_sam2_server")
 
