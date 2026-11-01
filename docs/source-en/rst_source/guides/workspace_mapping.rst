@@ -1,5 +1,5 @@
-Workspace Mapping and Clearance
-===============================
+Map Construction
+================
 
 A walkthrough of a workspace can become a reusable 3D map. RPent builds that
 map from frames a robot or camera records, annotates it with object labels,

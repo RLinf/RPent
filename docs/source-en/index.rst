@@ -127,7 +127,7 @@ Choose an environment: :doc:`LIBERO <rst_source/simulators/libero>`, :doc:`RoboC
    :hidden:
    :caption: Toolkits
 
-   Workspace Mapping and Clearance <rst_source/guides/workspace_mapping>
+   Map Construction <rst_source/guides/workspace_mapping>
 
 .. toctree::
    :maxdepth: 2
