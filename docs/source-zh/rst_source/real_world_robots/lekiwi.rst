@@ -64,30 +64,31 @@ LeKiwi 是一个三轮全向移动底盘：三个 Feetech STS3215 轮电机挂�
 
 控制端只需要能通过网络访问机器人板载计算机，端口与你启动服务端时使用的一致。
 
-编写站点 YAML
--------------
+编写 LeKiwi YAML
+----------------
 
-在机器人板载计算机上运行检测脚本，生成包含检测到的串口和摄像头标识符的站点 YAML：
+在机器人板载计算机上运行检测脚本，生成包含检测到的串口和摄像头标识符的 LeKiwi YAML：
 
 .. code-block:: bash
 
-   rpent-lekiwi-detect --output /path/to/lekiwi-site.yaml
+   rpent-lekiwi-detect --output /path/to/lekiwi.yaml
 
 脚本不会让底盘运动：它按各个波特率对串行总线执行 ping，打开每个摄像头确认能取到一帧，并打印探测结果：
 
 .. code-block:: text
 
-   == LeKiwi site detection ==
+   == LeKiwi detection ==
    serial ports scanned: ['/dev/ttyACM0']
      /dev/ttyACM0: motor ids [7, 8, 9]
    wheel bus: /dev/ttyACM0
    camera usb-USB_Camera_USB_Camera_2505280051-video-index0: ok at 640x480
-   wrote /path/to/lekiwi-site.yaml
+   wrote /path/to/lekiwi.yaml
    review before the first run:
      - robot.wheel_radius / robot.base_radius: measure with a ruler (m)
      - drive.max_linear_velocity / max_angular_velocity: policy; start low
      - drive.frame_size: camera output size; raise from 128x128 if needed
      - drive.step_frequency: control rate; 10 Hz suits the STS3215 bus
+     - drive.camera_max_age: frame reuse window; 0.05 tracks a 15 fps camera
 
 只探测其中一侧时可以加 ``--skip-motors`` 或 ``--skip-cameras``。生成的文件与 ``robots/lekiwi/config/example.yaml`` 结构相同：
 
@@ -108,11 +109,14 @@ LeKiwi 是一个三轮全向移动底盘：三个 Feetech STS3215 轮电机挂�
 
    drive:
      step_frequency: 10.0
+     camera_max_age: 0.05
      max_linear_velocity: 0.3
      max_angular_velocity: 60.0
      frame_size: [128, 128]
 
 有两类值必须由人来定。几何参数 ``wheel_radius`` 和 ``base_radius``（单位为米）要用尺子量；``max_raw``（默认 3000）是舵机的原始速度上限。``drive`` 的速度上限则是你的速度包络：这是策略选择，探测不出来——从默认值起步，逐步放宽。下面的任务会进一步收紧每条命令，环境也会把每条命令裁剪到这些上限内。
+
+``camera_max_age`` 表示一帧画面最多可以有多旧仍被复用：最新一帧的年龄不超过它时，直接返回缓存，不再取新帧。RLinf 默认的 0.5 秒意味着无论摄像头多快，每秒最多只有两帧不同画面；``0.05`` 能跟上 15 fps 的摄像头驱动。该值必须为正，``0`` 会被拒绝；调大它可以用画面新鲜度换取更少的摄像头读取。
 
 生成结果与实际机器人不符时，直接修改这个文件：例如重命名前置摄像头的条目，或提高 ``frame_size`` 以使用摄像头原生支持的分辨率。
 
@@ -147,7 +151,7 @@ LeKiwi 是一个三轮全向移动底盘：三个 Feetech STS3215 轮电机挂�
 .. code-block:: bash
 
    rpent-lekiwi-server \
-     --robot-config /path/to/lekiwi-site.yaml \
+     --robot-config /path/to/lekiwi.yaml \
      --transport http --host 0.0.0.0 --port 8120
 
 它会打印供控制端接入的地址：
@@ -167,7 +171,7 @@ LeKiwi 是一个三轮全向移动底盘：三个 Feetech STS3215 轮电机挂�
 
    rpent --robot lekiwi --task-id 0 \
      --env-endpoint http://ROBOT_HOST:8120 \
-     --robot-config /path/to/lekiwi-site.yaml \
+     --robot-config /path/to/lekiwi.yaml \
      --planner api --model MODEL_ID
 
 ``--env-endpoint`` 让它成为一次远程运行。省略它时，RPent 会在控制端本地拉起一个环境服务端，那只在舵机总线接在控制端时才有效。
@@ -178,47 +182,13 @@ LeKiwi 是一个三轮全向移动底盘：三个 Feetech STS3215 轮电机挂�
 
    rpent --robot lekiwi --dashboard --planner manual \
      --env-endpoint http://ROBOT_HOST:8120 \
-     --robot-config /path/to/lekiwi-site.yaml
+     --robot-config /path/to/lekiwi.yaml
 
-LeKiwi 的环境是外部环境，所以 Dashboard 必须提供 ``--env-endpoint``。按住方向键行驶，松开即停车，用 ``End run`` 结束本次运行。录制视频与动作日志等完整说明见 :doc:`../guides/dashboard`。
+LeKiwi 的环境是外部环境，所以 Dashboard 必须提供 ``--env-endpoint``。手动模式由“手动遥控”面板驱动底盘：按住方向按钮行驶，松开即停车；速度命令在最后一次刷新一秒后过期，所以关闭网页后机器人保持静止。开启 ``录制视频`` 与 ``记录动作`` 会把每段驾驶保存为 ``teleop_NNN.mp4`` 和 ``teleop_actions.jsonl``；``End run`` 结束本次 TaskRun。Dashboard 的其他用法见 :doc:`../guides/dashboard`。
 
 工具与产物
 ----------
 
-规划器可见三个工具：``drive(velocity, duration_s)``、``stop()`` 和只读的 ``view_env_state(step)``。``duration_s`` 每次调用最多 10 秒，请求的速度会被裁剪到站点配置的上限内。
+规划器可见三个工具：``drive(velocity, duration_s)``、``stop()`` 和只读的 ``view_env_state(step)``。``duration_s`` 每次调用最多 10 秒，请求的速度会被裁剪到配置的上限内。
 
 默认输出目录是 ``logs/<时间戳>_lekiwi_t<task_id>/``，也可以用 ``--output-dir`` 指定。每一步都会保存同步的前置摄像头帧 ``front.png`` 及其元数据 ``camera_meta.json``；``view_env_state`` 返回该步记录和图像。Dashboard 会话还会为手动驾驶的每一段保存 ``teleop_NNN.mp4`` 和 ``teleop_actions.jsonl``。
-
-故障排查
---------
-
-.. list-table::
-   :header-rows: 1
-   :widths: 40 60
-
-   * - 现象
-     - 原因与处理
-   * - 报 ``rlinf.envs.real.lekiwi`` 的 ``ModuleNotFoundError``
-     - 已安装的 RLinf 不含 LeKiwi 环境层。按上文安装包含它的修订版本。
-   * - 控制端连不上
-     - 服务端没有运行、绑定在 ``127.0.0.1``，或端口没有放通。改为绑定
-       ``0.0.0.0``，并在两台机器之间开放该端口。
-   * - 报 ``robot.port is required``
-     - 站点 YAML 缺少 ``robot.port``。用检测输出填入，或手动补上。
-   * - 报 ``exactly one camera device must set main: true``
-     - 只给一个摄像头设备设置 ``main: true``，其余不要设置。
-   * - 报 ``unknown LeKiwi task``
-     - ``--task-id`` 不是 0 或 1。
-   * - 摄像头能打开但不出帧
-     - 被其他程序占用，或线缆不传数据。关闭其他摄像头程序后重跑
-       ``rlinf-lekiwi-check-camera``。
-   * - 串口报 ``Permission denied``
-     - 当前用户无权打开串口设备。Linux 上把自己加入 ``dialout`` 组并重新登录。
-   * - Dashboard 命令结束后底盘仍在动
-     - 服务端没有停止。在 Dashboard 上按 Stop，或在服务端终端按 Ctrl+C；
-       ``hold`` 命令在最后一次刷新后一秒也会自行过期。
-
-安全事项
---------
-
-底盘没有碰撞传感器，也没有板载避障：清场是操作者的责任。每次运行前清理地面，把 ``drive`` 的速度上限保持保守，并确保操作者随时够得到电源开关。如果摄像头画面或上报的轮速看起来不对，立即停止运行——一次 ``stop()`` 调用或 Dashboard 的 Stop 按钮只需一次 RPC 就能到达底盘。

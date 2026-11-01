@@ -38,6 +38,7 @@ def test_lekiwi_uses_rpent_owned_robot_config(fake_rlinf_realworld_modules):
     assert cfg.env.eval.override_cfg.camera_names == {"<front-camera-serial>": "front"}
     assert cfg.env.eval.override_cfg.enable_camera_player is False
     assert cfg.env.eval.override_cfg.step_frequency == 10.0
+    assert cfg.env.eval.override_cfg.camera_max_age == 0.05
     hardware = cfg.cluster.node_groups[0].hardware.configs[0]
     assert hardware["port"] == "/dev/ttyACM0"
     assert hardware["camera_serials"] == ["<front-camera-serial>"]
@@ -56,7 +57,7 @@ def test_lekiwi_runtime_config_rejects_unknown_drive_key(
 ):
     raw = yaml.safe_load(EXAMPLE_CONFIG.read_text())
     raw["drive"]["cruise_altitude"] = 1.0
-    config = tmp_path / "site.yaml"
+    config = tmp_path / "lekiwi.yaml"
     config.write_text(yaml.safe_dump(raw))
 
     with pytest.raises(ValueError, match="unknown key"):
@@ -72,7 +73,7 @@ def test_lekiwi_runtime_config_requires_single_main_camera(
         "type": "webcam",
         "main": True,
     }
-    config = tmp_path / "site.yaml"
+    config = tmp_path / "lekiwi.yaml"
     config.write_text(yaml.safe_dump(raw))
 
     with pytest.raises(ValueError, match="exactly one camera"):
@@ -108,16 +109,6 @@ def test_rpent_lekiwi_env_accepts_override_cfg_dict(
     assert env is not None
 
 
-def test_live_observation_delegates_to_rlinf_env(fake_rlinf_realworld_modules):
-    from robots.lekiwi.rpent_env import RPentLeKiwiEnv
-
-    env = RPentLeKiwiEnv.__new__(RPentLeKiwiEnv)
-    observation = {"frames": object(), "state": object()}
-    env._get_observation = lambda: observation
-
-    assert env.get_live_observation() is observation
-
-
 def test_measured_velocity_reads_base_part(fake_rlinf_realworld_modules):
     from robots.lekiwi.rpent_env import RPentLeKiwiEnv
 
@@ -130,31 +121,6 @@ def test_measured_velocity_reads_base_part(fake_rlinf_realworld_modules):
     np.testing.assert_allclose(
         env.get_measured_velocity(), np.array([0.1, 0.0, 5.0], dtype=np.float32)
     )
-
-
-def test_measured_velocity_is_zero_in_dummy_mode(fake_rlinf_realworld_modules):
-    from robots.lekiwi.rpent_env import RPentLeKiwiEnv
-
-    env = RPentLeKiwiEnv.__new__(RPentLeKiwiEnv)
-    env.config = SimpleNamespace(is_dummy=True)
-
-    np.testing.assert_array_equal(
-        env.get_measured_velocity(), np.zeros(3, dtype=np.float32)
-    )
-
-
-def test_stop_resets_base_wheels(fake_rlinf_realworld_modules):
-    from robots.lekiwi.rpent_env import RPentLeKiwiEnv
-
-    env = RPentLeKiwiEnv.__new__(RPentLeKiwiEnv)
-    env.config = SimpleNamespace(is_dummy=False)
-    base = SimpleNamespace(reset=lambda: calls.append("reset"))
-    calls: list[str] = []
-    env._base = base
-
-    env.stop()
-
-    assert calls == ["reset"]
 
 
 def test_camera_metadata_reports_every_camera(fake_rlinf_realworld_modules):

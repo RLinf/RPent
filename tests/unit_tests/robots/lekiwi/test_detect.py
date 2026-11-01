@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Offline tests for the LeKiwi site-config detection script."""
+"""Offline tests for the LeKiwi YAML detection script."""
 
 from __future__ import annotations
 
@@ -40,6 +40,19 @@ def _make_dev_tree(tmp_path: Path) -> Path:
     return dev
 
 
+def _patch_scans(monkeypatch, scan) -> None:
+    """Answer ``FeetechMotorsBus.scan_port`` from ``scan(port)``."""
+
+    class FakeBus:
+        scan_port = staticmethod(scan)
+
+    monkeypatch.setitem(
+        sys.modules,
+        "lerobot.motors.feetech",
+        _fake_module("lerobot.motors.feetech", FeetechMotorsBus=FakeBus),
+    )
+
+
 def test_list_serial_ports_prefers_by_id_spelling(tmp_path: Path) -> None:
     dev = _make_dev_tree(tmp_path)
     (dev / "ttyACM0").touch()
@@ -56,44 +69,27 @@ def test_list_serial_ports_prefers_by_id_spelling(tmp_path: Path) -> None:
     assert str(dev / "ttyACM0") not in ports
 
 
-def test_pick_wheel_port_requires_every_wheel_id(monkeypatch) -> None:
-    scans = {
-        "/dev/ttyACM0": {1000000: [7, 8, 9]},
-        "/dev/ttyUSB0": {1000000: [7]},
-    }
-    monkeypatch.setattr(detect, "scan_wheel_bus", lambda port: scans[port])
-
-    port, reports = detect.pick_wheel_port(["/dev/ttyACM0", "/dev/ttyUSB0"])
-
-    assert port == "/dev/ttyACM0"
-    assert set(reports) == set(scans)
-
-
-def test_pick_wheel_port_reports_none_without_full_wheel_set(monkeypatch) -> None:
-    monkeypatch.setattr(detect, "scan_wheel_bus", lambda port: {1000000: [7]})
-
-    port, _reports = detect.pick_wheel_port(["/dev/ttyUSB0"])
-
-    # Partial overlap is not a wheel bus: report nothing rather than a guess.
-    assert port is None
-
-
-def test_pick_wheel_port_tolerates_a_busy_port(monkeypatch) -> None:
+def test_pick_wheel_port_skips_partial_and_busy_ports(monkeypatch) -> None:
     def scan(port: str) -> dict:
         if port == "/dev/ttyUSB0":
             raise RuntimeError("device busy")
+        if port == "/dev/ttyUSB1":
+            return {1000000: [7]}
         return {1000000: [7, 8, 9]}
 
-    monkeypatch.setattr(detect, "scan_wheel_bus", scan)
+    _patch_scans(monkeypatch, scan)
 
-    port, reports = detect.pick_wheel_port(["/dev/ttyUSB0", "/dev/ttyACM0"])
+    port, reports = detect.pick_wheel_port(
+        ["/dev/ttyUSB0", "/dev/ttyUSB1", "/dev/ttyACM0"]
+    )
 
+    # Only a port whose bus answers for every wheel is the wheel bus.
     assert port == "/dev/ttyACM0"
-    assert "/dev/ttyUSB0" not in reports
+    assert set(reports) == {"/dev/ttyUSB1", "/dev/ttyACM0"}
 
 
-def test_build_site_config_marks_first_camera_main() -> None:
-    config = detect.build_site_config(
+def test_build_yaml_config_marks_first_camera_main() -> None:
+    config = detect.build_yaml_config(
         "/dev/ttyACM0",
         ["video0", "video2"],
     )
@@ -108,13 +104,7 @@ def test_build_site_config_marks_first_camera_main() -> None:
     assert devices["extra_1"]["main"] is False
     assert config["robot"]["port"] == "/dev/ttyACM0"
     assert config["drive"]["max_linear_velocity"] == 0.3
-
-
-def test_build_site_config_emits_placeholders_when_detection_finds_nothing() -> None:
-    config = detect.build_site_config(None, [])
-
-    assert config["robot"]["port"] == "/dev/ttyACM0"
-    assert config["cameras"]["devices"]["front"]["main"] is True
+    assert config["drive"]["camera_max_age"] == 0.05
 
 
 def test_probe_camera_reports_why_it_failed(monkeypatch) -> None:
@@ -152,8 +142,8 @@ def test_probe_camera_reports_why_it_failed(monkeypatch) -> None:
 def test_main_writes_a_config_loadable_by_runtime_config(
     fake_rlinf_realworld_modules, tmp_path: Path, monkeypatch, capsys
 ) -> None:
+    _patch_scans(monkeypatch, lambda port: {1000000: [7, 8, 9]})
     monkeypatch.setattr(detect, "list_serial_ports", lambda *a, **k: ["/dev/ttyACM0"])
-    monkeypatch.setattr(detect, "scan_wheel_bus", lambda port: {1000000: [7, 8, 9]})
     monkeypatch.setattr(detect, "discover_cameras", lambda: ["video0", "video1"])
     monkeypatch.setattr(
         detect,
@@ -166,7 +156,7 @@ def test_main_writes_a_config_loadable_by_runtime_config(
             "error": None if serial == "video0" else "no frame within 3 s",
         },
     )
-    output = tmp_path / "site.yaml"
+    output = tmp_path / "lekiwi.yaml"
 
     exit_code = detect.main(["--output", str(output)])
 
@@ -194,10 +184,10 @@ def test_main_writes_a_config_loadable_by_runtime_config(
 
 
 def test_main_reports_a_missing_wheel_bus(monkeypatch, capsys, tmp_path: Path) -> None:
+    _patch_scans(monkeypatch, lambda port: {})
     monkeypatch.setattr(detect, "list_serial_ports", lambda *a, **k: ["/dev/ttyUSB0"])
-    monkeypatch.setattr(detect, "scan_wheel_bus", lambda port: {})
     monkeypatch.setattr(detect, "discover_cameras", lambda: [])
-    output = tmp_path / "site.yaml"
+    output = tmp_path / "lekiwi.yaml"
 
     detect.main(["--output", str(output)])
 

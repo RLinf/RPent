@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Generate a LeKiwi site YAML by probing the serial bus and the cameras.
+"""Generate a LeKiwi YAML by probing the serial bus and the cameras.
 
 Run on the robot's computer, with the ``lekiwi`` extra installed:
 
@@ -32,6 +32,7 @@ defaults and named in the report as fields to review.
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 from typing import Any
 
@@ -57,21 +58,8 @@ def list_serial_ports(dev_root: Path = Path("/dev")) -> list[str]:
         candidates.extend(str(entry) for entry in sorted(dev_root.glob(pattern)))
     unique: dict[str, str] = {}
     for path in candidates:
-        unique.setdefault(_realpath(path), path)
+        unique.setdefault(os.path.realpath(path), path)
     return list(unique.values())
-
-
-def _realpath(path: str) -> str:
-    import os
-
-    return os.path.realpath(path)
-
-
-def scan_wheel_bus(port: str) -> dict[int, list[int]]:
-    """Ping every baud rate on ``port``; returns ``{baudrate: [motor ids]}``."""
-    from lerobot.motors.feetech import FeetechMotorsBus
-
-    return FeetechMotorsBus.scan_port(port)
 
 
 def pick_wheel_port(
@@ -83,22 +71,21 @@ def pick_wheel_port(
     env server's bus handshake pings every wheel, so a partial port would fail
     at startup anyway. A ``None`` port means no candidate is the wheel bus.
     """
+    from lerobot.motors.feetech import FeetechMotorsBus
+
     reports: dict[str, dict[int, list[int]]] = {}
     for port in ports:
         try:
-            found = scan_wheel_bus(port)
+            found = FeetechMotorsBus.scan_port(port)
         except Exception:  # noqa: BLE001 - a busy or absent port is a result
             found = {}
         if found:
             reports[port] = found
+
     expected = set(EXPECTED_WHEEL_IDS)
-
-    def wheels_found(port: str) -> int:
-        ids = {motor_id for ids in reports[port].values() for motor_id in ids}
-        return len(expected & ids)
-
     for port in reports:
-        if wheels_found(port) == len(expected):
+        answered = {motor_id for ids in reports[port].values() for motor_id in ids}
+        if expected <= answered:
             return port, reports
     return None, reports
 
@@ -108,7 +95,7 @@ def discover_cameras() -> list[str]:
 
     ``WebcamCamera.discover()`` returns serials the driver itself resolves
     (``video0``-style names on Linux, numeric indices elsewhere), so whatever
-    it lists here is a valid ``serial`` value in the site YAML. The list can
+    it lists here is a valid ``serial`` value in the LeKiwi YAML. The list can
     include metadata nodes that carry no frames; :func:`probe_camera` filters
     those out.
     """
@@ -144,8 +131,8 @@ def probe_camera(serial: str) -> dict[str, Any]:
         camera.disconnect()
 
 
-def build_site_config(port: str | None, camera_serials: list[str]) -> dict[str, Any]:
-    """Assemble the site YAML structure from the detection results."""
+def build_yaml_config(port: str | None, camera_serials: list[str]) -> dict[str, Any]:
+    """Assemble the LeKiwi YAML structure from the detection results."""
     serials = camera_serials or [_PLACEHOLDER_SERIAL]
     devices: dict[str, dict[str, Any]] = {}
     for index, serial in enumerate(serials):
@@ -165,6 +152,9 @@ def build_site_config(port: str | None, camera_serials: list[str]) -> dict[str, 
         "cameras": {"devices": devices},
         "drive": {
             "step_frequency": 10.0,
+            # RLinf reuses a frame until it is this old; 0.05 tracks the 15 fps
+            # camera instead of the 0.5 s default, which caps frames at 2 Hz.
+            "camera_max_age": 0.05,
             "max_linear_velocity": 0.3,
             "max_angular_velocity": 60.0,
             "frame_size": [128, 128],
@@ -174,10 +164,10 @@ def build_site_config(port: str | None, camera_serials: list[str]) -> dict[str, 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Detect the LeKiwi wheel bus and cameras; write a site YAML."
+        description="Detect the LeKiwi wheel bus and cameras; write a YAML config."
     )
     parser.add_argument(
-        "--output", default="lekiwi-site.yaml", help="path of the YAML to write"
+        "--output", default="lekiwi.yaml", help="path of the YAML to write"
     )
     parser.add_argument(
         "--skip-motors",
@@ -204,9 +194,9 @@ def main(argv: list[str] | None = None) -> int:
         probed = [probe_camera(serial) for serial in discover_cameras()]
         camera_serials = [report["serial"] for report in probed if report["ok"]]
 
-    config = build_site_config(wheel_port, camera_serials)
+    config = build_yaml_config(wheel_port, camera_serials)
 
-    print("== LeKiwi site detection ==")
+    print("== LeKiwi detection ==")
     if not args.skip_motors:
         print(f"serial ports scanned: {ports or 'none found'}")
         for port, found in bus_reports.items():
@@ -235,8 +225,10 @@ def main(argv: list[str] | None = None) -> int:
                 "and retry, or fill cameras.devices.front.serial by hand"
             )
 
+    import yaml
+
     output = Path(args.output)
-    _write_yaml(output, config)
+    output.write_text(yaml.safe_dump(config, sort_keys=False))
     print(f"wrote {output}")
 
     print("review before the first run:")
@@ -244,14 +236,8 @@ def main(argv: list[str] | None = None) -> int:
     print("  - drive.max_linear_velocity / max_angular_velocity: policy; start low")
     print("  - drive.frame_size: camera output size; raise from 128x128 if needed")
     print("  - drive.step_frequency: control rate; 10 Hz suits the STS3215 bus")
+    print("  - drive.camera_max_age: frame reuse window; 0.05 tracks a 15 fps camera")
     return 0
-
-
-def _write_yaml(path: Path, config: dict[str, Any]) -> None:
-    import yaml
-
-    path.write_text(yaml.safe_dump(config, sort_keys=False))
-    return None
 
 
 if __name__ == "__main__":

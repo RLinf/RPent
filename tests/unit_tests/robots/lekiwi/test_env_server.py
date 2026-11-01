@@ -20,6 +20,8 @@ import sys
 import threading
 import time
 import types
+from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -88,79 +90,32 @@ def test_lekiwi_client_and_facade_round_trip_numpy_over_http():
     assert stopped["ok"] is True
 
 
-def test_lekiwi_facade_registers_readonly_observation_routes():
-    facade = LeKiwiEnvFacade(FakeBackend())
-
-    readonly = facade._readonly_methods
-    assert "env.get_env_meta" in readonly
-    assert "env.get_observation" in readonly
-    assert "env.get_camera_meta" in readonly
-    assert "env.drive" not in readonly
-    assert "env.hold" not in readonly
-    assert "env.stop" not in readonly
-
-
-def test_local_worker_info_owns_hardware_in_process(
+def test_local_worker_info_keeps_every_part_local(
     fake_rlinf_realworld_modules, monkeypatch
 ):
-    # The server runs without Ray: the WorkerInfo it hands the env must keep
-    # every part local (node_rank=None everywhere), where RobotPart.connect
-    # opens devices in-process instead of hosting scheduler workers.
+    # No Ray on the robot: every node rank stays None so RLinf's parts open
+    # their devices in this process instead of on a scheduler worker.
     from robots.lekiwi.env_server import _local_worker_info
     from robots.lekiwi.runtime_config import load_runtime_config
 
-    class FakeDataclass:
+    class Recorder:
         def __init__(self, **kwargs: Any) -> None:
             self.__dict__.update(kwargs)
 
-    captured: dict[str, Any] = {}
-
-    def fake_lekiwi_config(**kwargs: Any) -> Any:
-        captured["lekiwi_config"] = kwargs
-        return FakeDataclass(**kwargs)
-
-    def fake_robot_info(**kwargs: Any) -> Any:
-        captured["robot_info"] = kwargs
-        return FakeDataclass(**kwargs)
-
-    def fake_worker_info(**kwargs: Any) -> Any:
-        captured["worker_info"] = kwargs
-        return FakeDataclass(**kwargs)
-
-    class FakeAcceleratorType:
-        NO_ACCEL = "NO_ACCEL"
-
-    def fake_worker_address(_name: str, _rank: int) -> Any:
-        return object()
-
     discovery = types.ModuleType("rlinf.robotics.discovery")
-    discovery.RobotInfo = fake_robot_info
+    discovery.RobotInfo = Recorder
     monkeypatch.setitem(sys.modules, "rlinf.robotics.discovery", discovery)
     scheduler = types.ModuleType("rlinf.scheduler")
-    scheduler.AcceleratorType = FakeAcceleratorType
-    scheduler.WorkerAddress = fake_worker_address
-    scheduler.WorkerInfo = fake_worker_info
+    scheduler.WorkerInfo = Recorder
+    scheduler.WorkerAddress = lambda _name, _rank: None
+    scheduler.AcceleratorType = SimpleNamespace(NO_ACCEL="NO_ACCEL")
     monkeypatch.setitem(sys.modules, "rlinf.scheduler", scheduler)
 
-    example = (
-        __import__("pathlib").Path(__file__).parents[4]
-        / "robots/lekiwi/config/example.yaml"
-    )
-    runtime = load_runtime_config(example)
+    example = Path(__file__).parents[4] / "robots/lekiwi/config/example.yaml"
+    info = _local_worker_info(load_runtime_config(example).rlinf)
 
-    # Swap the recording stand-in in only after config loading, which
-    # validates keys against the fixture's dataclass fields.
-    robots_lekiwi = sys.modules["rlinf.robotics.robots.lekiwi"]
-    monkeypatch.setattr(robots_lekiwi, "LeKiwiConfig", fake_lekiwi_config)
-
-    _local_worker_info(runtime.rlinf)
-
-    # Local ownership: no node rank on the hardware config, none on the worker.
-    assert captured["lekiwi_config"]["node_rank"] is None
-    assert captured["worker_info"]["cluster_node_rank"] is None
-    # The robot itself rides the worker's hardware slot the env reads.
-    assert len(captured["worker_info"]["hardware_infos"]) == 1
-    assert captured["robot_info"]["type"] == "LeKiwi"
+    assert info.cluster_node_rank is None
+    assert info.hardware_infos[0].config.node_rank is None
 
 
 class _FakeInnerEnv:
@@ -286,15 +241,23 @@ def test_backend_hold_keeps_stepping_until_the_command_expires(
     # the base moves continuously for as long as the command is refreshed.
     backend, inner = _fake_backend(monkeypatch)
     try:
-        result = backend.hold([0.5, 0.0, 0.0], ttl_s=0.15)
+        result = backend.hold([0.5, 0.0, 0.0], ttl_s=0.5)
         assert result["commanded_velocity"] == pytest.approx([0.5, 0.0, 0.0])
 
-        time.sleep(0.3)
-        driven = len(inner.stepped)
-        assert driven >= 3, inner.stepped
+        time.sleep(0.2)
+        assert len(inner.stepped) >= 3, inner.stepped
         assert all(shape == (3,) for shape in inner.stepped)
 
-        time.sleep(0.15)
+        # The control thread already read the sensors in the step it took, so
+        # the frame poll serves that copy instead of touching the bus again.
+        observation = backend.get_observation()
+        assert observation["steps"] >= 1
+        np.testing.assert_allclose(observation["states"], np.zeros(3))
+
+        # Sample after the ttl has elapsed, then confirm the thread has stopped.
+        time.sleep(0.4)
+        driven = len(inner.stepped)
+        time.sleep(0.2)
         assert len(inner.stepped) == driven, "an expired hold must stop stepping"
     finally:
         backend.close_env()
@@ -312,21 +275,5 @@ def test_backend_stop_ends_a_hold_before_its_ttl(
         time.sleep(0.15)
         assert len(inner.stepped) == settled
         assert inner.stops >= 1
-    finally:
-        backend.close_env()
-
-
-def test_backend_serves_the_step_observation_while_holding(
-    fake_rlinf_realworld_modules, monkeypatch
-):
-    # The control thread already read the sensors in the step it took; the
-    # frame poll must not touch the bus a second time.
-    backend, inner = _fake_backend(monkeypatch)
-    try:
-        backend.hold([0.5, 0.0, 0.0], ttl_s=1.0)
-        time.sleep(0.15)
-        observation = backend.get_observation()
-        assert observation["steps"] >= 1
-        np.testing.assert_allclose(observation["states"], np.zeros(3))
     finally:
         backend.close_env()

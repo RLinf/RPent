@@ -45,6 +45,7 @@ def test_lekiwi_client_uses_explicit_env_methods():
     client = LeKiwiEnvClient(rpc)
 
     client.drive([0.1, 0.0, 5.0])
+    client.drive([0.0, -0.2, 0.0], duration_s=0.5)
     client.hold([0.2, 0.0, 0.0], ttl_s=0.75)
     client.stop()
 
@@ -58,27 +59,22 @@ def test_lekiwi_client_uses_explicit_env_methods():
         "env.hold",
         "env.stop",
     }
-    drive = calls_by_method["env.drive"]
+    drives = [
+        payload
+        for method, _args, payload, _timeout in rpc.calls
+        if method == "env.drive"
+    ]
     np.testing.assert_allclose(
-        drive["velocity"], np.array([0.1, 0.0, 5.0], dtype=np.float32)
+        drives[0]["velocity"], np.array([0.1, 0.0, 5.0], dtype=np.float32)
     )
-    assert drive["velocity"].dtype == np.float32
-    assert drive["duration_s"] == 1.0
+    assert drives[0]["velocity"].dtype == np.float32
+    assert drives[0]["duration_s"] == 1.0
+    assert drives[1]["duration_s"] == 0.5
     hold = calls_by_method["env.hold"]
     np.testing.assert_allclose(
         hold["velocity"], np.array([0.2, 0.0, 0.0], dtype=np.float32)
     )
     assert hold["ttl_s"] == 0.75
-
-
-def test_lekiwi_client_drive_passes_requested_duration():
-    rpc = FakeRpcClient()
-    client = LeKiwiEnvClient(rpc)
-
-    client.drive([0.0, -0.2, 0.0], duration_s=0.5)
-
-    _method, _args, payload, _timeout = rpc.calls[-1]
-    assert payload["duration_s"] == 0.5
 
 
 def test_lekiwi_client_backfills_states_from_last_observation():

@@ -115,7 +115,7 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     parser.add_argument(
         "--robot-config",
         default=None,
-        help="LeKiwi site YAML (port, camera serials, velocity limits)",
+        help="LeKiwi YAML (port, camera serials, velocity limits)",
     )
 
 

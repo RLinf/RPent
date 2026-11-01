@@ -49,10 +49,6 @@ def get_robot_config_path(default: str | Path = DEFAULT_CONFIG) -> Path:
     return Path(_robot_config_path or default)
 
 
-# ---------------------------------------------------------------------------
-# Developer defaults
-# ---------------------------------------------------------------------------
-
 # Primitive-control knobs consumed by the RPent LeKiwi env server. RLinf has
 # no equivalent field, so these live here rather than in any RLinf dataclass.
 CONTROL = {

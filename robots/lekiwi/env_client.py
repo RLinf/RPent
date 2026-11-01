@@ -25,13 +25,18 @@ from rpent.utils.rpc import RpcClient
 
 
 class LeKiwiEnvClient(BaseEnvClient):
-    """Remote client for one RLinf-backed LeKiwi environment."""
+    """Local client for one RLinf-backed LeKiwi environment.
 
+    It runs on the agent machine and forwards each call over RPC to the env
+    server that owns the hardware on the robot computer.
+    """
+
+    #: RPC timeout in seconds per method; ``default`` covers the rest.
     _TIMEOUT_S = {
         **BaseEnvClient._TIMEOUT_S,
         "default": 30.0,
         "env.reset": 60.0,
-        # A drive holds for up to the server's max duration, then reports.
+        # A drive holds the wheels for up to the server's 10 s cap.
         "env.drive": 60.0,
         # A hold reports at once; the base keeps moving on the server.
         "env.hold": 10.0,

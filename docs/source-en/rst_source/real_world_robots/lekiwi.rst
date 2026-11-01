@@ -14,7 +14,7 @@ LeKiwi environment is external: a Dashboard Session attaches to the address
 you give it and never spawns an environment of its own.
 
 This page goes from a working robot to a running task in four steps: prepare
-the robot computer, describe the site in one YAML file, start the environment
+the robot computer, describe the robot in one YAML file, start the environment
 server, and attach from the agent machine. The hardware checks that come
 before that — motor IDs, wheel test, camera check — are the
 `RLinf LeKiwi guide
@@ -96,15 +96,15 @@ On the agent machine, install RPent the same way:
 The agent machine needs only network reachability to the robot computer, on
 the port you start the server with.
 
-Write the site YAML
--------------------
+Write the LeKiwi YAML
+---------------------
 
-Run the detection script on the robot computer to write a site YAML with the
+Run the detection script on the robot computer to write a LeKiwi YAML with the
 detected port and camera identifiers:
 
 .. code-block:: bash
 
-   rpent-lekiwi-detect --output /path/to/lekiwi-site.yaml
+   rpent-lekiwi-detect --output /path/to/lekiwi.yaml
 
 The script never commands motion. It pings the serial bus at every baud rate,
 opens each camera once to confirm it produces a frame, and prints what it
@@ -112,17 +112,18 @@ found:
 
 .. code-block:: text
 
-   == LeKiwi site detection ==
+   == LeKiwi detection ==
    serial ports scanned: ['/dev/ttyACM0']
      /dev/ttyACM0: motor ids [7, 8, 9]
    wheel bus: /dev/ttyACM0
    camera usb-USB_Camera_USB_Camera_2505280051-video-index0: ok at 640x480
-   wrote /path/to/lekiwi-site.yaml
+   wrote /path/to/lekiwi.yaml
    review before the first run:
      - robot.wheel_radius / robot.base_radius: measure with a ruler (m)
      - drive.max_linear_velocity / max_angular_velocity: policy; start low
      - drive.frame_size: camera output size; raise from 128x128 if needed
      - drive.step_frequency: control rate; 10 Hz suits the STS3215 bus
+     - drive.camera_max_age: frame reuse window; 0.05 tracks a 15 fps camera
 
 Pass ``--skip-motors`` or ``--skip-cameras`` to probe only one side. The file
 it writes has the shape of ``robots/lekiwi/config/example.yaml``:
@@ -144,6 +145,7 @@ it writes has the shape of ``robots/lekiwi/config/example.yaml``:
 
    drive:
      step_frequency: 10.0
+     camera_max_age: 0.05
      max_linear_velocity: 0.3
      max_angular_velocity: 60.0
      frame_size: [128, 128]
@@ -154,6 +156,12 @@ is the servo's raw-speed cap. The ``drive`` limits are your velocity envelope:
 they are a policy choice, not something a probe can discover, so start at the
 defaults and raise them gradually. The tasks below bound every command
 further, and the environment clips each one to these limits.
+
+``camera_max_age`` is how old, in seconds, the newest captured frame may be for
+a step to reuse it. RLinf's default of 0.5 s yields at most two distinct frames
+a second, however fast the camera runs; ``0.05`` follows the 15 fps camera
+driver. The value must stay positive, so ``0`` is rejected, and raising it
+trades frame freshness for fewer camera reads.
 
 Edit the generated file where it does not fit the robot, for example to
 rename the front camera entry or to raise ``frame_size`` for a resolution the
@@ -198,7 +206,7 @@ reach:
 .. code-block:: bash
 
    rpent-lekiwi-server \
-     --robot-config /path/to/lekiwi-site.yaml \
+     --robot-config /path/to/lekiwi.yaml \
      --transport http --host 0.0.0.0 --port 8120
 
 It prints the address to attach to:
@@ -220,7 +228,7 @@ Run a task against the server you just started:
 
    rpent --robot lekiwi --task-id 0 \
      --env-endpoint http://ROBOT_HOST:8120 \
-     --robot-config /path/to/lekiwi-site.yaml \
+     --robot-config /path/to/lekiwi.yaml \
      --planner api --model MODEL_ID
 
 ``--env-endpoint`` is what makes this a remote run. Omit it and RPent spawns
@@ -234,19 +242,22 @@ from the browser:
 
    rpent --robot lekiwi --dashboard --planner manual \
      --env-endpoint http://ROBOT_HOST:8120 \
-     --robot-config /path/to/lekiwi-site.yaml
+     --robot-config /path/to/lekiwi.yaml
 
 The Dashboard requires ``--env-endpoint`` for LeKiwi because the environment
-is external. Hold a direction button to drive, release it to stop, and use
-``End run`` to finish. See :doc:`../guides/dashboard` for the full Dashboard
-walkthrough, including recording video and action logs.
+is external. Manual mode drives the base from the Teleoperation panel: hold a
+direction button to move and release it to stop, and the velocity lapses one
+second after the last refresh, so a closed browser leaves the robot at rest.
+``Record video`` and ``Record actions`` write each driving stretch as
+``teleop_NNN.mp4`` and ``teleop_actions.jsonl``; ``End run`` finishes the
+TaskRun. See :doc:`../guides/dashboard` for the rest of the Dashboard.
 
 Tools and artifacts
 -------------------
 
 The planner has three tools: ``drive(velocity, duration_s)``, ``stop()``, and
 the read-only ``view_env_state(step)``. ``duration_s`` is capped at 10 s per
-call, and requested velocities are clipped to the site limits.
+call, and requested velocities are clipped to the configured limits.
 
 Every run writes to ``logs/<timestamp>_lekiwi_t<task_id>/`` unless you pass
 ``--output-dir``. Each step records the synchronized front-camera frame as
@@ -254,44 +265,3 @@ Every run writes to ``logs/<timestamp>_lekiwi_t<task_id>/`` unless you pass
 returns that record together with the image. A Dashboard Session also keeps
 ``teleop_NNN.mp4`` and ``teleop_actions.jsonl`` for the stretches driven by
 hand.
-
-Troubleshooting
----------------
-
-.. list-table::
-   :header-rows: 1
-   :widths: 40 60
-
-   * - Symptom
-     - Cause and fix
-   * - ``ModuleNotFoundError`` for ``rlinf.envs.real.lekiwi``
-     - The installed RLinf has no LeKiwi environment layer. Install a
-       revision that has it, as in the robot install above.
-   * - Client cannot connect
-     - The server is not running, bound to ``127.0.0.1``, or the port is
-       closed. Bind ``0.0.0.0`` and open the port between the two machines.
-   * - ``robot.port is required``
-     - The site YAML has no ``robot.port``. Fill it from the detection output
-       or by hand.
-   * - ``exactly one camera device must set main: true``
-     - Mark one camera device ``main: true`` and unset the others.
-   * - ``unknown LeKiwi task``
-     - ``--task-id`` is not 0 or 1.
-   * - Camera opens but never sends a frame
-     - Another program holds the camera, or the cable carries no data. Close
-       other camera programs and re-run ``rlinf-lekiwi-check-camera``.
-   * - ``Permission denied`` on the serial port
-     - Your user cannot open serial devices. On Linux, add yourself to the
-       ``dialout`` group and log in again.
-   * - The base keeps moving after a Dashboard command
-     - The server was not stopped. Press Stop in the Dashboard or Ctrl+C in
-       the server terminal; a hold expires a second after its last refresh.
-
-Safety
-------
-
-The base has no bumpers and no onboard planner: clearance is your
-responsibility. Clear the floor before every run, keep the ``drive`` limits
-conservative, and keep an operator within reach of the power switch. If the
-camera view or the reported velocity looks wrong, stop the run — a
-``stop()`` call or the Dashboard Stop button reaches the base in one RPC.

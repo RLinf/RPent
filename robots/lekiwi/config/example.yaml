@@ -1,4 +1,4 @@
-# Example LeKiwi site configuration. `rpent-lekiwi-detect` writes a
+# Example LeKiwi configuration. `rpent-lekiwi-detect` writes a
 # filled-in copy of this file; edit the result and pass it with --robot-config.
 
 robot:
@@ -18,6 +18,9 @@ cameras:
 
 drive:
   step_frequency: 10.0
+  # Seconds a step may reuse a captured frame. RLinf's 0.5 s default serves
+  # at most two new frames a second; 0.05 tracks the 15 fps camera.
+  camera_max_age: 0.05
   max_linear_velocity: 0.3
   max_angular_velocity: 60.0
   frame_size: [128, 128]

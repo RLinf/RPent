@@ -15,8 +15,7 @@
 """RPC server owning one RLinf LeKiwi ``RealWorldEnv`` in this process.
 
 The env runs in-process — no Ray, no scheduler cluster — because the robot's
-computer is a small board where five scheduler manager processes (~0.7 GB)
-would exhaust memory. ``node_rank`` stays ``None`` throughout the hardware
+computer is a small board. ``node_rank`` stays ``None`` throughout the hardware
 config, which is how RLinf's parts know to open their devices locally rather
 than hosting them on a scheduler worker (``RobotPart.connect``). The RPC
 surface is unchanged, so the client and the agent attach exactly as before.
