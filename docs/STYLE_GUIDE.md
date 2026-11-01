@@ -55,9 +55,12 @@ Keep the same sections and ordering in both languages:
    its installation, first run, reproduction protocol, and troubleshooting.
 6. **Real-World Robots / 真实机器人**: Single-Arm Franka, Dual-Arm Franka, YAM,
    and SO-101. Preserve coming-soon pages and describe their actual status.
-7. **Concepts & Development / 原理与开发**: architecture, interfaces, memory
+7. **Toolkits / 工具集**: Map Construction, Object Grounding, and Localization
+   and Clearance. Each page owns its service, client, offline commands, and
+   limits; the map format is described once on the Map Construction page.
+8. **Concepts & Development / 原理与开发**: architecture, interfaces, memory
    design, and extension guides for environments, tools, and planners.
-8. **Resources / 项目资源**: Harness VLA, contributing, and release notes.
+9. **Resources / 项目资源**: Harness VLA, contributing, and release notes.
 
 Match source directories to the sidebar groups in both language trees:
 
@@ -69,6 +72,7 @@ Match source directories to the sidebar groups in both language trees:
 | Guides | `guides/` |
 | Simulators | `simulators/` |
 | Real-World Robots | `real_world_robots/` |
+| Toolkits | `toolkits/` |
 | Concepts & Development | `development/` |
 | Resources | `resources/` |
 

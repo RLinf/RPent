@@ -127,7 +127,9 @@ Choose an environment: :doc:`LIBERO <rst_source/simulators/libero>`, :doc:`RoboC
    :hidden:
    :caption: Toolkits
 
-   Map Construction <rst_source/guides/workspace_mapping>
+   Map Construction <rst_source/toolkits/mapping>
+   Object Grounding <rst_source/toolkits/grounding>
+   Localization and Clearance <rst_source/toolkits/localization>
 
 .. toctree::
    :maxdepth: 2
