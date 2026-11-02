@@ -82,7 +82,7 @@ YAM_DASHBOARD_SPEC: DashboardSpec = {
 def get_robot_spec() -> RobotSpec:
     return RobotSpec(
         name="yam",
-        dashboard=YAM_DASHBOARD_SPEC,
+        resolve_dashboard=lambda args: YAM_DASHBOARD_SPEC,
         supports_exploration=True,
         is_real_robot=True,
         finalize_run=finalize_run,

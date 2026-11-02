@@ -88,7 +88,7 @@ these two functions:
            add_cli_args=_add_cli_args,
            parse_config=_parse_config,
            init_runtime=_init_runtime,
-           dashboard=MYROBOT_DASHBOARD_SPEC,
+           resolve_dashboard=lambda args: MYROBOT_DASHBOARD_SPEC,
        )
 
    def get_toolkit(
@@ -126,9 +126,9 @@ these two functions:
        """
        ...
 
-``dashboard`` is optional. Leave it as ``None`` if the environment does not
-support Dashboard control. Otherwise, define the spec in the robot
-package: its ``task`` section describes the command, validated fields, display
+``resolve_dashboard`` is an optional callback. Leave it as ``None`` if the
+environment does not support Dashboard control. Otherwise, return a spec defined
+in the robot package: its ``task`` section describes the command, validated fields, display
 template, and output slug; robot-specific Session settings remain normal CLI
 arguments; ``runtime_components`` describes service rows;
 and ``primitives`` is the ordered allowlist of Toolkit actions displayed and
@@ -137,10 +137,10 @@ artifacts in each recorded step. Keep task suggestions in the spec so
 importing the robot does not require simulator packages. See
 ``robots/libero/robot_spec.py`` for the reference shape.
 
-When components depend on session options such as ``--am-backend``, pass a
-callable ``dashboard(args) -> DashboardSpec`` instead of a static dictionary.
-Consumers call ``RobotSpec.resolve_dashboard(args)`` for either form; physical
-environment checks and Dashboard startup use the same resolved configuration.
+The callback receives the parsed session arguments, so it can select components
+based on options such as ``--am-backend``. For a fixed layout, return the static
+spec as in the example above. Physical environment checks and Dashboard startup
+both call ``resolve_dashboard(args)``.
 
 That's the entire registration step — ``_resolve_robot(name)`` does an
 ``importlib.import_module(f"robots.{name}")``, so dropping the package under

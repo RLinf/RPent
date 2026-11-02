@@ -165,7 +165,7 @@ def get_robot_spec() -> RobotSpec:
         add_cli_args=_add_cli_args,
         parse_config=_parse_config,
         init_runtime=_init_runtime,
-        dashboard=ROBOCASA_DASHBOARD_SPEC,
+        resolve_dashboard=lambda args: ROBOCASA_DASHBOARD_SPEC,
         supports_exploration=True,
         finalize_run=finalize_cell_result,
         prepare_memory=prepare_memory,

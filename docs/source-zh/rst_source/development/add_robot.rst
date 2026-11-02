@@ -67,7 +67,7 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统说明 
            add_cli_args=_add_cli_args,
            parse_config=_parse_config,
            init_runtime=_init_runtime,
-           dashboard=MYROBOT_DASHBOARD_SPEC,
+           resolve_dashboard=lambda args: MYROBOT_DASHBOARD_SPEC,
        )
 
    def get_toolkit(
@@ -105,11 +105,11 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统说明 
        """
        ...
 
-``dashboard`` 是可选项；环境不支持 Dashboard 控制时保持为 ``None``。支持时，在机器人包中定义该配置：其中 ``task`` 描述命令、校验字段、展示模板和输出目录名称；机器人专用的会话设置仍通过普通命令行参数传入；``runtime_components`` 定义界面中的服务列表；``primitives`` 按顺序列出 Dashboard 展示并允许直接执行的 Toolkit 动作。相机标签页根据每步记录的 PNG 图像文件自动生成。任务候选项应直接保存在该配置中，避免导入机器人包时依赖仿真器包。完整结构参考 ``robots/libero/robot_spec.py``。
+``resolve_dashboard`` 是可选回调；环境不支持 Dashboard 控制时保持为 ``None``。支持时，由回调返回机器人包中定义的配置：其中 ``task`` 描述命令、校验字段、展示模板和输出目录名称；机器人专用的会话设置仍通过普通命令行参数传入；``runtime_components`` 定义界面中的服务列表；``primitives`` 按顺序列出 Dashboard 展示并允许直接执行的 Toolkit 动作。相机标签页根据每步记录的 PNG 图像文件自动生成。任务候选项应直接保存在该配置中，避免导入机器人包时依赖仿真器包。完整结构参考 ``robots/libero/robot_spec.py``。
 
 ``_resolve_robot(name)`` 通过 ``importlib.import_module(f"robots.{name}")`` 动态加载机器人包。因此，只需将机器人包放在 ``robots/`` 下，无需维护中央注册列表。
 
-当组件取决于 ``--am-backend`` 等会话参数时，可将 ``dashboard`` 设为 ``dashboard(args) -> DashboardSpec`` 回调，替代静态字典。调用方统一使用 ``RobotSpec.resolve_dashboard(args)``，实体环境检查和 Dashboard 启动均读取解析后的配置。
+``resolve_dashboard(args)`` 回调接收解析后的会话参数，可根据 ``--am-backend`` 等选项选择组件。固定布局直接返回静态配置即可，如上例所示。实体环境检查和 Dashboard 启动均调用此回调。
 
 下文依次说明这些模块需要实现的内容。``_add_cli_args`` 和 ``_parse_config`` 见第 4 节，runtime 钩子见第 5 节。
 

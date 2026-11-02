@@ -89,7 +89,7 @@ def test_shared_runtime_gets_memory_before_startup(
         supports_human_interactive_exploration=robot == "dual_franka",
         memory_repo_id="test/memory",
         prepare_memory=(lambda args, config: None) if robot == "libero" else None,
-        dashboard={
+        resolve_dashboard=lambda args: {
             "task": {
                 "command": "/rpent-task",
                 "usage": "/rpent-task <seed>",
@@ -102,7 +102,6 @@ def test_shared_runtime_gets_memory_before_startup(
         },
         init_runtime=init_runtime,
     )
-    spec.resolve_dashboard = lambda args: spec.dashboard
     args = _build_argparser().parse_args(
         [
             "--robot",

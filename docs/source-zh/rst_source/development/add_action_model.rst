@@ -6,7 +6,9 @@
 共享架构
 --------
 
-模型包复用 RLinf 已支持的推理与数值转换；尚未支持的模型与平台组合才需要自行实现。平台负责物理观测、控制方式和执行工具。公共 AM 基类复用 RPC 传输与推理转发。VLA 保留模型专用消息格式，WAM 使用 ``am_contracts.py`` 中的物理观测与原生控制声明。
+RPent 负责 agent 编排、平台观测与动作的语义映射，以及模型服务的连接。对于 RLinf 已支持的模型与平台组合，接入代码复用其模型加载、推理和数据转换；其余组合由模型包连接模型的原生实现，并补充所需的数据转换。
+
+VLA 和 WAM 通过公共 AM 基类复用 RPC 注册与推理转发。VLA 保留现有的模型专用消息格式和推理路径；WAM 使用 ``am_contracts.py`` 中的物理观测与原生控制声明，连接平台客户端和模型适配器。
 
 ``am_runtime.add_am_args(parser, platform=...)`` 统一注册当前平台支持的后端与公共部署参数。GPU 选择和兼容别名见 :doc:`../guides/cli`。
 
@@ -41,7 +43,7 @@
    * - ``am_client_base.py``
      - 定义公共 ``BaseAMClient`` 及 VLA/WAM 子类，共享推理转发和超时处理，各自保留协议参数与检查。
    * - ``am_facade_base.py``
-     - 通过 ``BaseAMFacade`` 共享推理路由注册和 RPC 会话初始化；子类分别负责 VLA/WAM 行为。
+     - 通过 ``BaseAMFacade`` 共享推理路由、可选的模型元数据查询和 RPC 会话初始化；子类分别负责 VLA/WAM 行为。
    * - ``am_runtime.py``
      - 统一注册公共部署参数，将 VLA/WAM 配置解析为 ``AMConfig``，按指定 Python、工作目录和 GPU 启动 worker。
    * - ``rpent/robots/components/pi05_vla_client.py``
@@ -88,7 +90,7 @@ VLA 启动函数也使用 ``AMConfig.spawn_worker()``。平台保留各自的服
    - 当观测数据包含多帧历史信息或采用嵌套数据结构时，可以切换到
      **socket RPC**\ （``--transport socket``），避免重复进行 JSON 编码。
 
-   ``BaseVLAFacade`` 会注册 ``vla.predict`` 并串行化模型调用；继承的 ``RpcFacade.serve`` 负责绑定传输层、处理 ``healthz`` 和 ``shutdown``、检测父进程退出并清理资源。
+   ``BaseVLAFacade`` 会注册 ``vla.predict`` 并串行化模型调用。构造时传入 ``model_meta=...`` 还会注册只读的 ``vla.get_model_meta`` 路由，元数据字段由具体模型定义。继承的 ``RpcFacade.serve`` 负责绑定传输层、处理 ``healthz`` 和 ``shutdown``、检测父进程退出并清理资源。
 
 2. **编写 model client。** 继承
    :class:`rpent.robots.components.am_client_base.BaseVLAClient`；它已经提供

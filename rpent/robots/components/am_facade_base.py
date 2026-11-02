@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -33,16 +34,19 @@ from rpent.utils.rpc.rpc_facade import DEFAULT_SESSION_TIMEOUT_S
 
 
 class BaseAMFacade(RpcFacade):
-    """Register prediction while reusing RPC locking and session ownership."""
+    """Register prediction and optional metadata using shared RPC/session handling."""
 
     PREDICT_METHOD: str
+    MODEL_META_METHOD: str
 
     def __init__(
         self,
         *,
+        model_meta: Mapping[str, Any] | None = None,
         enable_sessions: bool = False,
         session_timeout_s: float = DEFAULT_SESSION_TIMEOUT_S,
     ) -> None:
+        self._model_meta = model_meta
         super().__init__(
             enable_sessions=enable_sessions, session_timeout_s=session_timeout_s
         )
@@ -50,6 +54,15 @@ class BaseAMFacade(RpcFacade):
 
     def _register_rpc(self) -> None:
         self._rpc[self.PREDICT_METHOD] = self.predict
+        if self._model_meta is not None:
+            self._rpc[self.MODEL_META_METHOD] = self.get_model_meta
+            self._readonly_methods.add(self.MODEL_META_METHOD)
+
+    def get_model_meta(self, *, session_id: str | None = None) -> Mapping[str, Any]:
+        """Return metadata supplied by the model, without imposing a shared schema."""
+        if self._model_meta is None:
+            raise NotImplementedError("this model does not provide metadata")
+        return self._model_meta
 
     def predict(self, *args: Any, **kwargs: Any) -> Any:
         """Run model inference using the subclass's request and result format."""
@@ -67,6 +80,7 @@ class BaseVLAFacade(BaseAMFacade):
     """
 
     PREDICT_METHOD = "vla.predict"
+    MODEL_META_METHOD = "vla.get_model_meta"
 
 
 # --- WAM: paired adapters, physical observations and native actions ---
@@ -91,6 +105,8 @@ class BaseWAMFacade(BaseAMFacade):
     """Own the common ``wam.*`` routes, independent of model and simulator."""
 
     PREDICT_METHOD = "wam.predict"
+    MODEL_META_METHOD = "wam.get_model_meta"
+    _model_meta: WAMModelMeta
 
     def __init__(
         self,
@@ -99,26 +115,16 @@ class BaseWAMFacade(BaseAMFacade):
         adapter: WAMAdapter,
         session_timeout_s: float = DEFAULT_SESSION_TIMEOUT_S,
     ) -> None:
-        self._model_meta = model_meta
         self._adapter = adapter
         super().__init__(
+            model_meta=model_meta,
             enable_sessions=model_meta["uses_sessions"],
             session_timeout_s=session_timeout_s,
         )
 
     def _register_rpc(self) -> None:
         super()._register_rpc()
-        self._rpc.update(
-            {
-                "wam.get_model_meta": self.get_model_meta,
-                "wam.reset": self.reset,
-            }
-        )
-        self._readonly_methods.add("wam.get_model_meta")
-
-    def get_model_meta(self, *, session_id: str | None = None) -> WAMModelMeta:
-        """Return this checkpoint's input and execution contract."""
-        return self._model_meta
+        self._rpc["wam.reset"] = self.reset
 
     def predict(
         self, request: WAMRequest, *, session_id: str | None = None

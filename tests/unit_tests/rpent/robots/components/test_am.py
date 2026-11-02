@@ -25,7 +25,8 @@ from rpent.robots.components.am_client_base import BaseVLAClient, BaseWAMClient
 from rpent.robots.components.am_facade_base import BaseVLAFacade, BaseWAMFacade
 
 
-def test_vla_dispatch_preserves_options_and_model_extensions():
+@pytest.mark.parametrize("model_meta", [None, {"backend": "test", "action_dim": 2}])
+def test_vla_dispatch_preserves_options_and_model_extensions(model_meta):
     class VLA(BaseVLAFacade):
         def _register_rpc(self):
             super()._register_rpc()
@@ -34,13 +35,18 @@ def test_vla_dispatch_preserves_options_and_model_extensions():
         def predict(self, obs, options):
             return {"actions": obs["state"], "options": options}
 
-    facade = VLA()
+    facade = VLA(model_meta=model_meta)
     rpc = Mock(call=lambda method, args, **kw: facade._dispatch(method, args, {}))
     options = {"mode": "eval"}
     try:
         result = BaseVLAClient(rpc).predict({"state": [1, 2]}, options)
         assert result == {"actions": [1, 2], "options": options}
         assert facade._dispatch("vla.metadata", (), {}) == {"model": "test"}
+        if model_meta is not None:
+            assert facade._dispatch("vla.get_model_meta", (), {}) == model_meta
+            assert "vla.get_model_meta" in facade._readonly_methods
+        else:
+            assert "vla.get_model_meta" not in facade._rpc
     finally:
         facade.close()
 

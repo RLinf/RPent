@@ -148,7 +148,7 @@ def get_robot_spec() -> RobotSpec:
         add_cli_args=_add_cli_args,
         parse_config=_parse_config,
         init_runtime=_init_runtime,
-        dashboard=ROBODOJO_DASHBOARD_SPEC,
+        resolve_dashboard=lambda args: ROBODOJO_DASHBOARD_SPEC,
         run_flash=_run_flash,
         finalize_run=finalize_run,
     )

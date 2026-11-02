@@ -214,7 +214,7 @@ def get_robot_spec() -> RobotSpec:
         add_cli_args=_add_cli_args,
         parse_config=_parse_config,
         init_runtime=_init_runtime,
-        dashboard=_resolve_dashboard,
+        resolve_dashboard=_resolve_dashboard,
         supports_exploration=True,
         validate_args=validate_options,
         prepare_memory=prepare_memory,

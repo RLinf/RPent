@@ -385,9 +385,11 @@ def main() -> int:
     if args.dashboard and args.tui:
         parser.error("--dashboard and --tui cannot be used together")
     try:
-        external_env_dashboard = robot_spec.is_real_robot and (
-            robot_spec.resolve_dashboard(args) or {}
-        ).get("external_env", False)
+        external_env_dashboard = (
+            robot_spec.is_real_robot
+            and robot_spec.resolve_dashboard is not None
+            and robot_spec.resolve_dashboard(args).get("external_env", False)
+        )
     except ValueError as exc:
         parser.error(str(exc))
     if robot_spec.is_real_robot and not (

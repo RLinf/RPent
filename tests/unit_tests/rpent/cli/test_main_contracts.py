@@ -37,10 +37,10 @@ class ConfigCaptured(Exception):
     """Stop the CLI immediately after argument validation in routing tests."""
 
 
-@pytest.mark.parametrize("dynamic", [False, True])
+@pytest.mark.parametrize("supported", [False, True])
 @pytest.mark.parametrize("real_robot", [False, True])
 def test_dashboard_uses_robot_owned_descriptor(
-    monkeypatch, tmp_path, dynamic, real_robot
+    monkeypatch, tmp_path, supported, real_robot
 ):
     from argparse import ArgumentParser
     from dataclasses import replace
@@ -59,7 +59,7 @@ def test_dashboard_uses_robot_owned_descriptor(
     }
     spec = replace(
         spec,
-        dashboard=(lambda args: descriptor) if dynamic else descriptor,
+        resolve_dashboard=(lambda args: descriptor) if supported else None,
         is_real_robot=real_robot,
     )
 
@@ -76,8 +76,10 @@ def test_dashboard_uses_robot_owned_descriptor(
         verbose=False,
         env_endpoint="http://localhost:8115" if real_robot else None,
     )
-    with pytest.raises(ConfigCaptured):
+    with pytest.raises(ConfigCaptured if supported else SystemExit) as exc:
         dashboard.run_dashboard_session(args, spec, parser=ArgumentParser())
+    if not supported:
+        assert exc.value.code == 2
 
 
 def _cli_module():
@@ -436,8 +438,7 @@ def test_real_robot_terminal_requirement_fails_before_runtime(
     spec = SimpleNamespace(
         is_real_robot=True,
         supports_human_interactive_exploration=False,
-        dashboard=None,
-        resolve_dashboard=lambda args: None,
+        resolve_dashboard=None,
         add_cli_args=lambda parser, use_dashboard: None,
     )
     monkeypatch.setattr(cli, "get_robot_spec", lambda name: spec)
@@ -473,7 +474,6 @@ def test_human_operator_main_routes_dashboard_without_tty(
         is_real_robot=True,
         supports_human_interactive_exploration=True,
         supports_exploration=True,
-        dashboard={},
         resolve_dashboard=lambda args: {},
         add_cli_args=lambda parser, use_dashboard: None,
         validate_args=None,

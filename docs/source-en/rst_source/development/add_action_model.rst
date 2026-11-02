@@ -8,12 +8,16 @@ native action executor. Tool declarations and state capture are described in
 Shared Architecture
 -------------------
 
-Model packages reuse RLinf's supported inference and numerical transforms;
-only unsupported model/platform pairs need their own implementation. Platforms own
-physical observations, controllers and execution tools. The shared AM bases
-reuse RPC transport and dispatch; VLA keeps model-specific payloads, while WAM
-uses the physical observation and native control declarations in
-``am_contracts.py``.
+RPent handles agent orchestration, platform observation/action mapping and
+service connections. Model integrations reuse RLinf's loading, inference and
+data transforms where it supports the required model and platform. For other
+pairs, the model package connects the model's native implementation and supplies
+the missing transforms.
+
+VLA and WAM share AM base classes for RPC registration and prediction dispatch.
+VLA retains its existing model-specific payloads and inference paths. WAM uses
+the physical observation and native control declarations in ``am_contracts.py``
+to connect platform clients to model adapters.
 
 The WAM execution path illustrates the platform/model boundary:
 
@@ -48,7 +52,7 @@ toolkit owns registration, cancellation, state capture and recording.
    * - ``am_client_base.py``
      - Define the shared ``BaseAMClient`` and its VLA/WAM subclasses; share prediction dispatch and timeouts, keeping each contract's arguments and checks.
    * - ``am_facade_base.py``
-     - Share prediction route registration and RPC session setup through ``BaseAMFacade``; keep VLA and WAM behavior in subclasses.
+     - Share prediction routes, optional model metadata and RPC session setup through ``BaseAMFacade``; keep VLA and WAM behavior in subclasses.
    * - ``am_runtime.py``
      - Register common deployment options, resolve VLA/WAM settings into ``AMConfig``, and start workers with their Python, working directory and GPU configuration.
    * - ``rpent/robots/components/pi05_vla_client.py``
@@ -121,8 +125,10 @@ primitive requires a few additional components:
      a nested dict of numpy arrays with history stacks (avoids the
      JSON re-encode overhead).
 
-   ``BaseVLAFacade`` registers ``vla.predict`` and serializes model calls;
-   its inherited ``RpcFacade.serve`` handles transport binding, ``healthz``,
+   ``BaseVLAFacade`` registers ``vla.predict`` and serializes model calls.
+   Passing ``model_meta=...`` to its constructor also registers the read-only
+   ``vla.get_model_meta`` route; the model defines the metadata fields.
+   Its inherited ``RpcFacade.serve`` handles transport binding, ``healthz``,
    ``shutdown``, parent-death detection, and resource cleanup.
 
 2. **Write a model client.** Subclass
