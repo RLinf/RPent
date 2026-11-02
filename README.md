@@ -73,7 +73,7 @@ RPent is built for four kinds of users:
         <ul style="margin-left: 0; padding-left: 16px;">
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/guides/configure_planner.html#the-claude-code-planner">Claude Code</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/guides/configure_planner.html#the-codex-planner">Codex</a> ✅</li>
-          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/guides/configure_planner.html#planner-deepseek-harness">DeepSeek Harness</a> (CLI, TUI, Dashboard, exploration) ✅</li>
+          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/guides/configure_planner.html#planner-deepseek-harness">DeepSeek Harness</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/development/add_planner.html">Custom Planner</a> ✅</li>
         </ul>
       </td>
