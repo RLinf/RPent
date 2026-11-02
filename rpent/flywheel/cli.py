@@ -61,6 +61,13 @@ def _parser() -> argparse.ArgumentParser:
         help="Local LeRobot dataset identifier (default: rpent/vla-sft). "
         "Does not upload data.",
     )
+    parser.add_argument(
+        "--image-writer-threads",
+        type=int,
+        default=0,
+        help="Image-writing threads shared by all cameras; "
+        "0 writes synchronously (default: 0).",
+    )
     return parser
 
 
@@ -76,6 +83,7 @@ def main() -> int:
             pattern=args.pattern,
             horizon=args.horizon,
             repo_id=args.repo_id,
+            image_writer_threads=args.image_writer_threads,
         )
     except ModuleNotFoundError as exc:
         if exc.name != "lerobot":

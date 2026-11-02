@@ -63,6 +63,9 @@ Export recorded trajectories from one robot to a new output directory:
 parent directory containing multiple runs. Export each robot separately;
 ``--output-dir`` must not already exist.
 
+Add ``--image-writer-threads 4`` to compress and save images with four threads.
+The default, ``0``, writes images synchronously.
+
 Only tasks confirmed successful by the environment are eligible; planner
 completion alone is insufficient. The exporter selects and organizes training
 data using the following rules:

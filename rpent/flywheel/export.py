@@ -39,10 +39,20 @@ def export_dataset(
     pattern: str = "*",
     horizon: int = 10,
     repo_id: str = "rpent/vla-sft",
+    image_writer_threads: int = 0,
 ) -> dict[str, Any]:
-    """Export selected actions to train; horizon only counts complete, unpadded windows."""
+    """Export selected actions to train; horizon only counts complete, unpadded windows.
+
+    Images are written synchronously when image_writer_threads is zero.
+    """
     if isinstance(horizon, bool) or not isinstance(horizon, int) or horizon < 1:
         raise ValueError("horizon must be a positive integer")
+    if (
+        isinstance(image_writer_threads, bool)
+        or not isinstance(image_writer_threads, int)
+        or image_writer_threads < 0
+    ):
+        raise ValueError("image_writer_threads must be a non-negative integer")
     destination = Path(output_dir).expanduser().resolve()
     if destination.exists():
         raise FileExistsError(f"Output directory already exists: {destination}")
@@ -67,109 +77,115 @@ def export_dataset(
         prefix=f".{destination.name}-", dir=destination.parent
     ) as tmp:
         root = Path(tmp)
-        for trajectory in iter_trajectories(input_root, pattern):
-            selected = select_vla_segments(trajectory)
-            source = {
-                "source": str(trajectory["root"]),
-                "task_id": trajectory["task"]["task_id"],
-                "action_count": len(trajectory["actions"]),
-                "selected_action_count": sum(
-                    segment["stop_index"] - segment["start_index"]
-                    for segment in selected["segments"]
-                ),
-                "exported_action_count": 0,
-                "frame_counts": {"train": 0, "validation": 0},
-                "window_counts": {"train": 0, "validation": 0},
-                "episodes": [],
-                "rejected": selected["rejected"],
-            }
-            report["trajectories"].append(source)
-            if selected["segments"]:
-                task = trajectory["task"]
-                robot = task["config"]["data"]["arguments"]["robot_name"]
-                if report["robot"] is not None and robot != report["robot"]:
-                    raise ValueError("Export each robot into a separate dataset")
-                config = get_robot_spec(robot).flywheel
-                image_fields = set(config["images"])
-                use_videos = config.get("use_videos", False)
-            for segment in selected["segments"]:
-                records = trajectory["actions"][
-                    segment["start_index"] : segment["stop_index"]
-                ]
-                for record in records:
-                    frame = read_frame(
-                        trajectory["root"],
-                        record,
-                        segment["instruction"],
-                        config,
-                    )
-                    if dataset is None:
-                        features = {
-                            name: {
-                                "dtype": ("video" if use_videos else "image")
-                                if name in image_fields
-                                else str(value.dtype),
-                                "shape": value.shape,
-                                "names": ["height", "width", "channel"]
-                                if name in image_fields
-                                else None,
-                            }
-                            for name, value in frame.items()
-                            if name != "prompt"
-                        }
-                        features["prompt"] = {
-                            "dtype": "string",
-                            "shape": (1,),
-                            "names": None,
-                        }
-                        dataset = LeRobotDataset.create(
-                            repo_id=repo_id,
-                            root=root / "train",
-                            robot_type=robot,
-                            fps=config["fps"],
-                            features=features,
-                            use_videos=use_videos,
-                            video_backend="pyav",
+        try:
+            for trajectory in iter_trajectories(input_root, pattern):
+                selected = select_vla_segments(trajectory)
+                source = {
+                    "source": str(trajectory["root"]),
+                    "task_id": trajectory["task"]["task_id"],
+                    "action_count": len(trajectory["actions"]),
+                    "selected_action_count": sum(
+                        segment["stop_index"] - segment["start_index"]
+                        for segment in selected["segments"]
+                    ),
+                    "exported_action_count": 0,
+                    "frame_counts": {"train": 0, "validation": 0},
+                    "window_counts": {"train": 0, "validation": 0},
+                    "episodes": [],
+                    "rejected": selected["rejected"],
+                }
+                report["trajectories"].append(source)
+                if selected["segments"]:
+                    task = trajectory["task"]
+                    robot = task["config"]["data"]["arguments"]["robot_name"]
+                    if report["robot"] is not None and robot != report["robot"]:
+                        raise ValueError("Export each robot into a separate dataset")
+                    config = get_robot_spec(robot).flywheel
+                    image_fields = set(config["images"])
+                    use_videos = config.get("use_videos", False)
+                for segment in selected["segments"]:
+                    records = trajectory["actions"][
+                        segment["start_index"] : segment["stop_index"]
+                    ]
+                    for record in records:
+                        frame = read_frame(
+                            trajectory["root"],
+                            record,
+                            segment["instruction"],
+                            config,
                         )
-                        report["dataset_paths"]["train"] = "train"
-                        report.update(robot=robot, fps=config["fps"])
-                    dataset.add_frame(frame, task=segment["instruction"])
-                dataset.save_episode()
-                frame_count = len(records)
-                window_count = max(0, frame_count - horizon + 1)
-                report["frame_counts"]["train"] += frame_count
-                report["window_counts"]["train"] += window_count
-                source["frame_counts"]["train"] += frame_count
-                source["window_counts"]["train"] += window_count
-                source["episodes"].append(
-                    {
-                        "split": "train",
-                        "episode_index": report["episode_counts"]["train"],
-                        "start_index": segment["start_index"],
-                        "stop_index": segment["stop_index"],
-                    }
+                        if dataset is None:
+                            features = {
+                                name: {
+                                    "dtype": ("video" if use_videos else "image")
+                                    if name in image_fields
+                                    else str(value.dtype),
+                                    "shape": value.shape,
+                                    "names": ["height", "width", "channel"]
+                                    if name in image_fields
+                                    else None,
+                                }
+                                for name, value in frame.items()
+                                if name != "prompt"
+                            }
+                            features["prompt"] = {
+                                "dtype": "string",
+                                "shape": (1,),
+                                "names": None,
+                            }
+                            dataset = LeRobotDataset.create(
+                                repo_id=repo_id,
+                                root=root / "train",
+                                robot_type=robot,
+                                fps=config["fps"],
+                                features=features,
+                                use_videos=use_videos,
+                                video_backend="pyav",
+                                image_writer_threads=image_writer_threads,
+                            )
+                            report["dataset_paths"]["train"] = "train"
+                            report.update(robot=robot, fps=config["fps"])
+                        dataset.add_frame(frame, task=segment["instruction"])
+                    dataset.save_episode()
+                    frame_count = len(records)
+                    window_count = max(0, frame_count - horizon + 1)
+                    report["frame_counts"]["train"] += frame_count
+                    report["window_counts"]["train"] += window_count
+                    source["frame_counts"]["train"] += frame_count
+                    source["window_counts"]["train"] += window_count
+                    source["episodes"].append(
+                        {
+                            "split": "train",
+                            "episode_index": report["episode_counts"]["train"],
+                            "start_index": segment["start_index"],
+                            "stop_index": segment["stop_index"],
+                        }
+                    )
+                    report["episode_counts"]["train"] += 1
+                    source["exported_action_count"] += frame_count
+                source["excluded_action_count"] = (
+                    source["action_count"] - source["exported_action_count"]
                 )
-                report["episode_counts"]["train"] += 1
-                source["exported_action_count"] += frame_count
-            source["excluded_action_count"] = (
-                source["action_count"] - source["exported_action_count"]
+                non_vla_count = sum(
+                    action.get("source") != "vla" for action in trajectory["actions"]
+                )
+                source["excluded_action_counts"] = {
+                    "non_vla": non_vla_count,
+                    "unselected_vla": source["action_count"]
+                    - non_vla_count
+                    - source["selected_action_count"],
+                }
+            report["trajectory_count"] = len(report["trajectories"])
+            report["exported_trajectory_count"] = sum(
+                source["exported_action_count"] > 0 for source in report["trajectories"]
             )
-            non_vla_count = sum(
-                action.get("source") != "vla" for action in trajectory["actions"]
-            )
-            source["excluded_action_counts"] = {
-                "non_vla": non_vla_count,
-                "unselected_vla": source["action_count"]
-                - non_vla_count
-                - source["selected_action_count"],
-            }
-        report["trajectory_count"] = len(report["trajectories"])
-        report["exported_trajectory_count"] = sum(
-            source["exported_action_count"] > 0 for source in report["trajectories"]
-        )
+            if dataset is not None:
+                if config.get("metadata") == "rldx":
+                    _write_rldx_metadata(dataset, config)
+        finally:
+            if dataset is not None:
+                dataset.stop_image_writer()
         if dataset is not None:
-            if config.get("metadata") == "rldx":
-                _write_rldx_metadata(dataset, config)
             # Images are embedded in Parquet or encoded as videos.
             shutil.rmtree(root / "train" / "images")
         (root / "report.json").write_text(

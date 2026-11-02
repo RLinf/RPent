@@ -15,6 +15,7 @@
 import json
 import shutil
 import sys
+import threading
 from dataclasses import replace
 from types import ModuleType
 
@@ -29,8 +30,9 @@ pytest.importorskip("lerobot")
 
 @pytest.mark.parametrize("trajectory", [38], indirect=True)
 @pytest.mark.parametrize("robot", ["robocasa", "test_robot"])
+@pytest.mark.parametrize("image_writer_threads", [0, 4])
 def test_export_saves_declared_rldx_videos_actions_and_metadata(
-    robocasa_trajectory, tmp_path, monkeypatch, robot
+    robocasa_trajectory, tmp_path, monkeypatch, robot, image_writer_threads
 ):
     trajectory = robocasa_trajectory
     if robot == "test_robot":
@@ -47,7 +49,12 @@ def test_export_saves_declared_rldx_videos_actions_and_metadata(
         "".join(json.dumps(row) + "\n" for row in trajectory["actions"])
     )
     output = tmp_path / "robocasa"
-    report = export_dataset(trajectory["root"], output, horizon=16)
+    report = export_dataset(
+        trajectory["root"],
+        output,
+        horizon=16,
+        image_writer_threads=image_writer_threads,
+    )
     assert report["robot"] == robot
     assert report["frame_counts"] == {"train": 37, "validation": 0}
     assert report["episode_counts"] == {"train": 2, "validation": 0}
@@ -110,14 +117,20 @@ def test_export_saves_declared_rldx_videos_actions_and_metadata(
             np.testing.assert_allclose(stats[name][key], np.quantile(values, q, axis=0))
 
 
+@pytest.mark.parametrize("image_writer_threads", [0, 4])
 def test_bimanual_export_preserves_native_state_actions_and_camera_order(
-    bimanual_trajectory, tmp_path
+    bimanual_trajectory, tmp_path, image_writer_threads
 ):
     trajectory = bimanual_trajectory
     robot = trajectory["task"]["config"]["data"]["arguments"]["robot_name"]
     dim = 14 if robot == "robodojo" else 16
     output = tmp_path / "bimanual"
-    report = export_dataset(trajectory["root"], output, horizon=50)
+    report = export_dataset(
+        trajectory["root"],
+        output,
+        horizon=50,
+        image_writer_threads=image_writer_threads,
+    )
     assert report["frame_counts"] == {"train": 6, "validation": 0}
     assert report["fps"] == (25 if robot == "robodojo" else 20)
     assert report["window_counts"] == {"train": 0, "validation": 0}
@@ -154,8 +167,9 @@ def test_bimanual_export_preserves_native_state_actions_and_camera_order(
 
 
 @pytest.mark.parametrize("trajectory", [68], indirect=True)
+@pytest.mark.parametrize("image_writer_threads", [0, 4])
 def test_bimanual_export_keeps_fifty_and_seventeen_step_segments(
-    bimanual_trajectory, tmp_path
+    bimanual_trajectory, tmp_path, image_writer_threads
 ):
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
@@ -170,7 +184,12 @@ def test_bimanual_export_keeps_fifty_and_seventeen_step_segments(
         "".join(json.dumps(row) + "\n" for row in trajectory["actions"])
     )
     output = tmp_path / "segments"
-    report = export_dataset(trajectory["root"], output, horizon=50)
+    report = export_dataset(
+        trajectory["root"],
+        output,
+        horizon=50,
+        image_writer_threads=image_writer_threads,
+    )
     assert report["frame_counts"] == {"train": 67, "validation": 0}
     assert report["episode_counts"] == {"train": 2, "validation": 0}
     assert report["window_counts"] == {"train": 1, "validation": 0}
@@ -435,6 +454,41 @@ def test_export_merges_continuous_actions_across_tool_calls(trajectory, tmp_path
 def test_export_horizon_must_be_a_positive_integer(trajectory, tmp_path, horizon):
     with pytest.raises(ValueError, match="positive integer"):
         export_dataset(trajectory["root"], tmp_path / "invalid", horizon=horizon)
+
+
+@pytest.mark.parametrize("image_writer_threads", [-1, True, 1.5, "4"])
+def test_export_rejects_invalid_image_writer_threads(tmp_path, image_writer_threads):
+    output = tmp_path / "invalid"
+    with pytest.raises(ValueError, match="image_writer_threads.*non-negative integer"):
+        export_dataset(tmp_path, output, image_writer_threads=image_writer_threads)
+    assert not output.exists()
+
+
+def test_export_closes_image_threads_when_a_later_image_is_missing(
+    trajectory, tmp_path, monkeypatch
+):
+    from lerobot.datasets import image_writer
+
+    observation = trajectory["actions"][2]["before_observation"]["payload"]["data"]
+    observation["main_images"]["path"] = "missing.npy"
+    (trajectory["root"] / "actions.jsonl").write_text(
+        "".join(json.dumps(row) + "\n" for row in trajectory["actions"])
+    )
+    writers = set()
+    write_image = image_writer.write_image
+
+    def record_writer(image, path):
+        writers.add(threading.current_thread())
+        write_image(image, path)
+
+    monkeypatch.setattr(image_writer, "write_image", record_writer)
+    output = tmp_path / "missing-later-image"
+    with pytest.raises(FileNotFoundError, match="missing.npy"):
+        export_dataset(trajectory["root"], output, image_writer_threads=4)
+    assert writers
+    assert all(not writer.is_alive() for writer in writers)
+    assert not output.exists()
+    assert not list(tmp_path.glob(".missing-later-image-*"))
 
 
 @pytest.mark.parametrize("trajectory", [10], indirect=True)
