@@ -23,9 +23,8 @@ Record a Trajectory
 -------------------
 
 Recording is off by default and requires ``--planner api``. Action recording
-supports LIBERO, RoboCasa365, and RoboTwin in evaluation mode, and RoboDojo.
-Exploration runs in the first three environments record planner and tool calls
-only. Enable recording and choose a run directory:
+supports LIBERO, RoboCasa365, RoboTwin, and RoboDojo. Enable recording and
+choose a run directory:
 
 .. code-block:: bash
 

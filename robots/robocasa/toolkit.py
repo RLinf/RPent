@@ -280,6 +280,7 @@ def _capture_robocasa_call(
     return {
         "result": result,
         "before_observation": before,
+        "before_observation_cached": True,
         "steps": [
             {
                 "action": {

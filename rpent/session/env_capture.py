@@ -102,6 +102,7 @@ class CapturingEnvClient:
         self.state = state
         self._capture_call = capture_call
         self._observation_id: str | None = None
+        self._last_execution_failed = False
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.wrapped, name)
@@ -109,7 +110,10 @@ class CapturingEnvClient:
     def reset(self, *args: Any, **kwargs: Any) -> Any:
         """Reset the client and discard the previous observation association."""
         self._observation_id = None
-        return self.wrapped.reset(*args, **kwargs)
+        self._last_execution_failed = True
+        result = self.wrapped.reset(*args, **kwargs)
+        self._last_execution_failed = False
+        return result
 
     def step(self, *args: Any, **kwargs: Any) -> Any:
         """Execute and record one action, returning the original client result."""
@@ -144,7 +148,10 @@ class CapturingEnvClient:
         capture = current_tool_call.get()
         if capture is None or capture.state is not self.state:
             self._observation_id = None
-            return operation(*args, **kwargs)
+            self._last_execution_failed = True
+            result = operation(*args, **kwargs)
+            self._last_execution_failed = False
+            return result
         try:
             response = (
                 self._capture_call(method, *args, **kwargs)
@@ -153,6 +160,7 @@ class CapturingEnvClient:
             )
         except BaseException as exc:
             self._observation_id = None
+            self._last_execution_failed = True
             self.state.update_tool_call(
                 capture.tool_call_id,
                 missing={
@@ -163,12 +171,29 @@ class CapturingEnvClient:
                 },
             )
             raise
+        previous_failed = self._last_execution_failed
+        self._last_execution_failed = False
         if not response["steps"]:
             return response["result"]
 
-        before_id = self._observation_id or self.state.register_observation(
-            payload=self._payload(response["before_observation"])
-        )
+        before_id = self._observation_id
+        if before_id is None:
+            before = response["before_observation"]
+            if previous_failed and response.get("before_observation_cached", False):
+                payload = Payload(
+                    format=before["format"],
+                    data=None,
+                    completeness="partial",
+                    missing={
+                        "": MissingInfo(
+                            "capture_failed",
+                            "Cached observation may be stale after failed environment execution.",
+                        )
+                    },
+                )
+            else:
+                payload = self._payload(before)
+            before_id = self.state.register_observation(payload=payload)
         first_before_id = before_id
         for step in response["steps"]:
             after_id = self.state.register_observation(

@@ -17,7 +17,7 @@
 采集轨迹
 --------
 
-采集默认关闭，且仅在 ``--planner api`` 下生效。动作采集支持 LIBERO、RoboCasa365、RoboTwin 的评测模式，以及 RoboDojo；前三个环境的探索模式只记录规划器和工具调用。开启采集并指定运行目录：
+采集默认关闭，且仅在 ``--planner api`` 下生效。动作采集支持 LIBERO、RoboCasa365、RoboTwin 和 RoboDojo。开启采集并指定运行目录：
 
 .. code-block:: bash
 

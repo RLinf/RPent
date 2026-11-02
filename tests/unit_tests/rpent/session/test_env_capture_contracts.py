@@ -35,6 +35,7 @@ class _Client:
         self.calls = []
         self.chunk_limit = None
         self.fail = False
+        self.before_observation_cached = False
         self.last_obs = self._observation()
 
     def _observation(self):
@@ -64,15 +65,17 @@ class _Client:
 
     def _run(self, method, actions, **kwargs):
         self.calls.append((method, kwargs))
-        before = self.last_obs
+        before = (
+            self.last_obs if self.before_observation_cached else self._observation()
+        )
         steps = []
         observations = []
         for action in actions:
             native = np.asarray(action, dtype=np.float32)
             self.position += float(native[0])
-            self.last_obs = self._observation()
             if self.fail:
                 raise RuntimeError("step failed after moving")
+            self.last_obs = self._observation()
             observations.append(self.last_obs)
             action_type = kwargs.get("action_type", "joint")
             steps.append(
@@ -103,6 +106,7 @@ class _Client:
         self.last_response = {
             "result": self.last_result,
             "before_observation": self._observation_payload(before),
+            "before_observation_cached": self.before_observation_cached,
             "steps": steps,
         }
         return self.last_response if kwargs.get("capture") else self.last_result
@@ -306,16 +310,32 @@ def test_payload_snapshots_and_nested_attachments(env, capture, tmp_path):
     assert len(list((root / "artifacts").iterdir())) == 4
 
 
+@pytest.mark.parametrize("cached_before", [False, True])
 @pytest.mark.parametrize(
-    "interruption", ["reset", "failure", "uncaptured_step", "uncaptured_failure"]
+    "interruption",
+    [
+        "reset",
+        "failure",
+        "uncaptured_step",
+        "uncaptured_failure",
+        "failure_then_reset",
+        "failure_then_uncaptured_step",
+    ],
 )
-def test_interruptions_break_observation_reuse(env, capture, interruption):
+def test_interruptions_break_observation_reuse(
+    env, capture, interruption, cached_before
+):
+    env.wrapped.before_observation_cached = cached_before
     with capture.bind():
         env.step([1])
     if interruption == "reset":
         env.reset()
         expected_before = 0
-    elif interruption == "failure":
+    elif interruption in {
+        "failure",
+        "failure_then_reset",
+        "failure_then_uncaptured_step",
+    }:
         env.wrapped.fail = True
         with capture.bind(), pytest.raises(RuntimeError, match="step failed"):
             env.chunk_step([[2], [3]])
@@ -325,6 +345,12 @@ def test_interruptions_break_observation_reuse(env, capture, interruption):
         assert tool.missing["after_observation_id"].reason == "capture_failed"
         env.wrapped.fail = False
         expected_before = 3
+        if interruption == "failure_then_reset":
+            env.reset()
+            expected_before = 0
+        elif interruption == "failure_then_uncaptured_step":
+            env.step([1])
+            expected_before = 4
     else:
         if interruption == "uncaptured_failure":
             env.wrapped.fail = True
@@ -336,14 +362,26 @@ def test_interruptions_break_observation_reuse(env, capture, interruption):
         assert env.calls[-1] == ("step", {})
         expected_before = 3
     with capture.bind():
-        env.step([4])
-    first, second = capture.state.action_records()
+        env.chunk_step([[4], [5]])
+    first, second, third = capture.state.action_records()
     assert first.after_observation_id != second.before_observation_id
     before = capture.state.get_observation(second.before_observation_id)
-    np.testing.assert_array_equal(before.payload.data["states"], [expected_before])
+    if cached_before and interruption in {"failure", "uncaptured_failure"}:
+        assert before.payload.data is None
+        assert before.payload.completeness == "partial"
+        assert before.payload.missing[""].reason == "capture_failed"
+    else:
+        np.testing.assert_array_equal(before.payload.data["states"], [expected_before])
+    assert third.before_observation_id == second.after_observation_id
+    np.testing.assert_array_equal(
+        capture.state.get_observation(third.before_observation_id).payload.data[
+            "states"
+        ],
+        [expected_before + 4],
+    )
     tool = capture.state.get_tool_call(capture.tool_call_id)
     assert tool.before_observation_id == first.before_observation_id
-    assert tool.after_observation_id == second.after_observation_id
+    assert tool.after_observation_id == third.after_observation_id
     assert tool.missing == {}
 
 

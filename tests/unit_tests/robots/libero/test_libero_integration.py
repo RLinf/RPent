@@ -25,6 +25,8 @@ from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 from robots.libero import toolkit as libero_toolkit
 from robots.libero.tools import LiberoPrimitives
 from rpent.dashboard.events import NullDashboardEventSink
+from rpent.flywheel.flywheel import select_vla_segments
+from rpent.flywheel.reader import iter_trajectories
 from rpent.memory import MemoryManager
 from rpent.planner.api_loop import ApiAgentLoop
 from rpent.robots.components.action_spec import validate_action
@@ -676,6 +678,7 @@ class _LiberoBackend:
         self.wrap_count = 0
         self.reset_count = 0
         self.fail_at = None
+        self.success_at = 3
 
     def _observation(self):
         return _obs(len(self.executed))
@@ -704,7 +707,7 @@ class _LiberoBackend:
         return (
             self._wrap_obs(self.current_raw_obs),
             np.array([0.5], dtype=np.float32),
-            np.array([len(self.executed) == 3]),
+            np.array([len(self.executed) == self.success_at]),
             np.array([False]),
             {"episode": {"episode_len": np.array([len(self.executed)])}},
         )
@@ -819,7 +822,10 @@ def test_libero_failed_chunk_discards_unconfirmed_actions(
     from rpent.session.env_capture import CapturingEnvClient, ToolCallCapture
 
     state = EnvState(tmp_path)
-    state.start_task(instruction="move", config=Payload("test.config", {}))
+    state.start_task(
+        instruction="move",
+        config=Payload("test.config", {"arguments": {"robot_name": "libero"}}),
+    )
     tool_id = state.register_tool_call(
         planner_id=state.register_planner(backend="api"),
         name="move",
@@ -843,4 +849,33 @@ def test_libero_failed_chunk_discards_unconfirmed_actions(
             assert state.prediction_records()[0].action_ids == []
             call = state.get_tool_call(tool_id)
             assert call.missing["after_observation_id"].reason == "capture_failed"
-    assert len(backend.executed) == 3
+            np.testing.assert_array_equal(client.last_obs["states"], np.full(8, 1))
+            np.testing.assert_array_equal(
+                backend.current_raw_obs[0]["states"], np.full(8, 3)
+            )
+            backend.success_at = 5
+            with env.prediction("move"):
+                env.chunk_step(np.ones((2, 7)))
+    assert len(backend.executed) == 5
+    first, recovered, following = state.action_records()
+    assert recovered.before_observation_id != first.after_observation_id
+    before = state.get_observation(recovered.before_observation_id).payload
+    assert before.data is None
+    assert before.completeness == "partial"
+    assert before.missing[""].reason == "capture_failed"
+    assert following.before_observation_id == recovered.after_observation_id
+    np.testing.assert_array_equal(
+        state.get_observation(following.before_observation_id).payload.data["states"],
+        np.full(8, 4),
+    )
+    state.end_task(
+        status="completed",
+        stop_reason="finish",
+        result=Payload("test", {"environment_success": True}),
+    )
+    trajectory = next(iter_trajectories(state.save_planner_trajectory()))
+    selected = select_vla_segments(trajectory)
+    assert selected["segments"] == [
+        {"start_index": 2, "stop_index": 3, "instruction": "move"}
+    ]
+    assert [item["action_id"] for item in selected["rejected"]] == [recovered.action_id]

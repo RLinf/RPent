@@ -34,7 +34,8 @@ from robots.robocasa.prompt_bundle import system_prompt
 from robots.robocasa.toolkit import _capture_robocasa_call
 from robots.robocasa.vla_server import _normalize_legacy_processor_geometry
 from rpent.dashboard.events import NullDashboardEventSink
-from rpent.flywheel.reader import read_array
+from rpent.flywheel.flywheel import select_vla_segments
+from rpent.flywheel.reader import iter_trajectories, read_array
 from rpent.memory import MemoryManager
 from rpent.prompt.utils import format_prompt
 from rpent.robots.components.action_spec import box_action_spec
@@ -588,7 +589,10 @@ def test_robocasa_failed_step_keeps_prior_steps_and_ends_prediction_scope(
     facade, transport, make_server_and_client, tmp_path
 ):
     state = EnvState(tmp_path)
-    state.start_task(instruction="Open drawer", config=Payload("test", {}))
+    state.start_task(
+        instruction="Open drawer",
+        config=Payload("test", {"arguments": {"robot_name": "robocasa"}}),
+    )
     tool_id = state.register_tool_call(
         planner_id=state.register_planner(backend="api"),
         name="rldx_skill",
@@ -608,7 +612,39 @@ def test_robocasa_failed_step_keeps_prior_steps_and_ends_prediction_scope(
             assert capture.prediction_id is None
             assert len(state.action_records()) == 1
             assert state.prediction_records()[0].action_ids == ["A1"]
+            np.testing.assert_array_equal(
+                client.last_obs["robot0_base_to_eef_pos"], np.full(3, 1)
+            )
+            np.testing.assert_array_equal(
+                facade.env.obs["robot0_base_to_eef_pos"], np.full(3, 2)
+            )
+            primitives._rldx.run("Open drawer", max_chunks=1, n_action_steps=2)
             env.step(np.zeros(12))
-    first, last = state.action_records()
+    first, recovered, following, last = state.action_records()
     assert first.source == "vla" and last.source == "tool_computed"
-    assert last.before_observation_id != first.after_observation_id
+    assert recovered.before_observation_id != first.after_observation_id
+    before = state.get_observation(recovered.before_observation_id).payload
+    assert before.data is None
+    assert before.completeness == "partial"
+    assert before.missing[""].reason == "capture_failed"
+    assert following.before_observation_id == recovered.after_observation_id
+    np.testing.assert_array_equal(
+        state.get_observation(following.before_observation_id).payload.data[
+            "robot0_base_to_eef_pos"
+        ],
+        np.full(3, 3),
+    )
+    state.end_task(
+        status="completed",
+        stop_reason="finish",
+        result=Payload("test", {"environment_success": True}),
+    )
+    trajectory = next(iter_trajectories(state.save_planner_trajectory()))
+    selected = select_vla_segments(trajectory)
+    assert [
+        (item["start_index"], item["stop_index"]) for item in selected["segments"]
+    ] == [
+        (0, 1),
+        (2, 3),
+    ]
+    assert [item["action_id"] for item in selected["rejected"]] == [recovered.action_id]

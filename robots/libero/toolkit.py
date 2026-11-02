@@ -268,6 +268,7 @@ def _capture_libero_call(
     return {
         "result": result,
         "before_observation": observation_payload(before),
+        "before_observation_cached": True,
         "steps": [
             {
                 "action": {
