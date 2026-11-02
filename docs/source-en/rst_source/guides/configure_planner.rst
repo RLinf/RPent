@@ -40,7 +40,7 @@ loop is orchestrated, and which model SDK is used.
      - The DeepSeek Harness Python SDK and bundled runtime. RPent exposes its
        toolkit through a local Streamable HTTP MCP server.
      - Run CLI, TUI, Dashboard, and exploration tasks with the dsh agent loop
-       and ChatGPT subscription access through its ``openai-codex`` provider.
+       and Codex/GPT.
    * - ``flash``
      - **Flash Mode**, for evaluation only. Replays a plan from memory,
        recorded from an earlier
@@ -287,8 +287,7 @@ The ``deepseek_harness`` Planner
 --------------------------------
 
 DeepSeek Harness (dsh) runs the agent loop using RPent's task prompts, memory,
-and tools. This backend uses the ``openai-codex`` provider with a ChatGPT
-subscription; available models and usage limits depend on the signed-in account.
+and tools. It currently supports Codex/GPT.
 
 Install and Sign In
 ~~~~~~~~~~~~~~~~~~~
@@ -302,11 +301,6 @@ and bundled runtime to ``0.2.1rc2``; no separate Node.js installation is needed.
    export DSH_HOME="$PWD/.dsh-rpent"
    rpent-dsh-login --dsh-home "$DSH_HOME"
 
-Open the printed URL and enter the one-time code. Login, connectivity checks,
-and task runs must use the same home. ``--dsh-home`` overrides ``DSH_HOME``;
-one must be set. RPent does not import Codex credentials. Keep this directory
-outside version control.
-
 Check and Run
 ~~~~~~~~~~~~~
 
@@ -317,10 +311,6 @@ Check the exact model and reasoning level before starting robot services:
    rpent-check-llm --planner deepseek_harness \
      --dsh-home "$DSH_HOME" \
      --model gpt-6.1-sol --reasoning-effort xhigh
-
-This command sends a real model request. Normal startup only checks the local
-model catalog, capabilities, and credential presence; it cannot establish
-remote authorization or remaining quota and does not refresh credentials.
 
 After :doc:`LIBERO setup <../simulators/libero>`, run a LIBERO-PRO Long Task:
 
@@ -358,12 +348,6 @@ For LIBERO exploration, prepare a local seed corpus:
      --explore-sessions 3 --explore-attempts-per-session 5 \
      --max-turns 100 --planner-timeout-s 1200
 
-This corpus was authored with GPT-5.5; the planner still uses Sol 6.1.
-``--memory-dir`` selects the seed, which RPent copies into ``<run>/memory``
-without overwriting an existing destination. ``--auto-merge-memory`` changes
-only this working copy; failed merges may leave partial changes. This does
-not restrict general file tools' access to other paths.
-
 A safe unsolved finish or exhausted step/time budget can start a fresh session
 while the configured session quota remains. Each session has its own budget.
 The original task and consumed operator constraints carry forward as context;
@@ -374,9 +358,9 @@ memory collection, and evaluation rules.
 Current Limits and Results
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-- The provider is fixed to ``openai-codex``. ``--base-url`` and ``--no-images``
-  are unsupported. Only RPent tools are exposed, one call at a time; dsh's
-  default coding tools, repository instructions, skills, subagents, goals, and
+- ``--base-url`` and ``--no-images`` are unsupported. Only RPent tools are
+  exposed, one call at a time; dsh's default coding tools, repository
+  instructions, skills, subagents, goals, and
   scheduled work are disabled.
 - ``--max-turns`` limits root model steps. ``--planner-timeout-s`` covers
   planner startup and active execution, excluding simulator initialization and

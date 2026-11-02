@@ -30,8 +30,7 @@ RPent 通过一个 CLI 参数选择 Agentic Planner 的后端：
    * - ``deepseek_harness``
      - DeepSeek Harness Python SDK 及其自带的运行时。RPent 通过本地
        Streamable HTTP MCP 服务提供 toolkit。
-     - 在 CLI、TUI、Dashboard 和探索任务中使用 dsh 智能体循环，并通过其
-       ``openai-codex`` provider 使用 ChatGPT 订阅权限。
+     - 在 CLI、TUI、Dashboard 和探索任务中使用 dsh 智能体循环，支持 Codex/GPT。
    * - ``flash``
      - **Flash Mode**，仅用于评测。重放 memory 中保存的成功执行计划，并对每个路点
        的锚点重新定位，使方案能跟随移动过的物体。参见
@@ -216,8 +215,7 @@ RPent 的 ``--model`` 必须与 vLLM 的 ``--served-model-name`` 保持一致。
 ---------------------------
 
 DeepSeek Harness（dsh）使用 RPent 的任务提示词、memory 和工具运行智能体循环。
-当前后端通过 ``openai-codex`` provider 使用 ChatGPT 订阅权限；可用模型与额度
-取决于登录的账户。
+当前支持 Codex/GPT。
 
 安装与登录
 ~~~~~~~~~~
@@ -231,10 +229,6 @@ DeepSeek Harness（dsh）使用 RPent 的任务提示词、memory 和工具运�
    export DSH_HOME="$PWD/.dsh-rpent"
    rpent-dsh-login --dsh-home "$DSH_HOME"
 
-打开打印的链接并输入一次性验证码。登录、连接检查和任务运行必须使用同一目录。
-``--dsh-home`` 优先于 ``DSH_HOME``，两者至少设置一个。RPent 不会导入 Codex
-凭据。不要将此目录加入版本控制。
-
 检查与运行
 ~~~~~~~~~~
 
@@ -245,9 +239,6 @@ DeepSeek Harness（dsh）使用 RPent 的任务提示词、memory 和工具运�
    rpent-check-llm --planner deepseek_harness \
      --dsh-home "$DSH_HOME" \
      --model gpt-6.1-sol --reasoning-effort xhigh
-
-此命令会发送真实模型请求。普通启动只检查本地模型目录、能力和凭据是否存在，
-不能证明远端授权有效或额度充足，也不会刷新凭据。
 
 完成 :doc:`LIBERO 环境准备 <../simulators/libero>` 后，运行一个 LIBERO-PRO Long Task：
 
@@ -283,11 +274,6 @@ DeepSeek Harness（dsh）使用 RPent 的任务提示词、memory 和工具运�
      --explore-sessions 3 --explore-attempts-per-session 5 \
      --max-turns 100 --planner-timeout-s 1200
 
-该语料由 GPT-5.5 生成，规划模型仍是 Sol 6.1。``--memory-dir`` 指定初始语料，
-RPent 将其复制到 ``<run>/memory``，不会覆盖已有目标目录。
-``--auto-merge-memory`` 只修改本次工作副本；合并失败可能留下部分改动。
-该隔离不限制通用文件工具对其他路径的访问。
-
 任务未成功时，安全结束的 finish 或步数/时间预算耗尽，可在剩余会话配额内
 启动新会话。每个会话分别使用自己的预算。原始任务和已消费的操作员约束会作为
 上下文保留，后续明确更正优先。待发送或已撤回的消息不纳入；不重放动作，
@@ -297,7 +283,7 @@ RPent 将其复制到 ``<run>/memory``，不会覆盖已有目标目录。
 当前限制与结果
 ~~~~~~~~~~~~~~
 
-- provider 固定为 ``openai-codex``，不支持 ``--base-url`` 和 ``--no-images``。
+- 不支持 ``--base-url`` 和 ``--no-images``。
   模型只能调用 RPent 工具，每次执行一个调用；dsh 默认的编程工具、仓库指令、
   skills、子智能体、目标与定时任务均被关闭。
 - ``--max-turns`` 限制根模型步骤。``--planner-timeout-s`` 覆盖规划器启动及
