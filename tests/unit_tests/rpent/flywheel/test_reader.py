@@ -18,7 +18,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from rpent.flywheel.reader import iter_trajectories, read_array, validate_image
+from rpent.flywheel.reader import iter_trajectories, read_array
 from rpent.session import EnvState, Payload
 
 
@@ -120,43 +120,10 @@ def test_reads_metadata_without_planner_log_or_image_files(tmp_path):
     (root / image_ref["path"]).unlink()
     (root / "planners.jsonl").unlink()
 
-    validate_image(image_ref, "camera", expected_shape=(3, 4, 3))
     assert next(iter_trajectories(root)) == trajectory
     with pytest.raises(FileNotFoundError) as error:
         read_array(root, image_ref)
     assert image_ref["path"] in str(error.value)
-
-
-@pytest.mark.parametrize(
-    "field,value",
-    [
-        ("$type", "bytes"),
-        ("shape", [3, 4]),
-        ("shape", [3, 4, 4]),
-        ("dtype", "float32"),
-        ("kind", "bytes"),
-        ("path", ""),
-    ],
-)
-def test_invalid_image_metadata_reports_the_camera(tmp_path, field, value):
-    trajectory = next(iter_trajectories(_save_trajectory(tmp_path)))
-    image = trajectory["actions"][0]["before_observation"]["payload"]["data"]["camera"]
-    image[field] = value
-    with pytest.raises(ValueError, match="Invalid camera"):
-        validate_image(image, "camera")
-
-
-def test_inline_image_metadata_requires_no_artifact_reference():
-    image = {
-        "$type": "ndarray",
-        "shape": [2, 4, 3],
-        "dtype": "uint8",
-        "value": np.zeros((2, 4, 3), dtype=np.uint8).tolist(),
-    }
-    validate_image(image, "camera")
-    validate_image(image, "camera", expected_shape=(2, 4, 3))
-    with pytest.raises(ValueError, match="Invalid camera"):
-        validate_image(image, "camera", expected_shape=(256, 256, 3))
 
 
 def test_preserves_empty_failed_trajectory(tmp_path):

@@ -24,8 +24,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
-from rpent.flywheel.flywheel import read_frame
-from rpent.flywheel.prepare import select_vla_segments
+from rpent.flywheel.flywheel import read_frame, select_vla_segments
 from rpent.flywheel.reader import iter_trajectories
 from rpent.robots import get_robot_spec
 

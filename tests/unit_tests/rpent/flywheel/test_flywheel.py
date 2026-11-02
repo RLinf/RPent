@@ -17,8 +17,41 @@ from copy import deepcopy
 import numpy as np
 import pytest
 
-from rpent.flywheel.prepare import select_vla_segments
+from rpent.flywheel.flywheel import select_vla_segments, validate_image
 from rpent.flywheel.reader import read_array
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("$type", "bytes"),
+        ("shape", [3, 4]),
+        ("shape", [3, 4, 4]),
+        ("dtype", "float32"),
+        ("kind", "bytes"),
+        ("path", ""),
+    ],
+)
+def test_invalid_image_metadata_reports_the_camera(trajectory, field, value):
+    image = trajectory["actions"][0]["before_observation"]["payload"]["data"][
+        "main_images"
+    ]
+    image[field] = value
+    with pytest.raises(ValueError, match="Invalid camera"):
+        validate_image(image, "camera")
+
+
+def test_inline_image_metadata_requires_no_artifact_reference():
+    image = {
+        "$type": "ndarray",
+        "shape": [2, 4, 3],
+        "dtype": "uint8",
+        "value": np.zeros((2, 4, 3), dtype=np.uint8).tolist(),
+    }
+    validate_image(image, "camera")
+    validate_image(image, "camera", expected_shape=(2, 4, 3))
+    with pytest.raises(ValueError, match="Invalid camera"):
+        validate_image(image, "camera", expected_shape=(256, 256, 3))
 
 
 def _ranges(result):
@@ -148,7 +181,7 @@ def test_instruction_change_starts_a_new_segment(trajectory):
 
 def test_action_format_change_starts_a_new_segment(trajectory, monkeypatch):
     monkeypatch.setattr(
-        "rpent.flywheel.prepare.read_actions",
+        "rpent.flywheel.flywheel.read_actions",
         lambda root, payload, config: read_array(root, payload["data"]),
     )
     for action in trajectory["actions"][4:7]:

@@ -85,29 +85,6 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     return records
 
 
-def validate_image(
-    value: dict[str, Any] | None,
-    name: str,
-    *,
-    expected_shape: tuple[int, int, int] | None = None,
-) -> None:
-    """Check uint8 HWC image metadata without loading image files."""
-    value = value or {}
-    shape = value.get("shape", [])
-    if (
-        value.get("$type") not in ("ndarray", "artifact_ref")
-        or len(shape) != 3
-        or shape[-1] != 3
-        or (expected_shape is not None and tuple(shape) != expected_shape)
-        or value.get("dtype") != "uint8"
-    ):
-        raise ValueError(f"Invalid {name} metadata")
-    if value["$type"] == "artifact_ref" and (
-        value.get("kind") != "ndarray" or not value.get("path")
-    ):
-        raise ValueError(f"Invalid {name} artifact reference")
-
-
 def read_array(trajectory_root: Path | str, value: dict[str, Any]) -> np.ndarray:
     """Load an inline or artifact ndarray, checking its dtype, shape, and path."""
     if value.get("$type") == "ndarray":
