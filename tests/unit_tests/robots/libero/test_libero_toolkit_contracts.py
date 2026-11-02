@@ -143,15 +143,16 @@ def test_toolkit_modes_construct_with_fake_primitives(
         lambda primitives, state, log: dumped.append(primitives) or _record(),
     )
 
+    runtime_kwargs = {"env": object(), "model": object(), "sam3_client": object()}
     evaluation = toolkit.LiberoToolkit(
-        runtime_kwargs={"env_client": object(), "sam3_client": object()},
+        runtime_kwargs=runtime_kwargs,
         dashboard_events=NullDashboardEventSink(),
         memory=MemoryManager(tmp_path / "evaluation-memory"),
         mode="evaluation",
         state_output_dir=tmp_path / "evaluation",
     )
     exploration = toolkit.LiberoToolkit(
-        runtime_kwargs={"env_client": object(), "sam3_client": object()},
+        runtime_kwargs=runtime_kwargs,
         dashboard_events=NullDashboardEventSink(),
         memory=MemoryManager(
             tmp_path / "exploration-memory",

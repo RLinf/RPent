@@ -70,10 +70,8 @@ class LiberoToolkit(Toolkit):
         # Bound the resettable attempts owned by this planner session.
         self._attempts_per_session: int = max(0, int(attempts_per_session))
         self._session_attempt: int = 1
-        primitive_kwargs = dict(runtime_kwargs)
-        sam3_client = primitive_kwargs.pop("sam3_client")
-        self.init_primitives(runtime_kwargs=primitive_kwargs)
-        self._register_libero_tools(sam3_client)
+        self.init_primitives(runtime_kwargs=runtime_kwargs)
+        self._register_libero_tools(runtime_kwargs["sam3_client"])
         if enable_direct_action:
             self.add_tool(
                 direct_action_tool(
@@ -206,8 +204,11 @@ class LiberoToolkit(Toolkit):
         self._state.reset()
 
         primitives = libero_tools.LiberoPrimitives(
+            env=runtime_kwargs["env"],
+            model=runtime_kwargs["model"],
             check_cancelled=self.raise_if_cancelled,
-            **runtime_kwargs,
+            molmo_client=runtime_kwargs.get("molmo_client"),
+            flywheel_config=runtime_kwargs.get("flywheel_config"),
         )
         primitives.reset()
         primitives.start_recording()
