@@ -69,7 +69,6 @@ def _primitives(env, config=None, molmo_client=None):
     return LiberoPrimitives(
         env=env,
         model=_Model(),
-        sam3_client=SimpleNamespace(),
         check_cancelled=lambda: None,
         flywheel_config=config,
         molmo_client=molmo_client,
@@ -111,9 +110,7 @@ def test_collection_records_scripted_and_vla_actions(tmp_path, with_molmo):
 
 def test_molmo_positional_argument_keeps_collection_disabled():
     molmo = SimpleNamespace()
-    primitives = LiberoPrimitives(
-        _Env(), _Model(), SimpleNamespace(), lambda: None, molmo
-    )
+    primitives = LiberoPrimitives(_Env(), _Model(), lambda: None, molmo)
     primitives.reset()
     assert primitives.molmo_client is molmo
     assert primitives.finalize_flywheel() is None

@@ -42,9 +42,10 @@ TOOL_DECLARATIONS = {
     ),
     "dual_franka": DualFrankaToolkit.declared_tools(),
     "yam": list(iter_tools(YamToolkit, yam_tools)),
-    "libero": list(
-        iter_tools(libero_tools, libero_tools.LiberoPrimitives, LiberoToolkit)
-    ),
+    "libero": [
+        *iter_tools(libero_tools, libero_tools.LiberoPrimitives, LiberoToolkit),
+        *iter_tools(libero_tools.build_sam3_tools(None, state=None)),
+    ],
     "robocasa": list(iter_tools(robocasa_tools, RoboCasaPrimitives)),
     "robodojo": list(iter_tools(robodojo_tools)),
     "robotwin": list(iter_tools(robotwin_tools, RoboTwinPrimitives, RoboTwinToolkit)),

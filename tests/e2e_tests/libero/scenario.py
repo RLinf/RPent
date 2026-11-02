@@ -148,9 +148,7 @@ def _move_to_yaw_check(output_dir: Path, args: Namespace) -> dict[str, Any]:
     spec = get_robot_spec()
     with runtime_phase(spec, args, output_dir / "move-to-yaw", {"env"}) as runtime:
         env = runtime["env"]
-        primitives = LiberoPrimitives(
-            env=env, model=None, sam3_client=None, check_cancelled=lambda: None
-        )
+        primitives = LiberoPrimitives(env=env, model=None, check_cancelled=lambda: None)
         observation, _ = primitives.reset()
         target_xyz = np.asarray(observation["states"][:3], dtype=np.float32)
         initial_yaw = yaw(env.raw_obs()["robot0_eef_quat"])

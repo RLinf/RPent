@@ -80,7 +80,7 @@ def make_primitive(robot, action_size=None):
     if robot == "libero":
         from robots.libero.tools import LiberoPrimitives
 
-        primitive = LiberoPrimitives(env, None, None, lambda: None)
+        primitive = LiberoPrimitives(env, None, lambda: None)
     elif robot == "robocasa":
         from robots.robocasa.primitives import RoboCasaPrimitives
 
@@ -159,7 +159,9 @@ def test_cli_factory_gates_tool_and_preserves_action_records(
         args.append("--enable-direct-action")
     config = spec._parse_config(parser.parse_args(args))
     toolkit = spec.get_toolkit(
-        runtime_kwargs={}, dashboard_events=NullDashboardEventSink(), config=config
+        runtime_kwargs={"sam3_client": object()} if robot == "libero" else {},
+        dashboard_events=NullDashboardEventSink(),
+        config=config,
     )
     names = {definition.name for definition in toolkit.list_tools()}
     assert ("execute_action" in names) == enabled

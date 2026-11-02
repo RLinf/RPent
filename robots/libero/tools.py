@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import json
-import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -31,6 +30,7 @@ from rpent.robots.components.pi05_vla_client import Pi05VLAClient
 from rpent.robots.components.sam3_client import Sam3Client
 from rpent.session import EnvState, StepRecord
 from rpent.tools import Tool, ToolResult, tool
+from rpent.tools.perception import Sam3Tools
 from rpent.utils.logging import get_logger
 
 logger = get_logger("libero_tools")
@@ -58,16 +58,12 @@ class LiberoPrimitives:
         self,
         env: LiberoEnvClient,
         model: Pi05VLAClient,
-        sam3_client: Sam3Client,
         check_cancelled: Callable[[], None],
         molmo_client: MolmoClient | None = None,
         flywheel_config: dict[str, Any] | None = None,
     ):
         self.env = env
         self.model = model
-        self._sam3_client = sam3_client
-        self._segment_index_lock = threading.Lock()
-        self._segment_index = 0
         #: Only a Flash Mode replay reads this; other runs never start Molmo.
         self.molmo_client = molmo_client
         self._check_cancelled = check_cancelled
@@ -782,175 +778,21 @@ class LiberoPrimitives:
             }
         )
 
-    # ---- introspection helpers (for LLM-in-the-loop) ----
 
-    @tool(readonly=True, exclude=("state",))
-    def segment(
-        self,
-        prompt: str = "",
-        camera: Literal["agentview", "wrist"] = "agentview",
-        step: Annotated[int, Field(json_schema_extra={"default": -1})] = -1,
-        point: Annotated[list[int], Field(min_length=2, max_length=2)] | None = None,
-        min_score: float = 0.2,
-        *,
-        state: EnvState,
-    ) -> ToolResult:
-        """SAM3 visual segmentation over an existing run artifact. It never renders a new camera view. Provide exactly one text prompt or single positive point. A successful top-ranked mask is projected through the matching world map to produce world_xyz.
-
-        Args:
-            prompt: Object/text prompt to segment.
-            camera: Artifact camera to use (default agentview).
-            step: Step to segment; -1 = latest.
-            point: Optional single positive point as [row, col]. Mutually exclusive with prompt.
-            min_score: Minimum accepted mask score (default 0.2).
-        """
-        images: list[bytes] = []
-        try:
-            record = state.get(step)
-        except Exception as exc:
-            return ToolResult(data={"error": f"state step not available: {exc}"})
-        nn = record.step_idx
-
-        camera = camera or "agentview"
-        prompt = prompt.strip()
-        has_prompt = bool(prompt)
-        has_point = point is not None
-        if has_prompt == has_point:
-            return ToolResult(
-                data={"error": "segment needs exactly one of prompt or point"}
+def build_sam3_tools(sam3_client: Sam3Client, *, state: EnvState) -> Sam3Tools:
+    """Build the SAM3 tools over LIBERO's recorded camera and world-map artifacts."""
+    return Sam3Tools(
+        sam3_client,
+        state=state,
+        cameras={
+            camera: (
+                (f"{camera}_high.png", f"{camera}_world_high.npz"),
+                (f"{camera}.png", f"{camera}_world.npz"),
             )
-        try:
-            image_name, world_name, artifact_pairs = _select_segment_artifacts(
-                state, record, camera
-            )
-        except ValueError as e:
-            return ToolResult(data={"error": str(e)})
-        if image_name is None or world_name is None:
-            return ToolResult(
-                data={
-                    "error": "complete segment artifacts not found",
-                    "step": nn,
-                    "camera": camera,
-                    "checked_artifacts": [
-                        name
-                        for (image, world) in artifact_pairs
-                        for name in (image, world)
-                        if name
-                    ],
-                }
-            )
-
-        try:
-            data = self._sam3_client.segment(
-                state.load_bytes(image_name, step=nn),
-                text_prompt=prompt if has_prompt else None,
-                point=point,
-                min_score=min_score,
-            )
-        except ValueError as e:
-            return ToolResult(
-                data={
-                    "error": str(e),
-                    "step": nn,
-                    "camera": camera,
-                    "image_artifact": image_name,
-                }
-            )
-        except Exception as e:
-            return ToolResult(
-                data={
-                    "error": f"segmentation service call failed: {e}",
-                    "step": nn,
-                    "camera": camera,
-                    "image_artifact": image_name,
-                    "fallback": "Use manual visual localization and back_project.",
-                }
-            )
-
-        # Reserve an index before writing; failed saves leave gaps, never reuse.
-        with self._segment_index_lock:
-            segment_index = self._segment_index
-            self._segment_index += 1
-        segment_name = f"segment_{segment_index:02d}.json"
-        overlay_name = f"segment_overlay_{segment_index:02d}.png"
-        saved_overlay = None
-        mask = data.mask
-        if data.found and isinstance(mask, np.ndarray):
-            try:
-                world_map = state.load(world_name, step=nn)
-            except Exception as exc:
-                world_result = {
-                    "world_xyz": None,
-                    "world_error": f"world map artifact not available: {exc}",
-                    "expected_world_artifact": world_name,
-                }
-            else:
-                world_result = _mask_to_world(mask, world_map)
-                world_result["world_artifact"] = world_name
-            overlay = _make_segment_overlay(state.load(image_name, step=nn), mask)
-            if overlay is not None and state.save(
-                overlay_name,
-                overlay,
-                step=nn,
-            ):
-                saved_overlay = overlay_name
-        else:
-            world_result = {
-                "world_xyz": None,
-                "world_error": data.reason or "segmentation did not find a mask",
-            }
-
-        segment_blob = {
-            "found": data.found,
-            "mode": "text" if has_prompt else "point",
-            "camera": camera,
-            "source_step": nn,
-            "segment_index": segment_index,
-            "image_artifact": image_name,
-            "min_score": min_score,
-            "score": round(float(data.score), 3) if data.score is not None else None,
-            "box": data.box,
-            "mask_shape": list(data.mask_shape) if data.mask_shape else None,
-        }
-        if has_prompt:
-            segment_blob["prompt"] = prompt
-        else:
-            segment_blob["point"] = point
-        if not data.found:
-            segment_blob["error"] = data.reason or "SAM3 found no mask"
-        segment_blob.update(world_result)
-        saved_segment = state.save(
-            segment_name,
-            segment_blob,
-            step=nn,
-        )
-
-        result = {
-            "found": data.found,
-            "step": nn,
-            "camera": camera,
-            "image_artifact": image_name,
-            "score": segment_blob["score"],
-            "box": segment_blob["box"],
-            "world_xyz": segment_blob["world_xyz"],
-            "world_error": segment_blob.get("world_error"),
-        }
-        if saved_segment is None:
-            result["error"] = f"failed to persist segment artifact {segment_name}"
-            result["code"] = "segment_artifact_save_failed"
-            result["attempted_segment_artifact"] = segment_name
-            if "error" in segment_blob:
-                result["segmentation_error"] = segment_blob["error"]
-            result["fallback"] = "Use manual visual localization and back_project."
-        else:
-            result["segment_artifact"] = saved_segment
-        if saved_segment is not None and "error" in segment_blob:
-            result["error"] = segment_blob["error"]
-            result["fallback"] = "Use manual visual localization and back_project."
-        if saved_overlay is not None:
-            result["overlay_artifact"] = saved_overlay
-            images.append(state.load_bytes(saved_overlay, step=nn))
-        return ToolResult(data=result, images=images)
+            for camera in ("agentview", "wrist")
+        },
+        fallback="Use manual visual localization and back_project.",
+    )
 
 
 def _is_primitive_action(name: object) -> bool:
@@ -1342,100 +1184,6 @@ def view_env_state(
             except FileNotFoundError:
                 pass
     return ToolResult(data=out, images=images)
-
-
-def _select_segment_artifacts(
-    state: EnvState,
-    record: StepRecord,
-    camera: str,
-) -> tuple[str | None, str | None, list[tuple[str | None, str | None]]]:
-    if camera not in ("agentview", "wrist"):
-        raise ValueError(f"unknown segment camera: {camera}")
-    pairs = [
-        (f"{camera}_high.png", f"{camera}_world_high.npz"),
-        (f"{camera}.png", f"{camera}_world.npz"),
-    ]
-    for image_name, world_name in pairs:
-        if (
-            image_name in record.artifacts
-            and world_name in record.artifacts
-            and state.exists(image_name, step=record.step_idx)
-            and state.exists(world_name, step=record.step_idx)
-        ):
-            return image_name, world_name, pairs
-    return None, None, pairs
-
-
-def _mask_to_world(
-    mask: np.ndarray, world_map: np.ndarray, min_valid: int = 10
-) -> dict:
-    if world_map.ndim != 3 or world_map.shape[2] < 3:
-        return {
-            "world_xyz": None,
-            "world_error": f"invalid world map shape: {tuple(world_map.shape)}",
-            "n_pixels": int(mask.sum()),
-            "n_valid": 0,
-            "mask_resized_to_world_shape": False,
-        }
-
-    if mask.shape != world_map.shape[:2]:
-        return {
-            "world_xyz": None,
-            "world_error": (
-                f"mask/world shape mismatch: mask={tuple(mask.shape)}, "
-                f"world={tuple(world_map.shape[:2])}"
-            ),
-            "n_pixels": int(mask.sum()),
-            "n_valid": 0,
-            "mask_resized_to_world_shape": False,
-        }
-
-    ys, xs = np.where(mask)
-    if ys.size == 0:
-        return {"world_xyz": None, "world_error": "empty mask"}
-
-    pts = world_map[ys, xs].astype(np.float64)
-    valid = np.isfinite(pts).all(axis=1) & (np.abs(pts).sum(axis=1) > 1e-6)
-    pts = pts[valid]
-    result = {
-        "centroid_pixel": [
-            int(round(float(np.median(xs)))),
-            int(round(float(np.median(ys)))),
-        ],
-        "n_pixels": int(mask.sum()),
-        "n_valid": int(pts.shape[0]),
-        "mask_resized_to_world_shape": False,
-    }
-    if pts.shape[0] < min_valid:
-        result.update(
-            {
-                "world_xyz": None,
-                "world_error": f"too few valid depth pixels ({int(pts.shape[0])})",
-            }
-        )
-        return result
-
-    result["world_xyz"] = [
-        round(float(np.median(pts[:, 0])), 4),
-        round(float(np.median(pts[:, 1])), 4),
-        round(float(np.median(pts[:, 2])), 4),
-    ]
-    return result
-
-
-def _make_segment_overlay(
-    image: np.ndarray,
-    mask: np.ndarray,
-) -> np.ndarray | None:
-    if image.ndim != 3 or image.shape[:2] != mask.shape:
-        return None
-    overlay = image.copy()
-    red = np.zeros_like(overlay)
-    red[..., 0] = 255
-    overlay[mask] = (
-        0.55 * overlay[mask].astype(np.float32) + 0.45 * red[mask].astype(np.float32)
-    ).astype(np.uint8)
-    return overlay
 
 
 @tool(readonly=True, exclude=("state",))

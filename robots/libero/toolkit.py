@@ -36,6 +36,7 @@ from rpent.utils.logging import get_logger, get_output_dir
 
 if TYPE_CHECKING:
     from rpent.memory.manager import MemoryManager
+    from rpent.robots.components.sam3_client import Sam3Client
 
 logger = get_logger("libero_toolkit")
 
@@ -69,8 +70,10 @@ class LiberoToolkit(Toolkit):
         # Bound the resettable attempts owned by this planner session.
         self._attempts_per_session: int = max(0, int(attempts_per_session))
         self._session_attempt: int = 1
-        self.init_primitives(runtime_kwargs=runtime_kwargs)
-        self._register_libero_tools()
+        primitive_kwargs = dict(runtime_kwargs)
+        sam3_client = primitive_kwargs.pop("sam3_client")
+        self.init_primitives(runtime_kwargs=primitive_kwargs)
+        self._register_libero_tools(sam3_client)
         if enable_direct_action:
             self.add_tool(
                 direct_action_tool(
@@ -86,17 +89,17 @@ class LiberoToolkit(Toolkit):
     # ------------------------------------------------------------------
     # Registration
     # ------------------------------------------------------------------
-    def _register_libero_tools(self) -> None:
+    def _register_libero_tools(self, sam3_client: Sam3Client) -> None:
         for definition in iter_tools(libero_tools):
             self.add_tool(
                 definition.with_handler(partial(definition, state=self._state))
             )
         for definition in iter_tools(self._primitives):
-            if definition.name == "segment":
-                handler = partial(definition, state=self._state)
-            else:
-                handler = partial(self._execute_primitive, definition.name, definition)
+            handler = partial(self._execute_primitive, definition.name, definition)
             self.add_tool(definition.with_handler(handler))
+        self.add_tools(
+            iter_tools(libero_tools.build_sam3_tools(sam3_client, state=self._state))
+        )
         if self._mode == "exploration":
             self.add_tool(self._reset_episode)
             finish = self._tools["finish"]
