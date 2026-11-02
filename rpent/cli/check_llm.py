@@ -56,7 +56,7 @@ def _parser() -> argparse.ArgumentParser:
         "--planner",
         default="api",
         choices=list(CHECK_PLANNERS),
-        help="LLM backend to check: api | claude_code | codex.",
+        help="LLM backend to check: api | claude_code | codex | deepseek_harness.",
     )
     parser.add_argument(
         "--model",
@@ -80,6 +80,17 @@ def _parser() -> argparse.ArgumentParser:
         help=f"Wall-clock cap for the check. Defaults per backend ({default_timeouts}).",
     )
     parser.add_argument(
+        "--dsh-home",
+        default=None,
+        help="DeepSeek Harness login home; defaults to DSH_HOME.",
+    )
+    parser.add_argument(
+        "--reasoning-effort",
+        choices=["low", "medium", "high", "xhigh"],
+        default="high",
+        help="DeepSeek Harness reasoning effort to verify (default: high).",
+    )
+    parser.add_argument(
         "--json",
         action="store_true",
         dest="as_json",
@@ -99,6 +110,11 @@ def _remediation(result: LlmCheckResult) -> str:
     Returns:
         A one-line hint, or an empty string when none applies.
     """
+    if result.planner == "deepseek_harness":
+        if result.status == STATUS_MISSING_CONFIG:
+            return "Pass --model, --dsh-home (or DSH_HOME), and a supported --reasoning-effort."
+        if result.status in (STATUS_AUTH_FAILED, STATUS_MISSING_API_KEY):
+            return "Run rpent-dsh-login with the same --dsh-home, then retry."
     credential = result.credential_env or "the backend's API key"
     base_url_env = result.base_url_env or "the backend's base URL variable"
     hints = {
@@ -192,6 +208,8 @@ def main() -> int:
             model=args.model,
             base_url=args.base_url,
             timeout_s=args.timeout_s,
+            dsh_home=args.dsh_home,
+            reasoning_effort=args.reasoning_effort,
         )
     )
     if args.as_json:

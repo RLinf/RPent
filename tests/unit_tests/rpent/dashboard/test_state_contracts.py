@@ -37,6 +37,7 @@ from rpent.dashboard.spec import DashboardSpec
 from rpent.dashboard.state import DashboardState
 from rpent.session import EnvState
 from rpent.tools import Toolkit, ToolResult, tool
+from rpent.utils.logging import init_output_dir
 
 DASHBOARD_SPEC: DashboardSpec = {
     "task": {
@@ -58,6 +59,7 @@ DASHBOARD_SPEC: DashboardSpec = {
 
 
 def _state(tmp_path: Path) -> DashboardState:
+    init_output_dir(tmp_path)
     return DashboardState(
         output_dir=tmp_path,
         dashboard_spec=DASHBOARD_SPEC,
@@ -435,6 +437,170 @@ def test_manual_result_does_not_resume_agent_without_user_message(tmp_path):
     assert state.claim_next_pending_message() is None
     state.submit_input("inspect state")
     assert "timeout" in state.claim_next_pending_message().text
+
+
+def test_consumption_before_submit_ack_keeps_manual_actions_excluded(tmp_path):
+    import asyncio
+    from unittest.mock import AsyncMock
+
+    from rpent.dashboard.planner_control import DashboardPlannerControl
+    from rpent.planner.deepseek_session import DeepSeekSessionDriver
+
+    state = _ready_state(tmp_path)
+    _claim_started_task(state)
+    toolkit = MagicMock(spec=Toolkit)
+    toolkit.list_tools.return_value = (move_to,)
+    state.bind_toolkit(toolkit)
+    state.set_planner_activity("idle", accepting_input=True)
+    state.submit_input("continue after natural idle")
+    boundary = MagicMock(execution_uncertain=False, finish_result=None)
+    host = MagicMock(request=AsyncMock())
+    driver = DeepSeekSessionDriver(host, boundary)
+    emitted = []
+
+    def emit_user(text):
+        # An HTTP handler can run after sending -> sent, before submit returns.
+        assert state.planner_activity == "busy"
+        assert not state.snapshot()["primitives_available"]
+        with pytest.raises(InteractionUnavailableError):
+            state.execute_primitive("move_to", {})
+        emitted.append(text)
+
+    control = DashboardPlannerControl(
+        interaction=state,
+        cancel_active_and_wait=lambda: None,
+        resume_calls=lambda: None,
+        emit_user=emit_user,
+        emit_initial_user=lambda: None,
+        defer_message_ack=True,
+        submit_while_busy=True,
+    )
+    driver.control = control
+
+    async def consumed_before_ack(op, **values):
+        assert op == "submit"
+        driver.message_consumed("receipt")
+        return {"receipt": "receipt", "newTurn": True}
+
+    host.request.side_effect = consumed_before_ack
+    asyncio.run(control._flush(driver))
+    assert emitted == ["continue after natural idle"]
+    assert state.snapshot()["interaction"]["messages"][0]["status"] == "sent"
+    toolkit.execute_tool.assert_not_called()
+
+
+@pytest.mark.parametrize("initial_status", ["sending", "failed"])
+def test_late_consumption_confirmation_stays_closed_and_rejects_old_task_ids(
+    tmp_path, initial_status
+):
+    state = _ready_state(tmp_path)
+    _claim_started_task(state)
+    state.set_planner_activity("idle", accepting_input=True)
+    consumed = state.submit_input("same text across tasks")
+    state.claim_next_pending_message()
+    if initial_status == "failed":
+        state.mark_message_failed(consumed.message_id, "submission ACK lost")
+    queued = state.submit_input("never consumed")
+    state.claim_next_pending_message()
+    state.seal_interaction()
+    assert state.reconcile_consumed_message(consumed.message_id)
+    assert state.reconcile_consumed_message(consumed.message_id)
+    assert not state.reconcile_consumed_message("foreign-id")
+    messages = state.snapshot()["interaction"]["messages"]
+    assert [message["status"] for message in messages] == ["sent", "unsent"]
+    assert state.planner_activity == "ended"
+    state.complete_task(state="cancelled")
+    _claim_started_task(state, "/rpent-task place 2")
+    state.set_planner_activity("idle", accepting_input=True)
+    current = state.submit_input("same text across tasks")
+    state.claim_next_pending_message()
+    assert not state.reconcile_consumed_message(consumed.message_id)
+    assert not state.reconcile_consumed_message(queued.message_id)
+    assert current.message_id not in {consumed.message_id, queued.message_id}
+    assert state.snapshot()["interaction"]["messages"][0]["status"] == "sending"
+    assert state.planner_activity == "idle"
+
+
+def test_manual_harness_resume_refreshes_observation_and_retains_records_until_consumed(
+    tmp_path,
+):
+    state = _ready_state(tmp_path)
+    _claim_started_task(state)
+    state.configure_planner_control(
+        refresh_manual_observations=True, withdraw_queued=True
+    )
+    toolkit = MagicMock(spec=Toolkit)
+    toolkit.list_tools.return_value = (move_to,)
+    toolkit.execute_tool.return_value = ToolResult(data={"executed_steps": 3})
+    toolkit.get_env_state.return_value = ToolResult(
+        data={"state": "fresh"}, images=[b"png"]
+    )
+    state.bind_toolkit(toolkit)
+    state.set_planner_activity("idle", accepting_input=True)
+    state.execute_primitive("move_to", {})
+    toolkit.execute_tool.assert_called_once_with("move_to", {}, source="dashboard")
+    journal = list(tmp_path.rglob("manual_actions.jsonl"))
+    assert len(journal) == 1 and '"source": "dashboard"' in journal[0].read_text()
+    state.submit_input("continue")
+    message = state.claim_next_pending_message()
+    assert message.observation.images == [b"png"]
+    assert message.source == "dashboard_continuation"
+    assert message.operator_text == "continue"
+    assert "observation" not in message.as_dict()
+    assert "operator_text" not in message.as_dict()
+    state.withdraw_message(message.message_id)
+    assert state.claim_message_withdrawals() == [message.message_id]
+    state.complete_message_withdrawal(message.message_id, withdrawn=True)
+    state.submit_input("try again")
+    retry = state.claim_next_pending_message()
+    assert '"executed_steps": 3' in retry.text
+    assert toolkit.get_env_state.call_count == 2
+    state.mark_message_sent(retry.message_id)
+    state.submit_input("next")
+    assert state.claim_next_pending_message().observation is None
+
+
+def test_manual_harness_refresh_failure_preserves_pending_input(tmp_path):
+    state = _ready_state(tmp_path)
+    _claim_started_task(state)
+    state.configure_planner_control(
+        refresh_manual_observations=True, withdraw_queued=True
+    )
+    toolkit = MagicMock(spec=Toolkit)
+    toolkit.list_tools.return_value = (move_to,)
+    toolkit.execute_tool.return_value = ToolResult(data={"executed_steps": 4})
+    toolkit.get_env_state.side_effect = [
+        RuntimeError("camera offline"),
+        ToolResult(data={"state": "fresh"}),
+    ]
+    state.bind_toolkit(toolkit)
+    state.set_planner_activity("idle", accepting_input=True)
+    state.execute_primitive("move_to", {})
+    pending = state.submit_input("continue")
+    assert state.claim_next_pending_message() is None
+    snapshot = state.snapshot()["interaction"]
+    assert snapshot["messages"][-1]["status"] == "pending"
+    assert "camera offline" in snapshot["messages"][-1]["error"]
+    message = state.claim_next_pending_message()
+    assert message.message_id == pending.message_id
+    assert '"executed_steps": 4' in message.text
+
+
+def test_harness_withdrawal_losing_consumption_race_preserves_sent_status(tmp_path):
+    state = _ready_state(tmp_path)
+    _claim_started_task(state)
+    state.configure_planner_control(
+        refresh_manual_observations=True, withdraw_queued=True
+    )
+    state.set_planner_activity("busy", accepting_input=True)
+    state.submit_input("steer")
+    message = state.claim_next_pending_message()
+    state.withdraw_message(message.message_id)
+    state.mark_message_sent(message.message_id)
+    state.complete_message_withdrawal(message.message_id, withdrawn=False)
+    observed = state.snapshot()["interaction"]["messages"][-1]
+    assert observed["status"] == "sent"
+    assert "consumed" in observed["error"]
 
 
 def test_explore_continuation_queues_at_idle_and_interrupt_pauses(tmp_path):

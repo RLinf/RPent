@@ -70,6 +70,8 @@ class DashboardServer:
         planner: str | None = None,
         model: str | None = None,
         base_url: str | None = None,
+        dsh_home: str | None = None,
+        reasoning_effort: str = "high",
     ) -> None:
         self.host = host
         self.port = int(port)
@@ -78,6 +80,8 @@ class DashboardServer:
         # Server-side context the page cannot supply. The check keeps its own
         # short timeouts; the run's is never reused.
         self._llm_check_base_url = base_url
+        self._llm_check_dsh_home = dsh_home
+        self._llm_check_reasoning_effort = reasoning_effort
         self._llm_check_lock = threading.Lock()
         dashboard_dir = Path(__file__).parent
         self._language = "zh-cn" if language == "zh-cn" else "en"
@@ -175,6 +179,8 @@ class DashboardServer:
                         ),
                         model=(payload.get("model") or configured.get("model") or None),
                         base_url=self._llm_check_base_url or None,
+                        dsh_home=self._llm_check_dsh_home,
+                        reasoning_effort=self._llm_check_reasoning_effort,
                     )
                 )
             finally:

@@ -234,11 +234,29 @@ class DashboardState:
         self._toolkit: Toolkit | None = None
         self._active_primitive_calls: dict[int, int] = {}
         self._manual_results: list[str] = []
+        self._manual_execution_uncertain = False
+        self._refresh_manual_observations = False
+        self._withdraw_queued = False
+        self._message_withdrawals: list[str] = []
         self._explore_paused = False
         self._exploration_message: DashboardMessage | None = None
         self.operator: HumanInTheLoopInput | None = None
         self.operator_verdict: str | None = None
         self.operator_exploration = False
+
+    def configure_planner_control(
+        self, *, refresh_manual_observations: bool, withdraw_queued: bool
+    ) -> None:
+        """Enable capabilities implemented by the active planner driver."""
+        with self._condition:
+            self._refresh_manual_observations = refresh_manual_observations
+            self._withdraw_queued = withdraw_queued
+
+    @property
+    def manual_execution_uncertain(self) -> bool:
+        """Whether a manual action lacks a certain outcome in this task."""
+        with self._lock:
+            return self._manual_execution_uncertain
 
     def operator_changed(self) -> None:
         with self._condition:
@@ -294,6 +312,9 @@ class DashboardState:
             self._toolkit is not None
             and self._session_state != "switch_pending"
             and self._planner_activity == "idle"
+            and not self._interrupt_requested
+            and not self._interrupt_in_flight
+            and not self._manual_execution_uncertain
             and not self._active_primitive_calls
             and not any(m.status == "sending" for m in self._messages)
         )
@@ -371,12 +392,21 @@ class DashboardState:
                 self._active_primitive_calls.get(toolkit_key, 0) + 1
             )
         summary = {
+            "source": "dashboard",
+            "execution_certain": False,
             "tool": name,
             "arguments": arguments,
             "outcome": "execution outcome unknown",
         }
         try:
-            result = toolkit.execute_tool(name, arguments)
+            result = toolkit.execute_tool(
+                name,
+                arguments,
+                **(
+                    {"source": "dashboard"} if self._refresh_manual_observations else {}
+                ),
+            )
+            summary["execution_certain"] = not result.execution_uncertain
             raw = result.to_dict()
             log = raw.get("log")
             if isinstance(log, dict) and isinstance(log.get("result"), dict):
@@ -407,7 +437,26 @@ class DashboardState:
         finally:
             with self._condition:
                 if self._toolkit is toolkit:
-                    self._manual_results.append(json.dumps(summary, default=str)[:6000])
+                    if (
+                        self._refresh_manual_observations
+                        and not summary["execution_certain"]
+                    ):
+                        self._manual_execution_uncertain = True
+                        self._last_interaction_error = "Manual action outcome is uncertain; this task cannot resume."
+                    record = json.dumps(summary, default=str)
+                    self._manual_results.append(record[:6000])
+                    if self._refresh_manual_observations:
+                        try:
+                            self.video_path.parent.mkdir(parents=True, exist_ok=True)
+                            with (self.video_path.parent / "manual_actions.jsonl").open(
+                                "a"
+                            ) as log:
+                                log.write(record + "\n")
+                        except OSError as exc:
+                            logger.error(
+                                "Failed to record manual Dashboard action: %s", exc
+                            )
+                            self._last_interaction_error = str(exc)
                 remaining = self._active_primitive_calls[toolkit_key] - 1
                 if remaining:
                     self._active_primitive_calls[toolkit_key] = remaining
@@ -499,6 +548,7 @@ class DashboardState:
                         message_id=f"msg_{uuid.uuid4().hex}",
                         text=message,
                         status="pending",
+                        source="exploration_continuation",
                     )
                     self._exploration_message = queued
                     self._messages.append(queued)
@@ -726,6 +776,8 @@ class DashboardState:
         self._messages_by_id = {}
         self._next_pending_message_index = 0
         self._manual_results = []
+        self._manual_execution_uncertain = False
+        self._message_withdrawals = []
         self._explore_paused = False
         self._exploration_message = None
         self._last_interaction_error = None
@@ -818,6 +870,7 @@ class DashboardState:
                 message_id=f"msg_{uuid.uuid4().hex}",
                 text=text,
                 status="pending",
+                operator_text=text,
             )
             self._messages.append(message)
             self._messages_by_id[message.message_id] = message
@@ -825,9 +878,15 @@ class DashboardState:
             return replace(message)
 
     def withdraw_message(self, message_id: str) -> DashboardMessage:
-        """Atomically withdraw a message that is still pending."""
+        """Withdraw pending input or request withdrawal before SDK consumption."""
         with self._condition:
             message = self._message_locked(message_id)
+            if message.status == "sending" and self._withdraw_queued:
+                if not message.withdrawal_requested:
+                    message.withdrawal_requested = True
+                    self._message_withdrawals.append(message_id)
+                    self._interaction_changed_locked()
+                return replace(message)
             if message.status != "pending":
                 raise DashboardMessageConflictError(
                     f"message is {message.status}, not pending"
@@ -837,6 +896,25 @@ class DashboardState:
             self._interaction_changed_locked()
             return replace(message)
 
+    def claim_message_withdrawals(self) -> list[str]:
+        """Take the SDK withdrawal requests for the driver to acknowledge."""
+        with self._condition:
+            claimed, self._message_withdrawals = self._message_withdrawals, []
+            return claimed
+
+    def complete_message_withdrawal(self, message_id: str, *, withdrawn: bool) -> None:
+        """Record the SDK acknowledgement without overriding consumed input."""
+        with self._condition:
+            message = self._message_locked(message_id)
+            message.withdrawal_requested = False
+            message.withdrawable = False
+            if withdrawn and message.status == "sending":
+                message.status = "withdrawn"
+                message.error = None
+            elif not withdrawn:
+                message.error = "Input was already consumed and could not be withdrawn."
+            self._interaction_changed_locked()
+
     def claim_next_pending_message(self) -> DashboardMessage | None:
         """Claim one message so task replacement can stop later sends."""
         with self._condition:
@@ -844,6 +922,8 @@ class DashboardState:
                 self._planner_activity == "ended"
                 or self._session_state == "switch_pending"
                 or self._interrupt_requested
+                or self._interrupt_in_flight
+                or self._manual_execution_uncertain
                 or self._active_primitive_calls
             ):
                 return None
@@ -854,7 +934,56 @@ class DashboardState:
                     break
             else:
                 return None
+            toolkit = self._toolkit
+            refresh = bool(self._manual_results and self._refresh_manual_observations)
+            if refresh:
+                if toolkit is None or self._planner_activity != "idle":
+                    self._next_pending_message_index -= 1
+                    return None
+                self._active_primitive_calls[id(toolkit)] = 1
+            message.status = "sending"
+            message.withdrawable = self._withdraw_queued
+            message.error = None
+        if refresh:
+            try:
+                observation = toolkit.get_env_state(
+                    command={
+                        "action": "dashboard_resume_observation",
+                        "source": "dashboard",
+                    },
+                    result={},
+                    elapsed_s=0,
+                )
+                if observation.is_error or observation.execution_uncertain:
+                    raise RuntimeError(observation.to_text())
+            except Exception as exc:
+                with self._condition:
+                    message.status = "pending"
+                    self._next_pending_message_index = min(
+                        self._next_pending_message_index, self._messages.index(message)
+                    )
+                    message.error = f"Observation refresh failed: {exc}"
+                    self._last_interaction_error = message.error
+                    self._projection_changed_locked()
+                return None
+            finally:
+                with self._condition:
+                    self._active_primitive_calls.pop(id(toolkit), None)
+                    self._condition.notify_all()
+            with self._condition:
+                if (
+                    self._toolkit is not toolkit
+                    or self._session_state == "switch_pending"
+                    or self._planner_activity == "ended"
+                    or self._interrupt_requested
+                ):
+                    message.status = "unsent"
+                    self._interaction_changed_locked()
+                    return None
+                message.observation = observation
+        with self._condition:
             if self._manual_results:
+                message.source = "dashboard_continuation"
                 message.text = (
                     "[Manual Dashboard actions completed since your previous observation. "
                     "These are execution records, not new commands. Refresh observations "
@@ -863,9 +992,8 @@ class DashboardState:
                     + "\n[User continuation]\n"
                     + message.text
                 )
-                self._manual_results = []
-            message.status = "sending"
-            message.error = None
+                if not refresh:
+                    self._manual_results = []
             self._interaction_changed_locked()
             return replace(message)
 
@@ -877,8 +1005,42 @@ class DashboardState:
                 status="sent",
                 error=None,
             )
+            message.withdrawable = False
+            message.withdrawal_requested = False
+            if (
+                message.source == "dashboard_continuation"
+                and message.observation is not None
+            ):
+                self._manual_results = []
             self._interaction_changed_locked()
             return replace(message)
+
+    def reconcile_consumed_message(self, message_id: str) -> bool:
+        """Confirm runtime consumption within this TaskRun without reopening it."""
+        with self._condition:
+            # The index is replaced for each TaskRun; old or foreign IDs cannot
+            # mutate a new generation, even when its text happens to match.
+            message = self._messages_by_id.get(message_id)
+            if message is None or message.status not in {
+                "sending",
+                "unsent",
+                "failed",
+                "sent",
+            }:
+                return False
+            if message.status == "sent":
+                return True
+            message.status = "sent"
+            message.error = None
+            message.withdrawable = False
+            message.withdrawal_requested = False
+            if (
+                message.source == "dashboard_continuation"
+                and message.observation is not None
+            ):
+                self._manual_results = []
+            self._interaction_changed_locked()
+            return True
 
     def mark_message_failed(
         self,
@@ -899,6 +1061,9 @@ class DashboardState:
     def mark_message_unsent(self, message_id: str) -> DashboardMessage:
         """Restore one queued backend submission that never started."""
         with self._condition:
+            message = self._message_locked(message_id)
+            if message.status == "withdrawn":
+                return replace(message)
             message = self._transition_sending_message_locked(
                 message_id,
                 status="unsent",
@@ -1118,6 +1283,8 @@ class DashboardState:
             )
         message.status = status
         message.error = error
+        message.withdrawable = False
+        message.withdrawal_requested = False
         return message
 
     def _message_locked(self, message_id: str) -> DashboardMessage:
@@ -1133,11 +1300,14 @@ class DashboardState:
         self._accepting_input = False
         self._interrupt_requested = False
         self._interrupt_in_flight = False
+        self._message_withdrawals = []
         for message in self._messages:
             if message.status not in {"pending", "sending"}:
                 continue
             message.status = "unsent"
             message.error = None
+            message.withdrawable = False
+            message.withdrawal_requested = False
 
     def _interaction_changed_locked(self) -> None:
         self._interaction_version += 1

@@ -54,10 +54,11 @@ from rpent.dashboard.events import (
 )
 from rpent.evaluation import RunFinalizationContext
 from rpent.memory import MemoryManager
+from rpent.memory.publication import merge_run_memory
 from rpent.planner.base import (
     REASONING_EFFORTS,
     build_planner,
-    is_recoverable_agent_error,
+    is_recoverable_planner_result,
 )
 from rpent.planner.check import BASE_URL_ENV_BY_PLANNER
 from rpent.robots import enumerate_robots, get_robot_spec, get_toolkit
@@ -134,8 +135,8 @@ def _build_argparser() -> argparse.ArgumentParser:
     ap.add_argument(
         "--planner",
         default="api",
-        choices=["api", "claude_code", "codex", "flash"],
-        help="Planner backend: api | claude_code | codex are LLMs in the "
+        choices=["api", "claude_code", "codex", "deepseek_harness", "flash"],
+        help="Planner backend: api | claude_code | codex | deepseek_harness are LLMs in the "
         "loop; flash is evaluation-only and replays a plan from memory, re-localizing "
         "each waypoint's anchor.",
     )
@@ -145,7 +146,7 @@ def _build_argparser() -> argparse.ArgumentParser:
         help="Model id. For the 'api' planner, prefix the provider "
         "(e.g. anthropic:claude-opus-4-8, openai:gpt-5.5, "
         "openai-chat:glm-5.2). For claude_code/codex this "
-        "overrides the backend default model.",
+        "overrides the backend default model. deepseek_harness requires an exact model id.",
     )
     ap.add_argument(
         "--base-url",
@@ -155,14 +156,19 @@ def _build_argparser() -> argparse.ArgumentParser:
         ),
     )
     ap.add_argument("--max-turns", type=int, default=100)
+    ap.add_argument(
+        "--dsh-home",
+        default=None,
+        help="DeepSeek Harness login home; defaults to DSH_HOME.",
+    )
     ap.add_argument("--max-tokens", type=int, default=8192)
     ap.add_argument(
         "--reasoning-effort",
         choices=REASONING_EFFORTS,
         default="none",
-        help="Planner reasoning effort for api, claude_code, and "
-        "codex. Higher effort may improve task success rate "
-        "but increases runtime. Defaults to high for api and none for "
+        help="Planner reasoning effort for api, claude_code, codex, and "
+        "deepseek_harness. Higher effort may improve task success rate "
+        "but increases runtime. Defaults to high for api/deepseek_harness and none for "
         "claude_code/codex.",
     )
     ap.add_argument(
@@ -177,8 +183,9 @@ def _build_argparser() -> argparse.ArgumentParser:
         "--planner-timeout-s",
         type=int,
         default=None,
-        help="Wall-clock cap for api/claude_code/codex planner runs. "
+        help="Wall-clock cap for api/claude_code/codex/deepseek_harness planner runs. "
         "Terminal interactive API/Claude sessions are exempt. "
+        "DeepSeek interactive runs exclude idle user wait. "
         "Defaults to CODEX_TIMEOUT_S (codex only), "
         "CELL_TIMEOUT_S, or 1200.",
     )
@@ -317,6 +324,7 @@ def _start_continuation_session(
         output_dir=output_dir,
         recipe_tag=recipe_tag,
         robot_name=args.robot_name,
+        memory_dir=prompt_vars.get("memory_dir"),
         base_url=args.base_url,
         model=args.model,
         max_tokens=args.max_tokens,
@@ -326,6 +334,7 @@ def _start_continuation_session(
         dashboard_events=dashboard_events,
         no_images=args.no_images,
         interactive=args.tui,
+        dsh_home=args.dsh_home,
     )
     system_prompt = prompt_bundle.render(
         "system",
@@ -348,12 +357,34 @@ def _start_continuation_session(
     return planner, system_prompt, session_message
 
 
+def _preflight_deepseek(args: argparse.Namespace) -> None:
+    """Validate the selected runtime model before starting robot services."""
+    if args.planner != "deepseek_harness":
+        return
+    from rpent.planner.deepseek_config import preflight_configuration
+
+    key = (args.dsh_home, args.model, args.reasoning_effort)
+    if getattr(args, "_dsh_preflight_key", None) == key:
+        return
+    args._dsh_preflight = preflight_configuration(
+        dsh_home=args.dsh_home,
+        model=args.model,
+        reasoning_effort=args.reasoning_effort,
+    )
+    args.dsh_home = args._dsh_preflight.get("dsh_home", args.dsh_home)
+    args._dsh_preflight_key = (args.dsh_home, args.model, args.reasoning_effort)
+
+
 def main() -> int:
     parser = _build_argparser()
     # Two-phase argparse: first grab --robot / --env / --dashboard so we know
     # which robot's flags to add and whether to make its required flags optional.
     early, _ = parser.parse_known_args()
-    parser.set_defaults(reasoning_effort="high" if early.planner == "api" else "none")
+    parser.set_defaults(
+        reasoning_effort="high"
+        if early.planner in ("api", "deepseek_harness")
+        else "none"
+    )
 
     # --env is a deprecated alias for --robot; resolve it before loading the spec.
     if early.env_name is not None:
@@ -403,6 +434,12 @@ def main() -> int:
         if sys.stdin is None or not sys.stdin.isatty():
             parser.error("This robot requires a TTY for operator confirmation.")
     native_cli = args.tui and args.planner == "api"
+    if args.planner == "deepseek_harness" and (args.base_url or args.no_images):
+        parser.error(
+            "deepseek_harness requires images and its configured provider; remove --base-url and --no-images"
+        )
+    if args.planner == "deepseek_harness" and args.max_turns <= 0:
+        parser.error("deepseek_harness requires --max-turns greater than zero")
     if args.base_url and args.planner in BASE_URL_ENV_BY_PLANNER:
         parser.error(
             "--base-url applies to the 'api' planner only; "
@@ -451,6 +488,10 @@ def main() -> int:
             robot_spec.validate_args(args)
     except ValueError as exc:
         parser.error(str(exc))
+    try:
+        _preflight_deepseek(args)
+    except (ValueError, RuntimeError, TimeoutError) as exc:
+        parser.error(str(exc))
     if args.dashboard:
         from rpent.cli.dashboard import run_dashboard_session
 
@@ -490,6 +531,7 @@ def main() -> int:
         dashboard_events=dashboard_events,
         no_images=args.no_images,
         interactive=args.tui,
+        dsh_home=args.dsh_home,
     )
     prompt_bundle = robot_spec.prompts
     prompt_vars = {**prompt_vars, "output_dir": output_dir}
@@ -512,20 +554,27 @@ def main() -> int:
     await_first_prompt: "Callable[[], str | None] | None" = None
     if args.tui and not native_cli:
         input_queue = queue.Queue()
+        reader_options = {}
+        extra_help = []
+        if args.planner == "deepseek_harness":
+            extra_help.append(
+                "/interrupt pauses at a safe boundary; enter a new message to continue. "
+                "Ordinary input is queued for the next safe model decision boundary."
+            )
+        if operator_input is not None:
+            reader_options.update(
+                line_handler=operator_input.route_line,
+                on_close=operator_input.close,
+            )
+            extra_help.append(operator_input.help_text)
+        if extra_help:
+            reader_options["extra_help"] = "\n".join(extra_help)
         # Pre-fill the first prompt with the rendered default task (editable
         # preset);
         start_interactive_reader(
             input_queue,
             first_prompt_default=user_msg,
-            **(
-                {
-                    "line_handler": operator_input.route_line,
-                    "extra_help": operator_input.help_text,
-                    "on_close": operator_input.close,
-                }
-                if operator_input is not None
-                else {}
-            ),
+            **reader_options,
         )
         logger.info(
             "interactive mode on: the built-in task is pre-filled — "
@@ -549,13 +598,24 @@ def main() -> int:
     t0 = time.time()
     finish_result, messages, agent_error = None, [], None
     stats: dict = {}
+    stop_info: dict | None = None
+    session_records: list[dict] = []
+    handoff_context = None
+    if args.planner == "deepseek_harness" and getattr(args, "explore", False):
+        from rpent.planner.deepseek_context import DeepSeekHandoffContext
+
+        handoff_context = DeepSeekHandoffContext(Path(output_dir))
     first_user_msg: str | None = user_msg
     if await_first_prompt is not None:
         # Block until the opening prompt typed during startup is ready.
         first_user_msg = await_first_prompt()
         if first_user_msg is None:
             logger.info("no task entered; ending session before start.")
-    if human_interactive_exploration:
+    if human_interactive_exploration or (
+        await_first_prompt is not None
+        and first_user_msg is not None
+        and first_user_msg.strip() != user_msg.strip()
+    ):
         prompt_vars = {**prompt_vars, "initial_user_message": first_user_msg}
     # Exploration may hand off between independent planner contexts.
     sessions = max(1, int(getattr(args, "explore_sessions", 1) or 1))
@@ -583,6 +643,8 @@ def main() -> int:
                     session_number=session_number,
                     session_max=sessions,
                 )
+                if handoff_context is not None:
+                    session_msg = handoff_context.append_to(session_msg)
             state_output_dir = output_dir
             if getattr(args, "explore", False):
                 state_output_dir = (
@@ -639,6 +701,22 @@ def main() -> int:
                 messages += result.messages
                 stats = result.stats
                 agent_error = result.error
+                stop_info = getattr(result, "stop_info", None)
+                session_records.append(
+                    {
+                        "session": session_number,
+                        "max_turns": args.max_turns,
+                        "planner_timeout_s": args.planner_timeout_s,
+                        "attempts_per_session": getattr(
+                            args, "explore_attempts_per_session", 0
+                        ),
+                        "stop_info": stop_info,
+                        "error": agent_error,
+                        "stats": dict(stats),
+                    }
+                )
+                if handoff_context is not None:
+                    handoff_context.merge(stats, session_number)
                 if getattr(toolkit, "direct_verdict_requested", False):
                     finish_result = toolkit.finalize_direct_verdict()
                     if agent_error:
@@ -672,11 +750,11 @@ def main() -> int:
                 or (finish_result or {}).get("operator_finished")
             ):
                 break
-            if agent_error:
+            if agent_error or stop_info is not None:
                 if (
                     getattr(args, "explore", False)
                     and session_number < sessions
-                    and is_recoverable_agent_error(agent_error)
+                    and is_recoverable_planner_result(result)
                 ):
                     logger.warning(
                         "session %d/%d ended with %s; continuing with a fresh handoff",
@@ -705,9 +783,12 @@ def main() -> int:
     record = {
         **task_desc,
         "model": args.model,
+        "planner_preflight": getattr(args, "_dsh_preflight", None),
         "elapsed_s": round(elapsed, 1),
         "finish": finish_result,
         "error": agent_error,
+        "stop_info": stop_info,
+        "planner_sessions": session_records,
         "environment_success": environment_success,
         "stats": stats,
         "messages": _serialize_messages(messages),
@@ -756,11 +837,19 @@ def main() -> int:
         getattr(args, "explore", False)
         and getattr(args, "auto_merge_memory", False)
         and not agent_error
+        and (
+            stop_info is None
+            or (
+                stop_info.get("execution_certain") is True
+                and stop_info.get("result_delivery_complete", True) is True
+            )
+        )
         and not (finish_result or {}).get("operator_aborted")
         and memory_manager is not None
     ):
         try:
-            merge_result = memory_manager.merge_memory(
+            merge_result = merge_run_memory(
+                memory_manager,
                 cell_tag=run_config.recipe_tag,
                 run_state_dir=run_config.output_dir,
                 solved=solved,

@@ -114,6 +114,13 @@ class FakeInteraction:
     def mark_message_unsent(self, message_id: str) -> DashboardMessage:
         return self._transition(message_id, "unsent")
 
+    def reconcile_consumed_message(self, message_id: str) -> bool:
+        for message in self.messages:
+            if message.message_id == message_id:
+                message.status = "sent"
+                return True
+        return False
+
     def _transition(
         self,
         message_id: str,
@@ -323,6 +330,19 @@ def test_deferred_ack_emits_only_when_backend_execution_starts() -> None:
 
     assert interaction.messages[0].status == "sent"
     assert events == ["initial-user", "submit:queued for API", "user:queued for API"]
+
+
+def test_late_consumption_ack_cannot_reopen_an_ended_interaction() -> None:
+    interaction = FakeInteraction()
+    interaction.submit("later", "queued before shutdown")
+    interaction.claim_next_pending_message()
+    events: list[str] = []
+    control = make_control(interaction, events, defer_message_ack=True)
+    interaction.seal_interaction()
+    control.message_started("later", "queued before shutdown")
+    assert interaction.activity == "ended"
+    assert interaction.messages[0].status == "sent"
+    assert events == []
 
 
 def test_interrupt_cancels_toolkit_before_backend_and_then_flushes() -> None:

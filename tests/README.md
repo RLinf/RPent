@@ -67,6 +67,38 @@ Run the complete suite with:
 pytest tests/unit_tests -v
 ```
 
+## DeepSeek Harness contracts
+
+Install `.[test,deepseek-harness]` to run the pinned SDK/runtime `0.2.1rc2`
+against deterministic local models and loopback MCP tools:
+
+```bash
+pytest tests/unit_tests/rpent/planner/test_deepseek_harness.py \
+  tests/unit_tests/rpent/planner/test_deepseek_config.py \
+  tests/unit_tests/rpent/planner/test_deepseek_session.py \
+  tests/unit_tests/rpent/planner/test_deepseek_context.py \
+  tests/unit_tests/rpent/cli/test_dsh_login.py \
+  tests/unit_tests/robots/libero/test_result_contracts.py \
+  tests/e2e_tests/planner -v
+```
+
+These checks require neither credentials nor a GPU and do not call an external
+model. The preflight tests inspect the bundled model catalog and credential
+record metadata in an empty temporary home; inference is disabled. The
+[Harness workflow](../.github/workflows/deepseek-harness.yml) runs the checks on
+Python 3.10, 3.11, and 3.12, then repeats the runtime suite from a non-editable
+wheel in a separate environment outside the checkout. SDK upgrades must update
+the dependency pin and pass this matrix, including startup ordering, tool
+restrictions, finish, cancellation, image projection, and packaged plugins.
+
+Real-model and simulator validation is optional and separate from these checks.
+Record the model settings, resource revisions, task selection, limits, and
+native outcome when running it; retain unsuccessful attempts. LIBERO's
+`result.json` reports native success separately from accepted `finish` and the
+operator verdict. Planner completion alone does not establish task success.
+See the [planner guide](../docs/source-en/rst_source/guides/configure_planner.rst#planner-deepseek-harness)
+for setup and current limits.
+
 ## RoboCasa environment smoke tests
 
 RoboCasa separates simulator checks, model component checks and the full call chain:

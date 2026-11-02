@@ -55,6 +55,7 @@ dependencies = [
 rpent = "rpent.cli.main:main"
 rpent-memory = "rpent.cli.memory:main"
 rpent-check-llm = "rpent.cli.check_llm:main"
+rpent-dsh-login = "rpent.cli.dsh_login:main"
 rpent-flywheel = "rpent.flywheel.cli:main"
 
 [project.urls]
@@ -64,6 +65,7 @@ Documentation = "https://rpent.readthedocs.io/en/latest/"
 "Bug Report" = "https://github.com/RLinf/RPent/issues"
 
 [project.optional-dependencies]
+deepseek-harness = ["deepseek-harness-sdk==0.2.1rc2"]
 test = [
     "coverage",
     "pytest",
@@ -269,6 +271,7 @@ include = ["rpent*", "robots", "robots.*"]
 exclude = ["tests*", "docs*", "examples*", "docker*", "toolkits*"]
 
 [tool.setuptools.package-data]
+"rpent.planner" = ["*.mjs"]
 "rpent.dashboard" = ["*.html", "static/*.css", "static/*.js"]
 "robots.yam" = ["config/*.yaml", "config/*.json", "guides/*.md"]
 

@@ -433,12 +433,12 @@ Optional Run-result Finalizer
 -----------------------------
 
 ``RobotSpec.finalize_run`` is a universal, robot-agnostic end-of-run hook.
-RoboCasa is its current consumer and uses it to record per-cell evaluation
-results for later statistics and aggregation. Any robot that publishes
+RoboCasa and LIBERO use it to record per-cell evaluation results for later
+statistics and aggregation. Any robot that publishes
 machine-readable evaluation artifacts may register the hook. The default is
-``None`` and leaves the runner unchanged. When the hook is present, the normal
-terminal runner captures ``toolkit.solved()`` before closing the toolkit, then
-passes a structured ``RunFinalizationContext`` to the hook after runtime
+``None`` and leaves the runner unchanged. When the hook is present, terminal
+and Dashboard runners capture ``toolkit.solved()`` before closing the toolkit, then
+pass a structured ``RunFinalizationContext`` to the hook after runtime
 cleanup. The hook owns the artifact schema and filename; RPent only defines the
 lifecycle boundary.
 
@@ -460,8 +460,8 @@ cannot leave a partial result:
        )
 
 Register the callback as ``RobotSpec(..., finalize_run=_finalize_run)``. This
-hook is currently limited to normal terminal runs; the Dashboard does not call
-it. Keep benchmark manifests, robot-specific runtime fields, and aggregation
+hook runs for terminal tasks and Dashboard TaskRuns. Keep benchmark manifests,
+robot-specific runtime fields, and aggregation
 logic in the robot package rather than the shared CLI.
 
 .. _add-robot-testing:

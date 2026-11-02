@@ -5,9 +5,9 @@ RPent 通过一个 CLI 参数选择 Agentic Planner 的后端：
 
 .. code-block:: text
 
-   --planner {api,claude_code,codex,flash}
+   --planner {api,claude_code,codex,deepseek_harness,flash}
 
-三种在线规划器（``api``、``claude_code`` 和 ``codex``）接收相同的系统提示词和用户提示词，也使用同一套 RPent 工具定义。它们的区别在于如何将这些工具接入模型、如何组织工具调用循环，以及使用哪个模型 SDK。
+所有在线规划器接收相同的系统提示词和用户提示词，也使用同一套 RPent 工具定义。它们的区别在于如何将这些工具接入模型、如何组织工具调用循环，以及使用哪个模型 SDK。
 
 .. list-table::
    :header-rows: 1
@@ -27,6 +27,10 @@ RPent 通过一个 CLI 参数选择 Agentic Planner 的后端：
      - OpenAI **Codex Python SDK**。RPent 在进程内启动
        Streamable HTTP MCP 服务，把 toolkit 接入 Codex。
      - 通过 Codex SDK 运行任务，复用已有的 Codex 认证或配置独立 API。
+   * - ``deepseek_harness``
+     - DeepSeek Harness Python SDK 及其自带的运行时。RPent 通过本地
+       Streamable HTTP MCP 服务提供 toolkit。
+     - 在 CLI、TUI、Dashboard 和探索任务中使用 dsh 智能体循环，支持 Codex/GPT。
    * - ``flash``
      - **Flash Mode**，仅用于评测。重放 memory 中保存的成功执行计划，并对每个路点
        的锚点重新定位，使方案能跟随移动过的物体。参见
@@ -205,6 +209,100 @@ vLLM 在兼容 OpenAI 的 ``/v1/models`` 响应中用 ``max_model_len`` 表示�
 
 RPent 的 ``--model`` 必须与 vLLM 的 ``--served-model-name`` 保持一致。使用其他模型时，请按照对应的 vLLM 部署说明设置解析参数。
 
+.. _planner-deepseek-harness:
+
+``deepseek_harness`` 规划器
+---------------------------
+
+DeepSeek Harness（dsh）使用 RPent 的任务提示词、memory 和工具运行智能体循环。
+当前支持 Codex/GPT。
+
+安装与登录
+~~~~~~~~~~
+
+在 RPent 环境中安装可选依赖。Python SDK 与自带运行时均固定为 ``0.2.1rc2``，
+无需另行安装 Node.js。
+
+.. code-block:: bash
+
+   uv pip install -e ".[deepseek-harness]"
+   export DSH_HOME="$PWD/.dsh-rpent"
+   rpent-dsh-login --dsh-home "$DSH_HOME"
+
+检查与运行
+~~~~~~~~~~
+
+启动机器人服务前，先验证指定模型与推理等级：
+
+.. code-block:: bash
+
+   rpent-check-llm --planner deepseek_harness \
+     --dsh-home "$DSH_HOME" \
+     --model gpt-6.1-sol --reasoning-effort xhigh
+
+完成 :doc:`LIBERO 环境准备 <../simulators/libero>` 后，运行一个 LIBERO-PRO Long Task：
+
+.. code-block:: bash
+
+   rpent --robot libero --planner deepseek_harness \
+     --dsh-home "$DSH_HOME" \
+     --model gpt-6.1-sol --reasoning-effort xhigh \
+     --libero-type pro --suite libero_10_task --task 0 --seed 0 \
+     --max-turns 100 --planner-timeout-s 1200
+
+模型名称与推理等级分开设置。``xhigh`` 对应 Extra High，默认等级为 ``high``，
+不支持 ``none``。所选模型必须支持指定推理等级及图像输入。
+
+交互与探索
+~~~~~~~~~~
+
+添加 ``--tui`` 或 ``--dashboard`` 即可交互使用，规划器配置与普通运行一致。
+消息排队、中断、手动操作和退出方式见 :doc:`dashboard`。
+
+开展 LIBERO 探索前，准备本地初始语料：
+
+.. code-block:: bash
+
+   python -m robots.libero.memory sync \
+     --planner deepseek_harness --memory-version GPT_5.5_xhigh \
+     --revision 47f301ef33bf8d0e8c770342f16b3c39c6a0e8c1 \
+     --output-dir "$PWD/my-libero-memory"
+   rpent --robot libero --planner deepseek_harness \
+     --dsh-home "$DSH_HOME" --model gpt-6.1-sol --reasoning-effort xhigh \
+     --libero-type pro --suite libero_10_task --task 0 --seed 0 \
+     --explore --memory-profile local --memory-dir "$PWD/my-libero-memory" \
+     --explore-sessions 3 --explore-attempts-per-session 5 \
+     --max-turns 100 --planner-timeout-s 1200
+
+任务未成功时，安全结束的 finish 或步数/时间预算耗尽，可在剩余会话配额内
+启动新会话。每个会话分别使用自己的预算。原始任务和已消费的操作员约束会作为
+上下文保留，后续明确更正优先。待发送或已撤回的消息不纳入；不重放动作，
+也不恢复完整聊天历史。
+重置、记忆收集和评测规则见 :doc:`../simulators/libero`。
+
+当前限制与结果
+~~~~~~~~~~~~~~
+
+- 不支持 ``--base-url`` 和 ``--no-images``。
+  模型只能调用 RPent 工具，每次执行一个调用；dsh 默认的编程工具、仓库指令、
+  skills、子智能体、目标与定时任务均被关闭。
+- ``--max-turns`` 限制根模型步骤。``--planner-timeout-s`` 覆盖规划器启动及
+  活动执行，不计仿真器初始化和交互中等待用户的时间；清理可能超过时限。
+  ``--max-tokens`` 是运行时预算，不是传输层的单次回复硬上限。
+- 继续会话需要宿主进程仍在运行，并已确认安全暂停。历史压缩使用相同模型和
+  推理等级；压缩失败或被取消会结束运行。保存的 session ID 不提供跨进程恢复。
+- 执行结果不确定、结果交付不完整或清理失败时，禁止继续及启动排队的替换任务。
+  无效输出和附带图片的工具错误也会终止运行；机器人动作不会自动重试。
+- 已接受的 ``finish`` 结束智能体循环，不代表仿真器任务成功。非交互模式中，
+  模型未调用 ``finish`` 就停止会产生错误。LIBERO 的 ``result.json`` 分别记录
+  原生成功、finish 状态和操作员结论；原生证据不可用时为 ``null``。
+- 输入 token 统计包含缓存读写，总量只覆盖已接受的根回复，缺失用量保持未知。
+  模型步骤、观测到的请求和计费请求是不同口径。
+
+图像归档到运行目录中的 ``dsh-*/attachments``。运行时还需要支持跨目录硬链接的
+可写临时存储，必要时会回退到 ``/tmp``。归档失败会报告错误并保留临时路径。
+参数默认值和输出文件见 :doc:`cli`。
+
 .. _planner-check:
 
 验证你的配置
@@ -218,7 +316,7 @@ RPent 的 ``--model`` 必须与 vLLM 的 ``--served-model-name`` 保持一致。
    rpent-check-llm --planner claude_code
    rpent-check-llm --planner codex --json
 
-成功时退出码为 ``0``，任何失败为 ``1``，并将失败归类为 ``missing_config``、``unsupported_provider``、``missing_api_key``、 ``auth_failed``、``network_error``、``provider_error``、``sdk_error`` 之一。脚本与 CI 建议使用 ``--json``。``--base-url`` 覆盖后端端点， ``--timeout-s`` 覆盖诊断超时（``api`` 为 30 秒，两个 SDK 后端为 90 秒；运行时的 ``1200`` 秒默认值不会被复用）。
+成功时退出码为 ``0``，任何失败为 ``1``，并将失败归类为 ``missing_config``、``unsupported_provider``、``missing_api_key``、 ``auth_failed``、``network_error``、``provider_error``、``sdk_error`` 之一。脚本与 CI 建议使用 ``--json``。``--base-url`` 覆盖支持此参数的 API 端点， ``--timeout-s`` 覆盖诊断超时（``api`` 为 30 秒，SDK 后端为 90 秒；运行时的 ``1200`` 秒默认值不会被复用）。
 
 使用 Dashboard 时，也请先在终端运行上述检查，并使用准备运行任务的规划器与模型配置。Dashboard 从命令行接收配置，打开后直接显示运行监控页面。启动方法见 :doc:`dashboard`。
 
@@ -238,6 +336,7 @@ RPent 的 ``--model`` 必须与 vLLM 的 ``--served-model-name`` 保持一致。
 
 - **API：** 整段对话中，每次模型请求算一轮，包含重试和用户后续输入产生的请求。Pydantic AI 负责执行这个上限，RPent 将请求次数记为 ``turns_used``。达到上限时正常停止，不记为规划器错误，也不代表任务成功。探索模式仍可继续下一会话，并在满足其他条件时合并记忆。
 - **Codex：** 模型每回复一次算一轮。只有推理或工具调用、没有文字的回复也计数；同一次回复中的多个工具调用不会分别计数。RPent 负责执行这个上限。
+- **DeepSeek Harness：** 根智能体每个模型步骤计一轮，在下一步骤开始前检查预算。provider 重试与对话压缩请求不额外计数；一次回复中的多个工具调用仍算一轮。达到上限时正常停止。
 - **Claude Code：** 一轮是“模型请求工具 → 工具执行 → 结果返回模型”。最后不调用工具的文字答复不占用这一预算。RPent 把上限交给 Claude Code 执行，达到上限时返回 ``error_max_turns``。
 
 例如，没有重试时，模型先在一次回复中要求读取两个文件，拿到结果后再给出文字总结：API 发送两次请求，Codex 计两次回复，Claude 消耗一轮工具预算。三者都报告 ``turns_used=2``；Claude 报告的回复次数与工具预算的计数不同。

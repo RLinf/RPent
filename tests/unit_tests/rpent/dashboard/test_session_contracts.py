@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -21,9 +22,9 @@ from typing import Any
 import pytest
 
 from rpent.dashboard.session import DashboardSessionController
-from rpent.dashboard.state import ClaimedTask
+from rpent.dashboard.state import ClaimedTask, DashboardState
 from rpent.planner.base import PlannerResult
-from rpent.robots import PromptBundle, RunConfig
+from rpent.robots import PromptBundle, RobotSpec, RunConfig
 
 
 class ScriptedState:
@@ -173,13 +174,157 @@ def test_dashboard_session_stops_shared_daemons_in_reverse_after_cleanup_error(
     assert "shared runtime cleanup failed: stop failed" in caplog.text
 
 
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "execution_uncertain",
+        "cleanup_incomplete",
+        "delivery_incomplete",
+        "toolkit_close",
+        "toolkit_unbind",
+        "task_daemon_stop",
+        "normal_task_failure",
+    ],
+)
+def test_queued_task_requires_certain_execution_and_complete_cleanup(
+    tmp_path, monkeypatch, fault
+):
+    from rpent.cli import dashboard as dashboard_cli
+    from rpent.cli.main import _build_argparser
+
+    started = []
+    stopped = []
+    state = DashboardState(
+        output_dir=tmp_path / "session",
+        dashboard_spec={
+            "task": {
+                "command": "/rpent-task",
+                "usage": "/rpent-task <seed>",
+                "fields": ({"name": "seed", "kind": "integer", "minimum": 0},),
+                "display": "seed {seed}",
+                "output_slug": "s{seed}",
+            },
+            "runtime_components": (),
+            "primitives": (),
+        },
+    )
+    state.shared_services_ready()
+    state.request_task({"seed": 0})
+
+    class TaskToolkit:
+        memory = None
+
+        def __init__(self, seed):
+            self.seed = seed
+
+        def cancel_active_and_wait(self):
+            if self.seed == 0 and fault == "toolkit_unbind":
+                raise RuntimeError("toolkit drain failed")
+
+        def close(self):
+            stopped.append(f"toolkit-{self.seed}")
+            if self.seed == 0 and fault == "toolkit_close":
+                raise RuntimeError("toolkit close failed")
+
+    class Planner:
+        def solve(self, *, toolkit, **kwargs):
+            if toolkit.seed == 0:
+                state.request_task({"seed": 1})
+            else:
+                state.request_shutdown()
+            boundary = {
+                "reason": "finish",
+                "execution_certain": True,
+                "cleanup_complete": True,
+                "result_delivery_complete": True,
+                "allow_new_session": True,
+            }
+            failed_field = {
+                "execution_uncertain": "execution_certain",
+                "cleanup_incomplete": "cleanup_complete",
+                "delivery_incomplete": "result_delivery_complete",
+            }.get(fault)
+            if toolkit.seed == 0 and failed_field:
+                boundary[failed_field] = False
+            return PlannerResult(
+                finish_result={"_finish": True, "status": "failure"}, stop_info=boundary
+            )
+
+    def start_task(args, *unused):
+        started.append(args.seed)
+        daemon = FakeDaemon(
+            f"task-{args.seed}",
+            stopped,
+            stop_error=RuntimeError("task daemon stop failed")
+            if args.seed == 0 and fault == "task_daemon_stop"
+            else None,
+        )
+        return [daemon], {}
+
+    spec = RobotSpec(
+        name="test",
+        prompts=PromptBundle(system=lambda _: "system", user=lambda _: "task"),
+        add_cli_args=lambda *args, **kwargs: None,
+        parse_config=lambda args: RunConfig(
+            recipe_tag=f"s{args.seed}",
+            output_dir=Path(args.output_dir),
+            prompt_vars={},
+            task_desc={"seed": args.seed},
+        ),
+        init_runtime=start_task,
+        prepare_memory=lambda *args: None,
+    )
+    args = _build_argparser().parse_args(
+        [
+            "--planner",
+            "deepseek_harness",
+            "--model",
+            "offline",
+            "--memory-profile",
+            "local",
+        ]
+    )
+    args.robot_name = "test"
+    monkeypatch.setattr(dashboard_cli, "_preflight_deepseek", lambda args: None)
+    monkeypatch.setattr(
+        dashboard_cli, "build_planner", lambda *args, **kwargs: Planner()
+    )
+    monkeypatch.setattr(
+        dashboard_cli,
+        "get_toolkit",
+        lambda *args, **kwargs: TaskToolkit(kwargs["config"].task_desc["seed"]),
+    )
+    controller = DashboardSessionController(
+        state=state,
+        start_shared=lambda: ([FakeDaemon("shared", stopped)], {}),
+        run_task=lambda claimed, shared: dashboard_cli._run_dashboard_task(
+            args=args,
+            robot_spec=spec,
+            state=state,
+            claimed=claimed,
+            shared_runtime_kwargs=shared,
+            unique_components=set(),
+            session_root=tmp_path / "session",
+        ),
+    )
+    controller.run()
+    assert started == ([0, 1] if fault == "normal_task_failure" else [0])
+    assert stopped[-1] == "shared"
+    assert "toolkit-0" in stopped and "task-0" in stopped
+    assert state.wait_for_task(timeout=0) is None
+
+
 @pytest.mark.parametrize("merge_fails", [False, True])
 @pytest.mark.parametrize("sessions", [1, 2])
+@pytest.mark.parametrize(
+    "structured_stop", [None, "finish", "uncertain", "delivery_missing"]
+)
 def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     merge_fails: bool,
     sessions: int,
+    structured_stop: str | None,
 ) -> None:
     from rpent.cli import dashboard as dashboard_cli
 
@@ -201,7 +346,7 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
 
         def solved(self) -> bool:
             solved_calls.append(True)
-            return len(solved_calls) == sessions
+            return structured_stop != "uncertain" and len(solved_calls) == sessions
 
         def write_recipe(self, recipe_tag: str) -> str:
             return str(tmp_path / f"{recipe_tag}_recipe.jsonl")
@@ -234,6 +379,9 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
         def report_task_warning(self, warning: str) -> None:
             self.warnings.append(warning)
 
+        def request_shutdown(self) -> None:
+            self.task_finalization_cancelled = True
+
     class FakePlanner:
         def solve(self, **kwargs: Any) -> PlannerResult:
             del kwargs
@@ -241,6 +389,14 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
                 finish_result={"status": "success"},
                 messages=[],
                 stats={},
+                stop_info={
+                    "reason": structured_stop,
+                    "execution_certain": structured_stop != "uncertain",
+                    "allow_new_session": structured_stop != "delivery_missing",
+                    "result_delivery_complete": structured_stop != "delivery_missing",
+                }
+                if structured_stop
+                else None,
             )
 
     output_dir = tmp_path / "task"
@@ -302,6 +458,12 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
         session_root=tmp_path / "session",
     )
 
+    if structured_stop in {"uncertain", "delivery_missing"}:
+        assert error is not None and "Unsafe planner stop" in error
+        assert state.toolkit_lifecycle == ["bound", "unbound"]
+        assert merge_calls == []
+        assert not (output_dir / "memory-merge.json").exists()
+        return
     assert error is None
     assert state.toolkit_lifecycle == ["bound", "unbound"] * sessions
     assert merge_calls == [
@@ -312,10 +474,17 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
         }
     ]
     if merge_fails:
+        publication = json.loads((output_dir / "memory-merge.json").read_text())
+        assert publication["status"] == "failed"
+        assert publication["error_type"] == "RuntimeError"
+        assert publication["partial_changes_possible"] is True
         assert len(state.warnings) == 1
         assert (
             "memory finalization failed: RuntimeError: merge exploded"
             in state.warnings[0]
         )
     else:
+        publication = json.loads((output_dir / "memory-merge.json").read_text())
+        assert publication["status"] == "completed"
+        assert publication["result"] == {"suite": 1}
         assert state.warnings == []

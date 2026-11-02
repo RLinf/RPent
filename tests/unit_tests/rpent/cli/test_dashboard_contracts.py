@@ -18,12 +18,77 @@ import argparse
 from types import SimpleNamespace
 
 import pytest
+from fastapi.testclient import TestClient
 
 from rpent.cli import dashboard
 from rpent.cli.main import _build_argparser
 from rpent.dashboard.server import DashboardServer
 from rpent.dashboard.state import DashboardState
 from rpent.memory import MemoryManager
+from rpent.planner import check as check_mod
+from rpent.planner.check import STATUS_OK, LlmCheckResult
+
+
+def test_dashboard_check_inherits_parsed_reasoning_effort(tmp_path, monkeypatch):
+    requests = []
+
+    def check(request):
+        requests.append(request)
+        return LlmCheckResult(
+            ok=True, status=STATUS_OK, planner=request.planner, model=request.model
+        )
+
+    def start(server):
+        with TestClient(server._app) as client:
+            response = client.post("/api/llm/check", json={"reasoning_effort": "low"})
+            assert response.status_code == 200
+        server._state.request_shutdown()
+        return "http://127.0.0.1:12345"
+
+    monkeypatch.setattr(dashboard, "_preflight_deepseek", lambda args: None)
+    monkeypatch.setattr(check_mod, "check_llm", check)
+    monkeypatch.setattr(DashboardServer, "start", start)
+    spec = SimpleNamespace(
+        name="libero",
+        is_real_robot=False,
+        supports_human_interactive_exploration=False,
+        prepare_memory=lambda args, config: None,
+        dashboard={
+            "task": {
+                "command": "/rpent-task",
+                "usage": "/rpent-task <seed>",
+                "fields": ({"name": "seed", "kind": "integer", "minimum": 0},),
+                "display": "seed {seed}",
+                "output_slug": "s{seed}",
+            },
+            "runtime_components": (),
+            "primitives": (),
+        },
+        init_runtime=lambda *args: ([], {}),
+    )
+    parser = _build_argparser()
+    args = parser.parse_args(
+        [
+            "--robot",
+            "libero",
+            "--dashboard",
+            "--planner",
+            "deepseek_harness",
+            "--model",
+            "test-model",
+            "--reasoning-effort",
+            "xhigh",
+            "--memory-profile",
+            "local",
+            "--output-dir",
+            str(tmp_path / "run"),
+        ]
+    )
+    assert dashboard.run_dashboard_session(args, spec, parser=parser) == 0
+    assert len(requests) == 1
+    assert requests[0].planner == "deepseek_harness"
+    assert requests[0].model == "test-model"
+    assert requests[0].reasoning_effort == "xhigh"
 
 
 @pytest.mark.parametrize(
@@ -39,12 +104,19 @@ from rpent.memory import MemoryManager
         ("dual_franka", "local", False, False),
     ],
 )
-@pytest.mark.parametrize("planner", ["api", "claude_code", "codex"])
+@pytest.mark.parametrize("planner", ["api", "claude_code", "codex", "deepseek_harness"])
 def test_shared_runtime_gets_memory_before_startup(
     robot, profile, sync_before_shared, planner, tmp_path, monkeypatch, explicit_repo
 ):
     root = tmp_path / "memory" / robot
     events = []
+
+    def preflight(args):
+        if args.planner == "deepseek_harness":
+            assert args.dsh_home == str(tmp_path / "dsh")
+            events.append("preflight")
+
+    monkeypatch.setattr(dashboard, "_preflight_deepseek", preflight)
 
     def sync(manager, *, remote_repo):
         assert manager.root == root
@@ -63,6 +135,7 @@ def test_shared_runtime_gets_memory_before_startup(
         return [], {}
 
     def start(server):
+        assert server._llm_check_dsh_home == str(tmp_path / "dsh")
         # Exercise actual session orchestration, then exit after service startup.
         server._state.request_shutdown()
         return "http://127.0.0.1:12345"
@@ -115,6 +188,8 @@ def test_shared_runtime_gets_memory_before_startup(
             profile,
             "--output-dir",
             str(tmp_path / "run"),
+            "--dsh-home",
+            str(tmp_path / "dsh"),
         ]
     )
     if explicit_repo:
@@ -123,6 +198,8 @@ def test_shared_runtime_gets_memory_before_startup(
         dashboard.run_dashboard_session(args, spec, parser=argparse.ArgumentParser())
         == 0
     )
-    assert events == (["sync"] if sync_before_shared else []) + ["shared-runtime"]
+    assert events == (["preflight"] if planner == "deepseek_harness" else []) + (
+        ["sync"] if sync_before_shared else []
+    ) + ["shared-runtime"]
     if explicit_repo:
         assert args.memory_dir == str(root)

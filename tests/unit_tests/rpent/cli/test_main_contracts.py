@@ -194,6 +194,58 @@ def test_tui_flag_reaches_args_and_interactive_alias_is_deprecated(
     assert aliased.tui is True
 
 
+@pytest.mark.parametrize("mode", ["--tui", "--explore"])
+def test_deepseek_interactive_modes_validate_configuration_before_robot_config(
+    monkeypatch, mode
+):
+    from rpent.planner import deepseek_config
+
+    checked = []
+    monkeypatch.setattr(
+        deepseek_config,
+        "preflight_configuration",
+        lambda **kwargs: checked.append(kwargs) or {"status": "ok"},
+    )
+    _, args = _capture_validated_args(
+        monkeypatch,
+        [
+            "--robot",
+            "libero",
+            "--planner",
+            "deepseek_harness",
+            "--model",
+            "gpt-6.1-sol",
+            mode,
+        ],
+    )
+    assert args.tui if mode == "--tui" else args.explore
+    assert checked == [
+        {"dsh_home": None, "model": "gpt-6.1-sol", "reasoning_effort": "high"}
+    ]
+
+
+def test_deepseek_invalid_configuration_fails_before_robot_config(monkeypatch):
+    from rpent.planner import deepseek_config
+
+    def reject(**kwargs):
+        raise RuntimeError("selected model lacks configured credentials")
+
+    monkeypatch.setattr(deepseek_config, "preflight_configuration", reject)
+    with pytest.raises(SystemExit) as exc:
+        _capture_validated_args(
+            monkeypatch,
+            [
+                "--robot",
+                "libero",
+                "--planner",
+                "deepseek_harness",
+                "--model",
+                "gpt-6.1-sol",
+            ],
+        )
+    assert exc.value.code == 2
+
+
 def test_robot_and_env_aliases_are_mutually_exclusive(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -488,6 +540,12 @@ def test_handoff_message_lists_prior_attempts_deterministically(tmp_path: Path) 
         (False, "request_budget"),
         (True, "request_budget"),
         (False, "response_truncated"),
+        (False, "structured_budget"),
+        (False, "structured_finish"),
+        (True, "structured_finish"),
+        (False, "structured_uncertain"),
+        (False, "merge_failed"),
+        (False, "delivery_missing"),
     ],
 )
 def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
@@ -508,6 +566,8 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     class FakeMemoryManager:
         def merge_memory(self, **kwargs: Any) -> dict[str, int]:
             calls["merge_memory"] = kwargs
+            if outcome == "merge_failed":
+                raise RuntimeError("partial merge failed")
             return {"suite": 1}
 
     class FakeDaemon:
@@ -577,6 +637,30 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
                 "input_queue": input_queue,
                 "dashboard_interaction": dashboard_interaction,
             }
+            if outcome.startswith("structured_") and (
+                outcome == "structured_uncertain" or calls["planner_count"] == 1
+            ):
+                certain = outcome != "structured_uncertain"
+                return PlannerResult(
+                    # Intentionally misleading legacy text: structured fields win.
+                    error=None
+                    if outcome == "structured_finish"
+                    else ("opaque backend reason" if certain else "timed out"),
+                    finish_result={
+                        "_finish": True,
+                        "status": "success",
+                        "summary": "Session attempt quota spent; scene remains unsolved.",
+                    }
+                    if outcome == "structured_finish"
+                    else None,
+                    stop_info={
+                        "reason": "finish"
+                        if outcome == "structured_finish"
+                        else ("budget" if certain else "uncertain_action"),
+                        "execution_certain": certain,
+                        "allow_new_session": True,
+                    },
+                )
             finish = toolkit.execute_tool(
                 "finish",
                 {"status": "success", "summary": "simulated task complete"},
@@ -589,6 +673,14 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
                     "total_output_tokens": 0,
                     "tool_calls": 1,
                 },
+                stop_info={
+                    "reason": "finish",
+                    "execution_certain": True,
+                    "allow_new_session": False,
+                    "result_delivery_complete": False,
+                }
+                if outcome == "delivery_missing"
+                else None,
             )
 
     daemon = FakeDaemon()
@@ -629,7 +721,7 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     def build_planner(*args: Any, **kwargs: Any):
         calls["build_planner"] = (args, kwargs)
         calls["planner_count"] = calls.get("planner_count", 0) + 1
-        if outcome != "success":
+        if outcome in {"request_budget", "response_truncated"}:
             from pydantic_ai.exceptions import UnexpectedModelBehavior
             from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 
@@ -666,16 +758,23 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     def reject_memory_sync(*args: Any, **kwargs: Any) -> None:
         raise AssertionError(f"CPU-only smoke test tried to sync memory: {args!r}")
 
+    def start_reader(input_queue, **kwargs):
+        if not outcome.startswith("structured_"):
+            pytest.fail("API mode must use the native CLI")
+        calls["reader"] = kwargs
+        input_queue.put(kwargs["first_prompt_default"])
+
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "")
     monkeypatch.setattr(cli, "enumerate_robots", lambda: ("libero",))
     monkeypatch.setattr(cli, "get_robot_spec", lambda name: robot_spec)
     monkeypatch.setattr(cli, "build_planner", build_planner)
     monkeypatch.setattr(cli, "get_toolkit", get_toolkit)
+    monkeypatch.setattr(cli, "_preflight_deepseek", lambda args: None)
     monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
     monkeypatch.setattr(
         cli,
         "start_interactive_reader",
-        lambda *args, **kwargs: pytest.fail("API mode must use the native CLI"),
+        start_reader,
     )
     monkeypatch.setattr("rpent.memory.MemoryManager.sync", reject_memory_sync)
     monkeypatch.setattr(
@@ -690,7 +789,7 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
             "--memory-profile",
             "local",
             "--memory-dir",
-            str(tmp_path / "memory"),
+            str(tmp_path / ("seed" if outcome.startswith("structured_") else "memory")),
             "--output-dir",
             str(tmp_path),
             "--max-turns",
@@ -698,10 +797,24 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
             "--explore-sessions",
             "3" if outcome == "response_truncated" else "2",
             *(["--tui"] if interactive else []),
+            *(
+                [
+                    "--planner",
+                    "deepseek_harness",
+                    "--model",
+                    "gpt-6.1-sol",
+                    "--dsh-home",
+                    str(tmp_path / "dsh"),
+                ]
+                if outcome.startswith("structured_")
+                else []
+            ),
         ],
     )
 
-    assert cli.main() == 0
+    assert cli.main() == (
+        1 if outcome in {"structured_uncertain", "merge_failed"} else 0
+    )
     assert calls["build_planner"][1]["interactive"] is interactive
     assert toolkit.closed is True
     assert daemon.stopped is True
@@ -709,6 +822,36 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     assert calls["get_toolkit"][1]["mode"] == "exploration"
     assert calls["get_toolkit"][1]["attempts_per_session"] == 2
     transcript = json.loads((tmp_path / "transcript_libero_s0.json").read_text())
+    if outcome == "delivery_missing":
+        assert "merge_memory" not in calls
+        assert not (tmp_path / "memory-merge.json").exists()
+        return
+    if outcome == "merge_failed":
+        publication = json.loads((tmp_path / "memory-merge.json").read_text())
+        assert publication["status"] == "failed"
+        assert publication["error_type"] == "RuntimeError"
+        assert publication["error"] == "partial merge failed"
+        assert publication["partial_changes_possible"] is True
+        return
+    if outcome.startswith("structured_"):
+        if interactive:
+            assert "/interrupt" in calls["reader"]["extra_help"]
+            assert "queued" in calls["reader"]["extra_help"]
+        certain = outcome != "structured_uncertain"
+        assert calls["planner_count"] == (2 if certain else 1)
+        assert len(transcript["planner_sessions"]) == (2 if certain else 1)
+        assert (
+            transcript["planner_sessions"][0]["stop_info"]["execution_certain"]
+            is certain
+        )
+        assert all(
+            session["max_turns"] == 4 for session in transcript["planner_sessions"]
+        )
+        assert calls["build_planner"][1]["dsh_home"] == str(tmp_path / "dsh")
+        assert calls["build_planner"][1]["memory_dir"] == str(tmp_path / "memory")
+        assert ("merge_memory" in calls) is certain
+        assert ("write_recipe" in calls) is certain
+        return
     if outcome == "request_budget":
         assert calls["planner_count"] == 2
         assert len(toolkit.calls) == 8

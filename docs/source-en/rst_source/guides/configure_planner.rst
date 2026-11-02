@@ -7,9 +7,9 @@ Select the Agentic Planner backend with one CLI flag:
 
 .. code-block:: text
 
-   --planner {api,claude_code,codex,flash}
+   --planner {api,claude_code,codex,deepseek_harness,flash}
 
-All three online planners receive the same rendered system and user prompts
+All online planners receive the same rendered system and user prompts
 and use the RPent tool schemas from the same toolkit. They differ in
 how those schemas are connected to the model, how the tool-calling
 loop is orchestrated, and which model SDK is used.
@@ -36,6 +36,11 @@ loop is orchestrated, and which model SDK is used.
      - The OpenAI **Codex Python SDK**. RPent starts an in-process
        Streamable HTTP MCP server that connects the toolkit to Codex.
      - Run tasks through the Codex SDK, using existing authentication or a configured API.
+   * - ``deepseek_harness``
+     - The DeepSeek Harness Python SDK and bundled runtime. RPent exposes its
+       toolkit through a local Streamable HTTP MCP server.
+     - Run CLI, TUI, Dashboard, and exploration tasks with the dsh agent loop
+       and Codex/GPT.
    * - ``flash``
      - **Flash Mode**, for evaluation only. Replays a plan from memory,
        recorded from an earlier
@@ -276,6 +281,110 @@ The value passed to RPent with ``--model`` must match vLLM's
 ``--served-model-name``. For another model, use its recommended vLLM parser
 settings.
 
+.. _planner-deepseek-harness:
+
+The ``deepseek_harness`` Planner
+--------------------------------
+
+DeepSeek Harness (dsh) runs the agent loop using RPent's task prompts, memory,
+and tools. It currently supports Codex/GPT.
+
+Install and Sign In
+~~~~~~~~~~~~~~~~~~~
+
+Install the optional extra in your RPent environment. It pins the Python SDK
+and bundled runtime to ``0.2.1rc2``; no separate Node.js installation is needed.
+
+.. code-block:: bash
+
+   uv pip install -e ".[deepseek-harness]"
+   export DSH_HOME="$PWD/.dsh-rpent"
+   rpent-dsh-login --dsh-home "$DSH_HOME"
+
+Check and Run
+~~~~~~~~~~~~~
+
+Check the exact model and reasoning level before starting robot services:
+
+.. code-block:: bash
+
+   rpent-check-llm --planner deepseek_harness \
+     --dsh-home "$DSH_HOME" \
+     --model gpt-6.1-sol --reasoning-effort xhigh
+
+After :doc:`LIBERO setup <../simulators/libero>`, run a LIBERO-PRO Long Task:
+
+.. code-block:: bash
+
+   rpent --robot libero --planner deepseek_harness \
+     --dsh-home "$DSH_HOME" \
+     --model gpt-6.1-sol --reasoning-effort xhigh \
+     --libero-type pro --suite libero_10_task --task 0 --seed 0 \
+     --max-turns 100 --planner-timeout-s 1200
+
+The model ID and reasoning level are separate options. ``xhigh`` means Extra
+High; the default is ``high``, and ``none`` is unsupported. The selected model
+must support the requested reasoning level and image input.
+
+Interaction and Exploration
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Add ``--tui`` or ``--dashboard`` for interactive use; see :doc:`dashboard` for
+message queues, interruption, manual actions, and exit commands. These modes
+use the same planner configuration as ordinary runs.
+
+For LIBERO exploration, prepare a local seed corpus:
+
+.. code-block:: bash
+
+   python -m robots.libero.memory sync \
+     --planner deepseek_harness --memory-version GPT_5.5_xhigh \
+     --revision 47f301ef33bf8d0e8c770342f16b3c39c6a0e8c1 \
+     --output-dir "$PWD/my-libero-memory"
+   rpent --robot libero --planner deepseek_harness \
+     --dsh-home "$DSH_HOME" --model gpt-6.1-sol --reasoning-effort xhigh \
+     --libero-type pro --suite libero_10_task --task 0 --seed 0 \
+     --explore --memory-profile local --memory-dir "$PWD/my-libero-memory" \
+     --explore-sessions 3 --explore-attempts-per-session 5 \
+     --max-turns 100 --planner-timeout-s 1200
+
+A safe unsolved finish or exhausted step/time budget can start a fresh session
+while the configured session quota remains. Each session has its own budget.
+The original task and consumed operator constraints carry forward as context;
+pending or withdrawn messages do not. Later explicit corrections take precedence.
+Actions are not replayed, and complete chat history is not restored. See :doc:`../simulators/libero` for reset,
+memory collection, and evaluation rules.
+
+Current Limits and Results
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- ``--base-url`` and ``--no-images`` are unsupported. Only RPent tools are
+  exposed, one call at a time; dsh's default coding tools, repository
+  instructions, skills, subagents, goals, and
+  scheduled work are disabled.
+- ``--max-turns`` limits root model steps. ``--planner-timeout-s`` covers
+  planner startup and active execution, excluding simulator initialization and
+  interactive waits for the user. Cleanup can extend beyond the deadline.
+  ``--max-tokens`` is a runtime budget, not a hard per-reply transport limit.
+- Continuation requires a live host process and a confirmed safe pause.
+  Compaction uses the selected model and reasoning level; failed or cancelled
+  compaction ends the run. Saved session IDs do not enable cross-process recovery.
+- Uncertain execution, incomplete result delivery, or failed cleanup stops
+  continuation and queued replacement tasks. Invalid outputs and tool errors
+  carrying images also stop the run. Robot actions are not automatically retried.
+- Accepted ``finish`` ends the agent loop; it does not establish simulator
+  success. A non-interactive model stopping without ``finish`` is an error.
+  Use LIBERO's ``result.json`` for native success, finish status, and the
+  separate operator verdict; unavailable native evidence is ``null``.
+- Reported input tokens include cache reads/writes. Totals cover accepted root
+  responses; missing usage remains unknown. Model steps, observed requests, and
+  billable requests are different measures.
+
+Images are archived under ``dsh-*/attachments`` in the run directory. The
+runtime also needs writable temporary storage supporting cross-directory hard
+links; RPent falls back to ``/tmp`` when needed. An archive failure reports an
+error and retains the temporary path. See :doc:`cli` for defaults and outputs.
+
 .. _planner-check:
 
 Verify Your Configuration
@@ -296,8 +405,8 @@ It exits ``0`` on success and ``1`` on any failure, and classifies the
 failure as one of ``missing_config``, ``unsupported_provider``,
 ``missing_api_key``, ``auth_failed``, ``network_error``,
 ``provider_error``, or ``sdk_error``. Use ``--json`` for scripting and
-CI. ``--base-url`` overrides the backend's endpoint, and ``--timeout-s``
-overrides the diagnostic timeout (30 s for ``api``, 90 s for the two SDK
+CI. ``--base-url`` overrides supported API endpoints, and ``--timeout-s``
+overrides the diagnostic timeout (30 s for ``api``, 90 s for SDK
 backends; the ``1200`` s run default is never reused).
 
 Before using the Dashboard, run the same check in a terminal with the
@@ -333,6 +442,10 @@ The counting rule depends on the backend:
 - **Codex:** Each model response counts once, including responses with
   only reasoning or tool calls. Several tools requested in the same response
   still count as one turn. RPent enforces this limit.
+- **DeepSeek Harness:** Each root-agent model step counts once. The limit is
+  checked before the next step starts. Provider retries and conversation
+  compaction requests do not consume separate steps, and multiple tools in
+  one response still count as one step. Reaching the limit is a normal stop.
 - **Claude Code:** A turn means the model requests tools, those tools run,
   and their results return to the model. A final answer without tool calls
   does not use this budget. RPent passes the limit to Claude Code, which

@@ -1,0 +1,89 @@
+name: DeepSeek Harness contracts
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  runtime:
+    name: Runtime and wheel (Python ${{ matrix.python-version }})
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    env:
+      DSH_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      - name: Install pinned SDK and offline test dependencies
+        run: uv pip install --system -e ".[test,deepseek-harness]" build
+      - name: Verify SDK and runtime distribution versions
+        run: |
+          python - <<'PY'
+          from importlib.metadata import version
+          for package in ("deepseek-harness-sdk", "deepseek-harness-runtime-bin"):
+              assert version(package) == "0.2.1rc2", package
+          PY
+      - name: Run offline lifecycle, authentication, and runtime contracts
+        run: |
+          pytest tests/unit_tests/rpent/planner/test_deepseek_harness.py \
+            tests/unit_tests/rpent/planner/test_deepseek_config.py \
+            tests/unit_tests/rpent/planner/test_deepseek_session.py \
+            tests/unit_tests/rpent/planner/test_deepseek_context.py \
+            tests/unit_tests/rpent/cli/test_dsh_login.py \
+            tests/unit_tests/robots/libero/test_result_contracts.py \
+            tests/e2e_tests/planner -v
+      - name: Build and install an independent wheel environment
+        shell: bash
+        run: |
+          python -m build --wheel
+          uv venv --python '${{ matrix.python-version }}' "$RUNNER_TEMP/rpent-wheel"
+          wheel_files=(dist/rpent-*.whl)
+          uv pip install --python "$RUNNER_TEMP/rpent-wheel/bin/python" \
+            "${wheel_files[0]}[test,deepseek-harness]"
+          mkdir -p "$RUNNER_TEMP/rpent-wheel-tests"
+          cp -R tests/e2e_tests/planner "$RUNNER_TEMP/rpent-wheel-tests/planner"
+      - name: Verify packaged plugins and test outside the checkout
+        working-directory: ${{ runner.temp }}
+        run: |
+          "$RUNNER_TEMP/rpent-wheel/bin/python" -I - <<'PY'
+          from pathlib import Path
+          import sys
+          import rpent.planner.deepseek_harness as planner
+          directory = Path(planner.__file__).resolve().parent
+          assert directory.is_relative_to(Path(sys.prefix).resolve()), directory
+          for plugin in ("deepseek_bridge.mjs", "deepseek_login.mjs", "deepseek_preflight.mjs"):
+              assert (directory / plugin).is_file(), plugin
+          PY
+          "$RUNNER_TEMP/rpent-wheel/bin/python" -I -m pytest \
+            -c /dev/null --import-mode=importlib --timeout=90 \
+            "$RUNNER_TEMP/rpent-wheel-tests/planner" -v
+
+  deepseek-harness:
+    name: deepseek-harness
+    if: always()
+    needs: [runtime]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every supported Python version
+        run: |
+          case '${{ needs.runtime.result }}' in
+            success|skipped) exit 0 ;;
+            *) exit 1 ;;
+          esac
