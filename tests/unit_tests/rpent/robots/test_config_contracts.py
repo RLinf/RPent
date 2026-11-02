@@ -386,18 +386,25 @@ def test_am_backend_selects_one_model_category(robot_name, default_backend):
         == default_backend
     )
     assert not select_am(args, robot_name).is_wam
+    spec = get_robot_spec(robot_name)
+    assert [
+        item
+        for item in spec.resolve_dashboard(args)["runtime_components"]
+        if item["name"] in {"vla", "wam"}
+    ] == [{"name": "vla", "label": "VLA", "scope": "shared"}]
     args = parser.parse_args(
         ["--am-backend", "fast-wam", "--am-endpoint", "http://localhost:8117"]
     )
     assert select_am(args, robot_name).endpoint == args.am_endpoint
     # The Dashboard descriptor does not require a complete deployment yet.
     args.am_endpoint = None
-    assert "wam" in {
-        item["name"]
-        for item in get_robot_spec(robot_name).resolve_dashboard(args)[
-            "runtime_components"
-        ]
-    }
+    dashboard = spec.resolve_dashboard(args)
+    assert [
+        item
+        for item in dashboard["runtime_components"]
+        if item["name"] in {"vla", "wam"}
+    ] == [{"name": "wam", "label": "WAM", "scope": "shared"}]
+    assert "wam_act" in dashboard["primitives"]
     assert "--vla-backend" not in parser.format_help()
     assert "--wam-backend" not in parser.format_help()
 

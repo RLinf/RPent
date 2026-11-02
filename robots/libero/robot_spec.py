@@ -65,41 +65,45 @@ FLASH_SUITES = frozenset(
     }
 )
 
-LIBERO_DASHBOARD_SPEC: DashboardSpec = {
-    "task": {
-        "command": "/rpent-task",
-        "usage": "/rpent-task <suite> <task> <seed>",
-        "fields": (
-            {"name": "suite", "suggestions": LIBERO_SUITE_NAMES},
-            {"name": "task", "kind": "integer", "minimum": 0},
-            {"name": "seed", "kind": "integer", "minimum": 0},
-        ),
-        "display": "{suite} / task {task} / seed {seed}",
-        "output_slug": "{suite}_t{task}_s{seed}",
-    },
-    "runtime_components": (
-        {"name": "env", "label": "ENV", "scope": "unique"},
-        {"name": "vla", "label": "VLA", "scope": "shared"},
-        {"name": "sam3", "label": "SAM3", "scope": "shared"},
-        {
-            "name": "molmo",
-            "label": "Molmo",
-            "scope": "shared",
-            "planners": ("flash",),
+
+def _resolve_dashboard(args: argparse.Namespace) -> DashboardSpec:
+    """Build the Dashboard configuration for the selected action model."""
+    kind = "wam" if getattr(args, "am_backend", None) in WAM_BACKENDS else "vla"
+    return {
+        "task": {
+            "command": "/rpent-task",
+            "usage": "/rpent-task <suite> <task> <seed>",
+            "fields": (
+                {"name": "suite", "suggestions": LIBERO_SUITE_NAMES},
+                {"name": "task", "kind": "integer", "minimum": 0},
+                {"name": "seed", "kind": "integer", "minimum": 0},
+            ),
+            "display": "{suite} / task {task} / seed {seed}",
+            "output_slug": "{suite}_t{task}_s{seed}",
         },
-    ),
-    "primitives": (
-        "move_to",
-        "pi0_pick",
-        "pi0_doubled",
-        "wam_act",
-        "release",
-        "set_gripper",
-        "rotate_wrist",
-        "rotate_pitch",
-        "move_pose",
-    ),
-}
+        "runtime_components": (
+            {"name": "env", "label": "ENV", "scope": "unique"},
+            {"name": kind, "label": kind.upper(), "scope": "shared"},
+            {"name": "sam3", "label": "SAM3", "scope": "shared"},
+            {
+                "name": "molmo",
+                "label": "Molmo",
+                "scope": "shared",
+                "planners": ("flash",),
+            },
+        ),
+        "primitives": (
+            "move_to",
+            "pi0_pick",
+            "pi0_doubled",
+            "wam_act",
+            "release",
+            "set_gripper",
+            "rotate_wrist",
+            "rotate_pitch",
+            "move_pose",
+        ),
+    }
 
 
 def _run_flash(toolkit, cell_tag: str, note) -> dict:
@@ -107,20 +111,6 @@ def _run_flash(toolkit, cell_tag: str, note) -> dict:
     from robots.libero.flash import run_flash
 
     return run_flash(toolkit, cell_tag, note)
-
-
-def _resolve_dashboard(args: argparse.Namespace) -> DashboardSpec:
-    """Label the selected action model using its public category."""
-    kind = "wam" if getattr(args, "am_backend", None) in WAM_BACKENDS else "vla"
-    return {
-        **LIBERO_DASHBOARD_SPEC,
-        "runtime_components": tuple(
-            {**component, "name": kind, "label": kind.upper()}
-            if component["name"] == "vla"
-            else component
-            for component in LIBERO_DASHBOARD_SPEC["runtime_components"]
-        ),
-    }
 
 
 def get_robot_spec() -> RobotSpec:

@@ -110,35 +110,6 @@ MODEL_SPEC = RoboTwinModelSpec(
 )
 
 
-ROBOTWIN_DASHBOARD_SPEC: DashboardSpec = {
-    "task": {
-        "command": "/rpent-task",
-        "usage": "/rpent-task <task_name> <task_config> <seed>",
-        "fields": (
-            {"name": "task_name"},
-            {
-                "name": "task_config",
-                "choices": ROBOTWIN_TASK_CONFIGS,
-            },
-            {"name": "seed", "kind": "integer", "minimum": 0},
-        ),
-        "display": "{task_name} / {task_config} / seed {seed}",
-        "output_slug": "{task_name}_{task_config}_s{seed}",
-    },
-    "runtime_components": (
-        {"name": "env", "label": "ENV", "scope": "unique"},
-        {"name": "vla", "label": "VLA", "scope": "shared"},
-    ),
-    "primitives": (
-        "lingbot_act",
-        "move_to",
-        "rotate_wrist",
-        "set_gripper",
-        "release",
-    ),
-}
-
-
 def env_runtime_contract(
     *,
     task_name: str,
@@ -192,17 +163,33 @@ def vla_runtime_contract() -> dict[str, object]:
 
 
 def _resolve_dashboard(args: argparse.Namespace) -> DashboardSpec:
-    if getattr(args, "am_backend", None) not in WAM_BACKENDS:
-        return ROBOTWIN_DASHBOARD_SPEC
+    """Build the Dashboard configuration for the selected action model."""
+    kind = "wam" if getattr(args, "am_backend", None) in WAM_BACKENDS else "vla"
     return {
-        **ROBOTWIN_DASHBOARD_SPEC,
-        "runtime_components": tuple(
-            {**item, "name": "wam", "label": "WAM"} if item["name"] == "vla" else item
-            for item in ROBOTWIN_DASHBOARD_SPEC["runtime_components"]
+        "task": {
+            "command": "/rpent-task",
+            "usage": "/rpent-task <task_name> <task_config> <seed>",
+            "fields": (
+                {"name": "task_name"},
+                {
+                    "name": "task_config",
+                    "choices": ROBOTWIN_TASK_CONFIGS,
+                },
+                {"name": "seed", "kind": "integer", "minimum": 0},
+            ),
+            "display": "{task_name} / {task_config} / seed {seed}",
+            "output_slug": "{task_name}_{task_config}_s{seed}",
+        },
+        "runtime_components": (
+            {"name": "env", "label": "ENV", "scope": "unique"},
+            {"name": kind, "label": kind.upper(), "scope": "shared"},
         ),
-        "primitives": tuple(
-            "wam_act" if name == "lingbot_act" else name
-            for name in ROBOTWIN_DASHBOARD_SPEC["primitives"]
+        "primitives": (
+            "wam_act" if kind == "wam" else "lingbot_act",
+            "move_to",
+            "rotate_wrist",
+            "set_gripper",
+            "release",
         ),
     }
 
