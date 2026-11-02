@@ -158,7 +158,7 @@ def start_interactive_reader(
 ) -> threading.Thread:
     """Start a prompt-toolkit input UI and forward submitted lines."""
     if not sys.stdin.isatty():
-        raise RuntimeError("--interactive requires a TTY; stdin is not interactive.")
+        raise RuntimeError("--tui requires a TTY; stdin is not interactive.")
 
     # Capture the cooked terminal state now, before the daemon reader switches
     # it to raw mode, so it is restored even if that thread is killed mid-read.

@@ -8,12 +8,12 @@
 终端交互（TUI）
 ---------------
 
-在任务命令中添加 ``--interactive`` 或 ``-i``，即可在终端输入指令。请使用支持交互输入的终端（TTY）。
+在任务命令中添加 ``--tui`` 或 ``-t``，即可在终端输入指令。请使用支持交互输入的终端（TTY）。
 
 .. code-block:: bash
 
    rpent --robot libero --suite libero_10_task --task 0 --seed 1 \
-     --planner claude_code --model claude-opus-4-8 --interactive
+     --planner claude_code --model claude-opus-4-8 --tui
 
 使用 ``claude_code``、``codex`` 或 ``gemini_cli`` 时，首次输入会预填任务指令，可编辑后按 Enter 提交，也可直接提交。输入 ``/help`` 查看命令，输入 ``/quit``、``/exit`` 或 ``/q`` 结束会话。
 
@@ -24,9 +24,9 @@ Claude Code、Codex 和 Gemini 的追加消息按输入顺序排队，每个完�
 .. code-block:: bash
 
    rpent --robot libero --suite libero_10_task --task 0 --seed 1 \
-     --planner api --model anthropic:claude-opus-4-8 --interactive
+     --planner api --model anthropic:claude-opus-4-8 --tui
 
-模型认证配置见 :doc:`configure_planner`。``--interactive`` 不能与 ``--dashboard`` 同时使用。真机配置及人工确认方式见 :doc:`../real_world_robots/franka` 和 :doc:`../real_world_robots/dual_franka`。
+模型认证配置见 :doc:`configure_planner`。``--tui`` 不能与 ``--dashboard`` 同时使用。真机配置及人工确认方式见 :doc:`../real_world_robots/franka` 和 :doc:`../real_world_robots/dual_franka`。
 
 .. _dashboard-usage:
 
@@ -55,7 +55,7 @@ Session 配置全部来自命令行，打开地址后会直接进入实时监控
 
 使用 Claude Code、Codex 或 Gemini 时，普通消息会排队等待当前 agent turn 完成。如需提前继续，可先提交消息再按 Esc：活动工具和后端 turn 停止后，才会发送下一条排队消息，其余消息保持原有顺序。成功执行 ``finish`` 后任务结束，不再发送排队消息。
 
-``--dashboard`` 不能与 ``--interactive`` 或 ``--env-endpoint`` 同时使用；外部 ``--vla-endpoint`` 和 ``--sam3-endpoint`` 服务仍然可用。使用 ``--dashboard-language zh-cn`` 可切换中文 UI。
+``--dashboard`` 不能与 ``--tui`` 或 ``--env-endpoint`` 同时使用；外部 ``--vla-endpoint`` 和 ``--sam3-endpoint`` 服务仍然可用。使用 ``--dashboard-language zh-cn`` 可切换中文 UI。
 
 查看结果与结束会话
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~

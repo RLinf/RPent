@@ -195,7 +195,7 @@ For dual Franka, use ``--robot dual_franka`` and the corresponding plan/config.
 Configure Env/VLA endpoints as in the robot setup guide; single-arm plans with
 ``vla_grasp`` require ``--vla-endpoint``. Replay asks before driver initialization
 (which may reset the robot), before execution, and for the final task verdict.
-Do not use ``--interactive``, ``--dashboard`` or ``--explore`` with this mode.
+Do not use ``--tui``, ``--dashboard`` or ``--explore`` with this mode.
 
 Invalid pixels/depth, workspace violations, excessive motions, and primitive
 errors stop replay. Left-arm workspace bounds are checked in the left-base

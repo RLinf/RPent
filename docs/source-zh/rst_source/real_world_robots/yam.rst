@@ -346,7 +346,7 @@ YAM 提供 ``view_env_state``、``sample_world_xyz``、``query_world_map``、``r
 
 在任务命令后追加 ``--explore``，即可探索并积累任务记忆。``--explore-attempts-per-session`` 设置每个会话的尝试次数，``--explore-sessions`` 设置会话数。
 
-终端中需要输入反馈时再加 ``--interactive``；网页交互使用 ``--dashboard``，不能与 ``--interactive`` 同用。
+终端中需要输入反馈时再加 ``--tui``；网页交互使用 ``--dashboard``，不能与 ``--tui`` 同用。
 
 每次尝试结束后，在人工操作终端确认成功、失败或中止。再次尝试前，先将夹爪中的物体放稳或取下，恢复场景，按需执行 ``reset_pose``，再用 ``status`` 读取当前回合 ID 并运行：
 

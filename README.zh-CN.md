@@ -47,6 +47,7 @@ RPent 面向以下四类用户：
 
 ## 最新动态
 
+- [2026/10] 🔥 新增可选的 APXInf VLA endpoint 接入，参见 [部署指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/guides/advanced_deployment.html#apxinf-vla-service-optional)。
 - [2026/09] 🔥 新增交互式 RPent 排行榜，覆盖 LIBERO、LIBERO-PRO、RoboCasa365 与 RoboTwin，提供模型对比及套件汇总。查看 [排行榜](https://rpent.readthedocs.io/zh-cn/latest/rst_source/leaderboard/index.html)。
 - [2026/09] 🔥 RPent 支持 Franka 单臂与双臂真机扩展。文档：[Franka](https://rpent.readthedocs.io/zh-cn/latest/rst_source/real_world_robots/franka.html) · [Dual Franka](https://rpent.readthedocs.io/zh-cn/latest/rst_source/real_world_robots/dual_franka.html)。
 - [2026/08] 🔥 支持 RoboCasa，使用 RLDX-1 作为操作模型。参见 [RoboCasa 安装与 Target50 指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robocasa.html)。
@@ -184,11 +185,11 @@ rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
 
 ### 交互模式
 
-使用 `claude_code` 或 `codex` 时，加上 `--interactive`（`-i`）即可在终端里实时引导智能体。内置任务会预填在 `you>` 提示符处。直接按 Enter 即可提交该任务；如需修改或替换任务，请先编辑输入内容，再按 Enter 提交。任务运行期间，可以继续输入消息引导智能体（`/help` 查看命令，`/quit` 或 Ctrl-D 结束）。需要真实终端（TTY）。`api` planner 使用原生 CLI，先运行预设任务，再在每轮运行完成后接收输入，使用 `/exit` 退出。
+使用 `claude_code` 或 `codex` 时，加上 `--tui`（`-t`）即可在终端里实时引导智能体。内置任务会预填在 `you>` 提示符处。直接按 Enter 即可提交该任务；如需修改或替换任务，请先编辑输入内容，再按 Enter 提交。任务运行期间，可以继续输入消息引导智能体（`/help` 查看命令，`/quit` 或 Ctrl-D 结束）。需要真实终端（TTY）。`api` planner 使用原生 CLI，先运行预设任务，再在每轮运行完成后接收输入，使用 `/exit` 退出。
 
 ```bash
 rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
-  --planner claude_code --model claude-opus-4-8 --interactive
+  --planner claude_code --model claude-opus-4-8 --tui
 ```
 
 ### 实时 Dashboard
