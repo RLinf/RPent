@@ -85,6 +85,7 @@ export function createInteractionController({ copy, select }) {
     snapshot: null,
     submissionInFlight: false,
     interruptInFlight: false,
+    interruptRequest: null,
     withdrawalsInFlight: new Set(),
     requestError: null,
     notice: null,
@@ -156,9 +157,10 @@ export function createInteractionController({ copy, select }) {
         button.textContent = copy.withdraw;
         button.setAttribute("aria-label", copy.withdrawMessage(message.text || ""));
         button.disabled =
-          message.status !== "pending"
+          (message.status !== "pending" && !message.withdrawable)
+          || message.withdrawal_requested
           || state.withdrawalsInFlight.has(message.message_id);
-        if (message.status === "pending") {
+        if (message.status === "pending" || message.withdrawable) {
           button.addEventListener("click", () => withdrawMessage(message.message_id));
         }
         item.appendChild(button);
@@ -336,6 +338,7 @@ export function createInteractionController({ copy, select }) {
     state.snapshot = null;
     state.submissionInFlight = false;
     state.interruptInFlight = false;
+    state.interruptRequest = null;
     state.withdrawalsInFlight.clear();
     state.requestError = null;
     state.notice = null;
@@ -356,6 +359,16 @@ export function createInteractionController({ copy, select }) {
     const previous = state.snapshot?.interaction;
     state.snapshot = snapshot;
     const interaction = snapshot.interaction;
+    if (
+      state.interruptRequest
+      && (
+        snapshot.task_generation !== state.interruptRequest.snapshot.task_generation
+        || interaction.planner_activity !== "busy"
+      )
+    ) {
+      state.interruptInFlight = false;
+      state.interruptRequest = null;
+    }
 
     if (
       previous?.interrupt_requested
@@ -451,6 +464,8 @@ export function createInteractionController({ copy, select }) {
       || state.interruptInFlight
     ) return;
 
+    const request = { snapshot: state.snapshot };
+    state.interruptRequest = request;
     state.interruptInFlight = true;
     state.requestError = null;
     render();
@@ -461,7 +476,8 @@ export function createInteractionController({ copy, select }) {
       );
       if (
         result?.interrupt_requested
-        && state.snapshot?.interaction
+        && state.interruptRequest === request
+        && state.snapshot === request.snapshot
       ) {
         applySnapshot({
           ...state.snapshot,
@@ -472,11 +488,16 @@ export function createInteractionController({ copy, select }) {
         });
       }
     } catch (error) {
-      state.requestError = copy.interruptFailed(
-        errorText(error) || copy.unknownRequestError
-      );
+      if (state.interruptRequest === request) {
+        state.requestError = copy.interruptFailed(
+          errorText(error) || copy.unknownRequestError
+        );
+      }
     } finally {
-      state.interruptInFlight = false;
+      if (state.interruptRequest === request) {
+        state.interruptInFlight = false;
+        state.interruptRequest = null;
+      }
       render();
     }
   }

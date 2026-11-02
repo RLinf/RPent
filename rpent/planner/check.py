@@ -82,7 +82,7 @@ CHECK_STATUSES = (
 )
 
 #: Planner backends this module can probe.
-CHECK_PLANNERS = ("api", "claude_code", "codex")
+CHECK_PLANNERS = ("api", "claude_code", "codex", "deepseek_harness")
 
 #: Backends whose endpoint comes from an env var, not from ``--base-url``.
 #: ``build_planner`` forwards ``base_url`` to the api model alone, so both
@@ -95,7 +95,7 @@ BASE_URL_ENV_BY_PLANNER = {
 }
 
 #: Diagnostic timeouts, deliberately independent of the 1200s run default.
-DEFAULT_TIMEOUT_S = {"api": 30, "claude_code": 90, "codex": 90}
+DEFAULT_TIMEOUT_S = {"api": 30, "claude_code": 90, "codex": 90, "deepseek_harness": 90}
 
 #: Budget for an SDK backend running on a CLI login rather than an env var.
 #: Shorter than the default because a diagnostic should not hold the terminal
@@ -174,12 +174,16 @@ class LlmCheckRequest:
             optional for ``claude_code`` and ``codex``.
         base_url: Base URL overriding the backend's own env var.
         timeout_s: Wall-clock cap. Defaults per backend when ``None``.
+        dsh_home: Explicit DeepSeek Harness login home, otherwise DSH_HOME.
+        reasoning_effort: DeepSeek Harness effort used for the probe.
     """
 
     planner: str = "api"
     model: str | None = None
     base_url: str | None = None
     timeout_s: int | None = None
+    dsh_home: str | None = None
+    reasoning_effort: str = "high"
 
     def resolved_timeout_s(self) -> int:
         """Return the effective timeout, applying the per-backend default."""
@@ -291,6 +295,7 @@ def check_llm(request: LlmCheckRequest) -> LlmCheckResult:
         "api": _check_api,
         "claude_code": _check_claude_code,
         "codex": _check_codex,
+        "deepseek_harness": _check_deepseek_harness,
     }[planner]
 
     # The budget is logged where it is resolved: the SDK backends shorten it
@@ -310,6 +315,60 @@ def check_llm(request: LlmCheckRequest) -> LlmCheckResult:
             model=request.model,
             detail=_describe(exc),
         )
+
+
+def _check_deepseek_harness(request: LlmCheckRequest) -> LlmCheckResult:
+    """Probe the same dsh profile, login home, model, and effort as a real run."""
+    from rpent.planner.deepseek_harness import resolve_dsh_home, run_probe_turn
+
+    started = time.monotonic()
+    if not request.model or request.base_url:
+        return LlmCheckResult(
+            ok=False,
+            status=STATUS_MISSING_CONFIG,
+            planner=request.planner,
+            model=request.model,
+            detail="deepseek_harness requires --model and does not accept --base-url",
+        )
+    try:
+        home = resolve_dsh_home(request.dsh_home)
+        reply = run_probe_turn(
+            prompt=PROBE_PROMPT,
+            model=request.model,
+            dsh_home=home,
+            reasoning_effort=request.reasoning_effort,
+            timeout_s=request.resolved_timeout_s(),
+        )
+    except ValueError as exc:
+        return LlmCheckResult(
+            ok=False,
+            status=STATUS_MISSING_CONFIG,
+            planner=request.planner,
+            model=request.model,
+            detail=_describe(exc),
+        )
+    except Exception as exc:
+        return LlmCheckResult(
+            ok=False,
+            status=_classify_sdk_error(exc, key_present=True, model=request.model),
+            planner=request.planner,
+            model=request.model,
+            detail=_describe(exc),
+            latency_s=time.monotonic() - started,
+        )
+    return LlmCheckResult(
+        ok=bool(reply.strip()),
+        status=STATUS_OK if reply.strip() else STATUS_PROVIDER_ERROR,
+        planner=request.planner,
+        model=request.model,
+        reply=reply,
+        latency_s=time.monotonic() - started,
+        extra={
+            "provider": "openai-codex",
+            "reasoning_effort": request.reasoning_effort,
+            "dsh_home": str(home),
+        },
+    )
 
 
 def _running_loop() -> bool:

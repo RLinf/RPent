@@ -29,12 +29,14 @@ from typing import TYPE_CHECKING, Any
 
 from rpent.cli.main import (
     _handoff_message,
+    _preflight_deepseek,
     _serialize_messages,
 )
 from rpent.dashboard.events import RunStartedEvent
 from rpent.evaluation import RunFinalizationContext
 from rpent.memory import MemoryManager
-from rpent.planner.base import build_planner, is_recoverable_agent_error
+from rpent.memory.publication import merge_run_memory
+from rpent.planner.base import build_planner, is_recoverable_planner_result
 from rpent.robots import get_toolkit
 from rpent.utils.config import get_memory_dir
 from rpent.utils.logging import get_logger, init_output_dir
@@ -106,6 +108,10 @@ def run_dashboard_session(
         )
     if args.planner == "api" and not args.model:
         parser.error("--model is required when --planner=api")
+    try:
+        _preflight_deepseek(args)
+    except (ValueError, RuntimeError, TimeoutError) as exc:
+        parser.error(str(exc))
 
     if args.output_dir is None:
         timestamp = datetime.now().strftime("%Y%m%d-%H:%M:%S")
@@ -119,6 +125,10 @@ def run_dashboard_session(
         output_dir=session_root,
         dashboard_spec=dashboard_spec,
     )
+    if args.planner == "deepseek_harness":
+        state.configure_planner_control(
+            refresh_manual_observations=True, withdraw_queued=True
+        )
     dashboard_server = DashboardServer(
         host=args.dashboard_host,
         port=args.dashboard_port,
@@ -127,6 +137,8 @@ def run_dashboard_session(
         planner=args.planner,
         model=args.model,
         base_url=args.base_url,
+        dsh_home=getattr(args, "dsh_home", None),
+        reasoning_effort=args.reasoning_effort,
     )
     dashboard_url = dashboard_server.start()
     print(f"Dashboard: {dashboard_url}", flush=True)
@@ -202,6 +214,7 @@ def _run_dashboard_task(
     if task_args.explore and not robot_spec.supports_exploration:
         raise ValueError(f"--explore is not supported for robot {robot_spec.name!r}")
     task_args.output_dir = str(claimed.output_dir)
+    _preflight_deepseek(task_args)
     run_config = robot_spec.parse_config(task_args)
     from rpent.memory.loading import prepare_run_memory
 
@@ -212,6 +225,13 @@ def _run_dashboard_task(
     finish_result = None
     messages: list[dict] = []
     stats: dict = {}
+    stop_info: dict | None = None
+    session_records: list[dict] = []
+    handoff_context = None
+    if task_args.planner == "deepseek_harness" and task_args.explore:
+        from rpent.planner.deepseek_context import DeepSeekHandoffContext
+
+        handoff_context = DeepSeekHandoffContext(output_dir)
     agent_error: str | None = None
     task_daemons: list[ProcessDaemon] = []
     recipe_path = ""
@@ -259,6 +279,8 @@ def _run_dashboard_task(
                         sessions,
                         robot_name=args.robot_name,
                     )
+                    if handoff_context is not None:
+                        session_message = handoff_context.append_to(session_message)
                 system_prompt = robot_spec.prompts.render(
                     "system",
                     variables={
@@ -322,6 +344,7 @@ def _run_dashboard_task(
                         claude_code_max_budget_usd=args.claude_code_max_budget_usd,
                         dashboard_events=state,
                         no_images=args.no_images,
+                        dsh_home=getattr(task_args, "dsh_home", None),
                     )
                     result = planner.solve(
                         system_prompt=system_prompt,
@@ -334,6 +357,44 @@ def _run_dashboard_task(
                     messages += result.messages
                     stats = result.stats
                     agent_error = result.error
+                    stop_info = getattr(result, "stop_info", None)
+                    unsafe_boundary = [
+                        field
+                        for field in (
+                            "execution_certain",
+                            "result_delivery_complete",
+                            "cleanup_complete",
+                        )
+                        if stop_info is not None and stop_info.get(field) is False
+                    ]
+                    if unsafe_boundary:
+                        agent_error = agent_error or (
+                            "Unsafe planner stop: "
+                            + ", ".join(unsafe_boundary)
+                            + " is false"
+                        )
+                        # A pending task must not reopen admission after uncertain
+                        # execution or incomplete delivery/cleanup of this task.
+                        state.request_shutdown()
+                    if stop_info and stop_info.get("process_interrupted") is True:
+                        # The planner preserves its result after catching SIGINT.
+                        # Wake the session controller instead of waiting for another task.
+                        state.request_shutdown()
+                    session_records.append(
+                        {
+                            "session": session_number,
+                            "max_turns": args.max_turns,
+                            "planner_timeout_s": args.planner_timeout_s,
+                            "attempts_per_session": getattr(
+                                task_args, "explore_attempts_per_session", 0
+                            ),
+                            "stop_info": stop_info,
+                            "error": agent_error,
+                            "stats": dict(stats),
+                        }
+                    )
+                    if handoff_context is not None:
+                        handoff_context.merge(stats, session_number)
                     if human_interactive_run and toolkit.direct_verdict_requested:
                         finish_result = toolkit.finalize_direct_verdict()
                         if agent_error:
@@ -346,21 +407,25 @@ def _run_dashboard_task(
                             )
                 finally:
                     try:
-                        state.unbind_toolkit(toolkit)
-                        if robot_spec.finalize_run is not None:
-                            environment_success = bool(toolkit.solved())
-                            solved = environment_success
-                    finally:
-                        toolkit.close()
+                        try:
+                            state.unbind_toolkit(toolkit)
+                            if robot_spec.finalize_run is not None:
+                                environment_success = bool(toolkit.solved())
+                                solved = environment_success
+                        finally:
+                            toolkit.close()
+                    except Exception:
+                        state.request_shutdown()
+                        raise
                 if (
                     solved
                     or state.task_replacement_requested
                     or (finish_result or {}).get("operator_finished")
                 ):
                     break
-                if agent_error:
-                    if session_number < sessions and is_recoverable_agent_error(
-                        agent_error
+                if agent_error or stop_info is not None:
+                    if session_number < sessions and is_recoverable_planner_result(
+                        result
                     ):
                         logger.warning(
                             "session %d/%d ended with %s; continuing with a fresh handoff",
@@ -377,10 +442,14 @@ def _run_dashboard_task(
         logger.error("EXCEPTION in Dashboard TaskRun %04d: %s", claimed.number, exc)
         agent_error = str(exc)
     finally:
-        if human_interactive_run and state.operator is not None:
-            state.operator.close()
-            state.operator = None
         cleanup_errors: list[str] = []
+        if human_interactive_run and state.operator is not None:
+            try:
+                state.operator.close()
+            except Exception as exc:
+                cleanup_errors.append(f"operator cleanup failed: {exc}")
+            finally:
+                state.operator = None
         if recipe_path:
             logger.info("recipe: %s", recipe_path)
         else:
@@ -391,6 +460,7 @@ def _run_dashboard_task(
             except Exception as exc:
                 cleanup_errors.append(f"robot cleanup failed: {exc}")
         if cleanup_errors:
+            state.request_shutdown()
             cleanup_error = "; ".join(cleanup_errors)
             if agent_error is None:
                 agent_error = cleanup_error
@@ -401,8 +471,12 @@ def _run_dashboard_task(
         record = {
             **run_config.task_desc,
             "model": task_args.model,
+            "planner_preflight": getattr(task_args, "_dsh_preflight", None),
             "elapsed_s": round(time.time() - started, 1),
             "finish": finish_result,
+            "error": agent_error,
+            "stop_info": stop_info,
+            "planner_sessions": session_records,
             "environment_success": environment_success,
             "stats": stats,
             "messages": _serialize_messages(messages),
@@ -420,11 +494,19 @@ def _run_dashboard_task(
         getattr(task_args, "explore", False)
         and getattr(task_args, "auto_merge_memory", False)
         and not agent_error
+        and (
+            stop_info is None
+            or (
+                stop_info.get("execution_certain") is True
+                and stop_info.get("result_delivery_complete", True) is True
+            )
+        )
         and not state.task_finalization_cancelled
         and memory_manager is not None
     ):
         try:
-            merge_result = memory_manager.merge_memory(
+            merge_result = merge_run_memory(
+                memory_manager,
                 cell_tag=run_config.recipe_tag,
                 run_state_dir=run_config.output_dir,
                 solved=solved,
@@ -447,7 +529,7 @@ def _run_dashboard_task(
                     agent_error=agent_error,
                     elapsed_s=time.time() - started,
                     planner=args.planner,
-                    model=args.model,
+                    model=task_args.model,
                     reasoning_effort=args.reasoning_effort,
                     max_turns=args.max_turns,
                     planner_timeout_s=args.planner_timeout_s,

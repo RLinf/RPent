@@ -486,6 +486,8 @@ def test_flash_prepares_the_version_with_published_replay_assets(
         (["--planner", "codex", "--model", "gpt-5.5"], GPT5),
         (["--planner", "codex", "--memory-version", GPT5], GPT5),
         (["--planner", "api", "--model", "openai:gpt-6-astra"], ASTRA),
+        (["--planner", "deepseek_harness", "--model", "gpt-6.1-sol"], GPT5),
+        (["--planner", "deepseek_harness", "--model", "gpt-5.5"], GPT5),
     ],
 )
 @pytest.mark.parametrize("revision", [None, "a" * 40])

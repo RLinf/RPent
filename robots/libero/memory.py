@@ -346,7 +346,7 @@ def main(argv: list[str] | None = None) -> int:
     sync.add_argument("--model", default=None)
     sync.add_argument(
         "--planner",
-        choices=["api", "codex", "claude_code", "flash"],
+        choices=["api", "codex", "claude_code", "deepseek_harness", "flash"],
         default="api",
         help="Planner backend (default: api); codex uses CODEX_MODEL when --model is omitted.",
     )

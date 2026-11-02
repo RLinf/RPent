@@ -17,7 +17,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Literal, Protocol
+
+if TYPE_CHECKING:
+    from rpent.tools.base import ToolResult
 
 PlannerActivity = Literal["starting", "idle", "busy", "ended"]
 DashboardMessageStatus = Literal[
@@ -38,6 +41,11 @@ class DashboardMessage:
     text: str
     status: DashboardMessageStatus
     error: str | None = None
+    source: str = "user"
+    observation: ToolResult | None = None
+    withdrawal_requested: bool = False
+    withdrawable: bool = False
+    operator_text: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         """Return the JSON-safe representation exposed to the frontend."""
@@ -46,6 +54,9 @@ class DashboardMessage:
             "text": self.text,
             "status": self.status,
             "error": self.error,
+            **({"source": self.source} if self.source != "user" else {}),
+            **({"withdrawal_requested": True} if self.withdrawal_requested else {}),
+            **({"withdrawable": True} if self.withdrawable else {}),
         }
 
 
@@ -71,6 +82,10 @@ class PlannerSessionDriver(Protocol):
         Count only work that will not report completion through the normal event
         path, such as discarded queued input. Do not count those events twice.
         """
+        ...
+
+    async def withdraw(self, message_id: str) -> bool:
+        """Remove one accepted input only if the backend has not consumed it."""
         ...
 
 
@@ -113,6 +128,14 @@ class DashboardInteractionPort(Protocol):
 
     def mark_message_unsent(self, message_id: str) -> DashboardMessage:
         """Restore one queued submission that never started."""
+        ...
+
+    def claim_message_withdrawals(self) -> list[str]:
+        """Claim SDK input withdrawal requests without interrupting the run."""
+        ...
+
+    def complete_message_withdrawal(self, message_id: str, *, withdrawn: bool) -> None:
+        """Apply the backend receipt's withdrawal outcome."""
         ...
 
     def claim_interrupt_request(self) -> bool:

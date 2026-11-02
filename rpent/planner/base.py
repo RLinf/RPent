@@ -98,7 +98,7 @@ async def execute_tool(toolkit: Toolkit, name: str, arguments: dict) -> ToolResu
 class PlannerResult:
     """Result returned by a planner invocation."""
 
-    __slots__ = ("finish_result", "messages", "stats", "error")
+    __slots__ = ("finish_result", "messages", "stats", "error", "stop_info")
 
     def __init__(
         self,
@@ -107,6 +107,7 @@ class PlannerResult:
         messages: list[dict] | None = None,
         stats: dict | None = None,
         error: str | None = None,
+        stop_info: dict | None = None,
     ):
         """Initialize a serializable planner result."""
         self.finish_result = (
@@ -117,12 +118,27 @@ class PlannerResult:
             stats or {}
         )  # {"total_input_tokens", "total_output_tokens", "turns_used", "tool_calls"}
         self.error = error  # str | None  — set when the planner raises
+        self.stop_info = stop_info
 
 
 def is_recoverable_agent_error(agent_error: str | None) -> bool:
     """Whether the error allows a fresh exploration session."""
     lowered = (agent_error or "").lower()
     return "timed out" in lowered or "planner response truncated" in lowered
+
+
+def is_recoverable_planner_result(result: PlannerResult) -> bool:
+    """Use explicit execution certainty when a backend provides it.
+
+    Older planners retain their existing text-based recovery contract.
+    """
+    stop_info = getattr(result, "stop_info", None)
+    if stop_info is not None:
+        return (
+            stop_info.get("execution_certain") is True
+            and stop_info.get("allow_new_session") is True
+        )
+    return is_recoverable_agent_error(result.error)
 
 
 class Planner(ABC):
@@ -233,6 +249,7 @@ def build_planner(
     dashboard_events: DashboardEventSink,
     no_images: bool = False,
     interactive: bool = False,
+    dsh_home: str | Path | None = None,
 ) -> Planner:
     """Build a planner for the given backend, resolving credentials from env vars."""
     # Imports are deferred to avoid a circular import: api_loop / claude_code /
@@ -294,6 +311,23 @@ def build_planner(
             output_path=Path(output_dir) / f"codex_{recipe_tag}.txt",
             dashboard_events=dashboard_events,
             reasoning_effort=reasoning_effort,
+        )
+    if planner_type == "deepseek_harness":
+        from rpent.planner.deepseek_harness import DeepSeekHarnessPlanner
+
+        if base_url or no_images:
+            raise ValueError("deepseek_harness does not support base_url or no_images")
+        return DeepSeekHarnessPlanner(
+            output_dir=output_dir,
+            recipe_tag=recipe_tag,
+            dashboard_events=dashboard_events,
+            model=model,
+            dsh_home=dsh_home,
+            reasoning_effort=reasoning_effort,
+            timeout_s=planner_timeout_s
+            if planner_timeout_s is not None
+            else int(os.environ.get("CELL_TIMEOUT_S", "1200")),
+            max_tokens=max_tokens,
         )
     if planner_type == "flash":
         from rpent.planner.flash import FlashPlanner

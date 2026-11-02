@@ -116,6 +116,49 @@ def test_check_route_returns_200_and_the_full_result_on_success(
     assert resp.json() == result.as_dict()
 
 
+@pytest.mark.parametrize(
+    ("server_options", "expected_effort"),
+    [({}, "high"), ({"reasoning_effort": "xhigh"}, "xhigh")],
+)
+def test_deepseek_check_uses_server_context_and_current_model(
+    monkeypatch, state, tmp_path, server_options, expected_effort
+):
+    result = LlmCheckResult(
+        ok=True, status=STATUS_OK, planner="deepseek_harness", model="gpt-6.1-sol"
+    )
+    captured = _stub_check(monkeypatch, result)
+    home = str(tmp_path / "private-home")
+    client = _client(
+        _server(
+            state,
+            planner="deepseek_harness",
+            model="gpt-6.1-sol",
+            dsh_home=home,
+            **server_options,
+        )
+    )
+    response = client.post(
+        "/api/llm/check",
+        json={"dsh_home": "/ignored-browser-path", "reasoning_effort": "low"},
+    )
+    assert response.status_code == 200
+    assert captured["request"].dsh_home == home
+    assert captured["request"].model == "gpt-6.1-sol"
+    assert captured["request"].reasoning_effort == expected_effort
+    assert home not in client.get("/api/session/config").text
+
+    response = client.post("/api/session/config", json={"model": "next-model"})
+    assert response.status_code == 200
+    assert (
+        client.post("/api/session/config", json={"reasoning_effort": "low"}).status_code
+        == 422
+    )
+    assert client.post("/api/llm/check", json={}).status_code == 200
+    assert captured["request"].model == "next-model"
+    assert captured["request"].reasoning_effort == expected_effort
+    assert captured["request"].dsh_home == home
+
+
 def test_a_failed_check_is_still_a_successful_request(
     monkeypatch: pytest.MonkeyPatch, state: DashboardState
 ) -> None:

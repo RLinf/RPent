@@ -19,7 +19,11 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 
-from rpent.dashboard.interaction import DashboardInteractionPort, PlannerSessionDriver
+from rpent.dashboard.interaction import (
+    DashboardInteractionError,
+    DashboardInteractionPort,
+    PlannerSessionDriver,
+)
 from rpent.planner.base import cancel_and_wait
 
 
@@ -101,7 +105,20 @@ class DashboardPlannerControl:
 
     def message_started(self, message_id: str, text: str) -> None:
         """Acknowledge one deferred submission when execution starts."""
-        self._interaction.mark_message_sent(message_id)
+        try:
+            # Keep manual admission closed when consumption beats the submit ACK:
+            # sending protects the first transition, busy protects the second.
+            self._interaction.set_planner_activity("busy")
+            self._interaction.mark_message_sent(message_id)
+        except DashboardInteractionError:
+            if self._interaction.planner_activity == "ended":
+                reconcile = getattr(
+                    self._interaction, "reconcile_consumed_message", None
+                )
+                if reconcile is not None:
+                    reconcile(message_id)
+                return
+            raise
         self._emit_user(text)
 
     def message_discarded(self, message_id: str) -> None:
@@ -126,6 +143,15 @@ class DashboardPlannerControl:
         async with self._lock:
             if self._interaction.planner_activity == "ended":
                 return
+            claim_withdrawals = getattr(
+                self._interaction, "claim_message_withdrawals", None
+            )
+            if claim_withdrawals is not None:
+                for message_id in claim_withdrawals():
+                    withdrawn = await driver.withdraw(message_id)
+                    self._interaction.complete_message_withdrawal(
+                        message_id, withdrawn=withdrawn
+                    )
             if self._interaction.task_replacement_requested:
                 try:
                     await self._interrupt_driver(driver)
@@ -158,7 +184,7 @@ class DashboardPlannerControl:
                 await self._flush(driver)
 
     async def _flush(self, driver: PlannerSessionDriver) -> None:
-        message = self._interaction.claim_next_pending_message()
+        message = await asyncio.to_thread(self._interaction.claim_next_pending_message)
         while message is not None and not self._interaction.task_replacement_requested:
             try:
                 added_completions = await driver.submit(message)
@@ -172,7 +198,9 @@ class DashboardPlannerControl:
                     self.message_started(message.message_id, message.text)
                 self._outstanding_completions += added_completions
                 self._interaction.set_planner_activity("busy")
-            message = self._interaction.claim_next_pending_message()
+            message = await asyncio.to_thread(
+                self._interaction.claim_next_pending_message
+            )
 
 
 def _exception_text(exc: BaseException) -> str:

@@ -14,6 +14,8 @@
 
 """Shared source flags and robot subtree selection."""
 
+import hashlib
+import json
 from argparse import Namespace
 from pathlib import Path
 from types import SimpleNamespace
@@ -24,6 +26,71 @@ import pytest
 
 from rpent.memory.loading import prepare_run_memory
 from rpent.memory.source import parse_repo, prepare_explicit_source
+
+
+@pytest.mark.parametrize("robot_hook", [False, True])
+def test_harness_exploration_copies_seed_and_preserves_conflicts(tmp_path, robot_hook):
+    source = tmp_path / "seed"
+    source.mkdir()
+    (source / "MEMORY.md").write_text("published seed")
+    conflict = source / "_internal" / "conflicts" / "strategy.md"
+    conflict.parent.mkdir(parents=True)
+    conflict.write_text("both candidates retained")
+    receipt = {"commit": "a" * 40, "prefix": "libero/GPT_5.5_xhigh/"}
+    (tmp_path / "seed.receipt.json").write_text(json.dumps(receipt))
+    spec = SimpleNamespace(
+        name="libero",
+        prepare_memory=(lambda args, config: None) if robot_hook else None,
+    )
+    args = Namespace(
+        planner="deepseek_harness",
+        model="gpt-6.1-sol",
+        explore=True,
+        memory_profile="local",
+        memory_dir=str(source),
+    )
+    config = SimpleNamespace(
+        output_dir=tmp_path / "run",
+        recipe_tag="task0",
+        prompt_vars={"memory_dir": str(source)},
+    )
+    prepare_run_memory(args, spec, config)
+    copied = Path(args.memory_dir)
+    assert copied == tmp_path / "run" / "memory"
+    assert copied == Path(config.prompt_vars["memory_dir"])
+    assert (copied / conflict.relative_to(source)).read_text() == conflict.read_text()
+    provenance = json.loads((config.output_dir / "memory-source.json").read_text())
+    assert provenance["source_receipt"] == receipt
+    assert (
+        provenance["source_files_sha256"]["MEMORY.md"]
+        == hashlib.sha256(b"published seed").hexdigest()
+    )
+    (copied / "MEMORY.md").write_text("new exploration learning")
+    assert (source / "MEMORY.md").read_text() == "published seed"
+    with pytest.raises(ValueError, match="already exists"):
+        prepare_run_memory(args, spec, config)
+    assert (copied / "MEMORY.md").read_text() == "new exploration learning"
+
+
+def test_harness_exploration_rejects_linked_seed_without_partial_corpus(tmp_path):
+    source = tmp_path / "seed"
+    source.mkdir()
+    (source / "linked.md").symlink_to(tmp_path / "outside.md")
+    args = Namespace(
+        planner="deepseek_harness",
+        model="test",
+        explore=True,
+        memory_profile="local",
+        memory_dir=str(source),
+    )
+    config = SimpleNamespace(
+        output_dir=tmp_path / "run", prompt_vars={}, recipe_tag="task"
+    )
+    with pytest.raises(ValueError, match="symbolic link"):
+        prepare_run_memory(
+            args, SimpleNamespace(name="libero", prepare_memory=None), config
+        )
+    assert not (config.output_dir / "memory").exists()
 
 
 @pytest.fixture(autouse=True)

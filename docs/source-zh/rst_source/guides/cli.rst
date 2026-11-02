@@ -14,6 +14,8 @@
 ------------
 
 这些参数控制规划器、记忆、输出目录和 Dashboard。
+每次启动新进程时，规划器默认仍为 ``api``；使用 dsh 需传入
+``--planner deepseek_harness``。同一个 Dashboard Session 内的任务沿用启动配置。
 
 .. list-table::
    :header-rows: 1
@@ -27,28 +29,40 @@
      - 选择已发现的机器人或仿真环境。
    * - ``--planner``
      - ``api``
-     - ``api``、``claude_code``、``codex`` 或 ``flash``。
+     - ``api``、``claude_code``、``codex``、``deepseek_harness`` 或 ``flash``。
    * - ``--model``
      - ``—``
-     - ``api`` 要求服务提供方前缀；SDK 规划器使用各自默认值。
+     - ``api`` 要求服务提供方前缀；``deepseek_harness`` 必须指定准确模型名称。
+       ``claude_code`` 和 ``codex`` 使用各自默认值。
    * - ``--max-turns``
      - ``100``
-     - 规划器轮数上限；``api`` 按整段对话的模型请求次数计算，包括重试和后续输入。
+     - 规划器轮数上限。``api`` 统计包含重试和后续输入的模型请求；
+       ``deepseek_harness`` 统计根模型步骤，重试和压缩请求不另计步骤。
+       后续输入不会重置预算。
    * - ``--max-tokens``
      - ``8192``
-     - 仅 ``api``：每次模型回复的 Token 上限。
+     - ``api``：单次回复 token 上限。``deepseek_harness``：运行时预算，
+       订阅传输层不保证单次回复的硬上限。
    * - ``--reasoning-effort``
-     - ``api``：``high``；``claude_code``/``codex``：``none``
+     - ``api``/``deepseek_harness``：``high``；``claude_code``/``codex``：``none``
      - ``api``、``claude_code`` 与 ``codex`` 的推理强度：``none``、``low``、``medium``、``high`` 或 ``xhigh``。在我们的 LIBERO Pro Long 评测中，关闭 reasoning 将平均运行时间从约 13.2 分钟缩短至 7.9 分钟（约 40%）。较高强度可能提升任务成功率；实际支持的档位取决于所选模型。
+       ``deepseek_harness`` 支持 ``low``、``medium``、``high`` 和 ``xhigh``，
+       不支持 ``none``。
    * - ``--planner-timeout-s``
      - ``—``
      - 默认使用 ``CODEX_TIMEOUT_S`` （仅 Codex）、``CELL_TIMEOUT_S`` 或 1200 秒；终端交互式 API/Claude 会话不受此限。
+       DeepSeek Harness 不计等待用户输入的时间，清理可能超过时限。
    * - ``--base-url``
      - ``—``
-     - 仅 ``api``：覆盖模型服务地址。SDK 规划器使用各自的环境变量。
+     - 仅 ``api``：覆盖模型服务地址。Claude Code 和 Codex 使用各自环境变量，
+       DeepSeek Harness 不支持此参数。
    * - ``--no-images``
      - ``false``
      - 仅 ``api``：不向模型发送图像。
+   * - ``--dsh-home``
+     - ``DSH_HOME``
+     - DeepSeek Harness 凭据目录，参数或环境变量至少设置一个；
+       与 ``rpent-dsh-login`` 使用同一目录。
    * - ``--claude-code-max-budget-usd``
      - ``—``
      - Claude Code 美元预算；默认取 ``MAX_BUDGET_USD`` 或 10。
@@ -60,7 +74,8 @@
      - 评测默认为 ``hf``，探索默认为 ``local``。
    * - ``--memory-dir``
      - ``—``
-     - 本地记忆目录；与本地模式或探索一起使用。
+     - 本地记忆目录，配合 local profile 或探索使用。dsh 探索时指定初始语料，
+       会复制为本次运行的工作记忆，自动合并只修改该副本。
    * - ``--memory-repo``
      - ``—``
      - HF 数据集 ID 或 URL，可附加 @revision；仅用于评测。
@@ -120,7 +135,7 @@ LIBERO 使用 ``--suite``、``--task``、``--seed`` 和 ``--libero-type`` 选择
    :header-rows: 1
 
    * - 规划器
-     - API Key
+     - 认证方式
      - 服务地址
    * - ``api`` / Anthropic; ``claude_code``
      - ``ANTHROPIC_API_KEY``
@@ -131,6 +146,9 @@ LIBERO 使用 ``--suite``、``--task``、``--seed`` 和 ``--libero-type`` 选择
    * - ``codex``
      - ``CODEX_API_KEY``
      - ``CODEX_BASE_URL``
+   * - ``deepseek_harness``
+     - ``rpent-dsh-login``；``DSH_HOME`` 或 ``--dsh-home``
+     - 固定为 ``openai-codex`` 订阅 provider
 
 Codex 也可复用已有的 Codex 认证。模型选择、地址优先级和本地服务示例见 :doc:`configure_planner`。连接检查使用 ``rpent-check-llm``；记忆管理使用 ``rpent-memory``，操作方法见 :doc:`memory`。
 
@@ -152,6 +170,12 @@ Codex 也可复用已有的 Codex 认证。模型选择、地址优先级和本�
      - 用途
    * - ``transcript_*.json``
      - 规划器对话、工具调用及结束信息。
+   * - ``result.json``
+     - LIBERO 原生成功、已接受的 finish、操作员结论和停止状态。
+   * - ``dsh-*/``
+     - DeepSeek Harness 运行时事件和归档观测图像。
+   * - ``memory-source.json`` / ``memory-merge.json`` / ``dsh-operator-context.json``
+     - 探索记忆来源、合并结果和已消费的操作员上下文。
    * - ``episode.mp4``
      - 本次任务的录像。
    * - ``run.log``

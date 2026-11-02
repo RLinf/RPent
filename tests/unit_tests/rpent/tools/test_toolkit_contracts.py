@@ -399,11 +399,14 @@ def test_invalid_vectors_never_execute_or_capture_state(tmp_path: Path, value) -
     assert result.is_error
     assert calls == []
     assert toolkit.capture_calls == []
+    assert not result.execution_uncertain
 
 
+@pytest.mark.parametrize("source", [None, "dashboard"])
 def test_stateful_dispatch_captures_state_and_emits_the_record(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    source: str | None,
 ) -> None:
     clock = iter((10.0, 10.25))
     monkeypatch.setattr(
@@ -420,13 +423,14 @@ def test_stateful_dispatch_captures_state_and_emits_the_record(
 
     toolkit.add_tool(move)
 
-    result = toolkit.execute_tool("move", {"distance": 3})
+    result = toolkit.execute_tool("move", {"distance": 3}, source=source)
 
     assert result.data == {"observation": 1}
     assert handler_result == {"moved": True}
     assert toolkit.capture_calls[0]["command"] == {
         "action": "move",
         "distance": 3,
+        **({"source": source} if source else {}),
     }
     assert toolkit.capture_calls[0]["result"] == {"moved": True}
     assert toolkit.capture_calls[0]["elapsed_s"] == 0.25
@@ -434,7 +438,11 @@ def test_stateful_dispatch_captures_state_and_emits_the_record(
     event = toolkit.events.events[0]
     assert isinstance(event, StepRecordEvent)
     assert event.record.step_idx == 0
-    assert event.record.command == {"action": "move", "distance": 3}
+    assert event.record.command == {
+        "action": "move",
+        "distance": 3,
+        **({"source": source} if source else {}),
+    }
     assert event.env_state is toolkit.state
 
 
@@ -458,6 +466,7 @@ def test_handler_error_is_retained_when_state_capture_also_fails(
     failed = toolkit.execute_tool("fail", {})
 
     assert failed.data["error"] == "handler exploded"
+    assert failed.execution_uncertain
     assert failed.data["state_capture_error"] == "capture exploded"
     assert "ValueError: handler exploded" in failed.data["traceback"]
     assert toolkit.events.events == []
@@ -519,10 +528,42 @@ def test_toolkit_cleans_up_operation_after_handler_failure(tmp_path: Path) -> No
     failed = toolkit.execute_tool("fail", {})
 
     assert failed.data["error"] == "tool failed"
+    assert failed.execution_uncertain
     assert "RuntimeError: tool failed" in failed.data["traceback"]
     assert toolkit.execute_tool(
         "finish", {"status": "failure", "summary": "recovered"}
     ).data.get("_finish", False)
+
+
+def test_handler_type_error_is_distinct_from_argument_validation(tmp_path):
+    toolkit = _ContractToolkit(tmp_path)
+    effects = []
+
+    @tool(readonly=True)
+    def write_then_fail(value: int) -> ToolResult:
+        effects.append(value)
+        raise TypeError("failure after side effect")
+
+    toolkit.add_tool(write_then_fail)
+    rejected = toolkit.execute_tool("write_then_fail", {"value": "invalid"})
+    assert rejected.is_error and not rejected.execution_uncertain
+    assert effects == []
+    failed = toolkit.execute_tool("write_then_fail", {"value": 1})
+    assert failed.is_error and failed.execution_uncertain
+    assert effects == [1]
+
+
+def test_result_serialization_failure_retains_execution_uncertainty(tmp_path):
+    toolkit = _ContractToolkit(tmp_path)
+
+    @tool(readonly=True)
+    def invalid_result() -> ToolResult:
+        return ToolResult(data={"value": float("nan")})
+
+    toolkit.add_tool(invalid_result)
+    failed = toolkit.execute_tool("invalid_result", {})
+    assert failed.is_error and failed.execution_uncertain
+    assert "serialization failed" in failed.data["error"]
 
 
 @pytest.mark.timeout(5)
@@ -557,6 +598,7 @@ def test_toolkit_cooperatively_cancels_and_cleans_up_active_operation(
     assert not worker.is_alive()
     assert results[0].data["code"] == "tool_cancelled"
     assert results[0].data["interrupted"] is True
+    assert results[0].execution_uncertain
     assert results[0].data["error"] == "tool operation interrupted"
     assert toolkit.capture_calls[0]["result"]["code"] == "tool_cancelled"
     assert len(toolkit.events.events) == 1
