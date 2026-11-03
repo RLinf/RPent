@@ -56,8 +56,12 @@ Export recorded trajectories from one robot to a new output directory:
 .. code-block:: bash
 
    rpent-flywheel \
+     --vla \
      --input-root /path/to/run \
      --output-dir /path/to/lerobot/goal-task-00
+
+``--vla`` exports only VLA training data. This is also the default when the
+flag is omitted.
 
 ``--input-root`` accepts a trajectory directory containing ``task.json`` or a
 parent directory containing multiple runs. Export each robot separately;
@@ -78,6 +82,7 @@ run directories whose names start with ``run_``:
 .. code-block:: bash
 
    rpent-flywheel \
+     --vla \
      --input-root /path/to \
      --pattern 'run_*' \
      --output-dir /path/to/lerobot/combined

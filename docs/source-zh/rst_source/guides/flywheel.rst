@@ -40,8 +40,11 @@
 .. code-block:: bash
 
    rpent-flywheel \
+     --vla \
      --input-root /path/to/run \
      --output-dir /path/to/lerobot/goal-task-00
+
+``--vla`` 表示仅导出 VLA 训练数据；不加该参数时也默认导出 VLA 数据。
 
 ``--input-root`` 可以指向包含 ``task.json`` 的单条轨迹目录，也可以指向包含多次运行的上级目录。不同机器人应分别导出；``--output-dir`` 必须尚不存在。
 
@@ -58,6 +61,7 @@
 .. code-block:: bash
 
    rpent-flywheel \
+     --vla \
      --input-root /path/to \
      --pattern 'run_*' \
      --output-dir /path/to/lerobot/combined
