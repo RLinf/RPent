@@ -96,9 +96,13 @@ class LiberoToolkit(Toolkit):
         for definition in iter_tools(self._primitives):
             handler = partial(self._execute_primitive, definition.name, definition)
             self.add_tool(definition.with_handler(handler))
-        sam3_tools = libero_tools.build_sam3_tools(sam3_client, state=self._state)
-        for definition in iter_tools(sam3_tools):
-            self.add_tool(with_cameras(definition, libero_tools.SAM3_CAMERAS))
+        for definition in iter_tools(libero_tools.SAM3_TOOLS):
+            definition = with_cameras(definition, libero_tools.SAM3_CAMERAS)
+            self.add_tool(
+                definition.with_handler(
+                    partial(definition, state=self._state, segmenter=sam3_client)
+                )
+            )
         if self._mode == "exploration":
             self.add_tool(self._reset_episode)
             finish = self._tools["finish"]

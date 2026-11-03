@@ -16,14 +16,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from typing import TYPE_CHECKING, Annotated, Any, Protocol
 
 import numpy as np
 from pydantic import Field
 
 from rpent.tools.base import ToolResult, tool
-from rpent.tools.perception.perception_tool import CameraView, PerceptionToolBase
+from rpent.tools.perception.perception_tool import PerceptionToolBase
 
 if TYPE_CHECKING:
     from rpent.session import EnvState
@@ -51,35 +50,14 @@ class Segmenter(Protocol):
 class Sam3Tools(PerceptionToolBase):
     """SAM3 ``segment`` over a robot's recorded camera views.
 
-    Results and overlays are saved as ``segment_NN`` artifacts at the segmented
-    step, numbered through the shared :class:`EnvState`.
+    Construct with the robot's ``cameras`` and ``fallback``; bind ``state`` and
+    ``segmenter`` when registering. Results and overlays are saved as
+    ``segment_NN`` artifacts at the segmented step, numbered through ``state``.
     """
 
     missing_artifacts_error = "complete segment artifacts not found"
 
-    def __init__(
-        self,
-        segmenter: Segmenter,
-        *,
-        state: EnvState,
-        cameras: dict[str, Sequence[CameraView]],
-        fallback: str,
-    ) -> None:
-        """Bind the segmentation service and the robot's camera configuration.
-
-        Args:
-            segmenter: Segmentation service; the caller owns its lifecycle.
-            state: Run store used for both input and output artifacts.
-            cameras: Camera names mapped to their views in preference order.
-                The first camera is the default.
-            fallback: Robot-specific guidance returned when segmentation fails.
-        """
-        if segmenter is None:
-            raise ValueError("Sam3Tools requires a segmenter")
-        super().__init__(state=state, cameras=cameras, fallback=fallback)
-        self._segmenter = segmenter
-
-    @tool(readonly=True)
+    @tool(readonly=True, exclude=("state", "segmenter"))
     def segment(
         self,
         prompt: str = "",
@@ -87,6 +65,9 @@ class Sam3Tools(PerceptionToolBase):
         step: Annotated[int, Field(json_schema_extra={"default": -1})] = -1,
         point: Annotated[list[int], Field(min_length=2, max_length=2)] | None = None,
         min_score: float = 0.2,
+        *,
+        state: EnvState,
+        segmenter: Segmenter,
     ) -> ToolResult:
         """SAM3 visual segmentation over an existing run artifact. It never renders a new camera view. Provide exactly one text prompt or single positive point. A successful top-ranked mask is projected through the matching world map to produce world_xyz.
 
@@ -97,7 +78,6 @@ class Sam3Tools(PerceptionToolBase):
             point: Optional single positive point as [row, col]. Mutually exclusive with prompt.
             min_score: Minimum accepted mask score (default 0.2).
         """
-        state = self._state
         camera = camera or next(iter(self._cameras))
         images: list[bytes] = []
         try:
@@ -113,13 +93,13 @@ class Sam3Tools(PerceptionToolBase):
             return ToolResult(
                 data={"error": "segment needs exactly one of prompt or point"}
             )
-        view = self._select_view(record, camera)
+        view = self._select_view(state, record, camera)
         if isinstance(view, ToolResult):
             return view
         image_name = view.image
 
         try:
-            data = self._segmenter.segment(
+            data = segmenter.segment(
                 state.load_bytes(image_name, step=nn),
                 text_prompt=prompt if has_prompt else None,
                 point=point,

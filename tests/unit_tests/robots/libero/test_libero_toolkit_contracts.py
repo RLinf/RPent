@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -237,10 +238,12 @@ def test_parallel_segments_preserve_artifacts_without_capturing_state(
         state=state,
         memory=MemoryManager(tmp_path / "memory"),
     )
-    sam3_tools = toolkit.libero_tools.build_sam3_tools(sam3_client, state=state)
-    for definition in iter_tools(sam3_tools):
+    for definition in iter_tools(toolkit.libero_tools.SAM3_TOOLS):
+        definition = with_cameras(definition, toolkit.libero_tools.SAM3_CAMERAS)
         robot_toolkit.add_tool(
-            with_cameras(definition, toolkit.libero_tools.SAM3_CAMERAS)
+            definition.with_handler(
+                partial(definition, state=state, segmenter=sam3_client)
+            )
         )
     captured = []
 

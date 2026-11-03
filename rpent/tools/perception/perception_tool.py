@@ -136,10 +136,11 @@ class CameraView:
 class PerceptionToolBase:
     """Base for planner tools that read a robot's recorded camera images.
 
+    Instances hold only robot data: camera views and fallback guidance.
     Subclasses declare class-level ``@tool`` methods that take a ``camera: str``
-    input. Robot differences are constructor data rather than subclasses: a
-    robot builds one instance per toolkit and registers each of its tools
-    through :func:`with_cameras`, which publishes the robot's camera names.
+    input and exclude runtime resources such as ``state``. A toolkit registers
+    each tool through :func:`with_cameras` and binds those resources with
+    ``partial``.
     """
 
     #: Error reported when no view of the requested camera is fully recorded.
@@ -148,14 +149,12 @@ class PerceptionToolBase:
     def __init__(
         self,
         *,
-        state: EnvState,
         cameras: dict[str, Sequence[CameraView]],
         fallback: str,
     ) -> None:
-        """Bind the artifact store and the robot's camera configuration.
+        """Validate and keep the robot's camera configuration.
 
         Args:
-            state: Run store used for both input and output artifacts.
             cameras: Camera names mapped to their views in preference order.
                 The first camera is the default.
             fallback: Robot-specific guidance returned when a tool fails.
@@ -167,11 +166,12 @@ class PerceptionToolBase:
                 raise ValueError(f"camera names must be non-empty strings: {camera!r}")
             if not views or not all(isinstance(view, CameraView) for view in views):
                 raise ValueError(f"camera {camera!r} needs at least one CameraView")
-        self._state = state
         self._cameras = {camera: tuple(views) for camera, views in cameras.items()}
         self._fallback = fallback
 
-    def _select_view(self, record: StepRecord, camera: str) -> CameraView | ToolResult:
+    def _select_view(
+        self, state: EnvState, record: StepRecord, camera: str
+    ) -> CameraView | ToolResult:
         """Return the first view of ``camera`` whose artifacts ``record`` holds."""
         views = self._cameras.get(camera)
         if views is None:
@@ -183,8 +183,7 @@ class PerceptionToolBase:
             )
         for view in views:
             if all(
-                name in record.artifacts
-                and self._state.exists(name, step=record.step_idx)
+                name in record.artifacts and state.exists(name, step=record.step_idx)
                 for name in view.artifacts
             ):
                 return view
@@ -203,8 +202,8 @@ class PerceptionToolBase:
 def with_cameras(declaration: Tool, cameras: Iterable[str]) -> Tool:
     """Limit a declaration's ``camera`` input to a robot's cameras.
 
-    The first camera is the published default. The handler is kept, so a bound
-    declaration from ``iter_tools(instance)`` stays ready for registration.
+    The first camera is the published default. The handler is kept, so bind
+    the tool's resources with ``with_handler`` afterwards.
     """
     names = tuple(cameras)
     if not names:

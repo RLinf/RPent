@@ -27,7 +27,6 @@ from pydantic import Field
 from robots.libero.env_client import LiberoEnvClient
 from rpent.robots.components.molmo_client import MolmoClient
 from rpent.robots.components.pi05_vla_client import Pi05VLAClient
-from rpent.robots.components.sam3_client import Sam3Client
 from rpent.session import EnvState, StepRecord
 from rpent.tools import Tool, ToolResult, tool
 from rpent.tools.perception import CameraView, Sam3Tools, WorldMapLocalizer
@@ -787,16 +786,11 @@ SAM3_CAMERAS = {
     )
     for camera in ("agentview", "wrist")
 }
-
-
-def build_sam3_tools(sam3_client: Sam3Client, *, state: EnvState) -> Sam3Tools:
-    """Build the SAM3 tools over LIBERO's recorded camera and world-map artifacts."""
-    return Sam3Tools(
-        sam3_client,
-        state=state,
-        cameras=SAM3_CAMERAS,
-        fallback="Use manual visual localization and back_project.",
-    )
+#: SAM3 tools over LIBERO's recorded camera and world-map artifacts.
+SAM3_TOOLS = Sam3Tools(
+    cameras=SAM3_CAMERAS,
+    fallback="Use manual visual localization and back_project.",
+)
 
 
 def _is_primitive_action(name: object) -> bool:

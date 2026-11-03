@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+from functools import partial
 from types import SimpleNamespace
 
 import numpy as np
@@ -53,19 +54,16 @@ def _toolkit(tmp_path, state):
     )
 
 
-def _sam3(state, segment=_found, cameras=CAMERAS):
-    return Sam3Tools(
-        SimpleNamespace(segment=segment),
-        state=state,
-        cameras=cameras,
-        fallback=FALLBACK,
-    )
-
-
 def _sam3_toolkit(tmp_path, state, segment=_found, cameras=CAMERAS):
     toolkit = _toolkit(tmp_path, state)
-    for definition in iter_tools(_sam3(state, segment, cameras)):
-        toolkit.add_tool(with_cameras(definition, cameras))
+    segmenter = SimpleNamespace(segment=segment)
+    for definition in iter_tools(Sam3Tools(cameras=cameras, fallback=FALLBACK)):
+        definition = with_cameras(definition, cameras)
+        toolkit.add_tool(
+            definition.with_handler(
+                partial(definition, state=state, segmenter=segmenter)
+            )
+        )
     return toolkit
 
 
@@ -109,22 +107,12 @@ def test_with_cameras_rejects_unusable_inputs(declaration, cameras):
 
 
 @pytest.mark.parametrize(
-    ("segmenter", "cameras"),
-    [
-        (None, CAMERAS),
-        (SimpleNamespace(), {}),
-        (SimpleNamespace(), {"front": ()}),
-        (SimpleNamespace(), {"front": (("front.png", "front_world.npz"),)}),
-    ],
+    "cameras",
+    [{}, {"front": ()}, {"front": (("front.png", "front_world.npz"),)}],
 )
-def test_rejects_unusable_configuration_at_construction(tmp_path, segmenter, cameras):
+def test_rejects_unusable_configuration_at_construction(cameras):
     with pytest.raises(ValueError):
-        Sam3Tools(
-            segmenter,
-            state=EnvState(tmp_path / "state"),
-            cameras=cameras,
-            fallback=FALLBACK,
-        )
+        Sam3Tools(cameras=cameras, fallback=FALLBACK)
 
 
 def test_selects_the_first_complete_view_and_localizes_the_mask(tmp_path):
@@ -196,7 +184,12 @@ def test_rejects_cameras_the_robot_did_not_configure(tmp_path):
 
 
 def test_direct_calls_report_unconfigured_cameras(tmp_path):
-    result = _sam3(_state(tmp_path, FRONT)).segment(prompt="cup", camera="wrist")
+    result = Sam3Tools(cameras=CAMERAS, fallback=FALLBACK).segment(
+        prompt="cup",
+        camera="wrist",
+        state=_state(tmp_path, FRONT),
+        segmenter=SimpleNamespace(segment=_found),
+    )
 
     assert result.data["error"] == "unknown camera 'wrist'"
     assert result.data["cameras"] == ["front", "side"]
