@@ -214,8 +214,7 @@ def _refresh_obs(primitives) -> dict:
     return primitives._last_obs
 
 
-@tool(readonly=False, exclude=("primitives", "state", "tol", "max_steps"))
-def move_to(
+def _move_to_impl(
     primitives: Any,
     state: Any,
     xyz: Annotated[list[float], Field(min_length=3, max_length=3)],
@@ -223,7 +222,7 @@ def move_to(
     gripper: float = 0,
     tol: Any = 0.01,
     max_steps: Any = 20,
-) -> ToolResult:
+) -> dict:
     """Move an arm end-effector to a world xyz target (scripted motion, CuRobo IK). gripper: 1=close, -1=open, 0=keep.
 
     Args:
@@ -235,12 +234,12 @@ def move_to(
     target = [float(v) for v in xyz]
     if len(target) != 3:
         payload = {"error": "xyz must have 3 values"}
-        return ToolResult(data=payload)
+        return payload
     obs = _refresh_obs(primitives)
     start_ee = obs.get("state", {}).get(_arm_ee_pose_key(arm))
     if start_ee is None:
         payload = {"error": f"{arm} ee_pose not in state"}
-        return ToolResult(data=payload)
+        return payload
     start = [float(v) for v in np.asarray(start_ee)[:3]]
     final_xyz = list(start)
     dist_to_target = float(np.linalg.norm(np.asarray(target) - np.asarray(final_xyz)))
@@ -273,7 +272,7 @@ def move_to(
             ee_pose = obs.get("state", {}).get(_arm_ee_pose_key(arm))
             if ee_pose is None:
                 payload = {"error": f"{arm} ee_pose missing mid-motion"}
-                return ToolResult(data=payload)
+                return payload
             ee_pose = list(np.asarray(ee_pose, dtype=np.float64))
             ee_pose[:3] = target
             action = {_arm_ee_pose_key(arm): ee_pose}
@@ -317,13 +316,41 @@ def move_to(
         "reached": reached,
         "ik_error": last_error,
     }
-    return ToolResult(data=payload)
+    return payload
 
 
-@tool(readonly=False, exclude=("primitives", "state"))
-def set_gripper(
-    primitives: Any, state: Any, arm: Literal["left", "right"], gripper: float
+@tool(readonly=False, exclude=("primitives", "state", "tol", "max_steps"))
+def move_to(
+    primitives: Any,
+    state: Any,
+    xyz: Annotated[list[float], Field(min_length=3, max_length=3)],
+    arm: Literal["left", "right"] = "right",
+    gripper: float = 0,
+    tol: Any = 0.01,
+    max_steps: Any = 20,
 ) -> ToolResult:
+    """Move an arm end-effector to a world xyz target (scripted motion, CuRobo IK). gripper: 1=close, -1=open, 0=keep.
+
+    Args:
+        xyz: World xyz target for the end-effector
+        arm: Arm to move
+        gripper: 1=close, -1=open, 0=keep current"""
+    return ToolResult(
+        data=_move_to_impl(
+            primitives,
+            state,
+            xyz,
+            arm=arm,
+            gripper=gripper,
+            tol=tol,
+            max_steps=max_steps,
+        )
+    )
+
+
+def _set_gripper_impl(
+    primitives: Any, state: Any, arm: Literal["left", "right"], gripper: float
+) -> dict:
     """Open or close an arm gripper. 1=close, -1=open.
 
     Args:
@@ -353,7 +380,18 @@ def set_gripper(
             if key in info["status"]
         },
     }
-    return ToolResult(data=payload)
+    return payload
+
+
+@tool(readonly=False, exclude=("primitives", "state"))
+def set_gripper(
+    primitives: Any, state: Any, arm: Literal["left", "right"], gripper: float
+) -> ToolResult:
+    """Open or close an arm gripper. 1=close, -1=open.
+
+    Args:
+        gripper: 1=close, -1=open"""
+    return ToolResult(data=_set_gripper_impl(primitives, state, arm, gripper))
 
 
 @tool(

@@ -360,3 +360,129 @@ RoboDojo 场景还会引用 NVIDIA 提供的三维模型、材质和贴图。这
 这会将 RoboDojo 匹配的 5.0 在线资源地址改为本地路径。它并不代表所有 Isaac Sim 资源均可离线使用；\
 若仍有其他在线资源加载失败（例如 ``Assets/Isaac/5.1`` 路径），需另外准备对应版本的资产并配置本地加载，\
 见 `NVIDIA 本地资产说明 <https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/install_faq.html#isaac-sim-setup-assets-content-pack>`_。
+
+脚本化规控
+--------------------
+
+这条独立执行路径将可信 Python 配方交给独占的 RoboDojo 开发环境服务执行，
+由服务端 CuRobo 提供 IK。入口是在源码仓库中运行的 Python 模块，不注册到
+planner CLI 或 Dashboard，也不启动 VLA 服务。
+
+安装方式见上文 **安装与资源准备**，然后按以下步骤执行。
+
+启动独占 dev 服务
+~~~~~~~~~~~~~~~~~
+
+在专用终端中，从仓库根目录运行：
+
+.. code-block:: bash
+
+   export ROBODOJO_ASSETS_ROOT=/path/to/scene-data
+   export ROBODOJO_PLACEMENT_SETTLE_STEPS=1000
+   python -m robots.robodojo.env_server \
+     --task general_pickup --layout 0 --mode dev \
+     --max-episode-steps 200 --headless --enable_cameras \
+     --host localhost --port 18765 --transport http \
+     --save-dir /path/to/server-output --video-dir /path/to/videos
+
+默认源码目录来自 ``robodojo_runtime.source_root()``。只有使用其他源码树时才
+传入 ``--source-root``，后续 freeze 必须选择同一目录。
+settling 环境变量会改变初始化阶段的物理步数；历史成功记录使用 1000 步，
+报告结果时应披露这个设置。
+
+等待服务就绪，并保持独占：不要同时连接 Dashboard、第二个配方或其他动作客户端。
+使用固定布局，不传 ``--random``。runner 要求当前步数为零，且 task、layout、
+step limit 完全匹配，然后执行一次 reset。runner 不验证服务实际加载的源码，
+不强制实施独占，也不负责启动、停止或重新配置服务。
+评测结束后由操作者停止服务，以完成各相机视频的写入。
+
+freeze、verify、run
+~~~~~~~~~~~~~~~~~~~
+
+先编写并审阅一个定义了 ``main(env, output)`` 的 Python 配方。
+下面的 recipe 路径指向你自己的文件，并非仓库自带的成功策略。
+在使用同一环境的第二个终端中，从仓库根目录执行：
+
+.. code-block:: bash
+
+   SIM_SOURCE=$(python -c 'from robodojo_runtime import source_root; print(source_root())')
+   python -m robots.robodojo.scripted.eval freeze \
+     --output /path/to/new-release --source-root "$SIM_SOURCE" \
+     --recipe /path/to/recipe.py --task general_pickup --layout 0 \
+     --step-limit 200 --action-budget 180
+   python -m robots.robodojo.scripted.eval verify --output /path/to/new-release
+   python -m robots.robodojo.scripted.eval run \
+     --output /path/to/new-release --endpoint http://localhost:18765
+
+``freeze`` 将配方和数值运动辅助函数嵌入 worker，执行奖励边界静态检查，
+并对本地源码、解释器及依赖版本清单计算哈希。``verify`` 检查这些文件的内容及
+仿真源码文件清单。这是本地指纹，不是可迁移的软件包、依赖重装或在线服务证明。
+外部场景资产及已安装包的内容并未全部纳入哈希；请保留原有路径。
+
+``run`` 在连接服务前领取一次尝试，即使前置检查失败也会消耗该次机会。
+已领取的 release 不能重新 freeze 或重试。领取前重新 freeze 会归档旧 manifest。
+新实验需要新的 release 目录和全新 episode；统计尝试次数时应保留先前结果。
+
+worker 只能获得公开的 RGB-D、标定、本体状态、任务指令及步数预算。
+``env.step`` 的 reward 和 done 槽位均为 ``None``。worker 退出且动作管道关闭后，
+独立 evaluator 才读取 ``env.is_success()`` 和 reward。
+请检查 ``trial/result.json``：``valid`` 表示执行与哈希检查有效，
+``official_success`` 表示原生任务成功谓词。仅凭 CLI 零退出码不能证明这两者。
+日志与审计位于 ``trial/``，配方产物位于 ``trial/agent/``。
+该协议用于可信代码，不是操作系统安全沙箱，也不构成排行榜提交。
+
+配方
+~~~~
+
+``robots/robodojo/recipes/README.md`` 记录了两份历史成功 JSON 配方的证据位置和
+哈希：``general_pickup`` layout 1（94/200 步）与 ``pour_by_language`` layout 1
+（690/800 步）。配方本身存放在记忆数据集 ``RLinf/RPent-memory`` 的
+``robodojo/recipes/historical/`` 下，不在本仓库中。
+它们使用的旧控制器依赖姿态 IK 和不同的动作接口，不能将这些 JSON 文件直接传给
+当前 runner。仓库未附带在当前接口上取得可靠成功证据的 Python 配方，
+本次提取也未运行仿真 rollout 来验证成功。
+
+可将自己的 Python 配方放在 ``recipes/`` 或仓库外，并显式传入路径。
+配方可调用 ``env.get_obs()``、``env.get_status()``、
+``env.solve_ik_position(arm, xyz)`` 和 ``env.step(action)``。
+动作使用原生关节或末端执行器字段。worker 无法调用 ``solve_ik_pose``、reset
+或 evaluator RPC。stdout 专用于桥协议；请向 stderr 输出日志，或将产物写入
+``output``。配方可以按需导入模块；``scripted/reward_audit.py`` 只记录是否引用了reward 相关字段。
+
+``move_to`` 和 ``set_gripper`` 嵌入的是 ``robots/robodojo/tools.py`` 为 planner 封装的同一份实现，配方无需也不应
+导入仓库模块。它们的第一个参数是具有 ``env``、``_last_obs`` 和
+``_check_cancelled()`` 的对象；第二个参数未使用，可传 ``None``。
+以下示例只演示接口、打开右夹爪，不声称任务成功：
+
+.. code-block:: python
+
+   class Motion:
+       def __init__(self, env):
+           self.env = env
+           self._last_obs = None
+
+       def _check_cancelled(self):
+           status = self.env.get_status()
+           if status["step"] >= status["step_limit"]:
+               raise RuntimeError("episode budget exhausted")
+
+   def main(env, output):
+       motion = Motion(env)
+       set_gripper(motion, None, arm="right", gripper=-1)
+
+``move_to`` 的 gripper 参数为正时关闭、为负时打开、为零时保持当前位置；
+``set_gripper`` 的零值也表示打开。无论配方是否自行检查，外层桥都会执行冻结的
+动作预算限制。添加成功声明前，应保存对应 task/layout 的 release、评估结果、
+动作 trace、初始化设置及视频证据。
+
+离线检查
+~~~~~~~~
+
+.. code-block:: bash
+
+   uv pip install -e ".[test]"
+   pytest tests/unit_tests/robots/robodojo -v
+   ruff check --preview robots/robodojo tests/unit_tests/robots/robodojo
+
+这些 CPU 测试覆盖源码冻结、奖励过滤、单次尝试、worker/evaluator 时序，
+以及使用 fake 的环境适配器契约；不会启动 Isaac Sim，也不证明 GPU rollout 成功。
