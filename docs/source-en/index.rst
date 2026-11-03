@@ -48,7 +48,7 @@ RPent (Recursive Physical Agent) is an open-source framework for building embodi
 
       Understand the execution flow and add robots, tools, or planners.
 
-Choose an environment: :doc:`LIBERO <rst_source/simulators/libero>`, :doc:`RoboCasa365 <rst_source/simulators/robocasa>`, or :doc:`RoboTwin <rst_source/simulators/robotwin>`. For robot deployment, see :doc:`Single-Arm Franka <rst_source/real_world_robots/franka>` and :doc:`Dual-Arm Franka <rst_source/real_world_robots/dual_franka>`; :doc:`YAM <rst_source/real_world_demos/yam>` has a task demo.
+Choose an environment: :doc:`LIBERO <rst_source/simulators/libero>`, :doc:`RoboCasa365 <rst_source/simulators/robocasa>`, or :doc:`RoboTwin <rst_source/simulators/robotwin>`. For robot deployment, see :doc:`Single-Arm Franka <rst_source/real_world_robots/franka>`, :doc:`Dual-Arm Franka <rst_source/real_world_robots/dual_franka>`, and :doc:`R2 <rst_source/real_world_robots/r2>`; :doc:`YAM <rst_source/real_world_demos/yam>` has a task demo.
 
 .. toctree::
    :maxdepth: 2
@@ -118,6 +118,7 @@ Choose an environment: :doc:`LIBERO <rst_source/simulators/libero>`, :doc:`RoboC
    Single-Arm Franka <rst_source/real_world_robots/franka>
    Dual-Arm Franka <rst_source/real_world_robots/dual_franka>
    YAM <rst_source/real_world_robots/yam>
+   R2 <rst_source/real_world_robots/r2>
    SO-101 <rst_source/real_world_robots/so101>
 
 .. toctree::

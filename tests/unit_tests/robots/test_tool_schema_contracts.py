@@ -24,6 +24,8 @@ from robots.franka import perception as franka_perception
 from robots.franka import tools as franka_tools
 from robots.libero import tools as libero_tools
 from robots.libero.toolkit import LiberoToolkit
+from robots.r2 import tools as r2_tools
+from robots.r2.toolkit import R2Toolkit
 from robots.robocasa import tools as robocasa_tools
 from robots.robocasa.primitives import RoboCasaPrimitives
 from robots.robodojo import tools as robodojo_tools
@@ -47,6 +49,7 @@ TOOL_DECLARATIONS = {
     ),
     "robocasa": list(iter_tools(robocasa_tools, RoboCasaPrimitives)),
     "robodojo": list(iter_tools(robodojo_tools)),
+    "r2": list(iter_tools(r2_tools.R2Primitives, r2_tools, R2Toolkit)),
     "robotwin": list(iter_tools(robotwin_tools, RoboTwinPrimitives, RoboTwinToolkit)),
 }
 
