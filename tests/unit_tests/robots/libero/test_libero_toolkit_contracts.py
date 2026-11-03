@@ -33,7 +33,7 @@ from rpent.robots.components.sam3_client import Sam3Result
 from rpent.session import EnvState
 from rpent.tools import Toolkit, ToolResult, iter_tools
 from rpent.tools.common import CommonTools
-from rpent.tools.perception import CameraView, with_cameras
+from rpent.tools.perception import WorldMapLocalizer, with_cameras
 from rpent.utils import templates
 
 COMMON_TOOLS = {"read_text_file", "write_text_file", "list_dir", "finish"}
@@ -218,13 +218,13 @@ def test_parallel_segments_preserve_artifacts_without_capturing_state(
     calls = 4
     inference_barrier = threading.Barrier(calls, timeout=5)
     projection_barrier = threading.Barrier(calls, timeout=5)
-    project = CameraView.locate_mask
+    project = WorldMapLocalizer.locate_mask
 
-    def project_together(view, mask, state, step):
+    def project_together(localizer, mask, state, step):
         projection_barrier.wait()
-        return project(view, mask, state, step)
+        return project(localizer, mask, state, step)
 
-    monkeypatch.setattr(CameraView, "locate_mask", project_together)
+    monkeypatch.setattr(WorldMapLocalizer, "locate_mask", project_together)
 
     def segment(image, **kwargs):
         # Every inference must enter before any returns: segment stays readonly.
@@ -275,7 +275,7 @@ def test_parallel_segments_preserve_artifacts_without_capturing_state(
         ]
 
     # A failed JSON write must not release an index for another call to reuse.
-    monkeypatch.setattr(CameraView, "locate_mask", project)
+    monkeypatch.setattr(WorldMapLocalizer, "locate_mask", project)
     sam3_client.segment = lambda *args, **kwargs: Sam3Result(
         found=True, mask=np.ones((4, 4), dtype=bool), score=1.0
     )

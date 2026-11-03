@@ -27,11 +27,16 @@ from rpent.robots.components.sam3_client import Sam3Result
 from rpent.session import EnvState
 from rpent.tools import Toolkit, iter_tools
 from rpent.tools.common import CommonTools
-from rpent.tools.perception import CameraView, Sam3Tools, with_cameras
+from rpent.tools.perception import (
+    CameraView,
+    Sam3Tools,
+    WorldMapLocalizer,
+    with_cameras,
+)
 
-FRONT_HIGH = CameraView("front_high.png", "front_world_high.npz")
-FRONT = CameraView("front.png", "front_world.npz")
-SIDE = CameraView("side.png", "side_world.npz")
+FRONT_HIGH = CameraView("front_high.png", WorldMapLocalizer("front_world_high.npz"))
+FRONT = CameraView("front.png", WorldMapLocalizer("front_world.npz"))
+SIDE = CameraView("side.png", WorldMapLocalizer("side_world.npz"))
 CAMERAS = {"front": (FRONT_HIGH, FRONT), "side": (SIDE,)}
 FALLBACK = "Use the robot's manual localization."
 
@@ -69,7 +74,7 @@ def _state(tmp_path, *views):
     with state.record_step(state={}):
         for view in views:
             state.save(view.image, np.zeros((4, 4, 3), dtype=np.uint8))
-            state.save(view.world_map, np.full((4, 4, 3), 0.5))
+            state.save(view.localizer.world_map, np.full((4, 4, 3), 0.5))
     return state
 
 
@@ -143,7 +148,7 @@ def test_falls_back_to_the_next_view_when_the_preferred_one_is_incomplete(tmp_pa
 
 
 def test_localizes_other_artifact_layouts(tmp_path):
-    head = CameraView("head_rgb.png", "head_world_xyz.npy")
+    head = CameraView("head_rgb.png", WorldMapLocalizer("head_world_xyz.npy"))
     state = _state(tmp_path, head)
     result = _sam3_toolkit(tmp_path, state, cameras={"head": (head,)}).execute_tool(
         "segment", {"prompt": "cup"}
@@ -151,6 +156,24 @@ def test_localizes_other_artifact_layouts(tmp_path):
 
     assert result.data["camera"] == "head"
     assert result.data["world_xyz"] == [0.5, 0.5, 0.5]
+
+
+def test_views_accept_other_localizers(tmp_path):
+    class DepthLocalizer:
+        artifacts = ("front_depth.npy",)
+
+        def locate_mask(self, mask, state, step):
+            return {"world_xyz": [1.0, 2.0, 3.0]}
+
+    state = _state(tmp_path, FRONT)
+    view = CameraView("front.png", DepthLocalizer())
+    toolkit = _sam3_toolkit(tmp_path, state, cameras={"front": (view,)})
+    missing = toolkit.execute_tool("segment", {"prompt": "cup"})
+    state.save("front_depth.npy", np.ones((4, 4)), step=0)
+    found = toolkit.execute_tool("segment", {"prompt": "cup"})
+
+    assert missing.data["checked_artifacts"] == ["front.png", "front_depth.npy"]
+    assert found.data["world_xyz"] == [1.0, 2.0, 3.0]
 
 
 def test_missing_artifacts_report_every_checked_name(tmp_path):

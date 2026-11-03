@@ -16,15 +16,19 @@
 
 from rpent.tools.perception.perception_tool import (
     CameraView,
+    Localizer,
     PerceptionToolBase,
+    WorldMapLocalizer,
     with_cameras,
 )
 from rpent.tools.perception.sam3 import Sam3Tools, Segmenter
 
 __all__ = [
     "CameraView",
+    "Localizer",
     "PerceptionToolBase",
     "Sam3Tools",
     "Segmenter",
+    "WorldMapLocalizer",
     "with_cameras",
 ]

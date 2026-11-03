@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal, Protocol
 
 import numpy as np
 from pydantic import Field, create_model
@@ -29,21 +29,30 @@ if TYPE_CHECKING:
     from rpent.session import EnvState, StepRecord
 
 
+class Localizer(Protocol):
+    """Locate pixels of one recorded camera image in the robot's world frame."""
+
+    @property
+    def artifacts(self) -> tuple[str, ...]:
+        """Return the artifacts that must be recorded alongside the image."""
+        ...
+
+    def locate_mask(
+        self, mask: np.ndarray, state: EnvState, step: int
+    ) -> dict[str, Any]:
+        """Return ``world_xyz``, or ``None`` with ``world_error``, plus diagnostics."""
+        ...
+
+
 @dataclass(frozen=True)
-class CameraView:
-    """A recorded camera image and its pixel-aligned world-XYZ map in meters.
+class WorldMapLocalizer:
+    """Localize masks through a pixel-aligned world-XYZ map in meters."""
 
-    Robots that localize pixels another way subclass this and override
-    :attr:`artifacts` and :meth:`locate_mask`.
-    """
-
-    image: str
     world_map: str
 
     @property
     def artifacts(self) -> tuple[str, ...]:
-        """Return the artifacts that must be recorded for this view."""
-        return (self.image, self.world_map)
+        return (self.world_map,)
 
     def locate_mask(
         self, mask: np.ndarray, state: EnvState, step: int
@@ -109,6 +118,19 @@ class CameraView:
             ]
         result["world_artifact"] = self.world_map
         return result
+
+
+@dataclass(frozen=True)
+class CameraView:
+    """One recorded camera image and the localizer for its pixels."""
+
+    image: str
+    localizer: Localizer
+
+    @property
+    def artifacts(self) -> tuple[str, ...]:
+        """Return the artifacts that must be recorded for this view."""
+        return (self.image, *self.localizer.artifacts)
 
 
 class PerceptionToolBase:

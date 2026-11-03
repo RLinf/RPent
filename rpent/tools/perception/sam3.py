@@ -152,7 +152,7 @@ class Sam3Tools(PerceptionToolBase):
         saved_overlay = None
         mask = data.mask
         if data.found and isinstance(mask, np.ndarray):
-            world_result = view.locate_mask(mask, state, nn)
+            world_result = view.localizer.locate_mask(mask, state, nn)
             image = state.load(image_name, step=nn)
             if image.ndim == 3 and image.shape[:2] == mask.shape:
                 # Tint the mask red so the planner can check the segmented object.

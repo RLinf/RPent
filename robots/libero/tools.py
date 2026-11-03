@@ -30,7 +30,7 @@ from rpent.robots.components.pi05_vla_client import Pi05VLAClient
 from rpent.robots.components.sam3_client import Sam3Client
 from rpent.session import EnvState, StepRecord
 from rpent.tools import Tool, ToolResult, tool
-from rpent.tools.perception import CameraView, Sam3Tools
+from rpent.tools.perception import CameraView, Sam3Tools, WorldMapLocalizer
 from rpent.utils.logging import get_logger
 
 logger = get_logger("libero_tools")
@@ -782,8 +782,8 @@ class LiberoPrimitives:
 #: LIBERO camera views for SAM3, high-resolution artifacts first.
 SAM3_CAMERAS = {
     camera: (
-        CameraView(f"{camera}_high.png", f"{camera}_world_high.npz"),
-        CameraView(f"{camera}.png", f"{camera}_world.npz"),
+        CameraView(f"{camera}_high.png", WorldMapLocalizer(f"{camera}_world_high.npz")),
+        CameraView(f"{camera}.png", WorldMapLocalizer(f"{camera}_world.npz")),
     )
     for camera in ("agentview", "wrist")
 }
