@@ -34,6 +34,7 @@ from robots.yam import tools as yam_tools
 from robots.yam.toolkit import YamToolkit
 from rpent.tools import iter_tools
 from rpent.tools.common import CommonTools
+from rpent.tools.perception import Sam3Tools, with_cameras
 
 TOOL_DECLARATIONS = {
     "common": list(iter_tools(CommonTools)),
@@ -44,7 +45,7 @@ TOOL_DECLARATIONS = {
     "yam": list(iter_tools(YamToolkit, yam_tools)),
     "libero": [
         *iter_tools(libero_tools, libero_tools.LiberoPrimitives, LiberoToolkit),
-        *iter_tools(libero_tools.build_sam3_tools(None, state=None)),
+        with_cameras(Sam3Tools.segment, libero_tools.SAM3_CAMERAS),
     ],
     "robocasa": list(iter_tools(robocasa_tools, RoboCasaPrimitives)),
     "robodojo": list(iter_tools(robodojo_tools)),

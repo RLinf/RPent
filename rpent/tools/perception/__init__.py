@@ -14,6 +14,17 @@
 
 """Planner perception tools built from a robot's recorded observations."""
 
-from rpent.tools.perception.sam3 import Sam3Tools
+from rpent.tools.perception.perception_tool import (
+    CameraView,
+    PerceptionToolBase,
+    with_cameras,
+)
+from rpent.tools.perception.sam3 import Sam3Tools, Segmenter
 
-__all__ = ["Sam3Tools"]
+__all__ = [
+    "CameraView",
+    "PerceptionToolBase",
+    "Sam3Tools",
+    "Segmenter",
+    "with_cameras",
+]

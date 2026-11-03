@@ -160,7 +160,19 @@ class EnvState:
         self._output_dir.mkdir(parents=True, exist_ok=True)
         self._steps: list[StepRecord] = []
         self._run_artifacts: set[str] = set()
+        self._artifact_indices: dict[str, int] = {}
         self._step_open = False
+
+    def reserve_artifact_index(self, prefix: str) -> int:
+        """Reserve the next index for ``prefix`` artifacts in this trace.
+
+        Indices are unique across every caller that shares this state and are
+        never reused, even when the reserved artifact is not saved.
+        """
+        with self._artifact_lock:
+            index = self._artifact_indices.get(prefix, 0)
+            self._artifact_indices[prefix] = index + 1
+            return index
 
     @property
     def latest_step(self) -> int | None:

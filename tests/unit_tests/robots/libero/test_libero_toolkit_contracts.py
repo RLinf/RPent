@@ -33,7 +33,7 @@ from rpent.robots.components.sam3_client import Sam3Result
 from rpent.session import EnvState
 from rpent.tools import Toolkit, ToolResult, iter_tools
 from rpent.tools.common import CommonTools
-from rpent.tools.perception import sam3 as sam3_perception
+from rpent.tools.perception import CameraView, with_cameras
 from rpent.utils import templates
 
 COMMON_TOOLS = {"read_text_file", "write_text_file", "list_dir", "finish"}
@@ -218,13 +218,13 @@ def test_parallel_segments_preserve_artifacts_without_capturing_state(
     calls = 4
     inference_barrier = threading.Barrier(calls, timeout=5)
     projection_barrier = threading.Barrier(calls, timeout=5)
-    project = sam3_perception._mask_to_world
+    project = CameraView.locate_mask
 
-    def project_together(mask, world_map):
+    def project_together(view, mask, state, step):
         projection_barrier.wait()
-        return project(mask, world_map)
+        return project(view, mask, state, step)
 
-    monkeypatch.setattr(sam3_perception, "_mask_to_world", project_together)
+    monkeypatch.setattr(CameraView, "locate_mask", project_together)
 
     def segment(image, **kwargs):
         # Every inference must enter before any returns: segment stays readonly.
@@ -237,9 +237,11 @@ def test_parallel_segments_preserve_artifacts_without_capturing_state(
         state=state,
         memory=MemoryManager(tmp_path / "memory"),
     )
-    robot_toolkit.add_tools(
-        iter_tools(toolkit.libero_tools.build_sam3_tools(sam3_client, state=state))
-    )
+    sam3_tools = toolkit.libero_tools.build_sam3_tools(sam3_client, state=state)
+    for definition in iter_tools(sam3_tools):
+        robot_toolkit.add_tool(
+            with_cameras(definition, toolkit.libero_tools.SAM3_CAMERAS)
+        )
     captured = []
 
     def capture(**kwargs):
@@ -273,7 +275,7 @@ def test_parallel_segments_preserve_artifacts_without_capturing_state(
         ]
 
     # A failed JSON write must not release an index for another call to reuse.
-    monkeypatch.setattr(sam3_perception, "_mask_to_world", project)
+    monkeypatch.setattr(CameraView, "locate_mask", project)
     sam3_client.segment = lambda *args, **kwargs: Sam3Result(
         found=True, mask=np.ones((4, 4), dtype=bool), score=1.0
     )

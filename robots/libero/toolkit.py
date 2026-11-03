@@ -31,6 +31,7 @@ from rpent.session import EnvState
 from rpent.tools import ToolResult, iter_tools
 from rpent.tools.base import tool
 from rpent.tools.direct_action import direct_action_tool
+from rpent.tools.perception import with_cameras
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger, get_output_dir
 
@@ -95,9 +96,9 @@ class LiberoToolkit(Toolkit):
         for definition in iter_tools(self._primitives):
             handler = partial(self._execute_primitive, definition.name, definition)
             self.add_tool(definition.with_handler(handler))
-        self.add_tools(
-            iter_tools(libero_tools.build_sam3_tools(sam3_client, state=self._state))
-        )
+        sam3_tools = libero_tools.build_sam3_tools(sam3_client, state=self._state)
+        for definition in iter_tools(sam3_tools):
+            self.add_tool(with_cameras(definition, libero_tools.SAM3_CAMERAS))
         if self._mode == "exploration":
             self.add_tool(self._reset_episode)
             finish = self._tools["finish"]
