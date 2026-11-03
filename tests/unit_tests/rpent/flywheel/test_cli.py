@@ -23,7 +23,10 @@ from rpent.flywheel.export import load_dataset
 pytest.importorskip("lerobot")
 
 
-def test_cli_exports_images_with_requested_threads(trajectory, tmp_path, monkeypatch):
+@pytest.mark.parametrize("vla_args", [[], ["--vla"]], ids=["default", "vla"])
+def test_cli_exports_images_with_requested_threads(
+    trajectory, tmp_path, monkeypatch, vla_args
+):
     from lerobot.datasets import image_writer
 
     writers = set()
@@ -40,6 +43,7 @@ def test_cli_exports_images_with_requested_threads(trajectory, tmp_path, monkeyp
         "argv",
         [
             "rpent-flywheel",
+            *vla_args,
             "--input-root",
             str(trajectory["root"]),
             "--output-dir",

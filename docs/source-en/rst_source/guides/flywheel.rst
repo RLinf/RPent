@@ -63,6 +63,29 @@ Export recorded trajectories from one robot to a new output directory:
 parent directory containing multiple runs. Export each robot separately;
 ``--output-dir`` must not already exist.
 
+If several runs are saved in separate directories like these, you can export
+them together:
+
+.. code-block:: text
+
+   /path/to/
+   ├── run_001/trajectories/<task_id_1>/
+   └── run_002/trajectories/<task_id_2>/
+
+Set ``--input-root`` to their parent directory and use ``--pattern`` to select
+run directories whose names start with ``run_``:
+
+.. code-block:: bash
+
+   rpent-flywheel \
+     --input-root /path/to \
+     --pattern 'run_*' \
+     --output-dir /path/to/lerobot/combined
+
+The command searches these run directories and their subdirectories for
+trajectories, applies the selection rules below, and writes the results to
+``/path/to/lerobot/combined/train/``. Keep the quotes around ``run_*``.
+
 Add ``--image-writer-threads 4`` to compress and save images with four threads.
 The default, ``0``, writes images synchronously.
 
@@ -81,8 +104,8 @@ data using the following rules:
   episode. Each executed action corresponds to one frame containing the
   observation before execution, the action, and the corresponding VLA instruction.
 
-The dataset is written to ``/path/to/lerobot/goal-task-00/train/`` without an
-automatic validation split. ``report.json`` in the output directory lists
+The dataset is written to the ``train/`` subdirectory of ``--output-dir`` without
+an automatic validation split. ``report.json`` in the output directory lists
 export counts and exclusions. If no actions qualify, only the report is
 written. Original recordings are left unchanged.
 
@@ -123,12 +146,14 @@ and dataset.
 SFT Experiment Results
 ----------------------
 
-On 2026-10-23, successful trajectories collected with RPent were used to fine-tune
+Successful trajectories collected with RPent were used to fine-tune
 ``RLinf-Pi05-LIBERO-130-fullshot-SFT``. The resulting VLA model was evaluated
 against the original model within RPent.
 
 Training used 199 usable successful trajectories from LIBERO-PRO's three goal
-suites. Language-branch LoRA and full fine-tuning of the action branch ran for
+suites. Training used the subtask instructions recorded in the trajectories as
+prompts, matching the instructions passed to the VLA during collection.
+Language-branch LoRA and full fine-tuning of the action branch ran for
 500 steps.
 The saved checkpoint at step 300 was selected by validation loss for evaluation.
 

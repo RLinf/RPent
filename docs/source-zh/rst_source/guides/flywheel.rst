@@ -45,6 +45,25 @@
 
 ``--input-root`` 可以指向包含 ``task.json`` 的单条轨迹目录，也可以指向包含多次运行的上级目录。不同机器人应分别导出；``--output-dir`` 必须尚不存在。
 
+如果多次运行分别保存在下面的目录中，可以一起导出：
+
+.. code-block:: text
+
+   /path/to/
+   ├── run_001/trajectories/<task_id_1>/
+   └── run_002/trajectories/<task_id_2>/
+
+将 ``--input-root`` 设为共同的上级目录，用 ``--pattern`` 选择以 ``run_`` 开头的运行目录：
+
+.. code-block:: bash
+
+   rpent-flywheel \
+     --input-root /path/to \
+     --pattern 'run_*' \
+     --output-dir /path/to/lerobot/combined
+
+程序会查找这些运行目录及其子目录中的轨迹，按下文规则筛选后，统一导出到 ``/path/to/lerobot/combined/train/``。请保留命令中 ``run_*`` 两侧的引号。
+
 添加 ``--image-writer-threads 4``，即可使用 4 个线程同时压缩和保存图片。默认值为 ``0``，即逐张压缩和保存。
 
 只有环境确认成功的任务才参与导出，规划器结束不代表任务成功。导出程序按以下规则筛选和组织训练数据：
@@ -53,7 +72,7 @@
 - 动作来源：只保留实际执行、且能唯一关联到有效 VLA 预测记录的动作。预测记录必须包含非空指令，并与动作属于同一次工具调用。脚本动作、其他非 VLA 动作，以及未执行的预测动作均不参与导出。
 - 数据组织：每个连续片段保存为独立的 LeRobot episode，每个实际执行的动作对应一帧，包含执行前观测、动作和对应的 VLA 指令。
 
-数据集保存在 ``/path/to/lerobot/goal-task-00/train/``，不会自动划分验证集。输出目录中的 ``report.json`` 记录导出数量和排除原因；没有符合条件的动作时，只生成报告。原始记录不会被修改。
+数据集保存在 ``--output-dir`` 指定目录下的 ``train/`` 子目录中，不会自动划分验证集。输出目录中的 ``report.json`` 记录导出数量和排除原因；没有符合条件的动作时，只生成报告。原始记录不会被修改。
 
 使用 RLinf 训练
 ---------------
@@ -83,9 +102,9 @@
 SFT 实验结果
 ------------
 
-2026-10-23，使用 RPent 采集的成功轨迹，对 ``RLinf-Pi05-LIBERO-130-fullshot-SFT`` 进行微调，并在 RPent 中替换 VLA 模型进行对比评测。
+使用 RPent 采集的成功轨迹，对 ``RLinf-Pi05-LIBERO-130-fullshot-SFT`` 进行微调，并在 RPent 中替换 VLA 模型进行对比评测。
 
-训练数据来自 LIBERO-PRO 的三个 goal 系列 suite，共 199 条有效成功轨迹。训练采用语言分支 LoRA 与动作分支全量微调，共训练 500 步，按验证损失选择已保存的 step 300 检查点用于评测。
+训练数据来自 LIBERO-PRO 的三个 goal 系列 suite，共 199 条有效成功轨迹。训练使用轨迹中记录的子任务指令作为 prompt，与采集时实际传给 VLA 的指令一致。训练采用语言分支 LoRA 与动作分支全量微调，共训练 500 步，按验证损失选择已保存的 step 300 检查点用于评测。
 
 评测使用 ``libero_goal_swap`` 的 task 0–9、seed 25–34，每组共 100 场。两组使用相同的 DeepSeek-V4.1-Flash-1017 规划器（reasoning effort 为 ``none``）和官方 memory，仅替换 VLA 模型。
 

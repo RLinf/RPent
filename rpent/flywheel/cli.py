@@ -31,6 +31,11 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--vla",
+        action="store_true",
+        help="Export only VLA training data. This is the default when omitted.",
+    )
+    parser.add_argument(
         "--input-root",
         type=Path,
         required=True,

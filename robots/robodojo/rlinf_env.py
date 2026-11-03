@@ -92,9 +92,9 @@ class RoboDojoAgentEnv(RoboDojoEnv):
     def env(self) -> Any:
         return self._sub_env().env
 
-    def get_native_obs(self, *, record: bool = True) -> dict:
+    def get_native_obs(self, *, capture: bool = True) -> dict:
         """Return native observations, optionally recording their RGB frames."""
-        return _obs_dict(self.env, self.recorder if record else None)
+        return _obs_dict(self.env, self.recorder if capture else None)
 
     def reset(self, env_idx=None, env_seeds=None):
         """Reset through RLinf and reinitialize agent episode diagnostics."""
@@ -102,8 +102,8 @@ class RoboDojoAgentEnv(RoboDojoEnv):
         self.bottle_mon = _SafetyMonitor(self.meta.get("task", ""))
         return result
 
-    def _observation(self, *, record: bool = True) -> dict:
-        obs = self.get_native_obs(record=record)
+    def _observation(self, *, capture: bool = True) -> dict:
+        obs = self.get_native_obs(capture=capture)
         if self.eval_fair:
             from robots.robodojo.access import public_observation
 
@@ -177,7 +177,7 @@ class RoboDojoAgentEnv(RoboDojoEnv):
         if capture:
             # Flush stale camera frames before each captured observation.
             self.env.get_obs(env_idx=0)
-        before = deepcopy(self._observation(record=False)) if capture else None
+        before = deepcopy(self._observation(capture=False)) if capture else None
         self._sub_env(0).apply_action(
             flat_action, action_type, eval_fair=self.eval_fair
         )
