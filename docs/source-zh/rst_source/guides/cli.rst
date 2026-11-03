@@ -163,6 +163,22 @@ RPent CLI 保留原有 ``--cuda-device`` 作为本地服务的共享默认值；
      - ``--wam-config``
    * - ``--fast-wam-dataset-stats``
      - ``--wam-dataset-stats``
+EFE 代码基准入口
+------------------------
+
+``rpent-efe`` 在已有 Agent Container 内运行一次 EFE 兼容的编码会话。
+它不创建容器，也不启动 Simulator 或 Verifier。
+
+.. code-block:: bash
+
+   rpent-efe --instruction-file /logs/agent/rpent-instruction.txt \
+     --workdir /app --output-dir /logs/agent/manual-rpent \
+     --model your-model --timeout-s 600 --max-turns 200
+
+``--memory-dir`` 加载已有的 RPent Memory 语料，``--explore-sessions`` 运行多个独立
+Session。省略语料时，Session 从空 Memory 根目录开始。
+完整评测使用 Harbor 的 Installed Agent；配置和对照规则见仓库中的
+``rpent/benchmark/efe/README.zh-CN.md``。
 
 模型服务环境变量
 ------------------------

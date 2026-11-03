@@ -1,0 +1,451 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Offline contracts for EFE coding sessions."""
+
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+
+import pytest
+
+from rpent.benchmark.efe.runner import run_efe
+from rpent.benchmark.efe.toolkit import EfeToolkit
+from rpent.memory.manager import MemoryManager
+from rpent.planner.base import PlannerResult
+from rpent.utils.logging import init_output_dir
+
+
+@pytest.fixture
+def planner_calls(monkeypatch):
+    import rpent.planner.codex as codex
+
+    calls = {}
+
+    class FakePlanner:
+        def __init__(self, **options):
+            calls["options"] = options
+
+        def solve(self, **options):
+            calls["solve"] = options
+            calls.setdefault("codex_homes", []).append(os.environ.get("CODEX_HOME"))
+            return PlannerResult(
+                finish_result={"status": "completed", "summary": "Program executed."},
+                stats={
+                    "total_input_tokens": 17,
+                    "total_output_tokens": 9,
+                    "tool_calls": 2,
+                },
+            )
+
+    monkeypatch.setattr(codex, "CodexPlanner", FakePlanner)
+    return calls
+
+
+def test_runner_preserves_task_budget_and_external_scoring(tmp_path, planner_calls):
+    instruction = "Use the public robot client to move the object.\n"
+    output_dir = tmp_path / "agent-logs"
+
+    report = run_efe(
+        instruction,
+        workdir=tmp_path,
+        output_dir=output_dir,
+        model="test-model",
+        timeout_s=42,
+        max_turns=7,
+        reasoning_effort="high",
+    )
+
+    assert planner_calls["options"]["repo_root"] == tmp_path
+    assert planner_calls["options"]["timeout_s"] == 42
+    assert planner_calls["options"]["model"] == "test-model"
+    assert planner_calls["options"]["reasoning_effort"] == "high"
+    assert instruction.strip() in planner_calls["solve"]["user_message"]
+    assert planner_calls["solve"]["max_turns"] == 7
+    assert "verifier" in planner_calls["solve"]["system_prompt"]
+    assert report["agent_finish"]["status"] == "completed"
+    assert report["stats"]["total_input_tokens"] == 17
+    assert "reward" not in report
+    assert json.loads((output_dir / "session.json").read_text()) == report
+    assert (
+        planner_calls["solve"]["toolkit"]
+        .execute_tool("finish", {"status": "completed", "summary": "End."})
+        .is_error
+    )
+
+
+def test_runner_records_startup_failure(tmp_path, monkeypatch):
+    import rpent.planner.codex as codex
+
+    def failed_planner(**options):
+        raise RuntimeError("Codex executable is unavailable.")
+
+    monkeypatch.setattr(codex, "CodexPlanner", failed_planner)
+
+    report = run_efe(
+        "Task", workdir=tmp_path, output_dir=tmp_path / "logs", model="test"
+    )
+
+    assert report["error"] == "RuntimeError: Codex executable is unavailable."
+    assert report["agent_finish"] is None
+    assert (
+        json.loads((tmp_path / "logs/session.json").read_text())["error"]
+        == report["error"]
+    )
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"timeout_s": 0},
+        {"max_turns": -1},
+        {"model": " "},
+        {"reasoning_effort": "unsupported"},
+    ],
+)
+def test_invalid_configuration_does_not_start_planner(tmp_path, planner_calls, options):
+    settings = {
+        "workdir": tmp_path,
+        "output_dir": tmp_path / "logs",
+        "model": "test",
+        **options,
+    }
+
+    with pytest.raises(ValueError):
+        run_efe("Task", **settings)
+
+    assert planner_calls == {}
+    assert not (tmp_path / "logs").exists()
+
+
+def test_existing_session_cannot_be_overwritten(tmp_path, planner_calls):
+    output_dir = tmp_path / "logs"
+    output_dir.mkdir()
+    original = '{"error": "previous run"}'
+    (output_dir / "session.json").write_text(original)
+
+    with pytest.raises(FileExistsError):
+        run_efe("Task", workdir=tmp_path, output_dir=output_dir, model="test")
+
+    assert planner_calls == {}
+    assert (output_dir / "session.json").read_text() == original
+
+
+def test_toolkit_exposes_shared_file_tools_and_no_robot_tools(tmp_path):
+    init_output_dir(tmp_path)
+    memory = MemoryManager(tmp_path / "memory")
+    toolkit = EfeToolkit(memory=memory)
+
+    result = toolkit.execute_tool(
+        "finish", {"status": "completed", "summary": "Program executed."}
+    )
+
+    assert toolkit.memory.root == (tmp_path / "memory").resolve()
+    assert [declaration.name for declaration in toolkit.list_tools()] == [
+        "read_text_file",
+        "write_text_file",
+        "list_dir",
+        "finish",
+    ]
+    assert result.data == {
+        "_finish": True,
+        "status": "completed",
+        "summary": "Program executed.",
+    }
+
+
+def test_tool_descriptions_describe_coding_artifacts(tmp_path):
+    init_output_dir(tmp_path)
+    memory = MemoryManager(tmp_path / "memory")
+    toolkit = EfeToolkit(memory=memory)
+
+    descriptions = {
+        declaration.name: declaration.description or ""
+        for declaration in toolkit.list_tools()
+    }
+
+    for name in ("read_text_file", "write_text_file", "list_dir"):
+        lowered = descriptions[name].lower()
+        assert "recipe" not in lowered
+        assert "audit" not in lowered
+        assert "robot" not in lowered
+
+
+def test_finish_contract_rejects_unsupported_status(tmp_path):
+    init_output_dir(tmp_path)
+    memory = MemoryManager(tmp_path / "memory")
+    toolkit = EfeToolkit(memory=memory)
+    finish = next(
+        declaration
+        for declaration in toolkit.list_tools()
+        if declaration.name == "finish"
+    )
+
+    assert "verifier" in finish.description.lower()
+    assert toolkit.execute_tool(
+        "finish", {"status": "success", "summary": "x"}
+    ).is_error
+
+
+class _RecordingPlanner:
+    """Record each planner process the runner builds."""
+
+    instances: list["_RecordingPlanner"] = []
+    probe: dict[str, str] | None = None
+    session_errors: list[str | None] = []
+
+    def __init__(self, **options):
+        self.options = options
+        self.solve_options = {}
+        _RecordingPlanner.instances.append(self)
+
+    def solve(self, **options):
+        self.solve_options = options
+        self.env_repo_root = os.environ.get("RPENT_REPO_ROOT")
+        index = len(_RecordingPlanner.instances) - 1
+        error = (
+            _RecordingPlanner.session_errors[index]
+            if index < len(_RecordingPlanner.session_errors)
+            else None
+        )
+        if _RecordingPlanner.probe is not None:
+            self.probe_result = options["toolkit"].execute_tool(
+                "write_text_file", _RecordingPlanner.probe
+            )
+        return PlannerResult(
+            finish_result={"status": "completed", "summary": "Program executed."},
+            stats={
+                "backend": "codex_sdk",
+                "usage_observed": True,
+                "turns_used": 1,
+                "tool_calls": 2,
+                "total_input_tokens": 5,
+                "total_cached_input_tokens": 1,
+                "total_output_tokens": 2,
+                "total_reasoning_output_tokens": 0,
+            },
+            error=error,
+        )
+
+
+@pytest.fixture
+def recording_planner(monkeypatch):
+    import rpent.planner.codex as codex
+
+    _RecordingPlanner.instances = []
+    _RecordingPlanner.probe = None
+    _RecordingPlanner.session_errors = []
+    monkeypatch.setattr(codex, "CodexPlanner", _RecordingPlanner)
+    return _RecordingPlanner
+
+
+def test_rpent_arm_loads_memory_and_shared_prompt(tmp_path, recording_planner):
+    memory_dir = tmp_path / "corpus"
+    (memory_dir / "global").mkdir(parents=True)
+    (memory_dir / "global" / "pickup.md").write_text("# Pickup lesson\n")
+    output_dir = tmp_path / "logs"
+
+    report = run_efe(
+        "Use the public robot client.",
+        workdir=tmp_path,
+        output_dir=output_dir,
+        model="test-model",
+        memory_dir=memory_dir,
+    )
+
+    assert report["error"] is None
+    assert report["memory_mode"] == "loaded"
+    assert report["memory_root"] == str(memory_dir.resolve())
+    assert report["stats"]["total_input_tokens"] == 5
+    planner = recording_planner.instances[0]
+    system_prompt = planner.solve_options["system_prompt"]
+    assert str(memory_dir.resolve()) in system_prompt
+    assert "memory" in system_prompt.lower()
+    assert "Use the public robot client." in planner.solve_options["user_message"]
+    tools = [
+        declaration.name
+        for declaration in planner.solve_options["toolkit"].list_tools()
+    ]
+    assert tools == ["read_text_file", "write_text_file", "list_dir", "finish"]
+
+
+def test_exploration_handoff_uses_fresh_planners_and_aggregates_stats(
+    tmp_path, recording_planner
+):
+    output_dir = tmp_path / "logs"
+
+    report = run_efe(
+        "Use the public robot client.",
+        workdir=tmp_path,
+        output_dir=output_dir,
+        model="test-model",
+        explore_sessions=2,
+    )
+
+    assert report["error"] is None
+    assert [session["session"] for session in report["sessions"]] == [1, 2]
+    assert report["stats"]["turns_used"] == 2
+    assert report["stats"]["tool_calls"] == 4
+    assert report["stats"]["total_input_tokens"] == 10
+    assert report["stats"]["usage_observed"] is True
+    first, second = recording_planner.instances
+    assert first.options["output_path"] == (
+        output_dir / "sessions" / "session_001" / "codex.txt"
+    )
+    assert (
+        second.options["output_path"]
+        == output_dir / "sessions" / "session_002" / "codex_02.txt"
+    )
+    assert "Earlier sessions" not in first.solve_options["system_prompt"]
+    assert "session 1 of up to 2" not in first.solve_options["system_prompt"]
+    assert "notes-session-1.md" in first.solve_options["system_prompt"]
+    assert "Earlier sessions archived notes" in second.solve_options["system_prompt"]
+    assert "session 2 of up to 2" in second.solve_options["system_prompt"]
+    assert "notes-session-2.md" in second.solve_options["system_prompt"]
+
+
+def test_exploration_inbox_is_the_only_writable_memory_path(
+    tmp_path, recording_planner
+):
+    output_dir = tmp_path / "logs"
+    denied_dir = tmp_path / "logs-denied"
+    inbox = output_dir / "memory" / "_internal" / "inbox" / "efe"
+    allowed = {"path": str(inbox / "wip" / "notes.md"), "content": "observed\n"}
+    denied = {
+        "path": str(denied_dir / "memory" / "global" / "bad.md"),
+        "content": "x",
+    }
+
+    recording_planner.probe = allowed
+    run_efe(
+        "Task",
+        workdir=tmp_path,
+        output_dir=output_dir,
+        model="test-model",
+        explore_sessions=2,
+    )
+    assert not recording_planner.instances[0].probe_result.is_error
+
+    recording_planner.instances = []
+    recording_planner.probe = denied
+    run_efe(
+        "Task",
+        workdir=tmp_path,
+        output_dir=denied_dir,
+        model="test-model",
+        explore_sessions=2,
+    )
+    assert recording_planner.instances[0].probe_result.is_error
+
+
+def test_recovered_session_error_is_not_reported_as_run_failure(
+    tmp_path, recording_planner
+):
+    recording_planner.session_errors = ["Codex SDK timed out after 5s", None]
+
+    report = run_efe(
+        "Task",
+        workdir=tmp_path,
+        output_dir=tmp_path / "logs",
+        model="test-model",
+        explore_sessions=2,
+    )
+
+    assert report["error"] is None
+    assert [session["error"] for session in report["sessions"]] == [
+        "Codex SDK timed out after 5s",
+        None,
+    ]
+
+
+def test_terminal_session_error_is_reported(tmp_path, recording_planner):
+    recording_planner.session_errors = ["RuntimeError: boom"]
+
+    report = run_efe(
+        "Task",
+        workdir=tmp_path,
+        output_dir=tmp_path / "logs",
+        model="test-model",
+        explore_sessions=2,
+    )
+
+    assert report["error"] == "RuntimeError: boom"
+    assert len(report["sessions"]) == 1
+
+
+def test_rpent_arm_resolves_relative_paths_from_the_workspace(
+    tmp_path, recording_planner, monkeypatch
+):
+    monkeypatch.delenv("RPENT_REPO_ROOT", raising=False)
+
+    report = run_efe(
+        "Task",
+        workdir=tmp_path,
+        output_dir=tmp_path / "logs",
+        model="test-model",
+    )
+
+    assert report["error"] is None
+    assert recording_planner.instances[0].env_repo_root == str(tmp_path.resolve())
+    assert "RPENT_REPO_ROOT" not in os.environ
+
+
+def test_each_trial_uses_separate_empty_memory_and_codex_home(
+    tmp_path, planner_calls, monkeypatch
+):
+    host_home = tmp_path / "host-codex"
+    first_output = tmp_path / "first"
+    second_output = tmp_path / "second"
+    monkeypatch.setenv("CODEX_HOME", str(host_home))
+    monkeypatch.setenv("CODEX_API_KEY", "test-key")
+
+    first = run_efe("First", workdir=tmp_path, output_dir=first_output, model="test")
+    second = run_efe("Second", workdir=tmp_path, output_dir=second_output, model="test")
+
+    assert first["memory_mode"] == "empty"
+    assert first["memory_root"] != second["memory_root"]
+    assert first["codex_home"] != second["codex_home"]
+    assert not any((first_output / "memory").rglob("*"))
+    assert not any((second_output / "memory").rglob("*"))
+    assert (first_output / "codex-home").is_dir()
+    assert (second_output / "codex-home").is_dir()
+    assert planner_calls["codex_homes"] == [
+        str(first_output.resolve() / "codex-home"),
+        str(second_output.resolve() / "codex-home"),
+    ]
+    assert os.environ["CODEX_HOME"] == str(host_home)
+    assert os.environ["CODEX_API_KEY"] == "test-key"
+
+
+def test_cli_help_runs_without_loading_robot_or_planner_modules():
+    script = """import sys
+from rpent.cli.efe import main
+try:
+    main(['--help'])
+except SystemExit as exc:
+    assert exc.code == 0
+assert 'rpent.planner.codex' not in sys.modules
+assert 'rpent.robots' not in sys.modules
+assert 'torch' not in sys.modules
+"""
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert "--instruction-file" in completed.stdout

@@ -658,6 +658,7 @@ class _Recorder:
     turns: int = 0
     _seen_usage: set[tuple[int, ...]] = field(default_factory=set)
     tool_calls: int = 0
+    usage_observed: bool = False
     usage: dict[str, int] = field(
         default_factory=lambda: {
             "total_input_tokens": 0,
@@ -670,8 +671,18 @@ class _Recorder:
     finish_result: dict[str, Any] | None = None
     error: str | None = None
 
-    def stats(self) -> dict[str, int]:
-        return {"turns_used": self.turns, "tool_calls": self.tool_calls, **self.usage}
+    def stats(self) -> dict[str, object]:
+        """Return counters with the zeroed ``usage`` distinguishable from None.
+
+        ``usage_observed`` tells consumers whether the SDK reported any token
+        totals. Without it, the zeroed ``usage`` values mean "unknown".
+        """
+        return {
+            "turns_used": self.turns,
+            "tool_calls": self.tool_calls,
+            "usage_observed": self.usage_observed,
+            **self.usage,
+        }
 
     def observe(self, event: Any) -> str:
         method = str(_get(event, "method", ""))
@@ -800,6 +811,7 @@ class _Recorder:
             return False
         self._seen_usage.add(key)
         self.usage = updated
+        self.usage_observed = True
         self.turns += 1
         self.dashboard_events.emit(
             UsageEvent(

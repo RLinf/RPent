@@ -1,0 +1,69 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Command line entry point for EFE-compatible coding sessions."""
+
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
+
+def positive_int(value: str) -> int:
+    """Parse a positive integer for the command line."""
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("Use a positive integer.")
+    return parsed
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run one EFE coding session. Return a process status, not an evaluation score."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--instruction-file", required=True, type=Path)
+    parser.add_argument("--workdir", type=Path, default=Path.cwd())
+    parser.add_argument("--output-dir", required=True, type=Path)
+    parser.add_argument("--model", required=True)
+    parser.add_argument("--timeout-s", type=positive_int, default=600)
+    parser.add_argument("--max-turns", type=positive_int, default=200)
+    parser.add_argument(
+        "--reasoning-effort",
+        choices=("none", "low", "medium", "high", "xhigh"),
+        default="none",
+    )
+    parser.add_argument("--memory-dir", type=Path, default=None)
+    parser.add_argument("--explore-sessions", type=positive_int, default=1)
+    args = parser.parse_args(argv)
+
+    from rpent.benchmark.efe.runner import run_efe
+
+    try:
+        report = run_efe(
+            args.instruction_file.read_text(encoding="utf-8"),
+            workdir=args.workdir,
+            output_dir=args.output_dir,
+            model=args.model,
+            timeout_s=args.timeout_s,
+            max_turns=args.max_turns,
+            reasoning_effort=args.reasoning_effort,
+            memory_dir=args.memory_dir,
+            explore_sessions=args.explore_sessions,
+        )
+    except (OSError, ValueError) as exc:
+        parser.error(str(exc))
+    return 1 if report["error"] else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

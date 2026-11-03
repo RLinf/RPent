@@ -198,6 +198,23 @@ prefix.
      - ``--wam-config``
    * - ``--fast-wam-dataset-stats``
      - ``--wam-dataset-stats``
+EFE Coding Benchmark Entry Point
+--------------------------------
+
+``rpent-efe`` runs one EFE-compatible coding session inside an existing agent
+container. It does not create a container or start a simulator or verifier.
+
+.. code-block:: bash
+
+   rpent-efe --instruction-file /logs/agent/rpent-instruction.txt \
+     --workdir /app --output-dir /logs/agent/manual-rpent \
+     --model your-model --timeout-s 600 --max-turns 200
+
+``--memory-dir`` loads an existing RPent memory corpus and
+``--explore-sessions`` runs several independent sessions. Without a corpus the
+session starts with an empty memory root. Full evaluation uses Harbor's
+Installed Agent; see ``rpent/benchmark/efe/README.md`` in the repository for
+the complete setup and the comparison rules.
 
 Model-Service Environment Variables
 -----------------------------------

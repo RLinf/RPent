@@ -729,6 +729,21 @@ def test_response_count_ignores_items_and_duplicate_usage():
     assert recorder.stats()["total_input_tokens"] == 20
 
 
+def test_stats_distinguish_unobserved_usage_from_zero_tokens():
+    from rpent.planner.codex import _Recorder
+
+    recorder = _Recorder(max_turns=10, dashboard_events=RecordingSink())
+
+    assert recorder.stats()["usage_observed"] is False
+    assert recorder.stats()["total_input_tokens"] == 0
+
+    for event in _model_response_events(1):
+        recorder.observe(event)
+
+    assert recorder.stats()["usage_observed"] is True
+    assert recorder.stats()["total_input_tokens"] == 10
+
+
 def test_rejected_finish_item_is_not_promoted() -> None:
     from rpent.planner.codex import _Recorder
 
