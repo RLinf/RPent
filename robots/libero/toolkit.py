@@ -89,6 +89,8 @@ class LiberoToolkit(Toolkit):
     # Registration
     # ------------------------------------------------------------------
     def _register_libero_tools(self, sam3_client: Sam3Client) -> None:
+        if sam3_client is None:
+            raise ValueError("LIBERO SAM3 tool registration requires a Sam3Client")
         for definition in iter_tools(libero_tools):
             self.add_tool(
                 definition.with_handler(partial(definition, state=self._state))
