@@ -25,6 +25,7 @@ from pydantic import Field
 from robots.robotwin.env_client import RoboTwinEnvClient
 from robots.robotwin.robot_spec import MODEL_SPEC, ROBOTWIN_CAMERA_NAMES
 from robots.robotwin.vla_client import LingBotVLAClient
+from robots.robotwin.wam_client import RoboTwinWAMClient
 from rpent.tools import ToolResult, tool
 
 
@@ -49,15 +50,17 @@ class RoboTwinPrimitives:
         self,
         *,
         env: RoboTwinEnvClient,
-        model: LingBotVLAClient,
+        model: LingBotVLAClient | RoboTwinWAMClient,
         seed: int,
         check_cancelled: Callable[[], None],
         seed_mode: str = "exact",
+        policy_kind: str = "vla",
     ):
         if seed_mode != "exact":
             raise ValueError("standard RoboTwin integration requires seed_mode='exact'")
         self.env = env
         self.model = model
+        self.policy_kind = policy_kind
         self.seed = int(seed)
         self._check_cancelled = check_cancelled
         self.policy_actions = 0
@@ -93,6 +96,8 @@ class RoboTwinPrimitives:
         """Reset the RoboTwin episode and return the native info plus success."""
         del instruction, feasibility_precheck
         _, info = self.env.reset()
+        if self.policy_kind == "wam":
+            self.model.reset()
         return {**info, "success": True}
 
     @staticmethod
@@ -239,8 +244,50 @@ class RoboTwinPrimitives:
             raise ValueError(
                 f"RoboTwin LingBot requires use_length={MODEL_SPEC.use_length}"
             )
+        return self._policy_act(
+            chunks=int(chunks),
+            use_length=MODEL_SPEC.use_length,
+            prompt=prompt,
+            action_type="ee",
+            override_prompt=False,
+        )
+
+    @tool
+    def wam_act(
+        self,
+        prompt: Annotated[str, Field(min_length=1)] | None = None,
+        *,
+        max_chunks: Annotated[int, Field(strict=True, ge=1, le=4)] = 1,
+    ) -> ToolResult:
+        """Execute bounded action chunks from the selected WAM on current observations. Omit prompt for the native task, or supply a subtask for this call. Inspect the resulting state before continuing; predictions do not establish task success.
+
+        Args:
+            prompt: Concrete instruction for this call; omit or null for the native task.
+            max_chunks: One to four predictions before planner feedback (default 1).
+        """
+        if type(max_chunks) is not int or not 1 <= max_chunks <= 4:
+            raise ValueError("max_chunks must be an integer between 1 and 4")
+        if prompt is not None and (not isinstance(prompt, str) or not prompt.strip()):
+            raise ValueError("prompt must be a non-empty instruction or null")
+        return self._policy_act(
+            chunks=max_chunks,
+            use_length=None,
+            prompt=prompt,
+            action_type=self.model.action_type,
+            override_prompt=True,
+        )
+
+    def _policy_act(
+        self,
+        *,
+        chunks: int,
+        use_length: int | None,
+        prompt: str | None,
+        action_type: str,
+        override_prompt: bool,
+    ) -> ToolResult:
         executed = 0
-        requested = int(chunks) * MODEL_SPEC.use_length
+        requested = chunks * use_length if use_length is not None else 0
         native_prompt = None
         for _ in range(int(chunks)):
             self._check_cancelled()
@@ -252,12 +299,22 @@ class RoboTwinPrimitives:
             if status.get("eval_success") is True or budget_exhausted:
                 break
             observation = self._build_lingbot_observation()
+            if override_prompt and prompt is not None:
+                observation["task_language"] = prompt
             native_prompt = observation["task_language"]
-            actions = self.model.infer(observation)[: MODEL_SPEC.use_length]
+            actions = (
+                self.model.predict(observation)
+                if self.policy_kind == "wam"
+                else self.model.infer(observation)
+            )
+            if use_length is not None:
+                actions = actions[:use_length]
+            else:
+                requested += len(actions)
             self._check_cancelled()
             payload, _, _, _, info = self.env.chunk_step(
                 actions,
-                action_type="ee",
+                action_type=action_type,
                 return_all_frames=self._recording
                 and self.env.execution_capabilities.get("chunk_step_all_frames")
                 is True,
@@ -278,8 +335,8 @@ class RoboTwinPrimitives:
                 ),
                 "success": True,
                 "prompt": native_prompt,
-                "agent_prompt_ignored": prompt is not None,
-                "ignored_agent_prompt": prompt,
+                "agent_prompt_ignored": prompt is not None and not override_prompt,
+                "ignored_agent_prompt": prompt if not override_prompt else None,
                 "episode_status": status,
             }
         )

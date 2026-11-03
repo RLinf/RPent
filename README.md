@@ -87,7 +87,8 @@ RPent is built for four kinds of users:
           <li><b>WAM</b></li>
           <ul>
             <li>DreamZero</li>
-            <li>Cosmos Policy</li>
+            <li><a href="docs/source-en/rst_source/development/add_action_model.rst">Cosmos Policy</a> (LIBERO / LIBERO-Pro)</li>
+            <li><a href="docs/source-en/rst_source/development/add_action_model.rst">Fast-WAM</a> (LIBERO / LIBERO-Pro / RoboTwin)</li>
           </ul>
         </ul>
       </td>
@@ -176,7 +177,8 @@ export LIBERO_TYPE=pro
 # Run one task: libero_object_swap, task 2, seed 0, using Claude Code
 # with Claude Opus 4.8.
 rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
-  --cuda-device 0 --planner claude_code --model claude-opus-4-8
+  --env-cuda-device 0 --am-cuda-device 0 --sam3-cuda-device 0 \
+  --planner claude_code --model claude-opus-4-8
 ```
 
 See the [planner docs](https://rpent.readthedocs.io/en/latest/rst_source/guides/configure_planner.html) to configure other planners (`api`, `codex`) and model providers.

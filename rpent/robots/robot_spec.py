@@ -64,7 +64,8 @@ class RobotSpec:
         [argparse.Namespace, Path, DashboardEventSink, set[str] | None],
         tuple[list["ProcessDaemon"], dict[str, Any]],
     ]
-    dashboard: DashboardSpec | None = None
+    #: Resolve Dashboard configuration from session options; None disables it.
+    resolve_dashboard: Callable[[argparse.Namespace], DashboardSpec] | None = None
     #: Physical scene restoration requires operator involvement, not simulator reset.
     #: Operator input requires an exclusive terminal unless an external ENV owns it.
     is_real_robot: bool = False
