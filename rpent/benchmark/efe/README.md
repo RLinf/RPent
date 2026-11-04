@@ -1,4 +1,4 @@
-# EFE-compatible coding evaluation
+# EFE-compatible tool-driven evaluation
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
@@ -8,19 +8,42 @@ The installed RPent runner also uses Python 3.12. It installs no robot extras.
 
 ## Scope
 
-RPent runs the existing `CodexPlanner` inside Harbor's Agent Container with
-RPent's prompt bundle, an optional loaded memory corpus, RPent's shared file
-and memory tools with their authorization rules, and optional multi-session
-handoff. EFE publishes no RobotSpec, so the session loads no robot primitive
-tools, VLA, or robot runtime. The agent still operates the simulator only
-through the task's public Robot Client.
+RPent runs the existing `CodexPlanner` inside Harbor's Agent Container as the
+trial's only agent process. `robots/efe` treats the task's public
+`rcb_client.Robot` service as the robot and registers it with RPent's Robot
+Registry. The planner calls `efe_spec`, `efe_observe`, `efe_status`,
+`efe_submit`, and `efe_recover`. When skills are enabled it also gets
+`move_to_xyz`, which closes an IK loop over public proprioception. A task with
+a reset budget also gets `efe_reset`; a task with agent-ended episodes also
+gets `efe_end_episode`.
+
+The agent operates the simulator only through that client. RPent starts no
+simulator, sends no reset unless the task declares a budget and the planner
+asks for one, reads no privileged state, and does not change the task or
+scoring. The raw-tools arm is the same runner with `skills=false`.
 
 Harbor owns isolation and execution budgets. EFE's verifier scores independently.
 
 `finish(status="completed")` means the agent finished its own work.
-It does not mean task success and produces no Reward. The CLI exit code reports
-only whether the Runner failed.
+It does not mean task success and produces no Reward. `solved()` reports the
+service's own end reason, and the Verifier still grades the episode. The CLI
+exit code reports only whether the Runner failed.
 This phase supports no online RL, Pi0.5, VLA, or task and scoring changes.
+
+## Task and mode coverage
+
+EFE ships 32 benchmark families and 2109 task directories in three modes:
+1066 `standard` (`eai-standard/2.1`, `2.2`, `2.4`), 84 `standard-realtime`
+(`eai-standard/2.3`), and 959 `privileged`. The adapter takes every task's
+capabilities from the service spec, so it carries no task-specific code and
+covers all standard and standard-realtime tasks. Standard-realtime runs on a
+clock that does not stop, but the service holds the last targets while the
+planner thinks, so the same tools apply. Privileged tasks are not supported:
+they share the simulator container and accept a trajectory or policy
+deliverable instead of a service client.
+
+Only `autobio-pickup-i00-standard` has been run. The other tasks follow the
+protocol; they have no run evidence.
 
 ## Trial isolation
 
@@ -118,6 +141,14 @@ value lets Harbor time out first and lose the report.
 Use the same effective time budget in comparison runs.
 `max_turns` counts model responses in the existing planner, not shell commands.
 
+This custom agent declares no model endpoint, so Harbor cannot infer the
+inference host. Pass `--allow-agent-host <model-host>`. An explicit allowlist
+replaces the defaults, so also allow the package hosts the install needs:
+`--allow-agent-host pypi.org --allow-agent-host files.pythonhosted.org`.
+The first container install runs `pip`, and Harbor's default setup timeout is
+360 seconds; add `--agent-setup-timeout-multiplier 4` on hosts where a cold
+install is slower.
+
 The alternative entry point diagnoses an existing Agent Container:
 
 ```bash
@@ -129,7 +160,58 @@ rpent-efe --instruction-file /logs/agent/rpent-instruction.txt \
 The CLI creates no Harbor container and starts no simulator or verifier.
 Full evaluation uses the Installed Agent entry point.
 
-## P2: Prior experience and exploration
+## P2: Raw and skills arms
+
+Both arms run the same Runner. `skills=false` registers only the raw tools, so
+the arm comparison changes the tool set, not the model or the budget. The
+Runner defaults to the Codex `read-only` sandbox: shell commands cannot reach
+the simulator, so only RPent tools act on the episode. Pass
+`--agent-kwarg sandbox=full-access` to let the planner script the service
+directly. That mode measures the agent's free-form behavior; its shell actions
+do not appear in the RPent tool counters. The generic `rpent --robot efe`
+entry point builds the shared planner without a sandbox setting, so it always
+runs with `full-access`; use `rpent-efe` or the Harbor adapter when the shell
+must stay away from the simulator.
+
+```bash
+# RPent-Raw
+PYTHONPATH="$RPENT_ROOT${PYTHONPATH:+:$PYTHONPATH}" \
+uv run --project "$EFE_ROOT" harbor run \
+  --path "$EFE_TASK" \
+  --agent rpent.benchmark.efe.harbor_agent:RPentEfeAgent \
+  --model "$EFE_MODEL" --n-concurrent 1 --n-attempts 1 \
+  --agent-kwarg source_root="$RPENT_ROOT" \
+  --agent-kwarg timeout_s=3500 --agent-kwarg max_turns=200 \
+  --agent-kwarg skills=false \
+  --jobs-dir "$RPENT_ROOT/logs/efe-raw"
+
+# RPent-Skills
+PYTHONPATH="$RPENT_ROOT${PYTHONPATH:+:$PYTHONPATH}" \
+uv run --project "$EFE_ROOT" harbor run \
+  --path "$EFE_TASK" \
+  --agent rpent.benchmark.efe.harbor_agent:RPentEfeAgent \
+  --model "$EFE_MODEL" --n-concurrent 1 --n-attempts 1 \
+  --agent-kwarg source_root="$RPENT_ROOT" \
+  --agent-kwarg timeout_s=3500 --agent-kwarg max_turns=200 \
+  --jobs-dir "$RPENT_ROOT/logs/efe-skills"
+```
+
+Summarize both runs with the Verifier reward and the RPent counters:
+
+```bash
+rpent-efe-report "$RPENT_ROOT/logs/efe-raw" "$RPENT_ROOT/logs/efe-skills"
+```
+
+The report reads `result.json` (Verifier reward, tokens, wall time) and
+`agent/rpent/session.json` (tool calls, failed calls, skill calls, submit calls,
+control steps). It labels each trial from `skills` in `session.json`, so both
+arms can run under one root. Separate `--jobs-dir` paths still keep the logs
+readable. `--json` prints the same data for scripts.
+
+Keep the model, endpoint, reasoning effort, task revision, time limit, and
+attempt count fixed across arms. A single trial is not a comparison.
+
+## P3: Prior experience and exploration
 
 Add `memory_source` to load a prior RPent corpus and `explore_sessions` to run
 several independent sessions.
@@ -164,7 +246,7 @@ is the total budget across sessions; each session receives the remaining time.
 No session is promoted into the corpus, because EFE's verifier runs outside the
 agent container. Treat `memory_source` as the only prior experience.
 
-## P3: Records and comparison
+## P4: Records and comparison
 
 Harbor synchronizes each Trial's agent logs. RPent artifacts are under
 `agent/rpent/`:
@@ -213,8 +295,12 @@ Keep both complete Trial results and logs. Do not compare only the `finish` text
 | Task result | Use the verifier Reward; list infrastructure or agent errors separately |
 | Token | Compare input, cache, and output in Harbor Context; input includes cache |
 | Time | Compare agent execution time separately from total Trial time with installation |
-| Tool behavior | Read the raw trace; separate shell, file operations, and Robot Client requests |
+| Tool behavior | `session.json` sessions[].metrics: `tool_calls`, `failed_calls`, `skill_calls` |
+| Robot commands | `efe_submit_calls` counts chunks; `efe_control_steps` counts simulated control steps |
 | Cost | The adapter does not estimate `cost_usd`; keep missing measurements empty |
+
+`rpent-efe-report` prints the per-trial rows and the per-arm means for these
+fields. Do not compare only the `finish` text.
 
 The adapter writes measured token totals to Harbor `AgentContext` and
 `model_usage`.
@@ -246,8 +332,29 @@ Each path ran once; these results are not a statistical comparison.
 The RPent Trial used an empty `memory/` and a `codex-home/` with no
 `auth.json`.
 These Trials cover the Harbor adapter, the source upload, and the usage
-recovery. The RPent Trial ran before the adapter loaded RPent's prompt and
-shared file tools, so it does not cover the current agent configuration.
+recovery. They ran the earlier coding-session runner.
+
+The tool-driven runner ran three Trial attempts of the raw arm (`skills=false`)
+on `autobio-pickup-i00-standard` on 2026-11-03, with `gpt-6-sol` through a local
+proxy. One Trial ran per configuration.
+
+- Run 5 had shell access. The Verifier returned `success=1` with 12 service
+  calls, but RPent recorded no tool calls: the agent used the shell and
+  `rcb_client` directly. This Trial does not measure the RPent tool path.
+- Run 6 used `read-only` before the MCP approval override. The Verifier returned
+  `success=0` and `timeout=1`; its MCP tool calls were rejected.
+- Run 7 used `read-only` with the approval override. The Verifier returned
+  `success=0`, `timeout=1`, and `finalized=1`. The agent acted only through RPent
+  tools: 37 submits, 31 observes, 9250 control steps, 70 tool calls, 1 failed
+  call, and 72 turns. It did not solve the task before the wall clock ended.
+- Run 8 used the skills arm with the same task, model, and `read-only` sandbox.
+  The Verifier returned `success=1` with `timeout=0` and `finalized=1`. The agent
+  made 58 `move_to_xyz` calls, 168 submits, 277 observes, 134 tool calls, and
+  4 failed calls over 19745 control steps in 133 turns.
+
+Each arm has one Trial under the matched configuration. Do not report a skills
+effect or a success rate from two single Trials; a comparison needs repeated
+runs.
 
 The `sim` image was built locally from the pinned AutoBio commit because
 BuildKit could not clone it through this host's proxy. The task and scoring

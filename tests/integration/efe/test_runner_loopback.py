@@ -31,6 +31,7 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
 from rpent.benchmark.efe.runner import run_efe
+from tests.efe_support import FakeEfeClient
 
 
 class LocalTurn:
@@ -208,6 +209,7 @@ def test_run_efe_loads_memory_tools_and_prompt(
         max_turns=3,
         reasoning_effort="low",
         memory_dir=memory_dir,
+        client=FakeEfeClient(),
     )
 
     assert report["error"] is None, report
@@ -218,6 +220,13 @@ def test_run_efe_loads_memory_tools_and_prompt(
         "write_text_file",
         "list_dir",
         "finish",
+        "efe_spec",
+        "efe_observe",
+        "efe_status",
+        "efe_recover",
+        "efe_submit",
+        "view_env_state",
+        "move_to_xyz",
     ]
     assert str(memory_dir.resolve()) in backend.thread.prompt
     assert (workdir / "control-result.txt").is_file()
@@ -241,6 +250,7 @@ def test_run_efe_preserves_child_output_and_accounts_mcp_finish(
         timeout_s=20,
         max_turns=3,
         reasoning_effort="low",
+        client=FakeEfeClient(),
     )
 
     assert report["error"] is None, report
@@ -285,6 +295,13 @@ def test_run_efe_preserves_child_output_and_accounts_mcp_finish(
         "write_text_file",
         "list_dir",
         "finish",
+        "efe_spec",
+        "efe_observe",
+        "efe_status",
+        "efe_recover",
+        "efe_submit",
+        "view_env_state",
+        "move_to_xyz",
     ]
     assert local_backend[0].thread.local_turn.finish_response["isError"] is False
     assert (

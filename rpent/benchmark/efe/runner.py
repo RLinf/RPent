@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Run the existing Codex planner inside an EFE agent container."""
+"""Run the existing Codex planner as the EFE trial's only agent process."""
 
 from __future__ import annotations
 
@@ -26,8 +26,10 @@ from importlib.metadata import version
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from rpent.benchmark.efe import prompts
-from rpent.benchmark.efe.toolkit import EfeToolkit
+from robots.efe import prompt_bundle
+from robots.efe.env_client import EfeEnvClient
+from robots.efe.toolkit import EfeToolkit
+from rpent.benchmark.efe import SANDBOX_CHOICES
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory.manager import MemoryManager
 from rpent.planner.base import REASONING_EFFORTS, is_recoverable_agent_error
@@ -113,12 +115,18 @@ def run_efe(
     reasoning_effort: str = "none",
     memory_dir: Path | None = None,
     explore_sessions: int = 1,
+    skills: bool = True,
+    sandbox: str = "read-only",
+    efe_base_url: str | None = None,
+    connect_timeout_s: float = 3600.0,
+    client: EfeEnvClient | None = None,
 ) -> dict[str, object]:
-    """Run an EFE coding session and save its configuration, usage, and error.
+    """Run one EFE trial with RPent's planner and the EFE robot tools.
 
-    The session uses RPent's prompt, memory corpus, and shared file tools.
-    It may hand off across sessions. Without ``memory_dir`` the corpus starts
-    empty, so the run measures RPent without prior experience.
+    The session uses RPent's prompt, memory corpus, and the EFE toolkit. It may
+    hand off across sessions; all sessions share the one episode. Without
+    ``memory_dir`` the corpus starts empty, so the run measures RPent without
+    prior experience.
 
     Args:
         instruction: The task instruction supplied by Harbor.
@@ -130,6 +138,14 @@ def run_efe(
         reasoning_effort: A reasoning level supported by the planner.
         memory_dir: An existing RPent memory corpus.
         explore_sessions: Number of independent planner sessions.
+        skills: Register the high-level skills as well as the raw tools.
+        sandbox: Codex shell sandbox. ``read-only`` keeps shell commands away
+            from the simulator, so only RPent tools act on the episode;
+            ``full-access`` lets the planner script the service directly.
+        efe_base_url: Simulator service URL. Default: let the client probe.
+        connect_timeout_s: How long to wait for the simulator to answer.
+        client: An existing client, for tests and for callers that already
+            connected. Default: connect to the service.
 
     Returns:
         The session report. This report contains no verifier reward.
@@ -140,8 +156,12 @@ def run_efe(
         raise ValueError("timeout_s and max_turns must be positive.")
     if reasoning_effort not in REASONING_EFFORTS:
         raise ValueError(f"Unsupported reasoning effort: {reasoning_effort}")
+    if sandbox not in SANDBOX_CHOICES:
+        raise ValueError(f"Unsupported Codex sandbox: {sandbox}")
     if explore_sessions <= 0:
         raise ValueError("explore_sessions must be positive.")
+    if not math.isfinite(connect_timeout_s) or connect_timeout_s <= 0:
+        raise ValueError("connect_timeout_s must be positive.")
     workdir = workdir.resolve(strict=True)
     if not workdir.is_dir():
         raise ValueError(f"The workspace is not a directory: {workdir}")
@@ -170,6 +190,7 @@ def run_efe(
         "memory_dir": str(memory_root),
         "memory_inbox": str(memory_root / "_internal" / "inbox" / "efe"),
         "session_max": explore_sessions,
+        "skills": skills,
     }
     report: dict[str, object] = {
         "compatibility": "EFE-compatible / non-official",
@@ -179,9 +200,11 @@ def run_efe(
         "timeout_s": timeout_s,
         "max_turns": max_turns,
         "reasoning_effort": reasoning_effort,
+        "codex_sandbox": sandbox,
         "memory_root": str(memory_root),
         "memory_mode": memory_mode,
         "explore_sessions": explore_sessions,
+        "skills": skills,
         "codex_home": str(output_dir / "codex-home"),
         "versions": {
             "rpent": version("rpent"),
@@ -201,8 +224,20 @@ def run_efe(
     try:
         from rpent.planner.codex import CodexPlanner
 
+        client = client or EfeEnvClient(
+            base_url=efe_base_url,
+            connect_timeout_s=connect_timeout_s,
+        )
+        report["service"] = {
+            "protocol": client.spec.get("protocol"),
+            "robot": client.spec.get("robot"),
+            "action_types": sorted(client.spec["action_types"]),
+        }
         with _trial_codex_home(output_dir), _trial_repo_root(workdir):
             for number in range(1, explore_sessions + 1):
+                if client.done:
+                    logger.info("the episode ended; no further session starts")
+                    break
                 remaining = math.ceil(deadline - time.monotonic())
                 if remaining <= 0:
                     if not sessions:
@@ -216,7 +251,13 @@ def run_efe(
                     else output_dir / "sessions" / f"session_{number:03d}"
                 )
                 session_dir.mkdir(parents=True, exist_ok=True)
-                toolkit = EfeToolkit(memory=memory)
+                toolkit = EfeToolkit(
+                    client=client,
+                    dashboard_events=NullDashboardEventSink(),
+                    memory=memory,
+                    state_output_dir=session_dir,
+                    enable_skills=skills,
+                )
                 try:
                     planner = CodexPlanner(
                         output_dir=str(session_dir),
@@ -226,13 +267,22 @@ def run_efe(
                         model=model,
                         timeout_s=remaining,
                         reasoning_effort=reasoning_effort,
+                        sandbox=sandbox,
                         dashboard_events=NullDashboardEventSink(),
                     )
                     session_vars = {**prompt_vars, "session_number": number}
-                    system_prompt = prompts.system_prompt(
-                        session_vars, explore=explore, handoff=number > 1
+                    system_prompt = prompt_bundle.system_prompt(
+                        session_vars,
+                        handoff=number > 1,
+                        skills=skills,
+                        write_notes=explore,
+                        restricted_shell=sandbox != "full-access",
+                        reset=client.reset_budget > 0,
+                        end_episode=client.success_hidden,
                     )
-                    user_message = prompts.user_prompt(instruction, session_vars)
+                    user_message = prompt_bundle.user_prompt(
+                        {**session_vars, "instruction": instruction}
+                    )
                     result: PlannerResult = planner.solve(
                         system_prompt=system_prompt,
                         user_message=user_message,
@@ -247,6 +297,7 @@ def run_efe(
                         "stats": result.stats,
                         "finish": result.finish_result,
                         "error": result.error,
+                        "metrics": toolkit.metrics(),
                     }
                 )
                 report["agent_finish"] = result.finish_result
@@ -269,9 +320,17 @@ def run_efe(
                 report["error"] = None
     except Exception as exc:
         report["error"] = f"{type(exc).__name__}: {exc}"
-        logger.exception("EFE coding session failed")
+        logger.exception("EFE session failed")
     finally:
         report["stats"] = _aggregate_stats(sessions)
+        if client is not None:
+            report["efe"] = {
+                "submit_calls": client.submit_calls,
+                "observe_calls": client.observe_calls,
+                "control_steps": client.control_steps,
+                "done": client.done,
+                "done_reason": client.done_reason,
+            }
         report["elapsed_s"] = round(time.monotonic() - started, 3)
         (output_dir / "session.json").write_text(
             json.dumps(report, ensure_ascii=False, indent=2) + "\n",

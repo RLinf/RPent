@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Offline contracts for EFE coding sessions."""
+"""Offline contracts for EFE tool-driven sessions."""
 
 from __future__ import annotations
 
@@ -23,11 +23,20 @@ import sys
 
 import pytest
 
+from robots.efe.toolkit import EfeToolkit
 from rpent.benchmark.efe.runner import run_efe
-from rpent.benchmark.efe.toolkit import EfeToolkit
+from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory.manager import MemoryManager
 from rpent.planner.base import PlannerResult
 from rpent.utils.logging import init_output_dir
+
+EFE_TOOLS = [
+    "efe_spec",
+    "efe_observe",
+    "efe_status",
+    "efe_recover",
+    "efe_submit",
+]
 
 
 @pytest.fixture
@@ -56,7 +65,9 @@ def planner_calls(monkeypatch):
     return calls
 
 
-def test_runner_preserves_task_budget_and_external_scoring(tmp_path, planner_calls):
+def test_runner_preserves_task_budget_and_external_scoring(
+    tmp_path, planner_calls, efe_client
+):
     instruction = "Use the public robot client to move the object.\n"
     output_dir = tmp_path / "agent-logs"
 
@@ -68,27 +79,43 @@ def test_runner_preserves_task_budget_and_external_scoring(tmp_path, planner_cal
         timeout_s=42,
         max_turns=7,
         reasoning_effort="high",
+        client=efe_client,
     )
 
     assert planner_calls["options"]["repo_root"] == tmp_path
     assert planner_calls["options"]["timeout_s"] == 42
     assert planner_calls["options"]["model"] == "test-model"
     assert planner_calls["options"]["reasoning_effort"] == "high"
+    assert planner_calls["options"]["sandbox"] == "read-only"
+    assert report["codex_sandbox"] == "read-only"
     assert instruction.strip() in planner_calls["solve"]["user_message"]
     assert planner_calls["solve"]["max_turns"] == 7
     assert "verifier" in planner_calls["solve"]["system_prompt"]
+    assert "no network access" in planner_calls["solve"]["system_prompt"]
     assert report["agent_finish"]["status"] == "completed"
     assert report["stats"]["total_input_tokens"] == 17
     assert "reward" not in report
     assert json.loads((output_dir / "session.json").read_text()) == report
-    assert (
-        planner_calls["solve"]["toolkit"]
-        .execute_tool("finish", {"status": "completed", "summary": "End."})
-        .is_error
+
+
+def test_full_access_sandbox_leaves_shell_available(
+    tmp_path, planner_calls, efe_client
+):
+    report = run_efe(
+        "Task",
+        workdir=tmp_path,
+        output_dir=tmp_path / "logs",
+        model="test",
+        sandbox="full-access",
+        client=efe_client,
     )
 
+    assert planner_calls["options"]["sandbox"] == "full-access"
+    assert report["codex_sandbox"] == "full-access"
+    assert "no network access" not in planner_calls["solve"]["system_prompt"]
 
-def test_runner_records_startup_failure(tmp_path, monkeypatch):
+
+def test_runner_records_startup_failure(tmp_path, monkeypatch, efe_client):
     import rpent.planner.codex as codex
 
     def failed_planner(**options):
@@ -97,7 +124,11 @@ def test_runner_records_startup_failure(tmp_path, monkeypatch):
     monkeypatch.setattr(codex, "CodexPlanner", failed_planner)
 
     report = run_efe(
-        "Task", workdir=tmp_path, output_dir=tmp_path / "logs", model="test"
+        "Task",
+        workdir=tmp_path,
+        output_dir=tmp_path / "logs",
+        model="test",
+        client=efe_client,
     )
 
     assert report["error"] == "RuntimeError: Codex executable is unavailable."
@@ -115,6 +146,8 @@ def test_runner_records_startup_failure(tmp_path, monkeypatch):
         {"max_turns": -1},
         {"model": " "},
         {"reasoning_effort": "unsupported"},
+        {"sandbox": "none"},
+        {"connect_timeout_s": 0},
     ],
 )
 def test_invalid_configuration_does_not_start_planner(tmp_path, planner_calls, options):
@@ -145,13 +178,23 @@ def test_existing_session_cannot_be_overwritten(tmp_path, planner_calls):
     assert (output_dir / "session.json").read_text() == original
 
 
-def test_toolkit_exposes_shared_file_tools_and_no_robot_tools(tmp_path):
+def _toolkit(tmp_path, client, *, skills=True):
     init_output_dir(tmp_path)
     memory = MemoryManager(tmp_path / "memory")
-    toolkit = EfeToolkit(memory=memory)
+    return EfeToolkit(
+        client=client,
+        dashboard_events=NullDashboardEventSink(),
+        memory=memory,
+        state_output_dir=tmp_path,
+        enable_skills=skills,
+    )
+
+
+def test_toolkit_registers_raw_tools_and_shared_file_tools(tmp_path, efe_client):
+    toolkit = _toolkit(tmp_path, efe_client)
 
     result = toolkit.execute_tool(
-        "finish", {"status": "completed", "summary": "Program executed."}
+        "finish", {"status": "completed", "summary": "Session ended."}
     )
 
     assert toolkit.memory.root == (tmp_path / "memory").resolve()
@@ -160,18 +203,28 @@ def test_toolkit_exposes_shared_file_tools_and_no_robot_tools(tmp_path):
         "write_text_file",
         "list_dir",
         "finish",
+        *EFE_TOOLS,
+        "view_env_state",
+        "move_to_xyz",
     ]
     assert result.data == {
         "_finish": True,
         "status": "completed",
-        "summary": "Program executed.",
+        "summary": "Session ended.",
     }
 
 
-def test_tool_descriptions_describe_coding_artifacts(tmp_path):
-    init_output_dir(tmp_path)
-    memory = MemoryManager(tmp_path / "memory")
-    toolkit = EfeToolkit(memory=memory)
+def test_raw_only_mode_hides_skills(tmp_path, efe_client):
+    toolkit = _toolkit(tmp_path, efe_client, skills=False)
+
+    names = [declaration.name for declaration in toolkit.list_tools()]
+
+    assert "efe_submit" in names
+    assert "move_to_xyz" not in names
+
+
+def test_tool_descriptions_do_not_describe_coding_artifacts(tmp_path, efe_client):
+    toolkit = _toolkit(tmp_path, efe_client)
 
     descriptions = {
         declaration.name: declaration.description or ""
@@ -182,13 +235,35 @@ def test_tool_descriptions_describe_coding_artifacts(tmp_path):
         lowered = descriptions[name].lower()
         assert "recipe" not in lowered
         assert "audit" not in lowered
-        assert "robot" not in lowered
 
 
-def test_finish_contract_rejects_unsupported_status(tmp_path):
-    init_output_dir(tmp_path)
-    memory = MemoryManager(tmp_path / "memory")
-    toolkit = EfeToolkit(memory=memory)
+def test_solved_reads_the_service_verdict_not_finish(tmp_path, efe_client):
+    toolkit = _toolkit(tmp_path, efe_client)
+
+    assert toolkit.solved() is False
+    efe_client.done = True
+    efe_client.done_reason = "success"
+    assert toolkit.solved() is True
+
+
+def test_metrics_count_session_calls_and_service_progress(tmp_path, efe_client):
+    toolkit = _toolkit(tmp_path, efe_client)
+
+    toolkit.execute_tool(
+        "efe_submit", {"action_type": "joint_position", "actions": [[0.0] * 7]}
+    )
+    toolkit.execute_tool("move_to_xyz", {"x": 0.0, "y": 0.0, "z": 0.3})
+
+    metrics = toolkit.metrics()
+
+    assert metrics["tool_calls"] == 2
+    assert metrics["skill_calls"] == 1
+    assert metrics["efe_submit_calls"] == 1
+    assert metrics["efe_control_steps"] == 1
+
+
+def test_finish_contract_rejects_unsupported_status(tmp_path, efe_client):
+    toolkit = _toolkit(tmp_path, efe_client)
     finish = next(
         declaration
         for declaration in toolkit.list_tools()
@@ -253,7 +328,9 @@ def recording_planner(monkeypatch):
     return _RecordingPlanner
 
 
-def test_rpent_arm_loads_memory_and_shared_prompt(tmp_path, recording_planner):
+def test_rpent_arm_loads_memory_and_shared_prompt(
+    tmp_path, recording_planner, efe_client
+):
     memory_dir = tmp_path / "corpus"
     (memory_dir / "global").mkdir(parents=True)
     (memory_dir / "global" / "pickup.md").write_text("# Pickup lesson\n")
@@ -265,6 +342,7 @@ def test_rpent_arm_loads_memory_and_shared_prompt(tmp_path, recording_planner):
         output_dir=output_dir,
         model="test-model",
         memory_dir=memory_dir,
+        client=efe_client,
     )
 
     assert report["error"] is None
@@ -280,11 +358,19 @@ def test_rpent_arm_loads_memory_and_shared_prompt(tmp_path, recording_planner):
         declaration.name
         for declaration in planner.solve_options["toolkit"].list_tools()
     ]
-    assert tools == ["read_text_file", "write_text_file", "list_dir", "finish"]
+    assert tools == [
+        "read_text_file",
+        "write_text_file",
+        "list_dir",
+        "finish",
+        *EFE_TOOLS,
+        "view_env_state",
+        "move_to_xyz",
+    ]
 
 
 def test_exploration_handoff_uses_fresh_planners_and_aggregates_stats(
-    tmp_path, recording_planner
+    tmp_path, recording_planner, efe_client
 ):
     output_dir = tmp_path / "logs"
 
@@ -294,6 +380,7 @@ def test_exploration_handoff_uses_fresh_planners_and_aggregates_stats(
         output_dir=output_dir,
         model="test-model",
         explore_sessions=2,
+        client=efe_client,
     )
 
     assert report["error"] is None
@@ -319,7 +406,7 @@ def test_exploration_handoff_uses_fresh_planners_and_aggregates_stats(
 
 
 def test_exploration_inbox_is_the_only_writable_memory_path(
-    tmp_path, recording_planner
+    tmp_path, recording_planner, efe_client
 ):
     output_dir = tmp_path / "logs"
     denied_dir = tmp_path / "logs-denied"
@@ -337,6 +424,7 @@ def test_exploration_inbox_is_the_only_writable_memory_path(
         output_dir=output_dir,
         model="test-model",
         explore_sessions=2,
+        client=efe_client,
     )
     assert not recording_planner.instances[0].probe_result.is_error
 
@@ -348,12 +436,13 @@ def test_exploration_inbox_is_the_only_writable_memory_path(
         output_dir=denied_dir,
         model="test-model",
         explore_sessions=2,
+        client=efe_client,
     )
     assert recording_planner.instances[0].probe_result.is_error
 
 
 def test_recovered_session_error_is_not_reported_as_run_failure(
-    tmp_path, recording_planner
+    tmp_path, recording_planner, efe_client
 ):
     recording_planner.session_errors = ["Codex SDK timed out after 5s", None]
 
@@ -363,6 +452,7 @@ def test_recovered_session_error_is_not_reported_as_run_failure(
         output_dir=tmp_path / "logs",
         model="test-model",
         explore_sessions=2,
+        client=efe_client,
     )
 
     assert report["error"] is None
@@ -372,7 +462,7 @@ def test_recovered_session_error_is_not_reported_as_run_failure(
     ]
 
 
-def test_terminal_session_error_is_reported(tmp_path, recording_planner):
+def test_terminal_session_error_is_reported(tmp_path, recording_planner, efe_client):
     recording_planner.session_errors = ["RuntimeError: boom"]
 
     report = run_efe(
@@ -381,6 +471,7 @@ def test_terminal_session_error_is_reported(tmp_path, recording_planner):
         output_dir=tmp_path / "logs",
         model="test-model",
         explore_sessions=2,
+        client=efe_client,
     )
 
     assert report["error"] == "RuntimeError: boom"
@@ -388,7 +479,7 @@ def test_terminal_session_error_is_reported(tmp_path, recording_planner):
 
 
 def test_rpent_arm_resolves_relative_paths_from_the_workspace(
-    tmp_path, recording_planner, monkeypatch
+    tmp_path, recording_planner, monkeypatch, efe_client
 ):
     monkeypatch.delenv("RPENT_REPO_ROOT", raising=False)
 
@@ -397,6 +488,7 @@ def test_rpent_arm_resolves_relative_paths_from_the_workspace(
         workdir=tmp_path,
         output_dir=tmp_path / "logs",
         model="test-model",
+        client=efe_client,
     )
 
     assert report["error"] is None
@@ -405,7 +497,7 @@ def test_rpent_arm_resolves_relative_paths_from_the_workspace(
 
 
 def test_each_trial_uses_separate_empty_memory_and_codex_home(
-    tmp_path, planner_calls, monkeypatch
+    tmp_path, planner_calls, monkeypatch, efe_client
 ):
     host_home = tmp_path / "host-codex"
     first_output = tmp_path / "first"
@@ -413,8 +505,20 @@ def test_each_trial_uses_separate_empty_memory_and_codex_home(
     monkeypatch.setenv("CODEX_HOME", str(host_home))
     monkeypatch.setenv("CODEX_API_KEY", "test-key")
 
-    first = run_efe("First", workdir=tmp_path, output_dir=first_output, model="test")
-    second = run_efe("Second", workdir=tmp_path, output_dir=second_output, model="test")
+    first = run_efe(
+        "First",
+        workdir=tmp_path,
+        output_dir=first_output,
+        model="test",
+        client=efe_client,
+    )
+    second = run_efe(
+        "Second",
+        workdir=tmp_path,
+        output_dir=second_output,
+        model="test",
+        client=efe_client,
+    )
 
     assert first["memory_mode"] == "empty"
     assert first["memory_root"] != second["memory_root"]

@@ -12,12 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Command line entry point for EFE-compatible coding sessions."""
+"""Command line entry point for one EFE-compatible trial session."""
 
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
+
+from rpent.benchmark.efe import SANDBOX_CHOICES
 
 
 def positive_int(value: str) -> int:
@@ -29,7 +31,7 @@ def positive_int(value: str) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run one EFE coding session. Return a process status, not an evaluation score."""
+    """Run one EFE trial session. Return a process status, not an evaluation score."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--instruction-file", required=True, type=Path)
     parser.add_argument("--workdir", type=Path, default=Path.cwd())
@@ -44,6 +46,33 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--memory-dir", type=Path, default=None)
     parser.add_argument("--explore-sessions", type=positive_int, default=1)
+    parser.add_argument(
+        "--no-skills",
+        dest="skills",
+        action="store_false",
+        help="Register only the raw EFE tools, without high-level skills.",
+    )
+    parser.add_argument(
+        "--codex-sandbox",
+        choices=SANDBOX_CHOICES,
+        default="read-only",
+        help=(
+            "Codex shell sandbox. read-only keeps shell commands away from the "
+            "simulator, so only RPent tools act on the episode."
+        ),
+    )
+    parser.add_argument(
+        "--efe-base-url",
+        default=None,
+        help="Simulator service URL. Default: probe sim:8000, then localhost:8000.",
+    )
+    parser.add_argument(
+        "--efe-connect-timeout-s",
+        type=float,
+        default=3600.0,
+        help="How long to wait for the simulator to answer.",
+    )
+    parser.set_defaults(skills=True)
     args = parser.parse_args(argv)
 
     from rpent.benchmark.efe.runner import run_efe
@@ -59,6 +88,10 @@ def main(argv: list[str] | None = None) -> int:
             reasoning_effort=args.reasoning_effort,
             memory_dir=args.memory_dir,
             explore_sessions=args.explore_sessions,
+            skills=args.skills,
+            sandbox=args.codex_sandbox,
+            efe_base_url=args.efe_base_url,
+            connect_timeout_s=args.efe_connect_timeout_s,
         )
     except (OSError, ValueError) as exc:
         parser.error(str(exc))

@@ -73,7 +73,7 @@ def test_run_preserves_instruction_and_quotes_paths(tmp_path, monkeypatch):
     assert execute.call_args.kwargs["cwd"] == "/app/task with spaces"
     assert execute.call_args.kwargs["env"]["CODEX_API_KEY"] == "test-key"
     assert execute.call_args.kwargs["timeout_sec"] == 72
-    assert shlex.split(execute.call_args.kwargs["command"])[-10:] == [
+    assert shlex.split(execute.call_args.kwargs["command"])[-12:] == [
         "--model",
         "test-model",
         "--timeout-s",
@@ -84,7 +84,33 @@ def test_run_preserves_instruction_and_quotes_paths(tmp_path, monkeypatch):
         "none",
         "--explore-sessions",
         "1",
+        "--codex-sandbox",
+        "read-only",
     ]
+
+
+def test_run_forwards_the_configured_codex_sandbox(tmp_path, monkeypatch):
+    agent = RPentEfeAgent(
+        logs_dir=tmp_path,
+        model_name="openai/test-model",
+        sandbox="full-access",
+    )
+    execute = AsyncMock()
+    monkeypatch.setattr(agent, "exec_as_agent", execute)
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    monkeypatch.delenv("CODEX_API_KEY", raising=False)
+
+    asyncio.run(agent.run("Task", UploadEnvironment(), AgentContext()))
+
+    assert shlex.split(execute.call_args.kwargs["command"])[-2:] == [
+        "--codex-sandbox",
+        "full-access",
+    ]
+
+
+def test_unknown_codex_sandbox_is_rejected(tmp_path):
+    with pytest.raises(ValueError, match="sandbox"):
+        RPentEfeAgent(logs_dir=tmp_path, model_name="openai/test", sandbox="none")
 
 
 def test_install_uploads_local_source_without_tests_or_caches(tmp_path, monkeypatch):

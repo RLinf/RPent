@@ -163,11 +163,14 @@ RPent CLI 保留原有 ``--cuda-device`` 作为本地服务的共享默认值；
      - ``--wam-config``
    * - ``--fast-wam-dataset-stats``
      - ``--wam-dataset-stats``
-EFE 代码基准入口
+
+EFE 基准入口
 ------------------------
 
-``rpent-efe`` 在已有 Agent Container 内运行一次 EFE 兼容的编码会话。
-它不创建容器，也不启动 Simulator 或 Verifier。
+``rpent-efe`` 在已有 Agent Container 内运行一次 EFE 兼容的 Trial。
+它通过 ``rcb_client`` 连接任务的 Simulator Service，不创建容器、不启动
+Simulator，也不运行 Verifier。仅当任务声明 Reset 预算且 Planner 调用
+``efe_reset`` 时才 Reset Episode。
 
 .. code-block:: bash
 
@@ -175,10 +178,18 @@ EFE 代码基准入口
      --workdir /app --output-dir /logs/agent/manual-rpent \
      --model your-model --timeout-s 600 --max-turns 200
 
-``--memory-dir`` 加载已有的 RPent Memory 语料，``--explore-sessions`` 运行多个独立
-Session。省略语料时，Session 从空 Memory 根目录开始。
+Planner 调用 ``efe_spec``、``efe_observe``、``efe_status``、``efe_submit``、
+``efe_recover`` 和 ``move_to_xyz``。带 Reset 预算的任务还会注册 ``efe_reset``；
+使用 agent-ended episode 的任务会注册 ``efe_end_episode``。``--no-skills``
+不注册高层技能。``--codex-sandbox`` 默认为 ``read-only``，Shell 命令无法访问
+Simulator；``full-access`` 允许 Planner 直接编写脚本操作服务。
+``--memory-dir`` 加载已有的 RPent Memory 语料，``--explore-sessions`` 在同一
+Episode 上运行多个独立 Session。省略语料时，Session 从空 Memory 根目录开始。
 完整评测使用 Harbor 的 Installed Agent；配置和对照规则见仓库中的
 ``rpent/benchmark/efe/README.zh-CN.md``。
+
+``rpent-efe-report RUN_DIR...`` 输出指定 Harbor 运行目录下每个 Trial 的
+Verifier Reward 和 RPent 计数，以及 Raw Tools 与 Skills 两组的平均值。
 
 模型服务环境变量
 ------------------------

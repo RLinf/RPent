@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Harbor 0.23 installed agent for EFE-compatible RPent coding sessions."""
+"""Harbor 0.23 installed agent for EFE-compatible RPent trial sessions."""
 
 from __future__ import annotations
 
@@ -29,6 +29,8 @@ from harbor.agents.installed.base import BaseInstalledAgent
 from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext, ModelUsage
 
+from rpent.benchmark.efe import SANDBOX_CHOICES
+
 
 class RPentEfeAgent(BaseInstalledAgent):
     """Install the local RPent source inside Harbor's isolated agent container."""
@@ -44,6 +46,8 @@ class RPentEfeAgent(BaseInstalledAgent):
         reasoning_effort: str = "none",
         memory_source: str | None = None,
         explore_sessions: int = 1,
+        skills: bool = True,
+        sandbox: str = "read-only",
         **kwargs,
     ) -> None:
         """Accept RPent settings through Harbor's ``--agent-kwarg`` options."""
@@ -59,6 +63,8 @@ class RPentEfeAgent(BaseInstalledAgent):
             raise ValueError("timeout_s and max_turns must be positive.")
         if explore_sessions <= 0:
             raise ValueError("explore_sessions must be positive.")
+        if sandbox not in SANDBOX_CHOICES:
+            raise ValueError(f"Unsupported Codex sandbox: {sandbox}")
         self.memory_source = (
             Path(memory_source).expanduser().resolve() if memory_source else None
         )
@@ -71,6 +77,8 @@ class RPentEfeAgent(BaseInstalledAgent):
         self.max_turns = max_turns
         self.reasoning_effort = reasoning_effort
         self.explore_sessions = explore_sessions
+        self.skills = bool(skills)
+        self.sandbox = sandbox
 
     @staticmethod
     def name() -> str:
@@ -188,9 +196,13 @@ class RPentEfeAgent(BaseInstalledAgent):
             self.reasoning_effort,
             "--explore-sessions",
             str(self.explore_sessions),
+            "--codex-sandbox",
+            self.sandbox,
         ]
         if self.memory_source is not None:
             arguments.extend(["--memory-dir", "/opt/rpent-efe/memory"])
+        if not self.skills:
+            arguments.append("--no-skills")
         command = shlex.join(arguments)
         forwarded = {
             name: os.environ[name]

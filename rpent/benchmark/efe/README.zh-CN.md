@@ -1,4 +1,4 @@
-# EFE 兼容评测
+# EFE 兼容的工具驱动评测
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
@@ -8,16 +8,35 @@ Harbor `0.23.0` 是 Adapter 支持的宿主版本。它要求 Python 3.12。
 
 ## 范围
 
-RPent 在 Harbor 的 Agent Container 内运行现有 `CodexPlanner`，使用 RPent 的
-Prompt bundle、可加载的 Memory 语料、RPent 共享文件与 Memory 工具及其授权规则，
-并支持多 Session 交接。EFE 未提供 RobotSpec，因此该 Session 不加载机器人原语工具、
-VLA 或 Robot Runtime。Agent 仍只能通过任务公开的 Robot Client 操作 Simulator。
+RPent 在 Harbor 的 Agent Container 内以该 Trial 唯一的 Agent 进程运行现有
+`CodexPlanner`。`robots/efe` 把任务公开的 `rcb_client.Robot` 服务当作机器人，
+并接入 RPent 的 Robot Registry。Planner 调用 `efe_spec`、`efe_observe`、
+`efe_status`、`efe_submit` 和 `efe_recover`。启用技能时还会得到
+`move_to_xyz`，它用公开本体感受闭环执行 IK 移动。带 Reset 预算的任务还会得到
+`efe_reset`；使用 agent-ended episode 的任务还会得到 `efe_end_episode`。
+
+Agent 只能通过该 Client 操作 Simulator。RPent 不启动 Simulator；仅当任务声明
+Reset 预算且 Planner 请求时才 Reset；不读取特权状态，也不修改任务或评分。
+Raw 组是同一个 Runner 加 `skills=false`。
 
 Harbor 管理隔离和执行预算。EFE Verifier 独立评分。
 
 `finish(status="completed")` 表示 Agent 完成了自己的工作。
-它不表示任务成功，也不产生 Reward。CLI 的退出码只报告 Runner 是否出错。
+它不表示任务成功，也不产生 Reward。`solved()` 报告服务自己的结束原因，
+Verifier 仍然负责评分。CLI 的退出码只报告 Runner 是否出错。
 第一阶段不支持在线 RL、Pi0.5、VLA 或修改 EFE 任务及评分。
+
+## 任务与模式覆盖
+
+EFE 共有 32 个 Benchmark 家族、2109 个任务目录，分为三种模式：1066 个
+`standard`（`eai-standard/2.1`、`2.2`、`2.4`）、84 个 `standard-realtime`
+（`eai-standard/2.3`）和 959 个 `privileged`。Adapter 从服务 spec 读取每个任务
+的能力，没有针对具体任务的代码，因此覆盖全部 standard 与 standard-realtime
+任务。standard-realtime 的时钟不会暂停，但服务在 Planner 思考期间保持上一次的
+目标，所以同一套工具仍然适用。不支持 privileged：它与 Simulator 同容器，
+交付物是轨迹或策略，而不是服务 Client。
+
+实际运行过的只有 `autobio-pickup-i00-standard`。其余任务符合协议，但没有运行证据。
 
 ## Trial 隔离
 
@@ -103,6 +122,13 @@ Harbor 的任务预算始终是外层硬限制。`timeout_s` 是 RPent 内层限
 为对照实验使用相同的实际时间预算。
 `max_turns` 统计现有 Planner 的模型响应次数，不等于 Shell 命令数。
 
+该自定义 Agent 不声明模型 Endpoint，Harbor 无法推断推理主机。
+传入 `--allow-agent-host <model-host>`。显式名单会替换默认放行，
+因此还需放行安装所需的包主机：
+`--allow-agent-host pypi.org --allow-agent-host files.pythonhosted.org`。
+首次容器安装运行 `pip`，Harbor 默认 Setup 超时为 360 秒；
+冷安装较慢时加上 `--agent-setup-timeout-multiplier 4`。
+
 替代入口用于已经准备好的 Agent Container 内部诊断：
 
 ```bash
@@ -114,7 +140,52 @@ rpent-efe --instruction-file /logs/agent/rpent-instruction.txt \
 直接调用 CLI 不会创建 Harbor 容器，也不会启动 Simulator 或 Verifier。
 完整评测使用 Installed Agent 入口。
 
-## P2：先验经验与探索
+## P2：Raw 与 Skills 两组
+
+两组使用同一个 Runner。`skills=false` 只注册 Raw 工具，所以对照只改变工具集，
+不改变模型或预算。Runner 默认使用 Codex 的 `read-only` Sandbox：Shell 命令
+无法访问 Simulator，因此只有 RPent 工具会作用于 Episode。传入
+`--agent-kwarg sandbox=full-access` 可允许 Planner 直接编写脚本操作服务。
+该模式测量 Agent 的自由行为；其 Shell 动作不计入 RPent 工具计数。
+通用 `rpent --robot efe` 入口通过共享 Planner 构建，不传入 Sandbox 设置，
+因此始终以 `full-access` 运行；需要让 Shell 无法访问 Simulator 时，
+请使用 `rpent-efe` 或 Harbor Adapter。
+
+```bash
+# RPent-Raw
+PYTHONPATH="$RPENT_ROOT${PYTHONPATH:+:$PYTHONPATH}" \
+uv run --project "$EFE_ROOT" harbor run \
+  --path "$EFE_TASK" \
+  --agent rpent.benchmark.efe.harbor_agent:RPentEfeAgent \
+  --model "$EFE_MODEL" --n-concurrent 1 --n-attempts 1 \
+  --agent-kwarg source_root="$RPENT_ROOT" \
+  --agent-kwarg timeout_s=3500 --agent-kwarg skills=false \
+  --jobs-dir "$RPENT_ROOT/logs/efe-raw"
+
+# RPent-Skills
+PYTHONPATH="$RPENT_ROOT${PYTHONPATH:+:$PYTHONPATH}" \
+uv run --project "$EFE_ROOT" harbor run \
+  --path "$EFE_TASK" \
+  --agent rpent.benchmark.efe.harbor_agent:RPentEfeAgent \
+  --model "$EFE_MODEL" --n-concurrent 1 --n-attempts 1 \
+  --agent-kwarg source_root="$RPENT_ROOT" \
+  --jobs-dir "$RPENT_ROOT/logs/efe-skills"
+```
+
+用 Verifier Reward 与 RPent 计数汇总两组：
+
+```bash
+rpent-efe-report "$RPENT_ROOT/logs/efe-raw" "$RPENT_ROOT/logs/efe-skills"
+```
+
+报告读取 `result.json`（Verifier Reward、Token、总耗时）和
+`agent/rpent/session.json`（工具调用、失败调用、技能调用、提交次数、控制步数）。
+它按 `session.json` 的 `skills` 标记每组，因此两组可放在同一个运行根目录下；
+分开 `--jobs-dir` 只是便于查看日志。`--json` 输出相同数据供脚本使用。
+两组必须固定模型、端点、推理强度、任务版本、
+时间上限和尝试次数。单次 Trial 不构成对照。
+
+## P3：先验经验与探索
 
 加入 `memory_source` 以加载已有的 RPent 语料，加入 `explore_sessions` 以运行多个独立 Session。
 
@@ -145,7 +216,7 @@ RPent 文件工具在 `explore_sessions` 为 1 时把发布语料视为只读；
 EFE Verifier 在 Agent Container 之外运行，因此没有 Session 会被提升进语料。
 先验经验只来自 `memory_source`。
 
-## P3：记录和对照
+## P4：记录和对照
 
 Harbor 同步每个 Trial 的 Agent 日志。RPent 的产物位于其 `agent/rpent/` 下：
 
@@ -187,8 +258,11 @@ Harbor 的 Trial `result.json` 保留 EFE Verifier 的评分和错误分类。
 | 任务结果 | 使用 Verifier Reward；另列基础设施或 Agent 错误 |
 | Token | 比较 Harbor Context 中 input/cache/output；input 已包含 cache |
 | 时间 | 分别比较 Agent 执行时间和包含安装的 Trial 总时间 |
-| 工具行为 | 读取原始轨迹，区分 Shell、文件操作和 Robot Client 请求 |
+| 工具行为 | `session.json` 的 sessions[].metrics：`tool_calls`、`failed_calls`、`skill_calls` |
+| 机器人命令 | `efe_submit_calls` 是动作 Chunk 数；`efe_control_steps` 是实际控制步数 |
 | 成本 | 当前 Adapter 不估算 `cost_usd`；缺少测量时保留空值 |
+
+`rpent-efe-report` 输出这些字段的逐 Trial 行和分组平均值。不要只比较 `finish` 文本。
 
 Adapter 将实测 Token 总量回填 Harbor `AgentContext` 和 `model_usage`。
 当前交付的是原始 SDK 轨迹，不是 ATIF 转换器。
@@ -215,8 +289,28 @@ P0 与 P2 使用本地模型代理和 dummy key，不是公开 API key。
 每条路径只运行一次，不构成统计对照。
 RPent Trial 的 `memory/` 为空，`codex-home/` 中没有 `auth.json`。
 这些 Trial 覆盖了 Harbor Adapter、源码上传和 usage 恢复。
-RPent Trial 运行早于 Adapter 加载 RPent Prompt 与共享文件工具，
-因此不覆盖当前的 Agent 配置。
+它们运行的是旧的 coding-session Runner。
+
+工具驱动 Runner 于 2026-11-03 在 `autobio-pickup-i00-standard` 上运行了
+3 次 Raw 组（`skills=false`）Trial，模型为本地代理上的 `gpt-6-sol`。
+每种配置只运行 1 次。
+
+- 第 5 次可访问 shell。Verifier 返回 `success=1` 和 12 次服务调用，但 RPent
+  记录的工具调用为 0：Agent 直接使用 shell 和 `rcb_client`。该 Trial
+  不能衡量 RPent 工具路径。
+- 第 6 次使用 `read-only`，尚未加入 MCP 审批覆盖。Verifier 返回
+  `success=0` 和 `timeout=1`；其 MCP 工具调用被拒绝。
+- 第 7 次使用 `read-only` 并加入审批覆盖。Verifier 返回 `success=0`、
+  `timeout=1` 和 `finalized=1`。Agent 只通过 RPent 工具行动：37 次 submit、
+  31 次 observe、9250 个 control steps、70 次工具调用、1 次失败调用和
+  72 轮。它在 wall clock 结束前未完成任务。
+- 第 8 次运行 Skills 组，任务、模型和 `read-only` Sandbox 与第 7 次相同。
+  Verifier 返回 `success=1`、`timeout=0` 和 `finalized=1`。Agent 调用
+  `move_to_xyz` 58 次，执行 168 次 submit、277 次 observe、134 次工具调用和
+  4 次失败调用，在 133 轮内完成 19745 个 control steps。
+
+每种配置下两组各只有 1 次 Trial。不要根据两次单次运行报告技能效果或成功率；
+对照需要重复运行。
 
 由于 BuildKit 无法通过该宿主代理 clone，`sim` 镜像改用固定 AutoBio commit
 在本地构建。任务与评分文件未修改。

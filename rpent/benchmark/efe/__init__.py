@@ -12,4 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""EFE-compatible coding evaluation with external verification."""
+"""EFE-compatible robot trial with external verification."""
+
+# Codex sandbox modes shared by the CLI, the Harbor adapter, and the planner.
+# An EFE evaluation isolates the robot behind RPent tools; ``full-access``
+# lets the planner's shell reach the simulator directly.
+SANDBOX_CHOICES = ("read-only", "workspace-write", "full-access")
