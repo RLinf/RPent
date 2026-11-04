@@ -98,9 +98,9 @@ Observation and Action
    * - Item
      - Description
    * - Observation
-     - Camera RGB frames (with depth on request), robot proprioception, and the action layout, joint names, cameras, and kinematics. The agent sees only what the client returns.
+     - Camera RGB frames (with depth on request), robot state (joint angles, TCP pose, gripper opening), and the action layout, joint names, cameras, and kinematics. The agent sees only what the client returns.
    * - Action
-     - The default arm calls ``move_to_xyz`` to move the tool frame and ``set_gripper`` to set the finger opening; the raw arm sends joint-target chunks with ``efe_submit``. Both reach the simulator service through ``rcb_client``.
+     - The default arm calls ``move_to_xyz`` to move the tool tip (TCP) to a world position and ``set_gripper`` to set the finger opening; the raw arm sends joint-target chunks with ``efe_submit``. Both reach the simulator service through ``rcb_client``.
    * - Reward / success
      - EFE's verifier scores the episode independently and writes ``verifier/reward.json``; Harbor records it as ``verifier_result.rewards`` in ``result.json``. ``success`` is the task success flag and the other fields are diagnostics.
    * - Task instruction
@@ -114,7 +114,7 @@ its own. A task that hides success also registers ``efe_end_episode``.
 Installation and Resources
 --------------------------
 
-The host needs the Docker environment required by EFE, cloud model credentials,
+The host needs the Docker environment required by EFE, cloud model API keys,
 and an EFE checkout. Follow EFE's instructions to prepare the host and the task;
 simulator requirements come from the task. The first run still downloads the
 container and task assets. Keep the original EFE task, simulator, verifier, and
@@ -129,7 +129,7 @@ repository.
    export EFE_MODEL=openai/your-model
    export OPENAI_API_KEY=your-key
 
-Do not write credentials into the repository. The adapter forwards only model
+Do not write API keys into the repository. The adapter forwards only model
 environment variables and explicit Harbor ``--agent-env`` settings. It maps
 ``OPENAI_API_KEY`` and ``OPENAI_BASE_URL`` to RPent ``CODEX_API_KEY`` and
 ``CODEX_BASE_URL``; existing ``CODEX_*`` settings take precedence. The adapter
@@ -139,8 +139,8 @@ inside the agent container for each trial.
 Run a Task
 ----------
 
-Harbor's ``--model`` selects the model, and credentials come from the current
-environment. This command runs one trial:
+Harbor's ``--model`` selects the model, and the API key is read from the
+current environment. This command runs one trial:
 
 .. code-block:: bash
 
@@ -157,7 +157,7 @@ environment. This command runs one trial:
 ``RPentEfeAgent`` installs RPent from the current checkout. ``source_root``
 defaults to the repository root of the adapter's source checkout; pass it
 explicitly when the adapter is imported from an installed wheel. The source
-archive excludes the host ``.git``, tests, credential files, and run logs.
+archive excludes the host ``.git``, tests, API key files, and run logs.
 ``robots/`` is part of the existing RPent distribution and starts no Robot
 Runtime.
 
@@ -230,7 +230,7 @@ Task Memory and Exploration
 - ``--agent-kwarg explore_sessions=N``: runs several independent sessions on the
   same episode.
 - Each trial starts with an empty ``memory/`` and its own ``codex-home/``; model
-  and credentials come only from explicit environment variables.
+  and API key come only from explicit environment variables.
 
 Compare Skills and Raw
 ----------------------
@@ -258,10 +258,10 @@ changes.
 The default arm replaces direct joint-target submission with two high-level
 skills:
 
-- ``move_to_xyz(x, y, z)`` solves IK for a world-frame target, submits short
-  action chunks, and re-reads proprioception until the tool frame is within
-  1 cm. It keeps the current end-effector orientation, so the planner can
-  reason in Cartesian space.
+- ``move_to_xyz(x, y, z)`` moves the TCP to the world position: it solves IK,
+  submits short action chunks, and re-reads the TCP pose until the error is
+  within 1 cm. It keeps the current orientation, so the planner can reason in
+  Cartesian space.
 - ``set_gripper(opening)`` sets the finger opening while holding the current arm
   pose.
 

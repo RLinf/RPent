@@ -74,9 +74,9 @@ EFE 的其余 959 个任务属于 ``privileged`` 模式，我们暂时不支持�
    * - 项目
      - 说明
    * - 观测
-     - 相机 RGB 图像（请求时含深度）、机器人本体感受，以及动作布局、关节名、相机和运动学。Agent 只看到客户端返回的内容。
+     - 相机 RGB 图像（请求时含深度）、机器人自身状态（关节角度、TCP 位姿、夹爪开度），以及动作布局、关节名、相机和运动学。Agent 只看到客户端返回的内容。
    * - 动作
-     - 默认组调用 ``move_to_xyz`` 移动工具坐标系、``set_gripper`` 设置夹爪开口；Raw 组用 ``efe_submit`` 提交关节目标动作块。两者都通过 ``rcb_client`` 与 Simulator 服务通信。
+     - 默认组调用 ``move_to_xyz`` 把工具末端（TCP）移动到世界坐标、``set_gripper`` 设置夹爪开口；Raw 组用 ``efe_submit`` 提交关节目标动作块。两者都通过 ``rcb_client`` 与 Simulator 服务通信。
    * - 奖励与成功判定
      - EFE 的 Verifier 独立评分，写出 ``verifier/reward.json``；Harbor 记录为 ``result.json`` 的 ``verifier_result.rewards``，其中 ``success`` 是任务成功标记，其余字段是诊断信息。
    * - 任务指令
@@ -87,7 +87,7 @@ EFE 的其余 959 个任务属于 ``privileged`` 模式，我们暂时不支持�
 安装与资源准备
 --------------
 
-宿主需要 EFE 官方要求的 Docker 环境、云端模型凭据和 EFE checkout。按 EFE 的说明准备宿主和任务；Simulator 的资源要求由任务决定。首次运行仍需下载容器和任务资源。保留 EFE 原始任务、Simulator、Verifier 和资源限制。宿主的 ``PYTHONPATH`` 必须能导入本仓库中的 Adapter。
+宿主需要 EFE 官方要求的 Docker 环境、云端模型 API key 和 EFE checkout。按 EFE 的说明准备宿主和任务；Simulator 的资源要求由任务决定。首次运行仍需下载容器和任务资源。保留 EFE 原始任务、Simulator、Verifier 和资源限制。宿主的 ``PYTHONPATH`` 必须能导入本仓库中的 Adapter。
 
 .. code-block:: bash
 
@@ -97,12 +97,12 @@ EFE 的其余 959 个任务属于 ``privileged`` 模式，我们暂时不支持�
    export EFE_MODEL=openai/your-model
    export OPENAI_API_KEY=your-key
 
-不要将凭据写入仓库。Adapter 只转发模型相关环境变量和显式的 Harbor ``--agent-env`` 设置。它把 ``OPENAI_API_KEY``、``OPENAI_BASE_URL`` 映射到 RPent 的 ``CODEX_API_KEY``、``CODEX_BASE_URL``；已有 ``CODEX_*`` 设置优先。Adapter 不转发宿主的 ``CODEX_HOME``，Runner 会在 Agent 容器内为每个 Trial 新建该目录。
+不要将 API key 写入仓库。Adapter 只转发模型相关环境变量和显式的 Harbor ``--agent-env`` 设置。它把 ``OPENAI_API_KEY``、``OPENAI_BASE_URL`` 映射到 RPent 的 ``CODEX_API_KEY``、``CODEX_BASE_URL``；已有 ``CODEX_*`` 设置优先。Adapter 不转发宿主的 ``CODEX_HOME``，Runner 会在 Agent 容器内为每个 Trial 新建该目录。
 
 运行一个任务
 ------------
 
-模型由 Harbor 的 ``--model`` 指定，凭据从当前终端的环境变量转发。以下命令运行一个 Trial：
+模型由 Harbor 的 ``--model`` 指定，API key 从当前终端的环境变量读取。以下命令运行一个 Trial：
 
 .. code-block:: bash
 
@@ -116,7 +116,7 @@ EFE 的其余 959 个任务属于 ``privileged`` 模式，我们暂时不支持�
      --agent-kwarg reasoning_effort=none \
      --jobs-dir "$RPENT_ROOT/logs/efe-rpent"
 
-``RPentEfeAgent`` 从当前 checkout 安装 RPent。``source_root`` 默认指向 Adapter 所在 checkout 的仓库根目录；若 Adapter 从已安装的 Wheel 导入，必须显式传入。源码包不包含宿主 ``.git``、测试、凭据文件和运行日志。``robots/`` 是现有 RPent distribution 所需的包，不会启动任何 Robot Runtime。
+``RPentEfeAgent`` 从当前 checkout 安装 RPent。``source_root`` 默认指向 Adapter 所在 checkout 的仓库根目录；若 Adapter 从已安装的 Wheel 导入，必须显式传入。源码包不包含宿主 ``.git``、测试、API key 文件和运行日志。``robots/`` 是现有 RPent distribution 所需的包，不会启动任何 Robot Runtime。
 
 该自定义 Agent 不声明模型 Endpoint，Harbor 无法推断推理主机，需传入 ``--allow-agent-host <model-host>``。显式名单会替换默认放行，因此还要放行安装所需的包主机：``--allow-agent-host pypi.org --allow-agent-host files.pythonhosted.org``。首次容器安装运行 ``pip``，Harbor 默认 Setup 超时为 360 秒；冷安装较慢时加上 ``--agent-setup-timeout-multiplier 4``。
 
@@ -162,7 +162,7 @@ Harbor 的任务预算始终是外层硬限制；RPent 在 Trial 结束时写出
 
 - ``--agent-kwarg memory_source=/path``：上传已有 RPent 记忆语料，替换本次 Trial 的空记忆目录。
 - ``--agent-kwarg explore_sessions=N``：在同一 Episode 上运行多个独立 Session。
-- 每个 Trial 从空的 ``memory/`` 和独立的 ``codex-home/`` 开始；模型与凭据只来自显式环境变量。
+- 每个 Trial 从空的 ``memory/`` 和独立的 ``codex-home/`` 开始；模型与 API key 只来自显式环境变量。
 
 对照 Skills 与 Raw
 ------------------
@@ -188,7 +188,7 @@ Harbor 的任务预算始终是外层硬限制；RPent 在 Trial 结束时写出
 
 默认组用两个高层技能代替直接提交关节目标：
 
-- ``move_to_xyz(x, y, z)`` 把世界坐标目标解成 IK，提交短动作块，并反复读取本体感受，直到工具坐标系进入 1 cm 容差。它保持当前末端姿态，Planner 因此可以在笛卡尔空间推理。
+- ``move_to_xyz(x, y, z)`` 把 TCP 移动到世界坐标：解 IK、提交短动作块，再读回 TCP 位姿，直到误差小于 1 cm。它保持当前姿态，Planner 因此可以在笛卡尔空间推理。
 - ``set_gripper(opening)`` 在保持当前臂位姿的同时设置夹爪开口。
 
 Raw 组直接使用服务接口：``efe_spec`` 返回每个动作向量的列含义和顺序（即动作布局），Planner 再按该布局用 ``efe_submit`` 发送关节目标动作块。
