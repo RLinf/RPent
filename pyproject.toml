@@ -56,8 +56,6 @@ rpent = "rpent.cli.main:main"
 rpent-memory = "rpent.cli.memory:main"
 rpent-check-llm = "rpent.cli.check_llm:main"
 rpent-flywheel = "rpent.flywheel.cli:main"
-rpent-efe = "rpent.cli.efe:main"
-rpent-efe-report = "rpent.benchmark.efe.report:main"
 
 [project.urls]
 Homepage = "https://github.com/RLinf/RPent"
