@@ -1,18 +1,18 @@
 Remote Services and Parallel Runs
 =================================
 
-By default, RPent starts and stops the environment, VLA, and SAM3 services
-with each LIBERO run. Keep that default for single-machine use. Configure
-external endpoints only when services live on different hosts, or when you
-want to reuse VLA and SAM3 models across tasks.
+The examples below use LIBERO with Pi0.5 VLA and SAM3. By default, RPent starts
+and stops these services and the environment with each run. Configure external
+endpoints when services live on different hosts or are reused across tasks.
+For WAM worker deployment, see :ref:`action-model-deployment`.
 
 Three flags set the endpoints: ``--env-endpoint`` for the LIBERO
-environment, ``--vla-endpoint`` for the Pi0.5 VLA, and ``--sam3-endpoint``
+environment, ``--am-endpoint`` for the selected action model, and ``--sam3-endpoint``
 for SAM3. Each takes ``[protocol://]HOST:PORT`` — HTTP when the protocol is
 omitted, or ``socket://`` for socket RPC.
 
 Dashboard Sessions do not support ``--env-endpoint`` because every TaskRun
-uses a fresh environment service. ``--vla-endpoint`` and ``--sam3-endpoint``
+uses a fresh environment service. ``--am-endpoint`` and ``--sam3-endpoint``
 remain available in Dashboard mode.
 
 LIBERO Environment Service
@@ -123,7 +123,7 @@ seed, and max episode steps must match the environment service:
      --suite libero_object_swap --task 2 --seed 0 \
      --libero-type pro --max-episode-steps 10000 \
      --env-endpoint http://ENV_HOST:ENV_PORT \
-     --vla-endpoint http://VLA_HOST:VLA_PORT \
+     --am-endpoint http://VLA_HOST:VLA_PORT \
      --sam3-endpoint http://SAM3_HOST:SAM3_PORT \
      --planner claude_code --model claude-opus-4-8
 
@@ -180,7 +180,7 @@ their services do not need to be started again for each run.
      rpent --robot libero --libero-type pro \
        --suite libero_object_swap --task 2 --seed 0 \
        --planner claude_code --model claude-opus-4-8 \
-       --vla-endpoint http://VLA_HOST:VLA_PORT \
+       --am-endpoint http://VLA_HOST:VLA_PORT \
        --sam3-endpoint http://SAM3_HOST:SAM3_PORT \
        --output-dir logs/parallel_object_swap_t2_s0/run_$i &
      pids+=($!)

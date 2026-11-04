@@ -87,11 +87,11 @@ RPent 提供了一个使用 VLA 抓取物品的演示。任务 ``1`` 提供 ``vl
 .. code-block:: bash
 
    uv run --extra franka rpent --robot franka --task-id 1 \
-     --vla-endpoint http://VLA_HOST:PORT \
+     --am-endpoint http://VLA_HOST:PORT \
      --planner claude_code --model claude-opus-4-8 \
      --robot-config robots/franka/config/example.yaml
 
-目前 VLA 服务需要单独部署。若未设置 ``--vla-endpoint``，解析式运动和夹爪工具仍然可用，但 ``vla_grasp`` 会抛出运行时错误。
+目前 VLA 服务需要单独部署。若未设置 ``--am-endpoint``，解析式运动和夹爪工具仍然可用，但 ``vla_grasp`` 会抛出运行时错误。
 
 工具与状态产物
 --------------
@@ -152,7 +152,7 @@ Franka Flash 任务卡
      --molmo-endpoint http://localhost:9000
 
 双臂使用 ``--robot dual_franka`` 及相应任务卡和配置。按机器人部署文档配置 Env/VLA
-端点；含 ``vla_grasp`` 的单臂任务卡需要 ``--vla-endpoint``。回放在驱动初始化
+端点；含 ``vla_grasp`` 的单臂任务卡需要 ``--am-endpoint``。回放在驱动初始化
 （可能复位机器人）前、执行前请求确认，结束后由操作员判定任务是否成功。
 本模式不能与 ``--tui``、``--dashboard``、``--explore`` 同用。
 

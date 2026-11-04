@@ -172,6 +172,68 @@ def _primitives(env, molmo_client=None):
     )
 
 
+@pytest.mark.parametrize("terminated,truncated", [(True, False), (False, True)])
+def test_wam_refreshes_observations_and_stops_on_native_end(terminated, truncated):
+    env = Mock(terminated=False, truncated=False, return_all_frames=False)
+    env.raw_obs.side_effect = [{"position": 0}, {"position": 1}]
+    env.reset.return_value = (_obs(0), {})
+    model = Mock(predict=Mock(return_value=np.zeros((16, 7))))
+    model.wam.model_meta = {"backend": "test"}
+    primitives = LiberoPrimitives(env, model, Mock(), lambda: None, policy_kind="wam")
+    primitives.reset()
+    model.reset.assert_called_once()
+    env.chunk_step.return_value = (_obs(1), 0, False, False, {})
+    assert primitives.wam_act("subtask").data["chunks"] == 1
+
+    def end(actions, *, return_all_frames=None):
+        env.terminated, env.truncated = terminated, truncated
+        return _obs(2), 0, terminated, truncated, {}
+
+    env.chunk_step.side_effect = end
+    result = primitives.wam_act(max_chunks=4).data
+    assert result["chunks"] == 1
+    assert result["success"] == terminated and result["truncated"] == truncated
+    assert primitives.wam_act().data["chunks"] == 0
+    calls = model.predict.call_args_list
+    assert [call.args[0]["position"] for call in calls] == [0, 1]
+    assert [call.args[0]["task_descriptions"] for call in calls] == [
+        "subtask",
+        "put the bowl on the plate",
+    ]
+
+
+@pytest.mark.parametrize("terminal", ["terminated", "truncated"])
+def test_wam_toolkit_rejects_motion_after_episode_end(tmp_path, monkeypatch, terminal):
+    monkeypatch.setattr("rpent.tools.toolkit.substitute", lambda value: value)
+    monkeypatch.setattr(
+        libero_toolkit.libero_tools,
+        "dump_state",
+        lambda *args, **kwargs: SimpleNamespace(step_idx=0, terminated=False),
+    )
+    env = _Env()
+    toolkit = libero_toolkit.LiberoToolkit(
+        runtime_kwargs={"env": env, "model": Mock(), "sam3_client": Mock()},
+        dashboard_events=NullDashboardEventSink(),
+        memory=MemoryManager(tmp_path / "memory"),
+        state_output_dir=tmp_path / "state",
+        policy_kind="wam",
+        enable_direct_action=True,
+    )
+    toolkit.get_env_state = lambda **kwargs: ToolResult(data={})
+    setattr(env, terminal, True)
+    env.step = Mock()
+    env.chunk_step = Mock()
+    for name, arguments in (
+        ("release", {"max_steps": 1}),
+        ("execute_action", {"values": [0.0] * 7}),
+        ("wam_act", {}),
+    ):
+        result = toolkit.execute_tool(name, arguments)
+        assert result.is_error and "Episode already ended" in result.data["error"]
+    env.step.assert_not_called()
+    env.chunk_step.assert_not_called()
+
+
 @pytest.mark.parametrize(
     ("mode", "record_trajectory"),
     [("evaluation", True), ("exploration", True), ("evaluation", False)],
@@ -440,13 +502,21 @@ def test_action_capture_preserves_terminal_flags(
     assert actions[0].result.data[terminal]
 
 
+@pytest.mark.parametrize("policy_kind", ["vla", "wam"])
 @pytest.mark.parametrize("frame_failure", [False, True])
-def test_vla_capture_keeps_all_confirmed_actions(
-    captured_primitives, monkeypatch, frame_failure
+def test_policy_capture_keeps_all_confirmed_actions(
+    captured_primitives, monkeypatch, frame_failure, policy_kind
 ):
     primitives, capture = captured_primitives
     initial = primitives._last_obs
     predict = primitives.model.predict
+    primitives.policy_kind = policy_kind
+    if policy_kind == "wam":
+        primitives.env.wrapped.raw_obs = lambda: initial
+        primitives.model.wam = SimpleNamespace(model_meta={"backend": "test"})
+        act = primitives.wam_act
+    else:
+        act = primitives._vlm_chunk
 
     def predict_separately(observation, *, options):
         np.testing.assert_array_equal(observation["states"], initial["states"])
@@ -464,9 +534,9 @@ def test_vla_capture_keeps_all_confirmed_actions(
     with capture.bind():
         if frame_failure:
             with pytest.raises(RuntimeError, match="frame"):
-                primitives._vlm_chunk("pick up the bowl")
+                act("pick up the bowl")
         else:
-            primitives._vlm_chunk("pick up the bowl")
+            act("pick up the bowl")
 
     assert primitives.env.chunk_return_all_frames is True
     actions = capture.state.action_records()
@@ -606,6 +676,34 @@ def test_no_capture_context_keeps_fast_chunk_path(capture_actions, tmp_path):
     assert env.chunk_return_all_frames is None
     assert state.action_records() == state.prediction_records() == []
     assert not (tmp_path / "trajectories").exists()
+
+
+@pytest.mark.parametrize("failure", [None, "predict", "step"])
+def test_policy_subinstruction_does_not_mutate_environment_observations(failure):
+    env = _Env()
+    primitives = _primitives(env)
+    initial, _ = primitives.reset()
+    initial_keys = set(initial)
+
+    def predict(observation, *, options):
+        assert initial["task_descriptions"] == "put the bowl on the plate"
+        assert observation["task_descriptions"] == "pick up the bowl"
+        if failure == "predict":
+            raise RuntimeError("prediction failed")
+        return np.zeros((2, 7))
+
+    primitives.model.predict = predict
+    if failure == "step":
+        env.chunk_step = Mock(side_effect=RuntimeError("step failed"))
+    if failure is None:
+        primitives.pi0_doubled("pick up the bowl", max_chunks=1)
+    else:
+        with pytest.raises(RuntimeError, match="failed"):
+            primitives.pi0_doubled("pick up the bowl", max_chunks=1)
+
+    assert set(initial) == initial_keys
+    assert initial["task_descriptions"] == "put the bowl on the plate"
+    assert primitives._last_obs["task_descriptions"] == "put the bowl on the plate"
 
 
 @pytest.mark.parametrize("failure", [None, "stop", "save"])

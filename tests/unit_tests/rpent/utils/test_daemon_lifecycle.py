@@ -65,6 +65,21 @@ class UnavailableClient:
         raise ConnectionError("not ready")
 
 
+def test_failed_spawn_closes_log(monkeypatch, tmp_path):
+    logs = []
+
+    def fail_spawn(*args, **kwargs):
+        logs.append(kwargs["stdout"])
+        raise OSError("cannot spawn")
+
+    monkeypatch.setattr(subprocess, "Popen", fail_spawn)
+    daemon, _ = _python_daemon(tmp_path, "pass")
+    with pytest.raises(OSError, match="cannot spawn"):
+        daemon.start()
+    assert logs[0].closed
+    daemon.stop()
+
+
 def test_daemon_starts_logs_and_stops_idempotently(tmp_path: Path) -> None:
     daemon, log_path = _python_daemon(
         tmp_path,

@@ -20,6 +20,8 @@ LIBERO primitives (``move_to``, ``pi0_pick``, ``release``, ...) on top.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import replace
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -56,6 +58,7 @@ class LiberoToolkit(Toolkit):
         mode: str = "evaluation",
         attempts_per_session: int = 0,
         state_output_dir: Path | str | None = None,
+        policy_kind: str = "vla",
     ) -> None:
         if mode not in {"evaluation", "exploration"}:
             raise ValueError(f"unsupported LIBERO toolkit mode: {mode!r}")
@@ -67,6 +70,7 @@ class LiberoToolkit(Toolkit):
             memory=memory,
         )
         self._mode = mode
+        self._policy_kind = policy_kind
         self._solved: bool = False
         self._attempt: int = 1
         # Bound the resettable attempts owned by this planner session.
@@ -74,11 +78,21 @@ class LiberoToolkit(Toolkit):
         self._session_attempt: int = 1
         self.init_primitives(runtime_kwargs=runtime_kwargs)
         self._register_libero_tools()
+        if policy_kind == "wam":
+            finish = self._tools["finish"]
+            self.add_tool(
+                replace(
+                    finish.with_handler(partial(self._wam_finish, finish)),
+                    description="End the episode with its observed outcome. "
+                    "Success requires native environment success.",
+                ),
+                replace=True,
+            )
         if enable_direct_action:
             self.add_tool(
                 direct_action_tool(
                     self._primitives.env.action_specs,
-                    self._primitives.execute_action,
+                    partial(self._execute_primitive, self._primitives.execute_action),
                 )
             )
 
@@ -91,9 +105,20 @@ class LiberoToolkit(Toolkit):
                 definition.with_handler(partial(definition, state=self._state))
             )
         for definition in iter_tools(self._primitives):
+            excluded = (
+                {"pi0_pick", "pi0_doubled"}
+                if self._policy_kind == "wam"
+                else {"wam_act"}
+            )
+            if definition.name in excluded:
+                continue
             if definition.name == "segment":
                 definition = definition.with_handler(
                     partial(definition, state=self._state)
+                )
+            else:
+                definition = definition.with_handler(
+                    partial(self._execute_primitive, definition)
                 )
             self.add_tool(definition)
         if self._mode == "exploration":
@@ -102,6 +127,32 @@ class LiberoToolkit(Toolkit):
             self.add_tool(
                 finish.with_handler(partial(self._guarded_finish, finish)), replace=True
             )
+
+    def _execute_primitive(
+        self, handler: Callable[..., ToolResult], **kwargs: Any
+    ) -> ToolResult:
+        env = self._primitives.env
+        if self._policy_kind == "wam" and (env.terminated or env.truncated):
+            status = "success" if env.terminated else "failure"
+            raise ValueError(
+                "Episode already ended; no further motion is allowed. "
+                f"Call finish with status={status!r}."
+            )
+        return handler(**kwargs)
+
+    def _wam_finish(self, inner: Any, **kwargs: Any) -> ToolResult:
+        """Require native task success before accepting a success claim."""
+        if kwargs.get("status") == "success" and not self.solved():
+            return ToolResult(
+                data={
+                    "error": "finish refused: success requires native terminated=true",
+                    "terminated": self._primitives.env.terminated,
+                    "truncated": self._primitives.env.truncated,
+                    "reason": "Inspect the current state. Continue if the episode is "
+                    "active; report failure if it was truncated.",
+                }
+            )
+        return inner(**kwargs)
 
     def _guarded_finish(self, inner: Any, **kwargs: Any) -> ToolResult:
         """Refuse to end an unsolved session while attempts remain."""
@@ -175,6 +226,12 @@ class LiberoToolkit(Toolkit):
                 )
         out = libero_tools.view_env_state(record.step_idx, state=self._state)
         out.data["agent_elapsed_s"] = elapsed_s
+        if self._policy_kind == "wam" and (record.terminated or record.truncated):
+            status = "success" if record.terminated else "failure"
+            out.data["next_action"] = (
+                f"Episode ended. Call finish with status={status!r}; "
+                "further motion is invalid."
+            )
         if result.get("interrupted"):
             out.data.update(result)
         return out
@@ -202,6 +259,7 @@ class LiberoToolkit(Toolkit):
             )
         primitives = libero_tools.LiberoPrimitives(
             check_cancelled=self.raise_if_cancelled,
+            policy_kind=self._policy_kind,
             **runtime_kwargs,
         )
         primitives.reset()

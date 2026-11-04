@@ -28,7 +28,11 @@ def system_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> PromptNode:
     """Return the RoboTwin system prompt for the selected run mode."""
-    if (variables or {}).get("mode", "eval") == "explore":
+    variables = variables or {}
+    if (
+        variables.get("mode", "eval") == "explore"
+        and variables.get("policy_kind") != "wam"
+    ):
         return explore_parts.system_prompt()
     return evaluate_parts.system_prompt(variables)
 
@@ -36,6 +40,11 @@ def system_prompt(
 def user_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> PromptNode:
+    if (variables or {}).get("policy_kind") == "wam":
+        return {
+            "TASK": user_parts.WAM_TASK,
+            "MEMORY": user_parts.WAM_MEMORY,
+        }
     prompt = {
         "CELL": user_parts.CELL,
         "BEGIN": user_parts.BEGIN,

@@ -86,6 +86,15 @@ class _ContractToolkit(Toolkit):
         return False
 
 
+def test_toolkit_and_common_tools_require_memory() -> None:
+    with pytest.raises(TypeError, match="memory"):
+        Toolkit(dashboard_events=_RecordingEventSink())
+    with pytest.raises(TypeError, match="memory"):
+        Toolkit(dashboard_events=_RecordingEventSink(), memory=None)
+    with pytest.raises(TypeError, match="memory"):
+        common.CommonTools(memory=None)
+
+
 def test_toolkit_registers_common_specs_with_fresh_placeholder_substitution(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

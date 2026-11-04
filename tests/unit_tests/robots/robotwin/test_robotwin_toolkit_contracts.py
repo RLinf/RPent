@@ -26,6 +26,7 @@ from pathlib import Path
 from threading import Lock
 from types import ModuleType, SimpleNamespace
 from typing import Any
+from unittest.mock import Mock
 
 import numpy as np
 import pytest
@@ -79,6 +80,7 @@ class FakeRoboTwinPrimitives:
 
     def __init__(self, **kwargs: Any) -> None:
         self.kwargs = kwargs
+        self.model = kwargs["model"]
         self.status_calls = 0
         self.recording_started = False
         self.env = SimpleNamespace(last_reset_info={"actual_seed": 7})
@@ -115,6 +117,9 @@ class FakeRoboTwinPrimitives:
 
     def lingbot_act(self, **kwargs: Any) -> dict[str, Any]:
         return self._operation("lingbot_act", **kwargs)
+
+    def wam_act(self, **kwargs: Any) -> ToolResult:
+        return self._operation("wam_act", **kwargs)
 
     def move_to(self, **kwargs: Any) -> dict[str, Any]:
         return self._operation("move_to", **kwargs)
@@ -166,9 +171,11 @@ def test_fake_and_real_implement_toolkit_primitive_protocol() -> None:
         )
 
 
+@pytest.mark.parametrize("policy_kind", ["vla", "wam"])
 def test_toolkit_constructs_and_captures_an_initial_observation(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    policy_kind: str,
 ) -> None:
     FakeRoboTwinPrimitives.instances.clear()
     dumped: list[dict[str, Any]] = []
@@ -198,15 +205,28 @@ def test_toolkit_constructs_and_captures_an_initial_observation(
         ),
     )
 
-    runtime_kwargs = {"env": object(), "model": object(), "seed": 7}
+    model = Mock()
+    runtime_kwargs = {
+        "env": object(),
+        "model": model,
+        "seed": 7,
+        "policy_kind": policy_kind,
+    }
     robot_toolkit = toolkit.RoboTwinToolkit(
         runtime_kwargs=runtime_kwargs,
         dashboard_events=NullDashboardEventSink(),
         memory=MemoryManager(tmp_path / "memory"),
     )
 
-    assert _tool_names(robot_toolkit) == EXPECTED_TOOLS
-    assert _readonly_names(robot_toolkit) == COMMON_TOOLS | {
+    if policy_kind == "wam":
+        model.reset.assert_called_once()
+        expected = (EXPECTED_TOOLS - {"lingbot_act"}) | {"wam_act"}
+        common = COMMON_TOOLS
+    else:
+        model.reset.assert_not_called()
+        expected, common = EXPECTED_TOOLS, COMMON_TOOLS
+    assert _tool_names(robot_toolkit) == expected
+    assert _readonly_names(robot_toolkit) == common | {
         "view_env_state",
         "sample_world_xyz",
         "query_world_map",
@@ -494,14 +514,27 @@ def test_captured_call_preserves_return_shape_and_cache(
 @pytest.mark.parametrize(
     ("transport", "recording"), [("socket", True), ("http", False)]
 )
-def test_lingbot_predictions_and_action_sources_reach_disk(
-    facade, make_server_and_client, transport, tmp_path, recording
+@pytest.mark.parametrize(
+    ("policy_kind", "action_type", "dim"),
+    [("vla", "ee", 16), ("wam", "qpos", 14), ("wam", "ee", 16)],
+)
+def test_policy_predictions_and_action_sources_reach_disk(
+    facade,
+    make_server_and_client,
+    transport,
+    tmp_path,
+    recording,
+    policy_kind,
+    action_type,
+    dim,
 ):
     state = EnvState(tmp_path)
     task = facade._env.venv.envs[0].task
-    task.success_at = 104
+    chunk_steps = 50 if policy_kind == "vla" else 53
+    end_step = 2 * chunk_steps + 4
+    task.success_at = end_step
     inputs = []
-    commands = np.arange(53 * 16, dtype=np.float64).reshape(53, 16) / 1000
+    commands = np.arange(53 * dim, dtype=np.float64).reshape(53, dim) / 1000
 
     def infer(observation):
         inputs.append(deepcopy(observation))
@@ -517,9 +550,10 @@ def test_lingbot_predictions_and_action_sources_reach_disk(
         )
         primitives = RoboTwinPrimitives(
             env=env,
-            model=SimpleNamespace(infer=infer),
+            model=SimpleNamespace(infer=infer, predict=infer, action_type=action_type),
             seed=7,
             check_cancelled=lambda: None,
+            policy_kind=policy_kind,
         )
         primitives.start_recording()
         toolkit = Toolkit(
@@ -538,15 +572,17 @@ def test_lingbot_predictions_and_action_sources_reach_disk(
             return ToolResult(data={})
 
         toolkit.add_tool(computed)
-        toolkit.add_tool(primitives.lingbot_act)
+        policy_tool = "lingbot_act" if policy_kind == "vla" else "wam_act"
+        chunk_arg = "chunks" if policy_kind == "vla" else "max_chunks"
+        toolkit.add_tool(getattr(primitives, policy_tool))
         toolkit.add_tool(
             direct_action_tool(env.action_specs, primitives.execute_action)
         )
         for name, arguments in (
             ("execute_action", {"values": [0.0] * 14, "action_type": "qpos"}),
-            ("lingbot_act", {"chunks": 1, "prompt": "ignored instruction"}),
+            (policy_tool, {chunk_arg: 1, "prompt": "policy subtask"}),
             ("computed", {}),
-            ("lingbot_act", {"chunks": 2}),
+            (policy_tool, {chunk_arg: 2}),
         ):
             if recording:
                 tool_id = state.register_tool_call(
@@ -557,12 +593,19 @@ def test_lingbot_predictions_and_action_sources_reach_disk(
             assert not result.is_error, result.data
             assert "capture" not in client.last_info
         assert client.terminated
-        assert len(task.executed) == 104
+        assert len(task.executed) == end_step
         assert len(inputs) == 3
-        assert primitives.policy_actions == 102
-        assert primitives.recorded_frame_count() == 103
+        assert [observation["task_language"] for observation in inputs] == [
+            "native instruction" if policy_kind == "vla" else "policy subtask",
+            "native instruction",
+            "native instruction",
+        ]
+        assert primitives.policy_actions == end_step - 2
+        assert primitives.recorded_frame_count() == end_step - 1
         for frame, count in zip(
-            primitives.frame_slice(0), [*range(1, 52), *range(53, 105)], strict=True
+            primitives.frame_slice(0),
+            [*range(1, chunk_steps + 2), *range(chunk_steps + 3, end_step + 1)],
+            strict=True,
         ):
             assert frame.dtype == np.uint8
             np.testing.assert_array_equal(frame, np.full((2, 2, 3), count))
@@ -583,21 +626,21 @@ def test_lingbot_predictions_and_action_sources_reach_disk(
     ]
     assert [a["source"] for a in actions] == [
         "direct",
-        *(["vla"] * 50),
+        *(["vla"] * chunk_steps),
         "tool_computed",
-        *(["vla"] * 52),
+        *(["vla"] * (chunk_steps + 2)),
     ]
     for prediction, start, length, expected in zip(
-        predictions, (2, 53, 103), (50, 50, 2), inputs, strict=True
+        predictions,
+        (2, chunk_steps + 3, 2 * chunk_steps + 3),
+        (chunk_steps, chunk_steps, 2),
+        inputs,
+        strict=True,
     ):
         assert prediction["action_ids"] == [
             f"A{i}" for i in range(start, start + length)
         ]
-        assert (
-            prediction["instruction"]
-            == expected["task_language"]
-            == "native instruction"
-        )
+        assert prediction["instruction"] == expected["task_language"]
         assert "input_observation" not in prediction
         assert "input_observation_id" not in prediction
         payload = actions[start - 1]["before_observation"]["payload"]
@@ -657,3 +700,45 @@ def test_failed_chunk_discards_its_steps_but_keeps_prior_calls(
     assert len(task.executed) == 3
     assert len(state.action_records()) == 1
     assert state.prediction_records()[0].action_ids == []
+
+
+@pytest.mark.parametrize("action_type,dim", [("qpos", 14), ("ee", 16)])
+def test_wam_executes_selected_control_and_refreshes_observation(action_type, dim):
+    status = {"eval_success": False, "step_lim": 20, "take_action_cnt": 0}
+    env = Mock(
+        terminated=False,
+        truncated=False,
+        last_info={
+            "episode_status": status,
+            "robot_state": {"qpos_target14": np.zeros(14)},
+        },
+    )
+    env.get_task_language.return_value = "native task"
+    env.render_camera.return_value = np.zeros((8, 8, 3), np.uint8)
+
+    def step(actions, **kwargs):
+        assert kwargs["action_type"] == action_type
+        status["take_action_cnt"] += len(actions)
+        env.last_info["robot_state"] = {
+            "qpos_target14": np.full(14, status["take_action_cnt"])
+        }
+        return {}, 0, False, False, {**env.last_info, "executed_actions": len(actions)}
+
+    env.chunk_step.side_effect = step
+    env.reset.return_value = ({}, {})
+    model = Mock(action_type=action_type, predict=Mock(return_value=np.zeros((3, dim))))
+    primitive = RoboTwinPrimitives(
+        env=env, model=model, seed=0, check_cancelled=lambda: None, policy_kind="wam"
+    )
+    primitive.reset()
+    model.reset.assert_called_once()
+    assert primitive.wam_act("subtask").data["executed_steps"] == 3
+    assert primitive.wam_act().data["executed_steps"] == 3
+    calls = model.predict.call_args_list
+    assert [call.args[0]["task_language"] for call in calls] == [
+        "subtask",
+        "native task",
+    ]
+    np.testing.assert_array_equal(
+        calls[1].args[0]["robot_state"]["qpos_target14"], np.full(14, 3)
+    )

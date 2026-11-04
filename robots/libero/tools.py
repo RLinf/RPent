@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""LIBERO + OpenPI tool implementation."""
+"""LIBERO scripted and model-based tool implementation."""
 
 from __future__ import annotations
 
@@ -21,19 +21,22 @@ import threading
 from collections.abc import Callable
 from contextlib import nullcontext
 from pathlib import Path
-from typing import Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 import numpy as np
 from pydantic import Field
 
 from robots.libero.env_client import LiberoEnvClient
 from rpent.robots.components.molmo_client import MolmoClient
-from rpent.robots.components.pi05_vla_client import Pi05VLAClient
 from rpent.robots.components.sam3_client import Sam3Client
 from rpent.session import EnvState, StepRecord
 from rpent.session.env_capture import CapturingEnvClient
 from rpent.tools import Tool, ToolResult, tool
 from rpent.utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from robots.libero.wam_client import LiberoWAMClient
+    from rpent.robots.components.am_client_base import BaseVLAClient
 
 logger = get_logger("libero_tools")
 
@@ -48,7 +51,7 @@ def _normalize_xyz(xyz):
 
 
 class LiberoPrimitives:
-    """Wraps a single-env LIBERO-shaped env + VLA policy with primitive-
+    """Wraps a single-env LIBERO-shaped env + action model with primitive-
     level methods.
 
     ``pi0_pick`` and ``pi0_doubled`` pass a sub-instruction to the policy.
@@ -59,13 +62,15 @@ class LiberoPrimitives:
     def __init__(
         self,
         env: LiberoEnvClient | CapturingEnvClient,
-        model: Pi05VLAClient,
+        model: BaseVLAClient | LiberoWAMClient,
         sam3_client: Sam3Client,
         check_cancelled: Callable[[], None],
         molmo_client: MolmoClient | None = None,
+        policy_kind: str = "vla",
     ):
         self.env = env
         self.model = model
+        self.policy_kind = policy_kind
         self._sam3_client = sam3_client
         self._segment_index_lock = threading.Lock()
         self._segment_index = 0
@@ -114,6 +119,8 @@ class LiberoPrimitives:
 
     def reset(self):
         obs, info = self.env.reset()
+        if self.policy_kind == "wam":
+            self.model.reset()
         self.set_obs(obs)
         return self._last_obs, info
 
@@ -140,11 +147,12 @@ class LiberoPrimitives:
             "libero_terminated": self.env.terminated or self.env.truncated,
         }
 
-    def _vlm_chunk(self, instruction: str):
-        """Predict and execute one VLA action chunk with a sub-instruction."""
+    def _vlm_chunk(self, instruction: str, *, raw_obs: dict | None = None):
+        """Predict and execute one action chunk with a request-local instruction."""
         self._check_cancelled()
         capturing = isinstance(self.env, CapturingEnvClient)
-        policy_obs = {**self._last_obs, "task_descriptions": instruction}
+        policy_obs = (self._last_obs if raw_obs is None else raw_obs).copy()
+        policy_obs["task_descriptions"] = instruction
         policy_obs.setdefault("extra_view_images", None)
         prediction = self.env.prediction(instruction) if capturing else nullcontext()
         with prediction:
@@ -161,6 +169,41 @@ class LiberoPrimitives:
             for obs in chunk_obs:
                 self.record_frame(obs)
         return self._last_obs
+
+    @tool
+    def wam_act(
+        self,
+        prompt: Annotated[str, Field(min_length=1)] | None = None,
+        *,
+        max_chunks: Annotated[int, Field(strict=True, ge=1, le=4)] = 1,
+    ) -> ToolResult:
+        """Execute bounded WAM action chunks on current observations. Omit prompt for the native task, or supply a subtask for this call. Inspect the resulting state before continuing; predictions do not establish task success. Episode termination prevents the next chunk, not remaining actions within the current chunk.
+
+        Args:
+            prompt: Concrete instruction for this call; omit or null for the native task.
+            max_chunks: One to four predictions before planner feedback (default 1).
+        """
+        if prompt is not None and (not isinstance(prompt, str) or not prompt.strip()):
+            raise ValueError("prompt must be a non-empty instruction or null")
+        if type(max_chunks) is not int or not 1 <= max_chunks <= 4:
+            raise ValueError("max_chunks must be an integer between 1 and 4")
+        chunks = 0
+        while chunks < max_chunks and not (self.env.terminated or self.env.truncated):
+            self._check_cancelled()
+            self._vlm_chunk(
+                prompt if prompt is not None else self._last_obs["task_descriptions"],
+                raw_obs=self.env.raw_obs(),
+            )
+            chunks += 1
+        return ToolResult(
+            data={
+                "model": self.model.wam.model_meta["backend"],
+                "chunks": chunks,
+                "success": self.env.terminated,
+                "terminated": self.env.terminated,
+                "truncated": self.env.truncated,
+            }
+        )
 
     @tool
     def pi0_pick(
