@@ -3,8 +3,7 @@ Embodied First Exam
 
 Run robot tasks with RPent in EFE (Embodied First Exam). EFE starts an agent
 container and a simulator container through Harbor; RPent joins as an installed
-agent and operates the robot through the task's ``rcb_client``. The integration
-is experimental and EFE-compatible / non-official.
+agent and operates the robot through the task's ``rcb_client``.
 
 Overview
 --------

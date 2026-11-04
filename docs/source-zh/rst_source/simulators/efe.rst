@@ -1,7 +1,7 @@
 Embodied First Exam
 ===================
 
-使用 RPent 在 EFE（Embodied First Exam）中运行机器人任务。EFE 通过 Harbor 启动 Agent 容器与 Simulator 容器，RPent 作为 Installed Agent 接入，通过任务自带的 ``rcb_client`` 操作机器人。该接入为实验性，状态是 EFE-compatible / non-official。
+使用 RPent 在 EFE（Embodied First Exam）中运行机器人任务。EFE 通过 Harbor 启动 Agent 容器与 Simulator 容器，RPent 作为 Installed Agent 接入，通过任务自带的 ``rcb_client`` 操作机器人。
 
 概览
 ----
