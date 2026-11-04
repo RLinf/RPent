@@ -23,7 +23,7 @@ Embodied First Exam
 
    .. grid-item-card:: 运行环境
 
-      Docker 宿主；Harbor 0.23.0；Python 3.12。
+      Docker；Harbor 0.23.0；Python 3.12。
 
 Harbor 把一次任务运行称为 Trial：为一个任务启动一对容器、运行一次 Agent，并产生一份结果。
 

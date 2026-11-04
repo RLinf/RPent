@@ -25,7 +25,7 @@ Overview
 
    .. grid-item-card:: Runtime
 
-      Docker host; Harbor 0.23.0; Python 3.12.
+      Docker; Harbor 0.23.0; Python 3.12.
 
 Harbor calls one task run a trial: it starts one pair of containers for one
 task, runs the agent once, and produces one result.
