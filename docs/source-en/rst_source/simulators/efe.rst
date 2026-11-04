@@ -1,5 +1,5 @@
-EFE Benchmark
-=============
+Embodied First Exam
+===================
 
 Run robot tasks with RPent in EFE (Embodied First Exam). EFE starts an agent
 container and a simulator container through Harbor; RPent joins as an installed
