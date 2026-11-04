@@ -25,6 +25,13 @@ The adapter keeps the protocol's failure rules. It never retries a call that
 may already have executed, because a lost response does not prove the service
 skipped the action. After a connection error the caller must call
 ``wait_ready`` on the wrapped client and read ``status`` before acting again.
+
+The wrapped client publishes ``spec``, ``get_obs``, ``submit``, ``status``,
+``wait_ready``, and ``ik``. It publishes no reset or finish method, so the
+adapter calls ``/reset`` through its RCB1 helper
+``_post(path, meta, parts, timeout)``, the same path ``submit`` takes, and
+calls ``/finish`` as a JSON request. Both live behind one adapter method each,
+so a change in either contract fails in one place.
 """
 
 from __future__ import annotations
@@ -41,6 +48,9 @@ import numpy as np
 # carries no field for it.
 _MAX_DT_S = 0.5
 _DONE_ACTION = "done"
+# Reset and finish restart or end a whole episode; they get the protocol's
+# longer operation timeout rather than the request timeout.
+_SERVICE_POST_TIMEOUT_S = 600
 
 
 class EfeEnvClient:
@@ -137,15 +147,9 @@ class EfeEnvClient:
                 only proprioception returns a smaller payload.
         """
         self._raise_if_done("observe")
-        if cameras is not None:
-            unknown = [name for name in cameras if name not in self._spec["cameras"]]
-            if unknown:
-                raise ValueError(
-                    f"Unknown cameras: {unknown}. "
-                    f"Known: {sorted(self._spec['cameras'])}"
-                )
+        cameras = self._validated_cameras(cameras)
         result = self._robot.get_obs(
-            cameras=list(cameras) if cameras is not None else None,
+            cameras=cameras,
             seconds=0,
             depth=True if depth else None,
             video=video,
@@ -177,6 +181,7 @@ class EfeEnvClient:
                 so the default returns no images.
         """
         self._raise_if_done("submit")
+        cameras = self._validated_cameras(cameras)
         action_spec = self._action_spec(action_type)
         rows = self._validate_actions(action_type, action_spec, actions)
         resolved_dt = (
@@ -186,7 +191,7 @@ class EfeEnvClient:
             action_type,
             rows,
             dt=resolved_dt,
-            cameras=list(cameras) if cameras is not None else None,
+            cameras=cameras,
             video=video,
         )
         self.submit_calls += 1
@@ -218,8 +223,7 @@ class EfeEnvClient:
 
         Only a task that declares a reset budget exposes ``/reset``, and the
         service refuses it after success or once the budget is spent. Only the
-        last episode is graded. The shipped client has no reset method, so this
-        uses its HTTP and RCB1 path (``_post``), the same one ``submit`` uses.
+        last episode is graded.
         """
         if self.reset_budget <= 0:
             raise ValueError("This task declares no reset budget")
@@ -228,13 +232,10 @@ class EfeEnvClient:
                 f"Cannot reset: the episode ended "
                 f"({self.done_reason or 'no reason reported'})"
             )
-        post = getattr(self._robot, "_post", None)
-        if post is None:
-            raise RuntimeError("The service client exposes no reset path")
         meta: dict[str, Any] = {"video": "none"}
         if cameras is not None:
             meta["cameras"] = list(cameras)
-        result = post("/reset", meta, [], 600)
+        result = self._service_post("/reset", meta, [])
         self.reset_calls += 1
         self._done = False
         self.done_reason = None
@@ -311,9 +312,34 @@ class EfeEnvClient:
 
     # -- validation ------------------------------------------------------
 
+    def _service_post(
+        self,
+        path: str,
+        meta: dict[str, Any],
+        parts: list[Any],
+    ) -> Any:
+        """POST through the client's RCB1 helper and return its result.
+
+        ``rcb_client.Robot`` has no public reset or finish method. Reusing its
+        ``_post`` keeps one dependency instead of two: the same helper that
+        carries ``submit`` also carries these endpoint calls.
+        """
+        post = getattr(self._robot, "_post", None)
+        if post is None:
+            raise RuntimeError(
+                "The service client exposes no _post path; reset needs "
+                "rcb_client.Robot._post(path, meta, parts, timeout)"
+            )
+        return post(path, meta, parts, _SERVICE_POST_TIMEOUT_S)
+
     @staticmethod
     def _post_json(url: str, payload: dict[str, Any]) -> dict[str, Any]:
-        """POST JSON and return the decoded response; raise with the service's error."""
+        """POST a JSON body and return the decoded response.
+
+        ``/reset`` uses the client's RCB1 helper, while ``/finish`` takes a
+        JSON body. Keep the two requests distinct until the service contract
+        is verified; switching this endpoint to RCB1 would be a guess.
+        """
         request = urllib.request.Request(
             url,
             data=json.dumps(payload).encode(),
@@ -326,6 +352,17 @@ class EfeEnvClient:
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode(errors="replace")[:300]
             raise RuntimeError(f"POST {url} failed with {exc.code}: {detail}") from exc
+
+    def _validated_cameras(self, cameras: list[str] | None) -> list[str] | None:
+        """Return the camera list after rejecting names the spec does not list."""
+        if cameras is None:
+            return None
+        unknown = [name for name in cameras if name not in self._spec["cameras"]]
+        if unknown:
+            raise ValueError(
+                f"Unknown cameras: {unknown}. Known: {sorted(self._spec['cameras'])}"
+            )
+        return list(cameras)
 
     @staticmethod
     def _validate_spec(spec: dict[str, Any]) -> None:

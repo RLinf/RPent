@@ -21,11 +21,11 @@ to that existing service; it never starts a simulator and never resets one.
 from __future__ import annotations
 
 import argparse
-import hashlib
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from robots.efe import session_vars
 from robots.efe.prompt_bundle import system_prompt, user_prompt
 from rpent.dashboard.events import DashboardEventSink
 from rpent.memory import MemoryManager
@@ -136,8 +136,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     instruction_path = Path(args.instruction_file).expanduser().resolve(strict=True)
     instruction = instruction_path.read_text(encoding="utf-8")
     task_name = instruction_path.parent.name or "efe"
-    digest = hashlib.sha256(instruction.encode("utf-8")).hexdigest()[:8]
-    recipe_tag = f"{task_name}_{digest}"
+    tag = session_vars.recipe_tag(task_name, instruction)
     workdir = Path(args.workdir or Path.cwd()).expanduser().resolve()
     memory_dir = (
         Path(args.memory_dir).expanduser().resolve()
@@ -147,22 +146,25 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     output_dir = (
         Path(args.output_dir)
         if args.output_dir is not None
-        else get_repo_root() / "logs" / f"{datetime.now():%Y%m%d-%H:%M:%S}_{recipe_tag}"
+        else get_repo_root() / "logs" / f"{datetime.now():%Y%m%d-%H:%M:%S}_{tag}"
     )
     prompt_vars = {
-        "recipe_tag": recipe_tag,
+        **session_vars.prompt_vars(
+            workdir=workdir,
+            output_dir=output_dir,
+            memory_dir=memory_dir,
+            inbox_tag=tag,
+            session_max=1,
+            skills=bool(getattr(args, "efe_skills", True)),
+        ),
+        "recipe_tag": tag,
         "mode": "eval",
         "task_name": task_name,
         "instruction": instruction,
-        "workdir": str(workdir),
-        "memory_dir": str(memory_dir),
-        "memory_inbox": str(memory_dir / "_internal" / "inbox" / recipe_tag),
         "session_number": 1,
-        "session_max": 1,
-        "skills": bool(getattr(args, "efe_skills", True)),
     }
     return RunConfig(
-        recipe_tag=recipe_tag,
+        recipe_tag=tag,
         output_dir=output_dir,
         prompt_vars=prompt_vars,
         task_desc={"task": task_name, "instruction": instruction},

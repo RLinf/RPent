@@ -21,6 +21,7 @@ from pathlib import Path
 
 import pytest
 
+from robots.efe import session_vars
 from robots.efe.robot_spec import (
     _add_cli_args,
     _parse_config,
@@ -79,6 +80,20 @@ def test_parse_config_uses_the_task_instruction(tmp_path):
     assert config.prompt_vars["workdir"] == str(tmp_path.resolve())
     assert config.recipe_tag.startswith("task_")
     assert config.prompt_vars["session_max"] == 1
+
+
+def test_parse_config_uses_the_shared_prompt_variables(tmp_path):
+    args = _args(tmp_path)
+
+    config = _parse_config(args)
+
+    memory_dir = Path(config.prompt_vars["memory_dir"])
+    assert config.prompt_vars["output_dir"] == str(args.output_dir)
+    assert config.prompt_vars["memory_inbox"] == str(
+        session_vars.inbox_path(memory_dir, config.recipe_tag)
+    )
+    assert config.prompt_vars["skills"] is True
+    assert config.prompt_vars["recipe_tag"] == config.recipe_tag
 
 
 def test_parse_config_rejects_a_missing_instruction(tmp_path):

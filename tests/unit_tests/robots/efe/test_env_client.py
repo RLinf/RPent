@@ -62,6 +62,9 @@ class FakeRobot:
         self.submit_calls = []
         self.observe_calls = []
         self.post_calls = []
+        self.post_result = SimpleNamespace(
+            meta={"episode": 1, "resets_left": 4, "done": False}
+        )
         self.status_calls = 0
         self.submit_result = _result()
         self.observe_result = _result(done=False)
@@ -69,7 +72,7 @@ class FakeRobot:
 
     def _post(self, path, meta, parts, timeout):
         self.post_calls.append((path, meta, parts))
-        return SimpleNamespace(meta={"episode": 1, "resets_left": 4, "done": False})
+        return self.post_result
 
     def spec(self):
         return self.spec_data
@@ -266,18 +269,37 @@ def test_finish_ends_a_hidden_success_episode(monkeypatch):
     spec = {**_SPEC, "success_signal": "hidden"}
     robot = FakeRobot(spec)
     client = EfeEnvClient(robot=robot)
-    posted = {}
+    calls = []
 
     def fake_post(url, payload):
-        posted["url"], posted["payload"] = url, payload
+        calls.append((url, payload))
         return {"ok": True, "done": True, "reason": "finished"}
 
-    monkeypatch.setattr(EfeEnvClient, "_post_json", staticmethod(fake_post))
+    monkeypatch.setattr(client, "_post_json", fake_post)
 
     status = client.finish()
 
-    assert posted == {"url": "http://sim:8000/finish", "payload": {}}
+    assert calls == [(f"{robot.base}/finish", {})]
     assert status["ok"] is True
     assert client.done is True
     assert client.done_reason == "finished"
     assert client.finish_calls == 1
+
+
+def test_finish_reports_a_client_without_a_base_url():
+    class NoBaseRobot(FakeRobot):
+        def __init__(self, spec=None):
+            super().__init__(spec)
+            self.base = None
+
+    client = EfeEnvClient(robot=NoBaseRobot({**_SPEC, "success_signal": "hidden"}))
+
+    with pytest.raises(RuntimeError, match="no base URL"):
+        client.finish()
+
+
+def test_submit_rejects_unknown_camera(client, robot):
+    with pytest.raises(ValueError, match="Unknown cameras"):
+        client.submit("joint_position", _actions(1), cameras=["ceiling_cam"])
+
+    assert robot.submit_calls == []

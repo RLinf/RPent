@@ -59,3 +59,43 @@ def test_episode_controls_follow_the_task_capabilities():
 
     assert "efe_reset" in text
     assert "efe_end_episode" in text
+
+
+def test_role_does_not_deny_a_reset_the_task_grants():
+    text = _render(reset=True)
+
+    assert "no reset" not in text
+    assert "efe_reset" in text
+
+
+def test_role_does_not_promise_a_success_signal_the_service_hides():
+    text = _render(end_episode=True)
+
+    assert "ends at success" not in text
+    assert "efe_end_episode" in text
+
+
+def test_role_keeps_the_single_episode_statement_when_nothing_is_granted():
+    text = _render()
+
+    assert "no reset" in text
+    assert "ends at success" in text
+
+
+def test_role_states_both_capabilities_together():
+    text = _render(reset=True, end_episode=True)
+
+    assert "no reset" not in text
+    assert "ends at success" not in text
+    assert "limited number of resets" in text
+
+
+def test_recorded_state_tool_is_documented():
+    assert "view_env_state" in _render()
+
+
+def test_hidden_success_tells_the_agent_to_end_the_episode():
+    text = _render(end_episode=True)
+
+    assert "may already be over" not in text
+    assert "call `efe_end_episode`" in text

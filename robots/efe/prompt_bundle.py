@@ -20,15 +20,24 @@ from collections.abc import Mapping
 
 from rpent.prompt.utils import BulletList, PromptNode, format_prompt
 
-ROLE = """You are an RPent agent controlling a robot in an EFE standard-mode task.
+ROLE_INTRO = """You are an RPent agent controlling a robot in an EFE standard-mode task.
 The simulator runs as a service you cannot open. You see only what its client returns:
-camera frames, the robot's proprioception, and the task's capability spec.
-You get one episode and no reset. The episode ends at success, at the time limit, or on a simulator error."""
+camera frames, the robot's proprioception, and the task's capability spec."""
+
+ROLE_ONE_EPISODE = "You get one episode and no reset."
+ROLE_RESET_BUDGET = "You get one graded episode and a limited number of resets."
+
+EPISODE_END = "The episode ends at success, at the time limit, or on a simulator error."
+EPISODE_END_BY_AGENT = (
+    "The service never reports success, so `efe_end_episode` ends the episode; "
+    "it also ends at the time limit or on a simulator error."
+)
 
 TOOLS = """- `efe_spec`: action layouts, limits, cameras, proprioception, kinematics. Read it once before acting.
 - `efe_observe`: current frames and proprioception. It never moves the robot.
 - `efe_status`: calls, control steps, elapsed time, and whether the episode has ended.
-- `efe_recover`: wait for a crashed service to resume the same episode."""
+- `efe_recover`: wait for a crashed service to resume the same episode.
+- `view_env_state`: read one recorded step: proprioception, counters, the command that produced it, and any saved artifact names. `step` defaults to -1 (latest)."""
 
 SUBMIT_TOOL = "\n- `efe_submit`: send one action chunk in a layout from `efe_spec`."
 
@@ -47,6 +56,14 @@ END_EPISODE_TOOL = (
     "it ended in."
 )
 
+GOAL_REACHED_BY_SERVICE = (
+    "If the goal is reached, stop acting: the episode may already be over."
+)
+GOAL_REACHED_BY_AGENT = (
+    "If the goal is reached, call `efe_end_episode`; the verifier grades the "
+    "state it ended in."
+)
+
 RULES = BulletList(
     [
         "Look before you move: call `efe_observe` and read the frames.",
@@ -54,7 +71,7 @@ RULES = BulletList(
         "A rejected call does not advance the simulator; read the error and correct it.",
         "After a connection error, call `efe_recover` and read the status. Never resend a command that may have executed.",
         "The EFE verifier decides success. `finish` ends your session and is not a score.",
-        "If the goal is reached, stop acting: the episode may already be over.",
+        GOAL_REACHED_BY_SERVICE,
     ]
 )
 
@@ -82,6 +99,17 @@ Earlier sessions archived notes under `{{memory_inbox}}/wip/`. Read them first.
 Do not repeat a failed approach unless you can name the parameter that changes it."""
 
 
+def role(*, reset: bool = False, end_episode: bool = False) -> str:
+    """Render the episode rules that match the task's declared capabilities.
+
+    The service spec decides both facts, so a static line would contradict the
+    tools registered for the same task.
+    """
+    episode = ROLE_RESET_BUDGET if reset else ROLE_ONE_EPISODE
+    ending = EPISODE_END_BY_AGENT if end_episode else EPISODE_END
+    return f"{ROLE_INTRO}\n{episode} {ending}"
+
+
 def system_prompt(
     variables: Mapping[str, object] | None = None,
     *,
@@ -99,19 +127,22 @@ def system_prompt(
     evaluation session holds the corpus read-only, so the prompt must not ask
     it to write there. ``restricted_shell`` matches a Codex sandbox that
     cannot reach the robot from shell commands. ``reset`` and ``end_episode``
-    follow the service spec, so the prompt lists only the tools the task
-    exposes.
+    follow the service spec, so the role and the tool list describe only the
+    capabilities the task exposes.
     """
     if skills is None:
         skills = bool((variables or {}).get("skills", True))
-    rules = RULES
+    rule_items = list(RULES.items)
+    if end_episode:
+        rule_items[-1] = GOAL_REACHED_BY_AGENT
     if restricted_shell:
-        rules = BulletList((*RULES.items, SHELL_RULE))
+        rule_items.append(SHELL_RULE)
+    rules = BulletList(rule_items)
     tools = TOOLS + (SKILL_TOOL if skills else SUBMIT_TOOL)
     tools += RESET_TOOL if reset else ""
     tools += END_EPISODE_TOOL if end_episode else ""
     parts: PromptNode = {
-        "ROLE": ROLE,
+        "ROLE": role(reset=reset, end_episode=end_episode),
         "TOOLS": tools,
         "RULES": rules,
         "MEMORY": MEMORY,

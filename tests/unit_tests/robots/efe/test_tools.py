@@ -16,10 +16,13 @@
 
 from __future__ import annotations
 
+import io
+
+import imageio.v2 as imageio
 import numpy as np
 import pytest
 
-from robots.efe.tools import EfeTools, dump_state
+from robots.efe.tools import EfeTools, dump_state, view_env_state
 from rpent.session import EnvState
 from tests.efe_support import FakeEfeClient
 
@@ -73,6 +76,43 @@ def test_observe_keeps_the_labels_in_response_order(tools):
 
     assert result.data["cameras"] == ["wrist_cam", "table_cam_front"]
     assert len(result.images) == 2
+
+
+def test_observe_saves_frames_for_view_env_state(tmp_path):
+    client = FakeEfeClient()
+    state = EnvState(tmp_path)
+    service = EfeTools(client=client, state=state)
+
+    service.efe_observe(cameras=["wrist_cam"])
+    dump_state(client, state, command={}, result={}, elapsed_s=0.1)
+    view = view_env_state(-1, state=state)
+
+    assert len(view.images) == 1
+    assert "wrist_cam" in view.data["camera_images"]
+    assert view.data["camera_images"]["wrist_cam"].endswith(
+        "camera_wrist_cam_s000000.png"
+    )
+
+
+def test_view_state_without_an_observation_has_no_images(tmp_path):
+    client = FakeEfeClient()
+    state = EnvState(tmp_path)
+
+    dump_state(client, state, command={}, result={}, elapsed_s=0.1)
+    view = view_env_state(-1, state=state)
+
+    assert view.images == []
+    assert "camera_images" not in view.data
+
+
+def test_low_resolution_shrinks_the_returned_frame(tools):
+    service, _ = tools
+
+    result = service.efe_observe(cameras=["wrist_cam"], resolution="low")
+
+    frame = imageio.imread(io.BytesIO(result.images[0]))
+    assert frame.shape == (1, 1, 3)
+    assert result.data["image_downsample"] == 4
 
 
 def test_submit_reports_execution_and_episode_state(tools):

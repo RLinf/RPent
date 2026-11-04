@@ -22,7 +22,7 @@ validated action chunks. They never read simulator internals.
 from __future__ import annotations
 
 import io
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 import imageio.v2 as imageio
 import numpy as np
@@ -31,6 +31,56 @@ from pydantic import Field
 from robots.efe.env_client import EfeEnvClient
 from rpent.session import EnvState, StepRecord
 from rpent.tools import ToolResult, tool
+
+# Downsampling factors for the tool's ``resolution`` argument. Camera
+# coordinates scale by the same integer, so a model that sees a frame at
+# ``low`` must multiply pixel coordinates by four.
+_RESOLUTION_FACTORS = {"full": 1, "low": 4}
+
+
+def _camera_slug(camera: str) -> str:
+    """Return a filename-safe form of a camera name."""
+    return "".join(
+        character if character.isalnum() or character in "_.-" else "_"
+        for character in camera
+    )
+
+
+def camera_artifact(camera: str, step: int | None) -> str:
+    """Return the artifact name that holds one camera frame.
+
+    Frames are session artifacts rather than step artifacts: an observation
+    happens before the step record exists, so the simulator step is encoded in
+    the name instead of the directory index.
+    """
+    slug = _camera_slug(camera)
+    if step is None:
+        return f"camera_{slug}.png"
+    return f"camera_{slug}_s{int(step):06d}.png"
+
+
+def latest_camera_artifact(
+    state: EnvState, camera: str, step: int | None
+) -> str | None:
+    """Return the newest frame at or before ``step``, or None when none exists."""
+    if step is not None:
+        exact = camera_artifact(camera, step)
+        if state.exists(exact, step=None):
+            return exact
+    slug = _camera_slug(camera)
+    root = state.artifact_path(f"camera_{slug}.png", step=None).parent
+    prefix = f"camera_{slug}_s"
+    best: tuple[int, str] | None = None
+    for path in root.glob(f"{prefix}*.png"):
+        try:
+            file_step = int(path.stem[len(prefix) :])
+        except ValueError:
+            continue
+        if step is not None and file_step > int(step):
+            continue
+        if best is None or file_step > best[0]:
+            best = (file_step, path.name)
+    return best[1] if best is not None else None
 
 
 def proprio_map(spec: dict[str, Any], payload: dict[str, Any]) -> dict[str, float]:
@@ -99,28 +149,52 @@ class EfeTools:
         self,
         cameras: list[str] | None = None,
         depth: bool = False,
+        resolution: Literal["full", "low"] = "full",
     ) -> ToolResult:
         """Return current camera frames and proprioception. Does not move the robot or advance time.
 
         Args:
             cameras: Camera names from efe_spec. Default: the task's default cameras.
             depth: Also return the last frame's depth map, in metres, as a .npy artifact.
+            resolution: ``full`` returns the service frame; ``low`` shrinks each
+                side by four. Multiply pixel coordinates from a low frame by 4
+                before using them with camera metadata.
         """
+        if resolution not in _RESOLUTION_FACTORS:
+            raise ValueError(
+                f"Unsupported resolution {resolution!r}; "
+                f"use {sorted(_RESOLUTION_FACTORS)}"
+            )
         result = self.client.observe(cameras=cameras, depth=depth)
         meta = result.meta
+        factor = _RESOLUTION_FACTORS[resolution]
         # Keep the response order so each label stays with its image.
         cameras_shown = list(result.last)
-        images = [_png_bytes(frame) for frame in result.last.values()]
+        frames = {name: np.asarray(frame) for name, frame in result.last.items()}
+        images = [_png_bytes(frame[::factor, ::factor]) for frame in frames.values()]
+        sim_step = meta.get("step")
         data: dict[str, Any] = {
-            "step": meta.get("step"),
+            "step": sim_step,
             "control_steps": meta.get("control_steps"),
             "sim_time_s": meta.get("sim_time_s"),
             "time_left_s": meta.get("time_left_s"),
             "done": meta.get("done"),
             "reason": meta.get("reason"),
             "cameras": cameras_shown,
+            "image_downsample": factor,
             "proprio": proprio_map(self.client.spec, meta.get("proprio") or {}),
         }
+        # Persist the full-resolution frames so a later view_env_state call,
+        # or a post-run review, can inspect what the agent saw. ``resolution``
+        # only affects the payload returned to the model.
+        frame_paths: dict[str, str] = {}
+        for name, frame in frames.items():
+            artifact = camera_artifact(name, sim_step)
+            saved = self._state.save(artifact, frame, step=None)
+            if saved is not None:
+                frame_paths[name] = str(self._state.artifact_path(saved, step=None))
+        if frame_paths:
+            data["camera_paths"] = frame_paths
         if depth and result.last_depth:
             data["depth_units"] = "metres"
             data["depth_invalid"] = 0
@@ -276,6 +350,8 @@ def dump_state(
         "time_left_s": meta.get("time_left_s"),
         "done": meta.get("done"),
         "reason": meta.get("reason"),
+        # view_env_state needs the camera list to find this step's frames.
+        "cameras": sorted((client.spec.get("cameras") or {}).keys()),
     }
     with state.record_step(
         state=state_data,
@@ -294,5 +370,22 @@ def view_env_state(
     *,
     state: EnvState,
 ) -> ToolResult:
-    """Read a recorded state snapshot, including the command that produced it."""
-    return ToolResult(data=state.get(step).to_blob())
+    """Read a recorded state snapshot, including the command that produced it.
+
+    Images are the newest frames captured at or before the record's simulator
+    step. A record written before any observation has no images.
+    """
+    record = state.get(step)
+    data = record.to_blob()
+    sim_step = record.state.get("step")
+    images: list[bytes] = []
+    frame_paths: dict[str, str] = {}
+    for camera in record.state.get("cameras") or []:
+        name = latest_camera_artifact(state, camera, sim_step)
+        if name is None:
+            continue
+        images.append(state.load_bytes(name, step=None))
+        frame_paths[camera] = str(state.artifact_path(name, step=None))
+    if frame_paths:
+        data["camera_images"] = frame_paths
+    return ToolResult(data=data, images=images)
