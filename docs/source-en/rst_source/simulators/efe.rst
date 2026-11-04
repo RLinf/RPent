@@ -108,7 +108,7 @@ Observation and Action
    * - Observation
      - Camera RGB frames (with depth on request), robot state (joint angles, tool position and orientation, gripper opening), and the action layout, joint names, cameras, and kinematics. In the default configuration the agent reaches the simulator only through the client.
    * - Action
-     - The default arm calls ``move_to_xyz`` to move the tool tip (TCP) to a world position and ``set_gripper`` to set the finger opening; the raw arm sends joint-target chunks with ``efe_submit``. Both reach the simulator service through ``rcb_client``.
+     - The default arm calls ``move_to_xyz`` to move the tool tip to a world position and ``set_gripper`` to set the finger opening; the raw arm sends joint-target chunks with ``efe_submit``. Both reach the simulator service through ``rcb_client``.
    * - Reward / success
      - EFE's verifier scores the episode independently and writes ``verifier/reward.json``; Harbor records it as ``verifier_result.rewards`` in ``result.json``. ``success`` is this trial's graded result; ``first_success`` records the first attempt; the other fields are diagnostics.
    * - Task instruction
@@ -268,34 +268,23 @@ changes.
 The default arm replaces direct joint-target submission with two high-level
 skills:
 
-- ``move_to_xyz(x, y, z)`` moves the TCP to the world position: it solves IK,
-  submits short action chunks, and re-reads the tool position until the error is
-  within 1 cm. It keeps the current orientation, so the planner can reason in
-  Cartesian space.
-- ``set_gripper(opening)`` sets the finger opening while holding the current arm
-  pose.
+- ``move_to_xyz(x, y, z)`` moves the tool tip to the world position: it
+  solves IK, submits short action chunks, and re-reads the tool position until
+  the error is within 1 cm. It keeps the current orientation, so the planner can
+  reason in Cartesian space.
+- ``set_gripper(opening)`` sets the gripper opening.
 
 The raw arm uses the service interface directly: ``efe_spec`` reports the
 meaning and order of each action row's columns (the action layout), and the
 planner sends joint-target chunks with ``efe_submit``.
 
 An action layout defines what each number in one action row means. The skills
-handle exactly one layout: the leading columns are the joint targets, in
+support one layout: the leading columns are the joint targets, in
 ``spec.kinematics.joint_names`` order, and the last column is the gripper
-opening. For example:
-
-.. code-block:: text
-
-   joint_names = ["joint1", "joint2", "joint3"]
-   layout      = ["q_joint1", "q_joint2", "q_joint3", "gripper"]
-
-A ``q_`` prefix on either side is ignored. After the prefix is removed, the
-leading columns follow ``joint_names``, one column per joint, and the last
-column is ``gripper``, so a skill can write its IK result into these columns.
-When the layout reorders, omits, or adds columns, a skill cannot tell which
-column belongs to which joint and is not registered: the toolkit keeps
-``efe_submit``, records the reason as ``skills_error`` in ``session.json``, and
-the prompt lists only the tools the session registers.
+opening. When the layout reorders, omits, or adds columns, the skills are not
+registered: the toolkit keeps ``efe_submit``, records the reason as
+``skills_error`` in ``session.json``, and the prompt lists only the tools the
+session registers.
 
 .. code-block:: bash
 
@@ -328,9 +317,14 @@ attempt count fixed across arms. A single trial is not a comparison.
 Isolation and Measurement Mode
 ------------------------------
 
-- The runner defaults to the Codex ``read-only`` sandbox, so only RPent tools act
-  on the episode. ``full-access`` measures the agent's free-form behavior; shell
-  actions do not appear in the agent execution metrics.
-- The generic ``rpent --robot efe`` entry point passes no sandbox setting and
-  always runs with ``full-access``; use the Harbor adapter for evaluation and
-  comparisons.
+- The Harbor runner defaults to Codex's ``read-only`` sandbox. It restricts shell
+  commands, not RPent tools: a shell command cannot write files or reach the
+  network, so it cannot connect to the simulator. Only RPent tools operate the
+  robot.
+- With ``full-access``, the agent can write shell scripts that call ``rcb_client``
+  directly and bypass the RPent tools. Those calls never pass through RPent's
+  client, so ``metrics`` in ``session.json`` does not count them, and the run
+  cannot be compared with one that drives the robot through the tools.
+- The generic ``rpent --robot efe`` entry point has no sandbox option and always
+  runs with ``full-access``. Use it for manual and interactive debugging; use the
+  Harbor adapter for evaluation and comparison.

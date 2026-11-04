@@ -78,7 +78,7 @@ EFE 的其余 959 个任务属于 ``privileged`` 模式，我们暂时不支持�
    * - 观测
      - 相机 RGB 图像（请求时含深度）、机器人自身状态（关节角度、末端位置与姿态、夹爪开度），以及动作布局、关节名、相机和运动学。默认配置下 Agent 只通过客户端与 Simulator 交互。
    * - 动作
-     - 默认组调用 ``move_to_xyz`` 把工具末端（TCP）移动到世界坐标、``set_gripper`` 设置夹爪开口；Raw 组用 ``efe_submit`` 提交关节目标动作块。两者都通过 ``rcb_client`` 与 Simulator 服务通信。
+     - 默认组调用 ``move_to_xyz`` 把末端位置移动到世界坐标、``set_gripper`` 设置夹爪开合；Raw 组用 ``efe_submit`` 提交关节目标动作块。两者都通过 ``rcb_client`` 与 Simulator 服务通信。
    * - 奖励与成功判定
      - EFE 的 Verifier 独立评分，写出 ``verifier/reward.json``；Harbor 记录为 ``result.json`` 的 ``verifier_result.rewards``，其中 ``success`` 是本次 Trial 的评分结果，``first_success`` 记录首次尝试的结果，其余字段是诊断信息。
    * - 任务指令
@@ -190,19 +190,12 @@ Harbor 的任务预算始终是外层硬限制；RPent 在 Trial 结束时写出
 
 默认组用两个高层技能代替直接提交关节目标：
 
-- ``move_to_xyz(x, y, z)`` 把 TCP 移动到世界坐标：解 IK、提交短动作块，再读回末端位置，直到误差小于 1 cm。它保持当前姿态，Planner 因此可以在笛卡尔空间推理。
-- ``set_gripper(opening)`` 在保持当前臂位姿的同时设置夹爪开口。
+- ``move_to_xyz(x, y, z)`` 把末端位置移动到世界坐标：解 IK、提交短动作块，再读回末端位置，直到误差小于 1 cm。它保持当前姿态，Planner 因此可以在笛卡尔空间推理。
+- ``set_gripper(opening)`` 设置夹爪开合。
 
 Raw 组直接使用服务接口：``efe_spec`` 返回每个动作向量的列含义和顺序（即动作布局），Planner 再按该布局用 ``efe_submit`` 发送关节目标动作块。
 
-动作布局定义一行动作里每个数的含义。技能只处理一种布局：前几列是各关节的目标角度，顺序与 ``spec.kinematics.joint_names`` 一致；最后一列是夹爪开度。例如：
-
-.. code-block:: text
-
-   joint_names = ["joint1", "joint2", "joint3"]
-   layout      = ["q_joint1", "q_joint2", "q_joint3", "gripper"]
-
-``q_`` 前缀在任意一侧都可省略。去掉前缀后，前 N 列与 ``joint_names`` 同序（N = ``joint_names`` 的长度，每个关节一列），最后一列是 ``gripper``，技能可以直接把 IK 结果写入这些列。布局换序、缺列或多列时，技能无法确定每个关节对应哪一列，因此不注册：工具集保留 ``efe_submit``，把原因写入 ``session.json`` 的 ``skills_error``，Prompt 只列出当前 Session 实际注册的工具。
+动作布局定义一行动作里每个数的含义。技能只支持一种布局：前几列是各关节的目标角度，顺序与 ``spec.kinematics.joint_names`` 一致；最后一列是夹爪开度。布局换序、缺列或多列时技能不注册：工具集保留 ``efe_submit``，把原因写入 ``session.json`` 的 ``skills_error``，Prompt 只列出当前 Session 实际注册的工具。
 
 .. code-block:: bash
 
@@ -234,5 +227,6 @@ Raw 组直接使用服务接口：``efe_spec`` 返回每个动作向量的列含
 运行隔离与测量模式
 ------------------
 
-- Runner 默认使用 Codex 的 ``read-only`` Sandbox，只有 RPent 工具会作用于 Episode。``full-access`` 测量 Agent 的自由行为，Shell 动作不计入 Agent 执行指标。
-- 通用 ``rpent --robot efe`` 不传 Sandbox 设置，始终以 ``full-access`` 运行；正式评测和对照使用 Harbor Adapter。
+- Harbor Runner 默认使用 Codex 的 ``read-only`` 沙箱。该沙箱限制 Shell，不限制 RPent 工具：Shell 不能写文件、不能联网，因此连不上 Simulator，机器人只由 RPent 工具操作。
+- 使用 ``full-access`` 时，Agent 可以用 Shell 写脚本直接调用 ``rcb_client``，绕过 RPent 工具。这些调用不经过 RPent 的客户端，``session.json`` 的 ``metrics`` 不会统计，因此这种运行不能与走工具的运行对比。
+- 通用 ``rpent --robot efe`` 没有 Sandbox 选项，固定以 ``full-access`` 运行，用于手动和交互调试。正式评测与对照请使用 Harbor Adapter。
