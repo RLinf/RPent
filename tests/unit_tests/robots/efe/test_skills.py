@@ -101,6 +101,25 @@ def test_move_to_xyz_does_nothing_when_already_at_the_target(skills):
     assert client.submit_calls == 0
 
 
+def test_move_to_xyz_applies_a_gripper_target_when_already_at_the_position(skills):
+    service, client = skills
+
+    result = service.move_to_xyz(0.0, 0.0, 0.3, gripper=0.005)
+
+    assert result.data["ok"] is True
+    assert result.data["submit_calls"] == 1
+    assert client.submitted[0][1][0][-1] == pytest.approx(0.005)
+
+
+def test_move_to_xyz_skips_a_gripper_target_that_matches_the_command(skills):
+    service, client = skills
+
+    result = service.move_to_xyz(0.0, 0.0, 0.3, gripper=0.037)
+
+    assert result.data["ok"] is True
+    assert client.submit_calls == 0
+
+
 def test_move_to_xyz_keeps_an_explicit_gripper_command(skills):
     service, client = skills
 

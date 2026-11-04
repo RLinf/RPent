@@ -340,6 +340,27 @@ def test_tool_descriptions_do_not_describe_coding_artifacts(tmp_path, efe_client
         assert "audit" not in lowered
 
 
+def test_state_records_keep_the_frames_of_their_episode(tmp_path, efe_client):
+    efe_client.spec["budget"] = {"reset": 2}
+    toolkit = _toolkit(tmp_path, efe_client, skills=False)
+
+    toolkit.execute_tool("efe_observe", {"cameras": ["wrist_cam"]})
+    toolkit.execute_tool(
+        "efe_submit", {"action_type": "joint_position", "actions": [[0.0] * 7]}
+    )
+    before = toolkit.execute_tool("view_env_state", {"step": -1})
+
+    toolkit.execute_tool("efe_reset", {})
+    after = toolkit.execute_tool("view_env_state", {"step": -1})
+
+    assert len(before.images) == 1
+    assert before.data["camera_images"]["wrist_cam"].endswith(
+        "camera_wrist_cam_ep000_s000000.png"
+    )
+    assert after.images == []
+    assert after.data["state"]["episode"] == 1
+
+
 def test_solved_reads_the_service_verdict_not_finish(tmp_path, efe_client):
     toolkit = _toolkit(tmp_path, efe_client)
 

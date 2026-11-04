@@ -117,21 +117,25 @@ def system_prompt(
     skills: bool | None = None,
     write_notes: bool = False,
     restricted_shell: bool = False,
-    reset: bool = False,
-    end_episode: bool = False,
+    reset: bool | None = None,
+    end_episode: bool | None = None,
 ) -> PromptNode:
     """Render the system prompt for one session of the RPent arm.
 
-    ``skills`` defaults to the run variables so the registry path matches the
-    toolkit's tool set. ``write_notes`` follows the memory policy: an
+    ``skills``, ``reset``, and ``end_episode`` default to the run variables so
+    a caller that renders through the prompt bundle describes the same tools
+    the session registers. ``write_notes`` follows the memory policy: an
     evaluation session holds the corpus read-only, so the prompt must not ask
     it to write there. ``restricted_shell`` matches a Codex sandbox that
-    cannot reach the robot from shell commands. ``reset`` and ``end_episode``
-    follow the service spec, so the role and the tool list describe only the
-    capabilities the task exposes.
+    cannot reach the robot from shell commands.
     """
+    values = variables or {}
     if skills is None:
-        skills = bool((variables or {}).get("skills", True))
+        skills = bool(values.get("skills", True))
+    if reset is None:
+        reset = bool(values.get("reset", False))
+    if end_episode is None:
+        end_episode = bool(values.get("end_episode", False))
     rule_items = list(RULES.items)
     if end_episode:
         rule_items[-1] = GOAL_REACHED_BY_AGENT

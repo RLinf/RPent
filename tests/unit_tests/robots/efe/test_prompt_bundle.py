@@ -51,6 +51,24 @@ def test_skill_guidance_follows_the_run_variables():
     assert "move_to_xyz" not in text
 
 
+def test_capabilities_follow_the_run_variables_for_the_generic_entry():
+    variables = {
+        **_VARIABLES,
+        "skills": False,
+        "reset": True,
+        "end_episode": True,
+    }
+
+    text = format_prompt(system_prompt(variables), variables=variables)
+
+    assert "efe_submit" in text
+    assert "move_to_xyz" not in text
+    assert "efe_reset" in text
+    assert "efe_end_episode" in text
+    assert "no reset" not in text
+    assert "ends at success" not in text
+
+
 def test_episode_controls_follow_the_task_capabilities():
     assert "efe_reset" not in _render()
     assert "efe_end_episode" not in _render()

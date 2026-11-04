@@ -63,6 +63,22 @@ _EFE_TOOL_DESCRIPTIONS = {
 }
 
 
+def tool_capabilities(
+    client: EfeEnvClient, *, enable_skills: bool = True
+) -> dict[str, bool]:
+    """Return the prompt flags that match the tools this task registers.
+
+    The prompt and the toolkit must derive the tool set the same way: a task
+    without the joint layout the skills need falls back to ``efe_submit``, and
+    the service spec decides reset and hidden success.
+    """
+    return {
+        "skills": enable_skills and EfeSkills.unavailable_reason(client.spec) is None,
+        "reset": client.reset_budget > 0,
+        "end_episode": client.success_hidden,
+    }
+
+
 class EfeToolkit(Toolkit):
     """Expose raw EFE tools and high-level skills to the planner."""
 
@@ -92,16 +108,16 @@ class EfeToolkit(Toolkit):
         self._skills_error: str | None = None
         self._skills: EfeSkills | None = None
         if enable_skills:
-            try:
+            reason = EfeSkills.unavailable_reason(client.spec)
+            if reason is None:
                 self._skills = EfeSkills(
                     client=client,
                     check_cancelled=self.raise_if_cancelled,
                 )
-            except ValueError as exc:
-                # A task without the joint layout the skills need keeps the
-                # read-only tools and reports why it has no action tool.
-                self._skills_error = str(exc)
-                logger.warning("EFE skills unavailable: %s", exc)
+            else:
+                # Keep the raw tools and record why no action skill is registered.
+                self._skills_error = reason
+                logger.warning("EFE skills unavailable: %s", reason)
         for declaration in iter_tools(self._service):
             if declaration.name == "efe_submit" and self._skills is not None:
                 continue
@@ -168,6 +184,7 @@ class EfeToolkit(Toolkit):
             command=command,
             result=result,
             elapsed_s=elapsed_s,
+            frames=self._service.latest_frames(),
         )
         out = ToolResult(data=record.to_blob())
         out.data["agent_elapsed_s"] = elapsed_s

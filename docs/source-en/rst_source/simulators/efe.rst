@@ -135,6 +135,7 @@ repository.
    export EFE_ROOT=/absolute/path/to/embodied-first-exam
    export EFE_TASK="$EFE_ROOT/tasks/<family>/<task>"
    export EFE_MODEL=openai/your-model
+   export EFE_MODEL_HOST=<model-host>
    export OPENAI_API_KEY=your-key
 
 Do not write API keys into the repository. The adapter forwards only model
@@ -148,7 +149,14 @@ Run a Task
 ----------
 
 Harbor's ``--model`` selects the model, and the API key is read from the
-current environment. This command runs one trial:
+current environment. If the task restricts network access during agent
+execution, add ``--allow-agent-host "$EFE_MODEL_HOST"``; this option extends the
+existing allowlist during agent execution only. RPent installation runs during
+setup and uses the task environment's baseline network policy. The first
+container install runs ``pip``, and Harbor's default setup timeout is 360
+seconds; add ``--agent-setup-timeout-multiplier 4`` on hosts where a cold
+install is slower. Set ``EFE_MODEL_HOST`` to the host that serves
+``EFE_MODEL``. This command runs one trial:
 
 .. code-block:: bash
 
@@ -157,6 +165,7 @@ current environment. This command runs one trial:
      --path "$EFE_TASK" \
      --agent robots.efe.harbor_agent:RPentEfeAgent \
      --model "$EFE_MODEL" --n-concurrent 1 --n-attempts 1 \
+     --allow-agent-host "$EFE_MODEL_HOST" \
      --agent-kwarg source_root="$RPENT_ROOT" \
      --agent-kwarg timeout_s=3500 --agent-kwarg max_turns=200 \
      --agent-kwarg reasoning_effort=none \
@@ -168,14 +177,6 @@ explicitly when the adapter is imported from an installed wheel. The source
 archive excludes the host ``.git``, tests, API key files, and run logs.
 ``robots/`` is part of the existing RPent distribution and starts no Robot
 Runtime.
-
-This custom agent declares no model endpoint, so Harbor cannot infer the
-inference host. Pass ``--allow-agent-host <model-host>``. An explicit allowlist
-replaces the defaults, so also allow the package hosts the install needs:
-``--allow-agent-host pypi.org --allow-agent-host files.pythonhosted.org``. The
-first container install runs ``pip``, and Harbor's default setup timeout is
-360 seconds; add ``--agent-setup-timeout-multiplier 4`` on hosts where a cold
-install is slower.
 
 View Results
 ------------
@@ -303,6 +304,7 @@ toolkit keeps ``efe_submit``, records the reason as ``skills_error`` in
      --path "$EFE_TASK" \
      --agent robots.efe.harbor_agent:RPentEfeAgent \
      --model "$EFE_MODEL" --n-concurrent 1 --n-attempts 1 \
+     --allow-agent-host "$EFE_MODEL_HOST" \
      --agent-kwarg source_root="$RPENT_ROOT" \
      --agent-kwarg timeout_s=3500 --agent-kwarg max_turns=200 \
      --agent-kwarg skills=false \
@@ -314,6 +316,7 @@ toolkit keeps ``efe_submit``, records the reason as ``skills_error`` in
      --path "$EFE_TASK" \
      --agent robots.efe.harbor_agent:RPentEfeAgent \
      --model "$EFE_MODEL" --n-concurrent 1 --n-attempts 1 \
+     --allow-agent-host "$EFE_MODEL_HOST" \
      --agent-kwarg source_root="$RPENT_ROOT" \
      --agent-kwarg timeout_s=3500 --agent-kwarg max_turns=200 \
      --jobs-dir "$RPENT_ROOT/logs/efe-skills"

@@ -65,7 +65,7 @@ def test_observe_depth_is_saved_as_an_artifact(tools, tmp_path):
     result = service.efe_observe(cameras=["wrist_cam"], depth=True)
 
     saved = result.data["depth_paths"]["wrist_cam"]
-    assert saved.endswith("depth_wrist_cam.npy")
+    assert saved.endswith("depth_wrist_cam_ep000_s000000.npy")
     assert np.load(saved).shape == (4, 4)
 
 
@@ -84,13 +84,20 @@ def test_observe_saves_frames_for_view_env_state(tmp_path):
     service = EfeTools(client=client, state=state)
 
     service.efe_observe(cameras=["wrist_cam"])
-    dump_state(client, state, command={}, result={}, elapsed_s=0.1)
+    dump_state(
+        client,
+        state,
+        command={},
+        result={},
+        elapsed_s=0.1,
+        frames=service.latest_frames(),
+    )
     view = view_env_state(-1, state=state)
 
     assert len(view.images) == 1
     assert "wrist_cam" in view.data["camera_images"]
     assert view.data["camera_images"]["wrist_cam"].endswith(
-        "camera_wrist_cam_s000000.png"
+        "camera_wrist_cam_ep000_s000000.png"
     )
 
 
@@ -103,6 +110,58 @@ def test_view_state_without_an_observation_has_no_images(tmp_path):
 
     assert view.images == []
     assert "camera_images" not in view.data
+
+
+def test_a_reset_keeps_the_frames_of_the_previous_episode(tmp_path):
+    class EpisodeFrames(FakeEfeClient):
+        value = 0
+
+        def observe(self, cameras=None, *, depth=False, video="frames"):
+            result = super().observe(cameras=cameras, depth=depth, video=video)
+            result.last = {
+                name: np.full_like(frame, self.value)
+                for name, frame in result.last.items()
+            }
+            return result
+
+    client = EpisodeFrames({**FakeEfeClient().spec, "budget": {"reset": 2}})
+    state = EnvState(tmp_path)
+    service = EfeTools(client=client, state=state)
+
+    service.efe_observe(cameras=["wrist_cam"])
+    dump_state(
+        client,
+        state,
+        command={},
+        result={},
+        elapsed_s=0.1,
+        frames=service.latest_frames(),
+    )
+    client.value = 200
+    client.reset()
+    service.efe_observe(cameras=["wrist_cam"])
+    dump_state(
+        client,
+        state,
+        command={},
+        result={},
+        elapsed_s=0.1,
+        frames=service.latest_frames(),
+    )
+
+    first = view_env_state(0, state=state)
+    second = view_env_state(1, state=state)
+
+    assert first.data["state"]["episode"] == 0
+    assert second.data["state"]["episode"] == 1
+    assert first.data["camera_images"]["wrist_cam"].endswith(
+        "camera_wrist_cam_ep000_s000000.png"
+    )
+    assert second.data["camera_images"]["wrist_cam"].endswith(
+        "camera_wrist_cam_ep001_s000000.png"
+    )
+    assert imageio.imread(io.BytesIO(first.images[0]))[0, 0, 0] == 0
+    assert imageio.imread(io.BytesIO(second.images[0]))[0, 0, 0] == 200
 
 
 def test_low_resolution_shrinks_the_returned_frame(tools):

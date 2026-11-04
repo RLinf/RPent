@@ -97,6 +97,7 @@ EFE 的其余 959 个任务属于 ``privileged`` 模式，我们暂时不支持�
    export EFE_ROOT=/absolute/path/to/embodied-first-exam
    export EFE_TASK="$EFE_ROOT/tasks/<family>/<task>"
    export EFE_MODEL=openai/your-model
+   export EFE_MODEL_HOST=<model-host>
    export OPENAI_API_KEY=your-key
 
 不要将 API key 写入仓库。Adapter 只转发模型相关环境变量和显式的 Harbor ``--agent-env`` 设置。它把 ``OPENAI_API_KEY``、``OPENAI_BASE_URL`` 映射到 RPent 的 ``CODEX_API_KEY``、``CODEX_BASE_URL``；已有 ``CODEX_*`` 设置优先。Adapter 不转发宿主的 ``CODEX_HOME``，Runner 会在 Agent 容器内为每个 Trial 新建该目录。
@@ -104,7 +105,7 @@ EFE 的其余 959 个任务属于 ``privileged`` 模式，我们暂时不支持�
 运行一个任务
 ------------
 
-模型由 Harbor 的 ``--model`` 指定，API key 从当前终端的环境变量读取。以下命令运行一个 Trial：
+模型由 Harbor 的 ``--model`` 指定，API key 从当前终端的环境变量读取。若任务限制 Agent 阶段的网络访问，加入 ``--allow-agent-host "$EFE_MODEL_HOST"``；该参数扩展现有放行名单，只影响 Agent 执行阶段。RPent 安装发生在 Setup 阶段，其下载权限由任务的环境网络策略决定。首次容器安装运行 ``pip``，Harbor 默认 Setup 超时为 360 秒；冷安装较慢时加上 ``--agent-setup-timeout-multiplier 4``。``EFE_MODEL_HOST`` 是提供 ``EFE_MODEL`` 的主机。以下命令运行一个 Trial：
 
 .. code-block:: bash
 
@@ -113,14 +114,13 @@ EFE 的其余 959 个任务属于 ``privileged`` 模式，我们暂时不支持�
      --path "$EFE_TASK" \
      --agent robots.efe.harbor_agent:RPentEfeAgent \
      --model "$EFE_MODEL" --n-concurrent 1 --n-attempts 1 \
+     --allow-agent-host "$EFE_MODEL_HOST" \
      --agent-kwarg source_root="$RPENT_ROOT" \
      --agent-kwarg timeout_s=3500 --agent-kwarg max_turns=200 \
      --agent-kwarg reasoning_effort=none \
      --jobs-dir "$RPENT_ROOT/logs/efe-rpent"
 
 ``RPentEfeAgent`` 从当前 checkout 安装 RPent。``source_root`` 默认指向 Adapter 所在 checkout 的仓库根目录；若 Adapter 从已安装的 Wheel 导入，必须显式传入。源码包不包含宿主 ``.git``、测试、API key 文件和运行日志。``robots/`` 是现有 RPent distribution 所需的包，不会启动任何 Robot Runtime。
-
-该自定义 Agent 不声明模型 Endpoint，Harbor 无法推断推理主机，需传入 ``--allow-agent-host <model-host>``。显式名单会替换默认放行，因此还要放行安装所需的包主机：``--allow-agent-host pypi.org --allow-agent-host files.pythonhosted.org``。首次容器安装运行 ``pip``，Harbor 默认 Setup 超时为 360 秒；冷安装较慢时加上 ``--agent-setup-timeout-multiplier 4``。
 
 查看结果
 --------
@@ -212,6 +212,7 @@ Raw 组直接使用服务接口：``efe_spec`` 返回每个动作向量的列含
      --path "$EFE_TASK" \
      --agent robots.efe.harbor_agent:RPentEfeAgent \
      --model "$EFE_MODEL" --n-concurrent 1 --n-attempts 1 \
+     --allow-agent-host "$EFE_MODEL_HOST" \
      --agent-kwarg source_root="$RPENT_ROOT" \
      --agent-kwarg timeout_s=3500 --agent-kwarg max_turns=200 \
      --agent-kwarg skills=false \
@@ -223,6 +224,7 @@ Raw 组直接使用服务接口：``efe_spec`` 返回每个动作向量的列含
      --path "$EFE_TASK" \
      --agent robots.efe.harbor_agent:RPentEfeAgent \
      --model "$EFE_MODEL" --n-concurrent 1 --n-attempts 1 \
+     --allow-agent-host "$EFE_MODEL_HOST" \
      --agent-kwarg source_root="$RPENT_ROOT" \
      --agent-kwarg timeout_s=3500 --agent-kwarg max_turns=200 \
      --jobs-dir "$RPENT_ROOT/logs/efe-skills"

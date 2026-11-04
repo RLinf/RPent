@@ -22,6 +22,7 @@ validated action chunks. They never read simulator internals.
 from __future__ import annotations
 
 import io
+from collections.abc import Mapping
 from typing import Annotated, Any, Literal
 
 import imageio.v2 as imageio
@@ -46,41 +47,33 @@ def _camera_slug(camera: str) -> str:
     )
 
 
-def camera_artifact(camera: str, step: int | None) -> str:
+def camera_artifact(camera: str, episode: int, step: int | None) -> str:
     """Return the artifact name that holds one camera frame.
 
     Frames are session artifacts rather than step artifacts: an observation
-    happens before the step record exists, so the simulator step is encoded in
-    the name instead of the directory index.
+    happens before the step record exists, so the episode and simulator step
+    are encoded in the name instead of the directory index. A reset restarts
+    the step counter, so without the episode index a new episode would
+    overwrite the frames of the previous one.
     """
     slug = _camera_slug(camera)
+    tag = f"ep{int(episode):03d}"
     if step is None:
-        return f"camera_{slug}.png"
-    return f"camera_{slug}_s{int(step):06d}.png"
+        return f"camera_{slug}_{tag}.png"
+    return f"camera_{slug}_{tag}_s{int(step):06d}.png"
 
 
-def latest_camera_artifact(
-    state: EnvState, camera: str, step: int | None
-) -> str | None:
-    """Return the newest frame at or before ``step``, or None when none exists."""
-    if step is not None:
-        exact = camera_artifact(camera, step)
-        if state.exists(exact, step=None):
-            return exact
+def depth_artifact(camera: str, episode: int, step: int | None) -> str:
+    """Return the artifact name that holds one depth map, in metres.
+
+    Depth follows the frame naming rule, so each observation keeps its own
+    file and a returned path stays valid for the rest of the run.
+    """
     slug = _camera_slug(camera)
-    root = state.artifact_path(f"camera_{slug}.png", step=None).parent
-    prefix = f"camera_{slug}_s"
-    best: tuple[int, str] | None = None
-    for path in root.glob(f"{prefix}*.png"):
-        try:
-            file_step = int(path.stem[len(prefix) :])
-        except ValueError:
-            continue
-        if step is not None and file_step > int(step):
-            continue
-        if best is None or file_step > best[0]:
-            best = (file_step, path.name)
-    return best[1] if best is not None else None
+    tag = f"ep{int(episode):03d}"
+    if step is None:
+        return f"depth_{slug}_{tag}.npy"
+    return f"depth_{slug}_{tag}_s{int(step):06d}.npy"
 
 
 def proprio_map(spec: dict[str, Any], payload: dict[str, Any]) -> dict[str, float]:
@@ -135,6 +128,14 @@ class EfeTools:
     def __init__(self, *, client: EfeEnvClient, state: EnvState) -> None:
         self.client = client
         self._state = state
+        # The frames saved by the last observation, so a state record binds the
+        # images the agent actually saw. A reset restarts the simulator step,
+        # so the binding carries the episode index of the capture.
+        self._frames: dict[str, str] = {}
+
+    def latest_frames(self) -> dict[str, str]:
+        """Return the artifact names saved by the last observation."""
+        return dict(self._frames)
 
     @tool(readonly=True)
     def efe_spec(self) -> ToolResult:
@@ -187,21 +188,24 @@ class EfeTools:
         # Persist the full-resolution frames so a later view_env_state call,
         # or a post-run review, can inspect what the agent saw. ``resolution``
         # only affects the payload returned to the model.
+        episode = self.client.reset_calls
         frame_paths: dict[str, str] = {}
+        self._frames = {}
         for name, frame in frames.items():
-            artifact = camera_artifact(name, sim_step)
+            artifact = camera_artifact(name, episode, sim_step)
             saved = self._state.save(artifact, frame, step=None)
             if saved is not None:
+                self._frames[name] = saved
                 frame_paths[name] = str(self._state.artifact_path(saved, step=None))
+        data["episode"] = episode
         if frame_paths:
             data["camera_paths"] = frame_paths
         if depth and result.last_depth:
             data["depth_units"] = "metres"
             data["depth_invalid"] = 0
             for name, frame in result.last_depth.items():
-                saved = self._state.save(
-                    f"depth_{name}.npy", np.asarray(frame), step=None
-                )
+                artifact = depth_artifact(name, episode, sim_step)
+                saved = self._state.save(artifact, np.asarray(frame), step=None)
                 if saved is not None:
                     data.setdefault("depth_paths", {})[name] = str(
                         self._state.artifact_path(saved, step=None)
@@ -291,6 +295,9 @@ class EfeTools:
             cameras: Camera names for the new episode's first frame.
         """
         meta = self.client.reset(cameras=cameras)
+        # The new episode restarts at step 0. Earlier frames stay bound to the
+        # records that captured them and must not attach to the new episode.
+        self._frames = {}
         return ToolResult(
             data={
                 key: meta.get(key)
@@ -337,21 +344,31 @@ def dump_state(
     command: dict[str, Any],
     result: dict[str, Any],
     elapsed_s: float,
+    frames: Mapping[str, str] | None = None,
 ) -> StepRecord:
-    """Record the current proprioception without requesting camera frames."""
+    """Record the current proprioception without requesting camera frames.
+
+    ``frames`` binds the record to the artifacts saved by the last
+    observation, so a later ``view_env_state`` reads the images the agent saw
+    at that point instead of searching by simulator step, which resets and
+    repeats across episodes.
+    """
     meta = client.last_meta
     if not meta.get("proprio") and not client.done:
         meta = client.observe(video="none").meta
     state_data = {
         "proprio": proprio_map(client.spec, meta.get("proprio") or {}),
+        "episode": client.reset_calls,
         "step": meta.get("step"),
         "control_steps": meta.get("control_steps"),
         "sim_time_s": meta.get("sim_time_s"),
         "time_left_s": meta.get("time_left_s"),
         "done": meta.get("done"),
         "reason": meta.get("reason"),
-        # view_env_state needs the camera list to find this step's frames.
+        # The camera list and the bound frames tell view_env_state which
+        # images belong to this record.
         "cameras": sorted((client.spec.get("cameras") or {}).keys()),
+        "frames": dict(frames or {}),
     }
     with state.record_step(
         state=state_data,
@@ -372,17 +389,16 @@ def view_env_state(
 ) -> ToolResult:
     """Read a recorded state snapshot, including the command that produced it.
 
-    Images are the newest frames captured at or before the record's simulator
-    step. A record written before any observation has no images.
+    Images are the frames saved by the last observation before the record was
+    written, bound by artifact name when the record was captured. A record
+    written before any observation has no images.
     """
     record = state.get(step)
     data = record.to_blob()
-    sim_step = record.state.get("step")
     images: list[bytes] = []
     frame_paths: dict[str, str] = {}
-    for camera in record.state.get("cameras") or []:
-        name = latest_camera_artifact(state, camera, sim_step)
-        if name is None:
+    for camera, name in (record.state.get("frames") or {}).items():
+        if not state.exists(name, step=None):
             continue
         images.append(state.load_bytes(name, step=None))
         frame_paths[camera] = str(state.artifact_path(name, step=None))

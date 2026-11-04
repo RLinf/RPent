@@ -15,7 +15,8 @@
 """EFE robot extension hooks.
 
 The task container provides one episode through ``rcb_client``. RPent connects
-to that existing service; it never starts a simulator and never resets one.
+to that existing service and starts no simulator. It sends an explicit reset
+only when the task declares a reset budget.
 """
 
 from __future__ import annotations
@@ -45,6 +46,7 @@ def get_robot_spec() -> RobotSpec:
         add_cli_args=_add_cli_args,
         parse_config=_parse_config,
         init_runtime=_init_runtime,
+        prepare_prompt_vars=_prepare_prompt_vars,
         validate_args=_validate_args,
         prepare_memory=_prepare_memory,
     )
@@ -73,6 +75,26 @@ def get_toolkit(
         dashboard_events=dashboard_events,
         memory=memory,
         state_output_dir=state_output_dir or config.output_dir,
+        enable_skills=bool(config.prompt_vars.get("skills", True)),
+    )
+
+
+def _prepare_prompt_vars(
+    args: argparse.Namespace,
+    config: RunConfig,
+    runtime_kwargs: dict[str, Any],
+) -> dict[str, Any]:
+    """Report the tools the connected task registers.
+
+    The generic CLI renders the system prompt after this hook, so the prompt
+    lists the tools the session actually registers: an unsupported joint
+    layout keeps the raw submit tool, and the service spec decides reset and
+    hidden success.
+    """
+    from robots.efe.toolkit import tool_capabilities
+
+    return tool_capabilities(
+        runtime_kwargs["client"],
         enable_skills=bool(config.prompt_vars.get("skills", True)),
     )
 

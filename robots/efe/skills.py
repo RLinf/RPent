@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Annotated, Any
 
 import numpy as np
@@ -141,10 +142,54 @@ def joint_layout(spec: dict[str, Any]) -> tuple[list[str], list[str]]:
     return joint_names, layout
 
 
+@dataclass(frozen=True)
+class SkillParameters:
+    """Values every skill run reads from the service spec."""
+
+    chunk_s: float
+    gripper_tolerance_m: float
+    joint_names: tuple[str, ...]
+    tcp: str
+
+
+def skill_parameters(
+    spec: dict[str, Any], chunk_s: float | None = None
+) -> SkillParameters:
+    """Return the spec values the skills need, or raise ValueError.
+
+    A task whose layout, control period, or kinematics the skills cannot use
+    raises here, so the toolkit and the prompt agree on availability.
+    """
+    joint_names, _ = joint_layout(spec)
+    kinematics = spec.get("kinematics") or {}
+    tcp_frames = kinematics.get("tcp_frames") or []
+    if not tcp_frames:
+        raise ValueError("The task exposes no tool frame")
+    return SkillParameters(
+        chunk_s=chunk_duration(spec, chunk_s),
+        gripper_tolerance_m=gripper_tolerance(spec),
+        joint_names=tuple(joint_names),
+        tcp=str(tcp_frames[0]),
+    )
+
+
 class EfeSkills:
     """High-level skills over one EFE episode."""
 
     skill_names = SKILL_NAMES
+
+    @staticmethod
+    def unavailable_reason(spec: dict[str, Any]) -> str | None:
+        """Return why the skills cannot drive this task, or None when they can.
+
+        Availability depends only on the service spec, so a caller can decide
+        whether to offer the skills before it builds them.
+        """
+        try:
+            skill_parameters(spec)
+        except ValueError as exc:
+            return str(exc)
+        return None
 
     def __init__(
         self,
@@ -157,17 +202,15 @@ class EfeSkills:
     ) -> None:
         if tolerance_m <= 0 or max_step_m <= 0:
             raise ValueError("tolerance_m and max_step_m must be positive")
+        parameters = skill_parameters(client.spec, chunk_s)
         self.client = client
         self._check_cancelled = check_cancelled
         self.tolerance_m = tolerance_m
         self.max_step_m = max_step_m
-        self.chunk_s = chunk_duration(client.spec, chunk_s)
-        self.gripper_tolerance_m = gripper_tolerance(client.spec)
-        self._joint_names, _ = joint_layout(client.spec)
-        kinematics = client.spec["kinematics"]
-        if not kinematics.get("tcp_frames"):
-            raise ValueError("The task exposes no tool frame")
-        self.tcp = kinematics["tcp_frames"][0]
+        self.chunk_s = parameters.chunk_s
+        self.gripper_tolerance_m = parameters.gripper_tolerance_m
+        self._joint_names = list(parameters.joint_names)
+        self.tcp = parameters.tcp
 
     @tool
     def move_to_xyz(
@@ -183,7 +226,8 @@ class EfeSkills:
         The skill closes the loop: it reads proprioception, solves IK for a
         bounded step, submits a short joint chunk, and repeats until the
         position error is within tolerance. It stops early when the episode
-        ends. The EFE verifier still decides task success.
+        ends. An explicit ``gripper`` target is applied even when the tool is
+        already at the position. The EFE verifier still decides task success.
 
         Args:
             x: Target world x in metres.
@@ -208,6 +252,16 @@ class EfeSkills:
             error = target - position
             distance = float(np.linalg.norm(error))
             if distance <= self.tolerance_m:
+                # The arm holds its pose, but a requested opening still runs:
+                # otherwise the same argument would apply or not depending on
+                # the starting position error.
+                if gripper is not None and (
+                    abs(float(gripper) - current["gripper"]) > self.gripper_tolerance_m
+                ):
+                    row = [*current["joints"], float(gripper)]
+                    result = self.client.submit(_JOINT_ACTION, [row], dt=self.chunk_s)
+                    submit_calls += 1
+                    control_steps += int(result.meta.get("control_steps_chunk") or 0)
                 break
             step = error * min(1.0, self.max_step_m / distance)
             pose = [*(position + step), *current["orientation"]]

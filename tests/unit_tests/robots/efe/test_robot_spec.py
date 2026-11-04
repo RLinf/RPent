@@ -17,6 +17,9 @@
 from __future__ import annotations
 
 import argparse
+import copy
+import sys
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -25,15 +28,17 @@ from robots.efe import session_vars
 from robots.efe.robot_spec import (
     _add_cli_args,
     _parse_config,
+    _prepare_prompt_vars,
     _validate_args,
     get_robot_spec,
     get_toolkit,
 )
 from robots.efe.toolkit import EfeToolkit
 from rpent.dashboard.events import NullDashboardEventSink
+from rpent.planner.base import PlannerResult
 from rpent.robots.robot_spec import RobotSpec
 from rpent.utils.logging import init_output_dir
-from tests.efe_support import FakeEfeClient
+from tests.efe_support import SPEC, FakeEfeClient
 
 
 def _args(tmp_path: Path) -> argparse.Namespace:
@@ -129,3 +134,107 @@ def test_toolkit_is_built_from_the_configured_memory_and_skills(tmp_path):
     names = [declaration.name for declaration in toolkit.list_tools()]
     assert "efe_submit" in names
     assert "move_to_xyz" not in names
+
+
+def test_prompt_variables_follow_the_connected_task_capabilities(tmp_path):
+    args = _args(tmp_path)
+    config = _parse_config(args)
+
+    default = _prepare_prompt_vars(args, config, {"client": FakeEfeClient()})
+    assert default == {"skills": True, "reset": False, "end_episode": False}
+
+    spec = {
+        **copy.deepcopy(SPEC),
+        "budget": {"reset": 2},
+        "success_signal": "hidden",
+    }
+    granted = _prepare_prompt_vars(args, config, {"client": FakeEfeClient(spec)})
+    assert granted == {"skills": True, "reset": True, "end_episode": True}
+
+    config.prompt_vars["skills"] = False
+    disabled = _prepare_prompt_vars(args, config, {"client": FakeEfeClient()})
+    assert disabled["skills"] is False
+
+
+def test_prompt_variables_fall_back_when_the_layout_is_unsupported(tmp_path):
+    args = _args(tmp_path)
+    config = _parse_config(args)
+    spec = {**copy.deepcopy(SPEC), "kinematics": {}}
+
+    variables = _prepare_prompt_vars(args, config, {"client": FakeEfeClient(spec)})
+
+    assert variables["skills"] is False
+
+
+@pytest.mark.parametrize(
+    ("spec_changes", "cli_args", "skills_available"),
+    [
+        ({}, [], True),
+        (
+            {"budget": {"reset": 2}, "success_signal": "hidden"},
+            [],
+            True,
+        ),
+        ({"kinematics": {}}, [], False),
+        ({}, ["--efe-no-skills"], False),
+    ],
+)
+def test_generic_cli_renders_the_tools_the_session_registers(
+    tmp_path, monkeypatch, spec_changes, cli_args, skills_available
+):
+    from rpent.cli import main as cli
+
+    instruction = tmp_path / "task" / "instruction.md"
+    instruction.parent.mkdir(parents=True)
+    instruction.write_text("Pick up the tube.\n", encoding="utf-8")
+    client = FakeEfeClient({**copy.deepcopy(SPEC), **spec_changes})
+    captured: dict[str, object] = {}
+
+    class CapturingPlanner:
+        def solve(self, *, system_prompt, user_message, toolkit, max_turns, **kwargs):
+            captured["system_prompt"] = system_prompt
+            captured["tools"] = [
+                declaration.name for declaration in toolkit.list_tools()
+            ]
+            return PlannerResult(stats={})
+
+    robot_spec = replace(
+        get_robot_spec(), init_runtime=lambda *args: ([], {"client": client})
+    )
+    monkeypatch.setattr(cli, "get_robot_spec", lambda name: robot_spec)
+    monkeypatch.setattr(
+        cli, "build_planner", lambda *args, **kwargs: CapturingPlanner()
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "rpent",
+            "--robot",
+            "efe",
+            "--instruction-file",
+            str(instruction),
+            "--workdir",
+            str(tmp_path),
+            "--output-dir",
+            str(tmp_path / "logs"),
+            "--memory-profile",
+            "local",
+            "--memory-dir",
+            str(tmp_path / "memory"),
+            *cli_args,
+        ],
+    )
+
+    assert cli.main() == 0
+
+    tools = captured["tools"]
+    prompt = captured["system_prompt"]
+    assert ("efe_submit" in tools) is (not skills_available)
+    assert ("move_to_xyz" in tools) is skills_available
+    assert ("efe_submit" in prompt) is (not skills_available)
+    assert ("move_to_xyz" in prompt) is skills_available
+    assert ("efe_reset" in prompt) is ("efe_reset" in tools)
+    assert ("efe_end_episode" in prompt) is ("efe_end_episode" in tools)
+    assert ("efe_reset" in prompt) is (client.reset_budget > 0)
+    assert ("efe_end_episode" in prompt) is client.success_hidden

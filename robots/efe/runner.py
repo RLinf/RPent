@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING
 
 from robots.efe import SANDBOX_CHOICES, prompt_bundle, session_vars
 from robots.efe.env_client import EfeEnvClient
-from robots.efe.toolkit import EfeToolkit
+from robots.efe.toolkit import EfeToolkit, tool_capabilities
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory.manager import MemoryManager
 from rpent.planner.base import REASONING_EFFORTS, is_recoverable_agent_error
@@ -274,11 +274,9 @@ def run_efe(
                     system_prompt = prompt_bundle.system_prompt(
                         per_session_vars,
                         handoff=number > 1,
-                        skills=toolkit.skills_enabled,
                         write_notes=explore,
                         restricted_shell=sandbox != "full-access",
-                        reset=client.reset_budget > 0,
-                        end_episode=client.success_hidden,
+                        **tool_capabilities(client, enable_skills=skills),
                     )
                     user_message = prompt_bundle.user_prompt(
                         {**per_session_vars, "instruction": instruction}
