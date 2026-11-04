@@ -98,7 +98,7 @@ Observation and Action
    * - Item
      - Description
    * - Observation
-     - Camera RGB frames (with depth on request), robot state (joint angles, TCP pose, gripper opening), and the action layout, joint names, cameras, and kinematics. The agent sees only what the client returns.
+     - Camera RGB frames (with depth on request), robot state (joint angles, tool position and orientation, gripper opening), and the action layout, joint names, cameras, and kinematics. The agent sees only what the client returns.
    * - Action
      - The default arm calls ``move_to_xyz`` to move the tool tip (TCP) to a world position and ``set_gripper`` to set the finger opening; the raw arm sends joint-target chunks with ``efe_submit``. Both reach the simulator service through ``rcb_client``.
    * - Reward / success
@@ -259,7 +259,7 @@ The default arm replaces direct joint-target submission with two high-level
 skills:
 
 - ``move_to_xyz(x, y, z)`` moves the TCP to the world position: it solves IK,
-  submits short action chunks, and re-reads the TCP pose until the error is
+  submits short action chunks, and re-reads the tool position until the error is
   within 1 cm. It keeps the current orientation, so the planner can reason in
   Cartesian space.
 - ``set_gripper(opening)`` sets the finger opening while holding the current arm
