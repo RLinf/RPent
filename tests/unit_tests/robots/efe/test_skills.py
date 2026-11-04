@@ -147,3 +147,70 @@ def test_move_stops_when_the_episode_ends(skills):
 
     assert result.data["done"] is True
     assert result.data["submit_calls"] == 0
+
+
+def test_chunk_duration_follows_a_control_rate_the_default_does_not_fit():
+    client = MovingClient()
+    client.spec["control_hz"] = 24.0
+    service = EfeSkills(client=client, check_cancelled=lambda: None)
+
+    service.move_to_xyz(0.0, 0.0, 0.32)
+
+    assert client.submitted
+    for _, _, dt in client.submitted:
+        assert dt is not None
+        periods = dt * 24.0
+        assert abs(periods - round(periods)) < 1e-6
+        assert dt <= client.spec["max_chunk_s"]
+
+
+def test_explicit_chunk_duration_must_fit_the_control_period():
+    client = MovingClient()
+    client.spec["control_hz"] = 24.0
+
+    with pytest.raises(ValueError, match="whole multiple"):
+        EfeSkills(client=client, check_cancelled=lambda: None, chunk_s=0.2)
+
+
+def test_a_slow_robot_uses_one_control_step_per_chunk():
+    client = MovingClient()
+    client.spec["control_hz"] = 3.0
+
+    service = EfeSkills(client=client, check_cancelled=lambda: None)
+
+    assert service.chunk_s == pytest.approx(1 / 3)
+
+
+def test_a_chunk_shorter_than_one_control_period_disables_the_skills():
+    client = MovingClient()
+    client.spec["control_hz"] = 3.0
+    client.spec["max_chunk_s"] = 0.1
+
+    with pytest.raises(ValueError, match="does not fit"):
+        EfeSkills(client=client, check_cancelled=lambda: None)
+
+
+def test_gripper_tolerance_follows_the_declared_travel(skills):
+    service, client = skills
+
+    limit = client.spec["action_types"]["joint_position"]["limits"]["gripper"]
+    expected = 0.1 * (limit[1] - limit[0])
+
+    assert service.gripper_tolerance_m == pytest.approx(expected)
+    assert service.gripper_tolerance_m < service.tolerance_m
+
+
+def test_a_blocked_gripper_is_reported_as_an_error():
+    class BlockedGripperClient(MovingClient):
+        def submit(self, action_type, actions, *, dt=None, **kwargs):
+            result = super().submit(action_type, actions, dt=dt, **kwargs)
+            result.meta["proprio"] = proprio(gripper=0.002)
+            return result
+
+    service = EfeSkills(client=BlockedGripperClient(), check_cancelled=lambda: None)
+
+    result = service.set_gripper(0.037)
+
+    assert result.data["ok"] is False
+    assert result.is_error is True
+    assert "Gripper reached" in result.data["error"]

@@ -36,6 +36,81 @@ from rpent.tools import ToolResult, tool
 _JOINT_ACTION = "joint_position"
 _GRIPPER = "gripper"
 SKILL_NAMES = ("move_to_xyz", "set_gripper")
+# A skill chunk stays short so the loop can re-read proprioception often. The
+# service spec decides the real bound; this is only the preferred duration.
+_PREFERRED_CHUNK_S = 0.2
+# The protocol also caps the row spacing, independent of the task.
+_PROTOCOL_MAX_DT_S = 0.5
+# The gripper travel is small, so a Cartesian tolerance would accept almost any
+# opening. Ten percent of the declared travel keeps the check meaningful.
+_GRIPPER_TOLERANCE_FRACTION = 0.1
+_GRIPPER_TOLERANCE_FLOOR_M = 0.002
+
+
+def chunk_duration(spec: dict[str, Any], chunk_s: float | None = None) -> float:
+    """Return a chunk duration the service accepts, or raise ValueError.
+
+    The client requires a whole number of control periods, a duration at most
+    ``0.5`` s, and a chunk no longer than ``spec["max_chunk_s"]``. A fixed
+    0.2 s default violates the first rule on tasks whose control rate is not a
+    multiple of 5 Hz, so the default is derived from the spec instead.
+
+    Args:
+        spec: The service capability spec.
+        chunk_s: An explicit duration. Checked against the same rules.
+    """
+    control_hz = float(spec["control_hz"])
+    if not math.isfinite(control_hz) or control_hz <= 0:
+        raise ValueError(f"control_hz must be positive, got {control_hz}")
+    period = 1.0 / control_hz
+    max_chunk_s = float(spec["max_chunk_s"])
+    if chunk_s is not None:
+        value = float(chunk_s)
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError(f"chunk_s must be positive and finite, got {chunk_s}")
+        periods = value / period
+        if abs(periods - round(periods)) > 1e-6:
+            raise ValueError(
+                f"chunk_s must be a whole multiple of the {period:.4f} s "
+                f"control period, got {value}"
+            )
+        if value > min(_PROTOCOL_MAX_DT_S, max_chunk_s) + 1e-9:
+            raise ValueError(
+                f"chunk_s must be at most "
+                f"{min(_PROTOCOL_MAX_DT_S, max_chunk_s):.4f} s for this task, "
+                f"got {value}"
+            )
+        return value
+    periods = int(math.floor(min(_PREFERRED_CHUNK_S, max_chunk_s) / period + 1e-9))
+    if periods < 1 and period <= max_chunk_s + 1e-9:
+        # A slow robot's single control step is longer than the preferred
+        # chunk; one step is still legal and keeps the skills available.
+        periods = 1
+    if periods < 1:
+        raise ValueError(
+            f"A {period:.4f} s control period does not fit in max_chunk_s={max_chunk_s}"
+        )
+    duration = periods / control_hz
+    if duration > _PROTOCOL_MAX_DT_S + 1e-9:
+        # A slow robot's single control period can exceed the row-spacing cap
+        # that every action type shares. No legal chunk exists in that case.
+        raise ValueError(
+            f"A single {duration:.4f} s control period exceeds the "
+            f"{_PROTOCOL_MAX_DT_S} s row-spacing limit"
+        )
+    return duration
+
+
+def gripper_tolerance(spec: dict[str, Any]) -> float:
+    """Return the opening tolerance in metres for the declared gripper travel."""
+    limits = (spec.get("action_types", {}).get(_JOINT_ACTION) or {}).get("limits") or {}
+    bounds = limits.get(_GRIPPER)
+    if not bounds or len(bounds) != 2:
+        # Without declared limits, keep a value that is small against the
+        # gripper travel of every standard task seen so far.
+        return _GRIPPER_TOLERANCE_FLOOR_M
+    span = abs(float(bounds[1]) - float(bounds[0]))
+    return max(_GRIPPER_TOLERANCE_FLOOR_M, _GRIPPER_TOLERANCE_FRACTION * span)
 
 
 def joint_layout(spec: dict[str, Any]) -> tuple[list[str], list[str]]:
@@ -78,15 +153,16 @@ class EfeSkills:
         check_cancelled: Callable[[], None],
         tolerance_m: float = 0.01,
         max_step_m: float = 0.02,
-        chunk_s: float = 0.2,
+        chunk_s: float | None = None,
     ) -> None:
-        if tolerance_m <= 0 or max_step_m <= 0 or chunk_s <= 0:
-            raise ValueError("tolerance_m, max_step_m, and chunk_s must be positive")
+        if tolerance_m <= 0 or max_step_m <= 0:
+            raise ValueError("tolerance_m and max_step_m must be positive")
         self.client = client
         self._check_cancelled = check_cancelled
         self.tolerance_m = tolerance_m
         self.max_step_m = max_step_m
-        self.chunk_s = chunk_s
+        self.chunk_s = chunk_duration(client.spec, chunk_s)
+        self.gripper_tolerance_m = gripper_tolerance(client.spec)
         self._joint_names, _ = joint_layout(client.spec)
         kinematics = client.spec["kinematics"]
         if not kinematics.get("tcp_frames"):
@@ -221,6 +297,10 @@ class EfeSkills:
             return ToolResult(
                 data={
                     "ok": False,
+                    "error": (
+                        "The episode ended before the gripper could move "
+                        f"({self.client.done_reason or 'no reason reported'})"
+                    ),
                     "done": True,
                     "reason": self.client.done_reason,
                 }
@@ -233,18 +313,26 @@ class EfeSkills:
         if meta.get("proprio"):
             proprio = proprio_map(self.client.spec, meta["proprio"])
             measured = proprio.get("gripper_opening")
-        return ToolResult(
-            data={
-                "ok": measured is None
-                or abs(float(measured) - opening) <= self.tolerance_m,
-                "command_m": opening,
-                "opening_m": measured,
-                "submit_calls": 1,
-                "control_steps": int(meta.get("control_steps_chunk") or 0),
-                "done": self.client.done,
-                "reason": self.client.done_reason,
-            }
+        ok = (
+            measured is None
+            or abs(float(measured) - opening) <= self.gripper_tolerance_m
         )
+        data: dict[str, Any] = {
+            "ok": ok,
+            "command_m": opening,
+            "opening_m": measured,
+            "tolerance_m": self.gripper_tolerance_m,
+            "submit_calls": 1,
+            "control_steps": int(meta.get("control_steps_chunk") or 0),
+            "done": self.client.done,
+            "reason": self.client.done_reason,
+        }
+        if not ok:
+            data["error"] = (
+                f"Gripper reached {float(measured):.4f} m, {opening:.4f} m "
+                f"commanded (tolerance {self.gripper_tolerance_m:.4f} m)"
+            )
+        return ToolResult(data=data)
 
     def _current_state(self) -> dict[str, Any]:
         """Read the tool position, orientation, joints, and gripper command."""
