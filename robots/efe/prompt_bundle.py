@@ -28,11 +28,13 @@ You get one episode and no reset. The episode ends at success, at the time limit
 TOOLS = """- `efe_spec`: action layouts, limits, cameras, proprioception, kinematics. Read it once before acting.
 - `efe_observe`: current frames and proprioception. It never moves the robot.
 - `efe_status`: calls, control steps, elapsed time, and whether the episode has ended.
-- `efe_submit`: send one action chunk in a layout from `efe_spec`.
 - `efe_recover`: wait for a crashed service to resume the same episode."""
+
+SUBMIT_TOOL = "\n- `efe_submit`: send one action chunk in a layout from `efe_spec`."
 
 SKILL_TOOL = (
     "\n- `move_to_xyz`: move the tool frame to a world position with a closed IK loop."
+    "\n- `set_gripper`: set the gripper opening in metres while holding the arm pose."
 )
 
 RESET_TOOL = (
@@ -105,7 +107,7 @@ def system_prompt(
     rules = RULES
     if restricted_shell:
         rules = BulletList((*RULES.items, SHELL_RULE))
-    tools = TOOLS + (SKILL_TOOL if skills else "")
+    tools = TOOLS + (SKILL_TOOL if skills else SUBMIT_TOOL)
     tools += RESET_TOOL if reset else ""
     tools += END_EPISODE_TOOL if end_episode else ""
     parts: PromptNode = {

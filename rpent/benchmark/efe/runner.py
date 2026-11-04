@@ -138,7 +138,7 @@ def run_efe(
         reasoning_effort: A reasoning level supported by the planner.
         memory_dir: An existing RPent memory corpus.
         explore_sessions: Number of independent planner sessions.
-        skills: Register the high-level skills as well as the raw tools.
+        skills: Replace the joint-level submit tool with the high-level skills.
         sandbox: Codex shell sandbox. ``read-only`` keeps shell commands away
             from the simulator, so only RPent tools act on the episode;
             ``full-access`` lets the planner script the service directly.
@@ -274,7 +274,7 @@ def run_efe(
                     system_prompt = prompt_bundle.system_prompt(
                         session_vars,
                         handoff=number > 1,
-                        skills=skills,
+                        skills=toolkit.skills_enabled,
                         write_notes=explore,
                         restricted_shell=sandbox != "full-access",
                         reset=client.reset_budget > 0,

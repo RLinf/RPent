@@ -29,9 +29,12 @@ from robots.efe.tools import EfeTools, view_env_state
 from rpent.dashboard.events import DashboardEventSink
 from rpent.session import EnvState
 from rpent.tools import Toolkit, ToolResult, iter_tools, tool
+from rpent.utils.logging import get_logger
 
 if TYPE_CHECKING:
     from rpent.memory.manager import MemoryManager
+
+logger = get_logger("efe")
 
 # The shared tools describe robot artifacts. EFE sessions work on one live
 # episode, so their descriptions must not point the model at recipes or audits.
@@ -86,19 +89,29 @@ class EfeToolkit(Toolkit):
             memory=memory,
         )
         self._service = EfeTools(client=client, state=state)
+        self._skills_error: str | None = None
+        self._primitives: EfePrimitives | None = None
+        if enable_skills:
+            try:
+                self._primitives = EfePrimitives(
+                    client=client,
+                    check_cancelled=self.raise_if_cancelled,
+                )
+            except ValueError as exc:
+                # A task without the joint layout the skills need keeps the
+                # read-only tools and reports why it has no action tool.
+                self._skills_error = str(exc)
+                logger.warning("EFE skills unavailable: %s", exc)
         for declaration in iter_tools(self._service):
+            if declaration.name == "efe_submit" and self._primitives is not None:
+                continue
             if declaration.name == "efe_reset" and client.reset_budget <= 0:
                 continue
             if declaration.name == "efe_end_episode" and not client.success_hidden:
                 continue
             self.add_tool(declaration)
         self.add_tool(view_env_state.with_handler(partial(view_env_state, state=state)))
-        self._primitives: EfePrimitives | None = None
-        if enable_skills:
-            self._primitives = EfePrimitives(
-                client=client,
-                check_cancelled=self.raise_if_cancelled,
-            )
+        if self._primitives is not None:
             self.add_tools(iter_tools(self._primitives))
         self.add_tool(self.finish, replace=True)
 
@@ -110,6 +123,11 @@ class EfeToolkit(Toolkit):
                 self.add_tool(
                     replace(declaration, description=description), replace=True
                 )
+
+    @property
+    def skills_enabled(self) -> bool:
+        """Whether the high-level skills are registered for this task."""
+        return self._primitives is not None
 
     @tool(name="finish", readonly=True)
     def finish(
@@ -173,7 +191,9 @@ class EfeToolkit(Toolkit):
         from the values at session start.
         """
         skill_calls = sum(
-            count for name, count in self._call_counts.items() if name == "move_to_xyz"
+            count
+            for name, count in self._call_counts.items()
+            if name in EfePrimitives.skill_names
         )
         return {
             "tool_calls": sum(self._call_counts.values()),
@@ -183,4 +203,5 @@ class EfeToolkit(Toolkit):
             "efe_control_steps": self._client.control_steps - self._start_steps,
             "efe_observe_calls": self._client.observe_calls - self._start_observes,
             "skills_enabled": self._primitives is not None,
+            "skills_error": self._skills_error,
         }

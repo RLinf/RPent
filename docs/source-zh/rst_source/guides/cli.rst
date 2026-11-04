@@ -178,8 +178,9 @@ Simulator，也不运行 Verifier。仅当任务声明 Reset 预算且 Planner �
      --workdir /app --output-dir /logs/agent/manual-rpent \
      --model your-model --timeout-s 600 --max-turns 200
 
-Planner 调用 ``efe_spec``、``efe_observe``、``efe_status``、``efe_submit``、
-``efe_recover`` 和 ``move_to_xyz``。带 Reset 预算的任务还会注册 ``efe_reset``；
+启用技能时，Planner 调用 ``efe_spec``、``efe_observe``、``efe_status``、
+``efe_recover``、``move_to_xyz`` 和 ``set_gripper``；``--no-skills`` 改为暴露
+Raw 动作工具 ``efe_submit``。带 Reset 预算的任务还会注册 ``efe_reset``；
 使用 agent-ended episode 的任务会注册 ``efe_end_episode``。``--no-skills``
 不注册高层技能。``--codex-sandbox`` 默认为 ``read-only``，Shell 命令无法访问
 Simulator；``full-access`` 允许 Planner 直接编写脚本操作服务。

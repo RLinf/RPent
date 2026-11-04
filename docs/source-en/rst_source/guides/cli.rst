@@ -213,9 +213,10 @@ only when the task declares a reset budget and the planner calls ``efe_reset``.
      --workdir /app --output-dir /logs/agent/manual-rpent \
      --model your-model --timeout-s 600 --max-turns 200
 
-The planner calls ``efe_spec``, ``efe_observe``, ``efe_status``,
-``efe_submit``, ``efe_recover``, and ``move_to_xyz``. A task with a reset
-budget also exposes ``efe_reset``; one with agent-ended episodes exposes
+With skills, the planner calls ``efe_spec``, ``efe_observe``, ``efe_status``,
+``efe_recover``, ``move_to_xyz``, and ``set_gripper``; ``--no-skills`` exposes
+the raw ``efe_submit`` action tool instead. A task with a reset budget also
+exposes ``efe_reset``; one with agent-ended episodes exposes
 ``efe_end_episode``. ``--no-skills`` omits the high-level skill. ``--codex-sandbox``
 defaults to ``read-only``, which keeps shell commands away from the simulator;
 ``full-access`` lets the planner script the service directly. ``--memory-dir``

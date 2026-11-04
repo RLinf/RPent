@@ -35,6 +35,7 @@ from rpent.tools import ToolResult, tool
 
 _JOINT_ACTION = "joint_position"
 _GRIPPER = "gripper"
+SKILL_NAMES = ("move_to_xyz", "set_gripper")
 
 
 def joint_layout(spec: dict[str, Any]) -> tuple[list[str], list[str]]:
@@ -67,6 +68,8 @@ def joint_layout(spec: dict[str, Any]) -> tuple[list[str], list[str]]:
 
 class EfePrimitives:
     """High-level skills over one EFE episode."""
+
+    skill_names = SKILL_NAMES
 
     def __init__(
         self,
@@ -198,6 +201,50 @@ class EfePrimitives:
                 f"after {submit_calls} chunks"
             )
         return ToolResult(data=data)
+
+    @tool
+    def set_gripper(self, opening: float) -> ToolResult:
+        """Set the gripper finger opening in metres, holding the current arm pose.
+
+        The skill commands one short chunk. Read proprioception afterwards to
+        confirm the fingers moved; a blocked finger reports the opening it
+        actually reached.
+
+        Args:
+            opening: Target finger opening in metres, within the service limits.
+        """
+        self._check_cancelled()
+        opening = float(opening)
+        if not math.isfinite(opening):
+            raise ValueError(f"Gripper opening must be finite, got {opening}")
+        if self.client.done:
+            return ToolResult(
+                data={
+                    "ok": False,
+                    "done": True,
+                    "reason": self.client.done_reason,
+                }
+            )
+        current = self._current_state()
+        row = [*current["joints"], opening]
+        result = self.client.submit(_JOINT_ACTION, [row], dt=self.chunk_s)
+        meta = result.meta
+        measured = None
+        if meta.get("proprio"):
+            proprio = proprio_map(self.client.spec, meta["proprio"])
+            measured = proprio.get("gripper_opening")
+        return ToolResult(
+            data={
+                "ok": measured is None
+                or abs(float(measured) - opening) <= self.tolerance_m,
+                "command_m": opening,
+                "opening_m": measured,
+                "submit_calls": 1,
+                "control_steps": int(meta.get("control_steps_chunk") or 0),
+                "done": self.client.done,
+                "reason": self.client.done_reason,
+            }
+        )
 
     def _current_state(self) -> dict[str, Any]:
         """Read the tool position, orientation, joints, and gripper command."""

@@ -224,9 +224,9 @@ def test_run_efe_loads_memory_tools_and_prompt(
         "efe_observe",
         "efe_status",
         "efe_recover",
-        "efe_submit",
         "view_env_state",
         "move_to_xyz",
+        "set_gripper",
     ]
     assert str(memory_dir.resolve()) in backend.thread.prompt
     assert (workdir / "control-result.txt").is_file()
@@ -299,9 +299,9 @@ def test_run_efe_preserves_child_output_and_accounts_mcp_finish(
         "efe_observe",
         "efe_status",
         "efe_recover",
-        "efe_submit",
         "view_env_state",
         "move_to_xyz",
+        "set_gripper",
     ]
     assert local_backend[0].thread.local_turn.finish_response["isError"] is False
     assert (
