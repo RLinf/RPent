@@ -23,8 +23,8 @@ import sys
 
 import pytest
 
+from robots.efe.runner import run_efe
 from robots.efe.toolkit import EfeToolkit
-from rpent.benchmark.efe.runner import run_efe
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory.manager import MemoryManager
 from rpent.planner.base import PlannerResult
@@ -116,6 +116,88 @@ def test_full_access_sandbox_leaves_shell_available(
     assert planner_calls["options"]["sandbox"] == "full-access"
     assert report["codex_sandbox"] == "full-access"
     assert "no network access" not in planner_calls["solve"]["system_prompt"]
+
+
+def test_runner_builds_prompt_variables_from_the_shared_helper(
+    tmp_path, planner_calls, efe_client, monkeypatch
+):
+    import robots.efe.prompt_bundle as prompt_bundle
+    from robots.efe import session_vars
+
+    captured: dict[str, object] = {}
+    build = prompt_bundle.system_prompt
+
+    def capture(variables=None, **kwargs):
+        captured.update(variables or {})
+        return build(variables, **kwargs)
+
+    monkeypatch.setattr(prompt_bundle, "system_prompt", capture)
+    output_dir = tmp_path / "logs"
+
+    run_efe(
+        "Task",
+        workdir=tmp_path,
+        output_dir=output_dir,
+        model="test",
+        client=efe_client,
+    )
+
+    workdir = tmp_path.resolve()
+    output = output_dir.resolve()
+    memory = output / "memory"
+    assert captured == {
+        **session_vars.prompt_vars(
+            workdir=workdir,
+            output_dir=output,
+            memory_dir=memory,
+            inbox_tag=session_vars.DEFAULT_INBOX_TAG,
+            session_max=1,
+            skills=True,
+        ),
+        "session_number": 1,
+    }
+
+
+def test_finish_does_not_count_as_a_service_success(
+    tmp_path, planner_calls, efe_client
+):
+    report = run_efe(
+        "Task",
+        workdir=tmp_path,
+        output_dir=tmp_path / "logs",
+        model="test",
+        client=efe_client,
+    )
+
+    assert report["agent_finish"]["status"] == "completed"
+    assert report["sessions"][0]["solved"] is False
+    assert report["efe"]["solved"] is False
+
+
+def test_solved_follows_the_service_end_reason(tmp_path, monkeypatch, efe_client):
+    import rpent.planner.codex as codex
+
+    class EndingPlanner:
+        def __init__(self, **options):
+            pass
+
+        def solve(self, **options):
+            efe_client.done = True
+            efe_client.done_reason = "success"
+            return PlannerResult(stats={"usage_observed": True})
+
+    monkeypatch.setattr(codex, "CodexPlanner", EndingPlanner)
+
+    report = run_efe(
+        "Task",
+        workdir=tmp_path,
+        output_dir=tmp_path / "logs",
+        model="test",
+        client=efe_client,
+    )
+
+    assert report["sessions"][0]["solved"] is True
+    assert report["efe"]["solved"] is True
 
 
 def test_runner_records_startup_failure(tmp_path, monkeypatch, efe_client):
@@ -558,7 +640,7 @@ def test_each_trial_uses_separate_empty_memory_and_codex_home(
 
 def test_cli_help_runs_without_loading_robot_or_planner_modules():
     script = """import sys
-from rpent.cli.efe import main
+from robots.efe.cli import main
 try:
     main(['--help'])
 except SystemExit as exc:

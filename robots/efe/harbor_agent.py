@@ -29,7 +29,7 @@ from harbor.agents.installed.base import BaseInstalledAgent
 from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext, ModelUsage
 
-from rpent.benchmark.efe import SANDBOX_CHOICES
+from robots.efe import SANDBOX_CHOICES
 
 
 class RPentEfeAgent(BaseInstalledAgent):
@@ -57,7 +57,7 @@ class RPentEfeAgent(BaseInstalledAgent):
         self.source_root = (
             Path(source_root).expanduser().resolve()
             if source_root
-            else Path(__file__).resolve().parents[3]
+            else Path(__file__).resolve().parents[2]
         )
         if timeout_s <= 0 or max_turns <= 0:
             raise ValueError("timeout_s and max_turns must be positive.")
@@ -138,10 +138,21 @@ class RPentEfeAgent(BaseInstalledAgent):
             command=(
                 "tar -xzf /opt/rpent-efe/source.tar.gz -C /opt/rpent-efe/source && "
                 "python3 -m venv /opt/rpent-efe/venv && "
-                "/opt/rpent-efe/venv/bin/python -m pip install /opt/rpent-efe/source"
+                "/opt/rpent-efe/venv/bin/python -m pip install --no-cache-dir "
+                "--disable-pip-version-check /opt/rpent-efe/source"
             ),
             timeout_sec=900,
         )
+        # pip resolves dependencies inside the task image, so two trials can
+        # install different versions. Record the resolved set on the host to
+        # make that difference visible when results disagree.
+        frozen = await self.exec_as_root(
+            environment,
+            command="/opt/rpent-efe/venv/bin/python -m pip freeze --all",
+        )
+        setup_dir = self.logs_dir / "setup"
+        setup_dir.mkdir(parents=True, exist_ok=True)
+        (setup_dir / "pip-freeze.txt").write_text(frozen.stdout or "", encoding="utf-8")
         if self.memory_source is not None:
             await self._upload_memory(environment)
 
@@ -179,7 +190,7 @@ class RPentEfeAgent(BaseInstalledAgent):
         arguments = [
             "/opt/rpent-efe/venv/bin/python",
             "-m",
-            "rpent.cli.efe",
+            "robots.efe.cli",
             "--instruction-file",
             str(remote_instruction),
             "--workdir",

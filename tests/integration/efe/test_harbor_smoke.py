@@ -50,7 +50,7 @@ def harbor_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> list[str]
         "PYTHONPATH",
         os.pathsep.join(filter(None, (str(repo_root), os.environ.get("PYTHONPATH")))),
     )
-    importlib.import_module("rpent.benchmark.efe.harbor_agent").RPentEfeAgent
+    importlib.import_module("robots.efe.harbor_agent").RPentEfeAgent
     subprocess.run(
         [docker_cli, "info"],
         capture_output=True,
@@ -64,7 +64,7 @@ def harbor_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> list[str]
         "--path",
         str(task_path),
         "-a",
-        "rpent.benchmark.efe.harbor_agent:RPentEfeAgent",
+        "robots.efe.harbor_agent:RPentEfeAgent",
         "--model",
         model,
         "-e",

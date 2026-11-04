@@ -30,7 +30,7 @@ import pytest
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
-from rpent.benchmark.efe.runner import run_efe
+from robots.efe.runner import run_efe
 from tests.efe_support import FakeEfeClient
 
 

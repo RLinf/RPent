@@ -23,6 +23,7 @@ import shlex
 import tarfile
 from importlib import import_module
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -32,7 +33,7 @@ pytest.importorskip(
 )
 
 AgentContext = import_module("harbor.models.agent.context").AgentContext
-RPentEfeAgent = import_module("rpent.benchmark.efe.harbor_agent").RPentEfeAgent
+RPentEfeAgent = import_module("robots.efe.harbor_agent").RPentEfeAgent
 
 
 class UploadEnvironment:
@@ -120,7 +121,7 @@ def test_install_uploads_local_source_without_tests_or_caches(tmp_path, monkeypa
         "pyproject.toml",
         "README.md",
         "LICENSE",
-        "rpent/cli/efe.py",
+        "robots/efe/cli.py",
         "robots/__init__.py",
         "rpent/__pycache__/cached.pyc",
         "rpent/.env",
@@ -140,19 +141,25 @@ def test_install_uploads_local_source_without_tests_or_caches(tmp_path, monkeypa
     )
     environment = UploadEnvironment()
     execute = AsyncMock()
+    execute.return_value = SimpleNamespace(stdout="rpent==0.1.0\n")
     monkeypatch.setattr(agent, "exec_as_root", execute)
 
     asyncio.run(agent.install(environment))
 
-    assert "rpent/cli/efe.py" in environment.archive_members
+    commands = [call.kwargs["command"] for call in execute.await_args_list]
+    install = next(command for command in commands if "pip install" in command)
+    assert "robots/efe/cli.py" in environment.archive_members
     assert "rpent/__pycache__/cached.pyc" not in environment.archive_members
     assert "tests/private.py" not in environment.archive_members
     assert "rpent/.env" not in environment.archive_members
     assert "rpent/.codex/auth.json" not in environment.archive_members
     assert "rpent/logs/run.log" not in environment.archive_members
     assert "rpent/dashboard/static/style.css" in environment.archive_members
-    assert "python3 -m venv" in execute.call_args.kwargs["command"]
-    assert "python -m pip install" in execute.call_args.kwargs["command"]
+    assert "python3 -m venv" in install
+    assert "--no-cache-dir" in install
+    assert "--disable-pip-version-check" in install
+    assert "pip freeze --all" in commands[-1]
+    assert (tmp_path / "logs/setup/pip-freeze.txt").read_text() == "rpent==0.1.0\n"
     assert (
         len(json.loads((tmp_path / "logs/rpent-source.json").read_text())["sha256"])
         == 64
@@ -163,7 +170,7 @@ def test_default_source_root_is_the_repository_root(tmp_path):
     agent = RPentEfeAgent(logs_dir=tmp_path, model_name="openai/test")
 
     assert (agent.source_root / "pyproject.toml").is_file()
-    assert (agent.source_root / "rpent/benchmark/efe/harbor_agent.py").is_file()
+    assert (agent.source_root / "robots/efe/harbor_agent.py").is_file()
 
 
 def test_post_run_usage_keeps_cached_tokens_inside_input(tmp_path):
@@ -204,6 +211,7 @@ def test_agent_uploads_memory_and_forwards_exploration(tmp_path, monkeypatch):
     )
     environment = UploadEnvironment()
     execute = AsyncMock()
+    execute.return_value = SimpleNamespace(stdout="")
     monkeypatch.setattr(agent, "exec_as_root", execute)
     monkeypatch.setattr(agent, "exec_as_agent", AsyncMock())
 

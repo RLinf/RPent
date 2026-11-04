@@ -15,11 +15,32 @@
 """EFE standard-mode robot integration.
 
 The task container exposes one episode through ``rcb_client``. RPent treats
-that service as the robot: no reset, no simulator internals, and no
-privileged state. ``rpent.benchmark.efe`` runs this integration inside a
-Harbor trial; it is a separate package.
+that service as the robot: no simulator internals and no privileged state. A
+task that declares a reset budget exposes a limited reset; RPent never resets
+on its own. ``robots.efe.harbor_agent`` runs this integration inside a Harbor
+trial.
 """
 
-from robots.efe.robot_spec import get_robot_spec, get_toolkit
+from typing import Any
 
-__all__ = ["get_robot_spec", "get_toolkit"]
+# Codex sandbox modes shared by the CLI, the Harbor adapter, and the planner.
+# An EFE evaluation isolates the robot behind RPent tools; ``full-access``
+# lets the planner's shell reach the simulator directly.
+SANDBOX_CHOICES = ("read-only", "workspace-write", "full-access")
+
+_FACTORY_NAMES = ("get_robot_spec", "get_toolkit")
+
+__all__ = ["SANDBOX_CHOICES", *_FACTORY_NAMES]
+
+
+def __getattr__(name: str) -> Any:
+    """Load the robot factories on first use.
+
+    The EFE CLI lives in this package, so ``--help`` must not import the robot
+    framework.
+    """
+    if name in _FACTORY_NAMES:
+        from robots.efe import robot_spec
+
+        return getattr(robot_spec, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

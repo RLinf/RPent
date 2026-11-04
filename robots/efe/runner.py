@@ -26,10 +26,9 @@ from importlib.metadata import version
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from robots.efe import prompt_bundle
+from robots.efe import SANDBOX_CHOICES, prompt_bundle, session_vars
 from robots.efe.env_client import EfeEnvClient
 from robots.efe.toolkit import EfeToolkit
-from rpent.benchmark.efe import SANDBOX_CHOICES
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory.manager import MemoryManager
 from rpent.planner.base import REASONING_EFFORTS, is_recoverable_agent_error
@@ -184,14 +183,14 @@ def run_efe(
         memory_access="inbox_write" if explore else "read_only",
         inbox_cell_tag="efe" if explore else None,
     )
-    prompt_vars: dict[str, object] = {
-        "workdir": str(workdir),
-        "output_dir": str(output_dir),
-        "memory_dir": str(memory_root),
-        "memory_inbox": str(memory_root / "_internal" / "inbox" / "efe"),
-        "session_max": explore_sessions,
-        "skills": skills,
-    }
+    prompt_vars: dict[str, object] = session_vars.prompt_vars(
+        workdir=workdir,
+        output_dir=output_dir,
+        memory_dir=memory_root,
+        inbox_tag=session_vars.DEFAULT_INBOX_TAG,
+        session_max=explore_sessions,
+        skills=skills,
+    )
     report: dict[str, object] = {
         "compatibility": "EFE-compatible / non-official",
         "planner": "codex",
@@ -258,6 +257,7 @@ def run_efe(
                     state_output_dir=session_dir,
                     enable_skills=skills,
                 )
+                solved = False
                 try:
                     planner = CodexPlanner(
                         output_dir=str(session_dir),
@@ -270,9 +270,9 @@ def run_efe(
                         sandbox=sandbox,
                         dashboard_events=NullDashboardEventSink(),
                     )
-                    session_vars = {**prompt_vars, "session_number": number}
+                    per_session_vars = {**prompt_vars, "session_number": number}
                     system_prompt = prompt_bundle.system_prompt(
-                        session_vars,
+                        per_session_vars,
                         handoff=number > 1,
                         skills=toolkit.skills_enabled,
                         write_notes=explore,
@@ -281,7 +281,7 @@ def run_efe(
                         end_episode=client.success_hidden,
                     )
                     user_message = prompt_bundle.user_prompt(
-                        {**session_vars, "instruction": instruction}
+                        {**per_session_vars, "instruction": instruction}
                     )
                     result: PlannerResult = planner.solve(
                         system_prompt=system_prompt,
@@ -290,10 +290,12 @@ def run_efe(
                         max_turns=max_turns,
                     )
                 finally:
+                    solved = toolkit.solved()
                     toolkit.close()
                 sessions.append(
                     {
                         "session": number,
+                        "solved": solved,
                         "stats": result.stats,
                         "finish": result.finish_result,
                         "error": result.error,
@@ -330,6 +332,7 @@ def run_efe(
                 "control_steps": client.control_steps,
                 "done": client.done,
                 "done_reason": client.done_reason,
+                "solved": any(bool(session.get("solved")) for session in sessions),
             }
         report["elapsed_s"] = round(time.monotonic() - started, 3)
         (output_dir / "session.json").write_text(

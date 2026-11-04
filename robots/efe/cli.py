@@ -19,7 +19,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from rpent.benchmark.efe import SANDBOX_CHOICES
+from robots.efe import SANDBOX_CHOICES
 
 
 def positive_int(value: str) -> int:
@@ -75,7 +75,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.set_defaults(skills=True)
     args = parser.parse_args(argv)
 
-    from rpent.benchmark.efe.runner import run_efe
+    from robots.efe.runner import run_efe
 
     try:
         report = run_efe(
