@@ -199,37 +199,6 @@ prefix.
    * - ``--fast-wam-dataset-stats``
      - ``--wam-dataset-stats``
 
-EFE Benchmark Entry Points
---------------------------
-
-``rpent-efe`` runs one EFE-compatible trial inside an existing agent container.
-It connects to the task's simulator service through ``rcb_client`` and does not
-create a container, start a simulator, or run a verifier. It resets an episode
-only when the task declares a reset budget and the planner calls ``efe_reset``.
-
-.. code-block:: bash
-
-   rpent-efe --instruction-file /logs/agent/rpent-instruction.txt \
-     --workdir /app --output-dir /logs/agent/manual-rpent \
-     --model your-model --timeout-s 600 --max-turns 200
-
-With skills, the planner calls ``efe_spec``, ``efe_observe``, ``efe_status``,
-``efe_recover``, ``move_to_xyz``, and ``set_gripper``; ``--no-skills`` exposes
-the raw ``efe_submit`` action tool instead. A task with a reset budget also
-exposes ``efe_reset``; one with agent-ended episodes exposes
-``efe_end_episode``. ``--no-skills`` omits the high-level skill. ``--codex-sandbox``
-defaults to ``read-only``, which keeps shell commands away from the simulator;
-``full-access`` lets the planner script the service directly. ``--memory-dir``
-loads an existing RPent memory corpus and ``--explore-sessions`` runs several
-independent sessions on the same episode. Without a corpus the session starts
-with an empty memory root. Full evaluation uses Harbor's Installed Agent; see
-``rpent/benchmark/efe/README.md`` in the repository for the complete setup and
-the comparison rules.
-
-``rpent-efe-report RUN_DIR...`` prints the Verifier reward and the RPent
-counters for every trial below the given Harbor run directories, plus the
-per-arm means used by the raw-tools and skills comparison.
-
 Model-Service Environment Variables
 -----------------------------------
 
