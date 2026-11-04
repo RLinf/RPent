@@ -24,6 +24,7 @@ import numpy as np
 
 from rpent.robots.components.action_spec import box_action_spec
 from rpent.robots.components.env_facade_base import BaseEnvFacade
+from rpent.tools.localization.localization import MujocoSimSource
 from rpent.utils.logging import get_logger
 from rpent.utils.rpc.main_thread_serve import MainThreadServeMixin
 
@@ -274,6 +275,20 @@ class RoboCasaEnvFacade(MainThreadServeMixin, BaseEnvFacade):
 
         T = CU.get_camera_transform_matrix(self.env.sim, camera_name, height, width)
         return np.linalg.inv(T)  # T_p2w
+
+    def capture_localization(self, cameras) -> list[dict]:
+        """Render requested cameras with their calibration from the current state.
+
+        Sizes default to the server camera resolution.
+        """
+        source = MujocoSimSource(
+            self.env.sim,
+            default_size=(self.camera_h, self.camera_w),
+            metadata={"environment": "robocasa"},
+        )
+        return source.capture_records(
+            cameras, metadata={"env_step": int(self.env.timestep)}
+        )
 
     def get_task_language(self) -> str | None:
         return self.env.get_ep_meta().get("lang")

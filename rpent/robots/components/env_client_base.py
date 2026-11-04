@@ -22,6 +22,7 @@ from typing import Any
 import numpy as np
 
 from rpent.robots.components.action_spec import validate_action
+from rpent.tools.localization.localization import LocalizationFrame, frames_from_rpc
 
 
 class BaseEnvClient:
@@ -33,6 +34,7 @@ class BaseEnvClient:
         "env.step": 60.0,
         "env.chunk_step": 120.0,
         "env.render_camera": 120.0,
+        "env.capture_localization": 120.0,
     }
 
     def __init__(self, client, *, expected_meta: dict, reset_on_connect: bool = True):
@@ -129,6 +131,22 @@ class BaseEnvClient:
             "env.render_camera",
             kwargs={"camera_name": camera_name, **kwargs},
             timeout_s=self._TIMEOUT_S["env.render_camera"],
+        )
+
+    def capture_frames(self, cameras) -> list[LocalizationFrame]:
+        """Capture canonical localization frames from one environment state.
+
+        Args:
+            cameras: Requests accepted by
+                ``rpent.tools.localization.localization.camera_requests``.
+
+        Returns:
+            Frames in request order; the environment is not advanced.
+        """
+        return frames_from_rpc(
+            self._client,
+            cameras,
+            timeout_s=self._TIMEOUT_S["env.capture_localization"],
         )
 
     def get_task_language(self) -> str | None:

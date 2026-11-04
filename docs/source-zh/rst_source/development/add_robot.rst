@@ -125,6 +125,8 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统说明 
 
 继承 :class:`rpent.robots.components.env_client_base.BaseEnvClient`。它已经负责启动时校验 ``env.get_env_meta``、执行首次 reset、缓存 ``last_obs``，并实现公共的 ``reset``、``step``、``chunk_step``、``render_camera``、 ``get_camera_meta`` 和 ``get_task_language`` RPC。子类只需增加环境专用方法；扩展方法需要独立超时时，再扩展超时表。RPC 名称需要保持稳定，因为服务端 facade 会显式注册每个名称。
 
+需要像素对齐的 RGB-D 定位数据时，调用 ``capture_frames(cameras)``。相机请求可以是名称、``(name, height, width)`` 元组或包含相机参数的映射。该方法通过 ``env.capture_localization`` 返回 ``rpent.tools.localization.localization`` 中的 ``LocalizationFrame`` 对象。每帧包含在同一环境状态下采集的 RGB 图像、以米为单位的深度、标定参数、世界坐标和有效像素掩码，采集过程不推进环境。
+
 .. code-block:: python
 
    from rpent.robots.components.env_client_base import BaseEnvClient
@@ -181,6 +183,8 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统说明 
    facade.serve(transport="http", host=host, port=port)
 
 ``BaseEnvFacade`` 通过 ``_register_rpc`` 注册公共路由，并使用读写锁串行化会改变状态的调用。只有确认某个扩展路由可以安全地与其他读操作并发时，才把它加入 ``_readonly_methods``。继承的 ``RpcFacade.serve`` 负责绑定传输方式（HTTP 或 socket）、提供 ``healthz`` 和 ``shutdown``、检测父进程退出并执行资源清理。
+
+要支持上述可选采集接口，在 facade 中实现 ``capture_localization(cameras)``，返回 ``LocalizationFrame`` 接受的规范记录。基类负责注册路由；未实现该接口的环境会抛出 ``NotImplementedError``。如果一次采集包含多个渲染器或 worker 调用，且这些调用不能与其他读操作交错执行，应从 ``_readonly_methods`` 中移除 ``env.capture_localization``，让分派锁串行执行整次采集。
 
 .. _add-robot-prompts:
 

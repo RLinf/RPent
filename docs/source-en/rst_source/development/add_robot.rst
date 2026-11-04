@@ -169,6 +169,13 @@ Add only environment-specific methods, and extend the timeout table when an
 extension needs its own timeout. Keep RPC names stable — the server-side
 facade registers each name explicitly.
 
+For aligned RGB-D localization, call ``capture_frames(cameras)`` with camera
+names, ``(name, height, width)`` tuples, or camera request mappings. It calls
+``env.capture_localization`` and returns ``LocalizationFrame`` objects from
+``rpent.tools.localization.localization``. Each frame contains RGB, metric
+depth, calibration, world coordinates, and a validity mask captured from one
+unchanged environment state.
+
 .. code-block:: python
 
    from rpent.robots.components.env_client_base import BaseEnvClient
@@ -235,6 +242,14 @@ serializes state-changing calls with its read/write lock. Add a route to
 other reads. The inherited ``RpcFacade.serve`` handles transport binding (HTTP
 or socket), ``healthz`` / ``shutdown``, parent-death detection, and clean
 teardown.
+
+To support this optional capture API, implement ``capture_localization(cameras)``
+on the facade and return canonical records accepted by ``LocalizationFrame``.
+The base class registers the route and raises ``NotImplementedError`` for
+environments that do not implement it. If a capture makes several renderer or
+worker calls that must not interleave with other reads, remove
+``env.capture_localization`` from ``_readonly_methods`` so dispatch serializes
+the complete capture.
 
 .. _add-robot-prompts:
 

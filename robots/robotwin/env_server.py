@@ -248,6 +248,9 @@ class RoboTwinEnvFacade(BaseEnvFacade):
     def get_camera_meta(self, camera_name: str) -> dict[str, Any]:
         return self._env.get_camera_meta(camera_name, env_id=0)
 
+    def capture_localization(self, cameras) -> list[dict[str, Any]]:
+        return self._env.capture_localization(cameras, env_id=0)
+
     def get_task_language(self) -> str:
         return self._env.get_task_language(env_id=0)
 

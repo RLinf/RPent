@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from rpent.robots.components.env_client_base import BaseEnvClient
+from rpent.tools.localization.localization import LocalizationFrame, camera_requests
 
 if TYPE_CHECKING:
     from rpent.utils.rpc import RpcClient
@@ -121,28 +122,20 @@ class RoboCasaEnvClient(BaseEnvClient):
         w = width or self.camera_w
         return super().get_camera_meta(cam, height=h, width=w)
 
-    def world_map(self, camera_name, height=None, width=None):
-        """HxWx3 world xyz per pixel, TOP-DOWN (row 0 = image top), pixel-aligned
-        with render_camera()'s rgb. Uses robosuite's camera transform matrix; the
-        sim's OpenGL depth is bottom-up, so it is vertically flipped to match the
-        transform's top-down convention (VERIFIED: GT object back-projects within
-        ~2cm). Dense vectorized: world = T_p2w @ [col*z, row*z, z, 1]."""
-        cam = self._resolve_cam(camera_name)
-        h = height or self.camera_h
-        w = width or self.camera_w
-        _, z_native = super().render_camera(
-            cam, height=h, width=w, depth=True
-        )  # metric depth, bottom-up
-        z = z_native[::-1]  # -> top-down
-        T_p2w = self._client.call(
-            "env.get_camera_transform",
-            kwargs={"camera_name": cam, "height": h, "width": w},
-            timeout_s=self._TIMEOUT_S["default"],
+    def capture_frames(self, cameras) -> list[LocalizationFrame]:
+        """Capture frames from one state; camera aliases such as ``wrist`` resolve."""
+        return super().capture_frames(
+            [
+                {**request, "camera": self._resolve_cam(request["camera"])}
+                for request in camera_requests(cameras)
+            ]
         )
-        rows, cols = np.meshgrid(np.arange(h), np.arange(w), indexing="ij")
-        homog = np.stack([cols * z, rows * z, z, np.ones_like(z)], axis=-1)  # HxWx4
-        world = homog @ T_p2w.T  # HxWx4
-        return world[..., :3]  # top-down, aligned with rgb
+
+    def world_map(self, camera_name, height=None, width=None):
+        """HxWx3 float32 world xyz, NaN where invalid, pixel-aligned with
+        render_camera()'s top-down rgb."""
+        request = (camera_name, height or self.camera_h, width or self.camera_w)
+        return self.capture_frames([request])[0].world_xyz
 
     def world_xyz_at(self, camera_name, row, col, height=None, width=None):
         return self.world_map(camera_name, height, width)[row, col]

@@ -40,6 +40,7 @@ def _artifact_name(view: str, field: str) -> str:
         "rgb": ".png",
         "depth": ".npy",
         "world_xyz": ".npy",
+        "valid_mask": ".npy",
         "camera_meta": ".json",
     }[field]
     return f"{view}_{field}{suffix}"
@@ -329,7 +330,7 @@ def dump_observation(
         if "rgb" in view:
             name = _artifact_name(view_name, "rgb")
             view_paths["rgb"] = str(env_state.artifact_path(name, step=step_idx))
-        for field in ("depth", "world_xyz"):
+        for field in ("depth", "world_xyz", "valid_mask"):
             if field in view:
                 name = _artifact_name(view_name, field)
                 view_paths[field] = str(env_state.artifact_path(name, step=step_idx))
@@ -378,7 +379,7 @@ def dump_observation(
         extras={"task_language": observation.get("task_language")},
     ) as recorded_step:
         for view_name, view in observation["views"].items():
-            for field in ("rgb", "depth", "world_xyz", "camera_meta"):
+            for field in ("rgb", "depth", "world_xyz", "valid_mask", "camera_meta"):
                 if field in view:
                     env_state.save(
                         _artifact_name(view_name, field),

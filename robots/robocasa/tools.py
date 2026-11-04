@@ -42,10 +42,14 @@ from rpent.tools.base import tool
 _HEAVY_ARTIFACTS = (
     "agentview_depth.npz",
     "agentview_world.npz",
+    "agentview_valid_mask.npz",
     "wrist_depth.npz",
     "wrist_world.npz",
+    "wrist_valid_mask.npz",
     "agentview_world_high.npz",
+    "agentview_valid_mask_high.npz",
     "navview_world.npz",
+    "navview_valid_mask.npz",
 )
 
 # Artifact base names exposed to the agent for each camera (high-res first).
@@ -103,52 +107,41 @@ def _save_observation_artifacts(
     env_state: EnvState,
     step_idx: int,
 ) -> None:
-    """Render and save all per-step observation artifacts for ``step_idx``."""
-    env = primitives.env
-    hi_res = primitives.hi_res
+    """Capture and save all per-step observation artifacts for ``step_idx``.
 
-    # ---- agentview + wrist: rgb, depth, world map, camera meta ----
-    for cam, image_name, depth_name, world_name, meta_name in (
-        (
-            "agentview",
-            "agentview.png",
-            "agentview_depth.npz",
-            "agentview_world.npz",
-            "agentview_metadata.json",
-        ),
-        (
-            "wrist",
-            "wrist.png",
-            "wrist_depth.npz",
-            "wrist_world.npz",
-            "wrist_metadata.json",
-        ),
-    ):
-        rgb, depth = env.render_camera(cam, depth=True)
-        env_state.save(image_name, rgb, step=step_idx)
-        env_state.save(depth_name, depth.astype(np.float32), step=step_idx)
-        env_state.save(world_name, env.world_map(cam).astype(np.float32), step=step_idx)
-        if cam not in primitives._cam_meta_cache or cam == "wrist":
-            primitives._cam_meta_cache[cam] = env.get_camera_meta(cam)
-        env_state.save(meta_name, primitives._cam_meta_cache[cam], step=step_idx)
+    One capture call returns every camera from the same simulator state.
+    """
+    hi_res = primitives.hi_res
+    requests = ["agentview", "wrist", "navview"]
+    if hi_res:
+        requests.append(("agentview", hi_res, hi_res))
+    frames = primitives.env.capture_frames(requests)
+
+    # ---- agentview + wrist: rgb, depth, world map, valid mask, camera meta ----
+    for stem, frame in (("agentview", frames[0]), ("wrist", frames[1])):
+        env_state.save(f"{stem}.png", frame.rgb, step=step_idx)
+        env_state.save(f"{stem}_depth.npz", frame.depth_m, step=step_idx)
+        env_state.save(f"{stem}_world.npz", frame.world_xyz, step=step_idx)
+        env_state.save(f"{stem}_valid_mask.npz", frame.valid_mask, step=step_idx)
+        env_state.save(f"{stem}_metadata.json", frame.describe(), step=step_idx)
 
     # ---- hi-res agentview (SAM grounding / fine localize) ----
     if hi_res:
-        hrgb, _ = env.render_camera("agentview", hi_res, hi_res, depth=True)
-        env_state.save("agentview_high.png", hrgb, step=step_idx)
-        env_state.save(
-            "agentview_world_high.npz",
-            env.world_map("agentview", hi_res, hi_res).astype(np.float16),
-            step=step_idx,
-        )
+        frame = frames[3]
+        env_state.save("agentview_high.png", frame.rgb, step=step_idx)
+        env_state.save("agentview_world_high.npz", frame.world_xyz, step=step_idx)
+        env_state.save("agentview_valid_mask_high.npz", frame.valid_mask, step=step_idx)
+        env_state.save("agentview_metadata_high.json", frame.describe(), step=step_idx)
 
     # ---- navview: base-mounted forward-down floor camera (follows the base) ----
-    nrgb, _ = env.render_camera("navview", depth=True)
-    nworld = env.world_map("navview").astype(np.float32)
-    env_state.save("navview.png", nrgb, step=step_idx)
+    frame = frames[2]
+    nworld = frame.world_xyz
+    env_state.save("navview.png", frame.rgb, step=step_idx)
     env_state.save("navview_world.npz", nworld, step=step_idx)
-    floor = (nworld[:, :, 2] < 0.12) & (nworld[:, :, 2] > -0.2)
-    overlay = nrgb.copy()
+    env_state.save("navview_valid_mask.npz", frame.valid_mask, step=step_idx)
+    env_state.save("navview_metadata.json", frame.describe(), step=step_idx)
+    floor = frame.valid_mask & (nworld[:, :, 2] < 0.12) & (nworld[:, :, 2] > -0.2)
+    overlay = frame.rgb.copy()
     overlay[floor] = [0, 255, 0]
     env_state.save("navview_floor.png", overlay, step=step_idx)
 
@@ -298,7 +291,7 @@ def back_project_batch(
             )
             continue
         xyz = world_map[row, col, :3]
-        if not np.isfinite(xyz).all() or abs(float(xyz.sum())) <= 1e-6:
+        if not np.isfinite(xyz).all():
             results.append(
                 {
                     "pixel": pixel,

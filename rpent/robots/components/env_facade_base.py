@@ -71,6 +71,7 @@ class BaseEnvFacade(RpcFacade):
         self._rpc["env.get_task_language"] = self.get_task_language
         self._rpc["env.get_camera_meta"] = self.get_camera_meta
         self._rpc["env.render_camera"] = self.render_camera
+        self._rpc["env.capture_localization"] = self.capture_localization
 
         # Read-only methods that can run parallel
         self._readonly_methods.update(
@@ -80,6 +81,7 @@ class BaseEnvFacade(RpcFacade):
                 "env.get_task_language",
                 "env.get_camera_meta",
                 "env.render_camera",
+                "env.capture_localization",
             ]
         )
 
@@ -107,6 +109,16 @@ class BaseEnvFacade(RpcFacade):
 
     def render_camera(self, *args, **kwargs):
         raise NotImplementedError
+
+    def capture_localization(self, cameras) -> list[dict]:
+        """Return canonical localization records for ``cameras``.
+
+        One call renders every requested camera and reads its calibration from
+        the same environment state, without advancing the environment.
+        """
+        raise NotImplementedError(
+            "this environment does not provide localization capture"
+        )
 
     def get_task_language(self, *args, **kwargs):
         raise NotImplementedError
