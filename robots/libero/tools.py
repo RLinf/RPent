@@ -27,7 +27,6 @@ from pydantic import Field
 
 from robots.libero.env_client import LiberoEnvClient
 from rpent.robots.components.molmo_client import MolmoClient
-from rpent.robots.components.sam3_client import Sam3Client
 from rpent.session import EnvState, StepRecord
 from rpent.tools import Tool, ToolResult, tool
 from rpent.utils.logging import get_logger
@@ -35,6 +34,7 @@ from rpent.utils.logging import get_logger
 if TYPE_CHECKING:
     from robots.libero.wam_client import LiberoWAMClient
     from rpent.robots.components.am_client_base import BaseVLAClient
+    from rpent.tools.perception import Sam3Tools
 
 logger = get_logger("libero_tools")
 
@@ -61,7 +61,7 @@ class LiberoPrimitives:
         self,
         env: LiberoEnvClient,
         model: BaseVLAClient | LiberoWAMClient,
-        sam3_client: Sam3Client,
+        perception_tool: Sam3Tools,
         check_cancelled: Callable[[], None],
         molmo_client: MolmoClient | None = None,
         flywheel_config: dict[str, Any] | None = None,
@@ -70,7 +70,8 @@ class LiberoPrimitives:
         self.env = env
         self.model = model
         self.policy_kind = policy_kind
-        self._sam3_client = sam3_client
+        #: SAM3 segmentation and mask localization behind ``segment``.
+        self.perception_tool = perception_tool
         self._segment_index_lock = threading.Lock()
         self._segment_index = 0
         #: Only a Flash Mode replay reads this; other runs never start Molmo.
@@ -875,9 +876,11 @@ class LiberoPrimitives:
             )
 
         try:
-            data = self._sam3_client.segment(
-                state.load_bytes(image_name, step=nn),
-                text_prompt=prompt if has_prompt else None,
+            data, overlay = self.perception_tool.segment(
+                state,
+                step=nn,
+                image=image_name,
+                prompt=prompt if has_prompt else None,
                 point=point,
                 min_score=min_score,
             )
@@ -910,18 +913,9 @@ class LiberoPrimitives:
         saved_overlay = None
         mask = data.mask
         if data.found and isinstance(mask, np.ndarray):
-            try:
-                world_map = state.load(world_name, step=nn)
-            except Exception as exc:
-                world_result = {
-                    "world_xyz": None,
-                    "world_error": f"world map artifact not available: {exc}",
-                    "expected_world_artifact": world_name,
-                }
-            else:
-                world_result = _mask_to_world(mask, world_map)
-                world_result["world_artifact"] = world_name
-            overlay = _make_segment_overlay(state.load(image_name, step=nn), mask)
+            world_result = self.perception_tool.mask_to_world(
+                state, step=nn, world_map=world_name, mask=mask
+            )
             if overlay is not None and state.save(
                 overlay_name,
                 overlay,
@@ -1398,78 +1392,6 @@ def _select_segment_artifacts(
         ):
             return image_name, world_name, pairs
     return None, None, pairs
-
-
-def _mask_to_world(
-    mask: np.ndarray, world_map: np.ndarray, min_valid: int = 10
-) -> dict:
-    if world_map.ndim != 3 or world_map.shape[2] < 3:
-        return {
-            "world_xyz": None,
-            "world_error": f"invalid world map shape: {tuple(world_map.shape)}",
-            "n_pixels": int(mask.sum()),
-            "n_valid": 0,
-            "mask_resized_to_world_shape": False,
-        }
-
-    if mask.shape != world_map.shape[:2]:
-        return {
-            "world_xyz": None,
-            "world_error": (
-                f"mask/world shape mismatch: mask={tuple(mask.shape)}, "
-                f"world={tuple(world_map.shape[:2])}"
-            ),
-            "n_pixels": int(mask.sum()),
-            "n_valid": 0,
-            "mask_resized_to_world_shape": False,
-        }
-
-    ys, xs = np.where(mask)
-    if ys.size == 0:
-        return {"world_xyz": None, "world_error": "empty mask"}
-
-    pts = world_map[ys, xs].astype(np.float64)
-    valid = np.isfinite(pts).all(axis=1) & (np.abs(pts).sum(axis=1) > 1e-6)
-    pts = pts[valid]
-    result = {
-        "centroid_pixel": [
-            int(round(float(np.median(xs)))),
-            int(round(float(np.median(ys)))),
-        ],
-        "n_pixels": int(mask.sum()),
-        "n_valid": int(pts.shape[0]),
-        "mask_resized_to_world_shape": False,
-    }
-    if pts.shape[0] < min_valid:
-        result.update(
-            {
-                "world_xyz": None,
-                "world_error": f"too few valid depth pixels ({int(pts.shape[0])})",
-            }
-        )
-        return result
-
-    result["world_xyz"] = [
-        round(float(np.median(pts[:, 0])), 4),
-        round(float(np.median(pts[:, 1])), 4),
-        round(float(np.median(pts[:, 2])), 4),
-    ]
-    return result
-
-
-def _make_segment_overlay(
-    image: np.ndarray,
-    mask: np.ndarray,
-) -> np.ndarray | None:
-    if image.ndim != 3 or image.shape[:2] != mask.shape:
-        return None
-    overlay = image.copy()
-    red = np.zeros_like(overlay)
-    red[..., 0] = 255
-    overlay[mask] = (
-        0.55 * overlay[mask].astype(np.float32) + 0.45 * red[mask].astype(np.float32)
-    ).astype(np.uint8)
-    return overlay
 
 
 @tool(readonly=True, exclude=("state",))

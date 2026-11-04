@@ -35,6 +35,7 @@ from rpent.robots.components.sam3_client import Sam3Result
 from rpent.session import EnvState
 from rpent.tools import Toolkit, ToolResult
 from rpent.tools.common import CommonTools
+from rpent.tools.perception import Sam3Tools
 from rpent.utils import templates
 
 COMMON_TOOLS = {"read_text_file", "write_text_file", "list_dir", "finish"}
@@ -194,15 +195,16 @@ def test_toolkit_modes_construct_with_fake_primitives(
         lambda primitives, state, log: dumped.append(primitives) or _record(),
     )
 
+    runtime_kwargs = {"env": object(), "model": object(), "sam3_client": object()}
     evaluation = toolkit.LiberoToolkit(
-        runtime_kwargs={"env_client": object()},
+        runtime_kwargs=runtime_kwargs,
         dashboard_events=NullDashboardEventSink(),
         memory=MemoryManager(tmp_path / "evaluation-memory"),
         mode="evaluation",
         state_output_dir=tmp_path / "evaluation",
     )
     exploration = toolkit.LiberoToolkit(
-        runtime_kwargs={"env_client": object()},
+        runtime_kwargs=runtime_kwargs,
         dashboard_events=NullDashboardEventSink(),
         memory=MemoryManager(
             tmp_path / "exploration-memory",
@@ -268,23 +270,24 @@ def test_parallel_segments_preserve_artifacts_without_capturing_state(
     calls = 4
     inference_barrier = threading.Barrier(calls, timeout=5)
     projection_barrier = threading.Barrier(calls, timeout=5)
-    project = toolkit.libero_tools._mask_to_world
+    project = Sam3Tools.mask_to_world
 
-    def project_together(mask, world_map):
+    def project_together(self, state, **kwargs):
         projection_barrier.wait()
-        return project(mask, world_map)
+        return project(self, state, **kwargs)
 
-    monkeypatch.setattr(toolkit.libero_tools, "_mask_to_world", project_together)
+    monkeypatch.setattr(Sam3Tools, "mask_to_world", project_together)
 
     def segment(image, **kwargs):
         # Every inference must enter before any returns: segment stays readonly.
         inference_barrier.wait()
         return Sam3Result(found=True, mask=np.ones((4, 4), dtype=bool), score=1.0)
 
+    sam3_client = SimpleNamespace(segment=segment)
     primitives = toolkit.libero_tools.LiberoPrimitives(
         env=object(),
         model=object(),
-        sam3_client=SimpleNamespace(segment=segment),
+        perception_tool=Sam3Tools(sam3_client),
         check_cancelled=lambda: None,
     )
     robot_toolkit = Toolkit(
@@ -327,8 +330,8 @@ def test_parallel_segments_preserve_artifacts_without_capturing_state(
         ]
 
     # A failed JSON write must not release an index for another call to reuse.
-    monkeypatch.setattr(toolkit.libero_tools, "_mask_to_world", project)
-    primitives._sam3_client.segment = lambda *args, **kwargs: Sam3Result(
+    monkeypatch.setattr(Sam3Tools, "mask_to_world", project)
+    sam3_client.segment = lambda *args, **kwargs: Sam3Result(
         found=True, mask=np.ones((4, 4), dtype=bool), score=1.0
     )
     save = state.save
