@@ -1,0 +1,13 @@
+# Set --task-id and --task-language for the selected official task.
+# Start the borrowed Env, VLA and SAM3 services and pass their endpoints via CLI.
+# The Env service must enable --motion-backend curobo for move_to.
+control_mode: agent
+instruction_mode: main
+execution_horizon: 32
+max_chunks_per_call: 1
+tool_allowlist: [view_env_state, read_robot_state, segment, pixel_to_robot_base, vla_act, set_gripper, move_to, move_eef_delta, move_base, rotate_wrist, rotate_wrist_joint, finish]
+# Match the Env service's default chunk_timeout_s=1200, including RPC overhead.
+env_rpc_timeout_s: 1230
+env_endpoint: null
+vla_endpoint: null
+sam3_endpoint: null

@@ -14,6 +14,7 @@ tests/
 ├── e2e_tests/
 │   ├── common.py         # shared assertions and runtime lifecycle helpers
 │   ├── run_gpu_suite.sh  # clean-environment entry point for one robot stack
+│   ├── behavior/        # opt-in checks using separately started services
 │   ├── dual_franka/      # opt-in real-robot VLA diagnostic console
 │   ├── libero/
 │   ├── robocasa/
@@ -29,6 +30,7 @@ tests/
     │   ├── tools/
     │   └── utils/
     └── robots/           # tests for the top-level robot extensions
+        ├── behavior/
         ├── libero/
         ├── robocasa/
         └── robotwin/
@@ -66,6 +68,53 @@ Run the complete suite with:
 ```bash
 pytest tests/unit_tests -v
 ```
+
+## BEHAVIOR integration checks
+
+These checks borrow an existing Env bridge and VLA service. Follow the
+[BEHAVIOR setup guide](../robots/behavior/guides/README.md) to start both services and
+the official evaluator for a dedicated single episode. Run the tests after the
+first observation is available, in place of starting the Planner. The tests
+never start, reset, or stop a service and need no Planner model or credentials.
+
+| Tests | Coverage | Advances the environment |
+| --- | --- | --- |
+| `test_components.py` | Three RGB views, public 61D state and a real VLA prediction with shape `[T, 23]` | No |
+| `test_policy_chain.py` | Direct `BehaviorToolkit` → VLA → Env → three new images → `finish(blocked)` | One chunk, at most 32 native actions |
+
+Install the lightweight test dependencies and point the checks at the borrowed
+services. Reuse the task identity from the evaluator and choose a fresh output
+directory outside the source checkout:
+
+```bash
+python -m pip install -e '.[test,behavior]'
+export RPENT_RUN_BEHAVIOR_INTEGRATION=1
+export RPENT_BEHAVIOR_TASK_ID="$TASK_ID"
+export RPENT_BEHAVIOR_TASK_LANGUAGE="$TASK_LANGUAGE"
+export RPENT_BEHAVIOR_ENV_ENDPOINT=socket://127.0.0.1:28010
+export RPENT_BEHAVIOR_VLA_ENDPOINT=socket://127.0.0.1:28011
+export RPENT_E2E_OUTPUT_DIR=/path/to/new-integration-output
+python -m pytest tests/e2e_tests/behavior -v -s
+```
+
+Without `RPENT_RUN_BEHAVIOR_INTEGRATION=1`, all three tests skip before reading
+endpoints or creating client connections. To check only observation/VLA
+components without submitting actions, select `test_components.py`.
+
+The policy-chain check saves the original prediction, its submitted prefix,
+action confirmations and the Toolkit's images/state. A passing check requires
+every submitted action to be confirmed by a subsequent observation. Its final
+`blocked` status ends this bounded check; it does not assert benchmark success.
+It exercises the Toolkit directly and does not test the CLI, autonomous VLM
+decisions, or a complete task. Official task success still requires the native
+evaluator result from a full episode.
+
+Run serially against an exclusive episode, without another Planner, action
+client, or `pytest-xdist`. The VLA component adds one inference request before
+the policy-chain request but submits no actions. Afterward, services remain
+running and the evaluator may still wait for actions or time out; the operator
+owns cleanup and starting the next episode. These borrowed-session checks are
+not a target of `run_gpu_suite.sh`.
 
 ## RoboCasa environment smoke tests
 

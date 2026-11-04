@@ -30,6 +30,7 @@ from rpent.robots import enumerate_robots, get_robot_spec
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 
 EXPECTED_ROBOTS = (
+    "behavior",
     "dual_franka",
     "franka",
     "libero",
@@ -40,6 +41,13 @@ EXPECTED_ROBOTS = (
 )
 
 PROMPT_VARIABLES = {
+    "behavior": {
+        "task_id": 40,
+        "task_name": "make_microwave_popcorn",
+        "task_language": "Make microwave popcorn",
+        "execution_horizon": 2,
+        "memory_dir": "/memory",
+    },
     "yam": {
         "task_id": 1,
         "seed": 0,
@@ -197,6 +205,10 @@ def test_dashboard_metadata_has_consistent_fields_and_runtime_components(
     robot_name: str,
 ) -> None:
     dashboard = get_robot_spec(robot_name).dashboard
+    if robot_name == "behavior":
+        # BEHAVIOR does not advertise a Dashboard lifecycle in the scaffold.
+        assert dashboard is None
+        return
     assert dashboard is not None
 
     task = dashboard["task"]

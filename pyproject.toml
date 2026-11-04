@@ -64,7 +64,18 @@ Documentation = "https://rpent.readthedocs.io/en/latest/"
 "Bug Report" = "https://github.com/RLinf/RPent/issues"
 
 [project.optional-dependencies]
+behavior = [
+    "msgpack>=1.0.5",
+    "websockets>=13,<18",
+]
+behavior-vla = [
+    # Install the compatible RLinf/OpenPI model runtime separately. The generic
+    # rlinf extra does not guarantee BEHAVIOR's pi05_behavior/abs_joint eval API.
+    "rpent[behavior]",
+    "omegaconf>=2.3,<3",
+]
 test = [
+    "rpent[behavior]",
     "coverage",
     "pytest",
     "pytest-timeout",
@@ -271,6 +282,12 @@ exclude = ["tests*", "docs*", "examples*", "docker*", "toolkits*"]
 [tool.setuptools.package-data]
 "rpent.dashboard" = ["*.html", "static/*.css", "static/*.js"]
 "robots.yam" = ["config/*.yaml", "config/*.json", "guides/*.md"]
+"robots.behavior" = [
+    "guides/README*.md",
+    "configs/*.yaml",
+    "assets/r1pro/*.json",
+    "assets/r1pro/*.urdf",
+]
 
 [tool.pytest.ini_options]
 addopts = ["--import-mode=importlib"]
