@@ -74,11 +74,11 @@ EFE 的其余 959 个任务属于 ``privileged`` 模式，我们暂时不支持�
    * - 项目
      - 说明
    * - 观测
-     - 相机 RGB 图像（请求时含深度）、机器人自身状态（关节角度、末端位置与姿态、夹爪开度），以及动作布局、关节名、相机和运动学。Agent 只看到客户端返回的内容。
+     - 相机 RGB 图像（请求时含深度）、机器人自身状态（关节角度、末端位置与姿态、夹爪开度），以及动作布局、关节名、相机和运动学。默认配置下 Agent 只通过客户端与 Simulator 交互。
    * - 动作
      - 默认组调用 ``move_to_xyz`` 把工具末端（TCP）移动到世界坐标、``set_gripper`` 设置夹爪开口；Raw 组用 ``efe_submit`` 提交关节目标动作块。两者都通过 ``rcb_client`` 与 Simulator 服务通信。
    * - 奖励与成功判定
-     - EFE 的 Verifier 独立评分，写出 ``verifier/reward.json``；Harbor 记录为 ``result.json`` 的 ``verifier_result.rewards``，其中 ``success`` 是任务成功标记，其余字段是诊断信息。
+     - EFE 的 Verifier 独立评分，写出 ``verifier/reward.json``；Harbor 记录为 ``result.json`` 的 ``verifier_result.rewards``，其中 ``success`` 是本次 Trial 的评分结果，``first_success`` 记录首次尝试的结果，其余字段是诊断信息。
    * - 任务指令
      - Harbor 从 EFE 任务读取指令并传给 Agent，RPent 不修改任务文本。
 
@@ -144,7 +144,7 @@ EFE 的其余 959 个任务属于 ``privileged`` 模式，我们暂时不支持�
        ├── lock.json
        └── trial.log
 
-容器内的 ``/logs/agent/rpent/`` 对应宿主上的 ``<trial_name>/agent/rpent/``。EFE 的 Verifier 写出 ``verifier/reward.json``，Harbor 将它记录为 ``result.json`` 的 ``verifier_result.rewards``；其中 ``success`` 是任务成功标记，其余字段是诊断信息。Agent 执行指标在 ``agent/rpent/session.json`` 的 ``stats`` 和各 Session 的 ``metrics``。Trial 未完成时可能没有 ``result.json`` 或 ``session.json``，先看 ``trial.log`` 和 ``agent/rpent/run.log``。
+容器内的 ``/logs/agent/rpent/`` 对应宿主上的 ``<trial_name>/agent/rpent/``。EFE 的 Verifier 写出 ``verifier/reward.json``，Harbor 将它记录为 ``result.json`` 的 ``verifier_result.rewards``；其中 ``success`` 是本次 Trial 的评分结果，``first_success`` 记录首次尝试的结果，其余字段是诊断信息。Agent 执行指标在 ``agent/rpent/session.json`` 的 ``stats`` 和各 Session 的 ``metrics``。Trial 未完成时可能没有 ``result.json`` 或 ``session.json``，先看 ``trial.log`` 和 ``agent/rpent/run.log``。
 
 常用参数
 --------

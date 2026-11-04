@@ -98,11 +98,11 @@ Observation and Action
    * - Item
      - Description
    * - Observation
-     - Camera RGB frames (with depth on request), robot state (joint angles, tool position and orientation, gripper opening), and the action layout, joint names, cameras, and kinematics. The agent sees only what the client returns.
+     - Camera RGB frames (with depth on request), robot state (joint angles, tool position and orientation, gripper opening), and the action layout, joint names, cameras, and kinematics. In the default configuration the agent reaches the simulator only through the client.
    * - Action
      - The default arm calls ``move_to_xyz`` to move the tool tip (TCP) to a world position and ``set_gripper`` to set the finger opening; the raw arm sends joint-target chunks with ``efe_submit``. Both reach the simulator service through ``rcb_client``.
    * - Reward / success
-     - EFE's verifier scores the episode independently and writes ``verifier/reward.json``; Harbor records it as ``verifier_result.rewards`` in ``result.json``. ``success`` is the task success flag and the other fields are diagnostics.
+     - EFE's verifier scores the episode independently and writes ``verifier/reward.json``; Harbor records it as ``verifier_result.rewards`` in ``result.json``. ``success`` is this trial's graded result; ``first_success`` records the first attempt; the other fields are diagnostics.
    * - Task instruction
      - Harbor reads the instruction from the EFE task and passes it to the agent; RPent does not change the task text.
 
@@ -197,8 +197,9 @@ timestamped job directory below it.
 The container path ``/logs/agent/rpent/`` maps to
 ``<trial_name>/agent/rpent/`` on the host. EFE's verifier writes
 ``verifier/reward.json``, and Harbor records it as
-``verifier_result.rewards`` in ``result.json``; ``success`` is the task success
-flag and the other fields are diagnostics. Agent execution metrics are in
+``verifier_result.rewards`` in ``result.json``; ``success`` is this trial's
+graded result, ``first_success`` records the first attempt, and the other
+fields are diagnostics. Agent execution metrics are in
 ``stats`` and each session's ``metrics`` in ``agent/rpent/session.json``. An
 incomplete trial may have no ``result.json`` or ``session.json``; check
 ``trial.log`` and ``agent/rpent/run.log`` first.
