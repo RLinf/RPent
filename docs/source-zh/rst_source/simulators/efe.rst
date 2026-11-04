@@ -202,7 +202,7 @@ Raw 组直接使用服务接口：``efe_spec`` 返回每个动作向量的列含
    joint_names = ["joint1", "joint2", "joint3"]
    layout      = ["q_joint1", "q_joint2", "q_joint3", "gripper"]
 
-前 3 列去掉 ``q_`` 前缀后与 ``joint_names`` 同序，最后一列是 ``gripper``，技能可以直接把 IK 结果写入这些列。布局换序、缺列或多列时，技能无法确定每个关节对应哪一列，因此不注册：工具集保留 ``efe_submit``，把原因写入 ``session.json`` 的 ``skills_error``，Prompt 只列出当前 Session 实际注册的工具。
+``q_`` 前缀在任意一侧都可省略。去掉前缀后，前 N 列与 ``joint_names`` 同序（N = ``joint_names`` 的长度，每个关节一列），最后一列是 ``gripper``，技能可以直接把 IK 结果写入这些列。布局换序、缺列或多列时，技能无法确定每个关节对应哪一列，因此不注册：工具集保留 ``efe_submit``，把原因写入 ``session.json`` 的 ``skills_error``，Prompt 只列出当前 Session 实际注册的工具。
 
 .. code-block:: bash
 

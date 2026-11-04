@@ -289,12 +289,13 @@ opening. For example:
    joint_names = ["joint1", "joint2", "joint3"]
    layout      = ["q_joint1", "q_joint2", "q_joint3", "gripper"]
 
-After the ``q_`` prefix is removed, the first three columns follow
-``joint_names``, and the last column is ``gripper``, so a skill can write its IK
-result into these columns. When the layout reorders, omits, or adds columns, a
-skill cannot tell which column belongs to which joint and is not registered: the
-toolkit keeps ``efe_submit``, records the reason as ``skills_error`` in
-``session.json``, and the prompt lists only the tools the session registers.
+A ``q_`` prefix on either side is ignored. After the prefix is removed, the
+leading columns follow ``joint_names``, one column per joint, and the last
+column is ``gripper``, so a skill can write its IK result into these columns.
+When the layout reorders, omits, or adds columns, a skill cannot tell which
+column belongs to which joint and is not registered: the toolkit keeps
+``efe_submit``, records the reason as ``skills_error`` in ``session.json``, and
+the prompt lists only the tools the session registers.
 
 .. code-block:: bash
 

@@ -129,11 +129,14 @@ def joint_layout(spec: dict[str, Any]) -> tuple[list[str], list[str]]:
             f"move_to_xyz needs kinematics joint names and a {_JOINT_ACTION!r} action"
         )
     layout = list(action["layout"])
+    # The kinematics and the action layout may spell the same joint with or
+    # without the ``q_`` prefix, so compare the bare joint names.
     columns = [name.removeprefix("q_") for name in joint_names]
-    if layout[: len(columns)] != columns:
+    leading = [name.removeprefix("q_") for name in layout[: len(columns)]]
+    if leading != columns:
         raise ValueError(
             "move_to_xyz needs joint_position columns in kinematics order; "
-            f"got {layout} for joints {columns}"
+            f"got {layout} for joints {joint_names}"
         )
     if layout[len(columns) :] != [_GRIPPER]:
         raise ValueError(

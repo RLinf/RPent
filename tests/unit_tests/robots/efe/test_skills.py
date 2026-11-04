@@ -77,6 +77,22 @@ def test_joint_layout_rejects_a_mismatched_task():
         joint_layout(client.spec)
 
 
+def test_joint_layout_ignores_the_q_prefix_on_either_side():
+    client = FakeEfeClient()
+    joints = client.spec["kinematics"]["joint_names"]
+    layout = client.spec["action_types"]["joint_position"]["layout"]
+    client.spec["kinematics"]["joint_names"] = [
+        name.removeprefix("q_") for name in joints
+    ]
+    client.spec["action_types"]["joint_position"]["layout"] = [
+        f"q_{name}" for name in layout[:-1]
+    ] + ["gripper"]
+
+    joint_names, _ = joint_layout(client.spec)
+
+    assert joint_names == [name.removeprefix("q_") for name in joints]
+
+
 def test_move_to_xyz_reaches_a_target_in_bounded_steps(skills):
     service, client = skills
 
