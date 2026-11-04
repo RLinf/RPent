@@ -27,11 +27,13 @@ Human-readable remediation text belongs to the CLI and the Dashboard, not here.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
 import re
 import subprocess
 import sys
 import time
+import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -402,6 +404,13 @@ def _has_keychain_login(planner: str) -> bool:
     service = _KEYCHAIN_SERVICES.get(planner)
     if service is None or sys.platform != "darwin":
         return False
+    if isolated_dir := os.environ.get("RPENT_CLAUDE_CONFIG_DIR"):
+        auth_dir = os.environ.get("CLAUDE_SECURESTORAGE_CONFIG_DIR", isolated_dir)
+        if auth_dir:
+            suffix = hashlib.sha256(
+                unicodedata.normalize("NFC", auth_dir).encode("utf-8")
+            ).hexdigest()[:8]
+            service = f"{service}-{suffix}"
     try:
         completed = subprocess.run(
             ["security", "find-generic-password", "-s", service],
@@ -748,7 +757,7 @@ async def _run_claude_probe(sdk: Any, model: str) -> _ClaudeProbeOutcome:
         tools=None,
         allowed_tools=[],
         mcp_servers={},
-        env=env or None,
+        env=env,
     )
     chunks: list[str] = []
     sdk_error: str | None = None

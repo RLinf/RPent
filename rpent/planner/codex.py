@@ -77,6 +77,7 @@ def _codex_environment() -> dict[str, str]:
     env = {**os.environ}
     if codex_home := os.environ.get("RPENT_CODEX_HOME"):
         env["CODEX_HOME"] = codex_home
+        env["CODEX_SQLITE_HOME"] = codex_home
     entries: list[str] = []
     for key in ("NO_PROXY", "no_proxy"):
         entries.extend(item.strip() for item in env.get(key, "").split(","))
