@@ -27,8 +27,9 @@ _VARIABLES = {
 }
 
 
-def _render(**kwargs) -> str:
-    return format_prompt(system_prompt(_VARIABLES, **kwargs), variables=_VARIABLES)
+def _render(**flags) -> str:
+    variables = {**_VARIABLES, **flags}
+    return format_prompt(system_prompt(variables), variables=variables)
 
 
 def test_prompt_guidance_matches_the_run_configuration():

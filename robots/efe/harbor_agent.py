@@ -29,7 +29,7 @@ from harbor.agents.installed.base import BaseInstalledAgent
 from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext, ModelUsage
 
-from robots.efe import SANDBOX_CHOICES
+from robots.efe.constants import SANDBOX_CHOICES
 
 
 class RPentEfeAgent(BaseInstalledAgent):

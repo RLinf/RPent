@@ -14,8 +14,9 @@
 
 """Opt in with RPENT_EFE_TASK_PATH and RPENT_EFE_MODEL to run one Docker task.
 
-This smoke test uses the configured model. The offline loopback test does not.
-Harbor's verifier owns the reward. A zero reward does not fail this smoke test.
+This policy-chain test uses the configured model. The loopback test
+``tests/unit_tests/robots/efe/test_runner_loopback.py`` does not.
+Harbor's verifier owns the reward. A zero reward does not fail this test.
 """
 
 from __future__ import annotations

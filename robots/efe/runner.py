@@ -26,12 +26,14 @@ from importlib.metadata import version
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from robots.efe import SANDBOX_CHOICES, prompt_bundle, session_vars
+from robots.efe import prompt_bundle, session_vars
+from robots.efe.constants import SANDBOX_CHOICES
 from robots.efe.env_client import EfeEnvClient
 from robots.efe.toolkit import EfeToolkit, tool_capabilities
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory.manager import MemoryManager
 from rpent.planner.base import REASONING_EFFORTS, is_recoverable_agent_error
+from rpent.robots.prompt_bundle import PromptBundle
 from rpent.utils.logging import get_logger, init_output_dir
 
 if TYPE_CHECKING:
@@ -191,6 +193,10 @@ def run_efe(
         session_max=explore_sessions,
         skills=skills,
     )
+    # The generic CLI renders the same factories, so this path cannot drift.
+    prompts = PromptBundle(
+        system=prompt_bundle.system_prompt, user=prompt_bundle.user_prompt
+    )
     report: dict[str, object] = {
         "compatibility": "EFE-compatible / non-official",
         "planner": "codex",
@@ -270,16 +276,21 @@ def run_efe(
                         sandbox=sandbox,
                         dashboard_events=NullDashboardEventSink(),
                     )
-                    per_session_vars = {**prompt_vars, "session_number": number}
-                    system_prompt = prompt_bundle.system_prompt(
-                        per_session_vars,
-                        handoff=number > 1,
-                        write_notes=explore,
-                        restricted_shell=sandbox != "full-access",
+                    per_session_vars = {
+                        **prompt_vars,
+                        "session_number": number,
+                        "handoff": number > 1,
+                        "write_notes": explore,
+                        "restricted_shell": sandbox != "full-access",
                         **tool_capabilities(client, enable_skills=skills),
-                    )
-                    user_message = prompt_bundle.user_prompt(
-                        {**per_session_vars, "instruction": instruction}
+                    }
+                    system_prompt = prompts.render("system", variables=per_session_vars)
+                    user_message = prompts.render(
+                        "user",
+                        variables={
+                            **per_session_vars,
+                            "instruction": instruction.strip(),
+                        },
                     )
                     result: PlannerResult = planner.solve(
                         system_prompt=system_prompt,

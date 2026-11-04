@@ -23,14 +23,9 @@ trial.
 
 from typing import Any
 
-# Codex sandbox modes shared by the CLI, the Harbor adapter, and the planner.
-# An EFE evaluation isolates the robot behind RPent tools; ``full-access``
-# lets the planner's shell reach the simulator directly.
-SANDBOX_CHOICES = ("read-only", "workspace-write", "full-access")
-
 _FACTORY_NAMES = ("get_robot_spec", "get_toolkit")
 
-__all__ = ["SANDBOX_CHOICES", *_FACTORY_NAMES]
+__all__ = list(_FACTORY_NAMES)
 
 
 def __getattr__(name: str) -> Any:

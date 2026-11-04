@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from rpent.prompt.utils import BulletList, PromptNode, format_prompt
+from rpent.prompt.utils import BulletList, PromptNode
 
 ROLE_INTRO = """You are an RPent agent controlling a robot in an EFE standard-mode task.
 The simulator runs as a service you cannot open. You see only what its client returns:
@@ -110,71 +110,50 @@ def role(*, reset: bool = False, end_episode: bool = False) -> str:
     return f"{ROLE_INTRO}\n{episode} {ending}"
 
 
-def system_prompt(
-    variables: Mapping[str, object] | None = None,
-    *,
-    handoff: bool = False,
-    skills: bool | None = None,
-    write_notes: bool = False,
-    restricted_shell: bool = False,
-    reset: bool | None = None,
-    end_episode: bool | None = None,
-) -> PromptNode:
-    """Render the system prompt for one session of the RPent arm.
+def system_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
+    """Return the ordered prompt sections for one session of the RPent arm.
 
-    ``skills``, ``reset``, and ``end_episode`` default to the run variables so
-    a caller that renders through the prompt bundle describes the same tools
-    the session registers. ``write_notes`` follows the memory policy: an
+    ``PromptBundle.render`` fills the variables. ``skills``, ``reset``, and
+    ``end_episode`` come from the run variables so the prompt describes the
+    tools the session registers. ``write_notes`` follows the memory policy: an
     evaluation session holds the corpus read-only, so the prompt must not ask
     it to write there. ``restricted_shell`` matches a Codex sandbox that
     cannot reach the robot from shell commands.
     """
     values = variables or {}
-    if skills is None:
-        skills = bool(values.get("skills", True))
-    if reset is None:
-        reset = bool(values.get("reset", False))
-    if end_episode is None:
-        end_episode = bool(values.get("end_episode", False))
+    skills = bool(values.get("skills", True))
+    reset = bool(values.get("reset", False))
+    end_episode = bool(values.get("end_episode", False))
     rule_items = list(RULES.items)
     if end_episode:
         rule_items[-1] = GOAL_REACHED_BY_AGENT
-    if restricted_shell:
+    if bool(values.get("restricted_shell", False)):
         rule_items.append(SHELL_RULE)
     rules = BulletList(rule_items)
     tools = TOOLS + (SKILL_TOOL if skills else SUBMIT_TOOL)
     tools += RESET_TOOL if reset else ""
     tools += END_EPISODE_TOOL if end_episode else ""
-    parts: PromptNode = {
+    parts: dict[str, PromptNode] = {
         "ROLE": role(reset=reset, end_episode=end_episode),
         "TOOLS": tools,
         "RULES": rules,
         "MEMORY": MEMORY,
         "OUTPUT": OUTPUT,
     }
-    if write_notes:
+    if bool(values.get("write_notes", False)):
         parts["NOTES"] = NOTES
-    if handoff:
+    if bool(values.get("handoff", False)):
         parts["EXPLORE"] = EXPLORE
-    return format_prompt(parts, variables=variables)
+    return parts
 
 
-def user_prompt(
-    variables: Mapping[str, object] | None = None,
-) -> PromptNode:
-    """Render the user message that carries the original EFE instruction."""
-    values = dict(variables or {})
-    instruction = str(values.get("instruction") or "").strip()
-    return format_prompt(
-        {
-            "TASK": """
-Complete this EFE task:
-
-{{instruction}}
-
-Workspace: {{workdir}}
-Run output: {{output_dir}}
-""",
-        },
-        variables={**values, "instruction": instruction},
-    )
+def user_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
+    """Return the user message sections that carry the EFE instruction."""
+    return {
+        "TASK": (
+            "Complete this EFE task:\n\n"
+            "{{instruction}}\n"
+            "Workspace: {{workdir}}\n"
+            "Run output: {{output_dir}}\n"
+        )
+    }

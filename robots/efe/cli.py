@@ -19,7 +19,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from robots.efe import SANDBOX_CHOICES
+from robots.efe.constants import SANDBOX_CHOICES
 
 
 def positive_int(value: str) -> int:

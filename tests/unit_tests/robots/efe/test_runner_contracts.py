@@ -127,9 +127,9 @@ def test_runner_builds_prompt_variables_from_the_shared_helper(
     captured: dict[str, object] = {}
     build = prompt_bundle.system_prompt
 
-    def capture(variables=None, **kwargs):
+    def capture(variables=None):
         captured.update(variables or {})
-        return build(variables, **kwargs)
+        return build(variables)
 
     monkeypatch.setattr(prompt_bundle, "system_prompt", capture)
     output_dir = tmp_path / "logs"
@@ -145,17 +145,22 @@ def test_runner_builds_prompt_variables_from_the_shared_helper(
     workdir = tmp_path.resolve()
     output = output_dir.resolve()
     memory = output / "memory"
-    assert captured == {
-        **session_vars.prompt_vars(
-            workdir=workdir,
-            output_dir=output,
-            memory_dir=memory,
-            inbox_tag=session_vars.DEFAULT_INBOX_TAG,
-            session_max=1,
-            skills=True,
-        ),
-        "session_number": 1,
-    }
+    shared = session_vars.prompt_vars(
+        workdir=workdir,
+        output_dir=output,
+        memory_dir=memory,
+        inbox_tag=session_vars.DEFAULT_INBOX_TAG,
+        session_max=1,
+        skills=True,
+    )
+    assert {key: captured[key] for key in shared} == shared
+    assert captured["session_number"] == 1
+    assert captured["skills"] is True
+    assert captured["reset"] is False
+    assert captured["end_episode"] is False
+    assert captured["handoff"] is False
+    assert captured["write_notes"] is False
+    assert captured["restricted_shell"] is True
 
 
 def test_finish_does_not_count_as_a_service_success(

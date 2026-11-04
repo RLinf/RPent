@@ -360,7 +360,7 @@ def test_build_config_scopes_loopback_no_proxy_to_codex_child(
 
 
 def test_efe_sandbox_choices_match_the_codex_sdk() -> None:
-    from robots.efe import SANDBOX_CHOICES
+    from robots.efe.constants import SANDBOX_CHOICES
 
     assert set(SANDBOX_CHOICES) == {
         sandbox.value for sandbox in codex_module.openai_codex.Sandbox
