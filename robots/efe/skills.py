@@ -66,7 +66,7 @@ def joint_layout(spec: dict[str, Any]) -> tuple[list[str], list[str]]:
     return joint_names, layout
 
 
-class EfePrimitives:
+class EfeSkills:
     """High-level skills over one EFE episode."""
 
     skill_names = SKILL_NAMES

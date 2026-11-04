@@ -19,7 +19,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from robots.efe.primitives import EfePrimitives, joint_layout
+from robots.efe.skills import EfeSkills, joint_layout
 from tests.efe_support import FakeEfeClient, proprio
 
 
@@ -64,9 +64,9 @@ class MovingClient(FakeEfeClient):
 
 
 @pytest.fixture
-def primitives():
+def skills():
     client = MovingClient()
-    return EfePrimitives(client=client, check_cancelled=lambda: None), client
+    return EfeSkills(client=client, check_cancelled=lambda: None), client
 
 
 def test_joint_layout_rejects_a_mismatched_task():
@@ -77,8 +77,8 @@ def test_joint_layout_rejects_a_mismatched_task():
         joint_layout(client.spec)
 
 
-def test_move_to_xyz_reaches_a_target_in_bounded_steps(primitives):
-    service, client = primitives
+def test_move_to_xyz_reaches_a_target_in_bounded_steps(skills):
+    service, client = skills
 
     result = service.move_to_xyz(0.0, 0.035, 0.3)
 
@@ -92,8 +92,8 @@ def test_move_to_xyz_reaches_a_target_in_bounded_steps(primitives):
     assert all(request["video"] == "none" for request in client.observe_requests)
 
 
-def test_move_to_xyz_does_nothing_when_already_at_the_target(primitives):
-    service, client = primitives
+def test_move_to_xyz_does_nothing_when_already_at_the_target(skills):
+    service, client = skills
 
     result = service.move_to_xyz(0.0, 0.0, 0.3)
 
@@ -101,8 +101,8 @@ def test_move_to_xyz_does_nothing_when_already_at_the_target(primitives):
     assert client.submit_calls == 0
 
 
-def test_move_to_xyz_keeps_an_explicit_gripper_command(primitives):
-    service, client = primitives
+def test_move_to_xyz_keeps_an_explicit_gripper_command(skills):
+    service, client = skills
 
     service.move_to_xyz(0.0, 0.02, 0.3, gripper=0.005)
 
@@ -117,7 +117,7 @@ def test_unreachable_target_is_reported_without_submitting():
         "q": [0.0] * 6,
         "error": {"tcp": {"pos_m": 0.5, "rot_rad": 0.0}},
     }
-    service = EfePrimitives(client=client, check_cancelled=lambda: None)
+    service = EfeSkills(client=client, check_cancelled=lambda: None)
 
     result = service.move_to_xyz(10.0, 0.0, 0.0)
 
@@ -129,7 +129,7 @@ def test_unreachable_target_is_reported_without_submitting():
 def test_failed_ik_is_reported_without_submitting():
     client = MovingClient()
     client.ik_response = {"ok": False, "error": "no solution"}
-    service = EfePrimitives(client=client, check_cancelled=lambda: None)
+    service = EfeSkills(client=client, check_cancelled=lambda: None)
 
     result = service.move_to_xyz(0.0, 0.1, 0.0)
 
@@ -138,8 +138,8 @@ def test_failed_ik_is_reported_without_submitting():
     assert client.submit_calls == 0
 
 
-def test_move_stops_when_the_episode_ends(primitives):
-    service, client = primitives
+def test_move_stops_when_the_episode_ends(skills):
+    service, client = skills
     client.done = True
     client.done_reason = "success"
 

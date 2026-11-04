@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from robots.efe import tools as efe_tools
 from robots.efe.env_client import EfeEnvClient
-from robots.efe.primitives import EfePrimitives
+from robots.efe.skills import EfeSkills
 from robots.efe.tools import EfeTools, view_env_state
 from rpent.dashboard.events import DashboardEventSink
 from rpent.session import EnvState
@@ -90,10 +90,10 @@ class EfeToolkit(Toolkit):
         )
         self._service = EfeTools(client=client, state=state)
         self._skills_error: str | None = None
-        self._primitives: EfePrimitives | None = None
+        self._skills: EfeSkills | None = None
         if enable_skills:
             try:
-                self._primitives = EfePrimitives(
+                self._skills = EfeSkills(
                     client=client,
                     check_cancelled=self.raise_if_cancelled,
                 )
@@ -103,7 +103,7 @@ class EfeToolkit(Toolkit):
                 self._skills_error = str(exc)
                 logger.warning("EFE skills unavailable: %s", exc)
         for declaration in iter_tools(self._service):
-            if declaration.name == "efe_submit" and self._primitives is not None:
+            if declaration.name == "efe_submit" and self._skills is not None:
                 continue
             if declaration.name == "efe_reset" and client.reset_budget <= 0:
                 continue
@@ -111,8 +111,8 @@ class EfeToolkit(Toolkit):
                 continue
             self.add_tool(declaration)
         self.add_tool(view_env_state.with_handler(partial(view_env_state, state=state)))
-        if self._primitives is not None:
-            self.add_tools(iter_tools(self._primitives))
+        if self._skills is not None:
+            self.add_tools(iter_tools(self._skills))
         self.add_tool(self.finish, replace=True)
 
     def _register_common_tools(self) -> None:
@@ -127,7 +127,7 @@ class EfeToolkit(Toolkit):
     @property
     def skills_enabled(self) -> bool:
         """Whether the high-level skills are registered for this task."""
-        return self._primitives is not None
+        return self._skills is not None
 
     @tool(name="finish", readonly=True)
     def finish(
@@ -193,7 +193,7 @@ class EfeToolkit(Toolkit):
         skill_calls = sum(
             count
             for name, count in self._call_counts.items()
-            if name in EfePrimitives.skill_names
+            if name in EfeSkills.skill_names
         )
         return {
             "tool_calls": sum(self._call_counts.values()),
@@ -202,6 +202,6 @@ class EfeToolkit(Toolkit):
             "efe_submit_calls": self._client.submit_calls - self._start_submits,
             "efe_control_steps": self._client.control_steps - self._start_steps,
             "efe_observe_calls": self._client.observe_calls - self._start_observes,
-            "skills_enabled": self._primitives is not None,
+            "skills_enabled": self._skills is not None,
             "skills_error": self._skills_error,
         }
