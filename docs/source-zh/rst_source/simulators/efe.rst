@@ -45,6 +45,8 @@ RPent 不启动 Simulator，也不读取特权状态或修改任务、评分。`
 任务
 ~~~~
 
+EFE 的任务按 suite 组织，每个 suite 覆盖一类机器人能力。任务列表、场景和评分规则以 EFE 官方内容为准：在 `EFE 任务浏览 <https://www.embodied-first-exam.ai/tasks/>`_ 中查看全部任务，任务定义位于 `EFE 官方仓库 <https://github.com/mll-lab-nu/embodied-first-exam>`_ 的 ``tasks/<benchmark>/<task>``。RPent 接入其中的 ``standard`` 与 ``standard-realtime`` 任务。
+
 .. list-table::
    :header-rows: 1
 

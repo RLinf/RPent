@@ -61,6 +61,14 @@ only whether the runner failed.
 Tasks
 ~~~~~
 
+EFE groups its tasks into suites, each covering one kind of robot capability.
+The official EFE content defines the task list, scenes, and scoring rules:
+browse every task in the `EFE task browser
+<https://www.embodied-first-exam.ai/tasks/>`_, and find each definition under
+``tasks/<benchmark>/<task>`` in the `EFE repository
+<https://github.com/mll-lab-nu/embodied-first-exam>`_. RPent integrates the
+``standard`` and ``standard-realtime`` tasks.
+
 .. list-table::
    :header-rows: 1
 
