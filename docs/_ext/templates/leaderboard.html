@@ -56,12 +56,13 @@
                 <thead><tr><th scope="col">{{ copy.method }}</th><th scope="col">{{ copy.time }}</th>{% for metric in benchmark.token_metrics %}<th scope="col">{{ metric.label }}</th>{% endfor %}</tr></thead>
                 <tbody>
                   {% for row in benchmark.rows %}
-                  <tr data-cost-record="{{ row.id }}"><th scope="row" class="cost-method">{{ row.label }}<small>{{ row.detail }}</small></th><td>{% if row.mean_elapsed_seconds is none %}—{% else %}{{ '{:,}'.format(row.mean_elapsed_seconds) }}{% endif %}</td>{% for metric in benchmark.token_metrics %}<td>{% if row.get(metric.key) is none %}—{% else %}{{ '{:,}'.format((row[metric.key] + 0.5) | int) }}{% endif %}</td>{% endfor %}</tr>
+                  <tr data-cost-record="{{ row.id }}"><th scope="row" class="cost-method">{{ row.label }}{% for note in row.notes %}<sup class="note-reference"><a href="#costs-{{ note.id }}" role="doc-noteref">[{{ note.number }}]</a></sup>{% endfor %}<small>{{ row.detail }}</small></th><td>{% if row.mean_elapsed_seconds is none %}—{% else %}{{ '{:,.2f}'.format(row.mean_elapsed_seconds) }}{% endif %}</td>{% for metric in benchmark.token_metrics %}<td>{% if row.get(metric.key) is none %}—{% else %}{{ '{:,}'.format((row[metric.key] + 0.5) | int) }}{% endif %}</td>{% endfor %}</tr>
                   {% endfor %}
                 </tbody>
-              </table>
-            </div>
+            </table>
           </div>
+          {% for note in benchmark.notes %}<p id="costs-{{ note.id }}" class="scope-note" tabindex="-1" role="note">* <span class="note-number">[{{ note.number }}]</span> {{ note.text }}</p>{% endfor %}
+        </div>
         </details>
       </section>
       {% endfor %}

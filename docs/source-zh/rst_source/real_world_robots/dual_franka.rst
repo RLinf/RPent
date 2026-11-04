@@ -221,7 +221,7 @@ VLA 配置
 
 ``PI05_CHECKPOINT_PATH`` 指向训练好的 Pi0.5 checkpoint，``DUAL_FRANKA_REPO_ID`` 是用于查找对应归一化统计的数据集 ID。
 
-上述环境变量对应 ``--vla-model-path`` 和 ``--vla-repo-id``。repo ID 是 checkpoint 内对应归一化统计的相对目录，不是模型下载仓库名。checkpoint 必须包含：
+上述环境变量对应 ``--am-checkpoint`` 和 ``--pi05-repo-id``。repo ID 是 checkpoint 内对应归一化统计的相对目录，不是模型下载仓库名。checkpoint 必须包含：
 
 .. code-block:: text
 
@@ -250,34 +250,10 @@ VLA 配置
 
 .. _dual-franka-codex-isolation:
 
-机器人 Codex 运行配置隔离
--------------------------
+Codex 配置
+----------------
 
-在专用终端激活 ``.venv``，从仓库根目录设置独立的 Codex 配置与会话目录。每次新开机器人控制终端都需执行：
-
-.. code-block:: bash
-
-   export CODEX_HOME="$PWD/.codex-rpent-live"
-   export CODEX_SQLITE_HOME="$CODEX_HOME"
-   export CODEX_SERVICE_TIER=fast
-   mkdir -p "$CODEX_HOME"
-   unset CODEX_API_KEY CODEX_BASE_URL OPENAI_API_KEY OPENAI_BASE_URL CODEX_ACCESS_TOKEN
-   export CODEX_BIN="$(python -c 'from codex_cli_bin import bundled_codex_path; print(bundled_codex_path())')"
-
-首次使用时，在 ``$CODEX_HOME/config.toml`` 中设置文件凭据存储，再用 SDK 自带的 CLI 登录：
-
-.. code-block:: toml
-
-   cli_auth_credentials_store = "file"
-
-.. code-block:: bash
-
-   "$CODEX_BIN" login --device-auth
-   "$CODEX_BIN" login status
-
-若配置中已有 ``sqlite_home``，也应指向独立目录。使用自定义 API 时，重新设置本次部署的 ``CODEX_API_KEY`` 和 ``CODEX_BASE_URL``；其他登录方式见 `Codex 认证说明 <https://developers.openai.com/codex/auth/>`_。
-
-RPent 不会自动启用上述隔离；它不隔离共享工作区或迁移旧会话。任务记忆另由 ``--memory-dir`` 选择。不要提交该目录或凭据。
+使用 Codex 时，先按\ :ref:`planner-codex-isolation`\ 配置独立的运行目录并登录。
 
 启动双节点 Ray 集群
 --------------------
@@ -319,7 +295,7 @@ RLinf 按配置的节点创建相机句柄，不会跨节点搜索被移动的 U
    python robots/dual_franka/dual_franka_manual_call.py --list-primitives
    python robots/dual_franka/dual_franka_manual_call.py --schema vla_right_grasp
 
-未指定服务地址时，脚本自动启动并连接所需服务，无需手动填写端口；退出时只关闭本次启动的服务。传入 ``--env-endpoint``、``--vla-endpoint`` 或 ``--sam3-endpoint`` 可复用已有服务。连接已有 Env 不会复位。若新启动 Env，手动动作前先请求场景确认并执行一次复位；显式调用手动 ``reset`` 也会等待确认。列出技能和查看参数不启动服务。
+未指定服务地址时，脚本自动启动并连接所需服务，无需手动填写端口；退出时只关闭本次启动的服务。传入 ``--env-endpoint``、``--am-endpoint`` 或 ``--sam3-endpoint`` 可复用已有服务。连接已有 Env 不会复位。若新启动 Env，手动动作前先请求场景确认并执行一次复位；显式调用手动 ``reset`` 也会等待确认。列出技能和查看参数不启动服务。
 
 例如，先看 schema，再执行左臂小幅平移：
 
@@ -365,7 +341,7 @@ RLinf 按配置的节点创建相机句柄，不会跨节点搜索被移动的 U
 运行一个任务
 ------------
 
-完成相机标定、机器人配置和 Ray 集群启动，并按 :doc:`../guides/configure_planner` 配置规划器。使用 Codex 前，先完成 :ref:`dual-franka-codex-isolation`。
+完成相机标定、机器人配置和 Ray 集群启动，并按 :doc:`../guides/configure_planner` 配置规划器。使用 Codex 前，先完成 :ref:`planner-codex-isolation`。
 
 设置好上面的模型变量后，以下以任务 ``2`` 为例运行；可通过 ``--task-id`` 选择其他已注册任务。RPent 自动启动所需的环境和模型服务，无需另开终端手动启动 VLA：
 
@@ -383,8 +359,8 @@ RLinf 按配置的节点创建相机句柄，不会跨节点搜索被移动的 U
 在同一条命令中按需追加参数：
 
 * ``--explore``：探索并积累任务记忆，见下文。
-* ``--explore --interactive``：探索时在终端输入反馈；普通任务不支持单独使用 ``--interactive``。
-* ``--dashboard``：通过网页输入框提交任务、消息和确认；探索时同时加 ``--explore``。不能与 ``--interactive`` 同用。界面操作见 :doc:`../guides/dashboard`。
+* ``--explore --tui``：探索时在终端输入反馈；普通任务不支持单独使用 ``--tui``。
+* ``--dashboard``：通过网页输入框提交任务、消息和确认；探索时同时加 ``--explore``。不能与 ``--tui`` 同用。界面操作见 :doc:`../guides/dashboard`。
 
 查看结果
 --------
@@ -406,13 +382,13 @@ RLinf 按配置的节点创建相机句柄，不会跨节点搜索被移动的 U
 探索模式（人工复位与判定）
 --------------------------
 
-在任务运行命令后追加 ``--explore``，即可启用探索模式。``--explore-attempts-per-session`` 设置每个规划器会话的尝试次数，``--explore-sessions`` 设置会话数；终端交互再加 ``--interactive``，网页交互改用 ``--dashboard``。
+在任务运行命令后追加 ``--explore``，即可启用探索模式。``--explore-attempts-per-session`` 设置每个规划器会话的尝试次数，``--explore-sessions`` 设置会话数；终端交互再加 ``--tui``，网页交互改用 ``--dashboard``。
 
 每个规划器会话先通过 ``request_scene_reset`` 请求场景确认。处理夹持物体、恢复场景后回复 ``done``；机器人复位成功并取得相机和状态观测后开始一次尝试，复位失败时不允许运动。``--explore-attempts-per-session`` 限制每个会话的尝试次数。普通任务和探索模式通过 ``--env-endpoint`` 接入的外部服务都必须声明 ``explicit_reset_only=True``。
 
 ``request_operator_verdict`` 请求 ``success``、``failure``、``continue`` 或 ``abort``，可附备注。其中 success/failure 答复判定当前尝试，``continue`` 继续尝试，``abort`` 停止探索。后续运动会清除先前判定；关闭终端输入也会停止探索。
 
-使用 Codex/Claude 并加 ``--interactive`` 时，确认回复使用显示的请求 ID，例如 ``/operator <request-id> done`` 或 ``/operator <request-id> success 物体已提起``；普通消息发送给智能体。不加 ``--interactive`` 时直接按提示答复；使用 ``--dashboard`` 时在 Dashboard 消息输入框中输入下述命令。
+使用 Codex/Claude 并加 ``--tui`` 时，确认回复使用显示的请求 ID，例如 ``/operator <request-id> done`` 或 ``/operator <request-id> success 物体已提起``；普通消息发送给智能体。不加 ``--tui`` 时直接按提示答复；使用 ``--dashboard`` 时在 Dashboard 消息输入框中输入下述命令。
 
 日志与记忆
 ~~~~~~~~~~
@@ -424,7 +400,7 @@ RLinf 按配置的节点创建相机句柄，不会跨节点搜索被移动的 U
 探索命令
 ~~~~~~~~
 
-在 Codex/Claude 终端交互（``--explore --interactive``）或 Dashboard 探索中，可使用：
+在 Codex/Claude 终端交互（``--explore --tui``）或 Dashboard 探索中，可使用：
 
 * ``/success`` 或 ``/failure``：结束整个任务，而不只是判定当前尝试。成功要求场景已确认且复位成功；终端中可在首次复位前用 ``/failure`` 结束任务，Dashboard 中则需先用 ``/done`` 或 ``/abort`` 回答待处理的复位请求。
 * ``/done``：确认待处理的场景复位请求。

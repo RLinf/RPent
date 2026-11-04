@@ -1,5 +1,5 @@
-# RPent example config for a dual-arm YAM rig. Copy outside the repository and
-# replace machine-specific values. Task name, language, seed and step budget
+# RPent example config for a dual-arm YAM rig. Fill machine-specific values
+# before running. Task ID, language, seed and step budget
 # are env_server CLI flags, not fields in this YAML.
 robot:
   left_follower:
@@ -39,7 +39,7 @@ cameras:
     resolution: [640, 480]
     fps: 30
 
-# Site measurements. Configure a table guard and calibration before motion.
+# Set the extrinsics path from the guide and configure the table guard.
 extrinsics_path: null
 table_z: null
 require_table_guard: false
@@ -51,7 +51,7 @@ collision_guard:
   enabled: false
   clearance_m: 0.01
 
-# These poses are intentionally disabled until measured at the actual rig.
+# Set measured reset and home poses before enabling them.
 # env_server refuses to start without an enabled, valid park_on_close pose.
 reset:
   enabled: false

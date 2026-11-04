@@ -4,7 +4,7 @@
 
 """User prompt for one YAM run."""
 
-CELL = """- task: {{task_name}}
+CELL = """- task: {{task_id}}
 - seed label: {{seed}}
 - instruction: {{instruction}}
 """

@@ -353,7 +353,7 @@ class YamToolkit(Toolkit):
         return {
             "views": views,
             "robot_state": info["robot_state"],
-            "task_name": env.server_meta["task_name"],
+            "task_id": env.server_meta["task_id"],
             "task_language": env.get_task_language(),
             "depth_unit": "metres",
             "world_frame": "left_base",
@@ -573,7 +573,7 @@ class YamToolkit(Toolkit):
         audit = {
             "robot": "yam",
             "recipe_tag": recipe_tag,
-            "task_name": successful_records[-1].state.get("task_name"),
+            "task_id": successful_records[-1].state.get("task_id"),
             "task_language": successful_records[-1].state.get("task_language"),
             "solved": True,
             "source": "operator_backed_eval_success",

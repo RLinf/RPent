@@ -282,8 +282,8 @@ VLA Configuration
 ``DUAL_FRANKA_REPO_ID`` is the dataset ID used to locate matching normalization
 statistics.
 
-The environment variables correspond to ``--vla-model-path`` and
-``--vla-repo-id``. The repo ID is the relative directory containing the matching
+The environment variables correspond to ``--am-checkpoint`` and
+``--pi05-repo-id``. The repo ID is the relative directory containing the matching
 normalization statistics, not the model download repository name. The checkpoint
 must contain:
 
@@ -324,42 +324,11 @@ weights and use ``id_0`` as shown above.
 
 .. _dual-franka-codex-isolation:
 
-Robot Codex Profile Isolation
------------------------------
+Codex Configuration
+-------------------
 
-In a dedicated terminal, activate ``.venv`` and set separate Codex configuration
-and session directories from the repository root. Repeat this in each new
-robot-control terminal:
-
-.. code-block:: bash
-
-   export CODEX_HOME="$PWD/.codex-rpent-live"
-   export CODEX_SQLITE_HOME="$CODEX_HOME"
-   export CODEX_SERVICE_TIER=fast
-   mkdir -p "$CODEX_HOME"
-   unset CODEX_API_KEY CODEX_BASE_URL OPENAI_API_KEY OPENAI_BASE_URL CODEX_ACCESS_TOKEN
-   export CODEX_BIN="$(python -c 'from codex_cli_bin import bundled_codex_path; print(bundled_codex_path())')"
-
-On first use, enable file credential storage in ``$CODEX_HOME/config.toml``,
-then log in with the CLI bundled with the SDK:
-
-.. code-block:: toml
-
-   cli_auth_credentials_store = "file"
-
-.. code-block:: bash
-
-   "$CODEX_BIN" login --device-auth
-   "$CODEX_BIN" login status
-
-If ``sqlite_home`` is already configured, point it at the separate directory too.
-For a custom API, explicitly set this deployment's ``CODEX_API_KEY`` and
-``CODEX_BASE_URL``. See `Codex authentication
-<https://developers.openai.com/codex/auth/>`_ for other login methods.
-
-RPent does not enable this isolation automatically. It neither isolates shared
-workspace files nor migrates old sessions. Task memory is selected separately
-with ``--memory-dir``. Never commit the private directory or credentials.
+Before using Codex, configure separate runtime directories and log in by following
+:ref:`planner-codex-isolation`.
 
 Start the Two-node Ray Cluster
 ------------------------------
@@ -412,7 +381,7 @@ skill. From the repository root:
 
 Without service addresses, the script starts and connects to the required
 services automatically; no port selection is needed. It stops only the services
-it started when it exits. Supply ``--env-endpoint``, ``--vla-endpoint`` or
+it started when it exits. Supply ``--env-endpoint``, ``--am-endpoint`` or
 ``--sam3-endpoint`` to reuse an existing service. Attaching to an existing Env
 does not reset it. With a newly started Env, a manual action first requests
 scene confirmation and performs one reset. An explicit manual ``reset`` also
@@ -477,7 +446,7 @@ Run a Task
 
 Complete calibration, robot configuration and Ray startup, then configure the
 planner using :doc:`../guides/configure_planner`. Before using Codex, complete
-:ref:`dual-franka-codex-isolation`.
+:ref:`planner-codex-isolation`.
 
 With the model variables set, the example below runs task ``2``. Select another
 registered task with ``--task-id``. RPent starts the required
@@ -504,10 +473,10 @@ also available: replace the planner/model options with
 Append options to this same command as needed:
 
 * ``--explore`` explores and accumulates task memory, as described below.
-* ``--explore --interactive`` accepts terminal feedback during exploration;
-  ordinary tasks do not support ``--interactive`` on its own.
+* ``--explore --tui`` accepts terminal feedback during exploration;
+  ordinary tasks do not support ``--tui`` on its own.
 * ``--dashboard`` accepts tasks, messages and confirmations in the web input.
-  Add ``--explore`` for exploration. Do not combine it with ``--interactive``.
+  Add ``--explore`` for exploration. Do not combine it with ``--tui``.
   See :doc:`../guides/dashboard` for interface controls.
 
 View Results
@@ -540,7 +509,7 @@ Attended Exploration
 
 Append ``--explore`` to a task command to enable exploration. Set attempts per planner session
 with ``--explore-attempts-per-session`` and session count with
-``--explore-sessions``. Add ``--interactive`` for terminal input or
+``--explore-sessions``. Add ``--tui`` for terminal input or
 ``--dashboard`` for web interaction.
 
 Each planner session begins with ``request_scene_reset``. Secure held objects,
@@ -555,9 +524,9 @@ for both ordinary and exploration runs.
 attempt; ``continue`` resumes it and ``abort`` stops exploration. Further motion
 clears the previous verdict. Closing terminal input also stops exploration.
 
-With Codex/Claude and ``--interactive``, use the displayed request ID, for example
+With Codex/Claude and ``--tui``, use the displayed request ID, for example
 ``/operator <request-id> done`` or ``/operator <request-id> success object lifted``.
-Other messages go to the agent. Without ``--interactive``, answer the prompt
+Other messages go to the agent. Without ``--tui``, answer the prompt
 directly. With ``--dashboard``, use the commands below in the Dashboard message input.
 
 Records and Memory
@@ -578,7 +547,7 @@ task replacement and Dashboard Session shutdown prevent merging. See
 Exploration Commands
 ~~~~~~~~~~~~~~~~~~~~
 
-In Codex/Claude terminal interaction (``--explore --interactive``) or Dashboard
+In Codex/Claude terminal interaction (``--explore --tui``) or Dashboard
 exploration, use:
 
 * ``/success`` or ``/failure`` to end the task, rather than only judge an attempt.

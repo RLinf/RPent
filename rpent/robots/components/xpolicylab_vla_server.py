@@ -34,7 +34,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from rpent.robots.components.vla_facade_base import BaseVLAFacade
+from rpent.robots.components.am_facade_base import BaseVLAFacade
 from rpent.utils.daemon import ProcessDaemon
 from rpent.utils.logging import get_logger
 
@@ -53,7 +53,7 @@ def add_backend_args(parser: argparse.ArgumentParser) -> None:
         "evaluation-id",
     ):
         parser.add_argument(f"--{name}")
-    parser.add_argument("--policy-gpu", type=int, default=None)
+    parser.add_argument("--policy-gpu", default=None)
     parser.add_argument("--policy-port", type=int, default=0)
     parser.add_argument("--policy-server-url")
     parser.add_argument(

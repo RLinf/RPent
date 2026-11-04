@@ -54,6 +54,7 @@ functions implemented in ``robot_spec.py`` for ``main.py`` to call:
 construct a :class:`~rpent.memory.MemoryManager` (rooted at the configured
 ``config.prompt_vars["memory_dir"]``, falling back to
 ``get_memory_dir(robot_name)`` when unset) and pass it to the toolkit.
+The manager is required; the toolkit always registers memory file tools and ``finish``.
 Memory access permissions are configured on the manager. Robots that need
 extra toolkit arguments may declare them as keyword-only parameters; LIBERO
 additionally uses ``mode``, ``attempts_per_session``, and ``state_output_dir``.
@@ -100,7 +101,7 @@ allows concurrent readonly calls and skips post-action state capture. Handlers r
 ``data`` holds the JSON payload, including ``error`` or ``_finish`` when needed,
 and ``images`` holds PNG bytes.
 
-The base class already registers common file tools; call ``super().__init__()`` then
+The base class registers common file tools when a memory manager is provided; call ``super().__init__()`` then
 ``add_tool`` for robot tools. Per-step state and ``view_env_state`` are in
 :doc:`add_primitive`.
 
@@ -128,7 +129,7 @@ normal-CLI or Dashboard runtime hook:
 
    [protocol://]host:port    # defaults to http when protocol is omitted
 
-Common flags: ``--env-endpoint``, ``--vla-endpoint``. The default ``http`` sends
+Common flags: ``--env-endpoint``, ``--am-endpoint``. The default ``http`` sends
 JSON over ``POST /call``, encoding NumPy arrays as
 ``{"__ndarray__": <base64>, "dtype": ..., "shape": ...}`` and NumPy scalars as
 ``{"__npscalar__": <value>, "dtype": ...}`` so dtypes survive the round trip;
@@ -145,3 +146,6 @@ bases provide common routing and locking on top of ``RpcFacade``. Subclass
 not implement ``healthz`` or ``shutdown`` in application subclasses.
 
 Details are in the env_server / vla_server sections of :doc:`add_robot`.
+
+WAM workers use ``BaseWAMClient`` and ``BaseWAMFacade`` with ``--am-endpoint``.
+See :doc:`add_action_model` for model adapters, control matching and lifecycle.

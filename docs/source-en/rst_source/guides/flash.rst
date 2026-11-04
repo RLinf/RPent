@@ -100,7 +100,7 @@ Flash replay supports the task and swap suites for LIBERO-PRO Spatial,
 Object, Goal, and Long (``10``), for 80 task identities in total.
 
 The VLA and SAM3 services use the normal LIBERO runtime configuration. You can
-also connect to services that are already running with ``--vla-endpoint`` and
+also connect to services that are already running with ``--am-endpoint`` and
 ``--sam3-endpoint``.
 
 Run Multiple Layouts
@@ -116,7 +116,7 @@ models again for every run:
      rpent --robot libero --planner flash \
        --suite libero_object_swap --task 3 --seed "$seed" \
        --output-dir logs/sweep/swap_t3_s$seed \
-       --vla-endpoint http://127.0.0.1:20701 \
+       --am-endpoint http://127.0.0.1:20701 \
        --sam3-endpoint http://127.0.0.1:20702 \
        --molmo-endpoint http://127.0.0.1:20703
    done

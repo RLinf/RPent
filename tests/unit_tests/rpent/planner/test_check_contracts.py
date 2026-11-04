@@ -644,6 +644,55 @@ def test_a_broken_keychain_lookup_is_not_a_credential(
     assert check_mod._has_cli_login("claude_code") is False
 
 
+GATEWAY_CONFIG = """
+model_provider = "gateway"
+
+[model_providers.gateway]
+base_url = "https://gateway.invalid/v1"
+wire_api = "responses"
+http_headers = { "X-Api-Key" = "from-config" }
+"""
+
+
+@pytest.mark.parametrize("home_env", ["CODEX_HOME", "RPENT_CODEX_HOME"])
+@pytest.mark.parametrize(
+    ("config", "base_url", "expected"),
+    [
+        (GATEWAY_CONFIG, None, True),
+        # RPent's CODEX_BASE_URL provider replaces the configured one.
+        (GATEWAY_CONFIG, "https://other.invalid", False),
+        (GATEWAY_CONFIG + "requires_openai_auth = true\n", None, False),
+        ('model = "gpt-5.5"\n', None, False),
+        ("not = [valid toml", None, False),
+        (None, None, False),
+    ],
+)
+def test_a_codex_config_provider_without_openai_login_counts_as_a_login(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Any,
+    home_env: str,
+    config: str | None,
+    base_url: str | None,
+    expected: bool,
+) -> None:
+    """Header-authenticated gateways keep their credential in config.toml."""
+    monkeypatch.undo()  # drop the autouse _has_cli_login stub
+    monkeypatch.setattr(check_mod, "_CLI_LOGIN_FILES", {})
+    monkeypatch.setattr(check_mod, "_KEYCHAIN_SERVICES", {})
+    monkeypatch.delenv("RPENT_CODEX_HOME", raising=False)
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "cli-home"))
+    monkeypatch.setenv(home_env, str(tmp_path))
+    if base_url is None:
+        monkeypatch.delenv("CODEX_BASE_URL", raising=False)
+    else:
+        monkeypatch.setenv("CODEX_BASE_URL", base_url)
+    if config is not None:
+        (tmp_path / "config.toml").write_text(config)
+
+    assert check_mod._has_cli_login("codex") is expected
+    assert check_mod._has_cli_login("claude_code") is False
+
+
 @pytest.mark.parametrize(
     ("planner", "key_env"),
     [("claude_code", "ANTHROPIC_API_KEY"), ("codex", "CODEX_API_KEY")],
@@ -1142,6 +1191,7 @@ def test_a_codex_login_only_under_rpent_codex_home_is_detected(
     """Credentials under the isolated CODEX_HOME count as a CLI login."""
     monkeypatch.undo()  # drop the autouse _has_cli_login stub
     monkeypatch.delenv("RPENT_CODEX_HOME", raising=False)
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "cli-home"))
     monkeypatch.setattr(check_mod, "_CLI_LOGIN_FILES", {"codex": ()})
     monkeypatch.setattr(check_mod, "_KEYCHAIN_SERVICES", {})
     monkeypatch.setattr(check_mod.sys, "platform", "linux")

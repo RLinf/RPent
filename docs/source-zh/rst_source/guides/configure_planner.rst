@@ -95,7 +95,7 @@ RPent 为 Claude 规划会话关闭文件系统配置来源，因此不会自动
 注意事项：
 
 - ``--model`` **不要** 加模型提供商前缀；省略时默认使用 ``sonnet``。
-- 非交互运行受 ``--planner-timeout-s`` 限制；默认读取 ``CELL_TIMEOUT_S``，未设置时为 ``1200`` 秒。``--interactive`` 模式不应用这一时限。
+- 非交互运行受 ``--planner-timeout-s`` 限制；默认读取 ``CELL_TIMEOUT_S``，未设置时为 ``1200`` 秒。``--tui`` 模式不应用这一时限。
 - 通过 ``--claude-code-max-budget-usd`` 设置美元预算（默认取 ``MAX_BUDGET_USD`` 环境变量或 ``10``）。
 - RPent 的依赖中已包含 Claude Agent SDK；该 SDK 自带 Claude Code 二进制文件，无需单独安装 CLI。认证通常使用 ``ANTHROPIC_API_KEY``，详见 `Claude Agent SDK 文档 <https://code.claude.com/docs/en/agent-sdk/overview>`_。
 - 默认情况下，SDK 会话历史与本地 Claude Code CLI 状态存放在同一目录。设置 ``RPENT_CLAUDE_CONFIG_DIR=/some/dir`` 可实现会话隔离：Claude Code 子进程的 ``CLAUDE_CONFIG_DIR`` 将指向该目录，RPent 的会话数据不会混入 ``~/.claude`` 的 CLI 历史。
@@ -138,6 +138,41 @@ Codex 规划会话不会自动加载仓库的 ``AGENTS.md`` 和 ``.agents/skills
 - ``--planner-timeout-s`` 限制 Codex 运行时间。默认依次读取 ``CODEX_TIMEOUT_S``、``CELL_TIMEOUT_S``，均未设置时为 ``1200`` 秒。
 - 默认情况下，Codex SDK 会复用已有的 Codex 认证。若要接入自定义的 Responses API 兼容端点，请设置 ``CODEX_BASE_URL`` 和 ``CODEX_API_KEY``；这里不读取 ``OPENAI_BASE_URL`` 或 ``OPENAI_API_KEY``。
 - 默认情况下，SDK 会话复用你的 Codex CLI home。设置 ``RPENT_CODEX_HOME=/some/dir`` 可实现会话隔离：Codex 子进程的 ``CODEX_HOME`` 将指向该目录，RPent 的 rollout 与配置状态不会混入 ``~/.codex`` 的 CLI 历史。
+
+.. _planner-codex-isolation:
+
+Codex 独立配置与登录
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+使用独立目录，避免与日常 Codex 开发混用配置和会话记录。
+
+在运行 RPent 的终端激活 ``.venv``，从仓库根目录设置独立的 Codex 配置与会话目录。每次新开运行 RPent 的终端都需执行：
+
+.. code-block:: bash
+
+   cd /path/to/RPent
+   source .venv/bin/activate
+   export CODEX_HOME="$PWD/.codex-rpent-live"
+   export CODEX_SQLITE_HOME="$CODEX_HOME"
+   export CODEX_SERVICE_TIER=fast
+   mkdir -p "$CODEX_HOME"
+   unset CODEX_API_KEY CODEX_BASE_URL OPENAI_API_KEY OPENAI_BASE_URL CODEX_ACCESS_TOKEN
+   export CODEX_BIN="$(python -c 'from codex_cli_bin import bundled_codex_path; print(bundled_codex_path())')"
+
+首次使用时，在 ``$CODEX_HOME/config.toml`` 中设置文件凭据存储，再用 SDK 自带的 CLI 登录：
+
+.. code-block:: toml
+
+   cli_auth_credentials_store = "file"
+
+.. code-block:: bash
+
+   "$CODEX_BIN" login --device-auth
+   "$CODEX_BIN" login status
+
+若配置中已有 ``sqlite_home``，也应指向独立目录。使用自定义 API 时，重新设置本次部署的 ``CODEX_API_KEY`` 和 ``CODEX_BASE_URL``；其他登录方式见 `Codex 认证说明 <https://developers.openai.com/codex/auth/>`_。
+
+RPent 不会自动启用上述隔离；它不隔离共享工作区或迁移旧会话。任务记忆另由 ``--memory-dir`` 选择。不要提交该目录或凭据。
 
 通过 Codex 使用本地模型
 ~~~~~~~~~~~~~~~~~~~~~~~~
