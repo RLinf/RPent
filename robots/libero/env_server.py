@@ -26,6 +26,7 @@ import numpy as np
 from rpent.robots.components.action_spec import box_action_spec
 from rpent.robots.components.env_facade_base import BaseEnvFacade
 from rpent.tools.localization.localization import (
+    CameraRequests,
     camera_requests,
     normalize_robosuite_camera,
 )
@@ -336,10 +337,17 @@ class LiberoEnvFacade(BaseEnvFacade):
             )
         )
 
-    def capture_localization(self, cameras) -> list[dict]:
+    def capture_localization(self, cameras: CameraRequests) -> list[dict[str, Any]]:
         """Render requested cameras and read their calibration in one state.
 
-        Sizes default to the observation resolution.
+        Args:
+            cameras: Camera names, ``(name, height, width)`` tuples, request
+                mappings, or an ordered sequence of these requests. Omitted
+                dimensions use the observation resolution.
+
+        Returns:
+            Canonical RGB, metric depth, calibration and metadata records in
+            request order. The environment is not advanced.
         """
         init_params = self._env.cfg.init_params
         default = (int(init_params.camera_heights), int(init_params.camera_widths))

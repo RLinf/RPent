@@ -22,7 +22,11 @@ from typing import Any
 import numpy as np
 
 from rpent.robots.components.action_spec import validate_action
-from rpent.tools.localization.localization import LocalizationFrame, frames_from_rpc
+from rpent.tools.localization.localization import (
+    CameraRequests,
+    LocalizationFrame,
+    frames_from_rpc,
+)
 
 
 class BaseEnvClient:
@@ -133,15 +137,18 @@ class BaseEnvClient:
             timeout_s=self._TIMEOUT_S["env.render_camera"],
         )
 
-    def capture_frames(self, cameras) -> list[LocalizationFrame]:
+    def capture_frames(self, cameras: CameraRequests) -> list[LocalizationFrame]:
         """Capture canonical localization frames from one environment state.
 
         Args:
-            cameras: Requests accepted by
-                ``rpent.tools.localization.localization.camera_requests``.
+            cameras: One camera name, a ``(name, height, width)`` tuple, a
+                mapping with ``camera``, ``height`` and ``width``, or an
+                ordered sequence of these requests. Set both dimensions or
+                omit both to use the environment's default or native size.
 
         Returns:
-            Frames in request order; the environment is not advanced.
+            Frames in request order, with aligned RGB, metric depth, calibration,
+            world coordinates and validity masks. The environment is not advanced.
         """
         return frames_from_rpc(
             self._client,

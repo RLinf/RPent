@@ -19,12 +19,13 @@ import inspect
 import os
 import re
 import sys
+from typing import Any
 
 import numpy as np
 
 from rpent.robots.components.action_spec import box_action_spec
 from rpent.robots.components.env_facade_base import BaseEnvFacade
-from rpent.tools.localization.localization import MujocoSimSource
+from rpent.tools.localization.localization import CameraRequests, MujocoSimSource
 from rpent.utils.logging import get_logger
 from rpent.utils.rpc.main_thread_serve import MainThreadServeMixin
 
@@ -276,10 +277,18 @@ class RoboCasaEnvFacade(MainThreadServeMixin, BaseEnvFacade):
         T = CU.get_camera_transform_matrix(self.env.sim, camera_name, height, width)
         return np.linalg.inv(T)  # T_p2w
 
-    def capture_localization(self, cameras) -> list[dict]:
+    def capture_localization(self, cameras: CameraRequests) -> list[dict[str, Any]]:
         """Render requested cameras with their calibration from the current state.
 
-        Sizes default to the server camera resolution.
+        Args:
+            cameras: Native camera names, ``(name, height, width)`` tuples,
+                request mappings, or an ordered sequence of these requests.
+                Cameras must use perspective pinhole projection. Omitted
+                dimensions use the server camera resolution.
+
+        Returns:
+            Canonical RGB, metric depth, calibration and metadata records in
+            request order. The environment is not advanced.
         """
         source = MujocoSimSource(
             self.env.sim,

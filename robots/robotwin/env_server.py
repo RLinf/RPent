@@ -31,6 +31,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from rpent.robots.components.env_facade_base import BaseEnvFacade
+from rpent.tools.localization.localization import CameraRequests
 from rpent.utils.logging import get_logger
 from rpent.utils.serialization import to_numpy_tree
 
@@ -248,7 +249,19 @@ class RoboTwinEnvFacade(BaseEnvFacade):
     def get_camera_meta(self, camera_name: str) -> dict[str, Any]:
         return self._env.get_camera_meta(camera_name, env_id=0)
 
-    def capture_localization(self, cameras) -> list[dict[str, Any]]:
+    def capture_localization(self, cameras: CameraRequests) -> list[dict[str, Any]]:
+        """Capture the requested cameras from environment zero without stepping.
+
+        Args:
+            cameras: ``head``, ``left_wrist`` or ``right_wrist`` requests, using
+                names, ``(name, height, width)`` tuples, request mappings, or an
+                ordered sequence. Omitted sizes use each camera's native size;
+                explicit sizes must match it.
+
+        Returns:
+            Canonical RGB, metric depth, calibration and metadata records in
+            request order, captured under the environment lock.
+        """
         return self._env.capture_localization(cameras, env_id=0)
 
     def get_task_language(self) -> str:

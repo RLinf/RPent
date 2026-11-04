@@ -37,12 +37,21 @@ The module imports only NumPy and the standard library.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, TypeAlias
 
 import numpy as np
+
+#: One camera name, sized request, or mapping accepted by camera_requests.
+CameraRequest: TypeAlias = (
+    str
+    | tuple[str, int | np.integer[Any] | None, int | np.integer[Any] | None]
+    | Mapping[str, Any]
+)
+#: One camera request or an ordered sequence of requests.
+CameraRequests: TypeAlias = CameraRequest | Sequence[CameraRequest]
 
 #: Maps OpenCV camera coordinates to OpenGL camera coordinates and back.
 GL_FROM_CV = np.diag([1.0, -1.0, -1.0, 1.0])
@@ -826,7 +835,7 @@ def normalize_sapien_camera(
 # ---------------------------------------------------------------------------
 
 
-def camera_requests(cameras: Any) -> list[dict[str, Any]]:
+def camera_requests(cameras: CameraRequests) -> list[dict[str, Any]]:
     """Normalize camera requests to ``{"camera", "height", "width"}`` dicts.
 
     Args:
@@ -887,8 +896,15 @@ def camera_requests(cameras: Any) -> list[dict[str, Any]]:
 class FrameSource(Protocol):
     """Anything that captures canonical frames from one environment instant."""
 
-    def capture_frames(self, cameras: Any) -> list[LocalizationFrame]:
-        """Capture all requested cameras from one unchanged environment state."""
+    def capture_frames(self, cameras: CameraRequests) -> list[LocalizationFrame]:
+        """Capture all requested cameras from one unchanged environment state.
+
+        Args:
+            cameras: Requests accepted by :func:`camera_requests`.
+
+        Returns:
+            Canonical frames in request order, without advancing the environment.
+        """
         ...
 
 
@@ -916,7 +932,9 @@ def capture(
     )[0]
 
 
-def capture_many(source: FrameSource, cameras: Any) -> list[LocalizationFrame]:
+def capture_many(
+    source: FrameSource, cameras: CameraRequests
+) -> list[LocalizationFrame]:
     """Capture several cameras from the same environment state.
 
     Args:
@@ -953,16 +971,27 @@ class RpcFrameSource:
         self._timeout_s = float(timeout_s)
 
     def env_meta(self) -> dict[str, Any]:
-        """Return the identity the server was launched with."""
+        """Return the identity the server was launched with.
+
+        Returns:
+            Environment launch metadata reported by ``env.get_env_meta``.
+        """
         return self._client.call("env.get_env_meta", timeout_s=self._timeout_s)
 
-    def capture_frames(self, cameras: Any) -> list[LocalizationFrame]:
-        """Capture requested cameras in one server call."""
+    def capture_frames(self, cameras: CameraRequests) -> list[LocalizationFrame]:
+        """Capture requested cameras in one server call.
+
+        Args:
+            cameras: Requests accepted by :func:`camera_requests`.
+
+        Returns:
+            Canonical frames in request order, without resetting or stepping.
+        """
         return frames_from_rpc(self._client, cameras, timeout_s=self._timeout_s)
 
 
 def frames_from_rpc(
-    client: Any, cameras: Any, *, timeout_s: float = 120.0
+    client: Any, cameras: CameraRequests, *, timeout_s: float = 120.0
 ) -> list[LocalizationFrame]:
     """Call ``env.capture_localization`` and build frames from its records.
 
@@ -1014,7 +1043,7 @@ class MujocoSimSource:
         self._metadata = dict(metadata or {})
 
     def capture_records(
-        self, cameras: Any, *, metadata: Mapping[str, Any] | None = None
+        self, cameras: CameraRequests, *, metadata: Mapping[str, Any] | None = None
     ) -> list[dict[str, Any]]:
         """Render requested cameras and return canonical inputs.
 
@@ -1037,8 +1066,16 @@ class MujocoSimSource:
             )
         return records
 
-    def capture_frames(self, cameras: Any) -> list[LocalizationFrame]:
-        """Render requested cameras from the current simulation state."""
+    def capture_frames(self, cameras: CameraRequests) -> list[LocalizationFrame]:
+        """Render requested cameras from the current simulation state.
+
+        Args:
+            cameras: Requests accepted by :func:`camera_requests`. Omitted
+                sizes use the source's default resolution.
+
+        Returns:
+            Canonical frames in request order, without stepping the simulation.
+        """
         return [
             LocalizationFrame.from_canonical(record)
             for record in self.capture_records(cameras)
@@ -1077,7 +1114,7 @@ class SapienCameraSource:
         self._metadata = dict(metadata or {})
 
     def capture_records(
-        self, cameras: Any, *, metadata: Mapping[str, Any] | None = None
+        self, cameras: CameraRequests, *, metadata: Mapping[str, Any] | None = None
     ) -> list[dict[str, Any]]:
         """Take one picture set and return canonical inputs.
 
@@ -1102,8 +1139,16 @@ class SapienCameraSource:
             for request, camera in zip(requests, selected)
         ]
 
-    def capture_frames(self, cameras: Any) -> list[LocalizationFrame]:
-        """Take one picture set and convert the requested cameras."""
+    def capture_frames(self, cameras: CameraRequests) -> list[LocalizationFrame]:
+        """Take one picture set and convert the requested cameras.
+
+        Args:
+            cameras: Requests accepted by :func:`camera_requests`. Explicit
+                sizes must match each camera's native resolution.
+
+        Returns:
+            Canonical frames in request order, without stepping the scene.
+        """
         return [
             LocalizationFrame.from_canonical(record)
             for record in self.capture_records(cameras)

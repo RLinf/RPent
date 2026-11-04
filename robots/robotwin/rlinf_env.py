@@ -25,6 +25,7 @@ from rlinf.envs.sim.robotwin.robotwin_env import RoboTwinEnv
 from robots.robotwin.robot_spec import RoboTwinActionType
 from rpent.robots.components.action_spec import box_action_spec
 from rpent.tools.localization.localization import (
+    CameraRequests,
     SapienCameraSource,
     camera_requests,
     depth_from_sapien_position,
@@ -287,12 +288,22 @@ class RoboTwinAgentEnv(RoboTwinEnv):
             return rgb, depth_from_sapien_position(camera.get_picture("Position"))
 
     def capture_localization(
-        self, cameras: Any, env_id: int = 0
+        self, cameras: CameraRequests, env_id: int = 0
     ) -> list[dict[str, Any]]:
         """Return canonical localization records from one rendered picture set.
 
         Wrist-camera poses are refreshed and every camera takes one picture
         under the environment lock; the episode is not advanced.
+
+        Args:
+            cameras: ``head``, ``left_wrist`` or ``right_wrist`` requests, using
+                names, ``(name, height, width)`` tuples, mappings, or an ordered
+                sequence. Explicit sizes must match the native resolution.
+            env_id: Index of the environment to capture; defaults to zero.
+
+        Returns:
+            Canonical RGB, metric depth, calibration and metadata records in
+            request order, including the current action count as ``env_step``.
         """
         sub_env = self._sub_env(env_id)
         with sub_env.lock:

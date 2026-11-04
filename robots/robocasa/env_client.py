@@ -21,7 +21,11 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from rpent.robots.components.env_client_base import BaseEnvClient
-from rpent.tools.localization.localization import LocalizationFrame, camera_requests
+from rpent.tools.localization.localization import (
+    CameraRequests,
+    LocalizationFrame,
+    camera_requests,
+)
 
 if TYPE_CHECKING:
     from rpent.utils.rpc import RpcClient
@@ -122,8 +126,19 @@ class RoboCasaEnvClient(BaseEnvClient):
         w = width or self.camera_w
         return super().get_camera_meta(cam, height=h, width=w)
 
-    def capture_frames(self, cameras) -> list[LocalizationFrame]:
-        """Capture frames from one state; camera aliases such as ``wrist`` resolve."""
+    def capture_frames(self, cameras: CameraRequests) -> list[LocalizationFrame]:
+        """Capture aligned frames from one state, resolving camera aliases.
+
+        Args:
+            cameras: Names, ``(name, height, width)`` tuples, request mappings,
+                or an ordered sequence of these requests. Aliases such as
+                ``agentview``, ``wrist`` and ``navview`` are accepted. Omitted
+                dimensions use the server's camera resolution.
+
+        Returns:
+            Canonical frames in request order, named with the resolved camera
+            names. The environment is not advanced.
+        """
         return super().capture_frames(
             [
                 {**request, "camera": self._resolve_cam(request["camera"])}
@@ -131,9 +146,24 @@ class RoboCasaEnvClient(BaseEnvClient):
             ]
         )
 
-    def world_map(self, camera_name, height=None, width=None):
-        """HxWx3 float32 world xyz, NaN where invalid, pixel-aligned with
-        render_camera()'s top-down rgb."""
+    def world_map(
+        self,
+        camera_name: str,
+        height: int | None = None,
+        width: int | None = None,
+    ) -> np.ndarray:
+        """Capture a pixel-aligned world-coordinate table for one camera.
+
+        Args:
+            camera_name: Native camera name or an alias such as ``agentview``.
+            height: Image height; ``None`` uses the client's camera height.
+            width: Image width; ``None`` uses the client's camera width.
+
+        Returns:
+            A float32 ``(H, W, 3)`` world-coordinate table, with NaNs at invalid
+            pixels and row 0 at the top. For RGB from the same capture, use
+            :meth:`capture_frames` and read both arrays from its returned frame.
+        """
         request = (camera_name, height or self.camera_h, width or self.camera_w)
         return self.capture_frames([request])[0].world_xyz
 
