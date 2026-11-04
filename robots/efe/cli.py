@@ -22,14 +22,6 @@ from pathlib import Path
 from robots.efe.constants import SANDBOX_CHOICES
 
 
-def positive_int(value: str) -> int:
-    """Parse a positive integer for the command line."""
-    parsed = int(value)
-    if parsed <= 0:
-        raise argparse.ArgumentTypeError("Use a positive integer.")
-    return parsed
-
-
 def main(argv: list[str] | None = None) -> int:
     """Run one EFE trial session. Return a process status, not an evaluation score."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -37,15 +29,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--workdir", type=Path, default=Path.cwd())
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--model", required=True)
-    parser.add_argument("--timeout-s", type=positive_int, default=600)
-    parser.add_argument("--max-turns", type=positive_int, default=200)
+    parser.add_argument("--timeout-s", type=int, default=600)
+    parser.add_argument("--max-turns", type=int, default=200)
     parser.add_argument(
         "--reasoning-effort",
         choices=("none", "low", "medium", "high", "xhigh"),
         default="none",
     )
     parser.add_argument("--memory-dir", type=Path, default=None)
-    parser.add_argument("--explore-sessions", type=positive_int, default=1)
+    parser.add_argument("--explore-sessions", type=int, default=1)
     parser.add_argument(
         "--no-skills",
         dest="skills",
