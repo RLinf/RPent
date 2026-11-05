@@ -148,15 +148,16 @@ Debug a Single Task
 
 To debug one task you do not need the trial pipeline. ``harbor task start-env``
 starts the task's containers and attaches to the agent container; run RPent
-there directly. ``--mounts`` makes the host RPent checkout available inside the
-container.
+there directly. ``--mounts`` makes the RPent checkout available for the install
+and the task directory available at ``/task``; the task keeps its instruction in
+``instruction.md`` at its root.
 
 .. code-block:: bash
 
    # 1) Start the environment and attach to the agent container
    harbor task start-env \
      --path "$EFE_TASK" \
-     --mounts '[{"type":"bind","source":"'"$RPENT_ROOT"'","target":"/opt/rpent"}]'
+     --mounts '[{"type":"bind","source":"'"$RPENT_ROOT"'","target":"/opt/rpent","read_only":true},{"type":"bind","source":"'"$EFE_TASK"'","target":"/task","read_only":true}]'
 
    # 2) In the container: create a venv and install RPent, as the adapter does
    python3 -m venv /tmp/rpent-venv
@@ -166,18 +167,16 @@ container.
    export CODEX_API_KEY="$OPENAI_API_KEY"
    export CODEX_BASE_URL="$OPENAI_BASE_URL"   # with a custom endpoint
    /tmp/rpent-venv/bin/rpent --robot efe \
-     --instruction-file /app/instruction.txt \
-     --workdir /app \
+     --instruction-file /task/instruction.md \
      --output-dir /app/output \
      --model your-model
 
-``--instruction-file`` points at a file in the container holding the task
-instruction. ``rpent --robot efe`` always runs with ``full-access``, so shell
-commands can reach the simulator too; use it for debugging and the adapter for
-comparisons. ``--efe-base-url`` probes ``sim:8000`` by default. ``start-env``
-has no ``--allow-agent-host``, and the task's network policy applies, so a task
-that blocks agent network access may not reach the model service. Run such
-tasks as trials instead.
+``--instruction-file`` points at the task's own ``instruction.md``. ``rpent
+--robot efe`` always runs with ``full-access``, so shell commands can reach the
+simulator too; use it for debugging and the adapter for comparisons.
+``--efe-base-url`` probes ``sim:8000`` by default. ``start-env`` does not apply
+the trial's agent network policy (``--allow-agent-host`` works in ``harbor run``
+only), so the container uses Docker's default network.
 
 Run a Trial
 -----------
@@ -211,8 +210,10 @@ Runtime.
 Run a Benchmark
 ---------------
 
-``--path`` points at EFE benchmark data, such as ``tasks/<benchmark>`` or a
-dataset that EFE provides.
+``--path`` points at a benchmark directory; Harbor treats its child task
+directories as a dataset. ``-d embodied-first-exam@all`` is the full set that
+EFE registers. For example, EFE's own ``harbor run -d embodied-first-exam@all
+-p tasks/roboarc`` runs only RoboARC.
 
 .. code-block:: bash
 

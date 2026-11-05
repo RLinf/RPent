@@ -103,14 +103,14 @@ EFE 的其余 959 个任务属于 ``privileged`` 模式，我们暂时不支持�
 单任务调试
 ----------
 
-调试单个任务时不需要走 Trial 流程：``harbor task start-env`` 启动该任务的容器并以交互方式进入 Agent 容器，再在容器里直接运行 RPent。``--mounts`` 把宿主机上的 RPent checkout 挂进容器。
+调试单个任务时不需要走 Trial 流程：``harbor task start-env`` 启动该任务的容器并以交互方式进入 Agent 容器，再在容器里直接运行 RPent。``--mounts`` 同时挂载 RPent checkout（用于安装）和任务目录（``instruction.md`` 在任务根目录）。
 
 .. code-block:: bash
 
    # 1) 启动任务环境并进入 Agent 容器
    harbor task start-env \
      --path "$EFE_TASK" \
-     --mounts '[{"type":"bind","source":"'"$RPENT_ROOT"'","target":"/opt/rpent"}]'
+     --mounts '[{"type":"bind","source":"'"$RPENT_ROOT"'","target":"/opt/rpent","read_only":true},{"type":"bind","source":"'"$EFE_TASK"'","target":"/task","read_only":true}]'
 
    # 2) 容器内：按 Adapter 的方式建 venv 并安装 RPent
    python3 -m venv /tmp/rpent-venv
@@ -120,12 +120,11 @@ EFE 的其余 959 个任务属于 ``privileged`` 模式，我们暂时不支持�
    export CODEX_API_KEY="$OPENAI_API_KEY"
    export CODEX_BASE_URL="$OPENAI_BASE_URL"   # 使用自定义端点时
    /tmp/rpent-venv/bin/rpent --robot efe \
-     --instruction-file /app/instruction.txt \
-     --workdir /app \
+     --instruction-file /task/instruction.md \
      --output-dir /app/output \
      --model your-model
 
-``--instruction-file`` 指向容器内的指令文件，内容取任务的 instruction。``rpent --robot efe`` 固定 ``full-access``，Shell 也能操作 Simulator，因此只用于调试；对照实验请用 Adapter。``--efe-base-url`` 默认探测 ``sim:8000``。``start-env`` 没有 ``--allow-agent-host``，网络策略沿用任务配置；任务限制 Agent 网络时，容器内可能访问不到模型服务，这类任务请直接跑 Trial。
+``--instruction-file`` 指向任务目录自带的 ``instruction.md``。``rpent --robot efe`` 固定 ``full-access``，Shell 也能操作 Simulator，因此只用于调试；对照实验请用 Adapter。``--efe-base-url`` 默认探测 ``sim:8000``。``start-env`` 不应用 Trial 的 Agent 网络策略（``--allow-agent-host`` 只在 ``harbor run`` 中生效），容器使用 Docker 默认网络。
 
 运行一个 Trial
 --------------
@@ -147,7 +146,7 @@ EFE 的其余 959 个任务属于 ``privileged`` 模式，我们暂时不支持�
 批量运行 benchmark
 ------------------
 
-``--path`` 指向 EFE 的 benchmark 数据，例如 ``tasks/<benchmark>``，或 EFE 提供的 dataset。
+``--path`` 指向 benchmark 目录，Harbor 把其下的任务目录当作数据集；``-d embodied-first-exam@all`` 是 EFE 注册的整套任务。例如 EFE 文档中的 ``harbor run -d embodied-first-exam@all -p tasks/roboarc`` 只跑 RoboARC。
 
 .. code-block:: bash
 
