@@ -364,6 +364,10 @@ CI. For ``api``, ``--base-url`` overrides the endpoint. Other backends use
 their own environment or CLI configuration. ``--timeout-s`` overrides the
 diagnostic timeout (30 s for ``api`` and 90 s for each CLI/SDK backend; the
 ``1200`` s run default is never reused).
+Without a credential in the launch environment, CLI/SDK probes use a shorter
+25 s budget. Set ``--timeout-s`` explicitly for slower backends. Gemini CLI
+resolves its own credentials; RPent does not reject it solely because no key
+is visible in the launch environment.
 
 Before using the Dashboard, run the same check in a terminal with the
 planner and model settings you intend to use for the task. The Dashboard

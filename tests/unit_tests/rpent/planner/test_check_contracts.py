@@ -52,6 +52,7 @@ def _clear_provider_env(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in (
         "ANTHROPIC_API_KEY",
         "GEMINI_API_KEY",
+        "GOOGLE_API_KEY",
         "OPENAI_API_KEY",
         "CODEX_API_KEY",
         "ANTHROPIC_BASE_URL",
@@ -577,12 +578,18 @@ def test_codex_probe_timeout_reports_network_error(
     assert result.status == STATUS_NETWORK_ERROR
 
 
+@pytest.mark.parametrize("key_present", [False, True])
+@pytest.mark.parametrize("timeout_s", [None, 120])
 def test_gemini_cli_probe_uses_cli_configuration_and_exact_optional_model(
     monkeypatch: pytest.MonkeyPatch,
+    key_present: bool,
+    timeout_s: int | None,
 ) -> None:
     import rpent.planner.gemini_cli as gemini_cli
 
     seen: dict[str, Any] = {}
+    if key_present:
+        monkeypatch.setenv("GEMINI_API_KEY", SENTINEL_KEY)
 
     def fake_probe(*, prompt: str, model: str | None, timeout_s: int) -> str:
         seen.update(prompt=prompt, model=model, timeout_s=timeout_s)
@@ -590,7 +597,9 @@ def test_gemini_cli_probe_uses_cli_configuration_and_exact_optional_model(
 
     monkeypatch.setattr(gemini_cli, "run_probe_turn", fake_probe)
     result = check_llm(
-        LlmCheckRequest(planner="gemini_cli", model="gemini-upstream-id")
+        LlmCheckRequest(
+            planner="gemini_cli", model="gemini-upstream-id", timeout_s=timeout_s
+        )
     )
 
     assert result.ok is True
@@ -602,23 +611,39 @@ def test_gemini_cli_probe_uses_cli_configuration_and_exact_optional_model(
     assert seen == {
         "prompt": PROBE_PROMPT,
         "model": "gemini-upstream-id",
-        "timeout_s": DEFAULT_TIMEOUT_S["gemini_cli"],
+        "timeout_s": timeout_s
+        or (DEFAULT_TIMEOUT_S["gemini_cli"] if key_present else CLI_LOGIN_TIMEOUT_S),
     }
 
 
-def test_gemini_cli_fetch_failure_is_a_network_error(
+@pytest.mark.parametrize(
+    ("message", "status"),
+    [
+        ("TypeError: fetch failed sending request", STATUS_NETWORK_ERROR),
+        ("Login failed", STATUS_AUTH_FAILED),
+        ("API key rejected", STATUS_AUTH_FAILED),
+        (None, STATUS_MISSING_API_KEY),
+    ],
+)
+def test_gemini_cli_probe_classifies_backend_errors(
     monkeypatch: pytest.MonkeyPatch,
+    message: str | None,
+    status: str,
 ) -> None:
+    from acp import RequestError
+
     import rpent.planner.gemini_cli as gemini_cli
 
     def fail(**kwargs: Any) -> str:
-        raise RuntimeError("TypeError: fetch failed sending request")
+        if message is None:
+            raise RequestError.auth_required()
+        raise RuntimeError(message)
 
     monkeypatch.setattr(gemini_cli, "run_probe_turn", fail)
 
     result = check_llm(LlmCheckRequest(planner="gemini_cli"))
 
-    assert result.status == STATUS_NETWORK_ERROR
+    assert result.status == status
 
 
 # ---------------------------------------------------------------------------

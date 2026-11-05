@@ -275,7 +275,9 @@ RPent 的 ``--model`` 必须与 vLLM 的 ``--served-model-name`` 保持一致。
    rpent-check-llm --planner codex --json
    rpent-check-llm --planner gemini_cli --json
 
-成功时退出码为 ``0``，任何失败为 ``1``，并将失败归类为 ``missing_config``、``unsupported_provider``、``missing_api_key``、 ``auth_failed``、``network_error``、``provider_error``、``sdk_error`` 之一。脚本与 CI 建议使用 ``--json``。对于 ``api``，``--base-url`` 会覆盖服务端点；CLI/SDK 后端读取前文所述的环境变量。``--timeout-s`` 覆盖诊断超时（``api`` 为 30 秒，各 CLI/SDK 后端为 90 秒；运行时的 ``1200`` 秒默认值不会被复用）。
+成功时退出码为 ``0``，任何失败为 ``1``，并将失败归类为 ``missing_config``、``unsupported_provider``、``missing_api_key``、 ``auth_failed``、``network_error``、``provider_error``、``sdk_error`` 之一。脚本与 CI 建议使用 ``--json``。对于 ``api``，``--base-url`` 会覆盖服务端点；其他后端使用自身的环境变量或 CLI 配置。``--timeout-s`` 覆盖诊断超时（``api`` 为 30 秒，各 CLI/SDK 后端为 90 秒；运行时的 ``1200`` 秒默认值不会被复用）。
+
+启动环境中没有凭据时，CLI/SDK 探测使用较短的 25 秒预算。响应较慢的后端可通过 ``--timeout-s`` 显式增加时限。Gemini CLI 自行读取认证配置；RPent 不会仅因启动环境中没有密钥就拒绝探测。
 
 使用 Dashboard 时，也请先在终端运行上述检查，并使用准备运行任务的规划器与模型配置。Dashboard 从命令行接收配置，打开后直接显示运行监控页面。启动方法见 :doc:`dashboard`。
 

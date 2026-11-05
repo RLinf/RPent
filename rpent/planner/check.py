@@ -888,6 +888,8 @@ def _check_gemini_cli(request: LlmCheckRequest) -> LlmCheckResult:
     """Probe the installed Gemini CLI with one tool-free ACP request."""
     model = (request.model or "").strip() or None
     try:
+        from acp import RequestError
+
         from rpent.planner.gemini_cli import run_probe_turn
     except ImportError as exc:
         return LlmCheckResult(
@@ -907,7 +909,12 @@ def _check_gemini_cli(request: LlmCheckRequest) -> LlmCheckResult:
             **kwargs,
         )
 
-    timeout_s = request.resolved_timeout_s()
+    timeout_s = _sdk_probe_budget(
+        request,
+        cli_login_only=not (
+            os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+        ),
+    )
     started = time.monotonic()
     try:
         reply = run_probe_turn(
@@ -922,8 +929,14 @@ def _check_gemini_cli(request: LlmCheckRequest) -> LlmCheckResult:
             latency_s=round(time.monotonic() - started, 3),
         )
     except Exception as exc:  # noqa: BLE001 - classified below
+        status = (
+            STATUS_MISSING_API_KEY
+            if isinstance(exc, RequestError)
+            and exc.code == RequestError.auth_required().code
+            else _classify_sdk_error(exc, key_present=None, model=model)
+        )
         return _result(
-            _classify_sdk_error(exc, key_present=False, model=model),
+            status,
             detail=_describe(exc),
             latency_s=round(time.monotonic() - started, 3),
         )
@@ -964,7 +977,7 @@ def _names_the_requested_model(text: str, model: str | None) -> bool:
 def _classify_sdk_error(
     exc: Exception,
     *,
-    key_present: bool,
+    key_present: bool | None,
     model: str | None = None,
 ) -> str:
     """Classify a child-process SDK failure from its message.
@@ -974,7 +987,8 @@ def _classify_sdk_error(
 
     Args:
         exc: The exception raised by the SDK.
-        key_present: Whether the backend's credential env var was set.
+        key_present: Whether the backend's credential env var was set, or None
+            when credentials are managed by the backend.
         model: The model id that was requested, used to recognise a model
             rejection without depending on the gateway's wording.
 
@@ -993,7 +1007,7 @@ def _classify_sdk_error(
         token in text
         for token in ("not logged in", "no credentials", "login", "api key")
     ):
-        return STATUS_MISSING_API_KEY if not key_present else STATUS_AUTH_FAILED
+        return STATUS_MISSING_API_KEY if key_present is False else STATUS_AUTH_FAILED
     if any(
         token in text
         for token in (
