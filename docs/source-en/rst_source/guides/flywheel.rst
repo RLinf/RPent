@@ -158,13 +158,6 @@ Successful trajectories collected with RPent were used to fine-tune
 ``RLinf-Pi05-LIBERO-130-fullshot-SFT``. The resulting VLA model was evaluated
 against the original model within RPent.
 
-Training used 199 usable successful trajectories from LIBERO-PRO's three goal
-suites. Training used the subtask instructions recorded in the trajectories as
-prompts, matching the instructions passed to the VLA during collection.
-Language-branch LoRA and full fine-tuning of the action branch ran for
-500 steps.
-The saved checkpoint at step 300 was selected by validation loss for evaluation.
-
 Evaluation covered tasks 0–9 and seeds 25–34 in ``libero_goal_swap``, for 100 runs
 per model. Both groups used the same DeepSeek-V4.1-Flash-1017 planner (reasoning
 effort: ``none``) and official memory, with only the VLA model replaced.
