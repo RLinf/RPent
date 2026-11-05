@@ -708,14 +708,24 @@ def test_noninteractive_client_stops_at_first_result(tmp_path, monkeypatch):
     assert result.finish_result is None
 
 
-@pytest.mark.parametrize("stage", ["connect", "query"])
+@pytest.mark.parametrize("stage", ["connect", "query", None])
+@pytest.mark.parametrize("cleanup_error", [False, True])
 def test_terminal_startup_failure_closes_input_and_drains_tools(
-    tmp_path, monkeypatch, stage
+    tmp_path, monkeypatch, stage, cleanup_error, caplog
 ):
     fake_sdk = FakeSdkTools()
     patch_sdk_surface(monkeypatch, fake_sdk)
     closed = []
-    toolkit = FakeToolkit()
+    secret = "private-cleanup-key"
+    monkeypatch.setenv("ANTHROPIC_API_KEY", secret)
+
+    class Toolkit(FakeToolkit):
+        def cancel_active_and_wait(self):
+            super().cancel_active_and_wait()
+            if cleanup_error:
+                raise RuntimeError(f"toolkit boom with {secret}")
+
+    toolkit = Toolkit()
 
     class Client:
         def __init__(self, **kwargs):
@@ -731,7 +741,11 @@ def test_terminal_startup_failure_closes_input_and_drains_tools(
             closed.append(True)
 
         async def query(self, prompt):
-            raise RuntimeError("query failed")
+            if stage == "query":
+                raise RuntimeError("query failed")
+
+        async def receive_messages(self):
+            yield {"type": "ResultMessage", "subtype": "success"}
 
     monkeypatch.setattr(claude_agent_sdk, "ClaudeSDKClient", Client)
     result = make_planner(tmp_path, RecordingSink()).solve(
@@ -739,8 +753,21 @@ def test_terminal_startup_failure_closes_input_and_drains_tools(
         user_message="task",
         toolkit=toolkit,
         max_turns=3,
-        input_queue=queue.Queue(),
+        input_queue=queue.Queue() if stage else None,
     )
-    assert result.error == f"RuntimeError: {stage} failed"
+    expected = (
+        f"RuntimeError: {stage} failed"
+        if stage
+        else "Toolkit cleanup failed: toolkit boom with <ANTHROPIC_API_KEY>"
+        if cleanup_error
+        else None
+    )
+    assert result.error == expected
     assert toolkit.cancel_calls == 1
-    assert closed == ([True] if stage == "query" else [])
+    assert closed == ([] if stage == "connect" else [True])
+    assert secret not in caplog.text
+    for name in ("output_path", "raw_stream_path"):
+        text = Path(result.stats[name]).read_text()
+        assert secret not in text
+        if expected:
+            assert expected in text

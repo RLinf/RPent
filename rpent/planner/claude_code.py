@@ -49,6 +49,7 @@ from rpent.planner.base import (
     execute_tool,
     strip_mcp_prefix,
 )
+from rpent.planner.check import redact_secrets
 from rpent.planner.utils.agent_runtime import AgentArtifacts, short_json, write_jsonl
 from rpent.planner.utils.agent_session import TerminalInteraction
 from rpent.planner.utils.http_mcp_server import mcp_result
@@ -208,11 +209,14 @@ class ClaudeCodePlanner(Planner):
                     driver.run(prompt),
                     timeout=None if terminal is not None else self._timeout_s,
                 )
+                error = recorder.error or driver.error
+                if error:
+                    write_jsonl(raw, {"type": "error", "message": error})
             except asyncio.TimeoutError:
                 error = f"Claude Agent SDK timed out after {self._timeout_s}s"
                 write_jsonl(raw, {"type": "timeout", "message": error})
             except Exception as exc:
-                error = f"{type(exc).__name__}: {exc}"
+                error = redact_secrets(f"{type(exc).__name__}: {exc}")
                 write_jsonl(raw, {"type": "error", "message": error})
             finally:
                 if control is not None:
@@ -303,6 +307,7 @@ class _ClaudeSessionDriver:
         self._turn_done = asyncio.Event()
         self._turn_done.set()
         self._interrupting = False
+        self.error: str | None = None
 
     async def run(self, prompt: str) -> None:
         """Run one turn without input, or keep the same client for queued turns."""
@@ -328,6 +333,9 @@ class _ClaudeSessionDriver:
                     self._control.end()
                 try:
                     await cancel_and_wait(self._toolkit.cancel_active_and_wait)
+                except Exception as exc:
+                    self.error = redact_secrets(f"Toolkit cleanup failed: {exc}")
+                    logger.error("%s", self.error)
                 finally:
                     for task in tasks:
                         task.cancel()
