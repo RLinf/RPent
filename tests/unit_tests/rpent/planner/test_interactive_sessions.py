@@ -54,6 +54,31 @@ def dashboard(tmp_path):
     return state
 
 
+def test_repeated_terminal_shutdown_does_not_stop_the_next_session():
+    async def scenario():
+        input_queue = queue.Queue()
+        for _ in range(2):
+            terminal = interactive.TerminalInteraction(input_queue)
+            reader = asyncio.create_task(terminal.read_input())
+            input_queue.put("follow-up")
+
+            async def wait_for_input():
+                while terminal.interaction_version == 0:
+                    await asyncio.sleep(0)
+
+            try:
+                await asyncio.wait_for(wait_for_input(), timeout=2)
+                assert not terminal.task_replacement_requested
+                assert terminal.claim_next_pending_message().text == "follow-up"
+            finally:
+                terminal.seal_interaction()
+                terminal.seal_interaction()
+                await asyncio.wait_for(reader, timeout=2)
+            assert input_queue.empty()
+
+    asyncio.run(scenario())
+
+
 @pytest.mark.parametrize("backend", ["codex", "gemini_cli", "claude_code"])
 @pytest.mark.parametrize("channel", ["terminal", "dashboard"])
 def test_queue_interrupt_and_continuation_share_one_session(

@@ -148,6 +148,8 @@ class TerminalInteraction:
         self.seal_interaction()
 
     def seal_interaction(self) -> None:
+        if self.planner_activity == "ended":
+            return
         self.planner_activity = "ended"
         for message in self._messages.values():
             if message.status in {"pending", "sending"}:
