@@ -25,6 +25,34 @@ from rpent.tools import iter_tools
 
 ACTIONS = {"move_to", "set_gripper", "pi0_pick"}
 
+# Data-only schemas for historical version-2 plans. The corresponding motion
+# implementations are removed; accepting a saved record does not register tools
+# or enable Flash in the RoboDojo runner.
+_LEGACY_ACTION_SCHEMAS = {
+    "move_to": {
+        "type": "object",
+        "properties": {
+            "xyz": {
+                "type": "array",
+                "items": {"type": "number"},
+                "minItems": 3,
+                "maxItems": 3,
+            },
+            "arm": {"type": "string", "enum": ["left", "right"]},
+            "gripper": {"type": "number"},
+        },
+        "required": ["xyz"],
+    },
+    "set_gripper": {
+        "type": "object",
+        "properties": {
+            "arm": {"type": "string", "enum": ["left", "right"]},
+            "gripper": {"type": "number"},
+        },
+        "required": ["arm", "gripper"],
+    },
+}
+
 
 def task_name(value: str) -> str:
     """Validate a task-derived memory filename."""
@@ -73,6 +101,7 @@ def validate_plan(plan: dict) -> dict:
     if not isinstance(plan["actions"], list) or not 1 <= len(plan["actions"]) <= 200:
         raise ValueError("Plan must contain 1..200 actions")
     specs = {tool.name: tool.input_schema for tool in iter_tools(tools)}
+    specs.update(_LEGACY_ACTION_SCHEMAS)
     for entry in plan["actions"]:
         if (
             set(entry) != {"action", "arguments", "anchor", "offset"}
