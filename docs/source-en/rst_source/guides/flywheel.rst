@@ -151,6 +151,9 @@ and dataset.
 SFT Experiment Results
 ----------------------
 
+LIBERO-PRO VLA Fine-Tuning Results
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 Successful trajectories collected with RPent were used to fine-tune
 ``RLinf-Pi05-LIBERO-130-fullshot-SFT``. The resulting VLA model was evaluated
 against the original model within RPent.
@@ -184,8 +187,8 @@ Task success rates for the full RPent system were:
 In this evaluation, the SFT model succeeded in three more runs, increasing the
 success rate by three percentage points.
 
-What's New: RoboTwin SFT
-~~~~~~~~~~~~~~~~~~~~~~~~
+RoboTwin VLA Fine-Tuning Results
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Using 320 successful trajectories collected with RPent,
 ``LingBot-VLA-RoboTwin-EEF-ckpt1500`` was fine-tuned for 500 steps. The resulting

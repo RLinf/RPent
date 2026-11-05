@@ -106,6 +106,9 @@
 SFT 实验结果
 ------------
 
+LIBERO-PRO VLA 微调结果
+~~~~~~~~~~~~~~~~~~~~~~~
+
 使用 RPent 采集的成功轨迹，对 ``RLinf-Pi05-LIBERO-130-fullshot-SFT`` 进行微调，并在 RPent 中替换 VLA 模型进行对比评测。
 
 训练数据来自 LIBERO-PRO 的三个 goal 系列 suite，共 199 条有效成功轨迹。训练使用轨迹中记录的子任务指令作为 prompt，与采集时实际传给 VLA 的指令一致。训练采用语言分支 LoRA 与动作分支全量微调，共训练 500 步，按验证损失选择已保存的 step 300 检查点用于评测。
@@ -129,8 +132,8 @@ SFT 实验结果
 
 本次评测中，SFT 后的模型多成功 3 场，成功率提高 3 个百分点。
 
-What's New：RoboTwin SFT
-~~~~~~~~~~~~~~~~~~~~~~~~
+RoboTwin VLA 微调结果
+~~~~~~~~~~~~~~~~~~~~~
 
 使用 RPent 采集的 320 条成功轨迹，对 ``LingBot-VLA-RoboTwin-EEF-ckpt1500`` 进行 500 步监督微调，并在 RPent 中替换 VLA 模型进行对比评测。
 
