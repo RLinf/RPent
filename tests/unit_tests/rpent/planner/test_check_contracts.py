@@ -217,20 +217,36 @@ def test_api_empty_key_counts_as_missing(monkeypatch: pytest.MonkeyPatch) -> Non
     assert result.status == STATUS_MISSING_API_KEY
 
 
-def test_api_accepts_the_gemini_key(
+@pytest.mark.parametrize(
+    ("google_key", "gemini_key", "expected_env"),
+    [
+        (None, SENTINEL_KEY, "GEMINI_API_KEY"),
+        (SENTINEL_KEY, None, "GOOGLE_API_KEY"),
+        (SENTINEL_KEY, "fallback-key", "GOOGLE_API_KEY"),
+        ("", SENTINEL_KEY, "GEMINI_API_KEY"),
+    ],
+)
+def test_api_google_credentials_match_sdk_precedence(
     monkeypatch: pytest.MonkeyPatch,
+    google_key: str | None,
+    gemini_key: str | None,
+    expected_env: str,
 ) -> None:
-    async def reply(*args: Any, **kwargs: Any) -> str:
+    async def reply(agent_cls, settings_cls, model) -> str:
+        assert model.client._api_client.api_key == SENTINEL_KEY
+        await model.client.aio.aclose()
+        model.client.close()
         return "ok"
 
-    monkeypatch.setenv("GEMINI_API_KEY", SENTINEL_KEY)
-    _patch_model(monkeypatch, _reply_model("ok"))
+    for name, value in (("GOOGLE_API_KEY", google_key), ("GEMINI_API_KEY", gemini_key)):
+        if value is not None:
+            monkeypatch.setenv(name, value)
     monkeypatch.setattr(check_mod, "_run_api_probe", reply)
 
     result = check_llm(LlmCheckRequest(planner="api", model="google:gemini"))
 
     assert result.status == STATUS_OK
-    assert result.credential_env == "GEMINI_API_KEY"
+    assert result.credential_env == expected_env
     assert result.credential_present is True
     assert result.base_url_env == "GEMINI_BASE_URL"
 
@@ -428,10 +444,23 @@ def test_a_provider_error_body_echoing_the_key_is_not_carried_verbatim(
     assert SENTINEL_KEY not in str(result.as_dict())
 
 
-def test_gemini_key_value_is_redacted(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("GEMINI_API_KEY", SENTINEL_KEY)
+@pytest.mark.parametrize("key_env", ["GOOGLE_API_KEY", "GEMINI_API_KEY"])
+def test_google_key_value_is_redacted(monkeypatch: pytest.MonkeyPatch, key_env) -> None:
+    from rpent.planner.gemini_cli import _redact_secrets
 
-    assert check_mod.redact_secrets(SENTINEL_KEY) == "<GEMINI_API_KEY>"
+    monkeypatch.setenv(key_env, SENTINEL_KEY)
+    _patch_model(
+        monkeypatch,
+        _raising_model(
+            ModelHTTPError(status_code=401, model_name="m", body=SENTINEL_KEY)
+        ),
+    )
+    result = check_llm(LlmCheckRequest(planner="api", model="google:m"))
+
+    assert result.status == STATUS_AUTH_FAILED
+    assert SENTINEL_KEY not in str(result.as_dict())
+    assert check_mod.redact_secrets(SENTINEL_KEY) == f"<{key_env}>"
+    assert _redact_secrets(SENTINEL_KEY) == f"<{key_env}>"
 
 
 # ---------------------------------------------------------------------------

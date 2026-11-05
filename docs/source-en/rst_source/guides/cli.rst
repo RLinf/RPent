@@ -217,7 +217,7 @@ Set the credentials and endpoint for your chosen planner in the launch shell.
      - ``OPENAI_API_KEY``
      - ``OPENAI_BASE_URL``
    * - ``api`` / Google
-     - ``GEMINI_API_KEY``
+     - ``GOOGLE_API_KEY`` (preferred) or ``GEMINI_API_KEY``
      - ``GEMINI_BASE_URL``
    * - ``codex``
      - ``CODEX_API_KEY``

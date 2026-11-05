@@ -92,7 +92,7 @@ Environment variables it reads (override with ``--base-url`` if
 needed):
 
 - ``anthropic:*`` → ``ANTHROPIC_BASE_URL`` / ``ANTHROPIC_API_KEY``
-- ``google:*`` → ``GEMINI_BASE_URL`` / ``GEMINI_API_KEY``
+- ``google:*`` → ``GEMINI_BASE_URL`` / ``GOOGLE_API_KEY`` (preferred) or ``GEMINI_API_KEY``
 - ``openai:*`` / ``openai-chat:*`` → ``OPENAI_BASE_URL`` /
   ``OPENAI_API_KEY``
 

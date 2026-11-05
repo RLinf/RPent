@@ -53,7 +53,7 @@ from rpent.planner.utils.sdk import int_field, jsonable
 from rpent.tools.toolkit import Toolkit
 
 _MCP_TOOL_PREFIX = "mcp_rpent_"
-_SECRET_ENV_NAMES = ("GEMINI_API_KEY",)
+_SECRET_ENV_NAMES = ("GOOGLE_API_KEY", "GEMINI_API_KEY")
 # Gemini CLI treats an empty ``tools.core`` list as unset.
 _NO_BUILTIN_TOOLS = ("__rpent_no_builtin_tools__",)
 

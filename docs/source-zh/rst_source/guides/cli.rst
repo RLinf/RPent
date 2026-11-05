@@ -182,7 +182,7 @@ RPent CLI 保留原有 ``--cuda-device`` 作为本地服务的共享默认值；
      - ``OPENAI_API_KEY``
      - ``OPENAI_BASE_URL``
    * - ``api`` / Google
-     - ``GEMINI_API_KEY``
+     - ``GOOGLE_API_KEY``（优先）或 ``GEMINI_API_KEY``
      - ``GEMINI_BASE_URL``
    * - ``codex``
      - ``CODEX_API_KEY``

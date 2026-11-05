@@ -153,6 +153,7 @@ _DETAIL_LIMIT = 2000
 #: check report is exactly the kind of output that gets pasted into an issue.
 _SECRET_ENV_NAMES = (
     "ANTHROPIC_API_KEY",
+    "GOOGLE_API_KEY",
     "GEMINI_API_KEY",
     "OPENAI_API_KEY",
     "CODEX_API_KEY",
@@ -454,6 +455,8 @@ def _check_api(request: LlmCheckRequest) -> LlmCheckResult:
     model = (request.model or "").strip()
     provider_name = model.split(":", 1)[0] if ":" in model else ""
     key_env = _API_KEY_ENV.get(provider_name)
+    if provider_name == "google" and os.environ.get("GOOGLE_API_KEY"):
+        key_env = "GOOGLE_API_KEY"
     base_url_env = _API_BASE_URL_ENV.get(provider_name)
     key_present = bool(os.environ.get(key_env)) if key_env else None
 
