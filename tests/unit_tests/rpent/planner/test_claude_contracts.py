@@ -179,6 +179,34 @@ def test_options_construct_with_the_installed_claude_sdk(tmp_path: Path) -> None
     ]
 
 
+def test_options_isolate_session_dir_when_configured(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sink = RecordingSink()
+    from rpent.utils.logging import init_output_dir
+
+    init_output_dir(tmp_path / "log")
+    planner = make_planner(tmp_path, sink)
+    isolate_dir = tmp_path / "claude-state"
+
+    monkeypatch.delenv("RPENT_CLAUDE_CONFIG_DIR", raising=False)
+    default_options = planner._build_options(
+        FakeSdkTools(),
+        toolkit=FakeToolkit(),
+        max_turns=2,
+    )
+    assert default_options["env"] == {}
+
+    monkeypatch.setenv("RPENT_CLAUDE_CONFIG_DIR", str(isolate_dir))
+    options = planner._build_options(
+        FakeSdkTools(),
+        toolkit=FakeToolkit(),
+        max_turns=2,
+    )
+    assert options["env"] == {"CLAUDE_CONFIG_DIR": str(isolate_dir)}
+
+
 def test_in_process_mcp_bridge_maps_schema_dispatch_and_errors() -> None:
     toolkit = FakeToolkit({"error": "rejected"}, images=[b"contract-image"])
     fake_sdk = FakeSdkTools()

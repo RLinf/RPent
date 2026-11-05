@@ -27,6 +27,7 @@ import asyncio
 import contextlib
 import dataclasses
 import json
+import os
 import queue
 import tempfile
 import time
@@ -359,6 +360,16 @@ class ClaudeCodePlanner(Planner):
 
         thinking = {"type": "disabled"} if self._reasoning_effort == "none" else None
         effort = None if self._reasoning_effort == "none" else self._reasoning_effort
+        # When RPENT_CLAUDE_CONFIG_DIR is set, redirect the SDK child's
+        # CLAUDE_CONFIG_DIR so session history lands in a dedicated directory
+        # instead of the user's ~/.claude CLI history.
+        env = {
+            key: value
+            for key, value in (
+                ("CLAUDE_CONFIG_DIR", os.environ.get("RPENT_CLAUDE_CONFIG_DIR")),
+            )
+            if value
+        }
         return sdk.ClaudeAgentOptions(
             cwd=self._repo_root,
             model=self._model,
@@ -376,6 +387,7 @@ class ClaudeCodePlanner(Planner):
             add_dirs=[self._output_dir, *self._extra_dirs],
             # Ignore user/project .claude configuration; RPent owns the loop.
             setting_sources=[],
+            env=env,
             thinking=thinking,
             effort=effort,
             stderr=lambda line: logger.debug("[claude-sdk] %s", line.rstrip()),
