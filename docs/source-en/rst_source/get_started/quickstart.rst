@@ -8,7 +8,7 @@ For another platform, follow :doc:`../simulators/robocasa`, :doc:`../simulators/
 Requirements
 ------------
 
-- Linux, an NVIDIA GPU, and a driver compatible with the selected PyTorch CUDA build.
+- Linux, an NVIDIA GPU, and a driver compatible with the selected PyTorch CUDA build. For AMD ROCm, see :doc:`rocm` instead.
 - ``git``, ``bash``, and a C/C++ toolchain.
 - `uv <https://docs.astral.sh/uv/getting-started/installation/>`_ to create an isolated Python environment. These commands use Python 3.11.
 - An Anthropic API key with access to the example model, and network access to download assets and weights. Model calls incur API charges.

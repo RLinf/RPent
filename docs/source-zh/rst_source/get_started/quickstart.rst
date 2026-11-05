@@ -8,7 +8,7 @@
 准备工作
 ------------
 
-- Linux、NVIDIA GPU，以及兼容所选 PyTorch CUDA 构建的驱动。
+- Linux、NVIDIA GPU，以及兼容所选 PyTorch CUDA 构建的驱动。AMD ROCm 请改看 :doc:`rocm`。
 - ``git``、``bash`` 和 C/C++ 编译工具。
 - `uv <https://docs.astral.sh/uv/getting-started/installation/>`_，用于创建独立的 Python 环境。以下命令使用 Python 3.11。
 - 可访问示例模型的 Anthropic API Key，以及下载仿真资源和模型权重的网络。模型调用会产生 API 费用。
