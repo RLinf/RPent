@@ -41,7 +41,7 @@ def test_google_endpoint_configuration_preserves_request_url(
         monkeypatch.setenv("GEMINI_BASE_URL", "https://unused.invalid")
 
     model = build_api_model(
-        "google:Argon" if complete_url else "google:gemini-4-argon",
+        "google:gemini-4-argon",
         None if source == "environment" else configured_url,
     )
 
@@ -90,3 +90,21 @@ def test_google_endpoint_configuration_preserves_request_url(
     asyncio.run(request())
 
     assert seen_urls == [endpoint]
+
+
+@pytest.mark.parametrize("source", ["argument", "environment"])
+def test_google_endpoint_rejects_conflicting_explicit_model(monkeypatch, source):
+    from rpent.planner.check import LlmCheckRequest, check_llm
+
+    monkeypatch.setenv("GEMINI_API_KEY", "offline-test-key")
+    endpoint = "https://gateway.invalid/v1beta/models/url-model:generateContent"
+    monkeypatch.setenv("GEMINI_BASE_URL", endpoint)
+    base_url = endpoint if source == "argument" else None
+    with pytest.raises(ValueError, match="does not match"):
+        build_api_model("google:explicit-model", base_url)
+    result = check_llm(
+        LlmCheckRequest(planner="api", model="google:explicit-model", base_url=base_url)
+    )
+    assert result.status == "missing_config"
+    assert result.model == "google:explicit-model"
+    assert "does not match" in result.detail

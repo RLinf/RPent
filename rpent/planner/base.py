@@ -42,9 +42,6 @@ if TYPE_CHECKING:
 #: Toolkits expose plain tool names; planners add/strip this prefix.
 MCP_TOOL_PREFIX = "mcp__rpent__"
 REASONING_EFFORTS = ("none", "low", "medium", "high", "xhigh")
-_GOOGLE_MODEL_PATH = "/models/"
-_GOOGLE_API_VERSION = "/v1beta"
-_GOOGLE_GENERATE_CONTENT_SUFFIX = ":generateContent"
 
 
 def resolve_model(planner: str, model: str | None) -> str | None:
@@ -72,21 +69,24 @@ def _normalize_google_endpoint(
         return model, base_url
 
     parsed = urlsplit(base_url)
-    root_path, marker, endpoint = parsed.path.rpartition(_GOOGLE_MODEL_PATH)
+    root_path, marker, endpoint = parsed.path.rpartition("/models/")
     if (
         not marker
-        or not root_path.endswith(_GOOGLE_API_VERSION)
-        or not endpoint.endswith(_GOOGLE_GENERATE_CONTENT_SUFFIX)
+        or not root_path.endswith("/v1beta")
+        or not endpoint.endswith(":generateContent")
     ):
         return model, base_url
 
-    endpoint_model = endpoint.removesuffix(_GOOGLE_GENERATE_CONTENT_SUFFIX)
+    endpoint_model = endpoint.removesuffix(":generateContent")
     if not endpoint_model or "/" in endpoint_model:
         return model, base_url
 
-    provider_path = root_path.removesuffix(_GOOGLE_API_VERSION)
+    if model.removeprefix("google:") != unquote(endpoint_model):
+        raise ValueError("--model does not match the model in the Gemini endpoint URL")
+
+    provider_path = root_path.removesuffix("/v1beta")
     provider_base_url = urlunsplit(parsed._replace(path=provider_path))
-    return f"google:{unquote(endpoint_model)}", provider_base_url
+    return model, provider_base_url
 
 
 async def _wait_for_cleanup(worker: asyncio.Future) -> None:
@@ -218,7 +218,7 @@ def build_api_model(model: str | None, base_url: str | None = None) -> "Model":
         The resolved pydantic-ai ``Model``.
 
     Raises:
-        ValueError: If ``model`` is empty.
+        ValueError: If ``model`` is empty or conflicts with the endpoint model.
     """
     if not model:
         raise ValueError(

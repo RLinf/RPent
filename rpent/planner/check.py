@@ -507,10 +507,12 @@ def _check_api(request: LlmCheckRequest) -> LlmCheckResult:
     except UserError as exc:
         return _result(_classify_user_error(exc), detail=_describe(exc))
     except ValueError as exc:
-        # ``model`` is non-empty by the checks above, so build_api_model's own
-        # ValueError cannot fire here: this comes from provider resolution,
-        # where infer_provider raises ValueError for an unknown prefix.
-        return _result(STATUS_UNSUPPORTED_PROVIDER, detail=_describe(exc))
+        status = (
+            STATUS_MISSING_CONFIG
+            if provider_name in _API_KEY_ENV
+            else STATUS_UNSUPPORTED_PROVIDER
+        )
+        return _result(status, detail=_describe(exc))
 
     timeout_s = request.resolved_timeout_s()
     logger.info("probe budget: %ds", timeout_s)
