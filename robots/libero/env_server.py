@@ -25,6 +25,11 @@ import numpy as np
 
 from rpent.robots.components.action_spec import box_action_spec
 from rpent.robots.components.env_facade_base import BaseEnvFacade
+from rpent.tools.localization.localization import (
+    CameraRequests,
+    camera_requests,
+    normalize_robosuite_camera,
+)
 from rpent.utils.logging import get_logger
 from rpent.utils.serialization import to_numpy_tree
 
@@ -328,6 +333,45 @@ class LiberoEnvFacade(BaseEnvFacade):
                 camera_name=camera_name, height=height, width=width
             )
         )
+
+    def capture_localization(self, cameras: CameraRequests) -> list[dict[str, Any]]:
+        """Render requested cameras and read their calibration in one state.
+
+        Args:
+            cameras: Camera names, ``(name, height, width)`` tuples, request
+                mappings, or an ordered sequence of these requests. Omitted
+                dimensions use the observation resolution.
+
+        Returns:
+            Canonical RGB, metric depth, calibration and metadata records in
+            request order. The environment is not advanced.
+        """
+        init_params = self._env.cfg.init_params
+        default = (int(init_params.camera_heights), int(init_params.camera_widths))
+        step = int(np.asarray(self._env.elapsed_steps)[self._env_idx])
+        records = []
+        for request in camera_requests(cameras):
+            camera = request["camera"]
+            height = request["height"] or default[0]
+            width = request["width"] or default[1]
+            rgb, depth_buffer = self.render_camera(camera, height, width, depth=True)
+            meta = self.get_camera_meta(camera, height, width)
+            # The RLinf worker reports no skybox details; the defaults of
+            # normalize_robosuite_camera match LIBERO scenes (one skybox
+            # texture, MuJoCo's default 28 slices, no infinite plane to haze).
+            records.append(
+                normalize_robosuite_camera(
+                    camera,
+                    rgb,
+                    depth_buffer,
+                    intrinsic_K=meta["intrinsic_K"],
+                    extrinsic_cam2world=meta["extrinsic_cam2world"],
+                    near=meta["depth_near"],
+                    far=meta["depth_far"],
+                    metadata={"environment": "libero", "env_step": step},
+                )
+            )
+        return records
 
     def get_task_language(self) -> str | None:
         return self._env.task_descriptions[self._env_idx]

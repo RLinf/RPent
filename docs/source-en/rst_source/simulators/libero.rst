@@ -339,6 +339,128 @@ Physical action tools advance the environment and record new state and images.
 
 These tools do not advance the environment.
 
+Localization Demo
+-----------------
+
+The shared ``rpent.tools.localization.localization`` module turns RGB, depth
+and calibration into a ``LocalizationFrame``. Each pixel in ``frame.rgb``
+has the same array position in ``depth_m``, ``world_xyz`` and ``valid_mask``.
+Depth and world coordinates use metres. Row 0 is the top of the image;
+OpenCV camera axes are x right, y down and z forward.
+
+LIBERO is the first integration of this capture API. Its env server captures
+all requested views and their calibration under one exclusive RPC dispatch,
+without resetting or stepping the simulation. The client computes the world
+tables with NumPy. RoboCasa and RoboTwin retain their existing integrations.
+
+After installing LIBERO and downloading SAM3 weights as above, start the env
+and SAM3 services using :doc:`../guides/advanced_deployment`. Both the demo
+client and env server must use this revision's capture API. With those services
+running, use an environment that has already been initialized for its task.
+For a newly launched env server, explicitly reset it once before the demo:
+
+.. code-block:: python
+
+   from contextlib import closing
+   from rpent.utils.rpc import make_rpc_client
+
+   with closing(make_rpc_client("http://ENV_HOST:ENV_PORT")) as rpc:
+       rpc.call("env.reset", timeout_s=120.0)
+
+Then execute this from the source checkout, replacing the endpoints:
+
+.. code-block:: bash
+
+   python -m robots.libero.localization_demo \
+     --env-endpoint http://ENV_HOST:ENV_PORT \
+     --sam3-endpoint http://SAM3_HOST:SAM3_PORT \
+     --prompt "black bowl" \
+     --output-dir /tmp/libero-localization-demo
+
+Use a new output directory for each run. The demo captures one 1024x1024
+``agentview`` image, asks the existing ``Sam3Tools`` helper to segment it,
+and reports the median world XYZ of valid pixels in the object mask.
+Use ``--camera robot0_eye_in_hand`` for the wrist or ``--height 256 --width 256``
+for a smaller capture. This demo uses the existing services without a planner
+or action-model service and leaves their lifetime with the operator.
+
+Inspect ``camera.png/00.png``, ``overlay.png/00.png`` and
+``result.json/00.json`` in the output directory. ``result.json`` contains
+``world_xyz`` in metres and valid-pixel counts; it reports ``world_error``
+when no object, insufficient valid depth or a mask/image grid mismatch prevents
+localization. The directory also contains metric depth, world coordinates,
+geometry and object masks, calibration metadata and the EnvState manifest.
+An overlay is saved only when a detected mask matches the image grid.
+
+To use capture independently of SAM3, attach to a running server without
+constructing an environment client that would reset it by default:
+
+.. code-block:: python
+
+   from contextlib import closing
+   from rpent.tools.localization.localization import RpcFrameSource, capture
+   from rpent.utils.rpc import make_rpc_client
+
+   with closing(make_rpc_client("http://ENV_HOST:ENV_PORT")) as rpc:
+       frame = capture(RpcFrameSource(rpc), "agentview", height=256, width=256)
+   point = frame.world_xyz[row, col]  # meaningful only if valid_mask[row, col]
+   object_points = frame.points(object_mask)  # mask must match frame.rgb exactly
+
+``row``, ``col`` and ``object_mask`` must come from this captured RGB grid.
+SAM3 point prompts use ``[row, col]``; projecting world points with
+``project_to_image`` returns ``(u, v) = (col, row)``. A resized or flipped image
+needs an explicit coordinate conversion before its pixels or mask can be used.
+
+Recorded-data Compatibility
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+LIBERO keeps the existing image, depth, world-map and metadata artifact names.
+State recording now uses canonical frames for both cameras at the observation
+resolution and at 1024x1024. If the high-resolution batch fails, it retries
+the low-resolution pair; ``segment`` selects a complete high-resolution
+image/world pair when present and otherwise uses the low-resolution pair.
+Recording now re-renders the two low-resolution views as part of the batch;
+this adds rendering work relative to reusing raw observations. It introduces
+no additional dependencies.
+
+Readers of existing LIBERO artifacts should account for these changes:
+
+- Invalid depth and world points are ``NaN``. Filter with ``valid_mask`` or
+  ``np.isfinite(world).all(axis=-1)`` before computing statistics. Do not use
+  nonzero coordinates as the validity test for new captures.
+- High-resolution world maps use ``float32`` instead of ``float16``. Their dense
+  arrays require twice as much memory before compression; remove fixed dtype
+  assumptions and preserve ``float32`` when processing new files.
+- New ``agentview_valid_mask.npz``, ``wrist_valid_mask.npz``,
+  ``agentview_valid_mask_high.npz`` and ``wrist_valid_mask_high.npz`` artifacts
+  store geometric validity. These masks describe usable geometry, not the
+  segmented object.
+- Metadata's top-level ``intrinsic_K`` now belongs to the saved top-down RGB
+  grid, with integer pixel centres, and ``T_world_from_cv`` is the canonical
+  camera-to-world transform. Raw calibration is under ``native``. Read
+  ``height``, ``width`` and ``pixel_convention`` rather than assuming a fixed
+  size or applying another flip or principal-point correction. Existing
+  ``get_camera_meta`` and ``render_camera`` RPCs retain their native formats.
+
+For a new low-resolution state artifact, the NPZ key remains ``array``:
+
+.. code-block:: python
+
+   import numpy as np
+
+   with np.load(run_dir / "agentview_world.npz" / "00.npz") as archive:
+       world = archive["array"]
+   with np.load(run_dir / "agentview_valid_mask.npz" / "00.npz") as archive:
+       valid = archive["array"]
+   points = world[object_mask & valid]
+   centre = np.median(points, axis=0) if len(points) else None
+
+For high-resolution artifacts use the matching ``_high`` world map, image
+and validity mask. Old runs have no validity-mask artifact; their reader must
+also retain the old nonzero-coordinate check when excluding the old zero
+sentinel. ``agentview_policy.png`` is a separate model input and must not
+supply coordinates for these world maps.
+
 Dashboard
 ---------
 

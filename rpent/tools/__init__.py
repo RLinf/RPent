@@ -14,8 +14,14 @@
 
 """Agent tool declarations, handlers, and result serialization."""
 
-from rpent.tools.base import Tool, ToolResult, iter_tools, tool
-from rpent.tools.toolkit import Toolkit
+from __future__ import annotations
+
+from importlib import import_module
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from rpent.tools.base import Tool, ToolResult, iter_tools, tool
+    from rpent.tools.toolkit import Toolkit
 
 __all__ = [
     "Tool",
@@ -24,3 +30,13 @@ __all__ = [
     "tool",
     "iter_tools",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    """Load tool declarations only when requested."""
+    if name not in __all__:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module = "rpent.tools.toolkit" if name == "Toolkit" else "rpent.tools.base"
+    value = getattr(import_module(module), name)
+    globals()[name] = value
+    return value

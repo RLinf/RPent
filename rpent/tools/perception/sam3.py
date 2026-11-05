@@ -47,6 +47,14 @@ class Sam3Tools(PerceptionToolBase):
         Provide exactly one of ``prompt`` or a ``[row, col]`` ``point``. Errors
         from the image read or the segmentation service propagate.
 
+        Args:
+            state: Owner of the recorded image artifacts.
+            step: Recorded step index.
+            image: RGB artifact base name.
+            prompt: Text description of the target, or ``None`` for a point prompt.
+            point: Positive pixel prompt as ``[row, col]`` on the saved image.
+            min_score: Minimum accepted SAM3 confidence score.
+
         Returns:
             The top-ranked SAM3 result, and the image with the mask tinted red,
             or ``None`` without a mask or when their shapes differ.
@@ -81,6 +89,15 @@ class Sam3Tools(PerceptionToolBase):
         ``step`` and pixel-aligned with the segmented image. ``world_xyz`` is
         ``None`` with a ``world_error`` when the map is unavailable or invalid,
         or fewer than 10 mask pixels have finite, nonzero coordinates.
+
+        Args:
+            state: Owner of the world-map artifact.
+            step: Recorded step index shared with the segmented image.
+            world_map: World-XYZ artifact base name.
+            mask: Boolean object mask on the world map's exact image grid.
+
+        Returns:
+            Median coordinates and valid-pixel counts, or ``world_error``.
         """
         try:
             world = state.load(world_map, step=step)

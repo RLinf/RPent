@@ -281,6 +281,116 @@ LIBERO 工具分为物理动作工具和只读工具。
 
 这些工具不会推进环境。
 
+定位 Demo
+---------
+
+公共模块 ``rpent.tools.localization.localization`` 把图片、深度和相机参数
+整理成 ``LocalizationFrame``。``frame.rgb`` 中的一个像素，在 ``depth_m``、
+``world_xyz`` 和 ``valid_mask`` 中都有相同的数组位置。深度和世界坐标的
+单位是米。第 0 行在图片最上方；OpenCV 相机坐标轴为 x 向右、y 向下、z 向前。
+
+LIBERO 是这套采集接口的首个接入环境。环境服务器在一次独占的 RPC 调用中，
+取得所有请求视角的图像、深度和相机参数，期间不会重置或推进仿真。
+客户端用 NumPy 计算世界坐标表。RoboCasa 和 RoboTwin 保留原有接入实现。
+
+先按本页说明安装 LIBERO、下载 SAM3 权重，再按
+:doc:`../guides/advanced_deployment` 启动环境和 SAM3 服务。
+demo 客户端和环境服务器都需要使用本版本的采集接口。
+服务就绪后，使用已完成任务初始化的环境。如果环境服务器刚刚启动，
+先显式调用一次重置，再运行 demo：
+
+.. code-block:: python
+
+   from contextlib import closing
+   from rpent.utils.rpc import make_rpc_client
+
+   with closing(make_rpc_client("http://ENV_HOST:ENV_PORT")) as rpc:
+       rpc.call("env.reset", timeout_s=120.0)
+
+然后在源码目录运行下面的命令，替换为实际服务地址：
+
+.. code-block:: bash
+
+   python -m robots.libero.localization_demo \
+     --env-endpoint http://ENV_HOST:ENV_PORT \
+     --sam3-endpoint http://SAM3_HOST:SAM3_PORT \
+     --prompt "black bowl" \
+     --output-dir /tmp/libero-localization-demo
+
+每次运行使用一个新的输出目录。demo 拍摄一张 1024x1024 的 ``agentview``
+图片，用已有的 ``Sam3Tools`` 分割目标，再计算目标区域内有效像素的世界坐标
+中位数。使用 ``--camera robot0_eye_in_hand`` 可切换到腕部相机，
+``--height 256 --width 256`` 可降低采集分辨率。
+demo 连接已有服务，不需要规划器和动作模型服务；服务由操作者负责启动和关闭。
+
+在输出目录查看 ``camera.png/00.png``、``overlay.png/00.png`` 和
+``result.json/00.json``。结果中的 ``world_xyz`` 单位是米，并附有有效像素数。
+找不到目标、有效深度不足或掩码与图片尺寸不一致时，会返回 ``world_error``。
+目录还会保存米制深度、世界坐标、几何有效掩码、物体掩码、相机元数据及
+EnvState 文件清单。只有检测到的掩码与图片尺寸一致时，才会保存叠加图。
+
+如果只需要采集，不调用 SAM3，可以连接已有服务。这样不会触发环境客户端
+默认执行的重置操作：
+
+.. code-block:: python
+
+   from contextlib import closing
+   from rpent.tools.localization.localization import RpcFrameSource, capture
+   from rpent.utils.rpc import make_rpc_client
+
+   with closing(make_rpc_client("http://ENV_HOST:ENV_PORT")) as rpc:
+       frame = capture(RpcFrameSource(rpc), "agentview", height=256, width=256)
+   point = frame.world_xyz[row, col]  # 仅在 valid_mask[row, col] 为真时有效
+   object_points = frame.points(object_mask)  # 掩码必须与 frame.rgb 完全对齐
+
+``row``、``col`` 和 ``object_mask`` 必须来自这次采集的 RGB 图片。
+SAM3 的点提示使用 ``[row, col]``；``project_to_image`` 把世界坐标投影回图片时，
+返回 ``(u, v) = (col, row)``。如果图片经过缩放或翻转，需要先把像素或掩码
+转换回原图坐标，才能查询对应的世界坐标。
+
+已记录数据的兼容性
+~~~~~~~~~~~~~~~~~~
+
+LIBERO 保留原有图片、深度、世界坐标表和元数据的文件名。
+记录状态时，会为两个相机分别采集观测分辨率和 1024x1024 的标准帧。
+高分辨率批量采集失败时，会重新采集低分辨率的两个视角。
+``segment`` 优先选择完整的高分辨率图片与世界坐标表，缺少时使用低分辨率组合。
+批量采集会重新渲染两个低分辨率视角，相比直接复用原始观测会增加渲染开销，
+但没有新增依赖。
+
+已有 LIBERO 数据读取脚本需要留意以下变化：
+
+- 无效深度和世界坐标使用 ``NaN``。计算统计值前，使用 ``valid_mask`` 或
+  ``np.isfinite(world).all(axis=-1)`` 筛选；新数据不要用坐标是否非零来判断有效性。
+- 高分辨率世界坐标从 ``float16`` 改为 ``float32``，压缩前数组的内存占用翻倍。
+  去掉固定为 ``float16`` 的假设，处理新文件时保留 ``float32`` 精度。
+- 新增 ``agentview_valid_mask.npz``、``wrist_valid_mask.npz``，以及对应的
+  ``agentview_valid_mask_high.npz``、``wrist_valid_mask_high.npz``。
+  它们表示哪些像素有可用的三维信息，与 SAM3 的物体分割掩码含义不同。
+- 元数据顶层的 ``intrinsic_K`` 现在对应保存的顶部为第 0 行的 RGB 图片，
+  整数坐标表示像素中心；``T_world_from_cv`` 是标准相机到世界坐标的变换。
+  原始标定参数放在 ``native`` 下。读取 ``height``、``width`` 和
+  ``pixel_convention``，不要假定固定尺寸，也不要再次翻转或修正主点。
+  已有 ``get_camera_meta``、``render_camera`` RPC 仍使用原生格式。
+
+下面演示读取新记录的低分辨率数据，NPZ 中的键仍然是 ``array``：
+
+.. code-block:: python
+
+   import numpy as np
+
+   with np.load(run_dir / "agentview_world.npz" / "00.npz") as archive:
+       world = archive["array"]
+   with np.load(run_dir / "agentview_valid_mask.npz" / "00.npz") as archive:
+       valid = archive["array"]
+   points = world[object_mask & valid]
+   centre = np.median(points, axis=0) if len(points) else None
+
+高分辨率数据需使用相互对应的 ``_high`` 世界坐标表、图片和有效掩码。
+旧记录没有有效掩码文件；读取旧记录时，还需保留原先的非零坐标检查，
+排除旧版本用全零表示的无效点。``agentview_policy.png`` 是单独的模型输入，
+不能用其中的像素坐标查询上述世界坐标表。
+
 Dashboard
 ---------
 

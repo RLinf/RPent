@@ -1064,32 +1064,6 @@ def write_recipe_from_states(
     return recipe_name
 
 
-def _metric_depth(depth: Any, camera_meta: dict) -> np.ndarray:
-    d = np.asarray(depth, dtype=np.float32)
-    if d.ndim == 3:
-        d = d[..., 0]
-    near = camera_meta.get("depth_near")
-    far = camera_meta.get("depth_far")
-    if near is not None and far is not None:
-        d = near / (1.0 - d * (1.0 - near / far))
-    return d
-
-
-def _world_from_depth(depth_metric: np.ndarray, camera_meta: dict) -> np.ndarray:
-    k_matrix = np.array(camera_meta["intrinsic_K"], dtype=np.float64)
-    extrinsic = np.array(camera_meta["extrinsic_cam2world"], dtype=np.float64)
-    fx, fy = k_matrix[0, 0], k_matrix[1, 1]
-    cx, cy = k_matrix[0, 2], k_matrix[1, 2]
-    height, width = depth_metric.shape
-    rr, cc = np.mgrid[0:height, 0:width]
-    z = depth_metric.astype(np.float64)
-    camera_points = np.stack(
-        [(cc - cx) * z / fx, (rr - cy) * z / fy, z, np.ones_like(z)],
-        axis=-1,
-    )
-    return (camera_points @ extrinsic.T)[..., :3]
-
-
 def dump_state(
     primitives: LiberoPrimitives,
     env_state: EnvState,
@@ -1135,190 +1109,55 @@ def _save_observation_artifacts(
         step=step_idx,
     )
 
-    # --- camera calibration (static for agentview): fetch metadata as needed ---
-    agentview_meta = (
-        primitives.env.get_camera_meta(
-            camera_name="agentview",
-            height=256,
-            width=256,
+    # One capture returns RGB, depth and calibration of every view from the
+    # same simulator state. The low-resolution views use the observation size.
+    # If that capture fails, the low-resolution pair is captured again on its
+    # own, so a failed 1024x1024 render does not drop this step's localization.
+    try:
+        low = {
+            "agentview": tuple(np.asarray(raw["agentview_image"]).shape[:2]),
+            "wrist": tuple(np.asarray(raw["robot0_eye_in_hand_image"]).shape[:2]),
+        }
+        views = (
+            ("agentview", "", ("agentview", *low["agentview"])),
+            ("wrist", "", ("robot0_eye_in_hand", *low["wrist"])),
+            ("agentview", "_high", ("agentview", 1024, 1024)),
+            ("wrist", "_high", ("robot0_eye_in_hand", 1024, 1024)),
         )
-        or {}
-    )
-    if agentview_meta:
-        cam_meta_out = dict(agentview_meta)
-        cam_meta_out["projection"] = (
+        requests = [request for _, _, request in views]
+        try:
+            frames = primitives.env.capture_frames(requests)
+        except Exception as e:
+            logger.warning(
+                "localization capture failed, retrying at low resolution: %s", e
+            )
+            frames = primitives.env.capture_frames(requests[:2])
+    except Exception as e:
+        logger.warning("localization capture failed: %s", e)
+        return
+    for (stem, suffix, _), frame in zip(views, frames):
+        height, width = low[stem]
+        metadata = frame.describe()
+        metadata["projection"] = (
             "Prefer the back_project(row, col, step=NN) MCP tool; it "
             "uses the 1024x1024 high-resolution world map by default. "
-            "Pass resolution='low' only when row/col came from the "
-            "256x256 calibration-frame image."
+            f"Pass resolution='low' only when row/col came from {stem}.png "
+            f"({height}x{width})."
         )
-        cam_meta_out["note"] = (
-            "The agentview_depth.npz observation is aligned with agentview.png. "
-            "agentview_policy.png uses the Pi0 orientation and must not supply "
-            "pixels for back-projection."
+        metadata["note"] = (
+            f"{stem}{suffix}.png, its world map and valid mask share one image "
+            "grid. agentview_policy.png is mirrored left-right for Pi0 and must "
+            "not supply pixels for back-projection. The wrist camera moves; its "
+            "calibration belongs to this step only."
         )
+        env_state.save(f"{stem}{suffix}.png", frame.rgb, step=step_idx)
+        if not suffix:
+            env_state.save(f"{stem}_depth.npz", frame.depth_m, step=step_idx)
+        env_state.save(f"{stem}_world{suffix}.npz", frame.world_xyz, step=step_idx)
         env_state.save(
-            "agentview_metadata.json",
-            cam_meta_out,
-            step=step_idx,
+            f"{stem}_valid_mask{suffix}.npz", frame.valid_mask, step=step_idx
         )
-
-    # --- per-step RGB in the depth/K frame (vertical-flip of the raw buffer) ---
-    # Agentview pixels align with the matching depth and calibration. The policy
-    # image uses Pi0 orientation and must not supply back-projection pixels.
-    try:
-        ci = raw.get("agentview_image")
-        if ci is not None:
-            ci = np.asarray(ci)
-            if ci.dtype != np.uint8:
-                ci = ci.astype(np.uint8)
-            env_state.save(
-                "agentview.png",
-                ci[::-1],
-                step=step_idx,
-            )
-    except Exception as e:
-        logger.warning("image_cam dump failed: %s", e)
-
-    # --- per-step metric depth (agentview), native orientation, in meters ---
-    try:
-        d = raw.get("agentview_depth")
-        if d is not None:
-            # Vertical flip to align with the camera matrices: robosuite's
-            # camera_utils projection M = K_exp @ inv(extrinsic) expects the
-            # depth map in this frame. VERIFIED 5/5: projecting each GT object
-            # world pos via M lands on a pixel whose depth_flip[row,col] matches
-            # the object's surface depth (plate Δ6mm, cookies Δ14mm). So
-            # Pixels in agentview.png align with agentview_depth.npz and the
-            # per-step agentview metadata saved with the record artifacts.
-            d = _metric_depth(d, agentview_meta)[::-1]
-            env_state.save(
-                "agentview_depth.npz",
-                d.astype(np.float32),
-                step=step_idx,
-            )
-            world = _world_from_depth(d, agentview_meta).astype(np.float32)
-            env_state.save(
-                "agentview_world.npz",
-                world,
-                step=step_idx,
-            )
-    except Exception as e:
-        logger.warning("depth dump failed: %s", e)
-
-    # --- per-step wrist camera (robot0_eye_in_hand), calibration frame ---
-    try:
-        wimg = raw.get("robot0_eye_in_hand_image")
-        if wimg is None:
-            logger.warning("wrist image missing from raw_obs")
-        else:
-            wimg = np.asarray(wimg)
-            if wimg.dtype != np.uint8:
-                wimg = wimg.astype(np.uint8)
-            env_state.save(
-                "wrist.png",
-                wimg[::-1],
-                step=step_idx,
-            )
-    except Exception as e:
-        logger.warning("wrist image dump failed: %s", e)
-
-    try:
-        wdpt = raw.get("robot0_eye_in_hand_depth")
-        if wdpt is None:
-            logger.warning("wrist depth missing from raw_obs")
-        else:
-            wdpt_arr = np.asarray(wdpt, dtype=np.float32)
-            height, width = wdpt_arr.shape[:2]
-            wmeta = primitives.env.get_camera_meta(
-                camera_name="robot0_eye_in_hand",
-                height=int(height),
-                width=int(width),
-            )
-            if wmeta is None:
-                logger.warning("wrist camera meta missing; skipping wrist depth/world")
-            else:
-                wdpt_metric = _metric_depth(wdpt_arr, wmeta)[::-1]
-                env_state.save(
-                    "wrist_depth.npz",
-                    wdpt_metric.astype(np.float32),
-                    step=step_idx,
-                )
-                world_w = _world_from_depth(wdpt_metric, wmeta).astype(np.float32)
-                env_state.save(
-                    "wrist_world.npz",
-                    world_w,
-                    step=step_idx,
-                )
-
-                wmeta_out = dict(wmeta)
-                wmeta_out["note"] = (
-                    "MOVING camera: extrinsic_cam2world is for THIS step "
-                    "only. The matching wrist world-map observation gives world "
-                    "(x,y,z) for that pixel in the same world frame as the "
-                    "agentview world-map artifact."
-                )
-                env_state.save(
-                    "wrist_metadata.json",
-                    wmeta_out,
-                    step=step_idx,
-                )
-    except Exception as e:
-        logger.warning("wrist depth/world dump failed: %s", e)
-
-    try:
-        rgb_hi, depth_hi = primitives.env.render_camera(
-            camera_name="agentview",
-            height=1024,
-            width=1024,
-            depth=True,
-        )
-        meta_hi = primitives.env.get_camera_meta("agentview", 1024, 1024)
-        if meta_hi is None:
-            raise RuntimeError("agentview camera metadata missing")
-        env_state.save(
-            "agentview_high.png",
-            np.asarray(rgb_hi)[::-1],
-            step=step_idx,
-        )
-        world_hi = _world_from_depth(
-            _metric_depth(depth_hi, meta_hi)[::-1],
-            meta_hi,
-        ).astype(np.float16)
-        env_state.save(
-            "agentview_world_high.npz",
-            world_hi,
-            step=step_idx,
-        )
-    except Exception as e:
-        logger.warning("agentview high-res dump failed: %s", e)
-
-    try:
-        rgb_wrist_hi, depth_wrist_hi = primitives.env.render_camera(
-            camera_name="robot0_eye_in_hand",
-            height=1024,
-            width=1024,
-            depth=True,
-        )
-        meta_wrist_hi = primitives.env.get_camera_meta("robot0_eye_in_hand", 1024, 1024)
-        if meta_wrist_hi is None:
-            raise RuntimeError("robot0_eye_in_hand camera metadata missing")
-        env_state.save(
-            "wrist_high.png",
-            np.asarray(rgb_wrist_hi)[::-1],
-            step=step_idx,
-        )
-        world_wrist_hi = _world_from_depth(
-            _metric_depth(depth_wrist_hi, meta_wrist_hi)[::-1],
-            meta_wrist_hi,
-        ).astype(np.float16)
-        env_state.save(
-            "wrist_world_high.npz",
-            world_wrist_hi,
-            step=step_idx,
-        )
-    except Exception as e:
-        logger.warning("wrist high-res dump failed: %s", e)
+        env_state.save(f"{stem}_metadata{suffix}.json", metadata, step=step_idx)
 
 
 # ---------------------------------------------------------------------------

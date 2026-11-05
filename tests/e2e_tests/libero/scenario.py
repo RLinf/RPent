@@ -113,12 +113,38 @@ def _capture_environment(
             env.get_camera_meta("agentview", height=256, width=256),
             "agentview.camera_meta",
         )
+        from rpent.tools.localization.localization import project_to_image, save_frame
+
+        frames = env.capture_frames(
+            [
+                ("agentview", 256, 256),
+                ("robot0_eye_in_hand", 256, 256),
+                ("agentview", 1024, 1024),
+            ]
+        )
+        localization = []
+        for index, frame in enumerate(frames):
+            assert frame.rgb.shape[:2] == frame.world_xyz.shape[:2] == frame.shape
+            assert frame.world_xyz.dtype == np.float32 and frame.valid_mask.any()
+            np.testing.assert_array_equal(
+                np.isfinite(frame.world_xyz).all(axis=-1), frame.valid_mask
+            )
+            rows, cols = np.where(frame.valid_mask)
+            rows, cols = rows[::97], cols[::97]
+            uv, _ = project_to_image(
+                frame.world_xyz[rows, cols], frame.intrinsic_K, frame.T_world_from_cv
+            )
+            np.testing.assert_allclose(uv, np.stack([cols, rows], -1), atol=0.01)
+            save_frame(output_dir / "env-capture" / f"localization_{index}.npz", frame)
+            localization.append(frame.describe())
+        assert len({frame.metadata["env_step"] for frame in frames}) == 1
         return observation, {
             "status": "passed",
             "observation": observation_check,
             "rgb": array_summary(rgb),
             "depth": array_summary(depth),
             "camera_meta_keys": sorted(meta),
+            "localization": localization,
         }
 
 
