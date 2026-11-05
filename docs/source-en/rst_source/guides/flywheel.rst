@@ -183,3 +183,30 @@ Task success rates for the full RPent system were:
 
 In this evaluation, the SFT model succeeded in three more runs, increasing the
 success rate by three percentage points.
+
+What's New: RoboTwin SFT
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+Using 320 successful trajectories collected with RPent,
+``LingBot-VLA-RoboTwin-EEF-ckpt1500`` was fine-tuned for 500 steps. The resulting
+VLA model was evaluated against the original model within RPent.
+
+Evaluation covered the same 10 tasks used for training in RoboTwin's
+``demo_randomized`` configuration, with five fixed test scenes per task and
+50 runs per model. Task success rates for the full RPent system were:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Model
+     - Successes / runs
+     - Success rate
+   * - Original model
+     - 24/50
+     - 48%
+   * - SFT model (step 500)
+     - 36/50
+     - 72%
+
+In this evaluation, the SFT model succeeded in 12 more runs, increasing the
+task success rate from 48% to 72%, a gain of 24 percentage points.
