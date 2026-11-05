@@ -125,6 +125,13 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统说明 
 
 继承 :class:`rpent.robots.components.env_client_base.BaseEnvClient`。它已经负责启动时校验 ``env.get_env_meta``、执行首次 reset、缓存 ``last_obs``，并实现公共的 ``reset``、``step``、``chunk_step``、``render_camera``、 ``get_camera_meta`` 和 ``get_task_language`` RPC。子类只需增加环境专用方法；扩展方法需要独立超时时，再扩展超时表。RPC 名称需要保持稳定，因为服务端 facade 会显式注册每个名称。
 
+需要像素对齐的 RGB-D 定位数据时，在支持该功能的环境 client 上调用 ``capture_frames(cameras)``。
+相机请求可以是名称、``(name, height, width)`` 元组、含 ``camera`` 及可选 ``height`` / ``width``
+的映射，或按顺序排列的上述请求。高度和宽度需同时指定，或同时省略。该方法通过一次
+``env.capture_localization`` 调用返回 ``LocalizationFrame`` 对象，包含对齐的 RGB 图像、米制深度、
+标定参数、世界坐标和有效像素掩码，采集过程不推进环境。旧产物读取脚本的调整方法见
+:ref:`localization-artifact-compatibility`。
+
 .. code-block:: python
 
    from rpent.robots.components.env_client_base import BaseEnvClient
@@ -181,6 +188,12 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统说明 
    facade.serve(transport="http", host=host, port=port)
 
 ``BaseEnvFacade`` 通过 ``_register_rpc`` 注册公共路由，并使用读写锁串行化会改变状态的调用。只有确认某个扩展路由可以安全地与其他读操作并发时，才把它加入 ``_readonly_methods``。继承的 ``RpcFacade.serve`` 负责绑定传输方式（HTTP 或 socket）、提供 ``healthz`` 和 ``shutdown``、检测父进程退出并执行资源清理。
+
+要支持上述可选采集接口，在 facade 中实现 ``capture_localization(cameras)``，返回含 ``camera``、
+``rgb``、``depth_m``、``intrinsic_K``、``T_world_from_cv`` 及可选 ``metadata`` 的记录。
+基类负责注册路由；不支持该接口时会抛出 ``NotImplementedError``。渲染和读取标定期间应保持环境状态不变。
+如果 worker 或渲染器调用不能与其他读操作交错执行，应从 ``_readonly_methods`` 中移除
+``env.capture_localization``，让分派锁串行执行整次采集。
 
 .. _add-robot-prompts:
 
@@ -239,6 +252,77 @@ toolkit 模块通常包含四部分：
 - 重写 ``close()``，通过 ``EnvState`` 保存 agent 侧剩余工件（例如 ``state.save("episode.mp4", frames, step=None)``）。
 
 ``runtime_kwargs`` 由 ``robot_spec.py:get_toolkit`` 转发给 toolkit，再原样传入 primitives 的 ``__init__``。其中通常包含 ``{"env": MyEnvClient(...), "model": VLAClient(...), ...}``。
+
+.. _localization-artifact-compatibility:
+
+3.1 定位产物与旧读取脚本的适配
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+LIBERO、RoboCasa 和 RoboTwin 通过 ``EnvState`` 保存逐像素对齐的定位数据。
+原有世界坐标表的文件名和 ``(H, W, 3)`` 形状保留：LIBERO / RoboCasa 使用 ``*_world.npz``
+和可用的 ``*_world_high.npz``，RoboTwin 使用 ``<view>_world_xyz.npy``。
+``EnvState.load`` 仍直接返回数组；独立读取每步 NPZ 文件时，使用 ``archive["array"]``。
+这些文件与 ``save_frame`` 写出的多字段 NPZ 帧归档采用不同的结构。
+
+依赖旧数据约定的脚本需要检查以下四点：
+
+- **无效点：** 无效深度和世界坐标的三个分量均为 ``NaN``。计算统计量、距离或处理点云前，
+  用 ``np.isfinite(world).all(axis=-1)`` 筛选有效点。坐标之和恰好为零的有效点应保留。
+  输出 JSON 时，将无效样本表示为 ``None`` 或显式的有效性字段，避免写入 ``NaN`` 数值。
+- **世界坐标表的数据类型：** 当前世界坐标表均为 ``float32``。LIBERO / RoboCasa 的高清坐标表
+  原先为 ``float16``；普通 NumPy 加载方式仍可使用，但应移除对 ``np.float16`` 或每个数占 2 字节
+  的固定假设。这些高清表的未压缩存储量翻倍，压缩后的 NPZ 大小取决于数据。后续定位需要当前精度时，
+  应保留 ``float32``。
+- **有效掩码：** LIBERO / RoboCasa 保存的低分辨率视图新增 ``<camera>_valid_mask.npz``，
+  保存的高清视图新增 ``<camera>_valid_mask_high.npz``；RoboTwin 新增 ``<view>_valid_mask.npy``。
+  它们都是布尔型 ``(H, W)`` 数组，``True`` 表示几何有效，不表示属于某个物体。
+  使用时须匹配相机、步骤和分辨率。旧运行没有这些文件，加载前应检查步骤的 ``artifacts``。
+- **标定 JSON：** ``*_metadata.json``、``*_metadata_high.json`` 和 RoboTwin 的
+  ``<view>_camera_meta.json`` 现在采用 ``LocalizationFrame.describe`` 的结构。
+  顶层 ``intrinsic_K`` 与 ``T_world_from_cv`` 是规范化标定；后者把 OpenCV 相机坐标
+  （右、下、前）变换到该环境自身的世界坐标。原始标定放在 ``native`` 中。
+
+例如，以下读取方式同时支持带掩码的新运行和不带掩码的旧运行。示例读取已保存的低分辨率 agentview：
+
+.. code-block:: python
+
+   import numpy as np
+
+   step = 0
+   world = env_state.load("agentview_world.npz", step=step)
+   valid = np.isfinite(world).all(axis=-1)
+   mask_name = "agentview_valid_mask.npz"
+   if mask_name in env_state.get(step).artifacts:
+       valid &= env_state.load(mask_name, step=step)
+   points = world[valid]
+   median_xyz = np.median(points, axis=0) if len(points) else None
+
+旧运行中，如果背景被保存成有限坐标，仅检查有限值无法识别这些背景。需要当前背景过滤效果时，应重新采集。
+同样，将旧数组转成 ``float32`` 也无法恢复 ``float16`` 文件已经损失的精度。
+
+直接访问 JSON 字段的脚本按下表调整：
+
+.. list-table:: 标定字段迁移
+   :header-rows: 1
+   :widths: 25 35 40
+
+   * - 环境
+     - 原保存字段
+     - 当前保存字段
+   * - RoboCasa
+     - ``intrinsic``
+     - 规范化像素使用 ``intrinsic_K``；原始标定使用 ``native["intrinsic_K"]``
+   * - LIBERO / RoboCasa
+     - ``extrinsic_cam2world``
+     - 规范化计算使用 ``T_world_from_cv``；原矩阵使用 ``native["extrinsic_cam2world"]``
+   * - RoboTwin
+     - ``cam2world_gl``、``extrinsic_cv``
+     - ``native["cam2world_gl"]``、``native["extrinsic_cv"]``；规范化深度配合 ``T_world_from_cv`` 使用
+
+规范化 RGB 和深度的第 0 行均为图像顶部，规范化内参以整数坐标表示像素中心，原始主点已经减去 0.5 像素。
+使用时直接读取这些内参，不再重复原始图像的翻转、深度解码或主点修正。
+``get_camera_meta()`` 保留各后端原有格式；这里的迁移针对保存的定位元数据。
+读取旧 JSON 时应保留对应的旧结构处理，并始终使用与图像网格匹配的标定。
 
 建议遵循的约定
 --------------

@@ -61,7 +61,6 @@ class RoboCasaPrimitives:
         self.env.reset()
         self._pos_jac = None  # 3x3 action(arm xyz) -> world dpos
         self._fwd_offset = None  # world_forward_heading = base_yaw + offset
-        self._cam_meta_cache = {}
         self._rldx = RLDXSkill(
             self.env, vla_client=vla_client, check_cancelled=check_cancelled
         )

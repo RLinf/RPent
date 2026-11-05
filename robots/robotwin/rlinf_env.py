@@ -24,16 +24,14 @@ from rlinf.envs.sim.robotwin.robotwin_env import RoboTwinEnv
 
 from robots.robotwin.robot_spec import RoboTwinActionType
 from rpent.robots.components.action_spec import box_action_spec
+from rpent.tools.localization.localization import (
+    CameraRequests,
+    SapienCameraSource,
+    camera_requests,
+    depth_from_sapien_position,
+)
 
 __all__ = ["RoboTwinAgentEnv"]
-
-
-def _camera_depth(camera: Any) -> np.ndarray:
-    position = camera.get_picture("Position")
-    invalid = position[..., 3] >= 1
-    depth = (-position[..., 2]).astype(np.float32)
-    depth[invalid] = np.nan
-    return depth
 
 
 def _camera_meta(camera: Any) -> dict[str, Any]:
@@ -287,7 +285,36 @@ class RoboTwinAgentEnv(RoboTwinEnv):
             rgb = native_observation[camera_keys[camera_name]]["rgb"]
             if not depth:
                 return rgb
-            return rgb, _camera_depth(camera)
+            return rgb, depth_from_sapien_position(camera.get_picture("Position"))
+
+    def capture_localization(
+        self, cameras: CameraRequests, env_id: int = 0
+    ) -> list[dict[str, Any]]:
+        """Return canonical localization records from one rendered picture set.
+
+        Wrist-camera poses are refreshed and every camera takes one picture
+        under the environment lock; the episode is not advanced.
+
+        Args:
+            cameras: ``head``, ``left_wrist`` or ``right_wrist`` requests, using
+                names, ``(name, height, width)`` tuples, mappings, or an ordered
+                sequence. Explicit sizes must match the native resolution.
+            env_id: Index of the environment to capture; defaults to zero.
+
+        Returns:
+            Canonical RGB, metric depth, calibration and metadata records in
+            request order, including the current action count as ``env_step``.
+        """
+        sub_env = self._sub_env(env_id)
+        with sub_env.lock:
+            names = {request["camera"] for request in camera_requests(cameras)}
+            source = SapienCameraSource(
+                {name: self._get_camera(sub_env, name) for name in names},
+                prepare=sub_env.task.get_obs,
+                metadata={"environment": "robotwin"},
+            )
+            step = int(getattr(sub_env.task, "take_action_cnt", 0))
+            return source.capture_records(cameras, metadata={"env_step": step})
 
     def get_camera_meta(self, camera_name: str, env_id: int = 0) -> dict[str, Any]:
         sub_env = self._sub_env(env_id)

@@ -16,6 +16,9 @@
 
 from __future__ import annotations
 
+from typing import Any
+
+from rpent.tools.localization.localization import CameraRequests
 from rpent.utils.rpc import RpcFacade
 
 
@@ -71,6 +74,7 @@ class BaseEnvFacade(RpcFacade):
         self._rpc["env.get_task_language"] = self.get_task_language
         self._rpc["env.get_camera_meta"] = self.get_camera_meta
         self._rpc["env.render_camera"] = self.render_camera
+        self._rpc["env.capture_localization"] = self.capture_localization
 
         # Read-only methods that can run parallel
         self._readonly_methods.update(
@@ -80,6 +84,7 @@ class BaseEnvFacade(RpcFacade):
                 "env.get_task_language",
                 "env.get_camera_meta",
                 "env.render_camera",
+                "env.capture_localization",
             ]
         )
 
@@ -107,6 +112,29 @@ class BaseEnvFacade(RpcFacade):
 
     def render_camera(self, *args, **kwargs):
         raise NotImplementedError
+
+    def capture_localization(self, cameras: CameraRequests) -> list[dict[str, Any]]:
+        """Return canonical localization records for ``cameras``.
+
+        One call renders every requested camera and reads its calibration from
+        the same environment state, without advancing the environment.
+
+        Args:
+            cameras: Names, ``(name, height, width)`` tuples, request mappings,
+                or an ordered sequence of these requests. Omitted dimensions
+                select the environment's default or native resolution.
+
+        Returns:
+            Records in request order containing ``camera``, ``rgb``, ``depth_m``,
+            ``intrinsic_K``, ``T_world_from_cv`` and optional ``metadata``.
+            The client derives world coordinates and validity masks.
+
+        Raises:
+            NotImplementedError: If the environment does not support capture.
+        """
+        raise NotImplementedError(
+            "this environment does not provide localization capture"
+        )
 
     def get_task_language(self, *args, **kwargs):
         raise NotImplementedError

@@ -169,6 +169,16 @@ Add only environment-specific methods, and extend the timeout table when an
 extension needs its own timeout. Keep RPC names stable — the server-side
 facade registers each name explicitly.
 
+For aligned RGB-D localization, use ``capture_frames(cameras)`` on a supported
+environment client. Requests can be names, ``(name, height, width)`` tuples,
+mappings with ``camera`` and optional ``height`` / ``width``, or an ordered
+sequence of these forms. Set both dimensions or omit both. The client builds
+``LocalizationFrame`` objects from the records returned by a single
+``env.capture_localization`` call. Each frame contains aligned RGB, metric depth,
+calibration, world coordinates and a validity mask. The capture does not advance
+the environment. See :ref:`localization-artifact-compatibility`
+when adapting existing artifact readers.
+
 .. code-block:: python
 
    from rpent.robots.components.env_client_base import BaseEnvClient
@@ -235,6 +245,14 @@ serializes state-changing calls with its read/write lock. Add a route to
 other reads. The inherited ``RpcFacade.serve`` handles transport binding (HTTP
 or socket), ``healthz`` / ``shutdown``, parent-death detection, and clean
 teardown.
+
+To support this optional capture API, implement ``capture_localization(cameras)``
+and return records with ``camera``, ``rgb``, ``depth_m``, ``intrinsic_K``,
+``T_world_from_cv`` and optional ``metadata``. The base class registers the
+route and raises ``NotImplementedError`` if it is unsupported. Keep rendering
+and calibration in one unchanged environment state. If worker or renderer calls
+must not interleave with other reads, remove ``env.capture_localization`` from
+``_readonly_methods`` so dispatch serializes the complete capture.
 
 .. _add-robot-prompts:
 
@@ -329,6 +347,90 @@ filenames rather than maintaining a parallel observation index.
 ``runtime_kwargs`` (forwarded from ``robot_spec.py:get_toolkit``) is the dict
 the toolkit passes verbatim to your primitives' ``__init__`` — typically
 ``{"env": MyEnvClient(...), "model": VLAClient(...), ...}``.
+
+.. _localization-artifact-compatibility:
+
+3.1 Localization Artifacts and Existing Readers
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+LIBERO, RoboCasa and RoboTwin save pixel-aligned localization data through
+``EnvState``. Existing world-map filenames and ``(H, W, 3)`` shapes are retained:
+LIBERO / RoboCasa use ``*_world.npz`` and available ``*_world_high.npz``;
+RoboTwin uses ``<view>_world_xyz.npy``. ``EnvState.load`` still returns the array.
+Standalone readers of the per-step NPZ files use ``archive["array"]``. These
+files are separate from the multi-field NPZ archives written by ``save_frame``.
+
+Update readers that rely on the previous data conventions:
+
+- **Invalid points:** invalid depth and all three world-coordinate components
+  are ``NaN``. Filter with ``np.isfinite(world).all(axis=-1)`` before statistics,
+  distances or point-cloud processing. Keep valid points whose coordinates
+  happen to sum to zero. For JSON output, represent invalid samples with
+  ``None`` or an explicit validity field instead of emitting ``NaN`` numbers.
+- **World-map dtype:** current world maps are ``float32``. High-resolution
+  LIBERO / RoboCasa maps previously used ``float16``; normal NumPy loading still
+  works, but remove assumptions about ``np.float16`` or two bytes per value.
+  Uncompressed storage for these maps doubles; compressed NPZ size depends on
+  the data. Keep ``float32`` when subsequent localization needs this precision.
+- **Validity masks:** saved low-resolution views add ``<camera>_valid_mask.npz``
+  in LIBERO / RoboCasa; saved high-resolution views add
+  ``<camera>_valid_mask_high.npz``. RoboTwin adds ``<view>_valid_mask.npy``.
+  Each is a boolean ``(H, W)`` array: ``True`` means valid geometry, not object
+  membership. Use the matching camera, step and resolution. Older runs lack
+  these files, so check the step's ``artifacts`` before loading them.
+- **Calibration JSON:** ``*_metadata.json``, ``*_metadata_high.json`` and
+  RoboTwin's ``<view>_camera_meta.json`` now use ``LocalizationFrame.describe``.
+  Read canonical ``intrinsic_K`` and ``T_world_from_cv`` at the top level.
+  ``T_world_from_cv`` maps OpenCV camera axes (right, down, forward) to the
+  environment's own world frame. Raw calibration is under ``native``.
+
+For example, an existing reader can support both runs with masks and older
+runs without them. This example uses a recorded low-resolution agentview:
+
+.. code-block:: python
+
+   import numpy as np
+
+   step = 0
+   world = env_state.load("agentview_world.npz", step=step)
+   valid = np.isfinite(world).all(axis=-1)
+   mask_name = "agentview_valid_mask.npz"
+   if mask_name in env_state.get(step).artifacts:
+       valid &= env_state.load(mask_name, step=step)
+   points = world[valid]
+   median_xyz = np.median(points, axis=0) if len(points) else None
+
+For an older run, the finite-value fallback cannot identify background that was
+stored as finite coordinates. Recapture if the current background filtering is
+required; casting an old array to ``float32`` cannot restore precision already
+lost in a ``float16`` file.
+
+Adapt direct JSON field access as follows:
+
+.. list-table:: Calibration field migration
+   :header-rows: 1
+   :widths: 25 35 40
+
+   * - Environment
+     - Previous saved field
+     - Current saved field
+   * - RoboCasa
+     - ``intrinsic``
+     - ``intrinsic_K`` for canonical pixels; ``native["intrinsic_K"]`` for raw calibration
+   * - LIBERO / RoboCasa
+     - ``extrinsic_cam2world``
+     - ``T_world_from_cv`` for canonical use; ``native["extrinsic_cam2world"]`` for the original matrix
+   * - RoboTwin
+     - ``cam2world_gl``, ``extrinsic_cv``
+     - ``native["cam2world_gl"]``, ``native["extrinsic_cv"]``; use ``T_world_from_cv`` with canonical depth
+
+Canonical RGB and depth have row 0 at the top. Canonical intrinsics use integer
+pixel centres, with the native principal point shifted by -0.5 pixel. Use these
+intrinsics directly; do not apply the raw-image flip, depth decoding or
+principal-point shift again. ``get_camera_meta()`` retains its backend-specific
+format; this migration concerns the saved localization metadata. Keep the
+legacy schema when reading old JSON files, and keep calibration paired with the
+image grid it describes.
 
 Conventions Worth Keeping
 -------------------------

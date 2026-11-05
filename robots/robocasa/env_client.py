@@ -21,6 +21,11 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from rpent.robots.components.env_client_base import BaseEnvClient
+from rpent.tools.localization.localization import (
+    CameraRequests,
+    LocalizationFrame,
+    camera_requests,
+)
 
 if TYPE_CHECKING:
     from rpent.utils.rpc import RpcClient
@@ -121,28 +126,46 @@ class RoboCasaEnvClient(BaseEnvClient):
         w = width or self.camera_w
         return super().get_camera_meta(cam, height=h, width=w)
 
-    def world_map(self, camera_name, height=None, width=None):
-        """HxWx3 world xyz per pixel, TOP-DOWN (row 0 = image top), pixel-aligned
-        with render_camera()'s rgb. Uses robosuite's camera transform matrix; the
-        sim's OpenGL depth is bottom-up, so it is vertically flipped to match the
-        transform's top-down convention (VERIFIED: GT object back-projects within
-        ~2cm). Dense vectorized: world = T_p2w @ [col*z, row*z, z, 1]."""
-        cam = self._resolve_cam(camera_name)
-        h = height or self.camera_h
-        w = width or self.camera_w
-        _, z_native = super().render_camera(
-            cam, height=h, width=w, depth=True
-        )  # metric depth, bottom-up
-        z = z_native[::-1]  # -> top-down
-        T_p2w = self._client.call(
-            "env.get_camera_transform",
-            kwargs={"camera_name": cam, "height": h, "width": w},
-            timeout_s=self._TIMEOUT_S["default"],
+    def capture_frames(self, cameras: CameraRequests) -> list[LocalizationFrame]:
+        """Capture aligned frames from one state, resolving camera aliases.
+
+        Args:
+            cameras: Names, ``(name, height, width)`` tuples, request mappings,
+                or an ordered sequence of these requests. Aliases such as
+                ``agentview``, ``wrist`` and ``navview`` are accepted. Omitted
+                dimensions use the server's camera resolution.
+
+        Returns:
+            Canonical frames in request order, named with the resolved camera
+            names. The environment is not advanced.
+        """
+        return super().capture_frames(
+            [
+                {**request, "camera": self._resolve_cam(request["camera"])}
+                for request in camera_requests(cameras)
+            ]
         )
-        rows, cols = np.meshgrid(np.arange(h), np.arange(w), indexing="ij")
-        homog = np.stack([cols * z, rows * z, z, np.ones_like(z)], axis=-1)  # HxWx4
-        world = homog @ T_p2w.T  # HxWx4
-        return world[..., :3]  # top-down, aligned with rgb
+
+    def world_map(
+        self,
+        camera_name: str,
+        height: int | None = None,
+        width: int | None = None,
+    ) -> np.ndarray:
+        """Capture a pixel-aligned world-coordinate table for one camera.
+
+        Args:
+            camera_name: Native camera name or an alias such as ``agentview``.
+            height: Image height; ``None`` uses the client's camera height.
+            width: Image width; ``None`` uses the client's camera width.
+
+        Returns:
+            A float32 ``(H, W, 3)`` world-coordinate table, with NaNs at invalid
+            pixels and row 0 at the top. For RGB from the same capture, use
+            :meth:`capture_frames` and read both arrays from its returned frame.
+        """
+        request = (camera_name, height or self.camera_h, width or self.camera_w)
+        return self.capture_frames([request])[0].world_xyz
 
     def world_xyz_at(self, camera_name, row, col, height=None, width=None):
         return self.world_map(camera_name, height, width)[row, col]
