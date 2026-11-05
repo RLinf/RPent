@@ -172,13 +172,13 @@ For offline use or repeated resource-loading failures, see
 VLA Configuration
 -----------------
 
-Use ``--policy-backend`` to select the Pi0.5 backend. The default is ``rlinf``;
+Use ``--am-backend`` to select the Pi0.5 backend. The default is ``pi05`` (RLinf);
 ``xpolicylab`` is available for a separately prepared runtime.
 
 RLinf (Default)
 ~~~~~~~~~~~~~~~
 
-``--policy-backend rlinf`` uses the RLinf runtime installed above.
+``--am-backend pi05`` uses the RLinf runtime installed above.
 ``PI05_CHECKPOINT_PATH`` selects its PyTorch weights and normalization statistics.
 
 The released weights use JAX format and need conversion to PyTorch.
@@ -242,8 +242,8 @@ XPolicyLab (Optional)
 ~~~~~~~~~~~~~~~~~~~~~
 
 Use the RLinf setup above unless you need XPolicyLab. The default backend is
-``--policy-backend rlinf``, so no XPolicyLab installation is needed. RPent also
-provides ``--policy-backend xpolicylab`` for users who already have that
+``--am-backend pi05``, so no XPolicyLab installation is needed. RPent also
+provides ``--am-backend xpolicylab`` for users who already have that
 environment or want its Pi0.5 implementation.
 
 XPolicyLab is another software stack for loading and running Pi0.5. Clone its
@@ -259,13 +259,13 @@ the XPolicyLab checkout and its Python environment:
 
    rpent --robot robodojo --task put_bottles_into_dustbin --layout 0 \
      --planner codex --model <planner-model> \
-     --policy-backend xpolicylab --xpolicylab-root /path/to/XPolicyLab \
-     --pi05-python /path/to/xpolicylab-env/bin/python \
+     --am-backend xpolicylab --xpolicylab-root /path/to/XPolicyLab \
+     --am-python /path/to/xpolicylab-env/bin/python \
      --output-dir /path/to/run-output
 
 ``--xpolicylab-root`` points to the separate XPolicyLab checkout.
 If the Python packages needed for XPolicyLab's Pi0.5 inference are installed in
-a separate environment, point ``--pi05-python`` to that environment's Python
+a separate environment, point ``--am-python`` to that environment's Python
 interpreter; otherwise omit the option.
 
 SAM3 Configuration
@@ -340,15 +340,16 @@ Common Options
 --------------
 
 RPent starts the simulator, policy, and SAM3 services in the current Python
-environment by default. Specify ``--sim-python`` and ``--pi05-python`` only
+environment by default. Specify ``--sim-python`` and ``--am-python`` only
 when the simulator and policy are installed in different environments.
 
 - ``--task`` and ``--layout`` select the task and fixed layout. ``--random``
   ignores ``--layout`` and samples a new random scene on each reset.
-- ``--cuda-device`` selects the GPU for locally started services. If omitted,
+- ``--env-cuda-device``, ``--am-cuda-device`` and ``--sam3-cuda-device`` select
+  GPUs independently for the corresponding local services. If omitted,
   services inherit ``CUDA_VISIBLE_DEVICES``.
-- ``--env-endpoint``, ``--vla-endpoint``, and ``--sam3-endpoint`` connect to
-  existing services. The VLA service must match ``--policy-backend``.
+- ``--env-endpoint``, ``--am-endpoint``, and ``--sam3-endpoint`` connect to
+  existing services. The VLA service must match ``--am-backend``.
 - ``--source-root`` selects a local RoboDojo checkout instead of the packaged code.
 
 Child services inherit the current shell environment. The CLI does not load

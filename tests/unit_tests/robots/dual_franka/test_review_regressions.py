@@ -253,7 +253,7 @@ def test_runtime_starts_vla_for_dashboard_and_exploration(
     monkeypatch.setattr(robot_spec, "try_wait_server", lambda *args, **kwargs: {})
     args = SimpleNamespace(
         task_id=task_id,
-        vla_endpoint=None,
+        am_endpoint=None,
         sam3_endpoint=None,
         _flash_options=None,
     )

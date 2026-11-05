@@ -47,6 +47,8 @@ RPent is built for four kinds of users:
 
 ## What's NEW!
 
+- [2026/11] 🔥 Added MetaWorld with RGB-D observations and Cartesian motion tools, without a VLA checkpoint. See the [MetaWorld guide](https://rpent.readthedocs.io/en/latest/rst_source/simulators/metaworld.html).
+- [2026/10] 🔥 Added an optional APXInf VLA endpoint. See the [deployment guide](https://rpent.readthedocs.io/en/latest/rst_source/guides/advanced_deployment.html#apxinf-vla-service-optional).
 - [2026/09] 🔥 Added the interactive RPent Leaderboard for LIBERO, LIBERO-PRO, RoboCasa365, and RoboTwin, with model comparisons and suite-level results. Explore the [Leaderboard](https://rpent.readthedocs.io/en/latest/rst_source/leaderboard/index.html).
 - [2026/09] 🔥 RPent supports Franka single-arm and dual-arm real-robot extensions. Doc: [Franka](https://rpent.readthedocs.io/en/latest/rst_source/real_world_robots/franka.html) · [Dual Franka](https://rpent.readthedocs.io/en/latest/rst_source/real_world_robots/dual_franka.html).
 - [2026/08] 🔥 RPent supports RoboCasa with RLDX-1 as manipulation model. See the [RoboCasa setup and Target50 guide](https://rpent.readthedocs.io/en/latest/rst_source/simulators/robocasa.html).
@@ -86,7 +88,8 @@ RPent is built for four kinds of users:
           <li><b>WAM</b></li>
           <ul>
             <li>DreamZero</li>
-            <li>Cosmos Policy</li>
+            <li><a href="docs/source-en/rst_source/development/add_action_model.rst">Cosmos Policy</a> (LIBERO / LIBERO-Pro)</li>
+            <li><a href="docs/source-en/rst_source/development/add_action_model.rst">Fast-WAM</a> (LIBERO / LIBERO-Pro / RoboTwin)</li>
           </ul>
         </ul>
       </td>
@@ -95,7 +98,7 @@ RPent is built for four kinds of users:
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/simulators/libero.html">LIBERO-PRO</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/simulators/robocasa.html">RoboCasa</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/simulators/robotwin.html">RoboTwin</a> ✅</li>
-          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/simulators/metaworld.html">MetaWorld (10 tasks)</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/simulators/metaworld.html">MetaWorld</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/simulators/robodojo.html">RoboDojo</a> ✅</li>
         </ul>
       </td>
@@ -177,7 +180,8 @@ export LIBERO_TYPE=pro
 # Run one task: libero_object_swap, task 2, seed 0, using Claude Code
 # with Claude Opus 4.8.
 rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
-  --cuda-device 0 --planner claude_code --model claude-opus-4-8
+  --env-cuda-device 0 --am-cuda-device 0 --sam3-cuda-device 0 \
+  --planner claude_code --model claude-opus-4-8
 ```
 
 See the [planner docs](https://rpent.readthedocs.io/en/latest/rst_source/guides/configure_planner.html) to configure other planners (`api`, `codex`) and model providers.
@@ -185,11 +189,11 @@ For the exploration workflow and local-memory evaluation, see [LIBERO exploratio
 
 ### Interactive CLI mode
 
-With `claude_code` or `codex`, add `--interactive` (`-i`) to steer the agent live from your terminal. The built-in task is pre-filled at the `you>` prompt. Press Enter to submit it as-is. To change or replace the task, edit the input before pressing Enter. While the agent runs, type follow-up messages to steer it (`/help` lists commands; `/quit` or Ctrl-D ends). Requires a TTY. The `api` planner uses a native CLI that runs the preset task first and accepts follow-ups between runs; use `/exit` to close it.
+With `claude_code` or `codex`, add `--tui` (`-t`) to steer the agent live from your terminal. The built-in task is pre-filled at the `you>` prompt. Press Enter to submit it as-is. To change or replace the task, edit the input before pressing Enter. While the agent runs, type follow-up messages to steer it (`/help` lists commands; `/quit` or Ctrl-D ends). Requires a TTY. The `api` planner uses a native CLI that runs the preset task first and accepts follow-ups between runs; use `/exit` to close it.
 
 ```bash
 rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
-  --planner claude_code --model claude-opus-4-8 --interactive
+  --planner claude_code --model claude-opus-4-8 --tui
 ```
 
 ### Live Dashboard
