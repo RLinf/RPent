@@ -96,16 +96,41 @@ EFE 的其余 959 个任务属于 ``privileged`` 模式，我们暂时不支持�
    export RPENT_ROOT=/absolute/path/to/RPent
    export EFE_ROOT=/absolute/path/to/embodied-first-exam
    export EFE_TASK="$EFE_ROOT/tasks/<family>/<task>"
-   export EFE_MODEL=openai/your-model
-   export EFE_MODEL_HOST=<model-host>
    export OPENAI_API_KEY=your-key
 
 不要将 API key 写入仓库。Adapter 只转发模型相关环境变量和显式的 Harbor ``--agent-env`` 设置。它把 ``OPENAI_API_KEY``、``OPENAI_BASE_URL`` 映射到 RPent 的 ``CODEX_API_KEY``、``CODEX_BASE_URL``；已有 ``CODEX_*`` 设置优先。Adapter 不转发宿主的 ``CODEX_HOME``，Runner 会在 Agent 容器内为每个 Trial 新建该目录。
 
-运行一个任务
-------------
+单任务调试
+----------
 
-模型由 Harbor 的 ``--model`` 指定，API key 从当前终端的环境变量读取。若任务限制 Agent 阶段的网络访问，加入 ``--allow-agent-host "$EFE_MODEL_HOST"``；该参数扩展现有放行名单，只影响 Agent 执行阶段。RPent 安装发生在 Setup 阶段，其下载权限由任务的环境网络策略决定。首次容器安装运行 ``pip``，Harbor 默认 Setup 超时为 360 秒；冷安装较慢时加上 ``--agent-setup-timeout-multiplier 4``。``EFE_MODEL_HOST`` 是提供 ``EFE_MODEL`` 的主机。以下命令运行一个 Trial：
+调试单个任务时不需要走 Trial 流程：``harbor task start-env`` 启动该任务的容器并以交互方式进入 Agent 容器，再在容器里直接运行 RPent。``--mounts`` 把宿主机上的 RPent checkout 挂进容器。
+
+.. code-block:: bash
+
+   # 1) 启动任务环境并进入 Agent 容器
+   harbor task start-env \
+     --path "$EFE_TASK" \
+     --mounts '[{"type":"bind","source":"'"$RPENT_ROOT"'","target":"/opt/rpent"}]'
+
+   # 2) 容器内：按 Adapter 的方式建 venv 并安装 RPent
+   python3 -m venv /tmp/rpent-venv
+   /tmp/rpent-venv/bin/python -m pip install /opt/rpent
+
+   # 3) 容器内：运行一个 Episode
+   export CODEX_API_KEY="$OPENAI_API_KEY"
+   export CODEX_BASE_URL="$OPENAI_BASE_URL"   # 使用自定义端点时
+   /tmp/rpent-venv/bin/rpent --robot efe \
+     --instruction-file /app/instruction.txt \
+     --workdir /app \
+     --output-dir /app/output \
+     --model your-model
+
+``--instruction-file`` 指向容器内的指令文件，内容取任务的 instruction。``rpent --robot efe`` 固定 ``full-access``，Shell 也能操作 Simulator，因此只用于调试；对照实验请用 Adapter。``--efe-base-url`` 默认探测 ``sim:8000``。``start-env`` 没有 ``--allow-agent-host``，网络策略沿用任务配置；任务限制 Agent 网络时，容器内可能访问不到模型服务，这类任务请直接跑 Trial。
+
+运行一个 Trial
+--------------
+
+模型由 Harbor 的 ``--model`` 指定，API key 从当前终端的环境变量读取。若任务限制 Agent 阶段的网络访问，用 ``--allow-agent-host`` 指定提供模型的主机；该参数扩展现有放行名单，只影响 Agent 执行阶段。RPent 安装发生在 Setup 阶段，其下载权限由任务的环境网络策略决定。首次容器安装运行 ``pip``，Harbor 默认 Setup 超时为 360 秒；冷安装较慢时加上 ``--agent-setup-timeout-multiplier 4``。以下命令运行一个 Trial：
 
 .. code-block:: bash
 
@@ -113,14 +138,28 @@ EFE 的其余 959 个任务属于 ``privileged`` 模式，我们暂时不支持�
    uv run --project "$EFE_ROOT" harbor run \
      --path "$EFE_TASK" \
      --agent robots.efe.harbor_agent:RPentEfeAgent \
-     --model "$EFE_MODEL" --n-concurrent 1 --n-attempts 1 \
-     --allow-agent-host "$EFE_MODEL_HOST" \
-     --agent-kwarg source_root="$RPENT_ROOT" \
-     --agent-kwarg timeout_s=3500 --agent-kwarg max_turns=200 \
-     --agent-kwarg reasoning_effort=none \
+     --model openai/your-model --n-concurrent 1 \
+     --allow-agent-host <model-host> \
      --jobs-dir "$RPENT_ROOT/logs/efe-rpent"
 
 ``RPentEfeAgent`` 从当前 checkout 安装 RPent。``source_root`` 默认指向 Adapter 所在 checkout 的仓库根目录；若 Adapter 从已安装的 Wheel 导入，必须显式传入。源码包不包含宿主 ``.git``、测试、API key 文件和运行日志。``robots/`` 是现有 RPent distribution 所需的包，不会启动任何 Robot Runtime。
+
+批量运行 benchmark
+------------------
+
+``--path`` 指向 EFE 的 benchmark 数据，例如 ``tasks/<benchmark>``，或 EFE 提供的 dataset。
+
+.. code-block:: bash
+
+   PYTHONPATH="$RPENT_ROOT${PYTHONPATH:+:$PYTHONPATH}" \
+   uv run --project "$EFE_ROOT" harbor run \
+     --path "$EFE_ROOT/tasks/<benchmark>" \
+     --agent robots.efe.harbor_agent:RPentEfeAgent \
+     --model openai/your-model \
+     --n-concurrent 8 \
+     --jobs-dir "$RPENT_ROOT/logs/efe-benchmark"
+
+每个任务对应一个 Trial 和一份 ``result.json``；``--n-concurrent`` 默认 4。先跑通一个 Trial，再批量运行，并固定模型、端点、任务版本和超时后再比较结果。
 
 查看结果
 --------
@@ -204,10 +243,8 @@ Raw 组直接使用服务接口：``efe_spec`` 返回每个动作向量的列含
    uv run --project "$EFE_ROOT" harbor run \
      --path "$EFE_TASK" \
      --agent robots.efe.harbor_agent:RPentEfeAgent \
-     --model "$EFE_MODEL" --n-concurrent 1 --n-attempts 1 \
-     --allow-agent-host "$EFE_MODEL_HOST" \
-     --agent-kwarg source_root="$RPENT_ROOT" \
-     --agent-kwarg timeout_s=3500 --agent-kwarg max_turns=200 \
+     --model openai/your-model --n-concurrent 1 \
+     --allow-agent-host <model-host> \
      --agent-kwarg skills=false \
      --jobs-dir "$RPENT_ROOT/logs/efe-raw"
 
@@ -216,10 +253,8 @@ Raw 组直接使用服务接口：``efe_spec`` 返回每个动作向量的列含
    uv run --project "$EFE_ROOT" harbor run \
      --path "$EFE_TASK" \
      --agent robots.efe.harbor_agent:RPentEfeAgent \
-     --model "$EFE_MODEL" --n-concurrent 1 --n-attempts 1 \
-     --allow-agent-host "$EFE_MODEL_HOST" \
-     --agent-kwarg source_root="$RPENT_ROOT" \
-     --agent-kwarg timeout_s=3500 --agent-kwarg max_turns=200 \
+     --model openai/your-model --n-concurrent 1 \
+     --allow-agent-host <model-host> \
      --jobs-dir "$RPENT_ROOT/logs/efe-skills"
 
 两组必须固定模型、端点、推理强度、任务版本、时间上限和尝试次数。单次 Trial 不构成对照。

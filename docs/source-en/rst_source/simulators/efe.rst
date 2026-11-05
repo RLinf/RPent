@@ -134,8 +134,6 @@ repository.
    export RPENT_ROOT=/absolute/path/to/RPent
    export EFE_ROOT=/absolute/path/to/embodied-first-exam
    export EFE_TASK="$EFE_ROOT/tasks/<family>/<task>"
-   export EFE_MODEL=openai/your-model
-   export EFE_MODEL_HOST=<model-host>
    export OPENAI_API_KEY=your-key
 
 Do not write API keys into the repository. The adapter forwards only model
@@ -145,18 +143,53 @@ environment variables and explicit Harbor ``--agent-env`` settings. It maps
 does not forward the host ``CODEX_HOME``. The runner creates that directory
 inside the agent container for each trial.
 
-Run a Task
-----------
+Debug a Single Task
+-------------------
+
+To debug one task you do not need the trial pipeline. ``harbor task start-env``
+starts the task's containers and attaches to the agent container; run RPent
+there directly. ``--mounts`` makes the host RPent checkout available inside the
+container.
+
+.. code-block:: bash
+
+   # 1) Start the environment and attach to the agent container
+   harbor task start-env \
+     --path "$EFE_TASK" \
+     --mounts '[{"type":"bind","source":"'"$RPENT_ROOT"'","target":"/opt/rpent"}]'
+
+   # 2) In the container: create a venv and install RPent, as the adapter does
+   python3 -m venv /tmp/rpent-venv
+   /tmp/rpent-venv/bin/python -m pip install /opt/rpent
+
+   # 3) In the container: run one episode
+   export CODEX_API_KEY="$OPENAI_API_KEY"
+   export CODEX_BASE_URL="$OPENAI_BASE_URL"   # with a custom endpoint
+   /tmp/rpent-venv/bin/rpent --robot efe \
+     --instruction-file /app/instruction.txt \
+     --workdir /app \
+     --output-dir /app/output \
+     --model your-model
+
+``--instruction-file`` points at a file in the container holding the task
+instruction. ``rpent --robot efe`` always runs with ``full-access``, so shell
+commands can reach the simulator too; use it for debugging and the adapter for
+comparisons. ``--efe-base-url`` probes ``sim:8000`` by default. ``start-env``
+has no ``--allow-agent-host``, and the task's network policy applies, so a task
+that blocks agent network access may not reach the model service. Run such
+tasks as trials instead.
+
+Run a Trial
+-----------
 
 Harbor's ``--model`` selects the model, and the API key is read from the
 current environment. If the task restricts network access during agent
-execution, add ``--allow-agent-host "$EFE_MODEL_HOST"``; this option extends the
-existing allowlist during agent execution only. RPent installation runs during
-setup and uses the task environment's baseline network policy. The first
-container install runs ``pip``, and Harbor's default setup timeout is 360
-seconds; add ``--agent-setup-timeout-multiplier 4`` on hosts where a cold
-install is slower. Set ``EFE_MODEL_HOST`` to the host that serves
-``EFE_MODEL``. This command runs one trial:
+execution, pass ``--allow-agent-host`` with the host that serves the model;
+this option extends the existing allowlist during agent execution only. RPent
+installation runs during setup and uses the task environment's baseline network
+policy. The first container install runs ``pip``, and Harbor's default setup
+timeout is 360 seconds; add ``--agent-setup-timeout-multiplier 4`` on hosts
+where a cold install is slower. This command runs one trial:
 
 .. code-block:: bash
 
@@ -164,11 +197,8 @@ install is slower. Set ``EFE_MODEL_HOST`` to the host that serves
    uv run --project "$EFE_ROOT" harbor run \
      --path "$EFE_TASK" \
      --agent robots.efe.harbor_agent:RPentEfeAgent \
-     --model "$EFE_MODEL" --n-concurrent 1 --n-attempts 1 \
-     --allow-agent-host "$EFE_MODEL_HOST" \
-     --agent-kwarg source_root="$RPENT_ROOT" \
-     --agent-kwarg timeout_s=3500 --agent-kwarg max_turns=200 \
-     --agent-kwarg reasoning_effort=none \
+     --model openai/your-model --n-concurrent 1 \
+     --allow-agent-host <model-host> \
      --jobs-dir "$RPENT_ROOT/logs/efe-rpent"
 
 ``RPentEfeAgent`` installs RPent from the current checkout. ``source_root``
@@ -177,6 +207,26 @@ explicitly when the adapter is imported from an installed wheel. The source
 archive excludes the host ``.git``, tests, API key files, and run logs.
 ``robots/`` is part of the existing RPent distribution and starts no Robot
 Runtime.
+
+Run a Benchmark
+---------------
+
+``--path`` points at EFE benchmark data, such as ``tasks/<benchmark>`` or a
+dataset that EFE provides.
+
+.. code-block:: bash
+
+   PYTHONPATH="$RPENT_ROOT${PYTHONPATH:+:$PYTHONPATH}" \
+   uv run --project "$EFE_ROOT" harbor run \
+     --path "$EFE_ROOT/tasks/<benchmark>" \
+     --agent robots.efe.harbor_agent:RPentEfeAgent \
+     --model openai/your-model \
+     --n-concurrent 8 \
+     --jobs-dir "$RPENT_ROOT/logs/efe-benchmark"
+
+Each task runs one trial and writes one ``result.json``. ``--n-concurrent``
+defaults to 4. Run one trial first, then the batch, and keep the model,
+endpoint, task revision, and time limit fixed before comparing results.
 
 View Results
 ------------
@@ -293,10 +343,8 @@ session registers.
    uv run --project "$EFE_ROOT" harbor run \
      --path "$EFE_TASK" \
      --agent robots.efe.harbor_agent:RPentEfeAgent \
-     --model "$EFE_MODEL" --n-concurrent 1 --n-attempts 1 \
-     --allow-agent-host "$EFE_MODEL_HOST" \
-     --agent-kwarg source_root="$RPENT_ROOT" \
-     --agent-kwarg timeout_s=3500 --agent-kwarg max_turns=200 \
+     --model openai/your-model --n-concurrent 1 \
+     --allow-agent-host <model-host> \
      --agent-kwarg skills=false \
      --jobs-dir "$RPENT_ROOT/logs/efe-raw"
 
@@ -305,10 +353,8 @@ session registers.
    uv run --project "$EFE_ROOT" harbor run \
      --path "$EFE_TASK" \
      --agent robots.efe.harbor_agent:RPentEfeAgent \
-     --model "$EFE_MODEL" --n-concurrent 1 --n-attempts 1 \
-     --allow-agent-host "$EFE_MODEL_HOST" \
-     --agent-kwarg source_root="$RPENT_ROOT" \
-     --agent-kwarg timeout_s=3500 --agent-kwarg max_turns=200 \
+     --model openai/your-model --n-concurrent 1 \
+     --allow-agent-host <model-host> \
      --jobs-dir "$RPENT_ROOT/logs/efe-skills"
 
 Keep the model, endpoint, reasoning effort, task revision, time limit, and
