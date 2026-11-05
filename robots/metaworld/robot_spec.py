@@ -25,6 +25,7 @@ from typing import Any
 from robots.metaworld.config import CAMERAS, TASKS, validate
 from robots.metaworld.prompt_bundle import system_prompt, user_prompt
 from rpent.dashboard.events import DashboardEventSink
+from rpent.dashboard.spec import DashboardSpec
 from rpent.evaluation import write_json_atomic
 from rpent.memory import MemoryManager
 from rpent.robots.prompt_bundle import PromptBundle
@@ -172,6 +173,22 @@ def _finalize(context) -> Path:
     )
 
 
+METAWORLD_DASHBOARD_SPEC: DashboardSpec = {
+    "task": {
+        "command": "/rpent-task",
+        "usage": "/rpent-task <task> <seed>",
+        "fields": (
+            {"name": "task", "suggestions": tuple(TASKS)},
+            {"name": "seed", "kind": "integer", "minimum": 0},
+        ),
+        "display": "{task} / seed {seed}",
+        "output_slug": "{task}_s{seed}",
+    },
+    "runtime_components": ({"name": "env", "label": "ENV", "scope": "unique"},),
+    "primitives": ("move_to", "set_gripper"),
+}
+
+
 def get_robot_spec() -> RobotSpec:
     """Describe the MetaWorld CLI and environment-only Dashboard runtime."""
     return RobotSpec(
@@ -183,20 +200,7 @@ def get_robot_spec() -> RobotSpec:
         validate_args=_validate,
         prepare_memory=_prepare_memory,
         finalize_run=_finalize,
-        dashboard={
-            "task": {
-                "command": "/rpent-task",
-                "usage": "/rpent-task <task> <seed>",
-                "fields": (
-                    {"name": "task", "suggestions": tuple(TASKS)},
-                    {"name": "seed", "kind": "integer", "minimum": 0},
-                ),
-                "display": "{task} / seed {seed}",
-                "output_slug": "{task}_s{seed}",
-            },
-            "runtime_components": ({"name": "env", "label": "ENV", "scope": "unique"},),
-            "primitives": ("move_to", "set_gripper"),
-        },
+        resolve_dashboard=lambda args: METAWORLD_DASHBOARD_SPEC,
     )
 
 
