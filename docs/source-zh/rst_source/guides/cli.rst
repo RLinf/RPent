@@ -42,7 +42,7 @@
      - ``api``、``claude_code`` 与 ``codex`` 的推理强度：``none``、``low``、``medium``、``high`` 或 ``xhigh``。在我们的 LIBERO Pro Long 评测中，关闭 reasoning 将平均运行时间从约 13.2 分钟缩短至 7.9 分钟（约 40%）。较高强度可能提升任务成功率；实际支持的档位取决于所选模型。``gemini_cli`` 仅接受 ``none``。
    * - ``--planner-timeout-s``
      - ``—``
-     - 优先使用 ``CODEX_TIMEOUT_S``（Codex）或 ``GEMINI_CLI_TIMEOUT_S``（Gemini CLI），再依次使用 ``CELL_TIMEOUT_S`` 或 1200 秒；终端交互式 API/Claude 会话不受此限。
+     - 优先使用 ``CODEX_TIMEOUT_S`` （Codex）或 ``GEMINI_CLI_TIMEOUT_S`` （Gemini CLI），再依次使用 ``CELL_TIMEOUT_S`` 或 1200 秒；终端交互式 API/Claude 会话不受此限。
    * - ``--base-url``
      - ``—``
      - 仅 ``api``：覆盖模型服务地址。CLI/SDK 规划器使用各自已有的后端配置，并拒绝此参数。
@@ -182,7 +182,7 @@ RPent CLI 保留原有 ``--cuda-device`` 作为本地服务的共享默认值；
      - ``OPENAI_API_KEY``
      - ``OPENAI_BASE_URL``
    * - ``api`` / Google
-     - ``GOOGLE_API_KEY``（优先）或 ``GEMINI_API_KEY``
+     - ``GOOGLE_API_KEY`` （优先）或 ``GEMINI_API_KEY``
      - ``GEMINI_BASE_URL``
    * - ``codex``
      - ``CODEX_API_KEY``

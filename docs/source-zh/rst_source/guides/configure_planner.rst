@@ -75,7 +75,7 @@ RPent 通过一个 CLI 参数选择 Agentic Planner 的后端：
 它读取以下环境变量；需要覆盖 API 地址时使用 ``--base-url``：
 
 - ``anthropic:*`` → ``ANTHROPIC_BASE_URL`` / ``ANTHROPIC_API_KEY``
-- ``google:*`` → ``GEMINI_BASE_URL`` / ``GOOGLE_API_KEY``（优先）或 ``GEMINI_API_KEY``
+- ``google:*`` → ``GEMINI_BASE_URL`` / ``GOOGLE_API_KEY`` （优先）或 ``GEMINI_API_KEY``
 - ``openai:*`` / ``openai-chat:*`` → ``OPENAI_BASE_URL`` /
   ``OPENAI_API_KEY``
 
