@@ -133,7 +133,7 @@ LIBERO-PRO VLA 微调结果
 RoboTwin VLA 微调结果
 ~~~~~~~~~~~~~~~~~~~~~
 
-使用 RPent 采集的 320 条成功轨迹，对 ``LingBot-VLA-RoboTwin-EEF-ckpt1500`` 进行 500 步监督微调，并在 RPent 中替换 VLA 模型进行对比评测。
+使用 RPent 采集的成功轨迹，对 ``LingBot-VLA-RoboTwin-EEF-ckpt1500`` 进行微调，并在 RPent 中替换 VLA 模型进行对比评测。
 
 评测覆盖 RoboTwin ``demo_randomized`` 中与训练相同的 10 个任务，每任务 5 个固定测试场景，每组共 50 场。完整 RPent 系统的任务成功率如下：
 

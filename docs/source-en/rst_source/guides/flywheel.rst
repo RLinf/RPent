@@ -183,9 +183,9 @@ success rate by three percentage points.
 RoboTwin VLA Fine-Tuning Results
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Using 320 successful trajectories collected with RPent,
-``LingBot-VLA-RoboTwin-EEF-ckpt1500`` was fine-tuned for 500 steps. The resulting
-VLA model was evaluated against the original model within RPent.
+Successful trajectories collected with RPent were used to fine-tune
+``LingBot-VLA-RoboTwin-EEF-ckpt1500``. The resulting VLA model was evaluated
+against the original model within RPent.
 
 Evaluation covered the same 10 tasks used for training in RoboTwin's
 ``demo_randomized`` configuration, with five fixed test scenes per task and
