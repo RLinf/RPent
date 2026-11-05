@@ -51,8 +51,11 @@ Keep the same sections and ordering in both languages:
    planner configuration; command-line reference; interactive usage
    (terminal and Dashboard); Flash Mode;
    trajectory collection and data flywheel; remote services and parallel runs.
-5. **Simulators / 仿真环境**: LIBERO, RoboCasa365, and RoboTwin. Each page owns
-   its installation, first run, reproduction protocol, and troubleshooting.
+5. **Simulators / 仿真环境**: LIBERO, RoboCasa365, RoboTwin, RoboDojo, and
+   Embodied First Exam (EFE). Each page owns its installation, first run,
+   reproduction protocol, and troubleshooting. EFE runs through an external
+   harness (Harbor) and spans task simulators; its page covers single-task
+   debugging and benchmark runs.
 6. **Real-World Robots / 真实机器人**: Single-Arm Franka, Dual-Arm Franka, YAM,
    and SO-101. Preserve coming-soon pages and describe their actual status.
 7. **Concepts & Development / 原理与开发**: architecture, interfaces, memory

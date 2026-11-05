@@ -499,10 +499,6 @@ def main() -> int:
     )
     prompt_bundle = robot_spec.prompts
     prompt_vars = {**prompt_vars, "output_dir": output_dir}
-    system_prompt = prompt_bundle.render(
-        "system",
-        variables=prompt_vars,
-    )
     user_msg = prompt_bundle.render(
         "user",
         variables=prompt_vars,
@@ -550,6 +546,14 @@ def main() -> int:
         dashboard_events,
         None,
     )
+    # Render the system prompt after the runtime so a robot can report the
+    # capabilities of the connected task, not only the requested options.
+    if robot_spec.prepare_prompt_vars is not None:
+        prompt_vars = {
+            **prompt_vars,
+            **robot_spec.prepare_prompt_vars(args, run_config, runtime_kwargs),
+        }
+    system_prompt = prompt_bundle.render("system", variables=prompt_vars)
 
     # --- agent loop --------------------------------------------------------
     t0 = time.time()
