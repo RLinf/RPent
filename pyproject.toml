@@ -56,6 +56,8 @@ rpent = "rpent.cli.main:main"
 rpent-memory = "rpent.cli.memory:main"
 rpent-check-llm = "rpent.cli.check_llm:main"
 rpent-flywheel = "rpent.flywheel.cli:main"
+rpent-lekiwi-detect = "robots.lekiwi.detect:main"
+rpent-lekiwi-server = "robots.lekiwi.env_server:main"
 
 [project.urls]
 Homepage = "https://github.com/RLinf/RPent"
@@ -157,6 +159,24 @@ yam = [
     "mujoco>=3.2,<4",
     "pyrealsense2>=2.55,<3",
     "imageio-ffmpeg",
+]
+lekiwi = [
+    # RLinf's LeKiwi environment layer is not released yet, so this pins the
+    # revision that has it; switch to RLinf/RLinf@main once it merges. The
+    # rest is the minimal RLinf install plus what its LeKiwi environment
+    # imports, kept aligned with requirements/embodied/envs/so101.txt at that
+    # revision.
+    "rlinf @ git+https://github.com/QuanluZhang/RLinf.git@feat/lekiwi",
+    "omegaconf>=2.3,<3",
+    "pyyaml",
+    "gymnasium",
+    "lerobot[feetech]>=0.4.1,<0.7",
+    # Headless: lerobot[feetech] installs opencv-python-headless, and mixing
+    # the GUI and headless distributions corrupts cv2/ (both unpack into it),
+    # so keep this extra on the headless build — the robot computer has no
+    # display, and the GUI build needs a system libGL.so.1.
+    "opencv-python-headless",
+    "imageio[ffmpeg]",
 ]
 robotwin = [
     "rpent[rlinf]",
@@ -271,6 +291,7 @@ exclude = ["tests*", "docs*", "examples*", "docker*", "toolkits*"]
 [tool.setuptools.package-data]
 "rpent.dashboard" = ["*.html", "static/*.css", "static/*.js"]
 "robots.yam" = ["config/*.yaml", "config/*.json", "guides/*.md"]
+"robots.lekiwi" = ["config/*.yaml"]
 
 [tool.pytest.ini_options]
 addopts = ["--import-mode=importlib"]

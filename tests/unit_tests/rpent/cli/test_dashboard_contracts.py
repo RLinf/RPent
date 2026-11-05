@@ -126,3 +126,68 @@ def test_shared_runtime_gets_memory_before_startup(
     assert events == (["sync"] if sync_before_shared else []) + ["shared-runtime"]
     if explicit_repo:
         assert args.memory_dir == str(root)
+
+
+def test_manual_session_starts_services_without_campaign_memory(tmp_path, monkeypatch):
+    events = []
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("A manual session reads no campaign memory")
+
+    def init_runtime(args, output_dir, state, components):
+        events.append("shared-runtime")
+        return [], {}
+
+    def start(server):
+        server._state.request_shutdown()
+        return "http://127.0.0.1:12345"
+
+    monkeypatch.setattr(dashboard, "get_memory_dir", unexpected)
+    monkeypatch.setattr(MemoryManager, "sync", unexpected)
+    monkeypatch.setattr(DashboardServer, "start", start)
+    monkeypatch.setattr(DashboardState, "fail_session", unexpected)
+    spec = SimpleNamespace(
+        name="robocasa",
+        is_real_robot=False,
+        supports_human_interactive_exploration=False,
+        memory_repo_id="test/memory",
+        prepare_memory=None,
+        dashboard={
+            "runtime_components": ({"name": "vla", "scope": "shared"},),
+            "primitives": (),
+            "task": {
+                "command": "/rpent-task",
+                "usage": "/rpent-task <seed>",
+                "fields": ({"name": "seed", "kind": "integer", "minimum": 0},),
+                "display": "seed {seed}",
+                "output_slug": "s{seed}",
+            },
+        },
+        init_runtime=init_runtime,
+    )
+    args = _build_argparser().parse_args(
+        [
+            "--robot",
+            "robocasa",
+            "--dashboard",
+            "--planner",
+            "manual",
+            "--output-dir",
+            str(tmp_path / "run"),
+        ]
+    )
+    assert (
+        dashboard.run_dashboard_session(args, spec, parser=argparse.ArgumentParser())
+        == 0
+    )
+    assert events == ["shared-runtime"]
+
+
+def test_manual_task_requires_an_env(tmp_path):
+    with pytest.raises(ValueError, match="needs an 'env'"):
+        dashboard._run_manual_task(
+            state=SimpleNamespace(),
+            toolkit=SimpleNamespace(),
+            runtime_kwargs={},
+            output_dir=tmp_path,
+        )

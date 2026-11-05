@@ -84,6 +84,25 @@ const COPY = {
     executingPrimitive: "Executing…",
     primitiveSucceeded: "Executed — inspect the camera and timeline.",
     primitiveFailed: (error) => `Execution failed: ${error}`,
+    manualPlanner: "manual",
+    teleopTitle: "Teleoperation",
+    teleopWaiting: "waiting for a manual TaskRun",
+    teleopActive: (steps) => `driving · ${steps} steps`,
+    teleopHint: "Hold a button to drive; releasing it stops the base.",
+    teleopForward: "forward",
+    teleopBack: "back",
+    teleopLeft: "left",
+    teleopRight: "right",
+    teleopTurnLeft: "turn left",
+    teleopTurnRight: "turn right",
+    teleopStop: "STOP",
+    teleopEndRun: "End run",
+    teleopEndConfirm: "End this manual run?",
+    recordVideo: "Record video",
+    recordActions: "Record actions",
+    teleopLinear: "linear m/s",
+    teleopAngular: "turn deg/s",
+    teleopFailed: (error) => `Teleoperation failed: ${error}`,
     notSet: "not set",
     invalidField: (field) => `${field} must be a valid value.`,
     actionTimeline: "Action timeline",
@@ -192,6 +211,25 @@ const COPY = {
     executingPrimitive: "执行中…",
     primitiveSucceeded: "已执行，请查看相机画面和动作时间线。",
     primitiveFailed: (error) => `执行失败：${error}`,
+    manualPlanner: "手动",
+    teleopTitle: "手动遥控",
+    teleopWaiting: "等待手动 TaskRun",
+    teleopActive: (steps) => `遥控中 · ${steps} 步`,
+    teleopHint: "按住按钮驱动机器人，松开即停止。",
+    teleopForward: "前进",
+    teleopBack: "后退",
+    teleopLeft: "左移",
+    teleopRight: "右移",
+    teleopTurnLeft: "左转",
+    teleopTurnRight: "右转",
+    teleopStop: "停止",
+    teleopEndRun: "结束本次运行",
+    teleopEndConfirm: "确定结束本次手动运行？",
+    recordVideo: "录制视频",
+    recordActions: "记录动作",
+    teleopLinear: "线速度 m/s",
+    teleopAngular: "转速 °/s",
+    teleopFailed: (error) => `遥控失败：${error}`,
     notSet: "不设置",
     invalidField: (field) => `${field} 的值无效。`,
     actionTimeline: "动作时间线",
@@ -299,11 +337,11 @@ function renderPlannerConfig(config) {
   const planner = config.planner || copy.notSet;
   const model = config.model || copy.defaultModel;
   const element = $("#plannerMeta");
-  element.textContent = planner === "flash"
-    ? "Flash Mode"
-    : `${copy.planner} ${planner} · ${copy.model} ${model}`;
+  if (planner === "flash") element.textContent = "Flash Mode";
+  else if (planner === "manual") element.textContent = `${copy.planner} ${copy.manualPlanner}`;
+  else element.textContent = `${copy.planner} ${planner} · ${copy.model} ${model}`;
   element.title = element.textContent;
-  $("#modelSettings").hidden = planner === "flash";
+  $("#modelSettings").hidden = planner === "flash" || planner === "manual";
   $("#nextModelInput").value = config.model || "";
 }
 
@@ -555,8 +593,198 @@ async function executeSelectedPrimitive(event) {
 
 $("#primitiveForm").addEventListener("submit", executeSelectedPrimitive);
 
-const ACTION_RETURN_DELAY_MS = 300;
+// --- manual teleoperation ---
+// The base stops at the end of every env control period, so a held button
+// refreshes its velocity faster than the command TTL; a lost page stops it.
+const TELEOP_REFRESH_MS = 400;
+const TELEOP_TTL_S = 1.0;
+const TELEOP_ERROR_HOLD_MS = 5000;
 
+const teleopState = {
+  active: false,
+  direction: null,
+  timer: null,
+  recording: { video: true, actions: true },
+  recordingBusy: false,
+  statusHoldUntil: 0,
+};
+
+function setTeleopStatus(message, kind = "", holdMs = 0) {
+  const status = $("#teleopStatus");
+  status.textContent = message;
+  status.className = `teleop-status${kind ? ` ${kind}` : ""}`;
+  teleopState.statusHoldUntil = holdMs ? Date.now() + holdMs : 0;
+}
+
+function reportTeleopError(error) {
+  setTeleopStatus(copy.teleopFailed(error.message), "error", TELEOP_ERROR_HOLD_MS);
+}
+
+function teleopVelocity(direction) {
+  const linear = Number($("#teleopLinear").value) || 0;
+  const angular = Number($("#teleopAngular").value) || 0;
+  // Body frame: x forward, y left, theta counter-clockwise in deg/s.
+  return {
+    forward: [linear, 0, 0],
+    back: [-linear, 0, 0],
+    left: [0, linear, 0],
+    right: [0, -linear, 0],
+    turnLeft: [0, 0, angular],
+    turnRight: [0, 0, -angular],
+  }[direction];
+}
+
+function renderTeleopSpeeds() {
+  $("#teleopLinearValue").textContent = Number($("#teleopLinear").value).toFixed(2);
+  $("#teleopAngularValue").textContent = String(Math.round(Number($("#teleopAngular").value)));
+}
+
+function applyTeleopLimits(limits) {
+  if (!Array.isArray(limits) || limits.length !== 3) return;
+  const [linearMax, , angularMax] = limits.map(Number);
+  for (const [input, maximum] of [
+    [$("#teleopLinear"), linearMax],
+    [$("#teleopAngular"), angularMax],
+  ]) {
+    if (!(maximum > 0)) continue;
+    input.max = String(maximum);
+    if (Number(input.value) > maximum) input.value = String(maximum);
+  }
+  renderTeleopSpeeds();
+}
+
+function sendTeleopHold(direction) {
+  return requestJSON("/api/session/teleop", {
+    method: "POST",
+    body: { velocity: teleopVelocity(direction), ttl_s: TELEOP_TTL_S },
+  });
+}
+
+function beginTeleopHold(direction) {
+  if (!teleopState.active || teleopState.direction === direction) return;
+  teleopState.direction = direction;
+  for (const button of $("#teleopPad").querySelectorAll(".teleop-hold")) {
+    button.setAttribute(
+      "aria-pressed",
+      String(button.dataset.move === direction),
+    );
+  }
+  if (teleopState.timer) clearInterval(teleopState.timer);
+  const tick = () => {
+    if (teleopState.direction !== direction) return;
+    sendTeleopHold(direction).catch(reportTeleopError);
+  };
+  tick();
+  teleopState.timer = setInterval(tick, TELEOP_REFRESH_MS);
+}
+
+function stopTeleopHold({ release = true } = {}) {
+  const wasHolding = teleopState.direction !== null;
+  if (teleopState.timer) clearInterval(teleopState.timer);
+  teleopState.timer = null;
+  teleopState.direction = null;
+  for (const button of $("#teleopPad").querySelectorAll(".teleop-hold")) {
+    button.setAttribute("aria-pressed", "false");
+  }
+  if (release && wasHolding && teleopState.active) {
+    requestJSON("/api/session/teleop/stop", { method: "POST" }).catch(
+      reportTeleopError,
+    );
+  }
+}
+
+for (const button of $("#teleopPad").querySelectorAll(".teleop-hold")) {
+  button.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    button.setPointerCapture?.(event.pointerId);
+    beginTeleopHold(button.dataset.move);
+  });
+  for (const type of ["pointerup", "pointercancel", "lostpointercapture"]) {
+    button.addEventListener(type, () => stopTeleopHold());
+  }
+}
+$("#teleopStop").addEventListener("click", () => stopTeleopHold());
+for (const handle of [$("#teleopLinear"), $("#teleopAngular")]) {
+  handle.addEventListener("input", renderTeleopSpeeds);
+}
+window.addEventListener("blur", () => stopTeleopHold());
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) stopTeleopHold();
+});
+
+function renderTeleopRecording() {
+  if (teleopState.recordingBusy) return;
+  $("#teleopRecordVideo").checked = Boolean(teleopState.recording.video);
+  $("#teleopRecordActions").checked = Boolean(teleopState.recording.actions);
+}
+
+async function updateTeleopRecording() {
+  const body = {
+    video: $("#teleopRecordVideo").checked,
+    actions: $("#teleopRecordActions").checked,
+  };
+  teleopState.recordingBusy = true;
+  try {
+    const result = await requestJSON("/api/session/teleop/recording", {
+      method: "POST",
+      body,
+    });
+    teleopState.recording = result.teleop?.recording || body;
+  } catch (error) {
+    reportTeleopError(error);
+  } finally {
+    teleopState.recordingBusy = false;
+  }
+  renderTeleopRecording();
+}
+$("#teleopRecordVideo").addEventListener("change", updateTeleopRecording);
+$("#teleopRecordActions").addEventListener("change", updateTeleopRecording);
+
+$("#teleopEnd").addEventListener("click", async () => {
+  if (!window.confirm(copy.teleopEndConfirm)) return;
+  stopTeleopHold();
+  try {
+    await requestJSON("/api/session/teleop/end", { method: "POST" });
+  } catch (error) {
+    reportTeleopError(error);
+  }
+});
+
+function syncTeleop(teleop) {
+  const active = Boolean(teleop?.active);
+  const wasActive = teleopState.active;
+  teleopState.active = active;
+  $("#teleopPanel").hidden = !active;
+  $("#primitivePanel").hidden = active;
+  if (!active) {
+    if (wasActive || teleopState.direction) stopTeleopHold();
+    return;
+  }
+  if (!wasActive) {
+    $("#teleopPanel").open = true;
+    applyTeleopLimits(teleop.velocity_limits);
+  }
+  if (teleop.recording) teleopState.recording = teleop.recording;
+  renderTeleopRecording();
+  if (teleop.error) {
+    setTeleopStatus(copy.teleopFailed(teleop.error), "error");
+  } else if (Date.now() >= teleopState.statusHoldUntil) {
+    setTeleopStatus(copy.teleopActive(teleop.steps ?? 0));
+  }
+}
+
+function resetTeleopPanel() {
+  teleopState.active = false;
+  stopTeleopHold();
+  teleopState.statusHoldUntil = 0;
+  $("#teleopPanel").hidden = true;
+  $("#primitivePanel").hidden = false;
+  setTeleopStatus(copy.teleopWaiting);
+}
+
+renderTeleopSpeeds();
+
+const ACTION_RETURN_DELAY_MS = 300;
 // --- Double-buffered media swap ------------------------------------------
 // Two <img> + two <video> live in the DOM at the same position. Exactly one
 // carries the `.visible` class at any moment. When switching to new media
@@ -793,6 +1021,7 @@ function resetRenderedTaskProjection() {
   resetTimelineForRun();
   resetMediaForRun();
   resetPrimitivePanel();
+  resetTeleopPanel();
   interactionController.reset();
   $("#transcript").innerHTML = `<div class="empty">${copy.noTranscript}</div>`;
   $("#timeline").innerHTML = `<div class="empty">${copy.noActions}</div>`;
@@ -1195,6 +1424,7 @@ function applySessionSnapshot(snapshot) {
   setBadge(snapshot.state, snapshot.control_error || snapshot.error);
   setResult(snapshot.terminated, snapshot.state);
   renderRuntimeStatus(snapshot.runtime);
+  syncTeleop(snapshot.teleop);
   syncPrimitiveAvailability(snapshot);
   interactionController.applySnapshot(snapshot);
   updateFrameAvailability(snapshot.frame_available);

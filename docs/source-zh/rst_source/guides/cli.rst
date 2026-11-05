@@ -27,7 +27,7 @@
      - 选择已发现的机器人或仿真环境。
    * - ``--planner``
      - ``api``
-     - ``api``、``claude_code``、``codex`` 或 ``flash``。
+     - ``api``、``claude_code``、``codex``、``flash`` 或 ``manual``；``manual`` 在 Dashboard 中手动遥控。
    * - ``--model``
      - ``—``
      - ``api`` 要求服务提供方前缀；SDK 规划器使用各自默认值。

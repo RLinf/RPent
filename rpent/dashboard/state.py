@@ -232,6 +232,8 @@ class DashboardState:
         self._control_error: str | None = None
         self._shutdown_requested = False
         self._toolkit: Toolkit | None = None
+        self._teleop: Any = None
+        self._manual_end_requested = False
         self._active_primitive_calls: dict[int, int] = {}
         self._manual_results: list[str] = []
         self._explore_paused = False
@@ -288,10 +290,97 @@ class DashboardState:
                 lambda: self._active_primitive_calls.get(toolkit_key, 0) == 0,
             )
 
+    def bind_teleop(self, controller: Any) -> None:
+        """Expose manual control through the Dashboard for this TaskRun."""
+        with self._condition:
+            if self._teleop is not None and self._teleop is not controller:
+                raise RuntimeError("a Dashboard teleop controller is already bound")
+            self._teleop = controller
+            self._interaction_changed_locked()
+
+    def unbind_teleop(self, controller: Any) -> dict[str, Any]:
+        """Stop manual control, flush its artifacts, and report what it recorded."""
+        with self._condition:
+            if self._teleop is controller:
+                self._teleop = None
+                self._interaction_changed_locked()
+        return controller.close()
+
+    def submit_teleop_command(
+        self, velocity: Any, *, ttl_s: float = 1.0
+    ) -> dict[str, Any]:
+        """Hold a body velocity until the command expires or is released."""
+        with self._condition:
+            controller = self._require_teleop_locked()
+        return controller.hold(velocity, ttl_s=ttl_s)
+
+    def stop_teleop(self) -> dict[str, Any]:
+        """Release the held velocity."""
+        with self._condition:
+            controller = self._require_teleop_locked()
+        return controller.stop()
+
+    def set_teleop_recording(
+        self,
+        *,
+        video: bool | None = None,
+        actions: bool | None = None,
+    ) -> dict[str, Any]:
+        """Choose whether the rest of this manual run records video and actions."""
+        with self._condition:
+            controller = self._require_teleop_locked()
+        return controller.set_recording(video=video, actions=actions)
+
+    def request_manual_end(self) -> None:
+        """Ask the manual TaskRun to finish; only the runner ends it."""
+        with self._condition:
+            self._require_teleop_locked()
+            self._manual_end_requested = True
+            self._interaction_changed_locked()
+
+    def wait_for_manual_end(self, timeout: float | None = None) -> bool:
+        """Block until the operator ends the run or a task replaces it."""
+        with self._condition:
+            self._condition.wait_for(
+                lambda: (
+                    self._manual_end_requested
+                    or self._pending_task is not None
+                    or self._shutdown_requested
+                    or self._session_state == "fatal"
+                ),
+                timeout=timeout,
+            )
+            return self._manual_end_requested
+
+    def publish_live_frames(self, frames: dict[str, bytes]) -> int:
+        """Publish a live camera frame for this TaskRun without a step record."""
+        with self._lock:
+            step = self._frame_idx + 1
+        self._update_frames(step=step, frames=dict(frames))
+        return step
+
+    def record_teleop_action(self, item: dict[str, Any]) -> None:
+        """Append one manually driven action to the TaskRun timeline."""
+        with self._condition:
+            self._timeline.append({"step": len(self._timeline), **item})
+            self._projection_changed_locked()
+
+    def _require_teleop_locked(self) -> Any:
+        if self._teleop is None:
+            raise InteractionUnavailableError("manual control is not available")
+        if self._session_state in {
+            "starting_shared_services",
+            "switch_pending",
+            "fatal",
+        }:
+            raise InteractionUnavailableError("manual control is not available")
+        return self._teleop
+
     def _primitives_available_locked(self) -> bool:
         """Return whether manual primitives are safe at this planner boundary."""
         return (
             self._toolkit is not None
+            and self._teleop is None
             and self._session_state != "switch_pending"
             and self._planner_activity == "idle"
             and not self._active_primitive_calls
@@ -726,6 +815,7 @@ class DashboardState:
         self._messages_by_id = {}
         self._next_pending_message_index = 0
         self._manual_results = []
+        self._manual_end_requested = False
         self._explore_paused = False
         self._exploration_message = None
         self._last_interaction_error = None
@@ -1223,6 +1313,7 @@ class DashboardState:
             "n_events": len(self._events),
             "n_steps": len(self._timeline),
             "primitives_available": self._primitives_available_locked(),
+            "teleop": (None if self._teleop is None else self._teleop.snapshot()),
             "interaction": self._interaction_snapshot_locked(),
             **self._session_fields_locked(),
         }

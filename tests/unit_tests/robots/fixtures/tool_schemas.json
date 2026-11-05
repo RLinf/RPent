@@ -1107,6 +1107,38 @@
           "required": ["prompt"]
         }
       }
+    ],
+    "robots/lekiwi/tools.py": [
+      {
+        "name": "drive",
+        "description": "Drive the base with one body velocity [x, y, theta] held for a bounded duration.\n\nUnits are m/s, m/s, and deg/s in the base frame. The command is\nclipped to the configured velocity limits, and the wheels stop\nwhen the duration ends.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "velocity": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
+            "duration_s": {"type": "number", "exclusiveMinimum": 0.0, "maximum": 10.0}
+          },
+          "required": ["velocity"]
+        }
+      },
+      {
+        "name": "stop",
+        "description": "Command zero wheel velocity immediately.",
+        "input_schema": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      {
+        "name": "view_env_state",
+        "description": "Read a LeKiwi state snapshot and its synchronized front-camera image.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "step": {"type": "integer", "default": -1}
+          }
+        }
+      }
     ]
   }
 }
