@@ -112,19 +112,20 @@ EFE 的其余 959 个任务属于 ``privileged`` 模式，我们暂时不支持�
      --path "$EFE_TASK" \
      --mounts '[{"type":"bind","source":"'"$RPENT_ROOT"'","target":"/opt/rpent","read_only":true},{"type":"bind","source":"'"$EFE_TASK"'","target":"/task","read_only":true}]'
 
-   # 2) 容器内：按 Adapter 的方式建 venv 并安装 RPent
+   # 2) 容器内：复制到可写目录，再按 Adapter 的方式安装
+   cp -a /opt/rpent /tmp/rpent-src
    python3 -m venv /tmp/rpent-venv
-   /tmp/rpent-venv/bin/python -m pip install /opt/rpent
+   /tmp/rpent-venv/bin/python -m pip install /tmp/rpent-src
 
    # 3) 容器内：运行一个 Episode
    export CODEX_API_KEY="$OPENAI_API_KEY"
    export CODEX_BASE_URL="$OPENAI_BASE_URL"   # 使用自定义端点时
-   /tmp/rpent-venv/bin/rpent --robot efe \
+   /tmp/rpent-venv/bin/rpent --robot efe --planner codex \
      --instruction-file /task/instruction.md \
      --output-dir /app/output \
      --model your-model
 
-``--instruction-file`` 指向任务目录自带的 ``instruction.md``。``rpent --robot efe`` 固定 ``full-access``，Shell 也能操作 Simulator，因此只用于调试；对照实验请用 Adapter。``--efe-base-url`` 默认探测 ``sim:8000``。``start-env`` 不应用 Trial 的 Agent 网络策略（``--allow-agent-host`` 只在 ``harbor run`` 中生效），容器使用 Docker 默认网络。
+``/opt/rpent`` 以只读方式挂载，而安装会向源码目录写入构建元数据，所以先复制到 ``/tmp/rpent-src``。``--instruction-file`` 指向任务目录自带的 ``instruction.md``；通用 CLI 的 ``--planner`` 默认是 ``api``，这里显式选择 ``codex``，与 Adapter 使用的 CodexPlanner 一致。``rpent --robot efe --planner codex`` 固定 ``full-access``，Shell 也能操作 Simulator，因此只用于调试；对照实验请用 Adapter。``--efe-base-url`` 默认探测 ``sim:8000``。``start-env`` 不应用 Trial 的 Agent 网络策略（``--allow-agent-host`` 只在 ``harbor run`` 中生效），容器使用 Docker 默认网络。
 
 运行一个 Trial
 --------------

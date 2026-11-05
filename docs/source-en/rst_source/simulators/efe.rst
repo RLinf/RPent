@@ -159,24 +159,28 @@ and the task directory available at ``/task``; the task keeps its instruction in
      --path "$EFE_TASK" \
      --mounts '[{"type":"bind","source":"'"$RPENT_ROOT"'","target":"/opt/rpent","read_only":true},{"type":"bind","source":"'"$EFE_TASK"'","target":"/task","read_only":true}]'
 
-   # 2) In the container: create a venv and install RPent, as the adapter does
+   # 2) In the container: copy to a writable directory, then install
+   cp -a /opt/rpent /tmp/rpent-src
    python3 -m venv /tmp/rpent-venv
-   /tmp/rpent-venv/bin/python -m pip install /opt/rpent
+   /tmp/rpent-venv/bin/python -m pip install /tmp/rpent-src
 
    # 3) In the container: run one episode
    export CODEX_API_KEY="$OPENAI_API_KEY"
    export CODEX_BASE_URL="$OPENAI_BASE_URL"   # with a custom endpoint
-   /tmp/rpent-venv/bin/rpent --robot efe \
+   /tmp/rpent-venv/bin/rpent --robot efe --planner codex \
      --instruction-file /task/instruction.md \
      --output-dir /app/output \
      --model your-model
 
-``--instruction-file`` points at the task's own ``instruction.md``. ``rpent
---robot efe`` always runs with ``full-access``, so shell commands can reach the
-simulator too; use it for debugging and the adapter for comparisons.
-``--efe-base-url`` probes ``sim:8000`` by default. ``start-env`` does not apply
-the trial's agent network policy (``--allow-agent-host`` works in ``harbor run``
-only), so the container uses Docker's default network.
+``/opt/rpent`` is mounted read-only, and the install writes build metadata into
+the source tree, so copy it to ``/tmp/rpent-src`` first. ``--instruction-file``
+points at the task's own ``instruction.md``. The generic CLI defaults to the
+``api`` planner; ``--planner codex`` runs the same CodexPlanner as the adapter.
+``rpent --robot efe --planner codex`` always runs with ``full-access``, so shell
+commands can reach the simulator too; use it for debugging and the adapter for
+comparisons. ``--efe-base-url`` probes ``sim:8000`` by default. ``start-env``
+does not apply the trial's agent network policy (``--allow-agent-host`` works in
+``harbor run`` only), so the container uses Docker's default network.
 
 Run a Trial
 -----------
