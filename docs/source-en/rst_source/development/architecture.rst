@@ -41,7 +41,7 @@ different robots.
    * - Component
      - Responsibility
    * - Planner
-     - Select tools, manage model interaction, and return ``PlannerResult``. The ``api`` backend uses the native Pydantic AI loop and Harness sliding-window history trimming; ``claude_code`` and ``codex`` use their respective SDKs. LIBERO Flash executes stored plans.
+     - Select tools, manage model interaction, and return ``PlannerResult``. The ``api`` backend uses the native Pydantic AI loop and Harness sliding-window history trimming; ``claude_code`` and ``codex`` use their respective SDKs, and ``gemini_cli`` uses ACP. LIBERO Flash executes stored plans.
    * - Toolkit
      - Define schemas, dispatch calls, record state, and expose results as ``ToolResult`` for the planner.
    * - Environment service

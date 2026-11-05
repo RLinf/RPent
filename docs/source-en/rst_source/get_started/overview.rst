@@ -65,7 +65,7 @@ Choose a Platform
    * - :doc:`SO-101 <../real_world_robots/so101>`
      - Coming soon.
 
-Choose ``api``, ``claude_code``, or ``codex`` for online planning. LIBERO also supports :doc:`Flash Mode <../guides/flash>` for executing stored plans. See :doc:`../guides/configure_planner` for model-service configuration.
+Choose ``api``, ``claude_code``, ``codex``, or ``gemini_cli`` for online planning. LIBERO also supports :doc:`Flash Mode <../guides/flash>` for executing stored plans. See :doc:`../guides/configure_planner` for model-service configuration.
 
 Start with :doc:`quickstart`. See :doc:`../leaderboard/index` for reported results and resource costs, and :doc:`../resources/harnessvla` for the research background.
 

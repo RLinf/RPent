@@ -64,7 +64,7 @@ Reference: ``robots/libero/robot_spec.py``.
 Planner
 -------
 
-Most users pick a built-in ``api``, ``claude_code``, or ``codex`` planner — see
+Most users pick a built-in ``api``, ``claude_code``, ``codex``, or ``gemini_cli`` planner — see
 :doc:`../guides/configure_planner`. Only **custom planners** need
 ``rpent.planner.base.Planner``:
 

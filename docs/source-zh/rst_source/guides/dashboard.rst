@@ -51,7 +51,7 @@ Session 配置全部来自命令行，打开地址后会直接进入实时监控
 
    /rpent-task libero_object_swap 2 0
 
-每个 TaskRun 使用独立环境，VLA 和 SAM3 服务由 Session 复用。可通过新的 ``/rpent-task`` 启动或切换任务；运行中也可以发送消息引导智能体，并按 Esc 请求中断。在终端按 Ctrl+C 可结束 Session。
+每个 TaskRun 使用独立环境，VLA 和 SAM3 服务由 Session 复用。可通过新的 ``/rpent-task`` 启动或切换任务；运行中也可以提交追加消息，或按 Esc 请求中断。在终端按 Ctrl+C 可结束 Session。
 
 使用 Claude Code、Codex 或 Gemini 时，普通消息会排队等待当前 agent turn 完成。如需提前继续，可先提交消息再按 Esc：活动工具和后端 turn 停止后，才会发送下一条排队消息，其余消息保持原有顺序。成功执行 ``finish`` 后任务结束，不再发送排队消息。
 

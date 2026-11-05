@@ -166,7 +166,8 @@ def _build_argparser() -> argparse.ArgumentParser:
         default="none",
         help="Planner reasoning effort for api, claude_code, and "
         "codex. gemini_cli supports none only. Higher effort may improve "
-        "task success rate but increases runtime. Defaults to none.",
+        "task success rate but increases runtime. Defaults to high for api "
+        "and none for CLI/SDK planners.",
     )
     ap.add_argument(
         "--no-images",
@@ -549,7 +550,8 @@ def main() -> int:
         logger.info(
             "interactive mode on: the built-in task is pre-filled — "
             "edit it and press Enter, submit it as-is, or clear it to "
-            "type your own. Once running, type to steer the agent. "
+            "type your own. Follow-up messages queue until the turn completes; "
+            "use /interrupt [message] to interrupt and send ahead of the queue. "
             "/help for commands."
         )
         # Resolve the opening prompt on a background thread so the user can type

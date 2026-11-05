@@ -75,7 +75,7 @@ in the live monitor. After the shared services are ready, start a TaskRun with:
 
 Each TaskRun gets a fresh environment while the VLA and SAM3 services are
 reused by the Session. Submit a new ``/rpent-task`` to start or switch tasks;
-during a run, normal messages steer the agent and Esc requests an interruption.
+during a run, submit follow-up messages or press Esc to request an interruption.
 Press Ctrl+C in the terminal to stop the Session.
 
 With Claude Code, Codex, and Gemini, ordinary messages queue until the current
