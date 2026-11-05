@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""API task capture snapshots and outcomes after execution cleanup."""
+"""Planner task capture snapshots and outcomes after execution cleanup."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ from rpent.dashboard.events import NullDashboardEventSink
 from rpent.planner.api_loop import ApiAgentLoop
 from rpent.planner.base import PlannerResult
 from rpent.session import EnvState, Payload
-from rpent.session.planner_capture import end_api_task, start_api_task
+from rpent.session.planner_capture import end_planner_task, start_planner_task
 
 
 @pytest.mark.parametrize("capture_enabled", [False, True])
@@ -44,7 +44,7 @@ def test_api_trajectory_capture_records_only_started_tasks(tmp_path, capture_ena
         "run": {"output_dir": tmp_path},
     }
     captured = (
-        start_api_task(state, instruction="Move the cup.", config=config)
+        start_planner_task(state, instruction="Move the cup.", config=config)
         if capture_enabled
         else None
     )
@@ -62,7 +62,7 @@ def test_api_trajectory_capture_records_only_started_tasks(tmp_path, capture_ena
     assert result.error is None
     assert result.stop_reason == "model_output"
     assert result.stats["turns_used"] == 1
-    end_api_task(
+    end_planner_task(
         captured,
         result,
         finish_result=result.finish_result,
@@ -115,7 +115,7 @@ def test_task_end_keeps_partial_records_and_actual_stop_cause(
     result = PlannerResult(
         error="planner timed out", stop_reason="timeout", stats={"turns_used": 1}
     )
-    end_api_task(
+    end_planner_task(
         state,
         result,
         finish_result=None,
@@ -155,7 +155,7 @@ def test_operator_verdict_is_separate_from_planner_error(
     state = EnvState(tmp_path)
     state.start_task(instruction="Task", config=Payload("test", {}))
     result = PlannerResult(error="interrupted model", stop_reason="planner_error")
-    end_api_task(
+    end_planner_task(
         state,
         result,
         finish_result={verdict: True},
@@ -185,7 +185,7 @@ def test_save_failure_is_logged_without_replacing_execution_error(
         try:
             raise error
         finally:
-            end_api_task(
+            end_planner_task(
                 state,
                 None,
                 finish_result=None,

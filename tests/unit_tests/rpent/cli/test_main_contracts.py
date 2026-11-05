@@ -147,6 +147,7 @@ def test_public_cli_help_runs_from_source_checkout_without_a_robot_runtime() -> 
 
     assert result.returncode == 0, result.stderr
     assert "RPent: Agentic Infrastructure for the Physical World" in result.stdout
+    assert "api and codex planners" in " ".join(result.stdout.split())
     for option in (
         "--robot",
         "--env",
@@ -842,6 +843,7 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
         ("api", False),
         ("api", True),
         ("claude_code", True),
+        ("codex", False),
         ("codex", True),
         ("flash", True),
     ],
@@ -884,6 +886,11 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
     class FakePlanner:
         def solve(self, **kwargs: Any) -> PlannerResult:
             del kwargs
+            task = robot_toolkit.state.get_task()
+            if record_trajectory and planner_name in {"api", "codex"}:
+                assert task.status == "running"
+            else:
+                assert task is None
             return PlannerResult(
                 finish_result={"status": "success", "summary": "planner claim"},
                 messages=[],
@@ -907,14 +914,19 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
     def finalize_run(context: RunFinalizationContext) -> Path:
         captured.append(context)
         assert robot_toolkit.closed is True
-        if planner_name == "api" and record_trajectory:
+        if record_trajectory and planner_name in {"api", "codex"}:
             task = robot_toolkit.state.get_task()
             assert task.status == ("failed" if planner_error else "completed")
             assert task.result.data["environment_success"] is False
             assert task.instruction == "task\n"
-            assert task.config.data["arguments"]["planner"] == "api"
+            assert task.config.data["arguments"]["planner"] == planner_name
             assert task.config.data["arguments"]["record_trajectory"] is True
             assert task.config.data["run"]["output_dir"] == str(tmp_path)
+            saved_task = json.loads(
+                (robot_toolkit.state.trajectory_dir / "task.json").read_text()
+            )["task"]
+            assert saved_task["task_id"] == task.task_id
+            assert saved_task["status"] == task.status
         else:
             assert robot_toolkit.state.get_task() is None
             assert not (tmp_path / "state" / "trajectories").exists()

@@ -265,9 +265,10 @@ class EnvState:
     def register_tool_call(
         self,
         *,
-        planner_id: str,
+        planner_id: str | None,
         name: str,
         arguments: Payload,
+        origin: Literal["model", "program", "unknown"] = "model",
         status: Literal[
             "requested",
             "running",
@@ -288,15 +289,15 @@ class EnvState:
         after_observation_id: str | None = None,
         missing: dict[str, MissingInfo] | None = None,
     ) -> str:
-        """Register a model-issued tool call in response order and index it."""
+        """Register a tool call, optionally linking it to a model response."""
         with self._records_lock:
             self._running_task()
-            planner = self._planners[planner_id]
+            planner = self._planners[planner_id] if planner_id is not None else None
             record = copy.deepcopy(
                 ToolCallRecord(
                     tool_call_id=self._new_record_id("T"),
                     planner_id=planner_id,
-                    origin="model",
+                    origin=origin,
                     name=name,
                     arguments=arguments,
                     status=status,
@@ -312,7 +313,8 @@ class EnvState:
                     missing=missing or {},
                 )
             )
-            planner.tool_calls.append(record)
+            if planner is not None:
+                planner.tool_calls.append(record)
             self._tool_calls[record.tool_call_id] = record
             return record.tool_call_id
 
@@ -451,6 +453,8 @@ class EnvState:
         self,
         tool_call_id: str,
         *,
+        planner_id: str | None = None,
+        origin: Literal["model", "program", "unknown"] | None = None,
         status: Literal[
             "requested",
             "running",
@@ -472,12 +476,7 @@ class EnvState:
         source_ids: dict[str, str] | None = None,
         missing: dict[str, MissingInfo | None] | None = None,
     ) -> None:
-        """Update a tool call while its task is running.
-
-        None leaves fields unchanged; model config, raw result, and feedback
-        can each only be filled once. Source IDs merge by key; None values in
-        ``missing`` remove reasons. Observation IDs marked missing are cleared.
-        """
+        """Update a tool call while its task is running."""
         with self._records_lock:
             self._running_task()
             record = self._tool_calls[tool_call_id]
@@ -491,9 +490,19 @@ class EnvState:
                 "unknown",
             }:
                 raise ValueError(f"invalid tool call status: {status!r}")
+            planner = None
+            if planner_id is not None:
+                if record.planner_id is not None and record.planner_id != planner_id:
+                    raise ValueError(
+                        f"tool call {tool_call_id!r} already belongs to planner "
+                        f"{record.planner_id!r}"
+                    )
+                if record.planner_id is None:
+                    planner = self._planners[planner_id]
             self._update_call_record(
                 record,
                 values={
+                    "origin": origin,
                     "status": status,
                     "effective_instruction": effective_instruction,
                     "model_config": model_config,
@@ -507,6 +516,12 @@ class EnvState:
                 source_ids=source_ids,
                 missing=missing,
             )
+            if planner is not None:
+                record.planner_id = planner.planner_id
+                planner.tool_calls.append(record)
+                for prediction in self._predictions.values():
+                    if prediction.tool_call_id == tool_call_id:
+                        prediction.planner_id = planner.planner_id
             for name in ("before_observation_id", "after_observation_id"):
                 if missing and missing.get(name) is not None:
                     setattr(record, name, None)
@@ -563,6 +578,11 @@ class EnvState:
         with self._records_lock:
             return copy.deepcopy(list(self._planners.values()))
 
+    def tool_call_records(self) -> list[ToolCallRecord]:
+        """Return tool call snapshots in registration order, including unlinked calls."""
+        with self._records_lock:
+            return copy.deepcopy(list(self._tool_calls.values()))
+
     def action_records(self) -> list[ActionRecord]:
         """Return executed action snapshots in registration order."""
         with self._records_lock:
@@ -575,14 +595,18 @@ class EnvState:
 
     # -- trajectory storage ---------------------------------------------
 
+    @property
+    def trajectory_dir(self) -> Path:
+        """Return the current task's trajectory directory."""
+        if self._task is None:
+            raise RuntimeError("start_task() must run before accessing trajectory_dir")
+        return self._output_dir / "trajectories" / self._task.task_id
+
     def save_trajectory_artifact(
         self, value: np.ndarray | bytes, *, name: str | None = None
     ) -> ArtifactRef:
         """Store an array or bytes in the task's trajectory and return its reference."""
-        if self._task is None:
-            raise RuntimeError(
-                "start_task() must run before saving trajectory artifacts"
-            )
+        root = self.trajectory_dir
         if not isinstance(value, (np.ndarray, bytes)):
             raise TypeError("trajectory artifacts must be numpy arrays or bytes")
         is_bytes = isinstance(value, bytes)
@@ -593,7 +617,7 @@ class EnvState:
         if Path(name).suffix != suffix:
             raise ValueError(f"trajectory artifact name must end with {suffix}")
         path = f"artifacts/{name}"
-        destination = self._output_dir / "trajectories" / self._task.task_id / path
+        destination = root / path
         with self._artifact_lock:
             destination.parent.mkdir(parents=True, exist_ok=True)
             with self._write_trajectory_file(destination, binary=True) as file:
@@ -620,8 +644,11 @@ class EnvState:
         """
         if self._task is None or self._task.status == "running":
             raise RuntimeError("end_task() must finish before saving the trajectory")
-        root = self._output_dir / "trajectories" / self._task.task_id
+        root = self.trajectory_dir
         (root / "artifacts").mkdir(parents=True, exist_ok=True)
+        unlinked_tool_calls = [
+            call for call in self._tool_calls.values() if call.planner_id is None
+        ]
         reserved_paths: set[Path] = set()
         byte_artifacts: dict[str, ArtifactRef] = {}
         attachment_count = 0
@@ -642,6 +669,7 @@ class EnvState:
         reserve_artifacts(self._task)
         for planner in self._planners.values():
             reserve_artifacts(planner)
+        reserve_artifacts(unlinked_tool_calls)
         for observation in self._observations.values():
             reserve_artifacts(observation)
         for action in self._actions.values():
@@ -753,10 +781,13 @@ class EnvState:
                 json.dump(encode(planner), file, ensure_ascii=False, allow_nan=False)
                 file.write("\n")
         observations: dict[str, Any] = {}
-        for filename, records, sides in (
+        record_files = [
             ("actions.jsonl", self._actions.values(), ("before", "after")),
             ("predictions.jsonl", self._predictions.values(), ()),
-        ):
+        ]
+        if unlinked_tool_calls:
+            record_files.append(("unlinked_tool_calls.jsonl", unlinked_tool_calls, ()))
+        for filename, records, sides in record_files:
             with self._write_trajectory_file(root / filename) as file:
                 for record in records:
                     data = encode(record)

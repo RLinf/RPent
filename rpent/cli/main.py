@@ -62,7 +62,7 @@ from rpent.planner.base import (
 )
 from rpent.planner.check import BASE_URL_ENV_BY_PLANNER
 from rpent.robots import enumerate_robots, get_robot_spec, get_toolkit
-from rpent.session.planner_capture import end_api_task, start_api_task
+from rpent.session.planner_capture import end_planner_task, start_planner_task
 from rpent.utils.logging import get_logger, init_output_dir
 
 logger = get_logger("agent")
@@ -198,8 +198,8 @@ def _build_argparser() -> argparse.ArgumentParser:
     ap.add_argument(
         "--record-trajectory",
         action="store_true",
-        help="Record task, planner, and tool trajectories (api planner only). "
-        "Also records actions and VLA predictions in LIBERO evaluation mode.",
+        help="Record task, planner, and tool trajectories (api and codex planners). "
+        "Supported environments also record executed actions and VLA predictions.",
     )
     ap.add_argument(
         "--memory-profile",
@@ -646,8 +646,8 @@ def main() -> int:
             finish_result = None
             environment_success = None
             try:
-                if args.planner == "api" and args.record_trajectory:
-                    task_state = start_api_task(
+                if args.record_trajectory and args.planner in {"api", "codex"}:
+                    task_state = start_planner_task(
                         toolkit.state,
                         instruction=session_msg,
                         config={"arguments": vars(args), "run": asdict(run_config)},
@@ -693,7 +693,7 @@ def main() -> int:
                     try:
                         toolkit.close()
                     finally:
-                        end_api_task(
+                        end_planner_task(
                             task_state,
                             result,
                             finish_result=finish_result,

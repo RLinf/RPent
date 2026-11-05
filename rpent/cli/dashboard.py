@@ -37,7 +37,7 @@ from rpent.evaluation import RunFinalizationContext
 from rpent.memory import MemoryManager
 from rpent.planner.base import build_planner, is_recoverable_agent_error
 from rpent.robots import get_toolkit
-from rpent.session.planner_capture import end_api_task, start_api_task
+from rpent.session.planner_capture import end_planner_task, start_planner_task
 from rpent.utils.config import get_memory_dir
 from rpent.utils.logging import get_logger, init_output_dir
 
@@ -317,8 +317,11 @@ def _run_dashboard_task(
                 finish_result = None
                 environment_success = None
                 try:
-                    if task_args.planner == "api" and task_args.record_trajectory:
-                        task_state = start_api_task(
+                    if task_args.record_trajectory and task_args.planner in {
+                        "api",
+                        "codex",
+                    }:
+                        task_state = start_planner_task(
                             toolkit.state,
                             instruction=session_message,
                             config={
@@ -373,7 +376,7 @@ def _run_dashboard_task(
                         try:
                             toolkit.close()
                         finally:
-                            end_api_task(
+                            end_planner_task(
                                 task_state,
                                 result,
                                 finish_result=finish_result,

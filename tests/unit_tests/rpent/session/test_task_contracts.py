@@ -341,6 +341,112 @@ def test_tool_update_keeps_action_links_and_accepts_late_feedback(
     )
 
 
+def test_tool_calls_link_after_execution_in_response_order(state: EnvState) -> None:
+    tool_ids = [
+        state.register_tool_call(
+            planner_id=None,
+            origin="unknown",
+            name=name,
+            arguments=Payload("json", {}),
+            missing={"planner_id": MissingInfo("pending", "Waiting for the trace.")},
+        )
+        for name in ("move", "observe")
+    ]
+    prediction_id = state.register_prediction(
+        tool_call_id=tool_ids[0], instruction="Move the cup."
+    )
+    action_id = state.register_action(
+        tool_call_id=tool_ids[0],
+        source="vla",
+        prediction_id=prediction_id,
+        action=Payload("test.action", [0.5]),
+        before_observation_id=None,
+        after_observation_id=None,
+    )
+    state.update_tool_call(
+        tool_ids[0],
+        status="completed",
+        raw_result=Payload("test.result", {"executed_steps": 1}),
+    )
+    before = state.tool_call_records()
+    assert [tool.tool_call_id for tool in before] == tool_ids
+    assert all(tool.planner_id is None and tool.origin == "unknown" for tool in before)
+    assert state.planner_records() == []
+
+    planner_id = state.register_planner(backend="codex", status="completed")
+    state.update_tool_call(
+        tool_ids[1],
+        planner_id=planner_id,
+        origin="model",
+        missing={"planner_id": None},
+    )
+    assert state.prediction_records()[0].planner_id is None
+    state.update_tool_call(
+        tool_ids[0],
+        planner_id=planner_id,
+        origin="model",
+        source_ids={"test.call_id": "move_1"},
+        missing={"planner_id": None},
+    )
+    state.update_tool_call(tool_ids[0], planner_id=planner_id)
+    state.update_tool_call(tool_ids[0], planner_id=None, origin=None)
+
+    calls = state.tool_call_records()
+    assert [tool.tool_call_id for tool in calls] == tool_ids
+    assert state.get_planner(planner_id).tool_calls == list(reversed(calls))
+    assert all(
+        tool.planner_id == planner_id and tool.origin == "model" for tool in calls
+    )
+    assert all("planner_id" not in tool.missing for tool in calls)
+    assert calls[0].status == "completed"
+    assert calls[0].raw_result == before[0].raw_result
+    assert calls[0].source_ids == {"test.call_id": "move_1"}
+    prediction = state.prediction_records()[0]
+    assert prediction.planner_id == planner_id
+    assert prediction.tool_call_id == tool_ids[0]
+    assert prediction.action_ids == [action_id]
+    assert state.get_action(action_id).tool_call_id == tool_ids[0]
+    assert all(tool.planner_id is None and tool.origin == "unknown" for tool in before)
+
+
+@pytest.mark.parametrize(
+    "failure", ["missing_planner", "different_planner", "overwrite"]
+)
+def test_rejected_tool_association_preserves_records(
+    state: EnvState, failure: str
+) -> None:
+    planner_id = state.register_planner(backend="codex")
+    tool_id = state.register_tool_call(
+        planner_id=planner_id if failure == "different_planner" else None,
+        origin="unknown",
+        name="move",
+        arguments=Payload("json", {}),
+        raw_result=Payload("test.result", {"executed_steps": 1}),
+    )
+    state.register_prediction(tool_call_id=tool_id, instruction="Move the cup.")
+    target = (
+        "unknown-planner"
+        if failure == "missing_planner"
+        else state.register_planner(backend="codex")
+    )
+    tools = state.tool_call_records()
+    planners = state.planner_records()
+    predictions = state.prediction_records()
+
+    with pytest.raises(KeyError if failure == "missing_planner" else ValueError):
+        state.update_tool_call(
+            tool_id,
+            planner_id=target,
+            origin="program",
+            status="failed",
+            raw_result=Payload("test.result", {}) if failure == "overwrite" else None,
+        )
+
+    assert state.tool_call_records() == tools
+    assert state.planner_records() == planners
+    assert state.prediction_records() == predictions
+
+
 def test_updates_record_failures_without_inventing_results_or_times(
     state: EnvState, tool_id: str
 ) -> None:
@@ -606,6 +712,9 @@ def test_registration_and_queries_isolate_nested_payloads(tmp_path: Path) -> Non
     state.get_observation(obs).payload.data[:] = 88
     state.get_action(action).action.data["joints"][:] = 77
     state.planner_records()[0].tool_calls.clear()
+    tools = state.tool_call_records()
+    tools[0].raw_result.data.clear()
+    tools.clear()
     actions = state.action_records()
     actions[0].before_observation_id = None
     actions[0].action.format = "test.changed_again"
@@ -1040,7 +1149,60 @@ def test_planner_trajectory_saves_a_task_without_model_calls(state):
     assert (root / "planners.jsonl").read_text() == ""
     assert (root / "actions.jsonl").read_text() == ""
     assert (root / "predictions.jsonl").read_text() == ""
+    assert not (root / "unlinked_tool_calls.jsonl").exists()
     assert json.loads((root / "task.json").read_text())["task"]["status"] == "failed"
+
+
+def test_planner_trajectory_preserves_unlinked_tools_and_their_execution(
+    state, tool_id
+):
+    unlinked = state.register_tool_call(
+        planner_id=None,
+        origin="unknown",
+        name="move",
+        arguments=Payload("mcp.tool_args", {"target": "cup"}),
+        status="completed",
+        raw_result=Payload("test.result", b"image"),
+        feedback=Payload("mcp.call_tool_result", {"content": []}),
+        missing={"planner_id": MissingInfo("not_recorded", "Trace incomplete.")},
+    )
+    observation = state.register_observation(payload=Payload("test.obs", b"image"))
+    prediction = state.register_prediction(tool_call_id=unlinked, instruction="Move.")
+    action = state.register_action(
+        tool_call_id=unlinked,
+        prediction_id=prediction,
+        source="vla",
+        action=Payload("test.action", [1]),
+        before_observation_id=observation,
+        after_observation_id=observation,
+    )
+    state.end_task(status="failed", stop_reason="planner_error")
+
+    root = state.save_planner_trajectory()
+
+    call = json.loads((root / "unlinked_tool_calls.jsonl").read_text())
+    assert call["tool_call_id"] == unlinked
+    assert call["planner_id"] is None and call["origin"] == "unknown"
+    assert call["status"] == "completed"
+    assert call["missing"]["planner_id"]["reason"] == "not_recorded"
+    assert call["arguments"]["data"] == {"target": "cup"}
+    assert call["feedback"]["data"] == {"content": []}
+    reference = call["raw_result"]["data"]
+    assert (root / reference["path"]).read_bytes() == b"image"
+    planner = json.loads((root / "planners.jsonl").read_text())
+    assert [tool["tool_call_id"] for tool in planner["tool_calls"]] == [tool_id]
+    saved_action = json.loads((root / "actions.jsonl").read_text())
+    assert saved_action["tool_call_id"] == unlinked
+    assert saved_action["action_id"] == action
+    assert saved_action["before_observation"]["payload"]["data"] == reference
+    saved_prediction = json.loads((root / "predictions.jsonl").read_text())
+    assert saved_prediction["prediction_id"] == prediction
+    assert saved_prediction["planner_id"] is None
+    assert saved_prediction["tool_call_id"] == unlinked
+    assert saved_prediction["action_ids"] == [action]
+    assert len(list((root / "artifacts").iterdir())) == 1
+    task = json.loads((root / "task.json").read_text())
+    assert task["schema_version"] == 5 and task["task"]["status"] == "failed"
 
 
 def test_prediction_without_actions_saves_only_context(state, tool_id):
@@ -1148,7 +1310,14 @@ def test_planner_trajectory_distinguishes_references_and_literal_tags(state):
 
 
 @pytest.mark.parametrize(
-    "filename", ["planners.jsonl", "actions.jsonl", "predictions.jsonl", "task.json"]
+    "filename",
+    [
+        "planners.jsonl",
+        "actions.jsonl",
+        "predictions.jsonl",
+        "unlinked_tool_calls.jsonl",
+        "task.json",
+    ],
 )
 def test_planner_trajectory_write_failure_is_visible_and_retryable(
     state, tmp_path, monkeypatch, filename
@@ -1176,6 +1345,9 @@ def test_planner_trajectory_write_failure_is_visible_and_retryable(
         tool_call_id=tool,
         instruction="Move.",
         action_ids=[action_id],
+    )
+    unlinked = state.register_tool_call(
+        planner_id=None, name="inspect", arguments=Payload("json", {})
     )
     state.end_task(status="completed", stop_reason="finish")
     root = tmp_path / "trajectories" / state.get_task().task_id
@@ -1215,6 +1387,10 @@ def test_planner_trajectory_write_failure_is_visible_and_retryable(
     assert prediction["prediction_id"] == prediction_id
     assert prediction["action_ids"] == [action_id]
     assert "actions" not in prediction
+    assert (
+        json.loads((root / "unlinked_tool_calls.jsonl").read_text())["tool_call_id"]
+        == unlinked
+    )
     assert len(list((root / "artifacts").iterdir())) == 4
 
 
@@ -1462,6 +1638,8 @@ def test_action_trajectory_preserves_missing_observations(state, tool_id):
         ("bytes", "planner", ".payload-000001.tmp"),
         ("ndarray", "observation", "payload-000001"),
         ("ndarray", "action", ".payload-000001.tmp"),
+        ("bytes", "unlinked_tool", "payload-000001"),
+        ("ndarray", "unlinked_tool", ".payload-000001.tmp"),
     ],
 )
 def test_captured_artifacts_survive_trajectory_save(tmp_path, kind, owner, stem):
@@ -1490,6 +1668,10 @@ def test_captured_artifacts_survive_trajectory_save(tmp_path, kind, owner, stem)
     tool_id = state.register_tool_call(
         planner_id=planner_id, name="move", arguments=Payload("json", {})
     )
+    if owner == "unlinked_tool":
+        state.register_tool_call(
+            planner_id=None, name="inspect", arguments=Payload("json", reference)
+        )
     root = tmp_path / "trajectories" / state.get_task().task_id
     original = (root / reference.path).read_bytes()
     assert state.get_task().status == "running"
@@ -1535,6 +1717,10 @@ def test_captured_artifacts_survive_trajectory_save(tmp_path, kind, owner, stem)
         saved = task["config"]["data"]["existing"][0]
     elif owner == "planner":
         saved = planners[0]["request"]["data"]
+    elif owner == "unlinked_tool":
+        saved = json.loads((root / "unlinked_tool_calls.jsonl").read_text())[
+            "arguments"
+        ]["data"]
     else:
         saved = {
             "observation": row["before_observation"]["payload"],
@@ -1559,6 +1745,26 @@ def test_captured_artifacts_survive_trajectory_save(tmp_path, kind, owner, stem)
     assert {
         path: path.read_bytes() for path in root.rglob("*") if path.is_file()
     } == files
+
+
+def test_trajectory_directory_is_shared_by_live_artifacts_and_finished_records(
+    tmp_path,
+):
+    state = EnvState(tmp_path / "sessions" / "session_002")
+    with pytest.raises(RuntimeError, match=r"start_task\(\)"):
+        _ = state.trajectory_dir
+    task_id = state.start_task(instruction="Move.", config=Payload("test.config", {}))
+    root = tmp_path / "sessions" / "session_002" / "trajectories" / task_id
+    assert state.trajectory_dir == root
+    assert not root.exists()
+
+    reference = state.save_trajectory_artifact(b"observation")
+    assert (root / reference.path).read_bytes() == b"observation"
+    state.end_task(status="completed", stop_reason="finish")
+
+    assert state.trajectory_dir == state.save_planner_trajectory() == root
+    assert json.loads((root / "task.json").read_text())["task"]["task_id"] == task_id
+    assert (root / reference.path).read_bytes() == b"observation"
 
 
 def test_trajectory_artifact_requires_task_and_valid_data(tmp_path):

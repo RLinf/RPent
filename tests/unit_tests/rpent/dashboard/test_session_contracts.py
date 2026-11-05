@@ -184,6 +184,8 @@ def test_dashboard_session_stops_shared_daemons_in_reverse_after_cleanup_error(
         (2, False, False, "api"),
         (1, False, True, "claude_code"),
         (1, False, True, "codex"),
+        (1, False, False, "codex"),
+        (2, False, True, "codex"),
     ],
 )
 def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
@@ -201,7 +203,7 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
     merge_calls: list[dict[str, Any]] = []
     solved_calls = []
     stores = []
-    capture_enabled = record_trajectory and planner_name == "api"
+    capture_enabled = record_trajectory and planner_name in {"api", "codex"}
 
     class FakeMemoryManager:
         def merge_memory(self, **kwargs: Any) -> dict[str, int]:
@@ -261,7 +263,11 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
 
     class FakePlanner:
         def solve(self, **kwargs: Any) -> PlannerResult:
-            del kwargs
+            task = kwargs["toolkit"].state.get_task()
+            if capture_enabled:
+                assert task.status == "running"
+            else:
+                assert task is None
             return PlannerResult(
                 finish_result={"status": "success"},
                 messages=[],
@@ -336,7 +342,7 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
         }
         assert all(task["status"] == "completed" for task in saved_tasks)
         for task in saved_tasks:
-            assert task["config"]["data"]["arguments"]["planner"] == "api"
+            assert task["config"]["data"]["arguments"]["planner"] == planner_name
             assert task["config"]["data"]["arguments"]["record_trajectory"] is True
             assert task["config"]["data"]["run"]["output_dir"] == str(output_dir)
     else:
