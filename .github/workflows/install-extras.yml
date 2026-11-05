@@ -1,0 +1,71 @@
+name: Install robot extras
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    name: Install ${{ matrix.name }}
+    runs-on: embodied
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - name: LIBERO-PRO
+            python: "3.11"
+            extras: libero-pro
+          - name: RoboCasa
+            python: "3.10"
+            extras: robocasa
+          - name: RoboTwin
+            python: "3.11"
+            extras: robotwin
+    env:
+      UV_CACHE_DIR: /workspace/dataset/.uv_cache
+      UV_LINK_MODE: symlink
+      UV_PYTHON_INSTALL_DIR: /workspace/dataset/.uv_python
+      # Match the existing embodied GPU suite's driver-based wheel selection.
+      UV_TORCH_BACKEND: auto
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: false
+      - name: Install and inspect dependencies
+        shell: bash
+        env:
+          PYTHON_VERSION: ${{ matrix.python }}
+          EXTRAS: ${{ matrix.extras }}
+        run: |
+          set -euo pipefail
+          unset PYTHONPATH VIRTUAL_ENV CONDA_PREFIX
+          nvidia-smi --query-gpu=driver_version --format=csv,noheader
+          if command -v nvcc > /dev/null 2>&1; then
+            nvcc --version
+          fi
+          venv_dir="$RUNNER_TEMP/rpent-install-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          timeout --foreground --kill-after=2m 10m \
+            uv venv "$venv_dir" --python "$PYTHON_VERSION"
+          timeout --foreground --kill-after=2m 90m \
+            uv pip install --python "$venv_dir/bin/python" \
+              --editable ".[$EXTRAS]"
+          uv pip check --python "$venv_dir/bin/python"
+          "$venv_dir/bin/python" -c \
+            'import torch; print(f"torch={torch.__version__} torch_cuda={torch.version.cuda}")'
+          "$venv_dir/bin/rpent" --help > /dev/null
+      - name: Remove isolated environment
+        if: always()
+        shell: bash
+        run: |
+          venv_dir="$RUNNER_TEMP/rpent-install-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          if [[ -d "$venv_dir" ]]; then
+            find "$venv_dir" -depth -delete
+          fi
