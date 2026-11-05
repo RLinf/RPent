@@ -85,7 +85,7 @@ messages keep their queue order. A successful ``finish`` ends the task without
 sending pending messages.
 
 ``--dashboard`` cannot be combined with ``--tui`` or
-``--env-endpoint``. External ``--vla-endpoint`` and ``--sam3-endpoint``
+``--env-endpoint``. External ``--am-endpoint`` and ``--sam3-endpoint``
 services remain supported. Use ``--dashboard-language zh-cn`` for the
 Chinese UI.
 

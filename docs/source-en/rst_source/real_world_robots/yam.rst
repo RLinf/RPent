@@ -309,7 +309,7 @@ through ``arguments``.
 
    python -m robots.yam.manual --task-id "$TASK_ID" --mode vla \
      --env-endpoint socket://127.0.0.1:8110 --max-episode-steps 1000 \
-     --vla-endpoint socket://127.0.0.1:8220 --output-dir /path/to/diagnostics
+     --am-endpoint socket://127.0.0.1:8220 --output-dir /path/to/diagnostics
 
 First enter ``{"tool":"infer"}`` to save a prediction without moving the arms. After
 checking it, enter ``{"tool":"execute","arguments":{"use_length":5}}`` to execute the
@@ -341,7 +341,7 @@ run:
      --planner codex --model MODEL_ID --reasoning-effort low \
      --robot-config robots/yam/config/example.yaml \
      --env-endpoint socket://127.0.0.1:8110 \
-     --vla-endpoint socket://127.0.0.1:8220 \
+     --am-endpoint socket://127.0.0.1:8220 \
      --max-episode-steps 1000 \
      --memory-profile local --memory-dir ./memory/yam
 

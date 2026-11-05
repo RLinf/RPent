@@ -55,7 +55,7 @@ Session 配置全部来自命令行，打开地址后会直接进入实时监控
 
 使用 Claude Code、Codex 或 Gemini 时，普通消息会排队等待当前 agent turn 完成。如需提前继续，可先提交消息再按 Esc：活动工具和后端 turn 停止后，才会发送下一条排队消息，其余消息保持原有顺序。成功执行 ``finish`` 后任务结束，不再发送排队消息。
 
-``--dashboard`` 不能与 ``--tui`` 或 ``--env-endpoint`` 同时使用；外部 ``--vla-endpoint`` 和 ``--sam3-endpoint`` 服务仍然可用。使用 ``--dashboard-language zh-cn`` 可切换中文 UI。
+``--dashboard`` 不能与 ``--tui`` 或 ``--env-endpoint`` 同时使用；外部 ``--am-endpoint`` 和 ``--sam3-endpoint`` 服务仍然可用。使用 ``--dashboard-language zh-cn`` 可切换中文 UI。
 
 查看结果与结束会话
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~

@@ -137,10 +137,23 @@ USER_MODE = """Solve the current episode now using registered tools and current
 evidence. Do not ask for clarification or defer the next determined action."""
 
 
+WAM_ROLE = "Control the RoboTwin robot using wam_act and scripted tools."
+
+WAM_WORKFLOW = (
+    "Inspect view_env_state at step 0. Call wam_act for one chunk, "
+    "then inspect the new state and images before continuing. Omit prompt to use "
+    "the native task; supply a grounded subtask only when needed. "
+    "Stop acting when the episode ends. Use native eval_success to judge full-task "
+    "success, and call finish with the observed outcome."
+)
+
+
 def system_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> PromptNode:
-    """Return the RoboTwin evaluation prompt."""
+    """Return the RoboTwin evaluation prompt for the selected policy."""
+    if (variables or {}).get("policy_kind") == "wam":
+        return {"ROLE": WAM_ROLE, "WORKFLOW": WAM_WORKFLOW}
     return {
         "ROLE": ROLE,
         "READ ORDER": READ_ORDER,
