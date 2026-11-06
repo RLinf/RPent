@@ -481,6 +481,8 @@ def test_libero_default_evaluation_config(tmp_path: Path) -> None:
         "seed": 7,
         "policy_kind": "vla",
         "policy_backend": "pi05",
+        "geometry_model": None,
+        "geometry_base_url": None,
     }
 
 

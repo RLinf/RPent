@@ -81,7 +81,9 @@ def build_env_cfg(
             "video_cfg": {
                 "save_video": True,
                 "info_on_video": True,
-                "video_base_dir": "/tmp/primitive_videos",
+                "video_base_dir": os.path.join(
+                    os.environ.get("TMPDIR", "/tmp"), "rpent-primitive-videos"
+                ),
             },
             "init_params": {
                 "camera_heights": 256,
@@ -109,6 +111,7 @@ def make_env(
     seed: int,
     suite_name: str = "libero_spatial",
     max_episode_steps: int = 10000,
+    evaluation_references: bool = False,
 ) -> LiberoEnv:
     """Build a single-env LiberoEnv pinned to ``task_id`` / ``seed``."""
     from rlinf.envs.sim.libero.libero_env import LiberoEnv
@@ -130,7 +133,12 @@ def make_env(
         seed=seed,
         max_episode_steps=max_episode_steps,
     )
-    return LiberoEnv(
+    env_class = LiberoEnv
+    if evaluation_references:
+        from tools.libero.evaluation_scene import evaluation_env_class
+
+        env_class = evaluation_env_class(LiberoEnv)
+    return env_class(
         cfg=cfg, num_envs=1, seed_offset=0, total_num_processes=1, worker_info=None
     )
 
@@ -170,6 +178,15 @@ class LiberoEnvFacade(BaseEnvFacade):
             }
         )
         self._readonly_methods.add("env.get_task_language")
+        if getattr(self._env, "_rpent_evaluation_enabled", False):
+            self._rpc["evaluation.reference_snapshot"] = self.reference_snapshot
+            self._readonly_methods.add("evaluation.reference_snapshot")
+
+    def reference_snapshot(self) -> dict:
+        """Evaluator-only geometry; absent from normal servers and planner tools."""
+        return self._env.env.workers[self._env_idx].get_env_attr(
+            "rpent_reference_snapshot"
+        )
 
     # ---- shape helpers ----
 
@@ -346,6 +363,7 @@ def main():
     p.add_argument("--suite", type=str, default="libero_spatial")
     p.add_argument("--task", type=int, default=9)
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--evaluation-references", action="store_true")
     p.add_argument("--max-episode-steps", type=int, default=10000)
     p.add_argument(
         "--parent-watch",
@@ -394,6 +412,7 @@ def main():
         args.seed,
         suite_name=args.suite,
         max_episode_steps=args.max_episode_steps,
+        evaluation_references=args.evaluation_references,
     )
     facade = LiberoEnvFacade(
         raw_env,

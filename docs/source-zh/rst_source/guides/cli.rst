@@ -93,6 +93,8 @@ LIBERO 使用 ``--suite``、``--task``、``--seed`` 和 ``--libero-type`` 选择
 
 ``--env-endpoint``、``--am-endpoint`` 和 LIBERO 的 ``--sam3-endpoint`` 分别连接已有的环境、动作模型（VLA 或 WAM）和 SAM3 服务。RPent RPC 地址格式为 ``[protocol://]host:port``，默认协议为 ``http``；LingBot 使用原生 WebSocket，见 :doc:`../simulators/robotwin`。GPU 分配和远程服务见 :doc:`advanced_deployment`。
 
+LIBERO 的 ``--geometry-model`` 用于选择 GeometryAgent 的视觉模型，格式为 ``provider:model``、``codex:model``，或读取已配置默认模型的 ``codex``。未指定时，API/Codex 规划器继承主规划器模型；Claude Code 需要显式指定。``--geometry-base-url`` 默认继承主规划器的 ``--base-url``。SAM3 继续作为内部依赖。``localize`` 的返回约定见 :doc:`../simulators/libero`。
+
 ``--am-backend`` 选择当前平台支持的一个动作模型；LIBERO 和 RoboTwin 默认分别为 ``pi05`` 和 ``lingbot``。VLA 和 WAM 共用 ``--am-endpoint`` 连接已有服务，共用 ``--am-checkpoint``、``--am-python``、``--am-root`` 和 ``--am-cuda-device`` 配置本地部署。使用 endpoint 时，显式传入本地部署参数会报错。
 
 WAM 采用 ``local`` 记忆模式并注册记忆文件工具，默认目录按后端区分，可通过 ``--memory-dir`` 指定目录；目前不支持 HF 记忆、Flash 和探索模式。模型启动参数及支持的组合见 :doc:`../development/add_action_model`。

@@ -98,6 +98,8 @@ LIBERO selects tasks with ``--suite``, ``--task``, ``--seed``, and ``--libero-ty
 
 ``--env-endpoint``, ``--am-endpoint``, and LIBERO’s ``--sam3-endpoint`` connect to existing environment, action-model (VLA or WAM), and SAM3 services respectively. RPent RPC addresses use ``[protocol://]host:port``, defaulting to ``http``. LingBot uses native WebSocket; see :doc:`../simulators/robotwin`. See :doc:`advanced_deployment` for GPU assignment and remote services.
 
+LIBERO uses ``--geometry-model`` to select the GeometryAgent visual model: ``provider:model``, ``codex:model``, or bare ``codex`` for its configured default. API/Codex planners inherit their model when this option is omitted; Claude Code requires an explicit value. ``--geometry-base-url`` defaults to the planner ``--base-url``. SAM3 remains an internal dependency. See :doc:`../simulators/libero` for the ``localize`` result contract.
+
 ``--am-backend`` selects one action model supported by the platform. LIBERO
 defaults to ``pi05`` and RoboTwin to ``lingbot``. VLA and WAM share
 ``--am-endpoint`` for existing workers, and ``--am-checkpoint``, ``--am-python``,

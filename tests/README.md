@@ -28,10 +28,12 @@ tests/
     │   ├── session/
     │   ├── tools/
     │   └── utils/
-    └── robots/           # tests for the top-level robot extensions
-        ├── libero/
-        ├── robocasa/
-        └── robotwin/
+    ├── robots/           # tests for the top-level robot extensions
+    │   ├── libero/
+    │   ├── robocasa/
+    │   └── robotwin/
+    └── tools/            # tests for project tools
+        └── libero/       # geometry localization and fixed-frame experiments
 ```
 
 Directories that do not yet have tests do not need empty placeholders. Add
@@ -43,6 +45,7 @@ them when the first test for that module lands.
   `rpent.utils.rpc` belong in `tests/unit_tests/rpent/utils/rpc/`.
 - Mirror top-level robot extensions under `tests/unit_tests/robots/`. Put
   robot-specific coverage in that directory's `<robot>/` child.
+- Mirror top-level `tools` modules under `tests/unit_tests/tools/`.
 - Place cross-layer tests with the primary contract owner. Registry and config
   contracts belong to `rpent/robots/`; extension toolkit and schema contracts
   belong to `robots/`.

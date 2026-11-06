@@ -7,7 +7,8 @@ structured MCP tools, do not issue file-based protocol commands, and do not
 manually manage `env_server.py`. Do not read BDDL files or hidden task
 definition files to infer coordinates. Start with
 `view_env_state({"step": 0})`; localize objects from `agentview_high.png` or
-`wrist_high.png` through `back_project` or `segment`.
+`wrist_high.png` through `localize` target/part descriptions. See
+[GeometryAgent](geometry_agent.md) for the current perception interface.
 
 Measured 2026-05-20 on `libero_10_with_mug` t0 (LIVING_ROOM frame) and t8
 (KITCHEN frame). All probes use `move_to` with `gripper=-1` and tight

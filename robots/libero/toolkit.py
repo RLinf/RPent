@@ -55,6 +55,8 @@ class LiberoToolkit(Toolkit):
         attempts_per_session: int = 0,
         state_output_dir: Path | str | None = None,
         policy_kind: str = "vla",
+        geometry_model: str | None = None,
+        geometry_base_url: str | None = None,
     ) -> None:
         if mode not in {"evaluation", "exploration"}:
             raise ValueError(f"unsupported LIBERO toolkit mode: {mode!r}")
@@ -73,6 +75,15 @@ class LiberoToolkit(Toolkit):
         self._attempts_per_session: int = max(0, int(attempts_per_session))
         self._session_attempt: int = 1
         self.init_primitives(runtime_kwargs=runtime_kwargs)
+        from tools.libero.geometry_agent import GeometryAgent
+
+        self._geometry_agent = GeometryAgent(
+            state=self._state,
+            segment=self._primitives.segment,
+            check_cancelled=self.raise_if_cancelled,
+            model=geometry_model,
+            base_url=geometry_base_url,
+        )
         self._register_libero_tools()
         if policy_kind == "wam":
             finish = self._tools["finish"]
@@ -101,6 +112,8 @@ class LiberoToolkit(Toolkit):
     # ------------------------------------------------------------------
     def _register_libero_tools(self) -> None:
         for definition in iter_tools(libero_tools):
+            if definition.name == "back_project":
+                continue
             self.add_tool(
                 definition.with_handler(partial(definition, state=self._state))
             )
@@ -110,13 +123,11 @@ class LiberoToolkit(Toolkit):
                 if self._policy_kind == "wam"
                 else {"wam_act"}
             )
-            if definition.name in excluded:
+            if definition.name in excluded or definition.name == "segment":
                 continue
-            if definition.name == "segment":
-                handler = partial(definition, state=self._state)
-            else:
-                handler = partial(self._execute_primitive, definition.name, definition)
+            handler = partial(self._execute_primitive, definition.name, definition)
             self.add_tool(definition.with_handler(handler))
+        self.add_tool(self._geometry_agent.localize)
         if self._mode == "exploration":
             self.add_tool(self._reset_episode)
             finish = self._tools["finish"]
