@@ -302,15 +302,11 @@ current Fast-WAM adapter uses qpos14. Cosmos Policy has no RoboTwin adapter.
 ``future_observation`` and ``value`` reserve space for model predictions.
 Separate forecasting/planning RPCs and planner consumption of predictions are
 not implemented. Every toolkit requires a ``MemoryManager`` and registers memory
-file tools. WAM uses local memory under the platform's memory root, in a
-subdirectory named after the backend; ``--memory-dir`` overrides that directory.
-The corpus may be empty. No compatible HF corpus is configured for WAM, and WAM
-evaluation currently excludes HF memory, Flash and exploration for Cosmos Policy, Cosmos3 and Fast-WAM.
-UniWAM retains RoboTwin memory selection and exploration through its dedicated
-``uniwam_act`` tool; see :doc:`../simulators/robotwin`. Its adapter consumes
-``WAMRequest.joint_target_history``, a chronological array of executed native
-controller targets. RoboTwin owns this history, including analytic interventions;
-the UniWAM worker rebuilds its policy cache for every request.
+file tools. Use ``--memory-dir`` to select the memory directory.
+
+UniWAM uses a record of the robot's recent actions to predict its next actions.
+This history also includes actions executed through tools such as ``move_to``.
+See :doc:`../simulators/robotwin` for deployment instructions.
 
 .. _action-model-deployment:
 
