@@ -12,9 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Public observation and episode-budget fields."""
+"""Public observation, episode-budget fields and RGB requirements."""
 
 CAMERAS = ("cam_head", "cam_left_wrist", "cam_right_wrist")
+ARX_X5_JOINT_FIELDS = {
+    "left_arm_joint_state": 6,
+    "left_ee_joint_state": 1,
+    "right_arm_joint_state": 6,
+    "right_ee_joint_state": 1,
+}
 STATE_KEYS = tuple(
     f"{arm}_{field}"
     for arm in ("left", "right")
@@ -54,3 +60,18 @@ def public_observation(obs: dict) -> dict:
             if name in CAMERAS
         },
     }
+
+
+def validate_rgb(obs: dict) -> None:
+    """Require nonempty HWC uint8 RGB images from the head and wrist cameras."""
+    import numpy as np
+
+    for name in CAMERAS:
+        rgb = np.asarray(obs.get("vision", {}).get(name, {}).get("color"))
+        if (
+            rgb.ndim != 3
+            or rgb.shape[-1] != 3
+            or min(rgb.shape[:2]) == 0
+            or rgb.dtype != np.uint8
+        ):
+            raise ValueError(f"RoboDojo observation requires HWC uint8 RGB: {name}")
