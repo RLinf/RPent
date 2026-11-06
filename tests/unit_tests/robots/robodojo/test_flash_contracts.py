@@ -220,7 +220,12 @@ def test_plan_rejects_unanchored_moves_and_privileged_actions():
         validate_plan(plan)
 
 
-def test_flash_planner_offline_memory_smoke(tmp_path):
+def test_legacy_flash_planner_offline_memory_smoke(tmp_path, monkeypatch):
+    # The retained replay implementation is no longer a production robot hook.
+    monkeypatch.setattr(
+        "rpent.planner.flash.get_robot_spec",
+        lambda _: SimpleNamespace(run_flash=run_flash),
+    )
     plan = generate_plan(trace(), "pick")
     root = tmp_path / "robodojo"
     (root / "flash").mkdir(parents=True)
@@ -237,6 +242,39 @@ def test_flash_planner_offline_memory_smoke(tmp_path):
     np.testing.assert_allclose(toolkit.calls[-1][1]["xyz"], [0.22, 0.33, 0.9])
     with pytest.raises(ValueError, match="identity"):
         run_flash(toolkit, "other_l2", lambda _: None)
+
+
+def test_flash_planner_cannot_replay_robodojo_actions():
+    toolkit = FakeToolkit()
+    result = FlashPlanner(recipe_tag="pick_l2", robot_name="robodojo").solve(
+        system_prompt="unused", user_message="unused", toolkit=toolkit, max_turns=0
+    )
+    assert result.error is not None
+    assert "nothing to replay" in result.error
+    assert toolkit.calls == []
+
+
+@pytest.mark.parametrize(
+    "action,arguments,offset",
+    [
+        ("move_to", {"arm": "left", "gripper": 0}, [0.0, 0.0, 0.1]),
+        ("set_gripper", {"arm": "right", "gripper": -1}, None),
+    ],
+)
+def test_historical_motion_schema_stays_strict(action, arguments, offset):
+    from jsonschema import ValidationError
+
+    plan = generate_plan(trace(), "pick")
+    plan["actions"][0].update(action=action, arguments=arguments, offset=offset)
+    assert validate_plan(plan) == plan
+    invalid = copy.deepcopy(plan)
+    invalid["actions"][0]["arguments"]["arm"] = "third"
+    with pytest.raises(ValidationError):
+        validate_plan(invalid)
+    invalid = copy.deepcopy(plan)
+    invalid["actions"][0]["arguments"]["hidden_option"] = True
+    with pytest.raises(ValidationError):
+        validate_plan(invalid)
 
 
 def test_eval_facade_never_queries_privileged_feedback(
@@ -274,7 +312,7 @@ def test_eval_facade_never_queries_privileged_feedback(
         assert method not in facade._rpc
     obs, reward, done, info = facade.step({})
     assert reward == 0 and done is False
-    assert info == {"status": {"step": 1, "step_limit": 2}}
+    assert info == {"status": {"step": 1, "step_limit": 2}, "executed_actions": 1}
     assert obs == public_observation(obs)
     assert "object_world_xyz" not in obs["state"]
     assert "object_id" not in obs["vision"]["cam_head"]
@@ -294,7 +332,12 @@ def test_dev_diagnostics_remain_callable_through_client_rpc(
     facade = env_server.RoboDojoEnvFacade(agent)
     monkeypatch.setattr(agent_module, "_reward_details", lambda *a: {"score": 100})
     monkeypatch.setattr(agent.bottle_mon, "status", lambda: {"rolling": []})
-    facade._rpc["env.reset"] = lambda: {}
+    facade._rpc["env.reset"] = lambda: {
+        "vision": {
+            name: {"color": np.zeros((2, 2, 3), dtype=np.uint8)}
+            for name in ("cam_head", "cam_left_wrist", "cam_right_wrist")
+        }
+    }
 
     def call(method, *, args=(), kwargs=None, **options):
         return facade._rpc[method](*args, **(kwargs or {}))
@@ -363,6 +406,20 @@ def test_mode_tools_state_and_prompt_gate(monkeypatch, tmp_path, eval_fair):
         eval_fair=eval_fair,
     )
     names = {s.name for s in toolkit.list_tools()}
+    assert {"view_env_state", "segment", "back_project", "finish"} <= names
+    assert {
+        "move_to",
+        "set_gripper",
+        "rotate_wrist",
+        "release",
+        "render",
+        "sample_world_xyz",
+        "query_world_map",
+    } <= names
+    assert "reset" not in names
+    for name in ("pi0_pick", "stabilize", "place_in_bin"):
+        assert name not in names
+        assert toolkit.execute_tool(name, {}).data == {"error": f"unknown tool: {name}"}
     state = toolkit.execute_tool("view_env_state", {}).data
     assert "terminated" not in state
     assert "object_world_xyz" not in state["state"]["state"]
@@ -379,6 +436,8 @@ def test_mode_tools_state_and_prompt_gate(monkeypatch, tmp_path, eval_fair):
         "env_cfg_type": "arx_x5",
         "action_type": "joint",
         "task_summary": "scene",
+        "recipe_tag": "pick",
+        "seed": 0,
     }
     prompt = bundle.render("system", variables=variables) + bundle.render(
         "user", variables=variables
@@ -397,12 +456,14 @@ def test_mode_tools_state_and_prompt_gate(monkeypatch, tmp_path, eval_fair):
         prompt = bundle.render("system", variables=variables) + bundle.render(
             "user", variables=variables
         )
-        for word in ("reward", "score", "predicate", "world_xyz"):
+        for word in ("get_reward_details", "get_safety_status", "predicate"):
             assert word not in prompt
         assert not toolkit.solved()
 
 
-def test_dev_recording_exports_actual_tool_results(monkeypatch, tmp_path):
+def test_recording_exports_perception_with_historical_motion_metadata(
+    monkeypatch, tmp_path
+):
     from robots.robodojo.flash.generate import trace_from_states
     from rpent.utils import logging
 
@@ -437,11 +498,14 @@ def test_dev_recording_exports_actual_tool_results(monkeypatch, tmp_path):
     )
     toolkit.execute_tool("segment", {"text_prompt": "bottle"})
     toolkit.execute_tool("back_project", {"row": 1, "col": 1})
-    toolkit.execute_tool("move_to", {"xyz": [1, 1, -1], "arm": "left"})
+    # Retain coverage of historical trace data without registering or executing
+    # the removed motion implementation.
+    command = {"action": "move_to", "xyz": [1, 1, -1], "arm": "left"}
+    toolkit.get_env_state(command=command, result={"reached": True}, elapsed_s=0.0)
     manifest = json.loads((tmp_path / "states.json").read_text())
     recorded = trace_from_states(manifest)
     assert not (tmp_path / "flash_trace.json").exists()
-    assert len(manifest["steps"]) == 2  # Initial observation and one motion.
+    assert len(manifest["steps"]) == 2  # Initial observation and a synthetic record.
     observed = toolkit.execute_tool("view_env_state", {})
     state = observed.data
     assert state["log"]["command"] == {
@@ -461,7 +525,7 @@ def test_dev_recording_exports_actual_tool_results(monkeypatch, tmp_path):
         {"command": {"action": "finish"}, "result": {"done": True}}
     )
     assert generate_plan(trace_from_states(manifest), "pick") == plan
-    toolkit.execute_tool("move_to", {"xyz": [1, 1, -1], "arm": "left"})
+    toolkit.get_env_state(command=command, result={"reached": True}, elapsed_s=0.0)
     manifest = json.loads((tmp_path / "states.json").read_text())
     assert "perception" not in manifest["steps"][-1]["extras"]
     with pytest.raises(ValueError, match="fresh measured"):
