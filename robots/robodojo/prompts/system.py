@@ -57,7 +57,27 @@ substeps samples the planned path, not time or physical simulation steps;
 0 keeps the full path, 1 keeps only the last waypoint.
 Inspect completed, executed_steps and stop_reason. final_dist_m is measured
 position error, not a task-success verdict. On failure, inspect and decide
-the next action; do not assume a failed call left the robot unmoved."""
+the next action; do not assume a failed call left the robot unmoved.
+"""
+
+VPP2_POLICY = """vpp2_act(instruction, chunks=1) executes a current natural-language subtask,
+not automatically the original task. Describe the visible object, destination
+or relation, and necessary arm coordination or method, preferably in English.
+Do not use it as a millimetre-accurate coordinate controller; use analytic
+tools for explicit poses. Start with one chunk: VPP2 predicts 32 dual-arm EE
+targets, executes the first 24 and replans for each additional chunk.
+History automatically includes earlier analytic and policy actions; changing
+the subtask does not clear it. Check the fresh images after each call. A
+completed chunk does not prove the subtask succeeded. If history becomes
+unavailable after uncertain execution, do not retry VPP2 on stale feedback;
+evaluation cannot reset. Stop or continue with inspected analytic actions."""
+
+AWOMO05_POLICY = """awomo05_act(chunks=1) executes the original full task instruction
+using dual-arm joint targets. Each chunk executes 8 native actions, then replans.
+History includes earlier motion primitive and policy actions and persists across
+calls. Start with one chunk and check the fresh images after each policy call.
+A completed chunk does not prove the task succeeded. If execution is uncertain
+or model history synchronization is lost, stop controlling and call finish."""
 
 SAFETY = """Native planning includes a simplified table and self-collision
 checks, not a complete obstacle model of objects or the opposite arm.

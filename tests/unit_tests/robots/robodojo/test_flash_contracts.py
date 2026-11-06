@@ -277,8 +277,9 @@ def test_historical_motion_schema_stays_strict(action, arguments, offset):
         validate_plan(invalid)
 
 
+@pytest.mark.parametrize("stop", ["budget", "end_flag"])
 def test_eval_facade_never_queries_privileged_feedback(
-    monkeypatch, agent_module, make_agent
+    monkeypatch, agent_module, make_agent, stop
 ):
     raw = {
         "reward": 999,
@@ -286,11 +287,18 @@ def test_eval_facade_never_queries_privileged_feedback(
         "state": {"object_world_xyz": [9, 9, 9], "left_ee_pose": [0, 0, 1]},
         "vision": {"cam_head": {"color": np.zeros((2, 2, 3)), "object_id": 77}},
     }
-    env = SimpleNamespace(take_action_cnt=[0], step_lim=2, apply_target=lambda *a: None)
+    env = SimpleNamespace(
+        take_action_cnt=[0],
+        step_lim=2 if stop == "budget" else 100,
+        end_flag=[False],
+        apply_target=lambda *a: None,
+    )
 
     def apply(action, action_type, *, eval_fair):
         assert eval_fair
         env.take_action_cnt[0] += 1
+        if stop == "end_flag" and env.take_action_cnt[0] == 2:
+            env.end_flag[0] = True
 
     agent = make_agent(
         env,
@@ -312,13 +320,26 @@ def test_eval_facade_never_queries_privileged_feedback(
         assert method not in facade._rpc
     obs, reward, done, info = facade.step({})
     assert reward == 0 and done is False
-    assert info == {"status": {"step": 1, "step_limit": 2}, "executed_actions": 1}
+    assert info == {
+        "status": {"step": 1, "step_limit": env.step_lim},
+        "executed_actions": 1,
+        "step_before": 0,
+        "step_after": 1,
+        "terminated": False,
+        "truncated": False,
+    }
     assert obs == public_observation(obs)
     assert "object_world_xyz" not in obs["state"]
     assert "object_id" not in obs["vision"]["cam_head"]
-    facade.step({})
-    with pytest.raises(RuntimeError, match="budget"):
-        facade.step({})
+    _, _, done, info = facade.step({})
+    assert not done and not info["terminated"] and info["truncated"]
+    if stop == "budget":
+        with pytest.raises(RuntimeError, match="budget"):
+            facade.step({})
+    else:
+        _, _, done, info = facade.step({})
+        assert not done and info["truncated"] and info["executed_actions"] == 0
+    assert env.take_action_cnt == [2]
 
 
 def test_dev_diagnostics_remain_callable_through_client_rpc(
@@ -332,6 +353,11 @@ def test_dev_diagnostics_remain_callable_through_client_rpc(
     facade = env_server.RoboDojoEnvFacade(agent)
     monkeypatch.setattr(agent_module, "_reward_details", lambda *a: {"score": 100})
     monkeypatch.setattr(agent.bottle_mon, "status", lambda: {"rolling": []})
+    facade._rpc["env.get_status"] = lambda: {
+        "step": 0,
+        "step_limit": 100,
+        "success": False,
+    }
     facade._rpc["env.reset"] = lambda: {
         "vision": {
             name: {"color": np.zeros((2, 2, 3), dtype=np.uint8)}
@@ -389,16 +415,20 @@ def test_eval_client_rejects_dev_service_and_does_not_reset():
 
 
 @pytest.mark.parametrize("eval_fair", [False, True])
-def test_mode_tools_state_and_prompt_gate(monkeypatch, tmp_path, eval_fair):
+def test_mode_tools_state_and_prompt_gate(monkeypatch, tmp_path, eval_fair, fake_env):
     from rpent.utils import logging
 
     monkeypatch.setattr(logging, "_output_dir", tmp_path)
-    env = SimpleNamespace(
-        eval_fair=eval_fair,
-        get_obs=lambda: {"vision": {}, "state": {"object_world_xyz": [9, 9, 9]}},
-        get_status=lambda: {"step": 0, "step_limit": 10, "success": True, "score": 100},
-        get_task_language=lambda: "pick",
-    )
+    env = fake_env(limit=10)
+    env.eval_fair = eval_fair
+    env.get_obs = lambda: {"vision": {}, "state": {"object_world_xyz": [9, 9, 9]}}
+    env.get_status = lambda: {
+        "step": 0,
+        "step_limit": 10,
+        "success": True,
+        "score": 100,
+    }
+    env.get_task_language = lambda: "pick"
     toolkit = RoboDojoToolkit(
         primitives_kwargs={"env": env, "task": "pick"},
         dashboard_events=NullDashboardEventSink(),
@@ -436,6 +466,7 @@ def test_mode_tools_state_and_prompt_gate(monkeypatch, tmp_path, eval_fair):
         "env_cfg_type": "arx_x5",
         "action_type": "joint",
         "task_summary": "scene",
+        "memory_dir": str(tmp_path / "memory"),
         "recipe_tag": "pick",
         "seed": 0,
     }
@@ -462,7 +493,7 @@ def test_mode_tools_state_and_prompt_gate(monkeypatch, tmp_path, eval_fair):
 
 
 def test_recording_exports_perception_with_historical_motion_metadata(
-    monkeypatch, tmp_path
+    monkeypatch, tmp_path, fake_env
 ):
     from robots.robodojo.flash.generate import trace_from_states
     from rpent.utils import logging
@@ -479,11 +510,9 @@ def test_recording_exports_perception_with_historical_motion_metadata(
         },
         "state": {"left_ee_pose": [1, 1, -1], "right_ee_pose": [0, 0, 1]},
     }
-    env = SimpleNamespace(
-        get_obs=lambda: obs,
-        get_status=lambda: {"step": 0, "step_limit": 10},
-        get_task_language=lambda: "pick",
-    )
+    env = fake_env(limit=10)
+    env.get_obs = lambda: obs
+    env.get_task_language = lambda: "pick"
     toolkit = RoboDojoToolkit(
         primitives_kwargs={
             "env": env,
