@@ -72,7 +72,7 @@ def test_uniwam_mixed_actions():
     with runtime_phase(spec, args, output, {"env", "wam"}) as runtime:
         env = runtime["env"]
         driver = RoboTwinPrimitives(**runtime, check_cancelled=lambda: None)
-        result = driver.uniwam_act(chunks=1)
+        result = driver.wam_act(max_chunks=1)
         assert result.data["executed_steps"] > 0
         if env.terminated or env.truncated:
             env.reset()
@@ -81,7 +81,7 @@ def test_uniwam_mixed_actions():
         np.testing.assert_array_equal(
             env.qpos_history[-1], env.last_info["robot_state"]["qpos_target14"]
         )
-        assert driver.uniwam_act(chunks=1).data["executed_steps"] > 0
+        assert driver.wam_act(max_chunks=1).data["executed_steps"] > 0
         env.reset()
         assert env.qpos_history.shape == (1, 14)
 
@@ -91,6 +91,6 @@ def test_uniwam_policy_chain():
         robot="robotwin",
         robot_argv=_argv(),
         output_dir=Path(os.environ["RPENT_E2E_OUTPUT_DIR"]) / "uniwam-chain",
-        action=ScriptedToolCall("uniwam_act", {"chunks": 1}),
+        action=ScriptedToolCall("wam_act", {"max_chunks": 1}),
         action_count_field="executed_steps",
     )

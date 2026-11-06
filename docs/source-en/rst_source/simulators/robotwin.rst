@@ -69,7 +69,7 @@ The table distinguishes planner tools, model inputs, and the environment’s suc
    * - Observation
      - Head and left/right wrist RGB views, depth/world coordinates for localization, and robot state. Both models use RGB views, robot state, and task text; UniWAM also uses recent joint-state feedback.
    * - Action
-     - The selected backend exposes ``lingbot_act`` or ``uniwam_act`` alongside motion primitives. The environment accepts 16-value end-effector actions (``ee``) or 14-value joint/gripper actions (``qpos``).
+     - The selected backend exposes ``lingbot_act`` or ``wam_act`` alongside motion primitives. The environment accepts 16-value end-effector actions (``ee``) or 14-value joint/gripper actions (``qpos``).
    * - Reward / success
      - Evaluate success using native ``TASK_ENV.eval_success``. Planner completion and episode timeouts are separate outcomes.
    * - Task prompt
@@ -147,7 +147,7 @@ UniWAM Backend
 ~~~~~~~~~~~~~~
 
 Select UniWAM with ``--am-backend uniwam``. The planner calls
-``uniwam_act(chunks=1)`` to execute 16 joint/gripper actions per chunk.
+``wam_act(max_chunks=1)`` to execute 16 joint/gripper actions per chunk.
 UniWAM uses recent action history to predict the next actions and supports
 RoboTwin evaluation, exploration and memory configuration.
 

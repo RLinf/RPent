@@ -69,7 +69,7 @@ C2R 使用干净场景中的成功轨迹作为经验，在随机场景中评测�
    * - 观测
      - 头部与左右腕部的 RGB 图像、用于定位的深度／世界坐标及机器人状态。两个模型都使用 RGB 图像、机器人状态和任务文字；UniWAM 还使用近期关节状态反馈。
    * - 动作
-     - 所选后端暴露 ``lingbot_act`` 或 ``uniwam_act``，同时保留动作原语。环境支持 16 维末端动作（``ee``）和 14 维关节／夹爪动作（``qpos``）。
+     - 所选后端暴露 ``lingbot_act`` 或 ``wam_act``，同时保留动作原语。环境支持 16 维末端动作（``ee``）和 14 维关节／夹爪动作（``qpos``）。
    * - 奖励与成功判定
      - 任务成功以原生 ``TASK_ENV.eval_success`` 为准，规划器结束与任务超时需分别判断。
    * - 任务指令
@@ -138,7 +138,7 @@ RoboTwin 要求 Python 3.11。宿主机需预先具备兼容的 CUDA toolkit/NVC
 UniWAM 后端
 ~~~~~~~~~~~~~~
 
-通过 ``--am-backend uniwam`` 启用 UniWAM。规划器使用 ``uniwam_act(chunks=1)``
+通过 ``--am-backend uniwam`` 启用 UniWAM。规划器使用 ``wam_act(max_chunks=1)``
 执行动作，每块包含 16 步关节／夹爪动作。UniWAM 会参考最近的动作记录预测下一步，
 支持 RoboTwin 的评估、探索和记忆配置。
 

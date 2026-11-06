@@ -102,9 +102,6 @@ class FakeRoboTwinPrimitives:
     def lingbot_act(self, **kwargs: Any) -> dict[str, Any]:
         return self._operation("lingbot_act", **kwargs)
 
-    def uniwam_act(self, **kwargs: Any) -> ToolResult:
-        return self._operation("uniwam_act", **kwargs)
-
     def wam_act(self, **kwargs: Any) -> ToolResult:
         return self._operation("wam_act", **kwargs)
 
@@ -211,9 +208,7 @@ def test_toolkit_constructs_and_captures_an_initial_observation(
 
     if policy_kind == "wam":
         model.reset.assert_called_once()
-        expected = (EXPECTED_TOOLS - {"lingbot_act"}) | {
-            "uniwam_act" if policy_backend == "uniwam" else "wam_act"
-        }
+        expected = (EXPECTED_TOOLS - {"lingbot_act"}) | {"wam_act"}
         common = COMMON_TOOLS
     else:
         model.reset.assert_not_called()

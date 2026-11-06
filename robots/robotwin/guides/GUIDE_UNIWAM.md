@@ -8,7 +8,7 @@ geometry, and compact execution rules needed to apply it.
 
 - Resources: `list_dir`, `read_text_file`
 - Observation: `view_env_state`, `render`, `sample_world_xyz`, `query_world_map`
-- Control: `uniwam_act`, `move_to`, `rotate_wrist`, `set_gripper`, `release`
+- Control: `wam_act`, `move_to`, `rotate_wrist`, `set_gripper`, `release`
 - Terminal: `finish`
 
 Use no legacy `command.json` protocol or direct Env/VLA client. Tool schemas are
@@ -34,8 +34,8 @@ Coordinates are world-frame metres and quaternions are `[qw,qx,qy,qz]`.
 
 ## VLA and primitives
 
-Every `uniwam_act` uses the full current task language automatically.
-Each chunk contains 16 qpos actions; `chunks` defaults to 1. State history is
+Every `wam_act` uses the full current task language automatically.
+Each chunk contains 16 qpos actions; `max_chunks` defaults to 1. State history is
 maintained automatically, including actions from analytic tools. LingBot recipe
 chunk counts are not UniWAM timing; choose the cadence from fresh progress. Shorten to one
 chunk near contact, instability, or completion. Preserve useful continuous VLA
@@ -121,7 +121,7 @@ After failure, identify the first unmet gate and classify the blocker: wrong
 identity/destination, missed grasp, lost hold, planning/collision, insufficient
 contact, premature release, unstable placement, or incomplete relation. Change
 one meaningful variable and verify. Do not repeat the same ineffective analytic
-target or hand-written recovery twice. This limit does not cap `uniwam_act`:
+target or hand-written recovery twice. This limit does not cap `wam_act`:
 VLA may be called repeatedly when the recipe, current contact, and recoverable
 physical state support continuation. Near success, fix only the remaining
 blocker instead of replaying the task.

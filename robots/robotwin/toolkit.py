@@ -40,7 +40,6 @@ if TYPE_CHECKING:
 # records only commands that actually move the robot.
 _RECIPE_ACTIONS = {
     "wam_act",
-    "uniwam_act",
     "lingbot_act",
     "execute_action",
     "move_to",
@@ -113,7 +112,6 @@ class RoboTwinToolkit(Toolkit):
         )
         self._mode = mode
         self._policy_kind = runtime_kwargs.get("policy_kind", "vla")
-        self._policy_backend = runtime_kwargs.get("policy_backend", "lingbot")
         self._attempt = 1
         self._attempts_per_session = max(0, int(attempts_per_session))
         self._latest_status: dict[str, Any] = {}
@@ -163,17 +161,8 @@ class RoboTwinToolkit(Toolkit):
                 handler = partial(definition, self._state)
             self.add_tool(definition.with_handler(handler))
         for definition in iter_tools(self._primitives):
-            selected = (
-                "uniwam_act"
-                if self._policy_backend == "uniwam"
-                else "wam_act"
-                if self._policy_kind == "wam"
-                else "lingbot_act"
-            )
-            if (
-                definition.name in {"lingbot_act", "wam_act", "uniwam_act"}
-                and definition.name != selected
-            ):
+            excluded = "lingbot_act" if self._policy_kind == "wam" else "wam_act"
+            if definition.name == excluded:
                 continue
             handler = (
                 definition

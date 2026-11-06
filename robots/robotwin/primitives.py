@@ -255,23 +255,6 @@ class RoboTwinPrimitives:
         )
 
     @tool
-    def uniwam_act(
-        self,
-        *,
-        chunks: Annotated[int, Field(ge=1, json_schema_extra={"default": 1})] = 1,
-    ) -> ToolResult:
-        """Run UniWAM with the complete native task instruction and recent state history. Each chunk predicts 16 qpos actions from fresh observations."""
-        if int(chunks) < 1:
-            raise ValueError("chunks must be at least 1")
-        return self._policy_act(
-            chunks=int(chunks),
-            use_length=None,
-            prompt=None,
-            action_type="qpos",
-            override_prompt=False,
-        )
-
-    @tool
     def wam_act(
         self,
         prompt: Annotated[str, Field(min_length=1)] | None = None,
@@ -281,7 +264,7 @@ class RoboTwinPrimitives:
         """Execute bounded action chunks from the selected WAM on current observations. Omit prompt for the native task, or supply a subtask for this call. Inspect the resulting state before continuing; predictions do not establish task success.
 
         Args:
-            prompt: Concrete instruction for this call; omit or null for the native task.
+            prompt: Concrete instruction for this call; omit or null for the native task. UniWAM always uses the native task instruction.
             max_chunks: One to four predictions before planner feedback (default 1).
         """
         if type(max_chunks) is not int or not 1 <= max_chunks <= 4:
@@ -293,7 +276,7 @@ class RoboTwinPrimitives:
             use_length=None,
             prompt=prompt,
             action_type=self.model.action_type,
-            override_prompt=True,
+            override_prompt=self.policy_backend != "uniwam",
         )
 
     def _policy_act(

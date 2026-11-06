@@ -70,7 +70,7 @@ def test_uniwam_prompt_selects_only_its_tools_and_keeps_memory(mode):
     }
     system = format_prompt(system_prompt(variables), variables=variables)
     user = format_prompt(user_prompt(variables), variables=variables)
-    assert "uniwam_act" in system + user
+    assert "wam_act" in system + user
     assert "lingbot_act" not in system + user
     assert "GUIDE_UNIWAM.md" in system
     assert "GUIDE_RPENT.md" not in system

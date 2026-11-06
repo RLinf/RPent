@@ -185,11 +185,7 @@ def _resolve_dashboard(args: argparse.Namespace) -> DashboardSpec:
             {"name": kind, "label": kind.upper(), "scope": "shared"},
         ),
         "primitives": (
-            "uniwam_act"
-            if getattr(args, "am_backend", None) == "uniwam"
-            else "wam_act"
-            if kind == "wam"
-            else "lingbot_act",
+            "wam_act" if kind == "wam" else "lingbot_act",
             "move_to",
             "rotate_wrist",
             "set_gripper",

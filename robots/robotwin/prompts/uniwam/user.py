@@ -23,4 +23,4 @@ CELL = """- task: {{task_name}}
 BEGIN = """Follow the required read order, bind the current task's targets and
 relations from fresh observation, then execute the first unmet recipe phase.
 After each action verify its observable gate, preserve achieved relations, and
-use the complete current task_language unchanged for every uniwam_act."""
+use the complete current task_language unchanged for every wam_act."""

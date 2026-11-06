@@ -92,12 +92,6 @@ def test_tool_declarations_match_pre_refactor_contracts(group: str) -> None:
     }
     assert len(actual) == len(declarations)
     added = {"wam_act"} if group in {"libero", "robotwin"} else set()
-    if group == "robotwin":
-        added.add("uniwam_act")
-        assert actual["uniwam_act"]["input_schema"] == {
-            "type": "object",
-            "properties": {"chunks": {"type": "integer", "minimum": 1, "default": 1}},
-        }
     assert actual.keys() == expected.keys() | added
     for name in expected:
         assert actual[name] == expected[name], f"{group}/{name}"

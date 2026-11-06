@@ -241,22 +241,25 @@ def test_analytic_intervention_is_in_next_policy_request():
     rpc = FeedbackRPC()
     env = RoboTwinEnvClient(rpc, expected_meta={"seed": 7})
     histories = []
+    instructions = []
 
     def infer(obs):
         histories.append(obs["qpos_history"])
+        instructions.append(obs["task_language"])
         return np.zeros((16, 14))
 
     primitives = RoboTwinPrimitives(
         env=env,
-        model=SimpleNamespace(predict=infer),
+        model=SimpleNamespace(predict=infer, action_type="qpos"),
         seed=7,
         check_cancelled=lambda: None,
         policy_kind="wam",
         policy_backend="uniwam",
     )
-    primitives.uniwam_act(chunks=1)
+    primitives.wam_act(max_chunks=1)
     primitives.apply_qpos_updates([{"arm": "left", "gripper": 1.0}])
-    primitives.uniwam_act(chunks=2)
+    primitives.wam_act(prompt="a proposed subtask", max_chunks=2)
     np.testing.assert_array_equal(histories[1][:, 0], np.arange(2, 18))
     np.testing.assert_array_equal(histories[2][:, 0], np.arange(18, 34))
     assert rpc.count == 49
+    assert instructions == [rpc.info()["instruction"]] * 3

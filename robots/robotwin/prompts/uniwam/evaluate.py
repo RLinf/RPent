@@ -86,8 +86,8 @@ observed goal match it:
   after the object body crosses the opening and is internally supported. Do not
   apply containment rules to a pad, plate, scale, skillet, or stand."""
 
-CONTROL = """Every uniwam_act uses the exact complete current task_language.
-Each chunk contains 16 qpos actions; chunks defaults to 1. Execution history is
+CONTROL = """Every wam_act uses the exact complete current task_language.
+Each chunk contains 16 qpos actions; max_chunks defaults to 1. Execution history is
 maintained automatically across VLA and analytic tools. Use one chunk near
 contact, near success, instability, or for a small correction; two for ordinary
 stable progress; three only for a
