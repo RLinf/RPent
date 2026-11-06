@@ -138,47 +138,37 @@ RoboTwin 要求 Python 3.11。宿主机需预先具备兼容的 CUDA toolkit/NVC
 UniWAM 后端
 ~~~~~~~~~~~~~~
 
-UniWAM 是可选后端，默认仍为 LingBot。它沿用环境和 memory 配置，使用独立的规划器
-prompt 和 ``uniwam_act(chunks=1)`` 工具，每块包含 16 步关节／夹爪动作。
-所有实际执行动作后的状态（包括解析工具产生的状态）都会进入近期历史，重置回合时清空。
-每次推理前，服务用环境历史重新填充官方策略缓存；图像处理、归一化和历史补齐仍由官方实现负责。
+通过 ``--am-backend uniwam`` 启用 UniWAM。规划器使用 ``uniwam_act(chunks=1)``
+执行动作，每块包含 16 步关节／夹爪动作。UniWAM 会参考最近的动作记录预测下一步，
+支持 RoboTwin 的评估、探索和记忆配置。
 
-先准备
-`UniWAM 官方 RoboTwin 部署代码 <https://github.com/UniWAM/UniWAM/tree/8dcd3401bccda8c002fc558e356b975b1789eecd/inference/robotwin/uniwam>`_，
-在独立的 Python 3.11 模型环境中安装其策略依赖和 RPent 基础包（``pip install -e /path/to/RPent``）。
-保留完整策略目录，不能只复制 ``deploy_policy.py``。
-模型需要 history-flow 格式的 ``pytorch_model/`` 导出目录及其父目录中的
-``config.json``，另外按官方说明准备 Wan2.2-TI2V-5B 和 Qwen3-VL-2B-Instruct
-资源。适配层使用 4 次推理迭代，历史噪声参数沿用 checkpoint 配置。
-FlashAttention 必须与模型环境的 Torch、CUDA 构建匹配，不会自动切换注意力算法。
+在独立的 Python 3.11 模型环境中，按
+`UniWAM 官方 RoboTwin 部署说明 <https://github.com/UniWAM/UniWAM/tree/8dcd3401bccda8c002fc558e356b975b1789eecd/inference/robotwin/uniwam>`_
+安装策略依赖，再安装 RPent：``pip install -e /path/to/RPent``。
+已验证的依赖组合为 Torch 2.6.0+cu124、torchvision 0.21.0+cu124、
+FlashAttention 2.7.4.post1、Transformers 4.57.3、Diffusers 0.35.1、
+DeepSpeed 0.16.9 和 NumPy 1.26.4。
 
-将资源按以下固定结构组织到一个目录中。子目录可以使用指向已有资源的软链接，无需复制大文件；checkpoint 应链接整个目录，保留配置与权重的相对位置。
+从 `UniWAM 模型集合 <https://huggingface.co/collections/chenpyyy/uniwam>`_
+获取 RoboTwin-clean history-flow checkpoint，并准备
+`Wan2.2-TI2V-5B <https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B>`_ 和
+`Qwen3-VL-2B-Instruct <https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct>`_。
+将资源组织为以下结构；已有目录可以通过软链接复用：
 
 .. code-block:: text
 
    uniwam/
-   ├── policy/                  # 完整的官方部署代码目录
+   ├── policy/                  # 官方 inference/robotwin/uniwam 完整目录
    ├── checkpoint/
    │   ├── config.json
    │   └── pytorch_model/
    ├── wan/                     # Wan2.2-TI2V-5B
    └── vlm/                     # Qwen3-VL-2B-Instruct
 
-官方部署已在以下组合中完成复现：Torch 2.6.0+cu124、torchvision 0.21.0+cu124、
-FlashAttention 2.7.4.post1、Transformers 4.57.3、Diffusers 0.35.1、
-DeepSpeed 0.16.9 和 NumPy 1.26.4。先安装 Torch，再安装匹配的 FlashAttention，
-并在安装策略的 ``requirements.txt`` 时约束这些版本。模型主机仍需具备兼容的 CUDA
-工具链和运行库；这是已验证的版本组合，并非自动安装脚本。模拟器可以使用独立环境。
+checkpoint 的 ``config.json`` 中，``flow_source.mode`` 为 ``history``，
+``history_length`` 为 16。RPent 使用 4 次推理迭代。
 
-从官方 `UniWAM 模型集合 <https://huggingface.co/collections/chenpyyy/uniwam>`_
-获取 RoboTwin-clean checkpoint，配套资源为
-`Wan2.2-TI2V-5B <https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B>`_ 和
-`Qwen3-VL-2B-Instruct <https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct>`_。
-策略使用 Wan 的 VAE、T5 权重及 tokenizer，Qwen 目录用于加载配置和 processor。
-``config.json`` 应与 ``pytorch_model/`` 同级，其中 ``flow_source.mode`` 为
-``history``，``history_length`` 为 16。已有资源可以通过软链接组成上述目录。
-
-配置好规划器后，在 RPent 的 RoboTwin 环境中运行：
+配置好 :doc:`规划器 <../guides/configure_planner>` 后，在 RoboTwin 环境中运行：
 
 .. code-block:: bash
 
@@ -188,41 +178,28 @@ DeepSpeed 0.16.9 和 NumPy 1.26.4。先安装 Torch，再安装匹配的 FlashAt
       --am-checkpoint "$UNIWAM_MODEL_PATH" --am-python "$UNIWAM_PYTHON" \
       --task-name beat_block_hammer --task-config demo_randomized --seed 100000
 
-``--am-checkpoint`` 指向资源根目录，而非 ``pytorch_model/``；``--am-python``
-指定模型环境，RPent 负责进程的启动和清理。这里的 ``UNIWAM_MODEL_PATH`` 和
-``UNIWAM_PYTHON`` 是显式传入参数的 shell 变量。旧参数 ``--vla-backend`` 和
-``--vla-model-path`` 仍是统一 AM 参数的别名。
+``--am-checkpoint`` 指定上述资源目录，``--am-python`` 指定模型环境的解释器。
+RPent 负责启动和清理模型进程。
 
-如需独立管理模型服务，在模型环境中运行：
+如需在多次任务间复用模型，在模型环境中单独启动服务：
 
 .. code-block:: bash
 
    python -m rpent.robots.components.uniwam.server \
       --checkpoint /path/to/uniwam --port 8118
 
-随后向 RPent 传入 ``--am-backend uniwam --am-endpoint http://127.0.0.1:8118``，
-不再传入本地部署参数。外部服务使用 ``wam.*`` RPC，必须使用上述入口；旧的
-``vla.*`` 服务不兼容。RPent 不会关闭外部服务。环境服务必须提供逐步关节状态反馈；
-遇到历史缺失错误应更新 EnvServer，不能用预测动作代替反馈。
+运行任务时，用 ``--am-endpoint http://127.0.0.1:8118`` 替换
+``--am-checkpoint`` 和 ``--am-python``；该服务由启动者管理。
 
-UniWAM 保留评估、探索、原有 RoboTwin memory 选择，以及只使用完整原生任务指令的
-``uniwam_act`` 工具。其他 WAM 后端仅支持本地 memory 和评估模式的限制不适用于
-UniWAM。使用 LingBot 经验时，仍需根据 UniWAM 每块 16 步动作解释块数。
-
-原 LingBot prompt 和 memory 选择逻辑保持不变，既有 LingBot 经验中的块数不能直接
-视为 UniWAM 的执行时长。任务成功仍以 ``TASK_ENV.eval_success`` 为准，
-RPC 或工具调用成功不等于任务成功。
-
-需要进行真实组件、混合工具和脚本规划器验证时，设置上述路径以及
-``ROBOTWIN_ASSETS_PATH``、
-``CUDA_VISIBLE_DEVICES``（一张可用 GPU）和新的 ``RPENT_E2E_OUTPUT_DIR``，再运行：
+集成测试覆盖混合工具操作和完整 CLI 执行链。设置上述两个路径变量，以及
+``ROBOTWIN_ASSETS_PATH``、``CUDA_VISIBLE_DEVICES`` 和 ``RPENT_E2E_OUTPUT_DIR`` 后运行：
 
 .. code-block:: bash
 
    RPENT_RUN_UNIWAM_INTEGRATION=1 \
       pytest tests/e2e_tests/robotwin/test_uniwam.py -v --timeout=1200
 
-这些检查调用真实模型和模拟器，脚本规划器不需要 API 凭据，但检查通过不代表基准成功率。
+测试使用真实模型、模拟器和脚本规划器，结果保存在 ``RPENT_E2E_OUTPUT_DIR``。
 
 Fast-WAM 配置
 ~~~~~~~~~~~~~

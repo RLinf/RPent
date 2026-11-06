@@ -146,58 +146,40 @@ The checkpoint includes the default RoboTwin robot configuration.
 UniWAM Backend
 ~~~~~~~~~~~~~~
 
-UniWAM is an optional backend; LingBot remains the default. It uses the same
-environment and memory configuration, with its own planner prompt and
-``uniwam_act(chunks=1)`` tool. Each chunk contains 16 joint/gripper actions.
-All executed actions, including analytic primitives, contribute to the recent
-state history. Reset clears that history. At each inference request the service
-rebuilds the official policy cache from the environment's history; images,
-normalization and history padding remain owned by the official policy.
+Select UniWAM with ``--am-backend uniwam``. The planner calls
+``uniwam_act(chunks=1)`` to execute 16 joint/gripper actions per chunk.
+UniWAM uses recent action history to predict the next actions and supports
+RoboTwin evaluation, exploration and memory configuration.
 
-Prepare the official
-`UniWAM RoboTwin deployment <https://github.com/UniWAM/UniWAM/tree/8dcd3401bccda8c002fc558e356b975b1789eecd/inference/robotwin/uniwam>`_
-and install its policy requirements in a separate Python 3.11 model environment.
-Install the base RPent package there too (``pip install -e /path/to/RPent``). Use the full policy directory, not a copy
-of only ``deploy_policy.py``. The checkpoint must be a history-flow
-``pytorch_model/`` export with its accompanying parent ``config.json``;
-also prepare the Wan2.2-TI2V-5B and Qwen3-VL-2B-Instruct resources described
-upstream. The adapter uses four inference steps and the checkpoint's history
-noise configuration. FlashAttention must match the model environment's Torch
-and CUDA build; there is no automatic fallback to another attention algorithm.
+In a separate Python 3.11 model environment, install the policy dependencies
+following the official
+`UniWAM RoboTwin deployment guide <https://github.com/UniWAM/UniWAM/tree/8dcd3401bccda8c002fc558e356b975b1789eecd/inference/robotwin/uniwam>`_,
+then install RPent with ``pip install -e /path/to/RPent``.
+A verified dependency combination is Torch 2.6.0+cu124, torchvision 0.21.0+cu124,
+FlashAttention 2.7.4.post1, Transformers 4.57.3, Diffusers 0.35.1,
+DeepSpeed 0.16.9 and NumPy 1.26.4.
 
-Organize these resources under one directory, using the following fixed layout.
-Subdirectories may be symbolic links to existing resources; link the complete
-checkpoint directory so its configuration stays with the weights.
+Download the RoboTwin-clean history-flow checkpoint from the
+`UniWAM model collection <https://huggingface.co/collections/chenpyyy/uniwam>`_,
+plus `Wan2.2-TI2V-5B <https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B>`_ and
+`Qwen3-VL-2B-Instruct <https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct>`_.
+Arrange the resources as follows; existing directories can be symlinked:
 
 .. code-block:: text
 
    uniwam/
-   ├── policy/                  # full official deployment directory
+   ├── policy/                  # complete official inference/robotwin/uniwam directory
    ├── checkpoint/
    │   ├── config.json
    │   └── pytorch_model/
    ├── wan/                     # Wan2.2-TI2V-5B
    └── vlm/                     # Qwen3-VL-2B-Instruct
 
-The official deployment was reproduced with Torch 2.6.0+cu124,
-torchvision 0.21.0+cu124, FlashAttention 2.7.4.post1, Transformers 4.57.3,
-Diffusers 0.35.1, DeepSpeed 0.16.9 and NumPy 1.26.4. Install Torch first,
-then a compatible FlashAttention build and the policy's ``requirements.txt``
-with these versions constrained. CUDA toolkit/library availability still needs
-to be checked on the model host; this is a tested combination, not an automatic
-installer. The simulator can use a separate environment.
+The checkpoint's ``config.json`` uses ``flow_source.mode: history`` and
+``history_length: 16``. RPent runs four inference steps.
 
-Use the official `UniWAM model collection <https://huggingface.co/collections/chenpyyy/uniwam>`_
-for the RoboTwin-clean checkpoint, and
-`Wan2.2-TI2V-5B <https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B>`_ and
-`Qwen3-VL-2B-Instruct <https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct>`_
-for its companion resources. The policy loads Wan's VAE, T5 weights and tokenizer;
-the Qwen directory supplies its configuration and processor. Keep the checkpoint's
-``config.json`` next to ``pytorch_model/``, with ``flow_source.mode`` set to
-``history`` and ``history_length`` equal to 16. Existing downloads can be linked
-into the resource layout above.
-
-From the RPent RoboTwin environment, after configuring a planner, run:
+After :doc:`configuring a planner <../guides/configure_planner>`, run from the
+RoboTwin environment:
 
 .. code-block:: bash
 
@@ -207,47 +189,30 @@ From the RPent RoboTwin environment, after configuring a planner, run:
       --am-checkpoint "$UNIWAM_MODEL_PATH" --am-python "$UNIWAM_PYTHON" \
       --task-name beat_block_hammer --task-config demo_randomized --seed 100000
 
-``--am-checkpoint`` points to the resource root, not directly to ``pytorch_model/``.
-``--am-python`` selects the model environment; RPent owns startup and cleanup.
-``UNIWAM_MODEL_PATH`` and ``UNIWAM_PYTHON`` above are shell variables explicitly
-passed to these options. The old ``--vla-backend`` and ``--vla-model-path`` names
-remain aliases for the shared AM options.
+``--am-checkpoint`` selects the resource directory above; ``--am-python`` selects
+the model environment's interpreter. RPent starts and cleans up the model process.
 
-For an independently managed worker, run in its model environment:
+To reuse the model across tasks, start a standalone worker in the model environment:
 
 .. code-block:: bash
 
    python -m rpent.robots.components.uniwam.server \
       --checkpoint /path/to/uniwam --port 8118
 
-Then use ``--am-backend uniwam --am-endpoint http://127.0.0.1:8118`` in
-RPent, without local deployment flags. External workers use the ``wam.*`` RPC
-protocol and must run this entry point; old ``vla.*`` workers are incompatible.
-RPent does not stop borrowed services. The environment must provide per-step
-joint feedback. A history error requires updating the EnvServer, not substituting
-predicted actions.
+For task runs, replace ``--am-checkpoint`` and ``--am-python`` with
+``--am-endpoint http://127.0.0.1:8118``. The operator manages this worker's lifetime.
 
-UniWAM retains evaluation and exploration, the existing RoboTwin memory selection,
-and its native-instruction-only ``uniwam_act`` tool. Other WAM backends' local-only
-memory and evaluation restrictions do not apply to UniWAM. Shared LingBot recipe
-chunk counts must still be interpreted using UniWAM's 16-action chunks.
-
-The default LingBot prompt and memory selection are unchanged. Existing
-LingBot recipe chunk counts are not UniWAM timing. Native task success still
-comes from ``TASK_ENV.eval_success``, not a successful RPC or tool call.
-
-For opt-in component, mixed-tool and scripted-planner checks, set the paths
-above plus ``ROBOTWIN_ASSETS_PATH``,
-``CUDA_VISIBLE_DEVICES`` (one available GPU), and a fresh
-``RPENT_E2E_OUTPUT_DIR``, then run:
+Integration tests cover mixed-tool execution and the complete CLI execution chain.
+Set the two path variables above, plus ``ROBOTWIN_ASSETS_PATH``,
+``CUDA_VISIBLE_DEVICES`` and ``RPENT_E2E_OUTPUT_DIR``, then run:
 
 .. code-block:: bash
 
    RPENT_RUN_UNIWAM_INTEGRATION=1 \
       pytest tests/e2e_tests/robotwin/test_uniwam.py -v --timeout=1200
 
-These checks exercise real models and simulation; the scripted planner needs
-no API credentials. They do not establish benchmark success rates.
+The tests use real models, simulation and a scripted planner, and save their
+results in ``RPENT_E2E_OUTPUT_DIR``.
 
 Fast-WAM Configuration
 ~~~~~~~~~~~~~~~~~~~~~~
