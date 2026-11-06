@@ -209,7 +209,7 @@ class DualFrankaPrimitives(FrankaPrimitives):
         max_chunks: int = 20,
     ) -> dict[str, Any]:
         if self.model is None:
-            raise RuntimeError(f"{skill_name} requires --vla-endpoint")
+            raise RuntimeError(f"{skill_name} requires --am-endpoint")
         requested_prompt = str(prompt).strip()
         if not requested_prompt:
             raise ValueError("prompt must be non-empty")

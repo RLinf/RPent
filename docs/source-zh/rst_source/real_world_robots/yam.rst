@@ -263,7 +263,7 @@ Codex 配置
 
    python -m robots.yam.manual --task-id "$TASK_ID" --mode vla \
      --env-endpoint socket://127.0.0.1:8110 --max-episode-steps 1000 \
-     --vla-endpoint socket://127.0.0.1:8220 --output-dir /path/to/diagnostics
+     --am-endpoint socket://127.0.0.1:8220 --output-dir /path/to/diagnostics
 
 先输入 ``{"tool":"infer"}`` 保存预测，此时机械臂不动。人工检查后，再输入 ``{"tool":"execute","arguments":{"use_length":5}}``，执行前五步；每份预测最多执行一次。
 
@@ -285,7 +285,7 @@ Codex 配置
      --planner codex --model MODEL_ID --reasoning-effort low \
      --robot-config robots/yam/config/example.yaml \
      --env-endpoint socket://127.0.0.1:8110 \
-     --vla-endpoint socket://127.0.0.1:8220 \
+     --am-endpoint socket://127.0.0.1:8220 \
      --max-episode-steps 1000 \
      --memory-profile local --memory-dir ./memory/yam
 
@@ -346,7 +346,7 @@ YAM 提供 ``view_env_state``、``sample_world_xyz``、``query_world_map``、``r
 
 在任务命令后追加 ``--explore``，即可探索并积累任务记忆。``--explore-attempts-per-session`` 设置每个会话的尝试次数，``--explore-sessions`` 设置会话数。
 
-终端中需要输入反馈时再加 ``--interactive``；网页交互使用 ``--dashboard``，不能与 ``--interactive`` 同用。
+终端中需要输入反馈时再加 ``--tui``；网页交互使用 ``--dashboard``，不能与 ``--tui`` 同用。
 
 每次尝试结束后，在人工操作终端确认成功、失败或中止。再次尝试前，先将夹爪中的物体放稳或取下，恢复场景，按需执行 ``reset_pose``，再用 ``status`` 读取当前回合 ID 并运行：
 

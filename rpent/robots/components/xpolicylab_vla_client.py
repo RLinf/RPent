@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from rpent.robots.components.vla_client_base import BaseVLAClient
+from rpent.robots.components.am_client_base import BaseVLAClient
 
 
 class XPolicyLabVLAClient(BaseVLAClient):

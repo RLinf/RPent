@@ -94,7 +94,7 @@ Relevant ``api`` planner knobs:
   text-only models. The agent then reasons from textual state alone,
   so task performance may not be satisfactory.
 
-For ``--interactive`` usage, see :ref:`Terminal interaction <quickstart-interactive>`.
+For ``--tui`` usage, see :ref:`Terminal interaction <quickstart-interactive>`.
 
 .. _planner-claude-code:
 
@@ -121,7 +121,7 @@ Notes:
   RPent uses ``sonnet``.
 - ``--planner-timeout-s`` limits non-interactive runs. It defaults to
   ``CELL_TIMEOUT_S``, or ``1200`` seconds when that variable is unset.
-  The limit is not applied in ``--interactive`` mode.
+  The limit is not applied in ``--tui`` mode.
 - A dollar budget can be set via ``--claude-code-max-budget-usd``
   (defaults to ``MAX_BUDGET_USD`` env or ``10``).
 - RPent already depends on the Claude Agent SDK, which bundles the
