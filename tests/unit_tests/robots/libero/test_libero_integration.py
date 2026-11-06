@@ -69,7 +69,7 @@ def _primitives(env, config=None, molmo_client=None):
     return LiberoPrimitives(
         env=env,
         model=_Model(),
-        sam3_client=SimpleNamespace(),
+        perception_tool=SimpleNamespace(),
         check_cancelled=lambda: None,
         flywheel_config=config,
         molmo_client=molmo_client,

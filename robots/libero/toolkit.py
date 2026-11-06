@@ -34,6 +34,7 @@ from rpent.tools.base import tool
 from rpent.tools.direct_action import direct_action_tool
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger, get_output_dir
+from toolkit.perception import Sam3Tools
 
 if TYPE_CHECKING:
     from rpent.memory.manager import MemoryManager
@@ -250,9 +251,13 @@ class LiberoToolkit(Toolkit):
         self._state.reset()
 
         primitives = libero_tools.LiberoPrimitives(
+            env=runtime_kwargs["env"],
+            model=runtime_kwargs["model"],
+            perception_tool=Sam3Tools(runtime_kwargs["sam3_client"]),
             check_cancelled=self.raise_if_cancelled,
+            molmo_client=runtime_kwargs.get("molmo_client"),
+            flywheel_config=runtime_kwargs.get("flywheel_config"),
             policy_kind=self._policy_kind,
-            **runtime_kwargs,
         )
         primitives.reset()
         primitives.start_recording()

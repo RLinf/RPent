@@ -48,7 +48,7 @@ class MotionEnv:
 
 def primitives(env):
     driver = LiberoPrimitives(
-        env=env, model=None, sam3_client=None, check_cancelled=lambda: None
+        env=env, model=None, perception_tool=None, check_cancelled=lambda: None
     )
     driver.set_obs(env.observation())
     return driver

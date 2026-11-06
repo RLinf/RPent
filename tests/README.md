@@ -43,6 +43,7 @@ them when the first test for that module lands.
   `rpent.utils.rpc` belong in `tests/unit_tests/rpent/utils/rpc/`.
 - Mirror top-level robot extensions under `tests/unit_tests/robots/`. Put
   robot-specific coverage in that directory's `<robot>/` child.
+- Mirror the top-level `toolkit` package under `tests/unit_tests/toolkit/`.
 - Place cross-layer tests with the primary contract owner. Registry and config
   contracts belong to `rpent/robots/`; extension toolkit and schema contracts
   belong to `robots/`.
