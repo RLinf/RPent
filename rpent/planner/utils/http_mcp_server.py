@@ -164,6 +164,11 @@ def build_mcp_server(toolkit: Toolkit) -> Server:
                     "mcp.call_tool_result",
                     result.model_dump(mode="json", by_alias=True, exclude_none=True),
                     completeness="complete",
+                    base64_paths={
+                        f"/content/{index}/data": ""
+                        for index, content in enumerate(result.content)
+                        if isinstance(content, types.ImageContent)
+                    },
                 ),
                 missing={"feedback": None},
             )

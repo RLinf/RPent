@@ -14,6 +14,7 @@
 
 """Task ownership, record identity, and independent model/action trajectories."""
 
+import base64
 import json
 import os
 from concurrent.futures import ThreadPoolExecutor
@@ -1052,7 +1053,9 @@ def test_planner_trajectory_preserves_records_and_registration_order(
             default=datetime.isoformat,
         ),
         object_hook=lambda data: {
-            key: value for key, value in data.items() if key != "inline_array_paths"
+            key: value
+            for key, value in data.items()
+            if key not in {"inline_array_paths", "base64_paths"}
         },
     )
     saved_task = json.loads((root / "task.json").read_text())
@@ -1141,6 +1144,108 @@ def test_planner_trajectory_externalizes_nested_data_without_mutating_records(tm
     assert {
         path: path.read_bytes() for path in root.rglob("*") if path.is_file()
     } == files
+
+
+@pytest.mark.parametrize("first", ["raw", "base64", "uri"])
+def test_trajectory_deduplicates_base64_with_bytes_and_preserves_each_prefix(
+    state, first
+):
+    image = b"\x89PNG\r\n\x1a\n\x00image\xff"
+    encoded = base64.b64encode(image).decode("ascii")
+    prefix = "data:image/png;base64,"
+    values = {"raw": image, "base64": encoded, "uri": prefix + encoded}
+    native = {
+        "images/~": [{first: values[first], **values}],
+        "unmarked": [encoded, prefix + encoded, "https://example.com/image.png"],
+    }
+    planner_id = state.register_planner(
+        backend="codex",
+        request=Payload(
+            "test.request",
+            native,
+            completeness="complete",
+            base64_paths={
+                "/images~1~0/0/base64": "",
+                "/images~1~0/0/uri": prefix,
+            },
+        ),
+        response=Payload(
+            "test.response", encoded, completeness="complete", base64_paths={"": ""}
+        ),
+    )
+    unmarked = {"images/~": [{"base64": encoded, "uri": prefix + encoded}]}
+    state.register_tool_call(
+        planner_id=planner_id, name="inspect", arguments=Payload("json", unmarked)
+    )
+    before = state.get_planner(planner_id)
+    state.end_task(status="completed", stop_reason="finish")
+
+    root = state.save_planner_trajectory()
+
+    saved = json.loads((root / "planners.jsonl").read_text())
+    request = saved["request"]
+    references = request["data"]["images/~"][0]
+    assert {ref["path"] for ref in references.values()} == {
+        saved["response"]["data"]["path"]
+    }
+    assert len(list((root / "artifacts").iterdir())) == 1
+    for name, expected_prefix in (("raw", None), ("base64", ""), ("uri", prefix)):
+        reference = references[name]
+        assert reference["$type"] == "artifact_ref" and reference["kind"] == "bytes"
+        assert reference["base64_prefix"] == expected_prefix
+        content = (root / reference["path"]).read_bytes()
+        assert content == image
+        restored = (
+            content
+            if expected_prefix is None
+            else reference["base64_prefix"] + base64.b64encode(content).decode("ascii")
+        )
+        assert restored == values[name]
+    assert saved["response"]["data"]["base64_prefix"] == ""
+    assert request["data"]["unmarked"] == native["unmarked"]
+    assert saved["tool_calls"][0]["arguments"]["data"] == unmarked
+    assert "base64_paths" not in request
+    assert request["completeness"] == "complete" and request["missing"] == {}
+    assert state.get_planner(planner_id) == before
+
+
+@pytest.mark.parametrize(
+    "value,prefix",
+    [
+        ("%%%", ""),
+        ("非ASCII", ""),
+        ("x" * len("data:image/png;base64,") + "aW1hZ2U=", "data:image/png;base64,"),
+    ],
+)
+def test_trajectory_base64_decode_failure_marks_only_the_affected_field(
+    state, value, prefix
+):
+    planner_id = state.register_planner(
+        backend="codex",
+        request=Payload(
+            "test.request",
+            {"images/~": [value, "aW1hZ2U="]},
+            completeness="complete",
+            missing={"/metadata": MissingInfo("not_exposed", "No metadata.")},
+            base64_paths={"/images~1~0/0": prefix, "/images~1~0/1": ""},
+        ),
+    )
+    before = state.get_planner(planner_id)
+    state.end_task(status="completed", stop_reason="finish")
+
+    root = state.save_planner_trajectory()
+
+    request = json.loads((root / "planners.jsonl").read_text())["request"]
+    assert request["data"]["images/~"][0] is None
+    assert request["completeness"] == "partial"
+    assert set(request["missing"]) == {"/metadata", "/images~1~0/0"}
+    assert request["missing"]["/images~1~0/0"]["reason"] == "capture_failed"
+    assert request["missing"]["/images~1~0/0"]["detail"]
+    assert request["missing"]["/metadata"]["reason"] == "not_exposed"
+    reference = request["data"]["images/~"][1]
+    assert reference["base64_prefix"] == ""
+    assert (root / reference["path"]).read_bytes() == b"image"
+    assert state.get_planner(planner_id) == before
 
 
 def test_planner_trajectory_saves_a_task_without_model_calls(state):
@@ -1244,12 +1349,14 @@ def test_trajectory_inlines_only_declared_array_paths(state, dtype, values, expe
             "test.request",
             {"nested/~": [native, None], "attachment": native},
             inline_array_paths=("/nested~1~0/0", "/nested~1~0/1", "/absent"),
+            base64_paths={"/absent": ""},
         ),
     )
     state.end_task(status="completed", stop_reason="finish")
     root = state.save_planner_trajectory()
     payload = json.loads((root / "planners.jsonl").read_text())["request"]
     assert "inline_array_paths" not in payload
+    assert "base64_paths" not in payload
     assert payload["data"]["nested/~"] == [
         {"$type": "ndarray", "dtype": dtype, "shape": [len(values)], "value": expected},
         None,
@@ -1264,9 +1371,14 @@ def test_trajectory_inlines_only_declared_array_paths(state, dtype, values, expe
     assert stored.dtype == native.dtype
 
 
-def test_planner_trajectory_distinguishes_references_and_literal_tags(state):
+@pytest.mark.parametrize("base64_prefix", [None, "", "data:image/png;base64,"])
+def test_planner_trajectory_distinguishes_references_and_literal_tags(
+    state, base64_prefix
+):
     reference = DataRef("tool_call", "T1", "/raw_result/data")
-    artifact = ArtifactRef("artifacts/existing.bin", "bytes")
+    artifact = ArtifactRef(
+        "artifacts/existing.bin", "bytes", base64_prefix=base64_prefix
+    )
     literal = {"$type": "data_ref", **asdict(reference)}
     literal_artifact = {"$type": "artifact_ref", **asdict(artifact)}
     literal_float = {"$type": "float", "value": "nan"}
@@ -1394,17 +1506,34 @@ def test_planner_trajectory_write_failure_is_visible_and_retryable(
     assert len(list((root / "artifacts").iterdir())) == 4
 
 
-@pytest.mark.parametrize("attachment", ["planner", "action", "observation"])
+@pytest.mark.parametrize(
+    "attachment,base64_prefix",
+    [
+        ("planner", None),
+        ("planner", ""),
+        ("planner", "data:image/png;base64,"),
+        ("action", None),
+        ("observation", None),
+    ],
+)
 def test_trajectory_attachment_failure_marks_missing_and_can_be_retried(
-    state, tmp_path, monkeypatch, attachment
+    state, tmp_path, monkeypatch, attachment, base64_prefix
 ):
+    image = (
+        b"image"
+        if base64_prefix is None
+        else base64_prefix + base64.b64encode(b"image").decode("ascii")
+    )
     planner_id = state.register_planner(
         backend="api",
         request=Payload(
             "test.request",
-            {"messages": [{"image/~": b"image", "text": "Move", "optional": None}]},
+            {"messages": [{"image/~": image, "text": "Move", "optional": None}]},
             completeness="partial",
             missing={"/metadata": MissingInfo("not_exposed", "No metadata.")},
+            base64_paths={"/messages/0/image~1~0": base64_prefix}
+            if base64_prefix is not None
+            else {},
         ),
     )
     tool_id = state.register_tool_call(
@@ -1490,6 +1619,10 @@ def test_trajectory_attachment_failure_marks_missing_and_can_be_retried(
     state.save_planner_trajectory()
     restored = json.loads((root / "planners.jsonl").read_text())["request"]
     assert set(restored["missing"]) == {"/metadata"}
+    reference = restored["data"]["messages"][0]["image/~"]
+    assert reference["base64_prefix"] == base64_prefix
+    assert (root / reference["path"]).read_bytes() == b"image"
+    assert state.get_planner(planner_id).request.data["messages"][0]["image/~"] == image
     for line in (root / "actions.jsonl").read_text().splitlines():
         row = json.loads(line)
         observation = row["before_observation"] or row["after_observation"]

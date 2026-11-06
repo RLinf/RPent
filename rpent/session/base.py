@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import base64
 import copy
 import json
 import math
@@ -683,16 +684,39 @@ class EnvState:
             missing: dict[str, MissingInfo] | None = None,
             pointer: str = "",
             inline_array_paths: tuple[str, ...] = (),
+            base64_paths: dict[str, str] | None = None,
         ) -> Any:
             nonlocal attachment_count
             if isinstance(value, np.generic):
                 value = value.item()
+            if isinstance(value, str) and base64_paths and pointer in base64_paths:
+                prefix = base64_paths[pointer]
+                try:
+                    if not value.startswith(prefix):
+                        raise ValueError(
+                            "Base64 prefix does not match the captured value"
+                        )
+                    decoded = base64.b64decode(value[len(prefix) :], validate=True)
+                except ValueError as exc:
+                    missing[pointer] = MissingInfo(
+                        "capture_failed", f"{type(exc).__name__}: {exc}"
+                    )
+                    return None
+                reference = encode(decoded, missing=missing, pointer=pointer)
+                if reference is not None:
+                    reference["base64_prefix"] = prefix
+                return reference
             if isinstance(value, np.ndarray) and pointer in inline_array_paths:
                 return {
                     "$type": "ndarray",
                     "dtype": str(value.dtype),
                     "shape": list(value.shape),
-                    "value": encode(value.tolist(), missing=missing, pointer=pointer),
+                    "value": encode(
+                        value.tolist(),
+                        missing=missing,
+                        pointer=pointer,
+                        base64_paths=base64_paths,
+                    ),
                 }
             if isinstance(value, (np.ndarray, bytes)):
                 is_bytes = isinstance(value, bytes)
@@ -735,9 +759,17 @@ class EnvState:
                             if is_payload and item.name == "data"
                             else ()
                         ),
+                        base64_paths=(
+                            value.base64_paths
+                            if is_payload and item.name == "data"
+                            else None
+                        ),
                     )
                     for item in fields(value)
-                    if not (is_payload and item.name == "inline_array_paths")
+                    if not (
+                        is_payload
+                        and item.name in {"inline_array_paths", "base64_paths"}
+                    )
                 }
                 if failures:
                     data["missing"].update(encode(failures))
@@ -754,6 +786,7 @@ class EnvState:
                         missing=missing,
                         pointer=f"{pointer}/{key.replace('~', '~0').replace('/', '~1')}",
                         inline_array_paths=inline_array_paths,
+                        base64_paths=base64_paths,
                     )
                     for key, item in value.items()
                 }
@@ -765,6 +798,7 @@ class EnvState:
                         missing=missing,
                         pointer=f"{pointer}/{index}",
                         inline_array_paths=inline_array_paths,
+                        base64_paths=base64_paths,
                     )
                     for index, item in enumerate(value)
                 ]

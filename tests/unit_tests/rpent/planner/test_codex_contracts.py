@@ -1049,6 +1049,88 @@ def test_timeout_interrupts_without_starting_a_worker_or_socket(
     assert FakeMcpServer.instances[0].stopped is True
 
 
+def test_terminal_timeout_returns_without_importing_a_running_worker_trace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_fake_backend(monkeypatch)
+    ready = threading.Event()
+    released = threading.Event()
+    workers = []
+    outcomes = queue.Queue()
+
+    class BlockingCodex(FakeCodex):
+        def __init__(self, config: Any) -> None:
+            super().__init__(config)
+            workers.append(threading.current_thread())
+            ready.set()
+            released.wait()
+
+    monkeypatch.setattr(codex_module.openai_codex, "Codex", BlockingCodex)
+    importer = Mock()
+    monkeypatch.setattr(codex_module, "import_codex_trace", importer)
+    state = EnvState(tmp_path)
+    state.start_task(instruction="Move.", config=Payload("test.config", {}))
+    tool_id = state.register_tool_call(
+        planner_id=None,
+        origin="unknown",
+        name="move",
+        arguments=Payload("mcp.tool_args", {}),
+        status="completed",
+        missing={"planner_id": MissingInfo("pending", "Waiting for trace.")},
+    )
+    toolkit = FakeToolkit(state)
+    planner = make_planner(tmp_path, RecordingSink(), timeout_s=0.01)
+
+    def solve() -> None:
+        try:
+            outcomes.put(
+                planner.solve(
+                    system_prompt="",
+                    user_message="task",
+                    toolkit=toolkit,
+                    max_turns=1,
+                )
+            )
+        except BaseException as exc:
+            outcomes.put(exc)
+
+    caller = threading.Thread(target=solve, daemon=True)
+    caller.start()
+    try:
+        assert ready.wait(3)
+        try:
+            result = outcomes.get(timeout=20)
+        except queue.Empty:
+            pytest.fail("Planner did not return while SDK initialization was blocked")
+        assert not isinstance(result, BaseException), repr(result)
+        assert result.error == "Codex SDK timed out after 0.01s"
+        assert workers[0].is_alive()
+        assert toolkit.cancel_calls == 1
+        assert FakeMcpServer.instances[0].stopped
+        assert result.error in (tmp_path / "codex.out").read_text()
+        assert json.loads((tmp_path / "codex.out.stream.jsonl").read_text()) == {
+            "type": "timeout",
+            "message": result.error,
+        }
+        importer.assert_not_called()
+        capture_error = "Codex worker did not finish cleanup; trace import skipped."
+        assert result.stats["codex_trace"]["errors"] == [capture_error]
+        assert result.stats["codex_trace"]["unlinked_tool_calls"] == 1
+        assert state.get_tool_call(tool_id).missing["planner_id"] == MissingInfo(
+            "capture_failed", capture_error
+        )
+    finally:
+        released.set()
+        caller.join(timeout=3)
+        for worker in workers:
+            worker.join(timeout=3)
+
+    assert not caller.is_alive()
+    assert not workers[0].is_alive()
+    assert FakeCodex.instances[0].closed
+    assert FakeCodex.instances[0].thread.turn_prompts == []
+
+
 @pytest.mark.parametrize("outcome", ["timeout", "cancelled", "initializing"])
 def test_terminal_exit_drains_worker_before_trace_import(
     tmp_path: Path,
@@ -1065,9 +1147,6 @@ def test_terminal_exit_drains_worker_before_trace_import(
         def __init__(self, **kwargs: Any) -> None:
             super().__init__(**kwargs)
             workers.append(self)
-
-        def join(self, timeout: float | None = None) -> None:
-            super().join(timeout=3)
 
     class SessionDoneEvent(threading.Event):
         def wait(self, timeout: float | None = None) -> bool:

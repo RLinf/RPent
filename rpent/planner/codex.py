@@ -157,6 +157,7 @@ class CodexPlanner(Planner):
         )
         prompt = f"{system_prompt}\n\n{user_message}" if system_prompt else user_message
         result: PlannerResult | None = None
+        terminal_cleanup: threading.Event | None = None
         try:
             if dashboard_interaction is not None:
                 result = asyncio.run(
@@ -170,18 +171,27 @@ class CodexPlanner(Planner):
                     )
                 )
             else:
+                terminal_cleanup = threading.Event()
                 result = self._solve_terminal(
                     prompt=prompt,
                     toolkit=toolkit,
                     max_turns=max_turns,
                     input_queue=input_queue,
                     trace_root=trace_root,
+                    cleanup_done=terminal_cleanup,
                 )
             return result
         finally:
             if trace_root is not None:
+                capture_error = None
                 try:
-                    capture_stats = import_codex_trace(capture_state, trace_root)
+                    if terminal_cleanup is not None and not terminal_cleanup.is_set():
+                        capture_error = (
+                            "Codex worker did not finish cleanup; trace import skipped."
+                        )
+                        capture_stats = {"errors": [capture_error]}
+                    else:
+                        capture_stats = import_codex_trace(capture_state, trace_root)
                 except Exception as exc:
                     logger.exception("Codex trace import failed")
                     capture_stats = {"errors": [f"{type(exc).__name__}: {exc}"]}
@@ -200,8 +210,11 @@ class CodexPlanner(Planner):
                             call.tool_call_id,
                             missing={
                                 "planner_id": MissingInfo(
-                                    "not_recorded",
-                                    "No matching model response in the Codex trace.",
+                                    "capture_failed"
+                                    if capture_error is not None
+                                    else "not_recorded",
+                                    capture_error
+                                    or "No matching model response in the Codex trace.",
                                 )
                             },
                         )
@@ -222,8 +235,9 @@ class CodexPlanner(Planner):
         max_turns: int,
         input_queue: queue.Queue[str | None] | None,
         trace_root: Path | None,
+        cleanup_done: threading.Event,
     ) -> PlannerResult:
-        """Run a terminal session and drain its resources before returning."""
+        """Run a terminal session with a bounded wait for worker cleanup."""
         output_path, raw_stream_path, last_message_path = self._output_paths()
         recorder = _Recorder(
             max_turns=max_turns,
@@ -287,9 +301,11 @@ class CodexPlanner(Planner):
                 try:
                     if worker is not None and worker.is_alive():
                         _interrupt(state)
-                        worker.join()
+                        worker.join(timeout=15)
                 finally:
                     mcp_server.stop()
+                if state["session_done"].is_set():
+                    cleanup_done.set()
 
         if error is not None:
             rendered = f"\n[codex-planner] {error}\n"

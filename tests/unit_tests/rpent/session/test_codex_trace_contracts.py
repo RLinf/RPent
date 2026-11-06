@@ -14,6 +14,7 @@
 
 """Native Codex trace imports preserve model evidence and execution identity."""
 
+import base64
 import json
 import shutil
 from datetime import datetime, timezone
@@ -51,13 +52,13 @@ def native_trace(tmp_path):
         (root / path).write_text(json.dumps(data), encoding="utf-8")
         return {"raw_payload_id": name, "kind": {"type": kind}, "path": path}
 
-    def event(kind, *, thread_id="thread-1", **data):
+    def event(kind, *, thread_id="thread-1", codex_turn_id="turn-1", **data):
         nonlocal sequence
         sequence += 1
         if kind == "inference_started":
             data = {
                 "thread_id": thread_id,
-                "codex_turn_id": "turn-1",
+                "codex_turn_id": codex_turn_id,
                 "model": "gpt-5.5",
                 "provider_name": "test",
                 **data,
@@ -82,7 +83,7 @@ def native_trace(tmp_path):
             "wall_time_unix_ms": 1000 * sequence,
             "rollout_id": "rollout-1",
             "thread_id": thread_id,
-            "codex_turn_id": "turn-1" if thread_id is not None else None,
+            "codex_turn_id": codex_turn_id if thread_id is not None else None,
             "payload": {"type": kind, **data},
         }
         with (root / "trace.jsonl").open("a", encoding="utf-8") as file:
@@ -201,6 +202,7 @@ def test_import_links_existing_mcp_calls_in_response_order(
 
         def execute(**kwargs):
             shutil.copytree(root, kwargs["trace_root"] / root.name)
+            kwargs["cleanup_done"].set()
             return PlannerResult(finish_result=None, messages=[], stats={}, error=None)
 
         monkeypatch.setattr(adapter, "_solve_terminal", execute)
@@ -227,7 +229,11 @@ def test_import_links_existing_mcp_calls_in_response_order(
     (planner,) = state.planner_records()
     assert planner.backend == "codex" and planner.status == "completed"
     assert planner.request == Payload(
-        "codex.inference_request", request, format_version="1", completeness="complete"
+        "codex.expanded_request",
+        request,
+        format_version="1",
+        completeness="complete",
+        base64_paths={"/input/0/image_url": "data:image/png;base64,"},
     )
     assert planner.response == Payload(
         "codex.inference_response",
@@ -275,6 +281,9 @@ def test_import_links_existing_mcp_calls_in_response_order(
         )
         saved = json.loads((state.trajectory_dir / "planners.jsonl").read_text())
         assert saved["planner_id"] == planner.planner_id
+        reference = saved["request"]["data"]["input"][0]["image_url"]
+        assert reference["base64_prefix"] == "data:image/png;base64,"
+        assert (state.trajectory_dir / reference["path"]).read_bytes() == b"image"
         assert [call["name"] for call in saved["tool_calls"]] == [
             "left",
             "exec_command",
@@ -295,12 +304,241 @@ def test_import_links_existing_mcp_calls_in_response_order(
         )
 
 
+def test_import_externalizes_protocol_images_and_restores_native_payloads(
+    state, native_trace
+):
+    root, payload, event = native_trace
+    prefix = "data:image/png;base64,"
+    encoded = base64.b64encode(b"image").decode("ascii")
+    image = {"type": "input_image", "image_url": prefix + encoded, "detail": "high"}
+    request = {
+        "model": "gpt-5.5",
+        "instructions": "Initial instructions.",
+        "tools": [{"type": "custom", "name": "first_tool"}],
+        "input": [
+            {
+                "type": "message",
+                "role": "user",
+                "content": [
+                    image,
+                    {"type": "input_text", "text": prefix + encoded},
+                    {"type": "input_image", "image_url": "https://example.com/a.png"},
+                ],
+            },
+            {
+                "type": "custom_tool_call_output",
+                "call_id": "previous",
+                "output": [image],
+            },
+            {"type": "additional_tools", "tools": [{"examples": [image]}]},
+        ],
+        "metadata": {"example": image},
+    }
+    arguments = json.dumps({"content": [image]})
+    response = {
+        "output_items": [
+            {
+                "type": "function_call",
+                "name": "view_image",
+                "call_id": "call-1",
+                "arguments": arguments,
+            },
+            {"type": "reasoning", "encrypted_content": encoded},
+            {
+                "type": "message",
+                "role": "assistant",
+                "phase": "commentary",
+                "content": [{"type": "output_text", "text": "Checking the image."}],
+            },
+        ]
+    }
+    invocation = {
+        "tool_name": "view_image",
+        "payload": {"type": "function", "arguments": arguments},
+    }
+    feedback = {
+        "type": "direct_response",
+        "response_item": {
+            "type": "function_call_output",
+            "call_id": "call-1",
+            "output": [image],
+        },
+    }
+    event(
+        "inference_started",
+        inference_call_id="inference-1",
+        request_payload=payload("inference_request", request),
+    )
+    event(
+        "inference_completed",
+        inference_call_id="inference-1",
+        response_id="response-1",
+        response_payload=payload("inference_response", response),
+    )
+    event(
+        "tool_call_started",
+        tool_call_id="native-1",
+        model_visible_call_id="call-1",
+        invocation_payload=payload("tool_invocation", invocation),
+    )
+    event(
+        "tool_call_ended",
+        tool_call_id="native-1",
+        status="completed",
+        result_payload=payload("tool_result", feedback),
+    )
+    developer = {
+        "type": "message",
+        "role": "developer",
+        "content": [{"type": "input_text", "text": "Updated guidance."}],
+    }
+    second_request = {
+        "model": "gpt-5.6-sol",
+        "tools": [],
+        "client_metadata": {"turn": 1},
+        "previous_response_id": "response-1",
+        "input": [feedback["response_item"], developer],
+    }
+    second_response = {
+        "output_items": [
+            {
+                "type": "message",
+                "role": "assistant",
+                "phase": "final_answer",
+                "content": [{"type": "output_text", "text": "Done."}],
+            }
+        ]
+    }
+    followup = {"type": "message", "role": "user", "content": [image]}
+    third_request = {"previous_response_id": "response-2", "input": [followup]}
+    for index, data, output, turn in (
+        (2, second_request, second_response, "turn-1"),
+        (3, third_request, {"output_items": []}, "turn-2"),
+    ):
+        event(
+            "inference_started",
+            codex_turn_id=turn,
+            inference_call_id=f"inference-{index}",
+            request_payload=payload("inference_request", data),
+        )
+        event(
+            "inference_completed",
+            codex_turn_id=turn,
+            inference_call_id=f"inference-{index}",
+            response_id=f"response-{index}",
+            response_payload=payload("inference_response", output),
+        )
+    native_files = {
+        path: path.read_bytes() for path in root.rglob("*") if path.is_file()
+    }
+
+    stats = import_codex_trace(state, root)
+    assert stats["errors"] == []
+    planners = state.planner_records()
+    planner, second, third = planners
+    second_input = [
+        *request["input"],
+        *response["output_items"],
+        feedback["response_item"],
+        developer,
+    ]
+    expected_requests = [
+        request,
+        {
+            "model": "gpt-5.6-sol",
+            "tools": [],
+            "client_metadata": {"turn": 1},
+            "input": second_input,
+        },
+        {"input": [*second_input, second_response["output_items"][0], followup]},
+    ]
+    assert [record.request.data for record in planners] == expected_requests
+    assert all(
+        record.request.format == "codex.expanded_request"
+        and record.request.format_version == "1"
+        and record.request.completeness == "complete"
+        and record.request.missing == {}
+        for record in planners
+    )
+    assert "provider.previous_response_id" not in planner.source_ids
+    assert second.source_ids["provider.previous_response_id"] == "response-1"
+    assert third.source_ids["provider.previous_response_id"] == "response-2"
+    assert third.source_ids["codex.codex_turn_id"] == "turn-2"
+    assert planner.request.base64_paths == {
+        "/input/0/content/0/image_url": prefix,
+        "/input/1/output/0/image_url": prefix,
+    }
+    assert second.request.base64_paths == {
+        "/input/0/content/0/image_url": prefix,
+        "/input/1/output/0/image_url": prefix,
+        "/input/6/output/0/image_url": prefix,
+    }
+    assert third.request.base64_paths == {
+        **second.request.base64_paths,
+        "/input/9/content/0/image_url": prefix,
+    }
+    assert planner.tool_calls[0].feedback.base64_paths == {
+        "/response_item/output/0/image_url": prefix
+    }
+    state.end_task(status="completed", stop_reason="finish")
+    trajectory = state.save_planner_trajectory()
+
+    saved_records = [
+        json.loads(line)
+        for line in (trajectory / "planners.jsonl").read_text().splitlines()
+    ]
+    for record, saved_record in zip(planners, saved_records):
+        for pointer in record.request.base64_paths:
+            parts = pointer.lstrip("/").split("/")
+            block = saved_record["request"]["data"]
+            for key in parts[:-1]:
+                block = block[int(key)] if isinstance(block, list) else block[key]
+            reference = block[parts[-1]]
+            assert reference["$type"] == "artifact_ref"
+            assert reference["base64_prefix"] == prefix
+            content = (trajectory / reference["path"]).read_bytes()
+            assert content == b"image"
+            block[parts[-1]] = prefix + base64.b64encode(content).decode("ascii")
+    saved = saved_records[0]
+    saved_feedback = saved["tool_calls"][0]["feedback"]["data"]
+    block = saved_feedback["response_item"]["output"][0]
+    reference = block["image_url"]
+    assert reference["$type"] == "artifact_ref"
+    assert reference["base64_prefix"] == prefix
+    content = (trajectory / reference["path"]).read_bytes()
+    assert content == b"image"
+    block["image_url"] = prefix + base64.b64encode(content).decode("ascii")
+    assert len(list((trajectory / "artifacts").iterdir())) == 1
+    assert [record["request"]["data"] for record in saved_records] == expected_requests
+    assert saved["response"]["data"] == response
+    assert saved_records[1]["response"]["data"] == second_response
+    assert saved["tool_calls"][0]["arguments"]["data"] == invocation
+    assert saved_feedback == feedback
+    assert state.planner_records() == planners
+    assert {path: path.read_bytes() for path in native_files} == native_files
+
+
 @pytest.mark.parametrize("terminal", ["failed", "cancelled"])
 @pytest.mark.parametrize("partial", [False, True])
 def test_import_keeps_retries_partial_responses_and_missing_terminal(
     state, native_trace, terminal, partial
 ):
     root, payload, event = native_trace
+    initial_input = [{"role": "user", "content": "Move."}]
+    initial_output = [{"type": "reasoning", "encrypted_content": "initial"}]
+    event(
+        "inference_started",
+        inference_call_id="initial",
+        request_payload=payload("inference_request", {"input": initial_input}),
+    )
+    event(
+        "inference_completed",
+        inference_call_id="initial",
+        response_id="previous",
+        response_payload=payload(
+            "inference_response", {"output_items": initial_output}
+        ),
+    )
     response = {
         "response_id": None,
         "upstream_request_id": "upstream-1",
@@ -310,7 +548,10 @@ def test_import_keeps_retries_partial_responses_and_missing_terminal(
         ],
     }
     for index in range(3):
-        request = {"input": [], "previous_response_id": "previous"}
+        request = {
+            "input": [],
+            "previous_response_id": "response-1" if index == 2 else "previous",
+        }
         event(
             "inference_started",
             inference_call_id=f"inference-{index}",
@@ -320,6 +561,7 @@ def test_import_keeps_retries_partial_responses_and_missing_terminal(
             event(
                 f"inference_{terminal}",
                 inference_call_id="inference-0",
+                response_id="failed-response",
                 upstream_request_id="upstream-1",
                 **{"error" if terminal == "failed" else "reason": "stream interrupted"},
                 partial_response_payload=payload("inference_response", response)
@@ -345,16 +587,21 @@ def test_import_keeps_retries_partial_responses_and_missing_terminal(
 
     stats = import_codex_trace(state, root)
 
-    assert stats["planners"] == 3 and stats["errors"] == []
-    failed, retried, unfinished = state.planner_records()
+    assert stats["planners"] == 4 and stats["errors"] == []
+    initial, failed, retried, unfinished = state.planner_records()
+    assert initial.request.data == {"input": initial_input}
     assert [record.status for record in (failed, retried, unfinished)] == [
         terminal,
         "completed",
         "open",
     ]
     assert all(
-        record.request.data == request for record in (failed, retried, unfinished)
+        record.request.data == {"input": [*initial_input, *initial_output]}
+        and record.request.completeness == "complete"
+        for record in (failed, retried, unfinished)
     )
+    assert retried.source_ids["provider.previous_response_id"] == "previous"
+    assert unfinished.source_ids["provider.previous_response_id"] == "response-1"
     if partial:
         assert failed.response.data == response
         assert failed.response.completeness == "partial"
@@ -365,6 +612,90 @@ def test_import_keeps_retries_partial_responses_and_missing_terminal(
     assert unfinished.response is None and unfinished.ended_at is None
     assert unfinished.missing["response"].reason == "not_recorded"
     assert unfinished.missing["ended_at"].reason == "not_recorded"
+
+
+@pytest.mark.parametrize(
+    "damage",
+    ["missing_parent", "missing_request", "missing_response", "partial_response"],
+)
+def test_import_marks_incomplete_context_until_a_full_request(
+    state, native_trace, damage
+):
+    root, payload, event = native_trace
+    if damage != "missing_parent":
+        if damage != "missing_request":
+            event(
+                "inference_started",
+                inference_call_id="parent",
+                request_payload=payload("inference_request", {"input": []}),
+            )
+        response = payload("inference_response", {"output_items": []})
+        event(
+            "inference_failed"
+            if damage == "partial_response"
+            else "inference_completed",
+            inference_call_id="parent",
+            response_id="parent",
+            response_payload=None if damage == "missing_response" else response,
+            error="stream interrupted" if damage == "partial_response" else None,
+        )
+    deltas = [
+        {
+            "input": [{"role": "user", "content": "First."}],
+            "previous_response_id": "parent",
+        },
+        {
+            "input": [{"role": "user", "content": "Next."}],
+            "previous_response_id": "response-0",
+        },
+    ]
+    compacted = {"type": "compaction", "encrypted_content": "new-context"}
+    followup = {"role": "user", "content": "Continue."}
+    outputs = [
+        {"type": "message", "role": "assistant", "content": f"Answer {index}."}
+        for index in range(4)
+    ]
+    requests = [
+        *deltas,
+        {"input": [compacted], "previous_response_id": None, "instructions": "Reset."},
+        {"input": [followup], "previous_response_id": "response-2"},
+    ]
+    for index, request in enumerate(requests):
+        event(
+            "inference_started",
+            inference_call_id=f"inference-{index}",
+            request_payload=payload("inference_request", request),
+        )
+        event(
+            "inference_completed",
+            inference_call_id=f"inference-{index}",
+            response_id=f"response-{index}",
+            response_payload=payload(
+                "inference_response", {"output_items": [outputs[index]]}
+            ),
+        )
+
+    stats = import_codex_trace(state, root)
+
+    first, second, reset, continued = state.planner_records()[-4:]
+    assert len(stats["errors"]) == 2
+    for record, request in zip((first, second), deltas):
+        previous = request["previous_response_id"]
+        assert record.request.data == {"input": request["input"]}
+        assert record.request.completeness == "partial"
+        assert record.request.missing["/input"].reason == "not_recorded"
+        assert previous in record.request.missing["/input"].detail
+        assert record.source_ids["provider.previous_response_id"] == previous
+        assert record.response.completeness == "complete"
+        assert any(
+            record.request.missing["/input"].detail in error
+            for error in stats["errors"]
+        )
+    assert reset.request.data == {"input": [compacted], "instructions": "Reset."}
+    assert continued.request.data == {"input": [compacted, outputs[2], followup]}
+    assert reset.request.completeness == continued.request.completeness == "complete"
+    assert reset.request.missing == continued.request.missing == {}
+    assert "provider.previous_response_id" not in reset.source_ids
 
 
 @pytest.mark.parametrize("parent_recorded", [False, True])
@@ -499,6 +830,109 @@ def test_import_scopes_model_call_ids_to_their_threads(state, native_trace):
         assert [call.tool_call_id for call in planner.tool_calls] == [
             expected[planner.source_ids["codex.thread_id"]]
         ]
+
+
+def test_import_scopes_payloads_and_call_ids_to_each_bundle(state, native_trace):
+    root, payload, event = native_trace
+    event(
+        "inference_started",
+        inference_call_id="inference-1",
+        request_payload=payload("inference_request", {"input": ["first-bundle"]}),
+    )
+    event(
+        "inference_completed",
+        inference_call_id="inference-1",
+        response_payload=payload(
+            "inference_response",
+            {
+                "output_items": [
+                    {
+                        "type": "function_call",
+                        "call_id": "call-1",
+                        "name": "exec_command",
+                        "arguments": "first-bundle",
+                    }
+                ]
+            },
+        ),
+    )
+    event(
+        "tool_call_started",
+        tool_call_id="native-1",
+        model_visible_call_id="call-1",
+        invocation_payload=payload(
+            "tool_invocation",
+            {"tool_name": "exec_command", "arguments": "first-bundle"},
+        ),
+    )
+    event(
+        "tool_call_ended",
+        tool_call_id="native-1",
+        status="completed",
+        result_payload=payload("tool_result", {"output": "first-bundle"}),
+    )
+    second = shutil.copytree(root, root.with_name("bundle-2"))
+    for path in (second / "payloads").iterdir():
+        path.write_text(
+            path.read_text(encoding="utf-8").replace("first-bundle", "second-bundle"),
+            encoding="utf-8",
+        )
+
+    stats = import_codex_trace(state, root.parent)
+
+    assert stats["bundles"] == stats["planners"] == stats["tool_calls"] == 2
+    assert stats["unlinked_tool_calls"] == 0 and stats["errors"] == []
+    planners = state.planner_records()
+    assert len(planners) == 2
+    for planner, label in zip(planners, ("first-bundle", "second-bundle")):
+        assert planner.request.data == {"input": [label]}
+        assert planner.response.data["output_items"][0]["arguments"] == label
+        (call,) = planner.tool_calls
+        assert call.planner_id == planner.planner_id
+        assert call.arguments.data == {"tool_name": "exec_command", "arguments": label}
+        assert call.feedback.data == {"output": label}
+        assert call.status == "completed"
+    assert len(state.tool_call_records()) == 2
+
+
+def test_import_does_not_expand_context_from_another_bundle(state, native_trace):
+    root, payload, event = native_trace
+    event(
+        "inference_started",
+        inference_call_id="parent",
+        request_payload=payload(
+            "inference_request", {"input": [{"role": "user", "content": "Move."}]}
+        ),
+    )
+    event(
+        "inference_completed",
+        inference_call_id="parent",
+        response_id="previous",
+        response_payload=payload("inference_response", {"output_items": []}),
+    )
+    parent_events = (root / "trace.jsonl").read_text()
+    event(
+        "inference_started",
+        inference_call_id="child",
+        request_payload=payload(
+            "inference_request", {"input": [], "previous_response_id": "previous"}
+        ),
+    )
+    second = shutil.copytree(root, root.with_name("bundle-2"))
+    (second / "trace.jsonl").write_text(
+        (root / "trace.jsonl").read_text()[len(parent_events) :]
+    )
+    (root / "trace.jsonl").write_text(parent_events)
+
+    stats = import_codex_trace(state, root.parent)
+
+    assert stats["bundles"] == stats["planners"] == 2
+    assert len(stats["errors"]) == 1
+    parent, child = state.planner_records()
+    assert parent.request.completeness == "complete"
+    assert child.request.data == {"input": []}
+    assert child.request.completeness == "partial"
+    assert child.request.missing["/input"].reason == "not_recorded"
 
 
 def test_import_does_not_match_rpent_tools_by_name_or_arguments(state, native_trace):

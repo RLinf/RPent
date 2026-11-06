@@ -269,6 +269,7 @@ def test_mcp_capture_preserves_arguments_feedback_and_environment(captured_toolk
     assert call.feedback.data == result.model_dump(
         mode="json", by_alias=True, exclude_none=True
     )
+    assert call.feedback.base64_paths == {"/content/1/data": ""}
     assert json.loads(result.content[0].text) == {"observed": True}
     assert base64.b64decode(result.content[1].data) == b"png"
     assert set(call.missing) == {"planner_id"}
@@ -289,6 +290,20 @@ def test_mcp_capture_preserves_arguments_feedback_and_environment(captured_toolk
         reference = state.get_observation(observation_id).payload.data["image"]
         assert isinstance(reference, ArtifactRef)
         assert (state.trajectory_dir / reference.path).read_bytes() == image
+
+    state.end_task(status="completed", stop_reason="finish")
+    root = state.save_planner_trajectory()
+    saved = json.loads((root / "unlinked_tool_calls.jsonl").read_text())
+    feedback = saved["feedback"]["data"]
+    reference = feedback["content"][1]["data"]
+    assert reference["$type"] == "artifact_ref"
+    assert reference["base64_prefix"] == ""
+    assert reference["path"] == saved["raw_result"]["data"]["images"][0]["path"]
+    image = (root / reference["path"]).read_bytes()
+    assert image == b"png"
+    feedback["content"][1]["data"] = base64.b64encode(image).decode("ascii")
+    assert feedback == result.model_dump(mode="json", by_alias=True, exclude_none=True)
+    assert state.get_tool_call(call.tool_call_id) == call
 
 
 @pytest.mark.parametrize(

@@ -46,6 +46,8 @@ class ArtifactRef:
     dtype: str | None = None
     shape: tuple[int, ...] | None = None
     media_type: str | None = None
+    # Prefix for restoring a Base64 string; None keeps the value as bytes.
+    base64_prefix: str | None = None
 
 
 @dataclass
@@ -85,6 +87,8 @@ class Payload:
     missing: dict[str, MissingInfo] = field(default_factory=dict)
     # JSON Pointers into data; this storage hint is omitted from saved records.
     inline_array_paths: tuple[str, ...] = ()
+    # JSON Pointers to Base64 strings and their prefixes; omitted from saved records.
+    base64_paths: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
