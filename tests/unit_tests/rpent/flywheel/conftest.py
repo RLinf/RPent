@@ -112,9 +112,15 @@ def trajectory(tmp_path, request):
     return next(iter_trajectories(root))
 
 
-@pytest.fixture(params=["robodojo", "robotwin"])
+@pytest.fixture(
+    params=[
+        pytest.param(("robodojo", "joint"), id="robodojo-joint"),
+        pytest.param(("robotwin", "ee"), id="robotwin-ee"),
+        pytest.param(("robotwin", "qpos"), id="robotwin-qpos"),
+    ]
+)
 def bimanual_trajectory(trajectory, request):
-    robot = request.param
+    robot, action_type = request.param
     root = trajectory["root"]
     arguments = trajectory["task"]["config"]["data"]["arguments"]
     arguments.update(robot_name=robot, layout=0)
@@ -167,7 +173,12 @@ def bimanual_trajectory(trajectory, request):
                     "left_gripper": float(values[7]),
                     "right_eef_pose": _array(values[8:15]),
                     "left_eef_pose": _array(values[:7]),
-                    "qpos_target14": _array(np.full(14, -999.0)),
+                    "qpos_target14": _array(
+                        np.arange(14, dtype=np.float64) + index * 100
+                        if action_type == "qpos"
+                        else np.full(14, -999.0)
+                    ),
+                    "arm_qpos_real12": _array(np.full(12, -999.0)),
                     "left_tcp_pose": _array(np.full(7, -999.0)),
                     "right_tcp_pose": _array(np.full(7, -999.0)),
                 },
@@ -185,7 +196,10 @@ def bimanual_trajectory(trajectory, request):
         }
 
     for index, action in enumerate(trajectory["actions"]):
-        dim = 14 if robot == "robodojo" else 16
+        recorded_type = (
+            "qpos" if robot == "robotwin" and action["source"] != "vla" else action_type
+        )
+        dim = 16 if recorded_type == "ee" else 14
         values = np.arange(dim, dtype=np.float64) / 10 + index
         if robot == "robodojo":
             payload = {
@@ -198,7 +212,7 @@ def bimanual_trajectory(trajectory, request):
             result = {"done": index == count - 1}
         else:
             payload = _array(values)
-            format = "robotwin.action.ee"
+            format = f"robotwin.action.{recorded_type}"
             result = {"terminated": index == count - 1, "truncated": False}
         action["action"] = {
             "format": format,

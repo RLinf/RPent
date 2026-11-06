@@ -58,14 +58,14 @@ def test_export_saves_declared_rldx_videos_actions_and_metadata(
         image_writer_threads=image_writer_threads,
     )
     assert report["robot"] == robot
-    assert report["frame_counts"] == {"train": 37, "validation": 0}
-    assert report["episode_counts"] == {"train": 2, "validation": 0}
-    assert report["window_counts"] == {"train": 7, "validation": 0}
+    assert report["frame_counts"] == {"train": 37}
+    assert report["episode_counts"] == {"train": 2}
+    assert report["window_counts"] == {"train": 7}
     assert len(list((output / "train" / "videos").rglob("*.mp4"))) == 6
     assert not (output / "train" / "images").exists()
     moved = output.rename(tmp_path / "moved")
     shutil.rmtree(trajectory["root"])
-    dataset = load_dataset(moved, "train")
+    dataset = load_dataset(moved)
     assert dataset.features["observation.state"]["dtype"] == "float64"
     assert dataset.features["action"]["dtype"] == "float64"
     indices = np.r_[1:21, 22:39]
@@ -140,7 +140,11 @@ def test_bimanual_export_preserves_native_state_actions_and_camera_order(
 ):
     trajectory = bimanual_trajectory
     robot = trajectory["task"]["config"]["data"]["arguments"]["robot_name"]
-    dim = 14 if robot == "robodojo" else 16
+    dim = (
+        16
+        if trajectory["actions"][1]["action"]["format"] == "robotwin.action.ee"
+        else 14
+    )
     output = tmp_path / "bimanual"
     report = export_dataset(
         trajectory["root"],
@@ -148,12 +152,12 @@ def test_bimanual_export_preserves_native_state_actions_and_camera_order(
         horizon=50,
         image_writer_threads=image_writer_threads,
     )
-    assert report["frame_counts"] == {"train": 6, "validation": 0}
+    assert report["frame_counts"] == {"train": 6}
     assert report["fps"] == (25 if robot == "robodojo" else 20)
-    assert report["window_counts"] == {"train": 0, "validation": 0}
+    assert report["window_counts"] == {"train": 0}
     moved = output.rename(tmp_path / "moved")
     shutil.rmtree(trajectory["root"])
-    dataset = load_dataset(moved, "train")
+    dataset = load_dataset(moved)
     assert dataset.features["action"]["shape"] == (dim,)
     assert dataset.features["action"]["dtype"] == "float64"
     assert dataset.features["observation.state"]["shape"] == (dim,)
@@ -207,9 +211,9 @@ def test_bimanual_export_keeps_fifty_and_seventeen_step_segments(
         horizon=50,
         image_writer_threads=image_writer_threads,
     )
-    assert report["frame_counts"] == {"train": 67, "validation": 0}
-    assert report["episode_counts"] == {"train": 2, "validation": 0}
-    assert report["window_counts"] == {"train": 1, "validation": 0}
+    assert report["frame_counts"] == {"train": 67}
+    assert report["episode_counts"] == {"train": 2}
+    assert report["window_counts"] == {"train": 1}
     assert [
         (e["start_index"], e["stop_index"])
         for e in report["trajectories"][0]["episodes"]
@@ -228,25 +232,32 @@ def test_bimanual_export_keeps_fifty_and_seventeen_step_segments(
     assert windows[50]["action_is_pad"].tolist() == [False] * 17 + [True] * 33
 
 
-@pytest.mark.parametrize("scene_id", [8, 9, None])
 def test_bimanual_export_does_not_split_by_layout_or_seed(
-    bimanual_trajectory, tmp_path, scene_id
+    bimanual_trajectory, tmp_path
 ):
     trajectory = bimanual_trajectory
-    path = trajectory["root"] / "task.json"
-    doc = json.loads(path.read_text())
-    args = doc["task"]["config"]["data"]["arguments"]
-    key = "layout" if args["robot_name"] == "robodojo" else "seed"
-    if scene_id is None:
-        args.pop(key)
-    else:
-        args[key] = scene_id
-    path.write_text(json.dumps(doc))
+    jobs = tmp_path / "jobs"
+    for index, scene_id in enumerate((8, 9, None)):
+        root = shutil.copytree(trajectory["root"], jobs / str(index))
+        path = root / "task.json"
+        doc = json.loads(path.read_text())
+        args = doc["task"]["config"]["data"]["arguments"]
+        key = "layout" if args["robot_name"] == "robodojo" else "seed"
+        if scene_id is None:
+            args.pop(key)
+        else:
+            args[key] = scene_id
+        path.write_text(json.dumps(doc))
     output = tmp_path / "training"
-    report = export_dataset(trajectory["root"], output)
-    assert report["frame_counts"] == {"train": 6, "validation": 0}
-    assert len(load_dataset(output, "train")) == 6
-    assert len(load_dataset(output, "validation")) == 0
+    report = export_dataset(jobs, output)
+    assert report["frame_counts"] == {"train": 18}
+    assert report["episode_counts"] == {"train": 3}
+    assert report["trajectory_count"] == report["exported_trajectory_count"] == 3
+    dataset = load_dataset(output)
+    assert len(dataset) == 18
+    np.testing.assert_array_equal(
+        dataset.hf_dataset["episode_index"], np.repeat([0, 1, 2], 6)
+    )
     assert not (output / "validation").exists()
 
 
@@ -272,11 +283,11 @@ def test_export_stores_all_trajectories_as_individual_training_frames(
         (path / "task.json").write_text(json.dumps(document))
     destination = tmp_path / "export"
     report = export_dataset(jobs, destination)
-    assert report["episode_counts"] == {"train": 3, "validation": 0}
-    assert report["frame_counts"] == {"train": 105, "validation": 0}
-    assert report["window_counts"] == {"train": 78, "validation": 0}
-    assert report["dataset_paths"] == {"train": "train", "validation": None}
-    assert report["schema_version"] == 4
+    assert report["episode_counts"] == {"train": 3}
+    assert report["frame_counts"] == {"train": 105}
+    assert report["window_counts"] == {"train": 78}
+    assert report["dataset_paths"] == {"train": "train"}
+    assert report["schema_version"] == 5
     assert report["trajectory_count"] == report["exported_trajectory_count"] == 3
     assert report["fps"] == 20
     assert not list(destination.rglob("*.png"))
@@ -286,6 +297,12 @@ def test_export_stores_all_trajectories_as_individual_training_frames(
         "report.json",
     }
     assert [row["excluded_action_count"] for row in report["trajectories"]] == [2, 2, 2]
+    assert [row["frame_counts"] for row in report["trajectories"]] == [
+        {"train": 35}
+    ] * 3
+    assert [row["window_counts"] for row in report["trajectories"]] == [
+        {"train": 26}
+    ] * 3
     assert all(
         row["excluded_action_counts"] == {"non_vla": 2, "unselected_vla": 0}
         for row in report["trajectories"]
@@ -294,14 +311,13 @@ def test_export_stores_all_trajectories_as_individual_training_frames(
     # Embedded images and relative dataset paths must survive moving the export.
     moved = destination.rename(tmp_path / "moved")
     shutil.rmtree(jobs)
-    dataset = load_dataset(moved, "train")
+    dataset = load_dataset(moved)
     assert len(dataset) == dataset.meta.total_frames == 105
     assert "observation.state" not in dataset.features
     assert "action" not in dataset.features
     assert dataset.features["state"]["shape"] == (8,)
     assert dataset.features["actions"]["shape"] == (7,)
     assert dataset.features["actions"]["dtype"] == dtype
-    assert len(load_dataset(moved, "validation")) == 0
     for offset in range(105):
         sample = dataset[offset]
         start = offset % 35 + 1
@@ -332,9 +348,9 @@ def test_export_keeps_short_segments_and_loader_does_not_bridge_a_script(
 
     output = tmp_path / "split-export"
     report = export_dataset(trajectory["root"], output)
-    assert report["episode_counts"] == {"train": 2, "validation": 0}
-    assert report["frame_counts"] == {"train": 34, "validation": 0}
-    assert report["window_counts"] == {"train": 18, "validation": 0}
+    assert report["episode_counts"] == {"train": 2}
+    assert report["frame_counts"] == {"train": 34}
+    assert report["window_counts"] == {"train": 18}
     source = report["trajectories"][0]
     assert source["selected_action_count"] == 34
     assert source["exported_action_count"] == 34
@@ -347,12 +363,11 @@ def test_export_keeps_short_segments_and_loader_does_not_bridge_a_script(
         (episode["start_index"], episode["stop_index"])
         for episode in source["episodes"]
     ] == [(1, 8), (9, 36)]
-    dataset = load_dataset(output, "train")
+    dataset = load_dataset(output)
     assert [sample["state"][0].item() for sample in dataset] == [
         *range(1, 8),
         *range(9, 36),
     ]
-    assert len(load_dataset(output, "validation")) == 0
 
     windows = LeRobotDataset(
         report["repo_id"],
@@ -386,10 +401,10 @@ def test_export_preserves_every_step_including_short_tails(
     output = tmp_path / "tails"
     report = export_dataset(trajectory["root"], output)
     expected_steps = len(trajectory["actions"]) - 2
-    assert report["frame_counts"] == {"train": expected_steps, "validation": 0}
-    assert report["window_counts"] == {"train": window_count, "validation": 0}
+    assert report["frame_counts"] == {"train": expected_steps}
+    assert report["window_counts"] == {"train": window_count}
     assert report["trajectories"][0]["excluded_action_count"] == 2
-    dataset = load_dataset(output, "train")
+    dataset = load_dataset(output)
     assert len(dataset) == expected_steps
     assert [frame["state"][0].item() for frame in dataset] == list(
         range(1, expected_steps + 1)
@@ -402,11 +417,9 @@ def test_horizon_only_changes_window_statistics(trajectory, tmp_path):
         output = tmp_path / f"horizon-{horizon}"
         report = export_dataset(trajectory["root"], output, horizon=horizon)
         assert report["horizon"] == horizon
-        assert report["frame_counts"] == {"train": 6, "validation": 0}
-        assert report["window_counts"] == {"train": count, "validation": 0}
-        outputs.append(
-            np.stack([frame["actions"] for frame in load_dataset(output, "train")])
-        )
+        assert report["frame_counts"] == {"train": 6}
+        assert report["window_counts"] == {"train": count}
+        outputs.append(np.stack([frame["actions"] for frame in load_dataset(output)]))
     np.testing.assert_array_equal(outputs[0], outputs[1])
 
 
@@ -435,8 +448,8 @@ def test_loader_windows_stay_inside_selected_segments(
         )
     output = tmp_path / "boundaries"
     report = export_dataset(trajectory["root"], output)
-    assert report["episode_counts"] == {"train": 2, "validation": 0}
-    assert report["window_counts"] == {"train": len(starts), "validation": 0}
+    assert report["episode_counts"] == {"train": 2}
+    assert report["window_counts"] == {"train": len(starts)}
     windows = LeRobotDataset(
         report["repo_id"],
         root=output / "train",
@@ -462,12 +475,12 @@ def test_export_merges_continuous_actions_across_tool_calls(trajectory, tmp_path
         )
     output = tmp_path / "tool-calls"
     report = export_dataset(trajectory["root"], output)
-    assert report["episode_counts"] == {"train": 1, "validation": 0}
-    assert report["frame_counts"] == {"train": 20, "validation": 0}
-    assert report["window_counts"] == {"train": 11, "validation": 0}
-    assert [
-        frame["state"][0].item() for frame in load_dataset(output, "train")
-    ] == list(range(1, 21))
+    assert report["episode_counts"] == {"train": 1}
+    assert report["frame_counts"] == {"train": 20}
+    assert report["window_counts"] == {"train": 11}
+    assert [frame["state"][0].item() for frame in load_dataset(output)] == list(
+        range(1, 21)
+    )
 
 
 @pytest.mark.parametrize("horizon", [0, -1, True, 1.5])
@@ -541,8 +554,8 @@ def test_failed_trajectories_still_produce_an_exclusion_report(trajectory, tmp_p
     path.write_text(json.dumps(document))
     output = tmp_path / "failed-only"
     report = export_dataset(trajectory["root"], output)
-    assert report["episode_counts"] == {"train": 0, "validation": 0}
-    assert report["dataset_paths"] == {"train": None, "validation": None}
+    assert report["episode_counts"] == {"train": 0}
+    assert report["dataset_paths"] == {"train": None}
     assert report["trajectories"][0]["excluded_action_count"] == 8
     assert (
         report["trajectories"][0]["rejected"][0]["reason"]
@@ -550,7 +563,6 @@ def test_failed_trajectories_still_produce_an_exclusion_report(trajectory, tmp_p
     )
     assert json.loads((output / "report.json").read_text())["frame_counts"] == {
         "train": 0,
-        "validation": 0,
     }
-    assert report["window_counts"] == {"train": 0, "validation": 0}
-    assert len(load_dataset(output, "train")) == 0
+    assert report["window_counts"] == {"train": 0}
+    assert len(load_dataset(output)) == 0

@@ -165,27 +165,40 @@ def vla_runtime_contract() -> dict[str, object]:
 
 FLYWHEEL_CONFIG = {
     "observation_format": "robotwin.observation",
-    "state": {
-        "dataset_key": "observation.state",
-        "fields": (
-            {"path": ("robot_state", "left_eef_pose"), "shape": (7,)},
-            {
-                "path": ("robot_state", "left_gripper"),
-                "shape": (),
-                "dtype_from": 0,
+    "layouts": {
+        "robotwin.action.ee": {
+            "state": {
+                "dataset_key": "observation.state",
+                "fields": (
+                    {"path": ("robot_state", "left_eef_pose"), "shape": (7,)},
+                    {
+                        "path": ("robot_state", "left_gripper"),
+                        "shape": (),
+                        "dtype_from": 0,
+                    },
+                    {"path": ("robot_state", "right_eef_pose"), "shape": (7,)},
+                    {
+                        "path": ("robot_state", "right_gripper"),
+                        "shape": (),
+                        "dtype_from": 2,
+                    },
+                ),
             },
-            {"path": ("robot_state", "right_eef_pose"), "shape": (7,)},
-            {
-                "path": ("robot_state", "right_gripper"),
-                "shape": (),
-                "dtype_from": 2,
+            "action": {
+                "dataset_key": "action",
+                "fields": ({"path": (), "shape": (16,)},),
             },
-        ),
-    },
-    "action": {
-        "dataset_key": "action",
-        "format": "robotwin.action.ee",
-        "fields": ({"path": (), "shape": (16,)},),
+        },
+        "robotwin.action.qpos": {
+            "state": {
+                "dataset_key": "observation.state",
+                "fields": ({"path": ("robot_state", "qpos_target14"), "shape": (14,)},),
+            },
+            "action": {
+                "dataset_key": "action",
+                "fields": ({"path": (), "shape": (14,)},),
+            },
+        },
     },
     "images": {
         f"observation.images.{name}": {"path": ("observation", camera, "rgb")}

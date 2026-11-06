@@ -20,11 +20,15 @@ import json
 import shutil
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from rpent.flywheel.flywheel import read_frame, select_vla_segments
+from rpent.flywheel.flywheel import (
+    read_frame,
+    resolve_action_config,
+    select_vla_segments,
+)
 from rpent.flywheel.reader import iter_trajectories
 from rpent.robots import get_robot_spec
 
@@ -60,15 +64,15 @@ def export_dataset(
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
     report = {
-        "schema_version": 4,
+        "schema_version": 5,
         "repo_id": repo_id,
-        "dataset_paths": {"train": None, "validation": None},
+        "dataset_paths": {"train": None},
         "horizon": horizon,
         "robot": None,
         "fps": None,
-        "episode_counts": {"train": 0, "validation": 0},
-        "frame_counts": {"train": 0, "validation": 0},
-        "window_counts": {"train": 0, "validation": 0},
+        "episode_counts": {"train": 0},
+        "frame_counts": {"train": 0},
+        "window_counts": {"train": 0},
         "trajectories": [],
     }
     dataset = None
@@ -89,8 +93,8 @@ def export_dataset(
                         for segment in selected["segments"]
                     ),
                     "exported_action_count": 0,
-                    "frame_counts": {"train": 0, "validation": 0},
-                    "window_counts": {"train": 0, "validation": 0},
+                    "frame_counts": {"train": 0},
+                    "window_counts": {"train": 0},
                     "episodes": [],
                     "rejected": selected["rejected"],
                 }
@@ -100,13 +104,16 @@ def export_dataset(
                     robot = task["config"]["data"]["arguments"]["robot_name"]
                     if report["robot"] is not None and robot != report["robot"]:
                         raise ValueError("Export each robot into a separate dataset")
-                    config = get_robot_spec(robot).flywheel
-                    image_fields = set(config["images"])
-                    use_videos = config.get("use_videos", False)
+                    robot_config = get_robot_spec(robot).flywheel
                 for segment in selected["segments"]:
                     records = trajectory["actions"][
                         segment["start_index"] : segment["stop_index"]
                     ]
+                    config = resolve_action_config(
+                        robot_config, records[0]["action"]["format"]
+                    )
+                    image_fields = set(config["images"])
+                    use_videos = config.get("use_videos", False)
                     for record in records:
                         frame = read_frame(
                             trajectory["root"],
@@ -231,19 +238,17 @@ def _write_rldx_metadata(dataset: LeRobotDataset, config: dict[str, Any]) -> Non
 
 
 def load_dataset(
-    output_dir: Path | str, split: Literal["train", "validation"]
+    output_dir: Path | str,
 ) -> LeRobotDataset | list[dict[str, Any]]:
-    """Load one split as individual frames without building action windows."""
+    """Load exported training frames without building action windows."""
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
-    if split not in ("train", "validation"):
-        raise ValueError("split must be train or validation")
     root = Path(output_dir).expanduser().resolve()
     report = json.loads((root / "report.json").read_text(encoding="utf-8"))
-    if report["frame_counts"][split] == 0:
+    if report["frame_counts"]["train"] == 0:
         return []
     return LeRobotDataset(
         report["repo_id"],
-        root=root / report["dataset_paths"][split],
+        root=root / report["dataset_paths"]["train"],
         video_backend="pyav",
     )

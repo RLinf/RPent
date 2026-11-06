@@ -23,6 +23,33 @@ from rpent.flywheel.reader import read_array
 from rpent.robots import get_robot_spec
 
 
+class UnsupportedActionFormatError(ValueError):
+    """The exporter has no training layout for a recorded action format."""
+
+
+def resolve_action_config(config: dict[str, Any], action_format: str) -> dict[str, Any]:
+    """Combine shared export settings with the layout for one action format.
+
+    Raises:
+        ValueError: The action format is missing or invalid.
+        UnsupportedActionFormatError: No layout is declared for the format.
+    """
+    if not isinstance(action_format, str) or not action_format:
+        raise ValueError("Missing or invalid action format")
+    try:
+        layout = config["layouts"][action_format]
+    except KeyError:
+        raise UnsupportedActionFormatError(
+            f"Unsupported action format {action_format!r}; "
+            f"supported formats: {', '.join(config['layouts'])}"
+        ) from None
+    return {
+        **config,
+        **layout,
+        "action": {**layout["action"], "format": action_format},
+    }
+
+
 def successful_prefix(actions: list[dict], config: dict[str, Any]) -> int:
     """Return the prefix through native success, or all actions for task-only success."""
     success = config["success"]
@@ -176,7 +203,11 @@ def read_frame(
 
 
 def select_vla_segments(trajectory: dict[str, Any]) -> dict[str, list[dict]]:
-    """Return continuous ranges of executed VLA actions and exclusion reasons."""
+    """Return continuous ranges of executed VLA actions and exclusion reasons.
+
+    Raises:
+        UnsupportedActionFormatError: An eligible VLA action has no export layout.
+    """
     task = trajectory["task"]
     robot = task["config"]["data"]["arguments"].get("robot_name")
     if not isinstance(robot, str) or not robot.isidentifier():
@@ -301,6 +332,10 @@ def select_vla_segments(trajectory: dict[str, Any]) -> dict[str, list[dict]]:
                     )
                 ):
                     raise ValueError("Missing action or observation reference")
+                action_config = resolve_action_config(
+                    config, action["action"]["format"]
+                )
+                read_actions(trajectory["root"], action["action"], action_config)
                 for side in ("before", "after"):
                     observation = action.get(f"{side}_observation")
                     observation_id = action.get(f"{side}_observation_id")
@@ -311,8 +346,13 @@ def select_vla_segments(trajectory: dict[str, Any]) -> dict[str, list[dict]]:
                     ):
                         raise ValueError(f"Missing or inconsistent {side} observation")
                     if side == "before":
-                        validate_observation(trajectory["root"], observation, config)
-                read_actions(trajectory["root"], action["action"], config)
+                        validate_observation(
+                            trajectory["root"], observation, action_config
+                        )
+            except UnsupportedActionFormatError as exc:
+                raise UnsupportedActionFormatError(
+                    f"{trajectory['root']} action {action_id}: {exc}"
+                ) from exc
             except (KeyError, TypeError, ValueError, OSError) as exc:
                 reason = f"invalid_action: {exc}"
 

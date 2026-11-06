@@ -3,9 +3,9 @@
 Data Flywheel
 =============
 
-Use ``--record-trajectory`` with the ``api`` planner to save model requests,
-responses, and tool calls. Supported environments also record executed actions
-and their observations for later export to LeRobot training data.
+Use ``--record-trajectory`` with the ``api`` or ``codex`` planner to save task,
+planner, and tool-call records. Supported environments also record executed
+actions and their observations for later export to LeRobot training data.
 
 Installation
 ------------
@@ -22,9 +22,13 @@ optional export dependencies:
 Record a Trajectory
 -------------------
 
-Recording is off by default and requires ``--planner api``. Action recording
-supports LIBERO, RoboCasa365, RoboTwin, and RoboDojo. Enable recording and
-choose a run directory:
+Recording is off by default and supports ``--planner api`` and ``--planner codex``.
+LIBERO, RoboCasa365, RoboTwin, and RoboDojo record executed actions and observations
+only in evaluation mode. Exploration still saves task,
+planner, and tool-call records, but contains no actions eligible for VLA dataset
+export.
+
+Enable recording and choose a run directory:
 
 .. code-block:: bash
 
@@ -34,19 +38,14 @@ choose a run directory:
      --record-trajectory \
      --output-dir /path/to/run
 
-- ``--record-trajectory``: Enable trajectory recording for model requests,
-  responses, and tool calls. Supported environments also record executed
-  actions and their observations. Recording is off by default and requires
-  ``--planner api``.
+- ``--record-trajectory``: Enable trajectory recording as described above.
 - ``--output-dir /path/to/run``: Set the output root directory for this run.
-  Replace ``/path/to/run`` with your desired save path. Trajectory records are
-  saved in its ``trajectories/<task_id>/`` subdirectory.
+  Replace ``/path/to/run`` with your desired save path.
 
-After the run, records are saved under ``/path/to/run/trajectories/<task_id>/``:
+Records from the evaluation example above are saved under
+``/path/to/run/trajectories/<task_id>/``:
 ``task.json``, ``planners.jsonl``, ``actions.jsonl``, ``predictions.jsonl``, and
-an ``artifacts/`` directory for attachments. VLA records link each instruction
-to the actions actually executed; predicted actions that were not executed are
-not saved.
+an ``artifacts/`` directory for attachments.
 
 Export Training Data
 --------------------
@@ -66,6 +65,13 @@ flag is omitted.
 ``--input-root`` accepts a trajectory directory containing ``task.json`` or a
 parent directory containing multiple runs. Export each robot separately;
 ``--output-dir`` must not already exist.
+
+RoboTwin supports both LingBot's ``robotwin.action.ee`` format and Fast-WAM's
+``robotwin.action.qpos`` format. The exporter automatically selects the matching
+state and action layout from the recorded action format. EE data uses 16-dimensional
+state and action vectors; qpos data uses the 14-dimensional joint targets in
+``robot_state.qpos_target14`` as state and preserves the 14-dimensional executed
+actions.
 
 If several runs are saved in separate directories like these, you can export
 them together:

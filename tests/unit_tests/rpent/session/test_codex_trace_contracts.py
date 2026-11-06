@@ -27,7 +27,8 @@ import pytest
 from rpent.planner.base import PlannerResult
 from rpent.planner.codex import CodexPlanner
 from rpent.session import EnvState, MissingInfo, Payload
-from rpent.session.planner_capture import end_planner_task, import_codex_trace
+from rpent.session.codex_capture import import_codex_trace
+from rpent.session.planner_capture import end_planner_task
 
 
 @pytest.fixture

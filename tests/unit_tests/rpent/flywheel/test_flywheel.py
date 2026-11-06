@@ -17,8 +17,12 @@ from copy import deepcopy
 import numpy as np
 import pytest
 
-from rpent.flywheel.flywheel import select_vla_segments, validate_image
-from rpent.flywheel.reader import read_array
+from rpent.flywheel.flywheel import (
+    UnsupportedActionFormatError,
+    resolve_action_config,
+    select_vla_segments,
+    validate_image,
+)
 
 
 @pytest.mark.parametrize(
@@ -180,10 +184,10 @@ def test_instruction_change_starts_a_new_segment(trajectory):
 
 
 def test_action_format_change_starts_a_new_segment(trajectory, monkeypatch):
-    monkeypatch.setattr(
-        "rpent.flywheel.flywheel.read_actions",
-        lambda root, payload, config: read_array(root, payload["data"]),
-    )
+    from rpent.robots import get_robot_spec
+
+    layouts = get_robot_spec("libero").flywheel["layouts"]
+    monkeypatch.setitem(layouts, "test.other_action", layouts["libero.action"])
     for action in trajectory["actions"][4:7]:
         action["action"]["format"] = "test.other_action"
     result = select_vla_segments(trajectory)
@@ -395,7 +399,7 @@ def test_bimanual_selection_stops_after_first_native_success(bimanual_trajectory
     )
 
 
-@pytest.mark.parametrize("bimanual_trajectory", ["robotwin"], indirect=True)
+@pytest.mark.parametrize("bimanual_trajectory", [("robotwin", "ee")], indirect=True)
 def test_robotwin_truncation_before_success_excludes_the_trajectory(
     bimanual_trajectory,
 ):
@@ -427,7 +431,7 @@ def test_bimanual_selection_requires_native_step_success(
     assert select_vla_segments(trajectory)["segments"] == []
 
 
-@pytest.mark.parametrize("bimanual_trajectory", ["robotwin"], indirect=True)
+@pytest.mark.parametrize("bimanual_trajectory", [("robotwin", "ee")], indirect=True)
 @pytest.mark.parametrize("dtype", ["float32", "float64"])
 def test_robotwin_state_keeps_pose_dtype_for_grippers(bimanual_trajectory, dtype):
     from robots.robotwin.robot_spec import FLYWHEEL_CONFIG
@@ -440,7 +444,8 @@ def test_robotwin_state_keeps_pose_dtype_for_grippers(bimanual_trajectory, dtype
         robot[f"{side}_eef_pose"]["dtype"] = dtype
         robot[f"{side}_gripper"] = 0.123456789
 
-    state = validate_observation(trajectory["root"], observation, FLYWHEEL_CONFIG)
+    config = resolve_action_config(FLYWHEEL_CONFIG, "robotwin.action.ee")
+    state = validate_observation(trajectory["root"], observation, config)
     assert state.dtype == np.dtype(dtype)
     np.testing.assert_array_equal(
         state[[7, 15]], np.asarray([0.123456789, 0.123456789], dtype=dtype)
@@ -450,7 +455,6 @@ def test_robotwin_state_keeps_pose_dtype_for_grippers(bimanual_trajectory, dtype
 @pytest.mark.parametrize(
     "corruption",
     [
-        "action_type",
         "missing_action",
         "state_shape",
         "nonfinite",
@@ -469,11 +473,7 @@ def test_bimanual_selection_breaks_at_invalid_required_data(
     robot = trajectory["task"]["config"]["data"]["arguments"]["robot_name"]
     action = trajectory["actions"][3]
     fields = action["before_observation"]["payload"]["data"]
-    if corruption == "action_type":
-        action["action"]["format"] = (
-            "robodojo.action.ee" if robot == "robodojo" else "robotwin.action.qpos"
-        )
-    elif corruption == "missing_action":
+    if corruption == "missing_action":
         action["action"] = None
     elif corruption in ("missing_state_parent", "missing_image_parent"):
         if corruption == "missing_state_parent":
@@ -488,10 +488,15 @@ def test_bimanual_selection_breaks_at_invalid_required_data(
             path: {"reason": "capture_failed"}
         }
     elif corruption in ("state_shape", "nonfinite"):
+        state_key = (
+            "qpos_target14"
+            if action["action"]["format"] == "robotwin.action.qpos"
+            else "left_eef_pose"
+        )
         state = (
             fields["state"]["left_arm_joint_state"]
             if robot == "robodojo"
-            else fields["robot_state"]["left_eef_pose"]
+            else fields["robot_state"][state_key]
         )
         if corruption == "state_shape":
             state["value"].pop()
@@ -517,3 +522,26 @@ def test_bimanual_selection_breaks_at_invalid_required_data(
     ]
     assert selected["rejected"][0]["action_id"] == action["action_id"]
     assert selected["rejected"][0]["reason"].startswith("invalid_action:")
+
+
+def test_unsupported_model_action_format_aborts_selection(bimanual_trajectory):
+    action = bimanual_trajectory["actions"][3]
+    action["action"]["format"] = "unsupported.action"
+    with pytest.raises(UnsupportedActionFormatError) as error:
+        select_vla_segments(bimanual_trajectory)
+    message = str(error.value)
+    assert "unsupported.action" in message
+    assert action["action_id"] in message
+    assert str(bimanual_trajectory["root"]) in message
+
+
+@pytest.mark.parametrize("bimanual_trajectory", [("robotwin", "qpos")], indirect=True)
+def test_qpos_selection_uses_joint_targets_without_eef_state(bimanual_trajectory):
+    for action in bimanual_trajectory["actions"]:
+        for side in ("before", "after"):
+            state = action[f"{side}_observation"]["payload"]["data"]["robot_state"]
+            state.pop("left_eef_pose", None)
+            state.pop("right_eef_pose", None)
+    selected = select_vla_segments(bimanual_trajectory)
+    assert _ranges(selected) == [(1, 7)]
+    assert selected["rejected"] == []

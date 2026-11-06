@@ -28,7 +28,7 @@ from robots.robodojo.env_facade import RoboDojoEnvFacade
 from robots.robodojo.robot_spec import FLYWHEEL_CONFIG
 from robots.robodojo.toolkit import RoboDojoToolkit, _capture_robodojo_call
 from rpent.dashboard.events import NullDashboardEventSink
-from rpent.flywheel.flywheel import read_frame
+from rpent.flywheel.flywheel import read_frame, resolve_action_config
 from rpent.flywheel.reader import read_array
 from rpent.memory import MemoryManager
 from rpent.session import Payload
@@ -436,7 +436,8 @@ def test_toolkit_saves_only_executed_predictions_and_restores_source(
                 assert image.dtype == np.uint8
                 np.testing.assert_array_equal(image, np.full((2, 2, 3), count))
         if action_type == "joint":
-            frame = read_frame(root, action, "pick bottle", FLYWHEEL_CONFIG)
+            config = resolve_action_config(FLYWHEEL_CONFIG, action["action"]["format"])
+            frame = read_frame(root, action, "pick bottle", config)
             np.testing.assert_array_equal(frame["action"], commands[index % 3])
             np.testing.assert_array_equal(
                 frame["observation.state"], np.r_[np.zeros(12), 0.2, 0.2]

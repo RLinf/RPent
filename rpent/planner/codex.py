@@ -58,7 +58,7 @@ from rpent.planner.base import (
 )
 from rpent.planner.utils.http_mcp_server import HttpMcpServer
 from rpent.session import MissingInfo
-from rpent.session.planner_capture import import_codex_trace
+from rpent.session.codex_capture import import_codex_trace
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.config import get_repo_root
 from rpent.utils.logging import get_logger

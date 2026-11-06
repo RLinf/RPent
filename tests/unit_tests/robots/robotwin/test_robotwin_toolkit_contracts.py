@@ -37,7 +37,8 @@ from robots.robotwin.primitives import RoboTwinPrimitives
 from robots.robotwin.robot_spec import env_runtime_contract
 from robots.robotwin.toolkit import _capture_robotwin_call
 from rpent.dashboard.events import NullDashboardEventSink
-from rpent.flywheel.reader import read_array
+from rpent.flywheel.flywheel import select_vla_segments
+from rpent.flywheel.reader import iter_trajectories, read_array
 from rpent.memory import MemoryManager
 from rpent.session import EnvState, Payload
 from rpent.session.env_capture import CapturingEnvClient, ToolCallCapture
@@ -541,7 +542,10 @@ def test_policy_predictions_and_action_sources_reach_disk(
         return commands
 
     if recording:
-        state.start_task(instruction="native instruction", config=Payload("json", {}))
+        state.start_task(
+            instruction="native instruction",
+            config=Payload("rpent.config", {"arguments": {"robot_name": "robotwin"}}),
+        )
         planner = state.register_planner(backend="api")
     with make_server_and_client(facade, transport) as rpc:
         client = RoboTwinEnvClient(rpc, expected_meta=facade.get_env_meta())
@@ -614,8 +618,21 @@ def test_policy_predictions_and_action_sources_reach_disk(
         assert state.action_records() == state.prediction_records() == []
         assert not (tmp_path / "trajectories").exists()
         return
-    state.end_task(status="completed", stop_reason="finish")
+    state.end_task(
+        status="completed",
+        stop_reason="finish",
+        result=Payload("robotwin.result", {"environment_success": True}),
+    )
     root = state.save_planner_trajectory()
+    selected = select_vla_segments(next(iter_trajectories(root)))
+    assert selected["rejected"] == []
+    assert (
+        sum(
+            segment["stop_index"] - segment["start_index"]
+            for segment in selected["segments"]
+        )
+        == end_step - 2
+    )
     assert json.loads((root / "task.json").read_text())["schema_version"] == 5
     actions = [
         json.loads(line) for line in (root / "actions.jsonl").read_text().splitlines()

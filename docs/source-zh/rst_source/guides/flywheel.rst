@@ -3,7 +3,7 @@
 采集轨迹与数据飞轮
 ========================
 
-使用 ``api`` 规划器时，可通过 ``--record-trajectory`` 保存模型请求、回复和工具调用。已支持动作采集的环境还会记录实际执行的动作及观测，供后续导出为 LeRobot 训练数据。
+使用 ``api`` 或 ``codex`` 规划器时，可通过 ``--record-trajectory`` 保存任务、规划器和工具调用记录。已支持动作采集的环境还会记录实际执行的动作及观测，供后续导出为 LeRobot 训练数据。
 
 安装
 ----
@@ -17,7 +17,9 @@
 采集轨迹
 --------
 
-采集默认关闭，且仅在 ``--planner api`` 下生效。动作采集支持 LIBERO、RoboCasa365、RoboTwin 和 RoboDojo。开启采集并指定运行目录：
+采集默认关闭，支持 ``--planner api`` 和 ``--planner codex``。LIBERO、RoboCasa365、RoboTwin 和 RoboDojo 仅在评测模式下采集实际执行的动作及观测。探索模式仍会保存任务、规划器和工具调用记录，但不包含可导出的 VLA 动作数据。
+
+开启采集并指定运行目录：
 
 .. code-block:: bash
 
@@ -27,10 +29,10 @@
      --record-trajectory \
      --output-dir /path/to/run
 
-- ``--record-trajectory``：开启轨迹采集，记录模型请求、回复和工具调用；支持动作采集的环境还会记录实际执行的动作及观测。默认关闭，仅在 ``--planner api`` 下生效。
-- ``--output-dir /path/to/run``：指定本次运行的输出根目录，请将 ``/path/to/run`` 替换为实际保存路径。轨迹记录保存在该目录的 ``trajectories/<task_id>/`` 子目录中。
+- ``--record-trajectory``：开启上述轨迹采集。
+- ``--output-dir /path/to/run``：指定本次运行的输出根目录，请将 ``/path/to/run`` 替换为实际保存路径。
 
-运行结束后，记录保存在 ``/path/to/run/trajectories/<task_id>/`` 下，包括 ``task.json``、``planners.jsonl``、``actions.jsonl``、``predictions.jsonl`` 和存放附件的 ``artifacts/`` 目录。VLA 记录将每次指令与实际执行的动作关联，不保存未执行的预测动作。
+上述评测示例的记录保存在 ``/path/to/run/trajectories/<task_id>/`` 下，包括 ``task.json``、``planners.jsonl``、``actions.jsonl``、``predictions.jsonl`` 和存放附件的 ``artifacts/`` 目录。
 
 导出训练数据
 ------------
@@ -47,6 +49,8 @@
 ``--vla`` 表示仅导出 VLA 训练数据；不加该参数时也默认导出 VLA 数据。
 
 ``--input-root`` 可以指向包含 ``task.json`` 的单条轨迹目录，也可以指向包含多次运行的上级目录。不同机器人应分别导出；``--output-dir`` 必须尚不存在。
+
+RoboTwin 支持 LingBot 使用的 ``robotwin.action.ee`` 和 Fast-WAM 使用的 ``robotwin.action.qpos`` 格式。导出时会根据记录中的动作格式，自动选择配套的状态和动作布局。EE 数据的状态和动作均为 16 维；qpos 数据以 ``robot_state.qpos_target14`` 中的 14 维关节目标值作为状态，并保留实际执行的 14 维动作。
 
 如果多次运行分别保存在下面的目录中，可以一起导出：
 

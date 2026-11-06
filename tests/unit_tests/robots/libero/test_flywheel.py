@@ -21,9 +21,12 @@ from robots.libero.robot_spec import FLYWHEEL_CONFIG
 from rpent.flywheel.flywheel import (
     read_actions,
     read_frame,
+    resolve_action_config,
     successful_prefix,
     validate_observation,
 )
+
+EXPORT_CONFIG = resolve_action_config(FLYWHEEL_CONFIG, "libero.action")
 
 
 def _array(values):
@@ -41,15 +44,15 @@ def test_success_prefix_requires_native_step_success():
         {"result": {"format": "libero.step_result", "data": {"terminated": False}}},
         {"result": {"format": "libero.step_result", "data": {"terminated": True}}},
     ]
-    assert successful_prefix(actions, FLYWHEEL_CONFIG) == 2
-    assert successful_prefix(actions[:1], FLYWHEEL_CONFIG) == 0
+    assert successful_prefix(actions, EXPORT_CONFIG) == 2
+    assert successful_prefix(actions[:1], EXPORT_CONFIG) == 0
     actions[0]["result"]["data"]["truncated"] = True
-    assert successful_prefix(actions, FLYWHEEL_CONFIG) == 0
+    assert successful_prefix(actions, EXPORT_CONFIG) == 0
     actions[0]["result"]["data"]["truncated"] = False
     actions[1]["result"]["missing"] = {"/terminated": {"reason": "capture_failed"}}
-    assert successful_prefix(actions, FLYWHEEL_CONFIG) == 0
+    assert successful_prefix(actions, EXPORT_CONFIG) == 0
     actions[1]["result"]["missing"] = {"/reward": {"reason": "not_exposed"}}
-    assert successful_prefix(actions, FLYWHEEL_CONFIG) == 2
+    assert successful_prefix(actions, EXPORT_CONFIG) == 2
 
 
 def test_native_actions_are_preserved(tmp_path):
@@ -61,7 +64,7 @@ def test_native_actions_are_preserved(tmp_path):
             "data": _array(values),
             "completeness": "complete",
         },
-        FLYWHEEL_CONFIG,
+        EXPORT_CONFIG,
     )
     np.testing.assert_array_equal(restored, values)
     assert restored.dtype == values.dtype
@@ -77,7 +80,7 @@ def test_invalid_native_action_is_rejected(tmp_path, values):
                 "data": _array(values),
                 "completeness": "complete",
             },
-            FLYWHEEL_CONFIG,
+            EXPORT_CONFIG,
         )
 
 
@@ -129,7 +132,7 @@ def test_read_frame_uses_before_observation_executed_action_and_local_instructio
     tmp_path, action_record
 ):
     original = deepcopy(action_record)
-    frame = read_frame(tmp_path, action_record, "pick up the bowl", FLYWHEEL_CONFIG)
+    frame = read_frame(tmp_path, action_record, "pick up the bowl", EXPORT_CONFIG)
 
     assert set(frame) == {
         "image",
@@ -155,7 +158,7 @@ def test_read_frame_uses_before_observation_executed_action_and_local_instructio
 def test_read_frame_rejects_an_action_chunk(tmp_path, action_record):
     action_record["action"]["data"] = _array(np.zeros((2, 7)))
     with pytest.raises(ValueError, match=r"expected shape \(7,\) with finite values"):
-        read_frame(tmp_path, action_record, "pick up the bowl", FLYWHEEL_CONFIG)
+        read_frame(tmp_path, action_record, "pick up the bowl", EXPORT_CONFIG)
 
 
 @pytest.mark.parametrize("field", ["state", "image", "action"])
@@ -168,7 +171,7 @@ def test_read_frame_checks_required_data(tmp_path, action_record, field):
     else:
         action_record["action"]["data"] = _array([np.inf] * 7)
     with pytest.raises(ValueError):
-        read_frame(tmp_path, action_record, "pick up the bowl", FLYWHEEL_CONFIG)
+        read_frame(tmp_path, action_record, "pick up the bowl", EXPORT_CONFIG)
 
 
 @pytest.mark.parametrize("corruption", ["missing", "wrong_shape"])
@@ -181,7 +184,7 @@ def test_read_frame_checks_image_files(tmp_path, action_record, corruption):
         np.save(path, np.zeros((128, 128, 3), dtype=np.uint8))
         error, message = ValueError, "Array shape mismatch"
     with pytest.raises(error, match=message):
-        read_frame(tmp_path, action_record, "pick up the bowl", FLYWHEEL_CONFIG)
+        read_frame(tmp_path, action_record, "pick up the bowl", EXPORT_CONFIG)
 
 
 def test_missing_unused_observation_fields_do_not_drop_training_data(
@@ -191,21 +194,21 @@ def test_missing_unused_observation_fields_do_not_drop_training_data(
     observation["payload"]["missing"] = {
         "/extra_view_images": {"reason": "not_exposed"}
     }
-    validate_observation(tmp_path, observation, FLYWHEEL_CONFIG)
+    validate_observation(tmp_path, observation, EXPORT_CONFIG)
 
 
 @pytest.mark.parametrize("field", ["states", "main_images", "wrist_images"])
 def test_missing_required_observation_field_is_rejected(tmp_path, observation, field):
     observation["payload"]["data"][field] = None
     with pytest.raises(ValueError):
-        validate_observation(tmp_path, observation, FLYWHEEL_CONFIG)
+        validate_observation(tmp_path, observation, EXPORT_CONFIG)
 
 
 @pytest.mark.parametrize("state", [[0] * 7, [np.inf] * 8, [np.nan] * 8])
 def test_invalid_proprioception_is_rejected(tmp_path, observation, state):
     observation["payload"]["data"]["states"] = _array(state)
     with pytest.raises(ValueError, match=r"expected shape \(8,\) with finite values"):
-        validate_observation(tmp_path, observation, FLYWHEEL_CONFIG)
+        validate_observation(tmp_path, observation, EXPORT_CONFIG)
 
 
 @pytest.mark.parametrize(
@@ -215,4 +218,4 @@ def test_invalid_proprioception_is_rejected(tmp_path, observation, state):
 def test_invalid_image_metadata_is_rejected(tmp_path, observation, field, value):
     observation["payload"]["data"]["main_images"][field] = value
     with pytest.raises(ValueError, match="Invalid image"):
-        validate_observation(tmp_path, observation, FLYWHEEL_CONFIG)
+        validate_observation(tmp_path, observation, EXPORT_CONFIG)

@@ -152,30 +152,37 @@ ROBOCASA_DASHBOARD_SPEC: DashboardSpec = {
 
 FLYWHEEL_CONFIG = {
     "observation_format": "robocasa.observation",
-    "state": {
-        "dataset_key": "observation.state",
-        "fields": tuple(
-            {"name": name, "path": (source,), "shape": (size,)}
-            for name, source, size in (
-                ("end_effector_position_relative", "robot0_base_to_eef_pos", 3),
-                ("end_effector_rotation_relative", "robot0_base_to_eef_quat", 4),
-                ("gripper_qpos", "robot0_gripper_qpos", 2),
-                ("base_position", "robot0_base_pos", 3),
-                ("base_rotation", "robot0_base_quat", 4),
-            )
-        ),
-    },
-    "action": {
-        "dataset_key": "action",
-        "format": "robocasa.action",
-        "fields": ({"path": (), "shape": (12,)},),
-        "value_maps": {6: {-1: 0, 1: 1}, 11: {-1: 0, 1: 1}},
-        "groups": {
-            "end_effector_position": 3,
-            "end_effector_rotation": 3,
-            "gripper_close": 1,
-            "base_motion": 4,
-            "control_mode": 1,
+    "layouts": {
+        "robocasa.action": {
+            "state": {
+                "dataset_key": "observation.state",
+                "fields": tuple(
+                    {"name": name, "path": (source,), "shape": (size,)}
+                    for name, source, size in (
+                        ("end_effector_position_relative", "robot0_base_to_eef_pos", 3),
+                        (
+                            "end_effector_rotation_relative",
+                            "robot0_base_to_eef_quat",
+                            4,
+                        ),
+                        ("gripper_qpos", "robot0_gripper_qpos", 2),
+                        ("base_position", "robot0_base_pos", 3),
+                        ("base_rotation", "robot0_base_quat", 4),
+                    )
+                ),
+            },
+            "action": {
+                "dataset_key": "action",
+                "fields": ({"path": (), "shape": (12,)},),
+                "value_maps": {6: {-1: 0, 1: 1}, 11: {-1: 0, 1: 1}},
+                "groups": {
+                    "end_effector_position": 3,
+                    "end_effector_rotation": 3,
+                    "gripper_close": 1,
+                    "base_motion": 4,
+                    "control_mode": 1,
+                },
+            },
         },
     },
     "images": {

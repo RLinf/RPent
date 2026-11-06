@@ -199,7 +199,8 @@ def _build_argparser() -> argparse.ArgumentParser:
         "--record-trajectory",
         action="store_true",
         help="Record task, planner, and tool trajectories (api and codex planners). "
-        "Supported environments also record executed actions and VLA predictions.",
+        "Supported environments also record executed actions and VLA predictions. "
+        "Action recording is unavailable with --explore.",
     )
     ap.add_argument(
         "--memory-profile",

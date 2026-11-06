@@ -149,21 +149,25 @@ _FLYWHEEL_JOINT_FIELDS = (
 
 FLYWHEEL_CONFIG = {
     "observation_format": "robodojo.observation",
-    "state": {
-        "dataset_key": "observation.state",
-        "raw_dtype": "float32",
-        "fields": tuple(
-            {"path": ("state", name), "shape": (size,)}
-            for name, size in _FLYWHEEL_JOINT_FIELDS
-        ),
-    },
-    "action": {
-        "dataset_key": "action",
-        "format": "robodojo.action.joint",
-        "raw_dtype": "float32",
-        "fields": tuple(
-            {"path": (name,), "shape": (size,)} for name, size in _FLYWHEEL_JOINT_FIELDS
-        ),
+    "layouts": {
+        "robodojo.action.joint": {
+            "state": {
+                "dataset_key": "observation.state",
+                "raw_dtype": "float32",
+                "fields": tuple(
+                    {"path": ("state", name), "shape": (size,)}
+                    for name, size in _FLYWHEEL_JOINT_FIELDS
+                ),
+            },
+            "action": {
+                "dataset_key": "action",
+                "raw_dtype": "float32",
+                "fields": tuple(
+                    {"path": (name,), "shape": (size,)}
+                    for name, size in _FLYWHEEL_JOINT_FIELDS
+                ),
+            },
+        },
     },
     "images": {
         f"observation.images.{name}": {"path": ("vision", camera, "color")}
