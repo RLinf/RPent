@@ -37,7 +37,7 @@ PLATFORM_VLA_BACKENDS = {
     "libero": ("pi05",),
     "robotwin": ("lingbot",),
     "robocasa": ("rldx",),
-    "robodojo": ("pi05", "xpolicylab"),
+    "robodojo": ("vpp2", "awomo05"),
     "dual_franka": ("pi05",),
     "franka": ("pi05",),
     "yam": ("pi05",),
@@ -236,7 +236,11 @@ class AMConfig:
             env_overrides=overrides,
             log_path=str(output_dir / f"{name}.log"),
         )
-        daemon.start()
+        try:
+            daemon.start()
+        except BaseException:
+            daemon.stop()
+            raise
         return daemon
 
 
@@ -318,6 +322,8 @@ def select_am(args: argparse.Namespace, platform: str) -> AMConfig:
             model_arguments = tuple(options)
         elif backend == "lingbot":
             checkpoint = checkpoint or os.getenv("LINGBOT_MODEL_PATH")
+        elif backend in ("vpp2", "awomo05"):
+            checkpoint = checkpoint or os.getenv(f"{backend.upper()}_MODEL_PATH")
         elif backend == "xpolicylab":
             checkpoint = checkpoint or "RoboDojo-sim-arx_x5-joint-0"
     python = python or sys.executable
