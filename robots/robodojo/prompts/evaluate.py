@@ -18,7 +18,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from robots.robodojo.prompts.policy import POLICY_PROMPTS
 from rpent.prompt.utils import PromptNode
+from rpent.utils.templates import substitute
 
 ROLE_AND_RULES = """You control RoboDojo's dual ARX-X5 arms through registered tools.
 Read the native task instruction in view_env_state before acting. Use images,
@@ -70,20 +72,10 @@ Inspect completed, executed_steps and stop_reason. final_dist_m is measured
 position error, not a task-success verdict. On failure, inspect and decide
 the next action; do not assume a failed call left the robot unmoved.
 
-vpp2_act(instruction, chunks=1) executes the supplied instruction. Describe the
-visible object, action, destination or goal relation, preferably in English.
-Include required arm roles, dependencies and what the other hand must preserve.
-Keep the current phase consistent with the complete task; do not add unrelated
-actions. VPP2 predicts 32 dual-arm targets and executes the first 24 per chunk,
-then replans for each additional chunk. You inspect the result after the call.
-History includes preceding Primitive and VPP2 actions; changing instructions
-does not start a new episode. If history is unavailable after uncertain
-execution, do not retry on stale feedback: inspect the scene and use fresh
-analytic actions or follow the current mode's reset rules."""
+{{policy_tools}}"""
 
 CONTROL = """Choose a controller for the next observable phase goal:
-- VPP2: grasping, re-grasping, receiver grasp, bimanual coordination, insertion,
-  articulation, tool use and motion requiring sustained contact.
+{{policy_role}}
 - move_to: measured approach staging, verified free-space transport, withdrawal,
   return, or a specific geometric correction with understood contact geometry.
 - rotate_wrist: an intentional world-Z orientation adjustment with clearance
@@ -93,14 +85,13 @@ CONTROL = """Choose a controller for the next observable phase goal:
 - release: transfer support to the intended surface, fixture or receiving hand
   once observations support that transfer; verify the result afterward.
 
-Primitive staging can precede VPP2; a failed VPP2 call is not a prerequisite.
+Primitive staging can precede {{policy_name}}; a failed {{policy_name}} call is not a prerequisite.
 Before switching, check target identity, each hand's contents, contact and
 protected relations. After a primitive, inspect the actual state before
-continuing. Use VPP2 for uncertain contact geometry rather than inventing poses.
+continuing. {{policy_contact}}
 Do not interrupt correct contact and useful progress with speculative
 primitives. An unfinished phase alone does not require switching controllers.
-After an unproductive chunk, inspect whether to continue, clarify the
-instruction, improve visibility or correct the physical state.
+After an unproductive chunk, inspect whether to continue, {{policy_retry}}, improve visibility or correct the physical state.
 
 For move_to and rotate_wrist, choose substeps from 1, 5, 10 or 25:
 - 25 (default): ordinary transport, larger position or orientation changes,
@@ -123,7 +114,7 @@ Choose chunks by how soon the next decision needs fresh evidence:
 Shorten the next call when those conditions change. These are selection bands,
 not guarantees that a phase finishes within a fixed number of chunks.
 Also account for the remaining action budget: 1, 2 and 3 chunks normally
-execute 24, 48 and 72 actions, respectively. Choose a call length that leaves
+execute {{policy_action_counts}} actions, respectively. Choose a call length that leaves
 room for subsequent required actions. Near completion or with little budget
 margin, prefer one chunk and inspect the result before continuing. Use the
 returned action count and remaining_steps to assess actual consumption."""
@@ -226,7 +217,7 @@ Memory is read-only; write the evaluation audit only under {{output_dir}}.
 
 Use the JSON and task-family notes to understand phase order, observable gates,
 controller choices, recovery reasons and applicability limits. Use the JSONL
-as evidence of actual calls, SAM3 descriptions and VPP2 chunk choices. A
+as evidence of actual calls, SAM3 descriptions and {{policy_name}} chunk choices. A
 successful episode can include failed approaches and corrective detours:
 identify which actions made progress rather than replaying every call.
 
@@ -277,4 +268,5 @@ def system_prompt(
             "Evaluation permits one episode without reset. Call finish with your "
             "observed outcome; do not claim a verified task verdict."
         )
-    return sections
+    backend = (variables or {}).get("vla_backend", "vpp2")
+    return substitute(sections, POLICY_PROMPTS[backend])

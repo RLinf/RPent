@@ -634,6 +634,40 @@ def test_explore_defaults_and_scene_identity_in_config(tmp_path):
         robot_spec._validate_args(args)
 
 
+@pytest.mark.parametrize("mode", ["evaluation", "explore"])
+@pytest.mark.parametrize("backend", ["vpp2", "awomo05"])
+def test_policy_prompts_match_backend_in_both_modes(mode, backend):
+    from robots.robodojo.prompt_bundle import system_prompt, user_prompt
+
+    sections = system_prompt({"mode": mode, "vla_backend": backend})
+    prompt = " ".join(" ".join(sections.values()).split())
+    assert f"{backend}_act(" in prompt
+    other = "vpp2" if backend == "awomo05" else "awomo05"
+    assert f"{other}_act(" not in prompt
+    assert "{{policy_" not in prompt
+    assert "{{retry_strategy}}" not in prompt
+    assert "{{memory_control}}" not in prompt
+    if backend == "awomo05":
+        assert "no instruction parameter" in prompt
+        assert "8, 16 and 24 actions" in prompt
+        assert "VPP2" not in prompt
+        assert "clarify the instruction" not in prompt
+        if mode == "explore":
+            assert "retry: instruction" not in prompt
+    else:
+        assert "vpp2_act(instruction, chunks=1)" in prompt
+        assert "24, 48 and 72 actions" in prompt
+
+    task = user_prompt({"mode": mode, "vla_backend": backend})["TASK"]
+    expected = (
+        "Awomo05 native joint targets"
+        if backend == "awomo05"
+        else "VPP2 native EE16 targets"
+    )
+    assert expected in task
+    assert "{{policy_control}}" not in task
+
+
 @pytest.mark.parametrize("task", ["stack_blocks", "stack_blocks_random"])
 def test_evaluation_references_seed_zero_without_changing_output_identity(
     tmp_path, task
