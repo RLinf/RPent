@@ -153,6 +153,7 @@ ROBOCASA_DASHBOARD_SPEC: DashboardSpec = {
 FLYWHEEL_CONFIG = {
     "observation_format": "robocasa.observation",
     "state": {
+        "dataset_key": "observation.state",
         "fields": tuple(
             {"name": name, "path": (source,), "shape": (size,)}
             for name, source, size in (
@@ -165,6 +166,7 @@ FLYWHEEL_CONFIG = {
         ),
     },
     "action": {
+        "dataset_key": "action",
         "format": "robocasa.action",
         "fields": ({"path": (), "shape": (12,)},),
         "value_maps": {6: {-1: 0, 1: 1}, 11: {-1: 0, 1: 1}},

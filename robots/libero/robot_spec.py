@@ -109,9 +109,11 @@ def _resolve_dashboard(args: argparse.Namespace) -> DashboardSpec:
 FLYWHEEL_CONFIG = {
     "observation_format": "libero.observation",
     "state": {
+        "dataset_key": "state",
         "fields": ({"path": ("states",), "shape": (8,)},),
     },
     "action": {
+        "dataset_key": "actions",
         "format": "libero.action",
         "fields": ({"path": (), "shape": (7,)},),
     },

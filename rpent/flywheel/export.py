@@ -60,7 +60,7 @@ def export_dataset(
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
     report = {
-        "schema_version": 3,
+        "schema_version": 4,
         "repo_id": repo_id,
         "dataset_paths": {"train": None, "validation": None},
         "horizon": horizon,

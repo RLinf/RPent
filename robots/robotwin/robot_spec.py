@@ -166,6 +166,7 @@ def vla_runtime_contract() -> dict[str, object]:
 FLYWHEEL_CONFIG = {
     "observation_format": "robotwin.observation",
     "state": {
+        "dataset_key": "observation.state",
         "fields": (
             {"path": ("robot_state", "left_eef_pose"), "shape": (7,)},
             {
@@ -182,6 +183,7 @@ FLYWHEEL_CONFIG = {
         ),
     },
     "action": {
+        "dataset_key": "action",
         "format": "robotwin.action.ee",
         "fields": ({"path": (), "shape": (16,)},),
     },

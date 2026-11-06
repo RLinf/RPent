@@ -134,8 +134,8 @@ def test_read_frame_uses_before_observation_executed_action_and_local_instructio
     assert set(frame) == {
         "image",
         "wrist_image",
-        "observation.state",
-        "action",
+        "state",
+        "actions",
         "prompt",
     }
     for name, field in (("image", "main_images"), ("wrist_image", "wrist_images")):
@@ -143,13 +143,11 @@ def test_read_frame_uses_before_observation_executed_action_and_local_instructio
         np.testing.assert_array_equal(frame[name], expected)
         assert frame[name].shape == (256, 256, 3)
         assert frame[name].dtype == np.uint8
+    np.testing.assert_array_equal(frame["state"], np.arange(8, dtype=np.float32))
     np.testing.assert_array_equal(
-        frame["observation.state"], np.arange(8, dtype=np.float32)
+        frame["actions"], np.asarray(np.arange(7) / 10, dtype=np.float32)
     )
-    np.testing.assert_array_equal(
-        frame["action"], np.asarray(np.arange(7) / 10, dtype=np.float32)
-    )
-    assert frame["observation.state"].dtype == frame["action"].dtype == np.float32
+    assert frame["state"].dtype == frame["actions"].dtype == np.float32
     assert frame["prompt"] == "pick up the bowl"
     assert action_record == original
 

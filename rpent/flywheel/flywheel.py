@@ -169,8 +169,8 @@ def read_frame(
             name: read_array(root, _read_field(observation["payload"], field["path"]))
             for name, field in config["images"].items()
         },
-        "observation.state": state,
-        "action": actions,
+        config["state"]["dataset_key"]: state,
+        config["action"]["dataset_key"]: actions,
         "prompt": instruction,
     }
 
