@@ -28,6 +28,10 @@ only in evaluation mode. Exploration still saves task,
 planner, and tool-call records, but contains no actions eligible for VLA dataset
 export.
 
+RoboDojo's native motion tools record scripted actions. Its current planner
+toolkit does not expose a VLA tool, so these runs do not produce VLA training
+segments for ``rpent-flywheel``.
+
 Enable recording and choose a run directory:
 
 .. code-block:: bash

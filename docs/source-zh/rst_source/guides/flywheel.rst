@@ -19,6 +19,8 @@
 
 采集默认关闭，支持 ``--planner api`` 和 ``--planner codex``。LIBERO、RoboCasa365、RoboTwin 和 RoboDojo 仅在评测模式下采集实际执行的动作及观测。探索模式仍会保存任务、规划器和工具调用记录，但不包含可导出的 VLA 动作数据。
 
+RoboDojo 的原生动作工具记录的是脚本动作。当前规划器工具集中没有 VLA 工具，因此这类运行不会产生可供 ``rpent-flywheel`` 导出的 VLA 训练片段。
+
 开启采集并指定运行目录：
 
 .. code-block:: bash

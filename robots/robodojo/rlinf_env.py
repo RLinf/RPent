@@ -25,7 +25,12 @@ import torch
 from rlinf.envs.sim.robodojo.robodojo_env import RoboDojoEnv
 
 from robots.robodojo.agent_support import (
+    _arm_target,
+    _gripper_value,
+    _motion_robot,
+    _motion_state,
     _obs_dict,
+    _plan_arm_path,
     _reward_details,
     _SafetyMonitor,
     _solve_ik_position,
@@ -73,6 +78,9 @@ class RoboDojoAgentEnv(RoboDojoEnv):
         self.bottle_mon = _SafetyMonitor(self.meta.get("task", ""))
         super().__init__(cfg, 1, 0, 1, None, record_metrics=False)
         try:
+            seed_manager = self.env.seed_manager
+            seed_manager.config["seed"] = meta.get("seed", 0)
+            seed_manager.init_eval()
             self.venv.reset(env_seeds=[meta["layout"]])
         except BaseException:
             self.close()
@@ -166,6 +174,53 @@ class RoboDojoAgentEnv(RoboDojoEnv):
         self.bottle_mon = _SafetyMonitor(self.meta.get("task", ""))
         return self.get_native_obs()
 
+    def get_motion_state(self) -> dict[str, Any]:
+        """Return measured robot poses/openings and held controller targets."""
+        return _motion_state(self.env)
+
+    def plan_arm_path(self, arm: str, target_pose: list[float]) -> dict[str, Any]:
+        return _plan_arm_path(self.env, arm, target_pose)
+
+    def step_joint_update(
+        self,
+        arm: str,
+        arm_qpos: list[float] | None = None,
+        gripper: float | None = None,
+        *,
+        capture: bool = False,
+    ) -> dict[str, Any]:
+        """Execute one waypoint, optionally capturing the full native action."""
+        robot = _motion_robot(self.env, arm)
+        if arm_qpos is None and gripper is None:
+            raise ValueError("set arm_qpos and/or gripper")
+        if arm_qpos is not None:
+            arm_qpos = _arm_target(self.env, robot, arm_qpos)
+        if gripper is not None:
+            gripper = _gripper_value(gripper)
+        status = self.get_status()
+        if (
+            status["step"] >= status["step_limit"]
+            or status.get("success") is True
+            or self.env.end_flag[0]
+        ):
+            result = {"executed_actions": 0, "episode_status": status}
+            return {"result": result} if capture else result
+        action = self.get_motion_state()["targets"]
+        if arm_qpos is not None:
+            action[f"{arm}_arm_joint_state"] = arm_qpos
+        if gripper is not None:
+            action[f"{arm}_ee_joint_state"] = [gripper]
+        response = self.step_native(action, capture=capture)
+        step_result = response["result"] if capture else response
+        obs, _, _, info = step_result
+        result = {
+            "executed_actions": info["executed_actions"],
+            "episode_status": info["status"],
+        }
+        if capture:
+            return {**response, "result": result, "step_result": step_result}
+        return {**result, "observation": obs}
+
     def step_native(self, flat_action, *, capture: bool = False):
         """Execute a policy vector or native action, optionally returning capture details."""
         flat_action = _policy_action(flat_action)
@@ -178,13 +233,20 @@ class RoboDojoAgentEnv(RoboDojoEnv):
             # Flush stale camera frames before each captured observation.
             self.env.get_obs(env_idx=0)
         before = deepcopy(self._observation(capture=False)) if capture else None
+        before_step = int(self.env.take_action_cnt[0])
         self._sub_env(0).apply_action(
             flat_action, action_type, eval_fair=self.eval_fair
         )
+        executed = int(self.env.take_action_cnt[0]) - before_step
         if capture:
             self.env.get_obs(env_idx=0)
         if self.eval_fair:
-            result = self._observation(), 0.0, False, {"status": self.get_status()}
+            result = (
+                self._observation(),
+                0.0,
+                False,
+                {"status": self.get_status(), "executed_actions": executed},
+            )
         else:
             alarms = self.bottle_mon.check(self.env)
             if alarms:
@@ -194,6 +256,7 @@ class RoboDojoAgentEnv(RoboDojoEnv):
             reward = float(reward_details.get("reward", 0.0) or 0.0)
             done = bool(self.env.is_success(env_idx=0))
             info: dict[str, Any] = {
+                "executed_actions": executed,
                 "status": _status(self.env, self.bottle_mon),
                 "step_limit": int(self.env.step_lim),
                 "safety": alarms,
@@ -232,6 +295,12 @@ class RoboDojoAgentEnv(RoboDojoEnv):
 
     def is_success(self) -> bool:
         return bool(self.env.is_success(env_idx=0))
+
+    def get_score(self) -> float:
+        """Read cached native scoring state after is_success finalizes rewards."""
+        if not hasattr(self.env, "get_score"):
+            return 0.0
+        return float(self.env.reward_manager.get_score()[0])
 
     def close(self, clear_cache: bool = True) -> None:
         """Flush video before the bridge releases cameras and the Isaac app."""

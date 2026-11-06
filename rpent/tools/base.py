@@ -62,6 +62,16 @@ class ToolResult:
         return text[: MAX_TOOL_TEXT_BYTES - len(suffix)] + suffix
 
 
+def tool_error(code: str, message: str, **details: Any) -> ToolResult:
+    """Build a structured tool error with a code, message, and optional details."""
+    return ToolResult(
+        data={
+            "error": {"code": code, "message": message, **details},
+            "success": False,
+        }
+    )
+
+
 class _ToolJsonSchema(GenerateJsonSchema):
     """Publish tool schemas without Python metadata or implicit defaults.
 

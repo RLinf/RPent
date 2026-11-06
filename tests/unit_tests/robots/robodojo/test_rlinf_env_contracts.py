@@ -17,12 +17,13 @@
 import json
 from contextlib import nullcontext
 from copy import deepcopy
+from functools import partial
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
-from robots.robodojo import env_server
+from robots.robodojo import env_server, tools
 from robots.robodojo.env_client import RoboDojoEnvClient
 from robots.robodojo.env_facade import RoboDojoEnvFacade
 from robots.robodojo.robot_spec import FLYWHEEL_CONFIG
@@ -148,6 +149,13 @@ class _Scene:
     def __init__(self):
         self.take_action_cnt = [0]
         self.step_lim = 99
+        self.end_flag = [False]
+        self.robot_manager = SimpleNamespace(
+            robot_list=[
+                SimpleNamespace(type="target", arm_name=f"{arm}_arm")
+                for arm in ("left", "right")
+            ]
+        )
         self.executed = []
         self.frames = []
         self.reset_count = 0
@@ -180,6 +188,20 @@ class _Scene:
     def is_success(self, env_idx=0):
         return False
 
+    def get_motion_state(self):
+        state = self.obs["state"]
+        return {
+            "targets": {
+                name: value.tolist()
+                for name, value in state.items()
+                if name.endswith("_joint_state")
+            },
+            **{
+                f"{arm}_gripper": float(state[f"{arm}_ee_joint_state"][0])
+                for arm in ("left", "right")
+            },
+        }
+
     def apply_action(self, action, action_type, *, eval_fair):
         self.executed.append((deepcopy(action), action_type))
         self.take_action_cnt[0] += 1
@@ -201,6 +223,7 @@ def scene(make_agent, agent_module, monkeypatch):
         recorder=SimpleNamespace(record=lambda obs: scene.frames.append(deepcopy(obs))),
     )
     scene.agent.venv.reset = scene.reset
+    scene.agent.get_motion_state = scene.get_motion_state
     monkeypatch.setattr(agent_module._SafetyMonitor, "check", lambda self, env: [])
     monkeypatch.setattr(agent_module, "_reward_details", lambda *a: {"reward": 0.5})
     monkeypatch.setattr(
@@ -352,6 +375,16 @@ def test_capture_call_preserves_native_action_and_observations(
             np.testing.assert_array_equal(camera["color"], np.full((2, 2, 3), value))
 
 
+def _register_legacy_pick(toolkit):
+    # Legacy policy callers can still record VLA actions; the default toolkit
+    # exposes only the native motion tools.
+    toolkit.add_tool(
+        tools.pi0_pick.with_handler(
+            partial(tools.pi0_pick, primitives=toolkit._primitives, state=toolkit.state)
+        )
+    )
+
+
 @pytest.mark.parametrize("recording", [False, True])
 def test_toolkit_saves_only_executed_predictions_and_restores_source(
     scene, tmp_path, monkeypatch, recording
@@ -382,13 +415,14 @@ def test_toolkit_saves_only_executed_predictions_and_restores_source(
         dashboard_events=NullDashboardEventSink(),
         memory=MemoryManager(tmp_path / "memory"),
     )
+    _register_legacy_pick(toolkit)
     state = toolkit.state
     if recording:
         state.start_task(instruction="pick bottle", config=Payload("json", {}))
         planner = state.register_planner(backend="api")
     for name, arguments in (
         ("pi0_pick", {}),
-        ("set_gripper", {"arm": "left", "gripper": 1.0}),
+        ("set_gripper", {"arm": "left", "val": 1.0, "steps": 1}),
     ):
         if recording:
             tool = state.register_tool_call(
@@ -400,8 +434,8 @@ def test_toolkit_saves_only_executed_predictions_and_restores_source(
     assert scene.reset_count == 1
     assert len(inputs) == 2
     assert len(scene.executed) == 5
-    assert len(scene.frames) == 12
-    assert [action_type for _, action_type in scene.executed] == ["joint"] * 4 + ["ee"]
+    assert len(scene.frames) == 11
+    assert [action_type for _, action_type in scene.executed] == ["joint"] * 5
     if not recording:
         assert state.action_records() == state.prediction_records() == []
         assert not (tmp_path / "trajectories").exists()
@@ -438,7 +472,13 @@ def test_toolkit_saves_only_executed_predictions_and_restores_source(
         if action_type == "joint":
             config = resolve_action_config(FLYWHEEL_CONFIG, action["action"]["format"])
             frame = read_frame(root, action, "pick bottle", config)
-            np.testing.assert_array_equal(frame["action"], commands[index % 3])
+            expected_action = (
+                commands[index % 3]
+                if index < 4
+                else np.array([*np.zeros(12), 1.0, 0.2], dtype=np.float32)
+            )
+            np.testing.assert_array_equal(frame["action"], expected_action)
+            assert frame["action"].dtype == expected_action.dtype
             np.testing.assert_array_equal(
                 frame["observation.state"], np.r_[np.zeros(12), 0.2, 0.2]
             )
@@ -463,8 +503,18 @@ def test_toolkit_saves_only_executed_predictions_and_restores_source(
                 )
 
 
-def test_failed_step_keeps_only_confirmed_prediction_actions(
-    scene, tmp_path, monkeypatch, transport, make_server_and_client
+@pytest.mark.parametrize(
+    ("tool_name", "arguments"),
+    [("pi0_pick", {}), ("set_gripper", {"arm": "left", "val": 1.0, "steps": 3})],
+)
+def test_failed_step_keeps_only_confirmed_actions(
+    scene,
+    tmp_path,
+    monkeypatch,
+    transport,
+    make_server_and_client,
+    tool_name,
+    arguments,
 ):
     from rpent.utils import logging
 
@@ -489,23 +539,84 @@ def test_failed_step_keeps_only_confirmed_prediction_actions(
             dashboard_events=NullDashboardEventSink(),
             memory=MemoryManager(tmp_path / "memory"),
         )
+        if tool_name == "pi0_pick":
+            _register_legacy_pick(toolkit)
         state = toolkit.state
         state.start_task(instruction="pick bottle", config=Payload("json", {}))
         tool_id = state.register_tool_call(
             planner_id=state.register_planner(backend="api"),
-            name="pi0_pick",
-            arguments=Payload("json", {}),
+            name=tool_name,
+            arguments=Payload("json", arguments),
         )
         with ToolCallCapture(state, tool_id).bind():
-            result = toolkit.execute_tool("pi0_pick", {})
+            result = toolkit.execute_tool(tool_name, arguments)
 
     assert result.is_error
     assert len(scene.executed) == 2
     (action,) = state.action_records()
-    (prediction,) = state.prediction_records()
-    assert action.source == "vla"
-    assert prediction.action_ids == [action.action_id]
-    assert action.tool_call_id == prediction.tool_call_id == tool_id
+    assert action.tool_call_id == tool_id
+    if tool_name == "pi0_pick":
+        (prediction,) = state.prediction_records()
+        assert action.source == "vla"
+        assert prediction.action_ids == [action.action_id]
+        assert prediction.tool_call_id == tool_id
+    else:
+        assert action.source == "tool_computed"
+        assert state.prediction_records() == []
     call = state.get_tool_call(tool_id)
     assert call.missing["after_observation_id"].reason == "capture_failed"
     assert "native step failed" in call.missing["after_observation_id"].detail
+
+
+@pytest.mark.parametrize(
+    ("method", "stopped"),
+    [
+        ("step", "native_noop"),
+        ("step_joint_update", "native_noop"),
+        ("step_joint_update", "budget"),
+        ("step_joint_update", "ended"),
+    ],
+)
+def test_unexecuted_actions_are_not_recorded(
+    scene, tmp_path, monkeypatch, transport, make_server_and_client, method, stopped
+):
+    scene.agent.eval_fair = True
+    scene.agent.meta["mode"] = "eval-fair"
+    if stopped == "native_noop":
+        monkeypatch.setattr(
+            scene.agent._sub_env(), "apply_action", lambda *a, **kw: None
+        )
+    elif stopped == "budget":
+        scene.take_action_cnt[0] = scene.step_lim
+    else:
+        scene.end_flag[0] = True
+
+    with make_server_and_client(RoboDojoEnvFacade(scene.agent), transport) as rpc:
+        client = RoboDojoEnvClient(rpc, expected_meta=scene.agent.get_env_meta())
+        toolkit = RoboDojoToolkit(
+            primitives_kwargs={"env": client},
+            dashboard_events=NullDashboardEventSink(),
+            memory=MemoryManager(tmp_path / "memory"),
+            state_output_dir=tmp_path / "state",
+            eval_fair=True,
+        )
+        state = toolkit.state
+        state.start_task(instruction="pick bottle", config=Payload("json", {}))
+        tool_id = state.register_tool_call(
+            planner_id=state.register_planner(backend="api"),
+            name="set_gripper",
+            arguments=Payload("json", {"arm": "left", "val": 1.0}),
+        )
+        with ToolCallCapture(state, tool_id).bind():
+            if method == "step":
+                result = toolkit._primitives.env.step(np.zeros(14))
+                assert result[3]["executed_actions"] == 0
+            else:
+                result = toolkit._primitives.env.step_joint_update("left", gripper=1.0)
+                assert result["executed_actions"] == 0
+
+    assert scene.executed == []
+    assert state.action_records() == []
+    call = state.get_tool_call(tool_id)
+    assert call.before_observation_id is None
+    assert call.after_observation_id is None

@@ -876,6 +876,15 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
         memory = SimpleNamespace()
         closed = False
         state = EnvState(tmp_path / "state")
+        drained = False
+
+        def cancel_active_and_wait(self) -> None:
+            self.drained = True
+
+        def evaluation_metrics(self, *, success: bool | None) -> dict:
+            assert self.drained and not self.closed and not daemon.stopped
+            assert success is False
+            return {"score": 40.0}
 
         def solved(self) -> bool:
             return False
@@ -936,6 +945,7 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
                 "robot": context.robot_name,
                 "task": dict(context.task_desc),
                 "success": context.environment_success,
+                "score": context.environment_metrics["score"],
                 "planner_claim": context.finish_result,
             },
         )
@@ -996,6 +1006,7 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
     context = captured[0]
     assert context.robot_name == "testrobot"
     assert context.environment_success is False
+    assert context.environment_metrics == {"score": 40.0}
     assert context.agent_error == planner_error
     assert context.planner == planner_name
     assert context.model == "gpt-5.5"
@@ -1007,6 +1018,7 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
         "robot": "testrobot",
         "task": {"task_name": "OpenDrawer", "seed": 1},
         "success": False,
+        "score": 40.0,
         "planner_claim": {"status": "success", "summary": "planner claim"},
     }
     assert robot_toolkit.closed is True

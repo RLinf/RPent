@@ -141,9 +141,7 @@ class CapturingEnvClient:
         finally:
             capture.prediction_id = previous
 
-    def _execute(
-        self, method: Literal["step", "chunk_step"], *args: Any, **kwargs: Any
-    ) -> Any:
+    def _execute(self, method: str, *args: Any, **kwargs: Any) -> Any:
         operation = getattr(self.wrapped, method)
         capture = current_tool_call.get()
         if capture is None or capture.state is not self.state:

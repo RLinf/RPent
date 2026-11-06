@@ -45,6 +45,42 @@ class RoboDojoEnvClient(BaseEnvClient):
     def get_status(self) -> dict[str, Any]:
         return self._client.call("env.get_status")
 
+    def get_motion_state(self) -> dict[str, Any]:
+        return self._client.call("env.get_motion_state")
+
+    def plan_arm_path(self, arm: str, target_pose: list[float]) -> dict[str, Any]:
+        return self._client.call(
+            "env.plan_arm_path",
+            kwargs={"arm": arm, "target_pose": target_pose},
+            timeout_s=120,
+        )
+
+    def step_joint_update(
+        self,
+        arm: str,
+        arm_qpos: list[float] | None = None,
+        gripper: float | None = None,
+        *,
+        capture: bool = False,
+    ) -> dict[str, Any]:
+        """Execute a joint update, optionally returning native capture details."""
+        response = self._client.call(
+            "env.step_joint_update",
+            kwargs={
+                "arm": arm,
+                "arm_qpos": arm_qpos,
+                "gripper": gripper,
+                **({"capture": True} if capture else {}),
+            },
+            timeout_s=60,
+        )
+        result = response["result"] if capture else response
+        if result["executed_actions"]:
+            self.last_obs = (
+                response["step_result"][0] if capture else result.pop("observation")
+            )
+        return response
+
     def get_reward_details(self) -> dict[str, Any]:
         return self._client.call("env.get_reward_details")
 
@@ -58,6 +94,10 @@ class RoboDojoEnvClient(BaseEnvClient):
 
     def is_success(self) -> bool:
         return bool(self._client.call("env.is_success"))
+
+    def get_score(self) -> float:
+        """Read the native process score after the final success check."""
+        return float(self._client.call("env.get_score"))
 
     def close(self) -> None:
         try:
