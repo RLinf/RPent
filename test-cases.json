@@ -1,0 +1,1513 @@
+{
+  "schema_version": 1,
+  "protocol": {
+    "step": 0,
+    "camera": "agentview",
+    "units": "m",
+    "actions": false,
+    "additional_views": false
+  },
+  "references": {
+    "plate": {
+      "label": "盘面中心",
+      "query": "the plate",
+      "quantity": "plate_center",
+      "definition": "circular_support_surface_center_at_fitted_support_plane_height"
+    },
+    "ramekin": {
+      "label": "小烤碗碗口中心",
+      "query": "the small ramekin",
+      "quantity": "inner_rim_center",
+      "definition": "3d_center_in_observed_inner_upper_opening_edge_plane"
+    },
+    "cheese": {
+      "label": "奶酪盒顶面中心",
+      "query": "the cheese box",
+      "quantity": "rectangle_center",
+      "definition": "center_of_complete_observed_main_rectangular_top_face"
+    },
+    "soup": {
+      "label": "汤罐罐顶中心",
+      "query": "the soup can",
+      "quantity": "lid_center",
+      "definition": "sealed_circular_lid_center_in_fitted_lid_plane"
+    },
+    "black_bowl": {
+      "label": "黑碗碗口中心",
+      "query": "the black bowl",
+      "quantity": "inner_rim_center",
+      "definition": "3d_center_in_observed_inner_upper_opening_edge_plane"
+    },
+    "wine_bottle": {
+      "label": "酒瓶瓶身主段中心",
+      "query": "the wine bottle",
+      "quantity": "body_segment_center",
+      "definition": "axis_midpoint_of_observed_main_cylindrical_barrel_excluding_neck_and_mouth"
+    },
+    "gray_white_mug": {
+      "label": "灰白纹理杯杯口中心",
+      "query": "the gray and white textured mug",
+      "quantity": "inner_rim_center",
+      "definition": "3d_center_in_observed_inner_upper_opening_edge_plane"
+    },
+    "yellow_white_mug": {
+      "label": "黄白杯杯口中心",
+      "query": "the yellow and white mug",
+      "quantity": "inner_rim_center",
+      "definition": "3d_center_in_observed_inner_upper_opening_edge_plane"
+    },
+    "microwave": {
+      "label": "微波炉机身顶面中心",
+      "query": "the microwave body",
+      "quantity": "rectangle_center",
+      "definition": "center_of_complete_observed_main_rectangular_top_face"
+    }
+  },
+  "counts": {
+    "task_rows": 16,
+    "cases": 80,
+    "requests": 160
+  },
+  "cases": [
+    {
+      "case_id": "libero_spatial_task_t0_s1",
+      "suite": "libero_spatial_task",
+      "task": 0,
+      "seed": 1,
+      "requests": [
+        {
+          "request_id": "libero_spatial_task_t0_s1/A",
+          "slot": "A",
+          "reference": "plate"
+        },
+        {
+          "request_id": "libero_spatial_task_t0_s1/B",
+          "slot": "B",
+          "reference": "ramekin"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_spatial_task_t0_s2",
+      "suite": "libero_spatial_task",
+      "task": 0,
+      "seed": 2,
+      "requests": [
+        {
+          "request_id": "libero_spatial_task_t0_s2/A",
+          "slot": "A",
+          "reference": "plate"
+        },
+        {
+          "request_id": "libero_spatial_task_t0_s2/B",
+          "slot": "B",
+          "reference": "ramekin"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_spatial_task_t0_s3",
+      "suite": "libero_spatial_task",
+      "task": 0,
+      "seed": 3,
+      "requests": [
+        {
+          "request_id": "libero_spatial_task_t0_s3/A",
+          "slot": "A",
+          "reference": "plate"
+        },
+        {
+          "request_id": "libero_spatial_task_t0_s3/B",
+          "slot": "B",
+          "reference": "ramekin"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_spatial_task_t0_s4",
+      "suite": "libero_spatial_task",
+      "task": 0,
+      "seed": 4,
+      "requests": [
+        {
+          "request_id": "libero_spatial_task_t0_s4/A",
+          "slot": "A",
+          "reference": "plate"
+        },
+        {
+          "request_id": "libero_spatial_task_t0_s4/B",
+          "slot": "B",
+          "reference": "ramekin"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_spatial_task_t0_s5",
+      "suite": "libero_spatial_task",
+      "task": 0,
+      "seed": 5,
+      "requests": [
+        {
+          "request_id": "libero_spatial_task_t0_s5/A",
+          "slot": "A",
+          "reference": "plate"
+        },
+        {
+          "request_id": "libero_spatial_task_t0_s5/B",
+          "slot": "B",
+          "reference": "ramekin"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_spatial_task_t4_s1",
+      "suite": "libero_spatial_task",
+      "task": 4,
+      "seed": 1,
+      "requests": [
+        {
+          "request_id": "libero_spatial_task_t4_s1/A",
+          "slot": "A",
+          "reference": "plate"
+        },
+        {
+          "request_id": "libero_spatial_task_t4_s1/B",
+          "slot": "B",
+          "reference": "ramekin"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_spatial_task_t4_s2",
+      "suite": "libero_spatial_task",
+      "task": 4,
+      "seed": 2,
+      "requests": [
+        {
+          "request_id": "libero_spatial_task_t4_s2/A",
+          "slot": "A",
+          "reference": "plate"
+        },
+        {
+          "request_id": "libero_spatial_task_t4_s2/B",
+          "slot": "B",
+          "reference": "ramekin"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_spatial_task_t4_s3",
+      "suite": "libero_spatial_task",
+      "task": 4,
+      "seed": 3,
+      "requests": [
+        {
+          "request_id": "libero_spatial_task_t4_s3/A",
+          "slot": "A",
+          "reference": "plate"
+        },
+        {
+          "request_id": "libero_spatial_task_t4_s3/B",
+          "slot": "B",
+          "reference": "ramekin"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_spatial_task_t4_s4",
+      "suite": "libero_spatial_task",
+      "task": 4,
+      "seed": 4,
+      "requests": [
+        {
+          "request_id": "libero_spatial_task_t4_s4/A",
+          "slot": "A",
+          "reference": "plate"
+        },
+        {
+          "request_id": "libero_spatial_task_t4_s4/B",
+          "slot": "B",
+          "reference": "ramekin"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_spatial_task_t4_s5",
+      "suite": "libero_spatial_task",
+      "task": 4,
+      "seed": 5,
+      "requests": [
+        {
+          "request_id": "libero_spatial_task_t4_s5/A",
+          "slot": "A",
+          "reference": "plate"
+        },
+        {
+          "request_id": "libero_spatial_task_t4_s5/B",
+          "slot": "B",
+          "reference": "ramekin"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_spatial_swap_t0_s1",
+      "suite": "libero_spatial_swap",
+      "task": 0,
+      "seed": 1,
+      "requests": [
+        {
+          "request_id": "libero_spatial_swap_t0_s1/A",
+          "slot": "A",
+          "reference": "plate"
+        },
+        {
+          "request_id": "libero_spatial_swap_t0_s1/B",
+          "slot": "B",
+          "reference": "ramekin"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_spatial_swap_t0_s2",
+      "suite": "libero_spatial_swap",
+      "task": 0,
+      "seed": 2,
+      "requests": [
+        {
+          "request_id": "libero_spatial_swap_t0_s2/A",
+          "slot": "A",
+          "reference": "plate"
+        },
+        {
+          "request_id": "libero_spatial_swap_t0_s2/B",
+          "slot": "B",
+          "reference": "ramekin"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_spatial_swap_t0_s3",
+      "suite": "libero_spatial_swap",
+      "task": 0,
+      "seed": 3,
+      "requests": [
+        {
+          "request_id": "libero_spatial_swap_t0_s3/A",
+          "slot": "A",
+          "reference": "plate"
+        },
+        {
+          "request_id": "libero_spatial_swap_t0_s3/B",
+          "slot": "B",
+          "reference": "ramekin"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_spatial_swap_t0_s4",
+      "suite": "libero_spatial_swap",
+      "task": 0,
+      "seed": 4,
+      "requests": [
+        {
+          "request_id": "libero_spatial_swap_t0_s4/A",
+          "slot": "A",
+          "reference": "plate"
+        },
+        {
+          "request_id": "libero_spatial_swap_t0_s4/B",
+          "slot": "B",
+          "reference": "ramekin"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_spatial_swap_t0_s5",
+      "suite": "libero_spatial_swap",
+      "task": 0,
+      "seed": 5,
+      "requests": [
+        {
+          "request_id": "libero_spatial_swap_t0_s5/A",
+          "slot": "A",
+          "reference": "plate"
+        },
+        {
+          "request_id": "libero_spatial_swap_t0_s5/B",
+          "slot": "B",
+          "reference": "ramekin"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_spatial_swap_t4_s1",
+      "suite": "libero_spatial_swap",
+      "task": 4,
+      "seed": 1,
+      "requests": [
+        {
+          "request_id": "libero_spatial_swap_t4_s1/A",
+          "slot": "A",
+          "reference": "plate"
+        },
+        {
+          "request_id": "libero_spatial_swap_t4_s1/B",
+          "slot": "B",
+          "reference": "ramekin"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_spatial_swap_t4_s2",
+      "suite": "libero_spatial_swap",
+      "task": 4,
+      "seed": 2,
+      "requests": [
+        {
+          "request_id": "libero_spatial_swap_t4_s2/A",
+          "slot": "A",
+          "reference": "plate"
+        },
+        {
+          "request_id": "libero_spatial_swap_t4_s2/B",
+          "slot": "B",
+          "reference": "ramekin"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_spatial_swap_t4_s3",
+      "suite": "libero_spatial_swap",
+      "task": 4,
+      "seed": 3,
+      "requests": [
+        {
+          "request_id": "libero_spatial_swap_t4_s3/A",
+          "slot": "A",
+          "reference": "plate"
+        },
+        {
+          "request_id": "libero_spatial_swap_t4_s3/B",
+          "slot": "B",
+          "reference": "ramekin"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_spatial_swap_t4_s4",
+      "suite": "libero_spatial_swap",
+      "task": 4,
+      "seed": 4,
+      "requests": [
+        {
+          "request_id": "libero_spatial_swap_t4_s4/A",
+          "slot": "A",
+          "reference": "plate"
+        },
+        {
+          "request_id": "libero_spatial_swap_t4_s4/B",
+          "slot": "B",
+          "reference": "ramekin"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_spatial_swap_t4_s5",
+      "suite": "libero_spatial_swap",
+      "task": 4,
+      "seed": 5,
+      "requests": [
+        {
+          "request_id": "libero_spatial_swap_t4_s5/A",
+          "slot": "A",
+          "reference": "plate"
+        },
+        {
+          "request_id": "libero_spatial_swap_t4_s5/B",
+          "slot": "B",
+          "reference": "ramekin"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_object_task_t0_s1",
+      "suite": "libero_object_task",
+      "task": 0,
+      "seed": 1,
+      "requests": [
+        {
+          "request_id": "libero_object_task_t0_s1/A",
+          "slot": "A",
+          "reference": "cheese"
+        },
+        {
+          "request_id": "libero_object_task_t0_s1/B",
+          "slot": "B",
+          "reference": "soup"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_object_task_t0_s2",
+      "suite": "libero_object_task",
+      "task": 0,
+      "seed": 2,
+      "requests": [
+        {
+          "request_id": "libero_object_task_t0_s2/A",
+          "slot": "A",
+          "reference": "cheese"
+        },
+        {
+          "request_id": "libero_object_task_t0_s2/B",
+          "slot": "B",
+          "reference": "soup"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_object_task_t0_s3",
+      "suite": "libero_object_task",
+      "task": 0,
+      "seed": 3,
+      "requests": [
+        {
+          "request_id": "libero_object_task_t0_s3/A",
+          "slot": "A",
+          "reference": "cheese"
+        },
+        {
+          "request_id": "libero_object_task_t0_s3/B",
+          "slot": "B",
+          "reference": "soup"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_object_task_t0_s4",
+      "suite": "libero_object_task",
+      "task": 0,
+      "seed": 4,
+      "requests": [
+        {
+          "request_id": "libero_object_task_t0_s4/A",
+          "slot": "A",
+          "reference": "cheese"
+        },
+        {
+          "request_id": "libero_object_task_t0_s4/B",
+          "slot": "B",
+          "reference": "soup"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_object_task_t0_s5",
+      "suite": "libero_object_task",
+      "task": 0,
+      "seed": 5,
+      "requests": [
+        {
+          "request_id": "libero_object_task_t0_s5/A",
+          "slot": "A",
+          "reference": "cheese"
+        },
+        {
+          "request_id": "libero_object_task_t0_s5/B",
+          "slot": "B",
+          "reference": "soup"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_object_task_t4_s1",
+      "suite": "libero_object_task",
+      "task": 4,
+      "seed": 1,
+      "requests": [
+        {
+          "request_id": "libero_object_task_t4_s1/A",
+          "slot": "A",
+          "reference": "cheese"
+        },
+        {
+          "request_id": "libero_object_task_t4_s1/B",
+          "slot": "B",
+          "reference": "soup"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_object_task_t4_s2",
+      "suite": "libero_object_task",
+      "task": 4,
+      "seed": 2,
+      "requests": [
+        {
+          "request_id": "libero_object_task_t4_s2/A",
+          "slot": "A",
+          "reference": "cheese"
+        },
+        {
+          "request_id": "libero_object_task_t4_s2/B",
+          "slot": "B",
+          "reference": "soup"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_object_task_t4_s3",
+      "suite": "libero_object_task",
+      "task": 4,
+      "seed": 3,
+      "requests": [
+        {
+          "request_id": "libero_object_task_t4_s3/A",
+          "slot": "A",
+          "reference": "cheese"
+        },
+        {
+          "request_id": "libero_object_task_t4_s3/B",
+          "slot": "B",
+          "reference": "soup"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_object_task_t4_s4",
+      "suite": "libero_object_task",
+      "task": 4,
+      "seed": 4,
+      "requests": [
+        {
+          "request_id": "libero_object_task_t4_s4/A",
+          "slot": "A",
+          "reference": "cheese"
+        },
+        {
+          "request_id": "libero_object_task_t4_s4/B",
+          "slot": "B",
+          "reference": "soup"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_object_task_t4_s5",
+      "suite": "libero_object_task",
+      "task": 4,
+      "seed": 5,
+      "requests": [
+        {
+          "request_id": "libero_object_task_t4_s5/A",
+          "slot": "A",
+          "reference": "cheese"
+        },
+        {
+          "request_id": "libero_object_task_t4_s5/B",
+          "slot": "B",
+          "reference": "soup"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_object_swap_t0_s1",
+      "suite": "libero_object_swap",
+      "task": 0,
+      "seed": 1,
+      "requests": [
+        {
+          "request_id": "libero_object_swap_t0_s1/A",
+          "slot": "A",
+          "reference": "cheese"
+        },
+        {
+          "request_id": "libero_object_swap_t0_s1/B",
+          "slot": "B",
+          "reference": "soup"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_object_swap_t0_s2",
+      "suite": "libero_object_swap",
+      "task": 0,
+      "seed": 2,
+      "requests": [
+        {
+          "request_id": "libero_object_swap_t0_s2/A",
+          "slot": "A",
+          "reference": "cheese"
+        },
+        {
+          "request_id": "libero_object_swap_t0_s2/B",
+          "slot": "B",
+          "reference": "soup"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_object_swap_t0_s3",
+      "suite": "libero_object_swap",
+      "task": 0,
+      "seed": 3,
+      "requests": [
+        {
+          "request_id": "libero_object_swap_t0_s3/A",
+          "slot": "A",
+          "reference": "cheese"
+        },
+        {
+          "request_id": "libero_object_swap_t0_s3/B",
+          "slot": "B",
+          "reference": "soup"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_object_swap_t0_s4",
+      "suite": "libero_object_swap",
+      "task": 0,
+      "seed": 4,
+      "requests": [
+        {
+          "request_id": "libero_object_swap_t0_s4/A",
+          "slot": "A",
+          "reference": "cheese"
+        },
+        {
+          "request_id": "libero_object_swap_t0_s4/B",
+          "slot": "B",
+          "reference": "soup"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_object_swap_t0_s5",
+      "suite": "libero_object_swap",
+      "task": 0,
+      "seed": 5,
+      "requests": [
+        {
+          "request_id": "libero_object_swap_t0_s5/A",
+          "slot": "A",
+          "reference": "cheese"
+        },
+        {
+          "request_id": "libero_object_swap_t0_s5/B",
+          "slot": "B",
+          "reference": "soup"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_object_swap_t4_s1",
+      "suite": "libero_object_swap",
+      "task": 4,
+      "seed": 1,
+      "requests": [
+        {
+          "request_id": "libero_object_swap_t4_s1/A",
+          "slot": "A",
+          "reference": "cheese"
+        },
+        {
+          "request_id": "libero_object_swap_t4_s1/B",
+          "slot": "B",
+          "reference": "soup"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_object_swap_t4_s2",
+      "suite": "libero_object_swap",
+      "task": 4,
+      "seed": 2,
+      "requests": [
+        {
+          "request_id": "libero_object_swap_t4_s2/A",
+          "slot": "A",
+          "reference": "cheese"
+        },
+        {
+          "request_id": "libero_object_swap_t4_s2/B",
+          "slot": "B",
+          "reference": "soup"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_object_swap_t4_s3",
+      "suite": "libero_object_swap",
+      "task": 4,
+      "seed": 3,
+      "requests": [
+        {
+          "request_id": "libero_object_swap_t4_s3/A",
+          "slot": "A",
+          "reference": "cheese"
+        },
+        {
+          "request_id": "libero_object_swap_t4_s3/B",
+          "slot": "B",
+          "reference": "soup"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_object_swap_t4_s4",
+      "suite": "libero_object_swap",
+      "task": 4,
+      "seed": 4,
+      "requests": [
+        {
+          "request_id": "libero_object_swap_t4_s4/A",
+          "slot": "A",
+          "reference": "cheese"
+        },
+        {
+          "request_id": "libero_object_swap_t4_s4/B",
+          "slot": "B",
+          "reference": "soup"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_object_swap_t4_s5",
+      "suite": "libero_object_swap",
+      "task": 4,
+      "seed": 5,
+      "requests": [
+        {
+          "request_id": "libero_object_swap_t4_s5/A",
+          "slot": "A",
+          "reference": "cheese"
+        },
+        {
+          "request_id": "libero_object_swap_t4_s5/B",
+          "slot": "B",
+          "reference": "soup"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_goal_task_t0_s1",
+      "suite": "libero_goal_task",
+      "task": 0,
+      "seed": 1,
+      "requests": [
+        {
+          "request_id": "libero_goal_task_t0_s1/A",
+          "slot": "A",
+          "reference": "plate"
+        },
+        {
+          "request_id": "libero_goal_task_t0_s1/B",
+          "slot": "B",
+          "reference": "black_bowl"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_goal_task_t0_s2",
+      "suite": "libero_goal_task",
+      "task": 0,
+      "seed": 2,
+      "requests": [
+        {
+          "request_id": "libero_goal_task_t0_s2/A",
+          "slot": "A",
+          "reference": "plate"
+        },
+        {
+          "request_id": "libero_goal_task_t0_s2/B",
+          "slot": "B",
+          "reference": "black_bowl"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_goal_task_t0_s3",
+      "suite": "libero_goal_task",
+      "task": 0,
+      "seed": 3,
+      "requests": [
+        {
+          "request_id": "libero_goal_task_t0_s3/A",
+          "slot": "A",
+          "reference": "plate"
+        },
+        {
+          "request_id": "libero_goal_task_t0_s3/B",
+          "slot": "B",
+          "reference": "black_bowl"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_goal_task_t0_s4",
+      "suite": "libero_goal_task",
+      "task": 0,
+      "seed": 4,
+      "requests": [
+        {
+          "request_id": "libero_goal_task_t0_s4/A",
+          "slot": "A",
+          "reference": "plate"
+        },
+        {
+          "request_id": "libero_goal_task_t0_s4/B",
+          "slot": "B",
+          "reference": "black_bowl"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_goal_task_t0_s5",
+      "suite": "libero_goal_task",
+      "task": 0,
+      "seed": 5,
+      "requests": [
+        {
+          "request_id": "libero_goal_task_t0_s5/A",
+          "slot": "A",
+          "reference": "plate"
+        },
+        {
+          "request_id": "libero_goal_task_t0_s5/B",
+          "slot": "B",
+          "reference": "black_bowl"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_goal_task_t7_s1",
+      "suite": "libero_goal_task",
+      "task": 7,
+      "seed": 1,
+      "requests": [
+        {
+          "request_id": "libero_goal_task_t7_s1/A",
+          "slot": "A",
+          "reference": "plate"
+        },
+        {
+          "request_id": "libero_goal_task_t7_s1/B",
+          "slot": "B",
+          "reference": "black_bowl"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_goal_task_t7_s2",
+      "suite": "libero_goal_task",
+      "task": 7,
+      "seed": 2,
+      "requests": [
+        {
+          "request_id": "libero_goal_task_t7_s2/A",
+          "slot": "A",
+          "reference": "plate"
+        },
+        {
+          "request_id": "libero_goal_task_t7_s2/B",
+          "slot": "B",
+          "reference": "black_bowl"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_goal_task_t7_s3",
+      "suite": "libero_goal_task",
+      "task": 7,
+      "seed": 3,
+      "requests": [
+        {
+          "request_id": "libero_goal_task_t7_s3/A",
+          "slot": "A",
+          "reference": "plate"
+        },
+        {
+          "request_id": "libero_goal_task_t7_s3/B",
+          "slot": "B",
+          "reference": "black_bowl"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_goal_task_t7_s4",
+      "suite": "libero_goal_task",
+      "task": 7,
+      "seed": 4,
+      "requests": [
+        {
+          "request_id": "libero_goal_task_t7_s4/A",
+          "slot": "A",
+          "reference": "plate"
+        },
+        {
+          "request_id": "libero_goal_task_t7_s4/B",
+          "slot": "B",
+          "reference": "black_bowl"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_goal_task_t7_s5",
+      "suite": "libero_goal_task",
+      "task": 7,
+      "seed": 5,
+      "requests": [
+        {
+          "request_id": "libero_goal_task_t7_s5/A",
+          "slot": "A",
+          "reference": "plate"
+        },
+        {
+          "request_id": "libero_goal_task_t7_s5/B",
+          "slot": "B",
+          "reference": "black_bowl"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_goal_swap_t0_s1",
+      "suite": "libero_goal_swap",
+      "task": 0,
+      "seed": 1,
+      "requests": [
+        {
+          "request_id": "libero_goal_swap_t0_s1/A",
+          "slot": "A",
+          "reference": "plate"
+        },
+        {
+          "request_id": "libero_goal_swap_t0_s1/B",
+          "slot": "B",
+          "reference": "black_bowl"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_goal_swap_t0_s2",
+      "suite": "libero_goal_swap",
+      "task": 0,
+      "seed": 2,
+      "requests": [
+        {
+          "request_id": "libero_goal_swap_t0_s2/A",
+          "slot": "A",
+          "reference": "plate"
+        },
+        {
+          "request_id": "libero_goal_swap_t0_s2/B",
+          "slot": "B",
+          "reference": "black_bowl"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_goal_swap_t0_s3",
+      "suite": "libero_goal_swap",
+      "task": 0,
+      "seed": 3,
+      "requests": [
+        {
+          "request_id": "libero_goal_swap_t0_s3/A",
+          "slot": "A",
+          "reference": "plate"
+        },
+        {
+          "request_id": "libero_goal_swap_t0_s3/B",
+          "slot": "B",
+          "reference": "black_bowl"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_goal_swap_t0_s4",
+      "suite": "libero_goal_swap",
+      "task": 0,
+      "seed": 4,
+      "requests": [
+        {
+          "request_id": "libero_goal_swap_t0_s4/A",
+          "slot": "A",
+          "reference": "plate"
+        },
+        {
+          "request_id": "libero_goal_swap_t0_s4/B",
+          "slot": "B",
+          "reference": "black_bowl"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_goal_swap_t0_s5",
+      "suite": "libero_goal_swap",
+      "task": 0,
+      "seed": 5,
+      "requests": [
+        {
+          "request_id": "libero_goal_swap_t0_s5/A",
+          "slot": "A",
+          "reference": "plate"
+        },
+        {
+          "request_id": "libero_goal_swap_t0_s5/B",
+          "slot": "B",
+          "reference": "black_bowl"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_goal_swap_t7_s1",
+      "suite": "libero_goal_swap",
+      "task": 7,
+      "seed": 1,
+      "requests": [
+        {
+          "request_id": "libero_goal_swap_t7_s1/A",
+          "slot": "A",
+          "reference": "plate"
+        },
+        {
+          "request_id": "libero_goal_swap_t7_s1/B",
+          "slot": "B",
+          "reference": "black_bowl"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_goal_swap_t7_s2",
+      "suite": "libero_goal_swap",
+      "task": 7,
+      "seed": 2,
+      "requests": [
+        {
+          "request_id": "libero_goal_swap_t7_s2/A",
+          "slot": "A",
+          "reference": "plate"
+        },
+        {
+          "request_id": "libero_goal_swap_t7_s2/B",
+          "slot": "B",
+          "reference": "black_bowl"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_goal_swap_t7_s3",
+      "suite": "libero_goal_swap",
+      "task": 7,
+      "seed": 3,
+      "requests": [
+        {
+          "request_id": "libero_goal_swap_t7_s3/A",
+          "slot": "A",
+          "reference": "plate"
+        },
+        {
+          "request_id": "libero_goal_swap_t7_s3/B",
+          "slot": "B",
+          "reference": "black_bowl"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_goal_swap_t7_s4",
+      "suite": "libero_goal_swap",
+      "task": 7,
+      "seed": 4,
+      "requests": [
+        {
+          "request_id": "libero_goal_swap_t7_s4/A",
+          "slot": "A",
+          "reference": "plate"
+        },
+        {
+          "request_id": "libero_goal_swap_t7_s4/B",
+          "slot": "B",
+          "reference": "black_bowl"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_goal_swap_t7_s5",
+      "suite": "libero_goal_swap",
+      "task": 7,
+      "seed": 5,
+      "requests": [
+        {
+          "request_id": "libero_goal_swap_t7_s5/A",
+          "slot": "A",
+          "reference": "plate"
+        },
+        {
+          "request_id": "libero_goal_swap_t7_s5/B",
+          "slot": "B",
+          "reference": "black_bowl"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_10_task_t3_s1",
+      "suite": "libero_10_task",
+      "task": 3,
+      "seed": 1,
+      "requests": [
+        {
+          "request_id": "libero_10_task_t3_s1/A",
+          "slot": "A",
+          "reference": "black_bowl"
+        },
+        {
+          "request_id": "libero_10_task_t3_s1/B",
+          "slot": "B",
+          "reference": "wine_bottle"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_10_task_t3_s2",
+      "suite": "libero_10_task",
+      "task": 3,
+      "seed": 2,
+      "requests": [
+        {
+          "request_id": "libero_10_task_t3_s2/A",
+          "slot": "A",
+          "reference": "black_bowl"
+        },
+        {
+          "request_id": "libero_10_task_t3_s2/B",
+          "slot": "B",
+          "reference": "wine_bottle"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_10_task_t3_s3",
+      "suite": "libero_10_task",
+      "task": 3,
+      "seed": 3,
+      "requests": [
+        {
+          "request_id": "libero_10_task_t3_s3/A",
+          "slot": "A",
+          "reference": "black_bowl"
+        },
+        {
+          "request_id": "libero_10_task_t3_s3/B",
+          "slot": "B",
+          "reference": "wine_bottle"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_10_task_t3_s4",
+      "suite": "libero_10_task",
+      "task": 3,
+      "seed": 4,
+      "requests": [
+        {
+          "request_id": "libero_10_task_t3_s4/A",
+          "slot": "A",
+          "reference": "black_bowl"
+        },
+        {
+          "request_id": "libero_10_task_t3_s4/B",
+          "slot": "B",
+          "reference": "wine_bottle"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_10_task_t3_s5",
+      "suite": "libero_10_task",
+      "task": 3,
+      "seed": 5,
+      "requests": [
+        {
+          "request_id": "libero_10_task_t3_s5/A",
+          "slot": "A",
+          "reference": "black_bowl"
+        },
+        {
+          "request_id": "libero_10_task_t3_s5/B",
+          "slot": "B",
+          "reference": "wine_bottle"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_10_task_t9_s1",
+      "suite": "libero_10_task",
+      "task": 9,
+      "seed": 1,
+      "requests": [
+        {
+          "request_id": "libero_10_task_t9_s1/A",
+          "slot": "A",
+          "reference": "gray_white_mug"
+        },
+        {
+          "request_id": "libero_10_task_t9_s1/B",
+          "slot": "B",
+          "reference": "yellow_white_mug"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_10_task_t9_s2",
+      "suite": "libero_10_task",
+      "task": 9,
+      "seed": 2,
+      "requests": [
+        {
+          "request_id": "libero_10_task_t9_s2/A",
+          "slot": "A",
+          "reference": "gray_white_mug"
+        },
+        {
+          "request_id": "libero_10_task_t9_s2/B",
+          "slot": "B",
+          "reference": "yellow_white_mug"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_10_task_t9_s3",
+      "suite": "libero_10_task",
+      "task": 9,
+      "seed": 3,
+      "requests": [
+        {
+          "request_id": "libero_10_task_t9_s3/A",
+          "slot": "A",
+          "reference": "gray_white_mug"
+        },
+        {
+          "request_id": "libero_10_task_t9_s3/B",
+          "slot": "B",
+          "reference": "yellow_white_mug"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_10_task_t9_s4",
+      "suite": "libero_10_task",
+      "task": 9,
+      "seed": 4,
+      "requests": [
+        {
+          "request_id": "libero_10_task_t9_s4/A",
+          "slot": "A",
+          "reference": "gray_white_mug"
+        },
+        {
+          "request_id": "libero_10_task_t9_s4/B",
+          "slot": "B",
+          "reference": "yellow_white_mug"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_10_task_t9_s5",
+      "suite": "libero_10_task",
+      "task": 9,
+      "seed": 5,
+      "requests": [
+        {
+          "request_id": "libero_10_task_t9_s5/A",
+          "slot": "A",
+          "reference": "gray_white_mug"
+        },
+        {
+          "request_id": "libero_10_task_t9_s5/B",
+          "slot": "B",
+          "reference": "yellow_white_mug"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_10_swap_t3_s1",
+      "suite": "libero_10_swap",
+      "task": 3,
+      "seed": 1,
+      "requests": [
+        {
+          "request_id": "libero_10_swap_t3_s1/A",
+          "slot": "A",
+          "reference": "black_bowl"
+        },
+        {
+          "request_id": "libero_10_swap_t3_s1/B",
+          "slot": "B",
+          "reference": "wine_bottle"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_10_swap_t3_s2",
+      "suite": "libero_10_swap",
+      "task": 3,
+      "seed": 2,
+      "requests": [
+        {
+          "request_id": "libero_10_swap_t3_s2/A",
+          "slot": "A",
+          "reference": "black_bowl"
+        },
+        {
+          "request_id": "libero_10_swap_t3_s2/B",
+          "slot": "B",
+          "reference": "wine_bottle"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_10_swap_t3_s3",
+      "suite": "libero_10_swap",
+      "task": 3,
+      "seed": 3,
+      "requests": [
+        {
+          "request_id": "libero_10_swap_t3_s3/A",
+          "slot": "A",
+          "reference": "black_bowl"
+        },
+        {
+          "request_id": "libero_10_swap_t3_s3/B",
+          "slot": "B",
+          "reference": "wine_bottle"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_10_swap_t3_s4",
+      "suite": "libero_10_swap",
+      "task": 3,
+      "seed": 4,
+      "requests": [
+        {
+          "request_id": "libero_10_swap_t3_s4/A",
+          "slot": "A",
+          "reference": "black_bowl"
+        },
+        {
+          "request_id": "libero_10_swap_t3_s4/B",
+          "slot": "B",
+          "reference": "wine_bottle"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_10_swap_t3_s5",
+      "suite": "libero_10_swap",
+      "task": 3,
+      "seed": 5,
+      "requests": [
+        {
+          "request_id": "libero_10_swap_t3_s5/A",
+          "slot": "A",
+          "reference": "black_bowl"
+        },
+        {
+          "request_id": "libero_10_swap_t3_s5/B",
+          "slot": "B",
+          "reference": "wine_bottle"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_10_swap_t9_s1",
+      "suite": "libero_10_swap",
+      "task": 9,
+      "seed": 1,
+      "requests": [
+        {
+          "request_id": "libero_10_swap_t9_s1/A",
+          "slot": "A",
+          "reference": "yellow_white_mug"
+        },
+        {
+          "request_id": "libero_10_swap_t9_s1/B",
+          "slot": "B",
+          "reference": "microwave"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_10_swap_t9_s2",
+      "suite": "libero_10_swap",
+      "task": 9,
+      "seed": 2,
+      "requests": [
+        {
+          "request_id": "libero_10_swap_t9_s2/A",
+          "slot": "A",
+          "reference": "yellow_white_mug"
+        },
+        {
+          "request_id": "libero_10_swap_t9_s2/B",
+          "slot": "B",
+          "reference": "microwave"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_10_swap_t9_s3",
+      "suite": "libero_10_swap",
+      "task": 9,
+      "seed": 3,
+      "requests": [
+        {
+          "request_id": "libero_10_swap_t9_s3/A",
+          "slot": "A",
+          "reference": "yellow_white_mug"
+        },
+        {
+          "request_id": "libero_10_swap_t9_s3/B",
+          "slot": "B",
+          "reference": "microwave"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_10_swap_t9_s4",
+      "suite": "libero_10_swap",
+      "task": 9,
+      "seed": 4,
+      "requests": [
+        {
+          "request_id": "libero_10_swap_t9_s4/A",
+          "slot": "A",
+          "reference": "yellow_white_mug"
+        },
+        {
+          "request_id": "libero_10_swap_t9_s4/B",
+          "slot": "B",
+          "reference": "microwave"
+        }
+      ]
+    },
+    {
+      "case_id": "libero_10_swap_t9_s5",
+      "suite": "libero_10_swap",
+      "task": 9,
+      "seed": 5,
+      "requests": [
+        {
+          "request_id": "libero_10_swap_t9_s5/A",
+          "slot": "A",
+          "reference": "yellow_white_mug"
+        },
+        {
+          "request_id": "libero_10_swap_t9_s5/B",
+          "slot": "B",
+          "reference": "microwave"
+        }
+      ]
+    }
+  ]
+}

@@ -59,9 +59,9 @@ class LiberoPrimitives:
 
     def __init__(
         self,
-        env: LiberoEnvClient,
-        model: BaseVLAClient | LiberoWAMClient,
-        sam3_client: Sam3Client,
+        env: LiberoEnvClient | None,
+        model: BaseVLAClient | LiberoWAMClient | None,
+        sam3_client: Sam3Client | None,
         check_cancelled: Callable[[], None],
         molmo_client: MolmoClient | None = None,
         flywheel_config: dict[str, Any] | None = None,
@@ -908,8 +908,14 @@ class LiberoPrimitives:
         segment_name = f"segment_{segment_index:02d}.json"
         overlay_name = f"segment_overlay_{segment_index:02d}.png"
         saved_overlay = None
+        saved_mask = None
         mask = data.mask
         if data.found and isinstance(mask, np.ndarray):
+            saved_mask = state.save(
+                f"segment_mask_{segment_index:02d}.npz",
+                mask.astype(bool),
+                step=nn,
+            )
             try:
                 world_map = state.load(world_name, step=nn)
             except Exception as exc:
@@ -945,6 +951,7 @@ class LiberoPrimitives:
             "score": round(float(data.score), 3) if data.score is not None else None,
             "box": data.box,
             "mask_shape": list(data.mask_shape) if data.mask_shape else None,
+            "mask_artifact": saved_mask,
         }
         if has_prompt:
             segment_blob["prompt"] = prompt
@@ -952,6 +959,8 @@ class LiberoPrimitives:
             segment_blob["point"] = point
         if not data.found:
             segment_blob["error"] = data.reason or "SAM3 found no mask"
+        elif saved_mask is None:
+            segment_blob["error"] = "failed to persist segment mask"
         segment_blob.update(world_result)
         saved_segment = state.save(
             segment_name,
@@ -968,6 +977,7 @@ class LiberoPrimitives:
             "box": segment_blob["box"],
             "world_xyz": segment_blob["world_xyz"],
             "world_error": segment_blob.get("world_error"),
+            "mask_artifact": saved_mask,
         }
         if saved_segment is None:
             result["error"] = f"failed to persist segment artifact {segment_name}"
@@ -978,6 +988,9 @@ class LiberoPrimitives:
             result["fallback"] = "Use manual visual localization and back_project."
         else:
             result["segment_artifact"] = saved_segment
+        if data.found and saved_mask is None and saved_segment is not None:
+            result["error"] = "failed to persist segment mask"
+            result["code"] = "segment_mask_save_failed"
         if saved_segment is not None and "error" in segment_blob:
             result["error"] = segment_blob["error"]
             result["fallback"] = "Use manual visual localization and back_project."
@@ -1004,7 +1017,7 @@ def write_recipe_from_states(
 ) -> str:
     """Find a command sequence that gets ``terminated=True``.
 
-    Export non-error LIBERO primitive commands and successful segment calls.
+    Export primitive commands and successful parent-facing localization requests.
     """
     records = state.records()
     last_reset = max(
@@ -1032,8 +1045,39 @@ def write_recipe_from_states(
         ):
             command_events.append(((record.step_idx, -1), command))
 
+        geometry_records = [
+            state.load(name, step=record.step_idx)
+            for name in sorted(record.artifacts)
+            if name.startswith("geometry_") and name.endswith(".json")
+        ]
+        internal_segments = {
+            attempt["segment_artifact"]
+            for geometry in geometry_records
+            for attempt in geometry.get("segment_attempts", [])
+            if attempt.get("segment_artifact")
+        }
+        for index, geometry in enumerate(geometry_records):
+            if geometry.get("status") not in {"usable", "partial"}:
+                continue
+            geometry_command = {
+                "action": "localize",
+                "query": geometry["query"],
+                "camera": geometry["camera"],
+            }
+            if geometry.get("required_geometry"):
+                geometry_command["required_geometry"] = geometry["required_geometry"]
+            else:
+                geometry_command["measurement"] = geometry["measurement"]
+            command_events.append(
+                (
+                    (record.step_idx, index),
+                    geometry_command,
+                )
+            )
         for name in sorted(record.artifacts):
             if not (name.startswith("segment_") and name.endswith(".json")):
+                continue
+            if name in internal_segments:
                 continue
             segment = state.load(name, step=record.step_idx)
             if segment.get("error"):
@@ -1153,10 +1197,8 @@ def _save_observation_artifacts(
     if agentview_meta:
         cam_meta_out = dict(agentview_meta)
         cam_meta_out["projection"] = (
-            "Prefer the back_project(row, col, step=NN) MCP tool; it "
-            "uses the 1024x1024 high-resolution world map by default. "
-            "Pass resolution='low' only when row/col came from the "
-            "256x256 calibration-frame image."
+            "Use localize with a target/part description and this step. "
+            "GeometryAgent selects pixels and matching-resolution world maps internally."
         )
         cam_meta_out["note"] = (
             "The agentview_depth.npz observation is aligned with agentview.png. "

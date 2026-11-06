@@ -139,7 +139,7 @@ then point at it via ``PI05_CHECKPOINT_PATH``:
 SAM3 Configuration
 ------------------
 
-SAM 3.0 segmentation is enabled for every LIBERO run. Download ``sam3.pt``
+SAM 3.0 is an internal GeometryAgent dependency. Download ``sam3.pt``
 from `Hugging Face: facebook/sam3 <https://huggingface.co/facebook/sam3>`_
 or `ModelScope: facebook/sam3 <https://modelscope.cn/models/facebook/sam3>`_,
 then point at it via ``SAM3_CHECKPOINT_PATH``:
@@ -300,8 +300,12 @@ uses their clients to execute the planner's requests.
   same RPC transports (HTTP or socket).
 - **toolkit** (``robots/libero/toolkit.py``) — defines the tools the
   LLM can call: ``pi0_pick`` (fed to Pi0.5), ``move_to``,
-  ``rotate_wrist``, ``back_project``, ``view_env_state``,
+  ``rotate_wrist``, ``localize``, ``view_env_state``,
   ``finish``, …
+- **GeometryAgent** (``tools/libero/geometry_agent.py``) — receives target/part
+  descriptions through ``localize``. Its visual grounding model selects a
+  material pixel; internal segmentation and coordinate tools compute the result.
+  The parent planner has no direct ``segment`` or ``back_project`` tool.
 
 Tools the Planner Can Call
 --------------------------
@@ -327,10 +331,13 @@ Physical action tools advance the environment and record new state and images.
 
 **Read-only tools:**
 
-- ``back_project(row, col, ...)`` — back-project an image pixel to world
-  coordinates.
-- ``segment(prompt=... / point=..., ...)`` — use SAM3 to segment an existing
-  image with a text or point prompt.
+- ``localize(query, camera="agentview", step=-1, measurement="surface_point")`` —
+  delegate localization of a described object or part to GeometryAgent.
+  ``surface_point`` returns a visible material point; ``visible_region`` returns
+  the coordinate-wise median and bounds of visible segmented samples.
+  Add ``required_geometry=["rim_center", "body_center", "bottom_center", "axis",
+  "radius", "height"]`` to request part-specific cleaning and fitting instead.
+  The parent supplies target text and step/camera, with no calibration parameters.
 - ``view_env_state(step=-1)`` — read a recorded state and its embedded
   observation images. Step ``0`` is initial; ``-1`` is latest.
 - ``view_camera_meta(camera=..., step=-1)`` — read camera metadata for a
@@ -338,6 +345,148 @@ Physical action tools advance the environment and record new state and images.
 - ``finish(status, summary)`` — end the current run.
 
 These tools do not advance the environment.
+
+GeometryAgent pins one recorded frame. Each part uses one visual-model call and
+at most two SAM calls. Cup requests use at most three parts; adding a plane uses
+at most four. The agent saves ``geometry_XXX.json`` and mask, candidate, cleaned
+point-cloud and fit-inlier artifacts. No arrays are sent as tool-result text.
+
+Rim and bottom boundaries use robust 3-D circle fitting; the curved body compares
+cylinder and frustum models; visible planar patches use RANSAC and SVD. Cleanup
+uses voxel sampling, a target-connected component and neighbor outlier rejection.
+Body/rim requests may remove a horizontal background plane found outside the
+mask; bottom/plane requests preserve their target plane. A body fit treats
+handle/interior samples as outliers and is rejected when support is insufficient.
+
+Exact reference requests use ``inner_rim_center`` for the inner upper opening,
+``plate_center`` for the central supporting face, ``lid_center`` for a sealed
+circular lid, ``rectangle_center`` for the main rectangular top face, and
+``body_segment_center`` for the main bottle barrel excluding its neck and mouth.
+The inner opening uses resolved inner contours instead of center-pixel depth.
+Its candidates retain their largest connected component without requiring
+proximity to the visual material point. That point still identifies the SAM
+region and supports background-plane separation and circle consistency checks;
+outlier rejection and circle acceptance gates remain active.
+Circular face fits take their height from the selected plane. Rectangles require
+four physical edges and corner support; foreground covers, coplanar label crops
+and image clipping cannot establish a full-face center. Bottle fitting needs
+both barrel limits from observed radius transitions or physical terminal edges,
+and supports a horizontal axis. Visible sample extents alone are insufficient.
+
+Fitted results are in ``geometry[field]``, with definition, assumptions, evidence
+references and quality. ``radius`` means rim radius; ``body_radii`` contains only
+visible cross-section radii. Body center is the midpoint of observed coaxial rim
+and bottom circles. Full height requires both end boundaries; a visible axial
+extent alone is insufficient. Axis sign is conventional unless both ends are
+observed. Low residuals alone do not establish reliability: coverage, degeneracy
+and consistency gates may reject a fit. Algorithm thresholds and residuals are
+not calibrated positional error; quantized world maps retain their precision.
+
+``partial`` means some requested fields are available and others remain unknown.
+When geometry is unavailable, the agent requests another view; the parent
+executes any motion. Multi-view fusion, full box dimensions and cavity geometry
+are not implemented by these fitting models.
+
+API and Codex planners inherit their model and provider URL for visual grounding.
+Use ``--geometry-model provider:model`` or ``--geometry-model codex:model`` to
+select another model. Bare ``codex`` uses the configured Codex default.
+``--geometry-base-url`` overrides the inherited ``--base-url``. Claude Code
+planners require an explicit ``--geometry-model``. The visual model receives
+only the selected RGB image and target query, with no robot tools or object poses.
+
+Fixed Reference Checklist Experiment
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The implementation is in ``tools/libero/``. The previous
+``python -m robots.libero.localization_experiment`` command delegates to the
+same entry point for existing experiment scripts.
+
+The source checkout includes ``选点清单.md`` and its expanded ``test-cases.json``:
+16 Task/Swap rows, seeds 1 through 5, 80 cases and 160 fixed reference requests.
+Run the following from the repository root in the LIBERO-Pro environment with
+the simulator assets, EGL/CUDA and SAM3 checkpoint configured above. The
+experiment needs neither Pi0.5/WAM weights nor task memory. Collection starts
+only ENV; inference starts only SAM3 and the explicitly selected visual model.
+
+.. code-block:: bash
+
+   python -m tools.libero.localization_experiment validate-manifest
+   python -m tools.libero.localization_experiment collect \
+     --output experiments/localization/observations
+   python -m tools.libero.localization_experiment infer \
+     --inputs experiments/localization/observations \
+     --geometry-model codex \
+     --output experiments/localization/predictions
+
+``codex`` uses its configured default; ``codex:model`` or ``provider:model``
+also work, with optional ``--geometry-base-url``. Each case uses only step 0 /
+agentview, with fixed A/B targets. Collection records native paired 1024×1024
+RGB-D, internal calibration and float32 world maps. Inference copies only allowed
+sensor artifacts, checks their hashes and never modifies the collected source.
+The protocol records refusals without executing actions or additional views.
+Each reference has a budget of one grounding call and at most two SAM calls.
+
+Use matching ``--limit N`` or repeated ``--case <case_id>`` options in collection
+and inference for a pilot subset. Add ``--permissive`` to ``infer`` when measuring
+errors for rejected checklist centers. It retains strict-fit diagnostics, then
+tries relaxed shape fitting or a labelled visible-extent center without asking
+for another view. ``strict_accepted`` and ``estimate_method`` distinguish strict
+fits from approximate candidates; candidate fields have ``evaluation_only=true``.
+In this mode, ``usable`` means a coordinate was returned, not that strict quality
+gates passed. Invalid/missing observations still produce errors. Truth remains
+evaluator-only. The default is strict; the linked experiment guide specifies the
+relaxed gates and methods. Output directories must be new or empty.
+``--cuda-device``, ``--env-cuda-device`` and ``--sam3-cuda-device`` select GPUs.
+Inference can borrow ``--sam3-endpoint``; ``--env-endpoint`` requires exactly one
+selected case and matching server metadata. Only owned processes are stopped.
+
+``results.jsonl`` records every fixed request, including errors and refusals.
+``summary.json`` reports status counts, returned centers, calls and latency.
+Each case has full ``result_A.json`` / ``result_B.json`` and an ``episode`` with
+masks, overlays, candidate/cleaned clouds and fit evidence. Read centers only
+from the requested ``geometry[field].value``; surface points or medians are never
+fallback centers. ``fit_points_artifact`` is indexed by the fit-inlier array;
+``observed_support_artifact`` preserves raw boundary samples separately when a
+circular-face fit uses plane-projected points.
+
+For numerical error, generate ``truth-template`` and independently annotate all
+160 references before evaluation. Fill ``evaluable``, ``annotation_source`` and
+either ``world_xyz`` or an explicit ``not_evaluable_reason``. Preserve each ID,
+definition and frame. Truth may instead specify ``model_local_xyz`` with a rigid
+``model_to_world`` matrix; bottle references may use a pre-labelled local
+``barrel_profile`` (unit ``axis``, ``axis_origin``, ordered ``bounds_m``) with that
+matrix. The evaluator alone reads these inputs. Null template values mean unlabelled, not zero
+coordinates or automatic exclusion.
+
+.. code-block:: bash
+
+   python -m tools.libero.localization_experiment truth-template \
+     --output experiments/localization/truth.json
+   # Complete the independent annotations before the next command.
+   python -m tools.libero.localization_experiment evaluate \
+     --predictions experiments/localization/predictions/results.jsonl \
+     --truth experiments/localization/truth.json --tolerance-m 0.01 \
+     --output experiments/localization/evaluation
+
+For references defined from complete LIBERO models, add ``--with-references``
+to collection. Each case then has a separate ``evaluator_snapshot.json`` with
+compiled visual meshes and body poses from that same initial state. The ENV
+server must have ``--evaluation-references`` enabled when borrowing an endpoint.
+Fix each part's model-local reference before inference, then transform it with
+the matching body pose; the object origin is not a default part center. These
+snapshots contain no part annotations. They remain outside the episode and are
+excluded by inference's sensor whitelist, so GeometryAgent never receives them.
+
+``metrics.json`` and ``errors.csv`` include per-reference errors and object/suite
+groups. Success within tolerance uses all independently evaluable references,
+including refusals, failures and unrun items. Mean, median, P95 and RMSE are
+conditional on returned centers and must be read with coverage. The default
+1 cm tolerance is a configurable criterion. Missing labels, duplicate IDs,
+wrong units, frames or definitions reject evaluation. For a pilot evaluation,
+use the matching ``--case`` / ``--limit`` selection; annotations still cover the
+complete checklist. CPU analytic/fake-perception tests establish execution and
+geometric contracts; real-scene accuracy and manipulation success require
+separate measurements.
 
 Dashboard
 ---------

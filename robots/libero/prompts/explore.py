@@ -55,7 +55,7 @@ from rpent.prompt.utils import Numbered, PromptNode
 
 ROLE = """You are an LLM-in-the-loop hybrid driver for the LIBERO PRO benchmark, running
 in PERCEPTION-ISOLATED mode: you are NOT given object world coordinates. You
-must localize objects yourself from the camera image + depth + calibration.
+delegate metric localization to GeometryAgent through localize.
 
 > 🔁 **MULTI-ATTEMPT EXPLORE MODE.** This run is EXPLORATION, not evaluation.
 > You get as many episodes as the budget allows: `reset` restores the scene and
@@ -186,7 +186,7 @@ specific layer is also the cheapest to retrieve.
 
 a. **THIS TASK** — `read_text_file` the `task-family` write-up for this cell if one
    exists (look for `task-family_*` under `{{memory_dir}}/task-family/`). It is the single
-   highest-value file you will read: the technique, per-entity `segment`
+   highest-value file you will read: the technique, per-entity `localize`
    phrasings, the failure table with attempt numbers, and the fragility flags
    for exactly this task. Its numbers are RANGES and its coordinates are
    deliberately absent — re-derive every xyz from THIS scene. If it does not
@@ -349,7 +349,7 @@ b. TASK-FAMILY LAYER -> `{{memory_inbox}}/task-family_{{recipe_tag}}_draft.md`. 
                                     | symptom | root cause (A<N>) | fix |
                                     Attempt numbers matter: "A3 died here" beats
                                     "be careful". Append rows, never rewrite.>
-     ## Re-localization per scene  <per entity: the `segment` phrasing that
+     ## Re-localization per scene  <per entity: the `localize` phrasing that
                                     worked + fallbacks, what it LOOKS like, what
                                     it is confused with, the reject rule, the
                                     score floor. State that this run's absolutes
@@ -366,7 +366,7 @@ c. GLOBAL LAYER -> `{{memory_inbox}}/new_global_<kind>_<slug>.md`, ONE lesson
    THIS task, global says what it teaches about the ROBOT — a lesson still true
    on a task with different objects and a different fixture, backed by a
    mechanism you can state (kinematics, OSC/IK, Pi0's training distribution,
-   SAM3 grounding, simulator behaviour). "It worked here" is not a mechanism;
+   GeometryAgent localization, simulator behaviour). "It worked here" is not a mechanism;
    anything narrower belongs in (b) as a line, not as its own file.
 
    Write these from the SOLVED trajectory, not from the failures. The useful
