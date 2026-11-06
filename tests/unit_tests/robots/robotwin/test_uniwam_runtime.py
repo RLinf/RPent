@@ -13,7 +13,7 @@
 # limitations under the License.
 
 
-"""UniWAM runtime selection and resource ownership contracts."""
+"""UniWAM selection and worker ownership through the shared AM runtime."""
 
 import sys
 from argparse import ArgumentParser
@@ -22,10 +22,10 @@ from types import SimpleNamespace
 import pytest
 
 from robots.robotwin import robot_spec
-from robots.robotwin.uniwam_client import UniWAMClient
+from robots.robotwin.wam_client import RoboTwinWAMClient
 from rpent.dashboard.events import NullDashboardEventSink
-from rpent.utils import daemon as daemon_module
-from rpent.utils import rpc as rpc_module
+from rpent.robots.components import am_runtime
+from rpent.robots.components.uniwam.adapter import make_adapter
 
 
 def arguments(*extra):
@@ -36,41 +36,54 @@ def arguments(*extra):
     )
 
 
-def test_backend_default_and_checkpoint_environment_are_separate(monkeypatch, tmp_path):
+def bundle(tmp_path):
+    root = tmp_path / "bundle"
+    root.mkdir()
+    for name in ("policy", "checkpoint", "wan", "vlm"):
+        resource = tmp_path / name
+        resource.mkdir()
+        (root / name).symlink_to(resource, target_is_directory=True)
+    (tmp_path / "checkpoint/pytorch_model").mkdir()
+    (tmp_path / "checkpoint/config.json").write_text("{}")
+    (tmp_path / "policy/deploy_policy.py").touch()
+    return root
+
+
+def test_backend_default_and_checkpoint_environment_are_separate(monkeypatch):
+    monkeypatch.setenv("LINGBOT_MODEL_PATH", "/lingbot")
     args = arguments()
-    assert args.vla_backend == "lingbot"
-    monkeypatch.setenv("LINGBOT_MODEL_PATH", str(tmp_path))
-    monkeypatch.setattr(robot_spec, "_validate_local_model_files", lambda path: None)
-    monkeypatch.setattr(robot_spec, "_resolve_lingbot_robot_config", lambda *args: None)
-    assert robot_spec._resolve_vla_runtime_path(args) == tmp_path
+    assert args.am_backend == "lingbot"
+    assert am_runtime.select_am(args, "robotwin").checkpoint == "/lingbot"
+    with pytest.raises(ValueError, match="am-checkpoint"):
+        am_runtime.select_am(arguments("--am-backend", "uniwam"), "robotwin")
 
 
 def test_uniwam_external_endpoint_needs_no_local_model_paths(monkeypatch, tmp_path):
-    rpc = object()
-    monkeypatch.setattr(rpc_module, "make_rpc_client", lambda endpoint: rpc)
+    meta, _ = make_adapter("robotwin", "external")
+    rpc = SimpleNamespace(call=lambda *a, **kw: meta, close=lambda: None)
+    monkeypatch.setattr(am_runtime, "make_rpc_client", lambda *a, **kw: rpc)
     monkeypatch.setattr(robot_spec, "try_wait_server", lambda *args, post_fn: post_fn())
     owned, runtime = robot_spec._init_runtime(
-        arguments(
-            "--vla-backend", "uniwam", "--vla-endpoint", "socket://localhost:1234"
-        ),
+        arguments("--vla-backend", "uniwam", "--vla-endpoint", "http://localhost:1234"),
         tmp_path,
         NullDashboardEventSink(),
-        {"vla"},
+        {"wam"},
     )
     assert owned == []
-    assert isinstance(runtime["model"], UniWAMClient)
-    assert runtime["vla_backend"] == "uniwam"
+    assert isinstance(runtime["model"], RoboTwinWAMClient)
+    assert runtime["policy_backend"] == "uniwam"
+    assert runtime["policy_kind"] == "wam"
 
 
-@pytest.mark.parametrize("use_env", [True, False])
+@pytest.mark.parametrize("legacy", [True, False])
 def test_uniwam_launcher_uses_resource_root_interpreter_and_cuda(
-    monkeypatch, tmp_path, use_env
+    monkeypatch, tmp_path, legacy
 ):
     created = []
 
     class Daemon:
-        def __init__(self, name, command, **kwargs):
-            self.command = command
+        def __init__(self, name, cmd, **kwargs):
+            self.command = cmd
             self.env = kwargs["env_overrides"]
             self.started = False
             created.append(self)
@@ -78,49 +91,59 @@ def test_uniwam_launcher_uses_resource_root_interpreter_and_cuda(
         def start(self):
             self.started = True
 
-    monkeypatch.setattr(daemon_module, "ProcessDaemon", Daemon)
-    monkeypatch.setattr(daemon_module, "pick_free_port", lambda: 12345)
-    monkeypatch.setattr(rpc_module, "make_rpc_client", lambda endpoint: endpoint)
-    monkeypatch.setenv("LINGBOT_MODEL_PATH", "/not-the-uniwam-checkpoint")
-    root = tmp_path / "bundle"
-    root.mkdir()
-    for name in ("policy", "checkpoint", "wan", "vlm"):
-        resource = tmp_path / name
-        resource.mkdir()
-        (root / name).symlink_to(resource, target_is_directory=True)
-    (tmp_path / "checkpoint" / "pytorch_model").mkdir()
-    monkeypatch.setenv("UNIWAM_MODEL_PATH", str(root) if use_env else "/unused")
+    monkeypatch.setattr(am_runtime, "ProcessDaemon", Daemon)
+    monkeypatch.setattr(am_runtime, "pick_free_port", lambda: 12345)
+    monkeypatch.setattr(am_runtime, "make_rpc_client", lambda endpoint, **kw: endpoint)
+    root = bundle(tmp_path)
     args = arguments(
-        "--vla-backend",
+        "--vla-backend" if legacy else "--am-backend",
         "uniwam",
-        "--vla-cuda-device",
+        "--vla-model-path" if legacy else "--am-checkpoint",
+        str(root),
+        "--am-python",
+        sys.executable,
+        "--am-cuda-device",
         "2",
-        *([] if use_env else ["--vla-model-path", str(root)]),
     )
-    owned, endpoint = robot_spec._spawn_uniwam_server(args, tmp_path)
+    config = am_runtime.select_am(args, "robotwin")
+    owned, endpoint = am_runtime.start_wam_service(config, tmp_path)
     assert owned is created[0] and owned.started
     assert owned.command[0] == sys.executable
-    for flag, relative in (
-        ("--model-path", "checkpoint/pytorch_model"),
-        ("--policy-dir", "policy"),
-        ("--wan-path", "wan"),
-        ("--vlm-path", "vlm"),
-    ):
-        assert owned.command[owned.command.index(flag) + 1] == str(tmp_path / relative)
+    assert owned.command[1:3] == ["-m", "rpent.robots.components.uniwam.server"]
+    assert owned.command[owned.command.index("--checkpoint") + 1] == str(root)
     assert owned.env["CUDA_VISIBLE_DEVICES"] == "2"
-    assert endpoint == "socket://127.0.0.1:12345"
+    assert endpoint == "http://127.0.0.1:12345"
 
 
 def test_failed_uniwam_start_cleans_up_owned_environment(monkeypatch, tmp_path):
     stopped = []
     env = SimpleNamespace(stop=lambda: stopped.append("env"))
     monkeypatch.setattr(robot_spec, "_spawn_env_server", lambda *a: (env, object()))
-    monkeypatch.delenv("UNIWAM_MODEL_PATH", raising=False)
-    with pytest.raises(RuntimeError, match="UNIWAM_MODEL_PATH"):
+
+    def fail(*args):
+        raise RuntimeError("worker start failed")
+
+    monkeypatch.setattr(robot_spec, "start_wam_service", fail)
+    with pytest.raises(RuntimeError, match="worker start failed"):
         robot_spec._init_runtime(
-            arguments("--vla-backend", "uniwam"),
+            arguments(
+                "--am-backend", "uniwam", "--am-endpoint", "http://localhost:1234"
+            ),
             tmp_path,
             NullDashboardEventSink(),
             None,
         )
     assert stopped == ["env"]
+
+
+@pytest.mark.parametrize("explore", [False, True])
+def test_uniwam_preserves_exploration_and_memory(explore):
+    args = arguments("--am-backend", "uniwam", "--am-endpoint", "http://localhost:1234")
+    args.explore = explore
+    args.output_dir = None
+    args.memory_dir = None
+    args.memory_profile = "local" if explore else "hf"
+    config = robot_spec._parse_config(args)
+    assert config.prompt_vars["policy_backend"] == "uniwam"
+    assert config.prompt_vars["mode"] == ("explore" if explore else "eval")
+    assert config.prompt_vars["memory_profile"] == args.memory_profile

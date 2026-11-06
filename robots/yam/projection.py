@@ -42,7 +42,8 @@ def _rays(height: int, width: int, k: tuple, model: str, coeffs: tuple) -> np.nd
             import pyrealsense2 as rs
         except ImportError as exc:
             raise RuntimeError(
-                "Install pyrealsense2 on the Agent machine for distorted-camera world projection"
+                "Install pyrealsense2 in the RPent Agent environment "
+                "for distorted-camera world projection"
             ) from exc
         if model == "modified_brown_conrady":
             raise ValueError(

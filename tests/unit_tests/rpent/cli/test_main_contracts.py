@@ -37,6 +37,51 @@ class ConfigCaptured(Exception):
     """Stop the CLI immediately after argument validation in routing tests."""
 
 
+@pytest.mark.parametrize("supported", [False, True])
+@pytest.mark.parametrize("real_robot", [False, True])
+def test_dashboard_uses_robot_owned_descriptor(
+    monkeypatch, tmp_path, supported, real_robot
+):
+    from argparse import ArgumentParser
+    from dataclasses import replace
+
+    from robots.libero.robot_spec import get_robot_spec
+    from rpent.cli import dashboard
+    from rpent.dashboard import state
+
+    spec = get_robot_spec()
+    descriptor = {
+        **spec.resolve_dashboard(SimpleNamespace()),
+        "external_env": real_robot,
+        "runtime_components": (
+            {"name": "custom_policy", "label": "Policy", "scope": "shared"},
+        ),
+    }
+    spec = replace(
+        spec,
+        resolve_dashboard=(lambda args: descriptor) if supported else None,
+        is_real_robot=real_robot,
+    )
+
+    def capture_state(**kwargs):
+        assert kwargs["dashboard_spec"] == descriptor
+        raise ConfigCaptured
+
+    monkeypatch.setattr(state, "DashboardState", capture_state)
+    monkeypatch.setattr(dashboard, "init_output_dir", lambda path, **kw: path)
+    args = SimpleNamespace(
+        planner="api",
+        model="test",
+        output_dir=tmp_path,
+        verbose=False,
+        env_endpoint="http://localhost:8115" if real_robot else None,
+    )
+    with pytest.raises(ConfigCaptured if supported else SystemExit) as exc:
+        dashboard.run_dashboard_session(args, spec, parser=ArgumentParser())
+    if not supported:
+        assert exc.value.code == 2
+
+
 def _cli_module():
     from rpent.cli import main as cli
 
@@ -108,7 +153,7 @@ def test_public_cli_help_runs_from_source_checkout_without_a_robot_runtime() -> 
         "--planner",
         "--output-dir",
         "--dashboard",
-        "--interactive",
+        "--tui",
     ):
         assert option in result.stdout
 
@@ -182,6 +227,18 @@ def test_deprecated_env_alias_routes_to_the_same_robot(
     assert args.env_name == "robocasa"
 
 
+def test_tui_flag_reaches_args_and_interactive_alias_is_deprecated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _, args = _capture_validated_args(monkeypatch, ["--robot", "libero", "--tui"])
+    assert args.tui is True
+
+    _, aliased = _capture_validated_args(
+        monkeypatch, ["--robot", "libero", "--interactive"]
+    )
+    assert aliased.tui is True
+
+
 def test_robot_and_env_aliases_are_mutually_exclusive(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -206,6 +263,10 @@ def test_robot_and_env_aliases_are_mutually_exclusive(
 @pytest.mark.parametrize(
     ("argv", "message"),
     [
+        (
+            ["--robot", "libero", "--dashboard", "--tui"],
+            "cannot be used together",
+        ),
         (
             ["--robot", "libero", "--dashboard", "--interactive"],
             "cannot be used together",
@@ -368,7 +429,7 @@ def test_handoff_uses_robot_capability_not_name(tmp_path, monkeypatch, real_robo
 
 
 @pytest.mark.parametrize(
-    "options,tty", [(["--interactive"], True), (["--dashboard"], True), ([], False)]
+    "options,tty", [(["--tui"], True), (["--dashboard"], True), ([], False)]
 )
 def test_real_robot_terminal_requirement_fails_before_runtime(
     monkeypatch, capsys, options, tty
@@ -377,7 +438,7 @@ def test_real_robot_terminal_requirement_fails_before_runtime(
     spec = SimpleNamespace(
         is_real_robot=True,
         supports_human_interactive_exploration=False,
-        dashboard=None,
+        resolve_dashboard=None,
         add_cli_args=lambda parser, use_dashboard: None,
     )
     monkeypatch.setattr(cli, "get_robot_spec", lambda name: spec)
@@ -413,7 +474,7 @@ def test_human_operator_main_routes_dashboard_without_tty(
         is_real_robot=True,
         supports_human_interactive_exploration=True,
         supports_exploration=True,
-        dashboard={},
+        resolve_dashboard=lambda args: {},
         add_cli_args=lambda parser, use_dashboard: None,
         validate_args=None,
     )
@@ -464,13 +525,21 @@ def test_handoff_message_lists_prior_attempts_deterministically(tmp_path: Path) 
     assert "memory inbox under wip/" in message
 
 
-@pytest.mark.parametrize("interactive", [False, True])
-@pytest.mark.parametrize("budget_exhausted", [False, True])
+@pytest.mark.parametrize(
+    ("interactive", "outcome"),
+    [
+        (False, "success"),
+        (True, "success"),
+        (False, "request_budget"),
+        (True, "request_budget"),
+        (False, "response_truncated"),
+    ],
+)
 def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     interactive: bool,
-    budget_exhausted: bool,
+    outcome: str,
 ) -> None:
     cli = _cli_module()
     from rpent.planner.base import PlannerResult
@@ -479,6 +548,7 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     from rpent.tools.toolkit import ToolResult
 
     calls: dict[str, Any] = {}
+    model_requests = 0
 
     class FakeMemoryManager:
         def merge_memory(self, **kwargs: Any) -> dict[str, int]:
@@ -499,7 +569,7 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
 
         def execute_tool(self, name: str, args: dict[str, Any]) -> ToolResult:
             self.calls.append((name, args))
-            if budget_exhausted:
+            if outcome == "request_budget":
                 return ToolResult(data={"error": "finish refused"})
             return ToolResult(
                 data={
@@ -526,7 +596,9 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
             pass
 
         def solved(self) -> bool:
-            return not budget_exhausted
+            return outcome != "request_budget" and any(
+                name == "finish" for name, _ in self.calls
+            )
 
         def write_recipe(self, recipe_tag: str) -> str:
             calls["write_recipe"] = recipe_tag
@@ -602,12 +674,22 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     def build_planner(*args: Any, **kwargs: Any):
         calls["build_planner"] = (args, kwargs)
         calls["planner_count"] = calls.get("planner_count", 0) + 1
-        if budget_exhausted:
+        if outcome != "success":
+            from pydantic_ai.exceptions import UnexpectedModelBehavior
             from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 
             from rpent.planner.api_loop import ApiAgentLoop
 
             async def stream(messages, info):
+                nonlocal model_requests
+                model_requests += 1
+                if outcome == "response_truncated" and model_requests == 1:
+                    raise UnexpectedModelBehavior(
+                        "Model token limit (8192) exceeded before any response was "
+                        "generated. Increase the `max_tokens` model setting, or "
+                        "simplify the prompt to result in a shorter response that "
+                        "will fit within the limit."
+                    )
                 yield {
                     0: DeltaToolCall(
                         name="finish",
@@ -659,8 +741,8 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
             "--max-turns",
             "4",
             "--explore-sessions",
-            "2",
-            *(["--interactive"] if interactive else []),
+            "3" if outcome == "response_truncated" else "2",
+            *(["--tui"] if interactive else []),
         ],
     )
 
@@ -668,7 +750,11 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     assert calls["build_planner"][1]["interactive"] is interactive
     assert toolkit.closed is True
     assert daemon.stopped is True
-    if budget_exhausted:
+    assert calls["get_toolkit"][1]["runtime_kwargs"] == {"runtime": "simulated"}
+    assert calls["get_toolkit"][1]["mode"] == "exploration"
+    assert calls["get_toolkit"][1]["attempts_per_session"] == 2
+    transcript = json.loads((tmp_path / "transcript_libero_s0.json").read_text())
+    if outcome == "request_budget":
         assert calls["planner_count"] == 2
         assert len(toolkit.calls) == 8
         assert "write_recipe" not in calls
@@ -677,10 +763,22 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
             "run_state_dir": tmp_path,
             "solved": False,
         }
-        transcript = json.loads((tmp_path / "transcript_libero_s0.json").read_text())
         assert transcript["finish"] is None
         assert transcript["stats"]["turns_used"] == 4
         assert len([m for m in transcript["messages"] if m["role"] == "tool"]) == 8
+        return
+
+    assert calls["write_recipe"] == "libero_s0"
+    assert calls["merge_memory"] == {
+        "cell_tag": "libero_s0",
+        "run_state_dir": tmp_path,
+        "solved": True,
+    }
+    assert transcript["error"] is None
+    if outcome == "response_truncated":
+        assert calls["planner_count"] == 2
+        assert model_requests == 2
+        assert len([m for m in transcript["messages"] if m["role"] == "user"]) == 2
         return
 
     assert calls["solve"] == {
@@ -693,17 +791,6 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     assert toolkit.calls == [
         ("finish", {"status": "success", "summary": "simulated task complete"})
     ]
-    assert calls["get_toolkit"][1]["runtime_kwargs"] == {"runtime": "simulated"}
-    assert calls["get_toolkit"][1]["mode"] == "exploration"
-    assert calls["get_toolkit"][1]["attempts_per_session"] == 2
-    assert calls["write_recipe"] == "libero_s0"
-    assert calls["merge_memory"] == {
-        "cell_tag": "libero_s0",
-        "run_state_dir": tmp_path,
-        "solved": True,
-    }
-
-    transcript = json.loads((tmp_path / "transcript_libero_s0.json").read_text())
     assert transcript["robot"] == "libero"
     assert transcript["finish"] == {
         "_finish": True,
@@ -711,7 +798,6 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
         "summary": "simulated task complete",
     }
     assert transcript["stats"]["tool_calls"] == 1
-    assert transcript["error"] is None
     assert transcript["messages"] == [
         {"role": "assistant", "content": "finished offline"}
     ]
@@ -743,6 +829,15 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
     class FakeToolkit:
         memory = SimpleNamespace()
         closed = False
+        drained = False
+
+        def cancel_active_and_wait(self) -> None:
+            self.drained = True
+
+        def evaluation_metrics(self, *, success: bool | None) -> dict:
+            assert self.drained and not self.closed and not daemon.stopped
+            assert success is False
+            return {"score": 40.0}
 
         def solved(self) -> bool:
             return False
@@ -782,6 +877,7 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
                 "robot": context.robot_name,
                 "task": dict(context.task_desc),
                 "success": context.environment_success,
+                "score": context.environment_metrics["score"],
                 "planner_claim": context.finish_result,
             },
         )
@@ -841,6 +937,7 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
     context = captured[0]
     assert context.robot_name == "testrobot"
     assert context.environment_success is False
+    assert context.environment_metrics == {"score": 40.0}
     assert context.agent_error == planner_error
     assert context.planner == planner_name
     assert context.model == "gpt-5.5"
@@ -852,6 +949,7 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
         "robot": "testrobot",
         "task": {"task_name": "OpenDrawer", "seed": 1},
         "success": False,
+        "score": 40.0,
         "planner_claim": {"status": "success", "summary": "planner claim"},
     }
     assert robot_toolkit.closed is True

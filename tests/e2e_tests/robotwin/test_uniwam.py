@@ -37,8 +37,20 @@ pytestmark = pytest.mark.skipif(
 
 
 def _argv():
+    endpoint = os.environ.get("RPENT_UNIWAM_ENDPOINT")
+    model_args = (
+        ["--am-endpoint", endpoint]
+        if endpoint
+        else [
+            "--am-checkpoint",
+            os.environ["UNIWAM_MODEL_PATH"],
+            "--am-python",
+            os.environ["UNIWAM_PYTHON"],
+        ]
+    )
     return [
-        "--vla-backend",
+        *model_args,
+        "--am-backend",
         "uniwam",
         "--task-name",
         "beat_block_hammer",
@@ -57,7 +69,7 @@ def test_uniwam_mixed_actions():
     spec = get_robot_spec()
     args = parse_runtime_args(spec, _argv())
     output = Path(os.environ["RPENT_E2E_OUTPUT_DIR"]) / "uniwam-mixed"
-    with runtime_phase(spec, args, output, {"env", "vla"}) as runtime:
+    with runtime_phase(spec, args, output, {"env", "wam"}) as runtime:
         env = runtime["env"]
         driver = RoboTwinPrimitives(**runtime, check_cancelled=lambda: None)
         result = driver.uniwam_act(chunks=1)

@@ -25,8 +25,8 @@ import pytest
 
 from robots.robotwin.env_client import RoboTwinEnvClient
 from robots.robotwin.primitives import RoboTwinPrimitives
-from robots.robotwin.uniwam_client import UniWAMClient
-from robots.robotwin.uniwam_server import UniWAMFacade
+from robots.robotwin.wam_client import RoboTwinWAMClient, robotwin_request
+from rpent.robots.components.uniwam.server import UniWAMFacade
 
 
 class FeedbackRPC:
@@ -180,33 +180,46 @@ def test_facade_replaces_stale_history_for_interleaved_requests():
 
     def request(history):
         return {
-            "history": history,
-            "instruction": "native instruction",
-            "joint_action": {"vector": np.full(14, 99)},
+            **robotwin_request(
+                {
+                    "views": {
+                        name: {"rgb": np.zeros((2, 2, 3), dtype=np.uint8)}
+                        for name in ("head", "left_wrist", "right_wrist")
+                    },
+                    "robot_state": {"qpos_target14": np.full(14, 99)},
+                    "task_language": "native instruction",
+                    "qpos_history": history,
+                }
+            ),
         }
 
     for value in (1, 2, 1):
         policy.history.append(np.full(14, -99))
         result = facade._dispatch(
-            "vla.predict", (request(np.full((3, 14), value)), None), {}
+            "wam.predict", (request(np.full((3, 14), value)),), {}
         )
-        assert result.shape == (16, 14)
+        assert result["actions"].shape == (16, 14)
         np.testing.assert_array_equal(policy.seen[-1], np.full((3, 14), value))
     with pytest.raises(ValueError, match="finite"):
         facade.predict(request(np.full((1, 14), np.nan)))
 
 
 def test_client_maps_cameras_and_native_state():
+    policy = Policy()
+    facade = UniWAMFacade(policy, lambda p: p.history.clear())
     captured = []
-    rpc = SimpleNamespace(
-        call=lambda *a, **kw: captured.append((a, kw)) or np.zeros((16, 14))
-    )
-    client = UniWAMClient(rpc)
+
+    def call(method, args=(), kwargs=None, **unused):
+        if method == "wam.predict":
+            captured.append(facade._adapter[0](args[0]))
+        return facade._dispatch(method, args, kwargs or {})
+
+    client = RoboTwinWAMClient(SimpleNamespace(call=call))
     views = {
-        name: {"rgb": np.full((2, 2, 3), i)}
+        name: {"rgb": np.full((2, 2, 3), i, dtype=np.uint8)}
         for i, name in enumerate(("head", "left_wrist", "right_wrist"))
     }
-    client.infer(
+    result = client.predict(
         {
             "views": views,
             "robot_state": {"qpos_target14": np.arange(14)},
@@ -214,10 +227,14 @@ def test_client_maps_cameras_and_native_state():
             "qpos_history": np.ones((2, 14)),
         }
     )
-    payload = captured[0][1]["args"][0]
+    assert result.shape == (16, 14)
+    payload = captured[0]
     assert payload["instruction"] == "exact native text"
     np.testing.assert_array_equal(payload["joint_action"]["vector"], np.arange(14))
     assert payload["observation"]["right_camera"]["rgb"][0, 0, 0] == 2
+    policy.history.append(np.zeros(14))
+    client.reset()
+    assert not policy.history
 
 
 def test_analytic_intervention_is_in_next_policy_request():
@@ -231,10 +248,11 @@ def test_analytic_intervention_is_in_next_policy_request():
 
     primitives = RoboTwinPrimitives(
         env=env,
-        model=SimpleNamespace(infer=infer),
+        model=SimpleNamespace(predict=infer),
         seed=7,
         check_cancelled=lambda: None,
-        vla_backend="uniwam",
+        policy_kind="wam",
+        policy_backend="uniwam",
     )
     primitives.uniwam_act(chunks=1)
     primitives.apply_qpos_updates([{"arm": "left", "gripper": 1.0}])

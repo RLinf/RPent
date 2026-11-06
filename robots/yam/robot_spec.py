@@ -27,6 +27,7 @@ from robots.yam.tasks import TASK_INSTRUCTIONS, resolve_task_language
 from rpent.dashboard.events import DashboardEventSink
 from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
+from rpent.robots.components.am_runtime import add_am_args, select_am
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_wait_server
@@ -50,13 +51,18 @@ YAM_DASHBOARD_SPEC: DashboardSpec = {
     },
     "task": {
         "command": "/rpent-task",
-        "usage": "/rpent-task <task_name> <seed>",
+        "usage": "/rpent-task <task_id> <seed>",
         "fields": (
-            {"name": "task_name", "choices": tuple(TASK_INSTRUCTIONS)},
+            {
+                "name": "task_id",
+                "kind": "integer",
+                "minimum": 0,
+                "choices": tuple(str(key) for key in TASK_INSTRUCTIONS),
+            },
             {"name": "seed", "kind": "integer", "minimum": 0},
         ),
-        "display": "{task_name} / seed {seed}",
-        "output_slug": "{task_name}_s{seed}",
+        "display": "YAM task {task_id} / seed {seed}",
+        "output_slug": "yam_t{task_id}_s{seed}",
     },
     "runtime_components": (
         {"name": "env", "label": "ENV", "scope": "unique"},
@@ -76,7 +82,7 @@ YAM_DASHBOARD_SPEC: DashboardSpec = {
 def get_robot_spec() -> RobotSpec:
     return RobotSpec(
         name="yam",
-        dashboard=YAM_DASHBOARD_SPEC,
+        resolve_dashboard=lambda args: YAM_DASHBOARD_SPEC,
         supports_exploration=True,
         is_real_robot=True,
         finalize_run=finalize_run,
@@ -104,6 +110,10 @@ def get_toolkit(
         memory_access="inbox_write" if explore else "read_only",
         inbox_cell_tag=config.recipe_tag if explore else None,
     )
+    if config.prompt_vars["task_id"] == 0:
+        runtime_kwargs = {
+            key: value for key, value in runtime_kwargs.items() if key != "model"
+        }
     return YamToolkit(
         runtime_kwargs=runtime_kwargs,
         dashboard_events=dashboard_events,
@@ -135,7 +145,9 @@ def _add_runtime_args(parser: argparse.ArgumentParser, *, required: bool) -> Non
         help="Local YAM site YAML for Dashboard operator receipts",
     )
     parser.add_argument(
-        "--task-name",
+        "--task-id",
+        type=int,
+        choices=tuple(TASK_INSTRUCTIONS),
         required=required,
         default=None,
     )
@@ -147,10 +159,7 @@ def _add_runtime_args(parser: argparse.ArgumentParser, *, required: bool) -> Non
         required=required,
         help="YAM env_server endpoint. Use socket://host:port for pickle TCP.",
     )
-    parser.add_argument(
-        "--vla-endpoint",
-        help="Optional trained Pi0.5 YAM endpoint; omit for primitives-only control.",
-    )
+    add_am_args(parser, platform="yam")
     parser.add_argument(
         "--without-vla",
         action="store_true",
@@ -159,8 +168,10 @@ def _add_runtime_args(parser: argparse.ArgumentParser, *, required: bool) -> Non
 
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
-    if not args.task_name:
-        raise ValueError("--task-name is required")
+    select_am(args, "yam")
+    if args.task_id is None:
+        raise ValueError("--task-id is required")
+    instruction = resolve_task_language(args.task_id, args.task_language)
     robot_config = getattr(args, "robot_config", None)
     if robot_config is not None:
         from robots.yam.runtime_config import load_mapping
@@ -179,14 +190,13 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     if output_dir is None:
         timestamp = datetime.now().strftime("%Y%m%d-%H:%M:%S.%f")
         output_dir = (
-            get_repo_root() / "logs" / f"{timestamp}_yam_{args.task_name}_s{args.seed}"
+            get_repo_root() / "logs" / f"{timestamp}_yam_t{args.task_id}_s{args.seed}"
         )
-    recipe_tag = f"yam_{args.task_name}_s{args.seed}_{uuid4().hex[:12]}"
+    recipe_tag = f"yam_t{args.task_id}_s{args.seed}_{uuid4().hex[:12]}"
     if getattr(args, "dashboard", False) and args.task_language is not None:
         raise ValueError(
-            "Dashboard A/B instructions are selected by task_name; omit --task-language"
+            "Dashboard instructions are selected by task_id; omit --task-language"
         )
-    instruction = resolve_task_language(args.task_name, args.task_language)
     return RunConfig(
         recipe_tag=recipe_tag,
         output_dir=Path(output_dir),
@@ -194,11 +204,13 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             "operator_config_path": robot_config,
             "dashboard_language": getattr(args, "dashboard_language", "en"),
             "recipe_tag": recipe_tag,
-            "task_name": args.task_name,
+            "task_id": args.task_id,
             "seed": args.seed,
             "instruction": instruction,
             "mode": "explore" if explore else "eval",
-            "vla_enabled": bool(args.vla_endpoint and not args.without_vla),
+            "vla_enabled": bool(
+                args.task_id != 0 and args.am_endpoint and not args.without_vla
+            ),
             "memory_profile": memory_profile,
             "memory_dir": str(memory_dir),
             "memory_inbox": str(memory_dir / "_internal" / "inbox" / recipe_tag),
@@ -207,7 +219,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         },
         task_desc={
             "env": "yam",
-            "task_name": args.task_name,
+            "task_id": args.task_id,
             "requested_seed": args.seed,
             "instruction": instruction,
             "policy_name": MODEL_SPEC.policy_name,
@@ -223,14 +235,15 @@ def _init_runtime(
     dashboard_events: DashboardEventSink,
     components: set[str] | None,
 ) -> tuple[list["ProcessDaemon"], dict[str, Any]]:
+    am = select_am(args, "yam")
     del output_dir
     available = {"env", "vla"}
     selected = (
-        ({"env", "vla"} if args.vla_endpoint else {"env"})
+        ({"env", "vla"} if args.am_endpoint else {"env"})
         if components is None
         else set(components)
     )
-    if getattr(args, "without_vla", False):
+    if getattr(args, "without_vla", False) or args.task_id == 0:
         selected = set(selected) - {"vla"}
     unknown = selected.difference(available)
     if unknown:
@@ -239,8 +252,8 @@ def _init_runtime(
         raise ValueError(
             "--env-endpoint is required for YAM; start env_server on the control machine first"
         )
-    if "vla" in selected and not args.vla_endpoint:
-        raise ValueError("--vla-endpoint or --without-vla is required for YAM")
+    if "vla" in selected and not args.am_endpoint:
+        raise ValueError("--am-endpoint or --without-vla is required for YAM")
 
     owned_daemons: dict[str, ProcessDaemon] = {}
     primitives_kwargs: dict[str, Any] = {}
@@ -258,7 +271,7 @@ def _init_runtime(
             )
         )
     if "vla" in selected:
-        vla_rpc = make_rpc_client(args.vla_endpoint)
+        vla_rpc = make_rpc_client(am.endpoint)
         primitives_kwargs.update(
             try_wait_server(
                 owned_daemons,
@@ -284,18 +297,18 @@ def _build_env_runtime_kwargs(args: argparse.Namespace, env_rpc: Any) -> dict[st
                 "hardware, then reset_pose and ready before submitting a task."
             )
         language = env_rpc.call("env.get_task_language", timeout_s=5)
-        if language != TASK_INSTRUCTIONS[args.task_name]:
+        if language != TASK_INSTRUCTIONS[args.task_id]:
             raise ValueError(
                 f"YAM task language mismatch. Stop the current run, remove held "
                 f"objects, home/shutdown, then start env_server with "
-                f"the site config for {args.task_name!r}."
+                f"the site config for {args.task_id!r}."
             )
 
     return {
         "env": YamEnvClient(
             env_rpc,
             expected_meta=env_runtime_contract(
-                task_name=args.task_name,
+                task_id=args.task_id,
                 seed=int(args.seed),
                 max_episode_steps=int(args.max_episode_steps),
             ),

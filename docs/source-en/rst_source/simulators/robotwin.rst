@@ -22,7 +22,7 @@ Check the model, task, and runtime requirements before following the installatio
 
    .. grid-item-card:: Action Models
 
-      LingBot-VLA (default), UniWAM (optional)
+      LingBot-VLA (default), UniWAM, Fast-WAM.
 
    .. grid-item-card:: Planners
 
@@ -156,8 +156,8 @@ normalization and history padding remain owned by the official policy.
 
 Prepare the official
 `UniWAM RoboTwin deployment <https://github.com/UniWAM/UniWAM/tree/8dcd3401bccda8c002fc558e356b975b1789eecd/inference/robotwin/uniwam>`_
-and install its policy requirements into the Python environment used to launch
-RPent for local model execution. Use the full policy directory, not a copy
+and install its policy requirements in a separate Python 3.11 model environment.
+Install the base RPent package there too (``pip install -e /path/to/RPent``). Use the full policy directory, not a copy
 of only ``deploy_policy.py``. The checkpoint must be a history-flow
 ``pytorch_model/`` export with its accompanying parent ``config.json``;
 also prepare the Wan2.2-TI2V-5B and Qwen3-VL-2B-Instruct resources described
@@ -179,26 +179,58 @@ checkpoint directory so its configuration stays with the weights.
    ├── wan/                     # Wan2.2-TI2V-5B
    └── vlm/                     # Qwen3-VL-2B-Instruct
 
+The official deployment was reproduced with Torch 2.6.0+cu124,
+torchvision 0.21.0+cu124, FlashAttention 2.7.4.post1, Transformers 4.57.3,
+Diffusers 0.35.1, DeepSpeed 0.16.9 and NumPy 1.26.4. Install Torch first,
+then a compatible FlashAttention build and the policy's ``requirements.txt``
+with these versions constrained. CUDA toolkit/library availability still needs
+to be checked on the model host; this is a tested combination, not an automatic
+installer. The simulator can use a separate environment.
+
+Use the official `UniWAM model collection <https://huggingface.co/collections/chenpyyy/uniwam>`_
+for the RoboTwin-clean checkpoint, and
+`Wan2.2-TI2V-5B <https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B>`_ and
+`Qwen3-VL-2B-Instruct <https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct>`_
+for its companion resources. The policy loads Wan's VAE, T5 weights and tokenizer;
+the Qwen directory supplies its configuration and processor. Keep the checkpoint's
+``config.json`` next to ``pytorch_model/``, with ``flow_source.mode`` set to
+``history`` and ``history_length`` equal to 16. Existing downloads can be linked
+into the resource layout above.
+
 From the RPent RoboTwin environment, after configuring a planner, run:
 
 .. code-block:: bash
 
    export UNIWAM_MODEL_PATH=/path/to/uniwam
-   rpent --robot robotwin --vla-backend uniwam \
+   export UNIWAM_PYTHON=/path/to/model-env/bin/python
+   rpent --robot robotwin --am-backend uniwam \
+      --am-checkpoint "$UNIWAM_MODEL_PATH" --am-python "$UNIWAM_PYTHON" \
       --task-name beat_block_hammer --task-config demo_randomized --seed 100000
 
-``--vla-model-path`` overrides ``UNIWAM_MODEL_PATH`` and points to this resource
-root, not directly to ``pytorch_model/``. RPent launches the model service using
-its current Python interpreter, as it does for LingBot.
+``--am-checkpoint`` points to the resource root, not directly to ``pytorch_model/``.
+``--am-python`` selects the model environment; RPent owns startup and cleanup.
+``UNIWAM_MODEL_PATH`` and ``UNIWAM_PYTHON`` above are shell variables explicitly
+passed to these options. The old ``--vla-backend`` and ``--vla-model-path`` names
+remain aliases for the shared AM options.
 
-RPent starts and stops its own model process. If dependencies require a separate
-environment, install the policy requirements and base RPent package there and
-launch the model service independently. Run
-``python robots/robotwin/uniwam_server.py --help`` in that environment for its
-launch options, then pass
-``--vla-endpoint socket://127.0.0.1:PORT``; RPent does not stop borrowed
-services. The environment must provide per-step joint feedback. A history
-error requires updating the EnvServer, not substituting predicted actions.
+For an independently managed worker, run in its model environment:
+
+.. code-block:: bash
+
+   python -m rpent.robots.components.uniwam.server \
+      --checkpoint /path/to/uniwam --port 8118
+
+Then use ``--am-backend uniwam --am-endpoint http://127.0.0.1:8118`` in
+RPent, without local deployment flags. External workers use the ``wam.*`` RPC
+protocol and must run this entry point; old ``vla.*`` workers are incompatible.
+RPent does not stop borrowed services. The environment must provide per-step
+joint feedback. A history error requires updating the EnvServer, not substituting
+predicted actions.
+
+UniWAM retains evaluation and exploration, the existing RoboTwin memory selection,
+and its native-instruction-only ``uniwam_act`` tool. Other WAM backends' local-only
+memory and evaluation restrictions do not apply to UniWAM. Shared LingBot recipe
+chunk counts must still be interpreted using UniWAM's 16-action chunks.
 
 The default LingBot prompt and memory selection are unchanged. Existing
 LingBot recipe chunk counts are not UniWAM timing. Native task success still
@@ -216,6 +248,28 @@ above plus ``ROBOTWIN_ASSETS_PATH``,
 
 These checks exercise real models and simulation; the scripted planner needs
 no API credentials. They do not establish benchmark success rates.
+
+Fast-WAM Configuration
+~~~~~~~~~~~~~~~~~~~~~~
+
+Prepare a RoboTwin Fast-WAM worker using :doc:`../development/add_action_model`.
+It uses head/left-wrist/right-wrist RGB, native joint targets, and qpos14 action
+chunks. Select it with ``--am-backend fast-wam``; LingBot weights are not
+required. From the simulator environment:
+
+.. code-block:: bash
+
+   rpent --robot robotwin --task-name beat_block_hammer \
+     --task-config demo_randomized --seed 100000 \
+     --am-backend fast-wam --am-endpoint http://127.0.0.1:8117 \
+     --memory-profile local --planner api --model <planner-model>
+
+``wam_act(prompt=None, max_chunks=1)`` replaces ``lingbot_act``; each chunk
+executes the worker's configured ``execute_steps`` through ``action_type="qpos"``.
+Fast-WAM uses a required local memory manager and file tools, with a backend-specific
+directory that may be empty; ``--memory-dir`` selects a compatible local corpus.
+HF memory and exploration are unsupported. Native ``eval_success`` determines
+task success. The LingBot and HF memory workflows below apply to the VLA path.
 
 Run a Task
 ----------
@@ -277,10 +331,10 @@ adds scene disturbances (random backgrounds, clutter, lighting, and table
 height). Pass ``--task-config demo_clean`` for a simple, clean scene.
 
 - ``--robotwin-assets-path`` overrides ``ROBOTWIN_ASSETS_PATH``.
-- ``--vla-model-path`` overrides ``LINGBOT_MODEL_PATH``.
-- ``--cuda-device`` runs the simulator and VLA on the same GPU.
-- ``--env-cuda-device`` and ``--vla-cuda-device`` place the simulator and VLA
-  on different GPUs. Do not combine these options with ``--cuda-device``.
+- ``--am-checkpoint`` overrides ``LINGBOT_MODEL_PATH``.
+- ``--env-cuda-device 0 --am-cuda-device 1`` assigns GPU 0 to the local
+  simulator and GPU 1 to the local action model. For GPU defaults and overrides,
+  see :doc:`../guides/cli`.
 
 For planner setup, external service endpoints, and offline resources, see
 :doc:`../guides/configure_planner`, :doc:`../guides/advanced_deployment`, and

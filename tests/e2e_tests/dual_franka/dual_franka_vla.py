@@ -18,15 +18,24 @@ from __future__ import annotations
 
 import argparse
 import json
+import signal
+import threading
 import time
 from collections.abc import Callable
+from contextlib import ExitStack
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import numpy as np
-import yaml
 
-from robots.dual_franka.robot_spec import get_robot_spec
+from robots.dual_franka.robot_spec import _add_runtime_cli_args, _init_runtime
+from robots.dual_franka.runtime_config import DEFAULT_CONFIG
+from robots.franka.runtime_config import (
+    _require_mapping,
+    load_mapping,
+    set_robot_config_path,
+)
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.utils.logging import get_logger, init_output_dir
 
@@ -94,7 +103,7 @@ def validate_actions(
 
 
 class DeploymentTest:
-    """Record explicitly requested inference and execution chunks."""
+    """Record and execute policy chunks without task-specific skill boundaries."""
 
     def __init__(
         self,
@@ -104,6 +113,7 @@ class DeploymentTest:
         workspace: dict[str, Any],
         prompt: str,
         expected_steps: int,
+        stopped: Callable[[], bool] = lambda: False,
     ) -> None:
         self.env, self.model = env, model
         self.output, self.workspace = Path(output), workspace
@@ -111,68 +121,91 @@ class DeploymentTest:
         self.index = 0
         self.execution_uncertain = False
         self.episode_done = False
+        self.stopped = stopped
         if expected_steps <= 0:
             raise ValueError("expected action steps must be positive")
         self.expected_steps = expected_steps
 
-    def chunk(self, execute: bool = False) -> dict[str, Any]:
-        """Infer from fresh observations and optionally execute the prediction."""
+    def chunk(self) -> dict[str, Any]:
+        """Record one prediction, then execute it with stop checks between actions."""
         if self.execution_uncertain:
-            raise RuntimeError(
-                "Previous execution failed; restart the session after checking robot state"
-            )
-        if execute and self.episode_done:
-            raise RuntimeError("Episode ended; reset before executing another chunk")
-        if not self.prompt.strip():
-            raise ValueError("Set a non-empty prompt first")
+            raise RuntimeError("Execution state uncertain; check the robot and restart")
+        if self.episode_done:
+            raise RuntimeError("Episode ended; reset before running again")
+        if self.stopped():
+            raise KeyboardInterrupt
         self.index += 1
         path = self.output / f"vla_{self.index:06d}"
-        record = {"prompt": self.prompt, "execute": execute, "timestamp": time.time()}
+        record = {"prompt": self.prompt, "timestamp": time.time(), "steps_executed": 0}
         try:
-            start = time.monotonic()
             obs = dict(self.env.get_observation())
             obs["task_descriptions"] = self.prompt
             record["input"] = obs
-            record["observation_seconds"] = time.monotonic() - start
             validate_observation(obs)
             start = time.monotonic()
             actions = self.model.predict(obs, options={"mode": "eval"})
             record["inference_seconds"] = time.monotonic() - start
             record["actions"] = np.asarray(actions)
             actions = validate_actions(actions, self.workspace, self.expected_steps)
-            # Persist the input and prediction before any physical execution.
             save_record(path, record)
-            if execute:
-                start = time.monotonic()
-                try:
-                    result = self.env.chunk_step(actions)
-                    record["execution_seconds"] = time.monotonic() - start
+            if self.stopped():
+                raise KeyboardInterrupt
+            try:
+                for action in actions:
+                    if self.stopped():
+                        raise KeyboardInterrupt
+                    result = self.env.chunk_step(action[None, :])
+                    record["steps_executed"] += 1
                     record["result"] = result
+                    if result.get("error") or result.get("ok") is False:
+                        raise RuntimeError(f"Environment action failed: {result}")
                     self.episode_done = bool(
                         result.get("terminated") or result.get("truncated")
                     )
-                    record["robot_state_after"] = self.env.get_robot_state()
-                    if result.get("ok") is False:
-                        raise RuntimeError(f"Environment reported failure: {result}")
-                except BaseException:
-                    self.execution_uncertain = True
-                    raise
+                    if self.episode_done:
+                        break
+                record["robot_state_after"] = self.env.get_robot_state()
+            except BaseException:
+                self.execution_uncertain = True
+                raise
             record["ok"] = True
             return {
                 "ok": True,
-                "executed": execute,
-                "actions": len(actions),
-                "inference_seconds": record["inference_seconds"],
-                "execution_seconds": record.get("execution_seconds", 0),
-                "terminated": record.get("result", {}).get("terminated", False),
-                "truncated": record.get("result", {}).get("truncated", False),
+                "actions": record["steps_executed"],
+                "terminated": bool(record["result"].get("terminated")),
+                "truncated": bool(record["result"].get("truncated")),
                 "record": str(path),
             }
         except BaseException as exc:
-            record["ok"], record["error"] = False, str(exc)
+            record["ok"], record["error"] = False, f"{type(exc).__name__}: {exc}"
             raise
         finally:
             save_record(path, record)
+
+    def reset(self) -> dict[str, Any]:
+        """Ask the operator to restore the scene before resetting the same Env."""
+        from robots.dual_franka.dual_franka_manual_call import _call_toolkit_tool
+
+        if self.execution_uncertain:
+            raise RuntimeError("Execution state uncertain; check the robot and restart")
+        self.episode_done = True
+        result = _call_toolkit_tool(
+            "request_scene_reset",
+            {"reason": "Prepare for another VLA rollout"},
+            env=self.env,
+            model=self.model,
+            sam3_client=None,
+            output_dir=self.output / f"reset_{time.time_ns()}",
+            instruction=self.prompt,
+        )
+        if (
+            result.get("error")
+            or result.get("state_capture_error")
+            or result.get("result", {}).get("ok") is not True
+        ):
+            raise RuntimeError(f"Reset not completed: {result}")
+        self.episode_done = False
+        return result
 
 
 def run_console(
@@ -180,49 +213,31 @@ def run_console(
     read: Callable[[str], str] = input,
     emit: Callable[[str], None] = print,
 ) -> None:
-    """Read explicit commands without invoking an Agent."""
-    help_text = (
-        "prompt <instruction> | infer | step | run N (1..20 chunks) | reset | quit"
-    )
+    """Run finite or continuous rollouts on explicit operator commands."""
+    help_text = "run N | run (continuous) | reset | quit"
     emit(help_text)
-    emit("infer 不下发预测动作；step 执行一个动作块。Ctrl-C 退出会话，不等同硬件急停。")
-    while True:
+    emit("Ctrl-C or the STOP file exits; neither is a hardware emergency stop.")
+    while not session.stopped():
         try:
             line = read("vla> ").strip()
             if not line:
                 continue
             command, _, arg = line.partition(" ")
-            if command in ("quit", "exit") and not arg:
+            if command == "quit" and not arg:
                 break
-            if command == "prompt":
-                if not arg.strip():
-                    raise ValueError("prompt cannot be empty")
-                session.prompt = arg.strip()
-                emit("Prompt: " + session.prompt)
-            elif command == "help" and not arg:
-                emit(help_text)
-            elif command == "reset" and not arg:
-                if session.execution_uncertain:
-                    raise RuntimeError(
-                        "Execution state uncertain; restart session first"
-                    )
-                try:
-                    result = session.env.reset()
-                    session.episode_done = False
-                    save_record(session.output / f"reset_{time.time_ns()}", result)
-                    emit("Reset complete")
-                except BaseException:
-                    session.execution_uncertain = True
-                    raise
-            elif command in ("infer", "step", "run"):
-                count = int(arg) if command == "run" else 1
-                if (command != "run" and arg) or not 1 <= count <= 20:
-                    raise ValueError("Usage: infer | step | run N (1..20)")
-                for _ in range(count):
-                    result = session.chunk(execute=command != "infer")
+            if command == "reset" and not arg:
+                emit(json.dumps(session.reset(), ensure_ascii=False))
+            elif command == "run":
+                remaining = int(arg) if arg.strip() else None
+                if remaining is not None and remaining <= 0:
+                    raise ValueError("run N requires a positive integer")
+                while remaining is None or remaining > 0:
+                    result = session.chunk()
                     emit(json.dumps(result, ensure_ascii=False))
                     if result["terminated"] or result["truncated"]:
                         break
+                    if remaining is not None:
+                        remaining -= 1
             else:
                 raise ValueError(help_text)
         except (KeyboardInterrupt, EOFError):
@@ -232,76 +247,88 @@ def run_console(
 
 
 def run_session(args: argparse.Namespace) -> int:
-    """Own the diagnostic runtime and close it when the console exits."""
-    if args.expected_action_steps <= 0:
+    """Own Env/VLA services and operator-controlled rollout without an initial reset."""
+    if args.expected_action_steps is not None and args.expected_action_steps <= 0:
         raise ValueError("expected action steps must be positive")
-    spec = get_robot_spec()
-    from robots.dual_franka.runtime_config import DEFAULT_CONFIG
-    from robots.dual_franka.tasks import get_dual_franka_task
-
     args.robot_config = args.robot_config or str(DEFAULT_CONFIG)
-    data = yaml.safe_load(Path(args.robot_config).read_text())
-    args.instruction = (
-        args.instruction or get_dual_franka_task(args.task_id).vla_instruction
+    data = load_mapping(args.robot_config)
+    instruction = args.instruction or _require_mapping(data.get("vla", {}), "vla").get(
+        "instruction"
     )
-    if not args.instruction:
-        raise ValueError("Select a VLA task profile or supply --instruction")
-    if get_dual_franka_task(args.task_id).vla_instruction is None and not getattr(
-        args, "vla_endpoint", None
-    ):
-        raise ValueError("Select a VLA task profile or supply --vla-endpoint")
-    config = spec.parse_config(args)
-    output = init_output_dir(config.output_dir)
-    daemons = []
-    logger.info(
-        "Initializing VLA test: environment may reset robots; predictions execute only on step/run.",
-    )
-    try:
-        daemons, kwargs = spec.init_runtime(
-            args, output, NullDashboardEventSink(), {"env", "vla"}
+    if not isinstance(instruction, str) or not instruction.strip():
+        raise ValueError("Set --instruction or vla.instruction in the robot config")
+    set_robot_config_path(args.robot_config)
+    output = Path(
+        args.output_dir
+        or Path("logs") / datetime.now().strftime("%Y%m%d-%H%M%S-vla-test")
+    ).resolve()
+    output.mkdir(parents=True, exist_ok=False)
+    init_output_dir(output)
+    stop_file = Path(args.stop_file or output / "STOP").resolve()
+    if stop_file.exists():
+        raise ValueError(f"stop file already exists: {stop_file}")
+    stopped = threading.Event()
+
+    def request_stop(signum, frame):
+        stopped.set()
+        raise KeyboardInterrupt
+
+    with ExitStack() as stack:
+        for signum in (signal.SIGINT, signal.SIGTERM):
+            previous = signal.signal(signum, request_stop)
+            stack.callback(signal.signal, signum, previous)
+        daemons, runtime = _init_runtime(
+            args,
+            output,
+            NullDashboardEventSink(),
+            {"env", "vla"},
+            task_description="",
+            vla_instruction=instruction,
         )
-        model = kwargs["model"]
-        save_record(
-            output / "deployment",
-            {
-                "expected_action_steps": args.expected_action_steps,
-                "robot_config": data,
-                "camera_meta": kwargs["env"].get_camera_meta(),
-            },
-        )
+        for daemon in daemons:
+            stack.callback(daemon.stop)
+        model = runtime["model"]
+        expected_steps = args.expected_action_steps
+        if expected_steps is None:
+            expected_steps = int(model.status(timeout_s=10)["action_chunk"])
         session = DeploymentTest(
-            kwargs["env"],
+            runtime["env"],
             model,
             output,
             data["workspace"],
-            args.instruction,
-            args.expected_action_steps,
+            instruction,
+            expected_steps,
+            stopped=lambda: stopped.is_set() or stop_file.exists(),
         )
-        logger.info("Records: %s", output)
+        save_record(
+            output / "deployment",
+            {
+                "instruction": instruction,
+                "expected_action_steps": expected_steps,
+                "robot_config": data,
+                "camera_meta": runtime["env"].get_camera_meta(),
+            },
+        )
+        logger.info("No initial reset. Logs: %s; stop file: %s", output, stop_file)
         run_console(session)
-    finally:
-        for daemon in reversed(daemons):
-            daemon.stop()
     return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Build a standalone diagnostic parser with the complete config contract."""
+    """Build the task-independent VLA test command."""
     parser = argparse.ArgumentParser(description=__doc__)
-    get_robot_spec().add_cli_args(parser, use_dashboard=False)
-    parser.set_defaults(task_id=1, explore=False, memory_dir=None, memory_profile=None)
+    _add_runtime_cli_args(parser)
     parser.add_argument(
-        "--instruction",
-        default=None,
-        help="Policy instruction override; defaults to the selected task VLA instruction",
+        "--instruction", help="Override vla.instruction from the robot config"
     )
     parser.add_argument(
         "--expected-action-steps",
         type=int,
-        default=20,
-        help="Expected prediction chunk length for action validation (default: 20)",
+        default=None,
+        help="Override the prediction chunk length reported by vla.status",
     )
-    parser.add_argument("--output-dir", default=None)
+    parser.add_argument("--output-dir", type=Path)
+    parser.add_argument("--stop-file", type=Path)
     return parser
 
 

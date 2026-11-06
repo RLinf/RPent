@@ -39,14 +39,14 @@ MODEL_SPEC = YamModelSpec()
 
 def env_runtime_contract(
     *,
-    task_name: str,
+    task_id: int,
     seed: int = 0,
     max_episode_steps: int = 1000,
     joint_servo: dict | None = None,
 ) -> dict:
     contract = {
         "runtime": "yam_real_env",
-        "task_name": task_name,
+        "task_id": task_id,
         "seed": int(seed),
         "seed_mode": "label_only",
         "action_layouts": ["qpos14"],

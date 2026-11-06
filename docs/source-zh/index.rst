@@ -132,6 +132,7 @@ RPent（Recursive Physical Agent）是一个开源框架，用于构建在与物
    记忆机制 <rst_source/development/memory>
    添加机器人或仿真环境 <rst_source/development/add_robot>
    添加动作原语 <rst_source/development/add_primitive>
+   添加动作模型 <rst_source/development/add_action_model>
    添加规划器 <rst_source/development/add_planner>
 
 .. toctree::
@@ -143,4 +144,4 @@ RPent（Recursive Physical Agent）是一个开源框架，用于构建在与物
 
    Harness VLA <rst_source/resources/harnessvla>
    贡献指南 <rst_source/resources/contributing>
-   版本说明 <rst_source/resources/release_notes>
+   v0.1 发布说明 <rst_source/resources/release_v0.1>

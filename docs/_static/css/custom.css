@@ -58,6 +58,35 @@ html[data-theme="dark"] img.rpent-home-logo {
 .bd-page-width { max-width: 100rem; }
 .bd-main .bd-content { justify-content: flex-start; }
 .bd-main .bd-content .bd-article-container { max-width: 58rem; }
+.bd-main .bd-content .bd-article-container:has(#release-v0-1) {
+  width: 100%;
+  min-width: 0;
+}
+.bd-article:has(#release-v0-1) h4 { font-size: 1.1rem; }
+
+.bd-article table.rpent-release-results th,
+.bd-article table.rpent-release-results td {
+  padding: 0.65rem 0.75rem;
+  vertical-align: middle;
+}
+.bd-article table.rpent-release-results th {
+  text-align: right;
+  white-space: nowrap;
+}
+.bd-article table.rpent-release-results td {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.bd-article table.rpent-release-results th:first-child,
+.bd-article table.rpent-release-results td:first-child,
+.bd-article table.rpent-memory-results th:nth-child(2),
+.bd-article table.rpent-memory-results td:nth-child(2),
+.bd-article table.rpent-demo-results th:nth-child(2),
+.bd-article table.rpent-demo-results th:nth-child(3),
+.bd-article table.rpent-demo-results td:nth-child(2),
+.bd-article table.rpent-demo-results td:nth-child(3) {
+  text-align: left;
+}
 .bd-main .bd-content .bd-article-container:has(.rpent-home-logo) {
   margin-inline: auto;
 }

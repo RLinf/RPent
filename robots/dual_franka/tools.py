@@ -165,7 +165,7 @@ class DualFrankaPrimitives(FrankaPrimitives):
             data={
                 "ok": True,
                 "phase": "strict",
-                "reset_policy": "The runner reset the robot at startup. Do not call reset during a task unless reset is explicitly exposed and there is a clear robot-side reason.",
+                "reset_policy": "No automatic reset. Before motion, call request_scene_reset to obtain operator confirmation and reset robot posture.",
                 "coordinate_frame": "right_base",
                 "camera_aliases": meta.get("observation_camera_map", {}),
                 "projection_views": meta.get("projection_views", {}),
@@ -209,7 +209,7 @@ class DualFrankaPrimitives(FrankaPrimitives):
         max_chunks: int = 20,
     ) -> dict[str, Any]:
         if self.model is None:
-            raise RuntimeError(f"{skill_name} requires --vla-endpoint")
+            raise RuntimeError(f"{skill_name} requires --am-endpoint")
         requested_prompt = str(prompt).strip()
         if not requested_prompt:
             raise ValueError("prompt must be non-empty")

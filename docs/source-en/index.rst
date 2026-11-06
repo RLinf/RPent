@@ -132,6 +132,7 @@ Choose an environment: :doc:`LIBERO <rst_source/simulators/libero>`, :doc:`RoboC
    Memory Design <rst_source/development/memory>
    Add a Robot or Simulator <rst_source/development/add_robot>
    Add an Action Primitive <rst_source/development/add_primitive>
+   Add an Action Model <rst_source/development/add_action_model>
    Add a Planner <rst_source/development/add_planner>
 
 .. toctree::
@@ -143,4 +144,4 @@ Choose an environment: :doc:`LIBERO <rst_source/simulators/libero>`, :doc:`RoboC
 
    Harness VLA <rst_source/resources/harnessvla>
    Contributing <rst_source/resources/contributing>
-   Release Notes <rst_source/resources/release_notes>
+   v0.1 Release Notes <rst_source/resources/release_v0.1>

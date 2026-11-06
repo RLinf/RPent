@@ -47,9 +47,10 @@ from rpent.utils.rpc import RpcFacade
 
 logger = get_logger("molmo_server")
 
-#: Molmo2 writes one or more ``point-id x y`` triples in normalized thousandths.
+#: Molmo2 writes ``point-id x y`` triples, optionally preceded by an image ID;
+#: x and y are thousandths zero-padded to three digits.
 _COORDS = re.compile(r"<(?:point|points)\b[^>]*\bcoords=[\"']([^\"']+)[\"']", re.I)
-_POINT = re.compile(r"(?:^|[\t:;,])\s*\d+\s+([0-9]{1,4})\s+([0-9]{1,4})")
+_POINT = re.compile(r"[0-9]+[ \t]+([0-9]{3,4})[ \t]+([0-9]{3,4})")
 
 
 def _parse_point(answer: str) -> tuple[float, float] | None:

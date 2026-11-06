@@ -33,7 +33,7 @@ from pydantic_ai import (
     ToolReturnPart,
     UserPromptPart,
 )
-from pydantic_ai.exceptions import UsageLimitExceeded
+from pydantic_ai.exceptions import UnexpectedModelBehavior, UsageLimitExceeded
 from pydantic_ai.models.function import DeltaThinkingPart, DeltaToolCall, FunctionModel
 from pydantic_ai.models.test import TestModel
 
@@ -513,14 +513,86 @@ def test_request_budget_stops_normally_without_claiming_success(tmp_path, mode):
     assert len([m for m in result.messages if m["role"] == "tool"]) == 2
 
 
-def test_other_usage_limit_failures_remain_errors(tmp_path):
+@pytest.mark.parametrize(
+    "error",
+    [
+        UsageLimitExceeded("provider-specific limit"),
+        UnexpectedModelBehavior("Exceeded max retries"),
+    ],
+)
+def test_other_model_failures_remain_errors(tmp_path, error):
     async def stream(messages, info):
-        raise UsageLimitExceeded("provider-specific limit")
+        raise error
         yield  # pragma: no cover
 
     result, _, _ = solve(tmp_path, FunctionModel(stream_function=stream), max_turns=1)
-    assert result.error.startswith("UsageLimitExceeded: provider-specific limit")
+    assert result.error == f"{type(error).__name__}: {error}"
     assert result.finish_result is None
+
+
+@pytest.mark.parametrize("interactive", [False, True])
+def test_token_limit_truncation_is_marked_for_recovery(
+    tmp_path, monkeypatch, interactive
+):
+    if interactive:
+        import pydantic_ai._cli as cli
+
+        replies = iter(["Inspect.", "/exit"])
+
+        async def read_prompt(*args, **kwargs):
+            return next(replies)
+
+        monkeypatch.setattr(cli, "PYDANTIC_AI_HOME", tmp_path / "cli")
+        monkeypatch.setattr(
+            cli,
+            "PromptSession",
+            lambda **kwargs: SimpleNamespace(prompt_async=read_prompt),
+        )
+
+    requests = 0
+
+    async def stream(messages, info):
+        nonlocal requests
+        requests += 1
+        if interactive and requests == 1:
+            yield "Ready."
+            return
+        yield {0: DeltaThinkingPart(content="Reasoning past the output budget.")}
+        raise UnexpectedModelBehavior(
+            "Model token limit (8192) exceeded before any response was "
+            "generated. Increase the `max_tokens` model setting, or simplify "
+            "the prompt to result in a shorter response that will fit within "
+            "the limit."
+        )
+
+    result, _, _ = solve(
+        tmp_path,
+        FunctionModel(stream_function=stream),
+        max_turns=2,
+        interactive=interactive,
+    )
+    assert requests == (2 if interactive else 1)
+    assert result.error is not None
+    assert result.error.startswith("planner response truncated (length): ")
+    assert (
+        "Model token limit (8192) exceeded before any response was generated"
+        in result.error
+    )
+    assert result.finish_result is None
+    json.dumps(result.messages)
+
+
+def test_agent_error_recovery_decisions():
+    from rpent.planner.base import is_recoverable_agent_error
+
+    truncation = (
+        "planner response truncated (length): Model token limit (8192) "
+        "exceeded before any response was generated"
+    )
+    assert is_recoverable_agent_error("planner timed out after 1800s")
+    assert is_recoverable_agent_error(truncation)
+    assert not is_recoverable_agent_error(None)
+    assert not is_recoverable_agent_error("RuntimeError: provider unavailable")
 
 
 def test_harness_compacts_long_history(tmp_path):
@@ -923,7 +995,8 @@ def test_factory_passes_interactive_mode(tmp_path, monkeypatch):
     assert planner.interactive is True
 
 
-def test_offline_http_planner_executes_action_and_finish(tmp_path):
+@pytest.mark.parametrize("no_images", [False, True])
+def test_offline_http_planner_executes_action_and_finish(tmp_path, no_images):
     from pydantic_ai.models.openai import OpenAIChatModel
     from pydantic_ai.providers.openai import OpenAIProvider
 
@@ -935,7 +1008,9 @@ def test_offline_http_planner_executes_action_and_finish(tmp_path):
 
     events = Events()
     toolkit = RobotToolkit(events)
-    toolkit.register("move", lambda: {"steps": 1})
+    toolkit.register(
+        "move", lambda: ToolResult(data={"steps": 1}, images=[b"post-action-image"])
+    )
     script = (
         ScriptedToolCall("move", {}),
         ScriptedToolCall("finish", FINISH_ARGS),
@@ -946,15 +1021,26 @@ def test_offline_http_planner_executes_action_and_finish(tmp_path):
             provider=OpenAIProvider(base_url=server.base_url, api_key="offline-test"),
         )
         result, _, _ = solve(
-            tmp_path, model, toolkit=toolkit, events=events, max_turns=2
+            tmp_path,
+            model,
+            toolkit=toolkit,
+            events=events,
+            max_turns=2,
+            no_images=no_images,
         )
         assert result.error is None
         assert toolkit.calls == [("move", {}), ("finish", FINISH_ARGS)]
         assert result.finish_result == {"_finish": True, **FINISH_ARGS}
         server.assert_complete()
+        assert len(server.image_digests) == 2
+        assert not server.image_digests[0]
+        assert bool(server.image_digests[1]) is not no_images
 
 
-def test_offline_http_planner_preserves_non_streaming_responses():
+@pytest.mark.parametrize("include_image", [False, True])
+def test_offline_http_planner_preserves_non_streaming_responses(include_image):
+    import hashlib
+
     from openai import OpenAI
 
     from tests.e2e_tests.offline_planner_server import (
@@ -964,11 +1050,20 @@ def test_offline_http_planner_preserves_non_streaming_responses():
     )
 
     call = ScriptedToolCall("finish", FINISH_ARGS)
+    image_url = "data:image/png;base64,b2ZmbGluZS10ZXN0"
+    content = (
+        [
+            {"type": "text", "text": "Finish the task."},
+            {"type": "image_url", "image_url": {"url": image_url}},
+        ]
+        if include_image
+        else "Finish the task."
+    )
     with OfflinePlannerServer((call,)) as server:
         with OpenAI(base_url=server.base_url, api_key="offline-test") as client:
             response = client.chat.completions.create(
                 model=OFFLINE_MODEL_NAME,
-                messages=[{"role": "user", "content": "Finish the task."}],
+                messages=[{"role": "user", "content": content}],
                 tools=[
                     {
                         "type": "function",
@@ -984,6 +1079,9 @@ def test_offline_http_planner_preserves_non_streaming_responses():
         assert returned.function.name == "finish"
         assert json.loads(returned.function.arguments) == FINISH_ARGS
         server.assert_complete()
+        assert server.image_digests == [
+            [hashlib.sha256(image_url.encode()).hexdigest()] if include_image else []
+        ]
 
 
 @pytest.mark.parametrize("effort", ["none", "high"])

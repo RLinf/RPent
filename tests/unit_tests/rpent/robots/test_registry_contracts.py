@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+from argparse import ArgumentParser
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 from string import Formatter
@@ -41,9 +42,9 @@ EXPECTED_ROBOTS = (
 
 PROMPT_VARIABLES = {
     "yam": {
-        "task_name": "tabletop_cleanup_a",
+        "task_id": 1,
         "seed": 0,
-        "recipe_tag": "yam_tabletop_cleanup_a_s0",
+        "recipe_tag": "yam_t1_s0",
         "instruction": "Move the object to the target",
         "mode": "eval",
         "memory_dir": "/memory",
@@ -75,6 +76,7 @@ PROMPT_VARIABLES = {
     },
     "robodojo": {
         "task": "put_bottles_into_dustbin",
+        "seed": 0,
         "layout": 0,
         "env_cfg_type": "arx_x5",
         "action_type": "joint",
@@ -196,7 +198,10 @@ def test_libero_prompts_observe_task_before_reading_memory(
 def test_dashboard_metadata_has_consistent_fields_and_runtime_components(
     robot_name: str,
 ) -> None:
-    dashboard = get_robot_spec(robot_name).dashboard
+    spec = get_robot_spec(robot_name)
+    parser = ArgumentParser()
+    spec.add_cli_args(parser, use_dashboard=True)
+    dashboard = spec.resolve_dashboard(parser.parse_args([]))
     assert dashboard is not None
 
     task = dashboard["task"]

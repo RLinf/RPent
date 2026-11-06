@@ -28,13 +28,23 @@ def system_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> PromptNode:
     """Assemble the LIBERO system prompt for the selected run mode."""
-    if (variables or {}).get("mode", "eval") == "explore":
+    variables = variables or {}
+    if (
+        variables.get("mode", "eval") == "explore"
+        and variables.get("policy_kind") != "wam"
+    ):
         return explore_parts.system_prompt(variables)
     return evaluate_parts.system_prompt(variables)
 
 
 def user_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
     """Assemble the LIBERO user prompt tree."""
+    if (variables or {}).get("policy_kind") == "wam":
+        return {
+            "CELL": user_parts.CELL,
+            "MEMORY": user_parts.WAM_MEMORY,
+            "BEGIN": user_parts.WAM_BEGIN,
+        }
     return {
         "CELL": user_parts.CELL,
         "MODE": user_parts.MODE,

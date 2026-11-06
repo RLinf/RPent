@@ -100,6 +100,7 @@ def validate_results(
                 if result.get("termination_reason") not in {
                     "completed",
                     "planner_timeout",
+                    "planner_response_truncated",
                 }:
                     errors.append(f"{relative}: invalid termination_reason")
 

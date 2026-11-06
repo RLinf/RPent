@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from rpent.robots.components.vla_client_base import BaseVLAClient
+from rpent.robots.components.am_client_base import BaseVLAClient
 
 
 class RoboCasaVLAClient(BaseVLAClient):
@@ -43,11 +43,7 @@ class RoboCasaVLAClient(BaseVLAClient):
 
         Actions are numpy arrays.
         """
-        return self._client.call(
-            "vla.predict",
-            args=(obs_dict, options),
-            timeout_s=self._TIMEOUT_S["predict"],
-        )
+        return super().predict(obs_dict, options)
 
     def reset_session(self) -> dict:
         """Reset RLDX internal state (memory/RTC) for this client's session.

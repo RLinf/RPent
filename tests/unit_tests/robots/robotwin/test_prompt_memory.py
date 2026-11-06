@@ -53,7 +53,8 @@ def test_prompts_render_with_memory_relative_paths():
 @pytest.mark.parametrize("mode", ["eval", "explore"])
 def test_uniwam_prompt_selects_only_its_tools_and_keeps_memory(mode):
     variables = {
-        "vla_backend": "uniwam",
+        "policy_backend": "uniwam",
+        "policy_kind": "wam",
         "mode": mode,
         "memory_dir": "shared-memory",
         "task_name": "beat_block_hammer",

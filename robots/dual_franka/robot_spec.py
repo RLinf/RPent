@@ -35,10 +35,20 @@ from robots.franka.runtime_config import (
 from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
 from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
+from rpent.robots.components.am_runtime import (
+    AMConfig,
+    add_am_args,
+    select_am,
+)
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_spawn_server, try_wait_server
-from rpent.utils.config import get_memory_dir, get_repo_root
+from rpent.utils.config import (
+    add_cuda_device_arg,
+    get_memory_dir,
+    get_repo_root,
+    resolve_cuda_device,
+)
 from rpent.utils.daemon import ProcessDaemon, pick_free_port
 from rpent.utils.rpc import make_rpc_client
 from rpent.utils.rpc.http_rpc import HttpRpcClient
@@ -82,20 +92,37 @@ DUAL_FRANKA_DASHBOARD_SPEC: DashboardSpec = {
 
 def get_robot_spec() -> RobotSpec:
     """Return the dual-Franka identity, prompts, runtime hooks, and dashboard spec."""
-    from robots.franka.flash import replay_card
-
     return RobotSpec(
         name="dual_franka",
-        run_flash=replay_card,
+        run_flash=_run_flash,
         prompts=PromptBundle(system=system_prompt, user=user_prompt),
         add_cli_args=_add_cli_args,
         parse_config=_parse_config,
         init_runtime=_init_runtime,
-        dashboard=DUAL_FRANKA_DASHBOARD_SPEC,
+        resolve_dashboard=lambda args: DUAL_FRANKA_DASHBOARD_SPEC,
         is_real_robot=True,
         supports_exploration=True,
         supports_human_interactive_exploration=True,
     )
+
+
+def _task_recipe_tag(task_id: int) -> str:
+    """Keep smoke-test identity and name the sorting tasks independently of IDs."""
+    task = get_dual_franka_task(task_id)
+    return "dual_franka_t0" if task_id == 0 else f"dual_franka_{task.name}"
+
+
+def _run_flash(
+    toolkit: Any, cell_tag: str, note: Callable[[str], None]
+) -> dict[str, Any]:
+    """Match named task memory to the task ID stored in a Franka Flash card."""
+    from robots.franka.flash.replay import replay_card
+
+    card_tag = toolkit.flash_options["card"]["task"]
+    task_id = int(card_tag.removeprefix("dual_franka_t"))
+    if cell_tag != _task_recipe_tag(task_id):
+        raise ValueError("Flash plan does not match the selected task")
+    return replay_card(toolkit, card_tag, note)
 
 
 def get_toolkit(
@@ -128,18 +155,12 @@ def get_toolkit(
     )
 
 
-def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
-    from robots.franka.flash.replay import add_cli_args
-
-    add_cli_args(parser)
-    parser.add_argument(
-        "--task-id",
-        type=int,
-        default=None if use_dashboard else 0,
-        choices=sorted(DUAL_FRANKA_TASKS),
-    )
+def _add_runtime_cli_args(parser: argparse.ArgumentParser) -> None:
+    """Register component connection and deployment options."""
+    add_cuda_device_arg(parser)
+    parser.set_defaults(_flash_options=None)
     parser.add_argument("--env-endpoint", default=None)
-    parser.add_argument("--vla-endpoint", default=None)
+    add_am_args(parser, platform="dual_franka")
     parser.add_argument(
         "--sam3-endpoint",
         default=None,
@@ -151,15 +172,25 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     )
     parser.add_argument("--robot-config", default=None)
     parser.add_argument(
-        "--vla-model-path",
-        default=os.environ.get("PI05_CHECKPOINT_PATH"),
+        "--sam3-cuda-device",
+        type=int,
+        default=None,
+        help="GPU ordinal for the local SAM3 service; may share GPUs with other "
+        "services. Defaults to --cuda-device, then inherits CUDA_VISIBLE_DEVICES.",
     )
+
+
+def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
+    from robots.franka.flash.replay import add_cli_args
+
+    add_cli_args(parser)
+    _add_runtime_cli_args(parser)
     parser.add_argument(
-        "--vla-repo-id",
-        default=os.environ.get("DUAL_FRANKA_REPO_ID"),
-        help="SFT dataset repo ID used to locate norm_stats.json",
+        "--task-id",
+        type=int,
+        default=None if use_dashboard else 0,
+        choices=sorted(DUAL_FRANKA_TASKS),
     )
-    parser.add_argument("--cuda-device", type=int, default=None)
     parser.add_argument(
         "--auto-merge-memory",
         action=argparse.BooleanOptionalAction,
@@ -181,6 +212,7 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
 
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
+    select_am(args, "dual_franka")
     set_robot_config_path(args.robot_config or DEFAULT_CONFIG)
     validate_calibration_sources()
     if args.task_id is None:
@@ -189,6 +221,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
 
     args._flash_options = prepare(args, "dual_franka")
     task = get_dual_franka_task(args.task_id)
+    recipe_tag = _task_recipe_tag(args.task_id)
     explore = args.explore
     timestamp = datetime.now().strftime("%Y%m%d-%H:%M:%S")
     output_dir = Path(
@@ -204,7 +237,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         f"{index}. {constraint}" for index, constraint in enumerate(task.constraints, 1)
     )
     return RunConfig(
-        recipe_tag=f"dual_franka_t{args.task_id}",
+        recipe_tag=recipe_tag,
         output_dir=output_dir,
         prompt_vars={
             "task_id": args.task_id,
@@ -213,13 +246,11 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             "setup": task.setup,
             "success_criteria": task.success_criteria,
             "constraints": constraints,
-            "recipe_tag": f"dual_franka_t{args.task_id}",
+            "recipe_tag": recipe_tag,
             "mode": "explore" if explore else "eval",
             "memory_profile": args.memory_profile,
             "memory_dir": str(memory_dir),
-            "memory_inbox": str(
-                memory_dir / "_internal" / "inbox" / f"dual_franka_t{args.task_id}"
-            ),
+            "memory_inbox": str(memory_dir / "_internal" / "inbox" / recipe_tag),
             "session_number": 1,
             "session_max": max(1, args.explore_sessions) if explore else 1,
         },
@@ -227,9 +258,11 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     )
 
 
-def _cuda_args(args: argparse.Namespace) -> list[str]:
+def _sam3_cuda_args(args: argparse.Namespace) -> list[str]:
     return (
-        ["--cuda-device", str(args.cuda_device)] if args.cuda_device is not None else []
+        ["--cuda-device", str(resolve_cuda_device(args, "sam3"))]
+        if resolve_cuda_device(args, "sam3") is not None
+        else []
     )
 
 
@@ -238,8 +271,10 @@ def _env_server_command(
     *,
     host: str,
     port: int,
+    task_description: str | None = None,
 ) -> list[str]:
-    task = get_dual_franka_task(args.task_id)
+    if task_description is None:
+        task_description = get_dual_franka_task(args.task_id).instruction
     command = [
         sys.executable,
         "-m",
@@ -251,7 +286,7 @@ def _env_server_command(
         "--port",
         str(port),
         "--task-description",
-        task.instruction,
+        task_description,
         "--parent-watch",
     ]
     if args.robot_config:
@@ -260,13 +295,12 @@ def _env_server_command(
 
 
 def _vla_server_command(
-    args: argparse.Namespace,
+    am: AMConfig,
     *,
     host: str,
     port: int,
 ) -> list[str]:
     command = [
-        sys.executable,
         "-m",
         "rpent.robots.components.pi05_vla_server",
         "--embodiment",
@@ -278,19 +312,18 @@ def _vla_server_command(
         "--port",
         str(port),
         "--model-path",
-        args.vla_model_path,
-        "--repo-id",
-        args.vla_repo_id,
+        am.checkpoint,
+        *am.model_arguments,
         "--parent-watch",
     ]
-    if args.cuda_device is not None:
-        command.extend(_cuda_args(args))
     return command
 
 
 def _spawn_env_server(
     args: argparse.Namespace,
     output_dir: Path,
+    *,
+    task_description: str | None = None,
 ) -> tuple[ProcessDaemon | None, RpcClient]:
     """Spawn (or attach to) the RLinf-backed dual-Franka environment server.
 
@@ -302,7 +335,9 @@ def _spawn_env_server(
     host, port = "127.0.0.1", pick_free_port()
     daemon = ProcessDaemon(
         name="dual_franka_env_server",
-        cmd=_env_server_command(args, host=host, port=port),
+        cmd=_env_server_command(
+            args, host=host, port=port, task_description=task_description
+        ),
         # Both Ray nodes already use this project's pre-provisioned environment.
         # Disable Ray's automatic uv hook: it otherwise runs uv from a temporary
         # uploaded directory and can repeatedly miss the worker startup timeout.
@@ -318,21 +353,21 @@ def _spawn_vla_server(
     output_dir: Path,
 ) -> tuple[ProcessDaemon | None, RpcClient]:
     """Spawn (or attach to) the dual-Franka VLA service."""
-    if args.vla_endpoint is not None:
-        return None, make_rpc_client(args.vla_endpoint)
-    if not args.vla_model_path or not args.vla_repo_id:
+    am = select_am(args, "dual_franka")
+    if am.endpoint is not None:
+        return None, make_rpc_client(am.endpoint)
+    if not am.checkpoint or not am.model_arguments:
         raise ValueError(
-            "dual-Franka VLA auto-start requires --vla-model-path and "
-            "--vla-repo-id (or PI05_CHECKPOINT_PATH and "
+            "dual-Franka VLA auto-start requires --am-checkpoint and "
+            "--pi05-repo-id or --pi05-norm-stats-path (or PI05_CHECKPOINT_PATH and "
             "DUAL_FRANKA_REPO_ID)"
         )
     host, port = "127.0.0.1", pick_free_port()
-    daemon = ProcessDaemon(
+    daemon = am.spawn_worker(
+        _vla_server_command(am, host=host, port=port),
+        output_dir,
         name="dual_franka_vla_server",
-        cmd=_vla_server_command(args, host=host, port=port),
-        log_path=str(output_dir / "dual_franka_vla_server.log"),
     )
-    daemon.start()
     return daemon, HttpRpcClient(f"http://{host}:{port}")
 
 
@@ -361,7 +396,7 @@ def _spawn_sam3_server(
             "--port",
             str(port),
             "--parent-watch",
-            *_cuda_args(args),
+            *_sam3_cuda_args(args),
         ],
         log_path=str(output_dir / "sam3_server.log"),
     )
@@ -374,13 +409,17 @@ def _init_runtime(
     output_dir: Path,
     dashboard_events: DashboardEventSink,
     components: set[str] | None,
+    *,
+    task_description: str | None = None,
+    vla_instruction: str | None = None,
 ) -> tuple[list[ProcessDaemon], dict[str, Any]]:
     """Initialize every dual-Franka component, or only ``components`` when given.
 
     Each server can be spawned or attached-to independently: pass an endpoint
-    to attach, or leave it unset to spawn a local subprocess. A VLA is only
-    started for VLA-backed dual-Franka tasks (or an explicit ``--vla-endpoint``).
+    to attach, or leave it unset to spawn a local subprocess. Manual calls can
+    supply descriptions directly instead of selecting a registered task.
     """
+    select_am(args, "dual_franka")
     from robots.dual_franka.env_client import DualFrankaEnvClient
     from rpent.robots.components.pi05_vla_client import Pi05VLAClient
     from rpent.robots.components.sam3_client import Sam3Client
@@ -391,18 +430,20 @@ def _init_runtime(
     if unknown:
         raise ValueError(f"unknown dual-Franka runtime components: {sorted(unknown)}")
 
-    needs_vla = args.vla_endpoint is not None
-    if args.task_id is not None:
+    needs_vla = args.am_endpoint is not None
+    if task_description is not None:
+        needs_vla = needs_vla or vla_instruction is not None
+    elif args.task_id is not None:
         task = get_dual_franka_task(args.task_id)
         needs_vla = needs_vla or task.vla_instruction is not None
     else:
         needs_vla = needs_vla or any(
             task.vla_instruction is not None for task in DUAL_FRANKA_TASKS.values()
         )
-    if options := getattr(args, "_flash_options", None):
+    if options := args._flash_options:
         from robots.franka.flash.common import VLA_ACTIONS
 
-        needs_vla = args.vla_endpoint is not None or any(
+        needs_vla = args.am_endpoint is not None or any(
             entry["action"] in VLA_ACTIONS for entry in options["card"]["plan"]
         )
     needs_sam3 = args.sam3_endpoint is not None or bool(
@@ -414,17 +455,21 @@ def _init_runtime(
     if "env" in selected:
         authorize_runtime(args)
     starters = {
-        "env": lambda: _spawn_env_server(args, output_dir),
+        "env": lambda: _spawn_env_server(
+            args, output_dir, task_description=task_description
+        ),
         "vla": lambda: _spawn_vla_server(args, output_dir),
         "sam3": lambda: _spawn_sam3_server(args, output_dir),
     }
     connectors = {
         "env": lambda rpc: {
-            "env": DualFrankaEnvClient(
-                rpc, reset_on_connect=not getattr(args, "explore", False)
-            ),
-            "task_description": get_dual_franka_task(args.task_id).instruction,
-            "vla_instruction": get_dual_franka_task(args.task_id).vla_instruction,
+            "env": DualFrankaEnvClient(rpc, reset_on_connect=bool(args._flash_options)),
+            "task_description": task_description
+            if task_description is not None
+            else get_dual_franka_task(args.task_id).instruction,
+            "vla_instruction": vla_instruction
+            if task_description is not None
+            else get_dual_franka_task(args.task_id).vla_instruction,
         },
         "vla": lambda rpc: {"model": Pi05VLAClient(rpc, embodiment="dual_franka")},
         "sam3": lambda rpc: {"sam3_client": Sam3Client(rpc)},
@@ -465,6 +510,6 @@ def _init_runtime(
         dashboard_events.emit(RuntimeStatusEvent("sam3", "ready"))
         runtime_kwargs["sam3_client"] = None
 
-    if getattr(args, "_flash_options", None) is not None:
+    if args._flash_options is not None:
         runtime_kwargs["flash_options"] = args._flash_options
     return list(owned_daemons.values()), runtime_kwargs
