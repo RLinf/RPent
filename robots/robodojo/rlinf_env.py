@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import threading
+from copy import deepcopy
 from typing import Any
 
 import numpy as np
@@ -99,9 +100,9 @@ class RoboDojoAgentEnv(RoboDojoEnv):
     def env(self) -> Any:
         return self._sub_env().env
 
-    def get_native_obs(self) -> dict:
-        """Record native RGB frames while preserving calibration and state."""
-        return _obs_dict(self.env, self.recorder)
+    def get_native_obs(self, *, capture: bool = True) -> dict:
+        """Return native observations, optionally recording their RGB frames."""
+        return _obs_dict(self.env, self.recorder if capture else None)
 
     def reset(self, env_idx=None, env_seeds=None):
         """Reset through RLinf and reinitialize agent episode diagnostics."""
@@ -109,8 +110,8 @@ class RoboDojoAgentEnv(RoboDojoEnv):
         self.bottle_mon = _SafetyMonitor(self.meta.get("task", ""))
         return result
 
-    def _observation(self) -> dict:
-        obs = self.get_native_obs()
+    def _observation(self, *, capture: bool = True) -> dict:
+        obs = self.get_native_obs(capture=capture)
         if self.eval_fair:
             from robots.robodojo.access import public_observation
 
@@ -185,8 +186,10 @@ class RoboDojoAgentEnv(RoboDojoEnv):
         arm: str,
         arm_qpos: list[float] | None = None,
         gripper: float | None = None,
+        *,
+        capture: bool = False,
     ) -> dict[str, Any]:
-        """Execute one waypoint while retaining every unspecified target."""
+        """Execute one waypoint, optionally capturing the full native action."""
         robot = _motion_robot(self.env, arm)
         if arm_qpos is None and gripper is None:
             raise ValueError("set arm_qpos and/or gripper")
@@ -195,61 +198,79 @@ class RoboDojoAgentEnv(RoboDojoEnv):
         if gripper is not None:
             gripper = _gripper_value(gripper)
         status = self.get_status()
-        if status["step"] >= status["step_limit"] or status.get("success") is True:
-            return {"executed_actions": 0, "episode_status": status}
-        if self.env.end_flag[0]:
-            return {"executed_actions": 0, "episode_status": status}
+        if (
+            status["step"] >= status["step_limit"]
+            or status.get("success") is True
+            or self.env.end_flag[0]
+        ):
+            result = {"executed_actions": 0, "episode_status": status}
+            return {"result": result} if capture else result
         action = self.get_motion_state()["targets"]
         if arm_qpos is not None:
             action[f"{arm}_arm_joint_state"] = arm_qpos
         if gripper is not None:
             action[f"{arm}_ee_joint_state"] = [gripper]
-        obs, _, _, info = self.step_native(action)
-        return {
+        response = self.step_native(action, capture=capture)
+        step_result = response["result"] if capture else response
+        obs, _, _, info = step_result
+        result = {
             "executed_actions": info["executed_actions"],
             "episode_status": info["status"],
-            "observation": obs,
         }
+        if capture:
+            return {**response, "result": result, "step_result": step_result}
+        return {**result, "observation": obs}
 
-    def step_native(self, flat_action):
-        """Apply one RoboDojo action and return ``(obs, reward, done, info)``.
-
-        ``flat_action`` is a 14-value policy vector or a native action dict
-        (joint or ee keys). The action type is inferred from the keys. Mirrors the unified
-        ``BaseEnvClient.step`` contract used by the other robot backends.
-        """
+    def step_native(self, flat_action, *, capture: bool = False):
+        """Execute a policy vector or native action, optionally returning capture details."""
         flat_action = _policy_action(flat_action)
         action_type = _infer_action_type(flat_action)
         if self.eval_fair and int(self.env.take_action_cnt[0]) >= int(
             self.env.step_lim
         ):
             raise RuntimeError("Episode step budget exhausted")
-        before = int(self.env.take_action_cnt[0])
+        if capture:
+            # Flush stale camera frames before each captured observation.
+            self.env.get_obs(env_idx=0)
+        before = deepcopy(self._observation(capture=False)) if capture else None
+        before_step = int(self.env.take_action_cnt[0])
         self._sub_env(0).apply_action(
             flat_action, action_type, eval_fair=self.eval_fair
         )
-        executed = int(self.env.take_action_cnt[0]) - before
+        executed = int(self.env.take_action_cnt[0]) - before_step
+        if capture:
+            self.env.get_obs(env_idx=0)
         if self.eval_fair:
-            return (
+            result = (
                 self._observation(),
                 0.0,
                 False,
                 {"status": self.get_status(), "executed_actions": executed},
             )
-        alarms = self.bottle_mon.check(self.env)
-        if alarms:
-            logger.warning("SAFETY ALARM: %s", alarms)
-        obs = self.get_native_obs()
-        reward_details = _reward_details(self.env, self.bottle_mon)
-        reward = float(reward_details.get("reward", 0.0) or 0.0)
-        done = bool(self.env.is_success(env_idx=0))
-        info: dict[str, Any] = {
-            "executed_actions": executed,
-            "status": _status(self.env, self.bottle_mon),
-            "step_limit": int(self.env.step_lim),
-            "safety": alarms,
+        else:
+            alarms = self.bottle_mon.check(self.env)
+            if alarms:
+                logger.warning("SAFETY ALARM: %s", alarms)
+            obs = self.get_native_obs()
+            reward_details = _reward_details(self.env, self.bottle_mon)
+            reward = float(reward_details.get("reward", 0.0) or 0.0)
+            done = bool(self.env.is_success(env_idx=0))
+            info: dict[str, Any] = {
+                "executed_actions": executed,
+                "status": _status(self.env, self.bottle_mon),
+                "step_limit": int(self.env.step_lim),
+                "safety": alarms,
+            }
+            result = obs, reward, done, info
+        if not capture:
+            return result
+
+        return {
+            "result": result,
+            "before_observation": before,
+            "action": flat_action,
+            "action_type": action_type,
         }
-        return obs, reward, done, info
 
     # ---- RoboDojo-specific RPC ----
     def get_obs(self) -> dict[str, Any]:

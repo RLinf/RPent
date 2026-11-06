@@ -273,7 +273,7 @@ def test_native_waypoint_holds_all_other_targets(make_agent, arm):
     }
     captured = []
 
-    def step(action):
+    def step(action, *, capture=False):
         captured.append(deepcopy(action))
         env.take_action_cnt[0] += 1
         return (

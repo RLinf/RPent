@@ -18,11 +18,12 @@ from __future__ import annotations
 
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from robots.robodojo.primitives import RoboDojoPrimitives
 from rpent.dashboard.events import DashboardEventSink
 from rpent.session import EnvState
+from rpent.session.env_capture import CapturingEnvClient
 from rpent.tools import Toolkit, ToolResult, iter_tools, tool
 from rpent.utils.logging import get_output_dir
 
@@ -32,6 +33,7 @@ OBSERVATION_TOOLS = frozenset(
 MOTION_TOOLS = frozenset({"move_to", "rotate_wrist", "set_gripper", "release"})
 
 if TYPE_CHECKING:
+    from robots.robodojo.env_client import RoboDojoEnvClient
     from rpent.memory.manager import MemoryManager
 
 
@@ -108,8 +110,13 @@ class RoboDojoToolkit(Toolkit):
 
         self._pending_perception = []
         self._state.reset()
+        env = primitives_kwargs["env"]
         self._primitives = RoboDojoPrimitives(
-            env=primitives_kwargs["env"],
+            env=_CapturingRoboDojoEnvClient(
+                env,
+                self._state,
+                capture_call=partial(_capture_robodojo_call, env),
+            ),
             sam3_client=primitives_kwargs.get("sam3_client"),
             vla_client=primitives_kwargs.get("vla_client"),
             action_type=primitives_kwargs.get("action_type", "joint"),
@@ -175,3 +182,64 @@ class RoboDojoToolkit(Toolkit):
         )
         self._pending_perception = []
         return robodojo_tools.view_env_state(record.step_idx, state=self._state)
+
+
+class _CapturingRoboDojoEnvClient(CapturingEnvClient):
+    def step_joint_update(
+        self,
+        arm: str,
+        arm_qpos: list[float] | None = None,
+        gripper: float | None = None,
+    ) -> dict[str, Any]:
+        return self._execute(
+            "step_joint_update", arm=arm, arm_qpos=arm_qpos, gripper=gripper
+        )
+
+
+def _capture_robodojo_call(
+    env: RoboDojoEnvClient,
+    method: Literal["step", "step_joint_update"],
+    *args: Any,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """Execute a RoboDojo step and collect its action and observations."""
+    response = getattr(env, method)(*args, capture=True, **kwargs)
+    result = response["result"]
+    if method == "step_joint_update":
+        if not result["executed_actions"]:
+            return {"result": result, "steps": []}
+        obs, reward, done, info = response["step_result"]
+    else:
+        obs, reward, done, info = result
+    if not info["executed_actions"]:
+        return {"result": result, "steps": []}
+    action = response["action"]
+
+    def observation_payload(obs):
+        return {
+            "format": "robodojo.observation",
+            "data": obs,
+            "completeness": "complete",
+            "inline_array_paths": tuple(f"/state/{key}" for key in obs["state"]),
+        }
+
+    return {
+        "result": result,
+        "before_observation": observation_payload(response["before_observation"]),
+        "steps": [
+            {
+                "action": {
+                    "format": f"robodojo.action.{response['action_type']}",
+                    "data": action,
+                    "completeness": "complete",
+                    "inline_array_paths": tuple(f"/{key}" for key in action),
+                },
+                "after_observation": observation_payload(obs),
+                "result": {
+                    "format": "robodojo.step_result",
+                    "data": {"reward": reward, "done": done, "info": info},
+                    "completeness": "complete",
+                },
+            }
+        ],
+    }

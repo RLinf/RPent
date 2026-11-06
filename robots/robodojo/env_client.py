@@ -60,16 +60,26 @@ class RoboDojoEnvClient(BaseEnvClient):
         arm: str,
         arm_qpos: list[float] | None = None,
         gripper: float | None = None,
+        *,
+        capture: bool = False,
     ) -> dict[str, Any]:
-        result = self._client.call(
+        """Execute a joint update, optionally returning native capture details."""
+        response = self._client.call(
             "env.step_joint_update",
-            kwargs={"arm": arm, "arm_qpos": arm_qpos, "gripper": gripper},
+            kwargs={
+                "arm": arm,
+                "arm_qpos": arm_qpos,
+                "gripper": gripper,
+                **({"capture": True} if capture else {}),
+            },
             timeout_s=60,
         )
-        count = result["executed_actions"]
-        obs = result.pop("observation") if count else self.last_obs
-        self.last_obs = obs
-        return result
+        result = response["result"] if capture else response
+        if result["executed_actions"]:
+            self.last_obs = (
+                response["step_result"][0] if capture else result.pop("observation")
+            )
+        return response
 
     def get_reward_details(self) -> dict[str, Any]:
         return self._client.call("env.get_reward_details")
