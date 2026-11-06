@@ -12,9 +12,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Perception helpers that robot tools call on recorded observations."""
-
-from rpent.tools.perception.perception_base import PerceptionToolBase
-from rpent.tools.perception.sam3 import Sam3Tools
-
-__all__ = ["PerceptionToolBase", "Sam3Tools"]
+"""Shared helpers that robot tools build on, outside the core ``rpent`` package."""

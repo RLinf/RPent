@@ -32,9 +32,9 @@ from rpent.session import EnvState
 from rpent.tools import ToolResult, iter_tools
 from rpent.tools.base import tool
 from rpent.tools.direct_action import direct_action_tool
-from rpent.tools.perception import Sam3Tools
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger, get_output_dir
+from toolkit.perception import Sam3Tools
 
 if TYPE_CHECKING:
     from rpent.memory.manager import MemoryManager

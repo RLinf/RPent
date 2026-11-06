@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from rpent.tools.perception.perception_base import PerceptionToolBase
+from toolkit.perception.perception_base import PerceptionToolBase
 
 if TYPE_CHECKING:
     from rpent.robots.components.sam3_client import Sam3Client, Sam3Result

@@ -23,7 +23,7 @@ import pytest
 
 from rpent.robots.components.sam3_client import Sam3Result
 from rpent.session import EnvState
-from rpent.tools.perception import Sam3Tools
+from toolkit.perception import Sam3Tools
 
 MASK = np.array([[True, False], [False, False]])
 

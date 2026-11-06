@@ -12,6 +12,8 @@ with documentation instead of assuming either is correct.
 - `rpent/tools/` and `rpent/memory/`: tool execution, observations, and memory.
 - `rpent/robots/`: robot discovery, descriptors, shared runtime, and Env/VLA
   components. `robots/<robot>/` owns each concrete integration.
+- `toolkit/`: shared helpers that robot tools call, such as SAM3 segmentation in
+  `toolkit/perception/`.
 - `rpent/cli/`, `rpent/dashboard/`, and `rpent/evaluation/`: entry points,
   interactive execution, and run results.
 - `tests/`: offline tests and integration checks; see [tests/README.md](tests/README.md).

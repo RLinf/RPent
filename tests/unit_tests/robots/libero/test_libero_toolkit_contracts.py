@@ -35,8 +35,8 @@ from rpent.robots.components.sam3_client import Sam3Result
 from rpent.session import EnvState
 from rpent.tools import Toolkit, ToolResult
 from rpent.tools.common import CommonTools
-from rpent.tools.perception import Sam3Tools
 from rpent.utils import templates
+from toolkit.perception import Sam3Tools
 
 COMMON_TOOLS = {"read_text_file", "write_text_file", "list_dir", "finish"}
 
