@@ -244,7 +244,7 @@ above plus ``ROBOTWIN_ASSETS_PATH``,
 .. code-block:: bash
 
    RPENT_RUN_UNIWAM_INTEGRATION=1 \
-      pytest tests/e2e_tests/robotwin/test_uniwam.py -v
+      pytest tests/e2e_tests/robotwin/test_uniwam.py -v --timeout=1200
 
 These checks exercise real models and simulation; the scripted planner needs
 no API credentials. They do not establish benchmark success rates.

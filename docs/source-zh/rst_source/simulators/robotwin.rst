@@ -220,7 +220,7 @@ RPC 或工具调用成功不等于任务成功。
 .. code-block:: bash
 
    RPENT_RUN_UNIWAM_INTEGRATION=1 \
-      pytest tests/e2e_tests/robotwin/test_uniwam.py -v
+      pytest tests/e2e_tests/robotwin/test_uniwam.py -v --timeout=1200
 
 这些检查调用真实模型和模拟器，脚本规划器不需要 API 凭据，但检查通过不代表基准成功率。
 
