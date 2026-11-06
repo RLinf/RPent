@@ -16,8 +16,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from robots.robodojo.prompts import evaluate as base
+from robots.robodojo.prompts.policy import POLICY_PROMPTS
 from rpent.prompt.utils import PromptNode
+from rpent.utils.templates import substitute
 
 GOAL = """Solve the current task at its fixed seed and layout, then produce
 evidence-backed memory for evaluation on other seeds and layouts. This is
@@ -34,7 +38,7 @@ READ_ORDER = """Before the first robot action:
 
 Current instructions and observations override memory. Use a successful JSON
 audit for its phase plan and reasoning, and its JSONL recipe for action order,
-parameters and VPP2 cadence. Transfer supported phase order, observable gates,
+parameters and {{policy_name}} cadence. Transfer supported phase order, observable gates,
 controller division and recovery ideas. Preserve arm roles required by the
 current instruction; reconsider roles chosen only for a previous layout.
 Rebind object identities, destinations, pixels, poses, heights, clearances and
@@ -49,8 +53,7 @@ Before each reset or unsolved finish, save the attempt number, actual commands,
 observed progress, failure evidence and next changed strategy variable under
 {{output_dir}}/attempts/attempt_<N>_failed.json. Never overwrite an earlier
 attempt. Append bounded observations to {{memory_inbox}}/wip/notes.md.
-Change a named variable on each retry: instruction, arm roles, action order,
-chunk count, localization or approach pose. Do not infer that a task is
+{{retry_strategy}} Do not infer that a task is
 impossible from one unsuccessful approach; record unknown causes as unknown.
 An unsolved finish is refused while a finite attempt budget remains. After
 native success, stop motion; reset is refused. Use the remaining turns to
@@ -66,7 +69,7 @@ On success, re-read the current attempt's recorded trajectory, starting after
 the most recent reset if one occurred.
 Its ordered strategy_notes must account for every exported action and SAM3
 call with actual parameters, trace step, phase, observed result and the reason
-for any VPP2/primitive switch. Do not invent, omit or reorder calls.
+for any {{policy_name}}/primitive switch. Do not invent, omit or reorder calls.
 The runner exports {{recipe_tag}}_recipe.jsonl from recorded motion commands
 and SAM3 calls that found a mask without an error, in invocation order.
 Finding a mask does not establish correct identity. Historical pixels, steps
@@ -81,7 +84,7 @@ compact reference that helps evaluation adapt the strategy to a new scene:
 - Phase plan: prerequisites, actions, visible completion gates, protected
   relations and terminal actions. Explain arm roles and whether the instruction
   requires them or the observed layout motivated them.
-- Control choices: VPP2 instructions, Primitive use, chunk choices and the
+- Control choices: {{memory_control}}, Primitive use, chunk choices and the
   observed reason for continuing or switching. Keep exact tested parameters in
   the audit; include reusable settings with their conditions of use.
 - Action costs: record observed costs for the main phases and required terminal
@@ -127,9 +130,11 @@ published memory. The shared finalizer merges valid inbox proposals and updates
 MEMORY.md after the run; do not claim publication before it completes."""
 
 
-def system_prompt() -> PromptNode:
+def system_prompt(
+    variables: Mapping[str, object] | None = None,
+) -> PromptNode:
     """Assemble exploration rules with shared perception and control guidance."""
-    return {
+    sections = {
         "ROLE AND RULES": base.ROLE_AND_RULES,
         "EXPLORATION GOAL": GOAL,
         "READ ORDER AND MEMORY TRANSFER": READ_ORDER,
@@ -144,3 +149,5 @@ def system_prompt() -> PromptNode:
         "OUTPUT DISCIPLINE": OUTPUT,
         "MEMORY CONSOLIDATION": MEMORY,
     }
+    backend = (variables or {}).get("vla_backend") or "vpp2"
+    return substitute(sections, POLICY_PROMPTS[backend])

@@ -602,7 +602,6 @@ def test_task_guidance_is_scoped_and_tools_are_injected():
             "env_cfg_type": "arx_x5",
             "action_type": "joint",
             "task_summary": "scene",
-            "memory_dir": "/memory",
             "recipe_tag": task,
             "reference_tag": f"{task}_s0_l0",
             "seed": 0,

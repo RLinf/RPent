@@ -373,7 +373,7 @@ To evaluate with a prepared local corpus:
 
 .. code-block:: bash
 
-   rpent --robot robodojo --vla-backend vpp2 \
+   rpent --robot robodojo --am-backend vpp2 \
      --task stack_blocks --seed 1 --layout 0 \
      --planner codex --model <planner-model> --reasoning-effort low \
      --memory-profile local --memory-dir /path/to/robodojo-memory \
@@ -393,7 +393,7 @@ above, then run:
 
 .. code-block:: bash
 
-   rpent --robot robodojo --vla-backend vpp2 \
+   rpent --robot robodojo --am-backend vpp2 \
      --task stack_blocks --seed 0 --layout 0 --explore \
      --planner codex --model <planner-model> --reasoning-effort low \
      --memory-dir /path/to/robodojo-memory \

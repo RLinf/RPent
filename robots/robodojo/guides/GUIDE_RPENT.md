@@ -112,7 +112,7 @@ correction and inspect its result before choosing another.
 end-effector position target. Fingers and held objects can sweep an arc around
 that point. Inspect surrounding clearance and verify the actual object pose
 after rotation. This tool does not provide pitch or roll for tilting or pouring;
-those require a suitable full-pose target or VPP2 motion. Object rotation need
+those require a suitable full-pose target or policy motion. Object rotation need
 not equal the commanded end-effector rotation if the grasp slips.
 
 For pushing or tool use, judge progress at the contact or working end, not only

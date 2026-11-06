@@ -311,7 +311,7 @@ SAM3 用于物体分割。先在 `facebook/sam3 模型页面 <https://huggingfac
 
 .. code-block:: bash
 
-   rpent --robot robodojo --vla-backend vpp2 \
+   rpent --robot robodojo --am-backend vpp2 \
      --task stack_blocks --seed 1 --layout 0 \
      --planner codex --model <planner-model> --reasoning-effort low \
      --memory-profile local --memory-dir /path/to/robodojo-memory \
@@ -324,7 +324,7 @@ SAM3 用于物体分割。先在 `facebook/sam3 模型页面 <https://huggingfac
 
 .. code-block:: bash
 
-   rpent --robot robodojo --vla-backend vpp2 \
+   rpent --robot robodojo --am-backend vpp2 \
      --task stack_blocks --seed 0 --layout 0 --explore \
      --planner codex --model <planner-model> --reasoning-effort low \
      --memory-dir /path/to/robodojo-memory \

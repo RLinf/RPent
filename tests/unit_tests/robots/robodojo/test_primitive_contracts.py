@@ -518,7 +518,10 @@ def test_solved_reset_refused_and_only_successful_attempt_exported(toolkit_facto
     assert recipe == [{"action": "release", "arm": "left", "steps": 1}]
 
 
-def test_recipe_preserves_sam3_call_order_and_excludes_failed_attempts(toolkit_factory):
+@pytest.mark.parametrize("policy_tool", ["vpp2_act", "awomo05_act"])
+def test_recipe_preserves_sam3_call_order_and_excludes_failed_attempts(
+    toolkit_factory, policy_tool
+):
     import json
     from pathlib import Path
 
@@ -537,6 +540,12 @@ def test_recipe_preserves_sam3_call_order_and_excludes_failed_attempts(toolkit_f
     )
     toolkit.execute_tool("segment", {"text_prompt": "failed attempt"})
     toolkit.execute_tool("set_gripper", {"arm": "left", "val": 0, "steps": 1})
+    policy_command = {"action": policy_tool, "chunks": 2}
+    if policy_tool == "vpp2_act":
+        policy_command["instruction"] = "Move the object."
+    toolkit.get_env_state(
+        command=policy_command, result={"completed": True}, elapsed_s=0
+    )
     assert toolkit.write_recipe("unsolved") == ""
     toolkit.execute_tool("segment", {"text_prompt": "before reset"})
     toolkit.execute_tool("reset", {})
@@ -547,6 +556,14 @@ def test_recipe_preserves_sam3_call_order_and_excludes_failed_attempts(toolkit_f
     toolkit.execute_tool("segment", {"text_prompt": "service error"})
     toolkit.execute_tool("back_project", {"row": 1, "col": 1})
     toolkit.execute_tool("set_gripper", {"arm": "left", "val": 0, "steps": 1})
+    toolkit.get_env_state(
+        command={**policy_command, "chunks": 1},
+        result={"error": "policy unavailable"},
+        elapsed_s=0,
+    )
+    toolkit.get_env_state(
+        command=policy_command, result={"completed": True}, elapsed_s=0
+    )
 
     # Two later queries of the same saved image must stay after the motion,
     # rather than being sorted by image step or deduplicated.
@@ -568,12 +585,19 @@ def test_recipe_preserves_sam3_call_order_and_excludes_failed_attempts(toolkit_f
     path = toolkit.write_recipe("example")
     recipe = [json.loads(line) for line in Path(path).read_text().splitlines()]
     assert recipe == [
-        {"action": "segment", **first},
+        {"action": "segment", "camera": "cam_head", "min_score": 0.2, **first},
         {"action": "set_gripper", "arm": "left", "val": 0, "steps": 1},
-        {"action": "segment", **later},
-        {"action": "segment", **later},
+        policy_command,
+        {"action": "segment", "camera": "cam_head", **later},
+        {"action": "segment", "camera": "cam_head", **later},
         {"action": "release", "arm": "left", "steps": 1},
-        {"action": "segment", **final},
+        {
+            "action": "segment",
+            "camera": "cam_head",
+            "min_score": 0.2,
+            "step": None,
+            **final,
+        },
     ]
     toolkit.close()
 
@@ -613,6 +637,53 @@ def test_explore_defaults_and_scene_identity_in_config(tmp_path):
     args.random = True
     with pytest.raises(ValueError, match="fixed seed/layout"):
         robot_spec._validate_args(args)
+
+
+@pytest.mark.parametrize("mode", ["evaluation", "eval-fair", "explore"])
+@pytest.mark.parametrize("backend", ["vpp2", "awomo05"])
+@pytest.mark.parametrize("backend_flag", ["--am-backend", "--vla-backend"])
+def test_policy_prompts_match_configured_backend(tmp_path, mode, backend, backend_flag):
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    robot_spec._add_cli_args(parser, False)
+    args = parser.parse_args(
+        ["--task", "put_bottles_into_dustbin", backend_flag, backend]
+    )
+    args.output_dir = tmp_path
+    args.explore = mode == "explore"
+    args.planner = "flash" if mode == "eval-fair" else "api"
+    config = robot_spec._parse_config(args)
+    variables = {**config.prompt_vars, "output_dir": str(tmp_path)}
+    prompts = robot_spec.get_robot_spec().prompts
+    prompt = " ".join(prompts.render("system", variables=variables).split())
+    assert f"{backend}_act(" in prompt
+    other = "vpp2" if backend == "awomo05" else "awomo05"
+    assert f"{other}_act(" not in prompt
+    assert "{{" not in prompt
+    if backend == "awomo05":
+        assert "no instruction parameter" in prompt
+        assert "8, 16 and 24 actions" in prompt
+        assert "VPP2" not in prompt
+        assert "clarify the instruction" not in prompt
+        if mode == "explore":
+            assert "retry: instruction" not in prompt
+    else:
+        assert "vpp2_act(instruction, chunks=1)" in prompt
+        assert "24, 48 and 72 actions" in prompt
+
+    task = prompts.render("user", variables=variables)
+    expected = (
+        "Awomo05 native joint targets"
+        if backend == "awomo05"
+        else "VPP2 native EE16 targets"
+    )
+    if mode == "eval-fair":
+        assert f"{args.task} / layout {args.layout}" in task
+        assert "native" not in task
+    else:
+        assert expected in task
+    assert "{{" not in task
 
 
 @pytest.mark.parametrize("task", ["stack_blocks", "stack_blocks_random"])
@@ -890,3 +961,13 @@ def test_policy_chunk_progress(
     assert [e[1] for e in policy.events if e[0] == "infer"] == list(
         range(0, steps, horizon)
     )
+
+
+@pytest.mark.parametrize("mode", ["dev", "explore", "eval-fair"])
+def test_unset_policy_backend_uses_same_default_in_all_prompts(mode):
+    from robots.robodojo.prompt_bundle import system_prompt, user_prompt
+
+    for builder in (system_prompt, user_prompt):
+        default = builder({"mode": mode})
+        assert builder({"mode": mode, "vla_backend": None}) == default
+        assert builder({"mode": mode, "vla_backend": "vpp2"}) == default

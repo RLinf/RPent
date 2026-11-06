@@ -90,6 +90,8 @@ class RoboDojoToolkit(Toolkit):
         )
         self.init_primitives(primitives_kwargs=primitives_kwargs)
         try:
+            if self._mode == "exploration":
+                self._primitives.reset()
             self._register_robodojo_tools(primitives_kwargs.get("vla_backend", "vpp2"))
             self._publish_step(
                 robodojo_tools.dump_state(self._primitives, self._state, log=None)
@@ -229,7 +231,9 @@ class RoboDojoToolkit(Toolkit):
                     "reason": "Attempts remain: archive this attempt, reset and change the plan.",
                 }
             )
-        return self._primitives.finish(status=status, summary=summary)
+        return self._call_robodojo_tool(
+            self._primitives.finish, status=status, summary=summary
+        )
 
     def write_recipe(self, recipe_tag: str) -> str:
         """Export successful-attempt motion and SAM3 calls in invocation order."""
@@ -264,7 +268,8 @@ class RoboDojoToolkit(Toolkit):
             # older saved image. Artifact image steps are not invocation order.
             recipe.extend(segment_commands(record.extras.get("perception", [])))
             if (
-                (record.command or {}).get("action") in MOTION_TOOLS
+                (record.command or {}).get("action")
+                in (MOTION_TOOLS | set(POLICY_TOOLS.values()))
                 and not (record.result or {}).get("error")
                 and (record.result or {}).get("success") is not False
             ):
