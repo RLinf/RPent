@@ -31,10 +31,11 @@ from rpent.dashboard.events import DashboardEventSink
 from rpent.dashboard.spec import DashboardSpec
 from rpent.evaluation import RunFinalizationContext, write_json_atomic
 from rpent.memory import MemoryManager
+from rpent.robots.components.am_runtime import add_am_args, select_am
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_spawn_server, try_wait_server
-from rpent.utils.config import get_memory_dir, get_pi05_checkpoint_path, get_repo_root
+from rpent.utils.config import add_cuda_device_arg, get_memory_dir, get_repo_root
 from rpent.utils.daemon import ProcessDaemon, pick_free_port
 from rpent.utils.rpc import make_rpc_client
 from rpent.utils.rpc.http_rpc import HttpRpcClient
@@ -72,9 +73,26 @@ def get_robot_spec() -> RobotSpec:
         init_runtime=_init_runtime,
         prepare_memory=_prepare_memory,
         validate_args=_validate_args,
-        dashboard=ROBOLAB_DASHBOARD_SPEC,
+        resolve_dashboard=_resolve_dashboard,
         finalize_run=finalize_run,
     )
+
+
+def _resolve_dashboard(args: argparse.Namespace) -> DashboardSpec:
+    """Expose only the components and tools enabled for this session."""
+    if args.policy_backend == "pi05":
+        return ROBOLAB_DASHBOARD_SPEC
+    return {
+        **ROBOLAB_DASHBOARD_SPEC,
+        "runtime_components": tuple(
+            component
+            for component in ROBOLAB_DASHBOARD_SPEC["runtime_components"]
+            if component["name"] != "vla"
+        ),
+        "primitives": tuple(
+            name for name in ROBOLAB_DASHBOARD_SPEC["primitives"] if name != "pi05_act"
+        ),
+    }
 
 
 def finalize_run(context: RunFinalizationContext) -> Path:
@@ -129,24 +147,16 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         default=sys.executable,
         help="Python with Isaac Lab and an external RoboLab source checkout installed",
     )
-    parser.add_argument(
-        "--policy-python",
-        default=sys.executable,
-        help="Python with RLinf and the Pi0.5 policy dependencies installed",
-    )
     parser.add_argument("--device", default="cuda:0", help="Isaac Lab device")
-    parser.add_argument("--cuda-device", type=int, default=None)
+    add_cuda_device_arg(parser)
+    add_am_args(parser, platform="robolab")
     parser.add_argument(
         "--policy-backend",
         choices=("pi05", "none"),
         default="pi05",
         help="Use Pi0.5 or native direct actions only",
     )
-    parser.add_argument(
-        "--pi05-checkpoint", default=None, help="External Pi0.5 checkpoint directory"
-    )
     parser.add_argument("--env-endpoint", default=None)
-    parser.add_argument("--vla-endpoint", default=None)
 
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
@@ -154,14 +164,6 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         raise ValueError("--task must be a RoboLab benchmark task class name")
     if args.seed < 0:
         raise ValueError("--seed must be nonnegative")
-    if args.policy_backend == "none" and args.vla_endpoint:
-        raise ValueError("--vla-endpoint requires --policy-backend pi05")
-    if (
-        args.policy_backend == "pi05"
-        and not args.vla_endpoint
-        and not (args.pi05_checkpoint or get_pi05_checkpoint_path())
-    ):
-        raise ValueError("Pi0.5 requires --pi05-checkpoint or PI05_CHECKPOINT_PATH")
 
     output_dir = args.output_dir
     if output_dir is None:
@@ -190,14 +192,24 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
 
 
 def _validate_args(args: argparse.Namespace) -> None:
-    if args.dashboard and args.policy_backend == "none":
-        raise ValueError("RoboLab Dashboard requires --policy-backend pi05")
-    if (
-        args.dashboard
-        and not args.vla_endpoint
-        and not (args.pi05_checkpoint or get_pi05_checkpoint_path())
-    ):
-        raise ValueError("RoboLab Dashboard requires a Pi0.5 checkpoint")
+    if args.policy_backend == "none":
+        for field in (
+            "am_endpoint",
+            "am_checkpoint",
+            "am_python",
+            "am_root",
+            "am_cuda_device",
+            "pi05_repo_id",
+            "pi05_norm_stats_path",
+        ):
+            if getattr(args, field, None) is not None:
+                raise ValueError(
+                    f"--{field.replace('_', '-')} requires --policy-backend pi05"
+                )
+        return
+    am = select_am(args, "robolab")
+    if not am.endpoint and not am.checkpoint:
+        raise ValueError("Pi0.5 requires --am-checkpoint or PI05_CHECKPOINT_PATH")
 
 
 def _prepare_memory(args: argparse.Namespace, config: RunConfig) -> None:
@@ -263,37 +275,29 @@ def _spawn_env(args: argparse.Namespace, output_dir: Path):
 
 
 def _spawn_vla(args: argparse.Namespace, output_dir: Path):
-    if args.vla_endpoint:
-        return None, make_rpc_client(args.vla_endpoint)
-    policy_python = Path(os.path.abspath(Path(args.policy_python).expanduser()))
-    if not policy_python.is_file():
-        raise FileNotFoundError(f"Pi0.5 Python not found: {policy_python}")
+    am = select_am(args, "robolab")
+    if am.endpoint:
+        return None, make_rpc_client(am.endpoint)
     host, port = "127.0.0.1", pick_free_port()
-    daemon = ProcessDaemon(
-        name="vla_server",
-        cmd=[
-            str(policy_python),
-            str(
-                get_repo_root()
-                / "rpent"
-                / "robots"
-                / "components"
-                / "pi05_vla_server.py"
-            ),
+    daemon = am.spawn_worker(
+        [
+            "-m",
+            "rpent.robots.components.pi05_vla_server",
             "--embodiment",
             "robolab",
             "--model-path",
-            args.pi05_checkpoint or get_pi05_checkpoint_path(),
+            am.checkpoint,
+            *am.model_arguments,
             "--host",
             host,
             "--port",
             str(port),
             "--parent-watch",
         ],
-        env_overrides=_process_env(args),
-        log_path=str(output_dir / "vla_server.log"),
+        output_dir,
+        name="vla_server",
+        env_overrides={"CUDA_DEVICE_ORDER": "PCI_BUS_ID"},
     )
-    daemon.start()
     return daemon, HttpRpcClient(f"http://{host}:{port}")
 
 

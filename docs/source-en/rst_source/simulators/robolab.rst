@@ -3,8 +3,7 @@ RoboLab
 
 Run an Isaac Lab RoboLab benchmark task through RPent's observation and action
 tools. The integration serves one DROID joint-position environment per run.
-RoboLab's own evaluator supplies the success result. The local six-task
-evaluation is a subset experiment, not a full RoboLab benchmark result.
+RoboLab's own evaluator supplies the success result.
 
 Overview
 --------
@@ -64,32 +63,19 @@ Observation and Action
 Installation and Resources
 --------------------------
 
-Use Linux with a compatible NVIDIA driver, Python 3.11, ``uv``, Git with Git
-LFS, and ``ffmpeg``. Run the installer from the RPent root:
+Use Linux with a compatible NVIDIA driver, Python 3.11, ``uv``, Git, Git LFS,
+and ``ffmpeg``. Isaac Sim also requires EGL, GLU, OpenGL, and Vulkan runtime
+libraries. On Ubuntu 22.04, install the system packages if they are missing:
 
 .. code-block:: bash
 
-   bash script/install_robolab.sh
+   sudo apt-get update
+   sudo apt-get install git-lfs ffmpeg libegl1 libglu1-mesa libopengl0 libvulkan1
 
-The script creates ``.venv-robolab-policy`` and ``.venv-robolab-sim``, installs
-RPent's ``robolab`` extra, and downloads RoboLab revision ``b6cfcf6`` and its
-LFS assets to the sibling ``../RoboLab-runtime`` directory. To select another
-external directory, pass it as the first argument. Existing checkouts must
-already match the required revision. Checkpoints are supplied separately.
-
-The installer checks both environments and loads the required graphics libraries.
-On Ubuntu 22.04 x86_64, missing EGL, GLU, OpenGL, and Vulkan libraries are
-installed under ``.venv-robolab-sim/system-libs`` using ``curl``, ``dpkg-deb``,
-and ``sha256sum``; no sudo is needed and the NVIDIA driver is not changed.
-On other distributions, install missing graphics libraries using the system's
-package manager. Download concurrency and timeout settings can be overridden
-with the ``UV_*`` variables listed by ``bash script/install_robolab.sh --help``.
-
-Manual Installation
-~~~~~~~~~~~~~~~~~~~
-
-For manual installation, use the same ``uv venv`` and optional-extra workflow
-as the other simulators:
+Use the system package manager for other distributions. If you cannot install
+system packages, ask the machine administrator to provide these libraries.
+From the RPent root, create the policy environment and install the optional
+extra, following the :doc:`../get_started/quickstart` workflow:
 
 .. code-block:: bash
 
@@ -97,10 +83,9 @@ as the other simulators:
    source .venv-robolab-policy/bin/activate
    uv pip install -e ".[robolab]"
 
-RoboLab locates its USD assets beside its source package. Install its source
-checkout and ``openpi-client`` in a separate Isaac environment. Keep
-the checkout outside the RPent repository; ``git lfs pull`` downloads the
-assets required by the selected tasks. These commands use Isaac Sim 5.0:
+RoboLab reads USD assets beside its source package. Install RoboLab revision
+``b6cfcf6`` and its LFS assets outside the RPent repository, in a separate
+Isaac Sim 5.0 / Isaac Lab 2.2.0 environment:
 
 .. code-block:: bash
 
@@ -120,84 +105,70 @@ assets required by the selected tasks. These commands use Isaac Sim 5.0:
        -e ".[isaac50]" openpi-client
    )
 
-Complete the manual installation with graphics and dependency checks:
+Install the full RPent package only in the policy environment. The simulator
+loads the environment server and shared RPC modules from this checkout using
+the launcher's ``PYTHONPATH``. Installing planner dependencies in the simulator
+environment conflicts with Isaac Sim's pinned versions. Keep the Isaac extra
+in the second install command so the resolver preserves those constraints.
+Check both environments after installation:
 
 .. code-block:: bash
 
-   bash script/install_robolab_graphics.sh
    uv pip check --python .venv-robolab-policy/bin/python
    uv pip check --python .venv-robolab-sim/bin/python
-
-Install the full RPent package only in the policy environment. The simulator
-loads RPent's environment server and shared RPC modules from this checkout;
-its launcher supplies ``PYTHONPATH``. Installing RPent's planner dependencies
-in the Isaac environment conflicts with Isaac Sim's pinned dependencies.
 
 Checkpoint
 ~~~~~~~~~~
 
-The simulator reads the installed ``robolab`` package and its adjacent
-``assets/`` directory. It does not read RPent's ``ref-repo/`` or ``data/``.
-Set the Pi0.5 checkpoint path separately, outside the repository if desired:
+Download the public
+`RLinf-Pi05-RoboLab-droid-jointpos checkpoint <https://huggingface.co/RLinf/RLinf-Pi05-RoboLab-droid-jointpos>`_
+from Hugging Face in the activated policy environment:
 
 .. code-block:: bash
 
-   export PI05_CHECKPOINT_PATH=/absolute/path/to/pi05_droid_jointpos_torch
+   export PI05_CHECKPOINT_PATH="$HOME/.cache/rpent/checkpoints/RLinf-Pi05-RoboLab-droid-jointpos"
+   hf download RLinf/RLinf-Pi05-RoboLab-droid-jointpos \
+     --local-dir "$PI05_CHECKPOINT_PATH"
 
-The checkpoint must match the DROID joint-position Pi0.5 model (15-action
-prediction horizon, eight environment action values). The policy environment
-uses RLinf's ``pi05_droid_polaris`` model configuration. Supply a compatible
-PyTorch checkpoint containing ``model.safetensors`` and
-``assets/droid/norm_stats.json``. The installer does not download or convert
-model weights, and a JAX checkpoint cannot be passed directly to this loader.
-The repository does not require a pre-existing local dataset or checkpoint
-folder; use ``--pi05-checkpoint`` or ``PI05_CHECKPOINT_PATH`` for your own path.
+The directory contains ``model.safetensors``, ``config.json``, and
+``assets/droid/norm_stats.json``. Keep the directory structure intact.
+The policy uses RLinf's ``pi05_droid_polaris`` configuration: two images,
+10 denoising steps, a 15-action prediction horizon, and eight environment
+action values. This loader accepts the PyTorch checkpoint; a JAX checkpoint
+cannot be used directly. Set ``PI05_CHECKPOINT_PATH`` in each new shell, or
+pass the directory with ``--am-checkpoint``.
 
 Run a Task
 ----------
 
-Activate the policy environment and check the local Codex login. The bundled
-CLI uses the current user's login; no API key is needed for this login method.
-See :doc:`../guides/configure_planner` for other planners and authentication modes.
+Configure a planner using :doc:`../guides/configure_planner`. The example
+uses Codex with the current user's login and configured model; this login
+method does not require an API key. Run from the RPent root with the checkpoint
+path configured above. Choose a physical GPU with enough free memory using
+``--cuda-device``; the example uses GPU 0.
 
 .. code-block:: bash
 
    source .venv-robolab-policy/bin/activate
-   export CODEX_BIN="$(python -c 'from codex_cli_bin import bundled_codex_path; print(bundled_codex_path())')"
-   "$CODEX_BIN" login
-   "$CODEX_BIN" login status
-   rpent-check-llm --planner codex --timeout-s 90 --json
-
-After the connection check succeeds, run a task. Set ``--cuda-device`` to a
-physical GPU with enough free memory; the example uses GPU 0. The planner uses
-your configured Codex model unless you pass ``--model``.
-
-
-.. code-block:: bash
-
+   rpent-check-llm --planner codex
    rpent --robot robolab --task BananaInBowlTask --seed 0 \
      --sim-python "$PWD/.venv-robolab-sim/bin/python" \
      --cuda-device 0 --planner codex \
      --output-dir ./logs/first-robolab
 
-The convenience script checks the current Codex login before launching the task:
+Action-model deployment uses the shared ``--am-checkpoint``, ``--am-python``,
+``--am-root``, and ``--am-cuda-device`` options. To reuse a running model
+worker, pass ``--am-endpoint`` instead of local deployment options.
 
-.. code-block:: bash
-
-   bash script/run_robolab.sh "$PI05_CHECKPOINT_PATH" BananaInBowlTask 0 ./logs/first-robolab
-
-Run this command from a terminal with the same GPU visibility intended for the
-simulation. The CLI form above exposes explicit physical GPU selection.
-The scripts use the existing Codex configuration and login.
-
-For an environment-only run without the checkpoint, add
+For an environment-only run without a checkpoint, add
 ``--policy-backend none``. It exposes ``execute_action`` and
-``view_env_state``; ``pi05_act`` is then unavailable.
+``view_env_state``; ``pi05_act`` is unavailable.
 
 For a Dashboard session, replace ``--task BananaInBowlTask --seed 0`` with
 ``--dashboard``. Claim a task with ``/rpent-task BananaInBowlTask 0``. The
 Dashboard shares Pi0.5 across tasks and creates a fresh environment for each
-task; it requires the Pi0.5 backend.
+task. With ``--policy-backend none``, it starts only the environment and
+exposes native actions without a VLA component or ``pi05_act``.
 
 View Results
 ------------
@@ -206,53 +177,65 @@ View Results
 ``main.png`` and ``wrist.png`` artifact directories hold the observed images.
 ``result.json`` records native task success separately from the planner result;
 its ``success`` is ``null`` when RoboLab has no terminal result.
-``env_server.log`` and ``vla_server.log`` contain the component logs. Native
-RoboLab output is under ``logs/first-robolab/native/``.
+``env_server.log`` and, when a local model is launched, ``vla_server.log``
+contain the component logs. Native RoboLab output is under
+``logs/first-robolab/native/``.
 
 Read the last ``view_env_state`` result: ``state.success`` is ``true`` only
-when RoboLab reports success. ``state.success`` remains ``null`` before a
-native terminal result; a step-limit episode is not a success.
+when RoboLab reports success. It remains ``null`` before a native terminal
+result; a step-limit episode is not a success.
 
 Task Memory
 -----------
 
-RoboLab uses a local memory directory by default. To reuse your own task notes,
-pass ``--memory-profile local --memory-dir /path/to/memory``. No RoboLab memory
-corpus is downloaded.
+No published RoboLab task-memory corpus is currently provided. RPent creates
+a local directory for RoboLab memory, which is initially empty on a fresh
+installation. It does not download a memory corpus. To reuse your own task
+notes, pass ``--memory-profile local --memory-dir /path/to/memory``.
+RoboLab does not support RPent exploration mode.
 
 Evaluate a Task Subset
-----------------------
+------------------------
 
-The evaluation script runs six tasks serially, with environment seeds 0, 1,
-and 2: ``BananaInBowlTask``, ``BowlStackingLeftOnRightTask``,
-``BowlStackingRightOnLeftTask``, ``BananaThenRubiksCubeTask``,
-``ReorientRedMugTask``, and ``StackYellowOnRedTask``. Supply the checkpoint
-explicitly; results default to ``logs/robolab_eval/unaligned_6tasks_3seeds/``.
-Preview the commands before starting:
+After configuring the checkpoint and planner, run the following commands from
+the RPent root to evaluate six tasks serially with environment seeds 0, 1,
+and 2. Select the available GPU before starting. Each invocation creates a
+fresh output directory and each episode starts with empty local memory:
 
 .. code-block:: bash
 
-   bash script/eval_robolab_subset.sh \
-     --checkpoint "$PI05_CHECKPOINT_PATH" --gpu 0 \
-     --output-dir ./logs/robolab-subset --dry-run
+   (
+     set -e
+     mkdir -p ./logs
+     eval_root="$(mktemp -d "$PWD/logs/robolab-subset-XXXXXX")"
+     for task in BananaInBowlTask BowlStackingLeftOnRightTask \
+       BowlStackingRightOnLeftTask BananaThenRubiksCubeTask \
+       ReorientRedMugTask StackYellowOnRedTask; do
+       for seed in 0 1 2; do
+         episode_dir="$eval_root/${task}_s${seed}"
+         rpent --robot robolab --task "$task" --seed "$seed" \
+           --sim-python "$PWD/.venv-robolab-sim/bin/python" \
+           --cuda-device 0 --planner codex --reasoning-effort low \
+           --max-turns 400 --planner-timeout-s 3600 \
+           --memory-profile local --memory-dir "$episode_dir/memory" \
+           --output-dir "$episode_dir"
+       done
+     done
+   )
 
-Remove ``--dry-run`` to execute. ``--tasks`` and ``--seeds`` select a smaller
-subset. The defaults are 400 planner turns, a 3600-second planner budget per
-episode, and ``low`` reasoning effort. Simulator startup is outside this
-planner budget. Each attempt gets empty local RPent memory. Codex session
-storage follows the user configuration. Environment seeds do not fix policy
-sampling randomness. The policy uses the upstream RLinf implementation,
-10 denoising steps, two images, and up to 15 executed actions per prediction;
-the planner may shorten chunks or issue direct actions.
+Each episode has 400 planner turns and a 3600-second planner budget; simulator
+startup is outside this budget. Environment seeds do not fix policy sampling
+randomness or planner decisions. The planner may shorten action chunks or
+issue direct actions. This is a subset evaluation, not a full benchmark.
 
-``manifest.json`` records configuration, package versions, and source hashes.
-``summary.json`` and ``summary.csv`` separate native success/failure, unfinished
-runs, budget exhaustion, errors, and interruptions. Success rates use completed
-evaluation episodes, including unfinished and budget-exhausted episodes, as
-the denominator; runtime errors and interruptions are reported separately.
-The same command skips completed episodes and retries errors or interruptions
-in a new attempt directory. It stops on a runtime error. Configuration or
-source changes require a new output directory to avoid mixing results.
+Inspect each episode's ``result.json`` and logs. Count native success only
+when ``success`` is ``true``; report ``false`` and ``null`` separately. Use
+all 18 planned episodes as the denominator and list missing results, runtime
+errors, and interruptions explicitly. The loop stops on a nonzero process
+exit and does not retry or generate an aggregate report. To retry an episode,
+run its task and seed with fresh output and memory directories, retaining the
+failed attempt. Record the code and resource revisions, package versions,
+planner model, and retry policy alongside results for comparisons.
 
 Diagnostics
 -----------
@@ -260,18 +243,15 @@ Diagnostics
 If the environment does not start, inspect ``env_server.log`` and verify that
 ``--sim-python`` points to the Isaac environment with an editable RoboLab
 installation and a populated ``assets/`` directory. If the policy does not
-start, inspect ``vla_server.log`` and the checkpoint path. Keep Isaac Sim and
-the policy in separate Python environments when their dependencies conflict.
+start, inspect ``vla_server.log`` and the checkpoint path.
 
-For Vulkan initialization errors or missing ``libGLU.so.1``, rerun
-``bash script/install_robolab_graphics.sh`` and inspect the Isaac log. The
-launcher adds these local libraries automatically. GPU rendering and physics
-are assigned to the selected physical device with multi-GPU rendering disabled;
-Isaac may still create small CUDA contexts on other GPUs. Check actual memory
-use with ``nvidia-smi`` on shared machines.
+For Vulkan initialization errors or missing ``libGLU.so.1``, check the NVIDIA
+driver and system graphics libraries listed above, then inspect the Isaac log.
+Rendering and physics use the selected physical GPU with multi-GPU rendering
+disabled; Isaac may still create small CUDA contexts on other GPUs. Check
+actual memory use with ``nvidia-smi`` on shared machines.
 
-If a wheel download times out, rerun the installer with the same external
-checkout and environments; downloaded caches are retained. For dependency
-conflicts, inspect ``uv pip check`` in each environment separately. Codex
-connection errors belong to the planner log and may be retried; a clean process
-exit alone does not establish native task success.
+If a wheel download times out, retry the failed ``uv`` command using the same
+environment and cache. For dependency conflicts, inspect ``uv pip check`` in
+each environment separately. A clean process exit alone does not establish
+native task success.

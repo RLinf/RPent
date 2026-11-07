@@ -1,7 +1,7 @@
 RoboLab
 =======
 
-通过 RPent 的观测和动作工具运行 Isaac Lab RoboLab 任务，每次运行连接一个 DROID 关节位置控制环境。任务成功由 RoboLab 原生评估器判定。本地六任务评估属于子集实验，不代表完整 RoboLab 基准结果。
+通过 RPent 的观测和动作工具运行 Isaac Lab RoboLab 任务，每次运行连接一个 DROID 关节位置控制环境。任务成功由 RoboLab 原生评估器判定。
 
 概览
 ----
@@ -60,20 +60,14 @@ RoboLab
 安装与资源准备
 --------------
 
-准备 Linux、兼容的 NVIDIA 驱动、Python 3.11、``uv``、Git、Git LFS 和 ``ffmpeg``，然后在 RPent 仓库根目录运行：
+准备 Linux、兼容的 NVIDIA 驱动、Python 3.11、``uv``、Git、Git LFS 和 ``ffmpeg``。Isaac Sim 还需要 EGL、GLU、OpenGL 和 Vulkan 运行库。在 Ubuntu 22.04 上，可安装缺少的系统包：
 
 .. code-block:: bash
 
-   bash script/install_robolab.sh
+   sudo apt-get update
+   sudo apt-get install git-lfs ffmpeg libegl1 libglu1-mesa libopengl0 libvulkan1
 
-脚本创建 ``.venv-robolab-policy`` 和 ``.venv-robolab-sim``，安装 RPent 的 ``robolab`` 可选依赖，并将 RoboLab 固定版本 ``b6cfcf6`` 及 LFS 资产下载到仓库旁的 ``../RoboLab-runtime``。可通过第一个参数指定其他外部目录；已有 checkout 必须符合固定版本。模型权重需要单独准备。
-
-安装器会检查两个环境及图形运行库。在 Ubuntu 22.04 x86_64 上，缺少的 EGL、GLU、OpenGL 和 Vulkan 库通过 ``curl``、``dpkg-deb`` 和 ``sha256sum`` 安装到 ``.venv-robolab-sim/system-libs``，无需 sudo，也不修改 NVIDIA 驱动。其他发行版需要通过系统包管理器安装缺少的图形库。下载并发和超时可通过 ``UV_*`` 环境变量调整，具体见 ``bash script/install_robolab.sh --help``。
-
-手动安装
-~~~~~~~~
-
-手动安装时，沿用其他仿真环境的 ``uv venv`` 和可选依赖安装方式：
+其他发行版请使用相应的系统包管理器；没有安装权限时，请管理员提供这些运行库。在 RPent 仓库根目录，按照 :doc:`../get_started/quickstart` 的方式创建策略环境并安装可选依赖：
 
 .. code-block:: bash
 
@@ -81,9 +75,7 @@ RoboLab
    source .venv-robolab-policy/bin/activate
    uv pip install -e ".[robolab]"
 
-RoboLab 从源码包相邻的 ``assets/`` 读取 USD 资产。因此另建 Isaac 环境，并在
-RPent 仓库之外安装带资产的 RoboLab 源码，并安装 ``openpi-client``。
-``git lfs pull`` 下载任务所需资产。以下命令使用 Isaac Sim 5.0：
+RoboLab 从源码包相邻的目录读取 USD 资产。在 RPent 仓库外安装固定版本 ``b6cfcf6`` 及其 LFS 资产，并为 Isaac Sim 5.0 / Isaac Lab 2.2.0 创建独立环境：
 
 .. code-block:: bash
 
@@ -103,111 +95,93 @@ RPent 仓库之外安装带资产的 RoboLab 源码，并安装 ``openpi-client`
        -e ".[isaac50]" openpi-client
    )
 
-完成手动安装后，检查图形库和依赖：
+完整 RPent 包仅安装在策略环境中。仿真进程通过启动器设置的 ``PYTHONPATH`` 从本仓库加载环境服务和共享 RPC 模块。将规划器依赖装入仿真环境，会与 Isaac Sim 固定的版本冲突。第二条安装命令需要保留 Isaac 可选依赖，以便解析器继续遵守这些版本约束。安装完成后检查两个环境：
 
 .. code-block:: bash
 
-   bash script/install_robolab_graphics.sh
    uv pip check --python .venv-robolab-policy/bin/python
    uv pip check --python .venv-robolab-sim/bin/python
-
-完整 RPent 包仅安装在策略环境中。仿真进程通过启动器设置的 ``PYTHONPATH``，
-从本仓库加载环境服务和共享 RPC 模块。将 RPent 的规划器依赖装入 Isaac 环境，
-会与 Isaac Sim 固定的依赖版本冲突。
 
 模型权重
 ~~~~~~~~
 
-仿真进程从已安装的 ``robolab`` 包及其相邻的 ``assets/`` 读取资源，不读取
-RPent 的 ``ref-repo/`` 或 ``data/``。另行设置 Pi0.5 检查点路径，路径可以在仓库外：
+在已激活的策略环境中，从 Hugging Face 下载公开的 `RLinf-Pi05-RoboLab-droid-jointpos 权重 <https://huggingface.co/RLinf/RLinf-Pi05-RoboLab-droid-jointpos>`_：
 
 .. code-block:: bash
 
-   export PI05_CHECKPOINT_PATH=/absolute/path/to/pi05_droid_jointpos_torch
+   export PI05_CHECKPOINT_PATH="$HOME/.cache/rpent/checkpoints/RLinf-Pi05-RoboLab-droid-jointpos"
+   hf download RLinf/RLinf-Pi05-RoboLab-droid-jointpos \
+     --local-dir "$PI05_CHECKPOINT_PATH"
 
-检查点需要匹配 DROID 关节位置 Pi0.5 模型：预测长度为 15，环境动作维度为 8。
-策略环境使用 RLinf 的 ``pi05_droid_polaris`` 模型配置。请提供兼容的 PyTorch 权重目录，包含 ``model.safetensors`` 和 ``assets/droid/norm_stats.json``。安装脚本不会下载或转换模型权重，JAX checkpoint 不能直接传入此加载器。运行不要求仓库中预先存在本地数据或权重目录；通过 ``--pi05-checkpoint`` 或 ``PI05_CHECKPOINT_PATH`` 指定自己的路径。
+目录包含 ``model.safetensors``、``config.json`` 和 ``assets/droid/norm_stats.json``，请保持目录结构完整。策略使用 RLinf 的 ``pi05_droid_polaris`` 配置：两路图像、10 步去噪、15 步预测长度和八维环境动作。加载器接收 PyTorch 权重，不能直接使用 JAX checkpoint。在新终端中重新设置 ``PI05_CHECKPOINT_PATH``，或通过 ``--am-checkpoint`` 指定该目录。
 
 运行一个任务
 ------------
 
-激活策略环境并检查本地 Codex 登录。随依赖安装的 CLI 使用当前用户登录，此登录方式无需 API Key。其他规划器及认证方式见 :doc:`../guides/configure_planner`。
+按照 :doc:`../guides/configure_planner` 配置规划器。示例使用当前用户的 Codex 登录和已配置的模型，此登录方式无需 API Key。在 RPent 仓库根目录运行，并保留上文设置的 checkpoint 路径。将 ``--cuda-device`` 设为显存充足的物理 GPU 编号；示例使用 GPU 0。
 
 .. code-block:: bash
 
    source .venv-robolab-policy/bin/activate
-   export CODEX_BIN="$(python -c 'from codex_cli_bin import bundled_codex_path; print(bundled_codex_path())')"
-   "$CODEX_BIN" login
-   "$CODEX_BIN" login status
-   rpent-check-llm --planner codex --timeout-s 90 --json
-
-连接检查成功后运行任务。将 ``--cuda-device`` 设置为显存充足的物理 GPU 编号，示例使用 GPU 0。规划器默认读取 Codex 配置中的模型，也可以通过 ``--model`` 指定。
-
-
-.. code-block:: bash
-
+   rpent-check-llm --planner codex
    rpent --robot robolab --task BananaInBowlTask --seed 0 \
      --sim-python "$PWD/.venv-robolab-sim/bin/python" \
      --cuda-device 0 --planner codex \
      --output-dir ./logs/first-robolab
 
-快捷脚本会在启动任务前检查当前 Codex 登录：
+动作模型部署使用共享的 ``--am-checkpoint``、``--am-python``、``--am-root`` 和 ``--am-cuda-device`` 参数。复用已有模型服务时，传入 ``--am-endpoint``，不要同时传入本地部署参数。
 
-.. code-block:: bash
+不加载模型权重、仅使用环境动作时，加入 ``--policy-backend none``。此时可使用 ``execute_action`` 和 ``view_env_state``，但没有 ``pi05_act``。
 
-   bash script/run_robolab.sh "$PI05_CHECKPOINT_PATH" BananaInBowlTask 0 ./logs/first-robolab
-
-运行快捷脚本的终端应配置好仿真需要的 GPU 可见性；上面的 CLI 命令可直接指定物理 GPU。脚本使用现有 Codex 配置和登录。
-
-只检查环境而不加载检查点时，加入 ``--policy-backend none``。此时可使用
-``execute_action`` 和 ``view_env_state``，但没有 ``pi05_act``。
-
-要使用 Dashboard，将 ``--task BananaInBowlTask --seed 0`` 改为
-``--dashboard``，再通过 ``/rpent-task BananaInBowlTask 0`` 创建任务。
-Dashboard 在多个任务间共用 Pi0.5，并为每个任务创建新环境；该模式需要 Pi0.5。
+要使用 Dashboard，将 ``--task BananaInBowlTask --seed 0`` 改为 ``--dashboard``，再通过 ``/rpent-task BananaInBowlTask 0`` 创建任务。Dashboard 在多个任务间共用 Pi0.5，并为每个任务创建新环境；传入 ``--policy-backend none`` 时，仅启动环境并提供原生动作，不显示 VLA 组件或 ``pi05_act``。
 
 查看结果
 --------
 
-``logs/first-robolab/states.json`` 保存 RPent 步骤记录；``main.png`` 和
-``wrist.png`` 目录保存观测图像。``result.json`` 单独记录原生任务成功状态；
-RoboLab 尚未返回终止结果时，``success`` 为 ``null``。
-``env_server.log`` 与 ``vla_server.log``
-分别保存组件日志。RoboLab 原生输出位于 ``logs/first-robolab/native/``。
+``logs/first-robolab/states.json`` 保存 RPent 步骤记录；``main.png`` 和 ``wrist.png`` 目录保存观测图像。``result.json`` 单独记录原生任务成功状态；RoboLab 尚未返回终止结果时，``success`` 为 ``null``。``env_server.log`` 保存环境日志，启动本地模型时还会生成 ``vla_server.log``。RoboLab 原生输出位于 ``logs/first-robolab/native/``。
 
-查看最后一次 ``view_env_state``：只有 RoboLab 报告成功时，``state.success``
-才为 ``true``。原生任务尚未结束时，该值为 ``null``；达到步数上限不代表成功。
+查看最后一次 ``view_env_state``：只有 RoboLab 报告成功时，``state.success`` 才为 ``true``。原生任务尚未结束时，该值为 ``null``；达到步数上限不代表成功。
 
 任务记忆
 --------
 
-RoboLab 默认使用本地记忆目录。传入
-``--memory-profile local --memory-dir /path/to/memory`` 可复用自己的任务笔记。
-运行时不会下载 RoboLab 专属记忆库。
+目前没有公开提供的 RoboLab 任务记忆库。RPent 会创建本地 RoboLab 记忆目录，全新安装时该目录为空，运行时不会下载记忆库。传入 ``--memory-profile local --memory-dir /path/to/memory`` 可复用自己的任务笔记。RoboLab 暂不支持 RPent 探索模式。
 
 评估任务子集
 ------------
 
-评估脚本串行运行六个任务，各使用环境 seed 0、1、2：``BananaInBowlTask``、``BowlStackingLeftOnRightTask``、``BowlStackingRightOnLeftTask``、``BananaThenRubiksCubeTask``、``ReorientRedMugTask`` 和 ``StackYellowOnRedTask``。模型权重路径必须显式传入，结果默认保存到 ``logs/robolab_eval/unaligned_6tasks_3seeds/``。先预览运行命令：
+配置好模型权重与规划器后，在 RPent 仓库根目录执行以下命令，串行评估六个任务，每个任务使用环境 seed 0、1、2。开始前请选择可用 GPU。每次执行都会创建新的输出目录，每个回合使用独立的空白本地记忆：
 
 .. code-block:: bash
 
-   bash script/eval_robolab_subset.sh \
-     --checkpoint "$PI05_CHECKPOINT_PATH" --gpu 0 \
-     --output-dir ./logs/robolab-subset --dry-run
+   (
+     set -e
+     mkdir -p ./logs
+     eval_root="$(mktemp -d "$PWD/logs/robolab-subset-XXXXXX")"
+     for task in BananaInBowlTask BowlStackingLeftOnRightTask \
+       BowlStackingRightOnLeftTask BananaThenRubiksCubeTask \
+       ReorientRedMugTask StackYellowOnRedTask; do
+       for seed in 0 1 2; do
+         episode_dir="$eval_root/${task}_s${seed}"
+         rpent --robot robolab --task "$task" --seed "$seed" \
+           --sim-python "$PWD/.venv-robolab-sim/bin/python" \
+           --cuda-device 0 --planner codex --reasoning-effort low \
+           --max-turns 400 --planner-timeout-s 3600 \
+           --memory-profile local --memory-dir "$episode_dir/memory" \
+           --output-dir "$episode_dir"
+       done
+     done
+   )
 
-去掉 ``--dry-run`` 后开始执行，也可通过 ``--tasks`` 和 ``--seeds`` 选择更小的子集。默认每回合最多 400 个规划轮次、3600 秒规划预算，推理强度为 ``low``；仿真启动时间不计入规划预算。每次尝试使用空白的 RPent 本地记忆，Codex 会话存储遵循用户配置。环境 seed 不会固定策略采样随机数。策略使用上游 RLinf 实现、10 步去噪、两路图像，每次预测最多执行 15 个动作；规划器可缩短动作块或直接发送动作。
+每回合最多 400 个规划轮次、3600 秒规划预算，仿真启动时间不计入该预算。环境 seed 不会固定策略采样随机数和规划器决策；规划器可缩短动作块或直接发送动作。这是子集评估，不代表完整基准结果。
 
-``manifest.json`` 保存配置、依赖版本和源码哈希。``summary.json`` 与 ``summary.csv`` 分别统计原生成功、失败、提前结束、预算耗尽、运行错误和中断。成功率以已结束的评估回合为分母，其中包括提前结束和预算耗尽；运行错误与中断单独报告。重复相同命令会跳过已结束回合，对错误或中断使用新的 attempt 目录重试。遇到运行错误时脚本停止；配置或源码改变后必须使用新输出目录，避免混合结果。
+逐回合检查 ``result.json`` 和日志，仅将 ``success`` 为 ``true`` 的回合计为原生成功，分别报告 ``false`` 和 ``null``。以计划的全部 18 回合为分母，明确列出缺失结果、运行错误和中断。循环在进程非零退出时停止，不自动重试或生成汇总报告。需要重试时，为对应任务和 seed 指定新的输出与记忆目录，保留原先的失败尝试。比较结果时，还应记录代码与资源版本、依赖版本、规划模型和重试规则。
 
 问题排查
 --------
 
-若环境启动失败，查看 ``env_server.log``，确认 ``--sim-python`` 指向的
-Isaac 环境以 editable 模式安装了带 ``assets/`` 的 RoboLab。若策略启动失败，
-查看 ``vla_server.log`` 和检查点路径。仿真与策略依赖冲突时，保持两个 Python
-环境分离。
+若环境启动失败，查看 ``env_server.log``，确认 ``--sim-python`` 指向的 Isaac 环境以 editable 模式安装了带 ``assets/`` 的 RoboLab。若策略启动失败，查看 ``vla_server.log`` 和 checkpoint 路径。
 
-遇到 Vulkan 初始化错误或缺少 ``libGLU.so.1`` 时，重新执行 ``bash script/install_robolab_graphics.sh`` 并查看 Isaac 日志；启动器会自动加入本地图形库路径。渲染和物理仿真使用选定的物理 GPU，并禁用多 GPU 渲染；Isaac 仍可能在其他 GPU 创建少量 CUDA 上下文。在共享机器上使用 ``nvidia-smi`` 检查实际显存占用。
+遇到 Vulkan 初始化错误或缺少 ``libGLU.so.1`` 时，检查 NVIDIA 驱动和上文列出的系统图形库，并查看 Isaac 日志。渲染和物理仿真使用选定的物理 GPU，并禁用多 GPU 渲染；Isaac 仍可能在其他 GPU 创建少量 CUDA 上下文。在共享机器上使用 ``nvidia-smi`` 检查实际显存占用。
 
-下载 wheel 超时时，可对相同外部目录和虚拟环境重新执行安装脚本，已有下载缓存会保留。依赖冲突应分别查看两个环境的 ``uv pip check`` 输出。Codex 网络错误记录在规划器日志中，可能自动重试；进程正常退出本身不能证明原生任务成功。
+下载 wheel 超时时，可使用相同环境和缓存重试失败的 ``uv`` 命令。依赖冲突应分别查看两个环境的 ``uv pip check`` 输出。进程正常退出本身不能证明原生任务成功。
