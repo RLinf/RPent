@@ -14,13 +14,12 @@
 
 """User prompt for one RoboTwin run."""
 
+from robots.robotwin.prompts import user as base
+
 CELL = """- task: {{task_name}}
 - seed: {{seed}}
 - task_config: {{task_config}}
 - checkpoint: UniWAM RoboTwin history-flow
 """
 
-BEGIN = """Follow the required read order, bind the current task's targets and
-relations from fresh observation, then execute the first unmet recipe phase.
-After each action verify its observable gate, preserve achieved relations, and
-use the complete current task_language unchanged for every wam_act."""
+BEGIN = base.BEGIN

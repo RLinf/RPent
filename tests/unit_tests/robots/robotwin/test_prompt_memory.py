@@ -51,10 +51,11 @@ def test_prompts_render_with_memory_relative_paths():
 
 
 @pytest.mark.parametrize("mode", ["eval", "explore"])
-def test_uniwam_prompt_selects_only_its_tools_and_keeps_memory(mode):
+@pytest.mark.parametrize("backend", ["lingbot", "uniwam"])
+def test_hybrid_prompt_selects_its_tools_and_keeps_memory(mode, backend):
     variables = {
-        "policy_backend": "uniwam",
-        "policy_kind": "wam",
+        "policy_backend": backend,
+        "policy_kind": "wam" if backend == "uniwam" else "vla",
         "mode": mode,
         "memory_dir": "shared-memory",
         "task_name": "beat_block_hammer",
@@ -70,10 +71,23 @@ def test_uniwam_prompt_selects_only_its_tools_and_keeps_memory(mode):
     }
     system = format_prompt(system_prompt(variables), variables=variables)
     user = format_prompt(user_prompt(variables), variables=variables)
-    assert "wam_act" in system + user
-    assert "lingbot_act" not in system + user
-    assert "GUIDE_UNIWAM.md" in system
-    assert "GUIDE_RPENT.md" not in system
-    assert "use_length=50" not in system
+    assert "GUIDE_RPENT.md" in system
+    assert "{{" not in system + user
+    if backend == "uniwam":
+        assert "wam_act" in system + user
+        assert "lingbot_act" not in system + user
+        assert "use_length=50" not in system
+        assert "16 qpos actions" in system
+        assert "Historical LingBot" in system
+    else:
+        assert "lingbot_act" in system
+        assert "wam_act" not in system + user
+        assert "use_length=50" in system
     if mode == "eval":
         assert "shared-memory/MEMORY.md" in system
+        assert "must not be restarted" in system
+    else:
+        assert "shared-memory/inbox/wip/" in system
+        assert "attempt_<N>_failed.json" in system
+        assert "up to\n5 attempts" in system
+        assert "after the final reset" in system
