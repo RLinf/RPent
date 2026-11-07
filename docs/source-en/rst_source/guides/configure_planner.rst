@@ -203,7 +203,6 @@ in each new terminal used to run RPent:
    cd /path/to/RPent
    source .venv/bin/activate
    export CODEX_HOME="$PWD/.codex-rpent-live"
-   export CODEX_SQLITE_HOME="$CODEX_HOME"
    export CODEX_SERVICE_TIER=fast
    mkdir -p "$CODEX_HOME"
    unset CODEX_API_KEY CODEX_BASE_URL OPENAI_API_KEY OPENAI_BASE_URL CODEX_ACCESS_TOKEN
@@ -226,9 +225,9 @@ For a custom API, set ``CODEX_API_KEY`` and ``CODEX_BASE_URL`` for this deployme
 Other login methods are described in
 `Codex authentication <https://developers.openai.com/codex/auth/>`_.
 
-RPent does not enable this isolation automatically. It does not isolate the shared
-workspace or migrate old sessions. Task memory is selected separately with
-``--memory-dir``. Do not commit this directory or credentials.
+RPent inherits the existing ``CODEX_HOME`` unless you set it explicitly.
+SQLite storage follows the user's Codex configuration. Task memory is selected
+separately with ``--memory-dir``. Do not commit Codex session data or credentials.
 
 Local Models with Codex
 ~~~~~~~~~~~~~~~~~~~~~~~

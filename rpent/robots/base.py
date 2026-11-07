@@ -27,11 +27,13 @@ from __future__ import annotations
 import importlib
 import pkgutil
 import sys
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from rpent.robots.robot_spec import RobotSpec
-from rpent.tools.toolkit import Toolkit
 from rpent.utils.config import get_repo_root
+
+if TYPE_CHECKING:
+    from rpent.tools.toolkit import Toolkit
 
 # Robot packages live under ``<repo>/robots/``, which is not part of the installed
 # ``rpent`` distribution. Ensure the repo root is importable so ``robots.<name>``

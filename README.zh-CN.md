@@ -124,11 +124,15 @@ pip install -e ".[libero-pro]"
 # 其他环境配置：
 pip install -e ".[robocasa]"    # RoboCasa
 pip install -e ".[robotwin]"    # RoboTwin
+pip install -e ".[robolab]"     # RoboLab
 pip install -e ".[franka]"      # Franka / 双臂 Franka
 ```
 
 `.[libero-pro]` 是默认推荐配置。其他环境见
 [安装文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/get_started/quickstart.html)。
+
+RoboLab 安装、外部模型权重与子集评估参见
+[RoboLab 指南](docs/source-zh/rst_source/simulators/robolab.rst)。
 
 RoboCasa 安装、任务 memory 与 Target50 协议参见
 [RoboCasa 指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robocasa.html)。
