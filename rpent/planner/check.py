@@ -36,6 +36,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10
+    import tomli as tomllib
+
 from rpent.utils.logging import get_logger
 
 logger = get_logger("check")
@@ -339,7 +344,8 @@ def _has_cli_login(planner: str) -> bool:
         planner: The backend being probed.
 
     Returns:
-        True when a known login file is present. False means "no evidence of
+        True when a known login file is present, or when Codex is configured
+        for a provider that needs no OpenAI login. False means "no evidence of
         a login", not "not logged in": a backend may keep its credential
         somewhere this module does not look.
     """
@@ -349,7 +355,31 @@ def _has_cli_login(planner: str) -> bool:
                 return True
         except OSError:
             continue
+    if planner == "codex" and _codex_provider_skips_openai_login():
+        return True
     return _has_keychain_login(planner)
+
+
+def _codex_provider_skips_openai_login() -> bool:
+    """Whether Codex's ``config.toml`` selects a provider that needs no OpenAI login.
+
+    Such providers carry their credential in the config itself (for example
+    ``http_headers``), where this module cannot see it. ``CODEX_BASE_URL``
+    replaces the configured provider with RPent's own, so it disables this.
+
+    Returns:
+        True when the selected provider does not require OpenAI auth.
+    """
+    if os.environ.get(_CODEX_BASE_URL_ENV):
+        return False
+    home = Path(os.environ.get("CODEX_HOME") or "~/.codex").expanduser()
+    try:
+        settings = tomllib.loads((home / "config.toml").read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return False
+    name = settings.get("model_provider", "openai")
+    provider = settings.get("model_providers", {}).get(name, {})
+    return not provider.get("requires_openai_auth", name == "openai")
 
 
 def _has_keychain_login(planner: str) -> bool:

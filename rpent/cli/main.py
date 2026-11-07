@@ -112,6 +112,7 @@ def _build_argparser() -> argparse.ArgumentParser:
         epilog="To verify the LLM backend before starting a run, use "
         "rpent-check-llm (e.g. rpent-check-llm --planner api "
         "--model anthropic:claude-opus-4-8).",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
         add_help=False,
     )
 
@@ -244,10 +245,19 @@ def _build_argparser() -> argparse.ArgumentParser:
         "file. Defaults to INFO when not set.",
     )
     ap.add_argument(
+        "--tui",
+        "-t",
+        action="store_true",
+        help="TUI mode: opens an interactive cli session.",
+    )
+    # Deprecated alias for --tui; hidden from --help. Kept so existing
+    # scripts keep working until the flag is removed.
+    ap.add_argument(
         "--interactive",
         "-i",
+        dest="tui",
         action="store_true",
-        help="Interactive mode: opens an interactive cli session.",
+        help=argparse.SUPPRESS,
     )
 
     return ap
@@ -316,7 +326,7 @@ def _start_continuation_session(
         claude_code_max_budget_usd=args.claude_code_max_budget_usd,
         dashboard_events=dashboard_events,
         no_images=args.no_images,
-        interactive=args.interactive,
+        interactive=args.tui,
     )
     system_prompt = prompt_bundle.render(
         "system",
@@ -367,21 +377,28 @@ def main() -> int:
     )
     args = parser.parse_args()
     args.robot_name = early.robot_name
+    if "--interactive" in sys.argv or "-i" in sys.argv:
+        logger.warning("--interactive is deprecated; use --tui instead")
     human_interactive_exploration = (
         args.explore and robot_spec.supports_human_interactive_exploration
     )
-    if args.dashboard and args.interactive:
-        parser.error("--dashboard and --interactive cannot be used together")
-    external_env_dashboard = (getattr(robot_spec, "dashboard", None) or {}).get(
-        "external_env", False
-    )
+    if args.dashboard and args.tui:
+        parser.error("--dashboard and --tui cannot be used together")
+    try:
+        external_env_dashboard = (
+            robot_spec.is_real_robot
+            and robot_spec.resolve_dashboard is not None
+            and robot_spec.resolve_dashboard(args).get("external_env", False)
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
     if robot_spec.is_real_robot and not (
         human_interactive_exploration
         or external_env_dashboard
         or (args.dashboard and robot_spec.supports_human_interactive_exploration)
     ):
-        if args.dashboard or args.interactive:
-            option = "--dashboard" if args.dashboard else "--interactive"
+        if args.dashboard or args.tui:
+            option = "--dashboard" if args.dashboard else "--tui"
             guidance = "Run in a plain terminal for operator confirmation."
             if robot_spec.supports_human_interactive_exploration:
                 guidance += " Alternatively, use --dashboard."
@@ -391,7 +408,7 @@ def main() -> int:
             )
         if sys.stdin is None or not sys.stdin.isatty():
             parser.error("This robot requires a TTY for operator confirmation.")
-    native_cli = args.interactive and args.planner == "api"
+    native_cli = args.tui and args.planner == "api"
     if args.base_url and args.planner in BASE_URL_ENV_BY_PLANNER:
         parser.error(
             "--base-url applies to the 'api' planner only; "
@@ -478,7 +495,7 @@ def main() -> int:
         claude_code_max_budget_usd=args.claude_code_max_budget_usd,
         dashboard_events=dashboard_events,
         no_images=args.no_images,
-        interactive=args.interactive,
+        interactive=args.tui,
     )
     prompt_bundle = robot_spec.prompts
     prompt_vars = {**prompt_vars, "output_dir": output_dir}
@@ -496,12 +513,10 @@ def main() -> int:
         from rpent.tools.human_in_the_loop import HumanInTheLoopInput
 
         # The native CLI reads between runs, leaving the TTY available to tools.
-        operator_input = HumanInTheLoopInput(
-            interactive=args.interactive and not native_cli
-        )
+        operator_input = HumanInTheLoopInput(interactive=args.tui and not native_cli)
     input_queue: "queue.Queue[str | None] | None" = None
     await_first_prompt: "Callable[[], str | None] | None" = None
-    if args.interactive and not native_cli:
+    if args.tui and not native_cli:
         input_queue = queue.Queue()
         # Pre-fill the first prompt with the rendered default task (editable
         # preset);
@@ -555,6 +570,7 @@ def main() -> int:
     recipe_path = ""
     solved = False
     environment_success: bool | None = None
+    environment_metrics: dict = {}
     memory_manager: MemoryManager | None = None
     try:
         if first_user_msg is not None:
@@ -563,6 +579,7 @@ def main() -> int:
         for session_number in range(1, sessions + 1):
             if session_msg is None:
                 break
+            environment_success, environment_metrics = None, {}
             if session_number > 1:
                 planner, system_prompt, session_msg = _start_continuation_session(
                     args,
@@ -650,11 +667,15 @@ def main() -> int:
                     operator_input.bind_verdict(None)
                 try:
                     if robot_spec.finalize_run is not None:
+                        toolkit.cancel_active_and_wait()
                         solved_fn = getattr(toolkit, "solved", None)
                         environment_success = (
                             bool(solved_fn()) if callable(solved_fn) else None
                         )
                         solved = bool(environment_success)
+                        environment_metrics = toolkit.evaluation_metrics(
+                            success=environment_success
+                        )
                 finally:
                     toolkit.close()
             if (
@@ -723,6 +744,7 @@ def main() -> int:
                     robot_name=robot_name,
                     task_desc=dict(task_desc),
                     environment_success=environment_success,
+                    environment_metrics=environment_metrics,
                     agent_error=agent_error,
                     elapsed_s=elapsed,
                     planner=args.planner,
