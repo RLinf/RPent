@@ -29,6 +29,17 @@ def system_prompt(
 ) -> PromptNode:
     """Return the RoboTwin system prompt for the selected run mode."""
     variables = variables or {}
+    if variables.get("policy_backend") == "uniwam":
+        from robots.robotwin.prompts.uniwam import evaluate
+
+        return (
+            explore_parts.system_prompt(
+                transfer=evaluate.TRANSFER, control=evaluate.CONTROL
+            )
+            if variables.get("mode") == "explore"
+            else evaluate.system_prompt()
+        )
+
     if (
         variables.get("mode", "eval") == "explore"
         and variables.get("policy_kind") != "wam"
@@ -40,6 +51,13 @@ def system_prompt(
 def user_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> PromptNode:
+    if (variables or {}).get("policy_backend") == "uniwam":
+        from robots.robotwin.prompts.uniwam import user
+
+        prompt = {"CELL": user.CELL, "BEGIN": user.BEGIN}
+        if (variables or {}).get("mode") == "explore":
+            prompt["EXPLORE MODE"] = explore_parts.USER_MODE
+        return prompt
     if (variables or {}).get("policy_kind") == "wam":
         return {
             "TASK": user_parts.WAM_TASK,

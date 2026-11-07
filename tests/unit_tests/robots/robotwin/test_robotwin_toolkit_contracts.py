@@ -155,11 +155,15 @@ def test_fake_and_real_implement_toolkit_primitive_protocol() -> None:
         )
 
 
-@pytest.mark.parametrize("policy_kind", ["vla", "wam"])
+@pytest.mark.parametrize(
+    "policy_kind,policy_backend",
+    [("vla", "lingbot"), ("wam", "fast-wam"), ("wam", "uniwam")],
+)
 def test_toolkit_constructs_and_captures_an_initial_observation(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     policy_kind: str,
+    policy_backend: str,
 ) -> None:
     FakeRoboTwinPrimitives.instances.clear()
     dumped: list[dict[str, Any]] = []
@@ -196,6 +200,7 @@ def test_toolkit_constructs_and_captures_an_initial_observation(
             "model": model,
             "seed": 7,
             "policy_kind": policy_kind,
+            "policy_backend": policy_backend,
         },
         dashboard_events=NullDashboardEventSink(),
         memory=MemoryManager(tmp_path / "memory"),

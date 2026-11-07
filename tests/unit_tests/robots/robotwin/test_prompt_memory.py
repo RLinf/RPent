@@ -16,6 +16,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from robots.robotwin.prompt_bundle import system_prompt, user_prompt
 from rpent.prompt.utils import format_prompt
 
@@ -46,3 +48,46 @@ def test_prompts_render_with_memory_relative_paths():
     assert "seed: 100000" in user
     assert "task_config: demo_randomized" in user
     assert "{{" not in system + user
+
+
+@pytest.mark.parametrize("mode", ["eval", "explore"])
+@pytest.mark.parametrize("backend", ["lingbot", "uniwam"])
+def test_hybrid_prompt_selects_its_tools_and_keeps_memory(mode, backend):
+    variables = {
+        "policy_backend": backend,
+        "policy_kind": "wam" if backend == "uniwam" else "vla",
+        "mode": mode,
+        "memory_dir": "shared-memory",
+        "task_name": "beat_block_hammer",
+        "task_config": "demo_randomized",
+        "seed": 7,
+        "reference_tag": "beat_block_hammer_s0",
+        "recipe_tag": "test",
+        "session_number": 1,
+        "session_max": 3,
+        "memory_inbox": "shared-memory/inbox",
+        "explore_attempts_per_session": 5,
+        "output_dir": "output",
+    }
+    system = format_prompt(system_prompt(variables), variables=variables)
+    user = format_prompt(user_prompt(variables), variables=variables)
+    assert "GUIDE_RPENT.md" in system
+    assert "{{" not in system + user
+    if backend == "uniwam":
+        assert "wam_act" in system + user
+        assert "lingbot_act" not in system + user
+        assert "use_length=50" not in system
+        assert "16 qpos actions" in system
+        assert "Historical LingBot" in system
+    else:
+        assert "lingbot_act" in system
+        assert "wam_act" not in system + user
+        assert "use_length=50" in system
+    if mode == "eval":
+        assert "shared-memory/MEMORY.md" in system
+        assert "must not be restarted" in system
+    else:
+        assert "shared-memory/inbox/wip/" in system
+        assert "attempt_<N>_failed.json" in system
+        assert "up to\n5 attempts" in system
+        assert "after the final reset" in system

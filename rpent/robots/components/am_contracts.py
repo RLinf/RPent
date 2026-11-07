@@ -75,6 +75,8 @@ class WAMRequest(AMObservation):
 
     embodiment: str
     action_space: str
+    # Executed controller targets, oldest first; required by history-flow models.
+    joint_target_history: NotRequired[np.ndarray]
 
 
 # --- WAM result: executable actions and optional model outputs ---

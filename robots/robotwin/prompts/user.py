@@ -23,7 +23,7 @@ CELL = """- task: {{task_name}}
 BEGIN = """Follow the required read order, bind the current task's targets and
 relations from fresh observation, then execute the first unmet recipe phase.
 After each action verify its observable gate, preserve achieved relations, and
-use the complete current task_language unchanged for every lingbot_act."""
+use the complete current task_language unchanged for every call to the action model."""
 
 WAM_TASK = (
     "Inspect view_env_state for the native task and current scene, then use wam_act."

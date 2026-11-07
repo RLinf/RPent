@@ -37,7 +37,11 @@ def robotwin_request(
     observation: dict[str, Any], controller: AMControlSpec = ROBOTWIN_QPOS
 ) -> WAMRequest:
     """Attach the selected execution contract to native RoboTwin observations."""
+    history = {}
+    if "qpos_history" in observation:
+        history["joint_target_history"] = observation["qpos_history"]
     return {
+        **history,
         **physical_observation(observation),
         "embodiment": controller["embodiment"],
         "action_space": controller["action_space"],

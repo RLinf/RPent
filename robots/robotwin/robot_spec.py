@@ -314,7 +314,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         raise ValueError("--task-name is required")
     am = select_am(args, "robotwin")
     wam = am if am.is_wam else None
-    if wam is not None:
+    if wam is not None and am.backend != "uniwam":
         if getattr(args, "explore", False) or getattr(args, "planner", None) == "flash":
             raise ValueError("WAM supports evaluation without Flash Mode only")
         if getattr(args, "memory_profile", None) == "hf":
@@ -332,7 +332,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     output_dir = Path(output_dir)
     initial_seed = int(args.seed)
     default_memory_dir = get_memory_dir("robotwin")
-    if wam is not None:
+    if wam is not None and am.backend != "uniwam":
         default_memory_dir /= wam.backend
     memory_dir = (
         Path(args.memory_dir).expanduser().resolve()
@@ -596,7 +596,7 @@ def _init_runtime(
             except Exception:
                 rpc.close()
                 raise
-            return {"model": client, "policy_kind": "wam"}
+            return {"model": client, "policy_kind": "wam", "policy_backend": am.backend}
 
         runtime_kwargs.update(
             try_wait_server(

@@ -55,12 +55,14 @@ class RoboTwinPrimitives:
         check_cancelled: Callable[[], None],
         seed_mode: str = "exact",
         policy_kind: str = "vla",
+        policy_backend: str = "lingbot",
     ):
         if seed_mode != "exact":
             raise ValueError("standard RoboTwin integration requires seed_mode='exact'")
         self.env = env
         self.model = model
         self.policy_kind = policy_kind
+        self.policy_backend = policy_backend
         self.seed = int(seed)
         self._check_cancelled = check_cancelled
         self.policy_actions = 0
@@ -262,7 +264,7 @@ class RoboTwinPrimitives:
         """Execute bounded action chunks from the selected WAM on current observations. Omit prompt for the native task, or supply a subtask for this call. Inspect the resulting state before continuing; predictions do not establish task success.
 
         Args:
-            prompt: Concrete instruction for this call; omit or null for the native task.
+            prompt: Concrete instruction for this call; omit or null for the native task. UniWAM always uses the native task instruction.
             max_chunks: One to four predictions before planner feedback (default 1).
         """
         if type(max_chunks) is not int or not 1 <= max_chunks <= 4:
@@ -274,7 +276,7 @@ class RoboTwinPrimitives:
             use_length=None,
             prompt=prompt,
             action_type=self.model.action_type,
-            override_prompt=True,
+            override_prompt=self.policy_backend != "uniwam",
         )
 
     def _policy_act(
@@ -299,6 +301,8 @@ class RoboTwinPrimitives:
             if status.get("eval_success") is True or budget_exhausted:
                 break
             observation = self._build_lingbot_observation()
+            if self.policy_backend == "uniwam":
+                observation["qpos_history"] = self.env.qpos_history
             if override_prompt and prompt is not None:
                 observation["task_language"] = prompt
             native_prompt = observation["task_language"]

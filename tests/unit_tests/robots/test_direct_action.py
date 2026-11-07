@@ -70,9 +70,16 @@ def make_primitive(robot, action_size=None):
         }
 
     def call(method, **kwargs):
+        if robot == "robotwin":
+            if method == "env.get_env_meta":
+                return {"seed": 0}
+            if method == "env.reset":
+                return obs, {**info, "instruction": "test task"}
         return specs if method == "env.get_action_spec" else step_result
 
     env._client = SimpleNamespace(call=Mock(side_effect=call))
+    if robot == "robotwin":
+        env = client_cls(env._client, expected_meta={"seed": 0})
     env.last_obs = obs
     env.last_reset_info = {}
     if robot != "robocasa":
