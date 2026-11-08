@@ -1,0 +1,136 @@
+name: Review Bot
+
+# PR slash commands backed by PR-Agent on the self-hosted review runners.
+#
+#   /review-design   design and contract review
+#   /review-pr       full code review
+#   /review-autofix  actionable suggestions the author may accept in GitHub
+#
+# The workflow that runs on issue_comment is always taken from the default
+# branch, so this file must be on main. The review job runs on a runner labelled
+# `review-bot`; it only reads the PR through the GitHub API and never checks out
+# or executes PR code.
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  dispatch:
+    if: >-
+      github.event.issue.pull_request &&
+      github.event.comment.user.type != 'Bot' &&
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) &&
+      (startsWith(github.event.comment.body, '/review-design') ||
+       startsWith(github.event.comment.body, '/review-pr') ||
+       startsWith(github.event.comment.body, '/review-autofix'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      pr: ${{ steps.parse.outputs.pr }}
+      command: ${{ steps.parse.outputs.command }}
+      sha: ${{ steps.parse.outputs.sha }}
+    steps:
+      - name: Parse command
+        id: parse
+        shell: bash
+        env:
+          BODY: ${{ github.event.comment.body }}
+          PR: ${{ github.event.issue.number }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # Only the first line is a command; later lines are treated as prose.
+          line=$(printf '%s\n' "$BODY" | head -n1 | tr -d '\r' | sed 's/[[:space:]]*$//')
+          case "$line" in
+            /review-design) command=review-design ;;
+            /review-pr) command=review-pr ;;
+            /review-autofix) command=review-autofix ;;
+            *) command=skip ;;
+          esac
+
+          sha=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq '.head.sha')
+          echo "pr=$PR" >> "$GITHUB_OUTPUT"
+          echo "command=$command" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Acknowledge
+        if: steps.parse.outputs.command != 'skip'
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.issue.number }}
+          COMMAND: ${{ steps.parse.outputs.command }}
+        run: |
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT"
+          gh pr comment "$PR" --body "Accepted \`$COMMAND\`. [View run]($run_url)"
+
+  review:
+    needs: dispatch
+    if: needs.dispatch.outputs.command != 'skip'
+    runs-on: [self-hosted, review-bot]
+    timeout-minutes: 45
+    concurrency:
+      group: review-bot-${{ needs.dispatch.outputs.pr }}
+      cancel-in-progress: true
+    env:
+      # PR-Agent reads the PR through the GitHub API. github.token is scoped to
+      # this repository and this run; no long-lived PAT is needed.
+      GITHUB__USER_TOKEN: ${{ github.token }}
+      GITHUB__DEPLOYMENT_TYPE: user
+      CONFIG__GIT_PROVIDER: github
+
+      # The review runner uses the same Anthropic-compatible gateway as the
+      # work machines. Credentials live in a root-only file on the runner, not
+      # in the repository, and are sourced by the step that needs them.
+      CONFIG__MODEL: anthropic/deepseek-v4.1-flash-1017
+      CONFIG__CUSTOM_MODEL_MAX_TOKENS: "100000"
+      MODEL_ENV: /mnt/public/rpent_review_agent/etc/model.env
+
+      PR_URL: https://github.com/${{ github.repository }}/pull/${{ needs.dispatch.outputs.pr }}
+      PR_AGENT: /mnt/public/rpent_review_agent/venv/bin/pr-agent
+      DESIGN_INSTRUCTIONS: >-
+        Review this pull request only at the design and contract level: the
+        problem statement, the proposed public interfaces, module boundaries,
+        configuration and call contracts, and consistency with the repository's
+        existing design. Do not report line-level implementation bugs, style
+        nits, or missing tests; another command reviews those. For each finding,
+        name the design concern it violates.
+    steps:
+      - name: Run PR-Agent
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -x "$PR_AGENT" || {
+            echo "PR-Agent is not installed at $PR_AGENT" >&2
+            exit 1
+          }
+          test -r "$MODEL_ENV" || {
+            echo "Model credentials are not readable at $MODEL_ENV" >&2
+            exit 1
+          }
+          set -a
+          . "$MODEL_ENV"
+          set +a
+
+          case "${{ needs.dispatch.outputs.command }}" in
+            review-design)
+              "$PR_AGENT" --pr_url "$PR_URL" review \
+                --pr_reviewer.extra_instructions="$DESIGN_INSTRUCTIONS"
+              ;;
+            review-pr)
+              "$PR_AGENT" --pr_url "$PR_URL" review
+              ;;
+            review-autofix)
+              "$PR_AGENT" --pr_url "$PR_URL" improve \
+                --pr_code_suggestions.committable_code_suggestions=true \
+                --pr_code_suggestions.focus_only_on_problems=true
+              ;;
+          esac
