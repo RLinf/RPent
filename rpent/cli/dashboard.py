@@ -222,6 +222,7 @@ def _run_dashboard_task(
     solved = False
     memory_manager = None
     environment_success = None
+    environment_metrics: dict = {}
     try:
         task_daemons, task_runtime_kwargs = robot_spec.init_runtime(
             task_args,
@@ -250,6 +251,7 @@ def _run_dashboard_task(
                     or state.task_finalization_cancelled
                 ):
                     break
+                environment_success, environment_metrics = None, {}
                 if session_number > 1:
                     logger.info(
                         "=== handing off to agent %d/%d ===",
@@ -351,8 +353,12 @@ def _run_dashboard_task(
                     try:
                         state.unbind_toolkit(toolkit)
                         if robot_spec.finalize_run is not None:
+                            toolkit.cancel_active_and_wait()
                             environment_success = bool(toolkit.solved())
                             solved = environment_success
+                            environment_metrics = toolkit.evaluation_metrics(
+                                success=environment_success
+                            )
                     finally:
                         toolkit.close()
                 if (
@@ -447,6 +453,7 @@ def _run_dashboard_task(
                     robot_name=robot_spec.name,
                     task_desc=dict(run_config.task_desc),
                     environment_success=environment_success,
+                    environment_metrics=environment_metrics,
                     agent_error=agent_error,
                     elapsed_s=time.time() - started,
                     planner=args.planner,
