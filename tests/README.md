@@ -32,8 +32,9 @@ tests/
     │   ├── libero/
     │   ├── robocasa/
     │   └── robotwin/
-    └── tools/            # tests for project tools
-        └── libero/       # geometry localization and fixed-frame experiments
+    └── toolkits/         # tests for reusable toolkits
+        └── geometry/     # geometry localization and fitting
+            └── evaluation/ # offline evaluator and experiment contracts
 ```
 
 Directories that do not yet have tests do not need empty placeholders. Add
@@ -45,7 +46,11 @@ them when the first test for that module lands.
   `rpent.utils.rpc` belong in `tests/unit_tests/rpent/utils/rpc/`.
 - Mirror top-level robot extensions under `tests/unit_tests/robots/`. Put
   robot-specific coverage in that directory's `<robot>/` child.
-- Mirror top-level `tools` modules under `tests/unit_tests/tools/`.
+- Mirror top-level `toolkits` modules under `tests/unit_tests/toolkits/`.
+  Geometry evaluation programs live under `toolkits/geometry/evaluation/`;
+  their offline tests use synthetic scenes and fake services under
+  `tests/unit_tests/toolkits/geometry/evaluation/`. Real collection, inference
+  and accuracy evaluation run through the documented experiment CLI.
 - Place cross-layer tests with the primary contract owner. Registry and config
   contracts belong to `rpent/robots/`; extension toolkit and schema contracts
   belong to `robots/`.

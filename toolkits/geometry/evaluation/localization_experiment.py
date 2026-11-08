@@ -14,7 +14,7 @@
 
 """Fixed-observation checklist experiment: collect, infer and independently evaluate.
 
-Run ``python -m tools.libero.localization_experiment --help``. Collection needs
+Run ``python -m toolkits.geometry.evaluation.localization_experiment --help``. Collection needs
 only ENV; inference needs only SAM3 and the explicit visual grounding model.
 Neither stage starts a planner/action model or executes a manipulation action.
 """
@@ -34,9 +34,8 @@ from typing import Any
 import numpy as np
 
 from rpent.session import EnvState
-from rpent.utils.config import get_repo_root
 from rpent.utils.logging import get_logger
-from tools.libero.localization_checklist import (
+from toolkits.geometry.evaluation.localization_checklist import (
     build_manifest,
     frame_id,
     load_manifest,
@@ -69,8 +68,19 @@ def _run_header(
 ) -> dict[str, Any]:
     from dataclasses import asdict
 
-    from tools.libero.geometry import FitOptions
+    from toolkits.geometry.geometry import FitOptions
 
+    geometry_dir = Path(__file__).resolve().parents[1]
+    evaluation_dir = Path(__file__).resolve().parent
+    sources = [
+        geometry_dir / "geometry.py",
+        geometry_dir / "reference_geometry.py",
+        geometry_dir / "candidate_geometry.py",
+        geometry_dir / "geometry_agent.py",
+        evaluation_dir / "localization_checklist.py",
+        evaluation_dir / "localization_experiment.py",
+        evaluation_dir / "localization_evaluation.py",
+    ]
     return {
         "schema_version": 1,
         "stage": stage,
@@ -83,18 +93,7 @@ def _run_header(
         "selected_requests": 2 * len(cases),
         "protocol": manifest["protocol"],
         "fit_options": asdict(FitOptions()),
-        "source_sha256": {
-            name: _hash(Path(__file__).with_name(name))
-            for name in (
-                "geometry.py",
-                "reference_geometry.py",
-                "candidate_geometry.py",
-                "geometry_agent.py",
-                "localization_checklist.py",
-                "localization_experiment.py",
-                "localization_evaluation.py",
-            )
-        },
+        "source_sha256": {path.name: _hash(path) for path in sources},
     }
 
 
@@ -366,7 +365,7 @@ def infer_cases(
 ) -> list[dict[str, Any]]:
     """Run both fixed references per case; one failure never skips the other target."""
     from robots.libero.tools import LiberoPrimitives
-    from tools.libero.geometry_agent import GeometryAgent
+    from toolkits.geometry.geometry_agent import GeometryAgent
 
     predictions = []
     for case in cases:
@@ -506,7 +505,10 @@ def _parser() -> argparse.ArgumentParser:
     ):
         sub = commands.add_parser(command)
         sub.add_argument(
-            "--manifest", type=Path, default=get_repo_root() / "test-cases.json"
+            "--manifest",
+            type=Path,
+            required=command == "write-manifest",
+            help="Fixed checklist JSON; defaults to the built-in checklist except when exporting it.",
         )
         if command in ("collect", "infer", "evaluate"):
             sub.add_argument(
@@ -585,7 +587,11 @@ def main(argv: list[str] | None = None) -> int:
             _write_json(args.manifest, build_manifest())
             logger.info("wrote checklist: %s", args.manifest)
             return 0
-        manifest = load_manifest(args.manifest)
+        manifest = (
+            load_manifest(args.manifest)
+            if args.manifest is not None
+            else build_manifest()
+        )
         cases = select_cases(
             manifest, getattr(args, "case_ids", None), getattr(args, "limit", None)
         )
@@ -598,13 +604,15 @@ def main(argv: list[str] | None = None) -> int:
             summary = infer(args, manifest, cases)
             return int(summary["status_counts"].get("error", 0) > 0)
         elif args.command == "truth-template":
-            from tools.libero.localization_evaluation import truth_template
+            from toolkits.geometry.evaluation.localization_evaluation import (
+                truth_template,
+            )
 
             if args.output.exists():
                 raise ValueError(f"annotation file already exists: {args.output}")
             _write_json(args.output, truth_template(manifest))
         elif args.command == "evaluate":
-            from tools.libero.localization_evaluation import evaluate
+            from toolkits.geometry.evaluation.localization_evaluation import evaluate
 
             predictions = [
                 json.loads(line)

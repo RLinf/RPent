@@ -24,7 +24,7 @@ from robots.libero.tools import LiberoPrimitives, write_recipe_from_states
 from rpent.robots.components.molmo_client import MolmoResult
 from rpent.robots.components.sam3_client import Sam3Result
 from rpent.session import EnvState
-from tools.libero.geometry_agent import GeometryAgent
+from toolkits.geometry.geometry_agent import GeometryAgent
 
 
 def make_agent(

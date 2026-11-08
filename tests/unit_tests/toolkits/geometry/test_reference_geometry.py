@@ -23,9 +23,9 @@ from robots.libero.tools import LiberoPrimitives
 from rpent.robots.components.molmo_client import MolmoResult
 from rpent.robots.components.sam3_client import Sam3Result
 from rpent.session import EnvState
-from tools.libero.geometry import FitOptions, fit_plane
-from tools.libero.geometry_agent import GeometryAgent
-from tools.libero.reference_geometry import fit_barrel_segment, fit_rectangle
+from toolkits.geometry.geometry import FitOptions, fit_plane
+from toolkits.geometry.geometry_agent import GeometryAgent
+from toolkits.geometry.reference_geometry import fit_barrel_segment, fit_rectangle
 
 
 def reference_agent(

@@ -26,7 +26,7 @@ from rpent.robots.components.molmo_client import MolmoResult
 from rpent.robots.components.sam3_client import Sam3Result
 from rpent.session import EnvState
 from rpent.tools.toolkit import ToolCancelled
-from tools.libero.geometry_agent import GeometryAgent
+from toolkits.geometry.geometry_agent import GeometryAgent
 
 
 @pytest.fixture

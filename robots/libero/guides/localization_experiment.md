@@ -1,24 +1,38 @@
 # LIBERO 选点清单实验
 
-本入口执行仓库根目录 `选点清单.md` 中的全部 16 项任务、seed 1～5，共 80 组、160 个参考点。`test-cases.json` 逐 seed 展开任务，并固定目标、参考点定义、step 0、agentview 和米制坐标。每组分别定位 A、B；遮挡或拟合失败不会替换目标。
+本入口执行全部 16 项固定任务、seed 1～5，共 80 组、160 个参考点。
+任务表见 [评估说明](../../../toolkits/geometry/evaluation/README.md)，由包内的
+`localization_checklist.py` 展开任务，并固定目标、参考点定义、step 0、agentview 和米制坐标。
+每组分别定位 A、B；遮挡或拟合失败不会替换目标。
 
-实现集中在 `tools/libero/`。原 `python -m robots.libero.localization_experiment` 命令转接到相同入口，已有实验脚本可继续使用。
+评估实现位于 `toolkits/geometry/evaluation/`，几何定位和拟合位于 `toolkits/geometry/`。
+已有脚本需改用下面的模块命令；旧 `tools.libero` 和 `robots.libero` 导入转接入口已移除。
 
 ## 准备与运行
 
 在仓库根目录、已安装 LIBERO-Pro 的环境中运行。采集需要已安装的仿真资源和可工作的 EGL/CUDA 环境；推理需要 SAM3 checkpoint 和可用的视觉模型。沿用 LIBERO 使用文档的安装及 `SAM3_CHECKPOINT_PATH` 配置。实验不需要 Pi0.5/WAM 权重、任务记忆或主规划器。
 
 ```bash
-python -m tools.libero.localization_experiment validate-manifest
+python -m toolkits.geometry.evaluation.localization_experiment validate-manifest
 
-python -m tools.libero.localization_experiment collect \
+python -m toolkits.geometry.evaluation.localization_experiment collect \
   --output experiments/localization/observations
 
-python -m tools.libero.localization_experiment infer \
+python -m toolkits.geometry.evaluation.localization_experiment infer \
   --inputs experiments/localization/observations \
   --geometry-model codex \
   --output experiments/localization/predictions
 ```
+
+这些命令默认使用内置清单。需要保存独立 JSON 时，显式导出：
+
+```bash
+python -m toolkits.geometry.evaluation.localization_experiment write-manifest \
+  --manifest experiments/localization/test-cases.json
+```
+
+后续命令可添加 `--manifest experiments/localization/test-cases.json` 读取并严格校验该副本。
+显式指定的文件缺失或清单内容被修改时会报错。
 
 `codex` 使用已配置的默认模型，也可写成 `codex:model` 或 API 的 `provider:model`；后者通过供应商规定的环境变量提供凭据，可用 `--geometry-base-url` 指定兼容服务地址。模型必须支持图像输入与结构化选点。这里的 `--geometry-model` 必填，不会启动一个主规划器来继承模型。
 
@@ -33,11 +47,11 @@ python -m tools.libero.localization_experiment infer \
 采集和推理都支持 `--limit N` 或重复传入 `--case <case_id>`。两阶段使用相同选择；省略选择时默认全部 80 组。
 
 ```bash
-python -m tools.libero.localization_experiment collect \
+python -m toolkits.geometry.evaluation.localization_experiment collect \
   --case libero_10_swap_t9_s1 \
   --output experiments/localization/pilot-observations
 
-python -m tools.libero.localization_experiment infer \
+python -m toolkits.geometry.evaluation.localization_experiment infer \
   --case libero_10_swap_t9_s1 \
   --inputs experiments/localization/pilot-observations \
   --geometry-model codex \
@@ -98,7 +112,7 @@ python -m tools.libero.localization_experiment infer \
 推理可以在没有真值的情况下完成。数值评估前生成标注模板：
 
 ```bash
-python -m tools.libero.localization_experiment truth-template \
+python -m toolkits.geometry.evaluation.localization_experiment truth-template \
   --output experiments/localization/truth.json
 ```
 
@@ -114,7 +128,7 @@ python -m tools.libero.localization_experiment truth-template \
 若按完整 LIBERO 模型建立参考点，采集时添加 `--with-references`，会在每组的 `evaluator_snapshot.json` 中保存同一初始状态的编译后可视网格及物体刚体位姿。该选项需要由本次入口启动 ENV；借用服务须已启用 `--evaluation-references`。先根据清单在完整模型中固定局部参考点，再用对应物体位姿转换到世界坐标，不能把物体原点默认视为部位中心。快照位于 episode 目录外，推理的传感器白名单不会复制它；这些模型数据不进入 GeometryAgent。快照本身不包含部位标注，仍需明确记录参考点定义和模型来源。
 
 ```bash
-python -m tools.libero.localization_experiment evaluate \
+python -m toolkits.geometry.evaluation.localization_experiment evaluate \
   --predictions experiments/localization/predictions/results.jsonl \
   --truth experiments/localization/truth.json \
   --tolerance-m 0.01 \

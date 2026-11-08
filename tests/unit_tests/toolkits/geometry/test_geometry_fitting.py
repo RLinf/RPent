@@ -18,7 +18,7 @@ import numpy as np
 import pytest
 from scipy.spatial.transform import Rotation
 
-from tools.libero.geometry import (
+from toolkits.geometry.geometry import (
     FitOptions,
     ShapeFit,
     clean_part_cloud,

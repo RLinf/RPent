@@ -21,7 +21,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from tools.libero.reference_geometry import REFERENCE_DEFINITIONS
+from toolkits.geometry.reference_geometry import REFERENCE_DEFINITIONS
 
 REFERENCES = {
     "plate": ("盘面中心", "the plate", "plate_center"),

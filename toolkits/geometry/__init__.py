@@ -12,4 +12,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""LIBERO GeometryAgent perception and localization experiment tools."""
+"""Geometry localization, point-cloud cleaning and shape fitting."""

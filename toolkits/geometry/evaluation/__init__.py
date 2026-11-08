@@ -12,4 +12,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Project tools and experiment utilities."""
+"""Fixed-observation geometry experiments and independent evaluation."""

@@ -265,14 +265,15 @@ where = ["."]
 # robots is a top-level package; without it, non-editable installations
 # leave the CLI unable to import any backend. The globs also cover every
 # per-robot subpackage (robots.yam.*, robots.robodojo.*, ...). Include the
-# project tools used by the LIBERO localization integration as well.
-include = ["rpent*", "robots", "robots.*", "tools", "tools.*"]
-exclude = ["tests*", "docs*", "examples*", "docker*", "toolkits*"]
+# geometry toolkit and its evaluation package used by the LIBERO integration.
+include = ["rpent*", "robots", "robots.*", "toolkits", "toolkits.*"]
+exclude = ["tests*", "docs*", "examples*", "docker*"]
 
 [tool.setuptools.package-data]
 "rpent.dashboard" = ["*.html", "static/*.css", "static/*.js"]
 "robots.yam" = ["config/*.yaml", "config/*.json", "guides/*.md"]
-"tools" = ["README.md"]
+"toolkits.geometry" = ["README.md"]
+"toolkits.geometry.evaluation" = ["README.md"]
 
 [tool.pytest.ini_options]
 addopts = ["--import-mode=importlib"]

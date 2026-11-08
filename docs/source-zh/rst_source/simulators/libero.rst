@@ -252,7 +252,7 @@ LIBERO 将仿真和模型推理分别放在独立服务器中运行，工具集�
 - **vla_server** （``rpent/robots/components/pi05_vla_server.py``）—— 持有 Pi0.5 权重，通过同一套 RPC 传输（HTTP 或 socket）暴露 ``predict``。
 - **sam3_server** （``rpent/robots/components/sam3_server.py``）—— 加载 SAM 3.0，根据文字描述或目标物体上的一个像素点，分割出目标区域。如果模型给出多个候选结果，只保留评分最高的一个，并通过同一套 RPC 传输（HTTP 或 socket）返回压缩 PNG 格式的分割掩码（mask）。
 - **toolkit（工具集）** （``robots/libero/toolkit.py``）—— 定义 LLM 能调用的工具：``pi0_pick`` （交给 Pi0.5）、``move_to``、``rotate_wrist``、``localize``、``view_env_state``、``finish``…
-- **GeometryAgent** （``tools/libero/geometry_agent.py``）—— 通过 ``localize`` 接收目标和部位描述，由视觉定位模型选择物体上的可见像素，再通过内部的分割与坐标工具计算结果。主规划器没有直接调用 ``segment`` 或 ``back_project`` 的工具入口。
+- **GeometryAgent** （``toolkits/geometry/geometry_agent.py``）—— 通过 ``localize`` 接收目标和部位描述，由视觉定位模型选择物体上的可见像素，再通过内部的分割与坐标工具计算结果。主规划器没有直接调用 ``segment`` 或 ``back_project`` 的工具入口。
 
 规划器可调用的工具
 --------------------
@@ -298,19 +298,28 @@ API 和 Codex 规划器默认复用主规划器的模型和服务地址进行视
 固定参考点清单实验
 ~~~~~~~~~~~~~~~~~~
 
-实现集中在 ``tools/libero/``。原 ``python -m robots.libero.localization_experiment`` 命令转接到相同入口，已有实验脚本可继续使用。
+评估程序位于 ``toolkits/geometry/evaluation/``。``localization_checklist.py``
+内置固定清单，包含 16 项 Task/Swap 任务、seed 1～5，共 80 组、160 个参考点；
+完整任务表见该目录的 ``README.md``。请在仓库根目录、LIBERO-Pro 环境中运行，
+并完成上文的仿真资源、EGL/CUDA 和 SAM3 配置。实验不需要 Pi0.5/WAM 权重或任务记忆。
+采集只启动 ENV；推理只启动 SAM3 和显式指定的视觉模型。
 
-源码仓库的 ``选点清单.md`` 与逐 seed 展开的 ``test-cases.json`` 包含 16 项 Task/Swap 任务、seed 1～5，共 80 组、160 个固定参考点。请在仓库根目录、LIBERO-Pro 环境中运行，并完成上文的仿真资源、EGL/CUDA 和 SAM3 配置。实验不需要 Pi0.5/WAM 权重或任务记忆。采集只启动 ENV；推理只启动 SAM3 和显式指定的视觉模型。
+已有脚本需将旧 ``tools.libero``、``robots.libero`` 实验入口改为下面的模块路径。
+GeometryAgent 使用 ``toolkits.geometry.geometry_agent`` 导入；原导入转接模块已移除。
 
 .. code-block:: bash
 
-   python -m tools.libero.localization_experiment validate-manifest
-   python -m tools.libero.localization_experiment collect \
+   python -m toolkits.geometry.evaluation.localization_experiment validate-manifest
+   python -m toolkits.geometry.evaluation.localization_experiment collect \
      --output experiments/localization/observations
-   python -m tools.libero.localization_experiment infer \
+   python -m toolkits.geometry.evaluation.localization_experiment infer \
      --inputs experiments/localization/observations \
      --geometry-model codex \
      --output experiments/localization/predictions
+
+省略 ``--manifest`` 时使用内置固定清单。需要 JSON 副本时，使用相同模块命令执行
+``write-manifest --manifest experiments/localization/test-cases.json``；后续命令通过
+``--manifest <path>`` 读取该副本。显式指定的文件缺失或清单内容被修改时会报错。
 
 ``codex`` 读取已配置的默认模型，也可指定 ``codex:model`` 或 ``provider:model``，后者可配合 ``--geometry-base-url``。每组只使用 step 0 / agentview，固定定位 A、B 两个目标。采集保存原生 1024×1024 配对 RGB-D、内部相机标定和 float32 世界坐标图。推理核对身份和哈希，仅复制允许的传感器观测文件，不修改采集源。此协议只记录拒绝原因，不执行动作或补视角。每个参考点最多调用一次视觉选点和两次 SAM。
 
@@ -324,10 +333,10 @@ API 和 Codex 规划器默认复用主规划器的模型和服务地址进行视
 
 .. code-block:: bash
 
-   python -m tools.libero.localization_experiment truth-template \
+   python -m toolkits.geometry.evaluation.localization_experiment truth-template \
      --output experiments/localization/truth.json
    # 独立标注完成后再运行下一条命令。
-   python -m tools.libero.localization_experiment evaluate \
+   python -m toolkits.geometry.evaluation.localization_experiment evaluate \
      --predictions experiments/localization/predictions/results.jsonl \
      --truth experiments/localization/truth.json --tolerance-m 0.01 \
      --output experiments/localization/evaluation

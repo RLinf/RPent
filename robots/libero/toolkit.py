@@ -75,7 +75,7 @@ class LiberoToolkit(Toolkit):
         self._attempts_per_session: int = max(0, int(attempts_per_session))
         self._session_attempt: int = 1
         self.init_primitives(runtime_kwargs=runtime_kwargs)
-        from tools.libero.geometry_agent import GeometryAgent
+        from toolkits.geometry.geometry_agent import GeometryAgent
 
         self._geometry_agent = GeometryAgent(
             state=self._state,

@@ -135,7 +135,7 @@ def make_env(
     )
     env_class = LiberoEnv
     if evaluation_references:
-        from tools.libero.evaluation_scene import evaluation_env_class
+        from toolkits.geometry.evaluation.evaluation_scene import evaluation_env_class
 
         env_class = evaluation_env_class(LiberoEnv)
     return env_class(

@@ -356,7 +356,7 @@ class GeometryAgent:
     ) -> list[bytes]:
         from scipy.ndimage import binary_dilation
 
-        from tools.libero.geometry import (
+        from toolkits.geometry.geometry import (
             FitOptions,
             ShapeFit,
             clean_part_cloud,
@@ -364,7 +364,7 @@ class GeometryAgent:
             geometry_fields,
             part_candidate_mask,
         )
-        from tools.libero.reference_geometry import (
+        from toolkits.geometry.reference_geometry import (
             REFERENCE_DESCRIPTIONS,
             REFERENCE_PARTS,
             fit_reference,
@@ -538,7 +538,7 @@ class GeometryAgent:
                 if part == "inner_rim" and not candidate_mask.any():
                     fit.reason = sample["candidate_extraction"]["reason"]
                 if self._permissive and not fit.accepted:
-                    from tools.libero.candidate_geometry import (
+                    from toolkits.geometry.candidate_geometry import (
                         estimate_reference_center,
                     )
 

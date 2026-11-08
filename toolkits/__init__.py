@@ -12,10 +12,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Compatibility import for :mod:`tools.libero.localization_checklist`."""
-
-import sys
-
-from tools.libero import localization_checklist as _implementation
-
-sys.modules[__name__] = _implementation
+"""Perception toolkits and their evaluation utilities."""

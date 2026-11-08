@@ -1,6 +1,6 @@
 # LIBERO localization through GeometryAgent
 
-The implementation is in `tools/libero/geometry_agent.py`, with cleanup and
+The implementation is in `toolkits/geometry/geometry_agent.py`, with cleanup and
 fitting in the neighboring `geometry.py` and `reference_geometry.py` modules.
 
 Use `view_env_state` to identify task-relevant objects. Pass a target description,

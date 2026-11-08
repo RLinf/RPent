@@ -19,7 +19,10 @@ from types import SimpleNamespace
 import numpy as np
 
 from robots.libero.env_server import LiberoEnvFacade
-from tools.libero.evaluation_scene import ReferenceEnvAdapter, snapshot_simulator
+from toolkits.geometry.evaluation.evaluation_scene import (
+    ReferenceEnvAdapter,
+    snapshot_simulator,
+)
 
 
 def test_compiled_mesh_transform_and_child_geometry_exclusion():

@@ -16,9 +16,9 @@
 
 import numpy as np
 
-from tools.libero.candidate_geometry import estimate_reference_center
-from tools.libero.geometry import ShapeFit, fit_circle
-from tools.libero.reference_geometry import ReferenceFit
+from toolkits.geometry.candidate_geometry import estimate_reference_center
+from toolkits.geometry.geometry import ShapeFit, fit_circle
+from toolkits.geometry.reference_geometry import ReferenceFit
 
 
 def test_short_arc_candidate_does_not_need_anchor_on_the_same_contour():

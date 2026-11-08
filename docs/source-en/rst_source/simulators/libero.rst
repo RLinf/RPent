@@ -302,7 +302,7 @@ uses their clients to execute the planner's requests.
   LLM can call: ``pi0_pick`` (fed to Pi0.5), ``move_to``,
   ``rotate_wrist``, ``localize``, ``view_env_state``,
   ``finish``, …
-- **GeometryAgent** (``tools/libero/geometry_agent.py``) — receives target/part
+- **GeometryAgent** (``toolkits/geometry/geometry_agent.py``) — receives target/part
   descriptions through ``localize``. Its visual grounding model selects a
   material pixel; internal segmentation and coordinate tools compute the result.
   The parent planner has no direct ``segment`` or ``back_project`` tool.
@@ -397,26 +397,33 @@ only the selected RGB image and target query, with no robot tools or object pose
 Fixed Reference Checklist Experiment
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The implementation is in ``tools/libero/``. The previous
-``python -m robots.libero.localization_experiment`` command delegates to the
-same entry point for existing experiment scripts.
-
-The source checkout includes ``选点清单.md`` and its expanded ``test-cases.json``:
-16 Task/Swap rows, seeds 1 through 5, 80 cases and 160 fixed reference requests.
+Evaluation programs are in ``toolkits/geometry/evaluation/``. The fixed
+checklist is built into ``localization_checklist.py``: 16 Task/Swap rows,
+seeds 1 through 5, 80 cases and 160 fixed reference requests. The complete
+task table is in that package's ``README.md``.
 Run the following from the repository root in the LIBERO-Pro environment with
 the simulator assets, EGL/CUDA and SAM3 checkpoint configured above. The
 experiment needs neither Pi0.5/WAM weights nor task memory. Collection starts
 only ENV; inference starts only SAM3 and the explicitly selected visual model.
 
+Existing scripts must replace the old ``tools.libero`` and ``robots.libero``
+experiment entry points with the module path below. Import GeometryAgent from
+``toolkits.geometry.geometry_agent``; the forwarding modules are removed.
+
 .. code-block:: bash
 
-   python -m tools.libero.localization_experiment validate-manifest
-   python -m tools.libero.localization_experiment collect \
+   python -m toolkits.geometry.evaluation.localization_experiment validate-manifest
+   python -m toolkits.geometry.evaluation.localization_experiment collect \
      --output experiments/localization/observations
-   python -m tools.libero.localization_experiment infer \
+   python -m toolkits.geometry.evaluation.localization_experiment infer \
      --inputs experiments/localization/observations \
      --geometry-model codex \
      --output experiments/localization/predictions
+
+Without ``--manifest``, commands use the built-in fixed checklist. To export a
+JSON copy, run ``write-manifest --manifest experiments/localization/test-cases.json``
+with the same module command. Pass ``--manifest <path>`` to subsequent commands
+to read that copy; a missing or modified checklist is rejected.
 
 ``codex`` uses its configured default; ``codex:model`` or ``provider:model``
 also work, with optional ``--geometry-base-url``. Each case uses only step 0 /
@@ -460,10 +467,10 @@ coordinates or automatic exclusion.
 
 .. code-block:: bash
 
-   python -m tools.libero.localization_experiment truth-template \
+   python -m toolkits.geometry.evaluation.localization_experiment truth-template \
      --output experiments/localization/truth.json
    # Complete the independent annotations before the next command.
-   python -m tools.libero.localization_experiment evaluate \
+   python -m toolkits.geometry.evaluation.localization_experiment evaluate \
      --predictions experiments/localization/predictions/results.jsonl \
      --truth experiments/localization/truth.json --tolerance-m 0.01 \
      --output experiments/localization/evaluation

@@ -21,14 +21,14 @@ from typing import Any
 
 import numpy as np
 
-from tools.libero.geometry import (
+from toolkits.geometry.geometry import (
     FitOptions,
     _basis,
     fit_axisymmetric,
     fit_circle,
     fit_plane,
 )
-from tools.libero.reference_geometry import (
+from toolkits.geometry.reference_geometry import (
     ReferenceFit,
     _outer_boundary,
     _plane_mask,

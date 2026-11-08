@@ -17,7 +17,7 @@
 import copy
 import json
 from collections import Counter
-from pathlib import Path
+from importlib.resources import files
 from types import SimpleNamespace
 
 import numpy as np
@@ -25,15 +25,15 @@ import pytest
 
 from rpent.session import EnvState
 from rpent.tools import ToolResult
-from tools.libero import localization_experiment as experiment
-from tools.libero.localization_checklist import (
+from toolkits.geometry.evaluation import localization_experiment as experiment
+from toolkits.geometry.evaluation.localization_checklist import (
     build_manifest,
     frame_id,
     load_manifest,
     manifest_digest,
     select_cases,
 )
-from tools.libero.localization_evaluation import (
+from toolkits.geometry.evaluation.localization_evaluation import (
     evaluate,
     truth_template,
     validate_truth,
@@ -87,9 +87,10 @@ def observation(root, manifest, case):
     return path, state
 
 
-def test_manifest_expands_every_markdown_row_and_reference():
-    root = Path(__file__).resolve().parents[4]
-    manifest = load_manifest(root / "test-cases.json")
+def test_manifest_expands_every_markdown_row_and_reference(tmp_path):
+    path = tmp_path / "manifest.json"
+    experiment._write_json(path, build_manifest())
+    manifest = load_manifest(path)
     assert len(manifest["cases"]) == 80
     assert sum(len(case["requests"]) for case in manifest["cases"]) == 160
     assert Counter(
@@ -107,7 +108,7 @@ def test_manifest_expands_every_markdown_row_and_reference():
         "yellow_white_mug": 10,
         "microwave": 5,
     }
-    markdown = (root / "选点清单.md").read_text()
+    markdown = files("toolkits.geometry.evaluation").joinpath("README.md").read_text()
     rows = [
         line.split("|")
         for line in markdown.splitlines()
@@ -172,7 +173,7 @@ def test_sensor_replay_strips_truth_and_never_modifies_source(tmp_path):
 def test_batch_runs_exactly_160_fixed_requests_and_never_uses_surface_fallback(
     tmp_path, monkeypatch, permissive
 ):
-    from tools.libero import geometry_agent
+    from toolkits.geometry import geometry_agent
 
     manifest = build_manifest()
     cases = manifest["cases"]
@@ -451,6 +452,13 @@ def test_model_local_and_bottle_profile_truth_are_transformed_only_by_evaluator(
 
 
 def test_cli_manifest_and_unlabelled_template_need_no_models(tmp_path):
+    assert experiment.main(["validate-manifest"]) == 0
+    assert (
+        experiment.main(
+            ["validate-manifest", "--manifest", str(tmp_path / "missing.json")]
+        )
+        == 1
+    )
     manifest = tmp_path / "manifest.json"
     assert experiment.main(["write-manifest", "--manifest", str(manifest)]) == 0
     assert experiment.main(["validate-manifest", "--manifest", str(manifest)]) == 0

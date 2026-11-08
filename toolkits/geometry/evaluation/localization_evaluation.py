@@ -21,7 +21,10 @@ from typing import Any
 
 import numpy as np
 
-from tools.libero.localization_checklist import frame_id, manifest_digest
+from toolkits.geometry.evaluation.localization_checklist import (
+    frame_id,
+    manifest_digest,
+)
 
 
 def truth_template(manifest: dict[str, Any]) -> dict[str, Any]:
