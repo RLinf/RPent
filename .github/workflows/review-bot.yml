@@ -91,7 +91,13 @@ jobs:
       # work machines. Credentials live in a root-only file on the runner, not
       # in the repository, and are sourced by the step that needs them.
       CONFIG__MODEL: anthropic/deepseek-v4.1-flash-1017
+      # The gateway model is a reasoning model: the default output cap can be
+      # consumed entirely by thinking, leaving empty content. Reserve room for
+      # the answer and keep fallback on the same model.
       CONFIG__CUSTOM_MODEL_MAX_TOKENS: "100000"
+      CONFIG__MAX_OUTPUT_TOKENS: "16000"
+      CONFIG__FALLBACK_MODELS: '["anthropic/deepseek-v4.1-flash-1017"]'
+      CONFIG__RETRY_SAME_MODEL_ON_LENGTH: "True"
       MODEL_ENV: /mnt/public/rpent_review_agent/etc/model.env
       # The runner host cannot reach raw.githubusercontent.com; use the cost map
       # bundled with LiteLLM instead of fetching it at startup.

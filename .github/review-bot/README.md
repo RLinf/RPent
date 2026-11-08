@@ -37,4 +37,6 @@ or executes PR code; PR-Agent reads the diff through the GitHub API.
 | `ANTHROPIC_API_BASE` | Gateway base URL, without `/v1` |
 
 `CONFIG__MODEL` in the workflow is `anthropic/deepseek-v4.1-flash-1017`; change
-it if the gateway serves a different model id.
+it if the gateway serves a different model id. Credentials are read from
+`/mnt/public/rpent_review_agent/etc/model.env` on the runner (`ANTHROPIC__KEY`
+and `ANTHROPIC_API_BASE`) and are not stored in the repository.
