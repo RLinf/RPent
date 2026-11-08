@@ -46,9 +46,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Only the first line is a command; later lines are treated as prose.
-          line=$(printf '%s\n' "$BODY" | head -n1 | tr -d '\r' | sed 's/[[:space:]]*$//')
-          case "$line" in
+          # Only the first token of the first line is a command; the rest of the
+          # comment is prose.
+          line=$(printf '%s\n' "$BODY" | head -n1 | tr -d '\r')
+          set -- $line
+          case "${1:-}" in
             /review-design) command=review-design ;;
             /review-pr) command=review-pr ;;
             /review-autofix) command=review-autofix ;;
