@@ -93,6 +93,9 @@ jobs:
       CONFIG__MODEL: anthropic/deepseek-v4.1-flash-1017
       CONFIG__CUSTOM_MODEL_MAX_TOKENS: "100000"
       MODEL_ENV: /mnt/public/rpent_review_agent/etc/model.env
+      # The runner host cannot reach raw.githubusercontent.com; use the cost map
+      # bundled with LiteLLM instead of fetching it at startup.
+      LITELLM_LOCAL_MODEL_COST_MAP: "True"
 
       PR_URL: https://github.com/${{ github.repository }}/pull/${{ needs.dispatch.outputs.pr }}
       PR_AGENT: /mnt/public/rpent_review_agent/venv/bin/pr-agent
