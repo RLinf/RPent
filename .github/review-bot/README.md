@@ -44,14 +44,18 @@ review host keeps all state under `$R`.
 Register the runner with the `review-bot` label. The workflow never checks out
 or executes PR code; PR-Agent reads the diff through the GitHub API.
 
-## Repository secrets
+## Model credentials
 
-| Secret | Value |
+Credentials are read from `/mnt/public/rpent_review_agent/etc/model.env`
+(mode 600) at run time and are not stored in the repository:
+
+| Variable | Value |
 | --- | --- |
-| `ANTHROPIC_API_KEY` | Key for the Anthropic-compatible gateway |
+| `ANTHROPIC__KEY` | Key for the Anthropic-compatible gateway |
 | `ANTHROPIC_API_BASE` | Gateway base URL, without `/v1` |
 
-`CONFIG__MODEL` in the workflow is `anthropic/deepseek-v4.1-flash-1017`; change
-it if the gateway serves a different model id. Credentials are read from
-`/mnt/public/rpent_review_agent/etc/model.env` on the runner (`ANTHROPIC__KEY`
-and `ANTHROPIC_API_BASE`) and are not stored in the repository.
+`CONFIG__MODEL` in the workflow is `anthropic/deepseek-v4.1-flash-1017`. The
+model is a reasoning model, so the workflow also raises
+`CONFIG__MAX_MODEL_TOKENS`/`CONFIG__CUSTOM_MODEL_MAX_TOKENS` to 128000 and keeps
+`CONFIG__MAX_OUTPUT_TOKENS` at 48000; the defaults truncate prompts or leave no
+room for the answer after thinking.
