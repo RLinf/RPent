@@ -307,6 +307,10 @@ uses their clients to execute the planner's requests.
   material pixel; internal segmentation and coordinate tools compute the result.
   The parent planner has no direct ``segment`` or ``back_project`` tool.
 
+The toolkit factory initializes GeometryAgent and the shared observation store
+before constructing LiberoToolkit. The toolkit registers the injected agent;
+recorded-frame segmentation and coordinate reads belong to the geometry package.
+
 Tools the Planner Can Call
 --------------------------
 

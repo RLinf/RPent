@@ -19,7 +19,6 @@ from __future__ import annotations
 import argparse
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -36,6 +35,8 @@ from rpent.session import EnvState
 from rpent.tools import Toolkit, ToolResult
 from rpent.tools.common import CommonTools
 from rpent.utils import templates
+from toolkits.geometry import perception
+from toolkits.geometry.geometry_agent import GeometryAgent
 
 COMMON_TOOLS = {"read_text_file", "write_text_file", "list_dir", "finish"}
 
@@ -193,14 +194,21 @@ def test_toolkit_modes_construct_with_fake_primitives(
         lambda primitives, state, log: dumped.append(primitives) or _record(),
     )
 
+    evaluation_state = EnvState(tmp_path / "evaluation")
+    exploration_state = EnvState(tmp_path / "exploration")
+    evaluation_agent = GeometryAgent(state=evaluation_state)
+    exploration_agent = GeometryAgent(state=exploration_state)
     evaluation = toolkit.LiberoToolkit(
+        state=evaluation_state,
+        geometry_agent=evaluation_agent,
         runtime_kwargs={"env_client": object()},
         dashboard_events=NullDashboardEventSink(),
         memory=MemoryManager(tmp_path / "evaluation-memory"),
         mode="evaluation",
-        state_output_dir=tmp_path / "evaluation",
     )
     exploration = toolkit.LiberoToolkit(
+        state=exploration_state,
+        geometry_agent=exploration_agent,
         runtime_kwargs={"env_client": object()},
         dashboard_events=NullDashboardEventSink(),
         memory=MemoryManager(
@@ -210,7 +218,6 @@ def test_toolkit_modes_construct_with_fake_primitives(
         ),
         mode="exploration",
         attempts_per_session=3,
-        state_output_dir=tmp_path / "exploration",
     )
 
     assert _tool_names(evaluation) == EVALUATION_TOOLS
@@ -289,51 +296,29 @@ def test_parallel_segments_preserve_artifacts_without_capturing_state(
     calls = 4
     inference_barrier = threading.Barrier(calls, timeout=5)
     projection_barrier = threading.Barrier(calls, timeout=5)
-    project = toolkit.libero_tools._mask_to_world
+    project = perception._mask_to_world
 
     def project_together(mask, world_map):
         projection_barrier.wait()
         return project(mask, world_map)
 
-    monkeypatch.setattr(toolkit.libero_tools, "_mask_to_world", project_together)
+    monkeypatch.setattr(perception, "_mask_to_world", project_together)
 
     def segment(image, **kwargs):
         # Every inference must enter before any returns: segment stays readonly.
         inference_barrier.wait()
         return Sam3Result(found=True, mask=np.ones((4, 4), dtype=bool), score=1.0)
 
-    primitives = toolkit.libero_tools.LiberoPrimitives(
-        env=object(),
-        model=object(),
-        sam3_client=SimpleNamespace(segment=segment),
-        check_cancelled=lambda: None,
-    )
-    robot_toolkit = Toolkit(
-        dashboard_events=NullDashboardEventSink(),
-        state=state,
-        memory=MemoryManager(tmp_path / "memory"),
-    )
-    definition = primitives.segment
-    robot_toolkit.add_tool(definition.with_handler(partial(definition, state=state)))
-    captured = []
-
-    def capture(**kwargs):
-        captured.append(kwargs)
-        return ToolResult(data={})
-
-    robot_toolkit.get_env_state = capture
+    reader = perception.GeometryPerception(SimpleNamespace(segment=segment))
     prompts = [f"object {index}" for index in range(calls)]
     with ThreadPoolExecutor(max_workers=calls) as pool:
         results = list(
             pool.map(
-                lambda prompt: robot_toolkit.execute_tool(
-                    "segment", {"prompt": prompt}
-                ),
+                lambda prompt: reader.segment(prompt=prompt, state=state),
                 prompts,
             )
         )
 
-    assert captured == []
     assert len(state.records()) == 1
     assert all(not result.is_error for result in results)
     assert {result.data["segment_artifact"] for result in results} == {
@@ -348,8 +333,8 @@ def test_parallel_segments_preserve_artifacts_without_capturing_state(
         ]
 
     # A failed JSON write must not release an index for another call to reuse.
-    monkeypatch.setattr(toolkit.libero_tools, "_mask_to_world", project)
-    primitives._sam3_client.segment = lambda *args, **kwargs: Sam3Result(
+    monkeypatch.setattr(perception, "_mask_to_world", project)
+    reader._sam3_client.segment = lambda *args, **kwargs: Sam3Result(
         found=True, mask=np.ones((4, 4), dtype=bool), score=1.0
     )
     save = state.save
@@ -360,8 +345,8 @@ def test_parallel_segments_preserve_artifacts_without_capturing_state(
         return save(name, value, **kwargs)
 
     monkeypatch.setattr(state, "save", fail_segment_save)
-    failed = robot_toolkit.execute_tool("segment", {"prompt": "failed"})
+    failed = reader.segment(prompt="failed", state=state)
     assert failed.data["code"] == "segment_artifact_save_failed"
-    result = robot_toolkit.execute_tool("segment", {"prompt": "next"})
+    result = reader.segment(prompt="next", state=state)
     assert result.data["segment_artifact"] == f"segment_{calls + 1:02d}.json"
     assert state.load(result.data["segment_artifact"], step=0)["prompt"] == "next"

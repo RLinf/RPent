@@ -69,7 +69,6 @@ def _primitives(env, config=None, molmo_client=None):
     return LiberoPrimitives(
         env=env,
         model=_Model(),
-        sam3_client=SimpleNamespace(),
         check_cancelled=lambda: None,
         flywheel_config=config,
         molmo_client=molmo_client,
@@ -83,7 +82,7 @@ def test_wam_refreshes_observations_and_stops_on_native_end(terminated, truncate
     env.reset.return_value = (_obs(0), {})
     model = Mock(predict=Mock(return_value=np.zeros((16, 7))))
     model.wam.model_meta = {"backend": "test"}
-    primitives = LiberoPrimitives(env, model, Mock(), lambda: None, policy_kind="wam")
+    primitives = LiberoPrimitives(env, model, lambda: None, policy_kind="wam")
     primitives.reset()
     model.reset.assert_called_once()
     env.chunk_step.return_value = (_obs(1), 0, False, False, {})
@@ -141,9 +140,7 @@ def test_collection_records_scripted_and_vla_actions(tmp_path, with_molmo):
 
 def test_molmo_positional_argument_keeps_collection_disabled():
     molmo = SimpleNamespace()
-    primitives = LiberoPrimitives(
-        _Env(), _Model(), SimpleNamespace(), lambda: None, molmo
-    )
+    primitives = LiberoPrimitives(_Env(), _Model(), lambda: None, molmo)
     primitives.reset()
     assert primitives.molmo_client is molmo
     assert primitives.finalize_flywheel() is None

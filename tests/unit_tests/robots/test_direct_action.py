@@ -80,7 +80,7 @@ def make_primitive(robot, action_size=None):
     if robot == "libero":
         from robots.libero.tools import LiberoPrimitives
 
-        primitive = LiberoPrimitives(env, None, None, lambda: None)
+        primitive = LiberoPrimitives(env, None, lambda: None)
     elif robot == "robocasa":
         from robots.robocasa.primitives import RoboCasaPrimitives
 

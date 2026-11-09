@@ -254,6 +254,8 @@ LIBERO 将仿真和模型推理分别放在独立服务器中运行，工具集�
 - **toolkit（工具集）** （``robots/libero/toolkit.py``）—— 定义 LLM 能调用的工具：``pi0_pick`` （交给 Pi0.5）、``move_to``、``rotate_wrist``、``geometry``、``view_env_state``、``finish``…
 - **GeometryAgent** （``toolkits/geometry/geometry_agent.py``）—— 通过 ``geometry`` 接收目标和部位描述，由视觉定位模型选择物体上的可见像素，再通过内部的分割与坐标工具计算结果。主规划器没有直接调用 ``segment`` 或 ``back_project`` 的工具入口。
 
+工具集工厂会先创建 GeometryAgent 和共享观测存储，再构造 LiberoToolkit。工具集负责注册传入的子 agent；已记录帧的分割和坐标读取由 geometry 包内部实现。
+
 规划器可调用的工具
 --------------------
 

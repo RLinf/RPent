@@ -77,6 +77,7 @@ def _run_header(
         geometry_dir / "reference_geometry.py",
         geometry_dir / "candidate_geometry.py",
         geometry_dir / "geometry_agent.py",
+        geometry_dir / "perception.py",
         evaluation_dir / "checklist.py",
         evaluation_dir / "experiment.py",
         evaluation_dir / "metrics.py",
@@ -198,7 +199,6 @@ def collect(
             primitive = LiberoPrimitives(
                 env=runtime["env"],
                 model=None,
-                sam3_client=None,
                 check_cancelled=lambda: None,
             )
             primitive.reset()
@@ -364,7 +364,6 @@ def infer_cases(
     grounder: Any = None,
 ) -> list[dict[str, Any]]:
     """Run both fixed references per case; one failure never skips the other target."""
-    from robots.libero.tools import LiberoPrimitives
     from toolkits.geometry.geometry_agent import GeometryAgent
 
     predictions = []
@@ -374,15 +373,9 @@ def infer_cases(
             state, hashes = copy_observation(
                 args.inputs / case["case_id"], output / "episode", manifest, case
             )
-            primitive = LiberoPrimitives(
-                env=None,
-                model=None,
-                sam3_client=sam3_client,
-                check_cancelled=lambda: None,
-            )
             agent = GeometryAgent(
                 state=state,
-                segment=primitive.segment,
+                sam3_client=sam3_client,
                 check_cancelled=lambda: None,
                 model=args.geometry_model,
                 base_url=args.geometry_base_url,
