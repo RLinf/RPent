@@ -23,15 +23,13 @@ Record a Trajectory
 -------------------
 
 Recording is off by default. Recording with ``--planner claude_code`` requires
-``claude-agent-sdk`` 0.2.154 or later and Claude Code 2.1.274 or later.
+``claude-agent-sdk 0.2.154+`` and ``Claude Code 2.1.274+``.
 LIBERO, RoboCasa365, RoboTwin, and RoboDojo record executed actions and observations
-only in evaluation mode. Exploration still saves task,
-planner, and tool-call records, but contains no actions eligible for VLA dataset
-export.
+only in evaluation mode.
 
-RoboDojo's native motion tools record scripted actions. Its current planner
-toolkit does not expose a VLA tool, so these runs do not produce VLA training
-segments for ``rpent-flywheel``.
+RoboDojo records the actions its tools execute, such as moving an arm or
+opening and closing a gripper. Its planner currently has no VLA tool, so these
+trajectories contain no VLA training segments for ``rpent-flywheel`` to export.
 
 Enable recording and choose a run directory:
 
@@ -55,9 +53,7 @@ Trajectory Data Format
 ----------------------
 
 ``task.json`` stores the task instruction, run configuration, start and end times,
-and outcome. Its top-level ``schema_version`` is ``5``. Each line in the three
-JSONL files holds one JSON object. The examples below come from a LIBERO
-trajectory recorded with the Codex planner.
+and outcome. Each line in the three JSONL files below holds one JSON object.
 
 .. list-table:: ``planners.jsonl`` (one model call per line)
    :header-rows: 1
@@ -65,14 +61,14 @@ trajectory recorded with the Codex planner.
    * - Field
      - Meaning
    * - ``planner_id``
-     - Unique ID of this model call within the trajectory, such as ``P14``.
+     - Unique ID of this model call within the trajectory.
    * - ``backend``
      - Planner backend that made the call (``api``, ``claude_code``, or ``codex``).
    * - ``status``
      - State of this model call (``open``, ``completed``, ``failed``, or ``cancelled``).
    * - ``request``
-     - Input to the model, including the conversation context and available tools.
-       The structure depends on the backend.
+     - The request sent to the model, with conversation context and available
+       tools in the backend's format.
    * - ``response``
      - Model output, which can include text or requests to call tools.
 
@@ -82,14 +78,12 @@ trajectory recorded with the Codex planner.
    * - Field
      - Meaning
    * - ``prediction_id``
-     - Unique ID of this prediction within the trajectory, such as ``V1``.
+     - Unique ID of this prediction within the trajectory.
    * - ``instruction``
-     - Instruction the VLA used for this prediction, such as
-       ``pick up the green salad dressing bottle``.
+     - Instruction the VLA used for this prediction.
    * - ``action_ids``
-     - IDs of the actions executed from this prediction, in execution order.
-       For example, look up ``A226`` through ``A230`` in ``actions.jsonl`` to find
-       the control values executed from prediction ``V1``.
+     - The ``action_id`` values in ``actions.jsonl`` for actions executed from
+       this prediction, in execution order.
 
 .. list-table:: ``actions.jsonl`` (one executed environment action per line)
    :header-rows: 1
@@ -97,18 +91,17 @@ trajectory recorded with the Codex planner.
    * - Field
      - Meaning
    * - ``action_id``
-     - Unique ID of this action within the trajectory, such as ``A226``.
+     - Unique ID of this action within the trajectory.
    * - ``source``
-     - ``vla`` for a policy prediction, ``tool_computed`` for an action computed
-       by a tool or script, or ``direct`` for a control value submitted through
+     - ``vla`` for a policy prediction, ``tool_computed`` for an action the tool
+       computes and executes, or ``direct`` for a control value submitted through
        the direct action tool.
    * - ``action.format``
-     - Robot action format, here ``libero.action``.
+     - Action format used by the robot.
    * - ``action.data``
-     - Control values actually executed, here an array of seven ``float32`` values.
+     - Control command the environment executed at this step.
    * - ``before_observation``
-     - Environment observation before this action. The example contains the robot
-       state, task description, and image references for the main and wrist cameras.
+     - Environment observation before this action.
 
 Export Training Data
 --------------------
@@ -125,16 +118,13 @@ Export recorded trajectories from one robot to a new output directory:
 ``--vla`` exports only VLA training data. This is also the default when the
 flag is omitted.
 
+By default, the exporter compresses and saves one image at a time
+(``--image-writer-threads 0``). To write images in parallel, specify a thread
+count in the command above, for example ``--image-writer-threads 4``.
+
 ``--input-root`` accepts a trajectory directory containing ``task.json`` or a
 parent directory containing multiple runs. Export each robot separately;
-``--output-dir`` must not already exist.
-
-RoboTwin supports both LingBot's ``robotwin.action.ee`` format and Fast-WAM's
-``robotwin.action.qpos`` format. The exporter automatically selects the matching
-state and action layout from the recorded action format. EE data uses 16-dimensional
-state and action vectors; qpos data uses the 14-dimensional joint targets in
-``robot_state.qpos_target14`` as state and preserves the 14-dimensional executed
-actions.
+``--output-dir`` must not exist.
 
 If several runs are saved in separate directories like these, you can export
 them together:
@@ -160,20 +150,16 @@ The command searches these run directories and their subdirectories for
 trajectories, applies the selection rules below, and writes the results to
 ``/path/to/lerobot/combined/train/``. Keep the quotes around ``run_*``.
 
-Add ``--image-writer-threads 4`` to compress and save images with four threads.
-The default, ``0``, writes images synchronously.
-
-Only tasks confirmed successful by the environment are eligible; planner
-completion alone is insufficient. The exporter selects and organizes training
-data using the following rules:
+The exporter selects and organizes training data using the following rules:
 
 - Success criterion: ``environment_success`` in the task result must explicitly
   be ``true``. Failed tasks, missing results, and tasks whose success cannot be
   confirmed are excluded.
 - Action source: Only executed actions uniquely linked to a valid VLA prediction
   record are retained. The prediction must contain a non-empty instruction and
-  belong to the same tool call as the action. Scripted actions, other non-VLA
-  actions, and unexecuted predicted actions are excluded.
+  belong to the same tool call as the action. The exporter skips non-VLA actions
+  (such as actions the tool computes itself) and predicted actions that were
+  never executed.
 - Data organization: Each continuous segment is saved as a separate LeRobot
   episode. Each executed action corresponds to one frame containing the
   observation before execution, the action, and the corresponding VLA instruction.
@@ -192,8 +178,8 @@ export; RLinf handles model training, logging, and checkpoint saving.
 
 For environment setup and training configuration, see the
 `RLinf OpenPI SFT guide <https://rlinf.readthedocs.io/en/latest/rst_source/examples/embodied/sft_openpi.html>`_.
-Point the training data path to the exported LeRobot dataset directory containing
-``meta/info.json``, not the raw episode directory.
+Set ``data.train_data_paths`` to the exported ``train/`` directory containing
+``meta/info.json``.
 
 Use an RLinf environment with LIBERO LeRobot data-loading support. Prepare a
 Pi0.5 LIBERO SFT configuration at
@@ -228,10 +214,11 @@ Successful trajectories collected with RPent were used to fine-tune
 against the original model within RPent.
 
 Evaluation covered tasks 0–9 and seeds 25–34 in ``libero_goal_swap``, for 100 runs
-per model. Both groups used the same DeepSeek-V4.1-Flash-1017 planner (reasoning
-effort: ``none``) and official memory, with only the VLA model replaced.
+per model. Both groups used the same DeepSeek-V4.1-Flash-1017 planner with reasoning
+effort set to ``none`` and loaded task memory from ``libero/GPT_5.5_xhigh`` in the
+``RLinf/RPent-memory`` dataset on Hugging Face.
 
-Task success rates for the full RPent system were:
+Success rates:
 
 .. list-table::
    :header-rows: 1
@@ -258,7 +245,11 @@ against the original model within RPent.
 
 Evaluation covered the same 10 tasks used for training in RoboTwin's
 ``demo_randomized`` configuration, with five fixed test scenes per task and
-50 runs per model. Task success rates for the full RPent system were:
+50 runs per model. Both groups used the same DeepSeek-V4.1-Flash-1017 planner
+with reasoning effort set to ``none`` and loaded the task memory generated by GPT-5.5
+(``xhigh``) from ``robotwin/`` in the ``RLinf/RPent-memory`` dataset on Hugging Face.
+
+Success rates:
 
 .. list-table::
    :header-rows: 1

@@ -17,9 +17,9 @@
 采集轨迹
 --------
 
-采集默认关闭。使用 ``--planner claude_code`` 采集轨迹需要 ``claude-agent-sdk`` 0.2.154 或更高版本，以及 Claude Code 2.1.274 或更高版本。LIBERO、RoboCasa365、RoboTwin 和 RoboDojo 仅在评测模式下采集实际执行的动作及观测。探索模式仍会保存任务、规划器和工具调用记录，但不包含可导出的 VLA 动作数据。
+采集默认关闭。用 ``--planner claude_code`` 采集轨迹时，需要 ``claude-agent-sdk 0.2.154+`` 和 ``Claude Code 2.1.274+``。LIBERO、RoboCasa365、RoboTwin 和 RoboDojo 仅在评测模式下采集实际执行的动作及观测。
 
-RoboDojo 的原生动作工具记录的是脚本动作。当前规划器工具集中没有 VLA 工具，因此这类运行不会产生可供 ``rpent-flywheel`` 导出的 VLA 训练片段。
+RoboDojo 会记录工具执行的动作，例如移动机械臂、开合夹爪。当前规划器工具集中没有 VLA 工具，因此这类运行不会产生可供 ``rpent-flywheel`` 导出的 VLA 训练片段。
 
 开启采集并指定运行目录：
 
@@ -39,7 +39,7 @@ RoboDojo 的原生动作工具记录的是脚本动作。当前规划器工具�
 轨迹数据格式
 ------------
 
-``task.json`` 保存任务指令、运行配置、起止时间和任务结果，顶层字段 ``schema_version`` 的值为 ``5``。三个 JSONL 文件每行保存一个 JSON 对象。下表以 Codex 规划器采集的一条 LIBERO 轨迹为例。
+``task.json`` 保存任务指令、运行配置、起止时间和任务结果。以下三个 JSONL 文件每行保存一个 JSON 对象。
 
 .. list-table:: ``planners.jsonl`` 每行记录一次模型调用
    :header-rows: 1
@@ -47,13 +47,13 @@ RoboDojo 的原生动作工具记录的是脚本动作。当前规划器工具�
    * - 字段
      - 含义
    * - ``planner_id``
-     - 本次模型调用在轨迹内的唯一标识，例如 ``P14``。
+     - 本次模型调用在轨迹内的唯一标识。
    * - ``backend``
      - 发起调用的规划器后端，取值为 ``api``、``claude_code`` 或 ``codex``。
    * - ``status``
      - 本次模型调用的状态，取值为 ``open``、``completed``、``failed`` 或 ``cancelled``。
    * - ``request``
-     - 本次调用的模型输入，包括对话上下文和可用工具等。具体结构取决于后端。
+     - 发给模型的请求，包含对话上下文和可用工具，具体结构取决于后端。
    * - ``response``
      - 本次调用的模型输出，可包含文本回复或工具调用请求。
 
@@ -63,11 +63,11 @@ RoboDojo 的原生动作工具记录的是脚本动作。当前规划器工具�
    * - 字段
      - 含义
    * - ``prediction_id``
-     - 本次预测在轨迹内的唯一标识，例如 ``V1``。
+     - 本次预测在轨迹内的唯一标识。
    * - ``instruction``
-     - VLA 在本次预测中使用的指令，例如 ``pick up the green salad dressing bottle``。
+     - VLA 在本次预测中使用的指令。
    * - ``action_ids``
-     - 本次预测中实际执行的动作 ID，按执行顺序排列。例如，``V1`` 对应 ``A226`` 到 ``A230``，用这些 ID 可在 ``actions.jsonl`` 中查到每一步的控制量。
+     - 本次预测中实际执行的动作 ID，按执行顺序排列，对应 ``actions.jsonl`` 中的 ``action_id``。
 
 .. list-table:: ``actions.jsonl`` 每行记录一步实际执行的环境动作
    :header-rows: 1
@@ -75,15 +75,15 @@ RoboDojo 的原生动作工具记录的是脚本动作。当前规划器工具�
    * - 字段
      - 含义
    * - ``action_id``
-     - 这一步动作在轨迹内的唯一标识，例如 ``A226``。
+     - 这一步动作在轨迹内的唯一标识。
    * - ``source``
-     - 策略预测的动作记为 ``vla``，工具计算或脚本生成的动作记为 ``tool_computed``，通过直接动作工具提交的控制量记为 ``direct``。
+     - 策略预测的动作记为 ``vla``，工具自行计算并执行的动作记为 ``tool_computed``，通过直接动作工具提交的控制量记为 ``direct``。
    * - ``action.format``
-     - 机器人使用的动作格式，本例为 ``libero.action``。
+     - 机器人使用的动作格式。
    * - ``action.data``
-     - 实际执行的控制量，本例为包含 7 个 ``float32`` 值的数组。
+     - 环境在这一步执行的控制指令。
    * - ``before_observation``
-     - 执行动作前的环境观测。本例包含机器人状态、任务描述和主相机、腕部相机的图像引用。
+     - 执行动作前的环境观测。
 
 导出训练数据
 ------------
@@ -99,9 +99,9 @@ RoboDojo 的原生动作工具记录的是脚本动作。当前规划器工具�
 
 ``--vla`` 表示仅导出 VLA 训练数据；不加该参数时也默认导出 VLA 数据。
 
-``--input-root`` 可以指向包含 ``task.json`` 的单条轨迹目录，也可以指向包含多次运行的上级目录。不同机器人应分别导出；``--output-dir`` 必须尚不存在。
+导出程序默认逐张压缩并保存图像（``--image-writer-threads 0``）。要并行写入图像，可在上面的命令中指定线程数，例如 ``--image-writer-threads 4``。
 
-RoboTwin 支持 LingBot 使用的 ``robotwin.action.ee`` 和 Fast-WAM 使用的 ``robotwin.action.qpos`` 格式。导出时会根据记录中的动作格式，自动选择配套的状态和动作布局。EE 数据的状态和动作均为 16 维；qpos 数据以 ``robot_state.qpos_target14`` 中的 14 维关节目标值作为状态，并保留实际执行的 14 维动作。
+``--input-root`` 可以指向包含 ``task.json`` 的单条轨迹目录，也可以指向包含多次运行的上级目录。不同机器人应分别导出；``--output-dir`` 必须不存在。
 
 如果多次运行分别保存在下面的目录中，可以一起导出：
 
@@ -123,12 +123,10 @@ RoboTwin 支持 LingBot 使用的 ``robotwin.action.ee`` 和 Fast-WAM 使用的 
 
 程序会查找这些运行目录及其子目录中的轨迹，按下文规则筛选后，统一导出到 ``/path/to/lerobot/combined/train/``。请保留命令中 ``run_*`` 两侧的引号。
 
-添加 ``--image-writer-threads 4``，即可使用 4 个线程同时压缩和保存图片。默认值为 ``0``，即逐张压缩和保存。
-
-只有环境确认成功的任务才参与导出，规划器结束不代表任务成功。导出程序按以下规则筛选和组织训练数据：
+导出程序按以下规则筛选和组织训练数据：
 
 - 成功判定：任务结果中的 ``environment_success`` 必须明确为 ``true``；失败、结果缺失或无法确认成功的任务均不导出。
-- 动作来源：只保留实际执行、且能唯一关联到有效 VLA 预测记录的动作。预测记录必须包含非空指令，并与动作属于同一次工具调用。脚本动作、其他非 VLA 动作，以及未执行的预测动作均不参与导出。
+- 动作来源：只保留实际执行、且能唯一关联到有效 VLA 预测记录的动作。预测记录必须包含非空指令，并与动作属于同一次工具调用。非 VLA 动作（如工具自行计算并执行的动作）和未执行的预测动作均不参与导出。
 - 数据组织：每个连续片段保存为独立的 LeRobot episode，每个实际执行的动作对应一帧，包含执行前观测、动作和对应的 VLA 指令。
 
 数据集保存在 ``--output-dir`` 指定目录下的 ``train/`` 子目录中，不会自动划分验证集。输出目录中的 ``report.json`` 记录导出数量和排除原因；没有符合条件的动作时，只生成报告。原始记录不会被修改。
@@ -138,7 +136,7 @@ RoboTwin 支持 LingBot 使用的 ``robotwin.action.ee`` 和 Fast-WAM 使用的 
 
 对于上述 LIBERO 示例，可使用导出的 LeRobot 数据集，在独立的 RLinf 环境中进行 Pi0.5 监督微调。RPent 负责采集和导出；模型训练、日志和权重保存由 RLinf 管理。
 
-环境安装和训练配置请参考 `RLinf OpenPI 监督微调指南 <https://rlinf.readthedocs.io/zh-cn/latest/rst_source/examples/embodied/sft_openpi.html>`_。训练数据路径应指向导出的 LeRobot 数据集目录，即包含 ``meta/info.json`` 的目录，而不是原始轨迹目录。
+环境安装和训练配置请参考 `RLinf OpenPI 监督微调指南 <https://rlinf.readthedocs.io/zh-cn/latest/rst_source/examples/embodied/sft_openpi.html>`_。将 ``data.train_data_paths`` 设为导出目录下的 ``train/`` 子目录，其中包含 ``meta/info.json``。
 
 先准备支持 LIBERO LeRobot 数据加载的 RLinf 环境，并将 Pi0.5 LIBERO SFT 配置保存为 ``/path/to/sft-config/libero_pi05_sft.yaml``，再运行：
 
@@ -166,9 +164,9 @@ LIBERO-PRO VLA 微调结果
 
 使用 RPent 采集的成功轨迹，对 ``RLinf-Pi05-LIBERO-130-fullshot-SFT`` 进行微调，并在 RPent 中替换 VLA 模型进行对比评测。
 
-评测使用 ``libero_goal_swap`` 的 task 0–9、seed 25–34，每组共 100 场。两组使用相同的 DeepSeek-V4.1-Flash-1017 规划器（reasoning effort 为 ``none``）和官方 memory，仅替换 VLA 模型。
+评测使用 ``libero_goal_swap`` 的 task 0–9、seed 25–34，每组共 100 场。两组使用相同的 DeepSeek-V4.1-Flash-1017 规划器（reasoning effort 为 ``none``）并加载 Hugging Face 数据集 ``RLinf/RPent-memory`` 中的 ``libero/GPT_5.5_xhigh`` 任务记忆。
 
-完整 RPent 系统的任务成功率如下：
+成功率如下：
 
 .. list-table::
    :header-rows: 1
@@ -190,7 +188,9 @@ RoboTwin VLA 微调结果
 
 使用 RPent 采集的成功轨迹，对 ``LingBot-VLA-RoboTwin-EEF-ckpt1500`` 进行微调，并在 RPent 中替换 VLA 模型进行对比评测。
 
-评测覆盖 RoboTwin ``demo_randomized`` 中与训练相同的 10 个任务，每任务 5 个固定测试场景，每组共 50 场。完整 RPent 系统的任务成功率如下：
+评测覆盖 RoboTwin ``demo_randomized`` 中与训练相同的 10 个任务，每任务 5 个固定测试场景，每组共 50 场。两组使用相同的 DeepSeek-V4.1-Flash-1017 规划器（reasoning effort 为 ``none``）并加载 Hugging Face 数据集 ``RLinf/RPent-memory`` 中的 ``robotwin/`` 任务记忆（GPT-5.5 生成，推理强度为 ``xhigh``）。
+
+成功率如下：
 
 .. list-table::
    :header-rows: 1
