@@ -247,26 +247,6 @@ This starts the real base; add ``--mock`` for simulated motors while retaining t
 
 Use the Dashboard and Agent described in the next section to choose a map node or an existing label such as ``door``. The Agent uses ``get_navigation_state`` to check readiness, ``navigate_to`` to submit the target, and ``stop`` to cancel motion. After stopping, wait until ``operation.state`` leaves ``running`` before submitting another goal.
 
-Navigation runs until the Env exits or a component fails; it has no fixed runtime limit. The Env owns the camera and base, and ROS launch manages the navigation workers. ``stop`` keeps these workers running. To return to teleoperation or recording, stop the navigation Env and restart it in capture mode as described in section 4. Exiting the Env closes the navigation process group; failed components are not automatically restarted. Navigation logs are written to ``navigation.log`` beside the robot YAML.
-
-Duplicate or expired images are discarded. ``perception.stereo.maximum_age_seconds``
-(default 1 second) controls local perception freshness and the Collision Monitor
-obstacle source timeout. An ordinary localization miss keeps the last accepted
-fix until it expires; a frame identity error or excessive correction invalidates
-it. ``localization.localization_max_age`` defaults to 2 seconds.
-
-When localization or TF becomes unavailable, the navigation adapter sends zero
-velocity and retains the goal for up to ``localization_max_age`` seconds. It can
-resume on recovery and cancels the goal after a sustained outage. This wait counts
-toward the goal timeout, and Nav2 may independently return failure. Image stamps
-record host read completion, not hardware exposure time.
-
-The camera bridge skips missing frames and temporary local RPC failures, then
-resumes publishing when data returns. Server-side device errors still surface as
-failures. A failed navigation status query reports unavailable status without
-revoking motion permission; an exited navigation process stops the base and fails
-the goal. Localization checks and command expiry remain active on the motion path.
-
 9. Dashboard and agent
 --------------------------------------------
 
