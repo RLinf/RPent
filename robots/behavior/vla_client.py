@@ -21,7 +21,7 @@ from typing import Any
 import numpy as np
 
 from robots.behavior.env_client import validate_native_actions
-from rpent.robots.components.vla_client_base import BaseVLAClient
+from rpent.robots.components.am_client_base import BaseVLAClient
 
 
 class BehaviorVLAClient(BaseVLAClient):

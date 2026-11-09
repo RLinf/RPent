@@ -48,7 +48,7 @@ def test_registry_and_prompt_use_the_existing_robot_contract(tmp_path: Path) -> 
     spec = discover_robot("behavior")
     assert spec.name == "behavior"
     assert not spec.supports_exploration
-    assert spec.dashboard is None
+    assert spec.resolve_dashboard is None
     args = _args(tmp_path)
     spec.validate_args(args)
     config = spec.parse_config(args)

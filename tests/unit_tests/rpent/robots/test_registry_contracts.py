@@ -208,8 +208,8 @@ def test_dashboard_metadata_has_consistent_fields_and_runtime_components(
 ) -> None:
     spec = get_robot_spec(robot_name)
     if robot_name == "behavior":
-        # BEHAVIOR does not advertise a Dashboard lifecycle in the scaffold.
-        assert spec.dashboard is None
+        # BEHAVIOR does not advertise a Dashboard lifecycle.
+        assert spec.resolve_dashboard is None
         return
     parser = ArgumentParser()
     spec.add_cli_args(parser, use_dashboard=True)
