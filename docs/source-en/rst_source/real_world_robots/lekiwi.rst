@@ -57,7 +57,7 @@ Stereo mapping and navigation below use a ZED 2i with the deployment below. Run 
      - Generate depth and maps offline. Optionally host visual localization when the robot has insufficient CPU or memory.
      - Offline depth uses CUDA and RAFT-Stereo. Mapping and localization use RTAB-Map; localization also requires RPent's native extension. Online localization can run on CPU.
    * - Operator computer
-     - Run the RPent Dashboard and planner, connected to the robot Env.
+     - Run keyboard capture or the RPent Dashboard and planner, connected to the robot Env.
      - RPent; this machine does not compute local obstacles or relay localization images between robot and cloud.
 
 On the robot, ``rtabmap_util/obstacles_detection`` separates ground from obstacles. A separate CPU localization process queries the existing RTAB-Map database. Install the localization extension on whichever host runs that process; RAFT-Stereo and offline mapping tools can stay on the cloud host. Local localization requires enough CPU and memory for the map alongside the camera, stereo workers and Nav2.
@@ -130,50 +130,47 @@ In the Python environment running the localization service, install the optional
 
 The extension runs inside the localization service and accepts NumPy images directly. Calls on one map instance are serialized, and RTAB-Map computation releases the GIL. ``--max-processing-ms`` discards results returned after the deadline; it cannot interrupt native calls. Restart the localization service if a native call hangs or the process crashes. The Pi continues to check localization freshness.
 
-4. Start teleoperation
+4. Start the capture Env
 --------------------------------------------
 
-Start the Env on the robot; it owns the base and camera:
+Start the Env on the robot; it owns the base, ZED camera and PNG recorder:
 
 .. code-block:: bash
 
    python -m robots.lekiwi.env_server --robot-config /path/to/robot.yaml \
      --host 0.0.0.0 --port 8120 --recording-dir /path/to/recordings
 
-``0.0.0.0`` is the local listen address, not the cloud IP. Install RPent on the operator computer and start the Dashboard. Replace the example robot address ``192.168.1.10`` with its actual address, or use ``127.0.0.1`` when running on the robot.
+``0.0.0.0`` is the local listen address. Use this Env exclusively for capture: do not attach an Agent or another driving client during collection. Navigation uses the separate launch procedure below.
+
+On the operator computer, install RPent's teleoperation extra in a Python 3.10–3.12 environment:
 
 .. code-block:: bash
 
-   rpent --robot lekiwi --dashboard --planner manual \
-     --env-endpoint http://192.168.1.10:8120 --robot-config /path/to/robot.yaml
+   cd /path/to/RPent
+   uv venv --python 3.12
+   source .venv/bin/activate
+   uv pip install -e ".[lekiwi-teleop]"
 
-Open the Dashboard URL printed in the terminal and submit ``/rpent-task 0`` to enter manual control. Hold a direction button to drive and release it to stop. Use the existing UI options for video and action recording.
+This extra supplies LeRobot's keyboard input and Rerun viewer. The operator computer does not need RLinf, ROS or a motor driver. Keyboard input needs a local desktop: on macOS allow the terminal in Accessibility/Input Monitoring; on Linux use X11. Headless SSH and Wayland keyboard capture are not supported by this entry point.
 
-5. Record stereo images during teleoperation
+5. Drive and collect stereo images
 ----------------------------------------------------------------------------------------
 
-Use the existing Env interface to record stereo PNG images. In a separate interactive Python session on the operator computer, connect to the running Env and start recording. Replace the endpoint with the robot's actual address:
+Run the capture command on the operator computer, replacing ``ROBOT_HOST`` with the robot's hostname or IP:
 
-.. code-block:: python
+.. code-block:: bash
 
-   from uuid import uuid4
-   from robots.lekiwi.env_client import LeKiwiEnvClient
-   from rpent.utils.rpc import make_rpc_client
+   rpent-lekiwi-capture --env-endpoint http://ROBOT_HOST:8120
 
-   env = LeKiwiEnvClient(make_rpc_client("http://192.168.1.10:8120"))
-   identity = uuid4().hex
-   env.recording("start", identity=identity)
+The command opens a Rerun camera preview and starts one recording on the robot. The terminal reports the recording phase, pair count and robot-side output directory. Driving starts only after the recorder has saved its first pair. Hold W/S to move forward/backward, A/D to strafe left/right, and Z/X to rotate left/right. Release movement keys to stop; Q, Esc or Ctrl-C ends capture and stops the base. The keyboard listener is global, so avoid typing into other applications while capture is active.
 
-Drive through the Dashboard. In the same Python session, call ``env.recording("state", identity=identity)`` to check status, frame count and the output directory. When capture is complete, run:
+Speeds come from the Env's ``drive.max_linear_velocity`` and ``drive.max_angular_velocity`` settings; the Env also enforces its configured limits. The preview uses ``drive.frame_size``, while recording keeps the native stereo image size. Add ``--no-preview`` when driving with direct sight of the robot.
 
-.. code-block:: python
+Each recording defaults to a maximum of 600 seconds at up to 5 image pairs per second. Change these with Env options ``--capture-seconds`` and ``--recording-fps``. Reaching the recording limit ends the client session. Keyboard loss, a preview/recording error or a stalled control loop exits through stop-and-recording cleanup; restart the command to resume. The Env expires motion commands if the client disappears. If the connection is lost, cleanup cannot be guaranteed: the robot-side recorder may continue until its configured time limit or Env shutdown.
 
-   env.recording("stop", identity=identity)
-   env.close()
+The client uses LeRobot's ``KeyboardTeleop`` and visualization helpers, and the existing Env's ``hold``/``stop`` and stereo recording APIs. RLinf continues to control the wheel motors. Capture does not require Dashboard, a planner or a leader arm. It saves stereo PNGs and calibration, without a separate MP4 or action log.
 
-Each recording defaults to a maximum of 600 seconds at up to 5 image pairs per second. Change these with Env options ``--capture-seconds`` and ``--recording-fps``. Ending the Dashboard manual run or closing the client does not stop stereo PNG capture; stop it explicitly, let its time limit expire, or close the Env. Existing Dashboard video and action recording is independent of stereo PNG capture.
-
-Copy the complete robot-side ``capture-*`` directory and robot YAML to the cloud machine. The directory contains ``left/``, ``right/``, ``stereo.json`` and ``calibration.conf``. Offline processing reads files and needs no connection to the robot.
+Copy the complete robot-side ``capture-*`` directory and robot YAML to the offline mapping machine. The directory contains ``left/``, ``right/``, ``stereo.json`` and ``calibration.conf``. Matched filenames contain the source-frame timestamps. Offline processing reads files and needs no connection to the robot.
 
 6. Offline mapping and map nodes
 ------------------------------------------------------------------------------

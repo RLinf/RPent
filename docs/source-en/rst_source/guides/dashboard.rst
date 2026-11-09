@@ -46,9 +46,7 @@ Dashboard
 
 The Dashboard supports the ``api``, ``claude_code``, and ``codex`` planners.
 Configure ``--planner`` and ``--model`` on the command line as for a normal
-run; see :doc:`configure_planner`. ``--planner manual`` runs no planner and
-lets the operator drive the robot from the Dashboard instead; see
-:doc:`../real_world_robots/lekiwi`.
+run; see :doc:`configure_planner`.
 
 Start a Session and Submit a Task
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

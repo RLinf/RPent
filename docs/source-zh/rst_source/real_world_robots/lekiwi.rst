@@ -41,7 +41,7 @@ LeKiwi 是一个三轮全向移动底盘：三个 Feetech STS3215 轮电机挂�
      - 离线生成深度和地图；机器人 CPU 或内存不足时，也可在这里运行在线视觉定位服务。
      - 离线深度使用 CUDA 与 RAFT-Stereo；建图和定位使用 RTAB-Map，定位服务还需 RPent 的原生扩展。在线定位可在 CPU 上运行。
    * - 操作电脑
-     - 运行 RPent Dashboard 和规划器，连接机器人 Env。
+     - 运行键盘采集或 RPent Dashboard 和规划器，连接机器人 Env。
      - RPent；不承担本地障碍感知，也不中转机器人与云端的定位图像。
 
 机器人端的 ``rtabmap_util/obstacles_detection`` 负责地面和障碍分割，独立的 CPU 定位进程查询已有 RTAB-Map 数据库。定位扩展安装在运行定位进程的机器上；RAFT-Stereo 和离线建图工具仍可放在云端。车端定位要求 CPU 和内存能够同时支撑地图、相机、双目感知与 Nav2。
@@ -114,50 +114,47 @@ ROS 2 只用于机器人导航，遥操和图片录制不需要。需要导航�
 
 扩展在定位服务进程内运行，直接接收 NumPy 图像。同一地图实例的调用串行执行，RTAB-Map 运算期间释放 GIL。``--max-processing-ms`` 用于丢弃超时返回的结果，不能中断原生调用；原生调用卡死或进程崩溃时需要重启定位服务。Pi 端继续检查定位结果的新鲜度。
 
-4. 启动遥操
-----------------
+4. 启动采集 Env
+------------------------
 
-机器人端启动 Env，统一持有底盘和相机：
+机器人端启动 Env，由它持有底盘、ZED 相机和 PNG 录制器：
 
 .. code-block:: bash
 
    python -m robots.lekiwi.env_server --robot-config /path/to/robot.yaml \
      --host 0.0.0.0 --port 8120 --recording-dir /path/to/recordings
 
-``0.0.0.0`` 是本机监听地址，不是云端 IP。操作电脑安装 RPent 后启动 Dashboard；将示例机器人地址 ``192.168.1.10`` 替换为实际地址。同机运行时用 ``127.0.0.1``。
+``0.0.0.0`` 是本机监听地址。采集期间由采集客户端独占使用这个 Env，不要同时连接 Agent 或其他驾驶客户端。导航使用后文的独立启动流程。
+
+在操作电脑的 Python 3.10–3.12 环境安装 RPent 遥操依赖：
 
 .. code-block:: bash
 
-   rpent --robot lekiwi --dashboard --planner manual \
-     --env-endpoint http://192.168.1.10:8120 --robot-config /path/to/robot.yaml
+   cd /path/to/RPent
+   uv venv --python 3.12
+   source .venv/bin/activate
+   uv pip install -e ".[lekiwi-teleop]"
 
-打开终端打印的 Dashboard 地址，在输入框提交 ``/rpent-task 0`` 后进入遥操。按住方向按钮行驶，松开停车；视频与动作记录使用原有界面选项。
+该依赖组提供 LeRobot 键盘输入和 Rerun 预览，操作电脑无需安装 RLinf、ROS 或电机驱动。键盘输入需要本地桌面：macOS 需授予终端“辅助功能／输入监控”权限；Linux 使用 X11。此入口不支持无桌面的 SSH 或 Wayland 键盘采集。
 
-5. 遥操时录制双目图片
-------------------------
+5. 遥操并采集双目图片
+----------------------------
 
-双目 PNG 录制使用现有 Env 接口。在操作电脑另开 Python 交互会话，连接已经运行的 Env 并开始录制；地址替换为实际机器人地址：
+在操作电脑执行，将 ``ROBOT_HOST`` 替换为机器人的主机名或 IP：
 
-.. code-block:: python
+.. code-block:: bash
 
-   from uuid import uuid4
-   from robots.lekiwi.env_client import LeKiwiEnvClient
-   from rpent.utils.rpc import make_rpc_client
+   rpent-lekiwi-capture --env-endpoint http://ROBOT_HOST:8120
 
-   env = LeKiwiEnvClient(make_rpc_client("http://192.168.1.10:8120"))
-   identity = uuid4().hex
-   env.recording("start", identity=identity)
+命令打开 Rerun 相机预览，并在机器人端开始一段录制。终端显示录制状态、图片对数和机器人端保存目录。录制器保存第一对图片后才允许驾驶。按住 W/S 前进／后退，A/D 左移／右移，Z/X 左转／右转；松开方向键停车，Q、Esc 或 Ctrl-C 结束采集并停车。键盘监听是全局的，采集期间避免在其他应用中打字。
 
-在 Dashboard 遥操。在同一 Python 会话调用 ``env.recording("state", identity=identity)`` 查看状态、帧数和保存目录；完成采集后执行：
+速度来自 Env 的 ``drive.max_linear_velocity`` 和 ``drive.max_angular_velocity`` 配置，Env 继续执行配置中的限幅。预览分辨率使用 ``drive.frame_size``，录制保留原始双目分辨率。直接目视小车驾驶时可加 ``--no-preview`` 关闭预览。
 
-.. code-block:: python
+默认每段最多录制 600 秒，每秒最多保存 5 对图片，通过 Env 的 ``--capture-seconds`` 和 ``--recording-fps`` 修改。达到录制时限后客户端结束。键盘断开、预览／录制出错或控制循环卡顿时，客户端退出并尝试停车、结束录制；恢复后需重新运行命令。客户端失联时 Env 会使运动命令过期。若网络已断开，无法保证远端收尾成功，机器人端录制器可能继续运行到配置的时限或 Env 关闭。
 
-   env.recording("stop", identity=identity)
-   env.close()
+客户端复用 LeRobot 的 ``KeyboardTeleop`` 和预览工具，通过现有 Env 的 ``hold``／``stop`` 和双目录制接口工作，轮电机仍由 RLinf 控制。采集不需要 Dashboard、规划器或示教机械臂，只保存双目 PNG 和标定信息，不另存 MP4 或动作日志。
 
-默认每次录制最多 600 秒，每秒最多保存 5 对图片。可在启动 Env 时用 ``--capture-seconds`` 和 ``--recording-fps`` 修改。结束 Dashboard 手动任务或关闭客户端不会停止双目 PNG 录制；需显式停止、等待时限到达或关闭 Env。Dashboard 原有视频与动作记录独立于双目 PNG 采集。
-
-把机器人端生成的整个 ``capture-*`` 目录和机器人 YAML 复制到云端。录制目录包含 ``left/``、``right/``、``stereo.json`` 和 ``calibration.conf``。之后的离线处理只读文件，不需要连接机器人。
+把机器人端生成的整个 ``capture-*`` 目录和机器人 YAML 复制到离线建图机器。目录包含 ``left/``、``right/``、``stereo.json`` 和 ``calibration.conf``，左右目以包含源帧时间戳的同名文件配对。之后的离线处理只读文件，不需要连接机器人。
 
 6. 离线建图与地图节点
 ----------------------------
