@@ -1,4 +1,18 @@
 #!/usr/bin/env python3
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Publish a review-bot result to the pull request.
 
 Review and design modes post a single comment from ``review.md``. Suggest mode
@@ -77,7 +91,9 @@ def post_review(repo: str, pr: str, sha: str, payload: dict) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", required=True, choices=["review", "design", "suggest"])
+    parser.add_argument(
+        "--mode", required=True, choices=["review", "design", "suggest"]
+    )
     parser.add_argument("--repo", required=True)
     parser.add_argument("--pr", required=True)
     parser.add_argument("--sha", required=True)
@@ -110,11 +126,19 @@ def main() -> int:
             and path in allowed
             and isinstance(line, int)
             and line in allowed[path]
-            and (start is None or (isinstance(start, int) and start <= line and start in allowed[path]))
+            and (
+                start is None
+                or (isinstance(start, int) and start <= line and start in allowed[path])
+            )
         )
         if valid and len(inline) < MAX_INLINE_COMMENTS:
             comment_body = f"{reason}\n\n```suggestion\n{replacement.rstrip()}\n```"
-            comment = {"path": path, "line": line, "side": "RIGHT", "body": comment_body}
+            comment = {
+                "path": path,
+                "line": line,
+                "side": "RIGHT",
+                "body": comment_body,
+            }
             if start is not None and start < line:
                 comment["start_line"] = start
                 comment["start_side"] = "RIGHT"
@@ -131,7 +155,11 @@ def main() -> int:
                 parts.append(explanation)
             replacement = str(item.get("replacement", "")).rstrip()
             if replacement:
-                parts.append("\n".join(f"    {code_line}" for code_line in replacement.splitlines()))
+                parts.append(
+                    "\n".join(
+                        f"    {code_line}" for code_line in replacement.splitlines()
+                    )
+                )
     body = "\n\n".join(parts)
 
     if not inline:
