@@ -58,6 +58,7 @@ rpent-check-llm = "rpent.cli.check_llm:main"
 rpent-flywheel = "rpent.flywheel.cli:main"
 rpent-lekiwi-detect = "robots.lekiwi.detect:main"
 rpent-lekiwi-server = "robots.lekiwi.env_server:main"
+rpent-lekiwi-capture = "robots.lekiwi.capture:main"
 
 [project.urls]
 Homepage = "https://github.com/RLinf/RPent"
@@ -159,6 +160,10 @@ yam = [
     "mujoco>=3.2,<4",
     "pyrealsense2>=2.55,<3",
     "imageio-ffmpeg",
+]
+lekiwi-teleop = [
+    # Operator computer: upstream keyboard input and Rerun preview, no RLinf.
+    "lerobot>=0.4.4,<0.5",
 ]
 lekiwi-localization = [
     # Cloud-only build tools for robots/lekiwi/rtabmap_extension.
