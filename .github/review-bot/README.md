@@ -10,7 +10,9 @@ PR slash commands for this repository, backed by
 | `/review-autofix` | PR-Agent `improve` with committable suggestions | Suggested changes the author may accept or reject in GitHub |
 
 The command must be the first line of the comment. Only owners, members, and
-collaborators may trigger it.
+collaborators may trigger it. `/review-pr` keeps one rolling review comment per
+PR; `/review-design` posts a separate comment for each run so the two do not
+overwrite each other.
 
 ## Runner
 

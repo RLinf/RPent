@@ -134,8 +134,11 @@ jobs:
 
           case "${{ needs.dispatch.outputs.command }}" in
             review-design)
+              # A standalone comment, so it does not overwrite the rolling
+              # /review-pr comment.
               "$PR_AGENT" --pr_url "$PR_URL" review \
-                --pr_reviewer.extra_instructions="$DESIGN_INSTRUCTIONS"
+                --pr_reviewer.extra_instructions="$DESIGN_INSTRUCTIONS" \
+                --pr_reviewer.persistent_comment=false
               ;;
             review-pr)
               "$PR_AGENT" --pr_url "$PR_URL" review
