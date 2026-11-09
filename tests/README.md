@@ -75,6 +75,12 @@ Run the complete suite with:
 pytest tests/unit_tests -v
 ```
 
+Geometry checks in `unit_tests/toolkits/geometry/` are smoke tests for imports,
+registered tool calls, synthetic part fitting, and initial-frame experiment
+outputs. They use fake external services and do not assert position-error or
+fit-quality thresholds. Quantitative evaluation uses the
+[geometry experiment workflow](../toolkits/geometry/evaluation/README.md).
+
 ## RoboCasa environment smoke tests
 
 RoboCasa separates simulator checks, model component checks and the full call chain:
