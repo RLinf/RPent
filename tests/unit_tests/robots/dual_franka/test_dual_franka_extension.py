@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -61,7 +62,10 @@ def test_dual_franka_extension_is_discoverable():
     assert spec.name == "dual_franka"
     assert spec.supports_exploration is True
     assert get_robot_spec().name == spec.name
-    runtime_components = {item["name"] for item in spec.dashboard["runtime_components"]}
+    runtime_components = {
+        item["name"]
+        for item in spec.resolve_dashboard(argparse.Namespace())["runtime_components"]
+    }
     assert "sam3" in runtime_components
 
 

@@ -68,7 +68,9 @@ def test_web_confirmation_and_task_completion(
     old_task.mkdir(parents=True)
     for name in ("dual_franka_t1.json", "dual_franka_t1_recipe.jsonl"):
         (old_task / name).write_text("old task record")
-    state = DashboardState(output_dir=tmp_path, dashboard_spec=spec.dashboard)
+    state = DashboardState(
+        output_dir=tmp_path, dashboard_spec=spec.resolve_dashboard(args)
+    )
     state.shared_services_ready()
     state.request_task({"task_id": 1})
     claimed = state.wait_for_task(0)

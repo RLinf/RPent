@@ -1,11 +1,11 @@
 远程服务与并行运行
 ===========================
 
-默认情况下，RPent 会随每次 LIBERO 运行启动并关闭环境、VLA 与 SAM3 服务。单机运行时建议保留这一默认行为。只有当服务分布在不同主机，或需要跨任务复用 VLA 与 SAM3 模型时，才需要配置外部 endpoint。
+以下示例使用 LIBERO、Pi0.5 VLA 和 SAM3。默认情况下，RPent 随每次运行启动并关闭这些服务和环境。服务分布在不同主机或需要跨任务复用时，可配置外部 endpoint。WAM worker 的部署见 :ref:`action-model-deployment`。
 
-三个参数分别设置对应服务的 endpoint：LIBERO 环境用 ``--env-endpoint``， Pi0.5 VLA 用 ``--vla-endpoint``，SAM3 用 ``--sam3-endpoint``。每个都取 ``[protocol://]HOST:PORT``，省略 protocol 时默认 HTTP，也可用 ``socket://`` 改走 socket RPC。
+三个参数分别设置对应服务的 endpoint：LIBERO 环境用 ``--env-endpoint``，所选动作模型用 ``--am-endpoint``，SAM3 用 ``--sam3-endpoint``。每个都取 ``[protocol://]HOST:PORT``，省略 protocol 时默认 HTTP，也可用 ``socket://`` 改走 socket RPC。
 
-Dashboard Session 不支持 ``--env-endpoint``，因为每个 TaskRun 都需要使用新的环境服务；Dashboard 模式仍可使用 ``--vla-endpoint`` 和 ``--sam3-endpoint``。
+Dashboard Session 不支持 ``--env-endpoint``，因为每个 TaskRun 都需要使用新的环境服务；Dashboard 模式仍可使用 ``--am-endpoint`` 和 ``--sam3-endpoint``。
 
 LIBERO 环境服务
 ---------------
@@ -38,6 +38,38 @@ Pi0.5 VLA 服务
 
 VLA 服务只加载一次模型，可以由多个 RPent 运行复用。
 
+.. _apxinf-vla-service-optional:
+
+APXInf VLA 服务（可选）
+------------------------------
+
+APXInf 适配器可以替代 Pi0.5 服务。在已安装 RPent 的环境中，按照 `APXinf-robo 安装说明 <https://github.com/RLinf/APXinf-robo#build-apxinf-robo>`_ 安装推理依赖。上游安装说明中的 ``libero`` 和 ``serve`` extras 并非此 RPent RPC endpoint 的必需依赖。规划器和环境可以继续使用原有 LIBERO 安装及其 OpenPI 依赖。
+
+准备兼容的 Pi0.5 LIBERO 模型权重、SentencePiece tokenizer 和归一化统计文件。
+
+使用该环境的 Python 启动服务：
+
+.. code-block:: bash
+
+   python -m rpent.robots.components.apxinf_vla_server \
+     --embodiment libero \
+     --model-path /path/to/pi05-libero \
+     --tokenizer-path /path/to/tokenizer.model \
+     --norm-stats-path /path/to/norm_stats.json \
+     --precision bf16 \
+     --transport http --host 127.0.0.1 --port 8220
+
+在 LIBERO 命令中增加 ``--vla-endpoint http://127.0.0.1:8220``。跨主机访问时，将服务绑定到可访问的网络接口，并使用服务端地址。用完后需自行停止这个外部服务；省略 endpoint 会启动 OpenPI。
+APXInf-robo 原生的 OpenPI WebSocket 服务不是 RPent RPC endpoint，请使用上述适配器。
+
+适配器仅支持 eval 模式，模型配置如下：
+
+- ``libero``：两个视角、五次流匹配迭代、十步动作预测；返回前五步动作，使用环境单位和 float32 类型。
+- ``dual_franka``：采用本体坐标系增量 TCP rot6d 的模型，输入三个视角；返回 20 步绝对位姿动作，每步 20 维。
+- ``yam``：采用关节增量模型，输入三个视角；返回 30 步绝对 qpos14 动作，YAM 工具每次执行五步。
+
+修改 ``--embodiment`` 时，需选择匹配的 APXInf-robo 预设、模型权重和统计文件。双臂 Franka 和 YAM 仍处于实验阶段，权重导出、数值一致性和真机执行尚需验证。适配器需要 APXInf 兼容的权重，不会转换原始 RLinf ``actor/model_state_dict/full_weights.pt``；目前不支持单臂 ``franka``。
+
 SAM3 服务
 ---------
 
@@ -64,7 +96,7 @@ SAM3 服务只加载一次模型，可以由多个 RPent 运行复用。
      --suite libero_object_swap --task 2 --seed 0 \
      --libero-type pro --max-episode-steps 10000 \
      --env-endpoint http://ENV_HOST:ENV_PORT \
-     --vla-endpoint http://VLA_HOST:VLA_PORT \
+     --am-endpoint http://VLA_HOST:VLA_PORT \
      --sam3-endpoint http://SAM3_HOST:SAM3_PORT \
      --planner claude_code --model claude-opus-4-8
 
@@ -100,7 +132,7 @@ SAM3 服务只加载一次模型，可以由多个 RPent 运行复用。
      rpent --robot libero --libero-type pro \
        --suite libero_object_swap --task 2 --seed 0 \
        --planner claude_code --model claude-opus-4-8 \
-       --vla-endpoint http://VLA_HOST:VLA_PORT \
+       --am-endpoint http://VLA_HOST:VLA_PORT \
        --sam3-endpoint http://SAM3_HOST:SAM3_PORT \
        --output-dir logs/parallel_object_swap_t2_s0/run_$i &
      pids+=($!)

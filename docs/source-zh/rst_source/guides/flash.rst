@@ -72,7 +72,7 @@ Flash Mode 仅用于评测，不能与 ``--explore`` 同用，执行 memory 中�
 
 计划重放支持 LIBERO-PRO Spatial、Object、Goal、Long（``10``）的 task 和 swap suite，共 80 个任务。
 
-VLA 和 SAM3 沿用普通 LIBERO 运行方式。也可以通过 ``--vla-endpoint`` 和 ``--sam3-endpoint`` 连接已经启动的服务。
+VLA 和 SAM3 沿用普通 LIBERO 运行方式。也可以通过 ``--am-endpoint`` 和 ``--sam3-endpoint`` 连接已经启动的服务。
 
 运行多个场景
 ------------------
@@ -85,7 +85,7 @@ VLA 和 SAM3 沿用普通 LIBERO 运行方式。也可以通过 ``--vla-endpoint
      rpent --robot libero --planner flash \
        --suite libero_object_swap --task 3 --seed "$seed" \
        --output-dir logs/sweep/swap_t3_s$seed \
-       --vla-endpoint http://127.0.0.1:20701 \
+       --am-endpoint http://127.0.0.1:20701 \
        --sam3-endpoint http://127.0.0.1:20702 \
        --molmo-endpoint http://127.0.0.1:20703
    done

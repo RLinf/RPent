@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 import threading
@@ -141,7 +142,7 @@ def test_manual_startup_reset_before_action(
         monkeypatch.setenv(f"RPENT_{component}_ENDPOINT", "http://unused.invalid:9999")
 
     def start_runtime(args, output, events, components, **kwargs):
-        assert args.env_endpoint is args.vla_endpoint is args.sam3_endpoint is None
+        assert args.env_endpoint is args.am_endpoint is args.sam3_endpoint is None
         assert components == {"env"}
         assert kwargs["task_description"] == ""
         return [], {"env": env}
@@ -470,7 +471,8 @@ def test_dashboard_discovers_dual_franka_camera_artifacts(tmp_path: Path):
         _primitives(FakeEnv()), state, command=None, result=None, elapsed_s=None
     )
     dashboard = DashboardState(
-        output_dir=tmp_path, dashboard_spec=get_robot_spec().dashboard
+        output_dir=tmp_path,
+        dashboard_spec=get_robot_spec().resolve_dashboard(argparse.Namespace()),
     )
     dashboard.emit(StepRecordEvent(record, state))
 

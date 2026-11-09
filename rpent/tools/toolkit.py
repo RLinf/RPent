@@ -179,8 +179,9 @@ class Toolkit:
     def _register_common_tools(self) -> None:
         from rpent.tools.common import CommonTools
 
+        common = CommonTools(memory=self._memory)
         self._memory.check_layout()
-        for declaration in iter_tools(CommonTools(memory=self._memory)):
+        for declaration in iter_tools(common):
             if declaration.name in {"read_text_file", "list_dir"}:
                 declaration = replace(
                     declaration,
@@ -195,7 +196,7 @@ class Toolkit:
 
     @property
     def memory(self) -> "MemoryManager":
-        """Return the toolkit's memory manager."""
+        """Return the run's required memory manager."""
         return self._memory
 
     @property
@@ -364,6 +365,17 @@ class Toolkit:
         handoff decision reads the environment, not the agent.
         """
         raise NotImplementedError
+
+    def evaluation_metrics(self, *, success: bool | None) -> dict[str, Any]:
+        """Collect run metrics after tools drain and before runtime shutdown.
+
+        Args:
+            success: The environment verdict collected for this episode.
+
+        Returns:
+            Robot-specific metrics for result artifacts, not planner feedback.
+        """
+        return {}
 
     def write_recipe(self, recipe_tag: str) -> str | None:
         """Write a replay recipe for this robot, if supported."""
