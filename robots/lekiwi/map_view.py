@@ -36,7 +36,7 @@ def encode_png(image: Image.Image) -> np.ndarray:
 
 
 def render_map(map_yaml, page: dict, navigation: dict, *, radius_m=None) -> dict:
-    """Overlay bounded node markers and a fresh robot pose on a static grid."""
+    """Overlay place labels, the selected node and a fresh robot pose on a grid."""
     path = Path(map_yaml).expanduser().resolve()
     config = load_mapping(path)
     resolution = float(config["resolution"])
@@ -108,18 +108,22 @@ def render_map(map_yaml, page: dict, navigation: dict, *, radius_m=None) -> dict
         x, y = displayed(node["pose"])
         if not inside((x, y)):
             continue
-        color = (
-            "#df7300" if center and node["node_id"] == center["node_id"] else "#1766cc"
-        )
+        markers.append(dict(node, image_pixel=[x, y]))
+        selected = center is not None and node["node_id"] == center["node_id"]
+        label = node.get("label", "")
+        if selected:
+            label = f"{label} ({node['node_id']})" if label else str(node["node_id"])
+        elif not label:
+            continue
+        color = "#df7300" if selected else "#1766cc"
         draw.ellipse((x - 3, y - 3, x + 3, y + 3), fill=color)
         draw.text(
             (x + 5, y - 5),
-            str(node["node_id"]),
+            label,
             fill=color,
             stroke_width=1,
             stroke_fill="white",
         )
-        markers.append(dict(node, image_pixel=[x, y]))
 
     robot = {
         "valid": False,
@@ -166,8 +170,8 @@ def render_map(map_yaml, page: dict, navigation: dict, *, radius_m=None) -> dict
             "black": "occupied",
             "white": "free",
             "gray": "unknown",
-            "blue": "node ID",
-            "orange": "selected node",
+            "blue": "place label",
+            "orange": "selected node and ID",
             "green": "robot and heading",
         },
         "image_png": encode_png(image),

@@ -120,15 +120,17 @@ class LeKiwiPrimitives:
         center_node_id: Annotated[int | None, Field(gt=0)] = None,
         radius_m: Annotated[float | None, Field(ge=0.1, le=100)] = None,
     ) -> ToolResult:
-        """View the static 2D occupancy map, node IDs and available robot pose.
+        """View the static 2D occupancy map, place labels and available robot pose.
 
         Args:
             center_node_id: Known node to highlight; required when radius_m is set.
             radius_m: Crop around that node in meters; omit to show the full map.
 
-        Shows up to 100 nodes plus the selected node. nodes_truncated indicates
-        more nodes in the region; use list_map_nodes to browse IDs. robot.valid=false means no
-        current pose is drawn. The map excludes live obstacles and does not
+        Returns up to 100 nodes plus the selected node, retaining their IDs in
+        the data. The image marks named places; only the selected node shows its
+        ID, even when unnamed. nodes_truncated indicates more nodes in the region;
+        use list_map_nodes to browse IDs. robot.valid=false means no current pose
+        is drawn. The map excludes live obstacles and does not
         prove a route is safe or reachable. Navigate by node ID or existing label,
         not by estimating coordinates from image pixels.
         """

@@ -81,6 +81,15 @@ def load_device_config(path: str | Path | None = None) -> dict[str, Any]:
     }
 
 
+def localization_service_config(path: str | Path | None = None) -> dict[str, Any]:
+    """Read the localization endpoint shared by image and map clients."""
+    config = dict(load_mapping(path or get_robot_config_path())["localization"])
+    endpoint = config.get("endpoint")
+    if not isinstance(endpoint, str) or not endpoint.strip():
+        raise ValueError("localization.endpoint must be a nonempty string")
+    return config
+
+
 def runtime_settings_from_args(args: argparse.Namespace) -> dict[str, Any]:
     """Build navigation and recording settings from the parsed Env CLI options."""
     map_yaml = args.map_yaml or Path(args.robot_config).parent / "map.yaml"

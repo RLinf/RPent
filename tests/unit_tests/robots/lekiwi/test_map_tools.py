@@ -172,14 +172,18 @@ def test_map_orientation_crop_and_stale_robot_pose(map_yaml, localizer):
 
 
 def test_tools_round_trip_through_both_rpc_services(localizer, map_yaml, tmp_path):
-    cloud = LocalizationFacade(localizer, token="test-token", peer="127.0.0.1")
+    cloud = LocalizationFacade(localizer)
     with rpc_server(cloud._dispatch) as cloud_endpoint:
         config = tmp_path / "robot.yaml"
-        config.write_text(
-            yaml.safe_dump(
-                {"localization": {"endpoint": cloud_endpoint, "token": "test-token"}}
-            )
-        )
+        connection = {"endpoint": cloud_endpoint}
+        config.write_text(yaml.safe_dump({"localization": connection}))
+        from robots.lekiwi.navigation.localization import wait_for_localization
+
+        probe = HttpRpcClient(cloud_endpoint)
+        try:
+            wait_for_localization(probe, lambda: False, timeout_s=1)
+        finally:
+            probe.close()
         control = Mock()
         runtime = NavigationRuntime(
             {"robot_config": str(config), "map_yaml": str(map_yaml)}, control
@@ -239,8 +243,6 @@ def test_tools_round_trip_through_both_rpc_services(localizer, map_yaml, tmp_pat
                 assert control.mock_calls == []
             finally:
                 client.close()
-    with pytest.raises(PermissionError):
-        cloud._dispatch("localization.list_map_nodes", (), {"token": "wrong"})
 
 
 def test_map_tool_schemas_and_rendered_prompt():

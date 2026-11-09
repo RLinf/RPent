@@ -16,11 +16,36 @@
 
 import math
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import numpy as np
 import pytest
 
 from robots.lekiwi.navigation.localization import Localization
+
+
+def test_service_startup_retries_and_can_stop(monkeypatch):
+    from robots.lekiwi.navigation import localization as module
+
+    client = Mock()
+    client.call.side_effect = [ConnectionError("loading map"), {"ok": True}]
+    monkeypatch.setattr(module.time, "sleep", lambda _: None)
+    module.wait_for_localization(client, lambda: False)
+    assert client.call.call_count == 2
+    client.call.assert_called_with("healthz", timeout_s=1)
+    client.reset_mock()
+    module.wait_for_localization(client, lambda: True)
+    client.call.assert_not_called()
+
+
+def test_service_startup_timeout_preserves_failure():
+    from robots.lekiwi.navigation.localization import wait_for_localization
+
+    client = Mock()
+    client.call.side_effect = ConnectionError("map loading failed")
+    with pytest.raises(TimeoutError, match="did not become ready") as failure:
+        wait_for_localization(client, lambda: False, timeout_s=0)
+    assert isinstance(failure.value.__cause__, ConnectionError)
 
 
 def test_ros_odometry_filters_frames_and_interpolates_capture_pose():

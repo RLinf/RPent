@@ -53,7 +53,6 @@ geometry:
     max_velocity: [0.2, 0.2, 0.8]  # forward m/s, lateral m/s, yaw rad/s; symmetric
     max_accel: [1.0, 0.85, 3.4]  # m/s², m/s², rad/s²
 
-# Cloud localization connection, shared by the Pi and cloud service.
+# Start the CPU localization service on the robot or another host.
 localization:
-  endpoint: http://REPLACE_WITH_CLOUD_HOST:18125
-  token: REPLACE_WITH_RANDOM_TOKEN
+  endpoint: http://127.0.0.1:18125

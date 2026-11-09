@@ -12,15 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Cloud visual localization RPC service."""
+"""CPU visual localization RPC service for local or remote deployment."""
 
 from __future__ import annotations
 
 import argparse
 import io
 import math
-import secrets
-import socket
 import time
 from pathlib import Path
 
@@ -192,27 +190,13 @@ def localize_frame(localizer, packet: dict, jpeg) -> dict:
 class LocalizationFacade(RpcFacade):
     """Serialize localization through the framework's RPC dispatch lock."""
 
-    def __init__(self, localizer, *, token: str, peer: str) -> None:
+    def __init__(self, localizer) -> None:
         super().__init__()
         self._localizer = localizer
-        self._token = token
-        self._peer = socket.gethostbyname(peer)
         self._rpc["localization.localize"] = self.localize
         self._rpc["localization.goal"] = self.goal
         self._rpc["localization.list_map_nodes"] = self.list_map_nodes
         self._rpc["localization.inspect_map_node"] = self.inspect_map_node
-
-    def _dispatch(self, method, args, kwargs, *, session_id=None):
-        kwargs = dict(kwargs)
-        token = kwargs.pop("token", None)
-        if not isinstance(token, str) or not secrets.compare_digest(token, self._token):
-            raise PermissionError("Invalid localization token")
-        return super()._dispatch(method, args, kwargs, session_id=session_id)
-
-    def _bind_and_announce(self, transport, host, port, dispatch):
-        server = super()._bind_and_announce(transport, host, port, dispatch)
-        server.verify_request = lambda request, address: address[0] == self._peer
-        return server
 
     def goal(self, target: int | str) -> dict:
         """Read a node goal from the same database used for localization."""
@@ -235,16 +219,12 @@ def serve_localization(
     database: Path,
     bind: str,
     port: int,
-    peer: str,
-    token: str,
     max_processing_ms: float = 2000.0,
 ) -> None:
     """Serve localization requests until the operator stops the service."""
     localizer = Localizer(database, max_processing_ms=max_processing_ms)
     try:
-        LocalizationFacade(localizer, token=token, peer=peer).serve(
-            transport="http", host=bind, port=port
-        )
+        LocalizationFacade(localizer).serve(transport="http", host=bind, port=port)
     finally:
         localizer.close()
 
@@ -252,24 +232,17 @@ def serve_localization(
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=["serve"])
-    parser.add_argument("--robot-config", type=Path, required=True)
     parser.add_argument("--database", type=Path, required=True)
-    parser.add_argument("--bind", required=True)
-    parser.add_argument("--port", type=int, required=True)
-    parser.add_argument("--peer", required=True)
+    parser.add_argument("--bind", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=18125)
     parser.add_argument("--max-processing-ms", type=float, default=2000.0)
     args = parser.parse_args(argv)
 
-    from robots.lekiwi.runtime_config import load_mapping
-
-    config = load_mapping(args.robot_config)["localization"]
     return serve_localization(
         database=args.database,
         bind=args.bind,
         port=args.port,
-        peer=args.peer,
         max_processing_ms=args.max_processing_ms,
-        token=config["token"],
     )
 
 

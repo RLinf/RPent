@@ -52,7 +52,7 @@ def runtime(monkeypatch):
     runtime.client = client
     monkeypatch.setattr(
         "robots.lekiwi.runtime_config.load_mapping",
-        lambda _: {"localization": {"endpoint": "http://cloud", "token": "test"}},
+        lambda _: {"localization": {"endpoint": "http://server.example:18125"}},
     )
     cloud = Mock()
     cloud.call.return_value = {"node_id": 42, "xy": [1, 2], "yaw": 0}

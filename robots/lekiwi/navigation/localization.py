@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Upload Pi images for cloud localization and publish map-to-odom corrections."""
+"""Query local or remote visual localization and publish map-to-odom corrections."""
 
 from __future__ import annotations
 
@@ -204,8 +204,21 @@ def publish_transform() -> None:
             rclpy.shutdown()
 
 
+def wait_for_localization(client, stopping, *, timeout_s=60.0) -> None:
+    """Wait for the configured service to load its map, allowing shutdown."""
+    deadline = time.monotonic() + timeout_s
+    while not stopping():
+        try:
+            client.call("healthz", timeout_s=1)
+            return
+        except Exception as exc:
+            if time.monotonic() >= deadline:
+                raise TimeoutError("Localization service did not become ready") from exc
+            time.sleep(0.1)
+
+
 def stream_localization(cfg: dict) -> None:
-    """Query cloud localization with the current robot calibration and credentials."""
+    """Query visual localization with the current calibration."""
 
     import cv2
     import rclpy
@@ -249,6 +262,7 @@ def stream_localization(cfg: dict) -> None:
         Image, "/camera/image_raw", receive, qos_profile_sensor_data
     )
     try:
+        wait_for_localization(client, lambda: ending)
         # Nav2's wheel bridge starts alongside this process. Wait for live
         # odometry before selecting the first camera timestamp to interpolate.
         warmup = time.monotonic() + 10
@@ -305,7 +319,7 @@ def stream_localization(cfg: dict) -> None:
             }
             response = client.call(
                 "localization.localize",
-                kwargs={"packet": packet, "jpeg": jpeg, "token": cfg["token"]},
+                kwargs={"packet": packet, "jpeg": jpeg},
             )
             age = (time.time_ns() - stamp) / 1e6
             pub.publish(String(data=json.dumps(response)))
@@ -332,8 +346,7 @@ def main(argv=None) -> None:
     from pathlib import Path
 
     from robots.lekiwi.runtime_config import (
-        get_robot_config_path,
-        load_mapping,
+        localization_service_config,
         set_robot_config_path,
     )
 
@@ -343,7 +356,7 @@ def main(argv=None) -> None:
     args = parser.parse_args(argv)
     set_robot_config_path(args.robot_config)
     if args.mode == "stream":
-        stream_localization(load_mapping(get_robot_config_path())["localization"])
+        stream_localization(localization_service_config())
     else:
         publish_transform()
 

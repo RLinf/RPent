@@ -12,4 +12,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Pi control, perception and cloud visual localization."""
+"""Pi control, perception and local or remote visual localization."""

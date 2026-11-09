@@ -121,7 +121,7 @@ def test_rpc_serializes_localization_and_goal_requests():
             return {"status": "goal"}
 
     backend = Backend()
-    facade = server.LocalizationFacade(backend, token="test", peer="127.0.0.1")
+    facade = server.LocalizationFacade(backend)
     # Bypass image decoding so this tests the actual RPC dispatch boundary.
     facade._rpc["localization.localize"] = backend.localize
 
@@ -129,7 +129,7 @@ def test_rpc_serializes_localization_and_goal_requests():
         try:
             if method == "localization.goal":
                 goal_attempted.set()
-            facade._dispatch(method, args, {"token": "test"})
+            facade._dispatch(method, args, {})
         except BaseException as error:
             errors.append(error)
 

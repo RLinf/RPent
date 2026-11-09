@@ -20,13 +20,17 @@ from types import ModuleType
 from unittest.mock import Mock
 
 import pytest
+import yaml
 
 from robots.lekiwi.navigation import launch
 from robots.lekiwi.runtime_config import set_robot_config_path
 
 
 @pytest.mark.parametrize("hardware", [False, True])
-def test_launch_starts_worker_modules_with_site_config(monkeypatch, tmp_path, hardware):
+@pytest.mark.parametrize("host", ["127.0.0.1", "server.example"])
+def test_launch_starts_worker_modules_with_site_config(
+    monkeypatch, tmp_path, hardware, host
+):
     commands = []
     service = Mock()
     service.run.return_value = 0
@@ -49,6 +53,8 @@ def test_launch_starts_worker_modules_with_site_config(monkeypatch, tmp_path, ha
         module.__dict__.update(members)
         monkeypatch.setitem(sys.modules, name, module)
     site = tmp_path / "robot.yaml"
+    localization = {"endpoint": f"http://{host}:18125"}
+    site.write_text(yaml.safe_dump({"localization": localization}))
     set_robot_config_path(site)
     try:
         assert (
@@ -60,13 +66,15 @@ def test_launch_starts_worker_modules_with_site_config(monkeypatch, tmp_path, ha
     finally:
         set_robot_config_path(None)
     assert len(commands) == 6
-    assert {cmd[2] for cmd in commands} == {
+    modules = {
         "robots.lekiwi.navigation.bridge",
         "robots.lekiwi.navigation.perception",
         "robots.lekiwi.navigation.localization",
         "robots.lekiwi.navigation.nav2",
     }
-    assert ("--require-mock" in commands[0]) is (not hardware)
+    assert {cmd[2] for cmd in commands} == modules
+    base = next(cmd for cmd in commands if "base" in cmd)
+    assert ("--require-mock" in base) is (not hardware)
     for cmd in commands:
         assert cmd[cmd.index("--robot-config") + 1] == str(site)
         # Help must work in a fresh process without ROS or a valid site config.
@@ -137,7 +145,7 @@ def test_worker_entrypoint_applies_site_config(
     from robots.lekiwi.runtime_config import get_robot_config_path
 
     site = tmp_path / "robot.yaml"
-    site.write_text("localization:\n  endpoint: http://cloud.invalid\n  token: test\n")
+    site.write_text("localization:\n  endpoint: http://cloud.invalid\n")
     module = importlib.import_module(f"robots.lekiwi.navigation.{module}")
 
     def run(*args, **kwargs):

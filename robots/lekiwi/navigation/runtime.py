@@ -30,7 +30,7 @@ class NavigationRuntime:
         self.config, self.control = config, control
         self.lock = threading.RLock()
         self.daemon = self.client = None
-        self.endpoint = self.credentials = None
+        self.endpoint = self.localization_config = None
         self.operation = {"state": "idle"}
 
     def start(self) -> dict:
@@ -40,6 +40,7 @@ class NavigationRuntime:
             if self.endpoint is None:
                 raise RuntimeError("Env RPC endpoint is not bound")
             self.stop()
+            self.localization_config = None
             port = pick_free_port()
             command = [
                 str(self.config.get("ros_python") or sys.executable),
@@ -109,31 +110,33 @@ class NavigationRuntime:
                 "operation": dict(self.operation),
             }
 
-    def _cloud_call(self, method: str, **kwargs) -> dict:
-        from robots.lekiwi.runtime_config import load_mapping
+    def _localization_call(self, method: str, **kwargs) -> dict:
+        from robots.lekiwi.runtime_config import localization_service_config
 
-        if self.credentials is None:
-            self.credentials = load_mapping(self.config["robot_config"])["localization"]
-        cloud = make_rpc_client(self.credentials["endpoint"])
+        if self.localization_config is None:
+            self.localization_config = localization_service_config(
+                self.config["robot_config"]
+            )
+        client = make_rpc_client(self.localization_config["endpoint"])
         try:
-            return cloud.call(
+            return client.call(
                 "localization." + method,
-                kwargs=dict(kwargs, token=self.credentials["token"]),
+                kwargs=kwargs,
                 timeout_s=5,
             )
         finally:
-            cloud.close()
+            client.close()
 
     def list_map_nodes(self, *, label=None) -> dict:
-        return self._cloud_call("list_map_nodes", label=label)
+        return self._localization_call("list_map_nodes", label=label)
 
     def inspect_map_node(self, node_id: int) -> dict:
-        return self._cloud_call("inspect_map_node", node_id=node_id)
+        return self._localization_call("inspect_map_node", node_id=node_id)
 
     def view_map(self, *, center_node_id=None, radius_m=None) -> dict:
         from robots.lekiwi.map_view import render_map
 
-        page = self._cloud_call(
+        page = self._localization_call(
             "list_map_nodes",
             limit=100,
             center_node_id=center_node_id,
@@ -148,7 +151,7 @@ class NavigationRuntime:
         stop_revision = self.control.stop_revision
         if not self.state()["ready"]:
             raise RuntimeError("Navigation is not ready")
-        goal = self._cloud_call("goal", target=target)
+        goal = self._localization_call("goal", target=target)
         with self.lock:
             if self.client is None:
                 raise RuntimeError("Navigation is not ready")

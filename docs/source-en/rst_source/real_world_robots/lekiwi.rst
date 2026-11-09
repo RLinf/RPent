@@ -51,19 +51,21 @@ Stereo mapping and navigation below use a ZED 2i with the deployment below. Run 
      - Responsibilities
      - Main dependencies
    * - Robot computer
-     - The Env owns the camera and base. Local workers compute stereo depth, separate ground from obstacles, and run Nav2 planning and control.
-     - RPent, companion RLinf, OpenCV, ROS 2 Jazzy, Nav2 and ``rtabmap_util``; no GPU or ZED SDK is required.
+     - The Env owns the camera and base. Local workers compute stereo depth, separate ground from obstacles, and run Nav2 planning and control. Visual localization can also run here on CPU.
+     - RPent, companion RLinf, OpenCV, ROS 2 Jazzy, Nav2 and ``rtabmap_util``. Local localization also needs the RTAB-Map native extension; no GPU or ZED SDK is required.
    * - Cloud
-     - Generate depth and maps offline. During navigation, receive robot images, localize against the existing map and return poses.
+     - Generate depth and maps offline. Optionally host visual localization when the robot has insufficient CPU or memory.
      - Offline depth uses CUDA and RAFT-Stereo. Mapping and localization use RTAB-Map; localization also requires RPent's native extension. Online localization can run on CPU.
    * - Operator computer
      - Run the RPent Dashboard and planner, connected to the robot Env.
      - RPent; this machine does not compute local obstacles or relay localization images between robot and cloud.
 
-On the robot, ``rtabmap_util/obstacles_detection`` only receives local stereo pointclouds and separates ground from obstacles. It does not run the full mapping pipeline or cloud localization service. Install RAFT-Stereo weights, mapping tools and the localization extension on the cloud host.
+On the robot, ``rtabmap_util/obstacles_detection`` separates ground from obstacles. A separate CPU localization process queries the existing RTAB-Map database. Install the localization extension on whichever host runs that process; RAFT-Stereo and offline mapping tools can stay on the cloud host. Local localization requires enough CPU and memory for the map alongside the camera, stereo workers and Nav2.
 
 1. Robot installation
 ------------------------------------------
+
+The companion RLinf camera interface must support ``BaseCamera.get_frame(return_timestamp=True)`` so image and wheel timestamps can be aligned.
 
 The Env uses a separate RPent Python environment. Install RPent and the companion RLinf checkout, or reuse a compatible environment. RPent supports Python 3.10–3.12; this example uses 3.12:
 
@@ -97,10 +99,12 @@ Fill in ``robot.port``, the UVC device identifier ``cameras.devices.front.serial
 
 ``eye_size`` defaults to ``[1280, 720]``; ``drive`` sets teleoperation limits and frequency. ``perception.stereo`` and ``perception.obstacles`` can be empty. Navigation loads the installed ``nav2_bringup/params/nav2_params.yaml`` with ``nav2_overrides.yaml`` for omni motion, pointclouds and topics, and injects geometry and motion limits from the robot YAML.
 
-3. Cloud installation
+3. Mapping and localization installation
 ------------------------------------------
 
-Install RPent on the cloud machine using the Python commands in section 1. Clone the following projects into your chosen paths and follow their upstream dependency and model instructions; no source branch is pinned:
+Offline mapping uses CUDA and RAFT-Stereo; local CPU localization needs only RTAB-Map, OpenCV and the native extension described below. RAFT-Stereo is not required on the robot.
+
+For offline mapping, install RPent on the cloud machine using the Python commands in section 1. Clone the following projects into your chosen paths and follow their upstream dependency and model instructions; no source branch is pinned:
 
 .. code-block:: bash
 
@@ -110,7 +114,7 @@ Install RPent on the cloud machine using the Python commands in section 1. Clone
 - `RTAB-Map installation <https://github.com/introlab/rtabmap/wiki/Installation>`_: enable Qt image import tools and GTSAM, and add the official commands to ``PATH``.
 - `RAFT-Stereo instructions <https://github.com/princeton-vl/RAFT-Stereo>`_: install a CUDA PyTorch environment, download ``raftstereo-middlebury.pth``, and install RPent in that environment. A domestic PyPI mirror may be used for Python dependencies.
 
-In the Python environment running the localization service, install the optional build dependencies, then compile and install the extension with CMake. This requires a C++17 compiler, Python development headers, and RTAB-Map and OpenCV development libraries. Run these steps only on the cloud host, not on the Pi:
+In the Python environment running the localization service, install the optional build dependencies, then compile and install the extension with CMake. This requires a C++17 compiler, Python development headers, and RTAB-Map and OpenCV development libraries. Run these steps on the selected localization host; running the service on the robot requires building and installing the extension there:
 
 .. code-block:: bash
 
@@ -206,29 +210,43 @@ Build the map with the `official RTAB-Map tools <https://github.com/introlab/rta
 
 If the map quality is unsatisfactory, consult the `official grid parameter descriptions <https://github.com/introlab/rtabmap/blob/master/corelib/include/rtabmap/core/Parameters.h>`_ to adjust the parameters.
 
-Copy ``map.yaml`` and its referenced map image to the robot. Keep ``rtabmap.db`` from the same mapping run on the cloud. Open the database with the official RTAB-Map viewer, inspect graph nodes and their images, and note the destination node ID:
+Copy ``map.yaml`` and its referenced map image to the robot. Copy ``rtabmap.db`` from the same mapping run to the localization host: either the robot or an external server. Open the database with the official RTAB-Map viewer, inspect graph nodes and their images, and note the destination node ID:
 
 .. code-block:: bash
 
    rtabmap-databaseViewer /path/to/map-output/rtabmap.db
 
-Navigation takes an existing database node ID or a saved node label, such as ``door``. The arrival position and heading come directly from the node's optimized pose. No target JSON or separate picker page is required. Labels live in the RTAB-Map database; after changing labels, update the cloud database and restart localization. When rebuilding a map, update the YAML, image and database together.
+Navigation takes an existing database node ID or a saved node label, such as ``door``. The arrival position and heading come directly from the node's optimized pose. No target JSON or separate picker page is required. Labels live in the RTAB-Map database; after changing labels, update the localization database and restart the localization service. When rebuilding a map, update the YAML, image and database together.
 
 Goal resolution uses RTAB-Map's native graph API; Nav2 handles path planning and obstacle avoidance.
 
+The Agent can use ``list_map_nodes`` to find node IDs and existing labels, and ``inspect_map_node`` to check a node's historical image. ``view_map`` shows place labels and the robot pose when navigation is ready. Unnamed nodes are hidden in the default image, but their IDs remain in the returned data. Set ``center_node_id`` to highlight a candidate and display its ID, with its label when available; add ``radius_m`` to crop the surrounding area. The image shows the static map, without live obstacles.
+
 .. _lekiwi-navigation-start:
 
-7. Cloud localization
+7. Start the localization service
 ------------------------------------------
 
-Set ``localization.endpoint`` and the same ``localization.token`` in the robot YAML on both hosts. Generate a token with ``python -c "import secrets; print(secrets.token_hex(32))"``. Start cloud localization; ``--peer`` is the robot source IP as seen by the cloud:
+Localization is a standalone CPU service, like SAM3's separately deployed service. The same command runs on the robot or another host. On the chosen host, use a Python environment with RPent and the native localization extension installed:
 
 .. code-block:: bash
 
    python -m robots.lekiwi.localization_server serve \
      --database /path/to/map-output/rtabmap.db \
-     --bind 0.0.0.0 --port 18125 --peer 192.168.1.10 \
-     --robot-config /path/to/robot.yaml
+     --bind 127.0.0.1 --port 18125
+
+The service loads the database specified by ``--database`` and receives rectified left-camera images, camera parameters, capture timestamps and aligned wheel odometry from the robot's navigation worker. It does not open the camera or motor bus. Its Python environment can be separate from the robot's ROS environment; the localization algorithm and request format are the same for either deployment location.
+
+Keep this service running and start the navigation Env in another terminal as described in the next section. The robot YAML only supplies the service address to the clients:
+
+.. code-block:: yaml
+
+   localization:
+     endpoint: http://127.0.0.1:18125
+
+To host localization on another machine, use the same service command there with ``--bind 0.0.0.0`` and set the robot's ``localization.endpoint`` to ``http://SERVER_HOST:18125``. The service needs the database, not the robot YAML. There is no deployment mode or token setting. As with the other RPent RPC services, use a trusted network or an SSH tunnel for remote access; the default listen address is loopback.
+
+Image requests, map queries and goal resolution all use this endpoint. The image worker waits up to 60 seconds for service readiness, regardless of where it runs. Readiness only establishes that the database loaded, not that the robot has localized. The Env manages the navigation workers; start and stop the localization service separately. Exiting the Env leaves this service running. A localization RPC failure exits the image worker and stops the navigation graph; pose-freshness and motion checks remain active.
 
 8. Robot navigation
 --------------------------------------
