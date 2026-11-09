@@ -34,8 +34,7 @@ RULES = (
 )
 
 MAP_NAVIGATION = (
-    "Use list_map_nodes to discover IDs and existing labels. Use inspect_map_node for details and view_map for spatial context; never invent a target.",
-    "Use view_map for spatial context and inspect_map_node to check candidate reference images. There is no semantic object search.",
+    "Use list_map_nodes to discover IDs and existing labels, inspect_map_node for details and reference images, and view_map for spatial context. There is no semantic object search; never invent a target.",
     "A node is a recorded robot viewpoint. Its reference image is historical; it does not establish where an object is now.",
     "The static map does not show live obstacles. Missing robot localization is unknown, not a pose at the origin.",
     "Check get_navigation_state before navigate_to. After arrival, confirm the task using current camera evidence; navigation success alone is insufficient.",

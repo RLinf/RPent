@@ -99,8 +99,8 @@ def authorize_runtime(args: argparse.Namespace) -> None:
             )
         options = getattr(args, "_flash_options", None)
         if options and any(e["action"] in VLA_ACTIONS for e in options["card"]["plan"]):
-            if options["card"]["robot"] == "franka" and not args.vla_endpoint:
-                raise ValueError("single-Franka VLA Flash plan requires --vla-endpoint")
+            if options["card"]["robot"] == "franka" and not args.am_endpoint:
+                raise ValueError("single-Franka VLA Flash plan requires --am-endpoint")
         result = ask_human(
             "Restore the scene and clear the workspace. Allow driver initialization/reset?",
             ("ready", "abort"),

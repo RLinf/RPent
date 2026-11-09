@@ -28,6 +28,8 @@ from robots.libero.toolkit import LiberoToolkit
 from robots.robocasa import tools as robocasa_tools
 from robots.robocasa.primitives import RoboCasaPrimitives
 from robots.robodojo import tools as robodojo_tools
+from robots.robodojo.primitives import RoboDojoPrimitives
+from robots.robodojo.toolkit import RoboDojoToolkit
 from robots.robotwin import tools as robotwin_tools
 from robots.robotwin.primitives import RoboTwinPrimitives
 from robots.robotwin.toolkit import RoboTwinToolkit
@@ -48,7 +50,7 @@ TOOL_DECLARATIONS = {
         iter_tools(libero_tools, libero_tools.LiberoPrimitives, LiberoToolkit)
     ),
     "robocasa": list(iter_tools(robocasa_tools, RoboCasaPrimitives)),
-    "robodojo": list(iter_tools(robodojo_tools)),
+    "robodojo": list(iter_tools(robodojo_tools, RoboDojoPrimitives, RoboDojoToolkit)),
     "robotwin": list(iter_tools(robotwin_tools, RoboTwinPrimitives, RoboTwinToolkit)),
 }
 
@@ -61,6 +63,14 @@ def test_tool_declarations_match_pre_refactor_contracts(group: str) -> None:
     )
     path = "rpent/tools/common.py" if group == "common" else f"robots/{group}/tools.py"
     expected = {item["name"]: item for item in baseline["tools"][path]}
+    if group == "robodojo":
+        # Full-pose motion and saved-frame queries intentionally replace the
+        # older tool API; keep a separate fixed snapshot of the new contract.
+        expected = json.loads(
+            (
+                Path(__file__).parent / "fixtures" / "robodojo_tool_schemas.json"
+            ).read_text()
+        )
     if group == "libero":
         # The yaw fix deliberately extends the native declaration while all
         # other pre-refactor contracts remain unchanged.
@@ -83,32 +93,21 @@ def test_tool_declarations_match_pre_refactor_contracts(group: str) -> None:
         for item in declarations
     }
     assert len(actual) == len(declarations)
+    added = {"wam_act"} if group in {"libero", "robotwin"} else set()
     if group == "lekiwi":
         expected["stop"]["description"] = (
             "Stop the base and cancel its current goal, keeping navigation running.\n\n"
             "Wait for the navigation operation to leave running before another goal."
         )
-        # This historical snapshot covers existing tools, before navigation was added.
-        assert actual.keys() - expected.keys() == {
+        # The historical snapshot predates navigation; its tools stay unchanged.
+        added = {
             "navigate_to",
             "get_navigation_state",
             "list_map_nodes",
             "inspect_map_node",
             "view_map",
         }
-        actual = {
-            name: value
-            for name, value in actual.items()
-            if name
-            not in {
-                "navigate_to",
-                "get_navigation_state",
-                "list_map_nodes",
-                "inspect_map_node",
-                "view_map",
-            }
-        }
-    assert actual.keys() == expected.keys()
+    assert actual.keys() == expected.keys() | added
     for name in expected:
         assert actual[name] == expected[name], f"{group}/{name}"
 
@@ -135,6 +134,7 @@ def test_robot_action_schemas_keep_bounded_vector_shapes() -> None:
                 iter_tools(libero_tools, libero_tools.LiberoPrimitives, LiberoToolkit)
             )
         }["move_to"],
+        {spec.name: spec for spec in iter_tools(RoboDojoPrimitives)}["move_to"],
         {
             spec.name: spec
             for spec in list(

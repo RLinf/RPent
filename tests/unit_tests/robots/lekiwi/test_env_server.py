@@ -373,22 +373,14 @@ def test_backend_stop_cancels_goal_without_shutting_down_service(
 
 def test_stereo_rpc_recovers_after_a_missing_frame():
     import queue
-    from types import MethodType
     from unittest.mock import Mock
-
-    from rlinf.robotics.parts.cameras.base import BaseCamera
 
     from robots.lekiwi.env_server import LeKiwiEnvBackend
 
-    # Exercise the real RLinf queue reader without starting its hardware thread.
-    camera = SimpleNamespace(
-        _frame_capturing_start=True,
-        _latest_frame=None,
-        _frame_queue=queue.Queue(),
-        name="offline",
-        reopen=Mock(),
-    )
-    camera.get_frame = MethodType(BaseCamera.get_frame, camera)
+    stamp = time.monotonic()
+    frame = np.full((2, 4, 3), 42, np.uint8)
+    camera = Mock()
+    camera.get_frame.side_effect = [queue.Empty, (stamp, frame)]
     backend = LeKiwiEnvBackend.__new__(LeKiwiEnvBackend)
     backend.camera = camera
     facade = LeKiwiEnvFacade(backend)
@@ -398,14 +390,14 @@ def test_stereo_rpc_recovers_after_a_missing_frame():
     client = HttpRpcClient(f"http://127.0.0.1:{server.server_port}")
     try:
         assert client.call("env.get_stereo_frame", timeout_s=3) is None
-        camera.reopen.assert_called_once()
-        stamp = time.monotonic()
-        frame = np.full((2, 4, 3), 42, np.uint8)
-        camera._frame_queue.put((stamp, frame))
         recovered = client.call("env.get_stereo_frame", timeout_s=3)
         assert recovered["source_stamp"] == stamp
         np.testing.assert_array_equal(recovered["frame"], frame)
         assert recovered["clock_domain"] == "host_monotonic"
+        assert camera.get_frame.call_count == 2
+        camera.get_frame.assert_called_with(
+            timeout=0.5, max_age=0.5, return_timestamp=True
+        )
     finally:
         client.close()
         server.shutdown()

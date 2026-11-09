@@ -24,6 +24,7 @@ import threading
 import time
 import uuid
 from concurrent.futures import Future
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from functools import partial
 
 from rpent.utils.rpc import RpcFacade
@@ -124,7 +125,7 @@ class Navigator:
         self.requests.put((request, handler, args, kwargs))
         try:
             return request.result(timeout=3)
-        except TimeoutError as exc:
+        except FutureTimeoutError as exc:
             request.cancel()
             raise TimeoutError("Navigation executor did not respond") from exc
 

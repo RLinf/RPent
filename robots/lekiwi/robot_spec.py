@@ -22,8 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from robots.lekiwi.prompt_bundle import system_prompt, user_prompt
-from robots.lekiwi.runtime_config import set_robot_config_path
-from robots.lekiwi.tasks import LEKIWI_TASKS, get_lekiwi_task
+from robots.lekiwi.tasks import LEKIWI_TASKS, get_lekiwi_task, get_navigation_task
 from rpent.dashboard.events import DashboardEventSink
 from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
@@ -68,7 +67,7 @@ def get_robot_spec() -> RobotSpec:
         add_cli_args=_add_cli_args,
         parse_config=_parse_config,
         init_runtime=_init_runtime,
-        dashboard=LEKIWI_DASHBOARD_SPEC,
+        resolve_dashboard=_resolve_dashboard,
         is_real_robot=True,
         supports_exploration=False,
     )
@@ -93,40 +92,64 @@ def get_toolkit(
     )
 
 
+def _resolve_dashboard(args: argparse.Namespace) -> DashboardSpec:
+    if args.task_id is not None:
+        return LEKIWI_DASHBOARD_SPEC
+    return {
+        **LEKIWI_DASHBOARD_SPEC,
+        "task": {
+            "command": "/rpent-task",
+            "usage": "/rpent-task <navigation_target>",
+            "fields": ({"name": "navigation_target"},),
+            "display": "Navigate to {navigation_target}",
+            "output_slug": "lekiwi_navigation_{navigation_target}",
+        },
+        "primitives": ("navigate_to", "stop"),
+    }
+
+
 def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
-    parser.add_argument(
+    task = parser.add_mutually_exclusive_group()
+    task.add_argument(
         "--task-id",
         type=int,
-        default=None if use_dashboard else 0,
+        default=None,
         choices=sorted(LEKIWI_TASKS),
+        help="Manual driving task; selects manual task commands in Dashboard",
+    )
+    task.add_argument(
+        "--navigation-target",
+        help="Existing RTAB-Map node ID or exact label to navigate to",
     )
     parser.add_argument(
         "--env-endpoint",
         default=None,
         help="LeKiwi env_server URL (http://host:port) running on the robot's computer",
     )
-    parser.add_argument(
-        "--robot-config",
-        default=None,
-        help="LeKiwi site YAML (port, camera serials, velocity limits)",
-    )
 
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
-    set_robot_config_path(args.robot_config)
-    if args.task_id is None:
-        raise ValueError("--task-id is required")
-    task = get_lekiwi_task(args.task_id)
+    if args.navigation_target is not None:
+        task = get_navigation_task(args.navigation_target)
+        recipe_tag = "lekiwi_navigation"
+        task_desc = {
+            "navigation_target": args.navigation_target,
+            "task_name": task.name,
+        }
+    else:
+        task_id = 0 if args.task_id is None else args.task_id
+        task = get_lekiwi_task(task_id)
+        recipe_tag = f"lekiwi_t{task_id}"
+        task_desc = {"task_id": task_id, "task_name": task.name}
     timestamp = datetime.now().strftime("%Y%m%d-%H:%M:%S")
     output_dir = Path(
-        args.output_dir
-        or get_repo_root() / "logs" / f"{timestamp}_lekiwi_t{args.task_id}"
+        args.output_dir or get_repo_root() / "logs" / f"{timestamp}_{recipe_tag}"
     )
     constraints = "\n".join(
         f"{index}. {constraint}" for index, constraint in enumerate(task.constraints, 1)
     )
     return RunConfig(
-        recipe_tag=f"lekiwi_t{args.task_id}",
+        recipe_tag=recipe_tag,
         output_dir=output_dir,
         prompt_vars={
             "task_name": task.name,
@@ -134,7 +157,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             "success_criteria": task.success_criteria,
             "constraints": constraints,
         },
-        task_desc={"task_id": args.task_id, "task_name": task.name},
+        task_desc=task_desc,
     )
 
 
@@ -162,17 +185,27 @@ def _init_runtime(
 
     def connect_env():
         env = LeKiwiEnvClient(rpc)
-        if env.meta.get("control_mode", "manual") == "manual":
+        mode = env.meta.get("control_mode", "manual")
+        required_mode = "navigation" if args.navigation_target is not None else "manual"
+        if mode != required_mode:
+            raise ValueError(
+                f"this task requires {required_mode} control, Env is {mode}"
+            )
+        if mode == "manual":
             env.reset()
         return {"env": env}
 
-    runtime_kwargs = try_wait_server(
-        {},
-        dashboard_events,
-        "env",
-        rpc,
-        None,
-        5.0 if getattr(args, "dashboard", False) else 60.0,
-        post_fn=connect_env,
-    )
+    try:
+        runtime_kwargs = try_wait_server(
+            {},
+            dashboard_events,
+            "env",
+            rpc,
+            None,
+            5.0 if getattr(args, "dashboard", False) else 60.0,
+            post_fn=connect_env,
+        )
+    except Exception:
+        rpc.close()
+        raise
     return [], runtime_kwargs

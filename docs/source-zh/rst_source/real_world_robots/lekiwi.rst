@@ -55,11 +55,16 @@ LeKiwi
 操作电脑
 ~~~~~~~~
 
-在独立 Python 环境安装 RPent：
+安装 RPent 及键盘采集、预览依赖：
 
 .. code-block:: bash
 
-   uv pip install -e /path/to/RPent
+   cd /path/to/RPent
+   uv venv --python 3.12
+   source .venv/bin/activate
+   uv pip install -e ".[lekiwi-teleop]"
+
+操作电脑无需安装 RLinf、ROS 或电机驱动。
 
 建图与定位
 ~~~~~~~~~~
@@ -115,16 +120,7 @@ LeKiwi
 
 ``0.0.0.0`` 是本机监听地址。采集期间由采集客户端独占使用这个 Env，不要同时连接 Agent 或其他驾驶客户端。导航使用后文的独立启动流程。
 
-在操作电脑的 Python 3.10–3.12 环境安装 RPent 遥操依赖：
-
-.. code-block:: bash
-
-   cd /path/to/RPent
-   uv venv --python 3.12
-   source .venv/bin/activate
-   uv pip install -e ".[lekiwi-teleop]"
-
-该依赖组提供 LeRobot 键盘输入和 Rerun 预览，操作电脑无需安装 RLinf、ROS 或电机驱动。键盘输入需要本地桌面：macOS 需授予终端“辅助功能／输入监控”权限；Linux 使用 X11。此入口不支持无桌面的 SSH 或 Wayland 键盘采集。
+键盘输入需要本地桌面：macOS 需授予终端“辅助功能／输入监控”权限；Linux 使用 X11。此入口不支持无桌面的 SSH 或 Wayland 键盘采集。
 
 在操作电脑执行，将 ``ROBOT_HOST`` 替换为机器人的主机名或 IP：
 
@@ -138,7 +134,7 @@ LeKiwi
 
 默认每段最多录制 600 秒，每秒最多保存 5 对图片，通过 Env 的 ``--capture-seconds`` 和 ``--recording-fps`` 修改。达到录制时限后客户端结束。键盘断开、预览／录制出错或控制循环卡顿时，客户端退出并尝试停车、结束录制；恢复后需重新运行命令。客户端失联时 Env 会使运动命令过期。若网络已断开，无法保证远端收尾成功，机器人端录制器可能继续运行到配置的时限或 Env 关闭。
 
-客户端复用 LeRobot 的 ``KeyboardTeleop`` 和预览工具，通过现有 Env 的 ``hold``／``stop`` 和双目录制接口工作，轮电机仍由 RLinf 控制。采集不需要 Dashboard、规划器或示教机械臂，只保存双目 PNG 和标定信息，不另存 MP4 或动作日志。
+采集只保存双目 PNG 和标定信息，不另存 MP4 或动作日志。
 
 把机器人端生成的整个 ``capture-*`` 目录和机器人 YAML 复制到离线建图机器。目录包含 ``left/``、``right/``、``stereo.json`` 和 ``calibration.conf``，左右目以包含源帧时间戳的同名文件配对。之后的离线处理只读文件，不需要连接机器人。
 
@@ -225,9 +221,19 @@ LeKiwi
 .. code-block:: bash
 
    rpent --robot lekiwi --dashboard --planner codex --model gpt-6-astra \
-     --robot-config /path/to/robot.yaml --env-endpoint http://ROBOT_HOST:8120
+     --env-endpoint http://ROBOT_HOST:8120
 
-打开终端给出的地址，提交导航到已有节点或地点的指令。界面操作见 :doc:`../guides/dashboard`，运行记录见 :ref:`run-output-files`。到达后结合当前相机图像确认结果，Nav2 成功或 ``finish`` 均不代表物理任务已验收。
+打开终端给出的地址，用已有节点编号或精确标签启动导航任务：
+
+.. code-block:: text
+
+   /rpent-task door
+
+把 ``door`` 替换为数据库中已有的标签，也可使用节点编号，例如 ``/rpent-task 42``。Dashboard 目标不能含空格；标签含空格时请使用对应节点编号。无需 Dashboard 时，将启动命令中的 ``--dashboard`` 替换为 ``--navigation-target door``。
+
+运行手动驾驶任务时，连接手动模式的 Env，并在启动 Dashboard 时加上 ``--task-id 0``；此时使用 ``/rpent-task <task_id>`` 选择任务（0–2）。键盘采集期间不要连接 Agent。
+
+界面操作见 :doc:`../guides/dashboard`，运行记录见 :ref:`run-output-files`。到达后结合当前相机图像确认结果，Nav2 成功或 ``finish`` 均不代表物理任务已验收。
 
 Agent 可调用的工具
 ------------------

@@ -95,3 +95,34 @@ def get_lekiwi_task(task_id: int) -> LeKiwiTask:
         raise ValueError(
             f"unknown LeKiwi task {task_id!r}; choices are {sorted(LEKIWI_TASKS)}"
         ) from exc
+
+
+def get_navigation_task(target: str) -> LeKiwiTask:
+    """Build a navigation task with an explicit existing node ID or label."""
+    if not target.strip() or len(target) > 128:
+        raise ValueError("navigation target must contain 1–128 characters")
+    try:
+        node_id = int(target)
+    except ValueError:
+        destination = f"the existing map label {target!r}"
+    else:
+        if node_id <= 0:
+            raise ValueError("navigation node ID must be positive")
+        destination = f"map node ID {node_id}"
+    return LeKiwiTask(
+        name="map_navigation",
+        instruction=(
+            f"Navigate to {destination}. Confirm the target with list_map_nodes "
+            "and inspect_map_node, check navigation readiness, then navigate_to it. "
+            "If the target is absent or ambiguous, stop and report the problem."
+        ),
+        success_criteria=(
+            "Navigation reports arrival at the requested node and the current "
+            "camera view supports arrival at its recorded viewpoint. "
+            "Report any uncertainty instead of claiming success."
+        ),
+        constraints=(
+            "Use only navigate_to and stop for motion; do not use manual drive.",
+            "Use the requested existing target; do not invent or substitute a target.",
+        ),
+    )

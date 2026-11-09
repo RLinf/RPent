@@ -193,7 +193,12 @@ def test_runtime_attaches_to_navigation_without_reset(
     monkeypatch.setattr(robot_spec, "make_rpc_client", lambda _: rpc)
     monkeypatch.setattr(robot_spec, "try_wait_server", lambda *args, post_fn: post_fn())
     daemons, kwargs = robot_spec._init_runtime(
-        SimpleNamespace(env_endpoint="http://robot", task_id=0, dashboard=False),
+        SimpleNamespace(
+            env_endpoint="http://robot",
+            task_id=0 if mode == "manual" else None,
+            navigation_target="door" if mode == "navigation" else None,
+            dashboard=False,
+        ),
         tmp_path,
         Mock(),
         None,
@@ -203,3 +208,114 @@ def test_runtime_attaches_to_navigation_without_reset(
     assert (
         sum(call.args[0] == "env.reset" for call in rpc.call.call_args_list) == resets
     )
+
+
+@pytest.mark.parametrize("target", ["door", "42"])
+def test_dashboard_navigation_command_reaches_task_prompt(tmp_path, target):
+    from argparse import ArgumentParser
+
+    from robots.lekiwi.robot_spec import get_robot_spec
+    from rpent.dashboard.state import DashboardState
+
+    spec = get_robot_spec()
+    parser = ArgumentParser()
+    spec.add_cli_args(parser, use_dashboard=True)
+    args = parser.parse_args([])
+    dashboard = spec.resolve_dashboard(args)
+    state = DashboardState(output_dir=tmp_path, dashboard_spec=dashboard)
+    state.shared_services_ready()
+    state.submit_input(f"/rpent-task {target}")
+    claimed = state.wait_for_task(timeout=0)
+    assert claimed is not None
+    for name, value in claimed.request.items():
+        setattr(args, name, value)
+    args.output_dir = claimed.output_dir
+    config = spec.parse_config(args)
+    prompt = spec.prompts.render("user", variables=config.prompt_vars)
+    assert config.task_desc == {
+        "navigation_target": target,
+        "task_name": "map_navigation",
+    }
+    assert target in prompt
+    assert "Use only navigate_to and stop for motion" in prompt
+    assert "manual drive" in prompt
+    assert dashboard["primitives"] == ("navigate_to", "stop")
+
+
+@pytest.mark.parametrize("task_id", [0, 1, 2])
+def test_manual_dashboard_tasks_remain_available(tmp_path, task_id):
+    from argparse import ArgumentParser
+
+    from robots.lekiwi.robot_spec import get_robot_spec
+    from rpent.dashboard.state import DashboardState
+
+    spec = get_robot_spec()
+    parser = ArgumentParser()
+    spec.add_cli_args(parser, use_dashboard=True)
+    args = parser.parse_args(["--task-id", "0"])
+    dashboard = spec.resolve_dashboard(args)
+    state = DashboardState(output_dir=tmp_path, dashboard_spec=dashboard)
+    state.shared_services_ready()
+    state.submit_input(f"/rpent-task {task_id}")
+    claimed = state.wait_for_task(timeout=0)
+    args.task_id = claimed.request["task_id"]
+    args.output_dir = claimed.output_dir
+    config = spec.parse_config(args)
+    assert config.task_desc["task_id"] == task_id
+    assert config.recipe_tag == f"lekiwi_t{task_id}"
+    assert dashboard["primitives"] == ("drive", "stop")
+
+
+def test_navigation_cli_selects_target_and_rejects_manual_task(tmp_path):
+    from argparse import ArgumentParser
+
+    from robots.lekiwi.robot_spec import get_robot_spec
+
+    spec = get_robot_spec()
+    parser = ArgumentParser()
+    spec.add_cli_args(parser, use_dashboard=False)
+    args = parser.parse_args(["--navigation-target", "front door"])
+    args.output_dir = tmp_path
+    config = spec.parse_config(args)
+    assert config.task_desc["navigation_target"] == "front door"
+    assert "'front door'" in config.prompt_vars["instruction"]
+    defaults = parser.parse_args([])
+    defaults.output_dir = tmp_path
+    assert spec.parse_config(defaults).task_desc["task_id"] == 0
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--navigation-target", "door", "--task-id", "0"])
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--robot-config", "robot.yaml"])
+
+
+@pytest.mark.parametrize("target", ["", "   ", "0", "-1", "x" * 129])
+def test_navigation_task_rejects_invalid_target(target):
+    from robots.lekiwi.tasks import get_navigation_task
+
+    with pytest.raises(ValueError, match="navigation"):
+        get_navigation_task(target)
+
+
+@pytest.mark.parametrize("mode, target", [("navigation", None), ("manual", "door")])
+def test_runtime_rejects_task_mode_mismatch_without_reset(
+    monkeypatch, tmp_path, mode, target
+):
+    from unittest.mock import Mock
+
+    from robots.lekiwi import robot_spec
+
+    rpc = Mock()
+    rpc.call.return_value = {"control_mode": mode}
+    monkeypatch.setattr(robot_spec, "make_rpc_client", lambda _: rpc)
+    monkeypatch.setattr(robot_spec, "try_wait_server", lambda *args, post_fn: post_fn())
+    with pytest.raises(ValueError, match="this task requires"):
+        robot_spec._init_runtime(
+            SimpleNamespace(
+                env_endpoint="http://robot", navigation_target=target, dashboard=False
+            ),
+            tmp_path,
+            Mock(),
+            None,
+        )
+    assert all(call.args[0] != "env.reset" for call in rpc.call.call_args_list)
+    rpc.close.assert_called_once()

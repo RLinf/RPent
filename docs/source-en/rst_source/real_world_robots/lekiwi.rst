@@ -55,11 +55,16 @@ Navigation also needs `ROS 2 Jazzy <https://docs.ros.org/en/jazzy/Installation.h
 Operator Computer
 ~~~~~~~~~~~~~~~~~
 
-Install RPent in a separate Python environment:
+Install RPent with keyboard capture and preview dependencies:
 
 .. code-block:: bash
 
-   uv pip install -e /path/to/RPent
+   cd /path/to/RPent
+   uv venv --python 3.12
+   source .venv/bin/activate
+   uv pip install -e ".[lekiwi-teleop]"
+
+The operator computer does not need RLinf, ROS or a motor driver.
 
 Mapping and Localization
 ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -115,16 +120,7 @@ Start the Env on the robot; it owns the base, ZED camera and PNG recorder:
 
 ``0.0.0.0`` is the local listen address. Use this Env exclusively for capture: do not attach an Agent or another driving client during collection. Navigation uses the separate launch procedure below.
 
-On the operator computer, install RPent's teleoperation extra in a Python 3.10–3.12 environment:
-
-.. code-block:: bash
-
-   cd /path/to/RPent
-   uv venv --python 3.12
-   source .venv/bin/activate
-   uv pip install -e ".[lekiwi-teleop]"
-
-This extra supplies LeRobot's keyboard input and Rerun viewer. The operator computer does not need RLinf, ROS or a motor driver. Keyboard input needs a local desktop: on macOS allow the terminal in Accessibility/Input Monitoring; on Linux use X11. Headless SSH and Wayland keyboard capture are not supported by this entry point.
+Keyboard input needs a local desktop: on macOS allow the terminal in Accessibility/Input Monitoring; on Linux use X11. Headless SSH and Wayland keyboard capture are not supported by this entry point.
 
 Run the capture command on the operator computer, replacing ``ROBOT_HOST`` with the robot's hostname or IP:
 
@@ -138,7 +134,7 @@ Speeds come from the Env's ``drive.max_linear_velocity`` and ``drive.max_angular
 
 Each recording defaults to a maximum of 600 seconds at up to 5 image pairs per second. Change these with Env options ``--capture-seconds`` and ``--recording-fps``. Reaching the recording limit ends the client session. Keyboard loss, a preview/recording error or a stalled control loop exits through stop-and-recording cleanup; restart the command to resume. The Env expires motion commands if the client disappears. If the connection is lost, cleanup cannot be guaranteed: the robot-side recorder may continue until its configured time limit or Env shutdown.
 
-The client uses LeRobot's ``KeyboardTeleop`` and visualization helpers, and the existing Env's ``hold``/``stop`` and stereo recording APIs. RLinf continues to control the wheel motors. Capture does not require Dashboard, a planner or a leader arm. It saves stereo PNGs and calibration, without a separate MP4 or action log.
+Capture saves stereo PNGs and calibration, without a separate MP4 or action log.
 
 Copy the complete robot-side ``capture-*`` directory and robot YAML to the offline mapping machine. The directory contains ``left/``, ``right/``, ``stereo.json`` and ``calibration.conf``. Matched filenames contain the source-frame timestamps. Offline processing reads files and needs no connection to the robot.
 
@@ -225,9 +221,19 @@ Configure a planner following :doc:`../guides/configure_planner`, then connect t
 .. code-block:: bash
 
    rpent --robot lekiwi --dashboard --planner codex --model gpt-6-astra \
-     --robot-config /path/to/robot.yaml --env-endpoint http://ROBOT_HOST:8120
+     --env-endpoint http://ROBOT_HOST:8120
 
-Open the printed URL and submit an instruction to navigate to an existing node or place. See :doc:`../guides/dashboard` for interface controls and :ref:`run-output-files` for run records. Confirm arrival using the current camera view; neither Nav2 success nor ``finish`` establishes physical task acceptance.
+Open the printed URL and start a navigation task with an existing node ID or exact label:
+
+.. code-block:: text
+
+   /rpent-task door
+
+Replace ``door`` with a label in your database, or use a node ID such as ``/rpent-task 42``. Dashboard targets must be a single word; use the node ID for labels containing spaces. For a run without Dashboard, pass ``--navigation-target door`` instead of ``--dashboard``.
+
+For manual driving tasks, connect to a manual Env and launch Dashboard with ``--task-id 0``; its commands become ``/rpent-task <task_id>`` (0–2). Do not attach it during keyboard capture.
+
+See :doc:`../guides/dashboard` for interface controls and :ref:`run-output-files` for run records. Confirm arrival using the current camera view; neither Nav2 success nor ``finish`` establishes physical task acceptance.
 
 Agent Tools
 -----------
