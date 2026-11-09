@@ -23,6 +23,9 @@ from pathlib import Path
 from typing import Any
 
 from rpent.session import EnvState, MissingInfo, Payload, PlannerRecord, ToolCallRecord
+from rpent.utils.logging import get_logger
+
+logger = get_logger("codex")
 
 
 def import_codex_trace(state: EnvState, trace_root: Path) -> dict[str, Any]:
@@ -74,6 +77,38 @@ def import_codex_trace(state: EnvState, trace_root: Path) -> dict[str, Any]:
     stats["unlinked_tool_calls"] = sum(
         call.planner_id is None for call in state.tool_call_records()
     )
+    return stats
+
+
+def finalize_codex_capture(
+    state: EnvState, trace_root: Path, *, skip_reason: str | None = None
+) -> dict[str, Any]:
+    """Finish trace capture and resolve pending tool-call associations."""
+    if skip_reason is not None:
+        logger.warning("Codex trace capture: %s", skip_reason)
+        stats: dict[str, Any] = {"errors": [skip_reason]}
+        missing = MissingInfo("capture_failed", skip_reason)
+    else:
+        try:
+            stats = import_codex_trace(state, trace_root)
+        except Exception as exc:
+            logger.exception("Codex trace import failed")
+            stats = {"errors": [f"{type(exc).__name__}: {exc}"]}
+        else:
+            for error in stats["errors"]:
+                logger.warning("Codex trace capture: %s", error)
+            if stats["unlinked_tool_calls"] == 0:
+                return stats
+        missing = MissingInfo(
+            "not_recorded", "No matching model response in the Codex trace."
+        )
+
+    unlinked = [call for call in state.tool_call_records() if call.planner_id is None]
+    for call in unlinked:
+        reason = call.missing.get("planner_id")
+        if reason is not None and reason.reason == "pending":
+            state.update_tool_call(call.tool_call_id, missing={"planner_id": missing})
+    stats["unlinked_tool_calls"] = len(unlinked)
     return stats
 
 

@@ -57,8 +57,7 @@ from rpent.planner.base import (
     strip_mcp_prefix,
 )
 from rpent.planner.utils.http_mcp_server import HttpMcpServer
-from rpent.session import MissingInfo
-from rpent.session.codex_capture import import_codex_trace
+from rpent.session.codex_capture import finalize_codex_capture
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.config import get_repo_root
 from rpent.utils.logging import get_logger
@@ -183,42 +182,14 @@ class CodexPlanner(Planner):
             return result
         finally:
             if trace_root is not None:
-                capture_error = None
-                try:
-                    if terminal_cleanup is not None and not terminal_cleanup.is_set():
-                        capture_error = (
-                            "Codex worker did not finish cleanup; trace import skipped."
-                        )
-                        capture_stats = {"errors": [capture_error]}
-                    else:
-                        capture_stats = import_codex_trace(capture_state, trace_root)
-                except Exception as exc:
-                    logger.exception("Codex trace import failed")
-                    capture_stats = {"errors": [f"{type(exc).__name__}: {exc}"]}
-                else:
-                    for error in capture_stats["errors"]:
-                        logger.warning("Codex trace capture: %s", error)
-                unlinked = [
-                    call
-                    for call in capture_state.tool_call_records()
-                    if call.planner_id is None
-                ]
-                for call in unlinked:
-                    reason = call.missing.get("planner_id")
-                    if reason is not None and reason.reason == "pending":
-                        capture_state.update_tool_call(
-                            call.tool_call_id,
-                            missing={
-                                "planner_id": MissingInfo(
-                                    "capture_failed"
-                                    if capture_error is not None
-                                    else "not_recorded",
-                                    capture_error
-                                    or "No matching model response in the Codex trace.",
-                                )
-                            },
-                        )
-                capture_stats["unlinked_tool_calls"] = len(unlinked)
+                skip_reason = None
+                if terminal_cleanup is not None and not terminal_cleanup.is_set():
+                    skip_reason = (
+                        "Codex worker did not finish cleanup; trace import skipped."
+                    )
+                capture_stats = finalize_codex_capture(
+                    capture_state, trace_root, skip_reason=skip_reason
+                )
                 if result is not None:
                     result.stats["codex_trace"] = {
                         "sdk_version": openai_codex.__version__,

@@ -57,7 +57,7 @@
      - 保存本次运行文件的目录；默认目录名由环境生成。
    * - ``--record-trajectory``
      - ``false``
-     - 仅 ``api``：记录规划器和工具调用，并在支持的环境中记录动作。采集和导出方法见 :doc:`flywheel`。
+     - 使用 ``api`` 或 ``codex`` 时，记录任务、规划器和工具调用。评测模式下，支持动作采集的环境还会记录实际执行的动作及其观测。采集和导出方法见 :doc:`flywheel`。
    * - ``--memory-profile``
      - ``—``
      - 通常评测默认为 ``hf``；探索和 WAM 评测使用 ``local``。
@@ -209,7 +209,7 @@ Codex 也可复用已有的 Codex 认证。模型选择、地址优先级和本�
    * - ``transcript_*.json``
      - 规划器对话、工具调用及结束信息。
    * - ``trajectories/<task_id>/``
-     - 使用 ``api`` 并开启 ``--record-trajectory`` 后保存的任务记录及附件。探索模式的记录位于各 ``sessions/session_*/`` 目录下。详见 :doc:`flywheel`。
+     - 使用 ``api`` 或 ``codex`` 并开启 ``--record-trajectory`` 后保存的任务记录及附件。探索模式的记录位于各 ``sessions/session_*/`` 目录下。详见 :doc:`flywheel`。
    * - ``episode.mp4``
      - 本次任务的录像。
    * - ``run.log``

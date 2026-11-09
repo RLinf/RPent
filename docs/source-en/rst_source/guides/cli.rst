@@ -62,7 +62,7 @@ These options control the planner, memory, output directory, and Dashboard.
      - Artifact directory; the environment generates the default name.
    * - ``--record-trajectory``
      - ``false``
-     - ``api`` only: record planner and tool calls, plus actions in supported environments. See :doc:`flywheel` for collection and export.
+     - With ``api`` or ``codex``, record the task, model requests and responses, and tool calls. In evaluation mode, supported environments also record executed actions and their observations. See :doc:`flywheel` for collection and export.
    * - ``--memory-profile``
      - ``—``
      - Evaluation normally defaults to ``hf``; exploration and WAM evaluation use ``local``.
@@ -244,7 +244,7 @@ The table uses LIBERO as an example. Files depend on the environment, recording,
    * - ``transcript_*.json``
      - Planner conversation, tool calls, and completion information.
    * - ``trajectories/<task_id>/``
-     - Task records and attachments when ``--record-trajectory`` is enabled with ``api``. Exploration records are under each ``sessions/session_*/`` directory. See :doc:`flywheel`.
+     - Task records and attachments when ``--record-trajectory`` is enabled with ``api`` or ``codex``. Exploration records are under each ``sessions/session_*/`` directory. See :doc:`flywheel`.
    * - ``episode.mp4``
      - Episode video.
    * - ``run.log``

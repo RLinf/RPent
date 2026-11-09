@@ -37,7 +37,7 @@ from rpent.planner.codex import (
     _interrupt,
 )
 from rpent.planner.utils.http_mcp_server import HttpMcpServer
-from rpent.session import EnvState, MissingInfo, Payload
+from rpent.session import EnvState, MissingInfo, Payload, codex_capture
 from rpent.tools import ToolResult
 from rpent.tools.common import CommonTools
 
@@ -198,7 +198,7 @@ def test_trace_root_is_scoped_to_each_captured_solve(
         )
     )
     monkeypatch.setattr(codex_module, "_CodexDashboardSession", session_factory)
-    import_trace = codex_module.import_codex_trace
+    import_trace = codex_capture.import_codex_trace
 
     def import_after_cleanup(state: EnvState, root: Path) -> dict[str, Any]:
         assert state.get_task().status == "running"
@@ -213,7 +213,7 @@ def test_trace_root_is_scoped_to_each_captured_solve(
         return import_trace(state, root)
 
     importer = Mock(side_effect=import_after_cleanup)
-    monkeypatch.setattr(codex_module, "import_codex_trace", importer)
+    monkeypatch.setattr(codex_capture, "import_codex_trace", importer)
 
     for _ in range(2):
         result = planner.solve(
@@ -269,7 +269,7 @@ def test_dashboard_exit_closes_session_before_trace_import(
     monkeypatch.setattr(
         codex_module, "_CodexDashboardSession", Mock(return_value=session)
     )
-    import_trace = codex_module.import_codex_trace
+    import_trace = codex_capture.import_codex_trace
     cleanup = []
 
     def import_after_cleanup(state: EnvState, root: Path) -> dict[str, Any]:
@@ -284,7 +284,7 @@ def test_dashboard_exit_closes_session_before_trace_import(
         return import_trace(state, root)
 
     importer = Mock(side_effect=import_after_cleanup)
-    monkeypatch.setattr(codex_module, "import_codex_trace", importer)
+    monkeypatch.setattr(codex_capture, "import_codex_trace", importer)
     planner = make_planner(tmp_path, RecordingSink())
     kwargs = {
         "system_prompt": "",
@@ -324,7 +324,7 @@ def test_trace_import_failure_preserves_execution_result_and_unlinked_tools(
         missing={"planner_id": MissingInfo("pending", "Waiting for trace.")},
     )
     monkeypatch.setattr(
-        codex_module,
+        codex_capture,
         "import_codex_trace",
         Mock(side_effect=ValueError("unsupported trace schema")),
     )
@@ -1067,7 +1067,7 @@ def test_terminal_timeout_returns_without_importing_a_running_worker_trace(
 
     monkeypatch.setattr(codex_module.openai_codex, "Codex", BlockingCodex)
     importer = Mock()
-    monkeypatch.setattr(codex_module, "import_codex_trace", importer)
+    monkeypatch.setattr(codex_capture, "import_codex_trace", importer)
     state = EnvState(tmp_path)
     state.start_task(instruction="Move.", config=Payload("test.config", {}))
     tool_id = state.register_tool_call(
@@ -1198,7 +1198,7 @@ def test_terminal_exit_drains_worker_before_trace_import(
     state = EnvState(tmp_path)
     state.start_task(instruction="Move.", config=Payload("test.config", {}))
     toolkit = DrainingToolkit(state)
-    import_trace = codex_module.import_codex_trace
+    import_trace = codex_capture.import_codex_trace
     cleanup = []
 
     def import_after_cleanup(state: EnvState, root: Path) -> dict[str, Any]:
@@ -1213,7 +1213,7 @@ def test_terminal_exit_drains_worker_before_trace_import(
         )
         return import_trace(state, root)
 
-    monkeypatch.setattr(codex_module, "import_codex_trace", import_after_cleanup)
+    monkeypatch.setattr(codex_capture, "import_codex_trace", import_after_cleanup)
     planner = make_planner(tmp_path, RecordingSink(), timeout_s=0.01)
     kwargs = {
         "system_prompt": "",
