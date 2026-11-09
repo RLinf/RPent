@@ -50,7 +50,7 @@ EVALUATION_TOOLS = COMMON_TOOLS | {
     "rotate_pitch",
     "move_pose",
     "view_camera_meta",
-    "localize",
+    "geometry",
 }
 
 
@@ -218,14 +218,14 @@ def test_toolkit_modes_construct_with_fake_primitives(
     assert _readonly_names(evaluation) == COMMON_TOOLS | {
         "view_env_state",
         "view_camera_meta",
-        "localize",
+        "geometry",
     }
     assert _readonly_names(exploration) == _readonly_names(evaluation)
     for instance in (evaluation, exploration):
-        localize = next(
+        geometry = next(
             definition
             for definition in instance.list_tools()
-            if definition.name == "localize"
+            if definition.name == "geometry"
         )
         quantities = [
             "inner_rim_center",
@@ -234,12 +234,12 @@ def test_toolkit_modes_construct_with_fake_primitives(
             "rectangle_center",
             "body_segment_center",
         ]
-        parameters = localize.args_schema.model_validate(
+        parameters = geometry.args_schema.model_validate(
             {"query": "target", "required_geometry": quantities}, strict=True
         )
         assert parameters.required_geometry == quantities
         with pytest.raises(ValueError):
-            localize.args_schema.model_validate(
+            geometry.args_schema.model_validate(
                 {"query": "target", "required_geometry": ["mask_centroid"]}, strict=True
             )
         for removed in ("segment", "back_project"):

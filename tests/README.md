@@ -33,7 +33,7 @@ tests/
     │   ├── robocasa/
     │   └── robotwin/
     └── toolkits/         # tests for reusable toolkits
-        └── geometry/     # geometry localization and fitting
+        └── geometry/     # geometry measurements and fitting
             └── evaluation/ # offline evaluator and experiment contracts
 ```
 

@@ -1017,7 +1017,7 @@ def write_recipe_from_states(
 ) -> str:
     """Find a command sequence that gets ``terminated=True``.
 
-    Export primitive commands and successful parent-facing localization requests.
+    Export primitive commands and successful parent-facing geometry requests.
     """
     records = state.records()
     last_reset = max(
@@ -1060,7 +1060,7 @@ def write_recipe_from_states(
             if geometry.get("status") not in {"usable", "partial"}:
                 continue
             geometry_command = {
-                "action": "localize",
+                "action": "geometry",
                 "query": geometry["query"],
                 "camera": geometry["camera"],
             }
@@ -1197,7 +1197,7 @@ def _save_observation_artifacts(
     if agentview_meta:
         cam_meta_out = dict(agentview_meta)
         cam_meta_out["projection"] = (
-            "Use localize with a target/part description and this step. "
+            "Use geometry with a target/part description and this step. "
             "GeometryAgent selects pixels and matching-resolution world maps internally."
         )
         cam_meta_out["note"] = (

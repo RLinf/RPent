@@ -15,6 +15,7 @@
 """Geometry delegation uses real artifact/tool paths with offline model outputs."""
 
 import argparse
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -68,7 +69,7 @@ def agent_for(state, *, point=(5, 3), masks=None, ground=None):
 
 def test_surface_point_uses_grounded_row_col_and_persists_evidence(scene):
     agent, sam_calls = agent_for(scene)
-    result = agent.localize("the visible cup handle").data
+    result = agent.geometry("the visible cup handle").data
     assert result["status"] == "usable"
     assert result["pixel_rc"] == [3, 5]
     assert result["world_xyz"] == [0.05, 0.06, 0.83]
@@ -86,7 +87,7 @@ def test_wrong_text_mask_retries_once_with_grounded_positive_point(scene):
     right = np.zeros((6, 8), dtype=bool)
     right[1:5, 3:7] = True
     agent, calls = agent_for(scene, masks=[wrong, right])
-    result = agent.localize("the yellow mug", measurement="visible_region").data
+    result = agent.geometry("the yellow mug", measurement="visible_region").data
     assert result["status"] == "usable"
     assert len(calls) == 2 and calls[1]["point"] == [3, 5]
     assert calls[0]["text_prompt"] == "the yellow mug"
@@ -106,14 +107,14 @@ def test_wrong_text_mask_retries_once_with_grounded_positive_point(scene):
 def test_matching_text_mask_does_not_retry(scene):
     agent, calls = agent_for(scene)
     assert (
-        agent.localize("cup", measurement="visible_region").data["status"] == "usable"
+        agent.geometry("cup", measurement="visible_region").data["status"] == "usable"
     )
     assert len(calls) == 1
 
 
 def test_segmentation_budget_requests_new_view_instead_of_synonym_search(scene):
     agent, calls = agent_for(scene, masks=[None, None])
-    data = agent.localize("cup", measurement="visible_region").data
+    data = agent.geometry("cup", measurement="visible_region").data
     assert data["status"] == "need_observation" and data["world_xyz"] is None
     assert len(calls) == 2 and data["calls"]["grounding"] == 1
     assert data["observation_request"]["execution_owner"] == "parent_planner"
@@ -122,7 +123,7 @@ def test_segmentation_budget_requests_new_view_instead_of_synonym_search(scene):
 
 def test_unidentified_target_never_runs_sam_or_projection(scene):
     agent, calls = agent_for(scene, point=None)
-    data = agent.localize("hidden hinge").data
+    data = agent.geometry("hidden hinge").data
     assert data["status"] == "need_observation" and data["world_xyz"] is None
     assert data["evidence_status"] == "unknown"
     assert data["calls"] == {"grounding": 1, "segment": 0, "back_project": 0}
@@ -136,7 +137,7 @@ def test_visual_service_failure_retains_failed_request_evidence(scene):
         raise httpx.ConnectError("vision endpoint unavailable")
 
     agent, calls = agent_for(scene, ground=unavailable)
-    data = agent.localize("cup").data
+    data = agent.geometry("cup").data
     assert data["status"] == "error" and data["world_xyz"] is None
     assert data["calls"]["grounding"] == 1 and calls == []
     saved = scene.load(data["geometry_artifact"], step=0)
@@ -145,7 +146,7 @@ def test_visual_service_failure_retains_failed_request_evidence(scene):
 
 def test_unavailable_step_does_not_start_perception(scene):
     agent, calls = agent_for(scene)
-    data = agent.localize("cup", step=100).data
+    data = agent.geometry("cup", step=100).data
     assert data["status"] == "error" and data["code"] == "observation_unavailable"
     assert calls == []
 
@@ -153,7 +154,7 @@ def test_unavailable_step_does_not_start_perception(scene):
 @pytest.mark.parametrize("point", [(8, 2), (-1, 2), (2, float("nan"))])
 def test_invalid_visual_points_cannot_index_the_world_map(scene, point):
     agent, calls = agent_for(scene, point=point)
-    data = agent.localize("cup").data
+    data = agent.geometry("cup").data
     assert data["status"] == "error" and data["world_xyz"] is None
     assert data["calls"]["back_project"] == 0 and calls == []
 
@@ -161,7 +162,7 @@ def test_invalid_visual_points_cannot_index_the_world_map(scene, point):
 def test_shape_mismatch_fails_before_model_request(scene):
     scene.save("agentview_world.npz", np.ones((6, 7, 3)), step=0)
     agent, _ = agent_for(scene)
-    data = agent.localize("cup").data
+    data = agent.geometry("cup").data
     assert "shapes" in data["error"] and data["calls"]["grounding"] == 0
 
 
@@ -170,7 +171,7 @@ def test_invalid_point_depth_cannot_become_a_coordinate(scene):
     depth[3, 5] = np.nan
     scene.save("agentview_depth.npz", depth, step=0)
     agent, _ = agent_for(scene)
-    data = agent.localize("cup").data
+    data = agent.geometry("cup").data
     assert data["status"] == "need_observation" and data["world_xyz"] is None
 
 
@@ -179,7 +180,7 @@ def test_insufficient_depth_in_correct_mask_needs_view_without_retry(scene):
     depth[3, 5] = 1
     scene.save("agentview_depth.npz", depth, step=0)
     agent, calls = agent_for(scene)
-    data = agent.localize("cup", measurement="visible_region").data
+    data = agent.geometry("cup", measurement="visible_region").data
     assert data["reason"] == "too_few_valid_region_points"
     assert data["quality"]["n_valid"] == 1 and len(calls) == 1
     assert data["world_xyz"] is None
@@ -194,7 +195,7 @@ def test_latest_frame_is_pinned_before_visual_inference(scene):
         return MolmoResult(found=True, point_xy=(5, 3), image_size=(8, 6))
 
     agent, _ = agent_for(scene, ground=ground)
-    data = agent.localize("cup", measurement="visible_region").data
+    data = agent.geometry("cup", measurement="visible_region").data
     assert data["step"] == 0 and data["world_xyz"][2] < 1
     assert scene.load(data["geometry_artifact"], step=0)["step"] == 0
 
@@ -204,7 +205,7 @@ def test_high_resolution_measurement_preserves_float16_provenance(scene):
     world = np.full((6, 8, 3), 0.9237, dtype=np.float16)
     scene.save("agentview_world_high.npz", world, step=0)
     agent, _ = agent_for(scene)
-    data = agent.localize("cup", measurement="visible_region").data
+    data = agent.geometry("cup", measurement="visible_region").data
     assert data["source_dtype"] == "float16" and data["resolution"] == "high"
     np.testing.assert_array_equal(data["world_xyz"], world[0, 0].astype(float))
     assert data["quality"]["calibrated_error_m"] is None
@@ -218,7 +219,7 @@ def test_mask_persistence_failure_is_not_reported_as_usable(scene, monkeypatch):
 
     monkeypatch.setattr(scene, "save", fail_mask)
     agent, _ = agent_for(scene)
-    data = agent.localize("cup", measurement="visible_region").data
+    data = agent.geometry("cup", measurement="visible_region").data
     assert data["status"] == "error" and "persist segment mask" in data["error"]
     attempt = data["segment_attempts"][0]
     assert (
@@ -239,7 +240,7 @@ def test_cancellation_after_visual_inference_prevents_internal_tool_calls(scene)
 
     agent._check_cancelled = cancel
     with pytest.raises(ToolCancelled):
-        agent.localize("cup", measurement="visible_region")
+        agent.geometry("cup", measurement="visible_region")
     assert calls == []
 
 
@@ -253,7 +254,7 @@ def test_real_visual_adapter_and_geometry_run_offline(scene, monkeypatch):
     agent, _ = agent_for(scene)
     agent._grounder = None
     agent._model = "test:geometry"
-    assert agent.localize("cup handle").data["world_xyz"] == [0.05, 0.06, 0.83]
+    assert agent.geometry("cup handle").data["world_xyz"] == [0.05, 0.06, 0.83]
     assert model.last_model_request_parameters.function_tools == []
 
 
@@ -295,13 +296,15 @@ def test_parent_dispatch_delegates_without_capturing_or_advancing_state(
     )
 
     def unexpected_capture(**kwargs):
-        pytest.fail("localize must not capture a fresh environment state")
+        pytest.fail("geometry must not capture a fresh environment state")
 
     monkeypatch.setattr(parent, "get_env_state", unexpected_capture)
-    data = parent.execute_tool("localize", {"query": "cup handle"}).data
+    data = parent.execute_tool("geometry", {"query": "cup handle"}).data
     assert data["world_xyz"] == [0.05, 0.06, 0.83]
     assert len(scene.records()) == 1
-    assert {t.name for t in parent.list_tools()}.isdisjoint({"segment", "back_project"})
+    assert {t.name for t in parent.list_tools()}.isdisjoint(
+        {"segment", "back_project", "localize"}
+    )
 
 
 def test_recipe_exports_delegate_request_without_internal_sam_calls(scene, tmp_path):
@@ -312,14 +315,14 @@ def test_recipe_exports_delegate_request_without_internal_sam_calls(scene, tmp_p
     wrong = np.ones((6, 8), dtype=bool)
     wrong[3, 5] = False
     agent, _ = agent_for(scene, masks=[wrong, np.ones((6, 8), dtype=bool)])
-    agent.localize("the yellow cup", measurement="visible_region")
+    agent.geometry("the yellow cup", measurement="visible_region")
     with scene.record_step(state={}, terminated=True):
         pass
     name = write_recipe_from_states(scene, "geometry", output_dir=tmp_path)
     commands = [json.loads(line) for line in (tmp_path / name).read_text().splitlines()]
     assert commands == [
         {
-            "action": "localize",
+            "action": "geometry",
             "query": "the yellow cup",
             "camera": "agentview",
             "measurement": "visible_region",
@@ -382,9 +385,7 @@ def test_geometry_model_inherits_supported_planner_configuration(
         ("local", "eval", "wam"),
     ],
 )
-def test_active_prompts_delegate_localization_without_old_tool_names(
-    profile, mode, policy
-):
+def test_active_prompts_delegate_geometry_without_old_tool_names(profile, mode, policy):
     spec = robot_spec.get_robot_spec()
     variables = {
         "memory_profile": profile,
@@ -403,5 +404,10 @@ def test_active_prompts_delegate_localization_without_old_tool_names(
     }
     for name in ("system", "user"):
         prompt = spec.prompts.render(name, variables=variables)
-        assert "localize" in prompt
+        assert "geometry" in prompt
+        assert "localize(" not in prompt and "`localize`" not in prompt
         assert "back_project" not in prompt and "`segment`" not in prompt
+        if name == "system" and policy == "vla":
+            guide = "toolkits/geometry/README.md"
+            assert guide in prompt
+            assert (Path(__file__).resolve().parents[4] / guide).is_file()

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Independent reference annotations and localization metrics; never agent inputs."""
+"""Independent reference annotations and geometry metrics; never agent inputs."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from typing import Any
 
 import numpy as np
 
-from toolkits.geometry.evaluation.localization_checklist import (
+from toolkits.geometry.evaluation.checklist import (
     frame_id,
     manifest_digest,
 )
@@ -281,7 +281,7 @@ def evaluate(
         "manifest_sha256": manifest_digest(manifest),
         "units": "m",
         "tolerance_m": tolerance_m,
-        "scope": "initial-observation reference localization; not manipulation task success",
+        "scope": "initial-observation reference-point geometry; not manipulation task success",
         "overall": _metrics(rows, tolerance_m),
         "by_reference": {},
         "by_suite": {},

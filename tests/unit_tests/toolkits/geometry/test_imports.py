@@ -28,8 +28,10 @@ def test_geometry_imports_and_checklist_do_not_load_optional_robot_stacks(tmp_pa
     code = """
 import sys
 from toolkits.geometry.geometry_agent import GeometryAgent
-from toolkits.geometry.evaluation.localization_experiment import main
+from toolkits.geometry.evaluation.experiment import main
 assert GeometryAgent.__name__ == "GeometryAgent"
+assert GeometryAgent.geometry.name == "geometry"
+assert GeometryAgent.geometry.readonly
 assert main(["validate-manifest"]) == 0
 assert not {"torch", "rlinf", "mujoco", "robosuite", "sam3"}.intersection(sys.modules)
 """
@@ -55,7 +57,7 @@ def test_experiment_cli_works_outside_the_checkout(tmp_path, command):
         [
             sys.executable,
             "-m",
-            "toolkits.geometry.evaluation.localization_experiment",
+            "toolkits.geometry.evaluation.experiment",
             *args,
         ],
         cwd=tmp_path,

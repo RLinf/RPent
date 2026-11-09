@@ -85,12 +85,12 @@ def test_permissive_agent_returns_uncertified_face_center_without_requesting_vie
     world = np.stack((x, y, np.full(x.shape, 0.81)), axis=-1)
     mask = np.hypot(x, y) <= 0.045
     _, strict, _ = reference_agent(tmp_path / "strict", world, mask, (96, 96))
-    rejected = strict.localize("plate", required_geometry=["plate_center"]).data
+    rejected = strict.geometry("plate", required_geometry=["plate_center"]).data
     assert rejected["status"] == "need_observation"
     state, agent, _ = reference_agent(
         tmp_path / "candidate", world, mask, (96, 96), permissive=True
     )
-    data = agent.localize("plate", required_geometry=["plate_center"]).data
+    data = agent.geometry("plate", required_geometry=["plate_center"]).data
     assert data["status"] == "usable", data
     assert "observation_request" not in data
     field = data["geometry"]["plate_center"]
@@ -123,7 +123,7 @@ def test_inner_opening_center_stays_at_upper_edge_not_floor_or_outer_lip(
     world = np.stack((x, y, z), axis=-1)
     mask = (radius > 0.04) & (radius < 0.048) if ring_only else radius < 0.048
     state, agent, calls = reference_agent(tmp_path, world, mask, (137, 96))
-    data = agent.localize(target, required_geometry=["inner_rim_center"]).data
+    data = agent.geometry(target, required_geometry=["inner_rim_center"]).data
     assert data["status"] == "usable", data
     np.testing.assert_allclose(
         data["geometry"]["inner_rim_center"]["value"], [0, 0, 0.84], atol=0.001
@@ -141,7 +141,7 @@ def test_outer_ring_without_resolved_inner_edge_is_not_renamed(tmp_path):
     world = np.stack((x, y, np.full(x.shape, 0.84)), axis=-1)
     mask = np.hypot(x, y) < 0.048
     _, agent, _ = reference_agent(tmp_path, world, mask, (140, 96))
-    data = agent.localize("mug", required_geometry=["inner_rim_center"]).data
+    data = agent.geometry("mug", required_geometry=["inner_rim_center"]).data
     assert data["status"] == "need_observation"
     assert data["geometry"]["inner_rim_center"]["value"] is None
     assert "inner_edge_not_resolved" in data["parts"]["inner_rim"]["fit"]["reason"]
@@ -156,7 +156,7 @@ def test_inner_rgb_contour_supports_a_smooth_depth_transition(tmp_path):
         np.where(r < 0.04, 40, 220).astype(np.uint8)[..., None], 3, axis=2
     )
     _, agent, _ = reference_agent(tmp_path, world, r < 0.05, (137, 96), image=image)
-    data = agent.localize("black bowl", required_geometry=["inner_rim_center"]).data
+    data = agent.geometry("black bowl", required_geometry=["inner_rim_center"]).data
     assert data["status"] == "usable", data
     np.testing.assert_allclose(
         data["geometry"]["inner_rim_center"]["value"], [0, 0, 0.84], atol=0.001
@@ -180,7 +180,7 @@ def test_circular_face_center_uses_selected_face_height_even_with_raised_lip(
     rim = (~face) & (radius < 0.051)
     world = np.stack((x, y, np.where(face, z, np.where(rim, z + 0.014, 0.7))), axis=-1)
     state, agent, _ = reference_agent(tmp_path, world, face | rim, (96, 96))
-    data = agent.localize(
+    data = agent.geometry(
         "plate" if quantity == "plate_center" else "soup can",
         required_geometry=[quantity],
     ).data
@@ -201,7 +201,7 @@ def test_rectangular_top_center_requires_physical_face_boundaries(tmp_path, targ
     mask = (np.abs(u) <= 0.060) & (np.abs(v) <= 0.032)
     world = np.stack((x, y, np.where(mask, 0.91 + 0.2 * x, 0.7)), axis=-1)
     _, agent, _ = reference_agent(tmp_path, world, mask, (96, 96))
-    data = agent.localize(target, required_geometry=["rectangle_center"]).data
+    data = agent.geometry(target, required_geometry=["rectangle_center"]).data
     assert data["status"] == "usable", data
     np.testing.assert_allclose(
         data["geometry"]["rectangle_center"]["value"], [0, 0, 0.91], atol=0.002
@@ -225,7 +225,7 @@ def test_incomplete_rectangular_face_never_uses_fragment_bbox(tmp_path, cut):
     _, agent, _ = reference_agent(
         tmp_path, world, mask, (96, 96), camera=cut != "missing_camera"
     )
-    data = agent.localize("microwave", required_geometry=["rectangle_center"]).data
+    data = agent.geometry("microwave", required_geometry=["rectangle_center"]).data
     assert data["status"] == "need_observation", data
     assert data["geometry"]["rectangle_center"]["value"] is None
 
@@ -285,7 +285,7 @@ def test_bottle_visible_extent_alone_cannot_define_barrel_center():
 
 
 @pytest.mark.parametrize("cropped", [False, True])
-def test_bottle_localize_retains_neck_context_and_rejects_a_mask_crop(
+def test_bottle_measure_surface_retains_neck_context_and_rejects_a_mask_crop(
     tmp_path, cropped
 ):
     rr, cc = np.indices((100, 160))
@@ -303,7 +303,7 @@ def test_bottle_localize_retains_neck_context_and_rejects_a_mask_crop(
     )
     mask = full & (t > -0.05) & (t < 0.06) if cropped else full
     state, agent, calls = reference_agent(tmp_path, world, mask, (65, 50))
-    data = agent.localize("wine bottle", required_geometry=["body_segment_center"]).data
+    data = agent.geometry("wine bottle", required_geometry=["body_segment_center"]).data
     assert "main cylindrical barrel" in calls[0][1]
     assert "shoulder, neck and base" in calls[1][1]["text_prompt"]
     if cropped:

@@ -6,9 +6,9 @@ Use this file as a calibration reference only. For current MCP-based runs, use
 structured MCP tools, do not issue file-based protocol commands, and do not
 manually manage `env_server.py`. Do not read BDDL files or hidden task
 definition files to infer coordinates. Start with
-`view_env_state({"step": 0})`; localize objects from `agentview_high.png` or
-`wrist_high.png` through `localize` target/part descriptions. See
-[GeometryAgent](geometry_agent.md) for the current perception interface.
+`view_env_state({"step": 0})`; measure objects from `agentview_high.png` or
+`wrist_high.png` through `geometry` target/part descriptions. See
+[GeometryAgent](../../../toolkits/geometry/README.md) for the current perception interface.
 
 Measured 2026-05-20 on `libero_10_with_mug` t0 (LIVING_ROOM frame) and t8
 (KITCHEN frame). All probes use `move_to` with `gripper=-1` and tight
@@ -139,7 +139,7 @@ limit 1.15). My libero_10 t0 used z=0.95 for travel — safe and consistent.
 6. **Pi0 may refuse to grasp in cluttered scenes after a partial completion.**
    In libero_10_with_mug t0, after the first can entered the basket Pi0
    failed to pick the second (chunks=25, peak_lift=0). Workarounds: re-pre-pos
-   precisely above the remaining target at z=`floor + 0.07`; re-localize and
+   precisely above the remaining target at z=`floor + 0.07`; remeasure and
    recover in the current episode if safe; or use an LLM-scripted grasp via
    `move_to` + `set_gripper` (last resort; unreliable for objects <6 cm — see
    `memory/libero/global/feedback_scripted_pick_limits.md`).

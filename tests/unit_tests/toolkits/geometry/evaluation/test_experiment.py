@@ -25,15 +25,15 @@ import pytest
 
 from rpent.session import EnvState
 from rpent.tools import ToolResult
-from toolkits.geometry.evaluation import localization_experiment as experiment
-from toolkits.geometry.evaluation.localization_checklist import (
+from toolkits.geometry.evaluation import experiment
+from toolkits.geometry.evaluation.checklist import (
     build_manifest,
     frame_id,
     load_manifest,
     manifest_digest,
     select_cases,
 )
-from toolkits.geometry.evaluation.localization_evaluation import (
+from toolkits.geometry.evaluation.metrics import (
     evaluate,
     truth_template,
     validate_truth,
@@ -194,7 +194,7 @@ def test_batch_runs_exactly_160_fixed_requests_and_never_uses_surface_fallback(
             assert kwargs["state"].get(0).state == {}
             assert kwargs["permissive"] is permissive
 
-        def localize(self, query, *, camera, step, required_geometry):
+        def geometry(self, query, *, camera, step, required_geometry):
             calls.append((query, camera, step, required_geometry))
             field = required_geometry[0]
             value = None if field == "rectangle_center" else [0.1, 0.2, 0.8]

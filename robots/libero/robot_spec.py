@@ -314,7 +314,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             geometry_model = f"codex:{selected_model}" if selected_model else "codex"
         elif planner == "claude_code":
             raise ValueError(
-                "--planner claude_code requires --geometry-model for localization"
+                "--planner claude_code requires --geometry-model for GeometryAgent"
             )
     geometry_base_url = getattr(args, "geometry_base_url", None)
     if geometry_base_url is None:

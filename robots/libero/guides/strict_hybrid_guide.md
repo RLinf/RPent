@@ -1,7 +1,5 @@
 # Strict Hybrid LLM + Pi0.5 — Perception-Isolated Guide
 
-> The parent planner uses [GeometryAgent](geometry_agent.md) through `localize` for metric localization. Direct pixel/segmentation examples in this reference describe internal perception helpers; those helpers are not parent-planner tools. Use the GeometryAgent guide for active perception calls and measurement definitions.
-
 You are taking over a hybrid LIBERO experiment in **perception-isolated** mode
 — the only mode in this repository (the legacy oracle-state mode, where the
 state JSON carried GT object coordinates, is not included here).

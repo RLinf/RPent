@@ -300,10 +300,10 @@ uses their clients to execute the planner's requests.
   same RPC transports (HTTP or socket).
 - **toolkit** (``robots/libero/toolkit.py``) — defines the tools the
   LLM can call: ``pi0_pick`` (fed to Pi0.5), ``move_to``,
-  ``rotate_wrist``, ``localize``, ``view_env_state``,
+  ``rotate_wrist``, ``geometry``, ``view_env_state``,
   ``finish``, …
 - **GeometryAgent** (``toolkits/geometry/geometry_agent.py``) — receives target/part
-  descriptions through ``localize``. Its visual grounding model selects a
+  descriptions through ``geometry``. Its visual grounding model selects a
   material pixel; internal segmentation and coordinate tools compute the result.
   The parent planner has no direct ``segment`` or ``back_project`` tool.
 
@@ -331,8 +331,8 @@ Physical action tools advance the environment and record new state and images.
 
 **Read-only tools:**
 
-- ``localize(query, camera="agentview", step=-1, measurement="surface_point")`` —
-  delegate localization of a described object or part to GeometryAgent.
+- ``geometry(query, camera="agentview", step=-1, measurement="surface_point")`` —
+  request observed positions or fitted part geometry from GeometryAgent.
   ``surface_point`` returns a visible material point; ``visible_region`` returns
   the coordinate-wise median and bounds of visible segmented samples.
   Add ``required_geometry=["rim_center", "body_center", "bottom_center", "axis",
@@ -397,103 +397,35 @@ only the selected RGB image and target query, with no robot tools or object pose
 Fixed Reference Checklist Experiment
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Evaluation programs are in ``toolkits/geometry/evaluation/``. The fixed
-checklist is built into ``localization_checklist.py``: 16 Task/Swap rows,
-seeds 1 through 5, 80 cases and 160 fixed reference requests. The complete
-task table is in that package's ``README.md``.
-Run the following from the repository root in the LIBERO-Pro environment with
-the simulator assets, EGL/CUDA and SAM3 checkpoint configured above. The
-experiment needs neither Pi0.5/WAM weights nor task memory. Collection starts
-only ENV; inference starts only SAM3 and the explicitly selected visual model.
-
-Existing scripts must replace the old ``tools.libero`` and ``robots.libero``
-experiment entry points with the module path below. Import GeometryAgent from
-``toolkits.geometry.geometry_agent``; the forwarding modules are removed.
+The geometry evaluation package fixes 16 Task/Swap rows, seeds 1 through 5,
+80 initial frames and 160 A/B reference requests. Run it in the LIBERO-Pro
+environment with simulator assets, EGL/CUDA and SAM3 configured above.
+It needs no action-model weights, task memory or parent planner. Collection
+starts only ENV; inference starts SAM3 and the explicitly selected visual model.
 
 .. code-block:: bash
 
-   python -m toolkits.geometry.evaluation.localization_experiment validate-manifest
-   python -m toolkits.geometry.evaluation.localization_experiment collect \
-     --output experiments/localization/observations
-   python -m toolkits.geometry.evaluation.localization_experiment infer \
-     --inputs experiments/localization/observations \
+   python -m toolkits.geometry.evaluation.experiment validate-manifest
+   python -m toolkits.geometry.evaluation.experiment collect \
+     --output experiments/geometry/observations
+   python -m toolkits.geometry.evaluation.experiment infer \
+     --inputs experiments/geometry/observations \
      --geometry-model codex \
-     --output experiments/localization/predictions
+     --output experiments/geometry/predictions
 
-Without ``--manifest``, commands use the built-in fixed checklist. To export a
-JSON copy, run ``write-manifest --manifest experiments/localization/test-cases.json``
-with the same module command. Pass ``--manifest <path>`` to subsequent commands
-to read that copy; a missing or modified checklist is rejected.
+Each case uses only step 0 / agentview and preserves its fixed targets.
+The runner performs no manipulation or additional-view actions. It copies only
+allowed sensor artifacts and keeps independent truth outside the agent inputs.
+Output directories must be new or empty.
 
-``codex`` uses its configured default; ``codex:model`` or ``provider:model``
-also work, with optional ``--geometry-base-url``. Each case uses only step 0 /
-agentview, with fixed A/B targets. Collection records native paired 1024×1024
-RGB-D, internal calibration and float32 world maps. Inference copies only allowed
-sensor artifacts, checks their hashes and never modifies the collected source.
-The protocol records refusals without executing actions or additional views.
-Each reference has a budget of one grounding call and at most two SAM calls.
-
-Use matching ``--limit N`` or repeated ``--case <case_id>`` options in collection
-and inference for a pilot subset. Add ``--permissive`` to ``infer`` when measuring
-errors for rejected checklist centers. It retains strict-fit diagnostics, then
-tries relaxed shape fitting or a labelled visible-extent center without asking
-for another view. ``strict_accepted`` and ``estimate_method`` distinguish strict
-fits from approximate candidates; candidate fields have ``evaluation_only=true``.
-In this mode, ``usable`` means a coordinate was returned, not that strict quality
-gates passed. Invalid/missing observations still produce errors. Truth remains
-evaluator-only. The default is strict; the linked experiment guide specifies the
-relaxed gates and methods. Output directories must be new or empty.
-``--cuda-device``, ``--env-cuda-device`` and ``--sam3-cuda-device`` select GPUs.
-Inference can borrow ``--sam3-endpoint``; ``--env-endpoint`` requires exactly one
-selected case and matching server metadata. Only owned processes are stopped.
-
-``results.jsonl`` records every fixed request, including errors and refusals.
-``summary.json`` reports status counts, returned centers, calls and latency.
-Each case has full ``result_A.json`` / ``result_B.json`` and an ``episode`` with
-masks, overlays, candidate/cleaned clouds and fit evidence. Read centers only
-from the requested ``geometry[field].value``; surface points or medians are never
-fallback centers. ``fit_points_artifact`` is indexed by the fit-inlier array;
-``observed_support_artifact`` preserves raw boundary samples separately when a
-circular-face fit uses plane-projected points.
-
-For numerical error, generate ``truth-template`` and independently annotate all
-160 references before evaluation. Fill ``evaluable``, ``annotation_source`` and
-either ``world_xyz`` or an explicit ``not_evaluable_reason``. Preserve each ID,
-definition and frame. Truth may instead specify ``model_local_xyz`` with a rigid
-``model_to_world`` matrix; bottle references may use a pre-labelled local
-``barrel_profile`` (unit ``axis``, ``axis_origin``, ordered ``bounds_m``) with that
-matrix. The evaluator alone reads these inputs. Null template values mean unlabelled, not zero
-coordinates or automatic exclusion.
-
-.. code-block:: bash
-
-   python -m toolkits.geometry.evaluation.localization_experiment truth-template \
-     --output experiments/localization/truth.json
-   # Complete the independent annotations before the next command.
-   python -m toolkits.geometry.evaluation.localization_experiment evaluate \
-     --predictions experiments/localization/predictions/results.jsonl \
-     --truth experiments/localization/truth.json --tolerance-m 0.01 \
-     --output experiments/localization/evaluation
-
-For references defined from complete LIBERO models, add ``--with-references``
-to collection. Each case then has a separate ``evaluator_snapshot.json`` with
-compiled visual meshes and body poses from that same initial state. The ENV
-server must have ``--evaluation-references`` enabled when borrowing an endpoint.
-Fix each part's model-local reference before inference, then transform it with
-the matching body pose; the object origin is not a default part center. These
-snapshots contain no part annotations. They remain outside the episode and are
-excluded by inference's sensor whitelist, so GeometryAgent never receives them.
-
-``metrics.json`` and ``errors.csv`` include per-reference errors and object/suite
-groups. Success within tolerance uses all independently evaluable references,
-including refusals, failures and unrun items. Mean, median, P95 and RMSE are
-conditional on returned centers and must be read with coverage. The default
-1 cm tolerance is a configurable criterion. Missing labels, duplicate IDs,
-wrong units, frames or definitions reject evaluation. For a pilot evaluation,
-use the matching ``--case`` / ``--limit`` selection; annotations still cover the
-complete checklist. CPU analytic/fake-perception tests establish execution and
-geometric contracts; real-scene accuracy and manipulation success require
-separate measurements.
+The `geometry toolkit guide <https://github.com/RLinf/RPent/blob/main/toolkits/geometry/README.md>`_
+defines the ``geometry`` interface, fitted quantities, quality gates and
+evidence artifacts. The `geometry evaluation guide <https://github.com/RLinf/RPent/blob/main/toolkits/geometry/evaluation/README.md>`_
+contains the full task table, model configuration, pilot selection,
+``--permissive`` estimates, independent reference annotation and error metrics.
+Permissive candidates retain ``strict_accepted``, ``estimate_method`` and
+``evaluation_only``; a returned coordinate does not certify strict fit quality.
+Accuracy and manipulation success require separate measurements.
 
 Dashboard
 ---------

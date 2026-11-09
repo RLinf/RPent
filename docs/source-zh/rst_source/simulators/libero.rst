@@ -251,8 +251,8 @@ LIBERO 将仿真和模型推理分别放在独立服务器中运行，工具集�
 - **env_server** （``robots/libero/env_server.py``）—— 负责运行 LIBERO 的 MuJoCo 环境并通过 EGL 渲染。它通过 RPC 传输（默认使用 HTTP；添加 ``--transport socket`` 后使用 pickle-framed socket）对外暴露 ``reset``、``step``、``chunk_step``、``render_camera``、 ``get_camera_meta`` 等接口。
 - **vla_server** （``rpent/robots/components/pi05_vla_server.py``）—— 持有 Pi0.5 权重，通过同一套 RPC 传输（HTTP 或 socket）暴露 ``predict``。
 - **sam3_server** （``rpent/robots/components/sam3_server.py``）—— 加载 SAM 3.0，根据文字描述或目标物体上的一个像素点，分割出目标区域。如果模型给出多个候选结果，只保留评分最高的一个，并通过同一套 RPC 传输（HTTP 或 socket）返回压缩 PNG 格式的分割掩码（mask）。
-- **toolkit（工具集）** （``robots/libero/toolkit.py``）—— 定义 LLM 能调用的工具：``pi0_pick`` （交给 Pi0.5）、``move_to``、``rotate_wrist``、``localize``、``view_env_state``、``finish``…
-- **GeometryAgent** （``toolkits/geometry/geometry_agent.py``）—— 通过 ``localize`` 接收目标和部位描述，由视觉定位模型选择物体上的可见像素，再通过内部的分割与坐标工具计算结果。主规划器没有直接调用 ``segment`` 或 ``back_project`` 的工具入口。
+- **toolkit（工具集）** （``robots/libero/toolkit.py``）—— 定义 LLM 能调用的工具：``pi0_pick`` （交给 Pi0.5）、``move_to``、``rotate_wrist``、``geometry``、``view_env_state``、``finish``…
+- **GeometryAgent** （``toolkits/geometry/geometry_agent.py``）—— 通过 ``geometry`` 接收目标和部位描述，由视觉定位模型选择物体上的可见像素，再通过内部的分割与坐标工具计算结果。主规划器没有直接调用 ``segment`` 或 ``back_project`` 的工具入口。
 
 规划器可调用的工具
 --------------------
@@ -274,7 +274,7 @@ LIBERO 工具分为物理动作工具和只读工具。
 
 **只读工具：**
 
-- ``localize(query, camera="agentview", step=-1, measurement="surface_point")`` —— 将目标或部位的定位交给 GeometryAgent。``surface_point`` 返回一个可见材质点；``visible_region`` 返回可见分割点的逐轴中位数及边界。添加 ``required_geometry=["rim_center", "body_center", "bottom_center", "axis", "radius", "height"]`` 可请求按部位清理和拟合。主规划器只传目标描述和 step/camera，无需提供标定参数。
+- ``geometry(query, camera="agentview", step=-1, measurement="surface_point")`` —— 将目标或部位的定位交给 GeometryAgent。``surface_point`` 返回一个可见材质点；``visible_region`` 返回可见分割点的逐轴中位数及边界。添加 ``required_geometry=["rim_center", "body_center", "bottom_center", "axis", "radius", "height"]`` 可请求按部位清理和拟合。主规划器只传目标描述和 step/camera，无需提供标定参数。
 - ``view_env_state(step=-1)`` —— 读取已记录的状态和内嵌观测图像；第 0 步为初始状态，``-1`` 表示最新状态。
 - ``view_camera_meta(camera=..., step=-1)`` —— 读取指定步骤的相机元数据； ``-1`` 表示最新状态。
 - ``finish(status, summary)`` —— 结束当前运行。
@@ -298,52 +298,30 @@ API 和 Codex 规划器默认复用主规划器的模型和服务地址进行视
 固定参考点清单实验
 ~~~~~~~~~~~~~~~~~~
 
-评估程序位于 ``toolkits/geometry/evaluation/``。``localization_checklist.py``
-内置固定清单，包含 16 项 Task/Swap 任务、seed 1～5，共 80 组、160 个参考点；
-完整任务表见该目录的 ``README.md``。请在仓库根目录、LIBERO-Pro 环境中运行，
-并完成上文的仿真资源、EGL/CUDA 和 SAM3 配置。实验不需要 Pi0.5/WAM 权重或任务记忆。
-采集只启动 ENV；推理只启动 SAM3 和显式指定的视觉模型。
-
-已有脚本需将旧 ``tools.libero``、``robots.libero`` 实验入口改为下面的模块路径。
-GeometryAgent 使用 ``toolkits.geometry.geometry_agent`` 导入；原导入转接模块已移除。
+几何评估程序固定 16 项 Task/Swap 任务、seed 1～5，共 80 张起始帧、160 个 A/B
+参考点。请在 LIBERO-Pro 环境中运行，并完成上文的仿真资源、EGL/CUDA 和 SAM3
+配置。实验不需要动作模型权重、任务记忆或主规划器；采集只启动 ENV，推理只启动
+SAM3 和显式指定的视觉模型。
 
 .. code-block:: bash
 
-   python -m toolkits.geometry.evaluation.localization_experiment validate-manifest
-   python -m toolkits.geometry.evaluation.localization_experiment collect \
-     --output experiments/localization/observations
-   python -m toolkits.geometry.evaluation.localization_experiment infer \
-     --inputs experiments/localization/observations \
+   python -m toolkits.geometry.evaluation.experiment validate-manifest
+   python -m toolkits.geometry.evaluation.experiment collect \
+     --output experiments/geometry/observations
+   python -m toolkits.geometry.evaluation.experiment infer \
+     --inputs experiments/geometry/observations \
      --geometry-model codex \
-     --output experiments/localization/predictions
+     --output experiments/geometry/predictions
 
-省略 ``--manifest`` 时使用内置固定清单。需要 JSON 副本时，使用相同模块命令执行
-``write-manifest --manifest experiments/localization/test-cases.json``；后续命令通过
-``--manifest <path>`` 读取该副本。显式指定的文件缺失或清单内容被修改时会报错。
+每组只使用 step 0 / agentview，目标保持固定。程序不执行操作动作或补视角动作，
+只复制允许的传感器观测，独立真值不进入子代理输入。输出目录必须为空或尚不存在。
 
-``codex`` 读取已配置的默认模型，也可指定 ``codex:model`` 或 ``provider:model``，后者可配合 ``--geometry-base-url``。每组只使用 step 0 / agentview，固定定位 A、B 两个目标。采集保存原生 1024×1024 配对 RGB-D、内部相机标定和 float32 世界坐标图。推理核对身份和哈希，仅复制允许的传感器观测文件，不修改采集源。此协议只记录拒绝原因，不执行动作或补视角。每个参考点最多调用一次视觉选点和两次 SAM。
-
-试跑时，采集和推理使用一致的 ``--limit N``，或重复传入 ``--case <case_id>``。输出目录必须为空或尚不存在。``--cuda-device``、``--env-cuda-device``、``--sam3-cuda-device`` 用于选择 GPU。推理可通过 ``--sam3-endpoint`` 借用服务；采集的 ``--env-endpoint`` 只允许选择一组，且需匹配服务元数据。入口只停止自己启动的进程。
-
-仅比较被拒绝点的坐标误差时，在 ``infer`` 添加 ``--permissive``。该模式保留原拟合诊断，再尝试宽松拟合或带标记的可见范围中心，不因质量不足请求补视角。``strict_accepted`` 和 ``estimate_method`` 区分原检查通过的结果与近似候选；候选字段带有 ``evaluation_only=true``。此模式的 ``usable`` 仅表示返回坐标，不代表通过原质量检查。缺少有效观测仍记录错误，真值仍只由评估器读取。默认使用严格模式，具体宽松门槛与近似方法见定位实验指南。
-
-``results.jsonl`` 保留所有固定请求，包括错误与拒绝；``summary.json`` 汇总状态、返回中心数量、调用数和耗时。各组包含完整 ``result_A.json`` / ``result_B.json``，以及保存掩码、叠加图、候选点云、清理后点云与拟合证据的 ``episode``。中心只取请求的 ``geometry[field].value``，失败时不回退到材质点或中位数。拟合内点索引引用 ``fit_points_artifact``；圆形面使用平面投影点时，原始边界观测另存于 ``observed_support_artifact``。
-
-数值误差评估需要先生成 ``truth-template``，再独立标注全部 160 个参考点。填写 ``evaluable``、``annotation_source``，以及 ``world_xyz`` 或明确的 ``not_evaluable_reason``，保持 ID、定义和世界坐标帧一致。也可提供 ``model_local_xyz`` 和刚体变换 ``model_to_world``；酒瓶还可用预先固定的局部 ``barrel_profile`` （单位向量 ``axis``、轴上原点 ``axis_origin``、有序界限 ``bounds_m``）配合该变换。只有评估器读取这些数据。模板中的 null 表示未标注，不是零坐标，也不会自动排除。
-
-.. code-block:: bash
-
-   python -m toolkits.geometry.evaluation.localization_experiment truth-template \
-     --output experiments/localization/truth.json
-   # 独立标注完成后再运行下一条命令。
-   python -m toolkits.geometry.evaluation.localization_experiment evaluate \
-     --predictions experiments/localization/predictions/results.jsonl \
-     --truth experiments/localization/truth.json --tolerance-m 0.01 \
-     --output experiments/localization/evaluation
-
-若按完整 LIBERO 模型建立参考点，采集时添加 ``--with-references``，每组会单独保存 ``evaluator_snapshot.json``，包含同一初始状态的编译后可视网格及物体位姿。借用 ENV 时，服务须已启用 ``--evaluation-references``。推理前先按清单固定部位的模型局部参考点，再用对应位姿转换到世界坐标；不能默认使用物体原点。快照不包含部位标注，保存在 episode 之外，并被推理的传感器白名单排除，GeometryAgent 不会接收这些模型数据。
-
-``metrics.json`` 与 ``errors.csv`` 包括逐点误差及按对象、套件分组的统计。阈值内成功率以全部独立标注为可评的参考点为分母，包含拒绝、失败和未运行项；均值、中位数、P95、RMSE 只统计返回了中心的可评点，需与返回率一起看。默认 1 cm 阈值是可配置的实验判据。标注缺失、ID 重复、单位、帧或定义错误会使评估失败。评估试跑子集时使用一致的 ``--case`` / ``--limit``，真值文件仍需覆盖完整清单。解析几何与替代感知的 CPU 测试验证执行及几何约定；真实场景定位精度和任务操作成功率需要分别实测。
+`几何工具说明 <https://github.com/RLinf/RPent/blob/main/toolkits/geometry/README.md>`_
+定义 ``geometry`` 接口、拟合量、质量门槛和证据文件。
+`几何评估说明 <https://github.com/RLinf/RPent/blob/main/toolkits/geometry/evaluation/README.md>`_
+提供完整任务表、模型配置、少量样本试跑、``--permissive`` 候选估计、独立参考点标注和误差统计。
+宽松候选保留 ``strict_accepted``、``estimate_method`` 和 ``evaluation_only``；
+返回坐标不代表通过严格拟合检查。定位精度和任务操作成功率需要分别测量。
 
 Dashboard
 ---------

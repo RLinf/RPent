@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Read-only LIBERO localization delegated to a visual grounding agent."""
+"""Read-only LIBERO geometry measurements delegated to a visual grounding agent."""
 
 from __future__ import annotations
 
@@ -87,7 +87,7 @@ class GeometryAgent:
         self._world_frame = f"libero_world/{uuid.uuid4().hex}"
 
     @tool(readonly=True)
-    def localize(
+    def geometry(
         self,
         query: Annotated[str, Field(min_length=1, max_length=1024)],
         camera: Literal["agentview", "wrist"] = "agentview",
@@ -167,7 +167,7 @@ class GeometryAgent:
             images: list[bytes] = []
             try:
                 if required_geometry is None:
-                    images = self._localize(data, record, f"{index:03d}")
+                    images = self._measure_surface(data, record, f"{index:03d}")
                 else:
                     data["required_geometry"] = list(dict.fromkeys(required_geometry))
                     images = self._fit_requested(data, record, f"{index:03d}")
@@ -199,19 +199,21 @@ class GeometryAgent:
             "execution_owner": "parent_planner",
         }
 
-    def _localize(self, data: dict[str, Any], record: Any, tag: str) -> list[bytes]:
+    def _measure_surface(
+        self, data: dict[str, Any], record: Any, tag: str
+    ) -> list[bytes]:
         if not data["query"]:
-            raise ValueError("localize requires a nonempty target description")
+            raise ValueError("geometry requires a nonempty target description")
         nn, camera = data["step"], data["camera"]
         image_name, world_name, _ = libero_tools._select_segment_artifacts(
             self._state, record, camera
         )
         if image_name is None or world_name is None:
-            raise ValueError("localize requires a matching RGB/world-map artifact pair")
+            raise ValueError("geometry requires a matching RGB/world-map artifact pair")
         image = self._state.load(image_name, step=nn)
         world = self._state.load(world_name, step=nn)
         if world.ndim != 3 or world.shape[2] != 3 or image.shape[:2] != world.shape[:2]:
-            raise ValueError("localize RGB/world-map shapes do not match")
+            raise ValueError("geometry RGB/world-map shapes do not match")
         height, width = world.shape[:2]
         resolution = "high" if image_name.endswith("_high.png") else "low"
         data.update(
@@ -426,7 +428,7 @@ class GeometryAgent:
                 )
             data["parts"][part] = sample
             try:
-                part_images = self._localize(sample, record, part_tag)
+                part_images = self._measure_surface(sample, record, part_tag)
             finally:
                 for name, count in sample["calls"].items():
                     data["calls"][name] += count

@@ -127,7 +127,7 @@ class LiberoToolkit(Toolkit):
                 continue
             handler = partial(self._execute_primitive, definition.name, definition)
             self.add_tool(definition.with_handler(handler))
-        self.add_tool(self._geometry_agent.localize)
+        self.add_tool(self._geometry_agent.geometry)
         if self._mode == "exploration":
             self.add_tool(self._reset_episode)
             finish = self._tools["finish"]

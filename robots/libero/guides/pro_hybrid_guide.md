@@ -1,7 +1,5 @@
 # LIBERO-Pro Hybrid (Pi0.5 + LLM-in-the-loop) — Perception-Isolated Guide
 
-> The parent planner uses [GeometryAgent](geometry_agent.md) through `localize` for metric localization. Direct pixel/segmentation examples in this reference describe internal perception helpers; those helpers are not parent-planner tools. Use the GeometryAgent guide for active perception calls and measurement definitions.
-
 You are picking up the **LIBERO-Pro** evaluation track in **perception-isolated**
 mode — the only mode in this repository (the legacy oracle-state mode is not
 included here).

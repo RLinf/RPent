@@ -78,7 +78,7 @@ def make_agent(
 
 def test_rim_circle_integration_uses_raw_boundary_not_mask_median(tmp_path):
     state, agent, queries, sam_calls = make_agent(tmp_path)
-    result = agent.localize(
+    result = agent.geometry(
         "yellow and white mug", step=0, required_geometry=["rim_center", "radius"]
     ).data
     assert result["status"] == "usable", result
@@ -101,7 +101,7 @@ def test_rim_circle_integration_uses_raw_boundary_not_mask_median(tmp_path):
 
 def test_short_arc_requests_more_observation_instead_of_using_a_low_residual(tmp_path):
     _, agent, _, _ = make_agent(tmp_path, arc=60)
-    data = agent.localize("mug", required_geometry=["rim_center"]).data
+    data = agent.geometry("mug", required_geometry=["rim_center"]).data
     assert data["status"] == "need_observation"
     assert data["geometry"]["rim_center"]["value"] is None
     assert (
@@ -112,7 +112,7 @@ def test_short_arc_requests_more_observation_instead_of_using_a_low_residual(tmp
 
 def test_visible_bottom_disk_uses_its_boundary_and_keeps_bottom_plane(tmp_path):
     _, agent, _, _ = make_agent(tmp_path, part="bottom")
-    data = agent.localize("mug", required_geometry=["bottom_center"]).data
+    data = agent.geometry("mug", required_geometry=["bottom_center"]).data
     assert data["status"] == "usable", data
     np.testing.assert_allclose(
         data["geometry"]["bottom_center"]["value"], [0, 0, 0.8], atol=0.001
@@ -122,7 +122,7 @@ def test_visible_bottom_disk_uses_its_boundary_and_keeps_bottom_plane(tmp_path):
 
 def test_missing_ends_keep_full_height_and_body_center_unknown(tmp_path):
     _, agent, queries, sam_calls = make_agent(tmp_path, hide_other_parts=True)
-    data = agent.localize(
+    data = agent.geometry(
         "mug", required_geometry=["rim_center", "height", "body_center"]
     ).data
     assert data["status"] == "partial", data
@@ -136,7 +136,7 @@ def test_missing_ends_keep_full_height_and_body_center_unknown(tmp_path):
 
 def test_plane_request_does_not_remove_target_as_background(tmp_path):
     _, agent, _, _ = make_agent(tmp_path, part="plane")
-    data = agent.localize(
+    data = agent.geometry(
         "microwave top", required_geometry=["plane", "plane_normal"]
     ).data
     assert data["status"] == "usable", data
@@ -148,7 +148,7 @@ def test_plane_request_does_not_remove_target_as_background(tmp_path):
 
 def test_fit_trace_retains_quantized_source_dtype(tmp_path):
     _, agent, _, _ = make_agent(tmp_path, dtype=np.float16)
-    data = agent.localize("mug", required_geometry=["rim_center"]).data
+    data = agent.geometry("mug", required_geometry=["rim_center"]).data
     assert data["status"] == "usable", data
     assert data["source_dtype"] == "float16"
     assert (
@@ -163,14 +163,14 @@ def test_fitted_recipe_preserves_requested_quantities_and_hides_internal_calls(
 ):
     state, agent, _, _ = make_agent(tmp_path, hide_other_parts=partial)
     requested = ["rim_center", "height"] if partial else ["rim_center", "radius"]
-    agent.localize("mug", required_geometry=requested)
+    agent.geometry("mug", required_geometry=requested)
     with state.record_step(state={}, terminated=True):
         pass
     name = write_recipe_from_states(state, "parts", output_dir=tmp_path)
     commands = [json.loads(line) for line in (tmp_path / name).read_text().splitlines()]
     assert commands == [
         {
-            "action": "localize",
+            "action": "geometry",
             "query": "mug",
             "camera": "agentview",
             "required_geometry": requested,
@@ -210,7 +210,7 @@ def test_curved_body_request_runs_cleanup_and_axisymmetric_fit(tmp_path):
         check_cancelled=lambda: None,
         grounder=grounder,
     )
-    data = agent.localize("cup", required_geometry=["axis", "body_radii"]).data
+    data = agent.geometry("cup", required_geometry=["axis", "body_radii"]).data
     assert data["status"] == "usable", data
     assert data["parts"]["body"]["fit"]["model"] == "cylinder"
     assert abs(data["geometry"]["axis"]["value"]["direction"][2]) > 0.99

@@ -14,7 +14,7 @@
 
 """Fixed-observation checklist experiment: collect, infer and independently evaluate.
 
-Run ``python -m toolkits.geometry.evaluation.localization_experiment --help``. Collection needs
+Run ``python -m toolkits.geometry.evaluation.experiment --help``. Collection needs
 only ENV; inference needs only SAM3 and the explicit visual grounding model.
 Neither stage starts a planner/action model or executes a manipulation action.
 """
@@ -35,7 +35,7 @@ import numpy as np
 
 from rpent.session import EnvState
 from rpent.utils.logging import get_logger
-from toolkits.geometry.evaluation.localization_checklist import (
+from toolkits.geometry.evaluation.checklist import (
     build_manifest,
     frame_id,
     load_manifest,
@@ -43,7 +43,7 @@ from toolkits.geometry.evaluation.localization_checklist import (
     select_cases,
 )
 
-logger = get_logger("localization_experiment")
+logger = get_logger("geometry_experiment")
 
 
 def _write_json(path: Path, value: Any) -> None:
@@ -77,9 +77,9 @@ def _run_header(
         geometry_dir / "reference_geometry.py",
         geometry_dir / "candidate_geometry.py",
         geometry_dir / "geometry_agent.py",
-        evaluation_dir / "localization_checklist.py",
-        evaluation_dir / "localization_experiment.py",
-        evaluation_dir / "localization_evaluation.py",
+        evaluation_dir / "checklist.py",
+        evaluation_dir / "experiment.py",
+        evaluation_dir / "metrics.py",
     ]
     return {
         "schema_version": 1,
@@ -140,7 +140,7 @@ def _stop_owned(daemons: list) -> None:
         try:
             daemon.stop()
         except Exception:
-            logger.exception("failed to stop owned localization component")
+            logger.exception("failed to stop owned geometry component")
 
 
 def _save_native_high(env: Any, state: EnvState) -> None:
@@ -399,7 +399,7 @@ def infer_cases(
                 row["reason"] = error
             else:
                 try:
-                    data = agent.localize(
+                    data = agent.geometry(
                         row["query"],
                         camera="agentview",
                         step=0,
@@ -425,13 +425,13 @@ def infer_cases(
                     _write_json(output / f"result_{request['slot']}.json", data)
                 except Exception as exc:
                     row["reason"] = str(exc)
-                    logger.exception("localization failed: %s", row["request_id"])
+                    logger.exception("geometry request failed: %s", row["request_id"])
             predictions.append(row)
             with (args.output / "results.jsonl").open("a") as stream:
                 stream.write(
                     json.dumps(row, ensure_ascii=False, allow_nan=False) + "\n"
                 )
-            logger.info("localization %s: %s", row["request_id"], row["status"])
+            logger.info("geometry %s: %s", row["request_id"], row["status"])
     return predictions
 
 
@@ -604,7 +604,7 @@ def main(argv: list[str] | None = None) -> int:
             summary = infer(args, manifest, cases)
             return int(summary["status_counts"].get("error", 0) > 0)
         elif args.command == "truth-template":
-            from toolkits.geometry.evaluation.localization_evaluation import (
+            from toolkits.geometry.evaluation.metrics import (
                 truth_template,
             )
 
@@ -612,7 +612,7 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError(f"annotation file already exists: {args.output}")
             _write_json(args.output, truth_template(manifest))
         elif args.command == "evaluate":
-            from toolkits.geometry.evaluation.localization_evaluation import evaluate
+            from toolkits.geometry.evaluation.metrics import evaluate
 
             predictions = [
                 json.loads(line)
@@ -632,7 +632,7 @@ def main(argv: list[str] | None = None) -> int:
                 writer = csv.DictWriter(stream, fieldnames=list(report["rows"][0]))
                 writer.writeheader()
                 writer.writerows(report["rows"])
-            logger.info("localization evaluation: %s", report["overall"])
+            logger.info("geometry evaluation: %s", report["overall"])
     except (ValueError, OSError, KeyError, TypeError, RuntimeError) as exc:
         logger.error("%s", exc)
         return 1
