@@ -3,58 +3,67 @@
 Geometry Toolkit
 ================
 
-Use ``GeometryAgent.geometry`` to request observed surface positions or fitted
-object-part geometry from a recorded LIBERO RGB-D frame. The parent planner
-supplies a target description, quantities and an observation reference; the
-agent selects image points and computes world coordinates with its internal
-perception tools. The request never moves the robot. The current integration
-uses LIBERO observations; follow :doc:`../simulators/libero` for environment,
-SAM3 and planner setup.
+The geometry tool turns a description of an object or part into spatial
+measurements with explicit definitions. The parent planner supplies a target,
+the required quantities and an observation reference through one ``geometry``
+interface. GeometryAgent locates the target, segments the relevant evidence
+and computes positions, directions and dimensions for subsequent action
+planning.
 
-Modules
--------
+Design Purpose
+--------------
 
-The toolkit separates geometry measurement from robot execution and independent
-evaluation. Modules under ``toolkits/geometry/`` have these responsibilities:
+Grasping, placing and aligning objects require geometry of specific parts. A
+rim center, a body center and a visible point on a cup have different meanings.
+A selected image point cannot stand in for all three. The tool defines each
+measurement and returns it with its source observation and shape assumptions.
 
-``geometry_agent.py``
-   Visual selection, segmentation, coordinate lookup and part fitting.
+The design assigns task decisions and geometry measurement to separate roles.
+The parent describes what it needs; GeometryAgent determines how to measure it
+from the available observation. The visual model handles semantic localization,
+while depth data and geometric algorithms supply spatial calculations. This
+gives the parent one interface for different parts, allows the internal
+perception process to evolve independently and ties each result to inspectable
+evidence.
 
-``geometry.py``
-   Point-cloud cleaning, plane, circle, cylinder and frustum fitting.
+.. _geometry-module-design:
 
-``reference_geometry.py``
-   Inner opening, support face, lid, rectangular top and bottle-barrel
-   references.
+Module Design
+-------------
 
-``candidate_geometry.py``
-   Labelled approximate centers for permissive error evaluation.
+GeometryAgent coordinates perception through a fixed program flow. An internal
+vision-language model selects visible pixels, and SAM3 produces segmentation
+masks. The program controls part expansion, call order and budgets, cloud
+processing, model comparison and acceptance.
 
-``evaluation/checklist.py``
-   Fixed tasks, seeds and reference definitions.
+Responsibilities and Initialization
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-``evaluation/experiment.py``
-   Initial-frame collection and geometry inference CLI.
+The parent planner chooses task targets, requests geometry, executes actions
+and obtains new observations when needed. GeometryAgent interprets the part
+requirements, uses its internal perception and fitting capabilities, and
+reports available measurements or missing evidence. Segmentation and
+back-projection are internal operations; the parent requests measurements
+through ``geometry``.
 
-``evaluation/metrics.py``
-   Independent truth validation, position errors and coverage.
+Session setup prepares shared observation storage and perception dependencies,
+then initializes GeometryAgent outside the toolkit. The toolkit receives the
+prepared instance and registers its interface. The session integration owns
+the preparation of observations and perception dependencies; the subagent owns
+geometry request processing.
 
-``evaluation/evaluation_scene.py``
-   Evaluator-only compiled meshes and same-frame body poses.
+Each request pins one recorded observation. All parts within that request use
+the same frame. GeometryAgent reads observations and has no motion tools. When
+evidence is insufficient, it reports the missing parts and reasons. The parent
+decides whether to move the camera or robot, then submits another request
+against the new observation.
 
-The LIBERO environment, action primitives and tool registration live in
-``robots/libero/``. Shared visual-model adaptation lives in
-``rpent/robots/components/grounding_agent.py``. Import the agent directly:
+Inputs and Outputs
+~~~~~~~~~~~~~~~~~~
 
-.. code-block:: python
-
-   from toolkits.geometry.geometry_agent import GeometryAgent
-
-Request Geometry
-----------------
-
-Use ``view_env_state`` to identify task-relevant objects. Pass a target
-description, the needed quantities and an observation reference to ``geometry``:
+The parent supplies a target description, an observation camera and step, and
+the required geometry. This example uses camera names from the current
+integration:
 
 .. code-block:: json
 
@@ -67,189 +76,210 @@ description, the needed quantities and an observation reference to ``geometry``:
      ]
    }
 
-The parent supplies no calibration. GeometryAgent obtains the matching image,
-world coordinates, depth and camera metadata from the recorded observation.
-``required_geometry`` selects fitting instead of the ``measurement`` surface
-mode. Each part uses one visual-grounding request and at most two SAM requests,
-with no synonym search or threshold reduction. Cup requests use at most three
-parts; a separate ``plane``/``plane_normal`` request can add a fourth. All parts
-share one pinned frame. The agent has no motion tools.
+The parent supplies no calibration parameters in the request. The environment
+integration records matching RGB, depth, world coordinates and camera metadata,
+which GeometryAgent reads from the selected observation. ``step=-1`` pins the
+latest recorded step when the request begins.
 
-Part Cleanup and Fitting
-------------------------
+When ``required_geometry`` is set, read ``geometry[field]``. Each field includes
+its value, definition, units, world-frame identifier, source step, shape
+assumptions, quality and evidence references. For example, ``radius`` means rim
+radius; ``body_center`` is the midpoint of observed coaxial rim and bottom
+centers; ``height`` is their separation. These definitions determine the
+required observations. An arbitrary visible point or a partial cloud's extent
+cannot replace them.
 
-Each requested part uses observed candidates and a matching geometric model.
-The following table describes the supported evidence and cleanup:
+For visible surface measurements, omit ``required_geometry`` and use
+``measurement="surface_point"`` for a selected material point, or
+``measurement="visible_region"`` for coordinate-wise median and bounds of a
+segmented region. Read these from surface-mode fields such as ``world_xyz``.
+Region statistics describe visible samples; a median may lie in empty space
+and does not establish a fitted object or part center.
+
+Before using a result, the parent checks its status and field definitions:
+
+- ``usable``: all requested quantities passed the checks of the current mode.
+- ``partial``: only some quantities are available; missing fields retain reasons.
+- ``need_observation``: current evidence is insufficient; the parent decides
+  whether to obtain another observation.
+- ``error``: input, service or evidence persistence failed.
+
+Fitted values are labelled ``inferred`` under their shape assumptions. In the
+default mode, unsupported fields remain ``unknown`` with null values.
+Residuals, support counts and segmentation scores are diagnostics, not
+calibrated position errors. Results include evidence references, while full
+masks and clouds are stored separately for inspection rather than sent as tool
+result text.
+
+Processing Flow
+~~~~~~~~~~~~~~~
+
+Measurement is organized around the requested parts. It performs the following
+steps as needed:
+
+1. **Locate the target and part.** The visual model selects visible pixels from
+   RGB and the target description. It provides semantic localization, not
+   world coordinates.
+2. **Extract observed evidence.** Internal perception tools produce an object
+   or part mask and obtain 3-D points from matching depth, world-coordinate
+   maps and camera metadata. The current segmentation implementation uses SAM3.
+3. **Clean the part cloud.** Retain connected regions consistent with the part
+   and reduce background, outliers and other surfaces. Inner edges, top faces
+   and curved outer surfaces use different candidate extraction methods.
+4. **Choose a geometric model.** Fit circles to circular edges and planes to
+   planar regions; compare cylinder and frustum models for approximately
+   axisymmetric surfaces. The requested quantities determine which parts must
+   be observed.
+5. **Check and return measurements.** Use support, coverage, residuals,
+   degeneracy and agreement between parts to determine which quantities have
+   sufficient evidence. Retain diagnostics and evidence references.
+
+A segmentation mask bounds the candidate region. Each geometric quantity still
+needs evidence from its corresponding part. The center of a whole-object mask
+does not establish an inner opening center, and a partially visible body's
+length does not establish full height. A low residual shows agreement between
+candidate points and a model; part coverage must also support the measurement.
+
+.. _geometry-prompt-design:
+
+Prompt Design
+-------------
+
+Parent Planner Instructions
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The ``geometry`` tool description and the parent's task prompt jointly define
+the calling contract. The tool description specifies inputs, measurement
+meaning, result interpretation and read-only boundaries. The current hybrid
+evaluation and exploration prompts share the full geometry instructions:
+
+- Identify targets, destinations and spatial relations in the global view.
+  Preserve appearance, the specific part and those relations in ``query``;
+  simulator instance suffixes do not replace visual identity.
+- Supply the camera, step and measurement requirements to ``geometry``.
+  Do not provide parent-selected pixels or guessed XYZ. Request surface
+  contact points and fitted centers according to their distinct definitions.
+- Read ``status``, ``definition``, ``evidence_status``, ``quality`` and the
+  source step before using coordinates. For fits, inspect ``geometry[field]``
+  and ``source_refs``, retaining unsupported fields as unknown.
+- On ``need_observation`` or ``error``, inspect the reason and obtain useful new
+  evidence within the task budget instead of repeating unchanged requests.
+  Close views must preserve the same target and part. Measure again after
+  target motion.
+
+WAM mode uses a shorter task prompt that retains the requirement to measure
+scripted motion targets through ``geometry`` and inspect status and measurement
+definitions. The tool interface contract remains the same.
+
+Expanding Part Requirements
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The program maps ``required_geometry`` to observed parts and prefixes the
+original target description with each part requirement. The internal visual
+model does not receive the full quantity list to decide the processing flow;
+each call locates one expanded part. Selected mappings are:
 
 .. list-table::
    :header-rows: 1
-   :widths: 18 38 44
+   :widths: 30 70
 
-   * - Part
-     - Observed candidates
-     - Cleaning and model
-   * - Rim
-     - SAM part mask, RGB/depth foreground edges near the visual rim point.
-     - Target-connected cloud; 3-D circle consensus and robust refinement.
-   * - Body
-     - Curved outer surface excluding handle, rim and interior.
-     - Background-plane removal, connected cloud, neighbor outliers; robust
-       cylinder/frustum comparison.
-   * - Bottom
-     - Visible bottom face boundary.
-     - Preserve the bottom plane; fit a circle to its observed boundary.
-   * - Plane
-     - Requested visible planar patch.
-     - Preserve the target plane; RANSAC and SVD.
-   * - Inner opening
-     - Inner mask-hole edge, interior foreground depth jump, or connected
-       interior RGB contour at the visually selected inner edge.
-     - Exclude the outer silhouette and interior floor; clean the largest
-       candidate component and fit a 3-D circle.
-   * - Plate / sealed lid
-     - Central support or sealed lid plane and its observed physical boundary.
-     - Fit the face plane; project its observed boundary onto that plane and
-       fit a circle.
-   * - Rectangular top
-     - Main top plane and four physical edges.
-     - Reject coplanar label crops, foreground covers and image clipping;
-       require edge and corner support before fitting a rectangle.
-   * - Bottle barrel
-     - Whole-bottle mask and a visual anchor on its main barrel.
-     - Seed a dominant cylinder near the anchor; identify both barrel limits
-       using shoulder radius transitions or physical terminal edges.
+   * - Requested Quantity
+     - Expanded Observation Requirement
+   * - ``rim_center``, ``radius``
+     - The visible circular rim boundary.
+   * - ``axis``
+     - The visible curved outer body, excluding handle, rim and interior.
+   * - ``body_center``, ``height``
+     - Locate rim, outer body and bottom separately, then check agreement
+       between parts.
+   * - ``inner_rim_center``
+     - The inner upper opening edge, excluding outer lip, handle and
+       interior floor.
 
-Voxel sampling retains actual input samples. A horizontal background plane is
-removed for rim/body only when observed outside the mask and separated from the
-visual anchor. Handle/interior contamination is rejected through body-model
-residuals; a mixed cloud need not produce an accepted model. Small or
-disconnected clouds, short arcs, collinear patches, low support and
-ill-conditioned fits request more evidence. A low residual alone cannot
-establish observability.
+For an inner-opening request, the target description follows this prefix,
+preserving the original appearance and spatial relation:
 
-Inner-opening candidates use their largest connected component without
-requiring it to pass near the visual material point. The SAM mask must still
-contain that point, which also supports background-plane separation and circle
-consistency checks. Voxel sampling, outlier rejection and all circle acceptance
-gates apply.
+.. code-block:: text
 
-The initial algorithm gates are recorded in ``quality.fit_options``: 3 mm inlier
-threshold, 1 mm voxels, at least 30 points, 60% support, 180 degrees of circular
-boundary coverage and 120 degrees of body coverage. Circle/body fits also
-require the 95th-percentile surface residual to be within 5% of the fitted
-reference radius. This relative shape gate prevents a small noncircular
-boundary passing solely because the absolute threshold is coarse. Optimization
-and sampling are bounded. These are experimental acceptance settings, not
-measured accuracy or calibrated sensor uncertainty. float16 world coordinates
-retain quantization.
+   the visible INNER upper opening edge,
+   excluding outer lip, handle and interior floor, of {target_description}
 
-Reading Fitted Results
+Internal Visual Grounding Prompt
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The API/Codex visual-grounding adapter uses the following prompt.
+``{query}`` stands for the expanded part description for this call;
+``{width}`` and ``{height}`` stand for the original image dimensions:
+
+.. code-block:: text
+
+   Locate {query} in this robot camera image. Preserve the named object
+   part and requested spatial relation. Select a clearly visible material
+   point away from silhouettes, occlusion and image borders. Do not
+   substitute another object or part. Return null if it cannot be identified.
+   The image has {width} columns and {height} rows. Return point_xy as
+   [column, row] in ORIGINAL pixel units, not normalized coordinates.
+   Only select a point; do not use tools or execute robot actions.
+
+The visual model receives only the frame's RGB and localization text, with no
+depth, object truth or robot motion tools. Its structured result contains only
+``point_xy``: original-pixel ``[column, row]`` when visible, or null when the
+target cannot be identified. The program checks that the pixel is finite and
+inside the image, then converts it to the internal row/column order. World
+coordinates are computed from the matching observation data.
+
+Segmentation Prompts and Call Bounds
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+When a region cloud is needed, the program first requests SAM3 with the part
+text and checks that the mask contains the independently selected visual
+point. If the text candidate is absent or excludes that point, one further
+segmentation request may use the point as a positive prompt. Bottle-barrel
+measurement is a special case: visual grounding targets the main barrel,
+while segmentation text requests the whole bottle, including shoulder, neck
+and base, to retain context for determining barrel limits.
+
+Each part uses at most one visual-grounding call and two segmentation calls,
+with no synonym search or threshold reduction. Segmentation bounds the
+candidate region; edge extraction, cleaning and fitting still determine the
+part center. Prompts constrain the model's semantic task, while the program
+enforces call budgets, cloud processing and acceptance conditions.
+
+Integration and Limits
 ----------------------
 
-Read ``geometry[field]``, not the surface-mode ``world_xyz``. Every field gives
-its ``value``, definition, units, ``world_frame_id``, source step, evidence
-references, assumptions, quality and ``evidence_status``:
+The request design supports spatial measurement from observations. The current
+observation integration uses LIBERO. Another environment must supply matching
+images, 3-D coordinates and camera information, while preserving the result's
+coordinate frames and geometric definitions. Follow :doc:`../simulators/libero`
+for environment setup and :doc:`../guides/cli` for visual-model and service URL
+configuration.
 
-- ``rim_center``, ``rim_radius`` and ``radius`` refer to the fitted visible rim
-  circle; ``radius`` is an alias for rim radius, not the body's radius at every
-  height.
-- ``bottom_center`` requires a visible circular bottom boundary. It is not the
-  median of a bottom-plane patch or a point picked inside the cup.
-- ``axis`` comes from the fitted circular body, or consistent observed end
-  circles. Without both ends, its sign is conventional. It is not a handle or
-  door-opening direction.
-- ``body_radii`` describes only the fitted radii at visible axial sample limits.
-- ``body_center`` is the midpoint of observed coaxial rim and bottom centers.
-  ``height`` is their separation under the coaxial-end assumption. A partial
-  body's visible length cannot establish either quantity. This center is not
-  a mass or volume centroid.
-- ``plane`` and ``plane_normal`` describe a visible plane, with normal sign
-  toward the camera when metadata is available; they do not establish full face
-  dimensions.
-- ``inner_rim_center`` is the 3-D center in the inner upper opening edge plane.
-  An unresolved inner edge remains unknown; the outer lip is not a substitute.
-- ``plate_center`` is the circular central support-face center at that face
-  height. ``lid_center`` is the sealed circular lid center and follows a tilted
-  lid plane.
-- ``rectangle_center`` is the main rectangular top-face center. All four
-  physical edges and their corner neighborhoods must support it; a
-  visible-fragment box cannot establish this center. This does not recover the
-  complete solid box.
-- ``body_segment_center`` is the main near-cylindrical bottle barrel's axial
-  midpoint, excluding neck and mouth. Both limits need observed evidence; a
-  partial cloud's min/max do not define a barrel center. The axis may be
-  horizontal.
-
-Fits are labelled ``inferred`` under their shape assumptions. Unsupported
-fields remain ``unknown`` with null values. Residuals, support counts and SAM
-scores are separate diagnostics; ``calibrated_error_m=null`` remains unknown.
-
-``status="usable"`` means all requested quantities passed the implemented
-gates; ``partial`` means only some did. ``need_observation`` provides reasons
-and missing fields/parts. The parent decides and executes a new observation
-move. ``error`` reports an input, service or evidence-persistence failure. Do
-not silently use a surface median when a requested geometric fit was rejected.
-
-``geometry_XXX.json`` stores part requests, budgets, cleaning statistics, model
-comparisons and consistency checks. Mask, candidate-cloud, cleaned-cloud,
-cleaned-index and fit-inlier arrays remain separate step-scoped artifacts.
-``fit_points_artifact`` identifies the array indexed by the fit-inlier indices.
-For circular faces it contains explicitly derived plane projections;
-``observed_support_artifact`` separately preserves the original observed
-boundary. Arrays are not sent as tool-result text. Complete box/cavity recovery
-and multi-view fusion are not implemented.
+Occlusion, invisible boundaries, missing depth or incorrect target localization
+can leave some quantities undetermined in one frame. Complete box or cavity
+recovery and multi-view fusion are not implemented. Measure again after target
+motion. Comparing requests or applying memory offsets requires matching world
+frames and reference-point definitions.
 
 .. _geometry-permissive-evaluation:
 
-Permissive Error Evaluation
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Independent Error Evaluation
+----------------------------
 
-For error evaluation of checklist centers, construct ``GeometryAgent`` with
-``permissive=True``, or add ``--permissive`` to the experiment's ``infer``
-command. Rejected fits then receive labelled observation-only candidates
-without asking for additional views. Check ``strict_accepted``,
-``estimate_method`` and ``evaluation_only``: a returned coordinate can be an
-incomplete visible-extent estimate. The default remains strict. See the
-`evaluation guide <https://github.com/RLinf/RPent/blob/main/toolkits/geometry/evaluation/README.md#宽松误差评估>`_
-for the relaxed gates and fallback methods.
+Measurement and evaluation are separate. GeometryAgent produces results from
+observations; an independent evaluator then compares them with annotations or
+simulator truth. Reference answers do not participate in visual localization,
+candidate selection or fitting. Geometry position error and robot task success
+are measured separately.
 
-Follow the :ref:`fixed reference checklist experiment
-<libero-fixed-reference-experiment>` for the 80-case / 160-reference protocol
-and its :doc:`LIBERO setup <../simulators/libero>`. It uses only the initial
-agentview frame and records failures without changing targets or moving to
-another view. This protocol is separate from interactive parent-planner
-recovery.
+The default mode returns quantities according to geometric checks. To compare
+center position errors, ``permissive=True`` or the experiment's ``--permissive``
+option enables labelled approximate candidates for supported part centers
+without requesting additional views. Read ``strict_accepted``,
+``estimate_method`` and ``evaluation_only`` to distinguish accepted fits from
+candidate estimates.
 
-Surface Measurements
---------------------
-
-For contact points use ``measurement="surface_point"``; for visible sample
-statistics use ``measurement="visible_region"``, without ``required_geometry``.
-The first returns a selected material point. The second returns
-coordinate-wise median and bounds of a segment containing the visual point.
-Those statistics are not fitted centers; a median may lie in empty space.
-
-Use agentview for identity, then request the same part in a new wrist
-observation when closer geometry is needed. Compare only matching world
-frames and point definitions. Request geometry again after target motion. Use
-memory offsets only when their reference definition matches the returned
-measurement.
-
-Model Configuration and Validation
-----------------------------------
-
-API/Codex planners inherit their model and provider URL. Override with
-``--geometry-model provider:model`` or ``--geometry-model codex:model`` and
-``--geometry-base-url``. Bare ``codex`` uses its configured default. Claude
-Code planners require an explicit ``--geometry-model``. The visual model
-receives only RGB and target text, with no robot tools or object truth.
-``--geometry-base-url`` overrides the inherited ``--base-url``.
-
-Offline smoke tests in ``tests/unit_tests/toolkits/geometry/`` use analytic
-point clouds and fixed perception outputs. Real-scene accuracy needs
-independent labels or simulator truth available only to the evaluator. Task
-success and geometry measurement error must be measured separately. The
-sample-consensus approach follows standard
-`PCL models <https://pointclouds.org/documentation/group__sample__consensus.html>`_;
-robust refinement uses
-`SciPy least_squares <https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.least_squares.html>`_.
+See the :ref:`fixed reference experiment <libero-fixed-reference-experiment>`
+for the concrete protocol, and the
+`geometry evaluation guide <https://github.com/RLinf/RPent/blob/main/toolkits/geometry/evaluation/README.md>`_
+for candidate methods, thresholds and error statistics.
