@@ -346,53 +346,14 @@ Physical action tools advance the environment and record new state and images.
 
 These tools do not advance the environment.
 
-GeometryAgent pins one recorded frame. Each part uses one visual-model call and
-at most two SAM calls. Cup requests use at most three parts; adding a plane uses
-at most four. The agent saves ``geometry_XXX.json`` and mask, candidate, cleaned
-point-cloud and fit-inlier artifacts. No arrays are sent as tool-result text.
+GeometryAgent measures one recorded frame without moving the robot. For the
+request interface, visual-model configuration, fitted quantities, quality gates
+and evidence artifacts, see :doc:`../development/geometry`. Read the returned
+status and field definitions before using a coordinate. When evidence is
+insufficient, the agent requests another view; the parent planner decides and
+executes any observation move.
 
-Rim and bottom boundaries use robust 3-D circle fitting; the curved body compares
-cylinder and frustum models; visible planar patches use RANSAC and SVD. Cleanup
-uses voxel sampling, a target-connected component and neighbor outlier rejection.
-Body/rim requests may remove a horizontal background plane found outside the
-mask; bottom/plane requests preserve their target plane. A body fit treats
-handle/interior samples as outliers and is rejected when support is insufficient.
-
-Exact reference requests use ``inner_rim_center`` for the inner upper opening,
-``plate_center`` for the central supporting face, ``lid_center`` for a sealed
-circular lid, ``rectangle_center`` for the main rectangular top face, and
-``body_segment_center`` for the main bottle barrel excluding its neck and mouth.
-The inner opening uses resolved inner contours instead of center-pixel depth.
-Its candidates retain their largest connected component without requiring
-proximity to the visual material point. That point still identifies the SAM
-region and supports background-plane separation and circle consistency checks;
-outlier rejection and circle acceptance gates remain active.
-Circular face fits take their height from the selected plane. Rectangles require
-four physical edges and corner support; foreground covers, coplanar label crops
-and image clipping cannot establish a full-face center. Bottle fitting needs
-both barrel limits from observed radius transitions or physical terminal edges,
-and supports a horizontal axis. Visible sample extents alone are insufficient.
-
-Fitted results are in ``geometry[field]``, with definition, assumptions, evidence
-references and quality. ``radius`` means rim radius; ``body_radii`` contains only
-visible cross-section radii. Body center is the midpoint of observed coaxial rim
-and bottom circles. Full height requires both end boundaries; a visible axial
-extent alone is insufficient. Axis sign is conventional unless both ends are
-observed. Low residuals alone do not establish reliability: coverage, degeneracy
-and consistency gates may reject a fit. Algorithm thresholds and residuals are
-not calibrated positional error; quantized world maps retain their precision.
-
-``partial`` means some requested fields are available and others remain unknown.
-When geometry is unavailable, the agent requests another view; the parent
-executes any motion. Multi-view fusion, full box dimensions and cavity geometry
-are not implemented by these fitting models.
-
-API and Codex planners inherit their model and provider URL for visual grounding.
-Use ``--geometry-model provider:model`` or ``--geometry-model codex:model`` to
-select another model. Bare ``codex`` uses the configured Codex default.
-``--geometry-base-url`` overrides the inherited ``--base-url``. Claude Code
-planners require an explicit ``--geometry-model``. The visual model receives
-only the selected RGB image and target query, with no robot tools or object poses.
+.. _libero-fixed-reference-experiment:
 
 Fixed Reference Checklist Experiment
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -418,13 +379,12 @@ The runner performs no manipulation or additional-view actions. It copies only
 allowed sensor artifacts and keeps independent truth outside the agent inputs.
 Output directories must be new or empty.
 
-The `geometry toolkit guide <https://github.com/RLinf/RPent/blob/main/toolkits/geometry/README.md>`_
-defines the ``geometry`` interface, fitted quantities, quality gates and
-evidence artifacts. The `geometry evaluation guide <https://github.com/RLinf/RPent/blob/main/toolkits/geometry/evaluation/README.md>`_
+The `geometry evaluation guide <https://github.com/RLinf/RPent/blob/main/toolkits/geometry/evaluation/README.md>`_
 contains the full task table, model configuration, pilot selection,
 ``--permissive`` estimates, independent reference annotation and error metrics.
 Permissive candidates retain ``strict_accepted``, ``estimate_method`` and
 ``evaluation_only``; a returned coordinate does not certify strict fit quality.
+See :ref:`geometry-permissive-evaluation` for interpreting these candidates.
 Accuracy and manipulation success require separate measurements.
 
 Dashboard

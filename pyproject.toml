@@ -272,7 +272,6 @@ exclude = ["tests*", "docs*", "examples*", "docker*"]
 [tool.setuptools.package-data]
 "rpent.dashboard" = ["*.html", "static/*.css", "static/*.js"]
 "robots.yam" = ["config/*.yaml", "config/*.json", "guides/*.md"]
-"toolkits.geometry" = ["README.md"]
 "toolkits.geometry.evaluation" = ["README.md"]
 
 [tool.pytest.ini_options]

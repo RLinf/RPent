@@ -5,7 +5,7 @@
 每组分别定位 A、B；遮挡或拟合失败不会替换目标。
 
 评估实现位于 `toolkits/geometry/evaluation/`，几何定位和拟合位于 `toolkits/geometry/`。
-几何接口和拟合约定见[工具说明](../README.md)。
+几何接口和拟合约定见[几何工具包文档](../../../docs/source-zh/rst_source/development/geometry.rst)。
 
 ## 固定任务
 

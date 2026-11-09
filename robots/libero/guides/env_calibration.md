@@ -8,7 +8,7 @@ manually manage `env_server.py`. Do not read BDDL files or hidden task
 definition files to infer coordinates. Start with
 `view_env_state({"step": 0})`; measure objects from `agentview_high.png` or
 `wrist_high.png` through `geometry` target/part descriptions. See
-[GeometryAgent](../../../toolkits/geometry/README.md) for the current perception interface.
+[GeometryAgent](../../../docs/source-en/rst_source/development/geometry.rst) for the current perception interface.
 
 Measured 2026-05-20 on `libero_10_with_mug` t0 (LIVING_ROOM frame) and t8
 (KITCHEN frame). All probes use `move_to` with `gripper=-1` and tight

@@ -330,7 +330,7 @@ the current models. Proceed only with supported action targets."""
 
 WORKFLOW_STEPS = (
     """READ THE GUIDES once each:
-- `toolkits/geometry/README.md`
+- `docs/source-en/rst_source/development/geometry.rst`
 """,
     """INSPECT INITIAL STATE: call `view_env_state({"step": 0})`; inspect
   `task_language`, object_names, eef pose, `agentview_high.png`,
