@@ -11,19 +11,17 @@ and identifies the visible parts it used for each measurement.
 Design Purpose
 --------------
 
-To align an object with the opening of the yellow and white mug to the
-left of a gray cup, the planner first needs to know where the center of
-the opening is. A pixel can mark a point on the rim. The center itself
-may lie in empty space. The tool estimates it by fitting a circle to
-visible 3-D points along the rim. To measure the mug's height, the tool
-also needs to see the bottom and check that the two ends share an axis.
-Both circular faces should be roughly perpendicular to the line between
-their centers.
-
-The visual model uses color, the named part and its position relative to
-other objects to select a pixel. The program does the geometry using 3-D
-coordinates in meters aligned with the image. The planner decides what to
-measure and whether the result is enough to plan its next action.
+A robot may need the position, orientation or size of a particular part
+to plan its next action. A 3-D observation gives the position of a
+visible surface point directly. Estimating a part's center, axis or
+radius usually requires several points along an edge or across a curved
+surface. ``GeometryTool`` gives robot applications a common interface for
+these measurements. The planner describes the target and the quantities
+it needs, and the tool measures them using one recorded camera view. If
+that view supports only some of the requested measurements, the tool
+returns the available values and explains what is missing for the rest.
+The planner can then decide whether to observe the target from another
+angle.
 
 .. _geometry-module-design:
 
@@ -41,24 +39,13 @@ color image, and the tool takes the measurement using the corresponding
 Choosing a Measurement
 ~~~~~~~~~~~~~~~~~~~~~~
 
-The same object can support different measurements depending on what the
-planner needs to know.
-
-- **Where is one point on the surface?** With the default
-  ``measurement="surface_point"``, the visual model selects a pixel on the
-  visible surface. The tool reads the 3-D coordinate at that pixel and
-  returns it in ``world_xyz``.
-- **What are the 3-D bounds of the visible part?** With
-  ``measurement="visible_region"``, the tool segments the region and returns
-  the minimum and maximum on each axis in ``visible_bounds_xyz``. These
-  bounds cover the valid 3-D points in that region. Here ``world_xyz`` is
-  their median on each axis, which may lie in empty space.
-- **Where is a part's center, which way does it point, or how large is it?**
-  List 1 to 10 quantities in ``required_geometry``. Supplying this list
-  selects shape fitting. The tool extracts 3-D points from each relevant
-  part, filters outliers and checks how many points support the shape, how
-  well they cover it and how closely they fit. It returns one field per
-  quantity under ``geometry``.
+``measurement`` defaults to ``surface_point``, which returns the 3-D
+coordinates of one visible point on the target surface in ``world_xyz``.
+With ``visible_region``, ``visible_bounds_xyz`` gives the range of valid
+3-D points in the visible region along each axis, and ``world_xyz`` gives
+the median on each axis. To measure a part's center, orientation or size,
+list 1 to 10 quantities in ``required_geometry``. The tool fits shapes to
+the 3-D points and returns each result under ``geometry``.
 
 .. _request-and-result-contract:
 
@@ -96,8 +83,9 @@ observation from that camera.
      - The radius of the fitted circle in meters. ``radius`` is another
        name for the same quantity.
    * - ``height``
-     - Enough of the rim and bottom edges to fit a circle to each and
-       establish that the ends share an axis.
+     - Enough of the rim and bottom edges to fit two distinct circles on
+       a common axis. If the wall can also be fitted, its axis must agree
+       with both ends and the visible wall must lie between them.
      - The distance between the two circle centers in meters.
 
 Suppose a view from above shows only the rim clearly and the fit gives a
@@ -137,63 +125,15 @@ records saved at the original step in the shared ``EnvState``.
 
 .. dropdown:: Other Geometry You Can Request
 
-   .. list-table::
-      :header-rows: 1
-      :widths: 24 40 36
+   - ``rim_center`` fits a circle to visible 3-D points along the rim and
+     returns the coordinates of the rim center.
+   - ``axis`` uses the curved outer wall of the cup to estimate its axis
+     and returns a point on the axis and its direction.
+   - ``plane_normal`` fits a plane to 3-D points on a flat surface and
+     returns a unit vector perpendicular to that plane.
 
-      * - Quantity
-        - What the view must show
-        - What the tool returns
-      * - ``rim_center``
-        - The same visible arc that supplies ``rim_radius``.
-        - The center ``[x, y, z]`` of the fitted rim circle.
-      * - ``inner_rim_center``
-        - A distinct upper inner edge of the opening in the image or
-          depth data.
-        - The center of the circle fitted to that inner edge.
-      * - ``bottom_center``
-        - A circular bottom or its edge, with enough points on the boundary.
-        - The center of the circle fitted to the bottom edge.
-      * - ``body_center``
-        - The same accepted rim and bottom edges that supply ``height``.
-        - The midpoint of the two circle centers.
-      * - ``axis``
-        - The curved outer wall. If the same request also finds both end
-          centers, the tool can use them to determine the axis.
-        - A ``point`` on the axis, a unit ``direction`` and a ``sign`` convention.
-      * - ``body_radii``
-        - Enough of the curved outer wall to fit a cylinder or truncated cone.
-        - The radii at both ends of the visible axial range and the range itself.
-      * - ``plane``, ``plane_normal``
-        - A set of 3-D points spread across a flat patch.
-        - ``plane`` gives the plane parameters, including a point and a normal.
-          ``plane_normal`` gives the unit normal.
-      * - ``plate_center``
-        - The flat circular support surface inside a plate's raised rim
-          and its boundary.
-        - The circle center in the plane of the support surface.
-      * - ``lid_center``
-        - The flat sealed face of a circular lid and its boundary, excluding
-          the raised rolled lip.
-        - The circle center in the plane of the lid.
-      * - ``rectangle_center``
-        - The four physical edges and corners of the main rectangular top
-          face, with a camera pose to distinguish edges from occlusions.
-        - The center of the rectangular top face.
-      * - ``body_segment_center``
-        - A roughly cylindrical main barrel, with its ends visible as radius
-          changes or physical ends of the object. The grounder selects a point
-          on the main barrel and the segmenter marks the whole bottle so the
-          tool can examine both ends.
-        - The midpoint of that barrel along its axis.
-
-   Both ``height`` and ``body_center`` require two distinct end centers. The
-   two circular faces must be roughly perpendicular to the line between their
-   centers. The tool also tries to fit the outer wall. If that fit succeeds,
-   its axis must agree with the ends, and the ends must enclose the visible
-   wall. For ``axis``, an accepted pair of ends gives a direction from bottom
-   to rim (``bottom_to_rim``). A wall fit alone gives two equivalent
-   directions. ``canonical_undirected`` means the tool chose one by convention.
+   You can also request quantities such as the center of the cup's bottom
+   or the center of a circular lid.
 
 .. _observation-contract:
 
