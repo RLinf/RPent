@@ -72,7 +72,7 @@ jobs:
           COMMAND: ${{ steps.parse.outputs.command }}
         run: |
           run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT"
-          gh pr comment "$PR" --body "Accepted \`$COMMAND\`. [View run]($run_url)"
+          gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body "Accepted \`$COMMAND\`. [View run]($run_url)"
 
   review:
     needs: dispatch
