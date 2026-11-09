@@ -30,6 +30,7 @@ from rpent.dashboard.events import NullDashboardEventSink
 from rpent.evaluation import RunFinalizationContext
 from rpent.memory import MemoryManager
 from rpent.robots.base import get_robot_spec
+from rpent.robots.components import am_runtime
 from rpent.robots.components.action_spec import box_action_spec, validate_action
 from rpent.robots.components.pi05_vla_client import Pi05VLAClient
 
@@ -77,21 +78,27 @@ def test_runtime_keeps_virtualenv_python_symlinks(tmp_path, monkeypatch):
             pass
 
     monkeypatch.setattr(robolab_spec, "ProcessDaemon", _Daemon)
-    args = argparse.Namespace(
-        task="BananaInBowlTask",
-        seed=0,
-        device="cuda:0",
-        cuda_device=None,
-        sim_python=str(executable),
-        policy_python=str(executable),
-        pi05_checkpoint="/external/pi05",
-        env_endpoint=None,
-        vla_endpoint=None,
+    monkeypatch.setattr(am_runtime, "ProcessDaemon", _Daemon)
+    parser = argparse.ArgumentParser()
+    robolab_spec.get_robot_spec().add_cli_args(parser, False)
+    args = parser.parse_args(
+        [
+            "--task",
+            "BananaInBowlTask",
+            "--sim-python",
+            str(executable),
+            "--am-python",
+            str(executable),
+            "--am-checkpoint",
+            "/external/pi05",
+        ]
     )
     env_daemon, _ = robolab_spec._spawn_env(args, tmp_path)
     vla_daemon, _ = robolab_spec._spawn_vla(args, tmp_path)
     assert Path(env_daemon.cmd[0]) == executable
     assert Path(vla_daemon.cmd[0]) == executable
+    model_path = vla_daemon.cmd[vla_daemon.cmd.index("--model-path") + 1]
+    assert model_path == "/external/pi05"
 
 
 @pytest.mark.parametrize("native_success", [None, False, True])
