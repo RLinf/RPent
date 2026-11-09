@@ -337,7 +337,6 @@ jobs:
       MUJOCO_GL: egl
       PYOPENGL_PLATFORM: egl
       MAX_BUDGET_USD: "40"
-      REPRODUCE_OUTPUT_DIR: ${{ runner.temp }}/review-reproduce-${{ github.run_id }}-${{ github.run_attempt }}
       PR_NUMBER: ${{ needs.dispatch.outputs.pr }}
       PR_URL: https://github.com/${{ github.repository }}/pull/${{ needs.dispatch.outputs.pr }}
       BASE_REF: ${{ needs.dispatch.outputs.base_ref }}
@@ -362,6 +361,7 @@ jobs:
         shell: bash
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
+          REPRODUCE_OUTPUT_DIR: ${{ runner.temp }}/review-reproduce-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           set -euo pipefail
 
@@ -422,6 +422,8 @@ jobs:
 
       - name: Run reproduction agent
         shell: bash
+        env:
+          REPRODUCE_OUTPUT_DIR: ${{ runner.temp }}/review-reproduce-${{ github.run_id }}-${{ github.run_attempt }}
         run: |
           set -euo pipefail
           : "${CLAUDE_REPRODUCE:=claude-reproduce}"
@@ -446,6 +448,8 @@ jobs:
       - name: Upload reproduction artifacts
         if: always()
         uses: actions/upload-artifact@v7
+        env:
+          REPRODUCE_OUTPUT_DIR: ${{ runner.temp }}/review-reproduce-${{ github.run_id }}-${{ github.run_attempt }}
         with:
           name: review-reproduce-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ env.REPRODUCE_OUTPUT_DIR }}
