@@ -446,7 +446,7 @@ def fit_barrel_segment(
         assumptions=[
             "one dominant near-cylindrical main barrel",
             "barrel bounds are observed shoulder/base transitions or physical terminal edges",
-            "no model-labelled bounds supplied to the agent",
+            "no model-labelled bounds supplied to the tool",
         ],
     )
     if not body.accepted:

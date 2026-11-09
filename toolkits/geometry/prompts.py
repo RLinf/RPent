@@ -14,7 +14,8 @@
 
 """Environment-independent parent instructions and observed-part descriptions."""
 
-GEOMETRY_INSTRUCTIONS = """Request observed surface positions and fitted part geometry through geometry.
+GEOMETRY_INSTRUCTIONS = """Use GeometryTool for complex geometry perception through geometry.
+Request observed surface positions or fitted part geometry.
 Describe the target's appearance, visible part and spatial relation. Supply a
 camera name available from the observation provider, a recorded step (-1 for
 latest), and either a surface measurement or required_geometry. Do not guess
@@ -29,7 +30,7 @@ means rim radius. Full height and body_center require consistent observed rim
 and bottom boundaries. Retain unsupported fields as unknown. Fit residuals and
 segmentation scores are diagnostics, not calibrated position errors.
 
-GeometryAgent has no motion tools. On partial, need_observation or error,
+GeometryTool has no motion tools. On partial, need_observation or error,
 inspect the missing fields and reason before choosing a new observation or
 recovery action. Avoid repeating unchanged requests. Preserve target identity
 and part definitions across views; compare matching coordinate frames and

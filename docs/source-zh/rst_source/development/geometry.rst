@@ -3,26 +3,26 @@
 几何工具包
 ==========
 
-几何工具将物体或可见部位的描述转换为有明确定义的空间测量结果。主规划器通过统一的 ``geometry`` 接口提交目标、所需几何量和观测引用，GeometryAgent 协调视觉定位、分割、点云清理和形状拟合，返回位置、方向、尺寸及对应证据。
+GeometryTool 是一个复杂的几何感知工具，将物体或可见部位的描述转换为有明确定义的空间测量结果。主规划器通过统一的 ``geometry`` 接口提交目标、所需几何量和观测引用，GeometryTool 协调视觉定位、分割、点云清理和形状拟合，返回位置、方向、尺寸及对应证据。
 
 设计目的
 --------
 
 抓取、放置或对齐需要具体部位的几何信息。“杯口中心”“杯身中心”和“可见表面上的一点”具有不同含义，不能用一个选定像素相互替代。几何工具为每个测量量规定定义，并将结果与源观测和形状假设一起返回。
 
-主规划器决定测量什么、执行什么动作，GeometryAgent 判断哪些观测部位能够支持该测量。视觉模型负责语义定位，度量观测与几何算法负责空间计算。这样，不同环境可以使用相同的请求与结果约定，任务决策与几何测量分别处理。
+主规划器决定测量什么、执行什么动作，GeometryTool 判断哪些观测部位能够支持该测量。视觉模型负责语义定位，度量观测与几何算法负责空间计算。这样，不同环境可以使用相同的请求与结果约定，任务决策与几何测量分别处理。
 
 .. _geometry-module-design:
 
 模块设计
 --------
 
-GeometryAgent 使用固定的程序流程。视觉语言模型选择可见像素，注入的分割器生成掩码；部位展开、调用顺序与预算、点云处理、模型比较和结果验收由程序控制。
+GeometryTool 使用固定的程序流程。视觉语言模型选择可见像素，注入的分割器生成掩码；部位展开、调用顺序与预算、点云处理、模型比较和结果验收由程序控制。
 
 职责与初始化
 ~~~~~~~~~~~~
 
-宿主先准备观测访问、共享证据存储和感知客户端，在 toolkit 外构造 GeometryAgent，再注册该实例的 ``geometry`` 工具声明。子代理负责处理测量请求；宿主负责传感器采集、标定、坐标系定义和动作执行。
+宿主先准备观测访问、共享证据存储和感知客户端，在 toolkit 外构造 GeometryTool，再注册该实例的 ``geometry`` 工具声明。几何工具负责处理测量请求；宿主负责传感器采集、标定、坐标系定义和动作执行。
 
 构造时传入 ``ObservationProvider``、共享的 ``EnvState``、视觉定位器 ``grounder`` 和可选的 ``segmenter``。也可以用 ``model`` 与 ``base_url`` 创建已有的视觉定位适配器，用 ``fit_options`` 配置几何算法条件。表面点请求需要定位器，区域与拟合请求还需要分割器；兼容的 SAM3 客户端可以直接作为分割器传入，模块自身不启动服务。
 
@@ -32,22 +32,22 @@ GeometryAgent 使用固定的程序流程。视觉语言模型选择可见像素
 
    from functools import partial
 
-   from toolkits.geometry.geometry_agent import GeometryAgent
+   from toolkits.geometry.geometry_tool import GeometryTool
 
-   agent = GeometryAgent(
+   geometry_tool = GeometryTool(
        state=state,
        observations=observations,
        grounder=grounder,
        segmenter=segmenter,
    )
-   geometry = agent.geometry
+   geometry = geometry_tool.geometry
    toolkit.add_tool(
        geometry.with_handler(
            partial(geometry, check_cancelled=toolkit.raise_if_cancelled)
        )
    )
 
-取消检查在工具分发时绑定。GeometryAgent 没有动作工具，也不推进已记录的观测步骤。证据不足时返回缺失原因，由主规划器决定获取新视角或执行恢复动作。
+取消检查在工具分发时绑定。GeometryTool 没有动作工具，也不推进已记录的观测步骤。证据不足时返回缺失原因，由主规划器决定获取新视角或执行恢复动作。
 
 观测接口
 ~~~~~~~~
@@ -139,7 +139,7 @@ GeometryAgent 使用固定的程序流程。视觉语言模型选择可见像素
 
 提示要求主规划器保留外观、部位身份和空间关系，选择表面测量或拟合模式，读取状态、定义、坐标系标识、源证据及质量信息。主规划器描述目标，不自行提供猜测的像素或 XYZ。
 
-结果不完整或需要新证据时，主规划器先检查原因，再在任务预算内选择有用的观测；跨视角保持目标身份，比较相同坐标系中的结果，物体移动后重新测量。提示词和工具声明不向 GeometryAgent 提供动作能力。
+结果不完整或需要新证据时，主规划器先检查原因，再在任务预算内选择有用的观测；跨视角保持目标身份，比较相同坐标系中的结果，物体移动后重新测量。提示词和工具声明不向 GeometryTool 提供动作能力。
 
 部位需求展开
 ~~~~~~~~~~~~

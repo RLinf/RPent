@@ -27,7 +27,7 @@ import pytest
 from rpent.robots.components.molmo_client import MolmoResult
 from rpent.robots.components.sam3_client import Sam3Result
 from rpent.session import EnvState
-from toolkits.geometry.geometry_agent import GeometryAgent
+from toolkits.geometry.geometry_tool import GeometryTool
 from toolkits.geometry.observation import GeometryObservation
 
 
@@ -67,9 +67,9 @@ import sys
 from importlib import import_module
 for name in ("geometry", "part_geometry", "perception", "observation", "prompts"):
     import_module("toolkits.geometry." + name)
-from toolkits.geometry.geometry_agent import GeometryAgent
-assert GeometryAgent.geometry.name == "geometry"
-assert GeometryAgent.geometry.readonly
+from toolkits.geometry.geometry_tool import GeometryTool
+assert GeometryTool.geometry.name == "geometry"
+assert GeometryTool.geometry.readonly
 assert not {"torch", "rlinf", "mujoco", "robosuite", "sam3"}.intersection(sys.modules)
 assert not any(name.startswith("robots.") for name in sys.modules)
 """
@@ -104,15 +104,17 @@ def test_generic_tool_dispatch_and_model_adapter(tmp_path, monkeypatch):
         "build_api_model",
         lambda *a: TestModel(custom_output_args={"point_xy": [5, 3]}),
     )
-    agent = GeometryAgent(state=state, observations=source, model="test:geometry")
+    geometry_tool = GeometryTool(
+        state=state, observations=source, model="test:geometry"
+    )
     parent = Toolkit(
         state=state,
         dashboard_events=NullDashboardEventSink(),
         memory=MemoryManager(root=tmp_path / "memory", memory_access="read_only"),
     )
     parent.add_tool(
-        agent.geometry.with_handler(
-            partial(agent.geometry, check_cancelled=parent.raise_if_cancelled)
+        geometry_tool.geometry.with_handler(
+            partial(geometry_tool.geometry, check_cancelled=parent.raise_if_cancelled)
         )
     )
     schema = parent._tools["geometry"].input_schema
@@ -149,10 +151,10 @@ def test_depth_projection_in_caller_coordinate_frame(tmp_path):
         up_direction=np.array([0, 1, 0]),
     )
     source = SimpleNamespace(get_observation=lambda **kwargs: frame)
-    agent = GeometryAgent(
+    geometry_tool = GeometryTool(
         state=state, observations=source, grounder=_grounder((2, 1), (3, 4))
     )
-    data = agent.geometry("marker", camera=frame.camera, step=0).data
+    data = geometry_tool.geometry("marker", camera=frame.camera, step=0).data
     assert data["status"] == "usable", data
     np.testing.assert_allclose(data["world_xyz"], [0.22, 12.2, 0.3])
     assert data["world_frame_id"] == "fixture/y_up"
@@ -167,7 +169,7 @@ def test_snapshot_preserves_valid_origin_during_model_call(tmp_path):
         return MolmoResult(found=True, point_xy=(0, 0), image_size=(1, 1))
 
     data = (
-        GeometryAgent(
+        GeometryTool(
             state=state, observations=source, grounder=SimpleNamespace(ground=ground)
         )
         .geometry("origin marker", camera=frame.camera)
@@ -190,13 +192,13 @@ def test_segmentation_point_fallback_has_bounded_calls(tmp_path, accept_second):
             mask[3, 5] = False
         return Sam3Result(found=True, mask=mask, score=0.95)
 
-    agent = GeometryAgent(
+    geometry_tool = GeometryTool(
         state=state,
         observations=source,
         segmenter=SimpleNamespace(segment=segment),
         grounder=_grounder((5, 3), (6, 8)),
     )
-    data = agent.geometry(
+    data = geometry_tool.geometry(
         "blue cup left of the red box",
         camera=frame.camera,
         measurement="visible_region",
@@ -254,13 +256,13 @@ def test_part_geometry_smoke_in_rotated_frame(tmp_path, part, quantity):
     segmenter = SimpleNamespace(
         segment=lambda *a, **kw: Sam3Result(found=True, mask=mask, score=0.95)
     )
-    agent = GeometryAgent(
+    geometry_tool = GeometryTool(
         state=state,
         observations=source,
         segmenter=segmenter,
         grounder=_grounder(pixel, mask.shape),
     )
-    data = agent.geometry(
+    data = geometry_tool.geometry(
         "container beside the blue box",
         camera=frame.camera,
         step=0,
@@ -295,17 +297,17 @@ def test_request_cancellation_stops_before_coordinate_read(tmp_path, monkeypatch
         pytest.fail("cancelled request must stop before coordinate reads")
 
     monkeypatch.setattr(perception, "back_project", unexpected)
-    agent = GeometryAgent(
+    geometry_tool = GeometryTool(
         state=state, observations=source, grounder=SimpleNamespace(ground=ground)
     )
     with pytest.raises(ToolCancelled, match="requested stop"):
-        agent.geometry("target", camera=frame.camera, check_cancelled=check)
+        geometry_tool.geometry("target", camera=frame.camera, check_cancelled=check)
 
 
 def test_observation_validation_and_source_identity(tmp_path):
     state, frame, source, _ = _inputs(tmp_path, np.ones((6, 8, 3)))
     data = (
-        GeometryAgent(
+        GeometryTool(
             state=state, observations=source, grounder=_grounder((5, 3), (6, 8))
         )
         .geometry("target", camera="other")

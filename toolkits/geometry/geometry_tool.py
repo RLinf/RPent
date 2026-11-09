@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Read-only geometry requests over caller-provided camera observations."""
+"""Complex geometry perception over caller-provided camera observations."""
 
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ from toolkits.geometry.observation import GeometryObservation, ObservationProvid
 from toolkits.geometry.perception import Segmenter, VisualGrounder
 from toolkits.geometry.prompts import PART_DESCRIPTIONS
 
-logger = get_logger("geometry_agent")
+logger = get_logger("geometry_tool")
 
 GeometryQuantity = Literal[
     "rim_center",
@@ -57,8 +57,8 @@ GeometryQuantity = Literal[
 ]
 
 
-class GeometryAgent:
-    """Coordinate bounded perception and fitting without environment actions.
+class GeometryTool:
+    """Combine grounding, segmentation and geometry in a complex perception tool.
 
     The observation provider owns camera selection, source steps, calibration
     and coordinate-frame identity. EnvState persists evidence at those existing
@@ -109,7 +109,7 @@ class GeometryAgent:
     ) -> ToolResult:
         """Measure a described visible object or part without moving the robot.
 
-        Describe appearance, the exact part and spatial relation. The subagent
+        Describe appearance, the exact part and spatial relation. The tool
         selects pixels internally; calibration and coordinate frames come from
         the observation provider. surface_point returns a visible material point;
         visible_region returns coordinate-wise median and bounds of observed
@@ -146,7 +146,7 @@ class GeometryAgent:
             except (LookupError, ValueError, OSError, RuntimeError) as exc:
                 return ToolResult(
                     data={
-                        "agent": "GeometryAgent",
+                        "agent": "GeometryTool",
                         "status": "error",
                         "code": "observation_unavailable",
                         "error": str(exc),
@@ -160,7 +160,7 @@ class GeometryAgent:
             self._index += 1
             started = time.perf_counter()
             data: dict[str, Any] = {
-                "agent": "GeometryAgent",
+                "agent": "GeometryTool",
                 "query": query.strip(),
                 "step": nn,
                 "camera": camera,

@@ -3,10 +3,11 @@
 Geometry Toolkit
 ================
 
-The geometry tool turns a description of an object or visible part into spatial
-measurements with explicit definitions. The parent planner supplies a target,
+GeometryTool is a complex geometry perception tool that turns descriptions of
+objects or visible parts into spatial measurements with explicit definitions.
+The parent planner supplies a target,
 the required quantities and an observation reference through one ``geometry``
-interface. GeometryAgent coordinates visual grounding, segmentation, point
+interface. GeometryTool coordinates visual grounding, segmentation, point
 cloud cleaning and geometric fitting, returning positions, directions and
 dimensions with their evidence.
 
@@ -18,7 +19,7 @@ rim center, a body center and a visible surface point have different meanings.
 A selected pixel cannot stand in for all three. The tool defines each
 measurement and returns it with the source observation and shape assumptions.
 
-The parent decides what to measure and what action to take. GeometryAgent
+The parent decides what to measure and what action to take. GeometryTool
 determines which observed parts support that measurement. A visual model
 handles semantic localization; metric observations and geometric algorithms
 supply spatial calculations. This keeps task decisions separate from
@@ -30,7 +31,7 @@ contract.
 Module Design
 -------------
 
-GeometryAgent uses a fixed program flow. A vision-language model selects
+GeometryTool uses a fixed program flow. A vision-language model selects
 visible pixels, and an injected segmenter produces masks. The program controls
 part expansion, call order and budgets, cloud processing, model comparison and
 acceptance.
@@ -39,8 +40,8 @@ Responsibilities and Initialization
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The host prepares observation access, shared evidence storage and perception
-clients before constructing GeometryAgent outside its toolkit. It then
-registers the prepared agent's ``geometry`` declaration. The agent owns
+clients before constructing GeometryTool outside its toolkit. It then
+registers the prepared tool's ``geometry`` declaration. The tool handles
 measurement processing; the host owns sensor acquisition, calibration,
 coordinate-frame definitions and movement.
 
@@ -59,22 +60,22 @@ are supplied by the host:
 
    from functools import partial
 
-   from toolkits.geometry.geometry_agent import GeometryAgent
+   from toolkits.geometry.geometry_tool import GeometryTool
 
-   agent = GeometryAgent(
+   geometry_tool = GeometryTool(
        state=state,
        observations=observations,
        grounder=grounder,
        segmenter=segmenter,
    )
-   geometry = agent.geometry
+   geometry = geometry_tool.geometry
    toolkit.add_tool(
        geometry.with_handler(
            partial(geometry, check_cancelled=toolkit.raise_if_cancelled)
        )
    )
 
-Cancellation remains bound at dispatch. GeometryAgent has no motion tools and
+Cancellation remains bound at dispatch. GeometryTool has no motion tools and
 does not advance the recorded observation step. Missing evidence is reported
 to the parent, which decides whether to acquire a new view or perform a
 recovery action.
@@ -86,7 +87,7 @@ The provider implements
 ``get_observation(*, camera: str, step: int) -> GeometryObservation``.
 It resolves camera names and ``step=-1`` itself and returns one aligned
 snapshot. The returned step must identify an existing shared ``EnvState``
-record. GeometryAgent calls the provider once per request; all requested
+record. GeometryTool calls the provider once per request; all requested
 parts use that snapshot.
 
 The observation supplies data and coordinate semantics explicitly:
@@ -221,7 +222,7 @@ When a request is partial or needs new evidence, the parent inspects the reason
 and chooses a useful next observation within its task budget. It preserves
 target identity across views, compares matching coordinate frames and measures
 again after target motion. The prompt and tool schema do not grant motion
-capabilities to GeometryAgent.
+capabilities to GeometryTool.
 
 Expanding Part Requirements
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
