@@ -1,0 +1,491 @@
+name: Review Bot
+
+# PR slash commands backed by Claude Code on the self-hosted review runners.
+#
+#   /review-design     design and contract review
+#   /review-pr         full code review
+#   /review-suggest    inline suggestions the author may accept in GitHub
+#   /review-reproduce  reproduce the PR on a GPU runner
+#
+# The workflow that runs on issue_comment is always taken from the default
+# branch, so this file must be on main. Review jobs check out the PR head but
+# run the review agent with Read/Grep/Glob only: no shell, no network tools, no
+# GitHub token. Repository settings and MCP configuration are taken from the
+# base branch; command prompts and skills come from the private review kit that
+# the runner provides ($REVIEW_KIT). Only /review-reproduce grants shell and
+# write access, and it runs on the GPU runner, where it also restores the base
+# branch's build guidance.
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  dispatch:
+    if: >-
+      github.event.issue.pull_request &&
+      github.event.comment.user.type != 'Bot' &&
+      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) &&
+      (startsWith(github.event.comment.body, '/review-design') ||
+       startsWith(github.event.comment.body, '/review-pr') ||
+       startsWith(github.event.comment.body, '/review-suggest') ||
+       startsWith(github.event.comment.body, '/review-reproduce'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      pr: ${{ steps.parse.outputs.pr }}
+      command: ${{ steps.parse.outputs.command }}
+      sha: ${{ steps.parse.outputs.sha }}
+      head_repo: ${{ steps.parse.outputs.head_repo }}
+      base_ref: ${{ steps.parse.outputs.base_ref }}
+    steps:
+      - name: Parse command
+        id: parse
+        shell: bash
+        env:
+          BODY: ${{ github.event.comment.body }}
+          PR: ${{ github.event.issue.number }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # Only the first token of the first line is a command; the rest of the
+          # comment is prose.
+          line=$(printf '%s\n' "$BODY" | head -n1 | tr -d '\r')
+          set -- $line
+          case "${1:-}" in
+            /review-design) command=review-design ;;
+            /review-pr) command=review-pr ;;
+            /review-suggest) command=review-suggest ;;
+            /review-reproduce) command=review-reproduce ;;
+            *) command=skip ;;
+          esac
+
+          mapfile -t head < <(
+            gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" \
+              --jq '.head.repo.full_name, .head.sha, .base.ref'
+          )
+          echo "pr=$PR" >> "$GITHUB_OUTPUT"
+          echo "command=$command" >> "$GITHUB_OUTPUT"
+          echo "sha=${head[1]}" >> "$GITHUB_OUTPUT"
+          echo "head_repo=${head[0]}" >> "$GITHUB_OUTPUT"
+          echo "base_ref=${head[2]}" >> "$GITHUB_OUTPUT"
+
+      - name: Acknowledge
+        if: steps.parse.outputs.command != 'skip'
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.issue.number }}
+          COMMAND: ${{ steps.parse.outputs.command }}
+        run: |
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT"
+          gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body "Accepted \`$COMMAND\`. [View run]($run_url)"
+
+      - name: Collect pull request description
+        if: steps.parse.outputs.command != 'skip'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          mkdir -p .review-context
+          {
+            echo "## Pull request"
+            echo
+            gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq '.title'
+            echo
+            echo "## Pull request description"
+            echo
+            gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq '.body // ""' | head -c 20000
+            echo
+            echo
+            echo "## Checks at the head commit"
+            echo
+            gh pr checks "$PR" --repo "$GITHUB_REPOSITORY" 2>&1 || true
+          } > .review-context/pr.md
+
+      - name: Upload pull request description
+        if: steps.parse.outputs.command != 'skip'
+        uses: actions/upload-artifact@v7
+        with:
+          name: pr-context
+          path: .review-context/pr.md
+          retention-days: 1
+
+  review:
+    needs: dispatch
+    if: needs.dispatch.outputs.command != 'skip' && needs.dispatch.outputs.command != 'review-reproduce'
+    runs-on: [self-hosted, review-bot]
+    timeout-minutes: 60
+    # Commands on the same PR are serialized: a second command waits for the
+    # running one instead of cancelling it. Different PRs are independent and
+    # run in parallel when more than one `review-bot` runner is online.
+    concurrency:
+      group: review-bot-${{ needs.dispatch.outputs.pr }}
+      cancel-in-progress: false
+    env:
+      PR_NUMBER: ${{ needs.dispatch.outputs.pr }}
+      PR_URL: https://github.com/${{ github.repository }}/pull/${{ needs.dispatch.outputs.pr }}
+      BASE_REF: ${{ needs.dispatch.outputs.base_ref }}
+      HEAD_SHA: ${{ needs.dispatch.outputs.sha }}
+      REVIEW_MODE: ${{ needs.dispatch.outputs.command }}
+      # Cost ceiling per run. The reviewer is a read-only agent, so this bounds
+      # a runaway session; the job timeout bounds wall-clock time.
+      MAX_BUDGET_USD: "20"
+      REVIEW_OUTPUT_DIR: ${{ github.workspace }}/.review/out
+    steps:
+      - name: Check out pull request head
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ needs.dispatch.outputs.head_repo }}
+          ref: ${{ needs.dispatch.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download pull request description
+        uses: actions/download-artifact@v8
+        with:
+          name: pr-context
+          path: .review-context
+
+      - name: Prepare review workspace
+        shell: bash
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # The base branch comes from the repository that owns the workflow,
+          # not from the contributor's fork.
+          git remote add base "https://github.com/$GITHUB_REPOSITORY.git" 2>/dev/null || true
+          git fetch --no-tags base "$BASE_REF"
+          BASE_SHA=$(git rev-parse FETCH_HEAD)
+          if ! MERGE_BASE=$(git merge-base "$BASE_SHA" HEAD); then
+            echo "::warning::No merge base with $BASE_REF; comparing against the base tip."
+            MERGE_BASE=$BASE_SHA
+          fi
+
+          mkdir -p .review/base "$REVIEW_OUTPUT_DIR"
+          git diff "$MERGE_BASE" HEAD > .review/diff.patch
+          while IFS= read -r file; do
+            [ -n "$file" ] || continue
+            if git cat-file -e "$MERGE_BASE:$file" 2>/dev/null; then
+              mkdir -p ".review/base/$(dirname "$file")"
+              git show "$MERGE_BASE:$file" > ".review/base/$file"
+            fi
+          done < <(git diff --name-only "$MERGE_BASE" HEAD)
+
+          # Review instructions are the base branch's, never the PR's: a pull
+          # request must not be able to edit the guidance that reviews it.
+          for file in CLAUDE.md AGENTS.md CONTRIBUTING.md; do
+            if git cat-file -e "$BASE_SHA:$file" 2>/dev/null; then
+              git checkout -q "$BASE_SHA" -- "$file"
+            fi
+          done
+          rm -rf .agents/skills
+          if git cat-file -e "$BASE_SHA:.agents/skills" 2>/dev/null; then
+            git checkout -q "$BASE_SHA" -- .agents/skills
+          fi
+          # Command prompts and skills come from the review kit that the runner
+          # provides, not from this repository.
+          : "${REVIEW_KIT:?REVIEW_KIT is not set; the runner must provide the review kit checkout}"
+          rm -rf .review-kit
+          mkdir -p .review-kit
+          cp -R "$REVIEW_KIT/." .review-kit/
+          cp ".review-kit/prompts/$REVIEW_MODE.md" .review/prompt.md
+          if [ "$REVIEW_MODE" = review-suggest ]; then
+            cp .review-kit/schemas/suggest.json .review/suggest.schema.json
+          fi
+
+          {
+            echo "# Review context"
+            echo
+            echo "- Repository: $GITHUB_REPOSITORY"
+            echo "- Pull request: #$PR_NUMBER"
+            echo "- URL: $PR_URL"
+            echo "- Base branch: $BASE_REF @ $BASE_SHA"
+            echo "- Merge base: $MERGE_BASE"
+            echo "- Head: $HEAD_SHA"
+            echo "- Diff: .review/diff.patch"
+            echo "- Base versions of changed files: .review/base/<path>"
+            echo "- The working tree is the checked-out PR head."
+            echo
+            cat .review-context/pr.md
+          } > .review/context.md
+
+          cp .review/diff.patch "$REVIEW_OUTPUT_DIR/diff.patch"
+          echo "Reviewing $HEAD_SHA against $MERGE_BASE ($BASE_REF @ $BASE_SHA)."
+
+      - name: Run review agent
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${CLAUDE_REVIEW:=claude-review}"
+          command -v "$CLAUDE_REVIEW" >/dev/null 2>&1 || {
+            echo "claude-review is not available; install the review harness on the runner" >&2
+            exit 1
+          }
+
+          case "$REVIEW_MODE" in
+            review-pr)
+              "$CLAUDE_REVIEW" -p --output-format text \
+                --max-budget-usd "$MAX_BUDGET_USD" \
+                < .review/prompt.md > "$REVIEW_OUTPUT_DIR/review.md" 2> "$REVIEW_OUTPUT_DIR/agent.log"
+              ;;
+            review-design)
+              "$CLAUDE_REVIEW" -p --output-format text \
+                --max-budget-usd "$MAX_BUDGET_USD" \
+                < .review/prompt.md > "$REVIEW_OUTPUT_DIR/review.md" 2> "$REVIEW_OUTPUT_DIR/agent.log"
+              ;;
+            review-suggest)
+              "$CLAUDE_REVIEW" -p --output-format json \
+                --json-schema "$(cat .review/suggest.schema.json)" \
+                --max-budget-usd "$MAX_BUDGET_USD" \
+                < .review/prompt.md > "$REVIEW_OUTPUT_DIR/suggest.json" 2> "$REVIEW_OUTPUT_DIR/agent.log"
+              ;;
+            *)
+              echo "unknown review mode: $REVIEW_MODE" >&2
+              exit 1
+              ;;
+          esac
+
+          case "$REVIEW_MODE" in
+            review-pr|review-design)
+              [ -s "$REVIEW_OUTPUT_DIR/review.md" ] || {
+                echo "the review agent produced no output" >&2
+                tail -n 50 "$REVIEW_OUTPUT_DIR/agent.log" >&2 || true
+                exit 1
+              }
+              ;;
+            review-suggest)
+              [ -s "$REVIEW_OUTPUT_DIR/suggest.json" ] || {
+                echo "the review agent produced no output" >&2
+                tail -n 50 "$REVIEW_OUTPUT_DIR/agent.log" >&2 || true
+                exit 1
+              }
+              ;;
+          esac
+
+      - name: Upload review result
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: review-result-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.REVIEW_OUTPUT_DIR }}
+          if-no-files-found: ignore
+          retention-days: 3
+
+  publish:
+    needs: [dispatch, review]
+    if: needs.review.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Download review result
+        uses: actions/download-artifact@v8
+        with:
+          name: review-result-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .review
+
+      - name: Publish review
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMAND: ${{ needs.dispatch.outputs.command }}
+          PR: ${{ needs.dispatch.outputs.pr }}
+          HEAD_SHA: ${{ needs.dispatch.outputs.sha }}
+        run: |
+          set -euo pipefail
+          case "$COMMAND" in
+            review-design) mode=design ;;
+            review-pr) mode=review ;;
+            review-suggest) mode=suggest ;;
+          esac
+          python3 .github/review-bot/publish.py \
+            --mode "$mode" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pr "$PR" \
+            --sha "$HEAD_SHA" \
+            --dir .review
+
+  reproduce:
+    needs: dispatch
+    if: needs.dispatch.outputs.command == 'review-reproduce'
+    runs-on: [self-hosted, gpu]
+    timeout-minutes: 180
+    permissions:
+      contents: read
+    # Same-PR commands stay serialized; a long reproduction does not run next
+    # to another command on the same PR. Different PRs use different runners.
+    concurrency:
+      group: review-bot-${{ needs.dispatch.outputs.pr }}
+      cancel-in-progress: false
+    env:
+      CUDA_VISIBLE_DEVICES: "0"
+      MUJOCO_GL: egl
+      PYOPENGL_PLATFORM: egl
+      MAX_BUDGET_USD: "40"
+      PR_NUMBER: ${{ needs.dispatch.outputs.pr }}
+      PR_URL: https://github.com/${{ github.repository }}/pull/${{ needs.dispatch.outputs.pr }}
+      BASE_REF: ${{ needs.dispatch.outputs.base_ref }}
+      HEAD_SHA: ${{ needs.dispatch.outputs.sha }}
+      PR_REPOSITORY: ${{ needs.dispatch.outputs.head_repo }}
+    steps:
+      - name: Check out pull request head
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ needs.dispatch.outputs.head_repo }}
+          ref: ${{ needs.dispatch.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Download pull request description
+        uses: actions/download-artifact@v8
+        with:
+          name: pr-context
+          path: .review-context
+
+      - name: Prepare reproduction workspace
+        shell: bash
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          REPRODUCE_OUTPUT_DIR: ${{ runner.temp }}/review-reproduce-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+
+          git remote add base "https://github.com/$GITHUB_REPOSITORY.git" 2>/dev/null || true
+          git fetch --no-tags base "$BASE_REF"
+          BASE_SHA=$(git rev-parse FETCH_HEAD)
+          if ! MERGE_BASE=$(git merge-base "$BASE_SHA" HEAD); then
+            echo "::warning::No merge base with $BASE_REF; comparing against the base tip."
+            MERGE_BASE=$BASE_SHA
+          fi
+
+          mkdir -p .review/base "$REPRODUCE_OUTPUT_DIR"
+          git diff "$MERGE_BASE" HEAD > .review/diff.patch
+          while IFS= read -r file; do
+            [ -n "$file" ] || continue
+            if git cat-file -e "$MERGE_BASE:$file" 2>/dev/null; then
+              mkdir -p ".review/base/$(dirname "$file")"
+              git show "$MERGE_BASE:$file" > ".review/base/$file"
+            fi
+          done < <(git diff --name-only "$MERGE_BASE" HEAD)
+
+          # The reproduction instructions are the review kit's, and the build
+          # guidance is the base branch's, so the pull request cannot rewrite
+          # how it is reproduced.
+          for file in CLAUDE.md AGENTS.md CONTRIBUTING.md; do
+            if git cat-file -e "$BASE_SHA:$file" 2>/dev/null; then
+              git checkout -q "$BASE_SHA" -- "$file"
+            fi
+          done
+          rm -rf .agents/skills
+          if git cat-file -e "$BASE_SHA:.agents/skills" 2>/dev/null; then
+            git checkout -q "$BASE_SHA" -- .agents/skills
+          fi
+          : "${REVIEW_KIT:?REVIEW_KIT is not set; the runner must provide the review kit checkout}"
+          rm -rf .review-kit
+          mkdir -p .review-kit
+          cp -R "$REVIEW_KIT/." .review-kit/
+          cp .review-kit/prompts/review-reproduce.md .review/prompt.md
+
+          {
+            echo "# Reproduction context"
+            echo
+            echo "- Repository: $GITHUB_REPOSITORY"
+            echo "- Pull request: #$PR_NUMBER"
+            echo "- URL: $PR_URL"
+            echo "- Base branch: $BASE_REF @ $BASE_SHA"
+            echo "- Merge base: $MERGE_BASE"
+            echo "- Head: $HEAD_SHA"
+            echo "- Diff: .review/diff.patch"
+            echo "- Base versions of changed files: .review/base/<path>"
+            echo "- The working tree is the checked-out PR head."
+            echo "- Write artifacts to: $REPRODUCE_OUTPUT_DIR"
+            echo
+            cat .review-context/pr.md
+          } > .review/context.md
+
+          echo "Reproducing $HEAD_SHA against $MERGE_BASE ($BASE_REF @ $BASE_SHA)."
+
+      - name: Run reproduction agent
+        shell: bash
+        env:
+          REPRODUCE_OUTPUT_DIR: ${{ runner.temp }}/review-reproduce-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          : "${CLAUDE_REPRODUCE:=claude-reproduce}"
+          command -v "$CLAUDE_REPRODUCE" >/dev/null 2>&1 || {
+            echo "claude-reproduce is not available; install the review harness on the runner" >&2
+            exit 1
+          }
+          "$CLAUDE_REPRODUCE" -p --output-format text \
+            --max-budget-usd "$MAX_BUDGET_USD" \
+            < .review/prompt.md > "$REPRODUCE_OUTPUT_DIR/report.md" 2> "$REPRODUCE_OUTPUT_DIR/agent.log" || {
+              status=$?
+              echo "the reproduction agent exited with status $status" >&2
+              tail -n 100 "$REPRODUCE_OUTPUT_DIR/agent.log" >&2 || true
+              exit "$status"
+            }
+          [ -s "$REPRODUCE_OUTPUT_DIR/report.md" ] || {
+            echo "the reproduction agent produced no report" >&2
+            tail -n 100 "$REPRODUCE_OUTPUT_DIR/agent.log" >&2 || true
+            exit 1
+          }
+
+      - name: Upload reproduction artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        env:
+          REPRODUCE_OUTPUT_DIR: ${{ runner.temp }}/review-reproduce-${{ github.run_id }}-${{ github.run_attempt }}
+        with:
+          name: review-reproduce-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.REPRODUCE_OUTPUT_DIR }}
+          if-no-files-found: ignore
+
+  reproduce-publish:
+    needs: [dispatch, reproduce]
+    if: always() && needs.dispatch.outputs.command == 'review-reproduce'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Download reproduction report
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: review-reproduce-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .reproduce
+
+      - name: Publish reproduction report
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ needs.dispatch.outputs.pr }}
+          RESULT: ${{ needs.reproduce.result }}
+          HEAD_SHA: ${{ needs.dispatch.outputs.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p .reproduce
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT"
+          body=.reproduce/report.md
+          if [ ! -s "$body" ]; then
+            printf '**review-reproduce: %s** for commit `%s`. The agent produced no report; see the [run page](%s) for logs and artifacts.\n' \
+              "$RESULT" "$HEAD_SHA" "$run_url" > .reproduce/comment.md
+          elif [ "$RESULT" = success ]; then
+            { head -c 60000 "$body"; printf '\n\n---\nArtifacts and logs: [run page](%s)\n' "$run_url"; } > .reproduce/comment.md
+          else
+            { head -c 60000 "$body"; printf '\n\n---\n**review-reproduce: %s.** Artifacts and logs: [run page](%s)\n' "$RESULT" "$run_url"; } > .reproduce/comment.md
+          fi
+          gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body-file .reproduce/comment.md
