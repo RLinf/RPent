@@ -12,10 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""RPent-specific LeKiwi environment: live reads, stop, and camera identity."""
+"""RPent observations on an RLinf-owned LeKiwi robot."""
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 import gymnasium as gym
@@ -23,44 +24,129 @@ import numpy as np
 from gymnasium.envs.registration import register
 from rlinf.envs.real.lekiwi.drive import LeKiwiDriveEnv
 from rlinf.envs.real.wrappers import build_stack
+from rlinf.robotics.parts.cameras import CameraInfo
 
 
 class RPentLeKiwiEnv(LeKiwiDriveEnv):
-    """LeKiwiDriveEnv variant used as the RPent real-robot contract.
+    """Keep RLinf hardware ownership and expose RPent observation metadata."""
 
-    ``LeKiwiDriveEnv`` converts the ``override_cfg`` dict into a
-    ``LeKiwiEnvConfig`` and names the task; this subclass adds the live
-    reads, camera identity, and immediate stop that RPent's RPC facade
-    serves.
-    """
+    def __init__(self, *args, mock_wheels=False, **kwargs):
+        self._camera_metadata = {}
+        self._velocity_sample = {}
+        self.mock_wheels = mock_wheels
+        super().__init__(*args, **kwargs)
 
-    def get_live_observation(self) -> dict[str, Any]:
-        """Refresh the sensors once without commanding motion."""
-        return self._get_observation()
+    def _camera_infos(self) -> list[CameraInfo]:
+        from robots.lekiwi.runtime_config import load_device_config
 
-    def get_measured_velocity(self) -> np.ndarray:
-        """Return the body velocity the wheels currently report."""
+        infos = super()._camera_infos()
         if self.config.is_dummy:
-            return np.zeros(3, dtype=np.float32)
-        reading = self._state_parts.get_observation()["base"]
-        return np.asarray(reading["velocity"], dtype=np.float32)
+            return infos
+        devices = load_device_config()
+        return [
+            CameraInfo(
+                name=infos[0].name,
+                serial_number=devices["device"],
+                camera_type="webcam",
+                resolution=(devices["eye_size"][0] * 2, devices["eye_size"][1]),
+                fps=15,
+            )
+        ]
+
+    def _setup_hardware(self) -> None:
+        if not self.mock_wheels:
+            super()._setup_hardware()
+            return
+        from rlinf.robotics.parts.mobility.base import MobileBase
+        from rlinf.robotics.robots.lekiwi import LeKiwiRobot
+
+        from robots.lekiwi.control import MockBase
+
+        class MockWheelPart(MockBase, MobileBase):
+            @property
+            def observation_features(self):
+                return {"velocity": {"shape": (3,), "dtype": "float32"}}
+
+            @property
+            def action_features(self):
+                return self.observation_features
+
+        self._base = MockWheelPart()
+        self.robot = LeKiwiRobot(
+            base=self._base,
+            **LeKiwiRobot.build_cameras({i.name: i for i in self._camera_infos()}),
+        )
+        self.robot.connect()
+
+    def _get_observation(self) -> dict[str, Any]:
+        sampled_at, sampled_monotonic = time.time(), time.monotonic()
+        observation = super()._get_observation()
+        self._velocity_sample = {
+            "velocity": np.asarray(observation["state"]["velocity"]).tolist(),
+            "sampled_at": sampled_at,
+            "sampled_monotonic": sampled_monotonic,
+        }
+        return observation
+
+    def get_velocity_sample(self) -> dict[str, Any]:
+        return dict(self._velocity_sample)
+
+    def stop(self) -> None:
+        if not self.config.is_dummy:
+            self._base.reset()
+
+    def _get_camera_frames(self) -> dict[str, np.ndarray]:
+        """Use left-eye RGB for observations and keep raw stereo in RLinf's cache."""
+        from rlinf.envs.real.utils.image import crop_and_resize
+
+        frames = {}
+        for camera in self._cameras:
+            stamp, stereo = camera.get_frame(
+                max_age=self.config.camera_max_age, return_timestamp=True
+            )
+            height, width = stereo.shape[:2]
+            left_rgb = stereo[:, : width // 2, ::-1].copy()
+            size = self.observation_space["frames"][camera.name].shape[:2][::-1]
+            frames[camera.name] = crop_and_resize(left_rgb, size)
+            self._camera_metadata[camera.name] = {
+                "source_stamp": stamp,
+                "clock_domain": "host_monotonic",
+                "timestamp_kind": "uvc_read_complete",
+                "encoding": "rgb8",
+                "width": width // 2,
+                "height": height,
+                "eye": "left",
+            }
+        if hasattr(self, "camera_player"):
+            self.camera_player.put_frame(frames)
+        return frames
 
     def get_camera_metadata(self) -> dict[str, Any]:
-        """Return the identity of every camera behind the emitted frames."""
-        cameras = {
-            camera.name: {
+        if self.config.is_dummy:
+            return {
+                "source": "rlinf_dummy",
+                "cameras": {
+                    info.name: {
+                        "serial_number": info.serial_number,
+                        "camera_type": info.camera_type,
+                        "resolution": list(info.resolution),
+                    }
+                    for info in self._camera_infos()
+                },
+            }
+        cameras = {}
+        for camera in self._cameras:
+            cameras[camera.name] = {
                 "serial_number": camera.camera_info.serial_number,
                 "camera_type": camera.camera_info.camera_type,
                 "resolution": list(camera.camera_info.resolution),
+                **self._camera_metadata.get(camera.name, {}),
+                "observation_resolution": list(self.config.frame_size),
             }
-            for camera in getattr(self, "_cameras", [])
+        return {
+            "source": "webcam",
+            "cameras": cameras,
         }
-        return {"source": "rlinf_lekiwi_env", "cameras": cameras}
-
-    def stop(self) -> None:
-        """Command zero wheel velocity immediately, without a control step."""
-        if not self.config.is_dummy:
-            self._base.reset()
 
 
 def create_rpent_lekiwi_env(
@@ -70,18 +156,19 @@ def create_rpent_lekiwi_env(
     env_idx: int,
     env_cfg: dict,
 ) -> gym.Env:
-    """Create the RPent-specific LeKiwi drive environment."""
+    cfg = dict(override_cfg)
+    mock = cfg.pop("mock_wheels", False)
     env = RPentLeKiwiEnv(
-        override_cfg=override_cfg,
+        override_cfg=cfg,
         worker_info=worker_info,
         robot_info=robot_info,
         env_idx=env_idx,
+        mock_wheels=mock,
     )
     return build_stack(env, env_cfg)
 
 
 def register_rpent_lekiwi_env() -> None:
-    """Register the RPent-specific LeKiwi environment with Gymnasium."""
     if "RPentLeKiwiDriveEnv-v1" not in gym.registry:
         register(
             id="RPentLeKiwiDriveEnv-v1",

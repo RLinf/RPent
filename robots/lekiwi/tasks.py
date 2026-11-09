@@ -64,6 +64,26 @@ LEKIWI_TASKS = {
             "Avoid obstacles: stop and turn when the view shows anything close.",
         ),
     ),
+    2: LeKiwiTask(
+        name="forward_20cm_obstacle_test",
+        instruction=(
+            "Reach the point approximately 0.20 m directly ahead of the base's "
+            "initial position and heading. Obstacles may lie along the way; "
+            "choose a route around them using camera observations. Use drive "
+            "and stop for motion, and decide when to observe and how to move. "
+            "If observations cannot establish progress toward the target, "
+            "stop and report the uncertainty."
+        ),
+        success_criteria=(
+            "The base ends near the fixed target point without contacting "
+            "obstacles. Report the evidence and any uncertainty in the final "
+            "position; speed multiplied by duration is not a measured distance."
+        ),
+        constraints=(
+            "Use only drive and stop for motion; do not use Nav2 or map navigation.",
+            "The target stays fixed relative to the initial pose, even after turning.",
+        ),
+    ),
 }
 
 

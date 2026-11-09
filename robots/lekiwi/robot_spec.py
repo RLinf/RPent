@@ -17,11 +17,9 @@
 from __future__ import annotations
 
 import argparse
-import sys
 from datetime import datetime
-from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from robots.lekiwi.prompt_bundle import system_prompt, user_prompt
 from robots.lekiwi.runtime_config import set_robot_config_path
@@ -31,15 +29,10 @@ from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
-from rpent.robots.runtime import try_spawn_server, try_wait_server
+from rpent.robots.runtime import try_wait_server
 from rpent.utils.config import get_memory_dir, get_repo_root
-from rpent.utils.daemon import ProcessDaemon, pick_free_port
+from rpent.utils.daemon import ProcessDaemon
 from rpent.utils.rpc import make_rpc_client
-from rpent.utils.rpc.http_rpc import HttpRpcClient
-
-if TYPE_CHECKING:
-    from rpent.utils.rpc import RpcClient
-
 
 LEKIWI_DASHBOARD_SPEC: DashboardSpec = {
     # The env runs on the robot's onboard computer and is attached, never
@@ -115,7 +108,7 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     parser.add_argument(
         "--robot-config",
         default=None,
-        help="LeKiwi YAML (port, camera serials, velocity limits)",
+        help="LeKiwi site YAML (port, camera serials, velocity limits)",
     )
 
 
@@ -145,94 +138,41 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     )
 
 
-def _env_server_command(
-    args: argparse.Namespace,
-    *,
-    host: str,
-    port: int,
-) -> list[str]:
-    command = [
-        sys.executable,
-        "-m",
-        "robots.lekiwi.env_server",
-        "--transport",
-        "http",
-        "--host",
-        host,
-        "--port",
-        str(port),
-        "--parent-watch",
-    ]
-    if args.robot_config:
-        command.extend(["--robot-config", args.robot_config])
-    return command
-
-
-def _spawn_env_server(
-    args: argparse.Namespace,
-    output_dir: Path,
-) -> tuple[ProcessDaemon | None, RpcClient]:
-    """Spawn (or attach to) the RLinf-backed LeKiwi environment server.
-
-    Returns ``(daemon, rpc)`` — the daemon is ``None`` when an external
-    endpoint was attached (the caller must not own it).
-    """
-    if args.env_endpoint is not None:
-        return None, make_rpc_client(args.env_endpoint)
-    host, port = "127.0.0.1", pick_free_port()
-    daemon = ProcessDaemon(
-        name="lekiwi_env_server",
-        cmd=_env_server_command(args, host=host, port=port),
-        log_path=str(output_dir / "lekiwi_env_server.log"),
-    )
-    daemon.start()
-    return daemon, HttpRpcClient(f"http://{host}:{port}")
-
-
 def _init_runtime(
     args: argparse.Namespace,
     output_dir: Path,
     dashboard_events: DashboardEventSink,
     components: set[str] | None,
 ) -> tuple[list[ProcessDaemon], dict[str, Any]]:
-    """Initialize the LeKiwi env component, or only ``components`` when given."""
+    """Attach to the Env started on the robot, following RPent's real-robot contract."""
     from robots.lekiwi.env_client import LeKiwiEnvClient
 
-    available = {"env"}
-    selected = available if components is None else components
-    unknown = selected.difference(available)
-    if unknown:
-        raise ValueError(f"unknown LeKiwi runtime components: {sorted(unknown)}")
-
-    starters = {
-        "env": lambda: _spawn_env_server(args, output_dir),
-    }
-    connectors = {
-        "env": lambda rpc: {
-            "env": LeKiwiEnvClient(rpc),
-            "task_description": get_lekiwi_task(args.task_id).instruction,
-        },
-    }
-
-    owned_daemons: dict[str, ProcessDaemon] = {}
-    pending = {}
-    for component, starter in starters.items():
-        if component not in selected:
-            continue
-        pending[component] = try_spawn_server(
-            owned_daemons, dashboard_events, component, starter
+    selected = {"env"} if components is None else set(components)
+    if selected - {"env"}:
+        raise ValueError(
+            f"unknown LeKiwi runtime components: {sorted(selected - {'env'})}"
         )
-
-    runtime_kwargs: dict[str, Any] = {}
-    for component, (daemon, rpc) in pending.items():
-        component_kwargs = try_wait_server(
-            owned_daemons,
-            dashboard_events,
-            component,
-            rpc,
-            daemon,
-            300.0,
-            post_fn=partial(connectors[component], rpc),
+    if "env" not in selected:
+        return [], {}
+    if not args.env_endpoint:
+        raise ValueError(
+            "--env-endpoint is required; start robots.lekiwi.env_server on the robot first"
         )
-        runtime_kwargs.update(component_kwargs)
-    return list(owned_daemons.values()), runtime_kwargs
+    rpc = make_rpc_client(args.env_endpoint)
+
+    def connect_env():
+        env = LeKiwiEnvClient(rpc)
+        if env.meta.get("control_mode", "manual") == "manual":
+            env.reset()
+        return {"env": env}
+
+    runtime_kwargs = try_wait_server(
+        {},
+        dashboard_events,
+        "env",
+        rpc,
+        None,
+        5.0 if getattr(args, "dashboard", False) else 60.0,
+        post_fn=connect_env,
+    )
+    return [], runtime_kwargs

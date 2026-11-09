@@ -12,28 +12,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""User-facing config, developer defaults, and the RLinf adapter for one LeKiwi.
+"""LeKiwi robot, camera geometry and navigation configuration.
 
-Users edit only ``example.yaml``: machine identity (serial port, camera
-serial) and drive limits. The RLinf field values RPent deliberately tunes
-live here as developer defaults and are applied as ``override_cfg`` over
-RLinf's own dataclass defaults, so they are never restated in the YAML.
-
-``load_runtime_config`` turns that into the RLinf adapter config. The
-generic helpers are shared with :mod:`robots.franka`.
+Build RLinf environment settings with ``load_runtime_config`` and Nav2 settings
+with ``navigation.config.parameters``. Geometry and calibration validation are shared by mapping,
+navigation; machine-specific values stay in user configs.
 """
 
 from __future__ import annotations
 
+import argparse
+import dataclasses
+import math
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from omegaconf import DictConfig, OmegaConf
 
-from robots.franka.runtime_config import load_mapping, strict_mapping
-
 DEFAULT_CONFIG = Path(__file__).with_name("config") / "example.yaml"
+LEKIWI_ROOT = Path(__file__).resolve().parent
 
 _robot_config_path: Path | None = None
 
@@ -49,13 +48,70 @@ def get_robot_config_path(default: str | Path = DEFAULT_CONFIG) -> Path:
     return Path(_robot_config_path or default)
 
 
+def _camera_config(raw: dict) -> tuple[str, dict]:
+    devices = raw["cameras"]["devices"]
+    if len(devices) != 1:
+        raise ValueError("ZED navigation requires exactly one camera")
+    name, camera = next(iter(devices.items()))
+    if not camera.get("main", False):
+        raise ValueError("The ZED camera must set main: true")
+    return name, camera
+
+
+def load_device_config(path: str | Path | None = None) -> dict[str, Any]:
+    """Read device identity and perception paths from the selected robot YAML."""
+    path = path or get_robot_config_path()
+    raw = load_mapping(path)
+    _, camera = _camera_config(raw)
+    calibration = Path(
+        os.path.expandvars(raw["perception"]["calibration"])
+    ).expanduser()
+    if not calibration.is_absolute():
+        calibration = Path(path).expanduser().resolve().parent / calibration
+    device = str(camera["serial"])
+    if device.startswith("usb-") and "/" not in device:
+        device = "/dev/v4l/by-id/" + device
+    elif device.startswith("video") and device[5:].isdigit():
+        device = "/dev/" + device
+    return {
+        "device": device,
+        "serial": str(camera["zed_serial"]),
+        "calibration": os.path.abspath(calibration),
+        "eye_size": tuple(camera.get("eye_size", [1280, 720])),
+    }
+
+
+def runtime_settings_from_args(args: argparse.Namespace) -> dict[str, Any]:
+    """Build navigation and recording settings from the parsed Env CLI options."""
+    map_yaml = args.map_yaml or Path(args.robot_config).parent / "map.yaml"
+    return {
+        "mode": args.mode,
+        "ros_domain_id": args.ros_domain_id,
+        "robot_config": args.robot_config,
+        "map_yaml": os.path.abspath(map_yaml.expanduser()),
+        # Keep venv interpreter symlinks rather than resolving to the base Python.
+        "ros_python": os.path.abspath(args.ros_python.expanduser())
+        if args.ros_python is not None
+        else None,
+        "recording": {
+            "root": str(args.recording_dir.expanduser().resolve()),
+            "sample_fps": args.recording_fps,
+            "maximum_recording_seconds": args.capture_seconds,
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# Developer defaults
+# ---------------------------------------------------------------------------
+
 # Primitive-control knobs consumed by the RPent LeKiwi env server. RLinf has
 # no equivalent field, so these live here rather than in any RLinf dataclass.
 CONTROL = {
-    "drive": {"max_duration_s": 10.0},
+    "drive_max_duration_s": 10.0,
     # Longest the server keeps a held velocity after the last refresh: the
     # dead-man that stops the base when the operator's session goes away.
-    "hold": {"max_ttl_s": 2.0},
+    "hold_max_ttl_s": 2.0,
 }
 
 # ``env.eval.override_cfg`` values RPent sets away from RLinf's
@@ -69,20 +125,6 @@ ENV_DEFAULTS = {
 }
 
 
-def flatten_control(control: dict[str, Any]) -> dict[str, Any]:
-    """Flatten nested ``CONTROL`` defaults into the flat env-server keys."""
-    return {
-        "drive_max_duration_s": float(control["drive"]["max_duration_s"]),
-        "hold_max_ttl_s": float(control["hold"]["max_ttl_s"]),
-    }
-
-
-def _require_mapping(value: Any, name: str) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise ValueError(f"{name} must be a mapping")
-    return value
-
-
 @dataclass(frozen=True)
 class LeKiwiRuntimeConfig:
     """Generated RLinf adapter config and RPent primitive settings."""
@@ -93,61 +135,36 @@ class LeKiwiRuntimeConfig:
 
 def load_runtime_config(path: str | Path | None) -> LeKiwiRuntimeConfig:
     """Load the user YAML, apply developer defaults, and build the adapter."""
-    # Lazy RLinf imports: keys are validated against these dataclasses (drift
-    # guard), deferred so importing this module stays RLinf-free.
     from rlinf.envs.real.lekiwi.base import LeKiwiEnvConfig
-    from rlinf.robotics.robots.lekiwi import LeKiwiConfig
 
     raw = load_mapping(path or get_robot_config_path())
-    robot = _require_mapping(raw.get("robot"), "robot")
-    if "port" not in robot:
-        raise ValueError("robot.port is required: the wheel bus needs a serial port")
-    cameras = _require_mapping(raw.get("cameras"), "cameras")
-    devices = _require_mapping(cameras.get("devices"), "cameras.devices")
-
-    camera_serials: list[str] = []
-    camera_names: dict[str, str] = {}
-    camera_types: set[str] = set()
-    main_image_keys: list[str] = []
-    for name, value in devices.items():
-        device = _require_mapping(value, f"cameras.devices.{name}")
-        serial = str(device["serial"])
-        camera_serials.append(serial)
-        camera_names[serial] = str(name)
-        camera_types.add(str(device.get("type", "webcam")))
-        if bool(device.get("main", False)):
-            main_image_keys.append(str(name))
-    if len(main_image_keys) != 1:
-        raise ValueError("exactly one camera device must set main: true")
-    if len(camera_types) != 1:
-        raise ValueError("the LeKiwi currently requires one camera type")
-
+    robot = raw["robot"]
+    camera_name, camera = _camera_config(raw)
+    serial = str(camera["serial"])
     drive = raw.get("drive") or {}
-    if not isinstance(drive, dict):
-        raise ValueError("drive must be a mapping")
+    unknown = drive.keys() - {
+        field.name for field in dataclasses.fields(LeKiwiEnvConfig)
+    }
+    if unknown:
+        raise ValueError(f"drive: unknown key(s) {sorted(unknown)}")
 
-    hardware = strict_mapping(
-        LeKiwiConfig,
-        {
-            "port": str(robot["port"]),
-            "wheel_radius": robot.get("wheel_radius", 0.05),
-            "base_radius": robot.get("base_radius", 0.125),
-            "max_raw": robot.get("max_raw", 3000),
-            "camera_serials": camera_serials,
-            "camera_type": camera_types.pop(),
-            "node_rank": 0,
-        },
-        where="cluster.node_groups[].hardware.configs[]",
-    )
-    override_cfg = strict_mapping(
-        LeKiwiEnvConfig,
-        {
-            **ENV_DEFAULTS,
-            "camera_names": camera_names,
-            **drive,
-        },
-        where="env.eval.override_cfg",
-    )
+    max_raw = robot.get("max_raw", 3000)
+    if type(max_raw) is not int or max_raw <= 0:
+        raise ValueError("robot.max_raw must be a positive integer")
+    hardware = {
+        "port": str(robot["port"]),
+        "wheel_radius": _positive(robot.get("wheel_radius", 0.05), "wheel_radius"),
+        "base_radius": _positive(robot.get("base_radius", 0.125), "base_radius"),
+        "max_raw": max_raw,
+        "camera_serials": [serial],
+        "camera_type": camera.get("type", "webcam"),
+        "node_rank": 0,
+    }
+    override_cfg = {
+        **ENV_DEFAULTS,
+        "camera_names": {serial: camera_name},
+        **drive,
+    }
 
     rlinf = OmegaConf.create(
         {
@@ -174,7 +191,7 @@ def load_runtime_config(path: str | Path | None) -> LeKiwiRuntimeConfig:
                     "max_episode_steps": None,
                     "use_spacemouse": False,
                     "no_gripper": False,
-                    "main_image_key": main_image_keys[0],
+                    "main_image_key": camera_name,
                     "keyboard_reward_wrapper": None,
                     "video_cfg": {},
                     "init_params": {"id": "RPentLeKiwiDriveEnv-v1"},
@@ -185,5 +202,41 @@ def load_runtime_config(path: str | Path | None) -> LeKiwiRuntimeConfig:
     )
     return LeKiwiRuntimeConfig(
         rlinf=rlinf,
-        controller=flatten_control(CONTROL),
+        controller=CONTROL.copy(),
     )
+
+
+def _number(value: object, name: str, *, positive: bool = False) -> float:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+        or (positive and value <= 0)
+    ):
+        raise ValueError(f"{name} must be finite{' and positive' if positive else ''}")
+    return float(value)
+
+
+def load_mapping(path: str | Path) -> dict[str, Any]:
+    """Load a YAML configuration as a resolved plain dictionary."""
+    return OmegaConf.to_container(OmegaConf.load(Path(path).expanduser()), resolve=True)
+
+
+def _positive(value: float, name: str) -> float:
+    """Validate a finite positive control setting."""
+    return _number(float(value), name, positive=True)
+
+
+def control_settings(args: argparse.Namespace, drive: DictConfig) -> dict[str, float]:
+    """Apply CLI limits to the loaded RLinf drive settings."""
+    linear = _positive(drive.get("max_linear_velocity", 0.1), "max_linear_velocity")
+    angular = _positive(drive.get("max_angular_velocity", 30), "max_angular_velocity")
+    if args.max_linear is not None:
+        linear = min(linear, _positive(args.max_linear, "max_linear"))
+    if args.max_angular_deg is not None:
+        angular = min(angular, _positive(args.max_angular_deg, "max_angular_deg"))
+    return {
+        "max_linear": linear,
+        "max_angular": math.radians(angular),
+        "command_timeout": _positive(args.command_timeout, "command_timeout"),
+    }

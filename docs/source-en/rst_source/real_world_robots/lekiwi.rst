@@ -41,228 +41,238 @@ What you need
      - Any computer that can reach the robot computer over the network. It
        needs no hardware of its own.
 
-How the pieces fit
-------------------
-
-The environment server owns the hardware. It builds an RLinf
-``RealWorldEnv`` in its own process, opens the servo bus and the camera
-directly, and serves the ``env.*`` RPC methods. There is no Ray cluster on the
-robot computer: on a small board, a scheduler cluster would use more memory
-than the robot has.
-
-A ``drive`` call runs for the requested duration, stepping the wheels at the
-configured control rate, and stops them before it returns, so the base moves
-only while a call is executing. An interrupted run, a crashed client, or a
-dropped network cannot leave the base rolling. Dashboard teleoperation uses
-``hold`` instead: each button press sets a velocity that the server steps
-until it expires or a stop arrives. The Dashboard refreshes it while the
-button is held, so it lapses one second after the last refresh; the server
-caps any hold at two seconds.
-
-The base has no success signal of its own. The planner decides success from
-the task instruction and the evidence in the step records.
-
-Prepare the robot computer
---------------------------
-
-Use Linux and Python 3.11. Install RPent with the ``lekiwi`` extra, which
-pulls in RLinf:
-
-.. code-block:: bash
-
-   cd /path/to/RPent
-   uv venv --python 3.11
-   source .venv/bin/activate
-   uv pip install --torch-backend cpu -e '.[lekiwi]'
-   uv pip check
-
-Released RLinf versions do not include the LeKiwi environment layer yet, so
-the extra pins the revision that does. ``--torch-backend cpu`` keeps the
-PyTorch wheels CPU-only, which is all the base needs.
-
-Prepare the agent machine
--------------------------
-
-On the agent machine, install RPent the same way:
-
-.. code-block:: bash
-
-   cd /path/to/RPent
-   uv venv --python 3.11
-   source .venv/bin/activate
-   uv pip install -e '.[lekiwi]'
-   uv pip check
-
-The agent machine needs only network reachability to the robot computer, on
-the port you start the server with.
-
-Write the LeKiwi YAML
----------------------
-
-Run the detection script on the robot computer to write a LeKiwi YAML with the
-detected port and camera identifiers:
-
-.. code-block:: bash
-
-   rpent-lekiwi-detect --output /path/to/lekiwi.yaml
-
-The script never commands motion. It pings the serial bus at every baud rate,
-opens each camera once to confirm it produces a frame, and prints what it
-found:
-
-.. code-block:: text
-
-   == LeKiwi detection ==
-   serial ports scanned: ['/dev/ttyACM0']
-     /dev/ttyACM0: motor ids [7, 8, 9]
-   wheel bus: /dev/ttyACM0
-   camera usb-USB_Camera_USB_Camera_2505280051-video-index0: ok at 640x480
-   wrote /path/to/lekiwi.yaml
-   review before the first run:
-     - robot.wheel_radius / robot.base_radius: measure with a ruler (m)
-     - drive.max_linear_velocity / max_angular_velocity: policy; start low
-     - drive.frame_size: camera output size; raise from 128x128 if needed
-     - drive.step_frequency: control rate; 10 Hz suits the STS3215 bus
-     - drive.camera_max_age: frame reuse window; 0.05 tracks a 15 fps camera
-
-Pass ``--skip-motors`` or ``--skip-cameras`` to probe only one side. The file
-it writes has the shape of ``robots/lekiwi/config/example.yaml``:
-
-.. code-block:: yaml
-
-   robot:
-     port: /dev/ttyACM0
-     wheel_radius: 0.05
-     base_radius: 0.125
-     max_raw: 3000
-
-   cameras:
-     devices:
-       front:
-         serial: "<front-camera-serial>"
-         type: webcam
-         main: true
-
-   drive:
-     step_frequency: 10.0
-     camera_max_age: 0.05
-     max_linear_velocity: 0.3
-     max_angular_velocity: 60.0
-     frame_size: [128, 128]
-
-Two kinds of values need a human. The geometry — ``wheel_radius`` and
-``base_radius`` in metres — comes from a ruler, and ``max_raw`` (default 3000)
-is the servo's raw-speed cap. The ``drive`` limits are your velocity envelope:
-they are a policy choice, not something a probe can discover, so start at the
-defaults and raise them gradually. The tasks below bound every command
-further, and the environment clips each one to these limits.
-
-``camera_max_age`` is how old, in seconds, the newest captured frame may be for
-a step to reuse it. RLinf's default of 0.5 s yields at most two distinct frames
-a second, however fast the camera runs; ``0.05`` follows the 15 fps camera
-driver. ``0`` makes every step wait for a fresh frame, which stalls the drive
-while the camera is slower than the control loop; raising it trades frame
-freshness for fewer camera reads.
-
-Edit the generated file where it does not fit the robot, for example to
-rename the front camera entry or to raise ``frame_size`` for a resolution the
-camera supports natively.
-
-Copy the YAML to the agent machine. Both computers read it with
-``--robot-config``: the robot computer needs it to open the hardware, and the
-agent machine to know the velocity limits and camera layout.
-
-Tasks
------
-
-Tasks are registered in ``robots/lekiwi/tasks.py`` and chosen with
-``--task-id``.
+Stereo mapping and navigation below use a ZED 2i with the deployment below. Run commands from the RPent checkout; keep configuration, recordings and maps in your own directories outside the repository.
 
 .. list-table::
    :header-rows: 1
-   :widths: 10 25 65
+   :widths: 20 45 35
 
-   * - ID
-     - Task
-     - What the planner does
-   * - 0
-     - ``drive_smoke_test``
-     - One conservative forward drive, one rotation, and an inspection of the
-       camera view after each, at or below 0.1 m/s and 30 deg/s for at most
-       2 s per drive.
-   * - 1
-     - ``room_survey``
-     - Drives bounded segments around the room and reports what the camera
-       sees, at or below 0.2 m/s and 45 deg/s for at most 3 s per drive.
+   * - Location
+     - Responsibilities
+     - Main dependencies
+   * - Robot computer
+     - The Env owns the camera and base. Local workers compute stereo depth, separate ground from obstacles, and run Nav2 planning and control.
+     - RPent, companion RLinf, OpenCV, ROS 2 Jazzy, Nav2 and ``rtabmap_util``; no GPU or ZED SDK is required.
+   * - Cloud
+     - Generate depth and maps offline. During navigation, receive robot images, localize against the existing map and return poses.
+     - Offline depth uses CUDA and RAFT-Stereo. Mapping and localization use RTAB-Map; localization also requires RPent's native extension. Online localization can run on CPU.
+   * - Operator computer
+     - Run the RPent Dashboard and planner, connected to the robot Env.
+     - RPent; this machine does not compute local obstacles or relay localization images between robot and cloud.
 
-Start with task 0 on a cleared floor. It exercises the whole path — server,
-serial bus, camera, planner — without moving the base far.
+On the robot, ``rtabmap_util/obstacles_detection`` only receives local stereo pointclouds and separates ground from obstacles. It does not run the full mapping pipeline or cloud localization service. Install RAFT-Stereo weights, mapping tools and the localization extension on the cloud host.
 
-Start the environment server
-----------------------------
+1. Robot installation
+------------------------------------------
 
-On the robot computer, bind the server to the interface the agent machine can
-reach:
+The Env uses a separate RPent Python environment. Install RPent and the companion RLinf checkout, or reuse a compatible environment. RPent supports Python 3.10–3.12; this example uses 3.12:
 
 .. code-block:: bash
 
-   rpent-lekiwi-server \
-     --robot-config /path/to/lekiwi.yaml \
-     --transport http --host 0.0.0.0 --port 8120
+   cd /path/to/RPent
+   uv venv --python 3.12
+   source .venv/bin/activate
+   uv pip install --torch-backend cpu -e ".[lekiwi]"
+   uv pip install --no-deps -e /path/to/RLinf
 
-It prints the address to attach to:
+ROS 2 is needed for navigation, not teleoperation or image recording. Follow the `ROS 2 Jazzy installation guide <https://docs.ros.org/en/jazzy/Installation.html>`_ and install ``nav2_bringup``, ``nav2_mppi_controller``, ``launch_ros``, ``robot_localization``, ``rtabmap_util``, ``sensor_msgs_py`` and ``rmw_cyclonedds_cpp``.
 
-.. code-block:: text
-
-   RPC server listening on http://0.0.0.0:8120
-
-Check the resolved configuration before touching hardware with
-``--print-config``, which prints the RLinf config as YAML and exits. Stop the
-server with Ctrl+C; it stops the wheels and drops torque on shutdown.
-
-Attach from the agent machine
------------------------------
-
-Run a task against the server you just started:
+Install the bridge dependencies and RPent into the Python environment used by ROS:
 
 .. code-block:: bash
 
-   rpent --robot lekiwi --task-id 0 \
-     --env-endpoint http://ROBOT_HOST:8120 \
-     --robot-config /path/to/lekiwi.yaml \
-     --planner api --model MODEL_ID
+   /path/to/ros-python -m pip install numpy scipy opencv-python-headless pillow pyyaml omegaconf
+   /path/to/ros-python -m pip install --no-deps -e /path/to/RPent
 
-``--env-endpoint`` is what makes this a remote run. Omit it and RPent spawns
-an environment server on the agent machine instead, which only works when the
-servo bus is attached there.
+2. Robot configuration
+--------------------------------------------
 
-For hands-on control, start a Dashboard Session with no planner and drive
-from the browser:
+.. code-block:: bash
+
+   cp robots/lekiwi/config/example.yaml /path/to/robot.yaml
+
+Fill in ``robot.port``, the UVC device identifier ``cameras.devices.front.serial``, the label’s ``zed_serial``, and ``perception.calibration``. Obtain the camera’s factory calibration following the `Stereolabs calibration guide <https://docs.stereolabs.com/docs/development/zed-sdk/modules/camera/camera-calibration>`_. Relative paths are resolved from the robot YAML directory.
+
+``geometry`` contains numeric body extents and height, camera position and orientation relative to the chassis center, navigation radius, velocity and acceleration. Axes are x forward, y left, z up; lengths are metres and mount angles are degrees. Include the fixed arm in the body dimensions. The example measured navigation radius is 0.17 m and is used directly without extra padding.
+
+``eye_size`` defaults to ``[1280, 720]``; ``drive`` sets teleoperation limits and frequency. ``perception.stereo`` and ``perception.obstacles`` can be empty. Navigation loads the installed ``nav2_bringup/params/nav2_params.yaml`` with ``nav2_overrides.yaml`` for omni motion, pointclouds and topics, and injects geometry and motion limits from the robot YAML.
+
+3. Cloud installation
+------------------------------------------
+
+Install RPent on the cloud machine using the Python commands in section 1. Clone the following projects into your chosen paths and follow their upstream dependency and model instructions; no source branch is pinned:
+
+.. code-block:: bash
+
+   git clone https://github.com/introlab/rtabmap.git /path/to/rtabmap
+   git clone https://github.com/princeton-vl/RAFT-Stereo.git /path/to/RAFT-Stereo
+
+- `RTAB-Map installation <https://github.com/introlab/rtabmap/wiki/Installation>`_: enable Qt image import tools and GTSAM, and add the official commands to ``PATH``.
+- `RAFT-Stereo instructions <https://github.com/princeton-vl/RAFT-Stereo>`_: install a CUDA PyTorch environment, download ``raftstereo-middlebury.pth``, and install RPent in that environment. A domestic PyPI mirror may be used for Python dependencies.
+
+In the Python environment running the localization service, install the optional build dependencies, then compile and install the extension with CMake. This requires a C++17 compiler, Python development headers, and RTAB-Map and OpenCV development libraries. Run these steps only on the cloud host, not on the Pi:
+
+.. code-block:: bash
+
+   python -m pip install -e ".[lekiwi-localization]"
+   cmake -S robots/lekiwi/rtabmap_extension -B /path/to/lekiwi-extension-build \
+     -DPython_EXECUTABLE="$(python -c 'import sys; print(sys.executable)')" \
+     -Dpybind11_DIR="$(python -m pybind11 --cmakedir)" \
+     -DCMAKE_PREFIX_PATH=/path/to/rtabmap-install \
+     -DCMAKE_INSTALL_RPATH=/path/to/rtabmap-install/lib
+   cmake --build /path/to/lekiwi-extension-build
+   cmake --install /path/to/lekiwi-extension-build \
+     --prefix "$(python -c 'import sysconfig; print(sysconfig.get_path("platlib"))')"
+
+The extension runs inside the localization service and accepts NumPy images directly. Calls on one map instance are serialized, and RTAB-Map computation releases the GIL. ``--max-processing-ms`` discards results returned after the deadline; it cannot interrupt native calls. Restart the localization service if a native call hangs or the process crashes. The Pi continues to check localization freshness.
+
+4. Start teleoperation
+--------------------------------------------
+
+Start the Env on the robot; it owns the base and camera:
+
+.. code-block:: bash
+
+   python -m robots.lekiwi.env_server --robot-config /path/to/robot.yaml \
+     --host 0.0.0.0 --port 8120 --recording-dir /path/to/recordings
+
+``0.0.0.0`` is the local listen address, not the cloud IP. Install RPent on the operator computer and start the Dashboard. Replace the example robot address ``192.168.1.10`` with its actual address, or use ``127.0.0.1`` when running on the robot.
 
 .. code-block:: bash
 
    rpent --robot lekiwi --dashboard --planner manual \
-     --env-endpoint http://ROBOT_HOST:8120 \
-     --robot-config /path/to/lekiwi.yaml
+     --env-endpoint http://192.168.1.10:8120 --robot-config /path/to/robot.yaml
 
-The Dashboard requires ``--env-endpoint`` for LeKiwi because the environment
-is external. Manual mode drives the base from the Teleoperation panel: hold a
-direction button to move and release it to stop, and the velocity lapses one
-second after the last refresh, so a closed browser leaves the robot at rest.
-``Record video`` and ``Record actions`` write each driving stretch as
-``teleop_NNN.mp4`` and ``teleop_actions.jsonl``; ``End run`` finishes the
-TaskRun. See :doc:`../guides/dashboard` for the rest of the Dashboard.
+Open the Dashboard URL printed in the terminal and submit ``/rpent-task 0`` to enter manual control. Hold a direction button to drive and release it to stop. Use the existing UI options for video and action recording.
 
-Tools and artifacts
--------------------
+5. Record stereo images during teleoperation
+----------------------------------------------------------------------------------------
 
-The planner has three tools: ``drive(velocity, duration_s)``, ``stop()``, and
-the read-only ``view_env_state(step)``. ``duration_s`` is capped at 10 s per
-call, and requested velocities are clipped to the configured limits.
+Use the existing Env interface to record stereo PNG images. In a separate interactive Python session on the operator computer, connect to the running Env and start recording. Replace the endpoint with the robot's actual address:
 
-Every run writes to ``logs/<timestamp>_lekiwi_t<task_id>/`` unless you pass
-``--output-dir``. Each step records the synchronized front-camera frame as
-``front.png`` and its metadata as ``camera_meta.json``; ``view_env_state``
-returns that record together with the image. A Dashboard Session also keeps
-``teleop_NNN.mp4`` and ``teleop_actions.jsonl`` for the stretches driven by
-hand.
+.. code-block:: python
+
+   from uuid import uuid4
+   from robots.lekiwi.env_client import LeKiwiEnvClient
+   from rpent.utils.rpc import make_rpc_client
+
+   env = LeKiwiEnvClient(make_rpc_client("http://192.168.1.10:8120"))
+   identity = uuid4().hex
+   env.recording("start", identity=identity)
+
+Drive through the Dashboard. In the same Python session, call ``env.recording("state", identity=identity)`` to check status, frame count and the output directory. When capture is complete, run:
+
+.. code-block:: python
+
+   env.recording("stop", identity=identity)
+   env.close()
+
+Each recording defaults to a maximum of 600 seconds at up to 5 image pairs per second. Change these with Env options ``--capture-seconds`` and ``--recording-fps``. Ending the Dashboard manual run or closing the client does not stop stereo PNG capture; stop it explicitly, let its time limit expire, or close the Env. Existing Dashboard video and action recording is independent of stereo PNG capture.
+
+Copy the complete robot-side ``capture-*`` directory and robot YAML to the cloud machine. The directory contains ``left/``, ``right/``, ``stereo.json`` and ``calibration.conf``. Offline processing reads files and needs no connection to the robot.
+
+6. Offline mapping and map nodes
+------------------------------------------------------------------------------
+
+In the cloud RAFT-Stereo Python environment, export rectified images, depth and RTAB-Map configuration:
+
+.. code-block:: bash
+
+   python -m robots.lekiwi.mapping \
+     --input /path/to/capture --output /path/to/map-output/rgbd \
+     --robot-config /path/to/robot.yaml --raft-repo /path/to/RAFT-Stereo \
+     --checkpoint /path/to/raftstereo-middlebury.pth
+
+Build the map with the `official RTAB-Map tools <https://github.com/introlab/rtabmap/wiki/Tools>`_:
+
+.. code-block:: bash
+
+   cd /path/to/map-output
+   export QT_QPA_PLATFORM=offscreen
+
+   # Import color images and depth
+   rtabmap-dataRecorder -hide rgbd/rtabmap.ini raw.db
+
+   # Estimate camera motion and build the map
+   rtabmap-reprocess -default -odom -c rgbd/rtabmap.ini raw.db slam.db
+
+   # Apply planar ground-motion constraints
+   rtabmap-reprocess -c rgbd/rtabmap.ini -noimu \
+     --Reg/Force3DoF true --RGBD/ForceOdom3DoF true \
+     slam.db rtabmap.db
+
+   # Export the navigation occupancy grid
+   rtabmap-export --map --opt 2 --output map rtabmap.db
+
+If the map quality is unsatisfactory, consult the `official grid parameter descriptions <https://github.com/introlab/rtabmap/blob/master/corelib/include/rtabmap/core/Parameters.h>`_ to adjust the parameters.
+
+Copy ``map.yaml`` and its referenced map image to the robot. Keep ``rtabmap.db`` from the same mapping run on the cloud. Open the database with the official RTAB-Map viewer, inspect graph nodes and their images, and note the destination node ID:
+
+.. code-block:: bash
+
+   rtabmap-databaseViewer /path/to/map-output/rtabmap.db
+
+Navigation takes an existing database node ID or a saved node label, such as ``door``. The arrival position and heading come directly from the node's optimized pose. No target JSON or separate picker page is required. Labels live in the RTAB-Map database; after changing labels, update the cloud database and restart localization. When rebuilding a map, update the YAML, image and database together.
+
+Goal resolution uses RTAB-Map's native graph API; Nav2 handles path planning and obstacle avoidance.
+
+.. _lekiwi-navigation-start:
+
+7. Cloud localization
+------------------------------------------
+
+Set ``localization.endpoint`` and the same ``localization.token`` in the robot YAML on both hosts. Generate a token with ``python -c "import secrets; print(secrets.token_hex(32))"``. Start cloud localization; ``--peer`` is the robot source IP as seen by the cloud:
+
+.. code-block:: bash
+
+   python -m robots.lekiwi.localization_server serve \
+     --database /path/to/map-output/rtabmap.db \
+     --bind 0.0.0.0 --port 18125 --peer 192.168.1.10 \
+     --robot-config /path/to/robot.yaml
+
+8. Robot navigation
+--------------------------------------
+
+Stop the capture Env and start the navigation Env on the robot:
+
+.. code-block:: bash
+
+   source /path/to/ros-ws/install/setup.bash
+   python -m robots.lekiwi.env_server --mode navigation \
+     --robot-config /path/to/robot.yaml --map /path/to/map-output/map.yaml \
+     --ros-python /path/to/ros-python \
+     --host 0.0.0.0 --port 8120
+
+This starts the real base; add ``--mock`` for simulated motors while retaining the real camera. Navigation goals use the mode selected by the Env, without another hardware flag.
+
+Use the Dashboard and Agent described in the next section to choose a map node or an existing label such as ``door``. The Agent uses ``get_navigation_state`` to check readiness, ``navigate_to`` to submit the target, and ``stop`` to cancel motion. After stopping, wait until ``operation.state`` leaves ``running`` before submitting another goal.
+
+Navigation runs until the Env exits or a component fails; it has no fixed runtime limit. The Env owns the camera and base, and ROS launch manages the navigation workers. ``stop`` keeps these workers running. To return to teleoperation or recording, stop the navigation Env and restart it in capture mode as described in section 4. Exiting the Env closes the navigation process group; failed components are not automatically restarted. Navigation logs are written to ``navigation.log`` beside the robot YAML.
+
+Duplicate or expired images are discarded. ``perception.stereo.maximum_age_seconds``
+(default 1 second) controls local perception freshness and the Collision Monitor
+obstacle source timeout. An ordinary localization miss keeps the last accepted
+fix until it expires; a frame identity error or excessive correction invalidates
+it. ``localization.localization_max_age`` defaults to 2 seconds.
+
+When localization or TF becomes unavailable, the navigation adapter sends zero
+velocity and retains the goal for up to ``localization_max_age`` seconds. It can
+resume on recovery and cancels the goal after a sustained outage. This wait counts
+toward the goal timeout, and Nav2 may independently return failure. Image stamps
+record host read completion, not hardware exposure time.
+
+The camera bridge skips missing frames and temporary local RPC failures, then
+resumes publishing when data returns. Server-side device errors still surface as
+failures. A failed navigation status query reports unavailable status without
+revoking motion permission; an exited navigation process stops the base and fails
+the goal. Localization checks and command expiry remain active on the motion path.
+
+9. Dashboard and agent
+--------------------------------------------
+
+With Codex already configured, use the Codex planner and select a model available to your account:
+
+.. code-block:: bash
+
+   rpent --robot lekiwi --dashboard --planner codex --model gpt-6-astra \
+     --robot-config /path/to/robot.yaml --env-endpoint http://192.168.1.10:8120

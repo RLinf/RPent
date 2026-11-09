@@ -1,0 +1,65 @@
+# Overrides for installed nav2_bringup/params/nav2_params.yaml.
+# Measured geometry, speed limits and sensor ranges are injected by runtime_config.
+/**:
+  ros__parameters:
+    use_sim_time: false
+    enable_stamped_cmd_vel: true
+bt_navigator:
+  ros__parameters:
+    global_frame: odom
+    navigators: [navigate_to_pose]
+controller_server:
+  ros__parameters:
+    # Preserve lateral odometry for the omnidirectional base.
+    min_y_velocity_threshold: 0.001
+    FollowPath:
+      motion_model: Omni
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      footprint_padding: 0.0
+      track_unknown_space: true
+      voxel_layer:
+        # Segmented obstacles mark; valid measured depth rays clear the same grid.
+        observation_sources: depth clearing_depth
+        origin_z: -0.25
+        depth:
+          data_type: PointCloud2
+          marking: true
+          clearing: false
+          min_obstacle_height: -0.25
+        clearing_depth:
+          data_type: PointCloud2
+          marking: false
+          clearing: true
+          min_obstacle_height: -5.0
+          max_obstacle_height: 5.0
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      # Without a room map, navigate in odometry coordinates.
+      global_frame: odom
+      rolling_window: true
+      width: 6
+      height: 6
+      footprint_padding: 0.0
+      plugins: [voxel_layer, inflation_layer]
+lifecycle_manager_navigation:
+  ros__parameters:
+    autostart: true
+    node_names:
+    - controller_server
+    - planner_server
+    - bt_navigator
+    - velocity_smoother
+    - collision_monitor
+collision_monitor:
+  ros__parameters:
+    base_frame_id: base_link
+    cmd_vel_in_topic: /lekiwi/nav_smoothed
+    cmd_vel_out_topic: /lekiwi/nav_checked
+    state_topic: /lekiwi/collision_status
+    observation_sources: [depth]
+    depth:
+      type: pointcloud
+      min_height: -0.25

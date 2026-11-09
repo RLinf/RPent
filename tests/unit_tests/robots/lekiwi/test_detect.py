@@ -88,8 +88,8 @@ def test_pick_wheel_port_skips_partial_and_busy_ports(monkeypatch) -> None:
     assert set(reports) == {"/dev/ttyUSB1", "/dev/ttyACM0"}
 
 
-def test_build_yaml_config_marks_first_camera_main() -> None:
-    config = detect.build_yaml_config(
+def test_build_site_config_marks_first_camera_main() -> None:
+    config = detect.build_site_config(
         "/dev/ttyACM0",
         ["video0", "video2"],
     )
@@ -100,11 +100,13 @@ def test_build_yaml_config_marks_first_camera_main() -> None:
         "serial": "video0",
         "type": "webcam",
         "main": True,
+        "eye_size": [1280, 720],
+        "zed_serial": "REPLACE_WITH_ZED_FACTORY_SERIAL",
     }
     assert devices["extra_1"]["main"] is False
     assert config["robot"]["port"] == "/dev/ttyACM0"
     assert config["drive"]["max_linear_velocity"] == 0.3
-    assert config["drive"]["camera_max_age"] == 0.05
+    assert config["drive"]["step_frequency"] == 10.0
 
 
 def test_probe_camera_reports_why_it_failed(monkeypatch) -> None:
@@ -194,4 +196,4 @@ def test_main_reports_a_missing_wheel_bus(monkeypatch, capsys, tmp_path: Path) -
     report = capsys.readouterr().out
     assert "no port answered" in report
     config = yaml.safe_load(output.read_text())
-    assert config["robot"]["port"] == "/dev/ttyACM0"  # placeholder
+    assert config["robot"]["port"] == "/path/to/motor-serial-device"  # placeholder

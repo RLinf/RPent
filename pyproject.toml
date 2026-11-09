@@ -160,6 +160,11 @@ yam = [
     "pyrealsense2>=2.55,<3",
     "imageio-ffmpeg",
 ]
+lekiwi-localization = [
+    # Cloud-only build tools for robots/lekiwi/rtabmap_extension.
+    "cmake>=3.20",
+    "pybind11",
+]
 lekiwi = [
     # RLinf's LeKiwi environment layer is not released yet, so this pins the
     # revision that has it; switch to RLinf/RLinf@main once it merges. The
@@ -177,6 +182,7 @@ lekiwi = [
     # display, and the GUI build needs a system libGL.so.1.
     "opencv-python-headless",
     "imageio[ffmpeg]",
+    "pyzmq",
 ]
 robotwin = [
     "rpent[rlinf]",
@@ -291,7 +297,7 @@ exclude = ["tests*", "docs*", "examples*", "docker*", "toolkits*"]
 [tool.setuptools.package-data]
 "rpent.dashboard" = ["*.html", "static/*.css", "static/*.js"]
 "robots.yam" = ["config/*.yaml", "config/*.json", "guides/*.md"]
-"robots.lekiwi" = ["config/*.yaml"]
+"robots.lekiwi" = ["config/*.yaml", "rtabmap_extension/CMakeLists.txt", "rtabmap_extension/*.cpp"]
 
 [tool.pytest.ini_options]
 addopts = ["--import-mode=importlib"]

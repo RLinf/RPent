@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable, Sequence
 from typing import Annotated, Any
 
@@ -24,6 +25,9 @@ from pydantic import Field
 
 from rpent.session import EnvState, StepRecord
 from rpent.tools import ToolResult, tool
+from rpent.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 def coerce_vec3(value: Sequence[float], *, name: str) -> np.ndarray:
@@ -43,15 +47,10 @@ class LeKiwiPrimitives:
         self,
         *,
         env: Any,
-        task_description: str,
         check_cancelled: Callable[[], None],
     ) -> None:
         self.env = env
-        self.task_description = task_description
         self._check_cancelled = check_cancelled
-
-    def reset(self) -> dict[str, Any]:
-        return self.env.reset()
 
     @tool
     def drive(
@@ -71,9 +70,133 @@ class LeKiwiPrimitives:
         )
         return ToolResult(data=data)
 
+    @tool(readonly=True)
+    def list_map_nodes(
+        self,
+        label: Annotated[str | None, Field(min_length=1, max_length=128)] = None,
+    ) -> ToolResult:
+        """List known navigation node IDs and their existing labels.
+
+        Args:
+            label: Exact existing label to filter by; omit to list all nodes.
+                This is not semantic or object search.
+
+        Returns node_id and label only; an empty label means the node is unnamed.
+        Use inspect_map_node for a reference image and pose, or view_map for
+        spatial context. Does not move the robot or start navigation.
+        """
+        self._check_cancelled()
+        result = self.env.list_map_nodes(label=label)
+        return ToolResult(
+            data={
+                "nodes": [
+                    {"node_id": node["node_id"], "label": node["label"]}
+                    for node in result["nodes"]
+                ]
+            }
+        )
+
+    @tool(readonly=True)
+    def inspect_map_node(self, node_id: Annotated[int, Field(gt=0)]) -> ToolResult:
+        """Inspect a known node's map pose and historical reference image.
+
+        Args:
+            node_id: Positive node ID returned by list_map_nodes or view_map.
+
+        The node pose is the recorded robot viewpoint, not an object's position.
+        The image and observed_at_s come from the database, not the live camera;
+        missing images are reported by image_available=false. Use view_env_state
+        for current visual confirmation.
+        """
+        data = dict(self.env.inspect_map_node(node_id))
+        encoded = data.pop("image_png", None)
+        return ToolResult(
+            data=data, images=[] if encoded is None else [encoded.tobytes()]
+        )
+
+    @tool(readonly=True)
+    def view_map(
+        self,
+        center_node_id: Annotated[int | None, Field(gt=0)] = None,
+        radius_m: Annotated[float | None, Field(ge=0.1, le=100)] = None,
+    ) -> ToolResult:
+        """View the static 2D occupancy map, node IDs and available robot pose.
+
+        Args:
+            center_node_id: Known node to highlight; required when radius_m is set.
+            radius_m: Crop around that node in meters; omit to show the full map.
+
+        Shows up to 100 nodes plus the selected node. nodes_truncated indicates
+        more nodes in the region; use list_map_nodes to browse IDs. robot.valid=false means no
+        current pose is drawn. The map excludes live obstacles and does not
+        prove a route is safe or reachable. Navigate by node ID or existing label,
+        not by estimating coordinates from image pixels.
+        """
+        data = dict(self.env.view_map(center_node_id=center_node_id, radius_m=radius_m))
+        image = data.pop("image_png")
+        return ToolResult(data=data, images=[image.tobytes()])
+
+    @tool(readonly=True)
+    def get_navigation_state(self) -> ToolResult:
+        """Read navigation readiness, map pose and the current or last operation.
+
+        Pose, when available, is [x_m, y_m, yaw_rad] in the map frame.
+        After stop, wait until operation.state is no longer running before
+        submitting another goal. An unavailable service is not restarted.
+        """
+        return ToolResult(data=self.env.get_navigation_state())
+
+    @tool
+    def navigate_to(
+        self,
+        target: int | str,
+        timeout_s: Annotated[float, Field(gt=0.0, allow_inf_nan=False)] = 60.0,
+    ) -> ToolResult:
+        """Navigate to an RTAB-Map node ID or label and wait for the result.
+
+        Args:
+            target: Existing RTAB-Map node ID (integer) or label (string).
+                The arrival position and heading come from that map node.
+            timeout_s: Positive maximum wait in seconds after submission.
+
+        Requires an already running navigation service with valid localization
+        and perception. Returns succeeded, failed or cancelled; a Nav2 success
+        does not establish physical clearance or visual confirmation of arrival.
+        Interruption, lost status or timeout requests a stop; services are not
+        restarted and goals are not retried.
+        """
+        self._check_cancelled()
+        operation = self.env.navigate_to(target, timeout_s=timeout_s)
+        deadline = time.monotonic() + timeout_s
+        try:
+            while True:
+                self._check_cancelled()
+                current = self.env.get_navigation_state()["operation"]
+                if current["id"] != operation["id"]:
+                    raise RuntimeError("Navigation operation changed while waiting")
+                if current["state"] in {"succeeded", "failed", "cancelled"}:
+                    data = dict(current)
+                    if current["state"] != "succeeded":
+                        data.setdefault("error", f"Navigation {current['state']}")
+                    return ToolResult(data=data)
+                if current["state"] != "running":
+                    raise RuntimeError("Unknown navigation operation state")
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("Timed out waiting for navigation result")
+                time.sleep(0.1)
+        except BaseException:
+            try:
+                self.env.stop()
+            except Exception:
+                logger.exception("Could not request stop after navigation interruption")
+            raise
+
     @tool
     def stop(self) -> ToolResult:
-        """Command zero wheel velocity immediately."""
+        """Stop the base and cancel its current goal, keeping navigation running.
+
+        Wait for the navigation operation to leave running before another goal.
+        """
         self._check_cancelled()
         data = self.env.stop()
         return ToolResult(data=data)

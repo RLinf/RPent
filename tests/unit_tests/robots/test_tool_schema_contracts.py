@@ -83,6 +83,31 @@ def test_tool_declarations_match_pre_refactor_contracts(group: str) -> None:
         for item in declarations
     }
     assert len(actual) == len(declarations)
+    if group == "lekiwi":
+        expected["stop"]["description"] = (
+            "Stop the base and cancel its current goal, keeping navigation running.\n\n"
+            "Wait for the navigation operation to leave running before another goal."
+        )
+        # This historical snapshot covers existing tools, before navigation was added.
+        assert actual.keys() - expected.keys() == {
+            "navigate_to",
+            "get_navigation_state",
+            "list_map_nodes",
+            "inspect_map_node",
+            "view_map",
+        }
+        actual = {
+            name: value
+            for name, value in actual.items()
+            if name
+            not in {
+                "navigate_to",
+                "get_navigation_state",
+                "list_map_nodes",
+                "inspect_map_node",
+                "view_map",
+            }
+        }
     assert actual.keys() == expected.keys()
     for name in expected:
         assert actual[name] == expected[name], f"{group}/{name}"

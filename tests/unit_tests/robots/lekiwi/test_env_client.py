@@ -43,6 +43,8 @@ class FakeRpcClient:
 def test_lekiwi_client_uses_explicit_env_methods():
     rpc = FakeRpcClient()
     client = LeKiwiEnvClient(rpc)
+    assert [call[0] for call in rpc.calls] == ["env.get_env_meta"]
+    client.reset()
 
     client.drive([0.1, 0.0, 5.0])
     client.drive([0.0, -0.2, 0.0], duration_s=0.5)
@@ -77,6 +79,17 @@ def test_lekiwi_client_uses_explicit_env_methods():
     assert hold["ttl_s"] == 0.75
 
 
+def test_navigation_status_has_a_short_deadline():
+    rpc = FakeRpcClient()
+    client = LeKiwiEnvClient(rpc)
+    client.get_navigation_state()
+    client.stop()
+
+    deadlines = {method: timeout for method, _, _, timeout in rpc.calls}
+    assert deadlines["env.get_navigation_state"] == 2
+    assert deadlines["env.stop"] == 30
+
+
 def test_lekiwi_client_backfills_states_from_last_observation():
     rpc = FakeRpcClient()
     rpc_responses = {
@@ -91,6 +104,7 @@ def test_lekiwi_client_backfills_states_from_last_observation():
 
     rpc.call = call
     client = LeKiwiEnvClient(rpc)
+    client.reset()
 
     observation = client.get_observation()
     robot_state = client.get_robot_state()

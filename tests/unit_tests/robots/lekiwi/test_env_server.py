@@ -67,7 +67,21 @@ class FakeBackend:
 
 
 def test_lekiwi_client_and_facade_round_trip_numpy_over_http():
-    facade = LeKiwiEnvFacade(FakeBackend())
+    backend = FakeBackend()
+    # This transport test exercises manual driving; other Env routes are stubs.
+    for name in (
+        "get_stereo_frame",
+        "get_navigation_state",
+        "navigate_to",
+        "list_map_nodes",
+        "inspect_map_node",
+        "view_map",
+        "recording_start",
+        "recording_state",
+        "recording_stop",
+    ):
+        setattr(backend, name, lambda **kwargs: {})
+    facade = LeKiwiEnvFacade(backend)
     server = HttpRpcServer(("127.0.0.1", 0), facade._dispatch)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -127,19 +141,30 @@ class _FakeInnerEnv:
         self.action_space = gym.spaces.Box(
             -np.ones(3, dtype=np.float32), np.ones(3, dtype=np.float32)
         )
-        self.config = type("C", (), {"step_frequency": 50.0})
+        self.config = type("C", (), {"step_frequency": 50.0, "is_dummy": False})
         self.unwrapped = self
         self.stepped: list[tuple[int, ...]] = []
         self.stops = 0
-
-    def get_measured_velocity(self):
-        return np.zeros(3, dtype=np.float32)
+        self.moving_steps = 0
+        self.velocity = np.zeros(3)
+        self.sample = {}
 
     def stop(self) -> None:
         self.stops += 1
+        self.velocity = np.zeros(3)
+
+    def get_velocity_sample(self):
+        return dict(self.sample)
 
     def step(self, action):
         self.stepped.append(tuple(np.asarray(action).shape))
+        self.velocity = np.asarray(action)
+        self.moving_steps += int(self.velocity.any())
+        self.sample = {
+            "velocity": self.velocity.tolist(),
+            "sampled_at": time.time(),
+            "sampled_monotonic": time.monotonic(),
+        }
         time.sleep(1.0 / self.config.step_frequency)
         return (
             {"states": np.zeros((1, 3), dtype=np.float32)},
@@ -194,6 +219,9 @@ def _fake_backend(monkeypatch):
         def step(self, actions):
             return self._vector.step(actions)
 
+        def reset(self):
+            return {"states": np.zeros((1, 3))}, {}
+
         def close(self) -> None:
             return None
 
@@ -211,7 +239,14 @@ def _fake_backend(monkeypatch):
             "drive_max_duration_s": 2.0,
             "hold_max_ttl_s": 1.0,
         },
+        control_settings={
+            "max_linear": 1.0,
+            "max_angular": np.radians(1.0),
+            "command_timeout": 0.3,
+        },
+        simulated=True,
     )
+    backend.control.start()
     return backend, inner
 
 
@@ -254,11 +289,11 @@ def test_backend_hold_keeps_stepping_until_the_command_expires(
         assert observation["steps"] >= 1
         np.testing.assert_allclose(observation["states"], np.zeros(3))
 
-        # Sample after the ttl has elapsed, then confirm the thread has stopped.
+        # Idle steps continue sampling feedback, but no motion may be renewed.
         time.sleep(0.4)
-        driven = len(inner.stepped)
+        driven = inner.moving_steps
         time.sleep(0.2)
-        assert len(inner.stepped) == driven, "an expired hold must stop stepping"
+        assert inner.moving_steps == driven, "an expired hold must stop motion"
     finally:
         backend.close_env()
 
@@ -271,9 +306,198 @@ def test_backend_stop_ends_a_hold_before_its_ttl(
         backend.hold([0.5, 0.0, 0.0], ttl_s=1.0)
         time.sleep(0.15)
         backend.stop()
-        settled = len(inner.stepped)
+        settled = inner.moving_steps
         time.sleep(0.15)
-        assert len(inner.stepped) == settled
+        assert inner.moving_steps == settled
         assert inner.stops >= 1
+    finally:
+        backend.close_env()
+
+
+def test_navigation_mode_uses_steps_and_rejects_old_commands(
+    fake_rlinf_realworld_modules, monkeypatch
+):
+    backend, inner = _fake_backend(monkeypatch)
+    try:
+        backend.hold([0.1, 0, 0], ttl_s=1)
+        backend.control.switch_mode("navigation")
+        with pytest.raises(RuntimeError, match="inactive mode"):
+            backend.hold([0.1, 0, 0])
+        generation = backend.control.navigation_info()["generation"]
+        backend.control.arm_navigation(backend.control.stop_revision)
+        backend.control.set_velocity(
+            generation, [0, 0.1, 0], time.time() + backend.control.command_timeout
+        )
+        time.sleep(0.05)
+        assert inner.velocity[1] > 0
+        backend.control.switch_mode("stopping")
+        backend.control.switch_mode("manual")
+        with pytest.raises(RuntimeError, match="inactive mode"):
+            backend.control.set_velocity(generation, [0.1, 0, 0], time.time() + 1)
+        assert backend.drive([0.1, 0, 0], duration_s=0.05)["ok"]
+    finally:
+        backend.close_env()
+
+
+def test_backend_stop_cancels_goal_without_shutting_down_service(
+    fake_rlinf_realworld_modules, monkeypatch
+):
+    from unittest.mock import Mock
+
+    from robots.lekiwi.navigation.runtime import NavigationRuntime
+
+    backend, inner = _fake_backend(monkeypatch)
+    runtime = NavigationRuntime({}, backend.control)
+    client, daemon = Mock(), Mock()
+    runtime.client, runtime.daemon = client, daemon
+    backend.runtime = runtime
+    stops = inner.stops
+
+    def cancel(method, **kwargs):
+        assert method == "navigation.cancel"
+        assert inner.stops == stops + 1
+        assert backend.control._target == [0, 0, 0]
+        return {"state": "cancelled"}
+
+    client.call.side_effect = cancel
+    try:
+        assert backend.stop()["ok"]
+        client.call.assert_called_once_with("navigation.cancel", timeout_s=5)
+        daemon.stop.assert_not_called()
+        assert inner.stops == stops + 1
+    finally:
+        backend.close_env()
+    daemon.stop.assert_called_once()
+    client.close.assert_called_once()
+
+
+def test_stereo_rpc_recovers_after_a_missing_frame():
+    import queue
+    from types import MethodType
+    from unittest.mock import Mock
+
+    from rlinf.robotics.parts.cameras.base import BaseCamera
+
+    from robots.lekiwi.env_server import LeKiwiEnvBackend
+
+    # Exercise the real RLinf queue reader without starting its hardware thread.
+    camera = SimpleNamespace(
+        _frame_capturing_start=True,
+        _latest_frame=None,
+        _frame_queue=queue.Queue(),
+        name="offline",
+        reopen=Mock(),
+    )
+    camera.get_frame = MethodType(BaseCamera.get_frame, camera)
+    backend = LeKiwiEnvBackend.__new__(LeKiwiEnvBackend)
+    backend.camera = camera
+    facade = LeKiwiEnvFacade(backend)
+    server = HttpRpcServer(("127.0.0.1", 0), facade._dispatch)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    client = HttpRpcClient(f"http://127.0.0.1:{server.server_port}")
+    try:
+        assert client.call("env.get_stereo_frame", timeout_s=3) is None
+        camera.reopen.assert_called_once()
+        stamp = time.monotonic()
+        frame = np.full((2, 4, 3), 42, np.uint8)
+        camera._frame_queue.put((stamp, frame))
+        recovered = client.call("env.get_stereo_frame", timeout_s=3)
+        assert recovered["source_stamp"] == stamp
+        np.testing.assert_array_equal(recovered["frame"], frame)
+        assert recovered["clock_domain"] == "host_monotonic"
+    finally:
+        client.close()
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+def test_runtime_cli_defaults_and_path_overrides(monkeypatch, tmp_path):
+    import sys
+
+    from robots.lekiwi.env_server import _parse_args
+    from robots.lekiwi.runtime_config import LEKIWI_ROOT, runtime_settings_from_args
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["env_server", "--robot-config", "robot.yaml"])
+    defaults = runtime_settings_from_args(_parse_args())
+    assert defaults["mode"] == "capture"
+    assert defaults["ros_domain_id"] == 79
+    assert defaults["map_yaml"] == str(tmp_path / "map.yaml")
+    assert defaults["ros_python"] is None
+    assert defaults["recording"] == {
+        "root": str(LEKIWI_ROOT / "local/data/recordings"),
+        "sample_fps": 5,
+        "maximum_recording_seconds": 600,
+    }
+
+    interpreter = tmp_path / "ros-python"
+    interpreter.symlink_to(sys.executable)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "env_server",
+            "--robot-config",
+            "robot.yaml",
+            "--mode",
+            "navigation",
+            "--ros-domain-id",
+            "8",
+            "--map",
+            "maps/room.yaml",
+            "--ros-python",
+            "ros-python",
+            "--recording-dir",
+            "captures",
+            "--recording-fps",
+            "2",
+            "--capture-seconds",
+            "40",
+        ],
+    )
+    settings = runtime_settings_from_args(_parse_args())
+    assert settings["mode"] == "navigation"
+    assert settings["ros_domain_id"] == 8
+    assert settings["map_yaml"] == str(tmp_path / "maps/room.yaml")
+    assert settings["ros_python"] == str(interpreter)
+    assert settings["recording"] == {
+        "root": str(tmp_path / "captures"),
+        "sample_fps": 2,
+        "maximum_recording_seconds": 40,
+    }
+
+
+def test_stop_interrupts_drive_even_while_rpc_write_lock_is_held(
+    fake_rlinf_realworld_modules, monkeypatch
+):
+    from concurrent.futures import ThreadPoolExecutor
+
+    backend, inner = _fake_backend(monkeypatch)
+    facade = LeKiwiEnvFacade(backend)
+    submitted = threading.Event()
+    submit = backend.control.submit
+
+    def record_submit(*args, **kwargs):
+        result = submit(*args, **kwargs)
+        submitted.set()
+        return result
+
+    monkeypatch.setattr(backend.control, "submit", record_submit)
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            drive = pool.submit(
+                facade._dispatch,
+                "env.drive",
+                (),
+                {"velocity": [0.1, 0, 0], "duration_s": 2.0},
+            )
+            assert submitted.wait(1)
+            with facade._dispatch_lock.write():
+                stop = pool.submit(facade._dispatch, "env.stop", (), {})
+                assert stop.result(timeout=1)["ok"]
+            assert drive.result(timeout=1)["cancelled"]
+            np.testing.assert_array_equal(inner.velocity, np.zeros(3))
     finally:
         backend.close_env()

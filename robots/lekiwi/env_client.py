@@ -25,31 +25,76 @@ from rpent.utils.rpc import RpcClient
 
 
 class LeKiwiEnvClient(BaseEnvClient):
-    """Local client for one RLinf-backed LeKiwi environment.
+    """Remote client for one RLinf-backed LeKiwi environment."""
 
-    It runs on the agent machine and forwards each call over RPC to the env
-    server that owns the hardware on the robot computer.
-    """
-
-    #: RPC timeout in seconds per method; ``default`` covers the rest.
     _TIMEOUT_S = {
         **BaseEnvClient._TIMEOUT_S,
         "default": 30.0,
         "env.reset": 60.0,
-        # A drive holds the wheels for up to the server's 10 s cap.
+        # A drive holds for up to the server's max duration, then reports.
         "env.drive": 60.0,
         # A hold reports at once; the base keeps moving on the server.
         "env.hold": 10.0,
+        "env.get_navigation_state": 2.0,
     }
 
-    def __init__(self, client: RpcClient, *, reset_on_connect: bool = True) -> None:
+    def __init__(self, client: RpcClient) -> None:
         self._client = client
         self._last_states: np.ndarray | None = None
         self.meta = self._client.call(
             "env.get_env_meta", timeout_s=self._TIMEOUT_S["default"]
         )
-        if reset_on_connect:
-            self.reset()
+
+    def close(self) -> None:
+        self._client.close()
+
+    def get_navigation_state(self) -> dict[str, Any]:
+        return self._client.call(
+            "env.get_navigation_state",
+            timeout_s=self._TIMEOUT_S["env.get_navigation_state"],
+        )
+
+    def list_map_nodes(self, *, label=None) -> dict:
+        """List existing map nodes without starting navigation."""
+        return self._client.call(
+            "env.list_map_nodes",
+            kwargs={"label": label},
+            timeout_s=self._TIMEOUT_S["default"],
+        )
+
+    def inspect_map_node(self, node_id: int) -> dict:
+        """Read a node's historical reference image and map pose."""
+        return self._client.call(
+            "env.inspect_map_node",
+            kwargs={"node_id": node_id},
+            timeout_s=self._TIMEOUT_S["default"],
+        )
+
+    def view_map(self, *, center_node_id=None, radius_m=None) -> dict:
+        """Read a static occupancy map with node and current-pose overlays."""
+        return self._client.call(
+            "env.view_map",
+            kwargs={"center_node_id": center_node_id, "radius_m": radius_m},
+            timeout_s=self._TIMEOUT_S["default"],
+        )
+
+    def navigate_to(self, target: int | str, *, timeout_s: float = 60) -> dict:
+        """Navigate to an RTAB-Map node ID or label; poll state for its result."""
+        return self._client.call(
+            "env.navigate_to",
+            kwargs={"target": target, "timeout_s": timeout_s},
+            timeout_s=self._TIMEOUT_S["default"],
+        )
+
+    def recording(self, operation: str, **kwargs) -> dict:
+        """Control the robot's stereo PNG recorder."""
+        if operation not in {"start", "state", "stop"}:
+            raise ValueError("Unknown recording operation")
+        return self._client.call(
+            "env.recording_" + operation,
+            kwargs=kwargs,
+            timeout_s=self._TIMEOUT_S["default"],
+        )
 
     def reset(self) -> dict[str, Any]:
         result = self._client.call("env.reset", timeout_s=self._TIMEOUT_S["env.reset"])
@@ -113,6 +158,7 @@ class LeKiwiEnvClient(BaseEnvClient):
         )
 
     def stop(self) -> dict[str, Any]:
+        """Cancel motion without waiting for the active drive RPC to finish."""
         return self._client.call(
             "env.stop",
             timeout_s=self._TIMEOUT_S["default"],

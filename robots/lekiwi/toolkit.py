@@ -45,7 +45,10 @@ class LeKiwiToolkit(Toolkit):
         memory: MemoryManager,
         state_output_dir: Path | str | None = None,
     ) -> None:
-        runtime_kwargs = dict(runtime_kwargs)
+        if runtime_kwargs["env"].meta.get("camera_available") is False:
+            raise RuntimeError(
+                "Agent tasks need camera frames; start navigation through the Env runtime"
+            )
         state = EnvState(Path(state_output_dir or get_output_dir()))
         super().__init__(
             dashboard_events=dashboard_events,
@@ -73,6 +76,17 @@ class LeKiwiToolkit(Toolkit):
             self.add_tool(
                 definition.with_handler(partial(definition, state=self._state))
             )
+
+    def cancel_active_and_wait(self) -> None:
+        """Stop an active robot operation before waiting for tool cleanup."""
+        with self._scheduler.condition:
+            calls = self._scheduler.cancel()
+            active = bool(self._scheduler.active)
+        try:
+            if active:
+                self._primitives.env.stop()
+        finally:
+            self._scheduler.wait(calls)
 
     def solved(self) -> bool:
         """The velocity-controlled base reports no success signal of its own."""

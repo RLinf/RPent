@@ -1,5 +1,5 @@
-# Example LeKiwi configuration. `rpent-lekiwi-detect` writes a
-# filled-in copy of this file; edit the result and pass it with --robot-config.
+# Example LeKiwi site configuration. Copy to a machine-specific YAML and
+# pass it with --robot-config.
 
 robot:
   # Serial bus of the Feetech STS3215 servo board.
@@ -11,16 +11,49 @@ robot:
 cameras:
   devices:
     front:
-      # UVC serial of the front camera (ls /dev/v4l/by-id).
+      # ZED video node: full /dev/v4l/by-id/...-video-index0 path or by-id name.
+      # This is the RLinf UVC identifier, not the numeric factory serial below.
       serial: "<front-camera-serial>"
       type: webcam
       main: true
+      eye_size: [1280, 720]  # Native per-eye size shared by capture and perception.
+      zed_serial: "REPLACE_WITH_ZED_FACTORY_SERIAL"
+
+# Paths are relative to this YAML file; absolute paths and ~ also work.
+perception:
+  calibration: zed.conf
+  # Optional overrides for local stereo obstacle perception.
+  stereo: {}
+  # Optional native RTAB-Map segmentation overrides (e.g. Grid/MinClusterSize).
+  obstacles: {}
 
 drive:
   step_frequency: 10.0
-  # Seconds a step may reuse a captured frame. RLinf's 0.5 s default serves
-  # at most two new frames a second; 0.05 tracks the 15 fps camera.
-  camera_max_age: 0.05
   max_linear_velocity: 0.3
   max_angular_velocity: 60.0
   frame_size: [128, 128]
+
+# Measured geometry shared by mapping, perception and navigation.
+geometry:
+  body:
+    height_m: 0.30  # approximate highest point with arm folded and fixed
+
+  camera_mount:
+    # Horizontal offsets use the chassis center; height is above the ground.
+    # Conversion to a ROS base frame must account for that frame's height.
+    forward_m: 0.11
+    left_m: 0.0
+    height_above_ground_m: 0.11
+    # RPY for mechanical camera axes (forward, left, up), not optical axes.
+    # The existing geometry helper converts mechanical axes to optical axes.
+    mount_rpy_deg: [0.0, 0.0, 0.0]
+
+  navigation:
+    robot_radius_m: 0.17  # Measured navigation radius; used directly, without extra padding.
+    max_velocity: [0.2, 0.2, 0.8]  # forward m/s, lateral m/s, yaw rad/s; symmetric
+    max_accel: [1.0, 0.85, 3.4]  # m/s², m/s², rad/s²
+
+# Cloud localization connection, shared by the Pi and cloud service.
+localization:
+  endpoint: http://REPLACE_WITH_CLOUD_HOST:18125
+  token: REPLACE_WITH_RANDOM_TOKEN
