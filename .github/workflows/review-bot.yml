@@ -92,25 +92,9 @@ jobs:
       GITHUB__DEPLOYMENT_TYPE: user
       CONFIG__GIT_PROVIDER: github
 
-      # The review runner uses the same Anthropic-compatible gateway as the
-      # work machines. Credentials live in a root-only file on the runner, not
-      # in the repository, and are sourced by the step that needs them.
-      CONFIG__MODEL: anthropic/deepseek-v4.1-flash-1017
-      # The gateway model is a reasoning model: the default output cap can be
-      # consumed entirely by thinking, leaving empty content. Reserve room for
-      # the answer and keep fallback on the same model.
-      CONFIG__CUSTOM_MODEL_MAX_TOKENS: "128000"
-      CONFIG__MAX_MODEL_TOKENS: "128000"
-      CONFIG__MAX_OUTPUT_TOKENS: "48000"
-      CONFIG__FALLBACK_MODELS: '["anthropic/deepseek-v4.1-flash-1017"]'
-      CONFIG__RETRY_SAME_MODEL_ON_LENGTH: "True"
-      MODEL_ENV: /mnt/public/rpent_review_agent/etc/model.env
-      # The runner host cannot reach raw.githubusercontent.com; use the cost map
-      # bundled with LiteLLM instead of fetching it at startup.
-      LITELLM_LOCAL_MODEL_COST_MAP: "True"
-
+      # Model credentials, model selection, token budgets, and PR_AGENT are
+      # deployment settings supplied by the self-hosted runner environment.
       PR_URL: https://github.com/${{ github.repository }}/pull/${{ needs.dispatch.outputs.pr }}
-      PR_AGENT: /mnt/public/rpent_review_agent/venv/bin/pr-agent
       DESIGN_INSTRUCTIONS: >-
         Review this pull request only at the design and contract level: the
         problem statement, the proposed public interfaces, module boundaries,
@@ -123,17 +107,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -x "$PR_AGENT" || {
-            echo "PR-Agent is not installed at $PR_AGENT" >&2
+          : "${PR_AGENT:=pr-agent}"
+          command -v "$PR_AGENT" >/dev/null 2>&1 || {
+            echo "pr-agent is not available; set PR_AGENT in the runner environment" >&2
             exit 1
           }
-          test -r "$MODEL_ENV" || {
-            echo "Model credentials are not readable at $MODEL_ENV" >&2
-            exit 1
-          }
-          set -a
-          . "$MODEL_ENV"
-          set +a
 
           case "${{ needs.dispatch.outputs.command }}" in
             review-design)

@@ -1,7 +1,7 @@
 # Review Bot
 
-PR slash commands for this repository, backed by
-[PR-Agent](https://github.com/The-PR-Agent/pr-agent) on self-hosted runners.
+PR slash commands backed by [PR-Agent](https://github.com/The-PR-Agent/pr-agent)
+on self-hosted runners.
 
 | Command | What runs | What it posts |
 | --- | --- | --- |
@@ -14,60 +14,23 @@ collaborators may trigger it. Each run posts its own review comment; PR-Agent's
 persistent-comment mode is disabled so the design and code reviews cannot
 overwrite each other.
 
-## Runner
+## Runner contract
 
-The review job runs on any self-hosted runner labelled `review-bot`. Register
-one runner per concurrent review: jobs for different PRs are scheduled in
-parallel across online runners, while the workflow's per-PR concurrency group
-serializes commands on the same PR. On the review host, install PR-Agent and
-Python 3.12 under `/mnt/public/rpent_review_agent/`:
+The review job runs on a self-hosted runner labelled `review-bot`. The runner
+must provide:
 
-```bash
-R=/mnt/public/rpent_review_agent
-export UV_CACHE_DIR="$R/.uv_cache" UV_PYTHON_INSTALL_DIR="$R/python" TMPDIR="$R/tmp"
-# On hosts that cannot reach GitHub releases, point at a reachable mirror.
-export UV_PYTHON_INSTALL_MIRROR="https://ghproxy.net/https://github.com/astral-sh/python-build-standalone/releases/download"
-uv python install --no-bin 3.12
-uv venv --python "$R"/python/cpython-3.12*/bin/python3.12 "$R/venv"
-UV_DEFAULT_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple \
-  uv pip install --python "$R/venv/bin/python" "pr-agent[github]"
-```
+- the `pr-agent` executable, either as `PR_AGENT` or on `PATH`;
+- model access through PR-Agent's environment variables, such as
+  `ANTHROPIC__KEY`, `ANTHROPIC_API_BASE`, `CONFIG__MODEL`, and any token-budget
+  settings the model requires;
+- outbound access to the GitHub API and the model endpoint.
 
-Model credentials are read at run time from `$R/etc/model.env` (mode 600):
+The workflow supplies `GITHUB__USER_TOKEN` from `github.token`; no long-lived
+token is stored in the repository. It never checks out or executes PR code, and
+PR-Agent reads the diff through the GitHub API.
 
-```bash
-ANTHROPIC__KEY=...
-ANTHROPIC_API_BASE=https://cloud.infini-ai.com/maas
-```
+## Scheduling
 
-Install the GitHub Actions runner under `$R/runner`, register it with the
-`review-bot` label, and start it with `RUNNER_ALLOW_RUNASROOT=1 ./run.sh` when
-the service runs as root. It is not installed as a system service because the
-review host keeps all state under `$R`.
-
-Each runner instance owns its install directory and work directory and must use
-a unique `--name`; all of them register with the same `review-bot` label. A host
-that runs several instances should use separate directories such as
-`$R/runner-1`/`$R/work-1` and `$R/runner-2`/`$R/work-2`, and start each with
-`RUNNER_ALLOW_RUNASROOT=1 ./run.sh` from its own directory. The shared
-`$R/venv` and `$R/etc/model.env` are read-only inputs and can be used by every
-instance.
-
-The workflow never checks out or executes PR code; PR-Agent reads the diff
-through the GitHub API.
-
-## Model credentials
-
-Credentials are read from `/mnt/public/rpent_review_agent/etc/model.env`
-(mode 600) at run time and are not stored in the repository:
-
-| Variable | Value |
-| --- | --- |
-| `ANTHROPIC__KEY` | Key for the Anthropic-compatible gateway |
-| `ANTHROPIC_API_BASE` | Gateway base URL, without `/v1` |
-
-`CONFIG__MODEL` in the workflow is `anthropic/deepseek-v4.1-flash-1017`. The
-model is a reasoning model, so the workflow also raises
-`CONFIG__MAX_MODEL_TOKENS`/`CONFIG__CUSTOM_MODEL_MAX_TOKENS` to 128000 and keeps
-`CONFIG__MAX_OUTPUT_TOKENS` at 48000; the defaults truncate prompts or leave no
-room for the answer after thinking.
+Review jobs are grouped by PR. Commands on the same PR run one at a time;
+commands on different PRs run in parallel when more than one `review-bot`
+runner is online.
