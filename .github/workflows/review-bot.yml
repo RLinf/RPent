@@ -141,7 +141,10 @@ jobs:
                 --pr_reviewer.persistent_comment=false
               ;;
             review-pr)
-              "$PR_AGENT" --pr_url "$PR_URL" review
+              # A standalone comment per run; PR-Agent's persistent-comment
+              # mode would otherwise reuse the comment of the other command.
+              "$PR_AGENT" --pr_url "$PR_URL" review \
+                --pr_reviewer.persistent_comment=false
               ;;
             review-autofix)
               "$PR_AGENT" --pr_url "$PR_URL" improve \
