@@ -147,10 +147,8 @@ def get_toolkit(
     attempts_per_session: int = 0,
     state_output_dir: Path | str | None = None,
 ):
-    """Build session state and GeometryAgent before constructing the toolkit."""
+    """Return the LIBERO toolkit for the current session."""
     from robots.libero.toolkit import LiberoToolkit
-    from rpent.session import EnvState
-    from toolkits.geometry.geometry_agent import GeometryAgent
 
     explore = mode == "exploration"
     memory = MemoryManager(
@@ -158,27 +156,14 @@ def get_toolkit(
         memory_access="inbox_write" if explore else "read_only",
         inbox_cell_tag=config.recipe_tag if explore else None,
     )
-    state = EnvState(Path(state_output_dir or config.output_dir))
-    geometry_model = config.task_desc.get("geometry_model")
-    geometry_agent = GeometryAgent(
-        state=state,
-        sam3_client=runtime_kwargs.get("sam3_client"),
-        model=geometry_model,
-        base_url=config.task_desc.get("geometry_base_url"),
-        grounder=runtime_kwargs.get("molmo_client") if geometry_model is None else None,
-    )
-    action_runtime = {
-        key: value for key, value in runtime_kwargs.items() if key != "sam3_client"
-    }
     return LiberoToolkit(
-        runtime_kwargs=action_runtime,
+        runtime_kwargs=runtime_kwargs,
         dashboard_events=dashboard_events,
         memory=memory,
-        state=state,
-        geometry_agent=geometry_agent,
         enable_direct_action=config.enable_direct_action,
         mode=mode,
         attempts_per_session=attempts_per_session,
+        state_output_dir=state_output_dir,
         policy_kind=config.task_desc.get("policy_kind", "vla"),
     )
 
@@ -194,15 +179,6 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     from robots.libero.memory import MEMORY_VERSIONS
 
     required = not use_dashboard
-    parser.add_argument(
-        "--geometry-model",
-        help="GeometryAgent visual model: provider:model or codex[:model]. "
-        "Defaults to the API/Codex planner model; set explicitly for Claude Code.",
-    )
-    parser.add_argument(
-        "--geometry-base-url",
-        help="GeometryAgent provider URL; defaults to the planner --base-url.",
-    )
     parser.add_argument(
         "--enable-direct-action",
         action="store_true",
@@ -308,30 +284,6 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     if args.task is None:
         raise ValueError("--task is required")
     planner = getattr(args, "planner", None)
-    geometry_model = getattr(args, "geometry_model", None)
-    if geometry_model is not None and not geometry_model.strip():
-        raise ValueError("--geometry-model must not be empty")
-    if geometry_model is not None:
-        geometry_model = geometry_model.strip()
-        if geometry_model != "codex" and (
-            ":" not in geometry_model or not geometry_model.split(":", 1)[1].strip()
-        ):
-            raise ValueError("--geometry-model must be provider:model or codex[:model]")
-    if geometry_model is None:
-        if planner == "api":
-            geometry_model = getattr(args, "model", None)
-        elif planner == "codex":
-            from rpent.planner.base import resolve_model
-
-            selected_model = resolve_model("codex", getattr(args, "model", None))
-            geometry_model = f"codex:{selected_model}" if selected_model else "codex"
-        elif planner == "claude_code":
-            raise ValueError(
-                "--planner claude_code requires --geometry-model for GeometryAgent"
-            )
-    geometry_base_url = getattr(args, "geometry_base_url", None)
-    if geometry_base_url is None:
-        geometry_base_url = getattr(args, "base_url", None)
     args.libero_type = resolve_libero_type(args.suite, args.libero_type)
     am = select_am(args, "libero")
     wam = am if am.is_wam else None
@@ -449,8 +401,6 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             "seed": args.seed,
             "policy_kind": policy_kind,
             "policy_backend": policy_backend,
-            "geometry_model": geometry_model,
-            "geometry_base_url": geometry_base_url,
         },
     )
 
@@ -539,11 +489,6 @@ def _spawn_env_server(
             "--port",
             str(port),
             "--parent-watch",
-            *(
-                ["--evaluation-references"]
-                if getattr(args, "evaluation_references", False)
-                else []
-            ),
             *(["--cuda-device", str(device)] if device is not None else []),
         ],
         env_overrides={

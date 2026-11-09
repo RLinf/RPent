@@ -139,7 +139,7 @@ then point at it via ``PI05_CHECKPOINT_PATH``:
 SAM3 Configuration
 ------------------
 
-SAM 3.0 is an internal GeometryAgent dependency. Download ``sam3.pt``
+SAM 3.0 segmentation is enabled for every LIBERO run. Download ``sam3.pt``
 from `Hugging Face: facebook/sam3 <https://huggingface.co/facebook/sam3>`_
 or `ModelScope: facebook/sam3 <https://modelscope.cn/models/facebook/sam3>`_,
 then point at it via ``SAM3_CHECKPOINT_PATH``:
@@ -300,16 +300,8 @@ uses their clients to execute the planner's requests.
   same RPC transports (HTTP or socket).
 - **toolkit** (``robots/libero/toolkit.py``) — defines the tools the
   LLM can call: ``pi0_pick`` (fed to Pi0.5), ``move_to``,
-  ``rotate_wrist``, ``geometry``, ``view_env_state``,
+  ``rotate_wrist``, ``back_project``, ``view_env_state``,
   ``finish``, …
-- **GeometryAgent** (``toolkits/geometry/geometry_agent.py``) — receives target/part
-  descriptions through ``geometry``. Its visual grounding model selects a
-  material pixel; internal segmentation and coordinate tools compute the result.
-  The parent planner has no direct ``segment`` or ``back_project`` tool.
-
-The toolkit factory initializes GeometryAgent and the shared observation store
-before constructing LiberoToolkit. The toolkit registers the injected agent;
-recorded-frame segmentation and coordinate reads belong to the geometry package.
 
 Tools the Planner Can Call
 --------------------------
@@ -335,13 +327,10 @@ Physical action tools advance the environment and record new state and images.
 
 **Read-only tools:**
 
-- ``geometry(query, camera="agentview", step=-1, measurement="surface_point")`` —
-  request observed positions or fitted part geometry from GeometryAgent.
-  ``surface_point`` returns a visible material point; ``visible_region`` returns
-  the coordinate-wise median and bounds of visible segmented samples.
-  Add ``required_geometry=["rim_center", "body_center", "bottom_center", "axis",
-  "radius", "height"]`` to request part-specific cleaning and fitting instead.
-  The parent supplies target text and step/camera, with no calibration parameters.
+- ``back_project(row, col, ...)`` — back-project an image pixel to world
+  coordinates.
+- ``segment(prompt=... / point=..., ...)`` — use SAM3 to segment an existing
+  image with a text or point prompt.
 - ``view_env_state(step=-1)`` — read a recorded state and its embedded
   observation images. Step ``0`` is initial; ``-1`` is latest.
 - ``view_camera_meta(camera=..., step=-1)`` — read camera metadata for a
@@ -349,47 +338,6 @@ Physical action tools advance the environment and record new state and images.
 - ``finish(status, summary)`` — end the current run.
 
 These tools do not advance the environment.
-
-GeometryAgent measures one recorded frame without moving the robot. For the
-request interface, visual-model configuration, fitted quantities, quality gates
-and evidence artifacts, see :doc:`../development/geometry`. Read the returned
-status and field definitions before using a coordinate. When evidence is
-insufficient, the agent requests another view; the parent planner decides and
-executes any observation move.
-
-.. _libero-fixed-reference-experiment:
-
-Fixed Reference Checklist Experiment
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-The geometry evaluation package fixes 16 Task/Swap rows, seeds 1 through 5,
-80 initial frames and 160 A/B reference requests. Run it in the LIBERO-Pro
-environment with simulator assets, EGL/CUDA and SAM3 configured above.
-It needs no action-model weights, task memory or parent planner. Collection
-starts only ENV; inference starts SAM3 and the explicitly selected visual model.
-
-.. code-block:: bash
-
-   python -m toolkits.geometry.evaluation.experiment validate-manifest
-   python -m toolkits.geometry.evaluation.experiment collect \
-     --output experiments/geometry/observations
-   python -m toolkits.geometry.evaluation.experiment infer \
-     --inputs experiments/geometry/observations \
-     --geometry-model codex \
-     --output experiments/geometry/predictions
-
-Each case uses only step 0 / agentview and preserves its fixed targets.
-The runner performs no manipulation or additional-view actions. It copies only
-allowed sensor artifacts and keeps independent truth outside the agent inputs.
-Output directories must be new or empty.
-
-The `geometry evaluation guide <https://github.com/RLinf/RPent/blob/main/toolkits/geometry/evaluation/README.md>`_
-contains the full task table, model configuration, pilot selection,
-``--permissive`` estimates, independent reference annotation and error metrics.
-Permissive candidates retain ``strict_accepted``, ``estimate_method`` and
-``evaluation_only``; a returned coordinate does not certify strict fit quality.
-See :ref:`geometry-permissive-evaluation` for interpreting these candidates.
-Accuracy and manipulation success require separate measurements.
 
 Dashboard
 ---------

@@ -25,16 +25,16 @@ CELL = """- suite:      {{suite}}
 
 
 MODE = """Inspect `agentview_high.png` returned by `view_env_state`, then use
-`geometry` with target/part descriptions before motion; inspect its status and measurement definition."""
+`back_project` or `segment` to localize objects before motion."""
 
 
 BEGIN = """Read the guides, then call `view_env_state({"step": 0})` and inspect
 `task_language` and `agentview_high.png`. Read matching memory and available
-seed-0 references for the current task and scene, then request geometry, plan, and execute."""
+seed-0 references for the current task and scene, then localize, plan, and execute."""
 
 WAM_MEMORY = "Local memory directory: {{memory_dir}}."
 
 WAM_BEGIN = (
     "Call view_env_state at step 0, inspect the task and camera "
-    "images, and use wam_act to begin. Use `geometry` to measure scripted motion targets."
+    "images, and use wam_act to begin."
 )

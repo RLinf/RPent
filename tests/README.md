@@ -33,8 +33,7 @@ tests/
     │   ├── robocasa/
     │   └── robotwin/
     └── toolkits/         # tests for reusable toolkits
-        └── geometry/     # geometry measurements and fitting
-            └── evaluation/ # offline evaluator and experiment contracts
+        └── geometry/     # generic observations, perception and fitting
 ```
 
 Directories that do not yet have tests do not need empty placeholders. Add
@@ -47,10 +46,8 @@ them when the first test for that module lands.
 - Mirror top-level robot extensions under `tests/unit_tests/robots/`. Put
   robot-specific coverage in that directory's `<robot>/` child.
 - Mirror top-level `toolkits` modules under `tests/unit_tests/toolkits/`.
-  Geometry evaluation programs live under `toolkits/geometry/evaluation/`;
-  their offline tests use synthetic scenes and fake services under
-  `tests/unit_tests/toolkits/geometry/evaluation/`. Real collection, inference
-  and accuracy evaluation run through the documented experiment CLI.
+  Geometry smoke tests use caller-provided observations, synthetic point clouds
+  and fake model services without simulator assets or GPU dependencies.
 - Place cross-layer tests with the primary contract owner. Registry and config
   contracts belong to `rpent/robots/`; extension toolkit and schema contracts
   belong to `robots/`.
@@ -75,11 +72,10 @@ Run the complete suite with:
 pytest tests/unit_tests -v
 ```
 
-Geometry checks in `unit_tests/toolkits/geometry/` are smoke tests for imports,
-registered tool calls, synthetic part fitting, and initial-frame experiment
-outputs. They use fake external services and do not assert position-error or
-fit-quality thresholds. Quantitative evaluation uses the
-[geometry experiment workflow](../toolkits/geometry/evaluation/README.md).
+Geometry checks in `unit_tests/toolkits/geometry/` cover imports, generic tool
+dispatch, camera/frame identity, RGB-D projection, bounded perception calls,
+cancellation and synthetic part-fitting execution. They use fake external
+services and do not measure real-scene accuracy or robot task success.
 
 ## RoboCasa environment smoke tests
 

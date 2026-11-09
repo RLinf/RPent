@@ -132,7 +132,7 @@ VLA 配置
 SAM3 配置
 ---------
 
-SAM 3.0 是 GeometryAgent 的内部依赖。从 `Hugging Face: facebook/sam3 <https://huggingface.co/facebook/sam3>`_ 或 `ModelScope: facebook/sam3 <https://modelscope.cn/models/facebook/sam3>`_ 下载 ``sam3.pt``，再通过 ``SAM3_CHECKPOINT_PATH`` 指定本地 checkpoint：
+每次 LIBERO 运行都默认启用 SAM 3.0 分割。从 `Hugging Face: facebook/sam3 <https://huggingface.co/facebook/sam3>`_ 或 `ModelScope: facebook/sam3 <https://modelscope.cn/models/facebook/sam3>`_ 下载 ``sam3.pt``，再通过 ``SAM3_CHECKPOINT_PATH`` 指定本地 checkpoint：
 
 .. code-block:: bash
 
@@ -251,10 +251,7 @@ LIBERO 将仿真和模型推理分别放在独立服务器中运行，工具集�
 - **env_server** （``robots/libero/env_server.py``）—— 负责运行 LIBERO 的 MuJoCo 环境并通过 EGL 渲染。它通过 RPC 传输（默认使用 HTTP；添加 ``--transport socket`` 后使用 pickle-framed socket）对外暴露 ``reset``、``step``、``chunk_step``、``render_camera``、 ``get_camera_meta`` 等接口。
 - **vla_server** （``rpent/robots/components/pi05_vla_server.py``）—— 持有 Pi0.5 权重，通过同一套 RPC 传输（HTTP 或 socket）暴露 ``predict``。
 - **sam3_server** （``rpent/robots/components/sam3_server.py``）—— 加载 SAM 3.0，根据文字描述或目标物体上的一个像素点，分割出目标区域。如果模型给出多个候选结果，只保留评分最高的一个，并通过同一套 RPC 传输（HTTP 或 socket）返回压缩 PNG 格式的分割掩码（mask）。
-- **toolkit（工具集）** （``robots/libero/toolkit.py``）—— 定义 LLM 能调用的工具：``pi0_pick`` （交给 Pi0.5）、``move_to``、``rotate_wrist``、``geometry``、``view_env_state``、``finish``…
-- **GeometryAgent** （``toolkits/geometry/geometry_agent.py``）—— 通过 ``geometry`` 接收目标和部位描述，由视觉定位模型选择物体上的可见像素，再通过内部的分割与坐标工具计算结果。主规划器没有直接调用 ``segment`` 或 ``back_project`` 的工具入口。
-
-工具集工厂会先创建 GeometryAgent 和共享观测存储，再构造 LiberoToolkit。工具集负责注册传入的子 agent；已记录帧的分割和坐标读取由 geometry 包内部实现。
+- **toolkit（工具集）** （``robots/libero/toolkit.py``）—— 定义 LLM 能调用的工具：``pi0_pick`` （交给 Pi0.5）、``move_to``、``rotate_wrist``、 ``back_project``、``view_env_state``、``finish``…
 
 规划器可调用的工具
 --------------------
@@ -276,42 +273,13 @@ LIBERO 工具分为物理动作工具和只读工具。
 
 **只读工具：**
 
-- ``geometry(query, camera="agentview", step=-1, measurement="surface_point")`` —— 将目标或部位的定位交给 GeometryAgent。``surface_point`` 返回一个可见材质点；``visible_region`` 返回可见分割点的逐轴中位数及边界。添加 ``required_geometry=["rim_center", "body_center", "bottom_center", "axis", "radius", "height"]`` 可请求按部位清理和拟合。主规划器只传目标描述和 step/camera，无需提供标定参数。
+- ``back_project(row, col, ...)`` —— 将图像像素反投影到世界坐标。
+- ``segment(prompt=... / point=..., ...)`` —— 通过 SAM3 对已有图像进行文本或点提示分割。
 - ``view_env_state(step=-1)`` —— 读取已记录的状态和内嵌观测图像；第 0 步为初始状态，``-1`` 表示最新状态。
 - ``view_camera_meta(camera=..., step=-1)`` —— 读取指定步骤的相机元数据； ``-1`` 表示最新状态。
 - ``finish(status, summary)`` —— 结束当前运行。
 
 这些工具不会推进环境。
-
-GeometryAgent 只测量一个已记录的观测帧，不会移动机器人。请求接口、视觉模型配置、拟合量、质量门槛和证据文件的详细说明见 :doc:`../development/geometry`。使用坐标前，应阅读返回状态和字段定义。证据不足时，子代理请求新的视角，由主规划器决定并执行观测移动。
-
-.. _libero-fixed-reference-experiment:
-
-固定参考点清单实验
-~~~~~~~~~~~~~~~~~~
-
-几何评估程序固定 16 项 Task/Swap 任务、seed 1～5，共 80 张起始帧、160 个 A/B
-参考点。请在 LIBERO-Pro 环境中运行，并完成上文的仿真资源、EGL/CUDA 和 SAM3
-配置。实验不需要动作模型权重、任务记忆或主规划器；采集只启动 ENV，推理只启动
-SAM3 和显式指定的视觉模型。
-
-.. code-block:: bash
-
-   python -m toolkits.geometry.evaluation.experiment validate-manifest
-   python -m toolkits.geometry.evaluation.experiment collect \
-     --output experiments/geometry/observations
-   python -m toolkits.geometry.evaluation.experiment infer \
-     --inputs experiments/geometry/observations \
-     --geometry-model codex \
-     --output experiments/geometry/predictions
-
-每组只使用 step 0 / agentview，目标保持固定。程序不执行操作动作或补视角动作，
-只复制允许的传感器观测，独立真值不进入子代理输入。输出目录必须为空或尚不存在。
-
-`几何评估说明 <https://github.com/RLinf/RPent/blob/main/toolkits/geometry/evaluation/README.md>`_
-提供完整任务表、模型配置、少量样本试跑、``--permissive`` 候选估计、独立参考点标注和误差统计。
-宽松候选保留 ``strict_accepted``、``estimate_method`` 和 ``evaluation_only``；
-返回坐标不代表通过严格拟合检查，候选结果的解释见 :ref:`geometry-permissive-evaluation`。定位精度和任务操作成功率需要分别测量。
 
 Dashboard
 ---------

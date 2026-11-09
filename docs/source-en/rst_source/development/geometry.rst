@@ -3,142 +3,196 @@
 Geometry Toolkit
 ================
 
-The geometry tool turns a description of an object or part into spatial
+The geometry tool turns a description of an object or visible part into spatial
 measurements with explicit definitions. The parent planner supplies a target,
 the required quantities and an observation reference through one ``geometry``
-interface. GeometryAgent locates the target, segments the relevant evidence
-and computes positions, directions and dimensions for subsequent action
-planning.
+interface. GeometryAgent coordinates visual grounding, segmentation, point
+cloud cleaning and geometric fitting, returning positions, directions and
+dimensions with their evidence.
 
 Design Purpose
 --------------
 
 Grasping, placing and aligning objects require geometry of specific parts. A
-rim center, a body center and a visible point on a cup have different meanings.
-A selected image point cannot stand in for all three. The tool defines each
-measurement and returns it with its source observation and shape assumptions.
+rim center, a body center and a visible surface point have different meanings.
+A selected pixel cannot stand in for all three. The tool defines each
+measurement and returns it with the source observation and shape assumptions.
 
-The design assigns task decisions and geometry measurement to separate roles.
-The parent describes what it needs; GeometryAgent determines how to measure it
-from the available observation. The visual model handles semantic localization,
-while depth data and geometric algorithms supply spatial calculations. This
-gives the parent one interface for different parts, allows the internal
-perception process to evolve independently and ties each result to inspectable
-evidence.
+The parent decides what to measure and what action to take. GeometryAgent
+determines which observed parts support that measurement. A visual model
+handles semantic localization; metric observations and geometric algorithms
+supply spatial calculations. This keeps task decisions separate from
+measurement and gives different environments the same request and result
+contract.
 
 .. _geometry-module-design:
 
 Module Design
 -------------
 
-GeometryAgent coordinates perception through a fixed program flow. An internal
-vision-language model selects visible pixels, and SAM3 produces segmentation
-masks. The program controls part expansion, call order and budgets, cloud
-processing, model comparison and acceptance.
+GeometryAgent uses a fixed program flow. A vision-language model selects
+visible pixels, and an injected segmenter produces masks. The program controls
+part expansion, call order and budgets, cloud processing, model comparison and
+acceptance.
 
 Responsibilities and Initialization
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The parent planner chooses task targets, requests geometry, executes actions
-and obtains new observations when needed. GeometryAgent interprets the part
-requirements, uses its internal perception and fitting capabilities, and
-reports available measurements or missing evidence. Segmentation and
-back-projection are internal operations; the parent requests measurements
-through ``geometry``.
+The host prepares observation access, shared evidence storage and perception
+clients before constructing GeometryAgent outside its toolkit. It then
+registers the prepared agent's ``geometry`` declaration. The agent owns
+measurement processing; the host owns sensor acquisition, calibration,
+coordinate-frame definitions and movement.
 
-Session setup prepares shared observation storage and perception dependencies,
-then initializes GeometryAgent outside the toolkit. The toolkit receives the
-prepared instance and registers its interface. The session integration owns
-the preparation of observations and perception dependencies; the subagent owns
-geometry request processing.
+The constructor accepts an ``ObservationProvider``, the shared ``EnvState``,
+a visual ``grounder`` and an optional ``segmenter``. Alternatively, ``model``
+and ``base_url`` construct the existing visual-grounding adapter.
+``fit_options`` configures the geometric algorithm gates. Surface-point
+requests need a grounder; region and fitting requests also need a segmenter.
+A compatible SAM3 client can be injected without starting a service here.
 
-Each request pins one recorded observation. All parts within that request use
-the same frame. GeometryAgent reads observations and has no motion tools. When
-evidence is insufficient, it reports the missing parts and reasons. The parent
-decides whether to move the camera or robot, then submits another request
-against the new observation.
+The host can register the tool through the ordinary toolkit interface. In this
+illustration, ``state``, ``observations``, perception clients and ``toolkit``
+are supplied by the host:
 
-Inputs and Outputs
-~~~~~~~~~~~~~~~~~~
+.. code-block:: python
 
-The parent supplies a target description, an observation camera and step, and
-the required geometry. This example uses camera names from the current
-integration:
+   from functools import partial
+
+   from toolkits.geometry.geometry_agent import GeometryAgent
+
+   agent = GeometryAgent(
+       state=state,
+       observations=observations,
+       grounder=grounder,
+       segmenter=segmenter,
+   )
+   geometry = agent.geometry
+   toolkit.add_tool(
+       geometry.with_handler(
+           partial(geometry, check_cancelled=toolkit.raise_if_cancelled)
+       )
+   )
+
+Cancellation remains bound at dispatch. GeometryAgent has no motion tools and
+does not advance the recorded observation step. Missing evidence is reported
+to the parent, which decides whether to acquire a new view or perform a
+recovery action.
+
+Observation Contract
+~~~~~~~~~~~~~~~~~~~~
+
+The provider implements
+``get_observation(*, camera: str, step: int) -> GeometryObservation``.
+It resolves camera names and ``step=-1`` itself and returns one aligned
+snapshot. The returned step must identify an existing shared ``EnvState``
+record. GeometryAgent calls the provider once per request; all requested
+parts use that snapshot.
+
+The observation supplies data and coordinate semantics explicitly:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 32 68
+
+   * - Fields
+     - Contract
+   * - ``camera``, ``step``, ``world_frame_id``
+     - Caller-defined camera name, resolved recorded step and stable metric
+       coordinate-frame identity.
+   * - ``rgb``
+     - Original-resolution RGB array of shape H by W by 3 with uint8 samples.
+   * - ``world_xyz``
+     - Aligned H by W by 3 point map in meters in the supplied reference frame.
+   * - ``depth_m``, ``intrinsics``, ``camera_to_world``
+     - Alternative to a point map: optical-axis depth in meters, pinhole 3 by 3
+       intrinsics and a rigid 4 by 4 camera-to-reference transform. Camera Z is
+       forward; the reference frame can have any orientation.
+   * - ``valid_mask``
+     - Optional aligned boolean validity mask. Nonfinite coordinates and
+       nonpositive supplied depths are invalid. A finite point at the reference
+       origin is valid.
+   * - ``up_direction``, ``source_refs``
+     - Optional up vector in the supplied frame and references identifying
+       the source evidence.
+
+Arrays are copied into a read-only snapshot. If depth and a point map are both
+provided, depth also constrains sample validity. Camera poses can orient plane
+normals and provide optical-depth context. There are no required sensor
+filenames, camera-name enumeration or generated world-frame identifiers.
+
+Background-plane removal uses the supplied ``up_direction``; without it,
+cleanup skips automatic background-plane removal. The tool does not assume
+that reference-frame Z is up. Providers convert their sensor depth convention
+to metric optical-axis depth before creating the observation.
+
+Request and Result Contract
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The parent passes a target description, a provider-supported camera name,
+a recorded step and the needed quantities. It supplies no calibration in the
+tool call:
 
 .. code-block:: json
 
    {
      "query": "the yellow and white mug left of the gray cup",
-     "camera": "agentview",
+     "camera": "inspection_rgb",
      "step": 0,
      "required_geometry": [
        "rim_center", "body_center", "bottom_center", "axis", "radius", "height"
      ]
    }
 
-The parent supplies no calibration parameters in the request. The environment
-integration records matching RGB, depth, world coordinates and camera metadata,
-which GeometryAgent reads from the selected observation. ``step=-1`` pins the
-latest recorded step when the request begins.
+With ``required_geometry``, read ``geometry[field]``. Each field contains its
+value, definition, units, ``world_frame_id``, source step, shape assumptions,
+quality and evidence references. ``radius`` means rim radius;
+``body_center`` is the midpoint of observed coaxial rim and bottom centers;
+``height`` is their separation.
 
-When ``required_geometry`` is set, read ``geometry[field]``. Each field includes
-its value, definition, units, world-frame identifier, source step, shape
-assumptions, quality and evidence references. For example, ``radius`` means rim
-radius; ``body_center`` is the midpoint of observed coaxial rim and bottom
-centers; ``height`` is their separation. These definitions determine the
-required observations. An arbitrary visible point or a partial cloud's extent
-cannot replace them.
+For a visible material point, omit ``required_geometry`` and use
+``measurement="surface_point"``. For the coordinate-wise median and bounds
+of segmented visible samples, use ``measurement="visible_region"``.
+These results use ``world_xyz`` in the provider's reference frame. Region
+statistics do not establish a fitted center; a median may lie in empty space.
 
-For visible surface measurements, omit ``required_geometry`` and use
-``measurement="surface_point"`` for a selected material point, or
-``measurement="visible_region"`` for coordinate-wise median and bounds of a
-segmented region. Read these from surface-mode fields such as ``world_xyz``.
-Region statistics describe visible samples; a median may lie in empty space
-and does not establish a fitted object or part center.
+The parent checks the result status before planning with a value:
 
-Before using a result, the parent checks its status and field definitions:
+- ``usable``: all requested quantities passed the geometric checks.
+- ``partial``: some quantities are available; unsupported fields remain unknown.
+- ``need_observation``: current evidence is insufficient; reasons and missing
+  parts guide the parent's next observation decision.
+- ``error``: input, provider, model service or evidence persistence failed.
 
-- ``usable``: all requested quantities passed the checks of the current mode.
-- ``partial``: only some quantities are available; missing fields retain reasons.
-- ``need_observation``: current evidence is insufficient; the parent decides
-  whether to obtain another observation.
-- ``error``: input, service or evidence persistence failed.
-
-Fitted values are labelled ``inferred`` under their shape assumptions. In the
-default mode, unsupported fields remain ``unknown`` with null values.
-Residuals, support counts and segmentation scores are diagnostics, not
-calibrated position errors. Results include evidence references, while full
-masks and clouds are stored separately for inspection rather than sent as tool
-result text.
+Fit-derived values are ``inferred`` under their reported assumptions.
+Unsupported fields are ``unknown`` with null values. Residuals, support counts
+and segmentation scores are diagnostics, not calibrated position errors.
+Results reference the saved observation, masks, cleaned clouds and fitted
+support; full arrays are stored separately from tool-result text.
 
 Processing Flow
 ~~~~~~~~~~~~~~~
 
-Measurement is organized around the requested parts. It performs the following
-steps as needed:
+The program performs these steps as needed by the requested measurement:
 
-1. **Locate the target and part.** The visual model selects visible pixels from
-   RGB and the target description. It provides semantic localization, not
-   world coordinates.
-2. **Extract observed evidence.** Internal perception tools produce an object
-   or part mask and obtain 3-D points from matching depth, world-coordinate
-   maps and camera metadata. The current segmentation implementation uses SAM3.
-3. **Clean the part cloud.** Retain connected regions consistent with the part
-   and reduce background, outliers and other surfaces. Inner edges, top faces
-   and curved outer surfaces use different candidate extraction methods.
-4. **Choose a geometric model.** Fit circles to circular edges and planes to
-   planar regions; compare cylinder and frustum models for approximately
-   axisymmetric surfaces. The requested quantities determine which parts must
-   be observed.
-5. **Check and return measurements.** Use support, coverage, residuals,
-   degeneracy and agreement between parts to determine which quantities have
-   sufficient evidence. Retain diagnostics and evidence references.
+1. **Pin the observation.** Resolve one source snapshot and preserve its camera,
+   step, coordinate frame and evidence metadata.
+2. **Locate and segment the part.** The visual model selects a material pixel.
+   Region requests use a mask consistent with that independently selected point.
+3. **Extract and clean points.** Use aligned metric coordinates and validity,
+   then retain connected part evidence and reject outliers. Background removal
+   requires an explicit up direction.
+4. **Fit the requested shape.** Fit circular edges and planar patches, compare
+   cylinder and frustum surfaces, or derive supported circular-face,
+   rectangular-top and barrel centers.
+5. **Check and return measurements.** Inspect support, coverage, residuals,
+   degeneracy and agreement between parts. Save evidence and report missing
+   quantities rather than substitute unrelated visible centers.
 
-A segmentation mask bounds the candidate region. Each geometric quantity still
-needs evidence from its corresponding part. The center of a whole-object mask
-does not establish an inner opening center, and a partially visible body's
-length does not establish full height. A low residual shows agreement between
-candidate points and a model; part coverage must also support the measurement.
+A whole-object mask does not establish an inner opening center. A partial
+body's visible length does not establish full height. A low residual shows
+agreement between candidate points and a model; the observed part must also
+support the measurement's definition.
 
 .. _geometry-prompt-design:
 
@@ -148,36 +202,34 @@ Prompt Design
 Parent Planner Instructions
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The ``geometry`` tool description and the parent's task prompt jointly define
-the calling contract. The tool description specifies inputs, measurement
-meaning, result interpretation and read-only boundaries. The current hybrid
-evaluation and exploration prompts share the full geometry instructions:
+``GEOMETRY_INSTRUCTIONS`` supplies reusable parent instructions. The host
+includes this text in its planner prompt alongside the registered tool
+description:
 
-- Identify targets, destinations and spatial relations in the global view.
-  Preserve appearance, the specific part and those relations in ``query``;
-  simulator instance suffixes do not replace visual identity.
-- Supply the camera, step and measurement requirements to ``geometry``.
-  Do not provide parent-selected pixels or guessed XYZ. Request surface
-  contact points and fitted centers according to their distinct definitions.
-- Read ``status``, ``definition``, ``evidence_status``, ``quality`` and the
-  source step before using coordinates. For fits, inspect ``geometry[field]``
-  and ``source_refs``, retaining unsupported fields as unknown.
-- On ``need_observation`` or ``error``, inspect the reason and obtain useful new
-  evidence within the task budget instead of repeating unchanged requests.
-  Close views must preserve the same target and part. Measure again after
-  target motion.
+.. code-block:: python
 
-WAM mode uses a shorter task prompt that retains the requirement to measure
-scripted motion targets through ``geometry`` and inspect status and measurement
-definitions. The tool interface contract remains the same.
+   from toolkits.geometry.prompts import GEOMETRY_INSTRUCTIONS
+
+   system_prompt = task_instructions + "\n\n" + GEOMETRY_INSTRUCTIONS
+
+The instructions ask the parent to preserve appearance, part identity and
+spatial relations; select the correct surface or fitting mode; and read status,
+definitions, coordinate-frame identity, source references and quality. The
+parent describes the target instead of supplying guessed pixels or XYZ.
+
+When a request is partial or needs new evidence, the parent inspects the reason
+and chooses a useful next observation within its task budget. It preserves
+target identity across views, compares matching coordinate frames and measures
+again after target motion. The prompt and tool schema do not grant motion
+capabilities to GeometryAgent.
 
 Expanding Part Requirements
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The program maps ``required_geometry`` to observed parts and prefixes the
-original target description with each part requirement. The internal visual
-model does not receive the full quantity list to decide the processing flow;
-each call locates one expanded part. Selected mappings are:
+original target description with each part requirement. Each visual call
+receives one expanded part description, preserving the original appearance
+and spatial relation. For example:
 
 .. list-table::
    :header-rows: 1
@@ -190,26 +242,16 @@ each call locates one expanded part. Selected mappings are:
    * - ``axis``
      - The visible curved outer body, excluding handle, rim and interior.
    * - ``body_center``, ``height``
-     - Locate rim, outer body and bottom separately, then check agreement
-       between parts.
+     - Locate rim, outer body and bottom separately, then check agreement.
    * - ``inner_rim_center``
-     - The inner upper opening edge, excluding outer lip, handle and
-       interior floor.
-
-For an inner-opening request, the target description follows this prefix,
-preserving the original appearance and spatial relation:
-
-.. code-block:: text
-
-   the visible INNER upper opening edge,
-   excluding outer lip, handle and interior floor, of {target_description}
+     - The inner upper opening edge, excluding outer lip, handle and interior
+       floor.
 
 Internal Visual Grounding Prompt
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The API/Codex visual-grounding adapter uses the following prompt.
-``{query}`` stands for the expanded part description for this call;
-``{width}`` and ``{height}`` stand for the original image dimensions:
+The existing API/Codex visual-grounding adapter receives only RGB and target
+text. Its prompt uses the expanded ``{query}`` and original image dimensions:
 
 .. code-block:: text
 
@@ -221,65 +263,43 @@ The API/Codex visual-grounding adapter uses the following prompt.
    [column, row] in ORIGINAL pixel units, not normalized coordinates.
    Only select a point; do not use tools or execute robot actions.
 
-The visual model receives only the frame's RGB and localization text, with no
-depth, object truth or robot motion tools. Its structured result contains only
-``point_xy``: original-pixel ``[column, row]`` when visible, or null when the
-target cannot be identified. The program checks that the pixel is finite and
-inside the image, then converts it to the internal row/column order. World
-coordinates are computed from the matching observation data.
+Its structured result contains ``point_xy``: original-pixel
+``[column, row]`` when visible, or null when unidentified. The program checks
+image size and pixel bounds, converts to internal row/column order, and obtains
+metric coordinates from the pinned observation. The visual model receives no
+depth, object truth or robot tools.
 
 Segmentation Prompts and Call Bounds
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-When a region cloud is needed, the program first requests SAM3 with the part
-text and checks that the mask contains the independently selected visual
-point. If the text candidate is absent or excludes that point, one further
-segmentation request may use the point as a positive prompt. Bottle-barrel
-measurement is a special case: visual grounding targets the main barrel,
-while segmentation text requests the whole bottle, including shoulder, neck
-and base, to retain context for determining barrel limits.
+For a region, the program first requests segmentation with part text and
+requires the mask to contain the independent visual point. If that candidate
+is absent or excludes the point, one further call may use the point as a
+positive prompt. Bottle-barrel measurements ground the barrel but request
+a whole-bottle mask to preserve shoulder, neck and base context.
 
 Each part uses at most one visual-grounding call and two segmentation calls,
-with no synonym search or threshold reduction. Segmentation bounds the
-candidate region; edge extraction, cleaning and fitting still determine the
-part center. Prompts constrain the model's semantic task, while the program
-enforces call budgets, cloud processing and acceptance conditions.
+with no synonym search or threshold reduction. Segmentation bounds candidate
+evidence; the program determines part centers through cleaning and fitting.
+The prompt constrains the semantic task, while code enforces call budgets and
+geometric acceptance.
 
-Integration and Limits
-----------------------
+Limits and Runtime Verification
+-------------------------------
 
-The request design supports spatial measurement from observations. The current
-observation integration uses LIBERO. Another environment must supply matching
-images, 3-D coordinates and camera information, while preserving the result's
-coordinate frames and geometric definitions. Follow :doc:`../simulators/libero`
-for environment setup and :doc:`../guides/cli` for visual-model and service URL
-configuration.
+Occlusion, missing depth, mixed surfaces or incorrect target localization can
+leave quantities unknown. Complete box or cavity recovery and multi-view
+fusion are not implemented. Compare only matching reference frames and point
+definitions, and request new measurements after target motion.
 
-Occlusion, invisible boundaries, missing depth or incorrect target localization
-can leave some quantities undetermined in one frame. Complete box or cavity
-recovery and multi-view fusion are not implemented. Measure again after target
-motion. Comparing requests or applying memory offsets requires matching world
-frames and reference-point definitions.
+Run the offline execution checks from an installation with the test
+dependencies:
 
-.. _geometry-permissive-evaluation:
+.. code-block:: bash
 
-Independent Error Evaluation
-----------------------------
+   python -m pytest tests/unit_tests/toolkits/geometry -q
 
-Measurement and evaluation are separate. GeometryAgent produces results from
-observations; an independent evaluator then compares them with annotations or
-simulator truth. Reference answers do not participate in visual localization,
-candidate selection or fitting. Geometry position error and robot task success
-are measured separately.
-
-The default mode returns quantities according to geometric checks. To compare
-center position errors, ``permissive=True`` or the experiment's ``--permissive``
-option enables labelled approximate candidates for supported part centers
-without requesting additional views. Read ``strict_accepted``,
-``estimate_method`` and ``evaluation_only`` to distinguish accepted fits from
-candidate estimates.
-
-See the :ref:`fixed reference experiment <libero-fixed-reference-experiment>`
-for the concrete protocol, and the
-`geometry evaluation guide <https://github.com/RLinf/RPent/blob/main/toolkits/geometry/evaluation/README.md>`_
-for candidate methods, thresholds and error statistics.
+These checks exercise generic observation input, toolkit dispatch, metric
+projection, bounded perception, cancellation and fitting with synthetic data
+and fake model services. Real-scene position accuracy and robot task success
+require separate experiments.

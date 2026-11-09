@@ -23,6 +23,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import replace
 from functools import partial
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from robots.libero import tools as libero_tools
@@ -36,7 +37,6 @@ from rpent.utils.logging import get_logger, get_output_dir
 
 if TYPE_CHECKING:
     from rpent.memory.manager import MemoryManager
-    from toolkits.geometry.geometry_agent import GeometryAgent
 
 logger = get_logger("libero_toolkit")
 
@@ -50,15 +50,16 @@ class LiberoToolkit(Toolkit):
         runtime_kwargs: dict[str, Any],
         dashboard_events: DashboardEventSink,
         memory: MemoryManager,
-        state: EnvState,
-        geometry_agent: GeometryAgent,
         enable_direct_action: bool = False,
         mode: str = "evaluation",
         attempts_per_session: int = 0,
+        state_output_dir: Path | str | None = None,
         policy_kind: str = "vla",
     ) -> None:
         if mode not in {"evaluation", "exploration"}:
             raise ValueError(f"unsupported LIBERO toolkit mode: {mode!r}")
+        self._state_output_dir = Path(state_output_dir or get_output_dir())
+        state = EnvState(self._state_output_dir)
         super().__init__(
             dashboard_events=dashboard_events,
             state=state,
@@ -72,7 +73,6 @@ class LiberoToolkit(Toolkit):
         self._attempts_per_session: int = max(0, int(attempts_per_session))
         self._session_attempt: int = 1
         self.init_primitives(runtime_kwargs=runtime_kwargs)
-        self._geometry_agent = geometry_agent
         self._register_libero_tools()
         if policy_kind == "wam":
             finish = self._tools["finish"]
@@ -112,14 +112,11 @@ class LiberoToolkit(Toolkit):
             )
             if definition.name in excluded:
                 continue
-            handler = partial(self._execute_primitive, definition.name, definition)
+            if definition.name == "segment":
+                handler = partial(definition, state=self._state)
+            else:
+                handler = partial(self._execute_primitive, definition.name, definition)
             self.add_tool(definition.with_handler(handler))
-        geometry = self._geometry_agent.geometry
-        self.add_tool(
-            geometry.with_handler(
-                partial(geometry, check_cancelled=self.raise_if_cancelled)
-            )
-        )
         if self._mode == "exploration":
             self.add_tool(self._reset_episode)
             finish = self._tools["finish"]

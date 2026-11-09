@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Observable reference-point constructions used by the LIBERO test checklist."""
+"""Observed part centers for openings, circular faces, rectangular tops and barrels."""
 
 from __future__ import annotations
 
@@ -32,21 +32,14 @@ from toolkits.geometry.geometry import (
     fit_plane,
 )
 
-REFERENCE_PARTS = {
+PART_QUANTITIES = {
     "inner_rim_center": "inner_rim",
     "plate_center": "plate_surface",
     "lid_center": "lid",
     "rectangle_center": "rectangular_top",
     "body_segment_center": "bottle_segment",
 }
-REFERENCE_DESCRIPTIONS = {
-    "inner_rim": "the visible INNER upper opening edge, excluding outer lip, handle and interior floor, of",
-    "plate_surface": "the entire central flat circular supporting surface INSIDE the raised rim of",
-    "lid": "the entire sealed circular top lid surface, excluding its raised rolled outer lip, of",
-    "rectangular_top": "the entire main rectangular TOP face up to its four physical edges, excluding side faces, doors and printed-label-only crops, of",
-    "bottle_segment": "a visible material point on the main cylindrical barrel, excluding shoulder, neck, cap and mouth, of",
-}
-REFERENCE_DEFINITIONS = {
+PART_DEFINITIONS = {
     "inner_rim_center": "3d_center_in_observed_inner_upper_opening_edge_plane",
     "plate_center": "circular_support_surface_center_at_fitted_support_plane_height",
     "lid_center": "sealed_circular_lid_center_in_fitted_lid_plane",
@@ -56,7 +49,7 @@ REFERENCE_DEFINITIONS = {
 
 
 @dataclass
-class ReferenceFit:
+class PartFit:
     """Fit input and raw support are saved independently for reproducibility."""
 
     fit: ShapeFit
@@ -614,7 +607,7 @@ def _barrel_boundary(
     return result
 
 
-def fit_reference(
+def fit_part_geometry(
     points: np.ndarray,
     part: str,
     world: np.ndarray,
@@ -622,12 +615,12 @@ def fit_reference(
     anchor: np.ndarray | None,
     camera_origin: np.ndarray | None,
     options: FitOptions | None = None,
-) -> ReferenceFit:
-    """Fit a checklist reference without substituting a visible-fragment center."""
+) -> PartFit:
+    """Fit an observed part without substituting a visible-fragment center."""
     options = options or FitOptions()
     empty = np.zeros_like(mask)
     if anchor is None or not np.isfinite(anchor).all():
-        return ReferenceFit(
+        return PartFit(
             ShapeFit(part, reason="visual_material_anchor_has_no_valid_depth"),
             points,
             points,
@@ -636,7 +629,7 @@ def fit_reference(
     if part == "inner_rim":
         fit = fit_circle(points, options, anchor=anchor, camera_origin=camera_origin)
         fit.assumptions.append("candidates are the resolved inner upper opening edge")
-        return ReferenceFit(fit, points, points, mask)
+        return PartFit(fit, points, points, mask)
     if part == "bottle_segment":
         body = fit_barrel_body(points, anchor, options)
         boundary = (
@@ -645,7 +638,7 @@ def fit_reference(
             else empty
         )
         fit = fit_barrel_segment(points, world[boundary], anchor, options, body=body)
-        return ReferenceFit(
+        return PartFit(
             fit,
             points,
             points,
@@ -654,7 +647,7 @@ def fit_reference(
         )
     plane = fit_plane(points, options, camera_origin=camera_origin)
     if not plane.accepted:
-        return ReferenceFit(plane, points, points, empty)
+        return PartFit(plane, points, points, empty)
     origin, normal = (
         np.asarray(plane.parameters["point"]),
         np.asarray(plane.parameters["normal"]),
@@ -663,7 +656,7 @@ def fit_reference(
         anchor is not None
         and abs(float((anchor - origin) @ normal)) > 3 * options.distance_threshold_m
     ):
-        return ReferenceFit(
+        return PartFit(
             ShapeFit(
                 "face", reason="selected_plane_does_not_contain_visual_face_anchor"
             ),
@@ -682,7 +675,7 @@ def fit_reference(
     )
     observed = world[boundary]
     if extraction["mask_touches_frame"]:
-        return ReferenceFit(
+        return PartFit(
             ShapeFit("face", reason="face_boundary_clipped_by_image"),
             observed,
             observed,
@@ -694,7 +687,7 @@ def fit_reference(
             np.abs((points - origin) @ normal) <= options.distance_threshold_m
         ]
         fit = fit_rectangle(surface_points, observed, options, plane=plane)
-        return ReferenceFit(fit, observed, observed, boundary, extraction)
+        return PartFit(fit, observed, observed, boundary, extraction)
     projected = observed - ((observed - origin) @ normal)[:, None] * normal
     fit = fit_circle(
         projected,
@@ -710,19 +703,21 @@ def fit_reference(
     ]
     fit.quality["face_plane"] = plane.quality
     extraction["fit_input"] = "observed_face_boundary_projected_onto_fitted_face_plane"
-    return ReferenceFit(fit, projected, observed, boundary, extraction)
+    return PartFit(fit, projected, observed, boundary, extraction)
 
 
-def reference_fields(fits: dict[str, ShapeFit], requested: list[str]) -> dict[str, Any]:
-    """Expose only accepted reference centers with their exact semantic definitions."""
+def part_geometry_fields(
+    fits: dict[str, ShapeFit], requested: list[str]
+) -> dict[str, Any]:
+    """Expose accepted part centers with their exact semantic definitions."""
     result = {}
     for name in requested:
-        part = REFERENCE_PARTS[name]
+        part = PART_QUANTITIES[name]
         fit = fits.get(part)
         accepted = fit is not None and fit.accepted
         result[name] = {
             "value": fit.parameters["center"] if accepted else None,
-            "definition": REFERENCE_DEFINITIONS[name],
+            "definition": PART_DEFINITIONS[name],
             "unit": "m",
             "evidence_status": "inferred" if accepted else "unknown",
             "source_parts": [part],
@@ -731,7 +726,7 @@ def reference_fields(fits: dict[str, ShapeFit], requested: list[str]) -> dict[st
             if accepted
             else fit.reason
             if fit is not None
-            else "reference_part_not_observed",
+            else "part_not_observed",
             "quality": {part: fit.quality} if fit is not None else {},
         }
     return result

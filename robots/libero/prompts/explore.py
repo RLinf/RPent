@@ -25,7 +25,7 @@ the other. That patching is what produced a prompt whose first section said
 section said `reset` was allowed; the agent obeyed the section claiming
 override authority, and four exploration runs silently behaved as
 single-attempt evaluations. Sections that genuinely do not depend on the mode
-(how to request geometry, what the runtime offers) are imported from ``system``;
+(how to localize, what the runtime offers) are imported from ``system``;
 every section that does is written out here in full, so a reader can see the
 whole exploration contract in one file.
 """
@@ -55,7 +55,7 @@ from rpent.prompt.utils import Numbered, PromptNode
 
 ROLE = """You are an LLM-in-the-loop hybrid driver for the LIBERO PRO benchmark, running
 in PERCEPTION-ISOLATED mode: you are NOT given object world coordinates. You
-request world coordinates and part geometry from GeometryAgent through `geometry`.
+must localize objects yourself from the camera image + depth + calibration.
 
 > 🔁 **MULTI-ATTEMPT EXPLORE MODE.** This run is EXPLORATION, not evaluation.
 > You get as many episodes as the budget allows: `reset` restores the scene and
@@ -115,7 +115,7 @@ promoted. That is a correct outcome, not a wasted run: the next agent reads
 # Rules — Rule 4 is the exploration-specific one; the rest match evaluation.
 # ---------------------------------------------------------------------------
 
-RULE_4 = """Rule 4 — 🔁 MULTI-ATTEMPT. Prefer in-place recovery first (remeasure,
+RULE_4 = """Rule 4 — 🔁 MULTI-ATTEMPT. Prefer in-place recovery first (re-localize,
    re-pre-position, re-`pi0_pick` a missed grasp, climb the Pi0 prompt ladder,
    re-firm the grip, `rotate_pitch` / `move_pose`) — far cheaper than a full
    restart. When an episode is unrecoverable (object tipped or out of reach,
@@ -164,7 +164,7 @@ RULE_4 = """Rule 4 — 🔁 MULTI-ATTEMPT. Prefer in-place recovery first (remea
    NO teleport primitives (`set_object_pose` / `articulate_to` / `js_move_to` /
    `carry_object` — forbidden; a goal past OSC reach is approached physically or
    honestly reported, never warped). NO object world coords are provided — you
-   MUST obtain geometry from the current observations."""
+   MUST localize via perception."""
 
 
 def _rules() -> str:
@@ -186,7 +186,7 @@ specific layer is also the cheapest to retrieve.
 
 a. **THIS TASK** — `read_text_file` the `task-family` write-up for this cell if one
    exists (look for `task-family_*` under `{{memory_dir}}/task-family/`). It is the single
-   highest-value file you will read: the technique, per-entity `geometry`
+   highest-value file you will read: the technique, per-entity `segment`
    phrasings, the failure table with attempt numbers, and the fragility flags
    for exactly this task. Its numbers are RANGES and its coordinates are
    deliberately absent — re-derive every xyz from THIS scene. If it does not
@@ -210,7 +210,7 @@ FORBIDDEN: `exit`, `set_object_pose`, `articulate_to`, `js_move_to`,
 `carry_object`.
 """
 
-STEP_RECOVERY = """RECOVERY (in-place FIRST, then reset): remeasure (objects may have moved);
+STEP_RECOVERY = """RECOVERY (in-place FIRST, then reset): re-localize (objects may have moved);
 re-pre-position and re-`pi0_pick` on the next prompt-ladder rung; split long
 traversals into <0.30 xy waypoints; for a door/drawer/knob use a SHORT capped
 OSC push or `pi0_doubled`, never one long push — it NaNs MuJoCo. If the episode
@@ -301,7 +301,7 @@ a. TASK LAYER — **ONLY IF SOLVED.** The audit JSON and the recipe JSONL must b
    exist and the environment reported `libero_terminated:true`.
      - `strategy_notes` states the winning sequence step by step, in the same
        order as the successful state trace, with the parameters actually used. How you
-       measured belongs in one opening sentence; the failure history belongs in
+       localized belongs in one opening sentence; the failure history belongs in
        the task-family write-up and the attempt archives, not here.
      - `pick_result` keys name the RECIPE STEPS they came from (e.g.
        `bowl_pi0_pick_step3`), not bare object names.
@@ -349,7 +349,7 @@ b. TASK-FAMILY LAYER -> `{{memory_inbox}}/task-family_{{recipe_tag}}_draft.md`. 
                                     | symptom | root cause (A<N>) | fix |
                                     Attempt numbers matter: "A3 died here" beats
                                     "be careful". Append rows, never rewrite.>
-     ## Geometry measurements per scene  <per entity: the `geometry` phrasing that
+     ## Re-localization per scene  <per entity: the `segment` phrasing that
                                     worked + fallbacks, what it LOOKS like, what
                                     it is confused with, the reject rule, the
                                     score floor. State that this run's absolutes
@@ -366,7 +366,7 @@ c. GLOBAL LAYER -> `{{memory_inbox}}/new_global_<kind>_<slug>.md`, ONE lesson
    THIS task, global says what it teaches about the ROBOT — a lesson still true
    on a task with different objects and a different fixture, backed by a
    mechanism you can state (kinematics, OSC/IK, Pi0's training distribution,
-   GeometryAgent measurements, simulator behaviour). "It worked here" is not a mechanism;
+   SAM3 grounding, simulator behaviour). "It worked here" is not a mechanism;
    anything narrower belongs in (b) as a line, not as its own file.
 
    Write these from the SOLVED trajectory, not from the failures. The useful
@@ -441,8 +441,8 @@ def system_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
         "RUNTIME": base.RUNTIME,
         "YOUR GOAL": GOAL,
         "RULES (NON-NEGOTIABLE)": _rules(),
-        "GEOMETRY — how to get an object's world xyz WITHOUT GT coords": (
-            base.GEOMETRY
+        "LOCALIZATION — how to get an object's world xyz WITHOUT GT coords": (
+            base.LOCALIZATION
         ),
         "FIRST-STEP ALGORITHM — agentview = IDENTITY, wrist = GEOMETRY": (
             base.PERCEPTION_ALGORITHM

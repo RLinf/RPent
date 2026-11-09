@@ -60,6 +60,7 @@ def _primitives(env: _FakeEnv) -> LiberoPrimitives:
     return LiberoPrimitives(
         env=env,
         model=SimpleNamespace(),
+        sam3_client=SimpleNamespace(),
         check_cancelled=lambda: None,
     )
 

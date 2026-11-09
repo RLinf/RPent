@@ -140,7 +140,7 @@ def _support_quality(
 
 
 def _plane_consensus(
-    points: np.ndarray, options: FitOptions, *, horizontal: bool = False
+    points: np.ndarray, options: FitOptions, *, normal_hint: np.ndarray | None = None
 ) -> np.ndarray:
     rng = np.random.default_rng(0)
     best = np.zeros(len(points), dtype=bool)
@@ -151,7 +151,9 @@ def _plane_consensus(
         if length < 1e-12:
             continue
         normal /= length
-        if horizontal and abs(normal[2]) < np.cos(np.radians(15)):
+        if normal_hint is not None and abs(normal @ normal_hint) < np.cos(
+            np.radians(15)
+        ):
             continue
         inliers = np.abs((points - a) @ normal) <= options.distance_threshold_m
         if inliers.sum() > best.sum():
@@ -221,11 +223,12 @@ def clean_part_cloud(
     context_points: np.ndarray | None = None,
     options: FitOptions | None = None,
     require_anchor_connection: bool = True,
+    up_direction: np.ndarray | None = None,
 ) -> CleanedCloud:
     """Keep target-connected observed samples and reject conservative outliers.
 
-    Horizontal context planes may be removed for body/rim only, when the visual
-    anchor is clearly above or below that plane. The target's own plane or bottom
+    Context planes perpendicular to an explicitly supplied up direction may be
+    removed for body/rim only, when separated from the visual anchor. The target's own plane or bottom
     is never removed by this step. All returned points come from the input.
     Resolved contours may omit the visual material point; disabling its
     connection requirement selects the largest component while retaining the
@@ -237,6 +240,15 @@ def clean_part_cloud(
 
     options = options or FitOptions()
     points = _points(points)
+    if up_direction is not None:
+        up_direction = np.asarray(up_direction, dtype=float)
+        if (
+            up_direction.shape != (3,)
+            or not np.isfinite(up_direction).all()
+            or np.linalg.norm(up_direction) == 0
+        ):
+            raise ValueError("up_direction must be a finite nonzero 3-vector")
+        up_direction = up_direction / np.linalg.norm(up_direction)
     indices = np.flatnonzero(np.isfinite(points).all(axis=1))
     quality: dict[str, Any] = {
         "n_input": len(points),
@@ -259,7 +271,12 @@ def clean_part_cloud(
         ]
         indices.sort()
     quality["n_voxel_sampled"] = len(indices)
-    if part in ("rim", "body") and context_points is not None and anchor is not None:
+    if (
+        part in ("rim", "body")
+        and context_points is not None
+        and anchor is not None
+        and up_direction is not None
+    ):
         context = _points(context_points)
         context = context[np.isfinite(context).all(axis=1)]
         if len(context) > options.max_points:
@@ -269,7 +286,7 @@ def clean_part_cloud(
                 )
             ]
         if len(context) >= options.min_points:
-            support = _plane_consensus(context, options, horizontal=True)
+            support = _plane_consensus(context, options, normal_hint=up_direction)
             if support.sum() >= options.min_points and support.mean() >= 0.5:
                 origin = context[support].mean(axis=0)
                 _, singular, axes = np.linalg.svd(
@@ -284,7 +301,7 @@ def clean_part_cloud(
                 )
                 if (
                     observable
-                    and abs(normal[2]) >= np.cos(np.radians(15))
+                    and abs(normal @ up_direction) >= np.cos(np.radians(15))
                     and distance > 3 * options.distance_threshold_m
                 ):
                     keep = (

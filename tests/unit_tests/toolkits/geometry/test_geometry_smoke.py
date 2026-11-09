@@ -12,190 +12,200 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Offline smoke checks for geometry imports, delegation and part fitting."""
+"""Offline execution checks for the generic geometry tool and observation contract."""
 
-import json
 import os
 import subprocess
 import sys
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
-from robots.libero.tools import LiberoPrimitives, write_recipe_from_states
 from rpent.robots.components.molmo_client import MolmoResult
 from rpent.robots.components.sam3_client import Sam3Result
 from rpent.session import EnvState
 from toolkits.geometry.geometry_agent import GeometryAgent
+from toolkits.geometry.observation import GeometryObservation
 
 
-def _save_state(tmp_path, world, state=None):
-    if state is None:
-        state = EnvState(tmp_path / "episode")
+def _inputs(tmp_path, world, **kwargs):
+    state = EnvState(tmp_path / "episode")
     with state.record_step(state={}):
-        state.save("agentview.png", np.zeros(world.shape, dtype=np.uint8))
-        state.save("agentview_world.npz", world.astype(np.float32))
-        state.save("agentview_depth.npz", np.ones(world.shape[:2], dtype=np.float32))
-    return state
+        pass
+    frame = GeometryObservation(
+        camera="side/color",
+        step=0,
+        world_frame_id="workcell/base",
+        rgb=np.zeros(world.shape, dtype=np.uint8),
+        world_xyz=world,
+        **kwargs,
+    )
+    calls = []
+
+    def get_observation(**request):
+        calls.append(request)
+        return frame
+
+    return state, frame, SimpleNamespace(get_observation=get_observation), calls
 
 
-def test_imports_and_cli_smoke(tmp_path):
+def _grounder(pixel, shape):
+    return SimpleNamespace(
+        ground=lambda *args: MolmoResult(
+            found=True, point_xy=pixel, image_size=(shape[1], shape[0])
+        )
+    )
+
+
+def test_imports_without_simulator_or_model_stacks(tmp_path):
     root = Path(__file__).resolve().parents[4]
     code = """
 import sys
 from importlib import import_module
-for name in (
-    "geometry", "candidate_geometry", "reference_geometry",
-    "evaluation.evaluation_scene",
-):
+for name in ("geometry", "part_geometry", "perception", "observation", "prompts"):
     import_module("toolkits.geometry." + name)
 from toolkits.geometry.geometry_agent import GeometryAgent
-from toolkits.geometry.evaluation.experiment import main
 assert GeometryAgent.geometry.name == "geometry"
 assert GeometryAgent.geometry.readonly
-assert main(["validate-manifest"]) == 0
 assert not {"torch", "rlinf", "mujoco", "robosuite", "sam3"}.intersection(sys.modules)
+assert not any(name.startswith("robots.") for name in sys.modules)
 """
-    for args in (
-        ["-c", code],
-        ["-m", "toolkits.geometry.evaluation.experiment", "--help"],
-    ):
-        result = subprocess.run(
-            [sys.executable, *args],
-            cwd=tmp_path,
-            env={**os.environ, "PYTHONPATH": str(root)},
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        assert result.returncode == 0, result.stdout + result.stderr
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=tmp_path,
+        env={**os.environ, "PYTHONPATH": str(root)},
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
-def test_parent_geometry_and_recipe_smoke(tmp_path, monkeypatch):
+def test_generic_tool_dispatch_and_model_adapter(tmp_path, monkeypatch):
     from pydantic_ai.models.test import TestModel
 
     import rpent.planner.base as base
-    from robots.libero import robot_spec
-    from robots.libero.toolkit import LiberoToolkit
     from rpent.dashboard.events import NullDashboardEventSink
-    from rpent.robots import RunConfig
+    from rpent.memory.manager import MemoryManager
+    from rpent.tools.toolkit import Toolkit
     from rpent.utils import templates
 
     rows, cols = np.indices((6, 8))
-    world = np.stack((cols * 0.01, rows * 0.02, 0.8 + rows * 0.01), axis=-1)
-
-    def init(self, **kwargs):
-        assert "sam3_client" not in kwargs["runtime_kwargs"]
-        _save_state(tmp_path, world, state=self.state)
-        self._primitives = LiberoPrimitives(
-            env=object(),
-            model=object(),
-            check_cancelled=self.raise_if_cancelled,
-        )
-
-    monkeypatch.setattr(LiberoToolkit, "init_primitives", init)
+    world = np.stack((cols * 0.01, rows * 0.02, np.full(rows.shape, 12.0)), axis=-1)
+    state, frame, source, calls = _inputs(tmp_path, world)
     monkeypatch.setattr(
-        templates, "default_variables", lambda: {"output_dir": str(tmp_path / "parent")}
+        templates, "default_variables", lambda: {"output_dir": str(tmp_path)}
     )
     monkeypatch.setattr(
         base,
         "build_api_model",
         lambda *a: TestModel(custom_output_args={"point_xy": [5, 3]}),
     )
-    sam3_client = object()
-    parent = robot_spec.get_toolkit(
-        runtime_kwargs={"sam3_client": sam3_client},
+    agent = GeometryAgent(state=state, observations=source, model="test:geometry")
+    parent = Toolkit(
+        state=state,
         dashboard_events=NullDashboardEventSink(),
-        config=RunConfig(
-            recipe_tag="geometry-smoke",
-            output_dir=tmp_path / "episode",
-            prompt_vars={"memory_dir": str(tmp_path / "memory")},
-            task_desc={"geometry_model": "test:geometry"},
-        ),
+        memory=MemoryManager(root=tmp_path / "memory", memory_access="read_only"),
     )
-    state = parent.state
-    assert parent._geometry_agent._state is state
-    assert parent._geometry_agent._perception._sam3_client is sam3_client
-    assert "check_cancelled" not in parent._tools["geometry"].input_schema["properties"]
-    data = parent.execute_tool("geometry", {"query": "cup handle", "step": 0}).data
+    parent.add_tool(
+        agent.geometry.with_handler(
+            partial(agent.geometry, check_cancelled=parent.raise_if_cancelled)
+        )
+    )
+    schema = parent._tools["geometry"].input_schema
+    assert "enum" not in schema["properties"]["camera"]
+    assert (
+        "camera" in schema["required"] and "check_cancelled" not in schema["properties"]
+    )
+    data = parent.execute_tool(
+        "geometry", {"query": "blue handle", "camera": frame.camera}
+    ).data
     assert data["status"] == "usable", data
-    assert np.asarray(data["world_xyz"]).shape == (3,)
-    assert np.isfinite(data["world_xyz"]).all()
+    np.testing.assert_allclose(data["world_xyz"], frame.world_xyz[3, 5])
+    assert data["world_frame_id"] == "workcell/base"
+    assert calls == [{"camera": frame.camera, "step": -1}]
     assert state.load(data["geometry_artifact"], step=0)["status"] == "usable"
     assert len(state.records()) == 1
 
-    with state.record_step(state={}, terminated=True):
-        pass
-    name = write_recipe_from_states(state, "geometry", output_dir=tmp_path)
-    commands = [json.loads(line) for line in (tmp_path / name).read_text().splitlines()]
-    assert len(commands) == 1
-    assert commands[0]["action"] == "geometry"
-    assert commands[0]["query"] == "cup handle"
+
+def test_depth_projection_in_caller_coordinate_frame(tmp_path):
+    world = np.zeros((3, 4, 3))
+    state, _, _, _ = _inputs(tmp_path, world)
+    pose = np.array(
+        [[1, 0, 0, 0.1], [0, 0, 1, 0.2], [0, -1, 0, 0.3], [0, 0, 0, 1]], dtype=float
+    )
+    intrinsics = np.array([[100, 0, 1], [0, 100, 1], [0, 0, 1]], dtype=float)
+    frame = GeometryObservation(
+        camera="sensor-17",
+        step=0,
+        world_frame_id="fixture/y_up",
+        rgb=np.zeros((3, 4, 3), dtype=np.uint8),
+        depth_m=np.full((3, 4), 12.0),
+        intrinsics=intrinsics,
+        camera_to_world=pose,
+        up_direction=np.array([0, 1, 0]),
+    )
+    source = SimpleNamespace(get_observation=lambda **kwargs: frame)
+    agent = GeometryAgent(
+        state=state, observations=source, grounder=_grounder((2, 1), (3, 4))
+    )
+    data = agent.geometry("marker", camera=frame.camera, step=0).data
+    assert data["status"] == "usable", data
+    np.testing.assert_allclose(data["world_xyz"], [0.22, 12.2, 0.3])
+    assert data["world_frame_id"] == "fixture/y_up"
 
 
-def test_request_cancellation_stops_before_projection(tmp_path, monkeypatch):
-    from rpent.tools.toolkit import ToolCancelled
-    from toolkits.geometry import perception
-
-    state = _save_state(tmp_path, np.ones((6, 8, 3)))
-    cancelled = False
+def test_snapshot_preserves_valid_origin_during_model_call(tmp_path):
+    world = np.zeros((1, 1, 3))
+    state, frame, source, calls = _inputs(tmp_path, world)
 
     def ground(*args):
-        nonlocal cancelled
-        cancelled = True
-        return MolmoResult(found=True, point_xy=(5, 3), image_size=(8, 6))
+        world[:] = 99
+        return MolmoResult(found=True, point_xy=(0, 0), image_size=(1, 1))
 
-    def check():
-        if cancelled:
-            raise ToolCancelled("requested stop")
-
-    def unexpected_projection(**kwargs):
-        pytest.fail("cancelled geometry must stop before coordinate lookup")
-
-    monkeypatch.setattr(perception, "back_project", unexpected_projection)
-    agent = GeometryAgent(state=state, grounder=SimpleNamespace(ground=ground))
-    with pytest.raises(ToolCancelled, match="requested stop"):
-        agent.geometry("cup", check_cancelled=check)
+    data = (
+        GeometryAgent(
+            state=state, observations=source, grounder=SimpleNamespace(ground=ground)
+        )
+        .geometry("origin marker", camera=frame.camera)
+        .data
+    )
+    assert data["status"] == "usable", data
+    assert data["world_xyz"] == [0, 0, 0]
+    assert len(calls) == 1 and not frame.world_xyz.flags.writeable
 
 
-def test_flash_segment_anchor_uses_geometry(tmp_path):
-    from robots.libero.flash.replay import replay
+@pytest.mark.parametrize("accept_second", [True, False])
+def test_segmentation_point_fallback_has_bounded_calls(tmp_path, accept_second):
+    state, frame, source, _ = _inputs(tmp_path, np.ones((6, 8, 3)))
+    attempts = []
 
-    state = _save_state(tmp_path, np.full((6, 8, 3), 0.1))
+    def segment(image, **kwargs):
+        attempts.append(kwargs)
+        mask = np.ones((6, 8), dtype=bool)
+        if len(attempts) == 1 or not accept_second:
+            mask[3, 5] = False
+        return Sam3Result(found=True, mask=mask, score=0.95)
+
     agent = GeometryAgent(
         state=state,
-        sam3_client=SimpleNamespace(
-            segment=lambda *a, **kw: Sam3Result(
-                found=True, mask=np.ones((6, 8), dtype=bool), score=0.95
-            )
-        ),
-        grounder=SimpleNamespace(
-            ground=lambda *a: MolmoResult(
-                found=True, point_xy=(5, 3), image_size=(8, 6)
-            )
-        ),
+        observations=source,
+        segmenter=SimpleNamespace(segment=segment),
+        grounder=_grounder((5, 3), (6, 8)),
     )
-    calls = []
-
-    def execute(name, arguments):
-        calls.append(name)
-        assert name == "geometry"
-        return agent.geometry(**arguments)
-
-    parent = SimpleNamespace(state=state, execute_tool=execute, solved=lambda: False)
-    result = replay(
-        parent,
-        None,
-        {
-            "plan": [],
-            "reference": {"cup": np.array([0.1, 0.1])},
-            "locator_of": {"cup": "segment"},
-        },
-    )
-    assert result["anchors"] == 1
-    assert calls == ["geometry"]
+    data = agent.geometry(
+        "blue cup left of the red box",
+        camera=frame.camera,
+        measurement="visible_region",
+    ).data
+    assert len(attempts) == 2
+    assert attempts[0]["text_prompt"] == "blue cup left of the red box"
+    assert attempts[1]["point"] == [3, 5]
+    assert data["calls"] == {"grounding": 1, "segment": 2, "back_project": 1}
+    assert data["status"] == ("usable" if accept_second else "need_observation")
     assert len(state.records()) == 1
 
 
@@ -206,9 +216,10 @@ def test_flash_segment_anchor_uses_geometry(tmp_path):
         ("bottom", "bottom_center"),
         ("plane", "plane_normal"),
         ("body", "axis"),
+        ("inner_rim", "inner_rim_center"),
     ],
 )
-def test_part_geometry_smoke(tmp_path, part, quantity):
+def test_part_geometry_smoke_in_rotated_frame(tmp_path, part, quantity):
     if part == "body":
         theta, z = np.meshgrid(
             np.linspace(0, np.radians(220), 32), np.linspace(0.8, 0.92, 20)
@@ -224,32 +235,111 @@ def test_part_geometry_smoke(tmp_path, part, quantity):
             mask = np.abs(np.hypot(x, y) - 0.04) < 0.0016
         elif part == "bottom":
             mask = np.hypot(x, y) <= 0.04
+        elif part == "inner_rim":
+            mask = (np.hypot(x, y) >= 0.032) & (np.hypot(x, y) <= 0.045)
         else:
             mask = (np.abs(x) < 0.04) & (np.abs(y) < 0.04)
-        pixel = (104, 64) if part == "rim" else (64, 64)
-    state = _save_state(tmp_path, world)
-    sam3_client = SimpleNamespace(
+        pixel = (
+            (104, 64)
+            if part == "rim"
+            else (96, 64)
+            if part == "inner_rim"
+            else (64, 64)
+        )
+    rotation = np.array([[1, 0, 0], [0, 0, 1], [0, -1, 0]])
+    world = world @ rotation.T
+    state, frame, source, calls = _inputs(
+        tmp_path, world, up_direction=np.array([0, 1, 0])
+    )
+    segmenter = SimpleNamespace(
         segment=lambda *a, **kw: Sam3Result(found=True, mask=mask, score=0.95)
     )
     agent = GeometryAgent(
         state=state,
-        sam3_client=sam3_client,
-        check_cancelled=lambda: None,
-        grounder=SimpleNamespace(
-            ground=lambda *a: MolmoResult(
-                found=True, point_xy=pixel, image_size=(mask.shape[1], mask.shape[0])
-            )
-        ),
+        observations=source,
+        segmenter=segmenter,
+        grounder=_grounder(pixel, mask.shape),
     )
     data = agent.geometry(
-        "cup" if part != "plane" else "microwave top",
+        "container beside the blue box",
+        camera=frame.camera,
         step=0,
         required_geometry=[quantity],
     ).data
     assert data["status"] == "usable", data
-    value = data["geometry"][quantity]["value"]
-    vector = value["direction"] if part == "body" else value
-    assert np.asarray(vector).shape == (3,)
-    assert np.isfinite(vector).all()
+    field = data["geometry"][quantity]
+    value = field["value"]["direction"] if part == "body" else field["value"]
+    assert np.asarray(value).shape == (3,) and np.isfinite(value).all()
+    assert field["world_frame_id"] == frame.world_frame_id
+    assert len(calls) == 1 and len(state.records()) == 1
     assert state.exists(data["parts"][part]["cleaned_points_artifact"], step=0)
-    assert state.exists(data["geometry_artifact"], step=0)
+
+
+def test_request_cancellation_stops_before_coordinate_read(tmp_path, monkeypatch):
+    from rpent.tools.toolkit import ToolCancelled
+    from toolkits.geometry import perception
+
+    state, frame, source, _ = _inputs(tmp_path, np.ones((6, 8, 3)))
+    cancelled = False
+
+    def ground(*args):
+        nonlocal cancelled
+        cancelled = True
+        return MolmoResult(found=True, point_xy=(5, 3), image_size=(8, 6))
+
+    def check():
+        if cancelled:
+            raise ToolCancelled("requested stop")
+
+    def unexpected(*args):
+        pytest.fail("cancelled request must stop before coordinate reads")
+
+    monkeypatch.setattr(perception, "back_project", unexpected)
+    agent = GeometryAgent(
+        state=state, observations=source, grounder=SimpleNamespace(ground=ground)
+    )
+    with pytest.raises(ToolCancelled, match="requested stop"):
+        agent.geometry("target", camera=frame.camera, check_cancelled=check)
+
+
+def test_observation_validation_and_source_identity(tmp_path):
+    state, frame, source, _ = _inputs(tmp_path, np.ones((6, 8, 3)))
+    data = (
+        GeometryAgent(
+            state=state, observations=source, grounder=_grounder((5, 3), (6, 8))
+        )
+        .geometry("target", camera="other")
+        .data
+    )
+    assert data["status"] == "error" and data["code"] == "observation_unavailable"
+    with pytest.raises(ValueError, match="world_xyz must match RGB"):
+        GeometryObservation(
+            camera="camera",
+            step=0,
+            world_frame_id="base",
+            rgb=frame.rgb,
+            world_xyz=np.ones((3, 4, 3)),
+        )
+
+
+def test_cleaning_uses_explicit_up_direction():
+    from toolkits.geometry.geometry import clean_part_cloud
+
+    x, z = np.meshgrid(np.linspace(-0.05, 0.05, 16), np.linspace(-0.05, 0.05, 16))
+    context = np.column_stack((x.ravel(), np.zeros(x.size), z.ravel()))
+    theta, y = np.meshgrid(np.linspace(0, 2 * np.pi, 32), np.linspace(0.02, 0.08, 12))
+    body = np.column_stack(
+        (0.02 * np.cos(theta).ravel(), y.ravel(), 0.02 * np.sin(theta).ravel())
+    )
+    points = np.vstack((context, body))
+    args = {
+        "part": "body",
+        "anchor": np.array([0, 0.05, 0.02]),
+        "context_points": context,
+        "require_anchor_connection": False,
+    }
+    supplied = clean_part_cloud(points, up_direction=np.array([0, 1, 0]), **args)
+    unspecified = clean_part_cloud(points, **args)
+    assert "background_plane" in supplied.quality
+    assert "background_plane" not in unspecified.quality
+    assert np.isfinite(supplied.points).all()

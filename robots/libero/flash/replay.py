@@ -36,11 +36,11 @@ from typing import Any
 
 import numpy as np
 
+from robots.libero import tools as libero_tools
 from robots.libero.flash.prompts import build as prompt_for
 from robots.libero.memory import replay_directory
 from rpent.robots.components.molmo_client import MolmoClient
 from rpent.session import EnvState
-from toolkits.geometry.perception import back_project
 
 #: ``<family>_<suite>_t<task>_s<seed>``, the tag the CLI builds per cell.
 _CELL = re.compile(r"^(10|goal|object|spatial)_(task|swap)_t(\d+)_s(\d+)$")
@@ -89,7 +89,7 @@ def profile(
     """
     points = []
     for offset in np.linspace(-spread, spread, samples):
-        found = back_project(
+        found = libero_tools.back_project(
             row=int(round(row + offset)),
             col=int(round(col)),
             step=step,
@@ -143,7 +143,7 @@ def held_body(molmo: MolmoClient, state: EnvState, step: int, query: str):
     points = []
     for dc in (-40, 0, 40):
         for dr in (-40, 0, 40):
-            got = back_project(
+            got = libero_tools.back_project(
                 row=int(round(row + dr)),
                 col=int(round(col + dc)),
                 step=step,
@@ -274,12 +274,12 @@ def replay(
             try:
                 found = execute(
                     toolkit,
-                    "geometry",
+                    "segment",
                     {
-                        "query": phrase,
-                        "measurement": "visible_region",
+                        "prompt": phrase,
                         "camera": "agentview",
                         "step": opening,
+                        "min_score": 0.2,
                     },
                 )
             except RuntimeError as exc:
@@ -395,7 +395,7 @@ def replay(
             ]
             execute(toolkit, name, arguments)
             look()
-        elif name in {"segment", "segment_point", "geometry"}:
+        elif name in {"segment", "segment_point"}:
             continue
         elif name in {"pi0_pick", "pi0_doubled"}:
             prompt = str(arguments.get("prompt", ""))

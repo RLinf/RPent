@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Read-only LIBERO geometry measurements delegated to a visual grounding agent."""
+"""Read-only geometry requests over caller-provided camera observations."""
 
 from __future__ import annotations
 
@@ -31,6 +31,10 @@ from rpent.tools import ToolResult, tool
 from rpent.tools.toolkit import ToolCancelled
 from rpent.utils.logging import get_logger
 from toolkits.geometry import perception
+from toolkits.geometry.geometry import FitOptions
+from toolkits.geometry.observation import GeometryObservation, ObservationProvider
+from toolkits.geometry.perception import Segmenter, VisualGrounder
+from toolkits.geometry.prompts import PART_DESCRIPTIONS
 
 logger = get_logger("geometry_agent")
 
@@ -54,46 +58,46 @@ GeometryQuantity = Literal[
 
 
 class GeometryAgent:
-    """Select target pixels with a VLM and compute coordinates using internal tools.
+    """Coordinate bounded perception and fitting without environment actions.
 
-    The visual model receives only the requested camera image and target text.
-    It selects a material point, never world coordinates. Each request uses one
-    grounding call and at most two SAM calls per requested part on one pinned
-    observation. Movement and additional views belong to the parent planner.
-    The permissive constructor option is for reference-center error evaluation:
-    it adds labelled candidates after strict rejection without requesting a view.
+    The observation provider owns camera selection, source steps, calibration
+    and coordinate-frame identity. EnvState persists evidence at those existing
+    steps. Visual models select material pixels; the program handles metric
+    coordinates, part dispatch, point clouds and geometric acceptance.
     """
 
     def __init__(
         self,
         *,
         state: EnvState,
-        sam3_client: Any = None,
-        check_cancelled: Callable[[], None] | None = None,
+        observations: ObservationProvider,
+        segmenter: Segmenter | None = None,
+        grounder: VisualGrounder | None = None,
         model: str | None = None,
         base_url: str | None = None,
-        grounder: Any = None,
-        permissive: bool = False,
+        fit_options: FitOptions | None = None,
+        check_cancelled: Callable[[], None] | None = None,
     ) -> None:
         self._state = state
-        self._perception = perception.GeometryPerception(sam3_client)
-        self._check_cancelled = check_cancelled or (lambda: None)
-        self._model = model
+        self._observations = observations
+        self._perception = perception.GeometryPerception(segmenter)
         self._grounder = grounder
-        if self._grounder is None and model:
+        self._model = model
+        if grounder is None and model:
             from rpent.robots.components.grounding_agent import GroundingAgent
 
             self._grounder = GroundingAgent(model=model, base_url=base_url)
-        self._permissive = permissive
+        self._fit_options = fit_options or FitOptions()
+        self._check_cancelled = check_cancelled or (lambda: None)
         self._lock = threading.Lock()
+        self._namespace = uuid.uuid4().hex[:12]
         self._index = 0
-        self._world_frame = f"libero_world/{uuid.uuid4().hex}"
 
     @tool(readonly=True, exclude=("check_cancelled",))
     def geometry(
         self,
         query: Annotated[str, Field(min_length=1, max_length=1024)],
-        camera: Literal["agentview", "wrist"] = "agentview",
+        camera: Annotated[str, Field(min_length=1, max_length=128)],
         step: Annotated[int, Field(ge=-1)] = -1,
         measurement: Literal["surface_point", "visible_region"] = "surface_point",
         required_geometry: Annotated[
@@ -103,49 +107,56 @@ class GeometryAgent:
         *,
         check_cancelled: Callable[[], None] | None = None,
     ) -> ToolResult:
-        """Ask GeometryAgent to locate a described object or visible part without moving the robot.
+        """Measure a described visible object or part without moving the robot.
 
-        Describe appearance, part and spatial relation in query; the subagent
-        selects pixels and runs its own perception tools. surface_point returns
-        a visible material point. visible_region returns the coordinate-wise
-        median and bounds of a SAM region containing the visually selected point.
-        required_geometry selects part-specific cleaning and shape fitting instead
-        of measurement. Results are in geometry[field], with definitions, fit
-        quality and measured/inferred/unknown status. radius means rim radius;
-        body_radii describes visible body cross sections. Full height and body
-        center require consistent observed rim and bottom boundaries. No calibration
-        parameters are supplied by the parent. Inspect partial/need_observation
-        results and obtain missing views through the normal motion tools.
-        An agent configured for permissive evaluation returns labelled approximate
-        checklist centers after strict rejection; inspect strict_accepted and
-        estimate_method rather than treating usable as a reliability certificate.
+        Describe appearance, the exact part and spatial relation. The subagent
+        selects pixels internally; calibration and coordinate frames come from
+        the observation provider. surface_point returns a visible material point;
+        visible_region returns coordinate-wise median and bounds of observed
+        segmented samples, not a fitted center. required_geometry selects part
+        fitting instead of measurement. Read geometry[field], its definition,
+        evidence_status, source_refs and quality. radius means rim radius. Full
+        height and body_center require consistent observed rim and bottom edges.
+        Inspect partial/need_observation reasons and obtain missing evidence
+        through the parent's normal observation or motion tools.
 
         Args:
-            query: Target appearance, visible part and relation, e.g. "the handle of the yellow and white mug".
-            camera: agentview for global identity, wrist for close geometry of the same target.
-            step: Observation step; -1 pins the latest step at request entry.
-            measurement: surface_point or visible_region; region bounds describe only visible samples.
-            required_geometry: Optional fitted quantities; overrides measurement. inner_rim_center is the inner opening edge center; plate_center is the central support face center; lid_center is the sealed circular lid center; rectangle_center requires four physical top-face edges; body_segment_center excludes the bottle neck and requires both barrel limits. Legacy cup quantities use circle and cylinder/frustum models; plane selects a visible planar patch.
+            query: Target appearance, visible part and relation.
+            camera: A camera name supported by the injected observation provider.
+            step: Recorded source step; -1 pins the provider's latest observation.
+            measurement: surface_point or visible_region; bounds cover visible samples.
+            required_geometry: Optional fitted quantities, overriding measurement.
         """
-        # GroundingAgent's lazily created model and the request trace belong to
-        # this instance. Serialize requests without advancing the environment.
         with self._lock:
             check_cancelled = check_cancelled or self._check_cancelled
             check_cancelled()
             try:
-                record = self._state.get(step)
-            except (LookupError, ValueError) as exc:
+                observation = self._observations.get_observation(
+                    camera=camera, step=step
+                )
+                if not isinstance(observation, GeometryObservation):
+                    raise ValueError("provider must return a GeometryObservation")
+                if observation.camera != camera or (
+                    step != -1 and observation.step != step
+                ):
+                    raise ValueError(
+                        "provider returned a different camera or source step"
+                    )
+                self._state.get(observation.step)
+            except (LookupError, ValueError, OSError, RuntimeError) as exc:
                 return ToolResult(
                     data={
                         "agent": "GeometryAgent",
                         "status": "error",
                         "code": "observation_unavailable",
                         "error": str(exc),
+                        "camera": camera,
+                        "step": step,
                         "world_xyz": None,
                     }
                 )
-            nn = record.step_idx
-            index = self._index
+            nn = observation.step
+            tag = f"{self._namespace}_{self._index:03d}"
             self._index += 1
             started = time.perf_counter()
             data: dict[str, Any] = {
@@ -154,32 +165,45 @@ class GeometryAgent:
                 "step": nn,
                 "camera": camera,
                 "measurement": measurement,
-                "world_frame_id": self._world_frame,
+                "world_frame_id": observation.world_frame_id,
                 "units": "m",
                 "model": self._model,
                 "status": "need_observation",
                 "found": False,
                 "world_xyz": None,
-                "definition": (
-                    "visible_material_surface_point"
-                    if measurement == "surface_point"
-                    else "visible_region_coordinate_median"
-                ),
+                "definition": "visible_material_surface_point"
+                if measurement == "surface_point"
+                else "visible_region_coordinate_median",
                 "evidence_status": "unknown",
                 "calls": {"grounding": 0, "segment": 0, "back_project": 0},
                 "segment_attempts": [],
                 "quality": {"calibrated_error_m": None},
+                "input_refs": dict(observation.source_refs),
+                "image_shape": list(observation.rgb.shape[:2]),
+                "source_dtype": observation.source_dtype,
             }
             images: list[bytes] = []
             try:
+                check_cancelled()
+                for key, suffix, array in (
+                    ("image_artifact", "rgb.png", observation.rgb),
+                    ("world_artifact", "world.npz", observation.world_xyz),
+                    ("valid_artifact", "valid.npz", observation.valid_mask),
+                    (
+                        "observation_artifact",
+                        "observation.json",
+                        observation.metadata(),
+                    ),
+                ):
+                    data[key] = self._save(f"geometry_{tag}_{suffix}", array, nn)
                 if required_geometry is None:
                     images = self._measure_surface(
-                        data, record, f"{index:03d}", check_cancelled
+                        data, observation, tag, check_cancelled
                     )
                 else:
                     data["required_geometry"] = list(dict.fromkeys(required_geometry))
                     images = self._fit_requested(
-                        data, record, f"{index:03d}", check_cancelled
+                        data, observation, tag, check_cancelled
                     )
             except ToolCancelled:
                 raise
@@ -189,16 +213,19 @@ class GeometryAgent:
                 logger.exception("geometry request failed at step %s", nn)
                 data.update(status="error", error=str(exc))
             data["elapsed_ms"] = round((time.perf_counter() - started) * 1000, 2)
-            name = f"geometry_{index:03d}.json"
-            if self._state.save(name, data, step=nn) is None:
+            try:
+                data["geometry_artifact"] = self._save(f"geometry_{tag}.json", data, nn)
+            except (OSError, RuntimeError) as exc:
                 data.update(
-                    status="error",
-                    error=f"failed to persist geometry evidence {name}",
-                    code="geometry_artifact_save_failed",
+                    status="error", error=str(exc), code="geometry_artifact_save_failed"
                 )
-            else:
-                data["geometry_artifact"] = name
             return ToolResult(data=data, images=images)
+
+    def _save(self, name: str, value: Any, step: int) -> str:
+        saved = self._state.save(name, value, step=step)
+        if saved is None:
+            raise RuntimeError(f"failed to persist geometry evidence {name}")
+        return saved
 
     def _need_view(self, data: dict[str, Any], reason: str) -> None:
         data["reason"] = reason
@@ -212,41 +239,20 @@ class GeometryAgent:
     def _measure_surface(
         self,
         data: dict[str, Any],
-        record: Any,
+        observation: GeometryObservation,
         tag: str,
         check_cancelled: Callable[[], None],
     ) -> list[bytes]:
         if not data["query"]:
             raise ValueError("geometry requires a nonempty target description")
-        nn, camera = data["step"], data["camera"]
-        image_name, world_name, _ = perception.select_observation_artifacts(
-            self._state, record, camera
-        )
-        if image_name is None or world_name is None:
-            raise ValueError("geometry requires a matching RGB/world-map artifact pair")
-        image = self._state.load(image_name, step=nn)
-        world = self._state.load(world_name, step=nn)
-        if world.ndim != 3 or world.shape[2] != 3 or image.shape[:2] != world.shape[:2]:
-            raise ValueError("geometry RGB/world-map shapes do not match")
-        height, width = world.shape[:2]
-        resolution = "high" if image_name.endswith("_high.png") else "low"
-        data.update(
-            image_artifact=image_name,
-            world_artifact=world_name,
-            image_shape=[height, width],
-            resolution=resolution,
-            source_dtype=str(world.dtype),
-        )
+        nn = observation.step
+        image = self._state.load_bytes(data["image_artifact"], step=nn)
+        height, width = observation.rgb.shape[:2]
         if self._grounder is None:
-            raise ValueError(
-                "GeometryAgent requires --geometry-model (API provider:model or "
-                "codex[:model]); API/Codex planners inherit their model by default"
-            )
+            raise ValueError("geometry requires an injected grounder or model")
         check_cancelled()
         data["calls"]["grounding"] += 1
-        selected = self._grounder.ground(
-            self._state.load_bytes(image_name, step=nn), data["query"]
-        )
+        selected = self._grounder.ground(image, data["query"])
         if selected.image_size != (width, height):
             raise ValueError(
                 "grounding result does not match the pinned RGB resolution"
@@ -263,14 +269,7 @@ class GeometryAgent:
         data["pixel_rc"] = [row, col]
         check_cancelled()
         data["calls"]["back_project"] += 1
-        projected = perception.back_project(
-            row=row,
-            col=col,
-            step=nn,
-            camera=camera,
-            resolution=resolution,
-            state=self._state,
-        ).data
+        projected = perception.back_project(observation, row, col).data
         data["surface_point_xyz"] = projected.get("world_xyz")
         if "error" in projected:
             data["surface_point_error"] = projected["error"]
@@ -285,9 +284,6 @@ class GeometryAgent:
                     evidence_status="measured",
                 )
             return []
-
-        # A text candidate must contain the independently grounded target pixel.
-        # One point-prompt retry is allowed; no synonym or threshold search.
         for prompt in (
             {"prompt": data.get("segmentation_query", data["query"])},
             {"point": [row, col]},
@@ -295,59 +291,41 @@ class GeometryAgent:
             check_cancelled()
             data["calls"]["segment"] += 1
             segmented = self._perception.segment(
-                camera=camera, step=nn, state=self._state, **prompt
+                observation, image, state=self._state, tag=tag, **prompt
             )
             result = segmented.data
             attempt = {
                 "mode": "text" if "prompt" in prompt else "point",
-                "found": result.get("found", False),
-                "sam_score": result.get("score"),
-                "segment_artifact": result.get("segment_artifact"),
-                "error": result.get("error"),
+                "found": result["found"],
+                "sam_score": result["score"],
+                "segment_artifact": result["segment_artifact"],
             }
             data["segment_attempts"].append(attempt)
-            if not result.get("found"):
+            if not result["found"]:
                 continue
-            if "error" in result or not result.get("mask_artifact"):
-                raise RuntimeError(
-                    result.get("error") or "segment omitted its mask artifact"
-                )
             mask = self._state.load(result["mask_artifact"], step=nn)
-            if mask.dtype != np.bool_ or mask.shape != (height, width):
-                raise ValueError("segment mask does not match the pinned RGB/world map")
             attempt["contains_target_pixel"] = bool(mask[row, col])
             if not mask[row, col]:
                 continue
-            points = world[mask].astype(np.float64)
-            valid = np.isfinite(points).all(axis=1)
-            validity = "finite_world_coordinates"
-            depth_name = f"{camera}_depth.npz"
-            if resolution == "low" and self._state.exists(depth_name, step=nn):
-                depth = self._state.load(depth_name, step=nn)
-                if depth.shape != (height, width):
-                    raise ValueError("metric depth shape does not match the source RGB")
-                z = depth[mask]
-                valid &= np.isfinite(z) & (z > 0) & (z <= 10)
-                validity = "finite_world_and_valid_metric_depth"
-            points = points[valid]
+            points = observation.world_xyz[mask & observation.valid_mask]
             data["quality"].update(
                 n_pixels=int(mask.sum()),
                 n_valid=len(points),
-                valid_fraction=float(valid.mean()),
-                validity=validity,
+                valid_fraction=float(
+                    (mask & observation.valid_mask).sum() / mask.sum()
+                ),
+                validity="provider_validity_and_finite_metric_coordinates",
             )
             data.update(
                 mask_artifact=result["mask_artifact"],
                 segment_artifact=result["segment_artifact"],
                 overlay_artifact=result.get("overlay_artifact"),
-                sam_score=result.get("score"),
+                sam_score=result["score"],
             )
             if len(points) < 10:
                 self._need_view(data, "too_few_valid_region_points")
                 return segmented.images
-            cloud_name = f"geometry_points_{tag}.npz"
-            if self._state.save(cloud_name, points, step=nn) is None:
-                raise RuntimeError("failed to persist geometry point cloud")
+            cloud_name = self._save(f"geometry_points_{tag}.npz", points, nn)
             data.update(
                 status="usable",
                 found=True,
@@ -366,26 +344,24 @@ class GeometryAgent:
     def _fit_requested(
         self,
         data: dict[str, Any],
-        record: Any,
+        observation: GeometryObservation,
         tag: str,
         check_cancelled: Callable[[], None],
     ) -> list[bytes]:
         from scipy.ndimage import binary_dilation
 
         from toolkits.geometry.geometry import (
-            FitOptions,
             ShapeFit,
             clean_part_cloud,
             fit_part,
             geometry_fields,
             part_candidate_mask,
         )
-        from toolkits.geometry.reference_geometry import (
-            REFERENCE_DESCRIPTIONS,
-            REFERENCE_PARTS,
-            fit_reference,
+        from toolkits.geometry.part_geometry import (
+            PART_QUANTITIES,
+            fit_part_geometry,
             inner_rim_candidates,
-            reference_fields,
+            part_geometry_fields,
         )
 
         requested = data["required_geometry"]
@@ -399,16 +375,10 @@ class GeometryAgent:
                 parts.add("bottom")
             if name in ("plane", "plane_normal"):
                 parts.add("plane")
-            if name in REFERENCE_PARTS:
-                parts.add(REFERENCE_PARTS[name])
-        descriptions = {
-            "rim": "the visible circular rim boundary of",
-            "body": "the visible curved outer body, excluding handle, rim and interior, of",
-            "bottom": "the visible circular bottom face or its boundary of",
-            "plane": "the visible planar surface of",
-            **REFERENCE_DESCRIPTIONS,
-        }
-        options = FitOptions()
+            if name in PART_QUANTITIES:
+                parts.add(PART_QUANTITIES[name])
+        descriptions = PART_DESCRIPTIONS
+        options = self._fit_options
         data.update(
             definition="part_fitted_geometry",
             measurement="part_geometry",
@@ -416,7 +386,6 @@ class GeometryAgent:
             budget={"max_grounding_calls": len(parts), "max_sam_calls": 2 * len(parts)},
         )
         fits = {}
-        candidates = {}
         images = []
         nn, camera = data["step"], data["camera"]
         for part in descriptions:
@@ -440,10 +409,19 @@ class GeometryAgent:
                 sample["segmentation_query"] = (
                     f"the entire {data['query']}, including its main barrel, shoulder, neck and base"
                 )
+            for key in (
+                "image_artifact",
+                "world_artifact",
+                "valid_artifact",
+                "observation_artifact",
+                "source_dtype",
+            ):
+                sample[key] = data[key]
+            sample["world_frame_id"] = observation.world_frame_id
             data["parts"][part] = sample
             try:
                 part_images = self._measure_surface(
-                    sample, record, part_tag, check_cancelled
+                    sample, observation, part_tag, check_cancelled
                 )
             finally:
                 for name, count in sample["calls"].items():
@@ -458,45 +436,15 @@ class GeometryAgent:
                 )
                 sample["fit"] = fits[part].summary()
                 continue
-            world = self._state.load(sample["world_artifact"], step=nn).astype(
-                np.float64
-            )
+            world = observation.world_xyz
             mask = self._state.load(sample["mask_artifact"], step=nn)
-            image = self._state.load(sample["image_artifact"], step=nn)
-            camera_transform = None
-            metadata_name = f"{camera}_metadata_high.json"
-            if sample["resolution"] != "high" or not self._state.exists(
-                metadata_name, step=nn
-            ):
-                metadata_name = f"{camera}_metadata.json"
-            if self._state.exists(metadata_name, step=nn):
-                metadata = self._state.load(metadata_name, step=nn)
-                camera_transform = np.asarray(
-                    metadata["extrinsic_cam2world"], dtype=float
-                )
-                if (
-                    camera_transform.shape != (4, 4)
-                    or not np.isfinite(camera_transform).all()
-                ):
-                    raise ValueError("invalid same-frame camera extrinsic for geometry")
-                sample["camera_metadata_artifact"] = metadata_name
+            image = observation.rgb
+            camera_transform = observation.camera_to_world
             row, col = sample["pixel_rc"]
             anchor = sample.get("surface_point_xyz")
             anchor = None if anchor is None else np.asarray(anchor)
-            valid = np.isfinite(world).all(axis=2)
-            z = None
-            if camera_transform is not None:
-                z = (world - camera_transform[:3, 3]) @ camera_transform[:3, 2]
-                valid &= (z > 0) & (z <= 10)
-            depth_name = (
-                f"{camera}_depth{'_high' if sample['resolution'] == 'high' else ''}.npz"
-            )
-            if self._state.exists(depth_name, step=nn):
-                depth = self._state.load(depth_name, step=nn)
-                if depth.shape != mask.shape:
-                    raise ValueError("metric depth shape does not match the source RGB")
-                valid &= np.isfinite(depth) & (depth > 0) & (depth <= 10)
-                z = depth
+            valid = observation.valid_mask
+            z = observation.optical_depth()
             if part == "inner_rim":
                 candidate_mask, extraction = inner_rim_candidates(
                     mask & valid,
@@ -507,7 +455,7 @@ class GeometryAgent:
                     image=image,
                 )
                 sample["candidate_extraction"] = extraction
-            elif part in REFERENCE_PARTS.values():
+            elif part in PART_QUANTITIES.values():
                 candidate_mask = mask.copy()
             else:
                 candidate_mask = part_candidate_mask(
@@ -537,13 +485,14 @@ class GeometryAgent:
                 context_points=world[context_mask],
                 options=options,
                 require_anchor_connection=part != "inner_rim",
+                up_direction=observation.up_direction,
             )
             camera_origin = (
                 None if camera_transform is None else camera_transform[:3, 3]
             )
-            reference = None
-            if part in REFERENCE_PARTS.values():
-                reference = fit_reference(
+            part_fit = None
+            if part in PART_QUANTITIES.values():
+                part_fit = fit_part_geometry(
                     cleaned.points,
                     part,
                     world,
@@ -552,27 +501,9 @@ class GeometryAgent:
                     camera_origin,
                     options,
                 )
-                fit = reference.fit
+                fit = part_fit.fit
                 if part == "inner_rim" and not candidate_mask.any():
                     fit.reason = sample["candidate_extraction"]["reason"]
-                if self._permissive and not fit.accepted:
-                    from toolkits.geometry.candidate_geometry import (
-                        estimate_reference_center,
-                    )
-
-                    candidate = estimate_reference_center(
-                        cleaned.points,
-                        part,
-                        world,
-                        mask & valid,
-                        anchor,
-                        camera_origin,
-                        reference,
-                        options,
-                    )
-                    if candidate is not None:
-                        candidates[part] = candidate
-                        sample["candidate_estimate"] = candidate.summary()
             else:
                 fit = fit_part(
                     cleaned.points,
@@ -604,29 +535,24 @@ class GeometryAgent:
                     fit.inlier_indices,
                 ),
             }
-            if reference is not None:
-                sample["reference_extraction"] = reference.extraction
+            if part_fit is not None:
+                sample["part_extraction"] = part_fit.extraction
                 arrays.update(
                     {
                         "fit_points_artifact": (
                             f"geometry_fit_points_{part_tag}.npz",
-                            reference.points,
+                            part_fit.points,
                         ),
                         "observed_support_artifact": (
                             f"geometry_observed_support_{part_tag}.npz",
-                            reference.observed_points,
+                            part_fit.observed_points,
                         ),
-                        "reference_boundary_artifact": (
-                            f"geometry_reference_boundary_{part_tag}.npz",
-                            reference.boundary_mask,
+                        "part_boundary_artifact": (
+                            f"geometry_part_boundary_{part_tag}.npz",
+                            part_fit.boundary_mask,
                         ),
                     }
                 )
-                if part in candidates:
-                    arrays["candidate_fit_points_artifact"] = (
-                        f"geometry_candidate_fit_{part_tag}.npz",
-                        candidates[part].points,
-                    )
             else:
                 sample["fit_points_artifact"] = arrays["cleaned_points_artifact"][0]
             for key, (name, array) in arrays.items():
@@ -636,42 +562,15 @@ class GeometryAgent:
             sample["cleaning"] = cleaned.quality
             sample["fit"] = fit.summary()
             fits[part] = fit
-            for key in (
-                "image_artifact",
-                "world_artifact",
-                "source_dtype",
-                "resolution",
-            ):
-                data[key] = sample[key]
         fields, checks = geometry_fields(
-            fits, [name for name in requested if name not in REFERENCE_PARTS], options
+            fits, [name for name in requested if name not in PART_QUANTITIES], options
         )
         fields.update(
-            reference_fields(
-                fits, [name for name in requested if name in REFERENCE_PARTS]
+            part_geometry_fields(
+                fits, [name for name in requested if name in PART_QUANTITIES]
             )
         )
         fields = {name: fields[name] for name in requested}
-        for name, item in fields.items():
-            if name not in REFERENCE_PARTS:
-                continue
-            part = REFERENCE_PARTS[name]
-            item["strict_accepted"] = fits[part].accepted
-            item["estimate_method"] = (
-                "strict_shape_fit" if fits[part].accepted else None
-            )
-            if part in candidates:
-                candidate = candidates[part]
-                item.update(
-                    value=candidate.center,
-                    evidence_status="inferred",
-                    estimate_method=candidate.method,
-                    evaluation_only=True,
-                    strict_rejection=fits[part].reason,
-                    reason=None,
-                    assumptions=item["assumptions"] + candidate.assumptions,
-                )
-                item["quality"]["candidate"] = candidate.quality
         for item in fields.values():
             item["world_frame_id"] = data["world_frame_id"]
             item["source_step"] = nn
@@ -698,26 +597,13 @@ class GeometryAgent:
                 "calibrated_error_m": None,
                 "part_consistency": checks,
                 "fit_options": asdict(options),
-                "permissive": self._permissive,
-                "candidate_quantities": [
-                    name for name, item in fields.items() if item.get("evaluation_only")
-                ],
             },
         )
         missing = [name for name in requested if name not in usable]
         if missing:
-            if self._permissive:
-                data.update(
-                    status="partial" if usable else "error",
-                    reason="no_finite_reference_candidate",
-                    missing_geometry=missing,
-                )
-            else:
-                self._need_view(
-                    data, "requested_geometry_not_observable_or_fit_rejected"
-                )
-                data["observation_request"]["missing_geometry"] = missing
-                data["observation_request"]["missing_parts"] = [
-                    part for part, fit in fits.items() if not fit.accepted
-                ]
+            self._need_view(data, "requested_geometry_not_observable_or_fit_rejected")
+            data["observation_request"]["missing_geometry"] = missing
+            data["observation_request"]["missing_parts"] = [
+                part for part, fit in fits.items() if not fit.accepted
+            ]
         return images

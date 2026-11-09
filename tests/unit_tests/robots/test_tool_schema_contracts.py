@@ -36,7 +36,6 @@ from robots.yam import tools as yam_tools
 from robots.yam.toolkit import YamToolkit
 from rpent.tools import iter_tools
 from rpent.tools.common import CommonTools
-from toolkits.geometry.geometry_agent import GeometryAgent
 
 TOOL_DECLARATIONS = {
     "common": list(iter_tools(CommonTools)),
@@ -46,9 +45,7 @@ TOOL_DECLARATIONS = {
     "dual_franka": DualFrankaToolkit.declared_tools(),
     "yam": list(iter_tools(YamToolkit, yam_tools)),
     "libero": list(
-        iter_tools(
-            libero_tools, libero_tools.LiberoPrimitives, LiberoToolkit, GeometryAgent
-        )
+        iter_tools(libero_tools, libero_tools.LiberoPrimitives, LiberoToolkit)
     ),
     "robocasa": list(iter_tools(robocasa_tools, RoboCasaPrimitives)),
     "robodojo": list(iter_tools(robodojo_tools, RoboDojoPrimitives, RoboDojoToolkit)),
@@ -73,9 +70,6 @@ def test_tool_declarations_match_pre_refactor_contracts(group: str) -> None:
             ).read_text()
         )
     if group == "libero":
-        # GeometryAgent supplies perception; retain the native action contracts.
-        expected.pop("segment")
-        expected.pop("back_project")
         # The yaw fix deliberately extends the native declaration while all
         # other pre-refactor contracts remain unchanged.
         move = expected["move_to"]
@@ -98,8 +92,6 @@ def test_tool_declarations_match_pre_refactor_contracts(group: str) -> None:
     }
     assert len(actual) == len(declarations)
     added = {"wam_act"} if group in {"libero", "robotwin"} else set()
-    if group == "libero":
-        added.add("geometry")
     assert actual.keys() == expected.keys() | added
     for name in expected:
         assert actual[name] == expected[name], f"{group}/{name}"
