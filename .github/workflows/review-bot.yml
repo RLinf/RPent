@@ -79,9 +79,12 @@ jobs:
     if: needs.dispatch.outputs.command != 'skip'
     runs-on: [self-hosted, review-bot]
     timeout-minutes: 45
+    # Commands on the same PR are serialized: a second command waits for the
+    # running one instead of cancelling it. Different PRs are independent and
+    # run in parallel when more than one `review-bot` runner is online.
     concurrency:
       group: review-bot-${{ needs.dispatch.outputs.pr }}
-      cancel-in-progress: true
+      cancel-in-progress: false
     env:
       # PR-Agent reads the PR through the GitHub API. github.token is scoped to
       # this repository and this run; no long-lived PAT is needed.

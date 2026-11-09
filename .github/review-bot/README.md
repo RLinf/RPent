@@ -16,9 +16,11 @@ overwrite each other.
 
 ## Runner
 
-The review job runs on a self-hosted runner labelled `review-bot`. On the
-review host, install PR-Agent and Python 3.12 under
-`/mnt/public/rpent_review_agent/`:
+The review job runs on any self-hosted runner labelled `review-bot`. Register
+one runner per concurrent review: jobs for different PRs are scheduled in
+parallel across online runners, while the workflow's per-PR concurrency group
+serializes commands on the same PR. On the review host, install PR-Agent and
+Python 3.12 under `/mnt/public/rpent_review_agent/`:
 
 ```bash
 R=/mnt/public/rpent_review_agent
@@ -43,8 +45,16 @@ Install the GitHub Actions runner under `$R/runner`, register it with the
 the service runs as root. It is not installed as a system service because the
 review host keeps all state under `$R`.
 
-Register the runner with the `review-bot` label. The workflow never checks out
-or executes PR code; PR-Agent reads the diff through the GitHub API.
+Each runner instance owns its install directory and work directory and must use
+a unique `--name`; all of them register with the same `review-bot` label. A host
+that runs several instances should use separate directories such as
+`$R/runner-1`/`$R/work-1` and `$R/runner-2`/`$R/work-2`, and start each with
+`RUNNER_ALLOW_RUNASROOT=1 ./run.sh` from its own directory. The shared
+`$R/venv` and `$R/etc/model.env` are read-only inputs and can be used by every
+instance.
+
+The workflow never checks out or executes PR code; PR-Agent reads the diff
+through the GitHub API.
 
 ## Model credentials
 
