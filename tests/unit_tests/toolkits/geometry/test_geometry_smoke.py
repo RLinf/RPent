@@ -31,8 +31,9 @@ from rpent.session import EnvState
 from toolkits.geometry.geometry_agent import GeometryAgent
 
 
-def _save_state(tmp_path, world):
-    state = EnvState(tmp_path / "episode")
+def _save_state(tmp_path, world, state=None):
+    if state is None:
+        state = EnvState(tmp_path / "episode")
     with state.record_step(state={}):
         state.save("agentview.png", np.zeros(world.shape, dtype=np.uint8))
         state.save("agentview_world.npz", world.astype(np.float32))
@@ -76,21 +77,21 @@ def test_parent_geometry_and_recipe_smoke(tmp_path, monkeypatch):
     from pydantic_ai.models.test import TestModel
 
     import rpent.planner.base as base
+    from robots.libero import robot_spec
     from robots.libero.toolkit import LiberoToolkit
     from rpent.dashboard.events import NullDashboardEventSink
-    from rpent.memory import MemoryManager
+    from rpent.robots import RunConfig
     from rpent.utils import templates
 
     rows, cols = np.indices((6, 8))
     world = np.stack((cols * 0.01, rows * 0.02, 0.8 + rows * 0.01), axis=-1)
-    state = _save_state(tmp_path, world)
 
     def init(self, **kwargs):
-        self._state = state
+        assert "sam3_client" not in kwargs["runtime_kwargs"]
+        _save_state(tmp_path, world, state=self.state)
         self._primitives = LiberoPrimitives(
             env=object(),
             model=object(),
-            sam3_client=None,
             check_cancelled=self.raise_if_cancelled,
         )
 
@@ -103,13 +104,21 @@ def test_parent_geometry_and_recipe_smoke(tmp_path, monkeypatch):
         "build_api_model",
         lambda *a: TestModel(custom_output_args={"point_xy": [5, 3]}),
     )
-    parent = LiberoToolkit(
-        runtime_kwargs={},
+    sam3_client = object()
+    parent = robot_spec.get_toolkit(
+        runtime_kwargs={"sam3_client": sam3_client},
         dashboard_events=NullDashboardEventSink(),
-        memory=MemoryManager(tmp_path / "memory"),
-        geometry_model="test:geometry",
-        state_output_dir=tmp_path / "parent",
+        config=RunConfig(
+            recipe_tag="geometry-smoke",
+            output_dir=tmp_path / "episode",
+            prompt_vars={"memory_dir": str(tmp_path / "memory")},
+            task_desc={"geometry_model": "test:geometry"},
+        ),
     )
+    state = parent.state
+    assert parent._geometry_agent._state is state
+    assert parent._geometry_agent._perception._sam3_client is sam3_client
+    assert "check_cancelled" not in parent._tools["geometry"].input_schema["properties"]
     data = parent.execute_tool("geometry", {"query": "cup handle", "step": 0}).data
     assert data["status"] == "usable", data
     assert np.asarray(data["world_xyz"]).shape == (3,)
@@ -124,6 +133,70 @@ def test_parent_geometry_and_recipe_smoke(tmp_path, monkeypatch):
     assert len(commands) == 1
     assert commands[0]["action"] == "geometry"
     assert commands[0]["query"] == "cup handle"
+
+
+def test_request_cancellation_stops_before_projection(tmp_path, monkeypatch):
+    from rpent.tools.toolkit import ToolCancelled
+    from toolkits.geometry import perception
+
+    state = _save_state(tmp_path, np.ones((6, 8, 3)))
+    cancelled = False
+
+    def ground(*args):
+        nonlocal cancelled
+        cancelled = True
+        return MolmoResult(found=True, point_xy=(5, 3), image_size=(8, 6))
+
+    def check():
+        if cancelled:
+            raise ToolCancelled("requested stop")
+
+    def unexpected_projection(**kwargs):
+        pytest.fail("cancelled geometry must stop before coordinate lookup")
+
+    monkeypatch.setattr(perception, "back_project", unexpected_projection)
+    agent = GeometryAgent(state=state, grounder=SimpleNamespace(ground=ground))
+    with pytest.raises(ToolCancelled, match="requested stop"):
+        agent.geometry("cup", check_cancelled=check)
+
+
+def test_flash_segment_anchor_uses_geometry(tmp_path):
+    from robots.libero.flash.replay import replay
+
+    state = _save_state(tmp_path, np.full((6, 8, 3), 0.1))
+    agent = GeometryAgent(
+        state=state,
+        sam3_client=SimpleNamespace(
+            segment=lambda *a, **kw: Sam3Result(
+                found=True, mask=np.ones((6, 8), dtype=bool), score=0.95
+            )
+        ),
+        grounder=SimpleNamespace(
+            ground=lambda *a: MolmoResult(
+                found=True, point_xy=(5, 3), image_size=(8, 6)
+            )
+        ),
+    )
+    calls = []
+
+    def execute(name, arguments):
+        calls.append(name)
+        assert name == "geometry"
+        return agent.geometry(**arguments)
+
+    parent = SimpleNamespace(state=state, execute_tool=execute, solved=lambda: False)
+    result = replay(
+        parent,
+        None,
+        {
+            "plan": [],
+            "reference": {"cup": np.array([0.1, 0.1])},
+            "locator_of": {"cup": "segment"},
+        },
+    )
+    assert result["anchors"] == 1
+    assert calls == ["geometry"]
+    assert len(state.records()) == 1
 
 
 @pytest.mark.parametrize(
@@ -155,17 +228,12 @@ def test_part_geometry_smoke(tmp_path, part, quantity):
             mask = (np.abs(x) < 0.04) & (np.abs(y) < 0.04)
         pixel = (104, 64) if part == "rim" else (64, 64)
     state = _save_state(tmp_path, world)
-    primitives = LiberoPrimitives(
-        env=None,
-        model=None,
-        sam3_client=SimpleNamespace(
-            segment=lambda *a, **kw: Sam3Result(found=True, mask=mask, score=0.95)
-        ),
-        check_cancelled=lambda: None,
+    sam3_client = SimpleNamespace(
+        segment=lambda *a, **kw: Sam3Result(found=True, mask=mask, score=0.95)
     )
     agent = GeometryAgent(
         state=state,
-        segment=primitives.segment,
+        sam3_client=sam3_client,
         check_cancelled=lambda: None,
         grounder=SimpleNamespace(
             ground=lambda *a: MolmoResult(

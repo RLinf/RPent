@@ -11,6 +11,7 @@ perception tools. The request never moves the robot.
 | Module | Responsibility |
 | --- | --- |
 | [geometry_agent.py](geometry_agent.py) | Visual selection, segmentation, coordinate lookup and part fitting |
+| [perception.py](perception.py) | Internal recorded-frame segmentation, coordinate reads and perception artifacts |
 | [geometry.py](geometry.py) | Point-cloud cleaning, plane, circle, cylinder and frustum fitting |
 | [reference_geometry.py](reference_geometry.py) | Inner opening, support face, lid, rectangular top and bottle-barrel references |
 | [candidate_geometry.py](candidate_geometry.py) | Labelled approximate centers for permissive error evaluation |
@@ -26,6 +27,18 @@ The LIBERO environment, action primitives and tool registration live in
 ```python
 from toolkits.geometry.geometry_agent import GeometryAgent
 ```
+
+The LIBERO factory creates the shared observation store and GeometryAgent before
+constructing LiberoToolkit. The toolkit receives both objects and registers
+`geometry` with cancellation bound for each dispatch. GeometryAgent receives the
+SAM client and owns recorded-frame perception operations; the action primitives have
+no segmentation or coordinate-read implementation. Runtime startup owns the
+model services and their cleanup.
+
+When embedding the agent, pass the existing SAM client through
+`sam3_client=`. The agent constructs its visual-grounding adapter from `model=`,
+or accepts an existing `grounder=`. Flash uses its runtime Molmo client when
+no geometry model is selected.
 
 ## Request geometry
 

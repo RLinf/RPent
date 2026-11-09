@@ -26,11 +26,11 @@ from typing import Annotated, Any, Literal
 import numpy as np
 from pydantic import Field
 
-from robots.libero import tools as libero_tools
 from rpent.session import EnvState
 from rpent.tools import ToolResult, tool
 from rpent.tools.toolkit import ToolCancelled
 from rpent.utils.logging import get_logger
+from toolkits.geometry import perception
 
 logger = get_logger("geometry_agent")
 
@@ -68,25 +68,28 @@ class GeometryAgent:
         self,
         *,
         state: EnvState,
-        segment: Callable[..., ToolResult],
-        check_cancelled: Callable[[], None],
+        sam3_client: Any = None,
+        check_cancelled: Callable[[], None] | None = None,
         model: str | None = None,
         base_url: str | None = None,
         grounder: Any = None,
         permissive: bool = False,
     ) -> None:
         self._state = state
-        self._segment = segment
-        self._check_cancelled = check_cancelled
+        self._perception = perception.GeometryPerception(sam3_client)
+        self._check_cancelled = check_cancelled or (lambda: None)
         self._model = model
-        self._base_url = base_url
         self._grounder = grounder
+        if self._grounder is None and model:
+            from rpent.robots.components.grounding_agent import GroundingAgent
+
+            self._grounder = GroundingAgent(model=model, base_url=base_url)
         self._permissive = permissive
         self._lock = threading.Lock()
         self._index = 0
         self._world_frame = f"libero_world/{uuid.uuid4().hex}"
 
-    @tool(readonly=True)
+    @tool(readonly=True, exclude=("check_cancelled",))
     def geometry(
         self,
         query: Annotated[str, Field(min_length=1, max_length=1024)],
@@ -97,6 +100,8 @@ class GeometryAgent:
             list[GeometryQuantity], Field(min_length=1, max_length=10)
         ]
         | None = None,
+        *,
+        check_cancelled: Callable[[], None] | None = None,
     ) -> ToolResult:
         """Ask GeometryAgent to locate a described object or visible part without moving the robot.
 
@@ -125,7 +130,8 @@ class GeometryAgent:
         # GroundingAgent's lazily created model and the request trace belong to
         # this instance. Serialize requests without advancing the environment.
         with self._lock:
-            self._check_cancelled()
+            check_cancelled = check_cancelled or self._check_cancelled
+            check_cancelled()
             try:
                 record = self._state.get(step)
             except (LookupError, ValueError) as exc:
@@ -167,10 +173,14 @@ class GeometryAgent:
             images: list[bytes] = []
             try:
                 if required_geometry is None:
-                    images = self._measure_surface(data, record, f"{index:03d}")
+                    images = self._measure_surface(
+                        data, record, f"{index:03d}", check_cancelled
+                    )
                 else:
                     data["required_geometry"] = list(dict.fromkeys(required_geometry))
-                    images = self._fit_requested(data, record, f"{index:03d}")
+                    images = self._fit_requested(
+                        data, record, f"{index:03d}", check_cancelled
+                    )
             except ToolCancelled:
                 raise
             except (ValueError, OSError, RuntimeError, LookupError) as exc:
@@ -200,12 +210,16 @@ class GeometryAgent:
         }
 
     def _measure_surface(
-        self, data: dict[str, Any], record: Any, tag: str
+        self,
+        data: dict[str, Any],
+        record: Any,
+        tag: str,
+        check_cancelled: Callable[[], None],
     ) -> list[bytes]:
         if not data["query"]:
             raise ValueError("geometry requires a nonempty target description")
         nn, camera = data["step"], data["camera"]
-        image_name, world_name, _ = libero_tools._select_segment_artifacts(
+        image_name, world_name, _ = perception.select_observation_artifacts(
             self._state, record, camera
         )
         if image_name is None or world_name is None:
@@ -224,15 +238,11 @@ class GeometryAgent:
             source_dtype=str(world.dtype),
         )
         if self._grounder is None:
-            if not self._model:
-                raise ValueError(
-                    "GeometryAgent requires --geometry-model (API provider:model or "
-                    "codex[:model]); API/Codex planners inherit their model by default"
-                )
-            from rpent.robots.components.grounding_agent import GroundingAgent
-
-            self._grounder = GroundingAgent(self._model, self._base_url)
-        self._check_cancelled()
+            raise ValueError(
+                "GeometryAgent requires --geometry-model (API provider:model or "
+                "codex[:model]); API/Codex planners inherit their model by default"
+            )
+        check_cancelled()
         data["calls"]["grounding"] += 1
         selected = self._grounder.ground(
             self._state.load_bytes(image_name, step=nn), data["query"]
@@ -251,9 +261,9 @@ class GeometryAgent:
             raise ValueError("grounding pixel outside source image")
         row, col = min(height - 1, round(row)), min(width - 1, round(col))
         data["pixel_rc"] = [row, col]
-        self._check_cancelled()
+        check_cancelled()
         data["calls"]["back_project"] += 1
-        projected = libero_tools.back_project(
+        projected = perception.back_project(
             row=row,
             col=col,
             step=nn,
@@ -282,9 +292,9 @@ class GeometryAgent:
             {"prompt": data.get("segmentation_query", data["query"])},
             {"point": [row, col]},
         ):
-            self._check_cancelled()
+            check_cancelled()
             data["calls"]["segment"] += 1
-            segmented = self._segment(
+            segmented = self._perception.segment(
                 camera=camera, step=nn, state=self._state, **prompt
             )
             result = segmented.data
@@ -354,7 +364,11 @@ class GeometryAgent:
         return []
 
     def _fit_requested(
-        self, data: dict[str, Any], record: Any, tag: str
+        self,
+        data: dict[str, Any],
+        record: Any,
+        tag: str,
+        check_cancelled: Callable[[], None],
     ) -> list[bytes]:
         from scipy.ndimage import binary_dilation
 
@@ -408,7 +422,7 @@ class GeometryAgent:
         for part in descriptions:
             if part not in parts:
                 continue
-            self._check_cancelled()
+            check_cancelled()
             part_tag = f"{tag}_{part}"
             sample = {
                 "query": f"{descriptions[part]} {data['query']}",
@@ -428,7 +442,9 @@ class GeometryAgent:
                 )
             data["parts"][part] = sample
             try:
-                part_images = self._measure_surface(sample, record, part_tag)
+                part_images = self._measure_surface(
+                    sample, record, part_tag, check_cancelled
+                )
             finally:
                 for name, count in sample["calls"].items():
                     data["calls"][name] += count
@@ -565,7 +581,7 @@ class GeometryAgent:
                     anchor=anchor,
                     camera_origin=camera_origin,
                 )
-            self._check_cancelled()
+            check_cancelled()
             arrays = {
                 "candidate_mask_artifact": (
                     f"geometry_candidates_mask_{part_tag}.npz",

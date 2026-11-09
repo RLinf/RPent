@@ -147,8 +147,10 @@ def get_toolkit(
     attempts_per_session: int = 0,
     state_output_dir: Path | str | None = None,
 ):
-    """Return the LIBERO toolkit for the current session."""
+    """Build session state and GeometryAgent before constructing the toolkit."""
     from robots.libero.toolkit import LiberoToolkit
+    from rpent.session import EnvState
+    from toolkits.geometry.geometry_agent import GeometryAgent
 
     explore = mode == "exploration"
     memory = MemoryManager(
@@ -156,17 +158,28 @@ def get_toolkit(
         memory_access="inbox_write" if explore else "read_only",
         inbox_cell_tag=config.recipe_tag if explore else None,
     )
+    state = EnvState(Path(state_output_dir or config.output_dir))
+    geometry_model = config.task_desc.get("geometry_model")
+    geometry_agent = GeometryAgent(
+        state=state,
+        sam3_client=runtime_kwargs.get("sam3_client"),
+        model=geometry_model,
+        base_url=config.task_desc.get("geometry_base_url"),
+        grounder=runtime_kwargs.get("molmo_client") if geometry_model is None else None,
+    )
+    action_runtime = {
+        key: value for key, value in runtime_kwargs.items() if key != "sam3_client"
+    }
     return LiberoToolkit(
-        runtime_kwargs=runtime_kwargs,
+        runtime_kwargs=action_runtime,
         dashboard_events=dashboard_events,
         memory=memory,
+        state=state,
+        geometry_agent=geometry_agent,
         enable_direct_action=config.enable_direct_action,
         mode=mode,
         attempts_per_session=attempts_per_session,
-        state_output_dir=state_output_dir,
         policy_kind=config.task_desc.get("policy_kind", "vla"),
-        geometry_model=config.task_desc.get("geometry_model"),
-        geometry_base_url=config.task_desc.get("geometry_base_url"),
     )
 
 
