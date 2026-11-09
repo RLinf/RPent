@@ -3,7 +3,7 @@
 几何工具包
 ==========
 
-``GeometryTool`` 用于复杂的几何感知任务。主规划器通过 ``geometry`` 描述要测的物体和部位，工具从指定的一帧相机观测中计算位置、方向或尺寸，并说明哪些可见部位支持这个结果。
+``GeometryTool`` 是一个通用的几何感知工具。主规划器通过 ``geometry`` 描述要测的物体和部位，工具从指定的一帧相机观测中计算位置、方向或尺寸，并标明每个测量值是根据哪些可见部位计算得到。
 
 设计目的
 --------
@@ -17,135 +17,152 @@
 模块设计
 --------
 
-测量黄白色杯子
-~~~~~~~~~~~~~~
+主规划器调用 ``geometry`` 时，用 ``query`` 描述要测的物体或部位，用 ``camera`` 指定相机。工具从这台相机读取一帧已记录的观测。视觉模型在彩色图像中定位目标，工具再用同一帧里对应的三维点进行测量。
 
-主规划器想测杯口中心、杯身中心、杯底中心、轴线、杯口半径和杯高。下面的请求指定了相机 ``inspection_rgb`` 在第 0 步记录的观测。相机名 ``camera`` 必填，由接入工具的程序定义。省略 ``step`` 时，默认值 ``-1`` 表示该相机最新的已记录观测。
+.. _processing-flow:
+
+选择测量方式
+~~~~~~~~~~~~
+
+同一个物体可以有不同的测法，取决于主规划器想知道什么。
+
+- **表面上的一点在哪里？** 默认的 ``measurement="surface_point"`` 让视觉模型在目标表面选一个可见的像素。工具读取这个像素对应的三维坐标，通过 ``world_xyz`` 返回。
+- **可见部分的三维范围是什么？** 使用 ``measurement="visible_region"`` 时，工具分割出可见区域，用 ``visible_bounds_xyz`` 返回该区域内有效三维点在各坐标轴上的最小值和最大值。此时 ``world_xyz`` 是各轴的中位数，这个位置可能落在空处。
+- **部位的中心在哪里、朝向如何，或尺寸多大？** 用 ``required_geometry`` 列出 1 到 10 个几何量。给出这份列表后，工具会按列表拟合形状。它从相关部位提取三维点、滤除离群点，再检查点的数量、覆盖范围，以及这些点与所选形状的吻合程度，将结果逐项写入 ``geometry``。
+
+.. _request-and-result-contract:
+
+测一只杯子的尺寸
+~~~~~~~~~~~~~~~~
+
+假设桌上放着一只圆口杯，我们想知道杯口有多宽、杯子有多高。杯口直径可以由半径算出，因此主规划器请求杯口半径 ``rim_radius`` 和杯高 ``height``。本例中的相机名为 ``table_camera``。省略 ``step`` 时，默认值 ``-1`` 表示读取这台相机最近记录的一帧。
 
 .. code-block:: json
 
    {
-     "query": "the yellow and white mug left of the gray cup",
-     "camera": "inspection_rgb",
-     "step": 0,
+     "query": "the cup on the table",
+     "camera": "table_camera",
      "required_geometry": [
-       "rim_center", "body_center", "bottom_center", "axis", "radius", "height"
+       "rim_radius",
+       "height"
      ]
    }
 
-``required_geometry`` 一次可列 1 到 10 项。这个请求只需分别查看口沿、外侧杯身和杯底，同一部位的观测可用于计算多个量。表中的中心坐标都位于观测指定的参考坐标系中，长度单位为米。
-
 .. list-table::
    :header-rows: 1
-   :widths: 22 39 39
+   :widths: 20 43 37
 
    * - 请求量
      - 这一帧需要看到什么
-     - 通过检查后返回什么
-   * - ``rim_center``
-     - 有足够长的一段圆形杯沿，边缘上有有效的三维点。
-     - 拟合圆的圆心坐标 ``[x, y, z]``。
-   * - ``radius``
-     - 与杯口中心共用同一段可见杯沿。
-     - 同一个圆的半径。也可用 ``rim_radius`` 请求。
-   * - ``bottom_center``
-     - 可见的圆形杯底或其边缘，能从中提取足够的边界点。
-     - 根据杯底边缘拟合出的圆心坐标。
-   * - ``body_center``
-     - 杯口和杯底都能拟合出圆，两个圆心分开且两端共轴。
-     - 两个圆心的中点，即沿杯身轴线定义的中心。
+     - 能返回什么
+   * - ``rim_radius``
+     - 一段足够长的圆形杯沿，边缘上有有效的三维点。
+     - 拟合圆的半径，单位为米。``radius`` 是同一个量的另一个名称。
    * - ``height``
-     - 与杯身中心共用通过检查的杯口和杯底。
-     - 两个圆心之间的直线距离。
-   * - ``axis``
-     - 单独请求时看杯身外侧的曲面。同一请求若还找到了两端，就检查两端是否共轴。
-     - 轴线上一点 ``point``、单位方向 ``direction`` 和方向约定 ``sign``。
+     - 杯口和杯底各有一段足以拟合圆的边缘，两个圆有共同的轴线。
+     - 两个圆心之间的距离，单位为米。
 
-计算 ``body_center`` 和 ``height`` 时，程序也会尝试拟合杯身。如果侧壁拟合成功，它的轴线必须与两端吻合，可见杯身也必须位于两端之间。对于 ``axis``，两端通过检查时优先返回从杯底指向杯口的方向（``bottom_to_rim``）。从侧壁单独确定的轴线可以沿两个相反方向表示，``canonical_undirected`` 表示程序按固定规则选了其中一个方向。
-
-离线示例用一圈三维点模拟杯沿，并让定位器只认出这个部位。工具读取一帧观测，分别尝试定位口沿、杯身和杯底，只对找到的口沿做了一次分割。下面摘录这次调用返回的字段，数值经过四舍五入。
+假设从上方只能看清杯沿，拟合出的半径约为 4 厘米。下面是这个情形下的示例返回片段。
 
 .. code-block:: json
 
    {
      "status": "partial",
-     "world_frame_id": "workcell/base",
      "geometry": {
-       "rim_center": {"value": [0.0, 0.8, 0.0]},
-       "radius": {"value": 0.04004, "unit": "m", "evidence_status": "inferred"},
-       "bottom_center": {"value": null},
-       "body_center": {"value": null},
-       "axis": {"value": null},
-       "height": {"value": null, "reason": "both_consistent_end_boundaries_required"}
-     },
-     "observation_request": {"missing_parts": ["body", "bottom"]}
+       "rim_radius": {
+         "value": 0.04,
+         "unit": "m",
+         "evidence_status": "inferred"
+       },
+       "height": {
+         "value": null,
+         "evidence_status": "unknown",
+         "reason": "both_consistent_end_boundaries_required"
+       }
+     }
    }
 
-先看整次请求的 ``status``。``usable`` 表示所需结果全部可用，``partial`` 表示只有部分拟合量可用，``need_observation`` 表示这帧观测不足以给出所需结果。再看各个 ``geometry[field]`` 的 ``definition`` 和 ``value``。上例给出了杯口圆心和约 4 厘米的杯口半径。杯高需要两端的圆心，因此仍为 ``null``。
+这里的 ``partial`` 表示两项测量中只有一项有值。半径乘以 2，得到杯口直径约 8 厘米。杯高仍是 ``null``，原因是这一帧缺少可与杯口配对的杯底边缘。所有请求的量都有值时，状态为 ``usable``。当前观测不足以给出任何请求结果时，状态为 ``need_observation``。
 
-拟合得到的值标为 ``inferred``，缺少依据的字段标为 ``unknown``。每个字段还记录了单位、形状假设、质量信息和证据引用，可用 ``world_frame_id`` 和 ``source_step`` 确认它属于哪个坐标系、哪一步观测。观测读取、模型调用或证据保存等环节出错时，工具返回 ``status="error"``。若请求漏传必填的 ``camera``，工具集会在调用前返回含 ``error`` 和 ``errors`` 的参数错误。
+直接从表面点或可见区域得到的结果标为 ``measured``，拟合值标为 ``inferred``。读取拟合结果时，``definition`` 和 ``unit`` 说明数值的含义和单位，``world_frame_id`` 和 ``source_step`` 标明参考坐标系和观测步骤。``assumptions`` 和 ``quality`` 记录拟合所用的假设及检查结果。``source_parts`` 列出用到的部位，``source_refs`` 可找到保存在共享 ``EnvState`` 原步骤下的掩码、三维点和拟合记录。
 
 .. dropdown:: 其他可请求的几何量
 
    .. list-table::
       :header-rows: 1
-      :widths: 30 70
+      :widths: 24 40 36
 
-      * - 字段
-        - 需要的观测和返回值
+      * - 请求量
+        - 这一帧需要看到什么
+        - 能返回什么
+      * - ``rim_center``
+        - 与 ``rim_radius`` 共用同一段可见杯沿。
+        - 杯沿拟合圆的圆心坐标 ``[x, y, z]``。
       * - ``inner_rim_center``
-        - 能从图像或深度中分辨开口的内侧上沿时，返回内沿拟合圆的圆心。只有整个物体的外轮廓时，内沿仍然未知。
+        - 能在图像或深度图中分辨出开口的内侧上沿。
+        - 内沿拟合圆的圆心坐标。
+      * - ``bottom_center``
+        - 可见的圆形底面或其边缘，能从中提取足够的边界点。
+        - 根据底部边缘拟合出的圆心坐标。
+      * - ``body_center``
+        - 与 ``height`` 共用通过检查的口沿和底边。
+        - 两个圆心的中点。
+      * - ``axis``
+        - 可见的外侧曲面。若同一次请求也得到两端的圆心，可用两端确定轴线。
+        - 轴线上一点 ``point``、单位方向 ``direction`` 和方向约定 ``sign``。
       * - ``body_radii``
-        - 从可见外侧曲面拟合圆柱或圆台，返回沿轴线可见范围两端的半径和对应的轴向范围。
+        - 外侧曲面的三维点足以拟合圆柱或圆台。
+        - 沿轴线可见范围两端的半径及对应的轴向范围。
       * - ``plane``、``plane_normal``
-        - 一片平面上分布足够广的三维点可以确定平面。前者返回平面上的点、法向等参数，后者只返回单位法向。
+        - 一片平面上分布足够广的三维点。
+        - ``plane`` 给出平面上的点、法向等参数，``plane_normal`` 给出单位法向。
       * - ``plate_center``
-        - 根据盘沿以内平坦的圆形承托面及其边界，返回这个平面上的圆心。
+        - 盘沿以内平坦的圆形承托面及其边界。
+        - 这个承托面上的圆心。
       * - ``lid_center``
-        - 根据圆形盖子的平坦封口面及其边界，返回盖面上的圆心。凸起的卷边排除在外。
+        - 圆盖平坦的封口面及其边界，取点时排除凸起的卷边。
+        - 盖面上的圆心。
       * - ``rectangle_center``
-        - 观察主矩形顶面的四条实际边缘，并利用相机位姿区分边缘与遮挡，返回顶面中心。
+        - 主矩形顶面的四条实际边缘和角部，并有相机位姿帮助区分边缘与遮挡。
+        - 矩形顶面的中心。
       * - ``body_segment_center``
-        - 观察近似圆柱形的主瓶身，用半径变化或可见的物体端部确定这段瓶身的两端，返回该段轴线上的中点。
+        - 主瓶身近似圆柱，两端可通过半径变化或可见的物体端部辨认。定位器在主瓶身上选点，分割器圈出整瓶以便检查两端。
+        - 这段瓶身沿轴线的中点。
 
-处理流程
-~~~~~~~~
+   ``height`` 和 ``body_center`` 都要求两端的圆心分开，且两个圆面与圆心连线近似垂直。工具也会尝试拟合外壁。如果外壁拟合成功，它的轴线还要与两端吻合，可见外壁也要位于两端之间。对于 ``axis``，两端通过检查时优先返回从底部指向口沿的方向（``bottom_to_rim``）。仅凭侧壁拟合时，轴线的两个方向等价，``canonical_undirected`` 表示程序按固定规则选了其中一个方向。
 
-每次调用只从指定相机读取一帧观测。接下来的步骤取决于主规划器要测什么。
+.. _observation-contract:
 
-- **杯壁上的一个点。** 把目标描述为黄白杯子的外壁，默认的 ``measurement="surface_point"`` 就会让定位器在可见杯壁上选一个像素。程序从对齐的三维坐标图中读取该点的位置，通过 ``world_xyz`` 返回。
-- **杯身的可见范围。** 使用 ``measurement="visible_region"`` 时，程序还会分割目标区域。分割得到的掩码标出哪些像素属于杯身。程序取这些像素对应的有效三维点，用 ``world_xyz`` 返回各坐标轴上的中位数，用 ``visible_bounds_xyz`` 返回各轴的最小值和最大值。中位数可能落在空处。
-- **部位的中心、方向或尺寸。** 给出 ``required_geometry`` 时，工具按这份列表执行拟合。它从各部位的掩码中提取三维点，选出相连的点、过滤离群点，再为口沿和底边拟合圆，或为杯身比较圆柱和圆台。程序检查支持点数、覆盖范围、拟合残差和部位之间是否一致，再写入 ``geometry[field]``。
+相机需要提供什么数据
+~~~~~~~~~~~~~~~~~~~~
 
-前两类请求直接使用可见表面的观测点，成功时标为 ``measured``。工具把观测以及用到的掩码、点云和拟合依据保存到共享 ``EnvState`` 的原步骤下。拟合字段的 ``source_refs`` 指向对应记录，测量本身不会推进观测步骤。
-
-观测接口
-~~~~~~~~
-
-接入工具的程序负责准备相机观测和标定数据。它通过 ``ObservationProvider`` 的 ``get_observation(*, camera, step)`` 解析相机名和步骤，返回一份 ``GeometryObservation``。其中 ``step`` 必须对应共享 ``EnvState`` 中已有的记录，``world_frame_id`` 要能稳定标识所用的参考坐标系。主规划器在请求中只需引用相机和步骤。
+机器人程序通过 ``ObservationProvider`` 的 ``get_observation(*, camera, step)`` 提供一份 ``GeometryObservation``。相机名由接入程序定义，解析后的 ``step`` 对应共享 ``EnvState`` 中已有的一条记录，``world_frame_id`` 应始终指向同一个参考坐标系。
 
 每帧都需要原始分辨率的 RGB 图像（``rgb``，形状为 H × W × 3，类型为 ``uint8``），并至少通过下列一种方式提供与图像对齐的三维数据。
 
 - 有三维坐标图时，提供 ``world_xyz``。它的形状为 H × W × 3，每个像素保存参考坐标系中的三维位置，单位为米。
 - 有深度图时，提供沿相机光轴的米制深度 ``depth_m``、3 × 3 针孔相机内参 ``intrinsics`` 和 4 × 4 刚体变换 ``camera_to_world``。工具据此将像素转换为三维坐标。相机的正 Z 轴朝前，参考坐标系的方向由接入程序定义。
 
-观测数组会复制为只读快照。有效点的坐标必须有限。如果提供了深度，或者可以根据相机位姿求出光轴深度，深度还必须有限且为正。同时提供深度图和坐标图时也会检查深度。可选的布尔掩码 ``valid_mask`` 可进一步排除无效像素，位于参考坐标系原点的点也按相同规则判断。
+.. dropdown:: 有效点和可选的观测数据
 
-提供相机位姿有助于确定平面法向的朝向。清理口沿或杯身点云时，只有显式给出参考坐标系中的上方向 ``up_direction``，程序才会尝试识别并移除背景平面。可用 ``source_refs`` 记录这帧观测的来源。
+   观测数组会复制为只读快照。有效点的坐标必须有限。如果提供了深度，或者可以根据相机位姿求出光轴深度，深度还必须有限且为正。同时提供深度图和坐标图时也会检查深度。可选的布尔掩码 ``valid_mask`` 可进一步排除无效像素，参考坐标系原点处的点也按相同规则判断。
 
-职责与初始化
-~~~~~~~~~~~~
+   相机位姿有助于确定平面法向的朝向。清理口沿或侧壁的三维点时，提供参考坐标系中的上方向 ``up_direction`` 后，工具才会尝试识别并移除背景平面。可用 ``source_refs`` 记录这帧观测的来源。
 
-在机器人程序中接入时，先准备观测提供方、共享的 ``EnvState``、视觉定位器 ``grounder`` 和分割器 ``segmenter``。只测表面点时可省略分割器。分割可以使用已有的 SAM3 客户端，相关服务由机器人程序连接。也可以传入 ``model`` 和可选的 ``base_url`` 创建已有的视觉定位器 ``GroundingAgent``，用 ``fit_options`` 调整几何拟合的条件。
+.. _responsibilities-and-initialization:
 
-下面的示例在工具集外创建 ``GeometryTool``，然后将实例的 ``geometry`` 注册到已有工具集，并在分发时绑定取消检查。``task_instructions`` 是主规划器原有的任务提示词。
+在机器人程序中注册工具
+~~~~~~~~~~~~~~~~~~~~~~
+
+先准备共享的 ``EnvState``、观测提供方和视觉定位器 ``grounder``。只测一个表面点时，这些就够了。测可见区域或拟合几何量时，还需提供分割器 ``segmenter``，例如机器人程序已连接的 SAM3 客户端。也可以传入 ``model`` 和可选的 ``base_url`` 来创建视觉定位器 ``GroundingAgent``，用 ``fit_options`` 调整拟合条件。
+
+下面的代码在已有的 ``toolkit`` 中注册实例的 ``geometry`` 方法，并在分发请求时绑定取消检查。
 
 .. code-block:: python
 
    from functools import partial
 
    from toolkits.geometry.geometry_tool import GeometryTool
-   from toolkits.geometry.prompts import GEOMETRY_INSTRUCTIONS
 
    geometry_tool = GeometryTool(
        state=state,
@@ -159,7 +176,6 @@
            partial(geometry, check_cancelled=toolkit.raise_if_cancelled)
        )
    )
-   system_prompt = task_instructions + "\n\n" + GEOMETRY_INSTRUCTIONS
 
 工具集的注册和分发机制见 :doc:`interfaces`。
 
@@ -171,38 +187,43 @@
 主规划器怎样提出测量请求
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
-``GEOMETRY_INSTRUCTIONS`` 指导主规划器在 ``query`` 中写清是哪一个物体，用 ``measurement`` 或 ``required_geometry`` 指定想要的结果。杯子例子中，“黄白色”和“在灰杯左侧”共同指明目标，“杯口中心”则说明要测什么。像素和三维坐标都由工具确定。
+接入程序将 ``GEOMETRY_INSTRUCTIONS`` 添加到主规划器已有的任务提示词中，配合已注册的 ``geometry`` 工具使用。
 
-提示也说明怎样使用答案。如果任务只需要杯口半径，上例的 ``partial`` 结果已经给出了这个量。如果任务还需要杯高，主规划器可以查看 ``height`` 的 ``reason`` 和缺失部位，再决定是否在任务预算内换个角度，让同一帧里能同时看到杯口和杯底。移动相机或机器人由主规划器安排。
+.. code-block:: python
+
+   from toolkits.geometry.prompts import GEOMETRY_INSTRUCTIONS
+
+   system_prompt = task_instructions + "\n\n" + GEOMETRY_INSTRUCTIONS
+
+提示词要求主规划器用文字指明目标和所需的测量。例子里桌上只有一只杯子，用“桌上的杯子”就足以指明目标。如果画面中有相似物体，可以补充颜色或相对位置。像素由工具在图像中选取，三维坐标由相机观测提供。
+
+收到 ``partial`` 时，主规划器先看缺少哪一项以及对应的 ``reason``。如果任务只需要杯口直径，已有的半径就够用。如果还需要杯高，主规划器可以在任务预算内安排换个视角，让新的一帧能同时看到杯口和杯底。
+
+.. _expanding-part-requirements:
 
 怎样定位和分割每个部位
 ~~~~~~~~~~~~~~~~~~~~~~
 
-程序用 ``PART_DESCRIPTIONS`` 把部位要求加在原始目标描述前。测量示例中的六个量时，定位器实际收到下面三条描述，每次一条，使用同一张 RGB 图像。
+工具用 ``PART_DESCRIPTIONS`` 把要看的部位加在原始 ``query`` 前。测杯口半径要看杯沿，测杯高还会查看外壁和杯底。两项测量共用同一次杯沿定位，传给定位器的杯沿描述如下。
 
 .. code-block:: text
 
-   the visible circular rim boundary of
-   the yellow and white mug left of the gray cup
+   the visible circular rim boundary of the cup on the table
 
-   the visible curved outer body, excluding handle, rim and interior, of
-   the yellow and white mug left of the gray cup
+.. _internal-visual-grounding-prompt:
 
-   the visible circular bottom face or its boundary of
-   the yellow and white mug left of the gray cup
+``GroundingAgent`` 将这段文字、原始 RGB 图像和图像尺寸交给视觉模型，让它在指定部位清楚可见的实物表面上选点。例如可以选杯沿上的一点。模型通过 ``point_xy`` 按列、行的顺序返回原图中的像素坐标，无法辨认部位时返回 ``null``。
 
-共享的 ``GroundingAgent`` 在调用视觉模型时附上原图宽高，要求在指定部位清楚可见的实物表面上选点，避开遮挡、物体轮廓和图像边缘。模型只依据 RGB 图像和文字，将原图像素坐标按 ``[column, row]`` 的顺序填入 ``point_xy``，无法辨认时该字段为 ``null``。程序检查图像尺寸和像素范围，再按行、列读取坐标。上面合成示例中的杯沿选点 ``[104, 64]`` 对应坐标图的第 64 行、第 104 列（从 0 开始）。
+.. _segmentation-prompts-and-call-bounds:
 
-需要分割时，分割器先按部位文字生成掩码，程序再检查掩码是否包含独立选出的像素。如果找不到掩码或掩码漏掉该点，最多再用这个点提示分割一次，分数阈值保持不变。每个部位最多定位一次、分割两次，所以杯子请求的上限是三次定位、六次分割。
-
-测量 ``body_segment_center`` 时，定位器要在主瓶身上选点，分割器则接到整瓶描述，以便程序利用瓶肩、瓶颈和底部判断主瓶身的范围。
+分割器先根据部位描述圈出图像区域。工具检查这个区域是否包含独立选出的像素。如果没有找到区域，或区域漏掉了该点，工具会用这个点再提示分割一次。每个部位最多定位一次、分割两次。
 
 使用边界与运行验证
 ------------------
 
-遮挡、深度缺失或一个掩码中混入多个表面，都可能使几何量保持未知。拟合残差表示观测点与所选形状吻合的程度。它与支持点数、分割分数一起用于诊断拟合质量，真实位置误差需要另外测量。
+遮挡、深度缺失或分割区域混入其他表面，都可能使测量值保持未知。比较两帧的结果前，先确认目标、部位定义和参考坐标系一致。物体移动后应重新测量。把多个视角合成完整物体或内腔的三维模型需要额外的重建步骤。拟合残差反映观测点与所选形状的吻合程度，真实测量误差需要用独立的测量结果验证。
 
-工具每次处理单个视角。主规划器比较两次观测时，需要确认目标、部位定义和参考坐标系都相同，物体移动后应重新测量。多视角融合、完整盒体或内腔重建超出当前工具的范围。
+读取观测、调用模型或保存记录时发生错误，工具返回 ``status="error"``。如果请求缺少必填参数 ``camera``，工具集会在调用前返回含 ``error`` 和 ``errors`` 的参数错误。
 
 安装测试依赖后，在仓库根目录运行离线检查。
 
@@ -210,4 +231,4 @@
 
    python -m pytest tests/unit_tests/toolkits/geometry -q
 
-这些检查使用合成观测和替代模型服务，覆盖工具集分发、坐标转换、分割重试、取消及部位拟合。真实场景中的测量精度和机器人任务成功率需要单独验证。
+这些检查使用合成观测和替代模型服务，覆盖工具分发、坐标转换、分割重试、取消和部位拟合。
