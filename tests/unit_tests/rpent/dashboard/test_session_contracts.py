@@ -183,7 +183,8 @@ def test_dashboard_session_stops_shared_daemons_in_reverse_after_cleanup_error(
         (2, False, True, "api"),
         (2, True, True, "api"),
         (2, False, False, "api"),
-        (1, False, True, "claude_code"),
+        (1, False, False, "claude_code"),
+        (2, False, True, "claude_code"),
         (1, False, True, "codex"),
         (1, False, False, "codex"),
         (2, False, True, "codex"),
@@ -204,7 +205,6 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
 
     merge_calls: list[dict[str, Any]] = []
     stores = []
-    capture_enabled = record_trajectory and planner_name in {"api", "codex"}
     planner_runs = []
     finalized = []
 
@@ -239,7 +239,7 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
 
         def close(self) -> None:
             task = self.state.get_task()
-            if capture_enabled:
+            if record_trajectory:
                 assert task.status == "running"
             else:
                 assert task is None
@@ -273,7 +273,7 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
     class FakePlanner:
         def solve(self, **kwargs: Any) -> PlannerResult:
             task = kwargs["toolkit"].state.get_task()
-            if capture_enabled:
+            if record_trajectory:
                 assert task.status == "running"
             else:
                 assert task is None
@@ -345,7 +345,7 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
     assert error is None
     assert state.toolkit_lifecycle == ["bound", "unbound"] * sessions
     assert len(stores) == sessions
-    if capture_enabled:
+    if record_trajectory:
         saved_tasks = [
             json.loads(path.read_text())["task"]
             for path in tmp_path.glob("**/trajectories/*/task.json")

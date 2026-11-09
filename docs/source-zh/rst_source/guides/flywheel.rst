@@ -3,7 +3,7 @@
 采集轨迹与数据飞轮
 ========================
 
-使用 ``api`` 或 ``codex`` 规划器时，可通过 ``--record-trajectory`` 保存任务、规划器和工具调用记录。已支持动作采集的环境还会记录实际执行的动作及观测，供后续导出为 LeRobot 训练数据。
+使用 ``api``、``claude_code`` 或 ``codex`` 规划器时，可通过 ``--record-trajectory`` 保存任务、规划器和工具调用记录。已支持动作采集的环境还会记录实际执行的动作及观测，供后续导出为 LeRobot 训练数据。
 
 安装
 ----
@@ -17,7 +17,7 @@
 采集轨迹
 --------
 
-采集默认关闭，支持 ``--planner api`` 和 ``--planner codex``。LIBERO、RoboCasa365、RoboTwin 和 RoboDojo 仅在评测模式下采集实际执行的动作及观测。探索模式仍会保存任务、规划器和工具调用记录，但不包含可导出的 VLA 动作数据。
+采集默认关闭。使用 ``--planner claude_code`` 采集轨迹需要 ``claude-agent-sdk`` 0.2.154 或更高版本，以及 Claude Code 2.1.274 或更高版本。LIBERO、RoboCasa365、RoboTwin 和 RoboDojo 仅在评测模式下采集实际执行的动作及观测。探索模式仍会保存任务、规划器和工具调用记录，但不包含可导出的 VLA 动作数据。
 
 RoboDojo 的原生动作工具记录的是脚本动作。当前规划器工具集中没有 VLA 工具，因此这类运行不会产生可供 ``rpent-flywheel`` 导出的 VLA 训练片段。
 
@@ -34,7 +34,56 @@ RoboDojo 的原生动作工具记录的是脚本动作。当前规划器工具�
 - ``--record-trajectory``：开启上述轨迹采集。
 - ``--output-dir /path/to/run``：指定本次运行的输出根目录，请将 ``/path/to/run`` 替换为实际保存路径。
 
-上述评测示例的记录保存在 ``/path/to/run/trajectories/<task_id>/`` 下，包括 ``task.json``、``planners.jsonl``、``actions.jsonl``、``predictions.jsonl`` 和存放附件的 ``artifacts/`` 目录。
+上述评测示例的轨迹保存在 ``/path/to/run/trajectories/<task_id>/`` 下，附件存放在轨迹目录中的 ``artifacts/`` 子目录。
+
+轨迹数据格式
+------------
+
+``task.json`` 保存任务指令、运行配置、起止时间和任务结果，顶层字段 ``schema_version`` 的值为 ``5``。三个 JSONL 文件每行保存一个 JSON 对象。下表以 Codex 规划器采集的一条 LIBERO 轨迹为例。
+
+.. list-table:: ``planners.jsonl`` 每行记录一次模型调用
+   :header-rows: 1
+
+   * - 字段
+     - 含义
+   * - ``planner_id``
+     - 本次模型调用在轨迹内的唯一标识，例如 ``P14``。
+   * - ``backend``
+     - 发起调用的规划器后端，取值为 ``api``、``claude_code`` 或 ``codex``。
+   * - ``status``
+     - 本次模型调用的状态，取值为 ``open``、``completed``、``failed`` 或 ``cancelled``。
+   * - ``request``
+     - 本次调用的模型输入，包括对话上下文和可用工具等。具体结构取决于后端。
+   * - ``response``
+     - 本次调用的模型输出，可包含文本回复或工具调用请求。
+
+.. list-table:: ``predictions.jsonl`` 每行记录一次 VLA 预测
+   :header-rows: 1
+
+   * - 字段
+     - 含义
+   * - ``prediction_id``
+     - 本次预测在轨迹内的唯一标识，例如 ``V1``。
+   * - ``instruction``
+     - VLA 在本次预测中使用的指令，例如 ``pick up the green salad dressing bottle``。
+   * - ``action_ids``
+     - 本次预测中实际执行的动作 ID，按执行顺序排列。例如，``V1`` 对应 ``A226`` 到 ``A230``，用这些 ID 可在 ``actions.jsonl`` 中查到每一步的控制量。
+
+.. list-table:: ``actions.jsonl`` 每行记录一步实际执行的环境动作
+   :header-rows: 1
+
+   * - 字段
+     - 含义
+   * - ``action_id``
+     - 这一步动作在轨迹内的唯一标识，例如 ``A226``。
+   * - ``source``
+     - 策略预测的动作记为 ``vla``，工具计算或脚本生成的动作记为 ``tool_computed``，通过直接动作工具提交的控制量记为 ``direct``。
+   * - ``action.format``
+     - 机器人使用的动作格式，本例为 ``libero.action``。
+   * - ``action.data``
+     - 实际执行的控制量，本例为包含 7 个 ``float32`` 值的数组。
+   * - ``before_observation``
+     - 执行动作前的环境观测。本例包含机器人状态、任务描述和主相机、腕部相机的图像引用。
 
 导出训练数据
 ------------

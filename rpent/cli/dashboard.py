@@ -319,10 +319,7 @@ def _run_dashboard_task(
                 finish_result = None
                 environment_success = None
                 try:
-                    if task_args.record_trajectory and task_args.planner in {
-                        "api",
-                        "codex",
-                    }:
+                    if task_args.record_trajectory and task_args.planner != "flash":
                         task_state = start_planner_task(
                             toolkit.state,
                             instruction=session_message,

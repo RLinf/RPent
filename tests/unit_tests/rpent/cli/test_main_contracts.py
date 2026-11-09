@@ -147,7 +147,7 @@ def test_public_cli_help_runs_from_source_checkout_without_a_robot_runtime() -> 
 
     assert result.returncode == 0, result.stderr
     assert "RPent: Agentic Infrastructure for the Physical World" in result.stdout
-    assert "api and codex planners" in " ".join(result.stdout.split())
+    assert "with api, claude_code, or codex" in " ".join(result.stdout.split())
     for option in (
         "--robot",
         "--env",
@@ -842,6 +842,7 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     [
         ("api", False),
         ("api", True),
+        ("claude_code", False),
         ("claude_code", True),
         ("codex", False),
         ("codex", True),
@@ -865,6 +866,7 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
     from rpent.session import EnvState
 
     captured: list[RunFinalizationContext] = []
+    capture_enabled = record_trajectory and planner_name != "flash"
 
     class FakeDaemon:
         stopped = False
@@ -896,7 +898,7 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
         def solve(self, **kwargs: Any) -> PlannerResult:
             del kwargs
             task = robot_toolkit.state.get_task()
-            if record_trajectory and planner_name in {"api", "codex"}:
+            if capture_enabled:
                 assert task.status == "running"
             else:
                 assert task is None
@@ -923,7 +925,7 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
     def finalize_run(context: RunFinalizationContext) -> Path:
         captured.append(context)
         assert robot_toolkit.closed is True
-        if record_trajectory and planner_name in {"api", "codex"}:
+        if capture_enabled:
             task = robot_toolkit.state.get_task()
             assert task.status == ("failed" if planner_error else "completed")
             assert task.result.data["environment_success"] is False

@@ -3,8 +3,8 @@
 Data Flywheel
 =============
 
-Use ``--record-trajectory`` with the ``api`` or ``codex`` planner to save task,
-planner, and tool-call records. Supported environments also record executed
+Use ``--record-trajectory`` with the ``api``, ``claude_code``, or ``codex`` planner
+to save task, planner, and tool-call records. Supported environments also record executed
 actions and their observations for later export to LeRobot training data.
 
 Installation
@@ -22,7 +22,8 @@ optional export dependencies:
 Record a Trajectory
 -------------------
 
-Recording is off by default and supports ``--planner api`` and ``--planner codex``.
+Recording is off by default. Recording with ``--planner claude_code`` requires
+``claude-agent-sdk`` 0.2.154 or later and Claude Code 2.1.274 or later.
 LIBERO, RoboCasa365, RoboTwin, and RoboDojo record executed actions and observations
 only in evaluation mode. Exploration still saves task,
 planner, and tool-call records, but contains no actions eligible for VLA dataset
@@ -46,10 +47,68 @@ Enable recording and choose a run directory:
 - ``--output-dir /path/to/run``: Set the output root directory for this run.
   Replace ``/path/to/run`` with your desired save path.
 
-Records from the evaluation example above are saved under
-``/path/to/run/trajectories/<task_id>/``:
-``task.json``, ``planners.jsonl``, ``actions.jsonl``, ``predictions.jsonl``, and
-an ``artifacts/`` directory for attachments.
+The evaluation example saves its trajectory under
+``/path/to/run/trajectories/<task_id>/`` and attachments in the ``artifacts/``
+subdirectory.
+
+Trajectory Data Format
+----------------------
+
+``task.json`` stores the task instruction, run configuration, start and end times,
+and outcome. Its top-level ``schema_version`` is ``5``. Each line in the three
+JSONL files holds one JSON object. The examples below come from a LIBERO
+trajectory recorded with the Codex planner.
+
+.. list-table:: ``planners.jsonl`` (one model call per line)
+   :header-rows: 1
+
+   * - Field
+     - Meaning
+   * - ``planner_id``
+     - Unique ID of this model call within the trajectory, such as ``P14``.
+   * - ``backend``
+     - Planner backend that made the call (``api``, ``claude_code``, or ``codex``).
+   * - ``status``
+     - State of this model call (``open``, ``completed``, ``failed``, or ``cancelled``).
+   * - ``request``
+     - Input to the model, including the conversation context and available tools.
+       The structure depends on the backend.
+   * - ``response``
+     - Model output, which can include text or requests to call tools.
+
+.. list-table:: ``predictions.jsonl`` (one VLA prediction per line)
+   :header-rows: 1
+
+   * - Field
+     - Meaning
+   * - ``prediction_id``
+     - Unique ID of this prediction within the trajectory, such as ``V1``.
+   * - ``instruction``
+     - Instruction the VLA used for this prediction, such as
+       ``pick up the green salad dressing bottle``.
+   * - ``action_ids``
+     - IDs of the actions executed from this prediction, in execution order.
+       For example, look up ``A226`` through ``A230`` in ``actions.jsonl`` to find
+       the control values executed from prediction ``V1``.
+
+.. list-table:: ``actions.jsonl`` (one executed environment action per line)
+   :header-rows: 1
+
+   * - Field
+     - Meaning
+   * - ``action_id``
+     - Unique ID of this action within the trajectory, such as ``A226``.
+   * - ``source``
+     - ``vla`` for a policy prediction, ``tool_computed`` for an action computed
+       by a tool or script, or ``direct`` for a control value submitted through
+       the direct action tool.
+   * - ``action.format``
+     - Robot action format, here ``libero.action``.
+   * - ``action.data``
+     - Control values actually executed, here an array of seven ``float32`` values.
+   * - ``before_observation``
+     - Environment observation before this action. The example contains the robot
+       state, task description, and image references for the main and wrist cameras.
 
 Export Training Data
 --------------------

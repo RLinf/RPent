@@ -198,7 +198,7 @@ def _build_argparser() -> argparse.ArgumentParser:
     ap.add_argument(
         "--record-trajectory",
         action="store_true",
-        help="Record task, planner, and tool trajectories (api and codex planners). "
+        help="Record task, planner, and tool trajectories with api, claude_code, or codex. "
         "Supported environments also record executed actions and VLA predictions. "
         "Action recording is unavailable with --explore.",
     )
@@ -649,7 +649,7 @@ def main() -> int:
             finish_result = None
             environment_success = None
             try:
-                if args.record_trajectory and args.planner in {"api", "codex"}:
+                if args.record_trajectory and args.planner != "flash":
                     task_state = start_planner_task(
                         toolkit.state,
                         instruction=session_msg,

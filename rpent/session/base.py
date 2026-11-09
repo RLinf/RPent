@@ -455,6 +455,8 @@ class EnvState:
         tool_call_id: str,
         *,
         planner_id: str | None = None,
+        response_tool_index: int | None = None,
+        unlink_planner: bool = False,
         origin: Literal["model", "program", "unknown"] | None = None,
         status: Literal[
             "requested",
@@ -477,7 +479,11 @@ class EnvState:
         source_ids: dict[str, str] | None = None,
         missing: dict[str, MissingInfo | None] | None = None,
     ) -> None:
-        """Update a tool call while its task is running."""
+        """Update a tool call while its task is running.
+
+        A new link appends to the response unless a tool-list index is supplied.
+        A corrected trace can explicitly unlink a call and its VLA predictions.
+        """
         with self._records_lock:
             self._running_task()
             record = self._tool_calls[tool_call_id]
@@ -492,6 +498,10 @@ class EnvState:
             }:
                 raise ValueError(f"invalid tool call status: {status!r}")
             planner = None
+            if unlink_planner and planner_id is not None:
+                raise ValueError(
+                    "cannot link and unlink a tool call in the same update"
+                )
             if planner_id is not None:
                 if record.planner_id is not None and record.planner_id != planner_id:
                     raise ValueError(
@@ -517,12 +527,19 @@ class EnvState:
                 source_ids=source_ids,
                 missing=missing,
             )
-            if planner is not None:
+            if unlink_planner and record.planner_id is not None:
+                self._planners[record.planner_id].tool_calls.remove(record)
+                record.planner_id = None
+            elif planner is not None:
                 record.planner_id = planner.planner_id
-                planner.tool_calls.append(record)
+                if response_tool_index is None:
+                    planner.tool_calls.append(record)
+                else:
+                    planner.tool_calls.insert(response_tool_index, record)
+            if planner is not None or unlink_planner:
                 for prediction in self._predictions.values():
                     if prediction.tool_call_id == tool_call_id:
-                        prediction.planner_id = planner.planner_id
+                        prediction.planner_id = record.planner_id
             for name in ("before_observation_id", "after_observation_id"):
                 if missing and missing.get(name) is not None:
                     setattr(record, name, None)
