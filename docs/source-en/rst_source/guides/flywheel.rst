@@ -27,10 +27,6 @@ Recording is off by default. Recording with ``--planner claude_code`` requires
 LIBERO, RoboCasa365, RoboTwin, and RoboDojo record executed actions and observations
 only in evaluation mode.
 
-RoboDojo records the actions its tools execute, such as moving an arm or
-opening and closing a gripper. Its planner currently has no VLA tool, so these
-trajectories contain no VLA training segments for ``rpent-flywheel`` to export.
-
 Enable recording and choose a run directory:
 
 .. code-block:: bash

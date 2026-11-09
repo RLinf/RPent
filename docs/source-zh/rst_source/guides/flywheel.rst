@@ -19,8 +19,6 @@
 
 采集默认关闭。用 ``--planner claude_code`` 采集轨迹时，需要 ``claude-agent-sdk 0.2.154+`` 和 ``Claude Code 2.1.274+``。LIBERO、RoboCasa365、RoboTwin 和 RoboDojo 仅在评测模式下采集实际执行的动作及观测。
 
-RoboDojo 会记录工具执行的动作，例如移动机械臂、开合夹爪。当前规划器工具集中没有 VLA 工具，因此这类运行不会产生可供 ``rpent-flywheel`` 导出的 VLA 训练片段。
-
 开启采集并指定运行目录：
 
 .. code-block:: bash
