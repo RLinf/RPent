@@ -3,64 +3,252 @@
 Geometry Toolkit
 ================
 
-GeometryTool is a complex geometry perception tool that turns descriptions of
-objects or visible parts into spatial measurements with explicit definitions.
-The parent planner supplies a target,
-the required quantities and an observation reference through one ``geometry``
-interface. GeometryTool coordinates visual grounding, segmentation, point
-cloud cleaning and geometric fitting, returning positions, directions and
-dimensions with their evidence.
+``GeometryTool`` handles complex geometry perception tasks. Through
+``geometry``, the planner describes an object and the part it wants to
+measure. The tool uses one recorded camera view to estimate a position,
+direction or size and reports which visible parts support each result.
 
 Design Purpose
 --------------
 
-Grasping, placing and aligning objects require geometry of specific parts. A
-rim center, a body center and a visible surface point have different meanings.
-A selected pixel cannot stand in for all three. The tool defines each
-measurement and returns it with the source observation and shape assumptions.
+Suppose the planner needs to align an object with the opening of the yellow
+and white mug to the left of a gray cup. The image shows material along the
+rim. The center of the opening may lie in empty space. The tool estimates
+that center by fitting a circle to 3-D points along the rim.
+Measuring the mug's height also requires a visible bottom boundary. For the
+two ends to share an axis, both circular faces must be roughly perpendicular
+to the line between their centers.
 
-The parent decides what to measure and what action to take. GeometryTool
-determines which observed parts support that measurement. A visual model
-handles semantic localization; metric observations and geometric algorithms
-supply spatial calculations. This keeps task decisions separate from
-measurement and gives different environments the same request and result
-contract.
+The visual model uses color, the named part and its position relative to
+other objects to select a pixel. The program does the geometry using 3-D
+coordinates in meters aligned with the image. The planner decides what to
+measure and whether the result is enough to plan its next action.
 
 .. _geometry-module-design:
 
 Module Design
 -------------
 
-GeometryTool uses a fixed program flow. A vision-language model selects
-visible pixels, and an injected segmenter produces masks. The program controls
-part expansion, call order and budgets, cloud processing, model comparison and
-acceptance.
+.. _request-and-result-contract:
+
+Measuring the Yellow and White Mug
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The planner asks for the rim, body and bottom centers, the axis, the rim
+radius and the height. This request uses the observation recorded by
+``inspection_rgb`` at step 0. The required ``camera`` name must be one the
+application supports. Omitting ``step`` uses its default, ``-1``, for the
+latest recorded observation from that camera.
+
+.. code-block:: json
+
+   {
+     "query": "the yellow and white mug left of the gray cup",
+     "camera": "inspection_rgb",
+     "step": 0,
+     "required_geometry": [
+       "rim_center", "body_center", "bottom_center", "axis", "radius", "height"
+     ]
+   }
+
+``required_geometry`` accepts 1 to 10 quantities per call. These six use
+three parts of the mug in the image (the rim, the outer wall and the bottom).
+A fit for one part can supply more than one quantity. Centers below use
+the observation's reference frame, and lengths are in meters.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 39 39
+
+   * - Quantity
+     - What the view must show
+     - Result when the checks pass
+   * - ``rim_center``
+     - A long enough arc of the circular rim with valid 3-D points along
+       its edge.
+     - The center ``[x, y, z]`` of the fitted circle.
+   * - ``radius``
+     - The same visible arc used to find the rim center.
+     - The radius of that circle. ``rim_radius`` requests the same quantity.
+   * - ``bottom_center``
+     - The circular bottom face or its edge, with enough points on the
+       boundary.
+     - The center of the circle fitted to the bottom edge.
+   * - ``body_center``
+     - A fitted circle at each end, with distinct centers and a common
+       axis.
+     - The midpoint of the two centers along the mug's axis.
+   * - ``height``
+     - The same pair of accepted end circles used to find the body center.
+     - The straight-line distance between their centers.
+   * - ``axis``
+     - The curved outer wall when this is the only request. If the call
+       also finds both ends, the tool checks whether they share an axis.
+     - A ``point`` on the axis, a unit ``direction`` and a ``sign``
+       convention.
+
+A request for ``body_center`` or ``height`` also tries to fit the wall. If
+that fit succeeds, its axis must agree with both ends and the ends must
+enclose the visible wall. For ``axis``, an accepted pair of ends takes
+precedence and gives a direction from bottom to rim (``bottom_to_rim``).
+A wall fit on its own determines a line with two equivalent directions.
+``canonical_undirected`` means that the program chose one by convention.
+
+In an offline example, a synthetic ring of 3-D points represents the mug
+rim and the substitute visual grounder identifies only that part. The tool
+reads one observation, tries to locate three parts and segments the rim
+once. This excerpt shows the returned fields with rounded values.
+
+.. code-block:: json
+
+   {
+     "status": "partial",
+     "world_frame_id": "workcell/base",
+     "geometry": {
+       "rim_center": {"value": [0.0, 0.8, 0.0]},
+       "radius": {"value": 0.04004, "unit": "m", "evidence_status": "inferred"},
+       "bottom_center": {"value": null},
+       "body_center": {"value": null},
+       "axis": {"value": null},
+       "height": {"value": null, "reason": "both_consistent_end_boundaries_required"}
+     },
+     "observation_request": {"missing_parts": ["body", "bottom"]}
+   }
+
+First check the overall ``status``. A ``usable`` result supplies every
+requested quantity. A ``partial`` result supplies some of the fitted fields,
+and ``need_observation`` means the view supported none of the requested
+results. Then read each field's ``definition`` and ``value`` under
+``geometry[field]``. This view gives a rim center and a rim radius of about
+4 cm. The height remains ``null`` because it needs both end centers.
+
+A fitted value is marked ``inferred``. A field with insufficient evidence
+is marked ``unknown``. Each field records its unit, assumptions, quality and
+evidence references. Its ``world_frame_id`` and ``source_step`` identify the
+reference frame and observation step. Failures during execution, such as
+reading the observation, calling a model or saving evidence, return
+``status="error"``. If a request omits the required ``camera`` argument, the
+toolkit returns an argument error with the keys ``error`` and ``errors``
+before calling the tool.
+
+.. dropdown:: Other Geometry You Can Request
+
+   .. list-table::
+      :header-rows: 1
+      :widths: 30 70
+
+      * - Field
+        - Observation and result
+      * - ``inner_rim_center``
+        - A distinct inner upper edge in the image or depth data gives
+          the center of the fitted inner circle. If only the object's outer
+          outline is visible, the inner edge remains unknown.
+      * - ``body_radii``
+        - A cylinder or truncated cone fitted to the visible outer wall
+          gives the radii at the two ends of the visible axial range,
+          together with that range.
+      * - ``plane``, ``plane_normal``
+        - Points spread across a flat patch determine a plane. The first
+          field returns its parameters, including a point and a normal.
+          The second returns just the unit normal.
+      * - ``plate_center``
+        - The flat circular support surface inside a plate's raised rim
+          and its boundary give the center in the plane of that surface.
+      * - ``lid_center``
+        - The flat face and boundary of a sealed circular lid give a center
+          in the lid plane. The raised rolled lip is excluded.
+      * - ``rectangle_center``
+        - Four physical edges of the main rectangular top face give its
+          center. The program uses the camera pose to distinguish an edge
+          from an occluder.
+      * - ``body_segment_center``
+        - Radius changes or visible physical ends bound the main cylindrical
+          section of a bottle. The result is the midpoint of that section
+          along its axis.
+
+Processing Flow
+~~~~~~~~~~~~~~~
+
+Each call reads one observation from the specified camera. The next steps
+depend on what the planner asks about the mug.
+
+- **A point on the wall.** With the default ``measurement="surface_point"``,
+  the grounder selects one pixel on the surface named in ``query``, such as
+  the visible mug wall. The program reads that pixel's aligned 3-D coordinate
+  and returns it in ``world_xyz``.
+- **The extent of the visible wall.** With ``measurement="visible_region"``,
+  the program also segments the region. The resulting mask marks the pixels
+  that belong to the wall. For the valid 3-D points at those pixels,
+  ``world_xyz`` gives the median on each axis and ``visible_bounds_xyz``
+  gives the minimum and maximum. The median can lie in empty space.
+- **A part's center, direction or size.** Supplying ``required_geometry``
+  selects fitting for the listed quantities. The program extracts 3-D points
+  from each part's mask, retains connected points and filters outliers. It
+  fits circles to rim or bottom edges and compares a cylinder and a truncated
+  cone for the outer wall. It checks the number of supporting points,
+  coverage, fit residuals and agreement between parts before filling
+  ``geometry[field]``.
+
+The first two requests use visible surface samples directly and return
+``measured`` when successful. The tool saves the observation and any masks,
+point clouds and fit evidence under the original step in the shared
+``EnvState``. A fitted field's ``source_refs`` link it to that evidence.
+The recorded step stays the same throughout the call.
+
+Observation Contract
+~~~~~~~~~~~~~~~~~~~~
+
+The application that registers the tool supplies camera observations and
+calibration.
+It implements ``get_observation(*, camera, step)`` on its ``ObservationProvider``
+to resolve the camera name and step and return a ``GeometryObservation``.
+The resolved ``step`` must refer to an existing record in the shared
+``EnvState``, and ``world_frame_id`` must consistently identify the reference
+frame. The planner refers to the camera and step in its request.
+
+Each observation needs an original-resolution RGB image (``rgb``, an
+H × W × 3 ``uint8`` array) and at least one of two sources of aligned 3-D data.
+
+- With a point map, supply ``world_xyz``. This H × W × 3 array gives each
+  pixel's position in meters in the reference frame.
+- With a depth map, supply optical-axis depth in meters (``depth_m``), the
+  3 × 3 pinhole camera matrix (``intrinsics``) and the rigid 4 × 4 transform
+  from camera to reference frame (``camera_to_world``). The tool uses these
+  to compute the 3-D coordinates. Camera Z points forward. The application
+  defines the orientation of the reference frame.
+
+Observation arrays are copied into a read-only snapshot. Valid points need
+finite coordinates. If optical-axis depth is supplied or can be derived from
+the camera pose, it must also be finite and positive. Supplied depth is
+checked even when a point map is present. An optional boolean ``valid_mask``
+can exclude additional pixels. A point at the reference origin follows the
+same validity rules.
+
+The camera pose can orient a plane normal. When cleaning rim or wall points,
+the program attempts to identify and remove a background plane only if the
+observation supplies an explicit ``up_direction`` in the reference frame.
+Use ``source_refs`` to identify the source of the observation.
 
 Responsibilities and Initialization
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The host prepares observation access, shared evidence storage and perception
-clients before constructing GeometryTool outside its toolkit. It then
-registers the prepared tool's ``geometry`` declaration. The tool handles
-measurement processing; the host owns sensor acquisition, calibration,
-coordinate-frame definitions and movement.
+To connect the tool to a robot application, prepare the observation provider,
+shared ``EnvState``, visual ``grounder`` and ``segmenter``. The segmenter is
+optional for surface-point queries. An existing SAM3 client can supply
+segmentation, with the application managing the connection. Passing ``model``
+and an optional ``base_url`` can create the shared ``GroundingAgent``.
+``fit_options`` adjusts the geometric fitting criteria.
 
-The constructor accepts an ``ObservationProvider``, the shared ``EnvState``,
-a visual ``grounder`` and an optional ``segmenter``. Alternatively, ``model``
-and ``base_url`` construct the existing visual-grounding adapter.
-``fit_options`` configures the geometric algorithm gates. Surface-point
-requests need a grounder; region and fitting requests also need a segmenter.
-A compatible SAM3 client can be injected without starting a service here.
-
-The host can register the tool through the ordinary toolkit interface. In this
-illustration, ``state``, ``observations``, perception clients and ``toolkit``
-are supplied by the host:
+This example constructs ``GeometryTool`` outside the toolkit, registers the
+instance's ``geometry`` tool and binds cancellation checks at dispatch.
+``task_instructions`` contains the planner's existing instructions.
 
 .. code-block:: python
 
    from functools import partial
 
    from toolkits.geometry.geometry_tool import GeometryTool
+   from toolkits.geometry.prompts import GEOMETRY_INSTRUCTIONS
 
    geometry_tool = GeometryTool(
        state=state,
@@ -74,126 +262,9 @@ are supplied by the host:
            partial(geometry, check_cancelled=toolkit.raise_if_cancelled)
        )
    )
+   system_prompt = task_instructions + "\n\n" + GEOMETRY_INSTRUCTIONS
 
-Cancellation remains bound at dispatch. GeometryTool has no motion tools and
-does not advance the recorded observation step. Missing evidence is reported
-to the parent, which decides whether to acquire a new view or perform a
-recovery action.
-
-Observation Contract
-~~~~~~~~~~~~~~~~~~~~
-
-The provider implements
-``get_observation(*, camera: str, step: int) -> GeometryObservation``.
-It resolves camera names and ``step=-1`` itself and returns one aligned
-snapshot. The returned step must identify an existing shared ``EnvState``
-record. GeometryTool calls the provider once per request; all requested
-parts use that snapshot.
-
-The observation supplies data and coordinate semantics explicitly:
-
-.. list-table::
-   :header-rows: 1
-   :widths: 32 68
-
-   * - Fields
-     - Contract
-   * - ``camera``, ``step``, ``world_frame_id``
-     - Caller-defined camera name, resolved recorded step and stable metric
-       coordinate-frame identity.
-   * - ``rgb``
-     - Original-resolution RGB array of shape H by W by 3 with uint8 samples.
-   * - ``world_xyz``
-     - Aligned H by W by 3 point map in meters in the supplied reference frame.
-   * - ``depth_m``, ``intrinsics``, ``camera_to_world``
-     - Alternative to a point map: optical-axis depth in meters, pinhole 3 by 3
-       intrinsics and a rigid 4 by 4 camera-to-reference transform. Camera Z is
-       forward; the reference frame can have any orientation.
-   * - ``valid_mask``
-     - Optional aligned boolean validity mask. Nonfinite coordinates and
-       nonpositive supplied depths are invalid. A finite point at the reference
-       origin is valid.
-   * - ``up_direction``, ``source_refs``
-     - Optional up vector in the supplied frame and references identifying
-       the source evidence.
-
-Arrays are copied into a read-only snapshot. If depth and a point map are both
-provided, depth also constrains sample validity. Camera poses can orient plane
-normals and provide optical-depth context. There are no required sensor
-filenames, camera-name enumeration or generated world-frame identifiers.
-
-Background-plane removal uses the supplied ``up_direction``; without it,
-cleanup skips automatic background-plane removal. The tool does not assume
-that reference-frame Z is up. Providers convert their sensor depth convention
-to metric optical-axis depth before creating the observation.
-
-Request and Result Contract
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-The parent passes a target description, a provider-supported camera name,
-a recorded step and the needed quantities. It supplies no calibration in the
-tool call:
-
-.. code-block:: json
-
-   {
-     "query": "the yellow and white mug left of the gray cup",
-     "camera": "inspection_rgb",
-     "step": 0,
-     "required_geometry": [
-       "rim_center", "body_center", "bottom_center", "axis", "radius", "height"
-     ]
-   }
-
-With ``required_geometry``, read ``geometry[field]``. Each field contains its
-value, definition, units, ``world_frame_id``, source step, shape assumptions,
-quality and evidence references. ``radius`` means rim radius;
-``body_center`` is the midpoint of observed coaxial rim and bottom centers;
-``height`` is their separation.
-
-For a visible material point, omit ``required_geometry`` and use
-``measurement="surface_point"``. For the coordinate-wise median and bounds
-of segmented visible samples, use ``measurement="visible_region"``.
-These results use ``world_xyz`` in the provider's reference frame. Region
-statistics do not establish a fitted center; a median may lie in empty space.
-
-The parent checks the result status before planning with a value:
-
-- ``usable``: all requested quantities passed the geometric checks.
-- ``partial``: some quantities are available; unsupported fields remain unknown.
-- ``need_observation``: current evidence is insufficient; reasons and missing
-  parts guide the parent's next observation decision.
-- ``error``: input, provider, model service or evidence persistence failed.
-
-Fit-derived values are ``inferred`` under their reported assumptions.
-Unsupported fields are ``unknown`` with null values. Residuals, support counts
-and segmentation scores are diagnostics, not calibrated position errors.
-Results reference the saved observation, masks, cleaned clouds and fitted
-support; full arrays are stored separately from tool-result text.
-
-Processing Flow
-~~~~~~~~~~~~~~~
-
-The program performs these steps as needed by the requested measurement:
-
-1. **Pin the observation.** Resolve one source snapshot and preserve its camera,
-   step, coordinate frame and evidence metadata.
-2. **Locate and segment the part.** The visual model selects a material pixel.
-   Region requests use a mask consistent with that independently selected point.
-3. **Extract and clean points.** Use aligned metric coordinates and validity,
-   then retain connected part evidence and reject outliers. Background removal
-   requires an explicit up direction.
-4. **Fit the requested shape.** Fit circular edges and planar patches, compare
-   cylinder and frustum surfaces, or derive supported circular-face,
-   rectangular-top and barrel centers.
-5. **Check and return measurements.** Inspect support, coverage, residuals,
-   degeneracy and agreement between parts. Save evidence and report missing
-   quantities rather than substitute unrelated visible centers.
-
-A whole-object mask does not establish an inner opening center. A partial
-body's visible length does not establish full height. A low residual shows
-agreement between candidate points and a model; the observed part must also
-support the measurement's definition.
+See :doc:`interfaces` for toolkit registration and dispatch.
 
 .. _geometry-prompt-design:
 
@@ -203,104 +274,87 @@ Prompt Design
 Parent Planner Instructions
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-``GEOMETRY_INSTRUCTIONS`` supplies reusable parent instructions. The host
-includes this text in its planner prompt alongside the registered tool
-description:
+``GEOMETRY_INSTRUCTIONS`` asks the planner to identify the object in
+``query`` and use ``measurement`` or ``required_geometry`` to say what it
+needs. In the mug example, “yellow and white” and “left of the gray cup”
+together identify the target. The rim center is one quantity to measure.
+The tool determines the pixels and 3-D coordinates.
 
-.. code-block:: python
+The instructions also guide the planner's use of the answer. If the task
+only needs the rim radius, the ``partial`` result above already supplies it.
+If it needs height as well, the planner can read the ``reason`` for ``height``
+and the missing parts, then decide whether its task budget allows a view that
+shows both rim and bottom. The planner arranges any movement of the camera
+or robot.
 
-   from toolkits.geometry.prompts import GEOMETRY_INSTRUCTIONS
+.. _expanding-part-requirements:
 
-   system_prompt = task_instructions + "\n\n" + GEOMETRY_INSTRUCTIONS
+Locating and Segmenting Each Part
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The instructions ask the parent to preserve appearance, part identity and
-spatial relations; select the correct surface or fitting mode; and read status,
-definitions, coordinate-frame identity, source references and quality. The
-parent describes the target instead of supplying guessed pixels or XYZ.
-
-When a request is partial or needs new evidence, the parent inspects the reason
-and chooses a useful next observation within its task budget. It preserves
-target identity across views, compares matching coordinate frames and measures
-again after target motion. The prompt and tool schema do not grant motion
-capabilities to GeometryTool.
-
-Expanding Part Requirements
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-The program maps ``required_geometry`` to observed parts and prefixes the
-original target description with each part requirement. Each visual call
-receives one expanded part description, preserving the original appearance
-and spatial relation. For example:
-
-.. list-table::
-   :header-rows: 1
-   :widths: 30 70
-
-   * - Requested Quantity
-     - Expanded Observation Requirement
-   * - ``rim_center``, ``radius``
-     - The visible circular rim boundary.
-   * - ``axis``
-     - The visible curved outer body, excluding handle, rim and interior.
-   * - ``body_center``, ``height``
-     - Locate rim, outer body and bottom separately, then check agreement.
-   * - ``inner_rim_center``
-     - The inner upper opening edge, excluding outer lip, handle and interior
-       floor.
-
-Internal Visual Grounding Prompt
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-The existing API/Codex visual-grounding adapter receives only RGB and target
-text. Its prompt uses the expanded ``{query}`` and original image dimensions:
+The program uses ``PART_DESCRIPTIONS`` to add each part requirement to the
+original target description. For the six quantities in the example, the
+grounder receives the following three descriptions, one per call with the
+same RGB image.
 
 .. code-block:: text
 
-   Locate {query} in this robot camera image. Preserve the named object
-   part and requested spatial relation. Select a clearly visible material
-   point away from silhouettes, occlusion and image borders. Do not
-   substitute another object or part. Return null if it cannot be identified.
-   The image has {width} columns and {height} rows. Return point_xy as
-   [column, row] in ORIGINAL pixel units, not normalized coordinates.
-   Only select a point; do not use tools or execute robot actions.
+   the visible circular rim boundary of
+   the yellow and white mug left of the gray cup
 
-Its structured result contains ``point_xy``: original-pixel
-``[column, row]`` when visible, or null when unidentified. The program checks
-image size and pixel bounds, converts to internal row/column order, and obtains
-metric coordinates from the pinned observation. The visual model receives no
-depth, object truth or robot tools.
+   the visible curved outer body, excluding handle, rim and interior, of
+   the yellow and white mug left of the gray cup
 
-Segmentation Prompts and Call Bounds
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+   the visible circular bottom face or its boundary of
+   the yellow and white mug left of the gray cup
 
-For a region, the program first requests segmentation with part text and
-requires the mask to contain the independent visual point. If that candidate
-is absent or excludes the point, one further call may use the point as a
-positive prompt. Bottle-barrel measurements ground the barrel but request
-a whole-bottle mask to preserve shoulder, neck and base context.
+.. _internal-visual-grounding-prompt:
 
-Each part uses at most one visual-grounding call and two segmentation calls,
-with no synonym search or threshold reduction. Segmentation bounds candidate
-evidence; the program determines part centers through cleaning and fitting.
-The prompt constrains the semantic task, while code enforces call budgets and
-geometric acceptance.
+The shared ``GroundingAgent`` includes the original image dimensions in its
+prompt. It asks the visual model to select a clearly visible material point
+on the named part, away from occlusions, silhouettes and image borders.
+Given the RGB image and text, the model sets ``point_xy`` to
+``[column, row]`` in original pixels, or to ``null`` if it cannot identify
+the part. The program checks the image dimensions and pixel bounds before
+looking up a coordinate by row and column. For the rim pixel ``[104, 64]`` in
+the synthetic example, it reads row 64, column 104, counting from zero.
+
+.. _segmentation-prompts-and-call-bounds:
+
+When segmentation is needed, the segmenter first uses the part description.
+The program checks whether the mask contains the independently selected
+pixel. If the mask is missing or excludes the point, the program can use
+that point to prompt segmentation once more at the same score threshold.
+Each part uses at most one grounding call and two segmentation calls.
+Across the three mug parts, that gives a limit of three grounding calls
+and six segmentation calls.
+
+For ``body_segment_center`` the grounder selects a point on the main barrel,
+while the segmenter receives a description of the whole bottle so that the
+program can use the shoulder, neck and base to find the barrel's limits.
 
 Limits and Runtime Verification
 -------------------------------
 
-Occlusion, missing depth, mixed surfaces or incorrect target localization can
-leave quantities unknown. Complete box or cavity recovery and multi-view
-fusion are not implemented. Compare only matching reference frames and point
-definitions, and request new measurements after target motion.
+Occlusion, missing depth or a mask that mixes several surfaces can leave
+quantities unknown. A fit residual describes how closely the points match
+the chosen shape. Along with the supporting point count and segmentation
+score, it helps diagnose a fit. Actual position error requires an independent
+measurement.
 
-Run the offline execution checks from an installation with the test
-dependencies:
+The tool handles one view per call. The planner can compare results across
+views when the target, part definition and reference frame match. It should
+measure again after the object moves. Multi-view fusion and reconstruction
+of a complete box or cavity are outside the scope of this tool.
+
+With the test dependencies installed, run the offline checks from the
+repository root.
 
 .. code-block:: bash
 
    python -m pytest tests/unit_tests/toolkits/geometry -q
 
-These checks exercise generic observation input, toolkit dispatch, metric
-projection, bounded perception, cancellation and fitting with synthetic data
-and fake model services. Real-scene position accuracy and robot task success
-require separate experiments.
+These checks use synthetic observations and substitute model services. They
+exercise toolkit dispatch, coordinate conversion, segmentation retries,
+cancellation and part fitting. Measuring real-scene accuracy or robot task
+success requires separate experiments.
