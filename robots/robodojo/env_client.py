@@ -153,6 +153,14 @@ class RoboDojoEnvClient(BaseEnvClient):
             expected_meta=expected_meta,
             reset_on_connect=expected_meta.get("mode") != "eval-fair",
         )
+        if self.eval_fair and record_vpp2_history:
+            self._initialize_execution()
+            if self._execution.step != 0:
+                raise ExecutionSyncError(
+                    "VPP2 eval-fair attachment requires an environment at step 0"
+                )
+            self._record_policy_frame(self.last_obs)
+            self._history_valid = True
 
     def _record_policy_frame(self, obs: dict) -> None:
         validate_rgb(obs)

@@ -230,6 +230,65 @@ def test_env_spawn_uses_explicit_interpreter_and_child_paths(monkeypatch, tmp_pa
     assert recorded["env_overrides"]["ROBODOJO_SOURCE_ROOT"] == str(tmp_path)
 
 
+@pytest.mark.parametrize("version", [None, 1, 2])
+def test_env_connection_checks_action_protocol_before_reset(
+    monkeypatch, tmp_path, agent_module, fake_env, version
+):
+    from robots.robodojo import env_server
+    from rpent.dashboard.events import NullDashboardEventSink
+    from rpent.robots import runtime
+
+    meta = {}
+
+    def create_env(cfg, **kwargs):
+        meta.update(kwargs["meta"])
+        return SimpleNamespace(close=lambda: None)
+
+    monkeypatch.setattr(agent_module, "RoboDojoAgentEnv", create_env)
+    monkeypatch.setattr(
+        env_server,
+        "RoboDojoEnvFacade",
+        lambda env: SimpleNamespace(serve=lambda **kwargs: None),
+    )
+    monkeypatch.setattr(sys, "argv", ["env_server"])
+    env_server.main()
+    assert meta["action_protocol_version"] == 1
+    if version is None:
+        meta.pop("action_protocol_version")
+    else:
+        meta["action_protocol_version"] = version
+
+    env, calls = fake_env(), []
+
+    def call(method, **kwargs):
+        calls.append(method)
+        if method == "env.get_env_meta":
+            return meta
+        if method == "env.reset":
+            return env.reset()
+        assert method == "env.get_status"
+        return env.get_status()
+
+    rpc = SimpleNamespace(call=call, close=lambda: calls.append("close"))
+    monkeypatch.setattr(robot_spec, "_spawn_env_server", lambda *args: (None, rpc))
+    monkeypatch.setattr(runtime, "wait_for_ready", lambda *args, **kwargs: None)
+    config = _args("--env-endpoint", "socket://localhost:1234")
+    if version == 1:
+        _, connected = robot_spec._init_runtime(
+            config, tmp_path, NullDashboardEventSink(), {"env"}
+        )
+        assert connected["env"].policy_observation()["inference_index"] == 0
+        assert calls == ["env.get_env_meta", "env.reset", "env.get_status"]
+    else:
+        with pytest.raises(
+            RuntimeError, match="env_meta mismatch.*action_protocol_version"
+        ):
+            robot_spec._init_runtime(
+                config, tmp_path, NullDashboardEventSink(), {"env"}
+            )
+        assert calls == ["env.get_env_meta", "close"]
+
+
 @pytest.mark.parametrize("backend", ["vpp2", "awomo05"])
 @pytest.mark.parametrize("backend_flag", ["--am-backend", "--vla-backend"])
 def test_runtime_connects_selected_backend(
@@ -835,20 +894,38 @@ def test_model_startup_failure_stops_owned_process(
     assert events == ["start", "stop"]
 
 
+@pytest.mark.parametrize("backend,action_type", [("vpp2", "ee"), ("awomo05", "joint")])
+@pytest.mark.parametrize("explicit", [False, True])
+def test_policy_accepts_native_action_type(backend, action_type, explicit):
+    flags = ["--action-type", action_type] if explicit else []
+    robot_spec._validate_args(_args("--am-backend", backend, *flags))
+
+
 @pytest.mark.parametrize(
-    "flag,value", [("--action-type", "ee"), ("--env-cfg-type", "other")]
+    "backend,flag,value",
+    [
+        ("vpp2", "--action-type", "joint"),
+        ("awomo05", "--action-type", "ee"),
+        ("vpp2", "--env-cfg-type", "other"),
+        ("awomo05", "--env-cfg-type", "other"),
+    ],
 )
-def test_awomo_requires_native_joint_robot(flag, value):
-    with pytest.raises(ValueError):
-        robot_spec._validate_args(
-            _args(
-                "--vla-backend",
-                "awomo05",
-                "--vla-endpoint",
-                "socket://model:9005",
-                flag,
-                value,
-            )
+def test_policy_rejects_incompatible_robot_or_action_type(
+    monkeypatch, tmp_path, backend, flag, value
+):
+    from rpent.dashboard.events import NullDashboardEventSink
+
+    def unexpected_start(*args, **kwargs):
+        pytest.fail("service started before policy configuration validation")
+
+    for name in ("env", "sam3", "model"):
+        monkeypatch.setattr(robot_spec, f"_spawn_{name}_server", unexpected_start)
+    with pytest.raises(ValueError, match=f"{backend} requires arx_x5"):
+        robot_spec._init_runtime(
+            _args("--am-backend", backend, flag, value),
+            tmp_path,
+            NullDashboardEventSink(),
+            None,
         )
 
 

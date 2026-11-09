@@ -195,9 +195,9 @@ def _validate_args(args: argparse.Namespace) -> None:
             raise ValueError(f"{name} must be nonnegative")
 
     backend = getattr(args, "am_backend", "vpp2")
-    if backend == "awomo05":
-        if args.env_cfg_type != "arx_x5" or args.action_type != "joint":
-            raise ValueError("awomo05 requires arx_x5 with absolute joint actions")
+    action_type = "ee" if backend == "vpp2" else "joint"
+    if args.env_cfg_type != "arx_x5" or args.action_type not in (None, action_type):
+        raise ValueError(f"{backend} requires arx_x5 with {action_type} actions")
 
 
 def get_toolkit(
@@ -269,8 +269,9 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     parser.add_argument(
         "--action-type",
         choices=["joint", "ee"],
-        default="joint",
-        help="Legacy policy action representation; scripted primitives use joint targets",
+        default=None,
+        help="Policy action representation (VPP2: ee; Awomo05: joint); "
+        "defaults to the selected model's representation",
     )
     parser.add_argument("--max-episode-steps", type=int, default=700)
     parser.add_argument(
@@ -337,7 +338,6 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             "layout": args.layout,
             "seed": seed,
             "env_cfg_type": args.env_cfg_type,
-            "action_type": args.action_type,
             "recipe_tag": recipe_tag,
             "task_summary": summary,
             "memory_dir": str(memory_dir),
@@ -524,6 +524,7 @@ def _init_runtime(
                 rpc,
                 record_vpp2_history=record_vpp2_history,
                 expected_meta={
+                    "action_protocol_version": 1,
                     "task": args.task,
                     "layout": args.layout,
                     "seed": getattr(args, "seed", 0),
@@ -586,7 +587,6 @@ def _init_runtime(
                 rpc.close()
         raise
 
-    primitives_kwargs["action_type"] = args.action_type
     primitives_kwargs["task"] = args.task
     primitives_kwargs["vla_backend"] = am.backend
     return list(owned_daemons.values()), primitives_kwargs

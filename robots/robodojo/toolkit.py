@@ -110,7 +110,6 @@ class RoboDojoToolkit(Toolkit):
             sam3_client=primitives_kwargs.get("sam3_client"),
             vla_client=primitives_kwargs.get("vla_client"),
             vla_backend=primitives_kwargs.get("vla_backend", "vpp2"),
-            action_type=primitives_kwargs.get("action_type", "joint"),
             check_cancelled=self.raise_if_cancelled,
         )
 

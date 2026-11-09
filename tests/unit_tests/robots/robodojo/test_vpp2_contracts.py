@@ -103,6 +103,66 @@ def stamps(payload):
     return [int(views[0][0, 0, 0]) for views in payload["history"]]
 
 
+@pytest.fixture
+def fair_rpc(monkeypatch):
+    rpc = EnvRPC()
+    original = rpc.call
+    calls = []
+
+    def call(method, **kwargs):
+        calls.append(method)
+        if method == "env.get_env_meta":
+            return {"mode": "eval-fair"}
+        if method == "env.get_status":
+            return {"step": rpc.step, "step_limit": rpc.limit}
+        assert method not in ("env.reset", "env.is_success", "env.get_score")
+        return original(method, **kwargs)
+
+    monkeypatch.setattr(rpc, "call", call)
+    return rpc, calls
+
+
+def test_fair_attach_initializes_history_without_reset_or_motion(fair_rpc):
+    rpc, calls = fair_rpc
+    env = RoboDojoEnvClient(rpc, expected_meta={"mode": "eval-fair"})
+    assert calls == [
+        "env.get_env_meta",
+        "env.get_status",
+        "env.get_obs",
+        "env.get_status",
+    ]
+    assert rpc.step == 0
+    payload = env.policy_observation()
+    assert stamps(payload) == [0] * 9 and payload["inference_index"] == 0
+    env.step_joint_update("left", gripper=0.5)
+    env.step({"left_ee_pose": [0, 0, 1, 1, 0, 0, 0]})
+    assert stamps(env.policy_observation()) == [0] * 8 + [2]
+    env.invalidate_execution()
+    env._initialize_execution()
+    with pytest.raises(RuntimeError, match="history unavailable"):
+        env.policy_observation()
+
+
+@pytest.mark.parametrize("initial_step,drift", [(1, 0), (0, 1)])
+def test_fair_attach_rejects_missing_or_unstable_initial_frame(
+    fair_rpc, monkeypatch, initial_step, drift
+):
+    rpc, _ = fair_rpc
+    rpc.step = initial_step
+    original = rpc.call
+
+    def call(method, **kwargs):
+        result = original(method, **kwargs)
+        if method == "env.get_obs":
+            rpc.step += drift
+        return result
+
+    monkeypatch.setattr(rpc, "call", call)
+    with pytest.raises(ExecutionSyncError, match="step 0|advanced"):
+        RoboDojoEnvClient(rpc, expected_meta={"mode": "eval-fair"})
+    assert rpc.actions == []
+
+
 def test_history_includes_all_actions_but_not_reads_and_is_bounded(connected):
     rpc, env = connected
     assert stamps(env.policy_observation()) == [0] * 9

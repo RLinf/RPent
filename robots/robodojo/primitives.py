@@ -57,13 +57,11 @@ class RoboDojoPrimitives:
         sam3_client=None,
         vla_client=None,
         vla_backend="vpp2",
-        action_type="joint",
     ):
         self.env = env
         self._check_cancelled = check_cancelled
         self.sam3_client = sam3_client
         self.vla_client = vla_client
-        self.action_type = action_type
         self._last_obs = None
         self._segment_index = 0
         self._segment_index_lock = Lock()

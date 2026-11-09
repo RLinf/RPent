@@ -405,7 +405,11 @@ def test_eval_client_rejects_dev_service_and_does_not_reset():
         calls.append(method)
         return {"mode": "eval-fair"}
 
-    RoboDojoEnvClient(SimpleNamespace(call=call), expected_meta={"mode": "eval-fair"})
+    RoboDojoEnvClient(
+        SimpleNamespace(call=call),
+        expected_meta={"mode": "eval-fair"},
+        record_vpp2_history=False,
+    )
     assert calls == ["env.get_env_meta"]
     with pytest.raises(AssertionError, match="mismatch"):
         RoboDojoEnvClient(

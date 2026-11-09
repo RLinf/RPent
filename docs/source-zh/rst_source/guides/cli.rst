@@ -141,8 +141,6 @@ RPent CLI 保留原有 ``--cuda-device`` 作为本地服务的共享默认值；
      - 兼容旧参数（隐藏别名）
    * - ``--am-backend``
      - ``--vla-backend``、``--wam-backend``
-   * - ``--am-backend pi05``
-     - RoboDojo 的 ``--policy-backend rlinf``
    * - ``--am-endpoint``
      - ``--vla-endpoint``、``--wam-endpoint``
    * - ``--am-checkpoint``
