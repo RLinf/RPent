@@ -20,10 +20,11 @@ import asyncio
 import os
 import queue
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from rpent.dashboard.events import DashboardEventSink
 from rpent.dashboard.interaction import DashboardInteractionPort
@@ -41,6 +42,75 @@ if TYPE_CHECKING:
 #: Toolkits expose plain tool names; planners add/strip this prefix.
 MCP_TOOL_PREFIX = "mcp__rpent__"
 REASONING_EFFORTS = ("none", "low", "medium", "high", "xhigh")
+STOP_CATEGORIES = frozenset(
+    {"finish", "budget", "timeout", "cancelled", "error", "unknown"}
+)
+
+
+@dataclass(frozen=True)
+class PlannerCapabilities:
+    """Runner requirements available before importing an optional backend."""
+
+    requires_memory_copy: bool = False
+    refresh_manual_observations: bool = False
+    withdraw_queued: bool = False
+
+
+_PLANNER_CAPABILITIES: dict[str, PlannerCapabilities] = {}
+
+
+def get_planner_capabilities(name: str) -> PlannerCapabilities:
+    """Return static runner requirements, preserving legacy backend defaults."""
+    return _PLANNER_CAPABILITIES.get(name, PlannerCapabilities())
+
+
+def normalize_stop_info(
+    stop_info: Mapping[str, Any] | None,
+    *,
+    reason: str | None = None,
+    error: str | None = None,
+    finish_accepted: bool = False,
+) -> dict[str, Any]:
+    """Preserve a backend's reason alongside a common termination category.
+
+    Args:
+        stop_info: Optional backend evidence, including its raw reason/category.
+        reason: Raw planner reason when absent from stop_info.
+        error: Planner error used only when no reason was supplied.
+        finish_accepted: Accepted finish used only when no reason was supplied.
+
+    Returns:
+        A copy with reason and category. Unknown reasons remain unknown even
+        when a finish or error is present. A category never authorizes recovery;
+        callers must also inspect the explicit execution and cleanup evidence.
+    """
+    normalized = dict(stop_info or {})
+    raw_reason = normalized.get("reason")
+    if not isinstance(raw_reason, str) or not raw_reason:
+        raw_reason = reason if isinstance(reason, str) and reason else None
+    if raw_reason is None:
+        raw_reason = (
+            "planner_error"
+            if error is not None
+            else "finish"
+            if finish_accepted
+            else "stopped"
+        )
+    category = normalized.get("category")
+    if not isinstance(category, str) or category not in STOP_CATEGORIES:
+        category = {
+            "finish": "finish",
+            "budget": "budget",
+            "request_limit": "budget",
+            "timeout": "timeout",
+            "interrupted": "cancelled",
+            "cancelled": "cancelled",
+            "error": "error",
+            "planner_error": "error",
+            "stopped": "unknown",
+        }.get(raw_reason, "unknown")
+    normalized.update(reason=raw_reason, category=category)
+    return normalized
 
 
 def resolve_model(planner: str, model: str | None) -> str | None:
@@ -103,7 +173,14 @@ class PlannerResult:
     planning without setting ``error``.
     """
 
-    __slots__ = ("finish_result", "messages", "stats", "error", "stop_reason")
+    __slots__ = (
+        "finish_result",
+        "messages",
+        "stats",
+        "error",
+        "stop_reason",
+        "stop_info",
+    )
 
     def __init__(
         self,
@@ -113,6 +190,7 @@ class PlannerResult:
         stats: dict | None = None,
         error: str | None = None,
         stop_reason: str | None = None,
+        stop_info: dict | None = None,
     ):
         """Initialize a serializable planner result."""
         self.finish_result = (
@@ -124,12 +202,29 @@ class PlannerResult:
         )  # {"total_input_tokens", "total_output_tokens", "turns_used", "tool_calls"}
         self.error = error  # str | None  — set when the planner raises
         self.stop_reason = stop_reason
+        self.stop_info = stop_info
 
 
 def is_recoverable_agent_error(agent_error: str | None) -> bool:
     """Whether the error allows a fresh exploration session."""
     lowered = (agent_error or "").lower()
     return "timed out" in lowered or "planner response truncated" in lowered
+
+
+def is_recoverable_planner_result(result: PlannerResult) -> bool:
+    """Require complete safety evidence when a backend supplies stop_info.
+
+    Older planners retain their existing text-based recovery contract.
+    """
+    stop_info = getattr(result, "stop_info", None)
+    if stop_info is not None:
+        return (
+            stop_info.get("execution_certain") is True
+            and stop_info.get("allow_new_session") is True
+            and stop_info.get("result_delivery_complete") is True
+            and stop_info.get("cleanup_complete") is True
+        )
+    return is_recoverable_agent_error(result.error)
 
 
 class Planner(ABC):

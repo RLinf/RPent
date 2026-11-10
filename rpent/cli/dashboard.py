@@ -35,7 +35,7 @@ from rpent.cli.main import (
 from rpent.dashboard.events import RunStartedEvent
 from rpent.evaluation import RunFinalizationContext
 from rpent.memory import MemoryManager
-from rpent.planner.base import build_planner, is_recoverable_agent_error
+from rpent.planner.base import build_planner, is_recoverable_planner_result
 from rpent.robots import get_toolkit
 from rpent.session.planner_capture import end_planner_task, start_planner_task
 from rpent.utils.config import get_memory_dir
@@ -218,6 +218,8 @@ def _run_dashboard_task(
     messages: list[dict] = []
     stats: dict = {}
     agent_error: str | None = None
+    stop_info: dict | None = None
+    stop_reason: str | None = None
     task_daemons: list[ProcessDaemon] = []
     recipe_path = ""
     started = time.time()
@@ -254,6 +256,12 @@ def _run_dashboard_task(
                 ):
                     break
                 environment_success, environment_metrics = None, {}
+                stop_info, stop_reason = None, None
+                stats = {
+                    key: value
+                    for key, value in stats.items()
+                    if key not in ("stop_info", "stop_reason")
+                }
                 if session_number > 1:
                     logger.info(
                         "=== handing off to agent %d/%d ===",
@@ -353,6 +361,8 @@ def _run_dashboard_task(
                     finish_result = result.finish_result
                     messages += result.messages
                     stats = result.stats
+                    stop_info = getattr(result, "stop_info", None)
+                    stop_reason = getattr(result, "stop_reason", None)
                     agent_error = result.error
                     if human_interactive_run and toolkit.direct_verdict_requested:
                         finish_result = toolkit.finalize_direct_verdict()
@@ -399,15 +409,18 @@ def _run_dashboard_task(
                     or (finish_result or {}).get("operator_finished")
                 ):
                     break
-                if agent_error:
-                    if session_number < sessions and is_recoverable_agent_error(
-                        agent_error
+                if agent_error or stop_info is not None:
+                    if session_number < sessions and is_recoverable_planner_result(
+                        result
                     ):
                         logger.warning(
                             "session %d/%d ended with %s; continuing with a fresh handoff",
                             session_number,
                             sessions,
-                            agent_error,
+                            agent_error
+                            or (stop_info or {}).get("reason")
+                            or stop_reason
+                            or "unknown",
                         )
                         continue
                     break
@@ -497,6 +510,8 @@ def _run_dashboard_task(
                     if finish_result is not None
                     else None,
                     stats=dict(stats),
+                    stop_info=stop_info,
+                    stop_reason=stop_reason,
                 )
             )
         except Exception as exc:

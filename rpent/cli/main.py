@@ -58,7 +58,7 @@ from rpent.memory import MemoryManager
 from rpent.planner.base import (
     REASONING_EFFORTS,
     build_planner,
-    is_recoverable_agent_error,
+    is_recoverable_planner_result,
 )
 from rpent.planner.check import BASE_URL_ENV_BY_PLANNER
 from rpent.robots import enumerate_robots, get_robot_spec, get_toolkit
@@ -563,6 +563,8 @@ def main() -> int:
     # --- agent loop --------------------------------------------------------
     t0 = time.time()
     finish_result, messages, agent_error = None, [], None
+    stop_info: dict | None = None
+    stop_reason: str | None = None
     stats: dict = {}
     first_user_msg: str | None = user_msg
     if await_first_prompt is not None:
@@ -589,6 +591,12 @@ def main() -> int:
             if session_msg is None:
                 break
             environment_success, environment_metrics = None, {}
+            stop_info, stop_reason = None, None
+            stats = {
+                key: value
+                for key, value in stats.items()
+                if key not in ("stop_info", "stop_reason")
+            }
             if session_number > 1:
                 planner, system_prompt, session_msg = _start_continuation_session(
                     args,
@@ -665,6 +673,8 @@ def main() -> int:
                 finish_result = result.finish_result
                 messages += result.messages
                 stats = result.stats
+                stop_info = getattr(result, "stop_info", None)
+                stop_reason = getattr(result, "stop_reason", None)
                 agent_error = result.error
                 if getattr(toolkit, "direct_verdict_requested", False):
                     finish_result = toolkit.finalize_direct_verdict()
@@ -713,17 +723,20 @@ def main() -> int:
                 or (finish_result or {}).get("operator_finished")
             ):
                 break
-            if agent_error:
+            if agent_error or stop_info is not None:
                 if (
                     getattr(args, "explore", False)
                     and session_number < sessions
-                    and is_recoverable_agent_error(agent_error)
+                    and is_recoverable_planner_result(result)
                 ):
                     logger.warning(
                         "session %d/%d ended with %s; continuing with a fresh handoff",
                         session_number,
                         sessions,
-                        agent_error,
+                        agent_error
+                        or (stop_info or {}).get("reason")
+                        or stop_reason
+                        or "unknown",
                     )
                     continue
                 break
@@ -785,6 +798,8 @@ def main() -> int:
                         dict(finish_result) if finish_result is not None else None
                     ),
                     stats=dict(stats),
+                    stop_info=stop_info,
+                    stop_reason=stop_reason,
                 )
             )
             if result_path:
