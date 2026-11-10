@@ -172,7 +172,14 @@ def test_cancellation_retains_acknowledged_progress(motion):
     assert result["episode_status"]["remaining_steps"] == 96
 
 
-def test_ambiguous_mutation_timeout_is_not_retried(motion):
+@pytest.mark.parametrize(
+    ("name", "arguments"),
+    [
+        ("release", {"arm": "right"}),
+        ("move_to", {"arm": "right", "xyz": [0.1, 0.2, 0.9]}),
+    ],
+)
+def test_ambiguous_mutation_timeout_is_not_retried(motion, name, arguments):
     env, primitive = motion
 
     def fail(**kwargs):
@@ -180,7 +187,9 @@ def test_ambiguous_mutation_timeout_is_not_retried(motion):
         raise TimeoutError("reply lost")
 
     env.step_joint_update = fail
-    result = primitive.release(arm="right").data
+    native = getattr(primitive, name)(**arguments)
+    result = native.data
+    assert native.execution_uncertain
     assert len(env.updates) == 1
     assert result["execution_uncertain"] and not result["completed"]
     assert result["executed_steps"] == 0 and result["error"] == "reply lost"
@@ -313,6 +322,34 @@ def toolkit_factory(tmp_path, monkeypatch):
         return env, toolkit
 
     return create
+
+
+@pytest.mark.parametrize(
+    ("name", "arguments"),
+    [
+        ("release", {"arm": "right"}),
+        ("move_to", {"arm": "right", "xyz": [0.1, 0.2, 0.9]}),
+    ],
+)
+def test_ambiguous_mutation_preserves_toolkit_execution_provenance(
+    toolkit_factory, name, arguments
+):
+    env, toolkit = toolkit_factory()
+
+    def fail(**kwargs):
+        env.updates.append(kwargs)
+        raise TimeoutError("reply lost")
+
+    env.step_joint_update = fail
+    try:
+        result = toolkit.execute_tool(name, arguments)
+        assert result.execution_uncertain and result.is_error
+        native = result.data["log"]["result"]
+        assert native["execution_uncertain"] and not native["completed"]
+        assert native["executed_steps"] == 0 and native["error"] == "reply lost"
+        assert len(env.updates) == 1
+    finally:
+        toolkit.close()
 
 
 @pytest.mark.parametrize("mode", ["evaluation", "exploration"])
