@@ -265,10 +265,11 @@ where = ["."]
 # robots is a top-level package; without it, non-editable installations
 # leave the CLI unable to import any backend. The globs also cover every
 # per-robot subpackage (robots.yam.*, robots.robodojo.*, ...).
-include = ["rpent*", "robots", "robots.*"]
-exclude = ["tests*", "docs*", "examples*", "docker*", "toolkits*"]
+include = ["rpent*", "robots", "robots.*", "toolkits", "toolkits.mapping*"]
+exclude = ["tests*", "docs*", "examples*", "docker*"]
 
 [tool.setuptools.package-data]
+"toolkits.mapping" = ["stereo.yaml", "*.ini"]
 "rpent.dashboard" = ["*.html", "static/*.css", "static/*.js"]
 "robots.yam" = ["config/*.yaml", "config/*.json", "guides/*.md"]
 

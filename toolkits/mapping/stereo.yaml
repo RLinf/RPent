@@ -1,0 +1,15 @@
+# Calibration template for RPent stereo preparation, not a RAFT-Stereo config.
+# Replace all symbolic values with the calibration matching the input images.
+# K/D: OpenCV pinhole intrinsics/distortion; image_size: per-eye pixels.
+# R/T_m: X_right = R * X_left + T_m, with translation in metres.
+# For rectified pairs: rectified K, zero D, identity R, T_m = [-baseline_m, 0, 0].
+
+image_size: [width, height]  # per-eye dimensions in pixels
+left:
+  K: [fx_left, 0, cx_left, 0, fy_left, cy_left, 0, 0, 1]
+  D: [k1_left, k2_left, p1_left, p2_left, k3_left]
+right:
+  K: [fx_right, 0, cx_right, 0, fy_right, cy_right, 0, 0, 1]
+  D: [k1_right, k2_right, p1_right, p2_right, k3_right]
+R: [r00, r01, r02, r10, r11, r12, r20, r21, r22]
+T_m: [tx, ty, tz]
