@@ -27,7 +27,8 @@ import pytest
 import rpent.planner.gemini_cli as gemini_module
 import rpent.planner.utils.agent_session as session_module
 from rpent.dashboard.events import NullDashboardEventSink, TranscriptEvent, UsageEvent
-from rpent.planner.gemini_cli import GeminiCliPlanner, _Recorder
+from rpent.planner.acp import AcpPlanner, AcpRecorder, run_probe_turn
+from rpent.planner.gemini_cli import GeminiCliPlanner
 from rpent.tools import ToolResult
 
 
@@ -49,8 +50,9 @@ class FakeMcpServer:
         self.stopped = True
 
 
-def make_planner(tmp_path: Path, *, timeout_s=2) -> GeminiCliPlanner:
-    return GeminiCliPlanner(
+def make_planner(tmp_path: Path, *, timeout_s=2, backend="gemini_cli") -> AcpPlanner:
+    cls = GeminiCliPlanner if backend == "gemini_cli" else AcpPlanner
+    return cls(
         output_dir=str(tmp_path),
         output_path=tmp_path / "gemini.out",
         model="gemini-upstream-id",
@@ -123,7 +125,7 @@ def test_environment_trusts_generated_workspace_and_bypasses_loopback_proxy(
 @pytest.mark.parametrize("tool_error", [False, True])
 def test_recorder_uses_actual_finish_and_accumulates_usage(tool_error):
     events = []
-    recorder = _Recorder(SimpleNamespace(enabled=True, emit=events.append))
+    recorder = AcpRecorder(SimpleNamespace(enabled=True, emit=events.append))
     recorder.observe(
         {
             "type": "rpent_tool",
@@ -187,12 +189,18 @@ def acp_backend(monkeypatch):
     seen = {"events": [], "reply": "done", "stderr": ""}
     FakeMcpServer.instances.clear()
     monkeypatch.setenv("GEMINI_BIN", "/fake/gemini")
+    monkeypatch.setenv(
+        "RPENT_ACP_COMMAND", '/fake/harness acp --config "config with spaces"'
+    )
     monkeypatch.setattr(session_module, "HttpMcpServer", FakeMcpServer)
 
     @asynccontextmanager
     async def spawn(client, binary, *args, cwd, **kwargs):
         seen["command"] = [binary, *args]
-        seen["settings"] = json.loads((cwd / ".gemini" / "settings.json").read_text())
+        settings_path = cwd / ".gemini" / "settings.json"
+        seen["settings"] = (
+            json.loads(settings_path.read_text()) if settings_path.exists() else {}
+        )
         seen["cwd"] = cwd
         stderr = asyncio.StreamReader()
         stderr.feed_data(seen["stderr"].encode())
@@ -204,13 +212,32 @@ def acp_backend(monkeypatch):
                 seen["events"].append("initialize")
                 if "startup_error" in seen:
                     raise seen["startup_error"]
+                return acp.schema.InitializeResponse(
+                    protocol_version=acp.PROTOCOL_VERSION,
+                    agent_capabilities=acp.schema.AgentCapabilities(
+                        mcp_capabilities=acp.schema.McpCapabilities(
+                            http=seen.get("http", True)
+                        )
+                    ),
+                )
 
             async def authenticate(self, **kwargs):
                 pytest.fail("RPent must not change CLI authentication")
 
             async def new_session(self, **kwargs):
                 seen["events"].append("new_session")
-                return SimpleNamespace(session_id="same-session")
+                seen["mcp_servers"] = kwargs["mcp_servers"]
+                return SimpleNamespace(
+                    session_id="same-session",
+                    config_options=[
+                        SimpleNamespace(category="model", type="select", id="model-id")
+                    ]
+                    if seen.get("model_selector", True)
+                    else [],
+                )
+
+            async def set_config_option(self, **kwargs):
+                seen["model_selection"] = kwargs
 
             async def prompt(self, session_id, prompt):
                 assert session_id == "same-session"
@@ -267,11 +294,13 @@ def acp_backend(monkeypatch):
 @pytest.mark.parametrize(
     "outcome", ["finish", "no_finish", "startup_error", "prompt_error", "timeout"]
 )
+@pytest.mark.parametrize("backend", ["gemini_cli", "acp"])
 def test_session_result_artifacts_and_cleanup(
-    tmp_path, monkeypatch, acp_backend, outcome
+    tmp_path, monkeypatch, acp_backend, outcome, backend
 ):
     secret = "environment-secret-value"
-    monkeypatch.setenv("GEMINI_API_KEY", secret)
+    secret_name = "GEMINI_API_KEY" if backend == "gemini_cli" else "DEEPSEEK_API_KEY"
+    monkeypatch.setenv(secret_name, secret)
     acp_backend["reply"] = f"request failed for {secret}"
     acp_backend["stderr"] = f"provider rejected {secret}\n"
     acp_backend["finish"] = outcome == "finish"
@@ -284,7 +313,7 @@ def test_session_result_artifacts_and_cleanup(
         "cancel_tools"
     )
     result = make_planner(
-        tmp_path, timeout_s=0.05 if outcome == "timeout" else 2
+        tmp_path, timeout_s=0.05 if outcome == "timeout" else 2, backend=backend
     ).solve(
         system_prompt="system rules",
         user_message="user task",
@@ -294,9 +323,23 @@ def test_session_result_artifacts_and_cleanup(
     server = FakeMcpServer.instances[0]
     assert server.started and server.stopped
     toolkit.cancel_active_and_wait.assert_called_once()
-    assert acp_backend["settings"]["model"]["maxSessionTurns"] == 6
-    assert acp_backend["settings"]["mcpServers"]["rpent"]["httpUrl"].endswith("/mcp/")
-    assert acp_backend["command"][1] == "--acp"
+    if backend == "gemini_cli":
+        assert acp_backend["settings"]["model"]["maxSessionTurns"] == 6
+        assert acp_backend["settings"]["mcpServers"]["rpent"]["httpUrl"].endswith(
+            "/mcp/"
+        )
+        assert acp_backend["command"][1] == "--acp"
+    else:
+        assert not acp_backend["settings"]
+        assert acp_backend["command"] == [
+            "/fake/harness",
+            "acp",
+            "--config",
+            "config with spaces",
+        ]
+        if outcome != "startup_error":
+            assert acp_backend["mcp_servers"][0].url == "http://127.0.0.1:43210/mcp/"
+            assert acp_backend["model_selection"]["value"] == "gemini-upstream-id"
     assert acp_backend["events"][-1] == "close"
     assert not acp_backend["cwd"].exists()
     assert result.finish_result == (
@@ -304,15 +347,16 @@ def test_session_result_artifacts_and_cleanup(
         if outcome == "finish"
         else None
     )
-    assert result.stats["backend"] == "gemini_cli"
+    assert result.stats["backend"] == backend
     assert secret not in str(result.messages)
     for path in ("output_path", "raw_stream_path", "stderr_path"):
         text = Path(result.stats[path]).read_text()
         assert secret not in text
         if outcome != "timeout":
-            assert "<GEMINI_API_KEY>" in text
+            assert f"<{secret_name}>" in text
     if outcome == "timeout":
-        assert result.error == "Gemini CLI timed out after 0.05s"
+        label = "Gemini CLI" if backend == "gemini_cli" else "ACP agent"
+        assert result.error == f"{label} timed out after 0.05s"
         assert acp_backend["events"][-4:] == [
             "cancel_tools",
             "cancel",
@@ -320,7 +364,7 @@ def test_session_result_artifacts_and_cleanup(
             "close",
         ]
     elif outcome in {"startup_error", "prompt_error"}:
-        assert result.error == "RuntimeError: gemini unavailable: <GEMINI_API_KEY>"
+        assert result.error == f"RuntimeError: gemini unavailable: <{secret_name}>"
     else:
         assert result.error is None
         assert result.stats["total_input_tokens"] == 8
@@ -328,25 +372,27 @@ def test_session_result_artifacts_and_cleanup(
 
 
 @pytest.mark.parametrize("outcome", ["success", "timeout", "auth_error"])
-def test_probe_is_tool_free_and_closes_transport(acp_backend, outcome):
+@pytest.mark.parametrize("backend", ["gemini_cli", "acp"])
+def test_probe_does_not_mount_rpent_tools_and_closes_transport(
+    acp_backend, outcome, backend
+):
+    probe = gemini_module.run_probe_turn if backend == "gemini_cli" else run_probe_turn
     acp_backend["block"] = outcome == "timeout"
     if outcome == "auth_error":
         acp_backend["prompt_error"] = RuntimeError("401 Unauthorized")
     if outcome == "success":
-        assert (
-            gemini_module.run_probe_turn(prompt="ping", model=None, timeout_s=1)
-            == "done"
-        )
+        assert probe(prompt="ping", model=None, timeout_s=1) == "done"
     else:
         error, message = (
-            (TimeoutError, "did not finish within")
+            ((asyncio.TimeoutError, TimeoutError), None)
             if outcome == "timeout"
             else (RuntimeError, "401 Unauthorized")
         )
         with pytest.raises(error, match=message):
-            gemini_module.run_probe_turn(prompt="ping", model=None, timeout_s=0.05)
+            probe(prompt="ping", model=None, timeout_s=0.05)
     assert "--model" not in acp_backend["command"]
     assert "mcpServers" not in acp_backend["settings"]
+    assert acp_backend["mcp_servers"] == []
     assert not FakeMcpServer.instances
     assert acp_backend["events"][-1] == "close"
     if outcome == "timeout":
@@ -363,3 +409,28 @@ def test_simultaneous_interactive_channels_are_rejected(tmp_path: Path) -> None:
             input_queue=object(),
             dashboard_interaction=object(),
         )
+
+
+@pytest.mark.parametrize(
+    ("capability", "error"),
+    [
+        ("http", "must support HTTP MCP"),
+        ("model_selector", "no model selector"),
+    ],
+)
+def test_acp_missing_capability_fails_before_prompt(
+    tmp_path, acp_backend, capability, error
+):
+    acp_backend[capability] = False
+    toolkit = Mock()
+    toolkit.list_tools.return_value = []
+    result = make_planner(tmp_path, backend="acp").solve(
+        system_prompt="",
+        user_message="task",
+        toolkit=toolkit,
+        max_turns=1,
+    )
+    assert error in result.error
+    assert "prompt" not in acp_backend["events"]
+    assert acp_backend["events"][-1] == "close"
+    assert FakeMcpServer.instances[0].stopped

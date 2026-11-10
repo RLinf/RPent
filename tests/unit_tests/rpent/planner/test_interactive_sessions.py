@@ -25,6 +25,7 @@ from acp.schema import PromptResponse
 from rpent.dashboard.events import NullDashboardEventSink, RunStartedEvent
 from rpent.dashboard.state import DashboardState
 from rpent.planner import claude_code, codex, gemini_cli
+from rpent.planner.acp import AcpPlanner, AcpRecorder
 from rpent.planner.utils import agent_session as interactive
 from rpent.planner.utils.agent_runtime import AgentArtifacts
 from rpent.tools import ToolResult
@@ -79,7 +80,7 @@ def test_repeated_terminal_shutdown_does_not_stop_the_next_session():
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("backend", ["codex", "gemini_cli", "claude_code"])
+@pytest.mark.parametrize("backend", ["codex", "gemini_cli", "claude_code", "acp"])
 @pytest.mark.parametrize("channel", ["terminal", "dashboard"])
 def test_queue_interrupt_and_continuation_share_one_session(
     tmp_path, monkeypatch, backend, channel, dashboard
@@ -146,7 +147,12 @@ def test_queue_interrupt_and_continuation_share_one_session(
 
     class Connection:
         async def initialize(self, **kwargs):
-            pass
+            return acp.schema.InitializeResponse(
+                protocol_version=acp.PROTOCOL_VERSION,
+                agent_capabilities=acp.schema.AgentCapabilities(
+                    mcp_capabilities=acp.schema.McpCapabilities(http=True)
+                ),
+            )
 
         async def new_session(self, **kwargs):
             sessions.append("gemini-session")
@@ -207,10 +213,12 @@ def test_queue_interrupt_and_continuation_share_one_session(
     monkeypatch.setattr(acp, "spawn_agent_process", spawn)
     monkeypatch.setattr(claude_agent_sdk, "ClaudeSDKClient", ClaudeClient)
     monkeypatch.setenv("GEMINI_BIN", "/fake/gemini")
+    monkeypatch.setenv("RPENT_ACP_COMMAND", "/fake/harness --acp")
     cls = {
         "codex": codex.CodexPlanner,
         "gemini_cli": gemini_cli.GeminiCliPlanner,
         "claude_code": claude_code.ClaudeCodePlanner,
+        "acp": AcpPlanner,
     }[backend]
     planner = cls(
         output_dir=str(tmp_path),
@@ -435,7 +443,7 @@ def test_interactive_cleanup_and_finish_preserve_unsent_input(
 
     monkeypatch.setattr(interactive, "HttpMcpServer", Server)
     artifacts = AgentArtifacts("test", tmp_path / "agent.out")
-    recorder = gemini_cli._Recorder(NullDashboardEventSink())
+    recorder = AcpRecorder(NullDashboardEventSink())
 
     def cancel():
         events.append("cancel_tools")

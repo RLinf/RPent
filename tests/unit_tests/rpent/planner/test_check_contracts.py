@@ -125,6 +125,7 @@ def test_diagnostic_timeouts_never_inherit_the_run_default() -> None:
         "claude_code": 90,
         "codex": 90,
         "gemini_cli": 90,
+        "acp": 90,
     }
     for planner, expected in DEFAULT_TIMEOUT_S.items():
         assert LlmCheckRequest(planner=planner).resolved_timeout_s() == expected

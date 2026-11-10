@@ -82,17 +82,23 @@ CHECK_STATUSES = (
 )
 
 #: Planner backends this module can probe.
-CHECK_PLANNERS = ("api", "claude_code", "codex", "gemini_cli")
+CHECK_PLANNERS = ("api", "claude_code", "codex", "gemini_cli", "acp")
 
 #: Backends whose endpoint is configured outside RPent, not by ``--base-url``.
 #: ``build_planner`` forwards ``base_url`` to the api model alone, so these
 #: backends reject the flag rather than dropping it silently — a check
 #: that honoured an endpoint the run ignores would be testing the wrong
 #: thing.
-EXTERNALLY_CONFIGURED_PLANNERS = ("claude_code", "codex", "gemini_cli")
+EXTERNALLY_CONFIGURED_PLANNERS = ("claude_code", "codex", "gemini_cli", "acp")
 
 #: Diagnostic timeouts, deliberately independent of the 1200s run default.
-DEFAULT_TIMEOUT_S = {"api": 30, "claude_code": 90, "codex": 90, "gemini_cli": 90}
+DEFAULT_TIMEOUT_S = {
+    "api": 30,
+    "claude_code": 90,
+    "codex": 90,
+    "gemini_cli": 90,
+    "acp": 90,
+}
 
 #: Budget for an SDK backend running on a CLI login rather than an env var.
 #: Shorter than the default because a diagnostic should not hold the terminal
@@ -171,7 +177,7 @@ class LlmCheckRequest:
     Attributes:
         planner: Backend to probe; one of :data:`CHECK_PLANNERS`.
         model: Model id. Required (and provider-prefixed) for ``api``;
-            optional for ``claude_code``, ``codex``, and ``gemini_cli``.
+            optional for external agent backends.
         base_url: Base URL override for the ``api`` backend.
         timeout_s: Wall-clock cap. Defaults per backend when ``None``.
     """
@@ -291,7 +297,8 @@ def check_llm(request: LlmCheckRequest) -> LlmCheckResult:
         "api": _check_api,
         "claude_code": _check_claude_code,
         "codex": _check_codex,
-        "gemini_cli": _check_gemini_cli,
+        "gemini_cli": _check_acp,
+        "acp": _check_acp,
     }[planner]
 
     # The budget is logged where it is resolved: the SDK backends shorten it
@@ -883,22 +890,28 @@ def _check_codex(request: LlmCheckRequest) -> LlmCheckResult:
 
 
 # ---------------------------------------------------------------------------
-# gemini_cli planner
+# ACP planners
 # ---------------------------------------------------------------------------
 
 
-def _check_gemini_cli(request: LlmCheckRequest) -> LlmCheckResult:
-    """Probe the installed Gemini CLI with one tool-free ACP request."""
+def _check_acp(request: LlmCheckRequest) -> LlmCheckResult:
+    """Probe an ACP harness without mounting RPent tools."""
     model = (request.model or "").strip() or None
+    label = "Gemini CLI" if request.planner == "gemini_cli" else "ACP agent"
     try:
         from acp import RequestError
 
-        from rpent.planner.gemini_cli import run_probe_turn
+        from rpent.planner.acp import redact_agent_secrets
+
+        if request.planner == "gemini_cli":
+            from rpent.planner.gemini_cli import run_probe_turn
+        else:
+            from rpent.planner.acp import run_probe_turn
     except ImportError as exc:
         return LlmCheckResult(
             ok=False,
             status=STATUS_SDK_ERROR,
-            planner="gemini_cli",
+            planner=request.planner,
             model=model,
             detail=_describe(exc),
         )
@@ -907,16 +920,20 @@ def _check_gemini_cli(request: LlmCheckRequest) -> LlmCheckResult:
         return LlmCheckResult(
             ok=status == STATUS_OK,
             status=status,
-            planner="gemini_cli",
+            planner=request.planner,
             model=model,
             **kwargs,
         )
 
-    timeout_s = _sdk_probe_budget(
-        request,
-        cli_login_only=not (
-            os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-        ),
+    timeout_s = (
+        _sdk_probe_budget(
+            request,
+            cli_login_only=not (
+                os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+            ),
+        )
+        if request.planner == "gemini_cli"
+        else request.resolved_timeout_s()
     )
     started = time.monotonic()
     try:
@@ -928,8 +945,12 @@ def _check_gemini_cli(request: LlmCheckRequest) -> LlmCheckResult:
     except (asyncio.TimeoutError, TimeoutError):
         return _result(
             STATUS_NETWORK_ERROR,
-            detail=f"Gemini CLI did not respond within {timeout_s}s.",
+            detail=f"{label} did not respond within {timeout_s}s.",
             latency_s=round(time.monotonic() - started, 3),
+        )
+    except ValueError as exc:
+        return _result(
+            STATUS_MISSING_CONFIG, detail=redact_agent_secrets(_describe(exc))
         )
     except Exception as exc:  # noqa: BLE001 - classified below
         status = (
@@ -940,7 +961,7 @@ def _check_gemini_cli(request: LlmCheckRequest) -> LlmCheckResult:
         )
         return _result(
             status,
-            detail=_describe(exc),
+            detail=redact_agent_secrets(_describe(exc)),
             latency_s=round(time.monotonic() - started, 3),
         )
 
@@ -948,7 +969,7 @@ def _check_gemini_cli(request: LlmCheckRequest) -> LlmCheckResult:
     if not reply.strip():
         return _result(
             STATUS_PROVIDER_ERROR,
-            detail="Gemini CLI returned no assistant text.",
+            detail=f"{label} returned no assistant text.",
             latency_s=latency_s,
         )
     return _result(STATUS_OK, reply=reply.strip(), latency_s=latency_s)

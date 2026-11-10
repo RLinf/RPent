@@ -56,7 +56,8 @@ def _parser() -> argparse.ArgumentParser:
         "--planner",
         default="api",
         choices=list(CHECK_PLANNERS),
-        help="LLM backend to check: api | claude_code | codex | gemini_cli.",
+        help="LLM backend to check: api | claude_code | codex | gemini_cli | acp. "
+        "acp starts the command in RPENT_ACP_COMMAND.",
     )
     parser.add_argument(
         "--model",
@@ -64,7 +65,8 @@ def _parser() -> argparse.ArgumentParser:
         help="Model id. For the 'api' planner, prefix the provider "
         "(e.g. anthropic:claude-opus-4-8, google:Argon, "
         "openai:gpt-5.5, openai-chat:glm-5.2). For claude_code, codex, and "
-        "gemini_cli this overrides the backend or upstream default model.",
+        "gemini_cli this overrides the backend or upstream default model. "
+        "For acp, use a value from the agent's advertised model selector.",
     )
     parser.add_argument(
         "--base-url",
@@ -110,10 +112,7 @@ def _remediation(result: LlmCheckResult) -> str:
         else "Configure authentication in the backend configuration, then retry."
     )
     hints = {
-        STATUS_MISSING_CONFIG: (
-            "Pass --model with a provider prefix, e.g. "
-            "--model anthropic:claude-opus-4-8."
-        ),
+        STATUS_MISSING_CONFIG: "Check the planner configuration reported above.",
         STATUS_UNSUPPORTED_PROVIDER: (
             "Use a provider RPent installs: anthropic:, google:, openai:, "
             "or openai-chat:."
