@@ -41,6 +41,11 @@ class ToolResult:
 
     data: dict[str, Any] = field(default_factory=dict)
     images: list[bytes] = field(default_factory=list)
+    # Internal execution provenance, excluded from the model-facing payload.
+    # A failed handler may already have changed the environment or an explicitly
+    # declared persistent resource. Post-action capture exceptions are uncertain;
+    # a pure observation/cache handler failure alone does not imply side effects.
+    execution_uncertain: bool = False
 
     @property
     def is_error(self) -> bool:
@@ -135,6 +140,8 @@ class Tool(Generic[ParamsT]):
     _unbound_method: bool = False
     action_source: Literal["tool_computed", "direct"] = "tool_computed"
 
+    uncertain_on_error: bool | None = None
+
     @property
     def input_schema(self) -> dict[str, Any]:
         """Return JSON Schema for the same parameters that Toolkit validates."""
@@ -163,6 +170,7 @@ def tool(
     *,
     name: str | None = None,
     readonly: bool = False,
+    uncertain_on_error: bool | None = None,
     exclude: tuple[str, ...] = (),
     json_schema_extra: dict[str, Any] | None = None,
 ) -> Any:
@@ -174,6 +182,10 @@ def tool(
     self is bound by Python and excluded from model inputs. Use
     @tool(readonly=True) to allow concurrent readonly calls and skip Toolkit's
     automatic observation capture. Other calls execute exclusively.
+    uncertain_on_error declares whether a failed handler may leave side effects;
+    None defaults to not readonly. Explicitly enable it for readonly tools that
+    write persistent resources. This metadata does not affect scheduling or the
+    model's argument schema.
 
     name overrides the published tool name. exclude names internal resources
     supplied by the caller. Parameters without defaults are required.
@@ -187,6 +199,7 @@ def tool(
             namespace,
             tool_name=name,
             readonly=readonly,
+            uncertain_on_error=uncertain_on_error,
             json_schema_extra=json_schema_extra,
         )
     return _declare_tool(
@@ -195,6 +208,7 @@ def tool(
         namespace,
         tool_name=name,
         readonly=readonly,
+        uncertain_on_error=uncertain_on_error,
         json_schema_extra=json_schema_extra,
     )
 
@@ -206,6 +220,7 @@ def _declare_tool(
     *,
     tool_name: str | None,
     readonly: bool,
+    uncertain_on_error: bool | None,
     json_schema_extra: dict[str, Any] | None,
 ) -> Tool:
     parameters = dict(inspect.signature(function).parameters)
@@ -280,6 +295,7 @@ def _declare_tool(
         handler=function,
         _input_schema=input_schema,
         readonly=readonly,
+        uncertain_on_error=uncertain_on_error,
         _unbound_method=unbound_method,
     )
 

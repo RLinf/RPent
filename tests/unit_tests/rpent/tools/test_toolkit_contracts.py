@@ -26,8 +26,10 @@ from pydantic import Field
 from rpent.dashboard.events import StepRecordEvent
 from rpent.memory import MemoryManager
 from rpent.memory import manager as memory_module
-from rpent.session import EnvState
+from rpent.session import EnvState, Payload
+from rpent.session.env_capture import ToolCallCapture
 from rpent.tools import Toolkit, ToolResult, common, iter_tools, tool
+from rpent.tools.toolkit import ToolCancelled
 
 
 class _RecordingEventSink:
@@ -222,6 +224,7 @@ def test_common_file_tools_enforce_memory_manager_boundaries(
     assert read_root_leaf.data["content"] == "root-level note"
     assert list_published.data["files"] == ["strategy.md"]
     assert "writing to memory is denied" in write_published.data["error"]
+    assert not write_published.execution_uncertain
     assert "another robot's memory is denied" in read_foreign.data["error"]
     assert "reading this memory path is denied" in read_evaluation_inbox.data["error"]
 
@@ -258,6 +261,7 @@ def test_common_file_tools_enforce_memory_manager_boundaries(
     assert read_own.data["content"] == "draft"
     assert "reading this memory path is denied" in read_other.data["error"]
     assert "writing to memory is denied" in write_through_symlink.data["error"]
+    assert not write_through_symlink.execution_uncertain
     assert published.read_text() == "published"
     assert evaluation.capture_calls == []
     assert exploration.capture_calls == []
@@ -375,6 +379,7 @@ def test_invalid_vectors_never_execute_or_capture_state(tmp_path: Path, value) -
     assert result.is_error
     assert calls == []
     assert toolkit.capture_calls == []
+    assert not result.execution_uncertain
 
 
 def test_stateful_dispatch_captures_state_and_emits_the_record(
@@ -434,6 +439,7 @@ def test_handler_error_is_retained_when_state_capture_also_fails(
     failed = toolkit.execute_tool("fail", {})
 
     assert failed.data["error"] == "handler exploded"
+    assert failed.execution_uncertain
     assert failed.data["state_capture_error"] == "capture exploded"
     assert "ValueError: handler exploded" in failed.data["traceback"]
     assert toolkit.events.events == []
@@ -495,10 +501,81 @@ def test_toolkit_cleans_up_operation_after_handler_failure(tmp_path: Path) -> No
     failed = toolkit.execute_tool("fail", {})
 
     assert failed.data["error"] == "tool failed"
+    assert not failed.execution_uncertain
     assert "RuntimeError: tool failed" in failed.data["traceback"]
     assert toolkit.execute_tool(
         "finish", {"status": "failure", "summary": "recovered"}
     ).data.get("_finish", False)
+
+
+def test_handler_type_error_is_distinct_from_argument_validation(tmp_path):
+    toolkit = _ContractToolkit(tmp_path)
+    effects = []
+
+    @tool(readonly=True, uncertain_on_error=True)
+    def write_then_fail(value: int) -> ToolResult:
+        effects.append(value)
+        raise TypeError("failure after side effect")
+
+    toolkit.add_tool(write_then_fail)
+    rejected = toolkit.execute_tool("write_then_fail", {"value": "invalid"})
+    assert rejected.is_error and not rejected.execution_uncertain
+    assert effects == []
+    failed = toolkit.execute_tool("write_then_fail", {"value": 1})
+    assert failed.is_error and failed.execution_uncertain
+    assert effects == [1]
+
+
+@pytest.mark.parametrize("explicit_uncertainty", [False, True])
+@pytest.mark.parametrize("uncertain_on_error", [None, True])
+def test_result_serialization_failure_preserves_provenance(
+    tmp_path, explicit_uncertainty, uncertain_on_error
+):
+    toolkit = _ContractToolkit(tmp_path)
+
+    @tool(readonly=True, uncertain_on_error=uncertain_on_error)
+    def invalid_result() -> ToolResult:
+        return ToolResult(
+            data={"value": float("nan")}, execution_uncertain=explicit_uncertainty
+        )
+
+    toolkit.add_tool(invalid_result)
+    failed = toolkit.execute_tool("invalid_result", {})
+    assert failed.is_error
+    assert failed.execution_uncertain is explicit_uncertainty
+    assert failed.data["code"] == "tool_result_serialization_failed"
+    assert "serialization failed" in failed.data["error"]
+
+
+def test_cancellation_before_handler_keeps_execution_certain(tmp_path, monkeypatch):
+    toolkit = _ContractToolkit(tmp_path)
+    toolkit.capture_error = RuntimeError("camera unavailable")
+    toolkit.state.start_task(instruction="Move.", config=Payload("json", {}))
+    call_id = toolkit.state.register_tool_call(
+        planner_id=None, name="move", arguments=Payload("json", {})
+    )
+    capture = ToolCallCapture(toolkit.state, call_id)
+    actions = []
+
+    @tool
+    def move() -> ToolResult:
+        actions.append("move")
+        return ToolResult(data={"moved": True})
+
+    def cancel():
+        raise ToolCancelled("cancelled before execution")
+
+    toolkit.add_tool(move)
+    monkeypatch.setattr(toolkit, "raise_if_cancelled", cancel)
+    with capture.bind():
+        result = toolkit.execute_tool("move", {})
+    assert result.data["code"] == "tool_cancelled"
+    assert not result.execution_uncertain
+    assert actions == toolkit.capture_calls == toolkit.events.events == []
+    assert capture.finished and not capture.started
+    record = toolkit.state.get_tool_call(call_id)
+    assert record.status == "not_executed"
+    assert record.started_at is None and record.ended_at is None
 
 
 @pytest.mark.timeout(5)
@@ -533,6 +610,7 @@ def test_toolkit_cooperatively_cancels_and_cleans_up_active_operation(
     assert not worker.is_alive()
     assert results[0].data["code"] == "tool_cancelled"
     assert results[0].data["interrupted"] is True
+    assert results[0].execution_uncertain
     assert results[0].data["error"] == "tool operation interrupted"
     assert toolkit.capture_calls[0]["result"]["code"] == "tool_cancelled"
     assert len(toolkit.events.events) == 1
@@ -653,3 +731,167 @@ def test_capture_exception_preserves_original_error(
         action_error or "failed to capture state after move: camera offline"
     )
     assert result.data["state_capture_error"] == "camera offline"
+    assert result.execution_uncertain
+
+
+@pytest.mark.parametrize("error", [RuntimeError, TypeError, ToolCancelled])
+@pytest.mark.parametrize(
+    ("readonly", "uncertain_on_error", "expected"),
+    [
+        (True, None, False),
+        (True, True, True),
+        (False, None, True),
+        (False, False, False),
+    ],
+)
+def test_handler_failure_uses_declared_side_effects(
+    tmp_path, error, readonly, uncertain_on_error, expected
+):
+    toolkit = _ContractToolkit(tmp_path)
+
+    @tool(readonly=readonly, uncertain_on_error=uncertain_on_error)
+    def inspect() -> ToolResult:
+        raise error("handler failed")
+
+    toolkit.add_tool(inspect.with_handler(inspect.handler))
+    result = toolkit.execute_tool("inspect", {})
+    assert result.is_error
+    assert result.execution_uncertain is expected
+    assert len(toolkit.capture_calls) == int(not readonly)
+    assert inspect.input_schema["properties"] == {}
+    assert not toolkit.execute_tool("list_dir", {"path": str(tmp_path)}).is_error
+
+
+def test_explicit_readonly_uncertainty_survives_dispatch(tmp_path):
+    toolkit = _ContractToolkit(tmp_path)
+
+    @tool(readonly=True)
+    def inspect() -> ToolResult:
+        return ToolResult(
+            data={"error": "unknown native outcome"}, execution_uncertain=True
+        )
+
+    toolkit.add_tool(inspect)
+    assert toolkit.execute_tool("inspect", {}).execution_uncertain
+
+
+@pytest.mark.parametrize("error", [OSError, PermissionError])
+def test_failed_file_write_reports_uncertainty_without_capturing_state(
+    tmp_path, monkeypatch, error
+):
+    toolkit = _ContractToolkit(tmp_path)
+    target = tmp_path / "audit.json"
+    original_write = Path.write_text
+
+    def partial_write(path, content, **kwargs):
+        assert path == target
+        original_write(path, content[:3], **kwargs)
+        raise error("write failed after a partial update")
+
+    monkeypatch.setattr(Path, "write_text", partial_write)
+    result = toolkit.execute_tool(
+        "write_text_file", {"path": str(target), "content": "complete"}
+    )
+    assert result.is_error and result.execution_uncertain
+    assert target.read_text() == "com"
+    assert toolkit.capture_calls == []
+
+
+@pytest.mark.parametrize("close", [False, True])
+def test_refresh_observation_rejects_paused_or_closed_toolkits(tmp_path, close):
+    toolkit = _ContractToolkit(tmp_path)
+    if close:
+        toolkit.close()
+    else:
+        toolkit.cancel_active_and_wait()
+    with pytest.raises(ToolCancelled):
+        toolkit.refresh_observation()
+    assert toolkit.capture_calls == []
+    toolkit.resume_calls()
+    if close:
+        with pytest.raises(ToolCancelled):
+            toolkit.refresh_observation()
+    else:
+        assert toolkit.refresh_observation().data == {"observation": 1}
+
+
+@pytest.mark.timeout(5)
+def test_refresh_observation_waits_for_actions_and_publishes_one_step(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError
+
+    toolkit = _ContractToolkit(tmp_path)
+    entered, release = threading.Event(), threading.Event()
+
+    @tool
+    def move() -> ToolResult:
+        entered.set()
+        assert release.wait(2)
+        return ToolResult(data={"moved": True})
+
+    toolkit.add_tool(move)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        action = pool.submit(toolkit.execute_tool, "move", {})
+        try:
+            assert entered.wait(2)
+            refresh = pool.submit(toolkit.refresh_observation)
+            with pytest.raises(TimeoutError):
+                refresh.result(timeout=0.05)
+        finally:
+            release.set()
+        assert not action.result(timeout=2).is_error
+        assert refresh.result(timeout=2).data == {"observation": 2}
+    assert [event.record.command for event in toolkit.events.events] == [
+        {"action": "move"},
+        {"action": "refresh_observation"},
+    ]
+    assert [event.record.step_idx for event in toolkit.events.events] == [0, 1]
+
+
+@pytest.mark.timeout(5)
+def test_cancelled_refresh_publishes_completed_capture_and_drains(
+    tmp_path, monkeypatch
+):
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError
+
+    toolkit = _ContractToolkit(tmp_path)
+    entered, release = threading.Event(), threading.Event()
+    capture = toolkit.get_env_state
+
+    def blocking_capture(**kwargs):
+        entered.set()
+        assert release.wait(2)
+        return capture(**kwargs)
+
+    monkeypatch.setattr(toolkit, "get_env_state", blocking_capture)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        refresh = pool.submit(toolkit.refresh_observation)
+        try:
+            assert entered.wait(2)
+            cancelled = pool.submit(toolkit.cancel_active_and_wait)
+            with toolkit._scheduler.condition:
+                assert toolkit._scheduler.condition.wait_for(
+                    lambda: toolkit._scheduler.paused, timeout=2
+                )
+            with pytest.raises(TimeoutError):
+                cancelled.result(timeout=0.05)
+        finally:
+            release.set()
+        with pytest.raises(ToolCancelled):
+            refresh.result(timeout=2)
+        cancelled.result(timeout=2)
+    assert len(toolkit.events.events) == len(toolkit.state.records()) == 1
+    with pytest.raises(ToolCancelled):
+        toolkit.refresh_observation()
+    toolkit.resume_calls()
+    assert not toolkit.refresh_observation().is_error
+
+
+def test_refresh_failure_releases_scheduler_without_publishing_a_step(tmp_path):
+    toolkit = _ContractToolkit(tmp_path)
+    toolkit.capture_error = RuntimeError("observation unavailable")
+    with pytest.raises(RuntimeError, match="observation unavailable"):
+        toolkit.refresh_observation()
+    assert toolkit.events.events == []
+    toolkit.capture_error = None
+    assert toolkit.refresh_observation().data == {"observation": 1}
+    assert len(toolkit.events.events) == 1

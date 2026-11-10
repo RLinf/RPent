@@ -62,6 +62,32 @@ Use ``@tool(readonly=True)`` for readers such as ``view_env_state`` and
 ``@tool(exclude=("state",))`` and bind them with ``Tool.with_handler``.
 All three planners use the registered declarations.
 
+Execution and Observation Contracts
+-----------------------------------
+
+``readonly`` controls scheduling and automatic state capture. It does not mean
+that a tool cannot write files. ``@tool(uncertain_on_error=True)`` declares that
+a failed handler may leave persistent side effects; the default is
+``not readonly``. For example, ``write_text_file`` is readonly but explicitly
+enables this flag because a failed write may have partially changed the file.
+Failures in pure observation or cache handlers do not imply uncertain execution.
+An exception during post-action state capture conservatively marks execution uncertain.
+
+Return ``ToolResult(execution_uncertain=True, data={"error": ...})`` when native
+feedback cannot establish the execution outcome. Toolkit preserves this flag
+through observation capture; it is internal metadata, not part of ``to_dict()``
+or the model's arguments. Validation failures and cancellation before the
+handler starts do not set it. Invalid JSON results carry
+``code="tool_result_serialization_failed"`` separately from execution certainty;
+callers must treat that code as incomplete result delivery.
+
+Use ``Toolkit.refresh_observation()`` to capture an observation outside a tool
+call. It takes the exclusive scheduler, checks cancellation, and publishes the
+new state record. It rejects paused or closed toolkits and never resumes them.
+If capture finishes during cancellation, the record is published before the
+cancellation is reported. Keep provenance outside ``StepRecord.command``:
+replayable commands contain only ``action`` and the tool's arguments.
+
 .. _add-primitive-model-based:
 
 Model-backed Tools
