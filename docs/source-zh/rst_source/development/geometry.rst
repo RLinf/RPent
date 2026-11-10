@@ -123,12 +123,12 @@
    * - MuJoCo / :doc:`LIBERO <../simulators/libero>` 和 :doc:`RoboCasa365 <../simulators/robocasa>`
      - 两个环境都使用 robosuite，按相机和步骤记录世界坐标图。
      - 选择与 RGB 图像对齐、分辨率相同的坐标图作为 ``world_xyz``。
-   * - Isaac Sim / :doc:`RoboDojo <../simulators/robodojo>`
-     - RoboDojo 根据头部或腕部相机的深度和标定参数生成世界坐标图。
-     - 读取该相机在同一步骤的 ``world_xyz``，也可一并提供深度图 ``depth_m``。
    * - SAPIEN / :doc:`RoboTwin <../simulators/robotwin>`
      - RoboTwin 用相机内参和位姿，将以米为单位的深度图转换为世界坐标图。
      - 将同一相机、同一步骤的坐标图作为 ``world_xyz``，对应的深度图可作为 ``depth_m``。
+   * - Isaac Sim / :doc:`RoboDojo <../simulators/robodojo>`
+     - RoboDojo 根据头部或腕部相机的深度和标定参数生成世界坐标图。
+     - 读取该相机在同一步骤的 ``world_xyz``，也可一并提供深度图 ``depth_m``。
    * - 真机 / :doc:`Franka <../real_world_robots/franka>`
      - 与 RGB 对齐的深度图和相机标定参数。腕部相机还需要拍摄时的机械臂末端位姿。
      - 提供 ``depth_m``、``intrinsics`` 和相机到机械臂基座的变换 ``camera_to_world``。
