@@ -244,15 +244,18 @@ class Toolkit:
 
         try:
             started = time.perf_counter()
+            handler_started = False
             try:
                 self.raise_if_cancelled()
+                handler_started = True
                 native = tool(**kwargs)
             except TypeError as exc:
                 native = ToolResult(
                     data={
                         "error": f"bad arguments for {name}: {exc}",
                         "got": input_dict,
-                    }
+                    },
+                    execution_uncertain=handler_started,
                 )
             except ToolCancelled as exc:
                 native = ToolResult(
@@ -260,12 +263,14 @@ class Toolkit:
                         "error": str(exc),
                         "code": "tool_cancelled",
                         "interrupted": True,
-                    }
+                    },
+                    execution_uncertain=handler_started,
                 )
             except Exception as exc:
                 logger.exception("Tool %s failed", name)
                 native = ToolResult(
-                    data={"error": str(exc), "traceback": traceback.format_exc()}
+                    data={"error": str(exc), "traceback": traceback.format_exc()},
+                    execution_uncertain=handler_started,
                 )
 
             if not tool.readonly:
@@ -287,6 +292,7 @@ class Toolkit:
                             f"failed to capture state after {name}: {exc}"
                         )
                     native.data.setdefault("traceback", traceback.format_exc())
+                    native.execution_uncertain = True
                 else:
                     record = self._state.latest_record()
                     if native.is_error:
@@ -296,6 +302,9 @@ class Toolkit:
                     native = ToolResult(
                         data=observed.data,
                         images=native.images + observed.images,
+                        execution_uncertain=(
+                            native.execution_uncertain or observed.execution_uncertain
+                        ),
                     )
                 if record is not None:
                     self._publish_step(record)
@@ -306,6 +315,7 @@ class Toolkit:
                 native = ToolResult(
                     data={"error": f"Tool result serialization failed: {exc}"},
                     images=native.images,
+                    execution_uncertain=True,
                 )
             return native
         finally:

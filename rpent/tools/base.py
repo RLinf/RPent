@@ -41,6 +41,9 @@ class ToolResult:
 
     data: dict[str, Any] = field(default_factory=dict)
     images: list[bytes] = field(default_factory=list)
+    # Internal execution provenance, excluded from the model-facing payload.
+    # An interrupted/failed handler may already have changed the environment.
+    execution_uncertain: bool = False
 
     @property
     def is_error(self) -> bool:

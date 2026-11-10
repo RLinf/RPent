@@ -366,3 +366,21 @@ Reaching a turn limit stops the current loop; an interactive Claude session
 can still accept another query. The main program saves the transcript when
 the run ends. Timeouts or SDK exceptions are stored in the planner result
 and written to the log.
+
+DeepSeek Harness Runtime Access
+-------------------------------
+
+Runtime components currently support Codex/GPT. They are not yet selectable
+with ``rpent --planner`` or ``rpent-check-llm``. See
+:ref:`deepseek-runtime-bridge` for the component interface.
+
+Install the optional dependency and run the login command:
+
+.. code-block:: bash
+
+   uv pip install -e ".[deepseek-harness]"
+   rpent-dsh-login --dsh-home /absolute/path/to/dsh-home
+
+``preflight_configuration`` in ``rpent.planner.deepseek_config`` checks local
+configuration and the selected model's image/reasoning capabilities without
+sending an inference request. It does not establish real model connectivity.

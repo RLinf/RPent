@@ -67,6 +67,24 @@ Run the complete suite with:
 pytest tests/unit_tests -v
 ```
 
+## DeepSeek Harness runtime contracts
+
+Install `.[test,deepseek-harness]` for the pinned SDK/runtime `0.2.1rc2`, then run:
+
+```bash
+pytest tests/unit_tests/rpent/planner/test_deepseek_config.py \
+  tests/unit_tests/rpent/planner/test_deepseek_tools.py \
+  tests/unit_tests/rpent/cli/test_dsh_login.py \
+  tests/e2e_tests/planner -v
+```
+
+These checks use direct SDK clients, loopback MCP and a deterministic local
+model. They need no credentials, external model service, GPU or robot hardware.
+The Harness workflow repeats the complete runtime directory from an independent
+wheel outside the checkout on Python 3.10, 3.11 and 3.12. The components do not
+register a selectable RPent planner; configuration preflight inspects metadata
+without sending inference requests.
+
 ## RoboCasa environment smoke tests
 
 RoboCasa separates simulator checks, model component checks and the full call chain:
