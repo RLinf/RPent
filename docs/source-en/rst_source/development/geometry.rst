@@ -320,25 +320,21 @@ error bounds.
      - Returned / All Requests
      - Mean (mm)
      - Median (mm)
-     - P95 (mm)
      - Maximum (mm)
    * - All
      - 160/160
      - 21.329
      - 2.453
-     - 70.048
      - 378.348
    * - Accepted
      - 18/160
      - 2.233
      - 2.342
-     - 2.880
      - 3.143
    * - Warning
      - 142/160
      - 23.749
      - 2.498
-     - 70.119
      - 378.348
 
 Errors include only evaluable requests with returned coordinates. Coverage

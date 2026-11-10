@@ -174,7 +174,6 @@ def _error_statistics(rows: list[dict[str, Any]]) -> dict[str, float | None]:
     return {
         "mean": float(errors.mean()) if len(errors) else None,
         "median": float(np.median(errors)) if len(errors) else None,
-        "p95": float(np.quantile(errors, 0.95)) if len(errors) else None,
         "max": float(errors.max()) if len(errors) else None,
         "rmse": float(np.sqrt(np.mean(errors**2))) if len(errors) else None,
     }
@@ -455,8 +454,8 @@ def write_report(
         "",
         "## Fit Quality / 拟合质量",
         "",
-        "| Group / 分组 | Returned / 返回 | Mean mm / 均值 | Median mm / 中位数 | P95 mm | Max mm / 最大值 |",
-        "| --- | ---: | ---: | ---: | ---: | ---: |",
+        "| Group / 分组 | Returned / 返回 | Mean mm / 均值 | Median mm / 中位数 | Max mm / 最大值 |",
+        "| --- | ---: | ---: | ---: | ---: |",
     ]
     for name, metrics in overall["by_fit_quality"].items():
         label = {
@@ -469,17 +468,15 @@ def write_report(
         errors = metrics["conditional_error_mm_on_returned_only"]
         lines.append(
             f"| {label} | {metrics['returned']} | "
-            + " | ".join(
-                number(errors[key]) for key in ("mean", "median", "p95", "max")
-            )
+            + " | ".join(number(errors[key]) for key in ("mean", "median", "max"))
             + " |"
         )
     lines += [
         "",
         "## Target Parts / 目标部位",
         "",
-        "| Target / 部位 | Planned / 计划 | Returned / 返回 | Accepted / 通过 | Warning / 警告 | Mean mm / 均值 | Median mm / 中位数 | P95 mm | Max mm / 最大值 |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| Target / 部位 | Planned / 计划 | Returned / 返回 | Accepted / 通过 | Warning / 警告 | Mean mm / 均值 | Median mm / 中位数 | Max mm / 最大值 |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
 
     for name, metrics in [("all", overall), *report["by_reference"].items()]:
@@ -488,9 +485,7 @@ def write_report(
         lines.append(
             f"| {label} | {metrics['planned']} | {metrics['returned']} | "
             f"{metrics['by_fit_quality']['accepted']['returned']} | {metrics['by_fit_quality']['warning']['returned']} | "
-            + " | ".join(
-                number(errors[key]) for key in ("mean", "median", "p95", "max")
-            )
+            + " | ".join(number(errors[key]) for key in ("mean", "median", "max"))
             + " |"
         )
     lines += [
