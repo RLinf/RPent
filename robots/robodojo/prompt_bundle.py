@@ -26,32 +26,46 @@ from rpent.prompt.utils import PromptNode
 def system_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> PromptNode:
-    if (variables or {}).get("mode") == "eval-fair":
-        return {
-            "EXECUTION": "Replay the frozen plan using live RGB-D and robot proprioception. No language model participates."
-        }
-    return {
+    sections = {
         "ROLE AND RULES": system_parts.ROLE_AND_RULES,
         "TOOL ACCESS": system_parts.TOOL_ACCESS,
         "PERCEPTION": system_parts.PERCEPTION,
-        "TOOLS AND MANIPULATION": system_parts.TOOLS,
+        "AVAILABLE OPERATIONS": system_parts.TOOLS
+        + "\n\n"
+        + (
+            system_parts.AWOMO05_POLICY
+            if (variables or {}).get("vla_backend") == "awomo05"
+            else system_parts.VPP2_POLICY
+        ),
+        "OBSERVE AND ACT": system_parts.ACTION_LOOP,
         "SAFETY": system_parts.SAFETY,
         "REWARD AND SCORE": system_parts.REWARD,
         "OUTPUT DISCIPLINE": system_parts.OUTPUT_DISCIPLINE,
     }
+    if (variables or {}).get("mode") == "eval-fair":
+        sections["REWARD AND SCORE"] = (
+            "Task success feedback is unavailable to this client."
+        )
+        sections["OUTPUT DISCIPLINE"] = (
+            "Call finish with your observed outcome; do not claim a verified task verdict."
+        )
+    return sections
 
 
 def user_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> PromptNode:
     sections = {
-        "TASK": user_parts.TASK,
+        "TASK": user_parts.TASK.replace(
+            "{{policy_control}}",
+            "Awomo05 native joint targets"
+            if (variables or {}).get("vla_backend") == "awomo05"
+            else "VPP2 native EE16 targets",
+        ),
         "BEGIN": user_parts.BEGIN,
     }
     if (variables or {}).get("mode") == "eval-fair":
         return {"TASK": "{{task}} / layout {{layout}}"}
-    if (variables or {}).get("task") == "put_bottles_into_dustbin":
-        sections["TASK CONTEXT"] = user_parts.PUT_BOTTLES_CONTEXT
     return sections
 
 

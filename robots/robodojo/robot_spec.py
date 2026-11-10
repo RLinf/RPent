@@ -20,6 +20,7 @@ import argparse
 import os
 import subprocess
 import sys
+from contextlib import suppress
 from datetime import datetime
 from functools import partial
 from pathlib import Path
@@ -36,7 +37,7 @@ from rpent.robots.components.am_runtime import (
 )
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
-from rpent.robots.runtime import try_spawn_server, try_wait_server
+from rpent.robots.runtime import stop_owned_daemons, try_spawn_server, try_wait_server
 from rpent.utils.config import (
     add_cuda_device_arg,
     get_memory_dir,
@@ -73,8 +74,8 @@ ROBODOJO_DASHBOARD_SPEC: DashboardSpec = {
     },
     "runtime_components": (
         {"name": "env", "label": "ENV", "scope": "unique"},
-        {"name": "vla", "label": "VLA", "scope": "shared"},
         {"name": "sam3", "label": "SAM3", "scope": "shared"},
+        {"name": "vla", "label": "VLA", "scope": "shared"},
     ),
     "frame_channels": (
         {
@@ -97,11 +98,15 @@ ROBODOJO_DASHBOARD_SPEC: DashboardSpec = {
         "view_env_state",
         "back_project",
         "segment",
+        "render",
+        "sample_world_xyz",
+        "query_world_map",
         "move_to",
+        "rotate_wrist",
         "set_gripper",
-        "pi0_pick",
-        "stabilize",
-        "place_in_bin",
+        "release",
+        "vpp2_act",
+        "awomo05_act",
     ),
 }
 
@@ -133,7 +138,6 @@ def _runtime_overrides(args: argparse.Namespace) -> dict[str, str]:
             [str(get_repo_root()), str(source), str(xpolicy)]
             + ([os.environ["PYTHONPATH"]] if os.environ.get("PYTHONPATH") else [])
         ),
-        "ROBODOJO_PI05_POLICY_ROOT": str(xpolicy / "policy" / "Pi_05"),
     }
     if os.environ.get("ROBODOJO_ASSETS_ROOT"):
         overrides["ROBODOJO_ASSETS_ROOT"] = os.environ["ROBODOJO_ASSETS_ROOT"]
@@ -149,7 +153,7 @@ def get_robot_spec() -> RobotSpec:
         parse_config=_parse_config,
         init_runtime=_init_runtime,
         resolve_dashboard=lambda args: ROBODOJO_DASHBOARD_SPEC,
-        run_flash=_run_flash,
+        validate_args=_validate_args,
         finalize_run=finalize_run,
     )
 
@@ -159,8 +163,11 @@ def finalize_run(context: RunFinalizationContext) -> Path:
     record = {
         "task": context.task_desc["task"],
         "layout": context.task_desc["layout"],
+        "seed": context.task_desc.get("seed", 0),
         "mode": context.task_desc.get("mode", "dev"),
         "success": context.environment_success,
+        "score": context.environment_metrics.get("score"),
+        "score_available": context.environment_metrics.get("score") is not None,
         "environment_result_available": context.environment_success is not None,
         "agent_error_present": context.agent_error is not None,
         "elapsed_s": round(context.elapsed_s, 1),
@@ -172,13 +179,25 @@ def finalize_run(context: RunFinalizationContext) -> Path:
         },
         "planner_timeout_s": context.planner_timeout_s,
     }
+    if "score_error" in context.environment_metrics:
+        record["score_error"] = context.environment_metrics["score_error"]
     return write_json_atomic(context.output_dir / "result.json", record)
 
 
-def _run_flash(toolkit, cell_tag: str, note) -> dict:
-    from robots.robodojo.flash.replay import run_flash
+def _validate_args(args: argparse.Namespace) -> None:
+    """Reject unsupported replay and invalid scene identity before startup."""
+    if getattr(args, "planner", None) == "flash":
+        raise ValueError(
+            "RoboDojo legacy Flash replay is unavailable with the new motion tools"
+        )
+    for name in ("seed", "layout"):
+        if getattr(args, name, 0) < 0:
+            raise ValueError(f"{name} must be nonnegative")
 
-    return run_flash(toolkit, cell_tag, note)
+    backend = getattr(args, "am_backend", "vpp2")
+    action_type = "ee" if backend == "vpp2" else "joint"
+    if args.env_cfg_type != "arx_x5" or args.action_type not in (None, action_type):
+        raise ValueError(f"{backend} requires arx_x5 with {action_type} actions")
 
 
 def get_toolkit(
@@ -186,12 +205,14 @@ def get_toolkit(
     runtime_kwargs: dict[str, Any],
     dashboard_events: DashboardEventSink,
     config: RunConfig,
+    state_output_dir: Path | str | None = None,
 ):
     """Return the RoboDojo toolkit (common tools + RoboDojo primitives)."""
     from robots.robodojo.toolkit import RoboDojoToolkit
 
     memory = MemoryManager(
         root=config.prompt_vars.get("memory_dir") or get_memory_dir("robodojo"),
+        memory_access="read_only",
     )
     if config.prompt_vars.get("mode") == "eval-fair":
         from robots.robodojo.flash.replay import load_plan
@@ -202,6 +223,7 @@ def get_toolkit(
         dashboard_events=dashboard_events,
         memory=memory,
         eval_fair=config.prompt_vars.get("mode") == "eval-fair",
+        state_output_dir=state_output_dir,
     )
 
 
@@ -229,15 +251,27 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         required=required,
         help="RoboDojo task name, e.g. put_bottles_into_dustbin",
     )
-    parser.add_argument("--layout", type=int, default=0, help="Layout id (== env seed)")
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help="Official layout group (Eval_Layout seed directory)",
+    )
+    parser.add_argument(
+        "--layout",
+        type=int,
+        default=0,
+        help="Layout index within the selected seed group",
+    )
     parser.add_argument(
         "--env-cfg-type", default=DEFAULT_ENV_CFG, help="RoboDojo env config (arx_x5)"
     )
     parser.add_argument(
         "--action-type",
         choices=["joint", "ee"],
-        default="joint",
-        help="Policy action representation for VLA primitives",
+        default=None,
+        help="Policy action representation (VPP2: ee; Awomo05: joint); "
+        "defaults to the selected model's representation",
     )
     parser.add_argument("--max-episode-steps", type=int, default=700)
     parser.add_argument(
@@ -273,7 +307,7 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
 
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
-    select_am(args, "robodojo")
+    am = select_am(args, "robodojo")
     from robots.robodojo import tasks as robodojo_tasks
 
     source_root = getattr(args, "source_root", None)
@@ -282,7 +316,8 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         raise ValueError(err)
     eval_fair = getattr(args, "planner", None) == "flash"
     summary = {} if eval_fair else robodojo_tasks.task_summary(args.task, source_root)
-    recipe_tag = f"{args.task}_l{args.layout}"
+    seed = getattr(args, "seed", 0)
+    recipe_tag = f"{args.task}_s{seed}_l{args.layout}"
     if getattr(args, "random", False):
         recipe_tag = f"{args.task}_random"
     memory_arg = getattr(args, "memory_dir", None)
@@ -294,25 +329,25 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     output_dir = args.output_dir
     if output_dir is None:
         ts = datetime.now().strftime("%Y%m%d-%H:%M:%S")
-        output_dir = (
-            get_repo_root() / "logs" / f"{ts}_robodojo_{args.task}_l{args.layout}"
-        )
+        output_dir = get_repo_root() / "logs" / f"{ts}_robodojo_{recipe_tag}"
     return RunConfig(
         recipe_tag=recipe_tag,
         output_dir=Path(output_dir),
         prompt_vars={
             "task": args.task,
             "layout": args.layout,
+            "seed": seed,
             "env_cfg_type": args.env_cfg_type,
-            "action_type": args.action_type,
             "recipe_tag": recipe_tag,
             "task_summary": summary,
             "memory_dir": str(memory_dir),
             "mode": "eval-fair" if eval_fair else "dev",
+            "vla_backend": am.backend,
         },
         task_desc={
             "task": args.task,
             "layout": args.layout,
+            "seed": seed,
             **({"mode": "eval-fair"} if eval_fair else {}),
         },
     )
@@ -354,6 +389,8 @@ def _spawn_env_server(
             args.task,
             "--layout",
             str(args.layout),
+            "--seed",
+            str(getattr(args, "seed", 0)),
             "--env-cfg-type",
             args.env_cfg_type,
             "--num-envs",
@@ -414,69 +451,39 @@ def _spawn_sam3_server(
     return daemon, HttpRpcClient(f"http://{host}:{port}")
 
 
-def _spawn_vla_server(
-    args: argparse.Namespace, output_dir: Path
+def _spawn_model_server(
+    args: argparse.Namespace,
+    output_dir: Path,
+    *,
+    rpc_options: dict[str, Any],
 ) -> tuple["ProcessDaemon | None", RpcClient]:
-    """Spawn (or attach to) the RoboDojo Pi_05 VLA server."""
+    """Start the selected model with shared deployment settings, or borrow it."""
     am = select_am(args, "robodojo")
     if am.endpoint is not None:
-        return None, make_rpc_client(am.endpoint)
+        return None, make_rpc_client(am.endpoint, **rpc_options)
     host, port = "127.0.0.1", pick_free_port()
-    overrides = _runtime_overrides(args)
-    if am.backend == "pi05":
-        # End-to-end policy-chain smoke only (real weights, one prediction);
-        # simulation task success rates have not yet been established.
-        policy_args = [
-            "rpent.robots.components.pi05_vla_server",
-            "--embodiment",
-            "robodojo",
-            *(["--model-path", am.checkpoint] if am.checkpoint else []),
-            *am.model_arguments,
-        ]
-    else:
-        policy_args = [
-            "rpent.robots.components.xpolicylab_vla_server",
-            "--output-dir",
-            str(output_dir),
-            "--policy-root",
-            overrides["ROBODOJO_PI05_POLICY_ROOT"],
-            "--bench",
-            "RoboDojo",
-            "--evaluation-id",
-            os.environ.get(
-                "ROBODOJO_RUN_ID", datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            ),
-            "--task",
-            args.task,
-            "--env-cfg-type",
-            args.env_cfg_type,
-            "--action-type",
-            args.action_type,
-            "--ckpt",
-            am.checkpoint,
-            "--policy-port",
-            str(pick_free_port()),
-        ]
-        if am.cuda_device is not None:
-            policy_args += ["--policy-gpu", am.cuda_device]
     daemon = am.spawn_worker(
         [
             "-u",
             "-m",
-            *policy_args,
+            f"robots.robodojo.{am.backend}_server",
+            "--model-path",
+            am.checkpoint,
             "--host",
             host,
             "--port",
             str(port),
-            "--transport",
-            "http",
             "--parent-watch",
         ],
         output_dir,
-        name="robodojo_vla_server",
-        env_overrides=overrides,
+        name=f"robodojo_{am.backend}_server",
     )
-    return daemon, HttpRpcClient(f"http://{host}:{port}")
+    try:
+        rpc = make_rpc_client(f"socket://{host}:{port}", **rpc_options)
+    except BaseException:
+        daemon.stop()
+        raise
+    return daemon, rpc
 
 
 def _init_runtime(
@@ -485,26 +492,42 @@ def _init_runtime(
     dashboard_events: DashboardEventSink,
     components: set[str] | None,
 ) -> tuple[list[ProcessDaemon], dict[str, Any]]:
-    """Initialize every RoboDojo component, or only ``components`` when given."""
-    am = select_am(args, "robodojo")
+    """Start default backend services or an explicitly requested component set."""
+    _validate_args(args)
     from robots.robodojo.env_client import RoboDojoEnvClient
-    from rpent.robots.components.pi05_vla_client import Pi05VLAClient
     from rpent.robots.components.sam3_client import Sam3Client
-    from rpent.robots.components.xpolicylab_vla_client import XPolicyLabVLAClient
 
+    am = select_am(args, "robodojo")
     device = resolve_cuda_device(args, "env")
+    if am.backend == "awomo05":
+        from robots.robodojo.awomo05_client import Awomo05Client as VLAClient
+        from robots.robodojo.awomo05_server import model_paths
+
+        rpc_options = {"enable_sessions": True}
+        record_vpp2_history = False
+    elif am.backend == "vpp2":
+        from robots.robodojo.vpp2_client import VPP2Client as VLAClient
+        from robots.robodojo.vpp2_server import model_paths
+
+        rpc_options = {}
+        record_vpp2_history = True
+    else:
+        raise ValueError(f"unknown RoboDojo VLA backend: {am.backend}")
     starters = {
         "env": lambda: _spawn_env_server(args, output_dir),
-        "vla": lambda: _spawn_vla_server(args, output_dir),
+        "vla": lambda: _spawn_model_server(args, output_dir, rpc_options=rpc_options),
         "sam3": lambda: _spawn_sam3_server(args, output_dir),
     }
     connectors = {
         "env": lambda rpc: {
             "env": RoboDojoEnvClient(
                 rpc,
+                record_vpp2_history=record_vpp2_history,
                 expected_meta={
+                    "action_protocol_version": 1,
                     "task": args.task,
                     "layout": args.layout,
+                    "seed": getattr(args, "seed", 0),
                     "env_cfg_type": args.env_cfg_type,
                     "device_id": device if device is not None else 0,
                     "num_envs": 1,
@@ -518,13 +541,7 @@ def _init_runtime(
                 },
             )
         },
-        "vla": lambda rpc: {
-            "vla_client": (
-                Pi05VLAClient(rpc, embodiment="robodojo")
-                if am.backend == "pi05"
-                else XPolicyLabVLAClient(rpc)
-            )
-        },
+        "vla": lambda rpc: {"vla_client": VLAClient(rpc)},
         "sam3": lambda rpc: {"sam3_client": Sam3Client(rpc)},
     }
     timeouts = {"env": 900.0, "sam3": 300.0, "vla": 1800.0}
@@ -533,32 +550,43 @@ def _init_runtime(
     unknown = selected.difference(starters)
     if unknown:
         raise ValueError(f"unknown RoboDojo runtime components: {sorted(unknown)}")
+    if "vla" in selected and am.endpoint is None:
+        model_paths(am.checkpoint)
 
     pending: dict[str, tuple[ProcessDaemon | None, RpcClient]] = {}
     owned_daemons: dict[str, ProcessDaemon] = {}
-    for component, starter in starters.items():
-        if component in selected:
-            pending[component] = try_spawn_server(
+    try:
+        for component, starter in starters.items():
+            if component in selected:
+                pending[component] = try_spawn_server(
+                    owned_daemons,
+                    dashboard_events,
+                    component,
+                    starter,
+                )
+
+        primitives_kwargs: dict[str, Any] = {}
+        for component in (name for name in wait_order if name in pending):
+            daemon, rpc = pending[component]
+            component_kwargs = try_wait_server(
                 owned_daemons,
                 dashboard_events,
                 component,
-                starter,
+                rpc,
+                daemon,
+                timeouts[component],
+                post_fn=partial(connectors[component], rpc),
             )
+            primitives_kwargs.update(component_kwargs)
+    except BaseException as exc:
+        # Shared helpers clean up ordinary failures; interruption is owned here.
+        if not isinstance(exc, Exception):
+            stop_owned_daemons(owned_daemons, dashboard_events)
+        for _, rpc in pending.values():
+            with suppress(Exception):
+                rpc.close()
+        raise
 
-    primitives_kwargs: dict[str, Any] = {}
-    for component in (name for name in wait_order if name in pending):
-        daemon, rpc = pending[component]
-        component_kwargs = try_wait_server(
-            owned_daemons,
-            dashboard_events,
-            component,
-            rpc,
-            daemon,
-            timeouts[component],
-            post_fn=partial(connectors[component], rpc),
-        )
-        primitives_kwargs.update(component_kwargs)
-
-    primitives_kwargs["action_type"] = args.action_type
     primitives_kwargs["task"] = args.task
+    primitives_kwargs["vla_backend"] = am.backend
     return list(owned_daemons.values()), primitives_kwargs
