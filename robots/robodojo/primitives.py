@@ -279,7 +279,9 @@ class RoboDojoPrimitives:
             ),
         )
         result["instruction"] = instruction
-        return ToolResult(data=result)
+        return ToolResult(
+            data=result, execution_uncertain=result.get("execution_uncertain") is True
+        )
 
     @tool
     def awomo05_act(
@@ -305,7 +307,9 @@ class RoboDojoPrimitives:
             replan_steps=REPLAN_STEPS,
             infer=infer,
         )
-        return ToolResult(data=result)
+        return ToolResult(
+            data=result, execution_uncertain=result.get("execution_uncertain") is True
+        )
 
     def _awomo05_execution_event(self, event: dict) -> None:
         """Consume each confirmed observation once, without maintaining model history."""
@@ -389,7 +393,9 @@ class RoboDojoPrimitives:
             )
         except Exception as exc:
             result["feedback_error"] = str(exc)
-        return ToolResult(data=result)
+        return ToolResult(
+            data=result, execution_uncertain=result.get("execution_uncertain") is True
+        )
 
     @tool
     def rotate_wrist(
@@ -443,7 +449,9 @@ class RoboDojoPrimitives:
             result["gripper_val"] = self.env.get_motion_state()[f"{arm}_gripper"]
         except Exception as exc:
             result["feedback_error"] = str(exc)
-        return ToolResult(data=result)
+        return ToolResult(
+            data=result, execution_uncertain=result.get("execution_uncertain") is True
+        )
 
     @tool
     def release(

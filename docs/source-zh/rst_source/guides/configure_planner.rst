@@ -252,3 +252,19 @@ Claude 交互模式下，每次新增用户输入都会获得新的轮数预算�
 - ``--planner-timeout-s`` 限制规划器的运行时间；各后端的默认值及交互模式行为见上文。
 
 模型调用 ``finish`` 后，规划器会记录结束状态。达到轮数上限时，当前循环停止；Claude 交互会话仍可接收下一次 query。运行结束时，主程序会保存对话记录。超时或 SDK 异常会写入规划器结果，并输出到日志。
+
+DeepSeek Harness 运行时访问
+--------------------------------------
+
+运行时组件目前支持 Codex/GPT，尚不能通过 ``rpent --planner`` 或 ``rpent-check-llm`` 选择。
+组件接口见 :ref:`deepseek-runtime-bridge`。
+
+安装可选依赖并运行登录命令：
+
+.. code-block:: bash
+
+   uv pip install -e ".[deepseek-harness]"
+   rpent-dsh-login --dsh-home /absolute/path/to/dsh-home
+
+``rpent.planner.deepseek_config`` 中的 ``preflight_configuration`` 检查本地配置及所选模型的
+图像输入、推理强度能力，不发送推理请求，也不能替代真实模型连接检查。

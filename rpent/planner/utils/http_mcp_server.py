@@ -33,8 +33,10 @@ Usage::
 from __future__ import annotations
 
 import base64
+import json
 import socket
 import threading
+from dataclasses import replace
 from typing import Any
 
 import httpx
@@ -54,9 +56,22 @@ logger = get_logger("http_mcp_server")
 SERVER_NAME = "rpent"
 
 
-def mcp_result(result: ToolResult) -> dict[str, Any]:
+def mcp_result(
+    result: ToolResult, *, include_structured: bool = False
+) -> dict[str, Any]:
     """Convert native results to MCP text and PNG blocks at the adapter boundary."""
-    return {
+    structured = None
+    if include_structured:
+        # dsh's lossless JSON contract rejects IEEE negative zero. Normalize
+        # this numerically identical coordinate before producing either model
+        # representation, while retaining the original native result/archive.
+        # Non-finite values remain errors; do not turn them into null or zero.
+        structured = json.loads(
+            json.dumps(result.to_dict(), allow_nan=False, default=str),
+            parse_float=lambda value: float(value) or 0.0,
+        )
+        result = replace(result, data=structured)
+    payload = {
         "content": [
             {"type": "text", "text": result.to_text()},
             *[
@@ -70,6 +85,9 @@ def mcp_result(result: ToolResult) -> dict[str, Any]:
         ],
         "isError": result.is_error,
     }
+    if include_structured:
+        payload["structuredContent"] = structured
+    return payload
 
 
 def _strip_mcp_prefix(name: str) -> str:
@@ -80,7 +98,7 @@ def _strip_mcp_prefix(name: str) -> str:
     return name
 
 
-def build_mcp_server(toolkit: Toolkit) -> Server:
+def build_mcp_server(toolkit: Toolkit, *, include_structured: bool = False) -> Server:
     """Expose native declarations through MCP, with Toolkit owning validation."""
     mcp_app: Server = Server(SERVER_NAME, version="0.1.0")
 
@@ -101,15 +119,17 @@ def build_mcp_server(toolkit: Toolkit) -> Server:
     async def _call_tool(name: str, arguments: dict[str, Any]) -> types.CallToolResult:
         lookup = _strip_mcp_prefix(name)
         tr = await execute_tool(toolkit, lookup, arguments or {})
-        return types.CallToolResult(**mcp_result(tr))
+        return types.CallToolResult(
+            **mcp_result(tr, include_structured=include_structured)
+        )
 
     return mcp_app
 
 
-def _build_asgi_app(toolkit: Toolkit) -> Any:
+def _build_asgi_app(toolkit: Toolkit, *, include_structured: bool = False) -> Any:
     """Build a raw ASGI3 app wrapping an MCP ``Server`` + streamable HTTP."""
     session_manager = StreamableHTTPSessionManager(
-        app=build_mcp_server(toolkit),
+        app=build_mcp_server(toolkit, include_structured=include_structured),
         stateless=True,
         json_response=True,
     )
@@ -187,8 +207,10 @@ class HttpMcpServer:
         host: str = "127.0.0.1",
         port: int = 0,
         path: str = "/mcp",
+        include_structured: bool = False,
     ) -> None:
         self._toolkit = toolkit
+        self._include_structured = include_structured
         self._host = host
         self._port = port or _pick_free_port(host)
         self._path = path if path.startswith("/") else f"/{path}"
@@ -204,7 +226,9 @@ class HttpMcpServer:
         if self._thread is not None:
             return self.url
 
-        app = _build_asgi_app(self._toolkit)
+        app = _build_asgi_app(
+            self._toolkit, include_structured=self._include_structured
+        )
 
         config = uvicorn.Config(
             app,

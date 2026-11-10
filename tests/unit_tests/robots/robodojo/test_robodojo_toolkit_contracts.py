@@ -104,6 +104,7 @@ def test_partial_rgb_delivery_is_independent_of_policy_history(
 def test_policy_backends_share_partial_progress_and_error_feedback(
     policy_toolkit, monkeypatch, backend, horizon, stop
 ):
+    from rpent.planner.deepseek_tools import _ToolBoundary
     from rpent.tools.toolkit import ToolCancelled
 
     env, policy, kit = policy_toolkit(
@@ -143,7 +144,8 @@ def test_policy_backends_share_partial_progress_and_error_feedback(
         "chunks": 2,
         **({"instruction": "stack blocks"} if backend == "vpp2" else {}),
     }
-    result = kit.execute_tool(name, arguments)
+    boundary = _ToolBoundary(kit)
+    result = boundary.execute_tool(name, arguments)
     receipt = report(result)
     assert receipt["requested_chunks"] == 2
     assert receipt["executed_chunks"] == 0
@@ -165,12 +167,17 @@ def test_policy_backends_share_partial_progress_and_error_feedback(
         }[stop]
     )
     assert result.is_error is (stop != "budget")
+    assert result.execution_uncertain is (stop == "uncertain")
     assert "execution" not in result.data and "diagnostics" not in receipt
     if stop == "cancel":
         assert receipt["code"] == "tool_cancelled" and receipt["interrupted"]
     if stop == "uncertain":
         assert receipt["execution_uncertain"]
         assert env.frame == 4
+        assert boundary.execution_uncertain
+        with pytest.raises(RuntimeError, match="uncertain"):
+            boundary.resume_calls()
+        assert boundary.execute_tool(name, arguments).is_error
         kit.resume_calls()
         assert kit.execute_tool(name, arguments).is_error
         assert env.frame == 4
