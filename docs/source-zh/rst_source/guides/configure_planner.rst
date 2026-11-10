@@ -5,9 +5,9 @@ RPent 通过一个 CLI 参数选择 Agentic Planner 的后端：
 
 .. code-block:: text
 
-   --planner {api,claude_code,codex,gemini_cli,flash}
+   --planner {api,claude_code,codex,gemini_cli,acp,flash}
 
-四种在线规划器（``api``、``claude_code``、``codex`` 和 ``gemini_cli``）接收相同的系统提示词和用户提示词，也使用同一套 RPent 工具定义。它们的区别在于如何将这些工具接入模型、如何组织工具调用循环，以及使用哪个模型 SDK 或 CLI。
+在线规划器（``api``、``claude_code``、``codex``、``gemini_cli`` 和 ``acp``）接收相同的系统提示词和用户提示词，也使用同一套 RPent 工具定义。它们的区别在于如何将这些工具接入模型、如何组织工具调用循环，以及使用哪个模型 SDK 或 CLI。
 
 .. list-table::
    :header-rows: 1
@@ -32,6 +32,10 @@ RPent 通过一个 CLI 参数选择 Agentic Planner 的后端：
        ACP 接口。RPent 通过本地 Streamable HTTP MCP 服务暴露 toolkit，
        由 Gemini CLI 驱动循环。
      - 通过已有的 Gemini CLI 配置运行任务。
+   * - ``acp``
+     - 通过 stdio 连接已配置的 agent harness 的通用 ACP 客户端，
+       通过 HTTP MCP 提供 RPent 工具。
+     - 接入兼容 ACP 的其他 harness，无需重新编写 planner 适配器。
    * - ``flash``
      - **Flash Mode**，仅用于评测。重放 memory 中保存的成功执行计划，并对每个路点
        的锚点重新定位，使方案能跟随移动过的物体。参见
@@ -125,6 +129,44 @@ Claude Code 可以连接兼容 Anthropic Messages API 的本地模型服务。�
 对于无法识别的本地模型名称，Claude Code 默认按 200,000 token 的上下文窗口管理会话。如果本地服务使用其他长度，请参考 `Claude Code 环境变量文档 <https://code.claude.com/docs/en/env-vars>`_ 配置它的上下文和自动压缩参数。
 
 .. _planner-gemini-cli:
+
+.. _planner-acp:
+
+``acp`` 规划器
+----------------
+
+将 ``RPENT_ACP_COMMAND`` 设为已安装、已配置的 harness 的 ACP 启动命令。
+RPent 按 shell 引号规则拆分可执行文件和参数，直接启动子进程，不经过 shell。
+每次运行使用临时工作目录，因此配置文件或启动脚本应使用绝对路径。
+例如，完成 DeepSeek Harness 配置后：
+
+.. code-block:: bash
+
+   export RPENT_ACP_COMMAND='dsh --profile acp'
+   rpent-check-llm --planner acp
+   rpent --robot libero --planner acp --suite libero_goal_task --task 1 --seed 0
+
+harness 需支持 stdio 上的 ACP v1，并声明支持 HTTP MCP。
+RPent 通过 ``session/new.mcpServers`` 传入本地工具服务；模型请求和认证由
+harness 自己管理。连接检查只发送最小提示词，不挂载 RPent 工具，
+不能据此判断工具或机器人运行是否兼容。
+
+- 省略 ``--model`` 时沿用 harness 默认模型。指定时，传入值必须对应 agent
+  公布的 ``model`` 类别 ACP 配置选项；没有该选项的 agent 应通过自身配置或
+  启动参数选择模型。
+- 内置工具、hooks、插件和 RPent 工具的授权需在 harness 中配置；通用 planner
+  不会自动禁用这些功能。RPent 拒绝 ACP 权限请求，也不提供客户端文件系统
+  或终端执行能力，但这些设置不构成 agent 进程的沙箱。
+- ACP 没有统一的模型轮次上限，应在 harness 中配置；通用 planner 不转发
+  ``--max-turns``。``--planner-timeout-s`` 限制整个运行时间，默认读取
+  ``CELL_TIMEOUT_S``，未设置时为 1200 秒。``--reasoning-effort`` 仅接受
+  ``none``，推理强度应在 harness 中配置；``--base-url`` 仅用于 API planner。
+- ``--tui`` 和 ``--dashboard`` 与其他外部 agent planner 一样，默认排队追加消息，
+  由用户显式中断当前轮次。
+
+下方 Gemini 专用入口复用同一个 ACP 驱动，并额外设置工具限制和轮次上限。
+其他 harness 若需要类似配置，可使用预先配置的启动脚本，参见
+:doc:`../development/add_planner`。
 
 ``gemini_cli`` 规划器
 ----------------------

@@ -27,7 +27,7 @@
      - 选择已发现的机器人或仿真环境。
    * - ``--planner``
      - ``api``
-     - 四种在线规划器：``api``、``claude_code``、``codex``、``gemini_cli``；``flash`` 用于执行已有计划。
+     - 在线规划器：``api``、``claude_code``、``codex``、``gemini_cli``、``acp``；``flash`` 用于执行已有计划。
    * - ``--model``
      - ``—``
      - ``api`` 要求服务提供方前缀；CLI/SDK 规划器未显式指定时使用各自默认值。
@@ -39,7 +39,7 @@
      - 仅 ``api``：每次模型回复的 Token 上限。
    * - ``--reasoning-effort``
      - ``api``：``high``；CLI/SDK 规划器：``none``
-     - ``api``、``claude_code`` 与 ``codex`` 的推理强度：``none``、``low``、``medium``、``high`` 或 ``xhigh``。在我们的 LIBERO Pro Long 评测中，关闭 reasoning 将平均运行时间从约 13.2 分钟缩短至 7.9 分钟（约 40%）。较高强度可能提升任务成功率；实际支持的档位取决于所选模型。``gemini_cli`` 仅接受 ``none``。
+     - ``api``、``claude_code`` 与 ``codex`` 的推理强度：``none``、``low``、``medium``、``high`` 或 ``xhigh``。在我们的 LIBERO Pro Long 评测中，关闭 reasoning 将平均运行时间从约 13.2 分钟缩短至 7.9 分钟（约 40%）。较高强度可能提升任务成功率；实际支持的档位取决于所选模型。``gemini_cli`` 和 ``acp`` 仅接受 ``none``。
    * - ``--planner-timeout-s``
      - ``—``
      - 优先使用 ``CODEX_TIMEOUT_S`` （Codex）或 ``GEMINI_CLI_TIMEOUT_S`` （Gemini CLI），再依次使用 ``CELL_TIMEOUT_S`` 或 1200 秒；终端交互式 API/Claude 会话不受此限。
@@ -188,7 +188,7 @@ RPent CLI 保留原有 ``--cuda-device`` 作为本地服务的共享默认值；
      - ``CODEX_API_KEY``
      - ``CODEX_BASE_URL``
 
-Claude Code 和 Codex 也可复用已有的 CLI 认证。Gemini CLI 使用自身的认证和地址配置。模型选择、地址优先级和本地服务示例见 :doc:`configure_planner`。连接检查使用 ``rpent-check-llm``；记忆管理使用 ``rpent-memory``，操作方法见 :doc:`memory`。
+Claude Code 和 Codex 也可复用已有的 CLI 认证。Gemini CLI 使用自身的认证和地址配置。``acp`` planner 启动 ``RPENT_ACP_COMMAND`` 指定的 harness，并使用它自身的配置。模型选择、地址优先级和本地服务示例见 :doc:`configure_planner`。连接检查使用 ``rpent-check-llm``；记忆管理使用 ``rpent-memory``，操作方法见 :doc:`memory`。
 
 模型与资源路径由各环境读取，例如 LIBERO 的 ``PI05_CHECKPOINT_PATH``、``SAM3_CHECKPOINT_PATH``，RoboCasa365 的 ``ROBOCASA_ASSETS_PATH``，以及 RoboTwin 的 ``ROBOTWIN_ASSETS_PATH``、``LINGBOT_MODEL_PATH``。
 

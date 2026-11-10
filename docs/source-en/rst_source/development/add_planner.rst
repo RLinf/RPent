@@ -1,7 +1,35 @@
 Add a Planner
 =============
 
-A planner receives prompts, chooses tools, and consumes their results. To add one, subclass ``Planner``, implement ``solve``, and expose it through the construction path and CLI choices.
+A planner receives prompts, chooses tools, and consumes their results.
+
+ACP Harnesses
+--------------
+
+For a harness supporting ACP v1 over stdio and HTTP MCP, use ``--planner acp``
+with ``RPENT_ACP_COMMAND``; no new planner class or registry entry is needed.
+See :ref:`planner-acp` for configuration and limits.
+
+``rpent/planner/acp.py`` owns the shared planner, ACP session driver, and event
+recorder. It reuses ``utils/agent_session.py`` for interaction, HTTP MCP,
+artifacts, and cleanup. ``gemini_cli.py`` subclasses ``AcpPlanner`` only to
+prepare Gemini's command, environment, and workspace settings.
+
+Use a configured launcher for another harness's setup. If RPent needs to own
+that setup, follow Gemini's small ``_create_session`` override; keep session
+communication and event handling in the common driver. The model selector is
+optional; HTTP MCP support is required for task execution. The harness must
+handle MCP image results when RPent tools return observations.
+
+Verify a new harness with text and image tool results, actual ``finish`` calls,
+queued follow-ups, cancellation, and process cleanup. A successful connection
+probe alone does not establish these behaviors.
+
+Custom Planners
+----------------
+
+For a different execution protocol, subclass ``Planner``, implement ``solve``,
+and expose it through the construction path and CLI choices.
 
 The following interface sketch omits model requests and the tool loop; it is not a runnable implementation. See ``rpent/planner/api_loop.py`` for a complete backend.
 
@@ -42,7 +70,8 @@ Any planner must:
 3. Convert ``ToolResult.to_text()`` and PNG bytes in ``ToolResult.images`` to the
    format expected by the model SDK.
 4. Detect ``ToolResult.data.get("_finish")`` and stop according to
-   ``max_turns`` and any other limits.
+   supported execution limits. For an ACP harness, configure model-turn
+   limits in the harness and enforce RPent's wall-clock timeout.
 5. Return a ``PlannerResult`` containing the finish state, messages,
    statistics, and an optional error.
 

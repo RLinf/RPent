@@ -28,7 +28,7 @@ Overview
 
    .. grid-item-card:: Planners
 
-      ``api``, ``claude_code``, ``codex``, ``gemini_cli``
+      ``api``, ``claude_code``, ``codex``, ``gemini_cli``, ``acp``
 
    .. grid-item-card:: Tasks
 

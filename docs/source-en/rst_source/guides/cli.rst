@@ -27,7 +27,7 @@ These options control the planner, memory, output directory, and Dashboard.
      - Select a discovered robot or simulator.
    * - ``--planner``
      - ``api``
-     - Four online planners: ``api``, ``claude_code``, ``codex``, ``gemini_cli``; ``flash`` replays stored plans.
+     - Online planners: ``api``, ``claude_code``, ``codex``, ``gemini_cli``, ``acp``; ``flash`` replays stored plans.
    * - ``--model``
      - ``—``
      - ``api`` requires a provider prefix; CLI/SDK planners use their backend defaults unless overridden.
@@ -44,7 +44,7 @@ These options control the planner, memory, output directory, and Dashboard.
        reasoning reduced the average runtime from approximately 13.2 to
        7.9 minutes (about 40%) in our LIBERO Pro Long evaluations.
        Higher effort may improve task success rate. Supported levels
-       ultimately depend on the selected model. ``gemini_cli`` accepts only ``none``.
+       ultimately depend on the selected model. ``gemini_cli`` and ``acp`` accept only ``none``.
    * - ``--planner-timeout-s``
      - ``—``
      - Defaults to ``CODEX_TIMEOUT_S`` (Codex) or ``GEMINI_CLI_TIMEOUT_S`` (Gemini CLI), then ``CELL_TIMEOUT_S``, then 1200 seconds; terminal interactive API/Claude sessions are exempt.
@@ -223,7 +223,7 @@ Set the credentials and endpoint for your chosen planner in the launch shell.
      - ``CODEX_API_KEY``
      - ``CODEX_BASE_URL``
 
-Claude Code and Codex can also reuse existing CLI authentication. Gemini CLI uses its own authentication and endpoint configuration. See :doc:`configure_planner` for model selection, endpoint precedence, and local server examples. Use ``rpent-check-llm`` for connectivity checks and ``rpent-memory`` for the operations in :doc:`memory`.
+Claude Code and Codex can also reuse existing CLI authentication. Gemini CLI uses its own authentication and endpoint configuration. The ``acp`` planner starts ``RPENT_ACP_COMMAND`` and uses that harness's configuration. See :doc:`configure_planner` for model selection, endpoint precedence, and local server examples. Use ``rpent-check-llm`` for connectivity checks and ``rpent-memory`` for the operations in :doc:`memory`.
 
 Each environment reads its own resource variables, including LIBERO’s ``PI05_CHECKPOINT_PATH`` and ``SAM3_CHECKPOINT_PATH``, RoboCasa365’s ``ROBOCASA_ASSETS_PATH``, and RoboTwin’s ``ROBOTWIN_ASSETS_PATH`` and ``LINGBOT_MODEL_PATH``.
 
