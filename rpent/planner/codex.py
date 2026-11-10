@@ -922,12 +922,15 @@ def build_codex_config(
     trace_root: Path | None = None,
 ) -> Any:
     """Build the Codex child config with optional native rollout tracing.
-     Args:
+
+    Args:
         mcp_url: URL of the in-process RPent MCP server, or ``None`` to attach
             no MCP server at all (used by the connectivity probe).
         base_url: Custom Responses-compatible endpoint, or ``None``.
         api_key: Key exported to the child as ``RPENT_CODEX_PROVIDER_KEY``.
         cwd: Working directory handed to the Codex child process.
+        trace_root: Directory where Codex writes native rollout traces. If ``None``,
+            the child inherits the parent's ``CODEX_ROLLOUT_TRACE_ROOT`` setting.
 
     Returns:
         The ``openai_codex.CodexConfig`` to open a session with.

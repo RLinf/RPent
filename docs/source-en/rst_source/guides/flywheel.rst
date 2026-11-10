@@ -5,7 +5,8 @@ Data Flywheel
 
 Use ``--record-trajectory`` with the ``api``, ``claude_code``, or ``codex`` planner
 to save task, planner, and tool-call records. Supported environments also record executed
-actions and their observations for later export to LeRobot training data.
+actions and their observations. ``rpent-flywheel`` exports VLA training data in
+LeRobot format. It does not currently support exporting VLM training data.
 
 Installation
 ------------
