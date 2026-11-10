@@ -72,11 +72,6 @@ Run the complete suite with:
 pytest tests/unit_tests -v
 ```
 
-Geometry checks in `unit_tests/toolkits/geometry/` cover imports, generic tool
-dispatch, camera/frame identity, RGB-D projection, bounded perception calls,
-cancellation and synthetic part-fitting execution. They use fake external
-services and do not measure real-scene accuracy or robot task success.
-
 ## RoboCasa environment smoke tests
 
 RoboCasa separates simulator checks, model component checks and the full call chain:
