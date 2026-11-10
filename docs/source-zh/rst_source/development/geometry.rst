@@ -111,7 +111,7 @@
 - 有三维坐标图时，提供 ``world_xyz``。它的形状为 H × W × 3，每个像素保存参考坐标系中的三维位置，单位为米。
 - 有深度图时，提供沿相机光轴的米制深度 ``depth_m``、3 × 3 针孔相机内参 ``intrinsics`` 和 4 × 4 刚体变换 ``camera_to_world``。工具据此将像素转换为三维坐标。相机的正 Z 轴朝前，参考坐标系的方向由接入程序定义。
 
-下列平台已有的 ``back_project`` 工具都能查询单个像素的三维位置。接入 ``GeometryTool`` 时，机器人程序通过 ``ObservationProvider`` 提供整帧 RGB 图像和表中对应的数据。
+查询像素的三维位置时，LIBERO、RoboDojo 和 Franka 使用 ``back_project``，RoboCasa365 使用 ``back_project_batch``，RoboTwin 使用 ``sample_world_xyz``。接入 ``GeometryTool`` 时，机器人程序通过 ``ObservationProvider`` 提供整帧 RGB 图像和表中对应的数据。
 
 .. list-table:: 不同平台的三维数据来源
    :header-rows: 1
@@ -120,12 +120,15 @@
    * - 平台
      - 三维数据来源
      - 如何提供给几何工具
-   * - MuJoCo / :doc:`LIBERO <../simulators/libero>`
-     - 所选相机在该步骤记录的世界坐标图。
+   * - MuJoCo / :doc:`LIBERO <../simulators/libero>` 和 :doc:`RoboCasa365 <../simulators/robocasa>`
+     - 两个环境都使用 robosuite，按相机和步骤记录世界坐标图。
      - 选择与 RGB 图像对齐、分辨率相同的坐标图作为 ``world_xyz``。
    * - Isaac Sim / :doc:`RoboDojo <../simulators/robodojo>`
      - RoboDojo 根据头部或腕部相机的深度和标定参数生成世界坐标图。
      - 读取该相机在同一步骤的 ``world_xyz``，也可一并提供深度图 ``depth_m``。
+   * - SAPIEN / :doc:`RoboTwin <../simulators/robotwin>`
+     - RoboTwin 用相机内参和位姿，将以米为单位的深度图转换为世界坐标图。
+     - 将同一相机、同一步骤的坐标图作为 ``world_xyz``，对应的深度图可作为 ``depth_m``。
    * - 真机 / :doc:`Franka <../real_world_robots/franka>`
      - 与 RGB 对齐的深度图和相机标定参数。腕部相机还需要拍摄时的机械臂末端位姿。
      - 提供 ``depth_m``、``intrinsics`` 和相机到机械臂基座的变换 ``camera_to_world``。

@@ -170,8 +170,9 @@ H × W × 3 ``uint8`` array) and at least one of two sources of aligned 3-D data
   to compute the 3-D coordinates. Camera Z points forward. The application
   defines the orientation of the reference frame.
 
-Each platform below provides a ``back_project`` tool for looking up one
-pixel's 3-D position. To connect ``GeometryTool``, the application's
+LIBERO, RoboDojo and Franka look up a pixel's 3-D position with
+``back_project``. RoboCasa365 uses ``back_project_batch`` and RoboTwin
+uses ``sample_world_xyz``. To connect ``GeometryTool``, the application's
 ``ObservationProvider`` supplies the full RGB image together with the
 corresponding data below.
 
@@ -182,8 +183,10 @@ corresponding data below.
    * - Platform
      - Source of 3-D data
      - What to supply to the geometry tool
-   * - MuJoCo / :doc:`LIBERO <../simulators/libero>`
-     - The world-coordinate map recorded for the selected camera and step.
+   * - MuJoCo / :doc:`LIBERO <../simulators/libero>` and
+       :doc:`RoboCasa365 <../simulators/robocasa>`
+     - Both environments use robosuite and record world-coordinate maps
+       by camera and step.
      - Supply the map as ``world_xyz``. Its pixels and resolution must
        match the RGB image.
    * - Isaac Sim / :doc:`RoboDojo <../simulators/robodojo>`
@@ -191,6 +194,11 @@ corresponding data below.
        camera's depth image and calibration.
      - Supply ``world_xyz`` for that camera and step. You can also supply
        the depth image as ``depth_m``.
+   * - SAPIEN / :doc:`RoboTwin <../simulators/robotwin>`
+     - RoboTwin uses the camera intrinsics and pose to convert depth in
+       meters into a world-coordinate map.
+     - Use the map from that camera and step for ``world_xyz``. You can
+       also pass the matching depth image as ``depth_m``.
    * - Real robot / :doc:`Franka <../real_world_robots/franka>`
      - RGB-aligned depth and camera calibration. A wrist camera also needs
        the end-effector pose at the time of capture.
