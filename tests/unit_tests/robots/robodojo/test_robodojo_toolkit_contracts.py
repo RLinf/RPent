@@ -388,6 +388,41 @@ def test_runtime_reused_after_toolkit_closes(policy_toolkit, tmp_path, backend):
 
 
 @pytest.mark.parametrize("backend", ["vpp2", "awomo05"])
+@pytest.mark.parametrize("untrusted", [False, True])
+def test_exploration_restarts_runtime_after_session_cleanup(
+    policy_toolkit, tmp_path, backend, untrusted
+):
+    from robots.robodojo.toolkit import RoboDojoToolkit
+    from rpent.dashboard.events import NullDashboardEventSink
+
+    env, policy, first = policy_toolkit(backend, mode="exploration")
+    arguments = {"instruction": "stack blocks"} if backend == "vpp2" else {}
+    assert not first.execute_tool(f"{backend}_act", arguments).is_error
+    first.cancel_active_and_wait()
+    if untrusted:
+        env.invalidate_execution()
+    first.close()
+    policy.events.clear()
+
+    second = RoboDojoToolkit(
+        primitives_kwargs={"env": env, "vla_client": policy, "vla_backend": backend},
+        dashboard_events=NullDashboardEventSink(),
+        memory=first.memory,
+        mode="exploration",
+        state_output_dir=tmp_path / "second",
+    )
+    try:
+        assert env.frame == 0
+        if backend == "awomo05":
+            assert policy.events == [("reset",), ("observe", 0)]
+        result = second.execute_tool(f"{backend}_act", arguments)
+        assert not result.is_error and report(result)["executed_chunks"] == 1
+    finally:
+        second.close()
+    assert not env.closed
+
+
+@pytest.mark.parametrize("backend", ["vpp2", "awomo05"])
 def test_toolkit_startup_failure_releases_execution(
     policy_toolkit, monkeypatch, backend
 ):
@@ -416,6 +451,8 @@ def test_exploration_policy_reset_recipe_and_finish(
     from pathlib import Path
 
     env, policy, kit = policy_toolkit(backend, mode="exploration", done_at=2)
+    if backend == "awomo05":
+        assert policy.events == [("reset",), ("observe", 0)]
     status = env.get_status
     monkeypatch.setattr(
         env, "get_status", lambda: {**status(), "success": env.is_success()}

@@ -88,10 +88,11 @@ class RoboDojoToolkit(Toolkit):
             state=state,
             memory=memory,
         )
+        if self._mode == "exploration":
+            self.raise_if_cancelled()
+            primitives_kwargs["env"].reset()
         self.init_primitives(primitives_kwargs=primitives_kwargs)
         try:
-            if self._mode == "exploration":
-                self._primitives.reset()
             self._register_robodojo_tools(primitives_kwargs.get("vla_backend", "vpp2"))
             self._publish_step(
                 robodojo_tools.dump_state(self._primitives, self._state, log=None)
