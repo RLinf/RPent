@@ -9,7 +9,7 @@
 
 使用 RTAB-Map 对双目图片或左右并排的视频进行离线建图，生成地图数据库、二维占据栅格和彩色三维点云，并可导出优化后的运动轨迹。
 
-如果希望使用相机 SDK 或 RAFT-Stereo 计算的深度，见 :ref:`mapping-custom-depth`：将 RGB 和对齐深度作为 RGB-D 输入，复用相同的建图命令。
+准备好输入与标定后，双目图片或视频可直接进入 :ref:`mapping-config`。使用相机 SDK 或 RAFT-Stereo 计算深度时，先执行 :ref:`mapping-custom-depth`，再选择 RGB-D 输入。两种输入使用相同的建图命令。
 
 安装 RTAB-Map
 -------------
@@ -31,11 +31,8 @@
 
 此前流程使用 RTAB-Map 0.23.13。
 
-使用 RTAB-Map 双目建图
-----------------------
-
 准备输入与标定
-~~~~~~~~~~~~~~
+--------------
 
 准备以下数据：
 
@@ -58,7 +55,7 @@
 使用视频时，准备恒定帧率、当前解码器可读取的左右并排视频，例如 ``/path/to/stereo.mp4``。每帧左半边为左目、右半边为同一时刻的右目。2560 × 720 视频对应每目 1280 × 720 的标定。
 
 示例：为 ZED 2i 录制生成标定文件
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 以 LeKiwi 通过 UVC 采集的 ZED 2i 数据为例，假设录制目录为 ``/path/to/capture``。其中 ``left/`` 和 ``right/`` 保存原始左右目 PNG。下面将这台相机的出厂标定转换为 ``camera_left.yaml`` 和 ``camera_right.yaml``，供 RTAB-Map 使用。
 
@@ -89,7 +86,7 @@
 
 **4. 将结果填入建图配置**
 
-按下一节 :ref:`mapping-config` 复制图片配置后，将 ``rtabmap.ini`` 中的以下项设为：
+按 :ref:`mapping-config` 复制图片配置后，将 ``rtabmap.ini`` 中的以下项设为：
 
 .. code-block:: ini
 
@@ -100,67 +97,14 @@
 
 这里的 ``true`` 让 RTAB-Map 按生成的标定校正原始左右图。若使用原始左右并排视频，也按实际单目尺寸转换出厂标定，并在视频配置中开启这一校正选项。
 
-.. _mapping-config:
-
-写入建图配置
-~~~~~~~~~~~~
-
-根据输入类型选择一个配置，在 RPent 源码根目录执行对应命令。
-
-**双目图片：** 使用 ``rtabmap_stereo_images.ini``。``type=1`` 选择双目，``stereo\driver=2`` 选择图片驱动；从文件名读取时间戳、关闭同步等待，并以 ``imgRate=0`` 快速离线导入。
-
-.. code-block:: bash
-
-   mkdir /path/to/new-map
-   cp toolkits/mapping/rtabmap_stereo_images.ini /path/to/new-map/rtabmap.ini
-
-**双目视频：** 使用 ``rtabmap_stereo_video.ini``。``stereo\driver=3`` 选择视频驱动，空的 ``StereoVideo\path2`` 表示单文件左右并排输入。将 ``imgRate=15`` 改为实际视频帧率。
-
-.. code-block:: bash
-
-   mkdir /path/to/new-map
-   cp toolkits/mapping/rtabmap_stereo_video.ini /path/to/new-map/rtabmap.ini
-
-编辑复制后的 ``rtabmap.ini``，填写以下内容：
-
-* **路径**：将所有 ``/path/to/...`` 替换为实际工作目录、输入和标定路径。``calibrationName`` 指向 ``camera_left.yaml``。
-* **图像校正**：原始图像使用原始标定，并设置 ``StereoImages\rectify=true``；已校正图像使用对应的校正后标定，保留默认值 ``false``。图片和视频均使用此配置项。
-* **相机安装位姿**：将 ``localTransform`` 改为实际 x/y/z（米）和 roll/pitch/yaw（弧度）。它表示相机机械坐标系在地面参考系中的位姿：x 向前、y 向左、z 向上，地面 z=0。模板的 ``0 0 0.5 0 0 0`` 表示相机水平朝前、离地 0.5 米。
-
-.. _mapping-build:
-
-生成地图
-~~~~~~~~
-
-执行 `RTAB-Map 官方工具 <https://introlab.github.io/rtabmap/api/latest/tools.html>`_，依次导入图像、估计轨迹并导出优化后的地图。以下命令在 Bash 中运行，日志同时显示在终端并保存在输出目录：
-
-.. code-block:: bash
-
-   cd /path/to/new-map
-   set -o pipefail
-   export QT_QPA_PLATFORM=offscreen
-   rtabmap-dataRecorder -hide rtabmap.ini raw.db 2>&1 | tee import.log
-   rtabmap-reprocess -default -odom -c rtabmap.ini raw.db rtabmap.db 2>&1 | tee mapping.log
-   rtabmap-export --map --cloud --opt 2 --output map rtabmap.db 2>&1 | tee export.log
-
-``-odom`` 从连续图像估计相机运动，生成与图像对应的视觉里程计；建图时进一步优化轨迹。图片按文件名时间戳导入，视频按配置中的帧率读取。
-
-相机固定在沿平坦地面运动的平台上时，可增加一轮平面运动约束，将结果另存为 ``planar.db``：
-
-.. code-block:: bash
-
-   rtabmap-reprocess -c rtabmap.ini -noimu \
-     --Reg/Force3DoF true --RGBD/ForceOdom3DoF true rtabmap.db planar.db
-   rtabmap-export --map --cloud --opt 2 --output planar planar.db
-
 .. _mapping-custom-depth:
 
-可选：使用自己的深度
+生成深度信息（可选）
 --------------------
 
 可使用相机 SDK 导出的深度，或通过 RAFT-Stereo 从双目图像生成深度。将 RGB 和深度整理为下述格式后接入 RTAB-Map。
 
-RGB-D 输入格式
+RGB-D 输出格式
 ~~~~~~~~~~~~~~
 
 准备以下文件：
@@ -288,8 +232,8 @@ RGB-D 输入格式
 
 ``--left_imgs`` 和 ``--right_imgs`` 指向第一步生成的校正图像，保留引号，让 demo 展开通配符。``--save_numpy`` 将每对图像的像素位移保存为 ``flow/<timestamp>.npy``，同时生成可视化图。使用新的 ``flow/`` 输出目录。
 
-第三步：转换为深度并交给 RTAB-Map
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+第三步：转换为 RGB-D
+^^^^^^^^^^^^^^^^^^^^
 
 切回第一步使用的 RPent Python 环境。下面命令同时读取 ``prepared/`` 中的图像、标定，以及第二步生成的 ``flow/``，输出 RGB-D：
 
@@ -305,14 +249,45 @@ RGB-D 输入格式
 
 转换使用 ``depth = fx * baseline / disparity``，其中视差取官方 demo 保存光流的相反数，因此图像、RAFT 输出和标定必须保持同一分辨率。文件名保留时间间隔，并使用统一的小数位数。
 
-最后执行下一节 :ref:`mapping-rgbd-source`：将 ``rtabmap_rgbd.ini`` 的 RGB、深度和标定路径指向该 ``rgbd/``，使用输出的相机位姿，再运行相同的 RTAB-Map 建图命令。
+生成完成后，按 :ref:`mapping-rgbd-source` 配置 RGB、深度、标定和相机位姿。
+
+.. _mapping-config:
+
+配置 RTAB-Map 输入
+------------------
+
+根据输入类型选择下面一种配置，在 RPent 源码根目录复制为 ``rtabmap.ini``，并填写以下内容：
+
+* **路径**：将所有 ``/path/to/...`` 替换为实际工作目录、输入和标定路径。双目输入的 ``calibrationName`` 指向 ``camera_left.yaml``，RGB-D 输入则指向 ``camera.yaml``。
+* **双目图像校正**：原始图像使用原始标定，并设置 ``StereoImages\rectify=true``；已校正图像使用对应的校正后标定，保留默认值 ``false``。图片和视频均使用此配置项。
+* **相机安装位姿**：将 ``localTransform`` 改为实际 x/y/z（米）和 roll/pitch/yaw（弧度）。它表示相机机械坐标系在地面参考系中的位姿：x 向前、y 向左、z 向上，地面 z=0。模板的 ``0 0 0.5 0 0 0`` 表示相机水平朝前、离地 0.5 米。
+
+双目图片
+~~~~~~~~
+
+使用 ``rtabmap_stereo_images.ini``。``type=1`` 选择双目，``stereo\driver=2`` 选择图片驱动；从文件名读取时间戳、关闭同步等待，并以 ``imgRate=0`` 快速离线导入。
+
+.. code-block:: bash
+
+   mkdir /path/to/new-map
+   cp toolkits/mapping/rtabmap_stereo_images.ini /path/to/new-map/rtabmap.ini
+
+双目视频
+~~~~~~~~
+
+使用 ``rtabmap_stereo_video.ini``。``stereo\driver=3`` 选择视频驱动，空的 ``StereoVideo\path2`` 表示单文件左右并排输入。将 ``imgRate=15`` 改为实际视频帧率。
+
+.. code-block:: bash
+
+   mkdir /path/to/new-map
+   cp toolkits/mapping/rtabmap_stereo_video.ini /path/to/new-map/rtabmap.ini
 
 .. _mapping-rgbd-source:
 
-将深度接入 RTAB-Map
-~~~~~~~~~~~~~~~~~~~
+RGB-D 图片
+~~~~~~~~~~
 
-无论深度来自 SDK 还是 RAFT，使用 ``rtabmap_rgbd.ini``，其中已包含通用建图参数。在 RPent 源码根目录执行以下命令，复制到新的输出目录；参数说明见 :ref:`mapping-config`。``type=0``、``rgbd\driver=7`` 选择 RGB-D 图片驱动，毫米深度的缩放因子为 1，从文件名读取时间戳并关闭同步等待，以速率 0 快速导入：
+使用 ``rtabmap_rgbd.ini``，其中已包含通用建图参数。``type=0``、``rgbd\driver=7`` 选择 RGB-D 图片驱动，毫米深度的缩放因子为 1，从文件名读取时间戳并关闭同步等待，以速率 0 快速导入：
 
 .. code-block:: bash
 
@@ -327,7 +302,33 @@ RGB-D 输入格式
 
 SDK 路线使用导出 RGB 对应的标定，并在 ``localTransform`` 中填写实际相机位姿。
 
-接着执行 :ref:`mapping-build` 的相同命令。此时 ``raw.db`` 保存 RGB-D 帧，``-odom`` 从 RGB-D 重新计算视觉里程计。切换深度来源做对比时，保持图像、分辨率、采样、标定、相机位姿、建图和去噪设置一致。
+配置完成后，执行 :ref:`mapping-build`。此时 ``raw.db`` 保存 RGB-D 帧，``-odom`` 从 RGB-D 计算视觉里程计。切换深度来源做对比时，保持图像、分辨率、采样、标定、相机位姿、建图和去噪设置一致。
+
+.. _mapping-build:
+
+生成地图
+--------
+
+完成双目或 RGB-D 输入配置后，执行 `RTAB-Map 官方工具 <https://introlab.github.io/rtabmap/api/latest/tools.html>`_，依次导入图像、估计轨迹并导出优化后的地图。以下命令在 Bash 中运行，日志同时显示在终端并保存在输出目录：
+
+.. code-block:: bash
+
+   cd /path/to/new-map
+   set -o pipefail
+   export QT_QPA_PLATFORM=offscreen
+   rtabmap-dataRecorder -hide rtabmap.ini raw.db 2>&1 | tee import.log
+   rtabmap-reprocess -default -odom -c rtabmap.ini raw.db rtabmap.db 2>&1 | tee mapping.log
+   rtabmap-export --map --cloud --opt 2 --output map rtabmap.db 2>&1 | tee export.log
+
+``-odom`` 从连续图像估计相机运动，生成与图像对应的视觉里程计；建图时进一步优化轨迹。图片按文件名时间戳导入，视频按配置中的帧率读取。
+
+相机固定在沿平坦地面运动的平台上时，可增加一轮平面运动约束，将结果另存为 ``planar.db``：
+
+.. code-block:: bash
+
+   rtabmap-reprocess -c rtabmap.ini -noimu \
+     --Reg/Force3DoF true --RGBD/ForceOdom3DoF true rtabmap.db planar.db
+   rtabmap-export --map --cloud --opt 2 --output planar planar.db
 
 最终会得到什么
 --------------

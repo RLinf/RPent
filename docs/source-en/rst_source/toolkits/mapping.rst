@@ -12,9 +12,10 @@ Build maps offline from stereo images or a side-by-side video using RTAB-Map.
 Generate a map database, a 2D occupancy grid and a colored 3D point cloud,
 with an optional export of the optimized trajectory.
 
-To use depth from a camera SDK or RAFT-Stereo, follow
-:ref:`mapping-custom-depth`: supply RGB images and aligned depth as RGB-D input,
-then reuse the same mapping commands.
+After preparing input and calibration, stereo images or video can proceed
+directly to :ref:`mapping-config`. To compute depth with a camera SDK or
+RAFT-Stereo, first follow :ref:`mapping-custom-depth`, then choose RGB-D input.
+Both input types use the same mapping commands.
 
 Install RTAB-Map
 ----------------
@@ -39,11 +40,8 @@ are available:
 
 The earlier recipe used RTAB-Map 0.23.13.
 
-Map Stereo Data with RTAB-Map
------------------------------
-
 Prepare Input and Calibration
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-----------------------------
 
 Prepare the following:
 
@@ -78,7 +76,7 @@ the left and the right view from the same instant on the right. A 2560 × 720
 video uses calibration for 1280 × 720 per-eye images.
 
 Example: Generate Calibration for a ZED 2i Recording
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 This example uses ZED 2i data captured through UVC by LeKiwi, with
 ``/path/to/capture`` as the recording directory. Its ``left/`` and ``right/``
@@ -144,90 +142,17 @@ generated calibration. For raw side-by-side video, convert the factory
 calibration for its actual per-eye dimensions and enable the same
 rectification option in the video configuration.
 
-.. _mapping-config:
-
-Write Mapping Configuration
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Choose the configuration for your input type and run its commands from the
-RPent source root.
-
-**Stereo images:** use ``rtabmap_stereo_images.ini``.
-``type=1`` selects stereo and ``stereo\driver=2`` selects the image driver.
-Filename timestamps are enabled, synchronization waits are disabled and
-``imgRate=0`` enables fast offline import.
-
-.. code-block:: bash
-
-   mkdir /path/to/new-map
-   cp toolkits/mapping/rtabmap_stereo_images.ini /path/to/new-map/rtabmap.ini
-
-**Stereo video:** use ``rtabmap_stereo_video.ini``.
-``stereo\driver=3`` selects the video driver; an empty
-``StereoVideo\path2`` selects a single side-by-side file. Change
-``imgRate=15`` to the video's actual frame rate.
-
-.. code-block:: bash
-
-   mkdir /path/to/new-map
-   cp toolkits/mapping/rtabmap_stereo_video.ini /path/to/new-map/rtabmap.ini
-
-Edit the copied ``rtabmap.ini``:
-
-* **Paths:** replace every ``/path/to/...`` with the actual working directory,
-  input and calibration paths. Set ``calibrationName`` to ``camera_left.yaml``.
-* **Rectification:** for raw images, use raw calibration and set
-  ``StereoImages\rectify=true``. For rectified images, use their rectified
-  calibration and keep the default ``false``. This setting applies to both
-  images and video.
-* **Camera mounting pose:** set ``localTransform`` to the actual x/y/z in metres
-  and roll/pitch/yaw in radians. This is the camera mechanical frame's pose in
-  an x-forward, y-left, z-up reference frame with the ground at z=0. The template's
-  ``0 0 0.5 0 0 0`` describes a level, forward-facing camera 0.5 metres above ground.
-
-.. _mapping-build:
-
-Build the Map
-~~~~~~~~~~~~~
-
-Run the `official RTAB-Map tools
-<https://introlab.github.io/rtabmap/api/latest/tools.html>`_ to import images,
-estimate the trajectory and export the optimized map. Run these commands in
-Bash; logs are displayed in the terminal and saved in the output directory:
-
-.. code-block:: bash
-
-   cd /path/to/new-map
-   set -o pipefail
-   export QT_QPA_PLATFORM=offscreen
-   rtabmap-dataRecorder -hide rtabmap.ini raw.db 2>&1 | tee import.log
-   rtabmap-reprocess -default -odom -c rtabmap.ini raw.db rtabmap.db 2>&1 | tee mapping.log
-   rtabmap-export --map --cloud --opt 2 --output map rtabmap.db 2>&1 | tee export.log
-
-``-odom`` estimates camera motion from successive images, producing visual
-odometry associated with the images. Mapping then refines the trajectory.
-Images use filename timestamps; video is read at the configured frame rate.
-
-For a camera fixed to a platform moving on a flat floor, optionally add planar
-motion constraints in a second pass and save the result as ``planar.db``:
-
-.. code-block:: bash
-
-   rtabmap-reprocess -c rtabmap.ini -noimu \
-     --Reg/Force3DoF true --RGBD/ForceOdom3DoF true rtabmap.db planar.db
-   rtabmap-export --map --cloud --opt 2 --output planar planar.db
-
 .. _mapping-custom-depth:
 
-Optional: Use Your Own Depth
-----------------------------
+Generate Depth Information (Optional)
+-------------------------------------
 
 Use depth exported by a camera SDK, or generate depth from stereo images with
 RAFT-Stereo. Prepare RGB and depth in the format below, then supply them to
 RTAB-Map.
 
-RGB-D Input Format
-~~~~~~~~~~~~~~~~~~
+RGB-D Output Format
+~~~~~~~~~~~~~~~~~~~
 
 Prepare these files:
 
@@ -400,8 +325,8 @@ Keep the quotes so the demo expands the wildcards. ``--save_numpy`` saves
 each pair's pixel displacement as ``flow/<timestamp>.npy``, alongside a
 visualization. Use a fresh ``flow/`` directory.
 
-Step 3: Convert to Depth for RTAB-Map
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Step 3: Convert to RGB-D
+^^^^^^^^^^^^^^^^^^^^^^^^
 
 Switch back to the RPent Python environment used in step 1. This command reads
 the images and calibration in ``prepared/`` together with the ``flow/``
@@ -425,19 +350,61 @@ negative of the official demo's saved flow. Images, RAFT output and calibration
 must therefore retain the same resolution. Filenames preserve time intervals
 with consistent decimal precision.
 
-Continue with :ref:`mapping-rgbd-source`: point ``rtabmap_rgbd.ini`` at this
-directory's RGB images, depth and calibration, use the output camera pose, and
-run the same RTAB-Map mapping commands.
+After generation, follow :ref:`mapping-rgbd-source` to configure RGB, depth,
+calibration and camera pose.
+
+.. _mapping-config:
+
+Configure RTAB-Map Input
+------------------------
+
+Choose one input configuration below. From the RPent source root, copy it as
+``rtabmap.ini`` and fill in the following:
+
+* **Paths:** replace every ``/path/to/...`` with the actual working directory,
+  input and calibration paths. Set ``calibrationName`` to ``camera_left.yaml``
+  for stereo input or ``camera.yaml`` for RGB-D input.
+* **Stereo rectification:** for raw images, use raw calibration and set
+  ``StereoImages\rectify=true``. For rectified images, use their rectified
+  calibration and keep the default ``false``. This setting applies to both
+  images and video.
+* **Camera mounting pose:** set ``localTransform`` to the actual x/y/z in metres
+  and roll/pitch/yaw in radians. This is the camera mechanical frame's pose in
+  an x-forward, y-left, z-up reference frame with the ground at z=0. The template's
+  ``0 0 0.5 0 0 0`` describes a level, forward-facing camera 0.5 metres above ground.
+
+Stereo Images
+~~~~~~~~~~~~~
+
+Use ``rtabmap_stereo_images.ini``.
+``type=1`` selects stereo and ``stereo\driver=2`` selects the image driver.
+Filename timestamps are enabled, synchronization waits are disabled and
+``imgRate=0`` enables fast offline import.
+
+.. code-block:: bash
+
+   mkdir /path/to/new-map
+   cp toolkits/mapping/rtabmap_stereo_images.ini /path/to/new-map/rtabmap.ini
+
+Stereo Video
+~~~~~~~~~~~~
+
+Use ``rtabmap_stereo_video.ini``.
+``stereo\driver=3`` selects the video driver; an empty
+``StereoVideo\path2`` selects a single side-by-side file. Change
+``imgRate=15`` to the video's actual frame rate.
+
+.. code-block:: bash
+
+   mkdir /path/to/new-map
+   cp toolkits/mapping/rtabmap_stereo_video.ini /path/to/new-map/rtabmap.ini
 
 .. _mapping-rgbd-source:
 
-Connect Depth to RTAB-Map
-~~~~~~~~~~~~~~~~~~~~~~~~~
+RGB-D Images
+~~~~~~~~~~~~
 
-For SDK or RAFT depth, use ``rtabmap_rgbd.ini``,
-which includes the common mapping parameters. From the RPent source root, copy
-it to a fresh output directory with the commands below. See
-:ref:`mapping-config` for parameter descriptions.
+Use ``rtabmap_rgbd.ini``, which includes the common mapping parameters.
 ``type=0`` and ``rgbd\driver=7`` select the RGB-D image driver. The scale
 factor is 1 for millimetre depth; filename timestamps are enabled,
 synchronization waits are disabled and input rate is 0 for fast import:
@@ -460,10 +427,42 @@ Read the file in the terminal:
 For SDK depth, use calibration for the exported RGB images and set
 ``localTransform`` to the actual camera pose.
 
-Continue with the same commands in :ref:`mapping-build`. Here, ``raw.db``
-stores RGB-D frames and ``-odom`` recomputes visual odometry from RGB-D.
+After configuration, continue with :ref:`mapping-build`. Here, ``raw.db``
+stores RGB-D frames and ``-odom`` computes visual odometry from RGB-D.
 When comparing depth sources, keep images, resolution, sampling, calibration,
 camera pose, mapping and filtering settings identical.
+
+.. _mapping-build:
+
+Build the Map
+-------------
+
+After configuring stereo or RGB-D input, run the `official RTAB-Map tools
+<https://introlab.github.io/rtabmap/api/latest/tools.html>`_ to import images,
+estimate the trajectory and export the optimized map. Run these commands in
+Bash; logs are displayed in the terminal and saved in the output directory:
+
+.. code-block:: bash
+
+   cd /path/to/new-map
+   set -o pipefail
+   export QT_QPA_PLATFORM=offscreen
+   rtabmap-dataRecorder -hide rtabmap.ini raw.db 2>&1 | tee import.log
+   rtabmap-reprocess -default -odom -c rtabmap.ini raw.db rtabmap.db 2>&1 | tee mapping.log
+   rtabmap-export --map --cloud --opt 2 --output map rtabmap.db 2>&1 | tee export.log
+
+``-odom`` estimates camera motion from successive images, producing visual
+odometry associated with the images. Mapping then refines the trajectory.
+Images use filename timestamps; video is read at the configured frame rate.
+
+For a camera fixed to a platform moving on a flat floor, optionally add planar
+motion constraints in a second pass and save the result as ``planar.db``:
+
+.. code-block:: bash
+
+   rtabmap-reprocess -c rtabmap.ini -noimu \
+     --Reg/Force3DoF true --RGBD/ForceOdom3DoF true rtabmap.db planar.db
+   rtabmap-export --map --cloud --opt 2 --output planar planar.db
 
 Expected Outputs
 ----------------
