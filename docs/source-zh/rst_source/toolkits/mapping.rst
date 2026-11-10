@@ -57,26 +57,48 @@
 
 使用视频时，准备恒定帧率、当前解码器可读取的左右并排视频，例如 ``/path/to/stereo.mp4``。每帧左半边为左目、右半边为同一时刻的右目。2560 × 720 视频对应每目 1280 × 720 的标定。
 
-.. note::
+示例：为 ZED 2i 录制生成标定文件
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-   **ZED 2i 示例：从出厂标定生成 YAML**
+以 LeKiwi 通过 UVC 采集的 ZED 2i 数据为例，假设录制目录为 ``/path/to/capture``。其中 ``left/`` 和 ``right/`` 保存原始左右目 PNG。下面将这台相机的出厂标定转换为 ``camera_left.yaml`` 和 ``camera_right.yaml``，供 RTAB-Map 使用。
 
-   标定来自这台 ZED 2i 的出厂文件 ``SN<serial>.conf``，可按 `Stereolabs 标定说明 <https://docs.stereolabs.com/docs/development/zed-sdk/modules/camera/camera-calibration>`_ 根据相机序列号获取。本示例中，LeKiwi 使用的 ``zed.conf`` 是该文件的本地副本；录制时会将它复制到录制目录，命名为 ``calibration.conf``。
+**1. 找到录制对应的出厂标定**
 
-   当前 LeKiwi 通过 UVC 采集左右并排画面，将每帧拆成原始左右目 PNG，并将单目尺寸记录在 ``stereo.json`` 的 ``eye_size`` 字段中。使用录制目录中的 ``calibration.conf`` 和这个尺寸运行转换脚本，即可生成 RTAB-Map 使用的两个 YAML 文件。
+按 `Stereolabs 标定说明 <https://docs.stereolabs.com/docs/development/zed-sdk/modules/camera/camera-calibration>`_，根据拍摄这组图像的相机序列号获取出厂标定 ``SN<serial>.conf``，保存为 ``/path/to/capture/calibration.conf``。
 
-   在 RPent 源码根目录，使用安装了 NumPy、OpenCV 和 PyYAML 的 Python 环境执行以下命令。示例单目尺寸为 1280 × 720：
+本示例采集时使用的 ``zed.conf`` 就是该出厂标定的本地副本，也可直接将它复制到录制目录并命名为 ``calibration.conf``。
 
-   .. code-block:: bash
+**2. 确认单目图像尺寸**
 
-      python -m toolkits.mapping.zed_calibration \
-        --calibration /path/to/capture/calibration.conf \
-        --image-size 1280 720 \
-        --output /path/to/capture
+查看 ``left/`` 中一张原始图片的宽、高，并确认右图尺寸相同。例如左图为 1280 × 720，就填写 ``--image-size 1280 720``；若输入为 2560 × 720 的左右并排视频，每目的尺寸也是 1280 × 720。
 
-   输出为 ``camera_left.yaml`` 和 ``camera_right.yaml``，包含原始图像的内参、畸变，以及 OpenCV 计算的校正矩阵和投影矩阵；平移单位转换为米，右目投影矩阵包含实际基线。脚本支持单目 1280 × 720（``HD``）和 672 × 376（``VGA``）。保持录制图像的原始尺寸，并选择尚无这两个 YAML 文件的输出目录。
+脚本支持 1280 × 720（``HD``）和 672 × 376（``VGA``）。使用录制图像的原始尺寸。
 
-   后续配置中，将 ``calibrationName`` 设为生成的 ``camera_left.yaml`` 路径，左右图路径指向录制图片，并设置 ``StereoImages\rectify=true``。原始左右并排视频也可使用同一转换方法，按实际单目尺寸生成标定并开启校正。
+**3. 运行转换脚本**
+
+在 RPent 源码根目录，使用安装了 NumPy、OpenCV 和 PyYAML 的 Python 环境执行：
+
+.. code-block:: bash
+
+   python -m toolkits.mapping.zed_calibration \
+     --calibration /path/to/capture/calibration.conf \
+     --image-size 1280 720 \
+     --output /path/to/capture
+
+命令会在 ``--output`` 目录生成 ``camera_left.yaml`` 和 ``camera_right.yaml``。选择尚无这两个文件的输出目录；重复转换时可换用新目录。生成的 YAML 包含原始内参、畸变、双目校正矩阵和投影矩阵，平移单位为米，右目投影矩阵包含实际基线。
+
+**4. 将结果填入建图配置**
+
+按下一节 :ref:`mapping-config` 复制图片配置后，将 ``rtabmap.ini`` 中的以下项设为：
+
+.. code-block:: ini
+
+   calibrationName=/path/to/capture/camera_left.yaml
+   StereoImages\path_left=/path/to/capture/left
+   StereoImages\path_right=/path/to/capture/right
+   StereoImages\rectify=true
+
+这里的 ``true`` 让 RTAB-Map 按生成的标定校正原始左右图。若使用原始左右并排视频，也按实际单目尺寸转换出厂标定，并在视频配置中开启这一校正选项。
 
 .. _mapping-config:
 

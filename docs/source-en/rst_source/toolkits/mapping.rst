@@ -77,45 +77,72 @@ decoder, such as ``/path/to/stereo.mp4``. Each frame contains the left view on
 the left and the right view from the same instant on the right. A 2560 × 720
 video uses calibration for 1280 × 720 per-eye images.
 
-.. note::
+Example: Generate Calibration for a ZED 2i Recording
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-   **ZED 2i example: convert factory calibration to YAML**
+This example uses ZED 2i data captured through UVC by LeKiwi, with
+``/path/to/capture`` as the recording directory. Its ``left/`` and ``right/``
+directories contain raw stereo PNGs. Convert this camera's factory
+calibration into ``camera_left.yaml`` and ``camera_right.yaml``
+for RTAB-Map as follows.
 
-   Calibration comes from this ZED 2i's factory file, ``SN<serial>.conf``.
-   Follow the `Stereolabs calibration instructions
-   <https://docs.stereolabs.com/docs/development/zed-sdk/modules/camera/camera-calibration>`_
-   to obtain it using the camera's serial number. In this example, LeKiwi uses
-   a local copy named ``zed.conf`` and copies it into each recording directory
-   as ``calibration.conf``.
+**1. Find the factory calibration for the recording**
 
-   The current LeKiwi recorder captures side-by-side frames through UVC,
-   splits them into raw left/right PNGs and records per-eye dimensions in the
-   ``eye_size`` field of ``stereo.json``. Pass the recording's ``calibration.conf``
-   and these dimensions to the conversion script to generate the two RTAB-Map
-   YAML files.
+Follow the
+`Stereolabs calibration instructions
+<https://docs.stereolabs.com/docs/development/zed-sdk/modules/camera/camera-calibration>`_
+to obtain ``SN<serial>.conf`` using the serial number of the camera that
+captured these images. Save it as ``/path/to/capture/calibration.conf``.
 
-   From the RPent source root, run this command in a Python environment with
-   NumPy, OpenCV and PyYAML. This example uses 1280 × 720 pixels per eye:
+The ``zed.conf`` used during capture in this example is a local copy of that
+factory calibration. You can also copy it into the recording directory as
+``calibration.conf``.
 
-   .. code-block:: bash
+**2. Confirm the per-eye image dimensions**
 
-      python -m toolkits.mapping.zed_calibration \
-        --calibration /path/to/capture/calibration.conf \
-        --image-size 1280 720 \
-        --output /path/to/capture
+Check the width and height of an original image in ``left/`` and confirm that
+the right images have the same dimensions. For a 1280 × 720 left image, use
+``--image-size 1280 720``. A 2560 × 720 side-by-side video also has per-eye
+dimensions of 1280 × 720.
 
-   The output files, ``camera_left.yaml`` and ``camera_right.yaml``, contain
-   raw-image intrinsics and distortion, plus rectification and projection
-   matrices computed by OpenCV. Translation is converted to metres, and the
-   right projection matrix encodes the actual baseline. The script supports
-   per-eye dimensions of 1280 × 720 (``HD``) and 672 × 376 (``VGA``).
-   Keep the images at their original size and choose an output directory
-   where these two YAML files have yet to be created.
+The script supports 1280 × 720 (``HD``) and 672 × 376 (``VGA``).
+Use the original recorded image dimensions.
 
-   In the mapping configuration, set ``calibrationName`` to the generated
-   ``camera_left.yaml``, point the left/right paths at the recorded images,
-   and set ``StereoImages\rectify=true``. Raw side-by-side video can use the
-   same conversion with its actual per-eye dimensions and rectification enabled.
+**3. Run the conversion script**
+
+From the RPent source root, run this command in a Python environment with
+NumPy, OpenCV and PyYAML:
+
+.. code-block:: bash
+
+   python -m toolkits.mapping.zed_calibration \
+     --calibration /path/to/capture/calibration.conf \
+     --image-size 1280 720 \
+     --output /path/to/capture
+
+The command writes ``camera_left.yaml`` and ``camera_right.yaml`` into the
+``--output`` directory. Choose a directory where these files have yet to be
+created; use a fresh directory when repeating the conversion. The YAML files
+contain raw intrinsics, distortion, stereo rectification and projection
+matrices. Translation is in metres, and the right projection matrix encodes
+the actual baseline.
+
+**4. Use the generated calibration in the mapping configuration**
+
+Copy the image configuration as described in :ref:`mapping-config`, then set
+these entries in ``rtabmap.ini``:
+
+.. code-block:: ini
+
+   calibrationName=/path/to/capture/camera_left.yaml
+   StereoImages\path_left=/path/to/capture/left
+   StereoImages\path_right=/path/to/capture/right
+   StereoImages\rectify=true
+
+Setting ``true`` makes RTAB-Map rectify the raw stereo images using the
+generated calibration. For raw side-by-side video, convert the factory
+calibration for its actual per-eye dimensions and enable the same
+rectification option in the video configuration.
 
 .. _mapping-config:
 
