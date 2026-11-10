@@ -26,11 +26,10 @@ To install from source, clone the official standalone RTAB-Map repository:
    git clone https://github.com/introlab/rtabmap.git /path/to/rtabmap
    cd /path/to/rtabmap
 
-Then follow the `upstream installation instructions
+Follow the `upstream installation instructions
 <https://github.com/introlab/rtabmap/wiki/Installation#standalone-version>`_
-for your operating system to install dependencies and build the tools. Use the
-feature detector and optimizer supported by your installation. If the tools are
-already installed, reuse that installation. Check the executables:
+to install dependencies and build RTAB-Map, then check that these commands
+are available:
 
 .. code-block:: bash
 

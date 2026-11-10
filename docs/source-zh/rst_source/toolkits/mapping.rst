@@ -21,7 +21,7 @@
    git clone https://github.com/introlab/rtabmap.git /path/to/rtabmap
    cd /path/to/rtabmap
 
-然后按 `上游安装说明 <https://github.com/introlab/rtabmap/wiki/Installation#standalone-version>`_ 中对应操作系统的步骤安装依赖、编译工具。特征算法和优化器使用当前安装版本支持的选项。若已安装所需工具，可复用现有安装。完成后检查：
+按 `上游安装说明 <https://github.com/introlab/rtabmap/wiki/Installation#standalone-version>`_ 安装依赖并编译 RTAB-Map，然后检查以下命令是否可用：
 
 .. code-block:: bash
 
