@@ -208,15 +208,15 @@ LIBERO 几何评估
      - 70.048
      - 378.348
 
-误差只统计有参考点且返回坐标的项，未返回、失败和未运行项保留在返回率统计中。可下载 :download:`逐点坐标与误差 CSV <../../../../toolkits/geometry/evaluation/historical/errors.csv>`。
+误差只统计有参考点且返回坐标的项，未返回、失败和未运行项保留在返回率统计中。可下载 :download:`评估报告 <../../../../toolkits/geometry/evaluation/report.md>`，查看各部位汇总和全部逐点坐标对比。
 
-安装项目依赖后，在仓库根目录离线复核历史结果：
+完成采集、参考点生成和推理后，在仓库根目录评估本次生成的数据：
 
 .. code-block:: bash
 
    python -m toolkits.geometry.evaluation.experiment evaluate \
-     --predictions toolkits/geometry/evaluation/historical/predictions.jsonl \
-     --truth toolkits/geometry/evaluation/historical/truth.json \
+     --predictions toolkits/geometry/evaluation/runs/predictions/results.jsonl \
+     --truth toolkits/geometry/evaluation/runs/truth.json \
      --output toolkits/geometry/evaluation/runs/report
 
 输出 ``report.md``、``errors.csv`` 和 ``metrics.json``，包含逐项坐标对比、分组统计及数据来源。输出目录须不存在或为空。

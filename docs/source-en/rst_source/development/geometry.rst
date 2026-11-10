@@ -314,16 +314,17 @@ the original strict checks. The current GeometryTool has not been remeasured.
 
 Errors include only evaluable requests with returned coordinates. Coverage
 also counts refusals, failures and unrun requests. Download the
-:download:`per-request coordinates and errors CSV <../../../../toolkits/geometry/evaluation/historical/errors.csv>`.
+:download:`evaluation report <../../../../toolkits/geometry/evaluation/report.md>`
+for per-part summaries and all per-request coordinate comparisons.
 
-With project dependencies installed, reproduce the historical errors offline
-from the repository root:
+After capture, reference generation and inference, evaluate the generated
+data from the repository root:
 
 .. code-block:: bash
 
    python -m toolkits.geometry.evaluation.experiment evaluate \
-     --predictions toolkits/geometry/evaluation/historical/predictions.jsonl \
-     --truth toolkits/geometry/evaluation/historical/truth.json \
+     --predictions toolkits/geometry/evaluation/runs/predictions/results.jsonl \
+     --truth toolkits/geometry/evaluation/runs/truth.json \
      --output toolkits/geometry/evaluation/runs/report
 
 The output contains ``report.md``, ``errors.csv`` and ``metrics.json`` with

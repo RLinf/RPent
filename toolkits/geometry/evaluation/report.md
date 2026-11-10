@@ -1,12 +1,14 @@
 # LIBERO initial-frame geometry / LIBERO 起始帧几何评估
 
-**Historical measurements, re-scored for reproducibility; not a new run of the current GeometryTool. 历史测量结果，仅重新计算误差以复现统计，不是当前 GeometryTool 的新实验。**
+**Recorded measurements from the earlier permissive run; not a new run of the current GeometryTool. 来自旧版宽松实验的已记录测量结果，不是当前 GeometryTool 的新实验。**
 
 Coordinates are metres; position errors are millimetres. 坐标单位为米，位置误差单位为毫米。
 
 Planned / 计划项数: **160**; attempted / 已运行: **160**; returned / 返回坐标: **160**.
 
-Prediction revision / 预测版本: `30ef110407ec4727a157fd7f64b1b21385140807`; perception / 感知输入: `frozen`; permissive / 历史宽松模式: `True`.
+Prediction revision / 预测版本: `30ef110407ec4727a157fd7f64b1b21385140807`; perception / 感知输入: `frozen`; permissive / 宽松模式: `True`.
+
+Of the 160 returned points, 18 passed the original strict checks. 160 个返回点中，18 个通过当时的严格检查。
 
 Errors below are conditional on an evaluable reference and a returned point. Missing, failed and unrun requests remain in coverage counts. 以下误差只统计有参考点且返回坐标的项；未返回、失败和未运行项保留在返回率统计中。
 
@@ -188,6 +190,6 @@ Errors below are conditional on an evaluable reference and a returned point. Mis
 | libero_10_swap_t9_s5/A | 0.011695, 0.009507, 1.002091 | 0.010041, 0.009605, 1.003844 | 2.412 | usable |
 | libero_10_swap_t9_s5/B | -0.062289, -0.216308, 1.107380 | -0.077538, -0.227131, 1.106911 | 18.705 | usable |
 
-Full-precision coordinates and failure reasons are in `errors.csv`. Source hashes, frame definitions and grouped statistics are in `metrics.json`. 完整精度坐标及失败原因见 `errors.csv`；来源哈希、坐标系和分组统计见 `metrics.json`。
+Coordinates are shown to six decimal places. Errors were computed from full-precision coordinates and are shown to three decimal places in millimetres. 表中坐标保留六位小数；误差由原始精度坐标计算，按毫米保留三位小数。
 
 This evaluates initial-frame geometry, not manipulation success or calibrated uncertainty. 本报告评估起始帧几何误差，不代表操作任务成功率或经过标定的不确定度。
