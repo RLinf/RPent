@@ -54,6 +54,8 @@ Choose a Platform
      - RLDX-1, kitchen tasks, and Target50 reproduction.
    * - :doc:`RoboTwin <../simulators/robotwin>`
      - LingBot-VLA, dual-arm simulation tasks, and C2R reproduction.
+   * - :doc:`BEHAVIOR <../simulators/behavior>`
+     - R1Pro household tasks with the official BEHAVIOR-1K evaluator.
    * - :doc:`RoboDojo <../simulators/robodojo>`
      - Dual-arm ARX-X5 manipulation in Isaac Sim, with the RLinf Pi0.5 policy.
    * - :doc:`Single-Arm Franka <../real_world_robots/franka>`

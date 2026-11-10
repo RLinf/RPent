@@ -39,6 +39,8 @@ RPent 的三条核心设计原则是服务化、标准化和可组合（service-
      - RLDX-1、厨房任务和 Target50 复现。
    * - :doc:`RoboTwin <../simulators/robotwin>`
      - LingBot-VLA、双臂仿真任务和 C2R 复现。
+   * - :doc:`BEHAVIOR <../simulators/behavior>`
+     - 使用官方 BEHAVIOR-1K 评测器运行 R1Pro 家庭操作任务。
    * - :doc:`RoboDojo <../simulators/robodojo>`
      - Isaac Sim 双臂 ARX-X5 操作，使用 RLinf Pi0.5 策略。
    * - :doc:`单臂 Franka <../real_world_robots/franka>`

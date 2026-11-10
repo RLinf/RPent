@@ -16,5 +16,7 @@
      - 厨房操作；RoboCasa365 与 Target50 实验。
    * - :doc:`robotwin`
      - 双臂操作；RoboTwin C2R 实验。
+   * - :doc:`behavior`
+     - 在 BEHAVIOR-1K 中使用 Pi0.5 和 R1Pro 执行家庭操作任务。
    * - :doc:`robodojo`
      - Isaac Sim 双臂 ARX-X5 操作与 RLinf Pi0.5 策略。

@@ -283,7 +283,6 @@ exclude = ["tests*", "docs*", "examples*", "docker*", "toolkits*"]
 "rpent.dashboard" = ["*.html", "static/*.css", "static/*.js"]
 "robots.yam" = ["config/*.yaml", "config/*.json", "guides/*.md"]
 "robots.behavior" = [
-    "guides/README*.md",
     "configs/*.yaml",
     "assets/r1pro/*.json",
     "assets/r1pro/*.urdf",
