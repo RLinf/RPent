@@ -115,8 +115,11 @@ class GeometryTool:
         visible_region returns coordinate-wise median and bounds of observed
         segmented samples, not a fitted center. required_geometry selects part
         fitting instead of measurement. Read geometry[field], its definition,
-        evidence_status, source_refs and quality. radius means rim radius. Full
-        height and body_center require consistent observed rim and bottom edges.
+        evidence_status, source_refs, fit_accepted, warnings and quality. A finite
+        estimate can be returned with status=warning when quality checks fail;
+        its coordinates have not passed those checks. radius means rim radius.
+        Full height and body_center require observed rim and bottom edges;
+        inconsistent estimates carry warnings.
         Inspect partial/need_observation reasons and obtain missing evidence
         through the parent's normal observation or motion tools.
 
@@ -583,27 +586,38 @@ class GeometryTool:
                 for part in item["source_parts"]
                 if part in data["parts"]
             }
-        usable = [name for name, item in fields.items() if item["value"] is not None]
+        available = [name for name, item in fields.items() if item["value"] is not None]
+        warnings = [
+            {"quantity": name, "reason": reason}
+            for name, item in fields.items()
+            for reason in item["warnings"]
+        ]
         data.update(
             geometry=fields,
-            found=bool(usable),
+            found=bool(available),
             status="usable"
-            if len(usable) == len(requested)
+            if len(available) == len(requested) and not warnings
+            else "warning"
+            if len(available) == len(requested)
             else "partial"
-            if usable
+            if available
             else "need_observation",
-            evidence_status="inferred" if usable else "unknown",
+            evidence_status="inferred" if available else "unknown",
+            warnings=warnings,
             quality={
                 "calibrated_error_m": None,
+                "fit_accepted": all(item["fit_accepted"] for item in fields.values()),
                 "part_consistency": checks,
                 "fit_options": asdict(options),
             },
         )
-        missing = [name for name in requested if name not in usable]
+        missing = [name for name in requested if name not in available]
         if missing:
             self._need_view(data, "requested_geometry_not_observable_or_fit_rejected")
             data["observation_request"]["missing_geometry"] = missing
             data["observation_request"]["missing_parts"] = [
-                part for part, fit in fits.items() if not fit.accepted
+                part
+                for part in fits
+                if any(part in fields[name]["source_parts"] for name in missing)
             ]
         return images

@@ -251,7 +251,7 @@ def fit_rectangle(
     *,
     plane: ShapeFit | None = None,
 ) -> ShapeFit:
-    """Fit a rectangle only when four observed physical edges support its center."""
+    """Fit a rectangle and flag incomplete physical-edge support."""
     from scipy.spatial import ConvexHull, QhullError
 
     options = options or FitOptions()
@@ -263,10 +263,10 @@ def fit_rectangle(
             "all four physical edges and corner neighborhoods are observed",
         ],
     )
-    if not plane.accepted:
+    if not plane.parameters:
         result.reason = plane.reason
         return result
-    if len(boundary_points) < options.min_points:
+    if not len(boundary_points):
         result.reason = "insufficient_physical_rectangle_boundary"
         return result
     origin = np.asarray(plane.parameters["point"])
@@ -319,16 +319,17 @@ def fit_rectangle(
         corner_distance = np.array(
             [np.linalg.norm(boundary - corner, axis=1).min() for corner in corners]
         )
-        if (
+        complete = not (
             min(coverage) < 0.65
             or max(corner_distance)
             > max(2 * options.distance_threshold_m, 0.08 * min(extent))
             or inliers.mean() < options.min_inlier_ratio
-        ):
-            continue
+        )
         candidates.append(
             (
-                float(np.mean(residual[inliers])),
+                float(np.mean(residual[inliers]))
+                if inliers.any()
+                else float(np.mean(residual)),
                 rotation,
                 low,
                 high,
@@ -337,6 +338,7 @@ def fit_rectangle(
                 coverage,
                 corners,
                 corner_distance,
+                complete,
             )
         )
     if not candidates:
@@ -346,9 +348,19 @@ def fit_rectangle(
             "n_boundary_points": len(boundary_points),
         }
         return result
-    _, rotation, low, high, inliers, residual, coverage, corners, corner_distance = min(
-        candidates, key=lambda item: item[0]
-    )
+    supported = [candidate for candidate in candidates if candidate[-1]]
+    (
+        _,
+        rotation,
+        low,
+        high,
+        inliers,
+        residual,
+        coverage,
+        corners,
+        corner_distance,
+        complete,
+    ) = min(supported or candidates, key=lambda item: item[0])
     result.accepted = True
     result.inlier_indices = np.flatnonzero(inliers)
     result.parameters = {
@@ -363,6 +375,12 @@ def fit_rectangle(
         corner_distances_m=corner_distance.tolist(),
         plane=plane.quality,
     )
+    for reason in plane.warnings:
+        result.warn(reason)
+    if len(boundary_points) < options.min_points:
+        result.warn("insufficient_physical_rectangle_boundary")
+    if not complete:
+        result.warn("four_complete_physical_edges_not_observed")
     return result
 
 
@@ -377,7 +395,7 @@ def fit_barrel_body(
     An anchor-centred axial band supplies a hypothesis; acceptance still requires
     the normal consensus/coverage gates and a majority of the complete cloud.
     """
-    if anchor is None or len(points) < options.min_points:
+    if anchor is None or len(points) < 6:
         return ShapeFit("cylinder", reason="main_barrel_material_anchor_required")
     candidates = []
     failed = ShapeFit("cylinder", reason="no_dominant_barrel_at_visual_anchor")
@@ -386,7 +404,7 @@ def fit_barrel_body(
         half_width = max(6 * options.distance_threshold_m, 0.18 * float(np.ptp(axial)))
         band = points[np.abs(axial) <= half_width]
         local = fit_axisymmetric(band, options)
-        if not local.accepted or abs(local.parameters["radius_slope"]) > 0.12:
+        if not local.parameters:
             continue
         origin = np.asarray(local.parameters["axis_point"])
         axis = np.asarray(local.parameters["axis_direction"])
@@ -395,14 +413,26 @@ def fit_barrel_body(
         t = offset @ axis
         residual = np.abs(np.linalg.norm(offset - t[:, None] * axis, axis=1) - radius)
         support = np.flatnonzero(residual <= options.distance_threshold_m)
+        if len(support) < 6:
+            continue
+        fitted = fit_axisymmetric(points[support], options)
+        if not fitted.parameters:
+            continue
+        for reason in local.warnings:
+            fitted.warn(reason)
+        if (
+            max(
+                abs(local.parameters["radius_slope"]),
+                abs(fitted.parameters["radius_slope"]),
+            )
+            > 0.12
+        ):
+            fitted.warn("main_barrel_not_near_cylindrical")
         if (
             len(support) < options.min_points
             or len(support) / len(points) < options.min_inlier_ratio
         ):
-            continue
-        fitted = fit_axisymmetric(points[support], options)
-        if not fitted.accepted or abs(fitted.parameters["radius_slope"]) > 0.12:
-            continue
+            fitted.warn("insufficient_barrel_consensus_on_complete_mask")
         axis = np.asarray(fitted.parameters["axis_direction"])
         delta = anchor - np.asarray(fitted.parameters["axis_point"])
         if (
@@ -412,15 +442,16 @@ def fit_barrel_body(
             )
             > 2 * options.distance_threshold_m
         ):
-            continue
+            fitted.warn("barrel_inconsistent_with_part_anchor")
         fitted.inlier_indices = support[fitted.inlier_indices]
         fitted.quality["barrel_consensus_on_complete_mask"] = len(
             fitted.inlier_indices
         ) / len(points)
         fitted.quality["anchor_band_half_width_m"] = half_width
         candidates.append(fitted)
+    accepted = [fit for fit in candidates if fit.accepted]
     return (
-        max(candidates, key=lambda fit: len(fit.inlier_indices))
+        max(accepted or candidates, key=lambda fit: len(fit.inlier_indices))
         if candidates
         else failed
     )
@@ -434,7 +465,7 @@ def fit_barrel_segment(
     *,
     body: ShapeFit | None = None,
 ) -> ShapeFit:
-    """Locate both barrel limits from radius transitions or certified object ends.
+    """Locate barrel limits and flag uncertified visible-profile endpoints.
 
     An observed cloud's axial min/max alone never certifies an endpoint. Model
     coordinates and pre-labelled barrel bounds are evaluator-only data.
@@ -449,15 +480,14 @@ def fit_barrel_segment(
             "no model-labelled bounds supplied to the tool",
         ],
     )
-    if not body.accepted:
+    if not body.parameters:
         result.reason = body.reason
         return result
     axis = np.asarray(body.parameters["axis_direction"])
     origin = np.asarray(body.parameters["axis_point"])
     radius = body.parameters["radius_at_visible_midpoint"]
     if abs(body.parameters["radius_slope"]) > 0.12:
-        result.reason = "main_barrel_not_near_cylindrical"
-        return result
+        result.warn("main_barrel_not_near_cylindrical")
     delta = points - origin
     axial = delta @ axis
     radial = np.linalg.norm(delta - axial[:, None] * axis, axis=1)
@@ -519,15 +549,23 @@ def fit_barrel_segment(
                 if abs(crossing - bound) <= 2 * width:
                     bound = float(crossing)
         if not (transition or terminal):
-            result.reason = "both_main_barrel_end_boundaries_not_observed"
-            result.quality = {"profile_bin_width_m": width, "body": body.quality}
-            return result
+            result.warn("both_main_barrel_end_boundaries_not_observed")
         bounds.append(float(bound))
-        evidence.append("radius_transition" if transition else "physical_terminal_edge")
-    if bounds[1] - bounds[0] < 4 * options.distance_threshold_m:
+        evidence.append(
+            "radius_transition"
+            if transition
+            else "physical_terminal_edge"
+            if terminal
+            else "uncertified_visible_profile_limit"
+        )
+    if bounds[1] - bounds[0] <= 1e-10:
         result.reason = "main_barrel_segment_too_short"
         return result
-    result.accepted = True
+    if bounds[1] - bounds[0] < 4 * options.distance_threshold_m:
+        result.warn("main_barrel_segment_too_short")
+    for reason in body.warnings:
+        result.warn(reason)
+    result.accepted = not result.warnings
     result.parameters = {
         "center": (origin + np.mean(bounds) * axis).tolist(),
         "axis_direction": axis.tolist(),
@@ -616,7 +654,7 @@ def fit_part_geometry(
     camera_origin: np.ndarray | None,
     options: FitOptions | None = None,
 ) -> PartFit:
-    """Fit an observed part without substituting a visible-fragment center."""
+    """Fit a selected part, retaining model estimates with quality warnings."""
     options = options or FitOptions()
     empty = np.zeros_like(mask)
     if anchor is None or not np.isfinite(anchor).all():
@@ -634,7 +672,7 @@ def fit_part_geometry(
         body = fit_barrel_body(points, anchor, options)
         boundary = (
             _barrel_boundary(world, mask, body, camera_origin, options)
-            if body.accepted
+            if body.parameters
             else empty
         )
         fit = fit_barrel_segment(points, world[boundary], anchor, options, body=body)
@@ -646,24 +684,18 @@ def fit_part_geometry(
             {"method": "barrel_radius_profile_and_observed_object_ends"},
         )
     plane = fit_plane(points, options, camera_origin=camera_origin)
-    if not plane.accepted:
+    if not plane.parameters:
         return PartFit(plane, points, points, empty)
     origin, normal = (
         np.asarray(plane.parameters["point"]),
         np.asarray(plane.parameters["normal"]),
     )
+    warnings = list(plane.warnings)
     if (
         anchor is not None
         and abs(float((anchor - origin) @ normal)) > 3 * options.distance_threshold_m
     ):
-        return PartFit(
-            ShapeFit(
-                "face", reason="selected_plane_does_not_contain_visual_face_anchor"
-            ),
-            points,
-            points,
-            empty,
-        )
+        warnings.append("selected_plane_does_not_contain_visual_face_anchor")
     face = _plane_mask(world, mask, points, plane, options)
     boundary, extraction = physical_plane_boundary(
         world,
@@ -673,20 +705,27 @@ def fit_part_geometry(
         options,
         reject_foreground=part == "rectangular_top",
     )
+    minimum_boundary_points = 1 if part == "rectangular_top" else 3
+    extraction["boundary_source"] = "verified_physical_boundary"
+    if np.count_nonzero(boundary) < minimum_boundary_points:
+        boundary = _outer_boundary(face) & np.isfinite(world).all(axis=2)
+        extraction.update(
+            boundary_source="unverified_segmented_face_contour",
+            n_fallback_boundary_pixels=int(np.count_nonzero(boundary)),
+        )
+        warnings.append("physical_boundary_not_verified")
     observed = world[boundary]
     if extraction["mask_touches_frame"]:
-        return PartFit(
-            ShapeFit("face", reason="face_boundary_clipped_by_image"),
-            observed,
-            observed,
-            boundary,
-            extraction,
-        )
+        warnings.append("face_boundary_clipped_by_image")
     if part == "rectangular_top":
         surface_points = points[
             np.abs((points - origin) @ normal) <= options.distance_threshold_m
         ]
         fit = fit_rectangle(surface_points, observed, options, plane=plane)
+        if fit.parameters:
+            for reason in warnings:
+                fit.warn(reason)
+        fit.quality["boundary_source"] = extraction["boundary_source"]
         return PartFit(fit, observed, observed, boundary, extraction)
     projected = observed - ((observed - origin) @ normal)[:, None] * normal
     fit = fit_circle(
@@ -702,6 +741,10 @@ def fit_part_geometry(
         "height comes from the selected face plane, not the raised outer rim",
     ]
     fit.quality["face_plane"] = plane.quality
+    fit.quality["boundary_source"] = extraction["boundary_source"]
+    if fit.parameters:
+        for reason in warnings:
+            fit.warn(reason)
     extraction["fit_input"] = "observed_face_boundary_projected_onto_fitted_face_plane"
     return PartFit(fit, projected, observed, boundary, extraction)
 
@@ -709,17 +752,20 @@ def fit_part_geometry(
 def part_geometry_fields(
     fits: dict[str, ShapeFit], requested: list[str]
 ) -> dict[str, Any]:
-    """Expose accepted part centers with their exact semantic definitions."""
+    """Expose computed part centers and their separate quality acceptance."""
     result = {}
     for name in requested:
         part = PART_QUANTITIES[name]
         fit = fits.get(part)
         accepted = fit is not None and fit.accepted
+        value = fit.parameters.get("center") if fit is not None else None
         result[name] = {
-            "value": fit.parameters["center"] if accepted else None,
+            "value": value,
+            "fit_accepted": accepted and value is not None,
+            "warnings": list(fit.warnings) if value is not None else [],
             "definition": PART_DEFINITIONS[name],
             "unit": "m",
-            "evidence_status": "inferred" if accepted else "unknown",
+            "evidence_status": "inferred" if value is not None else "unknown",
             "source_parts": [part],
             "assumptions": fit.assumptions if fit is not None else [],
             "reason": None

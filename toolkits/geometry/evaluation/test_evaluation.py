@@ -41,7 +41,7 @@ from toolkits.geometry.evaluation.checklist import (
 )
 from toolkits.geometry.evaluation.evaluation_scene import REFERENCE_OBJECTS
 from toolkits.geometry.evaluation.libero import capture_case
-from toolkits.geometry.evaluation.metrics import evaluate, truth_template
+from toolkits.geometry.evaluation.metrics import evaluate, truth_template, write_report
 from toolkits.geometry.evaluation.observation import load_observation
 from toolkits.geometry.evaluation.references import build_truth, mesh_fingerprint
 from toolkits.geometry.evaluation.replay import (
@@ -405,6 +405,52 @@ def test_reference_mesh_identity_is_checked(tmp_path):
         build_truth(manifest, cases, tmp_path, profiles=profiles)
     assert frame_id(cases[0]["case_id"]) != "world"
     assert manifest_digest(manifest) == truth_template(manifest)["manifest_sha256"]
+
+
+def test_warning_coordinates_are_evaluated_separately_from_accepted_fits(tmp_path):
+    manifest, cases = _case()
+    truth = truth_template(manifest, cases)
+    for annotation in truth["annotations"]:
+        annotation.update(
+            evaluable=True,
+            world_xyz=[0, 0, 0.8],
+            annotation_source="synthetic independent point",
+        )
+    accepted, warning = [
+        experiment.prediction_base(manifest, cases[0], request)
+        for request in cases[0]["requests"]
+    ]
+    accepted.update(status="usable", world_xyz=[0, 0, 0.8], fit_accepted=True)
+    warning.update(
+        status="warning",
+        world_xyz=[0.03, 0.04, 0.8],
+        fit_accepted=False,
+        warnings=["insufficient_circle_angular_coverage"],
+    )
+    report = evaluate(manifest, truth, [accepted, warning], cases=cases)
+    assert report["overall"]["returned"] == 2
+    groups = report["overall"]["by_fit_quality"]
+    assert groups["accepted"]["returned"] == groups["warning"]["returned"] == 1
+    assert groups["accepted"]["conditional_error_mm_on_returned_only"]["mean"] == 0
+    assert groups["warning"]["conditional_error_mm_on_returned_only"][
+        "mean"
+    ] == pytest.approx(50)
+    assert report["rows"][1]["warnings"] == warning["warnings"]
+    write_report(manifest, report, tmp_path, provenance={})
+    with (tmp_path / "errors.csv").open(encoding="utf-8-sig", newline="") as stream:
+        records = list(csv.DictReader(stream))
+    assert records[1]["fit_accepted"] == "False"
+    assert json.loads(records[1]["warnings"]) == warning["warnings"]
+    rendered = (tmp_path / "report.md").read_text()
+    assert "Accepted / 通过检查" in rendered and "Warning / 带警告" in rendered
+    assert "insufficient_circle_angular_coverage" in rendered
+    for invalid in (
+        {**warning, "fit_accepted": True},
+        {**warning, "world_xyz": None},
+        {**warning, "warnings": []},
+    ):
+        with pytest.raises(ValueError):
+            evaluate(manifest, truth, [accepted, invalid], cases=cases)
 
 
 def test_snapshot_converts_visual_mesh_to_the_correct_body_frame():

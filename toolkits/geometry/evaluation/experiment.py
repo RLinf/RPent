@@ -168,6 +168,8 @@ def prediction_base(
         "units": "m",
         "status": "error",
         "world_xyz": None,
+        "fit_accepted": False,
+        "warnings": [],
     }
 
 
@@ -230,6 +232,8 @@ def infer_cases(
                     row.update(
                         status=data["status"],
                         world_xyz=point,
+                        fit_accepted=field.get("fit_accepted", False),
+                        warnings=field.get("warnings", []),
                         reason=field.get("reason")
                         or data.get("error")
                         or data.get("reason"),

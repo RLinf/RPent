@@ -25,10 +25,14 @@ provider, not from this tool call.
 surface_point is one visible material point. visible_region gives the
 coordinate-wise median and bounds of visible segmented samples, not a fitted
 center. For fitted quantities read geometry[field], its definition, units,
-world_frame_id, source_step, evidence_status, source_refs and quality. radius
-means rim radius. Full height and body_center require consistent observed rim
-and bottom boundaries. Retain unsupported fields as unknown. Fit residuals and
-segmentation scores are diagnostics, not calibrated position errors.
+world_frame_id, source_step, evidence_status, source_refs, fit_accepted, warnings
+and quality. A returned estimate with fit_accepted=false has not passed quality
+checks: read its warnings before deciding whether another observation is needed.
+Do not treat status=warning as accepted geometry or a calibrated error bound.
+radius means rim radius. Full height and body_center require observed rim and
+bottom boundaries; inconsistent estimates carry warnings. Fields without a
+computable estimate stay unknown. Fit residuals and segmentation scores are
+diagnostics, not calibrated position errors.
 
 GeometryTool has no motion tools. On partial, need_observation or error,
 inspect the missing fields and reason before choosing a new observation or

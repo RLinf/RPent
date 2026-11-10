@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import csv
+import json
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -166,6 +167,19 @@ def validate_truth(
     return result
 
 
+def _error_statistics(rows: list[dict[str, Any]]) -> dict[str, float | None]:
+    errors = np.asarray(
+        [row["error_mm"] for row in rows if row["error_mm"] is not None]
+    )
+    return {
+        "mean": float(errors.mean()) if len(errors) else None,
+        "median": float(np.median(errors)) if len(errors) else None,
+        "p95": float(np.quantile(errors, 0.95)) if len(errors) else None,
+        "max": float(errors.max()) if len(errors) else None,
+        "rmse": float(np.sqrt(np.mean(errors**2))) if len(errors) else None,
+    }
+
+
 def _metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
     evaluable = [row for row in rows if row["evaluable"]]
     errors = np.asarray(
@@ -190,12 +204,27 @@ def _metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
             row["returned"] and not row["evaluable"] for row in rows
         ),
         "coverage_on_evaluable": n_return / n_eval if n_eval else None,
-        "conditional_error_mm_on_returned_only": {
-            "mean": float(errors.mean() * 1000) if n_return else None,
-            "median": float(np.median(errors) * 1000) if n_return else None,
-            "p95": float(np.quantile(errors, 0.95) * 1000) if n_return else None,
-            "max": float(errors.max() * 1000) if n_return else None,
-            "rmse": float(np.sqrt(np.mean(errors**2)) * 1000) if n_return else None,
+        "conditional_error_mm_on_returned_only": _error_statistics(evaluable),
+        "by_fit_quality": {
+            name: {
+                "returned": len(selected),
+                "conditional_error_mm_on_returned_only": _error_statistics(selected),
+            }
+            for name, selected in {
+                "accepted": [
+                    row
+                    for row in rows
+                    if row["returned"] and row["fit_accepted"] is True
+                ],
+                "warning": [row for row in rows if row["returned"] and row["warnings"]],
+                "unclassified": [
+                    row
+                    for row in rows
+                    if row["returned"]
+                    and row["fit_accepted"] is None
+                    and not row["warnings"]
+                ],
+            }.items()
         },
     }
 
@@ -234,6 +263,7 @@ def evaluate(
         point = prediction.get("world_xyz")
         if prediction.get("status") not in (
             "usable",
+            "warning",
             "partial",
             "need_observation",
             "error",
@@ -241,10 +271,26 @@ def evaluate(
             raise ValueError(f"unknown prediction status: {key}")
         if point is not None:
             _xyz(point, "prediction world_xyz")
-            if prediction.get("status") not in ("usable", "partial"):
+            if prediction.get("status") not in ("usable", "warning", "partial"):
                 raise ValueError(f"failed prediction carries a point: {key}")
-        elif prediction.get("status") == "usable":
-            raise ValueError(f"usable prediction has no point: {key}")
+        elif prediction.get("status") in ("usable", "warning"):
+            raise ValueError(f"returned prediction has no point: {key}")
+        warnings = prediction.get("warnings", [])
+        accepted = prediction.get("fit_accepted")
+        if not isinstance(warnings, list) or any(
+            not isinstance(code, str) or not code for code in warnings
+        ):
+            raise ValueError(f"invalid fit warnings: {key}")
+        if accepted is not None and type(accepted) is not bool:
+            raise ValueError(f"invalid fit acceptance: {key}")
+        if prediction.get("status") == "warning" and (
+            not warnings or accepted is not False
+        ):
+            raise ValueError(
+                f"warning prediction requires rejected fit metadata: {key}"
+            )
+        if accepted is True and (point is None or warnings):
+            raise ValueError(f"accepted fit cannot be missing or carry warnings: {key}")
         indexed[key] = prediction
     selected_ids = {
         case["case_id"] for case in (manifest["cases"] if cases is None else cases)
@@ -279,6 +325,8 @@ def evaluate(
             "not_evaluable_reason": annotation["not_evaluable_reason"],
             "prediction_status": prediction.get("status", "unrun"),
             "prediction_reason": prediction.get("reason"),
+            "fit_accepted": prediction.get("fit_accepted"),
+            "warnings": list(prediction.get("warnings", [])),
             "returned": point is not None,
             "world_xyz": point,
             "truth_world_xyz": annotation["world_xyz"],
@@ -321,6 +369,8 @@ def write_report(
         "frame_id",
         "prediction_status",
         "prediction_reason",
+        "fit_accepted",
+        "warnings",
         "evaluable",
         "not_evaluable_reason",
         "predicted_x_m",
@@ -340,6 +390,7 @@ def write_report(
             writer.writerow(
                 {
                     **{key: row[key] for key in columns if key in row},
+                    "warnings": json.dumps(row["warnings"], ensure_ascii=False),
                     "label": manifest["references"][row["reference"]]["label"],
                     **{
                         f"predicted_{axis}_m": value
@@ -365,14 +416,12 @@ def write_report(
         "",
         f"Prediction revision / 预测版本: `{run.get('git_commit', run.get('commit', 'not recorded / 未记录'))}`; "
         f"perception / 感知输入: `{run.get('perception_mode', run.get('stage', 'not recorded / 未记录'))}`; "
-        f"permissive / 历史宽松模式: `{run.get('permissive', False)}`.",
+        f"fit profile / 拟合模式: `{run.get('fit_profile', 'not recorded / 未记录')}`.",
         "",
         "Errors below are conditional on an evaluable reference and a returned point. "
         "Missing, failed and unrun requests remain in coverage counts. "
         "以下误差只统计有参考点且返回坐标的项；未返回、失败和未运行项保留在返回率统计中。",
         "",
-        "| Target / 部位 | Planned / 计划 | Returned / 返回 | Mean mm / 均值 | Median mm / 中位数 | P95 mm | Max mm / 最大值 |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
 
     def number(value: float | None) -> str:
@@ -385,11 +434,60 @@ def write_report(
             "",
         ]
 
+    if run.get("git_dirty"):
+        lines += [
+            "Tested snapshot includes uncommitted changes / 被测快照包含未提交修改: "
+            f"`{run.get('snapshot_diff_sha256', 'not recorded / 未记录')}`.",
+            "",
+        ]
+    if run.get("perception_mode") == "frozen":
+        lines += [
+            "Frozen initial-frame RGB-D, visual selections and segmentation masks were replayed. "
+            "Every request was fitted again; no previous predicted coordinates were reused. "
+            "No fresh visual-model inference or robot actions were performed. "
+            "本轮回放冻结的起始帧 RGB-D、视觉选点和分割掩码，逐项重新拟合，未复用旧预测坐标；未重新推理视觉模型或执行机器人动作。",
+            "",
+        ]
+    lines += [
+        "A returned point can fail quality checks. Inspect fit_accepted and warnings; "
+        "fit residuals are not calibrated position errors. "
+        "返回坐标仍可能未通过质量检查，应读取 fit_accepted 和 warnings；拟合残差不是经过标定的位置误差。",
+        "",
+        "## Fit Quality / 拟合质量",
+        "",
+        "| Group / 分组 | Returned / 返回 | Mean mm / 均值 | Median mm / 中位数 | P95 mm | Max mm / 最大值 |",
+        "| --- | ---: | ---: | ---: | ---: | ---: |",
+    ]
+    for name, metrics in overall["by_fit_quality"].items():
+        label = {
+            "accepted": "Accepted / 通过检查",
+            "warning": "Warning / 带警告",
+            "unclassified": "Unclassified / 未分类",
+        }[name]
+        if not metrics["returned"]:
+            continue
+        errors = metrics["conditional_error_mm_on_returned_only"]
+        lines.append(
+            f"| {label} | {metrics['returned']} | "
+            + " | ".join(
+                number(errors[key]) for key in ("mean", "median", "p95", "max")
+            )
+            + " |"
+        )
+    lines += [
+        "",
+        "## Target Parts / 目标部位",
+        "",
+        "| Target / 部位 | Planned / 计划 | Returned / 返回 | Accepted / 通过 | Warning / 警告 | Mean mm / 均值 | Median mm / 中位数 | P95 mm | Max mm / 最大值 |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+    ]
+
     for name, metrics in [("all", overall), *report["by_reference"].items()]:
         label = "All / 全部" if name == "all" else manifest["references"][name]["label"]
         errors = metrics["conditional_error_mm_on_returned_only"]
         lines.append(
             f"| {label} | {metrics['planned']} | {metrics['returned']} | "
+            f"{metrics['by_fit_quality']['accepted']['returned']} | {metrics['by_fit_quality']['warning']['returned']} | "
             + " | ".join(
                 number(errors[key]) for key in ("mean", "median", "p95", "max")
             )
@@ -399,24 +497,33 @@ def write_report(
         "",
         "## Per-request coordinates / 逐项坐标",
         "",
-        "| Request | Predicted XYZ m / 测量坐标 | Reference XYZ m / 参考坐标 | Error mm / 误差 | Status / 状态 |",
-        "| --- | --- | --- | ---: | --- |",
+        "| Request | Predicted XYZ m / 测量坐标 | Reference XYZ m / 参考坐标 | Error mm / 误差 | Status / 状态 | Accepted / 通过 | Warnings or reason / 警告或原因 |",
+        "| --- | --- | --- | ---: | --- | --- | --- |",
     ]
 
     def coordinates(point: list[float] | None) -> str:
-        return "—" if point is None else ", ".join(f"{value:.6f}" for value in point)
+        return "—" if point is None else ", ".join(f"{value:.7f}" for value in point)
 
     for row in report["rows"]:
         lines.append(
             f"| {row['request_id']} | {coordinates(row['world_xyz'])} | "
             f"{coordinates(row['truth_world_xyz'])} | {number(row['error_mm'])} | "
-            f"{row['prediction_status']} |"
+            f"{row['prediction_status']} | {row['fit_accepted']} | "
+            f"{', '.join(row['warnings']) or row['prediction_reason'] or '—'} |"
         )
     lines += [
         "",
-        "Full-precision coordinates and failure reasons are in `errors.csv`. "
-        "Source hashes, frame definitions and grouped statistics are in `metrics.json`. "
-        "完整精度坐标及失败原因见 `errors.csv`；来源哈希、坐标系和分组统计见 `metrics.json`。",
+        "## Reproduction / 复现记录",
+        "",
+        f"- Run / 运行标识: `{run.get('run_id', 'not recorded / 未记录')}`.",
+        f"- Checklist / 清单 SHA256: `{report['manifest_sha256']}`.",
+        f"- Predictions / 预测 SHA256: `{provenance.get('predictions_sha256', 'not recorded / 未记录')}`.",
+        f"- References / 参考坐标 SHA256: `{provenance.get('truth_sha256', 'not recorded / 未记录')}`.",
+        f"- Source archive / 源码归档 SHA256: `{run.get('source_archive_sha256', 'not recorded / 未记录')}`.",
+        "",
+        "The evaluator also writes full-precision `errors.csv` and `metrics.json` alongside this report in the run output. "
+        "These raw artifacts are retained separately from the report included in the PR. "
+        "评估器还会在运行输出中生成完整精度的 `errors.csv` 和 `metrics.json`；原始数据与 PR 中的单份报告分开保存。",
         "",
         "This evaluates initial-frame geometry, not manipulation success or calibrated uncertainty. "
         "本报告评估起始帧几何误差，不代表操作任务成功率或经过标定的不确定度。",

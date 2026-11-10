@@ -304,6 +304,176 @@ def test_request_cancellation_stops_before_coordinate_read(tmp_path, monkeypatch
         geometry_tool.geometry("target", camera=frame.camera, check_cancelled=check)
 
 
+@pytest.mark.parametrize("include_height", [False, True])
+def test_unaccepted_circle_returns_estimate_with_warning(tmp_path, include_height):
+    theta = np.broadcast_to(np.linspace(0, np.radians(120), 64), (8, 64))
+    world = np.stack(
+        (0.04 * np.cos(theta), 0.04 * np.sin(theta), np.full(theta.shape, 0.8)), axis=-1
+    )
+    state, frame, source, _ = _inputs(tmp_path, world)
+    mask = np.ones(theta.shape, dtype=bool)
+
+    def ground(image, query):
+        found = query.startswith("the visible circular rim")
+        return MolmoResult(
+            found=found, point_xy=(32, 4) if found else None, image_size=(64, 8)
+        )
+
+    geometry_tool = GeometryTool(
+        state=state,
+        observations=source,
+        grounder=SimpleNamespace(ground=ground),
+        segmenter=SimpleNamespace(
+            segment=lambda *a, **kw: Sam3Result(found=True, mask=mask, score=0.95)
+        ),
+    )
+    requested = ["rim_center", "height"] if include_height else ["rim_center"]
+    data = geometry_tool.geometry(
+        "blue cup", camera=frame.camera, required_geometry=requested
+    ).data
+    field = data["geometry"]["rim_center"]
+    assert data["status"] == ("partial" if include_height else "warning"), data
+    np.testing.assert_allclose(field["value"], [0, 0, 0.8], atol=1e-5)
+    assert field["fit_accepted"] is False
+    assert "insufficient_circle_angular_coverage" in field["warnings"]
+    assert {
+        "quantity": "rim_center",
+        "reason": "insufficient_circle_angular_coverage",
+    } in data["warnings"]
+    saved = state.load(data["geometry_artifact"], step=0)
+    assert saved["geometry"]["rim_center"]["value"] == field["value"]
+    assert saved["parts"]["rim"]["fit"]["parameters"]["center"] == field["value"]
+    if include_height:
+        assert data["geometry"]["height"]["value"] is None
+        assert data["observation_request"]["missing_geometry"] == ["height"]
+    else:
+        assert "observation_request" not in data
+    assert len(state.records()) == 1
+
+
+def test_uncomputable_geometry_stays_unknown():
+    from toolkits.geometry.geometry import fit_circle, fit_plane, geometry_fields
+
+    circle = fit_circle(np.array([[0, 0, 0], [0.1, 0, 0]]))
+    plane = fit_plane(np.column_stack((np.linspace(0, 0.1, 32), np.zeros((32, 2)))))
+    fields, _ = geometry_fields(
+        {"rim": circle, "plane": plane}, ["rim_center", "plane_normal"]
+    )
+    for field in fields.values():
+        assert field["value"] is None and field["fit_accepted"] is False
+        assert field["warnings"] == [] and field["reason"]
+
+
+def test_circle_anchor_mismatch_keeps_unanchored_estimate():
+    from toolkits.geometry.geometry import fit_circle, geometry_fields
+
+    theta = np.linspace(0, 2 * np.pi, 180, endpoint=False)
+    points = np.column_stack(
+        (0.04 * np.cos(theta), 0.04 * np.sin(theta), np.full(theta.shape, 0.8))
+    )
+    matched = fit_circle(points, anchor=points[0])
+    assert matched.accepted and not matched.warnings
+    unmatched = fit_circle(points, anchor=np.array([0, 0, 1.0]))
+    fields, _ = geometry_fields({"rim": unmatched}, ["rim_center"])
+    field = fields["rim_center"]
+    np.testing.assert_allclose(field["value"], matched.parameters["center"], atol=1e-6)
+    assert field["fit_accepted"] is False
+    assert "circle_anchor_constraint_relaxed" in field["warnings"]
+    assert "circle_inconsistent_with_part_anchor" in field["warnings"]
+    assert unmatched.quality["anchor_constraint_relaxed"] is True
+    assert unmatched.quality["anchor_error_m"] > unmatched.quality["anchor_threshold_m"]
+
+
+@pytest.mark.parametrize("quantity", ["plate_center", "rectangle_center"])
+def test_face_contour_returns_warning_when_physical_boundary_is_missing(
+    tmp_path, quantity
+):
+    rows, cols = np.indices((128, 128))
+    x, y = (cols - 64) * 0.001, (rows - 64) * 0.001
+    world = np.stack((x, y, np.full(x.shape, 0.8)), axis=-1)
+    mask = (
+        np.hypot(x, y) <= 0.04
+        if quantity == "plate_center"
+        else (np.abs(x) <= 0.04) & (np.abs(y) <= 0.03)
+    )
+    state, frame, source, _ = _inputs(tmp_path, world)
+    geometry_tool = GeometryTool(
+        state=state,
+        observations=source,
+        grounder=_grounder((64, 64), mask.shape),
+        segmenter=SimpleNamespace(
+            segment=lambda *a, **kw: Sam3Result(found=True, mask=mask, score=0.95)
+        ),
+    )
+    data = geometry_tool.geometry(
+        "box or plate on the table", camera=frame.camera, required_geometry=[quantity]
+    ).data
+    assert data["status"] == "warning", data
+    field = data["geometry"][quantity]
+    np.testing.assert_allclose(field["value"], [0, 0, 0.8], atol=0.001)
+    assert field["fit_accepted"] is False
+    assert "physical_boundary_not_verified" in field["warnings"]
+    sample = next(iter(data["parts"].values()))
+    extraction = sample["part_extraction"]
+    assert extraction["n_supported_boundary_pixels"] == 0
+    assert extraction["n_fallback_boundary_pixels"] > 0
+    assert extraction["boundary_source"] == "unverified_segmented_face_contour"
+    assert state.load(sample["fit_points_artifact"], step=0).shape[0] > 0
+    assert "observation_request" not in data
+
+
+def test_rectangle_and_body_keep_computed_parameters_when_checks_fail():
+    from toolkits.geometry.geometry import FitOptions, fit_axisymmetric
+    from toolkits.geometry.part_geometry import fit_rectangle, part_geometry_fields
+
+    x, y = np.meshgrid(np.linspace(-0.04, 0.04, 20), np.linspace(-0.03, 0.03, 16))
+    points = np.column_stack((x.ravel(), y.ravel(), np.full(x.size, 0.8)))
+    # Three physical sides cannot pass the four-edge requirement.
+    edges = points[(np.abs(points[:, 0]) > 0.039) | (points[:, 1] < -0.029)]
+    rectangle = fit_rectangle(points, edges)
+    field = part_geometry_fields({"rectangular_top": rectangle}, ["rectangle_center"])[
+        "rectangle_center"
+    ]
+    assert field["value"] is not None and field["fit_accepted"] is False
+    assert "four_complete_physical_edges_not_observed" in field["warnings"]
+    theta, z = np.meshgrid(
+        np.linspace(0, np.radians(220), 32), np.linspace(0.8, 0.92, 20)
+    )
+    body = fit_axisymmetric(
+        np.column_stack(
+            (0.04 * np.cos(theta).ravel(), 0.04 * np.sin(theta).ravel(), z.ravel())
+        ),
+        FitOptions(min_body_coverage_deg=360),
+    )
+    assert body.parameters and not body.accepted
+    assert "insufficient_body_angular_coverage" in body.warnings
+
+
+def test_inconsistent_parts_return_warning_instead_of_hiding_coordinates():
+    from toolkits.geometry.geometry import ShapeFit, geometry_fields
+
+    rim = ShapeFit(
+        "circle",
+        accepted=True,
+        parameters={"center": [1, 0, 1], "normal": [0, 0, 1], "radius": 0.04},
+    )
+    bottom = ShapeFit(
+        "circle",
+        accepted=True,
+        parameters={"center": [0, 0, 0], "normal": [0, 0, 1], "radius": 0.04},
+    )
+    fields, checks = geometry_fields(
+        {"rim": rim, "bottom": bottom}, ["height", "body_center"]
+    )
+    assert checks and not all(check["consistent"] for check in checks)
+    np.testing.assert_allclose(fields["body_center"]["value"], [0.5, 0, 0.5])
+    assert fields["height"]["value"] == pytest.approx(np.sqrt(2))
+    assert all(
+        not field["fit_accepted"] and "inconsistent_part_fits" in field["warnings"]
+        for field in fields.values()
+    )
+
+
 def test_observation_validation_and_source_identity(tmp_path):
     state, frame, source, _ = _inputs(tmp_path, np.ones((6, 8, 3)))
     data = (

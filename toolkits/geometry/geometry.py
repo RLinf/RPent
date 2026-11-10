@@ -72,7 +72,7 @@ class CleanedCloud:
 
 @dataclass
 class ShapeFit:
-    """Fitted parameters with observable support and explicit rejected results."""
+    """Keep computed parameters separate from their quality acceptance."""
 
     model: str
     accepted: bool = False
@@ -81,16 +81,25 @@ class ShapeFit:
     inlier_indices: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=int))
     reason: str | None = None
     assumptions: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+
+    def warn(self, reason: str) -> None:
+        """Retain an estimate while marking an unmet quality requirement."""
+        self.accepted = False
+        self.reason = self.reason or reason
+        if reason not in self.warnings:
+            self.warnings.append(reason)
 
     def summary(self) -> dict[str, Any]:
         """Serialize small fit metadata; keep inlier arrays in artifacts."""
         return {
             "model": self.model,
             "accepted": self.accepted,
-            "parameters": self.parameters if self.accepted else {},
+            "parameters": self.parameters,
             "quality": self.quality,
             "reason": self.reason,
             "assumptions": self.assumptions,
+            "warnings": self.warnings,
         }
 
 
@@ -171,11 +180,11 @@ def fit_plane(
     options = options or FitOptions()
     points = _points(points)
     result = ShapeFit("plane", assumptions=["one dominant planar visible patch"])
-    if len(points) < options.min_points or not np.isfinite(points).all():
+    if len(points) < 3 or not np.isfinite(points).all():
         result.reason = "insufficient_finite_points"
         return result
     inliers = _plane_consensus(points, options)
-    if inliers.sum() < options.min_points:
+    if inliers.sum() < 3:
         result.reason = "insufficient_plane_consensus"
         return result
     for _ in range(2):
@@ -184,34 +193,38 @@ def fit_plane(
         normal = axes[-1]
         residual = (points - origin) @ normal
         inliers = np.abs(residual) <= options.distance_threshold_m
-        if inliers.sum() < options.min_points:
+        if inliers.sum() < 3:
             result.reason = "insufficient_plane_consensus"
             return result
     result.quality = _support_quality(residual, inliers, options)
     # Collinear samples cannot determine a plane, even with zero residual.
     spread = singular / np.sqrt(inliers.sum())
     result.quality["in_plane_spread_m"] = spread[:2].tolist()
+    if spread[1] <= 1e-10:
+        result.reason = "degenerate_plane_support"
+        return result
+    normal = _direction(
+        normal, None if camera_origin is None else camera_origin - origin
+    )
+    result.accepted = True
+    result.parameters = {
+        "point": origin.tolist(),
+        "normal": normal.tolist(),
+        "offset": -float(origin @ normal),
+        "normal_sign": "toward_camera"
+        if camera_origin is not None
+        else "canonical_undirected",
+    }
+    result.inlier_indices = np.flatnonzero(inliers)
+    if inliers.sum() < options.min_points:
+        result.warn("insufficient_plane_consensus")
     if inliers.mean() < options.min_inlier_ratio:
-        result.reason = "low_plane_inlier_ratio"
-    elif (
+        result.warn("low_plane_inlier_ratio")
+    if (
         spread[1] < 2 * options.distance_threshold_m
         or spread[1] / max(spread[0], 1e-12) < 0.03
     ):
-        result.reason = "degenerate_plane_support"
-    else:
-        normal = _direction(
-            normal, None if camera_origin is None else camera_origin - origin
-        )
-        result.accepted = True
-        result.parameters = {
-            "point": origin.tolist(),
-            "normal": normal.tolist(),
-            "offset": -float(origin @ normal),
-            "normal_sign": "toward_camera"
-            if camera_origin is not None
-            else "canonical_undirected",
-        }
-        result.inlier_indices = np.flatnonzero(inliers)
+        result.warn("degenerate_plane_support")
     return result
 
 
@@ -408,18 +421,20 @@ def fit_circle(
     camera_origin: np.ndarray | None = None,
     anchor_on_boundary: bool = True,
 ) -> ShapeFit:
-    """Fit an observed 3-D circular boundary; reject short arcs and nonplanarity."""
+    """Fit a circular boundary and flag unsupported coverage or model quality."""
     from scipy.optimize import least_squares
 
     options = options or FitOptions()
     points = _points(points)
     result = ShapeFit("circle", assumptions=["selected part is one circular boundary"])
-    if len(points) < options.min_points or not np.isfinite(points).all():
+    if len(points) < 3 or not np.isfinite(points).all():
         result.reason = "insufficient_finite_points"
         return result
     rng = np.random.default_rng(0)
     best = np.zeros(len(points), dtype=bool)
     best_error = np.inf
+    unanchored_best = best.copy()
+    unanchored_error = np.inf
     span = np.linalg.norm(np.ptp(points, axis=0))
     for _ in range(options.ransac_iterations):
         candidate = _circle_from_three(
@@ -430,18 +445,23 @@ def fit_circle(
         center, normal, radius = candidate
         if not options.distance_threshold_m < radius < 2 * span:
             continue
+        residual = _circle_residual(points, center, normal, radius)
+        inliers = residual <= options.distance_threshold_m
+        error = float(np.median(residual[inliers])) if inliers.any() else np.inf
+        if (inliers.sum(), -error) > (unanchored_best.sum(), -unanchored_error):
+            unanchored_best, unanchored_error = inliers, error
         if (
             anchor is not None
             and _anchor_error(anchor, center, normal, radius, anchor_on_boundary)
             > 3 * options.distance_threshold_m
         ):
             continue
-        residual = _circle_residual(points, center, normal, radius)
-        inliers = residual <= options.distance_threshold_m
-        error = float(np.median(residual[inliers])) if inliers.any() else np.inf
         if (inliers.sum(), -error) > (best.sum(), -best_error):
             best, best_error = inliers, error
-    if best.sum() < options.min_points:
+    anchor_relaxed = best.sum() < 3 and unanchored_best.sum() >= 3
+    if anchor_relaxed:
+        best = unanchored_best
+    if best.sum() < 3:
         result.reason = "insufficient_circle_consensus"
         return result
     for _ in range(2):
@@ -451,6 +471,9 @@ def fit_circle(
         basis = axes[:2].T
         xy = (points[best] - origin) @ basis
         linear = np.column_stack((2 * xy, np.ones(len(xy))))
+        if np.linalg.matrix_rank(linear) < 3:
+            result.reason = "degenerate_circle_support"
+            return result
         coefficients = np.linalg.lstsq(linear, (xy**2).sum(axis=1), rcond=None)[0]
         initial_radius = np.sqrt(
             max(1e-12, coefficients[2] + coefficients[:2] @ coefficients[:2])
@@ -466,7 +489,7 @@ def fit_circle(
         radius = float(fit.x[2])
         residual = _circle_residual(points, center, normal, radius)
         best = residual <= options.distance_threshold_m
-        if best.sum() < options.min_points:
+        if best.sum() < 3:
             result.reason = "insufficient_circle_consensus"
             return result
     xy = (points[best] - center) @ basis
@@ -477,36 +500,43 @@ def fit_circle(
         radius, options.distance_threshold_m
     )
     result.quality["relative_surface_residual_p95"] = relative_residual
-    if best.mean() < options.min_inlier_ratio:
-        result.reason = "low_circle_inlier_ratio"
-    elif coverage < options.min_circle_coverage_deg:
-        result.reason = "insufficient_circle_angular_coverage"
-    elif relative_residual > options.max_relative_residual:
-        result.reason = "noncircular_boundary_residual"
-    elif (
-        not fit.success or radius <= options.distance_threshold_m or radius >= 2 * span
-    ):
+    result.quality["anchor_constraint_relaxed"] = bool(anchor_relaxed)
+    if not fit.success or not np.isfinite(fit.x).all() or radius <= 0:
         result.reason = "unstable_circle_fit"
-    elif (
-        anchor is not None
-        and _anchor_error(anchor, center, normal, radius, anchor_on_boundary)
-        > 3 * options.distance_threshold_m
-    ):
-        result.reason = "circle_inconsistent_with_part_anchor"
-    else:
-        normal = _direction(
-            normal, None if camera_origin is None else camera_origin - center
+        return result
+    normal = _direction(
+        normal, None if camera_origin is None else camera_origin - center
+    )
+    result.accepted = True
+    result.parameters = {
+        "center": center.tolist(),
+        "normal": normal.tolist(),
+        "radius": radius,
+        "normal_sign": "toward_camera"
+        if camera_origin is not None
+        else "canonical_undirected",
+    }
+    result.inlier_indices = np.flatnonzero(best)
+    if anchor_relaxed:
+        result.warn("circle_anchor_constraint_relaxed")
+    if best.sum() < options.min_points:
+        result.warn("insufficient_circle_consensus")
+    if best.mean() < options.min_inlier_ratio:
+        result.warn("low_circle_inlier_ratio")
+    if coverage < options.min_circle_coverage_deg:
+        result.warn("insufficient_circle_angular_coverage")
+    if relative_residual > options.max_relative_residual:
+        result.warn("noncircular_boundary_residual")
+    if radius <= options.distance_threshold_m or radius >= 2 * span:
+        result.warn("unstable_circle_fit")
+    if anchor is not None:
+        anchor_error = _anchor_error(anchor, center, normal, radius, anchor_on_boundary)
+        result.quality.update(
+            anchor_error_m=anchor_error,
+            anchor_threshold_m=3 * options.distance_threshold_m,
         )
-        result.accepted = True
-        result.parameters = {
-            "center": center.tolist(),
-            "normal": normal.tolist(),
-            "radius": radius,
-            "normal_sign": "toward_camera"
-            if camera_origin is not None
-            else "canonical_undirected",
-        }
-        result.inlier_indices = np.flatnonzero(best)
+        if anchor_error > 3 * options.distance_threshold_m:
+            result.warn("circle_inconsistent_with_part_anchor")
     return result
 
 
@@ -535,7 +565,7 @@ def fit_axisymmetric(points: np.ndarray, options: FitOptions | None = None) -> S
     options = options or FitOptions()
     points = _points(points)
     failed = ShapeFit("axisymmetric", reason="insufficient_finite_points")
-    if len(points) < options.min_points or not np.isfinite(points).all():
+    if len(points) < 6 or not np.isfinite(points).all():
         return failed
     origin = np.median(points, axis=0)
     span = float(np.linalg.norm(np.ptp(points, axis=0)))
@@ -587,7 +617,7 @@ def fit_axisymmetric(points: np.ndarray, options: FitOptions | None = None) -> S
             )
             residual = residual_function(fit.x)
             inliers = np.abs(residual) <= options.distance_threshold_m
-            if inliers.sum() < options.min_points:
+            if inliers.sum() < 6:
                 continue
             center, axis, radius, slope = decode(fit.x)
             if axis[np.argmax(np.abs(axis))] < 0:
@@ -625,24 +655,9 @@ def fit_axisymmetric(points: np.ndarray, options: FitOptions | None = None) -> S
                     "axis sign is conventional; axial endpoints are visible sample limits",
                 ],
             )
-            if not fit.success:
+            if not fit.success or not np.isfinite(fit.x).all():
                 model.reason = "axisymmetric_solver_did_not_converge"
-            elif inliers.mean() < options.min_inlier_ratio:
-                model.reason = "low_axisymmetric_inlier_ratio"
-            elif coverage < options.min_body_coverage_deg:
-                model.reason = "insufficient_body_angular_coverage"
-            elif high - low < 4 * options.distance_threshold_m:
-                model.reason = "insufficient_visible_axial_span"
-            elif condition > options.max_condition:
-                model.reason = "ill_conditioned_axisymmetric_fit"
-            elif relative_residual > options.max_relative_residual:
-                model.reason = (
-                    "axisymmetric_surface_residual_too_large_relative_to_radius"
-                )
-            elif (
-                min(radius + slope * low, radius + slope * high)
-                <= options.distance_threshold_m
-            ):
+            elif min(radius + slope * low, radius + slope * high) <= 0:
                 model.reason = "nonpositive_frustum_radius"
             else:
                 model.accepted = True
@@ -664,6 +679,25 @@ def fit_axisymmetric(points: np.ndarray, options: FitOptions | None = None) -> S
                     "height": None,
                     "body_center": None,
                 }
+                if inliers.sum() < options.min_points:
+                    model.warn("insufficient_axisymmetric_consensus")
+                if inliers.mean() < options.min_inlier_ratio:
+                    model.warn("low_axisymmetric_inlier_ratio")
+                if coverage < options.min_body_coverage_deg:
+                    model.warn("insufficient_body_angular_coverage")
+                if high - low < 4 * options.distance_threshold_m:
+                    model.warn("insufficient_visible_axial_span")
+                if condition > options.max_condition:
+                    model.warn("ill_conditioned_axisymmetric_fit")
+                if relative_residual > options.max_relative_residual:
+                    model.warn(
+                        "axisymmetric_surface_residual_too_large_relative_to_radius"
+                    )
+                if (
+                    min(radius + slope * low, radius + slope * high)
+                    <= options.distance_threshold_m
+                ):
+                    model.warn("nonpositive_frustum_radius")
             # Compare both models on the same complete sample set with bounded
             # outlier cost. The extra frustum slope must earn its complexity.
             score = len(points) * np.log(
@@ -682,6 +716,11 @@ def fit_axisymmetric(points: np.ndarray, options: FitOptions | None = None) -> S
             candidates.append(model)
     accepted = [model for model in candidates if model.accepted]
     if not accepted:
+        estimates = [model for model in candidates if model.parameters]
+        if estimates:
+            return min(
+                estimates, key=lambda item: item.quality["model_selection_score"]
+            )
         if candidates:
             failed = max(candidates, key=lambda item: item.quality["inlier_ratio"])
         return failed
@@ -789,12 +828,12 @@ def geometry_fields(
     checks: list[dict[str, Any]] = []
     bad_parts: set[str] = set()
     body = fits.get("body")
-    if body is not None and body.accepted:
+    if body is not None and body.parameters:
         axis = np.asarray(body.parameters["axis_direction"])
         axis_point = np.asarray(body.parameters["axis_point"])
         for part in ("rim", "bottom"):
             circle = fits.get(part)
-            if circle is None or not circle.accepted:
+            if circle is None or not circle.parameters:
                 continue
             center = np.asarray(circle.parameters["center"])
             offset = float(np.linalg.norm(np.cross(center - axis_point, axis)))
@@ -814,18 +853,28 @@ def geometry_fields(
                 bad_parts.update(("body", part))
     ends = None
     rim, bottom = fits.get("rim"), fits.get("bottom")
-    if rim is not None and bottom is not None and rim.accepted and bottom.accepted:
+    if rim is not None and bottom is not None and rim.parameters and bottom.parameters:
         top = np.asarray(rim.parameters["center"])
         base = np.asarray(bottom.parameters["center"])
         height = float(np.linalg.norm(top - base))
-        if height > 4 * options.distance_threshold_m:
+        if height > 1e-10:
+            if height <= 4 * options.distance_threshold_m:
+                checks.append(
+                    {
+                        "parts": ["rim", "bottom"],
+                        "consistent": False,
+                        "reason": "end_boundaries_not_distinct_at_fit_threshold",
+                        "separation_m": height,
+                    }
+                )
+                bad_parts.update(("rim", "bottom"))
             direction = (top - base) / height
             consistent = all(
                 abs(np.dot(circle.parameters["normal"], direction))
                 >= np.cos(np.radians(15))
                 for circle in (rim, bottom)
             )
-            if body is not None and body.accepted:
+            if body is not None and body.parameters:
                 end_positions = sorted(
                     (
                         float((top - axis_point) @ axis),
@@ -848,17 +897,16 @@ def geometry_fields(
                 if not encloses_body:
                     bad_parts.update(("rim", "body", "bottom"))
             checks.append({"parts": ["rim", "bottom"], "consistent": bool(consistent)})
-            if consistent and not bad_parts.intersection(("rim", "body", "bottom")):
-                ends = {
-                    "body_center": ((top + base) / 2).tolist(),
-                    "height": height,
-                    "axis": {
-                        "point": ((top + base) / 2).tolist(),
-                        "direction": direction.tolist(),
-                        "sign": "bottom_to_rim",
-                    },
-                }
-            elif not consistent:
+            ends = {
+                "body_center": ((top + base) / 2).tolist(),
+                "height": height,
+                "axis": {
+                    "point": ((top + base) / 2).tolist(),
+                    "direction": direction.tolist(),
+                    "sign": "bottom_to_rim",
+                },
+            }
+            if not consistent:
                 bad_parts.update(("rim", "bottom"))
         else:
             checks.append(
@@ -912,7 +960,7 @@ def geometry_fields(
             value, source_parts = ends["axis"], ["rim", "bottom"]
             definition = "line_from_observed_bottom_center_to_rim_center"
             assumptions = ["rim and bottom are coaxial end boundaries"]
-        elif fit is not None and fit.accepted and part not in bad_parts:
+        elif fit is not None and fit.parameters:
             parameters = fit.parameters
             if name in ("rim_center", "bottom_center"):
                 value = parameters["center"]
@@ -936,18 +984,38 @@ def geometry_fields(
             elif name == "plane_normal":
                 value = parameters["normal"]
             assumptions = fit.assumptions
-        if bad_parts.intersection(source_parts):
-            value, reason = None, "inconsistent_part_fits"
+        warnings = (
+            list(
+                dict.fromkeys(
+                    warning
+                    for source in source_parts
+                    if source in fits
+                    for warning in fits[source].warnings
+                )
+            )
+            if value is not None
+            else []
+        )
+        if bad_parts.intersection(source_parts) and value is not None:
+            warnings.append("inconsistent_part_fits")
         if part == "ends" and value is None:
             reason = "both_consistent_end_boundaries_required"
         fields[name] = {
             "value": value,
+            "fit_accepted": value is not None
+            and not warnings
+            and all(fits[p].accepted for p in source_parts),
+            "warnings": warnings,
             "definition": definition,
             "unit": unit,
             "evidence_status": "inferred" if value is not None else "unknown",
             "source_parts": source_parts,
             "assumptions": assumptions,
-            "reason": None if value is not None else reason,
+            "reason": warnings[0]
+            if warnings
+            else None
+            if value is not None
+            else reason,
             "quality": {p: fits[p].quality for p in source_parts if p in fits},
         }
     return fields, checks
