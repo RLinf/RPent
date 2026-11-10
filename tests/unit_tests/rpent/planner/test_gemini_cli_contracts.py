@@ -88,33 +88,28 @@ def test_workspace_settings_expose_only_rpent_mcp_and_set_turn_limit(
     assert "GEMINI_API_KEY" not in path.read_text()
 
 
-def test_command_uses_acp_and_exact_optional_model(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize("model", [None, "gemini-upstream-id"])
+def test_launch_uses_exact_model_and_trusted_workspace_environment(
+    tmp_path, monkeypatch, acp_backend, model
 ) -> None:
-    monkeypatch.setenv("GEMINI_BIN", "/fake/gemini")
+    monkeypatch.setenv("NO_PROXY", "gateway.example")
+    monkeypatch.delenv("no_proxy", raising=False)
+    planner = GeminiCliPlanner(
+        output_dir=str(tmp_path),
+        model=model,
+        dashboard_events=NullDashboardEventSink(),
+    )
+    assert planner.probe("ping") == "done"
 
-    inherited = gemini_module._build_command(model=None)
-    overridden = gemini_module._build_command(model="gemini-upstream-id")
-
-    assert inherited == [
+    assert acp_backend["command"] == [
         "/fake/gemini",
         "--acp",
         "--allowed-mcp-server-names",
         "rpent",
         "--extensions",
         "none",
-    ]
-    assert overridden[-2:] == ["--model", "gemini-upstream-id"]
-
-
-def test_environment_trusts_generated_workspace_and_bypasses_loopback_proxy(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("NO_PROXY", "gateway.example")
-    monkeypatch.delenv("no_proxy", raising=False)
-
-    env = gemini_module._gemini_environment()
-
+    ] + (["--model", model] if model else [])
+    env = acp_backend["env"]
     assert env["GEMINI_CLI_TRUST_WORKSPACE"] == "true"
     assert env["GEMINI_CLI_NO_RELAUNCH"] == "1"
     assert env["NO_PROXY"] == "gateway.example,127.0.0.1,localhost"
@@ -193,6 +188,7 @@ def acp_backend(monkeypatch):
     @asynccontextmanager
     async def spawn(client, binary, *args, cwd, **kwargs):
         seen["command"] = [binary, *args]
+        seen["env"] = kwargs["env"]
         seen["settings"] = json.loads((cwd / ".gemini" / "settings.json").read_text())
         seen["cwd"] = cwd
         stderr = asyncio.StreamReader()

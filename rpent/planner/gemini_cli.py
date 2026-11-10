@@ -49,11 +49,32 @@ class GeminiCliPlanner(AcpPlanner):
         _write_settings(
             root, mcp_url=mcp_url, max_turns=max_turns, tool_names=tool_names
         )
+        binary = os.environ.get("GEMINI_BIN") or shutil.which("gemini")
+        if not binary:
+            raise FileNotFoundError(
+                "Gemini CLI is not installed; install @google/gemini-cli or set GEMINI_BIN"
+            )
+        command = [
+            binary,
+            "--acp",
+            "--allowed-mcp-server-names",
+            "rpent",
+            "--extensions",
+            "none",
+        ]
+        if self._model:
+            command.extend(["--model", self._model])
         return AcpSession(
-            command=_build_command(model=self._model),
+            command=command,
             cwd=root,
             model=None,
-            env=_gemini_environment(),
+            env={
+                **agent_environment(),
+                "GEMINI_CLI_NO_RELAUNCH": "1",
+                # Trust the generated workspace so Gemini loads its local settings.
+                "GEMINI_CLI_TRUST_WORKSPACE": "true",
+                "NO_COLOR": "1",
+            },
             control=control,
             emit_event=emit,
             stderr_path=stderr_path,
@@ -107,35 +128,6 @@ def _write_settings(
     path = settings_dir / "settings.json"
     path.write_text(json.dumps(settings, indent=2) + "\n")
     return path
-
-
-def _build_command(*, model: str | None) -> list[str]:
-    binary = os.environ.get("GEMINI_BIN") or shutil.which("gemini")
-    if not binary:
-        raise FileNotFoundError(
-            "Gemini CLI is not installed; install @google/gemini-cli or set GEMINI_BIN"
-        )
-    command = [
-        binary,
-        "--acp",
-        "--allowed-mcp-server-names",
-        "rpent",
-        "--extensions",
-        "none",
-    ]
-    if model:
-        command.extend(["--model", model])
-    return command
-
-
-def _gemini_environment() -> dict[str, str]:
-    return {
-        **agent_environment(),
-        "GEMINI_CLI_NO_RELAUNCH": "1",
-        # Trust the generated workspace so Gemini CLI loads its local settings.
-        "GEMINI_CLI_TRUST_WORKSPACE": "true",
-        "NO_COLOR": "1",
-    }
 
 
 def _dotenv_value(name: str) -> str | None:
