@@ -5,7 +5,7 @@
 
 .. note::
 
-   本建图方案仅在 ZED 2i 上验证过，使用 LeKiwi 采集的数据；其他相机尚未实测。
+   本建图方案仅在 ZED 2i 上验证过，使用 LeKiwi 采集的数据。
 
 使用 RTAB-Map 对双目图片或左右并排的视频进行离线建图，生成地图数据库、二维占据栅格和彩色三维点云，并可导出优化后的运动轨迹。
 
@@ -37,11 +37,13 @@
 准备输入与标定
 ~~~~~~~~~~~~~~
 
-输入需要同步的左右图，以及与实际图像分辨率对应的双目标定。标定描述两台相机的内参、畸变和相对位置，供 RTAB-Map 将左右图的像素差换算为距离。
+准备以下数据：
 
-使用 RTAB-Map 可读取的原生双目标定文件，例如同一目录下的 ``camera_left.yaml`` 和 ``camera_right.yaml``，右目的投影矩阵需包含真实基线。先准备相机或数据集提供的实际标定，并确认图像尺寸和校正状态匹配。本页从已有标定开始，不包含相机标定求解；无需填写 RPent 的 ``stereo.yaml``。
+1. **同步的左右图**：每对图像来自同一时刻，分别放入 ``left/`` 和 ``right/``，并使用相同文件名。
+2. **双目标定**：将相机或数据集提供的标定保存为 RTAB-Map 格式的 ``camera_left.yaml`` 和 ``camera_right.yaml``，放在同一目录。标定中的单目尺寸、内参、畸变和左右相机位置关系应与输入图像对应；右目投影矩阵需包含实际基线（两相机之间的距离）。RTAB-Map 据此将左右图的像素差换算为距离。
+3. **时间戳文件名**：以秒为单位，按拍摄时间递增，起始值大于 0，小数位数保持一致。例如每秒采集 5 对图像，可命名为 ``1.0.png``、``1.2.png``、``1.4.png``。使用相对时间时，保留实际采集间隔。
 
-双目图片的两侧文件名须一一对应，使用递增、非零的秒时间戳。相对时间即可，不需要真实日期；同一序列的小数位数保持一致。
+图片目录示例：
 
 .. code-block:: text
 
@@ -53,54 +55,55 @@
      camera_left.yaml
      camera_right.yaml
 
-视频输入为 ``/path/to/stereo.mp4``，每帧左半边为左目、右半边为同步右目。例如 2560 × 720 视频对应每目 1280 × 720 的标定。使用当前解码器支持的恒定帧率视频。
+使用视频时，准备恒定帧率、当前解码器可读取的左右并排视频，例如 ``/path/to/stereo.mp4``。每帧左半边为左目、右半边为同一时刻的右目。2560 × 720 视频对应每目 1280 × 720 的标定。
 
-ZED 2i 示例的标定文件来源
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.. note::
 
-当前 LeKiwi 录制通过 UVC 读取 ZED 2i 的左右并排画面，将同一帧拆成原始左右目 PNG，同时把配置中的出厂标定复制为 ``calibration.conf``，并将单目尺寸写入 ``stereo.json``。这条采集流程不经过 SVO2，也不需要 ZED SDK。
+   **ZED 2i 示例：从出厂标定生成 YAML**
 
-按 `Stereolabs 标定说明 <https://docs.stereolabs.com/docs/development/zed-sdk/modules/camera/camera-calibration>`_ 获取与相机序列号对应的出厂标定。厂商文件名为 ``SN<serial>.conf``，本地配置中可以命名为 ``zed.conf``；录制目录中的 ``calibration.conf`` 就是它的副本。直接把它改名为 ``camera_left.yaml`` 不会转换文件格式。
+   标定来自这台 ZED 2i 的出厂文件 ``SN<serial>.conf``，可按 `Stereolabs 标定说明 <https://docs.stereolabs.com/docs/development/zed-sdk/modules/camera/camera-calibration>`_ 根据相机序列号获取。本示例中，LeKiwi 使用的 ``zed.conf`` 是该文件的本地副本；录制时会将它复制到录制目录，命名为 ``calibration.conf``。
 
-在 RPent 源码根目录，使用安装了 NumPy、OpenCV 和 PyYAML 的 Python 环境运行转换脚本。以下以单目尺寸 1280 × 720 为例：
+   当前 LeKiwi 通过 UVC 采集左右并排画面，将每帧拆成原始左右目 PNG，并将单目尺寸记录在 ``stereo.json`` 的 ``eye_size`` 字段中。使用录制目录中的 ``calibration.conf`` 和这个尺寸运行转换脚本，即可生成 RTAB-Map 使用的两个 YAML 文件。
 
-.. code-block:: bash
+   在 RPent 源码根目录，使用安装了 NumPy、OpenCV 和 PyYAML 的 Python 环境执行以下命令。示例单目尺寸为 1280 × 720：
 
-   python -m toolkits.mapping.zed_calibration \
-     --calibration /path/to/capture/calibration.conf \
-     --image-size 1280 720 \
-     --output /path/to/capture
+   .. code-block:: bash
 
-单目尺寸以录制目录 ``stereo.json`` 中的实际值为准。脚本支持 1280 × 720（``HD``）和 672 × 376（``VGA``）；任一输出 YAML 已存在时会报错，不覆盖已有文件。
+      python -m toolkits.mapping.zed_calibration \
+        --calibration /path/to/capture/calibration.conf \
+        --image-size 1280 720 \
+        --output /path/to/capture
 
-脚本在输出目录中生成 ``camera_left.yaml`` 和 ``camera_right.yaml``。其中 ``K/D`` 描述原始图像，``R/P`` 由 OpenCV 计算，用于双目校正。出厂平移参数从毫米换算为米，右目投影矩阵保留真实基线。必须使用同一相机、实际图像模式的标定，不要单独缩放或裁剪原始图像。
+   输出为 ``camera_left.yaml`` 和 ``camera_right.yaml``，包含原始图像的内参、畸变，以及 OpenCV 计算的校正矩阵和投影矩阵；平移单位转换为米，右目投影矩阵包含实际基线。脚本支持单目 1280 × 720（``HD``）和 672 × 376（``VGA``）。保持录制图像的原始尺寸，并选择尚无这两个 YAML 文件的输出目录。
 
-在 ``rtabmap_stereo_images.ini`` 中，将 ``calibrationName`` 指向 ``/path/to/capture/camera_left.yaml``，左右图路径指向录制目录，并针对这些原始 PNG 设置 ``StereoImages\rectify=true``。配置模板中的默认值 ``false`` 适用于已经校正的输入。
-
-原始左右并排视频也可按其实际单目尺寸和对应的出厂文件进行相同转换，并在视频配置中开启校正；视频文件本身不提供这些标定值。已经校正的图片应使用与之对应的校正后标定和 ``rectify=false``，避免再次应用原始图像的校正。
+   后续配置中，将 ``calibrationName`` 设为生成的 ``camera_left.yaml`` 路径，左右图路径指向录制图片，并设置 ``StereoImages\rectify=true``。原始左右并排视频也可使用同一转换方法，按实际单目尺寸生成标定并开启校正。
 
 .. _mapping-config:
 
 写入建图配置
 ~~~~~~~~~~~~
 
-下面图片和视频配置二选一，在 RPent 源码根目录执行对应命令。两个示例都假设图像已校正、相机水平朝前且离地 0.5 米，必须按实际数据修改。``localTransform`` 为相机机械坐标系在地面参考系中的 x/y/z（米）和 roll/pitch/yaw（弧度）；参考系 x 向前、y 向左、z 向上、地面 z=0。
+根据输入类型选择一个配置，在 RPent 源码根目录执行对应命令。
 
-**双目图片：** 使用 :download:`rtabmap_stereo_images.ini <../../../../toolkits/mapping/rtabmap_stereo_images.ini>`。``type=1`` 选择双目，``stereo\driver=2`` 选择图片驱动；从文件名读取时间戳、关闭同步等待，并以 ``imgRate=0`` 快速离线导入。
+**双目图片：** 使用 ``rtabmap_stereo_images.ini``。``type=1`` 选择双目，``stereo\driver=2`` 选择图片驱动；从文件名读取时间戳、关闭同步等待，并以 ``imgRate=0`` 快速离线导入。
 
 .. code-block:: bash
 
    mkdir /path/to/new-map
    cp toolkits/mapping/rtabmap_stereo_images.ini /path/to/new-map/rtabmap.ini
 
-**双目视频：** 使用 :download:`rtabmap_stereo_video.ini <../../../../toolkits/mapping/rtabmap_stereo_video.ini>`。``stereo\driver=3`` 选择视频驱动，空的 ``StereoVideo\path2`` 表示单文件左右并排输入。将 ``imgRate=15`` 改为实际视频帧率。
+**双目视频：** 使用 ``rtabmap_stereo_video.ini``。``stereo\driver=3`` 选择视频驱动，空的 ``StereoVideo\path2`` 表示单文件左右并排输入。将 ``imgRate=15`` 改为实际视频帧率。
 
 .. code-block:: bash
 
    mkdir /path/to/new-map
    cp toolkits/mapping/rtabmap_stereo_video.ini /path/to/new-map/rtabmap.ini
 
-复制完成后，在终端编辑输出目录中的 ``rtabmap.ini``，将所有 ``/path/to/...`` （包括工作目录、输入和标定路径）及相机位姿改为实际值。
+编辑复制后的 ``rtabmap.ini``，填写以下内容：
+
+* **路径**：将所有 ``/path/to/...`` 替换为实际工作目录、输入和标定路径。``calibrationName`` 指向 ``camera_left.yaml``。
+* **图像校正**：原始图像使用原始标定，并设置 ``StereoImages\rectify=true``；已校正图像使用对应的校正后标定，保留默认值 ``false``。图片和视频均使用此配置项。
+* **相机安装位姿**：将 ``localTransform`` 改为实际 x/y/z（米）和 roll/pitch/yaw（弧度）。它表示相机机械坐标系在地面参考系中的位姿：x 向前、y 向左、z 向上，地面 z=0。模板的 ``0 0 0.5 0 0 0`` 表示相机水平朝前、离地 0.5 米。
 
 .. _mapping-build:
 
@@ -118,9 +121,9 @@ ZED 2i 示例的标定文件来源
    rtabmap-reprocess -default -odom -c rtabmap.ini raw.db rtabmap.db 2>&1 | tee mapping.log
    rtabmap-export --map --cloud --opt 2 --output map rtabmap.db 2>&1 | tee export.log
 
-``-odom`` 根据输入图像重新计算视觉里程计，不表示读取底盘轮速。图片输入可以快速离线导入；上述视频配置按指定帧率读取。
+``-odom`` 从连续图像估计相机运动，生成与图像对应的视觉里程计；建图时进一步优化轨迹。图片按文件名时间戳导入，视频按配置中的帧率读取。
 
-相机固定在沿平坦地面运动的平台上时，可额外运行一轮平面运动约束，保留未加约束的原数据库：
+相机固定在沿平坦地面运动的平台上时，可增加一轮平面运动约束，将结果另存为 ``planar.db``：
 
 .. code-block:: bash
 
@@ -133,12 +136,18 @@ ZED 2i 示例的标定文件来源
 可选：使用自己的深度
 --------------------
 
-已有 SDK、深度相机或其他方法生成的深度时，可直接使用 RGB-D 输入。只有左右图、希望使用学习式双目匹配时，可用下文的 RAFT-Stereo 方法生成深度。选择一种深度来源即可，不需要将 SDK 和 RAFT 串联运行。
+可使用相机 SDK 导出的深度，或通过 RAFT-Stereo 从双目图像生成深度。将 RGB 和深度整理为下述格式后接入 RTAB-Map。
 
 RGB-D 输入格式
 ~~~~~~~~~~~~~~
 
-以下是可直接交给 RTAB-Map 的目录示例。准备一一对应的 RGB 和深度 PNG，文件名采用递增、非零的秒时间戳。同一组文件的小数位数保持一致，整数部分无需补零。深度必须与去畸变后的 RGB 逐像素对齐、分辨率相同，表示沿相机光轴的 Z 距离，以 uint16 毫米保存，无效像素为 0。同时提供对应的 RTAB-Map/OpenCV 相机标定 YAML。
+准备以下文件：
+
+* **RGB 图像**：去畸变后的 PNG。
+* **深度图像**：与 RGB 同尺寸、逐像素对齐的单通道 uint16 PNG。像素值表示沿相机光轴的 Z 距离，单位为毫米，无效像素为 0。
+* **相机标定**：RTAB-Map/OpenCV 格式的 ``camera.yaml``，包含对应 RGB 的尺寸和内参，供 RTAB-Map 将深度像素转换为三维点。
+
+每对 RGB 和深度使用相同文件名，以递增、大于 0 的秒时间戳命名，并保持小数位数一致：
 
 .. code-block:: text
 
@@ -149,27 +158,23 @@ RGB-D 输入格式
      depth/1.2.png
      camera.yaml
 
-满足上述约定的深度可来自任意数据源，使用对应数据源的工具导出图像和标定。``camera.yaml`` 提供图像尺寸和相机内参，供 RTAB-Map 将深度像素转换为三维点。
-
-使用自己相机或数据集提供的实际标定值，确保图像尺寸和校正状态匹配；示例相机的数值不能直接用于自己的图像。这里的 ``camera.yaml`` 只是示例文件名，原生配置中的 ``calibrationName`` 指向实际标定文件。下文双目预处理会自动生成对应的 ``camera.yaml``，直接使用该输出即可。
+使用数据源对应的工具导出图像和标定，并将配置中的 ``calibrationName`` 指向实际标定文件。RAFT-Stereo 路线会生成对应的 ``camera.yaml``。
 
 使用相机 SDK 的深度
 ~~~~~~~~~~~~~~~~~~~
 
 按厂商官方环境和导出流程，从已有录制中导出同一帧的去畸变 RGB、对齐的数值深度，以及对应分辨率的相机内参。将输出整理为上面的 RGB-D 目录：
 
-1. 深度若以米表示，换算为毫米后保存为单通道 uint16 PNG；无效值和超出 65.535 米的值置零。使用实际测量深度，不使用彩色深度预览图。
+1. 将数值深度换算为毫米，保存为单通道 uint16 PNG；无效值和超出 65.535 米的值置零。
 2. 保持 RGB 与深度同尺寸、逐像素对齐，并使用相同文件名；提供与导出 RGB 对应的 RTAB-Map 标定 YAML。
-3. 完成后直接执行 :ref:`mapping-rgbd-source`，无需 RAFT 或预处理工具。
+3. 执行 :ref:`mapping-rgbd-source`。
 
-例如，ZED SDK 的 `官方深度示例 <https://github.com/stereolabs/zed-sdk/blob/master/tutorials/tutorial%203%20-%20depth%20sensing/python/depth_sensing.py>`_ 展示了通过 ``VIEW.LEFT`` 读取左图、通过 ``MEASURE.DEPTH`` 读取对齐深度；保存连续图像、命名和导出标定仍需按上述约定完成。其他 SDK 只要输出满足相同格式，即可接入。
+例如，ZED SDK 的 `官方深度示例 <https://github.com/stereolabs/zed-sdk/blob/master/tutorials/tutorial%203%20-%20depth%20sensing/python/depth_sensing.py>`_ 使用 ``VIEW.LEFT`` 读取左图、``MEASURE.DEPTH`` 读取对齐深度。按上述格式保存连续图像和对应标定即可接入。
 
 使用 RAFT-Stereo 生成深度
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
-这条路线用 RAFT-Stereo 替代 RTAB-Map 内部的双目匹配。输入需要 **同步的左右 RGB 图像和真实双目标定**。已有对齐深度时，跳过本节，直接执行 :ref:`mapping-rgbd-source`。
-
-RAFT-Stereo 估计的是左右图之间的像素位移，不能直接作为毫米深度交给 RTAB-Map。本节按以下顺序处理：
+使用同步的左右 RGB 图像和对应双目标定，通过 RAFT-Stereo 计算像素位移，再按焦距和基线换算为毫米深度。处理顺序如下：
 
 .. code-block:: text
 
@@ -179,8 +184,6 @@ RAFT-Stereo 估计的是左右图之间的像素位移，不能直接作为毫�
      → raft_to_rgbd.py：根据焦距和基线换算深度 → rgbd/
      → RTAB-Map：使用 RGB-D 输入建图
 
-两个工具各对应一个文件：``prepare_stereo.py`` 负责读取、校正和整理双目数据；``raft_to_rgbd.py`` 负责将 RAFT 输出转换为 RGB-D。它们不求解相机标定、不运行 RAFT，也不建图。
-
 第一步：用已有标定校正左右图
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -189,19 +192,19 @@ RAFT-Stereo 估计的是左右图之间的像素位移，不能直接作为毫�
 * **图片目录**：``sequence/left/`` 和 ``sequence/right/``，两侧 PNG、JPEG 或 TIFF 文件名完全对应。
 * **双目视频**：本地 MP4、AVI、MKV 或 MOV，同步左右图并排排列，左图在前；解码器需支持对应编码。
 
-先复制 :download:`stereo.yaml <../../../../toolkits/mapping/stereo.yaml>`，填入相机或数据集已有的实际标定：
+先复制仓库中的标定模板：
 
 .. code-block:: bash
 
    cp toolkits/mapping/stereo.yaml /path/to/stereo.yaml
 
-这个 YAML 是 RPent 预处理工具的输入，RAFT 官方 demo 不读取它。填写以下信息：
+在 ``stereo.yaml`` 中填入相机或数据集提供的实际标定：
 
 * ``image_size``：单目图像宽、高。例如 2560 × 720 的左右并排视频填写 ``[1280, 720]``。
 * 左右目的 ``K`` 和 ``D``：OpenCV 针孔模型的内参和畸变。
 * ``R`` 和 ``T_m``：从左目光学坐标到右目光学坐标的变换，满足 ``X_right = R * X_left + T_m``，平移单位为米。
 
-本流程使用右相机位于左相机右侧的水平针孔双目。已经校正的图像填写校正后内参、零畸变、单位旋转矩阵和 ``T_m: [-baseline_m, 0, 0]``。鱼眼图像先用相机自身工具导出为校正后的针孔双目图像。这里使用已有标定做“校正”，不会从输入图像自动求出标定。
+使用右相机位于左相机右侧的水平针孔双目。已校正图像填写校正后内参、零畸变、单位旋转矩阵和 ``T_m: [-baseline_m, 0, 0]``。鱼眼图像先用相机工具导出为校正后的针孔双目图像。
 
 **图片输入示例：** 以下假设图片以补零编号命名、采样率为 5 Hz。``--camera-pose`` 是原始左相机在地面参考系中的位置（x/y/z，米）和机械坐标系姿态（roll/pitch/yaw，度），参考系 x 向前、y 向左、z 向上。将示例中离地 0.5 米、水平朝前的位姿替换为实际值。
 
@@ -261,7 +264,7 @@ RAFT-Stereo 估计的是左右图之间的像素位移，不能直接作为毫�
      --save_numpy \
      --output_directory /path/to/flow
 
-``--left_imgs`` 和 ``--right_imgs`` 指向第一步生成的校正图像，保留引号，让 demo 展开通配符。``--save_numpy`` 将每对图像的像素位移保存为 ``flow/<timestamp>.npy``，同时生成可视化图。使用新的 ``flow/`` 输出目录；此时还没有生成 RTAB-Map 需要的毫米深度。
+``--left_imgs`` 和 ``--right_imgs`` 指向第一步生成的校正图像，保留引号，让 demo 展开通配符。``--save_numpy`` 将每对图像的像素位移保存为 ``flow/<timestamp>.npy``，同时生成可视化图。使用新的 ``flow/`` 输出目录。
 
 第三步：转换为深度并交给 RTAB-Map
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -287,7 +290,7 @@ RAFT-Stereo 估计的是左右图之间的像素位移，不能直接作为毫�
 将深度接入 RTAB-Map
 ~~~~~~~~~~~~~~~~~~~
 
-无论深度来自 SDK 还是 RAFT，使用 :download:`rtabmap_rgbd.ini <../../../../toolkits/mapping/rtabmap_rgbd.ini>`，其中已包含通用建图参数。在 RPent 源码根目录执行以下命令，复制到新的输出目录；参数说明见 :ref:`mapping-config`。``type=0``、``rgbd\driver=7`` 选择 RGB-D 图片驱动，毫米深度的缩放因子为 1，从文件名读取时间戳并关闭同步等待，以速率 0 快速导入：
+无论深度来自 SDK 还是 RAFT，使用 ``rtabmap_rgbd.ini``，其中已包含通用建图参数。在 RPent 源码根目录执行以下命令，复制到新的输出目录；参数说明见 :ref:`mapping-config`。``type=0``、``rgbd\driver=7`` 选择 RGB-D 图片驱动，毫米深度的缩放因子为 1，从文件名读取时间戳并关闭同步等待，以速率 0 快速导入：
 
 .. code-block:: bash
 
@@ -300,7 +303,7 @@ RAFT-Stereo 估计的是左右图之间的像素位移，不能直接作为毫�
 
    cat /path/to/rgbd/local_transform.txt
 
-SDK 路线使用导出 RGB 对应的标定和实际相机位姿，不要求 ``local_transform.txt``。
+SDK 路线使用导出 RGB 对应的标定，并在 ``localTransform`` 中填写实际相机位姿。
 
 接着执行 :ref:`mapping-build` 的相同命令。此时 ``raw.db`` 保存 RGB-D 帧，``-odom`` 从 RGB-D 重新计算视觉里程计。切换深度来源做对比时，保持图像、分辨率、采样、标定、相机位姿、建图和去噪设置一致。
 
@@ -328,7 +331,7 @@ SDK 路线使用导出 RGB 对应的标定和实际相机位姿，不要求 ``lo
    * - ``import.log``、``mapping.log``、``export.log``
      - 各阶段的命令输出，用于检查进度和排查失败原因。
 
-轨迹由视觉里程计估计并经地图优化得到，不是采集的底盘轮式里程计或真实运动轨迹，也不保证每一帧输入都有对应位姿。导出的地图几何和优化位姿使用局部地图坐标系，不是全球地理坐标。这些文件提供地图和重建出的路径；机器人定位、导航配置和运动控制仍需单独接入。
+轨迹记录建图节点经过优化后的估计位姿，地图和轨迹使用局部地图坐标系。这些输出可用于后续的机器人定位与导航配置。
 
 检查地图
 --------
@@ -344,6 +347,12 @@ SDK 路线使用导出 RGB 对应的标定和实际相机位姿，不要求 ``lo
    rtabmap-export --poses --poses_format 10 --opt 2 --output trajectory rtabmap.db
    head trajectory_poses.txt
 
-``trajectory_poses.txt`` 每行包含 ``stamp x y z qx qy qz qw``，位置单位为米，使用 x 向前、y 向左、z 向上的坐标约定。查看日志中的跟踪丢失和回环记录；文件存在、轨迹成功导出并不代表地图准确。用于导航前还需结合实测检查尺度、障碍、覆盖范围和未知区域。单独的栅格不包含视觉定位所需图像。
+``trajectory_poses.txt`` 每行包含 ``stamp x y z qx qy qz qw``，位置单位为米，坐标轴为 x 向前、y 向左、z 向上。检查日志中的跟踪丢失和回环记录，并结合实测核对地图尺度、障碍、覆盖范围和未知区域。后续使用 RTAB-Map 进行视觉定位时，保留包含视觉数据的 ``rtabmap.db``。
 
-命令缺失或 Qt 报错时，检查独立工具安装和 ``QT_QPA_PLATFORM``；图像缺对或尺寸报错时，检查输入及其标定。RAFT 显存用量取决于单帧分辨率，``--step`` 只减少总处理量，不减少单帧显存需求。地图为空或碎裂时，查看官方命令输出和数据库，检查跟踪丢失、运动模糊、弱纹理或标定问题。预处理失败会保留部分文件供排查，重试时使用新的输出目录。
+常见问题可按以下方式检查：
+
+* **命令缺失或 Qt 报错**：检查 RTAB-Map 独立工具安装和 ``QT_QPA_PLATFORM`` 设置。
+* **图像缺对或尺寸错误**：检查左右图文件名、图像尺寸与标定是否一致。
+* **RAFT 显存不足**：按单帧分辨率选择显存充足的 GPU；``--step`` 控制采样数量和总处理量。
+* **地图为空或碎裂**：查看日志和数据库，检查跟踪丢失、运动模糊、弱纹理及标定。
+* **预处理失败**：查看保留的部分文件排查原因，修正后使用新的输出目录重试。

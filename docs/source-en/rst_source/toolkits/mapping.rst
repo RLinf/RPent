@@ -6,7 +6,7 @@ Offline Mapping
 .. note::
 
    This mapping approach has only been validated on ZED 2i, using recordings
-   from LeKiwi. Other cameras have not been tested.
+   from LeKiwi.
 
 Build maps offline from stereo images or a side-by-side video using RTAB-Map.
 Generate a map database, a 2D occupancy grid and a colored 3D point cloud,
@@ -45,20 +45,22 @@ Map Stereo Data with RTAB-Map
 Prepare Input and Calibration
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Provide synchronized left/right images and stereo calibration matching their
-resolution. Calibration describes the intrinsics, distortion and relative pose
-of the cameras, allowing RTAB-Map to turn pixel disparity into distance.
+Prepare the following:
 
-Use native stereo calibration files that RTAB-Map can read, such as
-``camera_left.yaml`` and ``camera_right.yaml`` in the same directory. The right
-projection matrix must encode the actual baseline. Obtain actual camera or
-dataset calibration first, matching the image dimensions and rectification
-state. This guide starts with existing calibration and does not solve camera
-calibration. RPent's ``stereo.yaml`` is not required.
+1. **Synchronized left/right images:** each pair must come from the same instant.
+   Place them in ``left/`` and ``right/`` with matching filenames.
+2. **Stereo calibration:** save the camera or dataset calibration in RTAB-Map
+   format as ``camera_left.yaml`` and ``camera_right.yaml`` in the same directory.
+   Per-eye dimensions, intrinsics, distortion and relative camera pose must
+   match the input images. The right projection matrix must encode the actual
+   baseline (the distance between cameras). RTAB-Map uses these values to
+   convert pixel disparity into distance.
+3. **Timestamp filenames:** use increasing capture times in seconds, starting
+   above zero, with consistent decimal precision. For example, images captured
+   at 5 pairs per second can be named ``1.0.png``, ``1.2.png``, ``1.4.png``.
+   Relative timestamps must preserve the actual capture intervals.
 
-Stereo image filenames must match between the two directories and contain
-increasing, nonzero timestamps in seconds. Relative timestamps suffice; no
-calendar date is needed. Use consistent decimal precision within a sequence.
+Example image layout:
 
 .. code-block:: text
 
@@ -70,71 +72,60 @@ calendar date is needed. Use consistent decimal precision within a sequence.
      camera_left.yaml
      camera_right.yaml
 
-Video input is ``/path/to/stereo.mp4``, with the left view on the left and the
-synchronized right view on the right of each frame. A 2560 × 720 video needs
-calibration for 1280 × 720 per-eye images. Use a constant-rate video supported
-by the installed decoder.
+For video, prepare a constant-rate side-by-side file supported by the installed
+decoder, such as ``/path/to/stereo.mp4``. Each frame contains the left view on
+the left and the right view from the same instant on the right. A 2560 × 720
+video uses calibration for 1280 × 720 per-eye images.
 
-ZED 2i Calibration Example
-^^^^^^^^^^^^^^^^^^^^^^^^^^
+.. note::
 
-The current LeKiwi recorder reads side-by-side ZED 2i images through UVC
-and splits each frame into raw left/right PNGs. It copies the configured
-factory calibration to ``calibration.conf`` and writes the per-eye dimensions
-to ``stereo.json``. This capture path does not use SVO2 or the ZED SDK.
+   **ZED 2i example: convert factory calibration to YAML**
 
-Obtain the factory calibration for your camera's serial number using the
-`Stereolabs calibration instructions
-<https://docs.stereolabs.com/docs/development/zed-sdk/modules/camera/camera-calibration>`_.
-The vendor file is named ``SN<serial>.conf``; the local configuration may call
-it ``zed.conf``. The recording's ``calibration.conf`` is a copy of that file.
-Renaming it to ``camera_left.yaml`` does not convert its format.
+   Calibration comes from this ZED 2i's factory file, ``SN<serial>.conf``.
+   Follow the `Stereolabs calibration instructions
+   <https://docs.stereolabs.com/docs/development/zed-sdk/modules/camera/camera-calibration>`_
+   to obtain it using the camera's serial number. In this example, LeKiwi uses
+   a local copy named ``zed.conf`` and copies it into each recording directory
+   as ``calibration.conf``.
 
-Run the conversion script from the RPent source root in a Python environment
-with NumPy, OpenCV and PyYAML. For a recording with 1280 × 720 pixels per eye:
+   The current LeKiwi recorder captures side-by-side frames through UVC,
+   splits them into raw left/right PNGs and records per-eye dimensions in the
+   ``eye_size`` field of ``stereo.json``. Pass the recording's ``calibration.conf``
+   and these dimensions to the conversion script to generate the two RTAB-Map
+   YAML files.
 
-.. code-block:: bash
+   From the RPent source root, run this command in a Python environment with
+   NumPy, OpenCV and PyYAML. This example uses 1280 × 720 pixels per eye:
 
-   python -m toolkits.mapping.zed_calibration \
-     --calibration /path/to/capture/calibration.conf \
-     --image-size 1280 720 \
-     --output /path/to/capture
+   .. code-block:: bash
 
-Use the actual per-eye dimensions recorded in ``stereo.json``. The script
-supports 1280 × 720 (``HD``) and 672 × 376 (``VGA``). It leaves existing
-calibration YAMLs unchanged and reports an error if either output file exists.
+      python -m toolkits.mapping.zed_calibration \
+        --calibration /path/to/capture/calibration.conf \
+        --image-size 1280 720 \
+        --output /path/to/capture
 
-This writes ``camera_left.yaml`` and ``camera_right.yaml`` into the output
-directory. Their ``K/D`` values describe the raw images; ``R/P`` are computed
-by OpenCV for stereo rectification. Factory translation values are converted
-from millimetres to metres, and the right projection matrix retains the metric
-baseline. Use calibration from the same camera and the actual image mode;
-do not resize or crop the raw images independently.
+   The output files, ``camera_left.yaml`` and ``camera_right.yaml``, contain
+   raw-image intrinsics and distortion, plus rectification and projection
+   matrices computed by OpenCV. Translation is converted to metres, and the
+   right projection matrix encodes the actual baseline. The script supports
+   per-eye dimensions of 1280 × 720 (``HD``) and 672 × 376 (``VGA``).
+   Keep the images at their original size and choose an output directory
+   where these two YAML files have yet to be created.
 
-In ``rtabmap_stereo_images.ini``, set ``calibrationName`` to
-``/path/to/capture/camera_left.yaml`` and point the left/right input paths at
-the recording. Set ``StereoImages\rectify=true`` for these raw PNGs.
-The configuration template defaults to ``false`` for already rectified input.
-
-For a raw side-by-side video, use the same calibration conversion with its
-actual per-eye dimensions and matching factory file, then enable rectification
-in the video configuration. Video files do not supply these calibration values.
-Already rectified images require their corresponding rectified calibration
-and ``rectify=false``, rather than applying raw-image rectification again.
+   In the mapping configuration, set ``calibrationName`` to the generated
+   ``camera_left.yaml``, point the left/right paths at the recorded images,
+   and set ``StereoImages\rectify=true``. Raw side-by-side video can use the
+   same conversion with its actual per-eye dimensions and rectification enabled.
 
 .. _mapping-config:
 
 Write Mapping Configuration
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Choose either the image or video configuration below. Run its commands from
-the RPent source root. Both examples assume rectified input
-and a level, forward-facing camera 0.5 metres above the ground. Replace these
-values with the actual configuration. ``localTransform`` is the camera's
-mechanical-frame x/y/z in metres and roll/pitch/yaw in radians, relative to
-an x-forward, y-left, z-up frame with ground at z=0.
+Choose the configuration for your input type and run its commands from the
+RPent source root.
 
-**Stereo images:** use :download:`rtabmap_stereo_images.ini <../../../../toolkits/mapping/rtabmap_stereo_images.ini>`.
+**Stereo images:** use ``rtabmap_stereo_images.ini``.
 ``type=1`` selects stereo and ``stereo\driver=2`` selects the image driver.
 Filename timestamps are enabled, synchronization waits are disabled and
 ``imgRate=0`` enables fast offline import.
@@ -144,7 +135,7 @@ Filename timestamps are enabled, synchronization waits are disabled and
    mkdir /path/to/new-map
    cp toolkits/mapping/rtabmap_stereo_images.ini /path/to/new-map/rtabmap.ini
 
-**Stereo video:** use :download:`rtabmap_stereo_video.ini <../../../../toolkits/mapping/rtabmap_stereo_video.ini>`.
+**Stereo video:** use ``rtabmap_stereo_video.ini``.
 ``stereo\driver=3`` selects the video driver; an empty
 ``StereoVideo\path2`` selects a single side-by-side file. Change
 ``imgRate=15`` to the video's actual frame rate.
@@ -154,9 +145,18 @@ Filename timestamps are enabled, synchronization waits are disabled and
    mkdir /path/to/new-map
    cp toolkits/mapping/rtabmap_stereo_video.ini /path/to/new-map/rtabmap.ini
 
-After copying, edit ``rtabmap.ini`` in the output directory. Replace every
-``/path/to/...`` (working directory, input and calibration paths) and the camera
-pose with actual values.
+Edit the copied ``rtabmap.ini``:
+
+* **Paths:** replace every ``/path/to/...`` with the actual working directory,
+  input and calibration paths. Set ``calibrationName`` to ``camera_left.yaml``.
+* **Rectification:** for raw images, use raw calibration and set
+  ``StereoImages\rectify=true``. For rectified images, use their rectified
+  calibration and keep the default ``false``. This setting applies to both
+  images and video.
+* **Camera mounting pose:** set ``localTransform`` to the actual x/y/z in metres
+  and roll/pitch/yaw in radians. This is the camera mechanical frame's pose in
+  an x-forward, y-left, z-up reference frame with the ground at z=0. The template's
+  ``0 0 0.5 0 0 0`` describes a level, forward-facing camera 0.5 metres above ground.
 
 .. _mapping-build:
 
@@ -177,12 +177,12 @@ Bash; logs are displayed in the terminal and saved in the output directory:
    rtabmap-reprocess -default -odom -c rtabmap.ini raw.db rtabmap.db 2>&1 | tee mapping.log
    rtabmap-export --map --cloud --opt 2 --output map rtabmap.db 2>&1 | tee export.log
 
-``-odom`` recomputes visual odometry from images; it does not read wheel
-odometry. Images can be imported at full speed; the video settings above read
-at the specified frame rate.
+``-odom`` estimates camera motion from successive images, producing visual
+odometry associated with the images. Mapping then refines the trajectory.
+Images use filename timestamps; video is read at the configured frame rate.
 
-For a camera fixed to a platform moving on a flat floor, an optional second
-pass adds planar motion constraints. Keep the unconstrained database:
+For a camera fixed to a platform moving on a flat floor, optionally add planar
+motion constraints in a second pass and save the result as ``planar.db``:
 
 .. code-block:: bash
 
@@ -195,20 +195,24 @@ pass adds planar motion constraints. Keep the unconstrained database:
 Optional: Use Your Own Depth
 ----------------------------
 
-Use RGB-D input directly when depth is available from a camera SDK, depth camera
-or another method. If you only have stereo images and want learned stereo
-matching, the RAFT-Stereo workflow below can generate depth. Choose one depth
-source; SDK and RAFT processing do not need to run in sequence.
+Use depth exported by a camera SDK, or generate depth from stereo images with
+RAFT-Stereo. Prepare RGB and depth in the format below, then supply them to
+RTAB-Map.
 
 RGB-D Input Format
 ~~~~~~~~~~~~~~~~~~
 
-The following example layout can be read directly by RTAB-Map. Prepare matching
-RGB and depth PNG files, named with increasing, nonzero timestamps in seconds.
-Use the same number of decimal places throughout a sequence; leading zeros in
-the integer part are unnecessary. Depth must be aligned to the undistorted RGB image at the same
-resolution: optical-axis Z, stored as uint16 millimetres, with zero for invalid
-pixels. Use the matching RTAB-Map/OpenCV camera calibration YAML.
+Prepare these files:
+
+* **RGB images:** undistorted PNGs.
+* **Depth images:** single-channel uint16 PNGs, aligned pixel by pixel with RGB
+  at the same resolution. Values represent optical-axis Z distance in
+  millimetres, with zero for invalid pixels.
+* **Camera calibration:** RTAB-Map/OpenCV ``camera.yaml`` with dimensions and
+  intrinsics matching the RGB images, used to project depth pixels into 3D.
+
+Give each RGB/depth pair the same filename. Use increasing timestamps in
+seconds, starting above zero, with consistent decimal precision:
 
 .. code-block:: text
 
@@ -219,16 +223,9 @@ pixels. Use the matching RTAB-Map/OpenCV camera calibration YAML.
      depth/1.2.png
      camera.yaml
 
-Existing depth can come from any source meeting this contract. Export the images
-and calibration with that source's tools. ``camera.yaml`` supplies the image
-dimensions and intrinsics that RTAB-Map uses to project depth pixels into 3D.
-
-Use your own camera or dataset's calibrated values, matching image dimensions
-and rectification state; sample camera values are not a calibration for your
-images. ``camera.yaml`` is only the example filename; ``calibrationName``
-in the native configuration points to the actual file. Stereo preparation
-below generates the matching ``camera.yaml`` automatically; use that output
-directly.
+Export images and calibration with the tools for your data source, then set
+``calibrationName`` to the calibration file. The RAFT-Stereo workflow generates
+the matching ``camera.yaml``.
 
 Use Camera SDK Depth
 ~~~~~~~~~~~~~~~~~~~~
@@ -238,30 +235,23 @@ undistorted RGB, aligned numerical depth from the same recorded frame, and
 intrinsics for that output resolution. Arrange the result in the RGB-D layout
 above:
 
-1. Convert depth in metres to millimetres and save single-channel uint16 PNGs.
-   Set invalid values and values beyond 65.535 metres to zero. Use measured
-   depth values, not a colored depth preview.
+1. Convert numerical depth to millimetres and save single-channel uint16 PNGs.
+   Set invalid values and values beyond 65.535 metres to zero.
 2. Keep RGB and depth at the same resolution, aligned pixel by pixel, with
    matching filenames. Supply RTAB-Map calibration YAML for the exported RGB.
-3. Continue directly with :ref:`mapping-rgbd-source`; neither RAFT nor
-   the preparation tools are required.
+3. Continue with :ref:`mapping-rgbd-source`.
 
 For example, the ZED SDK's `official depth sample
 <https://github.com/stereolabs/zed-sdk/blob/master/tutorials/tutorial%203%20-%20depth%20sensing/python/depth_sensing.py>`_
-shows left-image retrieval with ``VIEW.LEFT`` and aligned depth retrieval with
-``MEASURE.DEPTH``. Sequence saving, filenames and calibration export still need
-to follow the contract above. Other SDKs can be used with the same output format.
+uses ``VIEW.LEFT`` for the left image and ``MEASURE.DEPTH`` for aligned depth.
+Save the sequence and its calibration in the format above.
 
 Generate Depth with RAFT-Stereo
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-This route replaces RTAB-Map's internal stereo matching with RAFT-Stereo.
-It still needs **synchronized left/right RGB images and actual stereo
-calibration**. If aligned depth is already available, skip this section and
-continue with :ref:`mapping-rgbd-source`.
-
-RAFT-Stereo estimates pixel displacement between the views, which cannot be
-passed directly to RTAB-Map as millimetre depth. Follow these stages:
+Use synchronized left/right RGB images and their stereo calibration.
+RAFT-Stereo estimates pixel displacement; focal length and baseline convert
+this to depth in millimetres. Follow these stages:
 
 .. code-block:: text
 
@@ -270,10 +260,6 @@ passed directly to RTAB-Map as millimetre depth. Follow these stages:
      → Official RAFT-Stereo demo: estimate pixel displacement → flow/*.npy
      → raft_to_rgbd.py: convert using focal length and baseline → rgbd/
      → RTAB-Map: build a map from RGB-D input
-
-Each tool is a single file: ``prepare_stereo.py`` reads, rectifies and
-arranges stereo data; ``raft_to_rgbd.py`` converts RAFT output to RGB-D.
-Neither tool solves calibration, runs RAFT or builds a map.
 
 Step 1: Rectify Images Using Existing Calibration
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -286,15 +272,13 @@ and OpenCV. Choose one input:
 * **Stereo video:** local MP4, AVI, MKV or MOV with synchronized left and right
   views side by side, left first. The decoder must support the codec.
 
-Copy :download:`stereo.yaml <../../../../toolkits/mapping/stereo.yaml>` and
-fill in actual calibration from your camera or dataset:
+Copy the calibration template from the repository:
 
 .. code-block:: bash
 
    cp toolkits/mapping/stereo.yaml /path/to/stereo.yaml
 
-This YAML is input to RPent's preparation utility; the official RAFT demo does
-not read it. Fill in:
+Fill in actual calibration from your camera or dataset in ``stereo.yaml``:
 
 * ``image_size``: per-eye width and height. A 2560 × 720 side-by-side video
   needs ``[1280, 720]``.
@@ -305,8 +289,7 @@ not read it. Fill in:
 Use a horizontal pinhole stereo pair with the right camera to the right of the
 left. For rectified input, supply rectified intrinsics, zero distortion,
 identity rotation and ``T_m: [-baseline_m, 0, 0]``. Export fisheye images as
-rectified pinhole pairs with the camera's tools first. This step uses existing
-calibration to rectify images; it does not estimate calibration from the input.
+rectified pinhole pairs with the camera tools first.
 
 **Image example:** this assumes zero-padded numbered filenames sampled at 5 Hz.
 ``--camera-pose`` gives the original left camera's position (x/y/z, metres)
@@ -388,8 +371,7 @@ the official demo's default architecture.
 ``--left_imgs`` and ``--right_imgs`` point to the rectified pairs from step 1.
 Keep the quotes so the demo expands the wildcards. ``--save_numpy`` saves
 each pair's pixel displacement as ``flow/<timestamp>.npy``, alongside a
-visualization. Use a fresh ``flow/`` directory. These files are not yet the
-millimetre depth required by RTAB-Map.
+visualization. Use a fresh ``flow/`` directory.
 
 Step 3: Convert to Depth for RTAB-Map
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -425,7 +407,7 @@ run the same RTAB-Map mapping commands.
 Connect Depth to RTAB-Map
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
-For SDK or RAFT depth, use :download:`rtabmap_rgbd.ini <../../../../toolkits/mapping/rtabmap_rgbd.ini>`,
+For SDK or RAFT depth, use ``rtabmap_rgbd.ini``,
 which includes the common mapping parameters. From the RPent source root, copy
 it to a fresh output directory with the commands below. See
 :ref:`mapping-config` for parameter descriptions.
@@ -448,8 +430,8 @@ Read the file in the terminal:
 
    cat /path/to/rgbd/local_transform.txt
 
-For SDK depth, use calibration for the exported RGB images and the actual
-camera pose; ``local_transform.txt`` is not required.
+For SDK depth, use calibration for the exported RGB images and set
+``localTransform`` to the actual camera pose.
 
 Continue with the same commands in :ref:`mapping-build`. Here, ``raw.db``
 stores RGB-D frames and ``-odom`` recomputes visual odometry from RGB-D.
@@ -487,12 +469,9 @@ requires the additional export command in the next section.
    * - ``import.log``, ``mapping.log``, ``export.log``
      - Command output for checking progress and diagnosing failures.
 
-The trajectory is estimated from visual odometry and refined by map
-optimization. It is not a recording of wheel odometry or ground-truth motion,
-and it need not contain a pose for every input frame. Exported geometry and
-optimized poses use a local map frame, not global geographic coordinates.
-The files provide a map and a reconstructed path; robot localization,
-navigation configuration and motion control require separate integration.
+The trajectory records estimated poses of mapping nodes after optimization.
+Maps and trajectories use a local map frame. These outputs can be used for
+subsequent robot localization and navigation setup.
 
 Inspect the Map
 ---------------
@@ -509,18 +488,21 @@ terminal, then export the optimized trajectory:
    rtabmap-export --poses --poses_format 10 --opt 2 --output trajectory rtabmap.db
    head trajectory_poses.txt
 
-Each row of ``trajectory_poses.txt`` contains
-``stamp x y z qx qy qz qw``, with positions in metres and x-forward,
-y-left, z-up axes. Review tracking loss and loop closures in the logs.
-File existence and successful trajectory export do not establish map accuracy.
-Before navigation, validate scale, obstacles, coverage and unknown areas
-against measurements. A standalone grid does not contain the images needed for
-visual localization.
+Each row of ``trajectory_poses.txt`` contains ``stamp x y z qx qy qz qw``,
+with positions in metres and x-forward, y-left, z-up axes. Review tracking loss
+and loop closures in the logs, and validate scale, obstacles, coverage and
+unknown areas against measurements. Keep ``rtabmap.db`` with its visual data
+for subsequent RTAB-Map visual localization.
 
-For missing executables or Qt errors, check the standalone installation and
-``QT_QPA_PLATFORM``. For missing pairs or dimension errors, check the input and
-its calibration. RAFT GPU memory use depends on per-frame resolution; ``--step``
-reduces total work, not that memory requirement. If reconstruction is empty or
-fragmented, inspect the native command output and database for tracking loss,
-blur, weak texture or calibration errors. Preparation failures leave partial
-files for inspection; use a new output directory when retrying.
+Check common issues as follows:
+
+* **Missing commands or Qt errors:** check the standalone RTAB-Map installation
+  and ``QT_QPA_PLATFORM``.
+* **Missing pairs or dimension errors:** check left/right filenames, image
+  dimensions and calibration.
+* **RAFT GPU memory errors:** choose a GPU with enough memory for the per-frame
+  resolution; ``--step`` controls the number of samples and total work.
+* **Empty or fragmented maps:** inspect logs and the database for tracking loss,
+  motion blur, weak texture and calibration issues.
+* **Preparation failures:** inspect the partial output, correct the cause and
+  retry with a fresh output directory.
