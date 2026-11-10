@@ -1,241 +1,195 @@
 Embodied First Exam
 ===================
 
-Run robot tasks with RPent in EFE (Embodied First Exam). EFE starts an agent
-container and a simulator container through Harbor; RPent joins as an installed
-agent and operates the robot through the task's ``rcb_client``.
+Run one simulated robot task with RPent, then check whether the robot achieved
+the goal. This guide uses an AutoBio laboratory task that runs without a GPU.
+You need a Linux machine with Docker and access to a model API.
 
 Overview
 --------
 
+EFE (Embodied First Exam) is a collection of robot tasks with predefined scenes
+and scoring rules. RPent uses a language model to choose actions from camera
+images and robot observations. Harbor is the program that starts the task,
+runs RPent, saves the results, and removes the containers afterward.
+Harbor calls one task run a **trial**.
+
 .. grid:: 2 4 4 4
    :gutter: 2
 
-   .. grid-item-card:: Agent
+   .. grid-item-card:: Action Models
 
-      RPent ``CodexPlanner``, which acts only through RPent tools.
+      RPent motion tools or the task's native robot controls.
 
-   .. grid-item-card:: Tool Layers
+   .. grid-item-card:: Planners
 
-      ``move_to_xyz`` and ``set_gripper`` by default; ``efe_submit`` in the raw arm.
+      CodexPlanner connects to your model API and selects the next tool call.
 
    .. grid-item-card:: Tasks
 
-      EFE ``standard`` and ``standard-realtime``, 1150 tasks.
+      EFE's standard and standard-realtime tasks.
 
-   .. grid-item-card:: Runtime
+   .. grid-item-card:: Hardware
 
-      Docker; Harbor 0.23.0; Python 3.12.
+      Linux with Docker. GPU requirements depend on the task; AutoBio uses CPU.
 
-Harbor calls one task run a trial: it starts one pair of containers for one
-task, runs the agent once, and produces one result.
-
-.. code-block:: text
-
-   Harbor trial
-   ├── agent container (main)
-   │   └── RPent / CodexPlanner ── rcb_client ──▶ sim:8000
-   └── simulator container (sim)
-       └── EFE task service
-
-1. Harbor creates the containers and starts the task in the simulator container.
-2. The adapter packages the current checkout's ``rpent/``, ``robots/``,
-   installation metadata, and the package data declared in ``pyproject.toml``.
-   It uploads them to ``/opt/rpent-efe/source`` in the agent container and
-   creates a ``venv`` with the task image's Python. The container does not need
-   ``uv``.
-3. The runner starts the existing ``CodexPlanner`` inside the agent container as
-   the trial's only agent process. ``robots/efe`` connects to the simulator
-   service with the task image's ``rcb_client.Robot`` and registers it as
-   RPent's robot.
-4. The planner operates the episode only through RPent tools. Harbor owns
-   container isolation, execution budgets, and teardown; EFE's verifier scores
-   the episode independently.
-
-RPent starts no simulator, reads no privileged state, and changes neither the
-task nor the scoring. ``finish(status="completed")`` means the agent finished its
-own work, not that the task succeeded. ``solved()`` trusts only the service's own
-end reason, and the verifier still grades the episode. The CLI exit code reports
-only whether the runner failed.
+Harbor runs RPent and the simulator in separate containers. RPent sends actions
+to the simulator through EFE's client library, ``rcb_client``. EFE's evaluator
+(the verifier) checks the outcome independently of the model's final answer.
 
 Tasks
 ~~~~~
 
-EFE groups its tasks into suites, each covering one kind of robot capability.
-The official EFE content defines the task list, scenes, and scoring rules:
-browse every task in the `EFE task browser
-<https://www.embodied-first-exam.ai/tasks/>`_, and find each definition under
+Choose a task from the `EFE task browser
+<https://www.embodied-first-exam.ai/tasks/>`_. Its files are in
 ``tasks/<benchmark>/<task>`` in the `EFE repository
-<https://github.com/mll-lab-nu/embodied-first-exam>`_. RPent integrates the
-``standard`` and ``standard-realtime`` tasks.
+<https://github.com/mll-lab-nu/embodied-first-exam>`_. A benchmark groups related
+tasks. The counts below are the inventory documented for this integration;
+they are not counts of tasks evaluated with RPent, and upstream may add tasks.
 
 .. list-table::
    :header-rows: 1
 
    * - Mode
      - Tasks
-     - Notes
+     - Behavior
    * - ``standard``
      - 1066
-     - ``eai-standard/2.1``, ``2.2``, ``2.4``; the simulator advances by control step.
+     - Supported. The simulator advances when the agent sends actions.
    * - ``standard-realtime``
      - 84
-     - ``eai-standard/2.3``; simulator time keeps advancing while the planner thinks.
+     - Supported. The simulator keeps running while the model thinks.
    * - ``privileged``
      - 959
-     - Not supported yet; the deliverable is a complete control solution.
+     - Not supported. The agent delivers a complete trajectory or policy for evaluation.
 
-In ``standard-realtime``, simulator time keeps advancing while the planner
-thinks; the service holds the last targets until the next action arrives, so the
-same tools still apply.
-
-The remaining 959 EFE tasks use ``privileged`` mode, which we do not support
-yet: the agent shares a container with the simulator, reads the simulated state
-directly, and delivers a complete control solution — a replayable
-``trajectory.npz`` or a trained policy program/model. The verifier replays the
-trajectory or runs the policy in the simulator to grade, with no step-by-step
-observation or action. RPent observes and acts step by step through the client,
-which does not fit this mode, so it is not integrated yet.
+In ``standard-realtime``, the robot continues following the most recently
+commanded joint positions or other control targets while waiting for a new
+action. The scene keeps changing during this wait, so model response time
+can affect the outcome.
 
 Observation and Action
 ~~~~~~~~~~~~~~~~~~~~~~
 
+RPent provides two ways for the model to control the robot. **Skills** is the
+default: the model requests a tool-tip position with ``move_to_xyz`` or a
+gripper opening with ``set_gripper``. RPent converts these requests into robot
+joint commands. **Raw** lets the model send the task's native action values
+directly with ``efe_submit``. Start with the default; see `Compare Skills and Raw`_ for limits
+and comparison commands. If a robot's controls are unsupported by Skills,
+RPent automatically uses Raw instead.
+
 .. list-table::
    :header-rows: 1
+   :widths: 25 75
 
    * - Item
      - Description
    * - Observation
-     - Camera RGB frames (with depth on request), robot state (joint angles, tool position and orientation, gripper opening), and the action layout, joint names, cameras, and kinematics. In the default configuration the agent reaches the simulator only through the client.
+     - Camera RGB images, optional depth, robot joint positions, tool pose, gripper opening, and a description of the available controls.
    * - Action
-     - The default arm calls ``move_to_xyz`` to move the tool tip to a world position and ``set_gripper`` to set the finger opening; the raw arm sends joint-target chunks with ``efe_submit``. Both reach the simulator service through ``rcb_client``.
+     - Skills requests tool-tip motion and gripper opening. Raw submits native action values in the order specified by the task.
    * - Reward / success
-     - EFE's verifier scores the episode independently and writes ``verifier/reward.json``; Harbor records it as ``verifier_result.rewards`` in ``result.json``. ``success`` is this trial's graded result; ``first_success`` records the first attempt; the other fields are diagnostics.
+     - EFE's verifier grades the robot's outcome. Read ``verifier/reward.json`` or the trial's ``result.json`` as described in `View Results`_.
    * - Task instruction
-     - Harbor reads the instruction from the EFE task and passes it to the agent; RPent does not change the task text.
+     - Harbor passes the task's original instruction to RPent.
 
-A task that declares a reset budget registers ``efe_reset``: it abandons the
-current episode, restarts from the task's frozen initial state, and spends one
-reset from the budget. Only the last episode is graded; RPent never resets on
-its own. A task that hides success also registers ``efe_end_episode``.
+Some tasks allow another attempt. For those tasks, the model can call
+``efe_reset`` to abandon the current episode (one attempt), return to the same
+initial scene, and spend one reset from the task's budget. Only the last
+episode is graded; RPent does not reset automatically.
+
+Other tasks withhold the success signal from the agent. For those tasks,
+RPent provides ``efe_end_episode`` so the model can declare that it has finished
+acting. The verifier then grades the final state. Calling this tool does not
+declare success, and ending before the goal is achieved can receive a failure.
 
 Installation and Resources
 --------------------------
 
-The host needs the Docker environment required by EFE, cloud model API keys,
-and an EFE checkout. Follow EFE's instructions to prepare the host and the task;
-simulator requirements come from the task. The first run still downloads the
-container and task assets. Keep the original EFE task, simulator, verifier, and
-resource limits. The host ``PYTHONPATH`` must import the adapter from this
-repository.
+Run the commands below on the Linux host, not inside a container. Use git,
+`uv <https://docs.astral.sh/uv/getting-started/installation/>`_, and Docker
+Engine with Compose v2 and BuildKit. Follow EFE's
+`host requirements and installation guide
+<https://github.com/mll-lab-nu/embodied-first-exam#quick-start>`_ first.
+GPU tasks also need the NVIDIA driver and NVIDIA Container Toolkit.
+This integration targets Harbor 0.23.0 and Python 3.12.
+
+1. Obtain both source repositories. If you already have them, use their
+   absolute paths in the next step instead of cloning again.
+
+   .. code-block:: bash
+
+      git clone https://github.com/RLinf/RPent.git
+      git clone --recurse-submodules https://github.com/mll-lab-nu/embodied-first-exam.git
+
+2. Set the paths to your checkouts and install EFE's Harbor integration.
+   Replace the first two paths with your own. ``RPENT_ROOT`` is the root of
+   the RPent repository; ``EFE_ROOT`` is the root of the Embodied First Exam repository.
+
+   .. code-block:: bash
+
+      export RPENT_ROOT=/absolute/path/to/RPent
+      export EFE_ROOT=/absolute/path/to/embodied-first-exam
+      uv sync --project "$EFE_ROOT" --python 3.12
+      docker info
+      uv run --project "$EFE_ROOT" harbor --version
+      test -f "$RPENT_ROOT/robots/efe/harbor_agent.py"
+
+   Docker must report a running daemon, Harbor must report version 0.23.0,
+   and the file check must exit successfully. The first trial builds or pulls
+   its task image and downloads resources. Check the
+   `AutoBio setup requirements
+   <https://github.com/mll-lab-nu/embodied-first-exam/tree/main/tasks/autobio#before-you-run>`_
+   for disk space and source licensing before running this example.
+
+3. Select the example task and configure the model. This task asks the robot
+   to place a tube into a centrifuge rotor. Replace ``your-model`` with a model
+   identifier supported by your API provider and CodexPlanner.
+
+   .. code-block:: bash
+
+      export EFE_TASK="$EFE_ROOT/tasks/autobio/autobio-insert-centrifuge-5430-i00-standard"
+      export EFE_MODEL=openai/your-model
+      export OPENAI_API_KEY=your-key
+      export OPENAI_BASE_URL=https://api.openai.com/v1
+      export MODEL_HOST=api.openai.com
+      test -f "$EFE_TASK/task.toml"
+
+   ``MODEL_HOST`` specifies the model API host the task container may reach;
+   the run command passes it to ``--allow-agent-host``. For a compatible custom
+   API, replace both ``OPENAI_BASE_URL`` and ``MODEL_HOST``. Use only the
+   hostname for ``MODEL_HOST``, without ``https://`` or a path. For example,
+   use ``api.example.com`` for the API URL ``https://api.example.com/v1``.
+   Keep API keys out of version control. Existing ``CODEX_API_KEY`` and
+   ``CODEX_BASE_URL`` override the corresponding ``OPENAI_*`` variables;
+   unset them if you intend to use the settings above.
+
+.. _run-a-trial:
+
+Run a Task
+----------
+
+Use the same host terminal so the variables above remain available. This
+command starts one trial with the default Skills tools. Harbor installs RPent
+in the task container automatically; you do not need to install RPent there.
 
 .. code-block:: bash
 
-   export RPENT_ROOT=/absolute/path/to/RPent
-   export EFE_ROOT=/absolute/path/to/embodied-first-exam
-   export EFE_TASK="$EFE_ROOT/tasks/<family>/<task>"
-   export OPENAI_API_KEY=your-key
+   PYTHONPATH="$RPENT_ROOT${PYTHONPATH:+:$PYTHONPATH}"    uv run --project "$EFE_ROOT" harbor run      --path "$EFE_TASK"      --agent robots.efe.harbor_agent:RPentEfeAgent      --model "$EFE_MODEL" --n-concurrent 1      --allow-agent-host "$MODEL_HOST"      --yes      --jobs-dir "$RPENT_ROOT/logs/efe-rpent"
 
-Do not write API keys into the repository. The adapter forwards only model
-environment variables and explicit Harbor ``--agent-env`` settings. It maps
-``OPENAI_API_KEY`` and ``OPENAI_BASE_URL`` to RPent ``CODEX_API_KEY`` and
-``CODEX_BASE_URL``; existing ``CODEX_*`` settings take precedence. The adapter
-does not forward the host ``CODEX_HOME``. The runner creates that directory
-inside the agent container for each trial.
-
-Debug a Single Task
--------------------
-
-To debug one task you do not need the trial pipeline. ``harbor task start-env``
-starts the task's containers and attaches to the agent container; run RPent
-there directly. ``--mounts`` makes the RPent checkout available for the install
-and the task directory available at ``/task``; the task keeps its instruction in
-``instruction.md`` at its root.
-
-.. code-block:: bash
-
-   # 1) Start the environment and attach to the agent container
-   harbor task start-env \
-     --path "$EFE_TASK" \
-     --mounts '[{"type":"bind","source":"'"$RPENT_ROOT"'","target":"/opt/rpent","read_only":true},{"type":"bind","source":"'"$EFE_TASK"'","target":"/task","read_only":true}]'
-
-   # 2) In the container: copy to a writable directory, then install
-   cp -a /opt/rpent /tmp/rpent-src
-   python3 -m venv /tmp/rpent-venv
-   /tmp/rpent-venv/bin/python -m pip install /tmp/rpent-src
-
-   # 3) In the container: run one episode
-   export CODEX_API_KEY="$OPENAI_API_KEY"
-   export CODEX_BASE_URL="$OPENAI_BASE_URL"   # with a custom endpoint
-   /tmp/rpent-venv/bin/rpent --robot efe --planner codex \
-     --instruction-file /task/instruction.md \
-     --output-dir /app/output \
-     --model your-model
-
-``/opt/rpent`` is mounted read-only, and the install writes build metadata into
-the source tree, so copy it to ``/tmp/rpent-src`` first. ``--instruction-file``
-points at the task's own ``instruction.md``. The generic CLI defaults to the
-``api`` planner; ``--planner codex`` runs the same CodexPlanner as the adapter.
-``rpent --robot efe --planner codex`` always runs with ``full-access``, so shell
-commands can reach the simulator too; use it for debugging and the adapter for
-comparisons. ``--efe-base-url`` probes ``sim:8000`` by default. ``start-env``
-does not apply the trial's agent network policy (``--allow-agent-host`` works in
-``harbor run`` only), so the container uses Docker's default network.
-
-Run a Trial
------------
-
-Harbor's ``--model`` selects the model, and the API key is read from the
-current environment. If the task restricts network access during agent
-execution, pass ``--allow-agent-host`` with the host that serves the model;
-this option extends the existing allowlist during agent execution only. RPent
-installation runs during setup and uses the task environment's baseline network
-policy. The first container install runs ``pip``, and Harbor's default setup
-timeout is 360 seconds; add ``--agent-setup-timeout-multiplier 4`` on hosts
-where a cold install is slower. This command runs one trial:
-
-.. code-block:: bash
-
-   PYTHONPATH="$RPENT_ROOT${PYTHONPATH:+:$PYTHONPATH}" \
-   uv run --project "$EFE_ROOT" harbor run \
-     --path "$EFE_TASK" \
-     --agent robots.efe.harbor_agent:RPentEfeAgent \
-     --model openai/your-model --n-concurrent 1 \
-     --allow-agent-host <model-host> \
-     --jobs-dir "$RPENT_ROOT/logs/efe-rpent"
-
-``RPentEfeAgent`` installs RPent from the current checkout. ``source_root``
-defaults to the repository root of the adapter's source checkout; pass it
-explicitly when the adapter is imported from an installed wheel. The source
-archive excludes the host ``.git``, tests, API key files, and run logs.
-``robots/`` is part of the existing RPent distribution and starts no Robot
-Runtime.
-
-Run a Benchmark
----------------
-
-``--path`` points at a benchmark directory; Harbor treats its child task
-directories as a dataset. ``-d embodied-first-exam@all`` is the full set that
-EFE registers. For example, EFE's own ``harbor run -d embodied-first-exam@all
--p tasks/roboarc`` runs only RoboARC.
-
-.. code-block:: bash
-
-   PYTHONPATH="$RPENT_ROOT${PYTHONPATH:+:$PYTHONPATH}" \
-   uv run --project "$EFE_ROOT" harbor run \
-     --path "$EFE_ROOT/tasks/<benchmark>" \
-     --agent robots.efe.harbor_agent:RPentEfeAgent \
-     --model openai/your-model \
-     --n-concurrent 8 \
-     --jobs-dir "$RPENT_ROOT/logs/efe-benchmark"
-
-Each task runs one trial and writes one ``result.json``. ``--n-concurrent``
-defaults to 4. Run one trial first, then the batch, and keep the model,
-endpoint, task revision, and time limit fixed before comparing results.
+``--agent`` tells Harbor which RPent integration to load; keep its value as
+shown. ``PYTHONPATH`` lets Harbor find that integration in your RPent checkout.
+``--n-concurrent 1`` runs one task at a time. ``--yes`` skips Harbor's
+confirmation prompt. Setup can take longer on the first run because it installs
+dependencies. After execution and grading, look under ``logs/efe-rpent`` for
+the result files below. If setup or model access fails, go to
+`Debug a Single Task`_.
 
 View Results
 ------------
 
+Open ``$RPENT_ROOT/logs/efe-rpent`` on the host.
 ``--jobs-dir`` is Harbor's job root; by default each ``harbor run`` creates a
 timestamped job directory below it.
 
@@ -260,19 +214,67 @@ timestamped job directory below it.
 
 The container path ``/logs/agent/rpent/`` maps to
 ``<trial_name>/agent/rpent/`` on the host. EFE's verifier writes
-``verifier/reward.json``, and Harbor records it as
-``verifier_result.rewards`` in ``result.json``; ``success`` is this trial's
-graded result, ``first_success`` records the first attempt, and the other
-fields are diagnostics. Agent execution metrics are in
+``verifier/reward.json``, and Harbor copies those scores to
+``verifier_result.rewards`` in the trial's ``result.json``. Agent execution metrics are in
 ``stats`` and each session's ``metrics`` in ``agent/rpent/session.json``. An
 incomplete trial may have no ``result.json`` or ``session.json``; check
 ``trial.log`` and ``agent/rpent/run.log`` first.
+
+Read the trial's ``verifier_result.rewards.success`` to determine whether
+the task succeeded. ``first_success`` describes the first attempt when a task
+supports retries. A model response such as ``finish(status="completed")`` only
+means that the agent stopped working. A zero CLI exit code only means the
+execution code did not report an error; neither is the verifier's success score.
+
+Run a Benchmark
+---------------
+
+After the single-task run, replace ``<benchmark>`` below with the name of
+your chosen benchmark. Check its task modes first: use a directory containing
+supported standard or standard-realtime tasks only, not privileged tasks.
+
+``--path`` points at a benchmark directory; Harbor treats its child task
+directories as a dataset. ``-d embodied-first-exam@all`` is the full set that
+EFE registers. For example, EFE's own ``harbor run -d embodied-first-exam@all
+-p tasks/roboarc`` runs only RoboARC.
+
+.. code-block:: bash
+
+   PYTHONPATH="$RPENT_ROOT${PYTHONPATH:+:$PYTHONPATH}" \
+   uv run --project "$EFE_ROOT" harbor run \
+     --path "$EFE_ROOT/tasks/<benchmark>" \
+     --agent robots.efe.harbor_agent:RPentEfeAgent \
+     --model "$EFE_MODEL" \
+     --n-concurrent 8 \
+     --allow-agent-host "$MODEL_HOST" \
+     --yes \
+     --jobs-dir "$RPENT_ROOT/logs/efe-benchmark"
+
+Each task runs one trial and writes one ``result.json``. ``--n-concurrent``
+defaults to 4. Run one trial first, then the batch, and keep the model,
+endpoint, task revision, and time limit fixed before comparing results.
+
+Benchmark Results and Reproduction
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+There are no published full-benchmark results for this RPent integration yet.
+Individual smoke trials check that the integration runs; they do not establish
+a success rate, speed advantage, or Skills-versus-Raw comparison. EFE's own
+leaderboard is not a result for RPent.
+
+To make a batch result reproducible, record both repository revisions, the
+task list, model identifier and endpoint, reasoning effort, time and turn limits,
+reset and retry settings, and attempt count. Save Harbor's job and trial results,
+``agent/rpent-source.json`` (source archive hash), and
+``agent/setup/pip-freeze.txt`` (installed dependencies). Report successes over
+all attempted trials and account for errors and timeouts explicitly.
 
 Common Options
 --------------
 
 - ``--agent-kwarg source_root=/path``: the RPent checkout to install; defaults
-  to the adapter's repository.
+  to the adapter's source checkout. Set it explicitly if the adapter is
+  imported from an installed wheel.
 - ``--agent-kwarg workdir=/path``: the task working directory; defaults to
   ``/app``.
 - ``--agent-kwarg timeout_s=N``: the RPent inner time limit, which must be below
@@ -294,14 +296,14 @@ Task Memory and Exploration
   in place of the trial's empty memory directory.
 - ``--agent-kwarg explore_sessions=N``: runs several independent sessions on the
   same episode.
-- Each trial starts with an empty ``memory/`` and its own ``codex-home/``; model
-  and API key come only from explicit environment variables.
+- Each trial starts with an empty ``memory/`` and its own ``codex-home/``; the model is selected by ``--model``, and credentials come from the
+  forwarded environment variables.
 
 Compare Skills and Raw
 ----------------------
 
-Both arms use the same runner, model, budget, and task. Only the action tool
-changes.
+Run the same task with Skills and Raw to compare the two tool configurations.
+Keep the model and execution budget the same; only the action tools change.
 
 .. list-table::
    :header-rows: 1
@@ -320,16 +322,16 @@ changes.
      - ``efe_reset`` with a reset budget, ``efe_end_episode`` when success is hidden
      - Same
 
-The default arm replaces direct joint-target submission with two high-level
-skills:
+The Skills configuration provides two high-level motion tools:
 
-- ``move_to_xyz(x, y, z)`` moves the tool tip to the world position: it
-  solves IK, submits short action chunks, and re-reads the tool position until
+- ``move_to_xyz(x, y, z)`` moves the tool tip to the world position: it uses
+  inverse kinematics (IK) to calculate joint positions, sends short action
+  sequences, and re-reads the tool position until
   the error is within 1 cm. It keeps the current orientation, so the planner can
   reason in Cartesian space.
 - ``set_gripper(opening)`` sets the gripper opening.
 
-The raw arm uses the service interface directly: ``efe_spec`` reports the
+The Raw configuration uses the service interface directly. ``efe_spec`` reports the
 meaning and order of each action row's columns (the action layout), and the
 planner sends joint-target chunks with ``efe_submit``.
 
@@ -348,22 +350,24 @@ session registers.
    uv run --project "$EFE_ROOT" harbor run \
      --path "$EFE_TASK" \
      --agent robots.efe.harbor_agent:RPentEfeAgent \
-     --model openai/your-model --n-concurrent 1 \
-     --allow-agent-host <model-host> \
+     --model "$EFE_MODEL" --n-concurrent 1 \
+     --allow-agent-host "$MODEL_HOST" \
      --agent-kwarg skills=false \
+     --yes \
      --jobs-dir "$RPENT_ROOT/logs/efe-raw"
 
-   # Skills: the default arm, with move_to_xyz and set_gripper
+   # Skills: the Skills configuration, with move_to_xyz and set_gripper
    PYTHONPATH="$RPENT_ROOT${PYTHONPATH:+:$PYTHONPATH}" \
    uv run --project "$EFE_ROOT" harbor run \
      --path "$EFE_TASK" \
      --agent robots.efe.harbor_agent:RPentEfeAgent \
-     --model openai/your-model --n-concurrent 1 \
-     --allow-agent-host <model-host> \
+     --model "$EFE_MODEL" --n-concurrent 1 \
+     --allow-agent-host "$MODEL_HOST" \
+     --yes \
      --jobs-dir "$RPENT_ROOT/logs/efe-skills"
 
 Keep the model, endpoint, reasoning effort, task revision, time limit, and
-attempt count fixed across arms. A single trial is not a comparison.
+attempt count fixed across configurations. A single trial is not a comparison.
 
 Isolation and Measurement Mode
 ------------------------------
@@ -379,3 +383,123 @@ Isolation and Measurement Mode
 - The generic ``rpent --robot efe`` entry point has no sandbox option and always
   runs with ``full-access``. Use it for manual and interactive debugging; use the
   Harbor adapter for evaluation and comparison.
+
+Integration Details for Developers
+----------------------------------
+
+The Harbor adapter is the class named by ``--agent``. It packages ``rpent/``,
+``robots/``, installation metadata, and package data declared in
+``pyproject.toml`` from the RPent checkout. It installs them into a virtual
+environment at ``/opt/rpent-efe/venv`` using the task image's Python; the
+container does not need ``uv``. The archive excludes host Git data, tests,
+API key files, and run logs. ``robots/`` is part of the RPent distribution;
+uploading it does not start other robot services.
+
+The runner is RPent's in-container execution code. It starts CodexPlanner,
+connects to the simulator with ``rcb_client.Robot``, and saves ``session.json``.
+Harbor controls container isolation, execution budgets, and cleanup.
+``solved()`` uses only the service's reported end reason. RPent
+does not start a simulator, read privileged state, or change EFE's scoring.
+
+The adapter forwards model environment variables and explicit Harbor
+``--agent-env`` settings. It maps ``OPENAI_API_KEY`` and ``OPENAI_BASE_URL`` to
+``CODEX_API_KEY`` and ``CODEX_BASE_URL`` unless those are already set.
+Host ``CODEX_HOME`` is not forwarded; each trial creates its own directory.
+
+.. code-block:: text
+
+   Harbor trial
+   ├── agent container (main)
+   │   └── RPent / CodexPlanner ── rcb_client ──▶ sim:8000
+   └── simulator container (sim)
+       └── EFE task service
+
+Supported service versions are ``eai-standard/2.1``, ``2.2``, and ``2.4`` for
+standard mode, and ``2.3`` for standard-realtime. Privileged tasks instead
+deliver a replayable ``trajectory.npz`` or a policy program or model. Their
+verifier replays the trajectory or runs the policy, which does not match this
+integration's step-by-step observation and action loop.
+
+Debug a Single Task
+-------------------
+
+First check the failed trial's logs. Use the symptom to choose the next step:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 25 75
+
+   * - Symptom
+     - Check
+   * - Harbor cannot import ``robots.efe``
+     - Check ``RPENT_ROOT``, that ``robots/efe/harbor_agent.py`` exists, and ``PYTHONPATH`` in the run command.
+   * - Container build or simulator startup fails
+     - Check ``trial.log``, Docker, task assets, and the task's EFE setup guide.
+   * - RPent installation times out
+     - Inspect ``agent/setup/``. Harbor's default setup limit is 360 seconds; add ``--agent-setup-timeout-multiplier 4`` for a slow cold install. Package downloads use the task's setup network policy.
+   * - Model authentication or connection fails
+     - Check the key, model name, API URL, ``MODEL_HOST``, and overriding ``CODEX_*`` variables. The hostname allowlist applies during agent execution.
+   * - No ``session.json`` after a timeout
+     - Keep RPent's ``timeout_s`` below the task's agent timeout so RPent can save results before Harbor stops it.
+
+For interactive investigation, ``harbor task start-env`` starts the same task's
+containers and opens a shell in the agent container. It does not run the
+complete trial or verifier. The following commands mount RPent for installation
+and the task's instruction at ``/task/instruction.md``.
+
+1. On the host, start the task environment and open its container shell:
+
+   .. code-block:: bash
+
+      # On the host: start the environment and open the container shell
+      uv run --project "$EFE_ROOT" harbor task start-env \
+        --path "$EFE_TASK" \
+        --mounts '[{"type":"bind","source":"'"$RPENT_ROOT"'","target":"/opt/rpent","read_only":true},{"type":"bind","source":"'"$EFE_TASK"'","target":"/task","read_only":true}]'
+
+2. In the container shell, copy the mounted source to a writable directory
+   and install RPent:
+
+   .. code-block:: bash
+
+      cp -a /opt/rpent /tmp/rpent-src
+      python3 -m venv /tmp/rpent-venv
+      /tmp/rpent-venv/bin/python -m pip install /tmp/rpent-src
+
+3. In the same container shell, enter the model key and run RPent:
+
+   In the Harbor run above, the adapter maps the host's ``OPENAI_API_KEY``
+   and ``OPENAI_BASE_URL`` to ``CODEX_API_KEY`` and ``CODEX_BASE_URL``.
+   This command runs RPent directly in the container, without the adapter,
+   so set the two variables used by CodexPlanner in the container. Use the
+   same key and API URL as above.
+
+   ``read -rsp`` prompts for the key without displaying the input. After you
+   press Enter, ``echo`` starts a new line and ``export`` passes the key to
+   subsequent programs.
+
+   .. code-block:: bash
+
+      read -rsp "Model API key: " CODEX_API_KEY; echo
+      export CODEX_API_KEY
+      export CODEX_BASE_URL=https://api.openai.com/v1
+      /tmp/rpent-venv/bin/rpent --robot efe --planner codex \
+        --instruction-file /task/instruction.md \
+        --output-dir /app/output \
+        --model your-model
+
+``/opt/rpent`` is mounted read-only, and the install writes build metadata into
+the source tree, so copy it to ``/tmp/rpent-src`` first. ``--instruction-file``
+points at the task's own ``instruction.md``. The generic CLI defaults to the
+``api`` planner; ``--planner codex`` runs the same CodexPlanner as the adapter.
+``rpent --robot efe --planner codex`` always runs with ``full-access``, so shell
+commands can reach the simulator too; use it for debugging and the adapter for
+comparisons. ``--efe-base-url`` probes ``sim:8000`` by default. ``start-env``
+does not apply the trial's agent network policy (``--allow-agent-host`` works in
+``harbor run`` only), so the container uses Docker's default network.
+
+Inside the container, enter the key at the prompt. For a custom endpoint,
+replace ``CODEX_BASE_URL`` with its full URL. Replace ``your-model`` with the
+same model identifier used above, without Harbor's ``openai/`` prefix.
+Debug output is written to ``/app/output`` in the container. This procedure
+does not produce a Harbor verifier score. Exit the shell when finished.
+For container lifecycle options, see ``harbor task start-env --help``.
