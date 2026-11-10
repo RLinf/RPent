@@ -362,9 +362,13 @@ concurrent runs. For live monitoring, see :doc:`../guides/dashboard`.
 Task Memory and Exploration Mode
 --------------------------------
 
-Evaluation reads published memory without modifying it. The prompt selects the
-exact task variant's seed-0/layout-0 audit and recipe, together with its
-task-family note and relevant global lessons. Standard and ``*_random``
+For instructions on using memory and exploration mode, see :doc:`../guides/memory`.
+
+During evaluation, the planner reads the memory corpus without modifying it.
+The planner references
+the JSON task record and JSONL action sequence for the exact task variant at
+seed 0 and layout 0, together with its task-family note and relevant global
+lessons. Standard and ``*_random``
 references remain separate; missing references are reported, and the planner
 continues from current observations. Other exploration cells remain available
 as evidence but are not the evaluation prompt's default reference.
@@ -382,14 +386,15 @@ To evaluate with a prepared local corpus:
 
 For a published Hugging Face corpus, use ``--memory-profile hf`` and
 ``--memory-repo RLinf/RPent-memory@COMMIT_SHA`` instead of the local memory
-arguments. The shared loader selects the dataset's ``robodojo/`` directory;
-replace ``COMMIT_SHA`` with the published dataset revision. See
+arguments. RPent loads memory from the ``robodojo/`` directory at the specified
+dataset revision. Replace ``COMMIT_SHA`` with the dataset commit SHA to use. See
 :doc:`../guides/memory` for source selection and publication.
 
-Exploration uses the shared session loop and local memory inbox. It retries the
-same task, seed group and layout, with three sessions and five attempts per
-session by default. Native success ends the run early. Configure services as
-above, then run:
+Exploration retries the same task, seed group and layout, with up to three
+planner sessions and five attempts per session by default. Working notes and
+draft lessons are saved locally. Once the environment confirms task success,
+no further sessions are started. Configure the services as described above,
+then run:
 
 .. code-block:: bash
 
@@ -403,24 +408,28 @@ above, then run:
 
 Use ``--task stack_blocks_random`` to explore the saved randomized variant.
 The ``--random`` flag generates a new scene and is unavailable in exploration.
-The native task action limit remains in force in both examples; the larger
-wrapper limit does not extend it. ``--planner-timeout-s`` bounds each planner
-session, including its reasoning and tool calls.
+In both examples, ``--max-episode-steps 10000`` does not increase the task's
+native action limit. ``--planner-timeout-s`` limits the total duration of each
+planner session, including reasoning and tool calls.
 
 The planner reads ``robots/robodojo/guides/GUIDE_RPENT.md`` and follows the
 mode-specific prompt. Exploration records failed attempts under run output and
-working notes in the cell's ``_internal/inbox/<cell>/wip/``. After success, the
-runner exports motion commands and successful SAM3 detections from the final
-attempt to ``<cell>_recipe.jsonl`` in call order. The planner writes the matching
-``<cell>.json`` audit and proposes task-family and global lessons. A successful
-SAM3 detection means a mask was returned; identity still requires inspection.
+working notes in the cell's ``_internal/inbox/<cell>/wip/``. After the environment
+confirms task success, RPent saves eligible motion commands and SAM3 calls that
+returned a mask without an error from the final attempt to
+``<cell>_recipe.jsonl``, in invocation order. A returned mask does not establish
+that the correct object was identified; the images still need to be checked.
+The planner separately writes the matching ``<cell>.json`` task record and
+drafts task-family and global lessons.
 
-The shared finalizer publishes the successful audit/recipe pair and valid
-proposals into local ``task-specific/``, ``task-family/`` and ``global/`` and
-updates ``MEMORY.md``. ``--no-auto-merge-memory`` retains output for manual
-review. Local publication does not upload to Hugging Face; public memory is
-reviewed separately in the dataset repository. See :doc:`../development/memory`
-for the shared file layout.
+By default, after exploration, RPent saves the successful task's JSON record
+and matching JSONL action sequence under local ``task-specific/``, merges valid
+draft lessons into ``task-family/`` and ``global/``, and updates the memory
+index ``MEMORY.md``. Use ``--no-auto-merge-memory`` to disable automatic merging
+and retain the output for manual review. These operations only write local
+files; they do not upload anything to Hugging Face. Memory intended for public
+sharing is reviewed separately in the dataset repository. See
+:doc:`../development/memory` for the shared file layout.
 
 Common Options
 --------------
