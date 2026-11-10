@@ -300,24 +300,45 @@ each stage's arguments. Live experiments require LIBERO Pro, rendering,
 an existing SAM3 service and a configured visual grounder. ``infer --replay``
 reuses frozen selections and masks.
 
-The table reports the historical frozen-input run at commit ``30ef110``,
-using the earlier permissive estimator. Of its 160 returned points, 18 passed
-the original strict checks. The current GeometryTool has not been remeasured.
+This baseline reruns all 80 cases and 160 measurements with the GeometryTool
+source published at commit ``699fa46``. It replays frozen ``step 0 / agentview`` RGB-D,
+visual selections and SAM3 masks. No previous predicted coordinates are
+combined into this run, and no fresh visual-model inference is performed.
 
-.. list-table:: Historical Position Errors
+Each evaluation request measures one part center. A computed estimate that
+fails quality checks returns ``status="warning"``, ``fit_accepted=false`` and
+``warnings`` describing unverified physical boundaries, anchor disagreement
+or other unmet checks. The quality thresholds are unchanged; an uncomputable
+quantity remains ``null``. Warning coordinates are included in the error
+comparison, but have not passed quality checks and provide no calibrated
+error bounds.
+
+.. list-table:: Frozen-Input Position Errors
    :header-rows: 1
 
-   * - Requests
-     - Returned points
+   * - Group
+     - Returned / All Requests
      - Mean (mm)
      - Median (mm)
      - P95 (mm)
      - Maximum (mm)
-   * - 160
-     - 160
-     - 21.565
-     - 2.471
+   * - All
+     - 160/160
+     - 21.329
+     - 2.453
      - 70.048
+     - 378.348
+   * - Accepted
+     - 18/160
+     - 2.233
+     - 2.342
+     - 2.880
+     - 3.143
+   * - Warning
+     - 142/160
+     - 23.749
+     - 2.498
+     - 70.119
      - 378.348
 
 Errors include only evaluable requests with returned coordinates. Coverage

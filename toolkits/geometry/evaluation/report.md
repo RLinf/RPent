@@ -1,195 +1,224 @@
 # LIBERO initial-frame geometry / LIBERO 起始帧几何评估
 
-**Recorded measurements from the earlier permissive run; not a new run of the current GeometryTool. 来自旧版宽松实验的已记录测量结果，不是当前 GeometryTool 的新实验。**
-
 Coordinates are metres; position errors are millimetres. 坐标单位为米，位置误差单位为毫米。
 
 Planned / 计划项数: **160**; attempted / 已运行: **160**; returned / 返回坐标: **160**.
 
-Prediction revision / 预测版本: `30ef110407ec4727a157fd7f64b1b21385140807`; perception / 感知输入: `frozen`; permissive / 宽松模式: `True`.
-
-Of the 160 returned points, 18 passed the original strict checks. 160 个返回点中，18 个通过当时的严格检查。
+Tested local revision / 被测本地版本: `89dbdec93e02c580c52888dcee7488696acbd624`; perception / 感知输入: `frozen`; fit profile / 拟合模式: `default_quality_checks_with_warning_estimates`.
 
 Errors below are conditional on an evaluable reference and a returned point. Missing, failed and unrun requests remain in coverage counts. 以下误差只统计有参考点且返回坐标的项；未返回、失败和未运行项保留在返回率统计中。
 
-| Target / 部位 | Planned / 计划 | Returned / 返回 | Mean mm / 均值 | Median mm / 中位数 | P95 mm | Max mm / 最大值 |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| All / 全部 | 160 | 160 | 21.565 | 2.471 | 70.048 | 378.348 |
-| 盘面中心 | 40 | 40 | 1.865 | 1.584 | 2.706 | 3.143 |
-| 小烤碗碗口中心 | 20 | 20 | 1.702 | 1.657 | 1.977 | 3.204 |
-| 奶酪盒顶面中心 | 20 | 20 | 1.565 | 1.419 | 3.078 | 3.314 |
-| 汤罐罐顶中心 | 20 | 20 | 132.222 | 6.641 | 378.345 | 378.348 |
-| 黑碗碗口中心 | 30 | 30 | 3.810 | 3.285 | 7.420 | 8.470 |
-| 酒瓶瓶身主段中心 | 10 | 10 | 11.383 | 11.382 | 12.276 | 12.669 |
-| 灰白纹理杯杯口中心 | 5 | 5 | 69.707 | 69.831 | 70.107 | 70.123 |
-| 黄白杯杯口中心 | 10 | 10 | 2.517 | 2.456 | 2.832 | 2.913 |
-| 微波炉机身顶面中心 | 5 | 5 | 12.828 | 11.516 | 17.279 | 18.705 |
+Frozen initial-frame RGB-D, visual selections and segmentation masks were replayed. Every request was fitted again; no previous predicted coordinates were reused. No fresh visual-model inference or robot actions were performed. 本轮回放冻结的起始帧 RGB-D、视觉选点和分割掩码，逐项重新拟合，未复用旧预测坐标；未重新推理视觉模型或执行机器人动作。
+
+A returned point can fail quality checks. Inspect fit_accepted and warnings; fit residuals are not calibrated position errors. 返回坐标仍可能未通过质量检查，应读取 fit_accepted 和 warnings；拟合残差不是经过标定的位置误差。
+
+## Fit Quality / 拟合质量
+
+| Group / 分组 | Returned / 返回 | Mean mm / 均值 | Median mm / 中位数 | P95 mm | Max mm / 最大值 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Accepted / 通过检查 | 18 | 2.233 | 2.342 | 2.880 | 3.143 |
+| Warning / 带警告 | 142 | 23.749 | 2.498 | 70.119 | 378.348 |
+
+## Target Parts / 目标部位
+
+| Target / 部位 | Planned / 计划 | Returned / 返回 | Accepted / 通过 | Warning / 警告 | Mean mm / 均值 | Median mm / 中位数 | P95 mm | Max mm / 最大值 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| All / 全部 | 160 | 160 | 18 | 142 | 21.329 | 2.453 | 70.048 | 378.348 |
+| 盘面中心 | 40 | 40 | 14 | 26 | 1.865 | 1.584 | 2.706 | 3.143 |
+| 小烤碗碗口中心 | 20 | 20 | 0 | 20 | 1.732 | 1.657 | 2.347 | 3.204 |
+| 奶酪盒顶面中心 | 20 | 20 | 4 | 16 | 1.593 | 1.476 | 3.248 | 4.132 |
+| 汤罐罐顶中心 | 20 | 20 | 0 | 20 | 132.222 | 6.641 | 378.345 | 378.348 |
+| 黑碗碗口中心 | 30 | 30 | 0 | 30 | 3.422 | 3.250 | 5.299 | 6.533 |
+| 酒瓶瓶身主段中心 | 10 | 10 | 0 | 10 | 8.638 | 8.559 | 9.242 | 9.591 |
+| 灰白纹理杯杯口中心 | 5 | 5 | 0 | 5 | 69.707 | 69.831 | 70.107 | 70.123 |
+| 黄白杯杯口中心 | 10 | 10 | 0 | 10 | 2.517 | 2.456 | 2.832 | 2.913 |
+| 微波炉机身顶面中心 | 5 | 5 | 0 | 5 | 12.854 | 11.575 | 17.291 | 18.705 |
 
 ## Per-request coordinates / 逐项坐标
 
-| Request | Predicted XYZ m / 测量坐标 | Reference XYZ m / 参考坐标 | Error mm / 误差 | Status / 状态 |
-| --- | --- | --- | ---: | --- |
-| libero_spatial_task_t0_s1/A | 0.073508, 0.105514, 0.913630 | 0.073641, 0.106090, 0.912113 | 1.629 | usable |
-| libero_spatial_task_t0_s1/B | -0.205988, 0.185335, 0.941737 | -0.207352, 0.186138, 0.941991 | 1.603 | usable |
-| libero_spatial_task_t0_s2/A | 0.078235, 0.171926, 0.908161 | 0.078329, 0.172404, 0.906725 | 1.517 | usable |
-| libero_spatial_task_t0_s2/B | -0.196100, 0.207794, 0.941663 | -0.198459, 0.209937, 0.941991 | 3.204 | usable |
-| libero_spatial_task_t0_s3/A | 0.062480, 0.197671, 0.908185 | 0.062677, 0.198338, 0.906725 | 1.617 | usable |
-| libero_spatial_task_t0_s3/B | -0.207309, 0.203012, 0.941710 | -0.208812, 0.203957, 0.941991 | 1.797 | usable |
-| libero_spatial_task_t0_s4/A | 0.059407, 0.263079, 0.908793 | 0.059943, 0.261844, 0.906725 | 2.468 | usable |
-| libero_spatial_task_t0_s4/B | -0.214938, 0.185502, 0.941753 | -0.216121, 0.186455, 0.941991 | 1.537 | usable |
-| libero_spatial_task_t0_s5/A | 0.052463, 0.212013, 0.908193 | 0.052513, 0.212694, 0.906725 | 1.619 | usable |
-| libero_spatial_task_t0_s5/B | -0.203988, 0.193207, 0.941770 | -0.204988, 0.194116, 0.941991 | 1.369 | usable |
-| libero_spatial_task_t4_s1/A | 0.049250, 0.197103, 0.908194 | 0.049296, 0.197761, 0.906725 | 1.610 | usable |
-| libero_spatial_task_t4_s1/B | -0.204157, 0.198402, 0.941656 | -0.205769, 0.199374, 0.941991 | 1.913 | usable |
-| libero_spatial_task_t4_s2/A | 0.057885, 0.200418, 0.908184 | 0.058119, 0.200924, 0.906725 | 1.562 | usable |
-| libero_spatial_task_t4_s2/B | -0.198818, 0.197675, 0.941752 | -0.200262, 0.198559, 0.941991 | 1.710 | usable |
-| libero_spatial_task_t4_s3/A | 0.056226, 0.203031, 0.908176 | 0.056440, 0.203668, 0.906725 | 1.599 | usable |
-| libero_spatial_task_t4_s3/B | -0.200108, 0.201516, 0.941798 | -0.201454, 0.202462, 0.941991 | 1.656 | usable |
-| libero_spatial_task_t4_s4/A | 0.056982, 0.211533, 0.908189 | 0.057240, 0.212079, 0.906725 | 1.584 | usable |
-| libero_spatial_task_t4_s4/B | -0.206079, 0.198559, 0.941804 | -0.207432, 0.199559, 0.941991 | 1.693 | usable |
-| libero_spatial_task_t4_s5/A | 0.069421, 0.212289, 0.908781 | 0.069744, 0.212496, 0.906725 | 2.092 | usable |
-| libero_spatial_task_t4_s5/B | -0.212061, 0.201662, 0.941663 | -0.213444, 0.202613, 0.941991 | 1.710 | usable |
-| libero_spatial_swap_t0_s1/A | 0.057073, 0.038184, 0.908184 | 0.056979, 0.038536, 0.906725 | 1.503 | usable |
-| libero_spatial_swap_t0_s1/B | -0.197194, 0.198891, 0.941738 | -0.198306, 0.199810, 0.941991 | 1.465 | usable |
-| libero_spatial_swap_t0_s2/A | 0.075653, 0.040247, 0.908187 | 0.075749, 0.040538, 0.906725 | 1.494 | usable |
-| libero_spatial_swap_t0_s2/B | -0.210836, 0.209062, 0.941875 | -0.211930, 0.209975, 0.941991 | 1.430 | usable |
-| libero_spatial_swap_t0_s3/A | 0.084726, 0.026176, 0.908187 | 0.084835, 0.026504, 0.906725 | 1.502 | usable |
-| libero_spatial_swap_t0_s3/B | -0.198797, 0.195694, 0.941866 | -0.199757, 0.196612, 0.941991 | 1.334 | usable |
-| libero_spatial_swap_t0_s4/A | 0.058646, 0.017771, 0.908186 | 0.058689, 0.017994, 0.906725 | 1.479 | usable |
-| libero_spatial_swap_t0_s4/B | -0.204719, 0.195360, 0.941755 | -0.206100, 0.196247, 0.941991 | 1.658 | usable |
-| libero_spatial_swap_t0_s5/A | 0.059563, 0.031393, 0.908174 | 0.059656, 0.031824, 0.906725 | 1.514 | usable |
-| libero_spatial_swap_t0_s5/B | -0.208207, 0.196472, 0.941765 | -0.209624, 0.197430, 0.941991 | 1.726 | usable |
-| libero_spatial_swap_t4_s1/A | 0.083993, 0.028590, 0.908177 | 0.083961, 0.028870, 0.906725 | 1.479 | usable |
-| libero_spatial_swap_t4_s1/B | -0.201630, 0.199032, 0.941898 | -0.202818, 0.199931, 0.941991 | 1.493 | usable |
-| libero_spatial_swap_t4_s2/A | 0.081262, 0.021508, 0.908154 | 0.081224, 0.021772, 0.906725 | 1.454 | usable |
-| libero_spatial_swap_t4_s2/B | -0.185839, 0.187137, 0.941655 | -0.187249, 0.188168, 0.941991 | 1.779 | usable |
-| libero_spatial_swap_t4_s3/A | 0.066362, 0.039721, 0.908170 | 0.066333, 0.040144, 0.906725 | 1.506 | usable |
-| libero_spatial_swap_t4_s3/B | -0.185073, 0.207242, 0.941599 | -0.186286, 0.208121, 0.941991 | 1.548 | usable |
-| libero_spatial_swap_t4_s4/A | 0.063375, 0.043616, 0.908178 | 0.063628, 0.044090, 0.906725 | 1.549 | usable |
-| libero_spatial_swap_t4_s4/B | -0.197636, 0.204498, 0.941777 | -0.199092, 0.205487, 0.941991 | 1.773 | usable |
-| libero_spatial_swap_t4_s5/A | 0.065560, 0.036493, 0.908176 | 0.065391, 0.037044, 0.906725 | 1.561 | usable |
-| libero_spatial_swap_t4_s5/B | -0.209490, 0.202371, 0.941799 | -0.210788, 0.203355, 0.941991 | 1.641 | usable |
-| libero_object_task_t0_s1/A | -0.154703, 0.057616, 0.018804 | -0.154550, 0.056758, 0.018066 | 1.142 | usable |
-| libero_object_task_t0_s1/B | -0.125788, -0.244488, 0.072862 | -0.118476, -0.243307, 0.071767 | 7.488 | usable |
-| libero_object_task_t0_s2/A | -0.150382, 0.063646, 0.018796 | -0.150869, 0.062898, 0.018066 | 1.153 | usable |
-| libero_object_task_t0_s2/B | 0.145419, 0.027808, 0.072592 | -0.118476, -0.243307, 0.071767 | 378.345 | usable |
-| libero_object_task_t0_s3/A | -0.146302, 0.061232, 0.018799 | -0.146457, 0.060546, 0.018066 | 1.016 | usable |
-| libero_object_task_t0_s3/B | 0.145421, 0.027811, 0.072596 | -0.118476, -0.243307, 0.071767 | 378.348 | usable |
-| libero_object_task_t0_s4/A | -0.149836, 0.061001, 0.018723 | -0.150912, 0.062002, 0.018066 | 1.610 | usable |
-| libero_object_task_t0_s4/B | -0.125712, -0.244836, 0.072883 | -0.118476, -0.243307, 0.071767 | 7.480 | usable |
-| libero_object_task_t0_s5/A | -0.150961, 0.059879, 0.018808 | -0.152384, 0.059321, 0.018066 | 1.699 | usable |
-| libero_object_task_t0_s5/B | -0.125699, -0.244721, 0.072832 | -0.118476, -0.243307, 0.071767 | 7.437 | usable |
-| libero_object_task_t4_s1/A | 0.152311, 0.029382, 0.018641 | 0.153949, 0.029085, 0.018066 | 1.762 | usable |
-| libero_object_task_t4_s1/B | 0.095835, -0.204250, 0.072643 | 0.101524, -0.203307, 0.071767 | 5.833 | usable |
-| libero_object_task_t4_s2/A | 0.155602, 0.025809, 0.018470 | 0.154507, 0.026240, 0.018066 | 1.244 | usable |
-| libero_object_task_t4_s2/B | 0.095834, -0.204255, 0.072645 | 0.101524, -0.203307, 0.071767 | 5.835 | usable |
-| libero_object_task_t4_s3/A | 0.152169, 0.030535, 0.018474 | 0.150881, 0.030870, 0.018066 | 1.392 | usable |
-| libero_object_task_t4_s3/B | 0.095834, -0.204255, 0.072645 | 0.101524, -0.203307, 0.071767 | 5.835 | usable |
-| libero_object_task_t4_s4/A | 0.148987, 0.034175, 0.018505 | 0.147996, 0.034838, 0.018066 | 1.271 | usable |
-| libero_object_task_t4_s4/B | 0.095849, -0.204311, 0.072632 | 0.101524, -0.203307, 0.071767 | 5.828 | usable |
-| libero_object_task_t4_s5/A | 0.156012, 0.032420, 0.018666 | 0.153872, 0.033581, 0.018066 | 2.507 | usable |
-| libero_object_task_t4_s5/B | 0.095835, -0.204251, 0.072639 | 0.101524, -0.203307, 0.071767 | 5.832 | usable |
-| libero_object_swap_t0_s1/A | -0.146457, 0.063738, 0.018787 | -0.146726, 0.062495, 0.018066 | 1.462 | usable |
-| libero_object_swap_t0_s1/B | 0.145420, 0.027804, 0.072578 | -0.198476, -0.083307, 0.071767 | 361.401 | usable |
-| libero_object_swap_t0_s2/A | -0.149166, 0.061672, 0.018804 | -0.150283, 0.061127, 0.018066 | 1.445 | usable |
-| libero_object_swap_t0_s2/B | 0.145420, 0.027804, 0.072581 | -0.198476, -0.083307, 0.071767 | 361.401 | usable |
-| libero_object_swap_t0_s3/A | -0.153977, 0.062017, 0.018803 | -0.153905, 0.061228, 0.018066 | 1.082 | usable |
-| libero_object_swap_t0_s3/B | 0.145420, 0.027810, 0.072598 | -0.198476, -0.083307, 0.071767 | 361.402 | usable |
-| libero_object_swap_t0_s4/A | -0.151223, 0.063387, 0.018787 | -0.152438, 0.062279, 0.018066 | 1.796 | usable |
-| libero_object_swap_t0_s4/B | 0.145420, 0.027810, 0.072583 | -0.198476, -0.083307, 0.071767 | 361.403 | usable |
-| libero_object_swap_t0_s5/A | -0.147248, 0.055411, 0.018823 | -0.146871, 0.055730, 0.018066 | 0.904 | usable |
-| libero_object_swap_t0_s5/B | 0.145422, 0.027805, 0.072586 | -0.198476, -0.083307, 0.071767 | 361.403 | usable |
-| libero_object_swap_t4_s1/A | -0.116006, -0.239055, 0.018713 | -0.116354, -0.239346, 0.018066 | 0.791 | usable |
-| libero_object_swap_t4_s1/B | 0.095832, -0.204254, 0.072660 | 0.101524, -0.203307, 0.071767 | 5.839 | usable |
-| libero_object_swap_t4_s2/A | -0.112894, -0.239527, 0.018777 | -0.115791, -0.240237, 0.018066 | 3.066 | usable |
-| libero_object_swap_t4_s2/B | 0.095830, -0.204270, 0.072670 | 0.101524, -0.203307, 0.071767 | 5.845 | usable |
-| libero_object_swap_t4_s3/A | -0.118695, -0.237424, 0.018526 | -0.120229, -0.237564, 0.018066 | 1.607 | usable |
-| libero_object_swap_t4_s3/B | 0.095833, -0.204253, 0.072653 | 0.101524, -0.203307, 0.071767 | 5.837 | usable |
-| libero_object_swap_t4_s4/A | -0.112895, -0.234846, 0.018783 | -0.116125, -0.235042, 0.018066 | 3.314 | usable |
-| libero_object_swap_t4_s4/B | 0.095836, -0.204253, 0.072650 | 0.101524, -0.203307, 0.071767 | 5.834 | usable |
-| libero_object_swap_t4_s5/A | -0.119852, -0.242117, 0.018685 | -0.120666, -0.242334, 0.018066 | 1.045 | usable |
-| libero_object_swap_t4_s5/B | 0.095853, -0.204311, 0.072622 | 0.101524, -0.203307, 0.071767 | 5.822 | usable |
-| libero_goal_task_t0_s1/A | 0.052380, -0.024863, 0.908780 | 0.053400, -0.025825, 0.906725 | 2.488 | usable |
-| libero_goal_task_t0_s1/B | -0.096308, 0.009117, 0.946894 | -0.098023, 0.009019, 0.950109 | 3.645 | usable |
-| libero_goal_task_t0_s2/A | 0.044969, -0.008525, 0.908180 | 0.045172, -0.008046, 0.906725 | 1.546 | usable |
-| libero_goal_task_t0_s2/B | -0.102321, 0.004384, 0.947951 | -0.102732, 0.004312, 0.950109 | 2.199 | usable |
-| libero_goal_task_t0_s3/A | 0.051099, -0.025338, 0.908737 | 0.051960, -0.024631, 0.906725 | 2.300 | usable |
-| libero_goal_task_t0_s3/B | -0.098593, -0.000881, 0.947732 | -0.099964, -0.000838, 0.950109 | 2.745 | usable |
-| libero_goal_task_t0_s4/A | 0.045065, -0.008073, 0.908757 | 0.046300, -0.006532, 0.906725 | 2.834 | usable |
-| libero_goal_task_t0_s4/B | -0.089125, 0.001640, 0.946187 | -0.091847, 0.001819, 0.950109 | 4.778 | usable |
-| libero_goal_task_t0_s5/A | 0.050197, -0.027938, 0.908819 | 0.051638, -0.028845, 0.906725 | 2.699 | usable |
-| libero_goal_task_t0_s5/B | -0.090827, 0.014589, 0.947342 | -0.092531, 0.014660, 0.950109 | 3.251 | usable |
-| libero_goal_task_t7_s1/A | 0.057421, -0.026357, 0.908762 | 0.057961, -0.026145, 0.906725 | 2.118 | usable |
-| libero_goal_task_t7_s1/B | -0.074294, -0.010843, 0.947148 | -0.075631, -0.010803, 0.950109 | 3.249 | usable |
-| libero_goal_task_t7_s2/A | 0.044374, -0.020046, 0.908219 | 0.044567, -0.019555, 0.906725 | 1.585 | usable |
-| libero_goal_task_t7_s2/B | -0.094007, -0.001140, 0.947437 | -0.095594, -0.001151, 0.950109 | 3.108 | usable |
-| libero_goal_task_t7_s3/A | 0.060086, -0.027020, 0.908803 | 0.061655, -0.026759, 0.906725 | 2.617 | usable |
-| libero_goal_task_t7_s3/B | -0.086966, 0.001649, 0.947011 | -0.089483, 0.001746, 0.950109 | 3.993 | usable |
-| libero_goal_task_t7_s4/A | 0.055642, -0.031606, 0.908824 | 0.056223, -0.032579, 0.906725 | 2.385 | usable |
-| libero_goal_task_t7_s4/B | -0.094586, -0.007133, 0.948073 | -0.094561, -0.007104, 0.950109 | 2.037 | usable |
-| libero_goal_task_t7_s5/A | 0.049259, -0.015945, 0.908196 | 0.049289, -0.015508, 0.906725 | 1.535 | usable |
-| libero_goal_task_t7_s5/B | -0.090785, 0.010785, 0.947315 | -0.092296, 0.010682, 0.950109 | 3.179 | usable |
-| libero_goal_swap_t0_s1/A | 0.049509, -0.013448, 0.908220 | 0.049697, -0.013228, 0.906725 | 1.523 | usable |
-| libero_goal_swap_t0_s1/B | -0.099127, 0.014742, 0.947844 | -0.100196, 0.014802, 0.950109 | 2.506 | usable |
-| libero_goal_swap_t0_s2/A | 0.042095, -0.006375, 0.908188 | 0.042003, -0.006018, 0.906725 | 1.509 | usable |
-| libero_goal_swap_t0_s2/B | -0.084632, -0.001722, 0.948066 | -0.084546, -0.001534, 0.950109 | 2.054 | usable |
-| libero_goal_swap_t0_s3/A | 0.046048, -0.028100, 0.908168 | 0.046037, -0.027754, 0.906725 | 1.484 | usable |
-| libero_goal_swap_t0_s3/B | -0.080898, 0.000490, 0.946343 | -0.083660, 0.000574, 0.950109 | 4.671 | usable |
-| libero_goal_swap_t0_s4/A | 0.034676, -0.034420, 0.908847 | 0.035074, -0.033693, 0.906725 | 2.278 | usable |
-| libero_goal_swap_t0_s4/B | -0.095632, 0.013975, 0.948284 | -0.095707, 0.014160, 0.950109 | 1.837 | usable |
-| libero_goal_swap_t0_s5/A | 0.061437, -0.006029, 0.908748 | 0.060680, -0.006436, 0.906725 | 2.198 | usable |
-| libero_goal_swap_t0_s5/B | -0.095861, 0.012477, 0.947516 | -0.097686, 0.012567, 0.950109 | 3.172 | usable |
-| libero_goal_swap_t7_s1/A | 0.045114, -0.026954, 0.908183 | 0.045177, -0.026512, 0.906725 | 1.525 | usable |
-| libero_goal_swap_t7_s1/B | -0.099612, -0.002904, 0.946734 | -0.102433, -0.002833, 0.950109 | 4.399 | usable |
-| libero_goal_swap_t7_s2/A | 0.051185, -0.023091, 0.919128 | 0.052494, -0.022080, 0.917337 | 2.438 | usable |
-| libero_goal_swap_t7_s2/B | -0.073829, -0.008742, 0.947320 | -0.075705, -0.008820, 0.950109 | 3.362 | usable |
-| libero_goal_swap_t7_s3/A | 0.059345, -0.034222, 0.908170 | 0.059433, -0.034100, 0.906725 | 1.453 | usable |
-| libero_goal_swap_t7_s3/B | -0.073476, -0.005498, 0.947279 | -0.075499, -0.005554, 0.950109 | 3.480 | usable |
-| libero_goal_swap_t7_s4/A | 0.056746, -0.014138, 0.920919 | 0.058739, -0.012092, 0.919606 | 3.143 | usable |
-| libero_goal_swap_t7_s4/B | -0.084388, 0.001057, 0.947386 | -0.085956, 0.001044, 0.950109 | 3.143 | usable |
-| libero_goal_swap_t7_s5/A | 0.040033, -0.012946, 0.917921 | 0.041701, -0.012621, 0.915933 | 2.615 | usable |
-| libero_goal_swap_t7_s5/B | -0.099651, -0.002242, 0.945951 | -0.102211, -0.002260, 0.950109 | 4.883 | usable |
-| libero_10_task_t3_s1/A | 0.021209, -0.064470, 0.943791 | 0.017531, -0.064537, 0.950109 | 7.311 | usable |
-| libero_10_task_t3_s1/B | -0.152598, 0.069704, 0.941648 | -0.151846, 0.069941, 0.930218 | 11.457 | usable |
-| libero_10_task_t3_s2/A | 0.045428, -0.048360, 0.942894 | 0.040996, -0.048193, 0.950109 | 8.470 | usable |
-| libero_10_task_t3_s2/B | -0.162540, 0.050775, 0.940266 | -0.161983, 0.051130, 0.930218 | 10.070 | usable |
-| libero_10_task_t3_s3/A | 0.029511, -0.060043, 0.945986 | 0.028546, -0.060057, 0.950109 | 4.235 | usable |
-| libero_10_task_t3_s3/B | -0.141890, 0.043238, 0.941305 | -0.141286, 0.043584, 0.930218 | 11.109 | usable |
-| libero_10_task_t3_s4/A | 0.044087, -0.061192, 0.943657 | 0.040248, -0.061345, 0.950109 | 7.510 | usable |
-| libero_10_task_t3_s4/B | -0.148714, 0.062143, 0.941173 | -0.148738, 0.062730, 0.930218 | 10.971 | usable |
-| libero_10_task_t3_s5/A | 0.027130, -0.067559, 0.944218 | 0.024310, -0.067435, 0.950109 | 6.533 | usable |
-| libero_10_task_t3_s5/B | -0.129864, 0.026479, 0.941817 | -0.129255, 0.026760, 0.930218 | 11.618 | usable |
-| libero_10_task_t9_s1/A | -0.123691, -0.234534, 0.956387 | -0.125001, -0.277398, 1.011867 | 70.123 | usable |
-| libero_10_task_t9_s1/B | -0.008913, 0.011266, 1.002226 | -0.010686, 0.011278, 1.003844 | 2.401 | usable |
-| libero_10_task_t9_s2/A | -0.115951, -0.214752, 0.956772 | -0.116948, -0.256362, 1.011867 | 69.050 | usable |
-| libero_10_task_t9_s2/B | 0.006060, 0.034008, 1.002031 | 0.004488, 0.034152, 1.003844 | 2.404 | usable |
-| libero_10_task_t9_s3/A | -0.084599, -0.201582, 0.955951 | -0.085441, -0.243759, 1.011867 | 70.044 | usable |
-| libero_10_task_t9_s3/B | -0.003322, 0.031678, 1.002054 | -0.005124, 0.031830, 1.003844 | 2.544 | usable |
-| libero_10_task_t9_s4/A | -0.076849, -0.238749, 0.956648 | -0.077945, -0.280918, 1.011867 | 69.489 | usable |
-| libero_10_task_t9_s4/B | 0.006500, 0.008441, 1.001641 | 0.004595, 0.008425, 1.003844 | 2.913 | usable |
-| libero_10_task_t9_s5/A | -0.085968, -0.248754, 0.956526 | -0.087195, -0.291323, 1.011867 | 69.831 | usable |
-| libero_10_task_t9_s5/B | -0.017755, 0.010332, 1.002025 | -0.019377, 0.010334, 1.003844 | 2.437 | usable |
-| libero_10_swap_t3_s1/A | -0.168789, 0.066565, 0.947443 | -0.170748, 0.066817, 0.950109 | 3.318 | usable |
-| libero_10_swap_t3_s1/B | 0.022937, -0.069406, 0.941513 | 0.023411, -0.069176, 0.930218 | 11.307 | usable |
-| libero_10_swap_t3_s2/A | -0.150255, 0.031391, 0.947887 | -0.151446, 0.031668, 0.950109 | 2.537 | usable |
-| libero_10_swap_t3_s2/B | 0.049968, -0.045253, 0.942856 | 0.050822, -0.045044, 0.930218 | 12.669 | usable |
-| libero_10_swap_t3_s3/A | -0.143602, 0.050762, 0.948069 | -0.145027, 0.050852, 0.950109 | 2.491 | usable |
-| libero_10_swap_t3_s3/B | 0.005170, -0.044556, 0.941346 | 0.005877, -0.044326, 0.930218 | 11.153 | usable |
-| libero_10_swap_t3_s4/A | -0.161282, 0.074027, 0.948476 | -0.162417, 0.074190, 0.950109 | 1.996 | usable |
-| libero_10_swap_t3_s4/B | 0.016757, -0.027882, 0.941877 | 0.017389, -0.027592, 0.930218 | 11.680 | usable |
-| libero_10_swap_t3_s5/A | -0.136159, 0.062794, 0.946778 | -0.138712, 0.063152, 0.950109 | 4.212 | usable |
-| libero_10_swap_t3_s5/B | 0.032152, -0.028261, 0.942001 | 0.032604, -0.027949, 0.930218 | 11.796 | usable |
-| libero_10_swap_t9_s1/A | -0.001883, 0.012948, 1.002179 | -0.003349, 0.013052, 1.003844 | 2.221 | usable |
-| libero_10_swap_t9_s1/B | -0.110658, -0.241603, 1.107402 | -0.112332, -0.252328, 1.106911 | 10.866 | usable |
-| libero_10_swap_t9_s2/A | 0.021070, 0.002480, 1.001854 | 0.019197, 0.002434, 1.003844 | 2.734 | usable |
-| libero_10_swap_t9_s2/B | -0.101571, -0.250608, 1.107404 | -0.104295, -0.261744, 1.106911 | 11.475 | usable |
-| libero_10_swap_t9_s3/A | -0.011813, 0.030825, 1.001971 | -0.013657, 0.030977, 1.003844 | 2.632 | usable |
-| libero_10_swap_t9_s3/B | -0.077839, -0.232174, 1.107378 | -0.080906, -0.243264, 1.106911 | 11.516 | usable |
-| libero_10_swap_t9_s4/A | -0.012803, 0.037629, 1.001998 | -0.014446, 0.037757, 1.003844 | 2.475 | usable |
-| libero_10_swap_t9_s4/B | -0.094588, -0.243717, 1.107381 | -0.097680, -0.254862, 1.106911 | 11.575 | usable |
-| libero_10_swap_t9_s5/A | 0.011695, 0.009507, 1.002091 | 0.010041, 0.009605, 1.003844 | 2.412 | usable |
-| libero_10_swap_t9_s5/B | -0.062289, -0.216308, 1.107380 | -0.077538, -0.227131, 1.106911 | 18.705 | usable |
+| Request | Predicted XYZ m / 测量坐标 | Reference XYZ m / 参考坐标 | Error mm / 误差 | Status / 状态 | Accepted / 通过 | Warnings or reason / 警告或原因 |
+| --- | --- | --- | ---: | --- | --- | --- |
+| libero_spatial_task_t0_s1/A | 0.0735076, 0.1055144, 0.9136303 | 0.0736415, 0.1060895, 0.9121126 | 1.629 | warning | False | physical_boundary_not_verified |
+| libero_spatial_task_t0_s1/B | -0.2059881, 0.1853347, 0.9417370 | -0.2073519, 0.1861381, 0.9419907 | 1.603 | warning | False | insufficient_circle_angular_coverage, circle_inconsistent_with_part_anchor |
+| libero_spatial_task_t0_s2/A | 0.0782353, 0.1719255, 0.9081614 | 0.0783293, 0.1724044, 0.9067250 | 1.517 | warning | False | physical_boundary_not_verified |
+| libero_spatial_task_t0_s2/B | -0.1960998, 0.2077942, 0.9416631 | -0.1984590, 0.2099368, 0.9419906 | 3.204 | warning | False | insufficient_circle_angular_coverage, circle_inconsistent_with_part_anchor |
+| libero_spatial_task_t0_s3/A | 0.0624796, 0.1976707, 0.9081852 | 0.0626770, 0.1983377, 0.9067250 | 1.617 | warning | False | physical_boundary_not_verified |
+| libero_spatial_task_t0_s3/B | -0.2073091, 0.2030121, 0.9417104 | -0.2088115, 0.2039570, 0.9419906 | 1.797 | warning | False | insufficient_circle_angular_coverage, circle_inconsistent_with_part_anchor |
+| libero_spatial_task_t0_s4/A | 0.0594071, 0.2630788, 0.9087933 | 0.0599429, 0.2618442, 0.9067250 | 2.468 | usable | True | — |
+| libero_spatial_task_t0_s4/B | -0.2149383, 0.1855015, 0.9417529 | -0.2161205, 0.1864548, 0.9419906 | 1.537 | warning | False | insufficient_circle_angular_coverage, circle_inconsistent_with_part_anchor |
+| libero_spatial_task_t0_s5/A | 0.0524627, 0.2120125, 0.9081927 | 0.0525128, 0.2126940, 0.9067250 | 1.619 | warning | False | physical_boundary_not_verified |
+| libero_spatial_task_t0_s5/B | -0.2039882, 0.1932070, 0.9417698 | -0.2049875, 0.1941164, 0.9419906 | 1.369 | warning | False | insufficient_circle_angular_coverage, circle_inconsistent_with_part_anchor |
+| libero_spatial_task_t4_s1/A | 0.0492499, 0.1971033, 0.9081941 | 0.0492955, 0.1977607, 0.9067250 | 1.610 | warning | False | physical_boundary_not_verified |
+| libero_spatial_task_t4_s1/B | -0.2041566, 0.1984019, 0.9416558 | -0.2057693, 0.1993741, 0.9419906 | 1.913 | warning | False | insufficient_circle_angular_coverage, circle_inconsistent_with_part_anchor |
+| libero_spatial_task_t4_s2/A | 0.0578849, 0.2004178, 0.9081836 | 0.0581190, 0.2009242, 0.9067250 | 1.562 | warning | False | physical_boundary_not_verified |
+| libero_spatial_task_t4_s2/B | -0.1988181, 0.1976746, 0.9417521 | -0.2002617, 0.1985589, 0.9419906 | 1.710 | warning | False | insufficient_circle_angular_coverage, circle_inconsistent_with_part_anchor |
+| libero_spatial_task_t4_s3/A | 0.0562258, 0.2030312, 0.9081764 | 0.0564397, 0.2036681, 0.9067250 | 1.599 | warning | False | physical_boundary_not_verified |
+| libero_spatial_task_t4_s3/B | -0.2001077, 0.2015164, 0.9417982 | -0.2014541, 0.2024617, 0.9419906 | 1.656 | warning | False | insufficient_circle_angular_coverage, circle_inconsistent_with_part_anchor |
+| libero_spatial_task_t4_s4/A | 0.0569816, 0.2115329, 0.9081894 | 0.0572397, 0.2120792, 0.9067250 | 1.584 | warning | False | physical_boundary_not_verified |
+| libero_spatial_task_t4_s4/B | -0.2074268, 0.1983683, 0.9400206 | -0.2074317, 0.1995590, 0.9419906 | 2.302 | warning | False | insufficient_circle_angular_coverage, noncircular_boundary_residual, circle_inconsistent_with_part_anchor |
+| libero_spatial_task_t4_s5/A | 0.0694208, 0.2122886, 0.9087811 | 0.0697440, 0.2124956, 0.9067250 | 2.092 | usable | True | — |
+| libero_spatial_task_t4_s5/B | -0.2120606, 0.2016619, 0.9416628 | -0.2134435, 0.2026131, 0.9419906 | 1.710 | warning | False | insufficient_circle_angular_coverage, circle_inconsistent_with_part_anchor |
+| libero_spatial_swap_t0_s1/A | 0.0570727, 0.0381844, 0.9081835 | 0.0569786, 0.0385363, 0.9067250 | 1.503 | warning | False | physical_boundary_not_verified |
+| libero_spatial_swap_t0_s1/B | -0.1971942, 0.1988907, 0.9417383 | -0.1983063, 0.1998101, 0.9419906 | 1.465 | warning | False | insufficient_circle_angular_coverage, circle_inconsistent_with_part_anchor |
+| libero_spatial_swap_t0_s2/A | 0.0756527, 0.0402468, 0.9081871 | 0.0757489, 0.0405382, 0.9067250 | 1.494 | warning | False | physical_boundary_not_verified |
+| libero_spatial_swap_t0_s2/B | -0.2108356, 0.2090621, 0.9418747 | -0.2119302, 0.2099754, 0.9419906 | 1.430 | warning | False | insufficient_circle_angular_coverage, circle_inconsistent_with_part_anchor |
+| libero_spatial_swap_t0_s3/A | 0.0847264, 0.0261758, 0.9081868 | 0.0848353, 0.0265043, 0.9067250 | 1.502 | warning | False | physical_boundary_not_verified |
+| libero_spatial_swap_t0_s3/B | -0.1987970, 0.1956940, 0.9418658 | -0.1997568, 0.1966116, 0.9419906 | 1.334 | warning | False | insufficient_circle_angular_coverage, circle_inconsistent_with_part_anchor |
+| libero_spatial_swap_t0_s4/A | 0.0586462, 0.0177713, 0.9081860 | 0.0586886, 0.0179944, 0.9067250 | 1.479 | warning | False | physical_boundary_not_verified |
+| libero_spatial_swap_t0_s4/B | -0.2047185, 0.1953604, 0.9417548 | -0.2060998, 0.1962470, 0.9419906 | 1.658 | warning | False | insufficient_circle_angular_coverage, circle_inconsistent_with_part_anchor |
+| libero_spatial_swap_t0_s5/A | 0.0595635, 0.0313935, 0.9081739 | 0.0596562, 0.0318241, 0.9067250 | 1.514 | warning | False | physical_boundary_not_verified |
+| libero_spatial_swap_t0_s5/B | -0.2082070, 0.1964716, 0.9417654 | -0.2096242, 0.1974303, 0.9419906 | 1.726 | warning | False | insufficient_circle_angular_coverage, circle_inconsistent_with_part_anchor |
+| libero_spatial_swap_t4_s1/A | 0.0839926, 0.0285897, 0.9081769 | 0.0839610, 0.0288698, 0.9067250 | 1.479 | warning | False | physical_boundary_not_verified |
+| libero_spatial_swap_t4_s1/B | -0.2016298, 0.1990318, 0.9418979 | -0.2028182, 0.1999313, 0.9419906 | 1.493 | warning | False | insufficient_circle_angular_coverage, circle_inconsistent_with_part_anchor |
+| libero_spatial_swap_t4_s2/A | 0.0812624, 0.0215081, 0.9081545 | 0.0812238, 0.0217722, 0.9067250 | 1.454 | warning | False | physical_boundary_not_verified |
+| libero_spatial_swap_t4_s2/B | -0.1858389, 0.1871368, 0.9416546 | -0.1872488, 0.1881678, 0.9419906 | 1.779 | warning | False | insufficient_circle_angular_coverage |
+| libero_spatial_swap_t4_s3/A | 0.0663622, 0.0397213, 0.9081702 | 0.0663335, 0.0401441, 0.9067250 | 1.506 | warning | False | physical_boundary_not_verified |
+| libero_spatial_swap_t4_s3/B | -0.1850734, 0.2072418, 0.9415992 | -0.1862863, 0.2081210, 0.9419906 | 1.548 | warning | False | insufficient_circle_angular_coverage, circle_inconsistent_with_part_anchor |
+| libero_spatial_swap_t4_s4/A | 0.0633754, 0.0436158, 0.9081778 | 0.0636280, 0.0440895, 0.9067250 | 1.549 | warning | False | physical_boundary_not_verified |
+| libero_spatial_swap_t4_s4/B | -0.1976358, 0.2044982, 0.9417775 | -0.1990921, 0.2054869, 0.9419906 | 1.773 | warning | False | insufficient_circle_angular_coverage, circle_inconsistent_with_part_anchor |
+| libero_spatial_swap_t4_s5/A | 0.0655601, 0.0364927, 0.9081760 | 0.0653911, 0.0370440, 0.9067250 | 1.561 | warning | False | physical_boundary_not_verified |
+| libero_spatial_swap_t4_s5/B | -0.2094897, 0.2023706, 0.9417986 | -0.2107882, 0.2033546, 0.9419906 | 1.641 | warning | False | insufficient_circle_angular_coverage |
+| libero_object_task_t0_s1/A | -0.1549039, 0.0564487, 0.0188319 | -0.1545503, 0.0567581, 0.0180659 | 0.899 | warning | False | four_complete_physical_edges_not_observed, physical_boundary_not_verified |
+| libero_object_task_t0_s1/B | -0.1257882, -0.2444875, 0.0728620 | -0.1184758, -0.2433067, 0.0717673 | 7.488 | warning | False | noncircular_boundary_residual |
+| libero_object_task_t0_s2/A | -0.1508713, 0.0643108, 0.0187813 | -0.1508688, 0.0628983, 0.0180659 | 1.583 | warning | False | four_complete_physical_edges_not_observed, physical_boundary_not_verified |
+| libero_object_task_t0_s2/B | 0.1454194, 0.0278081, 0.0725921 | -0.1184758, -0.2433067, 0.0717673 | 378.345 | warning | False | noncircular_boundary_residual |
+| libero_object_task_t0_s3/A | -0.1463017, 0.0612317, 0.0187991 | -0.1464570, 0.0605456, 0.0180659 | 1.016 | warning | False | four_complete_physical_edges_not_observed, physical_boundary_not_verified |
+| libero_object_task_t0_s3/B | 0.1454210, 0.0278111, 0.0725961 | -0.1184758, -0.2433067, 0.0717673 | 378.348 | warning | False | noncircular_boundary_residual |
+| libero_object_task_t0_s4/A | -0.1498359, 0.0610005, 0.0187226 | -0.1509115, 0.0620019, 0.0180659 | 1.610 | warning | False | four_complete_physical_edges_not_observed |
+| libero_object_task_t0_s4/B | -0.1257124, -0.2448358, 0.0728827 | -0.1184758, -0.2433067, 0.0717673 | 7.480 | warning | False | noncircular_boundary_residual |
+| libero_object_task_t0_s5/A | -0.1519205, 0.0608862, 0.0187857 | -0.1523837, 0.0593208, 0.0180659 | 1.784 | warning | False | four_complete_physical_edges_not_observed, physical_boundary_not_verified |
+| libero_object_task_t0_s5/B | -0.1256992, -0.2447209, 0.0728322 | -0.1184758, -0.2433067, 0.0717673 | 7.437 | warning | False | noncircular_boundary_residual |
+| libero_object_task_t4_s1/A | 0.1523401, 0.0294842, 0.0186381 | 0.1539493, 0.0290846, 0.0180659 | 1.754 | warning | False | insufficient_physical_rectangle_boundary, four_complete_physical_edges_not_observed |
+| libero_object_task_t4_s1/B | 0.0958347, -0.2042504, 0.0726433 | 0.1015242, -0.2033067, 0.0717673 | 5.833 | warning | False | noncircular_boundary_residual |
+| libero_object_task_t4_s2/A | 0.1556020, 0.0258090, 0.0184700 | 0.1545071, 0.0262399, 0.0180659 | 1.244 | usable | True | — |
+| libero_object_task_t4_s2/B | 0.0958340, -0.2042547, 0.0726446 | 0.1015242, -0.2033067, 0.0717673 | 5.835 | warning | False | noncircular_boundary_residual |
+| libero_object_task_t4_s3/A | 0.1521690, 0.0305347, 0.0184739 | 0.1508813, 0.0308703, 0.0180659 | 1.392 | usable | True | — |
+| libero_object_task_t4_s3/B | 0.0958340, -0.2042547, 0.0726446 | 0.1015242, -0.2033067, 0.0717673 | 5.835 | warning | False | noncircular_boundary_residual |
+| libero_object_task_t4_s4/A | 0.1489870, 0.0341751, 0.0185046 | 0.1479955, 0.0348375, 0.0180659 | 1.271 | usable | True | — |
+| libero_object_task_t4_s4/B | 0.0958486, -0.2043114, 0.0726320 | 0.1015242, -0.2033067, 0.0717673 | 5.828 | warning | False | noncircular_boundary_residual |
+| libero_object_task_t4_s5/A | 0.1567020, 0.0365535, 0.0185456 | 0.1538719, 0.0335809, 0.0180659 | 4.132 | warning | False | degenerate_plane_support, four_complete_physical_edges_not_observed, physical_boundary_not_verified |
+| libero_object_task_t4_s5/B | 0.0958350, -0.2042507, 0.0726385 | 0.1015242, -0.2033067, 0.0717673 | 5.832 | warning | False | noncircular_boundary_residual |
+| libero_object_swap_t0_s1/A | -0.1464571, 0.0637376, 0.0187870 | -0.1467256, 0.0624950, 0.0180659 | 1.462 | warning | False | four_complete_physical_edges_not_observed, physical_boundary_not_verified |
+| libero_object_swap_t0_s1/B | 0.1454205, 0.0278042, 0.0725780 | -0.1984758, -0.0833067, 0.0717673 | 361.401 | warning | False | noncircular_boundary_residual |
+| libero_object_swap_t0_s2/A | -0.1504881, 0.0625733, 0.0187853 | -0.1502828, 0.0611274, 0.0180659 | 1.628 | warning | False | four_complete_physical_edges_not_observed, physical_boundary_not_verified |
+| libero_object_swap_t0_s2/B | 0.1454201, 0.0278041, 0.0725806 | -0.1984758, -0.0833067, 0.0717673 | 361.401 | warning | False | noncircular_boundary_residual |
+| libero_object_swap_t0_s3/A | -0.1540060, 0.0618915, 0.0188055 | -0.1539051, 0.0612275, 0.0180659 | 0.999 | warning | False | four_complete_physical_edges_not_observed, physical_boundary_not_verified |
+| libero_object_swap_t0_s3/B | 0.1454196, 0.0278098, 0.0725979 | -0.1984758, -0.0833067, 0.0717673 | 361.402 | warning | False | noncircular_boundary_residual |
+| libero_object_swap_t0_s4/A | -0.1515375, 0.0632194, 0.0187912 | -0.1524382, 0.0622786, 0.0180659 | 1.491 | warning | False | insufficient_physical_rectangle_boundary, four_complete_physical_edges_not_observed |
+| libero_object_swap_t0_s4/B | 0.1454200, 0.0278097, 0.0725830 | -0.1984758, -0.0833067, 0.0717673 | 361.403 | warning | False | noncircular_boundary_residual |
+| libero_object_swap_t0_s5/A | -0.1470060, 0.0558959, 0.0188109 | -0.1468712, 0.0557300, 0.0180659 | 0.775 | warning | False | four_complete_physical_edges_not_observed, physical_boundary_not_verified |
+| libero_object_swap_t0_s5/B | 0.1454218, 0.0278053, 0.0725863 | -0.1984758, -0.0833067, 0.0717673 | 361.403 | warning | False | noncircular_boundary_residual |
+| libero_object_swap_t4_s1/A | -0.1160062, -0.2390549, 0.0187098 | -0.1163537, -0.2393465, 0.0180659 | 0.788 | warning | False | four_complete_physical_edges_not_observed |
+| libero_object_swap_t4_s1/B | 0.0958319, -0.2042541, 0.0726599 | 0.1015242, -0.2033067, 0.0717673 | 5.839 | warning | False | noncircular_boundary_residual |
+| libero_object_swap_t4_s2/A | -0.1128036, -0.2393294, 0.0187716 | -0.1157913, -0.2402366, 0.0180659 | 3.201 | warning | False | four_complete_physical_edges_not_observed, physical_boundary_not_verified |
+| libero_object_swap_t4_s2/B | 0.0958299, -0.2042695, 0.0726701 | 0.1015242, -0.2033067, 0.0717673 | 5.845 | warning | False | noncircular_boundary_residual |
+| libero_object_swap_t4_s3/A | -0.1186953, -0.2374242, 0.0185263 | -0.1202290, -0.2375640, 0.0180659 | 1.607 | usable | True | — |
+| libero_object_swap_t4_s3/B | 0.0958332, -0.2042528, 0.0726529 | 0.1015242, -0.2033067, 0.0717673 | 5.837 | warning | False | noncircular_boundary_residual |
+| libero_object_swap_t4_s4/A | -0.1143640, -0.2360767, 0.0188173 | -0.1161246, -0.2350421, 0.0180659 | 2.176 | warning | False | four_complete_physical_edges_not_observed, physical_boundary_not_verified |
+| libero_object_swap_t4_s4/B | 0.0958359, -0.2042527, 0.0726500 | 0.1015242, -0.2033067, 0.0717673 | 5.834 | warning | False | noncircular_boundary_residual |
+| libero_object_swap_t4_s5/A | -0.1198524, -0.2421167, 0.0186813 | -0.1206659, -0.2423337, 0.0180659 | 1.043 | warning | False | four_complete_physical_edges_not_observed |
+| libero_object_swap_t4_s5/B | 0.0958533, -0.2043106, 0.0726222 | 0.1015242, -0.2033067, 0.0717673 | 5.822 | warning | False | noncircular_boundary_residual |
+| libero_goal_task_t0_s1/A | 0.0523804, -0.0248630, 0.9087798 | 0.0534000, -0.0258252, 0.9067250 | 2.488 | usable | True | — |
+| libero_goal_task_t0_s1/B | -0.0963082, 0.0091174, 0.9468939 | -0.0980228, 0.0090189, 0.9501093 | 3.645 | warning | False | insufficient_circle_angular_coverage |
+| libero_goal_task_t0_s2/A | 0.0449691, -0.0085252, 0.9081803 | 0.0451724, -0.0080457, 0.9067250 | 1.546 | warning | False | physical_boundary_not_verified |
+| libero_goal_task_t0_s2/B | -0.1023209, 0.0043842, 0.9479505 | -0.1027318, 0.0043122, 0.9501093 | 2.199 | warning | False | insufficient_circle_angular_coverage |
+| libero_goal_task_t0_s3/A | 0.0510989, -0.0253380, 0.9087367 | 0.0519600, -0.0246307, 0.9067250 | 2.300 | usable | True | — |
+| libero_goal_task_t0_s3/B | -0.0985928, -0.0008813, 0.9477320 | -0.0999642, -0.0008382, 0.9501093 | 2.745 | warning | False | insufficient_circle_angular_coverage |
+| libero_goal_task_t0_s4/A | 0.0450646, -0.0080733, 0.9087568 | 0.0463002, -0.0065325, 0.9067250 | 2.834 | usable | True | — |
+| libero_goal_task_t0_s4/B | -0.0889060, 0.0014772, 0.9459267 | -0.0918471, 0.0018189, 0.9501093 | 5.124 | warning | False | insufficient_circle_angular_coverage |
+| libero_goal_task_t0_s5/A | 0.0501971, -0.0279378, 0.9088192 | 0.0516381, -0.0288446, 0.9067250 | 2.699 | usable | True | — |
+| libero_goal_task_t0_s5/B | -0.0908271, 0.0145891, 0.9473418 | -0.0925311, 0.0146602, 0.9501093 | 3.251 | warning | False | insufficient_circle_angular_coverage |
+| libero_goal_task_t7_s1/A | 0.0574213, -0.0263574, 0.9087625 | 0.0579609, -0.0261452, 0.9067250 | 2.118 | usable | True | — |
+| libero_goal_task_t7_s1/B | -0.0742939, -0.0108429, 0.9471481 | -0.0756308, -0.0108033, 0.9501093 | 3.249 | warning | False | insufficient_circle_angular_coverage |
+| libero_goal_task_t7_s2/A | 0.0443735, -0.0200462, 0.9082190 | 0.0445668, -0.0195550, 0.9067250 | 1.585 | warning | False | physical_boundary_not_verified |
+| libero_goal_task_t7_s2/B | -0.0940067, -0.0011403, 0.9474367 | -0.0955940, -0.0011514, 0.9501093 | 3.108 | warning | False | insufficient_circle_angular_coverage |
+| libero_goal_task_t7_s3/A | 0.0600858, -0.0270198, 0.9088030 | 0.0616553, -0.0267590, 0.9067250 | 2.617 | usable | True | — |
+| libero_goal_task_t7_s3/B | -0.0869663, 0.0016485, 0.9470113 | -0.0894835, 0.0017463, 0.9501093 | 3.993 | warning | False | insufficient_circle_angular_coverage |
+| libero_goal_task_t7_s4/A | 0.0556422, -0.0316064, 0.9088237 | 0.0562235, -0.0325786, 0.9067250 | 2.385 | usable | True | — |
+| libero_goal_task_t7_s4/B | -0.0945856, -0.0071329, 0.9480730 | -0.0945615, -0.0071039, 0.9501093 | 2.037 | warning | False | insufficient_circle_angular_coverage |
+| libero_goal_task_t7_s5/A | 0.0492592, -0.0159450, 0.9081964 | 0.0492889, -0.0155078, 0.9067250 | 1.535 | warning | False | physical_boundary_not_verified |
+| libero_goal_task_t7_s5/B | -0.0907848, 0.0107849, 0.9473149 | -0.0922963, 0.0106816, 0.9501093 | 3.179 | warning | False | insufficient_circle_angular_coverage |
+| libero_goal_swap_t0_s1/A | 0.0495090, -0.0134476, 0.9082198 | 0.0496974, -0.0132283, 0.9067250 | 1.523 | warning | False | physical_boundary_not_verified |
+| libero_goal_swap_t0_s1/B | -0.0991268, 0.0147419, 0.9478442 | -0.1001962, 0.0148023, 0.9501093 | 2.506 | warning | False | insufficient_circle_angular_coverage |
+| libero_goal_swap_t0_s2/A | 0.0420950, -0.0063755, 0.9081881 | 0.0420027, -0.0060181, 0.9067250 | 1.509 | warning | False | physical_boundary_not_verified |
+| libero_goal_swap_t0_s2/B | -0.0846323, -0.0017216, 0.9480656 | -0.0845458, -0.0015340, 0.9501093 | 2.054 | warning | False | insufficient_circle_angular_coverage |
+| libero_goal_swap_t0_s3/A | 0.0460479, -0.0280999, 0.9081676 | 0.0460371, -0.0277541, 0.9067250 | 1.484 | warning | False | physical_boundary_not_verified |
+| libero_goal_swap_t0_s3/B | -0.0808980, 0.0004904, 0.9463426 | -0.0836595, 0.0005740, 0.9501093 | 4.671 | warning | False | insufficient_circle_angular_coverage |
+| libero_goal_swap_t0_s4/A | 0.0346756, -0.0344200, 0.9088471 | 0.0350741, -0.0336929, 0.9067250 | 2.278 | usable | True | — |
+| libero_goal_swap_t0_s4/B | -0.0956325, 0.0139752, 0.9482835 | -0.0957070, 0.0141597, 0.9501093 | 1.837 | warning | False | insufficient_circle_angular_coverage |
+| libero_goal_swap_t0_s5/A | 0.0614368, -0.0060292, 0.9087479 | 0.0606804, -0.0064365, 0.9067250 | 2.198 | usable | True | — |
+| libero_goal_swap_t0_s5/B | -0.0958611, 0.0124770, 0.9475163 | -0.0976855, 0.0125669, 0.9501093 | 3.172 | warning | False | insufficient_circle_angular_coverage |
+| libero_goal_swap_t7_s1/A | 0.0451136, -0.0269536, 0.9081828 | 0.0451769, -0.0265121, 0.9067250 | 1.525 | warning | False | physical_boundary_not_verified |
+| libero_goal_swap_t7_s1/B | -0.1000045, -0.0028536, 0.9471819 | -0.1024334, -0.0028332, 0.9501093 | 3.804 | warning | False | insufficient_circle_angular_coverage |
+| libero_goal_swap_t7_s2/A | 0.0511853, -0.0230911, 0.9191280 | 0.0524943, -0.0220799, 0.9173366 | 2.438 | usable | True | — |
+| libero_goal_swap_t7_s2/B | -0.0738292, -0.0087421, 0.9473204 | -0.0757051, -0.0088204, 0.9501093 | 3.362 | warning | False | insufficient_circle_angular_coverage |
+| libero_goal_swap_t7_s3/A | 0.0593449, -0.0342221, 0.9081705 | 0.0594332, -0.0340995, 0.9067250 | 1.453 | warning | False | physical_boundary_not_verified |
+| libero_goal_swap_t7_s3/B | -0.0734763, -0.0054979, 0.9472785 | -0.0754992, -0.0055544, 0.9501093 | 3.480 | warning | False | insufficient_circle_angular_coverage |
+| libero_goal_swap_t7_s4/A | 0.0567465, -0.0141384, 0.9209186 | 0.0587385, -0.0120919, 0.9196064 | 3.143 | usable | True | — |
+| libero_goal_swap_t7_s4/B | -0.0843876, 0.0010572, 0.9473858 | -0.0859564, 0.0010438, 0.9501093 | 3.143 | warning | False | insufficient_circle_angular_coverage |
+| libero_goal_swap_t7_s5/A | 0.0400325, -0.0129463, 0.9179211 | 0.0417007, -0.0126207, 0.9159333 | 2.615 | usable | True | — |
+| libero_goal_swap_t7_s5/B | -0.1011954, -0.0022524, 0.9476656 | -0.1022107, -0.0022602, 0.9501093 | 2.646 | warning | False | insufficient_circle_angular_coverage |
+| libero_10_task_t3_s1/A | 0.0194838, -0.0643918, 0.9450323 | 0.0175312, -0.0645374, 0.9501093 | 5.442 | warning | False | insufficient_circle_angular_coverage |
+| libero_10_task_t3_s1/B | -0.1524951, 0.0696689, 0.9385836 | -0.1518459, 0.0699413, 0.9302179 | 8.395 | warning | False | axisymmetric_surface_residual_too_large_relative_to_radius |
+| libero_10_task_t3_s2/A | 0.0408908, -0.0482085, 0.9459778 | 0.0409959, -0.0481926, 0.9501093 | 4.133 | warning | False | insufficient_circle_angular_coverage |
+| libero_10_task_t3_s2/B | -0.1625635, 0.0507871, 0.9390076 | -0.1619829, 0.0511304, 0.9302179 | 8.816 | warning | False | axisymmetric_surface_residual_too_large_relative_to_radius |
+| libero_10_task_t3_s3/A | 0.0295110, -0.0600426, 0.9459856 | 0.0285461, -0.0600574, 0.9501093 | 4.235 | warning | False | insufficient_circle_angular_coverage |
+| libero_10_task_t3_s3/B | -0.1419374, 0.0432694, 0.9388334 | -0.1412863, 0.0435842, 0.9302179 | 8.646 | warning | False | axisymmetric_surface_residual_too_large_relative_to_radius |
+| libero_10_task_t3_s4/A | 0.0412236, -0.0612607, 0.9456665 | 0.0402475, -0.0613454, 0.9501093 | 4.550 | warning | False | insufficient_circle_angular_coverage |
+| libero_10_task_t3_s4/B | -0.1497878, 0.0626005, 0.9397504 | -0.1487380, 0.0627299, 0.9302179 | 9.591 | warning | False | axisymmetric_surface_residual_too_large_relative_to_radius, insufficient_barrel_consensus_on_complete_mask |
+| libero_10_task_t3_s5/A | 0.0271304, -0.0675594, 0.9442178 | 0.0243104, -0.0674351, 0.9501093 | 6.533 | warning | False | insufficient_circle_angular_coverage |
+| libero_10_task_t3_s5/B | -0.1297154, 0.0264864, 0.9386220 | -0.1292552, 0.0267602, 0.9302179 | 8.421 | warning | False | axisymmetric_surface_residual_too_large_relative_to_radius |
+| libero_10_task_t9_s1/A | -0.1236912, -0.2345335, 0.9563869 | -0.1250006, -0.2773983, 1.0118675 | 70.123 | warning | False | circle_anchor_constraint_relaxed, low_circle_inlier_ratio, insufficient_circle_angular_coverage, noncircular_boundary_residual, circle_inconsistent_with_part_anchor |
+| libero_10_task_t9_s1/B | -0.0089132, 0.0112657, 1.0022262 | -0.0106865, 0.0112783, 1.0038445 | 2.401 | warning | False | low_circle_inlier_ratio, insufficient_circle_angular_coverage |
+| libero_10_task_t9_s2/A | -0.1159507, -0.2147524, 0.9567716 | -0.1169476, -0.2563617, 1.0118675 | 69.050 | warning | False | circle_anchor_constraint_relaxed, low_circle_inlier_ratio, insufficient_circle_angular_coverage, noncircular_boundary_residual, circle_inconsistent_with_part_anchor |
+| libero_10_task_t9_s2/B | 0.0060602, 0.0340081, 1.0020312 | 0.0044880, 0.0341518, 1.0038445 | 2.404 | warning | False | low_circle_inlier_ratio, insufficient_circle_angular_coverage |
+| libero_10_task_t9_s3/A | -0.0845986, -0.2015819, 0.9559513 | -0.0854412, -0.2437589, 1.0118675 | 70.044 | warning | False | circle_anchor_constraint_relaxed, low_circle_inlier_ratio, insufficient_circle_angular_coverage, noncircular_boundary_residual, circle_inconsistent_with_part_anchor |
+| libero_10_task_t9_s3/B | -0.0033224, 0.0316784, 1.0020545 | -0.0051239, 0.0318299, 1.0038445 | 2.544 | warning | False | low_circle_inlier_ratio, insufficient_circle_angular_coverage |
+| libero_10_task_t9_s4/A | -0.0768492, -0.2387486, 0.9566478 | -0.0779450, -0.2809185, 1.0118675 | 69.489 | warning | False | circle_anchor_constraint_relaxed, low_circle_inlier_ratio, insufficient_circle_angular_coverage, noncircular_boundary_residual, circle_inconsistent_with_part_anchor |
+| libero_10_task_t9_s4/B | 0.0065001, 0.0084406, 1.0016406 | 0.0045954, 0.0084245, 1.0038445 | 2.913 | warning | False | low_circle_inlier_ratio, insufficient_circle_angular_coverage |
+| libero_10_task_t9_s5/A | -0.0859676, -0.2487540, 0.9565258 | -0.0871952, -0.2913227, 1.0118675 | 69.831 | warning | False | circle_anchor_constraint_relaxed, low_circle_inlier_ratio, insufficient_circle_angular_coverage, noncircular_boundary_residual, circle_inconsistent_with_part_anchor |
+| libero_10_task_t9_s5/B | -0.0177552, 0.0103324, 1.0020251 | -0.0193767, 0.0103338, 1.0038445 | 2.437 | warning | False | low_circle_inlier_ratio, insufficient_circle_angular_coverage |
+| libero_10_swap_t3_s1/A | -0.1687886, 0.0665651, 0.9474429 | -0.1707480, 0.0668170, 0.9501093 | 3.318 | warning | False | insufficient_circle_angular_coverage |
+| libero_10_swap_t3_s1/B | 0.0228911, -0.0694104, 0.9383797 | 0.0234113, -0.0691759, 0.9302179 | 8.182 | warning | False | axisymmetric_surface_residual_too_large_relative_to_radius |
+| libero_10_swap_t3_s2/A | -0.1502554, 0.0313907, 0.9478867 | -0.1514462, 0.0316680, 0.9501093 | 2.537 | warning | False | insufficient_circle_angular_coverage |
+| libero_10_swap_t3_s2/B | 0.0503018, -0.0452747, 0.9387388 | 0.0508220, -0.0450443, 0.9302179 | 8.540 | warning | False | axisymmetric_surface_residual_too_large_relative_to_radius |
+| libero_10_swap_t3_s3/A | -0.1436021, 0.0507618, 0.9480687 | -0.1450273, 0.0508524, 0.9501093 | 2.491 | warning | False | insufficient_circle_angular_coverage |
+| libero_10_swap_t3_s3/B | 0.0052695, -0.0445716, 0.9388713 | 0.0058766, -0.0443257, 0.9302179 | 8.678 | warning | False | axisymmetric_surface_residual_too_large_relative_to_radius |
+| libero_10_swap_t3_s4/A | -0.1612821, 0.0740269, 0.9484755 | -0.1624167, 0.0741901, 0.9501093 | 1.996 | warning | False | insufficient_circle_angular_coverage |
+| libero_10_swap_t3_s4/B | 0.0168054, -0.0278623, 0.9387718 | 0.0173893, -0.0275924, 0.9302179 | 8.578 | warning | False | axisymmetric_surface_residual_too_large_relative_to_radius |
+| libero_10_swap_t3_s5/A | -0.1361591, 0.0627935, 0.9467780 | -0.1387117, 0.0631519, 0.9501093 | 4.212 | warning | False | insufficient_circle_angular_coverage |
+| libero_10_swap_t3_s5/B | 0.0321669, -0.0282380, 0.9387316 | 0.0326037, -0.0279487, 0.9302179 | 8.530 | warning | False | axisymmetric_surface_residual_too_large_relative_to_radius |
+| libero_10_swap_t9_s1/A | -0.0018827, 0.0129478, 1.0021788 | -0.0033487, 0.0130525, 1.0038445 | 2.221 | warning | False | low_circle_inlier_ratio, insufficient_circle_angular_coverage |
+| libero_10_swap_t9_s1/B | -0.1106480, -0.2415904, 1.1074018 | -0.1123323, -0.2523276, 1.1069114 | 10.880 | warning | False | low_plane_inlier_ratio, four_complete_physical_edges_not_observed, face_boundary_clipped_by_image |
+| libero_10_swap_t9_s2/A | 0.0210698, 0.0024799, 1.0018538 | 0.0191967, 0.0024339, 1.0038445 | 2.734 | warning | False | low_circle_inlier_ratio, insufficient_circle_angular_coverage |
+| libero_10_swap_t9_s2/B | -0.1015709, -0.2506075, 1.1074045 | -0.1042951, -0.2617436, 1.1069114 | 11.475 | warning | False | low_plane_inlier_ratio, four_complete_physical_edges_not_observed, face_boundary_clipped_by_image |
+| libero_10_swap_t9_s3/A | -0.0118134, 0.0308255, 1.0019713 | -0.0136567, 0.0309767, 1.0038445 | 2.632 | warning | False | low_circle_inlier_ratio, insufficient_circle_angular_coverage |
+| libero_10_swap_t9_s3/B | -0.0779742, -0.2320153, 1.1073780 | -0.0809057, -0.2432643, 1.1069114 | 11.634 | warning | False | low_plane_inlier_ratio, face_boundary_clipped_by_image |
+| libero_10_swap_t9_s4/A | -0.0128035, 0.0376289, 1.0019976 | -0.0144455, 0.0377573, 1.0038445 | 2.475 | warning | False | low_circle_inlier_ratio, insufficient_circle_angular_coverage |
+| libero_10_swap_t9_s4/B | -0.0945891, -0.2437173, 1.1073805 | -0.0976804, -0.2548621, 1.1069114 | 11.575 | warning | False | low_plane_inlier_ratio, four_complete_physical_edges_not_observed, face_boundary_clipped_by_image |
+| libero_10_swap_t9_s5/A | 0.0116945, 0.0095069, 1.0020909 | 0.0100407, 0.0096052, 1.0038445 | 2.412 | warning | False | low_circle_inlier_ratio, insufficient_circle_angular_coverage |
+| libero_10_swap_t9_s5/B | -0.0622890, -0.2163075, 1.1073799 | -0.0775378, -0.2271310, 1.1069114 | 18.705 | warning | False | low_plane_inlier_ratio, four_complete_physical_edges_not_observed, face_boundary_clipped_by_image |
 
-Coordinates are shown to six decimal places. Errors were computed from full-precision coordinates and are shown to three decimal places in millimetres. 表中坐标保留六位小数；误差由原始精度坐标计算，按毫米保留三位小数。
+## Reproduction / 复现记录
+
+- Published implementation / 已发布实现: [699fa46](https://github.com/nanji17/RPent/commit/699fa4603dbf2f991385f566d8e8009cf0cd15b2).
+- Source tree / 源码树: `bc4f3e3a188aab96d8471c18553295aed5b7b1de`, identical to the tested local revision / 与被测本地版本完全一致。
+- Run / 运行标识: `geometrytool-baseline-v3-frozen-160-r1`.
+- Checklist / 清单 SHA256: `27f89e9a7a1afe32cfbe4071968b3b8e1dddc2565ef5958d046858bf6bab6e93`.
+- Predictions / 预测 SHA256: `80aef6b91facc3aa87320a4d917612db91707a1c19707be3e8aed7a48cb1608c`.
+- References / 参考坐标 SHA256: `809690847290c179f098880848252a616b79efec2114c9515556b056f22c2dd7`.
+- Source archive / 源码归档 SHA256: `d8a665844ed4120c07acc180e7935657e883f882608dd86f51de5352192a1b42`.
+
+The evaluator also writes full-precision `errors.csv` and `metrics.json` alongside this report in the run output. These raw artifacts are retained separately from the report included in the PR. 评估器还会在运行输出中生成完整精度的 `errors.csv` 和 `metrics.json`；原始数据与 PR 中的单份报告分开保存。
 
 This evaluates initial-frame geometry, not manipulation success or calibrated uncertainty. 本报告评估起始帧几何误差，不代表操作任务成功率或经过标定的不确定度。
+
+## Validation / 验证
+
+- Geometry/evaluation offline checks / 几何及评估离线检查: 31 passed.
+- Repository unit suite plus evaluation checks / 全仓库单元测试及评估检查: 1725 passed, 13 skipped (Linux, Python 3.11.14).
+- The reused test environment lacks pytest-timeout, producing three configuration/marker warnings; all collected non-skipped tests completed / 复用的测试环境缺少 pytest-timeout，产生三条配置或标记提示，所有未跳过的用例均执行完成。
+- `pre-commit run --all-files`: passed; Python 3.10–3.12 CI matrix not run locally / 通过，未在本地运行完整 CI Python 版本矩阵。
+- Frozen pixels, segmentation masks, candidate masks and candidate 3-D clouds matched for all 160 requests / 160 项选点像素、分割掩码、候选掩码和候选三维点全部一致。
+- Every returned position error was independently recomputed from full-precision coordinates / 所有返回位置误差均由完整精度坐标独立复算。
+- One CPU, nice 19, idle I/O, single-thread BLAS, GPU disabled; owned processes ended / 单 CPU、nice 19、空闲 I/O 优先级、BLAS 单线程、GPU 关闭，所属进程已结束。
