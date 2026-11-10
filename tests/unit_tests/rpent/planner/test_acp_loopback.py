@@ -18,7 +18,6 @@ import asyncio
 import base64
 import json
 import os
-import shlex
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -32,8 +31,8 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
 from rpent.dashboard.events import NullDashboardEventSink
-from rpent.planner.base import build_planner
-from rpent.planner.check import LlmCheckRequest, check_llm
+from rpent.planner.utils.acp import AcpPlanner, AcpSession
+from rpent.planner.utils.agent_runtime import agent_environment
 from rpent.tools import ToolResult
 from rpent.utils.logging import init_output_dir
 
@@ -47,18 +46,19 @@ class LocalAgent:
         self.client = connection
 
     async def initialize(self, protocol_version, **kwargs):
+        self.record = {"pid": os.getpid(), "url": None, "cwd": os.getcwd()}
+        Path(sys.argv[1]).write_text(json.dumps(self.record))
         return schema.InitializeResponse(
             protocol_version=protocol_version,
             agent_capabilities=schema.AgentCapabilities(
-                mcp_capabilities=schema.McpCapabilities(http=True)
+                mcp_capabilities=schema.McpCapabilities(http=sys.argv[2] != "no-http")
             ),
         )
 
     async def new_session(self, cwd, mcp_servers, **kwargs):
         self.url = mcp_servers[0].url if mcp_servers else None
-        Path(sys.argv[1]).write_text(
-            json.dumps({"pid": os.getpid(), "url": self.url, "cwd": cwd})
-        )
+        self.record.update(url=self.url)
+        Path(sys.argv[1]).write_text(json.dumps(self.record))
         return schema.NewSessionResponse(
             session_id="local",
             config_options=[
@@ -74,7 +74,9 @@ class LocalAgent:
                         )
                     ],
                 )
-            ],
+            ]
+            if sys.argv[2] != "no-model"
+            else [],
         )
 
     async def set_config_option(self, session_id, config_id, value, **kwargs):
@@ -110,24 +112,54 @@ class LocalAgent:
                         assert base64.b64decode(result.content[1].data) == PNG
                         result = await client.call_tool("finish", {"status": "success"})
                         assert not result.isError
+        secret = os.environ["TEST_HARNESS_API_KEY"]
+        print(secret, file=sys.stderr)
         await self.client.session_update(
             session_id=session_id,
             update=schema.AgentMessageChunk(
-                session_update="agent_message_chunk", content=acp.text_block("ok")
+                session_update="agent_message_chunk", content=acp.text_block(secret)
             ),
         )
         return schema.PromptResponse(stop_reason="end_turn")
 
 
-def test_acp_process_calls_real_mcp_tools_and_probe_uses_same_command(
-    tmp_path, monkeypatch
-):
+@pytest.mark.parametrize(
+    ("mode", "error"),
+    [
+        ("ok", None),
+        ("no-http", "must support HTTP MCP"),
+        ("no-model", "no model selector"),
+    ],
+)
+def test_harness_reuses_acp_tools_probe_and_cleanup(tmp_path, monkeypatch, mode, error):
     init_output_dir(tmp_path / "log")
     record = tmp_path / "agent.json"
-    monkeypatch.setenv(
-        "RPENT_ACP_COMMAND",
-        shlex.join([sys.executable, str(Path(__file__).resolve()), str(record)]),
-    )
+    secret = "test-harness-secret-value"
+    monkeypatch.setenv("TEST_HARNESS_API_KEY", secret)
+
+    class LocalHarnessPlanner(AcpPlanner):
+        backend = "local_harness"
+        label = "Local harness"
+
+        def _create_session(
+            self, root, control, emit, stderr_path, *, mcp_url, max_turns, tool_names
+        ):
+            return AcpSession(
+                command=[
+                    sys.executable,
+                    str(Path(__file__).resolve()),
+                    str(record),
+                    mode,
+                ],
+                cwd=root,
+                env=agent_environment(),
+                mcp_url=mcp_url,
+                model=self._model,
+                control=control,
+                emit_event=emit,
+                stderr_path=stderr_path,
+            )
+
     toolkit = Mock()
     toolkit.list_tools.return_value = [
         SimpleNamespace(name=name, description=name, input_schema={"type": "object"})
@@ -138,45 +170,37 @@ def test_acp_process_calls_real_mcp_tools_and_probe_uses_same_command(
         if name == "finish"
         else ToolResult(data={"observed": True}, images=[PNG])
     )
-    planner = build_planner(
-        "acp",
+    planner = LocalHarnessPlanner(
         output_dir=tmp_path,
-        recipe_tag="test",
-        robot_name="libero",
-        planner_timeout_s=15,
+        timeout_s=15,
         dashboard_events=NullDashboardEventSink(),
         model="test-model",
     )
     result = planner.solve(
         system_prompt="rules", user_message="task", toolkit=toolkit, max_turns=2
     )
+    toolkit.cancel_active_and_wait.assert_called_once()
+    child = json.loads(record.read_text())
+    assert not Path(child["cwd"]).exists()
+    with pytest.raises(ProcessLookupError):
+        os.kill(child["pid"], 0)
+    if error:
+        assert error in result.error
+        toolkit.execute_tool.assert_not_called()
+        return
     assert result.error is None
+    assert result.stats["backend"] == "local_harness"
     assert result.finish_result == {"_finish": True, "status": "success"}
     assert result.stats["tool_calls"] == 2
     assert [call.args[0] for call in toolkit.execute_tool.call_args_list] == [
         "observe",
         "finish",
     ]
-    toolkit.cancel_active_and_wait.assert_called_once()
-    child = json.loads(record.read_text())
     assert child["url"].startswith("http://127.0.0.1:")
-    assert not Path(child["cwd"]).exists()
-    with pytest.raises(ProcessLookupError):
-        os.kill(child["pid"], 0)
-
-    probe = check_llm(LlmCheckRequest(planner="acp", model="test-model", timeout_s=15))
-    assert probe.ok, probe.detail
-    assert probe.reply == "ok"
+    for name in ("output_path", "raw_stream_path", "stderr_path"):
+        assert secret not in Path(result.stats[name]).read_text()
+    assert planner.probe("ping") == "<TEST_HARNESS_API_KEY>"
     assert json.loads(record.read_text())["url"] is None
-
-
-@pytest.mark.parametrize("command", [None, "", '"unterminated'])
-def test_acp_check_reports_missing_or_invalid_command(monkeypatch, command):
-    monkeypatch.delenv("RPENT_ACP_COMMAND", raising=False)
-    if command is not None:
-        monkeypatch.setenv("RPENT_ACP_COMMAND", command)
-    result = check_llm(LlmCheckRequest(planner="acp"))
-    assert result.status == "missing_config"
 
 
 if __name__ == "__main__":

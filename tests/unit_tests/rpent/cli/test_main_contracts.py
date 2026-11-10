@@ -206,15 +206,13 @@ def test_shared_cli_defaults_reach_robot_config_parser(
     ("channel", "attribute"),
     [("--tui", "tui"), ("--interactive", "tui"), ("--dashboard", "dashboard")],
 )
-@pytest.mark.parametrize("planner", ["gemini_cli", "acp"])
-def test_acp_interactive_modes_reach_robot_configuration(
-    monkeypatch, channel, attribute, planner
+def test_gemini_interactive_modes_reach_robot_configuration(
+    monkeypatch, channel, attribute
 ):
-    monkeypatch.setenv("RPENT_ACP_COMMAND", "harness acp")
     _, args = _capture_validated_args(
-        monkeypatch, ["--robot", "libero", "--planner", planner, channel]
+        monkeypatch, ["--robot", "libero", "--planner", "gemini_cli", channel]
     )
-    assert args.planner == planner
+    assert args.planner == "gemini_cli"
     assert getattr(args, attribute) is True
 
 

@@ -21,7 +21,7 @@ RoboDojo
 
    .. grid-item-card:: 规划器
 
-      ``api``、``claude_code``、``codex``、``gemini_cli``、``acp``
+      ``api``、``claude_code``、``codex``、``gemini_cli``
 
    .. grid-item-card:: 任务
 

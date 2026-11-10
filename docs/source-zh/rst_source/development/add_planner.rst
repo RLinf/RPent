@@ -6,21 +6,17 @@
 ACP Harness
 ------------
 
-对于支持 stdio 上的 ACP v1 和 HTTP MCP 的 harness，使用 ``--planner acp``
-和 ``RPENT_ACP_COMMAND`` 即可，无需新增 planner 类或注册项。
-配置方法与限制见 :ref:`planner-acp`。
+ACP 是共享驱动，不是可选的规划器。接入 ACP harness 时，继承
+``rpent/planner/utils/acp.py`` 中的 ``AcpPlanner``，设置 ``backend`` 和显示名称
+``label``。实现 ``_create_session``，准备命令、环境与工具策略，并返回
+``AcpSession``；可参考 ``gemini_cli.py``。按下方步骤以 harness 名称注册适配器。
 
-``rpent/planner/acp.py`` 包含共享 planner、ACP 会话驱动和事件记录器，并复用
-``utils/agent_session.py`` 的交互控制、HTTP MCP、日志与清理逻辑。
-``gemini_cli.py`` 继承 ``AcpPlanner``，只负责 Gemini 的命令、环境和工作目录配置。
-
-其他 harness 的准备工作可放在预先配置的启动脚本中。若需要 RPent 管理这些
-设置，可参考 Gemini 的小型 ``_create_session`` 覆盖方法；会话通信和事件处理
-仍留在公共驱动中。模型选择器是可选能力，任务执行则必须支持 HTTP MCP。
-使用图像观测时，harness 还需能处理 RPent 工具返回的 MCP 图像结果。
-
-接入新 harness 时，应验证文本和图像工具返回、真实 ``finish`` 调用、消息排队、
-中断及进程清理。连接检查成功不代表这些行为都已验证。
+基类统一处理会话、事件记录和连接探测，并复用 ``utils/agent_session.py`` 的交互控制、
+HTTP MCP、日志与清理逻辑。对声明支持 HTTP MCP 的 agent，将 MCP URL 传给
+``AcpSession``；Gemini 则通过工作目录配置传入。仅在使用 agent 的 ACP 模型选择器时，
+向会话传入模型 ID。认证和原生轮次限制由 harness 适配器负责，ACP 没有统一的模型轮次上限。
+除连接检查外，还应验证文本和图像工具返回、真实 ``finish`` 调用、消息排队、
+中断及进程清理。
 
 自定义规划器
 --------------
@@ -62,7 +58,7 @@ ACP Harness
 1. 接收已经渲染好的 ``system_prompt`` 和 ``user_message``。
 2. 从 ``toolkit.list_tools()`` 取得工具的 ``name``、``description`` 和 ``input_schema``，并通过 ``toolkit.execute_tool(name, arguments)`` 执行工具。
 3. 将 ``ToolResult.to_text()`` 的文本和 ``ToolResult.images`` 中的 PNG 字节转换成模型 SDK 所需的格式。
-4. 识别 ``ToolResult.data.get("_finish")``，并按支持的执行限制终止循环。ACP harness 的模型轮次上限由自身配置，RPent 负责总运行超时。
+4. 识别 ``ToolResult.data.get("_finish")``，并按 ``max_turns`` 等限制终止循环。
 5. 返回包含结束状态、消息、统计信息和可选错误的 ``PlannerResult``。
 
 由于 RPent 工具定义和 prompt 渲染流程保持不变，新增 planner 不需要修改工具或环境服务。接口参见 :doc:`architecture`；想给

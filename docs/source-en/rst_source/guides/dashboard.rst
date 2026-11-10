@@ -19,7 +19,7 @@ terminal. Use a terminal with interactive input (TTY).
    rpent --robot libero --suite libero_10_task --task 0 --seed 1 \
      --planner claude_code --model claude-opus-4-8 --tui
 
-With ``claude_code``, ``codex``, ``gemini_cli``, or ``acp``, the first prompt contains the
+With ``claude_code``, ``codex``, or ``gemini_cli``, the first prompt contains the
 task instruction. Edit it or submit it with Enter. Use ``/help`` to see commands
 and ``/quit``, ``/exit``, or ``/q`` to end the session.
 
@@ -51,7 +51,7 @@ For physical robot setup and human confirmation, see the
 Dashboard
 ---------
 
-The Dashboard supports the ``api``, ``claude_code``, ``codex``, ``gemini_cli``, and ``acp`` planners.
+The Dashboard supports the ``api``, ``claude_code``, ``codex``, and ``gemini_cli`` planners.
 Configure ``--planner`` and ``--model`` on the command line as for a normal
 run; see :doc:`configure_planner`.
 

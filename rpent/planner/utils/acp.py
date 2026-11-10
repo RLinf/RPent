@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""ACP planner and shared session driver for external agent harnesses."""
+"""Shared ACP execution for harness-specific planner adapters."""
 
 from __future__ import annotations
 
@@ -20,8 +20,8 @@ import asyncio
 import contextlib
 import os
 import queue
-import shlex
 import tempfile
+from abc import abstractmethod
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -36,55 +36,44 @@ from rpent.dashboard.events import (
 from rpent.dashboard.interaction import DashboardInteractionPort, DashboardMessage
 from rpent.dashboard.planner_control import PlannerInteractionControl
 from rpent.planner.base import Planner, PlannerResult
-from rpent.planner.check import redact_secrets
-from rpent.planner.utils.agent_runtime import (
-    AgentArtifacts,
-    agent_environment,
-    short_json,
-)
+from rpent.planner.utils.agent_runtime import AgentArtifacts, short_json
 from rpent.planner.utils.agent_session import run_agent
 from rpent.planner.utils.sdk import int_field, jsonable
 from rpent.tools.toolkit import Toolkit
 
 
-def resolve_command() -> list[str]:
-    """Read RPENT_ACP_COMMAND as an argument list, without executing a shell."""
-    command = shlex.split(os.environ.get("RPENT_ACP_COMMAND", ""))
-    if not command:
-        raise ValueError("Set RPENT_ACP_COMMAND to an ACP agent command")
-    return command
-
-
 def redact_agent_secrets(text: str) -> str:
-    """Redact known provider credentials and conventional harness secret variables."""
-    text = redact_secrets(text)
+    """Redact conventional harness credential variables from emitted text."""
     for name, value in os.environ.items():
-        if name.endswith(("_API_KEY", "_TOKEN", "_SECRET")) and len(value) >= 8:
+        if (
+            name.endswith(("_API_KEY", "_PROVIDER_KEY", "_TOKEN", "_SECRET"))
+            and len(value) >= 8
+        ):
             text = text.replace(value, f"<{name}>")
     return text
 
 
 # ---------------------------------------------------------------------------
-# Public backend
+# Shared planner base
 # ---------------------------------------------------------------------------
 
 
 class AcpPlanner(Planner):
-    """Drive an already configured ACP agent through stdio and HTTP MCP.
+    """Base for harness adapters using ACP over stdio and HTTP MCP.
 
-    The harness owns authentication, built-in tools, and model-turn limits.
-    RPent owns interaction, its MCP tools, and the wall-clock timeout.
+    Subclasses name their backend and prepare an AcpSession in _create_session.
+    They own the command, authentication, tool policy, and model-turn limits;
+    this base owns interaction, artifacts, and the wall-clock timeout.
     """
 
-    backend = "acp"
-    label = "ACP agent"
+    backend: str
+    label: str
     _redact = staticmethod(redact_agent_secrets)
 
     def __init__(
         self,
         *,
         output_dir: str,
-        command: Sequence[str] | None = None,
         dashboard_events: DashboardEventSink,
         timeout_s: int = 1200,
         output_path: str | Path | None = None,
@@ -95,20 +84,16 @@ class AcpPlanner(Planner):
 
         Args:
             output_dir: Directory containing planner artifacts.
-            command: Executable and arguments; defaults to RPENT_ACP_COMMAND.
             dashboard_events: Sink for transcript and usage updates.
             timeout_s: Wall-clock limit for the CLI process.
             output_path: Rendered transcript path, or a temporary file if omitted.
-            model: Exact value for the agent's advertised model selector.
+            model: Optional model ID interpreted by the harness adapter.
             reasoning_effort: Must be none; configure effort in the harness.
         """
         if reasoning_effort != "none":
             raise ValueError(
                 f"{self.backend} does not support --reasoning-effort; use 'none'"
             )
-        self._command = list(command) if command is not None else resolve_command()
-        if not self._command or not self._command[0]:
-            raise ValueError("ACP command must include an executable")
         self._output_dir = Path(output_dir)
         self._timeout_s = timeout_s
         self._output_path = Path(output_path) if output_path else None
@@ -205,6 +190,7 @@ class AcpPlanner(Planner):
             stderr_path=stderr_path,
         )
 
+    @abstractmethod
     def _create_session(
         self,
         root: Path,
@@ -216,17 +202,8 @@ class AcpPlanner(Planner):
         max_turns: int,
         tool_names: Iterable[str],
     ) -> AcpSession:
-        return AcpSession(
-            command=self._command,
-            cwd=root,
-            model=self._model,
-            control=control,
-            emit_event=emit,
-            stderr_path=stderr_path,
-            env=agent_environment(),
-            mcp_url=mcp_url,
-            redact=self._redact,
-        )
+        """Prepare a harness session; mcp_url is None during a connection probe."""
+        ...
 
     def probe(self, prompt: str) -> str:
         """Request a minimal reply without mounting RPent tools."""
@@ -255,21 +232,6 @@ class AcpPlanner(Planner):
 
             asyncio.run(run())
         return self._redact(recorder.final_response)
-
-
-# ---------------------------------------------------------------------------
-# Connectivity probe
-# ---------------------------------------------------------------------------
-
-
-def run_probe_turn(*, prompt: str, model: str | None, timeout_s: int) -> str:
-    """Request a reply using RPENT_ACP_COMMAND and the harness configuration."""
-    return AcpPlanner(
-        output_dir=".",
-        dashboard_events=NullDashboardEventSink(),
-        model=model,
-        timeout_s=timeout_s,
-    ).probe(prompt)
 
 
 # ---------------------------------------------------------------------------

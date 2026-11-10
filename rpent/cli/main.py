@@ -135,10 +135,10 @@ def _build_argparser() -> argparse.ArgumentParser:
     ap.add_argument(
         "--planner",
         default="api",
-        choices=["api", "claude_code", "codex", "gemini_cli", "acp", "flash"],
-        help="Planner backend: api | claude_code | codex | gemini_cli | acp are LLMs in the "
+        choices=["api", "claude_code", "codex", "gemini_cli", "flash"],
+        help="Planner backend: api | claude_code | codex | gemini_cli are LLMs in the "
         "loop; flash is evaluation-only and replays a plan from memory, re-localizing "
-        "each waypoint's anchor. acp starts the command in RPENT_ACP_COMMAND.",
+        "each waypoint's anchor.",
     )
     ap.add_argument(
         "--model",
@@ -146,8 +146,7 @@ def _build_argparser() -> argparse.ArgumentParser:
         help="Model id. For the 'api' planner, prefix the provider "
         "(e.g. anthropic:claude-opus-4-8, google:Argon, "
         "openai:gpt-5.5, openai-chat:glm-5.2). For claude_code, codex, and "
-        "gemini_cli this overrides the backend or upstream default model. "
-        "For acp, use a value from the agent's advertised model selector.",
+        "gemini_cli this overrides the backend or upstream default model.",
     )
     ap.add_argument(
         "--base-url",
@@ -159,19 +158,14 @@ def _build_argparser() -> argparse.ArgumentParser:
             "one of them is an error rather than a silent no-op."
         ),
     )
-    ap.add_argument(
-        "--max-turns",
-        type=int,
-        default=100,
-        help="Model-turn limit where supported; for acp, configure it in the harness.",
-    )
+    ap.add_argument("--max-turns", type=int, default=100)
     ap.add_argument("--max-tokens", type=int, default=8192)
     ap.add_argument(
         "--reasoning-effort",
         choices=REASONING_EFFORTS,
         default="none",
         help="Planner reasoning effort for api, claude_code, and "
-        "codex. gemini_cli and acp support none only. Higher effort may improve "
+        "codex. gemini_cli supports none only. Higher effort may improve "
         "task success rate but increases runtime. Defaults to high for api "
         "and none for CLI/SDK planners.",
     )
@@ -187,7 +181,7 @@ def _build_argparser() -> argparse.ArgumentParser:
         "--planner-timeout-s",
         type=int,
         default=None,
-        help="Wall-clock cap for online planner runs. "
+        help="Wall-clock cap for api/claude_code/codex/gemini_cli planner runs. "
         "Terminal interactive API/Claude sessions are exempt. "
         "Defaults to CODEX_TIMEOUT_S (codex only), GEMINI_CLI_TIMEOUT_S "
         "(gemini_cli only), CELL_TIMEOUT_S, or 1200.",
@@ -393,17 +387,10 @@ def main() -> int:
     )
     if args.dashboard and args.tui:
         parser.error("--dashboard and --tui cannot be used together")
-    if args.planner in {"gemini_cli", "acp"} and args.reasoning_effort != "none":
+    if args.planner == "gemini_cli" and args.reasoning_effort != "none":
         parser.error(
-            f"--reasoning-effort is not supported by the {args.planner} planner; use 'none'"
+            "--reasoning-effort is not supported by the gemini_cli planner; use 'none'"
         )
-    if args.planner == "acp":
-        from rpent.planner.acp import resolve_command
-
-        try:
-            resolve_command()
-        except ValueError as exc:
-            parser.error(str(exc))
     try:
         external_env_dashboard = (
             robot_spec.is_real_robot
@@ -538,10 +525,10 @@ def main() -> int:
     if args.tui and not native_cli:
         input_queue = queue.Queue()
         queued_help = (
-            "Messages queue until the current turn completes.\n"
+            "Claude Code/Codex/Gemini: messages queue until the current turn completes.\n"
             "/interrupt [message] stops the current turn, then sends queued input "
             "(or the supplied message first).\n"
-            if args.planner in EXTERNALLY_CONFIGURED_PLANNERS
+            if args.planner in {"claude_code", "codex", "gemini_cli"}
             else ""
         )
         # Pre-fill the first prompt with the rendered default task (editable

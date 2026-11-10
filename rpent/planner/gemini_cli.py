@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import shutil
@@ -24,8 +23,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-from rpent.dashboard.events import DashboardEventSink, NullDashboardEventSink
-from rpent.planner.acp import AcpPlanner, AcpSession
+from rpent.planner.utils.acp import AcpPlanner, AcpSession
 from rpent.planner.utils.agent_runtime import agent_environment
 
 _MCP_TOOL_PREFIX = "mcp_rpent_"
@@ -44,27 +42,6 @@ class GeminiCliPlanner(AcpPlanner):
 
     backend = "gemini_cli"
     label = "Gemini CLI"
-
-    def __init__(
-        self,
-        *,
-        output_dir: str,
-        dashboard_events: DashboardEventSink,
-        timeout_s: int = 1200,
-        output_path: str | Path | None = None,
-        model: str | None = None,
-        reasoning_effort: str = "none",
-    ) -> None:
-        """Initialize Gemini's ACP backend with its exact optional model ID."""
-        super().__init__(
-            command=["gemini"],
-            output_dir=output_dir,
-            dashboard_events=dashboard_events,
-            timeout_s=timeout_s,
-            output_path=output_path,
-            model=model,
-            reasoning_effort=reasoning_effort,
-        )
 
     def _create_session(
         self, root, control, emit, stderr_path, *, mcp_url, max_turns, tool_names
@@ -85,21 +62,11 @@ class GeminiCliPlanner(AcpPlanner):
 
     @staticmethod
     def _redact(text: str) -> str:
-        return _redact_secrets(text)
-
-
-def run_probe_turn(*, prompt: str, model: str | None, timeout_s: int) -> str:
-    """Request a reply with Gemini's tools disabled and existing authentication."""
-    planner = GeminiCliPlanner(
-        output_dir=".",
-        dashboard_events=NullDashboardEventSink(),
-        model=model,
-        timeout_s=timeout_s,
-    )
-    try:
-        return planner.probe(prompt)
-    except (asyncio.TimeoutError, TimeoutError):
-        raise TimeoutError(f"Gemini CLI did not finish within {timeout_s}s") from None
+        for name in _SECRET_ENV_NAMES:
+            secret = os.environ.get(name) or _dotenv_value(name)
+            if secret and len(secret) >= 8:
+                text = text.replace(secret, f"<{name}>")
+        return text
 
 
 # ---------------------------------------------------------------------------
@@ -190,11 +157,3 @@ def _dotenv_value(name: str) -> str | None:
             value = value[1:-1]
         return value or None
     return None
-
-
-def _redact_secrets(text: str) -> str:
-    for name in _SECRET_ENV_NAMES:
-        secret = os.environ.get(name) or _dotenv_value(name)
-        if secret and len(secret) >= 8:
-            text = text.replace(secret, f"<{name}>")
-    return text

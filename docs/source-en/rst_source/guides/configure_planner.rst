@@ -7,9 +7,9 @@ Select the Agentic Planner backend with one CLI flag:
 
 .. code-block:: text
 
-   --planner {api,claude_code,codex,gemini_cli,acp,flash}
+   --planner {api,claude_code,codex,gemini_cli,flash}
 
-All online planners receive the same rendered system and user prompts
+All four online planners receive the same rendered system and user prompts
 and use the RPent tool schemas from the same toolkit. They differ in
 how those schemas are connected to the model, how the tool-calling
 loop is orchestrated, and which model SDK or CLI is used.
@@ -41,10 +41,6 @@ loop is orchestrated, and which model SDK or CLI is used.
        through ACP. RPent exposes the toolkit through a local Streamable
        HTTP MCP server; Gemini CLI drives the loop.
      - Run tasks through an existing Gemini CLI configuration.
-   * - ``acp``
-     - A shared ACP client for configured agent harnesses over stdio,
-       with RPent tools supplied through HTTP MCP.
-     - Connect another ACP-compatible harness without writing a planner adapter.
    * - ``flash``
      - **Flash Mode**, for evaluation only. Replays a plan from memory,
        recorded from an earlier
@@ -163,49 +159,6 @@ Claude Code assumes a 200,000-token context window for unrecognized model IDs.
 If the local server uses a different limit, see the `Claude Code environment
 variables <https://code.claude.com/docs/en/env-vars>`_ for its context and
 auto-compaction settings.
-
-.. _planner-acp:
-
-The ``acp`` Planner
--------------------
-
-Set ``RPENT_ACP_COMMAND`` to an installed, configured harness's ACP command.
-RPent splits it into executable and arguments using shell-style quoting,
-then launches it directly without a shell. Use an absolute path for a config
-file or wrapper script because each run starts in a temporary workspace.
-For example, after configuring DeepSeek Harness:
-
-.. code-block:: bash
-
-   export RPENT_ACP_COMMAND='dsh --profile acp'
-   rpent-check-llm --planner acp
-   rpent --robot libero --planner acp --suite libero_goal_task --task 1 --seed 0
-
-The harness must support ACP v1 over stdio and advertise HTTP MCP support.
-RPent passes its local tool server through ``session/new.mcpServers``;
-the harness owns model requests and uses its existing authentication.
-The connection check sends a minimal prompt without mounting RPent tools;
-it does not establish tool or robot compatibility.
-
-- Omit ``--model`` to retain the harness default. When supplied, it must be
-  an exact value for an advertised ACP configuration option in the ``model``
-  category. Agents without that selector must select the model through their
-  own configuration or startup arguments.
-- Configure built-in tools, hooks, plugins, and RPent tool authorization in
-  the harness. The generic planner does not disable them automatically.
-  RPent declines ACP permission requests and does not offer client filesystem
-  or terminal execution. These choices do not sandbox the agent process.
-- ACP has no common model-turn budget. Configure that limit in the harness;
-  ``--max-turns`` is not forwarded by the generic planner.
-  ``--planner-timeout-s`` limits the whole run, defaulting to
-  ``CELL_TIMEOUT_S`` or 1200 seconds. ``--reasoning-effort`` accepts only
-  ``none``; configure effort in the harness. ``--base-url`` is API-only.
-- ``--tui`` and ``--dashboard`` use the same queued follow-up and explicit
-  interruption behavior as the other external-agent planners.
-
-Gemini's dedicated entry point below shares this ACP driver and also prepares
-its tool restrictions and turn budget. Other harnesses that need such setup
-can use a configured launcher; see :doc:`../development/add_planner`.
 
 .. _planner-gemini-cli:
 

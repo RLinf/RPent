@@ -125,7 +125,6 @@ def test_diagnostic_timeouts_never_inherit_the_run_default() -> None:
         "claude_code": 90,
         "codex": 90,
         "gemini_cli": 90,
-        "acp": 90,
     }
     for planner, expected in DEFAULT_TIMEOUT_S.items():
         assert LlmCheckRequest(planner=planner).resolved_timeout_s() == expected
@@ -447,7 +446,7 @@ def test_a_provider_error_body_echoing_the_key_is_not_carried_verbatim(
 
 @pytest.mark.parametrize("key_env", ["GOOGLE_API_KEY", "GEMINI_API_KEY"])
 def test_google_key_value_is_redacted(monkeypatch: pytest.MonkeyPatch, key_env) -> None:
-    from rpent.planner.gemini_cli import _redact_secrets
+    from rpent.planner.gemini_cli import GeminiCliPlanner
 
     monkeypatch.setenv(key_env, SENTINEL_KEY)
     _patch_model(
@@ -461,7 +460,7 @@ def test_google_key_value_is_redacted(monkeypatch: pytest.MonkeyPatch, key_env) 
     assert result.status == STATUS_AUTH_FAILED
     assert SENTINEL_KEY not in str(result.as_dict())
     assert check_mod.redact_secrets(SENTINEL_KEY) == f"<{key_env}>"
-    assert _redact_secrets(SENTINEL_KEY) == f"<{key_env}>"
+    assert GeminiCliPlanner._redact(SENTINEL_KEY) == f"<{key_env}>"
 
 
 # ---------------------------------------------------------------------------
@@ -621,11 +620,11 @@ def test_gemini_cli_probe_uses_cli_configuration_and_exact_optional_model(
     if key_present:
         monkeypatch.setenv("GEMINI_API_KEY", SENTINEL_KEY)
 
-    def fake_probe(*, prompt: str, model: str | None, timeout_s: int) -> str:
-        seen.update(prompt=prompt, model=model, timeout_s=timeout_s)
+    def fake_probe(self, prompt: str) -> str:
+        seen.update(prompt=prompt, model=self._model, timeout_s=self._timeout_s)
         return "ok"
 
-    monkeypatch.setattr(gemini_cli, "run_probe_turn", fake_probe)
+    monkeypatch.setattr(gemini_cli.GeminiCliPlanner, "probe", fake_probe)
     result = check_llm(
         LlmCheckRequest(
             planner="gemini_cli", model="gemini-upstream-id", timeout_s=timeout_s
@@ -664,12 +663,12 @@ def test_gemini_cli_probe_classifies_backend_errors(
 
     import rpent.planner.gemini_cli as gemini_cli
 
-    def fail(**kwargs: Any) -> str:
+    def fail(self, prompt: str) -> str:
         if message is None:
             raise RequestError.auth_required()
         raise RuntimeError(message)
 
-    monkeypatch.setattr(gemini_cli, "run_probe_turn", fail)
+    monkeypatch.setattr(gemini_cli.GeminiCliPlanner, "probe", fail)
 
     result = check_llm(LlmCheckRequest(planner="gemini_cli"))
 
