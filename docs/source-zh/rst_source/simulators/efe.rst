@@ -79,7 +79,7 @@ RPent 提供两种控制方式。默认使用 **Skills**：模型通过 ``move_t
 安装与资源准备
 --------------
 
-以下命令均在 Linux 宿主终端执行，不在容器内执行。宿主需要 git、`uv <https://docs.astral.sh/uv/getting-started/installation/>`_ 和带有 Compose v2、BuildKit 的 Docker Engine。先按 EFE 的 `宿主要求与安装指南 <https://github.com/mll-lab-nu/embodied-first-exam#quick-start>`_ 准备环境。GPU 任务还需要 NVIDIA 驱动和 NVIDIA Container Toolkit。本集成面向 Harbor 0.23.0 和 Python 3.12。
+以下命令均在 Linux 宿主机终端执行。需要 git、`uv <https://docs.astral.sh/uv/getting-started/installation/>`_ 和带有 Compose v2、BuildKit 的 Docker Engine。先按 EFE 的 `宿主要求与安装指南 <https://github.com/mll-lab-nu/embodied-first-exam#quick-start>`_ 准备环境。GPU 任务还需要 NVIDIA 驱动和 NVIDIA Container Toolkit。本集成面向 Harbor 0.23.0 和 Python 3.12。
 
 1. 获取两个仓库的源码。已有源码时无需重新克隆，在下一步使用它们的绝对路径。
 
@@ -88,7 +88,7 @@ RPent 提供两种控制方式。默认使用 **Skills**：模型通过 ``move_t
       git clone https://github.com/RLinf/RPent.git
       git clone --recurse-submodules https://github.com/mll-lab-nu/embodied-first-exam.git
 
-2. 设置源码路径，安装 EFE 的 Harbor 集成。将前两个路径替换为实际路径。``RPENT_ROOT`` 指 RPent 仓库根目录，``EFE_ROOT`` 指 Embodied First Exam 仓库根目录。
+2. 设置两个仓库的源码路径，并安装 EFE 项目依赖（其中包含 Harbor）。将前两个路径替换为实际路径。``RPENT_ROOT`` 指 RPent 仓库根目录，``EFE_ROOT`` 指 Embodied First Exam 仓库根目录。
 
    .. code-block:: bash
 
@@ -99,7 +99,7 @@ RPent 提供两种控制方式。默认使用 **Skills**：模型通过 ``move_t
       uv run --project "$EFE_ROOT" harbor --version
       test -f "$RPENT_ROOT/robots/efe/harbor_agent.py"
 
-   Docker 应显示守护进程正在运行，Harbor 应显示版本 0.23.0，文件检查应正常退出。首次 Trial 会构建或拉取任务镜像并下载资源。运行示例前，查看 `AutoBio 准备要求 <https://github.com/mll-lab-nu/embodied-first-exam/tree/main/tasks/autobio#before-you-run>`_ 中的磁盘空间要求和源码许可说明。
+   Docker 应显示服务正在运行，Harbor 应显示版本 0.23.0，文件检查应正常退出。首次 Trial 会构建或拉取任务镜像并下载资源。
 
 3. 选择示例任务并配置模型。这个任务要求机器人把试管放入离心机转子。将 ``your-model`` 替换为 API 提供方和 CodexPlanner 支持的模型标识。
 
@@ -119,18 +119,26 @@ RPent 提供两种控制方式。默认使用 **Skills**：模型通过 ``move_t
 运行一个任务
 ------------
 
-继续使用同一个宿主终端，以保留上面设置的变量。以下命令用默认 Skills 工具运行一个 Trial。Harbor 会自动在任务容器中安装 RPent，无需手动进入容器安装。
+继续使用同一个终端，以保留上面设置的变量。以下命令用默认 Skills 工具运行一个 Trial。Harbor 会自动在任务容器中安装 RPent，无需手动进入容器安装。
 
 .. code-block:: bash
 
-   PYTHONPATH="$RPENT_ROOT${PYTHONPATH:+:$PYTHONPATH}"    uv run --project "$EFE_ROOT" harbor run      --path "$EFE_TASK"      --agent robots.efe.harbor_agent:RPentEfeAgent      --model "$EFE_MODEL" --n-concurrent 1      --allow-agent-host "$MODEL_HOST"      --yes      --jobs-dir "$RPENT_ROOT/logs/efe-rpent"
+   PYTHONPATH="$RPENT_ROOT${PYTHONPATH:+:$PYTHONPATH}" \
+   uv run --project "$EFE_ROOT" harbor run \\
+     --path "$EFE_TASK" \\
+     --agent robots.efe.harbor_agent:RPentEfeAgent \\
+     --model "$EFE_MODEL" \\
+     --n-concurrent 1 \\
+     --allow-agent-host "$MODEL_HOST" \\
+     --yes \\
+     --jobs-dir "$RPENT_ROOT/logs/efe-rpent"
 
-``--agent`` 指定 Harbor 要加载的 RPent 集成，保留示例值即可。``PYTHONPATH`` 让 Harbor 能从 RPent 源码目录找到该集成。``--n-concurrent 1`` 表示同时只运行一个任务，``--yes`` 跳过 Harbor 的确认提示。首次运行需要安装依赖，准备阶段可能较长。执行和评分结束后，到 ``logs/efe-rpent`` 查看下面列出的结果文件。安装或模型访问失败时，见 `单任务调试`_。
+``--agent`` 指定 Harbor 加载 RPent 的入口，保留示例值即可。``PYTHONPATH`` 让 Harbor 能从 RPent 源码目录找到它。``--n-concurrent 1`` 表示同时只运行一个任务，``--yes`` 跳过 Harbor 的确认提示。首次运行需要安装依赖，准备阶段可能较长。执行和评分结束后，到 ``logs/efe-rpent`` 查看结果；失败时先检查 ``trial.log`` 和 ``agent/rpent/run.log``。
 
 查看结果
 --------
 
-在宿主打开 ``$RPENT_ROOT/logs/efe-rpent``。
+在宿主机上查看 ``$RPENT_ROOT/logs/efe-rpent``。
 ``--jobs-dir`` 是 Harbor 的 Job 根目录；默认每次 ``harbor run`` 在下面新建一个以时间命名的 Job 目录。
 
 .. code-block:: text
@@ -152,16 +160,16 @@ RPent 提供两种控制方式。默认使用 **Skills**：模型通过 ``move_t
        ├── lock.json
        └── trial.log
 
-容器内的 ``/logs/agent/rpent/`` 对应宿主上的 ``<trial_name>/agent/rpent/``。EFE 的 Verifier 写出 ``verifier/reward.json``，Harbor 将它记录为 ``result.json`` 的 ``verifier_result.rewards``。Agent 执行指标在 ``agent/rpent/session.json`` 的 ``stats`` 和各 Session 的 ``metrics``。Trial 未完成时可能没有 ``result.json`` 或 ``session.json``，先看 ``trial.log`` 和 ``agent/rpent/run.log``。
+容器内的 ``/logs/agent/rpent/`` 对应宿主机上的 ``<trial_name>/agent/rpent/``。EFE 的 Verifier 写出 ``verifier/reward.json``，Harbor 将它记录为 ``result.json`` 的 ``verifier_result.rewards``。Agent 执行指标在 ``agent/rpent/session.json`` 的 ``stats`` 和各 Session 的 ``metrics``。Trial 未完成时可能没有 ``result.json`` 或 ``session.json``，先看 ``trial.log`` 和 ``agent/rpent/run.log``。
 
 判断任务是否成功，读取 Trial 的 ``verifier_result.rewards.success``。任务允许重试时，``first_success`` 表示首次尝试的结果。模型返回 ``finish(status="completed")`` 只表示 Agent 停止工作；CLI 正常退出只表示执行代码没有报告错误，两者都不代表评分成功。
 
 批量运行 benchmark
 ------------------
 
-单任务运行完成后，将下方 ``<benchmark>`` 替换为所选 benchmark 的名称。先检查任务模式：目录中应只包含受支持的 standard 或 standard-realtime 任务，不要混入 privileged 任务。
+要批量运行 benchmark，请将下方 ``<benchmark>`` 替换为所选 benchmark 的名称。先确认目录中只有受支持的 standard 或 standard-realtime 任务，不要混入 privileged 任务。
 
-``--path`` 指向 benchmark 目录，Harbor 把其下的任务目录当作数据集；``-d embodied-first-exam@all`` 是 EFE 注册的整套任务。例如 EFE 文档中的 ``harbor run -d embodied-first-exam@all -p tasks/roboarc`` 只跑 RoboARC。
+``--path`` 指向 benchmark 目录，其中每个子目录是一项任务，合起来就是要运行的任务集。``-d embodied-first-exam@all`` 表示 EFE 注册的全部任务。例如，EFE 文档中的 ``harbor run -d embodied-first-exam@all -p tasks/roboarc`` 只运行 RoboARC 任务集。
 
 .. code-block:: bash
 
@@ -177,23 +185,14 @@ RPent 提供两种控制方式。默认使用 **Skills**：模型通过 ``move_t
 
 每个任务对应一个 Trial 和一份 ``result.json``；``--n-concurrent`` 默认 4。先跑通一个 Trial，再批量运行，并固定模型、端点、任务版本和超时后再比较结果。
 
-Benchmark 结果与复现
-~~~~~~~~~~~~~~~~~~~~
-
-本集成尚无已发布的完整 benchmark 结果。单任务 smoke 仅检查集成能否运行，不能证明成功率、速度提升或 Skills 与 Raw 的效果差异。EFE 官方排行榜也不代表 RPent 的成绩。
-
-复现批量评测时，记录两个仓库的版本、任务列表、模型标识与端点、推理强度、时间与轮次上限、重置与重试设置，以及尝试次数。保留 Harbor 的 Job 和 Trial 结果、``agent/rpent-source.json`` （源码归档哈希）和 ``agent/setup/pip-freeze.txt`` （安装依赖版本）。报告全部尝试中成功的数量，并明确列出错误与超时如何计入结果。
-
 常用参数
 --------
 
-- ``--agent-kwarg source_root=/path``：指定要安装的 RPent checkout；默认取适配器所在源码仓库。从已安装的 Wheel 导入适配器时，需要显式指定该路径。
+- ``--agent-kwarg source_root=/path``：指定 RPent 源码目录；默认使用 RPentEfeAgent 所在的仓库。从已安装的 Wheel 导入时，需要显式指定该路径。
 - ``--agent-kwarg workdir=/path``：任务的工作目录；默认 ``/app``。
 - ``--agent-kwarg timeout_s=N``：RPent 的内层时间上限，必须小于任务的 Agent 超时。两者相等时 Harbor 先超时，``session.json`` 会丢失。
 - ``--agent-kwarg max_turns=N``：Planner 的模型响应次数上限，不等于 Shell 命令数。
 - ``--agent-kwarg sandbox=full-access``：允许 Planner 用 Shell 直接编写脚本操作 Simulator。默认 ``read-only`` 让 Shell 无法访问 Simulator，只有 RPent 工具会作用于 Episode。
-
-Harbor 的任务预算始终是外层硬限制；RPent 在 Trial 结束时写出 ``session.json``，所以要留出余量。
 
 任务记忆与探索模式
 ------------------
@@ -261,18 +260,18 @@ Raw 组直接使用服务接口：``efe_spec`` 返回每个动作向量的列含
 运行隔离与测量模式
 ------------------
 
-- Harbor Runner 默认使用 Codex 的 ``read-only`` 沙箱。该沙箱限制 Shell，不限制 RPent 工具：Shell 不能写文件、不能联网，因此连不上 Simulator，机器人只由 RPent 工具操作。
+- Harbor Runner 默认使用 Codex 的 ``read-only`` 沙箱。它限制 Shell，不限制 RPent 工具：Shell 不能写文件或访问网络；机器人动作通过 RPent 工具执行。
 - 使用 ``full-access`` 时，Agent 可以用 Shell 写脚本直接调用 ``rcb_client``，绕过 RPent 工具。这些调用不经过 RPent 的客户端，``session.json`` 的 ``metrics`` 不会统计，因此这种运行不能与走工具的运行对比。
-- 通用 ``rpent --robot efe`` 没有 Sandbox 选项，固定以 ``full-access`` 运行，用于手动和交互调试。正式评测与对照请使用 Harbor Adapter。
+- 通用 ``rpent --robot efe`` 没有 Sandbox 选项，固定以 ``full-access`` 运行，用于手动和交互调试。正式评测与对照请通过 Harbor 运行。
 
 开发者集成说明
 --------------
 
-Harbor 适配器是 ``--agent`` 指定的类，负责将 RPent 源码中的 ``rpent/``、``robots/``、安装元数据和 ``pyproject.toml`` 声明的包数据打包。它用任务镜像自带的 Python，在 ``/opt/rpent-efe/venv`` 创建虚拟环境并安装 RPent，容器不需要 ``uv``。打包范围不含宿主 Git 数据、测试、API key 文件和运行日志。``robots/`` 是 RPent 安装包的一部分，上传它不会启动其他机器人服务。
+Harbor 通过 ``--agent`` 加载 RPent 的 ``RPentEfeAgent``。该入口会打包 RPent 源码、安装元数据和 ``pyproject.toml`` 声明的包数据，再用任务镜像自带的 Python 安装到 ``/opt/rpent-efe/venv``；容器不需要 ``uv``。打包内容不含 Git 数据、测试、API key 文件和运行日志。``robots/`` 是 RPent 安装包的一部分，不会因此启动其他机器人服务。
 
-Runner 指 RPent 在容器内执行任务的代码，负责启动 CodexPlanner、通过 ``rcb_client.Robot`` 连接仿真器，并保存 ``session.json``。Harbor 管理容器隔离、执行预算和清理。``solved()`` 只采信服务返回的结束原因。RPent 不启动仿真器、不读取特权状态，也不修改 EFE 的评分规则。
+Runner 指 RPent 在容器内执行任务的代码，负责启动 CodexPlanner、通过 ``rcb_client.Robot`` 与仿真器交互，并保存 ``session.json``。Harbor 管理容器隔离、执行预算和清理。``solved()`` 只采信服务返回的结束原因。RPent 不启动仿真器、不读取特权状态，也不修改 EFE 的评分规则。
 
-适配器转发模型环境变量和显式的 Harbor ``--agent-env`` 设置。若尚未设置 ``CODEX_API_KEY``、``CODEX_BASE_URL``，则分别从 ``OPENAI_API_KEY``、``OPENAI_BASE_URL`` 映射。宿主的 ``CODEX_HOME`` 不会转发，每个 Trial 都会新建独立目录。
+RPentEfeAgent 会转发模型环境变量和显式的 Harbor ``--agent-env`` 设置。若尚未设置 ``CODEX_API_KEY``、``CODEX_BASE_URL``，则分别从 ``OPENAI_API_KEY``、``OPENAI_BASE_URL`` 映射。宿主机的 ``CODEX_HOME`` 不会转发，每个 Trial 都会新建独立目录。
 
 .. code-block:: text
 
@@ -283,64 +282,3 @@ Runner 指 RPent 在容器内执行任务的代码，负责启动 CodexPlanner�
        └── EFE 任务服务
 
 支持的服务版本为 standard 模式的 ``eai-standard/2.1``、``2.2``、``2.4``，以及 standard-realtime 模式的 ``2.3``。privileged 任务则要求提交可重放的 ``trajectory.npz``，或策略程序、模型。评分程序通过重放轨迹或运行策略来评测，与本集成逐步观测和执行动作的方式不匹配。
-
-单任务调试
-----------
-
-先检查失败 Trial 的日志，根据现象定位问题：
-
-.. list-table::
-   :header-rows: 1
-   :widths: 25 75
-
-   * - 现象
-     - 检查方法
-   * - Harbor 无法导入 ``robots.efe``
-     - 检查 ``RPENT_ROOT``、``robots/efe/harbor_agent.py`` 是否存在，以及运行命令中的 ``PYTHONPATH``。
-   * - 容器构建或仿真器启动失败
-     - 查看 ``trial.log``，检查 Docker、任务资源和 EFE 中对应任务的准备指南。
-   * - RPent 安装超时
-     - 查看 ``agent/setup/``。Harbor 默认准备时限为 360 秒；冷安装较慢时加上 ``--agent-setup-timeout-multiplier 4``。下载依赖使用任务准备阶段的网络策略。
-   * - 模型认证或连接失败
-     - 检查密钥、模型名、API 地址、``MODEL_HOST`` 以及覆盖配置的 ``CODEX_*`` 变量。主机放行名单在 Agent 执行阶段生效。
-   * - 超时后没有 ``session.json``
-     - 将 RPent 的 ``timeout_s`` 设为小于任务的 Agent 超时，给 Harbor 停止任务前保存结果留出时间。
-
-需要交互排查时，``harbor task start-env`` 会启动同一任务的容器，并打开 Agent 容器的终端。它不执行完整 Trial，也不运行评分程序。下面的命令挂载 RPent 源码用于安装，并将任务指令挂载到 ``/task/instruction.md``。
-
-1. 在宿主终端启动任务环境，打开容器终端：
-
-   .. code-block:: bash
-
-      # 宿主终端：启动环境并打开容器终端
-      uv run --project "$EFE_ROOT" harbor task start-env \
-        --path "$EFE_TASK" \
-        --mounts '[{"type":"bind","source":"'"$RPENT_ROOT"'","target":"/opt/rpent","read_only":true},{"type":"bind","source":"'"$EFE_TASK"'","target":"/task","read_only":true}]'
-
-2. 在容器终端中，将挂载的源码复制到可写目录，再安装 RPent：
-
-   .. code-block:: bash
-
-      cp -a /opt/rpent /tmp/rpent-src
-      python3 -m venv /tmp/rpent-venv
-      /tmp/rpent-venv/bin/python -m pip install /tmp/rpent-src
-
-3. 在同一个容器终端中，输入模型密钥并运行 RPent：
-
-   前面的 Harbor 运行通过 Adapter 将宿主的 ``OPENAI_API_KEY`` 和 ``OPENAI_BASE_URL`` 分别映射为 ``CODEX_API_KEY`` 和 ``CODEX_BASE_URL``。这里直接在容器中运行 RPent，不经过 Adapter，因此需要在容器中设置 CodexPlanner 使用的这两个变量。使用与前面相同的密钥和 API 地址即可。
-
-   ``read -rsp`` 提示输入密钥，但不会在终端显示输入内容；按 Enter 后，``echo`` 换行，``export`` 将密钥传给后续运行的程序。
-
-   .. code-block:: bash
-
-      read -rsp "Model API key: " CODEX_API_KEY; echo
-      export CODEX_API_KEY
-      export CODEX_BASE_URL=https://api.openai.com/v1
-      /tmp/rpent-venv/bin/rpent --robot efe --planner codex \
-        --instruction-file /task/instruction.md \
-        --output-dir /app/output \
-        --model your-model
-
-``/opt/rpent`` 以只读方式挂载，而安装会向源码目录写入构建元数据，所以先复制到 ``/tmp/rpent-src``。``--instruction-file`` 指向任务目录自带的 ``instruction.md``；通用 CLI 的 ``--planner`` 默认是 ``api``，这里显式选择 ``codex``，与 Adapter 使用的 CodexPlanner 一致。``rpent --robot efe --planner codex`` 固定 ``full-access``，Shell 也能操作 Simulator，因此只用于调试；对照实验请用 Adapter。``--efe-base-url`` 默认探测 ``sim:8000``。``start-env`` 不应用 Trial 的 Agent 网络策略（``--allow-agent-host`` 只在 ``harbor run`` 中生效），容器使用 Docker 默认网络。
-
-在容器终端按提示输入密钥。使用自定义端点时，把 ``CODEX_BASE_URL`` 替换为完整地址。``your-model`` 使用上文相同的模型标识，但去掉 Harbor 的 ``openai/`` 前缀。调试输出保存在容器内的 ``/app/output``，不会产生 Harbor 的评分结果。结束后退出终端，容器生命周期选项见 ``harbor task start-env --help``。
