@@ -42,6 +42,8 @@ class RunFinalizationContext:
     finish_result: Mapping[str, Any] | None
     stats: Mapping[str, Any]
     environment_metrics: Mapping[str, Any] = field(default_factory=dict)
+    stop_info: Mapping[str, Any] | None = None
+    stop_reason: str | None = None
 
 
 RunFinalizer = Callable[[RunFinalizationContext], Path | str | None]

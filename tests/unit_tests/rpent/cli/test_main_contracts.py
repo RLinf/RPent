@@ -899,6 +899,7 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
 
     captured: list[RunFinalizationContext] = []
     capture_enabled = record_trajectory and planner_name != "flash"
+    stop_info = {"reason": "backend_done", "category": "unknown"}
 
     class FakeDaemon:
         stopped = False
@@ -939,6 +940,8 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
                 messages=[],
                 stats={"tool_calls": 0},
                 error=planner_error,
+                stop_info=stop_info,
+                stop_reason="request_limit",
             )
 
     def add_cli_args(parser: Any, use_dashboard: bool) -> None:
@@ -1048,6 +1051,8 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
     assert context.max_turns == 100
     assert context.planner_timeout_s == 1800
     assert context.stats == {"tool_calls": 0}
+    assert context.stop_info == stop_info
+    assert context.stop_reason == "request_limit"
     assert json.loads((tmp_path / "result.json").read_text(encoding="utf-8")) == {
         "robot": "testrobot",
         "task": {"task_name": "OpenDrawer", "seed": 1},
