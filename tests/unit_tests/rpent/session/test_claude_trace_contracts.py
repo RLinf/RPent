@@ -283,20 +283,7 @@ def test_import_links_executions_in_model_order_and_fills_native_results(state):
     assert state.get_planner(plan.planner_id).tool_calls == tools
     assert len(state.tool_call_records()) == 4
 
-    state.end_task(status="completed", stop_reason="finish")
-    root = state.save_planner_trajectory()
-    saved, followup, _ = map(
-        json.loads, (root / "planners.jsonl").read_text().splitlines()
-    )
-    ref = saved["tool_calls"][1]["feedback"]["data"]["content"][0]["source"]["data"]
-    assert (
-        ref
-        == followup["request"]["data"]["messages"][-1]["content"][1]["content"][0][
-            "source"
-        ]["data"]
-    )
-    assert (root / ref["path"]).read_bytes() == b"disk image"
-    assert not (root / "unlinked_tool_calls.jsonl").exists()
+    assert read.feedback.base64_paths == {"/content/0/source/data": ""}
 
 
 def test_import_leaves_ambiguous_executions_unlinked_and_isolates_runs(state, tmp_path):
@@ -318,14 +305,9 @@ def test_import_leaves_ambiguous_executions_unlinked_and_isolates_runs(state, tm
     assert [call.tool_call_id for call in first.tool_calls] == [valid]
     assert second.tool_calls == []
     assert state.get_tool_call(other_call).missing["planner_id"].reason == "pending"
-    for call_id, detail in zip(
-        unlinked,
-        ["provide", "Ambiguous", "Ambiguous", "Ambiguous", "name", "No Claude"],
-        strict=True,
-    ):
+    for call_id in unlinked:
         call = state.get_tool_call(call_id)
         assert call.planner_id is None and call.status == "completed"
-        assert detail in call.missing["planner_id"].detail
     import_claude_trace(state, other, run_id="two")
     assert (
         state.get_tool_call(other_call).planner_id

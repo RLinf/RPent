@@ -57,14 +57,17 @@ def trajectory(tmp_path, request):
         )
         for name in ("move_to", "pi0_pick")
     ]
-    image = state.save_trajectory_artifact(np.zeros((256, 256, 3), dtype=np.uint8))
+    main_image = state.save_trajectory_artifact(np.zeros((256, 256, 3), dtype=np.uint8))
+    wrist_image = state.save_trajectory_artifact(
+        np.full((256, 256, 3), 255, dtype=np.uint8)
+    )
     observations = [
         state.register_observation(
             payload=Payload(
                 "libero.observation",
                 {
-                    "main_images": image,
-                    "wrist_images": image,
+                    "main_images": main_image,
+                    "wrist_images": wrist_image,
                     "states": np.full(8, index, dtype=np.float32),
                     "task_descriptions": "Put the bowl on the stove",
                 },
@@ -169,10 +172,6 @@ def bimanual_trajectory(trajectory, request):
                     )
                 },
                 "robot_state": {
-                    "right_gripper": float(values[15]),
-                    "left_gripper": float(values[7]),
-                    "right_eef_pose": _array(values[8:15]),
-                    "left_eef_pose": _array(values[:7]),
                     "qpos_target14": _array(
                         np.arange(14, dtype=np.float64) + index * 100
                         if action_type == "qpos"
@@ -183,6 +182,13 @@ def bimanual_trajectory(trajectory, request):
                     "right_tcp_pose": _array(np.full(7, -999.0)),
                 },
             }
+            if action_type == "ee":
+                fields["robot_state"].update(
+                    right_gripper=float(values[15] + 0.123456789),
+                    left_gripper=float(values[7] + 0.123456789),
+                    right_eef_pose=_array(values[8:15]),
+                    left_eef_pose=_array(values[:7]),
+                )
         observation_id = f"O{index + 1}"
         observations[observation_id] = {
             "observation_id": observation_id,

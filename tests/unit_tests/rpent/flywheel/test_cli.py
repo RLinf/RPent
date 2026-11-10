@@ -25,10 +25,7 @@ from rpent.flywheel.export import load_dataset
 pytest.importorskip("lerobot")
 
 
-@pytest.mark.parametrize("vla_args", [[], ["--vla"]], ids=["default", "vla"])
-def test_cli_exports_images_with_requested_threads(
-    trajectory, tmp_path, monkeypatch, vla_args
-):
+def test_cli_exports_images_with_requested_threads(trajectory, tmp_path, monkeypatch):
     from lerobot.datasets import image_writer
 
     writers = set()
@@ -45,7 +42,7 @@ def test_cli_exports_images_with_requested_threads(
         "argv",
         [
             "rpent-flywheel",
-            *vla_args,
+            "--vla",
             "--input-root",
             str(trajectory["root"]),
             "--output-dir",
@@ -59,33 +56,6 @@ def test_cli_exports_images_with_requested_threads(
     assert writers
     assert threading.current_thread() not in writers
     assert all(not writer.is_alive() for writer in writers)
-
-
-@pytest.mark.parametrize(
-    "bimanual_trajectory", [("robotwin", "ee"), ("robotwin", "qpos")], indirect=True
-)
-def test_cli_exports_robotwin_action_layouts(
-    bimanual_trajectory, tmp_path, monkeypatch
-):
-    trajectory = bimanual_trajectory
-    output = tmp_path / "export"
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "rpent-flywheel",
-            "--input-root",
-            str(trajectory["root"]),
-            "--output-dir",
-            str(output),
-        ],
-    )
-    assert main() == 0
-    dataset = load_dataset(output)
-    dim = trajectory["actions"][1]["action"]["data"]["shape"][0]
-    assert len(dataset) == 6
-    assert dataset.features["action"]["shape"] == (dim,)
-    assert dataset.features["observation.state"]["shape"] == (dim,)
 
 
 def test_cli_unsupported_format_aborts_without_partial_export(

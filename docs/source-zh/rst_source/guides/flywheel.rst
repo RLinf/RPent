@@ -41,7 +41,30 @@ RPent 数据飞轮用于记录从任务规划到动作执行的轨迹，并从�
 轨迹数据格式
 ------------
 
-``task.json`` 保存任务指令、运行配置、起止时间和任务结果。以下三个 JSONL 文件每行保存一个 JSON 对象。
+以下是轨迹的目录结构及相关文件的数据格式
+
+.. code-block:: text
+
+   /path/to/run/trajectories/<task_id>/
+   ├── task.json
+   ├── planners.jsonl
+   ├── predictions.jsonl
+   ├── actions.jsonl
+   └── artifacts/
+
+.. list-table:: ``task.json`` 记录一次任务运行的指令、配置和结果
+   :header-rows: 1
+
+   * - 字段
+     - 含义
+   * - ``task.task_id``
+     - 本次运行的唯一编号，对应轨迹目录名 ``<task_id>``。
+   * - ``task.instruction``
+     - 本次运行的任务指令。
+   * - ``task.config``
+     - 本次运行的配置，具体内容保存在 ``task.config.data`` 中。
+   * - ``task.result``
+     - 任务运行的结果。 ``task.result.data.environment_success`` 表示任务是否成功。
 
 .. list-table:: ``planners.jsonl`` 每行记录一次模型调用
    :header-rows: 1

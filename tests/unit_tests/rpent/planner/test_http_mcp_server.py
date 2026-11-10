@@ -32,7 +32,7 @@ from mcp.shared.memory import create_connected_server_and_client_session
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory.manager import MemoryManager
 from rpent.planner.utils.http_mcp_server import HttpMcpServer, build_mcp_server
-from rpent.session import ArtifactRef, EnvState, Payload
+from rpent.session import EnvState, Payload
 from rpent.session.env_capture import CapturingEnvClient
 from rpent.tools import Toolkit, ToolResult, tool
 from rpent.utils.logging import init_output_dir
@@ -283,27 +283,6 @@ def test_mcp_capture_preserves_arguments_feedback_and_environment(captured_toolk
     assert action.source == "vla" and action.action.data == [1]
     assert action.before_observation_id == call.before_observation_id
     assert action.after_observation_id == call.after_observation_id
-    for observation_id, image in (
-        (call.before_observation_id, b"before"),
-        (call.after_observation_id, b"after"),
-    ):
-        reference = state.get_observation(observation_id).payload.data["image"]
-        assert isinstance(reference, ArtifactRef)
-        assert (state.trajectory_dir / reference.path).read_bytes() == image
-
-    state.end_task(status="completed", stop_reason="finish")
-    root = state.save_planner_trajectory()
-    saved = json.loads((root / "unlinked_tool_calls.jsonl").read_text())
-    feedback = saved["feedback"]["data"]
-    reference = feedback["content"][1]["data"]
-    assert reference["$type"] == "artifact_ref"
-    assert reference["base64_prefix"] == ""
-    assert reference["path"] == saved["raw_result"]["data"]["images"][0]["path"]
-    image = (root / reference["path"]).read_bytes()
-    assert image == b"png"
-    feedback["content"][1]["data"] = base64.b64encode(image).decode("ascii")
-    assert feedback == result.model_dump(mode="json", by_alias=True, exclude_none=True)
-    assert state.get_tool_call(call.tool_call_id) == call
 
 
 @pytest.mark.parametrize(

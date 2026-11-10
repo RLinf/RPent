@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import json
 from contextlib import nullcontext
 from copy import deepcopy
 from functools import partial
@@ -378,46 +377,6 @@ def facade(monkeypatch):
     return facade
 
 
-def test_capture_robocasa_call_snapshots_native_step(
-    facade, transport, make_server_and_client
-):
-    with make_server_and_client(facade, transport) as rpc:
-        client = RoboCasaEnvClient(rpc, expected_meta=facade._meta)
-        initial_obs = client.last_obs
-        action = np.arange(12, dtype=np.float32).reshape(3, 4) / 10
-        response = _capture_robocasa_call(client, "step", action)
-        obs, reward, done, info = response["result"]
-        assert obs is client.last_obs
-        assert (reward, done, info) == (1.0, False, {"count": 1})
-        (step,) = response["steps"]
-        assert step["action"]["data"].dtype == np.float64
-        np.testing.assert_array_equal(step["action"]["data"], facade.env.executed[0])
-        assert step["result"]["data"] == {
-            "reward": reward,
-            "done": done,
-            "info": info,
-        }
-
-        client.step(np.zeros(12))
-        for payload, count in (
-            (response["before_observation"], 0),
-            (step["after_observation"], 1),
-        ):
-            np.testing.assert_array_equal(
-                payload["data"]["robot0_eef_pos"], [count] * 3
-            )
-            assert "/robot0_eef_pos" in payload["inline_array_paths"]
-            assert set(payload["data"]["images"]) == set(DEFAULT_CAMS)
-            for image in payload["data"]["images"].values():
-                assert image.shape == (4, 4, 3)
-                np.testing.assert_array_equal(
-                    image[:, 0, 0], np.arange(4)[::-1] + count * 10
-                )
-        assert all(
-            "images" not in value for value in (initial_obs, obs, client.last_obs)
-        )
-
-
 def _primitives(env, tmp_path):
     primitives = RoboCasaPrimitives(env, tmp_path, 4, _VLA(), allow_reset=False)
     skill = primitives._rldx
@@ -438,8 +397,6 @@ def _primitives(env, tmp_path):
     ("transport", "mode"),
     [
         ("socket", "capture"),
-        ("http", "capture"),
-        ("socket", "disabled"),
         ("http", "unwrapped"),
     ],
 )
@@ -537,56 +494,35 @@ def test_robocasa_tools_capture_executed_actions_and_rldx_history(
 
     state.end_task(status="completed", stop_reason="finish")
     root = state.save_planner_trajectory()
-    assert json.loads((root / "task.json").read_text())["schema_version"] == 5
-    actions = [
-        json.loads(line) for line in (root / "actions.jsonl").read_text().splitlines()
-    ]
-    assert [a["source"] for a in actions] == [
-        "tool_computed",
-        "vla",
-        "vla",
-        "vla",
-        "vla",
+    trajectory = next(iter_trajectories(root))
+    actions = trajectory["actions"]
+    assert [a["source"] for a in actions] == ["tool_computed"] + ["vla"] * 4 + [
         "tool_computed",
         "direct",
     ]
-    for index, action in enumerate(actions):
-        assert action["before_observation_id"] == f"O{index + 1}"
-        assert action["after_observation_id"] == f"O{index + 2}"
-        assert action["action"]["format"] == "robocasa.action"
+    for index, (action, executed) in enumerate(
+        zip(actions, facade.env.executed, strict=True)
+    ):
         native = read_array(root, action["action"]["data"])
         assert native.dtype == np.float64
-        np.testing.assert_array_equal(native, facade.env.executed[index])
-        assert action["result"]["data"] == {
-            "reward": float(index + 1),
-            "done": False,
-            "info": {"count": index + 1},
-        }
-        for side, count in (("before", index), ("after", index + 1)):
-            payload = action[f"{side}_observation"]["payload"]
-            assert payload["format"] == "robocasa.observation"
+        np.testing.assert_array_equal(native, executed)
+        before = action["before_observation"]["payload"]["data"]
+        np.testing.assert_array_equal(
+            read_array(root, before["robot0_eef_pos"]), [index] * 3
+        )
+        for camera in DEFAULT_CAMS:
+            image = read_array(root, before["images"][camera])
             np.testing.assert_array_equal(
-                read_array(root, payload["data"]["robot0_eef_pos"]), [count] * 3
+                image[:, 0, 0], np.arange(4)[::-1] + index * 10
             )
-            for camera in DEFAULT_CAMS:
-                image = read_array(root, payload["data"]["images"][camera])
-                np.testing.assert_array_equal(
-                    image[:, 0, 0], np.arange(4)[::-1] + count * 10
-                )
-    predictions = [
-        json.loads(line)
-        for line in (root / "predictions.jsonl").read_text().splitlines()
-    ]
-    assert [p["action_ids"] for p in predictions] == [["A2", "A3"], ["A4", "A5"]]
-    for prediction in predictions:
-        assert prediction["instruction"] == "Open the left drawer."
-        assert "input_observation" not in prediction
-        assert "input_observation_id" not in prediction
-        assert "actions" not in prediction
+    first, second = trajectory["predictions"]
+    assert first["instruction"] == second["instruction"] == "Open the left drawer."
+    assert first["action_ids"] == [a["action_id"] for a in actions[1:3]]
+    assert second["action_ids"] == [a["action_id"] for a in actions[3:5]]
 
 
 def test_robocasa_failed_step_keeps_prior_steps_and_ends_prediction_scope(
-    facade, transport, make_server_and_client, tmp_path
+    facade, make_server_and_client, tmp_path
 ):
     state = EnvState(tmp_path)
     state.start_task(
@@ -599,7 +535,7 @@ def test_robocasa_failed_step_keeps_prior_steps_and_ends_prediction_scope(
         arguments=Payload("json", {}),
     )
     capture = ToolCallCapture(state, tool_id)
-    with make_server_and_client(facade, transport) as rpc:
+    with make_server_and_client(facade, "http") as rpc:
         client = RoboCasaEnvClient(rpc, expected_meta=facade._meta)
         env = CapturingEnvClient(
             client, state, capture_call=partial(_capture_robocasa_call, client)

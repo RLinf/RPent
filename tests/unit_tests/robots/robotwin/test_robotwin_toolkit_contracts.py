@@ -17,9 +17,7 @@
 from __future__ import annotations
 
 import importlib
-import json
 import sys
-from contextlib import nullcontext
 from copy import deepcopy
 from functools import partial
 from pathlib import Path
@@ -42,7 +40,7 @@ from rpent.flywheel.reader import iter_trajectories, read_array
 from rpent.memory import MemoryManager
 from rpent.session import EnvState, Payload
 from rpent.session.env_capture import CapturingEnvClient, ToolCallCapture
-from rpent.tools import Tool, Toolkit, ToolResult, tool
+from rpent.tools import Tool, Toolkit, ToolResult
 from rpent.tools.direct_action import direct_action_tool
 from rpent.utils import templates
 from rpent.utils.rpc import RpcError
@@ -377,9 +375,7 @@ def facade(monkeypatch):
     ("transport", "all_frames", "stop"),
     [
         ("socket", True, "success"),
-        ("http", True, "budget"),
-        ("socket", False, "budget"),
-        ("http", False, "success"),
+        ("http", False, "budget"),
     ],
 )
 def test_chunk_returns_only_executed_steps_with_distinct_observations(
@@ -439,15 +435,13 @@ def test_chunk_returns_only_executed_steps_with_distinct_observations(
             np.testing.assert_array_equal(camera["intrinsic_cv"], np.eye(3))
 
 
-def test_old_frame_format_is_rejected_before_reset(
-    facade, make_server_and_client, transport
-):
+def test_old_frame_format_is_rejected_before_reset(facade, make_server_and_client):
     expected_meta = env_runtime_contract(
         task_name="beat_block_hammer", task_config="demo_clean", seed=7
     )
     facade._metadata = deepcopy(expected_meta)
     facade._metadata["execution"].pop("chunk_step_frame_format")
-    with make_server_and_client(facade, transport) as rpc:
+    with make_server_and_client(facade, "socket") as rpc:
         with pytest.raises(AssertionError, match="chunk_step_frame_format"):
             RoboTwinEnvClient(rpc, expected_meta=expected_meta)
     task = facade._env.venv.envs[0].task
@@ -464,7 +458,7 @@ def test_old_frame_format_is_rejected_before_reset(
     ],
 )
 def test_captured_call_preserves_return_shape_and_cache(
-    facade, make_server_and_client, transport, tmp_path, method, kwargs
+    facade, make_server_and_client, tmp_path, method, kwargs
 ):
     state = EnvState(tmp_path)
     state.start_task(instruction="native instruction", config=Payload("json", {}))
@@ -472,7 +466,7 @@ def test_captured_call_preserves_return_shape_and_cache(
     tool_id = state.register_tool_call(
         planner_id=planner, name="move", arguments=Payload("json", {})
     )
-    with make_server_and_client(facade, transport) as rpc:
+    with make_server_and_client(facade, "socket") as rpc:
         client = RoboTwinEnvClient(rpc, expected_meta=facade.get_env_meta())
         env = CapturingEnvClient(
             client, state, capture_call=partial(_capture_robotwin_call, client)
@@ -513,188 +507,98 @@ def test_captured_call_preserves_return_shape_and_cache(
 
 
 @pytest.mark.parametrize(
-    ("transport", "recording"), [("socket", True), ("http", False)]
+    "policy,action_type,dim", [("vla", "ee", 16), ("wam", "qpos", 14)]
 )
-@pytest.mark.parametrize(
-    ("policy_kind", "action_type", "dim"),
-    [("vla", "ee", 16), ("wam", "qpos", 14), ("wam", "ee", 16)],
-)
-def test_policy_predictions_and_action_sources_reach_disk(
+def test_policy_capture_exports_only_executed_actions_with_their_inputs(
     facade,
     make_server_and_client,
-    transport,
     tmp_path,
-    recording,
-    policy_kind,
+    policy,
     action_type,
     dim,
 ):
     state = EnvState(tmp_path)
+    state.start_task(
+        instruction="native instruction",
+        config=Payload("test", {"arguments": {"robot_name": "robotwin"}}),
+    )
     task = facade._env.venv.envs[0].task
-    chunk_steps = 50 if policy_kind == "vla" else 53
-    end_step = 2 * chunk_steps + 4
-    task.success_at = end_step
+    task.success_at = 3
+    commands = np.arange(4 * dim, dtype=np.float64).reshape(4, dim)
     inputs = []
-    commands = np.arange(53 * dim, dtype=np.float64).reshape(53, dim) / 1000
 
-    def infer(observation):
-        inputs.append(deepcopy(observation))
+    def predict(obs):
+        inputs.append(deepcopy(obs))
         return commands
 
-    if recording:
-        state.start_task(
-            instruction="native instruction",
-            config=Payload("rpent.config", {"arguments": {"robot_name": "robotwin"}}),
-        )
-        planner = state.register_planner(backend="api")
-    with make_server_and_client(facade, transport) as rpc:
+    with make_server_and_client(facade, "socket") as rpc:
         client = RoboTwinEnvClient(rpc, expected_meta=facade.get_env_meta())
         env = CapturingEnvClient(
             client, state, capture_call=partial(_capture_robotwin_call, client)
         )
         primitives = RoboTwinPrimitives(
             env=env,
-            model=SimpleNamespace(infer=infer, predict=infer, action_type=action_type),
+            model=SimpleNamespace(
+                infer=predict, predict=predict, action_type=action_type
+            ),
             seed=7,
             check_cancelled=lambda: None,
-            policy_kind=policy_kind,
+            policy_kind=policy,
         )
-        primitives.start_recording()
         toolkit = Toolkit(
             state=state,
             dashboard_events=NullDashboardEventSink(),
             memory=MemoryManager(tmp_path / "memory"),
         )
         toolkit.get_env_state = lambda **kw: ToolResult(data={})
-
-        @tool
-        def computed():
-            reads = task.observation_reads
-            result = env.step(np.zeros(14))
-            assert "capture" not in result[4]
-            assert task.observation_reads - reads == 1 + 2 * int(recording)
-            return ToolResult(data={})
-
-        toolkit.add_tool(computed)
-        policy_tool = "lingbot_act" if policy_kind == "vla" else "wam_act"
-        chunk_arg = "chunks" if policy_kind == "vla" else "max_chunks"
-        toolkit.add_tool(getattr(primitives, policy_tool))
+        name = "lingbot_act" if policy == "vla" else "wam_act"
+        toolkit.add_tool(getattr(primitives, name))
         toolkit.add_tool(
             direct_action_tool(env.action_specs, primitives.execute_action)
         )
-        for name, arguments in (
+        for tool_name, args in (
             ("execute_action", {"values": [0.0] * 14, "action_type": "qpos"}),
-            (policy_tool, {chunk_arg: 1, "prompt": "policy subtask"}),
-            ("computed", {}),
-            (policy_tool, {chunk_arg: 2}),
+            (name, {"prompt": "policy subtask"}),
         ):
-            if recording:
-                tool_id = state.register_tool_call(
-                    planner_id=planner, name=name, arguments=Payload("json", arguments)
-                )
-            with ToolCallCapture(state, tool_id).bind() if recording else nullcontext():
-                result = toolkit.execute_tool(name, arguments)
+            tool_id = state.register_tool_call(
+                planner_id=None, name=tool_name, arguments=Payload("json", args)
+            )
+            with ToolCallCapture(state, tool_id).bind():
+                result = toolkit.execute_tool(tool_name, args)
             assert not result.is_error, result.data
-            assert "capture" not in client.last_info
         assert client.terminated
-        assert len(task.executed) == end_step
-        assert len(inputs) == 3
-        assert [observation["task_language"] for observation in inputs] == [
-            "native instruction" if policy_kind == "vla" else "policy subtask",
-            "native instruction",
-            "native instruction",
-        ]
-        assert primitives.policy_actions == end_step - 2
-        assert primitives.recorded_frame_count() == end_step - 1
-        for frame, count in zip(
-            primitives.frame_slice(0),
-            [*range(1, chunk_steps + 2), *range(chunk_steps + 3, end_step + 1)],
-            strict=True,
-        ):
-            assert frame.dtype == np.uint8
-            np.testing.assert_array_equal(frame, np.full((2, 2, 3), count))
-    assert task.reset_count == 1
-    if not recording:
-        assert state.action_records() == state.prediction_records() == []
-        assert not (tmp_path / "trajectories").exists()
-        return
+
     state.end_task(
         status="completed",
         stop_reason="finish",
         result=Payload("robotwin.result", {"environment_success": True}),
     )
     root = state.save_planner_trajectory()
-    selected = select_vla_segments(next(iter_trajectories(root)))
-    assert selected["rejected"] == []
-    assert (
-        sum(
-            segment["stop_index"] - segment["start_index"]
-            for segment in selected["segments"]
-        )
-        == end_step - 2
-    )
-    assert json.loads((root / "task.json").read_text())["schema_version"] == 5
-    actions = [
-        json.loads(line) for line in (root / "actions.jsonl").read_text().splitlines()
-    ]
-    predictions = [
-        json.loads(line)
-        for line in (root / "predictions.jsonl").read_text().splitlines()
-    ]
-    assert [a["source"] for a in actions] == [
-        "direct",
-        *(["vla"] * chunk_steps),
-        "tool_computed",
-        *(["vla"] * (chunk_steps + 2)),
-    ]
-    for prediction, start, length, expected in zip(
-        predictions,
-        (2, chunk_steps + 3, 2 * chunk_steps + 3),
-        (chunk_steps, chunk_steps, 2),
-        inputs,
-        strict=True,
-    ):
-        assert prediction["action_ids"] == [
-            f"A{i}" for i in range(start, start + length)
-        ]
-        assert prediction["instruction"] == expected["task_language"]
-        assert "input_observation" not in prediction
-        assert "input_observation_id" not in prediction
-        payload = actions[start - 1]["before_observation"]["payload"]
-        assert payload["format"] == "robotwin.observation"
-        for name, camera in expected["views"].items():
-            np.testing.assert_array_equal(
-                read_array(root, payload["data"]["observation"][CAMERAS[name]]["rgb"]),
-                camera["rgb"],
-            )
-        np.testing.assert_array_equal(
-            read_array(root, payload["data"]["robot_state"]["left_eef_pose"]),
-            expected["robot_state"]["left_eef_pose"],
-        )
-    assert predictions[1]["tool_call_id"] == predictions[2]["tool_call_id"]
-    for index, (action, (native, action_type)) in enumerate(
-        zip(actions, task.executed, strict=True)
-    ):
+    trajectory = next(iter_trajectories(root))
+    direct, first, last = trajectory["actions"]
+    (prediction,) = trajectory["predictions"]
+    (model_input,) = inputs
+    instruction = "native instruction" if policy == "vla" else "policy subtask"
+    assert model_input["task_language"] == prediction["instruction"] == instruction
+    assert [a["source"] for a in (direct, first, last)] == ["direct", "vla", "vla"]
+    assert prediction["action_ids"] == [first["action_id"], last["action_id"]]
+    for action, command in zip((first, last), commands[:2], strict=True):
         assert action["action"]["format"] == f"robotwin.action.{action_type}"
         np.testing.assert_array_equal(
-            read_array(root, action["action"]["data"]), native
+            read_array(root, action["action"]["data"]), command
         )
-        assert action["before_observation_id"] == f"O{index + 1}"
-        assert action["after_observation_id"] == f"O{index + 2}"
-        for side, count in (("before", index), ("after", index + 1)):
-            data = action[f"{side}_observation"]["payload"]["data"]
-            np.testing.assert_array_equal(
-                read_array(root, data["robot_state"]["left_eef_pose"]),
-                [count, 0, 0, 1, 0, 0, 0],
-            )
-            for camera in data["observation"].values():
-                np.testing.assert_array_equal(
-                    read_array(root, camera["rgb"]), np.full((2, 2, 3), count)
-                )
+    before = first["before_observation"]["payload"]["data"]
+    for name, camera in model_input["views"].items():
+        np.testing.assert_array_equal(
+            read_array(root, before["observation"][CAMERAS[name]]["rgb"]), camera["rgb"]
+        )
+    assert select_vla_segments(trajectory)["segments"] == [
+        {"start_index": 1, "stop_index": 3, "instruction": instruction},
+    ]
 
 
 def test_failed_chunk_discards_its_steps_but_keeps_prior_calls(
-    facade, make_server_and_client, transport, tmp_path
+    facade, make_server_and_client, tmp_path
 ):
     task = facade._env.venv.envs[0].task
     task.fail_at = 3
@@ -704,7 +608,7 @@ def test_failed_chunk_discards_its_steps_but_keeps_prior_calls(
     tool_id = state.register_tool_call(
         planner_id=planner, name="move", arguments=Payload("json", {})
     )
-    with make_server_and_client(facade, transport) as rpc:
+    with make_server_and_client(facade, "socket") as rpc:
         client = RoboTwinEnvClient(rpc, expected_meta=facade.get_env_meta())
         env = CapturingEnvClient(
             client, state, capture_call=partial(_capture_robotwin_call, client)

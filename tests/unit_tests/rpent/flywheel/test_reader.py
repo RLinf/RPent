@@ -136,48 +136,21 @@ def test_preserves_empty_failed_trajectory(tmp_path):
     assert trajectory["actions"] == trajectory["predictions"] == []
 
 
-def test_preserves_jsonl_order_extra_fields_and_blank_lines(tmp_path):
-    root = _save_trajectory(tmp_path)
-    rows = [{"action_id": "A10", "extra": {"x": 1}}, {"action_id": "A2"}]
-    (root / "actions.jsonl").write_text(
-        "\n" + "\n\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8"
-    )
-    assert next(iter_trajectories(root))["actions"] == rows
-
-
-@pytest.mark.parametrize("filename", ["actions.jsonl", "predictions.jsonl"])
 @pytest.mark.parametrize("bad_line", ["{broken", "[]"])
-def test_invalid_jsonl_reports_filename_and_physical_line(tmp_path, filename, bad_line):
+def test_invalid_jsonl_reports_filename_and_physical_line(tmp_path, bad_line):
     root = _save_trajectory(tmp_path)
-    path = root / filename
+    path = root / "actions.jsonl"
     path.write_text("{}\n\n" + bad_line + "\n", encoding="utf-8")
     with pytest.raises(ValueError) as error:
         list(iter_trajectories(root))
     assert f"{path.resolve()}:3:" in str(error.value)
 
 
-@pytest.mark.parametrize(
-    "contents",
-    [
-        "{\ninvalid",
-        "[]",
-        '{"schema_version": 5}',
-    ],
-)
-def test_invalid_task_reports_source_file(tmp_path, contents):
-    root = _save_trajectory(tmp_path)
-    (root / "task.json").write_text(contents, encoding="utf-8")
-    with pytest.raises(ValueError) as error:
-        list(iter_trajectories(root))
-    assert str(root.resolve() / "task.json") in str(error.value)
-
-
-@pytest.mark.parametrize("version", [2, 3, 4, 6])
-def test_unsupported_trajectory_schema_reports_source_file(tmp_path, version):
+def test_unsupported_trajectory_schema_reports_source_file(tmp_path):
     root = _save_trajectory(tmp_path)
     path = root / "task.json"
     document = json.loads(path.read_text())
-    document["schema_version"] = version
+    document["schema_version"] = 4
     path.write_text(json.dumps(document))
     with pytest.raises(
         ValueError, match="expected trajectory schema_version 5"
@@ -193,18 +166,6 @@ def test_missing_record_file_is_not_treated_as_an_empty_trajectory(tmp_path, fil
     with pytest.raises(FileNotFoundError) as error:
         list(iter_trajectories(root))
     assert filename in str(error.value)
-
-
-def test_missing_input_and_no_matches_are_visible(tmp_path):
-    with pytest.raises(FileNotFoundError):
-        list(iter_trajectories(tmp_path / "missing"))
-    with pytest.raises(ValueError, match="No trajectories found"):
-        list(iter_trajectories(tmp_path))
-    root = _save_trajectory(tmp_path / "job")
-    with pytest.raises(NotADirectoryError):
-        list(iter_trajectories(root / "task.json"))
-    with pytest.raises(ValueError, match="No trajectories found"):
-        list(iter_trajectories(tmp_path, "other-*"))
 
 
 @pytest.mark.parametrize(

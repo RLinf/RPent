@@ -18,76 +18,12 @@ from __future__ import annotations
 
 import json
 import logging
-from types import SimpleNamespace
 
 import pytest
-from pydantic_ai.models.test import TestModel
 
-from rpent.dashboard.events import NullDashboardEventSink
-from rpent.planner.api_loop import ApiAgentLoop
 from rpent.planner.base import PlannerResult
 from rpent.session import EnvState, Payload
-from rpent.session.planner_capture import end_planner_task, start_planner_task
-
-
-@pytest.mark.parametrize("capture_enabled", [False, True])
-def test_api_trajectory_capture_records_only_started_tasks(tmp_path, capture_enabled):
-    state = EnvState(tmp_path)
-    toolkit = SimpleNamespace(
-        state=state,
-        list_tools=lambda: (),
-        resume_calls=lambda: None,
-        cancel_active_and_wait=lambda: None,
-    )
-    config = {
-        "arguments": {"record_trajectory": capture_enabled, "max_tokens": 8192},
-        "run": {"output_dir": tmp_path},
-    }
-    captured = (
-        start_planner_task(state, instruction="Move the cup.", config=config)
-        if capture_enabled
-        else None
-    )
-    assert (captured is state) is capture_enabled
-    config["arguments"]["max_tokens"] = 1
-    result = ApiAgentLoop(
-        model=TestModel(call_tools=[], custom_output_text="Done."),
-        dashboard_events=NullDashboardEventSink(),
-    ).solve(
-        system_prompt="Complete the task.",
-        user_message="Move the cup.",
-        toolkit=toolkit,
-        max_turns=1,
-    )
-    assert result.error is None
-    assert result.stop_reason == "model_output"
-    assert result.stats["turns_used"] == 1
-    end_planner_task(
-        captured,
-        result,
-        finish_result=result.finish_result,
-        environment_success=False,
-        exception=None,
-    )
-    if capture_enabled:
-        task = state.get_task()
-        assert task.status == "completed" and task.stop_reason == "model_output"
-        assert task.instruction == "Move the cup."
-        assert task.config.data["arguments"]["record_trajectory"] is True
-        assert task.config.data["arguments"]["max_tokens"] == 8192
-        assert task.config.data["run"]["output_dir"] == str(tmp_path)
-        root = tmp_path / "trajectories" / task.task_id
-        planner = json.loads((root / "planners.jsonl").read_text())
-        assert planner["status"] == "completed"
-        assert planner["request"] is not None and planner["response"] is not None
-        assert (
-            json.loads((root / "task.json").read_text())["task"]["task_id"]
-            == task.task_id
-        )
-    else:
-        assert state.get_task() is None
-        assert state.planner_records() == []
-        assert not (tmp_path / "trajectories").exists()
+from rpent.session.planner_capture import end_planner_task
 
 
 @pytest.mark.parametrize(

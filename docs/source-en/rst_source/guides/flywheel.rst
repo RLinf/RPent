@@ -59,8 +59,31 @@ subdirectory.
 Trajectory Data Format
 ----------------------
 
-``task.json`` stores the task instruction, run configuration, start and end times,
-and outcome. Each line in the three JSONL files below holds one JSON object.
+The directory tree shows how a trajectory is stored, and the tables describe
+the data format of each file.
+
+.. code-block:: text
+
+   /path/to/run/trajectories/<task_id>/
+   ├── task.json
+   ├── planners.jsonl
+   ├── predictions.jsonl
+   ├── actions.jsonl
+   └── artifacts/
+
+.. list-table:: ``task.json`` records the instruction, configuration, and outcome of one task run
+   :header-rows: 1
+
+   * - Field
+     - Meaning
+   * - ``task.task_id``
+     - Unique ID for this run, used as the trajectory directory name ``<task_id>``.
+   * - ``task.instruction``
+     - Task instruction for this run.
+   * - ``task.config``
+     - Run configuration. The settings are stored in ``task.config.data``.
+   * - ``task.result``
+     - Run outcome. ``task.result.data.environment_success`` indicates whether the task succeeded.
 
 .. list-table:: ``planners.jsonl`` (one model call per line)
    :header-rows: 1

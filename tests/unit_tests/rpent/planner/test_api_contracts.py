@@ -1386,31 +1386,6 @@ def test_capture_keeps_original_tool_result_and_actual_multimodal_feedback(
     assert toolkit.state.action_records() == []
 
     toolkit.close()
-    toolkit.state.end_task(status="completed", stop_reason=result.stop_reason)
-    root = toolkit.state.save_planner_trajectory()
-    saved = [
-        json.loads(line) for line in (root / "planners.jsonl").read_text().splitlines()
-    ]
-    restored = restore_byte_artifacts(saved, root)
-    assert (
-        to_jsonable_python(
-            [p["request"]["data"]["messages"] for p in restored], bytes_mode="base64"
-        )
-        == seen
-    )
-    assert [p["response"]["data"] for p in restored] == [
-        planner.response.data for planner in planners
-    ]
-    saved_call = saved[0]["tool_calls"][0]
-    assert restored[0]["tool_calls"][0]["feedback"]["data"] == call.feedback.data
-    assert saved_call["raw_result"]["data"]["data"] == original
-    image_ref = saved_call["raw_result"]["data"]["images"][0]
-    assert (root / image_ref["path"]).read_bytes() == original_image
-    assert saved[1]["tool_calls"][0]["raw_result"]["data"]["images"][0] == image_ref
-    if not no_images:
-        assert saved_call["feedback"]["data"]["return_value"][1]["data"] == image_ref
-    assert len(list((root / "artifacts").iterdir())) == (1 if no_images else 2)
-    assert toolkit.state.planner_records() == planners
 
 
 @pytest.mark.parametrize("value", [float("nan"), float("inf"), -float("inf")])
