@@ -8,21 +8,17 @@ Offline Mapping
    This mapping approach has only been validated on ZED 2i, using recordings
    from LeKiwi. Other cameras have not been tested.
 
-Create an RTAB-Map database, occupancy grid and colored point cloud from stereo
-images or a side-by-side video. The main workflow uses only official RTAB-Map
-tools to load calibration, rectify images, perform stereo matching, estimate
-visual odometry, optimize the map and export it. It requires neither precomputed
-depth nor RAFT-Stereo or RPent's preparation tools.
+Build maps offline from stereo images or a side-by-side video using RTAB-Map.
+Generate a map database, a 2D occupancy grid and a colored 3D point cloud,
+with an optional export of the optimized trajectory.
 
 To use depth from a camera SDK or RAFT-Stereo, follow
 :ref:`mapping-custom-depth`: supply RGB images and aligned depth as RGB-D input,
-then reuse the same mapping commands. Both workflows are independent of robot
-integrations. This guide does not integrate wheel odometry or IMU data.
+then reuse the same mapping commands.
 
 Install RTAB-Map
 ----------------
 
-Run these steps on the machine holding the images and mapping dependencies.
 To install from source, clone the official standalone RTAB-Map repository:
 
 .. code-block:: bash
