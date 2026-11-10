@@ -11,8 +11,8 @@
 
 准备好输入与标定后，双目图片或视频可直接进入 :ref:`mapping-config`。使用相机 SDK 或 RAFT-Stereo 计算深度时，先执行 :ref:`mapping-custom-depth`，再选择 RGB-D 输入。两种输入使用相同的建图命令。
 
-安装 RTAB-Map
--------------
+1. 安装 RTAB-Map
+----------------
 
 从源码安装时，先克隆 RTAB-Map 官方独立工具仓库：
 
@@ -31,14 +31,14 @@
 
 此前流程使用 RTAB-Map 0.23.13。
 
-准备输入与标定
---------------
+2. 准备输入与标定
+-----------------
 
 准备以下数据：
 
-1. **同步的左右图**：每对图像来自同一时刻，分别放入 ``left/`` 和 ``right/``，并使用相同文件名。
-2. **双目标定**：将相机或数据集提供的标定保存为 RTAB-Map 格式的 ``camera_left.yaml`` 和 ``camera_right.yaml``，放在同一目录。标定中的单目尺寸、内参、畸变和左右相机位置关系应与输入图像对应；右目投影矩阵需包含实际基线（两相机之间的距离）。RTAB-Map 据此将左右图的像素差换算为距离。
-3. **时间戳文件名**：以秒为单位，按拍摄时间递增，起始值大于 0，小数位数保持一致。例如每秒采集 5 对图像，可命名为 ``1.0.png``、``1.2.png``、``1.4.png``。使用相对时间时，保留实际采集间隔。
+* **同步的左右图**：每对图像来自同一时刻，分别放入 ``left/`` 和 ``right/``，并使用相同文件名。
+* **双目标定**：将相机或数据集提供的标定保存为 RTAB-Map 格式的 ``camera_left.yaml`` 和 ``camera_right.yaml``，放在同一目录。标定中的单目尺寸、内参、畸变和左右相机位置关系应与输入图像对应；右目投影矩阵需包含实际基线（两相机之间的距离）。RTAB-Map 据此将左右图的像素差换算为距离。
+* **时间戳文件名**：以秒为单位，按拍摄时间递增，起始值大于 0，小数位数保持一致。例如每秒采集 5 对图像，可命名为 ``1.0.png``、``1.2.png``、``1.4.png``。使用相对时间时，保留实际采集间隔。
 
 图片目录示例：
 
@@ -54,24 +54,24 @@
 
 使用视频时，准备恒定帧率、当前解码器可读取的左右并排视频，例如 ``/path/to/stereo.mp4``。每帧左半边为左目、右半边为同一时刻的右目。2560 × 720 视频对应每目 1280 × 720 的标定。
 
-示例：为 ZED 2i 录制生成标定文件
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ZED 2i 标定示例
+~~~~~~~~~~~~~~~
 
 以 LeKiwi 通过 UVC 采集的 ZED 2i 数据为例，假设录制目录为 ``/path/to/capture``。其中 ``left/`` 和 ``right/`` 保存原始左右目 PNG。下面将这台相机的出厂标定转换为 ``camera_left.yaml`` 和 ``camera_right.yaml``，供 RTAB-Map 使用。
 
-**1. 找到录制对应的出厂标定**
+**找到录制对应的出厂标定**
 
 按 `Stereolabs 标定说明 <https://docs.stereolabs.com/docs/development/zed-sdk/modules/camera/camera-calibration>`_，根据拍摄这组图像的相机序列号获取出厂标定 ``SN<serial>.conf``，保存为 ``/path/to/capture/calibration.conf``。
 
 本示例采集时使用的 ``zed.conf`` 就是该出厂标定的本地副本，也可直接将它复制到录制目录并命名为 ``calibration.conf``。
 
-**2. 确认单目图像尺寸**
+**确认单目图像尺寸**
 
 查看 ``left/`` 中一张原始图片的宽、高，并确认右图尺寸相同。例如左图为 1280 × 720，就填写 ``--image-size 1280 720``；若输入为 2560 × 720 的左右并排视频，每目的尺寸也是 1280 × 720。
 
 脚本支持 1280 × 720（``HD``）和 672 × 376（``VGA``）。使用录制图像的原始尺寸。
 
-**3. 运行转换脚本**
+**运行转换脚本**
 
 在 RPent 源码根目录，使用安装了 NumPy、OpenCV 和 PyYAML 的 Python 环境执行：
 
@@ -84,7 +84,7 @@
 
 命令会在 ``--output`` 目录生成 ``camera_left.yaml`` 和 ``camera_right.yaml``。选择尚无这两个文件的输出目录；重复转换时可换用新目录。生成的 YAML 包含原始内参、畸变、双目校正矩阵和投影矩阵，平移单位为米，右目投影矩阵包含实际基线。
 
-**4. 将结果填入建图配置**
+**将结果填入建图配置**
 
 按 :ref:`mapping-config` 复制图片配置后，将 ``rtabmap.ini`` 中的以下项设为：
 
@@ -99,8 +99,8 @@
 
 .. _mapping-custom-depth:
 
-生成深度信息（可选）
---------------------
+3. 生成深度信息（可选）
+-----------------------
 
 可使用相机 SDK 导出的深度，或通过 RAFT-Stereo 从双目图像生成深度。将 RGB 和深度整理为下述格式后接入 RTAB-Map。
 
@@ -131,9 +131,10 @@ RGB-D 输出格式
 
 按厂商官方环境和导出流程，从已有录制中导出同一帧的去畸变 RGB、对齐的数值深度，以及对应分辨率的相机内参。将输出整理为上面的 RGB-D 目录：
 
-1. 将数值深度换算为毫米，保存为单通道 uint16 PNG；无效值和超出 65.535 米的值置零。
-2. 保持 RGB 与深度同尺寸、逐像素对齐，并使用相同文件名；提供与导出 RGB 对应的 RTAB-Map 标定 YAML。
-3. 执行 :ref:`mapping-rgbd-source`。
+* 将数值深度换算为毫米，保存为单通道 uint16 PNG；无效值和超出 65.535 米的值置零。
+* 保持 RGB 与深度同尺寸、逐像素对齐，并使用相同文件名；提供与导出 RGB 对应的 RTAB-Map 标定 YAML。
+
+导出完成后，执行 :ref:`mapping-rgbd-source`。
 
 例如，ZED SDK 的 `官方深度示例 <https://github.com/stereolabs/zed-sdk/blob/master/tutorials/tutorial%203%20-%20depth%20sensing/python/depth_sensing.py>`_ 使用 ``VIEW.LEFT`` 读取左图、``MEASURE.DEPTH`` 读取对齐深度。按上述格式保存连续图像和对应标定即可接入。
 
@@ -150,8 +151,7 @@ RGB-D 输出格式
      → raft_to_rgbd.py：根据焦距和基线换算深度 → rgbd/
      → RTAB-Map：使用 RGB-D 输入建图
 
-第一步：用已有标定校正左右图
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+**用已有标定校正左右图**
 
 在 RPent 源码根目录，使用包含 NumPy、SciPy、PyYAML 和 OpenCV 的 Python 环境。输入二选一：
 
@@ -202,8 +202,7 @@ RGB-D 输出格式
 
 两种输入得到相同结构的 ``prepared/``：校正后的 ``pairs/<timestamp>/im0.png`` （左图）和 ``im1.png`` （右图），以及 ``camera.yaml``、``local_transform.txt``、``stereo.json``。后面所有命令都使用这个目录。输出目录必须尚不存在且位于输入目录之外；时间戳从 1 秒开始，保留采样间隔。输出位姿已补偿左目校正旋转，角度单位为弧度。
 
-第二步：运行官方 RAFT-Stereo
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+**运行官方 RAFT-Stereo**
 
 克隆官方仓库：
 
@@ -230,12 +229,11 @@ RGB-D 输出格式
      --save_numpy \
      --output_directory /path/to/flow
 
-``--left_imgs`` 和 ``--right_imgs`` 指向第一步生成的校正图像，保留引号，让 demo 展开通配符。``--save_numpy`` 将每对图像的像素位移保存为 ``flow/<timestamp>.npy``，同时生成可视化图。使用新的 ``flow/`` 输出目录。
+``--left_imgs`` 和 ``--right_imgs`` 指向 ``prepare_stereo.py`` 生成的校正图像，保留引号，让 demo 展开通配符。``--save_numpy`` 将每对图像的像素位移保存为 ``flow/<timestamp>.npy``，同时生成可视化图。使用新的 ``flow/`` 输出目录。
 
-第三步：转换为 RGB-D
-^^^^^^^^^^^^^^^^^^^^
+**转换为 RGB-D**
 
-切回第一步使用的 RPent Python 环境。下面命令同时读取 ``prepared/`` 中的图像、标定，以及第二步生成的 ``flow/``，输出 RGB-D：
+切回运行 ``prepare_stereo.py`` 时使用的 RPent Python 环境。下面命令读取 ``prepared/`` 中的图像、标定，以及 RAFT-Stereo 生成的 ``flow/``，输出 RGB-D：
 
 .. code-block:: bash
 
@@ -253,8 +251,8 @@ RGB-D 输出格式
 
 .. _mapping-config:
 
-配置 RTAB-Map 输入
-------------------
+4. 配置 RTAB-Map 输入
+---------------------
 
 根据输入类型选择下面一种配置，在 RPent 源码根目录复制为 ``rtabmap.ini``，并填写以下内容：
 
@@ -306,8 +304,8 @@ SDK 路线使用导出 RGB 对应的标定，并在 ``localTransform`` 中填写
 
 .. _mapping-build:
 
-生成地图
---------
+5. 生成地图
+-----------
 
 完成双目或 RGB-D 输入配置后，执行 `RTAB-Map 官方工具 <https://introlab.github.io/rtabmap/api/latest/tools.html>`_，依次导入图像、估计轨迹并导出优化后的地图。以下命令在 Bash 中运行，日志同时显示在终端并保存在输出目录：
 
@@ -330,10 +328,26 @@ SDK 路线使用导出 RGB 对应的标定，并在 ``localTransform`` 中填写
      --Reg/Force3DoF true --RGBD/ForceOdom3DoF true rtabmap.db planar.db
    rtabmap-export --map --cloud --opt 2 --output planar planar.db
 
-最终会得到什么
---------------
+**导出优化轨迹（可选）**
 
-导入、建图和导出命令成功完成后，``/path/to/new-map/`` 中会保存以下文件。其中，优化后的轨迹需要执行下一节的额外导出命令。
+从 ``rtabmap.db`` 导出优化后的运动轨迹，生成同目录下的 ``trajectory_poses.txt``：
+
+.. code-block:: bash
+
+   cd /path/to/new-map
+   rtabmap-export --poses --poses_format 10 --opt 2 --output trajectory rtabmap.db
+
+``trajectory_poses.txt`` 每行包含 ``stamp x y z qx qy qz qw``，位置单位为米，坐标轴为 x 向前、y 向左、z 向上。
+
+6. 查看建图结果
+---------------
+
+建图完成后，查看输出文件并检查地图和轨迹。
+
+输出文件
+~~~~~~~~
+
+导入、建图和导出命令成功完成后，``/path/to/new-map/`` 中会保存以下文件。其中，轨迹文件由上一节的可选导出命令生成。
 
 .. list-table::
    :header-rows: 1
@@ -348,7 +362,7 @@ SDK 路线使用导出 RGB 对应的标定，并在 ``localTransform`` 中填写
    * - ``map_cloud.ply``
      - 带颜色的三维点云，用于查看重建场景的形状、覆盖范围和重建伪影。
    * - ``trajectory_poses.txt`` （额外导出）
-     - 建图位姿的时间戳、位置和朝向，可用于绘制和检查重建出的运动路径。
+     - 由轨迹导出命令从 ``rtabmap.db`` 生成，记录优化后位姿的时间戳、位置和朝向，用于查看运动路径。
    * - ``raw.db``
      - 导入的双目或 RGB-D 帧，可用于更换参数后重新建图。
    * - ``import.log``、``mapping.log``、``export.log``
@@ -357,25 +371,14 @@ SDK 路线使用导出 RGB 对应的标定，并在 ``localTransform`` 中填写
 轨迹记录建图节点经过优化后的估计位姿，地图和轨迹使用局部地图坐标系。这些输出可用于后续的机器人定位与导航配置。
 
 检查地图
---------
+~~~~~~~~
 
-在终端检查输出文件、地图分辨率与原点、建图日志，并导出优化后的轨迹：
-
-.. code-block:: bash
-
-   cd /path/to/new-map
-   ls -lh raw.db rtabmap.db map.pgm map.yaml map_cloud.ply
-   cat map.yaml
-   tail -n 30 import.log mapping.log export.log
-   rtabmap-export --poses --poses_format 10 --opt 2 --output trajectory rtabmap.db
-   head trajectory_poses.txt
-
-``trajectory_poses.txt`` 每行包含 ``stamp x y z qx qy qz qw``，位置单位为米，坐标轴为 x 向前、y 向左、z 向上。检查日志中的跟踪丢失和回环记录，并结合实测核对地图尺度、障碍、覆盖范围和未知区域。后续使用 RTAB-Map 进行视觉定位时，保留包含视觉数据的 ``rtabmap.db``。
+结合实测核对地图尺度、障碍、覆盖范围和未知区域。后续使用 RTAB-Map 进行视觉定位时，保留包含视觉数据的 ``rtabmap.db``。
 
 常见问题可按以下方式检查：
 
 * **命令缺失或 Qt 报错**：检查 RTAB-Map 独立工具安装和 ``QT_QPA_PLATFORM`` 设置。
 * **图像缺对或尺寸错误**：检查左右图文件名、图像尺寸与标定是否一致。
 * **RAFT 显存不足**：按单帧分辨率选择显存充足的 GPU；``--step`` 控制采样数量和总处理量。
-* **地图为空或碎裂**：查看日志和数据库，检查跟踪丢失、运动模糊、弱纹理及标定。
+* **地图为空或碎裂**：检查数据库中的跟踪结果，以及图像的运动模糊、纹理和标定。
 * **预处理失败**：查看保留的部分文件排查原因，修正后使用新的输出目录重试。

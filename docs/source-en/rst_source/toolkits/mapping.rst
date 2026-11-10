@@ -17,8 +17,8 @@ directly to :ref:`mapping-config`. To compute depth with a camera SDK or
 RAFT-Stereo, first follow :ref:`mapping-custom-depth`, then choose RGB-D input.
 Both input types use the same mapping commands.
 
-Install RTAB-Map
-----------------
+1. Install RTAB-Map
+-------------------
 
 To install from source, clone the official standalone RTAB-Map repository:
 
@@ -40,23 +40,23 @@ are available:
 
 The earlier recipe used RTAB-Map 0.23.13.
 
-Prepare Input and Calibration
------------------------------
+2. Prepare Input and Calibration
+--------------------------------
 
 Prepare the following:
 
-1. **Synchronized left/right images:** each pair must come from the same instant.
-   Place them in ``left/`` and ``right/`` with matching filenames.
-2. **Stereo calibration:** save the camera or dataset calibration in RTAB-Map
-   format as ``camera_left.yaml`` and ``camera_right.yaml`` in the same directory.
-   Per-eye dimensions, intrinsics, distortion and relative camera pose must
-   match the input images. The right projection matrix must encode the actual
-   baseline (the distance between cameras). RTAB-Map uses these values to
-   convert pixel disparity into distance.
-3. **Timestamp filenames:** use increasing capture times in seconds, starting
-   above zero, with consistent decimal precision. For example, images captured
-   at 5 pairs per second can be named ``1.0.png``, ``1.2.png``, ``1.4.png``.
-   Relative timestamps must preserve the actual capture intervals.
+* **Synchronized left/right images:** each pair must come from the same instant.
+  Place them in ``left/`` and ``right/`` with matching filenames.
+* **Stereo calibration:** save the camera or dataset calibration in RTAB-Map
+  format as ``camera_left.yaml`` and ``camera_right.yaml`` in the same directory.
+  Per-eye dimensions, intrinsics, distortion and relative camera pose must
+  match the input images. The right projection matrix must encode the actual
+  baseline (the distance between cameras). RTAB-Map uses these values to
+  convert pixel disparity into distance.
+* **Timestamp filenames:** use increasing capture times in seconds, starting
+  above zero, with consistent decimal precision. For example, images captured
+  at 5 pairs per second can be named ``1.0.png``, ``1.2.png``, ``1.4.png``.
+  Relative timestamps must preserve the actual capture intervals.
 
 Example image layout:
 
@@ -75,8 +75,8 @@ decoder, such as ``/path/to/stereo.mp4``. Each frame contains the left view on
 the left and the right view from the same instant on the right. A 2560 × 720
 video uses calibration for 1280 × 720 per-eye images.
 
-Example: Generate Calibration for a ZED 2i Recording
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ZED 2i Calibration Example
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 This example uses ZED 2i data captured through UVC by LeKiwi, with
 ``/path/to/capture`` as the recording directory. Its ``left/`` and ``right/``
@@ -84,7 +84,7 @@ directories contain raw stereo PNGs. Convert this camera's factory
 calibration into ``camera_left.yaml`` and ``camera_right.yaml``
 for RTAB-Map as follows.
 
-**1. Find the factory calibration for the recording**
+**Find the factory calibration for the recording**
 
 Follow the
 `Stereolabs calibration instructions
@@ -96,7 +96,7 @@ The ``zed.conf`` used during capture in this example is a local copy of that
 factory calibration. You can also copy it into the recording directory as
 ``calibration.conf``.
 
-**2. Confirm the per-eye image dimensions**
+**Confirm the per-eye image dimensions**
 
 Check the width and height of an original image in ``left/`` and confirm that
 the right images have the same dimensions. For a 1280 × 720 left image, use
@@ -106,7 +106,7 @@ dimensions of 1280 × 720.
 The script supports 1280 × 720 (``HD``) and 672 × 376 (``VGA``).
 Use the original recorded image dimensions.
 
-**3. Run the conversion script**
+**Run the conversion script**
 
 From the RPent source root, run this command in a Python environment with
 NumPy, OpenCV and PyYAML:
@@ -125,7 +125,7 @@ contain raw intrinsics, distortion, stereo rectification and projection
 matrices. Translation is in metres, and the right projection matrix encodes
 the actual baseline.
 
-**4. Use the generated calibration in the mapping configuration**
+**Use the generated calibration in the mapping configuration**
 
 Copy the image configuration as described in :ref:`mapping-config`, then set
 these entries in ``rtabmap.ini``:
@@ -144,8 +144,8 @@ rectification option in the video configuration.
 
 .. _mapping-custom-depth:
 
-Generate Depth Information (Optional)
--------------------------------------
+3. Generate Depth Information (Optional)
+----------------------------------------
 
 Use depth exported by a camera SDK, or generate depth from stereo images with
 RAFT-Stereo. Prepare RGB and depth in the format below, then supply them to
@@ -187,11 +187,12 @@ undistorted RGB, aligned numerical depth from the same recorded frame, and
 intrinsics for that output resolution. Arrange the result in the RGB-D layout
 above:
 
-1. Convert numerical depth to millimetres and save single-channel uint16 PNGs.
-   Set invalid values and values beyond 65.535 metres to zero.
-2. Keep RGB and depth at the same resolution, aligned pixel by pixel, with
-   matching filenames. Supply RTAB-Map calibration YAML for the exported RGB.
-3. Continue with :ref:`mapping-rgbd-source`.
+* Convert numerical depth to millimetres and save single-channel uint16 PNGs.
+  Set invalid values and values beyond 65.535 metres to zero.
+* Keep RGB and depth at the same resolution, aligned pixel by pixel, with
+  matching filenames. Supply RTAB-Map calibration YAML for the exported RGB.
+
+After export, continue with :ref:`mapping-rgbd-source`.
 
 For example, the ZED SDK's `official depth sample
 <https://github.com/stereolabs/zed-sdk/blob/master/tutorials/tutorial%203%20-%20depth%20sensing/python/depth_sensing.py>`_
@@ -213,8 +214,7 @@ this to depth in millimetres. Follow these stages:
      → raft_to_rgbd.py: convert using focal length and baseline → rgbd/
      → RTAB-Map: build a map from RGB-D input
 
-Step 1: Rectify Images Using Existing Calibration
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+**Rectify Images Using Existing Calibration**
 
 From the RPent source root, use a Python environment with NumPy, SciPy, PyYAML
 and OpenCV. Choose one input:
@@ -287,8 +287,7 @@ commands use this directory. The output directory must be new and outside the
 input. Timestamps start at one second and preserve sampling intervals.
 The output pose accounts for left-image rectification and uses radians.
 
-Step 2: Run Official RAFT-Stereo
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+**Run Official RAFT-Stereo**
 
 Clone the official repository:
 
@@ -320,17 +319,17 @@ the official demo's default architecture.
      --save_numpy \
      --output_directory /path/to/flow
 
-``--left_imgs`` and ``--right_imgs`` point to the rectified pairs from step 1.
+``--left_imgs`` and ``--right_imgs`` point to the rectified pairs produced by
+``prepare_stereo.py``.
 Keep the quotes so the demo expands the wildcards. ``--save_numpy`` saves
 each pair's pixel displacement as ``flow/<timestamp>.npy``, alongside a
 visualization. Use a fresh ``flow/`` directory.
 
-Step 3: Convert to RGB-D
-^^^^^^^^^^^^^^^^^^^^^^^^
+**Convert to RGB-D**
 
-Switch back to the RPent Python environment used in step 1. This command reads
-the images and calibration in ``prepared/`` together with the ``flow/``
-output from step 2, producing RGB-D:
+Switch back to the RPent Python environment used to run ``prepare_stereo.py``.
+This command reads the images and calibration in ``prepared/`` together with
+the ``flow/`` output from RAFT-Stereo, producing RGB-D:
 
 .. code-block:: bash
 
@@ -355,8 +354,8 @@ calibration and camera pose.
 
 .. _mapping-config:
 
-Configure RTAB-Map Input
-------------------------
+4. Configure RTAB-Map Input
+---------------------------
 
 Choose one input configuration below. From the RPent source root, copy it as
 ``rtabmap.ini`` and fill in the following:
@@ -434,8 +433,8 @@ camera pose, mapping and filtering settings identical.
 
 .. _mapping-build:
 
-Build the Map
--------------
+5. Build the Map
+----------------
 
 After configuring stereo or RGB-D input, run the `official RTAB-Map tools
 <https://introlab.github.io/rtabmap/api/latest/tools.html>`_ to import images,
@@ -464,12 +463,30 @@ motion constraints in a second pass and save the result as ``planar.db``:
      --Reg/Force3DoF true --RGBD/ForceOdom3DoF true rtabmap.db planar.db
    rtabmap-export --map --cloud --opt 2 --output planar planar.db
 
-Expected Outputs
-----------------
+**Export the optimized trajectory (optional)**
+
+Export the optimized trajectory from ``rtabmap.db`` to ``trajectory_poses.txt``
+in the same directory:
+
+.. code-block:: bash
+
+   cd /path/to/new-map
+   rtabmap-export --poses --poses_format 10 --opt 2 --output trajectory rtabmap.db
+
+Each row of ``trajectory_poses.txt`` contains ``stamp x y z qx qy qz qw``,
+with positions in metres and x-forward, y-left, z-up axes.
+
+6. View Mapping Results
+-----------------------
+
+After mapping, review the output files and inspect the map and trajectory.
+
+Output Files
+~~~~~~~~~~~~
 
 After the import, mapping and export commands complete successfully,
-``/path/to/new-map/`` contains the following files. The optimized trajectory
-requires the additional export command in the next section.
+``/path/to/new-map/`` contains the following files. The trajectory file
+is generated by the optional export command in the preceding section.
 
 .. list-table::
    :header-rows: 1
@@ -487,8 +504,9 @@ requires the additional export command in the next section.
      - A colored 3D point cloud for viewing reconstructed geometry and
        inspecting coverage and reconstruction artifacts.
    * - ``trajectory_poses.txt`` (additional export)
-     - Timestamped positions and orientations of the mapped poses, for
-       plotting and inspecting the reconstructed path.
+     - Generated from ``rtabmap.db`` by the trajectory export command.
+       Contains timestamps, positions and orientations of optimized poses
+       for inspecting the reconstructed path.
    * - ``raw.db``
      - Imported stereo or RGB-D frames, retained for rerunning the mapping
        stage with different parameters.
@@ -500,24 +518,9 @@ Maps and trajectories use a local map frame. These outputs can be used for
 subsequent robot localization and navigation setup.
 
 Inspect the Map
----------------
+~~~~~~~~~~~~~~~
 
-Inspect output files, map resolution and origin, and mapping logs in the
-terminal, then export the optimized trajectory:
-
-.. code-block:: bash
-
-   cd /path/to/new-map
-   ls -lh raw.db rtabmap.db map.pgm map.yaml map_cloud.ply
-   cat map.yaml
-   tail -n 30 import.log mapping.log export.log
-   rtabmap-export --poses --poses_format 10 --opt 2 --output trajectory rtabmap.db
-   head trajectory_poses.txt
-
-Each row of ``trajectory_poses.txt`` contains ``stamp x y z qx qy qz qw``,
-with positions in metres and x-forward, y-left, z-up axes. Review tracking loss
-and loop closures in the logs, and validate scale, obstacles, coverage and
-unknown areas against measurements. Keep ``rtabmap.db`` with its visual data
+Validate scale, obstacles, coverage and unknown areas against measurements. Keep ``rtabmap.db`` with its visual data
 for subsequent RTAB-Map visual localization.
 
 Check common issues as follows:
@@ -528,7 +531,7 @@ Check common issues as follows:
   dimensions and calibration.
 * **RAFT GPU memory errors:** choose a GPU with enough memory for the per-frame
   resolution; ``--step`` controls the number of samples and total work.
-* **Empty or fragmented maps:** inspect logs and the database for tracking loss,
-  motion blur, weak texture and calibration issues.
+* **Empty or fragmented maps:** check tracking results in the database,
+  image blur, texture and calibration.
 * **Preparation failures:** inspect the partial output, correct the cause and
   retry with a fresh output directory.
