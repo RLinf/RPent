@@ -1,0 +1,20 @@
+{
+  "commit": "30ef110407ec4727a157fd7f64b1b21385140807",
+  "git_tree": "7f699436ec00a08db4b255a0acb2a7c1eec3a435",
+  "created_at": "2026-11-09T12:26:59.629920+00:00",
+  "permissive": true,
+  "result_kind": "historical",
+  "perception_mode": "frozen",
+  "fit_profile": "historical_permissive",
+  "source_dataset": "LIBERO_GeometryAgent_subagent_30ef110_80组160点数据_20261109_202016",
+  "source_sha256": {
+    "results.jsonl": "1b33ada3eeabdeedb27a2eaeecde08c6db5614c41891defee52b3a1cae4bc758",
+    "truth.json": "809690847290c179f098880848252a616b79efec2114c9515556b056f22c2dd7",
+    "run_manifest.json": "e566c5ce7248fe0374d4e83bef84284954975420a73120ff80df90286fc5dee1",
+    "reference-profiles.json": "b5d8864822661367d11fd585750ffb719d4cb81c03ea7fa1c948f63ad34c6e3a"
+  },
+  "strict_accepted": 18,
+  "fresh_visual_model_calls": 0,
+  "fresh_sam3_model_calls": 0,
+  "note": "Archived GeometryAgent permissive measurements. Coordinate errors can be recomputed offline; these are not current GeometryTool measurements. The compressed references preserve the original resolved world coordinates."
+}

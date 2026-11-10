@@ -5,8 +5,7 @@ Geometry Toolkit
 
 ``GeometryTool`` is a general-purpose tool for geometric perception. Through
 ``geometry``, the planner describes the object and the part to measure. The
-tool computes a position, direction or size from one recorded camera view
-and identifies the visible parts it used for each measurement.
+tool computes a position, direction or size from one recorded camera view.
 
 Design Purpose
 --------------
@@ -28,11 +27,17 @@ angle.
 Module Design
 -------------
 
-The planner calls ``geometry`` with a description of the object or part in
-``query`` and the camera name in ``camera``. The tool reads one recorded
-observation from that camera. A visual model locates the target in the
-color image, and the tool takes the measurement using the corresponding
-3-D points from the same observation.
+The planner calls ``geometry`` with a target description in ``query`` and
+a camera name in ``camera``. The tool reads one recorded view and locates
+each part the measurement needs. A visual model selects a pixel on the
+part in the color image. The tool uses back-projection to find that
+pixel's 3-D position in the reference frame.
+
+For a surface point, the tool returns that position directly. For a
+region or shape, a segmenter such as SAM3 outlines the part in the image.
+The tool uses the valid 3-D points in that region to calculate bounds or
+fit a shape. The planner uses the result to decide whether to record
+another view and call ``geometry`` again.
 
 .. _processing-flow:
 
@@ -46,6 +51,26 @@ With ``visible_region``, ``visible_bounds_xyz`` gives the range of valid
 the median on each axis. To measure a part's center, orientation or size,
 list 1 to 10 quantities in ``required_geometry``. The tool fits shapes to
 the 3-D points and returns each result under ``geometry``.
+
+.. list-table:: Measurement Methods for Different Objects
+   :header-rows: 1
+   :widths: 16 44 40
+
+   * - Object
+     - Observation needed
+     - Method and result
+   * - Any object
+     - A visible surface point with valid 3-D coordinates.
+     - ``surface_point`` returns the 3-D position of that point directly.
+   * - Cube
+     - 3-D points along all four edges of the top face and near each corner.
+       Supply the camera pose so the tool can check for occlusion at the edges.
+     - Request ``rectangle_center`` to fit a rectangle and return the
+       center of the top face.
+   * - Cup with a circular rim
+     - A long enough arc of the rim with valid 3-D points along its edge.
+     - The tool fits a circle to the rim points. ``rim_center`` gives the
+       center of the opening and ``rim_radius`` gives its radius.
 
 .. _request-and-result-contract:
 
@@ -123,18 +148,6 @@ record the shape assumptions and fit diagnostics. ``source_parts`` lists the
 parts used. Follow ``source_refs`` to find the masks, 3-D points and fit
 records saved at the original step in the shared ``EnvState``.
 
-.. dropdown:: Other Geometry You Can Request
-
-   - ``rim_center`` fits a circle to visible 3-D points along the rim and
-     returns the coordinates of the rim center.
-   - ``axis`` uses the curved outer wall of the cup to estimate its axis
-     and returns a point on the axis and its direction.
-   - ``plane_normal`` fits a plane to 3-D points on a flat surface and
-     returns a unit vector perpendicular to that plane.
-
-   You can also request quantities such as the center of the cup's bottom
-   or the center of a circular lid.
-
 .. _observation-contract:
 
 Camera Observations
@@ -156,6 +169,33 @@ H × W × 3 ``uint8`` array) and at least one of two sources of aligned 3-D data
   from camera to reference frame (``camera_to_world``). The tool uses these
   to compute the 3-D coordinates. Camera Z points forward. The application
   defines the orientation of the reference frame.
+
+Each platform below provides a ``back_project`` tool for looking up one
+pixel's 3-D position. To connect ``GeometryTool``, the application's
+``ObservationProvider`` supplies the full RGB image together with the
+corresponding data below.
+
+.. list-table:: Sources of 3-D Data by Platform
+   :header-rows: 1
+   :widths: 23 38 39
+
+   * - Platform
+     - Source of 3-D data
+     - What to supply to the geometry tool
+   * - MuJoCo / :doc:`LIBERO <../simulators/libero>`
+     - The world-coordinate map recorded for the selected camera and step.
+     - Supply the map as ``world_xyz``. Its pixels and resolution must
+       match the RGB image.
+   * - Isaac Sim / :doc:`RoboDojo <../simulators/robodojo>`
+     - RoboDojo builds a world-coordinate map from the head or wrist
+       camera's depth image and calibration.
+     - Supply ``world_xyz`` for that camera and step. You can also supply
+       the depth image as ``depth_m``.
+   * - Real robot / :doc:`Franka <../real_world_robots/franka>`
+     - RGB-aligned depth and camera calibration. A wrist camera also needs
+       the end-effector pose at the time of capture.
+     - Supply ``depth_m``, ``intrinsics`` and the camera-to-base transform
+       as ``camera_to_world``.
 
 .. dropdown:: Valid Points and Optional Observation Data
 
@@ -207,64 +247,6 @@ existing ``toolkit`` and binds its cancellation check at dispatch.
 
 See :doc:`interfaces` for toolkit registration and dispatch.
 
-.. _geometry-prompt-design:
-
-Prompt Design
--------------
-
-Parent Planner Instructions
-~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-The application adds ``GEOMETRY_INSTRUCTIONS`` to the planner's existing
-task instructions and makes the registered ``geometry`` tool available to it.
-
-.. code-block:: python
-
-   from toolkits.geometry.prompts import GEOMETRY_INSTRUCTIONS
-
-   system_prompt = task_instructions + "\n\n" + GEOMETRY_INSTRUCTIONS
-
-The instructions ask the planner to describe the target and name the
-measurements it needs. With just one cup in view, ``the cup on the table``
-identifies it. If several objects look alike, the planner can include color
-or relative position. The tool selects pixels in the image and obtains 3-D
-coordinates from the camera observation.
-
-On ``partial``, the planner checks which field is missing and reads its
-``reason``. If the task needs only the rim diameter, the radius already
-answers the question. If it also needs the height, the planner can use its
-task budget to obtain a new view that shows both the rim and the bottom.
-
-.. _expanding-part-requirements:
-
-Locating and Segmenting Each Part
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-The tool prefixes the original ``query`` with a part description from
-``PART_DESCRIPTIONS``. The radius needs the rim. The height request also
-examines the outer wall and the bottom. Both quantities use the same rim
-lookup. The grounder receives this description for the rim.
-
-.. code-block:: text
-
-   the visible circular rim boundary of the cup on the table
-
-.. _internal-visual-grounding-prompt:
-
-``GroundingAgent`` supplies the visual model with this text, the original
-RGB image and its dimensions. It asks for one clearly visible point on the
-material of the named part, such as a point on the rim. The model returns
-``point_xy`` in original ``[column, row]`` pixel coordinates, or ``null`` if
-it cannot identify the part.
-
-.. _segmentation-prompts-and-call-bounds:
-
-The segmenter first uses the part description to mark a region of the
-image. The tool checks whether that region contains the independently
-selected pixel. If the region is missing or excludes the point, the tool
-tries segmentation once more using that point. Each part gets at most one
-grounding call and two segmentation calls.
-
 Limits and Runtime Verification
 -------------------------------
 
@@ -291,3 +273,59 @@ repository root.
 These checks use synthetic observations and substitute model services.
 They exercise tool dispatch, coordinate conversion, segmentation retries,
 cancellation and part fitting.
+
+.. _geometry-libero-evaluation:
+
+LIBERO Geometry Evaluation
+--------------------------
+
+The standalone entry point ``python -m toolkits.geometry.evaluation.experiment``
+covers 80 cases and 160 target-part measurements using only the initial
+``agentview`` frame. It captures observations, calls GeometryTool, transforms
+fixed model reference points using the same-frame object poses, and computes
+3-D Euclidean position errors. It performs no robot actions or additional
+views and leaves the existing LIBERO runtime unchanged.
+
+``collect``, ``build-truth``, ``infer`` and ``evaluate`` handle capture,
+reference generation, inference and error evaluation; use ``--help`` for
+each stage's arguments. Live experiments require LIBERO Pro, rendering,
+an existing SAM3 service and a configured visual grounder. ``infer --replay``
+reuses frozen selections and masks.
+
+The table reports the historical frozen-input run at commit ``30ef110``,
+using the earlier permissive estimator. Of its 160 returned points, 18 passed
+the original strict checks. The current GeometryTool has not been remeasured.
+
+.. list-table:: Historical Position Errors
+   :header-rows: 1
+
+   * - Requests
+     - Returned points
+     - Mean (mm)
+     - Median (mm)
+     - P95 (mm)
+     - Maximum (mm)
+   * - 160
+     - 160
+     - 21.565
+     - 2.471
+     - 70.048
+     - 378.348
+
+Errors include only evaluable requests with returned coordinates. Coverage
+also counts refusals, failures and unrun requests. Download the
+:download:`per-request coordinates and errors CSV <../../../../toolkits/geometry/evaluation/historical/errors.csv>`.
+
+With project dependencies installed, reproduce the historical errors offline
+from the repository root:
+
+.. code-block:: bash
+
+   python -m toolkits.geometry.evaluation.experiment evaluate \
+     --predictions toolkits/geometry/evaluation/historical/predictions.jsonl \
+     --truth toolkits/geometry/evaluation/historical/truth.json \
+     --output toolkits/geometry/evaluation/runs/report
+
+The output contains ``report.md``, ``errors.csv`` and ``metrics.json`` with
+per-request coordinate comparisons, grouped statistics and provenance.
+The output directory must be new or empty.

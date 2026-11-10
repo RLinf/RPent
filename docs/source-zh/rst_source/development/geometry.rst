@@ -3,7 +3,7 @@
 几何工具包
 ==========
 
-``GeometryTool`` 是一个通用的几何感知工具。主规划器通过 ``geometry`` 描述要测的物体和部位，工具从指定的一帧相机观测中计算位置、方向或尺寸，并标明每个测量值是根据哪些可见部位计算得到。
+``GeometryTool`` 是一个通用的几何感知工具。主规划器通过 ``geometry`` 描述要测的物体和部位，工具从指定的一帧相机观测中计算位置、方向或尺寸。
 
 设计目的
 --------
@@ -15,7 +15,9 @@
 模块设计
 --------
 
-主规划器调用 ``geometry`` 时，用 ``query`` 描述要测的物体或部位，用 ``camera`` 指定相机。工具从这台相机读取一帧已记录的观测。视觉模型在彩色图像中定位目标，工具再用同一帧里对应的三维点进行测量。
+主规划器调用 ``geometry`` 时，用 ``query`` 描述目标，用 ``camera`` 指定相机。工具读取这台相机的一帧已记录观测，依次定位测量所需的部位。视觉模型在彩色图像中选出部位上的一个像素，工具通过反投影找到它在参考坐标系中的三维位置。
+
+测表面点时，工具直接返回这个位置。其他测量还需要分割器（如 SAM3）在图像中圈出相关部位。工具用区域内的有效三维点计算可见范围或拟合形状。主规划器根据结果决定是否需要从另一个视角记录一帧，再调用 ``geometry``。
 
 .. _processing-flow:
 
@@ -23,6 +25,23 @@
 ~~~~~~~~~~~~
 
 ``measurement`` 默认为 ``surface_point``，工具通过 ``world_xyz`` 返回目标表面一个可见点的三维坐标。设为 ``visible_region`` 时，``visible_bounds_xyz`` 给出可见区域内有效三维点在各轴上的取值范围，``world_xyz`` 给出各轴的中位数。要测量某个部位的中心、朝向或尺寸，可以用 ``required_geometry`` 指定 1 到 10 个几何量，工具根据三维点拟合形状，并将结果逐项写入 ``geometry``。
+
+.. list-table:: 不同物体的测量方法
+   :header-rows: 1
+   :widths: 16 44 40
+
+   * - 对象
+     - 需要的观测
+     - 测量方法与结果
+   * - 任意物体
+     - 表面上有一个清晰可见、带有效三维坐标的点。
+     - ``surface_point`` 直接返回该点的三维位置。
+   * - 方块
+     - 顶面的四条边和四个角附近都有三维点。还需提供相机位姿，以判断边缘是否被遮挡。
+     - 请求 ``rectangle_center``，工具拟合矩形并返回顶面中心。
+   * - 圆口杯
+     - 能看到足够长的一段杯沿，边缘上有有效的三维点。
+     - 用杯沿上的点拟合圆。``rim_center`` 返回杯口中心，``rim_radius`` 返回杯口半径。
 
 .. _request-and-result-contract:
 
@@ -80,14 +99,6 @@
 
 直接从表面点或可见区域得到的结果标为 ``measured``，拟合值标为 ``inferred``。读取拟合结果时，``definition`` 和 ``unit`` 说明数值的含义和单位，``world_frame_id`` 和 ``source_step`` 标明参考坐标系和观测步骤。``assumptions`` 和 ``quality`` 记录拟合所用的假设及检查结果。``source_parts`` 列出用到的部位，``source_refs`` 可找到保存在共享 ``EnvState`` 原步骤下的掩码、三维点和拟合记录。
 
-.. dropdown:: 其他可请求的几何量
-
-   - ``rim_center`` 用杯沿上的可见三维点拟合圆，返回杯口中心的坐标。
-   - ``axis`` 根据杯身外侧的曲面估计轴线，返回轴线上一点和轴的方向。
-   - ``plane_normal`` 用平坦表面上的三维点拟合平面，返回垂直于该平面的单位向量。
-
-   还可以用同样的方式请求杯底中心、圆盖中心等几何量。
-
 .. _observation-contract:
 
 相机需要提供什么数据
@@ -99,6 +110,25 @@
 
 - 有三维坐标图时，提供 ``world_xyz``。它的形状为 H × W × 3，每个像素保存参考坐标系中的三维位置，单位为米。
 - 有深度图时，提供沿相机光轴的米制深度 ``depth_m``、3 × 3 针孔相机内参 ``intrinsics`` 和 4 × 4 刚体变换 ``camera_to_world``。工具据此将像素转换为三维坐标。相机的正 Z 轴朝前，参考坐标系的方向由接入程序定义。
+
+下列平台已有的 ``back_project`` 工具都能查询单个像素的三维位置。接入 ``GeometryTool`` 时，机器人程序通过 ``ObservationProvider`` 提供整帧 RGB 图像和表中对应的数据。
+
+.. list-table:: 不同平台的三维数据来源
+   :header-rows: 1
+   :widths: 23 38 39
+
+   * - 平台
+     - 三维数据来源
+     - 如何提供给几何工具
+   * - MuJoCo / :doc:`LIBERO <../simulators/libero>`
+     - 所选相机在该步骤记录的世界坐标图。
+     - 选择与 RGB 图像对齐、分辨率相同的坐标图作为 ``world_xyz``。
+   * - Isaac Sim / :doc:`RoboDojo <../simulators/robodojo>`
+     - RoboDojo 根据头部或腕部相机的深度和标定参数生成世界坐标图。
+     - 读取该相机在同一步骤的 ``world_xyz``，也可一并提供深度图 ``depth_m``。
+   * - 真机 / :doc:`Franka <../real_world_robots/franka>`
+     - 与 RGB 对齐的深度图和相机标定参数。腕部相机还需要拍摄时的机械臂末端位姿。
+     - 提供 ``depth_m``、``intrinsics`` 和相机到机械臂基座的变换 ``camera_to_world``。
 
 .. dropdown:: 有效点和可选的观测数据
 
@@ -136,45 +166,6 @@
 
 工具集的注册和分发机制见 :doc:`interfaces`。
 
-.. _geometry-prompt-design:
-
-提示词设计
-----------
-
-主规划器怎样提出测量请求
-~~~~~~~~~~~~~~~~~~~~~~~~
-
-接入程序将 ``GEOMETRY_INSTRUCTIONS`` 添加到主规划器已有的任务提示词中，配合已注册的 ``geometry`` 工具使用。
-
-.. code-block:: python
-
-   from toolkits.geometry.prompts import GEOMETRY_INSTRUCTIONS
-
-   system_prompt = task_instructions + "\n\n" + GEOMETRY_INSTRUCTIONS
-
-提示词要求主规划器用文字指明目标和所需的测量。例子里桌上只有一只杯子，用“桌上的杯子”就足以指明目标。如果画面中有相似物体，可以补充颜色或相对位置。像素由工具在图像中选取，三维坐标由相机观测提供。
-
-收到 ``partial`` 时，主规划器先看缺少哪一项以及对应的 ``reason``。如果任务只需要杯口直径，已有的半径就够用。如果还需要杯高，主规划器可以在任务预算内安排换个视角，让新的一帧能同时看到杯口和杯底。
-
-.. _expanding-part-requirements:
-
-怎样定位和分割每个部位
-~~~~~~~~~~~~~~~~~~~~~~
-
-工具用 ``PART_DESCRIPTIONS`` 把要看的部位加在原始 ``query`` 前。测杯口半径要看杯沿，测杯高还会查看外壁和杯底。两项测量共用同一次杯沿定位，传给定位器的杯沿描述如下。
-
-.. code-block:: text
-
-   the visible circular rim boundary of the cup on the table
-
-.. _internal-visual-grounding-prompt:
-
-``GroundingAgent`` 将这段文字、原始 RGB 图像和图像尺寸交给视觉模型，让它在指定部位清楚可见的实物表面上选点。例如可以选杯沿上的一点。模型通过 ``point_xy`` 按列、行的顺序返回原图中的像素坐标，无法辨认部位时返回 ``null``。
-
-.. _segmentation-prompts-and-call-bounds:
-
-分割器先根据部位描述圈出图像区域。工具检查这个区域是否包含独立选出的像素。如果没有找到区域，或区域漏掉了该点，工具会用这个点再提示分割一次。每个部位最多定位一次、分割两次。
-
 使用边界与运行验证
 ------------------
 
@@ -189,3 +180,43 @@
    python -m pytest tests/unit_tests/toolkits/geometry -q
 
 这些检查使用合成观测和替代模型服务，覆盖工具分发、坐标转换、分割重试、取消和部位拟合。
+
+.. _geometry-libero-evaluation:
+
+LIBERO 几何评估
+---------------
+
+独立评估入口 ``python -m toolkits.geometry.evaluation.experiment`` 覆盖 80 组、160 次目标部位测量，仅比较 ``agentview`` 起始帧。程序依次采集观测、调用 GeometryTool、用固定模型参考点和同帧物体姿态计算参考坐标，再统计三维欧氏距离误差；不执行机器人动作或补充视角，也不改变原有 LIBERO 运行流程。
+
+``collect``、``build-truth``、``infer`` 和 ``evaluate`` 分别用于采集、生成参考点、推理和误差评估，阶段参数可通过 ``--help`` 查看。实时实验需要 LIBERO Pro、渲染环境、已有的 SAM3 服务及视觉定位模型；``infer --replay`` 可复用冻结的选点和掩码。
+
+下表来自提交 ``30ef110`` 的历史冻结输入实验，使用旧版宽松估计；160 个返回点中，18 个通过当时的严格检查。当前 GeometryTool 尚未重测。
+
+.. list-table:: 历史位置误差
+   :header-rows: 1
+
+   * - 请求数
+     - 返回坐标数
+     - 均值（mm）
+     - 中位数（mm）
+     - P95（mm）
+     - 最大值（mm）
+   * - 160
+     - 160
+     - 21.565
+     - 2.471
+     - 70.048
+     - 378.348
+
+误差只统计有参考点且返回坐标的项，未返回、失败和未运行项保留在返回率统计中。可下载 :download:`逐点坐标与误差 CSV <../../../../toolkits/geometry/evaluation/historical/errors.csv>`。
+
+安装项目依赖后，在仓库根目录离线复核历史结果：
+
+.. code-block:: bash
+
+   python -m toolkits.geometry.evaluation.experiment evaluate \
+     --predictions toolkits/geometry/evaluation/historical/predictions.jsonl \
+     --truth toolkits/geometry/evaluation/historical/truth.json \
+     --output toolkits/geometry/evaluation/runs/report
+
+输出 ``report.md``、``errors.csv`` 和 ``metrics.json``，包含逐项坐标对比、分组统计及数据来源。输出目录须不存在或为空。
