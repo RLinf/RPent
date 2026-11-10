@@ -222,26 +222,34 @@ Notes:
 The ``opencode`` Planner
 --------------------------------
 
-Install and configure OpenCode, then run:
+Install OpenCode and configure its model provider, credentials, and endpoint.
+Once it works on its own, select it from the RPent command line:
 
 .. code-block:: bash
 
    rpent-check-llm --planner opencode
    rpent --robot libero --planner opencode --suite libero_goal_task --task 1 --seed 0
 
-RPent starts ``opencode acp --pure`` and reuses its provider configuration and
-authentication. Set ``OPENCODE_BIN`` only when the executable is not on ``PATH``.
-Omit ``--model`` for OpenCode's default, or pass its exact ``provider/model`` ID;
-explicit selection requires the ACP model configuration option.
+RPent starts and manages OpenCode automatically, using its existing provider
+configuration. You do not need to start an ACP process or configure RPent's MCP
+server yourself. Omit ``--model`` to use OpenCode's default, or pass the exact
+``provider/model`` ID shown by ``opencode models`` to both commands above.
+The installed OpenCode must support ``acp --pure`` and, for explicit model
+selection, ACP model configuration options.
 
-Each session uses a temporary workspace and a dedicated agent permitting only
-the advertised RPent MCP tools. External plugins are disabled by ``--pure``;
-the existing provider and MCP configuration is retained. This is a tool policy,
-not an OS sandbox. Generated settings apply only to the child process.
-``--max-turns`` sets OpenCode's native ``steps`` limit. The wall-clock timeout
-defaults to ``CELL_TIMEOUT_S`` or 1200 seconds. ``--reasoning-effort`` accepts
-only ``none``; ``--base-url`` is API-only. Terminal and Dashboard follow-ups
-queue by default and support explicit interruption.
+Notes:
+
+- Configure credentials and endpoints in OpenCode; ``--base-url`` is only for
+  the ``api`` planner. Set ``OPENCODE_BIN`` only when the executable is not on
+  ``PATH``.
+- RPent applies temporary settings that permit only RPent tools and disable
+  external plugins. Your global OpenCode settings are not modified. These tool
+  permissions are not an OS sandbox.
+- ``--max-turns`` limits model execution, not robot simulation steps; see
+  :ref:`planner-limits`. ``--planner-timeout-s`` defaults to ``CELL_TIMEOUT_S``
+  or 1200 seconds. ``--reasoning-effort`` accepts only ``none``.
+- Terminal and Dashboard follow-ups queue by default. See :doc:`dashboard`
+  for explicit interruption and queue ordering.
 
 .. _planner-codex:
 
@@ -385,18 +393,20 @@ robot runtime:
    rpent-check-llm --planner claude_code
    rpent-check-llm --planner codex --json
    rpent-check-llm --planner gemini_cli --json
+   rpent-check-llm --planner opencode --json
 
 It exits ``0`` on success and ``1`` on any failure, and classifies the
 failure as one of ``missing_config``, ``unsupported_provider``,
-``missing_api_key``, ``auth_failed``, ``network_error``,
+``missing_api_key``, ``auth_failed``, ``invalid_model``, ``network_error``,
 ``provider_error``, or ``sdk_error``. Use ``--json`` for scripting and
 CI. For ``api``, ``--base-url`` overrides the endpoint. Other backends use
 their own environment or CLI configuration. ``--timeout-s`` overrides the
 diagnostic timeout (30 s for ``api`` and 90 s for each CLI/SDK backend; the
 ``1200`` s run default is never reused).
-Without a credential in the launch environment, CLI/SDK probes use a shorter
-25 s budget. Set ``--timeout-s`` explicitly for slower backends. Gemini CLI
-resolves its own credentials; RPent does not reject it solely because no key
+Without a credential in the launch environment, Claude Code, Codex, and Gemini
+CLI probes use a shorter 25 s budget. OpenCode retains the 90 s default.
+Set ``--timeout-s`` explicitly for slower backends. Gemini CLI and OpenCode
+resolve their own credentials; RPent does not reject them solely because no key
 is visible in the launch environment.
 
 Before using the Dashboard, run the same check in a terminal with the
@@ -416,6 +426,8 @@ Add a Planner
 -------------
 
 See :doc:`../development/add_planner` for the interface, integration steps, and validation requirements.
+
+.. _planner-limits:
 
 Configure Planner Limits
 ------------------------
@@ -441,6 +453,12 @@ The counting rule depends on the backend:
   stops when the budget is exhausted. RPent records token usage when supplied
   by ACP and counts tool calls from the local MCP server. ACP does not report
   the completed turn count, so RPent does not synthesize ``turns_used``.
+- **OpenCode:** RPent sets the dedicated agent's native ``steps`` limit.
+  One model step can request multiple tools. When the budget is reached,
+  OpenCode produces a final response without further tool calls; this does not
+  imply a successful task or a ``finish`` call. As with Gemini CLI, RPent
+  records ACP token usage and local MCP tool calls without synthesizing
+  ``turns_used``.
 
 For example, with no retries, the model requests two file reads in one
 response, then summarizes their results in another. API sends two requests,

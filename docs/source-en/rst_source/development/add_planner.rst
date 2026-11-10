@@ -80,6 +80,11 @@ your custom planner.
 Wire and Validate the Planner
 -----------------------------
 
-Add a construction branch in ``rpent/planner/base.py:build_planner`` and a CLI choice in ``rpent/cli/main.py``. If the planner supports Dashboard selection or connection diagnostics, wire those entry points and ``rpent/planner/check.py`` as well.
+Add a construction branch in ``rpent/planner/base.py:build_planner``. Register
+an online backend in ``rpent/planner/check.py`` with ``CHECK_PLANNERS``, its
+diagnostic timeout, and a connection probe; the CLI derives its online planner
+choices from that list. For harnesses that own their provider configuration,
+also update ``EXTERNALLY_CONFIGURED_PLANNERS``. Dashboard sessions use the
+planner selected on the command line.
 
 Verify tool dispatch, text and image results, ``finish``, turn limits, errors, and the interruption and interaction paths you support. Reuse test patterns in ``tests/unit_tests/rpent/planner/``. Validate real model connectivity separately.

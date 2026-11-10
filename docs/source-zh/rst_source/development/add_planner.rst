@@ -68,6 +68,6 @@ HTTP MCP、日志与清理逻辑。对声明支持 HTTP MCP 的 agent，将 MCP 
 接入与验证
 ---------------
 
-在 ``rpent/planner/base.py`` 的 ``build_planner`` 中添加构建分支，并在 ``rpent/cli/main.py`` 的 ``--planner`` 选项中加入名称。需要 Dashboard 或连接诊断时，还应接入对应的规划器选择与 ``rpent/planner/check.py``，不能仅添加一个类。
+在 ``rpent/planner/base.py`` 的 ``build_planner`` 中添加构建分支。在线后端还需在 ``rpent/planner/check.py`` 中加入 ``CHECK_PLANNERS``，设置诊断超时并接入连接探测；CLI 从该列表生成在线规划器选项。由 harness 自行配置模型服务的后端，还需加入 ``EXTERNALLY_CONFIGURED_PLANNERS``。Dashboard 会话使用命令行选定的规划器。
 
 验证工具调用、文本和图像返回、``finish``、轮数上限、错误结果，以及需要支持的中断和交互路径。复用 ``tests/unit_tests/rpent/planner/`` 中的测试模式；真实模型连接需要单独验证。

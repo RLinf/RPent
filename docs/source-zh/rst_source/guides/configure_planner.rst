@@ -179,24 +179,21 @@ RPent 不选择也不转换 model ID。省略 ``--model`` 时，由 Gemini CLI �
 ``opencode`` 规划器
 --------------------------------
 
-安装并配置 OpenCode 后运行：
+安装 OpenCode，配置好模型提供商、认证和服务地址。确认它可以独立使用后，从 RPent 命令行选择它：
 
 .. code-block:: bash
 
    rpent-check-llm --planner opencode
    rpent --robot libero --planner opencode --suite libero_goal_task --task 1 --seed 0
 
-RPent 启动 ``opencode acp --pure``，复用其 provider 配置和认证。
-仅当可执行文件不在 ``PATH`` 中时，才需设置 ``OPENCODE_BIN``。
-省略 ``--model`` 时使用 OpenCode 默认模型；指定时传入准确的 ``provider/model`` ID，
-这需要 OpenCode 支持 ACP 模型配置选项。
+RPent 会自动启动和管理 OpenCode，并使用它已有的模型服务配置。你无需手动启动 ACP 进程，也无需配置 RPent 的 MCP 服务。省略 ``--model`` 时使用 OpenCode 默认模型；指定模型时，将 ``opencode models`` 中对应的完整 ``provider/model`` ID 传给上面的检查命令和运行命令。已安装的 OpenCode 需要支持 ``acp --pure``；显式选择模型还需要它支持 ACP 模型配置选项。
 
-每个会话使用临时工作目录和专用 agent，只允许已公布的 RPent MCP 工具。
-``--pure`` 关闭外部插件，已有 provider 和 MCP 配置仍会保留。
-这些设置是工具权限策略，不是操作系统沙箱；生成的配置仅作用于子进程。
-``--max-turns`` 设置 OpenCode 原生的 ``steps`` 上限；总运行超时默认读取
-``CELL_TIMEOUT_S``，未设置时为 1200 秒。``--reasoning-effort`` 仅接受 ``none``，
-``--base-url`` 仅用于 API planner。终端和 Dashboard 均默认排队追加消息，并支持手动中断。
+注意：
+
+- 认证和服务地址在 OpenCode 中配置；``--base-url`` 仅用于 ``api`` 规划器。只有可执行文件不在 ``PATH`` 中时，才需设置 ``OPENCODE_BIN``。
+- RPent 自动应用临时设置，只允许 RPent 工具并关闭外部插件，不修改你的全局 OpenCode 配置。这些工具权限不等于操作系统沙箱。
+- ``--max-turns`` 限制模型执行轮数，不是机器人仿真步数，详见 :ref:`planner-limits`。``--planner-timeout-s`` 默认读取 ``CELL_TIMEOUT_S``，未设置时为 1200 秒。``--reasoning-effort`` 仅接受 ``none``。
+- 终端和 Dashboard 均默认排队追加消息。手动中断和队列顺序见 :doc:`dashboard`。
 
 .. _planner-codex:
 
@@ -301,10 +298,11 @@ RPent 的 ``--model`` 必须与 vLLM 的 ``--served-model-name`` 保持一致。
    rpent-check-llm --planner claude_code
    rpent-check-llm --planner codex --json
    rpent-check-llm --planner gemini_cli --json
+   rpent-check-llm --planner opencode --json
 
-成功时退出码为 ``0``，任何失败为 ``1``，并将失败归类为 ``missing_config``、``unsupported_provider``、``missing_api_key``、 ``auth_failed``、``network_error``、``provider_error``、``sdk_error`` 之一。脚本与 CI 建议使用 ``--json``。对于 ``api``，``--base-url`` 会覆盖服务端点；其他后端使用自身的环境变量或 CLI 配置。``--timeout-s`` 覆盖诊断超时（``api`` 为 30 秒，各 CLI/SDK 后端为 90 秒；运行时的 ``1200`` 秒默认值不会被复用）。
+成功时退出码为 ``0``，任何失败为 ``1``，并将失败归类为 ``missing_config``、``unsupported_provider``、``missing_api_key``、``auth_failed``、``invalid_model``、``network_error``、``provider_error``、``sdk_error`` 之一。脚本与 CI 建议使用 ``--json``。对于 ``api``，``--base-url`` 会覆盖服务端点；其他后端使用自身的环境变量或 CLI 配置。``--timeout-s`` 覆盖诊断超时（``api`` 为 30 秒，各 CLI/SDK 后端为 90 秒；运行时的 ``1200`` 秒默认值不会被复用）。
 
-启动环境中没有凭据时，CLI/SDK 探测使用较短的 25 秒预算。响应较慢的后端可通过 ``--timeout-s`` 显式增加时限。Gemini CLI 自行读取认证配置；RPent 不会仅因启动环境中没有密钥就拒绝探测。
+启动环境中没有凭据时，Claude Code、Codex 和 Gemini CLI 探测使用较短的 25 秒预算；OpenCode 仍默认使用 90 秒。响应较慢的后端可通过 ``--timeout-s`` 显式增加时限。Gemini CLI 和 OpenCode 自行读取认证配置；RPent 不会仅因启动环境中没有密钥就拒绝探测。
 
 使用 Dashboard 时，也请先在终端运行上述检查，并使用准备运行任务的规划器与模型配置。Dashboard 从命令行接收配置，打开后直接显示运行监控页面。启动方法见 :doc:`dashboard`。
 
@@ -317,6 +315,8 @@ RPent 的 ``--model`` 必须与 vLLM 的 ``--served-model-name`` 保持一致。
 
 自定义规划器的接口、接入步骤和验证要求见 :doc:`../development/add_planner`。
 
+.. _planner-limits:
+
 设置规划器的运行限制
 -----------------------
 
@@ -326,6 +326,7 @@ RPent 的 ``--model`` 必须与 vLLM 的 ``--served-model-name`` 保持一致。
 - **Codex：** 模型每回复一次算一轮。只有推理或工具调用、没有文字的回复也计数；同一次回复中的多个工具调用不会分别计数。RPent 负责执行这个上限。
 - **Claude Code：** 一轮是“模型请求工具 → 工具执行 → 结果返回模型”。最后不调用工具的文字答复不占用这一预算。RPent 把上限交给 Claude Code 执行，达到上限时返回 ``error_max_turns``。
 - **Gemini CLI：** RPent 将上限作为 ``model.maxSessionTurns`` 传给 Gemini CLI。Gemini CLI 对用户、模型和工具轮次计数，预算耗尽时停止。RPent 记录 ACP 返回的 token 用量（若提供），并从本地 MCP 服务统计工具调用次数。ACP 不返回已完成轮数，因此 RPent 不会推算 ``turns_used``。
+- **OpenCode：** RPent 设置专用 agent 的原生 ``steps`` 上限。一次模型执行可以请求多个工具；达到预算后，OpenCode 给出最终回复，不再调用工具。这不代表任务成功，也不代表调用了 ``finish``。与 Gemini CLI 一样，RPent 记录 ACP token 用量和本地 MCP 工具调用次数，不推算 ``turns_used``。
 
 例如，没有重试时，模型先在一次回复中要求读取两个文件，拿到结果后再给出文字总结：API 发送两次请求，Codex 计两次回复，Claude 消耗一轮工具预算。三者都报告 ``turns_used=2``；Claude 报告的回复次数与工具预算的计数不同。
 
