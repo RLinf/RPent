@@ -3,10 +3,20 @@
 Data Flywheel
 =============
 
-Use ``--record-trajectory`` with the ``api``, ``claude_code``, or ``codex`` planner
-to save task, planner, and tool-call records. Supported environments also record executed
-actions and their observations. ``rpent-flywheel`` exports VLA training data in
-LeRobot format. It does not currently support exporting VLM training data.
+The RPent data flywheel records trajectories from task planning through action
+execution and turns successful trajectories into training data.
+
+With the ``api``, ``claude_code``, or ``codex`` planner, ``--record-trajectory``
+records vision-language model (VLM) requests and responses, along with tool calls
+and their results. Environments that support action recording also capture the
+subtask instructions given to the vision-language-action (VLA) model, the actions
+the robot executes, and the corresponding observations.
+
+``rpent-flywheel`` currently exports only VLA training data. It writes samples
+from successful trajectories to a LeRobot dataset for supervised fine-tuning with
+RLinf. In the evaluations below, replacing the original VLA with the fine-tuned
+model raised RPent's task success rate from 70% to 73% on LIBERO-PRO and from
+48% to 72% on RoboTwin.
 
 Installation
 ------------

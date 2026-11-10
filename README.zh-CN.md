@@ -47,7 +47,7 @@ RPent 面向以下四类用户：
 
 ## 最新动态
 
-- [2026/11] 🔥 新增数据飞轮，详见 [使用指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/guides/flywheel.html)。
+- [2026/11] 🔥 新增数据飞轮。用采集的成功轨迹对 VLA 进行监督微调后，RPent 在 RoboTwin 评测中的任务成功率从 48% 升至 72%，提高 **24 个百分点**。详见 [使用指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/guides/flywheel.html)。
 - [2026/10] 🔥 新增可选的 APXInf VLA endpoint 接入，参见 [部署指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/guides/advanced_deployment.html#apxinf-vla-service-optional)。
 - [2026/09] 🔥 新增交互式 RPent 排行榜，覆盖 LIBERO、LIBERO-PRO、RoboCasa365 与 RoboTwin，提供模型对比及套件汇总。查看 [排行榜](https://rpent.readthedocs.io/zh-cn/latest/rst_source/leaderboard/index.html)。
 - [2026/09] 🔥 RPent 支持 Franka 单臂与双臂真机扩展。文档：[Franka](https://rpent.readthedocs.io/zh-cn/latest/rst_source/real_world_robots/franka.html) · [Dual Franka](https://rpent.readthedocs.io/zh-cn/latest/rst_source/real_world_robots/dual_franka.html)。
