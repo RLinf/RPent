@@ -270,7 +270,7 @@ def build_planner(
 ) -> Planner:
     """Build a planner for the given backend, resolving credentials from env vars."""
     # Imports are deferred to avoid a circular import: api_loop / claude_code /
-    # codex / gemini_cli all import from this module (PlannerResult).
+    # codex / gemini_cli / opencode all import from this module (PlannerResult).
 
     if planner_type == "api":
         from rpent.planner.api_loop import ApiAgentLoop
@@ -329,22 +329,29 @@ def build_planner(
             dashboard_events=dashboard_events,
             reasoning_effort=reasoning_effort,
         )
-    if planner_type == "gemini_cli":
+    if planner_type in {"gemini_cli", "opencode"}:
         from rpent.planner.gemini_cli import GeminiCliPlanner
+        from rpent.planner.opencode import OpenCodePlanner
 
-        gemini_timeout_s = planner_timeout_s
-        if gemini_timeout_s is None:
-            gemini_timeout_s = int(
+        timeout_s = planner_timeout_s
+        if timeout_s is None:
+            timeout_s = int(
                 os.environ.get(
-                    "GEMINI_CLI_TIMEOUT_S",
+                    "GEMINI_CLI_TIMEOUT_S"
+                    if planner_type == "gemini_cli"
+                    else "CELL_TIMEOUT_S",
                     os.environ.get("CELL_TIMEOUT_S", "1200"),
                 )
             )
-        return GeminiCliPlanner(
+        planner_class = (
+            GeminiCliPlanner if planner_type == "gemini_cli" else OpenCodePlanner
+        )
+        prefix = "gemini" if planner_type == "gemini_cli" else "opencode"
+        return planner_class(
             output_dir=str(output_dir),
             model=model,
-            timeout_s=gemini_timeout_s,
-            output_path=Path(output_dir) / f"gemini_{recipe_tag}.txt",
+            timeout_s=timeout_s,
+            output_path=Path(output_dir) / f"{prefix}_{recipe_tag}.txt",
             dashboard_events=dashboard_events,
             reasoning_effort=reasoning_effort,
         )

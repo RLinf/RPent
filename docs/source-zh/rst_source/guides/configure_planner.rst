@@ -5,9 +5,9 @@ RPent 通过一个 CLI 参数选择 Agentic Planner 的后端：
 
 .. code-block:: text
 
-   --planner {api,claude_code,codex,gemini_cli,flash}
+   --planner {api,claude_code,codex,gemini_cli,opencode,flash}
 
-四种在线规划器（``api``、``claude_code``、``codex`` 和 ``gemini_cli``）接收相同的系统提示词和用户提示词，也使用同一套 RPent 工具定义。它们的区别在于如何将这些工具接入模型、如何组织工具调用循环，以及使用哪个模型 SDK 或 CLI。
+在线规划器（``api``、``claude_code``、``codex``、``gemini_cli`` 和 ``opencode``）接收相同的系统提示词和用户提示词，也使用同一套 RPent 工具定义。它们的区别在于如何将这些工具接入模型、如何组织工具调用循环，以及使用哪个模型 SDK 或 CLI。
 
 .. list-table::
    :header-rows: 1
@@ -32,6 +32,9 @@ RPent 通过一个 CLI 参数选择 Agentic Planner 的后端：
        ACP 接口。RPent 通过本地 Streamable HTTP MCP 服务暴露 toolkit，
        由 Gemini CLI 驱动循环。
      - 通过已有的 Gemini CLI 配置运行任务。
+   * - ``opencode``
+     - `OpenCode <https://opencode.ai/docs/acp/>`_，复用共享 ACP 驱动和本地 HTTP MCP 工具。
+     - 通过已有的 OpenCode provider 配置运行任务。
    * - ``flash``
      - **Flash Mode**，仅用于评测。重放 memory 中保存的成功执行计划，并对每个路点
        的锚点重新定位，使方案能跟随移动过的物体。参见
@@ -170,6 +173,30 @@ RPent 不选择也不转换 model ID。省略 ``--model`` 时，由 Gemini CLI �
   ``/interrupt [message]``；Dashboard 可先提交消息，再按 Esc 中断，并在同一会话中继续。
   队列顺序和中断行为详见 :doc:`dashboard`。
 - 不支持非 ``none`` 的 ``--reasoning-effort``。
+
+.. _planner-opencode:
+
+``opencode`` 规划器
+--------------------------------
+
+安装并配置 OpenCode 后运行：
+
+.. code-block:: bash
+
+   rpent-check-llm --planner opencode
+   rpent --robot libero --planner opencode --suite libero_goal_task --task 1 --seed 0
+
+RPent 启动 ``opencode acp --pure``，复用其 provider 配置和认证。
+仅当可执行文件不在 ``PATH`` 中时，才需设置 ``OPENCODE_BIN``。
+省略 ``--model`` 时使用 OpenCode 默认模型；指定时传入准确的 ``provider/model`` ID，
+这需要 OpenCode 支持 ACP 模型配置选项。
+
+每个会话使用临时工作目录和专用 agent，只允许已公布的 RPent MCP 工具。
+``--pure`` 关闭外部插件，已有 provider 和 MCP 配置仍会保留。
+这些设置是工具权限策略，不是操作系统沙箱；生成的配置仅作用于子进程。
+``--max-turns`` 设置 OpenCode 原生的 ``steps`` 上限；总运行超时默认读取
+``CELL_TIMEOUT_S``，未设置时为 1200 秒。``--reasoning-effort`` 仅接受 ``none``，
+``--base-url`` 仅用于 API planner。终端和 Dashboard 均默认排队追加消息，并支持手动中断。
 
 .. _planner-codex:
 

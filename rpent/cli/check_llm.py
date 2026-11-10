@@ -56,15 +56,15 @@ def _parser() -> argparse.ArgumentParser:
         "--planner",
         default="api",
         choices=list(CHECK_PLANNERS),
-        help="LLM backend to check: api | claude_code | codex | gemini_cli.",
+        help="Planner backend to check.",
     )
     parser.add_argument(
         "--model",
         default=None,
         help="Model id. For the 'api' planner, prefix the provider "
         "(e.g. anthropic:claude-opus-4-8, google:Argon, "
-        "openai:gpt-5.5, openai-chat:glm-5.2). For claude_code, codex, and "
-        "gemini_cli this overrides the backend or upstream default model.",
+        "openai:gpt-5.5, openai-chat:glm-5.2). For external harnesses this "
+        "overrides their default model; OpenCode uses provider/model IDs.",
     )
     parser.add_argument(
         "--base-url",

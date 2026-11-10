@@ -27,7 +27,7 @@ These options control the planner, memory, output directory, and Dashboard.
      - Select a discovered robot or simulator.
    * - ``--planner``
      - ``api``
-     - Four online planners: ``api``, ``claude_code``, ``codex``, ``gemini_cli``; ``flash`` replays stored plans.
+     - Online planners: ``api``, ``claude_code``, ``codex``, ``gemini_cli``, ``opencode``; ``flash`` replays stored plans.
    * - ``--model``
      - ``—``
      - ``api`` requires a provider prefix; CLI/SDK planners use their backend defaults unless overridden.
@@ -44,7 +44,7 @@ These options control the planner, memory, output directory, and Dashboard.
        reasoning reduced the average runtime from approximately 13.2 to
        7.9 minutes (about 40%) in our LIBERO Pro Long evaluations.
        Higher effort may improve task success rate. Supported levels
-       ultimately depend on the selected model. ``gemini_cli`` accepts only ``none``.
+       ultimately depend on the selected model. ``gemini_cli`` and ``opencode`` accept only ``none``.
    * - ``--planner-timeout-s``
      - ``—``
      - Defaults to ``CODEX_TIMEOUT_S`` (Codex) or ``GEMINI_CLI_TIMEOUT_S`` (Gemini CLI), then ``CELL_TIMEOUT_S``, then 1200 seconds; terminal interactive API/Claude sessions are exempt.

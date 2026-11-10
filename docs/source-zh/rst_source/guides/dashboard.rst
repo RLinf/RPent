@@ -15,7 +15,7 @@
    rpent --robot libero --suite libero_10_task --task 0 --seed 1 \
      --planner claude_code --model claude-opus-4-8 --tui
 
-使用 ``claude_code``、``codex`` 或 ``gemini_cli`` 时，首次输入会预填任务指令，可编辑后按 Enter 提交，也可直接提交。输入 ``/help`` 查看命令，输入 ``/quit``、``/exit`` 或 ``/q`` 结束会话。
+使用 ``claude_code``、``codex``、``gemini_cli`` 或 ``opencode`` 时，首次输入会预填任务指令，可编辑后按 Enter 提交，也可直接提交。输入 ``/help`` 查看命令，输入 ``/quit``、``/exit`` 或 ``/q`` 结束会话。
 
 Claude Code、Codex 和 Gemini 的追加消息按输入顺序排队，每个完整的 agent turn 结束后发送一条，而不是每次工具调用结束后发送。使用 ``/interrupt`` 可中断当前 turn 并发送下一条排队消息；使用 ``/interrupt 新指令`` 则优先发送该指令，其余消息仍保留在队列中。这两种中断方式都会在原会话中继续。RPent 先取消并等待工具执行结束，再中断后端；只有确认停止后才发送新消息。中断失败时，消息保留在队列中，直到重试中断成功。已经完成的物理动作不会被撤销。
 
@@ -33,7 +33,7 @@ Claude Code、Codex 和 Gemini 的追加消息按输入顺序排队，每个完�
 Dashboard
 ---------
 
-Dashboard 支持 ``api``、``claude_code``、``codex`` 和 ``gemini_cli`` 规划器。在命令行传递 ``--planner`` 与 ``--model``，配置方式和普通运行一致，详见 :doc:`configure_planner`。
+Dashboard 支持 ``api``、``claude_code``、``codex``、``gemini_cli`` 和 ``opencode`` 规划器。在命令行传递 ``--planner`` 与 ``--model``，配置方式和普通运行一致，详见 :doc:`configure_planner`。
 
 启动并提交任务
 ~~~~~~~~~~~~~~~~~~~~~

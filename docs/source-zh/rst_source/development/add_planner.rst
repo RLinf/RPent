@@ -9,7 +9,8 @@ ACP Harness
 ACP 是共享驱动，不是可选的规划器。接入 ACP harness 时，继承
 ``rpent/planner/utils/acp.py`` 中的 ``AcpPlanner``，设置 ``backend`` 和显示名称
 ``label``。实现 ``_create_session``，准备命令、环境与工具策略，并返回
-``AcpSession``；可参考 ``gemini_cli.py``。按下方步骤以 harness 名称注册适配器。
+``AcpSession``。标准 HTTP MCP 接入可参考 ``opencode.py``，工作目录配置可参考
+``gemini_cli.py``。按下方步骤以 harness 名称注册适配器。
 
 基类统一处理会话、事件记录和连接探测，并复用 ``utils/agent_session.py`` 的交互控制、
 HTTP MCP、日志与清理逻辑。对声明支持 HTTP MCP 的 agent，将 MCP URL 传给

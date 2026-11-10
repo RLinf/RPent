@@ -7,9 +7,9 @@ Select the Agentic Planner backend with one CLI flag:
 
 .. code-block:: text
 
-   --planner {api,claude_code,codex,gemini_cli,flash}
+   --planner {api,claude_code,codex,gemini_cli,opencode,flash}
 
-All four online planners receive the same rendered system and user prompts
+All online planners receive the same rendered system and user prompts
 and use the RPent tool schemas from the same toolkit. They differ in
 how those schemas are connected to the model, how the tool-calling
 loop is orchestrated, and which model SDK or CLI is used.
@@ -41,6 +41,10 @@ loop is orchestrated, and which model SDK or CLI is used.
        through ACP. RPent exposes the toolkit through a local Streamable
        HTTP MCP server; Gemini CLI drives the loop.
      - Run tasks through an existing Gemini CLI configuration.
+   * - ``opencode``
+     - `OpenCode <https://opencode.ai/docs/acp/>`_ through the shared ACP driver
+       and local HTTP MCP tools.
+     - Run tasks through an existing OpenCode provider configuration.
    * - ``flash``
      - **Flash Mode**, for evaluation only. Replays a plan from memory,
        recorded from an earlier
@@ -212,6 +216,32 @@ Notes:
   in the Dashboard, to interrupt before continuing in the same conversation.
   See :doc:`dashboard` for queue ordering and interruption behavior.
 - Non-``none`` ``--reasoning-effort`` values are not supported.
+
+.. _planner-opencode:
+
+The ``opencode`` Planner
+--------------------------------
+
+Install and configure OpenCode, then run:
+
+.. code-block:: bash
+
+   rpent-check-llm --planner opencode
+   rpent --robot libero --planner opencode --suite libero_goal_task --task 1 --seed 0
+
+RPent starts ``opencode acp --pure`` and reuses its provider configuration and
+authentication. Set ``OPENCODE_BIN`` only when the executable is not on ``PATH``.
+Omit ``--model`` for OpenCode's default, or pass its exact ``provider/model`` ID;
+explicit selection requires the ACP model configuration option.
+
+Each session uses a temporary workspace and a dedicated agent permitting only
+the advertised RPent MCP tools. External plugins are disabled by ``--pure``;
+the existing provider and MCP configuration is retained. This is a tool policy,
+not an OS sandbox. Generated settings apply only to the child process.
+``--max-turns`` sets OpenCode's native ``steps`` limit. The wall-clock timeout
+defaults to ``CELL_TIMEOUT_S`` or 1200 seconds. ``--reasoning-effort`` accepts
+only ``none``; ``--base-url`` is API-only. Terminal and Dashboard follow-ups
+queue by default and support explicit interruption.
 
 .. _planner-codex:
 

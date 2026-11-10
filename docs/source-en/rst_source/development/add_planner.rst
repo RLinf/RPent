@@ -9,7 +9,8 @@ ACP Harnesses
 ACP is a shared driver, not a selectable planner. For an ACP harness, subclass
 ``AcpPlanner`` from ``rpent/planner/utils/acp.py`` and set its ``backend`` and
 display ``label``. Implement ``_create_session`` to prepare the command,
-environment, and tool policy and return an ``AcpSession``; see ``gemini_cli.py``.
+environment, and tool policy and return an ``AcpSession``; see ``opencode.py``
+for standard HTTP MCP setup or ``gemini_cli.py`` for workspace settings.
 Register the adapter under the harness's name using the steps below.
 
 The base shares session handling, event recording, probes, and

@@ -24,7 +24,7 @@ from acp.schema import PromptResponse
 
 from rpent.dashboard.events import NullDashboardEventSink, RunStartedEvent
 from rpent.dashboard.state import DashboardState
-from rpent.planner import claude_code, codex, gemini_cli
+from rpent.planner import claude_code, codex, gemini_cli, opencode
 from rpent.planner.utils import agent_session as interactive
 from rpent.planner.utils.acp import AcpRecorder
 from rpent.planner.utils.agent_runtime import AgentArtifacts
@@ -80,7 +80,7 @@ def test_repeated_terminal_shutdown_does_not_stop_the_next_session():
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("backend", ["codex", "gemini_cli", "claude_code"])
+@pytest.mark.parametrize("backend", ["codex", "gemini_cli", "claude_code", "opencode"])
 @pytest.mark.parametrize("channel", ["terminal", "dashboard"])
 def test_queue_interrupt_and_continuation_share_one_session(
     tmp_path, monkeypatch, backend, channel, dashboard
@@ -147,7 +147,12 @@ def test_queue_interrupt_and_continuation_share_one_session(
 
     class Connection:
         async def initialize(self, **kwargs):
-            return acp.schema.InitializeResponse(protocol_version=acp.PROTOCOL_VERSION)
+            return acp.schema.InitializeResponse(
+                protocol_version=acp.PROTOCOL_VERSION,
+                agent_capabilities=acp.schema.AgentCapabilities(
+                    mcp_capabilities=acp.schema.McpCapabilities(http=True)
+                ),
+            )
 
         async def new_session(self, **kwargs):
             sessions.append("gemini-session")
@@ -195,7 +200,7 @@ def test_queue_interrupt_and_continuation_share_one_session(
 
     @asynccontextmanager
     async def spawn(client, binary, *args, **kwargs):
-        assert "--acp" in args
+        assert "acp" in args if backend == "opencode" else "--acp" in args
         stderr = asyncio.StreamReader()
         stderr.feed_eof()
         try:
@@ -208,10 +213,12 @@ def test_queue_interrupt_and_continuation_share_one_session(
     monkeypatch.setattr(acp, "spawn_agent_process", spawn)
     monkeypatch.setattr(claude_agent_sdk, "ClaudeSDKClient", ClaudeClient)
     monkeypatch.setenv("GEMINI_BIN", "/fake/gemini")
+    monkeypatch.setenv("OPENCODE_BIN", "/fake/opencode")
     cls = {
         "codex": codex.CodexPlanner,
         "gemini_cli": gemini_cli.GeminiCliPlanner,
         "claude_code": claude_code.ClaudeCodePlanner,
+        "opencode": opencode.OpenCodePlanner,
     }[backend]
     planner = cls(
         output_dir=str(tmp_path),

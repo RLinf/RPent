@@ -125,6 +125,7 @@ def test_diagnostic_timeouts_never_inherit_the_run_default() -> None:
         "claude_code": 90,
         "codex": 90,
         "gemini_cli": 90,
+        "opencode": 90,
     }
     for planner, expected in DEFAULT_TIMEOUT_S.items():
         assert LlmCheckRequest(planner=planner).resolved_timeout_s() == expected
@@ -609,12 +610,15 @@ def test_codex_probe_timeout_reports_network_error(
 
 @pytest.mark.parametrize("key_present", [False, True])
 @pytest.mark.parametrize("timeout_s", [None, 120])
-def test_gemini_cli_probe_uses_cli_configuration_and_exact_optional_model(
+@pytest.mark.parametrize("backend", ["gemini_cli", "opencode"])
+def test_acp_probe_uses_harness_configuration_and_exact_optional_model(
     monkeypatch: pytest.MonkeyPatch,
     key_present: bool,
     timeout_s: int | None,
+    backend: str,
 ) -> None:
     import rpent.planner.gemini_cli as gemini_cli
+    from rpent.planner.opencode import OpenCodePlanner
 
     seen: dict[str, Any] = {}
     if key_present:
@@ -624,10 +628,13 @@ def test_gemini_cli_probe_uses_cli_configuration_and_exact_optional_model(
         seen.update(prompt=prompt, model=self._model, timeout_s=self._timeout_s)
         return "ok"
 
-    monkeypatch.setattr(gemini_cli.GeminiCliPlanner, "probe", fake_probe)
+    planner_class = (
+        gemini_cli.GeminiCliPlanner if backend == "gemini_cli" else OpenCodePlanner
+    )
+    monkeypatch.setattr(planner_class, "probe", fake_probe)
     result = check_llm(
         LlmCheckRequest(
-            planner="gemini_cli", model="gemini-upstream-id", timeout_s=timeout_s
+            planner=backend, model="provider/exact-model", timeout_s=timeout_s
         )
     )
 
@@ -639,9 +646,13 @@ def test_gemini_cli_probe_uses_cli_configuration_and_exact_optional_model(
     assert result.base_url is None
     assert seen == {
         "prompt": PROBE_PROMPT,
-        "model": "gemini-upstream-id",
+        "model": "provider/exact-model",
         "timeout_s": timeout_s
-        or (DEFAULT_TIMEOUT_S["gemini_cli"] if key_present else CLI_LOGIN_TIMEOUT_S),
+        or (
+            CLI_LOGIN_TIMEOUT_S
+            if backend == "gemini_cli" and not key_present
+            else DEFAULT_TIMEOUT_S[backend]
+        ),
     }
 
 
