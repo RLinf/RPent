@@ -179,8 +179,6 @@ prefix.
      - Compatibility alias (hidden)
    * - ``--am-backend``
      - ``--vla-backend``, ``--wam-backend``
-   * - ``--am-backend pi05``
-     - ``--policy-backend rlinf`` (RoboDojo)
    * - ``--am-endpoint``
      - ``--vla-endpoint``, ``--wam-endpoint``
    * - ``--am-checkpoint``

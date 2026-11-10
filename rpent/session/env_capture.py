@@ -217,6 +217,9 @@ class CapturingEnvClient:
             after_observation_id=before_id,
             missing={"before_observation_id": None, "after_observation_id": None},
         )
+        # A policy can fail to consume feedback after the environment confirmed a step.
+        if (error := response.get("post_execution_error")) is not None:
+            raise error
         return response["result"]
 
     def _payload(self, data: dict[str, Any]) -> Payload:

@@ -24,10 +24,12 @@ import numpy as np
 import pytest
 
 from robots.robodojo import env_server, tools
+from robots.robodojo.awomo05_client import Awomo05Client
 from robots.robodojo.env_client import RoboDojoEnvClient
 from robots.robodojo.env_facade import RoboDojoEnvFacade
 from robots.robodojo.robot_spec import FLYWHEEL_CONFIG
 from robots.robodojo.toolkit import RoboDojoToolkit, _capture_robodojo_call
+from robots.robodojo.vpp2_client import VPP2Client
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.flywheel.flywheel import read_frame, resolve_action_config
 from rpent.flywheel.reader import read_array
@@ -345,7 +347,8 @@ def test_capture_call_preserves_native_action_and_observations(
     with make_server_and_client(facade, transport) as rpc:
         client = RoboDojoEnvClient(rpc, expected_meta=scene.agent.get_env_meta())
         if eval_fair:
-            assert not hasattr(client, "last_obs")
+            assert scene.reset_count == 0
+            assert client.last_obs["instruction"] == "pick bottle"
         frame_count = len(scene.frames)
         response = _capture_robodojo_call(client, "step", command)
     obs, reward, done, info = response["result"]
@@ -376,8 +379,7 @@ def test_capture_call_preserves_native_action_and_observations(
 
 
 def _register_legacy_pick(toolkit):
-    # Legacy policy callers can still record VLA actions; the default toolkit
-    # exposes only the native motion tools.
+    # Exercise a legacy policy tool that is no longer registered by default.
     toolkit.add_tool(
         tools.pi0_pick.with_handler(
             partial(tools.pi0_pick, primitives=toolkit._primitives, state=toolkit.state)
@@ -385,21 +387,24 @@ def _register_legacy_pick(toolkit):
     )
 
 
-@pytest.mark.parametrize("recording", [False, True])
-def test_toolkit_saves_only_executed_predictions_and_restores_source(
-    scene, tmp_path, monkeypatch, recording
-):
-    from rpent.utils import logging
-
-    monkeypatch.setattr(logging, "_output_dir", tmp_path)
+@pytest.fixture
+def scene_rpc(scene):
     facade = RoboDojoEnvFacade(scene.agent)
 
     def call(method, *, args=(), kwargs=None, **options):
         return deepcopy(facade._rpc[method](*args, **(kwargs or {})))
 
-    client = RoboDojoEnvClient(
-        SimpleNamespace(call=call), expected_meta=scene.agent.get_env_meta()
-    )
+    return SimpleNamespace(call=call)
+
+
+@pytest.mark.parametrize("recording", [False, True])
+def test_toolkit_saves_only_executed_predictions_and_restores_source(
+    scene, scene_rpc, tmp_path, monkeypatch, recording
+):
+    from rpent.utils import logging
+
+    monkeypatch.setattr(logging, "_output_dir", tmp_path)
+    client = RoboDojoEnvClient(scene_rpc, expected_meta=scene.agent.get_env_meta())
     inputs = []
     commands = np.linspace(0, 1, 42).reshape(3, 14)
 
@@ -504,6 +509,105 @@ def test_toolkit_saves_only_executed_predictions_and_restores_source(
 
 
 @pytest.mark.parametrize(
+    ("backend", "fault"),
+    [
+        ("vpp2", None),
+        ("awomo05", None),
+        ("awomo05", "delivery"),
+        ("vpp2", "missing_obs"),
+    ],
+)
+def test_policy_capture_keeps_confirmed_actions(
+    scene, scene_rpc, tmp_path, monkeypatch, backend, fault
+):
+    scene.step_lim = 3
+    is_vpp2 = backend == "vpp2"
+    instruction = "lift the bottle" if is_vpp2 else "pick bottle"
+    observed_steps = []
+    if fault == "missing_obs":
+        step_native = scene.agent.step_native
+
+        def drop_second_observation(*args, **kwargs):
+            response = step_native(*args, **kwargs)
+            if scene.take_action_cnt[0] == 2:
+                response["result"] = (None, *response["result"][1:])
+            return response
+
+        monkeypatch.setattr(scene.agent, "step_native", drop_second_observation)
+
+    def model_call(method, *, args=(), **options):
+        if method == "vla.predict":
+            assert args[0]["instruction"] == instruction
+            return np.zeros((32, 16), dtype=np.float32)
+        if method == "vla.get_action":
+            return [scene.get_motion_state()["targets"]] * 8
+        if method == "vla.update_obs":
+            obs, step = args
+            assert obs["instruction"] == instruction
+            observed_steps.append(step)
+            if fault == "delivery" and step == 2:
+                raise RuntimeError("model feedback failed")
+
+    client = RoboDojoEnvClient(
+        scene_rpc, expected_meta=scene.agent.get_env_meta(), record_vpp2_history=is_vpp2
+    )
+    policy = (VPP2Client if is_vpp2 else Awomo05Client)(
+        SimpleNamespace(call=model_call)
+    )
+    toolkit = RoboDojoToolkit(
+        primitives_kwargs={"env": client, "vla_client": policy, "vla_backend": backend},
+        dashboard_events=NullDashboardEventSink(),
+        memory=MemoryManager(tmp_path / "memory"),
+        state_output_dir=tmp_path,
+    )
+    name = f"{backend}_act"
+    arguments = {"instruction": instruction} if is_vpp2 else {}
+    state = toolkit.state
+    state.start_task(instruction="pick bottle", config=Payload("json", {}))
+    tool_id = state.register_tool_call(
+        planner_id=state.register_planner(backend="api"),
+        name=name,
+        arguments=Payload("json", arguments),
+    )
+    with ToolCallCapture(state, tool_id).bind():
+        feedback = toolkit.execute_tool(name, arguments)
+    toolkit.close()
+
+    assert feedback.is_error is bool(fault)
+    call = state.get_tool_call(tool_id)
+    result = call.raw_result.data["data"]
+    actions = state.action_records()
+    (prediction,) = state.prediction_records()
+    assert prediction.instruction == instruction
+    assert prediction.action_ids == [action.action_id for action in actions]
+    assert (
+        result["executed_actions"]
+        == len(scene.executed)
+        == len(actions)
+        == (2 if fault else 3)
+    )
+    for action, (native, kind) in zip(actions, scene.executed, strict=True):
+        assert action.source == "vla" and action.tool_call_id == tool_id
+        assert action.action.format == f"robodojo.action.{kind}"
+        np.testing.assert_equal(action.action.data, native)
+    assert call.after_observation_id == actions[-1].after_observation_id
+    assert observed_steps == ([] if is_vpp2 else [0, 1, 2])
+    if fault:
+        assert result["stop_reason"] == "synchronization_lost"
+        assert result["execution_uncertain"] is False
+        if fault == "missing_obs":
+            payload = state.get_observation(call.after_observation_id).payload
+            assert (
+                payload.data is None and payload.missing[""].reason == "capture_failed"
+            )
+            assert "no observation" in result["error"]
+        else:
+            assert "model feedback failed" in result["error"]
+    else:
+        assert result["stop_reason"] == "budget_exhausted"
+
+
+@pytest.mark.parametrize(
     ("tool_name", "arguments"),
     [("pi0_pick", {}), ("set_gripper", {"arm": "left", "val": 1.0, "steps": 3})],
 )
@@ -572,6 +676,8 @@ def test_failed_step_keeps_only_confirmed_actions(
     ("method", "stopped"),
     [
         ("step", "native_noop"),
+        ("step", "budget"),
+        ("step", "ended"),
         ("step_joint_update", "native_noop"),
         ("step_joint_update", "budget"),
         ("step_joint_update", "ended"),
@@ -586,10 +692,6 @@ def test_unexecuted_actions_are_not_recorded(
         monkeypatch.setattr(
             scene.agent._sub_env(), "apply_action", lambda *a, **kw: None
         )
-    elif stopped == "budget":
-        scene.take_action_cnt[0] = scene.step_lim
-    else:
-        scene.end_flag[0] = True
 
     with make_server_and_client(RoboDojoEnvFacade(scene.agent), transport) as rpc:
         client = RoboDojoEnvClient(rpc, expected_meta=scene.agent.get_env_meta())
@@ -600,6 +702,10 @@ def test_unexecuted_actions_are_not_recorded(
             state_output_dir=tmp_path / "state",
             eval_fair=True,
         )
+        if stopped == "budget":
+            scene.step_lim = scene.take_action_cnt[0]
+        elif stopped == "ended":
+            scene.end_flag[0] = True
         state = toolkit.state
         state.start_task(instruction="pick bottle", config=Payload("json", {}))
         tool_id = state.register_tool_call(
@@ -620,3 +726,42 @@ def test_unexecuted_actions_are_not_recorded(
     call = state.get_tool_call(tool_id)
     assert call.before_observation_id is None
     assert call.after_observation_id is None
+
+
+def action():
+    return [0.1] * 12 + [0.25, 0.75]
+
+
+@pytest.mark.parametrize("eval_fair", [False, True])
+@pytest.mark.parametrize("expected_step", [None, 0])
+def test_server_terminal_guard_never_updates_controller_targets(
+    boundary, monkeypatch, eval_fair, expected_step
+):
+    b = boundary
+    b.agent.eval_fair = eval_fair
+    if eval_fair:
+        monkeypatch.setattr(
+            b.agent, "get_status", type(b.agent).get_status.__get__(b.agent)
+        )
+        b.native.is_success = lambda **kw: pytest.fail("success queried in eval-fair")
+    monkeypatch.setattr(
+        b.agent, "get_motion_state", lambda: pytest.fail("terminal targets read")
+    )
+    b.native.end_flag[0] = True
+    for operation in (
+        lambda: b.facade.step(action(), expected_step=expected_step),
+        lambda: b.facade.step_joint_update(
+            "right", gripper=0.5, expected_step=expected_step
+        ),
+    ):
+        receipt = operation()
+        info = receipt[3] if isinstance(receipt, tuple) else receipt
+        assert info["executed_actions"] == 0 and info["truncated"]
+        assert not info["terminated"]
+        if isinstance(receipt, tuple):
+            assert "status" in info and "episode_status" not in info
+        else:
+            assert "episode_status" in info and "status" not in info
+        if eval_fair:
+            assert "success" not in info.get("status", info.get("episode_status"))
+    assert not b.applied

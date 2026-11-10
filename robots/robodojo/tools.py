@@ -23,7 +23,7 @@ import numpy as np
 from pydantic import Field
 from pydantic.json_schema import SkipJsonSchema
 
-from robots.robodojo.access import public_episode_budget
+from robots.robodojo.access import CAMERAS, public_episode_budget
 from rpent.session import EnvState
 from rpent.session.env_capture import CapturingEnvClient
 from rpent.tools import ToolResult, tool
@@ -33,16 +33,14 @@ from rpent.tools.world_coordinates import sample_world_xyz as sample_world_xyz
 
 # (camera key in the obs dict, artifact base name). Mirrors the ``frame_channels``
 # declared in ``robot_spec.ROBODOJO_DASHBOARD_SPEC``.
-CAMERA_ARTIFACTS: tuple[tuple[str, str], ...] = (
-    ("cam_head", "cam_head.png"),
-    ("cam_left_wrist", "cam_left_wrist.png"),
-    ("cam_right_wrist", "cam_right_wrist.png"),
+CAMERA_ARTIFACTS: tuple[tuple[str, str], ...] = tuple(
+    (camera, f"{camera}.png") for camera in CAMERAS
 )
 
 
 @tool(readonly=True, exclude=("state",))
 def view_env_state(step: int = -1, *, state: Any) -> ToolResult:
-    """Read one recorded RoboDojo state: robot joint/ee state, camera shapes and calibration, the task instruction, action budget and the three camera RGB images (cam_head, cam_left_wrist, cam_right_wrist). Step -1 selects the latest record. episode_status contains native step, step_limit and remaining_steps at capture time; the top-level step is the observation index.
+    """Read one recorded RoboDojo state: robot joint/ee state, camera shapes and available calibration, the task instruction, action budget and available camera RGB images (cam_head, cam_left_wrist, cam_right_wrist). Step -1 selects the latest record. episode_status contains native step, step_limit and remaining_steps at capture time; the top-level step is the observation index.
 
     Args:
         step: Recorded step to read (-1 = latest)"""
@@ -84,7 +82,9 @@ def _summarize_obs(obs: dict) -> dict:
         "instruction": obs.get("instruction"),
         "cameras": {
             name: {
-                "shape": cam.get("shape"),
+                "shape": list(np.asarray(cam["color"]).shape)
+                if cam.get("color") is not None
+                else None,
                 "has_depth": cam.get("distance_to_image_plane") is not None
                 or cam.get("depth") is not None,
                 "intrinsic_matrix": _jsonable(cam.get("intrinsic_matrix")),
@@ -462,8 +462,10 @@ def dump_state(primitives, state, *, log: dict | None = None, perception=None):
     :meth:`EnvState.record_step`, writes the three camera RGB PNGs for that
     step, and returns the record.
     """
+    before = primitives.env.get_status()
     obs = _refresh_obs(primitives)
     status = primitives.env.get_status()
+    primitives.env.accept_observation_step(before["step"], status["step"])
     log = log or {}
     summary = _summarize_obs(obs)
     step_idx = 0 if state.latest_step is None else state.latest_step + 1
@@ -487,11 +489,17 @@ def dump_state(primitives, state, *, log: dict | None = None, perception=None):
         if depth is None:
             depth = cam.get("depth")
         if depth is not None:
-            if np.asarray(depth).shape != shape:
-                raise ValueError("RGB and depth must have the same image dimensions")
-            world = _world_from_depth(
-                depth, cam.get("intrinsic_matrix"), cam.get("extrinsic_matrix")
-            )
+            try:
+                if np.asarray(depth).shape != shape:
+                    raise ValueError(
+                        "RGB and depth must have the same image dimensions"
+                    )
+                world = _world_from_depth(
+                    depth, cam.get("intrinsic_matrix"), cam.get("extrinsic_matrix")
+                )
+            except (ValueError, TypeError) as exc:
+                summary["cameras"][camera]["geometry_error"] = str(exc)
+                continue
             views[view] = {
                 "depth": np.asarray(depth),
                 "world_xyz": world,
@@ -523,8 +531,11 @@ def dump_state(primitives, state, *, log: dict | None = None, perception=None):
         for camera, artifact in CAMERA_ARTIFACTS:
             color = (vision.get(camera) or {}).get("color")
             if color is not None:
-                state.save(artifact, color, step=step_idx)
+                if state.save(artifact, color, step=step_idx) is None:
+                    raise OSError(f"could not save observation artifact: {artifact}")
         for view, fields in views.items():
             for field, value in fields.items():
-                state.save(artifact_name(view, field), value, step=step_idx)
+                artifact = artifact_name(view, field)
+                if state.save(artifact, value, step=step_idx) is None:
+                    raise OSError(f"could not save observation artifact: {artifact}")
     return state.get(step_idx)

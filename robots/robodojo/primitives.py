@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import nullcontext
 from threading import Lock
 from typing import Annotated, Literal
 
@@ -24,8 +25,14 @@ import numpy as np
 from pydantic import Field
 
 from robots.robodojo.access import public_episode_budget
+from robots.robodojo.env_client import ActionRejected, ExecutionSyncError
+from robots.robodojo.tasks import validate_instruction
+from rpent.session.env_capture import CapturingEnvClient
 from rpent.tools import ToolResult, tool
 from rpent.tools.toolkit import ToolCancelled
+from rpent.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 def _qmult(left, right):
@@ -51,16 +58,41 @@ class RoboDojoPrimitives:
         check_cancelled: Callable[[], None],
         sam3_client=None,
         vla_client=None,
-        action_type="joint",
+        vla_backend="vpp2",
     ):
         self.env = env
         self._check_cancelled = check_cancelled
         self.sam3_client = sam3_client
         self.vla_client = vla_client
-        self.action_type = action_type
         self._last_obs = None
         self._segment_index = 0
         self._segment_index_lock = Lock()
+        self._uses_awomo05 = vla_backend == "awomo05" and vla_client is not None
+        self._awomo05_session_active = False
+        self._closed = False
+        if self._uses_awomo05:
+            try:
+                env.register_policy_observer(self._awomo05_execution_event)
+            except Exception:
+                try:
+                    self.close()
+                except Exception:
+                    logger.warning(
+                        "Failed to release Awomo05 after startup error", exc_info=True
+                    )
+                raise
+
+    def close(self) -> None:
+        """Release execution state; Runtime retains environment and model connections."""
+        if self._closed:
+            return
+        try:
+            if self._uses_awomo05:
+                self.env.unregister_policy_observer(self._awomo05_execution_event)
+        finally:
+            self._closed = True
+            if self._uses_awomo05:
+                self._end_awomo05_episode()
 
     def reserve_segment_index(self) -> int:
         """Allocate a unique artifact index within this trace."""
@@ -76,43 +108,76 @@ class RoboDojoPrimitives:
             result["success"] = status["success"]
         return result
 
-    def _execute(self, updates: list[dict]) -> dict:
+    def _execute(self, updates: list[dict], *, policy_actions: bool = False) -> dict:
+        if self._closed:
+            raise RuntimeError("Execution was released")
         executed = 0
-        status = self._public_status(self.env.get_status())
+        status = self.env.get_status()
         reason = None
         error = None
+        uncertain = False
+        episode_ended = self.env.episode_ended
         for update in updates:
-            if status.get("success") is True:
-                reason = "native_success"
-                break
-            if status["step"] >= status["step_limit"]:
-                reason = "budget_exhausted"
+            if (
+                episode_ended
+                or status.get("success") is True
+                or status["step"] >= status["step_limit"]
+            ):
                 break
             try:
                 self._check_cancelled()
-                result = self.env.step_joint_update(**update)
-            except ToolCancelled:
-                reason = "cancelled"
+                if policy_actions:
+                    _, _, _, info = self.env.step(update)
+                    result = {**info, "episode_status": info["status"]}
+                else:
+                    result = self.env.step_joint_update(**update)
+            except ToolCancelled as exc:
+                reason, error = "cancelled", str(exc)
+                self.env.pause_execution()
+                break
+            except ActionRejected as exc:
+                reason, error = "rejected", str(exc)
+                break
+            except ExecutionSyncError as exc:
+                if exc.feedback is not None:
+                    executed += exc.feedback["executed_actions"]
+                    status = exc.feedback["episode_status"]
+                    episode_ended = (
+                        exc.feedback["terminated"] or exc.feedback["truncated"]
+                    )
+                uncertain = exc.execution_uncertain
+                reason, error = (
+                    ("execution_unknown" if uncertain else "synchronization_lost"),
+                    str(exc),
+                )
                 break
             except Exception as exc:
                 # A timed-out mutation may have executed remotely. Do not retry
                 # it or claim that only the acknowledged actions took place.
                 reason = "execution_unknown"
                 error = str(exc)
+                uncertain = True
                 break
             count = int(result["executed_actions"])
             executed += count
-            status = self._public_status(result["episode_status"])
-            if count != 1:
-                reason = "runtime_failure"
+            status = result["episode_status"]
+            episode_ended = result["terminated"] or result["truncated"]
+            if episode_ended:
                 break
-        completed = executed == len(updates) and reason is None
+            if count != 1:
+                reason, error = "runtime_failure", "Native action was not executed"
+                break
+        completed = (
+            executed == len(updates) and error is None and reason != "runtime_failure"
+        )
         if reason is None:
             reason = (
                 "native_success"
                 if status.get("success") is True
                 else "budget_exhausted"
                 if status["step"] >= status["step_limit"]
+                else "episode_end"
+                if episode_ended
                 else "completed"
             )
         return {
@@ -123,10 +188,173 @@ class RoboDojoPrimitives:
             "requested_actions": len(updates),
             "executed_actions": executed,
             "stop_reason": reason,
-            "episode_status": status,
-            **({"error": error, "execution_uncertain": True} if error else {}),
-            **({"interrupted": True} if reason == "cancelled" else {}),
+            "episode_status": self._public_status(status),
+            "episode_ended": episode_ended
+            or status.get("success") is True
+            or status["step"] >= status["step_limit"],
+            **({"error": error, "execution_uncertain": uncertain} if error else {}),
+            **(
+                {"code": "tool_cancelled", "interrupted": True}
+                if reason == "cancelled"
+                else {}
+            ),
         }
+
+    def _execute_policy(
+        self,
+        *,
+        chunks: int,
+        replan_steps: int,
+        instruction: str,
+        infer: Callable[[], list[dict]],
+    ) -> dict:
+        if type(chunks) is not int or chunks < 1:
+            raise ValueError("chunks must be a positive integer")
+        result = self._execute([])
+        executed = completed_chunks = 0
+        for _ in range(chunks):
+            if result["stop_reason"] != "completed":
+                break
+            try:
+                self._check_cancelled()
+                self.env.require_policy_ready()
+                prediction = (
+                    self.env.prediction(instruction)
+                    if isinstance(self.env, CapturingEnvClient)
+                    else nullcontext()
+                )
+                with prediction:
+                    actions = infer()
+                    try:
+                        result = self._execute(actions, policy_actions=True)
+                    except Exception as exc:
+                        result.update(
+                            success=False, stop_reason="runtime_failure", error=str(exc)
+                        )
+                        break
+            except ToolCancelled as exc:
+                self.env.pause_execution()
+                result.update(
+                    success=False,
+                    stop_reason="cancelled",
+                    error=str(exc),
+                    code="tool_cancelled",
+                    interrupted=True,
+                )
+                break
+            except ExecutionSyncError as exc:
+                result.update(
+                    success=False,
+                    stop_reason="synchronization_lost",
+                    error=str(exc),
+                    execution_uncertain=exc.execution_uncertain,
+                )
+                break
+            except Exception as exc:
+                result.update(
+                    success=False, stop_reason="inference_failed", error=str(exc)
+                )
+                break
+            executed += result["executed_actions"]
+            completed_chunks += int(result["completed"])
+            if not result["completed"]:
+                break
+        result.update(
+            requested_chunks=chunks,
+            executed_chunks=completed_chunks,
+            requested_steps=chunks * replan_steps,
+            requested_actions=chunks * replan_steps,
+            executed_steps=executed,
+            executed_actions=executed,
+            completed=completed_chunks == chunks and "error" not in result,
+        )
+        return result
+
+    @tool
+    def vpp2_act(
+        self,
+        *,
+        instruction: Annotated[str, Field(min_length=1)],
+        chunks: Annotated[int, Field(ge=1)] = 1,
+    ) -> ToolResult:
+        """Execute a natural-language subtask with VPP2. Each chunk predicts 32 native dual-arm EE targets and executes the first 24, then replans from real feedback. Completion means commands executed, not subtask success. Inspect fresh images afterward."""
+        from robots.robodojo.vpp2_client import REPLAN_STEPS
+
+        if not isinstance(instruction, str) or not instruction.strip():
+            raise ValueError("instruction must be a nonempty subtask string")
+        if self.vla_client is None:
+            raise RuntimeError("VPP2 is not connected")
+        result = self._execute_policy(
+            chunks=chunks,
+            replan_steps=REPLAN_STEPS,
+            instruction=instruction,
+            infer=lambda: self.vla_client.infer(
+                self.env.policy_observation(), instruction
+            ),
+        )
+        result["instruction"] = instruction
+        return ToolResult(data=result)
+
+    @tool
+    def awomo05_act(
+        self,
+        *,
+        chunks: Annotated[int, Field(ge=1)] = 1,
+    ) -> ToolResult:
+        """Execute the official task instruction with Awomo05. Each chunk executes 8 native dual-arm joint targets with per-step feedback, then replans. Completion means commands executed, not task success. Inspect fresh images afterward."""
+        from robots.robodojo.awomo05_client import REPLAN_STEPS
+
+        if not self._uses_awomo05:
+            raise RuntimeError("Awomo05 is not connected")
+
+        def infer():
+            try:
+                return self.vla_client.get_action()
+            except Exception as exc:
+                self.env.invalidate_execution()
+                raise ExecutionSyncError(f"policy inference uncertain: {exc}") from exc
+
+        result = self._execute_policy(
+            chunks=chunks,
+            replan_steps=REPLAN_STEPS,
+            instruction=self._awomo05_instruction,
+            infer=infer,
+        )
+        return ToolResult(data=result)
+
+    def _awomo05_execution_event(self, event: dict) -> None:
+        """Consume each confirmed observation once, without maintaining model history."""
+        kind = event["kind"]
+        if kind in ("attached", "reset"):
+            self._awomo05_origin_step = event["status"]["step"]
+            self._awomo05_instruction = validate_instruction(
+                event["observation"]["instruction"]
+            )
+            # Even a failed reset response may have acquired the remote session.
+            self._awomo05_session_active = True
+            self.vla_client.reset_session()
+            self._observe_awomo05(event["observation"], 0)
+        elif kind == "action_feedback" and event["executed_actions"]:
+            # Official Awomo deploy.py excludes the terminal observation.
+            if not (event["terminated"] or event["truncated"]):
+                self._observe_awomo05(
+                    event["observation"],
+                    event["step_after"] - self._awomo05_origin_step,
+                )
+        elif kind == "closed":
+            self._end_awomo05_episode()
+
+    def _observe_awomo05(self, obs: dict, step: int) -> None:
+        self.vla_client.update_obs(
+            {**obs, "instruction": self._awomo05_instruction}, step
+        )
+
+    def _end_awomo05_episode(self) -> None:
+        if self._awomo05_session_active:
+            try:
+                self.vla_client.end_episode()
+            finally:
+                self._awomo05_session_active = False
 
     @tool
     def move_to(

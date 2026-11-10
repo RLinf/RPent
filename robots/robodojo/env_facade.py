@@ -92,8 +92,10 @@ class RoboDojoEnvFacade(MainThreadServeMixin, BaseEnvFacade):
     def reset(self) -> dict:
         return self.env.reset_episode()
 
-    def step(self, flat_action, *, capture: bool = False):
-        return self.env.step_native(flat_action, capture=capture)
+    def step(self, flat_action, *, expected_step=None, capture: bool = False):
+        return self.env.step_native(
+            flat_action, expected_step=expected_step, capture=capture
+        )
 
     def chunk_step(self, flat_actions, *, return_all_frames: bool = False):
         raise NotImplementedError("RoboDojo uses step for action control")
@@ -125,9 +127,12 @@ class RoboDojoEnvFacade(MainThreadServeMixin, BaseEnvFacade):
         arm_qpos: list[float] | None = None,
         gripper: float | None = None,
         *,
+        expected_step: int | None = None,
         capture: bool = False,
     ) -> dict:
-        return self.env.step_joint_update(arm, arm_qpos, gripper, capture=capture)
+        return self.env.step_joint_update(
+            arm, arm_qpos, gripper, expected_step=expected_step, capture=capture
+        )
 
     def is_success(self) -> bool:
         return self.env.is_success()
