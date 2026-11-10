@@ -25,5 +25,15 @@ build/
 .venv/
 /.codex-rpent-live/
 
+# Developer state.
+.pytest_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+dist/
+/.env
+/.env.*
+
 # Standalone calibration environment.
 .venv-calibration/
