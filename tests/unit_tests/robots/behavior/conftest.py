@@ -105,7 +105,7 @@ class _GeometryEnvironment:
 
 
 class _GeometryVLA:
-    def infer(self, observation: dict[str, Any], prompt: str) -> np.ndarray:
+    def predict(self, observation: dict[str, Any]) -> np.ndarray:
         return np.zeros((64, 23), dtype=np.float32)
 
 
@@ -120,10 +120,12 @@ class _SAM:
         return Sam3Result(found=True, mask=mask, mask_shape=mask.shape, score=0.9)
 
 
-def _template_toolkit(tmp_path, allowed, *, sam=None, **options):
+def _template_toolkit(tmp_path, allowed, *, env=None, sam=None, **options):
+    if env is None:
+        env = _GeometryEnvironment(_geometry_observation())
     return BehaviorToolkit(
         runtime_kwargs={
-            "env": _GeometryEnvironment(_geometry_observation()),
+            "env": env,
             "model": _GeometryVLA(),
             "sam3_client": sam,
             "task_id": 40,
@@ -305,7 +307,7 @@ class _MotionVLA:
     def __init__(self):
         self.calls = 0
 
-    def infer(self, observation, prompt):
+    def predict(self, observation):
         self.calls += 1
         proprio = observation["r1::proprio"]
         actions = np.zeros((2, 23), dtype=np.float32)
@@ -443,7 +445,7 @@ class _GripperModel:
     def __init__(self):
         self.calls = 0
 
-    def infer(self, observation, prompt):
+    def predict(self, observation):
         self.calls += 1
         actions = np.zeros((2, 23), dtype=np.float32)
         actions[:, 14] = [-0.2, -0.6]

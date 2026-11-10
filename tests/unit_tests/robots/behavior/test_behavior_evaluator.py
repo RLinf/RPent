@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import subprocess
 import sys
 import threading
@@ -554,9 +553,7 @@ def test_failed_model_reset_is_a_fault_not_a_successful_session(tmp_path):
     def fail_reset():
         raise RuntimeError("model reset failed")
 
-    policy = OfficialEvaluatorPolicy(
-        bridge, task_id=40, reset_policy=fail_reset
-    )
+    policy = OfficialEvaluatorPolicy(bridge, task_id=40, reset_policy=fail_reset)
     with pytest.raises(RuntimeError, match="model reset failed"):
         policy.reset()
     policy.close()
@@ -573,9 +570,7 @@ def test_connection_close_during_model_reset_does_not_reopen_bridge(tmp_path):
         started.set()
         assert release.wait(3)
 
-    policy = OfficialEvaluatorPolicy(
-        bridge, task_id=40, reset_policy=slow_reset
-    )
+    policy = OfficialEvaluatorPolicy(bridge, task_id=40, reset_policy=slow_reset)
     with ThreadPoolExecutor(max_workers=2) as threads:
         reset = threads.submit(policy.reset)
         try:

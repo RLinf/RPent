@@ -34,6 +34,7 @@ WAM_BACKENDS = {
 }
 BACKEND_ALIASES = {"cosmos": "cosmos-policy", "fast_wam": "fast-wam", "rlinf": "pi05"}
 PLATFORM_VLA_BACKENDS = {
+    "behavior": ("pi05",),
     "libero": ("pi05",),
     "robotwin": ("lingbot",),
     "robocasa": ("rldx",),
@@ -42,7 +43,7 @@ PLATFORM_VLA_BACKENDS = {
     "franka": ("pi05",),
     "yam": ("pi05",),
 }
-REMOTE_ONLY_PLATFORMS = {"franka", "yam"}
+REMOTE_ONLY_PLATFORMS = {"behavior", "franka", "yam"}
 
 
 def _runtime_config(backend: str) -> ModuleType:

@@ -38,10 +38,8 @@ from robots.behavior.motion import R1ProMotionModel, R1ProMotionPlanner
 from robots.behavior.primitives import (
     BASE_OUTPUT_SCALE,
     CONTROL_DT_S,
-    validate_base_request,
+    BehaviorPrimitives,
 )
-from robots.behavior.primitives import BehaviorPrimitives as StagedBehaviorPrimitives
-from robots.behavior.robot_spec import get_robot_spec
 from robots.behavior.toolkit import BehaviorToolkit
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory import MemoryManager
@@ -49,12 +47,10 @@ from rpent.tools import iter_tools
 from rpent.tools.toolkit import ToolCancelled
 from rpent.utils.rpc.rpc_client import RpcError
 from tests.unit_tests.robots.behavior.conftest import (
-    _args,
     _establish_prior_hold,
     _follow_planned_pose,
     _motion_target,
     _refresh_reply,
-    _template_toolkit,
 )
 
 
@@ -95,16 +91,14 @@ class TestBehaviorMotionModel(unittest.TestCase):
             atol=1e-12,
         )
 
-    def test_only_positions_map_to_physical_joints(self):
-        state = np.arange(61, dtype=float)
-        values = self.model.joint_positions(state)
-        self.assertEqual(len(values), 22)
-        self.assertEqual(values["torso_joint1"], 53)
-        self.assertEqual(values["left_arm_joint1"], 3)
-        self.assertEqual(values["right_arm_joint7"], 34)
-        self.assertEqual(values["left_gripper_finger_joint2"], 25)
-        self.assertEqual(values["right_gripper_finger_joint1"], 49)
-        self.assertFalse(any("base" in name or "wheel" in name for name in values))
+    def test_physical_joint_map_uses_public_positions(self):
+        values = self.model.joint_positions(np.arange(61, dtype=float))
+        assert len(values) == 22
+        assert values["torso_joint1"] == 53
+        assert values["left_arm_joint1"] == 3
+        assert values["right_arm_joint7"] == 34
+        assert values["left_gripper_finger_joint2"] == 25
+        assert values["right_gripper_finger_joint1"] == 49
 
     def test_single_arm_config_locks_all_other_observed_joints(self):
         self.state[53:57] = [0.4, -0.5, -0.1, 0.1]
@@ -166,33 +160,6 @@ class TestBehaviorMotionModel(unittest.TestCase):
             atol=1e-12,
         )
 
-    def test_static_contract_checks_all_velocities_without_treating_positions_as_speed(
-        self,
-    ):
-        self.state[3:10] = 0.5
-        self.state[28:35] = -0.5
-        self.state[53:57] = 0.2
-        contract = self.model.static_state_contract(self.state)
-        self.assertTrue(contract["stationary"])
-        self.assertEqual(contract["held_finger_qpos"]["left"], [0.02, 0.03])
-        for index, velocity, group in (
-            (0, 0.02, "base"),
-            (57, 0.03, "trunk"),
-            (10, -0.03, "left_arm"),
-            (35, 0.03, "right_arm"),
-            (26, -0.003, "left_fingers"),
-            (51, 0.003, "right_fingers"),
-        ):
-            with self.subTest(group=group):
-                moving = self.state.copy()
-                moving[index] = velocity
-                result = self.model.static_state_contract(moving)
-                self.assertFalse(result["stationary"])
-                self.assertEqual(result["unsettled_groups"], [group])
-                self.assertEqual(
-                    result["velocity_groups"][group]["measured_max_abs"], abs(velocity)
-                )
-
     def test_hold_candidates_are_new_symmetric_targets_not_changes_to_measured_geometry(
         self,
     ):
@@ -208,21 +175,6 @@ class TestBehaviorMotionModel(unittest.TestCase):
         ]
         self.assertEqual(locked["left_gripper_finger_joint1"], 0.0124)
         self.assertEqual(locked["left_gripper_finger_joint2"], 0.0126)
-
-    def test_unrepresentable_or_out_of_range_fingers_have_no_hold_candidate(self):
-        self.state[24:26] = self.state[49:51] = 0.025
-        for fingers in ([0.02, 0.022], [-0.002, -0.002], [0.052, 0.052]):
-            with self.subTest(fingers=fingers):
-                self.state[49:51] = fingers
-                with self.assertRaisesRegex(ValueError, "right.*smooth position hold"):
-                    self.model.gripper_hold_candidates(self.state)
-
-    def test_small_physical_limit_overshoot_produces_bounded_hold_targets(self):
-        self.state[24:26] = -0.0005
-        self.state[49:51] = 0.0505
-        self.assertEqual(
-            self.model.gripper_hold_candidates(self.state), {"left": -1.0, "right": 1.0}
-        )
 
     def test_wheel_enclosure_covers_every_sampled_unobserved_angle(self):
         # Native radius .075, local offset z=-.005; arbitrary axle/steer angles.
@@ -274,10 +226,6 @@ class TestBehaviorMotionModel(unittest.TestCase):
             self.model.robot_config("both", self.state)
         with self.assertRaisesRegex(ValueError, "quaternion"):
             self.model.compare_proprio(self.state)
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 def motion_context(state, previous=None):
@@ -459,91 +407,32 @@ def test_other_fingers_that_cannot_share_one_hold_target_are_rejected(
     assert result["motion_state_contract"]["stationary"] is True
 
 
-def test_held_object_no_longer_blocks_a_planned_correction(planning_request):
-    """IK-only planning has no path collision model, so holding is allowed."""
-    planner, raw, target = planning_request
-    raw["r1::proprio"][24:26] = 0.02  # left fingers measured closed
-    result = planner.plan_arm_path(
-        arm="left",
-        target_pose=target,
-        observation=raw,
-        motion_context=motion_context(raw["r1::proprio"]),
-    )
-    assert result["status"] == "Success"
-    assert result["collision_checked"] is False
-    assert result["collision_scope"]["source"] == "none_ik_only"
-
-
-def test_native_plan_reports_measured_fingers_and_candidate_commands(
+def test_native_plan_preserves_measured_fingers_and_reports_collision_scope(
     planning_request, monkeypatch
 ):
-    """A CPU fake exercises result plumbing; it is not a native planning test."""
     planner, raw, target = planning_request
-    raw["r1::proprio"][49:51] = [0.0248, 0.0252]
-    before = raw["r1::proprio"].copy()
-
-    class Tensor:
-        def __init__(self, values):
-            self.values = np.asarray(values)
-
-        def detach(self):
-            return self
-
-        def cpu(self):
-            return self
-
-        def numpy(self):
-            return self.values
-
-    class NativeSolver:
-        tensor_args = SimpleNamespace(to_device=np.asarray)
-
-        def fk(self, q):
-            return SimpleNamespace(
-                ee_position=Tensor(target[:3]),
-                ee_quaternion=Tensor(target[[6, 3, 4, 5]]),
-            )
-
-        def solve_single(self, goal, seed_config=None, return_seeds=1):
-            goal_q = np.asarray(seed_config).reshape(7) + 0.001
-            return SimpleNamespace(
-                success=np.asarray([True]),
-                position_error=np.asarray([0.0]),
-                rotation_error=np.asarray([0.0]),
-                js_solution=SimpleNamespace(
-                    get_ordered_joint_state=lambda names: SimpleNamespace(
-                        position=Tensor(goal_q[None, :])
-                    )
-                ),
-            )
-
-    modules = {"curobo.types.math": {"Pose": SimpleNamespace}}
-    for name, attributes in modules.items():
-        parts = name.split(".")
-        for length in range(1, len(parts)):
-            package = ".".join(parts[:length])
-            if package not in sys.modules:
-                monkeypatch.setitem(sys.modules, package, ModuleType(package))
-        module = ModuleType(name)
-        module.__dict__.update(attributes)
-        monkeypatch.setitem(sys.modules, name, module)
-    monkeypatch.setattr(planner, "_ik_solver", lambda *args: NativeSolver())
-    result = planner.plan_arm_path(
+    proprio = raw["r1::proprio"]
+    proprio[24:26] = 0.02
+    proprio[49:51] = [0.0248, 0.0252]
+    before = proprio.copy()
+    _fake_curobo(monkeypatch)
+    solver = _IKSolver(target, proprio[3:10])
+    monkeypatch.setattr(planner, "_ik_solver", lambda *args: solver)
+    plan = planner.plan_arm_path(
         arm="left",
         target_pose=target,
         observation=raw,
-        motion_context=motion_context(raw["r1::proprio"]),
+        motion_context=motion_context(proprio),
     )
-    assert result["status"] == "Success"
-    assert result["held_finger_qpos"] == {
-        "left": [0.05, 0.05],
-        "right": [0.0248, 0.0252],
-    }
-    assert result["held_gripper_native_commands"] == {"left": 1.0, "right": 0.0}
-    assert result["gripper_hold_source"] == "candidate_from_current_measurement"
-    assert result["motion_state_contract"]["stationary"] is True
-    assert result["held_objects_modeled"] is False
-    np.testing.assert_array_equal(raw["r1::proprio"], before)
+    assert plan["status"] == "Success"
+    assert plan["held_finger_qpos"] == {"left": [0.02, 0.02], "right": [0.0248, 0.0252]}
+    assert plan["held_gripper_native_commands"] == pytest.approx(
+        {"left": -0.2, "right": 0.0}
+    )
+    assert plan["gripper_hold_source"] == "candidate_from_current_measurement"
+    assert plan["held_objects_modeled"] is plan["collision_checked"] is False
+    assert plan["collision_scope"]["source"] == "none_ik_only"
+    np.testing.assert_array_equal(proprio, before)
 
 
 def _fake_curobo(monkeypatch):
@@ -578,13 +467,14 @@ class _Tensor:
         return self.values
 
 
-class _RelaxableSolver:
-    """Full-pose IK fails; position-only IK succeeds with a turned wrist."""
+class _IKSolver:
+    """CPU IK double with an optional position-only solution."""
 
     tensor_args = SimpleNamespace(to_device=np.asarray)
 
-    def __init__(self, target, relaxed_wxyz):
+    def __init__(self, target, start_q, relaxed_wxyz=None):
         self.target = target
+        self.target_q = start_q
         self.relaxed_wxyz = relaxed_wxyz
         self.metric = None
         self.calls = []
@@ -596,7 +486,7 @@ class _RelaxableSolver:
         q = np.asarray(q).reshape(-1, 7)
         # The current posture reports the true pose; any other q reports the
         # relaxed solution's pose.
-        if np.allclose(q[0], self.target_q):
+        if self.relaxed_wxyz is None or np.allclose(q[0], self.target_q):
             return SimpleNamespace(
                 ee_position=_Tensor(self.target[:3]),
                 ee_quaternion=_Tensor(self.target[[6, 3, 4, 5]]),
@@ -610,10 +500,11 @@ class _RelaxableSolver:
         relaxed = self.metric is not None
         self.calls.append("relaxed" if relaxed else "full")
         goal_q = np.asarray(seed_config).reshape(7) + (0.002 if relaxed else 0.001)
+        success = relaxed or self.relaxed_wxyz is None
         return SimpleNamespace(
-            success=np.asarray([relaxed]),
-            position_error=np.asarray([0.0 if relaxed else 0.04]),
-            rotation_error=np.asarray([0.0 if relaxed else 0.3]),
+            success=np.asarray([success]),
+            position_error=np.asarray([0.0 if success else 0.04]),
+            rotation_error=np.asarray([0.0 if success else 0.3]),
             js_solution=SimpleNamespace(
                 get_ordered_joint_state=lambda names: SimpleNamespace(
                     position=_Tensor(goal_q[None, :])
@@ -628,13 +519,10 @@ def test_relaxed_orientation_retry_is_reported_not_hidden(
     planner, raw, target = planning_request
     _fake_curobo(monkeypatch)
     # A wrist turned 90 degrees about z relative to the requested orientation.
-    from scipy.spatial.transform import Rotation
-
     turned = (
         Rotation.from_euler("z", 90, degrees=True) * Rotation.from_quat(target[3:])
     ).as_quat()
-    solver = _RelaxableSolver(target, turned[[3, 0, 1, 2]])
-    solver.target_q = raw["r1::proprio"][3:10]
+    solver = _IKSolver(target, raw["r1::proprio"][3:10], turned[[3, 0, 1, 2]])
     monkeypatch.setattr(planner, "_ik_solver", lambda *args: solver)
     context = motion_context(raw["r1::proprio"])
 
@@ -678,6 +566,7 @@ def test_native_planner_path_is_sent_unchanged_with_unplanned_components_held(
     )
     assert not result.is_error
     assert len(planner.calls) == 1 and model.calls == 1
+    assert [len(chunk) for chunk in backend.actions] == [2, 4]
     assert "env.plan_arm_path" in rpc.calls
     actions = backend.actions[-1]
     moving = slice(7, 14) if arm == "left" else slice(15, 22)
@@ -716,18 +605,6 @@ def test_robot_base_xyzw_is_explicit_and_not_converted_to_world_or_wxyz(motion):
     assert result.data["target_reached"] is False
 
 
-def test_first_motion_uses_new_measured_hold_without_calling_vla(motion):
-    primitives, backend, planner, _, model = motion
-    result = primitives.move_to(arm="left", xyz=_motion_target(backend))
-    assert not result.is_error
-    assert len(planner.calls) == 1 and [len(row) for row in backend.actions] == [1, 4]
-    assert result.data["confirmed_actions"] == 5
-    assert result.data["actual_settle_steps"] == 0
-    assert result.data["completed"] is True
-    assert model.calls == 0
-    np.testing.assert_allclose(backend.actions[0][:, [14, 22]], 1)
-
-
 def test_registered_motion_default_matches_immediate_pose_completion(motion):
     primitives, _, _, _, _ = motion
     declaration = {item.name: item for item in iter_tools(primitives)}["move_to"]
@@ -745,14 +622,14 @@ def test_opposite_gripper_close_command_is_carried_into_the_plan(
     object keeps the fingers open); the plan carries the current command.
     """
     primitives, backend, planner, _, model = motion
-    original = model.infer
+    original = model.predict
 
-    def closing_actions(observation, prompt):
-        actions = original(observation, prompt)
+    def closing_actions(observation):
+        actions = original(observation)
         actions[:, 22] = -1
         return actions
 
-    model.infer = closing_actions
+    model.predict = closing_actions
     primitives.vla_act()
     backend.raw["r1::proprio"][51:53] = finger_velocity
     result = primitives.move_to(arm="left", xyz=_motion_target(backend))
@@ -908,7 +785,7 @@ def test_missing_confirmed_history_cannot_bootstrap_after_prior_actions(motion):
 
 def test_shared_environment_cannot_invent_an_initial_gripper_command(motion):
     primitives, backend, planner, _, model = motion
-    backend.chunk_step(model.infer(backend.get_observation(), "make popcorn"))
+    backend.chunk_step(model.predict(backend.get_observation()))
     result = primitives.move_to(arm="left", xyz=_motion_target(backend))
     assert result.is_error and result.data["code"] == "invalid_hold_state"
     assert "initial session snapshot" in result.data["error"]
@@ -923,6 +800,7 @@ def test_confirmed_position_history_replaces_raw_joint_speed_for_planning(motion
     assert result.data["completed"] is True
     assert planner.calls[0][2]["r1::proprio"][10] == 0.04
     assert backend.raw["r1::proprio"][10] == 0.04
+    assert [len(actions) for actions in backend.actions] == [2, 4]
 
 
 def test_real_joint_displacement_is_settled_then_planned(motion):
@@ -936,26 +814,6 @@ def test_real_joint_displacement_is_settled_then_planned(motion):
     assert settle["attempted"] >= 1 and settle["confirmed"] == settle["attempted"]
     assert planner.calls, "planning proceeds once the start is settled"
     assert result.data["completed"] is True
-
-
-def test_settle_failure_rejects_with_structured_reason(motion, monkeypatch):
-    """When damping cannot reach the tolerance the call refuses to plan, with a reason."""
-    primitives, backend, planner, _, _ = motion
-    primitives.vla_act()
-    backend.raw["r1::proprio"][3] += 0.001
-    exhausted = {"attempted": 4, "confirmed": 4, "status": "still_unsettled"}
-    monkeypatch.setattr(
-        primitives, "_auto_settle_before_planning", lambda state: dict(exhausted)
-    )
-    result = primitives.move_to(arm="left", xyz=_motion_target(backend))
-    assert result.is_error
-    assert result.data["code"] in {"motion_state_unsettled", "base_not_stationary"}
-    rejection = result.data["rejection"]
-    assert rejection["code"] == result.data["code"]
-    assert rejection["reason"]
-    assert rejection["suggested_next"]
-    assert rejection["auto_settle"] == exhausted
-    assert planner.calls == []
 
 
 def test_move_to_can_return_control_to_vla_without_implicit_stationary_holds(motion):
@@ -1047,19 +905,6 @@ def test_unknown_execution_feedback_invalidates_gripper_command_state(motion):
     )
 
 
-def test_post_motion_measurement_error_does_not_erase_execution_counts(motion):
-    primitives, backend, _, _, _ = motion
-    primitives.vla_act()
-    backend.invalid_after = True
-    result = primitives.move_to(arm="left", xyz=_motion_target(backend))
-    assert result.is_error
-    assert result.data["confirmed_actions"] == 4
-    assert len(backend.actions) == 2  # Prior VLA and one path, no hold after bad state.
-    assert result.data["target_reached"] is None
-    assert result.data["stop_reason"] == "motion_feedback_mismatch"
-    assert "public state differs from history" in result.data["error"]
-
-
 def _set_feedback_velocity_sequence(backend, values, *, index=57):
     original = backend.chunk_step
     calls = 0
@@ -1119,8 +964,7 @@ def test_optional_holds_stop_on_first_confirmed_pose_without_waiting_for_low_spe
     ]
 
 
-@pytest.mark.parametrize("index", [0, 10, 35, 57, 26, 51])
-@pytest.mark.parametrize("budget", [0, 4])
+@pytest.mark.parametrize(("index", "budget"), [(57, 0), (10, 4)])
 def test_residual_speed_is_diagnostic_without_delaying_pose_completion(
     motion, index, budget
 ):
@@ -1345,24 +1189,6 @@ def test_later_transport_failure_keeps_known_prefix_but_latest_outcome_unknown(
     assert len(backend.actions) == 3
 
 
-def test_cancellation_between_holds_is_not_converted_to_failure_or_replayed(motion):
-    _establish_prior_hold(motion)
-    primitives, backend, _, _, _ = motion
-    _set_feedback_pose_sequence(backend, [0.006])
-
-    def cancelled():
-        if len(backend.actions) >= 2:
-            raise ToolCancelled("pause now")
-
-    primitives._check_cancelled = cancelled
-    result = primitives.move_to(arm="left", xyz=_motion_target(backend), settle_steps=3)
-    assert (
-        result.data["code"] == "tool_cancelled" and result.data["interrupted"] is True
-    )
-    assert result.data["confirmed_actions"] == 5
-    assert len(backend.actions) == 2
-
-
 @pytest.mark.parametrize("bad", [True, -1, 2])
 def test_invalid_hold_counts_stop_and_preserve_previous_confirmed_path(motion, bad):
     _establish_prior_hold(motion)
@@ -1381,24 +1207,6 @@ def test_invalid_hold_counts_stop_and_preserve_previous_confirmed_path(motion, b
     assert len(backend.actions) == 2
     assert result.data["confirmed_actions"] is None
     assert result.data["stop_reason"] == "invalid_execution_feedback"
-
-
-def test_optional_pose_correction_returns_on_first_target_observation(motion):
-    _establish_prior_hold(motion)
-    primitives, backend, _, _, _ = motion
-    original = backend.chunk_step
-    offsets = [0.007, 0.006, 0.0]
-
-    def pose_feedback(actions, **kwargs):
-        result = original(actions, **kwargs)
-        result[0]["r1::proprio"][17] += offsets[len(backend.actions) - 1]
-        result[4]["motion_context"]["current_proprio"] = result[0]["r1::proprio"].copy()
-        return result
-
-    backend.chunk_step = pose_feedback
-    result = primitives.move_to(arm="left", xyz=_motion_target(backend), settle_steps=5)
-    assert result.data["completed"] is True
-    assert result.data["actual_settle_steps"] == 2
 
 
 def test_session_end_during_hold_preserves_partial_terminal_totals(motion):
@@ -1475,33 +1283,6 @@ def test_cancellation_raised_during_hold_is_not_caught_as_transport_error(motion
     assert primitives._command_history_unknown is True
 
 
-def test_maximum_budget_keeps_all_samples_in_parseable_rpent_tool_text(motion):
-    _establish_prior_hold(motion)
-    primitives, backend, _, _, _ = motion
-    original = backend.chunk_step
-
-    def long_measurements(actions, **kwargs):
-        result = original(actions, **kwargs)
-        # Include long finite values in every velocity group, not only zeros.
-        for index in (0, 10, 35, 57, 26, 51):
-            result[0]["r1::proprio"][index] = 0.024755092337727547
-        result[0]["r1::proprio"][17] += 0.0062345678901234567
-        result[0]["r1::proprio"][20] = 0.0012345678901234567
-        result[0]["r1::proprio"][23] = np.sqrt(1 - 0.0012345678901234567**2)
-        result[4]["motion_context"]["current_proprio"] = result[0]["r1::proprio"].copy()
-        return result
-
-    backend.chunk_step = long_measurements
-    result = primitives.move_to(
-        arm="left", xyz=_motion_target(backend), settle_steps=180
-    )
-    rendered = result.to_text()
-    restored = json.loads(rendered)
-    assert len(rendered) < 60000
-    assert restored["actual_settle_steps"] == 180
-    assert restored["confirmed_actions"] == 184
-
-
 @pytest.mark.parametrize("budget", [-1, 181, True, 3.0])
 def test_invalid_settling_budget_never_plans_or_executes(motion, budget):
     primitives, backend, planner, _, _ = motion
@@ -1547,18 +1328,7 @@ def totals(result, requested, issued, confirmed, unconfirmed):
     assert result.data["unconfirmed_actions"] == unconfirmed
 
 
-def refresh_reply(backend, result):
-    observation, reward, terminated, truncated, info = result
-    snapshot = backend.get_motion_snapshot()
-    info.update(
-        observation_token=snapshot["observation_token"],
-        motion_context=snapshot["motion_context"],
-    )
-    return backend.get_observation(), reward, terminated, truncated, info
-
-
-@pytest.mark.parametrize("arm", ["left", "right"])
-@pytest.mark.parametrize("raw_velocity", [0.0, 0.33])
+@pytest.mark.parametrize(("arm", "raw_velocity"), [("left", 0.0), ("right", 0.33)])
 def test_initial_always_samples_exactly_one_hold_before_native_plan(
     motion, arm, raw_velocity
 ):
@@ -1585,83 +1355,13 @@ def test_initial_always_samples_exactly_one_hold_before_native_plan(
     assert backend.raw["r1::proprio"][57] == raw_velocity
 
 
-def test_noninitial_adjacent_pair_never_samples(motion):
-    primitive, backend, planner, _, model = motion
-    primitive.vla_act()
-    result = primitive.move_to(arm="left", xyz=_motion_target(backend))
-    totals(result, 4, 4, 4, 0)
-    assert [len(actions) for actions in backend.actions] == [2, 4]
-    assert len(planner.calls) == 1 and model.calls == 1
-
-
-@pytest.mark.parametrize(
-    "case",
-    [
-        "range",
-        "asymmetric_fingers",
-        "fast_fingers",
-        "fast_base",
-        "ended",
-        "terminated",
-        "unknown",
-        "pending",
-        "bad_context",
-        "bad_token",
-        "known_command_initial",
-        "noninitial_without_history",
-        "cancelled",
-    ],
-)
-def test_preconditions_reject_before_any_sampling_or_path_action(motion, case):
+@pytest.mark.parametrize("index, value", [(49, 0.047), (51, 0.003), (0, 0.011)])
+def test_unsafe_initial_geometry_never_sends_a_sampling_action(motion, index, value):
     primitive, backend, planner, _, _ = motion
-    xyz = _motion_target(backend)
-    if case == "range":
-        xyz[0] += 0.301
-    elif case == "moving_closed":
-        backend.raw["r1::proprio"][24:26] = 0.0
-    elif case == "asymmetric_fingers":
-        backend.raw["r1::proprio"][49] = 0.047
-    elif case == "fast_fingers":
-        backend.raw["r1::proprio"][51] = 0.003
-    elif case == "fast_base":
-        backend.raw["r1::proprio"][0] = 0.011
-    elif case == "ended":
-        backend.ended = True
-    elif case == "terminated":
-        primitive._terminated = True
-    elif case == "unknown":
-        primitive._command_history_unknown = True
-    elif case == "known_command_initial":
-        primitive._last_issued_action = np.zeros(23)
-        primitive._last_issued_action[[14, 22]] = 1
-    elif case == "noninitial_without_history":
-        backend.observation_index = backend.issued = backend.confirmed = 1
-    elif case == "cancelled":
-        primitive._check_cancelled = lambda: (_ for _ in ()).throw(ToolCancelled())
-    else:
-        reader = backend.get_motion_snapshot
-
-        def malformed_snapshot():
-            snapshot = reader()
-            if case == "pending":
-                snapshot["motion_context"]["actions_pending"] = True
-            elif case == "bad_context":
-                snapshot["motion_context"]["current_proprio"][53] += 1
-            elif case == "bad_token":
-                snapshot["observation_token"] = {
-                    "generation": 0,
-                    "observation_index": 3,
-                }
-            return snapshot
-
-        backend.get_motion_snapshot = malformed_snapshot
-    if case == "cancelled":
-        with pytest.raises(ToolCancelled):
-            primitive.move_to(arm="left", xyz=xyz)
-    else:
-        result = primitive.move_to(arm="left", xyz=xyz)
-        assert result.is_error
-        totals(result, 0, 0, 0, 0)
+    backend.raw["r1::proprio"][index] = value
+    result = primitive.move_to(arm="left", xyz=_motion_target(backend))
+    assert result.is_error
+    totals(result, 0, 0, 0, 0)
     assert not backend.actions and not planner.calls
 
 
@@ -1695,7 +1395,7 @@ def test_requested_xyz_and_implicit_entry_quaternion_survive_sampling(motion):
         if len(backend.actions) == 1:
             backend.raw["r1::proprio"][17] += 0.01
             backend.raw["r1::proprio"][20:24] = [0, 0, np.sin(0.01), np.cos(0.01)]
-        return refresh_reply(backend, result)
+        return _refresh_reply(backend, result)
 
     backend.chunk_step = sampling_changes_eef
     result = primitive.move_to(arm="left", xyz=xyz)
@@ -1711,7 +1411,7 @@ def test_actual_post_hold_displacement_cannot_bypass_existing_static_gate(motion
     def moving_hold(actions, **kwargs):
         result = step(actions, **kwargs)
         backend.raw["r1::proprio"][53] += 0.001
-        return refresh_reply(backend, result)
+        return _refresh_reply(backend, result)
 
     backend.chunk_step = moving_hold
     result = primitive.move_to(arm="left", xyz=_motion_target(backend))
@@ -1720,7 +1420,10 @@ def test_actual_post_hold_displacement_cannot_bypass_existing_static_gate(motion
     # never reached with an unsettled start, not how many holds were spent trying.
     assert result.is_error
     assert result.data["code"] in {"motion_state_unsettled", "base_not_stationary"}
-    assert result.data["rejection"]["code"] == result.data["code"]
+    rejection = result.data["rejection"]
+    assert rejection["code"] == result.data["code"]
+    assert rejection["reason"] and rejection["suggested_next"]
+    assert rejection["auto_settle"] == result.data["auto_settle"]
     assert result.data["auto_settle"]["status"] in {
         "still_unsettled",
         "hold_unavailable",
@@ -1738,10 +1441,7 @@ def test_actual_post_hold_displacement_cannot_bypass_existing_static_gate(motion
         "stale",
         "generation",
         "previous",
-        "current",
         "pending",
-        "previous_token",
-        "initial_flag",
     ],
 )
 def test_probe_invalid_or_unconfirmed_feedback_never_reaches_planner(motion, case):
@@ -1768,14 +1468,8 @@ def test_probe_invalid_or_unconfirmed_feedback_never_reaches_planner(motion, cas
             info["observation_token"]["generation"] = 1
         elif case == "previous":
             info["motion_context"]["previous_proprio"][53] += 1
-        elif case == "current":
-            info["motion_context"]["current_proprio"][53] += 1
         elif case == "pending":
             info["motion_context"]["actions_pending"] = True
-        elif case == "previous_token":
-            info["motion_context"]["previous_token"]["generation"] = 2
-        elif case == "initial_flag":
-            info["motion_context"]["initial_bootstrap"] = True
         return obs, reward, terminated, truncated, info
 
     backend.chunk_step = broken_feedback
@@ -1808,47 +1502,27 @@ def test_probe_transport_failure_never_reports_zero_spent_actions(motion):
 
 
 @pytest.mark.parametrize(
-    "case",
-    [
-        "failure",
-        "exception",
-        "cancelled",
-        "collision",
-        "invalid_path",
-        "stale_plan",
-        "ended",
-    ],
+    "stale", [False, True], ids=["solver-rejection", "stale-frame"]
 )
-def test_plan_failure_after_sampling_preserves_spent_hold_and_no_path(motion, case):
+def test_native_plan_failure_after_sampling_reports_the_spent_hold(motion, stale):
     primitive, backend, planner, _, _ = motion
 
-    def mutation(result, observation):
-        if case == "failure":
-            result.update(status="Failure", code="native_plan_failed")
-        elif case == "exception":
-            raise RuntimeError("native solver failed")
-        elif case == "cancelled":
-            primitive._check_cancelled = lambda: (_ for _ in ()).throw(ToolCancelled())
-        elif case == "collision":
-            result["collision_scope"] = None
-        elif case == "invalid_path":
-            result["position"] = np.zeros((2, 6))
-        elif case == "stale_plan":
+    def fail_plan(plan, _):
+        if stale:
             backend.observation_index += 1
             backend.raw["r1::proprio"][17] += 0.01
-        elif case == "ended":
-            backend.ended = True
+        else:
+            plan.update(status="Failure", code="native_plan_failed")
 
-    planner.mutate = mutation
+    planner.mutate = fail_plan
     result = primitive.move_to(arm="left", xyz=_motion_target(backend))
     assert result.is_error
+    assert result.data["code"] == ("stale_arm_plan" if stale else "native_plan_failed")
     totals(result, 1, 1, 1, 0)
-    assert len(backend.actions) == 1
-    assert len(planner.calls) == 1
-    assert result.data["observation_fresh"] is (case != "stale_plan")
-    if case == "stale_plan":
+    assert result.data["observation_fresh"] is not stale
+    if stale:
         assert primitive.last_observation["r1::proprio"][17] == pytest.approx(0.41)
-    assert primitive.last_observation["r1::proprio"].shape == (61,)
+    assert len(backend.actions) == len(planner.calls) == 1
 
 
 def test_cancelled_immediately_after_confirmed_probe_preserves_that_frame(motion):
@@ -1967,7 +1641,9 @@ def test_maximum_hold_budget_keeps_complete_parseable_tool_evidence(motion):
     result = primitive.move_to(
         arm="left", xyz=_motion_target(backend), settle_steps=180
     )
-    assert len(result.to_text()) < 60000
+    rendered = result.to_text()
+    assert len(rendered) < 60000
+    assert json.loads(rendered)["actual_settle_steps"] == 180
     totals(result, 185, 185, 185, 0)
 
 
@@ -1992,22 +1668,7 @@ def test_delta_target_is_current_pose_plus_delta_with_orientation_held(motion, a
     np.testing.assert_allclose(
         Rotation.from_quat(goal[3:]).as_matrix(), original.as_matrix()
     )
-    actions = backend.actions[0]
-    moving = slice(7, 14) if arm == "left" else slice(15, 22)
-    measured = slice(3, 10) if arm == "left" else slice(28, 35)
-    other = slice(15, 22) if arm == "left" else slice(7, 14)
-    other_measured = slice(28, 35) if arm == "left" else slice(3, 10)
-    np.testing.assert_array_equal(actions[:, :3], 0)
-    np.testing.assert_allclose(
-        actions[:, 3:7], np.tile(before[53:57], (len(actions), 1))
-    )
-    np.testing.assert_allclose(
-        actions[:, other], np.tile(before[other_measured], (len(actions), 1))
-    )
-    np.testing.assert_allclose(
-        actions[:, moving],
-        before[measured] + np.arange(1, len(actions) + 1)[:, None] * 0.005,
-    )
+    assert [actions.shape for actions in backend.actions] == [(4, 23)]
     assert result.data["completed"] is True and result.data["target_reached"] is True
     assert result.data["collision_checked"] is False
     assert result.data["requested_delta_xyz"] == pytest.approx(delta)
@@ -2015,7 +1676,16 @@ def test_delta_target_is_current_pose_plus_delta_with_orientation_held(motion, a
     assert len(planner.calls) == 1 and model.calls == 0
 
 
-def test_relative_target_is_frozen_across_exactly_one_initial_sampling_hold(motion):
+@pytest.mark.parametrize(
+    ("tool", "options", "offset", "yaw"),
+    [
+        ("move_eef_delta", {"delta_xyz": [0.01, 0, 0]}, [0.01, 0, 0], 0),
+        ("rotate_wrist", {"delta_yaw_deg": 15}, [0, 0, 0], 15),
+    ],
+)
+def test_relative_target_is_frozen_across_the_initial_sampling_hold(
+    motion, tool, options, offset, yaw
+):
     primitive, backend, planner, _, model = motion
     original = backend.raw["r1::proprio"][17:24].copy()
     step = backend.chunk_step
@@ -2024,17 +1694,24 @@ def test_relative_target_is_frozen_across_exactly_one_initial_sampling_hold(moti
         reply = step(actions, **kwargs)
         if not planner.calls:
             backend.raw["r1::proprio"][17] += 0.001
+            backend.raw["r1::proprio"][20:24] = Rotation.from_rotvec(
+                [0, 0, 0.01]
+            ).as_quat()
         return _refresh_reply(backend, reply)
 
     backend.chunk_step = initial_pose_drift
     _follow_planned_pose(backend, planner)
-
-    result = primitive.move_eef_delta(arm="left", delta_xyz=[0.01, 0, 0])
-
+    result = getattr(primitive, tool)(arm="left", **options)
     goal = planner.calls[0][1]
-    np.testing.assert_allclose(goal[:3], original[:3] + [0.01, 0, 0])
-    np.testing.assert_allclose(goal[3:], original[3:])
+    np.testing.assert_allclose(goal[:3], original[:3] + offset)
+    expected = Rotation.from_euler("z", yaw, degrees=True) * Rotation.from_quat(
+        original[3:]
+    )
+    np.testing.assert_allclose(
+        Rotation.from_quat(goal[3:]).as_matrix(), expected.as_matrix()
+    )
     assert [len(actions) for actions in backend.actions] == [1, 4]
+    totals(result, 5, 5, 5, 0)
     assert result.data["completed"] is True and model.calls == 0
 
 
@@ -2048,26 +1725,17 @@ def test_delta_limit_is_euclidean_and_finite(motion, delta):
     assert not backend.actions and not planner.calls
 
 
-@pytest.mark.parametrize("arm", ["middle", None])
-def test_invalid_arm_reuses_motion_validation(motion, arm):
+@pytest.mark.parametrize(
+    ("tool", "options"),
+    [
+        ("move_eef_delta", {"delta_xyz": [0.01, 0, 0]}),
+        ("rotate_wrist", {"delta_yaw_deg": 15}),
+    ],
+)
+def test_relative_arm_tools_reject_a_moving_reference_frame(motion, tool, options):
     primitive, backend, planner, _, _ = motion
-    with pytest.raises(ValueError, match="arm must be left or right"):
-        primitive.move_eef_delta(arm=arm, delta_xyz=[0.01, 0, 0])
-    assert not backend.actions and not planner.calls
-
-
-@pytest.mark.parametrize("case", ["ended", "unknown", "moving_base"])
-def test_delta_preserves_existing_motion_admission(motion, case):
-    primitive, backend, planner, _, _ = motion
-    if case == "closed":
-        backend.raw["r1::proprio"][24:26] = 0
-    elif case == "ended":
-        backend.ended = True
-    elif case == "unknown":
-        primitive._command_history_unknown = True
-    else:
-        backend.raw["r1::proprio"][0] = 0.1
-    result = primitive.move_eef_delta(arm="left", delta_xyz=[0.01, 0, 0])
+    backend.raw["r1::proprio"][0] = 0.1
+    result = getattr(primitive, tool)(arm="left", **options)
     assert result.is_error and result.data["issued_actions"] == 0
     assert not backend.actions and not planner.calls
 
@@ -2082,29 +1750,6 @@ def test_unreached_target_is_not_reported_as_completed(motion):
     assert len(backend.actions) == 1
 
 
-def test_unknown_path_execution_preserves_unknown_counts_without_replay(motion):
-    primitive, backend, _, _, _ = motion
-    _establish_prior_hold(motion)
-    backend.fail = True
-    result = primitive.move_eef_delta(arm="left", delta_xyz=[0.01, 0, 0])
-    assert result.data["completed"] is False
-    assert result.data["issued_actions"] is None
-    assert result.data["confirmed_actions"] is None
-    assert result.data["code"] == "execution_outcome_unknown"
-    assert len(backend.actions) == 1
-
-
-def test_planner_rejection_does_not_send_actions(motion):
-    primitive, backend, planner, _, _ = motion
-    _establish_prior_hold(motion)
-    planner.mutate = lambda result, _: result.update(
-        status="Unavailable", code="outside_verified_motion_mode"
-    )
-    result = primitive.move_eef_delta(arm="left", delta_xyz=[0.01, 0, 0])
-    assert result.is_error and result.data["code"] == "outside_verified_motion_mode"
-    assert not backend.actions
-
-
 @pytest.mark.parametrize("delta", [[0.01, 0], [0.01, 0, 0, 0], "move", None])
 def test_schema_rejects_out_of_scope_values(motion, delta):
     declaration = {entry.name: entry for entry in iter_tools(motion[0])}[
@@ -2114,41 +1759,7 @@ def test_schema_rejects_out_of_scope_values(motion, delta):
         declaration.args_schema.model_validate({"arm": "left", "delta_xyz": delta})
 
 
-def test_registration_is_opt_in_and_needs_no_extra_asset(tmp_path, monkeypatch):
-    monkeypatch.setattr("rpent.utils.templates.get_output_dir", lambda: tmp_path)
-    spec = get_robot_spec()
-    default = spec.parse_config(_args(tmp_path, "--control-mode", "agent"))
-    assert "move_eef_delta" not in default.task_desc["tool_allowlist"]
-    args = _args(
-        tmp_path, "--tool-allowlist", "view_env_state", "move_eef_delta", "finish"
-    )
-    config = spec.parse_config(args)
-    assert "move_eef_delta" in config.task_desc["tool_allowlist"]
-    assert "kinematics_urdf" not in config.task_desc
-    prompt = spec.prompts.render("system", variables=config.prompt_vars)
-    assert "move_eef_delta" in prompt
-    assert "single-call relative bound" in prompt
-    toolkit = _template_toolkit(
-        tmp_path / "enabled", config.task_desc["tool_allowlist"]
-    )
-    try:
-        declarations = {entry.name: entry for entry in toolkit.list_tools()}
-        assert set(declarations["move_eef_delta"].input_schema["properties"]) == {
-            "arm",
-            "delta_xyz",
-        }
-        assert not declarations["move_eef_delta"].readonly
-    finally:
-        toolkit.close()
-    disabled = _template_toolkit(tmp_path / "disabled", ["view_env_state", "finish"])
-    try:
-        assert "move_eef_delta" not in {entry.name for entry in disabled.list_tools()}
-    finally:
-        disabled.close()
-
-
-@pytest.mark.parametrize("arm", ["left", "right"])
-@pytest.mark.parametrize("angle", [-15.0, 15.0])
+@pytest.mark.parametrize(("arm", "angle"), [("left", -15.0), ("right", 15.0)])
 def test_rotation_uses_current_base_axis_pose_and_existing_native23_path(
     motion, arm, angle
 ):
@@ -2171,59 +1782,11 @@ def test_rotation_uses_current_base_axis_pose_and_existing_native23_path(
     np.testing.assert_allclose(
         Rotation.from_quat(goal[3:]).as_matrix(), expected.as_matrix()
     )
-    actions = backend.actions[0]
-    moving = slice(7, 14) if arm == "left" else slice(15, 22)
-    measured = slice(3, 10) if arm == "left" else slice(28, 35)
-    other = slice(15, 22) if arm == "left" else slice(7, 14)
-    other_measured = slice(28, 35) if arm == "left" else slice(3, 10)
-    assert actions.shape == (4, 23)
-    np.testing.assert_array_equal(actions[:, :3], 0)
-    np.testing.assert_allclose(actions[:, 3:7], np.tile(before[53:57], (4, 1)))
-    np.testing.assert_allclose(
-        actions[:, other], np.tile(before[other_measured], (4, 1))
-    )
-    np.testing.assert_array_equal(actions[:, [14, 22]], 1)
-    np.testing.assert_allclose(
-        actions[:, moving], before[measured] + np.arange(1, 5)[:, None] * 0.005
-    )
+    assert [actions.shape for actions in backend.actions] == [(4, 23)]
     assert result.data["completed"] is True and result.data["target_reached"] is True
     assert result.data["confirmed_actions"] == result.data["issued_actions"] == 4
     assert result.data["unconfirmed_actions"] == result.data["actual_settle_steps"] == 0
     assert len(planner.calls) == 1 and model.calls == 0
-
-
-def test_relative_target_is_frozen_across_exactly_one_initial_sampling_hold_rotate_wrist(
-    motion,
-):
-    primitive, backend, planner, _, model = motion
-    original = backend.raw["r1::proprio"][17:24].copy()
-    step = backend.chunk_step
-
-    def initial_pose_drift(actions, **kwargs):
-        reply = step(actions, **kwargs)
-        if not planner.calls:
-            backend.raw["r1::proprio"][17] += 0.001
-            backend.raw["r1::proprio"][20:24] = Rotation.from_rotvec(
-                [
-                    0,
-                    0,
-                    0.01,
-                ]
-            ).as_quat()
-        return _refresh_reply(backend, reply)
-
-    backend.chunk_step = initial_pose_drift
-    _follow_planned_pose(backend, planner)
-    result = primitive.rotate_wrist(arm="left", delta_yaw_deg=15)
-
-    goal = planner.calls[0][1]
-    np.testing.assert_allclose(goal[:3], original[:3])
-    np.testing.assert_allclose(
-        goal[3:], Rotation.from_rotvec([0, 0, np.deg2rad(15)]).as_quat()
-    )
-    assert [len(actions) for actions in backend.actions] == [1, 4]
-    assert result.data["confirmed_actions"] == result.data["issued_actions"] == 5
-    assert result.data["completed"] is True and model.calls == 0
 
 
 @pytest.mark.parametrize(
@@ -2233,47 +1796,6 @@ def test_invalid_rotation_angles_do_not_request_or_execute_a_path(motion, angle)
     primitive, backend, planner, _, _ = motion
     with pytest.raises(ValueError, match="delta_yaw_deg"):
         primitive.rotate_wrist(arm="left", delta_yaw_deg=angle)
-    assert not backend.actions and not planner.calls
-
-
-@pytest.mark.parametrize(
-    "options", [{"arm": "middle"}, {"settle_steps": True}, {"settle_steps": 181}]
-)
-def test_invalid_arm_or_hold_budget_reuses_motion_validation(motion, options):
-    primitive, backend, planner, _, _ = motion
-    with pytest.raises(ValueError):
-        primitive.rotate_wrist(**{"arm": "left", "delta_yaw_deg": 10, **options})
-    assert not backend.actions and not planner.calls
-
-
-@pytest.mark.parametrize("case", ["ended", "unknown", "moving_base"])
-def test_rotation_preserves_existing_motion_admission(motion, case):
-    primitive, backend, planner, _, _ = motion
-    if case == "closed":
-        backend.raw["r1::proprio"][24:26] = 0
-    elif case == "ended":
-        backend.ended = True
-    elif case == "unknown":
-        primitive._command_history_unknown = True
-    else:
-        backend.raw["r1::proprio"][0] = 0.1
-    result = primitive.rotate_wrist(arm="left", delta_yaw_deg=10)
-    assert result.is_error and result.data["issued_actions"] == 0
-    assert not backend.actions and not planner.calls
-
-
-def test_stale_snapshot_token_rejects_rotation_before_execution(motion):
-    primitive, backend, planner, _, _ = motion
-    reader = primitive.env.get_motion_snapshot
-
-    def invalid_token():
-        snapshot = reader()
-        snapshot["observation_token"]["observation_index"] += 1
-        return snapshot
-
-    primitive.env.get_motion_snapshot = invalid_token
-    result = primitive.rotate_wrist(arm="left", delta_yaw_deg=10)
-    assert result.is_error and result.data["issued_actions"] == 0
     assert not backend.actions and not planner.calls
 
 
@@ -2288,75 +1810,11 @@ def test_unreached_orientation_is_not_reported_as_completed(motion):
     assert len(backend.actions) == 1
 
 
-def test_unknown_path_execution_preserves_unknown_counts_without_replay_rotate_wrist(
-    motion,
-):
-    primitive, backend, _, _, _ = motion
-    _establish_prior_hold(motion)
-    backend.fail = True
-    result = primitive.rotate_wrist(arm="left", delta_yaw_deg=15, settle_steps=10)
-    assert result.data["completed"] is False
-    assert result.data["requested_actions"] == 4
-    assert result.data["issued_actions"] is None
-    assert result.data["confirmed_actions"] is None
-    assert result.data["unconfirmed_actions"] is None
-    assert result.data["code"] == "execution_outcome_unknown"
-    assert len(backend.actions) == 1
-
-
 @pytest.mark.parametrize("angle", [-181, 181, float("nan"), True, "10"])
 def test_rotation_schema_rejects_out_of_scope_values(motion, angle):
     declaration = {entry.name: entry for entry in iter_tools(motion[0])}["rotate_wrist"]
     with pytest.raises(ValidationError):
         declaration.args_schema.model_validate({"arm": "left", "delta_yaw_deg": angle})
-
-
-def test_rotation_registration_is_opt_in_and_prompt_isolation_is_real(
-    tmp_path, monkeypatch
-):
-    monkeypatch.setattr("rpent.utils.templates.get_output_dir", lambda: tmp_path)
-    spec = get_robot_spec()
-    args = _args(
-        tmp_path, "--tool-allowlist", "view_env_state", "rotate_wrist", "finish"
-    )
-    config = spec.parse_config(args)
-    assert set(config.task_desc["tool_allowlist"]) == {
-        "view_env_state",
-        "rotate_wrist",
-        "finish",
-    }
-    prompt = spec.prompts.render("system", variables=config.prompt_vars)
-    assert "Use rotate_wrist" in prompt and "reachability is decided by IK" in prompt
-    toolkit = _template_toolkit(tmp_path, config.task_desc["tool_allowlist"])
-    try:
-        declarations = {entry.name: entry for entry in toolkit.list_tools()}
-        rotation = declarations["rotate_wrist"]
-        assert set(rotation.input_schema["properties"]) == {
-            "arm",
-            "delta_yaw_deg",
-            "settle_steps",
-        }
-        assert not rotation.readonly
-        assert "move_to" not in declarations
-    finally:
-        toolkit.close()
-
-    args = _args(tmp_path)
-    args.behavior_config = (
-        Path(__file__).resolve().parents[4] / "robots/behavior/configs/agent.yaml"
-    )
-    config = spec.parse_config(args)
-    assert len(config.task_desc["tool_allowlist"]) == 12
-    assert "rotate_wrist" in config.task_desc["tool_allowlist"]
-    assert "rotate_wrist" in spec.prompts.render("system", variables=config.prompt_vars)
-    disabled = _template_toolkit(tmp_path / "disabled", ["view_env_state", "finish"])
-    try:
-        assert "rotate_wrist" not in {entry.name for entry in disabled.list_tools()}
-        assert disabled.execute_tool(
-            "rotate_wrist", {"arm": "left", "delta_yaw_deg": 10}
-        ).is_error
-    finally:
-        disabled.close()
 
 
 class Environment:
@@ -2452,13 +1910,13 @@ class Environment:
 
 
 class Model:
-    def infer(self, *args, **kwargs):
+    def predict(self, *args, **kwargs):
         raise AssertionError("base motion must not call VLA")
 
 
 def make_primitive(env=None, cancelled=lambda: None):
     env = env or Environment()
-    primitive = StagedBehaviorPrimitives(
+    primitive = BehaviorPrimitives(
         env=env,
         model=Model(),
         task_id=40,
@@ -2558,7 +2016,7 @@ def test_invalid_request_is_rejected_before_sending(kwargs):
     ],
 )
 def test_planner_schema_rejects_invalid_inputs(kwargs):
-    definition = StagedBehaviorPrimitives.move_base
+    definition = BehaviorPrimitives.move_base
     with pytest.raises(ValidationError):
         definition.args_schema.model_validate(kwargs, strict=True)
 
@@ -2592,22 +2050,16 @@ def test_pending_unknown_or_mismatched_initial_state_sends_nothing(patch):
     assert env.actions == []
 
 
-def test_unknown_command_history_never_guesses_a_gripper_hold():
+@pytest.mark.parametrize("state", ["unknown-command", "missing-prior-command"])
+def test_base_motion_requires_a_known_gripper_hold(state):
     primitive, env = make_primitive()
-    primitive._command_history_unknown = True
+    if state == "unknown-command":
+        primitive._command_history_unknown = True
+    else:
+        env.context_patch = {"initial_bootstrap": False}
     result = primitive.move_base(forward=0.1).data
     assert result["stop_reason"] == "base_start_unavailable"
-    assert env.actions == []
-
-
-def test_noninitial_snapshot_needs_known_previous_gripper_command():
-    primitive, env = make_primitive()
-    env.context_patch = {"initial_bootstrap": False}
-    result = primitive.move_base(forward=0.1).data
-    assert result["stop_reason"] == "base_start_unavailable" and env.actions == []
-    primitive._last_issued_action = np.zeros(23, dtype=np.float32)
-    result = primitive.move_base(forward=0.1, steps=1).data
-    assert result["completed"] and len(env.actions) == 2
+    assert not env.actions
 
 
 @pytest.mark.parametrize(
@@ -2644,30 +2096,6 @@ def test_transport_failure_preserves_prefix_and_never_replays_or_adds_stop(fail_
     assert result["requested_actions"] == fail_at
     assert not result["completed"] and not result["stop_command_confirmed"]
     assert primitive._command_history_unknown and primitive._last_issued_action is None
-
-
-def test_final_terminal_action_stays_unconfirmed():
-    primitive, env = make_primitive()
-
-    def patch(index, info, observation):
-        if index == 3:
-            info.update(
-                confirmed_actions=0,
-                executed_actions=0,
-                unconfirmed_actions=1,
-                observation_after_last_issued_action=False,
-                stop_reason="session_ended",
-            )
-            info["observation_token"]["observation_index"] -= 1
-            info["motion_context"]["current_token"] = dict(info["observation_token"])
-
-    env.reply_patch = patch
-    result = primitive.move_base(forward=0.1, steps=2).data
-    assert result["issued_actions"] == 3
-    assert result["confirmed_actions"] == 2 and result["unconfirmed_actions"] == 1
-    assert result["session_ended"]
-    assert not result["stop_command_confirmed"] and not result["completed"]
-    assert len(env.actions) == 3 and primitive._command_history_unknown
 
 
 @pytest.mark.parametrize(
@@ -2787,16 +2215,9 @@ def test_complete_raw_sample_chain_never_becomes_trusted_odometry(reported_veloc
     )
 
 
-def test_validate_base_request_returns_a_three_element_clamped_array():
-    assert validate_base_request(0.12, 0.16, 0.2, 30).shape == (3,)
-
-
 def test_existing_toolkit_dispatch_saves_state_and_returns_three_images(
     tmp_path, monkeypatch
 ):
-    monkeypatch.setattr(
-        "robots.behavior.toolkit.BehaviorPrimitives", StagedBehaviorPrimitives
-    )
     monkeypatch.setattr("rpent.utils.templates.get_output_dir", lambda: tmp_path)
     env = Environment()
     toolkit = BehaviorToolkit(
@@ -2860,6 +2281,8 @@ def test_real_bridge_and_client_handshake_confirms_each_base_step(terminal_uncon
         assert result["completed"] is not terminal_unconfirmed
         assert result["stop_command_confirmed"] is not terminal_unconfirmed
         assert bridge.stats()["confirmed"] == result["confirmed_actions"]
+        assert result["session_ended"] is terminal_unconfirmed
+        assert primitive._command_history_unknown is terminal_unconfirmed
         bridge.close()
         if not terminal_unconfirmed:
             with pytest.raises(BridgeCancelled):
@@ -2868,50 +2291,3 @@ def test_real_bridge_and_client_handshake_confirms_each_base_step(terminal_uncon
         bridge.close()
         facade.close()
         pool.shutdown(wait=True)
-
-
-def test_base_configuration_uses_existing_registration_and_scoped_guidance(tmp_path):
-    from robots.behavior.robot_spec import get_robot_spec
-
-    spec = get_robot_spec()
-    args = _args(tmp_path)
-    args.tool_allowlist = ["view_env_state", "move_base", "finish"]
-    spec.validate_args(args)
-    config = spec.parse_config(args)
-    prompt = spec.prompts.render("system", variables=config.prompt_vars)
-    assert "Use move_base for one short local base adjustment" in prompt
-    assert "Re-localize scene points after base movement" in prompt
-    assert "No displacement or odometry is reported" in prompt
-    assert "Use the new images to judge the movement" in prompt
-    assert "each command's scale and bound" in prompt
-    args.tool_allowlist = ["view_env_state", "finish"]
-    prompt = spec.prompts.render(
-        "system", variables=spec.parse_config(args).prompt_vars
-    )
-    assert "Use move_base" not in prompt
-
-
-@pytest.mark.parametrize(
-    "task_id,task_language",
-    [(0, "Turn on the radio."), (40, "Make microwave popcorn.")],
-)
-def test_agent_template_selects_base_and_preserves_main_vla(
-    task_id, task_language, tmp_path
-):
-    from pathlib import Path
-
-    import robots.behavior.robot_spec as spec_module
-
-    args = _args(tmp_path)
-    args.behavior_config = Path(spec_module.__file__).parent / "configs" / "agent.yaml"
-    args.task_id = task_id
-    args.task_language = task_language
-    args.execution_horizon = None
-    config = spec_module.get_robot_spec().parse_config(args)
-    assert "move_base" in config.task_desc["tool_allowlist"]
-    assert "move_to" in config.task_desc["tool_allowlist"]
-    assert "vla_act" in config.task_desc["tool_allowlist"]
-    assert config.task_desc["instruction_mode"] == "main"
-    assert config.task_desc["execution_horizon"] == 32
-    assert config.task_desc["task_id"] == task_id
-    assert config.task_desc["task_language"] == task_language

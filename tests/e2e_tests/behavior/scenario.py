@@ -39,9 +39,9 @@ from robots.behavior.tools import (
     extract_public_proprio,
     snapshot_observation,
 )
-from robots.behavior.vla_client import BehaviorVLAClient
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.evaluation import write_json_atomic
+from rpent.robots.components.pi05_vla_client import Pi05VLAClient
 from rpent.utils.rpc import make_rpc_client
 from tests.e2e_tests.common import (
     array_summary,
@@ -69,7 +69,7 @@ def runtime_args() -> Namespace:
             _required_env("RPENT_BEHAVIOR_TASK_LANGUAGE"),
             "--env-endpoint",
             _required_env("RPENT_BEHAVIOR_ENV_ENDPOINT"),
-            "--vla-endpoint",
+            "--am-endpoint",
             _required_env("RPENT_BEHAVIOR_VLA_ENDPOINT"),
             "--control-mode",
             "agent",
@@ -104,17 +104,15 @@ class _ObservedEnvClient(BehaviorEnvClient):
         return super().chunk_step(actions, **kwargs)
 
 
-class _ObservedVLAClient(BehaviorVLAClient):
+class _ObservedVLAClient(Pi05VLAClient):
     """Retain actual service predictions for comparison with submitted actions."""
 
     def __init__(self, *args: Any, **kwargs: Any):
         super().__init__(*args, **kwargs)
         self.predictions: list[np.ndarray] = []
 
-    def infer(
-        self, observation: dict[str, Any], prompt: str | None = None
-    ) -> np.ndarray:
-        actions = super().infer(observation, prompt)
+    def predict(self, env_obs: dict, options: dict | None = None) -> np.ndarray:
+        actions = super().predict(env_obs, options)
         self.predictions.append(actions.copy())
         return actions
 
@@ -151,7 +149,7 @@ class BehaviorScenario:
                 "task_id": args.task_id,
                 "task_language": args.task_language,
                 "env_endpoint": args.env_endpoint,
-                "vla_endpoint": args.vla_endpoint,
+                "vla_endpoint": args.am_endpoint,
                 "execution_horizon": 32,
                 "max_chunks_per_call": 1,
                 "runtime_ownership": "borrowed_services",
@@ -170,12 +168,15 @@ class BehaviorScenario:
         return _ObservedEnvClient(
             self._connect(self.args.env_endpoint),
             task_id=self.args.task_id,
+            expected_task_language=self.args.task_language,
             timeout_s=1230,
         )
 
     @cached_property
     def model(self) -> _ObservedVLAClient:
-        return _ObservedVLAClient(self._connect(self.args.vla_endpoint))
+        return _ObservedVLAClient(
+            self._connect(self.args.am_endpoint), embodiment="behavior"
+        )
 
     @cached_property
     def environment(self) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -202,7 +203,9 @@ class BehaviorScenario:
     def vla(self) -> dict[str, Any]:
         observation, _ = self.environment
         prediction = require_array(
-            self.model.infer(observation, prompt=self.args.task_language),
+            self.model.predict(
+                {**observation, "task_descriptions": self.args.task_language}
+            ),
             "BEHAVIOR VLA prediction",
             ndim=2,
             last_dim=23,

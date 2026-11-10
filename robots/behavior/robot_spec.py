@@ -31,6 +31,7 @@ import yaml
 from robots.behavior.prompt_bundle import system_prompt, user_prompt
 from robots.behavior.tasks import TASK_LANGUAGE, TASK_NAMES
 from rpent.dashboard.events import DashboardEventSink
+from rpent.robots.components.am_runtime import add_am_args, select_am
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.utils.config import get_memory_dir
@@ -127,9 +128,7 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     parser.add_argument(
         "--env-endpoint", help="Borrowed RPent BEHAVIOR bridge RPC endpoint."
     )
-    parser.add_argument(
-        "--vla-endpoint", help="Borrowed RPent VLA facade RPC endpoint."
-    )
+    add_am_args(parser, platform="behavior")
     parser.add_argument(
         "--sam3-endpoint", help="Borrowed native RPent SAM3 RPC endpoint."
     )
@@ -178,6 +177,10 @@ def _settings(args: argparse.Namespace) -> dict[str, Any]:
         override = getattr(args, key, None)
         if override is not None:
             settings[key] = override
+    # The Env bridge and Agent share the same externally deployed policy.
+    am = select_am(args, "behavior")
+    if am.endpoint is not None:
+        settings["vla_endpoint"] = am.endpoint
     task_id = settings.get("task_id")
     if type(task_id) is not int or task_id not in TASK_NAMES:
         raise ValueError("task_id must be an official BEHAVIOR task ID from 0 to 99")
@@ -333,7 +336,7 @@ def _init_runtime(
     components: set[str] | None,
 ) -> tuple[list[ProcessDaemon], dict[str, Any]]:
     from robots.behavior.env_client import BehaviorEnvClient
-    from robots.behavior.vla_client import BehaviorVLAClient
+    from rpent.robots.components.pi05_vla_client import Pi05VLAClient
     from rpent.robots.runtime import try_wait_server
     from rpent.utils.rpc import make_rpc_client
 
@@ -359,11 +362,16 @@ def _init_runtime(
                 lambda rpc=rpc: BehaviorEnvClient(
                     rpc,
                     task_id=settings["task_id"],
+                    expected_task_language=(
+                        settings["task_language"]
+                        if settings["instruction_mode"] == "main"
+                        else None
+                    ),
                     timeout_s=settings.get("env_rpc_timeout_s"),
                 )
             )
             if name == "env"
-            else (lambda rpc=rpc: BehaviorVLAClient(rpc))
+            else (lambda rpc=rpc: Pi05VLAClient(rpc, embodiment="behavior"))
         )
         client = try_wait_server(
             {}, dashboard_events, name, rpc, None, 5.0, post_fn=factory

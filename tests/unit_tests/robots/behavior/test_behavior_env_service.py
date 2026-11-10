@@ -674,7 +674,7 @@ class _Transport:
         self.closed = 0
         self.calls: list[str] = []
         self.chunks: list[np.ndarray] = []
-        self.inputs: list[tuple[dict[str, Any], dict[str, Any]]] = []
+        self.inputs: list[tuple[dict[str, Any], dict[str, Any] | None]] = []
         self.prediction = np.arange(64 * 23, dtype=np.float32).reshape(64, 23)
 
     def _observation(self) -> dict[str, Any]:
@@ -692,13 +692,15 @@ class _Transport:
         self.calls.append(method)
         if method == "env.get_env_meta":
             return env_runtime_contract(self.task_id)
+        if method == "env.get_task_language":
+            return _SETTINGS["RPENT_BEHAVIOR_TASK_LANGUAGE"]
         if method == "env.get_observation":
             return self._observation()
         if method == "env.get_session_status":
             return {"ended": False}
         if method == "vla.predict":
             self.inputs.append(args)
-            return {"actions": self.prediction.copy()}
+            return self.prediction[None].copy()
         if method == "env.chunk_step":
             actions = decode_numeric_array(args[0])
             self.chunks.append(actions.copy())
@@ -764,7 +766,9 @@ def test_one_toolkit_chunk_uses_actual_prediction_and_only_closes_transports(
         assert len(env.chunks) == 1
         assert len(vla.inputs) == 2  # Component request, then one tool request.
         np.testing.assert_array_equal(env.chunks[0], vla.prediction[:32])
-        assert all(item[1] == {"prompt": "Pick up the toys."} for item in vla.inputs)
+        assert all(
+            obs["task_descriptions"] == ["Pick up the toys."] for obs, _ in vla.inputs
+        )
         for name in ("chain-prediction.npy", "chain-submitted-actions.npy"):
             assert (scenario.output_dir / name).is_file()
         saved = json.loads((scenario.output_dir / "policy-chain.json").read_text())

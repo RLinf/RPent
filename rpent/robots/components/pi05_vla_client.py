@@ -47,6 +47,12 @@ def _batch_views(views: Any, *, allow_multiple: bool = False) -> np.ndarray | No
     return arr.astype(np.uint8)[None]
 
 
+def _encode_obs_behavior(env_obs: dict) -> dict:
+    from robots.behavior.pi05 import encode_observation
+
+    return encode_observation(env_obs)
+
+
 def _encode_obs_libero(env_obs: dict) -> dict:
     """LIBERO single-env obs → openpi batched wire obs.
 
@@ -193,6 +199,7 @@ def _encode_obs_yam(env_obs: dict) -> dict:
 # ``PI05_EMBODIMENTS`` (and ``PI05_ROBOT_PLATFORMS`` if it sets ROBOT_PLATFORM);
 # the two registries are kept in sync manually.
 _ENCODE_OBS: dict[str, Any] = {
+    "behavior": _encode_obs_behavior,
     "libero": _encode_obs_libero,
     "robodojo": _encode_obs_robodojo,
     "franka": _encode_obs_franka,
@@ -231,6 +238,12 @@ class Pi05VLAClient(BaseVLAClient):
     def status(self, *, timeout_s: float = 10) -> dict[str, Any]:
         """Query prediction chunk length from a server supporting ``vla.status``."""
         return self._client.call("vla.status", timeout_s=timeout_s)
+
+    def reset(self) -> None:
+        """Clear the BEHAVIOR worker's model state at an evaluator episode boundary."""
+        result = self._client.call("vla.reset", timeout_s=self._TIMEOUT_S["default"])
+        if not isinstance(result, dict) or result.get("ok") is not True:
+            raise RuntimeError("Pi0.5 policy reset was not acknowledged")
 
     # ---- inference ----
 

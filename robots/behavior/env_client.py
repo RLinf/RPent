@@ -124,7 +124,12 @@ class BehaviorEnvClient(BaseEnvClient):
     }
 
     def __init__(
-        self, client: RpcClient, *, task_id: int, timeout_s: float | None = None
+        self,
+        client: RpcClient,
+        *,
+        task_id: int,
+        expected_task_language: str | None = None,
+        timeout_s: float | None = None,
     ):
         self._TIMEOUT_S = dict(type(self)._TIMEOUT_S)
         if timeout_s is not None:
@@ -149,6 +154,16 @@ class BehaviorEnvClient(BaseEnvClient):
             expected_meta=env_runtime_contract(task_id),
             reset_on_connect=False,
         )
+        if expected_task_language is not None:
+            actual = self.get_task_language()
+            if (
+                not isinstance(actual, str)
+                or actual.strip() != expected_task_language.strip()
+            ):
+                raise ValueError(
+                    f"BEHAVIOR task {task_id} instruction mismatch: "
+                    f"Planner={expected_task_language!r}, Env={actual!r}"
+                )
 
     def reset(self) -> None:
         """Reject reset because the official evaluator owns episode creation."""

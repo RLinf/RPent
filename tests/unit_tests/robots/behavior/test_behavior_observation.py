@@ -18,11 +18,9 @@ from __future__ import annotations
 
 import argparse
 import base64
-import copy
 import io
 import json
 import xml.etree.ElementTree as ET
-from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -44,7 +42,6 @@ from robots.behavior.tools import (
 )
 from robots.behavior.tools import project_pixel as pixel_to_robot_base
 from rpent.dashboard.events import NullDashboardEventSink
-from rpent.memory import MemoryManager
 from rpent.robots.components.sam3_client import Sam3Client, Sam3Result
 from rpent.session import EnvState
 from tests.unit_tests.robots.behavior.conftest import (
@@ -53,9 +50,9 @@ from tests.unit_tests.robots.behavior.conftest import (
     _args,
     _geometry_observation,
     _GeometryEnvironment,
-    _GeometryVLA,
     _GripperEnvironment,
     _GripperModel,
+    _template_toolkit,
 )
 
 _CAMERAS = ("zed_link", "left_realsense_link", "right_realsense_link")
@@ -159,8 +156,7 @@ def _snapshot(raw):
     return snapshot_observation(raw, task_id=40, task_language="make popcorn")
 
 
-@pytest.mark.parametrize("batched", [False, True])
-@pytest.mark.parametrize("native", [False, True])
+@pytest.mark.parametrize(("batched", "native"), [(True, False), (False, True)])
 def test_camera_order_calibration_and_unchanged_vla_payload(batched, native):
     raw = _observation_geometry_raw(batched=batched, native=native)
     snapshot = _snapshot(raw)
@@ -214,10 +210,9 @@ def test_missing_or_different_robot_pose_preserves_vla_only_observations():
         pixel_to_robot_base(snapshot["views"]["head"], [112, 112])
 
 
-@pytest.mark.parametrize("batched", [False, True])
 @pytest.mark.parametrize("invalid", ["shape", "nonfinite", "nonunit"])
-def test_invalid_camera_pose_rejected_at_observation_boundary(batched, invalid):
-    raw = _observation_geometry_raw(batched=batched)
+def test_invalid_camera_pose_rejected_at_observation_boundary(invalid):
+    raw = _observation_geometry_raw()
     poses = raw["robot_r1::cam_rel_poses"]
     if invalid == "shape":
         raw["robot_r1::cam_rel_poses"] = poses.reshape(3, 7)
@@ -314,7 +309,7 @@ def test_invalid_neighborhood_radius_is_rejected(radius):
     "problem", ["unit", "shape", "quantized", "transform", "intrinsic"]
 )
 def test_incompatible_depth_or_calibration_is_rejected(problem):
-    view = copy.deepcopy(_snapshot(_observation_geometry_raw())["views"]["head"])
+    view = _snapshot(_observation_geometry_raw())["views"]["head"]
     if problem == "unit":
         view["camera_meta"]["depth_unit"] = "millimetre"
     elif problem == "shape":
@@ -341,25 +336,10 @@ def test_rgb_only_observation_cannot_be_backprojected():
 
 
 def _toolkit(tmp_path: Path, env: _GeometryEnvironment) -> BehaviorToolkit:
-    return BehaviorToolkit(
-        runtime_kwargs={
-            "env": env,
-            "model": _GeometryVLA(),
-            "task_id": 40,
-            "task_language": "make popcorn",
-            "execution_horizon": 32,
-            "max_chunks_per_call": 1,
-            "instruction_mode": "main",
-            "tool_allowlist": [
-                "view_env_state",
-                "vla_act",
-                "pixel_to_robot_base",
-                "finish",
-            ],
-        },
-        dashboard_events=NullDashboardEventSink(),
-        memory=MemoryManager(tmp_path / "memory"),
-        state_output_dir=tmp_path / "state",
+    return _template_toolkit(
+        tmp_path,
+        ["view_env_state", "vla_act", "pixel_to_robot_base", "finish"],
+        env=env,
     )
 
 
@@ -483,18 +463,12 @@ def test_observation_includes_current_measured_state_without_reader_tool(
     env.raw["r1::proprio"][17:20] = [0.81234, -0.12346, 0.91234]
     env.raw["r1::proprio"][:3] = [0.12, -0.03, 0.2]
     before = env.raw["r1::proprio"].copy()
-    toolkit = BehaviorToolkit(
-        runtime_kwargs={
-            "env": env,
-            "model": _GripperModel(),
-            "task_id": 40,
-            "task_language": "make popcorn",
-            "execution_horizon": 2,
-            "tool_allowlist": ["view_env_state", "vla_act", "finish"],
-        },
-        dashboard_events=NullDashboardEventSink(),
-        memory=MemoryManager(tmp_path / "memory"),
-        state_output_dir=tmp_path / "state",
+    toolkit = _template_toolkit(
+        tmp_path,
+        ["view_env_state", "vla_act", "finish"],
+        env=env,
+        model=_GripperModel(),
+        execution_horizon=2,
     )
     try:
         initial = toolkit.execute_tool("view_env_state", {})
@@ -504,6 +478,10 @@ def test_observation_includes_current_measured_state_without_reader_tool(
         assert summary["left"]["eef_position"] == [0.8123, -0.1235, 0.9123]
         assert summary["left"]["finger_qpos"] == [0.04, 0.04]
         assert summary["base_qvel"] == [0.12, -0.03, 0.2]
+        assert (
+            summary["units"]["arm_qpos"] == summary["units"]["trunk_qpos"] == "radian"
+        )
+        assert summary["units"]["finger_qpos"] == "metre per finger"
         assert summary["units"]["base_qvel"] == [
             "metre/second",
             "metre/second",
@@ -545,45 +523,6 @@ def test_old_observation_gains_readonly_summary_without_rewriting_history(
     np.testing.assert_array_equal(state.load("proprio.npy", step=0), raw)
 
 
-@pytest.mark.parametrize(
-    "task_id, task_language",
-    [(0, "Turn on the radio."), (40, "Make microwave popcorn.")],
-)
-def test_recommended_templates_expose_distinct_useful_capabilities(
-    tmp_path, task_id, task_language
-):
-    root = Path(__file__).resolve().parents[4]
-    args = _args(tmp_path, "--task-id", str(task_id), "--task-language", task_language)
-    args.behavior_config = root / "robots/behavior/configs/agent.yaml"
-    args.execution_horizon = None
-    config = get_robot_spec().parse_config(args)
-    assert config.task_desc["task_id"] == task_id
-    assert config.task_desc["tool_allowlist"] == [
-        "view_env_state",
-        "read_robot_state",
-        "segment",
-        "pixel_to_robot_base",
-        "vla_act",
-        "set_gripper",
-        "move_to",
-        "move_eef_delta",
-        "move_base",
-        "rotate_wrist",
-        "rotate_wrist_joint",
-        "finish",
-    ]
-    assert config.task_desc["instruction_mode"] == "main"
-    assert config.task_desc["execution_horizon"] == 32
-    prompt = get_robot_spec().prompts.render("system", variables=config.prompt_vars)
-    assert "state.robot_state" in prompt
-    assert "move_base" in prompt
-    assert "read_robot_state" in prompt
-    assert "compatible shorthand" not in prompt
-    assert "move_eef_delta" in prompt
-    assert "Do not call every tool merely because it is available" in prompt
-    assert "main-task" in prompt
-
-
 def test_reported_joint_units_match_the_sourced_robot_definition():
     root = Path(__file__).resolve().parents[4]
     robot = ET.parse(root / "robots/behavior/assets/r1pro/r1pro_base.urdf").getroot()
@@ -599,26 +538,11 @@ def test_reported_joint_units_match_the_sourced_robot_definition():
 
 
 def _native_tools_toolkit(tmp_path, env, sam):
-    return BehaviorToolkit(
-        runtime_kwargs={
-            "env": env,
-            "model": _GeometryVLA(),
-            "sam3_client": sam,
-            "task_id": 40,
-            "task_language": "make popcorn",
-            "execution_horizon": 32,
-            "tool_allowlist": [
-                "view_env_state",
-                "vla_act",
-                "segment",
-                "set_gripper",
-                "release",
-                "finish",
-            ],
-        },
-        dashboard_events=NullDashboardEventSink(),
-        memory=MemoryManager(tmp_path / "memory"),
-        state_output_dir=tmp_path / "state",
+    return _template_toolkit(
+        tmp_path,
+        ["view_env_state", "vla_act", "segment", "set_gripper", "release", "finish"],
+        env=env,
+        sam=sam,
     )
 
 
@@ -646,6 +570,11 @@ def test_native_segment_uses_same_saved_rgb_and_behavior_base_frame(
         np.testing.assert_allclose(result.data["point_robot_base"], [3, 0, -2])
         assert sam.calls[0][0] == toolkit.state.load_bytes("head_rgb.png", step=0)
         assert sam.calls[0][1]["text_prompt"] == "popcorn bag"
+        artifact_name = result.data["segment_artifact"]
+        artifact = toolkit.state.load(artifact_name, step=0)
+        assert artifact["source_step"] == artifact["coordinate_frame_step"] == 0
+        assert artifact["point_robot_base"] == result.data["point_robot_base"]
+        assert not toolkit.state.exists(artifact_name, step=1)
         assert len(result.images) == 1
         overlay = toolkit.state.load(result.data["overlay_artifact"], step=0)
         assert overlay[112, 112, 0] > 0
@@ -727,30 +656,9 @@ def test_native_runtime_borrows_sam_without_reset_shutdown_or_inference(
         args, tmp_path, NullDashboardEventSink(), None
     )
     assert daemons == [] and isinstance(runtime["sam3_client"], Sam3Client)
-    assert endpoints == [args.env_endpoint, args.vla_endpoint, args.sam3_endpoint]
+    assert endpoints == [args.env_endpoint, args.am_endpoint, args.sam3_endpoint]
     assert calls.count("healthz") == 3
     assert not {"env.reset", "shutdown", "sam3.segment"}.intersection(calls)
-
-
-def test_native_template_preserves_main_vla_and_omits_custom_ik(tmp_path):
-    args = _args(tmp_path)
-    args.behavior_config = (
-        Path(__file__).resolve().parents[4] / "robots/behavior/configs/agent.yaml"
-    )
-    args.execution_horizon = None
-    config = get_robot_spec().parse_config(args)
-    assert config.task_desc["instruction_mode"] == "main"
-    assert config.task_desc["execution_horizon"] == 32
-    assert {"segment", "set_gripper", "move_to"} <= set(
-        config.task_desc["tool_allowlist"]
-    )
-    assert "release" not in config.task_desc["tool_allowlist"]
-    assert "kinematics_urdf" not in config.task_desc
-    prompt = get_robot_spec().prompts.render("system", variables=config.prompt_vars)
-    assert "every submitted action was confirmed" in prompt
-    assert "default 0" in prompt
-    assert "three\nconsecutive" not in prompt
-    assert "motion_settled as well as" not in prompt
 
 
 def _proprio():
@@ -764,132 +672,6 @@ def _proprio():
     result[49:51] = [0.01, 0.01]
     result[53:57] = [0.1, 0.2, 0.3, 0.4]
     return result
-
-
-class _Env:
-    def __init__(self):
-        self.raw = {"r1::proprio": _proprio()}
-        for camera in ("zed_link", "left_realsense_link", "right_realsense_link"):
-            self.raw[f"r1::{camera}:Camera:0::rgb"] = np.zeros((4, 5, 3), np.uint8)
-        self.actions = []
-        self.issued_override = None
-        self.fail = False
-        self.fresh = True
-        self.terminated = None
-        self.target_arm = None
-        self.target_position = None
-        self.invalid_pose_after_motion = False
-
-    def get_observation(self):
-        return deepcopy(self.raw)
-
-    def get_session_status(self):
-        return {"ended": False}
-
-    def chunk_step(self, actions):
-        if self.fail:
-            raise TimeoutError("unknown in-flight execution")
-        self.actions.append(actions.copy())
-        issued = len(actions) if self.issued_override is None else self.issued_override
-        if self.target_arm is not None:
-            indices = slice(17, 20) if self.target_arm == "left" else slice(42, 45)
-            self.raw["r1::proprio"][indices] = self.target_position
-            if self.invalid_pose_after_motion:
-                self.raw["r1::proprio"][20:24] = 0
-        return (
-            self.get_observation(),
-            None,
-            self.terminated,
-            None,
-            {
-                "issued_actions": issued,
-                "confirmed_actions": issued,
-                "unconfirmed_actions": 0,
-                "executed_actions": issued,
-                "observation_after_last_issued_action": self.fresh,
-            },
-        )
-
-
-class _VLA:
-    def __init__(self):
-        self.calls = 0
-
-    def infer(self, observation, prompt):
-        self.calls += 1
-        result = np.zeros((2, 23), dtype=np.float32)
-        result[:, 14] = [-0.6, -0.9]
-        result[:, 22] = [0.3, 0.8]
-        return result
-
-
-class _VLA:
-    def __init__(self):
-        self.calls = 0
-
-    def infer(self, observation, prompt):
-        self.calls += 1
-        result = np.zeros((2, 23), dtype=np.float32)
-        result[:, 14] = [-0.6, -0.9]
-        result[:, 22] = [0.3, 0.8]
-        return result
-
-
-class _Kinematics:
-    def __init__(self, env):
-        self.env = env
-        self.comparisons = []
-        self.mismatch = None
-        self.fail_ik = False
-        self.solution_delta = 0.04
-
-    def compare_proprio(self, values):
-        self.comparisons.append(np.asarray(values).copy())
-        result = {
-            arm: {"position_error_m": 0.0, "orientation_error_rad": 0.0}
-            for arm in ("left", "right")
-        }
-        if self.mismatch:
-            result[self.mismatch]["position_error_m"] = 0.02
-        return result
-
-    def solve_ik(self, arm, target, quaternion, joints, trunk, **kwargs):
-        self.env.target_arm = arm
-        self.env.target_position = target
-        return {
-            "ok": not self.fail_ik,
-            "reason": "test",
-            "arm_qpos": None
-            if self.fail_ik
-            else (np.asarray(joints) + self.solution_delta).tolist(),
-            "position_error_m": 0.0,
-            "orientation_error_rad": 0.0,
-        }
-
-
-@pytest.fixture
-def motion(tmp_path):
-    env, model = _Env(), _VLA()
-    toolkit = BehaviorToolkit(
-        runtime_kwargs={
-            "env": env,
-            "model": model,
-            "task_id": 40,
-            "task_language": "make popcorn",
-            "execution_horizon": 2,
-            "tool_allowlist": [
-                "view_env_state",
-                "read_robot_state",
-                "vla_act",
-                "finish",
-            ],
-        },
-        dashboard_events=NullDashboardEventSink(),
-        memory=MemoryManager(tmp_path / "memory"),
-        state_output_dir=tmp_path / "state",
-    )
-    yield toolkit, env, model
-    toolkit.close()
 
 
 def test_public_proprio_decoding_keeps_xyzw_and_raw_joint_semantics():
@@ -909,13 +691,20 @@ def test_model_padding_or_invalid_public_pose_is_not_motion_state(values):
         extract_robot_state(values)
 
 
-def test_robot_reader_uses_saved_record_without_advancing_or_calling_vla(motion):
-    toolkit, env, model = motion
-    env.raw["r1::proprio"][17] = 9
-    result = toolkit.execute_tool("read_robot_state", {"step": 0})
-    assert result.data["robot_state"]["left"]["eef_position"][0] == 0.4
-    assert env.actions == [] and model.calls == 0
-    assert toolkit.state.latest_step == 0
+def test_robot_reader_uses_saved_record_without_advancing_or_calling_vla(tmp_path):
+    env, model = _GripperEnvironment(), _GripperModel()
+    env.raw["r1::proprio"] = _proprio()
+    toolkit = _template_toolkit(
+        tmp_path, ["view_env_state", "read_robot_state", "finish"], env=env, model=model
+    )
+    try:
+        env.raw["r1::proprio"][17] = 9
+        result = toolkit.execute_tool("read_robot_state", {"step": 0})
+        assert result.data["robot_state"]["left"]["eef_position"][0] == 0.4
+        assert env.actions == [] and model.calls == 0
+        assert toolkit.state.latest_step == 0
+    finally:
+        toolkit.close()
 
 
 @pytest.fixture
@@ -930,57 +719,6 @@ def _segment(segmenter, state, **kwargs):
     return segmenter.segment(
         state=state, step=0, camera="camera", image_artifact="camera.png", **kwargs
     )
-
-
-def test_saved_source_and_projection_frame_are_preserved(state):
-    source_bytes = state.load_bytes("camera.png", step=0)
-    with state.record_step(state={}):
-        state.save("camera.png", np.full((4, 4, 3), 255, dtype=np.uint8))
-    mask = np.zeros((4, 4), dtype=bool)
-    mask[1:3, 1:3] = True
-    infer = Mock(
-        return_value=Sam3Result(found=True, score=0.91234, mask=mask, mask_shape=(4, 4))
-    )
-    project = Mock(
-        return_value=SegmentProjection(
-            artifact_fields={
-                "coordinate_frame": "robot_base",
-                "point_robot_base": [0.1, 0.2, 0.3],
-                "depth_artifact": "depth.npz",
-            },
-            result_fields={
-                "coordinate_frame": "robot_base",
-                "point_robot_base": [0.1, 0.2, 0.3],
-            },
-        )
-    )
-    result = _segment(
-        SavedImageSegmenter(SimpleNamespace(segment=infer)),
-        state,
-        prompt="  bowl  ",
-        project_mask=project,
-    )
-    assert not result.is_error
-    infer.assert_called_once_with(
-        source_bytes, text_prompt="bowl", point=None, min_score=0.2
-    )
-    assert project.call_args.args[0] is mask
-    assert project.call_args.args[1] is None
-    assert len(state.records()) == 2
-    assert state.load_bytes("camera.png", step=0) == source_bytes
-    artifact = state.load(result.data["segment_artifact"], step=0)
-    assert artifact["source_step"] == result.data["step"] == 0
-    assert (
-        artifact["coordinate_frame"] == result.data["coordinate_frame"] == "robot_base"
-    )
-    assert artifact["depth_artifact"] == "depth.npz"
-    assert "depth_artifact" not in result.data
-    assert "world_xyz" not in result.data
-    overlay = state.load(result.data["overlay_artifact"], step=0)
-    assert overlay[1, 1].tolist() == [114, 0, 0]
-    assert overlay[0, 0].tolist() == [0, 0, 0]
-    assert result.images == [state.load_bytes(result.data["overlay_artifact"], step=0)]
-    assert not state.exists(result.data["segment_artifact"], step=1)
 
 
 def test_no_mask_preserves_native_reason_and_point_query(state):

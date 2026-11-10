@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -28,8 +27,6 @@ from robots.behavior.env_server import BehaviorEnvFacade
 from robots.behavior.robot_spec import get_robot_spec
 from robots.behavior.tasks import TASK_LANGUAGE, TASK_NAMES
 from robots.behavior.toolkit import BehaviorToolkit
-from robots.behavior.vla_client import BehaviorVLAClient
-from robots.behavior.vla_server import BehaviorVLAFacade
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory import MemoryManager
 from rpent.robots.base import enumerate_robots
@@ -63,6 +60,30 @@ def test_registry_and_prompt_use_the_existing_robot_contract(tmp_path: Path) -> 
     user_prompt = spec.prompts.render("user", variables=config.prompt_vars)
     assert "Task 40: make_microwave_popcorn." in user_prompt
     assert args.memory_profile == "local"
+
+
+def test_shared_model_endpoint_overrides_the_behavior_yaml(tmp_path: Path) -> None:
+    path = tmp_path / "behavior.yaml"
+    path.write_text("vla_endpoint: http://localhost:24002\n")
+    spec = get_robot_spec()
+    args = _args(
+        tmp_path,
+        "--behavior-config",
+        str(path),
+        "--am-endpoint",
+        "http://localhost:31001",
+    )
+    spec.validate_args(args)
+    assert args.am_backend == "pi05"
+    assert spec.parse_config(args).task_desc["vla_endpoint"] == "http://localhost:31001"
+    args.am_endpoint = None
+    assert spec.parse_config(args).task_desc["vla_endpoint"] == "http://localhost:24002"
+
+
+def test_checkpoint_deployment_belongs_to_the_shared_service(tmp_path: Path) -> None:
+    args = _args(tmp_path, "--am-checkpoint", "/path/to/checkpoint")
+    with pytest.raises(ValueError, match="external model service"):
+        get_robot_spec().validate_args(args)
 
 
 @pytest.mark.parametrize("template", ["agent.yaml", "vla_only.yaml"])
@@ -170,7 +191,7 @@ def test_official_catalog_has_all_100_unique_task_directory_names() -> None:
         ("task_id", True),
         ("task_language", " "),
         ("env_endpoint", "ws://localhost:8000"),
-        ("vla_endpoint", "http://localhost:99999"),
+        ("am_endpoint", "http://localhost:99999"),
         ("control_mode", "unknown"),
         ("instruction_mode", "subtask"),
         ("max_chunks_per_call", 0),
@@ -212,8 +233,12 @@ def test_missing_or_malformed_yaml_is_a_cli_validation_error(tmp_path: Path, con
     assert not (tmp_path / "run").exists()
 
 
+@pytest.mark.parametrize(
+    ("mode", "env_language"),
+    [("main", "make popcorn"), ("override", "turn on the radio")],
+)
 def test_runtime_borrows_facades_without_reset_or_shutdown(
-    tmp_path: Path, monkeypatch
+    tmp_path: Path, monkeypatch, mode: str, env_language: str
 ) -> None:
     calls = []
 
@@ -224,11 +249,16 @@ def test_runtime_borrows_facades_without_reset_or_shutdown(
                 return {"ok": True}
             if method == "env.get_env_meta":
                 return env_runtime_contract(40)
+            if method == "env.get_task_language":
+                return env_language
             raise AssertionError(f"unexpected runtime call: {method}")
 
     monkeypatch.setattr("rpent.utils.rpc.make_rpc_client", lambda endpoint: Transport())
     daemons, runtime = get_robot_spec().init_runtime(
-        _args(tmp_path), tmp_path, NullDashboardEventSink(), None
+        _args(tmp_path, "--instruction-mode", mode),
+        tmp_path,
+        NullDashboardEventSink(),
+        None,
     )
     assert daemons == []
     assert set(runtime) == {
@@ -243,6 +273,26 @@ def test_runtime_borrows_facades_without_reset_or_shutdown(
     }
     assert "env.reset" not in calls and "shutdown" not in calls
     assert calls.count("healthz") == 2
+    assert calls.count("env.get_task_language") == (1 if mode == "main" else 0)
+
+
+@pytest.mark.parametrize("env_language", ["turn on the radio", None])
+def test_main_mode_rejects_an_env_without_the_planners_task_instruction(
+    tmp_path: Path, monkeypatch, env_language: str | None
+) -> None:
+    args = _args(tmp_path, "--instruction-mode", "main")
+    env = LocalRpc(
+        BehaviorEnvFacade(FakeEnvBackend(), task_id=40, task_language=env_language)
+    )
+    monkeypatch.setattr(
+        "rpent.utils.rpc.make_rpc_client", {args.env_endpoint: env}.__getitem__
+    )
+
+    with pytest.raises(RuntimeError, match="task 40 instruction mismatch") as exc:
+        get_robot_spec().init_runtime(args, tmp_path, NullDashboardEventSink(), None)
+
+    assert f"Planner='make popcorn', Env={env_language!r}" in str(exc.value)
+    assert env.calls == ["healthz", "env.get_env_meta", "env.get_task_language"]
 
 
 @pytest.mark.parametrize("component", ["env", "vla"])
@@ -265,7 +315,7 @@ def test_selected_component_needs_only_its_endpoint(
     monkeypatch.setattr("rpent.utils.rpc.make_rpc_client", make_client)
     args = _args(tmp_path)
     unselected = "env" if component == "vla" else "vla"
-    setattr(args, f"{unselected}_endpoint", None)
+    setattr(args, "am_endpoint" if unselected == "vla" else "env_endpoint", None)
     # A normal full CLI run still requires both endpoints.
     with pytest.raises(ValueError, match=f"{unselected}_endpoint"):
         get_robot_spec().validate_args(args)
@@ -273,7 +323,7 @@ def test_selected_component_needs_only_its_endpoint(
     _, runtime = get_robot_spec().init_runtime(
         args, tmp_path, NullDashboardEventSink(), {component}
     )
-    assert endpoints == [getattr(args, f"{component}_endpoint")]
+    assert endpoints == [args.am_endpoint if component == "vla" else args.env_endpoint]
     selected_key = "env" if component == "env" else "model"
     unselected_key = "model" if component == "env" else "env"
     assert selected_key in runtime and unselected_key not in runtime
@@ -311,7 +361,7 @@ def test_agent_templates_take_cli_task_and_require_actual_endpoints(
     args = _args(tmp_path, "--task-id", "7", "--task-language", "Put away the toys.")
     args.behavior_config = root / "robots/behavior/configs" / template
     args.execution_horizon = None
-    args.env_endpoint = args.vla_endpoint = None
+    args.env_endpoint = args.am_endpoint = None
     config = spec.parse_config(args)
     assert config.task_desc["task_id"] == 7
     assert config.task_desc["task_name"] == "picking_up_toys"
@@ -325,7 +375,7 @@ def test_agent_templates_take_cli_task_and_require_actual_endpoints(
     with pytest.raises(ValueError, match="env_endpoint"):
         spec.validate_args(args)
     args.env_endpoint = "socket://localhost:24000"
-    args.vla_endpoint = "socket://localhost:24002"
+    args.am_endpoint = "socket://localhost:24002"
     if template == "agent.yaml":
         with pytest.raises(ValueError, match="sam3_endpoint"):
             spec.validate_args(args)
@@ -436,13 +486,13 @@ class _Environment:
 
 class _Model:
     def __init__(self) -> None:
-        self.inputs: list[tuple[dict[str, Any], str]] = []
+        self.inputs: list[dict[str, Any]] = []
         self.error: Exception | None = None
         self.closed = False
         self.action_horizon = 4
 
-    def infer(self, observation: dict[str, Any], prompt: str) -> np.ndarray:
-        self.inputs.append((observation, prompt))
+    def predict(self, observation: dict[str, Any]) -> np.ndarray:
+        self.inputs.append(observation)
         if self.error is not None:
             raise self.error
         return np.arange(self.action_horizon * 23, dtype=np.float32).reshape(-1, 23)
@@ -512,11 +562,11 @@ def test_vla_tool_refreshes_observations_and_records_actual_execution(
     assert not result.is_error
     assert len(env.actions) == 2
     assert all(actions.shape == (2, 23) for actions in env.actions)
-    assert [prompt for _, prompt in model.inputs] == ["open microwave"] * 2
-    assert model.inputs[0][0][_CAMERA_KEYS[0]].shape == (4, 5, 3)
-    assert model.inputs[0][0][_PROPRIO_KEY].shape == (256,)
-    assert model.inputs[0][0][_CAMERA_KEYS[0]][0, 0, 0] == 0
-    assert model.inputs[1][0][_CAMERA_KEYS[0]][0, 0, 0] == 1
+    assert [obs["task_descriptions"] for obs in model.inputs] == ["open microwave"] * 2
+    assert model.inputs[0][_CAMERA_KEYS[0]].shape == (4, 5, 3)
+    assert model.inputs[0][_PROPRIO_KEY].shape == (256,)
+    assert model.inputs[0][_CAMERA_KEYS[0]][0, 0, 0] == 0
+    assert model.inputs[1][_CAMERA_KEYS[0]][0, 0, 0] == 1
     execution = result.data["log"]["result"]
     assert execution["requested_actions"] == 4
     assert execution["executed_actions"] == 4
@@ -536,7 +586,7 @@ def test_missing_execution_feedback_stays_unknown(components) -> None:
     assert execution["executed_actions"] is None
     assert execution["terminated"] is None
     assert execution["truncated"] is None
-    assert model.inputs[0][1] == "make popcorn"
+    assert model.inputs[0]["task_descriptions"] == "make popcorn"
 
 
 @pytest.mark.parametrize("flag", ["terminated", "truncated"])
@@ -645,7 +695,7 @@ def test_agent_returns_control_after_32_actions_and_records_once(
     assert not result.is_error
     assert len(model.inputs) == len(env.actions) == 1
     assert env.actions[0].shape == (32, 23)
-    assert model.inputs[0][1] == "make popcorn"
+    assert model.inputs[0]["task_descriptions"] == "make popcorn"
     assert result.data["log"]["result"]["executed_actions"] == 32
     assert len(result.images) == 3
     assert toolkit.state.latest_step == 1
@@ -666,7 +716,7 @@ def test_main_mode_rejects_subtasks_and_accepts_the_exact_main_prompt(
     assert not model.inputs and not env.actions
     result = toolkit.execute_tool("vla_act", {"prompt": "make popcorn"})
     assert not result.is_error
-    assert model.inputs[0][1] == "make popcorn"
+    assert model.inputs[0]["task_descriptions"] == "make popcorn"
 
 
 def test_session_ending_before_action_prevents_inference_and_uses_cached_images(
@@ -827,6 +877,9 @@ def test_public_templates_publish_declared_tools_and_shared_file_tools(
         assert "complete official episode" in prompt
         assert "actual tool/infrastructure failure" in prompt
         assert "subtask text and other instruction overrides are rejected" in prompt
+        assert "state.robot_state" in prompt
+        if "move_to" in expected:
+            assert "every submitted action was confirmed" in prompt
         assert ("Use move_to" in prompt) == ("move_to" in expected)
         assert ("SAM3" in prompt) == ("segment" in expected)
     finally:
@@ -968,51 +1021,6 @@ def test_invalid_execution_feedback_is_not_cached_as_a_completed_step():
     assert client.last_obs is original
 
 
-def test_vla_preserves_raw_observation_prompt_and_native_actions():
-    calls = []
-    actions = np.arange(46, dtype=np.float32).reshape(2, 23)
-
-    def infer_chunk(observation, prompt=None):
-        calls.append((observation, prompt))
-        return actions
-
-    rpc = LocalRpc(BehaviorVLAFacade(SimpleNamespace(infer_chunk=infer_chunk)))
-    client = BehaviorVLAClient(rpc)
-    observation = {"fixture_rgb": np.zeros((2, 2, 3), dtype=np.uint8)}
-
-    result = client.infer(observation, prompt="pick up the popcorn bag")
-
-    assert rpc.calls == ["vla.predict"]
-    assert calls[0][0] is observation
-    assert calls[0][1] == "pick up the popcorn bag"
-    assert result is actions
-
-
-@pytest.mark.parametrize("actions", [np.zeros((2, 16)), np.full((1, 23), np.nan)])
-def test_invalid_vla_output_cannot_be_forwarded_as_native_actions(actions):
-    backend = SimpleNamespace(infer_chunk=lambda obs, prompt=None: actions)
-    client = BehaviorVLAClient(LocalRpc(BehaviorVLAFacade(backend)))
-
-    with pytest.raises(ValueError, match="BEHAVIOR native actions"):
-        client.infer({})
-
-
-@pytest.mark.parametrize(
-    ("options", "error"),
-    [({"temperature": 0.5}, ValueError), ({"prompt": 7}, TypeError), ([], TypeError)],
-)
-def test_unsupported_vla_options_do_not_reach_backend(options, error):
-    calls = []
-    backend = SimpleNamespace(infer_chunk=lambda *args, **kwargs: calls.append(args))
-    rpc = LocalRpc(BehaviorVLAFacade(backend))
-
-    with pytest.raises(error):
-        rpc.call("vla.predict", args=({}, options))
-    assert calls == []
-
-
-def test_components_require_explicit_backends():
+def test_env_facade_requires_an_explicit_backend():
     with pytest.raises(RuntimeError, match="requires an injected environment backend"):
         BehaviorEnvFacade(task_id=40)
-    with pytest.raises(RuntimeError, match="VLA policy backend"):
-        BehaviorVLAFacade()

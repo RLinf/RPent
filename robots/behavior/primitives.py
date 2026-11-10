@@ -21,7 +21,6 @@ CuRobo planning is provided by ``robots.behavior.motion``.
 
 from __future__ import annotations
 
-import json
 import math
 from collections.abc import Callable
 from copy import deepcopy
@@ -40,7 +39,7 @@ from rpent.utils.rpc.rpc_client import RpcError
 
 if TYPE_CHECKING:
     from robots.behavior.env_client import BehaviorEnvClient
-    from robots.behavior.vla_client import BehaviorVLAClient
+    from rpent.robots.components.pi05_vla_client import Pi05VLAClient
 
 
 CONTROL_DT_S = 1.0 / 30.0
@@ -176,7 +175,7 @@ class BehaviorPrimitives:
         self,
         *,
         env: BehaviorEnvClient,
-        model: BehaviorVLAClient,
+        model: Pi05VLAClient,
         task_id: int,
         task_language: str,
         check_cancelled: Callable[[], None],
@@ -611,8 +610,8 @@ class BehaviorPrimitives:
                 task_id=self.task_id,
                 task_language=self.task_language,
             )
-            actions = self.model.infer(
-                observation["policy_observation"], prompt=instruction
+            actions = self.model.predict(
+                {**observation["policy_observation"], "task_descriptions": instruction}
             )[: self.execution_horizon]
             self._check_cancelled()
             returned, _, terminated, truncated, info = self._send_actions(actions)

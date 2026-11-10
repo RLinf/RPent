@@ -216,7 +216,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--task-id", type=int, choices=tuple(TASK_NAMES), metavar="0..99", required=True
     )
     parser.add_argument("--task-language", required=True)
-    parser.add_argument("--vla-endpoint", required=True)
+    parser.add_argument("--am-endpoint", "--vla-endpoint", required=True)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--transport", choices=("socket", "http"), default="socket")
@@ -250,7 +250,7 @@ async def _serve(args: argparse.Namespace) -> None:
         OfficialEvaluatorPolicy,
         create_official_policy_server,
     )
-    from robots.behavior.vla_client import BehaviorVLAClient
+    from rpent.robots.components.pi05_vla_client import Pi05VLAClient
     from rpent.utils.rpc import make_rpc_client
 
     broker = EvaluatorStepBridge(
@@ -258,9 +258,9 @@ async def _serve(args: argparse.Namespace) -> None:
         action_timeout_s=args.action_timeout_s,
         chunk_timeout_s=args.chunk_timeout_s,
     )
-    rpc = make_rpc_client(args.vla_endpoint)
+    rpc = make_rpc_client(args.am_endpoint)
     try:
-        model = BehaviorVLAClient(rpc)
+        model = Pi05VLAClient(rpc, embodiment="behavior")
         policy = OfficialEvaluatorPolicy(
             broker, task_id=args.task_id, reset_policy=model.reset
         )
