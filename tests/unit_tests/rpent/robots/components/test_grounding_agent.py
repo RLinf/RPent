@@ -62,14 +62,13 @@ def test_outside_image_is_rejected(monkeypatch, image, point):
         GroundingAgent("test:model").ground(image, "cup rim")
 
 
-@pytest.mark.parametrize("model", ["codex:test", "codex"])
-def test_codex_receives_image_and_no_robot_tools(monkeypatch, image, tmp_path, model):
+def test_codex_receives_image_and_no_robot_tools(monkeypatch, image, tmp_path):
     import rpent.planner.codex as codex
 
     source = tmp_path / "user"
     source.mkdir()
     (source / "config.toml").write_text(
-        'model="configured-vision"\n[mcp_servers.robot]\ncommand="false"\n'
+        '[mcp_servers.robot]\ncommand="false"\n'
         '[model_providers.proxy]\nbase_url="https://example.test/v1"\n'
     )
     (source / "auth.json").write_text("{}")
@@ -92,13 +91,11 @@ def test_codex_receives_image_and_no_robot_tools(monkeypatch, image, tmp_path, m
         assert (home / "auth.json").resolve() == source / "auth.json"
         assert "mcp_servers={}" not in config.config_overrides
         assert any("model_providers" in value for value in config.config_overrides)
-        assert 'model="configured-vision"' in config.config_overrides
         assert "features.shell_tool=false" in config.config_overrides
         assert "features.view_image=false" in config.config_overrides
         assert "features.view_image_tool=false" in config.config_overrides
         assert kwargs["image_bytes"] == image
         assert kwargs["output_schema"]["required"] == ["point_xy"]
-        assert kwargs["model"] == ("test" if model == "codex:test" else None)
         return '{"point_xy": [5, 3]}'
 
     import rpent.robots.components.grounding_agent as grounding
@@ -110,7 +107,7 @@ def test_codex_receives_image_and_no_robot_tools(monkeypatch, image, tmp_path, m
         lambda config: homes.append(Path(config.env["CODEX_HOME"])),
     )
     monkeypatch.setattr(codex, "run_probe_turn", probe)
-    assert GroundingAgent(model).ground(image, "cup rim").point_xy == (5, 3)
+    assert GroundingAgent("codex:test").ground(image, "cup rim").point_xy == (5, 3)
 
     assert homes and not homes[0].exists()
     assert (source / "auth.json").is_file()

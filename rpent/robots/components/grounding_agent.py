@@ -63,7 +63,7 @@ class GroundingAgent:
             "[column, row] in ORIGINAL pixel units, not normalized coordinates. "
             "Only select a point; do not use tools or execute robot actions."
         )
-        if self.model == "codex" or self.model.startswith("codex:"):
+        if self.model.startswith("codex:"):
             selected = self._ground_codex(image, prompt)
         else:
             from pydantic_ai import Agent, BinaryContent
@@ -133,7 +133,7 @@ class GroundingAgent:
             answer = run_probe_turn(
                 config,
                 prompt=prompt,
-                model=self.model.split(":", 1)[1] if ":" in self.model else None,
+                model=self.model.split(":", 1)[1],
                 timeout_s=90,
                 image_bytes=image,
                 output_schema={
@@ -170,7 +170,6 @@ def _isolated_codex_environment(
     # Explicit RPent provider overrides take precedence over these user defaults.
     overrides = []
     for key in (
-        "model",
         "model_provider",
         "model_providers",
         "openai_base_url",
