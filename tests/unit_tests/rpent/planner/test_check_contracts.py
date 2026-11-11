@@ -446,7 +446,7 @@ def test_a_provider_error_body_echoing_the_key_is_not_carried_verbatim(
 
 @pytest.mark.parametrize("key_env", ["GOOGLE_API_KEY", "GEMINI_API_KEY"])
 def test_google_key_value_is_redacted(monkeypatch: pytest.MonkeyPatch, key_env) -> None:
-    from rpent.planner.gemini_cli import _redact_secrets
+    from rpent.planner.gemini_cli import _load_secret_redactor
 
     monkeypatch.setenv(key_env, SENTINEL_KEY)
     _patch_model(
@@ -460,7 +460,7 @@ def test_google_key_value_is_redacted(monkeypatch: pytest.MonkeyPatch, key_env) 
     assert result.status == STATUS_AUTH_FAILED
     assert SENTINEL_KEY not in str(result.as_dict())
     assert check_mod.redact_secrets(SENTINEL_KEY) == f"<{key_env}>"
-    assert _redact_secrets(SENTINEL_KEY) == f"<{key_env}>"
+    assert _load_secret_redactor()(SENTINEL_KEY) == f"<{key_env}>"
 
 
 # ---------------------------------------------------------------------------

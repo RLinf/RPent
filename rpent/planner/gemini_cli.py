@@ -29,7 +29,7 @@ import os
 import queue
 import shutil
 import tempfile
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -140,6 +140,7 @@ class GeminiCliPlanner(Planner):
             "gemini_cli", self._output_path, directory=self._output_dir
         )
         recorder = _Recorder(self._dashboard_events)
+        redact = _load_secret_redactor()
         stderr_path = artifacts.sidecar(".stderr.log")
         self._output_dir.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(
@@ -160,6 +161,7 @@ class GeminiCliPlanner(Planner):
                     control=control,
                     emit_event=emit,
                     stderr_path=stderr_path,
+                    redact=redact,
                 )
 
             error = await run_agent(
@@ -174,7 +176,7 @@ class GeminiCliPlanner(Planner):
                 label="Gemini CLI",
                 input_queue=input_queue,
                 interaction=interaction,
-                redact=_redact_secrets,
+                redact=redact,
                 tool_event=lambda name, args, result: {
                     "type": "rpent_tool",
                     "name": name,
@@ -209,12 +211,14 @@ class _GeminiSession:
         control: PlannerInteractionControl | None,
         emit_event,
         stderr_path: Path,
+        redact: Callable[[str], str],
     ) -> None:
         self._cwd = cwd
         self._model = model
         self._control = control
         self._emit = emit_event
         self._stderr_path = stderr_path
+        self._redact = redact
         self._transport = None
         self._connection = None
         self._session_id = None
@@ -285,7 +289,7 @@ class _GeminiSession:
                 await self._control.complete(self)
         except Exception as exc:
             done.set()
-            self.error = _redact_secrets(f"{type(exc).__name__}: {exc}")
+            self.error = self._redact(f"{type(exc).__name__}: {exc}")
             if self._control is not None:
                 self._control.end()
 
@@ -318,9 +322,7 @@ class _GeminiSession:
         with self._stderr_path.open("w") as output:
             if stream is not None:
                 while line := await stream.readline():
-                    output.write(
-                        _redact_secrets(line.decode("utf-8", errors="replace"))
-                    )
+                    output.write(self._redact(line.decode("utf-8", errors="replace")))
                     output.flush()
 
     async def close(self) -> None:
@@ -360,6 +362,7 @@ def run_probe_turn(*, prompt: str, model: str | None, timeout_s: int) -> str:
                 control=None,
                 emit_event=recorder.observe,
                 stderr_path=stderr_path,
+                redact=_load_secret_redactor(),
             )
             try:
                 await asyncio.wait_for(session.run(prompt), timeout=timeout_s)
@@ -533,30 +536,31 @@ def _gemini_environment() -> dict[str, str]:
     }
 
 
-def _dotenv_value(name: str) -> str | None:
-    """Read one Gemini CLI dotenv setting without logging neighboring secrets."""
+def _load_secret_redactor() -> Callable[[str], str]:
+    """Snapshot configured keys once for a session's event and stderr redaction."""
+    secrets = {name: os.environ.get(name) for name in _SECRET_ENV_NAMES}
     path = Path.home() / ".gemini" / ".env"
     try:
         lines = path.read_text().splitlines()
     except OSError:
-        return None
+        lines = []
     for line in lines:
         stripped = line.strip()
         if not stripped or stripped.startswith("#") or "=" not in stripped:
             continue
         key, value = stripped.split("=", 1)
-        if key.strip().removeprefix("export ").strip() != name:
+        name = key.strip().removeprefix("export ").strip()
+        if name not in secrets or secrets[name]:
             continue
         value = value.strip()
         if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
             value = value[1:-1]
-        return value or None
-    return None
+        secrets[name] = value
 
+    def redact(text: str) -> str:
+        for name, secret in secrets.items():
+            if secret and len(secret) >= 8:
+                text = text.replace(secret, f"<{name}>")
+        return text
 
-def _redact_secrets(text: str) -> str:
-    for name in _SECRET_ENV_NAMES:
-        secret = os.environ.get(name) or _dotenv_value(name)
-        if secret and len(secret) >= 8:
-            text = text.replace(secret, f"<{name}>")
-    return text
+    return redact

@@ -166,20 +166,41 @@ def test_recorder_uses_actual_finish_and_accumulates_usage(tool_error):
     assert any(isinstance(event, UsageEvent) for event in events)
 
 
-def test_stderr_redacts_key_loaded_from_gemini_dotenv(
+def test_secret_redactor_snapshots_configuration_once_per_session(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     secret = "dotenv-secret-value"
     gemini_dir = tmp_path / ".gemini"
     gemini_dir.mkdir()
-    (gemini_dir / ".env").write_text(f"GEMINI_API_KEY={secret}\n")
+    dotenv = gemini_dir / ".env"
+    dotenv.write_text(
+        f"export GEMINI_API_KEY='{secret}'\nGOOGLE_API_KEY=dotenv-google-secret\n"
+    )
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.setenv("GOOGLE_API_KEY", "environment-google-secret")
+    read_text = Path.read_text
+    reads = []
 
-    assert gemini_module._redact_secrets(f"request failed for {secret}") == (
-        "request failed for <GEMINI_API_KEY>"
+    def read(path):
+        reads.append(path)
+        return read_text(path)
+
+    monkeypatch.setattr(Path, "read_text", read)
+    redact = gemini_module._load_secret_redactor()
+    dotenv.write_text("GEMINI_API_KEY=replacement-secret\n")
+    for _ in range(3):
+        assert redact(f"request failed for {secret}") == (
+            "request failed for <GEMINI_API_KEY>"
+        )
+        assert redact("environment-google-secret") == "<GOOGLE_API_KEY>"
+        assert redact("dotenv-google-secret") == "dotenv-google-secret"
+    assert reads == [dotenv]
+    assert gemini_module._load_secret_redactor()("replacement-secret") == (
+        "<GEMINI_API_KEY>"
     )
+    assert reads == [dotenv, dotenv]
 
 
 @pytest.fixture
