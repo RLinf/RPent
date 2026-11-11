@@ -16,15 +16,34 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
+from copy import deepcopy
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import numpy as np
+import pytest
+
+from robots.robocasa.env_client import RoboCasaEnvClient
+from robots.robocasa.env_server import DEFAULT_CAMS, RoboCasaEnvFacade
 from robots.robocasa.primitives import RoboCasaPrimitives
 from robots.robocasa.prompt_bundle import system_prompt
+from robots.robocasa.toolkit import _capture_robocasa_call
 from robots.robocasa.vla_server import _normalize_legacy_processor_geometry
+from rpent.dashboard.events import NullDashboardEventSink
+from rpent.flywheel.flywheel import select_vla_segments
+from rpent.flywheel.reader import iter_trajectories, read_array
+from rpent.memory import MemoryManager
 from rpent.prompt.utils import format_prompt
-from rpent.tools import iter_tools
+from rpent.robots.components.action_spec import box_action_spec
+from rpent.robots.components.env_facade_base import BaseEnvFacade
+from rpent.session import EnvState, Payload
+from rpent.session.env_capture import CapturingEnvClient, ToolCallCapture
+from rpent.tools import Toolkit, ToolResult, iter_tools
+from rpent.tools.direct_action import direct_action_tool
+from rpent.utils.rpc import RpcError
 
 
 class _RecordingRldx:
@@ -260,3 +279,308 @@ def test_current_rldx_processor_geometry_is_not_rebuilt(monkeypatch) -> None:
     assert _normalize_legacy_processor_geometry(processor) is False
     assert processor.image_max_area == 131072
     assert processor.image_resize_m == 64
+
+
+class _Backend:
+    action_dim = 12
+
+    def __init__(self):
+        self.executed = []
+        self.reset_count = 0
+        self.observation_reads = 0
+        self.fail_at = None
+        self.obs = {
+            key: np.zeros(size)
+            for key, size in (
+                ("robot0_eef_pos", 3),
+                ("robot0_eef_quat", 4),
+                ("robot0_gripper_qpos", 2),
+                ("robot0_base_pos", 3),
+                ("robot0_base_quat", 4),
+                ("robot0_base_to_eef_pos", 3),
+                ("robot0_base_to_eef_quat", 4),
+            )
+        }
+
+    def reset(self):
+        self.reset_count += 1
+        self.executed.clear()
+        for value in self.obs.values():
+            value.fill(0)
+        return self.obs
+
+    def _get_observations(self):
+        self.observation_reads += 1
+        return self.obs
+
+    def step(self, action):
+        self.executed.append(action.copy())
+        count = len(self.executed)
+        for value in self.obs.values():
+            value.fill(count)
+        if count == self.fail_at:
+            raise RuntimeError("native step failed")
+        return self.obs, float(count), False, {"count": count}
+
+    def _check_success(self):
+        return False
+
+    def get_ep_meta(self):
+        return {"lang": "Open the left drawer."}
+
+    def render_camera(self, camera_name, height, width, depth=False):
+        assert not depth
+        rows = np.arange(height, dtype=np.uint8) + 10 * len(self.executed)
+        return np.broadcast_to(rows[:, None, None], (height, width, 3)).copy()
+
+
+class _VLA:
+    def __init__(self):
+        self.inputs = []
+
+    def get_modality_config(self):
+        return {"video_delta_indices": [-2, 0], "hist_maxlen": 3}
+
+    def predict(self, obs, options):
+        self.inputs.append((deepcopy(obs), deepcopy(options)))
+        return {
+            "action.end_effector_position": np.full((1, 4, 3), 0.25),
+            "action.end_effector_rotation": np.full((1, 4, 3), 0.1),
+            "action.gripper_close": np.array([[[0.2], [0.8], [0.4], [0.6]]]),
+            "action.base_motion": np.tile([0.8, -0.8, 0.2, -0.2], (1, 4, 1)),
+            "action.control_mode": np.full((1, 4, 1), 0.2),
+        }
+
+
+@pytest.fixture
+def facade(monkeypatch):
+    for name in (
+        "RLDX_RESET_SEED",
+        "RLDX_VIDEO_DIR",
+        "RLDX_MAX_CHUNKS",
+        "RLDX_ACTION_STEPS_PER_CHUNK",
+        "RLDX_SETTLE_PATIENCE",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    facade = RoboCasaEnvFacade.__new__(RoboCasaEnvFacade)
+    facade.env = _Backend()
+    facade.cameras = DEFAULT_CAMS
+    facade.camera_h = facade.camera_w = 4
+    facade._meta = {"camera_h": 4, "camera_w": 4}
+    facade.render_camera = facade.env.render_camera
+    facade.grasp_contact = lambda: (False, None)
+    facade.reassemble_env_action = lambda action: action
+    facade.get_action_spec = lambda: {
+        "default": box_action_spec(-np.ones(12), np.ones(12), "test action")
+    }
+    BaseEnvFacade.__init__(facade)
+    return facade
+
+
+def _primitives(env, tmp_path):
+    primitives = RoboCasaPrimitives(env, tmp_path, 4, _VLA(), allow_reset=False)
+    skill = primitives._rldx
+    skill.VLA_OBS_RES = 4
+    # Stand in for the optional RoboCasa converter; keep the skill's conversion call.
+    skill._unmap = lambda fields: np.concatenate(
+        [
+            np.where(value >= 0.5, 1.0, -1.0)
+            if key in ("action.gripper_close", "action.control_mode")
+            else value
+            for key, value in fields.items()
+        ]
+    )
+    return primitives
+
+
+@pytest.mark.parametrize(
+    ("transport", "mode"),
+    [
+        ("socket", "capture"),
+        ("http", "unwrapped"),
+    ],
+)
+def test_robocasa_tools_capture_executed_actions_and_rldx_history(
+    facade, transport, make_server_and_client, tmp_path, monkeypatch, mode
+):
+    state = EnvState(tmp_path)
+    recording = mode == "capture"
+    planner = None
+    if recording:
+        state.start_task(
+            instruction="Open the left drawer.", config=Payload("test", {})
+        )
+        planner = state.register_planner(backend="api")
+    monkeypatch.setattr("rpent.utils.templates.get_output_dir", lambda: tmp_path)
+    toolkit = Toolkit(
+        state=state,
+        dashboard_events=NullDashboardEventSink(),
+        memory=MemoryManager(tmp_path / "memory"),
+    )
+    monkeypatch.setattr(
+        toolkit, "get_env_state", lambda **kw: ToolResult(data=kw["result"])
+    )
+
+    def invoke(name, arguments):
+        capture = None
+        if recording:
+            tool_id = state.register_tool_call(
+                planner_id=planner, name=name, arguments=Payload("json", arguments)
+            )
+            capture = ToolCallCapture(state, tool_id)
+        with capture.bind() if capture else nullcontext():
+            result = toolkit.execute_tool(name, arguments).data
+        assert "error" not in result
+        return result
+
+    with make_server_and_client(facade, transport) as rpc:
+        client = RoboCasaEnvClient(rpc, expected_meta=facade._meta)
+        env = (
+            client
+            if mode == "unwrapped"
+            else CapturingEnvClient(
+                client, state, capture_call=partial(_capture_robocasa_call, client)
+            )
+        )
+        primitives = _primitives(env, tmp_path)
+        assert primitives._rldx.env is env
+        toolkit.add_tools(iter_tools(primitives))
+        toolkit.add_tool(
+            direct_action_tool(env.action_specs, primitives.execute_action)
+        )
+        invoke("set_gripper", {"steps": 1})
+        result = invoke(
+            "rldx_arm",
+            {
+                "prompt": "Open it",
+                "max_chunks": 2,
+                "n_action_steps": 2,
+                "base_clip": 0.1,
+                "settle_patience": 99,
+            },
+        )
+        assert result["steps_applied"] == 4
+        assert result["effective_prompt"] == "Open the left drawer."
+        invoke("release", {"steps": 1})
+        invoke("execute_action", {"values": [0.2] * 12})
+        np.testing.assert_array_equal(client.last_obs["robot0_eef_pos"], [7] * 3)
+        assert "images" not in client.last_obs
+    assert facade.env.reset_count == 2
+    assert len(facade.env.executed) == 7
+    assert facade.env.observation_reads == 0
+    np.testing.assert_allclose(facade.env.executed[1][7:11], [0.1, -0.1, 0.1, -0.1])
+    assert [a[6] for a in facade.env.executed[1:5]] == [-1, 1, -1, 1]
+    inputs = primitives._rldx._vla_client.inputs
+    assert len(inputs) == 2
+    for index, (observation, options) in enumerate(inputs):
+        assert options == {"reset_memory": [index == 0]}
+        assert observation["annotation.human.task_description"] == [
+            "Open the left drawer."
+        ]
+        for camera in DEFAULT_CAMS:
+            history = observation[f"video.{camera}"]
+            assert history.shape == (1, 2, 4, 4, 3)
+            for frame, count in enumerate((1, 1 + index * 2)):
+                np.testing.assert_array_equal(
+                    history[0, frame, :, 0, 0], np.arange(4)[::-1] + count * 10
+                )
+        for key, value in observation.items():
+            if key.startswith("state."):
+                np.testing.assert_array_equal(value, np.full_like(value, 1 + index * 2))
+    if not recording:
+        assert state.action_records() == state.prediction_records() == []
+        assert not (tmp_path / "trajectories").exists()
+        return
+
+    state.end_task(status="completed", stop_reason="finish")
+    root = state.save_planner_trajectory()
+    trajectory = next(iter_trajectories(root))
+    actions = trajectory["actions"]
+    assert [a["source"] for a in actions] == ["tool_computed"] + ["vla"] * 4 + [
+        "tool_computed",
+        "direct",
+    ]
+    for index, (action, executed) in enumerate(
+        zip(actions, facade.env.executed, strict=True)
+    ):
+        native = read_array(root, action["action"]["data"])
+        assert native.dtype == np.float64
+        np.testing.assert_array_equal(native, executed)
+        before = action["before_observation"]["payload"]["data"]
+        np.testing.assert_array_equal(
+            read_array(root, before["robot0_eef_pos"]), [index] * 3
+        )
+        for camera in DEFAULT_CAMS:
+            image = read_array(root, before["images"][camera])
+            np.testing.assert_array_equal(
+                image[:, 0, 0], np.arange(4)[::-1] + index * 10
+            )
+    first, second = trajectory["predictions"]
+    assert first["instruction"] == second["instruction"] == "Open the left drawer."
+    assert first["action_ids"] == [a["action_id"] for a in actions[1:3]]
+    assert second["action_ids"] == [a["action_id"] for a in actions[3:5]]
+
+
+def test_robocasa_failed_step_keeps_prior_steps_and_ends_prediction_scope(
+    facade, make_server_and_client, tmp_path
+):
+    state = EnvState(tmp_path)
+    state.start_task(
+        instruction="Open drawer",
+        config=Payload("test", {"arguments": {"robot_name": "robocasa"}}),
+    )
+    tool_id = state.register_tool_call(
+        planner_id=state.register_planner(backend="api"),
+        name="rldx_skill",
+        arguments=Payload("json", {}),
+    )
+    capture = ToolCallCapture(state, tool_id)
+    with make_server_and_client(facade, "http") as rpc:
+        client = RoboCasaEnvClient(rpc, expected_meta=facade._meta)
+        env = CapturingEnvClient(
+            client, state, capture_call=partial(_capture_robocasa_call, client)
+        )
+        primitives = _primitives(env, tmp_path)
+        facade.env.fail_at = 2
+        with capture.bind():
+            with pytest.raises(RpcError, match="native step failed"):
+                primitives._rldx.run("Open drawer", max_chunks=1, n_action_steps=3)
+            assert capture.prediction_id is None
+            assert len(state.action_records()) == 1
+            assert state.prediction_records()[0].action_ids == ["A1"]
+            np.testing.assert_array_equal(
+                client.last_obs["robot0_base_to_eef_pos"], np.full(3, 1)
+            )
+            np.testing.assert_array_equal(
+                facade.env.obs["robot0_base_to_eef_pos"], np.full(3, 2)
+            )
+            primitives._rldx.run("Open drawer", max_chunks=1, n_action_steps=2)
+            env.step(np.zeros(12))
+    first, recovered, following, last = state.action_records()
+    assert first.source == "vla" and last.source == "tool_computed"
+    assert recovered.before_observation_id != first.after_observation_id
+    before = state.get_observation(recovered.before_observation_id).payload
+    assert before.data is None
+    assert before.completeness == "partial"
+    assert before.missing[""].reason == "capture_failed"
+    assert following.before_observation_id == recovered.after_observation_id
+    np.testing.assert_array_equal(
+        state.get_observation(following.before_observation_id).payload.data[
+            "robot0_base_to_eef_pos"
+        ],
+        np.full(3, 3),
+    )
+    state.end_task(
+        status="completed",
+        stop_reason="finish",
+        result=Payload("test", {"environment_success": True}),
+    )
+    trajectory = next(iter_trajectories(state.save_planner_trajectory()))
+    selected = select_vla_segments(trajectory)
+    assert [
+        (item["start_index"], item["stop_index"]) for item in selected["segments"]
+    ] == [
+        (0, 1),
+        (2, 3),
+    ]
+    assert [item["action_id"] for item in selected["rejected"]] == [recovered.action_id]

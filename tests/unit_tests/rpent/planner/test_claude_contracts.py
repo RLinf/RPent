@@ -15,24 +15,36 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import queue
+import threading
 from pathlib import Path
 from typing import Any
+from unittest.mock import Mock
 
 import claude_agent_sdk
 import pytest
+from claude_agent_sdk._internal.transport.subprocess_cli import SubprocessCLITransport
+from mcp.shared.memory import create_connected_server_and_client_session
 
 from rpent.dashboard.events import TranscriptEvent, UsageEvent
+from rpent.memory import MemoryManager
 from rpent.planner.claude_code import (
     ClaudeCodePlanner,
     _build_rpent_server,
     _ClaudeSessionDriver,
     _Recorder,
-    _tool_result_to_mcp,
 )
-from rpent.tools import ToolResult, tool
+from rpent.session import EnvState, Payload
+from rpent.tools import Toolkit, ToolResult, tool
 from rpent.tools.common import CommonTools
+from rpent.utils.logging import init_output_dir
+
+
+@pytest.fixture(autouse=True)
+def _output_dir(tmp_path: Path) -> None:
+    init_output_dir(tmp_path / "log")
 
 
 class RecordingSink:
@@ -65,6 +77,10 @@ class FakeToolkit:
 
     def list_tools(self):
         return self._tools
+
+    @property
+    def state(self) -> EnvState:
+        raise RuntimeError("toolkit has no environment state")
 
     def execute_tool(self, name: str, args: dict[str, Any]) -> ToolResult:
         self.calls.append((name, args))
@@ -197,24 +213,6 @@ def test_in_process_mcp_bridge_maps_schema_dispatch_and_errors() -> None:
     assert response["is_error"] is True
     assert [block["type"] for block in response["content"]] == ["text", "image"]
     assert response["content"][1]["mimeType"] == "image/png"
-
-
-def test_tool_result_conversion_preserves_data_and_images() -> None:
-    plain = _tool_result_to_mcp(ToolResult(data={"value": "plain"}))
-    assert json.loads(plain["content"][0]["text"]) == {"value": "plain"}
-
-    result = ToolResult(
-        data={"value": "visible"},
-        images=[b"pixels"],
-    )
-    converted = _tool_result_to_mcp(result)
-
-    assert converted["content"][0] == {
-        "type": "text",
-        "text": '{\n  "value": "visible"\n}',
-    }
-    assert converted["content"][1]["type"] == "image"
-    assert "is_error" not in converted
 
 
 def test_successful_fake_sdk_stream_accounts_for_finish_and_hides_image_payload(
@@ -478,43 +476,276 @@ def test_queue_and_dashboard_are_mutually_exclusive_before_sdk_use(
         )
 
 
-def test_claude_bridge_readonly_calls_execute_concurrently(tmp_path):
-    import threading
-
-    from rpent.dashboard.events import NullDashboardEventSink
-    from rpent.memory import MemoryManager
-    from rpent.tools import Toolkit
-    from rpent.utils.logging import init_output_dir
-
-    init_output_dir(tmp_path / "log")
+@pytest.fixture
+def runtime_toolkit(tmp_path):
     toolkit = Toolkit(
-        dashboard_events=NullDashboardEventSink(),
+        dashboard_events=RecordingSink(),
+        state=EnvState(tmp_path / "state"),
         memory=MemoryManager(tmp_path / "memory"),
     )
-    rendezvous = threading.Barrier(2)
+    try:
+        yield toolkit
+    finally:
+        toolkit.close()
+
+
+@pytest.fixture
+def capture_cli(monkeypatch):
+    monkeypatch.setattr(claude_agent_sdk, "__version__", "0.2.154")
+    monkeypatch.setattr(SubprocessCLITransport, "_find_cli", lambda self: "claude")
+    version = Mock(return_value="2.1.274 (Claude Code)")
+    monkeypatch.setattr("rpent.session.claude_capture.subprocess.check_output", version)
+    return version
+
+
+@pytest.mark.parametrize("capture_enabled", [False, True])
+def test_claude_bridge_readonly_calls_execute_concurrently(
+    tmp_path, monkeypatch, runtime_toolkit, capture_cli, capture_enabled
+):
+    state = runtime_toolkit.state
+    if capture_enabled:
+        state.start_task(instruction="Sense.", config=Payload("test", {}))
+    first_started = threading.Event()
+    release_first = threading.Event()
+    images = iter((b"first", b"second"))
 
     @tool(readonly=True)
     def sense(label: str) -> ToolResult:
-        rendezvous.wait(timeout=5)
-        return ToolResult(data={"label": label})
+        image = next(images)
+        if image == b"first":
+            first_started.set()
+            assert release_first.wait(5)
+        return ToolResult(data={"label": label}, images=[image])
 
-    toolkit.add_tool(sense)
-    server = _build_rpent_server(FakeSdkTools(), toolkit=toolkit)
-    handler = next(item for item in server["tools"] if item.sdk_name == "sense")
+    runtime_toolkit.add_tool(sense)
+    args = {"label": "front"}
+    replies = {}
+
+    async def query(*, prompt, options, transport=None):
+        assert (transport is not None) == capture_enabled
+        assert ("OTEL_LOG_RAW_API_BODIES" in options.env) == capture_enabled
+        app = options.mcp_servers["rpent"]["instance"]
+        async with create_connected_server_and_client_session(app) as session:
+            first = asyncio.create_task(
+                session.call_tool("sense", args, meta={"claudecode/toolUseId": "first"})
+            )
+            try:
+                assert await asyncio.to_thread(first_started.wait, 5)
+                replies["second"] = await session.call_tool(
+                    "sense", args, meta={"claudecode/toolUseId": "second"}
+                )
+            finally:
+                release_first.set()
+            replies["first"] = await first
+        yield {"type": "ResultMessage"}
+
+    monkeypatch.setattr(claude_agent_sdk, "query", query)
+    result = make_planner(tmp_path, RecordingSink(), timeout_s=10).solve(
+        system_prompt="", user_message="Sense.", toolkit=runtime_toolkit, max_turns=1
+    )
+    assert result.error is None
+    assert list(replies) == ["second", "first"]
+    for call_id, reply in replies.items():
+        assert not reply.isError
+        assert json.loads(reply.content[0].text) == args
+        assert base64.b64decode(reply.content[1].data) == call_id.encode()
+
+    calls = state.tool_call_records()
+    if capture_enabled:
+        assert result.stats["claude_trace"]["planners"] == 0
+        assert (
+            "No Claude request recordings" in result.stats["claude_trace"]["errors"][0]
+        )
+        assert len(calls) == 2
+        assert len({call.source_ids["claude.run_id"] for call in calls}) == 1
+        assert {
+            call.source_ids["claude.tool_use_id"] for call in calls
+        } == replies.keys()
+        for call in calls:
+            call_id = call.source_ids["claude.tool_use_id"]
+            assert call.name == "sense" and call.arguments.data == args
+            assert call.status == "completed" and call.planner_id is None
+            assert call.missing["planner_id"].reason == "not_recorded"
+            assert call.raw_result.data == {"data": args, "images": [call_id.encode()]}
+            assert call.feedback.data == {
+                "content": [
+                    block.model_dump(by_alias=True, exclude_none=True)
+                    for block in replies[call_id].content
+                ]
+            }
+            assert call.feedback.base64_paths == {"/content/1/data": ""}
+    else:
+        assert calls == []
+        assert "claude_trace" not in result.stats
+        capture_cli.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("sdk_version", "cli_version", "required"),
+    [
+        ("0.2.153", "2.1.274", "claude-agent-sdk >= 0.2.154, found 0.2.153"),
+        ("0.2.154", "2.1.273", "Claude Code >= 2.1.274, found 2.1.273"),
+    ],
+)
+def test_capture_checks_versions_before_query(
+    tmp_path,
+    monkeypatch,
+    runtime_toolkit,
+    capture_cli,
+    sdk_version,
+    cli_version,
+    required,
+):
+    monkeypatch.setattr(claude_agent_sdk, "__version__", sdk_version)
+    capture_cli.return_value = f"{cli_version} (Claude Code)"
+    monkeypatch.setattr(
+        claude_agent_sdk, "query", lambda **kw: pytest.fail("unexpected query")
+    )
+    state = runtime_toolkit.state
+    state.start_task(instruction="Inspect.", config=Payload("test", {}))
+
+    result = make_planner(tmp_path, RecordingSink()).solve(
+        system_prompt="", user_message="Inspect.", toolkit=runtime_toolkit, max_turns=1
+    )
+
+    assert required in result.error
+    assert not (state.trajectory_dir / "claude").exists()
+
+
+@pytest.mark.parametrize("cancelled", [False, True])
+def test_capture_imports_last_write_after_finish_or_cancel(
+    tmp_path, monkeypatch, runtime_toolkit, capture_cli, cancelled
+):
+    state = runtime_toolkit.state
+    state.start_task(instruction="Finish.", config=Payload("test", {}))
+
+    async def query(*, prompt, options, transport):
+        location = options.env["OTEL_LOG_RAW_API_BODIES"]
+        run_dir = Path(location.removeprefix("file:"))
+        assert location.startswith("file:") and run_dir.is_absolute()
+        assert run_dir.parent == state.trajectory_dir / "claude"
+        closed = asyncio.Event()
+
+        class Writer:
+            async def wait(self):
+                await asyncio.wait_for(closed.wait(), timeout=2)
+                (run_dir / "last.request.json").write_text('{"messages": []}')
+
+        transport._process = Writer()
+        try:
+            if cancelled:
+                raise asyncio.CancelledError
+            yield {
+                "type": "AssistantMessage",
+                "content": [
+                    {
+                        "type": "ToolUseBlock",
+                        "id": "end",
+                        "name": "finish",
+                        "input": {"status": "success"},
+                    }
+                ],
+            }
+            yield {
+                "type": "UserMessage",
+                "parent_tool_use_id": "end",
+                "content": "done",
+            }
+            pytest.fail("finish requested another SDK message")
+        finally:
+            closed.set()
+
+    monkeypatch.setattr(claude_agent_sdk, "query", query)
+    planner = make_planner(tmp_path, RecordingSink())
+    args = {
+        "system_prompt": "",
+        "user_message": "Finish.",
+        "toolkit": runtime_toolkit,
+        "max_turns": 1,
+    }
+    if cancelled:
+        with pytest.raises(asyncio.CancelledError):
+            planner.solve(**args)
+    else:
+        result = planner.solve(**args)
+        assert result.error is None and result.finish_result["status"] == "success"
+        assert result.stats["claude_trace"] == {
+            "sdk_version": "0.2.154",
+            "cli_version": "2.1.274",
+            "planners": 1,
+            "errors": [],
+        }
+    (record,) = state.planner_records()
+    assert record.request.data == {"messages": []}
+    assert record.response is None
+    assert state.get_task().status == "running"
+
+
+def test_capture_import_error_preserves_sdk_error(
+    tmp_path, monkeypatch, runtime_toolkit, capture_cli
+):
+    runtime_toolkit.state.start_task(instruction="Inspect.", config=Payload("test", {}))
+
+    async def query(**kwargs):
+        raise RuntimeError("model unavailable")
+        yield  # pragma: no cover
+
+    def fail_import(state, run_dir):
+        raise OSError("unreadable trace")
+
+    monkeypatch.setattr(claude_agent_sdk, "query", query)
+    monkeypatch.setattr("rpent.session.claude_capture.import_claude_trace", fail_import)
+    result = make_planner(tmp_path, RecordingSink()).solve(
+        system_prompt="", user_message="Inspect.", toolkit=runtime_toolkit, max_turns=1
+    )
+    assert result.error == "RuntimeError: model unavailable"
+    assert result.stats["claude_trace"]["errors"] == ["OSError: unreadable trace"]
+
+
+def test_claude_tool_errors_preserve_execution_boundary(runtime_toolkit):
+    state = runtime_toolkit.state
+    state.start_task(instruction="Sense.", config=Payload("test", {}))
+
+    @tool(readonly=True)
+    def sense(label: str) -> ToolResult:
+        return ToolResult(data={"error": label})
+
+    runtime_toolkit.add_tool(sense)
+    server = _build_rpent_server(
+        claude_agent_sdk, toolkit=runtime_toolkit, run_id="run-1"
+    )
 
     async def scenario():
-        results = await asyncio.gather(
-            handler({"label": "left"}), handler({"label": "right"})
-        )
-        assert all(not result.get("is_error") for result in results)
-        assert [
-            json.loads(result["content"][0]["text"])["label"] for result in results
-        ] == ["left", "right"]
+        async with create_connected_server_and_client_session(
+            server["instance"]
+        ) as session:
+            rejected = await session.call_tool("sense", {"label": []})
+            assert rejected.isError and state.tool_call_records() == []
+            failed = await session.call_tool("sense", {"label": "offline"})
+            runtime_toolkit.cancel_active_and_wait()
+            paused = await session.call_tool("sense", {"label": "paused"})
+            return failed, paused
 
-    try:
-        asyncio.run(scenario())
-    finally:
-        toolkit.close()
+    replies = asyncio.run(scenario())
+    failed, paused = state.tool_call_records()
+    assert failed.status == "failed" and failed.raw_result.data["data"] == {
+        "error": "offline"
+    }
+    assert (
+        paused.status == "not_executed"
+        and paused.started_at is None
+        and paused.raw_result is None
+    )
+    assert paused.missing["raw_result"].reason == "not_applicable"
+    for call, reply in zip((failed, paused), replies, strict=True):
+        assert reply.isError
+        assert call.feedback.data == {
+            "is_error": True,
+            "content": [{"type": "text", "text": reply.content[0].text}],
+        }
+        assert call.source_ids == {"claude.run_id": "run-1"}
+        assert call.missing["planner_id"].reason == "not_exposed"
+    assert state.action_records() == []
 
 
 def test_claude_interrupt_waits_for_old_results_before_next_query():

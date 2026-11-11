@@ -208,12 +208,13 @@ class RoboDojoEnvClient(BaseEnvClient):
         self._history_valid = was_valid
         self.last_obs = obs
 
-    def step(self, flat_action):
+    def step(self, flat_action, *, capture: bool = False):
         """Execute an external action and record its confirmed observation."""
         return self._call_action(
             "env.step",
             kwargs={"flat_action": flat_action},
             tuple_result=True,
+            capture=capture,
         )
 
     def policy_observation(self) -> dict:
@@ -291,10 +292,13 @@ class RoboDojoEnvClient(BaseEnvClient):
         arm: str,
         arm_qpos: list[float] | None = None,
         gripper: float | None = None,
+        *,
+        capture: bool = False,
     ) -> dict[str, Any]:
         return self._call_action(
             "env.step_joint_update",
             kwargs={"arm": arm, "arm_qpos": arm_qpos, "gripper": gripper},
+            capture=capture,
         )
 
     def get_reward_details(self) -> dict[str, Any]:
@@ -386,19 +390,22 @@ class RoboDojoEnvClient(BaseEnvClient):
                 monitor.closed = True
                 monitor.notify("closed")
 
-    def _call_action(self, method, *, kwargs, tuple_result=False):
+    def _call_action(self, method, *, kwargs, tuple_result=False, capture=False):
         with self._execution_lock:
             monitor = self._execution
             if monitor.step is None:
                 self._initialize_execution()
             monitor.require_ready()
             kwargs = {**kwargs, "expected_step": monitor.step}
+            if capture:
+                kwargs["capture"] = True
             was_valid, self._history_valid = self._history_valid, False
             confirmed_feedback = None
             try:
-                result = self._client.call(
+                response = self._client.call(
                     method, kwargs=kwargs, timeout_s=self._TIMEOUT_S["env.step"]
                 )
+                result = response["result"] if capture else response
                 if tuple_result:
                     obs, _, _, info = result
                     feedback = {
@@ -408,17 +415,20 @@ class RoboDojoEnvClient(BaseEnvClient):
                     }
                 else:
                     feedback = dict(result)
+                    if capture:
+                        feedback["observation"] = response["step_result"][0]
                     obs = feedback.get("observation")
                 _validate_receipt(feedback, monitor.step)
                 # Observation processing or delivery cannot erase confirmed progress.
-                confirmed_feedback = feedback
+                confirmed_feedback = (
+                    {**feedback, "capture": response} if capture else feedback
+                )
                 monitor.accept(feedback)
                 count = feedback["executed_actions"]
                 self._accept_feedback(obs if count else self.last_obs, count, was_valid)
             except ExecutionSyncError as exc:
                 if confirmed_feedback is not None:
-                    if exc.feedback is None:
-                        exc.feedback = confirmed_feedback
+                    exc.feedback = confirmed_feedback
                     exc.execution_uncertain = False
                 raise
             except Exception as exc:
@@ -429,8 +439,8 @@ class RoboDojoEnvClient(BaseEnvClient):
                 ) from exc
             if feedback.get("rejection"):
                 raise ActionRejected(feedback["rejection"])
-            if tuple_result:
-                return result
+            if capture or tuple_result:
+                return response
             # Large observations travel in the observer event, not tool-result text.
             result.pop("observation", None)
             return result

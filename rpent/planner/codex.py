@@ -36,6 +36,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import openai_codex
 from openai_codex.generated.v2_all import ReasoningEffort
@@ -56,6 +57,7 @@ from rpent.planner.base import (
     strip_mcp_prefix,
 )
 from rpent.planner.utils.http_mcp_server import HttpMcpServer
+from rpent.session.codex_capture import finalize_codex_capture
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.config import get_repo_root
 from rpent.utils.logging import get_logger
@@ -156,29 +158,80 @@ class CodexPlanner(Planner):
             raise ValueError(
                 "input_queue and dashboard_interaction cannot be used together"
             )
+        try:
+            capture_state = toolkit.state
+        except RuntimeError:
+            capture_state = None
+        trace_root = (
+            capture_state.trajectory_dir / "codex" / uuid4().hex
+            if capture_state is not None and capture_state.get_task() is not None
+            else None
+        )
         prompt = f"{system_prompt}\n\n{user_message}" if system_prompt else user_message
-        if dashboard_interaction is not None:
-            return asyncio.run(
-                self._solve_dashboard(
+        result: PlannerResult | None = None
+        terminal_cleanup: threading.Event | None = None
+        try:
+            if dashboard_interaction is not None:
+                result = asyncio.run(
+                    self._solve_dashboard(
+                        prompt=prompt,
+                        initial_user_text=user_message,
+                        toolkit=toolkit,
+                        max_turns=max_turns,
+                        interaction=dashboard_interaction,
+                        trace_root=trace_root,
+                    )
+                )
+            else:
+                terminal_cleanup = threading.Event()
+                result = self._solve_terminal(
                     prompt=prompt,
-                    initial_user_text=user_message,
                     toolkit=toolkit,
                     max_turns=max_turns,
-                    interaction=dashboard_interaction,
+                    input_queue=input_queue,
+                    trace_root=trace_root,
+                    cleanup_done=terminal_cleanup,
                 )
-            )
+            return result
+        finally:
+            if trace_root is not None:
+                skip_reason = None
+                if terminal_cleanup is not None and not terminal_cleanup.is_set():
+                    skip_reason = (
+                        "Codex worker did not finish cleanup; trace import skipped."
+                    )
+                capture_stats = finalize_codex_capture(
+                    capture_state, trace_root, skip_reason=skip_reason
+                )
+                if result is not None:
+                    result.stats["codex_trace"] = {
+                        "sdk_version": openai_codex.__version__,
+                        **capture_stats,
+                    }
+
+    # -- internal session --------------------------------------------------
+
+    def _solve_terminal(
+        self,
+        *,
+        prompt: str,
+        toolkit: Toolkit,
+        max_turns: int,
+        input_queue: queue.Queue[str | None] | None,
+        trace_root: Path | None,
+        cleanup_done: threading.Event,
+    ) -> PlannerResult:
+        """Run a terminal session with a bounded wait for worker cleanup."""
         output_path, raw_stream_path, last_message_path = self._output_paths()
         recorder = _Recorder(
             max_turns=max_turns,
             dashboard_events=self._dashboard_events,
         )
-        state: dict[str, Any] = {}
+        state: dict[str, Any] = {"session_done": threading.Event()}
 
         # Start the in-thread MCP HTTP server so Codex can reach the
         # shared toolkit without spawning a subprocess.
         mcp_server = HttpMcpServer(toolkit)
-        mcp_url = mcp_server.start()
-        logger.info("mcp http endpoint: %s", mcp_url)
 
         model_desc = self._model or "(configured default)"
         logger.info("prompt: %d chars", len(prompt))
@@ -190,61 +243,61 @@ class CodexPlanner(Planner):
         )
 
         started = time.time()
-        worker = threading.Thread(
-            target=self._run_session,
-            args=(
-                prompt,
-                output_path,
-                raw_stream_path,
-                last_message_path,
-                recorder,
-                state,
-                mcp_url,
-                toolkit,
-                input_queue,
-            ),
-            name="codex-sdk",
-            daemon=True,
-        )
-        worker.start()
+        worker: threading.Thread | None = None
         error: str | None = None
+        error_type = "error"
         try:
-            worker.join(timeout=self._timeout_s)
-
-            if worker.is_alive():
+            mcp_url = mcp_server.start()
+            logger.info("mcp http endpoint: %s", mcp_url)
+            worker = threading.Thread(
+                target=self._run_session,
+                args=(
+                    prompt,
+                    output_path,
+                    raw_stream_path,
+                    last_message_path,
+                    recorder,
+                    state,
+                    mcp_url,
+                    toolkit,
+                    input_queue,
+                    trace_root,
+                ),
+                name="codex-sdk",
+                daemon=True,
+            )
+            worker.start()
+            # Ctrl-C during Thread.join() can mark a still-running worker as stopped.
+            if not state["session_done"].wait(timeout=self._timeout_s):
                 error = f"Codex SDK timed out after {self._timeout_s}s"
-                try:
-                    toolkit.cancel_active_and_wait()
-                except Exception as cancel_error:
-                    logger.warning(
-                        "failed to cancel toolkit work after Codex timeout: %s",
-                        cancel_error,
-                    )
-                _interrupt(state)
-                rendered = f"\n[codex-planner] {error}\n"
-                with open(output_path, "a") as out_f:
-                    out_f.write(rendered)
-                with open(raw_stream_path, "a") as raw_f:
-                    _write_jsonl(raw_f, {"type": "timeout", "message": error})
-                logger.info(rendered.rstrip())
-                worker.join(timeout=15)
+                error_type = "timeout"
             elif "error" in state:
                 exc = state["error"]
                 error = f"{type(exc).__name__}: {exc}"
-                rendered = f"\n[codex-planner] {error}\n"
-                with open(output_path, "a") as out_f:
-                    out_f.write(rendered)
-                with open(raw_stream_path, "a") as raw_f:
-                    _write_jsonl(raw_f, {"type": "error", "message": error})
-                logger.info(rendered.rstrip())
         finally:
+            state["stop_requested"] = True
             try:
                 toolkit.cancel_active_and_wait()
             except Exception as exc:
                 logger.exception("Codex toolkit cleanup failed")
                 error = error or f"Toolkit cleanup failed: {exc}"
             finally:
-                mcp_server.stop()
+                try:
+                    if worker is not None and worker.is_alive():
+                        _interrupt(state)
+                        worker.join(timeout=15)
+                finally:
+                    mcp_server.stop()
+                if state["session_done"].is_set():
+                    cleanup_done.set()
+
+        if error is not None:
+            rendered = f"\n[codex-planner] {error}\n"
+            with open(output_path, "a") as out_f:
+                out_f.write(rendered)
+            with open(raw_stream_path, "a") as raw_f:
+                _write_jsonl(raw_f, {"type": error_type, "message": error})
+            logger.info(rendered.rstrip())
 
         elapsed = time.time() - started
         text = state.get("text", "") or output_path.read_text(errors="replace")
@@ -269,8 +322,6 @@ class CodexPlanner(Planner):
             },
             error=error,
         )
-
-    # -- internal session --------------------------------------------------
 
     def _output_paths(self) -> tuple[Path, Path, Path]:
         if self._output_path is None:
@@ -298,11 +349,16 @@ class CodexPlanner(Planner):
         mcp_url: str,
         toolkit: Toolkit,
         input_queue: "queue.Queue[str | None] | None" = None,
+        trace_root: Path | None = None,
     ) -> None:
         try:
             chunks: list[str] = []
-            with openai_codex.Codex(config=self._build_config(mcp_url)) as codex:
+            with openai_codex.Codex(
+                config=self._build_config(mcp_url, trace_root=trace_root)
+            ) as codex:
                 state["codex"] = codex
+                if state.get("stop_requested"):
+                    return
                 thread = codex.thread_start(**self._thread_options)
                 state["thread"] = thread
 
@@ -388,6 +444,8 @@ class CodexPlanner(Planner):
                 last_message_path.write_text(recorder.final_response)
         except Exception as e:
             state["error"] = e
+        finally:
+            state["session_done"].set()
 
     async def _solve_dashboard(
         self,
@@ -397,6 +455,7 @@ class CodexPlanner(Planner):
         toolkit: Toolkit,
         max_turns: int,
         interaction: DashboardInteractionPort,
+        trace_root: Path | None = None,
     ) -> PlannerResult:
         """Run a controllable sequence of turns on one Codex thread."""
         output_path, raw_stream_path, last_message_path = self._output_paths()
@@ -408,8 +467,8 @@ class CodexPlanner(Planner):
         started = time.time()
 
         mcp_server = HttpMcpServer(toolkit)
-        mcp_url = mcp_server.start()
         try:
+            mcp_url = mcp_server.start()
             with open(output_path, "w") as out_f, open(raw_stream_path, "w") as raw_f:
 
                 def emit_event(event: Any) -> None:
@@ -446,7 +505,7 @@ class CodexPlanner(Planner):
                     ),
                 )
                 session = _CodexDashboardSession(
-                    config=self._build_config(mcp_url),
+                    config=self._build_config(mcp_url, trace_root=trace_root),
                     thread_options=self._thread_options,
                     turn_options=self._turn_options,
                     recorder=recorder,
@@ -473,7 +532,8 @@ class CodexPlanner(Planner):
                         )
                         logger.warning(cleanup_error)
                         error = error or cleanup_error
-                    await session.close()
+                    finally:
+                        await session.close()
         finally:
             try:
                 await cancel_and_wait(toolkit.cancel_active_and_wait)
@@ -504,13 +564,14 @@ class CodexPlanner(Planner):
 
     # -- config builder ----------------------------------------------------
 
-    def _build_config(self, mcp_url: str) -> Any:
+    def _build_config(self, mcp_url: str, *, trace_root: Path | None = None) -> Any:
         return build_codex_config(
             mcp_url=mcp_url,
             base_url=self._base_url,
             api_key=self._api_key,
             cwd=self._repo_root,
             sandbox=self._sandbox,
+            trace_root=trace_root,
         )
 
 
@@ -885,8 +946,9 @@ def build_codex_config(
     api_key: str | None,
     cwd: str,
     sandbox: str = "full-access",
+    trace_root: Path | None = None,
 ) -> Any:
-    """Build the Codex SDK config shared by the planner and the check.
+    """Build the Codex child config with optional native rollout tracing.
 
     Args:
         mcp_url: URL of the in-process RPent MCP server, or ``None`` to attach
@@ -896,6 +958,8 @@ def build_codex_config(
         cwd: Working directory handed to the Codex child process.
         sandbox: Sandbox mode name; restricted modes need the MCP approval
             override to reach RPent tools under ``deny_all``.
+        trace_root: Directory where Codex writes native rollout traces. If ``None``,
+            the child inherits the parent's ``CODEX_ROLLOUT_TRACE_ROOT`` setting.
 
     Returns:
         The ``openai_codex.CodexConfig`` to open a session with.
@@ -903,6 +967,8 @@ def build_codex_config(
     env = _codex_environment()
     if api_key:
         env[PROVIDER_ENV_KEY] = api_key
+    if trace_root is not None:
+        env["CODEX_ROLLOUT_TRACE_ROOT"] = str(trace_root.resolve())
     config_overrides = _codex_mcp_config_overrides(
         mcp_url=mcp_url, base_url=base_url, sandbox=sandbox
     )

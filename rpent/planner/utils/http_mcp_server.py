@@ -32,6 +32,7 @@ Usage::
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import socket
 import threading
@@ -44,6 +45,8 @@ from mcp.server.lowlevel import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 
 from rpent.planner.base import execute_tool
+from rpent.session import MissingInfo, Payload
+from rpent.session.env_capture import ToolCallCapture
 from rpent.tools import ToolResult
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger
@@ -83,6 +86,10 @@ def _strip_mcp_prefix(name: str) -> str:
 def build_mcp_server(toolkit: Toolkit) -> Server:
     """Expose native declarations through MCP, with Toolkit owning validation."""
     mcp_app: Server = Server(SERVER_NAME, version="0.1.0")
+    try:
+        state = toolkit.state
+    except RuntimeError:
+        state = None
 
     @mcp_app.list_tools()
     async def _list_tools() -> list[types.Tool]:
@@ -100,8 +107,72 @@ def build_mcp_server(toolkit: Toolkit) -> Server:
     @mcp_app.call_tool(validate_input=False)
     async def _call_tool(name: str, arguments: dict[str, Any]) -> types.CallToolResult:
         lookup = _strip_mcp_prefix(name)
-        tr = await execute_tool(toolkit, lookup, arguments or {})
-        return types.CallToolResult(**mcp_result(tr))
+        arguments = arguments or {}
+        if state is None or state.get_task() is None:
+            tr = await execute_tool(toolkit, lookup, arguments)
+            return types.CallToolResult(**mcp_result(tr))
+
+        meta = mcp_app.request_context.meta
+        bridge_id = (
+            meta.model_dump().get("codex_bridge_mcp_call_id")
+            if meta is not None
+            else None
+        )
+        tool_id = state.register_tool_call(
+            planner_id=None,
+            origin="unknown",
+            name=lookup,
+            arguments=Payload("mcp.tool_args", arguments, completeness="complete"),
+            source_ids={"codex_bridge_mcp_call_id": bridge_id}
+            if isinstance(bridge_id, str)
+            else {},
+            missing={
+                "planner_id": MissingInfo(
+                    "pending", "Waiting for native trace association."
+                ),
+                "raw_result": MissingInfo("pending", "Waiting for execution."),
+                "feedback": MissingInfo("pending", "Waiting for the MCP adapter."),
+            },
+        )
+        capture = ToolCallCapture(state, tool_id)
+        with capture.bind():
+            try:
+                tr = await execute_tool(toolkit, lookup, arguments)
+                result = types.CallToolResult(**mcp_result(tr))
+            except BaseException as exc:
+                if not capture.finished:
+                    capture.finish(
+                        "cancelled"
+                        if isinstance(exc, (asyncio.CancelledError, KeyboardInterrupt))
+                        else "failed",
+                        f"{type(exc).__name__}: {exc}",
+                    )
+                state.update_tool_call(
+                    tool_id,
+                    missing={
+                        "feedback": MissingInfo(
+                            "not_recorded", "MCP adapter did not return feedback."
+                        )
+                    },
+                )
+                raise
+            if not capture.finished:
+                capture.finish("failed", str(tr.data.get("error", "")))
+            state.update_tool_call(
+                tool_id,
+                feedback=Payload(
+                    "mcp.call_tool_result",
+                    result.model_dump(mode="json", by_alias=True, exclude_none=True),
+                    completeness="complete",
+                    base64_paths={
+                        f"/content/{index}/data": ""
+                        for index, content in enumerate(result.content)
+                        if isinstance(content, types.ImageContent)
+                    },
+                ),
+                missing={"feedback": None},
+            )
+            return result
 
     return mcp_app
 
