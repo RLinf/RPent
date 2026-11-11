@@ -77,8 +77,7 @@ def convert_depth(*, source: Path, flow_dir: Path, output: Path) -> None:
         if not cv2.imwrite(str(output / "depth" / filename), depth):
             raise OSError(f"Cannot write depth for {name}")
         shutil.copyfile(source / "pairs" / name / "im0.png", output / "rgb" / filename)
-    for name in ("camera.yaml", "local_transform.txt"):
-        shutil.copyfile(source / name, output / name)
+    shutil.copyfile(source / "camera.yaml", output / "camera.yaml")
     logger.info("Converted %d RGB-D pairs into %s", len(names), output)
 
 

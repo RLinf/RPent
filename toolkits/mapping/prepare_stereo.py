@@ -256,7 +256,18 @@ def prepare_stereo(
     timestamps_from_names: bool = False,
     step: int = 1,
 ) -> None:
-    """Write one rectified im0/im1 pair per directory for the upstream demo."""
+    """Write rectified pairs and log the mounting pose for RTAB-Map.
+
+    Args:
+        source: Stereo image directory or side-by-side video.
+        output: New directory for rectified pairs and calibration.
+        calibration: Stereo calibration YAML matching the input images.
+        camera_pose: Measured left camera mechanical pose in the robot frame:
+            x/y/z in metres, then roll/pitch/yaw in degrees.
+        fps: Sampling rate for numbered images or override for video timing.
+        timestamps_from_names: Read image timestamps from filename stems.
+        step: Keep one pair every this many input frames.
+    """
     import cv2
     from scipy.spatial.transform import Rotation
 
@@ -275,8 +286,9 @@ def prepare_stereo(
         mount = Rotation.from_euler("xyz", camera_pose[3:], degrees=True).as_matrix()
         corrected = mount @ optical @ cal.left_rotation.T @ optical.T
         angles = Rotation.from_matrix(corrected).as_euler("xyz")
-        (output / "local_transform.txt").write_text(
-            " ".join(map(str, [*camera_pose[:3], *angles])) + "\n"
+        logger.info(
+            "RTAB-Map localTransform=%s",
+            " ".join(map(str, [*camera_pose[:3], *angles])),
         )
         k = cal.projection[:, :3]
         camera = {
@@ -343,7 +355,10 @@ def main(argv: list[str] | None = None) -> None:
         type=float,
         nargs=6,
         required=True,
-        help="Mechanical x y z in metres, roll pitch yaw in degrees",
+        help=(
+            "Measured left camera mounting pose relative to the robot: "
+            "x y z in metres, mechanical roll pitch yaw in degrees"
+        ),
     )
     timing = parser.add_mutually_exclusive_group()
     timing.add_argument("--fps", type=float)

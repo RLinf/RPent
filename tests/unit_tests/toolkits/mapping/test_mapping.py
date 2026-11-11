@@ -13,11 +13,10 @@
 # limitations under the License.
 
 
-"""Check metric depth conversion and exported ZED stereo calibration."""
+"""Check stereo preparation, timestamps and metric RGB-D conversion."""
 
 import json
-import subprocess
-import sys
+import logging
 
 import numpy as np
 import pytest
@@ -64,6 +63,7 @@ def test_prepare_and_convert_official_flow(dataset, tmp_path):
         camera_pose=[0, 0, 0.5, 0, 0, 0],
         timestamps_from_names=True,
     )
+    assert not (prepared / "local_transform.txt").exists()
     meta = json.loads((prepared / "stereo.json").read_text())
     assert meta["frames"] == ["1.0", "1.12", "1.2"]
     flows.mkdir()
@@ -73,6 +73,7 @@ def test_prepare_and_convert_official_flow(dataset, tmp_path):
         flow[0, :5] = [0, 4, float("nan"), float("inf"), -0.01]
         np.save(flows / f"{name}.npy", flow)
     convert_depth(source=prepared, flow_dir=flows, output=output)
+    assert not (output / "local_transform.txt").exists()
     for side in ("rgb", "depth"):
         assert {p.name for p in (output / side).iterdir()} == {
             "1.00.png",
@@ -88,59 +89,31 @@ def test_prepare_and_convert_official_flow(dataset, tmp_path):
     ).read_bytes()
 
 
-@pytest.fixture
-def zed_factory_calibration(tmp_path):
-    calibration = tmp_path / "calibration.conf"
-    sections = []
-    for mode, focal in (("HD", 500), ("VGA", 250)):
-        for side in ("LEFT", "RIGHT"):
-            sections.append(
-                f"[{side}_CAM_{mode}]\nfx={focal}\nfy={focal}\ncx=320\ncy=180\n"
-                "k1=-0.01\nk2=0\np1=0\np2=0\nk3=0\n"
-            )
-    sections.append(
-        "[STEREO]\nBaseline=120\nTY=0\nTZ=0\n"
-        "RX_HD=0\nCV_HD=0\nRZ_HD=0\nRX_VGA=0\nCV_VGA=0\nRZ_VGA=0\n"
-    )
-    calibration.write_text("\n".join(sections))
-    return calibration
-
-
-@pytest.mark.parametrize("size, focal", [((1280, 720), 500), ((672, 376), 250)])
-def test_zed_calibration_cli_preserves_raw_model_and_metric_baseline(
-    zed_factory_calibration, tmp_path, size, focal
-):
-    output = tmp_path / "camera models"
-    subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "toolkits.mapping.zed_calibration",
-            "--calibration",
-            str(zed_factory_calibration),
-            "--image-size",
-            *map(str, size),
-            "--output",
-            str(output),
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    for side in ("left", "right"):
-        storage = cv2.FileStorage(
-            str(output / f"camera_{side}.yaml"), cv2.FILE_STORAGE_READ
+@pytest.mark.parametrize("baseline_tilt", [0, 5])
+def test_logged_mounting_pose(dataset, tmp_path, caplog, monkeypatch, baseline_tilt):
+    source, calibration = dataset
+    raw = yaml.safe_load(calibration.read_text())
+    tilt = np.deg2rad(baseline_tilt)
+    # Parallel cameras with a tilted baseline require an image-plane rotation.
+    raw["T_m"] = [-0.12 * np.cos(tilt), -0.12 * np.sin(tilt), 0]
+    raw["T_m"] = [float(value) for value in raw["T_m"]]
+    calibration.write_text(yaml.safe_dump(raw))
+    monkeypatch.setattr(logging.getLogger("rpent"), "propagate", True)
+    with caplog.at_level(logging.INFO, logger="rpent"):
+        prepare_stereo(
+            source=source,
+            output=tmp_path / "prepared",
+            calibration=calibration,
+            camera_pose=[0.2, -0.1, 0.5, 20, -10, 30],
+            fps=5,
         )
-        try:
-            assert storage.isOpened()
-            assert storage.getNode("image_width").real() == size[0]
-            assert storage.getNode("image_height").real() == size[1]
-            k = storage.getNode("camera_matrix").getNode("data")
-            d = storage.getNode("distortion_coefficients").getNode("data")
-            p = storage.getNode("projection_matrix").getNode("data")
-            assert k.at(0).real() == focal
-            assert d.at(0).real() == pytest.approx(-0.01)
-            baseline = -p.at(3).real() / p.at(0).real()
-            assert baseline == pytest.approx(0.12 if side == "right" else 0)
-        finally:
-            storage.release()
+    message = next(
+        record.getMessage()
+        for record in caplog.records
+        if record.getMessage().startswith("RTAB-Map localTransform=")
+    )
+    pose = np.fromstring(message.split("=", 1)[1], sep=" ")
+    assert pose[:3] == pytest.approx([0.2, -0.1, 0.5])
+    # Rectification rotates about the viewing axis: mechanical roll changes,
+    # while pitch, yaw and the optical centre remain fixed.
+    assert pose[3:] == pytest.approx(np.deg2rad([20 + baseline_tilt, -10, 30]))

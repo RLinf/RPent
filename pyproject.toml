@@ -269,7 +269,7 @@ include = ["rpent*", "robots", "robots.*", "toolkits", "toolkits.*"]
 exclude = ["tests*", "docs*", "examples*", "docker*"]
 
 [tool.setuptools.package-data]
-"toolkits.mapping" = ["stereo.yaml", "*.ini"]
+"toolkits.mapping" = ["stereo.yaml", "rtabmap_rgbd.ini"]
 "rpent.dashboard" = ["*.html", "static/*.css", "static/*.js"]
 "robots.yam" = ["config/*.yaml", "config/*.json", "guides/*.md"]
 
