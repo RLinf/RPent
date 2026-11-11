@@ -82,20 +82,23 @@ CHECK_STATUSES = (
 )
 
 #: Planner backends this module can probe.
-CHECK_PLANNERS = ("api", "claude_code", "codex")
+CHECK_PLANNERS = ("api", "claude_code", "codex", "gemini_cli", "opencode")
 
-#: Backends whose endpoint comes from an env var, not from ``--base-url``.
-#: ``build_planner`` forwards ``base_url`` to the api model alone, so both
-#: CLIs reject the flag for these rather than dropping it silently — a check
+#: Backends whose endpoint is configured outside RPent, not by ``--base-url``.
+#: ``build_planner`` forwards ``base_url`` to the api model alone, so these
+#: backends reject the flag rather than dropping it silently — a check
 #: that honoured an endpoint the run ignores would be testing the wrong
 #: thing.
-BASE_URL_ENV_BY_PLANNER = {
-    "claude_code": "ANTHROPIC_BASE_URL",
-    "codex": "CODEX_BASE_URL",
-}
+EXTERNALLY_CONFIGURED_PLANNERS = ("claude_code", "codex", "gemini_cli", "opencode")
 
 #: Diagnostic timeouts, deliberately independent of the 1200s run default.
-DEFAULT_TIMEOUT_S = {"api": 30, "claude_code": 90, "codex": 90}
+DEFAULT_TIMEOUT_S = {
+    "api": 30,
+    "claude_code": 90,
+    "codex": 90,
+    "gemini_cli": 90,
+    "opencode": 90,
+}
 
 #: Budget for an SDK backend running on a CLI login rather than an env var.
 #: Shorter than the default because a diagnostic should not hold the terminal
@@ -104,7 +107,7 @@ DEFAULT_TIMEOUT_S = {"api": 30, "claude_code": 90, "codex": 90}
 #: into a false failure.
 CLI_LOGIN_TIMEOUT_S = 25
 
-#: Best-effort CLI login markers for the two child-process SDK backends. Both
+#: Best-effort CLI login markers for the two SDK backends. Both
 #: accept an interactive login instead of an env var, so absence is only a
 #: hint that no credential exists — never a verdict. It shortens the probe's
 #: budget; it never skips the probe.
@@ -131,11 +134,13 @@ PROBE_MAX_TOKENS = 2048
 #: does not know about. Mirrors docs/source-en/.../guides/configure_planner.rst.
 _API_KEY_ENV = {
     "anthropic": "ANTHROPIC_API_KEY",
+    "google": "GEMINI_API_KEY",
     "openai": "OPENAI_API_KEY",
     "openai-chat": "OPENAI_API_KEY",
 }
 _API_BASE_URL_ENV = {
     "anthropic": "ANTHROPIC_BASE_URL",
+    "google": "GEMINI_BASE_URL",
     "openai": "OPENAI_BASE_URL",
     "openai-chat": "OPENAI_BASE_URL",
 }
@@ -146,7 +151,6 @@ _CLAUDE_CODE_KEY_ENV = "ANTHROPIC_API_KEY"
 _CLAUDE_CODE_BASE_URL_ENV = "ANTHROPIC_BASE_URL"
 _CODEX_KEY_ENV = "CODEX_API_KEY"
 _CODEX_BASE_URL_ENV = "CODEX_BASE_URL"
-
 #: Cap on how much provider error text is carried in ``detail``.
 _DETAIL_LIMIT = 2000
 
@@ -155,6 +159,8 @@ _DETAIL_LIMIT = 2000
 #: check report is exactly the kind of output that gets pasted into an issue.
 _SECRET_ENV_NAMES = (
     "ANTHROPIC_API_KEY",
+    "GOOGLE_API_KEY",
+    "GEMINI_API_KEY",
     "OPENAI_API_KEY",
     "CODEX_API_KEY",
     "RPENT_CODEX_PROVIDER_KEY",
@@ -171,8 +177,8 @@ class LlmCheckRequest:
     Attributes:
         planner: Backend to probe; one of :data:`CHECK_PLANNERS`.
         model: Model id. Required (and provider-prefixed) for ``api``;
-            optional for ``claude_code`` and ``codex``.
-        base_url: Base URL overriding the backend's own env var.
+            optional for external agent backends.
+        base_url: Base URL override for the ``api`` backend.
         timeout_s: Wall-clock cap. Defaults per backend when ``None``.
     """
 
@@ -291,6 +297,8 @@ def check_llm(request: LlmCheckRequest) -> LlmCheckResult:
         "api": _check_api,
         "claude_code": _check_claude_code,
         "codex": _check_codex,
+        "gemini_cli": _check_acp,
+        "opencode": _check_acp,
     }[planner]
 
     # The budget is logged where it is resolved: the SDK backends shorten it
@@ -454,6 +462,8 @@ def _check_api(request: LlmCheckRequest) -> LlmCheckResult:
     model = (request.model or "").strip()
     provider_name = model.split(":", 1)[0] if ":" in model else ""
     key_env = _API_KEY_ENV.get(provider_name)
+    if provider_name == "google" and os.environ.get("GOOGLE_API_KEY"):
+        key_env = "GOOGLE_API_KEY"
     base_url_env = _API_BASE_URL_ENV.get(provider_name)
     key_present = bool(os.environ.get(key_env)) if key_env else None
 
@@ -476,7 +486,8 @@ def _check_api(request: LlmCheckRequest) -> LlmCheckResult:
             detail=(
                 "the 'api' planner requires a model id; pass --model with a "
                 "provider prefix (e.g. 'anthropic:claude-opus-4-8', "
-                "'openai:gpt-5.5', 'openai-chat:glm-5.2')."
+                "'google:Argon', 'openai:gpt-5.5', "
+                "'openai-chat:glm-5.2')."
             ),
         )
     if not provider_name:
@@ -506,10 +517,12 @@ def _check_api(request: LlmCheckRequest) -> LlmCheckResult:
     except UserError as exc:
         return _result(_classify_user_error(exc), detail=_describe(exc))
     except ValueError as exc:
-        # ``model`` is non-empty by the checks above, so build_api_model's own
-        # ValueError cannot fire here: this comes from provider resolution,
-        # where infer_provider raises ValueError for an unknown prefix.
-        return _result(STATUS_UNSUPPORTED_PROVIDER, detail=_describe(exc))
+        status = (
+            STATUS_MISSING_CONFIG
+            if provider_name in _API_KEY_ENV
+            else STATUS_UNSUPPORTED_PROVIDER
+        )
+        return _result(status, detail=_describe(exc))
 
     timeout_s = request.resolved_timeout_s()
     logger.info("probe budget: %ds", timeout_s)
@@ -876,6 +889,86 @@ def _check_codex(request: LlmCheckRequest) -> LlmCheckResult:
     return _result(STATUS_OK, reply=reply.strip(), latency_s=latency_s)
 
 
+# ---------------------------------------------------------------------------
+# ACP harness planners
+# ---------------------------------------------------------------------------
+
+
+def _check_acp(request: LlmCheckRequest) -> LlmCheckResult:
+    """Probe an ACP harness without mounting RPent tools."""
+    model = (request.model or "").strip() or None
+    try:
+        from acp import RequestError
+
+        from rpent.dashboard.events import NullDashboardEventSink
+        from rpent.planner.gemini_cli import GeminiCliPlanner
+        from rpent.planner.opencode import OpenCodePlanner
+    except ImportError as exc:
+        return LlmCheckResult(
+            ok=False,
+            status=STATUS_SDK_ERROR,
+            planner=request.planner,
+            model=model,
+            detail=_describe(exc),
+        )
+
+    def _result(status: str, **kwargs: Any) -> LlmCheckResult:
+        return LlmCheckResult(
+            ok=status == STATUS_OK,
+            status=status,
+            planner=request.planner,
+            model=model,
+            **kwargs,
+        )
+
+    planner_class = (
+        GeminiCliPlanner if request.planner == "gemini_cli" else OpenCodePlanner
+    )
+    timeout_s = request.resolved_timeout_s()
+    if request.planner == "gemini_cli":
+        timeout_s = _sdk_probe_budget(
+            request,
+            cli_login_only=not (
+                os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+            ),
+        )
+    started = time.monotonic()
+    try:
+        reply = planner_class(
+            output_dir=".",
+            dashboard_events=NullDashboardEventSink(),
+            model=model,
+            timeout_s=timeout_s,
+        ).probe(PROBE_PROMPT)
+    except (asyncio.TimeoutError, TimeoutError):
+        return _result(
+            STATUS_NETWORK_ERROR,
+            detail=f"{planner_class.label} did not respond within {timeout_s}s.",
+            latency_s=round(time.monotonic() - started, 3),
+        )
+    except Exception as exc:  # noqa: BLE001 - classified below
+        status = (
+            STATUS_MISSING_API_KEY
+            if isinstance(exc, RequestError)
+            and exc.code == RequestError.auth_required().code
+            else _classify_sdk_error(exc, key_present=None, model=model)
+        )
+        return _result(
+            status,
+            detail=planner_class._redact(_describe(exc)),
+            latency_s=round(time.monotonic() - started, 3),
+        )
+
+    latency_s = round(time.monotonic() - started, 3)
+    if not reply.strip():
+        return _result(
+            STATUS_PROVIDER_ERROR,
+            detail=f"{planner_class.label} returned no assistant text.",
+            latency_s=latency_s,
+        )
+    return _result(STATUS_OK, reply=reply.strip(), latency_s=latency_s)
+
+
 def _names_the_requested_model(text: str, model: str | None) -> bool:
     """Whether a 4xx message echoes back the model id that was requested.
 
@@ -902,7 +995,7 @@ def _names_the_requested_model(text: str, model: str | None) -> bool:
 def _classify_sdk_error(
     exc: Exception,
     *,
-    key_present: bool,
+    key_present: bool | None,
     model: str | None = None,
 ) -> str:
     """Classify a child-process SDK failure from its message.
@@ -912,7 +1005,8 @@ def _classify_sdk_error(
 
     Args:
         exc: The exception raised by the SDK.
-        key_present: Whether the backend's credential env var was set.
+        key_present: Whether the backend's credential env var was set, or None
+            when credentials are managed by the backend.
         model: The model id that was requested, used to recognise a model
             rejection without depending on the gateway's wording.
 
@@ -931,10 +1025,18 @@ def _classify_sdk_error(
         token in text
         for token in ("not logged in", "no credentials", "login", "api key")
     ):
-        return STATUS_MISSING_API_KEY if not key_present else STATUS_AUTH_FAILED
+        return STATUS_MISSING_API_KEY if key_present is False else STATUS_AUTH_FAILED
     if any(
         token in text
-        for token in ("connection", "dns", "resolve", "network", "unreachable", "tls")
+        for token in (
+            "connection",
+            "dns",
+            "resolve",
+            "network",
+            "unreachable",
+            "tls",
+            "fetch failed",
+        )
     ):
         return STATUS_NETWORK_ERROR
     if any(token in text for token in ("429", "rate limit", "500", "502", "503")):

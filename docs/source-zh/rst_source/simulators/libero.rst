@@ -26,7 +26,7 @@ LIBERO
 
    .. grid-item-card:: 规划器
 
-      ``api``、``claude_code``、``codex``；另见 :doc:`../guides/flash`。
+      ``api``、``claude_code``、``codex``、``gemini_cli``、``opencode``；另见 :doc:`../guides/flash`。
 
    .. grid-item-card:: 任务
 

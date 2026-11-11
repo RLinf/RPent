@@ -26,7 +26,7 @@ Check the model, task, and runtime requirements before following the installatio
 
    .. grid-item-card:: Planners
 
-      ``api``, ``claude_code``, ``codex``
+      ``api``, ``claude_code``, ``codex``, ``gemini_cli``, ``opencode``
 
    .. grid-item-card:: Tasks
 

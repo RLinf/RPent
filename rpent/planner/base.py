@@ -24,6 +24,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import TYPE_CHECKING
+from urllib.parse import unquote, urlsplit, urlunsplit
 
 from rpent.dashboard.events import DashboardEventSink
 from rpent.dashboard.interaction import DashboardInteractionPort
@@ -58,6 +59,34 @@ def add_mcp_prefix(name: str) -> str:
 def strip_mcp_prefix(name: str) -> str:
     """Return the bare tool name, dropping the MCP namespace if present."""
     return name.removeprefix(MCP_TOOL_PREFIX)
+
+
+def _normalize_google_endpoint(
+    model: str, base_url: str | None
+) -> tuple[str, str | None]:
+    """Split a complete Gemini generateContent URL for the Google SDK."""
+    if not base_url or not model.startswith("google:"):
+        return model, base_url
+
+    parsed = urlsplit(base_url)
+    root_path, marker, endpoint = parsed.path.rpartition("/models/")
+    if (
+        not marker
+        or not root_path.endswith("/v1beta")
+        or not endpoint.endswith(":generateContent")
+    ):
+        return model, base_url
+
+    endpoint_model = endpoint.removesuffix(":generateContent")
+    if not endpoint_model or "/" in endpoint_model:
+        return model, base_url
+
+    if model.removeprefix("google:") != unquote(endpoint_model):
+        raise ValueError("--model does not match the model in the Gemini endpoint URL")
+
+    provider_path = root_path.removesuffix("/v1beta")
+    provider_base_url = urlunsplit(parsed._replace(path=provider_path))
+    return model, provider_base_url
 
 
 async def _wait_for_cleanup(worker: asyncio.Future) -> None:
@@ -177,9 +206,9 @@ def build_api_model(model: str | None, base_url: str | None = None) -> "Model":
     passing check constructs the same model a real run will.
 
     The API key is always read from the provider's own env vars (e.g.
-    ``ANTHROPIC_API_KEY``, ``OPENAI_API_KEY``). When ``base_url`` is given it
-    overrides the provider's base URL env var (e.g. ``ANTHROPIC_BASE_URL`` /
-    ``OPENAI_BASE_URL``).
+    ``ANTHROPIC_API_KEY``, ``GEMINI_API_KEY``, ``OPENAI_API_KEY``). When
+    ``base_url`` is given it overrides the provider's default endpoint or base
+    URL environment variable.
 
     Args:
         model: Provider-prefixed model id, e.g. ``anthropic:claude-opus-4-8``.
@@ -189,14 +218,19 @@ def build_api_model(model: str | None, base_url: str | None = None) -> "Model":
         The resolved pydantic-ai ``Model``.
 
     Raises:
-        ValueError: If ``model`` is empty.
+        ValueError: If ``model`` is empty or conflicts with the endpoint model.
     """
     if not model:
         raise ValueError(
             "the 'api' planner requires a model id; pass --model with a "
             "provider prefix (e.g. 'anthropic:claude-opus-4-8', "
-            "'openai:gpt-5.5', 'openai-chat:glm-5.2')."
+            "'google:Argon', 'openai:gpt-5.5', "
+            "'openai-chat:glm-5.2')."
         )
+
+    if model.startswith("google:"):
+        base_url = base_url or os.environ.get("GEMINI_BASE_URL")
+    model, base_url = _normalize_google_endpoint(model, base_url)
 
     import inspect
 
@@ -236,7 +270,7 @@ def build_planner(
 ) -> Planner:
     """Build a planner for the given backend, resolving credentials from env vars."""
     # Imports are deferred to avoid a circular import: api_loop / claude_code /
-    # codex all import from this module (PlannerResult).
+    # codex / gemini_cli / opencode all import from this module (PlannerResult).
 
     if planner_type == "api":
         from rpent.planner.api_loop import ApiAgentLoop
@@ -292,6 +326,32 @@ def build_planner(
             timeout_s=cx_timeout_s,
             extra_dirs=[str(memory_dir or get_memory_dir(robot_name))],
             output_path=Path(output_dir) / f"codex_{recipe_tag}.txt",
+            dashboard_events=dashboard_events,
+            reasoning_effort=reasoning_effort,
+        )
+    if planner_type in {"gemini_cli", "opencode"}:
+        from rpent.planner.gemini_cli import GeminiCliPlanner
+        from rpent.planner.opencode import OpenCodePlanner
+
+        timeout_s = planner_timeout_s
+        if timeout_s is None:
+            timeout_s = int(
+                os.environ.get(
+                    "GEMINI_CLI_TIMEOUT_S"
+                    if planner_type == "gemini_cli"
+                    else "CELL_TIMEOUT_S",
+                    os.environ.get("CELL_TIMEOUT_S", "1200"),
+                )
+            )
+        planner_class = (
+            GeminiCliPlanner if planner_type == "gemini_cli" else OpenCodePlanner
+        )
+        prefix = "gemini" if planner_type == "gemini_cli" else "opencode"
+        return planner_class(
+            output_dir=str(output_dir),
+            model=model,
+            timeout_s=timeout_s,
+            output_path=Path(output_dir) / f"{prefix}_{recipe_tag}.txt",
             dashboard_events=dashboard_events,
             reasoning_effort=reasoning_effort,
         )

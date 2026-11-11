@@ -52,7 +52,7 @@
 Planner
 -------
 
-多数用户用内置 ``api``、``claude_code``、``codex``，见 :doc:`../guides/configure_planner`。自定义 planner 才需实现
+多数用户使用内置的 ``api``、``claude_code``、``codex``、``gemini_cli`` 或 ``opencode``，见 :doc:`../guides/configure_planner`。自定义 planner 才需实现
 ``rpent.planner.base.Planner``：
 
 .. code-block:: python

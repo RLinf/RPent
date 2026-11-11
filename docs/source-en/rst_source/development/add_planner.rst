@@ -1,7 +1,32 @@
 Add a Planner
 =============
 
-A planner receives prompts, chooses tools, and consumes their results. To add one, subclass ``Planner``, implement ``solve``, and expose it through the construction path and CLI choices.
+A planner receives prompts, chooses tools, and consumes their results.
+
+ACP Harnesses
+--------------
+
+ACP is a shared driver, not a selectable planner. For an ACP harness, subclass
+``AcpPlanner`` from ``rpent/planner/utils/acp.py`` and set its ``backend`` and
+display ``label``. Implement ``_create_session`` to prepare the command,
+environment, and tool policy and return an ``AcpSession``; see ``opencode.py``
+for standard HTTP MCP setup or ``gemini_cli.py`` for workspace settings.
+Register the adapter under the harness's name using the steps below.
+
+The base shares session handling, event recording, probes, and
+``utils/agent_session.py`` interaction, HTTP MCP, artifacts, and cleanup.
+Pass the MCP URL to ``AcpSession`` for agents advertising HTTP MCP support;
+Gemini supplies it through workspace settings. Pass a model ID only when using
+the agent's ACP model selector. Authentication and native turn limits belong
+to the harness adapter; ACP has no standard model-turn budget.
+Verify text and image tool results, actual ``finish`` calls, queued follow-ups,
+cancellation, and process cleanup separately from the connection probe.
+
+Custom Planners
+----------------
+
+For a different execution protocol, subclass ``Planner``, implement ``solve``,
+and expose it through the construction path and CLI choices.
 
 The following interface sketch omits model requests and the tool loop; it is not a runnable implementation. See ``rpent/planner/api_loop.py`` for a complete backend.
 
@@ -55,6 +80,11 @@ your custom planner.
 Wire and Validate the Planner
 -----------------------------
 
-Add a construction branch in ``rpent/planner/base.py:build_planner`` and a CLI choice in ``rpent/cli/main.py``. If the planner supports Dashboard selection or connection diagnostics, wire those entry points and ``rpent/planner/check.py`` as well.
+Add a construction branch in ``rpent/planner/base.py:build_planner``. Register
+an online backend in ``rpent/planner/check.py`` with ``CHECK_PLANNERS``, its
+diagnostic timeout, and a connection probe; the CLI derives its online planner
+choices from that list. For harnesses that own their provider configuration,
+also update ``EXTERNALLY_CONFIGURED_PLANNERS``. Dashboard sessions use the
+planner selected on the command line.
 
 Verify tool dispatch, text and image results, ``finish``, turn limits, errors, and the interruption and interaction paths you support. Reuse test patterns in ``tests/unit_tests/rpent/planner/``. Validate real model connectivity separately.

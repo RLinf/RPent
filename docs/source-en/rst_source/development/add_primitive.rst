@@ -60,7 +60,7 @@ validates arguments and captures state through ``get_env_state`` after execution
 Use ``@tool(readonly=True)`` for readers such as ``view_env_state`` and
 ``back_project``. For module-level tools, exclude internal resources with
 ``@tool(exclude=("state",))`` and bind them with ``Tool.with_handler``.
-All three planners use the registered declarations.
+All online planners use the registered declarations.
 
 .. _add-primitive-model-based:
 

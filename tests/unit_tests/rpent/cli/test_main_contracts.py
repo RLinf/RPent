@@ -108,6 +108,8 @@ def _capture_validated_args(
     monkeypatch: pytest.MonkeyPatch,
     argv: list[str],
 ) -> tuple[str, Any]:
+    from rpent.cli import dashboard
+
     cli = _cli_module()
     captured: dict[str, Any] = {}
 
@@ -135,6 +137,11 @@ def _capture_validated_args(
         cli, "enumerate_robots", lambda: ("libero", "robocasa", "robotwin")
     )
     monkeypatch.setattr(cli, "get_robot_spec", get_robot_spec)
+    monkeypatch.setattr(
+        dashboard,
+        "run_dashboard_session",
+        lambda args, robot_spec, *, parser: parse_config(args),
+    )
     monkeypatch.setattr(sys, "argv", ["rpent", *argv])
 
     with pytest.raises(ConfigCaptured):
@@ -183,6 +190,7 @@ def test_shared_cli_defaults_reach_robot_config_parser(
     assert robot_name == "libero"
     assert args.robot_name == "libero"
     assert args.planner == "api"
+
     assert args.model is None
     assert args.max_turns == 100
     assert args.max_tokens == 8192
@@ -192,6 +200,21 @@ def test_shared_cli_defaults_reach_robot_config_parser(
     assert args.dashboard_port == 0
     assert args.dashboard_language == "en"
     assert args.memory_profile == "hf"
+
+
+@pytest.mark.parametrize(
+    ("channel", "attribute"),
+    [("--tui", "tui"), ("--interactive", "tui"), ("--dashboard", "dashboard")],
+)
+@pytest.mark.parametrize("planner", ["gemini_cli", "opencode"])
+def test_acp_harness_interactive_modes_reach_robot_configuration(
+    monkeypatch, channel, attribute, planner
+):
+    _, args = _capture_validated_args(
+        monkeypatch, ["--robot", "libero", "--planner", planner, channel]
+    )
+    assert args.planner == planner
+    assert getattr(args, attribute) is True
 
 
 @pytest.mark.parametrize(
@@ -284,6 +307,17 @@ def test_robot_and_env_aliases_are_mutually_exclusive(
             [
                 "--robot",
                 "libero",
+                "--planner",
+                "gemini_cli",
+                "--reasoning-effort",
+                "high",
+            ],
+            "--reasoning-effort is not supported by the gemini_cli planner",
+        ),
+        (
+            [
+                "--robot",
+                "libero",
                 "--memory-profile",
                 "hf",
                 "--memory-dir",
@@ -338,18 +372,17 @@ def test_shared_cli_validation_stops_before_robot_runtime(
 
 
 @pytest.mark.parametrize(
-    ("planner", "env_var"),
-    [("claude_code", "ANTHROPIC_BASE_URL"), ("codex", "CODEX_BASE_URL")],
+    "planner",
+    ["claude_code", "codex", "gemini_cli"],
 )
 def test_run_cli_rejects_base_url_for_the_backends_that_ignore_it(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     planner: str,
-    env_var: str,
 ) -> None:
     """build_planner forwards base_url to the api model alone.
 
-    Accepting the flag for these two would drop it without a word, which is
+    Accepting the flag for these backends would drop it without a word, which is
     how a run ends up talking to an endpoint the user thought they had
     overridden.
     """
@@ -375,7 +408,7 @@ def test_run_cli_rejects_base_url_for_the_backends_that_ignore_it(
     with pytest.raises(SystemExit):
         cli.main()
 
-    assert env_var in capsys.readouterr().err
+    assert "uses its existing backend configuration" in capsys.readouterr().err
 
 
 def test_transcript_serialization_strips_nested_images_without_mutating_input() -> None:

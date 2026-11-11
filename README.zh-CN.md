@@ -182,12 +182,12 @@ rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
   --planner claude_code --model claude-opus-4-8
 ```
 
-其他规划器（`api`、`codex`）与模型提供商的配置见[规划器文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/guides/configure_planner.html)。
+其他规划器（`api`、`codex`、`gemini_cli`、`opencode`）与模型提供商的配置见[规划器文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/guides/configure_planner.html)。
 探索模式与本地 memory 评测详见 [LIBERO 文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/libero.html)。
 
 ### 交互模式
 
-使用 `claude_code` 或 `codex` 时，加上 `--tui`（`-t`）即可在终端里实时引导智能体。内置任务会预填在 `you>` 提示符处。直接按 Enter 即可提交该任务；如需修改或替换任务，请先编辑输入内容，再按 Enter 提交。任务运行期间，可以继续输入消息引导智能体（`/help` 查看命令，`/quit` 或 Ctrl-D 结束）。需要真实终端（TTY）。`api` planner 使用原生 CLI，先运行预设任务，再在每轮运行完成后接收输入，使用 `/exit` 退出。
+使用 `claude_code`、`codex`、`gemini_cli` 或 `opencode` 时，加上 `--tui`（`-t`）即可在终端交互。内置任务会预填在 `you>` 提示符处，可编辑后提交，也可直接按 Enter。追加消息默认排队，等待当前轮次完成；使用 `/interrupt [消息]` 可中断当前轮次，附带的消息会优先于队列发送。`/help` 查看命令，`/quit` 或 Ctrl-D 结束会话。需要真实终端（TTY）。`api` planner 使用原生 CLI，先运行预设任务，再在每轮运行完成后接收输入，使用 `/exit` 退出。
 
 ```bash
 rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \

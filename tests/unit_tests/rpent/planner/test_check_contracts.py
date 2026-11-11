@@ -51,9 +51,12 @@ def _clear_provider_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep the developer's real credentials out of every test."""
     for name in (
         "ANTHROPIC_API_KEY",
+        "GEMINI_API_KEY",
+        "GOOGLE_API_KEY",
         "OPENAI_API_KEY",
         "CODEX_API_KEY",
         "ANTHROPIC_BASE_URL",
+        "GEMINI_BASE_URL",
         "OPENAI_BASE_URL",
         "CODEX_BASE_URL",
         "CODEX_MODEL",
@@ -117,7 +120,13 @@ def test_every_status_is_declared_in_the_public_tuple() -> None:
 
 
 def test_diagnostic_timeouts_never_inherit_the_run_default() -> None:
-    assert DEFAULT_TIMEOUT_S == {"api": 30, "claude_code": 90, "codex": 90}
+    assert DEFAULT_TIMEOUT_S == {
+        "api": 30,
+        "claude_code": 90,
+        "codex": 90,
+        "gemini_cli": 90,
+        "opencode": 90,
+    }
     for planner, expected in DEFAULT_TIMEOUT_S.items():
         assert LlmCheckRequest(planner=planner).resolved_timeout_s() == expected
     assert LlmCheckRequest(planner="api", timeout_s=5).resolved_timeout_s() == 5
@@ -186,6 +195,7 @@ def test_api_unknown_provider_prefix_reports_unsupported_provider() -> None:
     ("model", "env_var"),
     [
         ("anthropic:claude-opus-4-8", "ANTHROPIC_API_KEY"),
+        ("google:test-model", "GEMINI_API_KEY"),
         ("openai:gpt-5.5", "OPENAI_API_KEY"),
         ("openai-chat:glm-5.2", "OPENAI_API_KEY"),
     ],
@@ -206,6 +216,40 @@ def test_api_empty_key_counts_as_missing(monkeypatch: pytest.MonkeyPatch) -> Non
     result = check_llm(LlmCheckRequest(planner="api", model="anthropic:m"))
 
     assert result.status == STATUS_MISSING_API_KEY
+
+
+@pytest.mark.parametrize(
+    ("google_key", "gemini_key", "expected_env"),
+    [
+        (None, SENTINEL_KEY, "GEMINI_API_KEY"),
+        (SENTINEL_KEY, None, "GOOGLE_API_KEY"),
+        (SENTINEL_KEY, "fallback-key", "GOOGLE_API_KEY"),
+        ("", SENTINEL_KEY, "GEMINI_API_KEY"),
+    ],
+)
+def test_api_google_credentials_match_sdk_precedence(
+    monkeypatch: pytest.MonkeyPatch,
+    google_key: str | None,
+    gemini_key: str | None,
+    expected_env: str,
+) -> None:
+    async def reply(agent_cls, settings_cls, model) -> str:
+        assert model.client._api_client.api_key == SENTINEL_KEY
+        await model.client.aio.aclose()
+        model.client.close()
+        return "ok"
+
+    for name, value in (("GOOGLE_API_KEY", google_key), ("GEMINI_API_KEY", gemini_key)):
+        if value is not None:
+            monkeypatch.setenv(name, value)
+    monkeypatch.setattr(check_mod, "_run_api_probe", reply)
+
+    result = check_llm(LlmCheckRequest(planner="api", model="google:gemini"))
+
+    assert result.status == STATUS_OK
+    assert result.credential_env == expected_env
+    assert result.credential_present is True
+    assert result.base_url_env == "GEMINI_BASE_URL"
 
 
 # ---------------------------------------------------------------------------
@@ -321,10 +365,16 @@ def test_api_user_error_during_resolution_is_classified(
     assert result.status == STATUS_UNSUPPORTED_PROVIDER
 
 
+@pytest.mark.parametrize(
+    ("provider", "key_env"),
+    [("anthropic", "ANTHROPIC_API_KEY"), ("google", "GEMINI_API_KEY")],
+)
 def test_api_base_url_override_is_forwarded_and_reported(
     monkeypatch: pytest.MonkeyPatch,
+    provider: str,
+    key_env: str,
 ) -> None:
-    monkeypatch.setenv("ANTHROPIC_API_KEY", SENTINEL_KEY)
+    monkeypatch.setenv(key_env, SENTINEL_KEY)
     seen: dict[str, Any] = {}
 
     def capture(model_id: str, base_url: str | None = None) -> Any:
@@ -335,11 +385,11 @@ def test_api_base_url_override_is_forwarded_and_reported(
     monkeypatch.setattr("rpent.planner.base.build_api_model", capture)
     result = check_llm(
         LlmCheckRequest(
-            planner="api", model="anthropic:m", base_url="https://gateway.example"
+            planner="api", model=f"{provider}:m", base_url="https://gateway.example"
         )
     )
 
-    assert seen == {"model": "anthropic:m", "base_url": "https://gateway.example"}
+    assert seen == {"model": f"{provider}:m", "base_url": "https://gateway.example"}
     assert result.base_url == "https://gateway.example"
     assert result.ok is True
 
@@ -393,6 +443,25 @@ def test_a_provider_error_body_echoing_the_key_is_not_carried_verbatim(
     assert result.status == STATUS_AUTH_FAILED
     assert SENTINEL_KEY not in result.detail
     assert SENTINEL_KEY not in str(result.as_dict())
+
+
+@pytest.mark.parametrize("key_env", ["GOOGLE_API_KEY", "GEMINI_API_KEY"])
+def test_google_key_value_is_redacted(monkeypatch: pytest.MonkeyPatch, key_env) -> None:
+    from rpent.planner.gemini_cli import GeminiCliPlanner
+
+    monkeypatch.setenv(key_env, SENTINEL_KEY)
+    _patch_model(
+        monkeypatch,
+        _raising_model(
+            ModelHTTPError(status_code=401, model_name="m", body=SENTINEL_KEY)
+        ),
+    )
+    result = check_llm(LlmCheckRequest(planner="api", model="google:m"))
+
+    assert result.status == STATUS_AUTH_FAILED
+    assert SENTINEL_KEY not in str(result.as_dict())
+    assert check_mod.redact_secrets(SENTINEL_KEY) == f"<{key_env}>"
+    assert GeminiCliPlanner._redact(SENTINEL_KEY) == f"<{key_env}>"
 
 
 # ---------------------------------------------------------------------------
@@ -539,13 +608,91 @@ def test_codex_probe_timeout_reports_network_error(
     assert result.status == STATUS_NETWORK_ERROR
 
 
+@pytest.mark.parametrize("key_present", [False, True])
+@pytest.mark.parametrize("timeout_s", [None, 120])
+@pytest.mark.parametrize("backend", ["gemini_cli", "opencode"])
+def test_acp_probe_uses_harness_configuration_and_exact_optional_model(
+    monkeypatch: pytest.MonkeyPatch,
+    key_present: bool,
+    timeout_s: int | None,
+    backend: str,
+) -> None:
+    import rpent.planner.gemini_cli as gemini_cli
+    from rpent.planner.opencode import OpenCodePlanner
+
+    seen: dict[str, Any] = {}
+    if key_present:
+        monkeypatch.setenv("GEMINI_API_KEY", SENTINEL_KEY)
+
+    def fake_probe(self, prompt: str) -> str:
+        seen.update(prompt=prompt, model=self._model, timeout_s=self._timeout_s)
+        return "ok"
+
+    planner_class = (
+        gemini_cli.GeminiCliPlanner if backend == "gemini_cli" else OpenCodePlanner
+    )
+    monkeypatch.setattr(planner_class, "probe", fake_probe)
+    result = check_llm(
+        LlmCheckRequest(
+            planner=backend, model="provider/exact-model", timeout_s=timeout_s
+        )
+    )
+
+    assert result.ok is True
+    assert result.reply == "ok"
+    assert result.credential_env is None
+    assert result.credential_present is None
+    assert result.base_url_env is None
+    assert result.base_url is None
+    assert seen == {
+        "prompt": PROBE_PROMPT,
+        "model": "provider/exact-model",
+        "timeout_s": timeout_s
+        or (
+            CLI_LOGIN_TIMEOUT_S
+            if backend == "gemini_cli" and not key_present
+            else DEFAULT_TIMEOUT_S[backend]
+        ),
+    }
+
+
+@pytest.mark.parametrize(
+    ("message", "status"),
+    [
+        ("TypeError: fetch failed sending request", STATUS_NETWORK_ERROR),
+        ("Login failed", STATUS_AUTH_FAILED),
+        ("API key rejected", STATUS_AUTH_FAILED),
+        (None, STATUS_MISSING_API_KEY),
+    ],
+)
+def test_gemini_cli_probe_classifies_backend_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    message: str | None,
+    status: str,
+) -> None:
+    from acp import RequestError
+
+    import rpent.planner.gemini_cli as gemini_cli
+
+    def fail(self, prompt: str) -> str:
+        if message is None:
+            raise RequestError.auth_required()
+        raise RuntimeError(message)
+
+    monkeypatch.setattr(gemini_cli.GeminiCliPlanner, "probe", fail)
+
+    result = check_llm(LlmCheckRequest(planner="gemini_cli"))
+
+    assert result.status == status
+
+
 # ---------------------------------------------------------------------------
 # SDK backends: the no-credential budget
 #
-# Both accept an interactive CLI login instead of an env var, so a missing
-# variable can never skip the probe outright. It only shortens the budget and
-# renames the timeout, so a user with no key waits seconds, not a minute and
-# a half, and is told which of the two it was.
+# These backends accept an interactive CLI login instead of an env var, so a
+# missing variable can never skip the probe outright. It only shortens the
+# budget and renames the timeout, so a user with no key waits seconds, not a
+# minute and a half, and receives a useful configuration error.
 # ---------------------------------------------------------------------------
 
 

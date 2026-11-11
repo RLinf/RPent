@@ -26,7 +26,7 @@ Check the model, task, and runtime requirements before following the installatio
 
    .. grid-item-card:: Planners
 
-      ``api``, ``claude_code``, ``codex``
+      ``api``, ``claude_code``, ``codex``, ``gemini_cli``, ``opencode``
 
    .. grid-item-card:: Tasks
 
@@ -198,7 +198,7 @@ Configure your model service with :doc:`../guides/configure_planner` and check i
          --planner claude_code \
          --model claude-opus-4-8
 
-You can also use ``--planner api`` or ``--planner codex``; see the planner guide above.
+You can also use ``--planner api``, ``--planner codex``, or ``--planner gemini_cli``; see the planner guide above.
 
 .. _inspect-the-result:
 

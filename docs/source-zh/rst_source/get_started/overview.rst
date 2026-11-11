@@ -50,7 +50,7 @@ RPent 的三条核心设计原则是服务化、标准化和可组合（service-
    * - :doc:`SO-101 <../real_world_robots/so101>`
      - 内容即将推出。
 
-规划器可选择 ``api``、``claude_code`` 或 ``codex``；LIBERO 还提供用于执行已有计划的 :doc:`Flash Mode <../guides/flash>`。模型服务配置见 :doc:`../guides/configure_planner`。
+在线规划器可选择 ``api``、``claude_code``、``codex``、``gemini_cli`` 或 ``opencode``；LIBERO 还提供用于执行已有计划的 :doc:`Flash Mode <../guides/flash>`。模型服务配置见 :doc:`../guides/configure_planner`。
 
 从 :doc:`quickstart` 开始运行第一个任务。评测成绩和资源开销见 :doc:`../leaderboard/index`，研究背景见 :doc:`../resources/harnessvla`。
 
