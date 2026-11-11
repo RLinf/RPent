@@ -246,6 +246,14 @@ def _intrinsics(raw: dict) -> tuple[np.ndarray, np.ndarray]:
     return k, d
 
 
+def _matrix(value: np.ndarray) -> dict:
+    return {
+        "rows": value.shape[0],
+        "cols": value.shape[1],
+        "data": value.ravel().tolist(),
+    }
+
+
 def prepare_stereo(
     *,
     source: Path,
@@ -295,19 +303,11 @@ def prepare_stereo(
             "camera_name": "camera",
             "image_width": cal.size[0],
             "image_height": cal.size[1],
-            "camera_matrix": {"rows": 3, "cols": 3, "data": k.ravel().tolist()},
+            "camera_matrix": _matrix(k),
             "distortion_model": "plumb_bob",
-            "distortion_coefficients": {"rows": 1, "cols": 5, "data": [0.0] * 5},
-            "rectification_matrix": {
-                "rows": 3,
-                "cols": 3,
-                "data": np.eye(3).ravel().tolist(),
-            },
-            "projection_matrix": {
-                "rows": 3,
-                "cols": 4,
-                "data": cal.projection.ravel().tolist(),
-            },
+            "distortion_coefficients": _matrix(np.zeros((1, 5))),
+            "rectification_matrix": _matrix(np.eye(3)),
+            "projection_matrix": _matrix(cal.projection),
         }
         (output / "camera.yaml").write_text(
             "%YAML:1.0\n---\n"
