@@ -89,7 +89,7 @@ def test_shared_runtime_gets_memory_before_startup(
         supports_human_interactive_exploration=robot == "dual_franka",
         memory_repo_id="test/memory",
         prepare_memory=(lambda args, config: None) if robot == "libero" else None,
-        dashboard={
+        resolve_dashboard=lambda args: {
             "task": {
                 "command": "/rpent-task",
                 "usage": "/rpent-task <seed>",
@@ -152,7 +152,7 @@ def test_manual_session_starts_services_without_campaign_memory(tmp_path, monkey
         supports_human_interactive_exploration=False,
         memory_repo_id="test/memory",
         prepare_memory=None,
-        dashboard={
+        resolve_dashboard=lambda args: {
             "runtime_components": ({"name": "vla", "scope": "shared"},),
             "primitives": (),
             "task": {

@@ -101,6 +101,63 @@ for setup and test prerequisites.
 
 ## Embodied GPU E2E tests
 
+### RoboDojo primitive smoke test
+
+RoboDojo has a separate opt-in environment check; it is not a target of
+`run_gpu_suite.sh` or the GPU CI workflow. Use the RoboDojo environment and
+asset setup from the simulator guide, reserve one GPU, then run:
+
+```bash
+CUDA_VISIBLE_DEVICES=<reserved-GPU-ordinal> \
+  OMNI_KIT_ACCEPT_EULA=YES \
+  RPENT_RUN_ROBODOJO_INTEGRATION=1 \
+  RPENT_E2E_OUTPUT_DIR=/path/to/new-output-dir \
+  python -m pytest tests/e2e_tests/robodojo/test_environment_smoke.py -v -s
+```
+
+This checks saved RGB-D/world maps, both grippers at 0/0.5/1, held controller
+targets, small Cartesian moves and wrist rotations, native EE hold execution,
+action-aligned VPP2 history and reset, and `finish`.
+It requires Isaac Sim, cuRobo, RoboDojo assets and a GPU, but no SAM3,
+VLA or external planner. The 900-second test timeout includes simulator
+startup. It is not a SAM3 test, a planner-policy-chain test, or a benchmark
+success claim. Without the opt-in flag it is skipped.
+
+With the same opt-in variables, SAM3 installed in the runtime environment, and
+`SAM3_CHECKPOINT_PATH` pointing to its local checkpoint, run:
+
+```bash
+python -m pytest tests/e2e_tests/robodojo/test_components.py::test_sam3_component -v -s
+```
+
+The SAM3 component test segments a real saved frame and back-projects a foreground
+pixel without advancing the environment. It needs no VLA or external planner.
+
+With VPP2 dependencies and `VPP2_MODEL_PATH` configured as in the simulator guide,
+run `test_components.py::test_vpp2_component` and `test_policy_chain.py`.
+To reuse an already running VPP2 service, set
+`RPENT_ROBODOJO_VLA_ENDPOINT=socket://host:port` instead of `VPP2_MODEL_PATH`.
+The tests leave this borrowed service running.
+The VPP2 component checks real prediction after an analytic action and executes
+one native EE target. The two policy-chain cases use the public CLI and a
+scripted local planner to request images, segmentation, a depth query, either
+a gripper action or one VPP2 chunk, fresh image feedback and `finish`.
+Normal CLI startup requires all three services, even in the analytic case.
+The model-backed tests have a 2400-second timeout and are skipped without
+either `VPP2_MODEL_PATH` or `RPENT_ROBODOJO_VLA_ENDPOINT`; the Env and SAM3
+cases retain their 900-second timeout.
+For Awomo05, set `RPENT_ROBODOJO_VLA_BACKEND=awomo05` and configure
+`AWOMO05_MODEL_PATH` or `RPENT_ROBODOJO_VLA_ENDPOINT`. Run
+`test_components.py::test_awomo05_component` and `test_policy_chain.py`.
+The component check updates native history after an analytic action, predicts
+one eight-action chunk, and executes one joint target.
+
+This checks integration, not autonomous planning quality or benchmark task success.
+RoboDojo is not yet a target of
+`run_gpu_suite.sh`; run these opt-in tests directly with a fresh output directory.
+
+### Supported full suites
+
 The runner must expose one GPU and the checkpoint and simulator assets required
 by the selected target. Run one GPU suite with two new output paths:
 
@@ -120,6 +177,62 @@ the two component tests and one policy-chain test. The existing
 [GPU CI](../.github/workflows/embodied-gpu-e2e-run.yml) uses this same runner for
 all seven checks. The scripted planner needs no external planner credentials.
 
+## External WAM GPU services
+
+The opt-in backend tests use separately provisioned checkpoint services. They
+are not included in `run_gpu_suite.sh`, which provisions the standard robot
+stacks. Start the workers described in the
+[action-model guide](../docs/source-en/rst_source/development/add_action_model.rst),
+then run from a LIBERO-enabled test environment:
+
+```bash
+RPENT_FAST_WAM_ENDPOINT=http://127.0.0.1:8117 \
+  pytest tests/e2e_tests/libero/test_components.py \
+    tests/e2e_tests/libero/test_policy_chain.py -k 'wam or horizon' -v \
+    --junitxml=fast-wam.xml
+```
+
+The component test uses real LIBERO observations, predicts and executes one
+action chunk, and records inference latency and checkpoint identity. The CLI
+chain executes up to four chunks within a 32-action episode horizon. A separate
+environment check verifies that reset settling does not consume that horizon.
+These tests do not require native task success. Configure simulator assets
+independently of the model environment. Set `RPENT_COSMOS_ENDPOINT` instead to
+run the same cases against Cosmos Policy, or `RPENT_COSMOS3_ENDPOINT` for
+Cosmos3's RPent RPC worker. Set `RPENT_WAM_SUITE=libero_10` when using a
+LIBERO-10 checkpoint. Missing endpoints skip their cases.
+Set `RPENT_WAM_SUITE=libero_spatial_task` and configure LIBERO-Pro assets to
+exercise Pro instead of the default `libero_spatial`, task 0, seed 0.
+
+RoboTwin uses its own Fast-WAM checkpoint and three-camera configuration. From
+the RoboTwin simulator environment, with `ROBOTWIN_ASSETS_PATH` configured:
+
+```bash
+RPENT_FAST_WAM_ROBOTWIN_ENDPOINT=http://127.0.0.1:8117 \
+  pytest tests/e2e_tests/robotwin/test_components.py \
+    tests/e2e_tests/robotwin/test_policy_chain.py -k wam -v \
+    --junitxml=robotwin-fast-wam.xml
+```
+
+This test uses `RoboTwinWAMClient`, reads real camera and joint-target state,
+and executes a component chunk through `env.chunk_step(action_type="qpos")`.
+The separate CLI chain executes up to two chunks within a 64-action horizon.
+The worker must advertise `robotwin.joint_action.qpos14.v1`. It records latency,
+executed action counts and episode status; no LingBot checkpoint is needed.
+
+The policy-chain tests exercise the public CLI and `wam_act` toolkit path
+with a scripted planner, recording observations and `finish`. These are bounded
+integration checks, not task-success benchmarks. Component checks close their
+clients, and CLI checks stop their owned daemons. Externally started model
+services remain the operator's responsibility.
+
+Offline AM checks follow the VLA/SAM layout: `test_am.py` covers startup,
+configuration and public boundaries; `test_wam_adapters.py` checks physical
+input and native output transforms. `test_wam_loopback.py` covers HTTP/socket
+session isolation, reset and cleanup; `test_cosmos_policy_loopback.py` covers
+Cosmos Policy conversion through those transports. Platform tool checks stay
+in platform unit tests.
+
 ## Dual-Franka VLA diagnostic console
 
 Run the real-robot diagnostic explicitly from a source checkout after installing
@@ -130,7 +243,7 @@ statistics, cameras, reachable robot environment, and easy_handeye YAML paths un
 ```bash
 python -m tests.e2e_tests.dual_franka.dual_franka_vla \
   --robot-config /path/to/robot.yaml \
-  --vla-model-path /path/to/checkpoint --vla-repo-id org/dataset
+  --am-checkpoint /path/to/checkpoint --pi05-repo-id org/dataset
 ```
 
 This console is not collected by pytest or included in the automated GPU suite.

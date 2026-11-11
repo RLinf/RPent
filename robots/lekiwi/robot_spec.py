@@ -75,7 +75,7 @@ def get_robot_spec() -> RobotSpec:
         add_cli_args=_add_cli_args,
         parse_config=_parse_config,
         init_runtime=_init_runtime,
-        dashboard=LEKIWI_DASHBOARD_SPEC,
+        resolve_dashboard=lambda args: LEKIWI_DASHBOARD_SPEC,
         is_real_robot=True,
         supports_exploration=False,
     )

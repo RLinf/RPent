@@ -18,40 +18,35 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from robots.robodojo.prompts import system as system_parts
+from robots.robodojo.prompts import evaluate as evaluate_parts
+from robots.robodojo.prompts import explore as explore_parts
 from robots.robodojo.prompts import user as user_parts
+from robots.robodojo.prompts.policy import POLICY_PROMPTS
 from rpent.prompt.utils import PromptNode
 
 
 def system_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> PromptNode:
-    if (variables or {}).get("mode") == "eval-fair":
-        return {
-            "EXECUTION": "Replay the frozen plan using live RGB-D and robot proprioception. No language model participates."
-        }
-    return {
-        "ROLE AND RULES": system_parts.ROLE_AND_RULES,
-        "TOOL ACCESS": system_parts.TOOL_ACCESS,
-        "PERCEPTION": system_parts.PERCEPTION,
-        "TOOLS AND MANIPULATION": system_parts.TOOLS,
-        "SAFETY": system_parts.SAFETY,
-        "REWARD AND SCORE": system_parts.REWARD,
-        "OUTPUT DISCIPLINE": system_parts.OUTPUT_DISCIPLINE,
-    }
+    """Select the RoboDojo evaluation or exploration system prompt."""
+    if (variables or {}).get("mode") == "explore":
+        return explore_parts.system_prompt(variables)
+    return evaluate_parts.system_prompt(variables)
 
 
 def user_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> PromptNode:
+    backend = (variables or {}).get("vla_backend") or "vpp2"
     sections = {
-        "TASK": user_parts.TASK,
+        "TASK": user_parts.TASK.replace(
+            "{{policy_control}}",
+            POLICY_PROMPTS[backend]["policy_control"],
+        ),
         "BEGIN": user_parts.BEGIN,
     }
     if (variables or {}).get("mode") == "eval-fair":
         return {"TASK": "{{task}} / layout {{layout}}"}
-    if (variables or {}).get("task") == "put_bottles_into_dustbin":
-        sections["TASK CONTEXT"] = user_parts.PUT_BOTTLES_CONTEXT
     return sections
 
 
