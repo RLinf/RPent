@@ -652,9 +652,6 @@ def test_dashboard_interrupts_at_response_budget_and_closes(
             ended = False
             closed = False
 
-            async def tool_completed(self, session):
-                pass
-
             async def complete(self, session):
                 raise AssertionError("a budget-limited session must end")
 

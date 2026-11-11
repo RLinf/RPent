@@ -93,13 +93,6 @@ class PlannerInteractionControl:
                     await asyncio.to_thread(continuation)
                     await self._flush(driver)
 
-    async def tool_completed(self, driver: PlannerSessionDriver) -> None:
-        """Flush input queued while the backend was running a tool."""
-        if self._interrupting or self._queue_until_complete:
-            return
-        async with self._lock:
-            await self._flush(driver)
-
     def end(self) -> None:
         """Seal the interaction and preserve unfinished messages as unsent."""
         self._interaction.seal_interaction()

@@ -436,7 +436,6 @@ def test_interrupt_drains_completion_callbacks_before_resuming():
     class CompletingDriver(FakeDriver):
         async def interrupt(self):
             events.append("backend-interrupt")
-            await control.tool_completed(self)
             await control.complete(self)
             return 0
 
@@ -468,12 +467,11 @@ def test_queued_policy_submits_one_message_per_completed_turn():
     async def scenario():
         await control.start()
         await control._process(driver)
-        await control.tool_completed(driver)
         assert driver.submissions == []
         await control.complete(driver)
         assert [m.text for m in driver.submissions] == ["first"]
         assert [m.status for m in interaction.messages] == ["sent", "pending"]
-        await control.tool_completed(driver)
+        await control._process(driver)
         assert len(driver.submissions) == 1
         await control.complete(driver)
         assert [m.text for m in driver.submissions] == ["first", "second"]
