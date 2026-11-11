@@ -118,7 +118,6 @@ class ClaudeCodePlanner(Planner):
         return asyncio.run(
             self._solve_async(
                 prompt,
-                initial_user_text=user_message,
                 toolkit=toolkit,
                 max_turns=max_turns,
                 input_queue=input_queue,
@@ -132,7 +131,6 @@ class ClaudeCodePlanner(Planner):
         self,
         prompt: str,
         *,
-        initial_user_text: str,
         toolkit: Toolkit,
         max_turns: int,
         input_queue: queue.Queue[str | None] | None = None,
@@ -161,14 +159,16 @@ class ClaudeCodePlanner(Planner):
                     output.flush()
                     logger.info(rendered.rstrip())
 
-            def emit_user(text: str, *, initial: bool = False) -> None:
-                display = "[initial task instructions submitted]" if initial else text
+            def emit_user(text: str | None = None) -> None:
+                display = (
+                    "[initial task instructions submitted]" if text is None else text
+                )
                 output.write(f"\n[user] {display}\n")
                 output.flush()
                 self._dashboard_events.emit(
                     TranscriptEvent(
                         {"type": "initial_prompt"}
-                        if initial
+                        if text is None
                         else {"type": "user", "text": text}
                     )
                 )
@@ -179,9 +179,7 @@ class ClaudeCodePlanner(Planner):
                     cancel_active_and_wait=toolkit.cancel_active_and_wait,
                     resume_calls=toolkit.resume_calls,
                     emit_user=emit_user,
-                    emit_initial_user=lambda: emit_user(
-                        initial_user_text, initial=True
-                    ),
+                    emit_initial_user=emit_user,
                     queue_until_complete=True,
                 )
                 if interaction is not None
@@ -228,7 +226,6 @@ class ClaudeCodePlanner(Planner):
                 logger.info("[cc-planner] %s", error)
 
         return artifacts.result(
-            text="",
             finish_result=recorder.finish_result,
             final_response=None,
             stats=recorder.stats(),

@@ -125,7 +125,6 @@ class CodexPlanner(Planner):
         return asyncio.run(
             self._solve(
                 prompt=prompt,
-                initial_user_text=user_message,
                 toolkit=toolkit,
                 max_turns=max_turns,
                 interaction=dashboard_interaction,
@@ -137,7 +136,6 @@ class CodexPlanner(Planner):
         self,
         *,
         prompt: str,
-        initial_user_text: str,
         toolkit: Toolkit,
         max_turns: int,
         interaction: DashboardInteractionPort | None,
@@ -161,7 +159,6 @@ class CodexPlanner(Planner):
 
         error = await run_agent(
             prompt=prompt,
-            initial_user_text=initial_user_text,
             toolkit=toolkit,
             artifacts=artifacts,
             recorder=recorder,
@@ -176,7 +173,6 @@ class CodexPlanner(Planner):
         if recorder.final_response is not None:
             last_message_path.write_text(recorder.final_response)
         return artifacts.result(
-            text="",
             finish_result=recorder.finish_result,
             final_response=recorder.final_response,
             stats=recorder.stats(),

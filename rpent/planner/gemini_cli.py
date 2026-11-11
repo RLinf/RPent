@@ -118,7 +118,6 @@ class GeminiCliPlanner(Planner):
                 prompt=f"{system_prompt}\n\n{user_message}"
                 if system_prompt
                 else user_message,
-                initial_user_text=user_message,
                 toolkit=toolkit,
                 max_turns=max_turns,
                 input_queue=input_queue,
@@ -130,7 +129,6 @@ class GeminiCliPlanner(Planner):
         self,
         *,
         prompt: str,
-        initial_user_text: str,
         toolkit: Toolkit,
         max_turns: int,
         input_queue: queue.Queue[str | None] | None,
@@ -166,7 +164,6 @@ class GeminiCliPlanner(Planner):
 
             error = await run_agent(
                 prompt=prompt,
-                initial_user_text=initial_user_text,
                 toolkit=toolkit,
                 artifacts=artifacts,
                 recorder=recorder,
@@ -186,7 +183,6 @@ class GeminiCliPlanner(Planner):
                 },
             )
         return artifacts.result(
-            text="",
             finish_result=recorder.finish_result,
             final_response=recorder.final_response,
             stats=recorder.stats(),

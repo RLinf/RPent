@@ -230,7 +230,6 @@ def test_queue_interrupt_and_continuation_share_one_session(
         solve = (
             planner._solve_async(
                 "initial",
-                initial_user_text="initial",
                 toolkit=Toolkit(),
                 max_turns=20,
                 input_queue=input_queue if channel == "terminal" else None,
@@ -239,7 +238,6 @@ def test_queue_interrupt_and_continuation_share_one_session(
             if backend == "claude_code"
             else planner._solve(
                 prompt="initial",
-                initial_user_text="initial",
                 toolkit=Toolkit(),
                 max_turns=20,
                 input_queue=input_queue if channel == "terminal" else None,
@@ -445,7 +443,6 @@ def test_interactive_cleanup_and_finish_preserve_unsent_input(
     error = asyncio.run(
         interactive.run_agent(
             prompt="initial",
-            initial_user_text="initial",
             toolkit=SimpleNamespace(
                 cancel_active_and_wait=cancel,
                 resume_calls=lambda: events.append("resume_tools"),

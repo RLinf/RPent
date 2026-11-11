@@ -161,7 +161,6 @@ class TerminalInteraction:
 async def run_agent(
     *,
     prompt: str,
-    initial_user_text: str,
     toolkit: Toolkit,
     artifacts: AgentArtifacts,
     recorder: Any,
@@ -196,14 +195,14 @@ async def run_agent(
         artifacts.raw_stream_path.open("w") as raw,
     ):
 
-        def emit_user(text: str, *, initial: bool = False) -> None:
-            display = "[initial task instructions submitted]" if initial else text
+        def emit_user(text: str | None = None) -> None:
+            display = "[initial task instructions submitted]" if text is None else text
             output.write(f"\n[user] {display}\n")
             output.flush()
             events.emit(
                 TranscriptEvent(
                     {"type": "initial_prompt"}
-                    if initial
+                    if text is None
                     else {"type": "user", "text": text}
                 )
             )
@@ -214,7 +213,7 @@ async def run_agent(
                 cancel_active_and_wait=toolkit.cancel_active_and_wait,
                 resume_calls=toolkit.resume_calls,
                 emit_user=emit_user,
-                emit_initial_user=lambda: emit_user(initial_user_text, initial=True),
+                emit_initial_user=emit_user,
                 queue_until_complete=True,
             )
             if port is not None
