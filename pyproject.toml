@@ -264,9 +264,10 @@ include-package-data = true
 where = ["."]
 # robots is a top-level package; without it, non-editable installations
 # leave the CLI unable to import any backend. The globs also cover every
-# per-robot subpackage (robots.yam.*, robots.robodojo.*, ...).
-include = ["rpent*", "robots", "robots.*"]
-exclude = ["tests*", "docs*", "examples*", "docker*", "toolkits*"]
+# per-robot subpackage (robots.yam.*, robots.robodojo.*, ...), as well as the
+# reusable geometry toolkit.
+include = ["rpent*", "robots", "robots.*", "toolkits", "toolkits.*"]
+exclude = ["tests*", "docs*", "examples*", "docker*"]
 
 [tool.setuptools.package-data]
 "robots.robodojo" = ["guides/*.md"]
