@@ -19,6 +19,13 @@
 
 测表面点时，工具直接返回这个位置。其他测量还需要分割器（如 SAM3）在图像中圈出相关部位。工具用区域内的有效三维点计算可见范围或拟合形状。主规划器根据结果决定是否需要从另一个视角记录一帧，再调用 ``geometry``。
 
+.. figure:: ../../../_static/images/geometry-module-architecture.svg
+   :alt: 视觉模型提供目标像素或部位掩码，相机观测提供三维数据。GeometryTool 将测量值和状态返回给主规划器。
+   :align: center
+   :width: 100%
+
+   ``GeometryTool`` 模块结构。
+
 .. _geometry-prompt-design:
 
 选点提示

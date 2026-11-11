@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="258" viewBox="0 0 960 258" role="img" aria-labelledby="figure-title figure-desc">
+  <title id="figure-title">GeometryTool module architecture</title>
+  <desc id="figure-desc">The planner calls geometry with a target part and the measurements it needs. GeometryTool returns measurements and status. It uses an observation provider for a recorded RGB image and aligned 3-D data, and injected vision clients for a target pixel and, when a region or fitted shape is requested, a part mask. Inside GeometryTool, back-projection reads a surface position, region measurement computes visible bounds and per-axis medians, and shape fitting estimates features such as centers, axes and dimensions. The planner can request another view.</desc>
+  <defs>
+    <style>
+      text { font-family: "Avenir Next", "Segoe UI", "Helvetica Neue", Arial, sans-serif; fill: #233345; text-rendering: optimizeLegibility; }
+      .band { font-size: 20px; font-weight: 500; fill: #fff; }
+      .core { font-size: 22px; font-weight: 600; }
+      .operation { font-size: 17px; font-weight: 500; }
+      .body { font-size: 15.4px; font-weight: 400; }
+      .detail { font-size: 14.6px; font-weight: 400; fill: #425469; }
+      .example { font-size: 13.6px; font-weight: 400; text-anchor: end; fill: #46556c; }
+      .label { font-size: 12.6px; font-weight: 400; text-anchor: middle; fill: #4b6072; }
+      .tool-name { font-size: 14px; font-style: italic; font-weight: 500; }
+      .rule { fill: none; stroke-width: .85; }
+      .link { fill: none; stroke: #667c8c; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+      .arrow { marker-end: url(#arrow-tip); }
+    </style>
+    <marker id="arrow-tip" markerWidth="8" markerHeight="8" refX="6.6" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+      <path d="M1.3 1.2 L6.6 4 L1.3 6.8" fill="none" stroke="#667c8c" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+  <rect width="960" height="258" fill="#fff"/>
+  <g id="planner" role="group" aria-label="Planner">
+    <rect class="panel" x="12" y="53" width="192" height="152" rx="7" fill="#f3f7ec"/>
+    <path class="band-fill" fill="#69a225" d="M19 53 H197 Q204 53 204 60 V89 H12 V60 Q12 53 19 53 Z"/>
+    <text x="28" y="77" class="band">Planner</text>
+    <text x="28" y="113" class="body">Choose the target part</text>
+    <text x="28" y="131" class="body">and measurements</text>
+    <path d="M28 148 H188" class="rule" stroke="#dce6cd"/>
+    <text x="28" y="171" class="body">Request another view</text>
+    <text x="28" y="189" class="body">if needed</text>
+  </g>
+  <g id="geometry-tool" role="group" aria-label="GeometryTool">
+    <rect class="panel" x="300" y="30" width="270" height="197" rx="7" fill="#edf5fc"/>
+    <path class="band-fill" fill="#248aee" d="M307 30 H563 Q570 30 570 37 V68 H300 V37 Q300 30 307 30 Z"/>
+    <text x="316" y="56" class="band core">GeometryTool</text>
+    <text x="316" y="89" class="operation">Back-projection</text>
+    <text x="316" y="108" class="detail">Pixel to 3-D position</text>
+    <path d="M316 121 H554 M316 174 H554" class="rule" stroke="#d5e4f1"/>
+    <text x="316" y="142" class="operation">Region measurement</text>
+    <text x="316" y="161" class="detail">Bounds and per-axis median</text>
+    <text x="316" y="195" class="operation">Shape fitting</text>
+    <text x="316" y="214" class="detail">Centers, axes and dimensions</text>
+  </g>
+  <g id="vision-clients" role="group" aria-label="Vision clients">
+    <rect class="panel" x="652" y="10" width="296" height="107" rx="7" fill="#eff2fc"/>
+    <path class="band-fill" fill="#3f65e6" d="M659 10 H941 Q948 10 948 17 V46 H652 V17 Q652 10 659 10 Z"/>
+    <text x="668" y="34" class="band">Vision clients</text>
+    <text x="668" y="69" class="body">Visual grounding</text>
+    <text x="932" y="69" class="example">e.g. Molmo2-8B</text>
+    <path d="M668 81 H932" class="rule" stroke="#dce2f5"/>
+    <text x="668" y="104" class="body">Segmentation (optional)</text>
+    <text x="932" y="104" class="example">e.g. SAM3</text>
+  </g>
+  <g id="observation-provider" role="group" aria-label="Observation provider">
+    <rect class="panel" x="652" y="129" width="296" height="119" rx="7" fill="#f3effc"/>
+    <path class="band-fill" fill="#7b3def" d="M659 129 H941 Q948 129 948 136 V165 H652 V136 Q652 129 659 129 Z"/>
+    <text x="668" y="153" class="band">Observation provider</text>
+    <text x="668" y="186" class="body">Recorded RGB image</text>
+    <text x="668" y="208" class="detail">Aligned XYZ or calibrated depth</text>
+    <text x="668" y="230" class="detail">Reference frame and source step</text>
+  </g>
+  <g id="connections">
+    <g id="call" role="group" aria-label="The planner calls geometry">
+      <path d="M209 115 H295" class="link arrow"/>
+      <text x="252" y="106" class="label tool-name">geometry</text>
+    </g>
+    <g id="return" role="group" aria-label="The tool returns values and status">
+      <path d="M295 169 H209" class="link arrow"/>
+      <text x="252" y="160" class="label">Values + status</text>
+    </g>
+    <g id="vision-return" role="group" aria-label="The vision clients return a target pixel or part mask">
+      <path d="M647 63 H642 C614 63 614 129 587 129" class="link"/>
+      <text x="611" y="54" class="label">Pixel, mask</text>
+    </g>
+    <g id="observation-input" role="group" aria-label="The observation provider supplies a recorded camera view">
+      <path d="M647 192 H642 C614 192 614 129 587 129" class="link"/>
+      <text x="611" y="210" class="label">RGB + 3-D</text>
+    </g>
+    <path d="M587 129 H575" class="link arrow" aria-hidden="true"/>
+  </g>
+</svg>

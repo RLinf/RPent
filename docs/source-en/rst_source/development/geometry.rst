@@ -39,6 +39,15 @@ The tool uses the valid 3-D points in that region to calculate bounds or
 fit a shape. The planner uses the result to decide whether to record
 another view and call ``geometry`` again.
 
+.. figure:: ../../../_static/images/geometry-module-architecture.svg
+   :alt: Vision models supply a target pixel or part mask, and the camera
+         view supplies 3-D data. GeometryTool returns measurements and
+         status to the planner.
+   :align: center
+   :width: 100%
+
+   ``GeometryTool`` module architecture.
+
 .. _geometry-prompt-design:
 
 Point-Selection Prompt
