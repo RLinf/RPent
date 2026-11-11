@@ -47,7 +47,7 @@ RPent is built for four kinds of users:
 
 ## What's NEW!
 
-- [2026/11] 🔥 Added PyRUA Mode for persistent Python cells that call registered robot tools. Enable it with `--policy-mode code`. See the [PyRUA guide](https://rpent.readthedocs.io/en/latest/rst_source/guides/pyrua.html).
+- [2026/11] 🔥 Added PyRUA Mode for persistent Python execution with registered robot tools. See the [PyRUA Mode guide](docs/source-en/rst_source/guides/pyrua.rst).
 - [2026/10] 🔥 Added an optional APXInf VLA endpoint. See the [deployment guide](https://rpent.readthedocs.io/en/latest/rst_source/guides/advanced_deployment.html#apxinf-vla-service-optional).
 - [2026/09] 🔥 Added the interactive RPent Leaderboard for LIBERO, LIBERO-PRO, RoboCasa365, and RoboTwin, with model comparisons and suite-level results. Explore the [Leaderboard](https://rpent.readthedocs.io/en/latest/rst_source/leaderboard/index.html).
 - [2026/09] 🔥 RPent supports Franka single-arm and dual-arm real-robot extensions. Doc: [Franka](https://rpent.readthedocs.io/en/latest/rst_source/real_world_robots/franka.html) · [Dual Franka](https://rpent.readthedocs.io/en/latest/rst_source/real_world_robots/dual_franka.html).
