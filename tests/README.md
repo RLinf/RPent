@@ -33,7 +33,7 @@ tests/
     │   ├── robocasa/
     │   └── robotwin/
     └── toolkits/         # tests for reusable toolkits
-        └── geometry/     # observations, fitting and offline evaluation checks
+        └── geometry/     # generic observations, perception and fitting
 ```
 
 Directories that do not yet have tests do not need empty placeholders. Add
@@ -48,8 +48,8 @@ them when the first test for that module lands.
 - Mirror top-level `toolkits` modules under `tests/unit_tests/toolkits/`.
   Geometry smoke tests use caller-provided observations, synthetic point clouds
   and fake model services without simulator assets or GPU dependencies.
-  Evaluation tests cover capture, reference isolation, replay and report output
-  with synthetic data in the same directory.
+  Standalone evaluation checks live with the evaluator in
+  `toolkits/geometry/evaluation/test_evaluation.py`.
 - Place cross-layer tests with the primary contract owner. Registry and config
   contracts belong to `rpent/robots/`; extension toolkit and schema contracts
   belong to `robots/`.
@@ -71,7 +71,7 @@ not contact external services.
 Run the complete suite with:
 
 ```bash
-pytest tests/unit_tests -v
+pytest tests/unit_tests toolkits/geometry/evaluation/test_evaluation.py -v
 ```
 
 ## RoboCasa environment smoke tests

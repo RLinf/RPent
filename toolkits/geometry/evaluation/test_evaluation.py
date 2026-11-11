@@ -110,7 +110,7 @@ def _environment(case):
 
 
 def test_offline_cli_and_fixed_checklist(tmp_path):
-    root = Path(__file__).resolve().parents[4]
+    root = Path(__file__).resolve().parents[3]
     script = """
 import sys
 from toolkits.geometry.evaluation.experiment import main
@@ -136,7 +136,7 @@ main(['write-manifest', '--output', 'manifest.json'])
 
 
 def test_cold_collector_initializes_graphics_before_loading_the_simulator(tmp_path):
-    root = Path(__file__).resolve().parents[4]
+    root = Path(__file__).resolve().parents[3]
     sdk = tmp_path / "sdk"
     package = sdk
     for name in ("rlinf", "envs", "sim", "libero"):
