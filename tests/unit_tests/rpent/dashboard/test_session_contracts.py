@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -174,18 +175,36 @@ def test_dashboard_session_stops_shared_daemons_in_reverse_after_cleanup_error(
 
 
 @pytest.mark.parametrize("collect_metrics", [False, True])
-@pytest.mark.parametrize("merge_fails", [False, True])
-@pytest.mark.parametrize("sessions", [1, 2])
+@pytest.mark.parametrize(
+    ("sessions", "merge_fails", "record_trajectory", "planner_name"),
+    [
+        (1, False, True, "api"),
+        (1, True, True, "api"),
+        (2, False, True, "api"),
+        (2, True, True, "api"),
+        (2, False, False, "api"),
+        (1, False, False, "claude_code"),
+        (2, False, True, "claude_code"),
+        (1, False, True, "codex"),
+        (1, False, False, "codex"),
+        (2, False, True, "codex"),
+    ],
+)
 def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     merge_fails: bool,
     sessions: int,
+    record_trajectory: bool,
+    planner_name: str,
     collect_metrics: bool,
 ) -> None:
     from rpent.cli import dashboard as dashboard_cli
+    from rpent.cli.main import _build_argparser
+    from rpent.session import EnvState
 
     merge_calls: list[dict[str, Any]] = []
+    stores = []
     planner_runs = []
     finalized = []
 
@@ -201,6 +220,10 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
         drained = False
         closed = False
 
+        def __init__(self):
+            self.state = EnvState(tmp_path / f"state-{len(stores)}")
+            stores.append(self.state)
+
         def cancel_active_and_wait(self) -> None:
             self.drained = True
 
@@ -215,6 +238,11 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
             return str(tmp_path / f"{recipe_tag}_recipe.jsonl")
 
         def close(self) -> None:
+            task = self.state.get_task()
+            if record_trajectory:
+                assert task.status == "running"
+            else:
+                assert task is None
             self.closed = True
 
     class FakeState:
@@ -244,7 +272,11 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
 
     class FakePlanner:
         def solve(self, **kwargs: Any) -> PlannerResult:
-            del kwargs
+            task = kwargs["toolkit"].state.get_task()
+            if record_trajectory:
+                assert task.status == "running"
+            else:
+                assert task is None
             planner_runs.append(True)
             return PlannerResult(
                 finish_result={"status": "success"},
@@ -272,24 +304,20 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
             user=lambda variables: "user",
         ),
     )
-    args = SimpleNamespace(
-        verbose=False,
-        robot_name="custom_exploration_env",
-        explore=True,
-        auto_merge_memory=True,
-        explore_sessions=sessions,
-        explore_attempts_per_session=2,
-        planner="api",
-        base_url=None,
-        model="offline",
-        max_tokens=128,
-        planner_timeout_s=10,
-        reasoning_effort=None,
-        claude_code_max_budget_usd=None,
-        no_images=False,
-        max_turns=2,
+    args = _build_argparser().parse_args(
+        [
+            "--dashboard",
+            "--explore",
+            *(["--record-trajectory"] if record_trajectory else []),
+        ]
     )
-    claimed = ClaimedTask(number=1, request={}, output_dir=output_dir)
+    args.robot_name = "custom_exploration_env"
+    args.auto_merge_memory = True
+    args.explore_sessions = sessions
+    args.explore_attempts_per_session = 2
+    claimed = ClaimedTask(
+        number=1, request={"planner": planner_name}, output_dir=output_dir
+    )
     state = FakeState()
     from rpent.cli import main as main_cli
 
@@ -316,6 +344,23 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
         assert finalized[0].environment_metrics == {"score": 10 * sessions}
     assert error is None
     assert state.toolkit_lifecycle == ["bound", "unbound"] * sessions
+    assert len(stores) == sessions
+    if record_trajectory:
+        saved_tasks = [
+            json.loads(path.read_text())["task"]
+            for path in tmp_path.glob("**/trajectories/*/task.json")
+        ]
+        assert {task["task_id"] for task in saved_tasks} == {
+            store.get_task().task_id for store in stores
+        }
+        assert all(task["status"] == "completed" for task in saved_tasks)
+        for task in saved_tasks:
+            assert task["config"]["data"]["arguments"]["planner"] == planner_name
+            assert task["config"]["data"]["arguments"]["record_trajectory"] is True
+            assert task["config"]["data"]["run"]["output_dir"] == str(output_dir)
+    else:
+        assert all(store.get_task() is None for store in stores)
+        assert not list(tmp_path.glob("**/trajectories"))
     assert merge_calls == [
         {
             "cell_tag": "libero_s0",

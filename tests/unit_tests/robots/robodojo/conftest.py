@@ -345,7 +345,7 @@ def boundary(make_agent, agent_module, monkeypatch, make_native, fake_env):
         "success": False,
     }
     agent.get_task_language = lambda: instruction[0]
-    agent.get_native_obs = lambda: {
+    agent.get_native_obs = lambda *, capture=True: {
         **observation(native.take_action_cnt[0]),
         "instruction": instruction[0],
         "state": {

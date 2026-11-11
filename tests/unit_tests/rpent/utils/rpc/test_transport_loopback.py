@@ -31,6 +31,8 @@ from typing import Literal
 import numpy as np
 import pytest
 
+from rpent.robots.components.env_client_base import BaseEnvClient
+from rpent.robots.components.env_facade_base import BaseEnvFacade
 from rpent.utils.daemon import pick_free_port
 from rpent.utils.rpc import (
     RpcClient,
@@ -355,3 +357,21 @@ def test_transport_timeout_does_not_wedge_the_server(transport: Transport) -> No
 
         assert running.client.call("healthz", timeout_s=1.0) == {"status": "ok"}
         assert running.facade.delay_finished.wait(timeout=1.0)
+
+
+def test_captured_step_caches_the_observation_inside_the_receipt(
+    make_server_and_client,
+):
+    class Env(BaseEnvFacade):
+        def get_env_meta(self):
+            return {}
+
+        def step(self, action, *, capture=False):
+            result = ({"position": action}, 0, False, {})
+            return {"result": result} if capture else result
+
+    with make_server_and_client(Env(), "socket") as rpc:
+        env = BaseEnvClient(rpc, expected_meta={}, reset_on_connect=False)
+        receipt = env.step(1, capture=True)
+        assert env.last_obs is receipt["result"][0]
+        assert env.last_obs == {"position": 1}

@@ -22,6 +22,7 @@ import threading
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from openai_codex import JsonRpcError, TransportClosedError
@@ -35,7 +36,8 @@ from rpent.planner.codex import (
     _codex_mcp_config_overrides,
     _interrupt,
 )
-from rpent.planner.utils.http_mcp_server import HttpMcpServer, mcp_result
+from rpent.planner.utils.http_mcp_server import HttpMcpServer
+from rpent.session import EnvState, MissingInfo, Payload, codex_capture
 from rpent.tools import ToolResult
 from rpent.tools.common import CommonTools
 
@@ -53,8 +55,15 @@ class RecordingSink:
 
 
 class FakeToolkit:
-    def __init__(self) -> None:
+    def __init__(self, state: EnvState | None = None) -> None:
+        self._state = state
         self.cancel_calls = 0
+
+    @property
+    def state(self) -> EnvState:
+        if self._state is None:
+            raise RuntimeError("toolkit has no environment state")
+        return self._state
 
     def list_tools(self):
         return (
@@ -166,16 +175,178 @@ def install_fake_backend(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]
     return configs
 
 
-def test_mcp_content_conversion_preserves_text_images_and_error_status() -> None:
-    plain = mcp_result(ToolResult(data={"value": "plain"}))
-    assert plain["isError"] is False
-    assert json.loads(plain["content"][0]["text"]) == {"value": "plain"}
-    result = ToolResult(data={"error": "finish refused"}, images=[b"image bytes"])
-    response = mcp_result(result)
-    assert [block["type"] for block in response["content"]] == ["text", "image"]
-    assert json.loads(response["content"][0]["text"]) == {"error": "finish refused"}
-    assert response["content"][1]["mimeType"] == "image/png"
-    assert response["isError"] is True
+@pytest.mark.parametrize("dashboard", [False, True], ids=["cli", "dashboard"])
+@pytest.mark.parametrize("capture", ["no_state", "no_task", "active"])
+def test_trace_root_is_scoped_to_each_captured_solve(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    dashboard: bool,
+    capture: str,
+) -> None:
+    install_fake_backend(monkeypatch)
+    monkeypatch.delenv("CODEX_ROLLOUT_TRACE_ROOT", raising=False)
+    state = None if capture == "no_state" else EnvState(tmp_path / "session")
+    if capture == "active":
+        state.start_task(instruction="Move.", config=Payload("test.config", {}))
+    toolkit = FakeToolkit(state)
+    planner = make_planner(tmp_path, RecordingSink())
+    session_factory = Mock(
+        return_value=SimpleNamespace(
+            run=AsyncMock(return_value=None),
+            close=AsyncMock(return_value=None),
+            error=None,
+        )
+    )
+    monkeypatch.setattr(codex_module, "_CodexDashboardSession", session_factory)
+    import_trace = codex_capture.import_codex_trace
+
+    def import_after_cleanup(state: EnvState, root: Path) -> dict[str, Any]:
+        assert state.get_task().status == "running"
+        assert FakeMcpServer.instances[-1].stopped
+        assert toolkit.cancel_calls > 0
+        if dashboard:
+            assert session_factory.return_value.close.await_count == len(
+                FakeMcpServer.instances
+            )
+        else:
+            assert FakeCodex.instances[-1].closed
+        return import_trace(state, root)
+
+    importer = Mock(side_effect=import_after_cleanup)
+    monkeypatch.setattr(codex_capture, "import_codex_trace", importer)
+
+    for _ in range(2):
+        result = planner.solve(
+            system_prompt="",
+            user_message="Move.",
+            toolkit=toolkit,
+            max_turns=1,
+            dashboard_interaction=SimpleNamespace() if dashboard else None,
+        )
+        assert result.error is None
+        if capture == "active":
+            assert result.stats["codex_trace"]["sdk_version"] == (
+                codex_module.openai_codex.__version__
+            )
+            assert result.stats["codex_trace"]["unlinked_tool_calls"] == 0
+            assert "No Codex trace.jsonl" in result.stats["codex_trace"]["errors"][0]
+        else:
+            assert "codex_trace" not in result.stats
+
+    configs = (
+        [call.kwargs["config"] for call in session_factory.call_args_list]
+        if dashboard
+        else [client.config for client in FakeCodex.instances]
+    )
+    roots = [config["env"].get("CODEX_ROLLOUT_TRACE_ROOT") for config in configs]
+    assert len(roots) == 2
+    if capture == "active":
+        expected_parent = (state.trajectory_dir / "codex").resolve()
+        assert all(Path(root).parent == expected_parent for root in roots)
+        assert roots[0] != roots[1]
+    else:
+        assert roots == [None, None]
+    assert importer.call_count == (2 if capture == "active" else 0)
+    assert "CODEX_ROLLOUT_TRACE_ROOT" not in os.environ
+
+
+@pytest.mark.parametrize("outcome", ["error", "timeout", "cancelled"])
+def test_dashboard_exit_closes_session_before_trace_import(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, outcome: str
+) -> None:
+    install_fake_backend(monkeypatch)
+    state = EnvState(tmp_path)
+    state.start_task(instruction="Move.", config=Payload("test.config", {}))
+    toolkit = FakeToolkit(state)
+    failure = {
+        "error": RuntimeError("backend failed"),
+        "timeout": asyncio.TimeoutError(),
+        "cancelled": asyncio.CancelledError(),
+    }[outcome]
+    session = SimpleNamespace(
+        run=AsyncMock(side_effect=failure), close=AsyncMock(), error=None
+    )
+    monkeypatch.setattr(
+        codex_module, "_CodexDashboardSession", Mock(return_value=session)
+    )
+    import_trace = codex_capture.import_codex_trace
+    cleanup = []
+
+    def import_after_cleanup(state: EnvState, root: Path) -> dict[str, Any]:
+        cleanup.append(
+            (
+                session.close.await_count,
+                toolkit.cancel_calls,
+                FakeMcpServer.instances[0].stopped,
+                state.get_task().status,
+            )
+        )
+        return import_trace(state, root)
+
+    importer = Mock(side_effect=import_after_cleanup)
+    monkeypatch.setattr(codex_capture, "import_codex_trace", importer)
+    planner = make_planner(tmp_path, RecordingSink())
+    kwargs = {
+        "system_prompt": "",
+        "user_message": "Move.",
+        "toolkit": toolkit,
+        "max_turns": 1,
+        "dashboard_interaction": Mock(),
+    }
+    if outcome == "cancelled":
+        with pytest.raises(asyncio.CancelledError):
+            planner.solve(**kwargs)
+    else:
+        result = planner.solve(**kwargs)
+        assert result.error == (
+            "RuntimeError: backend failed"
+            if outcome == "error"
+            else "Codex SDK timed out after 1s"
+        )
+        assert result.stats["codex_trace"]["bundles"] == 0
+    importer.assert_called_once()
+    assert cleanup == [(1, 2, True, "running")]
+
+
+def test_trace_import_failure_preserves_execution_result_and_unlinked_tools(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_fake_backend(monkeypatch)
+    state = EnvState(tmp_path)
+    state.start_task(instruction="Move.", config=Payload("test.config", {}))
+    tool_id = state.register_tool_call(
+        planner_id=None,
+        origin="unknown",
+        name="move",
+        arguments=Payload("mcp.tool_args", {}),
+        status="completed",
+        raw_result=Payload("test.result", b"image"),
+        missing={"planner_id": MissingInfo("pending", "Waiting for trace.")},
+    )
+    monkeypatch.setattr(
+        codex_capture,
+        "import_codex_trace",
+        Mock(side_effect=ValueError("unsupported trace schema")),
+    )
+
+    result = make_planner(tmp_path, RecordingSink()).solve(
+        system_prompt="",
+        user_message="Move.",
+        toolkit=FakeToolkit(state),
+        max_turns=1,
+    )
+
+    assert result.error is None
+    assert result.stats["codex_trace"] == {
+        "sdk_version": codex_module.openai_codex.__version__,
+        "errors": ["ValueError: unsupported trace schema"],
+        "unlinked_tool_calls": 1,
+    }
+    call = state.get_tool_call(tool_id)
+    assert call.planner_id is None and call.status == "completed"
+    assert call.raw_result.data == b"image"
+    assert call.missing["planner_id"].reason == "not_recorded"
+    assert state.get_task().status == "running"
 
 
 def test_http_mcp_readiness_ignores_environment_proxy(
@@ -234,13 +405,17 @@ def test_config_overrides_include_optional_context_limits(
     ]
 
 
+@pytest.mark.parametrize("trace_enabled", [False, True])
 def test_build_config_translates_environment_without_contacting_provider(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    trace_enabled: bool,
 ) -> None:
     monkeypatch.setenv("CODEX_BASE_URL", "https://provider.invalid")
     monkeypatch.setenv("CODEX_API_KEY", "contract-key")
     monkeypatch.setenv("CODEX_BIN", "/fake/codex")
+    monkeypatch.setenv("CODEX_ROLLOUT_TRACE_ROOT", "parent-trace")
+    monkeypatch.chdir(tmp_path)
     captured: list[dict[str, Any]] = []
 
     def codex_config(**kwargs: Any) -> dict[str, Any]:
@@ -249,14 +424,19 @@ def test_build_config_translates_environment_without_contacting_provider(
 
     monkeypatch.setattr(codex_module.openai_codex, "CodexConfig", codex_config)
     planner = make_planner(tmp_path, RecordingSink())
+    trace_root = Path("trace") if trace_enabled else None
 
-    config = planner._build_config("http://fake.invalid/mcp/")
+    config = planner._build_config("http://fake.invalid/mcp/", trace_root=trace_root)
 
     assert config is captured[0]
     assert config["cwd"] == str(tmp_path)
     assert config["experimental_api"] is True
     assert config["codex_bin"] == "/fake/codex"
     assert config["env"][PROVIDER_ENV_KEY] == "contract-key"
+    assert config["env"]["CODEX_ROLLOUT_TRACE_ROOT"] == (
+        str((tmp_path / "trace").resolve()) if trace_enabled else "parent-trace"
+    )
+    assert os.environ["CODEX_ROLLOUT_TRACE_ROOT"] == "parent-trace"
     assert f'model_provider="{PROVIDER_ID}"' in config["config_overrides"]
 
 
@@ -268,13 +448,15 @@ def test_build_config_constructs_with_the_installed_codex_sdk(
     monkeypatch.setenv("CODEX_API_KEY", "contract-key")
     monkeypatch.delenv("CODEX_BIN", raising=False)
     planner = make_planner(tmp_path, RecordingSink())
+    trace_root = tmp_path / "trace"
 
-    config = planner._build_config("http://fake.invalid/mcp/")
+    config = planner._build_config("http://fake.invalid/mcp/", trace_root=trace_root)
 
     assert isinstance(config, codex_module.openai_codex.CodexConfig)
     assert config.cwd == str(tmp_path)
     assert config.experimental_api is True
     assert config.env[PROVIDER_ENV_KEY] == "contract-key"
+    assert config.env["CODEX_ROLLOUT_TRACE_ROOT"] == str(trace_root.resolve())
     assert f'model_provider="{PROVIDER_ID}"' in config.config_overrides
     assert "project_doc_max_bytes=0" in config.config_overrides
     assert not any(
@@ -812,15 +994,19 @@ def test_fake_codex_backend_failure_stops_mcp_server(
             return None
 
     monkeypatch.setattr(codex_module.openai_codex, "Codex", FailingCodex)
+    state = EnvState(tmp_path)
+    state.start_task(instruction="Move.", config=Payload("test.config", {}))
     result = make_planner(tmp_path, RecordingSink()).solve(
         system_prompt="",
         user_message="task",
-        toolkit=FakeToolkit(),
+        toolkit=FakeToolkit(state),
         max_turns=1,
     )
 
     assert result.error == "RuntimeError: codex unavailable"
+    assert result.stats["codex_trace"]["bundles"] == 0
     assert FakeMcpServer.instances[0].stopped is True
+    assert state.get_task().status == "running"
 
 
 def test_timeout_interrupts_without_starting_a_worker_or_socket(
@@ -846,7 +1032,7 @@ def test_timeout_interrupts_without_starting_a_worker_or_socket(
     monkeypatch.setattr(
         codex_module,
         "threading",
-        SimpleNamespace(Thread=TimeoutThread),
+        SimpleNamespace(Thread=TimeoutThread, Event=threading.Event),
     )
     result = make_planner(
         tmp_path,
@@ -863,45 +1049,188 @@ def test_timeout_interrupts_without_starting_a_worker_or_socket(
     assert FakeMcpServer.instances[0].stopped is True
 
 
-def test_terminal_timeout_cancels_active_toolkit_work(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+def test_terminal_timeout_returns_without_importing_a_running_worker_trace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     install_fake_backend(monkeypatch)
+    ready = threading.Event()
+    released = threading.Event()
+    workers = []
+    outcomes = queue.Queue()
 
-    class TimeoutThread:
+    class BlockingCodex(FakeCodex):
+        def __init__(self, config: Any) -> None:
+            super().__init__(config)
+            workers.append(threading.current_thread())
+            ready.set()
+            released.wait()
+
+    monkeypatch.setattr(codex_module.openai_codex, "Codex", BlockingCodex)
+    importer = Mock()
+    monkeypatch.setattr(codex_capture, "import_codex_trace", importer)
+    state = EnvState(tmp_path)
+    state.start_task(instruction="Move.", config=Payload("test.config", {}))
+    tool_id = state.register_tool_call(
+        planner_id=None,
+        origin="unknown",
+        name="move",
+        arguments=Payload("mcp.tool_args", {}),
+        status="completed",
+        missing={"planner_id": MissingInfo("pending", "Waiting for trace.")},
+    )
+    toolkit = FakeToolkit(state)
+    planner = make_planner(tmp_path, RecordingSink(), timeout_s=0.01)
+
+    def solve() -> None:
+        try:
+            outcomes.put(
+                planner.solve(
+                    system_prompt="",
+                    user_message="task",
+                    toolkit=toolkit,
+                    max_turns=1,
+                )
+            )
+        except BaseException as exc:
+            outcomes.put(exc)
+
+    caller = threading.Thread(target=solve, daemon=True)
+    caller.start()
+    try:
+        assert ready.wait(3)
+        try:
+            result = outcomes.get(timeout=20)
+        except queue.Empty:
+            pytest.fail("Planner did not return while SDK initialization was blocked")
+        assert not isinstance(result, BaseException), repr(result)
+        assert result.error == "Codex SDK timed out after 0.01s"
+        assert workers[0].is_alive()
+        assert toolkit.cancel_calls == 1
+        assert FakeMcpServer.instances[0].stopped
+        assert result.error in (tmp_path / "codex.out").read_text()
+        assert json.loads((tmp_path / "codex.out.stream.jsonl").read_text()) == {
+            "type": "timeout",
+            "message": result.error,
+        }
+        importer.assert_not_called()
+        capture_error = "Codex worker did not finish cleanup; trace import skipped."
+        assert result.stats["codex_trace"]["errors"] == [capture_error]
+        assert result.stats["codex_trace"]["unlinked_tool_calls"] == 1
+        assert state.get_tool_call(tool_id).missing["planner_id"] == MissingInfo(
+            "capture_failed", capture_error
+        )
+    finally:
+        released.set()
+        caller.join(timeout=3)
+        for worker in workers:
+            worker.join(timeout=3)
+
+    assert not caller.is_alive()
+    assert not workers[0].is_alive()
+    assert FakeCodex.instances[0].closed
+    assert FakeCodex.instances[0].thread.turn_prompts == []
+
+
+@pytest.mark.parametrize("outcome", ["timeout", "cancelled", "initializing"])
+def test_terminal_exit_drains_worker_before_trace_import(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    outcome: str,
+) -> None:
+    install_fake_backend(monkeypatch)
+    ready = threading.Event()
+    released = threading.Event()
+    workers = []
+    thread_starts = []
+
+    class SessionThread(threading.Thread):
         def __init__(self, **kwargs: Any) -> None:
-            self.kwargs = kwargs
+            super().__init__(**kwargs)
+            workers.append(self)
 
-        def start(self) -> None:
-            return None
+    class SessionDoneEvent(threading.Event):
+        def wait(self, timeout: float | None = None) -> bool:
+            if timeout is not None:
+                assert ready.wait(3)
+                if outcome == "cancelled":
+                    raise KeyboardInterrupt("operator")
+                return False
+            return super().wait(timeout)
 
-        def join(self, timeout: float | None = None) -> None:
-            del timeout
+    class BlockingCodex(FakeCodex):
+        def __init__(self, config: Any) -> None:
+            super().__init__(config)
+            if outcome == "initializing":
+                ready.set()
+                assert released.wait(3)
 
-        def is_alive(self) -> bool:
-            return True
+        def thread_start(self, **options: Any) -> FakeThread:
+            thread_starts.append(True)
+            return super().thread_start(**options)
+
+        def __exit__(self, *args: Any) -> None:
+            self.close()
+
+        def close(self) -> None:
+            super().close()
+            released.set()
+
+    def stream(turn: FakeTurn):
+        ready.set()
+        assert released.wait(3)
+        return iter(())
+
+    class DrainingToolkit(FakeToolkit):
+        def cancel_active_and_wait(self) -> None:
+            super().cancel_active_and_wait()
+            if outcome == "initializing":
+                released.set()
 
     monkeypatch.setattr(
         codex_module,
         "threading",
-        SimpleNamespace(Thread=TimeoutThread),
+        SimpleNamespace(
+            Thread=SessionThread, Lock=threading.Lock, Event=SessionDoneEvent
+        ),
     )
-    toolkit = FakeToolkit()
-    result = make_planner(
-        tmp_path,
-        RecordingSink(),
-        timeout_s=0.01,
-    ).solve(
-        system_prompt="",
-        user_message="task",
-        toolkit=toolkit,
-        max_turns=1,
-    )
+    monkeypatch.setattr(codex_module.openai_codex, "Codex", BlockingCodex)
+    monkeypatch.setattr(FakeTurn, "stream", stream)
+    state = EnvState(tmp_path)
+    state.start_task(instruction="Move.", config=Payload("test.config", {}))
+    toolkit = DrainingToolkit(state)
+    import_trace = codex_capture.import_codex_trace
+    cleanup = []
 
-    assert result.error == "Codex SDK timed out after 0.01s"
-    assert FakeMcpServer.instances[0].stopped is True
-    assert toolkit.cancel_calls == 2
+    def import_after_cleanup(state: EnvState, root: Path) -> dict[str, Any]:
+        cleanup.append(
+            (
+                FakeCodex.instances[0].closed,
+                workers[0].is_alive(),
+                FakeMcpServer.instances[0].stopped,
+                toolkit.cancel_calls,
+                state.get_task().status,
+            )
+        )
+        return import_trace(state, root)
+
+    monkeypatch.setattr(codex_capture, "import_codex_trace", import_after_cleanup)
+    planner = make_planner(tmp_path, RecordingSink(), timeout_s=0.01)
+    kwargs = {
+        "system_prompt": "",
+        "user_message": "task",
+        "toolkit": toolkit,
+        "max_turns": 1,
+    }
+    if outcome == "cancelled":
+        with pytest.raises(KeyboardInterrupt, match="operator"):
+            planner.solve(**kwargs)
+    else:
+        result = planner.solve(**kwargs)
+        assert result.error == "Codex SDK timed out after 0.01s"
+        assert result.stats["codex_trace"]["bundles"] == 0
+
+    assert cleanup == [(True, False, True, 1, "running")]
+    assert thread_starts == ([] if outcome == "initializing" else [True])
 
 
 def test_queue_and_dashboard_are_rejected_before_mcp_construction(

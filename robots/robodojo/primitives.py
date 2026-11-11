@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import nullcontext
 from threading import Lock
 from typing import Annotated, Literal
 
@@ -26,6 +27,7 @@ from pydantic import Field
 from robots.robodojo.access import public_episode_budget
 from robots.robodojo.env_client import ActionRejected, ExecutionSyncError
 from robots.robodojo.tasks import validate_instruction
+from rpent.session.env_capture import CapturingEnvClient
 from rpent.tools import ToolResult, tool
 from rpent.tools.toolkit import ToolCancelled
 from rpent.utils.logging import get_logger
@@ -201,7 +203,12 @@ class RoboDojoPrimitives:
         }
 
     def _execute_policy(
-        self, *, chunks: int, replan_steps: int, infer: Callable[[], list[dict]]
+        self,
+        *,
+        chunks: int,
+        replan_steps: int,
+        instruction: str,
+        infer: Callable[[], list[dict]],
     ) -> dict:
         if type(chunks) is not int or chunks < 1:
             raise ValueError("chunks must be a positive integer")
@@ -213,7 +220,20 @@ class RoboDojoPrimitives:
             try:
                 self._check_cancelled()
                 self.env.require_policy_ready()
-                actions = infer()
+                prediction = (
+                    self.env.prediction(instruction)
+                    if isinstance(self.env, CapturingEnvClient)
+                    else nullcontext()
+                )
+                with prediction:
+                    actions = infer()
+                    try:
+                        result = self._execute(actions, policy_actions=True)
+                    except Exception as exc:
+                        result.update(
+                            success=False, stop_reason="runtime_failure", error=str(exc)
+                        )
+                        break
             except ToolCancelled as exc:
                 self.env.pause_execution()
                 result.update(
@@ -235,13 +255,6 @@ class RoboDojoPrimitives:
             except Exception as exc:
                 result.update(
                     success=False, stop_reason="inference_failed", error=str(exc)
-                )
-                break
-            try:
-                result = self._execute(actions, policy_actions=True)
-            except Exception as exc:
-                result.update(
-                    success=False, stop_reason="runtime_failure", error=str(exc)
                 )
                 break
             executed += result["executed_actions"]
@@ -276,6 +289,7 @@ class RoboDojoPrimitives:
         result = self._execute_policy(
             chunks=chunks,
             replan_steps=REPLAN_STEPS,
+            instruction=instruction,
             infer=lambda: self.vla_client.infer(
                 self.env.policy_observation(), instruction
             ),
@@ -305,6 +319,7 @@ class RoboDojoPrimitives:
         result = self._execute_policy(
             chunks=chunks,
             replan_steps=REPLAN_STEPS,
+            instruction=self._awomo05_instruction,
             infer=infer,
         )
         return ToolResult(data=result)
