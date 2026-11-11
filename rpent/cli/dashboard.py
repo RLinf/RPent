@@ -206,7 +206,7 @@ def _run_dashboard_task(
     task_args.output_dir = str(claimed.output_dir)
     run_config = robot_spec.parse_config(task_args)
     if getattr(task_args, "policy_mode", "tools") == "code":
-        _disable_memory(run_config)
+        run_config = _disable_memory(run_config)
     from rpent.memory.loading import prepare_run_memory
 
     if getattr(task_args, "policy_mode", "tools") == "tools":

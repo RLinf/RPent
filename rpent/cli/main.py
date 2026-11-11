@@ -43,6 +43,7 @@ import shlex
 import sys
 import time
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 
 from rpent.cli.tui import (
@@ -109,12 +110,12 @@ def _serialize_messages(messages: list[dict]) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
-def _disable_memory(config: RunConfig) -> None:
-    """Run code policies without a memory corpus, inbox or memory file tools."""
-    config.use_memory = False
-    config.prompt_vars["policy_mode"] = "code"
+def _disable_memory(config: RunConfig) -> RunConfig:
+    """Return a code-policy config without memory or file-tool prompt state."""
+    prompt_vars = {**config.prompt_vars, "policy_mode": "code"}
     for name in ("memory_dir", "memory_inbox"):
-        config.prompt_vars.pop(name, None)
+        prompt_vars.pop(name, None)
+    return replace(config, prompt_vars=prompt_vars, use_memory=False)
 
 
 def _build_argparser() -> argparse.ArgumentParser:
@@ -503,7 +504,7 @@ def main() -> int:
     try:
         run_config = robot_spec.parse_config(args)
         if args.policy_mode == "code":
-            _disable_memory(run_config)
+            run_config = _disable_memory(run_config)
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
     recipe_tag = run_config.recipe_tag
