@@ -19,6 +19,7 @@ from __future__ import annotations
 import os
 import threading
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -58,12 +59,28 @@ class RLToolkit(Toolkit):
         environment: str = "libero",
         workflow: str = "episode",
         image_size: int = 1024,
+        action_mode: str = "single",
+        max_actions_per_call: int = 3,
+        reasoning_history: int = -1,
+        image_history: int = -1,
     ) -> None:
         if observation_mode != "adaptive":
             raise ValueError("rl supports only adaptive observations")
         validate_workflow(environment, workflow)
         if image_size not in IMAGE_SIZES:
             raise ValueError(f"unsupported image size {image_size}")
+        from robots.rl.contracts import validate_options
+
+        validate_options(
+            environment,
+            workflow,
+            action_mode,
+            max_actions_per_call,
+            reasoning_history,
+            image_history,
+        )
+        self.action_mode, self.max_actions_per_call = action_mode, max_actions_per_call
+        self.reasoning_history, self.image_history = reasoning_history, image_history
         self.output_dir = Path(output_dir)
         self.image_size = image_size
         self.workflow_stats = {"perception_seconds": 0.0}
@@ -89,7 +106,7 @@ class RLToolkit(Toolkit):
         self._publish_step(self._primitives.record_observation())
         self._recorded_env_steps = 0
         self.snapshot = None
-        if workflow != "episode":
+        if workflow.startswith("zap_"):
             from robots.rl.snapshot import Snapshot
 
             self.snapshot = Snapshot(
@@ -102,13 +119,40 @@ class RLToolkit(Toolkit):
                 image_size=image_size,
             )
         for definition in iter_tools(self._primitives):
-            if workflow != "episode" and definition.name in {
+            if workflow.startswith("zap_") and definition.name in {
                 "view_env",
                 "segment",
                 "back_project",
             }:
                 continue
+            if workflow == "episode_image" and definition.name in {
+                "view_env",
+                "segment",
+                "back_project",
+            }:
+                continue
+            if action_mode == "batch" and definition.name in {"move_to", "set_gripper"}:
+                continue
             self.add_tool(definition)
+        if workflow == "episode_image":
+            from robots.rl.actions import LatestImageTools
+
+            self.add_tools(iter_tools(LatestImageTools(self._primitives)))
+        if action_mode == "batch":
+            from robots.rl.actions import ActionBatch
+
+            declaration = ActionBatch(self).execute_actions
+            schema = declaration.input_schema
+            schema["properties"]["actions"]["maxItems"] = max_actions_per_call
+            self.add_tool(
+                replace(
+                    declaration,
+                    _input_schema=schema,
+                    description=declaration.description.replace(
+                        "1..K", f"1..{max_actions_per_call}"
+                    ),
+                )
+            )
         if self.snapshot is not None:
             self.add_tool(self.snapshot.change_query)
             if workflow == "zap_turn":
@@ -117,6 +161,20 @@ class RLToolkit(Toolkit):
                 from robots.rl.snapshot import SubtaskPlan
 
                 self.add_tool(SubtaskPlan(self.snapshot).update_todo)
+
+    def add_tool(self, declaration, *, replace=False) -> None:
+        """Expose the same strict input contract at the model and execution boundary."""
+        from robots.rl.contracts import strict_tool
+
+        primitive = getattr(self, "_primitives", None)
+        cameras = getattr(primitive, "cameras", ("agentview", "wrist"))
+        declaration = strict_tool(
+            declaration,
+            image_size=self.image_size,
+            latest=self.workflow == "episode_image",
+            cameras=cameras,
+        )
+        super().add_tool(declaration, replace=replace)
 
     def observe_snapshot(self) -> ToolResult:
         """Return a complete current observation without accumulated history."""
@@ -166,6 +224,12 @@ class RLToolkit(Toolkit):
                     raise TimeoutError("batch start barrier timed out")
                 time.sleep(0.1)
         self._started = time.perf_counter()
+        self._started_at_wall = time.time()
+        self._state.save(
+            "observation-start.json",
+            {"started_at": self._started_at_wall, "gate": gate},
+            step=None,
+        )
         step = self._state.latest_step
         observation = ToolResult(
             data={
@@ -176,6 +240,10 @@ class RLToolkit(Toolkit):
         )
         if self.workflow in {"zap_episode", "zap_subtask"}:
             observation = self.observe_snapshot()
+        elif self.workflow == "episode_image":
+            view = self.current_image_observation()
+            observation.data["observation"] = view.data
+            observation.images = view.images
         self._count_images(observation)
         self._state.save(
             "planner_audit.json",
@@ -198,8 +266,19 @@ class RLToolkit(Toolkit):
 
     def execute_tool(self, name: str, input_dict: dict[str, Any]) -> ToolResult:
         """Run one tool and count the images returned to the planner."""
-        arguments = dict(input_dict)
+        tool_started = time.perf_counter()
+        declaration = self._tools.get(name)
+        if declaration is None:
+            return super().execute_tool(name, input_dict)
         try:
+            parameters = declaration.validate_arguments(input_dict)
+            arguments = {
+                field: getattr(parameters, field)
+                for field in type(parameters).model_fields
+            }
+            from robots.rl.contracts import validate_relations
+
+            validate_relations(name, arguments)
             if self.environment == "libero" and self.image_size != NATIVE_SIZE:
                 for field in ("point", "pixel"):
                     if arguments.get(field) is not None:
@@ -212,8 +291,13 @@ class RLToolkit(Toolkit):
                         raise ValueError("box must have positive height and width")
                     arguments["box"] = scale_box(box, self.image_size, NATIVE_SIZE)
         except (ValueError, TypeError) as exc:
-            return ToolResult(data={"error": str(exc)})
-        result = super().execute_tool(name, arguments)
+            from robots.rl.contracts import argument_hint
+
+            return ToolResult(
+                data={"error": str(exc)},
+                model_text=f"Invalid {name} arguments: {exc}. {argument_hint(name, self.environment)} No tool executed; correct the arguments and try again.",
+            )
+        result = self._execute_validated(declaration, input_dict, arguments)
         if self.environment == "libero" and self.image_size != NATIVE_SIZE:
             result.images = [
                 resize_image(image, self.image_size) for image in result.images
@@ -242,8 +326,33 @@ class RLToolkit(Toolkit):
                 observation.data.pop("last_result", None)
                 result.data["observation"] = observation.data
                 result.images.extend(observation.images)
+        if name in {"move_to", "set_gripper"}:
+            self.workflow_stats["atomic_actions"] = (
+                self.workflow_stats.get("atomic_actions", 0) + 1
+            )
+        if self.workflow == "episode_image" and name in {
+            "move_to",
+            "set_gripper",
+            "execute_actions",
+        }:
+            view = self.current_image_observation()
+            result.data["observation"] = view.data
+            result.images = view.images
+        elapsed = time.perf_counter() - tool_started
+        timings = self.workflow_stats.setdefault("tool_seconds_by_name", {})
+        timings[name] = timings.get(name, 0.0) + elapsed
+        if name in {"segment", "back_project"}:
+            self.workflow_stats["perception_seconds"] += elapsed
         self._count_images(result)
         return result
+
+    def current_image_observation(self) -> ToolResult:
+        """Return the latest paired RGB with the actual model image dimensions."""
+        view = self._primitives.view_env()
+        for image in view.data["images"]:
+            image["size"] = [self.image_size, self.image_size]
+        view.images = [resize_image(image, self.image_size) for image in view.images]
+        return view
 
     def _count_images(self, result: ToolResult) -> None:
         with self._images_lock:
@@ -261,6 +370,8 @@ class RLToolkit(Toolkit):
         A new observation is recorded only when the action stepped the
         environment; otherwise the latest step number is reused.
         """
+        if command["action"] == "execute_actions":
+            return ToolResult(data=result)
         advanced = self._primitives.env_steps > self._recorded_env_steps
         step = self._state.latest_step + 1 if advanced else self._state.latest_step
         if "error" in result:
@@ -272,13 +383,27 @@ class RLToolkit(Toolkit):
         if self.environment != "libero":
             # Native adapters also report per-arm errors and physical limits.
             data.update(result)
+        for key in (
+            "position_error_m",
+            "rotation_error_rad",
+            "opening_error",
+            "env_steps",
+        ):
+            if key in result:
+                data[key] = result[key]
         data["step"] = step
         if advanced or data["status"] != "error":
             data.update(self._robot_state())
         if advanced:
             # Log the payload the planner receives, not the primitive's internals.
+            capture_started = time.perf_counter()
             self._primitives.record_observation(
                 command=command, result=data, elapsed_s=elapsed_s
+            )
+            self.workflow_stats["observation_capture_seconds"] = (
+                self.workflow_stats.get("observation_capture_seconds", 0.0)
+                + time.perf_counter()
+                - capture_started
             )
             self._recorded_env_steps = self._primitives.env_steps
         return ToolResult(data=data)
@@ -299,9 +424,15 @@ class RLToolkit(Toolkit):
                 "observation_mode": "adaptive",
                 "workflow": self.workflow,
                 "image_size": self.image_size,
+                "action_mode": self.action_mode,
+                "max_actions_per_call": self.max_actions_per_call,
+                "reasoning_history": self.reasoning_history,
+                "image_history": self.image_history,
                 "native_success_seconds": self._native_success_seconds,
+                "started_at_wall": getattr(self, "_started_at_wall", None),
                 **self.workflow_stats,
                 "images_sent": self._images_sent,
+                "images_generated_for_feedback": self._images_sent,
                 "env_steps": self._primitives.env_steps,
                 "observations": self._state.latest_step + 1,
             },

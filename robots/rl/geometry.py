@@ -26,76 +26,16 @@ from scipy.spatial.transform import Rotation
 MIN_SURFACE_POINTS = 10
 #: Major/minor xy variance ratio required to report a surface direction.
 _AXIS_RATIO = 2.0
-_MIN_HEADING = 1e-6
 
 
-def wrap_angle(angle: float) -> float:
-    """Wrap an angle to ``[-pi, pi)``."""
-    return (angle + math.pi) % (2 * math.pi) - math.pi
+def rpy_of(rotation: np.ndarray) -> list[float]:
+    """Canonical fixed-axis XYZ angles; rotation matrices remain authoritative."""
+    import warnings
 
-
-def yaw_of(rotation: np.ndarray) -> float | None:
-    """Return the gripper x-axis heading in the world xy-plane.
-
-    Returns None when the x-axis is vertical and the heading is undefined.
-    """
-    if math.hypot(rotation[0, 0], rotation[1, 0]) < _MIN_HEADING:
-        return None
-    return math.atan2(rotation[1, 0], rotation[0, 0])
-
-
-def pitch_of(rotation: np.ndarray) -> float:
-    """Return the approach-axis tilt about the world x-axis; 0 points down."""
-    return math.atan2(rotation[1, 2], -rotation[2, 2])
-
-
-def orientation_goal(
-    rotation: np.ndarray,
-    target_yaw: float | None,
-    target_pitch: float | None,
-) -> np.ndarray:
-    """Return the rotation nearest ``rotation`` with the requested yaw and pitch.
-
-    Omitted targets keep their measured values. The goal applies world-frame
-    corrections about z then x to ``rotation``, solved by Newton iteration.
-
-    Raises:
-        ValueError: The yaw is undefined or the targets cannot be met together.
-    """
-    if target_yaw is None and target_pitch is None:
-        return rotation
-    yaw = yaw_of(rotation)
-    if yaw is None:
-        raise ValueError("yaw is undefined while the gripper x-axis is vertical")
-    targets = np.array(
-        [
-            yaw if target_yaw is None else target_yaw,
-            pitch_of(rotation) if target_pitch is None else target_pitch,
-        ]
-    )
-
-    def corrected(delta: np.ndarray) -> np.ndarray:
-        return Rotation.from_euler("zx", delta).as_matrix() @ rotation
-
-    def residual(delta: np.ndarray) -> np.ndarray:
-        goal = corrected(delta)
-        yaw = yaw_of(goal)
-        if yaw is None:
-            raise ValueError("yaw becomes undefined at the requested pitch")
-        return np.array(
-            [wrap_angle(targets[0] - yaw), wrap_angle(targets[1] - pitch_of(goal))]
-        )
-
-    delta = np.zeros(2)
-    for _ in range(20):
-        error = residual(delta)
-        if np.abs(error).max() < 1e-7:
-            return corrected(delta)
-        jacobian = np.column_stack(
-            [(error - residual(delta + step)) / 1e-6 for step in np.eye(2) * 1e-6]
-        )
-        delta += np.linalg.lstsq(jacobian, error, rcond=None)[0]
-    raise ValueError("the requested yaw and pitch cannot be reached together")
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", message="Gimbal lock detected")
+        angles = Rotation.from_matrix(rotation).as_euler("xyz")
+    return [round(float(value), 6) for value in angles]
 
 
 def metric_depth(depth: np.ndarray, camera_meta: dict[str, Any]) -> np.ndarray:

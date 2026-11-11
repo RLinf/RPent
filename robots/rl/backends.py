@@ -51,6 +51,7 @@ class ScenePrimitives(LiberoRLPrimitives):
         self.frames = []
         self._masks = {}
         self._mask_ids = itertools.count(1)
+        self._sam_calls = itertools.count(1)
         self._success = False
 
     @property
@@ -178,7 +179,7 @@ class ScenePrimitives(LiberoRLPrimitives):
 
     @tool(readonly=True)
     def finish(self) -> ToolResult:
-        """End the episode. The native simulator success flag determines the result."""
+        """End the episode; takes no arguments. Returns _finish, success, terminated (native task success) and truncated (environment step budget reached). Calling finish does not make a task succeed. Example: {}."""
         return ToolResult(
             data={
                 "_finish": True,

@@ -2,16 +2,17 @@
 
 [简体中文](WORKFLOWS_zh.md) · [Installation](INSTALL.md) · [First task](README.md)
 
-All four modes use the API planner and the same robot/frame/gripper contract.
+All five modes use the API planner and the same robot/frame/gripper contract.
 The differences are perception tools and how long conversation history survives.
 Native environment flags determine success; a todo item or `finish` claim does
-not override them. The public workflow names are the four names below.
+not override them. The public workflow names are listed below.
 
 ## Tools and conversation boundaries
 
 | Workflow | Tools | Retained conversation |
 | --- | --- | --- |
 | `episode` | `move_to`, `set_gripper`, `view_env`, `segment`, `back_project`, `finish` | Whole episode, with compaction |
+| `episode_image` | `move_to`, `set_gripper`, `segment`, `back_project`, `finish` | Whole episode, raw images after actions |
 | `zap_turn` | `move_to`, `set_gripper`, `change_query`, `update_todo`, `finish` | None between requests |
 | `zap_episode` | `move_to`, `set_gripper`, `change_query`, `finish` | Whole episode, with compaction |
 | `zap_subtask` | `move_to`, `set_gripper`, `change_query`, `update_todo`, `finish` | Current subtask, with compaction |
@@ -191,3 +192,119 @@ do not retry; infrastructure errors have at most one additional attempt.
 All forty tasks remain in the score denominator. A `STOP_REQUESTED.json` in
 the comparison directory stops admission and owned collectors. Keep all output
 and reuse only identical configuration when resuming an interrupted run.
+
+## Image episodes, poses, action batches and history
+
+LIBERO `episode_image` starts with both agentview and wrist RGB and returns the
+latest pair after a physical action. It has `segment`, `back_project` and `finish`
+but no `view_env`. Perception remains explicit: no automatic SAM inference.
+Its perception inputs omit `step` and use the latest observation; old masks must
+be re-segmented after movement. Ordinary `episode` retains historical `step`.
+
+LIBERO `move_to(xyz?, orientation_rpy?)` requires at least one target. `xyz`
+is the absolute world position of MuJoCo's grip site in metres.
+`orientation_rpy=[roll,pitch,yaw]` is the same frame's absolute fixed-axis XYZ
+orientation in radians: `R=Rz(yaw)@Ry(pitch)@Rx(roll)`. `[pi,0,yaw]` points
+its approach axis down; the jaws close along the site's x-axis. Omitted parts
+retain the value measured at that action's start. Replies report actual
+`pose.xyz`, `pose.orientation_rpy`, opening and residual errors; `partial` is not
+arrival. RoboCasa and RoboTwin retain their native action interfaces.
+
+`--action-mode single` is the default. `--action-mode batch` replaces standalone
+`move_to` and `set_gripper` with `execute_actions`, retaining perception and
+`finish`. `--max-actions-per-call K` defaults to 3 and must be at least 1.
+
+```json
+{"actions":[
+  {"action":"move_to","xyz":[0.1,0,0.3],"orientation_rpy":[3.14159265,0,0]},
+  {"action":"set_gripper","opening":0}
+]}
+```
+
+The complete list is validated before any movement. Each item finishes and is
+measured before the next starts. Success, truncation, error or partial stops the
+batch immediately. Results contain each executed item's measured pose,
+`executed_count`, zero-based `stopped_at`, `stop_reason` and `final_state`.
+`episode_image` sends only the final/pause camera pair; intermediate frames stay
+archived. One top-level tool call is allowed per model reply. A batch uses one
+request but its atomic actions share the existing environment/time budgets.
+
+`--reasoning-history N` counts prior model replies, grouping all thinking chunks
+of one reply. `--image-history N` counts image-return groups; both cameras stay
+together. The initial observation counts, and single-camera view_env is one
+group. Both defaults are -1:
+
+| Value | Meaning |
+|---|---|
+| -1 | No extra pruning; existing history compaction still applies |
+| 0 | Remove all content of that kind, including the latest images |
+| N > 0 | Retain the latest N reply/observation groups |
+
+Prune before compaction, preserving calls, ordinary assistant content and measured
+text results. Raw replies and observations remain archived. Current-turn thinking
+is still enabled; no fake ignore text is inserted. The original Qwen template
+may emit empty thinking delimiters. Pruning old history can reduce prefix-cache
+reuse, so measure actual latency and cache metrics. These options currently
+support local LIBERO `episode` and `episode_image`; other combinations fail early.
+
+After [installation](INSTALL.md), activate your environment, source the copied
+configuration and start model/SAM services. Set `RPENT_OUTPUT_ROOT` to a writable
+directory. All options are pinned in the manifest and checked on resume:
+
+```bash
+bash tools/rl/run.sh --simulator libero --workflow episode_image   --suite libero_object --task 0 --seed 0 --cuda-device 0   --action-mode batch --max-actions-per-call 3   --reasoning-history 0 --image-history 1
+
+python -m tools.rl.run_batch run "$RPENT_OUTPUT_ROOT/image-batch"   --jobs tools/rl/jobs/panel40.txt --seeds 0 --gpus 0,1 --per-gpu 20   --start-barrier --workflow episode_image --action-mode batch   --max-actions-per-call 3 --reasoning-history 3 --image-history 3
+```
+
+The separate eight-panel comparison first runs both workflows and action formats
+at -1/-1, then tests 3/3 and 0/1 on each workflow's selected action format.
+It does not invoke `compare_workflows.py`, which runs the separate ZAP/image-size
+comparison.
+
+Successful segmentation returns a dict without `score` or `found`. Invalid query
+and no detection return distinct corrective text; service errors stay separate.
+`world_xyz` is the per-axis median of visible depth points; `top_z_m` is their
+95th world-z percentile, `size_xyz_m` their 5th-to-95th extents, and `axis_yaw`
+their elongated xy major axis or null. These are visible-surface measurements,
+not complete dimensions or guaranteed grasp targets.
+
+### Reproduce the eight-panel comparison
+
+Run the following panels in order, one batch at a time. Every panel uses the same
+LIBERO-PRO 40-task list, seed 0, image_size 1024, 100 model requests and 10000
+environment steps. Keep the model, sampling and time budgets fixed.
+
+| Panel | Workflow | Action mode | reasoning-history | image-history |
+|---|---|---|---:|---:|
+| 1 | episode | single | -1 | -1 |
+| 2 | episode | batch, K=3 | -1 | -1 |
+| 3 | episode_image | single | -1 | -1 |
+| 4 | episode_image | batch, K=3 | -1 | -1 |
+| 5 | episode | winner of 1/2 | 3 | 3 |
+| 6 | episode | winner of 1/2 | 0 | 1 |
+| 7 | episode_image | winner of 3/4 | 3 | 3 |
+| 8 | episode_image | winner of 3/4 | 0 | 1 |
+
+Select the action mode separately for each workflow: highest native success
+count, then shortest complete batch wall time, then single on an exact tie.
+Use the selected mode in the batch command above. This is 320 formal episodes;
+short interface checks and capacity qualification are separate.
+
+For the eight-GPU layout, place three TP2 model replicas on GPUs 2-7. GPUs 0/1
+each hold 20 environments and four SAM3 workers, with one shared pool endpoint.
+Qualify the final source with 40 environments and eight SAM workers for at least
+300 seconds before evaluation. Hold all 40 environments ready before releasing
+the first model requests. Warm services consistently and record cache resets;
+KV flushing does not guarantee that the VIT feature cache is empty.
+Keep every attempt; retry only infrastructure failures, at most once. Compare
+matched successful tasks as well as batch wall time, so early failures do not
+count as acceleration.
+
+Qwen on SGLang uses a bounded native XML structural tag when zero-argument tools
+are available. The wire uses tool_choice=auto plus an explicit at-least-one-call
+format carrying the exact tool schemas; it still requires the permitted calls.
+Syntactic whitespace is limited to 16 characters to avoid the upstream empty
+parameter-zone loop in finish(). No placeholder arguments, dependency patches,
+prompt changes or sampling changes are used. Whole-reply validation remains
+mandatory. See https://github.com/mlc-ai/xgrammar/issues/802.

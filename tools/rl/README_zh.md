@@ -11,7 +11,7 @@ VLM 通过末端控制和视觉工具直接操作机器人。统一入口为 `--
 | RoboCasa365 | `robocasa` | `episode` |
 | RoboTwin | `robotwin` | `episode` |
 
-四种模式使用 API planner、原生任务指令和实测机器人状态，成功由仿真器判定。
+五种模式使用 API planner、原生任务指令和实测机器人状态，成功由仿真器判定。
 [工作流指南](WORKFLOWS_zh.md) 详细说明工具、上下文边界、SAM3 池和固定任务对比。
 
 ## 安装与配置
@@ -118,7 +118,7 @@ planner 超时，单次最多输出 32768 tokens，上下文为 262144 tokens。
 和仅影响 VLM 图片的 `--image_size`。
 
 RoboCasa 增加局部平面速度与角速度工具 `move_base`；RoboTwin 使用解剖学
-`arm` 参数、左右臂图像标识和可选双臂目标。四个 LIBERO 模式共用机器人、坐标和
+`arm` 参数、左右臂图像标识和可选双臂目标。五个 LIBERO 模式共用机器人、坐标和
 夹爪说明；可选 `--prompt` 为各模式增加相同细节。任务指令直接来自
 `get_task_language()`，没有逐任务 prompt 文件。
 

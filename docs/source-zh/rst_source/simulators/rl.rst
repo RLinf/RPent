@@ -57,7 +57,7 @@ episode。先从一个 episode 开始。
 工作流与工具
 ----------------------------------------------------------------
 
-四种模式使用 API planner，共用机器人、坐标和夹爪说明。
+五种模式使用 API planner，共用机器人、坐标和夹爪说明。
 
 .. list-table:: LIBERO 上下文策略
    :header-rows: 1
@@ -93,7 +93,7 @@ query 和 todo 工具。重置不会重置全局预算。原生任务文本直�
 
 默认预算：100 次模型请求、10000 仿真步、单次输出 32768 tokens、262144-token
 上下文、累积模式在 70% 时压缩历史、7200 秒 planner 超时。批量启动器另有
-14400 秒 episode 超时。四种 LIBERO 模式共用 ``simple`` 、 ``base`` 、
+14400 秒 episode 超时。五种 LIBERO 模式共用 ``simple`` 、 ``base`` 、
 ``base_gripper`` 、 ``base_gripper_camera`` 四种 prompt 变体。
 
 启动器显式默认发送 presence penalty0，示例设置 repetition penalty1.0；
@@ -131,3 +131,21 @@ RLinf 训练
 参考文档保留离线安装、RLinf/SFT 集成说明。RLinf 负责策略训练和 checkpoint，
 RPent 负责仿真器与工具执行；episode 入口为 ``robots.rl.rl_episode`` 。
 数据编码位于 ``ms-swift/examples/rpent`` ，应保留实际请求与图片顺序。
+
+
+图片反馈、动作列表与历史保留
+------------------------------------------------
+
+LIBERO 新增 ``--workflow episode_image`` ：初始及动作后返回最新双相机图，
+没有 ``view_env`` 。 ``segment`` / ``back_project`` 不接收 ``step`` ，
+固定使用当前观测；原 ``episode`` 保留历史帧查询。
+
+LIBERO 使用绝对 grip-site ``xyz`` 和 ``orientation_rpy=[roll,pitch,yaw]`` ，
+单位弧度，固定轴 XYZ： ``R=Rz(yaw)@Ry(pitch)@Rx(roll)`` 。
+至少提供一个目标，省略项保持动作开始时的实测值。
+``--action-mode batch --max-actions-per-call 3`` 使用顺序 ``execute_actions`` ；
+先校验整个列表，成功、截断、partial 或 error 立即停止。
+``--reasoning-history``、``--image-history`` 支持 -1（不额外裁剪）、
+0（全部移除）或 N（最近 N 个回复／观测组）；双相机共同一组，默认均为 -1。
+原有压缩继续生效；这些开关支持本机 LIBERO episode 模式。
+完整接口与可配置路径命令见 ``tools/rl/WORKFLOWS_zh.md`` 。

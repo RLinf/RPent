@@ -82,3 +82,20 @@ def test_wire_usage_includes_length_and_reports_missing_usage(tmp_path):
         "output_tokens": 32768,
         "cached_input_tokens": 30,
     }
+
+
+def test_wire_usage_null_counts_are_missing_not_zero(tmp_path):
+    import json
+
+    from tools.rl.compare_workflows import wire_statistics
+
+    path = tmp_path / "api_trace/requests/000001"
+    path.mkdir(parents=True)
+    (path / "metadata.json").write_text(
+        json.dumps({"content_type": "application/json"})
+    )
+    (path / "response.body").write_text(
+        json.dumps({"usage": {"prompt_tokens": 10, "completion_tokens": None}})
+    )
+    result = wire_statistics(tmp_path)
+    assert result["requests_with_usage"] == 0 and result["requests_missing_usage"] == 1

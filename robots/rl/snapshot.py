@@ -28,11 +28,9 @@ from robots.rl import geometry
 from robots.rl.images import scale_box
 from rpent.tools import ToolResult, tool
 
-Query = Annotated[
-    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)
-]
+Query = Annotated[str, StringConstraints(min_length=1, max_length=120, pattern=r"\S")]
 TodoItem = Annotated[
-    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=320)
+    str, StringConstraints(min_length=1, max_length=320, pattern=r"\S")
 ]
 
 
@@ -65,14 +63,14 @@ class Snapshot:
     def change_query(
         self, queries: Annotated[list[Query], Field(min_length=1, max_length=8)]
     ) -> ToolResult:
-        """Replace the perception targets with short visible-object descriptions. These queries run automatically on every current camera frame. Include destinations and relevant parts as well as manipulated objects. All matching instances are reported; a missing detection is not evidence of absence. This changes perception only and never moves the robot.
+        """Replace the perception targets with short visible-object descriptions. These queries run automatically on every current camera frame. Include destinations and relevant parts as well as manipulated objects. All matching instances are reported; a missing detection is not evidence of absence. This changes perception only and never moves the robot. Returns status, query_generation, image_size and the accepted queries. Example: {"queries":["red cup","plate"]}.
 
         Args:
             queries: Full replacement, 1 to 8 object or part descriptions; no coordinates or task scripts.
         """
         if any(not query.strip() for query in queries):
             return ToolResult(data={"error": "queries must not be blank"})
-        self.queries = [query.strip() for query in queries]
+        self.queries = list(queries)
         self.generation += 1
         return ToolResult(
             data={
@@ -87,14 +85,14 @@ class Snapshot:
     def update_todo(
         self, items: Annotated[list[TodoItem], Field(min_length=1, max_length=8)]
     ) -> ToolResult:
-        """Replace the entire persistent todo with a compact working plan. Earlier reasoning is absent from the next request: retain the goal, verified progress, immediate next subgoal and any uncertainty needed to continue. Separate observations from intentions; do not mark an intended action as completed. Prefer a few useful items over a motion transcript. This records your plan only; it does not execute it or determine task success.
+        """Replace the entire persistent todo with a compact working plan. Earlier reasoning is absent from the next request: retain the goal, verified progress, immediate next subgoal and any uncertainty needed to continue. Separate observations from intentions; do not mark an intended action as completed. Prefer a few useful items over a motion transcript. This records your plan only; it does not execute it or determine task success. Returns status and the accepted todo. Example: {"items":["Place the cup on the plate; verify release"]}.
 
         Args:
             items: Complete replacement plan, 1 to 8 items of at most 320 characters each.
         """
         if any(not item.strip() for item in items):
             return ToolResult(data={"error": "todo items must not be blank"})
-        self.todo = [item.strip() for item in items]
+        self.todo = list(items)
         self.todo_revision += 1
         return ToolResult(data={"status": "updated", "todo": self.todo})
 
@@ -132,10 +130,31 @@ class Snapshot:
                         (self.image_size, self.image_size), Image.Resampling.LANCZOS
                     )
                     draw = ImageDraw.Draw(view)
-                    groups = pending[index].result() if self.queries else []
+                    try:
+                        groups = pending[index].result() if self.queries else []
+                    except Exception as exc:
+                        primitive._audit_sam(
+                            step=step,
+                            camera=camera,
+                            query=list(self.queries),
+                            min_score=0.2,
+                            error=exc,
+                        )
+                        raise
                     rows = []
                     for query, matches in zip(self.queries, groups, strict=True):
+                        if not matches:
+                            primitive._audit_sam(
+                                step=step, camera=camera, query=query, min_score=0.2
+                            )
                         for match in matches:
+                            primitive._audit_sam(
+                                step=step,
+                                camera=camera,
+                                query=query,
+                                min_score=0.2,
+                                result=match,
+                            )
                             if not match.found or match.mask is None:
                                 continue
                             if match.mask.shape != world.shape[:2]:
@@ -152,7 +171,6 @@ class Snapshot:
                                 {
                                     "id": identifier,
                                     "query": query,
-                                    "score": match.score,
                                     "box_rc": display_box,
                                     "surface": geometry.surface_geometry(
                                         geometry.valid_points(world[match.mask])
@@ -221,7 +239,7 @@ class SubtaskPlan:
     def update_todo(
         self, items: Annotated[list[TodoEntry], Field(min_length=1, max_length=8)]
     ) -> ToolResult:
-        """Replace the entire subtask list and clear the conversation before the next request. Keep completed items marked done, mark the current meaningful goal in_progress, and retain remaining goals as pending. Mark progress only after verifying the current observation; intentions are not completed actions. Each item should describe an outcome, not one small motion. The next context contains only this list, the task, current queries and observation: include what is needed to continue. Calling this tool always creates a new context, including when revising an unfinished subtask. It does not move the robot or determine task success.
+        """Replace the entire subtask list and clear the conversation before the next request. Keep completed items marked done, mark the current meaningful goal in_progress, and retain remaining goals as pending. Mark progress only after verifying the current observation; intentions are not completed actions. Each item should describe an outcome, not one small motion. The next context contains only this list, the task, current queries and observation: include what is needed to continue. Calling this tool always creates a new context, including when revising an unfinished subtask. It does not move the robot or determine task success. Returns status, todo, todo_revision and context_reset. Example: {"items":[{"text":"Cup released on the plate","status":"done"},{"text":"Close the drawer","status":"in_progress"}]}.
 
         Args:
             items: Complete list of 1 to 8 subtasks, each with text and pending/in_progress/done status.

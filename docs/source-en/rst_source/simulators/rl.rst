@@ -146,3 +146,22 @@ The reference preserves offline installation and RLinf/SFT integration details.
 RLinf owns policy training/checkpoints; RPent owns simulator/tool execution.
 Its episode entry is ``robots.rl.rl_episode``. Dataset encoding belongs to
 ``ms-swift/examples/rpent`` and must preserve saved requests and image order.
+
+
+Image feedback, action batches and history
+------------------------------------------------------------------------------------
+
+LIBERO supports ``--workflow episode_image``. It provides both initial camera
+images and the latest pair after actions, exposes no ``view_env``, and binds
+``segment`` / ``back_project`` to the latest observation without a ``step`` input.
+Ordinary ``episode`` keeps explicit historical-frame queries.
+
+LIBERO uses absolute grip-site ``xyz`` and ``orientation_rpy=[roll,pitch,yaw]``,
+radians, fixed-axis XYZ: ``R=Rz(yaw)@Ry(pitch)@Rx(roll)``. At least one target
+is required; omitted parts retain their measured starting value.
+``--action-mode batch --max-actions-per-call 3`` uses sequential ``execute_actions``.
+The entire list is validated first; success, truncation, partial or error stops it.
+``--reasoning-history`` and ``--image-history`` accept -1 (no extra pruning),
+0 (none), or N (latest N reply/observation groups); both cameras form one group.
+Defaults are -1; compaction still applies. These switches support local LIBERO
+episode workflows. Complete contracts and portable commands: ``tools/rl/WORKFLOWS.md``.

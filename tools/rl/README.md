@@ -13,7 +13,7 @@ share `--robot rl`; select the simulator and workflow explicitly:
 
 All modes use the API planner, native task instructions and measured robot
 state. Success comes from the native simulator. See [workflow definitions,
-SAM3 pooling and fixed-panel comparison](WORKFLOWS.md) for the four modes.
+SAM3 pooling and fixed-panel comparison](WORKFLOWS.md) for the five modes.
 
 ## Install and configure
 

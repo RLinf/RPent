@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import io
+import itertools
 import json
 import threading
 from types import SimpleNamespace
@@ -33,6 +34,7 @@ from pydantic_ai.messages import (
 from pydantic_ai.models.function import DeltaThinkingPart, DeltaToolCall, FunctionModel
 
 from robots.rl.snapshot import Snapshot, SubtaskPlan
+from robots.rl.tools import LiberoRLPrimitives
 from robots.rl.workflow import WorkflowCapability
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.planner.api_loop import ApiAgentLoop
@@ -51,11 +53,13 @@ def tool_descriptions_without_cli_globals(monkeypatch):
 
 
 class Primitives:
+    _audit_sam = LiberoRLPrimitives._audit_sam
     cameras = ("agentview", "wrist")
 
     def __init__(self, output):
         self._state = EnvState(output)
         self._sam3 = self
+        self._sam_calls = itertools.count(1)
         self.env_steps = 0
         self._max_episode_steps = 10000
         self.queries = []

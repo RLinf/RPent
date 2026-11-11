@@ -107,6 +107,7 @@ def make_env(
     seed: int,
     suite_name: str = "libero_spatial",
     max_episode_steps: int = 10000,
+    rl_control_state: bool = False,
 ) -> LiberoEnv:
     """Build a single-env LiberoEnv pinned to ``task_id`` / ``seed``."""
     from rlinf.envs.sim.libero.libero_env import LiberoEnv
@@ -128,9 +129,16 @@ def make_env(
         seed=seed,
         max_episode_steps=max_episode_steps,
     )
-    return LiberoEnv(
+    env_type = LiberoEnv
+    if rl_control_state:
+        from robots.libero.control import controlled_env_type
+
+        env_type = controlled_env_type()
+    env = env_type(
         cfg=cfg, num_envs=1, seed_offset=0, total_num_processes=1, worker_info=None
     )
+    env.rpent_control_enabled = rl_control_state
+    return env
 
 
 # ---------------------------------------------------------------------------
@@ -182,7 +190,12 @@ class LiberoEnvFacade(BaseEnvFacade):
 
     def _strip_obs(self, obs: dict) -> dict:
         """Strip the leading env dim from every value of a LIBERO obs dict."""
-        return {k: self._strip(v) for k, v in obs.items()}
+        result = {k: self._strip(v) for k, v in obs.items()}
+        if getattr(self._env, "rpent_control_enabled", False):
+            result["control_state"] = self._env.env.workers[self._env_idx].get_env_attr(
+                "rpent_control_state"
+            )
+        return result
 
     def _expand_action(self, action) -> np.ndarray:
         """Inject the env dim onto a single-env action shaped ``[action_dim]``."""
@@ -349,6 +362,11 @@ def main():
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--max-episode-steps", type=int, default=10000)
     p.add_argument(
+        "--rl-control-state",
+        action="store_true",
+        help="Attach native grip-site/control-frame measurements for RL tools.",
+    )
+    p.add_argument(
         "--parent-watch",
         action="store_true",
         help="watch parent process via stdin pipe and exit when it dies",
@@ -395,6 +413,7 @@ def main():
         args.seed,
         suite_name=args.suite,
         max_episode_steps=args.max_episode_steps,
+        rl_control_state=args.rl_control_state,
     )
     facade = LiberoEnvFacade(
         raw_env,

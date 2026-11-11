@@ -113,6 +113,29 @@ class WorkflowCapability(AbstractCapability):
             **(request_context.model_settings or {}),
             "parallel_tool_calls": len(self.required) == 2,
         }
+        from rpent.planner.qwen import is_qwen_model
+
+        prepared = request_context.model_request_parameters
+        definitions = [*prepared.function_tools, *prepared.output_tools]
+        bounded = is_qwen_model(
+            getattr(request_context.model, "model_name", "")
+        ) and any(
+            t.parameters_json_schema.get("type") == "object"
+            and not t.parameters_json_schema.get("properties")
+            and t.parameters_json_schema.get("additionalProperties") is False
+            for t in definitions
+        )
+        if bounded:
+            from robots.rl.qwen_grammar import bounded_tool_format
+
+            settings = request_context.model_settings
+            settings["extra_body"] = {
+                **(settings.get("extra_body") or {}),
+                "tool_choice": "auto",
+                "response_format": bounded_tool_format(
+                    definitions, parallel=len(self.required) == 2
+                ),
+            }
         self.turn = turn
         self.request_started = time.perf_counter()
         write_json(
@@ -125,6 +148,7 @@ class WorkflowCapability(AbstractCapability):
                 "required_tools": sorted(self.required),
                 "workflow": toolkit.workflow,
                 "image_size": toolkit.image_size,
+                "bounded_qwen_xml": bounded,
                 "history_messages_before_compaction": len(request_context.messages),
             },
         )
@@ -154,11 +178,15 @@ class WorkflowCapability(AbstractCapability):
                 try:
                     if call.tool_name not in self.allowed:
                         raise ValueError(f"unknown tool {call.tool_name}")
-                    self.allowed[call.tool_name].args_schema.model_validate(
-                        call.args_as_dict(), strict=True
-                    )
+                    arguments = call.args_as_dict()
+                    self.allowed[call.tool_name].validate_arguments(arguments)
+                    from robots.rl.contracts import validate_relations
+
+                    validate_relations(call.tool_name, arguments)
                 except (ValueError, TypeError) as exc:
-                    error = f"Invalid tool arguments: {exc}"
+                    from robots.rl.contracts import argument_hint
+
+                    error = f"Invalid tool arguments: {exc}. {argument_hint(call.tool_name, getattr(self.toolkit, 'environment', 'libero'))}"
                     break
         path = self.toolkit.output_dir / "workflow_responses" / f"{self.turn:04d}.json"
         write_json(

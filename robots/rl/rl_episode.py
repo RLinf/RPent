@@ -82,6 +82,13 @@ def start_environment(
     args.env = task.get("environment", getattr(args, "env", "libero"))
     args.workflow = task.get("workflow", getattr(args, "workflow", "episode"))
     args.image_size = task.get("image_size", getattr(args, "image_size", 1024))
+    for name, default in (
+        ("action_mode", "single"),
+        ("max_actions_per_call", 3),
+        ("reasoning_history", -1),
+        ("image_history", -1),
+    ):
+        setattr(args, name, task.get(name, getattr(args, name, default)))
     args.suite, args.task, args.seed = task.get("suite"), task.get("task"), task["seed"]
     args.task_name = task.get("task_name", getattr(args, "task_name", None))
     args.split = task.get("split", getattr(args, "split", "target"))

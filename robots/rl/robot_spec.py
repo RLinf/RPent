@@ -97,6 +97,10 @@ def get_toolkit(
         environment=config.prompt_vars.get("environment", "libero"),
         workflow=config.prompt_vars.get("workflow", "episode"),
         image_size=config.prompt_vars.get("image_size", 1024),
+        action_mode=config.prompt_vars.get("action_mode", "single"),
+        max_actions_per_call=config.prompt_vars.get("max_actions_per_call", 3),
+        reasoning_history=config.prompt_vars.get("reasoning_history", -1),
+        image_history=config.prompt_vars.get("image_history", -1),
     )
 
 
@@ -109,6 +113,20 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         default="libero",
     )
     parser.add_argument("--workflow", choices=WORKFLOWS, default="episode")
+    parser.add_argument("--action-mode", choices=("single", "batch"), default="single")
+    parser.add_argument("--max-actions-per-call", type=int, default=3)
+    parser.add_argument(
+        "--reasoning-history",
+        type=int,
+        default=-1,
+        help="-1 all surviving replies, 0 none, N latest model replies.",
+    )
+    parser.add_argument(
+        "--image-history",
+        type=int,
+        default=-1,
+        help="-1 all surviving observations, 0 no images, N latest image-return groups.",
+    )
     parser.add_argument(
         "--image_size",
         type=int,
@@ -191,6 +209,16 @@ def _validate_args(args: argparse.Namespace) -> None:
         and getattr(args, "env", "libero") != "libero"
     ):
         raise ValueError("--image_size currently supports LIBERO only")
+    from robots.rl.contracts import validate_options
+
+    validate_options(
+        getattr(args, "env", "libero"),
+        getattr(args, "workflow", "episode"),
+        getattr(args, "action_mode", "single"),
+        getattr(args, "max_actions_per_call", 3),
+        getattr(args, "reasoning_history", -1),
+        getattr(args, "image_history", -1),
+    )
     if args.planner not in SUPPORTED_PLANNERS:
         raise ValueError(
             f"rl supports --planner {' or '.join(SUPPORTED_PLANNERS)}; "
@@ -205,6 +233,18 @@ def _validate_args(args: argparse.Namespace) -> None:
     if args.no_images:
         raise ValueError("rl requires camera images; remove --no-images")
     if getattr(args, "remote_toolkit_endpoint", None) is not None:
+        if any(
+            getattr(args, name, default) != default
+            for name, default in (
+                ("action_mode", "single"),
+                ("max_actions_per_call", 3),
+                ("reasoning_history", -1),
+                ("image_history", -1),
+            )
+        ):
+            raise ValueError(
+                "remote toolkit does not yet support action/history options"
+            )
         if getattr(args, "workflow", "episode") != "episode":
             raise ValueError("remote toolkit currently supports --workflow episode")
         if args.env_endpoint is not None or args.sam3_endpoint is not None:
@@ -224,6 +264,16 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     environment = getattr(args, "env", "libero")
     workflow = getattr(args, "workflow", "episode")
     validate_workflow(environment, workflow)
+    from robots.rl.contracts import validate_options
+
+    validate_options(
+        environment,
+        workflow,
+        getattr(args, "action_mode", "single"),
+        getattr(args, "max_actions_per_call", 3),
+        getattr(args, "reasoning_history", -1),
+        getattr(args, "image_history", -1),
+    )
     if environment == "libero" and not args.suite:
         raise ValueError("--suite is required")
     if environment == "libero" and args.task is None:
@@ -250,6 +300,10 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             "environment": environment,
             "workflow": workflow,
             "image_size": getattr(args, "image_size", 1024),
+            "action_mode": getattr(args, "action_mode", "single"),
+            "max_actions_per_call": getattr(args, "max_actions_per_call", 3),
+            "reasoning_history": getattr(args, "reasoning_history", -1),
+            "image_history": getattr(args, "image_history", -1),
         },
         task_desc={
             "suite": args.suite,
@@ -260,6 +314,10 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             "environment": environment,
             "workflow": workflow,
             "image_size": getattr(args, "image_size", 1024),
+            "action_mode": getattr(args, "action_mode", "single"),
+            "max_actions_per_call": getattr(args, "max_actions_per_call", 3),
+            "reasoning_history": getattr(args, "reasoning_history", -1),
+            "image_history": getattr(args, "image_history", -1),
             **({"task_name": args.task_name} if environment != "libero" else {}),
         },
     )
@@ -367,6 +425,7 @@ def _start_env(
             str(args.seed),
             "--max-episode-steps",
             str(args.max_episode_steps),
+            "--rl-control-state",
         ],
         {
             "LIBERO_TYPE": args.libero_type or get_libero_type(),
@@ -527,8 +586,17 @@ def configure_planner(planner, config: RunConfig):
 
     if not isinstance(planner, ApiAgentLoop):
         raise ValueError("rl workflows require --planner api")
+    from robots.rl.history import HistoryRetention
+
     planner.capabilities_factory = lambda toolkit, system, user, turns: [
-        WorkflowCapability(toolkit, system, user, turns, timeout_s=planner.timeout_s)
+        WorkflowCapability(toolkit, system, user, turns, timeout_s=planner.timeout_s),
+        *(
+            [HistoryRetention(toolkit)]
+            if config.prompt_vars.get("environment", "libero") == "libero"
+            and config.prompt_vars.get("workflow", "episode")
+            in {"episode", "episode_image"}
+            else []
+        ),
     ]
     if config.prompt_vars.get("workflow", "episode") == "zap_turn":
         planner.compaction = None

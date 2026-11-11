@@ -75,12 +75,10 @@ class Measurement:
     opening: float
 
     def state(self) -> dict[str, Any]:
-        yaw = geometry.yaw_of(self.rotation)
         return {
             "pose": {
                 "xyz": [round(float(value), 4) for value in self.xyz],
-                "yaw": None if yaw is None else round(yaw, 3),
-                "pitch": round(geometry.pitch_of(self.rotation), 3),
+                "orientation_rpy": geometry.rpy_of(self.rotation),
             },
             "opening": round(self.opening, 3),
         }
@@ -109,6 +107,7 @@ class LiberoRLPrimitives:
         self.frames = [np.asarray(env.last_obs["main_images"])]
         self._masks: dict[str, tuple[int, str, np.ndarray]] = {}
         self._mask_ids = itertools.count(1)
+        self._sam_calls = itertools.count(1)
 
     @property
     def ended(self) -> bool:
@@ -120,10 +119,10 @@ class LiberoRLPrimitives:
 
     def measure(self) -> Measurement:
         """Read the pose and opening from the latest environment observation."""
-        states = np.asarray(self.env.last_obs["states"], dtype=np.float64)
+        control = self.env.last_obs["control_state"]
         return Measurement(
-            xyz=states[:3],
-            rotation=Rotation.from_rotvec(states[3:6]).as_matrix(),
+            xyz=np.asarray(control["xyz"], dtype=np.float64),
+            rotation=np.asarray(control["rotation"], dtype=np.float64),
             opening=min(1.0, self._finger_gap() / self._open_gap),
         )
 
@@ -140,10 +139,28 @@ class LiberoRLPrimitives:
         position_error = xyz - current.xyz
         rotation_error = Rotation.from_matrix(rotation @ current.rotation.T).as_rotvec()
         action = np.zeros(7)
-        action[:3] = _clip_norm(position_error, self._config.position_step_m)
-        action[:3] /= POSITION_SCALE_M
-        action[3:6] = _clip_norm(rotation_error, self._config.rotation_step_rad)
-        action[3:6] /= ROTATION_SCALE_RAD
+        control = self.env.last_obs["control_state"]
+        frame = np.asarray(control["control_to_world_rotation"], dtype=np.float64)
+        delta = np.concatenate(
+            [
+                frame.T @ _clip_norm(position_error, self._config.position_step_m),
+                frame.T @ _clip_norm(rotation_error, self._config.rotation_step_rad),
+            ]
+        )
+        low, high = np.asarray(control["output_min"]), np.asarray(control["output_max"])
+        input_low, input_high = (
+            np.asarray(control["input_min"]),
+            np.asarray(control["input_max"]),
+        )
+        if np.any(high <= low):
+            raise ValueError("native OSC controller has invalid output bounds")
+        action[:6] = (delta - (high + low) / 2) * (input_high - input_low) / (
+            high - low
+        ) + (input_high + input_low) / 2
+        if np.any(action[:6] < input_low - 1e-8) or np.any(
+            action[:6] > input_high + 1e-8
+        ):
+            raise ValueError("servo step exceeds the native controller bounds")
         return (
             action,
             float(np.linalg.norm(position_error)),
@@ -153,30 +170,41 @@ class LiberoRLPrimitives:
     def _ended_reason(self) -> str:
         return "terminated" if self.env.terminated else "truncated"
 
-    @tool
+    @tool(
+        json_schema_extra={
+            "additionalProperties": False,
+            "anyOf": [
+                {"required": ["xyz"], "properties": {"xyz": {"type": "array"}}},
+                {
+                    "required": ["orientation_rpy"],
+                    "properties": {"orientation_rpy": {"type": "array"}},
+                },
+            ],
+        }
+    )
     def move_to(
         self,
         xyz: Annotated[list[float], Field(min_length=3, max_length=3)] | None = None,
-        target_yaw: float | None = None,
-        target_pitch: float | None = None,
+        orientation_rpy: Annotated[list[float], Field(min_length=3, max_length=3)]
+        | None = None,
     ) -> ToolResult:
-        """Move the end effector to an absolute pose and stop when it settles. Omitted targets keep their measured values, and the gripper keeps its last set_gripper target. Motion follows a straight line without collision avoidance. Returns status reached, partial with a reason, or error, with the measured pose and opening.
+        """Servo the grip_site toward an absolute world pose, without collision avoidance. Supply xyz, orientation_rpy, or both; an omitted part keeps its measured value at the start of this action. The gripper keeps its previous opening target. Returns reached only within 4mm and 0.02rad; partial means the target was not reached and reports a reason. Use the returned measured pose, never assume the command succeeded. Example: {"xyz":[0.1,0,0.3],"orientation_rpy":[3.14159265,0,0]}.
 
         Args:
-            xyz: Target position [x, y, z], world frame, meters.
-            target_yaw: Target heading of the gripper x-axis in the world xy-plane, atan2(R[1,0], R[0,0]), radians.
-            target_pitch: Target tilt of the gripper approach axis about the world x-axis, atan2(R[1,2], -R[2,2]), radians; 0 points straight down.
+            xyz: Absolute grip-site position [x,y,z] in world metres; three finite numbers.
+            orientation_rpy: Absolute grip-site [roll,pitch,yaw] in radians, fixed world-axis XYZ: R=Rz(yaw)@Ry(pitch)@Rx(roll). [pi,0,yaw] points the approach axis down. Omit to keep the complete measured rotation.
         """
         if self.ended:
             return _error("episode_ended")
-        if xyz is None and target_yaw is None and target_pitch is None:
-            return _error("no_target")
+        if xyz is None and orientation_rpy is None:
+            return _error("Supply xyz, orientation_rpy, or both.")
         start = self.measure()
         target = start.xyz if xyz is None else np.asarray(xyz, dtype=np.float64)
-        try:
-            goal = geometry.orientation_goal(start.rotation, target_yaw, target_pitch)
-        except ValueError as exc:
-            return _error(f"orientation_unreachable: {exc}")
+        goal = (
+            start.rotation
+            if orientation_rpy is None
+            else Rotation.from_euler("xyz", orientation_rpy).as_matrix()
+        )
 
         config = self._config
         errors: list[tuple[float, float]] = []
@@ -226,7 +254,7 @@ class LiberoRLPrimitives:
     def set_gripper(
         self, opening: Annotated[float, Field(ge=0.0, le=1.0)]
     ) -> ToolResult:
-        """Drive the gripper to a normalized opening while holding the end-effector pose. Closing on an object stops early and reports the measured opening; contact does not imply a stable grasp. The target stays in effect during later moves.
+        """Drive the gripper to a normalized opening while holding the end-effector pose. Closing on an object stops early and reports the measured opening; contact does not imply a stable grasp. The target stays in effect during later moves. Returns reached/partial/error, measured pose/opening, residual opening error and environment steps. Example: {"opening":1}.
 
         Args:
             opening: Target opening from 0 (closed) to 1 (fully open).
@@ -310,6 +338,39 @@ class LiberoRLPrimitives:
         if self._state.save(name, value, step=step) is None:
             raise RuntimeError(f"failed to save observation artifact {name}")
 
+    def _audit_sam(
+        self,
+        *,
+        step: int,
+        camera: str,
+        query,
+        min_score: float,
+        result=None,
+        error=None,
+    ) -> None:
+        """Archive exact RPC detections independently of the model-visible result."""
+        name = f"sam3_detection_{next(self._sam_calls)}"
+        data = {
+            "step": step,
+            "camera": camera,
+            "query": query,
+            "min_score": min_score,
+            "category": "service_error" if error is not None else "not_found",
+            "found": False if result is None else result.found,
+            "score": None if result is None else result.score,
+            "box_xyxy": None if result is None else result.box,
+            "reason": None if result is None else result.reason,
+        }
+        if error is not None:
+            data["error"] = {"type": type(error).__name__, "message": str(error)}
+        if result is not None and result.mask is not None:
+            mask_name = f"{name}-mask.png"
+            self._save(mask_name, result.mask.astype(np.uint8) * 255, step)
+            data.update(mask=mask_name, mask_shape=list(result.mask.shape))
+        if result is not None and result.found:
+            data["category"] = "detected"
+        self._save(f"{name}.json", data, step)
+
     def images(self, step: int, cameras: list[str]) -> list[bytes]:
         """Return the recorded PNG bytes for ``cameras`` at ``step``."""
         return [
@@ -320,7 +381,7 @@ class LiberoRLPrimitives:
     def view_env(
         self, camera: Literal["agentview", "wrist", "all"] = "all"
     ) -> ToolResult:
-        """Return the latest camera images without advancing the environment. Images share the pixel frame used by segment and back_project.
+        """Return current RGB without moving the robot: all gives two labelled images, agentview or wrist gives one. Save its observation step for later point/pixel/box calls. Example: {"camera":"all"}. Images and depth use the same named camera and step.
 
         Args:
             camera: agentview, wrist, or all.
@@ -346,16 +407,22 @@ class LiberoRLPrimitives:
         camera: Camera = "agentview",
         step: Step | None = None,
     ) -> ToolResult:
-        """Segment one object with SAM3 in a recorded image and measure its visible surface. Provide prompt or point, not both. Returns found, score, mask_id, box [row_min, col_min, row_max, col_max] (max exclusive), and world-frame geometry of the visible points: world_xyz (per-axis median), top_z_m (95th-percentile z), size_xyz_m (5th to 95th percentile extent), and axis_yaw (major xy direction in [-pi/2, pi/2), null when the surface is not elongated).
+        """Segment one object with SAM3 in a recorded image and measure its visible surface. Provide exactly one non-empty prompt or point, not both. Returns mask_id, box [row_min, col_min, row_max, col_max] (max exclusive), and world-frame geometry of the visible points: world_xyz (per-axis median), top_z_m (95th-percentile z), size_xyz_m (5th to 95th percentile extent), and axis_yaw (major xy direction in [-pi/2, pi/2), null when the surface is not elongated).
 
         Args:
-            prompt: Text naming the object.
-            point: One pixel [row, col] on the object; requires step.
+            prompt: Non-empty text naming one visible object; omit point. Example: {"prompt":"red cup","camera":"agentview"}.
+            point: One pixel [row, col] on the target in the named image; omit prompt and provide that image\'s step.
             camera: agentview or wrist.
-            step: Observation step; prompt defaults to the latest.
+            step: Recorded observation step matching the image; required for point. Text queries default to latest when omitted.
         """
         if (prompt is None) == (point is None):
-            return _error("provide exactly one of prompt or point")
+            return _error(
+                "Provide exactly one non-empty prompt or one point [row,col], not both. Correct the query and try again."
+            )
+        if prompt is not None and not prompt.strip():
+            return _error(
+                "Provide a non-empty object description in prompt, or a point [row,col]."
+            )
         if point is not None and step is None:
             return _error("point requires step")
         record = self._record(step)
@@ -373,17 +440,27 @@ class LiberoRLPrimitives:
                 min_score=self._config.segment_min_score,
             )
         except Exception as exc:
+            self._audit_sam(
+                step=index,
+                camera=camera,
+                query={"prompt": prompt, "point": point},
+                min_score=self._config.segment_min_score,
+                error=exc,
+            )
             return _error(f"segmentation_failed: {exc}")
-        data: dict[str, Any] = {
-            "step": index,
-            "camera": camera,
-            "found": segmentation.found,
-            "score": None
-            if segmentation.score is None
-            else round(segmentation.score, 3),
-        }
+        self._audit_sam(
+            step=index,
+            camera=camera,
+            query={"prompt": prompt, "point": point},
+            min_score=self._config.segment_min_score,
+            result=segmentation,
+        )
+        data: dict[str, Any] = {"step": index, "camera": camera}
         if not segmentation.found:
-            return ToolResult(data=data)
+            return ToolResult(
+                data={"code": "not_found", "step": index, "camera": camera},
+                model_text="No target was detected in this image. Try a clearer object description, a point on the object, or another camera view.",
+            )
 
         mask = segmentation.mask
         mask_id = f"m_{index}_{camera}_{next(self._mask_ids)}"
@@ -470,7 +547,7 @@ class LiberoRLPrimitives:
 
     @tool(readonly=True)
     def finish(self) -> ToolResult:
-        """End the episode and report the environment's own success flags."""
+        """End the episode; takes no arguments. Returns _finish, success, terminated (native task success) and truncated (environment budget reached). Calling finish does not make a task succeed. Example: {}."""
         return ToolResult(
             data={
                 "_finish": True,
@@ -488,7 +565,7 @@ class LiberoRLPrimitives:
 
 
 def _error(message: str) -> ToolResult:
-    return ToolResult(data={"error": message})
+    return ToolResult(data={"error": message}, model_text=message)
 
 
 def _clip_norm(vector: np.ndarray, limit: float) -> np.ndarray:

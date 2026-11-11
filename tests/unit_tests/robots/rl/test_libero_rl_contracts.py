@@ -70,6 +70,15 @@ class FakeEnv:
                 [self.xyz, self.rotation.as_rotvec(), [half, -half]]
             ),
             "main_images": np.zeros((4, 4, 3), dtype=np.uint8),
+            "control_state": {
+                "xyz": self.xyz.copy(),
+                "rotation": self.rotation.as_matrix(),
+                "control_to_world_rotation": np.eye(3),
+                "input_min": np.full(6, -1.0),
+                "input_max": np.full(6, 1.0),
+                "output_min": np.array([-0.05] * 3 + [-0.5] * 3),
+                "output_max": np.array([0.05] * 3 + [0.5] * 3),
+            },
         }
 
     def step(self, action):
@@ -169,7 +178,7 @@ def test_adaptive_returns_images_only_from_view_env(tmp_path) -> None:
     assert opening.data["task"] == "put the cube in the bowl"
     assert opening.data["state"]["step"] == 0
     assert opening.images == moved.images == segmented.images == []
-    assert segmented.data["found"] is True
+    assert "mask_id" in segmented.data and "found" not in segmented.data
     view = toolkit.execute_tool("view_env", {})
     assert len(view.images) == 2
     assert set(view.data) == {"step", "images"}
@@ -208,17 +217,17 @@ def test_pure_translation_and_pure_rotation_hold_the_other_pose_part(tmp_path) -
     start = toolkit.initial_observation().data["state"]["pose"]
 
     moved = toolkit.execute_tool("move_to", {"xyz": [0.2, -0.1, 0.9]}).data
-    turned = toolkit.execute_tool(
-        "move_to", {"target_yaw": 1.2, "target_pitch": 0.3}
-    ).data
+    turned = toolkit.execute_tool("move_to", {"orientation_rpy": [2.8, 0.3, 1.2]}).data
 
     assert moved["status"] == turned["status"] == "reached"
     assert moved["pose"]["xyz"] == pytest.approx([0.2, -0.1, 0.9], abs=0.006)
-    assert moved["pose"]["yaw"] == pytest.approx(start["yaw"], abs=0.03)
-    assert moved["pose"]["pitch"] == pytest.approx(start["pitch"], abs=0.03)
+    assert moved["pose"]["orientation_rpy"] == pytest.approx(
+        start["orientation_rpy"], abs=0.03
+    )
     assert turned["pose"]["xyz"] == pytest.approx(moved["pose"]["xyz"], abs=0.006)
-    assert turned["pose"]["yaw"] == pytest.approx(1.2, abs=0.03)
-    assert turned["pose"]["pitch"] == pytest.approx(0.3, abs=0.03)
+    target = Rotation.from_euler("xyz", [2.8, 0.3, 1.2])
+    actual = Rotation.from_euler("xyz", turned["pose"]["orientation_rpy"])
+    assert (target * actual.inv()).magnitude() < 0.02
     assert turned["step"] == moved["step"] + 1
     assert set(moved) == {
         "status",
@@ -227,6 +236,9 @@ def test_pure_translation_and_pure_rotation_hold_the_other_pose_part(tmp_path) -
         "opening",
         "terminated",
         "truncated",
+        "position_error_m",
+        "rotation_error_rad",
+        "env_steps",
     }
 
 
@@ -270,7 +282,7 @@ def test_rejected_requests_reuse_the_latest_observation(tmp_path) -> None:
 
     rejected = toolkit.execute_tool("move_to", {})
 
-    assert rejected.data == {"status": "error", "error": "no_target", "step": 0}
+    assert rejected.is_error and "No tool executed" in rejected.to_text()
     assert rejected.images == []
     assert len(toolkit.state.records()) == 1
 
@@ -331,7 +343,7 @@ def test_mask_without_depth_keeps_the_mask_and_reports_missing_geometry(
 
     found = toolkit.execute_tool("segment", {"prompt": "cube"}).data
 
-    assert found["found"] is True
+    assert "found" not in found and "score" not in found
     assert found["box"] == [8, 4, 12, 28]
     assert found["world_xyz"] is None
     assert found["geometry_unavailable"]
@@ -341,17 +353,20 @@ def test_mask_without_depth_keeps_the_mask_and_reports_missing_geometry(
     )
 
 
-def test_orientation_goal_meets_requested_angles_and_keeps_omitted_ones() -> None:
-    start = Rotation.from_euler("zx", [0.4, 0.2]).as_matrix() @ GRIPPER_DOWN
-
-    turned = geometry.orientation_goal(start, 1.3, None)
-    tilted = geometry.orientation_goal(start, None, 0.9)
-
-    assert geometry.yaw_of(turned) == pytest.approx(1.3)
-    assert geometry.pitch_of(turned) == pytest.approx(geometry.pitch_of(start))
-    assert geometry.pitch_of(tilted) == pytest.approx(0.9)
-    assert geometry.yaw_of(tilted) == pytest.approx(geometry.yaw_of(start))
-    assert geometry.orientation_goal(start, None, None) is start
+@pytest.mark.parametrize(
+    "angles",
+    [
+        [0, 0, 0],
+        [math.pi, 0, 0.4],
+        [0.2, -0.3, 1.1],
+        [-math.pi, 0, 0],
+        [0.3, math.pi / 2, 0.7],
+    ],
+)
+def test_rpy_output_round_trips_full_rotation_at_wrap_and_singularity(angles):
+    matrix = Rotation.from_euler("xyz", angles).as_matrix()
+    restored = Rotation.from_euler("xyz", geometry.rpy_of(matrix)).as_matrix()
+    assert Rotation.from_matrix(restored @ matrix.T).magnitude() < 2e-6
 
 
 def test_surface_direction_is_reported_only_for_elongated_points() -> None:
@@ -488,6 +503,10 @@ def test_prompt_variant_reaches_the_prompt_variables() -> None:
         "environment": "libero",
         "workflow": "episode",
         "image_size": 1024,
+        "action_mode": "single",
+        "max_actions_per_call": 3,
+        "reasoning_history": -1,
+        "image_history": -1,
     }
     assert config.task_desc["prompt"] == "base_gripper"
 

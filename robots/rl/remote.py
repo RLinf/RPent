@@ -178,6 +178,7 @@ class ToolkitWorker(RpcFacade):
         result = result or ToolResult()
         return {
             "data": result.data,
+            "model_text": result.model_text,
             "images": [
                 base64.b64encode(image).decode("ascii") for image in result.images
             ],
@@ -227,6 +228,7 @@ class RemoteToolkit(Toolkit):
         self.workflow = "episode"
         self.image_size = getattr(config, "prompt_vars", {}).get("image_size", 1024)
         self.snapshot = None
+        self.reasoning_history = self.image_history = -1
         self.workflow_stats = {}
         self._call_lock = threading.Lock()
         self._call_id = 0
@@ -257,7 +259,14 @@ class RemoteToolkit(Toolkit):
                 "robocasa": RoboCasaPrimitives,
                 "robotwin": RoboTwinPrimitives,
             }[request["task"]["environment"]]
+            from robots.rl.contracts import strict_tool
+
             for definition in iter_tools(owner):
+                definition = strict_tool(
+                    definition,
+                    image_size=self.image_size,
+                    cameras=getattr(owner, "cameras", ("agentview", "wrist")),
+                )
                 self.add_tool(definition.with_handler(self._handler(definition.name)))
             if metadata["tools"] != declarations(self):
                 raise ValueError("remote toolkit declarations differ from the planner")
@@ -324,6 +333,7 @@ class RemoteToolkit(Toolkit):
             )
         return ToolResult(
             data=payload["data"],
+            model_text=payload.get("model_text"),
             images=[
                 base64.b64decode(image, validate=True) for image in payload["images"]
             ],

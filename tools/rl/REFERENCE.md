@@ -61,7 +61,7 @@ load; the model-service concurrency is a separate limit.
 | `--seeds` | Manifest seeds | Comma-separated seeds/ranges, e.g. `0,3-66` |
 | `--gpus`, `--per-gpu` | GPUs required; 1 worker/GPU | Environment GPUs and worker count per GPU |
 | `--prompt` | `simple` | One prompt variant for the batch |
-| `--workflow` | `episode` | episode / zap_turn / zap_episode / zap_subtask |
+| `--workflow` | `episode` | episode / episode_image / zap_turn / zap_episode / zap_subtask |
 | `--no-thinking` | off | Disable Qwen thinking for the whole batch; recorded in its manifest |
 | `--image_size` | `1024` | VLM width/height: 1024 / 512 / 256; native perception stays1024 |
 | `--start-barrier` | Off | Admit model requests after all pending environments are resident |
@@ -238,6 +238,6 @@ The native downloader asks before downloading. No demonstration dataset is
 required. Keep the existing bundled scene/configuration files when relocating
 assets. `ROBOCASA_ASSETS_PATH` alone does not redirect this package version.
 
-See the [workflow guide](WORKFLOWS.md) for all four modes, SAM3 pooling and the fixed-panel comparison.
+See the [workflow guide](WORKFLOWS.md) for all five modes, SAM3 pooling and the fixed-panel comparison.
 
 The model launcher enables cache reporting. For eight-worker SAM3 deployment, per-worker wait metrics and long-history cache tuning, see [workflow performance configuration](WORKFLOWS.md#model-prefix-cache-diagnostics).

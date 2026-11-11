@@ -48,6 +48,7 @@ def wire_statistics(attempt: Path) -> dict:
     requests = sorted((attempt / "api_trace/requests").glob("*/metadata.json"))
     totals = {"input_tokens": 0, "output_tokens": 0, "cached_input_tokens": 0}
     with_usage = 0
+    missing_cache_usage = 0
     for metadata in requests:
         usage = None
         try:
@@ -61,20 +62,24 @@ def wire_statistics(attempt: Path) -> dict:
                 usage = json.loads(raw).get("usage")
         except (OSError, ValueError):
             pass
-        if not usage or not all(
-            name in usage for name in ("prompt_tokens", "completion_tokens")
+        if not isinstance(usage, dict) or not all(
+            isinstance(usage.get(name), int)
+            for name in ("prompt_tokens", "completion_tokens")
         ):
             continue
         with_usage += 1
         totals["input_tokens"] += usage["prompt_tokens"]
         totals["output_tokens"] += usage["completion_tokens"]
-        totals["cached_input_tokens"] += (usage.get("prompt_tokens_details") or {}).get(
-            "cached_tokens", 0
-        )
+        cached = (usage.get("prompt_tokens_details") or {}).get("cached_tokens")
+        if isinstance(cached, int):
+            totals["cached_input_tokens"] += cached
+        else:
+            missing_cache_usage += 1
     return {
         "requests": len(requests),
         "requests_with_usage": with_usage,
         "requests_missing_usage": len(requests) - with_usage,
+        "requests_missing_cache_usage": missing_cache_usage,
         "observed_usage": totals,
     }
 

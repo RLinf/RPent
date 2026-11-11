@@ -58,7 +58,7 @@ python tools/rl/run_batch.py run "$RPENT_DATA_ROOT/rollouts/new-run" --jobs tool
 | `--seeds` | 使用清单的 seed | 逗号分隔的 seed 或区间，例如 `0,3-66` |
 | `--gpus`、`--per-gpu` | GPU 必填，每 GPU 1 个 worker | 环境 GPU 和每卡 worker 数 |
 | `--prompt` | `simple` | 整批使用一个 prompt 变体 |
-| `--workflow` | `episode` | episode / zap_turn / zap_episode / zap_subtask |
+| `--workflow` | `episode` | episode / episode_image / zap_turn / zap_episode / zap_subtask |
 | `--no-thinking` | 关闭 | 整批禁用 Qwen thinking，并将该设置写入 manifest |
 | `--image_size` | `1024` | VLM 图片边长：1024 / 512 / 256；原始感知始终1024 |
 | `--start-barrier` | 关闭 | 所有待跑环境驻留后统一放行首个请求 |
@@ -215,6 +215,6 @@ PY
 原生下载器会在下载前询问；不需要下载 demonstration 数据集。迁移资产时保留
 包内原有场景和配置文件。仅设置 `ROBOCASA_ASSETS_PATH` 不会重定向该版本的读取路径。
 
-四种工作流、SAM3 池与固定任务对比见 [工作流指南](WORKFLOWS_zh.md)。
+五种工作流、SAM3 池与固定任务对比见 [工作流指南](WORKFLOWS_zh.md)。
 
 模型启动器启用缓存上报。八副本 SAM3、单副本等待指标和长历史缓存调优见[工作流性能配置](WORKFLOWS_zh.md#模型前缀缓存诊断)。

@@ -306,12 +306,26 @@ def collect(args: argparse.Namespace, batch: Path) -> None:
     jobs = read_jobs(Path(args.jobs), args.seeds)
     for job in jobs:
         validate_workflow(job["environment"], args.workflow)
+        from robots.rl.contracts import validate_options
+
+        validate_options(
+            job["environment"],
+            args.workflow,
+            getattr(args, "action_mode", "single"),
+            getattr(args, "max_actions_per_call", 3),
+            getattr(args, "reasoning_history", -1),
+            getattr(args, "image_history", -1),
+        )
     identity = {
         "jobs": jobs,
         "prompt": args.prompt,
         "workflow": args.workflow,
         "image_size": getattr(args, "image_size", 1024),
         "thinking": not getattr(args, "no_thinking", False),
+        "action_mode": getattr(args, "action_mode", "single"),
+        "max_actions_per_call": getattr(args, "max_actions_per_call", 3),
+        "reasoning_history": getattr(args, "reasoning_history", -1),
+        "image_history": getattr(args, "image_history", -1),
         "model": os.environ["RPENT_MODEL"],
         "source": source_identity(),
         "dependencies": dependency_identity(),
@@ -416,6 +430,16 @@ def collect(args: argparse.Namespace, batch: Path) -> None:
                     args.workflow,
                     "--image_size",
                     str(getattr(args, "image_size", 1024)),
+                ]
+                command += [
+                    "--action-mode",
+                    getattr(args, "action_mode", "single"),
+                    "--max-actions-per-call",
+                    str(getattr(args, "max_actions_per_call", 3)),
+                    "--reasoning-history",
+                    str(getattr(args, "reasoning_history", -1)),
+                    "--image-history",
+                    str(getattr(args, "image_history", -1)),
                 ]
                 if getattr(args, "no_thinking", False):
                     command.append("--no-thinking")
@@ -625,6 +649,12 @@ def main() -> None:
     collection.add_argument("--per-gpu", type=int, default=1)
     collection.add_argument("--max-initializing-per-gpu", type=int, default=8)
     collection.add_argument("--workflow", choices=WORKFLOWS, default="episode")
+    collection.add_argument(
+        "--action-mode", choices=("single", "batch"), default="single"
+    )
+    collection.add_argument("--max-actions-per-call", type=int, default=3)
+    collection.add_argument("--reasoning-history", type=int, default=-1)
+    collection.add_argument("--image-history", type=int, default=-1)
     collection.add_argument(
         "--no-thinking",
         action="store_true",

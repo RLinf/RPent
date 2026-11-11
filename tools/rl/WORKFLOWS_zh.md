@@ -2,15 +2,16 @@
 
 [English](WORKFLOWS.md) · [安装](INSTALL_zh.md) · [首个任务](README_zh.md)
 
-四种模式使用同一个 API planner，并共用机器人、坐标和夹爪说明。
+五种模式使用同一个 API planner，并共用机器人、坐标和夹爪说明。
 区别是感知工具和对话保留范围。成功由原生环境标志判定，todo 状态或
-`finish` 的声明不能代替环境判定。公开工作流名称为下面四种。
+`finish` 的声明不能代替环境判定。公开工作流名称如下。
 
 ## 工具和上下文边界
 
 | 工作流 | 工具 | 对话保留范围 |
 | --- | --- | --- |
 | `episode` | `move_to`、`set_gripper`、`view_env`、`segment`、`back_project`、`finish` | 整条任务，支持压缩 |
+| `episode_image` | `move_to`、`set_gripper`、`segment`、`back_project`、`finish` | 整条任务，动作后返回原始图片 |
 | `zap_turn` | `move_to`、`set_gripper`、`change_query`、`update_todo`、`finish` | 每次请求独立 |
 | `zap_episode` | `move_to`、`set_gripper`、`change_query`、`finish` | 整条任务，支持压缩 |
 | `zap_subtask` | `move_to`、`set_gripper`、`change_query`、`update_todo`、`finish` | 当前子任务，支持压缩 |
@@ -167,3 +168,103 @@ top-p .95、top-k 20、显式 presence penalty 0、repetition penalty 1。
 正常失败和模型预算耗尽不重跑；基础设施错误最多额外尝试一次，得分分母始终为
 40。对比目录中的 `STOP_REQUESTED.json` 会停止新任务和自有 collector。
 保留全部输出，只有配置完全相同时才能恢复中断的运行。
+
+## 图片 episode、完整位姿、动作列表与历史保留
+
+LIBERO `episode_image` 在初始及物理动作后返回当前 agentview、wrist 双相机 RGB。
+它有 `segment`、`back_project`、`finish`，没有 `view_env`；感知仍由模型显式调用，
+不自动执行 SAM。此模式的感知参数不含 `step`，固定使用当前观测；动作前的旧 mask
+必须重新分割。原 `episode` 保留历史帧的显式 `step`。
+
+LIBERO 的 `move_to(xyz?, orientation_rpy?)` 至少提供一个目标。
+`xyz` 为 MuJoCo grip site 的绝对世界坐标，单位米；`orientation_rpy=[roll,pitch,yaw]`
+为同一参考帧相对世界的绝对姿态，单位弧度，固定轴 XYZ，满足
+`R=Rz(yaw)@Ry(pitch)@Rx(roll)`。`[pi,0,yaw]` 表示接近轴朝下，夹爪沿 site 的
+x 轴闭合。省略项保持该动作开始时的实测值。反馈包含实际 `pose.xyz`、
+`pose.orientation_rpy`、开合度及残差；`partial` 不表示到达。
+RoboCasa、RoboTwin 保持原有动作接口。
+
+`--action-mode single` 为默认；选择 `batch` 后，独立 `move_to`、`set_gripper`
+替换成 `execute_actions`，感知工具和 `finish` 继续可用。
+`--max-actions-per-call K` 默认 3，最小 1：
+
+```json
+{"actions":[
+  {"action":"move_to","xyz":[0.1,0,0.3],"orientation_rpy":[3.14159265,0,0]},
+  {"action":"set_gripper","opening":0}
+]}
+```
+
+开始前校验整个列表。逐项执行并测量，成功、截断、error 或 partial 立即停止，
+剩余项不执行。返回各项实测位姿、`executed_count`、从 0 开始的 `stopped_at`、
+`stop_reason`、`final_state`。`episode_image` 只发送批末／暂停时的最新双相机图，
+中间帧完整留档。每次回复仍只有一个顶层 tool call；一批计一次模型请求，
+各原子动作共用既有环境步数与时间预算。
+
+`--reasoning-history N` 按之前的模型回复计数，一次回复的 thinking 片段共同一组。
+`--image-history N` 按图片回传计数，双相机共同保留，初始观测也算一组；
+单相机 view_env 的回传同样是一组。两个默认值都是 -1：
+
+| 值 | 含义 |
+|---|---|
+| -1 | 不额外裁剪，仍受现有历史压缩约束 |
+| 0 | 移除该类全部内容；图片连最新观测也移除 |
+| N > 0 | 只保留最近 N 个回复／观测组 |
+
+先裁剪再压缩，不删除工具调用、普通 assistant 文本与实测文本结果。
+原始回复和观测留档。删除历史 reasoning 不关闭当前轮 thinking，不插入虚构 ignore
+文本；Qwen 原生模板可能产生空 thinking 标记。裁剪旧历史可能降低前缀缓存复用，
+需结合实际延迟和缓存指标判断。新开关目前支持本机 LIBERO 的 `episode`、
+`episode_image`，其他组合在启动仿真前报错。
+
+完成[安装](INSTALL_zh.md)、激活环境、加载复制后的配置并启动模型／SAM 服务后，
+将 `RPENT_OUTPUT_ROOT` 设为可写目录，运行：
+
+```bash
+bash tools/rl/run.sh --simulator libero --workflow episode_image   --suite libero_object --task 0 --seed 0 --cuda-device 0   --action-mode batch --max-actions-per-call 3   --reasoning-history 0 --image-history 1
+
+python -m tools.rl.run_batch run "$RPENT_OUTPUT_ROOT/image-batch"   --jobs tools/rl/jobs/panel40.txt --seeds 0 --gpus 0,1 --per-gpu 20   --start-barrier --workflow episode_image --action-mode batch   --max-actions-per-call 3 --reasoning-history 3 --image-history 3
+```
+
+manifest 固定这些配置，断点恢复不允许混用参数。独立八组实验先跑两个 workflow
+与两种动作格式的四组 -1/-1，再对各 workflow 的胜出动作格式测试 3/3、0/1。
+不调用 `compare_workflows.py`，后者属于另一套 ZAP／图片尺寸比较。
+
+分割成功返回 dict，不含 `score`、`found`；查询不合法与未检测到目标分别返回
+修复提示，服务异常单独报告。`world_xyz` 为可见深度点逐轴中位数，
+`top_z_m` 为 world-z 的 95 分位数，`size_xyz_m` 为各轴 5～95 分位跨度，
+`axis_yaw` 为细长可见表面的 xy 主轴方向或 null；它们不是完整尺寸或抓取目标。
+
+### 复现八组比较
+
+按下表串行运行，每次只启动一组。各组使用相同 LIBERO-PRO 40-task 清单、
+seed 0、image_size 1024、100 次模型请求和 10000 环境步，模型、采样及时间预算
+保持一致。
+
+| 组 | workflow | 动作模式 | reasoning-history | image-history |
+|---|---|---|---:|---:|
+| 1 | episode | single | -1 | -1 |
+| 2 | episode | batch，K=3 | -1 | -1 |
+| 3 | episode_image | single | -1 | -1 |
+| 4 | episode_image | batch，K=3 | -1 | -1 |
+| 5 | episode | 组1/2胜者 | 3 | 3 |
+| 6 | episode | 组1/2胜者 | 0 | 1 |
+| 7 | episode_image | 组3/4胜者 | 3 | 3 |
+| 8 | episode_image | 组3/4胜者 | 0 | 1 |
+
+每个 workflow 独立选择动作模式：原生成功数最高者胜出；同分比较整组 wall，
+仍相同选 single。把所选动作模式代入上面的批处理命令。正式共320条，
+接口预检与容量资格验证另记，不计入得分。
+
+8卡布局中，GPU2-7 放三个 TP2 模型；GPU0/1 各驻留20个环境和4个 SAM3，
+共享一个 pool endpoint。用最终源码验证40环境加8个 SAM 至少保持300秒，
+40环境全部 ready 后才统一放行首批模型请求。各组采用相同预热及缓存清理口径，
+记录清理结果；KV flush 不保证清空 VIT 特征缓存。
+保留所有尝试，只有基础设施异常最多额外重试一次。除整组 wall 外，
+还应比较相同且共同成功任务的耗时，不能把提前失败算作加速。
+
+Qwen 通过 SGLang 运行且存在无参数工具时，使用带有界空白的原生 XML 结构化工具格式。
+实际请求使用 tool_choice=auto，并显式提供携带同一份工具 schema、至少调用一次工具的格式；
+允许的工具调用要求保持不变。语法空白最多 16 个字符，避免 finish() 的空参数区域循环。
+不添加占位参数，不修改依赖、提示词或采样；整条回复仍须先通过严格校验。
+上游说明：https://github.com/mlc-ai/xgrammar/issues/802。
