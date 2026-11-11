@@ -8,7 +8,8 @@ IFS=, read -r -a devices <<< "$CUDA_VISIBLE_DEVICES"
 args=(--model-path "$MODEL_PATH" --served-model-name "${MODEL_NAME:-qwen3.8-27b}"
   --tp "${#devices[@]}" --host 127.0.0.1 --port "${SERVE_PORT:-30080}"
   --context-length 262144 --mem-fraction-static "${SERVE_MEM_FRACTION:-0.8}"
-  --max-running-requests "${SERVE_CONCURRENCY:-8}" --tool-call-parser qwen3_coder --reasoning-parser qwen3)
+  --max-running-requests "${SERVE_CONCURRENCY:-8}" --tool-call-parser qwen3_coder --reasoning-parser qwen3
+  --enable-cache-report)
 if [[ ${#devices[@]} -gt 1 ]]; then args+=(--disable-custom-all-reduce); fi
 if [[ ${ENABLE_MTP:-1} == 1 ]]; then
   args+=(--speculative-algorithm EAGLE --speculative-num-steps 3 --speculative-eagle-topk 1 --speculative-num-draft-tokens 4)

@@ -36,7 +36,7 @@
 | `--cuda-device` | 未设置 | 仿真 GPU，与共享 SAM3 的 GPU 独立 |
 
 Thinking 采样参数为 temperature 1.0、top-p 0.95、top-k 20。复现 SFT checkpoint
-评测的 penalty 时，显式设置 `RPENT_PRESENCE_PENALTY=1.5` 和
+评测的 penalty 时，显式设置 `RPENT_PRESENCE_PENALTY=0` 和
 `RPENT_REPETITION_PENALTY=1.0`。`--observation-mode adaptive` 仍可使用，
 image/text 模式会被拒绝。`run.sh` 的其他参数会直接传给 `rpent`。
 
@@ -58,7 +58,10 @@ python tools/rl/run_batch.py run "$RPENT_DATA_ROOT/rollouts/new-run" --jobs tool
 | `--seeds` | 使用清单的 seed | 逗号分隔的 seed 或区间，例如 `0,3-66` |
 | `--gpus`、`--per-gpu` | GPU 必填，每 GPU 1 个 worker | 环境 GPU 和每卡 worker 数 |
 | `--prompt` | `simple` | 整批使用一个 prompt 变体 |
-| `--workflow` | `multiturn` | 对话循环或每轮独立的 ZAP snapshot |
+| `--workflow` | `episode` | episode / zap_turn / zap_episode / zap_subtask |
+| `--no-thinking` | 关闭 | 整批禁用 Qwen thinking，并将该设置写入 manifest |
+| `--image_size` | `1024` | VLM 图片边长：1024 / 512 / 256；原始感知始终1024 |
+| `--start-barrier` | 关闭 | 所有待跑环境驻留后统一放行首个请求 |
 | `--max-initializing-per-gpu` | `8` | 每卡同时冷启动数，独立于轨迹槽位 |
 | `--endpoints` | `RPENT_BASE_URL` | 逗号分隔的策略 `/v1` endpoint |
 | `--start-interval` | `1` 秒 | 初次启动 worker 的间隔 |
@@ -88,6 +91,15 @@ python tools/rl/run_batch.py summary "$RPENT_DATA_ROOT/rollouts/new-run"
 Trace 保存压缩后实际请求、原始 PNG 字节、原生消息、完整流式响应和压缩事件。
 通用读取模块为 `rpent.evaluation.trajectory`，数据编码及 SFT 入口位于
 `ms-swift/examples/rpent`。
+
+### 对比 thinking 设置
+
+Qwen3.8 批量任务设置 `RPENT_REASONING_EFFORT=low` 或 `medium`，即可在启用
+thinking 时选择对应等级。关闭 thinking 时，设置 `RPENT_REASONING_EFFORT=none`，
+并在 `run_batch.py run` 中加上 `--no-thinking`；单条 `run.sh` 也支持该参数。
+单独设置 `none` 只是不发送 effort 等级，仍然启用 thinking。每组设置使用新的
+批次目录，恢复时不允许改变 thinking 设置。规划器保持采样参数不变，关闭
+thinking 不会隐式切换到另一套采样配置。
 
 ## 离线安装
 
@@ -127,7 +139,7 @@ uv pip install --no-index --no-deps wheelhouse-sglang/*.whl
 
 ## 将 planner 与仿真器部署在不同机器
 
-Adaptive multiturn 支持让 planner 与模型服务部署在一起，将原生仿真器、
+Adaptive episode 支持让 planner 与模型服务部署在一起，将原生仿真器、
 动作内部控制循环和共享 SAM3 留在后端机器。两端须使用相同的控制和工具源码、
 任务 prompt，并均安装 planner 环境。后端额外准备独立的原生仿真环境和资产，
 按前文设置 `RPENT_ROBOCASA_PYTHON`、`RPENT_ROBOTWIN_PYTHON`、
@@ -149,12 +161,12 @@ python -m robots.rl.remote_manager \
 export RPENT_REMOTE_TOOLKIT_ENDPOINT=http://127.0.0.1:28090
 unset RPENT_SAM3_ENDPOINT
 bash tools/rl/run.sh --simulator robocasa --task-name PickPlaceCounterToCabinet \
-  --split target --seed 1 --workflow multiturn --cuda-device 1
+  --split target --seed 1 --workflow episode --cuda-device 1
 ```
 
 这里的 `--cuda-device` 指向后端 GPU。后端负责环境和 SAM3 连接，不要再传
 `--env-endpoint` 或 `--sam3-endpoint`。批量入口继承同一远程端点，仍通过
-`--endpoints` 分配模型请求。此远程接口只支持 adaptive multiturn。
+`--endpoints` 分配模型请求。此远程接口只支持 adaptive episode。
 握手会拒绝源码摘要、工具声明、任务或预算不一致的连接。
 
 每条后端 episode 有独立且归管理器所有的 worker，保留配置、日志、原生状态、
@@ -202,3 +214,7 @@ PY
 
 原生下载器会在下载前询问；不需要下载 demonstration 数据集。迁移资产时保留
 包内原有场景和配置文件。仅设置 `ROBOCASA_ASSETS_PATH` 不会重定向该版本的读取路径。
+
+四种工作流、SAM3 池与固定任务对比见 [工作流指南](WORKFLOWS_zh.md)。
+
+模型启动器启用缓存上报。八副本 SAM3、单副本等待指标和长历史缓存调优见[工作流性能配置](WORKFLOWS_zh.md#模型前缀缓存诊断)。

@@ -38,7 +38,7 @@ Its listener is local (`127.0.0.1`). The planner and server both default to a
 
 Thinking sampling is temperature 1.0, top-p 0.95, top-k 20. To reproduce the
 SFT-checkpoint evaluation penalties, explicitly export
-`RPENT_PRESENCE_PENALTY=1.5` and `RPENT_REPETITION_PENALTY=1.0`.
+`RPENT_PRESENCE_PENALTY=0` and `RPENT_REPETITION_PENALTY=1.0`.
 `--observation-mode adaptive` remains accepted; image/text modes are rejected.
 Other arguments to `run.sh` pass through to `rpent`.
 
@@ -61,7 +61,10 @@ load; the model-service concurrency is a separate limit.
 | `--seeds` | Manifest seeds | Comma-separated seeds/ranges, e.g. `0,3-66` |
 | `--gpus`, `--per-gpu` | GPUs required; 1 worker/GPU | Environment GPUs and worker count per GPU |
 | `--prompt` | `simple` | One prompt variant for the batch |
-| `--workflow` | `multiturn` | Conversation or independent ZAP snapshots |
+| `--workflow` | `episode` | episode / zap_turn / zap_episode / zap_subtask |
+| `--no-thinking` | off | Disable Qwen thinking for the whole batch; recorded in its manifest |
+| `--image_size` | `1024` | VLM width/height: 1024 / 512 / 256; native perception stays1024 |
+| `--start-barrier` | Off | Admit model requests after all pending environments are resident |
 | `--max-initializing-per-gpu` | `8` | Concurrent cold starts, separate from episode slots |
 | `--endpoints` | `RPENT_BASE_URL` | Comma-separated policy `/v1` endpoints |
 | `--start-interval` | `1` second | Spacing between initial worker starts |
@@ -95,6 +98,16 @@ Episode artifacts include `result.json`, `states.json`, transcripts, video and
 bytes, native messages, complete streaming responses and compaction events.
 The shared reader is `rpent.evaluation.trajectory`; dataset encoding and SFT
 belong to `ms-swift/examples/rpent`.
+
+### Compare thinking settings
+
+Set `RPENT_REASONING_EFFORT=low` or `medium` for a Qwen3.8 batch with thinking
+enabled. To disable thinking, set `RPENT_REASONING_EFFORT=none` and add
+`--no-thinking` to `run_batch.py run` (or to `run.sh` for a single episode).
+`none` alone omits the effort tier and keeps thinking enabled. Use a fresh
+batch directory for each setting; resume rejects a changed thinking setting.
+The planner keeps its sampling parameters unchanged, so disabling thinking
+does not silently switch to a different sampling preset.
 
 ## Offline installation
 
@@ -138,7 +151,7 @@ separate from active training processes.
 
 ## Planner and simulator on separate hosts
 
-Adaptive multiturn can place the planner beside the model servers and keep
+Adaptive episode can place the planner beside the model servers and keep
 native simulators, motion loops and shared SAM3 on a backend host. Both ends
 must use identical control/tool source and workflow prompts. Install the planner
 environment on both hosts; install the isolated native simulators and assets
@@ -162,13 +175,13 @@ before running the planner. On the planner host:
 export RPENT_REMOTE_TOOLKIT_ENDPOINT=http://127.0.0.1:28090
 unset RPENT_SAM3_ENDPOINT
 bash tools/rl/run.sh --simulator robocasa --task-name PickPlaceCounterToCabinet \
-  --split target --seed 1 --workflow multiturn --cuda-device 1
+  --split target --seed 1 --workflow episode --cuda-device 1
 ```
 
 Here `--cuda-device` selects a backend GPU. The backend owns both the env and
 SAM3 connections; do not also pass `--env-endpoint` or `--sam3-endpoint`.
 The batch launcher inherits the same remote endpoint and distributes model
-requests with `--endpoints`. This remote interface supports adaptive multiturn
+requests with `--endpoints`. This remote interface supports adaptive episode
 only. The handshake rejects different source digests, tool declarations,
 tasks or budgets.
 
@@ -224,3 +237,7 @@ PY
 The native downloader asks before downloading. No demonstration dataset is
 required. Keep the existing bundled scene/configuration files when relocating
 assets. `ROBOCASA_ASSETS_PATH` alone does not redirect this package version.
+
+See the [workflow guide](WORKFLOWS.md) for all four modes, SAM3 pooling and the fixed-panel comparison.
+
+The model launcher enables cache reporting. For eight-worker SAM3 deployment, per-worker wait metrics and long-history cache tuning, see [workflow performance configuration](WORKFLOWS.md#model-prefix-cache-diagnostics).

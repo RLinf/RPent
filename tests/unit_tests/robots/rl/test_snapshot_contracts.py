@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import io
 import json
+import threading
 from types import SimpleNamespace
 
 import numpy as np
@@ -31,18 +32,22 @@ from pydantic_ai.messages import (
 )
 from pydantic_ai.models.function import DeltaThinkingPart, DeltaToolCall, FunctionModel
 
-from robots.rl.snapshot import Snapshot
-from robots.rl.zap import ZapLoop
+from robots.rl.snapshot import Snapshot, SubtaskPlan
+from robots.rl.workflow import WorkflowCapability
 from rpent.dashboard.events import NullDashboardEventSink
+from rpent.planner.api_loop import ApiAgentLoop
 from rpent.robots.components.sam3_client import Sam3Result
 from rpent.session import EnvState
-from rpent.tools import ToolResult, iter_tools, tool
+from rpent.tools import ToolResult, tool
 from rpent.tools.toolkit import Toolkit
 
 
 @pytest.fixture(autouse=True)
 def tool_descriptions_without_cli_globals(monkeypatch):
     monkeypatch.setattr("rpent.tools.toolkit.substitute", lambda value: value)
+    monkeypatch.setattr(
+        "rpent.utils.templates.default_variables", lambda: {"output_dir": "/offline"}
+    )
 
 
 class Primitives:
@@ -89,10 +94,16 @@ class Primitives:
 
 
 class SnapshotToolkit(Toolkit):
-    def __init__(self, output):
+    planner_builtin_tools = False
+
+    def __init__(self, output, workflow="zap_turn"):
+        self.workflow = workflow
+        self.output_dir = output
+        self.image_size = 8
+        self.workflow_stats = {}
         self.primitive = Primitives(output)
         self.snapshot = Snapshot(
-            self.primitive, environment="libero", task="place the cube"
+            self.primitive, environment="libero", task="place the cube", image_size=8
         )
         self.executed = []
         super().__init__(
@@ -100,13 +111,22 @@ class SnapshotToolkit(Toolkit):
             memory=SimpleNamespace(),
             dashboard_events=NullDashboardEventSink(),
         )
-        for definition in iter_tools(self.snapshot):
-            self.add_tool(definition)
+        self.add_tool(self.snapshot.change_query)
+        if workflow == "zap_subtask":
+            self.add_tool(SubtaskPlan(self.snapshot).update_todo)
+        elif workflow == "zap_turn":
+            self.add_tool(self.snapshot.update_todo)
         self.add_tool(self.move)
         self.add_tool(self.finish)
 
     def _register_common_tools(self):
         pass
+
+    def _count_images(self, observation):
+        pass
+
+    def initial_observation(self):
+        return self.observe_snapshot() if self.workflow != "zap_turn" else None
 
     def observe_snapshot(self):
         return self.snapshot.observe({"position": self.primitive.env_steps})
@@ -133,14 +153,34 @@ class SnapshotToolkit(Toolkit):
         self.snapshot.last_result = {
             "tool": name,
             "arguments": arguments,
-            "result": result.data,
+            "result": dict(result.data),
         }
+        if self.workflow != "zap_turn" and name in {"move", "change_query"}:
+            observation = self.observe_snapshot()
+            result.images = observation.images
+            result.data["observation"] = observation.data
         return result
+
+
+def make_planner(model):
+    return ApiAgentLoop(
+        model=model,
+        dashboard_events=NullDashboardEventSink(),
+        max_tokens=100,
+        timeout_s=10,
+        compaction=None,
+        sequential_tools=True,
+        capabilities_factory=lambda toolkit, system, user, turns: [
+            WorkflowCapability(toolkit, system, user, turns, timeout_s=10)
+        ],
+    )
 
 
 def test_plan_replacement_and_perception_use_one_recorded_frame(tmp_path):
     primitive = Primitives(tmp_path)
-    snapshot = Snapshot(primitive, environment="libero", task="pick up the cube")
+    snapshot = Snapshot(
+        primitive, environment="libero", task="pick up the cube", image_size=8
+    )
     first = snapshot.observe({})
     assert len(first.images) == 2 and first.data["perception"][0]["objects"] == []
     snapshot.change_query(["cube"])
@@ -167,7 +207,10 @@ def test_plan_replacement_and_perception_use_one_recorded_frame(tmp_path):
 @pytest.mark.parametrize("bad", [[""], ["   "]])
 def test_empty_plan_or_query_does_not_replace_current_memory(tmp_path, bad):
     snapshot = Snapshot(
-        Primitives(tmp_path), environment="libero", task="pick up the cube"
+        Primitives(tmp_path),
+        environment="libero",
+        task="pick up the cube",
+        image_size=8,
     )
     snapshot.change_query(["cube"])
     snapshot.update_todo(["keep this"])
@@ -195,13 +238,7 @@ def test_streamed_single_requests_do_not_replay_history_and_bootstrap_is_forced(
         yield {0: DeltaThinkingPart(content=f"private-reasoning-{len(requests)}")}
         yield {1: DeltaToolCall(name=name, json_args=json.dumps(args))}
 
-    planner = ZapLoop(
-        model=FunctionModel(stream_function=stream),
-        settings={"max_tokens": 100},
-        timeout_s=10,
-        thinking=True,
-        output_dir=tmp_path,
-    )
+    planner = make_planner(FunctionModel(stream_function=stream))
     result = planner.solve(
         system_prompt="one action", user_message="solve", toolkit=toolkit, max_turns=8
     )
@@ -226,7 +263,7 @@ def test_streamed_single_requests_do_not_replay_history_and_bootstrap_is_forced(
         assert "old plan" not in text
         if index >= 2:
             assert "verify then place" in text
-    assert len(list((tmp_path / "snapshots").glob("*.json"))) == 4
+    assert len(list((tmp_path / "workflow_requests").glob("*.json"))) == 4
 
 
 def test_multiple_calls_are_not_executed_and_do_not_advance_bootstrap(tmp_path):
@@ -245,13 +282,7 @@ def test_multiple_calls_are_not_executed_and_do_not_advance_bootstrap(tmp_path):
                 0: DeltaToolCall(name="change_query", json_args='{"queries":["cube"]}')
             }
 
-    planner = ZapLoop(
-        model=FunctionModel(stream_function=stream),
-        settings={},
-        timeout_s=10,
-        thinking=True,
-        output_dir=tmp_path,
-    )
+    planner = make_planner(FunctionModel(stream_function=stream))
     result = planner.solve(
         system_prompt="one action", user_message="solve", toolkit=toolkit, max_turns=2
     )
@@ -259,3 +290,56 @@ def test_multiple_calls_are_not_executed_and_do_not_advance_bootstrap(tmp_path):
     assert toolkit.executed == []
     assert [definition.name for definition in calls[1]] == ["change_query"]
     assert result.stats["tool_calls"] == 1
+
+
+def test_cameras_overlap_but_observation_order_and_cache_remain_stable(tmp_path):
+    primitive = Primitives(tmp_path)
+    barrier = threading.Barrier(2)
+    original = primitive.segment_queries
+
+    def segment(raw, queries):
+        barrier.wait(timeout=2)
+        return original(raw, queries)
+
+    primitive.segment_queries = segment
+    snapshot = Snapshot(primitive, environment="libero", task="cube", image_size=8)
+    snapshot.change_query(["cube"])
+    observation = snapshot.observe({})
+    assert [view["camera"] for view in observation.data["perception"]] == [
+        "agentview",
+        "wrist",
+    ]
+    assert [view["objects"][0]["id"] for view in observation.data["perception"]] == [
+        "agentview:1",
+        "wrist:1",
+    ]
+    assert len(primitive.queries) == 2
+    snapshot.update_todo(["new plan"])
+    cached = snapshot.observe({})
+    assert len(primitive.queries) == 2
+    assert cached.images == observation.images
+    assert cached.data["perception"] == observation.data["perception"]
+    assert cached.data["todo"] == ["new plan"]
+
+
+def test_camera_error_does_not_publish_partial_snapshot_cache(tmp_path):
+    primitive = Primitives(tmp_path)
+    original = primitive.segment_queries
+    barrier = threading.Barrier(2)
+
+    def segment(raw, queries):
+        position = barrier.wait(timeout=2)
+        if position == 0:
+            raise RuntimeError("camera inference failed")
+        return original(raw, queries)
+
+    primitive.segment_queries = segment
+    snapshot = Snapshot(primitive, environment="libero", task="cube", image_size=8)
+    snapshot.change_query(["cube"])
+    with pytest.raises(RuntimeError, match="camera inference failed"):
+        snapshot.observe({})
+    assert snapshot._cache_key is None
+    primitive.segment_queries = original
+    recovered = snapshot.observe({})
+    assert len(recovered.images) == 2
+    assert all(view["objects"] for view in recovered.data["perception"])

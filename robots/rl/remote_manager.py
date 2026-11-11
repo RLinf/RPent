@@ -66,10 +66,10 @@ def validate_request(request: dict, gpus: set[int]) -> None:
     ):
         raise ValueError("unsupported remote simulator/task fields")
     if (
-        task.get("workflow", "multiturn") != "multiturn"
+        task.get("workflow", "episode") != "episode"
         or task.get("observation_mode", "adaptive") != "adaptive"
     ):
-        raise ValueError("remote toolkit currently supports adaptive multiturn")
+        raise ValueError("remote toolkit currently supports adaptive episode")
     if type(task.get("seed")) is not int or task["seed"] < 0:
         raise ValueError("seed must be a nonnegative integer")
     name = task.get("suite") if environment == "libero" else task.get("task_name")

@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, Any
 from robots.rl.prompt_bundle import (
     OBSERVATION_MODES,
     PROMPT_VARIANTS,
+    WORKFLOWS,
     system_prompt,
     user_prompt,
     validate_workflow,
@@ -47,7 +48,7 @@ from rpent.utils.rpc import make_rpc_client, wait_for_endpoint
 if TYPE_CHECKING:
     from rpent.utils.rpc import RpcClient
 
-SUPPORTED_PLANNERS = ("api", "claude_code")
+SUPPORTED_PLANNERS = ("api",)
 
 
 def get_robot_spec() -> RobotSpec:
@@ -94,7 +95,8 @@ def get_toolkit(
         observation_mode=config.prompt_vars["observation_mode"],
         output_dir=config.output_dir,
         environment=config.prompt_vars.get("environment", "libero"),
-        workflow=config.prompt_vars.get("workflow", "multiturn"),
+        workflow=config.prompt_vars.get("workflow", "episode"),
+        image_size=config.prompt_vars.get("image_size", 1024),
     )
 
 
@@ -106,7 +108,14 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         choices=("libero", "robocasa", "robotwin"),
         default="libero",
     )
-    parser.add_argument("--workflow", choices=("multiturn", "zap"), default="multiturn")
+    parser.add_argument("--workflow", choices=WORKFLOWS, default="episode")
+    parser.add_argument(
+        "--image_size",
+        type=int,
+        choices=(1024, 512, 256),
+        default=1024,
+        help="VLM image width/height; native RGB-D and SAM3 remain 1024.",
+    )
     parser.add_argument("--task-name", help="RoboCasa or RoboTwin task identifier.")
     parser.add_argument(
         "--split", default="target", choices=("target", "pretrain", "all")
@@ -129,7 +138,7 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         "--observation-mode",
         choices=OBSERVATION_MODES,
         default="adaptive",
-        help="Adaptive camera observations: view_env in multiturn, automatic in zap.",
+        help="Adaptive observations: explicit in episode, automatic in zap_* modes.",
     )
     parser.add_argument(
         "--prompt",
@@ -175,8 +184,13 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
 def _validate_args(args: argparse.Namespace) -> None:
     """Reject options that would change the fixed rollout setup unnoticed."""
     validate_workflow(
-        getattr(args, "env", "libero"), getattr(args, "workflow", "multiturn")
+        getattr(args, "env", "libero"), getattr(args, "workflow", "episode")
     )
+    if (
+        getattr(args, "image_size", 1024) != 1024
+        and getattr(args, "env", "libero") != "libero"
+    ):
+        raise ValueError("--image_size currently supports LIBERO only")
     if args.planner not in SUPPORTED_PLANNERS:
         raise ValueError(
             f"rl supports --planner {' or '.join(SUPPORTED_PLANNERS)}; "
@@ -190,11 +204,9 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise ValueError("rl supports only adaptive observations")
     if args.no_images:
         raise ValueError("rl requires camera images; remove --no-images")
-    if getattr(args, "workflow", "multiturn") == "zap" and args.planner != "api":
-        raise ValueError("zap requires --planner api")
     if getattr(args, "remote_toolkit_endpoint", None) is not None:
-        if getattr(args, "workflow", "multiturn") != "multiturn":
-            raise ValueError("remote toolkit currently supports --workflow multiturn")
+        if getattr(args, "workflow", "episode") != "episode":
+            raise ValueError("remote toolkit currently supports --workflow episode")
         if args.env_endpoint is not None or args.sam3_endpoint is not None:
             raise ValueError(
                 "remote toolkit owns its env/SAM3; remove separate endpoints"
@@ -210,7 +222,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     if args.observation_mode != "adaptive":
         raise ValueError("rl supports only adaptive observations")
     environment = getattr(args, "env", "libero")
-    workflow = getattr(args, "workflow", "multiturn")
+    workflow = getattr(args, "workflow", "episode")
     validate_workflow(environment, workflow)
     if environment == "libero" and not args.suite:
         raise ValueError("--suite is required")
@@ -237,6 +249,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             "prompt": args.prompt,
             "environment": environment,
             "workflow": workflow,
+            "image_size": getattr(args, "image_size", 1024),
         },
         task_desc={
             "suite": args.suite,
@@ -246,6 +259,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             "prompt": args.prompt,
             "environment": environment,
             "workflow": workflow,
+            "image_size": getattr(args, "image_size", 1024),
             **({"task_name": args.task_name} if environment != "libero" else {}),
         },
     )
@@ -507,12 +521,18 @@ def _connect_env(args: argparse.Namespace, rpc) -> dict[str, Any]:
 
 
 def configure_planner(planner, config: RunConfig):
-    """Select the explicit snapshot loop without changing multiturn behavior."""
-    if config.prompt_vars.get("workflow", "multiturn") == "multiturn":
-        return planner
-    from robots.rl.zap import ZapLoop
+    """Install RL request policy while retaining the provider and native agent."""
+    from robots.rl.workflow import WorkflowCapability
+    from rpent.planner.api_loop import ApiAgentLoop
 
-    return ZapLoop.from_api(planner, output_dir=config.output_dir)
+    if not isinstance(planner, ApiAgentLoop):
+        raise ValueError("rl workflows require --planner api")
+    planner.capabilities_factory = lambda toolkit, system, user, turns: [
+        WorkflowCapability(toolkit, system, user, turns, timeout_s=planner.timeout_s)
+    ]
+    if config.prompt_vars.get("workflow", "episode") == "zap_turn":
+        planner.compaction = None
+    return planner
 
 
 def _finalize_run(context: RunFinalizationContext) -> Path:

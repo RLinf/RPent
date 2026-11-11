@@ -80,7 +80,8 @@ def start_environment(
     ``release`` stops the started services and closes the toolkit.
     """
     args.env = task.get("environment", getattr(args, "env", "libero"))
-    args.workflow = task.get("workflow", getattr(args, "workflow", "multiturn"))
+    args.workflow = task.get("workflow", getattr(args, "workflow", "episode"))
+    args.image_size = task.get("image_size", getattr(args, "image_size", 1024))
     args.suite, args.task, args.seed = task.get("suite"), task.get("task"), task["seed"]
     args.task_name = task.get("task_name", getattr(args, "task_name", None))
     args.split = task.get("split", getattr(args, "split", "target"))
@@ -234,6 +235,7 @@ def run(args: argparse.Namespace) -> int:
         raise ValueError("rl requires camera images")
     args.observation_mode = options.pop("observation_mode", args.observation_mode)
     args.prompt = options.pop("prompt", args.prompt)
+    args.image_size = options.pop("image_size", args.image_size)
     init_output_dir(args.output_dir)
     with contextlib.ExitStack() as release:
         try:

@@ -2,16 +2,16 @@ Adaptive Robot Workflows
 ========================
 
 Run a VLM through end-effector and perception tools with ``--robot rl``.
-LIBERO, RoboCasa and RoboTwin share the multiturn planner; LIBERO also supports
-an experimental ZAP snapshot loop. Native simulator success determines the
+LIBERO, RoboCasa and RoboTwin share the episode planner; LIBERO also supports
+the experimental zap_turn, zap_episode and zap_subtask modes. Native simulator success determines the
 outcome. No VLA weights or task-recipe memory are required.
 
 .. list-table:: Supported combinations
    :header-rows: 1
 
    * - Simulator
-     - Multiturn
-     - ZAP
+     - Episode
+     - ZAP modes
    * - ``libero`` (including LIBERO-PRO)
      - Supported
      - Experimental
@@ -40,8 +40,8 @@ Run a Task
 ----------
 
 The :download:`first-task guide <../../../../tools/rl/README.md>` provides
-complete service startup and four commands: LIBERO multiturn, LIBERO ZAP,
-RoboCasa multiturn and RoboTwin multiturn. Start with one episode.
+complete service startup and four commands: LIBERO episode, LIBERO ZAP,
+RoboCasa episode and RoboTwin episode. Start with one episode.
 
 After configuring and starting the model and shared SAM3 services, from the
 checkout root:
@@ -51,7 +51,7 @@ checkout root:
    source .venv/bin/activate
    source .rl-env.sh
    source tools/rl/env.sh
-   bash tools/rl/run.sh --simulator libero --workflow multiturn \
+   bash tools/rl/run.sh --simulator libero --workflow episode \
      --suite libero_object --task 0 --seed 1 --cuda-device 1
 
 ``--cuda-device`` selects the simulator GPU independently of model/SAM3 GPUs.
@@ -59,39 +59,54 @@ RoboCasa uses ``--task-name`` and ``--split``; RoboTwin uses ``--task-name``,
 ``--task-config`` and a published valid seed. The first-task guide contains
 working examples and links to task manifests.
 
-LIBERO multiturn overview
--------------------------
+Workflow and Tools
+------------------
 
-Multiturn retains conversation and tool results, with context compaction.
-``view_env`` returns recorded images. ``segment`` and ``back_project`` measure
-visible surfaces on a matching frame. The shared motion tool names are
-``move_to``, ``set_gripper`` and ``finish``. RoboCasa adds ``move_base`` with
-local planar velocities and yaw rate. RoboTwin adds anatomical arm selection,
-labelled views and paired commands. Native task language is read directly
-from the simulator; shared prompts describe robots and workflows.
+All modes use the API planner and the same robot/frame/gripper instructions.
 
-ZAP snapshot loop
------------------
+.. list-table:: LIBERO context policies
+   :header-rows: 1
 
-LIBERO ZAP sends the current images, same-frame SAM3 boxes/3D measurements,
-robot state, visible todo and last execution result on each request. Earlier
-reasoning and conversation are absent; no history compaction runs. The first
-request calls ``change_query``, the second ``update_todo``; later requests
-execute exactly one tool. There is no ``view_env``, ``segment`` or
-``back_project`` tool. This experimental implementation has no established
-success-rate or speed guarantee.
+   * - Workflow
+     - Perception and plan
+     - Conversation
+   * - ``episode``
+     - ``view_env``, ``segment``, ``back_project``
+     - Entire episode
+   * - ``zap_turn``
+     - Automatic perception; text todo
+     - Independent request snapshots
+   * - ``zap_episode``
+     - Automatic perception; no todo
+     - Entire episode
+   * - ``zap_subtask``
+     - Automatic perception; structured todo
+     - Cleared by every valid ``update_todo``
+
+Motion tools are ``move_to``, ``set_gripper`` and ``finish``. Automatic
+perception uses current SAM3 boxes and depth-measured world geometry.
+Each reply has one tool call; subtask initialization instead requires the
+query and todo tools together. Context resets preserve the global budget.
+Native task text comes directly from the simulator, without task prompt files.
+RoboCasa adds ``move_base`` and RoboTwin anatomical arm selection and paired
+commands. Both use ``episode``.
+
+The :download:`workflow guide <../../../../tools/rl/WORKFLOWS.md>` gives exact
+bootstrap/reset rules, complete tool lists, SAM3 pool setup and fixed-panel
+comparison commands. ``--image_size`` selects 1024, 512 or 256 for VLM images;
+native RGB-D/SAM3 stay1024 and displayed pixel/box coordinates are mapped.
 
 Planner Configuration
 ---------------------
 
 The default budgets are 100 model requests, 10000 simulator steps,
-32768 output tokens per request, a 262144-token context, multiturn compaction
+32768 output tokens per request, a 262144-token context, accumulated-history compaction
 at 70%, and a 7200-second planner timeout. The batch launcher also enforces a
-14400-second episode timeout. LIBERO multiturn retains ``simple``, ``base``,
+14400-second episode timeout. All LIBERO modes share ``simple``, ``base``,
 ``base_gripper`` and ``base_gripper_camera`` prompt variants.
 
-The example configuration explicitly sets presence penalty 1.5 and repetition
-penalty 1.0; the launcher leaves them unset otherwise. Thinking sampling uses
+The launcher explicitly defaults presence penalty to0. The example sets
+repetition penalty1.0. Overrides are captured in actual model requests. Thinking sampling uses
 temperature 1.0, top-p 0.95 and top-k 20. Qwen3.8 defaults to ``xhigh`` effort.
 The :download:`reference <../../../../tools/rl/REFERENCE.md>` lists all service,
 planner and batch overrides and describes the actual saved requests.
@@ -117,7 +132,7 @@ scene memory. ``tools/rl/jobs`` contains example task/seed manifests.
 Remote simulator host
 ---------------------
 
-Adaptive multiturn can place motion, rendering and SAM3 on a separate backend
+Adaptive episode can place motion, rendering and SAM3 on a separate backend
 using ``python -m robots.rl.remote_manager`` and
 ``RPENT_REMOTE_TOOLKIT_ENDPOINT``. Both hosts need matching source. The
 reference covers installation on each host, private routing, GPU capacities,

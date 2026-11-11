@@ -226,8 +226,29 @@ def test_planner_requests_have_their_own_timeout(toolkit, policy_endpoint):
     assert requests[0]["tools"] and requests[0]["parallel_tool_calls"] is False
 
 
-def test_rejected_context_ends_the_episode_without_a_retry(toolkit, policy_endpoint):
-    base_url, requests = policy_endpoint([CONTEXT_LIMIT])
+@pytest.mark.parametrize(
+    "reply",
+    [
+        CONTEXT_LIMIT,
+        (
+            400,
+            {
+                "message": (
+                    "Requested token count exceeds the model's maximum context "
+                    "length of 262144 tokens. You requested a total of 264997 tokens: "
+                    "232229 tokens from the input messages and 32768 tokens for "
+                    "the completion."
+                ),
+                "type": "BadRequestError",
+                "code": 400,
+            },
+        ),
+    ],
+)
+def test_rejected_context_ends_the_episode_without_a_retry(
+    toolkit, policy_endpoint, reply
+):
+    base_url, requests = policy_endpoint([reply])
     _, status = run_planner(toolkit, base_url)
     assert len(requests) == 1 and toolkit.actions == 0
     assert status["terminal"] and not status["success"]

@@ -223,6 +223,11 @@ class RemoteToolkit(Toolkit):
         super().__init__(state=state, dashboard_events=dashboard_events, memory=memory)
         self._rpc = make_rpc_client(endpoint)
         self._output = config.output_dir
+        self.output_dir = Path(config.output_dir)
+        self.workflow = "episode"
+        self.image_size = getattr(config, "prompt_vars", {}).get("image_size", 1024)
+        self.snapshot = None
+        self.workflow_stats = {}
         self._call_lock = threading.Lock()
         self._call_id = 0
         self._stopped = threading.Event()

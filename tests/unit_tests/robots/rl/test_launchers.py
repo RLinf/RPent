@@ -83,6 +83,7 @@ def test_serving_uses_the_selected_interpreter_without_a_site_profile(
     request = json.loads(result.stdout)
     argv = request["argv"]
     assert argv[:2] == ["-m", "sglang.launch_server"]
+    assert "--enable-cache-report" in argv
     assert argv[argv.index("--model-path") + 1] == env["MODEL_PATH"]
     assert argv[argv.index("--tp") + 1] == "2"
     assert argv[argv.index("--context-length") + 1] == "262144"
@@ -136,10 +137,10 @@ def test_runtime_paths_are_relocatable_and_explicit_values_win(
 @pytest.mark.parametrize(
     "simulator,workflow,task_args",
     [
-        ("libero", "multiturn", ["--suite", "libero_object", "--task", "0"]),
-        ("libero", "zap", ["--suite", "libero_object", "--task", "0"]),
-        ("robocasa", "multiturn", ["--task-name", "PickPlaceCounterToCabinet"]),
-        ("robotwin", "multiturn", ["--task-name", "click_alarmclock"]),
+        ("libero", "episode", ["--suite", "libero_object", "--task", "0"]),
+        ("libero", "zap_turn", ["--suite", "libero_object", "--task", "0"]),
+        ("robocasa", "episode", ["--task-name", "PickPlaceCounterToCabinet"]),
+        ("robotwin", "episode", ["--task-name", "click_alarmclock"]),
     ],
 )
 def test_single_episode_launcher_preserves_the_selected_simulator_and_workflow(

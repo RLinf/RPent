@@ -104,8 +104,15 @@ def _is_response_truncation(exc: UnexpectedModelBehavior) -> bool:
 
 def _is_context_overflow(exc: ModelHTTPError) -> bool:
     """Match an endpoint that rejects a request longer than its context."""
+    if not isinstance(exc.body, dict):
+        return False
+    if exc.body.get("code") == "context_length_exceeded":
+        return True
+    message = str(exc.body.get("message", "")).lower()
     return (
-        isinstance(exc.body, dict) and exc.body.get("code") == "context_length_exceeded"
+        exc.status_code == 400
+        and "requested token count exceeds" in message
+        and "maximum context length" in message
     )
 
 
@@ -159,6 +166,10 @@ class ApiAgentLoop(Planner):
         model_settings: ModelSettings | None = None,
         sequential_tools: bool = False,
         thinking: bool = True,
+        capabilities_factory: Callable[
+            [Toolkit, str, str, int], Sequence[AbstractCapability]
+        ]
+        | None = None,
     ) -> None:
         if reasoning_effort not in REASONING_EFFORTS:
             raise ValueError(f"unsupported reasoning effort: {reasoning_effort}")
@@ -175,6 +186,7 @@ class ApiAgentLoop(Planner):
         self.compaction = compaction
         self.model_settings = model_settings
         self.sequential_tools = sequential_tools
+        self.capabilities_factory = capabilities_factory
 
     def solve(
         self,
@@ -255,6 +267,15 @@ class ApiAgentLoop(Planner):
             from rpent.planner.request_trace import traced_compaction
 
             compaction_factory = partial(traced_compaction, compaction_factory, trace)
+        capabilities = (
+            list(
+                self.capabilities_factory(
+                    toolkit, system_prompt, user_message, max_turns
+                )
+            )
+            if self.capabilities_factory is not None
+            else []
+        )
         agent = Agent(
             self.model,
             name="rpent_api",
@@ -275,9 +296,10 @@ class ApiAgentLoop(Planner):
                 parallel_tool_calls=not self.sequential_tools,
             ),
             capabilities=[
+                session,
+                *capabilities,
                 *([compaction_factory()] if compaction_factory is not None else []),
                 Thinking(self._thinking_level()),
-                session,
             ],
         )
         if dashboard_interaction is not None:

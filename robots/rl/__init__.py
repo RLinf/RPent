@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Adaptive VLM control: three multiturn simulators and LIBERO ZAP snapshots."""
+"""Adaptive VLM control: shared episode control and three LIBERO ZAP context policies."""
 
 from robots.rl.robot_spec import get_robot_spec, get_toolkit
 

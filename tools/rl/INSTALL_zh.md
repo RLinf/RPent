@@ -186,7 +186,7 @@ uv pip check --python .venv-robotwin/bin/python
 ## 6. 验证与排错
 
 依次运行[指南中的四条单任务命令](README_zh.md#运行一个任务)，不要同时执行。
-它们分别覆盖 LIBERO multiturn/ZAP、RoboCasa multiturn、RoboTwin multiturn。
+它们分别覆盖 LIBERO episode/ZAP、RoboCasa episode、RoboTwin episode。
 检查原生成功标记及最终工具结果；正常未成功的任务仍可能是有效 episode。
 
 | 现象 | 优先检查 |

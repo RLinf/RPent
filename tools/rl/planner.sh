@@ -8,6 +8,7 @@
 # are off because SGLang constrains the whole tool set once any tool is strict.
 : "${RPENT_MODEL:?RPENT_MODEL is required, e.g. openai-chat:qwen3.5-4b}"
 : "${RPENT_BASE_URL:?RPENT_BASE_URL is required, e.g. http://127.0.0.1:30020/v1}"
+export RPENT_PRESENCE_PENALTY="${RPENT_PRESENCE_PENALTY:-0}"
 export OPENAI_API_KEY="${OPENAI_API_KEY:-local}"
 if [[ -z "${RPENT_REASONING_EFFORT:-}" ]]; then
   case "${RPENT_MODEL,,}" in

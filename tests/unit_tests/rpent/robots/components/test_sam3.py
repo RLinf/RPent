@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import base64
 import binascii
+import json
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import numpy as np
@@ -178,3 +180,55 @@ def test_query_group_keeps_multiple_instances_and_uses_one_image_state():
 def test_query_group_validates_before_inference(queries):
     with pytest.raises(ValueError):
         _StubSam3().segment_queries(_image_b64(), queries)
+
+
+def test_metrics_keep_results_and_expose_contended_inference_lock(tmp_path):
+    facade = _StubSam3()
+    facade._metrics_path = tmp_path / "sam3-metrics.jsonl"
+    entered, waiting, release = (
+        threading.Event(),
+        threading.Event(),
+        threading.Event(),
+    )
+    native_lock = threading.Lock()
+
+    class ObservedLock:
+        def __enter__(self):
+            if native_lock.locked():
+                waiting.set()
+            native_lock.acquire()
+
+        def __exit__(self, *args):
+            native_lock.release()
+
+    facade._lock = ObservedLock()
+    original = facade._segment_text
+
+    def segment(state, prompt, min_score):
+        if prompt == "first":
+            entered.set()
+            assert release.wait(2)
+        return original(state, prompt, min_score)
+
+    facade._segment_text = segment
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(facade.segment, _image_b64(), text_prompt="first")
+        assert entered.wait(2)
+        second = executor.submit(facade.segment, _image_b64(), text_prompt="second")
+        try:
+            assert waiting.wait(2)
+        finally:
+            release.set()
+        assert first.result()["reason"] == "first"
+        assert second.result()["reason"] == "second"
+    stats = facade._dispatch("sam3.stats", (), {})
+    assert stats["requests"] == 2 and stats["errors"] == 0
+    assert stats["lock_wait_seconds"] > 0
+    assert stats["total_seconds"] == pytest.approx(
+        stats["lock_wait_seconds"] + stats["model_lock_seconds"]
+    )
+    records = [
+        json.loads(line) for line in facade._metrics_path.read_text().splitlines()
+    ]
+    assert len(records) == 2
+    assert all(record["error"] is None for record in records)

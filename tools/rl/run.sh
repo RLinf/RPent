@@ -20,6 +20,7 @@ exec python -m rpent.cli.main --robot rl \
   --observation-mode "$mode" --prompt "$prompt" \
   "${runtime_args[@]}" \
   "${planner_args[@]}" \
+  --image_size "${RPENT_IMAGE_SIZE:-1024}" \
   --max-turns "${RPENT_MAX_TURNS:-100}" \
   --max-episode-steps "${RPENT_MAX_EPISODE_STEPS:-10000}" \
   --planner-timeout-s "${RPENT_PLANNER_TIMEOUT_S:-7200}" \

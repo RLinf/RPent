@@ -113,7 +113,7 @@ RPent 面向以下四类用户：
 
 ## 快速开始
 
-使用 VLM 的 adaptive 工作流直接控制 LIBERO、RoboCasa 或 RoboTwin（不使用 VLA）时，参见[共享 RL 工作流的环境安装、启动与参数说明](tools/rl/README_zh.md)，其中也介绍了仅用于 LIBERO 的实验性 `--workflow zap` snapshot 循环。
+使用 VLM 的 adaptive 工作流直接控制 LIBERO、RoboCasa 或 RoboTwin（不使用 VLA）时，参见[共享 RL 工作流的环境安装、启动与参数说明](tools/rl/README_zh.md)，其中说明 LIBERO 的 `episode`、`zap_turn`、`zap_episode`、`zap_subtask` 工具与上下文边界。
 
 **1. 选择一个环境并安装 RPent。**
 

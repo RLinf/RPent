@@ -5,17 +5,15 @@
 Run a VLM directly through end-effector and perception tools. All simulators
 share `--robot rl`; select the simulator and workflow explicitly:
 
-| Simulator | `--simulator` | Multiturn | ZAP |
-| --- | --- | --- | --- |
-| LIBERO / LIBERO-PRO | `libero` | Yes | Yes, experimental |
-| RoboCasa365 | `robocasa` | Yes | Unsupported |
-| RoboTwin | `robotwin` | Yes | Unsupported |
+| Simulator | `--simulator` | Workflows |
+| --- | --- | --- |
+| LIBERO / LIBERO-PRO | `libero` | `episode`, `zap_turn`, `zap_episode`, `zap_subtask` |
+| RoboCasa365 | `robocasa` | `episode` |
+| RoboTwin | `robotwin` | `episode` |
 
-Multiturn keeps the conversation and tool results between requests, with
-context compaction. LIBERO ZAP sends independent snapshots instead. Neither
-workflow loads task recipes, file memory or a VLA policy. Success always comes
-from the native simulator. ZAP is inspired by [the paper](https://arxiv.org/abs/2610.35817);
-it is an experimental implementation, without a quality or speed guarantee.
+All modes use the API planner, native task instructions and measured robot
+state. Success comes from the native simulator. See [workflow definitions,
+SAM3 pooling and fixed-panel comparison](WORKFLOWS.md) for the four modes.
 
 ## Install and configure
 
@@ -71,27 +69,27 @@ starts its own service on its simulator GPU.
 Run these examples separately. `--cuda-device` selects the simulator GPU;
 the model and SAM3 use their independently configured services.
 
-LIBERO-PRO multiturn:
+LIBERO-PRO episode:
 
 ```bash
-RPENT_OUTPUT_DIR=logs/libero-multiturn bash tools/rl/run.sh \
-  --simulator libero --workflow multiturn \
+RPENT_OUTPUT_DIR=logs/libero-episode bash tools/rl/run.sh \
+  --simulator libero --workflow episode \
   --suite libero_object --task 0 --seed 1 --cuda-device 1
 ```
 
-RoboCasa Target50 multiturn (requires the RoboCasa installation):
+RoboCasa Target50 episode (requires the RoboCasa installation):
 
 ```bash
-RPENT_OUTPUT_DIR=logs/robocasa-multiturn bash tools/rl/run.sh \
-  --simulator robocasa --workflow multiturn \
+RPENT_OUTPUT_DIR=logs/robocasa-episode bash tools/rl/run.sh \
+  --simulator robocasa --workflow episode \
   --task-name PickPlaceCounterToCabinet --split target --seed 1 --cuda-device 1
 ```
 
-RoboTwin multiturn (requires the RoboTwin installation):
+RoboTwin episode (requires the RoboTwin installation):
 
 ```bash
-RPENT_OUTPUT_DIR=logs/robotwin-multiturn bash tools/rl/run.sh \
-  --simulator robotwin --workflow multiturn \
+RPENT_OUTPUT_DIR=logs/robotwin-episode bash tools/rl/run.sh \
+  --simulator robotwin --workflow episode \
   --task-name click_alarmclock --task-config demo_randomized \
   --seed 100000 --cuda-device 1
 ```
@@ -107,7 +105,7 @@ LIBERO-PRO ZAP, using the same services and task interface:
 
 ```bash
 RPENT_OUTPUT_DIR=logs/libero-zap bash tools/rl/run.sh \
-  --simulator libero --workflow zap \
+  --simulator libero --workflow zap_turn \
   --suite libero_object --task 0 --seed 1 --cuda-device 1
 ```
 
@@ -116,30 +114,23 @@ requests, 10000 simulator steps and a 7200-second planner timeout. The model
 gets at most 32768 output tokens per request and a 262144-token context.
 The batch launcher additionally enforces a 14400-second episode timeout.
 See the [reference](REFERENCE.md#important-settings) for all overrides.
-The example configuration explicitly sets presence penalty 1.5 and repetition
-penalty 1.0; the launcher leaves these unset unless you export them.
+The launcher explicitly defaults presence penalty to 0. The example sets
+repetition penalty 1.0; environment overrides are recorded in the actual requests.
 
 ## Workflow and tools
 
-Multiturn starts with the task and measured robot state. `view_env` returns
-images; `segment` and `back_project` localize visible surfaces on the matching
-recorded frame. `move_to`, `set_gripper` and `finish` are shared tool names.
+`episode` uses explicit `view_env`, `segment` and `back_project` calls. The
+three LIBERO `zap_*` modes provide annotated images and depth geometry
+automatically: they retain context for one turn, a full episode or a subtask.
+`zap_episode` has no todo; `zap_subtask` resets conversation on each valid
+structured todo update. [The workflow guide](WORKFLOWS.md) lists every tool,
+initialization rule, compaction boundary and the VLM-only `--image_size` option.
+
 RoboCasa adds `move_base` with local planar velocities and yaw rate. RoboTwin
-uses an `arm` argument, anatomical LEFT/RIGHT image labels and optional paired
-arm/gripper targets. Coordinates and orientations follow each robot's contract.
-
-ZAP supplies current images, same-frame SAM3 boxes and 3D measurements, robot
-state, the current todo and the last execution result on every request. It
-carries no earlier conversation or reasoning and runs no history compaction.
-The first request calls `change_query`, the second `update_todo`; subsequent
-requests execute exactly one tool. `update_todo` replaces the visible todo.
-ZAP exposes no `view_env`, `segment` or `back_project` tool.
-
-Task text comes from the simulator's `get_task_language()`. Shared prompt
-files describe the robot and workflow; there are no per-task prompt files or
-hidden task solutions. The `--prompt` variants (`simple`, `base`,
-`base_gripper`, `base_gripper_camera`) apply to LIBERO multiturn; the other
-supported combinations use their shared robot/workflow contracts.
+uses anatomical `arm` selection, labelled views and optional paired targets.
+All LIBERO modes share the same robot/frame/gripper instructions. Optional
+`--prompt` variants add the same robot detail to each mode. Native task text
+comes directly from `get_task_language()`; there are no per-task prompt files.
 
 ## Read the result
 
@@ -156,11 +147,11 @@ For audited, resumable batches start with one resident episode per GPU:
 ```bash
 python tools/rl/run_batch.py run "$RPENT_DATA_ROOT/rollouts/libero-dev10" \
   --jobs tools/rl/jobs/libero-dev10.json --gpus 1 --per-gpu 1 \
-  --max-initializing-per-gpu 1 --workflow multiturn
+  --max-initializing-per-gpu 1 --workflow episode
 python tools/rl/run_batch.py summary "$RPENT_DATA_ROOT/rollouts/libero-dev10"
 ```
 
-Use `--workflow zap` with a LIBERO-only manifest for ZAP. Retry, audit, recovery,
+Use `--workflow zap_turn` with a LIBERO-only manifest for ZAP. Retry, audit, recovery,
 [offline installation](REFERENCE.md#offline-installation),
 [remote simulators](REFERENCE.md#planner-and-simulator-on-separate-hosts) and
 [RLinf/SFT integration](REFERENCE.md#rlinf-and-sft) are in the reference.
@@ -174,8 +165,8 @@ Use `--workflow zap` with a LIBERO-only manifest for ZAP. Retry, audit, recovery
 | `robots/rl/toolkit.py` | Tool registration, native task text and episode artifacts |
 | `robots/rl/tools.py`, `geometry.py` | LIBERO primitives and shared perception geometry |
 | `robots/rl/backends.py`, `server.py` | RoboCasa/RoboTwin motion adapters and isolated native servers |
-| `robots/rl/zap.py`, `snapshot.py` | Independent request loop and visible todo/perception snapshot |
-| `robots/rl/remote.py`, `remote_manager.py` | Remote multiturn workers and artifact transport |
+| `robots/rl/workflow.py`, `snapshot.py`, `images.py` | Shared agent context policy, visible todo/perception and display coordinates |
+| `robots/rl/remote.py`, `remote_manager.py` | Remote episode workers and artifact transport |
 | `robots/rl/rl_episode.py` | Single-episode interface for an RL trainer |
 | `tools/rl/run.sh`, `run_batch.py` | Single episode and audited batch launchers |
 

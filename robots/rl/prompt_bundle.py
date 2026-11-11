@@ -12,28 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Compose shared workflow instructions with each simulator's tool contract.
-
-LIBERO multiturn retains its four established prompt variants. Other supported
-combinations read one shared contract, one robot description, and one workflow
-file. Task instructions come directly from the simulator, not prompt files.
-"""
+"""Compose one shared robot contract with the selected workflow instructions."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
 
-CONTRACT = """You control one LIBERO robot arm. Complete the given task using the available tools.
-Positions are absolute world-frame end-effector coordinates in meters.
-Angles are the yaw and pitch defined by move_to, in radians.
-Robot state values are measured, not commanded targets.
-Pixels are [row, col] and must match their camera and observation step.
-Segmentation geometry describes visible surfaces, not guaranteed grasp poses.
-Task success is determined by the environment; finish ends the episode.
-Tool names may carry an mcp__rpent__ prefix."""
-
-OBSERVATION_NOTE = "Images are supplied only when you call view_env."
 OBSERVATION_MODES = ("adaptive",)
 
 BASE = """Robot and frames
@@ -56,15 +41,15 @@ GRIPPER = """Gripper geometry
 - After closing, an opening of 0.03 or less (gap under 3 mm) means the jaws met nothing; a held object leaves an opening of roughly 0.08 to 0.6 (gap 6 to 50 mm) with status blocked. Reopen before retrying. The jaw target persists through later moves, so a held object stays held until set_gripper opens."""
 
 CAMERA = """Cameras
-- agentview is fixed on the far side of the workspace, looking back toward the robot and downward. The robot base appears near the top of its image; down the image is +x, toward the camera, and right is +y, the robot's left. Its focal length is about 1236 px for the 1024x1024 image (45 degree vertical field).
-- wrist rides with the gripper, 9.7 cm above the grasp point along the approach axis and 5 cm to its side, looking along that axis. Image-right is the jaw closing axis (gripper +y) and image-up the gripper x heading, so at yaw 0 image-right is world -y and image-up is world +x. Focal length about 667 px (75 degree field).
-- Pixels are [row, col] from the top-left corner. A pixel alone fixes only a ray; segment and back_project return the depth-measured world point of the visible surface, so world_xyz lies on the object's top or facing side rather than its center, and top_z_m is its highest visible point.
+- agentview is fixed on the far side of the workspace, looking back toward the robot and downward. The robot base appears near the top of its image; down the image is +x, toward the camera, and right is +y, the robot's left. Its vertical field of view is 45 degrees.
+- wrist rides with the gripper, 9.7 cm above the grasp point along the approach axis and 5 cm to its side, looking along that axis. Image-right is the jaw closing axis (gripper +y) and image-up the gripper x heading, so at yaw 0 image-right is world -y and image-up is world +x. Its vertical field of view is 75 degrees.
+- Pixels are [row, col] from the top-left corner. A pixel alone fixes only a ray; RGB-D measurements report the depth-measured world point of the visible surface, so world_xyz lies on the object's top or facing side rather than its center, and top_z_m is its highest visible point.
 - Use pixels, masks and poses from the same observation step, and take a new observation after every motion."""
 
 ENVIRONMENT_WORKFLOWS = {
-    "libero": ("multiturn", "zap"),
-    "robocasa": ("multiturn",),
-    "robotwin": ("multiturn",),
+    "libero": ("episode", "zap_turn", "zap_episode", "zap_subtask"),
+    "robocasa": ("episode",),
+    "robotwin": ("episode",),
 }
 
 
@@ -77,6 +62,9 @@ def validate_workflow(environment: str, workflow: str) -> None:
             f"{environment} does not support --workflow {workflow}; "
             f"choose {' or '.join(ENVIRONMENT_WORKFLOWS[environment])}"
         )
+
+
+WORKFLOWS = ENVIRONMENT_WORKFLOWS["libero"]
 
 
 PROMPT_VARIANTS = ("simple", "base", "base_gripper", "base_gripper_camera")
@@ -94,23 +82,21 @@ def system_prompt(variables: Mapping[str, object] | None = None) -> str:
     if variables.get("observation_mode", "adaptive") != "adaptive":
         raise ValueError("rl supports only adaptive observations")
     environment = str(variables.get("environment", "libero"))
-    workflow = str(variables.get("workflow", "multiturn"))
+    workflow = str(variables.get("workflow", "episode"))
     validate_workflow(environment, workflow)
-    if environment != "libero" or workflow == "zap":
-        prompts = Path(__file__).parent / "prompts"
-        return "\n\n".join(
-            (prompts / name).read_text().strip()
-            for name in ("shared.md", f"{environment}.md", f"{workflow}.md")
-        )
     variant = str(variables.get("prompt", "simple"))
     if variant not in _SECTIONS:
         raise ValueError(
             f"unknown prompt variant {variant!r}; expected one of {PROMPT_VARIANTS}"
         )
-    text = f"{CONTRACT}\n{OBSERVATION_NOTE}"
-    for section in _SECTIONS[variant]:
-        text += f"\n\n{section}"
-    return text
+    prompts = Path(__file__).parent / "prompts"
+    sections = [
+        (prompts / name).read_text().strip()
+        for name in ("shared.md", f"{environment}.md", f"{workflow}.md")
+    ]
+    if environment == "libero":
+        sections.extend(_SECTIONS[variant])
+    return "\n\n".join(sections)
 
 
 def user_prompt(variables: Mapping[str, object] | None = None) -> str:

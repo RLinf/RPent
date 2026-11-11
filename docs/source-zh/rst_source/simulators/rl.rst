@@ -2,14 +2,14 @@ Adaptive 机器人工作流
 ================================================================
 
 使用 ``--robot rl``，让 VLM 通过末端控制和视觉工具操作机器人。LIBERO、RoboCasa、
-RoboTwin 共享 multiturn planner，LIBERO 还支持实验性的 ZAP snapshot 循环。
+RoboTwin 共享 episode planner，LIBERO 还支持实验性的 zap_turn、zap_episode、zap_subtask 模式。
 成功与否由原生仿真器判定，无需 VLA 权重或任务解法记忆。
 
 .. list-table:: 支持的组合
    :header-rows: 1
 
    * - 仿真器
-     - Multiturn
+     - Episode
      - ZAP
    * - ``libero`` （含 LIBERO-PRO）
      - 支持
@@ -37,8 +37,8 @@ cuRobo 的 CUDA toolkit。先准备资产、检查导入，再运行任务。
 ----------------------------------------------------------------
 
 :download:`首次运行指南 <../../../../tools/rl/README_zh.md>` 提供完整的服务启动和
-四条任务命令：LIBERO multiturn、LIBERO ZAP、RoboCasa multiturn、RoboTwin
-multiturn。先从一个 episode 开始。
+四条任务命令：LIBERO episode、LIBERO ZAP、RoboCasa episode、RoboTwin
+episode。先从一个 episode 开始。
 
 配置并启动模型和共享 SAM3 后，在 checkout 根目录运行：
 
@@ -47,41 +47,57 @@ multiturn。先从一个 episode 开始。
    source .venv/bin/activate
    source .rl-env.sh
    source tools/rl/env.sh
-   bash tools/rl/run.sh --simulator libero --workflow multiturn \
+   bash tools/rl/run.sh --simulator libero --workflow episode \
      --suite libero_object --task 0 --seed 1 --cuda-device 1
 
 ``--cuda-device`` 选择仿真 GPU，与模型/SAM3 的 GPU 独立。RoboCasa 使用
 ``--task-name`` 和 ``--split`` ；RoboTwin 使用 ``--task-name`` 、
 ``--task-config`` 及公布的有效 seed。首次运行指南给出完整示例和任务清单位置。
 
-LIBERO multiturn 概览
+工作流与工具
 ----------------------------------------------------------------
 
-Multiturn 保留对话和工具结果，必要时压缩上下文。 ``view_env`` 返回已记录图像，
-``segment`` 和 ``back_project`` 测量匹配帧中的可见表面。共用动作工具名为
-``move_to`` 、 ``set_gripper`` 、 ``finish`` 。RoboCasa 增加局部平面速度及偏航
-角速度工具 ``move_base`` ；RoboTwin 增加机器人解剖学左右臂选择、图像标记与
-双臂同步指令。任务文本直接来自仿真器，公共 prompt 只描述机器人与工作流。
+四种模式使用 API planner，共用机器人、坐标和夹爪说明。
 
-ZAP snapshot 循环
-----------------------------------------------------------------
+.. list-table:: LIBERO 上下文策略
+   :header-rows: 1
 
-LIBERO ZAP 每轮发送当前图像、同帧 SAM3 框与 3D 测量、机器人状态、可见 todo
-及上次工具结果，不带历史 reasoning 或对话，不做历史压缩。第一轮调用
-``change_query`` ，第二轮调用 ``update_todo`` ，之后每轮仅执行一个工具。
-不暴露 ``view_env`` 、 ``segment`` 、 ``back_project`` 。该实现仍为实验性，
-尚无成功率或速度保证。
+   * - 工作流
+     - 感知与计划
+     - 对话保留范围
+   * - ``episode``
+     - ``view_env`` 、 ``segment`` 、 ``back_project``
+     - 整条任务
+   * - ``zap_turn``
+     - 自动感知、文字 todo
+     - 每次请求独立
+   * - ``zap_episode``
+     - 自动感知、没有 todo
+     - 整条任务
+   * - ``zap_subtask``
+     - 自动感知、结构化 todo
+     - 每次有效 ``update_todo`` 后清空
+
+动作工具为 ``move_to`` 、 ``set_gripper`` 、 ``finish`` 。自动感知使用当前帧
+SAM3 框和深度测得的世界几何。每次回复仅一个工具，子任务初始化则同时要求
+query 和 todo 工具。重置不会重置全局预算。原生任务文本直接来自仿真器，没有
+逐任务 prompt 文件。RoboCasa 增加 ``move_base`` ，RoboTwin 增加解剖学左右臂
+选择与双臂指令，两者使用 ``episode`` 。
+
+:download:`工作流指南 <../../../../tools/rl/WORKFLOWS_zh.md>` 说明初始化与重置、
+完整工具、SAM3 池和固定任务对比。 ``--image_size`` 为 VLM 图片选择 1024、512
+或 256，原始 RGB-D/SAM3 始终为1024，显示像素和矩形会映射回原始坐标。
 
 规划器配置
 ----------------------------------------------------------------
 
 默认预算：100 次模型请求、10000 仿真步、单次输出 32768 tokens、262144-token
-上下文、multiturn 在 70% 时压缩历史、7200 秒 planner 超时。批量启动器另有
-14400 秒 episode 超时。LIBERO multiturn 保留 ``simple`` 、 ``base`` 、
+上下文、累积模式在 70% 时压缩历史、7200 秒 planner 超时。批量启动器另有
+14400 秒 episode 超时。四种 LIBERO 模式共用 ``simple`` 、 ``base`` 、
 ``base_gripper`` 、 ``base_gripper_camera`` 四种 prompt 变体。
 
-示例配置显式设置 presence penalty 1.5、repetition penalty 1.0；不导出时，启动器
-保留服务端默认值。Thinking 采样为 temperature 1.0、top-p 0.95、top-k 20，
+启动器显式默认发送 presence penalty0，示例设置 repetition penalty1.0；
+覆盖值记录在实际模型请求中。Thinking 采样为 temperature 1.0、top-p 0.95、top-k 20，
 Qwen3.8 默认 effort 为 ``xhigh`` 。
 :download:`参考文档 <../../../../tools/rl/REFERENCE_zh.md>` 列出服务、planner、
 批量采集的完整参数，以及实际请求的记录方式。
@@ -104,7 +120,7 @@ Qwen3.8 默认 effort 为 ``xhigh`` 。
 远程仿真后端
 ----------------------------------------------------------------
 
-Adaptive multiturn 可通过 ``python -m robots.rl.remote_manager`` 和
+Adaptive episode 可通过 ``python -m robots.rl.remote_manager`` 和
 ``RPENT_REMOTE_TOOLKIT_ENDPOINT`` 将动作、渲染、SAM3 放到另一台后端机器。
 两侧源码必须一致。参考文档覆盖两侧安装、私有网络连接、GPU 容量、源码/任务/
 预算校验、文件哈希与租约清理。远程 ZAP 暂不支持。

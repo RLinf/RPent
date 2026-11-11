@@ -113,7 +113,7 @@ RPent is built for four kinds of users:
 
 ## Quick Start
 
-For adaptive VLM control without a VLA on LIBERO, RoboCasa or RoboTwin, see the [shared RL workflow installation, launchers and parameters](tools/rl/README.md). It also documents the experimental LIBERO-only `--workflow zap` snapshot loop.
+For adaptive VLM control without a VLA on LIBERO, RoboCasa or RoboTwin, see the [shared RL workflow installation, launchers and parameters](tools/rl/README.md). LIBERO supports `episode`, `zap_turn`, `zap_episode` and `zap_subtask`; the guide documents their tools and context boundaries.
 
 **1. Choose an environment and install RPent.**
 

@@ -17,31 +17,45 @@
 from __future__ import annotations
 
 import io
-from typing import Annotated
+from concurrent.futures import ThreadPoolExecutor
+from typing import Annotated, Literal
 
 import numpy as np
 from PIL import Image, ImageDraw
-from pydantic import Field
+from pydantic import BaseModel, Field, StringConstraints
 
 from robots.rl import geometry
+from robots.rl.images import scale_box
 from rpent.tools import ToolResult, tool
 
-Query = Annotated[str, Field(min_length=1, max_length=120)]
-TodoItem = Annotated[str, Field(min_length=1, max_length=320)]
+Query = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)
+]
+TodoItem = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=320)
+]
 
 
 class Snapshot:
     """Keep only the model's current queries, todo and last execution result."""
 
     def __init__(
-        self, primitives, *, environment: str, task: str, max_episode_steps: int = 10000
+        self,
+        primitives,
+        *,
+        environment: str,
+        task: str,
+        max_episode_steps: int = 10000,
+        image_size: int = 1024,
     ) -> None:
         self.primitives = primitives
         self.environment = environment
         self.task = task
         self.max_episode_steps = max_episode_steps
+        self.image_size = image_size
+        self.todo_revision = 0
         self.queries: list[str] = []
-        self.todo: list[str] = []
+        self.todo: list[str] | list[dict] = []
         self.generation = 0
         self.last_result: dict | None = None
         self._cache_key: tuple[int, int] | None = None
@@ -64,6 +78,7 @@ class Snapshot:
             data={
                 "status": "updated",
                 "query_generation": self.generation,
+                "image_size": self.image_size,
                 "queries": self.queries,
             }
         )
@@ -80,6 +95,7 @@ class Snapshot:
         if any(not item.strip() for item in items):
             return ToolResult(data={"error": "todo items must not be blank"})
         self.todo = [item.strip() for item in items]
+        self.todo_revision += 1
         return ToolResult(data={"status": "updated", "todo": self.todo})
 
     def observe(self, robot_state: dict) -> ToolResult:
@@ -94,53 +110,78 @@ class Snapshot:
                 else primitive.cameras
             )
             detections, images = [], []
-            for camera in cameras:
-                image = primitive._state.load(f"{camera}.png", step=step)
-                raw = primitive.images(step, [camera])[0]
-                world = primitive._state.load(f"{camera}_world.npz", step=step)
-                view = Image.fromarray(np.asarray(image, dtype=np.uint8)).convert("RGB")
-                draw = ImageDraw.Draw(view)
-                groups = (
-                    primitive._sam3.segment_queries(raw, self.queries)
+            raw_images = [primitive.images(step, [camera])[0] for camera in cameras]
+            with ThreadPoolExecutor(max_workers=min(2, len(cameras))) as executor:
+                pending = (
+                    [
+                        executor.submit(
+                            primitive._sam3.segment_queries, raw, self.queries
+                        )
+                        for raw in raw_images
+                    ]
                     if self.queries
                     else []
                 )
-                rows = []
-                for query, matches in zip(self.queries, groups, strict=True):
-                    for match in matches:
-                        if not match.found or match.mask is None:
-                            continue
-                        if match.mask.shape != world.shape[:2]:
-                            raise ValueError(
-                                "SAM3 mask and recorded depth dimensions differ"
+                for index, camera in enumerate(cameras):
+                    image = primitive._state.load(f"{camera}.png", step=step)
+                    world = primitive._state.load(f"{camera}_world.npz", step=step)
+                    view = Image.fromarray(np.asarray(image, dtype=np.uint8)).convert(
+                        "RGB"
+                    )
+                    view = view.resize(
+                        (self.image_size, self.image_size), Image.Resampling.LANCZOS
+                    )
+                    draw = ImageDraw.Draw(view)
+                    groups = pending[index].result() if self.queries else []
+                    rows = []
+                    for query, matches in zip(self.queries, groups, strict=True):
+                        for match in matches:
+                            if not match.found or match.mask is None:
+                                continue
+                            if match.mask.shape != world.shape[:2]:
+                                raise ValueError(
+                                    "SAM3 mask and recorded depth dimensions differ"
+                                )
+                            box = geometry.box_from_mask(match.mask)
+                            r0, c0, r1, c1 = box
+                            display_box = scale_box(
+                                box, world.shape[0], self.image_size
                             )
-                        box = geometry.box_from_mask(match.mask)
-                        r0, c0, r1, c1 = box
-                        identifier = f"{camera}:{len(rows) + 1}"
-                        rows.append(
-                            {
-                                "id": identifier,
-                                "query": query,
-                                "score": match.score,
-                                "box_rc": box,
-                                "surface": geometry.surface_geometry(
-                                    geometry.valid_points(world[match.mask])
-                                ),
-                                "box_surface": geometry.surface_geometry(
-                                    geometry.valid_points(world[r0:r1, c0:c1])
-                                ),
-                            }
-                        )
-                        draw.rectangle((c0, r0, c1 - 1, r1 - 1), outline="red", width=3)
-                        draw.text((c0, max(0, r0 - 12)), identifier, fill="red")
-                buffer = io.BytesIO()
-                view.save(buffer, format="PNG")
-                encoded = buffer.getvalue()
-                primitive._save(
-                    f"zap-q{self.generation}-{camera}.png", np.asarray(view), step
-                )
-                detections.append({"camera": camera, "step": step, "objects": rows})
-                images.append(encoded)
+                            identifier = f"{camera}:{len(rows) + 1}"
+                            rows.append(
+                                {
+                                    "id": identifier,
+                                    "query": query,
+                                    "score": match.score,
+                                    "box_rc": display_box,
+                                    "surface": geometry.surface_geometry(
+                                        geometry.valid_points(world[match.mask])
+                                    ),
+                                    "box_surface": geometry.surface_geometry(
+                                        geometry.valid_points(world[r0:r1, c0:c1])
+                                    ),
+                                }
+                            )
+                            dr0, dc0, dr1, dc1 = display_box
+                            draw.rectangle(
+                                (dc0, dr0, dc1 - 1, dr1 - 1), outline="red", width=2
+                            )
+                            draw.text((dc0, max(0, dr0 - 12)), identifier, fill="red")
+                    buffer = io.BytesIO()
+                    view.save(buffer, format="PNG")
+                    encoded = buffer.getvalue()
+                    primitive._save(
+                        f"zap-q{self.generation}-{camera}.png", np.asarray(view), step
+                    )
+                    detections.append(
+                        {
+                            "camera": camera,
+                            "step": step,
+                            "size": [self.image_size, self.image_size],
+                            "objects": rows,
+                        }
+                    )
+                    images.append(encoded)
             self._cache_key, self._perception = key, (detections, images)
         detections, images = self._perception
         return ToolResult(
@@ -153,10 +194,45 @@ class Snapshot:
                     0, self.max_episode_steps - primitive.env_steps
                 ),
                 "query_generation": self.generation,
+                "image_size": self.image_size,
                 "queries": self.queries,
                 "perception": detections,
                 "todo": self.todo,
                 "last_result": self.last_result,
             },
             images=list(images),
+        )
+
+
+class TodoEntry(BaseModel):
+    """One model-visible subtask and its explicitly reported status."""
+
+    text: TodoItem
+    status: Literal["pending", "in_progress", "done"]
+
+
+class SubtaskPlan:
+    """Store the complete visible plan and signal a new conversation boundary."""
+
+    def __init__(self, snapshot: Snapshot) -> None:
+        self.snapshot = snapshot
+
+    @tool(readonly=True)
+    def update_todo(
+        self, items: Annotated[list[TodoEntry], Field(min_length=1, max_length=8)]
+    ) -> ToolResult:
+        """Replace the entire subtask list and clear the conversation before the next request. Keep completed items marked done, mark the current meaningful goal in_progress, and retain remaining goals as pending. Mark progress only after verifying the current observation; intentions are not completed actions. Each item should describe an outcome, not one small motion. The next context contains only this list, the task, current queries and observation: include what is needed to continue. Calling this tool always creates a new context, including when revising an unfinished subtask. It does not move the robot or determine task success.
+
+        Args:
+            items: Complete list of 1 to 8 subtasks, each with text and pending/in_progress/done status.
+        """
+        self.snapshot.todo = [item.model_dump() for item in items]
+        self.snapshot.todo_revision += 1
+        return ToolResult(
+            data={
+                "status": "updated",
+                "todo": self.snapshot.todo,
+                "todo_revision": self.snapshot.todo_revision,
+                "context_reset": True,
+            }
         )

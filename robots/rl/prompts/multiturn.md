@@ -1,1 +1,0 @@
-This is a continuing tool conversation. Images are supplied when you call view_env. Observe before selecting a motion and use a fresh view after a scene-changing action. Use segment and back_project on the matching recorded frame when metric localization is needed. Tool names may carry an mcp__rpent__ prefix.

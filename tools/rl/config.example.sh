@@ -14,5 +14,5 @@ export RPENT_BASE_URL=http://127.0.0.1:30080/v1
 export RPENT_SAM3_ENDPOINT=http://127.0.0.1:8112
 # These are explicit example settings, not launcher defaults. When unset,
 # presence/repetition penalties fall back to the model server's defaults.
-export RPENT_PRESENCE_PENALTY=1.5
+export RPENT_PRESENCE_PENALTY=0
 export RPENT_REPETITION_PENALTY=1.0

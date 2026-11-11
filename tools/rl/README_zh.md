@@ -5,16 +5,14 @@
 VLM 通过末端控制和视觉工具直接操作机器人。统一入口为 `--robot rl`，
 显式选择仿真器和工作流：
 
-| 仿真器 | `--simulator` | Multiturn | ZAP |
-| --- | --- | --- | --- |
-| LIBERO / LIBERO-PRO | `libero` | 支持 | 支持，实验性 |
-| RoboCasa365 | `robocasa` | 支持 | 不支持 |
-| RoboTwin | `robotwin` | 支持 | 不支持 |
+| 仿真器 | `--simulator` | 工作流 |
+| --- | --- | --- |
+| LIBERO / LIBERO-PRO | `libero` | `episode`、`zap_turn`、`zap_episode`、`zap_subtask` |
+| RoboCasa365 | `robocasa` | `episode` |
+| RoboTwin | `robotwin` | `episode` |
 
-Multiturn 在请求之间保留对话和工具结果，必要时压缩上下文；LIBERO ZAP 每轮
-使用独立 snapshot。两者都不加载任务解法、文件记忆或 VLA 策略。成功与否由原生
-仿真器判定。ZAP 参考了[这篇论文](https://arxiv.org/abs/2610.35817)，属于实验性
-实现，尚不保证成功率或速度。
+四种模式使用 API planner、原生任务指令和实测机器人状态，成功由仿真器判定。
+[工作流指南](WORKFLOWS_zh.md) 详细说明工具、上下文边界、SAM3 池和固定任务对比。
 
 ## 安装与配置
 
@@ -66,27 +64,27 @@ source tools/rl/env.sh
 以下命令分别执行，不要同时启动。`--cuda-device` 指定仿真 GPU，模型和 SAM3
 分别使用配置中指定的服务。
 
-LIBERO-PRO multiturn：
+LIBERO-PRO episode：
 
 ```bash
-RPENT_OUTPUT_DIR=logs/libero-multiturn bash tools/rl/run.sh \
-  --simulator libero --workflow multiturn \
+RPENT_OUTPUT_DIR=logs/libero-episode bash tools/rl/run.sh \
+  --simulator libero --workflow episode \
   --suite libero_object --task 0 --seed 1 --cuda-device 1
 ```
 
-RoboCasa Target50 multiturn，需要先安装 RoboCasa：
+RoboCasa Target50 episode，需要先安装 RoboCasa：
 
 ```bash
-RPENT_OUTPUT_DIR=logs/robocasa-multiturn bash tools/rl/run.sh \
-  --simulator robocasa --workflow multiturn \
+RPENT_OUTPUT_DIR=logs/robocasa-episode bash tools/rl/run.sh \
+  --simulator robocasa --workflow episode \
   --task-name PickPlaceCounterToCabinet --split target --seed 1 --cuda-device 1
 ```
 
-RoboTwin multiturn，需要先安装 RoboTwin：
+RoboTwin episode，需要先安装 RoboTwin：
 
 ```bash
-RPENT_OUTPUT_DIR=logs/robotwin-multiturn bash tools/rl/run.sh \
-  --simulator robotwin --workflow multiturn \
+RPENT_OUTPUT_DIR=logs/robotwin-episode bash tools/rl/run.sh \
+  --simulator robotwin --workflow episode \
   --task-name click_alarmclock --task-config demo_randomized \
   --seed 100000 --cuda-device 1
 ```
@@ -101,34 +99,28 @@ LIBERO-PRO ZAP 使用相同服务和任务参数：
 
 ```bash
 RPENT_OUTPUT_DIR=logs/libero-zap bash tools/rl/run.sh \
-  --simulator libero --workflow zap \
+  --simulator libero --workflow zap_turn \
   --suite libero_object --task 0 --seed 1 --cuda-device 1
 ```
 
 每次运行使用新的输出目录。默认预算为 100 次模型请求、10000 仿真步、7200 秒
 planner 超时，单次最多输出 32768 tokens，上下文为 262144 tokens。批量启动器
 另有 14400 秒的 episode 超时。完整覆盖项见[参数参考](REFERENCE_zh.md#关键参数)。
-示例配置显式设置 presence penalty 1.5、repetition penalty 1.0；若不导出这两个变量，
-启动器会保留服务端默认值。
+启动器显式默认发送 presence penalty 0；示例配置设置 repetition penalty 1.0。
+覆盖值会记录在实际模型请求中。
 
 ## 工作流与工具
 
-Multiturn 首次输入为任务描述和实测机器人状态。`view_env` 返回图像，`segment`
-与 `back_project` 使用匹配的已记录帧定位可见表面。`move_to`、`set_gripper`、
-`finish` 是共用工具名。RoboCasa 增加 `move_base`，输入局部平面速度与偏航角速度。
-RoboTwin 使用 `arm` 参数、表示机器人解剖学左右臂的 LEFT/RIGHT 图像标记，并可
-同时指定另一只臂或夹爪的目标。坐标和姿态遵循各机器人的工具约定。
+`episode` 显式调用 `view_env`、`segment`、`back_project`。LIBERO 的三个
+`zap_*` 模式自动提供标注图像和深度几何，分别在每轮、整条任务或子任务范围内
+保留上下文。`zap_episode` 没有 todo；`zap_subtask` 每次有效更新结构化 todo 后
+清空对话。[工作流指南](WORKFLOWS_zh.md) 列出完整工具、初始化规则、压缩边界
+和仅影响 VLM 图片的 `--image_size`。
 
-ZAP 每轮自动提供当前图像、同帧 SAM3 框与 3D 测量、机器人状态、当前 todo 和
-上次执行结果，不拼接历史对话或 reasoning，也不做历史压缩。第一轮调用
-`change_query`，第二轮调用 `update_todo`；之后每轮只执行一个工具。
-`update_todo` 整体替换模型可见的 todo。ZAP 不暴露 `view_env`、`segment`、
-`back_project`。
-
-任务文本直接取自仿真器的 `get_task_language()`。公共 prompt 文件只描述机器人和
-工作流，不存在逐任务 prompt 文件或隐藏任务解法。`--prompt` 的 `simple`、`base`、
-`base_gripper`、`base_gripper_camera` 四种选项适用于 LIBERO multiturn；其他支持
-组合使用公共机器人与工作流约定。
+RoboCasa 增加局部平面速度与角速度工具 `move_base`；RoboTwin 使用解剖学
+`arm` 参数、左右臂图像标识和可选双臂目标。四个 LIBERO 模式共用机器人、坐标和
+夹爪说明；可选 `--prompt` 为各模式增加相同细节。任务指令直接来自
+`get_task_language()`，没有逐任务 prompt 文件。
 
 ## 查看结果
 
@@ -143,11 +135,11 @@ ZAP 每轮自动提供当前图像、同帧 SAM3 框与 3D 测量、机器人状
 ```bash
 python tools/rl/run_batch.py run "$RPENT_DATA_ROOT/rollouts/libero-dev10" \
   --jobs tools/rl/jobs/libero-dev10.json --gpus 1 --per-gpu 1 \
-  --max-initializing-per-gpu 1 --workflow multiturn
+  --max-initializing-per-gpu 1 --workflow episode
 python tools/rl/run_batch.py summary "$RPENT_DATA_ROOT/rollouts/libero-dev10"
 ```
 
-ZAP 使用仅含 LIBERO 的清单，并改为 `--workflow zap`。重试、审计、断点恢复、
+ZAP 使用仅含 LIBERO 的清单，并改为 `--workflow zap_turn`。重试、审计、断点恢复、
 [离线安装](REFERENCE_zh.md#离线安装)、[远程仿真器](REFERENCE_zh.md#将-planner-与仿真器部署在不同机器)
 和 [RLinf/SFT 集成](REFERENCE_zh.md#rlinf-与-sft) 见参考文档。
 
@@ -160,8 +152,8 @@ ZAP 使用仅含 LIBERO 的清单，并改为 `--workflow zap`。重试、审计
 | `robots/rl/toolkit.py` | 工具注册、原生任务文本、episode 产物 |
 | `robots/rl/tools.py`、`geometry.py` | LIBERO 动作原语及共享视觉几何 |
 | `robots/rl/backends.py`、`server.py` | RoboCasa/RoboTwin 动作适配与隔离原生服务 |
-| `robots/rl/zap.py`、`snapshot.py` | 独立请求循环、可见 todo 与视觉 snapshot |
-| `robots/rl/remote.py`、`remote_manager.py` | 远程 multiturn worker 与文件传输 |
+| `robots/rl/workflow.py`、`snapshot.py`、`images.py` | 公共循环的上下文策略、可见 todo/感知和显示坐标 |
+| `robots/rl/remote.py`、`remote_manager.py` | 远程 episode worker 与文件传输 |
 | `robots/rl/rl_episode.py` | RL trainer 的单 episode 接口 |
 | `tools/rl/run.sh`、`run_batch.py` | 单条轨迹及可审计批量启动器 |
 

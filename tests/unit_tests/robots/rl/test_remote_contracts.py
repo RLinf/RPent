@@ -259,7 +259,7 @@ def test_artifact_corruption_is_detected_before_any_delta_file_is_written(tmp_pa
                 "suite": "libero_10",
                 "task": 0,
                 "seed": 1,
-                "workflow": "zap",
+                "workflow": "zap_turn",
             }
         },
     ],

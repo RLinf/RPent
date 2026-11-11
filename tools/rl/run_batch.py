@@ -32,7 +32,7 @@ import time
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
-from robots.rl.prompt_bundle import PROMPT_VARIANTS, validate_workflow
+from robots.rl.prompt_bundle import PROMPT_VARIANTS, WORKFLOWS, validate_workflow
 from rpent.evaluation import write_json_atomic as atomic
 from rpent.evaluation.trajectory import audit_episode
 
@@ -49,6 +49,8 @@ def source_identity() -> dict:
         *root.joinpath("rpent").rglob("*.py"),
         *root.joinpath("robots").rglob("*.py"),
         *root.joinpath("robots/rl/prompts").rglob("*.md"),
+        *root.joinpath("tools/rl").glob("*.py"),
+        *root.joinpath("tools/rl").glob("*.sh"),
     ]
     return {
         str(path.relative_to(root)): hashlib.sha256(path.read_bytes()).hexdigest()
@@ -194,12 +196,23 @@ def terminal_failure(
         kind = transcript.get("error_kind")
         if deadline:
             kind = "episode_timeout"
+        elif (
+            result.get("invalid_tool_responses", 0) > 0
+            and not result.get("agent_error")
+            and not transcript.get("error")
+            and not kind
+        ):
+            # Rejected replies remain in the lossless trace. A malformed model
+            # argument can make that trace unsuitable for training, but is not
+            # a reason to rerun an otherwise completed benchmark episode.
+            kind = "invalid_tool_reply"
         if kind not in {
             "response_truncated",
             "episode_timeout",
             "context_limit",
             "tool_arguments",
             "tool_name",
+            "invalid_tool_reply",
         }:
             return None
         state_path = attempt / "states.json"
@@ -297,6 +310,8 @@ def collect(args: argparse.Namespace, batch: Path) -> None:
         "jobs": jobs,
         "prompt": args.prompt,
         "workflow": args.workflow,
+        "image_size": getattr(args, "image_size", 1024),
+        "thinking": not getattr(args, "no_thinking", False),
         "model": os.environ["RPENT_MODEL"],
         "source": source_identity(),
         "dependencies": dependency_identity(),
@@ -331,6 +346,14 @@ def collect(args: argparse.Namespace, batch: Path) -> None:
     }
     records = []
     outcomes = []
+    exhausted = []
+    current_attempts = {}
+    failed_before_gate = threading.Event()
+    gate = (
+        batch / f"start-gate-{time.time_ns()}.json"
+        if getattr(args, "start_barrier", False)
+        else None
+    )
     for index, job in enumerate(jobs):
         output = batch / job_name(job, args.prompt, args.workflow)
         row = completed(output)
@@ -343,11 +366,16 @@ def collect(args: argparse.Namespace, batch: Path) -> None:
             gpu = str(job.get("gpu", gpu_names[index % len(gpu_names)]))
             if gpu not in pending:
                 raise ValueError(f"task GPU {gpu} is outside --gpus")
-            pending[gpu].put((job, output))
+            pending[gpu].put((job, output, index))
     atomic(batch / "valid-index.json", {"episodes": records})
     atomic(batch / "outcomes-index.json", {"episodes": outcomes})
     signal.signal(signal.SIGINT, interrupt)
     signal.signal(signal.SIGTERM, interrupt)
+    waiting = sum(q.qsize() for q in pending.values())
+    if gate and waiting > len(slots):
+        raise ValueError(
+            "start barrier requires one resident slot for every pending job"
+        )
     started = time.time()
 
     def worker(index: int, gpu: str) -> None:
@@ -355,11 +383,12 @@ def collect(args: argparse.Namespace, batch: Path) -> None:
             return
         while not STOP.is_set():
             try:
-                job, output = pending[gpu].get_nowait()
+                job, output, job_index = pending[gpu].get_nowait()
             except queue.Empty:
                 return
             output.mkdir(exist_ok=True)
-            for retry in range(args.infrastructure_retries + 1):
+            prior_failures = len(list(output.glob("attempt-*/INVALID.json")))
+            for retry in range(prior_failures, args.infrastructure_retries + 1):
                 if STOP.is_set():
                     return
                 number = (
@@ -371,6 +400,8 @@ def collect(args: argparse.Namespace, batch: Path) -> None:
                 )
                 attempt = output / f"attempt-{number:03d}"
                 attempt.mkdir()
+                with LOCK:
+                    current_attempts[str(output)] = attempt
                 command = [
                     "bash",
                     str(EVAL_DIR / "run.sh"),
@@ -383,11 +414,16 @@ def collect(args: argparse.Namespace, batch: Path) -> None:
                     args.prompt,
                     "--workflow",
                     args.workflow,
+                    "--image_size",
+                    str(getattr(args, "image_size", 1024)),
                 ]
+                if getattr(args, "no_thinking", False):
+                    command.append("--no-thinking")
                 environment = {
                     **os.environ,
                     "RPENT_OUTPUT_DIR": str(attempt),
-                    "RPENT_BASE_URL": endpoints[index % len(endpoints)],
+                    "RPENT_BASE_URL": endpoints[job_index % len(endpoints)],
+                    **({"RPENT_START_GATE": str(gate)} if gate else {}),
                 }
                 while not initializing[gpu].acquire(timeout=0.5):
                     if STOP.is_set():
@@ -482,9 +518,50 @@ def collect(args: argparse.Namespace, batch: Path) -> None:
                     atomic(attempt / "INVALID.json", {**status, "error": str(error)})
                     print(f"Invalid {output.name}: {error}", flush=True)
 
+            else:
+                with LOCK:
+                    exhausted.append(
+                        {
+                            "task": job,
+                            "path": str(output),
+                            "success": False,
+                            "termination_reason": "infrastructure_error",
+                        }
+                    )
+                    atomic(
+                        batch / "infrastructure-errors.json", {"episodes": exhausted}
+                    )
+                if gate is not None and not gate.exists():
+                    failed_before_gate.set()
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(slots)) as pool:
         futures = [pool.submit(worker, index, gpu) for index, gpu in enumerate(slots)]
         try:
+            while not all(future.done() for future in futures):
+                for future in futures:
+                    if future.done() and future.exception() is not None:
+                        future.result()
+                if gate is not None and not gate.exists():
+                    if failed_before_gate.is_set():
+                        raise RuntimeError(
+                            "an environment failed before the shared start barrier"
+                        )
+                    with LOCK:
+                        ready = [
+                            path
+                            for path in current_attempts.values()
+                            if (path / "READY.json").exists()
+                        ]
+                    if len(ready) == waiting:
+                        atomic(
+                            gate,
+                            {
+                                "released_at": time.time(),
+                                "ready": len(ready),
+                                "attempts": [str(path) for path in ready],
+                            },
+                        )
+                time.sleep(0.2)
             for future in futures:
                 future.result()
         except BaseException:
@@ -497,11 +574,14 @@ def collect(args: argparse.Namespace, batch: Path) -> None:
             "expected": len(jobs),
             "valid": len(records),
             "evaluated": len(outcomes),
+            "infrastructure_errors": len(exhausted),
             "successes": sum(x["success"] for x in outcomes),
             "elapsed_seconds": time.time() - started,
+            "started_at": started,
+            "finished_at": time.time(),
         },
     )
-    if not STOP.is_set() and len(outcomes) != len(jobs):
+    if not STOP.is_set() and len(outcomes) + len(exhausted) != len(jobs):
         raise RuntimeError("Some episodes failed audit; all attempts are retained")
 
 
@@ -544,8 +624,19 @@ def main() -> None:
     collection.add_argument("--gpus", required=True)
     collection.add_argument("--per-gpu", type=int, default=1)
     collection.add_argument("--max-initializing-per-gpu", type=int, default=8)
+    collection.add_argument("--workflow", choices=WORKFLOWS, default="episode")
     collection.add_argument(
-        "--workflow", choices=("multiturn", "zap"), default="multiturn"
+        "--no-thinking",
+        action="store_true",
+        help="Disable Qwen thinking for every episode and pin it in the batch manifest",
+    )
+    collection.add_argument(
+        "--image_size", type=int, choices=(1024, 512, 256), default=1024
+    )
+    collection.add_argument(
+        "--start-barrier",
+        action="store_true",
+        help="Wait until every pending environment is resident before requesting the model",
     )
     collection.add_argument("--prompt", choices=PROMPT_VARIANTS, default="simple")
     collection.add_argument(

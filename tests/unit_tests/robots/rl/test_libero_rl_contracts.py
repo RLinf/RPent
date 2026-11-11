@@ -392,9 +392,8 @@ def test_prompts_carry_only_the_interface_contract(variant) -> None:
     assert not any(word in text for word in ("read_image", "shell", "bash", "python"))
     mentioned = {name for name in ALL_TOOLS if name in text}
     assert mentioned <= ALL_TOOLS
-    assert system.startswith(
-        prompt_bundle.CONTRACT + "\n" + prompt_bundle.OBSERVATION_NOTE
-    )
+    assert "Positions use the world frame" in system
+    assert "exactly one tool call" in system
 
 
 def test_prompt_variants_nest_from_simple_to_camera() -> None:
@@ -405,7 +404,7 @@ def test_prompt_variants_nest_from_simple_to_camera() -> None:
 
     simple = render("simple")
     assert simple == prompt_bundle.system_prompt({"observation_mode": "adaptive"})
-    assert simple == f"{prompt_bundle.CONTRACT}\n{prompt_bundle.OBSERVATION_NOTE}"
+    assert "Images are supplied only through view_env" in simple
     base, gripper, camera = (
         render("base"),
         render("base_gripper"),
@@ -424,10 +423,12 @@ def test_prompt_variants_nest_from_simple_to_camera() -> None:
 @pytest.mark.parametrize(
     "environment,workflow",
     [
-        ("libero", "multiturn"),
-        ("libero", "zap"),
-        ("robocasa", "multiturn"),
-        ("robotwin", "multiturn"),
+        ("libero", "episode"),
+        ("libero", "zap_turn"),
+        ("libero", "zap_episode"),
+        ("libero", "zap_subtask"),
+        ("robocasa", "episode"),
+        ("robotwin", "episode"),
     ],
 )
 def test_supported_combinations_use_native_tasks_without_prompt_files(
@@ -454,11 +455,11 @@ def test_supported_combinations_use_native_tasks_without_prompt_files(
 @pytest.mark.parametrize("environment", ["robocasa", "robotwin"])
 def test_unsupported_zap_fails_before_accessing_native_runtime(environment, tmp_path):
     args = argparse.Namespace(
-        env=environment, workflow="zap", observation_mode="adaptive"
+        env=environment, workflow="zap_turn", observation_mode="adaptive"
     )
-    with pytest.raises(ValueError, match="does not support --workflow zap"):
+    with pytest.raises(ValueError, match="does not support --workflow zap_turn"):
         robot_spec.get_robot_spec().parse_config(args)
-    with pytest.raises(ValueError, match="does not support --workflow zap"):
+    with pytest.raises(ValueError, match="does not support --workflow zap_turn"):
         RLToolkit(
             runtime_kwargs={},
             dashboard_events=NullDashboardEventSink(),
@@ -466,7 +467,7 @@ def test_unsupported_zap_fails_before_accessing_native_runtime(environment, tmp_
             observation_mode="adaptive",
             output_dir=tmp_path / "run",
             environment=environment,
-            workflow="zap",
+            workflow="zap_turn",
         )
     assert not (tmp_path / "run").exists()
 
@@ -485,7 +486,8 @@ def test_prompt_variant_reaches_the_prompt_variables() -> None:
         "observation_mode": "adaptive",
         "prompt": "base_gripper",
         "environment": "libero",
-        "workflow": "multiturn",
+        "workflow": "episode",
+        "image_size": 1024,
     }
     assert config.task_desc["prompt"] == "base_gripper"
 
@@ -494,6 +496,7 @@ def test_prompt_variant_reaches_the_prompt_variables() -> None:
     "override",
     [
         {"planner": "codex"},
+        {"planner": "claude_code"},
         {"tui": True},
         {"dashboard": True},
         {"memory_dir": "/memory"},
@@ -504,7 +507,7 @@ def test_options_that_would_change_the_rollout_unnoticed_are_rejected(
     override,
 ) -> None:
     args = argparse.Namespace(
-        planner="claude_code",
+        planner="api",
         dashboard=False,
         tui=False,
         memory_dir=None,
@@ -623,3 +626,81 @@ def test_runtime_reports_a_server_that_exits_before_announcing(tmp_path):
         robot_spec._spawn_server(
             argparse.Namespace(cuda_device=None), tmp_path, "env", script, []
         )
+
+
+@pytest.mark.parametrize(
+    "workflow,expected",
+    [
+        ("episode", ALL_TOOLS),
+        (
+            "zap_turn",
+            {"move_to", "set_gripper", "change_query", "update_todo", "finish"},
+        ),
+        ("zap_episode", {"move_to", "set_gripper", "change_query", "finish"}),
+        (
+            "zap_subtask",
+            {"move_to", "set_gripper", "change_query", "update_todo", "finish"},
+        ),
+    ],
+)
+def test_four_workflow_tool_sets_and_automatic_action_views(
+    tmp_path, workflow, expected
+):
+    from types import SimpleNamespace
+
+    class AutoSam(FakeSam3):
+        def segment_queries(self, raw, queries):
+            return [[self.segment(raw, text_prompt=query)] for query in queries]
+
+    env = FakeEnv()
+    env._client = SimpleNamespace(call=lambda method: {"max_episode_steps": 10000})
+    toolkit = RLToolkit(
+        runtime_kwargs={"env": env, "sam3_client": AutoSam(bar_mask())},
+        dashboard_events=NullDashboardEventSink(),
+        memory=MemoryManager(tmp_path / "memory"),
+        observation_mode="adaptive",
+        output_dir=tmp_path / "run",
+        workflow=workflow,
+    )
+    assert {item.name for item in toolkit.list_tools()} == expected
+    if workflow != "episode":
+        changed = toolkit.execute_tool("change_query", {"queries": ["cube"]})
+        assert len(changed.images) == (0 if workflow == "zap_turn" else 2)
+    moved = toolkit.execute_tool("move_to", {"xyz": [0.1, -0.2, 0.95]})
+    gripped = toolkit.execute_tool("set_gripper", {"opening": 0.8})
+    if workflow in {"zap_episode", "zap_subtask"}:
+        for result in (moved, gripped):
+            assert len(result.images) == 2
+            assert result.data["observation"]["step"] == result.data["step"]
+            assert result.data["observation"]["perception"][0]["objects"]
+        assert "observation" not in toolkit.snapshot.last_result["result"]
+    else:
+        assert moved.images == gripped.images == []
+    toolkit.close()
+
+
+@pytest.mark.parametrize("size", [512, 256])
+def test_display_pixel_uses_original_native_depth(tmp_path, monkeypatch, size):
+    from robots.rl.images import native_pixel
+
+    monkeypatch.setattr(tools, "IMAGE_SIZE", 1024)
+    toolkit = make_toolkit(tmp_path, "adaptive")
+    toolkit.image_size = size
+    toolkit.initial_observation()
+    view = toolkit.execute_tool("view_env", {})
+    assert view.data["images"][0]["size"] == [size, size]
+    point = [size // 2 - 1, size // 2 - 1]
+    mapped = native_pixel(point, size)
+    expected = toolkit.state.load("agentview_world.npz", step=0)[mapped[0], mapped[1]]
+    result = toolkit.execute_tool("back_project", {"pixel": point, "step": 0})
+    np.testing.assert_allclose(result.data["world_xyz"], expected, atol=0.0001)
+    assert toolkit.state.load("agentview_world.npz", step=0).shape[:2] == (1024, 1024)
+    toolkit.close()
+
+
+@pytest.mark.parametrize("removed", ["multiturn", "zap"])
+def test_removed_workflow_names_are_rejected(removed):
+    parser = argparse.ArgumentParser()
+    robot_spec.get_robot_spec().add_cli_args(parser, use_dashboard=False)
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--workflow", removed])

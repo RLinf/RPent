@@ -16,14 +16,24 @@
 
 from __future__ import annotations
 
+import os
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
+from robots.rl.images import (
+    IMAGE_SIZES,
+    NATIVE_SIZE,
+    native_pixel,
+    resize_image,
+    scale_box,
+)
 from robots.rl.prompt_bundle import validate_workflow
 from robots.rl.tools import LiberoRLPrimitives
 from rpent.dashboard.events import DashboardEventSink
 from rpent.memory import MemoryManager
+from rpent.planner.request_trace import write_json
 from rpent.session import EnvState
 from rpent.tools import ToolResult, iter_tools
 from rpent.tools.toolkit import Toolkit
@@ -32,7 +42,7 @@ from rpent.tools.toolkit import Toolkit
 class RLToolkit(Toolkit):
     """Expose end-effector, perception, and finish tools.
 
-    Multiturn returns images through view_env; ZAP attaches fresh views per request.
+    Episode uses explicit perception tools; ZAP modes attach automatic perception.
     """
 
     planner_builtin_tools = False
@@ -46,11 +56,19 @@ class RLToolkit(Toolkit):
         observation_mode: str,
         output_dir: Path | str,
         environment: str = "libero",
-        workflow: str = "multiturn",
+        workflow: str = "episode",
+        image_size: int = 1024,
     ) -> None:
         if observation_mode != "adaptive":
             raise ValueError("rl supports only adaptive observations")
         validate_workflow(environment, workflow)
+        if image_size not in IMAGE_SIZES:
+            raise ValueError(f"unsupported image size {image_size}")
+        self.output_dir = Path(output_dir)
+        self.image_size = image_size
+        self.workflow_stats = {"perception_seconds": 0.0}
+        self._started = time.perf_counter()
+        self._native_success_seconds = None
         state = EnvState(output_dir)
         super().__init__(dashboard_events=dashboard_events, state=state, memory=memory)
         self._images_sent = 0
@@ -71,7 +89,7 @@ class RLToolkit(Toolkit):
         self._publish_step(self._primitives.record_observation())
         self._recorded_env_steps = 0
         self.snapshot = None
-        if workflow == "zap":
+        if workflow != "episode":
             from robots.rl.snapshot import Snapshot
 
             self.snapshot = Snapshot(
@@ -81,9 +99,10 @@ class RLToolkit(Toolkit):
                 max_episode_steps=self._primitives.env._client.call("env.get_env_meta")[
                     "max_episode_steps"
                 ],
+                image_size=image_size,
             )
         for definition in iter_tools(self._primitives):
-            if workflow == "zap" and definition.name in {
+            if workflow != "episode" and definition.name in {
                 "view_env",
                 "segment",
                 "back_project",
@@ -91,15 +110,21 @@ class RLToolkit(Toolkit):
                 continue
             self.add_tool(definition)
         if self.snapshot is not None:
-            for definition in iter_tools(self.snapshot):
-                self.add_tool(definition)
+            self.add_tool(self.snapshot.change_query)
+            if workflow == "zap_turn":
+                self.add_tool(self.snapshot.update_todo)
+            elif workflow == "zap_subtask":
+                from robots.rl.snapshot import SubtaskPlan
+
+                self.add_tool(SubtaskPlan(self.snapshot).update_todo)
 
     def observe_snapshot(self) -> ToolResult:
         """Return a complete current observation without accumulated history."""
         if self.snapshot is None:
-            raise ValueError("snapshot observations require --workflow zap")
+            raise ValueError("snapshot observations require --workflow zap_turn")
+        begin = time.perf_counter()
         observation = self.snapshot.observe(self._robot_state())
-        self._count_images(observation)
+        self.workflow_stats["perception_seconds"] += time.perf_counter() - begin
         return observation
 
     def _register_common_tools(self) -> None:
@@ -122,6 +147,25 @@ class RLToolkit(Toolkit):
 
     def initial_observation(self) -> ToolResult:
         """Return the task and measured initial state for the opening message."""
+        gate = os.environ.get("RPENT_START_GATE")
+        if gate:
+            write_json(
+                self.output_dir / "READY.json",
+                {
+                    "pid": os.getpid(),
+                    "time": time.time(),
+                    "gate": gate,
+                    "task": self._task,
+                },
+            )
+            deadline = time.monotonic() + float(
+                os.environ.get("RPENT_START_GATE_TIMEOUT_S", "1200")
+            )
+            while not Path(gate).exists():
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("batch start barrier timed out")
+                time.sleep(0.1)
+        self._started = time.perf_counter()
         step = self._state.latest_step
         observation = ToolResult(
             data={
@@ -130,6 +174,8 @@ class RLToolkit(Toolkit):
                 "state": {"step": step, **self._robot_state()},
             },
         )
+        if self.workflow in {"zap_episode", "zap_subtask"}:
+            observation = self.observe_snapshot()
         self._count_images(observation)
         self._state.save(
             "planner_audit.json",
@@ -152,13 +198,50 @@ class RLToolkit(Toolkit):
 
     def execute_tool(self, name: str, input_dict: dict[str, Any]) -> ToolResult:
         """Run one tool and count the images returned to the planner."""
-        result = super().execute_tool(name, input_dict)
+        arguments = dict(input_dict)
+        try:
+            if self.environment == "libero" and self.image_size != NATIVE_SIZE:
+                for field in ("point", "pixel"):
+                    if arguments.get(field) is not None:
+                        arguments[field] = native_pixel(
+                            arguments[field], self.image_size
+                        )
+                if arguments.get("box") is not None:
+                    box = arguments["box"]
+                    if box[0] >= box[2] or box[1] >= box[3]:
+                        raise ValueError("box must have positive height and width")
+                    arguments["box"] = scale_box(box, self.image_size, NATIVE_SIZE)
+        except (ValueError, TypeError) as exc:
+            return ToolResult(data={"error": str(exc)})
+        result = super().execute_tool(name, arguments)
+        if self.environment == "libero" and self.image_size != NATIVE_SIZE:
+            result.images = [
+                resize_image(image, self.image_size) for image in result.images
+            ]
+            if "box" in result.data:
+                result.data["box"] = scale_box(
+                    result.data["box"], NATIVE_SIZE, self.image_size
+                )
+            for image in result.data.get("images", []):
+                image["size"] = [self.image_size, self.image_size]
+        if self.solved() and self._native_success_seconds is None:
+            self._native_success_seconds = time.perf_counter() - self._started
         if self.snapshot is not None:
+            # Keep the raw outcome only: never nest an earlier snapshot/history.
             self.snapshot.last_result = {
                 "tool": name,
                 "arguments": input_dict,
-                "result": result.data,
+                "result": dict(result.data),
             }
+            if self.workflow in {"zap_episode", "zap_subtask"} and name in {
+                "move_to",
+                "set_gripper",
+                "change_query",
+            }:
+                observation = self.observe_snapshot()
+                observation.data.pop("last_result", None)
+                result.data["observation"] = observation.data
+                result.images.extend(observation.images)
         self._count_images(result)
         return result
 
@@ -215,6 +298,9 @@ class RLToolkit(Toolkit):
             {
                 "observation_mode": "adaptive",
                 "workflow": self.workflow,
+                "image_size": self.image_size,
+                "native_success_seconds": self._native_success_seconds,
+                **self.workflow_stats,
                 "images_sent": self._images_sent,
                 "env_steps": self._primitives.env_steps,
                 "observations": self._state.latest_step + 1,

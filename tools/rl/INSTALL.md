@@ -203,8 +203,8 @@ weights are unnecessary.
 ## 6. Verify and troubleshoot
 
 Run the four single-task commands in [README.md](README.md#run-one-task), one
-at a time. These exercise LIBERO multiturn/ZAP and native RoboCasa/RoboTwin
-multiturn through the same planner. Inspect both native success and the final
+at a time. These exercise LIBERO episode/ZAP and native RoboCasa/RoboTwin
+episode through the same planner. Inspect both native success and the final
 tool results; an unsuccessful task can still complete a valid episode.
 
 | Symptom | First check |
