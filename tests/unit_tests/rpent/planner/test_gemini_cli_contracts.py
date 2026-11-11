@@ -237,6 +237,8 @@ def acp_backend(monkeypatch):
                             }
                         ),
                     )
+                    if seen.get("block_after_finish"):
+                        await stopped.wait()
                 await client.session_update(
                     session_id,
                     SimpleNamespace(
@@ -284,7 +286,15 @@ def test_relative_output_directory_uses_absolute_session_workspace(
 
 
 @pytest.mark.parametrize(
-    "outcome", ["finish", "no_finish", "startup_error", "prompt_error", "timeout"]
+    "outcome",
+    [
+        "finish",
+        "finish_then_block",
+        "no_finish",
+        "startup_error",
+        "prompt_error",
+        "timeout",
+    ],
 )
 def test_session_result_artifacts_and_cleanup(
     tmp_path, monkeypatch, acp_backend, outcome
@@ -293,7 +303,8 @@ def test_session_result_artifacts_and_cleanup(
     monkeypatch.setenv("GEMINI_API_KEY", secret)
     acp_backend["reply"] = f"request failed for {secret}"
     acp_backend["stderr"] = f"provider rejected {secret}\n"
-    acp_backend["finish"] = outcome == "finish"
+    acp_backend["finish"] = outcome in {"finish", "finish_then_block"}
+    acp_backend["block_after_finish"] = outcome == "finish_then_block"
     acp_backend["block"] = outcome == "timeout"
     if outcome in {"startup_error", "prompt_error"}:
         acp_backend[outcome] = RuntimeError(f"gemini unavailable: {secret}")
@@ -320,7 +331,7 @@ def test_session_result_artifacts_and_cleanup(
     assert not acp_backend["cwd"].exists()
     assert result.finish_result == (
         {"_finish": True, "status": "success", "summary": "done"}
-        if outcome == "finish"
+        if acp_backend["finish"]
         else None
     )
     assert result.stats["backend"] == "gemini_cli"
@@ -344,6 +355,13 @@ def test_session_result_artifacts_and_cleanup(
         assert result.error is None
         assert result.stats["total_input_tokens"] == 8
         assert acp_backend["prompt"] == "system rules\n\nuser task"
+        if outcome == "finish_then_block":
+            assert acp_backend["events"][-4:] == [
+                "cancel_tools",
+                "cancel",
+                "prompt_completed",
+                "close",
+            ]
 
 
 @pytest.mark.parametrize("outcome", ["success", "timeout", "auth_error"])

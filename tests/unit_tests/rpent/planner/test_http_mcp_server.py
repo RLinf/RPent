@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import pytest
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
@@ -180,6 +181,53 @@ def test_http_mcp_readonly_calls_execute_concurrently(tmp_path):
 
     try:
         asyncio.run(scenario(server.start()))
+    finally:
+        toolkit.close()
+        server.stop()
+
+
+@pytest.mark.parametrize(
+    "rejection", [{"_finish": False}, {"_finish": True, "error": "not ready"}]
+)
+def test_http_mcp_rejects_calls_only_after_accepted_finish(tmp_path, rejection):
+    init_output_dir(tmp_path / "log")
+    toolkit = FakeToolkit(tmp_path)
+    calls = []
+
+    @tool(readonly=True)
+    def finish() -> ToolResult:
+        calls.append("finish")
+        return ToolResult(data=rejection if len(calls) == 1 else {"_finish": True})
+
+    @tool
+    def move() -> ToolResult:
+        calls.append("move")
+        return ToolResult(data={"moved": True})
+
+    toolkit.add_tool(finish, replace=True)
+    toolkit.add_tool(move)
+    server = HttpMcpServer(toolkit)
+
+    async def scenario(url):
+        async with httpx.AsyncClient(trust_env=False) as http_client:
+            async with streamable_http_client(url, http_client=http_client) as (
+                read,
+                write,
+                _,
+            ):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    await session.call_tool("finish", {})
+                    assert not (await session.call_tool("move", {})).isError
+                    assert not (await session.call_tool("finish", {})).isError
+                    for name in ("move", "finish"):
+                        result = await session.call_tool(name, {})
+                        assert result.isError
+                        assert "finished" in result.content[0].text
+
+    try:
+        asyncio.run(scenario(server.start()))
+        assert calls == ["finish", "move", "finish"]
     finally:
         toolkit.close()
         server.stop()

@@ -91,6 +91,7 @@ def build_mcp_server(
     consumers must marshal updates to their own loop without blocking this one.
     """
     mcp_app: Server = Server(SERVER_NAME, version="0.1.0")
+    finished = False
 
     @mcp_app.list_tools()
     async def _list_tools() -> list[types.Tool]:
@@ -107,8 +108,18 @@ def build_mcp_server(
 
     @mcp_app.call_tool(validate_input=False)
     async def _call_tool(name: str, arguments: dict[str, Any]) -> types.CallToolResult:
+        nonlocal finished
         lookup = _strip_mcp_prefix(name)
-        tr = await execute_tool(toolkit, lookup, arguments or {})
+        if finished:
+            tr = ToolResult(data={"error": "The agent session has already finished."})
+        else:
+            tr = await execute_tool(toolkit, lookup, arguments or {})
+            if (
+                lookup == "finish"
+                and not tr.is_error
+                and tr.data.get("_finish") is True
+            ):
+                finished = True
         if on_tool_result is not None:
             on_tool_result(lookup, arguments or {}, tr)
         return types.CallToolResult(**mcp_result(tr))

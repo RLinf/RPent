@@ -187,6 +187,9 @@ async def run_agent(
     error: str | None = None
     session = None
     reader = None
+    session_task = None
+    finish_waiter = None
+    finished = asyncio.Event()
     loop = asyncio.get_running_loop()
     with (
         artifacts.output_path.open("w") as output,
@@ -227,8 +230,10 @@ async def run_agent(
                 output.write(rendered)
                 output.flush()
                 logger.info(rendered.rstrip())
-            if control is not None and recorder.finish_result is not None:
-                control.end()
+            if recorder.finish_result is not None:
+                finished.set()
+                if control is not None:
+                    control.end()
 
         def observe_tool(name, args, result):
             loop.call_soon_threadsafe(emit_event, tool_event(name, args, result))
@@ -243,7 +248,17 @@ async def run_agent(
             session = create_session(url, control, emit_event)
             if terminal is not None:
                 reader = asyncio.create_task(terminal.read_input())
-            await asyncio.wait_for(session.run(prompt), timeout=timeout_s)
+            session_task = asyncio.create_task(session.run(prompt))
+            finish_waiter = asyncio.create_task(finished.wait())
+            done, _ = await asyncio.wait(
+                (session_task, finish_waiter),
+                timeout=timeout_s,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if not done:
+                raise asyncio.TimeoutError
+            if session_task in done:
+                await session_task
             error = session.error
         except asyncio.TimeoutError:
             error = f"{label} timed out after {timeout_s}s"
@@ -263,6 +278,12 @@ async def run_agent(
             except Exception as exc:
                 error = error or redact(f"Session cleanup failed: {exc}")
             finally:
+                tasks = [
+                    task for task in (session_task, finish_waiter) if task is not None
+                ]
+                for task in tasks:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
                 await asyncio.to_thread(server.stop)
                 if reader is not None:
                     with contextlib.suppress(asyncio.CancelledError):
