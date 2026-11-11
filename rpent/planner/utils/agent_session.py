@@ -222,10 +222,11 @@ async def run_agent(
         )
 
         def emit_event(event: dict[str, Any]) -> None:
-            safe = json.loads(
-                redact(json.dumps(event, ensure_ascii=False, default=str))
-            )
-            write_jsonl(raw, safe)
+            serialized = json.dumps(event, ensure_ascii=False, default=str)
+            sanitized = redact(serialized)
+            safe = json.loads(sanitized) if sanitized != serialized else event
+            raw.write(sanitized + "\n")
+            raw.flush()
             if rendered := recorder.observe(safe):
                 output.write(rendered)
                 output.flush()
