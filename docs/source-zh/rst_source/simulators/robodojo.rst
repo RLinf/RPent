@@ -359,26 +359,38 @@ SAM3 用于物体分割。先在 `facebook/sam3 模型页面 <https://huggingfac
 工具
 ----
 
-评测只运行一个回合，不提供 reset；探索模式允许通过 ``reset`` 重试同一场景。Flash 回放仍不可用。
+规划器会自动选择工具，并在动作后检查新的观测。用户通过 ``--am-backend`` 选择动作模型，可在 ``transcript_*.json`` 中查看实际调用。
 
-初始观测和运动反馈包含 ``episode_status.step`` （已用原生动作步数）、``step_limit`` （总步数上限）和 ``remaining_steps`` （剩余步数）。
-这些计数对应观测保存时的状态；顶层 ``step`` 是观测记录编号。读取历史观测不会消耗动作步数。
+.. list-table::
+   :header-rows: 1
+   :widths: 35 65
 
-``vpp2_act(instruction, chunks=1)`` 执行指定子任务。每个 chunk 预测 32 个双臂 EE16 绝对目标（每臂 xyz、wxyz 和夹爪），通过原生 EE 控制执行前 24 步；``chunks=1`` 时返回规划器，继续下一块时重新推理。VPP2 使用初始 RGB 帧和间隔为 25 个动作的 8 个历史采样。策略动作和 Primitive 动作都会更新历史，切换子任务时保留历史；看图和 ``render`` 不增加动作时刻。动作反馈缺失后，策略历史失效，直到 reset；无法 reset 时，需开始新回合才能恢复 VPP2。
+   * - 工具
+     - 用途
+   * - ``vpp2_act``
+     - 使用 VPP2 执行规划器给出的子任务，例如抓取指定物体。
+   * - ``awomo05_act``
+     - 使用 Awomo05 执行环境的完整任务指令，不接收改写的子任务。
+   * - ``view_env_state``、``render``
+     - 查看已保存的图像和状态，或刷新观测。
+   * - ``segment``、``back_project``
+     - 用 SAM3 分割物体，再将选定像素转换为三维位置。
+   * - ``sample_world_xyz``、``query_world_map``
+     - 查询图像中指定像素或区域的三维表面位置。
+   * - ``move_to``、``rotate_wrist``
+     - 将指定手臂移动到目标位姿，或绕世界 Z 轴调整朝向。
+   * - ``set_gripper``、``release``
+     - 调整夹爪开合或释放物体。0 为闭合，1 为打开；中间值是归一化目标，不是物理宽度。
 
-选择 Awomo05 后端时，使用 ``awomo05_act(chunks=1)`` 按官方完整任务指令执行双臂关节目标。任务指令取自回合初始观测，在该回合内保持不变。每块执行 8 步并逐步更新观测，下一块重新推理；``chunks`` 限制单次调用的动作块数。模型历史跨调用保留，也包含运动 Primitive 执行后的观测。取消后不续接剩余动作；推理或执行结果不确定时，需检查错误并开始新回合，不应直接重试。
+两个后端都支持观测和运动 Primitive，只提供所选后端的策略工具。评测不提供 ``reset``；探索模式可重置同一场景后重试。RoboDojo 不支持 Flash 回放。
 
-``view_env_state`` 读取保存的图像和状态，``render`` 刷新观测。``sample_world_xyz(view, pixels, step=None, neighborhood=1)`` 查询 [行,列] 像素，默认取 3×3 邻域。``query_world_map`` 查询半开区间 [r0,c0,r1,c1]，默认最多返回 256 个点。view 使用 ``head``、``left_wrist`` 或 ``right_wrist``，必须与选点图像的视角及步号一致。查询读取保存的同帧深度，不暗中刷新；无效深度被排除，返回的是可见表面坐标，不是物体中心。
+排查任务结果时，先查看 ``result.json`` 和视频，再结合工具调用记录定位问题：
 
-``segment`` 和 ``back_project`` 也接受 ``step``。分割返回质心 ``centroid_rc`` 和掩码内像素 ``point_rc``；凹形掩码的质心可能在物体外，反投影应优先使用 ``point_rc`` 及返回的 ``step_idx``。这两个工具保留相机名 ``cam_head``、``cam_left_wrist``、``cam_right_wrist``。
+- 预算是否耗尽：``episode_status.remaining_steps`` 是观测保存时的剩余动作步数，``step_limit`` 是总上限。顶层 ``step`` 只是观测编号；读取和查询观测不消耗动作步数。
+- 动作是否有效：``completed`` 只表示指令执行完毕，不保证抓稳或到位。检查图像、实际执行步数 ``executed_steps`` 和停止原因 ``stop_reason``，不要把工具调用成功当成任务成功。
+- 是否遇到服务故障：若执行状态不确定，先检查日志和最新观测，不要直接重发运动命令。若策略历史失效，探索模式需 ``reset``，评测需另起回合才能恢复策略调用。
 
-调用 ``segment(text_prompt=...)`` 时，描述可见的颜色、形状和位置。工具返回红色掩码叠加图；使用定位点前先检查叠加图，高分不代表选中了正确物体。分割失败时可修改描述，或在同一历史帧中手动选取可见像素查询。叠加图和几何结果保存在对应帧中。使用 ``back_project`` 获取选定掩码内像素的世界坐标。
-
-运动 Primitive 使用原生 cuRobo 位姿规划并执行关节目标。规划器的障碍物模型包含简化桌面，未完整表示场景物体和另一只机械臂；选择路点时应为它们留出空间。
-
-``move_to(arm, xyz, quat=None, gripper=None, substeps=25)`` 使用世界坐标、米及 wxyz 四元数；省略姿态或夹爪参数则保持对应状态／目标。``substeps`` 限制路径抽样数，每个执行的路点消耗一个原生动作步（0.04 秒仿真时间）。Prompt 默认使用 25，较小修正可依次选择 10、5、1；1 只发送最后路点，不会等待到达。``rotate_wrist`` 绕世界 Z 轴相对旋转，单位为度。``final_dist_m`` 是实测位置误差，不是到达保证。检查 ``completed``、``executed_steps`` 和 ``stop_reason``；超时的动作可能已在服务端执行，不会自动重试。
-
-``set_gripper(arm, val, steps=10)`` 使用 0=闭、1=开，``release`` 默认开到 1。中间值表示归一化开度目标，而非物理宽度。反馈读取实测关节状态，夹爪运动期间保持其他关节目标不变。
+自定义动作的参数和返回值见 `运动工具 <https://github.com/RLinf/RPent/blob/main/robots/robodojo/primitives.py>`_ 与 `感知工具 <https://github.com/RLinf/RPent/blob/main/robots/robodojo/tools.py>`_。坐标系、夹持点和运动约束见 `机器人操作指南 <https://github.com/RLinf/RPent/blob/main/robots/robodojo/guides/GUIDE_RPENT.md>`_。
 
 .. _robodojo-local-nvidia-assets:
 

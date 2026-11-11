@@ -463,72 +463,55 @@ for the full option list.
 Tools
 -----
 
-Evaluation runs one episode without reset. Exploration exposes ``reset`` for
-retries of the same scene; Flash replay remains unavailable.
+The planner selects tools and checks fresh observations after each action.
+Choose the action model with ``--am-backend`` and inspect actual tool calls
+in ``transcript_*.json``.
 
-Initial observations and motion feedback include ``episode_status.step``
-(native actions used), ``step_limit`` (total budget), and ``remaining_steps``.
-These counters describe the saved observation; the top-level ``step`` is its
-record index. Reading historical observations does not consume action steps.
+.. list-table::
+   :header-rows: 1
+   :widths: 35 65
 
-``vpp2_act(instruction, chunks=1)`` runs the specified subtask. Each chunk
-predicts 32 absolute dual-arm EE16 targets (xyz, wxyz and gripper per arm)
-and executes the first 24 through native EE control. With ``chunks=1``, control
-returns to the planner; each additional chunk starts with a new prediction.
-VPP2 uses the initial RGB frame and eight history samples spaced by 25 actions.
-Both policy and primitive actions update this history; switching subtasks
-preserves it. Image reads and ``render`` do not advance the action timeline.
-Missing action feedback invalidates policy history until reset; start a new
-episode to resume VPP2 when reset is unavailable.
+   * - Tool
+     - Purpose
+   * - ``vpp2_act``
+     - Execute a planner-supplied subtask with VPP2, such as grasping a specified object.
+   * - ``awomo05_act``
+     - Execute the environment's full task instruction with Awomo05; rewritten subtasks are not supported.
+   * - ``view_env_state``, ``render``
+     - Read saved images and state, or capture a fresh observation.
+   * - ``segment``, ``back_project``
+     - Segment an object with SAM3, then convert a selected pixel to a 3D position.
+   * - ``sample_world_xyz``, ``query_world_map``
+     - Query 3D surface positions for image pixels or regions.
+   * - ``move_to``, ``rotate_wrist``
+     - Move one arm to a target pose, or rotate it about world Z.
+   * - ``set_gripper``, ``release``
+     - Adjust gripper opening or release an object. 0 is closed and 1 is open; intermediate values are normalized targets, not physical widths.
 
-With the Awomo05 backend, ``awomo05_act(chunks=1)`` executes dual-arm
-joint targets using the original full task instruction, taken from the initial
-observation and held fixed for the episode. Each chunk executes eight steps with per-action observation updates; the next chunk starts fresh
-inference. ``chunks`` limits action blocks per call. Model history persists
-across calls and includes observations after motion primitives. Cancelled
-chunks are not resumed. If inference or execution results are uncertain,
-inspect the error and start a new episode rather than retrying.
+Both backends support observations and motion primitives; only the selected
+backend's policy tool is exposed. Evaluation has no ``reset``; exploration can
+reset and retry the same scene. RoboDojo does not support Flash replay.
 
-``view_env_state`` reads saved images and state; ``render`` captures a new
-observation. ``sample_world_xyz(view, pixels, step=None, neighborhood=1)``
-samples [row,col] pixels, with a default 3-by-3 neighborhood. ``query_world_map``
-samples a half-open [r0,c0,r1,c1] image region (default limit 256 points).
-Use views ``head``, ``left_wrist`` or ``right_wrist`` from the source RGB step.
-Both queries use saved same-frame depth, not a live refresh. Invalid depths
-are excluded. These are visible surface coordinates, not object centres.
+To investigate a task result, start with ``result.json`` and the video,
+then use the tool-call log to identify the problem:
 
-``segment`` and ``back_project`` also accept ``step``. Segmentation returns
-``centroid_rc`` and a foreground ``point_rc``; the centroid can lie outside a
-concave mask. Prefer ``point_rc`` and the returned ``step_idx`` for back-projection.
-These two tools retain camera names ``cam_head``, ``cam_left_wrist`` and
-``cam_right_wrist``.
+- Budget exhausted: ``episode_status.remaining_steps`` is the action budget
+  left at observation time; ``step_limit`` is the total allowance. The top-level
+  ``step`` is only an observation index. Reading and querying observations do
+  not consume action steps.
+- Ineffective motion: ``completed`` only means the commands finished, not that
+  the grasp held or the target was reached. Check images, ``executed_steps``,
+  and ``stop_reason``; tool completion is not task success.
+- Service failure: if execution is uncertain, inspect logs and fresh
+  observations before repeating a motion. Invalid policy history requires
+  ``reset`` in exploration or a new episode in evaluation before policy calls
+  can resume.
 
-Describe visible colour, shape and location in ``segment(text_prompt=...)``.
-It returns a red-mask overlay; inspect it before using the point, because a
-high score does not establish object identity. If segmentation fails, revise
-the description or manually query a visible pixel in the same saved frame.
-The overlay and geometry are saved with that frame. Use ``back_project``
-to obtain world coordinates for the selected foreground pixel.
-
-Motion primitives use native cuRobo pose planning and joint-target execution.
-The planner's obstacle model includes a simplified table; choose waypoints
-with clearance from scene objects and the other arm, which are not fully
-represented in that model.
-
-``move_to(arm, xyz, quat=None, gripper=None, substeps=25)`` uses world metres
-and wxyz orientation. Omitted orientation and gripper targets are held.
-``substeps`` caps sampled waypoints. Each executed waypoint consumes one native
-action step (0.04 seconds of simulation). The prompt uses 25 by default, or
-10, 5 and 1 for progressively smaller corrections; 1 sends only the final
-waypoint and does not wait for arrival. ``rotate_wrist``
-rotates about world Z in degrees. ``final_dist_m`` is measured position error,
-not an arrival guarantee. Check ``completed``, ``executed_steps`` and
-``stop_reason``; a timed-out mutation may have executed and is not retried.
-
-``set_gripper(arm, val, steps=10)`` uses 0=closed and 1=open. ``release``
-defaults to 1. Intermediate values are normalized opening targets rather than
-physical widths. Feedback comes from measured joints. Other controller targets
-are retained while the gripper moves.
+For custom actions, see the parameters and return values in the
+`motion tools <https://github.com/RLinf/RPent/blob/main/robots/robodojo/primitives.py>`_
+and `perception tools <https://github.com/RLinf/RPent/blob/main/robots/robodojo/tools.py>`_.
+The `robot operation guide <https://github.com/RLinf/RPent/blob/main/robots/robodojo/guides/GUIDE_RPENT.md>`_
+covers coordinate frames, grasp geometry, and motion constraints.
 
 .. _robodojo-local-nvidia-assets:
 
