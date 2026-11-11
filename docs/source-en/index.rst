@@ -93,6 +93,7 @@ Choose an environment: :doc:`LIBERO <rst_source/simulators/libero>`, :doc:`RoboC
    Command-Line Reference <rst_source/guides/cli>
    Interactive Usage <rst_source/guides/dashboard>
    Flash Mode <rst_source/guides/flash>
+   PyRUA Mode <rst_source/guides/pyrua>
    Trajectory Collection and Data Flywheel <rst_source/guides/flywheel>
    Remote Services and Parallel Runs <rst_source/guides/advanced_deployment>
 
