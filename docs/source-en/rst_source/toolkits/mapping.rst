@@ -120,25 +120,13 @@ in millimetres.
 
 **Install the Python Environment**
 
-Install `uv <https://docs.astral.sh/uv/getting-started/installation/>`_, then
-create a shared Python 3.11 environment for preprocessing and RAFT inference.
-These commands target Linux with an NVIDIA GPU and driver supporting CUDA 12.4:
+Prepare a Python environment with RPent, NumPy, SciPy, PyYAML and OpenCV.
+Follow the `official RAFT-Stereo instructions
+<https://github.com/princeton-vl/RAFT-Stereo#requirements>`_ to clone the
+repository and install inference dependencies. RAFT inference requires an
+NVIDIA GPU.
 
-.. code-block:: bash
-
-   cd /path/to/RPent
-   uv venv --python 3.11 .venv-mapping
-   source .venv-mapping/bin/activate
-   uv pip install -e . "numpy<2" "opencv-python-headless==4.10.0.84" \
-     matplotlib pillow tqdm
-   uv pip install torch==2.5.1 torchvision==0.20.1 \
-     --index-url https://download.pytorch.org/whl/cu124
-   git clone https://github.com/princeton-vl/RAFT-Stereo.git /path/to/RAFT-Stereo
-
-Keep this environment active and change directories as shown below. This
-version combination has not been validated on a GPU; see the
-`official RAFT-Stereo requirements <https://github.com/princeton-vl/RAFT-Stereo#requirements>`_
-for upstream environments.
+Use the same environment throughout; run RPent commands from its source root.
 
 **Step 1: Prepare Stereo Data and Calibration**
 

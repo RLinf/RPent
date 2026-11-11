@@ -85,20 +85,9 @@ RGB-D 输入格式
 
 **安装 Python 环境**
 
-以下命令创建供预处理和 RAFT 推理共用的 Python 3.11 环境，适用于支持 CUDA 12.4 的 Linux/NVIDIA GPU 机器。先安装 `uv <https://docs.astral.sh/uv/getting-started/installation/>`_，然后运行：
+准备包含 RPent、NumPy、SciPy、PyYAML 和 OpenCV 的 Python 环境，并按 `RAFT-Stereo 官方说明 <https://github.com/princeton-vl/RAFT-Stereo#requirements>`_ 克隆仓库、安装推理依赖。RAFT 推理需要 NVIDIA GPU。
 
-.. code-block:: bash
-
-   cd /path/to/RPent
-   uv venv --python 3.11 .venv-mapping
-   source .venv-mapping/bin/activate
-   uv pip install -e . "numpy<2" "opencv-python-headless==4.10.0.84" \
-     matplotlib pillow tqdm
-   uv pip install torch==2.5.1 torchvision==0.20.1 \
-     --index-url https://download.pytorch.org/whl/cu124
-   git clone https://github.com/princeton-vl/RAFT-Stereo.git /path/to/RAFT-Stereo
-
-后续保持该环境激活，按命令切换目录。此版本组合尚未完成 GPU 验证；上游环境要求见 `RAFT-Stereo 官方说明 <https://github.com/princeton-vl/RAFT-Stereo#requirements>`_。
+后续使用同一环境；RPent 命令均从源码根目录运行。
 
 **第一步：准备双目数据和标定**
 
