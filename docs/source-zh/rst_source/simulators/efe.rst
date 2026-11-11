@@ -55,7 +55,7 @@ Harbor 把 RPent 和仿真器放在不同容器中运行。RPent 通过 EFE 提�
 观测与动作
 ~~~~~~~~~~
 
-RPent 提供两种控制方式。默认使用 **Skills**：模型通过 ``move_to_xyz`` 指定工具末端要到达的位置，通过 ``set_gripper`` 指定夹爪开度，RPent 再把请求转换为关节控制指令。使用 **Raw** 时，模型通过 ``efe_submit`` 直接提交任务原生的动作数值。首次运行保留默认配置即可；适用范围与对照命令见 `对照 Skills 与 Raw`_。如果机器人的控制方式不受 Skills 支持，RPent 会自动改用 Raw。
+RPent 提供两种控制方式。默认使用 **Skills**：模型通过 ``move_to_xyz`` 指定工具末端要到达的位置，通过 ``set_gripper`` 指定夹爪开度，RPent 再把请求转换为关节控制指令。使用 **Raw** 时，模型通过 ``efe_submit`` 直接提交任务原生的动作数值。首次运行保留默认配置即可；适用范围与对照命令见 `对照 Skills 与 Raw`_。如果机器人的控制方式超出 Skills 的支持范围，RPent 会自动改用 Raw。
 
 .. list-table::
    :header-rows: 1
@@ -124,13 +124,13 @@ RPent 提供两种控制方式。默认使用 **Skills**：模型通过 ``move_t
 .. code-block:: bash
 
    PYTHONPATH="$RPENT_ROOT${PYTHONPATH:+:$PYTHONPATH}" \
-   uv run --project "$EFE_ROOT" harbor run \\
-     --path "$EFE_TASK" \\
-     --agent robots.efe.harbor_agent:RPentEfeAgent \\
-     --model "$EFE_MODEL" \\
-     --n-concurrent 1 \\
-     --allow-agent-host "$MODEL_HOST" \\
-     --yes \\
+   uv run --project "$EFE_ROOT" harbor run \
+     --path "$EFE_TASK" \
+     --agent robots.efe.harbor_agent:RPentEfeAgent \
+     --model "$EFE_MODEL" \
+     --n-concurrent 1 \
+     --allow-agent-host "$MODEL_HOST" \
+     --yes \
      --jobs-dir "$RPENT_ROOT/logs/efe-rpent"
 
 ``--agent`` 指定 Harbor 加载 RPent 的入口，保留示例值即可。``PYTHONPATH`` 让 Harbor 能从 RPent 源码目录找到它。``--n-concurrent 1`` 表示同时只运行一个任务，``--yes`` 跳过 Harbor 的确认提示。首次运行需要安装依赖，准备阶段可能较长。执行和评分结束后，到 ``logs/efe-rpent`` 查看结果；失败时先检查 ``trial.log`` 和 ``agent/rpent/run.log``。
@@ -197,9 +197,9 @@ RPent 提供两种控制方式。默认使用 **Skills**：模型通过 ``move_t
 任务记忆与探索模式
 ------------------
 
-- ``--agent-kwarg memory_source=/path``：上传已有 RPent 记忆语料，替换本次 Trial 的空记忆目录。
-- ``--agent-kwarg explore_sessions=N``：在同一 Episode 上运行多个独立 Session。
-- 每个 Trial 从空的 ``memory/`` 和独立的 ``codex-home/`` 开始；模型由 ``--model`` 指定，认证信息来自转发的环境变量。
+- ``--agent-kwarg memory_source=/path``：上传已有 RPent 记忆目录供本次 Trial 使用；未指定时，Trial 从空的 ``memory/`` 开始。
+- ``--agent-kwarg explore_sessions=N``：在同一次任务尝试中最多运行 ``N`` 个规划会话；任务结束或时间耗尽时提前停止。后续会话可读取前序会话的工作笔记。
+- 每个 Trial 使用独立的 ``codex-home/``；模型由 ``--model`` 指定，认证信息来自转发的环境变量。
 
 对照 Skills 与 Raw
 ------------------
@@ -225,7 +225,7 @@ RPent 提供两种控制方式。默认使用 **Skills**：模型通过 ``move_t
 
 默认组用两个高层技能代替直接提交关节目标：
 
-- ``move_to_xyz(x, y, z)`` 把末端位置移动到世界坐标：用逆运动学（IK）计算关节位置、提交短动作块，再读回末端位置，直到误差小于 1 cm。它保持当前姿态，Planner 因此可以在笛卡尔空间推理。
+- ``move_to_xyz(x, y, z)`` 将末端移动到世界坐标系中的目标位置：用逆运动学（IK）计算关节位置、提交短动作块，再读回末端位置进行修正。位置误差不超过 1 cm 时停止；也可能因迭代上限、求解失败或任务结束而提前停止。它保持当前姿态，Planner 因此可以在笛卡尔空间推理。
 - ``set_gripper(opening)`` 设置夹爪开合。
 
 Raw 组直接使用服务接口：``efe_spec`` 返回每个动作向量的列含义和顺序（即动作布局），Planner 再按该布局用 ``efe_submit`` 发送关节目标动作块。

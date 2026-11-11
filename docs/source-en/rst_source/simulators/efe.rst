@@ -279,12 +279,13 @@ Common Options
 Task Memory and Exploration
 ---------------------------
 
-- ``--agent-kwarg memory_source=/path``: uploads an existing RPent memory corpus
-  in place of the trial's empty memory directory.
-- ``--agent-kwarg explore_sessions=N``: runs several independent sessions on the
-  same episode.
-- Each trial starts with an empty ``memory/`` and its own ``codex-home/``; the model is selected by ``--model``, and credentials come from the
-  forwarded environment variables.
+- ``--agent-kwarg memory_source=/path``: uploads an existing RPent memory
+  directory for the trial. Without it, the trial starts with an empty ``memory/``.
+- ``--agent-kwarg explore_sessions=N``: runs up to ``N`` planner sessions in
+  the same episode, stopping early if the task ends or time runs out. Later
+  sessions can read working notes from earlier sessions.
+- Each trial uses its own ``codex-home/``; the model is selected by ``--model``,
+  and credentials come from the forwarded environment variables.
 
 Compare Skills and Raw
 ----------------------
@@ -311,11 +312,12 @@ Keep the model and execution budget the same; only the action tools change.
 
 The Skills configuration provides two high-level motion tools:
 
-- ``move_to_xyz(x, y, z)`` moves the tool tip to the world position: it uses
-  inverse kinematics (IK) to calculate joint positions, sends short action
-  sequences, and re-reads the tool position until
-  the error is within 1 cm. It keeps the current orientation, so the planner can
-  reason in Cartesian space.
+- ``move_to_xyz(x, y, z)`` moves the tool tip toward a target in world
+  coordinates: it uses inverse kinematics (IK) to calculate joint positions,
+  sends short action sequences, and re-reads the tool position for corrections.
+  It stops when the position error is at most 1 cm, or earlier if it reaches the
+  iteration limit, the solver fails, or the task ends. It keeps the current
+  orientation, so the planner can reason in Cartesian space.
 - ``set_gripper(opening)`` sets the gripper opening.
 
 The Raw configuration uses the service interface directly. ``efe_spec`` reports the
