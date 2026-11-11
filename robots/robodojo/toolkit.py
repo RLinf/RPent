@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""RoboDojo tool registration and observation capture."""
+"""RoboDojo tool registration, observation capture and exploration guards."""
 
 from __future__ import annotations
 
@@ -61,6 +61,8 @@ class RoboDojoToolkit(Toolkit):
         dashboard_events: DashboardEventSink,
         memory: MemoryManager,
         eval_fair: bool = False,
+        mode: str = "evaluation",
+        attempts_per_session: int = 5,
         state_output_dir: Path | str | None = None,
     ) -> None:
         from robots.robodojo import tools as robodojo_tools
@@ -68,6 +70,16 @@ class RoboDojoToolkit(Toolkit):
         self.eval_fair = eval_fair
         if eval_fair and primitives_kwargs.get("vla_backend") == "awomo05":
             raise ValueError("Stateful policy execution is not supported in eval-fair")
+
+        if mode not in {"evaluation", "exploration"}:
+            raise ValueError(f"unsupported mode: {mode}")
+        if attempts_per_session < 0:
+            raise ValueError("attempts_per_session must be nonnegative")
+        if eval_fair and mode == "exploration":
+            raise ValueError("eval-fair cannot enable exploration")
+        self._mode = mode
+        self._attempt = 1
+        self._attempts_per_session = attempts_per_session
         if eval_fair and not getattr(primitives_kwargs.get("env"), "eval_fair", False):
             raise ValueError("eval-fair requires a mode-validated environment client")
         state = EnvState(Path(state_output_dir or get_output_dir()))
@@ -76,6 +88,9 @@ class RoboDojoToolkit(Toolkit):
             state=state,
             memory=memory,
         )
+        if self._mode == "exploration":
+            self.raise_if_cancelled()
+            primitives_kwargs["env"].reset()
         self.init_primitives(primitives_kwargs=primitives_kwargs)
         try:
             self._register_robodojo_tools(primitives_kwargs.get("vla_backend", "vpp2"))
@@ -111,6 +126,7 @@ class RoboDojoToolkit(Toolkit):
             vla_client=primitives_kwargs.get("vla_client"),
             vla_backend=primitives_kwargs.get("vla_backend", "vpp2"),
             check_cancelled=self.raise_if_cancelled,
+            exploration=self._mode == "exploration",
         )
 
     def solved(self) -> bool:
@@ -173,11 +189,101 @@ class RoboDojoToolkit(Toolkit):
                 name: entry for name, entry in self._tools.items() if name in allowed
             }
 
+        if self._mode == "exploration":
+            self.add_tool(self._reset_episode)
+            self.add_tool(
+                self._primitives.finish.with_handler(self._guarded_finish), replace=True
+            )
+
     @tool
     def render(self) -> ToolResult:
         """Capture fresh RGB and robot state, plus available geometry for enabled tools."""
         self.raise_if_cancelled()
         return ToolResult(data={"success": True})
+
+    @tool(name="reset")
+    def _reset_episode(self) -> ToolResult:
+        """Retry the same task/seed/layout in exploration. Re-perceive after reset."""
+        if self.solved():
+            return ToolResult(data={"error": "reset refused: task already solved"})
+        budget = self._attempts_per_session
+        if budget and self._attempt >= budget:
+            return ToolResult(data={"error": "reset refused: attempt budget exhausted"})
+        result = self._primitives.reset()
+        self._pending_perception = []
+        self._attempt += 1
+        return ToolResult(
+            data={
+                **result,
+                "attempt": self._attempt,
+                "notice": "Re-run perception before acting.",
+            }
+        )
+
+    def _guarded_finish(self, *, status: str, summary: str) -> ToolResult:
+        if (
+            self._attempts_per_session
+            and self._attempt < self._attempts_per_session
+            and not self.solved()
+        ):
+            return ToolResult(
+                data={
+                    "error": "finish refused",
+                    "reason": "Attempts remain: archive this attempt, reset and change the plan.",
+                }
+            )
+        return self._call_robodojo_tool(
+            self._primitives.finish, status=status, summary=summary
+        )
+
+    def write_recipe(self, recipe_tag: str) -> str:
+        """Export successful-attempt motion and SAM3 calls in invocation order."""
+        if not self.solved():
+            return ""
+        records = self._state.records()
+        last_reset = max(
+            (
+                r.step_idx
+                for r in records
+                if (r.command or {}).get("action") == "reset"
+                and (r.result or {}).get("success") is True
+            ),
+            default=-1,
+        )
+        records = [r for r in records if r.step_idx > last_reset]
+        if self._mode == "exploration" and not any(r.terminated for r in records):
+            return ""
+
+        def segment_commands(perception: list[dict]) -> list[dict]:
+            return [
+                {"action": "segment", **event["arguments"]}
+                for event in perception
+                if event["action"] == "segment"
+                and event["result"].get("found") is True
+                and not event["result"].get("error")
+            ]
+
+        recipe = []
+        for record in records:
+            # Read-only calls precede this action, even when they query an
+            # older saved image. Artifact image steps are not invocation order.
+            recipe.extend(segment_commands(record.extras.get("perception", [])))
+            if (
+                (record.command or {}).get("action")
+                in (MOTION_TOOLS | set(POLICY_TOOLS.values()))
+                and not (record.result or {}).get("error")
+                and (record.result or {}).get("success") is not False
+            ):
+                recipe.append(record.command)
+        recipe.extend(segment_commands(self._pending_perception))
+        name = f"{recipe_tag}_recipe.jsonl"
+        destination = (
+            EnvState(Path(get_output_dir()))
+            if self._mode == "exploration"
+            else self._state
+        )
+        destination.save(name, recipe, step=None)
+        return str(destination.artifact_path(name, step=None))
 
     def get_env_state(
         self,
