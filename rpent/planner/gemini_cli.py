@@ -145,7 +145,7 @@ class GeminiCliPlanner(Planner):
         with tempfile.TemporaryDirectory(
             prefix="gemini_cli_", dir=self._output_dir
         ) as cwd:
-            root = Path(cwd)
+            root = Path(cwd).resolve()
 
             def create_session(url, control, emit):
                 _write_settings(

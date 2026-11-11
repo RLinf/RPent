@@ -209,6 +209,10 @@ def acp_backend(monkeypatch):
                 pytest.fail("RPent must not change CLI authentication")
 
             async def new_session(self, **kwargs):
+                session_cwd = Path(kwargs["cwd"])
+                assert session_cwd.is_absolute()
+                assert session_cwd == cwd
+                assert (session_cwd / ".gemini" / "settings.json").is_file()
                 seen["events"].append("new_session")
                 return SimpleNamespace(session_id="same-session")
 
@@ -262,6 +266,21 @@ def acp_backend(monkeypatch):
 
     monkeypatch.setattr(acp, "spawn_agent_process", spawn)
     return seen
+
+
+def test_relative_output_directory_uses_absolute_session_workspace(
+    tmp_path, monkeypatch, acp_backend
+):
+    monkeypatch.chdir(tmp_path)
+    toolkit = Mock()
+    toolkit.list_tools.return_value = (SimpleNamespace(name="finish"),)
+    result = make_planner(Path("logs/run")).solve(
+        system_prompt="", user_message="task", toolkit=toolkit, max_turns=1
+    )
+    assert result.error is None
+    assert result.finish_result["_finish"] is True
+    assert Path(result.stats["output_path"]).is_file()
+    assert not acp_backend["cwd"].exists()
 
 
 @pytest.mark.parametrize(
