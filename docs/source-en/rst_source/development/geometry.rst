@@ -390,9 +390,7 @@ error bounds.
      - 378.348
 
 Errors include only evaluable requests with returned coordinates. Coverage
-also counts refusals, failures and unrun requests. Download the
-:download:`evaluation report <../../../../toolkits/geometry/evaluation/report.md>`
-for per-part summaries and all per-request coordinate comparisons.
+also counts refusals, failures and unrun requests.
 
 Keep captures, predictions and generated reports outside the source checkout.
 After capture, reference generation and inference, set ``GEOMETRY_RUN_DIR``
