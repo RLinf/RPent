@@ -359,6 +359,78 @@ Without ``--output-dir``, results go to
 ``logs/<timestamp>_robodojo_<task>_s<seed>_l<layout>/``. Use different directories for
 concurrent runs. For live monitoring, see :doc:`../guides/dashboard`.
 
+Task Memory and Exploration Mode
+--------------------------------
+
+For instructions on using memory and exploration mode, see :doc:`../guides/memory`.
+
+During evaluation, the planner reads the memory corpus without modifying it.
+The planner references
+the JSON task record and JSONL action sequence for the exact task variant at
+seed 0 and layout 0, together with its task-family note and relevant global
+lessons. Standard and ``*_random``
+references remain separate; missing references are reported, and the planner
+continues from current observations. Other exploration cells remain available
+as evidence but are not the evaluation prompt's default reference.
+
+To evaluate with a prepared local corpus:
+
+.. code-block:: bash
+
+   rpent --robot robodojo --am-backend vpp2 \
+     --task stack_blocks --seed 1 --layout 0 \
+     --planner codex --model <planner-model> --reasoning-effort low \
+     --memory-profile local --memory-dir /path/to/robodojo-memory \
+     --max-turns 10000 --max-episode-steps 10000 --planner-timeout-s 4800 \
+     --output-dir /path/to/eval-output
+
+For a published Hugging Face corpus, use ``--memory-profile hf`` and
+``--memory-repo RLinf/RPent-memory@COMMIT_SHA`` instead of the local memory
+arguments. RPent loads memory from the ``robodojo/`` directory at the specified
+dataset revision. Replace ``COMMIT_SHA`` with the dataset commit SHA to use. See
+:doc:`../guides/memory` for source selection and publication.
+
+Exploration retries the same task, seed group and layout, with up to three
+planner sessions and five attempts per session by default. Working notes and
+draft lessons are saved locally. Once the environment confirms task success,
+no further sessions are started. Configure the services as described above,
+then run:
+
+.. code-block:: bash
+
+   rpent --robot robodojo --am-backend vpp2 \
+     --task stack_blocks --seed 0 --layout 0 --explore \
+     --planner codex --model <planner-model> --reasoning-effort low \
+     --memory-dir /path/to/robodojo-memory \
+     --explore-sessions 3 --explore-attempts-per-session 5 \
+     --max-turns 10000 --max-episode-steps 10000 --planner-timeout-s 4800 \
+     --output-dir /path/to/explore-output
+
+Use ``--task stack_blocks_random`` to explore the saved randomized variant.
+The ``--random`` flag generates a new scene and is unavailable in exploration.
+In both examples, ``--max-episode-steps 10000`` does not increase the task's
+native action limit. ``--planner-timeout-s`` limits the total duration of each
+planner session, including reasoning and tool calls.
+
+The planner reads ``robots/robodojo/guides/GUIDE_RPENT.md`` and follows the
+mode-specific prompt. Exploration records failed attempts under run output and
+working notes in the cell's ``_internal/inbox/<cell>/wip/``. After the environment
+confirms task success, RPent saves eligible motion commands and SAM3 calls that
+returned a mask without an error from the final attempt to
+``<cell>_recipe.jsonl``, in invocation order. A returned mask does not establish
+that the correct object was identified; the images still need to be checked.
+The planner separately writes the matching ``<cell>.json`` task record and
+drafts task-family and global lessons.
+
+By default, after exploration, RPent saves the successful task's JSON record
+and matching JSONL action sequence under local ``task-specific/``, merges valid
+draft lessons into ``task-family/`` and ``global/``, and updates the memory
+index ``MEMORY.md``. Use ``--no-auto-merge-memory`` to disable automatic merging
+and retain the output for manual review. These operations only write local
+files; they do not upload anything to Hugging Face. Memory intended for public
+sharing is reviewed separately in the dataset repository. See
+:doc:`../development/memory` for the shared file layout.
+
 Common Options
 --------------
 
@@ -391,7 +463,8 @@ for the full option list.
 Tools
 -----
 
-The planner cannot reset an episode; exploration and Flash replay are unavailable.
+Evaluation runs one episode without reset. Exploration exposes ``reset`` for
+retries of the same scene; Flash replay remains unavailable.
 
 Initial observations and motion feedback include ``episode_status.step``
 (native actions used), ``step_limit`` (total budget), and ``remaining_steps``.
@@ -444,8 +517,10 @@ represented in that model.
 
 ``move_to(arm, xyz, quat=None, gripper=None, substeps=25)`` uses world metres
 and wxyz orientation. Omitted orientation and gripper targets are held.
-``substeps`` caps sampled waypoints: 0 keeps the full path, 1 keeps only its
-final waypoint. It is not a speed or physics-step count. ``rotate_wrist``
+``substeps`` caps sampled waypoints. Each executed waypoint consumes one native
+action step (0.04 seconds of simulation). The prompt uses 25 by default, or
+10, 5 and 1 for progressively smaller corrections; 1 sends only the final
+waypoint and does not wait for arrival. ``rotate_wrist``
 rotates about world Z in degrees. ``final_dist_m`` is measured position error,
 not an arrival guarantee. Check ``completed``, ``executed_steps`` and
 ``stop_reason``; a timed-out mutation may have executed and is not retried.

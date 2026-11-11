@@ -304,7 +304,7 @@ def policy_toolkit(monkeypatch, tmp_path):
     monkeypatch.setattr(logging, "_output_dir", tmp_path)
     instances = []
 
-    def build(backend, limit=100, done_at=None, **kwargs):
+    def build(backend, limit=100, done_at=None, mode="evaluation", **kwargs):
         env = FakeEnv(limit, done_at, record_vpp2_history=backend == "vpp2")
         policy = VPP2Policy(env) if backend == "vpp2" else EpisodePolicy()
         kit = RoboDojoToolkit(
@@ -317,6 +317,7 @@ def policy_toolkit(monkeypatch, tmp_path):
             dashboard_events=NullDashboardEventSink(),
             memory=MemoryManager(tmp_path / "memory"),
             state_output_dir=tmp_path / str(len(instances)),
+            mode=mode,
         )
         instances.append(kit)
         return env, policy, kit
