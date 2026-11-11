@@ -16,11 +16,11 @@
 
 GEOMETRY_INSTRUCTIONS = """Use GeometryTool for complex geometry perception through geometry.
 Request observed surface positions or fitted part geometry.
-Describe the target's appearance, visible part and spatial relation. Supply a
-camera name available from the observation provider, a recorded step (-1 for
-latest), and either a surface measurement or required_geometry. Do not guess
-pixels or XYZ. Calibration and coordinate frames come from the observation
-provider, not from this tool call.
+Identify one target instance by appearance and spatial relation, and name its
+visible part. Supply a camera name available from the observation provider,
+a recorded step (-1 for latest), and either a surface measurement or
+required_geometry. Do not guess pixels or XYZ. Calibration and coordinate
+frames come from the observation provider, not from this tool call.
 
 surface_point is one visible material point. visible_region gives the
 coordinate-wise median and bounds of visible segmented samples, not a fitted

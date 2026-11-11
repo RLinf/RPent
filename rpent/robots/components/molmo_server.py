@@ -22,10 +22,9 @@ Run manually with::
 Runs under the ``molmo`` extra's own interpreter, which does not have RPent
 installed -- hence the explicit ``PYTHONPATH``.
 
-Where SAM3 answers "which pixels are this phrase", Molmo answers "where would
-you put the gripper" -- an open-vocabulary point on a named object, for phrases
-no mask proposal names. The service exposes a ``molmo.ground`` RPC method over
-either HTTP or socket transport.
+The ``molmo.ground`` RPC selects an open-vocabulary point over HTTP or socket.
+Its default manipulation mode serves Flash. Geometry mode selects a visible
+material point on an exact object part using the same loaded Molmo2 model.
 """
 
 from __future__ import annotations
@@ -38,7 +37,7 @@ import os
 import re
 import threading
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from PIL import Image
 
@@ -51,14 +50,21 @@ logger = get_logger("molmo_server")
 #: x and y are thousandths zero-padded to three digits.
 _COORDS = re.compile(r"<(?:point|points)\b[^>]*\bcoords=[\"']([^\"']+)[\"']", re.I)
 _POINT = re.compile(r"[0-9]+[ \t]+([0-9]{3,4})[ \t]+([0-9]{3,4})")
+_SINGLE_POINT = re.compile(r"(?:1[ \t]+)?[0-9]+[ \t]+([0-9]{3,4})[ \t]+([0-9]{3,4})")
 
 
-def _parse_point(answer: str) -> tuple[float, float] | None:
-    """Return the first normalized Molmo2 point from generated markup."""
-    coords = _COORDS.search(answer)
-    if coords is None:
+def _parse_point(
+    answer: str, *, require_single: bool = False
+) -> tuple[float, float] | None:
+    """Read native Molmo2 coordinates, optionally requiring one point/image."""
+    coords = list(_COORDS.finditer(answer))
+    if not coords or (require_single and len(coords) != 1):
         return None
-    point = _POINT.search(coords.group(1))
+    point = (
+        _SINGLE_POINT.fullmatch(coords[0].group(1).strip())
+        if require_single
+        else _POINT.search(coords[0].group(1))
+    )
     if point is None:
         return None
     x, y = float(point.group(1)), float(point.group(2))
@@ -121,15 +127,39 @@ class MolmoFacade(RpcFacade):
         self._rpc["molmo.ground"] = self.ground
         self._readonly_methods.add("molmo.ground")
 
-    def _ground_bytes(self, image_bytes: bytes, query: str) -> MolmoResult:
+    def _ground_bytes(
+        self,
+        image_bytes: bytes,
+        query: str,
+        *,
+        point_mode: Literal["manipulation", "geometry"] = "manipulation",
+    ) -> MolmoResult:
         """Run one grounding prompt against the loaded model."""
         image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         width, height = image.size
-        prompt = (
-            f"Point to {query} in this robot camera image. Choose the final "
-            "safe manipulation point yourself, on visible object surface and "
-            "away from edges. Return one point only."
-        )
+        if point_mode == "geometry":
+            prompt = (
+                "Point to one visible material point on the exact object and "
+                "part described below. Match the object's appearance and spatial "
+                "relations to distinguish it from similar objects. Select a "
+                "pixel on the requested physical surface or boundary, not a "
+                "grasp point or an empty geometric center. For a rim, select "
+                "rim material, not the empty opening or interior floor; an inner "
+                "rim means the inner upper edge. For a lid or top face, select "
+                "that face, not the side wall or its label. A requested edge "
+                "must stay on that edge. Do not substitute another part or "
+                "object. If the target or requested part is absent, fully "
+                "occluded, or cannot be uniquely identified, reply 'not found' "
+                "without point markup. Otherwise return exactly one point in "
+                "native Molmo2 point markup, with no explanation.\n"
+                f"Target and part: {query}"
+            )
+        else:
+            prompt = (
+                f"Point to {query} in this robot camera image. Choose the final "
+                "safe manipulation point yourself, on visible object surface and "
+                "away from edges. Return one point only."
+            )
         inputs = self._processor.apply_chat_template(
             [
                 {
@@ -148,12 +178,14 @@ class MolmoFacade(RpcFacade):
         inputs = {key: value.to(self._model.device) for key, value in inputs.items()}
         with self._lock, self._torch.inference_mode():
             generated = self._model.generate(
-                **inputs, max_new_tokens=48, do_sample=False
+                **inputs,
+                max_new_tokens=96 if point_mode == "geometry" else 48,
+                do_sample=False,
             )
         answer = self._processor.tokenizer.decode(
             generated[0, inputs["input_ids"].shape[1] :], skip_special_tokens=False
         )
-        normalized = _parse_point(answer)
+        normalized = _parse_point(answer, require_single=point_mode == "geometry")
         point = None
         if normalized is not None:
             x, y = normalized
@@ -161,9 +193,20 @@ class MolmoFacade(RpcFacade):
                 x / 1000 * width,
                 y / 1000 * height,
             ]
+            if point_mode == "geometry":
+                # Molmo2's 1000 denotes the image edge, not a valid array index.
+                point = [min(width - 1, point[0]), min(height - 1, point[1])]
         return MolmoResult(point_xy=point, answer=answer, image_size=[width, height])
 
-    def ground(self, image_base64: str, query: str) -> dict[str, Any]:
+    def ground(
+        self,
+        image_base64: str,
+        query: str,
+        *,
+        point_mode: Literal["manipulation", "geometry"] = "manipulation",
+    ) -> dict[str, Any]:
+        if point_mode not in ("manipulation", "geometry"):
+            raise ValueError("point_mode must be manipulation or geometry")
         if not isinstance(query, str) or not query.strip():
             raise ValueError("ground requires a non-empty query")
         query = query.strip()
@@ -173,7 +216,7 @@ class MolmoFacade(RpcFacade):
         image_bytes = base64.b64decode(image_base64, validate=True)
         if not image_bytes:
             raise ValueError("image_base64 is empty")
-        return self._ground_bytes(image_bytes, query).to_dict()
+        return self._ground_bytes(image_bytes, query, point_mode=point_mode).to_dict()
 
 
 def _build_argparser() -> argparse.ArgumentParser:

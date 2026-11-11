@@ -64,6 +64,7 @@ class GeometryTool:
     and coordinate-frame identity. EnvState persists evidence at those existing
     steps. Visual models select material pixels; the program handles metric
     coordinates, part dispatch, point clouds and geometric acceptance.
+    Callers initialize and inject the grounding and segmentation clients.
     """
 
     def __init__(
@@ -71,10 +72,9 @@ class GeometryTool:
         *,
         state: EnvState,
         observations: ObservationProvider,
+        grounder: VisualGrounder,
         segmenter: Segmenter | None = None,
-        grounder: VisualGrounder | None = None,
         model: str | None = None,
-        base_url: str | None = None,
         fit_options: FitOptions | None = None,
         check_cancelled: Callable[[], None] | None = None,
     ) -> None:
@@ -82,11 +82,7 @@ class GeometryTool:
         self._observations = observations
         self._perception = perception.GeometryPerception(segmenter)
         self._grounder = grounder
-        self._model = model
-        if grounder is None and model:
-            from rpent.robots.components.grounding_agent import GroundingAgent
-
-            self._grounder = GroundingAgent(model=model, base_url=base_url)
+        self._model = model  # Evidence metadata; the caller owns model clients.
         self._fit_options = fit_options or FitOptions()
         self._check_cancelled = check_cancelled or (lambda: None)
         self._lock = threading.Lock()
@@ -251,18 +247,16 @@ class GeometryTool:
         nn = observation.step
         image = self._state.load_bytes(data["image_artifact"], step=nn)
         height, width = observation.rgb.shape[:2]
-        if self._grounder is None:
-            raise ValueError("geometry requires an injected grounder or model")
         check_cancelled()
         data["calls"]["grounding"] += 1
         selected = self._grounder.ground(image, data["query"])
+        if not selected.found or selected.point_xy is None:
+            self._need_view(data, "target_not_identified_in_source_image")
+            return []
         if selected.image_size != (width, height):
             raise ValueError(
                 "grounding result does not match the pinned RGB resolution"
             )
-        if not selected.found or selected.point_xy is None:
-            self._need_view(data, "target_not_identified_in_source_image")
-            return []
         col, row = selected.point_xy
         if not np.isfinite([row, col]).all() or not (
             0 <= row < height and 0 <= col < width

@@ -683,7 +683,7 @@ def fit_part_geometry(
             boundary,
             {"method": "barrel_radius_profile_and_observed_object_ends"},
         )
-    plane = fit_plane(points, options, camera_origin=camera_origin)
+    plane = fit_plane(points, options, camera_origin=camera_origin, anchor=anchor)
     if not plane.parameters:
         return PartFit(plane, points, points, empty)
     origin, normal = (

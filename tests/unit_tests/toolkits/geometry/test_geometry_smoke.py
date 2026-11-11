@@ -24,7 +24,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from rpent.robots.components.molmo_client import MolmoResult
+from rpent.robots.components.molmo_client import MolmoClient, MolmoResult
 from rpent.robots.components.sam3_client import Sam3Result
 from rpent.session import EnvState
 from toolkits.geometry.geometry_tool import GeometryTool
@@ -71,6 +71,7 @@ from toolkits.geometry.geometry_tool import GeometryTool
 assert GeometryTool.geometry.name == "geometry"
 assert GeometryTool.geometry.readonly
 assert not {"torch", "rlinf", "mujoco", "robosuite", "sam3"}.intersection(sys.modules)
+assert "rpent.robots.components.grounding_agent" not in sys.modules
 assert not any(name.startswith("robots.") for name in sys.modules)
 """
     result = subprocess.run(
@@ -84,10 +85,7 @@ assert not any(name.startswith("robots.") for name in sys.modules)
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def test_generic_tool_dispatch_and_model_adapter(tmp_path, monkeypatch):
-    from pydantic_ai.models.test import TestModel
-
-    import rpent.planner.base as base
+def test_generic_tool_dispatch_with_injected_molmo(tmp_path, monkeypatch):
     from rpent.dashboard.events import NullDashboardEventSink
     from rpent.memory.manager import MemoryManager
     from rpent.tools.toolkit import Toolkit
@@ -99,13 +97,15 @@ def test_generic_tool_dispatch_and_model_adapter(tmp_path, monkeypatch):
     monkeypatch.setattr(
         templates, "default_variables", lambda: {"output_dir": str(tmp_path)}
     )
-    monkeypatch.setattr(
-        base,
-        "build_api_model",
-        lambda *a: TestModel(custom_output_args={"point_xy": [5, 3]}),
-    )
+    rpc_calls = []
+
+    def call(method, *, kwargs, timeout_s):
+        rpc_calls.append((method, kwargs))
+        return {"point_xy": [5, 3], "image_size": [8, 6]}
+
+    grounder = MolmoClient(SimpleNamespace(call=call), point_mode="geometry")
     geometry_tool = GeometryTool(
-        state=state, observations=source, model="test:geometry"
+        state=state, observations=source, grounder=grounder, model="Molmo2-8B"
     )
     parent = Toolkit(
         state=state,
@@ -128,9 +128,35 @@ def test_generic_tool_dispatch_and_model_adapter(tmp_path, monkeypatch):
     assert data["status"] == "usable", data
     np.testing.assert_allclose(data["world_xyz"], frame.world_xyz[3, 5])
     assert data["world_frame_id"] == "workcell/base"
+    assert data["model"] == "Molmo2-8B"
+    assert rpc_calls[0][0] == "molmo.ground"
+    assert rpc_calls[0][1]["point_mode"] == "geometry"
+    assert rpc_calls[0][1]["query"] == "blue handle"
     assert calls == [{"camera": frame.camera, "step": -1}]
     assert state.load(data["geometry_artifact"], step=0)["status"] == "usable"
     assert len(state.records()) == 1
+
+
+@pytest.mark.parametrize("image_size", [None, [8, 6]])
+def test_molmo_miss_requests_observation_without_depth_or_segmentation(
+    tmp_path, image_size
+):
+    state, frame, source, _ = _inputs(tmp_path, np.ones((6, 8, 3)))
+    payload = {"answer": "not found"}
+    if image_size is not None:
+        payload["image_size"] = image_size
+    grounder = MolmoClient(
+        SimpleNamespace(call=lambda *a, **kw: payload), point_mode="geometry"
+    )
+    data = (
+        GeometryTool(state=state, observations=source, grounder=grounder)
+        .geometry("the hidden handle of the blue cup", camera=frame.camera)
+        .data
+    )
+    assert data["status"] == "need_observation", data
+    assert data["reason"] == "target_not_identified_in_source_image"
+    assert data["world_xyz"] is None
+    assert data["calls"] == {"grounding": 1, "segment": 0, "back_project": 0}
 
 
 def test_depth_projection_in_caller_coordinate_frame(tmp_path):
@@ -515,3 +541,62 @@ def test_cleaning_uses_explicit_up_direction():
     assert "background_plane" in supplied.quality
     assert "background_plane" not in unspecified.quality
     assert np.isfinite(supplied.points).all()
+
+
+@pytest.mark.parametrize("angle", [0.0, 1.1])
+def test_plane_at_material_anchor_wins_over_larger_side_face(angle):
+    from toolkits.geometry.geometry import fit_plane
+
+    x, y = np.meshgrid(np.linspace(-0.025, 0.025, 17), np.linspace(-0.025, 0.025, 17))
+    face = np.column_stack((x.ravel(), y.ravel(), np.full(x.size, 0.03)))
+    y, z = np.meshgrid(np.linspace(-0.04, 0.04, 32), np.linspace(-0.03, 0.03, 32))
+    wall = np.column_stack((np.full(y.size, 0.04), y.ravel(), z.ravel()))
+    rotation = np.array(
+        [
+            [np.cos(angle), 0, np.sin(angle)],
+            [0, 1, 0],
+            [-np.sin(angle), 0, np.cos(angle)],
+        ]
+    )
+    translation = np.array([0.4, -0.2, 0.7])
+    points = np.vstack((face, wall)) @ rotation.T + translation
+    anchor = rotation @ np.array([0, 0, 0.03]) + translation
+    dominant = fit_plane(points)
+    selected = fit_plane(points, anchor=anchor)
+    assert abs(np.asarray(dominant.parameters["normal"]) @ rotation[:, 0]) > 0.99
+    normal = np.asarray(selected.parameters["normal"])
+    assert abs(normal @ rotation[:, 2]) > 0.99
+    assert abs((anchor - selected.parameters["point"]) @ normal) < 0.001
+    assert "low_plane_inlier_ratio" in selected.warnings
+
+
+def test_short_arc_refinement_does_not_extrapolate_a_metre_scale_circle():
+    from toolkits.geometry.geometry import fit_circle
+
+    angles = np.linspace(-0.02, 0.02, 100)
+    rng = np.random.default_rng(12)
+    points = np.column_stack(
+        (
+            2 * np.sin(angles),
+            2 * (1 - np.cos(angles)) + rng.normal(0, 0.0001, len(angles)),
+            np.zeros(len(angles)),
+        )
+    )
+    fitted = fit_circle(points)
+    assert fitted.parameters and not fitted.accepted
+    assert np.isfinite(fitted.parameters["center"]).all()
+    assert fitted.parameters["radius"] < 0.2
+    assert np.linalg.norm(fitted.parameters["center"]) < 0.2
+    assert "unstable_circle_fit" in fitted.warnings
+    assert "insufficient_circle_angular_coverage" in fitted.warnings
+
+
+def test_plane_keeps_estimate_when_no_plane_matches_the_anchor():
+    from toolkits.geometry.geometry import fit_plane
+
+    x, y = np.meshgrid(np.linspace(-0.03, 0.03, 12), np.linspace(-0.03, 0.03, 12))
+    points = np.column_stack((x.ravel(), y.ravel(), np.zeros(x.size)))
+    fitted = fit_plane(points, anchor=np.array([0, 0, 1.0]))
+    assert fitted.parameters and not fitted.accepted
+    np.testing.assert_allclose(fitted.parameters["point"][2], 0)
+    assert "selected_plane_does_not_contain_visual_face_anchor" in fitted.warnings

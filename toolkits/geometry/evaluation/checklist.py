@@ -24,23 +24,51 @@ from typing import Any
 from toolkits.geometry.part_geometry import PART_DEFINITIONS
 
 REFERENCES = {
-    "plate": ("盘面中心", "the plate", "plate_center"),
-    "ramekin": ("小烤碗碗口中心", "the small ramekin", "inner_rim_center"),
-    "cheese": ("奶酪盒顶面中心", "the cheese box", "rectangle_center"),
-    "soup": ("汤罐罐顶中心", "the soup can", "lid_center"),
-    "black_bowl": ("黑碗碗口中心", "the black bowl", "inner_rim_center"),
-    "wine_bottle": ("酒瓶瓶身主段中心", "the wine bottle", "body_segment_center"),
+    "plate": (
+        "盘面中心",
+        "the white ceramic plate with concentric red rings around its rim",
+        "plate_center",
+    ),
+    "ramekin": (
+        "小烤碗碗口中心",
+        "the small light-colored round ramekin with vertically fluted sides",
+        "inner_rim_center",
+    ),
+    "cheese": (
+        "奶酪盒顶面中心",
+        "the blue-and-white rectangular cream cheese box",
+        "rectangle_center",
+    ),
+    "soup": (
+        "汤罐罐顶中心",
+        "the cylindrical soup can with a blue-and-yellow label",
+        "lid_center",
+    ),
+    "black_bowl": (
+        "黑碗碗口中心",
+        "the black-and-white floral-patterned bowl with a thin yellow rim",
+        "inner_rim_center",
+    ),
+    "wine_bottle": (
+        "酒瓶瓶身主段中心",
+        "the tall dark-green wine bottle with a narrow neck and a gold-colored cap",
+        "body_segment_center",
+    ),
     "gray_white_mug": (
         "灰白纹理杯杯口中心",
-        "the gray and white textured mug",
+        "the gray-and-white ceramic mug with raised textured sides",
         "inner_rim_center",
     ),
     "yellow_white_mug": (
         "黄白杯杯口中心",
-        "the yellow and white mug",
+        "the smooth two-tone yellow-and-white mug with a yellow handle",
         "inner_rim_center",
     ),
-    "microwave": ("微波炉机身顶面中心", "the microwave body", "rectangle_center"),
+    "microwave": (
+        "微波炉机身顶面中心",
+        "the black microwave oven housing, excluding its hinged door",
+        "rectangle_center",
+    ),
 }
 TASK_ROWS = (
     ("libero_spatial_task", 0, "plate", "ramekin"),

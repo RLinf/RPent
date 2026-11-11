@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import base64
 import csv
 import io
 import json
@@ -117,7 +118,7 @@ from toolkits.geometry.evaluation.checklist import build_manifest, manifest_dige
 manifest = build_manifest()
 assert manifest['counts'] == {'task_rows': 16, 'cases': 80, 'requests': 160}
 assert len({r['request_id'] for c in manifest['cases'] for r in c['requests']}) == 160
-assert manifest_digest(manifest) == '27f89e9a7a1afe32cfbe4071968b3b8e1dddc2565ef5958d046858bf6bab6e93'
+assert manifest_digest(manifest) == '4bb958ab11954844f93a64662bcea49562b218bd5bd597654e55625e4f00414b'
 assert not {'mujoco', 'torch', 'rlinf', 'sam3'}.intersection(sys.modules)
 assert 'robots.libero.env_server' not in sys.modules
 main(['write-manifest', '--output', 'manifest.json'])
@@ -209,6 +210,7 @@ def test_capture_closes_its_environment_on_failure():
 
 
 def test_initial_frame_record_replay_and_error_report(tmp_path, monkeypatch):
+    from rpent.utils import rpc
     from toolkits.geometry.evaluation import libero
 
     manifest, cases = _case()
@@ -228,26 +230,57 @@ def test_initial_frame_record_replay_and_error_report(tmp_path, monkeypatch):
     rows, cols = np.indices((128, 128))
     radii = np.hypot((cols - 64) * 0.001, (rows - 64) * 0.001)
     mask = (radii >= 0.032) & (radii <= 0.045)
-    grounder = SimpleNamespace(
-        ground=lambda image, query: MolmoResult(
-            found="yellow" not in query,
-            point_xy=None if "yellow" in query else (96, 64),
-            image_size=(128, 128),
-        )
-    )
-    segmenter = SimpleNamespace(
-        segment=lambda *a, **kw: Sam3Result(found=True, mask=mask, score=0.95)
-    )
+    encoded_mask = base64.b64encode(
+        imageio.imwrite("<bytes>", mask.astype(np.uint8) * 255, extension=".png")
+    ).decode("ascii")
+    rpc_calls, endpoints = [], []
+
+    def call(method, *, kwargs, timeout_s):
+        rpc_calls.append((method, kwargs))
+        if method == "molmo.ground":
+            assert kwargs["point_mode"] == "geometry"
+            return {
+                "point_xy": None if "yellow" in kwargs["query"] else [96, 64],
+                "image_size": [128, 128],
+            }
+        assert method == "sam3.segment"
+        return {
+            "found": True,
+            "mask_png_base64": encoded_mask,
+            "mask_shape": [128, 128],
+            "score": 0.95,
+        }
+
+    def connect(endpoint):
+        endpoints.append(endpoint)
+        return SimpleNamespace(call=call)
+
+    monkeypatch.setattr(rpc, "make_rpc_client", connect)
     first = tmp_path / "live"
-    experiment.fresh_output(first)
-    predictions = experiment.infer_cases(
-        manifest,
-        cases,
-        inputs,
-        first,
-        grounder=RecordingGrounder(grounder, first / "perception"),
-        segmenter=RecordingSegmenter(segmenter, first / "perception"),
+    assert (
+        experiment.main(
+            [
+                "infer",
+                "--inputs",
+                str(inputs),
+                "--output",
+                str(first),
+                "--case",
+                case["case_id"],
+                "--molmo-endpoint",
+                "http://molmo:8115",
+                "--sam3-endpoint",
+                "http://sam3:8114",
+            ]
+        )
+        == 0
     )
+    assert endpoints == ["http://molmo:8115", "http://sam3:8114"]
+    live_header = json.loads((first / "run_manifest.json").read_text())
+    assert live_header["geometry_model"] == "Molmo2-8B"
+    assert live_header["perception_mode"] == "live"
+    assert sum(method == "molmo.ground" for method, _ in rpc_calls) == 2
+    predictions = read_jsonl(first / "results.jsonl")
     assert predictions[0]["status"] == "usable", predictions[0]
     assert predictions[1]["status"] == "need_observation"
     legacy_grounding = tmp_path / "grounding-results.jsonl"

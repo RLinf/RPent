@@ -149,12 +149,27 @@ def _support_quality(
 
 
 def _plane_consensus(
-    points: np.ndarray, options: FitOptions, *, normal_hint: np.ndarray | None = None
+    points: np.ndarray,
+    options: FitOptions,
+    *,
+    normal_hint: np.ndarray | None = None,
+    anchor: np.ndarray | None = None,
 ) -> np.ndarray:
     rng = np.random.default_rng(0)
     best = np.zeros(len(points), dtype=bool)
-    for _ in range(options.ransac_iterations):
-        a, b, c = points[rng.choice(len(points), 3, replace=False)]
+    unanchored_best = best.copy()
+    local = (
+        points[
+            np.argsort(np.linalg.norm(points - anchor, axis=1))[: options.min_points]
+        ]
+        if anchor is not None
+        else points
+    )
+    for iteration in range(options.ransac_iterations):
+        # A small selected face must remain discoverable inside a larger object
+        # mask. Alternate local seeds with full-cloud RANSAC hypotheses.
+        candidates = local if anchor is not None and iteration % 2 == 0 else points
+        a, b, c = candidates[rng.choice(len(candidates), 3, replace=False)]
         normal = np.cross(b - a, c - a)
         length = np.linalg.norm(normal)
         if length < 1e-12:
@@ -165,9 +180,16 @@ def _plane_consensus(
         ):
             continue
         inliers = np.abs((points - a) @ normal) <= options.distance_threshold_m
+        if inliers.sum() > unanchored_best.sum():
+            unanchored_best = inliers
+        if (
+            anchor is not None
+            and abs(float((anchor - a) @ normal)) > 3 * options.distance_threshold_m
+        ):
+            continue
         if inliers.sum() > best.sum():
             best = inliers
-    return best
+    return best if best.sum() >= 3 else unanchored_best
 
 
 def fit_plane(
@@ -175,15 +197,21 @@ def fit_plane(
     options: FitOptions | None = None,
     *,
     camera_origin: np.ndarray | None = None,
+    anchor: np.ndarray | None = None,
 ) -> ShapeFit:
-    """Fit a visible planar patch using RANSAC and SVD; no full-face dimensions."""
+    """Fit a visible plane, preferring the face at an optional material anchor."""
     options = options or FitOptions()
     points = _points(points)
     result = ShapeFit("plane", assumptions=["one dominant planar visible patch"])
     if len(points) < 3 or not np.isfinite(points).all():
         result.reason = "insufficient_finite_points"
         return result
-    inliers = _plane_consensus(points, options)
+    if anchor is not None:
+        anchor = np.asarray(anchor, dtype=float)
+        if anchor.shape != (3,) or not np.isfinite(anchor).all():
+            raise ValueError("plane anchor must be a finite 3-vector")
+        result.assumptions.append("material anchor identifies the requested face")
+    inliers = _plane_consensus(points, options, anchor=anchor)
     if inliers.sum() < 3:
         result.reason = "insufficient_plane_consensus"
         return result
@@ -216,6 +244,15 @@ def fit_plane(
         else "canonical_undirected",
     }
     result.inlier_indices = np.flatnonzero(inliers)
+    if anchor is not None:
+        anchor_error = abs(float((anchor - origin) @ normal))
+        result.quality.update(
+            anchor_error_m=anchor_error,
+            anchor_seeded=True,
+            anchor_constraint_relaxed=anchor_error > 3 * options.distance_threshold_m,
+        )
+        if anchor_error > 3 * options.distance_threshold_m:
+            result.warn("selected_plane_does_not_contain_visual_face_anchor")
     if inliers.sum() < options.min_points:
         result.warn("insufficient_plane_consensus")
     if inliers.mean() < options.min_inlier_ratio:
@@ -436,6 +473,7 @@ def fit_circle(
     unanchored_best = best.copy()
     unanchored_error = np.inf
     span = np.linalg.norm(np.ptp(points, axis=0))
+    radius_limit = 2 * span
     for _ in range(options.ransac_iterations):
         candidate = _circle_from_three(
             points[rng.choice(len(points), 3, replace=False)]
@@ -443,7 +481,7 @@ def fit_circle(
         if candidate is None:
             continue
         center, normal, radius = candidate
-        if not options.distance_threshold_m < radius < 2 * span:
+        if not options.distance_threshold_m < radius < radius_limit:
             continue
         residual = _circle_residual(points, center, normal, radius)
         inliers = residual <= options.distance_threshold_m
@@ -478,9 +516,20 @@ def fit_circle(
         initial_radius = np.sqrt(
             max(1e-12, coefficients[2] + coefficients[:2] @ coefficients[:2])
         )
+        projected = (points - origin) @ basis
+        lower = np.r_[projected.min(axis=0) - radius_limit, np.finfo(float).eps]
+        upper = np.r_[projected.max(axis=0) + radius_limit, radius_limit]
+        # Short arcs admit arbitrarily large circles. Refinement must preserve
+        # the observed-extent limit already used for RANSAC hypotheses.
+        initial = np.clip(
+            np.r_[coefficients[:2], initial_radius],
+            np.nextafter(lower, upper),
+            np.nextafter(upper, lower),
+        )
         fit = least_squares(
             lambda p: np.linalg.norm(xy - p[:2], axis=1) - p[2],
-            np.r_[coefficients[:2], initial_radius],
+            initial,
+            bounds=(lower, upper),
             loss="soft_l1",
             f_scale=options.distance_threshold_m,
             max_nfev=150,
@@ -501,6 +550,12 @@ def fit_circle(
     )
     result.quality["relative_surface_residual_p95"] = relative_residual
     result.quality["anchor_constraint_relaxed"] = bool(anchor_relaxed)
+    at_extent_limit = bool(
+        np.any(fit.active_mask) or radius >= radius_limit * (1 - 1e-5)
+    )
+    result.quality.update(
+        radius_limit_m=float(radius_limit), refinement_at_extent_limit=at_extent_limit
+    )
     if not fit.success or not np.isfinite(fit.x).all() or radius <= 0:
         result.reason = "unstable_circle_fit"
         return result
@@ -527,7 +582,7 @@ def fit_circle(
         result.warn("insufficient_circle_angular_coverage")
     if relative_residual > options.max_relative_residual:
         result.warn("noncircular_boundary_residual")
-    if radius <= options.distance_threshold_m or radius >= 2 * span:
+    if radius <= options.distance_threshold_m or at_extent_limit:
         result.warn("unstable_circle_fit")
     if anchor is not None:
         anchor_error = _anchor_error(anchor, center, normal, radius, anchor_on_boundary)
@@ -779,7 +834,7 @@ def fit_part(
     if part == "body":
         return fit_axisymmetric(points, options)
     if part == "plane":
-        return fit_plane(points, options, camera_origin=camera_origin)
+        return fit_plane(points, options, camera_origin=camera_origin, anchor=anchor)
     raise ValueError(f"unsupported geometric part: {part}")
 
 

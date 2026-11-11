@@ -19,6 +19,17 @@
 
 测表面点时，工具直接返回这个位置。其他测量还需要分割器（如 SAM3）在图像中圈出相关部位。工具用区域内的有效三维点计算可见范围或拟合形状。主规划器根据结果决定是否需要从另一个视角记录一帧，再调用 ``geometry``。
 
+.. _geometry-prompt-design:
+
+选点提示
+~~~~~~~~
+
+主规划器的 ``query`` 应通过外观和空间关系指定唯一的物体，并说明要测的部位。请求拟合量时，工具会补充该量对应的部位描述，例如罐顶面或杯子内口沿，再交给 Molmo2-8B 选点。
+
+Molmo 服务的 ``geometry`` 模式要求选择指定部位上的一个可见材质点：杯口选口沿材料，罐盖选顶面，不能用空心中心、内腔底面或侧壁代替。模型只负责二维选点，几何中心和尺寸由后续计算得到。目标或部位不可见、无法区分相似实例时，模型应回答未找到；工具不继续读取该点的三维坐标或调用分割器，该部位的结果保持未知。所有请求都未能得到结果时，返回 ``need_observation``。
+
+服务将 Molmo2 的 0–1000 坐标按原始图像宽、高转换为像素 ``(col, row)``，并将图像右、下边界限制在最后一个像素。工具再转换为数组使用的 ``[row, col]``，检查原图分辨率后读取三维观测。没有可解析的单个选点时不产生坐标。Flash 使用独立的默认操作选点提示。
+
 .. _processing-flow:
 
 选择测量方式
@@ -144,7 +155,9 @@
 在机器人程序中注册工具
 ~~~~~~~~~~~~~~~~~~~~~~
 
-先准备共享的 ``EnvState``、观测提供方和视觉定位器 ``grounder``。只测一个表面点时，这些就够了。测可见区域或拟合几何量时，还需提供分割器 ``segmenter``，例如机器人程序已连接的 SAM3 客户端。也可以传入 ``model`` 和可选的 ``base_url`` 来创建视觉定位器 ``GroundingAgent``，用 ``fit_options`` 调整拟合条件。
+先准备共享的 ``EnvState``、观测提供方，以及在工具外初始化的 ``MolmoClient``。将客户端设为 ``point_mode="geometry"`` 后，通过 ``grounder`` 注入 ``GeometryTool``；工具不会自行创建视觉模型。Molmo 服务需加载已有的 Molmo2-8B 权重（由服务的 ``MOLMO_CHECKPOINT_PATH`` 指定），并支持 ``point_mode`` 参数。
+
+只测一个表面点时，这些就够了。测可见区域或拟合几何量时，还需提供分割器 ``segmenter``，例如机器人程序已连接的 SAM3 客户端。``model`` 仅记录模型名称，``fit_options`` 用于调整拟合条件。
 
 下面的代码在已有的 ``toolkit`` 中注册实例的 ``geometry`` 方法，并在分发请求时绑定取消检查。
 
@@ -152,13 +165,19 @@
 
    from functools import partial
 
+   from rpent.robots.components.molmo_client import MolmoClient
+   from rpent.utils.rpc import make_rpc_client
    from toolkits.geometry.geometry_tool import GeometryTool
 
+   grounder = MolmoClient(
+       make_rpc_client(molmo_endpoint), point_mode="geometry"
+   )
    geometry_tool = GeometryTool(
        state=state,
        observations=observations,
        grounder=grounder,
        segmenter=segmenter,
+       model="Molmo2-8B",
    )
    geometry = geometry_tool.geometry
    toolkit.add_tool(
@@ -180,7 +199,8 @@
 
 .. code-block:: bash
 
-   python -m pytest tests/unit_tests/toolkits/geometry -q
+   python -m pytest tests/unit_tests/toolkits/geometry \
+     tests/unit_tests/rpent/robots/components/test_molmo.py -q
 
 这些检查使用合成观测和替代模型服务，覆盖工具分发、坐标转换、分割重试、取消和部位拟合。
 
@@ -191,9 +211,11 @@ LIBERO 几何评估
 
 独立评估入口 ``python -m toolkits.geometry.evaluation.experiment`` 覆盖 80 组、160 次目标部位测量，仅比较 ``agentview`` 起始帧。程序依次采集观测、调用 GeometryTool、用固定模型参考点和同帧物体姿态计算参考坐标，再统计三维欧氏距离误差；不执行机器人动作或补充视角，也不改变原有 LIBERO 运行流程。
 
-``collect``、``build-truth``、``infer`` 和 ``evaluate`` 分别用于采集、生成参考点、推理和误差评估，阶段参数可通过 ``--help`` 查看。实时实验需要 LIBERO Pro、渲染环境、已有的 SAM3 服务及视觉定位模型；``infer --replay`` 可复用冻结的选点和掩码。
+``collect``、``build-truth``、``infer`` 和 ``evaluate`` 分别用于采集、生成参考点、推理和误差评估，阶段参数可通过 ``--help`` 查看。实时实验需要 LIBERO Pro、渲染环境及已有的 Molmo2-8B、SAM3 服务；``infer`` 通过 ``--molmo-endpoint`` 和 ``--sam3-endpoint`` 连接服务，在工具外初始化并注入客户端。``infer --replay`` 可复用冻结的选点和掩码，不连接模型服务。
 
 本次基准使用与提交 ``699fa46`` 相同的 GeometryTool 源码，回放冻结的 ``step 0 / agentview`` RGB-D、视觉选点和 SAM3 掩码，重新执行全部 80 组、160 项测量；未拼接旧预测坐标，也未重新推理视觉模型。
+
+下列结果属于该冻结输入基准，不是 Molmo2-8B 重新选点后的评估结果。
 
 本评估每次请求一个部位中心。算出坐标但未通过质量检查时，结果为 ``status="warning"``，字段 ``fit_accepted=false``，并通过 ``warnings`` 记录物理边界未认证、锚点不一致等原因。原质量阈值保持不变，无法形成有效估计时仍返回 ``null``。带 warning 的坐标参与误差比较，但不代表已通过质量检查或具有经过标定的误差范围。
 
@@ -223,13 +245,14 @@ LIBERO 几何评估
 
 误差只统计有参考点且返回坐标的项，未返回、失败和未运行项保留在返回率统计中。可下载 :download:`评估报告 <../../../../toolkits/geometry/evaluation/report.md>`，查看各部位汇总和全部逐点坐标对比。
 
-完成采集、参考点生成和推理后，在仓库根目录评估本次生成的数据：
+采集数据、预测和生成的报告应保存在源码仓库外。完成采集、参考点生成和推理后，将 ``GEOMETRY_RUN_DIR`` 设为该实验目录，再从仓库根目录运行评估：
 
 .. code-block:: bash
 
+   export GEOMETRY_RUN_DIR="$HOME/rpent-runs/geometry-evaluation"
    python -m toolkits.geometry.evaluation.experiment evaluate \
-     --predictions toolkits/geometry/evaluation/runs/predictions/results.jsonl \
-     --truth toolkits/geometry/evaluation/runs/truth.json \
-     --output toolkits/geometry/evaluation/runs/report
+     --predictions "$GEOMETRY_RUN_DIR/predictions/results.jsonl" \
+     --truth "$GEOMETRY_RUN_DIR/truth.json" \
+     --output "$GEOMETRY_RUN_DIR/report"
 
 输出 ``report.md``、``errors.csv`` 和 ``metrics.json``，包含逐项坐标对比、分组统计及数据来源。输出目录须不存在或为空。

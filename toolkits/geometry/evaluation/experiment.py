@@ -264,27 +264,27 @@ def infer(
     if not args.inputs.is_dir():
         raise ValueError(f"observation collection missing: {args.inputs}")
     if args.replay:
-        if args.geometry_model or args.sam3_endpoint or args.geometry_base_url:
+        if args.molmo_endpoint or args.sam3_endpoint:
             raise ValueError("--replay cannot be combined with live model arguments")
         grounder, segmenter = ReplayGrounder(args.replay), ReplaySegmenter(args.replay)
     else:
-        if not args.geometry_model or not args.sam3_endpoint:
+        if not args.molmo_endpoint or not args.sam3_endpoint:
             raise ValueError(
-                "live inference needs --geometry-model and --sam3-endpoint"
+                "live inference needs --molmo-endpoint and --sam3-endpoint"
             )
-        from rpent.robots.components.grounding_agent import GroundingAgent
+        from rpent.robots.components.molmo_client import MolmoClient
         from rpent.robots.components.sam3_client import Sam3Client
         from rpent.utils.rpc import make_rpc_client
 
-        grounder = GroundingAgent(
-            model=args.geometry_model, base_url=args.geometry_base_url
+        grounder = MolmoClient(
+            make_rpc_client(args.molmo_endpoint), point_mode="geometry"
         )
         segmenter = Sam3Client(make_rpc_client(args.sam3_endpoint))
     fresh_output(args.output)
     header = run_header(manifest, cases, "infer")
     header.update(
         perception_mode="frozen" if args.replay else "live",
-        geometry_model=args.geometry_model,
+        geometry_model=None if args.replay else "Molmo2-8B",
         fit_profile="current_GeometryTool_defaults",
     )
     if args.replay:
@@ -304,7 +304,7 @@ def infer(
         args.output,
         grounder=grounder,
         segmenter=segmenter,
-        model=args.geometry_model,
+        model=header["geometry_model"],
     )
     summary = {
         "planned": sum(len(case["requests"]) for case in cases),
@@ -352,8 +352,10 @@ def _parser() -> argparse.ArgumentParser:
         elif command == "build-truth":
             sub.add_argument("--profiles", type=Path)
         elif command == "infer":
-            sub.add_argument("--geometry-model")
-            sub.add_argument("--geometry-base-url")
+            sub.add_argument(
+                "--molmo-endpoint",
+                help="RPC endpoint of an existing Molmo2-8B service.",
+            )
             sub.add_argument("--sam3-endpoint")
             sub.add_argument("--replay", type=Path)
         elif command == "evaluate":

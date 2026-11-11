@@ -39,6 +39,33 @@ The tool uses the valid 3-D points in that region to calculate bounds or
 fit a shape. The planner uses the result to decide whether to record
 another view and call ``geometry`` again.
 
+.. _geometry-prompt-design:
+
+Point-Selection Prompt
+~~~~~~~~~~~~~~~~~~~~~~
+
+The planner's ``query`` should identify one object by its appearance and
+spatial relations, and name the part to measure. For fitted quantities,
+the tool adds the corresponding part description, such as a sealed top
+lid or an inner upper rim, before asking Molmo2-8B to select a point.
+
+The Molmo service's ``geometry`` mode requests one visible material point
+on that exact part. A rim needs rim material; a lid needs its top face.
+An empty center, interior floor or side wall cannot substitute for that
+part. The model selects only a 2-D point; subsequent computation estimates
+geometric centers and dimensions. If the object or part is not visible,
+or similar instances cannot be distinguished, the model should report
+no match. The tool leaves that part unknown without reading 3-D coordinates
+or calling the segmenter for that point. If none of the requested results
+can be computed, it returns ``need_observation``.
+
+The service scales Molmo2's 0–1000 coordinates by the original image width
+and height to produce ``(col, row)`` pixels, clamping the right and bottom
+image edges to the last pixel. The tool converts these to array order
+``[row, col]`` and verifies the original resolution before reading the
+3-D observation. No parseable single point means no coordinates. Flash
+keeps its separate default manipulation-point prompt.
+
 .. _processing-flow:
 
 Choosing a Measurement
@@ -224,12 +251,16 @@ corresponding data below.
 Registering the Tool
 ~~~~~~~~~~~~~~~~~~~~
 
-Prepare the shared ``EnvState``, the observation provider and a visual
-``grounder``. These are sufficient for a surface-point query. Visible-region
-queries and shape fitting also need a ``segmenter``, such as a SAM3 client
-already connected by the application. Passing ``model`` and an optional
-``base_url`` can create the shared visual ``GroundingAgent``. Use ``fit_options``
-to adjust the fitting criteria.
+Prepare the shared ``EnvState``, the observation provider and a ``MolmoClient``
+initialized outside the tool. Set ``point_mode="geometry"`` and inject it
+as ``grounder``; ``GeometryTool`` does not create a visual model. The Molmo
+service must load existing Molmo2-8B weights through ``MOLMO_CHECKPOINT_PATH``
+and support the ``point_mode`` argument.
+
+These are sufficient for a surface-point query. Visible-region queries and
+shape fitting also need a ``segmenter``, such as a SAM3 client already
+connected by the application. ``model`` records only the model name;
+``fit_options`` adjusts the fitting criteria.
 
 The following code registers the instance's ``geometry`` method with an
 existing ``toolkit`` and binds its cancellation check at dispatch.
@@ -238,13 +269,19 @@ existing ``toolkit`` and binds its cancellation check at dispatch.
 
    from functools import partial
 
+   from rpent.robots.components.molmo_client import MolmoClient
+   from rpent.utils.rpc import make_rpc_client
    from toolkits.geometry.geometry_tool import GeometryTool
 
+   grounder = MolmoClient(
+       make_rpc_client(molmo_endpoint), point_mode="geometry"
+   )
    geometry_tool = GeometryTool(
        state=state,
        observations=observations,
        grounder=grounder,
        segmenter=segmenter,
+       model="Molmo2-8B",
    )
    geometry = geometry_tool.geometry
    toolkit.add_tool(
@@ -276,7 +313,8 @@ repository root.
 
 .. code-block:: bash
 
-   python -m pytest tests/unit_tests/toolkits/geometry -q
+   python -m pytest tests/unit_tests/toolkits/geometry \
+     tests/unit_tests/rpent/robots/components/test_molmo.py -q
 
 These checks use synthetic observations and substitute model services.
 They exercise tool dispatch, coordinate conversion, segmentation retries,
@@ -297,13 +335,18 @@ views and leaves the existing LIBERO runtime unchanged.
 ``collect``, ``build-truth``, ``infer`` and ``evaluate`` handle capture,
 reference generation, inference and error evaluation; use ``--help`` for
 each stage's arguments. Live experiments require LIBERO Pro, rendering,
-an existing SAM3 service and a configured visual grounder. ``infer --replay``
-reuses frozen selections and masks.
+existing Molmo2-8B and SAM3 services. ``infer`` connects through
+``--molmo-endpoint`` and ``--sam3-endpoint``, initializing the clients outside
+the tool before injection. ``infer --replay`` reuses frozen selections and
+masks without contacting model services.
 
 This baseline reruns all 80 cases and 160 measurements with the GeometryTool
 source published at commit ``699fa46``. It replays frozen ``step 0 / agentview`` RGB-D,
 visual selections and SAM3 masks. No previous predicted coordinates are
 combined into this run, and no fresh visual-model inference is performed.
+
+The results below belong to that frozen-input baseline, not an evaluation
+with fresh Molmo2-8B selections.
 
 Each evaluation request measures one part center. A computed estimate that
 fails quality checks returns ``status="warning"``, ``fit_accepted=false`` and
@@ -342,15 +385,17 @@ also counts refusals, failures and unrun requests. Download the
 :download:`evaluation report <../../../../toolkits/geometry/evaluation/report.md>`
 for per-part summaries and all per-request coordinate comparisons.
 
-After capture, reference generation and inference, evaluate the generated
-data from the repository root:
+Keep captures, predictions and generated reports outside the source checkout.
+After capture, reference generation and inference, set ``GEOMETRY_RUN_DIR``
+to that experiment directory and evaluate from the repository root:
 
 .. code-block:: bash
 
+   export GEOMETRY_RUN_DIR="$HOME/rpent-runs/geometry-evaluation"
    python -m toolkits.geometry.evaluation.experiment evaluate \
-     --predictions toolkits/geometry/evaluation/runs/predictions/results.jsonl \
-     --truth toolkits/geometry/evaluation/runs/truth.json \
-     --output toolkits/geometry/evaluation/runs/report
+     --predictions "$GEOMETRY_RUN_DIR/predictions/results.jsonl" \
+     --truth "$GEOMETRY_RUN_DIR/truth.json" \
+     --output "$GEOMETRY_RUN_DIR/report"
 
 The output contains ``report.md``, ``errors.csv`` and ``metrics.json`` with
 per-request coordinate comparisons, grouped statistics and provenance.
