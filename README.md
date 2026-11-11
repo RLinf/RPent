@@ -47,6 +47,7 @@ RPent is built for four kinds of users:
 
 ## What's NEW!
 
+- [2026/11] 🔥 Added MetaWorld with RGB-D observations and Cartesian motion tools, without a VLA checkpoint. See the [MetaWorld guide](https://rpent.readthedocs.io/en/latest/rst_source/simulators/metaworld.html).
 - [2026/10] 🔥 Added an optional APXInf VLA endpoint. See the [deployment guide](https://rpent.readthedocs.io/en/latest/rst_source/guides/advanced_deployment.html#apxinf-vla-service-optional).
 - [2026/09] 🔥 Added the interactive RPent Leaderboard for LIBERO, LIBERO-PRO, RoboCasa365, and RoboTwin, with model comparisons and suite-level results. Explore the [Leaderboard](https://rpent.readthedocs.io/en/latest/rst_source/leaderboard/index.html).
 - [2026/09] 🔥 RPent supports Franka single-arm and dual-arm real-robot extensions. Doc: [Franka](https://rpent.readthedocs.io/en/latest/rst_source/real_world_robots/franka.html) · [Dual Franka](https://rpent.readthedocs.io/en/latest/rst_source/real_world_robots/dual_franka.html).
@@ -97,6 +98,7 @@ RPent is built for four kinds of users:
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/simulators/libero.html">LIBERO-PRO</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/simulators/robocasa.html">RoboCasa</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/simulators/robotwin.html">RoboTwin</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/simulators/metaworld.html">MetaWorld</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/simulators/robodojo.html">RoboDojo</a> ✅</li>
         </ul>
       </td>
@@ -123,6 +125,7 @@ pip install -e ".[libero-pro]"  # Recommended default (LIBERO-PRO)
 # Other environment configurations:
 pip install -e ".[robocasa]"    # RoboCasa
 pip install -e ".[robotwin]"    # RoboTwin
+pip install -e ".[metaworld]"   # MetaWorld
 pip install -e ".[franka]"      # Franka and dual Franka
 ```
 

@@ -64,6 +64,13 @@ Documentation = "https://rpent.readthedocs.io/en/latest/"
 "Bug Report" = "https://github.com/RLinf/RPent/issues"
 
 [project.optional-dependencies]
+metaworld = [
+    "metaworld==3.0.0",
+    # MetaWorld 3.0.0 assumes 11-element weld data; MuJoCo 3.17 uses 12.
+    "mujoco==3.14.0",
+    "packaging",
+    "imageio-ffmpeg",
+]
 test = [
     "coverage",
     "pytest",

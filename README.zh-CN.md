@@ -47,6 +47,7 @@ RPent 面向以下四类用户：
 
 ## 最新动态
 
+- [2026/11] 🔥 新增 MetaWorld 接入，支持 RGB-D 观测和笛卡尔运动工具，无需 VLA 权重。参见 [MetaWorld 指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/metaworld.html)。
 - [2026/10] 🔥 新增可选的 APXInf VLA endpoint 接入，参见 [部署指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/guides/advanced_deployment.html#apxinf-vla-service-optional)。
 - [2026/09] 🔥 新增交互式 RPent 排行榜，覆盖 LIBERO、LIBERO-PRO、RoboCasa365 与 RoboTwin，提供模型对比及套件汇总。查看 [排行榜](https://rpent.readthedocs.io/zh-cn/latest/rst_source/leaderboard/index.html)。
 - [2026/09] 🔥 RPent 支持 Franka 单臂与双臂真机扩展。文档：[Franka](https://rpent.readthedocs.io/zh-cn/latest/rst_source/real_world_robots/franka.html) · [Dual Franka](https://rpent.readthedocs.io/zh-cn/latest/rst_source/real_world_robots/dual_franka.html)。
@@ -97,6 +98,7 @@ RPent 面向以下四类用户：
           <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/libero.html">LIBERO-PRO</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robocasa.html">RoboCasa</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robotwin.html">RoboTwin</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/metaworld.html">MetaWorld</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robodojo.html">RoboDojo</a> ✅</li>
         </ul>
       </td>
@@ -124,6 +126,7 @@ pip install -e ".[libero-pro]"
 # 其他环境配置：
 pip install -e ".[robocasa]"    # RoboCasa
 pip install -e ".[robotwin]"    # RoboTwin
+pip install -e ".[metaworld]"   # MetaWorld
 pip install -e ".[franka]"      # Franka / 双臂 Franka
 ```
 
