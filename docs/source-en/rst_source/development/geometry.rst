@@ -347,6 +347,15 @@ existing Molmo2-8B and SAM3 services. ``infer`` connects through
 the tool before injection. ``infer --replay`` reuses frozen selections and
 masks without contacting model services.
 
+``collect`` saves the RGB-D, calibration and independent reference snapshots
+needed as evaluation inputs. By default, ``infer`` retains only per-request
+predictions in ``results.jsonl`` and run metadata in ``run_manifest.json``;
+temporary tool diagnostics are removed after each case. Add
+``infer --save-evidence`` to keep point clouds, masks, overlays and detailed
+tool results in per-case directories. For live inference, this also records
+point selections and segmentation in ``perception/`` for later
+``infer --replay`` runs.
+
 This baseline reruns all 80 cases and 160 measurements with the GeometryTool
 source published at commit ``699fa46``. It replays frozen ``step 0 / agentview`` RGB-D,
 visual selections and SAM3 masks. No previous predicted coordinates are
@@ -402,6 +411,7 @@ to that experiment directory and evaluate from the repository root:
      --truth "$GEOMETRY_RUN_DIR/truth.json" \
      --output "$GEOMETRY_RUN_DIR/report"
 
-The output contains ``report.md``, ``errors.csv`` and ``metrics.json`` with
-per-request coordinate comparisons, grouped statistics and provenance.
-The output directory must be new or empty.
+``evaluate`` writes only a concise ``report.md`` with the coordinate return
+rate, mean, median and maximum position errors overall and by fit quality,
+per-target statistics, and provenance. Per-request predictions remain in
+the input ``results.jsonl``. The output directory must be new or empty.

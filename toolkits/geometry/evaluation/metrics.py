@@ -16,15 +16,12 @@
 
 from __future__ import annotations
 
-import csv
-import json
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-from rpent.evaluation.result import write_json_atomic
 from toolkits.geometry.evaluation.checklist import (
     frame_id,
     manifest_digest,
@@ -357,171 +354,89 @@ def write_report(
     *,
     provenance: dict[str, Any],
 ) -> None:
-    """Write machine-readable errors and a bilingual report with every request."""
-    report = {**report, "provenance": provenance}
-    write_json_atomic(output / "metrics.json", report)
-    columns = [
-        "request_id",
-        "label",
-        "quantity",
-        "definition",
-        "frame_id",
-        "prediction_status",
-        "prediction_reason",
-        "fit_accepted",
-        "warnings",
-        "evaluable",
-        "not_evaluable_reason",
-        "predicted_x_m",
-        "predicted_y_m",
-        "predicted_z_m",
-        "reference_x_m",
-        "reference_y_m",
-        "reference_z_m",
-        "error_mm",
-    ]
-    with (output / "errors.csv").open("w", encoding="utf-8-sig", newline="") as stream:
-        writer = csv.DictWriter(stream, fieldnames=columns, lineterminator="\n")
-        writer.writeheader()
-        for row in report["rows"]:
-            point = row["world_xyz"] or [None] * 3
-            truth = row["truth_world_xyz"] or [None] * 3
-            writer.writerow(
-                {
-                    **{key: row[key] for key in columns if key in row},
-                    "warnings": json.dumps(row["warnings"], ensure_ascii=False),
-                    "label": manifest["references"][row["reference"]]["label"],
-                    **{
-                        f"predicted_{axis}_m": value
-                        for axis, value in zip("xyz", point, strict=True)
-                    },
-                    **{
-                        f"reference_{axis}_m": value
-                        for axis, value in zip("xyz", truth, strict=True)
-                    },
-                }
-            )
+    """Write one concise report; retain per-request inputs in the prediction file."""
     overall = report["overall"]
     run = provenance.get("prediction_run", {})
-    lines = [
-        "# LIBERO initial-frame geometry / LIBERO 起始帧几何评估",
-        "",
-        "Coordinates are metres; position errors are millimetres. "
-        "坐标单位为米，位置误差单位为毫米。",
-        "",
-        f"Planned / 计划项数: **{overall['planned']}**; "
-        f"attempted / 已运行: **{overall['attempted']}**; "
-        f"returned / 返回坐标: **{overall['returned']}**.",
-        "",
-        f"Prediction revision / 预测版本: `{run.get('git_commit', run.get('commit', 'not recorded / 未记录'))}`; "
-        f"perception / 感知输入: `{run.get('perception_mode', run.get('stage', 'not recorded / 未记录'))}`; "
-        f"fit profile / 拟合模式: `{run.get('fit_profile', 'not recorded / 未记录')}`.",
-        "",
-        "Errors below are conditional on an evaluable reference and a returned point. "
-        "Missing, failed and unrun requests remain in coverage counts. "
-        "以下误差只统计有参考点且返回坐标的项；未返回、失败和未运行项保留在返回率统计中。",
-        "",
-    ]
 
     def number(value: float | None) -> str:
         return "—" if value is None else f"{value:.3f}"
 
+    rate = overall["return_rate"]
+    lines = [
+        "# LIBERO initial-frame geometry / 起始帧几何评估",
+        "",
+        f"Returned / 返回: **{overall['returned']}/{overall['planned']}** "
+        f"({f'{rate:.1%}' if rate is not None else '—'}); "
+        f"attempted / 已运行: {overall['attempted']}; "
+        f"unrun / 未运行: {overall['unrun']}; "
+        f"evaluable / 有参考点: {overall['evaluable']}.",
+        "",
+        f"Revision / 预测版本: `{run.get('git_commit', run.get('commit', 'unknown'))}`; "
+        f"perception / 感知输入: `{run.get('perception_mode', 'unknown')}`; "
+        f"model / 模型: `{run.get('geometry_model') or 'not recorded / 未记录'}`.",
+        "",
+        "Errors include only evaluable returned points; failures and unrun requests remain in the return rate. "
+        "误差仅统计有参考点且返回坐标的项，失败和未运行项仍计入返回率。",
+        "",
+    ]
     if run.get("result_kind") == "historical":
-        lines[2:2] = [
-            "**Historical measurements, re-scored for reproducibility; not a new run of the current GeometryTool. "
-            "历史测量结果，仅重新计算误差以复现统计，不是当前 GeometryTool 的新实验。**",
-            "",
-        ]
-
-    if run.get("git_dirty"):
         lines += [
-            "Tested snapshot includes uncommitted changes / 被测快照包含未提交修改: "
-            f"`{run.get('snapshot_diff_sha256', 'not recorded / 未记录')}`.",
+            "Historical predictions re-scored / 历史预测重新统计，未重新运行当前工具。",
             "",
         ]
+    if run.get("git_dirty"):
+        lines += ["Source includes uncommitted changes / 被测源码包含未提交修改。", ""]
     if run.get("perception_mode") == "frozen":
         lines += [
-            "Frozen initial-frame RGB-D, visual selections and segmentation masks were replayed. "
-            "Every request was fitted again; no previous predicted coordinates were reused. "
-            "No fresh visual-model inference or robot actions were performed. "
-            "本轮回放冻结的起始帧 RGB-D、视觉选点和分割掩码，逐项重新拟合，未复用旧预测坐标；未重新推理视觉模型或执行机器人动作。",
+            "Frozen RGB-D, points and masks replayed; no fresh model inference. "
+            "回放冻结的 RGB-D、选点和掩码，未重新推理视觉模型。",
             "",
         ]
     lines += [
-        "A returned point can fail quality checks. Inspect fit_accepted and warnings; "
-        "fit residuals are not calibrated position errors. "
-        "返回坐标仍可能未通过质量检查，应读取 fit_accepted 和 warnings；拟合残差不是经过标定的位置误差。",
-        "",
-        "## Fit Quality / 拟合质量",
-        "",
         "| Group / 分组 | Returned / 返回 | Mean mm / 均值 | Median mm / 中位数 | Max mm / 最大值 |",
         "| --- | ---: | ---: | ---: | ---: |",
     ]
-    for name, metrics in overall["by_fit_quality"].items():
-        label = {
-            "accepted": "Accepted / 通过检查",
-            "warning": "Warning / 带警告",
-            "unclassified": "Unclassified / 未分类",
-        }[name]
-        if not metrics["returned"]:
+    groups = [
+        ("All / 全部", overall),
+        *[
+            (label, overall["by_fit_quality"][name])
+            for name, label in (
+                ("accepted", "Accepted / 通过检查"),
+                ("warning", "Warning / 带警告"),
+                ("unclassified", "Unclassified / 未分类"),
+            )
+        ],
+    ]
+    for label, metrics in groups:
+        if not metrics["returned"] and metrics is not overall:
             continue
         errors = metrics["conditional_error_mm_on_returned_only"]
         lines.append(
-            f"| {label} | {metrics['returned']} | "
+            f"| {label} | {metrics['returned']}/{overall['planned']} | "
             + " | ".join(number(errors[key]) for key in ("mean", "median", "max"))
             + " |"
         )
     lines += [
         "",
-        "## Target Parts / 目标部位",
-        "",
-        "| Target / 部位 | Planned / 计划 | Returned / 返回 | Accepted / 通过 | Warning / 警告 | Mean mm / 均值 | Median mm / 中位数 | Max mm / 最大值 |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| Target / 部位 | Returned / 返回 | Accepted / 通过 | Warning / 警告 | Mean mm / 均值 | Median mm / 中位数 | Max mm / 最大值 |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
-
-    for name, metrics in [("all", overall), *report["by_reference"].items()]:
-        label = "All / 全部" if name == "all" else manifest["references"][name]["label"]
+    for name, metrics in report["by_reference"].items():
         errors = metrics["conditional_error_mm_on_returned_only"]
         lines.append(
-            f"| {label} | {metrics['planned']} | {metrics['returned']} | "
-            f"{metrics['by_fit_quality']['accepted']['returned']} | {metrics['by_fit_quality']['warning']['returned']} | "
+            f"| {manifest['references'][name]['label']} | {metrics['returned']}/{metrics['planned']} | "
+            f"{metrics['by_fit_quality']['accepted']['returned']} | "
+            f"{metrics['by_fit_quality']['warning']['returned']} | "
             + " | ".join(number(errors[key]) for key in ("mean", "median", "max"))
             + " |"
         )
     lines += [
         "",
-        "## Per-request coordinates / 逐项坐标",
+        "Warning estimates have not passed quality checks. This measures position error, not task success or calibrated uncertainty. "
+        "带警告的坐标未通过质量检查；本报告衡量位置误差，不代表任务成功率或经过标定的不确定度。",
         "",
-        "| Request | Predicted XYZ m / 测量坐标 | Reference XYZ m / 参考坐标 | Error mm / 误差 | Status / 状态 | Accepted / 通过 | Warnings or reason / 警告或原因 |",
-        "| --- | --- | --- | ---: | --- | --- | --- |",
-    ]
-
-    def coordinates(point: list[float] | None) -> str:
-        return "—" if point is None else ", ".join(f"{value:.7f}" for value in point)
-
-    for row in report["rows"]:
-        lines.append(
-            f"| {row['request_id']} | {coordinates(row['world_xyz'])} | "
-            f"{coordinates(row['truth_world_xyz'])} | {number(row['error_mm'])} | "
-            f"{row['prediction_status']} | {row['fit_accepted']} | "
-            f"{', '.join(row['warnings']) or row['prediction_reason'] or '—'} |"
-        )
-    lines += [
-        "",
-        "## Reproduction / 复现记录",
-        "",
-        f"- Run / 运行标识: `{run.get('run_id', 'not recorded / 未记录')}`.",
-        f"- Checklist / 清单 SHA256: `{report['manifest_sha256']}`.",
-        f"- Predictions / 预测 SHA256: `{provenance.get('predictions_sha256', 'not recorded / 未记录')}`.",
-        f"- References / 参考坐标 SHA256: `{provenance.get('truth_sha256', 'not recorded / 未记录')}`.",
-        f"- Source archive / 源码归档 SHA256: `{run.get('source_archive_sha256', 'not recorded / 未记录')}`.",
-        "",
-        "The evaluator also writes full-precision `errors.csv` and `metrics.json` alongside this report in the run output. "
-        "These raw artifacts are retained separately from the report included in the PR. "
-        "评估器还会在运行输出中生成完整精度的 `errors.csv` 和 `metrics.json`；原始数据与 PR 中的单份报告分开保存。",
-        "",
-        "This evaluates initial-frame geometry, not manipulation success or calibrated uncertainty. "
-        "本报告评估起始帧几何误差，不代表操作任务成功率或经过标定的不确定度。",
+        f"Predictions SHA256 / 预测: `{provenance.get('predictions_sha256', 'unknown')}`; "
+        f"truth SHA256 / 参考点: `{provenance.get('truth_sha256', 'unknown')}`.",
         "",
     ]
     (output / "report.md").write_text("\n".join(lines), encoding="utf-8")

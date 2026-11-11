@@ -17,8 +17,6 @@
 from __future__ import annotations
 
 import base64
-import csv
-import io
 import json
 import os
 import subprocess
@@ -40,10 +38,12 @@ from toolkits.geometry.evaluation.checklist import (
     manifest_digest,
     select_cases,
 )
-from toolkits.geometry.evaluation.evaluation_scene import REFERENCE_OBJECTS
-from toolkits.geometry.evaluation.libero import capture_case
+from toolkits.geometry.evaluation.libero import (
+    REFERENCE_OBJECTS,
+    capture_case,
+    load_observation,
+)
 from toolkits.geometry.evaluation.metrics import evaluate, truth_template, write_report
-from toolkits.geometry.evaluation.observation import load_observation
 from toolkits.geometry.evaluation.references import build_truth, mesh_fingerprint
 from toolkits.geometry.evaluation.replay import (
     RecordingGrounder,
@@ -110,7 +110,7 @@ def _environment(case):
 
 
 def test_offline_cli_and_fixed_checklist(tmp_path):
-    root = Path(__file__).resolve().parents[3]
+    root = Path(__file__).resolve().parents[4]
     script = """
 import sys
 from toolkits.geometry.evaluation.experiment import main
@@ -136,7 +136,7 @@ main(['write-manifest', '--output', 'manifest.json'])
 
 
 def test_cold_collector_initializes_graphics_before_loading_the_simulator(tmp_path):
-    root = Path(__file__).resolve().parents[3]
+    root = Path(__file__).resolve().parents[4]
     sdk = tmp_path / "sdk"
     package = sdk
     for name in ("rlinf", "envs", "sim", "libero"):
@@ -196,16 +196,30 @@ assert env._rpent_evaluation_enabled
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def test_capture_closes_its_environment_on_failure():
-    _, cases = _case()
+def test_capture_failure_is_recorded_and_closes_its_environment(tmp_path, monkeypatch):
+    from toolkits.geometry.evaluation import libero
+
+    manifest, cases = _case()
     env, _ = _environment(cases[0])
 
     def fail(*args, **kwargs):
         raise RuntimeError("render failed")
 
     env.render_camera = fail
-    with pytest.raises(RuntimeError, match="render failed"):
-        capture_case(cases[0], environment_factory=lambda case: env)
+    monkeypatch.setattr(
+        libero,
+        "capture_case",
+        lambda case, **kwargs: capture_case(case, environment_factory=lambda case: env),
+    )
+    output = tmp_path / "captures"
+    summary = experiment.collect_cases(manifest, cases, output)
+    assert summary == {"selected_cases": 1, "captured": 0, "failed": 1}
+    header = json.loads((output / "run_manifest.json").read_text())
+    assert header["summary"] == summary
+    assert header["collection"] == [
+        {"case_id": cases[0]["case_id"], "status": "error", "reason": "render failed"}
+    ]
+    assert {path.name for path in output.iterdir()} == {"run_manifest.json"}
     assert env.closed and env.resets == 1
 
 
@@ -271,6 +285,7 @@ def test_initial_frame_record_replay_and_error_report(tmp_path, monkeypatch):
                 "http://molmo:8115",
                 "--sam3-endpoint",
                 "http://sam3:8114",
+                "--save-evidence",
             ]
         )
         == 0
@@ -283,29 +298,6 @@ def test_initial_frame_record_replay_and_error_report(tmp_path, monkeypatch):
     predictions = read_jsonl(first / "results.jsonl")
     assert predictions[0]["status"] == "usable", predictions[0]
     assert predictions[1]["status"] == "need_observation"
-    legacy_grounding = tmp_path / "grounding-results.jsonl"
-    records = read_jsonl(first / "perception/grounding.jsonl")
-    legacy_grounding.write_text(
-        "\n".join(
-            json.dumps({**record, "request_id": request["request_id"]})
-            for record, request in zip(records, case["requests"], strict=True)
-        )
-    )
-    frozen = tmp_path / "frozen"
-    assert (
-        experiment.main(
-            [
-                "freeze-perception",
-                "--predictions",
-                str(first),
-                "--grounding",
-                str(legacy_grounding),
-                "--output",
-                str(frozen),
-            ]
-        )
-        == 0
-    )
     second = tmp_path / "replayed"
     assert (
         experiment.main(
@@ -316,7 +308,7 @@ def test_initial_frame_record_replay_and_error_report(tmp_path, monkeypatch):
                 "--output",
                 str(second),
                 "--replay",
-                str(frozen),
+                str(first / "perception"),
                 "--case",
                 case["case_id"],
             ]
@@ -324,9 +316,14 @@ def test_initial_frame_record_replay_and_error_report(tmp_path, monkeypatch):
         == 0
     )
     replayed = read_jsonl(second / "results.jsonl")
-    summary = json.loads((second / "summary.json").read_text())
+    summary = json.loads((second / "run_manifest.json").read_text())["summary"]
     assert summary["fresh_grounding_calls"] == summary["fresh_segmentation_calls"] == 0
     assert [p["world_xyz"] for p in replayed] == [p["world_xyz"] for p in predictions]
+    assert {path.name for path in second.iterdir()} == {
+        "results.jsonl",
+        "run_manifest.json",
+    }
+    assert all("geometry_artifact" not in row for row in replayed)
     truth_path = tmp_path / "truth.json"
     truth_path.write_text(json.dumps(truth))
     output = tmp_path / "report"
@@ -346,26 +343,96 @@ def test_initial_frame_record_replay_and_error_report(tmp_path, monkeypatch):
         )
         == 0
     )
-    report = json.loads((output / "metrics.json").read_text())
+    report = evaluate(manifest, truth, replayed, cases=cases)
     assert report["overall"]["planned"] == 2
     assert report["overall"]["return_rate"] == 0.5
     assert report["rows"][0]["error_mm"] == pytest.approx(5.0, abs=0.2)
-    csv_rows = list(
-        csv.DictReader(
-            io.StringIO((output / "errors.csv").read_text(encoding="utf-8-sig"))
-        )
-    )
-    assert len(csv_rows) == 2 and csv_rows[1]["error_mm"] == ""
-    assert case["requests"][1]["request_id"] in (output / "report.md").read_text()
-    states = json.loads((second / case["case_id"] / "episode/states.json").read_text())
+    assert {path.name for path in output.iterdir()} == {"report.md"}
+    rendered = (output / "report.md").read_text()
+    assert "**1/2** (50.0%)" in rendered
+    assert "frozen" in rendered and "未重新推理视觉模型" in rendered
+    assert "Per-request coordinates" not in rendered
+    assert len(rendered.splitlines()) < 60
+    states = json.loads((first / case["case_id"] / "episode/states.json").read_text())
     assert states["steps"][0]["state"] == {}
     assert "evaluator_snapshot.json" not in states["steps"][0]["artifacts"]
-    assert not (second / case["case_id"] / "evaluator_snapshot.json").exists()
+    assert not (first / case["case_id"] / "evaluator_snapshot.json").exists()
     # Observation mutations must not silently change a replayed measurement.
     rgb = inputs / case["case_id"] / "episode/agentview_high.png/00.png"
     rgb.write_bytes(b"changed")
     with pytest.raises(ValueError, match="sensor hash mismatch"):
         load_observation(inputs / case["case_id"], manifest, case)
+
+
+@pytest.mark.parametrize("model_error", [False, True])
+def test_live_inference_defaults_to_compact_output_and_cleans_workspaces(
+    tmp_path, monkeypatch, model_error
+):
+    from tempfile import TemporaryDirectory
+
+    from rpent.utils import rpc
+    from toolkits.geometry.evaluation import libero
+
+    manifest, cases = _case()
+    case = cases[0]
+    env, _ = _environment(case)
+    capture = capture_case(case, environment_factory=lambda case: env)
+    monkeypatch.setattr(libero, "capture_case", lambda *a, **kw: capture)
+    inputs = tmp_path / "captures"
+    experiment.collect_cases(manifest, cases, inputs)
+
+    calls = []
+
+    def connect(endpoint):
+        def call(method, **kwargs):
+            assert method == "molmo.ground"
+            calls.append(method)
+            if model_error and len(calls) == 1:
+                raise RuntimeError("model unavailable")
+            return {"answer": "not found", "image_size": [128, 128]}
+
+        return SimpleNamespace(call=call)
+
+    monkeypatch.setattr(rpc, "make_rpc_client", connect)
+    workspaces = tmp_path / "workspaces"
+    workspaces.mkdir()
+    monkeypatch.setattr(
+        experiment,
+        "TemporaryDirectory",
+        lambda **kwargs: TemporaryDirectory(dir=workspaces, **kwargs),
+    )
+    output = tmp_path / "predictions"
+    assert experiment.main(
+        [
+            "infer",
+            "--inputs",
+            str(inputs),
+            "--output",
+            str(output),
+            "--case",
+            case["case_id"],
+            "--molmo-endpoint",
+            "http://molmo:8115",
+            "--sam3-endpoint",
+            "http://sam3:8114",
+        ]
+    ) == int(model_error)
+    assert {path.name for path in output.iterdir()} == {
+        "results.jsonl",
+        "run_manifest.json",
+    }
+    assert not list(workspaces.iterdir())
+    header = json.loads((output / "run_manifest.json").read_text())
+    assert header["perception_mode"] == "live" and not header["save_evidence"]
+    assert header["summary"]["fresh_grounding_calls"] == 2
+    if model_error:
+        assert header["summary"]["status_counts"] == {"error": 1, "need_observation": 1}
+        results = read_jsonl(output / "results.jsonl")
+        assert results[0]["status"] == "error"
+        assert results[0]["reason"] == "model unavailable"
+        assert results[1]["status"] == "need_observation"
+    else:
+        assert header["summary"]["status_counts"] == {"need_observation": 2}
 
 
 def test_replay_rejects_changed_prompt_and_mask(tmp_path):
@@ -470,13 +537,10 @@ def test_warning_coordinates_are_evaluated_separately_from_accepted_fits(tmp_pat
     ] == pytest.approx(50)
     assert report["rows"][1]["warnings"] == warning["warnings"]
     write_report(manifest, report, tmp_path, provenance={})
-    with (tmp_path / "errors.csv").open(encoding="utf-8-sig", newline="") as stream:
-        records = list(csv.DictReader(stream))
-    assert records[1]["fit_accepted"] == "False"
-    assert json.loads(records[1]["warnings"]) == warning["warnings"]
     rendered = (tmp_path / "report.md").read_text()
     assert "Accepted / 通过检查" in rendered and "Warning / 带警告" in rendered
-    assert "insufficient_circle_angular_coverage" in rendered
+    assert "| Warning / 带警告 | 1/2 | 50.000 | 50.000 | 50.000 |" in rendered
+    assert {path.name for path in tmp_path.iterdir()} == {"report.md"}
     for invalid in (
         {**warning, "fit_accepted": True},
         {**warning, "world_xyz": None},
@@ -487,7 +551,7 @@ def test_warning_coordinates_are_evaluated_separately_from_accepted_fits(tmp_pat
 
 
 def test_snapshot_converts_visual_mesh_to_the_correct_body_frame():
-    from toolkits.geometry.evaluation.evaluation_scene import snapshot_simulator
+    from toolkits.geometry.evaluation.libero import snapshot_simulator
 
     angle = 0.4
     rotation = np.array(

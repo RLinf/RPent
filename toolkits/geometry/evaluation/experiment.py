@@ -21,8 +21,10 @@ import json
 import os
 import subprocess
 from collections import Counter
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 
 import numpy as np
@@ -37,7 +39,7 @@ from toolkits.geometry.evaluation.checklist import (
     manifest_digest,
     select_cases,
 )
-from toolkits.geometry.evaluation.observation import (
+from toolkits.geometry.evaluation.libero import (
     FrozenObservationProvider,
     file_digest,
     load_observation,
@@ -121,9 +123,8 @@ def collect_cases(
     from toolkits.geometry.evaluation.libero import capture_case
 
     fresh_output(output)
-    write_json_atomic(
-        output / "run_manifest.json", run_header(manifest, cases, "collect")
-    )
+    header = run_header(manifest, cases, "collect")
+    write_json_atomic(output / "run_manifest.json", header)
     rows = []
     for case in cases:
         row = {"case_id": case["case_id"], "status": "error"}
@@ -137,13 +138,15 @@ def collect_cases(
             row["reason"] = str(exc)
             logger.exception("initial-frame capture failed: %s", case["case_id"])
         rows.append(row)
-        write_json_atomic(output / "collection.json", {"cases": rows})
+        header["collection"] = rows
+        write_json_atomic(output / "run_manifest.json", header)
     summary = {
         "selected_cases": len(cases),
         "captured": sum(row["status"] == "captured" for row in rows),
         "failed": sum(row["status"] == "error" for row in rows),
     }
-    write_json_atomic(output / "summary.json", summary)
+    header["summary"] = summary
+    write_json_atomic(output / "run_manifest.json", header)
     return summary
 
 
@@ -182,78 +185,90 @@ def infer_cases(
     grounder: VisualGrounder,
     segmenter: Segmenter,
     model: str | None = None,
+    save_evidence: bool = False,
 ) -> list[dict[str, Any]]:
-    """Call the current GeometryTool for every request, without opening references."""
+    """Measure sensor-only inputs, keeping detailed evidence only when requested."""
     predictions = []
     for case in cases:
-        root = output / case["case_id"]
-        error = None
-        try:
-            observation = load_observation(inputs / case["case_id"], manifest, case)
-            state = EnvState(root / "episode")
-            with state.record_step(state={}):
-                pass
-            geometry_tool = GeometryTool(
-                state=state,
-                observations=FrozenObservationProvider(observation),
-                grounder=grounder,
-                segmenter=segmenter,
-                model=model,
-            )
-        except Exception as exc:
-            error = str(exc)
-        for request in case["requests"]:
-            row = prediction_base(manifest, case, request)
-            if error is not None:
-                row["reason"] = error
-            else:
-                try:
-                    data = geometry_tool.geometry(
-                        row["query"],
-                        camera="agentview",
-                        step=0,
-                        required_geometry=[row["quantity"]],
-                    ).data
-                    write_json_atomic(root / f"result_{request['slot']}.json", data)
-                    field = data.get("geometry", {}).get(row["quantity"], {})
-                    point = field.get("value")
-                    if point is not None:
-                        for key, expected in {
-                            "world_frame_id": row["frame_id"],
-                            "definition": row["definition"],
-                            "source_step": 0,
-                            "unit": "m",
-                        }.items():
-                            if field.get(key) != expected:
-                                raise ValueError(f"returned field {key} mismatch")
-                        xyz = np.asarray(point, dtype=float)
-                        if xyz.shape != (3,) or not np.isfinite(xyz).all():
-                            raise ValueError("geometry did not return a finite center")
-                    row.update(
-                        status=data["status"],
-                        world_xyz=point,
-                        fit_accepted=field.get("fit_accepted", False),
-                        warnings=field.get("warnings", []),
-                        reason=field.get("reason")
-                        or data.get("error")
-                        or data.get("reason"),
-                        calls=data.get("calls"),
-                        elapsed_ms=data.get("elapsed_ms"),
-                        geometry_artifact=data.get("geometry_artifact"),
-                        artifact_sha256=dict(observation.source_refs),
-                    )
-                except Exception as exc:
-                    row["reason"] = str(exc)
-            append_jsonl(output / "results.jsonl", row)
-            predictions.append(row)
-            logger.info("geometry %s: %s", row["request_id"], row["status"])
+        workspace = (
+            nullcontext(output / case["case_id"])
+            if save_evidence
+            else TemporaryDirectory(prefix="rpent-geometry-")
+        )
+        with workspace as directory:
+            root = Path(directory)
+            error = None
+            try:
+                observation = load_observation(inputs / case["case_id"], manifest, case)
+                state = EnvState(root / "episode")
+                with state.record_step(state={}):
+                    pass
+                geometry_tool = GeometryTool(
+                    state=state,
+                    observations=FrozenObservationProvider(observation),
+                    grounder=grounder,
+                    segmenter=segmenter,
+                    model=model,
+                )
+            except Exception as exc:
+                error = str(exc)
+            for request in case["requests"]:
+                row = prediction_base(manifest, case, request)
+                if error is not None:
+                    row["reason"] = error
+                else:
+                    try:
+                        data = geometry_tool.geometry(
+                            row["query"],
+                            camera="agentview",
+                            step=0,
+                            required_geometry=[row["quantity"]],
+                        ).data
+                        if save_evidence:
+                            write_json_atomic(
+                                root / f"result_{request['slot']}.json", data
+                            )
+                            row["geometry_artifact"] = data.get("geometry_artifact")
+                        field = data.get("geometry", {}).get(row["quantity"], {})
+                        point = field.get("value")
+                        if point is not None:
+                            for key, expected in {
+                                "world_frame_id": row["frame_id"],
+                                "definition": row["definition"],
+                                "source_step": 0,
+                                "unit": "m",
+                            }.items():
+                                if field.get(key) != expected:
+                                    raise ValueError(f"returned field {key} mismatch")
+                            xyz = np.asarray(point, dtype=float)
+                            if xyz.shape != (3,) or not np.isfinite(xyz).all():
+                                raise ValueError(
+                                    "geometry did not return a finite center"
+                                )
+                        row.update(
+                            status=data["status"],
+                            world_xyz=point,
+                            fit_accepted=field.get("fit_accepted", False),
+                            warnings=field.get("warnings", []),
+                            reason=field.get("reason")
+                            or data.get("error")
+                            or data.get("reason"),
+                            calls=data.get("calls"),
+                            elapsed_ms=data.get("elapsed_ms"),
+                            artifact_sha256=dict(observation.source_refs),
+                        )
+                    except Exception as exc:
+                        row["reason"] = str(exc)
+                append_jsonl(output / "results.jsonl", row)
+                predictions.append(row)
+                logger.info("geometry %s: %s", row["request_id"], row["status"])
     return predictions
 
 
 def infer(
     args: argparse.Namespace, manifest: dict[str, Any], cases: list[dict[str, Any]]
 ) -> dict[str, Any]:
-    """Run live clients with recording, or replay without contacting any service."""
+    """Run live clients or frozen replay, optionally retaining diagnostic evidence."""
     from toolkits.geometry.evaluation.replay import (
         RecordingGrounder,
         RecordingSegmenter,
@@ -286,6 +301,7 @@ def infer(
         perception_mode="frozen" if args.replay else "live",
         geometry_model=None if args.replay else "Molmo2-8B",
         fit_profile="current_GeometryTool_defaults",
+        save_evidence=args.save_evidence,
     )
     if args.replay:
         header["replay_sha256"] = {
@@ -293,7 +309,7 @@ def infer(
             for path in args.replay.iterdir()
             if path.is_file()
         }
-    else:
+    elif args.save_evidence:
         grounder = RecordingGrounder(grounder, args.output / "perception")
         segmenter = RecordingSegmenter(segmenter, args.output / "perception")
     write_json_atomic(args.output / "run_manifest.json", header)
@@ -305,6 +321,7 @@ def infer(
         grounder=grounder,
         segmenter=segmenter,
         model=header["geometry_model"],
+        save_evidence=args.save_evidence,
     )
     summary = {
         "planned": sum(len(case["requests"]) for case in cases),
@@ -320,7 +337,8 @@ def infer(
         else sum((row.get("calls") or {}).get("segment", 0) for row in rows),
         "accuracy": None,
     }
-    write_json_atomic(args.output / "summary.json", summary)
+    header["summary"] = summary
+    write_json_atomic(args.output / "run_manifest.json", header)
     return summary
 
 
@@ -334,12 +352,11 @@ def _parser() -> argparse.ArgumentParser:
         "build-truth",
         "infer",
         "evaluate",
-        "freeze-perception",
     ):
         sub = commands.add_parser(command)
         sub.add_argument("--output", type=Path, required=True)
         sub.set_defaults(manifest=None, case=None, limit=None)
-        if command not in ("write-manifest", "freeze-perception"):
+        if command != "write-manifest":
             sub.add_argument("--manifest", type=Path)
             sub.add_argument("--case", action="append")
             sub.add_argument("--limit", type=int)
@@ -358,17 +375,14 @@ def _parser() -> argparse.ArgumentParser:
             )
             sub.add_argument("--sam3-endpoint")
             sub.add_argument("--replay", type=Path)
+            sub.add_argument(
+                "--save-evidence",
+                action="store_true",
+                help="Keep per-request tool artifacts and record live perception for replay.",
+            )
         elif command == "evaluate":
             sub.add_argument("--predictions", type=Path, required=True)
             sub.add_argument("--truth", type=Path, required=True)
-        elif command == "freeze-perception":
-            sub.add_argument(
-                "--predictions",
-                type=Path,
-                required=True,
-                help="Legacy directory containing results.jsonl and per-case evidence.",
-            )
-            sub.add_argument("--grounding", type=Path, required=True)
     return parser
 
 
@@ -417,11 +431,6 @@ def main(argv: list[str] | None = None) -> int:
         result = infer(args, manifest, cases)
         return int(result["status_counts"].get("error", 0) > 0)
     fresh_output(args.output)
-    if args.command == "freeze-perception":
-        from toolkits.geometry.evaluation.replay import freeze_legacy
-
-        freeze_legacy(args.predictions, args.grounding, args.output)
-        return 0
     from toolkits.geometry.evaluation.metrics import evaluate, write_report
 
     report = evaluate(
@@ -438,23 +447,7 @@ def main(argv: list[str] | None = None) -> int:
     run_path = args.predictions.parent / "run_manifest.json"
     if run_path.is_file():
         original = json.loads(run_path.read_text())
-        provenance["prediction_run"] = {
-            key: original[key]
-            for key in (
-                "commit",
-                "git_tree",
-                "git_commit",
-                "git_dirty",
-                "geometry_model",
-                "perception_mode",
-                "permissive",
-                "fit_profile",
-                "stage",
-                "created_at",
-                "result_kind",
-            )
-            if key in original
-        }
+        provenance["prediction_run"] = original
     write_report(manifest, report, args.output, provenance=provenance)
     return 0
 

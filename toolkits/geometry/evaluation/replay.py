@@ -19,7 +19,6 @@ from __future__ import annotations
 import hashlib
 import io
 import json
-import shutil
 from pathlib import Path
 from typing import Any
 
@@ -28,8 +27,7 @@ import numpy as np
 
 from rpent.robots.components.molmo_client import MolmoResult
 from rpent.robots.components.sam3_client import Sam3Result
-from toolkits.geometry.evaluation.checklist import build_manifest
-from toolkits.geometry.evaluation.observation import file_digest
+from toolkits.geometry.evaluation.libero import file_digest
 from toolkits.geometry.perception import Segmenter, VisualGrounder
 
 
@@ -219,51 +217,3 @@ class ReplaySegmenter:
             mask=mask,
             mask_shape=None if mask is None else mask.shape,
         )
-
-
-def freeze_legacy(predictions: Path, grounding: Path, output: Path) -> None:
-    """Import original frozen selections/masks without copying any reference data."""
-    groundings = {row["request_id"]: row for row in read_jsonl(grounding)}
-    manifest = build_manifest()
-    expected = {
-        request["request_id"]: (case, request)
-        for case in manifest["cases"]
-        for request in case["requests"]
-    }
-    index = 0
-    seen = set()
-    for prediction in read_jsonl(predictions / "results.jsonl"):
-        request_id = prediction["request_id"]
-        if request_id not in expected or request_id in seen:
-            raise ValueError("unknown or duplicate legacy request")
-        seen.add(request_id)
-        case, request = expected[request_id]
-        ground = groundings[request_id]
-        append_jsonl(output / "grounding.jsonl", ground)
-        root = predictions / case["case_id"]
-        data = json.loads((root / f"result_{request['slot']}.json").read_text())
-        for part in data["parts"].values():
-            for attempt in part["segment_attempts"]:
-                name = attempt["segment_artifact"]
-                if Path(name).name != name:
-                    raise ValueError("invalid legacy segment artifact")
-                record = json.loads((root / "episode" / name / "00.json").read_text())
-                row = {
-                    "rgb_pixel_sha256": ground["rgb_pixel_sha256"],
-                    "text_prompt": record.get("prompt"),
-                    "point": record.get("point"),
-                    "min_score": record["min_score"],
-                    "found": record["found"],
-                    "score": record.get("score"),
-                    "reason": record.get("reason"),
-                }
-                if record["found"]:
-                    mask_name = record["mask_artifact"]
-                    if Path(mask_name).name != mask_name:
-                        raise ValueError("invalid legacy mask artifact")
-                    source = root / "episode" / mask_name / "00.npz"
-                    target = output / f"mask_{index:04d}.npz"
-                    shutil.copyfile(source, target)
-                    row.update(mask_path=target.name, mask_sha256=file_digest(target))
-                    index += 1
-                append_jsonl(output / "segments.jsonl", row)

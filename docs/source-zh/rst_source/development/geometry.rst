@@ -218,6 +218,8 @@ LIBERO 几何评估
 
 ``collect``、``build-truth``、``infer`` 和 ``evaluate`` 分别用于采集、生成参考点、推理和误差评估，阶段参数可通过 ``--help`` 查看。实时实验需要 LIBERO Pro、渲染环境及已有的 Molmo2-8B、SAM3 服务；``infer`` 通过 ``--molmo-endpoint`` 和 ``--sam3-endpoint`` 连接服务，在工具外初始化并注入客户端。``infer --replay`` 可复用冻结的选点和掩码，不连接模型服务。
 
+``collect`` 保存评估输入所需的 RGB-D、标定和独立参考快照。``infer`` 默认只保留逐项预测 ``results.jsonl`` 和运行信息 ``run_manifest.json``，工具的临时诊断文件会在每组测量结束后清除。需要检查点云、掩码、叠图或记录感知结果以供回放时，添加 ``infer --save-evidence``；该选项将详细产物保存在各组目录中，实时选点和分割记录保存在 ``perception/``，供后续 ``infer --replay`` 使用。
+
 本次基准使用与提交 ``699fa46`` 相同的 GeometryTool 源码，回放冻结的 ``step 0 / agentview`` RGB-D、视觉选点和 SAM3 掩码，重新执行全部 80 组、160 项测量；未拼接旧预测坐标，也未重新推理视觉模型。
 
 下列结果属于该冻结输入基准，不是 Molmo2-8B 重新选点后的评估结果。
@@ -260,4 +262,4 @@ LIBERO 几何评估
      --truth "$GEOMETRY_RUN_DIR/truth.json" \
      --output "$GEOMETRY_RUN_DIR/report"
 
-输出 ``report.md``、``errors.csv`` 和 ``metrics.json``，包含逐项坐标对比、分组统计及数据来源。输出目录须不存在或为空。
+``evaluate`` 只生成一份简要的 ``report.md``，列出坐标返回率、整体与质量分组的误差均值、中位数和最大值，以及各目标部位的统计和数据来源。逐项预测仍保存在输入的 ``results.jsonl`` 中。输出目录须不存在或为空。
