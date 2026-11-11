@@ -145,7 +145,7 @@ VLA 启动函数也使用 ``AMConfig.spawn_worker()``。平台保留各自的服
 添加 WAM
 --------
 
-Cosmos Policy 和 Cosmos3 支持 LIBERO、LIBERO-Pro；Fast-WAM 支持 LIBERO、LIBERO-Pro 和 RoboTwin。每个模型与平台组合都需要匹配的 checkpoint。
+Cosmos Policy 和 Cosmos3 支持 LIBERO、LIBERO-Pro；Fast-WAM 支持 LIBERO、LIBERO-Pro 和 RoboTwin；UniWAM 支持 RoboTwin。每个模型与平台组合都需要匹配的 checkpoint。
 
 ``cosmos-policy`` 使用 NVIDIA 发布的 ``Cosmos-Policy-LIBERO-Predict2-2B`` 权重和官方 LIBERO 推理接口。``cosmos3`` 通过 RLinf 的 ``Cosmos3SGLangAdapter`` 和 HTTP client，连接独立部署的 SGLang ``/v1/actions/generations`` 服务。图像拼接、请求构造、动作反归一化和旋转转换由 RLinf 负责，其 ``prepare_actions_for_libero`` 还负责适配仿真器的夹爪约定。RPent 复用已有 LIBERO client，只在接口边界映射观测与预测。这两个后端需要不同的 checkpoint。
 
