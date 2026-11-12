@@ -1,7 +1,14 @@
 RoboDojo
 ========
 
-通过 RPent 在 RoboDojo 中执行双臂桌面操作任务。仿真器基于 Isaac Sim / IsaacLab，采用 ARX-X5 双机械臂平台。RPent 结合策略动作、原生运动 Primitive 和 SAM3 物体分割完成任务。策略动作可选择 VPP2 或 Awomo05。
+.. figure:: https://media.luminis-sim.com/media/home/teaser.png
+   :alt: RoboDojo 仿真与真机基准概览
+   :width: 90%
+   :align: center
+
+   RoboDojo 仿真与真机基准概览。图片来源：`RoboDojo 项目 <https://robodojo-benchmark.com/>`_。
+
+使用 RPent 在 RoboDojo 仿真环境中运行双臂桌面操作任务。仿真器基于 Isaac Sim / IsaacLab，使用双臂 ARX-X5。RPent 支持 VPP2 和 Awomo05 动作模型，并提供运动 Primitive 与 SAM3 物体分割工具。
 
 概览
 ----

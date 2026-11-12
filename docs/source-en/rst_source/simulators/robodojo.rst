@@ -1,10 +1,16 @@
 RoboDojo
 ========
 
-Run bimanual tabletop tasks with RPent in RoboDojo. The simulator uses
-Isaac Sim / IsaacLab with an ARX-X5 dual-arm platform. RPent combines policy
-actions, native motion primitives and SAM3 object segmentation to complete tasks.
-Choose VPP2 or Awomo05 for policy actions.
+.. figure:: https://media.luminis-sim.com/media/home/teaser.png
+   :alt: RoboDojo simulation and real-world benchmark overview
+   :width: 90%
+   :align: center
+
+   RoboDojo simulation and real-world benchmark overview. Source: `RoboDojo project <https://robodojo-benchmark.com/>`_.
+
+Run bimanual tabletop tasks with RPent in the RoboDojo simulator. The simulator
+uses Isaac Sim / IsaacLab with dual ARX-X5 arms. RPent supports VPP2 and Awomo05
+action models and provides motion primitives and SAM3 object segmentation tools.
 
 Overview
 --------
