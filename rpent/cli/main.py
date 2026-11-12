@@ -562,6 +562,11 @@ def main() -> int:
             **prompt_vars,
             **robot_spec.prepare_prompt_vars(args, run_config, runtime_kwargs),
         }
+        # ``prepare_prompt_vars`` may add variables the user prompt reads, so
+        # re-render it once the connected runtime has reported its capabilities.
+        # The interactive reader keeps the earlier render, which is only the
+        # editable default.
+        user_msg = prompt_bundle.render("user", variables=prompt_vars)
     system_prompt = prompt_bundle.render("system", variables=prompt_vars)
 
     # --- agent loop --------------------------------------------------------

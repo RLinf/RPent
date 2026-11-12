@@ -22,6 +22,7 @@ only when the task declares a reset budget.
 from __future__ import annotations
 
 import argparse
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -139,6 +140,11 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
 
 
 def _validate_args(args: argparse.Namespace) -> None:
+    # EFE does not declare ``supports_exploration``, so the generic CLI rejects
+    # ``--explore`` before robot hooks run. Keep the guard for callers that
+    # invoke this hook directly: EFE never drives exploration sessions, and it
+    # defines no ``--explore-sessions`` option. The Harbor adapter owns the
+    # session count (``RPentEfeAgent(explore_sessions=...)``).
     if getattr(args, "explore", False):
         raise ValueError(
             "The EFE runner starts its own sessions; use --explore-sessions"
@@ -208,6 +214,13 @@ def _init_runtime(
     """Connect to the existing simulator service. This starts no subprocess."""
     from robots.efe.env_client import EfeEnvClient
 
+    # ``--workdir`` is the trial workspace, but ``MemoryManager`` and
+    # ``build_planner`` resolve relative paths against ``get_repo_root()``,
+    # which is the installed package root. Bind the root to the workspace so a
+    # manual run reads the same tree the runner does.
+    workdir = getattr(args, "workdir", None)
+    if workdir is not None and not os.environ.get("RPENT_REPO_ROOT"):
+        os.environ["RPENT_REPO_ROOT"] = str(Path(workdir).expanduser().resolve())
     client = EfeEnvClient(
         base_url=args.efe_base_url,
         connect_timeout_s=args.efe_connect_timeout_s,
