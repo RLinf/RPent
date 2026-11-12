@@ -27,7 +27,7 @@ Its listener is local (`127.0.0.1`). The planner and server both default to a
 | `RPENT_REASONING_EFFORT` | `xhigh` for Qwen3.8; `none` otherwise | `none` omits the effort tier while thinking stays enabled |
 | `RPENT_MAX_TURNS` | `80` | Model requests per episode |
 | `RPENT_MAX_EPISODE_STEPS` | `10000` | Simulator-step budget |
-| `RPENT_MAX_TOKENS` | `4096` | Output-token budget per request, including thinking |
+| `RPENT_MAX_TOKENS` | `32768` | Output-token budget per request, including thinking |
 | `RPENT_CONTEXT_WINDOW` | `262144` | Planner context budget |
 | `RPENT_COMPACTION_FRACTION` | `0.7` | History-compaction threshold |
 | `RPENT_PLANNER_TIMEOUT_S` | `7200` | Planner wall-clock budget; set explicitly for a different limit |

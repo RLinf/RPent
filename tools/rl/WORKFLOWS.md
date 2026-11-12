@@ -139,7 +139,7 @@ performance result, and report queueing separately from generation time.
 
 ## Fixed-panel comparison
 
-Launcher defaults are output 4096 tokens, 80 requests, and 10 retained tail
+Launcher defaults are output 32768 tokens, 80 requests, and 10 retained tail
 messages after compaction. The historical fixed-panel examples below use a
 separate 32768-token/100-request profile; to reproduce that profile, explicitly
 export `RPENT_MAX_TOKENS=32768`, `RPENT_MAX_TURNS=100`, and

@@ -80,7 +80,7 @@ def test_editable_run_defaults_and_explicit_cli_precedence(tmp_path, monkeypatch
     clean_defaults(monkeypatch)
     source = (ROOT / "tools/rl/run.sh").read_text()
     assert "--max-tokens" in source
-    changed = source.replace("RPENT_MAX_TOKENS:-4096", "RPENT_MAX_TOKENS:-8192")
+    changed = source.replace("RPENT_MAX_TOKENS:-32768", "RPENT_MAX_TOKENS:-8192")
     changed = changed.replace("  --thinking ", "  --no-thinking ")
     (tmp_path / "run.sh").write_text(changed)
     monkeypatch.setattr(batch, "EVAL_DIR", tmp_path)
@@ -378,11 +378,11 @@ def test_launcher_budget_defaults_apply_to_every_batch(tmp_path, monkeypatch):
         monkeypatch.delenv("RPENT_" + name, raising=False)
     args = batch_args(tmp_path)
     batch.resolve_run_options(args)
-    assert args.max_tokens == 4096
+    assert args.max_tokens == 32768
     assert args.max_turns == 80
     assert args.compaction_keep_messages == 10
     flags = batch.episode_options(args)
-    assert flags[flags.index("--max-tokens") + 1] == "4096"
+    assert flags[flags.index("--max-tokens") + 1] == "32768"
     assert flags[flags.index("--max-turns") + 1] == "80"
     assert flags[flags.index("--compaction-keep-messages") + 1] == "10"
 

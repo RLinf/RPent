@@ -122,7 +122,7 @@ SERVE_GPUS=2,3 SERVE_PORT=30180 SERVE_CONCURRENCY=32 \
 
 ## 固定任务对比
 
-启动器默认输出4096 tokens、最多80次模型请求、压缩后保留10条尾部消息。
+启动器默认输出32768 tokens、最多80次模型请求、压缩后保留10条尾部消息。
 下方历史固定面板示例采用独立的32768 tokens／100次请求配置；复现该配置时，
 须在这些比较命令前显式导出 `RPENT_MAX_TOKENS=32768`、`RPENT_MAX_TURNS=100`、
 `RPENT_COMPACTION_KEEP_MESSAGES=40`。

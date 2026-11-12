@@ -121,7 +121,7 @@ them requires a new output directory.
      - Default
      - Meaning
    * - ``--max-tokens``
-     - 4096
+     - 32768
      - Per-response completion budget, including reasoning and tool protocol.
    * - ``--context-window``
      - 262144
