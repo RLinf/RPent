@@ -394,7 +394,7 @@ class EvaluatorStepBridge:
                     "observation_index": self._observation_index,
                 }
                 try:
-                    proprio = extract_public_proprio(raw_obs)
+                    proprio = extract_public_proprio(raw_obs).copy()
                 except (ValueError, TypeError, UnicodeError):
                     proprio = None
                 context = {

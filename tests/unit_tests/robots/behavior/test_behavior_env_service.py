@@ -192,11 +192,28 @@ def make_env():
         },
     )
     facade = BehaviorEnvFacade(
-        backend, task_id=0, motion_planner=SimpleNamespace(plan_arm_path=plan)
+        backend,
+        task_id=0,
+        motion_planner=SimpleNamespace(plan_arm_path=plan),
+        motion_model=lambda: SimpleNamespace(
+            joint_limits=lambda arm: np.tile([-2.0, 2.0], (7, 1))
+        ),
     )
     rpc = LocalRpc(facade)
     client = BehaviorEnvClient(rpc, task_id=0)
     return client, facade, rpc, calls, planned, info
+
+
+def test_joint_limits_are_lazy_and_cached_without_local_assets(monkeypatch):
+    monkeypatch.delenv("OMNIGIBSON_DATA_PATH", raising=False)
+    client, _, rpc, calls, planned, _ = make_env()
+    assert rpc.calls == ["env.get_env_meta"]
+    first = client.arm_joint_limits
+    assert client.arm_joint_limits is first
+    assert rpc.calls == ["env.get_env_meta", "env.get_arm_joint_limits"]
+    assert not calls and not planned
+    with pytest.raises(ValueError):
+        first["left"][0, 0] = 0
 
 
 @pytest.fixture(params=["socket", "http"])
@@ -219,6 +236,15 @@ def transported_env(request):
         server.shutdown()
         server.server_close()
         worker.join(timeout=2)
+
+
+def test_joint_limits_cross_existing_transports_without_actions(transported_env):
+    client, calls, planned, _ = transported_env
+    for arm in ("left", "right"):
+        np.testing.assert_array_equal(
+            client.arm_joint_limits[arm], np.tile([-2, 2], (7, 1))
+        )
+    assert not calls and not planned
 
 
 @pytest.mark.parametrize("method,shape", [("step", (23,)), ("chunk_step", (32, 23))])

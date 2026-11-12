@@ -41,8 +41,7 @@ Tasks
 ~~~~~
 
 Task IDs, official names, and full instructions are listed in
-``robots/behavior/tasks.py``. All three must identify the same task. Recognizing
-every task ID does not mean that performance has been verified on every task.
+``robots/behavior/tasks.py``. All three must identify the same task.
 
 .. list-table::
    :header-rows: 1
@@ -83,6 +82,24 @@ task. RPent supports Python 3.10–3.12. Use separate environments for the
 simulator, Pi0.5, and planner to satisfy their respective Python, CUDA, and
 graphics requirements. Without CuRobo, the Env bridge can use the planner
 environment.
+
+Before using CuRobo arm planning or ``rotate_wrist_joint``, point the official
+environment variable to your existing datasets directory in the terminal that
+starts the Env service. Keep its current value if it is already configured:
+
+.. code-block:: bash
+
+   export OMNIGIBSON_DATA_PATH="/path/to/your/existing/datasets"
+
+Use an absolute path containing ``omnigibson-robot-assets/models/r1pro/``.
+RPent reads the robot structure, joint limits, and collision configuration from
+these assets. The motion adapter supports robot asset version ``3.8.2`` (see
+``omnigibson-robot-assets/VERSION``). The Env service and official evaluator can
+share this installation; mount it where Env can read it when using separate
+containers. The planner queries joint limits through Env and needs neither a
+simulator installation nor local robot assets. With ``vla_only.yaml``, RPent Env
+does not load motion assets; the official evaluator still requires its own
+simulation resources.
 
 The model environment needs RLinf/OpenPI with ``pi05_behavior`` support,
 normalization statistics matching the checkpoint, and a tokenizer. This guide
@@ -377,32 +394,8 @@ reports mean QScore from the official evaluator.
      - 0.33
      - 0.73
 
-These are mean task scores, not success rates or results from the public
-PT50-CS32 checkpoint used above. Reproducing the table requires the same
-self-trained weights, instance selection, planner and memory configuration,
-and action budgets. The public-checkpoint example demonstrates how to run the
-integration.
-
-.. _runtime-contracts-and-troubleshooting:
-
-Troubleshooting
----------------
-
-.. list-table::
-   :header-rows: 1
-
-   * - Question or symptom
-     - What to check
-   * - Is Dashboard required?
-     - This guide uses command-line startup and does not require Dashboard. BEHAVIOR currently has no graphical launcher.
-   * - The planner cannot obtain the first observation
-     - Check the evaluator's scene-loading and connection logs. The official WebSocket uses ``28012``; RPent's ``--env-endpoint`` uses the internal RPC address on ``28010``.
-   * - Model loading or input conversion fails
-     - Check RLinf/OpenPI support for ``pi05_behavior``, checkpoint/statistics compatibility, and the tokenizer path. Model startup logs record the embodiment and checkpoint path.
-   * - Actions time out or execution counts conflict
-     - Inspect issued, confirmed, and unknown counts. Keep unconfirmed outcomes unknown and do not replay chunks. If a later VLA chunk fails, earlier known execution records are retained. Untrusted hold commands cannot be used to continue motion.
-   * - 3D queries fail or arm planning is rejected
-     - For 3D queries, check matching RGB-D and calibration. For arm motion, check CuRobo, a stable starting state, target range, and orientation constraints. Adjust requests using the feedback instead of repeating the same failed target.
+With the same VLA trained by our team, RPent achieves higher mean QScores
+than the standalone VLA baseline on all three evaluated tasks.
 
 Development and Tests
 ---------------------

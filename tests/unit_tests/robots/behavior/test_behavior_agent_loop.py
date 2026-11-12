@@ -33,7 +33,10 @@ from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory import MemoryManager
 from rpent.planner.api_loop import ApiAgentLoop
 from rpent.tools.toolkit import ToolCancelled
-from tests.unit_tests.robots.behavior.conftest import _template_toolkit
+from tests.unit_tests.robots.behavior.conftest import (
+    _execution_feedback,
+    _template_toolkit,
+)
 
 _CAMERAS = (
     "robot_r1::robot_r1:zed_link:Camera:0::rgb",
@@ -46,6 +49,8 @@ _TASK = "Put the popcorn bag in the microwave and cook the popcorn."
 
 
 class _Environment:
+    arm_joint_limits = {arm: np.tile([-3.0, 3.0], (7, 1)) for arm in ("left", "right")}
+
     def __init__(self) -> None:
         self.action_chunks: list[np.ndarray] = []
         self.actions_executed = 0
@@ -81,14 +86,7 @@ class _Environment:
             None,
             None,
             None,
-            {
-                "executed_actions": count,
-                "issued_actions": count,
-                "confirmed_actions": count,
-                "unconfirmed_actions": 0,
-                "observation_after_last_issued_action": True,
-                "stop_reason": "chunk_completed",
-            },
+            _execution_feedback(count),
         )
 
 
@@ -257,14 +255,13 @@ def test_invalid_joint_feedback_is_saved_as_unknown_with_previous_observation(
         return returned
 
     monkeypatch.setattr(env, "chunk_step", invalid_feedback)
-    toolkit = _template_toolkit(
+    with _template_toolkit(
         tmp_path,
         ["view_env_state", tool, "finish"],
         env=env,
         model=model,
         task_language=_TASK,
-    )
-    try:
+    ) as toolkit:
         result = toolkit.execute_tool(
             tool, {"arm": "left", "steps": 1, "settle_steps": 0, **arguments}
         )
@@ -280,8 +277,6 @@ def test_invalid_joint_feedback_is_saved_as_unknown_with_previous_observation(
             0
         ] == pytest.approx(0.4)
         assert len(env.action_chunks) == 1 and not model.inputs
-    finally:
-        toolkit.close()
 
 
 @pytest.mark.parametrize(
@@ -291,7 +286,7 @@ def test_later_vla_failure_preserves_confirmed_prefix_in_saved_result(
     tmp_path, monkeypatch, failure
 ):
     env, model = _Environment(), _VLA()
-    toolkit = _template_toolkit(
+    with _template_toolkit(
         tmp_path,
         ["view_env_state", "vla_act", "finish"],
         env=env,
@@ -299,55 +294,56 @@ def test_later_vla_failure_preserves_confirmed_prefix_in_saved_result(
         task_language=_TASK,
         execution_horizon=2,
         max_chunks_per_call=3,
-    )
-    if failure == "observation":
-        observe = env.get_observation
-        reads = 0
+    ) as toolkit:
+        if failure == "observation":
+            observe = env.get_observation
+            reads = 0
 
-        def fail_observation():
-            nonlocal reads
-            reads += 1
-            if reads == 3:  # First prediction, its feedback, then the next input.
-                raise ConnectionError("next observation unavailable")
-            return observe()
+            def fail_observation():
+                nonlocal reads
+                reads += 1
+                if reads == 3:  # First prediction, its feedback, then the next input.
+                    raise ConnectionError("next observation unavailable")
+                return observe()
 
-        monkeypatch.setattr(env, "get_observation", fail_observation)
-    elif failure == "prediction":
-        predict = model.predict
+            monkeypatch.setattr(env, "get_observation", fail_observation)
+        elif failure == "prediction":
+            predict = model.predict
 
-        def fail_prediction(observation):
-            if model.inputs:
-                raise RuntimeError("second prediction failed")
-            return predict(observation)
+            def fail_prediction(observation):
+                if model.inputs:
+                    raise RuntimeError("second prediction failed")
+                return predict(observation)
 
-        monkeypatch.setattr(model, "predict", fail_prediction)
-    elif failure == "cancel":
-        checks = 0
+            monkeypatch.setattr(model, "predict", fail_prediction)
+        elif failure == "cancel":
+            checks = 0
 
-        def cancel_after_first_chunk():
-            nonlocal checks
-            checks += 1
-            if checks == 3:
-                raise ToolCancelled("cancelled before the second chunk")
+            def cancel_after_first_chunk():
+                nonlocal checks
+                checks += 1
+                if checks == 3:
+                    raise ToolCancelled("cancelled before the second chunk")
 
-        monkeypatch.setattr(
-            toolkit._primitives, "_check_cancelled", cancel_after_first_chunk
-        )
-    else:
-        execute = env.chunk_step
+            monkeypatch.setattr(
+                toolkit._primitives, "_check_cancelled", cancel_after_first_chunk
+            )
+        else:
+            execute = env.chunk_step
 
-        def fail_execution(actions):
-            if env.action_chunks and failure == "execution":
-                env.action_chunks.append(actions.copy())
-                env.actions_executed += 1  # Lost reply after a possible side effect.
-                raise TimeoutError("second execution outcome unknown")
-            returned = execute(actions)
-            if len(env.action_chunks) == 2:
-                returned[4]["issued_actions"] = len(actions) + 1
-            return returned
+            def fail_execution(actions):
+                if env.action_chunks and failure == "execution":
+                    env.action_chunks.append(actions.copy())
+                    env.actions_executed += (
+                        1  # Lost reply after a possible side effect.
+                    )
+                    raise TimeoutError("second execution outcome unknown")
+                returned = execute(actions)
+                if len(env.action_chunks) == 2:
+                    returned[4]["issued_actions"] = len(actions) + 1
+                return returned
 
-        monkeypatch.setattr(env, "chunk_step", fail_execution)
-    try:
+            monkeypatch.setattr(env, "chunk_step", fail_execution)
         result = toolkit.execute_tool("vla_act", {"chunks": 3})
         feedback = result.data["log"]["result"]
         assert result.is_error
@@ -384,5 +380,3 @@ def test_later_vla_failure_preserves_confirmed_prefix_in_saved_result(
         assert stored.data["state"]["robot_state"]["left"]["eef_position"][
             0
         ] == pytest.approx(0.402)
-    finally:
-        toolkit.close()

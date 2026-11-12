@@ -14,8 +14,8 @@
 
 """R1Pro static model and native CuRobo single-arm inverse kinematics.
 
-The solver uses bundled robot geometry only. It solves the goal joint
-configuration with CuRobo IK, then interpolates the seven arm joints linearly
+The solver reads robot geometry from the installed official assets. It solves
+the goal joint configuration with CuRobo IK, then interpolates the arm joints
 under the velocity limit. No path-level collision check is made against observed
 surfaces; the simulator's physics is the contact authority, so a carried object
 does not block a planned correction. CuRobo is imported only by the operations
@@ -26,14 +26,16 @@ from __future__ import annotations
 
 import copy
 import hashlib
-import json
+import os
+import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any, Literal
 
 import numpy as np
+import yaml
 
-from robots.behavior.tools import extract_robot_state, snapshot_observation
+from robots.behavior.tools import decode_robot_state, extract_public_proprio
 
 Arm = Literal["left", "right"]
 TRUNK_JOINT_NAMES = tuple(f"torso_joint{i}" for i in range(1, 5))
@@ -86,36 +88,127 @@ RETREAT_SUGGESTION_M = 0.05
 
 
 class R1ProMotionModel:
-    """Load the reviewed static model without importing CuRobo or a simulator.
+    """Adapt official R1Pro assets without importing CuRobo or a simulator.
 
     Args:
-        asset_dir: Directory containing the derived URDF, the CuRobo robot
-            configuration (its self-collision spheres included) and provenance
-            hashes. Defaults to bundled assets.
+        asset_dir: Official ``models/r1pro`` directory. By default, resolve it
+            under ``OMNIGIBSON_DATA_PATH/omnigibson-robot-assets``.
     """
 
     def __init__(self, asset_dir: str | Path | None = None) -> None:
-        self.asset_dir = (
-            Path(asset_dir)
-            if asset_dir is not None
-            else Path(__file__).parent / "assets" / "r1pro"
-        ).resolve()
-        self.provenance = json.loads((self.asset_dir / "provenance.json").read_text())
-        for name in ("r1pro_base.urdf", "collision_config.json"):
-            actual = hashlib.sha256((self.asset_dir / name).read_bytes()).hexdigest()
-            if actual != self.provenance["derived_files"][name]:
-                raise ValueError(f"R1Pro motion asset SHA256 mismatch: {name}")
-        self.urdf_path = self.asset_dir / "r1pro_base.urdf"
-        self.urdf_sha256 = self.provenance["derived_files"]["r1pro_base.urdf"]
-        self._config = json.loads(
-            (self.asset_dir / "collision_config.json").read_text()
+        if asset_dir is None:
+            data_path = os.environ.get("OMNIGIBSON_DATA_PATH", "")
+            if not data_path or not Path(data_path).expanduser().is_absolute():
+                raise ValueError(
+                    "Set OMNIGIBSON_DATA_PATH to the absolute path of your existing "
+                    "official datasets directory (containing omnigibson-robot-assets)."
+                )
+            asset_dir = (
+                Path(data_path).expanduser() / "omnigibson-robot-assets/models/r1pro"
+            )
+        self.asset_dir = Path(asset_dir).resolve()
+        paths = (
+            self.asset_dir.parents[1] / "VERSION",
+            self.asset_dir / "urdf/r1pro.urdf",
+            self.asset_dir / "curobo/r1pro_description_curobo_arm_no_torso.yaml",
         )
-        root = ET.parse(self.urdf_path).getroot()
+        for path in paths:
+            if not path.is_file():
+                raise FileNotFoundError(
+                    f"Missing official R1Pro asset: {path}. Check OMNIGIBSON_DATA_PATH "
+                    "and your existing official asset installation."
+                )
+        self.asset_version = paths[0].read_text().strip()
+        if self.asset_version != "3.8.2":
+            raise ValueError(
+                f"Unsupported robot asset version {self.asset_version!r}; "
+                "the R1Pro motion adapter is validated with 3.8.2."
+            )
+        root = ET.parse(paths[1]).getroot()
+        source = yaml.safe_load(paths[2].read_text())["robot_cfg"]["kinematics"]
+        # Public proprioception omits the wheel/steering joints. Enclose each
+        # wheel at its fixed steering center for every unobserved rotation.
+        spheres = source["collision_spheres"]
+        for index in range(1, 4):
+            steer = root.find(f"joint[@name='steer_motor_joint{index}']")
+            wheel = root.find(f"joint[@name='wheel_motor_joint{index}']")
+            center = _xyz(steer.find("origin"), "xyz") + _xyz(
+                wheel.find("origin"), "xyz"
+            )
+            for sphere in spheres.pop(f"wheel_motor_link{index}"):
+                spheres["base_link"].append(
+                    {
+                        "center": center.tolist(),
+                        "radius": sphere["radius"]
+                        + float(np.linalg.norm(sphere["center"])),
+                    }
+                )
+        for element in list(root):
+            if element.get("name", "").startswith(("wheel_motor_", "steer_motor_")):
+                root.remove(element)
+            elif element.tag == "link":
+                # IK uses collision spheres, not meshes or inertia.
+                for child in list(element):
+                    element.remove(child)
+        # Official 3.8.2 USD gripper-to-EEF fixed joints: localPos0=(0,0,-.06),
+        # localRot0 wxyz=(0,0,1,0). These frames are absent from its URDF.
+        for arm in ARM_JOINT_NAMES:
+            ET.SubElement(root, "link", name=f"{arm}_eef_link")
+            joint = ET.SubElement(
+                root,
+                "joint",
+                name=f"{arm}_gripper_link_{arm}_eef_link_joint",
+                type="fixed",
+            )
+            ET.SubElement(joint, "parent", link=f"{arm}_gripper_link")
+            ET.SubElement(joint, "child", link=f"{arm}_eef_link")
+            ET.SubElement(joint, "origin", xyz="0 0 -0.06", rpy=f"0 {np.pi} 0")
         self._joints = {joint.attrib["name"]: joint for joint in root.findall("joint")}
         self._by_child = {
             joint.find("child").attrib["link"]: joint for joint in self._joints.values()
         }
         self._links = tuple(link.attrib["name"] for link in root.findall("link"))
+        self._config = {
+            key: source[key]
+            for key in (
+                "collision_spheres",
+                "collision_sphere_buffer",
+                "self_collision_buffer",
+                "use_global_cumul",
+            )
+        }
+        self._config.update(
+            base_link="base_link",
+            collision_link_names=[
+                name for name in source["collision_link_names"] if name in self._links
+            ],
+            self_collision_ignore={
+                name: [other for other in ignored if other in self._links]
+                for name, ignored in source["self_collision_ignore"].items()
+                if name in self._links
+            },
+            mesh_link_names=[],
+            motion_limits={
+                key: source["cspace"][key] for key in ("max_acceleration", "max_jerk")
+            },
+        )
+        self._urdf = ET.tostring(root, encoding="utf-8")
+        self.urdf_sha256 = hashlib.sha256(self._urdf).hexdigest()
+        self._temp: tempfile.TemporaryDirectory | None = None
+
+    @property
+    def urdf_path(self) -> Path:
+        """Materialize the adapted URDF only when CuRobo needs a file."""
+        if self._temp is None:
+            self._temp = tempfile.TemporaryDirectory(prefix="rpent-behavior-")
+            (Path(self._temp.name) / "r1pro.urdf").write_bytes(self._urdf)
+        return Path(self._temp.name) / "r1pro.urdf"
+
+    def close(self) -> None:
+        """Remove the owned temporary URDF without touching official assets."""
+        if self._temp is not None:
+            self._temp.cleanup()
+            self._temp = None
 
     @staticmethod
     def active_joint_names(arm: Arm) -> tuple[str, ...]:
@@ -431,9 +524,19 @@ class R1ProMotionModel:
         result: dict[str, Any] = {
             "frame": "robot_base",
             "urdf_sha256": self.urdf_sha256,
+            "robot_asset_version": self.asset_version,
         }
+        transforms = self.link_transforms(state)
         for arm, start in (("left", 17), ("right", 42)):
-            pose = self.forward(arm, state)
+            matrix = transforms[f"{arm}_eef_link"]
+            pose = {
+                "position": matrix[:3, 3].tolist(),
+                "quaternion_xyzw": Rotation.from_matrix(matrix[:3, :3])
+                .as_quat()
+                .tolist(),
+                "frame": "robot_base",
+                "eef_link": f"{arm}_eef_link",
+            }
             observed_q = state[start + 3 : start + 7]
             norm = np.linalg.norm(observed_q)
             if abs(norm - 1.0) > 1e-3:
@@ -460,15 +563,19 @@ class R1ProMotionPlanner:
     CuRobo imports and GPU allocation are deferred until the first request.
     The official action clock is 30 Hz; video encoding at 120 FPS is separate.
     Only short single-arm repositioning is supported by this adapter mode.
+    The caller owns the static model and its temporary URDF.
     """
 
     def __init__(
-        self, *, task_id: int, task_language: str, device: str = "cuda:0"
+        self,
+        *,
+        model: R1ProMotionModel,
+        task_id: int,
+        device: str = "cuda:0",
     ) -> None:
         self.task_id = task_id
-        self.task_language = task_language
         self.device = device
-        self.model = R1ProMotionModel()
+        self.model = model
         self.control_dt_s = 1.0 / 30.0
 
     def _ik_solver(self, arm: str, proprio: np.ndarray) -> Any:
@@ -521,11 +628,8 @@ class R1ProMotionPlanner:
             or not np.isclose(np.linalg.norm(goal[3:]), 1, atol=1e-4)
         ):
             raise ValueError("target_pose must be robot-base xyz and unit xyzw")
-        snapshot = snapshot_observation(
-            observation, task_id=self.task_id, task_language=self.task_language
-        )
-        proprio = np.asarray(snapshot["proprio"])
-        state = extract_robot_state(proprio)
+        proprio = extract_public_proprio(observation, task_id=self.task_id)
+        state = decode_robot_state(proprio)
         reposition_m = float(np.linalg.norm(goal[:3] - state[arm]["eef_position"]))
         if reposition_m > MAX_SINGLE_ARM_REPOSITION_M:
             return {
@@ -632,15 +736,6 @@ class R1ProMotionPlanner:
             np.asarray(start_q, dtype=np.float32).reshape(1, 1, 7)
         )
         result = solver.solve_single(target, seed_config=seed, return_seeds=1)
-        goal_q = (
-            result.js_solution.get_ordered_joint_state(names)
-            .position.detach()
-            .cpu()
-            .numpy()
-            .reshape(7)
-        )
-        position_error = float(result.position_error.reshape(-1)[0].item())
-        rotation_error = float(result.rotation_error.reshape(-1)[0].item())
         orientation_relaxed = False
         if not bool(result.success.reshape(-1)[0].item()) and allow_orientation_relax:
             # Near full extension the arm often cannot keep the requested
@@ -658,25 +753,26 @@ class R1ProMotionPlanner:
             relaxed = solver.solve_single(target, seed_config=seed, return_seeds=1)
             if bool(relaxed.success.reshape(-1)[0].item()):
                 result = relaxed
-                goal_q = (
-                    relaxed.js_solution.get_ordered_joint_state(names)
-                    .position.detach()
-                    .cpu()
-                    .numpy()
-                    .reshape(7)
-                )
-                position_error = float(relaxed.position_error.reshape(-1)[0].item())
-                relaxed_fk = solver.fk(solver.tensor_args.to_device([goal_q]))
-                relaxed_wxyz = (
-                    relaxed_fk.ee_quaternion.detach().cpu().numpy().reshape(4)
-                )
-                rotation_error = float(
-                    (
-                        Rotation.from_quat(relaxed_wxyz[[1, 2, 3, 0]]).inv()
-                        * Rotation.from_quat(goal[3:])
-                    ).magnitude()
-                )
                 orientation_relaxed = True
+        goal_q = (
+            result.js_solution.get_ordered_joint_state(names)
+            .position.detach()
+            .cpu()
+            .numpy()
+            .reshape(7)
+        )
+        position_error = float(result.position_error.reshape(-1)[0].item())
+        if orientation_relaxed:
+            relaxed_fk = solver.fk(solver.tensor_args.to_device([goal_q]))
+            relaxed_wxyz = relaxed_fk.ee_quaternion.detach().cpu().numpy().reshape(4)
+            rotation_error = float(
+                (
+                    Rotation.from_quat(relaxed_wxyz[[1, 2, 3, 0]]).inv()
+                    * Rotation.from_quat(goal[3:])
+                ).magnitude()
+            )
+        else:
+            rotation_error = float(result.rotation_error.reshape(-1)[0].item())
         if not bool(result.success.reshape(-1)[0].item()):
             # Report where the arm could actually get to, so the caller can
             # decide between a shorter arm move and a base move. Also suggest
@@ -709,12 +805,6 @@ class R1ProMotionPlanner:
         steps = int(np.ceil(np.max(np.abs(goal_q - start_q) / (velocity * dt))))
         steps = int(np.clip(steps, 1, 600))
         path = start_q + (goal_q - start_q) * (np.arange(1, steps + 1) / steps)[:, None]
-        if not 1 <= len(path) <= 600:
-            return {
-                "status": "Failed",
-                "code": "motion_path_length",
-                "path_points": len(path),
-            }
         return {
             "status": "Success",
             "backend": "curobo_ik_joint_interpolation",

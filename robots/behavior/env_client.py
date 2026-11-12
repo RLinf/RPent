@@ -21,6 +21,7 @@ adapter must supply completed execution feedback before it can serve it.
 from __future__ import annotations
 
 import math
+from functools import cached_property
 from typing import Any
 
 import numpy as np
@@ -67,6 +68,25 @@ class BehaviorEnvClient(BaseEnvClient):
         "env.chunk_step": 360.0,
         "env.plan_arm_path": 360.0,
     }
+
+    @cached_property
+    def arm_joint_limits(self) -> dict[str, np.ndarray]:
+        """Cache the Env's URDF limits; no local robot assets are required."""
+        result = self._client.call(
+            "env.get_arm_joint_limits", timeout_s=self._TIMEOUT_S["default"]
+        )
+        limits = {
+            arm: np.asarray(result[arm], dtype=float) for arm in ("left", "right")
+        }
+        for values in limits.values():
+            if (
+                values.shape != (7, 2)
+                or not np.isfinite(values).all()
+                or np.any(values[:, 0] >= values[:, 1])
+            ):
+                raise ValueError("Env must provide finite seven-joint position limits")
+            values.setflags(write=False)
+        return limits
 
     def __init__(
         self,

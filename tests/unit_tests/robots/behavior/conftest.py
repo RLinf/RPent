@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import closing
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,26 @@ from robots.behavior.toolkit import BehaviorToolkit
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory import MemoryManager
 from rpent.robots.components.sam3_client import Sam3Result
+
+ACTION_COUNT_FIELDS = (
+    "issued_actions",
+    "confirmed_actions",
+    "unconfirmed_actions",
+    "executed_actions",
+)
+
+
+def _execution_feedback(count, feedback=None):
+    if feedback is not None:
+        return dict(feedback)
+    return {
+        "issued_actions": count,
+        "confirmed_actions": count,
+        "unconfirmed_actions": 0,
+        "executed_actions": count,
+        "observation_after_last_issued_action": True,
+        "stop_reason": "chunk_completed",
+    }
 
 
 def _args(tmp_path: Path, *extra: str) -> argparse.Namespace:
@@ -119,22 +140,24 @@ class _SAM:
 def _template_toolkit(tmp_path, allowed, *, env=None, sam=None, **options):
     if env is None:
         env = _GeometryEnvironment(_geometry_observation())
-    return BehaviorToolkit(
-        runtime_kwargs={
-            "env": env,
-            "model": _GeometryVLA(),
-            "sam3_client": sam,
-            "task_id": 40,
-            "task_language": "make popcorn",
-            "execution_horizon": 32,
-            "instruction_mode": "main",
-            "max_chunks_per_call": 1,
-            "tool_allowlist": allowed,
-            **options,
-        },
-        dashboard_events=NullDashboardEventSink(),
-        memory=MemoryManager(tmp_path / "memory"),
-        state_output_dir=tmp_path / "state",
+    return closing(
+        BehaviorToolkit(
+            runtime_kwargs={
+                "env": env,
+                "model": _GeometryVLA(),
+                "sam3_client": sam,
+                "task_id": 40,
+                "task_language": "make popcorn",
+                "execution_horizon": 32,
+                "instruction_mode": "main",
+                "max_chunks_per_call": 1,
+                "tool_allowlist": allowed,
+                **options,
+            },
+            dashboard_events=NullDashboardEventSink(),
+            memory=MemoryManager(tmp_path / "memory"),
+            state_output_dir=tmp_path / "state",
+        )
     )
 
 
@@ -186,18 +209,25 @@ class FakeEnvBackend:
         )
 
 
+def _robot_observation():
+    proprio = np.zeros(61)
+    proprio[3:10] = np.arange(7) * 0.1
+    proprio[28:35] = np.arange(7) * -0.1
+    proprio[[23, 48]] = 1
+    proprio[24:26] = [0.04, 0.04]
+    proprio[49:51] = [0.01, 0.01]
+    proprio[53:57] = [0.1, -0.2, 0.3, 0.4]
+    raw = {"r1::proprio": proprio}
+    for camera in ("zed_link", "left_realsense_link", "right_realsense_link"):
+        raw[f"r1::{camera}:Camera:0::rgb"] = np.zeros((4, 5, 3), np.uint8)
+    return raw
+
+
 class _GripperEnvironment:
+    arm_joint_limits = {arm: np.tile([-3.0, 3.0], (7, 1)) for arm in ("left", "right")}
+
     def __init__(self):
-        proprio = np.zeros(61)
-        proprio[3:10] = np.arange(7) * 0.1
-        proprio[28:35] = np.arange(7) * -0.1
-        proprio[[23, 48]] = 1
-        proprio[24:26] = [0.04, 0.04]
-        proprio[49:51] = [0.01, 0.01]
-        proprio[53:57] = [0.1, -0.2, 0.3, 0.4]
-        self.raw = {"r1::proprio": proprio}
-        for camera in ("zed_link", "left_realsense_link", "right_realsense_link"):
-            self.raw[f"r1::{camera}:Camera:0::rgb"] = np.zeros((4, 5, 3), np.uint8)
+        self.raw = _robot_observation()
         self.actions = []
         self.feedback = None
         self.ended = False
@@ -217,18 +247,7 @@ class _GripperEnvironment:
         self.actions.append(actions.copy())
         if self.fail:
             raise TimeoutError("execution outcome unknown")
-        info = (
-            {
-                "issued_actions": len(actions),
-                "confirmed_actions": len(actions),
-                "unconfirmed_actions": 0,
-                "executed_actions": len(actions),
-                "observation_after_last_issued_action": True,
-                "stop_reason": "chunk_completed",
-            }
-            if self.feedback is None
-            else dict(self.feedback)
-        )
+        info = _execution_feedback(len(actions), self.feedback)
         returned = self.get_observation()
         if self.post_finger_qpos is not None:
             returned["r1::proprio"][24:26] = self.post_finger_qpos

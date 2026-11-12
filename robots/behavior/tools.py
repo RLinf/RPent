@@ -24,58 +24,29 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable
 from copy import deepcopy
-from dataclasses import dataclass, field
-from typing import Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 import numpy as np
 from pydantic import Field
 from scipy.spatial.transform import Rotation
 
-from rpent.robots.components.sam3_client import Sam3Client
 from rpent.session import EnvState, StepRecord
 from rpent.tools import ToolResult, tool
 from rpent.utils.transforms import transform_points
 
-# ``omnigibson/eval/r1pro.yaml`` camera_sensor_names insertion order is also
-# the order of evaluator.py::_preprocess_obs's concatenated cam_rel_poses.
+if TYPE_CHECKING:
+    from rpent.robots.components.sam3_client import Sam3Client
+
+
+# The public camera-pose slots follow evaluator.py::_preprocess_obs / r1pro.yaml.
 R1PRO_EVAL_CAMERA_ORDER = ("left_wrist", "right_wrist", "head")
-
-
-def mask_to_robot_base(view: dict[str, Any], mask: np.ndarray) -> dict[str, Any]:
-    """Adapt native SAM mask projection to public BEHAVIOR camera/base geometry.
-
-    The projected point is the per-axis median of the mask's XYZ points. The
-    coordinates belong to the observed robot base, not the world.
-    """
-    depth, rgb = np.asarray(view.get("depth")), np.asarray(view.get("rgb"))
-    if (
-        mask.dtype != np.bool_
-        or mask.shape != rgb.shape[:2]
-        or depth.shape != mask.shape
-    ):
-        raise ValueError("SAM mask, saved RGB and depth must have identical dimensions")
-    rows, cols = np.where(mask & np.isfinite(depth) & (depth > 0))
-    if not rows.size:
-        raise ValueError("no finite positive depth inside the mask")
-    # Reuse the pixel adapter's validated units, depth convention and camera pose.
-    project_pixel(view, [int(rows[0]), int(cols[0])])
-    metadata = view["camera_meta"]
-    rays = np.linalg.solve(
-        np.asarray(metadata["intrinsic_K"]), np.stack((cols, rows, np.ones_like(rows)))
-    ).T
-    if metadata["depth_type"] == "distance_to_camera":
-        rays /= np.linalg.norm(rays, axis=1, keepdims=True)
-    points = transform_points(
-        metadata["camera_to_base_gl"], rays * depth[rows, cols, None] * [1, -1, -1]
-    )
-    return {
-        "point_robot_base": np.median(points, axis=0).tolist(),
-        "valid_depth_pixels": int(rows.size),
-    }
-
-
-# Published in omnigibson/eval/utils/eval_utils.py::CAMERA_INTRINSICS.
-# Native RGBDFullResWrapper resolutions are square; DefaultWrapper is 224².
+CAMERA_NAMES = ("head", "left_wrist", "right_wrist")
+_CAMERA_SUFFIXES = {
+    "head": "zed_link:Camera:0",
+    "left_wrist": "left_realsense_link:Camera:0",
+    "right_wrist": "right_realsense_link:Camera:0",
+}
+# Official CAMERA_INTRINSICS: native RGBDFullResWrapper and 224² DefaultWrapper.
 _INTRINSICS = {
     "head": (720, 306.0),
     "left_wrist": (480, 388.6639),
@@ -83,7 +54,81 @@ _INTRINSICS = {
 }
 
 
-def camera_metadata(
+# Observation parsing and measured robot state.
+
+
+def extract_public_proprio(
+    raw: dict[str, Any], *, task_id: int | None = None
+) -> np.ndarray:
+    """Read public61 without cameras or array copies.
+
+    Accept one unbatched or single-slot vector with any robot prefix. Check
+    a received task ID when ``task_id`` is supplied. Treat the returned view
+    as read-only; copy it when retaining independent control-frame history.
+    """
+    if task_id is not None:
+        received_ids = [raw[key] for key in ("task_id", b"task_id") if key in raw]
+        if len(received_ids) > 1:
+            raise ValueError("duplicate observation key: task_id")
+        if received_ids:
+            received_id = np.asarray(received_ids[0])
+            if received_id.size != 1 or received_id.reshape(-1)[0] != task_id:
+                raise ValueError(
+                    "observation task_id does not match the configured task"
+                )
+    matches = [
+        value
+        for key, value in raw.items()
+        if (key.decode() if isinstance(key, bytes) else str(key)).endswith("::proprio")
+    ]
+    if len(matches) != 1:
+        raise ValueError("expected one public sensor ending in ::proprio")
+    state = np.asarray(matches[0])
+    if state.shape == (1, 61):
+        state = state[0]
+    if (
+        state.shape != (61,)
+        or state.dtype.kind not in "fiu"
+        or not np.isfinite(state).all()
+    ):
+        raise ValueError("public R1Pro state must contain one finite 61D proprio")
+    return state
+
+
+def decode_robot_state(proprio: Any) -> dict[str, Any]:
+    """Decode the public R1Pro 61D proprio vector without using VLA state padding.
+
+    Positions are metres and joint angles are radians. EEF poses use xyzw
+    quaternions in the physical robot base frame at this observation.
+    """
+    values = np.asarray(proprio, dtype=np.float64)
+    if values.shape != (61,) or not np.isfinite(values).all():
+        raise ValueError("robot state requires the original finite 61D proprio")
+    arms = {}
+    for arm, offset in (("left", 3), ("right", 28)):
+        quaternion = values[offset + 17 : offset + 21]
+        if not np.isclose(np.linalg.norm(quaternion), 1.0, atol=1e-3):
+            raise ValueError(f"{arm} public EEF quaternion must be unit xyzw")
+        arms[arm] = {
+            "arm_qpos": values[offset : offset + 7].tolist(),
+            "arm_qvel": values[offset + 7 : offset + 14].tolist(),
+            "eef_position": values[offset + 14 : offset + 17].tolist(),
+            "eef_quaternion_xyzw": quaternion.tolist(),
+            "finger_qpos": values[offset + 21 : offset + 23].tolist(),
+            "finger_qvel": values[offset + 23 : offset + 25].tolist(),
+        }
+    return {
+        "frame": "robot_base",
+        "position_unit": "metre",
+        "joint_unit": "radian",
+        "base_qvel": values[:3].tolist(),
+        "trunk_qpos": values[53:57].tolist(),
+        "trunk_qvel": values[57:61].tolist(),
+        **arms,
+    }
+
+
+def build_camera_metadata(
     camera: str,
     image_shape: tuple[int, int],
     pose_xyz_xyzw: Any,
@@ -150,188 +195,13 @@ def camera_metadata(
     return metadata
 
 
-def project_pixel(
-    view: dict[str, Any],
-    pixel: list[int] | tuple[int, int],
-    *,
-    neighborhood: int = 0,
-) -> dict[str, Any]:
-    """Project one [row,col] pixel from its matching RGB-D view into robot base.
-
-    Args:
-        view: One snapshot view containing RGB, native metric depth and the
-            same observation's public ``camera_meta``.
-        pixel: Integer [row,col] in that view's stored RGB resolution.
-        neighborhood: Radius for an optional median depth estimate. Zero uses
-            the exact pixel. Zero, negative, NaN and infinite depths are invalid.
-
-    Returns:
-        The robot-base xyz point in metres, depth sampling details and camera
-        identity. This pure calculation neither moves nor queries the robot.
-
-    Raises:
-        ValueError: Calibration, depth, or the requested pixel is unavailable.
-    """
-    metadata = view.get("camera_meta")
-    if not isinstance(metadata, dict) or not metadata.get("calibration_available"):
-        raise ValueError("this view has no verified public camera calibration")
-    if (
-        metadata.get("target_frame") != "robot_base"
-        or metadata.get("camera_frame") != "opengl"
-        or metadata.get("pixel_order") != "row_col"
-        or metadata.get("depth_unit") != "metre"
-    ):
-        raise ValueError(
-            "camera metadata must describe metric depth in robot-base geometry"
-        )
-    depth_type = metadata.get("depth_type")
-    if depth_type not in ("distance_to_image_plane", "distance_to_camera"):
-        raise ValueError("unsupported or missing depth definition")
-    if (
-        not isinstance(pixel, (list, tuple))
-        or len(pixel) != 2
-        or any(
-            isinstance(value, (bool, np.bool_))
-            or not isinstance(value, (int, np.integer))
-            for value in pixel
-        )
-    ):
-        raise ValueError("pixel must be an integer [row,col] pair")
-    if (
-        isinstance(neighborhood, (bool, np.bool_))
-        or not isinstance(neighborhood, (int, np.integer))
-        or not 0 <= neighborhood <= 32
-    ):
-        raise ValueError("neighborhood must be an integer radius between 0 and 32")
-    depth = np.asarray(view.get("depth"))
-    rgb = np.asarray(view.get("rgb"))
-    if (
-        depth.ndim != 2
-        or depth.dtype.kind != "f"
-        or rgb.ndim != 3
-        or depth.shape != rgb.shape[:2]
-        or depth.shape != (metadata.get("height"), metadata.get("width"))
-    ):
-        raise ValueError(
-            "metric floating-point depth, RGB and calibration dimensions must agree"
-        )
-    row, col = map(int, pixel)
-    height, width = depth.shape
-    if not (0 <= row < height and 0 <= col < width):
-        raise ValueError(
-            f"pixel [row,col] lies outside this view's {height}x{width} RGB image"
-        )
-    radius = int(neighborhood)
-    region = depth[
-        max(0, row - radius) : min(height, row + radius + 1),
-        max(0, col - radius) : min(width, col + radius + 1),
-    ]
-    valid = region[np.isfinite(region) & (region > 0)]
-    if valid.size == 0:
-        raise ValueError("no finite positive depth at the requested pixel/neighborhood")
-    depth_m = float(np.median(valid))
-    intrinsic = np.asarray(metadata.get("intrinsic_K"), dtype=np.float64)
-    if (
-        intrinsic.shape != (3, 3)
-        or not np.isfinite(intrinsic).all()
-        or intrinsic[0, 0] <= 0
-        or intrinsic[1, 1] <= 0
-        or not np.isclose(intrinsic[1, 0], 0)
-        or not np.allclose(intrinsic[2], [0, 0, 1])
-    ):
-        raise ValueError("intrinsic_K must be a finite pinhole camera matrix")
-    ray = np.linalg.solve(intrinsic, [col, row, 1.0])
-    if depth_type == "distance_to_camera":
-        ray /= np.linalg.norm(ray)
-    point_optical = ray * depth_m
-    point_gl = point_optical * [1.0, -1.0, -1.0]
-    point_base = transform_points(metadata.get("camera_to_base_gl"), point_gl)
-    return {
-        "point_robot_base": point_base.tolist(),
-        "frame": "robot_base",
-        "unit": "metre",
-        "camera": metadata.get("camera_name"),
-        "pixel": [row, col],
-        "pixel_order": "row_col",
-        "image_shape": [height, width],
-        "depth_m": depth_m,
-        "depth_type": depth_type,
-        "neighborhood": radius,
-        "valid_depth_pixels": int(valid.size),
-        "depth_sampling": "single_pixel" if radius == 0 else "median_neighborhood",
-    }
-
-
-CAMERA_NAMES = ("head", "left_wrist", "right_wrist")
-_CAMERA_SUFFIXES = {
-    "head": "zed_link:Camera:0",
-    "left_wrist": "left_realsense_link:Camera:0",
-    "right_wrist": "right_realsense_link:Camera:0",
-}
-
-
-def extract_public_proprio(raw: dict[str, Any]) -> np.ndarray:
-    """Copy public61 with the observation adapter's prefix and batch semantics.
-
-    This narrow reader needs no cameras or task metadata. It is used by the
-    bridge to retain control-frame history without changing raw VLA inputs.
-    """
-    matches = [
-        value
-        for key, value in raw.items()
-        if (key.decode() if isinstance(key, bytes) else str(key)).endswith("::proprio")
-    ]
-    if len(matches) != 1:
-        raise ValueError("expected one public sensor ending in ::proprio")
-    state = np.asarray(matches[0])
-    if state.shape == (1, 61):
-        state = state[0]
-    if (
-        state.shape != (61,)
-        or state.dtype.kind not in "fiu"
-        or not np.isfinite(state).all()
-    ):
-        raise ValueError("public R1Pro state must contain one finite 61D proprio")
-    return state.copy()
-
-
-def extract_robot_state(proprio: Any) -> dict[str, Any]:
-    """Decode the public R1Pro 61D proprio vector without using VLA state padding.
-
-    Positions are metres and joint angles are radians. EEF poses use xyzw
-    quaternions in the physical robot base frame at this observation.
-    """
-    values = np.asarray(proprio, dtype=np.float64)
-    if values.shape != (61,) or not np.isfinite(values).all():
-        raise ValueError("robot state requires the original finite 61D proprio")
-    arms = {}
-    for arm, offset in (("left", 3), ("right", 28)):
-        quaternion = values[offset + 17 : offset + 21]
-        if not np.isclose(np.linalg.norm(quaternion), 1.0, atol=1e-3):
-            raise ValueError(f"{arm} public EEF quaternion must be unit xyzw")
-        arms[arm] = {
-            "arm_qpos": values[offset : offset + 7].tolist(),
-            "arm_qvel": values[offset + 7 : offset + 14].tolist(),
-            "eef_position": values[offset + 14 : offset + 17].tolist(),
-            "eef_quaternion_xyzw": quaternion.tolist(),
-            "finger_qpos": values[offset + 21 : offset + 23].tolist(),
-            "finger_qvel": values[offset + 23 : offset + 25].tolist(),
-        }
-    return {
-        "frame": "robot_base",
-        "position_unit": "metre",
-        "joint_unit": "radian",
-        "base_qvel": values[:3].tolist(),
-        "trunk_qpos": values[53:57].tolist(),
-        "trunk_qvel": values[57:61].tolist(),
-        **arms,
-    }
-
-
-def snapshot_observation(
+def prepare_behavior_observation(
     raw: dict[str, Any], *, task_id: int, task_language: str
 ) -> dict[str, Any]:
-    """Copy one official observation for tools and the existing VLA adapter.
+    """Validate and normalize one official observation for tools and VLA input.
+
+    Arrays share the input buffers where possible and must be treated as
+    read-only. RGB views are made contiguous when their layout requires it.
 
     Args:
         raw: Flattened sensor fields, unbatched or with a single leading slot.
@@ -373,7 +243,7 @@ def snapshot_observation(
         if received_id.size != 1 or received_id.reshape(-1)[0] != task_id:
             raise ValueError("observation task_id does not match the configured task")
 
-    policy_observation: dict[str, Any] = {proprio_key: proprio.copy()}
+    policy_observation: dict[str, Any] = {proprio_key: proprio}
     pose_key = proprio_key.removesuffix("::proprio") + "::cam_rel_poses"
     camera_poses = None
     if pose_key in values:
@@ -402,8 +272,8 @@ def snapshot_observation(
             or rgb.dtype != np.uint8
         ):
             raise ValueError(f"{name} RGB must be a uint8 HWC RGB/RGBA image")
-        policy_observation[rgb_key] = rgb.copy()
-        views[name] = {"rgb": np.ascontiguousarray(rgb[..., :3]).copy()}
+        policy_observation[rgb_key] = rgb
+        views[name] = {"rgb": np.ascontiguousarray(rgb[..., :3])}
         depth_type = None
         for depth_suffix in ("::depth", "::depth_linear"):
             matches = [key for key in values if key.endswith(suffix + depth_suffix)]
@@ -424,15 +294,15 @@ def snapshot_observation(
                 depth = depth[..., 0]
             if depth.ndim != 2 or depth.shape != rgb.shape[:2]:
                 raise ValueError(f"{name} depth dimensions must match RGB")
-            views[name]["depth"] = depth.copy()
-            policy_observation[depth_key] = native_depth.copy()
+            views[name]["depth"] = depth
+            policy_observation[depth_key] = native_depth
             depth_type = (
                 "distance_to_image_plane"
                 if depth_suffix == "::depth_linear"
                 else "distance_to_camera"
             )
         if camera_poses is not None:
-            views[name]["camera_meta"] = camera_metadata(
+            views[name]["camera_meta"] = build_camera_metadata(
                 name,
                 tuple(rgb.shape[:2]),
                 camera_poses[R1PRO_EVAL_CAMERA_ORDER.index(name)],
@@ -443,13 +313,174 @@ def snapshot_observation(
     return {
         "task_id": task_id,
         "task_language": task_language,
-        "proprio": proprio.copy(),
+        "proprio": proprio,
         "views": views,
         "policy_observation": policy_observation,
     }
 
 
-def _planner_robot_state(proprio: Any, *, step: int) -> dict[str, Any]:
+# Camera pixels and masks in the observed robot-base frame.
+
+
+def _validate_pixel_to_3d_inputs(
+    view: dict[str, Any],
+) -> tuple[np.ndarray, dict[str, Any], np.ndarray]:
+    """Validate matching metric RGB-D, calibration and coordinate conventions."""
+    metadata = view.get("camera_meta")
+    if not isinstance(metadata, dict) or not metadata.get("calibration_available"):
+        raise ValueError("this view has no verified public camera calibration")
+    if (
+        metadata.get("target_frame") != "robot_base"
+        or metadata.get("camera_frame") != "opengl"
+        or metadata.get("pixel_order") != "row_col"
+        or metadata.get("depth_unit") != "metre"
+    ):
+        raise ValueError(
+            "camera metadata must describe metric depth in robot-base geometry"
+        )
+    if metadata.get("depth_type") not in (
+        "distance_to_image_plane",
+        "distance_to_camera",
+    ):
+        raise ValueError("unsupported or missing depth definition")
+    depth = np.asarray(view.get("depth"))
+    rgb = np.asarray(view.get("rgb"))
+    if (
+        depth.ndim != 2
+        or depth.dtype.kind != "f"
+        or rgb.ndim != 3
+        or depth.shape != rgb.shape[:2]
+        or depth.shape != (metadata.get("height"), metadata.get("width"))
+    ):
+        raise ValueError(
+            "metric floating-point depth, RGB and calibration dimensions must agree"
+        )
+    intrinsic = np.asarray(metadata.get("intrinsic_K"), dtype=np.float64)
+    if (
+        intrinsic.shape != (3, 3)
+        or not np.isfinite(intrinsic).all()
+        or intrinsic[0, 0] <= 0
+        or intrinsic[1, 1] <= 0
+        or not np.isclose(intrinsic[1, 0], 0)
+        or not np.allclose(intrinsic[2], [0, 0, 1])
+    ):
+        raise ValueError("intrinsic_K must be a finite pinhole camera matrix")
+    return depth, metadata, intrinsic
+
+
+def _pixels_to_robot_base_points(
+    pixels: np.ndarray,
+    depths: np.ndarray,
+    metadata: dict[str, Any],
+    intrinsic: np.ndarray,
+) -> np.ndarray:
+    """Project validated [row, col] pixels and matching depths to base XYZ."""
+    rays = np.linalg.solve(
+        intrinsic, np.column_stack((pixels[:, 1], pixels[:, 0], np.ones(len(pixels)))).T
+    ).T
+    if metadata["depth_type"] == "distance_to_camera":
+        rays /= np.linalg.norm(rays, axis=1, keepdims=True)
+    return transform_points(
+        metadata.get("camera_to_base_gl"), rays * depths[:, None] * [1.0, -1.0, -1.0]
+    )
+
+
+def locate_pixel_in_robot_base(
+    view: dict[str, Any],
+    pixel: list[int] | tuple[int, int],
+    *,
+    neighborhood: int = 0,
+) -> dict[str, Any]:
+    """Project one [row,col] pixel from its matching RGB-D view into robot base.
+
+    Args:
+        view: One snapshot view containing RGB, native metric depth and the
+            same observation's public ``camera_meta``.
+        pixel: Integer [row,col] in that view's stored RGB resolution.
+        neighborhood: Radius for an optional median depth estimate. Zero uses
+            the exact pixel. Zero, negative, NaN and infinite depths are invalid.
+
+    Returns:
+        The robot-base xyz point in metres, depth sampling details and camera
+        identity. This pure calculation neither moves nor queries the robot.
+
+    Raises:
+        ValueError: Calibration, depth, or the requested pixel is unavailable.
+    """
+    depth, metadata, intrinsic = _validate_pixel_to_3d_inputs(view)
+    if (
+        not isinstance(pixel, (list, tuple))
+        or len(pixel) != 2
+        or any(
+            isinstance(value, (bool, np.bool_))
+            or not isinstance(value, (int, np.integer))
+            for value in pixel
+        )
+    ):
+        raise ValueError("pixel must be an integer [row,col] pair")
+    if (
+        isinstance(neighborhood, (bool, np.bool_))
+        or not isinstance(neighborhood, (int, np.integer))
+        or not 0 <= neighborhood <= 32
+    ):
+        raise ValueError("neighborhood must be an integer radius between 0 and 32")
+    row, col = map(int, pixel)
+    height, width = depth.shape
+    if not (0 <= row < height and 0 <= col < width):
+        raise ValueError(
+            f"pixel [row,col] lies outside this view's {height}x{width} RGB image"
+        )
+    radius = int(neighborhood)
+    region = depth[
+        max(0, row - radius) : min(height, row + radius + 1),
+        max(0, col - radius) : min(width, col + radius + 1),
+    ]
+    valid = region[np.isfinite(region) & (region > 0)]
+    if valid.size == 0:
+        raise ValueError("no finite positive depth at the requested pixel/neighborhood")
+    depth_m = float(np.median(valid))
+    point_base = _pixels_to_robot_base_points(
+        np.asarray([[row, col]]), np.asarray([depth_m]), metadata, intrinsic
+    )[0]
+    return {
+        "point_robot_base": point_base.tolist(),
+        "frame": "robot_base",
+        "unit": "metre",
+        "camera": metadata.get("camera_name"),
+        "pixel": [row, col],
+        "pixel_order": "row_col",
+        "image_shape": [height, width],
+        "depth_m": depth_m,
+        "depth_type": metadata["depth_type"],
+        "neighborhood": radius,
+        "valid_depth_pixels": int(valid.size),
+        "depth_sampling": "single_pixel" if radius == 0 else "median_neighborhood",
+    }
+
+
+def estimate_mask_position_in_robot_base(
+    view: dict[str, Any], mask: np.ndarray
+) -> dict[str, Any]:
+    """Return the per-axis median of valid mask points in the observed robot base."""
+    depth, metadata, intrinsic = _validate_pixel_to_3d_inputs(view)
+    if mask.dtype != np.bool_ or mask.shape != depth.shape:
+        raise ValueError("SAM mask, saved RGB and depth must have identical dimensions")
+    rows, cols = np.where(mask & np.isfinite(depth) & (depth > 0))
+    if not rows.size:
+        raise ValueError("no finite positive depth inside the mask")
+    points = _pixels_to_robot_base_points(
+        np.column_stack((rows, cols)), depth[rows, cols], metadata, intrinsic
+    )
+    return {
+        "point_robot_base": np.median(points, axis=0).tolist(),
+        "valid_depth_pixels": int(rows.size),
+    }
+
+
+# Saved observations and read-only tools.
+
+
+def _summarize_robot_state(proprio: Any, *, step: int) -> dict[str, Any]:
     """Summarize measured R1Pro state for decisions; preserve raw artifacts.
 
     Omit velocities of joints that the Planner cannot command directly. Display
@@ -457,7 +488,7 @@ def _planner_robot_state(proprio: Any, *, step: int) -> dict[str, Any]:
     motion tools continue to use the original observation at full precision.
     """
     try:
-        state = extract_robot_state(proprio)
+        state = decode_robot_state(proprio)
     except (TypeError, ValueError) as error:
         return {"available": False, "source_step": step, "error": str(error)}
 
@@ -494,7 +525,7 @@ def _planner_robot_state(proprio: Any, *, step: int) -> dict[str, Any]:
     }
 
 
-def dump_observation(
+def save_observation_record(
     snapshot: dict[str, Any],
     *,
     env_state: EnvState,
@@ -528,7 +559,7 @@ def dump_observation(
         "task_id": snapshot["task_id"],
         "task_language": snapshot["task_language"],
         "proprio_shape": list(snapshot["proprio"].shape),
-        "robot_state": _planner_robot_state(snapshot["proprio"], step=step_idx),
+        "robot_state": _summarize_robot_state(snapshot["proprio"], step=step_idx),
         "artifacts": artifacts,
         "view_specs": view_specs,
     }
@@ -590,7 +621,7 @@ def view_env_state(
         # Historical records retain their original stored format. Add the same
         # read-only view without rewriting them or requiring another tool call.
         try:
-            state_data["robot_state"] = _planner_robot_state(
+            state_data["robot_state"] = _summarize_robot_state(
                 state.load("proprio.npy", step=record.step_idx), step=record.step_idx
             )
         except (LookupError, OSError, TypeError, ValueError) as error:
@@ -630,7 +661,7 @@ def read_robot_state(
     """
     try:
         record = state.get(step)
-        robot_state = extract_robot_state(
+        robot_state = decode_robot_state(
             state.load("proprio.npy", step=record.step_idx)
         )
     except (KeyError, LookupError, OSError, TypeError, ValueError) as error:
@@ -684,7 +715,7 @@ def pixel_to_robot_base(
             "depth": state.load(depth_name, step=record.step_idx),
             "camera_meta": metadata,
         }
-        projected = project_pixel(view, pixel, neighborhood=neighborhood)
+        projected = locate_pixel_in_robot_base(view, pixel, neighborhood=neighborhood)
     except (KeyError, LookupError, OSError, TypeError, ValueError) as error:
         return ToolResult(
             data={
@@ -705,18 +736,6 @@ def pixel_to_robot_base(
             },
         }
     )
-
-
-@dataclass(frozen=True)
-class SegmentProjection:
-    """Robot-specific projection fields for the saved JSON and tool response.
-
-    The robot adapter owns coordinate frames and projection validity. SAM3
-    execution does not infer a world frame from a camera image or mask.
-    """
-
-    artifact_fields: dict[str, Any] = field(default_factory=dict)
-    result_fields: dict[str, Any] = field(default_factory=dict)
 
 
 class SavedImageSegmenter:
@@ -741,7 +760,7 @@ class SavedImageSegmenter:
         prompt: str = "",
         point: list[int] | None = None,
         min_score: float = 0.2,
-        project_mask: Callable[[np.ndarray | None, str | None], SegmentProjection]
+        project_mask: Callable[[np.ndarray | None, str | None], dict[str, Any]]
         | None = None,
         fallback: str = "Use manual visual localization and back_project.",
     ) -> ToolResult:
@@ -756,8 +775,8 @@ class SavedImageSegmenter:
             point: One positive pixel as [row, col].
             min_score: Minimum accepted SAM3 score.
             project_mask: Robot-specific projection of a mask, or of None and
-                the native SAM3 reason when no mask was found. Returns fields
-                for the persisted artifact and the public response separately.
+                the native SAM3 reason when no mask was found. The returned fields
+                are included in both the saved artifact and tool response.
             fallback: Existing tool guidance used for service/persistence errors.
 
         Returns:
@@ -800,11 +819,7 @@ class SavedImageSegmenter:
         segment_name = f"segment_{segment_index:02d}.json"
         overlay_name = f"segment_overlay_{segment_index:02d}.png"
         mask = data.mask if data.found and isinstance(data.mask, np.ndarray) else None
-        projection = (
-            project_mask(mask, data.reason)
-            if project_mask is not None
-            else SegmentProjection()
-        )
+        projection = project_mask(mask, data.reason) if project_mask is not None else {}
         saved_overlay = None
         if mask is not None:
             overlay = _make_segment_overlay(state.load(image_artifact, step=step), mask)
@@ -829,7 +844,7 @@ class SavedImageSegmenter:
             segment_blob["point"] = point
         if not data.found:
             segment_blob["error"] = data.reason or "SAM3 found no mask"
-        segment_blob.update(projection.artifact_fields)
+        segment_blob.update(projection)
         saved_segment = state.save(segment_name, segment_blob, step=step)
 
         result = {
@@ -837,7 +852,7 @@ class SavedImageSegmenter:
             **source,
             "score": segment_blob["score"],
             "box": segment_blob["box"],
-            **projection.result_fields,
+            **projection,
         }
         if saved_segment is None:
             result["error"] = f"failed to persist segment artifact {segment_name}"
@@ -903,7 +918,7 @@ def segment(
     except (LookupError, ValueError) as error:
         return ToolResult(data={"error": str(error)})
 
-    def project_mask(mask: np.ndarray | None, reason: str | None) -> SegmentProjection:
+    def project_mask(mask: np.ndarray | None, reason: str | None) -> dict[str, Any]:
         result = {
             "geometry_valid": False,
             "point_robot_base": None,
@@ -916,7 +931,7 @@ def segment(
         if mask is not None:
             try:
                 result.update(
-                    mask_to_robot_base(
+                    estimate_mask_position_in_robot_base(
                         {
                             "rgb": state.load(rgb_name, step=record.step_idx),
                             "depth": state.load(depth_name, step=record.step_idx),
@@ -930,7 +945,7 @@ def segment(
                 result.update(geometry_valid=True, geometry_error=None)
             except (LookupError, OSError, TypeError, ValueError) as error:
                 result["geometry_error"] = str(error)
-        return SegmentProjection(artifact_fields=result, result_fields=result)
+        return result
 
     return segmenter.segment(
         state=state,

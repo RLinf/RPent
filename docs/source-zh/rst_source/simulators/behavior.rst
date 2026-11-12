@@ -34,7 +34,7 @@ BEHAVIOR
 任务
 ~~~~
 
-任务 ID、官方名称和完整指令见 ``robots/behavior/tasks.py``。选择任务时，这三项须对应同一任务；识别全部任务 ID 不代表已验证全部任务的效果。
+任务 ID、官方名称和完整指令见 ``robots/behavior/tasks.py``。选择任务时，这三项须对应同一任务。
 
 .. list-table::
    :header-rows: 1
@@ -69,6 +69,14 @@ BEHAVIOR
 --------------
 
 按 `BEHAVIOR-1K 官方说明 <https://github.com/StanfordVL/BEHAVIOR-1K>`_ 安装仿真器和评测器，准备挑战赛资源及所选任务的公开测试实例。RPent 支持 Python 3.10–3.12；仿真器、Pi0.5 和规划器分别使用满足各自 Python、CUDA 和图形依赖要求的环境。未启用 CuRobo 时，Env 桥接服务可使用规划器环境。
+
+使用 CuRobo 手臂规划或 ``rotate_wrist_joint`` 前，在启动 Env 服务的终端中，将官方环境变量指向已有的数据目录；已经设置时无需重复设置：
+
+.. code-block:: bash
+
+   export OMNIGIBSON_DATA_PATH="/path/to/your/existing/datasets"
+
+使用绝对路径，目录下应包含 ``omnigibson-robot-assets/models/r1pro/``。RPent 从中读取机器人结构、关节限位和碰撞配置，当前运动适配支持机器人资产版本 ``3.8.2``（见 ``omnigibson-robot-assets/VERSION``）。Env 与官方评测器可以共用这份资产；分容器部署时，将其挂载到 Env 可读取的位置。规划器通过 Env 查询关节限位，无需在规划器环境中安装仿真器或配置机器人资产。仅运行 ``vla_only.yaml`` 时，RPent Env 不加载这些运动资产；官方评测器仍需要自己的仿真资源。
 
 模型环境需要支持 ``pi05_behavior`` 的 RLinf/OpenPI，以及权重配套的归一化统计和 tokenizer。下面使用 `公开的 PT50-CS32 权重 <https://huggingface.co/RLinf/RLinf-Pi05-BEHAVIOR-1K-PT50-CS32>`_；按所用 RLinf 版本的要求，通过 ``OPENPI_DATA_HOME`` 指定本地 tokenizer 资源。视觉语言规划器的模型、服务地址和凭据按 :doc:`../guides/configure_planner` 配置，与 VLA 权重分别选择。
 
@@ -297,28 +305,7 @@ BEHAVIOR
      - 0.33
      - 0.73
 
-这些数值是平均任务得分，不是成功率，也不是前述公开 PT50-CS32 权重的测评结果。复现本表需要相同的自训练权重、实例选择、规划器与记忆配置及动作预算；公开权重示例用于运行接入流程。
-
-.. _runtime-contracts-and-troubleshooting:
-
-常见问题
---------
-
-.. list-table::
-   :header-rows: 1
-
-   * - 现象
-     - 检查方式
-   * - 是否需要 Dashboard
-     - 本文通过命令行完成启动，无需 Dashboard；当前 BEHAVIOR 没有图形化启动入口。
-   * - 规划器拿不到首帧
-     - 检查评测器场景加载和连接日志。官方 WebSocket 连接 ``28012``，RPent 的 ``--env-endpoint`` 使用内部 RPC 地址 ``28010``。
-   * - 模型加载或输入转换失败
-     - 核对 RLinf/OpenPI 是否支持 ``pi05_behavior``、权重与统计文件是否配套，以及 tokenizer 路径。模型启动日志会记录本体配置和权重路径。
-   * - 动作超时或执行计数矛盾
-     - 查看记录中的已下发、已确认和未知计数。不能确认执行结果时保持未知，不重放动作块。后续 VLA 块失败时会保留此前已知执行记录；不可信的保持命令不能用于继续运动。
-   * - 无法查询三维坐标或手臂规划被拒绝
-     - 三维查询检查同帧 RGB-D 与标定；手臂运动检查 CuRobo、稳定起始状态、目标范围和朝向要求。根据反馈调整请求，避免重复提交相同失败目标。
+实验结果表明，在使用相同自训练 VLA 的条件下，接入 RPent 后，三个任务的平均 QScore 均高于纯 VLA 基线。
 
 开发与测试
 ----------

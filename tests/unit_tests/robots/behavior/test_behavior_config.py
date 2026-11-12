@@ -207,7 +207,7 @@ def test_public_template_exposes_the_selected_tools_and_bounded_vla(
             "rotate_wrist_joint",
         }
     assert set(config.task_desc["tool_allowlist"]) == expected
-    toolkit = _template_toolkit(
+    with _template_toolkit(
         tmp_path,
         expected,
         sam=_SAM() if "segment" in expected else None,
@@ -215,8 +215,7 @@ def test_public_template_exposes_the_selected_tools_and_bounded_vla(
             key: config.task_desc[key]
             for key in ("execution_horizon", "instruction_mode", "max_chunks_per_call")
         },
-    )
-    try:
+    ) as toolkit:
         declarations = {item.name: item for item in toolkit.list_tools()}
         assert set(declarations) == expected | {
             "read_text_file",
@@ -230,8 +229,6 @@ def test_public_template_exposes_the_selected_tools_and_bounded_vla(
         assert "{{" not in prompt
         assert ("Use move_to" in prompt) == ("move_to" in expected)
         assert ("SAM3" in prompt) == ("segment" in expected)
-    finally:
-        toolkit.close()
 
 
 _OPTIONAL_BEHAVIOR_TOOLS = (
@@ -280,10 +277,9 @@ def test_allowlist_prompt_only_mentions_declared_action_and_observation_tools(
     )
     spec.validate_args(args)
     config = spec.parse_config(args)
-    toolkit = _template_toolkit(
+    with _template_toolkit(
         tmp_path, allowed, sam=_SAM() if "segment" in allowed else None
-    )
-    try:
+    ) as toolkit:
         declarations = {item.name for item in toolkit.list_tools()}
         prompt = spec.prompts.render("system", variables=config.prompt_vars)
         # Directory names are not tool instructions, even if they contain "release".
@@ -300,8 +296,6 @@ def test_allowlist_prompt_only_mentions_declared_action_and_observation_tools(
         if set(optional_tools) == set(_OPTIONAL_BEHAVIOR_TOOLS):
             for stage in ("Approach.", "Localize.", "Reach.", "Align.", "Engage."):
                 assert stage in prompt
-    finally:
-        toolkit.close()
 
 
 @pytest.mark.parametrize(

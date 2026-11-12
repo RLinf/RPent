@@ -18,12 +18,13 @@ from __future__ import annotations
 
 import math
 import sys
-import unittest
+import xml.etree.ElementTree as ET
 from copy import deepcopy
 from types import ModuleType, SimpleNamespace
 
 import numpy as np
 import pytest
+import yaml
 from scipy.spatial.transform import Rotation
 
 from robots.behavior.env_client import BehaviorEnvClient
@@ -36,57 +37,165 @@ from robots.behavior.primitives import (
 )
 from rpent.tools.toolkit import ToolCancelled
 from tests.unit_tests.robots.behavior.conftest import (
+    ACTION_COUNT_FIELDS,
     LocalRpc,
+    _execution_feedback,
     _GripperEnvironment,
     _GripperModel,
+    _robot_observation,
 )
 
 
-class TestBehaviorMotionModel(unittest.TestCase):
-    def setUp(self):
-        self.model = R1ProMotionModel()
-        self.state = np.zeros(61)
-        self.state[24:26] = [0.02, 0.03]
-        self.state[49:51] = [0.035, 0.045]
+@pytest.fixture
+def official_assets(tmp_path, monkeypatch):
+    """Small synthetic robot in the official directory layout, never a download."""
+    asset_root = tmp_path / "omnigibson-robot-assets"
+    model_dir = asset_root / "models/r1pro"
+    (model_dir / "urdf").mkdir(parents=True)
+    (model_dir / "curobo").mkdir()
+    (asset_root / "VERSION").write_text("3.8.2")
+    root = ET.Element("robot", name="fixture")
+    ET.SubElement(root, "link", name="base_link")
 
-    def test_zero_pose_and_sourced_eef_frame(self):
-        expected = {
-            "left": [-0.07951818, 0.25199935, 0.65659],
-            "right": [-0.07951906, -0.25200065, 0.65659],
-        }
-        for arm in ("left", "right"):
-            pose = self.model.forward(arm, self.state)
-            np.testing.assert_allclose(pose["position"], expected[arm], atol=1e-10)
-            np.testing.assert_allclose(
-                Rotation.from_quat(pose["quaternion_xyzw"]).as_matrix(),
-                np.diag([-1, 1, -1]),
-                atol=1e-12,
+    def joint(name, parent, child, *, finger=False, fixed=False):
+        ET.SubElement(root, "link", name=child)
+        node = ET.SubElement(
+            root,
+            "joint",
+            name=name,
+            type="fixed" if fixed else "prismatic" if finger else "revolute",
+        )
+        ET.SubElement(node, "parent", link=parent)
+        ET.SubElement(node, "child", link=child)
+        ET.SubElement(node, "origin", xyz="0 0 0.1", rpy="0 0 0")
+        ET.SubElement(node, "axis", xyz="0 1 0")
+        ET.SubElement(
+            node,
+            "limit",
+            lower="0" if finger else "-3",
+            upper="0.05" if finger else "3",
+            velocity="1",
+            effort="1",
+        )
+
+    parent = "base_link"
+    for i in range(1, 5):
+        joint(f"torso_joint{i}", parent, f"torso_link{i}")
+        parent = f"torso_link{i}"
+    for arm in ("left", "right"):
+        parent = "torso_link4"
+        for i in range(1, 8):
+            joint(f"{arm}_arm_joint{i}", parent, f"{arm}_arm_link{i}")
+            parent = f"{arm}_arm_link{i}"
+        joint(f"{arm}_gripper_joint", parent, f"{arm}_gripper_link", fixed=True)
+        for i in (1, 2):
+            joint(
+                f"{arm}_gripper_finger_joint{i}",
+                f"{arm}_gripper_link",
+                f"{arm}_gripper_finger_link{i}",
+                finger=True,
             )
-            self.assertEqual(pose["frame"], "robot_base")
+    for i in (1, 2, 3):
+        joint(f"steer_motor_joint{i}", "base_link", f"steer_motor_link{i}")
+        joint(f"wheel_motor_joint{i}", f"steer_motor_link{i}", f"wheel_motor_link{i}")
+    ET.ElementTree(root).write(model_dir / "urdf/r1pro.urdf")
+    names = [node.get("name") for node in root.findall("link")]
+    config = {
+        "collision_spheres": {
+            name: [{"center": [0, 0, 0.005], "radius": 0.02}]
+            for name in names
+            if not name.startswith("steer_")
+        },
+        "collision_link_names": names + ["attached_object_left_eef_link"],
+        "self_collision_ignore": {
+            "base_link": [
+                "torso_link1",
+                "wheel_motor_link1",
+                "attached_object_left_eef_link",
+            ]
+        },
+        "collision_sphere_buffer": 0.002,
+        "self_collision_buffer": {"base_link": 0.02},
+        "use_global_cumul": True,
+        "cspace": {"max_acceleration": 15, "max_jerk": 500},
+    }
+    (model_dir / "curobo/r1pro_description_curobo_arm_no_torso.yaml").write_text(
+        yaml.safe_dump({"robot_cfg": {"kinematics": config}})
+    )
+    monkeypatch.setenv("OMNIGIBSON_DATA_PATH", str(tmp_path))
+    return model_dir
 
-    def test_torso_joint3_uses_urdf_negative_axis_once(self):
-        self.state[55] = 0.3
-        pivot = np.asarray([-0.079032, 0.0001005, 1.04265])
-        old = np.asarray([-0.07951818, 0.25199935, 0.65659])
-        rotation = Rotation.from_euler("y", -0.3)
-        pose = self.model.forward("left", self.state)
-        np.testing.assert_allclose(
-            pose["position"], pivot + rotation.apply(old - pivot), atol=1e-10
-        )
-        np.testing.assert_allclose(
-            Rotation.from_quat(pose["quaternion_xyzw"]).as_matrix(),
-            rotation.as_matrix() @ np.diag([-1, 1, -1]),
-            atol=1e-12,
-        )
 
-    def test_physical_joint_map_uses_public_positions(self):
-        values = self.model.joint_positions(np.arange(61, dtype=float))
-        assert len(values) == 22
-        assert values["torso_joint1"] == 53
-        assert values["left_arm_joint1"] == 3
-        assert values["right_arm_joint7"] == 34
-        assert values["left_gripper_finger_joint2"] == 25
-        assert values["right_gripper_finger_joint1"] == 49
+@pytest.fixture
+def motion_model(official_assets):
+    model = R1ProMotionModel()
+    yield model
+    model.close()
+
+
+def test_official_assets_are_adapted_without_modifying_sources(
+    motion_model, official_assets
+):
+    original = {
+        path: path.read_bytes() for path in official_assets.rglob("*") if path.is_file()
+    }
+    state = np.zeros(61)
+    assert motion_model.asset_version == "3.8.2"
+    np.testing.assert_array_equal(
+        motion_model.joint_limits("left"), np.tile([-3, 3], (7, 1))
+    )
+    # Twelve fixture joints contribute 0.1 m each, then the official EEF offset.
+    np.testing.assert_allclose(
+        motion_model.forward("left", state)["position"], [0, 0, 1.14]
+    )
+    config = motion_model.robot_config("left", state)["kinematics"]
+    assert config["cspace"]["joint_names"] == [
+        f"left_arm_joint{i}" for i in range(1, 8)
+    ]
+    assert len(config["lock_joints"]) == 15
+    assert config["self_collision_ignore"]["base_link"] == ["torso_link1"]
+    assert not any(
+        "wheel" in name or "attached" in name for name in config["collision_link_names"]
+    )
+    assert len(config["collision_spheres"]["base_link"]) == 4
+    assert config["collision_spheres"]["base_link"][-1]["radius"] == pytest.approx(
+        0.025
+    )
+    temporary = motion_model.urdf_path
+    assert not temporary.is_relative_to(official_assets)
+    motion_model.close()
+    assert not temporary.exists()
+    assert all(path.read_bytes() == content for path, content in original.items())
+
+
+@pytest.mark.parametrize("value", [None, "relative/data"])
+def test_motion_assets_require_an_explicit_absolute_data_path(monkeypatch, value):
+    monkeypatch.delenv("OMNIGIBSON_DATA_PATH", raising=False)
+    if value is not None:
+        monkeypatch.setenv("OMNIGIBSON_DATA_PATH", value)
+    with pytest.raises(ValueError, match="OMNIGIBSON_DATA_PATH"):
+        R1ProMotionModel()
+
+
+def test_missing_or_unsupported_official_assets_explain_the_problem(official_assets):
+    version = official_assets.parents[1] / "VERSION"
+    version.write_text("0.0.0")
+    with pytest.raises(ValueError, match="Unsupported robot asset version"):
+        R1ProMotionModel()
+    version.write_text("3.8.2")
+    (official_assets / "urdf/r1pro.urdf").unlink()
+    with pytest.raises(FileNotFoundError, match="r1pro.urdf"):
+        R1ProMotionModel()
+
+
+def test_physical_joint_map_uses_public_positions():
+    values = R1ProMotionModel.joint_positions(np.arange(61, dtype=float))
+    assert len(values) == 22
+    assert values["torso_joint1"] == 53
+    assert values["left_arm_joint1"] == 3
+    assert values["right_arm_joint7"] == 34
+    assert values["left_gripper_finger_joint2"] == 25
+    assert values["right_gripper_finger_joint1"] == 49
 
 
 def motion_context(state, previous=None):
@@ -111,8 +220,8 @@ def motion_context(state, previous=None):
 
 
 @pytest.fixture
-def planning_request():
-    planner = R1ProMotionPlanner(task_id=40, task_language="make popcorn")
+def planning_request(motion_model):
+    planner = R1ProMotionPlanner(model=motion_model, task_id=40)
     proprio = np.zeros(61)
     proprio[24:26] = 0.05
     proprio[49:51] = 0.025
@@ -216,10 +325,11 @@ class _IKSolver:
 
     tensor_args = SimpleNamespace(to_device=np.asarray)
 
-    def __init__(self, target, start_q, relaxed_wxyz=None):
+    def __init__(self, target, start_q, relaxed_wxyz=None, relaxed_success=True):
         self.target = target
         self.target_q = start_q
         self.relaxed_wxyz = relaxed_wxyz
+        self.relaxed_success = relaxed_success
         self.metric = None
 
     def update_pose_cost_metric(self, metric):
@@ -242,11 +352,13 @@ class _IKSolver:
     def solve_single(self, goal, seed_config=None, return_seeds=1):
         relaxed = self.metric is not None
         goal_q = np.asarray(seed_config).reshape(7) + (0.002 if relaxed else 0.001)
-        success = relaxed or self.relaxed_wxyz is None
+        success = (relaxed and self.relaxed_success) or self.relaxed_wxyz is None
         return SimpleNamespace(
             success=np.asarray([success]),
-            position_error=np.asarray([0.0 if success else 0.04]),
-            rotation_error=np.asarray([0.0 if success else 0.3]),
+            position_error=np.asarray(
+                [0.0 if success else (0.08 if relaxed else 0.04)]
+            ),
+            rotation_error=np.asarray([0.0 if success else (0.6 if relaxed else 0.3)]),
             js_solution=SimpleNamespace(
                 get_ordered_joint_state=lambda names: SimpleNamespace(
                     position=_Tensor(goal_q[None, :])
@@ -255,8 +367,9 @@ class _IKSolver:
         )
 
 
+@pytest.mark.parametrize("relaxed_success", [True, False])
 def test_relaxed_orientation_retry_is_reported_not_hidden(
-    planning_request, monkeypatch
+    planning_request, monkeypatch, relaxed_success
 ):
     planner, raw, target = planning_request
     _fake_curobo(monkeypatch)
@@ -264,7 +377,9 @@ def test_relaxed_orientation_retry_is_reported_not_hidden(
     turned = (
         Rotation.from_euler("z", 90, degrees=True) * Rotation.from_quat(target[3:])
     ).as_quat()
-    solver = _IKSolver(target, raw["r1::proprio"][3:10], turned[[3, 0, 1, 2]])
+    solver = _IKSolver(
+        target, raw["r1::proprio"][3:10], turned[[3, 0, 1, 2]], relaxed_success
+    )
     monkeypatch.setattr(planner, "_ik_solver", lambda *args: solver)
     context = motion_context(raw["r1::proprio"])
 
@@ -280,10 +395,16 @@ def test_relaxed_orientation_retry_is_reported_not_hidden(
         motion_context=context,
         allow_orientation_relax=True,
     )
-    assert relaxed["status"] == "Success"
-    assert relaxed["orientation_relaxed"] is True
-    assert relaxed["ik_orientation_error_rad"] == pytest.approx(np.pi / 2, abs=1e-6)
-    assert relaxed["target_pose"] == target.tolist()
+    if not relaxed_success:
+        assert relaxed["status"] == "Failed"
+        assert relaxed["orientation_relax_attempted"] is True
+        for key in ("code", "position_error_m", "orientation_error_rad"):
+            assert relaxed[key] == strict[key]
+    else:
+        assert relaxed["status"] == "Success"
+        assert relaxed["orientation_relaxed"] is True
+        assert relaxed["ik_orientation_error_rad"] == pytest.approx(np.pi / 2, abs=1e-6)
+        assert relaxed["target_pose"] == target.tolist()
 
 
 @pytest.mark.parametrize("arm,other_gripper", [("left", 1), ("right", 1), ("left", -1)])
@@ -568,12 +689,7 @@ def test_gripper_actions_reach_correct_commands_and_hold_other_parts(
 
 
 def _assert_not_issued(result):
-    for name in (
-        "issued_actions",
-        "confirmed_actions",
-        "unconfirmed_actions",
-        "executed_actions",
-    ):
+    for name in ACTION_COUNT_FIELDS:
         assert result.data[name] == 0
 
 
@@ -612,12 +728,7 @@ def test_missing_counts_stay_unknown_and_invalidate_next_hold_command(gripper):
     primitives.vla_act()
     env.feedback = {"observation_after_last_issued_action": False}
     result = primitives.release(arm="right")
-    for key in (
-        "issued_actions",
-        "confirmed_actions",
-        "unconfirmed_actions",
-        "executed_actions",
-    ):
+    for key in ACTION_COUNT_FIELDS:
         assert result.data[key] is None
     assert result.data["finger_qpos_after_m"] is None
     count = len(env.actions)
@@ -676,12 +787,7 @@ def test_direct_joint_tools_reject_invalid_counts_without_replaying(
     assert result.data["requested_actions"] == 1
     assert result.data["code"] == "invalid_execution_feedback"
     assert result.data["stop_reason"] == "invalid_execution_feedback"
-    for name in (
-        "issued_actions",
-        "confirmed_actions",
-        "unconfirmed_actions",
-        "executed_actions",
-    ):
+    for name in ACTION_COUNT_FIELDS:
         assert result.data[name] is None
     assert result.data["observation_fresh"] is False
     assert result.data["observation_after_last_issued_action"] is False
@@ -714,12 +820,7 @@ def test_direct_joint_tools_preserve_consistent_partial_or_missing_counts(
     gripper, tool, arguments, counts
 ):
     primitives, env, _ = gripper
-    names = (
-        "issued_actions",
-        "confirmed_actions",
-        "unconfirmed_actions",
-        "executed_actions",
-    )
+    names = ACTION_COUNT_FIELDS
     env.feedback = dict(zip(names, counts), observation_after_last_issued_action=False)
     result = getattr(primitives, tool)(arm="left", steps=1, settle_steps=0, **arguments)
     assert not result.is_error
@@ -751,17 +852,11 @@ def test_wrist_joint_moves_only_requested_joint_and_preserves_hold(gripper, arm,
 
 class _MotionEnvironment:
     def __init__(self):
-        proprio = np.zeros(61)
-        proprio[3:10] = np.arange(7) * 0.1
-        proprio[28:35] = np.arange(7) * -0.1
+        self.raw = _robot_observation()
+        proprio = self.raw["r1::proprio"]
         proprio[17:20] = [0.4, 0.2, 0.8]
         proprio[42:45] = [0.4, -0.2, 0.8]
-        proprio[[23, 48]] = 1
         proprio[24:26] = proprio[49:51] = 0.05
-        proprio[53:57] = [0.1, -0.2, 0.3, 0.4]
-        self.raw = {"r1::proprio": proprio}
-        for camera in ("zed_link", "left_realsense_link", "right_realsense_link"):
-            self.raw[f"r1::{camera}:Camera:0::rgb"] = np.zeros((4, 5, 3), np.uint8)
         self.actions = []
         self.feedback = None
         self.fail = False
@@ -819,18 +914,7 @@ class _MotionEnvironment:
         self.actions.append(actions.copy())
         if self.fail:
             raise TimeoutError("execution outcome unknown")
-        info = (
-            {
-                "issued_actions": len(actions),
-                "confirmed_actions": len(actions),
-                "unconfirmed_actions": 0,
-                "executed_actions": len(actions),
-                "observation_after_last_issued_action": True,
-                "stop_reason": "chunk_completed",
-            }
-            if self.feedback is None
-            else dict(self.feedback)
-        )
+        info = _execution_feedback(len(actions), self.feedback)
         issued, confirmed = info.get("issued_actions"), info.get("confirmed_actions")
         if type(issued) is int and 0 <= issued <= len(actions):
             self.issued += issued
@@ -1026,9 +1110,7 @@ def test_arm_path_holds_the_final_planning_state_after_settling(motion, monkeypa
 @pytest.mark.parametrize("tool", ["set_gripper", "release"])
 @pytest.mark.parametrize("steps", [5001, 10**9])
 def test_gripper_schema_rejects_unbounded_steps(tool, steps):
-    arguments = {"arm": "left", "steps": steps}
-    if tool == "set_gripper":
-        arguments["val"] = 1
+    arguments = {"arm": "left", "steps": steps, "val": 1}
     with pytest.raises(ValueError):
         getattr(BehaviorPrimitives, tool).args_schema.model_validate(arguments)
 
@@ -1044,9 +1126,7 @@ def test_gripper_budget_is_checked_before_action_allocation(
         raise AssertionError("oversized gripper request reached action allocation")
 
     monkeypatch.setattr(np, "tile", forbidden_allocation)
-    arguments = {"arm": "left", "steps": steps, "settle_steps": settle_steps}
-    if tool == "set_gripper":
-        arguments["val"] = 1
+    arguments = {"arm": "left", "steps": steps, "settle_steps": settle_steps, "val": 1}
     with pytest.raises(ValueError, match="5000|budget"):
         getattr(primitives, tool)(**arguments)
     assert env.actions == []
@@ -1055,9 +1135,7 @@ def test_gripper_budget_is_checked_before_action_allocation(
 @pytest.mark.parametrize("tool", ["set_gripper", "release"])
 def test_gripper_exact_budget_is_accepted(gripper, tool):
     primitives, env, _ = gripper
-    arguments = {"arm": "left", "steps": 4990, "settle_steps": 10}
-    if tool == "set_gripper":
-        arguments["val"] = 1
+    arguments = {"arm": "left", "steps": 4990, "settle_steps": 10, "val": 1}
     result = getattr(primitives, tool)(**arguments)
     assert not result.is_error
     assert env.actions[-1].shape == (5000, 23)

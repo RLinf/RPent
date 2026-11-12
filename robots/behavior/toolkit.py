@@ -159,12 +159,12 @@ class BehaviorToolkit(Toolkit):
         else:
             raw = self._primitives.env.get_observation()
             self._primitives.last_observation = raw
-        snapshot = tools.snapshot_observation(
+        snapshot = tools.prepare_behavior_observation(
             raw,
             task_id=self._primitives.task_id,
             task_language=self._primitives.task_language,
         )
-        record = tools.dump_observation(
+        record = tools.save_observation_record(
             snapshot,
             env_state=self.state,
             log={"command": command, "result": result, "elapsed_s": elapsed_s},

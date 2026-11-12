@@ -37,7 +37,7 @@ from robots.behavior.robot_spec import get_robot_spec
 from robots.behavior.tools import (
     CAMERA_NAMES,
     extract_public_proprio,
-    snapshot_observation,
+    prepare_behavior_observation,
 )
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.evaluation import write_json_atomic
@@ -181,7 +181,7 @@ class BehaviorScenario:
     @cached_property
     def environment(self) -> tuple[dict[str, Any], dict[str, Any]]:
         raw = self.env.get_observation()
-        public = snapshot_observation(
+        public = prepare_behavior_observation(
             raw, task_id=self.args.task_id, task_language=self.args.task_language
         )
         proprio = extract_public_proprio(raw)

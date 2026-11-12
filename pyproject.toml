@@ -282,11 +282,7 @@ exclude = ["tests*", "docs*", "examples*", "docker*", "toolkits*"]
 [tool.setuptools.package-data]
 "rpent.dashboard" = ["*.html", "static/*.css", "static/*.js"]
 "robots.yam" = ["config/*.yaml", "config/*.json", "guides/*.md"]
-"robots.behavior" = [
-    "configs/*.yaml",
-    "assets/r1pro/*.json",
-    "assets/r1pro/*.urdf",
-]
+"robots.behavior" = ["configs/*.yaml"]
 
 [tool.pytest.ini_options]
 addopts = ["--import-mode=importlib"]

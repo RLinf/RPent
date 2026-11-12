@@ -55,6 +55,7 @@ class BehaviorEnvFacade(BaseEnvFacade):
         motion_planner: Optional borrowed planner implementing
             ``plan_arm_path(arm=..., target_pose=..., observation=...)``.
             It receives public observations, never the simulator or task state.
+        motion_model: Lazy access to the static model owned by the launcher.
     """
 
     def __init__(
@@ -65,6 +66,7 @@ class BehaviorEnvFacade(BaseEnvFacade):
         task_language: str | None = None,
         on_shutdown: Callable[[], None] | None = None,
         motion_planner: Any = None,
+        motion_model: Callable[[], Any] | None = None,
     ):
         if backend is None:
             raise RuntimeError(
@@ -76,6 +78,7 @@ class BehaviorEnvFacade(BaseEnvFacade):
         self._task_language = task_language
         self._on_shutdown = on_shutdown
         self._motion_planner = motion_planner
+        self._motion_model = motion_model
         super().__init__()
 
     def _builtin_dispatch(self, method: str, args: tuple, kwargs: dict) -> Any:
@@ -93,6 +96,15 @@ class BehaviorEnvFacade(BaseEnvFacade):
         self._readonly_methods.add("env.get_session_status")
         # Share the action dispatch lock so planning cannot race an Env action.
         self._rpc["env.plan_arm_path"] = self.plan_arm_path
+        # Serialize the first lazy model load with other Env operations.
+        self._rpc["env.get_arm_joint_limits"] = self.get_arm_joint_limits
+
+    def get_arm_joint_limits(self) -> dict[str, list[list[float]]]:
+        """Read static limits without requiring CuRobo or advancing simulation."""
+        if self._motion_model is None:
+            raise RuntimeError("BEHAVIOR Env has no motion model provider")
+        model = self._motion_model()
+        return {arm: model.joint_limits(arm).tolist() for arm in ("left", "right")}
 
     def get_env_meta(self) -> dict[str, Any]:
         """Return the internal adapter contract, not official protocol metadata."""
@@ -186,12 +198,22 @@ async def _serve(args: argparse.Namespace) -> None:
         chunk_timeout_s=args.chunk_timeout_s,
     )
     motion_planner = None
+    motion_model = None
+
+    def get_motion_model() -> Any:
+        nonlocal motion_model
+        if motion_model is None:
+            from robots.behavior.motion import R1ProMotionModel
+
+            motion_model = R1ProMotionModel()
+        return motion_model
+
     if args.motion_backend == "curobo":
         from robots.behavior.motion import R1ProMotionPlanner
 
         motion_planner = R1ProMotionPlanner(
+            model=get_motion_model(),
             task_id=args.task_id,
-            task_language=args.task_language,
             device=args.motion_device,
         )
     facade = BehaviorEnvFacade(
@@ -200,6 +222,7 @@ async def _serve(args: argparse.Namespace) -> None:
         task_language=args.task_language,
         on_shutdown=bridge.stop,
         motion_planner=motion_planner,
+        motion_model=get_motion_model,
     )
     errors: list[BaseException] = []
 
@@ -256,6 +279,8 @@ async def _serve(args: argparse.Namespace) -> None:
             loop.remove_signal_handler(signum)
         if worker.is_alive():
             raise RuntimeError("BEHAVIOR Env RPC thread did not stop")
+        if motion_model is not None:
+            motion_model.close()
     if errors:
         raise RuntimeError("BEHAVIOR Env RPC service failed") from errors[0]
 
