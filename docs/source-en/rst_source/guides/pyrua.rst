@@ -64,9 +64,7 @@ are not rolled back, so inspect the scene before continuing.
 
 A successful ``robo.finish(...)`` ends both the cell and the task; the
 ``api``, ``claude_code``, and ``codex`` planners all receive the completion
-result. Operator requests such as ``request_scene_reset`` and
-``request_operator_verdict`` are separate planner tools because they may wait
-longer than a cell's time limit.
+result. 
 
 
 Inspect a Run
