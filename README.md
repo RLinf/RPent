@@ -209,13 +209,13 @@ For more detailed documentation, see the [RPent documentation](https://rpent.rea
 
 ## Adoption
 
-RPent connects research and engineering teams across industry and academia through open-source projects such as [Zetta](https://github.com/air-embodied-brain/Zetta-Embodiment), research, community resources, and collaboration and technical exchange. The organizations below include research-team affiliations, ecosystem references, and collaborators; see the [organization list and relationship notes](docs/assets/adoption/README.md) for their respective connections.
+RPent is an open-source framework for building embodied agents that combine perception, reasoning, memory, and execution to learn and adapt through interaction with the physical world. The companies and universities below are connected to RPent through research, project development, community resources, and technical exchange.
 
 <div align="center">
   <img src="docs/assets/adoption/adoption.png" alt="RPent community: 13 companies, including Z-Trans AI / Zetta and ROBAM, above 25 universities"/>
 </div>
 
-✨ If your organization is using RPent, feel free to reach out or submit a PR to be listed here.
+✨ If your organization is using RPent for embodied AI research or robotics applications, feel free to reach out or submit a PR to be listed here.
 
 ## Contributing
 
