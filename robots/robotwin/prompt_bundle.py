@@ -32,7 +32,7 @@ def system_prompt(
     variables = variables or {}
     if (variables or {}).get("policy_mode") == "code":
         return code_parts.system_prompt()
-    
+
     if variables.get("policy_backend") == "uniwam":
         from robots.robotwin.prompts.uniwam import evaluate
 
@@ -58,12 +58,12 @@ def user_prompt(
     variables = variables or {}
 
     if (variables or {}).get("policy_mode") == "code":
-            return {
-                "CELL": user_parts.CELL,
-                "BEGIN": "The task instruction comes from `task_language` in "
-                "`robo.view_env_state(step=0)`.",
-            }
-    
+        return {
+            "CELL": user_parts.CELL,
+            "BEGIN": "The task instruction comes from `task_language` in "
+            "`robo.view_env_state(step=0)`.",
+        }
+
     is_uniwam = variables.get("policy_backend") == "uniwam"
     if variables.get("policy_kind") == "wam" and not is_uniwam:
         return {
@@ -75,7 +75,7 @@ def user_prompt(
         if is_uniwam
         else "RLinf/LingBot-VLA-RoboTwin-EEF-ckpt1500"
     )
-    
+
     prompt = {
         "CELL": user_parts.CELL + f"- checkpoint: {checkpoint}\n",
         "BEGIN": user_parts.BEGIN,

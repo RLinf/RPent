@@ -86,13 +86,11 @@ class _ContractToolkit(Toolkit):
         return False
 
 
-def test_toolkit_and_common_tools_require_memory() -> None:
+def test_toolkit_and_common_tools_require_explicit_memory() -> None:
     with pytest.raises(TypeError, match="memory"):
         Toolkit(dashboard_events=_RecordingEventSink())
     with pytest.raises(TypeError, match="memory"):
-        Toolkit(dashboard_events=_RecordingEventSink(), memory=None)
-    with pytest.raises(TypeError, match="memory"):
-        common.CommonTools(memory=None)
+        common.CommonTools()
 
 
 def test_toolkit_registers_common_specs_with_fresh_placeholder_substitution(
@@ -124,7 +122,15 @@ def test_toolkit_registers_common_specs_with_fresh_placeholder_substitution(
     assert list_dir.input_schema == original_schema
 
 
-def test_toolkit_without_memory_keeps_finish_but_no_file_tools(tmp_path: Path) -> None:
+def test_toolkit_without_memory_keeps_finish_but_no_file_tools(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "rpent.utils.templates.get_output_dir",
+        lambda: tmp_path,
+    )
+
     toolkit = Toolkit(
         dashboard_events=_RecordingEventSink(),
         state=EnvState(tmp_path),
@@ -133,8 +139,13 @@ def test_toolkit_without_memory_keeps_finish_but_no_file_tools(tmp_path: Path) -
 
     assert toolkit.memory is None
     assert [definition.name for definition in toolkit.list_tools()] == ["finish"]
-    assert toolkit.execute_tool("read_text_file", {"path": "MEMORY.md"}).is_error
-    finished = toolkit.execute_tool("finish", {"status": "success", "summary": "done"})
+    assert toolkit.execute_tool(
+        "read_text_file", {"path": "MEMORY.md"}
+    ).is_error
+
+    finished = toolkit.execute_tool(
+        "finish", {"status": "success", "summary": "done"}
+    )
     assert finished.data["_finish"] is True
     assert not (tmp_path / "memory").exists()
 

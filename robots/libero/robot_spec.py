@@ -177,6 +177,7 @@ def get_toolkit(
 ):
     """Return the LIBERO toolkit for the current session."""
     from robots.libero.toolkit import LiberoToolkit
+
     explore = mode == "exploration"
 
     memory = None

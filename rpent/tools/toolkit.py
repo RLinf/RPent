@@ -180,13 +180,12 @@ class Toolkit:
 
     def _register_common_tools(self) -> None:
         from rpent.tools.common import CommonTools
+
         declarations = iter_tools(CommonTools(memory=self._memory))
 
         if self._memory is None:
             # File tools require memory; only register finish.
-            self.add_tools(
-                item for item in declarations if item.name == "finish"
-            )
+            self.add_tools(item for item in declarations if item.name == "finish")
             return
 
         self._memory.check_layout()

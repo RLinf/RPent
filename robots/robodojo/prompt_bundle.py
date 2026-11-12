@@ -25,6 +25,7 @@ from robots.robodojo.prompts import user as user_parts
 from robots.robodojo.prompts.policy import POLICY_PROMPTS
 from rpent.prompt.utils import PromptNode
 
+
 def system_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> PromptNode:
@@ -38,6 +39,7 @@ def system_prompt(
         return explore_parts.system_prompt(variables)
 
     return evaluate_parts.system_prompt(variables)
+
 
 def user_prompt(
     variables: Mapping[str, object] | None = None,

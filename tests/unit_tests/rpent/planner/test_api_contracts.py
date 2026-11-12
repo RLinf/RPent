@@ -1105,9 +1105,7 @@ def test_factory_passes_interactive_mode(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("planner_type", ["claude_code", "codex"])
 @pytest.mark.parametrize("use_memory", [True, False])
-def test_factory_mounts_memory_only_when_enabled(
-    tmp_path, planner_type, use_memory
-):
+def test_factory_mounts_memory_only_when_enabled(tmp_path, planner_type, use_memory):
     from rpent.planner.base import build_planner
 
     planner = build_planner(
@@ -1119,9 +1117,7 @@ def test_factory_mounts_memory_only_when_enabled(
         use_memory=use_memory,
         dashboard_events=Events(),
     )
-    assert planner._extra_dirs == (
-        [str(tmp_path / "memory")] if use_memory else []
-    )
+    assert planner._extra_dirs == ([str(tmp_path / "memory")] if use_memory else [])
 
 
 @pytest.mark.parametrize("no_images", [False, True])
