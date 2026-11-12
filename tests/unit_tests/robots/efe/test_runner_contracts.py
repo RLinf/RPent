@@ -768,6 +768,33 @@ def test_an_early_episode_end_stops_once_the_reset_budget_is_spent(
     assert report["sessions"] == []
 
 
+def test_a_missing_codex_wheel_does_not_abort_the_report(
+    tmp_path, recording_planner, efe_client, monkeypatch
+):
+    """``CODEX_BIN`` may supply a binary no wheel provides; the report still lands."""
+    import robots.efe.runner as runner
+
+    def missing(name):
+        raise runner.PackageNotFoundError(name)
+
+    monkeypatch.setattr(runner, "version", missing)
+
+    report = run_efe(
+        "Task",
+        workdir=tmp_path,
+        output_dir=tmp_path / "logs",
+        model="test-model",
+        client=efe_client,
+    )
+
+    assert report["versions"] == {
+        "rpent": None,
+        "openai-codex": None,
+        "openai-codex-cli-bin": None,
+    }
+    assert (tmp_path / "logs" / "session.json").is_file()
+
+
 def test_a_transient_network_timeout_is_not_reported_as_a_budget_stop(
     tmp_path, recording_planner, efe_client
 ):

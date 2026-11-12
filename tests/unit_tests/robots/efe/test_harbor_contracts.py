@@ -462,3 +462,33 @@ def test_an_agent_timeout_too_small_for_one_session_is_rejected(tmp_path):
         RPentEfeAgent(logs_dir=tmp_path, model_name="openai/test", agent_timeout_s=30)
 
 
+def test_a_session_report_without_a_stats_object_falls_back_to_recovery(tmp_path):
+    agent = RPentEfeAgent(logs_dir=tmp_path, model_name="openai/test-model")
+    report = agent.logs_dir / "rpent" / "session.json"
+    report.parent.mkdir(parents=True)
+    report.write_text(json.dumps({"error": None, "stats": []}), encoding="utf-8")
+    stream = report.parent / "codex.txt.stream.jsonl"
+    stream.write_text(
+        json.dumps(
+            {
+                "method": "thread/tokenUsage/updated",
+                "payload": {
+                    "token_usage": {
+                        "total": {
+                            "input_tokens": 7,
+                            "cached_input_tokens": 1,
+                            "output_tokens": 3,
+                        }
+                    }
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    context = AgentContext()
+
+    agent.populate_context_post_run(context)
+
+    assert context.n_input_tokens == 7
+    assert context.n_output_tokens == 3

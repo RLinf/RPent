@@ -22,7 +22,7 @@ import os
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
-from importlib.metadata import version
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -83,6 +83,21 @@ def _trial_repo_root(workdir: Path) -> Iterator[None]:
             os.environ.pop("RPENT_REPO_ROOT", None)
         else:
             os.environ["RPENT_REPO_ROOT"] = previous
+
+
+def _package_version(name: str) -> str | None:
+    """Return an installed package version, or None when it is not installed.
+
+    ``CODEX_BIN`` lets a run use a Codex binary that no wheel provides, so a
+    missing distribution is normal and must not abort the trial before
+    ``session.json`` is written.
+    """
+    try:
+        return version(name)
+    except PackageNotFoundError:
+        return None
+
+
 # The planner reports an expired budget as one of these strings. Match them
 # narrowly: ``Connection timed out`` and ``Request timed out`` are transient
 # failures, and a real failure must not be reported as a clean stop.
@@ -239,9 +254,9 @@ def run_efe(
         "skills": skills,
         "codex_home": str(output_dir / "codex-home"),
         "versions": {
-            "rpent": version("rpent"),
-            "openai-codex": version("openai-codex"),
-            "openai-codex-cli-bin": version("openai-codex-cli-bin"),
+            "rpent": _package_version("rpent"),
+            "openai-codex": _package_version("openai-codex"),
+            "openai-codex-cli-bin": _package_version("openai-codex-cli-bin"),
         },
         "codex_binary_override": os.environ.get("CODEX_BIN"),
         "instruction": instruction,

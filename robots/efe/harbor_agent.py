@@ -22,8 +22,12 @@ import os
 import shlex
 import tarfile
 import tempfile
-import tomllib
 from pathlib import Path
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10
+    import tomli as tomllib
 
 from harbor.agents.installed.base import BaseInstalledAgent
 from harbor.environments.base import BaseEnvironment
@@ -371,11 +375,18 @@ class RPentEfeAgent(BaseInstalledAgent):
         stats: dict[str, object] = {}
         if report_path.is_file():
             try:
-                stats = json.loads(report_path.read_text(encoding="utf-8"))["stats"]
-            except json.JSONDecodeError:
+                reported = json.loads(report_path.read_text(encoding="utf-8"))["stats"]
+            except (json.JSONDecodeError, KeyError, TypeError):
                 self.logger.warning(
                     "The RPent session report is incomplete: %s", report_path
                 )
+            else:
+                if isinstance(reported, dict):
+                    stats = reported
+                else:
+                    self.logger.warning(
+                        "The RPent session report has no stats object: %s", report_path
+                    )
         if stats.get("usage_observed") is not True:
             recovered = self._recover_usage(report_path.parent)
             if recovered is None:
