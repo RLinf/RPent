@@ -121,7 +121,7 @@ them requires a new output directory.
      - Default
      - Meaning
    * - ``--max-tokens``
-     - 32768
+     - 4096
      - Per-response completion budget, including reasoning and tool protocol.
    * - ``--context-window``
      - 262144
@@ -133,17 +133,17 @@ them requires a new output directory.
      - 80
      - Independent message-count trigger; 0 disables this trigger.
    * - ``--compaction-keep-messages``
-     - 40
+     - 10
      - Tail messages to retain, plus opening/pinned context and intact tool pairs.
    * - ``--max-turns`` / ``--max-episode-steps``
-     - 100 / 10000
+     - 80 / 10000
      - Model-request / physical-step budgets per trajectory.
    * - ``--planner-timeout-s``
      - 7200
      - Planner wall-clock limit; batch ``--episode-timeout`` defaults to 14400.
 
-A normal reply and its tool result are two messages; 40 tail messages usually
-cover about 20 interactions. Token and message-count triggers use OR. For a
+A normal reply and its tool result are two messages; 10 tail messages usually
+cover about 5 interactions. Token and message-count triggers use OR. For a
 token-only trigger, pass ``--compaction-max-messages 0``. A retained window may
 still exceed the token threshold; the audit records that condition.
 
@@ -246,7 +246,7 @@ as rendered by the chat adapter. Image metadata is cached by content SHA and
 processor configuration; every occurrence still occupies context, including
 cache hits. Edited histories are recounted rather than anchored to old usage.
 
-The 70% token threshold and the 80-to-40 message window remain in effect, with
+The launcher uses a 70% token threshold and an 80-to-10 message window, with
 tool-call/result pairs and opening prompts preserved. A retained window can
 still exceed the threshold when its remaining content is large; the audit
 reports this condition rather than reducing output or context budgets.

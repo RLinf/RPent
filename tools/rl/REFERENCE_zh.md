@@ -24,9 +24,9 @@
 | `RPENT_SAM3_ENDPOINT` | 未设置 | 已启动的共享 SAM3 endpoint |
 | `RPENT_PROMPT` | `simple` | `simple`、`base`、`base_gripper`、`base_gripper_camera` |
 | `RPENT_REASONING_EFFORT` | Qwen3.8 为 `xhigh`，其他模型为 `none` | `none` 不发送 effort 等级，仍启用 thinking |
-| `RPENT_MAX_TURNS` | `100` | 单条轨迹的模型请求数 |
+| `RPENT_MAX_TURNS` | `80` | 单条轨迹的模型请求数 |
 | `RPENT_MAX_EPISODE_STEPS` | `10000` | 仿真步预算 |
-| `RPENT_MAX_TOKENS` | `32768` | 每次请求的输出预算，包含 thinking |
+| `RPENT_MAX_TOKENS` | `4096` | 每次请求的输出预算，包含 thinking |
 | `RPENT_CONTEXT_WINDOW` | `262144` | 规划器上下文预算 |
 | `RPENT_COMPACTION_FRACTION` | `0.7` | 历史压缩阈值 |
 | `RPENT_PLANNER_TIMEOUT_S` | `7200` | 规划器总超时；需要其他限制时显式设置 |

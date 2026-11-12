@@ -43,10 +43,10 @@ An existing todo means initialization is already complete. The model verifies
 subtask completion from observations; the controller does not use task scripts
 or an oracle. Invalid updates do not reset context.
 
-Compaction uses the existing 70%-context / 80→40-message window in accumulated
+The launcher defaults to a 70%-context / 80→10-message window in accumulated
 modes. It operates only within the current subtask for `zap_subtask`. Context
 resets never reset the environment, global request count or deadline. Default
-limits are 100 model requests, 10000 environment steps, 7200 planner seconds
+limits are 80 model requests, 10000 environment steps, 7200 planner seconds
 and 14400 outer batch seconds.
 
 ## VLM image size
@@ -138,6 +138,12 @@ tokens whose causal prefix changed. Retain model/SAM3 settings with every
 performance result, and report queueing separately from generation time.
 
 ## Fixed-panel comparison
+
+Launcher defaults are output 4096 tokens, 80 requests, and 10 retained tail
+messages after compaction. The historical fixed-panel examples below use a
+separate 32768-token/100-request profile; to reproduce that profile, explicitly
+export `RPENT_MAX_TOKENS=32768`, `RPENT_MAX_TURNS=100`, and
+`RPENT_COMPACTION_KEEP_MESSAGES=40` before those comparison commands.
 
 Use the serving environment to start three original Qwen3.8-27B TP2 services
 on GPU pairs 2–3, 4–5 and 6–7, with ports 30180–30182. The following commands
