@@ -24,7 +24,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from functools import wraps
 from types import SimpleNamespace
-from typing import Annotated, Any, Generic, ParamSpec, get_type_hints
+from typing import Annotated, Any, Generic, Literal, ParamSpec, get_type_hints
 
 from pydantic import BaseModel, ConfigDict, Field, create_model
 from pydantic.json_schema import GenerateJsonSchema
@@ -60,6 +60,16 @@ class ToolResult:
             return text
         suffix = "\n[truncated]"
         return text[: MAX_TOOL_TEXT_BYTES - len(suffix)] + suffix
+
+
+def tool_error(code: str, message: str, **details: Any) -> ToolResult:
+    """Build a structured tool error with a code, message, and optional details."""
+    return ToolResult(
+        data={
+            "error": {"code": code, "message": message, **details},
+            "success": False,
+        }
+    )
 
 
 class _ToolJsonSchema(GenerateJsonSchema):
@@ -123,6 +133,7 @@ class Tool(Generic[ParamsT]):
     _input_schema: dict[str, Any]
     readonly: bool = False
     _unbound_method: bool = False
+    action_source: Literal["tool_computed", "direct"] = "tool_computed"
 
     @property
     def input_schema(self) -> dict[str, Any]:

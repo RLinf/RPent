@@ -42,6 +42,7 @@ import shlex
 import sys
 import time
 from collections.abc import Callable
+from dataclasses import asdict
 from pathlib import Path
 
 from rpent.cli.tui import (
@@ -61,6 +62,7 @@ from rpent.planner.base import (
 )
 from rpent.planner.check import BASE_URL_ENV_BY_PLANNER
 from rpent.robots import enumerate_robots, get_robot_spec, get_toolkit
+from rpent.session.planner_capture import end_planner_task, start_planner_task
 from rpent.utils.logging import get_logger, init_output_dir
 
 logger = get_logger("agent")
@@ -193,6 +195,13 @@ def _build_argparser() -> argparse.ArgumentParser:
 
     # other config
     ap.add_argument("--output-dir", default=None)
+    ap.add_argument(
+        "--record-trajectory",
+        action="store_true",
+        help="Record task, planner, and tool trajectories with api, claude_code, or codex. "
+        "Supported environments also record executed actions and VLA predictions. "
+        "Action recording is unavailable with --explore.",
+    )
     ap.add_argument(
         "--memory-profile",
         choices=["hf", "local"],
@@ -570,6 +579,7 @@ def main() -> int:
     recipe_path = ""
     solved = False
     environment_success: bool | None = None
+    environment_metrics: dict = {}
     memory_manager: MemoryManager | None = None
     try:
         if first_user_msg is not None:
@@ -578,6 +588,7 @@ def main() -> int:
         for session_number in range(1, sessions + 1):
             if session_msg is None:
                 break
+            environment_success, environment_metrics = None, {}
             if session_number > 1:
                 planner, system_prompt, session_msg = _start_continuation_session(
                     args,
@@ -633,7 +644,17 @@ def main() -> int:
                     return True
 
                 operator_input.bind_verdict(accept_verdict)
+            task_state = None
+            result = None
+            finish_result = None
+            environment_success = None
             try:
+                if args.record_trajectory and args.planner != "flash":
+                    task_state = start_planner_task(
+                        toolkit.state,
+                        instruction=session_msg,
+                        config={"arguments": vars(args), "run": asdict(run_config)},
+                    )
                 result = planner.solve(
                     system_prompt=system_prompt,
                     user_message=session_msg,
@@ -657,6 +678,7 @@ def main() -> int:
                     solved_fn
                 ):
                     solved = bool(solved_fn())
+                    environment_success = solved
                     write_recipe = getattr(toolkit, "write_recipe", None)
                     if solved and callable(write_recipe):
                         recipe_path = write_recipe(recipe_tag) or recipe_path
@@ -665,13 +687,26 @@ def main() -> int:
                     operator_input.bind_verdict(None)
                 try:
                     if robot_spec.finalize_run is not None:
+                        toolkit.cancel_active_and_wait()
                         solved_fn = getattr(toolkit, "solved", None)
                         environment_success = (
                             bool(solved_fn()) if callable(solved_fn) else None
                         )
                         solved = bool(environment_success)
+                        environment_metrics = toolkit.evaluation_metrics(
+                            success=environment_success
+                        )
                 finally:
-                    toolkit.close()
+                    try:
+                        toolkit.close()
+                    finally:
+                        end_planner_task(
+                            task_state,
+                            result,
+                            finish_result=finish_result,
+                            environment_success=environment_success,
+                            exception=sys.exc_info()[1],
+                        )
             if (
                 solved
                 or (finish_result or {}).get("operator_aborted")
@@ -738,6 +773,7 @@ def main() -> int:
                     robot_name=robot_name,
                     task_desc=dict(task_desc),
                     environment_success=environment_success,
+                    environment_metrics=environment_metrics,
                     agent_error=agent_error,
                     elapsed_s=elapsed,
                     planner=args.planner,

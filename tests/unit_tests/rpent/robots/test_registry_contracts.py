@@ -76,10 +76,12 @@ PROMPT_VARIABLES = {
     },
     "robodojo": {
         "task": "put_bottles_into_dustbin",
+        "seed": 0,
         "layout": 0,
         "env_cfg_type": "arx_x5",
         "action_type": "joint",
         "recipe_tag": "put_bottles_into_dustbin_l0",
+        "reference_tag": "put_bottles_into_dustbin_s0_l0",
         "task_summary": {"task": "put_bottles_into_dustbin", "rigid": ["bottle"]},
         "memory_dir": "/memory",
         "output_dir": Path("/output"),
@@ -132,6 +134,9 @@ def test_registry_discovers_exactly_the_source_checkout_robots() -> None:
         assert callable(spec.add_cli_args)
         assert callable(spec.parse_config)
         assert callable(spec.init_runtime)
+        assert (spec.flywheel is not None) == (
+            name in {"libero", "robocasa", "robodojo", "robotwin"}
+        )
 
 
 @pytest.mark.parametrize("robot_name", EXPECTED_ROBOTS)
