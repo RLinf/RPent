@@ -94,7 +94,7 @@ cuRobo. From the RPent root, create an environment and install the dependencies:
    uv pip install -e ".[robodojo-sim,sam3]" --extra-index-url https://pypi.nvidia.com \
      --override requirements/robodojo-override.txt
 
-.. note::
+.. dropdown:: Blackwell GPU installation
 
    Blackwell GPUs need the CUDA 12.8 build of PyTorch. The pinned PyTorch 2.7.0
    also has a CUDA 12.6 build, but that build does not support Blackwell. On
@@ -143,9 +143,7 @@ and set the resource directory:
 The download should contain ``Assets/Robots``, ``Assets/Object``,
 ``Assets/Material``, and ``Assets/Eval_Layout``.
 
-Generate a ``*.yml`` configuration beside each ``*_tmp.yml`` template under
-``Assets/Robots``, substituting absolute local resource paths. The simulator
-reads ``Assets/Robots/x5/curobo.yml`` for x5:
+Generate robot configurations pointing to your local resource directory:
 
 .. code-block:: bash
 
@@ -160,10 +158,8 @@ reads ``Assets/Robots/x5/curobo.yml`` for x5:
    PY
    test -s "$ROBODOJO_ASSETS_ROOT/Assets/Robots/x5/curobo.yml"
 
-Run this once after the initial download; subsequent task runs do not need it.
-Moving the resource directory invalidates the paths saved in these configurations,
-so run the command again afterward. Regeneration overwrites existing ``*.yml``
-configurations.
+Run this once after downloading or moving the resources. It regenerates
+``*.yml`` files from ``*_tmp.yml`` templates, overwriting existing configurations.
 
 Some NVIDIA resources referenced by the scene load online by default.
 For offline use or repeated resource-loading failures, see
@@ -172,7 +168,8 @@ For offline use or repeated resource-loading failures, see
 VLA Configuration
 -----------------
 
-Select ``--am-backend vpp2|awomo05``; omitting it selects ``vpp2``.
+Configure one action model. The first-run example below uses VPP2, the default.
+To use Awomo05, add ``--am-backend awomo05`` to your run command.
 The model implementations and weights are available here:
 
 - VPP2: the official `VPP2 RoboDojo implementation <https://github.com/roboterax/video-prediction-policy-2/tree/72c17acf022494ff63617be86079bb92e92f5bf8>`_
@@ -180,6 +177,12 @@ The model implementations and weights are available here:
 - Awomo05: the `official author implementation <https://github.com/Awomo-WestlakeDI/Awomo-0.5>`_,
   the `XPolicyLab RoboDojo evaluation adapter <https://github.com/XPolicyLab/XPolicyLab/blob/562c14cf08b9e6e411e7d76f192740afced77160/policy/Awomo05/README.md>`__
   and the `Auwomo/Awomo-0.5-Robodojo weights and matching statistics <https://huggingface.co/Auwomo/Awomo-0.5-Robodojo>`_.
+
+Install model dependencies separately using the corresponding inference
+environment instructions. RPent starts and stops the model service using its
+current Python environment by default, loading the full model on one GPU.
+For a separate model environment, use ``--am-python /path/to/model-env/bin/python``.
+Use ``--am-checkpoint`` to override the model directory.
 
 VPP2 Setup
 ~~~~~~~~~~
@@ -214,24 +217,22 @@ links to existing resources:
 Install the model dependencies using the pinned project's
 `inference environment instructions
 <https://github.com/roboterax/video-prediction-policy-2/blob/72c17acf022494ff63617be86079bb92e92f5bf8/docs/robodojo.md#policy-environment>`_.
-These dependencies are separate from ``.[robodojo-sim]``. When they are
-compatible with the RPent environment, ``VPP2_MODEL_PATH`` enables automatic
-local startup; ``--am-checkpoint`` overrides it. The local server loads the
-full model on one GPU. It defaults to RPent's Python interpreter; use
-``--am-python`` to select a separate model environment.
+Set ``VPP2_MODEL_PATH`` to start this model automatically when running a task.
 
-To use a separate model environment, install the policy dependencies and RPent's
-core package there, then start the service:
+.. dropdown:: Start a standalone VPP2 service (optional)
 
-.. code-block:: bash
+   To manage the service yourself, install the policy dependencies and RPent's
+   core package in the model environment, then start the service:
 
-   python -m robots.robodojo.vpp2_server --model-path /path/to/vpp2 \
-     --host 127.0.0.1 --port 9201
+   .. code-block:: bash
 
-Add ``--am-endpoint socket://127.0.0.1:9201`` to the task command in the
-RPent/simulator environment. RPent starts and stops its own model process;
-independently started services remain under their operator's control.
-For remote deployment, see :doc:`../guides/advanced_deployment`.
+      python -m robots.robodojo.vpp2_server --model-path /path/to/vpp2 \
+        --host 127.0.0.1 --port 9201
+
+   Add ``--am-endpoint socket://127.0.0.1:9201`` to the task command in the
+   RPent/simulator environment. RPent starts and stops its own model process;
+   independently started services remain under their operator's control.
+   For remote deployment, see :doc:`../guides/advanced_deployment`.
 
 Awomo05 Setup
 ~~~~~~~~~~~~~
@@ -269,25 +270,22 @@ links to existing resources:
 
 Install the model dependencies using the pinned project's
 `inference environment instructions <https://github.com/XPolicyLab/XPolicyLab/blob/562c14cf08b9e6e411e7d76f192740afced77160/policy/Awomo05/README.md>`__.
-These dependencies are separate from ``.[robodojo-sim]``. When the model
-dependencies are compatible with the RPent environment,
-``AWOMO05_MODEL_PATH`` enables automatic local startup; ``--am-checkpoint``
-overrides it. The local server loads the full model on one GPU. It defaults
-to RPent's Python interpreter; use ``--am-python`` to select a separate model
-environment.
+Set ``AWOMO05_MODEL_PATH`` to start this model automatically when running a task.
 
-To use a separate model environment, install the policy dependencies and RPent's
-core package there, then start the service:
+.. dropdown:: Start a standalone Awomo05 service (optional)
 
-.. code-block:: bash
+   To manage the service yourself, install the policy dependencies and RPent's
+   core package in the model environment, then start the service:
 
-   python -m robots.robodojo.awomo05_server --model-path /path/to/awomo05 \
-     --host 127.0.0.1 --port 9205
+   .. code-block:: bash
 
-Add ``--am-endpoint socket://127.0.0.1:9205`` to the task command in the
-RPent/simulator environment. RPent starts and stops its own model process;
-independently started services remain under their operator's control.
-For remote deployment, see :doc:`../guides/advanced_deployment`.
+      python -m robots.robodojo.awomo05_server --model-path /path/to/awomo05 \
+        --host 127.0.0.1 --port 9205
+
+   Add ``--am-endpoint socket://127.0.0.1:9205`` to the task command in the
+   RPent/simulator environment. RPent starts and stops its own model process;
+   independently started services remain under their operator's control.
+   For remote deployment, see :doc:`../guides/advanced_deployment`.
 
 SAM3 Configuration
 ------------------
@@ -333,6 +331,9 @@ and SAM3, run the bottle-disposal task at seed group 0, layout 0:
      --max-turns 10000 --planner-timeout-s 1500 \
      --output-dir /path/to/run-output
 
+The command above uses Hugging Face memory by default. To use local memory,
+see Task Memory and Exploration Mode below.
+
 View Results
 ------------
 
@@ -355,8 +356,7 @@ the planner loop.
 
 ``score`` records the native task-progress score on a 0–100 scale. Successful
 episodes receive 100; failed episodes use the native partial score, or 0 for
-tasks without partial scoring. The runner collects it after tools finish and
-before the environment shuts down, without adding it to planner feedback.
+tasks without partial scoring. The score is used for reporting, not planner feedback.
 ``score_available=false`` and ``score=null`` indicate that no score was
 collected; a read failure also records ``score_error``. Score is unavailable
 in ``eval-fair`` mode, which blocks access to evaluator results.
@@ -418,24 +418,19 @@ In both examples, ``--max-episode-steps 10000`` does not increase the task's
 native action limit. ``--planner-timeout-s`` limits the total duration of each
 planner session, including reasoning and tool calls.
 
-The planner reads ``robots/robodojo/guides/GUIDE_RPENT.md`` and follows the
-mode-specific prompt. Exploration records failed attempts under run output and
-working notes in the cell's ``_internal/inbox/<cell>/wip/``. After the environment
-confirms task success, RPent saves eligible motion commands and SAM3 calls that
-returned a mask without an error from the final attempt to
-``<cell>_recipe.jsonl``, in invocation order. A returned mask does not establish
-that the correct object was identified; the images still need to be checked.
-The planner separately writes the matching ``<cell>.json`` task record and
-drafts task-family and global lessons.
+After exploration, inspect these local artifacts:
 
-By default, after exploration, RPent saves the successful task's JSON record
-and matching JSONL action sequence under local ``task-specific/``, merges valid
-draft lessons into ``task-family/`` and ``global/``, and updates the memory
-index ``MEMORY.md``. Use ``--no-auto-merge-memory`` to disable automatic merging
-and retain the output for manual review. These operations only write local
-files; they do not upload anything to Hugging Face. Memory intended for public
-sharing is reviewed separately in the dataset repository. See
-:doc:`../development/memory` for the shared file layout.
+- ``task-specific/``: the successful attempt's JSON task record and matching
+  JSONL action sequence, including SAM3 calls that returned a mask without an error.
+- ``task-family/``, ``global/`` and ``MEMORY.md``: validated and merged task
+  lessons, general lessons and their index.
+- Failed-attempt records in the run output and working notes under
+  ``_internal/inbox/<cell>/wip/``.
+
+Memory is merged automatically after a normal run with no agent execution error.
+Use ``--no-auto-merge-memory`` to retain drafts for manual review. Then point the
+evaluation command above at the same memory directory. See :doc:`../guides/memory`
+for publishing to Hugging Face and :doc:`../development/memory` for the full file layout.
 
 Common Options
 --------------
@@ -496,7 +491,7 @@ in ``transcript_*.json``.
 
 Both backends support observations and motion primitives; only the selected
 backend's policy tool is exposed. Evaluation has no ``reset``; exploration can
-reset and retry the same scene. RoboDojo does not support Flash replay.
+reset and retry the same scene.
 
 To investigate a task result, start with ``result.json`` and the video,
 then use the tool-call log to identify the problem:
@@ -519,56 +514,55 @@ and `perception tools <https://github.com/RLinf/RPent/blob/main/robots/robodojo/
 The `robot operation guide <https://github.com/RLinf/RPent/blob/main/robots/robodojo/guides/GUIDE_RPENT.md>`_
 covers coordinate frames, grasp geometry, and motion constraints.
 
+Troubleshooting
+---------------
+
 .. _robodojo-local-nvidia-assets:
 
-Prepare Local NVIDIA Scene Assets (Optional)
---------------------------------------------
+Scene Assets Fail to Load
+~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Download NVIDIA scene assets in advance if either of these applies:
+Some NVIDIA scene assets load over the network. If ``robodojo_env_server.log``
+shows asset download failures, check connectivity first. For offline use,
+prepare local assets as described below. Skip this if scenes load normally.
 
-- You need to run the simulator on a machine without network access.
-- NVIDIA resource URLs are unreliable and the logs show repeated download failures.
+.. dropdown:: Prepare offline assets
 
-RoboDojo scenes also reference NVIDIA 3D models, materials, and textures.
-These files are separate from the RoboDojo resources downloaded above and
-load over the network by default. Skip this section if scenes load normally;
-you do not need a local asset pack or ``ROBODOJO_USD_ASSET_PREFIX``.
+   The steps below prepare local resources for ``Assets/Isaac/5.0`` paths.
+   The three parts of the complete asset pack total about 150 GB; this is not
+   the download size for a single RoboDojo scene. Allow extra space for merging
+   and extraction. For an offline machine, download the parts on a connected
+   machine first, then copy them to ``/path/to/nvidia-assets``.
 
-The steps below prepare local resources for ``Assets/Isaac/5.0`` paths.
-The three parts of the complete asset pack total about 150 GB; this is not
-the download size for a single RoboDojo scene. Allow extra space for merging
-and extraction. For an offline machine, download the parts on a connected
-machine first, then copy them to ``/path/to/nvidia-assets``.
+   .. code-block:: bash
 
-.. code-block:: bash
+      mkdir -p /path/to/nvidia-assets
 
-   mkdir -p /path/to/nvidia-assets
+      # Download all three parts; interrupted downloads can resume
+      wget -c -P /path/to/nvidia-assets \
+        https://download.isaacsim.omniverse.nvidia.com/isaac-sim-assets-complete-5.0.0.zip.001 \
+        https://download.isaacsim.omniverse.nvidia.com/isaac-sim-assets-complete-5.0.0.zip.002 \
+        https://download.isaacsim.omniverse.nvidia.com/isaac-sim-assets-complete-5.0.0.zip.003
 
-   # Download all three parts; interrupted downloads can resume
-   wget -c -P /path/to/nvidia-assets \
-     https://download.isaacsim.omniverse.nvidia.com/isaac-sim-assets-complete-5.0.0.zip.001 \
-     https://download.isaacsim.omniverse.nvidia.com/isaac-sim-assets-complete-5.0.0.zip.002 \
-     https://download.isaacsim.omniverse.nvidia.com/isaac-sim-assets-complete-5.0.0.zip.003
+      # Merge and extract, preserving the Assets/Isaac/5.0 directory structure
+      cat /path/to/nvidia-assets/isaac-sim-assets-complete-5.0.0.zip.001 \
+          /path/to/nvidia-assets/isaac-sim-assets-complete-5.0.0.zip.002 \
+          /path/to/nvidia-assets/isaac-sim-assets-complete-5.0.0.zip.003 \
+        > /path/to/nvidia-assets/isaac-sim-assets-complete-5.0.0.zip
+      unzip /path/to/nvidia-assets/isaac-sim-assets-complete-5.0.0.zip -d /path/to/nvidia-assets
 
-   # Merge and extract, preserving the Assets/Isaac/5.0 directory structure
-   cat /path/to/nvidia-assets/isaac-sim-assets-complete-5.0.0.zip.001 \
-       /path/to/nvidia-assets/isaac-sim-assets-complete-5.0.0.zip.002 \
-       /path/to/nvidia-assets/isaac-sim-assets-complete-5.0.0.zip.003 \
-     > /path/to/nvidia-assets/isaac-sim-assets-complete-5.0.0.zip
-   unzip /path/to/nvidia-assets/isaac-sim-assets-complete-5.0.0.zip -d /path/to/nvidia-assets
+      test -d /path/to/nvidia-assets/Assets/Isaac/5.0/Isaac
+      test -d /path/to/nvidia-assets/Assets/Isaac/5.0/NVIDIA
 
-   test -d /path/to/nvidia-assets/Assets/Isaac/5.0/Isaac
-   test -d /path/to/nvidia-assets/Assets/Isaac/5.0/NVIDIA
+   Set this variable in the terminal that will run RPent, then run the task:
 
-Set this variable in the terminal that will run RPent, then run the task:
+   .. code-block:: bash
 
-.. code-block:: bash
+      export ROBODOJO_USD_ASSET_PREFIX=/path/to/nvidia-assets
 
-   export ROBODOJO_USD_ASSET_PREFIX=/path/to/nvidia-assets
-
-This changes the matching RoboDojo 5.0 resource URLs to local paths. It does
-not make every Isaac Sim resource available offline. If other online resources
-still fail to load, such as ``Assets/Isaac/5.1`` paths, prepare assets for that
-version and configure local loading separately. See the
-`NVIDIA local asset instructions
-<https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/install_faq.html#isaac-sim-setup-assets-content-pack>`_.
+   This changes the matching RoboDojo 5.0 resource URLs to local paths. It does
+   not make every Isaac Sim resource available offline. If other online resources
+   still fail to load, such as ``Assets/Isaac/5.1`` paths, prepare assets for that
+   version and configure local loading separately. See the
+   `NVIDIA local asset instructions
+   <https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/install_faq.html#isaac-sim-setup-assets-content-pack>`_.
