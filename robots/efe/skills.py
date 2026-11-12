@@ -102,16 +102,44 @@ def chunk_duration(spec: dict[str, Any], chunk_s: float | None = None) -> float:
     return duration
 
 
-def gripper_tolerance(spec: dict[str, Any]) -> float:
-    """Return the opening tolerance in metres for the declared gripper travel."""
+def _gripper_bounds(spec: dict[str, Any]) -> tuple[float | None, float | None]:
+    """Return the declared gripper travel; either bound may be absent."""
     limits = (spec.get("action_types", {}).get(_JOINT_ACTION) or {}).get("limits") or {}
     bounds = limits.get(_GRIPPER)
     if not bounds or len(bounds) != 2:
+        return None, None
+    low = None if bounds[0] is None else float(bounds[0])
+    high = None if bounds[1] is None else float(bounds[1])
+    return low, high
+
+
+def _proprio_joint(proprio: dict[str, float], name: str) -> float:
+    """Return one joint from a proprioception record under either spelling."""
+    bare = name.removeprefix("q_")
+    for candidate in (name, bare, f"q_{bare}"):
+        if candidate in proprio:
+            return proprio[candidate]
+    raise ValueError(f"Proprioception has no joint {name!r}")
+
+
+def default_gripper_opening(spec: dict[str, Any]) -> float:
+    """Return the midpoint of the declared travel, or ``0`` when it declares none."""
+    low, high = _gripper_bounds(spec)
+    if low is None or high is None:
+        return 0.0
+    return (low + high) / 2
+
+
+def gripper_tolerance(spec: dict[str, Any]) -> float:
+    """Return the opening tolerance in metres for the declared gripper travel."""
+    low, high = _gripper_bounds(spec)
+    if low is None or high is None:
         # Without declared limits, keep a value that is small against the
         # gripper travel of every standard task seen so far.
         return _GRIPPER_TOLERANCE_FLOOR_M
-    span = abs(float(bounds[1]) - float(bounds[0]))
-    return max(_GRIPPER_TOLERANCE_FLOOR_M, _GRIPPER_TOLERANCE_FRACTION * span)
+    return max(
+        _GRIPPER_TOLERANCE_FLOOR_M, _GRIPPER_TOLERANCE_FRACTION * abs(high - low)
+    )
 
 
 def joint_layout(spec: dict[str, Any]) -> tuple[list[str], list[str]]:
@@ -165,15 +193,49 @@ def skill_parameters(
     """
     joint_names, _ = joint_layout(spec)
     kinematics = spec.get("kinematics") or {}
-    tcp_frames = kinematics.get("tcp_frames") or []
+    tcp_frames = [str(frame) for frame in kinematics.get("tcp_frames") or []]
     if not tcp_frames:
         raise ValueError("The task exposes no tool frame")
+    # ``ik`` only accepts frames the service lists as targets, and the skill
+    # reads the tool pose back from proprioception, so both must name the frame.
+    ik_targets = set(kinematics.get("ik_targets") or [])
+    tcp = next((frame for frame in tcp_frames if frame in ik_targets), None)
+    if tcp is None:
+        raise ValueError(
+            "move_to_xyz needs a tool frame the service solves IK for; "
+            f"tcp_frames={tcp_frames}, ik_targets={sorted(ik_targets)}"
+        )
+    _validate_proprio_layout(spec, tcp, joint_names)
     return SkillParameters(
         chunk_s=chunk_duration(spec, chunk_s),
         gripper_tolerance_m=gripper_tolerance(spec),
         joint_names=tuple(joint_names),
-        tcp=str(tcp_frames[0]),
+        tcp=tcp,
     )
+
+
+def _validate_proprio_layout(
+    spec: dict[str, Any], tcp: str, joint_names: list[str]
+) -> None:
+    """Reject a task whose proprioception omits the columns the skills read."""
+    layout = spec.get("proprio_layout")
+    if not layout:
+        # A response may carry its own layout, so an absent spec layout does not
+        # prove the columns are missing. Leave that check to the first read.
+        return
+    columns = {str(name) for name in layout}
+    missing = [
+        f"{tcp}_{axis}"
+        for axis in ("x", "y", "z", "qw", "qx", "qy", "qz")
+        if f"{tcp}_{axis}" not in columns
+    ]
+    bare = {name.removeprefix("q_") for name in columns}
+    missing += [name for name in joint_names if name.removeprefix("q_") not in bare]
+    if missing:
+        raise ValueError(
+            "move_to_xyz needs proprioception columns the task does not "
+            f"declare: {sorted(set(missing))}"
+        )
 
 
 class EfeSkills:
@@ -258,8 +320,8 @@ class EfeSkills:
                 # The arm holds its pose, but a requested opening still runs:
                 # otherwise the same argument would apply or not depending on
                 # the starting position error.
-                if gripper is not None and (
-                    abs(float(gripper) - current["gripper"]) > self.gripper_tolerance_m
+                if gripper is not None and not self._gripper_reached(
+                    float(gripper), current["gripper"]
                 ):
                     row = [*current["joints"], float(gripper)]
                     result = self.client.submit(_JOINT_ACTION, [row], dt=self.chunk_s)
@@ -316,8 +378,15 @@ class EfeSkills:
             current = self._current_state()
             position = current["position"]
             error = target - position
+        # Reaching the pose is not the only way a move succeeds: the chunk that
+        # crosses the goal can end the episode before the arm arrives within
+        # tolerance. Report that as success instead of an error.
+        within_tolerance = bool(np.linalg.norm(error) <= self.tolerance_m)
+        ended_in_success = (
+            self.client.done and "success" in (self.client.done_reason or "").lower()
+        )
         data: dict[str, Any] = {
-            "ok": bool(np.linalg.norm(error) <= self.tolerance_m),
+            "ok": within_tolerance or ended_in_success,
             "tcp": self.tcp,
             "target": target.tolist(),
             "position": position.tolist(),
@@ -328,6 +397,11 @@ class EfeSkills:
             "done": self.client.done,
             "reason": self.client.done_reason,
         }
+        if not within_tolerance:
+            data["note"] = (
+                f"the move stopped {data['position_error_m']:.4f} m from the target"
+                + (" after the episode succeeded" if ended_in_success else "")
+            )
         if not data["ok"]:
             data["error"] = (
                 f"Move stopped {data['position_error_m']:.4f} m from the target "
@@ -370,10 +444,7 @@ class EfeSkills:
         if meta.get("proprio"):
             proprio = proprio_map(self.client.spec, meta["proprio"])
             measured = proprio.get("gripper_opening")
-        ok = (
-            measured is None
-            or abs(float(measured) - opening) <= self.gripper_tolerance_m
-        )
+        ok = measured is None or self._gripper_reached(opening, float(measured))
         data: dict[str, Any] = {
             "ok": ok,
             "command_m": opening,
@@ -390,6 +461,10 @@ class EfeSkills:
                 f"commanded (tolerance {self.gripper_tolerance_m:.4f} m)"
             )
         return ToolResult(data=data)
+
+    def _gripper_reached(self, target: float, measured: float) -> bool:
+        """Whether a measured opening is within tolerance of the target."""
+        return abs(float(measured) - float(target)) <= self.gripper_tolerance_m
 
     def _current_state(self) -> dict[str, Any]:
         """Read the tool position, orientation, joints, and gripper command."""
@@ -410,14 +485,15 @@ class EfeSkills:
             raise ValueError(
                 f"Proprioception has no pose for tool frame {self.tcp!r}: {exc}"
             ) from exc
-        try:
-            joints = [proprio[name] for name in self._joint_names]
-        except KeyError as exc:
-            raise ValueError(f"Proprioception has no joint {exc}") from exc
+        # The kinematics and the proprioception layout may spell a joint with
+        # or without the ``q_`` prefix; ``joint_layout`` already stripped it on
+        # one side, so accept either spelling here.
+        joints = [_proprio_joint(proprio, name) for name in self._joint_names]
         gripper = proprio.get("cmd_gripper", proprio.get("gripper_opening"))
         if gripper is None:
-            limits = self.client.spec["action_types"][_JOINT_ACTION]["limits"][_GRIPPER]
-            gripper = float(sum(limits) / 2)
+            # A task that declares no gripper travel has no midpoint to fall
+            # back to; keep the current command at the neutral opening.
+            gripper = default_gripper_opening(self.client.spec)
         if not math.isfinite(gripper):
             raise ValueError("Proprioception reports a non-finite gripper command")
         return {

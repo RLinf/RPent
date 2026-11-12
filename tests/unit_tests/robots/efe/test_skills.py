@@ -249,3 +249,98 @@ def test_a_blocked_gripper_is_reported_as_an_error():
     assert result.data["ok"] is False
     assert result.is_error is True
     assert "Gripper reached" in result.data["error"]
+
+
+def test_a_task_with_no_declared_gripper_travel_keeps_the_skills():
+    """A missing gripper limit must not unregister the skills."""
+    client = MovingClient()
+    del client.spec["action_types"]["joint_position"]["limits"]["gripper"]
+
+    service = EfeSkills(client=client, check_cancelled=lambda: None)
+
+    assert service.gripper_tolerance_m > 0
+    assert service.move_to_xyz(0.0, 0.0, 0.3).data["ok"] is True
+
+
+def test_a_null_gripper_limit_keeps_the_skills():
+    client = MovingClient()
+    client.spec["action_types"]["joint_position"]["limits"]["gripper"] = [None, None]
+
+    service = EfeSkills(client=client, check_cancelled=lambda: None)
+
+    assert service.gripper_tolerance_m > 0
+
+
+def test_the_tool_frame_must_be_an_ik_target():
+    """``ik`` only accepts declared targets, so an untargeted frame has no skill."""
+    client = MovingClient()
+    client.spec["kinematics"]["tcp_frames"] = ["unlisted"]
+
+    reason = EfeSkills.unavailable_reason(client.spec)
+
+    assert reason is not None
+    assert "ik_targets" in reason
+
+
+def test_the_tool_pose_must_appear_in_proprioception():
+    client = MovingClient()
+    client.spec["proprio_layout"] = [
+        name for name in client.spec["proprio_layout"] if not name.startswith("tcp_")
+    ]
+
+    reason = EfeSkills.unavailable_reason(client.spec)
+
+    assert reason is not None
+    assert "proprioception columns" in reason
+
+
+def test_q_prefixed_joints_are_read_from_bare_proprioception():
+    """The kinematics may strip ``q_`` while proprioception keeps it, or reverse."""
+    client = MovingClient()
+    client.spec["kinematics"]["joint_names"] = [
+        name.removeprefix("q_") for name in client.spec["kinematics"]["joint_names"]
+    ]
+
+    service = EfeSkills(client=client, check_cancelled=lambda: None)
+
+    result = service.move_to_xyz(0.0, 0.035, 0.3)
+
+    assert not result.is_error, result.data
+    assert result.data["ok"] is True
+
+
+def test_an_episode_that_succeeds_mid_move_is_not_an_error():
+    """The chunk that crosses the goal ends the episode before the arm arrives."""
+
+    class GoalClient(MovingClient):
+        def submit(self, action_type, actions, *, dt=None, **kwargs):
+            result = super().submit(action_type, actions, dt=dt, **kwargs)
+            # The service reports success while the tool is still short of the
+            # requested position.
+            self.pending = None
+            self.done = True
+            self.done_reason = "success"
+            result.meta["done"] = True
+            result.meta["reason"] = "success"
+            return result
+
+    service = EfeSkills(client=GoalClient(), check_cancelled=lambda: None)
+
+    result = service.move_to_xyz(0.0, 0.09, 0.3)
+
+    assert result.data["ok"] is True
+    assert result.is_error is False
+    assert result.data["done"] is True
+    assert "after the episode succeeded" in result.data["note"]
+
+
+def test_in_place_gripper_move_uses_the_gripper_tolerance(skills):
+    """A small gripper delta at the target must not be submitted as a move."""
+    service, client = skills
+    # Half a tolerance away from the command the proprioception already reports.
+    near = 0.037 - service.gripper_tolerance_m / 2
+
+    result = service.move_to_xyz(0.0, 0.0, 0.3, gripper=near)
+
+    assert result.data["ok"] is True
+    assert client.submit_calls == 0
