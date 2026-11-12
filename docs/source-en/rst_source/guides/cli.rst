@@ -27,10 +27,10 @@ These options control the planner, memory, output directory, and Dashboard.
      - Select a discovered robot or simulator.
    * - ``--planner``
      - ``api``
-     - Four online planners: ``api``, ``claude_code``, ``codex``, ``gemini_cli``; ``flash`` replays stored plans.
+     - Choose ``api``, ``claude_code``, ``codex``, ``gemini_cli``, or ``flash``. See :doc:`configure_planner`.
    * - ``--model``
      - ``—``
-     - ``api`` requires a provider prefix; CLI/SDK planners use their backend defaults unless overridden.
+     - ``api`` requires a provider prefix; ``claude_code``, ``codex``, and ``gemini_cli`` use their backend defaults unless overridden.
    * - ``--max-turns``
      - ``100``
      - Planner turn limit. For ``api``, counts model requests across the conversation, including retries and follow-ups.
@@ -38,7 +38,7 @@ These options control the planner, memory, output directory, and Dashboard.
      - ``8192``
      - ``api`` only: token limit per model response.
    * - ``--reasoning-effort``
-     - ``api``: ``high``; CLI/SDK planners: ``none``
+     - ``api``: ``high``; ``claude_code``, ``codex``, ``gemini_cli``: ``none``
      - Reasoning effort for ``api``, ``claude_code``, and ``codex``:
        ``none``, ``low``, ``medium``, ``high``, or ``xhigh``. Disabling
        reasoning reduced the average runtime from approximately 13.2 to
@@ -50,7 +50,7 @@ These options control the planner, memory, output directory, and Dashboard.
      - Defaults to ``CODEX_TIMEOUT_S`` (Codex) or ``GEMINI_CLI_TIMEOUT_S`` (Gemini CLI), then ``CELL_TIMEOUT_S``, then 1200 seconds; terminal interactive API/Claude sessions are exempt.
    * - ``--base-url``
      - ``—``
-     - ``api`` only: override the model endpoint. CLI/SDK planners use their existing backend configuration and reject this flag.
+     - ``api`` only: override the model endpoint. ``claude_code``, ``codex``, and ``gemini_cli`` use their existing backend configuration and reject this flag.
    * - ``--no-images``
      - ``false``
      - ``api`` only: omit images from model requests.

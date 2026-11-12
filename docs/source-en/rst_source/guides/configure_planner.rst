@@ -9,8 +9,9 @@ Select the Agentic Planner backend with one CLI flag:
 
    --planner {api,claude_code,codex,gemini_cli,flash}
 
-All four online planners receive the same rendered system and user prompts
-and use the RPent tool schemas from the same toolkit. They differ in
+The ``api``, ``claude_code``, ``codex``, and ``gemini_cli`` planners receive
+the same rendered system and user prompts and use the RPent tool schemas
+from the same toolkit. They differ in
 how those schemas are connected to the model, how the tool-calling
 loop is orchestrated, and which model SDK or CLI is used.
 
@@ -166,14 +167,11 @@ The ``gemini_cli`` Planner
 ---------------------------
 
 ``--planner gemini_cli`` starts the installed Gemini CLI with ``--acp`` through
-the ACP Python SDK. Non-interactive tasks return after the first agent turn;
-terminal and Dashboard sessions accept queued follow-up messages. RPent starts
-a local Streamable HTTP MCP server and makes
-only the RPent toolkit available to that CLI session. Gemini CLI owns model
-requests and the agent loop; this is separate from the direct Gemini API path
-provided by ``--planner api --model google:Argon``.
+the ACP Python SDK and exposes RPent tools through a local Streamable HTTP MCP
+server. Gemini CLI handles model requests and the tool-calling loop.
 
-Install and configure Gemini CLI first. Its existing configuration is reused:
+Install a Gemini CLI version supporting ``--acp`` and configure its
+authentication and endpoint first. RPent reuses these settings:
 
 .. code-block:: bash
 
@@ -182,9 +180,9 @@ Install and configure Gemini CLI first. Its existing configuration is reused:
    rpent --robot libero --planner gemini_cli \
      --suite libero_goal_task --task 1 --seed 0
 
-RPent does not choose or translate the model ID. When ``--model`` is omitted,
-Gemini CLI and its configured upstream select the model. To override that
-selection, pass the exact ID accepted by the upstream service:
+When ``--model`` is omitted, Gemini CLI uses its default model. When supplied,
+RPent passes the value unchanged to Gemini CLI. Use a model name accepted by
+your model service, without the ``google:`` prefix:
 
 .. code-block:: bash
 
@@ -194,32 +192,35 @@ selection, pass the exact ID accepted by the upstream service:
 
 Notes:
 
-- Authentication and endpoint selection use the existing Gemini CLI
-  configuration. RPent does not select or override its credentials or endpoint.
-  Set ``GEMINI_BIN`` only when the executable is not named ``gemini`` or is not
-  on ``PATH``. ``--base-url`` is not used by this planner.
+- Configure authentication and the endpoint in Gemini CLI; this planner rejects
+  ``--base-url``. Set ``GEMINI_BIN`` to the executable's path if it is not named
+  ``gemini`` or is not on ``PATH``.
 - ``--max-turns`` is passed to Gemini CLI as ``model.maxSessionTurns``.
   ``--planner-timeout-s`` defaults to ``GEMINI_CLI_TIMEOUT_S``, then
   ``CELL_TIMEOUT_S``, then ``1200`` seconds.
-- RPent uses a temporary workspace configuration that disables project context
-  files, skills, hooks, extensions, and built-in tools. It does not overwrite
-  the user's Gemini CLI settings or authentication.
-- Runs and connectivity checks require a Gemini CLI version supporting ``--acp``. RPent
-  includes ``agent-client-protocol`` for session control; it does not use the
-  Google model API SDK to drive the CLI.
-- Like Codex, additional messages wait until the current agent turn completes.
+- RPent starts Gemini CLI in a temporary working directory. That session does
+  not load project instruction files such as ``GEMINI.md`` and disables Gemini
+  CLI skills, hooks, extensions, and built-in tools, exposing only RPent tools.
+  These settings apply only to that session; they do not rewrite the user's
+  Gemini CLI configuration files or credentials.
+- In terminal interaction and the Dashboard, additional messages wait until
+  the current agent turn completes. One turn can contain multiple model
+  requests and tool calls.
   Use ``/interrupt [message]`` in the terminal, or submit a message and press Esc
   in the Dashboard, to interrupt before continuing in the same conversation.
+  Queued messages are not processed after ``finish`` ends the task.
   See :doc:`dashboard` for queue ordering and interruption behavior.
-- Non-``none`` ``--reasoning-effort`` values are not supported.
+- ``--reasoning-effort`` accepts only ``none``.
+
+Run results include the tool-call count and token usage when returned by
+Gemini CLI.
 
 .. _planner-codex:
 
 The ``codex`` Planner
 ----------------------
 
-``--planner codex`` uses the asynchronous OpenAI Codex Python SDK for both
-interactive and non-interactive tasks. For each run,
+``--planner codex`` uses the OpenAI Codex Python SDK. For each run,
 RPent starts a local Streamable HTTP MCP server on a background thread
 in the current process, and Codex calls the same toolkit through that
 server. You do not need to start ``scripts/codex_proxy/`` first.
@@ -358,16 +359,23 @@ robot runtime:
 
 It exits ``0`` on success and ``1`` on any failure, and classifies the
 failure as one of ``missing_config``, ``unsupported_provider``,
-``missing_api_key``, ``auth_failed``, ``network_error``,
+``missing_api_key``, ``invalid_model``, ``auth_failed``, ``network_error``,
 ``provider_error``, or ``sdk_error``. Use ``--json`` for scripting and
 CI. For ``api``, ``--base-url`` overrides the endpoint. Other backends use
-their own environment or CLI configuration. ``--timeout-s`` overrides the
-diagnostic timeout (30 s for ``api`` and 90 s for each CLI/SDK backend; the
-``1200`` s run default is never reused).
-Without a credential in the launch environment, CLI/SDK probes use a shorter
-25 s budget. Set ``--timeout-s`` explicitly for slower backends. Gemini CLI
-resolves its own credentials; RPent does not reject it solely because no key
-is visible in the launch environment.
+their own environment or CLI configuration.
+
+Claude Code and Codex can reuse an existing login. If neither a key nor a
+login configuration is detected, the check reports ``missing_api_key``
+immediately. Gemini CLI reads its own authentication configuration, so RPent
+starts the CLI to check authentication.
+
+The diagnostic timeout defaults to 30 seconds for ``api``. For ``claude_code``,
+``codex``, and ``gemini_cli``, it is 90 seconds when the corresponding key
+variable is set in RPent's process environment, or 25 seconds otherwise.
+The 25-second limit caps the wait for a diagnostic result; the CLI can still
+use its stored credentials. Use ``--timeout-s`` to allow more time for a slow
+backend. This overrides these defaults and is independent of the task's
+``--planner-timeout-s``.
 
 Before using the Dashboard, run the same check in a terminal with the
 planner and model settings you intend to use for the task. The Dashboard
@@ -406,11 +414,12 @@ The counting rule depends on the backend:
   and their results return to the model. A final answer without tool calls
   does not use this budget. RPent passes the limit to Claude Code, which
   returns ``error_max_turns`` if the limit is reached.
-- **Gemini CLI:** RPent passes the limit to Gemini CLI as
-  ``model.maxSessionTurns``. Gemini CLI counts user, model, and tool turns and
-  stops when the budget is exhausted. RPent records token usage when supplied
-  by ACP and counts tool calls from the local MCP server. ACP does not report
-  the completed turn count, so RPent does not synthesize ``turns_used``.
+- **Gemini CLI:** Each request for a model response in the tool-calling loop
+  counts as one turn. Multiple tools requested in one response do not count
+  separately; requesting another response with their results counts as the
+  next turn. Gemini CLI enforces the limit through ``model.maxSessionTurns``
+  and stops when it is reached. RPent does not report ``turns_used`` because
+  the current ACP response does not provide that count.
 
 For example, with no retries, the model requests two file reads in one
 response, then summarizes their results in another. API sends two requests,
