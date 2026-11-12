@@ -31,6 +31,15 @@ from harbor.models.agent.context import AgentContext, ModelUsage
 
 from robots.efe.constants import SANDBOX_CHOICES
 
+# Harbor kills the agent process when its resolved ``agent_timeout_sec``
+# expires. Keep the planner budget and the exec wrapper inside that budget so
+# ``run_efe`` can still write ``session.json`` before the kill:
+#   planner budget = agent_timeout - 2 * margin
+#   exec wrapper   = agent_timeout - margin
+# The margin covers the planner's 15 s worker join, an in-flight tool call, and
+# the report write.
+_TIMEOUT_MARGIN_S = 30
+
 
 class RPentEfeAgent(BaseInstalledAgent):
     """Install the local RPent source inside Harbor's isolated agent container."""
@@ -41,7 +50,8 @@ class RPentEfeAgent(BaseInstalledAgent):
         *,
         source_root: str | None = None,
         workdir: str = "/app",
-        timeout_s: int = 3500,
+        timeout_s: int | None = None,
+        agent_timeout_s: int | None = None,
         max_turns: int = 200,
         reasoning_effort: str = "none",
         memory_source: str | None = None,
@@ -59,7 +69,11 @@ class RPentEfeAgent(BaseInstalledAgent):
             if source_root
             else Path(__file__).resolve().parents[2]
         )
-        if timeout_s <= 0 or max_turns <= 0:
+        if timeout_s is not None and timeout_s <= 0:
+            raise ValueError("timeout_s must be positive.")
+        if agent_timeout_s is not None and agent_timeout_s <= 0:
+            raise ValueError("agent_timeout_s must be positive.")
+        if max_turns <= 0:
             raise ValueError("timeout_s and max_turns must be positive.")
         if explore_sessions <= 0:
             raise ValueError("explore_sessions must be positive.")
@@ -73,7 +87,17 @@ class RPentEfeAgent(BaseInstalledAgent):
                 f"The memory corpus is not a directory: {self.memory_source}"
             )
         self.workdir = workdir
-        self.timeout_s = timeout_s
+        # Harbor resolves the container budget from ``--agent-timeout-sec`` or
+        # the task's ``[agent] timeout_sec`` and does not pass it here, so a
+        # caller that sets one must pass the same value as ``agent_timeout_s``.
+        # Deriving the planner budget from it keeps the report inside the kill.
+        self.agent_timeout_s = agent_timeout_s
+        if agent_timeout_s is not None:
+            budget = agent_timeout_s - 2 * _TIMEOUT_MARGIN_S
+            if budget <= 0:
+                raise ValueError("agent_timeout_s is too small for one session.")
+            timeout_s = budget if timeout_s is None else min(timeout_s, budget)
+        self.timeout_s = 3500 if timeout_s is None else timeout_s
         self.max_turns = max_turns
         self.reasoning_effort = reasoning_effort
         self.explore_sessions = explore_sessions
@@ -84,6 +108,19 @@ class RPentEfeAgent(BaseInstalledAgent):
     def name() -> str:
         """Return the name recorded in Harbor results."""
         return "rpent-efe"
+
+    @property
+    def exec_timeout_s(self) -> int:
+        """Return the exec wrapper timeout, inside Harbor's kill.
+
+        With ``agent_timeout_s`` the wrapper stops one margin early, so the
+        planner's shutdown still fits. Without it, the wrapper outlives the
+        planner budget by one margin, which is the best a caller who left
+        Harbor's own timeout unset can do.
+        """
+        if self.agent_timeout_s is not None:
+            return max(1, self.agent_timeout_s - _TIMEOUT_MARGIN_S)
+        return self.timeout_s + _TIMEOUT_MARGIN_S
 
     async def install(self, environment: BaseEnvironment) -> None:
         """Upload source and install RPent without robot extras."""
@@ -201,6 +238,11 @@ class RPentEfeAgent(BaseInstalledAgent):
             model,
             "--timeout-s",
             str(self.timeout_s),
+            # The connect wait counts against the planner budget, so it cannot
+            # be the client's 3600 s default: on a 3500 s trial that wait alone
+            # would outlive the container.
+            "--efe-connect-timeout-s",
+            str(self.timeout_s),
             "--max-turns",
             str(self.max_turns),
             "--reasoning-effort",
@@ -240,7 +282,7 @@ class RPentEfeAgent(BaseInstalledAgent):
             command=command,
             cwd=self.workdir,
             env=forwarded,
-            timeout_sec=self.timeout_s + 30,
+            timeout_sec=self.exec_timeout_s,
         )
 
     @staticmethod

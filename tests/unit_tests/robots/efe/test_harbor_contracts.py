@@ -74,10 +74,12 @@ def test_run_preserves_instruction_and_quotes_paths(tmp_path, monkeypatch):
     assert execute.call_args.kwargs["cwd"] == "/app/task with spaces"
     assert execute.call_args.kwargs["env"]["CODEX_API_KEY"] == "test-key"
     assert execute.call_args.kwargs["timeout_sec"] == 72
-    assert shlex.split(execute.call_args.kwargs["command"])[-12:] == [
+    assert shlex.split(execute.call_args.kwargs["command"])[-14:] == [
         "--model",
         "test-model",
         "--timeout-s",
+        "42",
+        "--efe-connect-timeout-s",
         "42",
         "--max-turns",
         "7",
@@ -407,3 +409,54 @@ def test_hard_timeout_recovers_observed_usage_from_partial_stream(
         is False
     )
     assert context.cost_usd is None
+
+
+def test_the_wrapper_timeout_sits_inside_harbors_agent_timeout(tmp_path, monkeypatch):
+    """Harbor kills the container at ``agent_timeout_sec``; the wrapper must not beat it."""
+    agent = RPentEfeAgent(
+        logs_dir=tmp_path,
+        model_name="openai/test-model",
+        agent_timeout_s=600,
+    )
+    execute = AsyncMock()
+    monkeypatch.setattr(agent, "exec_as_agent", execute)
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    asyncio.run(agent.run("Task", UploadEnvironment(), AgentContext()))
+
+    command = shlex.split(execute.call_args.kwargs["command"])
+    planner_budget = int(command[command.index("--timeout-s") + 1])
+    connect_wait = float(command[command.index("--efe-connect-timeout-s") + 1])
+    assert planner_budget < 600
+    assert connect_wait == planner_budget
+    assert execute.call_args.kwargs["timeout_sec"] < 600
+
+
+def test_an_explicit_planner_budget_is_capped_by_the_agent_timeout(tmp_path):
+    agent = RPentEfeAgent(
+        logs_dir=tmp_path,
+        model_name="openai/test-model",
+        timeout_s=5000,
+        agent_timeout_s=600,
+    )
+
+    assert agent.timeout_s < 600
+
+
+def test_a_planner_budget_shorter_than_the_agent_timeout_is_kept(tmp_path):
+    agent = RPentEfeAgent(
+        logs_dir=tmp_path,
+        model_name="openai/test-model",
+        timeout_s=120,
+        agent_timeout_s=3600,
+    )
+
+    assert agent.timeout_s == 120
+    assert agent.exec_timeout_s < 3600
+
+
+def test_an_agent_timeout_too_small_for_one_session_is_rejected(tmp_path):
+    with pytest.raises(ValueError, match="too small"):
+        RPentEfeAgent(logs_dir=tmp_path, model_name="openai/test", agent_timeout_s=30)
+
+

@@ -83,6 +83,28 @@ def _trial_repo_root(workdir: Path) -> Iterator[None]:
             os.environ.pop("RPENT_REPO_ROOT", None)
         else:
             os.environ["RPENT_REPO_ROOT"] = previous
+# The planner reports an expired budget as one of these strings. Match them
+# narrowly: ``Connection timed out`` and ``Request timed out`` are transient
+# failures, and a real failure must not be reported as a clean stop.
+# Anchored on the subject so a transient ``Request timed out after 30s`` stays a
+# real failure instead of being reported as a clean budget stop.
+_BUDGET_STOP_MARKERS = (
+    "sdk timed out after",
+    "planner timed out after",
+    "planner timeout expired",
+)
+
+
+def _is_budget_stop(agent_error: str | None) -> bool:
+    """Whether an error is the planner reaching its time budget.
+
+    Harbor reads a non-zero agent exit as a failed trial, rescans the whole
+    ``run.log`` for transient messages, and can mark a graded episode's reward
+    invalid. An episode that used its budget is a clean stop, so this path
+    exits zero.
+    """
+    lowered = (agent_error or "").lower()
+    return any(marker in lowered for marker in _BUDGET_STOP_MARKERS)
 
 
 def _aggregate_stats(sessions: list[dict[str, object]]) -> dict[str, object]:
@@ -163,6 +185,10 @@ def run_efe(
         raise ValueError("explore_sessions must be positive.")
     if not math.isfinite(connect_timeout_s) or connect_timeout_s <= 0:
         raise ValueError("connect_timeout_s must be positive.")
+    # The connect wait counts against the trial's wall clock, so it cannot
+    # outlast the planner budget: a 3600 s default would consume a 600 s trial
+    # before the first observation.
+    connect_timeout_s = min(connect_timeout_s, float(timeout_s))
     workdir = workdir.resolve(strict=True)
     if not workdir.is_dir():
         raise ValueError(f"The workspace is not a directory: {workdir}")
@@ -203,6 +229,7 @@ def run_efe(
         "model": model,
         "workdir": str(workdir),
         "timeout_s": timeout_s,
+        "connect_timeout_s": connect_timeout_s,
         "max_turns": max_turns,
         "reasoning_effort": reasoning_effort,
         "codex_sandbox": sandbox,
@@ -222,6 +249,7 @@ def run_efe(
         "sessions": [],
         "stats": {},
         "error": None,
+        "budget_stop": None,
     }
     sessions: list[dict[str, object]] = report["sessions"]  # type: ignore[assignment]
     started = time.monotonic()
@@ -266,8 +294,9 @@ def run_efe(
                 remaining = math.ceil(deadline - time.monotonic())
                 if remaining <= 0:
                     if not sessions:
-                        report["error"] = (
-                            "The planner timeout expired before the session started."
+                        report["budget_stop"] = (
+                            "The planner timeout expired before the session "
+                            f"started ({timeout_s}s)."
                         )
                     break
                 session_dir = (
@@ -353,6 +382,14 @@ def run_efe(
         report["error"] = f"{type(exc).__name__}: {exc}"
         logger.exception("EFE session failed")
     finally:
+        # A terminal planner timeout is the budget running out, not a crash.
+        # Report it separately so the CLI exits zero: Harbor treats a non-zero
+        # agent exit as a failed trial, rescans the whole run.log for transient
+        # messages, and can mark the reward of a validly graded episode invalid.
+        if report["error"] is not None and _is_budget_stop(str(report["error"])):
+            report["budget_stop"] = report["error"]
+            report["error"] = None
+            logger.info("the planner used its time budget: %s", report["budget_stop"])
         report["stats"] = _aggregate_stats(sessions)
         if client is not None:
             report["efe"] = {

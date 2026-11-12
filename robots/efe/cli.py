@@ -87,7 +87,15 @@ def main(argv: list[str] | None = None) -> int:
         )
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
-    return 1 if report["error"] else 0
+    if report["error"]:
+        return 1
+    if report.get("budget_stop"):
+        # The planner used its whole time budget. The episode still stands and
+        # the verifier grades it, so this is a clean stop: Harbor reads a
+        # non-zero agent exit as a failed trial and rescans the whole run.log
+        # for transient messages, which can invalidate a valid reward.
+        print(f"planner budget used: {report['budget_stop']}")
+    return 0
 
 
 if __name__ == "__main__":

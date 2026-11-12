@@ -682,6 +682,42 @@ assert 'torch' not in sys.modules
 
     assert completed.returncode == 0, completed.stderr
     assert "--instruction-file" in completed.stdout
+
+
+def test_a_spent_planner_budget_is_a_clean_stop(
+    tmp_path, recording_planner, efe_client
+):
+    """A budget stop must not look like a crash: Harbor reads exit 1 as a failure."""
+    recording_planner.session_errors = ["Codex SDK timed out after 5s"]
+
+    report = run_efe(
+        "Task",
+        workdir=tmp_path,
+        output_dir=tmp_path / "logs",
+        model="test-model",
+        client=efe_client,
+    )
+
+    assert report["error"] is None
+    assert report["budget_stop"] == "Codex SDK timed out after 5s"
+    assert report["sessions"][0]["error"] == "Codex SDK timed out after 5s"
+
+
+def test_budget_expired_before_the_first_session_is_a_clean_stop(tmp_path, efe_client):
+    """Reaching the deadline is a budget stop even with no session result."""
+    report = run_efe(
+        "Task",
+        workdir=tmp_path,
+        output_dir=tmp_path / "logs",
+        model="test-model",
+        timeout_s=1,
+        client=efe_client,
+    )
+
+    assert report["error"] is None
+    assert report["budget_stop"] is not None
+
+
 def test_an_early_episode_end_resets_instead_of_skipping_the_budget(
     tmp_path, recording_planner, efe_client
 ):
@@ -732,3 +768,34 @@ def test_an_early_episode_end_stops_once_the_reset_budget_is_spent(
     assert report["sessions"] == []
 
 
+def test_a_transient_network_timeout_is_not_reported_as_a_budget_stop(
+    tmp_path, recording_planner, efe_client
+):
+    recording_planner.session_errors = ["ConnectionError: Request timed out after 30s"]
+
+    report = run_efe(
+        "Task",
+        workdir=tmp_path,
+        output_dir=tmp_path / "logs",
+        model="test-model",
+        client=efe_client,
+    )
+
+    assert report["budget_stop"] is None
+    assert report["error"] == "ConnectionError: Request timed out after 30s"
+
+
+def test_the_connect_wait_cannot_outlast_the_planner_budget(
+    tmp_path, recording_planner, efe_client
+):
+    report = run_efe(
+        "Task",
+        workdir=tmp_path,
+        output_dir=tmp_path / "logs",
+        model="test-model",
+        timeout_s=600,
+        connect_timeout_s=3600,
+        client=efe_client,
+    )
+
+    assert report["connect_timeout_s"] == 600.0
