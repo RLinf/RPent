@@ -194,18 +194,46 @@ class RPentEfeAgent(BaseInstalledAgent):
             await self._upload_memory(environment)
 
     async def _upload_memory(self, environment: BaseEnvironment) -> None:
-        """Copy the host memory corpus into the agent container."""
-        await self.exec_as_root(environment, command="mkdir -p /opt/rpent-efe/memory")
+        """Stage the host memory corpus where the agent user may also write.
+
+        The memory root must be writable and must survive the container: with
+        ``explore_sessions > 1`` the planner writes exploration notes into
+        ``<memory>/_internal/inbox/``. Harbor only syncs
+        ``environment_logs_dir`` back to the trial directory, and a task may run
+        the agent as a non-root ``USER``, so the root lives under the agent log
+        directory and is extracted as the agent user.
+        """
+        remote_root = (self.environment_logs_dir / "rpent" / "memory").as_posix()
+        remote_archive = self.environment_logs_dir / "rpent" / "memory.tar.gz"
         with tempfile.TemporaryDirectory(prefix="rpent-efe-memory-") as temporary_dir:
             archive_path = Path(temporary_dir) / "memory.tar.gz"
             with tarfile.open(archive_path, "w:gz") as archive:
                 archive.add(self.memory_source, arcname=".", recursive=True)
             await environment.upload_file(
-                source_path=archive_path, target_path="/opt/rpent-efe/memory.tar.gz"
+                source_path=archive_path, target_path=str(remote_archive)
             )
+        quoted_root = shlex.quote(remote_root)
+        # Create the root as root, then hand it to the agent user: the agent
+        # cannot widen the permissions of a directory it does not own.
+        default_user = getattr(environment, "default_user", None)
+        owner = (
+            shlex.quote(str(default_user))
+            if default_user is not None
+            else "$(id -u):$(id -g)"
+        )
         await self.exec_as_root(
             environment,
-            command=("tar -xzf /opt/rpent-efe/memory.tar.gz -C /opt/rpent-efe/memory"),
+            command=f"mkdir -p {quoted_root} && chown -R {owner} {quoted_root}",
+        )
+        # ``--no-same-owner`` keeps the host UID/GIDs out of the container, so
+        # the agent user owns what it has to append to.
+        await self.exec_as_agent(
+            environment,
+            command=(
+                f"tar -xzf {shlex.quote(str(remote_archive))} "
+                f"--no-same-owner -C {quoted_root} && "
+                f"rm -f {shlex.quote(str(remote_archive))}"
+            ),
         )
 
     async def run(
@@ -253,7 +281,12 @@ class RPentEfeAgent(BaseInstalledAgent):
             self.sandbox,
         ]
         if self.memory_source is not None:
-            arguments.extend(["--memory-dir", "/opt/rpent-efe/memory"])
+            arguments.extend(
+                [
+                    "--memory-dir",
+                    str(self.environment_logs_dir / "rpent" / "memory"),
+                ]
+            )
         if not self.skills:
             arguments.append("--no-skills")
         command = shlex.join(arguments)

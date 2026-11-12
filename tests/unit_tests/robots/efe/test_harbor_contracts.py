@@ -37,9 +37,10 @@ RPentEfeAgent = import_module("robots.efe.harbor_agent").RPentEfeAgent
 
 
 class UploadEnvironment:
-    def __init__(self):
+    def __init__(self, default_user=None):
         self.uploads = {}
         self.archive_members = []
+        self.default_user = default_user
 
     async def upload_file(self, *, source_path, target_path):
         self.uploads[target_path] = Path(source_path).read_bytes()
@@ -220,14 +221,15 @@ def test_agent_uploads_memory_and_forwards_exploration(tmp_path, monkeypatch):
     asyncio.run(agent.install(environment))
     asyncio.run(agent.run("Task", environment, AgentContext()))
 
-    assert "/opt/rpent-efe/memory.tar.gz" in environment.uploads
-    with tarfile.open(
-        fileobj=io.BytesIO(environment.uploads["/opt/rpent-efe/memory.tar.gz"])
-    ) as archive:
+    # The corpus is staged under the agent log directory, so exploration notes
+    # survive the container and the agent user can append to them.
+    archive_path = "/logs/agent/rpent/memory.tar.gz"
+    assert archive_path in environment.uploads
+    with tarfile.open(fileobj=io.BytesIO(environment.uploads[archive_path])) as archive:
         assert "./global/lesson.md" in archive.getnames()
     command = shlex.split(agent.exec_as_agent.call_args.kwargs["command"])
     assert command[command.index("--explore-sessions") + 1] == "2"
-    assert command[command.index("--memory-dir") + 1] == "/opt/rpent-efe/memory"
+    assert command[command.index("--memory-dir") + 1] == "/logs/agent/rpent/memory"
 
 
 def test_multi_session_usage_recovery_sums_each_session_trace(tmp_path):
