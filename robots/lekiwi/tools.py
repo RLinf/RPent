@@ -16,24 +16,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from typing import Annotated, Any
 
-import numpy as np
 from pydantic import Field
 
 from rpent.session import EnvState, StepRecord
 from rpent.tools import ToolResult, tool
-
-
-def coerce_vec3(value: Sequence[float], *, name: str) -> np.ndarray:
-    """Return a finite float32 three-vector or raise a useful error."""
-    array = np.asarray(value, dtype=np.float32)
-    if array.shape != (3,):
-        raise ValueError(f"{name} must contain exactly 3 values, got {array.shape}")
-    if not np.isfinite(array).all():
-        raise ValueError(f"{name} must contain only finite values")
-    return array
 
 
 class LeKiwiPrimitives:
@@ -43,11 +32,9 @@ class LeKiwiPrimitives:
         self,
         *,
         env: Any,
-        task_description: str,
         check_cancelled: Callable[[], None],
     ) -> None:
         self.env = env
-        self.task_description = task_description
         self._check_cancelled = check_cancelled
 
     def reset(self) -> dict[str, Any]:
@@ -57,18 +44,35 @@ class LeKiwiPrimitives:
     def drive(
         self,
         velocity: Annotated[list[float], Field(min_length=3, max_length=3)],
-        duration_s: Annotated[float, Field(gt=0.0, le=10.0)] = 1.0,
+        duration_s: Annotated[float, Field(gt=0.0, le=10.0, allow_inf_nan=False)] = 1.0,
     ) -> ToolResult:
-        """Drive the base with one body velocity [x, y, theta] held for a bounded duration.
+        """Drive at body velocity [forward, left, turn] for a duration, then stop.
 
-        Units are m/s, m/s, and deg/s in the base frame. The command is
-        clipped to the configured velocity limits, and the wheels stop
-        when the duration ends.
+        Units are m/s, m/s and deg/s. Velocity is clipped to the robot's
+        configured limits; duration is at most 10 seconds. Waits for completion
+        or cancellation. This is a timed command, not a distance guarantee.
+        No obstacle avoidance; inspect status and the camera view before continuing.
         """
         self._check_cancelled()
-        data = self.env.drive(
-            coerce_vec3(velocity, name="velocity"), duration_s=duration_s
-        )
+        data = self.env.drive(velocity, duration_s=duration_s)
+        self._check_cancelled()
+        return ToolResult(data=data)
+
+    @tool
+    def rotate(
+        self,
+        angle_deg: Annotated[float, Field(ge=-360.0, le=360.0, allow_inf_nan=False)],
+    ) -> ToolResult:
+        """Turn in place by a relative angle in degrees, then stop.
+
+        Positive angles turn left, negative angles turn right; at most one
+        full turn per call. Waits for wheel-estimated angle and stopping,
+        or failure/cancellation. No obstacle avoidance. Inspect the returned
+        status and camera view before the next motion.
+        """
+        self._check_cancelled()
+        data = self.env.rotate(angle_deg)
+        self._check_cancelled()
         return ToolResult(data=data)
 
     @tool
@@ -87,7 +91,7 @@ def dump_state(
     result: dict[str, Any] | None,
     elapsed_s: float | None,
 ) -> StepRecord:
-    """Capture robot state and the synchronized front-camera frame in ``EnvState``."""
+    """Capture robot state and the post-action camera frame in ``EnvState``."""
     observation = primitives.env.get_observation()
     robot_state = primitives.env.get_robot_state()
     metadata = primitives.env.get_camera_meta()
@@ -111,7 +115,7 @@ def view_env_state(
     *,
     state: EnvState,
 ) -> ToolResult:
-    """Read a LeKiwi state snapshot and its synchronized front-camera image."""
+    """Read a LeKiwi state snapshot and its recorded front-camera image."""
     images: list[bytes] = []
     record = state.get(step)
     output = record.to_blob()

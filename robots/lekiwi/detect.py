@@ -16,17 +16,13 @@
 
 Run on the robot's computer, with the ``lekiwi`` extra installed:
 
-    rpent-lekiwi-detect --output /path/to/robot.yaml
+    python -m robots.lekiwi.detect --output /path/to/robot.yaml
 
 Nothing moves: the wheel bus is only pinged (lerobot's
 ``FeetechMotorsBus.scan_port`` broadcasts a ping at every baud rate) and each
-camera is opened through the RLinf ``WebcamCamera`` driver to confirm it
-produces a frame. Camera discovery and probing follow the same contract as
-RLinf's own webcam smoke test (``toolkits/lekiwi/test_webcam.py``):
-``WebcamCamera.discover()`` names the devices and a short-lived
-``WebcamCamera`` connection decides which one delivers frames. Geometry and
-drive limits are policy, not discovery, so they are written as conservative
-defaults and named in the report as fields to review.
+camera is opened through RLinf's ``UVCCamera`` driver to confirm it produces
+a frame. Geometry and drive limits are written as conservative defaults and
+named in the report as fields to review.
 """
 
 from __future__ import annotations
@@ -91,32 +87,24 @@ def pick_wheel_port(
 
 
 def discover_cameras() -> list[str]:
-    """Camera serials from the RLinf webcam driver's own discovery.
+    """Return device identifiers discovered by RLinf's UVC driver."""
+    from rlinf.robotics.parts.cameras.uvc import UVCCamera
 
-    ``WebcamCamera.discover()`` returns serials the driver itself resolves
-    (``video0``-style names on Linux, numeric indices elsewhere), so whatever
-    it lists here is a valid ``serial`` value in the LeKiwi YAML. The list can
-    include metadata nodes that carry no frames; :func:`probe_camera` filters
-    those out.
-    """
-    from rlinf.robotics.parts.cameras.webcam import WebcamCamera
-
-    return sorted(WebcamCamera.discover())
+    return sorted(UVCCamera.discover())
 
 
 def probe_camera(serial: str) -> dict[str, Any]:
     """Open one camera through the RLinf driver and confirm it delivers a frame.
 
-    Follows the smoke-test contract in ``toolkits/lekiwi/test_webcam.py``:
-    connect, wait for a frame within 3 s, read one observation, disconnect.
+    Connect, wait for a frame within 3 s, read one observation, disconnect.
     An error is reported with its text: a missing ``libGL`` or an unopenable
     device reads differently from a node that opens but never frames.
     """
     from rlinf.robotics.parts.cameras import CameraInfo
-    from rlinf.robotics.parts.cameras.webcam import WebcamCamera
+    from rlinf.robotics.parts.cameras.uvc import UVCCamera
 
-    camera = WebcamCamera(
-        CameraInfo(name="detect", serial_number=serial, camera_type="webcam")
+    camera = UVCCamera(
+        CameraInfo(name="detect", serial_number=serial, camera_type="uvc")
     )
     try:
         camera.connect()
@@ -139,12 +127,12 @@ def build_yaml_config(port: str | None, camera_serials: list[str]) -> dict[str, 
         name = "front" if index == 0 else f"extra_{index}"
         devices[name] = {
             "serial": serial,
-            "type": "webcam",
+            "type": "uvc",
             "main": index == 0,
         }
     return {
         "robot": {
-            "port": port or _PLACEHOLDER_PORT,
+            "serial_port": port or _PLACEHOLDER_PORT,
             "wheel_radius": 0.05,
             "base_radius": 0.125,
             "max_raw": 3000,
@@ -152,8 +140,7 @@ def build_yaml_config(port: str | None, camera_serials: list[str]) -> dict[str, 
         "cameras": {"devices": devices},
         "drive": {
             "step_frequency": 10.0,
-            # RLinf reuses a frame until it is this old; 0.05 tracks the 15 fps
-            # camera instead of the 0.5 s default, which caps frames at 2 Hz.
+            # Maximum cached-frame age for Agent observations, in seconds.
             "camera_max_age": 0.05,
             "max_linear_velocity": 0.3,
             "max_angular_velocity": 60.0,
@@ -221,7 +208,7 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"camera {report['serial']}: failed ({error})")
         else:
             print(
-                "no cameras found by WebcamCamera.discover(); plug the camera in "
+                "no cameras found by UVCCamera.discover(); plug the camera in "
                 "and retry, or fill cameras.devices.front.serial by hand"
             )
 

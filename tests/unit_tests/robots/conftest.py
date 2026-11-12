@@ -182,7 +182,7 @@ def fake_rlinf_realworld_modules(monkeypatch: pytest.MonkeyPatch) -> None:
     lekiwi_hardware_fields = [
         "node_rank",
         "disable_validate",
-        "port",
+        "serial_port",
         "wheel_radius",
         "base_radius",
         "max_raw",

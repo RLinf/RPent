@@ -31,7 +31,7 @@
 Dashboard
 ---------
 
-Dashboard 支持 ``api``、``claude_code`` 和 ``codex`` 规划器。在命令行传递 ``--planner`` 与 ``--model``，配置方式和普通运行一致，详见 :doc:`configure_planner`。``--planner manual`` 不运行规划器，由操作者在 Dashboard 中直接遥控机器人，见 :doc:`../real_world_robots/lekiwi`。
+Dashboard 支持 ``api``、``claude_code`` 和 ``codex`` 规划器。在命令行传递 ``--planner`` 与 ``--model``，配置方式和普通运行一致，详见 :doc:`configure_planner`。
 
 启动并提交任务
 ~~~~~~~~~~~~~~~~~~~~~

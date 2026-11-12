@@ -41,9 +41,10 @@ LEKIWI_TASKS = {
             "view changes in a way that agrees with the commanded motion."
         ),
         constraints=(
-            "Keep each drive at or below 0.1 m/s and 30 deg/s.",
-            "Keep each drive at or below 2 seconds.",
-            "Call stop and inspect the camera view after every drive.",
+            "Drive at most 2 seconds, at or below 0.1 m/s and 30 deg/s; "
+            "rotate at most 30 degrees per call.",
+            "Use drive or rotate and check that its status is succeeded.",
+            "Inspect the camera view before the next segment.",
             "Stop immediately if the camera view or velocity reading looks wrong.",
         ),
     ),
@@ -58,9 +59,10 @@ LEKIWI_TASKS = {
             "several camera views taken from different positions."
         ),
         constraints=(
-            "Keep each drive at or below 0.2 m/s and 45 deg/s.",
-            "Keep each drive at or below 3 seconds.",
-            "Inspect the camera view after every drive before moving again.",
+            "Drive at most 3 seconds, at or below 0.2 m/s and 45 deg/s; "
+            "rotate at most 90 degrees per call.",
+            "Use drive or rotate and check that its status is succeeded.",
+            "Inspect the camera view before the next segment.",
             "Avoid obstacles: stop and turn when the view shows anything close.",
         ),
     ),

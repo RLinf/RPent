@@ -24,7 +24,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from robots.lekiwi.prompt_bundle import system_prompt, user_prompt
-from robots.lekiwi.runtime_config import set_robot_config_path
 from robots.lekiwi.tasks import LEKIWI_TASKS, get_lekiwi_task
 from rpent.dashboard.events import DashboardEventSink
 from rpent.dashboard.spec import DashboardSpec
@@ -62,6 +61,7 @@ LEKIWI_DASHBOARD_SPEC: DashboardSpec = {
     "runtime_components": ({"name": "env", "label": "LEKIWI", "scope": "unique"},),
     "primitives": (
         "drive",
+        "rotate",
         "stop",
     ),
 }
@@ -120,7 +120,6 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
 
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
-    set_robot_config_path(args.robot_config)
     if args.task_id is None:
         raise ValueError("--task-id is required")
     task = get_lekiwi_task(args.task_id)
@@ -210,7 +209,6 @@ def _init_runtime(
     connectors = {
         "env": lambda rpc: {
             "env": LeKiwiEnvClient(rpc),
-            "task_description": get_lekiwi_task(args.task_id).instruction,
         },
     }
 

@@ -12,22 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""User-facing config, developer defaults, and the RLinf adapter for one LeKiwi.
-
-Users edit only ``example.yaml``: machine identity (serial port, camera
-serial) and drive limits. The RLinf field values RPent deliberately tunes
-live here as developer defaults and are applied as ``override_cfg`` over
-RLinf's own dataclass defaults, so they are never restated in the YAML.
-
-``load_runtime_config`` turns that into the RLinf adapter config. The
-generic helpers are shared with :mod:`robots.franka`.
-"""
+"""Robot identity and observation/control settings for the LeKiwi service."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import math
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
 
 from omegaconf import DictConfig, OmegaConf
 
@@ -35,155 +26,77 @@ from robots.franka.runtime_config import load_mapping, strict_mapping
 
 DEFAULT_CONFIG = Path(__file__).with_name("config") / "example.yaml"
 
-_robot_config_path: Path | None = None
+
+@dataclass
+class BaseConfig:
+    """Serial connection and wheel geometry consumed by the local base."""
+
+    serial_port: str = ""
+    wheel_radius: float = 0.05
+    base_radius: float = 0.125
+    max_raw: int = 3000
 
 
-def set_robot_config_path(path: str | Path | None) -> None:
-    """Record the ``--robot-config`` CLI value (``None`` when absent)."""
-    global _robot_config_path
-    _robot_config_path = Path(path).expanduser() if path else None
+@dataclass
+class DriveConfig:
+    """Service control rate, velocity limits and camera observation settings."""
+
+    step_frequency: float = 10.0
+    camera_max_age: float = 0.05
+    max_linear_velocity: float = 0.3
+    max_angular_velocity: float = 60.0
+    frame_size: tuple[int, int] = (128, 128)
 
 
-def get_robot_config_path(default: str | Path = DEFAULT_CONFIG) -> Path:
-    """Return the ``--robot-config`` override, or the robot's packaged default."""
-    return Path(_robot_config_path or default)
-
-
-# Primitive-control knobs consumed by the RPent LeKiwi env server. RLinf has
-# no equivalent field, so these live here rather than in any RLinf dataclass.
-CONTROL = {
-    "drive": {"max_duration_s": 10.0},
-    # Longest the server keeps a held velocity after the last refresh: the
-    # dead-man that stops the base when the operator's session goes away.
-    "hold": {"max_ttl_s": 2.0},
-}
-
-# ``env.eval.override_cfg`` values RPent sets away from RLinf's
-# ``LeKiwiEnvConfig`` defaults. Keys are RLinf field names; anything omitted
-# here keeps RLinf's default.
-ENV_DEFAULTS = {
-    # RPent streams frames over RPC; it does not run the in-process player.
-    "enable_camera_player": False,
-    # Episodes are bounded by the planner, not a step budget.
-    "max_num_steps": 2_000_000_000,
-}
-
-
-def flatten_control(control: dict[str, Any]) -> dict[str, Any]:
-    """Flatten nested ``CONTROL`` defaults into the flat env-server keys."""
-    return {
-        "drive_max_duration_s": float(control["drive"]["max_duration_s"]),
-        "hold_max_ttl_s": float(control["hold"]["max_ttl_s"]),
-    }
-
-
-def _require_mapping(value: Any, name: str) -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise ValueError(f"{name} must be a mapping")
-    return value
-
-
-@dataclass(frozen=True)
-class LeKiwiRuntimeConfig:
-    """Generated RLinf adapter config and RPent primitive settings."""
-
-    rlinf: DictConfig
-    controller: dict[str, Any]
-
-
-def load_runtime_config(path: str | Path | None) -> LeKiwiRuntimeConfig:
-    """Load the user YAML, apply developer defaults, and build the adapter."""
-    # Lazy RLinf imports: keys are validated against these dataclasses (drift
-    # guard), deferred so importing this module stays RLinf-free.
-    from rlinf.envs.real.lekiwi.base import LeKiwiEnvConfig
-    from rlinf.robotics.robots.lekiwi import LeKiwiConfig
-
-    raw = load_mapping(path or get_robot_config_path())
-    robot = _require_mapping(raw.get("robot"), "robot")
-    if "port" not in robot:
-        raise ValueError("robot.port is required: the wheel bus needs a serial port")
-    cameras = _require_mapping(raw.get("cameras"), "cameras")
-    devices = _require_mapping(cameras.get("devices"), "cameras.devices")
-
-    camera_serials: list[str] = []
-    camera_names: dict[str, str] = {}
-    camera_types: set[str] = set()
-    main_image_keys: list[str] = []
-    for name, value in devices.items():
-        device = _require_mapping(value, f"cameras.devices.{name}")
-        serial = str(device["serial"])
-        camera_serials.append(serial)
-        camera_names[serial] = str(name)
-        camera_types.add(str(device.get("type", "webcam")))
-        if bool(device.get("main", False)):
-            main_image_keys.append(str(name))
-    if len(main_image_keys) != 1:
-        raise ValueError("exactly one camera device must set main: true")
-    if len(camera_types) != 1:
-        raise ValueError("the LeKiwi currently requires one camera type")
-
-    drive = raw.get("drive") or {}
-    if not isinstance(drive, dict):
-        raise ValueError("drive must be a mapping")
-
+def load_runtime_config(path: str | Path | None) -> DictConfig:
+    """Validate robot YAML without constructing a Gym environment or hardware."""
+    raw = load_mapping(path or DEFAULT_CONFIG)
+    robot = raw.get("robot")
+    if not isinstance(robot, dict) or not robot.get("serial_port"):
+        raise ValueError("robot.serial_port is required")
     hardware = strict_mapping(
-        LeKiwiConfig,
-        {
-            "port": str(robot["port"]),
-            "wheel_radius": robot.get("wheel_radius", 0.05),
-            "base_radius": robot.get("base_radius", 0.125),
-            "max_raw": robot.get("max_raw", 3000),
-            "camera_serials": camera_serials,
-            "camera_type": camera_types.pop(),
-            "node_rank": 0,
-        },
-        where="cluster.node_groups[].hardware.configs[]",
+        BaseConfig,
+        {**asdict(BaseConfig()), **robot},
+        where="robot",
     )
-    override_cfg = strict_mapping(
-        LeKiwiEnvConfig,
-        {
-            **ENV_DEFAULTS,
-            "camera_names": camera_names,
-            **drive,
-        },
-        where="env.eval.override_cfg",
+    for name in ("wheel_radius", "base_radius"):
+        value = float(hardware[name])
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError(f"robot.{name} must be finite and positive")
+    if not 1 <= hardware["max_raw"] <= 32767:
+        raise ValueError("robot.max_raw must be between 1 and 32767")
+    cameras = raw.get("cameras")
+    if not isinstance(cameras, dict) or not isinstance(cameras.get("devices"), dict):
+        raise ValueError("cameras.devices must be a mapping")
+    devices = cameras["devices"]
+    main = []
+    serials = set()
+    for name, device in devices.items():
+        if not isinstance(device, dict) or not device.get("serial"):
+            raise ValueError(f"cameras.devices.{name}.serial is required")
+        if str(device["serial"]) in serials:
+            raise ValueError("camera serials must be unique")
+        serials.add(str(device["serial"]))
+        if device.get("main", False):
+            main.append(name)
+    if len(main) != 1:
+        raise ValueError("exactly one camera device must set main: true")
+    drive = strict_mapping(
+        DriveConfig, {**asdict(DriveConfig()), **raw.get("drive", {})}, where="drive"
     )
-
-    rlinf = OmegaConf.create(
-        {
-            "cluster": {
-                "num_nodes": 1,
-                "component_placement": {
-                    "env": {"node_group": "lekiwi", "placement": 0}
-                },
-                "node_groups": [
-                    {
-                        "label": "lekiwi",
-                        "node_ranks": 0,
-                        "hardware": {"type": "LeKiwi", "configs": [hardware]},
-                    }
-                ],
-            },
-            "env": {
-                "eval": {
-                    "seed": 0,
-                    "group_size": 1,
-                    "auto_reset": False,
-                    "ignore_terminations": False,
-                    "use_fixed_reset_state_ids": False,
-                    "max_episode_steps": None,
-                    "use_spacemouse": False,
-                    "no_gripper": False,
-                    "main_image_key": main_image_keys[0],
-                    "keyboard_reward_wrapper": None,
-                    "video_cfg": {},
-                    "init_params": {"id": "RPentLeKiwiDriveEnv-v1"},
-                    "override_cfg": override_cfg,
-                }
-            },
-        }
-    )
-    return LeKiwiRuntimeConfig(
-        rlinf=rlinf,
-        controller=flatten_control(CONTROL),
+    for name in ("step_frequency", "max_linear_velocity", "max_angular_velocity"):
+        value = float(drive[name])
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError(f"drive.{name} must be finite and positive")
+    if not 5 <= drive["step_frequency"] <= 100:
+        raise ValueError("drive.step_frequency must be between 5 and 100 Hz")
+    age = float(drive["camera_max_age"])
+    if not math.isfinite(age) or age < 0:
+        raise ValueError("drive.camera_max_age must be finite and nonnegative")
+    size = drive["frame_size"]
+    if len(size) != 2 or any(type(v) is not int or v <= 0 for v in size):
+        raise ValueError("drive.frame_size must contain two positive integers")
+    drive["frame_size"] = list(size)
+    return OmegaConf.create(
+        {"robot": hardware, "cameras": devices, "main_camera": main[0], "drive": drive}
     )

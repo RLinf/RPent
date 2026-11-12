@@ -98,13 +98,14 @@ def test_build_yaml_config_marks_first_camera_main() -> None:
     assert set(devices) == {"front", "extra_1"}
     assert devices["front"] == {
         "serial": "video0",
-        "type": "webcam",
+        "type": "uvc",
         "main": True,
     }
     assert devices["extra_1"]["main"] is False
-    assert config["robot"]["port"] == "/dev/ttyACM0"
+    assert config["robot"]["serial_port"] == "/dev/ttyACM0"
     assert config["drive"]["max_linear_velocity"] == 0.3
     assert config["drive"]["camera_max_age"] == 0.05
+    assert "control" not in config
 
 
 def test_probe_camera_reports_why_it_failed(monkeypatch) -> None:
@@ -127,10 +128,8 @@ def test_probe_camera_reports_why_it_failed(monkeypatch) -> None:
     )
     monkeypatch.setitem(
         sys.modules,
-        "rlinf.robotics.parts.cameras.webcam",
-        _fake_module(
-            "rlinf.robotics.parts.cameras.webcam", WebcamCamera=MissingLibGLCamera
-        ),
+        "rlinf.robotics.parts.cameras.uvc",
+        _fake_module("rlinf.robotics.parts.cameras.uvc", UVCCamera=MissingLibGLCamera),
     )
 
     report = detect.probe_camera("usb-USB_Camera_USB_Camera_2505280051-video-index0")
@@ -162,7 +161,7 @@ def test_main_writes_a_config_loadable_by_runtime_config(
 
     assert exit_code == 0
     config = yaml.safe_load(output.read_text())
-    assert config["robot"]["port"] == "/dev/ttyACM0"
+    assert config["robot"]["serial_port"] == "/dev/ttyACM0"
     # Only the camera that delivered a frame is written.
     assert config["cameras"]["devices"]["front"]["serial"] == "video0"
     assert config["cameras"]["devices"]["front"]["main"] is True
@@ -177,10 +176,10 @@ def test_main_writes_a_config_loadable_by_runtime_config(
     from robots.lekiwi.runtime_config import load_runtime_config
 
     runtime = load_runtime_config(output)
-    assert runtime.rlinf.env.eval.main_image_key == "front"
-    hardware = runtime.rlinf.cluster.node_groups[0].hardware.configs[0]
-    assert hardware["port"] == "/dev/ttyACM0"
-    assert hardware["camera_serials"] == ["video0"]
+    assert runtime.main_camera == "front"
+    hardware = runtime.robot
+    assert hardware["serial_port"] == "/dev/ttyACM0"
+    assert runtime.cameras.front.serial == "video0"
 
 
 def test_main_reports_a_missing_wheel_bus(monkeypatch, capsys, tmp_path: Path) -> None:
@@ -194,4 +193,4 @@ def test_main_reports_a_missing_wheel_bus(monkeypatch, capsys, tmp_path: Path) -
     report = capsys.readouterr().out
     assert "no port answered" in report
     config = yaml.safe_load(output.read_text())
-    assert config["robot"]["port"] == "/dev/ttyACM0"  # placeholder
+    assert config["robot"]["serial_port"] == "/dev/ttyACM0"  # placeholder

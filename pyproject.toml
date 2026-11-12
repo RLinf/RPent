@@ -56,7 +56,6 @@ rpent = "rpent.cli.main:main"
 rpent-memory = "rpent.cli.memory:main"
 rpent-check-llm = "rpent.cli.check_llm:main"
 rpent-flywheel = "rpent.flywheel.cli:main"
-rpent-lekiwi-detect = "robots.lekiwi.detect:main"
 rpent-lekiwi-server = "robots.lekiwi.env_server:main"
 
 [project.urls]
@@ -161,12 +160,7 @@ yam = [
     "imageio-ffmpeg",
 ]
 lekiwi = [
-    # RLinf's LeKiwi environment layer is not released yet, so this pins the
-    # revision that has it; switch to RLinf/RLinf@main once it merges. The
-    # rest is the minimal RLinf install plus what its LeKiwi environment
-    # imports, kept aligned with requirements/embodied/envs/so101.txt at that
-    # revision.
-    "rlinf @ git+https://github.com/QuanluZhang/RLinf.git@feat/lekiwi",
+    "rlinf @ git+https://github.com/RLinf/RLinf.git@main",
     "omegaconf>=2.3,<3",
     "pyyaml",
     "gymnasium",

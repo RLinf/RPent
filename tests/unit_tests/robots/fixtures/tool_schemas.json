@@ -1111,32 +1111,65 @@
     "robots/lekiwi/tools.py": [
       {
         "name": "drive",
-        "description": "Drive the base with one body velocity [x, y, theta] held for a bounded duration.\n\nUnits are m/s, m/s, and deg/s in the base frame. The command is\nclipped to the configured velocity limits, and the wheels stop\nwhen the duration ends.",
+        "description": "Drive at body velocity [forward, left, turn] for a duration, then stop.\n\nUnits are m/s, m/s and deg/s. Velocity is clipped to the robot's\nconfigured limits; duration is at most 10 seconds. Waits for completion\nor cancellation. This is a timed command, not a distance guarantee.\nNo obstacle avoidance; inspect status and the camera view before continuing.",
         "input_schema": {
-          "type": "object",
           "properties": {
-            "velocity": {"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3},
-            "duration_s": {"type": "number", "exclusiveMinimum": 0.0, "maximum": 10.0}
+            "velocity": {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "duration_s": {
+              "exclusiveMinimum": 0.0,
+              "maximum": 10.0,
+              "type": "number"
+            }
           },
-          "required": ["velocity"]
+          "required": [
+            "velocity"
+          ],
+          "type": "object"
+        }
+      },
+      {
+        "name": "rotate",
+        "description": "Turn in place by a relative angle in degrees, then stop.\n\nPositive angles turn left, negative angles turn right; at most one\nfull turn per call. Waits for wheel-estimated angle and stopping,\nor failure/cancellation. No obstacle avoidance. Inspect the returned\nstatus and camera view before the next motion.",
+        "input_schema": {
+          "properties": {
+            "angle_deg": {
+              "maximum": 360.0,
+              "minimum": -360.0,
+              "type": "number"
+            }
+          },
+          "required": [
+            "angle_deg"
+          ],
+          "type": "object"
         }
       },
       {
         "name": "stop",
         "description": "Command zero wheel velocity immediately.",
         "input_schema": {
-          "type": "object",
-          "properties": {}
+          "properties": {},
+          "type": "object"
         }
       },
       {
         "name": "view_env_state",
-        "description": "Read a LeKiwi state snapshot and its synchronized front-camera image.",
+        "description": "Read a LeKiwi state snapshot and its recorded front-camera image.",
         "input_schema": {
-          "type": "object",
           "properties": {
-            "step": {"type": "integer", "default": -1}
-          }
+            "step": {
+              "default": -1,
+              "type": "integer"
+            }
+          },
+          "type": "object"
         }
       }
     ]

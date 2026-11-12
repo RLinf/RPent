@@ -1,9 +1,9 @@
-# Example LeKiwi configuration. `rpent-lekiwi-detect` writes a
+# Example LeKiwi configuration. `python -m robots.lekiwi.detect` writes a
 # filled-in copy of this file; edit the result and pass it with --robot-config.
 
 robot:
   # Serial bus of the Feetech STS3215 servo board.
-  port: /dev/ttyACM0
+  serial_port: /dev/ttyACM0
   wheel_radius: 0.05
   base_radius: 0.125
   max_raw: 3000
@@ -13,13 +13,12 @@ cameras:
     front:
       # UVC serial of the front camera (ls /dev/v4l/by-id).
       serial: "<front-camera-serial>"
-      type: webcam
+      type: uvc
       main: true
 
 drive:
   step_frequency: 10.0
-  # Seconds a step may reuse a captured frame. RLinf's 0.5 s default serves
-  # at most two new frames a second; 0.05 tracks the 15 fps camera.
+  # Maximum age in seconds of a cached frame reused by an Agent control step.
   camera_max_age: 0.05
   max_linear_velocity: 0.3
   max_angular_velocity: 60.0
