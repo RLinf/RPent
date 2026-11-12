@@ -263,7 +263,7 @@ class _GeminiSession:
         return 1
 
     async def _consume_prompt(self, text: str, done: asyncio.Event) -> None:
-        from acp import text_block
+        from acp import RequestError, text_block
 
         try:
             response = await self._connection.prompt(
@@ -286,6 +286,8 @@ class _GeminiSession:
         except Exception as exc:
             done.set()
             self.error = self._redact(f"{type(exc).__name__}: {exc}")
+            if self._control is None and isinstance(exc, RequestError):
+                raise RequestError(exc.code, self._redact(str(exc))) from None
             if self._control is not None:
                 self._control.end()
 

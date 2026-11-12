@@ -385,6 +385,36 @@ def test_session_result_artifacts_and_cleanup(
             ]
 
 
+@pytest.mark.parametrize("entrypoint", ["probe", "check"])
+def test_prompt_auth_required_preserves_type_and_redacts_key(
+    monkeypatch, acp_backend, entrypoint
+):
+    from rpent.planner.check import (
+        STATUS_MISSING_API_KEY,
+        LlmCheckRequest,
+        check_llm,
+    )
+
+    secret = "gemini-probe-secret"
+    monkeypatch.setenv("GEMINI_API_KEY", secret)
+    error = acp.RequestError.auth_required()
+    error.args = (f"Authentication required: {secret}",)
+    acp_backend["prompt_error"] = error
+
+    if entrypoint == "probe":
+        with pytest.raises(acp.RequestError) as caught:
+            gemini_module.run_probe_turn(prompt="ping", model=None, timeout_s=1)
+        assert caught.value.code == error.code
+        detail = str(caught.value)
+    else:
+        result = check_llm(LlmCheckRequest(planner="gemini_cli", timeout_s=1))
+        assert result.status == STATUS_MISSING_API_KEY
+        detail = result.detail
+    assert "<GEMINI_API_KEY>" in detail
+    assert secret not in detail
+    assert acp_backend["events"][-1] == "close"
+
+
 @pytest.mark.parametrize("outcome", ["success", "timeout", "auth_error"])
 def test_probe_is_tool_free_and_closes_transport(acp_backend, outcome):
     acp_backend["block"] = outcome == "timeout"
