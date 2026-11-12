@@ -29,6 +29,7 @@ import queue
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import openai_codex
 from openai_codex.generated.v2_all import ReasoningEffort
@@ -53,6 +54,7 @@ from rpent.planner.utils.agent_runtime import (
 )
 from rpent.planner.utils.agent_session import run_agent
 from rpent.planner.utils.sdk import get_field, int_field, json_object, jsonable, unwrap
+from rpent.session.codex_capture import finalize_codex_capture
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.config import get_repo_root
 
@@ -121,16 +123,37 @@ class CodexPlanner(Planner):
             raise ValueError(
                 "input_queue and dashboard_interaction cannot be used together"
             )
-        prompt = f"{system_prompt}\n\n{user_message}" if system_prompt else user_message
-        return asyncio.run(
-            self._solve(
-                prompt=prompt,
-                toolkit=toolkit,
-                max_turns=max_turns,
-                interaction=dashboard_interaction,
-                input_queue=input_queue,
-            )
+        try:
+            capture_state = toolkit.state
+        except RuntimeError:
+            capture_state = None
+        trace_root = (
+            capture_state.trajectory_dir / "codex" / uuid4().hex
+            if capture_state is not None and capture_state.get_task() is not None
+            else None
         )
+        prompt = f"{system_prompt}\n\n{user_message}" if system_prompt else user_message
+        result = None
+        try:
+            result = asyncio.run(
+                self._solve(
+                    prompt=prompt,
+                    toolkit=toolkit,
+                    max_turns=max_turns,
+                    interaction=dashboard_interaction,
+                    input_queue=input_queue,
+                    trace_root=trace_root,
+                )
+            )
+            return result
+        finally:
+            if trace_root is not None:
+                capture_stats = finalize_codex_capture(capture_state, trace_root)
+                if result is not None:
+                    result.stats["codex_trace"] = {
+                        "sdk_version": openai_codex.__version__,
+                        **capture_stats,
+                    }
 
     async def _solve(
         self,
@@ -140,6 +163,7 @@ class CodexPlanner(Planner):
         max_turns: int,
         interaction: DashboardInteractionPort | None,
         input_queue: queue.Queue[str | None] | None,
+        trace_root: Path | None = None,
     ) -> PlannerResult:
         """Run one SDK session, optionally accepting queued follow-up input."""
         artifacts = AgentArtifacts("codex_sdk", self._output_path)
@@ -149,7 +173,7 @@ class CodexPlanner(Planner):
 
         def create_session(url, control, emit):
             return _CodexSession(
-                config=self._build_config(url),
+                config=self._build_config(url, trace_root=trace_root),
                 thread_options=self._thread_options,
                 turn_options=self._turn_options,
                 recorder=recorder,
@@ -182,12 +206,13 @@ class CodexPlanner(Planner):
 
     # -- config builder ----------------------------------------------------
 
-    def _build_config(self, mcp_url: str) -> Any:
+    def _build_config(self, mcp_url: str, *, trace_root: Path | None = None) -> Any:
         return build_codex_config(
             mcp_url=mcp_url,
             base_url=self._base_url,
             api_key=self._api_key,
             cwd=self._repo_root,
+            trace_root=trace_root,
         )
 
 
@@ -549,8 +574,9 @@ def build_codex_config(
     base_url: str | None,
     api_key: str | None,
     cwd: str,
+    trace_root: Path | None = None,
 ) -> Any:
-    """Build the Codex SDK config shared by the planner and the check.
+    """Build the Codex child config with optional native rollout tracing.
 
     Args:
         mcp_url: URL of the in-process RPent MCP server, or ``None`` to attach
@@ -558,6 +584,8 @@ def build_codex_config(
         base_url: Custom Responses-compatible endpoint, or ``None``.
         api_key: Key exported to the child as ``RPENT_CODEX_PROVIDER_KEY``.
         cwd: Working directory handed to the Codex child process.
+        trace_root: Directory where Codex writes native rollout traces. If ``None``,
+            the child inherits the parent's ``CODEX_ROLLOUT_TRACE_ROOT`` setting.
 
     Returns:
         The ``openai_codex.CodexConfig`` to open a session with.
@@ -565,6 +593,8 @@ def build_codex_config(
     env = agent_environment()
     if api_key:
         env[PROVIDER_ENV_KEY] = api_key
+    if trace_root is not None:
+        env["CODEX_ROLLOUT_TRACE_ROOT"] = str(trace_root.resolve())
     config_overrides = _codex_mcp_config_overrides(mcp_url=mcp_url, base_url=base_url)
     # Project development instructions and skills are excluded from planner context.
     config_overrides.append("project_doc_max_bytes=0")

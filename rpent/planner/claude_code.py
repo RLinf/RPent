@@ -32,6 +32,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from rpent.dashboard.events import (
     DashboardEventSink,
@@ -44,6 +45,7 @@ from rpent.planner.base import (
     REASONING_EFFORTS,
     Planner,
     PlannerResult,
+    _wait_for_cleanup,
     add_mcp_prefix,
     cancel_and_wait,
     execute_tool,
@@ -54,6 +56,9 @@ from rpent.planner.utils.agent_runtime import AgentArtifacts, short_json, write_
 from rpent.planner.utils.agent_session import TerminalInteraction
 from rpent.planner.utils.http_mcp_server import mcp_result
 from rpent.planner.utils.sdk import get_field, jsonable
+from rpent.session import MissingInfo, Payload
+from rpent.session.claude_capture import ClaudeTraceCapture
+from rpent.session.env_capture import ToolCallCapture
 from rpent.tools import Toolkit, ToolResult
 from rpent.utils.config import get_repo_root
 from rpent.utils.logging import get_logger, init_output_dir
@@ -145,6 +150,12 @@ class ClaudeCodePlanner(Planner):
         terminal = TerminalInteraction(input_queue) if input_queue is not None else None
         interaction = terminal if terminal is not None else dashboard_interaction
         init_output_dir(self._output_dir)
+        try:
+            task = toolkit.state.get_task()
+        except RuntimeError:
+            task = None
+        run_id = uuid4().hex if task is not None and task.status == "running" else None
+        capture = None
         error = None
         reader = None
         with (
@@ -191,7 +202,10 @@ class ClaudeCodePlanner(Planner):
                     toolkit=toolkit,
                     max_turns=max_turns,
                     on_tool_result=recorder.observe_tool_result,
+                    run_id=run_id,
                 )
+                if run_id is not None:
+                    capture = ClaudeTraceCapture(toolkit.state, run_id, prompt, options)
                 driver = _ClaudeSessionDriver(
                     sdk=claude_agent_sdk,
                     options=options,
@@ -221,6 +235,8 @@ class ClaudeCodePlanner(Planner):
                     control.end()
                 if reader is not None:
                     await reader
+                if capture is not None:
+                    await _wait_for_cleanup(asyncio.create_task(capture.finish()))
             if error:
                 output.write(f"\n[cc-planner] {error}\n")
                 logger.info("[cc-planner] %s", error)
@@ -228,7 +244,10 @@ class ClaudeCodePlanner(Planner):
         return artifacts.result(
             finish_result=recorder.finish_result,
             final_response=None,
-            stats=recorder.stats(),
+            stats={
+                **recorder.stats(),
+                **({"claude_trace": capture.stats} if capture else {}),
+            },
             error=error or recorder.error,
         )
 
@@ -241,6 +260,7 @@ class ClaudeCodePlanner(Planner):
         toolkit: Toolkit,
         max_turns: int,
         on_tool_result: Callable[[str, ToolResult], None] | None = None,
+        run_id: str | None = None,
     ) -> Any:
         allowed = [
             part for part in self._allowed_tools.replace(",", " ").split() if part
@@ -265,6 +285,7 @@ class ClaudeCodePlanner(Planner):
                     sdk,
                     toolkit=toolkit,
                     on_tool_result=on_tool_result,
+                    run_id=run_id,
                 ),
             },
             add_dirs=[self._output_dir, *self._extra_dirs],
@@ -631,6 +652,7 @@ def _build_rpent_server(
     *,
     toolkit: Toolkit,
     on_tool_result: Callable[[str, ToolResult], None] | None = None,
+    run_id: str | None = None,
 ) -> Any:
     sdk_tools = []
     for declaration in toolkit.list_tools():
@@ -643,15 +665,105 @@ def _build_rpent_server(
             *,
             tool_name: str = name,
         ) -> dict[str, Any]:
-            result = await execute_tool(toolkit, tool_name, args or {})
-            if on_tool_result is not None:
-                on_tool_result(tool_name, result)
-            return _tool_result_to_mcp(result)
+            arguments = args or {}
+            if run_id is None:
+                result = await execute_tool(toolkit, tool_name, arguments)
+                if on_tool_result is not None:
+                    on_tool_result(tool_name, result)
+                return _tool_result_to_mcp(result)
+            try:
+                meta = server["instance"].request_context.meta
+            except LookupError:
+                meta = None
+            return await _run_captured_tool(
+                toolkit,
+                tool_name,
+                arguments,
+                run_id,
+                getattr(meta, "claudecode/toolUseId", None),
+                on_tool_result=on_tool_result,
+            )
 
         run_tool.__name__ = f"rpent_{name}"
         sdk_tools.append(sdk.tool(name, description, input_schema)(run_tool))
 
-    return sdk.create_sdk_mcp_server(name="rpent", version="0.1.0", tools=sdk_tools)
+    server = sdk.create_sdk_mcp_server(name="rpent", version="0.1.0", tools=sdk_tools)
+    return server
+
+
+async def _run_captured_tool(
+    toolkit: Toolkit,
+    name: str,
+    arguments: dict[str, Any],
+    run_id: str,
+    tool_use_id: str | None,
+    *,
+    on_tool_result: Callable[[str, ToolResult], None] | None = None,
+) -> dict[str, Any]:
+    state = toolkit.state
+    source_ids = {"claude.run_id": run_id}
+    if isinstance(tool_use_id, str) and tool_use_id:
+        source_ids["claude.tool_use_id"] = tool_use_id
+        planner_missing = MissingInfo("pending", "Waiting for Claude trace import.")
+    else:
+        planner_missing = MissingInfo(
+            "not_exposed", "Claude did not provide a tool use ID."
+        )
+    tool_id = state.register_tool_call(
+        planner_id=None,
+        origin="unknown",
+        name=name,
+        arguments=Payload("mcp.tool_args", arguments, completeness="complete"),
+        source_ids=source_ids,
+        missing={
+            "planner_id": planner_missing,
+            "raw_result": MissingInfo("pending", "Waiting for execution."),
+            "feedback": MissingInfo(
+                "pending", "Waiting for the Claude SDK tool result."
+            ),
+        },
+    )
+    capture = ToolCallCapture(state, tool_id)
+    try:
+        with capture.bind():
+            result = await execute_tool(toolkit, name, arguments)
+        if on_tool_result is not None:
+            on_tool_result(name, result)
+        if not capture.finished:
+            capture.finish("failed", str(result.data.get("error", "")))
+        feedback = _tool_result_to_mcp(result)
+    except BaseException as exc:
+        if not capture.finished:
+            capture.finish(
+                "cancelled"
+                if isinstance(exc, (asyncio.CancelledError, KeyboardInterrupt))
+                else "failed",
+                f"{type(exc).__name__}: {exc}",
+            )
+        state.update_tool_call(
+            tool_id,
+            missing={
+                "feedback": MissingInfo(
+                    "not_recorded", "Claude SDK tool handler did not return feedback."
+                )
+            },
+        )
+        raise
+    state.update_tool_call(
+        tool_id,
+        feedback=Payload(
+            "claude.sdk_tool_result",
+            feedback,
+            completeness="complete",
+            base64_paths={
+                f"/content/{i}/data": ""
+                for i, block in enumerate(feedback["content"])
+                if block["type"] == "image"
+            },
+        ),
+        missing={"feedback": None},
+    )
+    return feedback
 
 
 def _tool_result_to_mcp(result: ToolResult) -> dict[str, Any]:

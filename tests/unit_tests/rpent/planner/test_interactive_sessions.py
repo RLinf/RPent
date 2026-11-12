@@ -90,6 +90,10 @@ def test_queue_interrupt_and_continuation_share_one_session(
     input_queue = queue.Queue()
 
     class Toolkit:
+        @property
+        def state(self):
+            raise RuntimeError("toolkit has no environment state")
+
         def list_tools(self):
             return []
 
@@ -304,6 +308,10 @@ def test_claude_confirmed_finish_does_not_send_pending_input(
     verdict = {"_finish": True, "status": "failure", "summary": "operator aborted"}
 
     class Toolkit:
+        @property
+        def state(self):
+            raise RuntimeError("toolkit has no environment state")
+
         def list_tools(self):
             return [CommonTools.finish]
 

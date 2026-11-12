@@ -55,6 +55,9 @@
    * - ``--output-dir``
      - ``—``
      - 保存本次运行文件的目录；默认目录名由环境生成。
+   * - ``--record-trajectory``
+     - ``false``
+     - 使用 ``api``、``claude_code`` 或 ``codex`` 时，记录任务、模型请求与回复，以及工具调用。评测模式下，支持动作采集的环境还会记录实际执行的动作及其观测。采集和导出方法见 :doc:`flywheel`。
    * - ``--memory-profile``
      - ``—``
      - 通常评测默认为 ``hf``；探索和 WAM 评测使用 ``local``。
@@ -206,6 +209,8 @@ Claude Code 和 Codex 也可复用已有的 CLI 认证。Gemini CLI 使用自身
      - 用途
    * - ``transcript_*.json``
      - 规划器对话、工具调用及结束信息。
+   * - ``trajectories/<task_id>/``
+     - ``--record-trajectory`` 保存的任务记录及附件。探索模式的记录位于各 ``sessions/session_*/`` 目录下。详见 :doc:`flywheel`。
    * - ``episode.mp4``
      - 本次任务的录像。
    * - ``run.log``

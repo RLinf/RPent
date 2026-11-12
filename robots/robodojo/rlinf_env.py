@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import threading
+from copy import deepcopy
 from typing import Any
 
 import numpy as np
@@ -99,9 +100,9 @@ class RoboDojoAgentEnv(RoboDojoEnv):
     def env(self) -> Any:
         return self._sub_env().env
 
-    def get_native_obs(self) -> dict:
-        """Record native RGB frames while preserving calibration and state."""
-        return _obs_dict(self.env, self.recorder)
+    def get_native_obs(self, *, capture: bool = True) -> dict:
+        """Return native observations, optionally recording their RGB frames."""
+        return _obs_dict(self.env, self.recorder if capture else None)
 
     def reset(self, env_idx=None, env_seeds=None):
         """Reset through RLinf and reinitialize agent episode diagnostics."""
@@ -109,8 +110,8 @@ class RoboDojoAgentEnv(RoboDojoEnv):
         self.bottle_mon = _SafetyMonitor(self.meta.get("task", ""))
         return result
 
-    def _observation(self) -> dict:
-        obs = self.get_native_obs()
+    def _observation(self, *, capture: bool = True) -> dict:
+        obs = self.get_native_obs(capture=capture)
         if self.eval_fair:
             from robots.robodojo.access import public_observation
 
@@ -187,6 +188,7 @@ class RoboDojoAgentEnv(RoboDojoEnv):
         gripper: float | None = None,
         *,
         expected_step: int | None = None,
+        capture: bool = False,
     ) -> dict[str, Any]:
         """Execute one waypoint while retaining every unspecified target."""
         try:
@@ -200,22 +202,22 @@ class RoboDojoAgentEnv(RoboDojoEnv):
         except (ValueError, TypeError) as exc:
             if expected_step is None:
                 raise
-            return self._action_receipt(self._rejected(str(exc)))
+            return self._action_receipt(self._rejected(str(exc), capture=capture))
         info = self._receipt(int(self.env.take_action_cnt[0]))
         if info["terminated"] or info["truncated"]:
-            return self._action_receipt(
-                (self._observation(), 0.0, info["terminated"], info)
-            )
+            return self._action_receipt(self._stopped_step(info, capture=capture))
         action = self.get_motion_state()["targets"]
         if arm_qpos is not None:
             action[f"{arm}_arm_joint_state"] = arm_qpos
         if gripper is not None:
             action[f"{arm}_ee_joint_state"] = [gripper]
         return self._action_receipt(
-            self.step_native(action, expected_step=expected_step)
+            self.step_native(action, expected_step=expected_step, capture=capture)
         )
 
-    def step_native(self, flat_action, *, expected_step: int | None = None):
+    def step_native(
+        self, flat_action, *, expected_step: int | None = None, capture: bool = False
+    ):
         """Apply one native action, returning observation and authoritative counts.
 
         Compare expected_step with the native action count before execution.
@@ -227,12 +229,14 @@ class RoboDojoAgentEnv(RoboDojoEnv):
         except (ValueError, TypeError, KeyError) as exc:
             if expected_step is None:
                 raise
-            return self._rejected(str(exc))
+            return self._rejected(str(exc), capture=capture)
         before = int(self.env.take_action_cnt[0])
         if expected_step is not None and (
             type(expected_step) is not int or expected_step != before
         ):
-            return self._rejected("native action counter differs from expected_step")
+            return self._rejected(
+                "native action counter differs from expected_step", capture=capture
+            )
         info = self._receipt(before)
         if info["terminated"] or info["truncated"]:
             if (
@@ -241,21 +245,36 @@ class RoboDojoAgentEnv(RoboDojoEnv):
                 and before >= info["status"]["step_limit"]
             ):
                 raise RuntimeError("Episode step budget exhausted")
-            return self._observation(), 0.0, info["terminated"], info
+            return self._stopped_step(info, capture=capture)
+        if capture:
+            # Flush the previous camera frame before reading each captured observation.
+            self.env.get_obs(env_idx=0)
+            before_observation = deepcopy(self._observation(capture=False))
         self._sub_env(0).apply_action(
             flat_action, action_type, eval_fair=self.eval_fair
         )
+        if capture:
+            self.env.get_obs(env_idx=0)
         if self.eval_fair:
-            return self._observation(), 0.0, False, self._receipt(before)
-        alarms = self.bottle_mon.check(self.env)
-        if alarms:
-            logger.warning("SAFETY ALARM: %s", alarms)
-        obs = self.get_native_obs()
-        reward_details = _reward_details(self.env, self.bottle_mon)
-        reward = float(reward_details.get("reward", 0.0) or 0.0)
-        info = self._receipt(before)
-        info.update(step_limit=int(self.env.step_lim), safety=alarms)
-        return obs, reward, info["terminated"], info
+            result = self._observation(), 0.0, False, self._receipt(before)
+        else:
+            alarms = self.bottle_mon.check(self.env)
+            if alarms:
+                logger.warning("SAFETY ALARM: %s", alarms)
+            obs = self.get_native_obs()
+            reward_details = _reward_details(self.env, self.bottle_mon)
+            reward = float(reward_details.get("reward", 0.0) or 0.0)
+            info = self._receipt(before)
+            info.update(step_limit=int(self.env.step_lim), safety=alarms)
+            result = obs, reward, info["terminated"], info
+        if capture:
+            return {
+                "result": result,
+                "before_observation": before_observation,
+                "action": flat_action,
+                "action_type": action_type,
+            }
+        return result
 
     # ---- RoboDojo-specific RPC ----
     def get_obs(self) -> dict[str, Any]:
@@ -314,15 +333,24 @@ class RoboDojoAgentEnv(RoboDojoEnv):
             **({"rejection": rejection} if rejection else {}),
         }
 
-    def _rejected(self, message):
+    def _rejected(self, message, *, capture):
         before = int(self.env.take_action_cnt[0])
-        info = self._receipt(before, rejection=message)
-        return self._observation(), 0.0, info["terminated"], info
+        return self._stopped_step(
+            self._receipt(before, rejection=message), capture=capture
+        )
+
+    def _stopped_step(self, info, *, capture):
+        result = self._observation(), 0.0, info["terminated"], info
+        return {"result": result} if capture else result
 
     @staticmethod
-    def _action_receipt(result):
+    def _action_receipt(response):
+        captured = isinstance(response, dict)
+        result = response["result"] if captured else response
         obs, _, _, info = result
         receipt = dict(info)
         receipt["episode_status"] = receipt.pop("status")
+        if captured:
+            return {**response, "result": receipt, "step_result": result}
         receipt["observation"] = obs
         return receipt
