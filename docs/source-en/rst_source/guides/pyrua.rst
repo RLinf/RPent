@@ -1,9 +1,9 @@
 .. _pyrua-mode:
 
-Use PyRUA Mode
+PyRUA Mode
 ==============
 
-PyRUA Mode lets a planner run Python cells that call RPent's registered robot
+**PyRUA Mode** lets a planner run Python cells that call RPent's registered robot
 tools. A cell can use tool results in conditions and bounded loops; variables,
 functions, and imports remain available to later cells in the same session.
 Enable it with ``--policy-mode code``.
