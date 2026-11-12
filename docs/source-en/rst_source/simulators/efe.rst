@@ -301,7 +301,8 @@ Keep the model and execution budget the same; only the action tools change.
      - Default (``skills=true``)
      - Raw (``skills=false``)
    * - Reading and control
-     - ``efe_spec``, ``efe_observe``, ``efe_status``, ``efe_recover``
+     - ``efe_spec``, ``efe_observe``, ``efe_status``, ``efe_recover``,
+       ``view_env_state``
      - Same
    * - Action
      - ``move_to_xyz``, ``set_gripper``
@@ -371,6 +372,9 @@ Isolation and Measurement Mode
 - The generic ``rpent --robot efe`` entry point has no sandbox option and always
   runs with ``full-access``. Use it for manual and interactive debugging; use the
   Harbor adapter for evaluation and comparison.
+- ``rpent`` defaults to ``--planner api``, which has no Codex shell sandbox. Pass
+  ``--planner codex`` to a manual ``rpent --robot efe`` run when the trial should
+  behave like the Harbor run.
 
 Integration Details for Developers
 ----------------------------------
@@ -402,8 +406,13 @@ Host ``CODEX_HOME`` is not forwarded; each trial creates its own directory.
    └── simulator container (sim)
        └── EFE task service
 
-Supported service versions are ``eai-standard/2.1``, ``2.2``, and ``2.4`` for
-standard mode, and ``2.3`` for standard-realtime. Privileged tasks instead
-deliver a replayable ``trajectory.npz`` or a policy program or model. Their
-verifier replays the trajectory or runs the policy, which does not match this
-integration's step-by-step observation and action loop.
+Supported service versions are ``eai-standard/2.2`` and ``2.4`` for standard
+mode. ``2.1`` and ``2.3`` publish ``control_dt`` instead of ``control_hz`` and
+ship a different ``rcb_client`` (``get_obs(include_depth=...)``, ``Result.depth``,
+no ``wait_ready``), so ``EfeEnvClient`` rejects them with an explicit error
+rather than failing later on a missing spec field. Supporting them needs a
+separate adapter, including for ``2.3`` and its ``standard-realtime`` tasks.
+Privileged tasks instead deliver a replayable ``trajectory.npz`` or a policy
+program or model. Their verifier replays the trajectory or runs the policy,
+which does not match this integration's step-by-step observation and action
+loop.

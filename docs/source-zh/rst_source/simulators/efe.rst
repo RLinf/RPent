@@ -114,7 +114,7 @@ RPent 提供两种控制方式。默认使用 **Skills**：模型通过 ``move_t
 
    ``MODEL_HOST`` 指定允许任务容器访问的模型 API 主机，供运行命令中的 ``--allow-agent-host`` 使用。使用兼容的自定义 API 时，同时替换 ``OPENAI_BASE_URL`` 和 ``MODEL_HOST``。``MODEL_HOST`` 只填写主机名，不含 ``https://`` 或路径。例如，API 地址为 ``https://api.example.com/v1`` 时，填写 ``api.example.com``。不要把 API key 写入版本控制。已有的 ``CODEX_API_KEY``、``CODEX_BASE_URL`` 会覆盖对应的 ``OPENAI_*`` 变量；若要使用上述配置，先取消旧的 ``CODEX_*`` 设置。
 
-.. _trial:
+.. _run-a-trial:
 
 运行一个任务
 ------------
@@ -214,7 +214,8 @@ RPent 提供两种控制方式。默认使用 **Skills**：模型通过 ``move_t
      - 默认（``skills=true``）
      - Raw（``skills=false``）
    * - 读取与控制
-     - ``efe_spec``、``efe_observe``、``efe_status``、``efe_recover``
+     - ``efe_spec``、``efe_observe``、``efe_status``、``efe_recover``、
+       ``view_env_state``
      - 同左
    * - 动作
      - ``move_to_xyz``、``set_gripper``
@@ -263,6 +264,7 @@ Raw 组直接使用服务接口：``efe_spec`` 返回每个动作向量的列含
 - Harbor Runner 默认使用 Codex 的 ``read-only`` 沙箱。它限制 Shell，不限制 RPent 工具：Shell 不能写文件或访问网络；机器人动作通过 RPent 工具执行。
 - 使用 ``full-access`` 时，Agent 可以用 Shell 写脚本直接调用 ``rcb_client``，绕过 RPent 工具。这些调用不经过 RPent 的客户端，``session.json`` 的 ``metrics`` 不会统计，因此这种运行不能与走工具的运行对比。
 - 通用 ``rpent --robot efe`` 没有 Sandbox 选项，固定以 ``full-access`` 运行，用于手动和交互调试。正式评测与对照请通过 Harbor 运行。
+- ``rpent`` 默认使用 ``--planner api``，它没有 Codex 的 Shell 沙箱。手动运行 ``rpent --robot efe`` 时若要复现 Harbor 的行为，需显式加上 ``--planner codex``。
 
 开发者集成说明
 --------------
@@ -281,4 +283,4 @@ RPentEfeAgent 会转发模型环境变量和显式的 Harbor ``--agent-env`` 设
    └── 仿真器容器（sim）
        └── EFE 任务服务
 
-支持的服务版本为 standard 模式的 ``eai-standard/2.1``、``2.2``、``2.4``，以及 standard-realtime 模式的 ``2.3``。privileged 任务则要求提交可重放的 ``trajectory.npz``，或策略程序、模型。评分程序通过重放轨迹或运行策略来评测，与本集成逐步观测和执行动作的方式不匹配。
+支持的服务版本为 standard 模式的 ``eai-standard/2.2`` 与 ``2.4``。``2.1`` 和 ``2.3`` 在 ``/spec`` 中发布 ``control_dt`` 而非 ``control_hz``，并带有不同的 ``rcb_client``（``get_obs(include_depth=...)``、``Result.depth``、没有 ``wait_ready``），``EfeEnvClient`` 会直接给出明确报错，而不是在后面才因为缺少 spec 字段失败。接入这两个版本需要单独的适配层，``2.3`` 及其 standard-realtime 任务同样如此。privileged 任务则要求提交可重放的 ``trajectory.npz``，或策略程序、模型。评分程序通过重放轨迹或运行策略来评测，与本集成逐步观测和执行动作的方式不匹配。
