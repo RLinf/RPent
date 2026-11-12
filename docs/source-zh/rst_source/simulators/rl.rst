@@ -149,3 +149,46 @@ LIBERO 使用绝对 grip-site ``xyz`` 和 ``orientation_rpy=[roll,pitch,yaw]`` �
 0（全部移除）或 N（最近 N 个回复／观测组）；双相机共同一组，默认均为 -1。
 原有压缩继续生效；这些开关支持本机 LIBERO episode 模式。
 完整接口与可配置路径命令见 ``tools/rl/WORKFLOWS_zh.md`` 。
+
+
+多模态 token 计数
+------------------------------------------------
+
+API planner 在 reasoning／图片历史裁剪后，对当前请求重新计数。
+Qwen 使用服务端 checkpoint 的本地副本读取 chat template、tokenizer 和
+image processor；本机 SGLang 服务可自动提供 checkpoint 路径。
+也可以显式指定：
+
+.. code-block:: bash
+
+   export RPENT_TOKENIZER_PATH=/path/to/served-checkpoint
+
+远程 SGLang 服务的 checkpoint 如果挂载在本地，还需设置
+``RPENT_TOKEN_COUNT_BACKEND=sglang``。默认 ``auto`` 自动识别本机 SGLang；
+``chat_template`` 只使用 checkpoint 模板，不补服务端工具默认字段。
+与服务端 usage 不一致时会输出警告。
+
+图片按 processor 的缩放、patch 和空间合并规则计数，无需运行视觉编码器。
+文本、工具 schema、reasoning 和模板标记按 chat adapter 的实际渲染计入。
+图片元数据按内容 SHA 与 processor 配置缓存；图片每次出现在上下文中都占用
+token，缓存命中不会减少上下文长度。历史裁剪或压缩后重新计算，不沿用旧 usage。
+
+70% token 阈值与 80→40 消息窗口继续生效，保留工具调用／结果配对及开场提示词。
+如果保留窗口本身仍然很大，压缩后可能仍高于阈值；审计会明确记录，不自动修改
+输出或上下文预算。
+
+开启 ``RPENT_RECORD_MODEL_REQUESTS=1`` 后，``api_trace/token_counts`` 记录压缩
+前后计数、图片尺寸／SHA／视觉 token、触发原因、计数耗时，以及与服务端 input
+usage 的差值。缺少本地 processor 时会警告，并在审计中标明文本／几何估算；
+不会将图片字节转成文本计数。修改 checkpoint、模板或服务端图片预处理参数后，
+应使用一致配置重新执行真实服务核对：
+
+.. code-block:: bash
+
+   RPENT_RUN_TOKEN_COUNT_INTEGRATION=1 \
+   RPENT_TOKEN_COUNT_ENDPOINTS=http://127.0.0.1:30000/v1 \
+   pytest tests/e2e_tests/libero/test_token_counting.py -v
+
+此检查需要已运行的 SGLang Qwen 服务和本地 processor 文件，对照真实 input
+usage 验证三种图片尺寸、工具回传图片、thinking／历史设置及两种压缩触发条件。
+每次请求只允许输出一个 token，不执行仿真动作，不计入正式评测。

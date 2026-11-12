@@ -133,6 +133,7 @@ def build_planner(
     count_tokens: Callable[[str], int] | None,
     reasoning_effort: str = "none",
     thinking: bool = True,
+    tokenizer_path: Path | None = None,
 ) -> tuple[ApiAgentLoop, AsyncOpenAI]:
     """Build the native planner on a policy endpoint and its model client.
 
@@ -175,6 +176,7 @@ def build_planner(
         ),
         sequential_tools=True,
     )
+    planner.model.tokenizer_path = tokenizer_path
     return planner, client
 
 
@@ -259,6 +261,7 @@ def run(args: argparse.Namespace) -> int:
             observation_mode=args.observation_mode,
             history_compaction=history_compaction,
             count_tokens=count_tokens,
+            tokenizer_path=args.tokenizer_path,
         )
         planner = get_robot_spec().configure_planner(planner, config)
         result = asyncio.run(

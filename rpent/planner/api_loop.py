@@ -80,6 +80,7 @@ from rpent.planner.base import (
     cancel_and_wait,
     execute_tool,
 )
+from rpent.planner.compaction.window import RequestAwareSlidingWindow
 from rpent.tools.toolkit import Toolkit, ToolResult
 from rpent.utils.logging import get_logger
 from rpent.utils.templates import substitute
@@ -117,7 +118,9 @@ def _is_context_overflow(exc: ModelHTTPError) -> bool:
 
 
 def _default_compaction() -> SlidingWindowCompaction:
-    return SlidingWindowCompaction(max_messages=80, max_fraction=0.8, keep_messages=40)
+    return RequestAwareSlidingWindow(
+        max_messages=80, max_fraction=0.8, keep_messages=40
+    )
 
 
 def sliding_window_compaction(
@@ -131,7 +134,7 @@ def sliding_window_compaction(
     """
 
     def build() -> SlidingWindowCompaction:
-        return SlidingWindowCompaction(
+        return RequestAwareSlidingWindow(
             max_messages=80,
             max_fraction=max_fraction,
             keep_messages=40,

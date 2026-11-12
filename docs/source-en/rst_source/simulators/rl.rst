@@ -165,3 +165,51 @@ The entire list is validated first; success, truncation, partial or error stops 
 0 (none), or N (latest N reply/observation groups); both cameras form one group.
 Defaults are -1; compaction still applies. These switches support local LIBERO
 episode workflows. Complete contracts and portable commands: ``tools/rl/WORKFLOWS.md``.
+
+
+Multimodal token accounting
+----------------------------------------
+
+API compaction counts the current request after reasoning/image retention.
+For Qwen, a local copy of the served checkpoint supplies the chat template,
+tokenizer and image processor. A loopback SGLang endpoint can supply its local
+checkpoint path automatically. For an explicit path, set:
+
+.. code-block:: bash
+
+   export RPENT_TOKENIZER_PATH=/path/to/served-checkpoint
+
+For a remote SGLang endpoint with a locally mounted checkpoint, also set
+``RPENT_TOKEN_COUNT_BACKEND=sglang``. The default ``auto`` detects loopback
+SGLang; ``chat_template`` uses the checkpoint template without server-specific
+tool normalization. Unexpected differences from provider usage emit a warning.
+
+The processor counts resized patches and spatial merging without running the
+vision encoder. Text, tool schemas, reasoning and template markers are counted
+as rendered by the chat adapter. Image metadata is cached by content SHA and
+processor configuration; every occurrence still occupies context, including
+cache hits. Edited histories are recounted rather than anchored to old usage.
+
+The 70% token threshold and the 80-to-40 message window remain in effect, with
+tool-call/result pairs and opening prompts preserved. A retained window can
+still exceed the threshold when its remaining content is large; the audit
+reports this condition rather than reducing output or context budgets.
+
+With ``RPENT_RECORD_MODEL_REQUESTS=1``, ``api_trace/token_counts`` records
+before/after counts, image sizes/SHA/visual tokens, trigger decisions, counting
+time and the difference from provider input usage. When no local processor is
+available, a warning and the audit identify the text/geometry estimate; it
+does not treat image bytes as text. Checkpoint/template or server preprocessing
+overrides require matching configuration and a fresh integration check:
+
+.. code-block:: bash
+
+   RPENT_RUN_TOKEN_COUNT_INTEGRATION=1 \
+   RPENT_TOKEN_COUNT_ENDPOINTS=http://127.0.0.1:30000/v1 \
+   pytest tests/e2e_tests/libero/test_token_counting.py -v
+
+This opt-in check needs a running SGLang Qwen server and local processor files.
+It checks three image sizes, tool-returned images, thinking/history settings
+and both compression triggers against real input usage. Each request permits
+one output token and executes no simulator actions; these are accounting
+checks, not benchmark episodes.

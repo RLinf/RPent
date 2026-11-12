@@ -133,6 +133,7 @@ class QwenChatModel(OpenAIChatModel):
     """
 
     request_trace = None
+    tokenizer_path = None
 
     async def _completions_create(
         self, messages, stream, model_settings, model_request_parameters
@@ -159,3 +160,94 @@ class QwenChatModel(OpenAIChatModel):
             mapped[-1] = _as_tool_response(mapped[-1])
         for item in mapped:
             yield item
+
+    async def _get_prompt_counter(self):
+        """Resolve a local checkpoint explicitly or from a loopback SGLang server."""
+        if getattr(self, "_prompt_counter_checked", False):
+            return self._prompt_counter
+        import asyncio
+        from pathlib import Path
+        from urllib.parse import urlsplit
+
+        import httpx
+
+        from rpent.planner.token_counting import QwenPromptCounter
+        from rpent.utils.logging import get_logger
+
+        configured = self.tokenizer_path or os.environ.get("RPENT_TOKENIZER_PATH")
+        path = configured
+        backend = os.environ.get("RPENT_TOKEN_COUNT_BACKEND", "auto")
+        if backend not in {"auto", "sglang", "chat_template"}:
+            raise ValueError(
+                "RPENT_TOKEN_COUNT_BACKEND must be auto, sglang or chat_template"
+            )
+        sglang = backend == "sglang"
+        base = urlsplit(str(self.client.base_url))
+        if base.hostname in {"127.0.0.1", "localhost", "::1"}:
+            try:
+                async with httpx.AsyncClient(trust_env=False, timeout=5) as client:
+                    result = await client.get(
+                        f"{base.scheme}://{base.netloc}/get_model_info"
+                    )
+                    result.raise_for_status()
+                    info = result.json()
+                    if backend == "auto":
+                        sglang = "tool_call_parser" in info
+                    candidate = info.get("tokenizer_path") or info.get("model_path")
+                    if path is None and candidate and Path(candidate).is_dir():
+                        path = candidate
+            except (httpx.HTTPError, ValueError):
+                pass
+        counter = None
+        if path is not None:
+            # An explicit bad path/configuration is an actionable startup error.
+            counter = await asyncio.to_thread(
+                QwenPromptCounter.from_checkpoint, path, sglang=sglang
+            )
+        if counter is None:
+            get_logger("api").warning(
+                "No local Qwen processor: compaction uses an image-aware text "
+                "estimate. Set RPENT_TOKENIZER_PATH to the served checkpoint "
+                "for exact template and vision token accounting."
+            )
+        self._prompt_counter, self._prompt_counter_checked = counter, True
+        return counter
+
+    async def count_prompt_tokens(self, messages, model_settings, parameters):
+        """Count exactly the same chat mapping, tools and template sent on the wire."""
+        import asyncio
+
+        from rpent.planner.token_counting import PromptTokens
+
+        settings, parameters = self.prepare_request(model_settings, parameters)
+        settings = settings or {}
+        counter = await self._get_prompt_counter()
+        if counter is None:
+            import json
+
+            from rpent.planner.compaction import (
+                count_image_tokens_in,
+                estimate_request_tokens,
+            )
+
+            tools, _ = self._get_tool_choice(settings, parameters)
+            return PromptTokens(
+                total_tokens=estimate_request_tokens(messages)
+                + len(json.dumps(tools)) // 4,
+                image_tokens=count_image_tokens_in(messages),
+                method="text_heuristic_with_image_geometry",
+            )
+        mapped = await self._map_messages(messages, parameters, model_settings=settings)
+        tools, _ = self._get_tool_choice(settings, parameters)
+        kwargs = dict(
+            (settings.get("extra_body") or {}).get("chat_template_kwargs") or {}
+        )
+        effort = self._translate_thinking(settings, parameters)
+        if isinstance(effort, str):
+            kwargs.setdefault("reasoning_effort", effort)
+        # SGLang treats the literal effort "none" as thinking disabled.
+        if effort == "none":
+            kwargs["enable_thinking"] = False
+        return await asyncio.to_thread(
+            counter.count, mapped, tools=tools, template_kwargs=kwargs
+        )

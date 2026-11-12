@@ -12,21 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Image-aware context management for rollout planners.
+"""Image retention and current-request accounting for rollout compaction.
 
-The Harness measures message *text*: a tool result holding image bytes is
-stringified and divided by four, and an image inside a user prompt is not
-counted at all. A rollout planner ships one two-camera observation per action,
-so that estimate is unrelated to what the server bills -- compaction fires late
-or never. This module supplies the missing image accounting, an image retention
-policy, and an escalation loop that stops on the real cost while reusing the
-Harness tiers for the work itself.
+Qwen's API loop counts its mapped request with the checkpoint processor and
+tokenizer. Other models use a labelled text/geometry estimate which never
+stringifies image bytes or reuses usage from an edited history.
 """
 
 from __future__ import annotations
 
 import math
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, replace
 from io import BytesIO
 from typing import Any
@@ -39,7 +35,6 @@ from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
     ModelRequestPart,
-    ModelResponse,
     SystemPromptPart,
     ToolReturnPart,
     UserPromptPart,
@@ -52,7 +47,7 @@ from pydantic_ai_harness.compaction import (
 )
 from pydantic_ai_harness.compaction._shared import (
     context_for_request,
-    estimate_context_tokens,
+    estimate_token_count,
     iter_tool_pairs,
     record_compaction_reclaim,
 )
@@ -113,34 +108,18 @@ def count_image_tokens_in(messages: Sequence[ModelMessage]) -> int:
     )
 
 
-def _usage_anchor_index(messages: Sequence[ModelMessage]) -> int | None:
-    """Index of the last response carrying provider-reported input usage."""
-    for index in range(len(messages) - 1, -1, -1):
-        message = messages[index]
-        if isinstance(message, ModelResponse) and message.usage.input_tokens:
-            return index
-    return None
-
-
 def estimate_request_tokens(
     messages: Sequence[ModelMessage],
     tokenizer: Callable[[str], int] | None = None,
 ) -> int:
-    """Estimate the full prompt cost: message text plus the images it carries.
+    """Fallback count of current text and image geometry without stale usage.
 
-    The Harness counts message text only. A tool result holding image bytes is
-    stringified there, which overstates its cost by the size of the image
-    payload, so the text estimate runs over a copy with the images replaced by
-    a marker. Images are then charged at the served model's geometry.
-
-    The provider's usage anchor already billed the images in the request it
-    measured, so only images after the anchor are added; recounting the rest
-    would double them.
+    Exact Qwen request counting lives on QwenChatModel and includes its mapped
+    template and tools. This fallback never stringifies binary image content,
+    and never reuses usage from a request before history was edited.
     """
     stripped = retain_images(list(messages), set())
-    anchor = _usage_anchor_index(messages)
-    tail = list(messages) if anchor is None else list(messages[anchor + 1 :])
-    return estimate_context_tokens(stripped, tokenizer) + count_image_tokens_in(tail)
+    return estimate_token_count(stripped, tokenizer) + count_image_tokens_in(messages)
 
 
 def _key(index: int, position: int, part: ModelRequestPart) -> tuple[int, str]:
@@ -153,7 +132,7 @@ def _key(index: int, position: int, part: ModelRequestPart) -> tuple[int, str]:
 def _without_images(part: ModelRequestPart) -> ModelRequestPart:
     """Return *part* with its images replaced by a text marker."""
     if isinstance(part, FilePart):
-        return replace(part, content=BinaryContent(data=b"", media_type="image/png"))
+        return UserPromptPart(content=OMITTED)
     if isinstance(part, UserPromptPart) and not isinstance(part.content, str):
         return replace(
             part,
@@ -352,11 +331,19 @@ class ImageAwareCompaction(AbstractCapability[AgentDepsT]):
         return await self._escalate(list(messages), ctx)
 
     async def _escalate(
-        self, messages: list[ModelMessage], ctx: RunContext[AgentDepsT]
+        self,
+        messages: list[ModelMessage],
+        ctx: RunContext[AgentDepsT],
+        measure: Callable[[list[ModelMessage]], Awaitable[int]] | None = None,
     ) -> list[ModelMessage]:
         original = messages
         for tier in self.tiers:
-            if estimate_request_tokens(messages, self.tokenizer) <= self.target_tokens:
+            tokens = (
+                await measure(messages)
+                if measure is not None
+                else estimate_request_tokens(messages, self.tokenizer)
+            )
+            if tokens <= self.target_tokens:
                 break
             messages = await tier.compact(messages, ctx)
         messages = retain_images(
@@ -365,19 +352,27 @@ class ImageAwareCompaction(AbstractCapability[AgentDepsT]):
         return preserve_prompts(original, messages)
 
     async def before_model_request(self, ctx, request_context):
-        """Compact when the image-aware estimate exceeds the budget."""
+        """Use the mapped checkpoint count when the model provides one."""
+
+        async def measure(messages):
+            counter = getattr(request_context.model, "count_prompt_tokens", None)
+            if counter is None:
+                return estimate_request_tokens(messages, self.tokenizer)
+            count = await counter(
+                messages,
+                request_context.model_settings,
+                request_context.model_request_parameters,
+            )
+            return count.total_tokens
+
         messages = list(request_context.messages)
-        if estimate_request_tokens(messages, self.tokenizer) <= self.target_tokens:
+        before = await measure(messages)
+        if before <= self.target_tokens:
             return request_context
         request_ctx = context_for_request(ctx, request_context)
-        before = estimate_request_tokens(messages, self.tokenizer)
-        compacted = await self._escalate(messages, request_ctx)
+        compacted = await self._escalate(messages, request_ctx, measure)
         request_context.messages = compacted
-        record_compaction_reclaim(
-            request_context,
-            before,
-            estimate_request_tokens(compacted, self.tokenizer),
-        )
+        record_compaction_reclaim(request_context, before, await measure(compacted))
         return request_context
 
 
@@ -400,10 +395,9 @@ def build_history_compaction(
         The compaction capability for the planner run.
     """
     if "target_tokens" not in options:
-        # Message-window recipes use the Harness's SlidingWindowCompaction.
-        from pydantic_ai_harness.compaction import SlidingWindowCompaction
+        from rpent.planner.compaction.window import RequestAwareSlidingWindow
 
-        return SlidingWindowCompaction(**options, tokenizer=tokenizer)
+        return RequestAwareSlidingWindow(**options, tokenizer=tokenizer)
     clear = dict(options.get("clear_tool_results") or {})
     summarizing = dict(options.get("summarizing") or {})
     keep_pairs = int(clear.get("keep_pairs", 8))
