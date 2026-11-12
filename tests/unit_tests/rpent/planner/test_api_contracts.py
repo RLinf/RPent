@@ -37,6 +37,7 @@ from pydantic_ai import (
 from pydantic_ai.exceptions import UnexpectedModelBehavior, UsageLimitExceeded
 from pydantic_ai.models.function import DeltaThinkingPart, DeltaToolCall, FunctionModel
 from pydantic_ai.models.test import TestModel
+from pydantic_ai_harness.compaction._shared import estimate_text_tokens
 from pydantic_core import to_jsonable_python
 
 from rpent.dashboard.events import RunStartedEvent, TranscriptEvent, UsageEvent
@@ -294,6 +295,7 @@ def test_multimodal_tool_results_and_dashboard_events(tmp_path, no_images):
     assert bool(images) is not no_images
     if images:
         assert images[0].data == b"image"
+        assert estimate_text_tokens(str(images)) <= 5
     else:
         assert "Image omitted" in repr(returns)
     transcript = [e.payload for e in events.events if isinstance(e, TranscriptEvent)]
