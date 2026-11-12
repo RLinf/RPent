@@ -241,8 +241,28 @@ def run_efe(
         with _trial_codex_home(output_dir), _trial_repo_root(workdir):
             for number in range(1, explore_sessions + 1):
                 if client.done:
-                    logger.info("the episode ended; no further session starts")
-                    break
+                    # The service refuses a reset only once the trial is
+                    # settled. An attempt that ended early on a failure can
+                    # still be abandoned while the reset budget lasts, so the
+                    # next session starts a fresh attempt rather than skipping
+                    # the rest of the budget.
+                    if client.reset_calls >= client.reset_budget:
+                        logger.info(
+                            "the episode ended and the reset budget is spent; "
+                            "no further session starts"
+                        )
+                        break
+                    logger.info(
+                        "the attempt ended (%s); resetting for session %d/%d",
+                        client.done_reason or "no reason reported",
+                        number,
+                        explore_sessions,
+                    )
+                    try:
+                        client.reset()
+                    except (RuntimeError, ValueError) as exc:
+                        logger.info("the service refused the reset: %s", exc)
+                        break
                 remaining = math.ceil(deadline - time.monotonic())
                 if remaining <= 0:
                     if not sessions:

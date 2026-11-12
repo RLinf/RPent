@@ -682,3 +682,53 @@ assert 'torch' not in sys.modules
 
     assert completed.returncode == 0, completed.stderr
     assert "--instruction-file" in completed.stdout
+def test_an_early_episode_end_resets_instead_of_skipping_the_budget(
+    tmp_path, recording_planner, efe_client
+):
+    """A failed attempt with resets left must start a fresh one."""
+    efe_client.spec["budget"] = {"reset": 2}
+    efe_client.done = True
+    efe_client.done_reason = "failed"
+    resets = []
+
+    def reset(*, cameras=None):
+        resets.append(cameras)
+        efe_client.reset_calls += 1
+        efe_client.done = False
+        efe_client.done_reason = None
+        return {}
+
+    efe_client.reset = reset
+
+    report = run_efe(
+        "Task",
+        workdir=tmp_path,
+        output_dir=tmp_path / "logs",
+        model="test-model",
+        explore_sessions=2,
+        client=efe_client,
+    )
+
+    assert resets == [None]
+    assert len(report["sessions"]) == 2
+
+
+def test_an_early_episode_end_stops_once_the_reset_budget_is_spent(
+    tmp_path, recording_planner, efe_client
+):
+    efe_client.spec["budget"] = {"reset": 0}
+    efe_client.done = True
+    efe_client.done_reason = "failed"
+
+    report = run_efe(
+        "Task",
+        workdir=tmp_path,
+        output_dir=tmp_path / "logs",
+        model="test-model",
+        explore_sessions=3,
+        client=efe_client,
+    )
+
+    assert report["sessions"] == []
+
+

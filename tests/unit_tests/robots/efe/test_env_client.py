@@ -292,6 +292,39 @@ def test_an_unsupported_protocol_is_rejected_before_any_call():
         EfeEnvClient(robot=FakeRobot(spec))
 
 
+def test_reset_revalidates_cameras(robot):
+    spec = {**_SPEC, "budget": {"reset": 5}}
+    client = EfeEnvClient(robot=FakeRobot(spec))
+    robot = client._robot
+
+    with pytest.raises(ValueError, match="Unknown cameras"):
+        client.reset(cameras=["ceiling_cam"])
+
+    assert robot.post_calls == []
+
+
+def test_reset_is_allowed_after_an_attempt_that_ended_early(robot):
+    """The budget is for abandoning a failed attempt, not only a live one."""
+    spec = {**_SPEC, "budget": {"reset": 5}}
+    client = EfeEnvClient(robot=FakeRobot(spec))
+    robot = client._robot
+    client._record_state({"done": True, "reason": "failed"})
+
+    client.reset()
+
+    assert robot.post_calls[0][0] == "/reset"
+    assert client.done is False
+
+
+def test_reset_is_refused_after_the_trial_succeeded(robot):
+    spec = {**_SPEC, "budget": {"reset": 5}}
+    client = EfeEnvClient(robot=FakeRobot(spec))
+    client._record_state({"done": True, "reason": "success"})
+
+    with pytest.raises(RuntimeError, match="Cannot reset"):
+        client.reset()
+
+
 def test_reset_needs_a_declared_budget(client):
     with pytest.raises(ValueError, match="no reset budget"):
         client.reset()

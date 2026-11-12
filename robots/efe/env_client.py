@@ -241,11 +241,12 @@ class EfeEnvClient:
         """
         if self.reset_budget <= 0:
             raise ValueError("This task declares no reset budget")
-        if self._done:
+        if self._done and not self._reset_allowed_after_end():
             raise RuntimeError(
                 f"Cannot reset: the episode ended "
                 f"({self.done_reason or 'no reason reported'})"
             )
+        cameras = self._validated_cameras(cameras)
         meta: dict[str, Any] = {"video": "none"}
         if cameras is not None:
             meta["cameras"] = list(cameras)
@@ -498,6 +499,22 @@ class EfeEnvClient:
         if payload.get("done"):
             self._done = True
             self.done_reason = payload.get("reason")
+
+    def _reset_allowed_after_end(self) -> bool:
+        """Whether the service still accepts ``/reset`` after this ending.
+
+        The service refuses a reset only once the trial is settled: success or
+        the time limit. An attempt that ended early on a task failure or on
+        ``max_control_steps`` can still be abandoned for a fresh attempt, which
+        is what the reset budget is for. A reason this adapter does not
+        recognise is left to the service, which stays authoritative.
+        """
+        reason = (self.done_reason or "").strip().lower()
+        if not reason:
+            return True
+        return not any(
+            settled in reason for settled in ("success", "goal", "timeout", "timed out")
+        )
 
     def _raise_if_done(self, call: str) -> None:
         if self._done:
