@@ -29,8 +29,6 @@
    command -v rtabmap-reprocess
    command -v rtabmap-export
 
-此前流程使用 RTAB-Map 0.23.13。
-
 .. _mapping-custom-depth:
 
 2. 准备 RGB-D 图像与标定
@@ -83,11 +81,12 @@ RGB-D 输入格式
 
 这部分将同步的双目数据转换为 RGB-D。RPent 的 ``prepare_stereo.py`` 负责校正图像，官方 RAFT-Stereo ``demo.py`` 估计像素位移，``raft_to_rgbd.py`` 再将位移换算为毫米深度。
 
-**安装 Python 环境**
+**准备两个 Python 环境**
 
-准备包含 RPent、NumPy、SciPy、PyYAML 和 OpenCV 的 Python 环境，并按 `RAFT-Stereo 官方说明 <https://github.com/princeton-vl/RAFT-Stereo#requirements>`_ 克隆仓库、安装推理依赖。RAFT 推理需要 NVIDIA GPU。
+* **RPent**：使用 Python 3.10–3.12，安装 RPent、NumPy、SciPy、PyYAML 和 OpenCV。
+* **RAFT-Stereo**：按 `官方说明 <https://github.com/princeton-vl/RAFT-Stereo#requirements>`_ 克隆仓库并创建独立的 ``raftstereo`` Conda 环境（Python 3.7.6），推理需要 NVIDIA GPU。
 
-后续使用同一环境；RPent 命令均从源码根目录运行。
+先激活 RPent 环境，从源码根目录运行 RPent 命令。
 
 **第一步：准备双目数据和标定**
 
@@ -151,7 +150,7 @@ RGB-D 输入格式
 
 **第三步：运行官方 RAFT-Stereo**
 
-保持共用环境激活，在 RAFT-Stereo 源码目录下载官方权重。下载脚本使用系统命令 ``wget`` 和 ``unzip``：
+在 RAFT-Stereo 源码目录下载官方权重。下载脚本使用系统命令 ``wget`` 和 ``unzip``：
 
 .. code-block:: bash
 
@@ -165,7 +164,8 @@ RGB-D 输入格式
 .. code-block:: bash
 
    cd /path/to/RAFT-Stereo
-   CUDA_VISIBLE_DEVICES=0 python demo.py \
+   conda activate raftstereo
+   python demo.py \
      --restore_ckpt /path/to/raftstereo-middlebury.pth \
      --left_imgs "/path/to/prepared/pairs/*/im0.png" \
      --right_imgs "/path/to/prepared/pairs/*/im1.png" \
@@ -176,7 +176,7 @@ RGB-D 输入格式
 
 **第四步：转换为 RGB-D**
 
-保持同一 Python 环境激活，切回 RPent 源码目录。下面命令读取 ``prepared/`` 中的图像、标定，以及 RAFT-Stereo 生成的 ``flow/``，输出 RGB-D。为 ``--output`` 选择尚不存在、位于 ``prepared/`` 之外的目录：
+重新激活 RPent 环境，再切回 RPent 源码目录。下面命令读取 ``prepared/`` 中的图像、标定，以及 RAFT-Stereo 生成的 ``flow/``，输出 RGB-D。为 ``--output`` 选择尚不存在、位于 ``prepared/`` 之外的目录：
 
 .. code-block:: bash
 
@@ -264,7 +264,7 @@ RGB-D 输入格式
 2. ``rtabmap-reprocess -odom`` 从 RGB-D 估计视觉里程计，并在建图时优化轨迹，生成 ``rtabmap.db``。
 3. ``rtabmap-export`` 从地图数据库导出二维占据栅格和三维点云。
 
-首次建图可直接进入下一节查看结果。需要额外轨迹文件或平面运动约束时，使用下面的可选命令。
+完成后，进入 :ref:`mapping-results` 查看地图。需要轨迹文件或平面运动约束时，使用下面的可选命令。
 
 可选处理
 ~~~~~~~~
@@ -289,6 +289,8 @@ RGB-D 输入格式
    rtabmap-reprocess -c rtabmap.ini -noimu \
      --Reg/Force3DoF true --RGBD/ForceOdom3DoF true rtabmap.db planar.db
    rtabmap-export --map --cloud --opt 2 --output planar planar.db
+
+.. _mapping-results:
 
 5. 查看建图结果
 ---------------

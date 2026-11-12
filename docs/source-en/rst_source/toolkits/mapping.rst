@@ -38,8 +38,6 @@ are available:
    command -v rtabmap-reprocess
    command -v rtabmap-export
 
-The earlier recipe used RTAB-Map 0.23.13.
-
 .. _mapping-custom-depth:
 
 2. Prepare RGB-D Images and Calibration
@@ -118,15 +116,15 @@ This section converts synchronized stereo data to RGB-D. RPent's
 estimates pixel displacement, and ``raft_to_rgbd.py`` converts it to depth
 in millimetres.
 
-**Install the Python Environment**
+**Prepare Two Python Environments**
 
-Prepare a Python environment with RPent, NumPy, SciPy, PyYAML and OpenCV.
-Follow the `official RAFT-Stereo instructions
-<https://github.com/princeton-vl/RAFT-Stereo#requirements>`_ to clone the
-repository and install inference dependencies. RAFT inference requires an
-NVIDIA GPU.
+* **RPent:** use Python 3.10–3.12 with RPent, NumPy, SciPy, PyYAML and OpenCV.
+* **RAFT-Stereo:** follow the `official instructions
+  <https://github.com/princeton-vl/RAFT-Stereo#requirements>`_ to clone the
+  repository and create a separate ``raftstereo`` Conda environment
+  (Python 3.7.6). Inference requires an NVIDIA GPU.
 
-Use the same environment throughout; run RPent commands from its source root.
+Start by activating the RPent environment and run RPent commands from its source root.
 
 **Step 1: Prepare Stereo Data and Calibration**
 
@@ -215,8 +213,8 @@ Both inputs produce the same ``prepared/`` structure: rectified
 
 **Step 3: Run Official RAFT-Stereo**
 
-Keep the shared environment active and download the official weights from
-the RAFT-Stereo source directory. The download script uses the system commands
+Download the official weights from the RAFT-Stereo source directory.
+The download script uses the system commands
 ``wget`` and ``unzip``:
 
 .. code-block:: bash
@@ -238,7 +236,8 @@ for ``--output_directory``.
 .. code-block:: bash
 
    cd /path/to/RAFT-Stereo
-   CUDA_VISIBLE_DEVICES=0 python demo.py \
+   conda activate raftstereo
+   python demo.py \
      --restore_ckpt /path/to/raftstereo-middlebury.pth \
      --left_imgs "/path/to/prepared/pairs/*/im0.png" \
      --right_imgs "/path/to/prepared/pairs/*/im1.png" \
@@ -253,7 +252,7 @@ visualization. The next step reads the numerical ``.npy`` files.
 
 **Step 4: Convert to RGB-D**
 
-Keep the same Python environment active and return to the RPent source directory.
+Reactivate the RPent environment, then return to the RPent source directory.
 This command reads the images and calibration in ``prepared/`` together with
 the ``flow/`` output from RAFT-Stereo, producing RGB-D. Choose a new output
 directory outside ``prepared/``:
@@ -375,7 +374,7 @@ running the next:
    the trajectory during mapping, writing ``rtabmap.db``.
 3. ``rtabmap-export`` exports the 2D occupancy grid and 3D point cloud.
 
-For a first run, continue to the next section to inspect the results. Use the
+When finished, continue to :ref:`mapping-results` to view the map. Use the
 optional commands below when you need a trajectory file or planar constraints.
 
 Optional Processing
@@ -404,6 +403,8 @@ motion constraints in a second pass and save the result as ``planar.db``:
    rtabmap-reprocess -c rtabmap.ini -noimu \
      --Reg/Force3DoF true --RGBD/ForceOdom3DoF true rtabmap.db planar.db
    rtabmap-export --map --cloud --opt 2 --output planar planar.db
+
+.. _mapping-results:
 
 5. View Mapping Results
 -----------------------
