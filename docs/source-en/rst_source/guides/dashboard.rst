@@ -23,14 +23,31 @@ With ``claude_code``, ``codex``, or ``gemini_cli``, the first prompt contains th
 task instruction. Edit it or submit it with Enter. Use ``/help`` to see commands
 and ``/quit``, ``/exit``, or ``/q`` to end the session.
 
-Claude Code, Codex, and Gemini queue additional messages in arrival order and
-submit one message after each complete agent turn, not after each tool call. Use
-``/interrupt`` to stop the current turn and send the next queued message.
-``/interrupt new instruction`` puts that instruction ahead of the remaining
-queue. Both continue in the same conversation. Tool execution is cancelled and
-drained before the backend is interrupted; new input is sent only after the
-backend confirms completion. If interruption fails, messages remain queued
-until a successful interrupt retry. Completed physical actions are not undone.
+For example, while Claude Code, Codex, or Gemini CLI is running a task, you
+want it to check the cup's position. Choose an input below and press Enter:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - Example input
+     - Behavior
+   * - ``Check the cup's position``
+     - Append the message to the queue and wait for the current agent turn
+       to end. A turn can include several tool calls; finishing one tool call
+       does not immediately send the message.
+   * - ``/interrupt``
+     - Interrupt the current turn, then send the first queued message. For
+       example, this sends "Check the cup's position" if it is first in the queue.
+   * - ``/interrupt Check the cup's position first``
+     - Interrupt the current turn and send "Check the cup's position first"
+       ahead of the existing queued messages, which remain queued.
+
+Follow-ups use the same conversation, with one message sent after each turn.
+On interruption, RPent cancels the active tool and waits for it to stop, then
+interrupts the backend turn. It sends the message only after the backend has
+stopped. If interruption fails, messages remain queued until a successful
+interrupt retry. Completed physical actions are not undone.
 
 With the ``api`` planner, the selected task starts automatically. After the
 agent responds, the terminal accepts follow-up instructions with the existing
@@ -78,11 +95,21 @@ reused by the Session. Submit a new ``/rpent-task`` to start or switch tasks;
 during a run, submit follow-up messages or press Esc to request an interruption.
 Press Ctrl+C in the terminal to stop the Session.
 
-With Claude Code, Codex, and Gemini, ordinary messages queue until the current
-agent turn completes. To continue sooner, submit the message and press Esc: the active tool
-and backend turn are stopped before the next queued message is sent. Remaining
-messages keep their queue order. A successful ``finish`` ends the task without
-sending pending messages.
+With Claude Code, Codex, and Gemini CLI, ordinary messages queue until the
+current agent turn ends. For example, to ask the planner to check the cup's
+position during a task:
+
+1. Enter "Check the cup's position first" in the input box and press Enter.
+   The message joins the queue.
+2. To interrupt instead of waiting for the turn to end, press Esc while the
+   input box has focus.
+3. RPent cancels the active tool and waits for it to stop, then interrupts the
+   backend turn. Once it has stopped, RPent automatically sends the first
+   queued message and continues in the same conversation.
+
+Esc does not reorder the queue; any earlier queued messages are sent first.
+If interruption fails, no new message is sent until a successful interrupt
+retry. A successful ``finish`` ends the task without sending pending messages.
 
 ``--dashboard`` cannot be combined with ``--tui`` or
 ``--env-endpoint``. External ``--am-endpoint`` and ``--sam3-endpoint``
