@@ -20,7 +20,7 @@ import numpy as np
 import pytest
 
 from robots.efe.skills import EfeSkills, joint_layout
-from tests.efe_support import FakeEfeClient, proprio
+from tests.unit_tests.robots.efe.efe_support import FakeEfeClient, proprio
 
 
 class MovingClient(FakeEfeClient):

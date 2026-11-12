@@ -38,7 +38,7 @@ from rpent.dashboard.events import NullDashboardEventSink
 from rpent.planner.base import PlannerResult
 from rpent.robots.robot_spec import RobotSpec
 from rpent.utils.logging import init_output_dir
-from tests.efe_support import SPEC, FakeEfeClient
+from tests.unit_tests.robots.efe.efe_support import SPEC, FakeEfeClient
 
 
 def _args(tmp_path: Path) -> argparse.Namespace:

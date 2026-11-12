@@ -31,7 +31,7 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
 from robots.efe.runner import run_efe
-from tests.efe_support import FakeEfeClient
+from tests.unit_tests.robots.efe.efe_support import FakeEfeClient
 
 
 class LocalTurn:

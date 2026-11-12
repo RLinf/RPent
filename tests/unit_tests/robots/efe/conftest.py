@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.efe_support import FakeEfeClient
+from tests.unit_tests.robots.efe.efe_support import FakeEfeClient
 
 
 @pytest.fixture

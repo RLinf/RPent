@@ -24,7 +24,7 @@ import pytest
 
 from robots.efe.tools import EfeTools, dump_state, view_env_state
 from rpent.session import EnvState
-from tests.efe_support import FakeEfeClient
+from tests.unit_tests.robots.efe.efe_support import FakeEfeClient
 
 
 @pytest.fixture
