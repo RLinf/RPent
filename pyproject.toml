@@ -195,6 +195,22 @@ prerelease = "allow"
 # Transformers, Tokenizers, or Diffusers versions are mutually incompatible.
 conflicts = [
     [
+        { extra = "robolab" },
+        { extra = "robotwin" },
+    ],
+    [
+        { extra = "robolab" },
+        { extra = "molmo" },
+    ],
+    [
+        { extra = "robolab" },
+        { extra = "robodojo" },
+    ],
+    [
+        { extra = "robolab" },
+        { extra = "robodojo-sim" },
+    ],
+    [
         { extra = "franka" },
         { extra = "libero" },
     ],

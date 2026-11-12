@@ -98,6 +98,7 @@ RPent is built for four kinds of users:
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/simulators/robocasa.html">RoboCasa</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/simulators/robotwin.html">RoboTwin</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/simulators/robodojo.html">RoboDojo</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/simulators/robolab.html">RoboLab</a> ✅</li>
         </ul>
       </td>
       <td>
@@ -130,7 +131,7 @@ pip install -e ".[franka]"      # Franka and dual Franka
 `.[libero-pro]` is the recommended default. See the [installation docs](https://rpent.readthedocs.io/en/latest/rst_source/get_started/quickstart.html) for other environments.
 
 For RoboLab installation, external checkpoints, and subset evaluation, see the
-[RoboLab guide](docs/source-en/rst_source/simulators/robolab.rst).
+[RoboLab guide](https://rpent.readthedocs.io/en/latest/rst_source/simulators/robolab.html).
 
 For RoboCasa setup, task memory, and the Target50 protocol, see the
 [RoboCasa guide](https://rpent.readthedocs.io/en/latest/rst_source/simulators/robocasa.html).

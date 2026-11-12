@@ -98,6 +98,7 @@ RPent 面向以下四类用户：
           <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robocasa.html">RoboCasa</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robotwin.html">RoboTwin</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robodojo.html">RoboDojo</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robolab.html">RoboLab</a> ✅</li>
         </ul>
       </td>
       <td>
@@ -132,7 +133,7 @@ pip install -e ".[franka]"      # Franka / 双臂 Franka
 [安装文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/get_started/quickstart.html)。
 
 RoboLab 安装、外部模型权重与子集评估参见
-[RoboLab 指南](docs/source-zh/rst_source/simulators/robolab.rst)。
+[RoboLab 指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robolab.html)。
 
 RoboCasa 安装、任务 memory 与 Target50 协议参见
 [RoboCasa 指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robocasa.html)。
