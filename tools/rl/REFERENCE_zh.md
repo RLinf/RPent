@@ -218,3 +218,8 @@ PY
 五种工作流、SAM3 池与固定任务对比见 [工作流指南](WORKFLOWS_zh.md)。
 
 模型启动器启用缓存上报。八副本 SAM3、单副本等待指标和长历史缓存调优见[工作流性能配置](WORKFLOWS_zh.md#模型前缀缓存诊断)。
+
+## Episode 感知列表
+
+`--workflow episode --perception-mode batch` 将独立感知替换为 observe，
+由 source 推导依赖，独立节点并行。[CLI、示例、ID 与返回说明](OBSERVE_zh.md)。

@@ -268,3 +268,8 @@ Qwen 通过 SGLang 运行且存在无参数工具时，使用带有界空白的�
 允许的工具调用要求保持不变。语法空白最多 16 个字符，避免 finish() 的空参数区域循环。
 不添加占位参数，不修改依赖、提示词或采样；整条回复仍须先通过严格校验。
 上游说明：https://github.com/mlc-ai/xgrammar/issues/802。
+
+## Episode 感知列表
+
+`--workflow episode --perception-mode batch` 将独立感知替换为 observe，
+由 source 推导依赖，独立节点并行。[CLI、示例、ID 与返回说明](OBSERVE_zh.md)。

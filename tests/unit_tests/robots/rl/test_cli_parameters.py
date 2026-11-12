@@ -280,6 +280,7 @@ def test_configurable_message_window_keeps_pairs_and_zero_disables_trigger():
         ("--max-tokens", "8192"),
         ("--compaction-max-messages", "0"),
         ("--compaction-keep-messages", "20"),
+        ("--perception-mode", "batch"),
     ],
 )
 def test_batch_manifest_pins_generation_and_window(tmp_path, monkeypatch, flag, change):
@@ -300,3 +301,70 @@ def test_batch_manifest_pins_generation_and_window(tmp_path, monkeypatch, flag, 
     finally:
         for sig, handler in previous.items():
             signal.signal(sig, handler)
+
+
+def test_observe_cli_defaults_and_child_options(tmp_path):
+    from robots.rl.robot_spec import _parse_config, get_robot_spec
+    from rpent.cli.main import _build_argparser
+
+    cli = _build_argparser()
+    get_robot_spec().add_cli_args(cli, use_dashboard=False)
+    args = cli.parse_args(
+        [
+            "--robot",
+            "rl",
+            "--workflow",
+            "episode",
+            "--suite",
+            "libero_object",
+            "--task",
+            "0",
+            "--perception-mode",
+            "batch",
+            "--max-observe-calls",
+            "5",
+            "--observe-concurrency",
+            "2",
+        ]
+    )
+    config = _parse_config(args)
+    assert config.prompt_vars["perception_mode"] == "batch"
+    assert config.prompt_vars["max_observe_calls"] == 5
+    assert config.task_desc["observe_concurrency"] == 2
+    batch_options = batch_args(
+        tmp_path,
+        "--perception-mode",
+        "batch",
+        "--max-observe-calls",
+        "5",
+        "--observe-concurrency",
+        "2",
+    )
+    batch.resolve_run_options(batch_options)
+    flags = batch.episode_options(batch_options)
+    assert flags[flags.index("--perception-mode") + 1] == "batch"
+    assert flags[flags.index("--max-observe-calls") + 1] == "5"
+    assert flags[flags.index("--observe-concurrency") + 1] == "2"
+    default = batch_args(tmp_path)
+    batch.resolve_run_options(default)
+    assert default.perception_mode == "single"
+    assert default.max_observe_calls == default.observe_concurrency == 8
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        ["--workflow", "episode_image", "--perception-mode", "batch"],
+        ["--workflow", "zap_turn", "--perception-mode", "batch"],
+        ["--workflow", "zap_episode", "--max-observe-calls", "3"],
+        ["--workflow", "zap_subtask", "--observe-concurrency", "2"],
+        ["--perception-mode", "batch", "--max-observe-calls", "0"],
+        ["--perception-mode", "batch", "--observe-concurrency", "0"],
+        ["--observe-concurrency", "2"],
+    ],
+)
+def test_observe_cli_rejects_inapplicable_settings_before_launch(tmp_path, options):
+    args = batch_args(tmp_path, *options)
+    with pytest.raises(ValueError):
+        batch.resolve_run_options(args)
+    assert not (tmp_path / "batch").exists()

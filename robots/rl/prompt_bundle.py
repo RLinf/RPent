@@ -84,6 +84,15 @@ def system_prompt(variables: Mapping[str, object] | None = None) -> str:
     environment = str(variables.get("environment", "libero"))
     workflow = str(variables.get("workflow", "episode"))
     validate_workflow(environment, workflow)
+    from robots.rl.contracts import validate_perception_options
+
+    perception = str(variables.get("perception_mode", "single"))
+    validate_perception_options(
+        workflow,
+        perception,
+        int(variables.get("max_observe_calls", 8)),
+        int(variables.get("observe_concurrency", 8)),
+    )
     variant = str(variables.get("prompt", "simple"))
     if variant not in _SECTIONS:
         raise ValueError(
@@ -92,8 +101,24 @@ def system_prompt(variables: Mapping[str, object] | None = None) -> str:
     prompts = Path(__file__).parent / "prompts"
     sections = [
         (prompts / name).read_text().strip()
-        for name in ("shared.md", f"{environment}.md", f"{workflow}.md")
+        for name in (
+            "shared.md",
+            f"{environment}.md",
+            "episode_observe.md" if perception == "batch" else f"{workflow}.md",
+        )
     ]
+    if perception == "batch":
+        if environment != "libero":
+            from robots.rl.backends import RoboCasaPrimitives, RoboTwinPrimitives
+
+            camera = {
+                "robocasa": RoboCasaPrimitives,
+                "robotwin": RoboTwinPrimitives,
+            }[environment].cameras[0]
+            sections[-1] = sections[-1].replace("agentview", camera)
+        sections.append(
+            f"Each observe accepts at most {variables.get('max_observe_calls', 8)} suboperations. Independent operations are scheduled with concurrency at most {variables.get('observe_concurrency', 8)}."
+        )
     if environment == "libero" and workflow in {"episode", "episode_image"}:
         if variables.get("action_mode", "single") == "batch":
             sections.append(
@@ -111,4 +136,7 @@ def system_prompt(variables: Mapping[str, object] | None = None) -> str:
 
 def user_prompt(variables: Mapping[str, object] | None = None) -> str:
     """Introduce the task and initial state that planners append."""
-    return "The task and the measured initial state follow."
+    text = "The task and the measured initial state follow."
+    if (variables or {}).get("perception_mode", "single") == "batch":
+        text += " image_sources lists the current camera image IDs; these are references, not displayed pictures. Use observe to view them or measure them, and copy returned image_id/mask_id values into source."
+    return text

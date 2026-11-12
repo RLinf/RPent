@@ -308,3 +308,9 @@ Syntactic whitespace is limited to 16 characters to avoid the upstream empty
 parameter-zone loop in finish(). No placeholder arguments, dependency patches,
 prompt changes or sampling changes are used. Whole-reply validation remains
 mandatory. See https://github.com/mlc-ai/xgrammar/issues/802.
+
+## Episode observation lists
+
+`--workflow episode --perception-mode batch` replaces standalone perception
+with `observe(calls=[...])`. Sources define dependencies; independent nodes run
+concurrently. [CLI, examples, source IDs and outputs](OBSERVE.md).

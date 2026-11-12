@@ -45,6 +45,9 @@ STOP = threading.Event()
 # These flags are declared once in run.sh; batch CLI values override that argv.
 RUN_FLAGS = (
     "--workflow",
+    "--perception-mode",
+    "--max-observe-calls",
+    "--observe-concurrency",
     "--action-mode",
     "--max-actions-per-call",
     "--reasoning-history",
@@ -112,6 +115,14 @@ def resolve_run_options(args: argparse.Namespace) -> None:
                 "repetition_penalty",
             )
         },
+    )
+    from robots.rl.contracts import validate_perception_options
+
+    validate_perception_options(
+        args.workflow,
+        args.perception_mode,
+        args.max_observe_calls,
+        args.observe_concurrency,
     )
     if min(args.max_turns, args.max_episode_steps, args.planner_timeout_s) < 1:
         raise ValueError("Request/step budgets and planner timeout must be positive")
@@ -719,6 +730,24 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
     collection.add_argument("--max-initializing-per-gpu", type=int, default=8)
     collection.add_argument("--workflow", choices=WORKFLOWS, default=None)
     collection.add_argument("--action-mode", choices=("single", "batch"), default=None)
+    collection.add_argument(
+        "--perception-mode",
+        choices=("single", "batch"),
+        default=None,
+        help="single tools or episode-only observe graph.",
+    )
+    collection.add_argument(
+        "--max-observe-calls",
+        type=int,
+        default=None,
+        help="Total observe subcall limit (default 8).",
+    )
+    collection.add_argument(
+        "--observe-concurrency",
+        type=int,
+        default=None,
+        help="Independent observe calls in flight (default 8).",
+    )
     collection.add_argument("--max-actions-per-call", type=int, default=None)
     collection.add_argument("--reasoning-history", type=int, default=None)
     collection.add_argument("--image-history", type=int, default=None)

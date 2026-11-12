@@ -83,6 +83,9 @@ def start_environment(
     args.workflow = task.get("workflow", getattr(args, "workflow", "episode"))
     args.image_size = task.get("image_size", getattr(args, "image_size", 1024))
     for name, default in (
+        ("perception_mode", "single"),
+        ("max_observe_calls", 8),
+        ("observe_concurrency", 8),
         ("action_mode", "single"),
         ("max_actions_per_call", 3),
         ("reasoning_history", -1),

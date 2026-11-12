@@ -101,6 +101,9 @@ def get_toolkit(
         max_actions_per_call=config.prompt_vars.get("max_actions_per_call", 3),
         reasoning_history=config.prompt_vars.get("reasoning_history", -1),
         image_history=config.prompt_vars.get("image_history", -1),
+        perception_mode=config.prompt_vars.get("perception_mode", "single"),
+        max_observe_calls=config.prompt_vars.get("max_observe_calls", 8),
+        observe_concurrency=config.prompt_vars.get("observe_concurrency", 8),
     )
 
 
@@ -115,6 +118,24 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     parser.add_argument("--workflow", choices=WORKFLOWS, default="episode")
     parser.add_argument("--action-mode", choices=("single", "batch"), default="single")
     parser.add_argument("--max-actions-per-call", type=int, default=3)
+    parser.add_argument(
+        "--perception-mode",
+        choices=("single", "batch"),
+        default="single",
+        help="single: view_env/segment/back_project; batch: observe(calls=[...]), episode only.",
+    )
+    parser.add_argument(
+        "--max-observe-calls",
+        type=int,
+        default=8,
+        help="Maximum total subcalls in observe; >=1, requires perception-mode batch.",
+    )
+    parser.add_argument(
+        "--observe-concurrency",
+        type=int,
+        default=8,
+        help="Maximum independent observe subcalls in flight; >=1. Does not change SAM3 worker limits.",
+    )
     parser.add_argument(
         "--reasoning-history",
         type=int,
@@ -209,8 +230,14 @@ def _validate_args(args: argparse.Namespace) -> None:
         and getattr(args, "env", "libero") != "libero"
     ):
         raise ValueError("--image_size currently supports LIBERO only")
-    from robots.rl.contracts import validate_options
+    from robots.rl.contracts import validate_options, validate_perception_options
 
+    validate_perception_options(
+        getattr(args, "workflow", "episode"),
+        getattr(args, "perception_mode", "single"),
+        getattr(args, "max_observe_calls", 8),
+        getattr(args, "observe_concurrency", 8),
+    )
     validate_options(
         getattr(args, "env", "libero"),
         getattr(args, "workflow", "episode"),
@@ -236,6 +263,9 @@ def _validate_args(args: argparse.Namespace) -> None:
         if any(
             getattr(args, name, default) != default
             for name, default in (
+                ("perception_mode", "single"),
+                ("max_observe_calls", 8),
+                ("observe_concurrency", 8),
                 ("action_mode", "single"),
                 ("max_actions_per_call", 3),
                 ("reasoning_history", -1),
@@ -243,7 +273,7 @@ def _validate_args(args: argparse.Namespace) -> None:
             )
         ):
             raise ValueError(
-                "remote toolkit does not yet support action/history options"
+                "remote toolkit does not yet support action/history/observe options"
             )
         if getattr(args, "workflow", "episode") != "episode":
             raise ValueError("remote toolkit currently supports --workflow episode")
@@ -264,8 +294,14 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     environment = getattr(args, "env", "libero")
     workflow = getattr(args, "workflow", "episode")
     validate_workflow(environment, workflow)
-    from robots.rl.contracts import validate_options
+    from robots.rl.contracts import validate_options, validate_perception_options
 
+    validate_perception_options(
+        getattr(args, "workflow", "episode"),
+        getattr(args, "perception_mode", "single"),
+        getattr(args, "max_observe_calls", 8),
+        getattr(args, "observe_concurrency", 8),
+    )
     validate_options(
         environment,
         workflow,
@@ -301,6 +337,9 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             "workflow": workflow,
             "image_size": getattr(args, "image_size", 1024),
             "action_mode": getattr(args, "action_mode", "single"),
+            "perception_mode": getattr(args, "perception_mode", "single"),
+            "max_observe_calls": getattr(args, "max_observe_calls", 8),
+            "observe_concurrency": getattr(args, "observe_concurrency", 8),
             "max_actions_per_call": getattr(args, "max_actions_per_call", 3),
             "reasoning_history": getattr(args, "reasoning_history", -1),
             "image_history": getattr(args, "image_history", -1),
@@ -315,6 +354,9 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             "workflow": workflow,
             "image_size": getattr(args, "image_size", 1024),
             "action_mode": getattr(args, "action_mode", "single"),
+            "perception_mode": getattr(args, "perception_mode", "single"),
+            "max_observe_calls": getattr(args, "max_observe_calls", 8),
+            "observe_concurrency": getattr(args, "observe_concurrency", 8),
             "max_actions_per_call": getattr(args, "max_actions_per_call", 3),
             "reasoning_history": getattr(args, "reasoning_history", -1),
             "image_history": getattr(args, "image_history", -1),

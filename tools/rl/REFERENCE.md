@@ -241,3 +241,9 @@ assets. `ROBOCASA_ASSETS_PATH` alone does not redirect this package version.
 See the [workflow guide](WORKFLOWS.md) for all five modes, SAM3 pooling and the fixed-panel comparison.
 
 The model launcher enables cache reporting. For eight-worker SAM3 deployment, per-worker wait metrics and long-history cache tuning, see [workflow performance configuration](WORKFLOWS.md#model-prefix-cache-diagnostics).
+
+## Episode observation lists
+
+`--workflow episode --perception-mode batch` replaces standalone perception
+with `observe(calls=[...])`. Sources define dependencies; independent nodes run
+concurrently. [CLI, examples, source IDs and outputs](OBSERVE.md).

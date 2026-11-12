@@ -188,6 +188,20 @@ def validate_options(
         )
 
 
+def validate_perception_options(workflow, mode="single", max_calls=8, concurrency=8):
+    """Keep graph perception opt-in and confined to episode workflows."""
+    if mode not in {"single", "batch"}:
+        raise ValueError("perception-mode must be single or batch")
+    if max_calls < 1 or concurrency < 1:
+        raise ValueError("max-observe-calls and observe-concurrency must be positive")
+    if workflow != "episode" and (
+        mode != "single" or max_calls != 8 or concurrency != 8
+    ):
+        raise ValueError("observe options require --workflow episode")
+    if mode == "single" and (max_calls != 8 or concurrency != 8):
+        raise ValueError("observe limits require --perception-mode batch")
+
+
 def argument_hint(name: str, environment: str = "libero") -> str:
     """Short actionable model feedback, independently of validator formatting."""
     if environment != "libero" and name in {"move_to", "set_gripper"}:
@@ -196,5 +210,6 @@ def argument_hint(name: str, environment: str = "libero") -> str:
         "segment": "Supply exactly one non-empty prompt or point [row,col]; follow the tool's camera/step requirements.",
         "back_project": "Supply exactly one pixel, box or mask_id; pixel/box must match the displayed camera and frame.",
         "move_to": "Supply xyz, orientation_rpy, or both as three finite numbers.",
+        "observe": "Use calls with unique id/op; view_env has camera only; segment/back_project need an issued source or @view.camera/@segment. Fix the whole list before retrying.",
         "execute_actions": "Supply a non-empty actions list within K; each item must be move_to with a target or set_gripper with opening 0..1.",
     }.get(name, "Follow the declared required fields and value ranges.")

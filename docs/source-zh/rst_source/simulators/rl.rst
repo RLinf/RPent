@@ -242,3 +242,20 @@ usage 的差值。缺少本地 processor 时会警告，并在审计中标明文
 此检查需要已运行的 SGLang Qwen 服务和本地 processor 文件，对照真实 input
 usage 验证三种图片尺寸、工具回传图片、thinking／历史设置及两种压缩触发条件。
 每次请求只允许输出一个 token，不执行仿真动作，不计入正式评测。
+
+Episode 感知列表
+----------------
+
+本地 ``episode`` 可选 ``--perception-mode batch``，用
+``observe(calls=[...])`` 替换三个独立感知工具。默认 ``single`` 保留原接口。
+Episode-image、ZAP 和远程 toolkit 启动前拒绝此选项。
+
+每项有局部 ``id`` 和 ``op``。view 不传 source；测量通过 ``source`` 选择已返回的
+图片／mask ID，或 ``@v.agentview``、``@cup`` 这类本次引用。ID 固定帧与相机。
+整个列表先校验；代码从来源推导依赖，独立节点并行，不在工具内部额外调用模型。
+动作批处理可独立选择。
+
+``--max-observe-calls 8`` 限制列表长度，``--observe-concurrency 8`` 限制并发。
+两个启动器都支持，恢复时固定参数。详见
+:download:`感知列表指南 <../../../../tools/rl/OBSERVE_zh.md>` 的启动、source、示例、
+返回和审计说明。

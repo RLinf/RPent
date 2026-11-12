@@ -8,6 +8,9 @@ if [[ -n "${RPENT_MODEL:-}" && "${RPENT_MODEL,,}" != *qwen3.8* && -z "${RPENT_RE
 fi
 run_args=(
   --workflow "${RPENT_WORKFLOW:-episode}"                         # 工作流：episode、episode_image 或 zap_*。
+  --perception-mode "${RPENT_PERCEPTION_MODE:-single}"           # 感知接口：single；batch 使用 observe，仅支持 episode。
+  --max-observe-calls "${RPENT_MAX_OBSERVE_CALLS:-8}"               # 一次 observe 中子操作总数上限，至少 1。
+  --observe-concurrency "${RPENT_OBSERVE_CONCURRENCY:-8}"           # 独立子操作并发上限；不修改 SAM3 副本的并发限制。
   --action-mode "${RPENT_ACTION_MODE:-single}"                    # 动作接口：single；batch 仅支持 episode/episode_image。
   --max-actions-per-call "${RPENT_MAX_ACTIONS_PER_CALL:-3}"        # batch 每次最多执行的动作数量。
   --reasoning-history "${RPENT_REASONING_HISTORY:--1}"            # 保留最近几轮推理：-1 全部、0 删除、正数 N 轮。

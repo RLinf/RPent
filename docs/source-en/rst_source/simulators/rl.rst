@@ -269,3 +269,21 @@ It checks three image sizes, tool-returned images, thinking/history settings
 and both compression triggers against real input usage. Each request permits
 one output token and executes no simulator actions; these are accounting
 checks, not benchmark episodes.
+
+Episode Observation Lists
+-------------------------
+
+Local ``episode`` supports ``--perception-mode batch`` to replace the three
+standalone perception tools with ``observe(calls=[...])``. The default is
+``single``. Episode-image, ZAP workflows and remote toolkits reject this option.
+
+Each subcall has a local ``id`` and ``op``. Views have no source; measurements
+use ``source`` with an issued image/mask ID or a same-call reference such as
+``@v.agentview`` or ``@cup``. IDs bind frame and camera. The complete list is
+validated first; independent nodes run concurrently, according to dependencies.
+No extra model calls occur inside a tool. Action batching remains independent.
+
+``--max-observe-calls 8`` limits list length; ``--observe-concurrency 8`` limits
+concurrency. Both launchers support them and pin them for resume. See the
+:download:`observation-list guide <../../../../tools/rl/OBSERVE.md>` for startup,
+source rules, examples, result fields and audit.

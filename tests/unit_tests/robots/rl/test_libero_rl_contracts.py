@@ -507,6 +507,9 @@ def test_prompt_variant_reaches_the_prompt_variables() -> None:
         "max_actions_per_call": 3,
         "reasoning_history": -1,
         "image_history": -1,
+        "perception_mode": "single",
+        "max_observe_calls": 8,
+        "observe_concurrency": 8,
     }
     assert config.task_desc["prompt"] == "base_gripper"
 

@@ -63,6 +63,9 @@ class RLToolkit(Toolkit):
         max_actions_per_call: int = 3,
         reasoning_history: int = -1,
         image_history: int = -1,
+        perception_mode: str = "single",
+        max_observe_calls: int = 8,
+        observe_concurrency: int = 8,
     ) -> None:
         if observation_mode != "adaptive":
             raise ValueError("rl supports only adaptive observations")
@@ -79,6 +82,17 @@ class RLToolkit(Toolkit):
             reasoning_history,
             image_history,
         )
+        from robots.rl.contracts import validate_perception_options
+
+        validate_perception_options(
+            workflow, perception_mode, max_observe_calls, observe_concurrency
+        )
+        self.perception_mode = perception_mode
+        self.max_observe_calls, self.observe_concurrency = (
+            max_observe_calls,
+            observe_concurrency,
+        )
+        self.observer = None
         self.action_mode, self.max_actions_per_call = action_mode, max_actions_per_call
         self.reasoning_history, self.image_history = reasoning_history, image_history
         self.output_dir = Path(output_dir)
@@ -118,7 +132,17 @@ class RLToolkit(Toolkit):
                 ],
                 image_size=image_size,
             )
+        if perception_mode == "batch":
+            from robots.rl.observe import Observe
+
+            self.observer = Observe(self)
         for definition in iter_tools(self._primitives):
+            if self.observer is not None and definition.name in {
+                "view_env",
+                "segment",
+                "back_project",
+            }:
+                continue
             if workflow.startswith("zap_") and definition.name in {
                 "view_env",
                 "segment",
@@ -134,6 +158,35 @@ class RLToolkit(Toolkit):
             if action_mode == "batch" and definition.name in {"move_to", "set_gripper"}:
                 continue
             self.add_tool(definition)
+        if self.observer is not None:
+            declaration = self.observer.observe
+            schema = declaration.input_schema
+            schema["properties"]["calls"]["maxItems"] = max_observe_calls
+            schema["$defs"]["ViewCall"]["properties"]["camera"]["enum"] = [
+                *self.observer.cameras,
+                "all",
+            ]
+            if environment == "libero":
+                for model, fields in (
+                    ("SegmentCall", ("point",)),
+                    ("ProjectCall", ("pixel", "box")),
+                ):
+                    for name in fields:
+                        prop = schema["$defs"][model]["properties"][name]
+                        for branch in prop.get("anyOf", [prop]):
+                            if "array" in branch.get("type", ()):
+                                branch["items"]["maximum"] = (
+                                    image_size if name == "box" else image_size - 1
+                                )
+            self.add_tool(
+                replace(
+                    declaration,
+                    _input_schema=schema,
+                    description=declaration.description.replace(
+                        "1..K", f"1..{max_observe_calls}"
+                    ).replace("agentview", self.observer.cameras[0]),
+                )
+            )
         if workflow == "episode_image":
             from robots.rl.actions import LatestImageTools
 
@@ -244,6 +297,8 @@ class RLToolkit(Toolkit):
             view = self.current_image_observation()
             observation.data["observation"] = view.data
             observation.images = view.images
+        if self.observer is not None:
+            observation.data["state"]["image_sources"] = self.observer.publish_current()
         self._count_images(observation)
         self._state.save(
             "planner_audit.json",
@@ -279,6 +334,8 @@ class RLToolkit(Toolkit):
             from robots.rl.contracts import validate_relations
 
             validate_relations(name, arguments)
+            if name == "observe":
+                self.observer.compile(arguments["calls"])
             if self.environment == "libero" and self.image_size != NATIVE_SIZE:
                 for field in ("point", "pixel"):
                     if arguments.get(field) is not None:
@@ -341,8 +398,10 @@ class RLToolkit(Toolkit):
         elapsed = time.perf_counter() - tool_started
         timings = self.workflow_stats.setdefault("tool_seconds_by_name", {})
         timings[name] = timings.get(name, 0.0) + elapsed
-        if name in {"segment", "back_project"}:
+        if name in {"segment", "back_project", "observe"}:
             self.workflow_stats["perception_seconds"] += elapsed
+        if self.observer is not None and name == "execute_actions":
+            result.data["image_sources"] = self.observer.publish_current()
         self._count_images(result)
         return result
 
@@ -392,6 +451,9 @@ class RLToolkit(Toolkit):
             if key in result:
                 data[key] = result[key]
         data["step"] = step
+        if self.observer is not None:
+            # Include the exact planner feedback in the recorded state as well.
+            data["image_sources"] = self.observer.image_ids(step)
         if advanced or data["status"] != "error":
             data.update(self._robot_state())
         if advanced:
@@ -406,6 +468,8 @@ class RLToolkit(Toolkit):
                 - capture_started
             )
             self._recorded_env_steps = self._primitives.env_steps
+        if self.observer is not None:
+            self.observer.publish_current()
         return ToolResult(data=data)
 
     def solved(self) -> bool:
@@ -425,6 +489,9 @@ class RLToolkit(Toolkit):
                 "workflow": self.workflow,
                 "image_size": self.image_size,
                 "action_mode": self.action_mode,
+                "perception_mode": self.perception_mode,
+                "max_observe_calls": self.max_observe_calls,
+                "observe_concurrency": self.observe_concurrency,
                 "max_actions_per_call": self.max_actions_per_call,
                 "reasoning_history": self.reasoning_history,
                 "image_history": self.image_history,

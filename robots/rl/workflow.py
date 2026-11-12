@@ -179,7 +179,11 @@ class WorkflowCapability(AbstractCapability):
                     if call.tool_name not in self.allowed:
                         raise ValueError(f"unknown tool {call.tool_name}")
                     arguments = call.args_as_dict()
-                    self.allowed[call.tool_name].validate_arguments(arguments)
+                    parameters = self.allowed[call.tool_name].validate_arguments(
+                        arguments
+                    )
+                    if call.tool_name == "observe":
+                        self.toolkit.observer.compile(parameters.calls)
                     from robots.rl.contracts import validate_relations
 
                     validate_relations(call.tool_name, arguments)
