@@ -22,6 +22,7 @@ from typing import Any
 
 import numpy as np
 
+from robots.robodojo.access import CAMERAS
 from rpent.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -67,7 +68,7 @@ class _VideoRecorder:
             import cv2
 
             vision = obs.get("vision", {})
-            for cam in ("cam_head", "cam_left_wrist", "cam_right_wrist"):
+            for cam in CAMERAS:
                 color = vision.get(cam, {}).get("color")
                 if color is None:
                     continue
@@ -92,10 +93,6 @@ class _VideoRecorder:
         self.writers.clear()
         self.paths.clear()
         return paths
-
-
-def _record_obs_frame(recorder, obs: dict) -> None:
-    recorder.record(obs)
 
 
 # ---------------------------------------------------------------------------
@@ -250,7 +247,8 @@ def _obs_dict(env, recorder) -> dict[str, Any]:
 
     obs = env.get_obs(env_idx=0)
     obs["instruction"] = resolve_instruction(env)
-    _record_obs_frame(recorder, obs)
+    if recorder is not None:
+        recorder.record(obs)
     return obs
 
 
