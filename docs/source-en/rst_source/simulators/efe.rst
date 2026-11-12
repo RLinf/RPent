@@ -267,9 +267,13 @@ Common Options
   when importing the agent from an installed wheel.
 - ``--agent-kwarg workdir=/path``: the task working directory; defaults to
   ``/app``.
-- ``--agent-kwarg timeout_s=N``: the RPent inner time limit, which must be below
-  the task's agent timeout. An equal value lets Harbor time out first and lose
-  ``session.json``.
+- ``--agent-kwarg timeout_s=N``: an optional RPent inner time limit. By default,
+  RPent reads Harbor's resolved timeout from the trial configuration and, for a
+  local task, ``task.toml``. It reserves time for shutdown and report writing so
+  Harbor does not kill the trial before ``session.json`` is saved.
+- ``--agent-kwarg agent_timeout_s=N``: explicitly override the detected Harbor
+  timeout. Use this when the task configuration is not available as a local
+  task directory. Set it to the same effective timeout Harbor uses.
 - ``--agent-kwarg max_turns=N``: the model-response limit in the planner, not a
   count of shell commands.
 - ``--agent-kwarg sandbox=full-access``: lets the planner script the simulator

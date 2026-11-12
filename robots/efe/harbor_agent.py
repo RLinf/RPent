@@ -126,6 +126,45 @@ class RPentEfeAgent(BaseInstalledAgent):
             return max(1, self.agent_timeout_s - _TIMEOUT_MARGIN_S)
         return self.timeout_s + _TIMEOUT_MARGIN_S
 
+    def _resolve_harbor_agent_timeout(self) -> int | None:
+        """Read Harbor's resolved timeout from this trial's local config."""
+        trial_config_path = self.logs_dir.parent / "config.json"
+        if not trial_config_path.is_file():
+            return None
+
+        with trial_config_path.open(encoding="utf-8") as config_file:
+            trial_config = json.load(config_file)
+
+        agent_config = trial_config.get("agent", {})
+        timeout_s = agent_config.get("override_timeout_sec")
+        if timeout_s is None:
+            task_path = trial_config.get("task", {}).get("path")
+            if not task_path:
+                return None
+            task_config_path = Path(task_path).expanduser() / "task.toml"
+            if not task_config_path.is_file():
+                return None
+            with task_config_path.open("rb") as task_file:
+                task_config = tomllib.load(task_file)
+            timeout_s = task_config.get("agent", {}).get("timeout_sec")
+        if timeout_s is None:
+            return None
+
+        max_timeout_s = agent_config.get("max_timeout_sec")
+        multiplier = trial_config.get("agent_timeout_multiplier")
+        if multiplier is None:
+            multiplier = trial_config.get("timeout_multiplier", 1.0)
+        resolved = min(float(timeout_s), float(max_timeout_s or float("inf")))
+        return int(resolved * float(multiplier))
+
+    def _apply_agent_timeout(self, agent_timeout_s: int) -> None:
+        """Keep the planner and exec wrapper inside Harbor's agent timeout."""
+        if agent_timeout_s <= 2 * _TIMEOUT_MARGIN_S:
+            raise ValueError("Harbor agent timeout is too small for one session.")
+        self.agent_timeout_s = agent_timeout_s
+        budget = agent_timeout_s - 2 * _TIMEOUT_MARGIN_S
+        self.timeout_s = min(self.timeout_s, budget)
+
     async def install(self, environment: BaseEnvironment) -> None:
         """Upload source and install RPent without robot extras."""
         entries = ("pyproject.toml", "README.md", "LICENSE", "rpent", "robots")
@@ -247,6 +286,10 @@ class RPentEfeAgent(BaseInstalledAgent):
         context: AgentContext,
     ) -> None:
         """Run RPent in the task container and leave verification to Harbor."""
+        if self.agent_timeout_s is None:
+            resolved_timeout = self._resolve_harbor_agent_timeout()
+            if resolved_timeout is not None:
+                self._apply_agent_timeout(resolved_timeout)
         remote_output = self.environment_logs_dir / "rpent"
         remote_instruction = self.environment_logs_dir / "rpent-instruction.txt"
         with tempfile.TemporaryDirectory(prefix="rpent-efe-task-") as temporary_dir:

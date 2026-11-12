@@ -190,7 +190,8 @@ RPent 提供两种控制方式。默认使用 **Skills**：模型通过 ``move_t
 
 - ``--agent-kwarg source_root=/path``：指定 RPent 源码目录；默认使用 RPentEfeAgent 所在的仓库。从已安装的 Wheel 导入时，需要显式指定该路径。
 - ``--agent-kwarg workdir=/path``：任务的工作目录；默认 ``/app``。
-- ``--agent-kwarg timeout_s=N``：RPent 的内层时间上限，必须小于任务的 Agent 超时。两者相等时 Harbor 先超时，``session.json`` 会丢失。
+- ``--agent-kwarg timeout_s=N``：可选的 RPent 内层时间上限。默认情况下，RPent 会从 Harbor Trial 配置读取实际超时；对于本地任务，也会读取 ``task.toml``。RPent 会为关闭和写入报告预留时间，避免 Harbor 在 ``session.json`` 保存前终止 Trial。
+- ``--agent-kwarg agent_timeout_s=N``：手动指定 Harbor 的实际超时，覆盖自动读取的值。任务配置无法通过本地任务目录访问时使用此参数，并确保数值与 Harbor 实际采用的超时一致。
 - ``--agent-kwarg max_turns=N``：Planner 的模型响应次数上限，不等于 Shell 命令数。
 - ``--agent-kwarg sandbox=full-access``：允许 Planner 用 Shell 直接编写脚本操作 Simulator。默认 ``read-only`` 让 Shell 无法访问 Simulator，只有 RPent 工具会作用于 Episode。
 
