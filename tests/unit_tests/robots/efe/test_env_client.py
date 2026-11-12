@@ -25,6 +25,7 @@ _LAYOUT = ["waist", "shoulder", "elbow", "forearm_roll", "wrist_angle"]
 _LIMITS = {name: [-3.0, 3.0] for name in _LAYOUT} | {"gripper": [0.002, 0.037]}
 
 _SPEC = {
+    "protocol": "eai-standard/2.2",
     "control_hz": 500.0,
     "max_chunk_s": 10.0,
     "max_frames_per_call": 3000,
@@ -237,6 +238,28 @@ def test_a_spec_without_action_types_is_rejected():
     spec = dict(_SPEC)
     spec.pop("action_types")
     with pytest.raises(ValueError, match="action_types"):
+        EfeEnvClient(robot=FakeRobot(spec))
+
+
+def test_success_hidden_matches_the_service_spelling():
+    """``/spec`` returns a sentence, so the flag is a prefix rather than a value."""
+    spec = {**_SPEC, "success_signal": "hidden: the service never tells you..."}
+
+    assert EfeEnvClient(robot=FakeRobot(spec)).success_hidden is True
+
+
+def test_success_hidden_is_false_for_a_visible_signal():
+    spec = {**_SPEC, "success_signal": "visible"}
+
+    assert EfeEnvClient(robot=FakeRobot(spec)).success_hidden is False
+
+
+def test_an_unsupported_protocol_is_rejected_before_any_call():
+    spec = {**_SPEC, "protocol": "eai-standard/2.1"}
+    spec.pop("control_hz")
+    spec["control_dt"] = 0.02
+
+    with pytest.raises(ValueError, match="Unsupported EFE service protocol"):
         EfeEnvClient(robot=FakeRobot(spec))
 
 

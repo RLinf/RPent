@@ -48,6 +48,11 @@ import numpy as np
 # carries no field for it.
 _MAX_DT_S = 0.5
 _DONE_ACTION = "done"
+# Versions this adapter was written and run against. ``2.1`` and ``2.3`` publish
+# ``control_dt`` instead of ``control_hz`` and ship a different ``rcb_client``
+# (``get_obs(include_depth=...)``, ``Result.depth``, no ``wait_ready``), so they
+# need their own adapter rather than a silent fallback here.
+_SUPPORTED_PROTOCOLS = ("eai-standard/2.2", "eai-standard/2.4")
 # Reset and finish restart or end a whole episode; they get the protocol's
 # longer operation timeout rather than the request timeout.
 _SERVICE_POST_TIMEOUT_S = 600
@@ -110,8 +115,17 @@ class EfeEnvClient:
 
     @property
     def success_hidden(self) -> bool:
-        """Whether the service hides success and leaves the end to the agent."""
-        return self._spec.get("success_signal") == "hidden"
+        """Whether the service hides success and leaves the end to the agent.
+
+        The service spells the flag out: ``/spec`` returns
+        ``"hidden: the service never tells you whether you have succeeded..."``,
+        while only the grader's private ``final.json`` holds the bare
+        ``"hidden"``. Match the prefix, not the exact string.
+        """
+        signal = self._spec.get("success_signal")
+        return isinstance(signal, str) and (
+            signal == "hidden" or signal.startswith("hidden:")
+        )
 
     @property
     def control_hz(self) -> float:
@@ -366,6 +380,13 @@ class EfeEnvClient:
 
     @staticmethod
     def _validate_spec(spec: dict[str, Any]) -> None:
+        protocol = spec.get("protocol")
+        if protocol not in _SUPPORTED_PROTOCOLS:
+            raise ValueError(
+                f"Unsupported EFE service protocol {protocol!r}; this adapter "
+                f"handles {list(_SUPPORTED_PROTOCOLS)}. ``2.1`` and ``2.3`` "
+                "publish ``control_dt`` and a different ``rcb_client``."
+            )
         for key in ("action_types", "cameras", "control_hz", "max_chunk_s"):
             if key not in spec:
                 raise ValueError(f"The service spec has no {key!r}: {sorted(spec)}")
