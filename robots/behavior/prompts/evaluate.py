@@ -87,66 +87,107 @@ Normal observations already contain compact state.robot_state. Use the detailed
 reader only when extra joint velocities or unrounded values are needed.
 """
 
-NATIVE_SELECTION = """
+NATIVE_SELECTION = (
+    (
+        (),
+        """
 Work the task as a sequence of stages, each with its own tools and its own
 observable success cue: approach, localize, reach, align, engage, verify.
 Name the current stage before every action and state the cue that would end it.
-
+""",
+    ),
+    (
+        ("vla_act",),
+        """
 Approach. Use vla_act with the configured task text while the head view is
 still changing toward the target and the hand is not yet near it. Learned
 control is the right tool for navigation and the coarse reach; do not interrupt
 it for a native tool while it is making visible progress.
-
+""",
+    ),
+    (
+        ("segment", "pixel_to_robot_base"),
+        """
 Localize. Once the target is close in a wrist or head view, call segment on
 the most informative saved view with a short object phrase, and inspect the
 overlay before trusting it. If the phrase fails, try a point on the object or
 another camera, then pixel_to_robot_base on the same camera, step and pixel.
 A returned point is a surface location, not a grasp or contact pose; choose a
 free-space pose beside or above it with visible clearance.
-
+""",
+    ),
+    (
+        ("move_to", "move_base"),
+        """
 Reach. Use move_to toward that free-space pose. Read target_reached and the
 pose errors. If the plan is refused as unreachable, nearest_reachable_xyz
 reports how far the arm could get: a short gap means a smaller step toward the
 same pose may work; a long gap means the base is too far or badly placed. Only
-then use move_base, with a short forward or lateral segment through visibly
+then use move_base, with a short forward or lateral adjustment through visibly
 clear space, re-localize the target afterward, and try the reach again.
 Changing the base without a reachability reason breaks learned continuity and
 rarely helps; do not use it as a default recovery.
-
+""",
+    ),
+    (
+        ("rotate_wrist", "move_to", "move_eef_delta", "vla_act"),
+        """
 Align. When the hand is at the target but the fingers are not parallel to the
 handle or the palm does not face the control, use rotate_wrist for a small yaw
 change, or move_to with an explicit orientation. Check the wrist image after
 each change. If an orientation request is refused, the current arm posture
 cannot hold it: back the hand off a little with move_eef_delta or let vla_act
 re-approach, rather than repeating the same request.
-
+""",
+    ),
+    (
+        ("move_eef_delta", "vla_act", "set_gripper"),
+        """
 Engage. Descend or press with move_eef_delta in small increments, or hand back
 to vla_act for the final contact when the relationship is clear. Close with
 set_gripper only when the wrist image shows the object between the fingers.
 Fingers that close to nearly nothing mean nothing is held: reopen, correct the
 approach, and try again instead of lifting.
-
+""",
+    ),
+    (
+        (),
+        """
 Verify. After an engagement, look for the device or object change that the
 stage required: a lifted object moves with the hand, a pressed control changes
 the device, a placed object stays where it was released. Being near the target
 is not engagement, and a confirmed action count is not progress.
-
+""",
+    ),
+    (
+        ("vla_act",),
+        """
 Recovery rules that apply at every stage: a refused or missed native motion
 sends no path and is never a reason to finish; continue with the next sensible
 action. A retry must differ from the failed attempt in pose, approach or
 viewpoint. When the same native tool fails repeatedly at the same place, return
 to vla_act and let it re-approach before trying again. Prefer one local
 correction followed by vla_act over long chains of native corrections.
-
+""",
+    ),
+    (
+        (),
+        """
 Evidence: separate request acceptance, confirmed execution, measured
 attainment, observable progress and task success. Re-localize after any base
 motion or object displacement; stale base-frame points are wrong.
-
+""",
+    ),
+    (
+        (),
+        """
 Termination: respect session end and summarize observed progress and
 unresolved outcomes. Absence of an outcome cue is uncertainty, not proof of
 the opposite state. While the session is active, keep selecting bounded
 actions; slow progress is a reason to diagnose, not to finish.
-"""
+""",
+    ),
+)
 
 SEGMENT = """
 Use SAM3 through segment to isolate a visible object or part when its boundary
@@ -181,14 +222,14 @@ and remained in the desired place; issued actions alone do not prove release.
 """
 
 NATIVE_MOTION = """
-Use move_to for a specific local correction that the learned action missed,
-such as adjusting a clear approach position. Supply xyz in metres in the current
+Use move_to for a specific local correction, such as adjusting a clear approach
+position. Supply xyz in metres in the current
 robot-base frame and, if needed, a unit xyzw orientation; omitted orientation
 preserves the measured one. Use it for a reposition within the tool's reported
 single-call bound when the required local adjustment is clear. A target beyond
 that bound is refused before planning and reports the measured and allowed
-distances, so split a longer approach into successive targets or use the base
-motion tool for the coarse part first. The base must be stationary.
+distances, so split a longer approach into successive bounded targets. The base
+must be stationary.
 The base, trunk, other arm and gripper commands are held. This mode cannot carry
 objects or plan whole-body navigation. Planning solves IK for the requested pose
 only and interpolates in joint space; it does not check the path against the
@@ -198,9 +239,9 @@ with the achieved orientation error; check the wrist image before relying on
 the hand's facing. If IK still fails, nothing moves and the result reports the
 nearest reachable xyz and a suggested_retreat_xyz pulled back toward the base;
 a refusal with the hand already near the object usually means the arm posture,
-not the distance, so retreat or let learned control re-approach before moving
-the base. A SAM mask surface point is not a grasp pose: choose an approach with
-visible clearance and a suitable wrist orientation. Read the returned execution
+not the distance, so reconsider the approach before retrying. A SAM mask surface
+point is not a grasp pose: choose an approach with visible clearance and a suitable
+wrist orientation. Read the returned execution
 counts and measured pose error; a plan alone does not establish execution. A
 rejected plan does not end the episode.
 Before planning, the tool may spend a bounded number of counted hold actions to
@@ -241,8 +282,8 @@ and always executes, with no IK planning. roll turns the gripper opening about
 the forearm axis, for aligning the fingers with a handle; pitch tips the palm
 toward or away from the forearm, for facing a control from above; yaw bends the
 hand sideways. The hand position moves along a short arc about the wrist, so
-allow clearance and keep the angle small. Prefer it over rotate_wrist when the
-arm is extended and orientation requests are being refused. Read
+allow clearance and keep the angle small. Direct joint control can help when
+the arm is extended and IK orientation requests are being refused. Read
 measured_delta_deg, clipped_to_joint_limit and the wrist image afterward; a
 confirmed ramp does not prove alignment.
 """
@@ -250,7 +291,7 @@ confirmed ramp does not prove alignment.
 BASE_MOTION = """
 Use move_base for one short local base adjustment through visibly clear space,
 such as changing the approach or viewing angle. This is a normalized body-frame
-velocity segment, not a distance goal, world navigation or obstacle avoidance.
+velocity command, not a distance goal, world navigation or obstacle avoidance.
 forward/lateral use local +X/+Y and turn uses positive yaw; the schema states
 each command's scale and bound. steps runs at the control rate with no fixed cap
 below the episode budget, followed by one zero-base command.
@@ -269,12 +310,11 @@ LOCAL_MOTION = """
 move_eef_delta makes one small single-arm displacement, within the reported
 single-call relative bound in current robot-base xyz, while keeping its EEF
 orientation. It resolves the target from the current pose and then uses the
-same IK planner and execution as move_to, so the same preconditions apply: the
-robot is stationary and the base is stopped. When the current orientation
-cannot be kept, the planner retries for position only and reports
-orientation_relaxed with the achieved orientation error. A pre-motion rejection is not a
-terminal environment state; reassess the request or continue with another
-available action tool. Inspect returned images and the measured pose error
+IK planner and execution path; the robot must be stationary and the base
+stopped. When the current orientation cannot be kept, the planner retries for
+position only and reports orientation_relaxed with the achieved orientation error.
+A pre-motion rejection is not a terminal environment state; reassess the request
+or continue with another available action tool. Inspect returned images and the measured pose error
 afterward; a planned path alone does not prove the motion completed.
 """
 

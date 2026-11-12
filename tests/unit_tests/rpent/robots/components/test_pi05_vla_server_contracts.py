@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from pathlib import Path
-
 import numpy as np
 import pytest
 
@@ -269,156 +267,39 @@ def test_shared_pi05_health_and_model_metadata_are_separate(embodiment):
             facade._dispatch("vla.get_model_meta", (), {})
 
 
-@pytest.mark.parametrize("state_layout", [None, "abs_joint"])
-def test_behavior_shared_worker_uses_native_channels_and_episode_reset(
-    monkeypatch, state_layout
-):
+def test_behavior_shared_worker_returns_decoded_actions(monkeypatch):
+    import sys
+    from types import ModuleType
     from unittest.mock import Mock
 
     import torch
 
-    from robots.behavior import pi05
-
     model = Mock()
     model.cuda.return_value.eval.return_value = model
-    predicted = torch.arange(32 * 32, dtype=torch.bfloat16).reshape(1, 32, 32)
+    # RLinf removes model padding and returns float32 environment-space actions.
+    predicted = torch.arange(32 * 23, dtype=torch.float32).reshape(1, 32, 23)
     model.predict_action_batch.return_value = (predicted, None)
     load = Mock(return_value=model)
-    monkeypatch.setattr(pi05, "load_model", load)
+    loader = ModuleType("rlinf.models.embodiment.openpi")
+    loader.get_model = load
+    monkeypatch.setitem(sys.modules, loader.__name__, loader)
     facade = Pi05VLAFacade(
         model_path="/checkpoint",
         embodiment="behavior",
-        behavior_state_layout=state_layout,
-        seed=0,
+        norm_stats_path="/stats/norm_stats.json",
     )
     try:
-        cfg, selected = load.call_args.args
-        assert selected == (state_layout or "comet")
+        (cfg,) = load.call_args.args
+        load.assert_called_once_with(cfg, torch_dtype=None)
         assert cfg.openpi.config_name == "pi05_behavior"
         assert cfg.model_path == "/checkpoint"
+        assert cfg.openpi_data.norm_stats_path == "/stats/norm_stats.json"
         assert cfg.openpi.task == "eval" and cfg.precision == "bf16"
         assert cfg.openpi.action_env_dim == 23 and cfg.num_action_chunks == 32
         obs = {"task_descriptions": ["Turn on the radio."]}
         result = facade._dispatch("vla.predict", (obs,), {})
         model.predict_action_batch.assert_called_once_with(obs, mode="eval")
         assert result.dtype == np.float32
-        np.testing.assert_array_equal(result, predicted.float().numpy()[:, :, :23])
-        assert facade._dispatch("vla.reset", (), {}) == {"ok": True}
-        model.reset.assert_called_once_with()
-        model.predict_action_batch.return_value = (predicted[:, :-1], None)
-        with pytest.raises(ValueError, match="finite BEHAVIOR actions"):
-            facade._dispatch("vla.predict", (obs,), {})
-        model.predict_action_batch.return_value = (np.full((1, 32, 23), np.nan), None)
-        with pytest.raises(ValueError, match="finite BEHAVIOR actions"):
-            facade._dispatch("vla.predict", (obs,), {})
+        np.testing.assert_array_equal(result, predicted.numpy())
     finally:
         facade.close()
-
-
-@pytest.fixture
-def behavior_model_loader(monkeypatch):
-    import sys
-    from types import SimpleNamespace
-    from unittest.mock import Mock
-
-    loader = Mock()
-    for name in ("openpi", "openpi_pytorch"):
-        monkeypatch.setitem(
-            sys.modules,
-            f"rlinf.models.embodiment.{name}",
-            SimpleNamespace(get_model=loader),
-        )
-    monkeypatch.setitem(
-        sys.modules,
-        "rlinf.models.embodiment.openpi.dataconfig.behavior_dataconfig",
-        SimpleNamespace(LeRobotBehaviorDataConfig=type("OfficialDataConfig", (), {})),
-    )
-    return loader
-
-
-@pytest.mark.parametrize("state_layout", ["comet", "abs_joint"])
-@pytest.mark.parametrize(
-    "selection", ["dataset", "assets_dataset", "directory", "file"]
-)
-def test_behavior_loader_passes_matching_stats_to_rlinf(
-    tmp_path, behavior_model_loader, state_layout, selection
-):
-    from robots.behavior.pi05 import load_model
-
-    repo_id = "behavior-1k/2025-challenge-demos"
-    cfg = build_model_cfg(str(tmp_path), PI05_EMBODIMENTS["behavior"])
-    cfg.openpi_data = {"repo_id": repo_id}
-    if selection in ("directory", "file"):
-        stats_dir = tmp_path / "custom-training-stats"
-        stats_file = stats_dir / "norm_stats.json"
-        cfg.openpi_data.norm_stats_path = str(
-            stats_file if selection == "file" else stats_dir
-        )
-    elif selection == "assets_dataset":
-        stats_dir = tmp_path / "assets" / repo_id
-    else:
-        stats_dir = tmp_path / repo_id
-    stats_dir.mkdir(parents=True)
-    (stats_dir / "norm_stats.json").touch()
-
-    load_model(cfg, state_layout)
-    behavior_model_loader.assert_called_once_with(cfg, torch_dtype=None)
-    assert Path(cfg.openpi_data.norm_stats_path) == stats_dir
-    if state_layout == "abs_joint":
-        assert cfg.openpi.state_token == "abs_joint"
-        assert Path(cfg.openpi.assets_dir) / cfg.openpi.asset_id == stats_dir
-
-
-@pytest.mark.parametrize(
-    "stats_dir",
-    ["assets/behavior-1k/2025-challenge-demos", "physical-intelligence/behavior"],
-)
-def test_behavior_comet_resolves_default_checkpoint_stats(
-    tmp_path, behavior_model_loader, stats_dir
-):
-    from robots.behavior.pi05 import load_model
-
-    stats = tmp_path / stats_dir
-    stats.mkdir(parents=True)
-    (stats / "norm_stats.json").touch()
-    cfg = build_model_cfg(str(tmp_path), PI05_EMBODIMENTS["behavior"])
-    load_model(cfg, "comet")
-    behavior_model_loader.assert_called_once_with(cfg, torch_dtype=None)
-    assert Path(cfg.openpi_data.norm_stats_path) == stats
-
-
-def test_behavior_abs_joint_keeps_its_rlinf_training_preset(
-    tmp_path, behavior_model_loader
-):
-    from robots.behavior.pi05 import load_model
-
-    cfg = build_model_cfg(str(tmp_path), PI05_EMBODIMENTS["behavior"])
-    load_model(cfg, "abs_joint")
-    behavior_model_loader.assert_called_once_with(cfg, torch_dtype=None)
-    assert cfg.openpi.state_token == "abs_joint"
-    assert "openpi_data" not in cfg
-    assert "asset_id" not in cfg.openpi and "assets_dir" not in cfg.openpi
-
-
-def test_behavior_comet_rejects_missing_or_mismatched_stats(
-    tmp_path, behavior_model_loader
-):
-    from robots.behavior.pi05 import load_model
-
-    cfg = build_model_cfg(str(tmp_path), PI05_EMBODIMENTS["behavior"])
-    with pytest.raises(FileNotFoundError, match="norm_stats.json"):
-        load_model(cfg, "comet")
-
-    published = tmp_path / "assets/behavior-1k/2025-challenge-demos"
-    published.mkdir(parents=True)
-    (published / "norm_stats.json").touch()
-    cfg.openpi_data = {"repo_id": "other/dataset"}
-    with pytest.raises(FileNotFoundError, match="other/dataset"):
-        load_model(cfg, "comet")
-
-    wrong_file = published / "metadata.json"
-    wrong_file.touch()
-    cfg.openpi_data = {"norm_stats_path": str(wrong_file)}
-    with pytest.raises(FileNotFoundError, match="metadata.json"):
-        load_model(cfg, "comet")
-    behavior_model_loader.assert_not_called()

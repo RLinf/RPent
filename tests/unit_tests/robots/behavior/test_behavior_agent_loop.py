@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""VLA service, policy adaptation and the offline agent loop."""
+"""Offline Planner loop: initial views, one VLA chunk, fresh views and feedback."""
 
 from __future__ import annotations
 
@@ -32,6 +32,8 @@ from robots.behavior.toolkit import BehaviorToolkit
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory import MemoryManager
 from rpent.planner.api_loop import ApiAgentLoop
+from rpent.tools.toolkit import ToolCancelled
+from tests.unit_tests.robots.behavior.conftest import _template_toolkit
 
 _CAMERAS = (
     "robot_r1::robot_r1:zed_link:Camera:0::rgb",
@@ -231,5 +233,156 @@ def test_api_planner_observes_then_executes_one_chunk_and_sees_new_views(
             "vla_act",
             "finish",
         ]
+    finally:
+        toolkit.close()
+
+
+@pytest.mark.parametrize(
+    "tool,arguments",
+    [
+        ("set_gripper", {"val": 1}),
+        ("release", {}),
+        ("rotate_wrist_joint", {"joint": "yaw", "delta_deg": 1}),
+    ],
+)
+def test_invalid_joint_feedback_is_saved_as_unknown_with_previous_observation(
+    tmp_path, monkeypatch, tool, arguments
+):
+    env, model = _Environment(), _VLA()
+    execute = env.chunk_step
+
+    def invalid_feedback(actions):
+        returned = execute(actions)
+        returned[4].update(confirmed_actions=2, executed_actions=2)
+        return returned
+
+    monkeypatch.setattr(env, "chunk_step", invalid_feedback)
+    toolkit = _template_toolkit(
+        tmp_path,
+        ["view_env_state", tool, "finish"],
+        env=env,
+        model=model,
+        task_language=_TASK,
+    )
+    try:
+        result = toolkit.execute_tool(
+            tool, {"arm": "left", "steps": 1, "settle_steps": 0, **arguments}
+        )
+        assert result.is_error
+        feedback = result.data["log"]["result"]
+        assert feedback["requested_actions"] == 1
+        assert feedback["confirmed_actions"] is None
+        assert feedback["code"] == "invalid_execution_feedback"
+        assert feedback["observation_fresh"] is False
+        stored = toolkit.execute_tool("view_env_state", {"step": 1})
+        assert stored.data["log"]["result"] == feedback
+        assert stored.data["state"]["robot_state"]["left"]["eef_position"][
+            0
+        ] == pytest.approx(0.4)
+        assert len(env.action_chunks) == 1 and not model.inputs
+    finally:
+        toolkit.close()
+
+
+@pytest.mark.parametrize(
+    "failure", ["observation", "prediction", "cancel", "execution", "feedback"]
+)
+def test_later_vla_failure_preserves_confirmed_prefix_in_saved_result(
+    tmp_path, monkeypatch, failure
+):
+    env, model = _Environment(), _VLA()
+    toolkit = _template_toolkit(
+        tmp_path,
+        ["view_env_state", "vla_act", "finish"],
+        env=env,
+        model=model,
+        task_language=_TASK,
+        execution_horizon=2,
+        max_chunks_per_call=3,
+    )
+    if failure == "observation":
+        observe = env.get_observation
+        reads = 0
+
+        def fail_observation():
+            nonlocal reads
+            reads += 1
+            if reads == 3:  # First prediction, its feedback, then the next input.
+                raise ConnectionError("next observation unavailable")
+            return observe()
+
+        monkeypatch.setattr(env, "get_observation", fail_observation)
+    elif failure == "prediction":
+        predict = model.predict
+
+        def fail_prediction(observation):
+            if model.inputs:
+                raise RuntimeError("second prediction failed")
+            return predict(observation)
+
+        monkeypatch.setattr(model, "predict", fail_prediction)
+    elif failure == "cancel":
+        checks = 0
+
+        def cancel_after_first_chunk():
+            nonlocal checks
+            checks += 1
+            if checks == 3:
+                raise ToolCancelled("cancelled before the second chunk")
+
+        monkeypatch.setattr(
+            toolkit._primitives, "_check_cancelled", cancel_after_first_chunk
+        )
+    else:
+        execute = env.chunk_step
+
+        def fail_execution(actions):
+            if env.action_chunks and failure == "execution":
+                env.action_chunks.append(actions.copy())
+                env.actions_executed += 1  # Lost reply after a possible side effect.
+                raise TimeoutError("second execution outcome unknown")
+            returned = execute(actions)
+            if len(env.action_chunks) == 2:
+                returned[4]["issued_actions"] = len(actions) + 1
+            return returned
+
+        monkeypatch.setattr(env, "chunk_step", fail_execution)
+    try:
+        result = toolkit.execute_tool("vla_act", {"chunks": 3})
+        feedback = result.data["log"]["result"]
+        assert result.is_error
+        assert feedback["requested_chunks"] == 3
+        assert feedback["observation_fresh"] is False
+        assert len(env.action_chunks) <= 2  # No replay or third chunk after failure.
+        if failure in {"execution", "feedback"}:
+            assert feedback["requested_actions"] == 4
+            assert feedback["known_execution_before_failure"] == {
+                "requested_actions": 2,
+                "issued_actions": 2,
+                "confirmed_actions": 2,
+                "unconfirmed_actions": 0,
+                "executed_actions": 2,
+            }
+            for name in (
+                "issued_actions",
+                "confirmed_actions",
+                "unconfirmed_actions",
+                "executed_actions",
+            ):
+                assert feedback[name] is None
+            assert toolkit._primitives._command_history_unknown is True
+        else:
+            assert len(env.action_chunks) == 1
+            assert feedback["requested_actions"] == feedback["confirmed_actions"] == 2
+            assert feedback["issued_actions"] == feedback["executed_actions"] == 2
+            assert feedback["unconfirmed_actions"] == 0
+        if failure == "cancel":
+            assert feedback["interrupted"] is True
+            assert feedback["code"] == "tool_cancelled"
+        stored = toolkit.execute_tool("view_env_state", {"step": 1})
+        assert stored.data["log"]["result"] == feedback
+        assert stored.data["state"]["robot_state"]["left"]["eef_position"][
+            0
+        ] == pytest.approx(0.402)
     finally:
         toolkit.close()

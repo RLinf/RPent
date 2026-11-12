@@ -25,8 +25,9 @@ from rpent.prompt.utils import PromptNode
 def system_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
     """Return task and tool instructions for one BEHAVIOR episode."""
     variables = variables or {}
+    allowed = set(variables.get("tool_allowlist", ("vla_act",)))
     tool_instructions = evaluate.TOOLS
-    if "vla_act" in variables.get("tool_allowlist", ("vla_act",)):
+    if "vla_act" in allowed:
         tool_instructions += evaluate.VLA
         limit = variables.get("max_chunks_per_call")
         if limit is not None:
@@ -39,14 +40,15 @@ def system_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
             if variables.get("instruction_mode") == "main"
             else evaluate.OVERRIDE_INSTRUCTION
         )
-    if "pixel_to_robot_base" in variables.get("tool_allowlist", ()):
+    if "pixel_to_robot_base" in allowed:
         tool_instructions += evaluate.GEOMETRY
-    if "read_robot_state" in variables.get("tool_allowlist", ()):
+    if "read_robot_state" in allowed:
         tool_instructions += evaluate.ROBOT_STATE
-    if "move_eef_delta" in variables.get("tool_allowlist", ()):
+    if "move_eef_delta" in allowed:
         tool_instructions += evaluate.LOCAL_MOTION
-    native = set(variables.get("tool_allowlist", ())) & {
+    native = allowed & {
         "segment",
+        "move_eef_delta",
         "set_gripper",
         "release",
         "move_to",
@@ -55,7 +57,9 @@ def system_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
         "move_base",
     }
     if native:
-        tool_instructions += evaluate.NATIVE_SELECTION
+        for required, guidance in evaluate.NATIVE_SELECTION:
+            if allowed.issuperset(required):
+                tool_instructions += guidance
     for name, guidance in (
         ("segment", evaluate.SEGMENT),
         ("set_gripper", evaluate.SET_GRIPPER),

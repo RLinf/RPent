@@ -20,7 +20,6 @@ adapter must supply completed execution feedback before it can serve it.
 
 from __future__ import annotations
 
-import io
 import math
 from typing import Any
 
@@ -31,60 +30,6 @@ from rpent.robots.components.env_client_base import BaseEnvClient
 from rpent.utils.rpc import RpcClient
 
 BEHAVIOR_ACTION_DIM = 23
-
-_FORMAT_KEY = "_behavior_numeric_array"
-_FORMAT = "npy_v1"
-
-
-def encode_numeric_array(value: Any) -> dict[str, str | bytes]:
-    """Pack a real numeric array without converting its dtype or values."""
-    array = np.asarray(value)
-    if array.dtype.kind not in "fiu":
-        raise ValueError("BEHAVIOR numeric wire requires a real numeric array")
-    buffer = io.BytesIO()
-    np.lib.format.write_array(buffer, array, version=(1, 0), allow_pickle=False)
-    return {_FORMAT_KEY: _FORMAT, "payload": buffer.getvalue()}
-
-
-def decode_numeric_array(value: Any) -> Any:
-    """Decode the envelope, retaining legacy in-process array/list requests."""
-    if not isinstance(value, dict):
-        return value
-    if set(value) != {_FORMAT_KEY, "payload"} or value.get(_FORMAT_KEY) != _FORMAT:
-        raise ValueError("unknown BEHAVIOR numeric wire format")
-    payload = value["payload"]
-    if type(payload) is not bytes or not payload.startswith(b"\x93NUMPY"):
-        raise ValueError("invalid BEHAVIOR numeric wire payload")
-    buffer = io.BytesIO(payload)
-    try:
-        if np.lib.format.read_magic(buffer) != (1, 0):
-            raise ValueError("unsupported NPY version")
-        shape, _, dtype = np.lib.format.read_array_header_1_0(buffer)
-        if (
-            dtype.kind not in "fiu"
-            or any(type(size) is not int or size < 0 for size in shape)
-            or math.prod(shape) * dtype.itemsize != len(payload) - buffer.tell()
-        ):
-            raise ValueError("numeric array size or dtype is invalid")
-        # Validate byte count before np.load can allocate from an untrusted shape.
-        buffer.seek(0)
-        array = np.load(buffer, allow_pickle=False)
-    except (
-        ValueError,
-        TypeError,
-        EOFError,
-        OSError,
-        OverflowError,
-        SyntaxError,
-    ) as exc:
-        raise ValueError("invalid BEHAVIOR numeric wire payload") from exc
-    if (
-        not isinstance(array, np.ndarray)
-        or array.dtype.kind not in "fiu"
-        or buffer.tell() != len(payload)
-    ):
-        raise ValueError("invalid BEHAVIOR numeric wire array")
-    return array
 
 
 def env_runtime_contract(task_id: int) -> dict[str, Any]:
@@ -221,7 +166,10 @@ class BehaviorEnvClient(BaseEnvClient):
         execute actions. The returned timing is the official control period,
         independently of the video's encoding FPS.
         """
-        kwargs = {"arm": arm, "target_pose": encode_numeric_array(target_pose)}
+        pose = np.asarray(target_pose)
+        if pose.dtype.kind not in "fiu":
+            raise ValueError("target_pose must contain real numbers")
+        kwargs = {"arm": arm, "target_pose": pose}
         if expected_observation_token is not None:
             kwargs["expected_observation_token"] = expected_observation_token
         if allow_orientation_relax:
@@ -300,7 +248,7 @@ class BehaviorEnvClient(BaseEnvClient):
         array = validate_native_actions(action, chunk=False)
         result = self._client.call(
             "env.step",
-            args=(encode_numeric_array(array),),
+            args=(array,),
             timeout_s=self._TIMEOUT_S["env.step"],
         )
         return self._cache_execution(result)
@@ -319,7 +267,7 @@ class BehaviorEnvClient(BaseEnvClient):
             kwargs["expected_observation_token"] = expected_observation_token
         result = self._client.call(
             "env.chunk_step",
-            args=(encode_numeric_array(array),),
+            args=(array,),
             kwargs=kwargs,
             timeout_s=self._TIMEOUT_S["env.chunk_step"],
         )

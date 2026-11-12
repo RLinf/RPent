@@ -49,6 +49,8 @@ MAX_NORMALIZED_TURN = 1.0
 # One call may not exceed the official episode budget; the evaluator stops
 # the session at its own limit, so this is only a sanity bound.
 MAX_MOVE_STEPS = 5000
+# Limit ramp plus final holds before constructing a gripper action array.
+MAX_GRIPPER_ACTIONS = MAX_MOVE_STEPS
 # motion.py owns the single reposition bound, so the tool layer never carries
 # a second, stricter number.
 MAX_EEF_DELTA_M = MAX_MOVE_TO_REPOSITION_M
@@ -65,6 +67,48 @@ COUNT_NAMES = (
     "unconfirmed_actions",
     "executed_actions",
 )
+
+
+def _unissued(**data: Any) -> ToolResult:
+    """Report a rejected operation without losing any earlier ledger entries."""
+    return ToolResult(
+        data={"requested_actions": 0, **dict.fromkeys(COUNT_NAMES, 0), **data}
+    )
+
+
+def _action_counts(
+    info: dict[str, Any], limit: int
+) -> tuple[dict[str, int | None], list[str]]:
+    """Normalize execution counts and retain missing or inconsistent values as unknown."""
+    counts: dict[str, int | None] = {}
+    errors: list[str] = []
+    for name in COUNT_NAMES:
+        value = info.get(name)
+        if value is not None and (
+            isinstance(value, (bool, np.bool_))
+            or not isinstance(value, (int, np.integer))
+            or not 0 <= value <= limit
+        ):
+            errors.append(f"{name} is outside the submitted chunk")
+            value = None
+        counts[name] = None if value is None else int(value)
+    issued, confirmed, unknown, executed = (counts[name] for name in COUNT_NAMES)
+    accounted = confirmed if confirmed is not None else executed
+    if (
+        issued is not None
+        and (
+            (accounted is not None and accounted > issued)
+            or (unknown is not None and unknown > issued)
+            or (
+                accounted is not None
+                and unknown is not None
+                and issued != accounted + unknown
+            )
+        )
+    ) or (confirmed is not None and executed is not None and executed != confirmed):
+        errors.append("execution counters disagree")
+        counts = dict.fromkeys(COUNT_NAMES)
+    return counts, errors
 
 
 def _termination_flag(value: Any) -> bool | None:
@@ -255,6 +299,84 @@ class BehaviorPrimitives:
             self._command_history_unknown = previously_unknown if issued == 0 else False
         return result
 
+    def _accept_execution(self, result: tuple) -> dict[str, Any]:
+        """Update cached observations and episode flags from one returned submission."""
+        observation, _, terminated, truncated, info = result
+        self._terminated = _termination_flag(terminated)
+        self._truncated = _termination_flag(truncated)
+        if isinstance(observation, list):
+            if observation:
+                self.last_observation = observation[-1]
+        else:
+            self.last_observation = observation
+        self._session_ended = info.get("stop_reason") == "session_ended"
+        return info
+
+    def _execution_summary(
+        self, result: tuple, *, requested_actions: int, default_reason: str
+    ) -> dict[str, Any]:
+        """Validate direct joint feedback before treating its counts as execution."""
+        previous_observation = self.last_observation
+        info = self._accept_execution(result)
+        counts, errors = _action_counts(info, requested_actions)
+        fresh = info.get("observation_after_last_issued_action")
+        if errors:
+            counts = dict.fromkeys(COUNT_NAMES)
+            self._last_issued_action = None
+            self._command_history_unknown = True
+            self.last_observation = previous_observation
+            fresh = False
+        return {
+            **counts,
+            "observation_fresh": fresh,
+            "observation_after_last_issued_action": fresh,
+            "session_ended": self._session_ended,
+            "stop_reason": "invalid_execution_feedback"
+            if errors
+            else info.get("stop_reason", default_reason),
+            "terminated": self._terminated,
+            "truncated": self._truncated,
+            **(
+                {"error": "; ".join(errors), "code": "invalid_execution_feedback"}
+                if errors
+                else {}
+            ),
+        }
+
+    def _prepare_joint_action(self) -> tuple[dict, np.ndarray, str] | ToolResult:
+        """Read one hold state shared by direct gripper and wrist-joint tools."""
+        self._check_cancelled()
+        ended = self._ended()
+        if ended or self._terminated is True or self._truncated is True:
+            return _unissued(
+                error="episode has ended",
+                session_ended=ended,
+                terminated=self._terminated,
+                truncated=self._truncated,
+                observation_fresh=False,
+                stop_reason="session_ended"
+                if ended
+                else ("terminated" if self._terminated else "truncated"),
+            )
+        if self._command_history_unknown:
+            return _unissued(
+                error="previous action execution outcome is unknown",
+                code="command_state_unknown",
+            )
+        self.last_observation = self.env.get_observation()
+        try:
+            state = self._robot_state(self.last_observation)
+            native, source = self._current_hold_action(state)
+            return state, native, source
+        except (TypeError, ValueError) as error:
+            return _unissued(error=str(error), code="invalid_hold_state")
+
+    def _robot_state(self, observation: dict[str, Any]) -> dict[str, Any]:
+        snapshot = snapshot_observation(
+            observation, task_id=self.task_id, task_language=self.task_language
+        )
+        return extract_robot_state(snapshot["proprio"])
+
     def _current_hold_action(self, state: dict[str, Any]) -> tuple[np.ndarray, str]:
         """Build a stationary native23 target without fabricating command history.
 
@@ -348,69 +470,10 @@ class BehaviorPrimitives:
             "session_ended": False,
             "collision_checked": False,
         }
-        try:
-            self._check_cancelled()
-            if self._ended() or self._terminated is True or self._truncated is True:
-                data.update(
-                    session_ended=self._session_ended,
-                    terminated=self._terminated,
-                    truncated=self._truncated,
-                    stop_reason="session_ended"
-                    if self._session_ended
-                    else "episode_ended",
-                )
-                return ToolResult(data=data)
-            snapshot_reader = getattr(self.env, "get_motion_snapshot", None)
-            if not callable(snapshot_reader):
-                raise ValueError("move_base requires the atomic public motion snapshot")
-            snapshot = snapshot_reader()
-            expected = validate_observation_token(snapshot["observation_token"])
-            context = snapshot["motion_context"]
-            self.last_observation = snapshot["observation"]
-            public = snapshot_observation(
-                self.last_observation,
-                task_id=self.task_id,
-                task_language=self.task_language,
-            )
-            validate_public_base_context(context, expected, public["proprio"])
-            if (
-                self._last_issued_action is None
-                and context.get("initial_bootstrap") is not True
-            ):
-                raise ValueError(
-                    "a new measured gripper hold requires the initial session snapshot; "
-                    "existing actions have no known gripper command in this tool session"
-                )
-            state = extract_robot_state(public["proprio"])
-            hold, hold_source = self._current_hold_action(state)
-        except ToolCancelled as error:
-            data.update(
-                error=str(error), interrupted=True, stop_reason="tool_cancelled"
-            )
-            return ToolResult(data=data)
-        except (
-            KeyError,
-            OSError,
-            RpcError,
-            RuntimeError,
-            TypeError,
-            ValueError,
-        ) as error:
-            data.update(error=str(error), stop_reason="base_start_unavailable")
-            return ToolResult(data=data)
-
-        hold = np.asarray(hold, dtype=np.float32).copy()
-        if hold.shape != (23,) or not np.isfinite(hold).all():
-            data.update(
-                error="invalid native23 hold target",
-                stop_reason="base_start_unavailable",
-            )
-            return ToolResult(data=data)
-        # Existing hold owner fixes all 20 non-base channels once for this call.
-        # Its original command-history checks also protect partial/unknown grasps.
-        hold[:3] = 0.0
-        data["observation_fresh"] = True
-        previous_proprio = public["proprio"].copy()
+        prepared = self._prepare_base_action(data)
+        if isinstance(prepared, ToolResult):
+            return prepared
+        hold, previous_proprio, expected = prepared
         for index in range(steps + 1):
             stopping = index == steps
             try:
@@ -559,6 +622,74 @@ class BehaviorPrimitives:
                 break
         return ToolResult(data=deepcopy(data))
 
+    def _prepare_base_action(self, data: dict[str, Any]) -> tuple | ToolResult:
+        """Capture an atomic start frame and fixed non-base commands for one segment."""
+        from rpent.tools.toolkit import ToolCancelled
+
+        try:
+            self._check_cancelled()
+            if self._ended() or self._terminated is True or self._truncated is True:
+                data.update(
+                    session_ended=self._session_ended,
+                    terminated=self._terminated,
+                    truncated=self._truncated,
+                    stop_reason="session_ended"
+                    if self._session_ended
+                    else "episode_ended",
+                )
+                return ToolResult(data=data)
+            snapshot_reader = getattr(self.env, "get_motion_snapshot", None)
+            if not callable(snapshot_reader):
+                raise ValueError("move_base requires the atomic public motion snapshot")
+            snapshot = snapshot_reader()
+            expected = validate_observation_token(snapshot["observation_token"])
+            context = snapshot["motion_context"]
+            self.last_observation = snapshot["observation"]
+            public = snapshot_observation(
+                self.last_observation,
+                task_id=self.task_id,
+                task_language=self.task_language,
+            )
+            validate_public_base_context(context, expected, public["proprio"])
+            if (
+                self._last_issued_action is None
+                and context.get("initial_bootstrap") is not True
+            ):
+                raise ValueError(
+                    "a new measured gripper hold requires the initial session snapshot; "
+                    "existing actions have no known gripper command in this tool session"
+                )
+            state = extract_robot_state(public["proprio"])
+            hold, hold_source = self._current_hold_action(state)
+        except ToolCancelled as error:
+            data.update(
+                error=str(error), interrupted=True, stop_reason="tool_cancelled"
+            )
+            return ToolResult(data=data)
+        except (
+            KeyError,
+            OSError,
+            RpcError,
+            RuntimeError,
+            TypeError,
+            ValueError,
+        ) as error:
+            data.update(error=str(error), stop_reason="base_start_unavailable")
+            return ToolResult(data=data)
+
+        hold = np.asarray(hold, dtype=np.float32).copy()
+        if hold.shape != (23,) or not np.isfinite(hold).all():
+            data.update(
+                error="invalid native23 hold target",
+                stop_reason="base_start_unavailable",
+            )
+            return ToolResult(data=data)
+        # Existing hold owner fixes all 20 non-base channels once for this call.
+        # Its original command-history checks also protect partial/unknown grasps.
+        hold[:3] = 0.0
+        data["observation_fresh"] = True
+        return hold, public["proprio"].copy(), expected
+
     @tool
     def vla_act(
         self,
@@ -568,10 +699,15 @@ class BehaviorPrimitives:
     ) -> ToolResult:
         """Predict and execute bounded VLA chunks, refreshing observations between chunks.
 
+        Failures retain the confirmed execution prefix. An uncertain submission
+        remains unknown and is never replayed.
+
         Args:
             chunks: Number of prediction/execution cycles within this run's call limit.
             prompt: Policy instruction; main mode permits only the configured task text.
         """
+        from rpent.tools.toolkit import ToolCancelled
+
         if type(chunks) is not int or chunks < 1:
             raise ValueError("chunks must be a positive integer")
         if self.max_chunks_per_call is not None and chunks > self.max_chunks_per_call:
@@ -587,83 +723,95 @@ class BehaviorPrimitives:
                 "omit prompt or pass that exact text"
             )
         submitted = 0
-        executed: int | None = 0
-        counts: dict[str, int | None] = {
-            "issued_actions": 0,
-            "confirmed_actions": 0,
-            "unconfirmed_actions": 0,
-        }
+        counts: dict[str, int | None] = dict.fromkeys(COUNT_NAMES, 0)
+        failure: dict[str, Any] = {}
         observation_fresh: bool | None = None
         stop_reason = "requested_chunks_returned"
         for _ in range(chunks):
-            self._check_cancelled()
-            if self._ended():
-                stop_reason = "session_ended"
-                observation_fresh = False
-                break
-            if self._terminated is True or self._truncated is True:
-                stop_reason = "terminated" if self._terminated else "truncated"
-                break
-            self.last_observation = self.env.get_observation()
-            observation = snapshot_observation(
-                self.last_observation,
-                task_id=self.task_id,
-                task_language=self.task_language,
-            )
-            actions = self.model.predict(
-                {**observation["policy_observation"], "task_descriptions": instruction}
-            )[: self.execution_horizon]
-            self._check_cancelled()
-            returned, _, terminated, truncated, info = self._send_actions(actions)
-            self.last_observation = (
-                returned[-1] if isinstance(returned, list) else returned
-            )
-            submitted += len(actions)
-            self._terminated = _termination_flag(terminated)
-            self._truncated = _termination_flag(truncated)
-            count = info.get("executed_actions")
-            if count is not None:
-                if (
-                    isinstance(count, (bool, np.bool_))
-                    or not isinstance(count, (int, np.integer))
-                    or not 0 <= count <= len(actions)
-                ):
-                    raise ValueError(
-                        "executed_actions must be within the submitted chunk"
-                    )
-                if executed is not None:
-                    executed += int(count)
-            else:
-                executed = None
-            for key, total in counts.items():
-                count_value = info.get(key)
-                if count_value is not None and (
-                    isinstance(count_value, (bool, np.bool_))
-                    or not isinstance(count_value, (int, np.integer))
-                    or not 0 <= count_value <= len(actions)
-                ):
-                    raise ValueError(f"{key} must be within the submitted chunk")
-                counts[key] = (
-                    total + int(count_value)
-                    if total is not None and count_value is not None
-                    else None
+            prefix = {"requested_actions": submitted, **counts}
+            previous_observation = self.last_observation
+            pending = False
+            phase = "preparation"
+            try:
+                self._check_cancelled()
+                if self._ended():
+                    stop_reason = "session_ended"
+                    observation_fresh = False
+                    break
+                if self._terminated is True or self._truncated is True:
+                    stop_reason = "terminated" if self._terminated else "truncated"
+                    break
+                phase = "observation"
+                self.last_observation = self.env.get_observation()
+                observation = snapshot_observation(
+                    self.last_observation,
+                    task_id=self.task_id,
+                    task_language=self.task_language,
                 )
-            observation_fresh = info.get("observation_after_last_issued_action")
-            if info.get("stop_reason") == "session_ended":
-                self._session_ended = True
-                stop_reason = "session_ended"
-                break
-            if self._terminated is True or self._truncated is True:
-                stop_reason = "terminated" if self._terminated else "truncated"
-                break
-            if count is not None and count < len(actions):
-                stop_reason = "partial_execution"
+                phase = "prediction"
+                actions = self.model.predict(
+                    {
+                        **observation["policy_observation"],
+                        "task_descriptions": instruction,
+                    }
+                )[: self.execution_horizon]
+                self._check_cancelled()
+                phase = "execution"
+                submitted += len(actions)
+                pending = True
+                info = self._accept_execution(self._send_actions(actions))
+                segment, errors = _action_counts(info, len(actions))
+                if errors:
+                    raise ValueError("; ".join(errors))
+                for key, total in counts.items():
+                    value = segment[key]
+                    counts[key] = (
+                        total + value
+                        if total is not None and value is not None
+                        else None
+                    )
+                pending = False
+                observation_fresh = info.get("observation_after_last_issued_action")
+                if self._session_ended:
+                    stop_reason = "session_ended"
+                    break
+                if self._terminated is True or self._truncated is True:
+                    stop_reason = "terminated" if self._terminated else "truncated"
+                    break
+                count = segment["executed_actions"]
+                if count is not None and count < len(actions):
+                    stop_reason = "partial_execution"
+                    break
+            except Exception as error:
+                if submitted == 0:
+                    raise
+                if pending:
+                    counts = dict.fromkeys(COUNT_NAMES)
+                    self._command_history_unknown = True
+                    self._last_issued_action = None
+                    failure["known_execution_before_failure"] = prefix
+                if previous_observation is not None:
+                    self.last_observation = previous_observation
+                observation_fresh = False
+                cancelled = isinstance(error, ToolCancelled)
+                stop_reason = (
+                    "tool_cancelled"
+                    if cancelled
+                    else "execution_outcome_unknown"
+                    if pending
+                    else f"{phase}_failed"
+                )
+                failure.update(
+                    error=str(error),
+                    error_type=type(error).__name__,
+                    code=stop_reason,
+                    interrupted=cancelled,
+                )
                 break
         return ToolResult(
             data={
                 "requested_chunks": chunks,
                 "requested_actions": submitted,
-                "executed_actions": executed,
                 **counts,
                 "observation_fresh": observation_fresh,
                 "observation_after_last_issued_action": observation_fresh,
@@ -672,6 +820,7 @@ class BehaviorPrimitives:
                 "terminated": self._terminated,
                 "truncated": self._truncated,
                 "prompt": instruction,
+                **failure,
             }
         )
 
@@ -829,50 +978,10 @@ class BehaviorPrimitives:
             raise ValueError("steps must be an integer from 1 to 120")
         if type(settle_steps) is not int or not 0 <= settle_steps <= 60:
             raise ValueError("settle_steps must be an integer from 0 to 60")
-        not_issued = {
-            "requested_actions": 0,
-            "issued_actions": 0,
-            "confirmed_actions": 0,
-            "unconfirmed_actions": 0,
-            "executed_actions": 0,
-        }
-        self._check_cancelled()
-        ended = self._ended()
-        if ended or self._terminated is True or self._truncated is True:
-            return ToolResult(
-                data={
-                    "error": "episode has ended",
-                    "session_ended": ended,
-                    "terminated": self._terminated,
-                    "truncated": self._truncated,
-                    "observation_fresh": False,
-                    "stop_reason": "session_ended"
-                    if ended
-                    else ("terminated" if self._terminated else "truncated"),
-                    **not_issued,
-                }
-            )
-        if self._command_history_unknown:
-            return ToolResult(
-                data={
-                    "error": "previous action execution outcome is unknown",
-                    "code": "command_state_unknown",
-                    **not_issued,
-                }
-            )
-        self.last_observation = self.env.get_observation()
-        try:
-            before = snapshot_observation(
-                self.last_observation,
-                task_id=self.task_id,
-                task_language=self.task_language,
-            )
-            state = extract_robot_state(before["proprio"])
-            native, hold_source = self._current_hold_action(state)
-        except (TypeError, ValueError) as error:
-            return ToolResult(
-                data={"error": str(error), "code": "invalid_hold_state", **not_issued}
-            )
+        prepared = self._prepare_joint_action()
+        if isinstance(prepared, ToolResult):
+            return prepared
+        state, native, hold_source = prepared
         from robots.behavior.motion import R1ProMotionModel
 
         arm_slice = slice(7, 14) if arm == "left" else slice(15, 22)
@@ -887,16 +996,12 @@ class BehaviorPrimitives:
         actions = np.tile(native, (len(values), 1))
         actions[:, joint_index] = np.asarray(values, dtype=np.float32)
         self._check_cancelled()
-        returned, _, terminated, truncated, info = self._send_actions(actions)
-        self._terminated = _termination_flag(terminated)
-        self._truncated = _termination_flag(truncated)
-        if isinstance(returned, list):
-            if returned:
-                self.last_observation = returned[-1]
-        else:
-            self.last_observation = returned
-        self._session_ended = info.get("stop_reason") == "session_ended"
-        fresh = info.get("observation_after_last_issued_action")
+        feedback = self._execution_summary(
+            self._send_actions(actions),
+            requested_actions=len(actions),
+            default_reason="requested_joint_ramp_returned",
+        )
+        fresh = feedback["observation_fresh"]
         measured_after = None
         measured_delta_deg = None
         measurement_error = None
@@ -929,16 +1034,7 @@ class BehaviorPrimitives:
                 "requested_actions": len(actions),
                 "ramp_steps": steps,
                 "settle_steps": settle_steps,
-                "issued_actions": info.get("issued_actions"),
-                "confirmed_actions": info.get("confirmed_actions"),
-                "unconfirmed_actions": info.get("unconfirmed_actions"),
-                "executed_actions": info.get("executed_actions"),
-                "observation_fresh": fresh,
-                "observation_after_last_issued_action": fresh,
-                "session_ended": self._session_ended,
-                "stop_reason": info.get("stop_reason", "requested_joint_ramp_returned"),
-                "terminated": self._terminated,
-                "truncated": self._truncated,
+                **feedback,
                 "gripper_hold_source": hold_source,
                 **(
                     {"error": measurement_error}
@@ -1077,46 +1173,23 @@ class BehaviorPrimitives:
             self._move_call_ledger = None
             self._move_call_phase = None
 
-    def _initial_motion_probe(
-        self,
-        *,
-        arm,
-        target,
-        settle_steps,
-        snapshot,
-        native,
-        hold_source,
-        planning_state,
-    ):
+    def _initial_motion_probe(self, snapshot, native, planning_state):
         """One counted initial hold, never an implicit observation-side step."""
 
         ledger = self._move_call_ledger
-        zero = {
-            "requested_actions": 0,
-            "issued_actions": 0,
-            "confirmed_actions": 0,
-            "unconfirmed_actions": 0,
-            "executed_actions": 0,
-        }
         if self._last_issued_action is not None or ledger.submissions:
-            return ToolResult(
-                data={
-                    "error": "initial sampling requires no prior command or probe",
-                    "code": "initial_command_history_mismatch",
-                    **zero,
-                }
+            return _unissued(
+                error="initial sampling requires no prior command or probe",
+                code="initial_command_history_mismatch",
             )
         unsettled = set(planning_state["unsettled_groups"])
         if unsettled & {"base", "left_fingers", "right_fingers"}:
-            return ToolResult(
-                data={
-                    "error": "initial hold sampling requires the original base/finger preconditions",
-                    "code": "base_not_stationary"
-                    if "base" in unsettled
-                    else "gripper_state_unsettled",
-                    "unsettled_groups": sorted(unsettled),
-                    **zero,
-                }
+            return _unissued(
+                error="initial hold sampling requires the original base/finger preconditions",
+                code="base_not_stationary"
+                if "base" in unsettled
+                else "gripper_state_unsettled",
+                unsettled_groups=sorted(unsettled),
             )
         expected = dict(snapshot["observation_token"])
         before = snapshot_observation(
@@ -1127,12 +1200,8 @@ class BehaviorPrimitives:
         validate_public_base_context(snapshot["motion_context"], expected, before)
         action = np.asarray(native, dtype=np.float32).reshape(1, 23).copy()
         if not np.isfinite(action).all() or np.any(action[:, :3] != 0):
-            return ToolResult(
-                data={
-                    "error": "invalid initial native23 hold",
-                    "code": "invalid_hold_state",
-                    **zero,
-                }
+            return _unissued(
+                error="invalid initial native23 hold", code="invalid_hold_state"
             )
         ledger.preflight["status"] = "requested"
         self._check_cancelled()
@@ -1193,34 +1262,111 @@ class BehaviorPrimitives:
             ledger.submissions[-1]["observation_fresh"] = False
             self._command_history_unknown = True
             self._last_issued_action = None
-            return ToolResult(
-                data={
-                    "error": str(error),
-                    "code": "initial_sampling_unconfirmed",
-                    "completed": False,
-                    "observation_fresh": False,
-                    "session_ended": self._session_ended,
-                    **zero,
-                }
+            return _unissued(
+                error=str(error),
+                code="initial_sampling_unconfirmed",
+                completed=False,
+                observation_fresh=False,
+                session_ended=self._session_ended,
             )
         self.last_observation = returned
         ledger.preflight["status"] = "confirmed"
-        fresh_snapshot = {
+        self._move_call_phase = "path"
+        return {
             "observation": returned,
             "observation_token": token,
             "motion_context": context,
         }
-        # Re-enter only the existing checks/planner on the actual next frame.
-        # The immutable caller target includes the original implicit quaternion.
-        # This context is noninitial, so no second probe can be issued.
-        self._move_call_phase = "path"
-        return self._move_to_impl(
-            arm=arm,
-            xyz=target[:3].tolist(),
-            quat=target[3:].tolist(),
-            settle_steps=settle_steps,
-            _start_snapshot=fresh_snapshot,
+
+    def _arm_start(self, snapshot: dict[str, Any]) -> tuple[dict, dict]:
+        """Read robot state and planning prerequisites from one bound public frame."""
+        from robots.behavior.motion import R1ProMotionModel
+
+        self.last_observation = snapshot["observation"]
+        public = snapshot_observation(
+            self.last_observation,
+            task_id=self.task_id,
+            task_language=self.task_language,
         )
+        context = snapshot["motion_context"]
+        if context.get("current_token") != snapshot["observation_token"]:
+            raise ValueError("motion snapshot token differs from its public context")
+        if self._last_issued_action is None and not context.get("initial_bootstrap"):
+            raise ValueError(
+                "a measured gripper hold requires the initial session snapshot; "
+                "existing actions have no known gripper command in this tool session"
+            )
+        return extract_robot_state(
+            public["proprio"]
+        ), R1ProMotionModel.planning_state_contract(public["proprio"], context)
+
+    def _settled_arm_start(self, snapshot, state, contract):
+        """Attempt bounded holds, then return the final planning snapshot and state."""
+        report = None
+        if contract.get("valid") is True and not contract["stationary"]:
+            report = self._auto_settle_before_planning(state)
+            self._auto_settle_report = report
+            if report.get("status") == "stationary":
+                snapshot = self.env.get_motion_snapshot()
+                state, contract = self._arm_start(snapshot)
+        if contract.get("valid") is not True or not contract["stationary"]:
+            code = contract.get("code") or (
+                "base_not_stationary"
+                if "base" in contract["unsettled_groups"]
+                else "motion_state_unsettled"
+            )
+            return _unissued(
+                error=contract.get(
+                    "error",
+                    "measured motion exceeds the static arm-planning tolerances",
+                ),
+                code=code,
+                auto_settle=report,
+                rejection={
+                    "code": code,
+                    "reason": "planning requires a settled robot; the measured motion is still above the static tolerance",
+                    "unsettled_groups": contract.get("unsettled_groups"),
+                    "auto_settle": report,
+                    "suggested_next": "wait for motion to settle and retry, or take a different approach; retrying the identical request immediately will be rejected again",
+                },
+            )
+        return snapshot, state
+
+    @staticmethod
+    def _arm_target(state, arm, position, orientation, delta_xyz, delta_yaw_deg):
+        """Resolve absolute or relative intent once against the selected start frame."""
+        measured = state[arm]
+        if delta_xyz is not None:
+            position = np.asarray(measured["eef_position"]) + delta_xyz
+            orientation = np.asarray(measured["eef_quaternion_xyzw"])
+        elif delta_yaw_deg is not None:
+            from scipy.spatial.transform import Rotation
+
+            position = np.asarray(measured["eef_position"])
+            orientation = (
+                Rotation.from_rotvec([0, 0, math.radians(delta_yaw_deg)])
+                * Rotation.from_quat(measured["eef_quaternion_xyzw"])
+            ).as_quat()
+        elif orientation is None:
+            orientation = np.asarray(measured["eef_quaternion_xyzw"])
+            orientation = orientation / np.linalg.norm(orientation)
+        target = np.concatenate((position, orientation))
+        distance = float(
+            np.linalg.norm(position - np.asarray(measured["eef_position"]))
+        )
+        if distance > MAX_MOVE_TO_REPOSITION_M:
+            return _unissued(
+                error=f"this motion mode permits at most {MAX_MOVE_TO_REPOSITION_M:g} m EEF repositioning",
+                code="target_outside_motion_scope",
+                rejection={
+                    "code": "target_outside_motion_scope",
+                    "reason": "requested target is beyond one call's local repositioning bound",
+                    "measured_reposition_m": distance,
+                    "allowed_reposition_m": MAX_MOVE_TO_REPOSITION_M,
+                    "suggested_next": "split the move into successive targets inside the bound, or use move_base for the coarse part first",
+                },
+            )
+        return target
 
     def _move_to_impl(
         self,
@@ -1229,11 +1375,10 @@ class BehaviorPrimitives:
         xyz,
         quat=None,
         settle_steps=0,
-        _start_snapshot=None,
         _delta_yaw_deg=None,
         _delta_xyz=None,
-    ):
-        """Execute the existing arm path after at most one counted initial probe."""
+    ) -> ToolResult:
+        """Prepare one start, resolve the request, plan, and execute without recursion."""
         if arm not in ("left", "right"):
             raise ValueError("arm must be left or right")
         if type(settle_steps) is not int or not 0 <= settle_steps <= 180:
@@ -1257,356 +1402,149 @@ class BehaviorPrimitives:
         self._check_cancelled()
         ended = self._ended()
         if ended or self._terminated is True or self._truncated is True:
-            return ToolResult(
-                data={
-                    "error": "episode has ended",
-                    "code": "session_ended",
-                    "session_ended": ended,
-                    "terminated": self._terminated,
-                    "truncated": self._truncated,
-                    "observation_fresh": False,
-                    "requested_actions": 0,
-                    "issued_actions": 0,
-                    "confirmed_actions": 0,
-                    "unconfirmed_actions": 0,
-                    "executed_actions": 0,
-                    "stop_reason": "session_ended"
-                    if ended
-                    else ("terminated" if self._terminated else "truncated"),
-                }
+            return _unissued(
+                error="episode has ended",
+                code="session_ended",
+                session_ended=ended,
+                terminated=self._terminated,
+                truncated=self._truncated,
+                observation_fresh=False,
+                stop_reason="session_ended"
+                if ended
+                else ("terminated" if self._terminated else "truncated"),
             )
         planner = getattr(self.env, "plan_arm_path", None)
         snapshot_reader = getattr(self.env, "get_motion_snapshot", None)
         if not callable(planner) or not callable(snapshot_reader):
-            return ToolResult(
-                data={
-                    "error": "the Env bridge requires a native arm planner and atomic motion snapshots",
-                    "code": "motion_planner_unavailable",
-                    "requested_actions": 0,
-                    "issued_actions": 0,
-                    "confirmed_actions": 0,
-                    "unconfirmed_actions": 0,
-                    "executed_actions": 0,
-                }
+            return _unissued(
+                error="the Env bridge requires a native arm planner and atomic motion snapshots",
+                code="motion_planner_unavailable",
             )
         if self._command_history_unknown:
-            return ToolResult(
-                data={
-                    "error": "previous action execution is unknown; inspect the transport before sending another motion",
-                    "code": "command_state_unknown",
-                    "requested_actions": 0,
-                    "issued_actions": 0,
-                    "confirmed_actions": 0,
-                    "unconfirmed_actions": 0,
-                    "executed_actions": 0,
-                }
+            return _unissued(
+                error="previous action execution is unknown; inspect the transport before sending another motion",
+                code="command_state_unknown",
             )
-        motion_snapshot = (
-            snapshot_reader() if _start_snapshot is None else _start_snapshot
-        )
-        self.last_observation = motion_snapshot["observation"]
-        observation_token = motion_snapshot["observation_token"]
-        motion_context = motion_snapshot["motion_context"]
-        try:
-            before = snapshot_observation(
-                self.last_observation,
-                task_id=self.task_id,
-                task_language=self.task_language,
-            )
-            state = extract_robot_state(before["proprio"])
-            if _delta_yaw_deg is not None:
-                from scipy.spatial.transform import Rotation
-
-                # Resolve the relative target from the same token-checked public
-                # snapshot used for planning, then freeze it across the initial
-                # sampling hold just like an absolute move_to target.
-                position = np.asarray(state[arm]["eef_position"], dtype=np.float64)
-                orientation = (
-                    Rotation.from_rotvec([0, 0, math.radians(_delta_yaw_deg)])
-                    * Rotation.from_quat(state[arm]["eef_quaternion_xyzw"])
-                ).as_quat()
-            if _delta_xyz is not None:
-                # Same token-checked snapshot as the planner; orientation is held.
-                position = (
-                    np.asarray(state[arm]["eef_position"], dtype=np.float64)
-                    + _delta_xyz
-                )
-                orientation = np.asarray(
-                    state[arm]["eef_quaternion_xyzw"], dtype=np.float64
-                )
-            from robots.behavior.motion import R1ProMotionModel
-
-            planning_state = R1ProMotionModel.planning_state_contract(
-                before["proprio"], motion_context
-            )
-            if motion_context.get("current_token") != observation_token:
-                raise ValueError(
-                    "motion snapshot token differs from its public context"
-                )
-            ledger = self._move_call_ledger
-            if self._last_issued_action is None and not motion_context.get(
-                "initial_bootstrap"
-            ):
-                raise ValueError(
-                    "a measured gripper hold requires the initial session snapshot; "
-                    "existing actions have no known gripper command in this tool session"
-                )
-            native, hold_source = self._current_hold_action(state)
-        except (TypeError, ValueError) as error:
-            return ToolResult(
-                data={
-                    "error": str(error),
-                    "code": "invalid_hold_state",
-                    "requested_actions": 0,
-                    "issued_actions": 0,
-                    "confirmed_actions": 0,
-                    "unconfirmed_actions": 0,
-                    "executed_actions": 0,
-                }
-            )
-        initial_probe = (
-            planning_state.get("valid") is True
-            and planning_state.get("source") == "initial_public_velocity_bootstrap"
-        )
-        settle_report = None
-        if (
-            planning_state.get("valid") is True
-            and not planning_state.get("stationary", False)
-            and not initial_probe
-        ):
-            # The planner needs a rest-state start. Residual arm, trunk, finger
-            # or base motion damps out under a hold that commands zero base
-            # velocity, so settling first turns a zero-action rejection into a
-            # real attempt. Base drift here is the tail of a finished move_base.
-            settle_report = self._auto_settle_before_planning(state)
-            self._auto_settle_report = settle_report
-            if settle_report.get("status") == "stationary":
-                motion_snapshot = snapshot_reader()
-                self.last_observation = motion_snapshot["observation"]
-                observation_token = motion_snapshot["observation_token"]
-                motion_context = motion_snapshot["motion_context"]
-                before = snapshot_observation(
-                    self.last_observation,
-                    task_id=self.task_id,
-                    task_language=self.task_language,
-                )
-                state = extract_robot_state(before["proprio"])
-                planning_state = R1ProMotionModel.planning_state_contract(
-                    before["proprio"], motion_context
-                )
-                # Relative targets must be recomputed: the hold actions may have
-                # shifted the EEF, so the pre-settle pose is stale.
-                if _delta_yaw_deg is not None:
-                    from scipy.spatial.transform import Rotation
-
-                    position = np.asarray(state[arm]["eef_position"], dtype=np.float64)
-                    orientation = (
-                        Rotation.from_rotvec([0, 0, math.radians(_delta_yaw_deg)])
-                        * Rotation.from_quat(state[arm]["eef_quaternion_xyzw"])
-                    ).as_quat()
-                elif _delta_xyz is not None:
-                    position = (
-                        np.asarray(state[arm]["eef_position"], dtype=np.float64)
-                        + _delta_xyz
-                    )
-                    orientation = np.asarray(
-                        state[arm]["eef_quaternion_xyzw"], dtype=np.float64
-                    )
-        if planning_state.get("valid") is not True or (
-            not planning_state["stationary"] and not initial_probe
-        ):
-            rejection_code = planning_state.get("code") or (
-                "base_not_stationary"
-                if "base" in planning_state["unsettled_groups"]
-                else "motion_state_unsettled"
-            )
-            return ToolResult(
-                data={
-                    "error": planning_state.get(
-                        "error",
-                        "measured motion exceeds the static arm-planning tolerances",
-                    ),
-                    "code": rejection_code,
-                    "rejection": {
-                        "code": rejection_code,
-                        "reason": (
-                            "planning requires a settled robot; the measured "
-                            "motion is still above the static tolerance"
-                        ),
-                        "unsettled_groups": planning_state.get("unsettled_groups"),
-                        "auto_settle": settle_report,
-                        "suggested_next": (
-                            "wait for motion to settle and retry, or take a "
-                            "different approach; retrying the identical request "
-                            "immediately will be rejected again"
-                        ),
-                    },
-                    "auto_settle": settle_report,
-                    "requested_actions": 0,
-                    "issued_actions": 0,
-                    "confirmed_actions": 0,
-                    "unconfirmed_actions": 0,
-                    "executed_actions": 0,
-                }
-            )
-        reposition_m = float(
-            np.linalg.norm(position - np.asarray(state[arm]["eef_position"]))
-        )
-        if reposition_m > MAX_MOVE_TO_REPOSITION_M:
-            return ToolResult(
-                data={
-                    "error": (
-                        "this motion mode permits at most "
-                        f"{MAX_MOVE_TO_REPOSITION_M:g} m EEF repositioning"
-                    ),
-                    "code": "target_outside_motion_scope",
-                    "rejection": {
-                        "code": "target_outside_motion_scope",
-                        "reason": (
-                            "requested target is beyond one call's local "
-                            "repositioning bound"
-                        ),
-                        "measured_reposition_m": reposition_m,
-                        "allowed_reposition_m": MAX_MOVE_TO_REPOSITION_M,
-                        "suggested_next": (
-                            "split the move into successive targets inside the "
-                            "bound, or use move_base for the coarse part first"
-                        ),
-                    },
-                    "requested_actions": 0,
-                    "issued_actions": 0,
-                    "confirmed_actions": 0,
-                    "unconfirmed_actions": 0,
-                    "executed_actions": 0,
-                }
-            )
-        # A held object is allowed: IK-only planning has no path collision
-        # model, so there is nothing a closed gripper could invalidate. The
-        # current gripper command is carried into the plan to preserve the grasp.
-        # Finger rest is already enforced by the planner's motion-state contract
-        # (finger velocity tolerance). Comparing measured opening against the
-        # command is wrong under contact: a grasped object holds the fingers
-        # open relative to a "closed" command, which must not block a plan.
-        if orientation is None:
-            orientation = np.asarray(state[arm]["eef_quaternion_xyzw"])
-            orientation = orientation / np.linalg.norm(orientation)
-        target = np.concatenate((position, orientation))
-        ledger.target_pose = target.tolist()
-        if initial_probe:
-            return self._initial_motion_probe(
-                arm=arm,
-                target=target,
-                settle_steps=settle_steps,
-                snapshot=motion_snapshot,
-                native=native,
-                hold_source=hold_source,
-                planning_state=planning_state,
-            )
-        # A position-only request (move_eef_delta, or move_to without quat)
-        # may fall back to a position-only IK solution; an explicit
-        # orientation request never does, and the result says when it did.
+        snapshot = snapshot_reader()
+        target = None
         relax = _delta_yaw_deg is None and (quat is None or _delta_xyz is not None)
+        try:
+            state, contract = self._arm_start(snapshot)
+            if (
+                contract.get("valid") is True
+                and contract.get("source") == "initial_public_velocity_bootstrap"
+            ):
+                # Freeze the requested target before the counted sampling action.
+                target = self._arm_target(
+                    state, arm, position, orientation, _delta_xyz, _delta_yaw_deg
+                )
+                if isinstance(target, ToolResult):
+                    return target
+                native, _ = self._current_hold_action(state)
+                snapshot = self._initial_motion_probe(snapshot, native, contract)
+                if isinstance(snapshot, ToolResult):
+                    return snapshot
+                if self._ended() or self._terminated is True or self._truncated is True:
+                    return _unissued(
+                        error="episode ended during initial sampling",
+                        code="session_ended",
+                        session_ended=self._session_ended,
+                        observation_fresh=True,
+                        terminated=self._terminated,
+                        truncated=self._truncated,
+                    )
+                state, contract = self._arm_start(snapshot)
+            prepared = self._settled_arm_start(snapshot, state, contract)
+            if isinstance(prepared, ToolResult):
+                return prepared
+            snapshot, state = prepared
+            # Rebuild all nonmoving targets from the final planning state.
+            native, _ = self._current_hold_action(state)
+        except (TypeError, ValueError) as error:
+            return _unissued(error=str(error), code="invalid_hold_state")
+        if target is None:
+            target = self._arm_target(
+                state, arm, position, orientation, _delta_xyz, _delta_yaw_deg
+            )
+            if isinstance(target, ToolResult):
+                return target
+        target = self._arm_target(state, arm, target[:3], target[3:], None, None)
+        if isinstance(target, ToolResult):
+            return target
+        self._move_call_ledger.target_pose = target.tolist()
+        token = snapshot["observation_token"]
         planned = planner(
             arm=arm,
             target_pose=target,
-            expected_observation_token=observation_token,
+            expected_observation_token=token,
             allow_orientation_relax=relax,
         )
         self._check_cancelled()
         if not isinstance(planned, dict):
             raise TypeError("arm planner must return a result dictionary")
         if planned.get("status") != "Success":
-            return ToolResult(
-                data={
-                    "error": planned.get("error", "CuRobo could not plan this target"),
-                    "code": planned.get("code", "plan_failed"),
-                    "plan_status": planned.get("status"),
-                    "stop_reason": "plan_failed",
-                    "requested_target_pose": target.tolist(),
-                    "requested_actions": 0,
-                    "issued_actions": 0,
-                    "confirmed_actions": 0,
-                    "unconfirmed_actions": 0,
-                    "executed_actions": 0,
-                    **{
-                        name: planned[name]
-                        for name in (
-                            "solver_status",
-                            "nearest_reachable_xyz",
-                            "suggested_retreat_xyz",
-                            "orientation_relax_attempted",
-                            "path_points",
-                        )
-                        if name in planned
-                    },
-                }
+            return _unissued(
+                error=planned.get("error", "CuRobo could not plan this target"),
+                code=planned.get("code", "plan_failed"),
+                plan_status=planned.get("status"),
+                stop_reason="plan_failed",
+                requested_target_pose=target.tolist(),
+                **{
+                    name: planned[name]
+                    for name in (
+                        "solver_status",
+                        "nearest_reachable_xyz",
+                        "suggested_retreat_xyz",
+                        "orientation_relax_attempted",
+                        "path_points",
+                    )
+                    if name in planned
+                },
             )
-        # IK-only planning makes no path collision claim; the simulator's physics
-        # is the contact authority. A plan is still required to describe its scope
-        # so the caller can tell which mode produced it.
         if not planned.get("collision_scope"):
-            return ToolResult(
-                data={
-                    "error": "planner did not describe its collision scope",
-                    "code": "collision_scope_missing",
-                    "requested_actions": 0,
-                    "issued_actions": 0,
-                    "confirmed_actions": 0,
-                    "unconfirmed_actions": 0,
-                    "executed_actions": 0,
-                }
+            return _unissued(
+                error="planner did not describe its collision scope",
+                code="collision_scope_missing",
             )
         try:
-            if planned.get("observation_token") != observation_token:
+            if planned.get("observation_token") != token:
                 raise ValueError(
                     "arm plan does not belong to the requested observation"
                 )
             path = _validated_arm_plan(planned, arm=arm, state=state)
         except (TypeError, ValueError) as error:
-            return ToolResult(
-                data={
-                    "error": str(error),
-                    "code": "invalid_arm_plan",
-                    "requested_actions": 0,
-                    "issued_actions": 0,
-                    "confirmed_actions": 0,
-                    "unconfirmed_actions": 0,
-                    "executed_actions": 0,
-                }
-            )
+            return _unissued(error=str(error), code="invalid_arm_plan")
         if self._ended():
-            return ToolResult(
-                data={
-                    "error": "episode ended during arm planning",
-                    "code": "session_ended",
-                    "stop_reason": "session_ended",
-                    "session_ended": True,
-                    "observation_fresh": False,
-                    "requested_actions": 0,
-                    "issued_actions": 0,
-                    "confirmed_actions": 0,
-                    "unconfirmed_actions": 0,
-                    "executed_actions": 0,
-                }
+            return _unissued(
+                error="episode ended during arm planning",
+                code="session_ended",
+                stop_reason="session_ended",
+                session_ended=True,
+                observation_fresh=False,
             )
-        # A borrowed Env may have other consumers. Reject a plan if the public
-        # state changed while the native solver was working; never replan/replay
-        # automatically after a partially executed motion.
-        current_motion_snapshot = snapshot_reader()
-        self.last_observation = current_motion_snapshot["observation"]
-        if current_motion_snapshot["observation_token"] != observation_token:
-            ledger.observation_invalidated_by_newer_snapshot = True
-            return ToolResult(
-                data={
-                    "error": "public robot state changed while the path was planned",
-                    "code": "stale_arm_plan",
-                    "requested_actions": 0,
-                    "issued_actions": 0,
-                    "confirmed_actions": 0,
-                    "unconfirmed_actions": 0,
-                    "executed_actions": 0,
-                }
+        current = snapshot_reader()
+        self.last_observation = current["observation"]
+        if current["observation_token"] != token:
+            self._move_call_ledger.observation_invalidated_by_newer_snapshot = True
+            return _unissued(
+                error="public robot state changed while the path was planned",
+                code="stale_arm_plan",
             )
+        return self._execute_arm_path(
+            arm=arm,
+            native=native,
+            path=path,
+            target=target,
+            planned=planned,
+            observation_token=token,
+            settle_steps=settle_steps,
+        )
+
+    def _execute_arm_path(
+        self, *, arm, native, path, target, planned, observation_token, settle_steps
+    ) -> ToolResult:
+        """Submit one path and optional target holds, then measure the achieved pose."""
+        position, orientation = target[:3], target[3:]
         actions = np.tile(native, (len(path), 1))
         actions[:, slice(7, 14) if arm == "left" else slice(15, 22)] = path
         final_target = actions[-1:].copy()
@@ -1658,34 +1596,7 @@ class BehaviorPrimitives:
                 execution_error = f"post-motion hold outcome is unknown: {error}"
                 break
             motion_feedback_error = info.get("motion_feedback_error")
-            feedback_errors = []
-            segment_counts = {}
-            for name in count_names:
-                value = info.get(name)
-                if value is not None and (
-                    isinstance(value, (bool, np.bool_))
-                    or not isinstance(value, (int, np.integer))
-                    or not 0 <= value <= len(submitted)
-                ):
-                    feedback_errors.append(f"{name} is outside the submitted chunk")
-                    value = None
-                segment_counts[name] = None if value is None else int(value)
-            issued = segment_counts["issued_actions"]
-            confirmed = segment_counts["confirmed_actions"]
-            unconfirmed = segment_counts["unconfirmed_actions"]
-            executed = segment_counts["executed_actions"]
-            if (
-                issued is not None
-                and confirmed is not None
-                and (
-                    confirmed > issued
-                    or (unconfirmed is not None and unconfirmed != issued - confirmed)
-                )
-            ) or (
-                confirmed is not None and executed is not None and executed != confirmed
-            ):
-                feedback_errors.append("execution counters disagree")
-                segment_counts = dict.fromkeys(count_names)
+            segment_counts, feedback_errors = _action_counts(info, len(submitted))
             for name, value in segment_counts.items():
                 counts[name] = (
                     counts[name] + value
@@ -1844,7 +1755,9 @@ class BehaviorPrimitives:
         *,
         arm: Literal["left", "right"],
         val: Annotated[float, Field(ge=0, le=1)],
-        steps: Annotated[int, Field(ge=1, json_schema_extra={"default": 10})] = 10,
+        steps: Annotated[
+            int, Field(ge=1, le=MAX_GRIPPER_ACTIONS, json_schema_extra={"default": 10})
+        ] = 10,
         settle_steps: Annotated[
             int, Field(ge=0, le=60, json_schema_extra={"default": 10})
         ] = 10,
@@ -1864,7 +1777,8 @@ class BehaviorPrimitives:
         Args:
             arm: Gripper to command.
             val: Normalized target command, 0 closed and 1 open.
-            steps: Number of interpolated native actions, default 10.
+            steps: Interpolated actions, 1 to 5000; ramp plus holds must not
+                exceed 5000 actions. Default 10.
             settle_steps: Additional final-target actions, 0 to 60, default 10.
         """
         if arm not in ("left", "right"):
@@ -1876,55 +1790,20 @@ class BehaviorPrimitives:
             or not 0 <= val <= 1
         ):
             raise ValueError("val must be finite and between 0 and 1")
-        if type(steps) is not int or steps < 1:
-            raise ValueError("steps must be a positive integer")
+        if type(steps) is not int or not 1 <= steps <= MAX_GRIPPER_ACTIONS:
+            raise ValueError(
+                f"steps must be an integer from 1 to {MAX_GRIPPER_ACTIONS}"
+            )
         if type(settle_steps) is not int or not 0 <= settle_steps <= 60:
             raise ValueError("settle_steps must be an integer from 0 to 60")
-        not_issued = {
-            "requested_actions": 0,
-            "issued_actions": 0,
-            "confirmed_actions": 0,
-            "unconfirmed_actions": 0,
-            "executed_actions": 0,
-        }
-        self._check_cancelled()
-        ended = self._ended()
-        if ended or self._terminated is True or self._truncated is True:
-            return ToolResult(
-                data={
-                    "error": "episode has ended",
-                    "session_ended": ended,
-                    "terminated": self._terminated,
-                    "truncated": self._truncated,
-                    "observation_fresh": False,
-                    "stop_reason": "session_ended"
-                    if ended
-                    else ("terminated" if self._terminated else "truncated"),
-                    **not_issued,
-                }
+        if steps + settle_steps > MAX_GRIPPER_ACTIONS:
+            raise ValueError(
+                f"gripper action budget is at most {MAX_GRIPPER_ACTIONS} including holds"
             )
-        if self._command_history_unknown:
-            return ToolResult(
-                data={
-                    "error": "previous action execution outcome is unknown",
-                    "code": "command_state_unknown",
-                    **not_issued,
-                }
-            )
-
-        self.last_observation = self.env.get_observation()
-        try:
-            before = snapshot_observation(
-                self.last_observation,
-                task_id=self.task_id,
-                task_language=self.task_language,
-            )
-            state = extract_robot_state(before["proprio"])
-            native, hold_source = self._current_hold_action(state)
-        except (TypeError, ValueError) as error:
-            return ToolResult(
-                data={"error": str(error), "code": "invalid_hold_state", **not_issued}
-            )
+        prepared = self._prepare_joint_action()
+        if isinstance(prepared, ToolResult):
+            return prepared
+        state, native, hold_source = prepared
         gripper_index = 14 if arm == "left" else 22
         current = float((native[gripper_index] + 1.0) / 2.0)
         target = float(val)
@@ -1938,16 +1817,12 @@ class BehaviorPrimitives:
         actions = np.tile(native, (len(values), 1))
         actions[:, gripper_index] = 2.0 * np.asarray(values) - 1.0
         self._check_cancelled()
-        returned, _, terminated, truncated, info = self._send_actions(actions)
-        self._terminated = _termination_flag(terminated)
-        self._truncated = _termination_flag(truncated)
-        if isinstance(returned, list):
-            if returned:
-                self.last_observation = returned[-1]
-        else:
-            self.last_observation = returned
-        self._session_ended = info.get("stop_reason") == "session_ended"
-        fresh = info.get("observation_after_last_issued_action")
+        feedback = self._execution_summary(
+            self._send_actions(actions),
+            requested_actions=len(actions),
+            default_reason="requested_gripper_returned",
+        )
+        fresh = feedback["observation_fresh"]
         measured_finger_qpos = None
         measured_finger_qvel = None
         target_error = None
@@ -1985,16 +1860,7 @@ class BehaviorPrimitives:
                 "requested_actions": len(actions),
                 "ramp_steps": step_count,
                 "settle_steps": settle_steps,
-                "issued_actions": info.get("issued_actions"),
-                "confirmed_actions": info.get("confirmed_actions"),
-                "unconfirmed_actions": info.get("unconfirmed_actions"),
-                "executed_actions": info.get("executed_actions"),
-                "observation_fresh": fresh,
-                "observation_after_last_issued_action": fresh,
-                "session_ended": self._session_ended,
-                "stop_reason": info.get("stop_reason", "requested_gripper_returned"),
-                "terminated": self._terminated,
-                "truncated": self._truncated,
+                **feedback,
                 "finger_qpos_before_m": state[arm]["finger_qpos"],
                 "finger_qpos_after_m": measured_finger_qpos,
                 "finger_qvel_before_m_s": state[arm]["finger_qvel"],
@@ -2025,7 +1891,9 @@ class BehaviorPrimitives:
         val: Annotated[
             float, Field(ge=1, le=1, json_schema_extra={"default": 1.0})
         ] = 1.0,
-        steps: Annotated[int, Field(ge=1, json_schema_extra={"default": 10})] = 10,
+        steps: Annotated[
+            int, Field(ge=1, le=MAX_GRIPPER_ACTIONS, json_schema_extra={"default": 10})
+        ] = 10,
         settle_steps: Annotated[
             int, Field(ge=0, le=60, json_schema_extra={"default": 10})
         ] = 10,
@@ -2038,7 +1906,7 @@ class BehaviorPrimitives:
         Args:
             arm: Gripper to open.
             val: Opening target; this alias accepts only 1.
-            steps: Actions used to interpolate to the open target.
+            steps: Actions used to open; ramp plus holds must not exceed 5000.
             settle_steps: Additional actions holding the open target.
         """
         if (
@@ -2117,16 +1985,10 @@ def validate_observation_token(value: Any) -> dict[str, int]:
 
 
 def one_action_counts(info: dict[str, Any]) -> dict[str, int]:
-    result = {name: info.get(name) for name in COUNT_NAMES}
-    if any(type(value) is not int or not 0 <= value <= 1 for value in result.values()):
-        raise ValueError("one-action execution requires four known 0/1 counters")
-    if (
-        result["issued_actions"]
-        != result["confirmed_actions"] + result["unconfirmed_actions"]
-        or result["executed_actions"] != result["confirmed_actions"]
-    ):
-        raise ValueError("base execution counters disagree")
-    return result
+    counts, errors = _action_counts(info, 1)
+    if errors or any(value is None for value in counts.values()):
+        raise ValueError("one-action execution requires consistent known 0/1 counters")
+    return counts
 
 
 def validate_public_base_context(
@@ -2184,31 +2046,11 @@ class MotionCallLedger:
         ):
             return
         info = result[4]
-        limit = item["requested_actions"]
-        counts = {
-            name: int(value)
-            if isinstance((value := info.get(name)), (int, np.integer))
-            and not isinstance(value, (bool, np.bool_))
-            and 0 <= value <= limit
-            else None
-            for name in COUNT_NAMES
-        }
-        issued, confirmed, unknown, executed = (counts[name] for name in COUNT_NAMES)
-        inconsistent = (
-            issued is not None
-            and confirmed is not None
-            and (
-                confirmed > issued
-                or (unknown is not None and issued != confirmed + unknown)
-            )
-        )
-        inconsistent |= (
-            confirmed is not None and executed is not None and confirmed != executed
-        )
-        if inconsistent:
-            counts = dict.fromkeys(COUNT_NAMES)
+        counts, errors = _action_counts(info, item["requested_actions"])
         item.update(counts)
-        item["counts_valid"] = all(value is not None for value in counts.values())
+        item["counts_valid"] = not errors and all(
+            value is not None for value in counts.values()
+        )
         item["observation_token"] = deepcopy(info.get("observation_token"))
         item["observation_fresh"] = info.get(
             "observation_after_last_issued_action"

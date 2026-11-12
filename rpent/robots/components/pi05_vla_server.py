@@ -28,11 +28,12 @@ from __future__ import annotations
 
 import argparse
 import os
-import random
 import time
 from typing import Any
 
 import numpy as np
+import torch
+from omegaconf import OmegaConf
 
 from rpent.robots.components.am_facade_base import BaseVLAFacade
 from rpent.utils.config import get_pi05_checkpoint_path
@@ -158,8 +159,6 @@ def build_model_cfg(model_path: str, emb_cfg: dict) -> Any:
     the model config. ``model_path`` is set at runtime, not from the
     embodiment preset.
     """
-    from omegaconf import OmegaConf
-
     cfg = {
         "model_type": "openpi",
         "model_path": model_path,
@@ -213,8 +212,6 @@ class Pi05VLAFacade(BaseVLAFacade):
         embodiment: str,
         norm_stats_path: str | None = None,
         repo_id: str | None = None,
-        behavior_state_layout: str | None = None,
-        seed: int | None = None,
     ):
         if embodiment not in PI05_EMBODIMENTS:
             raise ValueError(
@@ -226,19 +223,6 @@ class Pi05VLAFacade(BaseVLAFacade):
             raise ValueError("dual_franka requires repo_id or norm_stats_path")
         self._embodiment = embodiment
         super().__init__()
-
-        if behavior_state_layout is not None and embodiment != "behavior":
-            raise ValueError("behavior_state_layout applies only to BEHAVIOR")
-        if seed is None and embodiment == "behavior":
-            seed = 0
-        if seed is not None:
-            if type(seed) is not int or not 0 <= seed < 2**32:
-                raise ValueError("seed must be an integer between 0 and 2**32 - 1")
-            import torch
-
-            torch.manual_seed(seed)
-            np.random.seed(seed)
-            random.seed(seed)
 
         platform = PI05_ROBOT_PLATFORMS.get(embodiment)
         if platform is not None:
@@ -257,15 +241,9 @@ class Pi05VLAFacade(BaseVLAFacade):
             embodiment,
             cfg["model_path"],
         )
-        if embodiment == "behavior":
-            from robots.behavior.pi05 import load_model
+        from rlinf.models.embodiment.openpi import get_model
 
-            model = load_model(cfg, behavior_state_layout or "comet")
-        else:
-            from rlinf.models.embodiment.openpi import get_model
-
-            model = get_model(cfg, torch_dtype=None)
-        self._model = model.cuda().eval()
+        self._model = get_model(cfg, torch_dtype=None).cuda().eval()
         self._action_chunk = int(cfg.openpi.get("action_chunk", cfg.num_action_chunks))
         logger.info("model ready in %.1fs", time.time() - t0)
 
@@ -273,18 +251,9 @@ class Pi05VLAFacade(BaseVLAFacade):
         super()._register_rpc()
         self._rpc["vla.status"] = self.get_status
         self._readonly_methods.add("vla.status")
-        if self._embodiment == "behavior":
-            self._rpc["vla.reset"] = self.reset
         if self._embodiment == "yam":
             self._rpc["vla.get_model_meta"] = self.get_model_meta
             self._readonly_methods.add("vla.get_model_meta")
-
-    def reset(self) -> dict[str, bool]:
-        """Drop any policy cache between episodes on a dedicated BEHAVIOR worker."""
-        reset_model = getattr(self._model, "reset", None)
-        if callable(reset_model):
-            reset_model()
-        return {"ok": True}
 
     def get_status(self) -> dict:
         """Return prediction chunk length for client-side action validation."""
@@ -304,15 +273,9 @@ class Pi05VLAFacade(BaseVLAFacade):
         The caller (client) is responsible for encoding env-native obs into
         the openpi wire format (see ``Pi05VLAClient.encode_obs``).
         """
-        import torch
-
         mode = (options or {}).get("mode", "eval")
         with torch.no_grad():
             actions, _ = self._model.predict_action_batch(obs, mode=mode)
-        if self._embodiment == "behavior":
-            from robots.behavior.pi05 import native_action_batch
-
-            return native_action_batch(actions, self._action_chunk)
         return (
             actions.detach().cpu().numpy()
             if (
@@ -366,16 +329,6 @@ def main() -> None:
         default=None,
         help="SFT dataset repo ID used to locate checkpoint normalization statistics",
     )
-    p.add_argument(
-        "--behavior-state-layout",
-        choices=("comet", "abs_joint"),
-        help="BEHAVIOR training-time state layout (default: comet)",
-    )
-    p.add_argument(
-        "--seed",
-        type=int,
-        help="Seed model initialization and sampling (BEHAVIOR default: 0)",
-    )
     args = p.parse_args()
 
     if args.cuda_device is not None:
@@ -401,8 +354,6 @@ def main() -> None:
         embodiment=args.embodiment,
         norm_stats_path=args.norm_stats_path,
         repo_id=args.repo_id,
-        behavior_state_layout=args.behavior_state_layout,
-        seed=args.seed,
     )
     facade.serve(
         transport=args.transport,

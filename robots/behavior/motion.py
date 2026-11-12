@@ -327,42 +327,20 @@ class R1ProMotionModel:
             "previous_observation_token": previous_token,
         }
 
-    def gripper_hold_candidates(self, proprio: Any) -> dict[str, float]:
-        """Derive new symmetric position targets from measured finger openings.
-
-        The official R1Pro smooth position controller maps native [-1, 1] to
-        the mean URDF finger limits and applies that target to both fingers.
-        A pair differing by more than 1 mm cannot be represented by one hold
-        command. These candidates do not recover a past command or establish
-        a grasp; execution must preserve an existing matching command instead
-        of replacing an unknown contact force with a measured-position target.
-        """
+    def validate_finger_geometry(self, proprio: Any) -> None:
+        """Check measured geometry without deriving replacement gripper commands."""
         positions = self.joint_positions(proprio)
-        candidates = {}
         for arm, names in FINGER_JOINT_NAMES.items():
-            limits = np.asarray(
-                [
-                    [
-                        float(self._joints[name].find("limit").attrib[key])
-                        for key in ("lower", "upper")
-                    ]
-                    for name in names
-                ]
-            )
-            fingers = np.asarray([positions[name] for name in names])
-            if (
-                np.any(fingers < limits[:, 0] - 0.001)
-                or np.any(fingers > limits[:, 1] + 0.001)
-                or np.ptp(fingers) > 0.001
-            ):
-                raise ValueError(
-                    f"{arm} measured fingers cannot share a smooth position hold target"
-                )
-            lower, upper = np.mean(limits, axis=0)
-            candidates[arm] = float(
-                np.clip(2 * (np.mean(fingers) - lower) / (upper - lower) - 1, -1, 1)
-            )
-        return candidates
+            for name in names:
+                limits = self._joints[name].find("limit").attrib
+                if (
+                    not float(limits["lower"]) - 0.001
+                    <= positions[name]
+                    <= float(limits["upper"]) + 0.001
+                ):
+                    raise ValueError(
+                        f"{arm} measured fingers exceed the URDF position limits"
+                    )
 
     def robot_config(self, arm: Arm, proprio: Any) -> dict[str, Any]:
         """Build the inner dictionary accepted by ``RobotConfig.from_dict``.
@@ -585,11 +563,11 @@ class R1ProMotionPlanner:
                 ),
             }
         try:
-            hold_commands = self.model.gripper_hold_candidates(proprio)
+            self.model.validate_finger_geometry(proprio)
         except ValueError as error:
             return {
                 "status": "Unavailable",
-                "code": "gripper_hold_unrepresentable",
+                "code": "invalid_finger_geometry",
                 "error": str(error),
                 "motion_state_contract": motion_state,
             }
@@ -755,8 +733,6 @@ class R1ProMotionPlanner:
                 "arm_qpos"
             ],
             "held_finger_qpos": motion_state["held_finger_qpos"],
-            "held_gripper_native_commands": hold_commands,
-            "gripper_hold_source": "candidate_from_current_measurement",
             "motion_state_contract": motion_state,
             "joint_position_limits_rad": self.model.joint_limits(arm).tolist(),
             "joint_velocity_limits_rad_s": self.model.velocity_limits(arm).tolist(),

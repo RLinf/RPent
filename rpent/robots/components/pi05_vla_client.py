@@ -47,10 +47,74 @@ def _batch_views(views: Any, *, allow_multiple: bool = False) -> np.ndarray | No
     return arr.astype(np.uint8)[None]
 
 
-def _encode_obs_behavior(env_obs: dict) -> dict:
-    from robots.behavior.pi05 import encode_observation
+# (official public proprio slice, RLinf BehaviorInputs source slice).
+_BEHAVIOR_STATE_SLICES = (
+    (slice(0, 3), slice(253, 256)),
+    (slice(3, 10), slice(158, 165)),
+    (slice(24, 26), slice(193, 195)),
+    (slice(28, 35), slice(197, 204)),
+    (slice(49, 51), slice(232, 234)),
+    (slice(53, 57), slice(236, 240)),
+)
 
-    return encode_observation(env_obs)
+
+def _behavior_rgb(value: Any, role: str) -> np.ndarray:
+    image = np.asarray(value)
+    if image.ndim != 3:
+        raise ValueError(f"{role} camera must be a 3D image array: {image.shape}")
+    if image.shape[0] in (3, 4) and image.shape[-1] not in (3, 4):
+        image = np.transpose(image, (1, 2, 0))
+    if image.shape[-1] < 3:
+        raise ValueError(f"{role} camera needs at least 3 channels: {image.shape}")
+    image = image[..., :3]
+    if np.issubdtype(image.dtype, np.floating):
+        if image.size and float(np.nanmax(image)) <= 1.0:
+            image = image * 255.0
+        image = np.clip(image, 0.0, 255.0).astype(np.uint8)
+    else:
+        image = image.astype(np.uint8, copy=False)
+    return np.ascontiguousarray(image)
+
+
+def _encode_obs_behavior(env_obs: dict) -> dict:
+    """Encode a BEHAVIOR frame in RLinf's three-view, padded R1Pro layout."""
+    instruction = env_obs.get("task_descriptions")
+    if not isinstance(instruction, str) or not instruction.strip():
+        raise ValueError("BEHAVIOR task_descriptions must be a nonempty instruction")
+
+    def sensor(suffix: str) -> Any:
+        matches = [
+            value
+            for key, value in env_obs.items()
+            if isinstance(key, (str, bytes))
+            and (key.decode() if isinstance(key, bytes) else key).endswith(suffix)
+        ]
+        if len(matches) != 1:
+            raise ValueError(f"expected one BEHAVIOR sensor ending in {suffix!r}")
+        return matches[0]
+
+    proprio = np.asarray(sensor("::proprio"), dtype=np.float32)
+    if proprio.shape not in {(61,), (256,)} or not np.isfinite(proprio).all():
+        raise ValueError(
+            "expected a finite R1Pro proprio vector of shape (61,) or (256,), "
+            f"got shape {proprio.shape}"
+        )
+    if proprio.size == 256:
+        state = proprio
+    else:
+        state = np.zeros(256, dtype=np.float32)
+        for source, target in _BEHAVIOR_STATE_SLICES:
+            state[target] = proprio[source]
+    head = _behavior_rgb(sensor("zed_link:Camera:0::rgb"), "head")
+    left = _behavior_rgb(sensor("left_realsense_link:Camera:0::rgb"), "left wrist")
+    right = _behavior_rgb(sensor("right_realsense_link:Camera:0::rgb"), "right wrist")
+    return {
+        "main_images": head[None],
+        "wrist_images": np.stack((left, right))[None],
+        "extra_view_images": None,
+        "states": state[None],
+        "task_descriptions": [instruction],
+    }
 
 
 def _encode_obs_libero(env_obs: dict) -> dict:
@@ -238,12 +302,6 @@ class Pi05VLAClient(BaseVLAClient):
     def status(self, *, timeout_s: float = 10) -> dict[str, Any]:
         """Query prediction chunk length from a server supporting ``vla.status``."""
         return self._client.call("vla.status", timeout_s=timeout_s)
-
-    def reset(self) -> None:
-        """Clear the BEHAVIOR worker's model state at an evaluator episode boundary."""
-        result = self._client.call("vla.reset", timeout_s=self._TIMEOUT_S["default"])
-        if not isinstance(result, dict) or result.get("ok") is not True:
-            raise RuntimeError("Pi0.5 policy reset was not acknowledged")
 
     # ---- inference ----
 

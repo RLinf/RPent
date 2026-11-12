@@ -13,35 +13,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Adapt the official BEHAVIOR evaluator to RPent's environment interface.
+"""Join official BEHAVIOR WebSocket observations to RPent action chunks.
 
-The official evaluator owns simulation, reset and scoring. This module joins
-its single-action WebSocket protocol to RPent tools that submit action chunks:
-
-* ``WebsocketPolicyServer`` handles connections and NumPy message encoding.
-* ``OfficialEvaluatorPolicy`` implements the evaluator's reset/act lifecycle.
-* ``EvaluatorStepBridge`` hands observations/actions between policy and tools,
-  confirming each action only when its next official observation arrives.
-
-``create_official_policy_server`` binds the policy and connection lifecycle.
-The Env service owns these objects; model inference remains in the VLA service.
-MessagePack and WebSocket dependencies are imported only when serving messages.
+``EvaluatorStepBridge`` owns observations, pending actions and execution counts.
+``serve_websocket`` exposes that bridge to one official evaluator connection.
+The Env service exposes the same bridge through RPC. Simulation and scoring
+remain in the separately launched official evaluator.
 """
 
 from __future__ import annotations
 
 import asyncio
-import copy
 import http
 import math
-import random
-import sys
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import Any, Literal
 
 import numpy as np
 
@@ -49,18 +40,15 @@ from robots.behavior.env_client import validate_native_actions
 from robots.behavior.tools import extract_public_proprio
 from rpent.utils.logging import get_logger
 
-if TYPE_CHECKING:
-    from websockets.asyncio.server import ServerConnection
-
 logger = get_logger("behavior_policy_transport")
 
 
 class BridgeCancelled(RuntimeError):
-    """A bridge operation stopped before completion due to reset/close/timeout."""
+    """A reset, timeout or service shutdown cancelled an operation."""
 
 
 class BridgeSessionEnded(BridgeCancelled):
-    """The evaluator connection ended without reporting a task outcome."""
+    """The evaluator disconnected without reporting a task outcome."""
 
 
 @dataclass
@@ -85,38 +73,26 @@ class _Chunk:
 
 
 class EvaluatorStepBridge:
-    """Coordinate one evaluator stream and one outstanding action chunk.
+    """Hand observations and actions between one evaluator and RPent tools.
 
     Args:
-        timeout_s: Maximum wait for each public blocking operation. A timeout
-            cancels the current generation; the evaluator must reset before
-            further work. This timeout must exceed expected model latency.
-        simulation_timeout_s: Optional maximum interval without a new evaluator
-            observation while executing a chunk. Each received observation
-            refreshes this interval. Also bounds waiting for the first frame.
-        action_timeout_s: Maximum time an evaluator observation waits for an
-            RPent action. Defaults to ``timeout_s``.
-        chunk_timeout_s: Absolute chunk deadline, including all progress. When
-            omitted, legacy calls use ``timeout_s``; with simulation_timeout_s
-            configured, it is ``number of actions * simulation_timeout_s``.
+        simulation_timeout_s: Maximum interval without a new observation.
+        action_timeout_s: Maximum time an observation waits for an RPent action.
+        chunk_timeout_s: Absolute deadline for a whole action chunk.
     """
 
     def __init__(
         self,
-        timeout_s: float = 120.0,
         *,
-        simulation_timeout_s: float | None = None,
-        action_timeout_s: float | None = None,
-        chunk_timeout_s: float | None = None,
+        simulation_timeout_s: float,
+        action_timeout_s: float,
+        chunk_timeout_s: float,
     ) -> None:
         for name, value in (
-            ("timeout_s", timeout_s),
             ("simulation_timeout_s", simulation_timeout_s),
             ("action_timeout_s", action_timeout_s),
             ("chunk_timeout_s", chunk_timeout_s),
         ):
-            if value is None and name != "timeout_s":
-                continue
             if (
                 isinstance(value, bool)
                 or not isinstance(value, (int, float))
@@ -124,103 +100,92 @@ class EvaluatorStepBridge:
                 or value <= 0
             ):
                 raise ValueError(f"{name} must be a positive finite number")
-        self._timeout_s = float(timeout_s)
-        self._simulation_timeout_s = simulation_timeout_s or self._timeout_s
-        self._action_timeout_s = action_timeout_s or self._timeout_s
-        self._chunk_timeout_s = chunk_timeout_s
-        self._progress_timeout_enabled = simulation_timeout_s is not None
+        self._simulation_timeout_s = float(simulation_timeout_s)
+        self._action_timeout_s = float(action_timeout_s)
+        self._chunk_timeout_s = float(chunk_timeout_s)
         self._condition = threading.Condition()
         self._generations = [_Generation(0)]
         self._closed = False
-        self._last_obs: dict[str, Any] | None = None
+        self.last_obs: dict[str, Any] | None = None
         self._observation_generation: int | None = None
         self._active_chunk: _Chunk | None = None
         self._inflight: _Chunk | None = None
         self._receiver: object | None = None
         self._observation_index = -1
-        self._motion_context: dict[str, Any] | None = None
-
-    @property
-    def last_obs(self) -> dict[str, Any] | None:
-        """Retain the latest received observation even after cancellation."""
-        with self._condition:
-            return self._last_obs
-
-    def _check_generation(self, generation: int, *, allow_ended: bool = False) -> None:
-        record = self._generations[generation]
-        if record.cancelled is not None or self._closed:
-            reason = record.cancelled or "closed"
-            raise BridgeCancelled(f"BEHAVIOR bridge generation {generation}: {reason}")
-        if record.session_end_reason is not None and not allow_ended:
-            raise BridgeSessionEnded(
-                f"BEHAVIOR bridge generation {generation}: "
-                f"session ended ({record.session_end_reason}); outcome unknown"
-            )
-
-    def _cancel(self, reason: str) -> None:
-        record = self._generations[-1]
-        if record.cancelled is None:
-            record.cancelled = reason
-        self._active_chunk = None
-        self._inflight = None
-        self._receiver = None
-        self._motion_context = None
-        self._condition.notify_all()
+        self._snapshot: dict[str, Any] | None = None
 
     def _wait(
         self,
+        record: _Generation,
+        ready: Callable[[], bool],
         deadline: float,
-        generation: int,
         operation: str,
         timeout_s: float,
         *,
         allow_ended: bool = False,
     ) -> None:
-        self._check_generation(generation, allow_ended=allow_ended)
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            self._cancel(f"{operation} timed out after {timeout_s:g}s")
-            self._check_generation(generation)
-        self._condition.wait(remaining)
+        """Check session state and wait for a condition under the shared lock."""
+        while True:
+            if record.cancelled is not None or self._closed:
+                raise BridgeCancelled(
+                    f"BEHAVIOR bridge generation {record.number}: {record.cancelled or 'closed'}"
+                )
+            complete = ready()
+            if record.session_end_reason is not None and not (allow_ended and complete):
+                raise BridgeSessionEnded(
+                    f"BEHAVIOR bridge generation {record.number}: session ended ({record.session_end_reason}); outcome unknown"
+                )
+            if complete:
+                return
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                self.stop(
+                    f"{operation} timed out after {timeout_s:g}s", state="cancelled"
+                )
+                continue
+            self._condition.wait(remaining)
 
     def reset(self) -> None:
-        """Cancel the previous episode; only the official owner calls this."""
+        """Cancel the old generation and wait for a new generation's first frame."""
         with self._condition:
             if self._closed:
                 raise BridgeCancelled("BEHAVIOR bridge is closed")
-            self._cancel("reset")
+            self.stop("reset", state="cancelled")
             self._generations.append(_Generation(len(self._generations)))
             self._observation_index = -1
+            self._snapshot = None
 
-    def close(self) -> None:
-        """Cancel all waiters without claiming outstanding actions completed."""
-        with self._condition:
-            if not self._closed:
-                self._cancel("closed")
-                self._closed = True
+    def stop(
+        self,
+        reason: str = "closed",
+        *,
+        state: Literal["closed", "cancelled", "ended"] = "closed",
+    ) -> None:
+        """Wake waiters after shutdown, cancellation or evaluator disconnection.
 
-    def end_session(self, reason: str = "connection_closed") -> None:
-        """Release pending chunks when the evaluator connection actually ends.
-
-        Connection closure reports neither task success nor action completion.
-        Issued actions without a following observation remain unconfirmed. Use
-        ``close`` instead for owner cancellation or faults; an existing fault
-        is never converted into a normal session end by this method.
+        Disconnection returns partial execution feedback. Cancellation raises
+        instead; a later disconnection never hides an existing cancellation.
         """
         if not isinstance(reason, str) or not reason.strip():
             raise ValueError("session end reason must be a non-empty string")
         with self._condition:
             record = self._generations[-1]
-            if record.cancelled is not None or self._closed:
-                return
-            if record.session_end_reason is None:
-                record.session_end_reason = reason
-                self._active_chunk = None
-                self._inflight = None
-                self._condition.notify_all()
+            if state == "ended":
+                if record.cancelled is not None or self._closed:
+                    return
+                if record.session_end_reason is None:
+                    record.session_end_reason = reason
+            else:
+                if record.cancelled is None:
+                    record.cancelled = reason
+                self._closed = self._closed or state == "closed"
+                self._receiver = None
+            self._active_chunk = None
+            self._inflight = None
+            self._condition.notify_all()
 
     def session_status(self) -> dict[str, Any]:
-        """Return transport lifecycle only; official task outcome is unknown."""
+        """Report connection state without claiming task success."""
         with self._condition:
             record = self._generations[-1]
             return {
@@ -231,132 +196,38 @@ class EvaluatorStepBridge:
             }
 
     def get_observation(self) -> dict[str, Any]:
-        """Read this generation's latest frame, including after session end.
-
-        The retained frame is not evidence that the last issued action executed.
-        ``session_status`` and chunk feedback describe that distinction. Frames
-        from a prior reset generation are never returned.
-        """
-        deadline = time.monotonic() + self._simulation_timeout_s
+        """Read the current generation's latest frame, waiting for its first."""
         with self._condition:
-            generation = self._generations[-1].number
-            self._check_generation(generation, allow_ended=True)
-            while self._observation_generation != generation:
-                self._wait(
-                    deadline, generation, "get_observation", self._simulation_timeout_s
-                )
-            self._check_generation(generation, allow_ended=True)
-            return self._last_obs
-
-    def _motion_snapshot(self, *, copy_observation: bool = False) -> dict[str, Any]:
-        """Build a snapshot while holding the observation/action condition."""
-        record = self._generations[-1]
-        context = deepcopy(self._motion_context or {})
-        context.update(
-            issued_actions=record.issued,
-            confirmed_actions=record.confirmed,
-            unconfirmed_actions=record.issued - record.confirmed,
-            actions_pending=self._active_chunk is not None,
-        )
-        return {
-            "observation": deepcopy(self._last_obs)
-            if copy_observation
-            else self._last_obs,
-            "observation_token": {
-                "generation": record.number,
-                "observation_index": self._observation_index,
-            },
-            "motion_context": context,
-        }
+            record = self._generations[-1]
+            self._wait(
+                record,
+                lambda: self._observation_generation == record.number,
+                time.monotonic() + self._simulation_timeout_s,
+                "get_observation",
+                self._simulation_timeout_s,
+                allow_ended=True,
+            )
+            return self.last_obs
 
     def get_motion_snapshot(self) -> dict[str, Any]:
-        """Atomically bind public observation, control history and generation.
-
-        Reading never creates another control frame. Only evaluator callbacks
-        may extend the finite-difference history; no simulator state is read.
-        """
-        deadline = time.monotonic() + self._simulation_timeout_s
+        """Copy one observation with its matching frame ID and control history."""
         with self._condition:
-            generation = self._generations[-1].number
-            self._check_generation(generation)
-            while self._observation_generation != generation:
-                self._wait(
-                    deadline,
-                    generation,
-                    "get_motion_snapshot",
-                    self._simulation_timeout_s,
-                )
-            self._check_generation(generation)
-            return self._motion_snapshot(copy_observation=True)
-
-    def _check_observation_token(self, expected: Any) -> None:
-        if expected is None:
-            return
-        keys = {"generation", "observation_index"}
-        if (
-            not isinstance(expected, dict)
-            or set(expected) != keys
-            or any(type(expected[key]) is not int for key in keys)
-            or any(expected[key] < 0 for key in keys)
-        ):
-            raise ValueError(
-                "expected_observation_token must identify one public frame"
+            record = self._generations[-1]
+            self._wait(
+                record,
+                lambda: self._observation_generation == record.number,
+                time.monotonic() + self._simulation_timeout_s,
+                "get_motion_snapshot",
+                self._simulation_timeout_s,
             )
-        current = {
-            "generation": self._generations[-1].number,
-            "observation_index": self._observation_index,
-        }
-        if expected != current or self._observation_generation != current["generation"]:
-            raise RuntimeError("stale_observation: public planning frame changed")
-        if self._inflight is not None:
-            raise RuntimeError("unconfirmed_action: planning frame predates an action")
-
-    def _record_motion_observation(
-        self, raw_obs: dict[str, Any], *, confirmed_action: bool
-    ) -> None:
-        """Capture a public61 pair before another action may be issued."""
-        previous = self._motion_context
-        self._observation_index += 1
-        record = self._generations[-1]
-        token = {
-            "generation": record.number,
-            "observation_index": self._observation_index,
-        }
-        try:
-            state = extract_public_proprio(raw_obs)
-        except (ValueError, TypeError, UnicodeError):
-            state = None
-        pair_confirmed = (
-            confirmed_action
-            and previous is not None
-            and previous["current_token"]["generation"] == record.number
-            and previous["current_token"]["observation_index"]
-            == self._observation_index - 1
-            and record.issued == record.confirmed
-        )
-        self._motion_context = {
-            "source": "confirmed_public_control_observations",
-            "control_dt_s": 1 / 30,
-            "current_token": token,
-            "previous_token": deepcopy(previous["current_token"]) if previous else None,
-            "current_proprio": state,
-            "previous_proprio": (
-                previous["current_proprio"].copy()
-                if previous is not None and previous["current_proprio"] is not None
-                else None
-            ),
-            "pair_confirmed": pair_confirmed,
-            "initial_bootstrap": (
-                self._observation_index == 0
-                and record.issued == record.confirmed == 0
-                and not confirmed_action
-            ),
-        }
-
-    def step(self, action: Any) -> tuple:
-        """Issue one native action and wait for a subsequent observation."""
-        array = validate_native_actions(action, chunk=False)
-        return self.chunk_step(array[None, :])
+            snapshot = deepcopy(self._snapshot)
+            snapshot["motion_context"].update(
+                issued_actions=record.issued,
+                confirmed_actions=record.confirmed,
+                unconfirmed_actions=record.issued - record.confirmed,
+                actions_pending=self._active_chunk is not None,
+            )
+            return snapshot
 
     def chunk_step(
         self,
@@ -365,113 +236,133 @@ class EvaluatorStepBridge:
         return_all_frames: bool = False,
         expected_observation_token: dict[str, int] | None = None,
     ) -> tuple:
-        """Wait until every action is confirmed by the next evaluator observation.
-
-        Returns:
-            A Gym 5-tuple. Reward and terminal flags remain None because the
-            policy observation protocol does not supply them. ``executed_actions``
-            counts only actions acknowledged by a subsequent observation.
-            Session end returns partial counts and the last known observation,
-            explicitly marked when it predates the last issued action. With
-            ``return_all_frames``, only confirmed frames are returned, so that
-            list can be empty on session end.
-        """
+        """Submit native actions and return only confirmed execution feedback."""
         array = validate_native_actions(actions, chunk=True).copy()
-        timeout_s = self._chunk_timeout_s
-        if timeout_s is None:
-            timeout_s = (
-                len(array) * self._simulation_timeout_s
-                if self._progress_timeout_enabled
-                else self._timeout_s
-            )
-        deadline = time.monotonic() + timeout_s
+        deadline = time.monotonic() + self._chunk_timeout_s
         with self._condition:
-            generation = self._generations[-1].number
-            self._check_generation(generation, allow_ended=True)
-            record = self._generations[generation]
+            record = self._generations[-1]
+            self._wait(
+                record,
+                lambda: True,
+                deadline,
+                "chunk_step",
+                self._chunk_timeout_s,
+                allow_ended=True,
+            )
             if self._active_chunk is not None:
                 raise RuntimeError("BEHAVIOR bridge already has an outstanding chunk")
-            self._check_observation_token(expected_observation_token)
+            if expected_observation_token is not None:
+                token = {
+                    "generation": record.number,
+                    "observation_index": self._observation_index,
+                }
+                if (
+                    not isinstance(expected_observation_token, dict)
+                    or set(expected_observation_token) != set(token)
+                    or any(
+                        type(v) is not int or v < 0
+                        for v in expected_observation_token.values()
+                    )
+                ):
+                    raise ValueError(
+                        "expected_observation_token must identify one public frame"
+                    )
+                if (
+                    expected_observation_token != token
+                    or self._observation_generation != record.number
+                ):
+                    raise RuntimeError(
+                        "stale_observation: public planning frame changed"
+                    )
+                if self._inflight is not None:
+                    raise RuntimeError(
+                        "unconfirmed_action: planning frame predates an action"
+                    )
             chunk = _Chunk(array, return_all_frames)
             if record.session_end_reason is None:
                 self._active_chunk = chunk
             self._condition.notify_all()
-            while chunk.confirmed < len(array):
-                self._check_generation(generation, allow_ended=True)
-                if record.session_end_reason is not None:
-                    break
-                progress_deadline = chunk.last_progress_at + self._simulation_timeout_s
-                wait_for_progress = progress_deadline < deadline
+            while chunk.confirmed < len(array) and record.session_end_reason is None:
+                progress = chunk.last_progress_at
+                progress_deadline = progress + self._simulation_timeout_s
+                inactivity_first = progress_deadline < deadline
                 self._wait(
+                    record,
+                    lambda: (
+                        chunk.last_progress_at != progress
+                        or record.session_end_reason is not None
+                    ),
                     min(deadline, progress_deadline),
-                    generation,
                     "chunk_step without observation"
-                    if wait_for_progress
+                    if inactivity_first
                     else "chunk_step",
-                    self._simulation_timeout_s if wait_for_progress else timeout_s,
+                    self._simulation_timeout_s
+                    if inactivity_first
+                    else self._chunk_timeout_s,
                     allow_ended=True,
                 )
-            self._check_generation(generation, allow_ended=True)
-            has_observation = self._observation_generation == generation
-            if not has_observation:
-                self._check_generation(generation)
+            self._wait(
+                record,
+                lambda: self._observation_generation == record.number,
+                deadline,
+                "chunk_step",
+                self._chunk_timeout_s,
+                allow_ended=True,
+            )
             observation = (
                 chunk.frames
                 if return_all_frames
                 else (
                     chunk.final_observation
                     if chunk.final_observation is not None
-                    else self._last_obs
+                    else self.last_obs
                 )
             )
-            motion_snapshot = chunk.final_motion_snapshot or self._motion_snapshot()
+            snapshot = chunk.final_motion_snapshot or self._snapshot
             return (
                 observation,
                 None,
                 None,
                 None,
                 {
-                    "bridge_generation": generation,
+                    "bridge_generation": record.number,
                     "requested_actions": len(array),
                     "executed_actions": chunk.confirmed,
                     "issued_actions": chunk.issued,
                     "confirmed_actions": chunk.confirmed,
                     "unconfirmed_actions": chunk.issued - chunk.confirmed,
-                    "stop_reason": (
-                        "session_ended"
-                        if record.session_end_reason is not None
-                        else "chunk_completed"
-                    ),
+                    "stop_reason": "session_ended"
+                    if record.session_end_reason is not None
+                    else "chunk_completed",
                     "session_outcome": "unknown",
-                    "last_known_observation_available": has_observation,
-                    "observation_after_last_issued_action": (
-                        chunk.issued > 0 and chunk.confirmed == chunk.issued
-                    ),
-                    "observation_token": motion_snapshot["observation_token"],
+                    "last_known_observation_available": True,
+                    "observation_after_last_issued_action": chunk.issued > 0
+                    and chunk.confirmed == chunk.issued,
+                    "observation_token": snapshot["observation_token"],
                     "motion_context": {
-                        **motion_snapshot["motion_context"],
-                        "unconfirmed_actions": record.issued - record.confirmed,
+                        **deepcopy(snapshot["motion_context"]),
                         "issued_actions": record.issued,
                         "confirmed_actions": record.confirmed,
+                        "unconfirmed_actions": record.issued - record.confirmed,
                         "actions_pending": self._active_chunk is not None,
                     },
                 },
             )
 
     def observe_and_get_action(self, raw_obs: dict[str, Any]) -> np.ndarray:
-        """Accept one evaluator observation and wait for the next native action.
-
-        The evaluator must serialize calls and invoke ``reset`` before the
-        first observation of a new episode. Call this directly on the bridge,
-        outside the Env facade lock held by a waiting ``chunk_step``.
-        """
+        """Save an official frame, confirm the previous action and issue the next."""
         if not isinstance(raw_obs, dict):
             raise TypeError("BEHAVIOR evaluator observation must be a dictionary")
         deadline = time.monotonic() + self._action_timeout_s
         with self._condition:
             record = self._generations[-1]
-            generation = record.number
-            self._check_generation(generation)
+            self._wait(
+                record,
+                lambda: True,
+                deadline,
+                "observe_and_get_action",
+                self._action_timeout_s,
+            )
             if self._receiver is not None:
                 raise RuntimeError(
                     "BEHAVIOR bridge requires serialized evaluator calls"
@@ -479,160 +370,112 @@ class EvaluatorStepBridge:
             receiver = object()
             self._receiver = receiver
             try:
-                self._last_obs = raw_obs
-                self._observation_generation = generation
+                # Save the frame and confirm the action sent on the previous call.
+                self.last_obs = raw_obs
+                self._observation_generation = record.number
                 if self._active_chunk is not None:
                     self._active_chunk.last_progress_at = time.monotonic()
                 confirmed_chunk = self._inflight
                 if confirmed_chunk is not None:
-                    chunk = self._inflight
                     self._inflight = None
-                    chunk.confirmed += 1
+                    confirmed_chunk.confirmed += 1
                     record.confirmed += 1
-                    chunk.final_observation = raw_obs
-                    if chunk.return_all_frames:
-                        chunk.frames.append(raw_obs)
-                    if chunk.confirmed == len(chunk.actions):
+                    confirmed_chunk.final_observation = raw_obs
+                    if confirmed_chunk.return_all_frames:
+                        confirmed_chunk.frames.append(raw_obs)
+                    if confirmed_chunk.confirmed == len(confirmed_chunk.actions):
                         self._active_chunk = None
-                self._record_motion_observation(
-                    raw_obs, confirmed_action=confirmed_chunk is not None
-                )
+
+                # Keep the two adjacent public control frames needed by motion tools.
+                previous = self._snapshot["motion_context"] if self._snapshot else None
+                self._observation_index += 1
+                token = {
+                    "generation": record.number,
+                    "observation_index": self._observation_index,
+                }
+                try:
+                    proprio = extract_public_proprio(raw_obs)
+                except (ValueError, TypeError, UnicodeError):
+                    proprio = None
+                context = {
+                    "source": "confirmed_public_control_observations",
+                    "control_dt_s": 1 / 30,
+                    "current_token": token,
+                    "previous_token": deepcopy(previous["current_token"])
+                    if previous
+                    else None,
+                    "current_proprio": proprio,
+                    "previous_proprio": previous["current_proprio"].copy()
+                    if previous is not None and previous["current_proprio"] is not None
+                    else None,
+                    "pair_confirmed": confirmed_chunk is not None
+                    and previous is not None
+                    and previous["current_token"]["generation"] == record.number
+                    and previous["current_token"]["observation_index"]
+                    == self._observation_index - 1
+                    and record.issued == record.confirmed,
+                    "initial_bootstrap": self._observation_index == 0
+                    and record.issued == record.confirmed == 0
+                    and confirmed_chunk is None,
+                    "issued_actions": record.issued,
+                    "confirmed_actions": record.confirmed,
+                    "unconfirmed_actions": record.issued - record.confirmed,
+                    "actions_pending": self._active_chunk is not None,
+                }
+                self._snapshot = {
+                    "observation": raw_obs,
+                    "observation_token": token,
+                    "motion_context": context,
+                }
                 if confirmed_chunk is not None:
-                    confirmed_chunk.final_motion_snapshot = self._motion_snapshot()
+                    confirmed_chunk.final_motion_snapshot = self._snapshot
                 self._condition.notify_all()
-                while True:
-                    self._check_generation(generation)
-                    chunk = self._active_chunk
-                    if chunk is not None and chunk.issued < len(chunk.actions):
-                        action = chunk.actions[chunk.issued].copy()
-                        chunk.issued += 1
-                        record.issued += 1
-                        self._inflight = chunk
-                        return action
-                    self._wait(
-                        deadline,
-                        generation,
-                        "observe_and_get_action",
-                        self._action_timeout_s,
-                    )
+
+                # Wait for a tool's action batch, then return exactly one action.
+                self._wait(
+                    record,
+                    lambda: self._active_chunk is not None,
+                    deadline,
+                    "observe_and_get_action",
+                    self._action_timeout_s,
+                )
+                chunk = self._active_chunk
+                action = chunk.actions[chunk.issued].copy()
+                chunk.issued += 1
+                record.issued += 1
+                self._inflight = chunk
+                return action
             finally:
                 if self._receiver is receiver:
                     self._receiver = None
 
     def stats(self) -> dict[str, Any]:
-        """Return cumulative and per-generation counts, retaining cancellations."""
+        """Expose execution counters for diagnostics without advancing simulation."""
         with self._condition:
-            history = [
-                {
-                    "generation": record.number,
-                    "issued": record.issued,
-                    "confirmed": record.confirmed,
-                    "unconfirmed": record.issued - record.confirmed,
-                    "cancel_reason": record.cancelled,
-                    "session_end_reason": record.session_end_reason,
-                }
-                for record in self._generations
-            ]
-            issued = sum(record.issued for record in self._generations)
-            confirmed = sum(record.confirmed for record in self._generations)
+            record = self._generations[-1]
+            issued = sum(item.issued for item in self._generations)
+            confirmed = sum(item.confirmed for item in self._generations)
             return {
-                "generation": self._generations[-1].number,
+                "generation": record.number,
                 "issued": issued,
                 "confirmed": confirmed,
                 "unconfirmed": issued - confirmed,
                 "closed": self._closed,
-                "session_ended": self._generations[-1].session_end_reason is not None,
-                "session_end_reason": self._generations[-1].session_end_reason,
+                "session_ended": record.session_end_reason is not None,
+                "session_end_reason": record.session_end_reason,
                 "last_observation_generation": self._observation_generation,
-                "history": history,
+                "history": [
+                    {
+                        "generation": item.number,
+                        "issued": item.issued,
+                        "confirmed": item.confirmed,
+                        "unconfirmed": item.issued - item.confirmed,
+                        "cancel_reason": item.cancelled,
+                        "session_end_reason": item.session_end_reason,
+                    }
+                    for item in self._generations
+                ],
             }
-
-
-class OfficialEvaluatorPolicy:
-    """Implement the official policy protocol for one episode per process.
-
-    Args:
-        bridge: Borrowed bridge shared with the internal RPent Env facade.
-        task_id: Configured official task identity.
-        reset_policy: Optional callback to reset the borrowed VLA policy before
-            the first observation. It must serialize against model inference.
-    """
-
-    single_session = True
-    requires_reset = True
-    supports_chunk = False
-
-    def __init__(
-        self,
-        bridge: EvaluatorStepBridge,
-        *,
-        task_id: int,
-        reset_policy: Callable[[], None] | None = None,
-    ) -> None:
-        if isinstance(task_id, bool) or not isinstance(task_id, int) or task_id < 0:
-            raise ValueError("task_id must be a non-negative integer")
-        self.bridge = bridge
-        self.task_id = task_id
-        self._reset_policy = reset_policy
-        self._state_lock = threading.Lock()
-        self._act_lock = threading.Lock()
-        self._observations = 0
-        self._closed = False
-        self._resetting = False
-
-    def reset(self) -> None:
-        """Prepare the first episode; a later reset cancels and rejects reuse."""
-        with self._state_lock:
-            if self._closed:
-                raise RuntimeError("BEHAVIOR policy session is closed")
-            if self._resetting:
-                raise RuntimeError("BEHAVIOR policy reset is already in progress")
-            if self._observations:
-                self.bridge.close()
-                raise RuntimeError(
-                    "BEHAVIOR official policy supports one episode per process"
-                )
-            self._resetting = True
-        try:
-            if self._reset_policy is not None:
-                self._reset_policy()
-            with self._state_lock:
-                if self._closed:
-                    raise RuntimeError("BEHAVIOR policy session closed during reset")
-                self.bridge.reset()
-        except Exception:
-            with self._state_lock:
-                if not self._closed:
-                    self.bridge.close()
-            raise
-        finally:
-            with self._state_lock:
-                self._resetting = False
-
-    def act(self, observation: dict[str, Any]) -> np.ndarray:
-        """Accept one raw observation and issue a single native 23D action."""
-        if not isinstance(observation, dict):
-            raise TypeError("BEHAVIOR evaluator observation must be a dictionary")
-        if not self._act_lock.acquire(blocking=False):
-            raise RuntimeError("BEHAVIOR policy requires serialized evaluator calls")
-        try:
-            with self._state_lock:
-                if self._closed:
-                    raise RuntimeError("BEHAVIOR policy session is closed")
-                if self._resetting:
-                    raise RuntimeError("BEHAVIOR policy reset is in progress")
-                self._observations += 1
-            return self.bridge.observe_and_get_action(observation)
-        finally:
-            self._act_lock.release()
-
-    def close(self, reason: str = "connection_closed") -> None:
-        """Mark real connection closure; leave task outcome and execution unknown."""
-        with self._state_lock:
-            if self._closed:
-                return
-            self._closed = True
-        self.bridge.end_session(reason)
 
 
 def pack_data(value: Any) -> Any:
@@ -656,7 +499,7 @@ def pack_data(value: Any) -> Any:
 
 
 def unpack_data(value: dict) -> Any:
-    """Restore evaluator arrays without importing Torch or the simulator."""
+    """Restore official NumPy fields from a decoded MessagePack dictionary."""
     if b"__ndarray__" in value:
         return np.ndarray(
             buffer=value[b"data"],
@@ -668,206 +511,134 @@ def unpack_data(value: dict) -> Any:
     return value
 
 
-def Packer(*args: Any, **kwargs: Any) -> Any:
-    """Create the official NumPy MessagePack encoder when transport is used."""
+@asynccontextmanager
+async def serve_websocket(
+    bridge: EvaluatorStepBridge,
+    *,
+    port: int,
+    task_id: int,
+    host: str = "127.0.0.1",
+    metadata: dict[str, Any] | None = None,
+) -> AsyncIterator[Any]:
+    """Listen for one official evaluator; finish worker calls before releasing it."""
     import msgpack
+    from websockets.asyncio.server import serve
+    from websockets.exceptions import ConnectionClosed
 
-    return msgpack.Packer(*args, **{"default": pack_data, **kwargs})
+    if isinstance(task_id, bool) or not isinstance(task_id, int) or task_id < 0:
+        raise ValueError("task_id must be a non-negative integer")
+    active_session = None
+    handshake = {
+        **(metadata or {}),
+        "task_id": task_id,
+        "single_session": True,
+        "requires_reset": True,
+    }
+    handshake.pop("chunk_protocol", None)
 
-
-def unpackb(*args: Any, **kwargs: Any) -> Any:
-    """Decode official messages without importing transport during discovery."""
-    import msgpack
-
-    return msgpack.unpackb(*args, **{"object_hook": unpack_data, **kwargs})
-
-
-class WebsocketPolicyServer:
-    """Serve one reset-required evaluator session using native 23D actions.
-
-    Args:
-        policy: Object exposing ``reset()`` and ``act(observation)``. The caller
-            owns policy shutdown and wakes blocked policy calls on disconnect.
-        host: Interface on which to listen.
-        port: WebSocket/health-check port.
-        metadata: Additional fields sent once immediately after connection.
-    """
-
-    def __init__(
-        self,
-        policy: Any,
-        *,
-        host: str = "127.0.0.1",
-        port: int,
-        metadata: dict[str, Any] | None = None,
-    ) -> None:
-        self.policy = policy
-        self.host = host
-        self.port = port
-        self.metadata = {
-            **(metadata or {}),
-            "single_session": True,
-            "requires_reset": True,
-        }
-        self.metadata.pop("chunk_protocol", None)
-        self._active_session: ServerConnection | None = None
-        self._policy_busy = threading.Event()
-
-    async def run(self) -> None:
-        """Serve official policy requests and the evaluator's readiness check."""
-        from websockets.asyncio.server import serve
-
-        async with serve(
-            self._handler,
-            self.host,
-            self.port,
-            compression=None,
-            max_size=None,
-            process_request=_health_check,
-        ) as server:
-            await server.serve_forever()
-
-    async def _call_policy(self, function: Callable[..., Any], *args: Any) -> Any:
-        self._policy_busy.set()
-
-        def run() -> Any:
-            try:
-                return function(*args)
-            finally:
-                self._policy_busy.clear()
-
-        job = asyncio.create_task(asyncio.to_thread(run))
-
-        def consume_exception(task: asyncio.Task) -> None:
-            if not task.cancelled():
-                task.exception()
-
-        job.add_done_callback(consume_exception)
-        # Cancellation cannot stop a worker thread; do not admit a new session
-        # until the old policy call has actually returned.
-        return await asyncio.shield(job)
-
-    async def _handler(self, websocket: ServerConnection) -> None:
-        from websockets.exceptions import ConnectionClosed
-
-        if self._active_session is not None or self._policy_busy.is_set():
+    async def handle_connection(websocket):
+        nonlocal active_session
+        if active_session is not None:
             await websocket.close(code=1013, reason="Policy session is busy")
             return
-        self._active_session = websocket
+        active_session = websocket
+        disconnected = asyncio.create_task(websocket.wait_closed())
+        work = None
+        packer = msgpack.Packer(default=pack_data)
+        reset_received = False
         try:
-            await self._serve_connection(websocket)
+            await websocket.send(packer.pack(handshake))
+            while True:
+                request = msgpack.unpackb(
+                    await websocket.recv(),
+                    object_hook=unpack_data,
+                    strict_map_key=False,
+                )
+                if not isinstance(request, dict):
+                    raise ValueError("Policy request must be a mapping")
+                started = time.monotonic()
+                resetting = "reset" in request
+                if resetting:
+                    if request["reset"] is not True:
+                        raise ValueError("Planner reset must be true")
+                    if bridge.last_obs is not None:
+                        bridge.stop()
+                        raise RuntimeError(
+                            "BEHAVIOR official policy supports one episode per process"
+                        )
+                    if bridge.session_status()["ended"]:
+                        raise RuntimeError("BEHAVIOR policy session is closed")
+                    work = asyncio.create_task(asyncio.to_thread(bridge.reset))
+                else:
+                    if not reset_received:
+                        raise ValueError("Reset is required before requesting actions")
+                    if request.get("type") == "infer_chunk":
+                        raise ValueError(
+                            "Planner accepts single-action observations only"
+                        )
+                    work = asyncio.create_task(
+                        asyncio.to_thread(
+                            bridge.observe_and_get_action, deepcopy(request)
+                        )
+                    )
+                done, _ = await asyncio.wait(
+                    (work, disconnected), return_when=asyncio.FIRST_COMPLETED
+                )
+                if disconnected in done:
+                    break
+                try:
+                    result = await work
+                except Exception:
+                    if resetting:
+                        bridge.stop()
+                    raise
+                if resetting:
+                    reset_received = True
+                    continue
+                action = np.asarray(result, dtype=np.float32)
+                if action.shape != (23,) or not np.isfinite(action).all():
+                    raise ValueError(
+                        f"Policy must return one finite [23] action, got {action.shape}"
+                    )
+                await websocket.send(
+                    packer.pack(
+                        {
+                            "action": action,
+                            "server_timing": {
+                                "total_ms": (time.monotonic() - started) * 1000.0
+                            },
+                        }
+                    )
+                )
         except ConnectionClosed:
             logger.info("BEHAVIOR evaluator connection closed")
         except Exception:
             logger.exception("BEHAVIOR evaluator connection failed")
             await websocket.close(code=1011, reason="Internal server error")
         finally:
-            if self._active_session is websocket:
-                self._active_session = None
+            # Stopping the bridge releases a thread blocked in action/observation wait.
+            # Keep the connection occupied until that thread has actually returned.
+            if work is not None and resetting:
+                await asyncio.gather(work, return_exceptions=True)
+            bridge.stop("connection_closed", state="ended")
+            if work is not None:
+                await asyncio.gather(work, return_exceptions=True)
+            disconnected.cancel()
+            await asyncio.gather(disconnected, return_exceptions=True)
+            active_session = None
 
-    async def _serve_connection(self, websocket: ServerConnection) -> None:
-        packer = Packer()
-        await websocket.send(packer.pack(self.metadata))
-        reset_received = False
-        while True:
-            request = unpackb(await websocket.recv(), strict_map_key=False)
-            if not isinstance(request, dict):
-                raise ValueError("Policy request must be a mapping")
-            started = time.monotonic()
-            if "reset" in request:
-                if request["reset"] is not True:
-                    raise ValueError("Planner reset must be true")
-                seed = request.get("seed")
-                if "seed" in request and (
-                    type(seed) is not int or not 0 <= seed < 2**32
-                ):
-                    raise ValueError("reset seed must be an integer in [0, 2**32)")
-                await self._call_policy(self.policy.reset)
-                if seed is not None:
-                    random.seed(seed)
-                    np.random.seed(seed)
-                    # Preserve a loaded caller's RNG without making Torch an
-                    # Env-service dependency. VLA inference has its own seed.
-                    torch = sys.modules.get("torch")
-                    if torch is not None:
-                        torch.manual_seed(seed)
-                reset_received = True
-                continue  # The official reset request has no response frame.
-            if not reset_received:
-                raise ValueError("Reset is required before requesting actions")
-            if request.get("type") == "infer_chunk":
-                raise ValueError("Planner accepts single-action observations only")
-            action = await self._call_policy(self.policy.act, copy.deepcopy(request))
-            action = np.asarray(action, dtype=np.float32)
-            if action.shape != (23,) or not np.isfinite(action).all():
-                raise ValueError(
-                    f"Policy must return one finite [23] action, got {action.shape}"
-                )
-            await websocket.send(
-                packer.pack(
-                    {
-                        "action": action,
-                        "server_timing": {
-                            "total_ms": (time.monotonic() - started) * 1000.0
-                        },
-                    }
-                )
-            )
+    async with serve(
+        handle_connection,
+        host,
+        port,
+        compression=None,
+        max_size=None,
+        process_request=_health_check,
+    ) as server:
+        yield server
 
 
-def _health_check(connection: ServerConnection, request: Any) -> Any:
+def _health_check(connection, request):
     if request.path == "/healthz":
         return connection.respond(http.HTTPStatus.OK, "OK\n")
     return None
-
-
-def create_official_policy_server(
-    policy: OfficialEvaluatorPolicy,
-    *,
-    host: str = "127.0.0.1",
-    port: int,
-    metadata: dict[str, Any] | None = None,
-) -> Any:
-    """Build the optional official WebSocket server; run with ``await server.run()``.
-
-    Install the lightweight ``behavior`` extra for WebSocket dependencies.
-    Ordinary imports do not require the simulator or model runtime.
-    Every connection exit releases tool waiters with an unknown task outcome,
-    including a disconnect caused by transport or evaluator failure.
-    """
-
-    class SessionServer(WebsocketPolicyServer):
-        async def _serve_connection(self, websocket: Any) -> None:
-            connection = asyncio.create_task(super()._serve_connection(websocket))
-            closed = asyncio.create_task(websocket.wait_closed())
-            try:
-                completed, _ = await asyncio.wait(
-                    (connection, closed), return_when=asyncio.FIRST_COMPLETED
-                )
-                if closed in completed:
-                    await closed
-                    policy.close()
-                    if not connection.done():
-                        connection.cancel()
-                        return
-                await connection
-            finally:
-                policy.close()
-                # The official server shields its policy worker thread. Ending
-                # the bridge first wakes that worker even if the connection
-                # coroutine is cancelled while awaiting its action.
-                for task in (connection, closed):
-                    if not task.done():
-                        task.cancel()
-                await asyncio.gather(connection, closed, return_exceptions=True)
-
-    return SessionServer(
-        policy,
-        host=host,
-        port=port,
-        metadata={
-            **(metadata or {}),
-            "task_id": policy.task_id,
-            "single_session": True,
-        },
-    )

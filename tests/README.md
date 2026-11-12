@@ -69,6 +69,34 @@ Run the complete suite with:
 pytest tests/unit_tests -v
 ```
 
+## BEHAVIOR offline result tests
+
+BEHAVIOR's CPU tests check the results exposed by each integration layer. Each
+file runs independently; `conftest.py` supplies shared camera frames, task
+arguments and local RPC fixtures.
+
+| File under `unit_tests/robots/behavior/` | Results checked |
+| --- | --- |
+| `test_behavior_config.py` | Task identity and instruction reach the planner; public templates select the intended tools; externally started services are borrowed. |
+| `test_behavior_observation.py` | Saved images and measured state agree; geometry and segmentation use the selected frame. |
+| `test_behavior_motion.py` | R1Pro planning and native arm, base, gripper and wrist tools produce the intended commands and preserve execution feedback. |
+| `test_behavior_env_service.py` | Env RPC preserves actions, poses and partial feedback; shutdown releases a waiting action call. |
+| `test_behavior_evaluator.py` | Official WebSocket messages exchange observations and actions; subsequent observations confirm actions; disconnects release waiters. |
+| `test_behavior_agent_loop.py` | A scripted offline planner reads initial images, executes one VLA chunk, receives new images and records `finish`. |
+
+Pi0.5 observation encoding and model-worker configuration are covered by the
+existing `unit_tests/rpent/robots/components/test_pi05_vla*.py` suite, including
+the `behavior` embodiment. Run these CPU checks together from the repository root:
+
+```bash
+pytest tests/unit_tests/robots/behavior \
+  tests/unit_tests/rpent/robots/components/test_pi05_vla*.py -q
+```
+
+The real model and simulator checks remain under `e2e_tests/behavior/` and use
+separately started services. Their component and policy-chain checks establish
+integration; official task scores come from the evaluator.
+
 ## RoboCasa environment smoke tests
 
 RoboCasa separates simulator checks, model component checks and the full call chain:
