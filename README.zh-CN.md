@@ -210,10 +210,10 @@ rpent --robot libero --dashboard --dashboard-language zh-cn \
 
 ## Adoption
 
-RPent 是一个面向物理世界的开源具身智能体框架，将感知、推理、记忆与执行相结合，支持智能体在持续交互中学习和适应。下图展示与 RPent 相关研究、项目开发、社区资源及合作交流有关的企业与高校。
+RPent 是一个面向物理世界的开源具身智能体框架，将感知、推理、记忆与执行相结合，支持智能体在持续交互中学习和适应。下图展示与 RPent 相关研究、项目开发、社区资源及合作交流有关的企业、高校和科研教育机构。
 
 <div align="center">
-  <img src="docs/assets/adoption/adoption.png" alt="RPent 社区：上方为含 Z-Trans AI / Zetta 和老板电器在内的 13 家企业，下方为 25 所高校"/>
+  <img src="docs/assets/adoption/adoption.png" alt="RPent 社区：上方为含 Z-Trans AI / Zetta 和老板电器在内的 19 家企业，下方为 30 所高校和 10 家科研教育机构"/>
 </div>
 
 ✨ 如果您的组织正在使用 RPent 开展具身智能研究或开发机器人应用，欢迎联系或提交 PR 加入该列表。
