@@ -247,3 +247,11 @@ The model launcher enables cache reporting. For eight-worker SAM3 deployment, pe
 `--workflow episode --perception-mode batch` replaces standalone perception
 with `observe(calls=[...])`. Sources define dependencies; independent nodes run
 concurrently. [CLI, examples, source IDs and outputs](OBSERVE.md).
+
+## SAM3 queue deadline
+
+`run.sh` and `run_batch.py run` accept `--sam3-timeout-s` (default 120 seconds,
+or `RPENT_SAM3_TIMEOUT_S` in the launcher). It includes pool queueing, RPC and
+inference. A small SAM pool may need a larger transport deadline, e.g. 600,
+for simultaneous environment requests. It does not extend the planner's
+7200-second budget. The batch manifest pins the value for resume.

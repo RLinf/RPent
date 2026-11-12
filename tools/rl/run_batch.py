@@ -44,6 +44,7 @@ STOP = threading.Event()
 
 # These flags are declared once in run.sh; batch CLI values override that argv.
 RUN_FLAGS = (
+    "--sam3-timeout-s",
     "--workflow",
     "--perception-mode",
     "--max-observe-calls",
@@ -124,6 +125,10 @@ def resolve_run_options(args: argparse.Namespace) -> None:
         args.max_observe_calls,
         args.observe_concurrency,
     )
+    import math
+
+    if not math.isfinite(args.sam3_timeout_s) or args.sam3_timeout_s <= 0:
+        raise ValueError("sam3-timeout-s must be finite and positive")
     if min(args.max_turns, args.max_episode_steps, args.planner_timeout_s) < 1:
         raise ValueError("Request/step budgets and planner timeout must be positive")
 
@@ -728,6 +733,12 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
     collection.add_argument("--gpus", required=True)
     collection.add_argument("--per-gpu", type=int, default=1)
     collection.add_argument("--max-initializing-per-gpu", type=int, default=8)
+    collection.add_argument(
+        "--sam3-timeout-s",
+        type=float,
+        default=None,
+        help="SAM RPC deadline including queue time; default 120 seconds.",
+    )
     collection.add_argument("--workflow", choices=WORKFLOWS, default=None)
     collection.add_argument("--action-mode", choices=("single", "batch"), default=None)
     collection.add_argument(

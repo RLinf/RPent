@@ -109,6 +109,8 @@ def test_editable_run_defaults_and_explicit_cli_precedence(tmp_path, monkeypatch
         ("--presence-penalty", "3"),
         ("--repetition-penalty", "0"),
         ("--compaction-max-messages", "-1"),
+        ("--sam3-timeout-s", "0"),
+        ("--sam3-timeout-s", "nan"),
     ],
 )
 def test_invalid_parameters_rejected_before_batch_launch(tmp_path, flag, value):
@@ -281,6 +283,7 @@ def test_configurable_message_window_keeps_pairs_and_zero_disables_trigger():
         ("--compaction-max-messages", "0"),
         ("--compaction-keep-messages", "20"),
         ("--perception-mode", "batch"),
+        ("--sam3-timeout-s", "600"),
     ],
 )
 def test_batch_manifest_pins_generation_and_window(tmp_path, monkeypatch, flag, change):
@@ -382,3 +385,49 @@ def test_launcher_budget_defaults_apply_to_every_batch(tmp_path, monkeypatch):
     assert flags[flags.index("--max-tokens") + 1] == "4096"
     assert flags[flags.index("--max-turns") + 1] == "80"
     assert flags[flags.index("--compaction-keep-messages") + 1] == "10"
+
+
+def test_sam_queue_timeout_is_separate_from_planner_budget(tmp_path):
+    args = batch_args(tmp_path, "--sam3-timeout-s", "600")
+    batch.resolve_run_options(args)
+    flags = batch.episode_options(args)
+    assert flags[flags.index("--sam3-timeout-s") + 1] == "600.0"
+    assert args.planner_timeout_s == 7200
+    from robots.rl.robot_spec import get_robot_spec
+    from rpent.cli.main import _build_argparser
+
+    parser = _build_argparser()
+    get_robot_spec().add_cli_args(parser, use_dashboard=False)
+    parsed = parser.parse_args(
+        [
+            "--robot",
+            "rl",
+            "--suite",
+            "libero_object",
+            "--task",
+            "0",
+            "--sam3-timeout-s",
+            "600",
+        ]
+    )
+    assert parsed.sam3_timeout_s == 600
+
+
+def test_sam_transport_deadline_reaches_real_runtime_client(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    from robots.rl import robot_spec
+
+    rpc = Mock()
+    rpc.call.side_effect = lambda method, **kw: (
+        {"found": False} if method == "sam3.segment" else True
+    )
+    monkeypatch.setattr(robot_spec, "_start_sam3", lambda args, out: (None, rpc))
+    args = SimpleNamespace(env="libero", sam3_timeout_s=600)
+    _, runtime = robot_spec._init_runtime(
+        args, tmp_path, NullDashboardEventSink(), {"sam3"}
+    )
+    result = runtime["sam3_client"].segment(b"image", text_prompt="cup")
+    assert result.found is False
+    assert rpc.call.call_args.kwargs["timeout_s"] == 600

@@ -223,3 +223,10 @@ PY
 
 `--workflow episode --perception-mode batch` 将独立感知替换为 observe，
 由 source 推导依赖，独立节点并行。[CLI、示例、ID 与返回说明](OBSERVE_zh.md)。
+
+## SAM3 排队时限
+
+`run.sh` 和 `run_batch.py run` 支持 `--sam3-timeout-s`，默认120秒，
+启动器也可用 `RPENT_SAM3_TIMEOUT_S`。它包含 pool 排队、RPC 与推理。
+SAM 副本较少且环境请求同时到达时，可将传输时限设为600秒；
+这不会延长 planner 的7200秒总预算。批次 manifest 固定该参数，恢复时不可更改。

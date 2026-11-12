@@ -208,6 +208,12 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         help="Remote RL backend; motion, perception and simulator run on its GPUs.",
     )
     parser.add_argument(
+        "--sam3-timeout-s",
+        type=float,
+        default=120.0,
+        help="SAM3 RPC deadline including pool queueing; does not extend the planner deadline.",
+    )
+    parser.add_argument(
         "--sam3-endpoint",
         default=None,
         help="[protocol://]host:port of an existing SAM3 server; spawned when unset.",
@@ -246,6 +252,11 @@ def _validate_args(args: argparse.Namespace) -> None:
         getattr(args, "reasoning_history", -1),
         getattr(args, "image_history", -1),
     )
+    import math
+
+    timeout = getattr(args, "sam3_timeout_s", 120.0)
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise ValueError("sam3-timeout-s must be finite and positive")
     if args.planner not in SUPPORTED_PLANNERS:
         raise ValueError(
             f"rl supports --planner {' or '.join(SUPPORTED_PLANNERS)}; "
@@ -541,7 +552,11 @@ def _init_runtime(
     starters = {"env": _start_env, "sam3": _start_sam3}
     connectors = {
         "env": partial(_connect_env, args),
-        "sam3": lambda rpc: {"sam3_client": Sam3Client(rpc)},
+        "sam3": lambda rpc: {
+            "sam3_client": Sam3Client(
+                rpc, timeout_s=getattr(args, "sam3_timeout_s", 120.0)
+            )
+        },
     }
     selected = set(starters) if components is None else set(components)
     if unknown := selected.difference(starters):
