@@ -27,8 +27,15 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pytest
+
+# A task may declare ``[verifier.env]`` entries that read host variables. Harbor
+# asks for confirmation before forwarding them, so a non-interactive run must
+# accept on the command line or it hangs under ``pytest -s`` and raises
+# ``EOFError`` under captured stdin.
+_HOST_ENV_CONFIRM_FLAG = "--yes"
 
 
 @pytest.fixture
@@ -59,7 +66,7 @@ def harbor_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> list[str]
         check=True,
         timeout=30,
     )
-    return [
+    command = [
         harbor_cli,
         "run",
         "--path",
@@ -78,7 +85,27 @@ def harbor_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> list[str]
         str(tmp_path / "jobs"),
         "--job-name",
         "rpent-efe-smoke",
+        _HOST_ENV_CONFIRM_FLAG,
     ]
+    # EFE tasks run the agent under ``network_mode = "allowlist"``, and this
+    # agent declares no Harbor ``model_connection``. A custom endpoint is only
+    # reachable when its host is added explicitly.
+    agent_host = _custom_agent_host()
+    if agent_host is not None:
+        command.extend(["--allow-agent-host", agent_host])
+    return command
+
+
+def _custom_agent_host() -> str | None:
+    """Return the host a custom Codex endpoint needs allowlisted, if any."""
+    for name in ("CODEX_BASE_URL", "OPENAI_BASE_URL"):
+        value = os.environ.get(name)
+        if not value:
+            continue
+        host = urlsplit(value).hostname
+        if host:
+            return host
+    return None
 
 
 @pytest.mark.timeout(14400)
