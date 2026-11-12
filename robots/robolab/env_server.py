@@ -47,9 +47,6 @@ class RoboLabEnvFacade(MainThreadServeMixin, BaseEnvFacade):
         self.app = app
         self.meta = meta
         self._last_obs: dict[str, Any] | None = None
-        self._steps = 0
-        self._terminated = False
-        self._truncated = False
         self._closed = False
         from robolab.core.task.instruction import instruction_text
 
@@ -109,13 +106,10 @@ class RoboLabEnvFacade(MainThreadServeMixin, BaseEnvFacade):
         self.env.reset_eval_state()
         self.env.reset()
         self._last_obs, _ = self.env.reset()
-        self._steps = 0
-        self._terminated = False
-        self._truncated = False
         return self._observation(self._last_obs)
 
     def step(self, action: Any) -> tuple[dict[str, Any], float, bool, bool, dict]:
-        if self._terminated or self._truncated:
+        if self.env.all_terminated:
             raise RuntimeError("RoboLab episode has ended")
         validated = validate_action(action, self.get_action_spec()["default"])
         import torch
@@ -124,19 +118,12 @@ class RoboLabEnvFacade(MainThreadServeMixin, BaseEnvFacade):
             validated[None], dtype=torch.float32, device=self.env.device
         )
         self._last_obs, _, _, _, _ = self.env.step(tensor)
-        self._steps += 1
-        native_result = self.env.get_env_results()[0]
-        success = native_result["success"]
-        self._terminated = success is True
-        self._truncated = not self._terminated and (
-            success is False or self._steps >= int(self.env.max_episode_length)
-        )
         info = self.get_status()
         return (
             self._observation(self._last_obs),
-            float(self._terminated),
-            self._terminated,
-            self._truncated,
+            float(info["terminated"]),
+            info["terminated"],
+            info["truncated"],
             info,
         )
 
@@ -159,12 +146,15 @@ class RoboLabEnvFacade(MainThreadServeMixin, BaseEnvFacade):
 
     def get_status(self) -> dict[str, Any]:
         native = self.env.get_env_results()[0]
+        done = self.env.all_terminated
+        # RoboLab resets early physics artifacts and records the final step on freeze.
+        steps = native["step"] if done else int(self.env.episode_length_buf[0].item())
         return {
-            "steps": self._steps,
+            "steps": steps,
             "step_limit": int(self.env.max_episode_length),
             "success": native["success"],
-            "terminated": self._terminated,
-            "truncated": self._truncated,
+            "terminated": done and native["success"] is True,
+            "truncated": done and native["success"] is False,
         }
 
     def get_task_language(self) -> str:
@@ -196,6 +186,33 @@ class RoboLabEnvFacade(MainThreadServeMixin, BaseEnvFacade):
             self.app.close()
 
 
+def _resolve_isaac_device(device: str) -> tuple[str, str]:
+    """Match CUDA and Kit ordinals where visible NVIDIA device nodes allow it."""
+    kit_args = "--/renderer/multiGpu/autoEnable=false"
+    if not device.startswith("cuda"):
+        return device, kit_args
+    ordinal = int(device.split(":")[1]) if ":" in device else 0
+    if ordinal < 0:
+        raise ValueError("--device must use a nonnegative CUDA ordinal")
+    visible = os.environ.get("CUDA_VISIBLE_DEVICES")
+    if visible:
+        devices = [entry.strip() for entry in visible.split(",")]
+        if all(entry.isdigit() for entry in devices):
+            if ordinal >= len(devices):
+                raise ValueError("--device index is outside CUDA_VISIBLE_DEVICES")
+            nodes = sorted(
+                int(path.name.removeprefix("nvidia"))
+                for path in Path("/dev").glob("nvidia[0-9]*")
+                if path.name.removeprefix("nvidia").isdigit()
+            )
+            if set(map(int, devices)).issubset(nodes):
+                # CUDA and Vulkan enumerate only mounted GPUs inside containers.
+                ordinal = nodes.index(int(devices[ordinal]))
+                del os.environ["CUDA_VISIBLE_DEVICES"]
+        # UUID masks and container-local indices must keep their CUDA namespace.
+    return f"cuda:{ordinal}", kit_args + f" --/renderer/activeGpu={ordinal}"
+
+
 def main() -> None:
     """Launch Isaac before importing RoboLab environment modules."""
     parser = argparse.ArgumentParser(description="RoboLab RPent environment server")
@@ -209,23 +226,7 @@ def main() -> None:
     args = parser.parse_args()
     init_output_dir(args.output_dir)
 
-    device = args.device
-    kit_args = "--/renderer/multiGpu/autoEnable=false"
-    if device.startswith("cuda"):
-        os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-        ordinal = int(device.split(":")[1]) if ":" in device else 0
-        visible = os.environ.pop("CUDA_VISIBLE_DEVICES", None)
-        if visible is not None:
-            devices = visible.split(",")
-            if ordinal >= len(devices) or not devices[ordinal].strip().isdigit():
-                raise ValueError(
-                    "RoboLab requires numeric CUDA_VISIBLE_DEVICES entries and a "
-                    "--device index within that list"
-                )
-            ordinal = int(devices[ordinal])
-        # Vulkan keeps physical GPU ordinals when CUDA masks remap CUDA devices.
-        device = f"cuda:{ordinal}"
-        kit_args += f" --/renderer/activeGpu={ordinal}"
+    device, kit_args = _resolve_isaac_device(args.device)
     logger.info("RoboLab simulation device: %s (requested %s)", device, args.device)
 
     import cv2  # noqa: F401 -- Isaac Lab requires OpenCV to load first.
@@ -273,7 +274,7 @@ def main() -> None:
             env,
             env_cfg,
             app,
-            {"task": args.task, "seed": args.seed, "device": args.device},
+            {"task": args.task, "seed": args.seed},
         )
         facade.serve(
             transport="http",

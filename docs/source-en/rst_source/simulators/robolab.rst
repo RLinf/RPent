@@ -160,6 +160,16 @@ Action-model deployment uses the shared ``--am-checkpoint``, ``--am-python``,
 ``--am-root``, and ``--am-cuda-device`` options. To reuse a running model
 worker, pass ``--am-endpoint`` instead of local deployment options.
 
+Use ``--env-cuda-device`` to override ``--cuda-device`` for the simulator
+independently of the action model. Explicit service selection uses ``cuda:0``
+inside that service's CUDA mask. Otherwise, ``--device`` selects an Isaac device
+in the inherited CUDA namespace (default ``cuda:0``). In a scheduler or container,
+omit the service GPU options to retain its assigned mask, including GPU UUIDs.
+Numeric host masks are remapped only when their GPU device nodes are visible;
+container GPU ordinals follow the devices mounted in that container.
+Use ``--env-endpoint`` to attach to an existing task/seed server; its GPU need
+not match the local device settings.
+
 For an environment-only run without a checkpoint, add
 ``--policy-backend none``. It exposes ``execute_action`` and
 ``view_env_state``; ``pi05_act`` is unavailable.
@@ -190,8 +200,11 @@ Task Memory
 
 No published RoboLab task-memory corpus is currently provided. RPent creates
 a local directory for RoboLab memory, which is initially empty on a fresh
-installation. It does not download a memory corpus. To reuse your own task
+installation. It does not download a memory corpus by default. To reuse your own task
 notes, pass ``--memory-profile local --memory-dir /path/to/memory``.
+Alternatively, ``--memory-repo owner/repo@revision`` downloads the ``robolab/``
+subtree of an explicit Hugging Face dataset into RPent's memory cache. Do not
+combine it with ``--memory-profile local`` or ``--memory-dir``.
 RoboLab does not support RPent exploration mode.
 
 Evaluate a Task Subset

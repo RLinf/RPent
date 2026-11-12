@@ -31,11 +31,17 @@ from rpent.dashboard.events import DashboardEventSink
 from rpent.dashboard.spec import DashboardSpec
 from rpent.evaluation import RunFinalizationContext, write_json_atomic
 from rpent.memory import MemoryManager
+from rpent.memory.source import prepare_explicit_source
 from rpent.robots.components.am_runtime import add_am_args, select_am
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_spawn_server, try_wait_server
-from rpent.utils.config import add_cuda_device_arg, get_memory_dir, get_repo_root
+from rpent.utils.config import (
+    add_cuda_device_arg,
+    get_memory_dir,
+    get_repo_root,
+    resolve_cuda_device,
+)
 from rpent.utils.daemon import ProcessDaemon, pick_free_port
 from rpent.utils.rpc import make_rpc_client
 from rpent.utils.rpc.http_rpc import HttpRpcClient
@@ -54,10 +60,6 @@ ROBOLAB_DASHBOARD_SPEC: DashboardSpec = {
     "runtime_components": (
         {"name": "env", "label": "ENV", "scope": "unique"},
         {"name": "vla", "label": "VLA", "scope": "shared"},
-    ),
-    "frame_channels": (
-        {"name": "main", "label": "external camera", "artifact": "main.png"},
-        {"name": "wrist", "label": "wrist camera", "artifact": "wrist.png"},
     ),
     "primitives": ("view_env_state", "pi05_act", "execute_action"),
 }
@@ -147,8 +149,20 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         default=sys.executable,
         help="Python with Isaac Lab and an external RoboLab source checkout installed",
     )
-    parser.add_argument("--device", default="cuda:0", help="Isaac Lab device")
+    parser.add_argument(
+        "--device",
+        default="cuda:0",
+        help="Isaac Lab device in the visible CUDA namespace; explicit service GPU "
+        "selection uses cuda:0 within its mask",
+    )
     add_cuda_device_arg(parser)
+    parser.add_argument(
+        "--env-cuda-device",
+        type=int,
+        default=None,
+        help="GPU ordinal for the local RoboLab environment. Defaults to "
+        "--cuda-device, then the service environment/default.",
+    )
     add_am_args(parser, platform="robolab")
     parser.add_argument(
         "--policy-backend",
@@ -213,8 +227,12 @@ def _validate_args(args: argparse.Namespace) -> None:
 
 
 def _prepare_memory(args: argparse.Namespace, config: RunConfig) -> None:
-    """Use local RoboLab notes until a benchmark memory corpus is available."""
-    del args
+    """Use local notes by default, or materialize an explicit memory repository."""
+    if getattr(args, "memory_repo", None) is not None:
+        root = prepare_explicit_source(args.memory_repo, "robolab")
+        config.prompt_vars["memory_dir"] = str(root)
+        args.memory_dir = str(root)
+        return
     Path(config.prompt_vars["memory_dir"]).mkdir(parents=True, exist_ok=True)
 
 
@@ -227,8 +245,9 @@ def _process_env(args: argparse.Namespace) -> dict[str, str]:
         "OMNI_KIT_ACCEPT_EULA": "Y",
         "CUDA_DEVICE_ORDER": "PCI_BUS_ID",
     }
-    if args.cuda_device is not None:
-        result["CUDA_VISIBLE_DEVICES"] = str(args.cuda_device)
+    device = resolve_cuda_device(args, "env")
+    if device is not None:
+        result["CUDA_VISIBLE_DEVICES"] = str(device)
     return result
 
 
@@ -239,14 +258,9 @@ def _spawn_env(args: argparse.Namespace, output_dir: Path):
     if not sim_python.is_file():
         raise FileNotFoundError(f"RoboLab simulator Python not found: {sim_python}")
     env_overrides = _process_env(args)
-    libraries = sim_python.parent.parent / "system-libs" / "usr/lib/x86_64-linux-gnu"
-    if libraries.is_dir():
-        env_overrides["LD_LIBRARY_PATH"] = os.pathsep.join(
-            filter(None, (str(libraries), os.environ.get("LD_LIBRARY_PATH")))
-        )
-        nvidia_icd = Path("/etc/vulkan/icd.d/nvidia_icd.json")
-        if nvidia_icd.is_file() and not os.environ.get("VK_DRIVER_FILES"):
-            env_overrides["VK_DRIVER_FILES"] = str(nvidia_icd)
+    device = args.device
+    if resolve_cuda_device(args, "env") is not None and device.startswith("cuda"):
+        device = "cuda:0"
     host, port = "127.0.0.1", pick_free_port()
     daemon = ProcessDaemon(
         name="env_server",
@@ -258,7 +272,7 @@ def _spawn_env(args: argparse.Namespace, output_dir: Path):
             "--seed",
             str(args.seed),
             "--device",
-            args.device,
+            device,
             "--output-dir",
             str(output_dir / "native"),
             "--host",
@@ -344,7 +358,6 @@ def _init_runtime(
                 expected_meta={
                     "task": args.task,
                     "seed": args.seed,
-                    "device": args.device,
                 },
             )
         else:

@@ -131,6 +131,8 @@ RoboLab 从源码包相邻的目录读取 USD 资产。在 RPent 仓库外安装
 
 动作模型部署使用共享的 ``--am-checkpoint``、``--am-python``、``--am-root`` 和 ``--am-cuda-device`` 参数。复用已有模型服务时，传入 ``--am-endpoint``，不要同时传入本地部署参数。
 
+使用 ``--env-cuda-device`` 可单独覆盖仿真环境的 ``--cuda-device``，与动作模型独立选卡。显式选择服务 GPU 后，该服务使用自身 CUDA 掩码内的 ``cuda:0``；否则，``--device`` 在继承的 CUDA 命名空间中选择 Isaac 设备，默认为 ``cuda:0``。在调度器或容器中，省略服务 GPU 参数可保留分配的掩码，包括 GPU UUID。只有对应 GPU 设备节点可见时，才会重映射数字形式的宿主机掩码；容器 GPU 编号按容器中挂载的设备确定。使用 ``--env-endpoint`` 可连接已有的同任务、同 seed 环境服务，其 GPU 无需与本地设备设置相同。
+
 不加载模型权重、仅使用环境动作时，加入 ``--policy-backend none``。此时可使用 ``execute_action`` 和 ``view_env_state``，但没有 ``pi05_act``。
 
 要使用 Dashboard，将 ``--task BananaInBowlTask --seed 0`` 改为 ``--dashboard``，再通过 ``/rpent-task BananaInBowlTask 0`` 创建任务。Dashboard 在多个任务间共用 Pi0.5，并为每个任务创建新环境；传入 ``--policy-backend none`` 时，仅启动环境并提供原生动作，不显示 VLA 组件或 ``pi05_act``。
@@ -145,7 +147,7 @@ RoboLab 从源码包相邻的目录读取 USD 资产。在 RPent 仓库外安装
 任务记忆
 --------
 
-目前没有公开提供的 RoboLab 任务记忆库。RPent 会创建本地 RoboLab 记忆目录，全新安装时该目录为空，运行时不会下载记忆库。传入 ``--memory-profile local --memory-dir /path/to/memory`` 可复用自己的任务笔记。RoboLab 暂不支持 RPent 探索模式。
+目前没有公开提供的 RoboLab 任务记忆库。RPent 会创建本地 RoboLab 记忆目录，全新安装时该目录为空，默认不下载记忆库。传入 ``--memory-profile local --memory-dir /path/to/memory`` 可复用自己的任务笔记。也可通过 ``--memory-repo owner/repo@revision``，将指定 Hugging Face 数据集的 ``robolab/`` 子目录下载到 RPent 记忆缓存；不要与 ``--memory-profile local`` 或 ``--memory-dir`` 同时使用。RoboLab 暂不支持 RPent 探索模式。
 
 评估任务子集
 ------------
