@@ -429,6 +429,31 @@ def test_config_overrides_attach_external_mcp_servers(
     ]
 
 
+def test_config_overrides_keep_non_bmp_values_verbatim(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("CODEX_MODEL_CONTEXT_WINDOW", raising=False)
+    monkeypatch.delenv("CODEX_AUTO_COMPACT_TOKEN_LIMIT", raising=False)
+
+    overrides = _codex_mcp_config_overrides(
+        mcp_url=None,
+        base_url=None,
+        mcp_servers=(
+            McpServerSpec(
+                name="web",
+                url="https://mcp.example/mcp",
+                headers={"X-Emoji": "😀"},
+                planner_tools="*",
+            ),
+        ),
+    )
+
+    assert overrides == [
+        'mcp_servers.web.url="https://mcp.example/mcp"',
+        'mcp_servers.web.http_headers={"X-Emoji" = "😀"}',
+    ]
+
+
 def test_config_overrides_include_optional_context_limits(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

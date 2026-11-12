@@ -215,7 +215,7 @@ RPent 的 ``--model`` 必须与 vLLM 的 ``--served-model-name`` 保持一致。
 两层归属
 ~~~~~~~~
 
-- **Env/robot 层。** 执行循环必须与之协调的设备——安全联锁、状态会改变运动限制的充电底座、电池或任务调度、影响相机曝光的照明——应成为 Toolkit 的一等工具。robot 通过 :meth:`~rpent.tools.toolkit.Toolkit.add_mcp_tools` 采纳这些工具，此后所有规划器都经 RPent 自身的 ``mcp__rpent__`` 命名空间调用它们，它们会记录观测，并按照服务返回的 ``readOnlyHint`` 被标为 ``readonly``。参见 :ref:`add-robot-toolkit`。
+- **Env/robot 层。** 执行循环必须与之协调的设备——安全联锁、状态会改变运动限制的充电底座、电池或任务调度、影响相机曝光的照明——应成为 Toolkit 的一等工具。robot 通过 :meth:`~rpent.tools.toolkit.Toolkit.add_mcp_tools` 采纳这些工具；它们随后成为普通 Toolkit 工具，``claude_code`` 和 ``codex`` 将其显示为 ``mcp__rpent__<name>``，``api`` 则直接使用工具自身的名称。它们会记录观测，并按照服务返回的 ``readOnlyHint`` 被标为 ``readonly``。采纳的调用是同步执行的，会一直占用 Toolkit 的操作槽，直到调用返回或 MCP 客户端的请求超时；只有 ``image/png`` 结果会以原生图片形式到达规划器。参见 :ref:`add-robot-toolkit`。
 - **规划器层。** 无需协调的独立工具——装饰性照明、与任务无关的站点插座或电子设备——直接挂到所选规划器上。同一个服务可以同时服务两层：按工具边界拆分，把需要协调的工具采纳进 Toolkit，其余工具列入 ``planner_tools``。
 
 两层都只接受 Streamable HTTP 服务，不支持 stdio 服务（``command``）。
@@ -241,16 +241,18 @@ RPent 的 ``--model`` 必须与 vLLM 的 ``--served-model-name`` 保持一致。
 
    rpent --robot myrobot --site-config /path/to/site.yaml --planner claude_code ...
 
-CLI 会把站点服务合并进每次运行，对所有 robot 生效，无需改动 robot 本身。robot 也可以拥有自己的服务：由其 ``parse_config`` 调用 :func:`~rpent.utils.mcp_servers.parse_mcp_servers` 解析自身 config YAML 的 ``mcp_servers`` 段，并把结果放到 ``RunConfig`` 上。当前没有 robot 接线这条路径，因此站点共享的服务请使用 ``--site-config``；两个来源之间的服务名必须唯一。
+CLI 会把站点服务合并进每次运行，对所有 robot 生效，无需改动 robot 本身。robot 也可以拥有自己的服务：由其 ``parse_config`` 调用 :func:`~rpent.utils.mcp_servers.parse_mcp_servers` 解析自身 config YAML 的 ``mcp_servers`` 段，并把结果放到 ``RunConfig`` 上。当前没有 robot 接线这条路径，因此站点共享的服务请使用 ``--site-config``；两个来源之间的服务名必须唯一。加载文件时只解析 ``mcp_servers`` 段，其他段中未设置的 ``${oc.env:...}`` 不会阻止启动。
 
 字段：
 
 - ``url`` —— 服务的 Streamable HTTP 端点。只支持 HTTP(S) 服务。
-- ``headers`` —— 可选的固定请求头。在站点配置中，``${oc.env:...}`` 会在加载文件时解析。
+- ``headers`` —— 可选的固定请求头。在站点配置中，``${oc.env:...}`` 会在加载文件时解析。``claude_code`` 和 ``codex`` 会把这些值放进子进程命令行，同机其他用户可读取；凭据请使用 ``env_http_headers``。
 - ``env_http_headers`` —— 可选的映射，从请求头名指向环境变量名。值在发起请求时解析。``codex`` 直接接收该映射，``claude_code`` 只传入 ``${VAR}`` 交给 CLI 展开，因此密钥不会出现在子进程命令行中。同一个请求头不能同时出现在 ``headers`` 和 ``env_http_headers`` 中。
-- ``planner_tools`` —— ``"*"`` 放行服务暴露的全部工具；给出工具名列表则只放行这些工具；省略该项表示该服务不进入规划器层，但 Env/Toolkit 层仍可采纳其工具。
+- ``planner_tools`` —— ``"*"`` 放行服务暴露的全部工具；给出工具名列表则只放行这些工具；省略该项表示该服务不进入规划器层，但 Env/Toolkit 层仍可采纳其工具。``api`` 和 ``codex`` 只向模型暴露列出的工具；``claude_code`` 会挂载整个服务，并把该列表作为自动批准集合，服务中的其他工具仍对模型可见，但无头调用会因没有可应答的交互式授权而被拒绝。在意这一区别时，请按权限边界拆分服务条目。包含 ``"*"`` 的列表会被拒绝，请单独写 ``"*"``。
 
-所有在线规划器（``api``、``claude_code``、``codex``）都会接入声明了 ``planner_tools`` 的服务。服务名会成为工具的命名空间：``claude_code`` 和 ``codex`` 将工具显示为 ``mcp__<server>__<tool>``；``api`` 规划器显示为 ``<server>_<tool>``。服务名必须是简单标识符（字母、数字、``_``、``-``），且不能为 ``rpent``——该名字保留给 RPent 自身的 toolkit 服务。
+所有在线规划器（``api``、``claude_code``、``codex``）都会接入声明了 ``planner_tools`` 的服务。服务名会成为工具的命名空间：``claude_code`` 和 ``codex`` 将工具显示为 ``mcp__<server>__<tool>``；``api`` 规划器显示为 ``<server>_<tool>``。服务名必须以字母或数字开头，其余字符可以是字母、数字、``_``、``-``，且不能包含 ``__``（命名空间分隔符）；它也不能是 ``rpent``——该名字保留给 RPent 自身的 toolkit 服务。
+
+声明过的服务是这次运行的一部分，而不是可选项：某个服务不可达、``env_http_headers`` 中引用的环境变量未设置，或某个工具名与 RPent 工具重名，都会让本回合以规划器错误结束，而不会带着剩余服务继续。运行缺了也能活的可选设施服务，就不要放进 ``planner_tools``。
 
 ``api`` 规划器通过 Pydantic AI 的 MCP 客户端接入 MCP 服务，该客户端由 ``pydantic-ai-slim[mcp]`` extra 安装，RPent 默认列出该 extra。未接入任何 MCP 服务的运行不会加载它。
 

@@ -51,6 +51,9 @@ These options control the planner, memory, output directory, and Dashboard.
    * - ``--base-url``
      - ``—``
      - ``api`` only: override the model endpoint. SDK planners use their own environment variables.
+   * - ``--site-config``
+     - ``—``
+     - Deployment-level YAML shared by every robot at this site; its ``mcp_servers`` section declares facility MCP servers. See :ref:`external-mcp-servers`.
    * - ``--no-images``
      - ``false``
      - ``api`` only: omit images from model requests.

@@ -857,7 +857,9 @@ def _external_mcp_config(
     lists ``planner_tools`` yields ``mcp__<server>__<tool>`` per name; a spec
     that admits all tools yields the server-level ``mcp__<server>`` rule. A
     server with ``planner_tools`` unset belongs to the robot's Env/Toolkit
-    layer and is skipped here.
+    layer and is skipped here. The SDK still mounts the whole server, so the
+    list controls auto-approval, not what the model can see; use one server
+    entry per permission boundary when that distinction matters.
 
     The SDK serializes these entries onto the ``claude`` child process's
     command line, where other local users can read them. Env-backed headers

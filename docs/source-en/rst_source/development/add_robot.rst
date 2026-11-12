@@ -353,10 +353,17 @@ attaching the server to a planner. ``get_toolkit`` receives the run's
 
 Adoption validates the names against the server's tool list when the toolkit is
 constructed, keeps the remote input schemas, and marks a tool ``readonly`` when
-the server sets ``readOnlyHint``. Adopted tools remain reachable by every
-planner through ``mcp__rpent__`` and take part in observation capture. Tools
+the server sets ``readOnlyHint``. Adopted tools become ordinary Toolkit tools:
+``claude_code`` and ``codex`` show them as ``mcp__rpent__<name>``, while
+``api`` uses their own names. They take part in observation capture. Tools
 that need no coordination belong under ``planner_tools`` instead. See
 :ref:`external-mcp-servers`.
+
+Two limits come from the MCP client below the Toolkit contract. A remote call
+runs synchronously on the toolkit's operation slot and is bounded by the
+client's request and SSE read timeouts (30 and 300 seconds by default), not by
+RPent's cancellation. Only ``image/png`` blocks become native images; other
+block types arrive as metadata without their payload.
 
 Conventions Worth Keeping
 -------------------------

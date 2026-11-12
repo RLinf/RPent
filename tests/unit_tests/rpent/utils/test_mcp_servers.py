@@ -126,6 +126,13 @@ def test_rejects_empty_planner_tools_list() -> None:
         parse_mcp_servers({"web": {"url": "https://example/mcp", "planner_tools": []}})
 
 
+def test_rejects_wildcard_inside_planner_tools_list() -> None:
+    with pytest.raises(ValueError, match="rather than a list"):
+        parse_mcp_servers(
+            {"web": {"url": "https://example/mcp", "planner_tools": ["*"]}}
+        )
+
+
 def test_rejects_header_in_both_header_maps() -> None:
     with pytest.raises(ValueError, match="both 'headers' and 'env_http_headers'"):
         parse_mcp_servers(
@@ -218,6 +225,41 @@ def test_load_site_config_reads_only_the_mcp_section(
         ),
         McpServerSpec(name="dock", url="https://dock.example/mcp"),
     )
+
+
+def test_load_site_config_ignores_unresolved_values_outside_the_section(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("VLA_CKPT", raising=False)
+    path = tmp_path / "site.yaml"
+    path.write_text(
+        "vla:\n"
+        "  checkpoint: ${oc.env:VLA_CKPT}\n"
+        "mcp_servers:\n"
+        "  dock:\n"
+        "    url: https://dock.example/mcp\n"
+    )
+
+    assert load_site_mcp_servers(path) == (
+        McpServerSpec(name="dock", url="https://dock.example/mcp"),
+    )
+
+
+def test_load_site_config_rejects_unresolved_value_in_the_section(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("WEB_TOKEN", raising=False)
+    path = tmp_path / "site.yaml"
+    path.write_text(
+        "mcp_servers:\n"
+        "  web:\n"
+        "    url: https://web.example/mcp\n"
+        "    headers:\n"
+        "      Authorization: Bearer ${oc.env:WEB_TOKEN}\n"
+    )
+
+    with pytest.raises(ValueError, match="WEB_TOKEN"):
+        load_site_mcp_servers(path)
 
 
 def test_load_site_config_without_section_yields_no_specs(tmp_path: Path) -> None:

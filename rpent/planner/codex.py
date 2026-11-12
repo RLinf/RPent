@@ -1150,10 +1150,12 @@ def _toml_value(value: Any) -> str:
     """
     if isinstance(value, dict):
         inner = ", ".join(
-            f"{json.dumps(key)} = {json.dumps(val)}" for key, val in value.items()
+            f"{json.dumps(key, ensure_ascii=False)} = "
+            f"{json.dumps(val, ensure_ascii=False)}"
+            for key, val in value.items()
         )
         return "{" + inner + "}"
-    return json.dumps(value)
+    return json.dumps(value, ensure_ascii=False)
 
 
 # ---------------------------------------------------------------------------

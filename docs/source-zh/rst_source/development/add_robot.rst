@@ -258,7 +258,9 @@ toolkit 模块通常包含四部分：
        )
        return toolkit
 
-采纳时会在构造 toolkit 的阶段对照服务端工具列表校验名称，保留远端输入 schema，并在服务设置 ``readOnlyHint`` 时把工具标为 ``readonly``。被采纳的工具仍通过 ``mcp__rpent__`` 对所有 planner 可见，并参与观测记录。无需协调的工具应放入 ``planner_tools``。参见 :ref:`external-mcp-servers`。
+采纳时会在构造 toolkit 的阶段对照服务端工具列表校验名称，保留远端输入 schema，并在服务设置 ``readOnlyHint`` 时把工具标为 ``readonly``。被采纳的工具会成为普通 Toolkit 工具：``claude_code`` 和 ``codex`` 将其显示为 ``mcp__rpent__<name>``，``api`` 则使用工具自身的名称；它们参与观测记录。无需协调的工具应放入 ``planner_tools``。参见 :ref:`external-mcp-servers`。
+
+有两个限制来自 Toolkit 契约之下的 MCP 客户端：远端调用在 toolkit 的操作槽上同步执行，受客户端请求超时与 SSE 读取超时（默认 30 秒和 300 秒）约束，而不受 RPent 的取消机制约束；只有 ``image/png`` 块会变成原生图片，其他类型的块只带元数据、不带载荷。
 
 建议遵循的约定
 --------------

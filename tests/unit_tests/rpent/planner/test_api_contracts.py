@@ -1635,6 +1635,23 @@ def test_no_external_toolsets_without_declared_servers() -> None:
     assert planner._external_toolsets(adapter) == []
 
 
+def test_toolkit_tool_reusing_read_image_ends_the_run_with_a_planner_error() -> None:
+    events = Events()
+    toolkit = RobotToolkit(events)
+    toolkit.register("read_image", lambda: ToolResult(data={"ok": True}))
+    planner = ApiAgentLoop(model=TestModel(), dashboard_events=events)
+
+    result = planner.solve(
+        system_prompt="Use the robot toolkit. Finish when done.",
+        user_message="Do the task.",
+        toolkit=toolkit,
+        max_turns=2,
+    )
+
+    assert result.stop_reason == "planner_error"
+    assert result.error is not None and "read_image" in result.error
+
+
 def test_external_toolsets_require_the_mcp_extra(monkeypatch) -> None:
     # Force the optional pydantic-ai MCP import to fail.
     monkeypatch.setitem(sys.modules, "pydantic_ai.mcp", None)
@@ -1691,6 +1708,35 @@ def test_external_toolsets_attach_only_the_planner_layer() -> None:
     assert not isinstance(toolsets[1].wrapped, FilteredToolset)
 
 
+def test_unresolved_env_header_ends_the_run_with_a_planner_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("FACILITY_TOKEN", raising=False)
+    events = Events()
+    planner = ApiAgentLoop(
+        model=TestModel(),
+        dashboard_events=events,
+        mcp_servers=(
+            McpServerSpec(
+                name="facility",
+                url="https://facility.example/mcp",
+                env_http_headers={"Authorization": "FACILITY_TOKEN"},
+                planner_tools="*",
+            ),
+        ),
+    )
+
+    result = planner.solve(
+        system_prompt="Use the robot toolkit. Finish when done.",
+        user_message="Do the task.",
+        toolkit=RobotToolkit(events),
+        max_turns=2,
+    )
+
+    assert result.stop_reason == "planner_error"
+    assert result.error is not None and "FACILITY_TOKEN" in result.error
+
+
 def test_external_tool_hook_records_like_a_local_tool() -> None:
     events = Events()
     adapter = _HarnessToolkit(
@@ -1739,9 +1785,38 @@ def test_external_tool_hook_omits_images_with_no_images(no_images: bool) -> None
 
     omitted = "[Image omitted: --no-images is enabled.]"
     assert result == ["caption", omitted if no_images else image]
+    # Raw image bytes must never reach the transcript, with or without images.
+    assert adapter.messages[-1]["content"] == "caption\n[image: image/png, 3 bytes]"
+
+
+def test_external_tool_hook_records_failed_calls() -> None:
+    events = Events()
+    adapter = _HarnessToolkit(
+        RobotToolkit(events), dashboard_events=events, no_images=True
+    )
+    ctx = SimpleNamespace(tool_call_id="call-1")
+
+    async def call_tool(name, args):
+        raise RuntimeError("server unavailable")
+
+    with pytest.raises(RuntimeError, match="server unavailable"):
+        asyncio.run(adapter.external_tool_hook("web")(ctx, call_tool, "search", {}))
+
+    assert adapter.messages == [
+        {
+            "role": "tool",
+            "name": "web_search",
+            "tool_call_id": "call-1",
+            "content": '{"error": "RuntimeError: server unavailable"}',
+        }
+    ]
 
 
 def test_external_result_text_renders_result_shapes() -> None:
     assert _external_result_text("hi") == "hi"
     assert _external_result_text({"a": 1}) == '{"a": 1}'
     assert _external_result_text(["x", {"b": 2}]) == 'x\n{"b": 2}'
+    assert (
+        _external_result_text(BinaryContent(data=b"png", media_type="image/png"))
+        == "[image: image/png, 3 bytes]"
+    )
