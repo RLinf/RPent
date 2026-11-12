@@ -103,6 +103,7 @@ def main() -> None:
         cfg,
         video_dir=args.video_dir or "",
         meta={
+            "action_protocol_version": 1,
             "task": args.task,
             "layout": args.layout,
             "seed": args.seed,

@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from robots.robodojo import agent_support, robot_spec, tools
+from robots.robodojo.env_client import ExecutionSyncError
 from robots.robodojo.primitives import RoboDojoPrimitives
 from robots.robodojo.toolkit import RoboDojoToolkit
 from rpent.dashboard.events import NullDashboardEventSink
@@ -29,6 +30,27 @@ class MotionEnv:
         self.opening = {"left": 1.0, "right": 0.3}
         self.path = np.arange(60, dtype=float).reshape(10, 6) / 100
         self.plan_status = "Success"
+        self.paused = False
+        self.closed = False
+
+    @property
+    def episode_ended(self):
+        return self.success or self.step_count >= self.step_limit
+
+    def pause_execution(self):
+        self.paused = True
+
+    def resume_execution(self):
+        self.paused = False
+
+    def end_execution(self):
+        self.closed = True
+
+    def accept_observation_step(self, before, after):
+        if before != after or after != self.step_count:
+            raise ExecutionSyncError(
+                "native control advanced during observation capture"
+            )
 
     def get_status(self):
         return {
@@ -54,7 +76,12 @@ class MotionEnv:
         self.step_count += 1
         if gripper is not None:
             self.opening[arm] = gripper
-        return {"executed_actions": 1, "episode_status": self.get_status()}
+        return {
+            "executed_actions": 1,
+            "episode_status": self.get_status(),
+            "terminated": self.success,
+            "truncated": self.step_count >= self.step_limit,
+        }
 
     def get_obs(self):
         self.reads += 1
@@ -164,12 +191,14 @@ def test_native_runtime_stop_is_not_reported_as_success(motion):
     env.step_joint_update = lambda **kwargs: {
         "executed_actions": 0,
         "episode_status": env.get_status(),
+        "terminated": False,
+        "truncated": False,
     }
     result = primitive.release(arm="left").data
     assert not result["success"] and not result["completed"]
     assert result["stop_reason"] == "runtime_failure"
     assert result["executed_steps"] == 0
-    assert "execution_uncertain" not in result
+    assert result["error"] and not result["execution_uncertain"]
 
 
 @pytest.mark.parametrize(
@@ -203,58 +232,7 @@ def test_rotation_is_world_z_not_local_axis(motion):
     assert env.plans[0][1][:3] == env.pose[:3]
 
 
-def make_native():
-    robots = [
-        SimpleNamespace(
-            type="target",
-            arm_name=f"{arm}_arm",
-            gripper_name=f"{arm}_ee",
-            robot_name=arm,
-            arm_joint_indices=list(range(6)),
-            entity_origin_pose=[0, 0, 0, 1, 0, 0, 0],
-            gripper_scale=[-0.01, 0.044],
-            gripper_move={"sign": 1},
-        )
-        for arm in ("left", "right")
-    ]
-    previous = {
-        f"{arm}_arm_joint_state": {"position": [offset] * 6}
-        for arm, offset in (("left", 0.4), ("right", 0.7))
-    }
-    previous.update(
-        {
-            f"{arm}_ee_joint_state": {"position": [val, val]}
-            for arm, val in (("left", -0.01), ("right", 0.017))
-        }
-    )
-    plans = []
-
-    def plan(**kwargs):
-        plans.append(kwargs)
-        return {"status": "Success", "position": np.zeros((3, 6))}
-
-    manager = SimpleNamespace(
-        robot_list=robots,
-        robot_key=[
-            SimpleNamespace(
-                data=SimpleNamespace(joint_pos_limits=np.tile([-3.14, 3.14], (1, 6, 1)))
-            )
-            for _ in robots
-        ],
-        control_manager=SimpleNamespace(prev_control=[previous]),
-        scene=SimpleNamespace(env_origins=np.array([[1, 2, 3]])),
-        process_name=lambda name: name + "_joint_state",
-        get_joint=lambda robot, **kw: {0: np.zeros(6)},
-        get_real_endpose=lambda robot, **kw: {0: np.array([1, 2, 3, 1, 0, 0, 0])},
-        get_end_effector_real_val=lambda robot, **kw: {0: np.array([0.017, 0.017])},
-        planner={arm: SimpleNamespace(plan_path=plan) for arm in ("left", "right")},
-    )
-    return SimpleNamespace(
-        robot_manager=manager, take_action_cnt=[0], step_lim=10, end_flag=[False]
-    ), plans
-
-
-def test_native_state_distinguishes_command_from_measurement():
+def test_native_state_distinguishes_command_from_measurement(make_native):
     env, _ = make_native()
     state = agent_support._motion_state(env)
     assert state["left_gripper"] == pytest.approx(0.5)
@@ -263,7 +241,7 @@ def test_native_state_distinguishes_command_from_measurement():
 
 
 @pytest.mark.parametrize("arm", ["left", "right"])
-def test_native_waypoint_holds_all_other_targets(make_agent, arm):
+def test_native_waypoint_holds_all_other_targets(make_agent, arm, make_native):
     env, _ = make_native()
     agent = make_agent(env)
     agent.get_status = lambda: {
@@ -273,7 +251,7 @@ def test_native_waypoint_holds_all_other_targets(make_agent, arm):
     }
     captured = []
 
-    def step(action):
+    def step(action, *, expected_step=None):
         captured.append(deepcopy(action))
         env.take_action_cnt[0] += 1
         return (
@@ -284,12 +262,15 @@ def test_native_waypoint_holds_all_other_targets(make_agent, arm):
         )
 
     agent.step_native = step
+    agent._observation = lambda: {"feedback": "post-action"}
     before = agent.get_motion_state()["targets"]
     result = agent.step_joint_update(arm, gripper=0.25)
     expected = deepcopy(before)
     expected[f"{arm}_ee_joint_state"] = [0.25]
     assert captured == [expected] and result["executed_actions"] == 1
     assert result["observation"] == {"feedback": "post-action"}
+    assert result["episode_status"] == agent.get_status()
+    assert "status" not in result
     assert agent.get_motion_state()["targets"] == before
     with pytest.raises(ValueError, match="joint limits"):
         agent.step_joint_update(arm, arm_qpos=[100.0] * 6)
@@ -301,7 +282,7 @@ def test_native_waypoint_holds_all_other_targets(make_agent, arm):
     assert len(captured) == 1
 
 
-def test_native_plan_transforms_world_frame_without_motion():
+def test_native_plan_transforms_world_frame_without_motion(make_native):
     env, plans = make_native()
     result = agent_support._plan_arm_path(env, "left", [1.1, 2.2, 3.3, 2, 0, 0, 0])
     np.testing.assert_allclose(plans[0]["target_ee_pose"], [0.1, 0.2, 0.3, 1, 0, 0, 0])
@@ -549,3 +530,130 @@ def test_score_read_failure_and_restricted_mode_are_not_zero():
     assert toolkit.evaluation_metrics(success=None) == {"score": None}
     toolkit.eval_fair = True
     assert toolkit.evaluation_metrics(success=True) == {"score": None}
+
+
+def action():
+    return [0.1] * 12 + [0.25, 0.75]
+
+
+@pytest.mark.parametrize("operation", ["primitive", "vpp2", "awomo05"])
+@pytest.mark.parametrize("stop", ["end_flag", "budget", "success", "success_at_limit"])
+def test_shared_execution_distinguishes_end_flag_from_budget(boundary, operation, stop):
+    b = boundary
+    applied = b.agent.venv.envs[0].apply_action
+    if stop in ("budget", "success_at_limit"):
+        b.native.step_lim = 2
+    b.agent.get_status = lambda: {
+        "step": b.native.take_action_cnt[0],
+        "step_limit": b.native.step_lim,
+        "success": stop in ("success", "success_at_limit")
+        and b.native.take_action_cnt[0] >= 2,
+    }
+
+    def apply(*args, **kwargs):
+        applied(*args, **kwargs)
+        if stop == "end_flag" and b.native.take_action_cnt[0] == 2:
+            b.native.end_flag[0] = True
+
+    b.agent.venv.envs[0].apply_action = apply
+    inferences, observations = [], []
+
+    def infer(*args):
+        inferences.append(True)
+        return [action()] * (8 if operation == "awomo05" else 24)
+
+    model = SimpleNamespace(
+        infer=infer,
+        get_action=infer,
+        reset_session=lambda: None,
+        update_obs=lambda obs, step: observations.append(step),
+        end_episode=lambda: None,
+    )
+    primitive = RoboDojoPrimitives(
+        env=b.env,
+        vla_client=model,
+        vla_backend="awomo05" if operation == "awomo05" else "vpp2",
+        check_cancelled=lambda: None,
+    )
+
+    def run():
+        if operation == "primitive":
+            return primitive.set_gripper(arm="right", val=0.7, steps=4).data
+        if operation == "vpp2":
+            return primitive.vpp2_act(instruction="Move the object.", chunks=2).data
+        return primitive.awomo05_act(chunks=2).data
+
+    try:
+        result = run()
+        expected_reason = (
+            "native_success"
+            if stop in ("success", "success_at_limit")
+            else "budget_exhausted"
+            if stop == "budget"
+            else "episode_end"
+        )
+        assert result["executed_steps"] == len(b.applied) == 2
+        assert result["stop_reason"] == expected_reason
+        assert result["episode_ended"] and not result["completed"]
+        assert b.env.episode_ended
+        again = run()
+        assert again["stop_reason"] == expected_reason
+        assert again["executed_steps"] == 0 and len(b.applied) == 2
+        assert len(inferences) == int(operation != "primitive")
+        if operation == "awomo05":
+            assert observations == [0, 1]
+    finally:
+        primitive.close()
+
+
+@pytest.mark.parametrize("backend,horizon", [("vpp2", 24), ("awomo05", 8)])
+@pytest.mark.parametrize("cancel_at", [0, 1])
+def test_policy_cancel_reinfers_after_resume(
+    policy_runtime, backend, horizon, cancel_at
+):
+    cancelled = True
+
+    def check():
+        if (
+            cancelled
+            and env.frame == cancel_at
+            and any(event[0] == "infer" for event in policy.events)
+        ):
+            raise ToolCancelled("cancelled before action")
+
+    env, policy, primitive = policy_runtime(backend, check_cancelled=check)
+    act = getattr(primitive, f"{backend}_act")
+    arguments = {"instruction": "stack blocks"} if backend == "vpp2" else {}
+    first = act(chunks=2, **arguments)
+    assert first.is_error and first.data["stop_reason"] == "cancelled"
+    assert first.data["executed_steps"] == cancel_at
+    cancelled = False
+    env.resume_execution()
+    resumed = act(**arguments)
+    assert not resumed.is_error and resumed.data["executed_steps"] == horizon
+    assert [e for e in policy.events if e[0] == "infer"] == [
+        ("infer", 0),
+        ("infer", cancel_at),
+    ]
+
+
+@pytest.mark.parametrize("backend,horizon", [("vpp2", 24), ("awomo05", 8)])
+@pytest.mark.parametrize(
+    "chunks,limit,done_at", [(1, 100, None), (2, 100, None), (2, 3, None), (2, 100, 3)]
+)
+def test_policy_chunk_progress(
+    policy_runtime, backend, horizon, chunks, limit, done_at
+):
+    env, policy, primitive = policy_runtime(backend, limit=limit, done_at=done_at)
+    act = getattr(primitive, f"{backend}_act")
+    result = act(
+        chunks=chunks, **({"instruction": "stack blocks"} if backend == "vpp2" else {})
+    ).data
+    steps = min(chunks * horizon, limit, done_at or limit)
+    assert result["requested_chunks"] == chunks
+    assert result["executed_steps"] == env.frame == steps
+    assert result["executed_chunks"] == steps // horizon
+    assert result["completed"] is (steps == chunks * horizon)
+    assert [e[1] for e in policy.events if e[0] == "infer"] == list(
+        range(0, steps, horizon)
+    )

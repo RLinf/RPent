@@ -25,6 +25,26 @@ from rpent.robots.components.am_client_base import BaseVLAClient, BaseWAMClient
 from rpent.robots.components.am_facade_base import BaseVLAFacade, BaseWAMFacade
 
 
+@pytest.mark.parametrize("option", ["--am-backend", "--vla-backend", "--wam-backend"])
+def test_backend_aliases_preserve_supported_models(option):
+    for platform, value, expected in (
+        ("robodojo", "vpp2", "vpp2"),
+        ("robodojo", "awomo05", "awomo05"),
+        ("libero", "rlinf", "pi05"),
+    ):
+        parser = argparse.ArgumentParser()
+        am_runtime.add_am_args(parser, platform=platform)
+        assert parser.parse_args([option, value]).am_backend == expected
+
+
+def test_robodojo_rejects_removed_policy_option(capsys):
+    parser = argparse.ArgumentParser()
+    am_runtime.add_am_args(parser, platform="robodojo")
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--policy-backend", "rlinf"])
+    assert "unrecognized arguments: --policy-backend rlinf" in capsys.readouterr().err
+
+
 @pytest.mark.parametrize("model_meta", [None, {"backend": "test", "action_dim": 2}])
 def test_vla_dispatch_preserves_options_and_model_extensions(model_meta):
     class VLA(BaseVLAFacade):
