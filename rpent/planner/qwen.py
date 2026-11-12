@@ -30,6 +30,7 @@ two of its rules decide whether earlier reasoning survives:
 
 from __future__ import annotations
 
+import math
 import os
 from collections.abc import AsyncIterator
 from typing import Any
@@ -55,6 +56,12 @@ def qwen_model_settings(
     reasoning_effort: str = "none",
     thinking: bool = True,
     parallel_tool_calls: bool = False,
+    temperature: float | None = None,
+    top_p: float | None = None,
+    top_k: int | None = None,
+    min_p: float | None = None,
+    presence_penalty: float | None = None,
+    repetition_penalty: float | None = None,
 ) -> OpenAIChatModelSettings:
     """Request settings for a Qwen chat endpoint.
 
@@ -67,34 +74,54 @@ def qwen_model_settings(
     """
     from pydantic_ai.profiles.openai import OPENAI_REASONING_EFFORT_MAP
 
+    temperature = SAMPLING["temperature"] if temperature is None else temperature
+    top_p = SAMPLING["top_p"] if top_p is None else top_p
+    top_k = SAMPLING["top_k"] if top_k is None else top_k
+    min_p = 0.0 if min_p is None else min_p
+    presence_penalty = (
+        float(os.environ.get("RPENT_PRESENCE_PENALTY", "0"))
+        if presence_penalty is None
+        else presence_penalty
+    )
+    repetition_penalty = (
+        float(os.environ.get("RPENT_REPETITION_PENALTY", "1"))
+        if repetition_penalty is None
+        else repetition_penalty
+    )
+    for name, value, valid in (
+        ("temperature", temperature, temperature >= 0),
+        ("top_p", top_p, 0 < top_p <= 1),
+        ("min_p", min_p, 0 <= min_p <= 1),
+        ("presence_penalty", presence_penalty, -2 <= presence_penalty <= 2),
+        ("repetition_penalty", repetition_penalty, 0 < repetition_penalty <= 2),
+    ):
+        if not math.isfinite(value) or not valid:
+            raise ValueError(f"invalid {name} (RPENT_{name.upper()}): {value}")
+    if (
+        not isinstance(top_k, int)
+        or isinstance(top_k, bool)
+        or top_k == 0
+        or top_k < -1
+    ):
+        raise ValueError("top_k must be -1 (disabled) or a positive integer")
+    if max_tokens < 1:
+        raise ValueError("max_tokens must be positive")
     settings = OpenAIChatModelSettings(
         max_tokens=max_tokens,
-        temperature=SAMPLING["temperature"],
-        top_p=SAMPLING["top_p"],
+        temperature=temperature,
+        top_p=top_p,
+        presence_penalty=presence_penalty,
         parallel_tool_calls=parallel_tool_calls,
         extra_body={
-            "top_k": SAMPLING["top_k"],
+            "top_k": top_k,
+            "min_p": min_p,
+            "repetition_penalty": repetition_penalty,
             "chat_template_kwargs": {
                 "enable_thinking": thinking,
                 "preserve_thinking": True,
             },
         },
     )
-    for name, minimum in [("presence_penalty", -2.0), ("repetition_penalty", 0.0)]:
-        variable = "RPENT_" + name.upper()
-        raw = os.environ.get(variable)
-        if raw is None:
-            continue
-        value = float(raw)
-        valid = minimum <= value <= 2.0
-        if name == "repetition_penalty":
-            valid = 0.0 < value <= 2.0
-        if not valid:
-            raise ValueError(f"invalid {variable}: {raw}")
-        if name == "presence_penalty":
-            settings[name] = value
-        else:
-            settings["extra_body"][name] = value
     if reasoning_effort != "none":
         settings["openai_reasoning_effort"] = OPENAI_REASONING_EFFORT_MAP.get(
             reasoning_effort, reasoning_effort

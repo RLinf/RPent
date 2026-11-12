@@ -1453,6 +1453,9 @@ def test_qwen_penalties_reach_every_http_request(tmp_path, monkeypatch, override
     if overrides:
         monkeypatch.setenv("RPENT_PRESENCE_PENALTY", "1.5")
         monkeypatch.setenv("RPENT_REPETITION_PENALTY", "1.0")
+    else:
+        monkeypatch.delenv("RPENT_PRESENCE_PENALTY", raising=False)
+        monkeypatch.delenv("RPENT_REPETITION_PENALTY", raising=False)
     bodies = []
     replies = [
         _tool_call_message("observe", {}),
@@ -1474,8 +1477,9 @@ def test_qwen_penalties_reach_every_http_request(tmp_path, monkeypatch, override
             assert body["presence_penalty"] == 1.5
             assert body["repetition_penalty"] == 1.0
         else:
-            assert "presence_penalty" not in body
-            assert "repetition_penalty" not in body
+            assert body["presence_penalty"] == 0.0
+            assert body["repetition_penalty"] == 1.0
+        assert body["min_p"] == 0.0
         assert (body["temperature"], body["top_p"], body["top_k"]) == (1.0, 0.95, 20)
         assert body["max_completion_tokens"] == 32768
         assert body["chat_template_kwargs"] == {

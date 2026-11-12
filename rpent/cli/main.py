@@ -165,6 +165,12 @@ def _build_argparser() -> argparse.ArgumentParser:
         "tier on models that have them.",
     )
     ap.add_argument(
+        "--thinking",
+        dest="no_thinking",
+        action="store_false",
+        help="Enable Qwen thinking (default); --no-thinking disables it.",
+    )
+    ap.add_argument(
         "--sequential-tools",
         action="store_true",
         help="Run physical tools one at a time and request one tool call per "
@@ -183,6 +189,54 @@ def _build_argparser() -> argparse.ArgumentParser:
         default=0.7,
         help="Fraction of --context-window at which the api planner compacts "
         "its history.",
+    )
+    ap.add_argument(
+        "--compaction-max-messages",
+        type=int,
+        default=80,
+        help="Independent message-count trigger; 0 disables it.",
+    )
+    ap.add_argument(
+        "--compaction-keep-messages",
+        type=int,
+        default=40,
+        help="Tail messages kept after compaction, plus opening/pinned context.",
+    )
+    ap.add_argument(
+        "--temperature",
+        type=float,
+        default=None,
+        help="Qwen API sampling temperature (default 1).",
+    )
+    ap.add_argument(
+        "--top-p",
+        type=float,
+        default=None,
+        help="Qwen API nucleus sampling probability (default .95).",
+    )
+    ap.add_argument(
+        "--top-k",
+        type=int,
+        default=None,
+        help="Qwen API top-k sampling (default 20); -1 disables it.",
+    )
+    ap.add_argument(
+        "--min-p",
+        type=float,
+        default=None,
+        help="Qwen API minimum relative probability (default 0).",
+    )
+    ap.add_argument(
+        "--presence-penalty",
+        type=float,
+        default=None,
+        help="Qwen API presence penalty (default 0; legacy env override supported).",
+    )
+    ap.add_argument(
+        "--repetition-penalty",
+        type=float,
+        default=None,
+        help="Qwen API repetition penalty (default 1; legacy env override supported).",
     )
     ap.add_argument(
         "--reasoning-effort",
@@ -307,6 +361,19 @@ def _api_planner_options(args: argparse.Namespace) -> dict[str, Any]:
         or getattr(spec, "sequential_tools", False),
         "context_window": args.context_window,
         "compaction_fraction": args.compaction_fraction,
+        "compaction_max_messages": getattr(args, "compaction_max_messages", 80),
+        "compaction_keep_messages": getattr(args, "compaction_keep_messages", 40),
+        **{
+            name: getattr(args, name, None)
+            for name in (
+                "temperature",
+                "top_p",
+                "top_k",
+                "min_p",
+                "presence_penalty",
+                "repetition_penalty",
+            )
+        },
     }
 
 

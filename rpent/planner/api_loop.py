@@ -124,7 +124,11 @@ def _default_compaction() -> SlidingWindowCompaction:
 
 
 def sliding_window_compaction(
-    *, context_window: int | None = None, max_fraction: float = 0.8
+    *,
+    context_window: int | None = None,
+    max_fraction: float = 0.8,
+    max_messages: int = 80,
+    keep_messages: int = 40,
 ) -> Callable[[], SlidingWindowCompaction]:
     """Return the default message window sized for a known model context.
 
@@ -133,11 +137,16 @@ def sliding_window_compaction(
     point unless the served context is named here.
     """
 
+    if max_messages < 0 or keep_messages < 0:
+        raise ValueError(
+            "Compaction message counts must be nonnegative; 0 disables the message trigger"
+        )
+
     def build() -> SlidingWindowCompaction:
         return RequestAwareSlidingWindow(
-            max_messages=80,
+            max_messages=max_messages or None,
             max_fraction=max_fraction,
-            keep_messages=40,
+            keep_messages=keep_messages,
             context_window=context_window,
         )
 

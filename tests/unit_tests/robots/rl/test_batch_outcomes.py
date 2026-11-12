@@ -150,8 +150,11 @@ def test_batch_thinking_reaches_process_and_cannot_change_on_resume(
         "(p/'states.json').write_text(json.dumps({'steps':[{'terminated':False}]}))\n"
         "(p/'transcript_api.json').write_text(json.dumps({'error_kind':'context_limit'}))\n"
     )
+    launcher = batch.EVAL_DIR / "run.sh"
     (scripts / "run.sh").write_text(
-        '#!/usr/bin/env bash\nexec "$RPENT_TEST_PYTHON" "$RPENT_TEST_WORKER" "$@"\n'
+        "#!/usr/bin/env bash\n"
+        f'if [[ "$1" == --print-defaults ]]; then exec bash "{launcher}" --print-defaults; fi\n'
+        'exec "$RPENT_TEST_PYTHON" "$RPENT_TEST_WORKER" "$@"\n'
     )
     (scripts / "planner.sh").write_text("# offline fixture\n")
     monkeypatch.setattr(batch, "EVAL_DIR", scripts)

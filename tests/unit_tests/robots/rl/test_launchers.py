@@ -179,6 +179,8 @@ def test_single_episode_launcher_preserves_the_selected_simulator_and_workflow(
     argv = request["argv"]
     assert argv[argv.index("--robot") + 1] == "rl"
     assert argv[argv.index("--simulator") + 1] == simulator
-    assert argv[argv.index("--workflow") + 1] == workflow
+    assert [argv[i + 1] for i, x in enumerate(argv[:-1]) if x == "--workflow"][
+        -1
+    ] == workflow
     assert "--libero-type" not in argv
     assert request["libero_type"] == "standard"

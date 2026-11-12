@@ -971,4 +971,12 @@ def test_api_planner_options_follow_flags_and_robot_spec(
         "sequential_tools": True,
         "context_window": 4096,
         "compaction_fraction": 0.5,
+        "compaction_max_messages": 80,
+        "compaction_keep_messages": 40,
+        "temperature": None,
+        "top_p": None,
+        "top_k": None,
+        "min_p": None,
+        "presence_penalty": None,
+        "repetition_penalty": None,
     }

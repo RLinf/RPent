@@ -99,17 +99,73 @@ native RGB-D/SAM3 stay1024 and displayed pixel/box coordinates are mapped.
 Planner Configuration
 ---------------------
 
-The default budgets are 100 model requests, 10000 simulator steps,
-32768 output tokens per request, a 262144-token context, accumulated-history compaction
-at 70%, and a 7200-second planner timeout. The batch launcher also enforces a
-14400-second episode timeout. All LIBERO modes share ``simple``, ``base``,
-``base_gripper`` and ``base_gripper_camera`` prompt variants.
+Edit the commented ``run_args`` array in ``tools/rl/run.sh`` to set defaults
+for single episodes and batches. Each parameter occupies one line. Explicit
+command-line arguments override ``RPENT_*`` environment values, which override
+the defaults in that file. Inspect the effective default argv without starting
+a model or simulator:
 
-The launcher explicitly defaults presence penalty to0. The example sets
-repetition penalty1.0. Overrides are captured in actual model requests. Thinking sampling uses
-temperature 1.0, top-p 0.95 and top-k 20. Qwen3.8 defaults to ``xhigh`` effort.
-The :download:`reference <../../../../tools/rl/REFERENCE.md>` lists all service,
-planner and batch overrides and describes the actual saved requests.
+.. code-block:: bash
+
+   bash tools/rl/run.sh --print-defaults
+
+Both ``run.sh`` and ``python -m tools.rl.run_batch run`` accept the following
+options. Batch collection resolves defaults from the same script, passes the
+resolved values to every child, and pins them in ``manifest.json``; changing
+them requires a new output directory.
+
+.. list-table::
+   :header-rows: 1
+
+   * - Option
+     - Default
+     - Meaning
+   * - ``--max-tokens``
+     - 32768
+     - Per-response completion budget, including reasoning and tool protocol.
+   * - ``--context-window``
+     - 262144
+     - Served context capacity used for counting; does not resize the server.
+   * - ``--compaction-fraction``
+     - 0.7
+     - Trigger when current input exceeds this fraction of the context.
+   * - ``--compaction-max-messages``
+     - 80
+     - Independent message-count trigger; 0 disables this trigger.
+   * - ``--compaction-keep-messages``
+     - 40
+     - Tail messages to retain, plus opening/pinned context and intact tool pairs.
+   * - ``--max-turns`` / ``--max-episode-steps``
+     - 100 / 10000
+     - Model-request / physical-step budgets per trajectory.
+   * - ``--planner-timeout-s``
+     - 7200
+     - Planner wall-clock limit; batch ``--episode-timeout`` defaults to 14400.
+
+A normal reply and its tool result are two messages; 40 tail messages usually
+cover about 20 interactions. Token and message-count triggers use OR. For a
+token-only trigger, pass ``--compaction-max-messages 0``. A retained window may
+still exceed the token threshold; the audit records that condition.
+
+Sampling defaults match Qwen3.8-27B thinking mode:
+``--temperature 1.0 --top-p 0.95 --top-k 20 --min-p 0.0
+--presence-penalty 0.0 --repetition-penalty 1.0``.
+All six values are explicit in model requests; ``--top-k -1`` disables top-k.
+``--thinking`` is the default; ``--no-thinking`` disables thinking without
+changing sampling. The 27B launcher uses ``--reasoning-effort xhigh``; use
+``low`` or ``medium`` for other supported tiers. ``none`` omits the effort
+field and does not disable thinking.
+
+``--reasoning-history``, ``--image-history``, ``--action-mode``,
+``--max-actions-per-call`` and ``--image_size`` are also listed in the same
+array. The default histories are -1/-1, action mode is single, batch length is3,
+and VLM image size is1024. Compaction still applies after history retention.
+
+For example, append ``--max-tokens 8192 --temperature 0.8
+--compaction-max-messages 0`` to a single or batch command. Model input and the
+requested output must still fit the actual server context. The
+:download:`reference <../../../../tools/rl/REFERENCE.md>` documents services
+and saved artifacts.
 
 View Results
 ------------

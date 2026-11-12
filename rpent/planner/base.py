@@ -321,6 +321,14 @@ def build_planner(
     sequential_tools: bool = False,
     context_window: int | None = None,
     compaction_fraction: float = 0.8,
+    compaction_max_messages: int = 80,
+    compaction_keep_messages: int = 40,
+    temperature: float | None = None,
+    top_p: float | None = None,
+    top_k: int | None = None,
+    min_p: float | None = None,
+    presence_penalty: float | None = None,
+    repetition_penalty: float | None = None,
 ) -> Planner:
     """Build a planner for the given backend, resolving credentials from env vars.
 
@@ -344,6 +352,29 @@ def build_planner(
         api_timeout_s = planner_timeout_s
         if api_timeout_s is None:
             api_timeout_s = int(os.environ.get("CELL_TIMEOUT_S", "1200"))
+        sampling = {
+            "temperature": temperature,
+            "top_p": top_p,
+            "top_k": top_k,
+            "min_p": min_p,
+            "presence_penalty": presence_penalty,
+            "repetition_penalty": repetition_penalty,
+        }
+        model_settings = None
+        if any(value is not None for value in sampling.values()):
+            from rpent.planner.qwen import QwenChatModel, qwen_model_settings
+
+            if not isinstance(api_model, QwenChatModel):
+                raise ValueError(
+                    "Sampling overrides are supported by the Qwen API planner"
+                )
+            model_settings = qwen_model_settings(
+                max_tokens=max_tokens,
+                reasoning_effort=reasoning_effort,
+                thinking=thinking,
+                parallel_tool_calls=not sequential_tools,
+                **sampling,
+            )
         return ApiAgentLoop(
             model=api_model,
             max_tokens=max_tokens,
@@ -354,8 +385,12 @@ def build_planner(
             interactive=interactive,
             thinking=thinking,
             sequential_tools=sequential_tools,
+            model_settings=model_settings,
             compaction=sliding_window_compaction(
-                context_window=context_window, max_fraction=compaction_fraction
+                context_window=context_window,
+                max_fraction=compaction_fraction,
+                max_messages=compaction_max_messages,
+                keep_messages=compaction_keep_messages,
             ),
         )
     if planner_type == "claude_code":

@@ -42,6 +42,90 @@ LOCK = threading.Lock()
 STOP = threading.Event()
 
 
+# These flags are declared once in run.sh; batch CLI values override that argv.
+RUN_FLAGS = (
+    "--workflow",
+    "--action-mode",
+    "--max-actions-per-call",
+    "--reasoning-history",
+    "--image-history",
+    "--image_size",
+    "--max-turns",
+    "--max-tokens",
+    "--context-window",
+    "--compaction-fraction",
+    "--compaction-max-messages",
+    "--compaction-keep-messages",
+    "--reasoning-effort",
+    "--temperature",
+    "--top-p",
+    "--top-k",
+    "--min-p",
+    "--presence-penalty",
+    "--repetition-penalty",
+    "--max-episode-steps",
+    "--planner-timeout-s",
+    "--observation-mode",
+    "--prompt",
+)
+
+
+def resolve_run_options(args: argparse.Namespace) -> None:
+    """Resolve editable launcher defaults before pinning or starting a batch."""
+    defaults = subprocess.run(
+        ["bash", str(EVAL_DIR / "run.sh"), "--print-defaults"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()
+    _, collection = build_parser()
+    base = collection.parse_args(
+        ["unused", "--jobs", "unused", "--gpus", "0", *defaults]
+    )
+    for flag in RUN_FLAGS:
+        name = flag[2:].replace("-", "_")
+        if getattr(args, name, None) is None:
+            setattr(args, name, getattr(base, name))
+    if getattr(args, "no_thinking", None) is None:
+        args.no_thinking = base.no_thinking
+    from rpent.planner.api_loop import sliding_window_compaction
+    from rpent.planner.qwen import qwen_model_settings
+
+    sliding_window_compaction(
+        context_window=args.context_window,
+        max_fraction=args.compaction_fraction,
+        max_messages=args.compaction_max_messages,
+        keep_messages=args.compaction_keep_messages,
+    )()
+    qwen_model_settings(
+        max_tokens=args.max_tokens,
+        reasoning_effort=args.reasoning_effort,
+        thinking=not args.no_thinking,
+        **{
+            name: getattr(args, name)
+            for name in (
+                "temperature",
+                "top_p",
+                "top_k",
+                "min_p",
+                "presence_penalty",
+                "repetition_penalty",
+            )
+        },
+    )
+    if min(args.max_turns, args.max_episode_steps, args.planner_timeout_s) < 1:
+        raise ValueError("Request/step budgets and planner timeout must be positive")
+
+
+def episode_options(args: argparse.Namespace) -> list[str]:
+    """Pass every resolved value explicitly so a batch cannot drift mid-run."""
+    result = []
+    for flag in RUN_FLAGS:
+        result += [flag, str(getattr(args, flag[2:].replace("-", "_")))]
+    result.append("--no-thinking" if args.no_thinking else "--thinking")
+    return result
+
+
 def source_identity() -> dict:
     """Pin production code and prompts, including uncommitted development changes."""
     root = EVAL_DIR.parent.parent
@@ -294,6 +378,7 @@ def run(args: argparse.Namespace) -> None:
 def collect(args: argparse.Namespace, batch: Path) -> None:
     """Run one exclusively owned batch."""
     STOP.clear()
+    resolve_run_options(args)
     if (
         args.infrastructure_retries < 0
         or args.episode_timeout <= 0
@@ -322,6 +407,9 @@ def collect(args: argparse.Namespace, batch: Path) -> None:
         "workflow": args.workflow,
         "image_size": getattr(args, "image_size", 1024),
         "thinking": not getattr(args, "no_thinking", False),
+        "run_options": {
+            flag: getattr(args, flag[2:].replace("-", "_")) for flag in RUN_FLAGS
+        },
         "action_mode": getattr(args, "action_mode", "single"),
         "max_actions_per_call": getattr(args, "max_actions_per_call", 3),
         "reasoning_history": getattr(args, "reasoning_history", -1),
@@ -422,27 +510,8 @@ def collect(args: argparse.Namespace, batch: Path) -> None:
                     *job_arguments(job),
                     "--cuda-device",
                     gpu,
-                    "--observation-mode",
-                    "adaptive",
-                    "--prompt",
-                    args.prompt,
-                    "--workflow",
-                    args.workflow,
-                    "--image_size",
-                    str(getattr(args, "image_size", 1024)),
+                    *episode_options(args),
                 ]
-                command += [
-                    "--action-mode",
-                    getattr(args, "action_mode", "single"),
-                    "--max-actions-per-call",
-                    str(getattr(args, "max_actions_per_call", 3)),
-                    "--reasoning-history",
-                    str(getattr(args, "reasoning_history", -1)),
-                    "--image-history",
-                    str(getattr(args, "image_history", -1)),
-                ]
-                if getattr(args, "no_thinking", False):
-                    command.append("--no-thinking")
                 environment = {
                     **os.environ,
                     "RPENT_OUTPUT_DIR": str(attempt),
@@ -637,8 +706,8 @@ def summary(args: argparse.Namespace) -> None:
     print(json.dumps(report, indent=2))
 
 
-def main() -> None:
-    """Run the collection or summary command."""
+def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
+    """Build public batch options without starting services."""
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     collection = commands.add_parser("run")
@@ -648,27 +717,47 @@ def main() -> None:
     collection.add_argument("--gpus", required=True)
     collection.add_argument("--per-gpu", type=int, default=1)
     collection.add_argument("--max-initializing-per-gpu", type=int, default=8)
-    collection.add_argument("--workflow", choices=WORKFLOWS, default="episode")
-    collection.add_argument(
-        "--action-mode", choices=("single", "batch"), default="single"
-    )
-    collection.add_argument("--max-actions-per-call", type=int, default=3)
-    collection.add_argument("--reasoning-history", type=int, default=-1)
-    collection.add_argument("--image-history", type=int, default=-1)
+    collection.add_argument("--workflow", choices=WORKFLOWS, default=None)
+    collection.add_argument("--action-mode", choices=("single", "batch"), default=None)
+    collection.add_argument("--max-actions-per-call", type=int, default=None)
+    collection.add_argument("--reasoning-history", type=int, default=None)
+    collection.add_argument("--image-history", type=int, default=None)
     collection.add_argument(
         "--no-thinking",
         action="store_true",
         help="Disable Qwen thinking for every episode and pin it in the batch manifest",
     )
     collection.add_argument(
-        "--image_size", type=int, choices=(1024, 512, 256), default=1024
+        "--image_size", type=int, choices=(1024, 512, 256), default=None
     )
+    collection.add_argument("--thinking", dest="no_thinking", action="store_false")
+    collection.set_defaults(no_thinking=None)
+    collection.add_argument("--max-turns", type=int, default=None)
+    collection.add_argument("--max-tokens", type=int, default=None)
+    collection.add_argument("--context-window", type=int, default=None)
+    collection.add_argument("--compaction-fraction", type=float, default=None)
+    collection.add_argument("--compaction-max-messages", type=int, default=None)
+    collection.add_argument("--compaction-keep-messages", type=int, default=None)
+    collection.add_argument(
+        "--reasoning-effort",
+        choices=("none", "minimal", "low", "medium", "high", "xhigh"),
+        default=None,
+    )
+    collection.add_argument("--temperature", type=float, default=None)
+    collection.add_argument("--top-p", type=float, default=None)
+    collection.add_argument("--top-k", type=int, default=None)
+    collection.add_argument("--min-p", type=float, default=None)
+    collection.add_argument("--presence-penalty", type=float, default=None)
+    collection.add_argument("--repetition-penalty", type=float, default=None)
+    collection.add_argument("--max-episode-steps", type=int, default=None)
+    collection.add_argument("--planner-timeout-s", type=int, default=None)
+    collection.add_argument("--observation-mode", choices=CONFIGS, default=None)
     collection.add_argument(
         "--start-barrier",
         action="store_true",
         help="Wait until every pending environment is resident before requesting the model",
     )
-    collection.add_argument("--prompt", choices=PROMPT_VARIANTS, default="simple")
+    collection.add_argument("--prompt", choices=PROMPT_VARIANTS, default=None)
     collection.add_argument(
         "--endpoints", help="Comma-separated local OpenAI base URLs"
     )
@@ -682,6 +771,12 @@ def main() -> None:
     )
     report = commands.add_parser("summary")
     report.add_argument("batch_dir")
+    return parser, collection
+
+
+def main() -> None:
+    """Run the collection or summary command."""
+    parser, _ = build_parser()
     args = parser.parse_args()
     {"run": run, "summary": summary}[args.command](args)
 

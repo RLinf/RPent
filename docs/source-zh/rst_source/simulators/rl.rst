@@ -91,16 +91,66 @@ query 和 todo 工具。重置不会重置全局预算。原生任务文本直�
 规划器配置
 ----------------------------------------------------------------
 
-默认预算：100 次模型请求、10000 仿真步、单次输出 32768 tokens、262144-token
-上下文、累积模式在 70% 时压缩历史、7200 秒 planner 超时。批量启动器另有
-14400 秒 episode 超时。五种 LIBERO 模式共用 ``simple`` 、 ``base`` 、
-``base_gripper`` 、 ``base_gripper_camera`` 四种 prompt 变体。
+修改 ``tools/rl/run.sh`` 的 ``run_args`` 参数区即可配置单条运行和批处理默认值；
+每个参数独立一行并附中文说明。优先级是：显式命令行参数、``RPENT_*`` 环境变量、
+脚本中的默认值。只查看默认 argv，不启动模型或仿真：
 
-启动器显式默认发送 presence penalty0，示例设置 repetition penalty1.0；
-覆盖值记录在实际模型请求中。Thinking 采样为 temperature 1.0、top-p 0.95、top-k 20，
-Qwen3.8 默认 effort 为 ``xhigh`` 。
-:download:`参考文档 <../../../../tools/rl/REFERENCE_zh.md>` 列出服务、planner、
-批量采集的完整参数，以及实际请求的记录方式。
+.. code-block:: bash
+
+   bash tools/rl/run.sh --print-defaults
+
+``run.sh`` 和 ``python -m tools.rl.run_batch run`` 均支持下列参数。
+批处理从同一脚本读取默认值，向每个子进程显式传入解析后的值，并固定在
+``manifest.json`` 中；改变参数时需使用新的输出目录。
+
+.. list-table::
+   :header-rows: 1
+
+   * - 参数
+     - 默认值
+     - 含义
+   * - ``--max-tokens``
+     - 32768
+     - 单轮总输出预算，包含 reasoning 和工具协议。
+   * - ``--context-window``
+     - 262144
+     - 计数使用的服务端上下文容量；不会修改服务端启动配置。
+   * - ``--compaction-fraction``
+     - 0.7
+     - 当前输入超过上下文容量的该比例时触发压缩。
+   * - ``--compaction-max-messages``
+     - 80
+     - 独立的消息数量触发上限；0 关闭这条规则。
+   * - ``--compaction-keep-messages``
+     - 40
+     - 压缩后保留的尾部消息数，另保留开场、pinned 内容和完整工具配对。
+   * - ``--max-turns`` / ``--max-episode-steps``
+     - 100 / 10000
+     - 每条轨迹的模型请求次数／物理环境步数上限。
+   * - ``--planner-timeout-s``
+     - 7200
+     - planner 墙钟时限；批处理 ``--episode-timeout`` 默认14400秒。
+
+一次正常模型回复及其工具结果是两条消息，保留40条尾部消息通常约为20轮。
+token 与消息数量条件为“或”；若只需 token 触发，设置
+``--compaction-max-messages 0``。保留后的窗口仍可能超过 token 阈值，审计会记录。
+
+采样默认保持 Qwen3.8-27B 官方 thinking 配置：
+``--temperature 1.0 --top-p 0.95 --top-k 20 --min-p 0.0
+--presence-penalty 0.0 --repetition-penalty 1.0``。
+六个值均显式写入模型请求；``--top-k -1`` 禁用 top-k。
+默认 ``--thinking``；``--no-thinking`` 关闭本轮思考，但不会自动改变采样。
+27B 启动器默认 ``--reasoning-effort xhigh``，也可选 ``low`` 或 ``medium``；
+``none`` 只省略 effort 字段，不等于关闭 thinking。
+
+同一参数区还列出 ``--reasoning-history``、``--image-history``、
+``--action-mode``、``--max-actions-per-call`` 和 ``--image_size``。
+默认历史为 -1/-1、动作为 single、batch 长度为3、VLM 图像为1024。
+历史裁剪之后仍会进行压缩判断。
+
+例如在单条或批处理命令后追加 ``--max-tokens 8192 --temperature 0.8
+--compaction-max-messages 0``。实际输入与请求的输出仍须满足服务端上下文容量。
+:download:`参考文档 <../../../../tools/rl/REFERENCE_zh.md>` 说明服务部署及保存的数据。
 
 查看结果
 ----------------------------------------------------------------
