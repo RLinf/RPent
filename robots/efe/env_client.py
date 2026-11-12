@@ -447,9 +447,15 @@ class EfeEnvClient:
             bounds = limits.get(name)
             if bounds is None:
                 continue
-            low, high = float(bounds[0]), float(bounds[1])
+            # A continuous or unbounded joint declares ``[null, null]`` (or one
+            # ``null`` bound) rather than omitting the key, so a bound may be
+            # absent. Only check the bounds the task actually declares.
+            low = None if bounds[0] is None else float(bounds[0])
+            high = None if bounds[1] is None else float(bounds[1])
             values = array[:, column]
-            if (values < low).any() or (values > high).any():
+            if (low is not None and (values < low).any()) or (
+                high is not None and (values > high).any()
+            ):
                 raise ValueError(
                     f"Action {name} outside [{low}, {high}]: "
                     f"[{values.min()}, {values.max()}]"

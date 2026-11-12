@@ -14,6 +14,7 @@
 
 """EFE client checks must reject commands before the service executes them."""
 
+import copy
 from types import SimpleNamespace
 
 import numpy as np
@@ -239,6 +240,34 @@ def test_a_spec_without_action_types_is_rejected():
     spec.pop("action_types")
     with pytest.raises(ValueError, match="action_types"):
         EfeEnvClient(robot=FakeRobot(spec))
+
+
+def test_an_unbounded_joint_limit_skips_the_check(client, robot):
+    """A continuous joint declares ``[null, null]`` instead of omitting the key."""
+    spec = copy.deepcopy(_SPEC)
+    spec["action_types"]["joint_position"]["limits"]["wrist_angle"] = [None, None]
+    client = EfeEnvClient(robot=FakeRobot(spec))
+    robot = client._robot
+    actions = _actions(2)
+    actions[:, 4] = 1.0e3
+
+    client.submit("joint_position", actions)
+
+    assert len(robot.submit_calls) == 1
+
+
+def test_a_one_sided_joint_limit_still_checks_the_declared_bound(client, robot):
+    spec = copy.deepcopy(_SPEC)
+    spec["action_types"]["joint_position"]["limits"]["waist"] = [None, 0.5]
+    client = EfeEnvClient(robot=FakeRobot(spec))
+    robot = client._robot
+    actions = _actions(1)
+    actions[0, 0] = 0.7
+
+    with pytest.raises(ValueError, match="waist outside"):
+        client.submit("joint_position", actions)
+
+    assert robot.submit_calls == []
 
 
 def test_success_hidden_matches_the_service_spelling():
