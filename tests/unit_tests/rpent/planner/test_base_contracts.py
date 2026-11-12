@@ -113,6 +113,8 @@ def test_google_endpoint_rejects_conflicting_explicit_model(monkeypatch, source)
     assert result.status == "missing_config"
     assert result.model == "google:explicit-model"
     assert "does not match" in result.detail
+
+
 def test_add_mcp_prefix_namespaces_bare_names_once() -> None:
     assert add_mcp_prefix("finish") == "mcp__rpent__finish"
     assert add_mcp_prefix("mcp__rpent__finish") == "mcp__rpent__finish"

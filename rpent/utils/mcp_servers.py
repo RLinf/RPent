@@ -23,9 +23,10 @@ is decided by whether the control loop must coordinate with the device:
 * Tools that need coordination with the execution loop, a safety interlock,
   or the observation stream are first-class robot/Env capabilities. They are
   exposed through the robot's Toolkit with
-  :meth:`~rpent.tools.toolkit.Toolkit.add_mcp_tools` and therefore reach every
-  planner through RPent's own ``mcp__rpent__`` namespace. A robot must opt in;
-  a server is never promoted to the toolkit layer by configuration alone.
+  :meth:`~rpent.tools.toolkit.Toolkit.add_mcp_tools`; planner adapters then
+  expose them like any Toolkit tool (``claude_code`` and ``codex`` add the
+  ``mcp__rpent__`` prefix, ``api`` uses the tool's own name). A robot must opt
+  in; a server is never promoted to the toolkit layer by configuration alone.
 
 A single server can mix both kinds of tools: list the independent ones under
 ``planner_tools`` and adopt the rest in robot code.
@@ -78,13 +79,20 @@ class McpServerSpec:
     Attributes:
         name: Server name, also its namespace in ``mcp__<name>__<tool>``.
         url: Streamable-HTTP endpoint (``http://`` or ``https://``).
-        headers: Optional literal request headers.
+        headers: Optional literal request headers. The ``claude_code`` and
+            ``codex`` backends pass these through child-process arguments,
+            where other local users can read them; keep secrets in
+            ``env_http_headers`` instead.
         env_http_headers: Header name to environment-variable name. Values are
             read when the server is used, keeping secrets out of generated
-            config and, for Codex, out of the child process arguments.
+            config and out of the child process arguments.
         planner_tools: ``"*"`` attaches every tool to the planners; a tuple
             attaches only those names; ``None`` does not attach the server to
             the planners at all. Only the planner layer consumes this field.
+            ``api`` and ``codex`` expose exactly the named tools;
+            ``claude_code`` mounts the whole server and uses the tuple as its
+            auto-approved set, so the server's other tools stay visible to the
+            model.
     """
 
     name: str
@@ -129,7 +137,8 @@ def load_site_mcp_servers(
 
     The file is a YAML mapping; only its ``mcp_servers`` key is consumed, so
     it can carry other site settings. OmegaConf resolves ``${oc.env:...}``
-    interpolation before validation.
+    interpolation in that section before validation; other sections may keep
+    unresolved references because RPent does not read them.
 
     Args:
         path: Path to the site config, or ``None`` when ``--site-config`` was
@@ -149,15 +158,20 @@ def load_site_mcp_servers(
     if not config_path.is_file():
         raise ValueError(f"site config not found: {config_path}")
 
-    from omegaconf import OmegaConf
+    from omegaconf import DictConfig, OmegaConf
 
     try:
-        raw = OmegaConf.to_container(OmegaConf.load(config_path), resolve=True)
+        config = OmegaConf.load(config_path)
     except Exception as exc:
         raise ValueError(f"invalid site config {config_path}: {exc}") from exc
-    if not isinstance(raw, Mapping):
+    if not isinstance(config, DictConfig):
         raise ValueError(f"site config must be a mapping: {config_path}")
-    return parse_mcp_servers(raw.get("mcp_servers"))
+    section = config.get("mcp_servers")
+    try:
+        raw = None if section is None else OmegaConf.to_container(section, resolve=True)
+    except Exception as exc:
+        raise ValueError(f"invalid site config {config_path}: {exc}") from exc
+    return parse_mcp_servers(raw)
 
 
 def merge_mcp_servers(
@@ -303,6 +317,11 @@ def _parse_planner_tools(raw: Any, where: str) -> PlannerTools:
     invalid = [item for item in raw if not isinstance(item, str) or not item]
     if invalid:
         raise ValueError(f"{where}.planner_tools entries must be non-empty strings")
+    if ALL_TOOLS in raw:
+        raise ValueError(
+            f"{where}.planner_tools: write {ALL_TOOLS!r} rather than a list "
+            "containing it; a list names individual tools"
+        )
     if not raw:
         raise ValueError(
             f"{where}.planner_tools must not be empty; omit it to keep the "

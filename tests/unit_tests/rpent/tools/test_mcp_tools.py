@@ -14,10 +14,13 @@
 
 from __future__ import annotations
 
+import base64
+import json
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from mcp import types
 
 from rpent.tools import mcp_tools
 from rpent.utils.mcp_servers import McpServerSpec
@@ -128,6 +131,167 @@ def test_handler_calls_the_remote_tool_and_renders_its_result(
 
     assert result.data == {"text": "ok", "structured_content": {"level": 2}}
     assert calls == [("facility", "status", {"detail": "high"})]
+
+
+def test_png_images_become_tool_result_images(
+    monkeypatch: pytest.MonkeyPatch, spec: McpServerSpec
+) -> None:
+    image = b"\x89PNG\r\n\x1a\n"
+    monkeypatch.setattr(
+        mcp_tools, "_list_remote_tools", lambda server: [_remote_tool("snapshot")]
+    )
+    monkeypatch.setattr(
+        mcp_tools,
+        "_call_remote_tool",
+        lambda server, name, arguments: SimpleNamespace(
+            content=[
+                SimpleNamespace(type="text", text="captured"),
+                SimpleNamespace(
+                    type="image",
+                    mimeType="image/png",
+                    data=base64.b64encode(image).decode("ascii"),
+                ),
+            ],
+            structuredContent=None,
+            isError=False,
+        ),
+    )
+    toolkit = FakeToolkit()
+    mcp_tools.register_mcp_tools(toolkit, (spec,), tools={"facility": ["snapshot"]})
+
+    result = toolkit.tools["snapshot"].handler()
+
+    assert result.images == [image]
+    assert result.data == {"text": "captured"}
+
+
+def test_non_png_images_do_not_embed_base64(
+    monkeypatch: pytest.MonkeyPatch, spec: McpServerSpec
+) -> None:
+    block = SimpleNamespace(
+        type="image",
+        mimeType="image/jpeg",
+        data="jpegdata",
+        model_dump=lambda **kwargs: {
+            "type": "image",
+            "mimeType": "image/jpeg",
+            "data": "jpegdata",
+        },
+    )
+    monkeypatch.setattr(
+        mcp_tools, "_list_remote_tools", lambda server: [_remote_tool("snapshot")]
+    )
+    monkeypatch.setattr(
+        mcp_tools,
+        "_call_remote_tool",
+        lambda server, name, arguments: SimpleNamespace(
+            content=[block], structuredContent=None, isError=False
+        ),
+    )
+    toolkit = FakeToolkit()
+    mcp_tools.register_mcp_tools(toolkit, (spec,), tools={"facility": ["snapshot"]})
+
+    result = toolkit.tools["snapshot"].handler()
+
+    assert result.images == []
+    assert result.data == {
+        "content": [
+            {
+                "type": "image",
+                "mimeType": "image/jpeg",
+                "notice": "only text and image/png content is forwarded to the model",
+            }
+        ]
+    }
+
+
+def test_multiple_png_blocks_all_become_images(
+    monkeypatch: pytest.MonkeyPatch, spec: McpServerSpec
+) -> None:
+    blobs = [b"\x89PNG\r\n\x1a\nfirst", b"\x89PNG\r\n\x1a\nsecond"]
+    monkeypatch.setattr(
+        mcp_tools, "_list_remote_tools", lambda server: [_remote_tool("snapshot")]
+    )
+    monkeypatch.setattr(
+        mcp_tools,
+        "_call_remote_tool",
+        lambda server, name, arguments: SimpleNamespace(
+            content=[
+                SimpleNamespace(
+                    type="image",
+                    mimeType="image/png",
+                    data=base64.b64encode(blob).decode("ascii"),
+                )
+                for blob in blobs
+            ],
+            structuredContent=None,
+            isError=False,
+        ),
+    )
+    toolkit = FakeToolkit()
+    mcp_tools.register_mcp_tools(toolkit, (spec,), tools={"facility": ["snapshot"]})
+
+    result = toolkit.tools["snapshot"].handler()
+
+    assert result.images == blobs
+    assert result.data == {}
+
+
+def test_invalid_base64_image_keeps_the_text_result(
+    monkeypatch: pytest.MonkeyPatch, spec: McpServerSpec
+) -> None:
+    monkeypatch.setattr(
+        mcp_tools, "_list_remote_tools", lambda server: [_remote_tool("snapshot")]
+    )
+    monkeypatch.setattr(
+        mcp_tools,
+        "_call_remote_tool",
+        lambda server, name, arguments: SimpleNamespace(
+            content=[
+                SimpleNamespace(type="text", text="captured"),
+                SimpleNamespace(type="image", mimeType="image/png", data="abc"),
+            ],
+            structuredContent=None,
+            isError=False,
+        ),
+    )
+    toolkit = FakeToolkit()
+    mcp_tools.register_mcp_tools(toolkit, (spec,), tools={"facility": ["snapshot"]})
+
+    result = toolkit.tools["snapshot"].handler()
+
+    assert result.images == []
+    assert result.data == {"text": "captured"}
+
+
+def test_binary_and_resource_blocks_keep_only_metadata() -> None:
+    result = types.CallToolResult(
+        content=[
+            types.AudioContent(type="audio", data="YXVkaW8=", mimeType="audio/wav"),
+            types.EmbeddedResource(
+                type="resource",
+                resource=types.BlobResourceContents(
+                    uri="https://docs.example/archive",
+                    blob="YmluYXJ5",
+                    mimeType="application/octet-stream",
+                ),
+            ),
+        ],
+        isError=False,
+    )
+
+    payload = mcp_tools._result_payload(result)
+
+    # Trajectory saving dumps this payload with a strict json.dump.
+    json.dumps(payload)
+    audio, resource = payload["content"]
+    assert audio == {
+        "type": "audio",
+        "mimeType": "audio/wav",
+        "notice": "only text and image/png content is forwarded to the model",
+    }
+    assert resource["resource"]["uri"] == "https://docs.example/archive"
+    assert "blob" not in resource["resource"]
 
 
 def test_optional_arguments_are_not_forwarded_as_null(

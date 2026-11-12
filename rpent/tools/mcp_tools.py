@@ -18,8 +18,9 @@ Tools that need coordination with the robot's execution loop do not belong in
 the planner layer: the model must not be able to call a charging-dock or
 safety interlock out of band. A robot adopts them through
 :meth:`~rpent.tools.toolkit.Toolkit.add_mcp_tools`, which registers the named
-remote tools on its Toolkit. Every planner then sees them under RPent's own
-``mcp__rpent__`` namespace, so all backends behave the same.
+remote tools on its Toolkit. They become ordinary Toolkit tools, so every
+planner exposes them the same way: ``claude_code`` and ``codex`` as
+``mcp__rpent__<name>``, ``api`` by the tool's own name.
 
 Adoption is explicit on purpose. Site configuration can declare a server and
 reserve its tools by omitting ``planner_tools``, but only robot code that
@@ -29,6 +30,7 @@ knows how to coordinate with the device registers them here.
 from __future__ import annotations
 
 import asyncio
+import base64
 import threading
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import Any, Literal
@@ -37,7 +39,10 @@ from pydantic import BaseModel, ConfigDict, create_model
 
 from rpent.tools.base import Tool, ToolResult
 from rpent.tools.toolkit import Toolkit
+from rpent.utils.logging import get_logger
 from rpent.utils.mcp_servers import McpServerSpec, request_headers
+
+logger = get_logger("mcp_tools")
 
 #: Marks an optional argument the model did not send, so it is not forwarded
 #: to the remote server as an explicit ``null``.
@@ -188,7 +193,8 @@ def _make_handler(spec: McpServerSpec, name: str) -> Callable[..., ToolResult]:
 
     def handler(**arguments: Any) -> ToolResult:
         sent = {key: value for key, value in arguments.items() if value is not _OMITTED}
-        return ToolResult(data=_result_payload(_call_remote_tool(spec, name, sent)))
+        result = _call_remote_tool(spec, name, sent)
+        return ToolResult(data=_result_payload(result), images=_result_images(result))
 
     return handler
 
@@ -225,6 +231,10 @@ def _run_remote(spec: McpServerSpec, action: Callable[[Any], Awaitable[Any]]) ->
     Tool handlers execute on planner worker threads, where ``asyncio.run`` is
     safe. If a handler is ever invoked from a thread that already owns a loop,
     the action runs on a short-lived helper thread instead of failing.
+
+    Each call opens its own session. A server that accepts the connection but
+    never answers is bounded by the MCP client's request and SSE read
+    timeouts (30 and 300 seconds by default), not by a separate RPent timeout.
     """
     ClientSession, streamablehttp_client = _mcp_client()
     headers = request_headers(spec) or None
@@ -263,15 +273,58 @@ def _run_remote(spec: McpServerSpec, action: Callable[[Any], Awaitable[Any]]) ->
     return outcome["value"]
 
 
+def _result_images(result: Any) -> list[bytes]:
+    """Decode PNG image blocks into ToolResult's image payload.
+
+    RPent's planners advertise ``ToolResult.images`` as PNG, so only
+    ``image/png`` blocks are forwarded as native images. A block whose payload
+    is not valid base64 is dropped instead of failing the whole call, so the
+    text of the same result still reaches the model.
+    """
+    images: list[bytes] = []
+    for block in result.content or []:
+        if (
+            getattr(block, "type", None) != "image"
+            or getattr(block, "mimeType", None) != "image/png"
+        ):
+            continue
+        try:
+            images.append(base64.b64decode(block.data))
+        except ValueError as exc:
+            logger.warning("MCP tool returned image/png with invalid base64: %s", exc)
+    return images
+
+
+def _block_metadata(block: Any) -> dict[str, Any]:
+    """Describe a result block RPent does not forward, without its payload."""
+    metadata = block.model_dump(mode="json", exclude_none=True)
+    # ``data`` (image, audio) and ``blob`` (binary resource) are base64 payloads.
+    for mapping in (metadata, metadata.get("resource")):
+        if isinstance(mapping, dict):
+            mapping.pop("data", None)
+            mapping.pop("blob", None)
+    metadata["notice"] = "only text and image/png content is forwarded to the model"
+    return metadata
+
+
 def _result_payload(result: Any) -> dict[str, Any]:
-    """Render an MCP tool result as RPent's serializable result dict."""
+    """Render an MCP tool result as RPent's serializable result dict.
+
+    Text and PNG images are the content RPent forwards; PNG blocks travel
+    through ``ToolResult.images``. Every other block keeps only its metadata:
+    base64 payloads would otherwise reach the model as truncated text, and
+    pydantic URL objects would break trajectory serialization.
+    """
     texts: list[str] = []
     blocks: list[dict[str, Any]] = []
     for block in result.content or []:
-        if getattr(block, "type", None) == "text":
+        kind = getattr(block, "type", None)
+        if kind == "text":
             texts.append(block.text)
-        else:
-            blocks.append(block.model_dump(exclude_none=True))
+            continue
+        if kind == "image" and getattr(block, "mimeType", None) == "image/png":
+            continue
+        blocks.append(_block_metadata(block))
 
     payload: dict[str, Any] = {}
     if texts:

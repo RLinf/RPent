@@ -49,6 +49,9 @@
    * - ``--base-url``
      - ``—``
      - 仅 ``api``：覆盖模型服务地址。``claude_code``、``codex`` 和 ``gemini_cli`` 使用各自已有的后端配置，并拒绝此参数。
+   * - ``--site-config``
+     - ``—``
+     - 站点级 YAML，由该站点的所有 robot 共享；其 ``mcp_servers`` 段声明场地 MCP 服务。参见 :ref:`external-mcp-servers`。
    * - ``--no-images``
      - ``false``
      - 仅 ``api``：不向模型发送图像。
