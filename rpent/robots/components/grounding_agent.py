@@ -213,7 +213,10 @@ def _isolated_codex_environment(
                 "OS keyring credentials cannot be reused under a temporary CODEX_HOME"
             )
     overrides.append('cli_auth_credentials_store="file"')
-    return {**env, "CODEX_HOME": str(home)}, tuple(overrides)
+    return (
+        {**env, "CODEX_HOME": str(home), "CODEX_SQLITE_HOME": str(home)},
+        tuple(overrides),
+    )
 
 
 def _toml_value(value: object) -> str:

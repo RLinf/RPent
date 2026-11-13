@@ -80,13 +80,18 @@ def test_codex_receives_image_and_no_robot_tools(monkeypatch, image, tmp_path):
         env: dict = None
 
     monkeypatch.setattr(
-        codex, "build_probe_config", lambda *a: Config(env={"CODEX_HOME": str(source)})
+        codex,
+        "build_probe_config",
+        lambda *a: Config(
+            env={"CODEX_HOME": str(source), "CODEX_SQLITE_HOME": str(source)}
+        ),
     )
 
     def probe(config, **kwargs):
         assert config.cwd != "/unused"
         home = Path(config.env["CODEX_HOME"])
         assert home != source
+        assert config.env["CODEX_SQLITE_HOME"] == str(home)
         assert not (home / "config.toml").exists()
         assert (home / "auth.json").resolve() == source / "auth.json"
         assert "mcp_servers={}" not in config.config_overrides
