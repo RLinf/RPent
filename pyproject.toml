@@ -71,6 +71,10 @@ test = [
     "pytest-timeout",
     "omegaconf",
     "gymnasium",
+    # toolkits.mapping.view; offline report tests render real figures.
+    "matplotlib>=3.8",
+    # toolkits.localization.localize; PnP and preprocessing tests need OpenCV.
+    "opencv-python-headless>=4.8",
 ]
 rlinf = [
     "rlinf @ git+https://github.com/RLinf/RLinf.git@release/v0.4",
@@ -162,6 +166,41 @@ yam = [
     "mujoco>=3.2,<4",
     "pyrealsense2>=2.55,<3",
     "imageio-ffmpeg",
+]
+grounding-sam2 = [
+    # Local Grounding DINO + SAM 2 perception server for map labeling and the
+    # standalone ground_map tool. Install into a CUDA environment and
+    # export GDINO_CHECKPOINT_PATH / SAM2_CHECKPOINT_PATH before starting it.
+    "groundingdino-py==0.4.0",
+    # groundingdino-py 0.4.0 calls BertModel.get_extended_attention_mask,
+    # removed in transformers 5.x.
+    "transformers<5",
+    "sam-2 @ git+https://github.com/facebookresearch/sam2.git",
+    "torch",
+    "torchvision",
+    "pillow>=10",
+]
+lingbot-map = [
+    # Real LingBot-Map GCT reconstruction backend for the mapping server.
+    # Install into a CUDA environment and export LINGBOTMAP_CHECKPOINT_PATH
+    # (robbyant/lingbot-map on Hugging Face) to activate it; without the
+    # checkpoint the server falls back to the frame-archive backend.
+    "lingbot-map @ git+https://github.com/Robbyant/lingbot-map.git",
+    "torch",
+    # toolkits.mapping.build_map decodes recorded videos with OpenCV.
+    "opencv-python-headless>=4.8",
+]
+map-view = [
+    # Offline report renderer (toolkits.mapping.view) for built semantic maps.
+    "matplotlib>=3.8",
+]
+localize = [
+    # Relocalization against a built map (toolkits.localization.localize).
+    # DISK and LightGlue come from kornia and download their weights on first use.
+    "kornia>=0.7",
+    "opencv-python-headless>=4.8",
+    "torch",
+    "pillow>=10",
 ]
 robotwin = [
     "rpent[rlinf]",
@@ -270,8 +309,8 @@ where = ["."]
 # robots is a top-level package; without it, non-editable installations
 # leave the CLI unable to import any backend. The globs also cover every
 # per-robot subpackage (robots.yam.*, robots.robodojo.*, ...).
-include = ["rpent*", "robots", "robots.*"]
-exclude = ["tests*", "docs*", "examples*", "docker*", "toolkits*"]
+include = ["rpent*", "robots", "robots.*", "toolkits", "toolkits.*"]
+exclude = ["tests*", "docs*", "examples*", "docker*"]
 
 [tool.setuptools.package-data]
 "robots.robodojo" = ["guides/*.md"]
@@ -289,7 +328,7 @@ indent-width = 4
 target-version = "py311"
 
 [tool.ruff.lint]
-isort = {known-first-party = ["rpent"]}
+isort = {known-first-party = ["rpent", "toolkits"]}
 select = ["C", "E", "F", "I", "W", "CPY001", "RUF013", "UP006", "PERF102", "PLC1802", "PLC0208", "DOC102", "DOC202", "DOC403", "DOC502"]
 ignore = [
     "C901", # "complex-structure"
