@@ -75,7 +75,9 @@ def test_server_motion_with_upstream_drivers(hardware):
         assert backend.get_env_meta()["action_dim"] == 3
         observation = backend.get_observation()
         assert observation["main_images"].shape == (128, 128, 3)
-        np.testing.assert_array_equal(observation["main_images"][0, 0], frame[0, 0])
+        np.testing.assert_array_equal(
+            observation["main_images"][0, 0], frame[0, 0, ::-1]
+        )
         assert backend.get_camera_meta()["cameras"]["front"]["serial_number"] == serial
         for operation in (
             lambda: backend.drive([0.1, 0.05, 0], duration_s=0.2),
@@ -108,7 +110,9 @@ def test_camera_only_and_detection_with_upstream_driver(hardware):
     }
     backend = LeKiwiCameraBackend(cfg)
     try:
-        np.testing.assert_array_equal(backend.get_observation()["main_images"], frame)
+        np.testing.assert_array_equal(
+            backend.get_observation()["main_images"], frame[..., ::-1]
+        )
         assert backend.get_camera_meta()["cameras"]["front"]["camera_type"] == "uvc"
     finally:
         backend.close_env()
