@@ -101,6 +101,15 @@ Choose an environment: :doc:`LIBERO <rst_source/simulators/libero>`, :doc:`RoboC
    :includehidden:
    :titlesonly:
    :hidden:
+   :caption: Toolkits
+
+   Offline Mapping <rst_source/toolkits/mapping>
+
+.. toctree::
+   :maxdepth: 2
+   :includehidden:
+   :titlesonly:
+   :hidden:
    :caption: Simulators
 
    LIBERO <rst_source/simulators/libero>

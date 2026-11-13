@@ -101,6 +101,15 @@ RPent（Recursive Physical Agent）是一个开源框架，用于构建在与物
    :includehidden:
    :titlesonly:
    :hidden:
+   :caption: 工具集
+
+   离线建图 <rst_source/toolkits/mapping>
+
+.. toctree::
+   :maxdepth: 2
+   :includehidden:
+   :titlesonly:
+   :hidden:
    :caption: 仿真环境
 
    LIBERO <rst_source/simulators/libero>
