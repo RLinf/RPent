@@ -86,7 +86,8 @@ class Sam3Facade(RpcFacade):
         except ImportError as exc:
             raise RuntimeError(
                 "local SAM3 dependencies are missing; install RPent with "
-                '`pip install -e ".[sam3]"` or a LIBERO variant'
+                "`bash requirements/install.sh --model sam3` and run this "
+                "service with the installed environment's Python"
             ) from exc
 
         if not torch.cuda.is_available():

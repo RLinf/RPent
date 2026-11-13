@@ -79,20 +79,26 @@ def test_target50_manifest_identity_and_dependencies():
     }
 
 
-def test_target50_source_branches_match_extra_and_documentation():
+def test_target50_source_branches_match_requirements_and_documentation():
     dependencies = _manifest()["dependencies"]
     sources = {
         "robosuite": "robosuite",
         "robocasa": "rpent-robocasa365",
         "rldx": "rlinf-rldx",
     }
-    project = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    requirements = "\n".join(
+        (REPO_ROOT / path).read_text(encoding="utf-8")
+        for path in (
+            "requirements/envs/robocasa.txt",
+            "requirements/models/rldx.txt",
+        )
+    )
     for name, package in sources.items():
         assert dependencies[name]["branch"] == "rpent"
         assert "commit" not in dependencies[name]
         repository = dependencies[name]["repository"]
         requirement = f"{package} @ git+{repository}.git@rpent"
-        assert requirement in project
+        assert requirement in requirements
         for language in ("en", "zh"):
             guide = (
                 REPO_ROOT
@@ -102,7 +108,7 @@ def test_target50_source_branches_match_extra_and_documentation():
                 / "simulators"
                 / "robocasa.rst"
             ).read_text(encoding="utf-8")
-            assert '".[robocasa]"' in guide
+            assert "bash requirements/install.sh --env robocasa" in guide
             assert "``rpent``" in guide
             assert "uv pip check" in guide
             assert "uv pip freeze" in guide

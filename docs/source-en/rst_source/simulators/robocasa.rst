@@ -82,34 +82,24 @@ Installation and Resources
 --------------------------
 
 Use Linux, an NVIDIA GPU, working CUDA/EGL, ``git``, and
-`uv <https://docs.astral.sh/uv/getting-started/installation/>`_. Create a separate
-Python 3.10 environment. If you already have the repository, enter it and start
-at the third line:
+`uv <https://docs.astral.sh/uv/getting-started/installation/>`_. Install the
+Python 3.10 environment and activate it:
 
 .. code-block:: bash
 
    git clone https://github.com/RLinf/RPent.git
    cd RPent
-   uv venv --python 3.10 .venv-robocasa
+   bash requirements/install.sh --env robocasa
    source .venv-robocasa/bin/activate
 
-First install a matching CUDA-enabled Torch and torchvision pair for your driver
-using the `PyTorch instructions <https://pytorch.org/get-started/locally/>`_
-(replace ``pip`` with ``uv pip``). RLDX requires Torch >= 2.7 and
-torchvision >= 0.22, with mutually compatible versions. Then install RoboCasa:
+The installer resolves RLDX's Torch >= 2.7 and torchvision >= 0.22 dependencies
+together and selects a CUDA build for the detected driver. Use
+``--torch-backend cu126`` to select a build explicitly. ``--use-mirror`` changes
+the PyPI index only; Git and PyTorch downloads retain their own sources.
 
-.. list-table::
-   :header-rows: 1
-
-   * - Environment
-     - Install
-     - Assets
-   * - RoboCasa365
-     - ``uv pip install -e ".[robocasa]"``
-     - ``robocasa-download-assets`` (command below)
-
-Dependencies come from ``pyproject.toml``, including the ``rpent`` source branches
-of RoboCasa, RLDX and Robosuite. Do not also install ``rlinf-robocasa365``, which
+Dependencies live in ``requirements/envs/robocasa.txt`` and
+``requirements/models/rldx.txt``, including the ``rpent`` source branches of
+RoboCasa, RLDX and Robosuite. Do not also install ``rlinf-robocasa365``, which
 provides the same import package.
 
 Check dependencies, download the kitchen assets (~10 GB) outside the Python
@@ -514,7 +504,7 @@ Expand the details below for task names, evaluation settings and score reference
    The current evaluation uses task-specific and global memory together.
    ``target50.json`` uses protocol ``robocasa-harness-vla-v2`` and
    result schema ``1.1``, with GPT-5.5 as the reference configuration. Installation
-   dependencies come from ``pyproject.toml``. For custom tasks, seeds or planner
+   dependencies come from the RoboCasa installation target. For custom tasks, seeds or planner
    settings, pass a manifest using the current protocol:
 
    .. code-block:: bash
@@ -634,13 +624,14 @@ Downloads and Assets
 Startup and Inference
 ~~~~~~~~~~~~~~~~~~~~~
 
-- **Missing RLDX interfaces in an old environment:** reinstall ``.[robocasa]``
-  with ``--reinstall-package rlinf-rldx``. Older PyPI wheels can lack required
+- **Missing RLDX interfaces in an old environment:** in the activated RoboCasa environment, run
+  ``uv pip install -r requirements/models/rldx.txt --reinstall-package rlinf-rldx``. Older PyPI wheels can lack required
   interfaces even with the same version number.
 - **Missing navigation camera:** if the error names ``mobilebase0_navview``,
-  reinstall ``.[robocasa]`` to update Robosuite rather than patching XML.
+  run ``uv pip install -r requirements/envs/robocasa.txt --reinstall-package robosuite``
+  in the activated environment to update Robosuite rather than patching XML.
 - **Directory permission errors:** use the source dependencies from
-  ``.[robocasa]``; XML conversion should write temporary files. Set
+  ``requirements/envs/robocasa.txt``; XML conversion should write temporary files. Set
   ``NUMBA_CACHE_DIR`` to a writable directory without changing package permissions.
 - **CUDA/EGL unavailable:** select Torch/torchvision for your machine, then run
   the :ref:`environment checks <environment-smoke-tests>` to verify GPU operations

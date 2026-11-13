@@ -87,28 +87,28 @@ RoboTwin dependency set:
 
    git clone https://github.com/RLinf/RPent.git
    cd RPent
-   uv venv --python 3.11 .venv-robotwin
+   bash requirements/install.sh --env robotwin
    source .venv-robotwin/bin/activate
-   uv pip install -e ".[robotwin]"
 
 You do not need to run the RLinf installer or clone RoboTwin separately.
+The installer first installs the runtime dependencies, then builds cuRobo
+against the Torch installed in that environment. The runtime packages select
+the Torch version; there is no separate build-time Torch pin.
 
 For networks closer to Chinese mirrors:
 
 .. code-block:: bash
 
-   uv pip install -e ".[robotwin]" \
-      --default-index https://mirrors.aliyun.com/pypi/simple \
-      --index https://pypi.tuna.tsinghua.edu.cn/simple
+   bash requirements/install.sh --env robotwin --use-mirror
 
 .. note::
 
-   ``.[robotwin]`` uses SAPIEN 3.0.0b1. Other versions can change simulator
+   ``robotwin`` uses SAPIEN 3.0.0b1. Other versions can change simulator
    observations and reduce model performance.
 
 .. note::
 
-   The RoboTwin and LingBot runtimes in ``.[robotwin]`` are installed from
+   The RoboTwin and LingBot runtimes in ``robotwin`` are installed from
    released PyPI packages. cuRobo is still built from a GitHub official tag,
    so the installation needs access to GitHub even when a PyPI mirror is
    configured.

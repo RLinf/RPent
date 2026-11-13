@@ -1,0 +1,5 @@
+rlinf-robotwin-runtime==0.1.3
+# Build tools for the cuRobo step in install.sh. Torch comes from the runtime.
+setuptools>=45
+setuptools_scm>=6.2
+wheel

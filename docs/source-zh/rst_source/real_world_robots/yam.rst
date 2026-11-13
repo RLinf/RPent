@@ -23,47 +23,41 @@ RPent 通过 RLinf 的机器人接口控制 YAM 双臂系统。任务视频见 :
 * **控制机**：连接双臂的 CAN 接口和三路 RealSense 相机，运行 ENV 服务及 RPent。
 * **推理机**：使用 NVIDIA GPU 运行 Pi0.5 VLA 服务。
 
-两台机器使用同一份 RPent 代码和相同的 RLinf 提交。先按\ :doc:`../get_started/quickstart`\ 安装 uv，再在两台机器上分别准备环境：
+两台机器使用同一份 RPent 代码。先按 :doc:`../get_started/quickstart` 安装 uv，再在两台机器上分别克隆 RPent：
 
 .. code-block:: bash
 
    git clone https://github.com/RLinf/RPent.git /path/to/RPent
    cd /path/to/RPent
-   uv venv --python 3.11
-   source .venv/bin/activate
-
-   git clone --branch main https://github.com/RLinf/RLinf.git /path/to/RLinf
-   git -C /path/to/RLinf checkout --detach 196d40b6dec6f7a4063edee31cfeaa6ca0ee435a
 
 **控制机安装**
 
-在控制机的 RPent 仓库根目录，同时安装 RPent、RLinf、i2rt SDK 和对应的构建依赖：
+RPent 安装脚本会安装 RLinf ``main``、固定版本的 i2rt SDK、相机和运动学依赖，并自动传入 ruckig 所需的构建约束。系统需要准备 C/C++ 构建工具链，以编译 SDK 的原生依赖。
 
 .. code-block:: bash
 
-   cd /path/to/RPent
-   uv pip install --torch-backend cpu \
-     --build-constraints /path/to/RLinf/requirements/embodied/envs/yam-build-constraints.txt \
-     -e '.[yam]' -e /path/to/RLinf \
-     -r /path/to/RLinf/requirements/embodied/envs/yam.txt
-   uv pip check
+   bash requirements/install.sh --env yam --torch-backend cpu
+   source .venv-yam/bin/activate
+
+该环境使用 SDK 要求的 NumPy 2。OpenPI 在推理机单独安装，见下一节。
 
 **推理机安装**
 
-在推理机先运行 RLinf 的安装脚本，安装 YAM 和 OpenPI 依赖，再安装 RPent：
+RLinf 的 YAM/OpenPI 安装流程会调整 i2rt 的依赖声明，以满足 OpenPI 的 NumPy 1 要求。先运行该流程，再只安装 RPent 基础包，避免原版 SDK 的依赖要求覆盖 RLinf 处理过的安装：
 
 .. code-block:: bash
 
+   git clone --branch main https://github.com/RLinf/RLinf.git /path/to/RLinf
    cd /path/to/RLinf
    bash requirements/install.sh embodied --model openpi --env yam \
-     --venv /path/to/RPent/.venv --install-rlinf
+     --venv /path/to/RPent/.venv-yam-openpi --install-rlinf
+   source /path/to/RPent/.venv-yam-openpi/bin/activate
    cd /path/to/RPent
-   uv pip install -e '.[yam]'
-   uv pip check
+   uv pip install -e .
 
-已安装系统依赖时，可在安装命令末尾加上 ``--no-root``。
+系统依赖已安装时，可在 RLinf 安装命令末尾加上 ``--no-root``。不要在这个模型环境中运行 RPent 的 ``--env yam``，因为它安装的原版 i2rt SDK 要求 NumPy 2。
 
-新开终端时，进入对应机器的 RPent 仓库并激活 ``.venv``。
+新开终端时，控制机激活 ``.venv-yam``，推理机激活 ``.venv-yam-openpi``。
 
 .. _yam-calibration:
 
@@ -166,7 +160,7 @@ Codex 配置
 启动双机服务
 ------------
 
-在两台机器分别激活安装好的 ``.venv``，按以下分工启动服务：
+控制机激活 ``.venv-yam``，推理机激活 ``.venv-yam-openpi``，按以下分工启动服务：
 
 * **控制机**：运行 RPent、ENV 和人工操作命令，连接双臂 CAN 接口与三路相机。
 * **推理机**：运行 Pi0.5 VLA 模型服务。
@@ -178,7 +172,7 @@ Codex 配置
 .. code-block:: bash
 
    cd /path/to/RPent
-   source .venv/bin/activate
+   source .venv-yam/bin/activate
    export TASK_ID=1
 
 **1. 控制机：启动 ENV**

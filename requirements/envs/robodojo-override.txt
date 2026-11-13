@@ -1,0 +1,29 @@
+# Overrides for the single-environment RoboDojo simulator stack.
+#
+# rlinf-robodojo-runtime pins Isaac Sim 5.1, the IsaacLab fork RoboDojo tracks,
+# and the runtime minimums those two bring. This is an inherited compatibility
+# workaround: uv replaces upstream requirements, it does not validate them.
+# Known conflicts include Isaac Sim's uvicorn==0.29.0 versus MCP's >=0.31.1,
+# and Isaac Sim's wrapt==1.16.0 versus SwanLab's >=1.17.0 (through RLinf).
+#
+# The remaining selections came from the previous combined installation:
+#
+#   starlette==0.49.1 (isaaclab)      vs fastapi 0.115.7 needing <0.46
+#   typing-extensions==4.12.2         vs tyro needing >=4.13, pydantic >=4.16
+#   uvicorn==0.29.0 (isaacsim-kernel) vs mcp needing >=0.31.1
+#   wrapt==1.16.0 (isaacsim-kernel)   vs swanlab needing >=1.17.0
+#   pyperclip==1.8.0 (isaacsim-core)  vs pydantic-ai-slim[cli] needing >=1.9.0
+#   idna==3.10 (isaacsim-kernel)      vs pydantic-ai-slim needing >=3.18
+#
+# install.sh passes these only for --env robodojo. Other environments
+# keep resolving the versions they were validated against.
+#
+# Torch and filelock follow the simulator's requirements without overrides.
+# The remaining selections still need
+# Linux resolution and runtime validation before they can be reduced further.
+starlette==0.45.3
+typing-extensions>=4.16.0
+uvicorn>=0.31.1
+wrapt>=1.17.0
+pyperclip>=1.9.0
+idna>=3.18

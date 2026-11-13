@@ -16,25 +16,42 @@ Requirements
 1. Install RPent
 ----------------
 
-Create and activate an isolated Python environment:
+Install the LIBERO-PRO environment, then activate it:
 
 .. code-block:: bash
 
    git clone https://github.com/RLinf/RPent.git
    cd RPent
-   uv venv --python 3.11
-   source .venv/bin/activate
+   bash requirements/install.sh --env libero-pro
+   source .venv-libero-pro/bin/activate
 
-Install ``torch==2.7.1`` and ``torchvision==0.22.1`` as required by OpenPI.
-Choose a build compatible with your GPU and NVIDIA driver from the
-`PyTorch installation instructions <https://pytorch.org/get-started/previous-versions/>`_,
-replacing ``pip install`` with ``uv pip install``. Then install LIBERO-PRO:
+The installer creates a Python 3.11 environment and installs RPent, LIBERO-PRO,
+Pi0.5 and SAM3 together. OpenPI requires ``torch==2.7.1`` and
+``torchvision==0.22.1``; uv selects a CUDA build for the detected driver.
+Pass ``--torch-backend cu128`` to select a build explicitly, or set
+``UV_TORCH_BACKEND``. An explicit selection reinstalls Torch and torchvision.
 
-.. code-block:: bash
+Use ``--venv /path/to/venv`` to choose the environment directory,
+``--use-mirror`` for the Tsinghua PyPI mirror, and ``--dry-run`` to inspect
+commands without downloading or installing. The mirror does not proxy Git
+repositories or model assets. Run ``bash requirements/install.sh --help`` for
+all options. The default directory is ``.venv-<env>`` for a robot environment,
+``.venv-<model>`` for a standalone model service, or ``.venv-core`` for CPU
+development. Keep each installation target in its own virtual environment.
 
-   uv pip install -e ".[libero-pro]"
+Use ``--env`` to select a robot environment or ``--model`` for a standalone model service.
+``--env`` and ``--model`` are separate installation choices and cannot be combined.
+Add ``--test`` for offline test dependencies,
+or use ``--core --test`` for CPU development.
 
-Run the remaining commands in this terminal from the RPent repository root. In a new terminal, activate ``.venv`` and set the checkpoint paths and API key again.
+Robot/model extras such as ``.[libero-pro]`` have been replaced by installer
+options. ``pip install -e .`` installs only RPent's base dependencies;
+``.[test]`` and ``.[flywheel]`` remain available. System libraries, simulator
+assets and model weights require the separate steps in each platform guide.
+
+Run the remaining commands from the RPent repository root in this terminal.
+In a new terminal, activate ``.venv-libero-pro`` and set the checkpoint paths
+and API key again.
 
 2. Download Assets and Models
 -----------------------------

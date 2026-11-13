@@ -1,0 +1,3 @@
+# MuJoCo 3.4+ changes LIBERO settling; retain the validated 3.3.0 runtime.
+rpent-libero @ git+https://github.com/RLinf/LIBERO.git@rpent
+mujoco==3.3.0

@@ -83,28 +83,38 @@ cuRobo. From the RPent root, create an environment and install the dependencies:
 
 .. code-block:: bash
 
-   uv venv --python 3.11 .venv-robodojo
+   bash requirements/install.sh --env robodojo
    source .venv-robodojo/bin/activate
-   uv pip install -e ".[robodojo-sim,sam3]" --extra-index-url https://pypi.nvidia.com \
-     --override requirements/robodojo-override.txt
 
 .. note::
 
    Blackwell GPUs need the CUDA 12.8 build of PyTorch. The pinned PyTorch 2.7.0
    also has a CUDA 12.6 build, but that build does not support Blackwell. On
    these GPUs, use the following command for both initial installation and
-   reinstallation; ``--torch-backend=cu128`` selects the CUDA 12.8 build:
+   reinstallation; ``--torch-backend cu128`` selects the CUDA 12.8 build:
 
    .. code-block:: bash
 
-      uv pip install -e ".[robodojo-sim,sam3]" --extra-index-url https://pypi.nvidia.com \
-        --override requirements/robodojo-override.txt \
-        --torch-backend=cu128
+      bash requirements/install.sh --env robodojo --torch-backend cu128
 
-   If ``torch==2.7.0+cu126`` is already installed, uv considers it compatible
-   with the version requirement and keeps it. Append
-   ``--reinstall-package torch --reinstall-package torchvision`` to the command
-   above to replace it with the CUDA 12.8 build.
+   An explicit backend selection reinstalls Torch, torchvision and torchaudio, including
+   when the environment already contains the CUDA 12.6 build.
+
+The installer supplies the NVIDIA package index and
+``requirements/envs/robodojo-override.txt`` automatically. These overrides replace
+conflicting upstream requirements.
+
+``--env robodojo`` installs the simulator and SAM3 dependencies together.
+VPP2 and Awomo05 use separate model environments and are not
+installed by ``--model``.
+
+These overrides are an existing integration workaround, not a lockfile. For
+example, Isaac Sim pins ``uvicorn==0.29.0`` while RPent's MCP dependency needs
+``uvicorn>=0.31.1``; RLinf brings SwanLab, which needs ``wrapt>=1.17.0`` while
+Isaac Sim pins ``wrapt==1.16.0``. Removing the override file without reconciling
+these requirements causes resolution failures. A separate simulator environment
+via ``--sim-python`` can isolate the planner, but does not by itself resolve the
+RLinf/Isaac Sim conflict.
 
 The pinned IsaacLab revision needs an editable installation to locate its
 extension configuration. Clone it into a writable directory and install it
@@ -208,7 +218,7 @@ links to existing resources:
 Install the model dependencies using the pinned project's
 `inference environment instructions
 <https://github.com/roboterax/video-prediction-policy-2/blob/72c17acf022494ff63617be86079bb92e92f5bf8/docs/robodojo.md#policy-environment>`_.
-These dependencies are separate from ``.[robodojo-sim]``. When they are
+These dependencies are separate from ``--env robodojo``. When they are
 compatible with the RPent environment, ``VPP2_MODEL_PATH`` enables automatic
 local startup; ``--am-checkpoint`` overrides it. The local server loads the
 full model on one GPU. It defaults to RPent's Python interpreter; use
@@ -263,7 +273,7 @@ links to existing resources:
 
 Install the model dependencies using the pinned project's
 `inference environment instructions <https://github.com/XPolicyLab/XPolicyLab/blob/562c14cf08b9e6e411e7d76f192740afced77160/policy/Awomo05/README.md>`__.
-These dependencies are separate from ``.[robodojo-sim]``. When the model
+These dependencies are separate from ``--env robodojo``. When the model
 dependencies are compatible with the RPent environment,
 ``AWOMO05_MODEL_PATH`` enables automatic local startup; ``--am-checkpoint``
 overrides it. The local server loads the full model on one GPU. It defaults

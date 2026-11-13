@@ -20,16 +20,17 @@ Install libfranka 0.19.0 first by following the `official quick-install guide
 <https://docs.ros.org/en/humble/p/libfranka/__README.html#quick-install>`_.
 
 Clone RPent and install its Python dependencies. If you already have the
-checkout, enter it and run ``uv sync``:
+checkout, enter it and run ``bash requirements/install.sh --env franka``:
 
 .. code-block:: bash
 
    git clone https://github.com/RLinf/RPent.git
    cd RPent
-   uv sync --extra franka
+   bash requirements/install.sh --env franka
+   source .venv-franka/bin/activate
 
-This installs RLinf ``release/v0.4``, ``rpent-openpi``, and Franka camera,
-gripper, and teleoperation dependencies into ``.venv``. The included
+This installs RLinf ``main``, ``rpent-openpi``, and Franka camera,
+gripper, and teleoperation dependencies into ``.venv-franka``. The included
 ``franky-control`` wheel bundles libfranka 0.19.0.
 
 Calibration
@@ -94,7 +95,7 @@ correctly. To run it, launch RPent with task ``0``:
 .. code-block:: bash
 
    # replace --robot-config with your own config
-   uv run --extra franka rpent --robot franka --task-id 0 \
+   rpent --robot franka --task-id 0 \
      --planner claude_code --model claude-opus-4-8 \
      --robot-config robots/franka/config/example.yaml
 
@@ -113,7 +114,7 @@ statistics match the current Franka training configuration:
 
 .. code-block:: bash
 
-   uv run --extra franka rpent --robot franka --task-id 1 \
+   rpent --robot franka --task-id 1 \
      --am-endpoint http://VLA_HOST:PORT \
      --planner claude_code --model claude-opus-4-8 \
      --robot-config robots/franka/config/example.yaml

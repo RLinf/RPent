@@ -94,7 +94,7 @@ class MolmoFacade(RpcFacade):
         except ImportError as exc:
             raise RuntimeError(
                 "local Molmo dependencies are missing; install RPent with "
-                '`pip install -e ".[molmo]"`'
+                "`bash requirements/install.sh --model molmo`"
             ) from exc
 
         if not torch.cuda.is_available():

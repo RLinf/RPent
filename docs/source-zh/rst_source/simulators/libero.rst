@@ -95,7 +95,7 @@ LIBERO
 
 首次使用 LIBERO-PRO，请先完成 :doc:`../get_started/quickstart` 的安装、资源下载和模型配置。本页用于选择更多任务与复现实验。
 
-其他 LIBERO 版本请在独立环境中安装对应 extra，再下载资源；每个 Python 环境只安装一种 LIBERO 版本：
+其他 LIBERO 版本先选择对应环境，脚本会一起安装 OpenPI 和 SAM3，再用 ``source .venv-<env>/bin/activate`` 激活环境并下载资源。每个版本使用独立环境：
 
 .. list-table::
    :header-rows: 1
@@ -104,16 +104,16 @@ LIBERO
      - 安装命令
      - 资源下载
    * - ``standard``
-     - ``uv pip install -e ".[libero]"``
+     - ``bash requirements/install.sh --env libero``
      - ``libero-download-assets --skip-existing``
    * - ``pro``
-     - ``uv pip install -e ".[libero-pro]"``
+     - ``bash requirements/install.sh --env libero-pro``
      - ``liberopro-download-assets --skip-existing``
    * - ``plus``
-     - ``uv pip install -e ".[libero-plus]"``
+     - ``bash requirements/install.sh --env libero-plus``
      - ``liberoplus-download-assets --skip-existing``
 
-以上各组依赖均包含 Pi0.5（``rpent-openpi``）、SAM3 和 RLinf 运行时（``rpent-rlinf``）。模型权重需按下文单独下载。
+以上各组依赖均包含 Pi0.5（``rpent-openpi``）、SAM3 和 RLinf 运行时（``rlinf``）。模型权重需按下文单独下载。
 
 运行时通过 ``--libero-type`` 选择与安装包一致的版本。
 

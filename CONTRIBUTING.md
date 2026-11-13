@@ -40,27 +40,19 @@ Use a branch name that reflects the change, such as
 ### Step 2. Set up the development environment
 
 ```bash
-# Create and activate an isolated environment.
-uv venv --python 3.11
+# Create an environment for CPU development and install test dependencies.
+bash requirements/install.sh --core --test --venv .venv
 source .venv/bin/activate
-
-# Install the source checkout and the lightweight test dependencies.
-uv pip install -e ".[test]"
-
-# For robot work, choose the matching test environment instead.
-uv pip install -e ".[test,libero-pro]"  # LIBERO
-uv pip install -e ".[test,robocasa]"    # RoboCasa
-uv pip install -e ".[test,robotwin]"    # RoboTwin
 
 # Install and enable the repository hooks.
 uv pip install pre-commit==4.6.2
 pre-commit install
 ```
 
-The commands above are alternatives: install only the robot extra relevant to
-the change. See the
-[installation guide](docs/source-en/rst_source/get_started/quickstart.rst) for
-environment-specific setup.
+For robot work, select the target with `--env <name> --test` and activate
+`.venv-<name>` before running tests or installing hooks. See the
+[installation guide](docs/source-en/rst_source/get_started/quickstart.rst)
+for platform prerequisites.
 
 ### Step 3. Develop
 
@@ -83,8 +75,8 @@ Follow these conventions while developing:
 - **Import optional dependencies only where they are used.** For example,
   import `robosuite` inside the RoboCasa code that needs it, not at module
   import time. This keeps `import rpent`, robot discovery, and CLI help usable
-  without every simulator installed. Put integration-only dependencies in an
-  optional extra.
+  without every simulator installed. Put robot and model dependencies under `requirements/envs/` and
+  `requirements/models/`; select them in `requirements/install.sh`.
 - **Keep existing interfaces and behavior compatible.** When changing APIs,
   CLI options, configuration, or stored data formats, check that existing
   callers and data still work. Check changes to parameter meanings, defaults,

@@ -222,23 +222,16 @@ run_gpu_pytest() {
 
 run_in_clean_env() {
   local name=$1
-  local python_version=$2
-  local extra=$3
-  local test_dir=$4
-  local suite_output=$5
+  local test_dir=$2
+  local suite_output=$3
   local venv_dir="$venv_root/$name"
 
+  # Exercise the public installer, including its Python and build dependencies.
+  # UV_TORCH_BACKEND remains the runner's explicit CUDA wheel selection.
   timeout --foreground --kill-after=2m "$install_timeout" \
-    uv venv "$venv_dir" --python "$python_version"
-  # Torch and torchvision version compatibility must come from the selected
-  # public RPent extra and its transitive package metadata. The CUDA wheel
-  # backend is the separate runner/install-policy input UV_TORCH_BACKEND.
-  # Do not hide a dependency-contract failure with a workflow-only version pin.
-  timeout --foreground --kill-after=2m "$install_timeout" uv pip install \
-    --python "$venv_dir/bin/python" \
-    --editable "${repo_root}[$extra,test]"
-  timeout --foreground --kill-after=2m "$install_timeout" \
-    uv pip check --python "$venv_dir/bin/python"
+    bash "$repo_root/requirements/install.sh" --env "$name" \
+      --test --venv "$venv_dir"
+  uv pip freeze --python "$venv_dir/bin/python" > "$output_dir/$name-installed.txt"
   (
     cd "$repo_root"
     run_gpu_pytest \
@@ -261,10 +254,9 @@ case "$target" in
     mkdir -p "$LIBERO_CONFIG_PATH"
     venv_dir="$venv_root/libero-pro"
     timeout --foreground --kill-after=2m "$install_timeout" \
-      uv venv "$venv_dir" --python 3.11
-    timeout --foreground --kill-after=2m "$install_timeout" uv pip install \
-      --python "$venv_dir/bin/python" \
-      --editable "${repo_root}[libero-pro,test]"
+      bash "$repo_root/requirements/install.sh" --env libero-pro \
+        --test --venv "$venv_dir"
+    uv pip freeze --python "$venv_dir/bin/python" > "$output_dir/libero-pro-installed.txt"
     # Keep realpath(__file__) beside this venv's assets, preserving the Git revision.
     liberopro_requirement=$(uv pip freeze --python "$venv_dir/bin/python" \
       | awk '$1 == "rpent-liberopro" {print}')
@@ -293,7 +285,7 @@ case "$target" in
     require_dir ROBOCASA_ASSETS_PATH
     export RPENT_RUN_ROBOCASA_INTEGRATION=1
     run_in_clean_env \
-      robocasa 3.10 robocasa tests/e2e_tests/robocasa "$output_dir/robocasa"
+      robocasa tests/e2e_tests/robocasa "$output_dir/robocasa"
     ;;
   robotwin)
     require_dir LINGBOT_MODEL_PATH
@@ -303,7 +295,7 @@ case "$target" in
       exit 1
     fi
     run_in_clean_env \
-      robotwin 3.11 robotwin tests/e2e_tests/robotwin "$output_dir/robotwin"
+      robotwin tests/e2e_tests/robotwin "$output_dir/robotwin"
     ;;
   *)
     echo "Unknown target: $target"

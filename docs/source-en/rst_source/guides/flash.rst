@@ -50,27 +50,16 @@ plan used for the task.
 Configure Molmo
 ---------------
 
-Run Molmo in a separate Python environment:
+Install Molmo in a separate Python 3.11 environment. Its Transformers
+requirement is incompatible with the Pi0.5 environment:
 
 .. code-block:: bash
 
-   uv venv --python 3.11 /path/to/molmo-venv
+   bash requirements/install.sh --model molmo --venv /path/to/molmo-venv
 
-Next, install PyTorch and matching torchvision in this environment using the
-command below. Replace ``<CUDA_TAG>`` with a build compatible with your GPU and
-NVIDIA driver (for example, ``cu126`` or ``cu128``); see the
-`PyTorch installation guide <https://pytorch.org/get-started/locally/>`_:
-
-.. code-block:: bash
-
-   uv pip install --python /path/to/molmo-venv/bin/python \
-     torch torchvision --index-url "https://download.pytorch.org/whl/<CUDA_TAG>/"
-
-Once PyTorch is installed, install the Molmo extra:
-
-.. code-block:: bash
-
-   uv pip install --python /path/to/molmo-venv/bin/python -e ".[molmo]"
+The installer selects a Torch CUDA build for the detected driver. Pass
+``--torch-backend cu128`` to select one explicitly, and ``--use-mirror`` to
+use the Tsinghua PyPI mirror. Model downloads remain separate.
 
 Download ``allenai/Molmo2-8B`` from `Hugging Face
 <https://huggingface.co/allenai/Molmo2-8B>`_ or `ModelScope
