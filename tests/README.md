@@ -15,6 +15,7 @@ tests/
 │   ├── common.py         # shared assertions and runtime lifecycle helpers
 │   ├── run_gpu_suite.sh  # clean-environment entry point for one robot stack
 │   ├── dual_franka/      # opt-in real-robot VLA diagnostic console
+│   ├── efe/
 │   ├── libero/
 │   ├── robocasa/
 │   └── robotwin/
@@ -29,6 +30,7 @@ tests/
     │   ├── tools/
     │   └── utils/
     └── robots/           # tests for the top-level robot extensions
+        ├── efe/
         ├── libero/
         ├── robocasa/
         └── robotwin/
@@ -98,6 +100,26 @@ See the RoboCasa usage guide in
 [English](../docs/source-en/rst_source/simulators/robocasa.rst#environment-smoke-tests)
 or [Chinese](../docs/source-zh/rst_source/simulators/robocasa.rst#environment-smoke-tests)
 for setup and test prerequisites.
+
+## EFE task runs
+
+`tests/unit_tests/robots/efe/test_runner_loopback.py` covers the Harbor runner's
+call chain offline: the real MCP HTTP transport on loopback, a scripted planner,
+the EFE toolkit, and `session.json`. It needs no simulator, container, or model.
+
+`tests/e2e_tests/efe/test_policy_chain.py` runs one real EFE trial through
+Harbor and Docker. It needs one task directory, a reachable model endpoint, and
+the `harbor` and `docker` CLIs on `PATH`:
+
+```bash
+RPENT_EFE_TASK_PATH=/path/to/efe/tasks/<task> \
+RPENT_EFE_MODEL=<model> \
+  pytest tests/e2e_tests/efe/test_policy_chain.py -v
+```
+
+Without `RPENT_EFE_TASK_PATH`, the case skips. The test checks that the trial
+produces `result.json`, verifier rewards, `session.json`, and the Codex
+transcript; a zero verifier reward is still a completed run.
 
 ## Embodied GPU E2E tests
 

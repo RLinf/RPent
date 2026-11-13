@@ -32,6 +32,7 @@ from rpent.robots.robot_spec import RobotSpec, RunConfig
 
 EXPECTED_ROBOTS = (
     "dual_franka",
+    "efe",
     "franka",
     "libero",
     "robocasa",
@@ -39,6 +40,9 @@ EXPECTED_ROBOTS = (
     "robotwin",
     "yam",
 )
+
+# EFE drives one external episode and offers no task switch or reset.
+ROBOTS_WITHOUT_DASHBOARD = ("efe",)
 
 PROMPT_VARIABLES = {
     "yam": {
@@ -112,6 +116,19 @@ PROMPT_VARIABLES = {
         "setup": "",
         "success_criteria": "object follows the chosen gripper",
         "constraints": "1. Move exactly one arm per call",
+        "output_dir": Path("/output"),
+    },
+    "efe": {
+        "recipe_tag": "autobio-pickup-i00-standard_00000000",
+        "mode": "eval",
+        "task_name": "autobio-pickup-i00-standard",
+        "instruction": "Pick up the tube.",
+        "workdir": "/app",
+        "memory_dir": "/memory",
+        "memory_inbox": "/memory/_internal/inbox/cell",
+        "session_number": 1,
+        "session_max": 1,
+        "skills": True,
         "output_dir": Path("/output"),
     },
 }
@@ -205,6 +222,9 @@ def test_dashboard_metadata_has_consistent_fields_and_runtime_components(
     spec = get_robot_spec(robot_name)
     parser = ArgumentParser()
     spec.add_cli_args(parser, use_dashboard=True)
+    if robot_name in ROBOTS_WITHOUT_DASHBOARD:
+        assert spec.resolve_dashboard is None
+        return
     dashboard = spec.resolve_dashboard(parser.parse_args([]))
     assert dashboard is not None
 

@@ -238,6 +238,15 @@ def _run_dashboard_task(
                 **shared_runtime_kwargs,
             }
             prompt_vars = {**run_config.prompt_vars, "output_dir": output_dir}
+            # Refine the prompt with the connected task's own capabilities
+            # before any render, so prompt and toolkit describe one tool set.
+            if robot_spec.prepare_prompt_vars is not None:
+                prompt_vars = {
+                    **prompt_vars,
+                    **robot_spec.prepare_prompt_vars(
+                        task_args, run_config, runtime_kwargs
+                    ),
+                }
             session_message = robot_spec.prompts.render("user", variables=prompt_vars)
             sessions = max(
                 1,

@@ -147,7 +147,13 @@ class FakeCodex:
         self.closed = True
 
 
-def make_planner(tmp_path: Path, sink: RecordingSink, *, timeout_s: float = 1):
+def make_planner(
+    tmp_path: Path,
+    sink: RecordingSink,
+    *,
+    timeout_s: float = 1,
+    sandbox: str = "full-access",
+):
     return CodexPlanner(
         output_dir=str(tmp_path),
         repo_root=tmp_path,
@@ -156,6 +162,7 @@ def make_planner(tmp_path: Path, sink: RecordingSink, *, timeout_s: float = 1):
         output_path=tmp_path / "codex.out",
         model="fake-codex",
         dashboard_events=sink,
+        sandbox=sandbox,
     )
 
 
@@ -374,21 +381,35 @@ def test_config_overrides_normalize_provider_url(
     assert _codex_mcp_config_overrides(
         mcp_url="http://fake.invalid/mcp/",
         base_url=None,
-    ) == ['mcp_servers.rpent.url="http://fake.invalid/mcp/"']
+        sandbox="read-only",
+    ) == [
+        'mcp_servers.rpent.url="http://fake.invalid/mcp/"',
+        'mcp_servers.rpent.default_tools_approval_mode="approve"',
+    ]
 
     overrides = _codex_mcp_config_overrides(
         mcp_url="http://fake.invalid/mcp/",
         base_url="https://provider.invalid/root/",
+        sandbox="read-only",
     )
 
     assert overrides == [
         'mcp_servers.rpent.url="http://fake.invalid/mcp/"',
+        'mcp_servers.rpent.default_tools_approval_mode="approve"',
         f'model_provider="{PROVIDER_ID}"',
         f'model_providers.{PROVIDER_ID}.name="{PROVIDER_ID}"',
         f'model_providers.{PROVIDER_ID}.base_url="https://provider.invalid/root/v1"',
         f'model_providers.{PROVIDER_ID}.wire_api="responses"',
         f'model_providers.{PROVIDER_ID}.env_key="{PROVIDER_ENV_KEY}"',
     ]
+
+
+def test_mcp_approval_override_only_applies_to_restricted_sandboxes() -> None:
+    assert _codex_mcp_config_overrides(
+        mcp_url="http://fake.invalid/mcp/",
+        base_url=None,
+        sandbox="full-access",
+    ) == ['mcp_servers.rpent.url="http://fake.invalid/mcp/"']
 
 
 def test_config_overrides_include_optional_context_limits(
@@ -518,6 +539,44 @@ def test_build_config_scopes_loopback_no_proxy_to_codex_child(
     assert child_env["no_proxy"] == child_env["NO_PROXY"]
     assert os.environ["NO_PROXY"] == "metadata.internal"
     assert os.environ["no_proxy"] == ".corp.invalid"
+
+
+def test_efe_sandbox_choices_match_the_codex_sdk() -> None:
+    from robots.efe.constants import SANDBOX_CHOICES
+
+    assert set(SANDBOX_CHOICES) == {
+        sandbox.value for sandbox in codex_module.openai_codex.Sandbox
+    }
+
+
+def test_planner_applies_the_configured_sandbox(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_fake_backend(monkeypatch)
+    FakeCodex.events = [
+        {
+            "method": "turn/completed",
+            "payload": {"turn": {"status": "completed", "duration_ms": 10}},
+        },
+    ]
+
+    make_planner(tmp_path, RecordingSink(), sandbox="read-only").solve(
+        system_prompt="system rules",
+        user_message="user task",
+        toolkit=FakeToolkit(),
+        max_turns=1,
+    )
+
+    assert (
+        FakeCodex.instances[0].thread_options["sandbox"]
+        is codex_module.openai_codex.Sandbox.read_only
+    )
+
+
+def test_planner_rejects_an_unknown_sandbox(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="sandbox"):
+        make_planner(tmp_path, RecordingSink(), sandbox="none")
 
 
 def test_planner_forwards_configured_service_tier(
@@ -909,6 +968,21 @@ def test_response_count_ignores_items_and_duplicate_usage():
     )
     assert recorder.turns == 2
     assert recorder.stats()["total_input_tokens"] == 20
+
+
+def test_stats_distinguish_unobserved_usage_from_zero_tokens():
+    from rpent.planner.codex import _Recorder
+
+    recorder = _Recorder(max_turns=10, dashboard_events=RecordingSink())
+
+    assert recorder.stats()["usage_observed"] is False
+    assert recorder.stats()["total_input_tokens"] == 0
+
+    for event in _model_response_events(1):
+        recorder.observe(event)
+
+    assert recorder.stats()["usage_observed"] is True
+    assert recorder.stats()["total_input_tokens"] == 10
 
 
 def test_rejected_finish_item_is_not_promoted() -> None:

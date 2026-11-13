@@ -64,6 +64,13 @@ class RobotSpec:
         [argparse.Namespace, Path, DashboardEventSink, set[str] | None],
         tuple[list["ProcessDaemon"], dict[str, Any]],
     ]
+    #: Refine prompt variables after ``init_runtime`` when the prompt depends on
+    #: the connected runtime, such as the tools the task actually registers.
+    #: The returned values are merged over ``RunConfig.prompt_vars`` before the
+    #: first render, so the prompt and the toolkit describe the same tools.
+    prepare_prompt_vars: (
+        Callable[[argparse.Namespace, RunConfig, dict[str, Any]], dict[str, Any]] | None
+    ) = None
     #: Resolve Dashboard configuration from session options; None disables it.
     resolve_dashboard: Callable[[argparse.Namespace], DashboardSpec] | None = None
     #: Physical scene restoration requires operator involvement, not simulator reset.

@@ -18,3 +18,5 @@
      - 双臂操作；RoboTwin C2R 实验。
    * - :doc:`robodojo`
      - Isaac Sim 双臂 ARX-X5 操作与 RLinf Pi0.5 策略。
+   * - :doc:`efe`
+     - EFE 机器人任务基准；通过 Harbor 运行，涵盖多个任务仿真环境。
