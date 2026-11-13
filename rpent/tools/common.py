@@ -26,6 +26,10 @@ if TYPE_CHECKING:
     from rpent.memory import MemoryManager
 
 
+class _WriteAccessDenied(PermissionError):
+    """A file write was refused before any filesystem mutation."""
+
+
 class CommonTools:
     """Bind common tools to the current run's memory access policy."""
 
@@ -60,10 +64,13 @@ class CommonTools:
             data={"path": str(resolved), "size": len(text), "content": content}
         )
 
-    @tool(readonly=True)
+    @tool(readonly=True, uncertain_on_error=True)
     def write_text_file(self, path: str, content: str) -> ToolResult:
         """Write a UTF-8 text file (creates parent dirs). Use this to save the working recipe JSONL and the final audit JSON at the end of a successful run. Published memory is read-only. During exploration, you may write only to your current memory inbox. Memory for other robots is unavailable."""
-        resolved = self._memory.authorize_write(path)
+        try:
+            resolved = self._memory.authorize_write(path)
+        except PermissionError as exc:
+            raise _WriteAccessDenied(str(exc)) from exc
         resolved.parent.mkdir(parents=True, exist_ok=True)
         with self._file_lock:
             resolved.write_text(content, encoding="utf-8")

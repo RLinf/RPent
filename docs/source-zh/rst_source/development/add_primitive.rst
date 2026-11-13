@@ -52,6 +52,15 @@
 
 参数类型注解和 docstring 生成模型可见的 schema。Toolkit 校验参数，并在执行后通过 ``get_env_state`` 采集状态。``view_env_state``、``back_project`` 等读取工具使用 ``@tool(readonly=True)``。模块级工具可用 ``@tool(exclude=("state",))`` 排除内部资源参数，再通过 ``Tool.with_handler`` 绑定。三种 planner 共用注册后的工具声明。
 
+执行与观测契约
+--------------
+
+``readonly`` 控制调度和自动状态采集，不代表工具不能写入文件。``@tool(uncertain_on_error=True)`` 声明处理函数失败后可能留下持久副作用，默认值为 ``not readonly``。例如，``write_text_file`` 虽然是 readonly 工具，仍显式启用该标记，因为写入失败可能已部分修改文件。纯观测或缓存处理函数失败本身不表示执行结果不确定；动作后的状态采集抛出异常时，则保守地标记为执行结果不确定。
+
+当原生反馈无法确认执行结果时，返回 ``ToolResult(execution_uncertain=True, data={"error": ...})``。Toolkit 在采集观测后保留此标记；它属于内部元数据，不进入 ``to_dict()`` 或模型参数。参数校验失败、处理函数开始前的取消不会设置该标记。无效 JSON 结果另外携带 ``code="tool_result_serialization_failed"``，调用方应将其视为结果交付不完整，不与执行确定性混为一谈。
+
+在工具调用之外采集观测时，使用 ``Toolkit.refresh_observation()``。它通过独占调度执行，检查取消状态，并发布新状态记录。已暂停或关闭的 Toolkit 会拒绝刷新，刷新方法不会自行恢复执行。如果采集过程中发生取消，已完成的记录会先发布，再报告取消。操作来源应保存在 ``StepRecord.command`` 之外；可回放命令只包含 ``action`` 和工具参数。
+
 .. _add-primitive-model-based:
 
 基于模型的工具
