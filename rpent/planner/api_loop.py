@@ -308,6 +308,13 @@ class _ConversationAgent(WrapperAgent):
                 self.history = run.all_messages()
 
 
+class _ToolReturnImage(BinaryContent):
+    """Represent the image by its file reference when Harness 0.53 sizes a tool result."""
+
+    def __repr__(self) -> str:
+        return f"See file {self.identifier}."
+
+
 class _HarnessToolkit(FunctionToolset):
     """Expose Toolkit tools and a read-only image artifact reader."""
 
@@ -489,7 +496,7 @@ class _HarnessToolkit(FunctionToolset):
                 content.append(
                     "[Image omitted: --no-images is enabled.]"
                     if self.no_images
-                    else BinaryContent(data=image, media_type="image/png")
+                    else _ToolReturnImage(data=image, media_type="image/png")
                 )
             result = ToolReturn(return_value=content)
             if self.capture is not None:
