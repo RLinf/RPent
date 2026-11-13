@@ -44,7 +44,27 @@ Any planner must:
 4. Detect ``ToolResult.data.get("_finish")`` and stop according to
    ``max_turns`` and any other limits.
 5. Return a ``PlannerResult`` containing the finish state, messages,
-   statistics, and an optional error.
+   statistics, and optional ``error`` and ``stop_reason`` fields.
+
+Planners may supply ``stop_info`` with their raw ``reason`` and a common
+``category``: ``finish``, ``budget``, ``timeout``, ``cancelled``, ``error``, or
+``unknown``. ``normalize_stop_info`` preserves backend reasons and fills the
+category for common reasons; unknown reasons remain unknown. For result artifacts,
+prefer ``stop_info.reason``, then ``stop_reason``, then the legacy reason in
+``stats``. Keep execution
+certainty, result delivery, cleanup, and permission to start a new session as
+separate evidence. Starting a new session requires ``execution_certain``,
+``result_delivery_complete``, ``cleanup_complete``, and ``allow_new_session``
+to all be explicitly ``True``; missing evidence or a category alone does not
+authorize continuation. Existing planners may omit ``stop_info`` and retain
+their current recovery behavior.
+
+``get_planner_capabilities(name)`` exposes static runner requirements without
+importing an optional SDK. ``PlannerCapabilities`` defaults all flags to false:
+``requires_memory_copy`` for exploration, ``refresh_manual_observations`` before
+resuming after manual actions, and ``withdraw_queued`` for queued message
+withdrawal. When adding a backend, register its requirements and wire the relevant
+entry points to enforce these flags; a declaration alone does not enable behavior.
 
 Because the RPent tool schemas and prompt-rendering path stay the same,
 adding a planner does not require changes to tools or environment

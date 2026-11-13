@@ -438,14 +438,21 @@ Optional Run-result Finalizer
 -----------------------------
 
 ``RobotSpec.finalize_run`` is a universal, robot-agnostic end-of-run hook.
-RoboCasa is its current consumer and uses it to record per-cell evaluation
-results for later statistics and aggregation. Any robot that publishes
+It records per-cell evaluation results for later statistics and aggregation.
+Any robot that publishes
 machine-readable evaluation artifacts may register the hook. The default is
-``None`` and leaves the runner unchanged. When the hook is present, the normal
-terminal runner captures ``toolkit.solved()`` before closing the toolkit, then
-passes a structured ``RunFinalizationContext`` to the hook after runtime
+``None`` and leaves the runner unchanged. When the hook is present, terminal
+and Dashboard runners capture ``toolkit.solved()`` before closing the toolkit, then
+pass a structured ``RunFinalizationContext`` to the hook after runtime
 cleanup. The hook owns the artifact schema and filename; RPent only defines the
 lifecycle boundary.
+
+``RunFinalizationContext.stop_reason`` and ``stop_info`` carry the planner's
+optional reason and structured stop evidence separately from usage statistics.
+Result writers should preserve
+the raw reason and use ``normalize_stop_info`` for the common category. LIBERO
+keeps native success, accepted finish, and operator verdict separate in
+``result.json``; a planner's finish does not establish environment success.
 
 Use ``write_json_atomic`` when the artifact is JSON so an interrupted write
 cannot leave a partial result:
