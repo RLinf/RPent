@@ -93,8 +93,11 @@ def test_direct_robot_ownership_and_observation(robot_parts):
     backend, robot = robot_parts.build()
     assert robot.connected
     assert robot.build_kwargs["port"] == "/dev/ttyACM0"
-    assert backend.get_observation()["main_images"].shape == (128, 128, 3)
+    image = backend.get_observation()["main_images"]
+    assert image.shape == (128, 128, 3)
+    assert image[0, 0].tolist() == [80, 30, 10]
     meta = backend.get_camera_meta()
+    assert meta["color_order"] == "RGB"
     assert meta["observation_camera_map"] == {"main": "front"}
     assert meta["cameras"]["front"]["camera_type"] == "uvc"
     backend.close_env()
@@ -121,3 +124,22 @@ def test_startup_failure_releases_robot(robot_parts, monkeypatch, failure):
         robot_parts.build()
     assert robot_parts.instances[-1].releases == 1
     assert not robot_parts.instances[-1].connected
+
+
+def test_rgb_observations_and_saved_state_include_camera_colors(robot_parts, tmp_path):
+    import imageio.v2 as imageio
+
+    from robots.lekiwi.tools import LeKiwiPrimitives, dump_state
+    from rpent.session import EnvState
+
+    robot_parts.cfg.cameras.rear = {"serial": "rear", "type": "uvc"}
+    backend, _ = robot_parts.build()
+    observation = backend.get_observation()
+    assert observation["main_images"][0, 0].tolist() == [80, 30, 10]
+    assert observation["extra_view_images"][0, 0, 0].tolist() == [80, 30, 10]
+    state = EnvState(tmp_path)
+    state.reset()
+    primitives = LeKiwiPrimitives(env=backend, check_cancelled=lambda: None)
+    record = dump_state(primitives, state, command=None, result=None, elapsed_s=None)
+    saved = imageio.imread(state.artifact_path("front.png", step=record.step_idx))
+    assert saved[0, 0].tolist() == [80, 30, 10]

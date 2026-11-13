@@ -30,7 +30,7 @@ class CameraEnv:
     def __init__(self):
         self.read = threading.Event()
         self.image = np.zeros((16, 16, 3), dtype=np.uint8)
-        self.image[..., 2] = 255  # A red camera frame in RLinf's BGR format.
+        self.image[..., 0] = 255  # A red frame in the Env's RGB format.
 
     def get_camera_meta(self):
         return {"cameras": {"front": {"serial_number": "test"}}}

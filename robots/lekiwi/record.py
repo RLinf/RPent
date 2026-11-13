@@ -85,7 +85,6 @@ def record(
                     raise RuntimeError("Camera frame unavailable; recording ended")
                 received_at = time.time()
                 elapsed_s = time.monotonic() - started_at
-                # RLinf cameras return BGR; imageio encodes RGB.
                 image = np.asarray(frame)
                 height, width = image.shape[:2]
                 if writer is None:
@@ -99,7 +98,7 @@ def record(
                         pixelformat="yuv444p" if width % 2 or height % 2 else "yuv420p",
                     )
                     cleanup.callback(writer.close)
-                writer.append_data(image[..., ::-1])
+                writer.append_data(image)
                 timestamps.write(
                     json.dumps(
                         {

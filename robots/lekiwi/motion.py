@@ -59,9 +59,9 @@ class Motion:
         """Track fresh feedback, integrating yaw only for a rotation."""
         if self.sampled_at is not None:
             dt = now - self.sampled_at
-            if not 0 < dt <= FEEDBACK_TIMEOUT_S:
+            if dt <= 0:
                 self.feedback_valid = False
-                raise RuntimeError("wheel feedback is stale or out of order")
+                raise RuntimeError("wheel feedback is out of order")
             if self.angle_deg is not None:
                 self.estimated_angle_deg += (self.measured[2] + measured[2]) * dt / 2
         self.measured = measured

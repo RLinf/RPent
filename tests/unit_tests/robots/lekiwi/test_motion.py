@@ -48,10 +48,18 @@ def test_drive_duration_starts_with_first_command():
     assert "estimated_angle_deg" not in motion.result(6)
 
 
-@pytest.mark.parametrize("stamp", [0, -0.1, 0.3])
-def test_stale_feedback_is_not_integrated(stamp):
+@pytest.mark.parametrize("stamp", [0, -0.1])
+def test_out_of_order_feedback_is_not_integrated(stamp):
     motion = Motion(np.array([0.0, 0.0, 30.0]), angle_deg=90)
     motion.sample(np.array([0, 0, 10]), 0)
     with pytest.raises(RuntimeError, match="feedback"):
         motion.sample(np.array([0, 0, 10]), stamp)
     assert motion.estimated_angle_deg == 0
+
+
+def test_rotation_integrates_the_full_sampling_interval():
+    motion = Motion(np.array([0.0, 0.0, 30.0]), angle_deg=90)
+    motion.sample(np.array([0, 0, 10]), 0)
+    motion.sample(np.array([0, 0, 20]), 0.3)
+    assert motion.estimated_angle_deg == pytest.approx(4.5)
+    assert motion.feedback_valid

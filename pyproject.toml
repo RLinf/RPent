@@ -205,6 +205,46 @@ prerelease = "allow"
 # Transformers, Tokenizers, or Diffusers versions are mutually incompatible.
 conflicts = [
     [
+        { extra = "lekiwi" },
+        { extra = "rlinf" },
+    ],
+    [
+        { extra = "lekiwi" },
+        { extra = "libero" },
+    ],
+    [
+        { extra = "lekiwi" },
+        { extra = "libero-pro" },
+    ],
+    [
+        { extra = "lekiwi" },
+        { extra = "libero-plus" },
+    ],
+    [
+        { extra = "lekiwi" },
+        { extra = "franka" },
+    ],
+    [
+        { extra = "lekiwi" },
+        { extra = "robocasa" },
+    ],
+    [
+        { extra = "lekiwi" },
+        { extra = "robotwin" },
+    ],
+    [
+        { extra = "lekiwi" },
+        { extra = "robodojo" },
+    ],
+    [
+        { extra = "lekiwi" },
+        { extra = "robodojo-sim" },
+    ],
+    [
+        { extra = "lekiwi" },
+        { extra = "flywheel" },
+    ],
+    [
         { extra = "franka" },
         { extra = "libero" },
     ],

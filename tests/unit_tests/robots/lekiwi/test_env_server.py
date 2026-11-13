@@ -320,7 +320,10 @@ def test_camera_only_has_no_motor_routes_or_connection(robot_parts):
         with rpc_server(backend, camera_only=True) as (rpc, _):
             client = LeKiwiEnvClient(rpc, reset_on_connect=False)
             assert client.meta["camera_only"]
-            assert client.get_observation()["main_images"].shape == (48, 64, 3)
+            image = client.get_observation()["main_images"]
+            assert image.shape == (48, 64, 3)
+            assert image[0, 0].tolist() == [80, 30, 10]
+            assert client.get_camera_meta()["color_order"] == "RGB"
             for method in (
                 "drive",
                 "rotate",
@@ -366,3 +369,142 @@ def test_camera_only_failure_releases_camera(robot_parts, monkeypatch, failure):
         main()
     assert instances[0].releases == 1
     assert not robot_parts.instances
+
+
+@pytest.mark.parametrize("lifecycle", ["cancel_active_and_wait", "close"])
+@pytest.mark.parametrize("action", ["drive", "rotate"])
+@pytest.mark.parametrize("transport", ["http", "socket"])
+def test_toolkit_cancellation_stops_active_motion(
+    robot_parts, tmp_path, lifecycle, action, transport
+):
+    from robots.lekiwi.toolkit import LeKiwiToolkit
+    from rpent.dashboard.events import NullDashboardEventSink
+    from rpent.memory import MemoryManager
+
+    backend, robot = robot_parts.build()
+    with rpc_server(backend, transport=transport) as (rpc, _):
+        client = LeKiwiEnvClient(rpc, reset_on_connect=False)
+        toolkit = LeKiwiToolkit(
+            runtime_kwargs={"env": client},
+            dashboard_events=NullDashboardEventSink(),
+            memory=MemoryManager(root=tmp_path / "memory"),
+            state_output_dir=tmp_path / "state",
+        )
+        arguments = (
+            {"velocity": [0.1, 0.0, 0.0], "duration_s": 10.0}
+            if action == "drive"
+            else {"angle_deg": 360.0}
+        )
+        with ThreadPoolExecutor() as pool:
+            pending = pool.submit(toolkit.execute_tool, action, arguments)
+            try:
+                wait_for(lambda: robot.base.commands)
+                pool.submit(getattr(toolkit, lifecycle)).result(timeout=3)
+                result = pending.result(timeout=1)
+                assert result.data["code"] == "tool_cancelled"
+                assert not robot.base.velocity.any()
+                assert backend._control_error is None
+            finally:
+                backend.stop()
+                toolkit.close()
+
+
+def test_toolkit_stop_failure_still_drains_calls(
+    robot_parts, tmp_path, monkeypatch, caplog
+):
+    from robots.lekiwi.toolkit import LeKiwiToolkit
+    from rpent.dashboard.events import NullDashboardEventSink
+    from rpent.memory import MemoryManager
+
+    backend, _ = robot_parts.build()
+    entered = threading.Event()
+    release = threading.Event()
+    stop_requested = threading.Event()
+
+    def drive(*args, **kwargs):
+        entered.set()
+        assert release.wait(3)
+        return {"status": "succeeded"}
+
+    def stop():
+        stop_requested.set()
+        raise OSError("server unreachable")
+
+    toolkit = LeKiwiToolkit(
+        runtime_kwargs={"env": backend},
+        dashboard_events=NullDashboardEventSink(),
+        memory=MemoryManager(root=tmp_path / "memory"),
+        state_output_dir=tmp_path / "state",
+    )
+    with monkeypatch.context() as patch, ThreadPoolExecutor() as pool:
+        patch.setattr(backend, "drive", drive)
+        patch.setattr(backend, "stop", stop)
+        pending = pool.submit(
+            toolkit.execute_tool,
+            "drive",
+            {"velocity": [0.1, 0.0, 0.0], "duration_s": 1.0},
+        )
+        try:
+            assert entered.wait(2)
+            cancelled = pool.submit(toolkit.cancel_active_and_wait)
+            assert stop_requested.wait(2)
+            assert not cancelled.done()
+        finally:
+            release.set()
+        cancelled.result(timeout=2)
+        assert pending.result(timeout=2).data["code"] == "tool_cancelled"
+    assert "Failed to stop LeKiwi during cancellation" in caplog.text
+    toolkit.close()
+
+
+def test_toolkit_idle_cancellation_does_not_stop_other_operators(robot_parts, tmp_path):
+    from robots.lekiwi.toolkit import LeKiwiToolkit
+    from rpent.dashboard.events import NullDashboardEventSink
+    from rpent.memory import MemoryManager
+
+    backend, robot = robot_parts.build()
+    toolkit = LeKiwiToolkit(
+        runtime_kwargs={"env": backend},
+        dashboard_events=NullDashboardEventSink(),
+        memory=MemoryManager(root=tmp_path / "memory"),
+        state_output_dir=tmp_path / "state",
+    )
+    stops = robot.base.stops
+    toolkit.cancel_active_and_wait()
+    toolkit.close()
+    assert robot.base.stops == stops
+
+
+@pytest.mark.parametrize("frequency", [5, 50])
+def test_drive_accepts_control_period_plus_read_latency(
+    robot_parts, monkeypatch, frequency
+):
+    from types import SimpleNamespace
+
+    from robots.lekiwi import env_server
+
+    robot_parts.cfg.drive.step_frequency = frequency
+    backend, robot = robot_parts.build()
+    now = 0.0
+
+    def advance(seconds):
+        nonlocal now
+        now += seconds
+
+    monkeypatch.setattr(
+        env_server, "time", SimpleNamespace(monotonic=lambda: now, sleep=advance)
+    )
+    original_read = robot.base.get_observation
+
+    def read():
+        # Synthetic latency, not a measured property of the motor bus.
+        advance(0.06)
+        return original_read()
+
+    monkeypatch.setattr(robot.base, "get_observation", read)
+    monkeypatch.setattr(backend._cancel, "wait", advance)
+    result = backend.drive([0.1, 0, 0], duration_s=0.8)
+    assert result["status"] == "succeeded", result
+    assert result["stop_confirmed"]
+    assert result["feedback_valid"]
+    assert backend._control_error is None

@@ -103,6 +103,13 @@ LeKiwi 是一个三轮全向移动底盘：三个 Feetech STS3215 轮电机挂�
 
 请实测并填写 ``wheel_radius`` （车轮半径）和 ``base_radius`` （底盘中心到车轮的距离），单位均为米。
 
+安全要求
+--------
+
+清理底盘周围的地面，让人员、宠物和松散线缆远离运动路径。这些工具不提供避障能力。首次运行请设置较低的速度上限，从冒烟测试任务开始，并由操作员在现场观察。
+
+每个动作返回前都会发送停车指令，请检查返回结果中的 ``status`` 和 ``stop_confirmed``。在 Dashboard 中取消任务或关闭 Agent 会请求停车，但网络断开可能使请求无法到达机器人。请确保能随时操作电机电源开关；若底盘未停止，应切断电机电源。接触底盘或重新启动任务前，先确认车轮已经停止。
+
 任务
 ----
 
@@ -133,23 +140,22 @@ LeKiwi 是一个三轮全向移动底盘：三个 Feetech STS3215 轮电机挂�
      --robot-config /path/to/lekiwi.yaml \
      --transport http --host 0.0.0.0 --port 8120
 
-它会打印供控制端接入的地址：
+它会打印本机就绪地址：
 
 .. code-block:: text
 
-   RPC server listening on http://0.0.0.0:8120
+   RPC server listening on http://127.0.0.1:8120
 
 从控制端接入
 ------------
 
-针对刚启动的服务端运行一个任务：
+先按 :doc:`../guides/configure_planner` 配置规划器凭据，再通过机器人板载计算机的网络地址（``ROBOT_HOST``）连接。机器人配置由服务端加载，控制端不需要提供 YAML：
 
 .. code-block:: bash
 
    rpent --robot lekiwi --task-id 0 \
      --env-endpoint http://ROBOT_HOST:8120 \
-     --robot-config /path/to/lekiwi.yaml \
-     --planner api --model MODEL_ID
+     --planner api --model PROVIDER:MODEL_ID
 
 RLinf 遥操与录制
 -----------------

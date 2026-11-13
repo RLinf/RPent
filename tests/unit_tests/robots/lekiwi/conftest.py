@@ -70,7 +70,7 @@ class FakeCamera:
 
 
 @pytest.fixture
-def robot_parts(fake_rlinf_realworld_modules, monkeypatch):
+def robot_parts(monkeypatch):
     from pathlib import Path
 
     from robots.lekiwi.env_server import LeKiwiEnvBackend
@@ -106,9 +106,9 @@ def robot_parts(fake_rlinf_realworld_modules, monkeypatch):
             for camera in self.cameras.values():
                 camera.disconnect()
 
-    monkeypatch.setattr(
-        sys.modules["rlinf.robotics.robots.lekiwi"], "LeKiwiRobot", Robot, raising=False
-    )
+    lekiwi = ModuleType("rlinf.robotics.robots.lekiwi")
+    lekiwi.LeKiwiRobot = Robot
+    monkeypatch.setitem(sys.modules, lekiwi.__name__, lekiwi)
     cameras = ModuleType("rlinf.robotics.parts.cameras")
     cameras.Camera = FakeCamera
     cameras.CameraInfo = lambda **kw: SimpleNamespace(resolution=(640, 480), **kw)

@@ -121,6 +121,20 @@ it writes has the shape of ``robots/lekiwi/config/example.yaml``:
 Measure and set ``wheel_radius`` (wheel radius) and ``base_radius``
 (distance from the base centre to a wheel), both in metres.
 
+Safety
+------
+
+Clear the floor around the base and keep people, pets and loose cables out of
+its path. These tools do not provide obstacle avoidance. Start with low velocity
+limits and the smoke-test task, with an operator watching the base.
+
+Each action commands a stop before returning; check its ``status`` and
+``stop_confirmed`` result. Cancelling a task in the Dashboard or closing the
+agent requests a stop, but a lost network connection can prevent
+that request from reaching the robot. Keep the motor power switch accessible
+and cut motor power if the base does not stop. Confirm the wheels have stopped
+before touching the base or restarting a task.
+
 Tasks
 -----
 
@@ -157,23 +171,24 @@ reach:
      --robot-config /path/to/lekiwi.yaml \
      --transport http --host 0.0.0.0 --port 8120
 
-It prints the address to attach to:
+It prints a local readiness address:
 
 .. code-block:: text
 
-   RPC server listening on http://0.0.0.0:8120
+   RPC server listening on http://127.0.0.1:8120
 
 Attach from the agent machine
 -----------------------------
 
-Run a task against the server you just started:
+Configure planner credentials using :doc:`../guides/configure_planner`, then
+connect to the robot computer's network address (``ROBOT_HOST``). The robot
+configuration is loaded by the server; it is not needed on the agent machine:
 
 .. code-block:: bash
 
    rpent --robot lekiwi --task-id 0 \
      --env-endpoint http://ROBOT_HOST:8120 \
-     --robot-config /path/to/lekiwi.yaml \
-     --planner api --model MODEL_ID
+     --planner api --model PROVIDER:MODEL_ID
 
 RLinf teleoperation and recording
 ---------------------------------

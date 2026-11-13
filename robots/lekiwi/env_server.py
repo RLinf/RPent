@@ -82,7 +82,7 @@ def _camera_infos(cfg: Any) -> dict[str, Any]:
 def _camera_metadata(cameras: dict[str, Any], main: str) -> dict[str, Any]:
     return {
         "source": "rlinf_camera",
-        "color_order": "BGR",
+        "color_order": "RGB",
         "cameras": {
             name: {
                 "serial_number": camera.camera_info.serial_number,
@@ -123,7 +123,7 @@ class LeKiwiCameraBackend:
 
     def get_observation(self) -> dict[str, Any]:
         with self._lock:
-            return {"main_images": self._camera.get_frame(attempts=2)}
+            return {"main_images": self._camera.get_frame(attempts=2)[..., ::-1]}
 
     def get_camera_meta(self) -> dict[str, Any]:
         return _camera_metadata({self._main: self._camera}, self._main)
@@ -223,7 +223,7 @@ class LeKiwiEnvBackend:
                 cw, ch = int(width * scale), int(height * scale)
                 left, top = (w - cw) // 2, (h - ch) // 2
                 frames[name] = cv2.resize(
-                    frame[top : top + ch, left : left + cw], (width, height)
+                    frame[top : top + ch, left : left + cw, ::-1], (width, height)
                 )
         result = {
             "states": velocity,

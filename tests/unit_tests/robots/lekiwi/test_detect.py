@@ -139,7 +139,7 @@ def test_probe_camera_reports_why_it_failed(monkeypatch) -> None:
 
 
 def test_main_writes_a_config_loadable_by_runtime_config(
-    fake_rlinf_realworld_modules, tmp_path: Path, monkeypatch, capsys
+    tmp_path: Path, monkeypatch, capsys
 ) -> None:
     _patch_scans(monkeypatch, lambda port: {1000000: [7, 8, 9]})
     monkeypatch.setattr(detect, "list_serial_ports", lambda *a, **k: ["/dev/ttyACM0"])

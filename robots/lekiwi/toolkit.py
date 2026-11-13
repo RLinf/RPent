@@ -25,7 +25,9 @@ from rpent.dashboard.events import DashboardEventSink
 from rpent.session import EnvState
 from rpent.tools import ToolResult, iter_tools
 from rpent.tools.toolkit import Toolkit
-from rpent.utils.logging import get_output_dir
+from rpent.utils.logging import get_logger, get_output_dir
+
+logger = get_logger("lekiwi_toolkit")
 
 if TYPE_CHECKING:
     from rpent.memory.manager import MemoryManager
@@ -77,6 +79,20 @@ class LeKiwiToolkit(Toolkit):
     def solved(self) -> bool:
         """The velocity-controlled base reports no success signal of its own."""
         return False
+
+    def cancel_active_and_wait(self) -> None:
+        """Stop an active motion before waiting for its blocking RPC to return."""
+        with self._scheduler.condition:
+            calls = self._scheduler.cancel()
+            moving = any(not call.readonly for call in self._scheduler.active)
+        if moving:
+            try:
+                self._primitives.env.stop()
+            except Exception:
+                logger.warning(
+                    "Failed to stop LeKiwi during cancellation", exc_info=True
+                )
+        self._scheduler.wait(calls)
 
     def get_env_state(
         self,
