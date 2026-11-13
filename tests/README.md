@@ -67,6 +67,24 @@ Run the complete suite with:
 pytest tests/unit_tests -v
 ```
 
+## LeKiwi camera contract check
+
+The unit suite checks RPC recovery after a missing camera frame with a local
+camera stub. To also check the real RLinf queue reader, install the companion
+RLinf source used by LeKiwi (including its dependencies and the
+`get_frame(return_timestamp=True)` API), then run:
+
+```bash
+RPENT_RUN_LEKIWI_INTEGRATION=1 \
+  pytest tests/e2e_tests/lekiwi/test_camera_contracts.py -v
+```
+
+This CPU-only check uses an in-memory frame queue and loopback HTTP. It does not
+open a camera, start a robot or require a GPU. It checks that a missing frame
+reopens the camera and the next timestamped frame reaches the RPC client.
+Without the opt-in flag it is skipped; when enabled, missing or incompatible
+RLinf fails the test.
+
 ## RoboCasa environment smoke tests
 
 RoboCasa separates simulator checks, model component checks and the full call chain:

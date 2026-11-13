@@ -1,0 +1,24 @@
+# Wheel velocity only: relative position from startup, with accumulating drift.
+lekiwi_wheel_ekf:
+  ros__parameters:
+    frequency: 20.0
+    sensor_timeout: 0.25
+    two_d_mode: true
+    use_sim_time: false
+    odom_frame: odom
+    base_link_frame: base_link
+    world_frame: odom
+    # The bridge gates public /odom and TF on fresh measured wheel feedback.
+    publish_tf: false
+    publish_acceleration: false
+    print_diagnostics: true
+    debug: false
+    use_control: false
+    transform_timeout: 0.0
+    twist0: /lekiwi/wheel_velocity
+    twist0_config: [false, false, false,
+                    false, false, false,
+                    true,  true,  false,
+                    false, false, true,
+                    false, false, false]
+    twist0_queue_size: 1
