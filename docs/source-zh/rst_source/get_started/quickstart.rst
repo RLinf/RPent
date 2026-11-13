@@ -25,14 +25,6 @@
    bash requirements/install.sh --env libero-pro
    source .venv-libero-pro/bin/activate
 
-安装脚本创建 Python 3.11 环境，一起安装 RPent、LIBERO-PRO、Pi0.5 和 SAM3。OpenPI 要求 ``torch==2.7.1`` 和 ``torchvision==0.22.1``，uv 按检测到的驱动选择 CUDA 构建。可通过 ``--torch-backend cu128`` 或 ``UV_TORCH_BACKEND`` 显式指定构建；显式指定时会重新安装 Torch 和 torchvision。
-
-使用 ``--venv /path/to/venv`` 指定环境目录，``--use-mirror`` 使用清华 PyPI 镜像，``--dry-run`` 只查看命令，不下载或安装。镜像不代理 Git 仓库和模型资产。完整选项见 ``bash requirements/install.sh --help``。机器人环境默认安装到 ``.venv-<env>``，独立模型服务安装到 ``.venv-<model>``，CPU 开发环境安装到 ``.venv-core``。每个安装目标使用独立虚拟环境。
-
-使用 ``--env`` 选择机器人环境，或用 ``--model`` 安装独立模型服务；两者不能组合使用。添加 ``--test`` 安装离线测试依赖；CPU 开发使用 ``--core --test``。
-
-``.[libero-pro]`` 等机器人和模型 extras 已改为安装脚本的选项。``pip install -e .`` 只安装 RPent 基础依赖，``.[test]`` 和 ``.[flywheel]`` 仍然保留。系统库、仿真资源和模型权重按各平台指南另行准备。
-
 后续命令都在这个终端和 RPent 仓库目录中执行。重新打开终端时，先激活 ``.venv-libero-pro``，再设置下文的模型路径与 API Key。
 
 2. 下载仿真资源和模型
