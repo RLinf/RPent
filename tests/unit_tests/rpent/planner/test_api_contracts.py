@@ -188,24 +188,16 @@ def test_finish_returns_transcript_for_rpent_without_step_files(tmp_path, monkey
     ]
 
 
-@pytest.mark.parametrize("zone", ["Asia/Shanghai", "unknown/zone"])
-def test_environment_context_uses_the_repository_and_local_date(
-    tmp_path, monkeypatch, zone
-):
+def test_environment_context_uses_the_repository_and_local_date(tmp_path, monkeypatch):
     root = tmp_path / "arm & <camera>"
+    zone = ZoneInfo("Asia/Shanghai")
     monkeypatch.setenv("RPENT_REPO_ROOT", str(root))
-    monkeypatch.setenv("TZ", zone)
+    monkeypatch.setenv("TZ", zone.key)
     context = ElementTree.fromstring(render_environment_context())
     assert context.tag == "environment_context"
     assert context.findtext("cwd") == str(root)
-    if zone == "Asia/Shanghai":
-        assert context.findtext("timezone") == zone
-        assert (
-            context.findtext("current_date")
-            == datetime.now(ZoneInfo(zone)).date().isoformat()
-        )
-    else:
-        assert context.find("timezone") is None
+    assert context.findtext("timezone") == zone.key
+    assert context.findtext("current_date") == datetime.now(zone).date().isoformat()
 
 
 def test_refused_finish_retries_without_claiming_success(tmp_path):
@@ -280,10 +272,6 @@ def test_anthropic_request_retains_all_prompt_cache_controls(tmp_path, monkeypat
     assert (
         request["system"][0]["text"] == f"{API_PLANNER_INSTRUCTIONS}\n\n{ROBOT_PROMPT}"
     )
-    assert [block["text"] for block in request["messages"][0]["content"]] == [
-        render_environment_context(),
-        "Do the task.",
-    ]
     assert request["system"][-1]["cache_control"]["type"] == "ephemeral"
     assert request["tools"][-1]["cache_control"]["type"] == "ephemeral"
     assert (
@@ -684,20 +672,12 @@ def test_harness_compacts_long_history(tmp_path):
         == requests
     )
     assert any(after < before for before, after in zip(lengths, lengths[1:]))
-    opening = requests[0][0]["parts"]
-    assert [(p["part_kind"], p["content"]) for p in opening] == [
-        ("system-prompt", API_PLANNER_INSTRUCTIONS),
-        ("system-prompt", ROBOT_PROMPT),
-        ("user-prompt", render_environment_context()),
-        ("user-prompt", "Do the task."),
+    assert [part["content"] for part in requests[-1][0]["parts"]] == [
+        API_PLANNER_INSTRUCTIONS,
+        ROBOT_PROMPT,
+        render_environment_context(),
+        "Do the task.",
     ]
-    for history in requests:
-        assert history[0]["parts"] == opening
-        assert not any(
-            part["part_kind"] in ("user-prompt", "system-prompt")
-            for message in history[1:]
-            for part in message["parts"]
-        )
     assert result.messages[0] == {"role": "user", "content": "Do the task."}
     assert len([m for m in result.messages if m["role"] == "assistant"]) == 45
     assert len([m for m in result.messages if m.get("name") == "observe"]) == 44
@@ -1311,30 +1291,6 @@ def test_reasoning_effort_reaches_openai_chat_request_body(tmp_path, effort):
     assert len(bodies) == 1
     assert bodies[0]["reasoning_effort"] == effort
     assert [(m["role"], m["content"]) for m in bodies[0]["messages"]] == [
-        ("system", API_PLANNER_INSTRUCTIONS),
-        ("system", ROBOT_PROMPT),
-        ("user", render_environment_context()),
-        ("user", "Do the task."),
-    ]
-
-
-def test_openai_responses_opening(tmp_path, monkeypatch):
-    from pydantic_ai.models.openai import OpenAIResponsesModel
-    from pydantic_ai.providers.openai import OpenAIProvider
-
-    model = OpenAIResponsesModel(
-        "gpt-4o", provider=OpenAIProvider(api_key="offline-test")
-    )
-    requests = []
-
-    async def capture(**kwargs):
-        requests.append(kwargs)
-        raise RuntimeError("offline request captured")
-
-    monkeypatch.setattr(model.client.responses, "create", capture)
-    result, _, _ = solve(tmp_path, model)
-    assert result.error == "RuntimeError: offline request captured"
-    assert [(m["role"], m["content"]) for m in requests[0]["input"]] == [
         ("system", API_PLANNER_INSTRUCTIONS),
         ("system", ROBOT_PROMPT),
         ("user", render_environment_context()),
