@@ -186,8 +186,9 @@ def test_target50_runtime_protocol_is_frozen():
     }
 
 
-def test_spawned_environment_uses_cli_seed_and_clears_legacy_override(
-    tmp_path, monkeypatch
+@pytest.mark.parametrize("mujoco_gl", [None, "egl", "osmesa"])
+def test_spawned_environment_preserves_backend_and_uses_cli_seed(
+    tmp_path, monkeypatch, mujoco_gl
 ):
     captured = {}
 
@@ -198,6 +199,10 @@ def test_spawned_environment_uses_cli_seed_and_clears_legacy_override(
         def start(self):
             captured["started"] = True
 
+    if mujoco_gl is None:
+        monkeypatch.delenv("MUJOCO_GL", raising=False)
+    else:
+        monkeypatch.setenv("MUJOCO_GL", mujoco_gl)
     monkeypatch.setattr(robot_spec, "ProcessDaemon", FakeDaemon)
     monkeypatch.setattr(robot_spec, "pick_free_port", lambda: 43210)
     monkeypatch.setattr(robot_spec, "HttpRpcClient", lambda url: url)
@@ -214,6 +219,7 @@ def test_spawned_environment_uses_cli_seed_and_clears_legacy_override(
     seed_index = captured["cmd"].index("--seed")
     assert captured["cmd"][seed_index + 1] == "7"
     assert captured["env_overrides"]["RLDX_RESET_SEED"] == ""
+    assert captured["env_overrides"]["MUJOCO_GL"] == (mujoco_gl or "egl")
     assert captured["started"] is True
     assert daemon is not None
     assert client == "http://127.0.0.1:43210"
