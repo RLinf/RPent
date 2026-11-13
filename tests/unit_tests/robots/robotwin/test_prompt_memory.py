@@ -74,12 +74,16 @@ def test_hybrid_prompt_selects_its_tools_and_keeps_memory(mode, backend):
     assert "GUIDE_RPENT.md" in system
     assert "{{" not in system + user
     if backend == "uniwam":
+        assert "checkpoint: UniWAM RoboTwin history-flow" in user
+        assert "LingBot" not in user
         assert "wam_act" in system + user
         assert "lingbot_act" not in system + user
         assert "use_length=50" not in system
         assert "16 qpos actions" in system
         assert "Historical LingBot" in system
     else:
+        assert "checkpoint: RLinf/LingBot-VLA-RoboTwin-EEF-ckpt1500" in user
+        assert "UniWAM" not in user
         assert "lingbot_act" in system
         assert "wam_act" not in system + user
         assert "use_length=50" in system

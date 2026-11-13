@@ -20,6 +20,7 @@ from typing import Any
 import numpy as np
 
 from robots.robotwin.control import (
+    QPOS_HISTORY_CAPACITY,
     ROBOTWIN_CONTROLLERS,
     ROBOTWIN_QPOS,
 )
@@ -34,12 +35,19 @@ from rpent.utils.rpc import RpcClient
 
 
 def robotwin_request(
-    observation: dict[str, Any], controller: AMControlSpec = ROBOTWIN_QPOS
+    observation: dict[str, Any],
+    controller: AMControlSpec = ROBOTWIN_QPOS,
+    *,
+    history_length: int = 0,
 ) -> WAMRequest:
     """Attach the selected execution contract to native RoboTwin observations."""
     history = {}
-    if "qpos_history" in observation:
-        history["joint_target_history"] = observation["qpos_history"]
+    if history_length:
+        if "qpos_history" not in observation:
+            raise ValueError(
+                "The selected WAM requires qpos_history from executed controller targets"
+            )
+        history["joint_target_history"] = observation["qpos_history"][-history_length:]
     return {
         **history,
         **physical_observation(observation),
@@ -61,11 +69,22 @@ class RoboTwinWAMClient:
                 f"Unsupported RoboTwin action space: {caps['control']['action_space']}"
             ) from None
         self.wam.validate_contract(controller)
+        shape = caps.get("joint_target_history_shape")
+        if shape and (not 1 <= shape[0] <= QPOS_HISTORY_CAPACITY or shape[1] != 14):
+            raise ValueError(
+                f"Unsupported RoboTwin joint_target_history_shape: {shape}"
+            )
         return controller
 
     @property
     def action_type(self) -> str:
         return self.controller["action_type"]
+
+    @property
+    def history_length(self) -> int:
+        """Return the model's history window, or zero when none is required."""
+        shape = self.wam.model_meta.get("joint_target_history_shape")
+        return shape[0] if shape else 0
 
     def __init__(self, client: RpcClient) -> None:
         self.wam = BaseWAMClient(client)
@@ -80,7 +99,11 @@ class RoboTwinWAMClient:
 
     def predict_result(self, observation: dict[str, Any]) -> WAMPrediction:
         """Return a validated action chunk and its model metadata."""
-        return self.wam.predict(robotwin_request(observation, self.controller))
+        return self.wam.predict(
+            robotwin_request(
+                observation, self.controller, history_length=self.history_length
+            )
+        )
 
     def reset(self) -> None:
         """Clear model history before starting a new episode."""

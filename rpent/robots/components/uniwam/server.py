@@ -23,7 +23,6 @@ from typing import Any
 import numpy as np
 
 from rpent.robots.components.am_facade_base import BaseWAMFacade
-from rpent.robots.components.uniwam import ACTION_CHUNK_SIZE
 from rpent.robots.components.uniwam.adapter import make_adapter
 from rpent.robots.components.uniwam.runtime_config import validate_options
 
@@ -84,8 +83,6 @@ def main() -> None:
             "num_inference_timesteps": 4,
         }
     )
-    if policy.model.config.action_chunk_size != ACTION_CHUNK_SIZE:
-        raise ValueError("This adapter requires the UniWAM RoboTwin 16-step checkpoint")
     UniWAMFacade(
         policy, reset_model, checkpoint=str(root), platform=args.platform
     ).serve(

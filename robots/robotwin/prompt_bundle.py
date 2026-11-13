@@ -51,23 +51,23 @@ def system_prompt(
 def user_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> PromptNode:
-    if (variables or {}).get("policy_backend") == "uniwam":
-        from robots.robotwin.prompts.uniwam import user
-
-        prompt = {"CELL": user.CELL, "BEGIN": user.BEGIN}
-        if (variables or {}).get("mode") == "explore":
-            prompt["EXPLORE MODE"] = explore_parts.USER_MODE
-        return prompt
-    if (variables or {}).get("policy_kind") == "wam":
+    variables = variables or {}
+    is_uniwam = variables.get("policy_backend") == "uniwam"
+    if variables.get("policy_kind") == "wam" and not is_uniwam:
         return {
             "TASK": user_parts.WAM_TASK,
             "MEMORY": user_parts.WAM_MEMORY,
         }
+    checkpoint = (
+        "UniWAM RoboTwin history-flow"
+        if is_uniwam
+        else "RLinf/LingBot-VLA-RoboTwin-EEF-ckpt1500"
+    )
     prompt = {
-        "CELL": user_parts.CELL,
+        "CELL": user_parts.CELL + f"- checkpoint: {checkpoint}\n",
         "BEGIN": user_parts.BEGIN,
     }
-    if (variables or {}).get("mode", "eval") == "explore":
+    if variables.get("mode", "eval") == "explore":
         prompt["EXPLORE MODE"] = explore_parts.USER_MODE
     return prompt
 

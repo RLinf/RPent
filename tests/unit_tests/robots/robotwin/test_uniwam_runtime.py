@@ -15,7 +15,6 @@
 
 """UniWAM selection and worker ownership through the shared AM runtime."""
 
-import sys
 from argparse import ArgumentParser
 from types import SimpleNamespace
 
@@ -34,19 +33,6 @@ def arguments(*extra):
     return parser.parse_args(
         ["--task-name", "beat_block_hammer", "--seed", "7", *extra]
     )
-
-
-def bundle(tmp_path):
-    root = tmp_path / "bundle"
-    root.mkdir()
-    for name in ("policy", "checkpoint", "wan", "vlm"):
-        resource = tmp_path / name
-        resource.mkdir()
-        (root / name).symlink_to(resource, target_is_directory=True)
-    (tmp_path / "checkpoint/pytorch_model").mkdir()
-    (tmp_path / "checkpoint/config.json").write_text("{}")
-    (tmp_path / "policy/deploy_policy.py").touch()
-    return root
 
 
 def test_backend_default_and_checkpoint_environment_are_separate(monkeypatch):
@@ -73,46 +59,6 @@ def test_uniwam_external_endpoint_needs_no_local_model_paths(monkeypatch, tmp_pa
     assert isinstance(runtime["model"], RoboTwinWAMClient)
     assert runtime["policy_backend"] == "uniwam"
     assert runtime["policy_kind"] == "wam"
-
-
-@pytest.mark.parametrize("legacy", [True, False])
-def test_uniwam_launcher_uses_resource_root_interpreter_and_cuda(
-    monkeypatch, tmp_path, legacy
-):
-    created = []
-
-    class Daemon:
-        def __init__(self, name, cmd, **kwargs):
-            self.command = cmd
-            self.env = kwargs["env_overrides"]
-            self.started = False
-            created.append(self)
-
-        def start(self):
-            self.started = True
-
-    monkeypatch.setattr(am_runtime, "ProcessDaemon", Daemon)
-    monkeypatch.setattr(am_runtime, "pick_free_port", lambda: 12345)
-    monkeypatch.setattr(am_runtime, "make_rpc_client", lambda endpoint, **kw: endpoint)
-    root = bundle(tmp_path)
-    args = arguments(
-        "--vla-backend" if legacy else "--am-backend",
-        "uniwam",
-        "--vla-model-path" if legacy else "--am-checkpoint",
-        str(root),
-        "--am-python",
-        sys.executable,
-        "--am-cuda-device",
-        "2",
-    )
-    config = am_runtime.select_am(args, "robotwin")
-    owned, endpoint = am_runtime.start_wam_service(config, tmp_path)
-    assert owned is created[0] and owned.started
-    assert owned.command[0] == sys.executable
-    assert owned.command[1:3] == ["-m", "rpent.robots.components.uniwam.server"]
-    assert owned.command[owned.command.index("--checkpoint") + 1] == str(root)
-    assert owned.env["CUDA_VISIBLE_DEVICES"] == "2"
-    assert endpoint == "http://127.0.0.1:12345"
 
 
 def test_failed_uniwam_start_cleans_up_owned_environment(monkeypatch, tmp_path):

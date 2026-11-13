@@ -7,12 +7,13 @@ Select the Agentic Planner backend with one CLI flag:
 
 .. code-block:: text
 
-   --planner {api,claude_code,codex,flash}
+   --planner {api,claude_code,codex,gemini_cli,flash}
 
-All three online planners receive the same rendered system and user prompts
-and use the RPent tool schemas from the same toolkit. They differ in
+The ``api``, ``claude_code``, ``codex``, and ``gemini_cli`` planners receive
+the same rendered system and user prompts and use the RPent tool schemas
+from the same toolkit. They differ in
 how those schemas are connected to the model, how the tool-calling
-loop is orchestrated, and which model SDK is used.
+loop is orchestrated, and which model SDK or CLI is used.
 
 .. list-table::
    :header-rows: 1
@@ -25,7 +26,7 @@ loop is orchestrated, and which model SDK is used.
      - A tool-calling loop built on `Pydantic AI <https://ai.pydantic.dev/>`_
        that supports multiple model APIs. For long conversations, it sends
        fewer older messages to the model.
-     - Call Anthropic, OpenAI, or a compatible model service directly.
+     - Call Anthropic, Google, OpenAI, or a compatible model service directly.
    * - ``claude_code``
      - The `Claude Agent SDK
        <https://code.claude.com/docs/en/agent-sdk/overview>`_. Exposes
@@ -36,6 +37,11 @@ loop is orchestrated, and which model SDK is used.
      - The OpenAI **Codex Python SDK**. RPent starts an in-process
        Streamable HTTP MCP server that connects the toolkit to Codex.
      - Run tasks through the Codex SDK, using existing authentication or a configured API.
+   * - ``gemini_cli``
+     - The official `Gemini CLI <https://github.com/google-gemini/gemini-cli>`_
+       through ACP. RPent exposes the toolkit through a local Streamable
+       HTTP MCP server; Gemini CLI drives the loop.
+     - Run tasks through an existing Gemini CLI configuration.
    * - ``flash``
      - **Flash Mode**, for evaluation only. Replays a plan from memory,
        recorded from an earlier
@@ -63,9 +69,9 @@ The ``api`` Planner (direct Model API)
 
 ``--planner api`` is the default. It uses the native Pydantic AI tool-calling
 runtime and requires a provider prefix in ``--model``. The
-project currently installs the Anthropic and OpenAI integrations, so it
-can directly use the Anthropic Messages API, the OpenAI Responses API,
-and OpenAI-compatible Chat Completions APIs.
+project installs the Anthropic, Google, and OpenAI integrations, so it can
+directly use the Anthropic Messages API, the Gemini API, the OpenAI Responses
+API, and OpenAI-compatible Chat Completions APIs.
 
 Pick the provider by prefixing ``--model``:
 
@@ -73,6 +79,9 @@ Pick the provider by prefixing ``--model``:
 
    # Anthropic Claude
    rpent --planner api --model anthropic:claude-opus-4-8 ...
+
+   # Google Gemini API; use the model ID defined by the upstream service
+   rpent --planner api --model google:Argon ...
 
    # OpenAI Responses (e.g. GPT-5.5)
    rpent --planner api --model openai:gpt-5.5 ...
@@ -84,6 +93,7 @@ Environment variables it reads (override with ``--base-url`` if
 needed):
 
 - ``anthropic:*`` → ``ANTHROPIC_BASE_URL`` / ``ANTHROPIC_API_KEY``
+- ``google:*`` → ``GEMINI_BASE_URL`` / ``GOOGLE_API_KEY`` (preferred) or ``GEMINI_API_KEY``
 - ``openai:*`` / ``openai-chat:*`` → ``OPENAI_BASE_URL`` /
   ``OPENAI_API_KEY``
 
@@ -150,6 +160,52 @@ Claude Code assumes a 200,000-token context window for unrecognized model IDs.
 If the local server uses a different limit, see the `Claude Code environment
 variables <https://code.claude.com/docs/en/env-vars>`_ for its context and
 auto-compaction settings.
+
+.. _planner-gemini-cli:
+
+The ``gemini_cli`` Planner
+---------------------------
+
+``--planner gemini_cli`` starts the installed Gemini CLI with ``--acp`` through
+the ACP Python SDK and exposes RPent tools through a local Streamable HTTP MCP
+server. Gemini CLI handles model requests and the tool-calling loop.
+
+Install a Gemini CLI version supporting ``--acp`` and configure its
+authentication and endpoint first. RPent reuses these settings:
+
+.. code-block:: bash
+
+   npm install -g @google/gemini-cli
+
+   rpent --robot libero --planner gemini_cli \
+     --suite libero_goal_task --task 1 --seed 0
+
+When ``--model`` is omitted, Gemini CLI uses its default model. When supplied,
+RPent passes the value unchanged to Gemini CLI. Use a model name accepted by
+your model service, without the ``google:`` prefix:
+
+.. code-block:: bash
+
+   rpent --robot libero --planner gemini_cli \
+     --model Argon \
+     --suite libero_goal_task --task 1 --seed 0
+
+Notes:
+
+- Configure authentication and the endpoint in Gemini CLI; this planner rejects
+  ``--base-url``. Set ``GEMINI_BIN`` to the executable's path if it is not named
+  ``gemini`` or is not on ``PATH``.
+- ``--max-turns`` is passed to Gemini CLI as ``model.maxSessionTurns``.
+  ``--planner-timeout-s`` defaults to ``GEMINI_CLI_TIMEOUT_S``, then
+  ``CELL_TIMEOUT_S``, then ``1200`` seconds.
+- RPent starts Gemini CLI in a temporary working directory. That session does
+  not load project instruction files such as ``GEMINI.md`` and disables Gemini
+  CLI skills, hooks, extensions, and built-in tools, exposing only RPent tools.
+  These settings apply only to that session; they do not rewrite the user's
+  Gemini CLI configuration files or credentials.
+- In terminal interaction and the Dashboard, additional messages wait until
+  the current agent turn completes. See :doc:`dashboard`.
+- ``--reasoning-effort`` accepts only ``none``.
 
 .. _planner-codex:
 
@@ -291,14 +347,27 @@ robot runtime:
    rpent-check-llm --planner api --model anthropic:claude-opus-4-8
    rpent-check-llm --planner claude_code
    rpent-check-llm --planner codex --json
+   rpent-check-llm --planner gemini_cli --json
 
 It exits ``0`` on success and ``1`` on any failure, and classifies the
 failure as one of ``missing_config``, ``unsupported_provider``,
-``missing_api_key``, ``auth_failed``, ``network_error``,
+``missing_api_key``, ``invalid_model``, ``auth_failed``, ``network_error``,
 ``provider_error``, or ``sdk_error``. Use ``--json`` for scripting and
-CI. ``--base-url`` overrides the backend's endpoint, and ``--timeout-s``
-overrides the diagnostic timeout (30 s for ``api``, 90 s for the two SDK
-backends; the ``1200`` s run default is never reused).
+CI. For ``api``, ``--base-url`` overrides the endpoint. Other backends use
+their own environment or CLI configuration.
+
+Claude Code and Codex can reuse an existing login. If neither a key nor a
+login configuration is detected, the check reports ``missing_api_key``
+immediately. Gemini CLI reads its own authentication configuration, so RPent
+starts the CLI to check authentication.
+
+The diagnostic timeout defaults to 30 seconds for ``api``. For ``claude_code``,
+``codex``, and ``gemini_cli``, it is 90 seconds when the corresponding key
+variable is set in RPent's process environment, or 25 seconds otherwise.
+The 25-second limit caps the wait for a diagnostic result; the CLI can still
+use its stored credentials. Use ``--timeout-s`` to allow more time for a slow
+backend. This overrides these defaults and is independent of the task's
+``--planner-timeout-s``.
 
 Before using the Dashboard, run the same check in a terminal with the
 planner and model settings you intend to use for the task. The Dashboard
@@ -337,6 +406,12 @@ The counting rule depends on the backend:
   and their results return to the model. A final answer without tool calls
   does not use this budget. RPent passes the limit to Claude Code, which
   returns ``error_max_turns`` if the limit is reached.
+- **Gemini CLI:** Each request for a model response in the tool-calling loop
+  counts as one turn. Multiple tools requested in one response do not count
+  separately; requesting another response with their results counts as the
+  next turn. Gemini CLI enforces the limit through ``model.maxSessionTurns``
+  and stops when it is reached. RPent does not report ``turns_used`` because
+  the current ACP response does not provide that count.
 
 For example, with no retries, the model requests two file reads in one
 response, then summarizes their results in another. API sends two requests,

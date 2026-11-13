@@ -17,7 +17,6 @@
 CELL = """- task: {{task_name}}
 - seed: {{seed}}
 - task_config: {{task_config}}
-- checkpoint: RLinf/LingBot-VLA-RoboTwin-EEF-ckpt1500
 """
 
 BEGIN = """Follow the required read order, bind the current task's targets and

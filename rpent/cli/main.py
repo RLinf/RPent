@@ -42,6 +42,7 @@ import shlex
 import sys
 import time
 from collections.abc import Callable
+from dataclasses import asdict
 from pathlib import Path
 
 from rpent.cli.tui import (
@@ -59,8 +60,9 @@ from rpent.planner.base import (
     build_planner,
     is_recoverable_agent_error,
 )
-from rpent.planner.check import BASE_URL_ENV_BY_PLANNER
+from rpent.planner.check import EXTERNALLY_CONFIGURED_PLANNERS
 from rpent.robots import enumerate_robots, get_robot_spec, get_toolkit
+from rpent.session.planner_capture import end_planner_task, start_planner_task
 from rpent.utils.logging import get_logger, init_output_dir
 
 logger = get_logger("agent")
@@ -135,8 +137,8 @@ def _build_argparser() -> argparse.ArgumentParser:
     ap.add_argument(
         "--planner",
         default="api",
-        choices=["api", "claude_code", "codex", "flash"],
-        help="Planner backend: api | claude_code | codex are LLMs in the "
+        choices=["api", "claude_code", "codex", "gemini_cli", "flash"],
+        help="Planner backend: api | claude_code | codex | gemini_cli are LLMs in the "
         "loop; flash is evaluation-only and replays a plan from memory, re-localizing "
         "each waypoint's anchor.",
     )
@@ -144,15 +146,18 @@ def _build_argparser() -> argparse.ArgumentParser:
         "--model",
         default=None,
         help="Model id. For the 'api' planner, prefix the provider "
-        "(e.g. anthropic:claude-opus-4-8, openai:gpt-5.5, "
-        "openai-chat:glm-5.2). For claude_code/codex this "
-        "overrides the backend default model.",
+        "(e.g. anthropic:claude-opus-4-8, google:Argon, "
+        "openai:gpt-5.5, openai-chat:glm-5.2). For claude_code, codex, and "
+        "gemini_cli this overrides the backend or upstream default model.",
     )
     ap.add_argument(
         "--base-url",
         default=None,
         help=(
-            "API base URL, for the 'api' planner only. claude_code and codex take their endpoint from ANTHROPIC_BASE_URL / CODEX_BASE_URL instead; passing this flag with either is an error rather than a silent no-op."
+            "API base URL, for the 'api' planner only. Overrides "
+            "ANTHROPIC_BASE_URL / GEMINI_BASE_URL / OPENAI_BASE_URL. Other planners use "
+            "their existing backend configuration; passing this flag with "
+            "one of them is an error rather than a silent no-op."
         ),
     )
     ap.add_argument("--max-turns", type=int, default=100)
@@ -162,9 +167,9 @@ def _build_argparser() -> argparse.ArgumentParser:
         choices=REASONING_EFFORTS,
         default="none",
         help="Planner reasoning effort for api, claude_code, and "
-        "codex. Higher effort may improve task success rate "
-        "but increases runtime. Defaults to high for api and none for "
-        "claude_code/codex.",
+        "codex. gemini_cli supports none only. Higher effort may improve "
+        "task success rate but increases runtime. Defaults to high for api "
+        "and none for CLI/SDK planners.",
     )
     ap.add_argument(
         "--no-images",
@@ -178,10 +183,10 @@ def _build_argparser() -> argparse.ArgumentParser:
         "--planner-timeout-s",
         type=int,
         default=None,
-        help="Wall-clock cap for api/claude_code/codex planner runs. "
+        help="Wall-clock cap for api/claude_code/codex/gemini_cli planner runs. "
         "Terminal interactive API/Claude sessions are exempt. "
-        "Defaults to CODEX_TIMEOUT_S (codex only), "
-        "CELL_TIMEOUT_S, or 1200.",
+        "Defaults to CODEX_TIMEOUT_S (codex only), GEMINI_CLI_TIMEOUT_S "
+        "(gemini_cli only), CELL_TIMEOUT_S, or 1200.",
     )
     ap.add_argument(
         "--claude-code-max-budget-usd",
@@ -193,6 +198,13 @@ def _build_argparser() -> argparse.ArgumentParser:
 
     # other config
     ap.add_argument("--output-dir", default=None)
+    ap.add_argument(
+        "--record-trajectory",
+        action="store_true",
+        help="Record task, planner, and tool trajectories with api, claude_code, or codex. "
+        "Supported environments also record executed actions and VLA predictions. "
+        "Action recording is unavailable with --explore.",
+    )
     ap.add_argument(
         "--memory-profile",
         choices=["hf", "local"],
@@ -384,6 +396,10 @@ def main() -> int:
     )
     if args.dashboard and args.tui:
         parser.error("--dashboard and --tui cannot be used together")
+    if args.planner == "gemini_cli" and args.reasoning_effort != "none":
+        parser.error(
+            "--reasoning-effort is not supported by the gemini_cli planner; use 'none'"
+        )
     try:
         external_env_dashboard = (
             robot_spec.is_real_robot
@@ -409,11 +425,10 @@ def main() -> int:
         if sys.stdin is None or not sys.stdin.isatty():
             parser.error("This robot requires a TTY for operator confirmation.")
     native_cli = args.tui and args.planner == "api"
-    if args.base_url and args.planner in BASE_URL_ENV_BY_PLANNER:
+    if args.base_url and args.planner in EXTERNALLY_CONFIGURED_PLANNERS:
         parser.error(
             "--base-url applies to the 'api' planner only; "
-            f"{args.planner} reads its endpoint from "
-            f"{BASE_URL_ENV_BY_PLANNER[args.planner]} instead"
+            f"{args.planner} uses its existing backend configuration instead"
         )
     if args.planner == "flash":
         if args.explore:
@@ -518,15 +533,23 @@ def main() -> int:
     await_first_prompt: "Callable[[], str | None] | None" = None
     if args.tui and not native_cli:
         input_queue = queue.Queue()
+        queued_help = (
+            "Claude Code/Codex/Gemini: messages queue until the current turn completes.\n"
+            "/interrupt [message] stops the current turn, then sends queued input "
+            "(or the supplied message first).\n"
+            if args.planner in {"claude_code", "codex", "gemini_cli"}
+            else ""
+        )
         # Pre-fill the first prompt with the rendered default task (editable
         # preset);
         start_interactive_reader(
             input_queue,
             first_prompt_default=user_msg,
+            extra_help=queued_help
+            + (operator_input.help_text if operator_input else ""),
             **(
                 {
                     "line_handler": operator_input.route_line,
-                    "extra_help": operator_input.help_text,
                     "on_close": operator_input.close,
                 }
                 if operator_input is not None
@@ -536,7 +559,8 @@ def main() -> int:
         logger.info(
             "interactive mode on: the built-in task is pre-filled — "
             "edit it and press Enter, submit it as-is, or clear it to "
-            "type your own. Once running, type to steer the agent. "
+            "type your own. Follow-up messages queue until the turn completes; "
+            "use /interrupt [message] to interrupt and send ahead of the queue. "
             "/help for commands."
         )
         # Resolve the opening prompt on a background thread so the user can type
@@ -635,7 +659,17 @@ def main() -> int:
                     return True
 
                 operator_input.bind_verdict(accept_verdict)
+            task_state = None
+            result = None
+            finish_result = None
+            environment_success = None
             try:
+                if args.record_trajectory and args.planner != "flash":
+                    task_state = start_planner_task(
+                        toolkit.state,
+                        instruction=session_msg,
+                        config={"arguments": vars(args), "run": asdict(run_config)},
+                    )
                 result = planner.solve(
                     system_prompt=system_prompt,
                     user_message=session_msg,
@@ -659,6 +693,7 @@ def main() -> int:
                     solved_fn
                 ):
                     solved = bool(solved_fn())
+                    environment_success = solved
                     write_recipe = getattr(toolkit, "write_recipe", None)
                     if solved and callable(write_recipe):
                         recipe_path = write_recipe(recipe_tag) or recipe_path
@@ -677,7 +712,16 @@ def main() -> int:
                             success=environment_success
                         )
                 finally:
-                    toolkit.close()
+                    try:
+                        toolkit.close()
+                    finally:
+                        end_planner_task(
+                            task_state,
+                            result,
+                            finish_result=finish_result,
+                            environment_success=environment_success,
+                            exception=sys.exc_info()[1],
+                        )
             if (
                 solved
                 or (finish_result or {}).get("operator_aborted")

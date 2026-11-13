@@ -17,20 +17,10 @@
 import numpy as np
 
 from rpent.robots.components.am_contracts import WAMRequest
-from rpent.robots.components.uniwam import ACTION_CHUNK_SIZE
 
 
 def encode_robotwin(request: WAMRequest) -> dict:
     """Keep native images and rebuild history from executed controller targets."""
-    history = np.asarray(request["joint_target_history"], dtype=np.float32)
-    if (
-        history.ndim != 2
-        or history.shape[1] != 14
-        or not 1 <= len(history) <= ACTION_CHUNK_SIZE
-    ):
-        raise ValueError("history must have shape [1..16, 14]")
-    if not np.isfinite(history).all():
-        raise ValueError("history must be finite")
     return {
         "observation": {
             camera: {"rgb": request["images"][role]}
@@ -42,5 +32,5 @@ def encode_robotwin(request: WAMRequest) -> dict:
         },
         "joint_action": {"vector": request["state"]["joint_targets"]},
         "instruction": request["instruction"],
-        "history": history,
+        "history": np.asarray(request["joint_target_history"], dtype=np.float32),
     }

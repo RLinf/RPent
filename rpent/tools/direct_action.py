@@ -50,4 +50,5 @@ def direct_action_tool(
         args_schema=args_schema,
         handler=handler,
         _input_schema=args_schema.model_json_schema(),
+        action_source="direct",
     )

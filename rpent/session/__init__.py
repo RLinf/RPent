@@ -15,5 +15,32 @@
 """Single-session, mutable state (EnvState)."""
 
 from rpent.session.base import EnvState, StepRecord
+from rpent.session.records import (
+    ActionRecord,
+    ArtifactRef,
+    DataRef,
+    DataValue,
+    MissingInfo,
+    ObservationRecord,
+    Payload,
+    PlannerRecord,
+    PredictionRecord,
+    TaskRecord,
+    ToolCallRecord,
+)
 
-__all__ = ["EnvState", "StepRecord"]
+__all__ = [
+    "ActionRecord",
+    "ArtifactRef",
+    "DataRef",
+    "DataValue",
+    "EnvState",
+    "MissingInfo",
+    "ObservationRecord",
+    "Payload",
+    "PlannerRecord",
+    "PredictionRecord",
+    "StepRecord",
+    "TaskRecord",
+    "ToolCallRecord",
+]

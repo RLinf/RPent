@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from datetime import datetime
 from functools import partial
@@ -106,6 +107,30 @@ def _resolve_dashboard(args: argparse.Namespace) -> DashboardSpec:
     }
 
 
+FLYWHEEL_CONFIG = {
+    "observation_format": "libero.observation",
+    "layouts": {
+        "libero.action": {
+            "state": {
+                "dataset_key": "state",
+                "fields": ({"path": ("states",), "shape": (8,)},),
+            },
+            "action": {
+                "dataset_key": "actions",
+                "fields": ({"path": (), "shape": (7,)},),
+            },
+        },
+    },
+    "images": {
+        "image": {"path": ("main_images",), "shape": (256, 256, 3)},
+        "wrist_image": {"path": ("wrist_images",), "shape": (256, 256, 3)},
+    },
+    "result_format": "libero.step_result",
+    "success": {"field": "terminated", "truncated": "truncated"},
+    "fps": 20,
+}
+
+
 def _run_flash(toolkit, cell_tag: str, note) -> dict:
     """Run a recorded Flash plan for one cell. Imported late: it loads numpy."""
     from robots.libero.flash import run_flash
@@ -131,6 +156,7 @@ def get_robot_spec() -> RobotSpec:
         parse_config=_parse_config,
         init_runtime=_init_runtime,
         resolve_dashboard=_resolve_dashboard,
+        flywheel=FLYWHEEL_CONFIG,
         supports_exploration=True,
         run_flash=_run_flash,
         validate_args=validate_options,
@@ -207,16 +233,6 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     )
     parser.add_argument("--task", type=int, default=None, required=required)
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument(
-        "--collect-flywheel-data",
-        action="store_true",
-        help="record this evaluation episode for Flywheel training",
-    )
-    parser.add_argument(
-        "--flywheel-root",
-        default=None,
-        help="Flywheel data root (default: <repo>/datacollection)",
-    )
     parser.add_argument(
         "--auto-merge-memory",
         action=argparse.BooleanOptionalAction,
@@ -319,8 +335,6 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         raise ValueError("--explore cannot be used with --memory-profile hf")
     if explore and args.explore_sessions <= 0:
         raise ValueError("--explore-sessions must be greater than 0")
-    if explore and args.collect_flywheel_data:
-        raise ValueError("flywheel collection supports evaluation mode only")
     memory_profile = requested_profile or (
         "local" if explore or wam is not None else "hf"
     )
@@ -493,7 +507,7 @@ def _spawn_env_server(
         ],
         env_overrides={
             "LIBERO_TYPE": resolve_libero_type(args.suite, args.libero_type),
-            "MUJOCO_GL": "egl",
+            "MUJOCO_GL": os.environ.get("MUJOCO_GL", "egl"),
             "ROBOT_PLATFORM": "LIBERO",
         },
         log_path=str(output_dir / "env_server.log"),
@@ -615,13 +629,5 @@ def _init_runtime(
             post_fn=partial(connectors[component], rpc),
         )
         runtime_kwargs.update(component_kwargs)
-
-    if args.collect_flywheel_data and "env" in selected:
-        runtime_kwargs["flywheel_config"] = {
-            "root": args.flywheel_root or str(get_repo_root() / "datacollection"),
-            "suite": args.suite,
-            "task_id": args.task,
-            "seed": args.seed,
-        }
 
     return list(owned_daemons.values()), runtime_kwargs

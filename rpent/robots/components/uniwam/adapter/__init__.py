@@ -19,7 +19,11 @@ from functools import partial
 from robots.robotwin.control import ROBOTWIN_QPOS
 from rpent.robots.components.am_contracts import WAMModelMeta
 from rpent.robots.components.am_facade_base import WAMAdapter, WAMAdapterSpec
-from rpent.robots.components.uniwam import ACTION_CHUNK_SIZE, USES_SESSIONS
+from rpent.robots.components.uniwam import (
+    ACTION_CHUNK_SIZE,
+    HISTORY_LENGTH,
+    USES_SESSIONS,
+)
 from rpent.robots.components.uniwam.adapter.decode import decode_robotwin
 from rpent.robots.components.uniwam.adapter.encode import encode_robotwin
 
@@ -32,6 +36,7 @@ ADAPTERS = {
             control=ROBOTWIN_QPOS,
             camera_roles=("head", "left_wrist", "right_wrist"),
             state_schema={"joint_targets": 14},
+            joint_target_history_shape=(HISTORY_LENGTH, 14),
         ),
     ),
 }

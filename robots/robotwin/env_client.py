@@ -21,6 +21,7 @@ from typing import Any
 
 import numpy as np
 
+from robots.robotwin.control import QPOS_HISTORY_CAPACITY
 from robots.robotwin.robot_spec import (
     ROBOTWIN_CAMERA_NAMES,
     ROBOTWIN_READ_TIMEOUT_S,
@@ -38,8 +39,7 @@ class RoboTwinEnvClient(BaseEnvClient):
     _TIMEOUT_S = {**BaseEnvClient._TIMEOUT_S, "default": ROBOTWIN_READ_TIMEOUT_S}
 
     def __init__(self, client: RpcClient, *, expected_meta: dict[str, Any]):
-        # Keep one supported policy chunk; history is independent of the backend.
-        self._qpos_history: deque[np.ndarray] = deque(maxlen=16)
+        self._qpos_history: deque[np.ndarray] = deque(maxlen=QPOS_HISTORY_CAPACITY)
         self._history_complete = False
         self.terminated = False
         self.truncated = False

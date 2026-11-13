@@ -26,7 +26,7 @@ Check the model, task, and runtime requirements before following the installatio
 
    .. grid-item-card:: Planners
 
-      ``api``, ``claude_code``, ``codex``
+      ``api``, ``claude_code``, ``codex``, ``gemini_cli``
 
    .. grid-item-card:: Tasks
 
@@ -67,7 +67,7 @@ The table distinguishes planner tools, model inputs, and the environment’s suc
    * - Item
      - Description
    * - Observation
-     - Head and left/right wrist RGB views, depth/world coordinates for localization, and robot state. Both models use RGB views, robot state, and task text; UniWAM also uses recent joint-state feedback.
+     - Head and left/right wrist RGB views, depth/world coordinates for localization, and robot state. All three models use RGB views, robot state, and task text; UniWAM also uses recent joint-target feedback.
    * - Action
      - The selected backend exposes ``lingbot_act`` or ``wam_act`` alongside motion primitives. The environment accepts 16-value end-effector actions (``ee``) or 14-value joint/gripper actions (``qpos``).
    * - Reward / success
@@ -176,7 +176,7 @@ Arrange the resources as follows; existing directories can be symlinked:
    └── vlm/                     # Qwen3-VL-2B-Instruct
 
 The checkpoint's ``config.json`` uses ``flow_source.mode: history`` and
-``history_length: 16``. RPent runs four inference steps.
+``history_length: 16``. UniWAM uses four denoising steps to generate each action chunk.
 
 After :doc:`configuring a planner <../guides/configure_planner>`, run from the
 RoboTwin environment:
@@ -187,7 +187,8 @@ RoboTwin environment:
    export UNIWAM_PYTHON=/path/to/model-env/bin/python
    rpent --robot robotwin --am-backend uniwam \
       --am-checkpoint "$UNIWAM_MODEL_PATH" --am-python "$UNIWAM_PYTHON" \
-      --task-name beat_block_hammer --task-config demo_randomized --seed 100000
+      --task-name beat_block_hammer --task-config demo_randomized --seed 100000 \
+      --planner codex --model gpt-5.5
 
 ``--am-checkpoint`` selects the resource directory above; ``--am-python`` selects
 the model environment's interpreter. RPent starts and cleans up the model process.
@@ -201,18 +202,6 @@ To reuse the model across tasks, start a standalone worker in the model environm
 
 For task runs, replace ``--am-checkpoint`` and ``--am-python`` with
 ``--am-endpoint http://127.0.0.1:8118``. The operator manages this worker's lifetime.
-
-Integration tests cover mixed-tool execution and the complete CLI execution chain.
-Set the two path variables above, plus ``ROBOTWIN_ASSETS_PATH``,
-``CUDA_VISIBLE_DEVICES`` and ``RPENT_E2E_OUTPUT_DIR``, then run:
-
-.. code-block:: bash
-
-   RPENT_RUN_UNIWAM_INTEGRATION=1 \
-      pytest tests/e2e_tests/robotwin/test_uniwam.py -v --timeout=1200
-
-The tests use real models, simulation and a scripted planner, and save their
-results in ``RPENT_E2E_OUTPUT_DIR``.
 
 Fast-WAM Configuration
 ~~~~~~~~~~~~~~~~~~~~~~

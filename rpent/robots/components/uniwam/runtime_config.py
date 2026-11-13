@@ -15,8 +15,10 @@
 """Resolve a UniWAM resource bundle for the shared AM launcher."""
 
 import argparse
+import json
 from pathlib import Path
 
+from rpent.robots.components.uniwam import ACTION_CHUNK_SIZE, HISTORY_LENGTH
 from rpent.robots.components.uniwam import USES_SESSIONS as USES_SESSIONS
 from rpent.robots.components.uniwam.adapter import ADAPTERS as ADAPTERS
 
@@ -36,6 +38,16 @@ def validate_options(args: argparse.Namespace) -> None:
     for name in ("policy/deploy_policy.py", "checkpoint/config.json"):
         if not (root / name).is_file():
             raise ValueError(f"UniWAM resource file not found: {root / name}")
+    config = json.loads((root / "checkpoint/config.json").read_text())
+    if config.get("common", {}).get("action_chunk_size") != ACTION_CHUNK_SIZE:
+        raise ValueError(
+            f"UniWAM checkpoint requires action_chunk_size={ACTION_CHUNK_SIZE}"
+        )
+    flow = config.get("flow_source", {})
+    if flow.get("mode") != "history" or flow.get("history_length") != HISTORY_LENGTH:
+        raise ValueError(
+            f"UniWAM checkpoint requires flow_source.mode=history and history_length={HISTORY_LENGTH}"
+        )
     args.am_checkpoint = str(root)
 
 

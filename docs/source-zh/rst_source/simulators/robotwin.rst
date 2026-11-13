@@ -26,7 +26,7 @@ RoboTwin
 
    .. grid-item-card:: 规划器
 
-      ``api``、``claude_code``、``codex``
+      ``api``、``claude_code``、``codex``、``gemini_cli``
 
    .. grid-item-card:: 任务
 
@@ -67,7 +67,7 @@ C2R 使用干净场景中的成功轨迹作为经验，在随机场景中评测�
    * - 项目
      - 说明
    * - 观测
-     - 头部与左右腕部的 RGB 图像、用于定位的深度／世界坐标及机器人状态。两个模型都使用 RGB 图像、机器人状态和任务文字；UniWAM 还使用近期关节状态反馈。
+     - 头部与左右腕部的 RGB 图像、用于定位的深度／世界坐标及机器人状态。三个模型都使用 RGB 图像、机器人状态和任务文字；UniWAM 还使用近期关节目标反馈。
    * - 动作
      - 所选后端暴露 ``lingbot_act`` 或 ``wam_act``，同时保留动作原语。环境支持 16 维末端动作（``ee``）和 14 维关节／夹爪动作（``qpos``）。
    * - 奖励与成功判定
@@ -166,7 +166,7 @@ DeepSpeed 0.16.9 和 NumPy 1.26.4。
    └── vlm/                     # Qwen3-VL-2B-Instruct
 
 checkpoint 的 ``config.json`` 中，``flow_source.mode`` 为 ``history``，
-``history_length`` 为 16。RPent 使用 4 次推理迭代。
+``history_length`` 为 16。UniWAM 每次生成动作块时，使用 4 个去噪推理步。
 
 配置好 :doc:`规划器 <../guides/configure_planner>` 后，在 RoboTwin 环境中运行：
 
@@ -176,7 +176,8 @@ checkpoint 的 ``config.json`` 中，``flow_source.mode`` 为 ``history``，
    export UNIWAM_PYTHON=/path/to/model-env/bin/python
    rpent --robot robotwin --am-backend uniwam \
       --am-checkpoint "$UNIWAM_MODEL_PATH" --am-python "$UNIWAM_PYTHON" \
-      --task-name beat_block_hammer --task-config demo_randomized --seed 100000
+      --task-name beat_block_hammer --task-config demo_randomized --seed 100000 \
+      --planner codex --model gpt-5.5
 
 ``--am-checkpoint`` 指定上述资源目录，``--am-python`` 指定模型环境的解释器。
 RPent 负责启动和清理模型进程。
@@ -191,16 +192,6 @@ RPent 负责启动和清理模型进程。
 运行任务时，用 ``--am-endpoint http://127.0.0.1:8118`` 替换
 ``--am-checkpoint`` 和 ``--am-python``；该服务由启动者管理。
 
-集成测试覆盖混合工具操作和完整 CLI 执行链。设置上述两个路径变量，以及
-``ROBOTWIN_ASSETS_PATH``、``CUDA_VISIBLE_DEVICES`` 和 ``RPENT_E2E_OUTPUT_DIR`` 后运行：
-
-.. code-block:: bash
-
-   RPENT_RUN_UNIWAM_INTEGRATION=1 \
-      pytest tests/e2e_tests/robotwin/test_uniwam.py -v --timeout=1200
-
-测试使用真实模型、模拟器和脚本规划器，结果保存在 ``RPENT_E2E_OUTPUT_DIR``。
-
 Fast-WAM 配置
 ~~~~~~~~~~~~~
 
@@ -213,7 +204,7 @@ Fast-WAM 配置
      --am-backend fast-wam --am-endpoint http://127.0.0.1:8117 \
      --memory-profile local --planner api --model <planner-model>
 
-``wam_act(prompt=None, max_chunks=1)`` 替换 ``lingbot_act``；每个 chunk 通过 ``action_type="qpos"`` 执行 worker 配置的 ``execute_steps`` 个动作。WAM 必须启用本地记忆管理器和文件工具，默认目录按后端区分，语料允许为空；可通过 ``--memory-dir`` 指定兼容的本地语料，目前不支持 HF 记忆和探索。任务成功由原生 ``eval_success`` 判断。下文的 LingBot 和 HF 记忆流程适用于 VLA 路径。
+``wam_act(prompt=None, max_chunks=1)`` 替换 ``lingbot_act``；每个 chunk 通过 ``action_type="qpos"`` 执行 worker 配置的 ``execute_steps`` 个动作。Fast-WAM 必须启用本地记忆管理器和文件工具，默认目录按后端区分，语料允许为空；可通过 ``--memory-dir`` 指定兼容的本地语料，目前不支持 HF 记忆和探索。任务成功由原生 ``eval_success`` 判断。下文的 LingBot 和 HF 记忆流程适用于 VLA 路径。
 
 运行一个任务
 ------------

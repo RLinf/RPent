@@ -38,7 +38,7 @@ PLATFORM_VLA_BACKENDS = {
     "libero": ("pi05",),
     "robotwin": ("lingbot",),
     "robocasa": ("rldx",),
-    "robodojo": ("pi05", "xpolicylab"),
+    "robodojo": ("vpp2", "awomo05"),
     "dual_franka": ("pi05",),
     "franka": ("pi05",),
     "yam": ("pi05",),
@@ -89,9 +89,7 @@ def add_am_args(parser: argparse.ArgumentParser, *, platform: str) -> None:
         action=_BackendAction,
         help=f"Action model (default: {backends[0]}). Select before --help to see model options.",
     )
-    for alias in ("--vla-backend", "--wam-backend") + (
-        ("--policy-backend",) if platform == "robodojo" else ()
-    ):
+    for alias in ("--vla-backend", "--wam-backend"):
         selection.add_argument(
             alias,
             dest="am_backend",
@@ -237,7 +235,11 @@ class AMConfig:
             env_overrides=overrides,
             log_path=str(output_dir / f"{name}.log"),
         )
-        daemon.start()
+        try:
+            daemon.start()
+        except BaseException:
+            daemon.stop()
+            raise
         return daemon
 
 
@@ -319,8 +321,8 @@ def select_am(args: argparse.Namespace, platform: str) -> AMConfig:
             model_arguments = tuple(options)
         elif backend == "lingbot":
             checkpoint = checkpoint or os.getenv("LINGBOT_MODEL_PATH")
-        elif backend == "xpolicylab":
-            checkpoint = checkpoint or "RoboDojo-sim-arx_x5-joint-0"
+        elif backend in ("vpp2", "awomo05"):
+            checkpoint = checkpoint or os.getenv(f"{backend.upper()}_MODEL_PATH")
     python = python or sys.executable
     executable = shutil.which(str(Path(python).expanduser()))
     if not executable:
@@ -334,7 +336,7 @@ def select_am(args: argparse.Namespace, platform: str) -> AMConfig:
         platform=platform,
         endpoint=endpoint,
         checkpoint=str(Path(checkpoint).expanduser().absolute())
-        if checkpoint and backend not in WAM_BACKENDS and backend != "xpolicylab"
+        if checkpoint and backend not in WAM_BACKENDS
         else checkpoint,
         python=str(Path(executable).absolute()),
         root=root_path,

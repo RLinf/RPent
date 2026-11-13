@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import nullcontext
 from typing import Annotated, Any, Literal
 
 import numpy as np
@@ -26,6 +27,7 @@ from robots.robotwin.env_client import RoboTwinEnvClient
 from robots.robotwin.robot_spec import MODEL_SPEC, ROBOTWIN_CAMERA_NAMES
 from robots.robotwin.vla_client import LingBotVLAClient
 from robots.robotwin.wam_client import RoboTwinWAMClient
+from rpent.session.env_capture import CapturingEnvClient
 from rpent.tools import ToolResult, tool
 
 
@@ -301,31 +303,37 @@ class RoboTwinPrimitives:
             if status.get("eval_success") is True or budget_exhausted:
                 break
             observation = self._build_lingbot_observation()
-            if self.policy_backend == "uniwam":
+            if self.policy_kind == "wam" and self.model.history_length:
                 observation["qpos_history"] = self.env.qpos_history
             if override_prompt and prompt is not None:
                 observation["task_language"] = prompt
             native_prompt = observation["task_language"]
-            actions = (
-                self.model.predict(observation)
-                if self.policy_kind == "wam"
-                else self.model.infer(observation)
+            prediction = (
+                self.env.prediction(native_prompt)
+                if isinstance(self.env, CapturingEnvClient)
+                else nullcontext()
             )
-            if use_length is not None:
-                actions = actions[:use_length]
-            else:
-                requested += len(actions)
-            self._check_cancelled()
-            payload, _, _, _, info = self.env.chunk_step(
-                actions,
-                action_type=action_type,
-                return_all_frames=self._recording
-                and self.env.execution_capabilities.get("chunk_step_all_frames")
-                is True,
-            )
+            with prediction:
+                actions = (
+                    self.model.predict(observation)
+                    if self.policy_kind == "wam"
+                    else self.model.infer(observation)
+                )
+                if use_length is not None:
+                    actions = actions[:use_length]
+                else:
+                    requested += len(actions)
+                self._check_cancelled()
+                payload, _, _, _, info = self.env.chunk_step(
+                    actions,
+                    action_type=action_type,
+                    return_all_frames=self._recording
+                    and self.env.execution_capabilities.get("chunk_step_all_frames")
+                    is True,
+                )
             if self._recording and isinstance(payload, dict) and "frames" in payload:
                 for frame in payload["frames"]:
-                    self.record_frame(frame)
+                    self.record_frame(frame["observation"]["head_camera"]["rgb"])
             count = int(info.get("executed_actions", 0))
             executed += count
             self.policy_actions += count

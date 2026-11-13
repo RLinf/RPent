@@ -27,10 +27,10 @@
      - 选择已发现的机器人或仿真环境。
    * - ``--planner``
      - ``api``
-     - ``api``、``claude_code``、``codex`` 或 ``flash``。
+     - 可选 ``api``、``claude_code``、``codex``、``gemini_cli`` 或 ``flash``。见 :doc:`configure_planner`。
    * - ``--model``
      - ``—``
-     - ``api`` 要求服务提供方前缀；SDK 规划器使用各自默认值。
+     - ``api`` 要求服务提供方前缀；``claude_code``、``codex`` 和 ``gemini_cli`` 未显式指定时使用各自默认值。
    * - ``--max-turns``
      - ``100``
      - 规划器轮数上限；``api`` 按整段对话的模型请求次数计算，包括重试和后续输入。
@@ -38,14 +38,14 @@
      - ``8192``
      - 仅 ``api``：每次模型回复的 Token 上限。
    * - ``--reasoning-effort``
-     - ``api``：``high``；``claude_code``/``codex``：``none``
-     - ``api``、``claude_code`` 与 ``codex`` 的推理强度：``none``、``low``、``medium``、``high`` 或 ``xhigh``。在我们的 LIBERO Pro Long 评测中，关闭 reasoning 将平均运行时间从约 13.2 分钟缩短至 7.9 分钟（约 40%）。较高强度可能提升任务成功率；实际支持的档位取决于所选模型。
+     - ``api``：``high``；``claude_code``、``codex``、``gemini_cli``：``none``
+     - ``api``、``claude_code`` 与 ``codex`` 的推理强度：``none``、``low``、``medium``、``high`` 或 ``xhigh``。在我们的 LIBERO Pro Long 评测中，关闭 reasoning 将平均运行时间从约 13.2 分钟缩短至 7.9 分钟（约 40%）。较高强度可能提升任务成功率；实际支持的档位取决于所选模型。``gemini_cli`` 仅接受 ``none``。
    * - ``--planner-timeout-s``
      - ``—``
-     - 默认使用 ``CODEX_TIMEOUT_S`` （仅 Codex）、``CELL_TIMEOUT_S`` 或 1200 秒；终端交互式 API/Claude 会话不受此限。
+     - 优先使用 ``CODEX_TIMEOUT_S`` （Codex）或 ``GEMINI_CLI_TIMEOUT_S`` （Gemini CLI），再依次使用 ``CELL_TIMEOUT_S`` 或 1200 秒；终端交互式 API/Claude 会话不受此限。
    * - ``--base-url``
      - ``—``
-     - 仅 ``api``：覆盖模型服务地址。SDK 规划器使用各自的环境变量。
+     - 仅 ``api``：覆盖模型服务地址。``claude_code``、``codex`` 和 ``gemini_cli`` 使用各自已有的后端配置，并拒绝此参数。
    * - ``--no-images``
      - ``false``
      - 仅 ``api``：不向模型发送图像。
@@ -55,6 +55,9 @@
    * - ``--output-dir``
      - ``—``
      - 保存本次运行文件的目录；默认目录名由环境生成。
+   * - ``--record-trajectory``
+     - ``false``
+     - 使用 ``api``、``claude_code`` 或 ``codex`` 时，记录任务、模型请求与回复，以及工具调用。评测模式下，支持动作采集的环境还会记录实际执行的动作及其观测。采集和导出方法见 :doc:`flywheel`。
    * - ``--memory-profile``
      - ``—``
      - 通常评测默认为 ``hf``；探索和 WAM 评测使用 ``local``。
@@ -146,8 +149,6 @@ RPent CLI 保留原有 ``--cuda-device`` 作为本地服务的共享默认值；
      - 兼容旧参数（隐藏别名）
    * - ``--am-backend``
      - ``--vla-backend``、``--wam-backend``
-   * - ``--am-backend pi05``
-     - RoboDojo 的 ``--policy-backend rlinf``
    * - ``--am-endpoint``
      - ``--vla-endpoint``、``--wam-endpoint``
    * - ``--am-checkpoint``
@@ -186,11 +187,14 @@ RPent CLI 保留原有 ``--cuda-device`` 作为本地服务的共享默认值；
    * - ``api`` / OpenAI
      - ``OPENAI_API_KEY``
      - ``OPENAI_BASE_URL``
+   * - ``api`` / Google
+     - ``GOOGLE_API_KEY`` （优先）或 ``GEMINI_API_KEY``
+     - ``GEMINI_BASE_URL``
    * - ``codex``
      - ``CODEX_API_KEY``
      - ``CODEX_BASE_URL``
 
-Codex 也可复用已有的 Codex 认证。模型选择、地址优先级和本地服务示例见 :doc:`configure_planner`。连接检查使用 ``rpent-check-llm``；记忆管理使用 ``rpent-memory``，操作方法见 :doc:`memory`。
+Claude Code 和 Codex 也可复用已有的 CLI 认证。Gemini CLI 使用自身的认证和地址配置。模型选择、地址优先级和本地服务示例见 :doc:`configure_planner`。连接检查使用 ``rpent-check-llm``；记忆管理使用 ``rpent-memory``，操作方法见 :doc:`memory`。
 
 模型与资源路径由各环境读取，例如 LIBERO 的 ``PI05_CHECKPOINT_PATH``、``SAM3_CHECKPOINT_PATH``，RoboCasa365 的 ``ROBOCASA_ASSETS_PATH``，以及 RoboTwin 的 ``ROBOTWIN_ASSETS_PATH``、``LINGBOT_MODEL_PATH``。
 
@@ -210,6 +214,8 @@ Codex 也可复用已有的 Codex 认证。模型选择、地址优先级和本�
      - 用途
    * - ``transcript_*.json``
      - 规划器对话、工具调用及结束信息。
+   * - ``trajectories/<task_id>/``
+     - ``--record-trajectory`` 保存的任务记录及附件。探索模式的记录位于各 ``sessions/session_*/`` 目录下。详见 :doc:`flywheel`。
    * - ``episode.mp4``
      - 本次任务的录像。
    * - ``run.log``

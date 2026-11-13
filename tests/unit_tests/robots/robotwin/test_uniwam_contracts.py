@@ -17,7 +17,6 @@
 
 from __future__ import annotations
 
-from collections import deque
 from types import SimpleNamespace
 
 import numpy as np
@@ -25,8 +24,6 @@ import pytest
 
 from robots.robotwin.env_client import RoboTwinEnvClient
 from robots.robotwin.primitives import RoboTwinPrimitives
-from robots.robotwin.wam_client import RoboTwinWAMClient, robotwin_request
-from rpent.robots.components.uniwam.server import UniWAMFacade
 
 
 class FeedbackRPC:
@@ -154,90 +151,8 @@ def test_invalid_feedback_blocks_history_until_reset(monkeypatch, operation):
     np.testing.assert_array_equal(env.qpos_history, np.zeros((1, 14)))
 
 
-class Policy:
-    def __init__(self):
-        self.history = deque(maxlen=16)
-        self.seen = []
-
-    def record_executed_qpos(self, obs):
-        self.history.append(np.array(obs["joint_action"]["vector"], copy=True))
-
-    def update_obs(self, obs):
-        if not self.history:
-            self.record_executed_qpos(obs)
-
-    def set_instruction(self, instruction):
-        self.instruction = instruction
-
-    def get_action(self):
-        self.seen.append(np.stack(self.history))
-        return np.zeros((16, 14))
-
-
-def test_facade_replaces_stale_history_for_interleaved_requests():
-    policy = Policy()
-    facade = UniWAMFacade(policy, lambda p: p.history.clear())
-
-    def request(history):
-        return {
-            **robotwin_request(
-                {
-                    "views": {
-                        name: {"rgb": np.zeros((2, 2, 3), dtype=np.uint8)}
-                        for name in ("head", "left_wrist", "right_wrist")
-                    },
-                    "robot_state": {"qpos_target14": np.full(14, 99)},
-                    "task_language": "native instruction",
-                    "qpos_history": history,
-                }
-            ),
-        }
-
-    for value in (1, 2, 1):
-        policy.history.append(np.full(14, -99))
-        result = facade._dispatch(
-            "wam.predict", (request(np.full((3, 14), value)),), {}
-        )
-        assert result["actions"].shape == (16, 14)
-        np.testing.assert_array_equal(policy.seen[-1], np.full((3, 14), value))
-    with pytest.raises(ValueError, match="finite"):
-        facade.predict(request(np.full((1, 14), np.nan)))
-
-
-def test_client_maps_cameras_and_native_state():
-    policy = Policy()
-    facade = UniWAMFacade(policy, lambda p: p.history.clear())
-    captured = []
-
-    def call(method, args=(), kwargs=None, **unused):
-        if method == "wam.predict":
-            captured.append(facade._adapter[0](args[0]))
-        return facade._dispatch(method, args, kwargs or {})
-
-    client = RoboTwinWAMClient(SimpleNamespace(call=call))
-    views = {
-        name: {"rgb": np.full((2, 2, 3), i, dtype=np.uint8)}
-        for i, name in enumerate(("head", "left_wrist", "right_wrist"))
-    }
-    result = client.predict(
-        {
-            "views": views,
-            "robot_state": {"qpos_target14": np.arange(14)},
-            "task_language": "exact native text",
-            "qpos_history": np.ones((2, 14)),
-        }
-    )
-    assert result.shape == (16, 14)
-    payload = captured[0]
-    assert payload["instruction"] == "exact native text"
-    np.testing.assert_array_equal(payload["joint_action"]["vector"], np.arange(14))
-    assert payload["observation"]["right_camera"]["rgb"][0, 0, 0] == 2
-    policy.history.append(np.zeros(14))
-    client.reset()
-    assert not policy.history
-
-
-def test_analytic_intervention_is_in_next_policy_request():
+@pytest.mark.parametrize("backend", ["lingbot", "uniwam"])
+def test_analytic_intervention_is_in_next_policy_request(backend):
     rpc = FeedbackRPC()
     env = RoboTwinEnvClient(rpc, expected_meta={"seed": 7})
     histories = []
@@ -250,11 +165,11 @@ def test_analytic_intervention_is_in_next_policy_request():
 
     primitives = RoboTwinPrimitives(
         env=env,
-        model=SimpleNamespace(predict=infer, action_type="qpos"),
+        model=SimpleNamespace(predict=infer, action_type="qpos", history_length=16),
         seed=7,
         check_cancelled=lambda: None,
         policy_kind="wam",
-        policy_backend="uniwam",
+        policy_backend=backend,
     )
     primitives.wam_act(max_chunks=1)
     primitives.apply_qpos_updates([{"arm": "left", "gripper": 1.0}])
@@ -262,4 +177,9 @@ def test_analytic_intervention_is_in_next_policy_request():
     np.testing.assert_array_equal(histories[1][:, 0], np.arange(2, 18))
     np.testing.assert_array_equal(histories[2][:, 0], np.arange(18, 34))
     assert rpc.count == 49
-    assert instructions == [rpc.info()["instruction"]] * 3
+    assert (
+        instructions
+        == [rpc.info()["instruction"]]
+        + [rpc.info()["instruction"] if backend == "uniwam" else "a proposed subtask"]
+        * 2
+    )

@@ -26,7 +26,7 @@ Check the model, task, and runtime requirements before following the installatio
 
    .. grid-item-card:: Planners
 
-      ``api``, ``claude_code``, ``codex``; also see :doc:`../guides/flash`.
+      ``api``, ``claude_code``, ``codex``, ``gemini_cli``; also see :doc:`../guides/flash`.
 
    .. grid-item-card:: Tasks
 
