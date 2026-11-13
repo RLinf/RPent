@@ -204,16 +204,8 @@ Notes:
   These settings apply only to that session; they do not rewrite the user's
   Gemini CLI configuration files or credentials.
 - In terminal interaction and the Dashboard, additional messages wait until
-  the current agent turn completes. One turn can contain multiple model
-  requests and tool calls.
-  Use ``/interrupt [message]`` in the terminal, or submit a message and press Esc
-  in the Dashboard, to interrupt before continuing in the same conversation.
-  Queued messages are not processed after ``finish`` ends the task.
-  See :doc:`dashboard` for queue ordering and interruption behavior.
+  the current agent turn completes. See :doc:`dashboard`.
 - ``--reasoning-effort`` accepts only ``none``.
-
-Run results include the tool-call count and token usage when returned by
-Gemini CLI.
 
 .. _planner-codex:
 

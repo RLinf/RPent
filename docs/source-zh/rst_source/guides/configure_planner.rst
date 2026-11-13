@@ -153,10 +153,8 @@ Claude Code 可以连接兼容 Anthropic Messages API 的本地模型服务。�
 - 认证和服务地址在 Gemini CLI 中配置；该规划器不接受 ``--base-url``。若可执行文件不在 ``PATH`` 中或不叫 ``gemini``，通过 ``GEMINI_BIN`` 指定其路径。
 - ``--max-turns`` 对应 Gemini CLI 的 ``model.maxSessionTurns``。``--planner-timeout-s`` 默认依次读取 ``GEMINI_CLI_TIMEOUT_S``、``CELL_TIMEOUT_S``，均未设置时为 ``1200`` 秒。
 - RPent 在临时工作目录中启动 Gemini CLI。该会话不加载项目指令文件（如 ``GEMINI.md``），并禁用 Gemini CLI 的 skills、hooks、扩展和内置工具，只开放 RPent 工具。这些设置仅作用于本次会话，不会改写用户的 Gemini CLI 配置文件或认证信息。
-- 终端交互和 Dashboard 中，追加消息默认排队，等待当前 agent 回合结束后发送。一个回合可能包含多次模型请求和工具调用。终端可使用 ``/interrupt [message]``；Dashboard 可先提交消息，再按 Esc 中断，并在同一会话中继续。任务通过 ``finish`` 结束后，不再处理排队消息。详见 :doc:`dashboard`。
+- 终端交互和 Dashboard 中，追加消息默认排队，等待当前 agent 回合结束后发送。详见 :doc:`dashboard`。
 - ``--reasoning-effort`` 仅接受 ``none``。
-
-运行结果包含工具调用次数，并在 Gemini CLI 返回用量时记录 token 数。
 
 .. _planner-codex:
 
