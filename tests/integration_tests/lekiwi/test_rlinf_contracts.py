@@ -12,7 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Opt-in checks against installed RLinf, with motor and camera I/O replaced."""
+"""RPent/RLinf interface checks using real drivers and mocked device I/O.
+
+These CPU-only checks do not validate physical motion or stopping behavior.
+"""
 
 from __future__ import annotations
 
@@ -26,7 +29,7 @@ import yaml
 
 
 @pytest.fixture
-def hardware(monkeypatch, tmp_path):
+def rlinf_devices(monkeypatch, tmp_path):
     if os.environ.get("RPENT_RUN_LEKIWI_INTEGRATION") != "1":
         pytest.skip("set RPENT_RUN_LEKIWI_INTEGRATION=1 with RLinf main installed")
 
@@ -66,10 +69,10 @@ def hardware(monkeypatch, tmp_path):
     return load_runtime_config(path), bus, open_bus, camera_device, frame, serial
 
 
-def test_server_motion_with_upstream_drivers(hardware):
+def test_env_uses_rlinf_robot_interfaces(rlinf_devices):
     from robots.lekiwi.env_server import LeKiwiEnvBackend
 
-    cfg, bus, open_bus, camera, frame, serial = hardware
+    cfg, bus, open_bus, camera, frame, serial = rlinf_devices
     backend = LeKiwiEnvBackend(cfg)
     try:
         assert backend.get_env_meta()["action_dim"] == 3
@@ -79,14 +82,10 @@ def test_server_motion_with_upstream_drivers(hardware):
             observation["main_images"][0, 0], frame[0, 0, ::-1]
         )
         assert backend.get_camera_meta()["cameras"]["front"]["serial_number"] == serial
-        for operation in (
-            lambda: backend.drive([0.1, 0.05, 0], duration_s=0.2),
-            lambda: backend.rotate(angle_deg=5),
-        ):
-            result = operation()
-            assert result["status"] == "succeeded", result
-            assert result["stop_confirmed"]
-            assert result["feedback_valid"]
+        result = backend.drive([0.1, 0.05, 5.0], duration_s=0.2)
+        assert result["status"] == "succeeded", result
+        assert result["stop_confirmed"]
+        assert result["feedback_valid"]
         assert backend.reset()["ok"]
         np.testing.assert_allclose(backend.get_robot_state()["velocity"], 0)
     finally:
@@ -96,11 +95,11 @@ def test_server_motion_with_upstream_drivers(hardware):
     camera.release.assert_called_once()
 
 
-def test_camera_only_and_detection_with_upstream_driver(hardware):
+def test_camera_only_and_detection_use_rlinf_interfaces(rlinf_devices):
     from robots.lekiwi.detect import discover_cameras, probe_camera
     from robots.lekiwi.env_server import LeKiwiCameraBackend
 
-    cfg, bus, open_bus, camera, frame, serial = hardware
+    cfg, _, open_bus, camera, frame, serial = rlinf_devices
     assert discover_cameras() == [serial]
     assert probe_camera(serial) == {
         "serial": serial,

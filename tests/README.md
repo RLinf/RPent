@@ -1,8 +1,9 @@
 # Test suite structure
 
-RPent keeps fast, offline unit tests under `unit_tests`. Real-simulator smoke
-tests, model component and policy-chain tests, and explicit real-robot
-diagnostics belong under `e2e_tests`. Unit tests mirror the production module
+RPent keeps fast, offline unit tests under `unit_tests`. Opt-in checks against
+installed dependencies with mocked device I/O belong under `integration_tests`.
+Real-simulator smoke tests, model component and policy-chain tests, and explicit
+real-robot diagnostics belong under `e2e_tests`. Unit tests mirror the production module
 they exercise; GPU tests are grouped by robot stack. Environment smoke tests
 can run without model checkpoints.
 
@@ -11,6 +12,8 @@ can run without model checkpoints.
 ```text
 tests/
 ├── README.md
+├── integration_tests/
+│   └── lekiwi/           # real RLinf interfaces with mocked motor/camera I/O
 ├── e2e_tests/
 │   ├── common.py         # shared assertions and runtime lifecycle helpers
 │   ├── run_gpu_suite.sh  # clean-environment entry point for one robot stack
@@ -56,6 +59,9 @@ them when the first test for that module lands.
   under `tests/e2e_tests/<robot>/`. Keep environment smoke tests independent of
   fixtures that require model checkpoints. Reusable validation and lifecycle
   code belongs in `tests/e2e_tests/common.py`.
+- Put dependency compatibility checks with mocked device I/O under
+  `tests/integration_tests/<robot>/`. Keep optional imports behind an explicit
+  opt-in flag so collection does not require the robot stack.
 
 Unit tests must run offline on an ordinary CPU machine. They may cross a real
 local boundary, such as a loopback TCP connection or child process, but must
@@ -66,6 +72,28 @@ Run the complete suite with:
 ```bash
 pytest tests/unit_tests -v
 ```
+
+## LeKiwi RLinf integration tests
+
+These CPU-only checks exercise RPent against the installed RLinf robot and
+camera implementations, replacing serial-bus and camera-device I/O. They cover
+robot construction, observation formats, one velocity command, reset and cleanup,
+plus camera-only mode and camera discovery. Motion timing, rotation and
+cancellation cases remain in `unit_tests/robots/lekiwi/`.
+
+In a dedicated environment with the `test` and `lekiwi` extras installed, run
+from the repository root:
+
+```bash
+RPENT_RUN_LEKIWI_INTEGRATION=1 \
+  python -m pytest tests/integration_tests/lekiwi/test_rlinf_contracts.py -v
+```
+
+Without the opt-in flag, both cases are skipped before importing RLinf. They
+require no robot, GPU, model checkpoint or planner credentials. Passing verifies
+software interface compatibility, not physical motion, braking or emergency
+stopping. Record the installed RLinf revision when reporting results because
+the `lekiwi` extra currently follows RLinf `main`.
 
 ## RoboCasa environment smoke tests
 
