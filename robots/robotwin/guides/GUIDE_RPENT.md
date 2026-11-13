@@ -8,7 +8,8 @@ geometry, and compact execution rules needed to apply it.
 
 - Resources: `list_dir`, `read_text_file`
 - Observation: `view_env_state`, `render`, `sample_world_xyz`, `query_world_map`
-- Control: `lingbot_act`, `move_to`, `rotate_wrist`, `set_gripper`, `release`
+- Control: the selected model's tool (`lingbot_act` for LingBot, `wam_act` for
+  UniWAM), `move_to`, `rotate_wrist`, `set_gripper`, `release`
 - Terminal: `finish`
 
 Use no legacy `command.json` protocol or direct Env/VLA client. Tool schemas are
@@ -34,9 +35,15 @@ Coordinates are world-frame metres and quaternions are `[qw,qx,qy,qz]`.
 
 ## VLA and primitives
 
-Every `lingbot_act` must use the full current task language and `use_length=50`.
-Use the same-task successful recipe's chunk cadence as a prior. Shorten to one
-chunk near contact, instability, or completion. Preserve useful continuous VLA
+For LingBot, every `lingbot_act` must use the full current task language and
+`use_length=50`. Use the same-task successful recipe's chunk cadence as a prior.
+
+For UniWAM, `wam_act(max_chunks=1)` uses the full current task language and
+executes 16 qpos actions per chunk. State history includes analytic-tool actions
+and is maintained automatically. Choose the cadence from current progress;
+LingBot recipe chunk counts are not UniWAM timing.
+
+Shorten to one chunk near contact, instability, or completion. Preserve useful continuous VLA
 behavior for bimanual, articulated, hanging, insertion, and tool phases.
 
 Use `move_to` for verified free-space transport, staging, retreat, or one small
@@ -119,7 +126,7 @@ After failure, identify the first unmet gate and classify the blocker: wrong
 identity/destination, missed grasp, lost hold, planning/collision, insufficient
 contact, premature release, unstable placement, or incomplete relation. Change
 one meaningful variable and verify. Do not repeat the same ineffective analytic
-target or hand-written recovery twice. This limit does not cap `lingbot_act`:
+target or hand-written recovery twice. This limit does not cap model calls:
 VLA may be called repeatedly when the recipe, current contact, and recoverable
 physical state support continuation. Near success, fix only the remaining
 blocker instead of replaying the task.

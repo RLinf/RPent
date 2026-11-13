@@ -61,6 +61,8 @@ class WAMModelMeta(TypedDict):
     state_schema: dict[str, int]
     chunk_size: int | None
     uses_sessions: bool
+    # (maximum history length, joint target width); omission means no history input.
+    joint_target_history_shape: NotRequired[tuple[int, int]]
     prediction_timeout_s: NotRequired[float]
     returns_future_observation: NotRequired[bool]
     returns_value: NotRequired[bool]
@@ -75,6 +77,8 @@ class WAMRequest(AMObservation):
 
     embodiment: str
     action_space: str
+    # Executed controller targets, oldest first; required when metadata declares it.
+    joint_target_history: NotRequired[np.ndarray]
 
 
 # --- WAM result: executable actions and optional model outputs ---

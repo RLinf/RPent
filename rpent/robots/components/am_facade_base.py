@@ -159,6 +159,19 @@ class BaseWAMFacade(BaseAMFacade):
                 raise ValueError(
                     f"state.{name} must have shape ({size},) without NaN or Inf"
                 )
+        if shape := self._model_meta.get("joint_target_history_shape"):
+            history = np.asarray(request.get("joint_target_history"))
+            length, width = shape
+            if (
+                history.ndim != 2
+                or history.shape[1] != width
+                or not 1 <= len(history) <= length
+                or history.dtype.kind not in "iuf"
+                or not np.isfinite(history).all()
+            ):
+                raise ValueError(
+                    f"joint_target_history is required with shape [1..{length}, {width}] and finite numeric values"
+                )
         model_input = self._adapter[0](request)
         result = self.predict_native(model_input, session_id=session_id)
         return self._adapter[1](result)

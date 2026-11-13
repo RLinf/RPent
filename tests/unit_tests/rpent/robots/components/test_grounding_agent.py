@@ -207,6 +207,20 @@ def test_codex_cannot_attach_an_image_outside_grounding_directory(
 ):
     """Exercise the real CLI with a local model that requests an unprovided image."""
 
+    import rpent.planner.codex as codex
+
+    run_probe_turn = codex.run_probe_turn
+
+    def probe_without_plugin_sync(config, **kwargs):
+        answer = run_probe_turn(config, **kwargs)
+        scratch = Path(config.env["CODEX_HOME"]) / ".tmp"
+        assert not list(scratch.glob("plugins*")), (
+            "Grounding must not start plugin sync"
+        )
+        return answer
+
+    monkeypatch.setattr(codex, "run_probe_turn", probe_without_plugin_sync)
+
     outside = tmp_path / "outside.png"
     Image.new("RGB", (31, 17), "red").save(outside)
     outside_data = base64.b64encode(outside.read_bytes()).decode()

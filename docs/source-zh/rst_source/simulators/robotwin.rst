@@ -22,7 +22,7 @@ RoboTwin
 
    .. grid-item-card:: 动作模型
 
-      LingBot-VLA；使用 RoboTwin checkpoint 的 Fast-WAM。
+      LingBot-VLA（默认）、UniWAM、Fast-WAM。
 
    .. grid-item-card:: 规划器
 
@@ -67,9 +67,9 @@ C2R 使用干净场景中的成功轨迹作为经验，在随机场景中评测�
    * - 项目
      - 说明
    * - 观测
-     - 头部与左右腕部的 RGB 图像、用于定位的深度／世界坐标及机器人状态。LingBot-VLA 使用 RGB 图像、机器人状态和任务文字。
+     - 头部与左右腕部的 RGB 图像、用于定位的深度／世界坐标及机器人状态。三个模型都使用 RGB 图像、机器人状态和任务文字；UniWAM 还使用近期关节目标反馈。
    * - 动作
-     - 规划器调用 ``lingbot_act`` 或动作原语。环境支持 16 维末端动作（``ee``）和 14 维关节／夹爪动作（``qpos``）。
+     - 所选后端暴露 ``lingbot_act`` 或 ``wam_act``，同时保留动作原语。环境支持 16 维末端动作（``ee``）和 14 维关节／夹爪动作（``qpos``）。
    * - 奖励与成功判定
      - 任务成功以原生 ``TASK_ENV.eval_success`` 为准，规划器结束与任务超时需分别判断。
    * - 任务指令
@@ -135,6 +135,63 @@ RoboTwin 要求 Python 3.11。宿主机需预先具备兼容的 CUDA toolkit/NVC
 
 模型目录中已经包含 RoboTwin 的默认机器人配置。
 
+UniWAM 后端
+~~~~~~~~~~~~~~
+
+通过 ``--am-backend uniwam`` 启用 UniWAM。规划器使用 ``wam_act(max_chunks=1)``
+执行动作，每块包含 16 步关节／夹爪动作。UniWAM 会参考最近的动作记录预测下一步，
+支持 RoboTwin 的评估、探索和记忆配置。
+
+在独立的 Python 3.11 模型环境中，按
+`UniWAM 官方 RoboTwin 部署说明 <https://github.com/UniWAM/UniWAM/tree/8dcd3401bccda8c002fc558e356b975b1789eecd/inference/robotwin/uniwam>`_
+安装策略依赖，再安装 RPent：``pip install -e /path/to/RPent``。
+已验证的依赖组合为 Torch 2.6.0+cu124、torchvision 0.21.0+cu124、
+FlashAttention 2.7.4.post1、Transformers 4.57.3、Diffusers 0.35.1、
+DeepSpeed 0.16.9 和 NumPy 1.26.4。
+
+从 `UniWAM 模型集合 <https://huggingface.co/collections/chenpyyy/uniwam>`_
+获取 RoboTwin-clean history-flow checkpoint，并准备
+`Wan2.2-TI2V-5B <https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B>`_ 和
+`Qwen3-VL-2B-Instruct <https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct>`_。
+将资源组织为以下结构；已有目录可以通过软链接复用：
+
+.. code-block:: text
+
+   uniwam/
+   ├── policy/                  # 官方 inference/robotwin/uniwam 完整目录
+   ├── checkpoint/
+   │   ├── config.json
+   │   └── pytorch_model/
+   ├── wan/                     # Wan2.2-TI2V-5B
+   └── vlm/                     # Qwen3-VL-2B-Instruct
+
+checkpoint 的 ``config.json`` 中，``flow_source.mode`` 为 ``history``，
+``history_length`` 为 16。UniWAM 每次生成动作块时，使用 4 个去噪推理步。
+
+配置好 :doc:`规划器 <../guides/configure_planner>` 后，在 RoboTwin 环境中运行：
+
+.. code-block:: bash
+
+   export UNIWAM_MODEL_PATH=/path/to/uniwam
+   export UNIWAM_PYTHON=/path/to/model-env/bin/python
+   rpent --robot robotwin --am-backend uniwam \
+      --am-checkpoint "$UNIWAM_MODEL_PATH" --am-python "$UNIWAM_PYTHON" \
+      --task-name beat_block_hammer --task-config demo_randomized --seed 100000 \
+      --planner codex --model gpt-5.5
+
+``--am-checkpoint`` 指定上述资源目录，``--am-python`` 指定模型环境的解释器。
+RPent 负责启动和清理模型进程。
+
+如需在多次任务间复用模型，在模型环境中单独启动服务：
+
+.. code-block:: bash
+
+   python -m rpent.robots.components.uniwam.server \
+      --checkpoint /path/to/uniwam --port 8118
+
+运行任务时，用 ``--am-endpoint http://127.0.0.1:8118`` 替换
+``--am-checkpoint`` 和 ``--am-python``；该服务由启动者管理。
+
 Fast-WAM 配置
 ~~~~~~~~~~~~~
 
@@ -147,7 +204,7 @@ Fast-WAM 配置
      --am-backend fast-wam --am-endpoint http://127.0.0.1:8117 \
      --memory-profile local --planner api --model <planner-model>
 
-``wam_act(prompt=None, max_chunks=1)`` 替换 ``lingbot_act``；每个 chunk 通过 ``action_type="qpos"`` 执行 worker 配置的 ``execute_steps`` 个动作。WAM 必须启用本地记忆管理器和文件工具，默认目录按后端区分，语料允许为空；可通过 ``--memory-dir`` 指定兼容的本地语料，目前不支持 HF 记忆和探索。任务成功由原生 ``eval_success`` 判断。下文的 LingBot 和 HF 记忆流程适用于 VLA 路径。
+``wam_act(prompt=None, max_chunks=1)`` 替换 ``lingbot_act``；每个 chunk 通过 ``action_type="qpos"`` 执行 worker 配置的 ``execute_steps`` 个动作。Fast-WAM 必须启用本地记忆管理器和文件工具，默认目录按后端区分，语料允许为空；可通过 ``--memory-dir`` 指定兼容的本地语料，目前不支持 HF 记忆和探索。任务成功由原生 ``eval_success`` 判断。下文的 LingBot 和 HF 记忆流程适用于 VLA 路径。
 
 运行一个任务
 ------------

@@ -170,11 +170,15 @@ def test_fake_and_real_implement_toolkit_primitive_protocol() -> None:
         )
 
 
-@pytest.mark.parametrize("policy_kind", ["vla", "wam"])
+@pytest.mark.parametrize(
+    "policy_kind,policy_backend",
+    [("vla", "lingbot"), ("wam", "fast-wam"), ("wam", "uniwam")],
+)
 def test_toolkit_constructs_and_captures_an_initial_observation(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     policy_kind: str,
+    policy_backend: str,
 ) -> None:
     FakeRoboTwinPrimitives.instances.clear()
     dumped: list[dict[str, Any]] = []
@@ -210,6 +214,7 @@ def test_toolkit_constructs_and_captures_an_initial_observation(
         "model": model,
         "seed": 7,
         "policy_kind": policy_kind,
+        "policy_backend": policy_backend,
     }
     robot_toolkit = toolkit.RoboTwinToolkit(
         runtime_kwargs=runtime_kwargs,
@@ -507,15 +512,22 @@ def test_captured_call_preserves_return_shape_and_cache(
 
 
 @pytest.mark.parametrize(
-    "policy,action_type,dim", [("vla", "ee", 16), ("wam", "qpos", 14)]
+    "policy,backend,action_type,dim,history_length",
+    [
+        ("vla", "lingbot", "ee", 16, 0),
+        ("wam", "fast-wam", "qpos", 14, 0),
+        ("wam", "uniwam", "qpos", 14, 16),
+    ],
 )
 def test_policy_capture_exports_only_executed_actions_with_their_inputs(
     facade,
     make_server_and_client,
     tmp_path,
     policy,
+    backend,
     action_type,
     dim,
+    history_length,
 ):
     state = EnvState(tmp_path)
     state.start_task(
@@ -539,11 +551,15 @@ def test_policy_capture_exports_only_executed_actions_with_their_inputs(
         primitives = RoboTwinPrimitives(
             env=env,
             model=SimpleNamespace(
-                infer=predict, predict=predict, action_type=action_type
+                infer=predict,
+                predict=predict,
+                action_type=action_type,
+                history_length=history_length,
             ),
             seed=7,
             check_cancelled=lambda: None,
             policy_kind=policy,
+            policy_backend=backend,
         )
         toolkit = Toolkit(
             state=state,
@@ -578,8 +594,15 @@ def test_policy_capture_exports_only_executed_actions_with_their_inputs(
     direct, first, last = trajectory["actions"]
     (prediction,) = trajectory["predictions"]
     (model_input,) = inputs
-    instruction = "native instruction" if policy == "vla" else "policy subtask"
+    instruction = "policy subtask" if backend == "fast-wam" else "native instruction"
     assert model_input["task_language"] == prediction["instruction"] == instruction
+    if history_length:
+        expected_history = np.array([[0] * 14, [1] * 14], dtype=np.float64)
+        expected_history[:, [6, 13]] = 0.5
+        np.testing.assert_array_equal(model_input["qpos_history"], expected_history)
+        np.testing.assert_array_equal(client.qpos_history[:, 0], [0, 1, 2, 3])
+    else:
+        assert "qpos_history" not in model_input
     assert [a["source"] for a in (direct, first, last)] == ["direct", "vla", "vla"]
     assert prediction["action_ids"] == [first["action_id"], last["action_id"]]
     for action, command in zip((first, last), commands[:2], strict=True):
@@ -647,7 +670,11 @@ def test_wam_executes_selected_control_and_refreshes_observation(action_type, di
 
     env.chunk_step.side_effect = step
     env.reset.return_value = ({}, {})
-    model = Mock(action_type=action_type, predict=Mock(return_value=np.zeros((3, dim))))
+    model = Mock(
+        action_type=action_type,
+        history_length=0,
+        predict=Mock(return_value=np.zeros((3, dim))),
+    )
     primitive = RoboTwinPrimitives(
         env=env, model=model, seed=0, check_cancelled=lambda: None, policy_kind="wam"
     )
@@ -656,6 +683,7 @@ def test_wam_executes_selected_control_and_refreshes_observation(action_type, di
     assert primitive.wam_act("subtask").data["executed_steps"] == 3
     assert primitive.wam_act().data["executed_steps"] == 3
     calls = model.predict.call_args_list
+    assert all("qpos_history" not in call.args[0] for call in calls)
     assert [call.args[0]["task_language"] for call in calls] == [
         "subtask",
         "native task",
