@@ -36,6 +36,7 @@ EXPECTED_ROBOTS = (
     "libero",
     "robocasa",
     "robodojo",
+    "robolab",
     "robotwin",
     "yam",
 )
@@ -85,6 +86,11 @@ PROMPT_VARIABLES = {
         "task_summary": {"task": "put_bottles_into_dustbin", "rigid": ["bottle"]},
         "memory_dir": "/memory",
         "output_dir": Path("/output"),
+    },
+    "robolab": {
+        "task": "BananaInBowlTask",
+        "seed": 0,
+        "policy_backend": "pi05",
     },
     "robotwin": {
         "task_name": "block_hammer_beat",

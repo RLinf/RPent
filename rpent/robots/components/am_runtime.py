@@ -35,6 +35,7 @@ WAM_BACKENDS = {
 BACKEND_ALIASES = {"cosmos": "cosmos-policy", "fast_wam": "fast-wam", "rlinf": "pi05"}
 PLATFORM_VLA_BACKENDS = {
     "libero": ("pi05",),
+    "robolab": ("pi05",),
     "robotwin": ("lingbot",),
     "robocasa": ("rldx",),
     "robodojo": ("vpp2", "awomo05"),
