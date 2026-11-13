@@ -59,6 +59,7 @@ Choose an environment: :doc:`LIBERO <rst_source/simulators/libero>`, :doc:`RoboC
 
    Introduction to RPent <rst_source/get_started/overview>
    Quick Start <rst_source/get_started/quickstart>
+   Running on AMD ROCm <rst_source/get_started/rocm>
 
 .. toctree::
    :maxdepth: 2
