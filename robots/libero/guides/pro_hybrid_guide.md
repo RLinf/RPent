@@ -155,6 +155,19 @@ snapshot_download(repo_id='zhouxueyang/LIBERO-Pro', repo_type='dataset',
                   allow_patterns=['bddl_files/**','init_files/**'])"
 ```
 
+#### Known empty `pruned_init` files in the git repo (RLinf/RPent#246)
+
+These tasks' git-repo `pruned_init` files contain **0 states**, so they cannot
+be reset. The env server refuses to start on them (naming every affected task)
+instead of silently dropping them from the evaluation denominator. Re-syncing
+the HF snapshot above over the install regenerates these files:
+
+| Suite | Task id | Init file |
+|---|---|---|
+| `libero_10_task` | 2 | `KITCHEN_SCENE3_turn_on_the_stove_and_put_the_moka_pot_on_it.pruned_init` |
+| `libero_spatial_task` | 3 | `pick_up_the_black_bowl_on_the_cookie_box_and_place_it_on_the_plate.pruned_init` |
+| `libero_spatial_task` | 7 | `pick_up_the_black_bowl_on_the_stove_and_place_it_on_the_plate.pruned_init` |
+
 ### 2.4. Verify
 
 ```bash
